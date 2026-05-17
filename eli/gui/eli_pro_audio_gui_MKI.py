@@ -236,7 +236,7 @@ class CentralMemoryAdapter:
 # CONSTANTS & CONFIGURATION
 # ============================================================
 
-APP_NAME = "ELI MKXI"
+APP_NAME = "ELI Pro"
 APP_VERSION = "7.0.7"
 
 PROJECT_ROOT = _BOOT_PROJECT_ROOT
