@@ -4,8 +4,8 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "eli-mkxi"
-version = "1.0.0"
-description = "ELI MKXI — Local AI Assistant with GPU-accelerated inference"
+version = "2.0.0"
+description = "ELI MKXI v2.0 PRO — Local cognitive runtime, assistant GUI, memory, tools, and GGUF inference"
 readme = "README.md"
 requires-python = ">=3.10"
 license = { text = "Proprietary" }
@@ -88,10 +88,12 @@ full = [
 ]
 
 [project.urls]
-Homepage = "https://example.com/eli-mkxi"
+Homepage = "https://github.com/ShadowESC95/ELI_MKXI_v2.0_PRO"
+Repository = "https://github.com/ShadowESC95/ELI_MKXI_v2.0_PRO"
 
 [project.scripts]
 eli = "eli.gui.app:main"
+eli-mkxi = "eli.gui.app:main"
 eli-cli = "eli.gui.app:main"
 
 [project.gui-scripts]

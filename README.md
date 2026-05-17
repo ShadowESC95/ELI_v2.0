@@ -1,8 +1,70 @@
-# ELI MKXI
+# ELI MKXI v2.0 PRO
 
 ELI MKXI is a local-first AI assistant package with a PySide6 GUI, GGUF
 inference support, persistent SQLite memory, local tools, speech/audio paths,
 image/report tooling, and OS integration helpers.
+
+## One-Click Setup
+
+Fresh Linux/source checkout:
+
+```bash
+git clone https://github.com/ShadowESC95/ELI_MKXI_v2.0_PRO.git
+cd ELI_MKXI_v2.0_PRO
+bash scripts/eli_one_click_setup.sh
+bash scripts/eli_one_click_run.sh
+```
+
+If the large local model/voice release assets have been uploaded to the private
+GitHub release, restore them during setup:
+
+```bash
+gh auth login
+bash scripts/eli_one_click_setup.sh --with-github-assets
+```
+
+CPU-only setup:
+
+```bash
+bash scripts/eli_one_click_setup.sh --cpu-only
+```
+
+Build an installable wheel/sdist:
+
+```bash
+bash scripts/package_eli_release.sh
+python -m pip install "dist/eli_mkxi-*.whl[full]"
+```
+
+## GitHub Large Assets
+
+The code repository intentionally excludes machine-specific runtime state,
+virtual environments, and large model/voice binaries from normal Git because
+GitHub rejects normal Git blobs over 100 MB and those files can be tens of GB.
+
+Create a complete local ignored-asset manifest:
+
+```bash
+python scripts/github_asset_manifest.py --output dist/github_assets/asset_manifest.json
+```
+
+Create split GitHub Release upload archives for local model and voice payloads:
+
+```bash
+bash scripts/create_github_asset_archives.sh
+```
+
+Upload those split archives to the private GitHub release:
+
+```bash
+bash scripts/upload_github_assets.sh
+```
+
+Restore release assets after cloning:
+
+```bash
+bash scripts/restore_github_assets.sh
+```
 
 The repository is designed to be movable. Do not commit user-specific absolute
 paths such as `/home/name/...`, `C:\Users\name\...`, or `/Users/name/...`.
