@@ -7,6 +7,7 @@ CPU_ONLY=0
 SKIP_TORCH=0
 WITH_GITHUB_ASSETS=0
 INSTALL_DESKTOP=1
+ASSET_MODE="direct"
 REPO="${GITHUB_REPOSITORY:-ShadowESC95/ELI_MKXI_v2.0_PRO}"
 TAG="${ELI_ASSET_RELEASE_TAG:-local-assets-v2.0}"
 
@@ -18,6 +19,7 @@ Options:
   --cpu-only              Install CPU Torch/llama paths.
   --skip-torch            Do not install Torch.
   --with-github-assets    Restore model/voice release assets after install.
+  --asset-mode MODE       Asset restore mode: direct or archive. Default: $ASSET_MODE
   --repo OWNER/REPO       Asset repo. Default: $REPO
   --tag TAG               Asset release tag. Default: $TAG
   --no-desktop            Do not install user desktop launcher.
@@ -30,6 +32,10 @@ while [ "$#" -gt 0 ]; do
     --cpu-only) CPU_ONLY=1 ;;
     --skip-torch) SKIP_TORCH=1 ;;
     --with-github-assets) WITH_GITHUB_ASSETS=1 ;;
+    --asset-mode)
+      shift
+      ASSET_MODE="${1:?--asset-mode requires direct or archive}"
+      ;;
     --repo)
       shift
       REPO="${1:?--repo requires OWNER/REPO}"
@@ -56,12 +62,25 @@ INSTALL_ARGS=()
 [ "$CPU_ONLY" -eq 1 ] && INSTALL_ARGS+=(--cpu-only)
 [ "$SKIP_TORCH" -eq 1 ] && INSTALL_ARGS+=(--skip-torch)
 
+case "$ASSET_MODE" in
+  direct|archive) ;;
+  *)
+    echo "Invalid --asset-mode: $ASSET_MODE" >&2
+    echo "Expected: direct or archive" >&2
+    exit 2
+    ;;
+esac
+
 echo "[setup] Installing ELI MKXI v2.0 PRO"
 bash "$ROOT/install.sh" "${INSTALL_ARGS[@]}"
 
 if [ "$WITH_GITHUB_ASSETS" -eq 1 ]; then
-  echo "[setup] Restoring GitHub release assets"
-  bash "$ROOT/scripts/restore_github_assets.sh" --repo "$REPO" --tag "$TAG"
+  echo "[setup] Restoring GitHub release assets ($ASSET_MODE)"
+  if [ "$ASSET_MODE" = "direct" ]; then
+    "$ROOT/.venv/bin/python" "$ROOT/scripts/restore_github_asset_files.py" --repo "$REPO" --tag "$TAG"
+  else
+    bash "$ROOT/scripts/restore_github_assets.sh" --repo "$REPO" --tag "$TAG"
+  fi
 fi
 
 if [ "$INSTALL_DESKTOP" -eq 1 ] && [ "$(uname -s)" = "Linux" ]; then
