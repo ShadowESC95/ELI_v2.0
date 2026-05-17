@@ -1,0 +1,64 @@
+{
+  "schema": "eli.runtime_asset_manifest.v1",
+  "generated_at_utc": "2026-05-12T22:16:36.912715+00:00",
+  "project_root_policy": "all paths are project-relative; no user-specific absolute paths are distributable metadata",
+  "embedding_assets": [
+    {
+      "id": "embedding.nomic-embed-text-v1.5.Q4_K_M",
+      "path": "models/embeddings/nomic-embed-text-v1.5.Q4_K_M.gguf",
+      "exists": true,
+      "sha256": "d4e388894e09cf3816e8b0896d81d265b55e7a9fff9ab03fe8bf4ef5e11295ac",
+      "expected_sha256": "d4e388894e09cf3816e8b0896d81d265b55e7a9fff9ab03fe8bf4ef5e11295ac",
+      "bytes": 84106624,
+      "upstream_repo": "nomic-ai/nomic-embed-text-v1.5-GGUF",
+      "upstream_filename": "nomic-embed-text-v1.5.Q4_K_M.gguf",
+      "upstream_license_reported": "Apache-2.0",
+      "bundle_policy": "required_for_full_vector_recall_profile"
+    }
+  ],
+  "tts_voice_assets": [
+    {
+      "id": "en_GB-cori-high",
+      "onnx_path": "tts_piper/piper/en_GB-cori-high.onnx",
+      "onnx_json_path": "tts_piper/piper/en_GB-cori-high.onnx.json",
+      "onnx_exists": true,
+      "onnx_json_exists": true,
+      "onnx_bytes": 114219352,
+      "onnx_sha256": "470b4dd634c98f8a4850d7626ffc3dfc90774628eeef6605a6dd8f88f30a5903",
+      "commercial_distribution_default": "manual_review",
+      "risk": "Upstream model card identifies a public-domain LibriVox dataset; still retain upstream model-card/license evidence before shipping.",
+      "status": "review_before_ship"
+    },
+    {
+      "id": "en_US-lessac-high",
+      "onnx_path": "tts_piper/piper/en_US-lessac-high.onnx",
+      "onnx_json_path": "tts_piper/piper/en_US-lessac-high.onnx.json",
+      "onnx_exists": true,
+      "onnx_json_exists": true,
+      "onnx_bytes": 113895201,
+      "onnx_sha256": "4cabf7c3a638017137f34a1516522032d4fe3f38228a843cc9b764ddcbcd9e09",
+      "commercial_distribution_default": "manual_review",
+      "risk": "Upstream MODEL_CARD points to the Blizzard 2013 Lessac dataset license; commercial redistribution requires explicit review.",
+      "status": "license_review_required"
+    },
+    {
+      "id": "en_US-ryan-high",
+      "onnx_path": "tts_piper/piper/en_US-ryan-high.onnx",
+      "onnx_json_path": "tts_piper/piper/en_US-ryan-high.onnx.json",
+      "onnx_exists": true,
+      "onnx_json_exists": true,
+      "onnx_bytes": 120786792,
+      "onnx_sha256": "b3990d7606e183ec8dbfba70a4607074f162de1a0c412e0180d1ff60bb154eca",
+      "commercial_distribution_default": "exclude",
+      "risk": "Upstream MODEL_CARD dataset license is CC BY-NC-SA 4.0.",
+      "status": "noncommercial_risk"
+    }
+  ],
+  "commercial_bundle_exclusions_default": [
+    "en_US-ryan-high"
+  ],
+  "manual_license_review_required": [
+    "en_GB-cori-high",
+    "en_US-lessac-high"
+  ]
+}

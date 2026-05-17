@@ -1,0 +1,13 @@
+{
+  "output_dir": "",
+  "log_dir": "",
+  "jobs_dir": "",
+  "memory_db": "",
+  "default_backend": "procedural",
+  "fallback_backend": "procedural",
+  "default_format": "png",
+  "save_memory": true,
+  "auto_score": true,
+  "make_contact_sheet": true,
+  "_runtime_path_note": "Empty path fields mean: resolve through eli.tools.image_engine.runtime_paths to per-user artifacts/image_engine/. Do not hard-code source-tree outputs."
+}

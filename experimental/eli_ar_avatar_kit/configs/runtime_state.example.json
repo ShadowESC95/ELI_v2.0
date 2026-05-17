@@ -1,0 +1,9 @@
+{
+  "mode": "listening",
+  "text": "ELI",
+  "confidence": 0.85,
+  "listening": true,
+  "thinking": false,
+  "speaking": false,
+  "alert": false
+}

@@ -1,0 +1,412 @@
+[
+  {
+    "file": "eli/cognition/context_synthesiser.py",
+    "line": 137,
+    "text": "                short = textwrap.shorten(content, width=MAX_TURN_CHARS, placeholder=\"\u2026\")"
+  },
+  {
+    "file": "eli/cognition/context_synthesiser.py",
+    "line": 162,
+    "text": "                        f\"\u2022 {textwrap.shorten(text, 180, placeholder='\u2026')} \""
+  },
+  {
+    "file": "eli/cognition/context_synthesiser.py",
+    "line": 238,
+    "text": "                short = textwrap.shorten(content, width=220, placeholder=\"...\")"
+  },
+  {
+    "file": "eli/cognition/gguf_inference.py",
+    "line": 4,
+    "text": "FULL FIXED VERSION (no hardcoded paths, no forced parameter lowering):"
+  },
+  {
+    "file": "eli/cognition/gguf_inference.py",
+    "line": 455,
+    "text": "    \"\"\"Format a prompt using the model-appropriate chat template.\"\"\""
+  },
+  {
+    "file": "eli/cognition/orchestrator.py",
+    "line": 235,
+    "text": "        Filters out noise at query time (assistant runtime dumps, template tokens)"
+  },
+  {
+    "file": "eli/cognition/output_governor.py",
+    "line": 10,
+    "text": "# Strips chat-template role leaks from the start of LLM output. Added"
+  },
+  {
+    "file": "eli/cognition/output_governor.py",
+    "line": 125,
+    "text": "    # Only replace with the drift placeholder if the regex actually matched"
+  },
+  {
+    "file": "eli/cognition/output_governor.py",
+    "line": 226,
+    "text": "# Self/user confusion repair \u2014 parameterised from runtime profile, not hardcoded."
+  },
+  {
+    "file": "eli/cognition/persona.py",
+    "line": 12,
+    "text": "signals. No user-specific hardcoded names belong in this module."
+  },
+  {
+    "file": "eli/cognition/persona.py",
+    "line": 40,
+    "text": "        if stripped.upper().startswith(\"TEMPLATE \"):"
+  },
+  {
+    "file": "eli/cognition/persona.py",
+    "line": 47,
+    "text": "        if stripped.startswith(\"# Model parameters\") or stripped.startswith(\"# Template for conversation\"):"
+  },
+  {
+    "file": "eli/cognition/persona_hygiene.py",
+    "line": 102,
+    "text": "        # Proposal / placeholder contamination"
+  },
+  {
+    "file": "eli/core/runtime_settings.py",
+    "line": 719,
+    "text": "    # Portable config/template path."
+  },
+  {
+    "file": "eli/execution/executor_enhanced.py",
+    "line": 1021,
+    "text": "# Dynamic resolution \u2014 no hardcoded model name."
+  },
+  {
+    "file": "eli/execution/executor_enhanced.py",
+    "line": 1998,
+    "text": "    # Live audit path for memory-capability questions (real DB/files scan, never template)"
+  },
+  {
+    "file": "eli/execution/executor_enhanced.py",
+    "line": 2196,
+    "text": "            \"Structure: title, short biography/overview, key contributions, timeline, references placeholder. \""
+  },
+  {
+    "file": "eli/execution/executor_enhanced.py",
+    "line": 3160,
+    "text": "            \"action\": \"TEMPLATE\","
+  },
+  {
+    "file": "eli/execution/executor_enhanced.py",
+    "line": 4329,
+    "text": "            \"Be thorough and detailed \u2014 do not use placeholder text or vague generalities. \""
+  },
+  {
+    "file": "eli/execution/executor_enhanced.py",
+    "line": 5614,
+    "text": "            \"- No hardcoded placeholders, fake outputs, or TODO stubs\\n\""
+  },
+  {
+    "file": "eli/execution/executor_enhanced.py",
+    "line": 5712,
+    "text": "            \"- no stubs, fake behavior, or hardcoded outputs\\n\""
+  },
+  {
+    "file": "eli/execution/router_enhanced.py",
+    "line": 2179,
+    "text": "    # 14b placeholder \u2014 proactive daemon patterns moved before section 13"
+  },
+  {
+    "file": "eli/gui/eli_pro_audio_gui_MKI.py",
+    "line": 947,
+    "text": "            return f\"Action {action} not implemented in fallback mode\""
+  },
+  {
+    "file": "eli/gui/labs_tab.py",
+    "line": 1111,
+    "text": "        form.addRow(\"Template:\", self._template_combo)"
+  },
+  {
+    "file": "eli/gui/labs_tab.py",
+    "line": 1165,
+    "text": "        gen_btn = QPushButton(\"Generate Template\")"
+  },
+  {
+    "file": "eli/gui/labs_tab.py",
+    "line": 1220,
+    "text": "            \"  1. Set title / author / template / grade.\\n\""
+  },
+  {
+    "file": "eli/gui/labs_tab.py",
+    "line": 1223,
+    "text": "            \"     or 'Generate Template' for a structural skeleton you fill in.\\n\""
+  },
+  {
+    "file": "eli/gui/labs_tab.py",
+    "line": 1264,
+    "text": "            \"Updates automatically when you change template / grade / \""
+  },
+  {
+    "file": "eli/gui/labs_tab.py",
+    "line": 1493,
+    "text": "        self._status.setText(\"Template generated.\")"
+  },
+  {
+    "file": "eli/gui/labs_tab.py",
+    "line": 1518,
+    "text": "        template = self._template_combo.currentText()"
+  },
+  {
+    "file": "eli/gui/labs_tab.py",
+    "line": 1527,
+    "text": "            f\"Template: {template}\","
+  },
+  {
+    "file": "eli/gui/labs_tab.py",
+    "line": 1532,
+    "text": "            \"template fully populated. Use academic tone, defensible reasoning, \""
+  },
+  {
+    "file": "eli/gui/labs_tab.py",
+    "line": 2324,
+    "text": "        tb.addWidget(QLabel(\"Template:\"))"
+  },
+  {
+    "file": "eli/integrations/ollama/client.py",
+    "line": 125,
+    "text": "    \"\"\"Return metadata dict for a model (parameters, template, etc.).\"\"\""
+  },
+  {
+    "file": "eli/kernel/engine.py",
+    "line": 230,
+    "text": "        if stripped.upper().startswith(\"TEMPLATE \"):"
+  },
+  {
+    "file": "eli/kernel/engine.py",
+    "line": 238,
+    "text": "            \"# Template for conversation\"):"
+  },
+  {
+    "file": "eli/kernel/scheduler.py",
+    "line": 7,
+    "text": "- eli.planning.scheduler is a consolidation stub and intentionally raises"
+  },
+  {
+    "file": "eli/kernel/scheduler.py",
+    "line": 10,
+    "text": "do not depend on deprecated placeholder modules."
+  },
+  {
+    "file": "eli/planning/proactive_daemon.py",
+    "line": 324,
+    "text": "                # TODO/FIXME comments"
+  },
+  {
+    "file": "eli/planning/proactive_daemon.py",
+    "line": 325,
+    "text": "                todos = [line for line in lines if \"TODO\" in line or \"FIXME\" in line]"
+  },
+  {
+    "file": "eli/planning/proactive_daemon.py",
+    "line": 332,
+    "text": "                        \"suggestion\": f\"Found {len(todos)} TODO/FIXME comments\""
+  },
+  {
+    "file": "eli/planning/proactive_daemon.py",
+    "line": 771,
+    "text": "        # Avoid hardcoded paths; point legacy ELI_DB_PATH to AGENT DB for persona tooling."
+  },
+  {
+    "file": "eli/plugins/manager.py",
+    "line": 241,
+    "text": "        3. Downloads plugin.py (or copies builtin stub)"
+  },
+  {
+    "file": "eli/plugins/manager.py",
+    "line": 287,
+    "text": "            # builtin \u2014 generate a stub if plugin.py doesn't already exist"
+  },
+  {
+    "file": "eli/plugins/manager.py",
+    "line": 289,
+    "text": "                _log(\"  Generating builtin stub\")"
+  },
+  {
+    "file": "eli/plugins/manager.py",
+    "line": 491,
+    "text": "# Builtin stub generator"
+  },
+  {
+    "file": "eli/plugins/manager.py",
+    "line": 495,
+    "text": "    \"\"\"Generate a minimal working stub for builtin plugins that have no source URL.\"\"\""
+  },
+  {
+    "file": "eli/plugins/manager.py",
+    "line": 508,
+    "text": "        return {{\"ok\": True, \"content\": \"{action} executed (stub)\", \"response\": \"{action} executed (stub)\"}}"
+  },
+  {
+    "file": "eli/plugins/manager.py",
+    "line": 513,
+    "text": "    return f'''# Auto-generated builtin stub for plugin: {pid}"
+  },
+  {
+    "file": "eli/runtime/authority_state.py",
+    "line": 1,
+    "text": "\"\"\"Compatibility placeholder kept import-safe during MKXI migration.\"\"\""
+  },
+  {
+    "file": "eli/runtime/identity_validation.py",
+    "line": 61,
+    "text": "    a grammar fragment, placeholder, sentence, or model-generated explanation."
+  },
+  {
+    "file": "eli/runtime/self_improvement.py",
+    "line": 532,
+    "text": "    # Plugin stub generators"
+  },
+  {
+    "file": "tests/conftest.py",
+    "line": 7,
+    "text": "from unittest.mock import MagicMock"
+  },
+  {
+    "file": "tests/regression/test_executor_side_effect_gates.py",
+    "line": 69,
+    "text": "    monkeypatch.setenv(\"ELI_HA_TOKEN\", \"fake-token\")"
+  },
+  {
+    "file": "tests/regression/test_executor_side_effect_gates.py",
+    "line": 130,
+    "text": "            \"content\": f\"mock opened {raw_url}\","
+  },
+  {
+    "file": "tests/regression/test_executor_side_effect_gates.py",
+    "line": 131,
+    "text": "            \"response\": f\"mock opened {raw_url}\","
+  },
+  {
+    "file": "tests/test_cognition_modules.py",
+    "line": 5,
+    "text": "from unittest.mock import MagicMock, patch"
+  },
+  {
+    "file": "tests/test_core_paths.py",
+    "line": 227,
+    "text": "    model.write_bytes(b\"fake\")"
+  },
+  {
+    "file": "tests/test_core_paths.py",
+    "line": 233,
+    "text": "    model.write_bytes(b\"fake\")"
+  },
+  {
+    "file": "tests/test_core_settings.py",
+    "line": 7,
+    "text": "from unittest.mock import patch"
+  },
+  {
+    "file": "tests/test_core_settings.py",
+    "line": 228,
+    "text": "    model.write_bytes(b\"fake\")"
+  },
+  {
+    "file": "tests/test_core_settings.py",
+    "line": 254,
+    "text": "    model.write_bytes(b\"fake\")"
+  },
+  {
+    "file": "tests/test_gui_confidence_generation_wiring.py",
+    "line": 75,
+    "text": "    assert \"This is a generated text document\" not in result[\"content\"]"
+  },
+  {
+    "file": "tests/test_integration.py",
+    "line": 7,
+    "text": "from unittest.mock import patch, MagicMock"
+  },
+  {
+    "file": "tests/test_integration.py",
+    "line": 31,
+    "text": "    model.write_bytes(b\"fake\")"
+  },
+  {
+    "file": "tests/test_integration.py",
+    "line": 189,
+    "text": "    # model_path should be absolute but not hardcoded to one user's home"
+  },
+  {
+    "file": "tests/test_kernel_engine.py",
+    "line": 5,
+    "text": "from unittest.mock import MagicMock, patch"
+  },
+  {
+    "file": "tests/test_media_news_regressions.py",
+    "line": 5,
+    "text": "from unittest.mock import patch"
+  },
+  {
+    "file": "tests/test_memory_vector_store.py",
+    "line": 6,
+    "text": "from unittest.mock import patch, MagicMock"
+  },
+  {
+    "file": "tests/test_memory_working_memory.py",
+    "line": 5,
+    "text": "from unittest.mock import MagicMock"
+  },
+  {
+    "file": "tests/test_perception_tts.py",
+    "line": 5,
+    "text": "from unittest.mock import MagicMock, patch"
+  },
+  {
+    "file": "tests/test_perception_tts.py",
+    "line": 88,
+    "text": "    model.write_bytes(b\"fake\")"
+  },
+  {
+    "file": "tests/test_planning.py",
+    "line": 6,
+    "text": "from unittest.mock import MagicMock, patch"
+  },
+  {
+    "file": "tests/test_response_sanitizer.py",
+    "line": 113,
+    "text": "# \u2500\u2500 Placeholder stripping \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500"
+  },
+  {
+    "file": "tests/test_response_sanitizer.py",
+    "line": 115,
+    "text": "@pytest.mark.parametrize(\"placeholder\", ["
+  },
+  {
+    "file": "tests/test_response_sanitizer.py",
+    "line": 128,
+    "text": "def test_placeholder_stripped(placeholder):"
+  },
+  {
+    "file": "tests/test_response_sanitizer.py",
+    "line": 129,
+    "text": "    text = f\"Hello {placeholder}, how are you?\""
+  },
+  {
+    "file": "tests/test_response_sanitizer.py",
+    "line": 131,
+    "text": "    assert placeholder not in result"
+  },
+  {
+    "file": "tests/test_response_sanitizer.py",
+    "line": 241,
+    "text": "    # Placeholder stripped \u2192 empty \u2192 \"...\""
+  },
+  {
+    "file": "tests/test_runtime_modules.py",
+    "line": 5,
+    "text": "from unittest.mock import MagicMock, patch"
+  },
+  {
+    "file": "tests/test_sanitizer_extended.py",
+    "line": 77,
+    "text": "# \u2500\u2500 50 placeholder variations \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500"
+  },
+  {
+    "file": "tests/test_stress.py",
+    "line": 9,
+    "text": "from unittest.mock import patch"
+  }
+]

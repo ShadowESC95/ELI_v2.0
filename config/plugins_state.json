@@ -1,0 +1,7 @@
+{
+  "enabled": [],
+  "disabled": [
+    "fake_plugin"
+  ],
+  "installed": {}
+}

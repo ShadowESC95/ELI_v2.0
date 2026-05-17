@@ -1,0 +1,247 @@
+{
+  "route": [
+    {
+      "file": "eli/core/compatibility.py",
+      "line": 36,
+      "kind": "def",
+      "name": "route"
+    },
+    {
+      "file": "eli/execution/router_enhanced.py",
+      "line": 547,
+      "kind": "def",
+      "name": "route"
+    },
+    {
+      "file": "eli/execution/router_enhanced.py",
+      "line": 2814,
+      "kind": "def",
+      "name": "route"
+    },
+    {
+      "file": "eli/execution/router_enhanced.py",
+      "line": 3070,
+      "kind": "def",
+      "name": "route"
+    },
+    {
+      "file": "eli/execution/router_enhanced.py",
+      "line": 3103,
+      "kind": "def",
+      "name": "route"
+    },
+    {
+      "file": "eli/execution/router_enhanced.py",
+      "line": 3156,
+      "kind": "def",
+      "name": "route"
+    },
+    {
+      "file": "eli/execution/router_enhanced.py",
+      "line": 3183,
+      "kind": "def",
+      "name": "route"
+    },
+    {
+      "file": "eli/execution/router_enhanced.py",
+      "line": 3210,
+      "kind": "def",
+      "name": "route"
+    },
+    {
+      "file": "eli/execution/router_enhanced.py",
+      "line": 3298,
+      "kind": "def",
+      "name": "route"
+    },
+    {
+      "file": "eli/execution/router_enhanced.py",
+      "line": 3332,
+      "kind": "def",
+      "name": "route"
+    }
+  ],
+  "execute": [
+    {
+      "file": "eli/cognition/orchestrator.py",
+      "line": 119,
+      "kind": "def",
+      "name": "execute"
+    },
+    {
+      "file": "eli/execution/executor_enhanced.py",
+      "line": 6698,
+      "kind": "def",
+      "name": "execute"
+    },
+    {
+      "file": "eli/execution/executor_enhanced.py",
+      "line": 6935,
+      "kind": "def",
+      "name": "execute"
+    },
+    {
+      "file": "eli/execution/executor_enhanced.py",
+      "line": 7229,
+      "kind": "def",
+      "name": "execute"
+    },
+    {
+      "file": "eli/execution/executor_enhanced.py",
+      "line": 7447,
+      "kind": "def",
+      "name": "execute"
+    },
+    {
+      "file": "eli/execution/executor_enhanced.py",
+      "line": 7674,
+      "kind": "def",
+      "name": "execute"
+    },
+    {
+      "file": "eli/plugins/base/base.py",
+      "line": 43,
+      "kind": "def",
+      "name": "execute"
+    },
+    {
+      "file": "eli/plugins/manager.py",
+      "line": 469,
+      "kind": "def",
+      "name": "execute"
+    },
+    {
+      "file": "eli/plugins/weather/plugin.py",
+      "line": 128,
+      "kind": "def",
+      "name": "execute"
+    },
+    {
+      "file": "eli/plugins/web/plugin.py",
+      "line": 141,
+      "kind": "def",
+      "name": "execute"
+    },
+    {
+      "file": "eli/plugins/web/plugin.py",
+      "line": 12,
+      "kind": "def",
+      "name": "execute"
+    },
+    {
+      "file": "eli/tools/registry/capabilities.py",
+      "line": 69,
+      "kind": "def",
+      "name": "execute"
+    }
+  ],
+  "execute_action": [
+    {
+      "file": "eli/execution/executor_enhanced.py",
+      "line": 7454,
+      "kind": "def",
+      "name": "execute_action"
+    },
+    {
+      "file": "eli/execution/executor_enhanced.py",
+      "line": 7690,
+      "kind": "def",
+      "name": "execute_action"
+    },
+    {
+      "file": "eli/execution/media_runtime.py",
+      "line": 314,
+      "kind": "def",
+      "name": "execute_action"
+    },
+    {
+      "file": "eli/gui/eli_pro_audio_gui_MKI.py",
+      "line": 905,
+      "kind": "def",
+      "name": "execute_action"
+    }
+  ],
+  "process": [
+    {
+      "file": "eli/kernel/engine.py",
+      "line": 4458,
+      "kind": "def",
+      "name": "process"
+    }
+  ],
+  "generate": [
+    {
+      "file": "eli/cognition/gguf_inference.py",
+      "line": 867,
+      "kind": "def",
+      "name": "generate"
+    },
+    {
+      "file": "eli/gui/eli_pro_audio_gui_MKI.py",
+      "line": 670,
+      "kind": "def",
+      "name": "generate"
+    },
+    {
+      "file": "eli/gui/eli_pro_audio_gui_MKI.py",
+      "line": 759,
+      "kind": "def",
+      "name": "generate"
+    },
+    {
+      "file": "eli/integrations/ollama/client.py",
+      "line": 326,
+      "kind": "def",
+      "name": "generate"
+    },
+    {
+      "file": "eli/tools/image_engine/image_engine/visual_core.py",
+      "line": 1099,
+      "kind": "def",
+      "name": "generate"
+    },
+    {
+      "file": "eli/tools/image_engine/image_engine/visual_core.py",
+      "line": 1146,
+      "kind": "def",
+      "name": "generate"
+    },
+    {
+      "file": "eli/tools/image_engine.py",
+      "line": 1474,
+      "kind": "def",
+      "name": "generate"
+    },
+    {
+      "file": "eli/tools/image_engine.py",
+      "line": 1544,
+      "kind": "def",
+      "name": "generate"
+    }
+  ],
+  "_engine_ask": [
+    {
+      "file": "eli/gui/eli_pro_audio_gui_MKI.py",
+      "line": 5676,
+      "kind": "def",
+      "name": "_engine_ask"
+    }
+  ],
+  "build_persona_handoff": [
+    {
+      "file": "eli/cognition/context_synthesiser.py",
+      "line": 173,
+      "kind": "def",
+      "name": "build_persona_handoff"
+    }
+  ],
+  "build_memory_context": [],
+  "get_engine": [
+    {
+      "file": "eli/kernel/engine.py",
+      "line": 6279,
+      "kind": "def",
+      "name": "get_engine"
+    }
+  ]
+}

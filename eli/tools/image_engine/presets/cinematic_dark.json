@@ -1,0 +1,6 @@
+{
+  "style": "cinematic",
+  "palette": "violet_dusk",
+  "negative": "watermark, brand names, messy text, noisy clutter",
+  "supersample": 1
+}

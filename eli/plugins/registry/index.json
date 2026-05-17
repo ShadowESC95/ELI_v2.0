@@ -1,0 +1,91 @@
+{
+  "version": "1",
+  "updated": "2026-03-11",
+  "plugins": [
+    {
+      "id": "weather",
+      "name": "Weather",
+      "version": "1.0.0",
+      "description": "Real-time weather via Open-Meteo (no API key needed)",
+      "author": "ELI Core",
+      "license": "MIT",
+      "requires": [],
+      "pip": [],
+      "actions": ["GET_WEATHER"],
+      "builtin": true
+    },
+    {
+      "id": "tts",
+      "name": "Text-to-Speech",
+      "version": "1.0.0",
+      "description": "Text-to-speech via espeak/piper",
+      "author": "ELI Core",
+      "license": "MIT",
+      "requires": [],
+      "pip": [],
+      "actions": ["SPEAK"],
+      "builtin": true
+    },
+    {
+      "id": "web",
+      "name": "Web Search",
+      "version": "1.0.0",
+      "description": "DuckDuckGo web search",
+      "author": "ELI Core",
+      "license": "MIT",
+      "requires": [],
+      "pip": ["duckduckgo-search"],
+      "actions": ["WEB_SEARCH"],
+      "builtin": true
+    },
+    {
+      "id": "smart_home",
+      "name": "Smart Home",
+      "version": "1.0.0",
+      "description": "Home Assistant integration",
+      "author": "ELI Core",
+      "license": "MIT",
+      "requires": [],
+      "pip": ["requests"],
+      "actions": ["SMART_HOME"],
+      "builtin": true,
+      "config_required": ["ha_url", "ha_token"]
+    },
+    {
+      "id": "pomodoro",
+      "name": "Pomodoro Timer",
+      "version": "1.0.0",
+      "description": "Focus sessions with Pomodoro technique",
+      "author": "community",
+      "license": "MIT",
+      "requires": [],
+      "pip": [],
+      "actions": ["POMODORO_START", "POMODORO_STOP", "POMODORO_STATUS"],
+      "builtin": false
+    },
+    {
+      "id": "system_stats",
+      "name": "System Stats",
+      "version": "1.0.0",
+      "description": "CPU, RAM, disk, network monitoring",
+      "author": "community",
+      "license": "MIT",
+      "requires": [],
+      "pip": ["psutil"],
+      "actions": ["SYSTEM_STATS", "CPU_USAGE", "RAM_USAGE"],
+      "builtin": false
+    },
+    {
+      "id": "notes",
+      "name": "Quick Notes",
+      "version": "1.0.0",
+      "description": "Markdown notes with full-text search",
+      "author": "community",
+      "license": "MIT",
+      "requires": [],
+      "pip": [],
+      "actions": ["NEW_NOTE", "SEARCH_NOTES", "LIST_NOTES"],
+      "builtin": false
+    }
+  ]
+}

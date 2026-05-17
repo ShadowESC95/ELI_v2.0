@@ -1,0 +1,4 @@
+# Auto-generated Phase 22 group: eli-gui-pyside6.txt
+
+PySide6
+shiboken6==6.11.0

@@ -1,0 +1,4 @@
+RC=0
+
+--- STDOUT ---
+IMPORT_OK eli.execution.portable_intent_contract

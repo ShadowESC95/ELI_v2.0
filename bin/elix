@@ -1,0 +1,161 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+THIS="$(readlink -f "${BASH_SOURCE[0]}")"
+BIN_DIR="$(dirname "$THIS")"
+ROOT="$(cd "$BIN_DIR/.." && pwd)"
+REAL="$ROOT/bin/elix.real"
+ENVFILE="$ROOT/.env.mkxi"
+
+if [ ! -x "$REAL" ]; then
+  echo "❌ Missing executable launcher: $REAL" >&2
+  exit 1
+fi
+
+# Do not prompt during non-interactive calls, tests, automation, or explicit skip.
+if [ ! -t 0 ] || [ "${ELIX_SKIP_MODEL_PICKER:-0}" = "1" ]; then
+  exec "$REAL" "$@"
+fi
+
+MODEL_DIR="${ELIX_MODEL_DIR:-$ROOT/models}"
+
+if [ ! -d "$MODEL_DIR" ]; then
+  echo "⚠️  Model directory not found: $MODEL_DIR"
+  echo "Continuing normal ELI boot..."
+  exec "$REAL" "$@"
+fi
+
+mapfile -t MODELS < <(
+  {
+    find "$MODEL_DIR" -maxdepth 2 -type f -name '*.gguf' \
+      ! -path '*/hf/*' \
+      ! -path '*/lora/*' \
+      ! -path '*/adapters/*' \
+      ! -path '*/embeddings/*' \
+      ! -iname '*embed*' \
+      -printf '%p
+' 2>/dev/null
+
+    find "$ROOT/models/gguf/runtime" "$ROOT/models/gguf/eli_phi" \
+      -type f -name '*.gguf' \
+      -printf '%p
+' 2>/dev/null || true
+  } | sort -u
+)
+
+if [ "${#MODELS[@]}" -eq 0 ]; then
+  echo "⚠️  No .gguf models found under: $MODEL_DIR"
+  echo "Continuing normal ELI boot..."
+  exec "$REAL" "$@"
+fi
+
+CURRENT=""
+if [ -f "$ENVFILE" ]; then
+  CURRENT="$(grep -E '^(export[[:space:]]+)?(ELI_GGUF_MODEL_PATH|ELI_MODEL_PATH|ELI_MODEL|GGUF_MODEL_PATH)=' "$ENVFILE" 2>/dev/null | tail -1 | sed -E 's/^[^=]+=//' | sed -E "s/^['\"]//; s/['\"]$//" || true)"
+fi
+
+echo
+echo "🧠 ELI GGUF runtime model picker"
+echo "Model folder: $MODEL_DIR"
+if [ -n "$CURRENT" ]; then
+  echo "Current: $CURRENT"
+fi
+echo
+
+i=1
+for model in "${MODELS[@]}"; do
+  rel="${model#$ROOT/}"
+  size="$(du -h "$model" 2>/dev/null | awk '{print $1}')"
+  printf '  %2d) %-9s %s\n' "$i" "$size" "$rel"
+  i=$((i + 1))
+done
+
+echo
+read -r -p "Choose model number, Enter for current/1, or q to cancel: " choice
+
+case "${choice,,}" in
+  q|quit|exit)
+    echo "Cancelled."
+    exit 130
+    ;;
+esac
+
+if [ -z "$choice" ]; then
+  if [ -n "$CURRENT" ] && [ -f "$CURRENT" ]; then
+    SELECTED="$CURRENT"
+  else
+    SELECTED="${MODELS[0]}"
+  fi
+else
+  if ! [[ "$choice" =~ ^[0-9]+$ ]]; then
+    echo "❌ Invalid selection: $choice" >&2
+    exit 2
+  fi
+
+  idx=$((choice - 1))
+  if [ "$idx" -lt 0 ] || [ "$idx" -ge "${#MODELS[@]}" ]; then
+    echo "❌ Selection out of range: $choice" >&2
+    exit 2
+  fi
+
+  SELECTED="${MODELS[$idx]}"
+fi
+
+SELECTED="$(readlink -f "$SELECTED")"
+
+echo
+echo "✅ Selected model:"
+echo "$SELECTED"
+
+# Export several common names so whichever layer ELI reads gets the same selected model.
+export ELI_GGUF_MODEL_PATH="$SELECTED"
+export ELI_MODEL_PATH="$SELECTED"
+export ELI_MODEL="$SELECTED"
+export GGUF_MODEL_PATH="$SELECTED"
+
+# Persist into .env.mkxi so launchers that source env after this still receive the selected model.
+python3 - "$ENVFILE" "$SELECTED" <<'PY'
+from __future__ import annotations
+
+import shlex
+import sys
+from pathlib import Path
+
+envfile = Path(sys.argv[1])
+selected = sys.argv[2]
+
+keys = {
+    "ELI_GGUF_MODEL_PATH",
+    "ELI_MODEL_PATH",
+    "ELI_MODEL",
+    "GGUF_MODEL_PATH",
+}
+
+lines = []
+if envfile.exists():
+    for line in envfile.read_text(encoding="utf-8").splitlines():
+        stripped = line.strip()
+        remove = False
+        for key in keys:
+            if stripped.startswith(f"{key}=") or stripped.startswith(f"export {key}="):
+                remove = True
+                break
+        if not remove:
+            lines.append(line)
+
+quoted = shlex.quote(selected)
+lines.extend([
+    "",
+    "# Selected by bin/elix model picker",
+    f"export ELI_GGUF_MODEL_PATH={quoted}",
+    f"export ELI_MODEL_PATH={quoted}",
+    f"export ELI_MODEL={quoted}",
+    f"export GGUF_MODEL_PATH={quoted}",
+])
+
+envfile.write_text("\n".join(lines).rstrip() + "\n", encoding="utf-8")
+PY
+
+echo
+echo "🚀 Continuing normal ELI boot..."
+exec "$REAL" "$@"

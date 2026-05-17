@@ -1,0 +1,6 @@
+# IMPORTANT:
+# MediaPipe >=0.10.30 removed the legacy Solutions API used by FaceMesh:
+#     import mediapipe as mp; mp.solutions.face_mesh
+# Pin exactly until this kit is migrated to the newer MediaPipe Tasks API.
+mediapipe==0.10.21
+protobuf>=4.25.3,<5

@@ -1,0 +1,118 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "eli-mkxi"
+version = "1.0.0"
+description = "ELI MKXI — Local AI Assistant with GPU-accelerated inference"
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "Proprietary" }
+authors = [{ name = "ELI Contributors" }]
+keywords = ["ai", "assistant", "llm", "local", "gpu", "gguf"]
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Operating System :: POSIX :: Linux",
+    "Operating System :: MacOS :: MacOS X",
+    "Operating System :: Microsoft :: Windows",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+    "Environment :: GPU :: NVIDIA CUDA",
+    "Environment :: X11 Applications :: Qt",
+]
+dependencies = [
+    "platformdirs>=4.0",
+    "pydantic>=2.0",
+    "pydantic-settings>=2.0",
+    "requests>=2.28",
+    "Pillow>=10.0",
+    "mss>=9.0",
+    "PyAutoGUI>=0.9.54",
+    "pyttsx3>=2.9",
+    "sounddevice>=0.4",
+    "soundfile>=0.12",
+    "psutil>=5.9",
+    "tqdm>=4.64",
+    "PyYAML>=6.0",
+    "python-dotenv>=1.0",
+    "numpy>=1.24",
+    "faiss-cpu>=1.7",
+    "comtypes>=1.2; sys_platform == 'win32'",
+    "pycaw; sys_platform == 'win32'",
+]
+
+[project.optional-dependencies]
+# GUI binding policy:
+#   PySide6 is the canonical Qt binding for ELI. It is licensed LGPLv3,
+#   which permits dynamic linking from proprietary or differently-licensed
+#   code (Python always loads C extensions dynamically), so the binding
+#   itself does not impose copyleft on the rest of this project.
+#
+#   PyQt6 is intentionally NOT a dependency here. PyQt6 is GPLv3 and would
+#   force the entire shipped binary to be GPL, blocking proprietary
+#   distribution. The runtime shim at eli/gui/qt_compat.py allows users
+#   who already have PyQt6/PyQt5 installed to run from source, but the
+#   packaged distribution must remain PySide6-only to honour the
+#   project license declared above.
+gui = [
+    "PySide6>=6.5",
+]
+tts = [
+    "piper-tts>=1.2",
+    "onnxruntime>=1.15",
+]
+asr = [
+    "faster-whisper>=1.0",
+    "SpeechRecognition>=3.10",
+    "PyAudio>=0.2",
+]
+llm = [
+    "llama-cpp-python>=0.2",
+]
+image = [
+    "diffusers>=0.20",
+    "safetensors>=0.3",
+    "accelerate>=0.20",
+]
+docs = [
+    "markdown>=3.5",
+    "pdfplumber>=0.10",
+    "pypdf>=4.0",
+    "python-docx>=1.1",
+]
+full = [
+    "eli-mkxi[gui,tts,asr,llm,image,docs]",
+]
+
+[project.urls]
+Homepage = "https://example.com/eli-mkxi"
+
+[project.scripts]
+eli = "eli.gui.app:main"
+eli-cli = "eli.gui.app:main"
+
+[project.gui-scripts]
+eli-gui = "eli.gui.app:main"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["eli*"]
+exclude = ["tests*", "ops*", "build*"]
+
+[tool.setuptools.package-data]
+"eli" = [
+    "**/*.json",
+    "**/*.yaml",
+    "**/*.yml",
+    "**/*.txt",
+    "**/*.toml",
+    "**/*.cfg",
+    "**/*.md",
+    "tools/image_engine/presets/*.json",
+    "tools/image_engine/config/*.json",
+    "plugins/registry/*.json",
+    "cognition/persona*.txt",
+]

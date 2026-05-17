@@ -1,0 +1,71 @@
+=== SQLite schema inventory ===
+
+### artifacts/db/agent.sqlite3
+capability_proposals       memories_fts             
+conversation_turns         memories_fts_config      
+conversations              memories_fts_data        
+corrections                memories_fts_docsize     
+error_tracking             memories_fts_idx         
+failures                   observations             
+habit_events               quarantine_bad_voice_rows
+habit_rules                recall_log               
+habits                     session_summaries        
+improvements               user_patterns            
+memories                 
+CREATE TABLE conversations (
+CREATE TABLE conversation_turns (
+            memory_id INTEGER
+CREATE TABLE habit_events (
+CREATE TABLE habit_rules (
+CREATE TABLE habits (
+            reasoning TEXT,
+
+### artifacts/db/system_index.sqlite3
+desktop_apps  executables   recent_files  user_dirs   
+
+### artifacts/db/user.sqlite3
+capability_proposals                                  
+conversation_turns                                    
+conversations                                         
+corrections                                           
+error_tracking                                        
+failures                                              
+habit_events                                          
+habit_rules                                           
+habits                                                
+improvements                                          
+kg_entities                                           
+kg_entities_fts                                       
+kg_entities_fts_config                                
+kg_entities_fts_data                                  
+kg_entities_fts_docsize                               
+kg_entities_fts_idx                                   
+kg_relations                                          
+memories                                              
+memories_fts                                          
+memories_fts_config                                   
+memories_fts_data                                     
+memories_fts_docsize                                  
+memories_fts_idx                                      
+news_articles                                         
+news_fts                                              
+news_fts_config                                       
+news_fts_data                                         
+news_fts_docsize                                      
+news_fts_idx                                          
+news_reflections                                      
+observations                                          
+quarantine_bad_response_surface_20260505_162641       
+quarantine_bad_voice_rows                             
+quarantine_synthetic_grounding_prompts_20260505_160311
+recall_log                                            
+session_summaries                                     
+user_patterns                                         
+voice_fault_quarantine_20260502                       
+CREATE TABLE conversations (
+CREATE TABLE conversation_turns (
+            memory_id INTEGER
+CREATE TABLE habit_events (
+CREATE TABLE habit_rules (
+CREATE TABLE habits (
+            reasoning TEXT,

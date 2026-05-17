@@ -1,0 +1,11 @@
+{
+  "query": "neon abstract album cover with luminous flowing geometry",
+  "type": "poster",
+  "style": "neon",
+  "palette": "neon_noir",
+  "width": 1400,
+  "height": 900,
+  "count": 4,
+  "sheet": true,
+  "name_from_prompt": true
+}

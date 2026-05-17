@@ -1,0 +1,54 @@
+#!/usr/bin/env bash
+
+# ELI capability manifest CLI
+if [ "${1:-}" = "--list-capabilities" ]; then
+    SCRIPT_DIR="$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)"
+    ROOT_DIR="$(CDPATH= cd -- "$SCRIPT_DIR/.." && pwd)"
+    MANIFEST="$ROOT_DIR/capability_manifest.json"
+
+    if [ -f "$MANIFEST" ]; then
+        python3 -m json.tool "$MANIFEST"
+    else
+        echo "Manifest not found: $MANIFEST" >&2
+        echo "Run elix normally once to generate capability_manifest.json." >&2
+        exit 1
+    fi
+
+    exit 0
+fi
+
+set -euo pipefail
+
+_SELF="$(readlink -f "${BASH_SOURCE[0]}")"
+_BIN_DIR="$(cd "$(dirname "$_SELF")" && pwd)"
+
+if [ -d "$_BIN_DIR/../eli" ]; then
+  ELI_PROJECT_ROOT="$(cd "$_BIN_DIR/.." && pwd)"
+elif [ -n "${ELI_PROJECT_ROOT:-}" ] && [ -d "${ELI_PROJECT_ROOT}/eli" ]; then
+  :
+else
+  ELI_PROJECT_ROOT="$(pwd)"
+fi
+export ELI_PROJECT_ROOT
+
+if [ -f "$ELI_PROJECT_ROOT/.env.mkxi" ]; then
+  # shellcheck disable=SC1090
+  source "$ELI_PROJECT_ROOT/.env.mkxi"
+fi
+
+export ELI_ARTIFACTS_DIR="${ELI_ARTIFACTS_DIR:-$ELI_PROJECT_ROOT/artifacts}"
+export ELI_CONFIG_DIR="${ELI_CONFIG_DIR:-$ELI_PROJECT_ROOT/config}"
+export ELI_DB_DIR="${ELI_DB_DIR:-$ELI_PROJECT_ROOT/artifacts/db}"
+export ELI_MEMORY_DB="${ELI_MEMORY_DB:-$ELI_DB_DIR/user.sqlite3}"
+export ELI_AGENT_DB="${ELI_AGENT_DB:-$ELI_DB_DIR/agent.sqlite3}"
+export ELI_MEMORY_DB_PATH="${ELI_MEMORY_DB_PATH:-$ELI_DB_DIR/user.sqlite3}"
+export ELI_SYSTEM_INDEX="${ELI_SYSTEM_INDEX:-$ELI_DB_DIR/system_index.sqlite3}"
+export PYTHONPATH="$ELI_PROJECT_ROOT${PYTHONPATH:+:$PYTHONPATH}"
+
+mkdir -p "$ELI_ARTIFACTS_DIR" "$ELI_CONFIG_DIR" "$ELI_DB_DIR"
+
+if [ -x "$ELI_PROJECT_ROOT/.venv/bin/python" ]; then
+  exec "$ELI_PROJECT_ROOT/.venv/bin/python" -m eli.gui.app "$@"
+fi
+
+exec python3 -m eli.gui.app "$@"

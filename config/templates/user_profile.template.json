@@ -1,0 +1,8 @@
+{
+  "schema_version": 1,
+  "user_display_name": "",
+  "preferred_address": "",
+  "communication_style": "",
+  "created_by": "first_run_or_runtime_user_setup",
+  "notes": "Template only. Runtime must copy this to local artifacts/state/user_profile.json. Do not ship populated."
+}

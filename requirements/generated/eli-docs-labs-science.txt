@@ -1,0 +1,16 @@
+# Auto-generated Phase 22 group: eli-docs-labs-science.txt
+
+Jinja2>=3.1
+Markdown
+matplotlib
+networkx>=3.6
+numpy
+pandas
+pdfplumber
+Pillow
+pypdf
+PyPDF2
+python-docx
+python-dotenv>=1.0
+PyYAML>=6.0
+sympy>=1.14

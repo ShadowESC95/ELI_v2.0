@@ -1,0 +1,4492 @@
+[
+  {
+    "file": "eli/cognition/agent_bus.py",
+    "line": 344,
+    "text": "            except Exception:"
+  },
+  {
+    "file": "eli/cognition/agent_bus.py",
+    "line": 350,
+    "text": "            except Exception:"
+  },
+  {
+    "file": "eli/cognition/agent_bus.py",
+    "line": 393,
+    "text": "                    except Exception:"
+  },
+  {
+    "file": "eli/cognition/agent_bus.py",
+    "line": 598,
+    "text": "            except Exception:"
+  },
+  {
+    "file": "eli/cognition/agent_bus.py",
+    "line": 653,
+    "text": "                    except Exception:"
+  },
+  {
+    "file": "eli/cognition/agent_bus.py",
+    "line": 1407,
+    "text": "                except Exception:"
+  },
+  {
+    "file": "eli/cognition/agent_bus.py",
+    "line": 1537,
+    "text": "            except Exception:"
+  },
+  {
+    "file": "eli/cognition/agent_bus.py",
+    "line": 1542,
+    "text": "            except Exception:"
+  },
+  {
+    "file": "eli/cognition/chat_model.py",
+    "line": 63,
+    "text": "    except Exception:"
+  },
+  {
+    "file": "eli/cognition/chat_model.py",
+    "line": 70,
+    "text": "    except Exception:"
+  },
+  {
+    "file": "eli/cognition/chat_model.py",
+    "line": 103,
+    "text": "    except Exception:"
+  },
+  {
+    "file": "eli/cognition/chat_model.py",
+    "line": 108,
+    "text": "    except Exception:"
+  },
+  {
+    "file": "eli/cognition/chat_model.py",
+    "line": 115,
+    "text": "    except Exception:"
+  },
+  {
+    "file": "eli/cognition/chat_model.py",
+    "line": 136,
+    "text": "            except Exception:"
+  },
+  {
+    "file": "eli/cognition/context_builder.py",
+    "line": 23,
+    "text": "    except Exception:"
+  },
+  {
+    "file": "eli/cognition/context_builder.py",
+    "line": 42,
+    "text": "    except Exception:"
+  },
+  {
+    "file": "eli/cognition/context_builder.py",
+    "line": 78,
+    "text": "    except Exception:"
+  },
+  {
+    "file": "eli/cognition/context_builder.py",
+    "line": 100,
+    "text": "    except Exception:"
+  },
+  {
+    "file": "eli/cognition/context_synthesiser.py",
+    "line": 78,
+    "text": "        except Exception:"
+  },
+  {
+    "file": "eli/cognition/context_synthesiser.py",
+    "line": 240,
+    "text": "    except Exception:"
+  },
+  {
+    "file": "eli/cognition/context_synthesiser.py",
+    "line": 291,
+    "text": "        except Exception:"
+  },
+  {
+    "file": "eli/cognition/gguf_inference.py",
+    "line": 80,
+    "text": "    except Exception:"
+  },
+  {
+    "file": "eli/cognition/gguf_inference.py",
+    "line": 102,
+    "text": "    except Exception:"
+  },
+  {
+    "file": "eli/cognition/gguf_inference.py",
+    "line": 116,
+    "text": "    except Exception:"
+  },
+  {
+    "file": "eli/cognition/gguf_inference.py",
+    "line": 161,
+    "text": "    except Exception:"
+  },
+  {
+    "file": "eli/cognition/gguf_inference.py",
+    "line": 223,
+    "text": "    except Exception:"
+  },
+  {
+    "file": "eli/cognition/gguf_inference.py",
+    "line": 231,
+    "text": "    except Exception:"
+  },
+  {
+    "file": "eli/cognition/gguf_inference.py",
+    "line": 344,
+    "text": "except Exception:"
+  },
+  {
+    "file": "eli/cognition/gguf_inference.py",
+    "line": 517,
+    "text": "                except Exception:"
+  },
+  {
+    "file": "eli/cognition/gguf_inference.py",
+    "line": 561,
+    "text": "    except Exception:"
+  },
+  {
+    "file": "eli/cognition/gguf_inference.py",
+    "line": 573,
+    "text": "    except Exception:"
+  },
+  {
+    "file": "eli/cognition/gguf_inference.py",
+    "line": 908,
+    "text": "    except Exception:"
+  },
+  {
+    "file": "eli/cognition/gguf_inference.py",
+    "line": 920,
+    "text": "        except Exception:"
+  },
+  {
+    "file": "eli/cognition/gguf_inference.py",
+    "line": 962,
+    "text": "        except Exception:"
+  },
+  {
+    "file": "eli/cognition/gguf_inference.py",
+    "line": 988,
+    "text": "    except Exception:"
+  },
+  {
+    "file": "eli/cognition/gguf_inference.py",
+    "line": 1027,
+    "text": "    except Exception:"
+  },
+  {
+    "file": "eli/cognition/gguf_inference.py",
+    "line": 1033,
+    "text": "        except Exception:"
+  },
+  {
+    "file": "eli/cognition/gguf_inference.py",
+    "line": 1039,
+    "text": "        except Exception:"
+  },
+  {
+    "file": "eli/cognition/gguf_inference.py",
+    "line": 1045,
+    "text": "        except Exception:"
+  },
+  {
+    "file": "eli/cognition/gguf_inference.py",
+    "line": 1051,
+    "text": "        except Exception:"
+  },
+  {
+    "file": "eli/cognition/gguf_inference.py",
+    "line": 1062,
+    "text": "        except Exception:"
+  },
+  {
+    "file": "eli/cognition/gguf_inference.py",
+    "line": 1083,
+    "text": "            except Exception:"
+  },
+  {
+    "file": "eli/cognition/gguf_inference.py",
+    "line": 1112,
+    "text": "    except Exception:"
+  },
+  {
+    "file": "eli/cognition/gguf_inference.py",
+    "line": 1136,
+    "text": "    except Exception:"
+  },
+  {
+    "file": "eli/cognition/gguf_inference.py",
+    "line": 1150,
+    "text": "    except Exception:"
+  },
+  {
+    "file": "eli/cognition/grounded_status.py",
+    "line": 20,
+    "text": "    except Exception:"
+  },
+  {
+    "file": "eli/cognition/grounded_status.py",
+    "line": 41,
+    "text": "    except Exception:"
+  },
+  {
+    "file": "eli/cognition/grounded_status.py",
+    "line": 56,
+    "text": "            except Exception:"
+  },
+  {
+    "file": "eli/cognition/grounded_status.py",
+    "line": 68,
+    "text": "    except Exception:"
+  },
+  {
+    "file": "eli/cognition/grounded_status.py",
+    "line": 76,
+    "text": "    except Exception:"
+  },
+  {
+    "file": "eli/cognition/grounded_status.py",
+    "line": 83,
+    "text": "    except Exception:"
+  },
+  {
+    "file": "eli/cognition/grounded_status.py",
+    "line": 127,
+    "text": "    except Exception:"
+  },
+  {
+    "file": "eli/cognition/grounded_status.py",
+    "line": 155,
+    "text": "        except Exception:"
+  },
+  {
+    "file": "eli/cognition/grounded_status.py",
+    "line": 165,
+    "text": "    except Exception:"
+  },
+  {
+    "file": "eli/cognition/grounded_status.py",
+    "line": 239,
+    "text": "                except Exception:"
+  },
+  {
+    "file": "eli/cognition/grounded_status.py",
+    "line": 389,
+    "text": "                except Exception:"
+  },
+  {
+    "file": "eli/cognition/hyde.py",
+    "line": 30,
+    "text": "        except Exception:"
+  },
+  {
+    "file": "eli/cognition/inference_broker.py",
+    "line": 48,
+    "text": "        except Exception:"
+  },
+  {
+    "file": "eli/cognition/introspection_agent.py",
+    "line": 61,
+    "text": "        except Exception:"
+  },
+  {
+    "file": "eli/cognition/introspection_agent.py",
+    "line": 67,
+    "text": "        except Exception:"
+  },
+  {
+    "file": "eli/cognition/orchestrator.py",
+    "line": 248,
+    "text": "                except Exception:"
+  },
+  {
+    "file": "eli/cognition/orchestrator.py",
+    "line": 508,
+    "text": "                except Exception:"
+  },
+  {
+    "file": "eli/cognition/orchestrator.py",
+    "line": 539,
+    "text": "                    except Exception:"
+  },
+  {
+    "file": "eli/cognition/orchestrator.py",
+    "line": 557,
+    "text": "                    except Exception:"
+  },
+  {
+    "file": "eli/cognition/orchestrator.py",
+    "line": 573,
+    "text": "                    except Exception:"
+  },
+  {
+    "file": "eli/cognition/output_governor.py",
+    "line": 68,
+    "text": "    except Exception:"
+  },
+  {
+    "file": "eli/cognition/output_governor.py",
+    "line": 255,
+    "text": "    except Exception:"
+  },
+  {
+    "file": "eli/cognition/output_governor.py",
+    "line": 270,
+    "text": "    except Exception:"
+  },
+  {
+    "file": "eli/cognition/persona.py",
+    "line": 111,
+    "text": "    except Exception:"
+  },
+  {
+    "file": "eli/cognition/persona_hygiene.py",
+    "line": 33,
+    "text": "        except Exception:"
+  },
+  {
+    "file": "eli/cognition/persona_updater.py",
+    "line": 26,
+    "text": "        except Exception:"
+  },
+  {
+    "file": "eli/cognition/persona_updater.py",
+    "line": 124,
+    "text": "    except Exception:"
+  },
+  {
+    "file": "eli/cognition/persona_updater.py",
+    "line": 141,
+    "text": "            except Exception:"
+  },
+  {
+    "file": "eli/cognition/persona_updater.py",
+    "line": 186,
+    "text": "            except Exception:"
+  },
+  {
+    "file": "eli/cognition/persona_updater.py",
+    "line": 286,
+    "text": "            except Exception:"
+  },
+  {
+    "file": "eli/cognition/persona_values.py",
+    "line": 18,
+    "text": "    except Exception:"
+  },
+  {
+    "file": "eli/cognition/persona_values.py",
+    "line": 32,
+    "text": "    except Exception:"
+  },
+  {
+    "file": "eli/cognition/reranker.py",
+    "line": 23,
+    "text": "    except Exception:"
+  },
+  {
+    "file": "eli/cognition/user_info_builder.py",
+    "line": 31,
+    "text": "    except Exception:"
+  },
+  {
+    "file": "eli/cognition/user_info_builder.py",
+    "line": 41,
+    "text": "    except Exception:"
+  },
+  {
+    "file": "eli/cognition/user_info_builder.py",
+    "line": 46,
+    "text": "    except Exception:"
+  },
+  {
+    "file": "eli/cognition/user_info_builder.py",
+    "line": 67,
+    "text": "    except Exception:"
+  },
+  {
+    "file": "eli/cognition/user_info_builder.py",
+    "line": 100,
+    "text": "    except Exception:"
+  },
+  {
+    "file": "eli/cognition/user_info_builder.py",
+    "line": 107,
+    "text": "    except Exception:"
+  },
+  {
+    "file": "eli/cognition/user_info_builder.py",
+    "line": 118,
+    "text": "    except Exception:"
+  },
+  {
+    "file": "eli/cognition/user_info_builder.py",
+    "line": 370,
+    "text": "    except Exception:"
+  },
+  {
+    "file": "eli/cognition/user_info_builder.py",
+    "line": 410,
+    "text": "            except Exception:"
+  },
+  {
+    "file": "eli/cognition/user_info_builder.py",
+    "line": 526,
+    "text": "        except Exception:"
+  },
+  {
+    "file": "eli/cognition/user_info_builder.py",
+    "line": 548,
+    "text": "        except Exception:"
+  },
+  {
+    "file": "eli/cognition/working_memory.py",
+    "line": 79,
+    "text": "                except Exception:"
+  },
+  {
+    "file": "eli/cognition/working_memory.py",
+    "line": 208,
+    "text": "                except Exception:"
+  },
+  {
+    "file": "eli/core/compatibility.py",
+    "line": 15,
+    "text": "except Exception:"
+  },
+  {
+    "file": "eli/core/compatibility.py",
+    "line": 42,
+    "text": "except Exception:"
+  },
+  {
+    "file": "eli/core/compatibility.py",
+    "line": 48,
+    "text": "except Exception:"
+  },
+  {
+    "file": "eli/core/compatibility.py",
+    "line": 51,
+    "text": "    except Exception:"
+  },
+  {
+    "file": "eli/core/config.py",
+    "line": 61,
+    "text": "    except Exception:"
+  },
+  {
+    "file": "eli/core/config.py",
+    "line": 70,
+    "text": "    except Exception:"
+  },
+  {
+    "file": "eli/core/config.py",
+    "line": 86,
+    "text": "    except Exception:"
+  },
+  {
+    "file": "eli/core/config.py",
+    "line": 95,
+    "text": "    except Exception:"
+  },
+  {
+    "file": "eli/core/config.py",
+    "line": 163,
+    "text": "    except Exception:"
+  },
+  {
+    "file": "eli/core/config.py",
+    "line": 176,
+    "text": "        except Exception:"
+  },
+  {
+    "file": "eli/core/config.py",
+    "line": 190,
+    "text": "        except Exception:"
+  },
+  {
+    "file": "eli/core/config.py",
+    "line": 194,
+    "text": "    except Exception:"
+  },
+  {
+    "file": "eli/core/config.py",
+    "line": 207,
+    "text": "        except Exception:"
+  },
+  {
+    "file": "eli/core/config.py",
+    "line": 219,
+    "text": "    except Exception:"
+  },
+  {
+    "file": "eli/core/config.py",
+    "line": 230,
+    "text": "    except Exception:"
+  },
+  {
+    "file": "eli/core/config.py",
+    "line": 254,
+    "text": "        except Exception:"
+  },
+  {
+    "file": "eli/core/config.py",
+    "line": 260,
+    "text": "        except Exception:"
+  },
+  {
+    "file": "eli/core/config.py",
+    "line": 298,
+    "text": "        except Exception:"
+  },
+  {
+    "file": "eli/core/config.py",
+    "line": 304,
+    "text": "        except Exception:"
+  },
+  {
+    "file": "eli/core/config.py",
+    "line": 316,
+    "text": "        except Exception:"
+  },
+  {
+    "file": "eli/core/config.py",
+    "line": 322,
+    "text": "        except Exception:"
+  },
+  {
+    "file": "eli/core/db_paths.py",
+    "line": 81,
+    "text": "    except Exception:"
+  },
+  {
+    "file": "eli/core/hardware_profile.py",
+    "line": 129,
+    "text": "    except Exception:"
+  },
+  {
+    "file": "eli/core/hardware_profile.py",
+    "line": 137,
+    "text": "        except Exception:"
+  },
+  {
+    "file": "eli/core/hardware_profile.py",
+    "line": 157,
+    "text": "    except Exception:"
+  },
+  {
+    "file": "eli/core/hardware_profile.py",
+    "line": 172,
+    "text": "        except Exception:"
+  },
+  {
+    "file": "eli/core/legacy_paths.py",
+    "line": 60,
+    "text": "        except Exception:"
+  },
+  {
+    "file": "eli/core/runtime_settings.py",
+    "line": 10,
+    "text": "except Exception:"
+  },
+  {
+    "file": "eli/core/runtime_settings.py",
+    "line": 28,
+    "text": "        except Exception:"
+  },
+  {
+    "file": "eli/core/runtime_settings.py",
+    "line": 56,
+    "text": "    except Exception:"
+  },
+  {
+    "file": "eli/core/runtime_settings.py",
+    "line": 177,
+    "text": "        except Exception:"
+  },
+  {
+    "file": "eli/core/runtime_settings.py",
+    "line": 182,
+    "text": "        except Exception:"
+  },
+  {
+    "file": "eli/core/runtime_settings.py",
+    "line": 305,
+    "text": "        except Exception:"
+  },
+  {
+    "file": "eli/core/runtime_settings.py",
+    "line": 334,
+    "text": "        except Exception:"
+  },
+  {
+    "file": "eli/core/runtime_settings.py",
+    "line": 365,
+    "text": "        except Exception:"
+  },
+  {
+    "file": "eli/core/runtime_settings.py",
+    "line": 390,
+    "text": "        except Exception:"
+  },
+  {
+    "file": "eli/core/runtime_settings.py",
+    "line": 409,
+    "text": "        except Exception: pass"
+  },
+  {
+    "file": "eli/core/runtime_settings.py",
+    "line": 413,
+    "text": "        except Exception:"
+  },
+  {
+    "file": "eli/core/runtime_settings.py",
+    "line": 487,
+    "text": "    except Exception:"
+  },
+  {
+    "file": "eli/core/runtime_settings.py",
+    "line": 529,
+    "text": "            except Exception:"
+  },
+  {
+    "file": "eli/core/runtime_settings.py",
+    "line": 553,
+    "text": "    except Exception:"
+  },
+  {
+    "file": "eli/core/runtime_settings.py",
+    "line": 561,
+    "text": "    except Exception:"
+  },
+  {
+    "file": "eli/core/runtime_settings.py",
+    "line": 650,
+    "text": "        except Exception:"
+  },
+  {
+    "file": "eli/core/runtime_settings.py",
+    "line": 659,
+    "text": "        except Exception:"
+  },
+  {
+    "file": "eli/core/runtime_settings.py",
+    "line": 678,
+    "text": "    except Exception:"
+  },
+  {
+    "file": "eli/core/runtime_settings.py",
+    "line": 688,
+    "text": "    except Exception:"
+  },
+  {
+    "file": "eli/core/runtime_settings.py",
+    "line": 738,
+    "text": "        except Exception:"
+  },
+  {
+    "file": "eli/core/runtime_settings.py",
+    "line": 742,
+    "text": "    except Exception:"
+  },
+  {
+    "file": "eli/core/runtime_settings.py",
+    "line": 776,
+    "text": "    except Exception:"
+  },
+  {
+    "file": "eli/core/runtime_settings.py",
+    "line": 796,
+    "text": "    except Exception:"
+  },
+  {
+    "file": "eli/core/runtime_settings.py",
+    "line": 828,
+    "text": "        except Exception:"
+  },
+  {
+    "file": "eli/core/runtime_settings.py",
+    "line": 832,
+    "text": "    except Exception:"
+  },
+  {
+    "file": "eli/core/runtime_settings.py",
+    "line": 881,
+    "text": "            except Exception:"
+  },
+  {
+    "file": "eli/core/runtime_settings.py",
+    "line": 883,
+    "text": "        except Exception:"
+  },
+  {
+    "file": "eli/execution/execution_intent_packets.py",
+    "line": 21,
+    "text": "        except Exception:"
+  },
+  {
+    "file": "eli/execution/executor_enhanced.py",
+    "line": 35,
+    "text": "    except Exception:"
+  },
+  {
+    "file": "eli/execution/executor_enhanced.py",
+    "line": 55,
+    "text": "        except Exception:"
+  },
+  {
+    "file": "eli/execution/executor_enhanced.py",
+    "line": 108,
+    "text": "    except Exception:"
+  },
+  {
+    "file": "eli/execution/executor_enhanced.py",
+    "line": 116,
+    "text": "    except Exception:"
+  },
+  {
+    "file": "eli/execution/executor_enhanced.py",
+    "line": 129,
+    "text": "    except Exception:"
+  },
+  {
+    "file": "eli/execution/executor_enhanced.py",
+    "line": 150,
+    "text": "    except Exception:"
+  },
+  {
+    "file": "eli/execution/executor_enhanced.py",
+    "line": 225,
+    "text": "    except Exception:"
+  },
+  {
+    "file": "eli/execution/executor_enhanced.py",
+    "line": 506,
+    "text": "        except Exception:"
+  },
+  {
+    "file": "eli/execution/executor_enhanced.py",
+    "line": 585,
+    "text": "        except Exception:"
+  },
+  {
+    "file": "eli/execution/executor_enhanced.py",
+    "line": 600,
+    "text": "    except Exception:"
+  },
+  {
+    "file": "eli/execution/executor_enhanced.py",
+    "line": 605,
+    "text": "    except Exception:"
+  },
+  {
+    "file": "eli/execution/executor_enhanced.py",
+    "line": 622,
+    "text": "                except Exception:"
+  },
+  {
+    "file": "eli/execution/executor_enhanced.py",
+    "line": 625,
+    "text": "        except Exception:"
+  },
+  {
+    "file": "eli/execution/executor_enhanced.py",
+    "line": 666,
+    "text": "            except Exception:"
+  },
+  {
+    "file": "eli/execution/executor_enhanced.py",
+    "line": 1042,
+    "text": "    except Exception:"
+  },
+  {
+    "file": "eli/execution/executor_enhanced.py",
+    "line": 1195,
+    "text": "    except Exception:"
+  },
+  {
+    "file": "eli/execution/executor_enhanced.py",
+    "line": 1204,
+    "text": "    except Exception:"
+  },
+  {
+    "file": "eli/execution/executor_enhanced.py",
+    "line": 1240,
+    "text": "    except Exception:"
+  },
+  {
+    "file": "eli/execution/executor_enhanced.py",
+    "line": 1411,
+    "text": "                except Exception:"
+  },
+  {
+    "file": "eli/execution/executor_enhanced.py",
+    "line": 1460,
+    "text": "        except Exception:"
+  },
+  {
+    "file": "eli/execution/executor_enhanced.py",
+    "line": 1585,
+    "text": "    except Exception:"
+  },
+  {
+    "file": "eli/execution/executor_enhanced.py",
+    "line": 1648,
+    "text": "        except Exception:"
+  },
+  {
+    "file": "eli/execution/executor_enhanced.py",
+    "line": 1723,
+    "text": "        except Exception:"
+  },
+  {
+    "file": "eli/execution/executor_enhanced.py",
+    "line": 1744,
+    "text": "    except Exception:"
+  },
+  {
+    "file": "eli/execution/executor_enhanced.py",
+    "line": 1810,
+    "text": "        except Exception:"
+  },
+  {
+    "file": "eli/execution/executor_enhanced.py",
+    "line": 1815,
+    "text": "        except Exception:"
+  },
+  {
+    "file": "eli/execution/executor_enhanced.py",
+    "line": 1828,
+    "text": "    except Exception:"
+  },
+  {
+    "file": "eli/execution/executor_enhanced.py",
+    "line": 1919,
+    "text": "                except Exception:"
+  },
+  {
+    "file": "eli/execution/executor_enhanced.py",
+    "line": 2028,
+    "text": "        except Exception:"
+  },
+  {
+    "file": "eli/execution/executor_enhanced.py",
+    "line": 2039,
+    "text": "        except Exception:"
+  },
+  {
+    "file": "eli/execution/executor_enhanced.py",
+    "line": 2067,
+    "text": "    except Exception:"
+  },
+  {
+    "file": "eli/execution/executor_enhanced.py",
+    "line": 2118,
+    "text": "    except Exception:"
+  },
+  {
+    "file": "eli/execution/executor_enhanced.py",
+    "line": 2142,
+    "text": "                except Exception:"
+  },
+  {
+    "file": "eli/execution/executor_enhanced.py",
+    "line": 2159,
+    "text": "    except Exception:"
+  },
+  {
+    "file": "eli/execution/executor_enhanced.py",
+    "line": 2320,
+    "text": "    except Exception:"
+  },
+  {
+    "file": "eli/execution/executor_enhanced.py",
+    "line": 2374,
+    "text": "            except Exception:"
+  },
+  {
+    "file": "eli/execution/executor_enhanced.py",
+    "line": 2436,
+    "text": "    except Exception:"
+  },
+  {
+    "file": "eli/execution/executor_enhanced.py",
+    "line": 2456,
+    "text": "    except Exception:"
+  },
+  {
+    "file": "eli/execution/executor_enhanced.py",
+    "line": 2462,
+    "text": "    except Exception:"
+  },
+  {
+    "file": "eli/execution/executor_enhanced.py",
+    "line": 2470,
+    "text": "    except Exception:"
+  },
+  {
+    "file": "eli/execution/executor_enhanced.py",
+    "line": 2514,
+    "text": "    except Exception:"
+  },
+  {
+    "file": "eli/execution/executor_enhanced.py",
+    "line": 2567,
+    "text": "    except Exception:"
+  },
+  {
+    "file": "eli/execution/executor_enhanced.py",
+    "line": 2577,
+    "text": "    except Exception:"
+  },
+  {
+    "file": "eli/execution/executor_enhanced.py",
+    "line": 2588,
+    "text": "except Exception:"
+  },
+  {
+    "file": "eli/execution/executor_enhanced.py",
+    "line": 2602,
+    "text": "    except Exception:"
+  },
+  {
+    "file": "eli/execution/executor_enhanced.py",
+    "line": 2639,
+    "text": "        except Exception:"
+  },
+  {
+    "file": "eli/execution/executor_enhanced.py",
+    "line": 2648,
+    "text": "        except Exception:"
+  },
+  {
+    "file": "eli/execution/executor_enhanced.py",
+    "line": 2659,
+    "text": "    except Exception:"
+  },
+  {
+    "file": "eli/execution/executor_enhanced.py",
+    "line": 2689,
+    "text": "        except Exception:"
+  },
+  {
+    "file": "eli/execution/executor_enhanced.py",
+    "line": 2694,
+    "text": "        except Exception:"
+  },
+  {
+    "file": "eli/execution/executor_enhanced.py",
+    "line": 2724,
+    "text": "        except Exception:"
+  },
+  {
+    "file": "eli/execution/executor_enhanced.py",
+    "line": 3007,
+    "text": "            except Exception:"
+  },
+  {
+    "file": "eli/execution/executor_enhanced.py",
+    "line": 3069,
+    "text": "            except Exception:"
+  },
+  {
+    "file": "eli/execution/executor_enhanced.py",
+    "line": 3095,
+    "text": "        except Exception:"
+  },
+  {
+    "file": "eli/execution/executor_enhanced.py",
+    "line": 3141,
+    "text": "            except Exception:"
+  },
+  {
+    "file": "eli/execution/executor_enhanced.py",
+    "line": 3241,
+    "text": "    except Exception:"
+  },
+  {
+    "file": "eli/execution/executor_enhanced.py",
+    "line": 3364,
+    "text": "            except Exception:"
+  },
+  {
+    "file": "eli/execution/executor_enhanced.py",
+    "line": 3596,
+    "text": "                    except Exception:"
+  },
+  {
+    "file": "eli/execution/executor_enhanced.py",
+    "line": 3705,
+    "text": "                    except Exception:"
+  },
+  {
+    "file": "eli/execution/executor_enhanced.py",
+    "line": 3904,
+    "text": "        except Exception:"
+  },
+  {
+    "file": "eli/execution/executor_enhanced.py",
+    "line": 3936,
+    "text": "        except Exception:"
+  },
+  {
+    "file": "eli/execution/executor_enhanced.py",
+    "line": 3971,
+    "text": "                                except Exception:"
+  },
+  {
+    "file": "eli/execution/executor_enhanced.py",
+    "line": 3982,
+    "text": "        except Exception:"
+  },
+  {
+    "file": "eli/execution/executor_enhanced.py",
+    "line": 4120,
+    "text": "        except Exception:"
+  },
+  {
+    "file": "eli/execution/executor_enhanced.py",
+    "line": 4152,
+    "text": "            except Exception:"
+  },
+  {
+    "file": "eli/execution/executor_enhanced.py",
+    "line": 4196,
+    "text": "                except Exception:"
+  },
+  {
+    "file": "eli/execution/executor_enhanced.py",
+    "line": 4218,
+    "text": "            except Exception:"
+  },
+  {
+    "file": "eli/execution/executor_enhanced.py",
+    "line": 4489,
+    "text": "            except Exception:"
+  },
+  {
+    "file": "eli/execution/executor_enhanced.py",
+    "line": 4497,
+    "text": "                except Exception:"
+  },
+  {
+    "file": "eli/execution/executor_enhanced.py",
+    "line": 4524,
+    "text": "                except Exception:"
+  },
+  {
+    "file": "eli/execution/executor_enhanced.py",
+    "line": 4778,
+    "text": "                except Exception:"
+  },
+  {
+    "file": "eli/execution/executor_enhanced.py",
+    "line": 5057,
+    "text": "            except Exception:"
+  },
+  {
+    "file": "eli/execution/executor_enhanced.py",
+    "line": 5210,
+    "text": "                    except Exception:"
+  },
+  {
+    "file": "eli/execution/executor_enhanced.py",
+    "line": 5214,
+    "text": "                    except Exception:"
+  },
+  {
+    "file": "eli/execution/executor_enhanced.py",
+    "line": 5236,
+    "text": "                        except Exception:"
+  },
+  {
+    "file": "eli/execution/executor_enhanced.py",
+    "line": 5240,
+    "text": "                        except Exception:"
+  },
+  {
+    "file": "eli/execution/executor_enhanced.py",
+    "line": 5358,
+    "text": "                except Exception:"
+  },
+  {
+    "file": "eli/execution/executor_enhanced.py",
+    "line": 5458,
+    "text": "            except Exception:"
+  },
+  {
+    "file": "eli/execution/executor_enhanced.py",
+    "line": 5497,
+    "text": "            except Exception:"
+  },
+  {
+    "file": "eli/execution/executor_enhanced.py",
+    "line": 5508,
+    "text": "                    except Exception:"
+  },
+  {
+    "file": "eli/execution/executor_enhanced.py",
+    "line": 5650,
+    "text": "                    except Exception:"
+  },
+  {
+    "file": "eli/execution/executor_enhanced.py",
+    "line": 5826,
+    "text": "                    except Exception:"
+  },
+  {
+    "file": "eli/execution/executor_enhanced.py",
+    "line": 5841,
+    "text": "            except Exception:"
+  },
+  {
+    "file": "eli/execution/executor_enhanced.py",
+    "line": 6058,
+    "text": "            except Exception:"
+  },
+  {
+    "file": "eli/execution/executor_enhanced.py",
+    "line": 6072,
+    "text": "            except Exception:"
+  },
+  {
+    "file": "eli/execution/executor_enhanced.py",
+    "line": 6235,
+    "text": "            except Exception:"
+  },
+  {
+    "file": "eli/execution/executor_enhanced.py",
+    "line": 6279,
+    "text": "            except Exception:"
+  },
+  {
+    "file": "eli/execution/executor_enhanced.py",
+    "line": 6309,
+    "text": "            except Exception:"
+  },
+  {
+    "file": "eli/execution/executor_enhanced.py",
+    "line": 6422,
+    "text": "                    except Exception:"
+  },
+  {
+    "file": "eli/execution/executor_enhanced.py",
+    "line": 6531,
+    "text": "        except Exception:"
+  },
+  {
+    "file": "eli/execution/executor_enhanced.py",
+    "line": 6560,
+    "text": "        except Exception:"
+  },
+  {
+    "file": "eli/execution/executor_enhanced.py",
+    "line": 6586,
+    "text": "    except Exception:"
+  },
+  {
+    "file": "eli/execution/executor_enhanced.py",
+    "line": 6592,
+    "text": "    except Exception:"
+  },
+  {
+    "file": "eli/execution/executor_enhanced.py",
+    "line": 6734,
+    "text": "        except Exception:"
+  },
+  {
+    "file": "eli/execution/executor_enhanced.py",
+    "line": 6772,
+    "text": "        except Exception:"
+  },
+  {
+    "file": "eli/execution/executor_enhanced.py",
+    "line": 6796,
+    "text": "    except Exception:"
+  },
+  {
+    "file": "eli/execution/executor_enhanced.py",
+    "line": 6824,
+    "text": "    except Exception:"
+  },
+  {
+    "file": "eli/execution/executor_enhanced.py",
+    "line": 6849,
+    "text": "except Exception:"
+  },
+  {
+    "file": "eli/execution/executor_enhanced.py",
+    "line": 6868,
+    "text": "        except Exception:"
+  },
+  {
+    "file": "eli/execution/executor_enhanced.py",
+    "line": 6875,
+    "text": "        except Exception:"
+  },
+  {
+    "file": "eli/execution/executor_enhanced.py",
+    "line": 6888,
+    "text": "    except Exception:"
+  },
+  {
+    "file": "eli/execution/executor_enhanced.py",
+    "line": 6909,
+    "text": "        except Exception:"
+  },
+  {
+    "file": "eli/execution/executor_enhanced.py",
+    "line": 6916,
+    "text": "    except Exception:"
+  },
+  {
+    "file": "eli/execution/executor_enhanced.py",
+    "line": 6920,
+    "text": "    except Exception:"
+  },
+  {
+    "file": "eli/execution/executor_enhanced.py",
+    "line": 6923,
+    "text": "        except Exception:"
+  },
+  {
+    "file": "eli/execution/executor_enhanced.py",
+    "line": 6988,
+    "text": "        except Exception:"
+  },
+  {
+    "file": "eli/execution/executor_enhanced.py",
+    "line": 7028,
+    "text": "    except Exception:"
+  },
+  {
+    "file": "eli/execution/executor_enhanced.py",
+    "line": 7328,
+    "text": "            except Exception:"
+  },
+  {
+    "file": "eli/execution/executor_enhanced.py",
+    "line": 7602,
+    "text": "            except Exception:"
+  },
+  {
+    "file": "eli/execution/media_intents.py",
+    "line": 416,
+    "text": "        except Exception:"
+  },
+  {
+    "file": "eli/execution/media_intents.py",
+    "line": 443,
+    "text": "        except Exception:"
+  },
+  {
+    "file": "eli/execution/media_runtime.py",
+    "line": 145,
+    "text": "    except Exception:"
+  },
+  {
+    "file": "eli/execution/media_runtime.py",
+    "line": 209,
+    "text": "    except Exception:"
+  },
+  {
+    "file": "eli/execution/media_runtime.py",
+    "line": 256,
+    "text": "        except Exception:"
+  },
+  {
+    "file": "eli/execution/media_runtime.py",
+    "line": 274,
+    "text": "    except Exception:"
+  },
+  {
+    "file": "eli/execution/media_runtime.py",
+    "line": 292,
+    "text": "        except Exception:"
+  },
+  {
+    "file": "eli/execution/media_runtime.py",
+    "line": 303,
+    "text": "        except Exception:"
+  },
+  {
+    "file": "eli/execution/operator_actions.py",
+    "line": 23,
+    "text": "    except Exception:"
+  },
+  {
+    "file": "eli/execution/operator_actions.py",
+    "line": 45,
+    "text": "        except Exception:"
+  },
+  {
+    "file": "eli/execution/operator_policy.py",
+    "line": 19,
+    "text": "    except Exception:"
+  },
+  {
+    "file": "eli/execution/operator_policy.py",
+    "line": 40,
+    "text": "    except Exception:"
+  },
+  {
+    "file": "eli/execution/route_authority.py",
+    "line": 25,
+    "text": "        except Exception:"
+  },
+  {
+    "file": "eli/execution/router_enhanced.py",
+    "line": 2939,
+    "text": "except Exception:"
+  },
+  {
+    "file": "eli/execution/router_enhanced.py",
+    "line": 3051,
+    "text": "    except Exception:"
+  },
+  {
+    "file": "eli/execution/router_enhanced.py",
+    "line": 3059,
+    "text": "    except Exception:"
+  },
+  {
+    "file": "eli/execution/router_enhanced.py",
+    "line": 3166,
+    "text": "        except Exception:"
+  },
+  {
+    "file": "eli/execution/router_enhanced.py",
+    "line": 3276,
+    "text": "        except Exception:"
+  },
+  {
+    "file": "eli/execution/router_enhanced.py",
+    "line": 3490,
+    "text": "    except Exception:"
+  },
+  {
+    "file": "eli/execution/router_enhanced.py",
+    "line": 3518,
+    "text": "            except Exception:"
+  },
+  {
+    "file": "eli/execution/router_enhanced.py",
+    "line": 3545,
+    "text": "                except Exception:"
+  },
+  {
+    "file": "eli/execution/tool_execution_authority.py",
+    "line": 23,
+    "text": "        except Exception:"
+  },
+  {
+    "file": "eli/execution/tool_execution_authority.py",
+    "line": 33,
+    "text": "        except Exception:"
+  },
+  {
+    "file": "eli/execution/tool_execution_authority.py",
+    "line": 61,
+    "text": "    except Exception:"
+  },
+  {
+    "file": "eli/gui/app.py",
+    "line": 43,
+    "text": "    except Exception:"
+  },
+  {
+    "file": "eli/gui/app.py",
+    "line": 60,
+    "text": "    except Exception:"
+  },
+  {
+    "file": "eli/gui/app.py",
+    "line": 68,
+    "text": "        except Exception:"
+  },
+  {
+    "file": "eli/gui/app.py",
+    "line": 85,
+    "text": "    except Exception:"
+  },
+  {
+    "file": "eli/gui/app.py",
+    "line": 153,
+    "text": "    except Exception:"
+  },
+  {
+    "file": "eli/gui/app.py",
+    "line": 283,
+    "text": "    except Exception:"
+  },
+  {
+    "file": "eli/gui/app.py",
+    "line": 287,
+    "text": "            except Exception:"
+  },
+  {
+    "file": "eli/gui/app.py",
+    "line": 388,
+    "text": "            except Exception:"
+  },
+  {
+    "file": "eli/gui/app.py",
+    "line": 454,
+    "text": "                    except Exception:"
+  },
+  {
+    "file": "eli/gui/docks/operator_console_dock.py",
+    "line": 145,
+    "text": "        except Exception:"
+  },
+  {
+    "file": "eli/gui/docks/operator_console_dock.py",
+    "line": 154,
+    "text": "        except Exception:"
+  },
+  {
+    "file": "eli/gui/docks/operator_console_dock.py",
+    "line": 256,
+    "text": "        except Exception:"
+  },
+  {
+    "file": "eli/gui/docks/operator_console_dock.py",
+    "line": 267,
+    "text": "            except Exception:"
+  },
+  {
+    "file": "eli/gui/docks/operator_console_dock.py",
+    "line": 280,
+    "text": "            except Exception:"
+  },
+  {
+    "file": "eli/gui/eli_pro_audio_gui_MKI.py",
+    "line": 183,
+    "text": "        except Exception:"
+  },
+  {
+    "file": "eli/gui/eli_pro_audio_gui_MKI.py",
+    "line": 228,
+    "text": "except Exception:"
+  },
+  {
+    "file": "eli/gui/eli_pro_audio_gui_MKI.py",
+    "line": 437,
+    "text": "                except Exception:"
+  },
+  {
+    "file": "eli/gui/eli_pro_audio_gui_MKI.py",
+    "line": 454,
+    "text": "        except Exception:"
+  },
+  {
+    "file": "eli/gui/eli_pro_audio_gui_MKI.py",
+    "line": 473,
+    "text": "    except Exception:"
+  },
+  {
+    "file": "eli/gui/eli_pro_audio_gui_MKI.py",
+    "line": 482,
+    "text": "    except Exception:"
+  },
+  {
+    "file": "eli/gui/eli_pro_audio_gui_MKI.py",
+    "line": 614,
+    "text": "            except Exception:"
+  },
+  {
+    "file": "eli/gui/eli_pro_audio_gui_MKI.py",
+    "line": 794,
+    "text": "                    except Exception:"
+  },
+  {
+    "file": "eli/gui/eli_pro_audio_gui_MKI.py",
+    "line": 828,
+    "text": "            except Exception:"
+  },
+  {
+    "file": "eli/gui/eli_pro_audio_gui_MKI.py",
+    "line": 946,
+    "text": "        except Exception:"
+  },
+  {
+    "file": "eli/gui/eli_pro_audio_gui_MKI.py",
+    "line": 1654,
+    "text": "        except Exception:"
+  },
+  {
+    "file": "eli/gui/eli_pro_audio_gui_MKI.py",
+    "line": 1663,
+    "text": "        except Exception:"
+  },
+  {
+    "file": "eli/gui/eli_pro_audio_gui_MKI.py",
+    "line": 2085,
+    "text": "        except Exception:"
+  },
+  {
+    "file": "eli/gui/eli_pro_audio_gui_MKI.py",
+    "line": 2138,
+    "text": "        except Exception:"
+  },
+  {
+    "file": "eli/gui/eli_pro_audio_gui_MKI.py",
+    "line": 2196,
+    "text": "        except Exception:"
+  },
+  {
+    "file": "eli/gui/eli_pro_audio_gui_MKI.py",
+    "line": 2204,
+    "text": "            except Exception:"
+  },
+  {
+    "file": "eli/gui/eli_pro_audio_gui_MKI.py",
+    "line": 2404,
+    "text": "        except Exception:"
+  },
+  {
+    "file": "eli/gui/eli_pro_audio_gui_MKI.py",
+    "line": 2457,
+    "text": "                        except Exception:"
+  },
+  {
+    "file": "eli/gui/eli_pro_audio_gui_MKI.py",
+    "line": 2461,
+    "text": "        except Exception:"
+  },
+  {
+    "file": "eli/gui/eli_pro_audio_gui_MKI.py",
+    "line": 2535,
+    "text": "        except Exception:"
+  },
+  {
+    "file": "eli/gui/eli_pro_audio_gui_MKI.py",
+    "line": 2578,
+    "text": "                except Exception:"
+  },
+  {
+    "file": "eli/gui/eli_pro_audio_gui_MKI.py",
+    "line": 2584,
+    "text": "                except Exception:"
+  },
+  {
+    "file": "eli/gui/eli_pro_audio_gui_MKI.py",
+    "line": 2587,
+    "text": "                    except Exception:"
+  },
+  {
+    "file": "eli/gui/eli_pro_audio_gui_MKI.py",
+    "line": 2599,
+    "text": "                except Exception:"
+  },
+  {
+    "file": "eli/gui/eli_pro_audio_gui_MKI.py",
+    "line": 2721,
+    "text": "        except Exception:"
+  },
+  {
+    "file": "eli/gui/eli_pro_audio_gui_MKI.py",
+    "line": 2781,
+    "text": "            except Exception:"
+  },
+  {
+    "file": "eli/gui/eli_pro_audio_gui_MKI.py",
+    "line": 2838,
+    "text": "        except Exception:"
+  },
+  {
+    "file": "eli/gui/eli_pro_audio_gui_MKI.py",
+    "line": 2875,
+    "text": "        except Exception:"
+  },
+  {
+    "file": "eli/gui/eli_pro_audio_gui_MKI.py",
+    "line": 2911,
+    "text": "        except Exception: pass"
+  },
+  {
+    "file": "eli/gui/eli_pro_audio_gui_MKI.py",
+    "line": 3067,
+    "text": "        except Exception:"
+  },
+  {
+    "file": "eli/gui/eli_pro_audio_gui_MKI.py",
+    "line": 3079,
+    "text": "        except Exception:"
+  },
+  {
+    "file": "eli/gui/eli_pro_audio_gui_MKI.py",
+    "line": 3142,
+    "text": "                except Exception:"
+  },
+  {
+    "file": "eli/gui/eli_pro_audio_gui_MKI.py",
+    "line": 3281,
+    "text": "        except Exception:"
+  },
+  {
+    "file": "eli/gui/eli_pro_audio_gui_MKI.py",
+    "line": 3289,
+    "text": "        except Exception:"
+  },
+  {
+    "file": "eli/gui/eli_pro_audio_gui_MKI.py",
+    "line": 3314,
+    "text": "            except Exception:"
+  },
+  {
+    "file": "eli/gui/eli_pro_audio_gui_MKI.py",
+    "line": 4449,
+    "text": "        except Exception:"
+  },
+  {
+    "file": "eli/gui/eli_pro_audio_gui_MKI.py",
+    "line": 4613,
+    "text": "        except Exception:"
+  },
+  {
+    "file": "eli/gui/eli_pro_audio_gui_MKI.py",
+    "line": 4669,
+    "text": "                except Exception:"
+  },
+  {
+    "file": "eli/gui/eli_pro_audio_gui_MKI.py",
+    "line": 4714,
+    "text": "                    except Exception:"
+  },
+  {
+    "file": "eli/gui/eli_pro_audio_gui_MKI.py",
+    "line": 4721,
+    "text": "                    except Exception:"
+  },
+  {
+    "file": "eli/gui/eli_pro_audio_gui_MKI.py",
+    "line": 5203,
+    "text": "            except Exception:"
+  },
+  {
+    "file": "eli/gui/eli_pro_audio_gui_MKI.py",
+    "line": 5208,
+    "text": "        except Exception:"
+  },
+  {
+    "file": "eli/gui/eli_pro_audio_gui_MKI.py",
+    "line": 5229,
+    "text": "        except Exception:"
+  },
+  {
+    "file": "eli/gui/eli_pro_audio_gui_MKI.py",
+    "line": 5240,
+    "text": "        except Exception:"
+  },
+  {
+    "file": "eli/gui/eli_pro_audio_gui_MKI.py",
+    "line": 5354,
+    "text": "        except Exception:"
+  },
+  {
+    "file": "eli/gui/eli_pro_audio_gui_MKI.py",
+    "line": 5365,
+    "text": "        except Exception:"
+  },
+  {
+    "file": "eli/gui/eli_pro_audio_gui_MKI.py",
+    "line": 5465,
+    "text": "                except Exception:"
+  },
+  {
+    "file": "eli/gui/eli_pro_audio_gui_MKI.py",
+    "line": 5474,
+    "text": "                except Exception:"
+  },
+  {
+    "file": "eli/gui/eli_pro_audio_gui_MKI.py",
+    "line": 5482,
+    "text": "                        except Exception:"
+  },
+  {
+    "file": "eli/gui/eli_pro_audio_gui_MKI.py",
+    "line": 5496,
+    "text": "        except Exception:"
+  },
+  {
+    "file": "eli/gui/eli_pro_audio_gui_MKI.py",
+    "line": 5541,
+    "text": "                except Exception:"
+  },
+  {
+    "file": "eli/gui/eli_pro_audio_gui_MKI.py",
+    "line": 5556,
+    "text": "                except Exception:"
+  },
+  {
+    "file": "eli/gui/eli_pro_audio_gui_MKI.py",
+    "line": 5704,
+    "text": "        except Exception:"
+  },
+  {
+    "file": "eli/gui/eli_pro_audio_gui_MKI.py",
+    "line": 5714,
+    "text": "        except Exception:"
+  },
+  {
+    "file": "eli/gui/eli_pro_audio_gui_MKI.py",
+    "line": 5723,
+    "text": "        except Exception:"
+  },
+  {
+    "file": "eli/gui/eli_pro_audio_gui_MKI.py",
+    "line": 6006,
+    "text": "            except Exception:"
+  },
+  {
+    "file": "eli/gui/eli_pro_audio_gui_MKI.py",
+    "line": 6580,
+    "text": "                except Exception:"
+  },
+  {
+    "file": "eli/gui/eli_pro_audio_gui_MKI.py",
+    "line": 6623,
+    "text": "        except Exception:"
+  },
+  {
+    "file": "eli/gui/eli_pro_audio_gui_MKI.py",
+    "line": 6657,
+    "text": "        except Exception:"
+  },
+  {
+    "file": "eli/gui/eli_pro_audio_gui_MKI.py",
+    "line": 6689,
+    "text": "            except Exception:"
+  },
+  {
+    "file": "eli/gui/eli_pro_audio_gui_MKI.py",
+    "line": 7006,
+    "text": "        except Exception:"
+  },
+  {
+    "file": "eli/gui/eli_pro_audio_gui_MKI.py",
+    "line": 7018,
+    "text": "            except Exception:"
+  },
+  {
+    "file": "eli/gui/eli_pro_audio_gui_MKI.py",
+    "line": 7025,
+    "text": "                except Exception:"
+  },
+  {
+    "file": "eli/gui/eli_pro_audio_gui_MKI.py",
+    "line": 7049,
+    "text": "            except Exception:"
+  },
+  {
+    "file": "eli/gui/eli_pro_audio_gui_MKI.py",
+    "line": 7327,
+    "text": "        except Exception:"
+  },
+  {
+    "file": "eli/gui/eli_pro_audio_gui_MKI.py",
+    "line": 7393,
+    "text": "            except Exception:"
+  },
+  {
+    "file": "eli/gui/eli_pro_audio_gui_MKI.py",
+    "line": 7424,
+    "text": "        except Exception:"
+  },
+  {
+    "file": "eli/gui/eli_pro_audio_gui_MKI.py",
+    "line": 7501,
+    "text": "                except Exception:"
+  },
+  {
+    "file": "eli/gui/eli_pro_audio_gui_MKI.py",
+    "line": 7506,
+    "text": "                    except Exception:"
+  },
+  {
+    "file": "eli/gui/eli_pro_audio_gui_MKI.py",
+    "line": 7739,
+    "text": "                    except Exception:"
+  },
+  {
+    "file": "eli/gui/eli_pro_audio_gui_MKI.py",
+    "line": 7763,
+    "text": "                except Exception:"
+  },
+  {
+    "file": "eli/gui/eli_pro_audio_gui_MKI.py",
+    "line": 7892,
+    "text": "        except Exception:"
+  },
+  {
+    "file": "eli/gui/eli_pro_audio_gui_MKI.py",
+    "line": 7904,
+    "text": "                except Exception:"
+  },
+  {
+    "file": "eli/gui/eli_pro_audio_gui_MKI.py",
+    "line": 7957,
+    "text": "            except Exception: pass"
+  },
+  {
+    "file": "eli/gui/eli_pro_audio_gui_MKI.py",
+    "line": 7960,
+    "text": "            except Exception: pass"
+  },
+  {
+    "file": "eli/gui/eli_pro_audio_gui_MKI.py",
+    "line": 7963,
+    "text": "            except Exception: pass"
+  },
+  {
+    "file": "eli/gui/eli_pro_audio_gui_MKI.py",
+    "line": 7968,
+    "text": "            except Exception: pass"
+  },
+  {
+    "file": "eli/gui/eli_pro_audio_gui_MKI.py",
+    "line": 7974,
+    "text": "            except Exception: pass"
+  },
+  {
+    "file": "eli/gui/eli_pro_audio_gui_MKI.py",
+    "line": 7979,
+    "text": "            except Exception: pass"
+  },
+  {
+    "file": "eli/gui/eli_pro_audio_gui_MKI.py",
+    "line": 7990,
+    "text": "            except Exception: pass"
+  },
+  {
+    "file": "eli/gui/eli_pro_audio_gui_MKI.py",
+    "line": 7995,
+    "text": "            except Exception: pass"
+  },
+  {
+    "file": "eli/gui/eli_pro_audio_gui_MKI.py",
+    "line": 8003,
+    "text": "                    except Exception:"
+  },
+  {
+    "file": "eli/gui/eli_pro_audio_gui_MKI.py",
+    "line": 8005,
+    "text": "            except Exception: pass"
+  },
+  {
+    "file": "eli/gui/eli_pro_audio_gui_MKI.py",
+    "line": 8007,
+    "text": "        except Exception: pass"
+  },
+  {
+    "file": "eli/gui/eli_pro_audio_gui_MKI.py",
+    "line": 8018,
+    "text": "        except Exception: pass"
+  },
+  {
+    "file": "eli/gui/eli_pro_audio_gui_MKI.py",
+    "line": 8532,
+    "text": "        except Exception:"
+  },
+  {
+    "file": "eli/gui/eli_pro_audio_gui_MKI.py",
+    "line": 8882,
+    "text": "            except Exception:"
+  },
+  {
+    "file": "eli/gui/eli_pro_audio_gui_MKI.py",
+    "line": 8911,
+    "text": "            except Exception:"
+  },
+  {
+    "file": "eli/gui/eli_pro_audio_gui_MKI.py",
+    "line": 8919,
+    "text": "        except Exception:"
+  },
+  {
+    "file": "eli/gui/eli_pro_audio_gui_MKI.py",
+    "line": 8925,
+    "text": "        except Exception:"
+  },
+  {
+    "file": "eli/gui/eli_pro_audio_gui_MKI.py",
+    "line": 8943,
+    "text": "        except Exception:"
+  },
+  {
+    "file": "eli/gui/labs_tab.py",
+    "line": 100,
+    "text": "except Exception:"
+  },
+  {
+    "file": "eli/gui/labs_tab.py",
+    "line": 395,
+    "text": "        except Exception:"
+  },
+  {
+    "file": "eli/gui/labs_tab.py",
+    "line": 1283,
+    "text": "            except Exception:"
+  },
+  {
+    "file": "eli/gui/labs_tab.py",
+    "line": 1288,
+    "text": "            except Exception:"
+  },
+  {
+    "file": "eli/gui/labs_tab.py",
+    "line": 1292,
+    "text": "        except Exception:"
+  },
+  {
+    "file": "eli/gui/labs_tab.py",
+    "line": 1296,
+    "text": "        except Exception:"
+  },
+  {
+    "file": "eli/gui/labs_tab.py",
+    "line": 1389,
+    "text": "                    except Exception:"
+  },
+  {
+    "file": "eli/gui/labs_tab.py",
+    "line": 1393,
+    "text": "        except Exception:"
+  },
+  {
+    "file": "eli/gui/labs_tab.py",
+    "line": 1432,
+    "text": "            except Exception:"
+  },
+  {
+    "file": "eli/gui/labs_tab.py",
+    "line": 1465,
+    "text": "        except Exception:"
+  },
+  {
+    "file": "eli/gui/labs_tab.py",
+    "line": 1580,
+    "text": "        except Exception:"
+  },
+  {
+    "file": "eli/gui/labs_tab.py",
+    "line": 1833,
+    "text": "            except Exception:"
+  },
+  {
+    "file": "eli/gui/labs_tab.py",
+    "line": 1841,
+    "text": "        except Exception:"
+  },
+  {
+    "file": "eli/gui/labs_tab.py",
+    "line": 1890,
+    "text": "            except Exception:"
+  },
+  {
+    "file": "eli/gui/labs_tab.py",
+    "line": 2038,
+    "text": "        except Exception:"
+  },
+  {
+    "file": "eli/gui/labs_tab.py",
+    "line": 2231,
+    "text": "        except Exception:"
+  },
+  {
+    "file": "eli/gui/labs_tab.py",
+    "line": 2513,
+    "text": "                except Exception:"
+  },
+  {
+    "file": "eli/gui/labs_tab.py",
+    "line": 2551,
+    "text": "        except Exception:"
+  },
+  {
+    "file": "eli/gui/labs_tab.py",
+    "line": 2587,
+    "text": "            except Exception:"
+  },
+  {
+    "file": "eli/gui/labs_tab.py",
+    "line": 2603,
+    "text": "        except Exception:"
+  },
+  {
+    "file": "eli/gui/qt_compat.py",
+    "line": 24,
+    "text": "except Exception:"
+  },
+  {
+    "file": "eli/gui/qt_compat.py",
+    "line": 44,
+    "text": "    except Exception:"
+  },
+  {
+    "file": "eli/gui/qt_compat.py",
+    "line": 64,
+    "text": "        except Exception:"
+  },
+  {
+    "file": "eli/gui/widgets/ollama_model_selector.py",
+    "line": 149,
+    "text": "        except Exception:"
+  },
+  {
+    "file": "eli/gui/widgets/ollama_model_selector.py",
+    "line": 195,
+    "text": "        except Exception:"
+  },
+  {
+    "file": "eli/integrations/mpris/playerctl_backend.py",
+    "line": 559,
+    "text": "        except Exception:"
+  },
+  {
+    "file": "eli/integrations/mpris/playerctl_backend.py",
+    "line": 572,
+    "text": "            except Exception:"
+  },
+  {
+    "file": "eli/integrations/mpris/playerctl_backend.py",
+    "line": 584,
+    "text": "        except Exception:"
+  },
+  {
+    "file": "eli/integrations/mpris/playerctl_backend.py",
+    "line": 594,
+    "text": "    except Exception:"
+  },
+  {
+    "file": "eli/integrations/mpris/playerctl_backend.py",
+    "line": 632,
+    "text": "    except Exception:"
+  },
+  {
+    "file": "eli/integrations/ollama/client.py",
+    "line": 63,
+    "text": "        except Exception:"
+  },
+  {
+    "file": "eli/integrations/ollama/client.py",
+    "line": 81,
+    "text": "    except Exception:"
+  },
+  {
+    "file": "eli/integrations/ollama/client.py",
+    "line": 94,
+    "text": "    except Exception:"
+  },
+  {
+    "file": "eli/integrations/ollama/client.py",
+    "line": 103,
+    "text": "    except Exception:"
+  },
+  {
+    "file": "eli/integrations/ollama/client.py",
+    "line": 120,
+    "text": "    except Exception:"
+  },
+  {
+    "file": "eli/integrations/ollama/client.py",
+    "line": 137,
+    "text": "    except Exception:"
+  },
+  {
+    "file": "eli/integrations/ollama/client.py",
+    "line": 156,
+    "text": "    except Exception:"
+  },
+  {
+    "file": "eli/integrations/ollama/client.py",
+    "line": 189,
+    "text": "                except Exception:"
+  },
+  {
+    "file": "eli/kernel/engine.py",
+    "line": 61,
+    "text": "except Exception:"
+  },
+  {
+    "file": "eli/kernel/engine.py",
+    "line": 263,
+    "text": "    except Exception:"
+  },
+  {
+    "file": "eli/kernel/engine.py",
+    "line": 274,
+    "text": "    except Exception:"
+  },
+  {
+    "file": "eli/kernel/engine.py",
+    "line": 316,
+    "text": "        except Exception:"
+  },
+  {
+    "file": "eli/kernel/engine.py",
+    "line": 326,
+    "text": "    except Exception:"
+  },
+  {
+    "file": "eli/kernel/engine.py",
+    "line": 333,
+    "text": "    except Exception:"
+  },
+  {
+    "file": "eli/kernel/engine.py",
+    "line": 1027,
+    "text": "        except Exception:"
+  },
+  {
+    "file": "eli/kernel/engine.py",
+    "line": 1102,
+    "text": "            except Exception:"
+  },
+  {
+    "file": "eli/kernel/engine.py",
+    "line": 1110,
+    "text": "            except Exception:"
+  },
+  {
+    "file": "eli/kernel/engine.py",
+    "line": 1120,
+    "text": "        except Exception:"
+  },
+  {
+    "file": "eli/kernel/engine.py",
+    "line": 1127,
+    "text": "        except Exception:"
+  },
+  {
+    "file": "eli/kernel/engine.py",
+    "line": 1144,
+    "text": "        except Exception:"
+  },
+  {
+    "file": "eli/kernel/engine.py",
+    "line": 1150,
+    "text": "        except Exception:"
+  },
+  {
+    "file": "eli/kernel/engine.py",
+    "line": 1155,
+    "text": "        except Exception:"
+  },
+  {
+    "file": "eli/kernel/engine.py",
+    "line": 1160,
+    "text": "        except Exception:"
+  },
+  {
+    "file": "eli/kernel/engine.py",
+    "line": 1170,
+    "text": "        except Exception:"
+  },
+  {
+    "file": "eli/kernel/engine.py",
+    "line": 1214,
+    "text": "        except Exception:"
+  },
+  {
+    "file": "eli/kernel/engine.py",
+    "line": 1354,
+    "text": "                except Exception:"
+  },
+  {
+    "file": "eli/kernel/engine.py",
+    "line": 1360,
+    "text": "                except Exception:"
+  },
+  {
+    "file": "eli/kernel/engine.py",
+    "line": 1394,
+    "text": "        except Exception:"
+  },
+  {
+    "file": "eli/kernel/engine.py",
+    "line": 1431,
+    "text": "        except Exception:"
+  },
+  {
+    "file": "eli/kernel/engine.py",
+    "line": 1453,
+    "text": "            except Exception:"
+  },
+  {
+    "file": "eli/kernel/engine.py",
+    "line": 1476,
+    "text": "            except Exception:"
+  },
+  {
+    "file": "eli/kernel/engine.py",
+    "line": 1483,
+    "text": "            except Exception:"
+  },
+  {
+    "file": "eli/kernel/engine.py",
+    "line": 1488,
+    "text": "                except Exception:"
+  },
+  {
+    "file": "eli/kernel/engine.py",
+    "line": 1510,
+    "text": "                        except Exception:"
+  },
+  {
+    "file": "eli/kernel/engine.py",
+    "line": 1521,
+    "text": "            except Exception:"
+  },
+  {
+    "file": "eli/kernel/engine.py",
+    "line": 1538,
+    "text": "                                except Exception:"
+  },
+  {
+    "file": "eli/kernel/engine.py",
+    "line": 1548,
+    "text": "                        except Exception:"
+  },
+  {
+    "file": "eli/kernel/engine.py",
+    "line": 1550,
+    "text": "            except Exception:"
+  },
+  {
+    "file": "eli/kernel/engine.py",
+    "line": 1591,
+    "text": "        except Exception:"
+  },
+  {
+    "file": "eli/kernel/engine.py",
+    "line": 1600,
+    "text": "        except Exception:"
+  },
+  {
+    "file": "eli/kernel/engine.py",
+    "line": 1615,
+    "text": "                except Exception:"
+  },
+  {
+    "file": "eli/kernel/engine.py",
+    "line": 1632,
+    "text": "                except Exception:"
+  },
+  {
+    "file": "eli/kernel/engine.py",
+    "line": 1638,
+    "text": "        except Exception:"
+  },
+  {
+    "file": "eli/kernel/engine.py",
+    "line": 1644,
+    "text": "            except Exception:"
+  },
+  {
+    "file": "eli/kernel/engine.py",
+    "line": 1654,
+    "text": "            except Exception:"
+  },
+  {
+    "file": "eli/kernel/engine.py",
+    "line": 1660,
+    "text": "            except Exception:"
+  },
+  {
+    "file": "eli/kernel/engine.py",
+    "line": 1666,
+    "text": "            except Exception:"
+  },
+  {
+    "file": "eli/kernel/engine.py",
+    "line": 1739,
+    "text": "        except Exception:"
+  },
+  {
+    "file": "eli/kernel/engine.py",
+    "line": 1870,
+    "text": "        except Exception:"
+  },
+  {
+    "file": "eli/kernel/engine.py",
+    "line": 1910,
+    "text": "            except Exception:"
+  },
+  {
+    "file": "eli/kernel/engine.py",
+    "line": 1945,
+    "text": "                            except Exception:"
+  },
+  {
+    "file": "eli/kernel/engine.py",
+    "line": 1979,
+    "text": "                            except Exception:"
+  },
+  {
+    "file": "eli/kernel/engine.py",
+    "line": 2032,
+    "text": "                                    except Exception:"
+  },
+  {
+    "file": "eli/kernel/engine.py",
+    "line": 2040,
+    "text": "                                    except Exception:"
+  },
+  {
+    "file": "eli/kernel/engine.py",
+    "line": 2148,
+    "text": "        except Exception:"
+  },
+  {
+    "file": "eli/kernel/engine.py",
+    "line": 2391,
+    "text": "        except Exception:"
+  },
+  {
+    "file": "eli/kernel/engine.py",
+    "line": 2400,
+    "text": "            except Exception:"
+  },
+  {
+    "file": "eli/kernel/engine.py",
+    "line": 2438,
+    "text": "        except Exception:"
+  },
+  {
+    "file": "eli/kernel/engine.py",
+    "line": 2443,
+    "text": "        except Exception:"
+  },
+  {
+    "file": "eli/kernel/engine.py",
+    "line": 2502,
+    "text": "        except Exception:"
+  },
+  {
+    "file": "eli/kernel/engine.py",
+    "line": 2510,
+    "text": "        except Exception:"
+  },
+  {
+    "file": "eli/kernel/engine.py",
+    "line": 2520,
+    "text": "        except Exception:"
+  },
+  {
+    "file": "eli/kernel/engine.py",
+    "line": 2706,
+    "text": "            except Exception:"
+  },
+  {
+    "file": "eli/kernel/engine.py",
+    "line": 2769,
+    "text": "                    except Exception:"
+  },
+  {
+    "file": "eli/kernel/engine.py",
+    "line": 3390,
+    "text": "        except Exception:"
+  },
+  {
+    "file": "eli/kernel/engine.py",
+    "line": 3404,
+    "text": "        except Exception:"
+  },
+  {
+    "file": "eli/kernel/engine.py",
+    "line": 3440,
+    "text": "            except Exception: pass"
+  },
+  {
+    "file": "eli/kernel/engine.py",
+    "line": 3532,
+    "text": "                        except Exception:"
+  },
+  {
+    "file": "eli/kernel/engine.py",
+    "line": 3633,
+    "text": "        except Exception:"
+  },
+  {
+    "file": "eli/kernel/engine.py",
+    "line": 3668,
+    "text": "        except Exception:"
+  },
+  {
+    "file": "eli/kernel/engine.py",
+    "line": 3678,
+    "text": "        except Exception:"
+  },
+  {
+    "file": "eli/kernel/engine.py",
+    "line": 3711,
+    "text": "        except Exception:"
+  },
+  {
+    "file": "eli/kernel/engine.py",
+    "line": 3719,
+    "text": "        except Exception:"
+  },
+  {
+    "file": "eli/kernel/engine.py",
+    "line": 3729,
+    "text": "                except Exception:"
+  },
+  {
+    "file": "eli/kernel/engine.py",
+    "line": 3731,
+    "text": "        except Exception:"
+  },
+  {
+    "file": "eli/kernel/engine.py",
+    "line": 3744,
+    "text": "        except Exception:"
+  },
+  {
+    "file": "eli/kernel/engine.py",
+    "line": 3753,
+    "text": "                except Exception:"
+  },
+  {
+    "file": "eli/kernel/engine.py",
+    "line": 3758,
+    "text": "                    except Exception:"
+  },
+  {
+    "file": "eli/kernel/engine.py",
+    "line": 3762,
+    "text": "        except Exception:"
+  },
+  {
+    "file": "eli/kernel/engine.py",
+    "line": 3827,
+    "text": "                except Exception:"
+  },
+  {
+    "file": "eli/kernel/engine.py",
+    "line": 3893,
+    "text": "        except Exception:"
+  },
+  {
+    "file": "eli/kernel/engine.py",
+    "line": 3907,
+    "text": "        except Exception:"
+  },
+  {
+    "file": "eli/kernel/engine.py",
+    "line": 3935,
+    "text": "            except Exception:"
+  },
+  {
+    "file": "eli/kernel/engine.py",
+    "line": 3972,
+    "text": "                except Exception:"
+  },
+  {
+    "file": "eli/kernel/engine.py",
+    "line": 4005,
+    "text": "            except Exception:"
+  },
+  {
+    "file": "eli/kernel/engine.py",
+    "line": 4047,
+    "text": "        except Exception:"
+  },
+  {
+    "file": "eli/kernel/engine.py",
+    "line": 4104,
+    "text": "        except Exception:"
+  },
+  {
+    "file": "eli/kernel/engine.py",
+    "line": 4112,
+    "text": "        except Exception:"
+  },
+  {
+    "file": "eli/kernel/engine.py",
+    "line": 4136,
+    "text": "                    except Exception:"
+  },
+  {
+    "file": "eli/kernel/engine.py",
+    "line": 4151,
+    "text": "        except Exception:"
+  },
+  {
+    "file": "eli/kernel/engine.py",
+    "line": 4162,
+    "text": "                except Exception:"
+  },
+  {
+    "file": "eli/kernel/engine.py",
+    "line": 4180,
+    "text": "            except Exception:"
+  },
+  {
+    "file": "eli/kernel/engine.py",
+    "line": 4185,
+    "text": "            except Exception:"
+  },
+  {
+    "file": "eli/kernel/engine.py",
+    "line": 4190,
+    "text": "            except Exception:"
+  },
+  {
+    "file": "eli/kernel/engine.py",
+    "line": 4218,
+    "text": "                except Exception:"
+  },
+  {
+    "file": "eli/kernel/engine.py",
+    "line": 4223,
+    "text": "                except Exception:"
+  },
+  {
+    "file": "eli/kernel/engine.py",
+    "line": 4243,
+    "text": "        except Exception:"
+  },
+  {
+    "file": "eli/kernel/engine.py",
+    "line": 4277,
+    "text": "        except Exception:"
+  },
+  {
+    "file": "eli/kernel/engine.py",
+    "line": 4283,
+    "text": "        except Exception:"
+  },
+  {
+    "file": "eli/kernel/engine.py",
+    "line": 4288,
+    "text": "        except Exception:"
+  },
+  {
+    "file": "eli/kernel/engine.py",
+    "line": 4325,
+    "text": "            except Exception:"
+  },
+  {
+    "file": "eli/kernel/engine.py",
+    "line": 4340,
+    "text": "        except Exception:"
+  },
+  {
+    "file": "eli/kernel/engine.py",
+    "line": 4346,
+    "text": "        except Exception:"
+  },
+  {
+    "file": "eli/kernel/engine.py",
+    "line": 4351,
+    "text": "        except Exception:"
+  },
+  {
+    "file": "eli/kernel/engine.py",
+    "line": 4466,
+    "text": "            except Exception:"
+  },
+  {
+    "file": "eli/kernel/engine.py",
+    "line": 4497,
+    "text": "            except Exception:"
+  },
+  {
+    "file": "eli/kernel/engine.py",
+    "line": 4507,
+    "text": "        except Exception:"
+  },
+  {
+    "file": "eli/kernel/engine.py",
+    "line": 4514,
+    "text": "        except Exception:"
+  },
+  {
+    "file": "eli/kernel/engine.py",
+    "line": 4547,
+    "text": "                    except Exception:"
+  },
+  {
+    "file": "eli/kernel/engine.py",
+    "line": 4553,
+    "text": "                    except Exception:"
+  },
+  {
+    "file": "eli/kernel/engine.py",
+    "line": 4556,
+    "text": "        except Exception:"
+  },
+  {
+    "file": "eli/kernel/engine.py",
+    "line": 4601,
+    "text": "        except Exception:"
+  },
+  {
+    "file": "eli/kernel/engine.py",
+    "line": 4839,
+    "text": "                            except Exception:"
+  },
+  {
+    "file": "eli/kernel/engine.py",
+    "line": 4843,
+    "text": "                            except Exception:"
+  },
+  {
+    "file": "eli/kernel/engine.py",
+    "line": 4879,
+    "text": "                            except Exception:"
+  },
+  {
+    "file": "eli/kernel/engine.py",
+    "line": 4883,
+    "text": "                            except Exception:"
+  },
+  {
+    "file": "eli/kernel/engine.py",
+    "line": 5152,
+    "text": "            except Exception:"
+  },
+  {
+    "file": "eli/kernel/engine.py",
+    "line": 5207,
+    "text": "                    except Exception:"
+  },
+  {
+    "file": "eli/kernel/engine.py",
+    "line": 5331,
+    "text": "                        except Exception:"
+  },
+  {
+    "file": "eli/kernel/engine.py",
+    "line": 5389,
+    "text": "                        except Exception:"
+  },
+  {
+    "file": "eli/kernel/engine.py",
+    "line": 5483,
+    "text": "            except Exception:"
+  },
+  {
+    "file": "eli/kernel/engine.py",
+    "line": 5551,
+    "text": "        except Exception:"
+  },
+  {
+    "file": "eli/kernel/engine.py",
+    "line": 5651,
+    "text": "        except Exception:"
+  },
+  {
+    "file": "eli/kernel/engine.py",
+    "line": 5690,
+    "text": "            except Exception:"
+  },
+  {
+    "file": "eli/kernel/engine.py",
+    "line": 5744,
+    "text": "        except Exception:"
+  },
+  {
+    "file": "eli/kernel/engine.py",
+    "line": 5800,
+    "text": "            except Exception:"
+  },
+  {
+    "file": "eli/kernel/engine.py",
+    "line": 5805,
+    "text": "            except Exception:"
+  },
+  {
+    "file": "eli/kernel/engine.py",
+    "line": 5812,
+    "text": "            except Exception:"
+  },
+  {
+    "file": "eli/kernel/engine.py",
+    "line": 5856,
+    "text": "                        except Exception:"
+  },
+  {
+    "file": "eli/kernel/engine.py",
+    "line": 6050,
+    "text": "                        except Exception:"
+  },
+  {
+    "file": "eli/kernel/engine.py",
+    "line": 6059,
+    "text": "                        except Exception:"
+  },
+  {
+    "file": "eli/kernel/engine.py",
+    "line": 6270,
+    "text": "            except Exception:"
+  },
+  {
+    "file": "eli/kernel/engine.py",
+    "line": 6299,
+    "text": "    except Exception:"
+  },
+  {
+    "file": "eli/kernel/pipeline.py",
+    "line": 115,
+    "text": "    except Exception:"
+  },
+  {
+    "file": "eli/kernel/scheduler.py",
+    "line": 59,
+    "text": "                except Exception:"
+  },
+  {
+    "file": "eli/kernel/state.py",
+    "line": 35,
+    "text": "    except Exception:"
+  },
+  {
+    "file": "eli/kernel/state.py",
+    "line": 160,
+    "text": "    except Exception:"
+  },
+  {
+    "file": "eli/kernel/state.py",
+    "line": 173,
+    "text": "    except Exception:"
+  },
+  {
+    "file": "eli/kernel/world_model.py",
+    "line": 166,
+    "text": "            except Exception:"
+  },
+  {
+    "file": "eli/memory/__init__.py",
+    "line": 176,
+    "text": "            except Exception:"
+  },
+  {
+    "file": "eli/memory/__init__.py",
+    "line": 189,
+    "text": "                    except Exception:"
+  },
+  {
+    "file": "eli/memory/db_paths.py",
+    "line": 45,
+    "text": "    except Exception:"
+  },
+  {
+    "file": "eli/memory/db_paths.py",
+    "line": 50,
+    "text": "    except Exception:"
+  },
+  {
+    "file": "eli/memory/habits_memory_db.py",
+    "line": 13,
+    "text": "except Exception:"
+  },
+  {
+    "file": "eli/memory/habits_memory_db.py",
+    "line": 89,
+    "text": "        except Exception:"
+  },
+  {
+    "file": "eli/memory/habits_memory_db.py",
+    "line": 93,
+    "text": "    except Exception:"
+  },
+  {
+    "file": "eli/memory/habits_memory_db.py",
+    "line": 154,
+    "text": "    except Exception:"
+  },
+  {
+    "file": "eli/memory/habits_memory_db.py",
+    "line": 171,
+    "text": "    except Exception:"
+  },
+  {
+    "file": "eli/memory/habits_memory_db.py",
+    "line": 198,
+    "text": "    except Exception:"
+  },
+  {
+    "file": "eli/memory/habits_memory_db.py",
+    "line": 335,
+    "text": "        except Exception:"
+  },
+  {
+    "file": "eli/memory/habits_memory_db.py",
+    "line": 339,
+    "text": "    except Exception:"
+  },
+  {
+    "file": "eli/memory/knowledge_graph.py",
+    "line": 104,
+    "text": "    except Exception:"
+  },
+  {
+    "file": "eli/memory/knowledge_graph.py",
+    "line": 344,
+    "text": "            except Exception:"
+  },
+  {
+    "file": "eli/memory/memory.py",
+    "line": 45,
+    "text": "    except Exception:"
+  },
+  {
+    "file": "eli/memory/memory.py",
+    "line": 75,
+    "text": "            except Exception:"
+  },
+  {
+    "file": "eli/memory/memory.py",
+    "line": 107,
+    "text": "    except Exception:"
+  },
+  {
+    "file": "eli/memory/memory.py",
+    "line": 291,
+    "text": "    except Exception:"
+  },
+  {
+    "file": "eli/memory/memory.py",
+    "line": 651,
+    "text": "    except Exception:"
+  },
+  {
+    "file": "eli/memory/memory.py",
+    "line": 743,
+    "text": "    except Exception:"
+  },
+  {
+    "file": "eli/memory/memory.py",
+    "line": 753,
+    "text": "    except Exception:"
+  },
+  {
+    "file": "eli/memory/memory.py",
+    "line": 797,
+    "text": "    except Exception:"
+  },
+  {
+    "file": "eli/memory/memory.py",
+    "line": 1099,
+    "text": "    except Exception:"
+  },
+  {
+    "file": "eli/memory/memory.py",
+    "line": 1109,
+    "text": "        except Exception:"
+  },
+  {
+    "file": "eli/memory/memory.py",
+    "line": 1113,
+    "text": "    except Exception:"
+  },
+  {
+    "file": "eli/memory/memory.py",
+    "line": 1144,
+    "text": "                except Exception:"
+  },
+  {
+    "file": "eli/memory/memory.py",
+    "line": 1164,
+    "text": "    except Exception:"
+  },
+  {
+    "file": "eli/memory/memory.py",
+    "line": 1182,
+    "text": "    except Exception:"
+  },
+  {
+    "file": "eli/memory/memory.py",
+    "line": 1265,
+    "text": "    except Exception:"
+  },
+  {
+    "file": "eli/memory/memory.py",
+    "line": 1278,
+    "text": "    except Exception:"
+  },
+  {
+    "file": "eli/memory/memory.py",
+    "line": 1329,
+    "text": "        except Exception:"
+  },
+  {
+    "file": "eli/memory/memory.py",
+    "line": 1355,
+    "text": "        except Exception:"
+  },
+  {
+    "file": "eli/memory/memory.py",
+    "line": 1431,
+    "text": "            except Exception:"
+  },
+  {
+    "file": "eli/memory/memory.py",
+    "line": 1436,
+    "text": "                except Exception:"
+  },
+  {
+    "file": "eli/memory/memory.py",
+    "line": 1463,
+    "text": "        except Exception:"
+  },
+  {
+    "file": "eli/memory/memory.py",
+    "line": 1471,
+    "text": "        except Exception:"
+  },
+  {
+    "file": "eli/memory/memory.py",
+    "line": 1613,
+    "text": "                except Exception:"
+  },
+  {
+    "file": "eli/memory/memory.py",
+    "line": 1633,
+    "text": "                except Exception:"
+  },
+  {
+    "file": "eli/memory/memory.py",
+    "line": 1694,
+    "text": "            except Exception:"
+  },
+  {
+    "file": "eli/memory/memory.py",
+    "line": 1782,
+    "text": "                except Exception:"
+  },
+  {
+    "file": "eli/memory/memory.py",
+    "line": 1803,
+    "text": "                except Exception:"
+  },
+  {
+    "file": "eli/memory/memory.py",
+    "line": 1825,
+    "text": "            except Exception:"
+  },
+  {
+    "file": "eli/memory/memory.py",
+    "line": 2189,
+    "text": "        except Exception:"
+  },
+  {
+    "file": "eli/memory/memory.py",
+    "line": 2342,
+    "text": "                        except Exception:"
+  },
+  {
+    "file": "eli/memory/memory.py",
+    "line": 2384,
+    "text": "            except Exception:"
+  },
+  {
+    "file": "eli/memory/memory.py",
+    "line": 2389,
+    "text": "            except Exception:"
+  },
+  {
+    "file": "eli/memory/memory.py",
+    "line": 2401,
+    "text": "        except Exception:"
+  },
+  {
+    "file": "eli/memory/memory.py",
+    "line": 2411,
+    "text": "                except Exception:"
+  },
+  {
+    "file": "eli/memory/memory.py",
+    "line": 2414,
+    "text": "                    except Exception:"
+  },
+  {
+    "file": "eli/memory/memory.py",
+    "line": 2417,
+    "text": "        except Exception:"
+  },
+  {
+    "file": "eli/memory/memory.py",
+    "line": 2427,
+    "text": "            except Exception:"
+  },
+  {
+    "file": "eli/memory/memory.py",
+    "line": 2430,
+    "text": "                except Exception:"
+  },
+  {
+    "file": "eli/memory/memory.py",
+    "line": 2432,
+    "text": "        except Exception:"
+  },
+  {
+    "file": "eli/memory/memory.py",
+    "line": 2452,
+    "text": "                    except Exception:"
+  },
+  {
+    "file": "eli/memory/memory.py",
+    "line": 2534,
+    "text": "        except Exception:"
+  },
+  {
+    "file": "eli/memory/memory.py",
+    "line": 2541,
+    "text": "            except Exception:"
+  },
+  {
+    "file": "eli/memory/memory.py",
+    "line": 2544,
+    "text": "                except Exception:"
+  },
+  {
+    "file": "eli/memory/memory.py",
+    "line": 2580,
+    "text": "                except Exception:"
+  },
+  {
+    "file": "eli/memory/memory.py",
+    "line": 2583,
+    "text": "                    except Exception:"
+  },
+  {
+    "file": "eli/memory/memory.py",
+    "line": 2588,
+    "text": "            except Exception:"
+  },
+  {
+    "file": "eli/memory/memory.py",
+    "line": 2665,
+    "text": "        except Exception:"
+  },
+  {
+    "file": "eli/memory/memory.py",
+    "line": 2694,
+    "text": "                    except Exception:"
+  },
+  {
+    "file": "eli/memory/memory.py",
+    "line": 2994,
+    "text": "                except Exception: pass"
+  },
+  {
+    "file": "eli/memory/memory.py",
+    "line": 3033,
+    "text": "                    except Exception:"
+  },
+  {
+    "file": "eli/memory/memory.py",
+    "line": 3316,
+    "text": "        except Exception:"
+  },
+  {
+    "file": "eli/memory/memory.py",
+    "line": 3334,
+    "text": "        except Exception:"
+  },
+  {
+    "file": "eli/memory/memory.py",
+    "line": 3368,
+    "text": "except Exception:"
+  },
+  {
+    "file": "eli/memory/memory.py",
+    "line": 3377,
+    "text": "except Exception:"
+  },
+  {
+    "file": "eli/memory/memory.py",
+    "line": 3412,
+    "text": "    except Exception:"
+  },
+  {
+    "file": "eli/memory/memory.py",
+    "line": 3555,
+    "text": "    except Exception:"
+  },
+  {
+    "file": "eli/memory/memory.py",
+    "line": 3572,
+    "text": "        except Exception:"
+  },
+  {
+    "file": "eli/memory/memory.py",
+    "line": 3577,
+    "text": "    except Exception:"
+  },
+  {
+    "file": "eli/memory/memory_adapter.py",
+    "line": 30,
+    "text": "    except Exception:"
+  },
+  {
+    "file": "eli/memory/memory_service.py",
+    "line": 15,
+    "text": "    except Exception:"
+  },
+  {
+    "file": "eli/memory/memory_service.py",
+    "line": 42,
+    "text": "    except Exception:"
+  },
+  {
+    "file": "eli/memory/memory_service.py",
+    "line": 55,
+    "text": "    except Exception:"
+  },
+  {
+    "file": "eli/memory/memory_service.py",
+    "line": 75,
+    "text": "    except Exception:"
+  },
+  {
+    "file": "eli/memory/sqlite_memory.py",
+    "line": 42,
+    "text": "    except Exception:"
+  },
+  {
+    "file": "eli/memory/stores.py",
+    "line": 12,
+    "text": "    except Exception:"
+  },
+  {
+    "file": "eli/memory/stores.py",
+    "line": 26,
+    "text": "    except Exception:"
+  },
+  {
+    "file": "eli/memory/system_index.py",
+    "line": 91,
+    "text": "                except Exception:"
+  },
+  {
+    "file": "eli/memory/vector_store.py",
+    "line": 7,
+    "text": "except Exception:"
+  },
+  {
+    "file": "eli/memory/vector_store.py",
+    "line": 80,
+    "text": "        except Exception:"
+  },
+  {
+    "file": "eli/memory/vector_store.py",
+    "line": 166,
+    "text": "        except Exception:"
+  },
+  {
+    "file": "eli/memory/working_memory.py",
+    "line": 79,
+    "text": "                except Exception:"
+  },
+  {
+    "file": "eli/memory/working_memory.py",
+    "line": 208,
+    "text": "                except Exception:"
+  },
+  {
+    "file": "eli/perception/analyze_csv.py",
+    "line": 25,
+    "text": "    except Exception:"
+  },
+  {
+    "file": "eli/perception/analyze_csv.py",
+    "line": 46,
+    "text": "        except Exception:"
+  },
+  {
+    "file": "eli/perception/analyze_csv.py",
+    "line": 57,
+    "text": "        except Exception:"
+  },
+  {
+    "file": "eli/perception/analyze_csv.py",
+    "line": 64,
+    "text": "        except Exception:"
+  },
+  {
+    "file": "eli/perception/analyze_image.py",
+    "line": 46,
+    "text": "    except Exception:"
+  },
+  {
+    "file": "eli/perception/analyze_image.py",
+    "line": 62,
+    "text": "    except Exception:"
+  },
+  {
+    "file": "eli/perception/analyze_mesh.py",
+    "line": 78,
+    "text": "        except Exception:"
+  },
+  {
+    "file": "eli/perception/analyze_pdfs.py",
+    "line": 43,
+    "text": "except Exception:"
+  },
+  {
+    "file": "eli/perception/analyze_pdfs.py",
+    "line": 47,
+    "text": "    except Exception:"
+  },
+  {
+    "file": "eli/perception/audio_stt.py",
+    "line": 85,
+    "text": "    except Exception:"
+  },
+  {
+    "file": "eli/perception/audio_stt.py",
+    "line": 186,
+    "text": "except Exception:"
+  },
+  {
+    "file": "eli/perception/audio_stt.py",
+    "line": 339,
+    "text": "    except Exception:"
+  },
+  {
+    "file": "eli/perception/audio_stt.py",
+    "line": 363,
+    "text": "        except Exception:"
+  },
+  {
+    "file": "eli/perception/audio_stt.py",
+    "line": 405,
+    "text": "    except Exception:"
+  },
+  {
+    "file": "eli/perception/audio_stt.py",
+    "line": 417,
+    "text": "    except Exception:"
+  },
+  {
+    "file": "eli/perception/audio_stt.py",
+    "line": 806,
+    "text": "        except Exception:"
+  },
+  {
+    "file": "eli/perception/audio_stt.py",
+    "line": 815,
+    "text": "        except Exception:"
+  },
+  {
+    "file": "eli/perception/audio_stt.py",
+    "line": 826,
+    "text": "        except Exception:"
+  },
+  {
+    "file": "eli/perception/audio_stt.py",
+    "line": 869,
+    "text": "        except Exception:"
+  },
+  {
+    "file": "eli/perception/audio_stt.py",
+    "line": 907,
+    "text": "        except Exception:"
+  },
+  {
+    "file": "eli/perception/audio_stt.py",
+    "line": 914,
+    "text": "        except Exception:"
+  },
+  {
+    "file": "eli/perception/audio_stt.py",
+    "line": 948,
+    "text": "        except Exception:"
+  },
+  {
+    "file": "eli/perception/audio_stt.py",
+    "line": 984,
+    "text": "                        except Exception:"
+  },
+  {
+    "file": "eli/perception/audio_stt.py",
+    "line": 987,
+    "text": "                    except Exception:"
+  },
+  {
+    "file": "eli/perception/audio_stt.py",
+    "line": 1071,
+    "text": "                    except Exception:"
+  },
+  {
+    "file": "eli/perception/audio_stt.py",
+    "line": 1079,
+    "text": "                    except Exception:"
+  },
+  {
+    "file": "eli/perception/audio_stt.py",
+    "line": 1149,
+    "text": "    except Exception:"
+  },
+  {
+    "file": "eli/perception/eli_listen.py",
+    "line": 19,
+    "text": "    except Exception:"
+  },
+  {
+    "file": "eli/perception/log_rotation.py",
+    "line": 56,
+    "text": "    except Exception:"
+  },
+  {
+    "file": "eli/perception/log_rotation.py",
+    "line": 105,
+    "text": "    except Exception:"
+  },
+  {
+    "file": "eli/perception/log_rotation.py",
+    "line": 117,
+    "text": "    except Exception:"
+  },
+  {
+    "file": "eli/perception/os_controller.py",
+    "line": 53,
+    "text": "    except Exception:"
+  },
+  {
+    "file": "eli/perception/os_controller.py",
+    "line": 133,
+    "text": "        except Exception:"
+  },
+  {
+    "file": "eli/perception/os_controller.py",
+    "line": 302,
+    "text": "        except Exception:"
+  },
+  {
+    "file": "eli/perception/os_controller.py",
+    "line": 327,
+    "text": "            except Exception:"
+  },
+  {
+    "file": "eli/perception/os_controller.py",
+    "line": 478,
+    "text": "        except Exception:"
+  },
+  {
+    "file": "eli/perception/screen_locator.py",
+    "line": 37,
+    "text": "    except Exception:"
+  },
+  {
+    "file": "eli/perception/screen_locator.py",
+    "line": 44,
+    "text": "    except Exception:"
+  },
+  {
+    "file": "eli/perception/screen_locator.py",
+    "line": 188,
+    "text": "        except Exception:"
+  },
+  {
+    "file": "eli/perception/screen_locator.py",
+    "line": 195,
+    "text": "    except Exception:"
+  },
+  {
+    "file": "eli/perception/screen_locator.py",
+    "line": 214,
+    "text": "    except Exception:"
+  },
+  {
+    "file": "eli/perception/screen_locator.py",
+    "line": 221,
+    "text": "        except Exception:"
+  },
+  {
+    "file": "eli/perception/stt_command_buffer.py",
+    "line": 25,
+    "text": "    except Exception:"
+  },
+  {
+    "file": "eli/perception/stt_command_buffer.py",
+    "line": 32,
+    "text": "    except Exception:"
+  },
+  {
+    "file": "eli/perception/stt_command_buffer.py",
+    "line": 190,
+    "text": "        except Exception:"
+  },
+  {
+    "file": "eli/perception/tts_router.py",
+    "line": 51,
+    "text": "    except Exception:"
+  },
+  {
+    "file": "eli/perception/tts_router.py",
+    "line": 79,
+    "text": "    except Exception:"
+  },
+  {
+    "file": "eli/perception/tts_router.py",
+    "line": 88,
+    "text": "    except Exception:"
+  },
+  {
+    "file": "eli/perception/tts_router.py",
+    "line": 118,
+    "text": "        except Exception:"
+  },
+  {
+    "file": "eli/perception/tts_router.py",
+    "line": 139,
+    "text": "        except Exception:"
+  },
+  {
+    "file": "eli/perception/tts_router.py",
+    "line": 148,
+    "text": "        except Exception:"
+  },
+  {
+    "file": "eli/perception/tts_router.py",
+    "line": 164,
+    "text": "    except Exception:"
+  },
+  {
+    "file": "eli/perception/tts_router.py",
+    "line": 175,
+    "text": "    except Exception:"
+  },
+  {
+    "file": "eli/perception/tts_router.py",
+    "line": 350,
+    "text": "        except Exception:"
+  },
+  {
+    "file": "eli/perception/tts_router.py",
+    "line": 410,
+    "text": "        except Exception:"
+  },
+  {
+    "file": "eli/perception/tts_router.py",
+    "line": 414,
+    "text": "        except Exception:"
+  },
+  {
+    "file": "eli/perception/voice_worker.py",
+    "line": 26,
+    "text": "        except Exception:"
+  },
+  {
+    "file": "eli/perception/voice_worker.py",
+    "line": 30,
+    "text": "        except Exception:"
+  },
+  {
+    "file": "eli/perception/voice_worker_streaming.py",
+    "line": 17,
+    "text": "    except Exception:"
+  },
+  {
+    "file": "eli/perception/voice_worker_streaming.py",
+    "line": 23,
+    "text": "    except Exception:"
+  },
+  {
+    "file": "eli/planning/attention_queue.py",
+    "line": 21,
+    "text": "    except Exception:"
+  },
+  {
+    "file": "eli/planning/attention_queue.py",
+    "line": 42,
+    "text": "        except Exception:"
+  },
+  {
+    "file": "eli/planning/attention_queue.py",
+    "line": 53,
+    "text": "    except Exception:"
+  },
+  {
+    "file": "eli/planning/autonomy_controller.py",
+    "line": 72,
+    "text": "except Exception:"
+  },
+  {
+    "file": "eli/planning/autonomy_controller.py",
+    "line": 96,
+    "text": "except Exception:"
+  },
+  {
+    "file": "eli/planning/autonomy_scheduler.py",
+    "line": 17,
+    "text": "    except Exception:"
+  },
+  {
+    "file": "eli/planning/autonomy_scheduler.py",
+    "line": 41,
+    "text": "    except Exception:"
+  },
+  {
+    "file": "eli/planning/db_paths.py",
+    "line": 17,
+    "text": "    except Exception:"
+  },
+  {
+    "file": "eli/planning/goal_store.py",
+    "line": 37,
+    "text": "    except Exception:"
+  },
+  {
+    "file": "eli/planning/habits.py",
+    "line": 27,
+    "text": "    except Exception:"
+  },
+  {
+    "file": "eli/planning/habits.py",
+    "line": 85,
+    "text": "            except Exception:"
+  },
+  {
+    "file": "eli/planning/habits_state.py",
+    "line": 37,
+    "text": "    except Exception:"
+  },
+  {
+    "file": "eli/planning/habits_state.py",
+    "line": 48,
+    "text": "    except Exception:"
+  },
+  {
+    "file": "eli/planning/jobq.py",
+    "line": 20,
+    "text": "    except Exception:"
+  },
+  {
+    "file": "eli/planning/operator_goal_actions.py",
+    "line": 36,
+    "text": "            except Exception:"
+  },
+  {
+    "file": "eli/planning/operator_goal_actions.py",
+    "line": 48,
+    "text": "    except Exception:"
+  },
+  {
+    "file": "eli/planning/proactive_daemon.py",
+    "line": 139,
+    "text": "            except Exception:"
+  },
+  {
+    "file": "eli/planning/proactive_daemon.py",
+    "line": 147,
+    "text": "            except Exception:"
+  },
+  {
+    "file": "eli/planning/proactive_daemon.py",
+    "line": 162,
+    "text": "            except Exception:"
+  },
+  {
+    "file": "eli/planning/proactive_daemon.py",
+    "line": 207,
+    "text": "        except Exception:"
+  },
+  {
+    "file": "eli/planning/proactive_daemon.py",
+    "line": 226,
+    "text": "        except Exception:"
+  },
+  {
+    "file": "eli/planning/proactive_daemon.py",
+    "line": 246,
+    "text": "        except Exception:"
+  },
+  {
+    "file": "eli/planning/proactive_daemon.py",
+    "line": 260,
+    "text": "            except Exception:"
+  },
+  {
+    "file": "eli/planning/proactive_daemon.py",
+    "line": 342,
+    "text": "            except Exception:"
+  },
+  {
+    "file": "eli/planning/proactive_daemon.py",
+    "line": 377,
+    "text": "            except Exception:"
+  },
+  {
+    "file": "eli/planning/proactive_daemon.py",
+    "line": 512,
+    "text": "        except Exception:"
+  },
+  {
+    "file": "eli/planning/proactive_daemon.py",
+    "line": 553,
+    "text": "        except Exception:"
+  },
+  {
+    "file": "eli/planning/proactive_daemon.py",
+    "line": 606,
+    "text": "                                    except Exception:"
+  },
+  {
+    "file": "eli/planning/proactive_daemon.py",
+    "line": 790,
+    "text": "    except Exception:"
+  },
+  {
+    "file": "eli/planning/proposal_adapters.py",
+    "line": 27,
+    "text": "            except Exception:"
+  },
+  {
+    "file": "eli/planning/proposal_adapters.py",
+    "line": 40,
+    "text": "    except Exception:"
+  },
+  {
+    "file": "eli/planning/proposal_adapters.py",
+    "line": 49,
+    "text": "        except Exception:"
+  },
+  {
+    "file": "eli/planning/proposal_adapters.py",
+    "line": 59,
+    "text": "            except Exception:"
+  },
+  {
+    "file": "eli/planning/proposal_memory_bridge.py",
+    "line": 14,
+    "text": "        except Exception:"
+  },
+  {
+    "file": "eli/planning/proposal_memory_bridge.py",
+    "line": 27,
+    "text": "        except Exception:"
+  },
+  {
+    "file": "eli/planning/proposal_queue.py",
+    "line": 97,
+    "text": "        except Exception:"
+  },
+  {
+    "file": "eli/plugins/manager.py",
+    "line": 84,
+    "text": "        except Exception:"
+  },
+  {
+    "file": "eli/plugins/manager.py",
+    "line": 107,
+    "text": "    except Exception:"
+  },
+  {
+    "file": "eli/plugins/manager.py",
+    "line": 115,
+    "text": "        except Exception:"
+  },
+  {
+    "file": "eli/plugins/notes/plugin.py",
+    "line": 27,
+    "text": "        except Exception:"
+  },
+  {
+    "file": "eli/plugins/notes/plugin.py",
+    "line": 55,
+    "text": "            except Exception:"
+  },
+  {
+    "file": "eli/plugins/notes/plugin.py",
+    "line": 83,
+    "text": "            except Exception:"
+  },
+  {
+    "file": "eli/plugins/pomodoro/plugin.py",
+    "line": 87,
+    "text": "        except Exception:"
+  },
+  {
+    "file": "eli/plugins/smart_home/plugin.py",
+    "line": 42,
+    "text": "        except Exception:"
+  },
+  {
+    "file": "eli/plugins/system_stats/plugin.py",
+    "line": 72,
+    "text": "        except Exception:"
+  },
+  {
+    "file": "eli/plugins/web/plugin.py",
+    "line": 8,
+    "text": "except Exception:"
+  },
+  {
+    "file": "eli/plugins/web/plugin.py",
+    "line": 69,
+    "text": "        except Exception:"
+  },
+  {
+    "file": "eli/plugins/web/plugin.py",
+    "line": 129,
+    "text": "        except Exception:"
+  },
+  {
+    "file": "eli/plugins/web_automation/plugin.py",
+    "line": 11,
+    "text": "except Exception:"
+  },
+  {
+    "file": "eli/runtime/awareness_boot.py",
+    "line": 133,
+    "text": "        except Exception:"
+  },
+  {
+    "file": "eli/runtime/awareness_boot.py",
+    "line": 188,
+    "text": "        except Exception:"
+  },
+  {
+    "file": "eli/runtime/capability_sync.py",
+    "line": 196,
+    "text": "            except Exception:"
+  },
+  {
+    "file": "eli/runtime/capability_sync.py",
+    "line": 324,
+    "text": "        except Exception:"
+  },
+  {
+    "file": "eli/runtime/code_monitor.py",
+    "line": 145,
+    "text": "    except Exception:"
+  },
+  {
+    "file": "eli/runtime/code_monitor.py",
+    "line": 154,
+    "text": "    except Exception:"
+  },
+  {
+    "file": "eli/runtime/code_monitor.py",
+    "line": 216,
+    "text": "            except Exception:"
+  },
+  {
+    "file": "eli/runtime/code_monitor.py",
+    "line": 242,
+    "text": "            except Exception:"
+  },
+  {
+    "file": "eli/runtime/code_monitor.py",
+    "line": 253,
+    "text": "        except Exception:"
+  },
+  {
+    "file": "eli/runtime/control_contracts.py",
+    "line": 83,
+    "text": "    except Exception:"
+  },
+  {
+    "file": "eli/runtime/control_contracts.py",
+    "line": 130,
+    "text": "    except Exception:"
+  },
+  {
+    "file": "eli/runtime/control_contracts.py",
+    "line": 136,
+    "text": "    except Exception:"
+  },
+  {
+    "file": "eli/runtime/control_contracts.py",
+    "line": 214,
+    "text": "        except Exception:"
+  },
+  {
+    "file": "eli/runtime/control_contracts.py",
+    "line": 227,
+    "text": "        except Exception:"
+  },
+  {
+    "file": "eli/runtime/control_contracts.py",
+    "line": 243,
+    "text": "    except Exception:"
+  },
+  {
+    "file": "eli/runtime/control_contracts.py",
+    "line": 260,
+    "text": "    except Exception:"
+  },
+  {
+    "file": "eli/runtime/control_contracts.py",
+    "line": 277,
+    "text": "    except Exception:"
+  },
+  {
+    "file": "eli/runtime/control_contracts.py",
+    "line": 462,
+    "text": "    except Exception:"
+  },
+  {
+    "file": "eli/runtime/control_contracts.py",
+    "line": 468,
+    "text": "    except Exception:"
+  },
+  {
+    "file": "eli/runtime/eli_agent.py",
+    "line": 46,
+    "text": "    except Exception:"
+  },
+  {
+    "file": "eli/runtime/eli_agent.py",
+    "line": 107,
+    "text": "        except Exception:"
+  },
+  {
+    "file": "eli/runtime/eli_agent.py",
+    "line": 259,
+    "text": "    except Exception:"
+  },
+  {
+    "file": "eli/runtime/evidence_arbitration.py",
+    "line": 21,
+    "text": "    except Exception:"
+  },
+  {
+    "file": "eli/runtime/evidence_arbitration.py",
+    "line": 148,
+    "text": "    except Exception:"
+  },
+  {
+    "file": "eli/runtime/evidence_arbitration.py",
+    "line": 155,
+    "text": "    except Exception:"
+  },
+  {
+    "file": "eli/runtime/evidence_arbitration.py",
+    "line": 162,
+    "text": "    except Exception:"
+  },
+  {
+    "file": "eli/runtime/evidence_store.py",
+    "line": 15,
+    "text": "        except Exception:"
+  },
+  {
+    "file": "eli/runtime/final_response_provider.py",
+    "line": 32,
+    "text": "        except Exception:"
+  },
+  {
+    "file": "eli/runtime/final_response_provider.py",
+    "line": 61,
+    "text": "        except Exception:"
+  },
+  {
+    "file": "eli/runtime/final_response_provider.py",
+    "line": 69,
+    "text": "        except Exception:"
+  },
+  {
+    "file": "eli/runtime/final_response_provider.py",
+    "line": 76,
+    "text": "        except Exception:"
+  },
+  {
+    "file": "eli/runtime/grounded_remediation.py",
+    "line": 55,
+    "text": "    except Exception:"
+  },
+  {
+    "file": "eli/runtime/grounded_remediation.py",
+    "line": 100,
+    "text": "    except Exception:"
+  },
+  {
+    "file": "eli/runtime/grounded_remediation.py",
+    "line": 205,
+    "text": "    except Exception:"
+  },
+  {
+    "file": "eli/runtime/grounded_remediation.py",
+    "line": 225,
+    "text": "            except Exception:"
+  },
+  {
+    "file": "eli/runtime/grounded_remediation.py",
+    "line": 229,
+    "text": "            except Exception:"
+  },
+  {
+    "file": "eli/runtime/grounded_remediation.py",
+    "line": 246,
+    "text": "    except Exception:"
+  },
+  {
+    "file": "eli/runtime/identity_guard.py",
+    "line": 61,
+    "text": "    except Exception:"
+  },
+  {
+    "file": "eli/runtime/incident_log.py",
+    "line": 14,
+    "text": "    except Exception:"
+  },
+  {
+    "file": "eli/runtime/last_trace.py",
+    "line": 31,
+    "text": "    except Exception:"
+  },
+  {
+    "file": "eli/runtime/live_introspection.py",
+    "line": 34,
+    "text": "    except Exception:"
+  },
+  {
+    "file": "eli/runtime/live_introspection.py",
+    "line": 54,
+    "text": "    except Exception:"
+  },
+  {
+    "file": "eli/runtime/live_introspection.py",
+    "line": 70,
+    "text": "    except Exception:"
+  },
+  {
+    "file": "eli/runtime/live_introspection.py",
+    "line": 81,
+    "text": "    except Exception:"
+  },
+  {
+    "file": "eli/runtime/live_introspection.py",
+    "line": 89,
+    "text": "    except Exception:"
+  },
+  {
+    "file": "eli/runtime/live_introspection.py",
+    "line": 98,
+    "text": "    except Exception:"
+  },
+  {
+    "file": "eli/runtime/memory_evidence.py",
+    "line": 19,
+    "text": "            except Exception:"
+  },
+  {
+    "file": "eli/runtime/memory_evidence.py",
+    "line": 21,
+    "text": "        except Exception:"
+  },
+  {
+    "file": "eli/runtime/memory_evidence.py",
+    "line": 80,
+    "text": "        except Exception:"
+  },
+  {
+    "file": "eli/runtime/memory_evidence.py",
+    "line": 91,
+    "text": "    except Exception:"
+  },
+  {
+    "file": "eli/runtime/memory_evidence.py",
+    "line": 100,
+    "text": "    except Exception:"
+  },
+  {
+    "file": "eli/runtime/operator_state.py",
+    "line": 12,
+    "text": "    except Exception:"
+  },
+  {
+    "file": "eli/runtime/operator_state.py",
+    "line": 36,
+    "text": "        except Exception:"
+  },
+  {
+    "file": "eli/runtime/operator_state.py",
+    "line": 49,
+    "text": "        except Exception:"
+  },
+  {
+    "file": "eli/runtime/operator_state.py",
+    "line": 78,
+    "text": "    except Exception:"
+  },
+  {
+    "file": "eli/runtime/packet_native_downstream.py",
+    "line": 20,
+    "text": "        except Exception:"
+  },
+  {
+    "file": "eli/runtime/personal_memory_surface.py",
+    "line": 78,
+    "text": "    except Exception:"
+  },
+  {
+    "file": "eli/runtime/personal_memory_surface.py",
+    "line": 323,
+    "text": "    except Exception:"
+  },
+  {
+    "file": "eli/runtime/personal_memory_surface.py",
+    "line": 335,
+    "text": "        except Exception:"
+  },
+  {
+    "file": "eli/runtime/profile_extractor.py",
+    "line": 405,
+    "text": "    except Exception:"
+  },
+  {
+    "file": "eli/runtime/reflection.py",
+    "line": 28,
+    "text": "                except Exception:"
+  },
+  {
+    "file": "eli/runtime/reflection.py",
+    "line": 33,
+    "text": "        except Exception:"
+  },
+  {
+    "file": "eli/runtime/reflection.py",
+    "line": 61,
+    "text": "    except Exception:"
+  },
+  {
+    "file": "eli/runtime/reflection.py",
+    "line": 69,
+    "text": "    except Exception:"
+  },
+  {
+    "file": "eli/runtime/reflection.py",
+    "line": 79,
+    "text": "        except Exception:"
+  },
+  {
+    "file": "eli/runtime/retrieval_packets.py",
+    "line": 46,
+    "text": "            except Exception:"
+  },
+  {
+    "file": "eli/runtime/self_improvement.py",
+    "line": 25,
+    "text": "    except Exception:"
+  },
+  {
+    "file": "eli/runtime/self_improvement.py",
+    "line": 107,
+    "text": "        except Exception:"
+  },
+  {
+    "file": "eli/runtime/self_improvement.py",
+    "line": 164,
+    "text": "            except Exception:"
+  },
+  {
+    "file": "eli/runtime/self_improvement.py",
+    "line": 179,
+    "text": "            except Exception:"
+  },
+  {
+    "file": "eli/runtime/self_improvement.py",
+    "line": 183,
+    "text": "        except Exception:"
+  },
+  {
+    "file": "eli/runtime/self_improvement.py",
+    "line": 199,
+    "text": "            except Exception:"
+  },
+  {
+    "file": "eli/runtime/self_improvement.py",
+    "line": 205,
+    "text": "        except Exception:"
+  },
+  {
+    "file": "eli/runtime/self_improvement.py",
+    "line": 383,
+    "text": "        except Exception:"
+  },
+  {
+    "file": "eli/runtime/self_improvement.py",
+    "line": 526,
+    "text": "        except Exception:"
+  },
+  {
+    "file": "eli/runtime/self_improvement.py",
+    "line": 589,
+    "text": "                except Exception:"
+  },
+  {
+    "file": "eli/runtime/self_model_refresh.py",
+    "line": 49,
+    "text": "            except Exception:"
+  },
+  {
+    "file": "eli/runtime/self_model_refresh.py",
+    "line": 53,
+    "text": "    except Exception:"
+  },
+  {
+    "file": "eli/runtime/single_pass_authority.py",
+    "line": 19,
+    "text": "        except Exception:"
+  },
+  {
+    "file": "eli/runtime/stage_packet_store.py",
+    "line": 34,
+    "text": "    except Exception:"
+  },
+  {
+    "file": "eli/runtime/tool_result_store.py",
+    "line": 39,
+    "text": "        except Exception:"
+  },
+  {
+    "file": "eli/system/portable_app_control.py",
+    "line": 46,
+    "text": "    except Exception:"
+  },
+  {
+    "file": "eli/system/portable_app_control.py",
+    "line": 64,
+    "text": "    except Exception:"
+  },
+  {
+    "file": "eli/system/portable_app_control.py",
+    "line": 84,
+    "text": "            except Exception:"
+  },
+  {
+    "file": "eli/tools/image_engine/gui_bridge.py",
+    "line": 102,
+    "text": "        except Exception:"
+  },
+  {
+    "file": "eli/tools/image_engine/gui_bridge.py",
+    "line": 113,
+    "text": "        except Exception:"
+  },
+  {
+    "file": "eli/tools/image_engine/gui_bridge.py",
+    "line": 133,
+    "text": "        except Exception:"
+  },
+  {
+    "file": "eli/tools/image_engine/gui_bridge.py",
+    "line": 169,
+    "text": "        except Exception:"
+  },
+  {
+    "file": "eli/tools/image_engine/gui_bridge.py",
+    "line": 411,
+    "text": "    except Exception:"
+  },
+  {
+    "file": "eli/tools/image_engine/image_engine/engine.py",
+    "line": 110,
+    "text": "        except Exception:"
+  },
+  {
+    "file": "eli/tools/image_engine/image_engine/engine.py",
+    "line": 119,
+    "text": "    except Exception:"
+  },
+  {
+    "file": "eli/tools/image_engine/image_engine/engine.py",
+    "line": 134,
+    "text": "        except Exception:"
+  },
+  {
+    "file": "eli/tools/image_engine/image_engine/engine.py",
+    "line": 153,
+    "text": "        except Exception:"
+  },
+  {
+    "file": "eli/tools/image_engine/image_engine/engine.py",
+    "line": 440,
+    "text": "    except Exception:"
+  },
+  {
+    "file": "eli/tools/image_engine/image_engine/engine.py",
+    "line": 470,
+    "text": "                except Exception:"
+  },
+  {
+    "file": "eli/tools/image_engine/image_engine/visual_core.py",
+    "line": 166,
+    "text": "        except Exception:"
+  },
+  {
+    "file": "eli/tools/image_engine/image_engine/visual_core.py",
+    "line": 540,
+    "text": "        except Exception:"
+  },
+  {
+    "file": "eli/tools/image_engine/image_engine/visual_core.py",
+    "line": 558,
+    "text": "        except Exception:"
+  },
+  {
+    "file": "eli/tools/image_engine/runtime_paths.py",
+    "line": 24,
+    "text": "    except Exception:"
+  },
+  {
+    "file": "eli/tools/image_engine/runtime_paths.py",
+    "line": 58,
+    "text": "        except Exception:"
+  },
+  {
+    "file": "eli/tools/image_engine/runtime_paths.py",
+    "line": 80,
+    "text": "        except Exception:"
+  },
+  {
+    "file": "eli/tools/image_engine.py",
+    "line": 409,
+    "text": "        except Exception:"
+  },
+  {
+    "file": "eli/tools/image_engine.py",
+    "line": 428,
+    "text": "        except Exception:"
+  },
+  {
+    "file": "eli/tools/image_engine.py",
+    "line": 492,
+    "text": "    except Exception:"
+  },
+  {
+    "file": "eli/tools/image_engine.py",
+    "line": 522,
+    "text": "            except Exception:"
+  },
+  {
+    "file": "eli/tools/image_engine.py",
+    "line": 1224,
+    "text": "    except Exception:"
+  },
+  {
+    "file": "eli/tools/image_engine.py",
+    "line": 1321,
+    "text": "    except Exception:"
+  },
+  {
+    "file": "eli/tools/image_engine.py",
+    "line": 1401,
+    "text": "    except Exception:"
+  },
+  {
+    "file": "eli/tools/news/news_fetcher.py",
+    "line": 35,
+    "text": "    except Exception:"
+  },
+  {
+    "file": "eli/tools/news/news_fetcher.py",
+    "line": 76,
+    "text": "    except Exception:"
+  },
+  {
+    "file": "eli/tools/news/news_fetcher.py",
+    "line": 160,
+    "text": "        except Exception:"
+  },
+  {
+    "file": "eli/tools/news/news_fetcher.py",
+    "line": 359,
+    "text": "                except Exception:"
+  },
+  {
+    "file": "eli/tools/news/news_fetcher.py",
+    "line": 433,
+    "text": "            except Exception:"
+  },
+  {
+    "file": "eli/tools/news/news_synthesis.py",
+    "line": 68,
+    "text": "    except Exception:"
+  },
+  {
+    "file": "eli/tools/news/news_synthesis.py",
+    "line": 93,
+    "text": "    except Exception:"
+  },
+  {
+    "file": "eli/tools/news/news_synthesis.py",
+    "line": 187,
+    "text": "    except Exception:"
+  },
+  {
+    "file": "eli/tools/news/news_synthesis.py",
+    "line": 216,
+    "text": "            except Exception:"
+  },
+  {
+    "file": "eli/tools/news/news_synthesis.py",
+    "line": 224,
+    "text": "    except Exception:"
+  },
+  {
+    "file": "eli/tools/registry/capabilities.py",
+    "line": 146,
+    "text": "    except Exception:"
+  },
+  {
+    "file": "eli/tools/registry/capability_updater.py",
+    "line": 48,
+    "text": "        except Exception:"
+  },
+  {
+    "file": "eli/utils/platform_compat.py",
+    "line": 753,
+    "text": "            except Exception:"
+  },
+  {
+    "file": "eli/utils/platform_compat.py",
+    "line": 760,
+    "text": "        except Exception:"
+  },
+  {
+    "file": "eli/utils/platform_compat.py",
+    "line": 766,
+    "text": "        except Exception:"
+  },
+  {
+    "file": "tests/test_cognition_modules.py",
+    "line": 63,
+    "text": "        except Exception:"
+  },
+  {
+    "file": "tests/test_cognition_modules.py",
+    "line": 119,
+    "text": "    except Exception:"
+  },
+  {
+    "file": "tests/test_memory_manager.py",
+    "line": 143,
+    "text": "    except Exception:"
+  },
+  {
+    "file": "tests/test_memory_vector_store.py",
+    "line": 38,
+    "text": "    except Exception:"
+  },
+  {
+    "file": "tests/test_memory_vector_store.py",
+    "line": 71,
+    "text": "        except Exception:"
+  },
+  {
+    "file": "tests/test_memory_vector_store.py",
+    "line": 80,
+    "text": "        except Exception:"
+  },
+  {
+    "file": "tests/test_memory_vector_store.py",
+    "line": 90,
+    "text": "        except Exception:"
+  },
+  {
+    "file": "tests/test_memory_vector_store.py",
+    "line": 100,
+    "text": "        except Exception:"
+  },
+  {
+    "file": "tests/test_memory_vector_store.py",
+    "line": 150,
+    "text": "        except Exception:"
+  },
+  {
+    "file": "tests/test_memory_vector_store.py",
+    "line": 159,
+    "text": "        except Exception:"
+  },
+  {
+    "file": "tests/test_memory_vector_store.py",
+    "line": 168,
+    "text": "        except Exception:"
+  },
+  {
+    "file": "tests/test_planning.py",
+    "line": 21,
+    "text": "    except Exception:"
+  },
+  {
+    "file": "tests/test_planning.py",
+    "line": 30,
+    "text": "    except Exception:"
+  },
+  {
+    "file": "tests/test_planning.py",
+    "line": 38,
+    "text": "    except Exception:"
+  },
+  {
+    "file": "tests/test_planning.py",
+    "line": 47,
+    "text": "    except Exception:"
+  },
+  {
+    "file": "tests/test_planning.py",
+    "line": 56,
+    "text": "    except Exception:"
+  },
+  {
+    "file": "tests/test_planning.py",
+    "line": 66,
+    "text": "    except Exception:"
+  },
+  {
+    "file": "tests/test_planning.py",
+    "line": 106,
+    "text": "    except Exception:"
+  },
+  {
+    "file": "tests/test_planning.py",
+    "line": 115,
+    "text": "    except Exception:"
+  },
+  {
+    "file": "tests/test_planning.py",
+    "line": 124,
+    "text": "    except Exception:"
+  },
+  {
+    "file": "tests/test_planning.py",
+    "line": 139,
+    "text": "    except Exception:"
+  },
+  {
+    "file": "tests/test_planning.py",
+    "line": 148,
+    "text": "    except Exception:"
+  },
+  {
+    "file": "tests/test_planning.py",
+    "line": 173,
+    "text": "    except Exception:"
+  },
+  {
+    "file": "tests/test_runtime_modules.py",
+    "line": 91,
+    "text": "    except Exception:"
+  },
+  {
+    "file": "tests/test_runtime_modules.py",
+    "line": 106,
+    "text": "    except Exception:"
+  },
+  {
+    "file": "tests/test_runtime_modules.py",
+    "line": 126,
+    "text": "    except Exception:"
+  },
+  {
+    "file": "tests/test_runtime_modules.py",
+    "line": 184,
+    "text": "    except Exception:"
+  }
+]

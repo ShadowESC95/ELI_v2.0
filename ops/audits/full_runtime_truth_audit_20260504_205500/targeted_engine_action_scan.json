@@ -1,0 +1,1292 @@
+[
+  {
+    "file": "eli/kernel/engine.py",
+    "line": 213,
+    "text": "            \"or high-confidence explicit memory evidence. Do not infer names from stale snippets, \""
+  },
+  {
+    "file": "eli/kernel/engine.py",
+    "line": 476,
+    "text": "    # Strip incomplete JSON/list artifacts from truncated max_tokens responses"
+  },
+  {
+    "file": "eli/kernel/engine.py",
+    "line": 710,
+    "text": "        \"RUNTIME_STATUS\", \"EXPLAIN_MEMORY_RUNTIME\", \"EXPLAIN_LAST_RESPONSE\","
+  },
+  {
+    "file": "eli/kernel/engine.py",
+    "line": 711,
+    "text": "        \"SELF_REPORT\","
+  },
+  {
+    "file": "eli/kernel/engine.py",
+    "line": 712,
+    "text": "        \"USER_IDENTITY_SUMMARY\","
+  },
+  {
+    "file": "eli/kernel/engine.py",
+    "line": 715,
+    "text": "        \"EXPLAIN_COGNITION_RUNTIME\","
+  },
+  {
+    "file": "eli/kernel/engine.py",
+    "line": 1159,
+    "text": "            requested = int(settings.get(\"max_tokens\", config.get_num_predict()))"
+  },
+  {
+    "file": "eli/kernel/engine.py",
+    "line": 1186,
+    "text": "            \"max_tokens\": int(safe_max),"
+  },
+  {
+    "file": "eli/kernel/engine.py",
+    "line": 1279,
+    "text": "            \"quick\": {\"passes\": 1, \"threshold\": 0.54, \"max_tokens\": -1, \"temperature\": 0.7, \"top_p\": 0.9, \"clarify\": True, \"critique\": False},"
+  },
+  {
+    "file": "eli/kernel/engine.py",
+    "line": 1280,
+    "text": "            \"chain_of_thought\": {\"passes\": 2, \"threshold\": 0.60, \"max_tokens\": 1536, \"temperature\": 0.5, \"top_p\": 0.85, \"clarify\": True, \"critique\": False},"
+  },
+  {
+    "file": "eli/kernel/engine.py",
+    "line": 1281,
+    "text": "            \"self_consistency\": {\"passes\": 3, \"threshold\": 0.65, \"max_tokens\": 1536, \"temperature\": 0.6, \"top_p\": 0.85, \"clarify\": True, \"critique\": True},"
+  },
+  {
+    "file": "eli/kernel/engine.py",
+    "line": 1282,
+    "text": "            \"tree_of_thoughts\": {\"passes\": 3, \"threshold\": 0.70, \"max_tokens\": 2048, \"temperature\": 0.4, \"top_p\": 0.80, \"clarify\": True, \"critique\": True},"
+  },
+  {
+    "file": "eli/kernel/engine.py",
+    "line": 1283,
+    "text": "            \"constitutional_ai\": {\"passes\": 2, \"threshold\": 0.68, \"max_tokens\": 1536, \"temperature\": 0.3, \"top_p\": 0.85, \"clarify\": True, \"critique\": True},"
+  },
+  {
+    "file": "eli/kernel/engine.py",
+    "line": 1301,
+    "text": "            \"confidence\": [],"
+  },
+  {
+    "file": "eli/kernel/engine.py",
+    "line": 1678,
+    "text": "            \"EXPLAIN_MEMORY_RUNTIME\", \"EXPLAIN_COGNITION_RUNTIME\", \"EXPLAIN_LAST_RESPONSE\", \"RUNTIME_STATUS\", \"MEMORY_STATUS\", \"COGNITION_STATUS\"}:"
+  },
+  {
+    "file": "eli/kernel/engine.py",
+    "line": 1698,
+    "text": "            \"confidence in your last response\", \"confidence in your last answer\","
+  },
+  {
+    "file": "eli/kernel/engine.py",
+    "line": 1742,
+    "text": "        if bus_result.agents_used:"
+  },
+  {
+    "file": "eli/kernel/engine.py",
+    "line": 1746,
+    "text": "        bus_result.agents_used))"
+  },
+  {
+    "file": "eli/kernel/engine.py",
+    "line": 2031,
+    "text": "                                            return _broker.infer(p, max_tokens=48) or \"\""
+  },
+  {
+    "file": "eli/kernel/engine.py",
+    "line": 2152,
+    "text": "            gen.get(\"max_tokens\", 512))"
+  },
+  {
+    "file": "eli/kernel/engine.py",
+    "line": 2177,
+    "text": "            \"EXPLAIN_MEMORY_RUNTIME\", \"EXPLAIN_COGNITION_RUNTIME\"}:"
+  },
+  {
+    "file": "eli/kernel/engine.py",
+    "line": 2190,
+    "text": "            return \"EXPLAIN_MEMORY_RUNTIME\""
+  },
+  {
+    "file": "eli/kernel/engine.py",
+    "line": 2192,
+    "text": "            return \"EXPLAIN_COGNITION_RUNTIME\""
+  },
+  {
+    "file": "eli/kernel/engine.py",
+    "line": 2227,
+    "text": "    def _score_response_confidence(self, user_input: str, response: str, memory_context: str,"
+  },
+  {
+    "file": "eli/kernel/engine.py",
+    "line": 2304,
+    "text": "            \"answer candidate scored below the required confidence threshold.\\n\\n\""
+  },
+  {
+    "file": "eli/kernel/engine.py",
+    "line": 2320,
+    "text": "                gen_overrides={\"max_tokens\": 160, \"temperature\": 0.35, \"top_p\": 0.9},"
+  },
+  {
+    "file": "eli/kernel/engine.py",
+    "line": 2341,
+    "text": "                f\"so I can answer above the confidence threshold ({float(score):.2f}/{float(threshold):.2f})?\""
+  },
+  {
+    "file": "eli/kernel/engine.py",
+    "line": 2693,
+    "text": "            gen_overrides[\"max_tokens\"] = min("
+  },
+  {
+    "file": "eli/kernel/engine.py",
+    "line": 2694,
+    "text": "                int(gen_overrides.get(\"max_tokens\", 96)), 96)"
+  },
+  {
+    "file": "eli/kernel/engine.py",
+    "line": 2717,
+    "text": "                # Rule: persona (~2k chars) + user_input + max_tokens must fit"
+  },
+  {
+    "file": "eli/kernel/engine.py",
+    "line": 2721,
+    "text": "                _max_tok_guard = int(gen.get('max_tokens', 512))"
+  },
+  {
+    "file": "eli/kernel/engine.py",
+    "line": 2735,
+    "text": "                        f\"(n_ctx={_n_ctx_guard}, max_tokens={_max_tok_guard})\""
+  },
+  {
+    "file": "eli/kernel/engine.py",
+    "line": 2753,
+    "text": "                print(\"[COGNITIVE] Generating response with GGUF...\")"
+  },
+  {
+    "file": "eli/kernel/engine.py",
+    "line": 2756,
+    "text": "                    print(\"[COGNITIVE] Using broker path\")"
+  },
+  {
+    "file": "eli/kernel/engine.py",
+    "line": 2757,
+    "text": "                    # Pre-flight: clamp max_tokens so prompt+output fits n_ctx."
+  },
+  {
+    "file": "eli/kernel/engine.py",
+    "line": 2776,
+    "text": "                    _req_pf1 = int(gen[\"max_tokens\"])"
+  },
+  {
+    "file": "eli/kernel/engine.py",
+    "line": 2780,
+    "text": "    f\"[COGNITIVE] Clamping max_tokens {_req_pf1}\u2192{_safe_max_pf1} (est={_pt_pf1}, n_ctx={_n_ctx_pf1})\")"
+  },
+  {
+    "file": "eli/kernel/engine.py",
+    "line": 2798,
+    "text": "                        max_tokens=_safe_max_pf1,"
+  },
+  {
+    "file": "eli/kernel/engine.py",
+    "line": 2806,
+    "text": "                    _req_pf2 = int(gen[\"max_tokens\"])"
+  },
+  {
+    "file": "eli/kernel/engine.py",
+    "line": 2810,
+    "text": "    f\"[COGNITIVE] Direct GGUF: clamping max_tokens {_req_pf2}\u2192{_safe_max_pf2} (est={_pt_pf2}, n_ctx={_n_ctx_pf2})\")"
+  },
+  {
+    "file": "eli/kernel/engine.py",
+    "line": 2824,
+    "text": "                            max_tokens=_safe_max_pf2,"
+  },
+  {
+    "file": "eli/kernel/engine.py",
+    "line": 2875,
+    "text": "                _max_tok_s = int(gen.get('max_tokens', 512))"
+  },
+  {
+    "file": "eli/kernel/engine.py",
+    "line": 2906,
+    "text": "                _req_s = int(gen[\"max_tokens\"])"
+  },
+  {
+    "file": "eli/kernel/engine.py",
+    "line": 2930,
+    "text": "                            max_tokens=_safe_max,"
+  },
+  {
+    "file": "eli/kernel/engine.py",
+    "line": 2950,
+    "text": "                            \"max_tokens\": _safe_max,"
+  },
+  {
+    "file": "eli/kernel/engine.py",
+    "line": 2967,
+    "text": "                        max_tokens=_safe_max,"
+  },
+  {
+    "file": "eli/kernel/engine.py",
+    "line": 3009,
+    "text": "            'max_tokens': int(profile['max_tokens']),"
+  },
+  {
+    "file": "eli/kernel/engine.py",
+    "line": 3013,
+    "text": "        intent_conf = float((intent or {}).get('confidence') or 0.6)"
+  },
+  {
+    "file": "eli/kernel/engine.py",
+    "line": 3064,
+    "text": "        # acts as a confidence safety net if the algorithmic output scores"
+  },
+  {
+    "file": "eli/kernel/engine.py",
+    "line": 3076,
+    "text": "                algo_score = self._score_response_confidence("
+  },
+  {
+    "file": "eli/kernel/engine.py",
+    "line": 3081,
+    "text": "                    trace.setdefault('confidence', []).append("
+  },
+  {
+    "file": "eli/kernel/engine.py",
+    "line": 3108,
+    "text": "            score = self._score_response_confidence("
+  },
+  {
+    "file": "eli/kernel/engine.py",
+    "line": 3111,
+    "text": "    f'[COGNITIVE][FINAL] confidence pass_no={pass_no} score={"
+  },
+  {
+    "file": "eli/kernel/engine.py",
+    "line": 3115,
+    "text": "                trace.setdefault('confidence', []).append("
+  },
+  {
+    "file": "eli/kernel/engine.py",
+    "line": 3127,
+    "text": "     \"\\n\\nRevision directive:\\n- Previous candidate was below confidence threshold.\\n- Remove hedging.\\n- Use only grounded facts from context and executor evidence.\\n- If exact file paths or line numbers are required, include them explicitly.\\n\").strip()"
+  },
+  {
+    "file": "eli/kernel/engine.py",
+    "line": 3162,
+    "text": "    # confidence-threshold retry as a safety net."
+  },
+  {
+    "file": "eli/kernel/engine.py",
+    "line": 3178,
+    "text": "        propose_overrides[\"max_tokens\"] = 600"
+  },
+  {
+    "file": "eli/kernel/engine.py",
+    "line": 3230,
+    "text": "        critique_overrides[\"max_tokens\"] = 500"
+  },
+  {
+    "file": "eli/kernel/engine.py",
+    "line": 3328,
+    "text": "            base_max = int(base.get(\"max_tokens\", 512))"
+  },
+  {
+    "file": "eli/kernel/engine.py",
+    "line": 3330,
+    "text": "                overrides[\"max_tokens\"] = -1  # unlimited \u2014 pass through"
+  },
+  {
+    "file": "eli/kernel/engine.py",
+    "line": 3332,
+    "text": "                overrides[\"max_tokens\"] = min(1400, base_max * 2) if asks_long else base_max"
+  },
+  {
+    "file": "eli/kernel/engine.py",
+    "line": 3337,
+    "text": "            base_val = int(base.get(\"max_tokens\", -1))"
+  },
+  {
+    "file": "eli/kernel/engine.py",
+    "line": 3339,
+    "text": "                overrides[\"max_tokens\"] = -1"
+  },
+  {
+    "file": "eli/kernel/engine.py",
+    "line": 3341,
+    "text": "                overrides[\"max_tokens\"] = min(2000, base_val * 2) if asks_long else max(768, base_val)"
+  },
+  {
+    "file": "eli/kernel/engine.py",
+    "line": 3346,
+    "text": "            base_val = int(base.get(\"max_tokens\", -1))"
+  },
+  {
+    "file": "eli/kernel/engine.py",
+    "line": 3348,
+    "text": "                overrides[\"max_tokens\"] = -1"
+  },
+  {
+    "file": "eli/kernel/engine.py",
+    "line": 3351,
+    "text": "                overrides[\"max_tokens\"] = min(2000, base_val * 2) if asks_long else base_val"
+  },
+  {
+    "file": "eli/kernel/engine.py",
+    "line": 3356,
+    "text": "            base_val = int(base.get(\"max_tokens\", -1))"
+  },
+  {
+    "file": "eli/kernel/engine.py",
+    "line": 3358,
+    "text": "                overrides[\"max_tokens\"] = -1"
+  },
+  {
+    "file": "eli/kernel/engine.py",
+    "line": 3361,
+    "text": "                overrides[\"max_tokens\"] = min(2500, base_val * 2) if asks_long else base_val"
+  },
+  {
+    "file": "eli/kernel/engine.py",
+    "line": 3366,
+    "text": "            base_val = min(max(900, int(base.get(\"max_tokens\", 1200))), 1200)"
+  },
+  {
+    "file": "eli/kernel/engine.py",
+    "line": 3367,
+    "text": "            overrides[\"max_tokens\"] = min(2000, base_val * 2) if asks_long else base_val"
+  },
+  {
+    "file": "eli/kernel/engine.py",
+    "line": 3589,
+    "text": "    def _required_confidence_threshold("
+  },
+  {
+    "file": "eli/kernel/engine.py",
+    "line": 3638,
+    "text": "            threshold = self._required_confidence_threshold("
+  },
+  {
+    "file": "eli/kernel/engine.py",
+    "line": 3664,
+    "text": "        # Feed actual response confidence back into the engagement tracker"
+  },
+  {
+    "file": "eli/kernel/engine.py",
+    "line": 3667,
+    "text": "                self._engagement.update_confidence(score)"
+  },
+  {
+    "file": "eli/kernel/engine.py",
+    "line": 3682,
+    "text": "            \"confidence\": score,"
+  },
+  {
+    "file": "eli/kernel/engine.py",
+    "line": 3695,
+    "text": "            \"confidence\": score,"
+  },
+  {
+    "file": "eli/kernel/engine.py",
+    "line": 3696,
+    "text": "            \"confidence_score\": score,"
+  },
+  {
+    "file": "eli/kernel/engine.py",
+    "line": 3697,
+    "text": "            \"confidence_threshold\": threshold,"
+  },
+  {
+    "file": "eli/kernel/engine.py",
+    "line": 3833,
+    "text": "        # Grounds meta-questions about the prior response (confidence, agents,"
+  },
+  {
+    "file": "eli/kernel/engine.py",
+    "line": 3842,
+    "text": "                _p_agents = list(getattr(prev, \"agents_used\", []) or [])"
+  },
+  {
+    "file": "eli/kernel/engine.py",
+    "line": 3844,
+    "text": "                    getattr(prev, \"aggregated_confidence\","
+  },
+  {
+    "file": "eli/kernel/engine.py",
+    "line": 3846,
+    "text": "                _p_label = str(getattr(prev, \"confidence_label\", \"\") or \"\")"
+  },
+  {
+    "file": "eli/kernel/engine.py",
+    "line": 3855,
+    "text": "                    f\"  agents_used: {_p_agents if _p_agents else 'none'}\","
+  },
+  {
+    "file": "eli/kernel/engine.py",
+    "line": 3856,
+    "text": "                    f\"  aggregated_confidence: {_p_agg:.2f}\""
+  },
+  {
+    "file": "eli/kernel/engine.py",
+    "line": 3953,
+    "text": "                            max_tokens=160,"
+  },
+  {
+    "file": "eli/kernel/engine.py",
+    "line": 3961,
+    "text": "                                max_tokens=160,"
+  },
+  {
+    "file": "eli/kernel/engine.py",
+    "line": 3982,
+    "text": "                        \"confidence\": 0.88,"
+  },
+  {
+    "file": "eli/kernel/engine.py",
+    "line": 3983,
+    "text": "                        \"confidence_score\": 0.88,"
+  },
+  {
+    "file": "eli/kernel/engine.py",
+    "line": 4186,
+    "text": "                intent = {\"action\": \"CHAT\", \"args\": {\"message\": user_input}, \"confidence\": 0.5}"
+  },
+  {
+    "file": "eli/kernel/engine.py",
+    "line": 4189,
+    "text": "                reserved = int(self._mode_profile(reasoning_mode).get(\"max_tokens\", 512))"
+  },
+  {
+    "file": "eli/kernel/engine.py",
+    "line": 4266,
+    "text": "                    max_tokens=96,"
+  },
+  {
+    "file": "eli/kernel/engine.py",
+    "line": 4567,
+    "text": "        if intent.get(\"confidence\", 0) < 0.5:"
+  },
+  {
+    "file": "eli/kernel/engine.py",
+    "line": 4572,
+    "text": "                    error=\"Low confidence\","
+  },
+  {
+    "file": "eli/kernel/engine.py",
+    "line": 4573,
+    "text": "                    confidence=intent.get(\"confidence\", 0),"
+  },
+  {
+    "file": "eli/kernel/engine.py",
+    "line": 4606,
+    "text": "            \"confidence in your last response\","
+  },
+  {
+    "file": "eli/kernel/engine.py",
+    "line": 4607,
+    "text": "            \"confidence in my last response\","
+  },
+  {
+    "file": "eli/kernel/engine.py",
+    "line": 4618,
+    "text": "            intent[\"action\"] = \"EXPLAIN_LAST_RESPONSE\""
+  },
+  {
+    "file": "eli/kernel/engine.py",
+    "line": 4624,
+    "text": "            action = \"EXPLAIN_LAST_RESPONSE\""
+  },
+  {
+    "file": "eli/kernel/engine.py",
+    "line": 4648,
+    "text": "                    \"response\": _blocked_msg, \"confidence\": 0.0,"
+  },
+  {
+    "file": "eli/kernel/engine.py",
+    "line": 4772,
+    "text": "            trace[\"agent_confidence\"] = bus_result.aggregated_confidence"
+  },
+  {
+    "file": "eli/kernel/engine.py",
+    "line": 4773,
+    "text": "            trace[\"confidence_label\"] = bus_result.confidence_label"
+  },
+  {
+    "file": "eli/kernel/engine.py",
+    "line": 4774,
+    "text": "            trace[\"agents_used\"] = bus_result.agents_used"
+  },
+  {
+    "file": "eli/kernel/engine.py",
+    "line": 4793,
+    "text": "                    \"RESOLVE_RUNTIME_PATHS\", \"EXPLAIN_LAST_RESPONSE\","
+  },
+  {
+    "file": "eli/kernel/engine.py",
+    "line": 4858,
+    "text": "                                \"confidence\": max(float(getattr(bus_result, \"aggregated_confidence\", 0.0) or 0.0), 0.90),"
+  },
+  {
+    "file": "eli/kernel/engine.py",
+    "line": 4898,
+    "text": "                                \"confidence\": max(float(getattr(bus_result, \"aggregated_confidence\", 0.0) or 0.0), 0.90),"
+  },
+  {
+    "file": "eli/kernel/engine.py",
+    "line": 4930,
+    "text": "                            max_tokens_override=-1,"
+  },
+  {
+    "file": "eli/kernel/engine.py",
+    "line": 4952,
+    "text": "        if bus_result is not None and bus_result.aggregated_confidence >= 0.7:"
+  },
+  {
+    "file": "eli/kernel/engine.py",
+    "line": 4985,
+    "text": "                \"SELF_REPORT\","
+  },
+  {
+    "file": "eli/kernel/engine.py",
+    "line": 4987,
+    "text": "                \"USER_IDENTITY_SUMMARY\","
+  },
+  {
+    "file": "eli/kernel/engine.py",
+    "line": 4988,
+    "text": "                \"EXPLAIN_MEMORY_RUNTIME\","
+  },
+  {
+    "file": "eli/kernel/engine.py",
+    "line": 4989,
+    "text": "                \"EXPLAIN_COGNITION_RUNTIME\","
+  },
+  {
+    "file": "eli/kernel/engine.py",
+    "line": 4998,
+    "text": "                \"EXPLAIN_LAST_RESPONSE\","
+  },
+  {
+    "file": "eli/kernel/engine.py",
+    "line": 5004,
+    "text": "                    # For USER_IDENTITY_SUMMARY: strip system diagnostic lines so ELI"
+  },
+  {
+    "file": "eli/kernel/engine.py",
+    "line": 5006,
+    "text": "                    if str(action).upper() == \"USER_IDENTITY_SUMMARY\":"
+  },
+  {
+    "file": "eli/kernel/engine.py",
+    "line": 5040,
+    "text": "                        gen_overrides={\"max_tokens\": -1, \"temperature\": 0.30},"
+  },
+  {
+    "file": "eli/kernel/engine.py",
+    "line": 5055,
+    "text": "                            final_result[\"confidence\"] = max("
+  },
+  {
+    "file": "eli/kernel/engine.py",
+    "line": 5056,
+    "text": "                                float(final_result.get(\"confidence\") or 0.0),"
+  },
+  {
+    "file": "eli/kernel/engine.py",
+    "line": 5057,
+    "text": "                                float(getattr(bus_result, \"aggregated_confidence\", 0.0) or 0.0),"
+  },
+  {
+    "file": "eli/kernel/engine.py",
+    "line": 5060,
+    "text": "                            final_result[\"confidence_score\"] = final_result[\"confidence\"]"
+  },
+  {
+    "file": "eli/kernel/engine.py",
+    "line": 5065,
+    "text": "                                    \"confidence\": final_result[\"confidence\"],"
+  },
+  {
+    "file": "eli/kernel/engine.py",
+    "line": 5105,
+    "text": "                        'confidence': bus_result.aggregated_confidence,"
+  },
+  {
+    "file": "eli/kernel/engine.py",
+    "line": 5116,
+    "text": "                gen_overrides={\"max_tokens\": 1024}"
+  },
+  {
+    "file": "eli/kernel/engine.py",
+    "line": 5139,
+    "text": "                    \"intent_confidence\": float((intent or {}).get(\"confidence\", 0.0) or 0.0),"
+  },
+  {
+    "file": "eli/kernel/engine.py",
+    "line": 5142,
+    "text": "                    \"agents_used\": list(getattr(bus_result, \"agents_used\", []) or []),"
+  },
+  {
+    "file": "eli/kernel/engine.py",
+    "line": 5143,
+    "text": "                    \"aggregated_confidence\": float(getattr(bus_result, \"aggregated_confidence\", getattr(bus_result, \"agg_conf\", 0.0)) or 0.0),"
+  },
+  {
+    "file": "eli/kernel/engine.py",
+    "line": 5148,
+    "text": "                # meta questions (\"what was your confidence / which agents"
+  },
+  {
+    "file": "eli/kernel/engine.py",
+    "line": 5190,
+    "text": "                _reserved_tok = int(_mode_prof.get(\"max_tokens\", 512))"
+  },
+  {
+    "file": "eli/kernel/engine.py",
+    "line": 5263,
+    "text": "                    # _score_response_confidence"
+  },
+  {
+    "file": "eli/kernel/engine.py",
+    "line": 5264,
+    "text": "                    bypass_score = self._score_response_confidence("
+  },
+  {
+    "file": "eli/kernel/engine.py",
+    "line": 5266,
+    "text": "        \"confidence\", 0.6), None)"
+  },
+  {
+    "file": "eli/kernel/engine.py",
+    "line": 5311,
+    "text": "            \"GUI_RUNTIME_AUDIT\", \"EXPLAIN_MEMORY_RUNTIME\", \"EXPLAIN_COGNITION_RUNTIME\","
+  },
+  {
+    "file": "eli/kernel/engine.py",
+    "line": 5312,
+    "text": "            \"EXPLAIN_LAST_RESPONSE\", \"RUNTIME_STATUS\", \"MEMORY_STATUS\", \"COGNITION_STATUS\", \"MEMORY_RECALL\","
+  },
+  {
+    "file": "eli/kernel/engine.py",
+    "line": 5313,
+    "text": "            \"USER_IDENTITY_SUMMARY\", \"SELF_REPORT\""
+  },
+  {
+    "file": "eli/kernel/engine.py",
+    "line": 5316,
+    "text": "                if action == \"EXPLAIN_LAST_RESPONSE\":"
+  },
+  {
+    "file": "eli/kernel/engine.py",
+    "line": 5320,
+    "text": "                        _agents = _lt.get(\"agents_used\") or []"
+  },
+  {
+    "file": "eli/kernel/engine.py",
+    "line": 5326,
+    "text": "                        _existing_agg = _lt.get(\"aggregated_confidence\", _lt.get(\"confidence\"))"
+  },
+  {
+    "file": "eli/kernel/engine.py",
+    "line": 5336,
+    "text": "                            \"GUI_RUNTIME_AUDIT\", \"EXPLAIN_MEMORY_RUNTIME\","
+  },
+  {
+    "file": "eli/kernel/engine.py",
+    "line": 5337,
+    "text": "                            \"EXPLAIN_COGNITION_RUNTIME\", \"EXPLAIN_LAST_RESPONSE\","
+  },
+  {
+    "file": "eli/kernel/engine.py",
+    "line": 5385,
+    "text": "                        _lt[\"aggregated_confidence\"] = _score"
+  },
+  {
+    "file": "eli/kernel/engine.py",
+    "line": 5386,
+    "text": "                        _lt[\"confidence_label\"] = _label"
+  },
+  {
+    "file": "eli/kernel/engine.py",
+    "line": 5393,
+    "text": "                            f\"- aggregated_confidence: {_score}\" + (f\" ({_label})\" if _label else \"\")"
+  },
+  {
+    "file": "eli/kernel/engine.py",
+    "line": 5396,
+    "text": "                            f\"- agents_used: {', '.join(str(a) for a in _agents) if _agents else 'none recorded'}\""
+  },
+  {
+    "file": "eli/kernel/engine.py",
+    "line": 5403,
+    "text": "                            f\"- confidence_basis: {', '.join(_basis) if _basis else 'minimal-trace'}\""
+  },
+  {
+    "file": "eli/kernel/engine.py",
+    "line": 5431,
+    "text": "                    \"EXPLAIN_LAST_RESPONSE\", \"EXPLAIN_MEMORY_RUNTIME\", \"EXPLAIN_COGNITION_RUNTIME\","
+  },
+  {
+    "file": "eli/kernel/engine.py",
+    "line": 5433,
+    "text": "                    \"USER_IDENTITY_SUMMARY\", \"SELF_REPORT\","
+  },
+  {
+    "file": "eli/kernel/engine.py",
+    "line": 5446,
+    "text": "                        max_tokens_override=_grounded_persona_budget,"
+  },
+  {
+    "file": "eli/kernel/engine.py",
+    "line": 5491,
+    "text": "                    confidence=intent.get(\"confidence\", 0),"
+  },
+  {
+    "file": "eli/kernel/engine.py",
+    "line": 5523,
+    "text": "                    max_tokens_override=512,"
+  },
+  {
+    "file": "eli/kernel/engine.py",
+    "line": 5539,
+    "text": "            if router_intent and router_intent.get(\"confidence\", 0) > 0.5:"
+  },
+  {
+    "file": "eli/kernel/engine.py",
+    "line": 5548,
+    "text": "            if llm_intent and llm_intent.get(\"confidence\", 0) > 0.4:"
+  },
+  {
+    "file": "eli/kernel/engine.py",
+    "line": 5554,
+    "text": "        return {\"action\": \"CHAT\", \"args\": {\"message\": text}, \"confidence\": 0.5}"
+  },
+  {
+    "file": "eli/kernel/engine.py",
+    "line": 5804,
+    "text": "                max_tokens = int(_settings.get(\"max_tokens\", 512) or 512)"
+  },
+  {
+    "file": "eli/kernel/engine.py",
+    "line": 5806,
+    "text": "                max_tokens = 512"
+  },
+  {
+    "file": "eli/kernel/engine.py",
+    "line": 5807,
+    "text": "            if max_tokens <= 0:"
+  },
+  {
+    "file": "eli/kernel/engine.py",
+    "line": 5808,
+    "text": "                max_tokens = 512"
+  },
+  {
+    "file": "eli/kernel/engine.py",
+    "line": 5828,
+    "text": "                    max_tokens=max_tokens,"
+  },
+  {
+    "file": "eli/kernel/engine.py",
+    "line": 5835,
+    "text": "                    max_tokens=max_tokens,"
+  },
+  {
+    "file": "eli/kernel/engine.py",
+    "line": 5958,
+    "text": "            \"threads:\", \"batch:\", \"gguf loaded:\", \"confidence:\", \"agents:\","
+  },
+  {
+    "file": "eli/kernel/engine.py",
+    "line": 6203,
+    "text": "                           max_tokens_override: Optional[int] = None,"
+  },
+  {
+    "file": "eli/kernel/engine.py",
+    "line": 6253,
+    "text": "                \"last response\", \"which agents contributed\", \"confidence in your last response\","
+  },
+  {
+    "file": "eli/kernel/engine.py",
+    "line": 6255,
+    "text": "            _max_tokens = int(max_tokens_override) if (max_tokens_override is not None and max_tokens_override != 0) else -1"
+  },
+  {
+    "file": "eli/kernel/engine.py",
+    "line": 6257,
+    "text": "                {\"max_tokens\": _max_tokens, \"temperature\": 0.35},"
+  },
+  {
+    "file": "eli/execution/router_enhanced.py",
+    "line": 152,
+    "text": "            \"confidence\": 0.97,"
+  },
+  {
+    "file": "eli/execution/router_enhanced.py",
+    "line": 161,
+    "text": "    confidence: float = 0.7,"
+  },
+  {
+    "file": "eli/execution/router_enhanced.py",
+    "line": 167,
+    "text": "    allow_chat_without_evidence: Optional[bool] = None,"
+  },
+  {
+    "file": "eli/execution/router_enhanced.py",
+    "line": 174,
+    "text": "        \"confidence\": float(max(0.0, min(1.0, confidence))),"
+  },
+  {
+    "file": "eli/execution/router_enhanced.py",
+    "line": 185,
+    "text": "    if allow_chat_without_evidence is not None:"
+  },
+  {
+    "file": "eli/execution/router_enhanced.py",
+    "line": 186,
+    "text": "        meta[\"allow_chat_without_evidence\"] = bool(allow_chat_without_evidence)"
+  },
+  {
+    "file": "eli/execution/router_enhanced.py",
+    "line": 428,
+    "text": "        return _mk(\"CHAT\", {\"message\": raw}, 0.99, matched_by=\"runtime.status.identity_grounded_chat\", allow_chat_without_evidence=False)"
+  },
+  {
+    "file": "eli/execution/router_enhanced.py",
+    "line": 435,
+    "text": "        return _mk(\"SELF_REPORT\", {}, 0.99, matched_by=\"identity.self_report_preempt\", allow_chat_without_evidence=False)"
+  },
+  {
+    "file": "eli/execution/router_enhanced.py",
+    "line": 438,
+    "text": "        return _mk(\"USER_IDENTITY_SUMMARY\", {}, 0.99, matched_by=\"identity.user_summary_preempt\", allow_chat_without_evidence=False)"
+  },
+  {
+    "file": "eli/execution/router_enhanced.py",
+    "line": 442,
+    "text": "    # numbers as evidence and caused the 7B to confabulate confidence/agent"
+  },
+  {
+    "file": "eli/execution/router_enhanced.py",
+    "line": 445,
+    "text": "    if re.search(r\"\\b(confidence in (?:your|my) last response|which agents contributed|what agents contributed|agents contributed|grounded trace|trace metadata|last turn trace|previous response trace)\\b\", raw, re.I):"
+  },
+  {
+    "file": "eli/execution/router_enhanced.py",
+    "line": 446,
+    "text": "        return _mk(\"EXPLAIN_LAST_RESPONSE\", {}, 0.99,"
+  },
+  {
+    "file": "eli/execution/router_enhanced.py",
+    "line": 448,
+    "text": "                   allow_chat_without_evidence=False)"
+  },
+  {
+    "file": "eli/execution/router_enhanced.py",
+    "line": 562,
+    "text": "            allow_chat_without_evidence=False,"
+  },
+  {
+    "file": "eli/execution/router_enhanced.py",
+    "line": 574,
+    "text": "        return _mk(\"SELF_UPDATE\", {}, 0.99, matched_by=\"router.self_update\", allow_chat_without_evidence=False)"
+  },
+  {
+    "file": "eli/execution/router_enhanced.py",
+    "line": 576,
+    "text": "    if re.search(r\"\\b(confidence in (?:your|my) last response|which agents contributed|what agents contributed|last response trace|previous response trace|last turn trace)\\b\", low):"
+  },
+  {
+    "file": "eli/execution/router_enhanced.py",
+    "line": 577,
+    "text": "        return _mk(\"EXPLAIN_LAST_RESPONSE\", {}, 0.99, matched_by=\"router.explain_last_response\", allow_chat_without_evidence=False)"
+  },
+  {
+    "file": "eli/execution/router_enhanced.py",
+    "line": 582,
+    "text": "        return _mk(\"CHAT\", {\"message\": raw}, 0.92, matched_by=\"router.correction_chat\", allow_chat_without_evidence=True)"
+  },
+  {
+    "file": "eli/execution/router_enhanced.py",
+    "line": 588,
+    "text": "        return _mk(\"SELF_REPORT\", {}, 0.99, matched_by=\"router.self_report_with_runtime\", allow_chat_without_evidence=False)"
+  },
+  {
+    "file": "eli/execution/router_enhanced.py",
+    "line": 591,
+    "text": "        return _mk(\"RUNTIME_STATUS\", {}, 0.99, matched_by=\"router.runtime_status\", allow_chat_without_evidence=False)"
+  },
+  {
+    "file": "eli/execution/router_enhanced.py",
+    "line": 594,
+    "text": "        return _mk(\"EXPLAIN_MEMORY_RUNTIME\", {}, 0.99, matched_by=\"router.memory_runtime\", allow_chat_without_evidence=False)"
+  },
+  {
+    "file": "eli/execution/router_enhanced.py",
+    "line": 600,
+    "text": "        return _mk(\"EXPLAIN_MEMORY_RUNTIME\", {}, 0.99, matched_by=\"router.memory_runtime_architecture\", allow_chat_without_evidence=False)"
+  },
+  {
+    "file": "eli/execution/router_enhanced.py",
+    "line": 603,
+    "text": "        return _mk(\"EXPLAIN_COGNITION_RUNTIME\", {}, 0.99, matched_by=\"router.cognition_runtime\", allow_chat_without_evidence=False)"
+  },
+  {
+    "file": "eli/execution/router_enhanced.py",
+    "line": 606,
+    "text": "        return _mk(\"USER_IDENTITY_SUMMARY\", {}, 0.99, matched_by=\"router.user_identity_summary\", allow_chat_without_evidence=False)"
+  },
+  {
+    "file": "eli/execution/router_enhanced.py",
+    "line": 609,
+    "text": "        return _mk(\"SELF_REPORT\", {}, 0.99, matched_by=\"router.self_report\", allow_chat_without_evidence=False)"
+  },
+  {
+    "file": "eli/execution/router_enhanced.py",
+    "line": 614,
+    "text": "        return _mk(\"CHAT\", {\"message\": raw}, 0.95, matched_by=\"router.runtime_status_to_chat\", allow_chat_without_evidence=False)"
+  },
+  {
+    "file": "eli/execution/router_enhanced.py",
+    "line": 617,
+    "text": "        return _mk(\"CHAT\", {\"message\": raw}, 0.95, matched_by=\"router.memory_status_to_chat\", allow_chat_without_evidence=False)"
+  },
+  {
+    "file": "eli/execution/router_enhanced.py",
+    "line": 620,
+    "text": "        return _mk(\"EXPLAIN_MEMORY_RUNTIME\", {}, 0.99, matched_by=\"router.memory_runtime_to_grounded\", allow_chat_without_evidence=False)"
+  },
+  {
+    "file": "eli/execution/router_enhanced.py",
+    "line": 623,
+    "text": "        return _mk(\"CHAT\", {\"message\": raw}, 0.95, matched_by=\"router.cognition_runtime_to_chat\", allow_chat_without_evidence=False)"
+  },
+  {
+    "file": "eli/execution/router_enhanced.py",
+    "line": 626,
+    "text": "        return _mk(\"RUNTIME_AUDIT\", {}, 0.99, matched_by=\"router.runtime_audit\", allow_chat_without_evidence=False, need_grounding=True, task_family=\"grounded_audit\")"
+  },
+  {
+    "file": "eli/execution/router_enhanced.py",
+    "line": 629,
+    "text": "        return _mk(\"IMPORT_AUDIT\", {}, 0.99, matched_by=\"router.import_audit\", allow_chat_without_evidence=False, need_grounding=True, task_family=\"grounded_audit\")"
+  },
+  {
+    "file": "eli/execution/router_enhanced.py",
+    "line": 632,
+    "text": "        return _mk(\"RESOLVE_RUNTIME_PATHS\", {}, 0.99, matched_by=\"runtime.paths.preempt\", allow_chat_without_evidence=False)"
+  },
+  {
+    "file": "eli/execution/router_enhanced.py",
+    "line": 640,
+    "text": "            allow_chat_without_evidence=False,"
+  },
+  {
+    "file": "eli/execution/router_enhanced.py",
+    "line": 656,
+    "text": "        return _mk(\"CHAT\", {\"message\": raw}, 0.95, matched_by=\"router.runtime_status_grounded_to_chat\", allow_chat_without_evidence=False)"
+  },
+  {
+    "file": "eli/execution/router_enhanced.py",
+    "line": 659,
+    "text": "    if re.search(r\"\\b(confidence in your last response|which agents contributed|agents contributed|grounded trace|trace metadata)\\b\", low):"
+  },
+  {
+    "file": "eli/execution/router_enhanced.py",
+    "line": 662,
+    "text": "                   allow_chat_without_evidence=False)"
+  },
+  {
+    "file": "eli/execution/router_enhanced.py",
+    "line": 665,
+    "text": "        return _mk(\"EXPLAIN_MEMORY_RUNTIME\", {}, 0.99, matched_by=\"router.memory_status_to_grounded\", allow_chat_without_evidence=False)"
+  },
+  {
+    "file": "eli/execution/router_enhanced.py",
+    "line": 694,
+    "text": "            allow_chat_without_evidence=False,"
+  },
+  {
+    "file": "eli/execution/router_enhanced.py",
+    "line": 706,
+    "text": "            allow_chat_without_evidence=False,"
+  },
+  {
+    "file": "eli/execution/router_enhanced.py",
+    "line": 711,
+    "text": "                   allow_chat_without_evidence=False)"
+  },
+  {
+    "file": "eli/execution/router_enhanced.py",
+    "line": 982,
+    "text": "        return {\"action\": \"STOP_MEDIA\", \"args\": {}, \"confidence\": 0.96}"
+  },
+  {
+    "file": "eli/execution/router_enhanced.py",
+    "line": 985,
+    "text": "        return {\"action\": \"PAUSE_MEDIA\", \"args\": {}, \"confidence\": 0.96}"
+  },
+  {
+    "file": "eli/execution/router_enhanced.py",
+    "line": 989,
+    "text": "        return {\"action\": \"PLAY_MEDIA\", \"args\": {}, \"confidence\": 0.96}"
+  },
+  {
+    "file": "eli/execution/router_enhanced.py",
+    "line": 992,
+    "text": "        return {\"action\": \"NEXT_MEDIA\", \"args\": {}, \"confidence\": 0.96}"
+  },
+  {
+    "file": "eli/execution/router_enhanced.py",
+    "line": 996,
+    "text": "        return {\"action\": \"PREVIOUS_MEDIA\", \"args\": {}, \"confidence\": 0.96}"
+  },
+  {
+    "file": "eli/execution/router_enhanced.py",
+    "line": 2054,
+    "text": "            allow_chat_without_evidence=False,"
+  },
+  {
+    "file": "eli/execution/router_enhanced.py",
+    "line": 2557,
+    "text": "        result.setdefault(\"confidence\", result.get(\"confidence\", 0.7))"
+  },
+  {
+    "file": "eli/execution/router_enhanced.py",
+    "line": 2594,
+    "text": "            \"confidence\": 0.99,"
+  },
+  {
+    "file": "eli/execution/router_enhanced.py",
+    "line": 2606,
+    "text": "                \"confidence\": 0.99,"
+  },
+  {
+    "file": "eli/execution/router_enhanced.py",
+    "line": 2618,
+    "text": "            \"confidence\": 0.98,"
+  },
+  {
+    "file": "eli/execution/router_enhanced.py",
+    "line": 2678,
+    "text": "            \"confidence\": 0.99,"
+  },
+  {
+    "file": "eli/execution/router_enhanced.py",
+    "line": 2696,
+    "text": "            \"confidence\": 0.99,"
+  },
+  {
+    "file": "eli/execution/router_enhanced.py",
+    "line": 2718,
+    "text": "            \"confidence\": 0.99,"
+  },
+  {
+    "file": "eli/execution/router_enhanced.py",
+    "line": 2805,
+    "text": "        \"confidence\": 0.995,"
+  },
+  {
+    "file": "eli/execution/router_enhanced.py",
+    "line": 2904,
+    "text": "        \"confidence\": 0.999,"
+  },
+  {
+    "file": "eli/execution/router_enhanced.py",
+    "line": 2989,
+    "text": "            \"confidence\": 0.999,"
+  },
+  {
+    "file": "eli/execution/router_enhanced.py",
+    "line": 3025,
+    "text": "            \"confidence\": 0.999,"
+  },
+  {
+    "file": "eli/execution/router_enhanced.py",
+    "line": 3048,
+    "text": "                \"confidence\": 0.999,"
+  },
+  {
+    "file": "eli/execution/router_enhanced.py",
+    "line": 3110,
+    "text": "                \"confidence\": 0.999,"
+  },
+  {
+    "file": "eli/execution/router_enhanced.py",
+    "line": 3118,
+    "text": "                \"confidence\": 0.999,"
+  },
+  {
+    "file": "eli/execution/router_enhanced.py",
+    "line": 3188,
+    "text": "            return _mk(\"SELF_REPORT\", {}, 0.99, matched_by=\"identity.final_self_report\", allow_chat_without_evidence=False)"
+  },
+  {
+    "file": "eli/execution/router_enhanced.py",
+    "line": 3191,
+    "text": "            return _mk(\"USER_IDENTITY_SUMMARY\", {}, 0.99, matched_by=\"identity.final_user_summary\", allow_chat_without_evidence=False)"
+  },
+  {
+    "file": "eli/execution/router_enhanced.py",
+    "line": 3313,
+    "text": "                allow_chat_without_evidence=False,"
+  },
+  {
+    "file": "eli/execution/router_enhanced.py",
+    "line": 3342,
+    "text": "                allow_chat_without_evidence=False,"
+  },
+  {
+    "file": "eli/execution/router_enhanced.py",
+    "line": 3357,
+    "text": "                allow_chat_without_evidence=False,"
+  },
+  {
+    "file": "eli/execution/router_enhanced.py",
+    "line": 3402,
+    "text": "        \"confidence\": 0.999,"
+  },
+  {
+    "file": "eli/execution/router_enhanced.py",
+    "line": 3421,
+    "text": "            \"confidence\": 0.999,"
+  },
+  {
+    "file": "eli/execution/router_enhanced.py",
+    "line": 3432,
+    "text": "            \"confidence\": 0.999,"
+  },
+  {
+    "file": "eli/execution/router_enhanced.py",
+    "line": 3440,
+    "text": "            \"confidence\": 0.999,"
+  },
+  {
+    "file": "eli/execution/router_enhanced.py",
+    "line": 3450,
+    "text": "            \"confidence\": 0.999,"
+  },
+  {
+    "file": "eli/execution/executor_enhanced.py",
+    "line": 59,
+    "text": "# memory_db has a different schema (model/dim/vec columns) than Memory (kind/source/confidence/weight)."
+  },
+  {
+    "file": "eli/execution/executor_enhanced.py",
+    "line": 166,
+    "text": "def memory_store(text, tags=None, kind=\"note\", source=\"chat\", confidence=0.7, ts=None):"
+  },
+  {
+    "file": "eli/execution/executor_enhanced.py",
+    "line": 177,
+    "text": "            confidence=float(confidence),"
+  },
+  {
+    "file": "eli/execution/executor_enhanced.py",
+    "line": 739,
+    "text": "            \"enough name signal to identify you by name with confidence.\""
+  },
+  {
+    "file": "eli/execution/executor_enhanced.py",
+    "line": 811,
+    "text": "        'confidence': '_score_response_confidence',"
+  },
+  {
+    "file": "eli/execution/executor_enhanced.py",
+    "line": 938,
+    "text": "    if settings.get('max_tokens') not in (None, ''):"
+  },
+  {
+    "file": "eli/execution/executor_enhanced.py",
+    "line": 939,
+    "text": "        lines.append(f\"- max_tokens: {settings.get('max_tokens')}\")"
+  },
+  {
+    "file": "eli/execution/executor_enhanced.py",
+    "line": 1068,
+    "text": "    'EXPLAIN_COGNITION_RUNTIME',"
+  },
+  {
+    "file": "eli/execution/executor_enhanced.py",
+    "line": 1069,
+    "text": "    'EXPLAIN_LAST_RESPONSE',"
+  },
+  {
+    "file": "eli/execution/executor_enhanced.py",
+    "line": 1070,
+    "text": "    'EXPLAIN_MEMORY_RUNTIME',"
+  },
+  {
+    "file": "eli/execution/executor_enhanced.py",
+    "line": 1152,
+    "text": "    'SELF_REPORT',"
+  },
+  {
+    "file": "eli/execution/executor_enhanced.py",
+    "line": 1172,
+    "text": "    'USER_IDENTITY_SUMMARY',"
+  },
+  {
+    "file": "eli/execution/executor_enhanced.py",
+    "line": 1473,
+    "text": "            resp = chat_completion(\"Reply with exactly these 2 words: persona ok\", max_tokens=16)"
+  },
+  {
+    "file": "eli/execution/executor_enhanced.py",
+    "line": 4342,
+    "text": "                    max_tokens=target_tokens,"
+  },
+  {
+    "file": "eli/execution/executor_enhanced.py",
+    "line": 5341,
+    "text": "                    max_tokens=None,   # auto: n_ctx - prompt_tokens - 128"
+  },
+  {
+    "file": "eli/execution/executor_enhanced.py",
+    "line": 5629,
+    "text": "                code = _gguf.chat_completion(prompt, system=f\"You are an expert {_detected_lang} developer. Output only raw {_detected_lang} code with no markdown.\", max_tokens=4000, temperature=0.15, top_p=0.8)"
+  },
+  {
+    "file": "eli/execution/executor_enhanced.py",
+    "line": 6057,
+    "text": "                        max_tokens=700, temperature=0.3)"
+  },
+  {
+    "file": "eli/execution/executor_enhanced.py",
+    "line": 6486,
+    "text": "      * CONTROL_CONTRACT_EXECUTOR_WRAPPER  (SELF_UPDATE, EXPLAIN_LAST_RESPONSE)"
+  },
+  {
+    "file": "eli/execution/executor_enhanced.py",
+    "line": 6492,
+    "text": "    if a in {\"SELF_UPDATE\", \"EXPLAIN_LAST_RESPONSE\"}:"
+  },
+  {
+    "file": "eli/execution/executor_enhanced.py",
+    "line": 6711,
+    "text": "    if a == 'USER_IDENTITY_SUMMARY':"
+  },
+  {
+    "file": "eli/execution/executor_enhanced.py",
+    "line": 6716,
+    "text": "    if a == 'SELF_REPORT':"
+  },
+  {
+    "file": "eli/execution/executor_enhanced.py",
+    "line": 6759,
+    "text": "    if a == 'EXPLAIN_MEMORY_RUNTIME':"
+  },
+  {
+    "file": "eli/execution/executor_enhanced.py",
+    "line": 6762,
+    "text": "    if a == 'EXPLAIN_COGNITION_RUNTIME':"
+  },
+  {
+    "file": "eli/execution/executor_enhanced.py",
+    "line": 7622,
+    "text": "                    max_tokens=int(data.get(\"max_tokens\") or 1200),"
+  }
+]

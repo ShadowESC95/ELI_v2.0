@@ -1,0 +1,7 @@
+# Core runtime pinned for legacy MediaPipe FaceMesh / iris support.
+# Do not use NumPy 2.x here: legacy MediaPipe Solutions expects NumPy 1.x.
+numpy==1.26.4
+opencv-contrib-python==4.10.0.84
+pillow>=10.0
+PyQt6>=6.6
+mss>=9.0

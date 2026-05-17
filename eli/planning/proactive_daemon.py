@@ -1,0 +1,819 @@
+from eli.planning.proposal_adapters import proactive_governed_enqueue
+from eli.runtime.self_model_refresh import refresh_all_overlays_nonfatal
+from eli.planning.proposal_memory_bridge import drain_proposals_to_agent_memory
+
+#!/usr/bin/env python3
+"""
+ELI Proactive Daemon - Self-Improvement & Intelligence System
+==============================================================
+
+Option B (TWO DBs):
+- Reads user-facing memories/conversations from USER DB
+- Writes proactive observations/improvements/errors to AGENT DB
+"""
+
+import os
+import sys
+import time
+import subprocess
+import json
+import sqlite3
+from pathlib import Path
+from datetime import datetime
+from typing import Dict, List, Any, Optional
+import threading
+import queue
+from eli.core.paths import get_paths
+
+# IMPORTANT: don't force sys.path unless you're running this file directly.
+# In normal package use, PYTHONPATH/src handles it.
+if __name__ == "__main__":
+    # Add the parent of the package root so `import eli` works in both flat and src layouts.
+    sys.path.insert(0, str(Path(__file__).resolve().parents[3]))
+
+from eli.memory import (
+    get_memory,
+    get_agent_memory,
+    resolve_db_paths,
+)
+
+class ProactiveDaemon:
+    """
+    Self-improving proactive intelligence daemon
+    - READS: user DB
+    - WRITES: agent DB
+    """
+
+    def __init__(self):
+        self.paths = get_paths()
+        self.project_root = self.paths.project_root
+        self.package_root = Path(__file__).resolve().parents[2]
+        self.running = False
+        self.paused = False
+        self.suggestion_queue = queue.Queue()
+
+        # Two DB handles
+        self.user_mem = get_memory()
+        self.agent_mem = get_agent_memory()
+
+        # Keep db_path attribute for legacy code paths that still use sqlite3 directly
+        # (but this should always refer to AGENT DB in Option B)
+        self.db_path = Path(self.agent_mem.db_path)
+
+        print("[PROACTIVE] Daemon initialized")
+        print(f"[PROACTIVE] USER DB  : {self.user_mem.db_path}")
+        print(f"[PROACTIVE] AGENT DB : {self.agent_mem.db_path}")
+
+    # ------------------------------
+    # Low-level helpers (agent DB)
+    # ------------------------------
+
+    def _safe_execute_query(self, query, params=(), fetch_all=True):
+        """
+        Executes query against AGENT DB (proactive/internal).
+        Missing tables -> empty result.
+        """
+        try:
+            con = sqlite3.connect(str(self.db_path))
+            cur = con.cursor()
+            cur.execute(query, params)
+            result = cur.fetchall() if fetch_all else cur.fetchone()
+            con.close()
+            return result
+        except sqlite3.OperationalError as e:
+            if "no such table" in str(e):
+                return [] if fetch_all else None
+            raise
+
+    # ------------------------------
+    # Reads: USER DB
+    # Writes: AGENT DB
+    # ------------------------------
+
+    # ─── stop-words for topic extraction ──────────────────────────────────────
+    _STOPWORDS = frozenset({
+        'the','a','an','is','are','was','were','be','been','being','have','has','had',
+        'do','does','did','will','would','could','should','may','might','can','shall',
+        'to','of','in','for','on','with','at','by','from','as','or','and','but','not',
+        'it','i','you','we','they','he','she','that','this','what','how','why','when',
+        'where','there','here','so','if','then','just','really','like','get','got','go',
+        'up','out','also','about','into','than','which','who','more','some','no','any',
+        'my','your','its','our','their','me','him','her','us','them','yes','okay','ok',
+        'well','now','still','even','much','many','all','very','too','make','made','use',
+        'used','using','run','ran','running','sure','need','want','think','know','see',
+        'look','let','try','work','working','works','right','wrong','good','bad','new',
+        'old','same','different','way','time','thing','things','something','nothing',
+        'everything','anything','else','please','thanks','sorry','hi','hey','hello',
+        'yeah','yep','nope','actually','basically','maybe','probably','definitely',
+        'already','only','both','each','other','another','again','always','never',
+        'every','few','most','least','great','nice','pretty','quite','rather','really',
+        'seems','seem','seemed','better','best','worse','worst','big','small','little',
+        'long','short','first','last','next','back','down','over','through','after',
+        'before','during','without','within','between','among','around','against',
+        'going','gone','came','come','give','given','take','taken','put','keep','kept',
+        'start','started','stop','stopped','end','ended','want','wanted','tell','told',
+    })
+
+    def analyze_user_patterns(self) -> List[Dict[str, Any]]:
+        """
+        Analyze user-facing memories for MEANINGFUL patterns (READ USER DB).
+        Produces at most ~5 concise signals per cycle — no bi-gram spam.
+        """
+        patterns: List[Dict[str, Any]] = []
+
+        user_db = Path(self.user_mem.db_path)
+        if not user_db.exists():
+            return patterns
+
+        try:
+            con = sqlite3.connect(str(user_db))
+            cur = con.cursor()
+            rows: List[tuple] = []
+            try:
+                cur.execute(
+                    "SELECT ts, text, tags FROM memories "
+                    "WHERE kind NOT IN ('reflection','assistant_insight','session_summary','conversation') "
+                    "ORDER BY ts DESC LIMIT 300"
+                )
+                rows = cur.fetchall()
+            except Exception:
+                pass
+            try:
+                cur.execute(
+                    "SELECT timestamp, content, '' FROM conversation_turns "
+                    "WHERE role='user' ORDER BY timestamp DESC LIMIT 200"
+                )
+                rows += cur.fetchall()
+            except Exception:
+                pass
+            con.close()
+        except sqlite3.OperationalError:
+            return patterns
+
+        if not rows:
+            return patterns
+
+        # ── Pattern 1: Peak activity hour (single result) ──────────────────
+        hour_counts: Dict[int, int] = {}
+        for ts, text, _ in rows:
+            try:
+                hour = datetime.fromtimestamp(float(ts)).hour
+                hour_counts[hour] = hour_counts.get(hour, 0) + 1
+            except Exception:
+                continue
+        if hour_counts and sum(hour_counts.values()) > 5:
+            peak = max(hour_counts, key=hour_counts.get)
+            patterns.append({
+                "type": "time_habit",
+                "peak_hour": peak,
+                "suggestion": f"Peak activity at {peak:02d}:00 ({hour_counts[peak]} interactions)"
+            })
+
+        # ── Pattern 2: Meaningful topic focus (top 5 non-trivial words) ────
+        word_counts: Dict[str, int] = {}
+        for _, text, _ in rows:
+            if not text:
+                continue
+            for w in str(text).lower().split():
+                w = w.strip('.,!?;:\'"()[]{}')
+                if len(w) > 4 and w not in self._STOPWORDS and w.isalpha():
+                    word_counts[w] = word_counts.get(w, 0) + 1
+        top = sorted(word_counts.items(), key=lambda x: x[1], reverse=True)[:5]
+        top = [(w, c) for w, c in top if c >= 3]
+        if top:
+            topics = ", ".join(f"{w} (×{c})" for w, c in top)
+            patterns.append({
+                "type": "topic_focus",
+                "topics": [w for w, _ in top],
+                "suggestion": f"Current focus areas: {topics}"
+            })
+
+        # ── Pattern 3: PDF analysis usage ───────────────────────────────────
+        try:
+            con = sqlite3.connect(str(user_db))
+            cur = con.cursor()
+            cur.execute(
+                "SELECT COUNT(*) FROM memories WHERE tags LIKE '%pdf_analysis%' AND ts > ?",
+                (time.time() - 30 * 24 * 3600,),
+            )
+            pdf_row = cur.fetchone()
+            con.close()
+            if pdf_row and pdf_row[0] and int(pdf_row[0]) > 5:
+                patterns.append({
+                    "type": "high_pdf_usage",
+                    "count": int(pdf_row[0]),
+                    "suggestion": f"Heavy PDF usage ({pdf_row[0]} in 30d) — pipeline automation may help"
+                })
+        except Exception:
+            pass
+
+        # ── Pattern 4: Recurring errors from agent DB ────────────────────────
+        try:
+            con = sqlite3.connect(str(self.db_path))
+            cur = con.cursor()
+            cur.execute(
+                "SELECT error, occurrence_count FROM failures "
+                "WHERE occurrence_count >= 2 ORDER BY timestamp DESC LIMIT 3"
+            )
+            for err, cnt in (cur.fetchall() or []):
+                patterns.append({
+                    "type": "recurring_error",
+                    "error": str(err)[:80],
+                    "count": int(cnt or 1),
+                    "suggestion": f"Recurring error (×{cnt}): {str(err)[:80]}"
+                })
+            con.close()
+        except Exception:
+            pass
+
+        # ── Pattern 5: Active project signals from user_patterns table ───────
+        try:
+            con = sqlite3.connect(str(user_db))
+            cur = con.cursor()
+            cur.execute(
+                "SELECT pattern_data FROM user_patterns WHERE pattern_type LIKE 'project%' "
+                "ORDER BY COALESCE(timestamp, ts, id) DESC LIMIT 3"
+            )
+            proj_rows = cur.fetchall()
+            con.close()
+            if proj_rows:
+                proj = proj_rows[0][0].strip()[:120] if proj_rows else ""
+                if proj:
+                    patterns.append({
+                        "type": "active_project",
+                        "suggestion": f"Active project signal: {proj}"
+                    })
+        except Exception:
+            pass
+
+        # Store a single compact observation (not per-pattern spam)
+        if patterns:
+            try:
+                self.agent_mem.add_observation(
+                    category="proactive_patterns",
+                    observation="pattern_summary",
+                    content=json.dumps({
+                        "count": len(patterns),
+                        "types": [p["type"] for p in patterns]
+                    })[:1000],
+                )
+            except Exception:
+                pass
+
+        print(f"[PROACTIVE] Pattern analysis: {len(patterns)} signals ({', '.join(p['type'] for p in patterns)})")
+        return patterns
+
+    def analyze_code_quality(self) -> List[Dict[str, Any]]:
+        """
+        Analyze ELI's own code for improvements (WRITE to AGENT DB)
+        """
+        improvements: List[Dict[str, Any]] = []
+
+        code_files = [
+            self.package_root / "execution" / "executor_enhanced.py",
+            self.package_root / "execution" / "router_enhanced.py",
+            self.package_root / "kernel" / "engine.py",
+        ]
+
+        for file_path in code_files:
+            if not file_path.exists():
+                continue
+
+            try:
+                content = file_path.read_text()
+                lines = content.split("\n")
+
+                # Duplicate lines heuristic
+                line_counts: Dict[str, int] = {}
+                for line in lines:
+                    stripped = line.strip()
+                    if len(stripped) > 20:
+                        line_counts[stripped] = line_counts.get(stripped, 0) + 1
+                duplicates = {k: v for k, v in line_counts.items() if v > 2}
+                if duplicates:
+                    improvements.append({
+                        "file": file_path.name,
+                        "type": "duplicate_code",
+                        "count": len(duplicates),
+                        "priority": 2,
+                        "suggestion": f"Found {len(duplicates)} duplicate code blocks - consider refactoring"
+                    })
+
+                # Long functions heuristic
+                in_function = False
+                function_line_count = 0
+                function_name = ""
+
+                for line in lines:
+                    if line.strip().startswith("def "):
+                        if function_line_count > 100:
+                            improvements.append({
+                                "file": file_path.name,
+                                "type": "long_function",
+                                "function": function_name,
+                                "lines": function_line_count,
+                                "priority": 3,
+                                "suggestion": f"Function '{function_name}' is {function_line_count} lines - consider splitting"
+                            })
+                        in_function = True
+                        function_line_count = 0
+                        function_name = line.strip().split("(")[0].replace("def ", "")
+                    elif in_function:
+                        function_line_count += 1
+
+                # TODO/FIXME comments
+                todos = [line for line in lines if "TODO" in line or "FIXME" in line]
+                if todos:
+                    improvements.append({
+                        "file": file_path.name,
+                        "type": "todos",
+                        "count": len(todos),
+                        "priority": 4,
+                        "suggestion": f"Found {len(todos)} TODO/FIXME comments"
+                    })
+
+            except Exception as e:
+                print(f"[PROACTIVE] Code analysis error for {file_path.name}: {e}")
+
+        # Store improvements summary into AGENT DB
+        for item in improvements:
+            try:
+                self.agent_mem.log_improvement("code_quality", json.dumps(item)[:4000])
+            except Exception:
+                pass
+
+        return improvements
+
+    def execute_habit(self, rule: dict) -> dict:
+        """
+        Execute a habit rule's shell command. Only runs if command is non-empty.
+        Returns {"ok": bool, "output": str, "returncode": int}.
+        """
+        name = rule.get("name", "unnamed")
+        cmd = (rule.get("command") or "").strip()
+        if not cmd:
+            return {"ok": False, "error": "No command defined"}
+        try:
+            result = subprocess.run(
+                cmd, shell=True, capture_output=True, text=True, timeout=30
+            )
+            out = (result.stdout or result.stderr or "").strip()[:500]
+            status = "✓" if result.returncode == 0 else f"✗ (rc={result.returncode})"
+            print(f"[PROACTIVE] Habit executed '{name}': {status} — {out[:120]}")
+            self.suggestion_queue.put(("habit_result", {
+                "type": "habit_result",
+                "name": name,
+                "command": cmd,
+                "ok": result.returncode == 0,
+                "suggestion": f"{status} Habit '{name}' ran: {out[:120] or 'done'}"
+            }))
+            # Log to agent DB
+            try:
+                self.agent_mem.add_observation(
+                    category="habit_executed",
+                    observation=f"{name}: rc={result.returncode}",
+                    content=out[:500],
+                )
+            except Exception:
+                pass
+            return {"ok": result.returncode == 0, "output": out, "returncode": result.returncode}
+        except subprocess.TimeoutExpired:
+            msg = f"Habit '{name}' timed out after 30s"
+            print(f"[PROACTIVE] {msg}")
+            return {"ok": False, "error": msg}
+        except Exception as exc:
+            msg = str(exc)
+            print(f"[PROACTIVE] Habit execution error '{name}': {msg}")
+            return {"ok": False, "error": msg}
+
+    def track_error(self, error_type: str, error_message: str, context: str):
+        """
+        Track recurring errors (WRITE AGENT DB).
+        """
+        try:
+            # Use Memory’s failure logger (dedup + occurrence_count)
+            self.agent_mem.log_failure(
+                user_input=context or error_message,
+                error=f"{error_type}: {error_message}",
+                confidence=1.0,
+                context={"context": context},
+                command=error_type,
+            )
+        except Exception as e:
+            print(f"[PROACTIVE] Error tracking failed: {e}")
+
+    def generate_morning_report(self) -> str:
+        """
+        Morning report should read:
+          - USER DB: conversations/memories
+          - AGENT DB: improvements/errors/observations
+        """
+        hour = datetime.now().hour
+        greeting = "Good morning" if hour < 12 else "Good afternoon" if hour < 17 else "Good evening"
+
+        user_db = Path(self.user_mem.db_path)
+        agent_db = Path(self.agent_mem.db_path)
+        window = time.time() - (24 * 60 * 60)
+
+        def fetch_all(db: Path, query: str, params=()):
+            try:
+                con = sqlite3.connect(str(db))
+                cur = con.cursor()
+                cur.execute(query, params)
+                rows = cur.fetchall()
+                con.close()
+                return rows
+            except sqlite3.OperationalError:
+                return []
+
+        def fetch_one(db: Path, query: str, params=()):
+            try:
+                con = sqlite3.connect(str(db))
+                cur = con.cursor()
+                cur.execute(query, params)
+                row = cur.fetchone()
+                con.close()
+                return row
+            except sqlite3.OperationalError:
+                return None
+
+        # USER DB: interactions/convs/memories
+        interaction_count = 0
+        count_row = fetch_one(user_db, "SELECT COUNT(*) FROM conversations WHERE timestamp > ?", (window,))
+        if count_row:
+            interaction_count = int(count_row[0])
+
+        recent_convs = fetch_all(
+            user_db,
+            "SELECT role, content FROM conversations WHERE timestamp > ? ORDER BY timestamp DESC LIMIT 20",
+            (window,),
+        )
+        recent_mems = fetch_all(
+            user_db,
+            "SELECT text, tags FROM memories ORDER BY ts DESC LIMIT 30",
+        )
+
+        # AGENT DB: failures/improvements/observations
+        errors = fetch_all(
+            agent_db,
+            "SELECT user_input, error, occurrence_count FROM failures ORDER BY timestamp DESC LIMIT 5",
+        )
+        improvements = fetch_all(
+            agent_db,
+            "SELECT category, description FROM improvements ORDER BY timestamp DESC LIMIT 5",
+        )
+
+        ctx_parts = []
+        if recent_convs:
+            conv_text = "\n".join([f"{r}: {c[:120]}" for r, c in recent_convs[:10]])
+            ctx_parts.append(f"Recent conversations:\n{conv_text}")
+        if recent_mems:
+            mem_text = "\n".join([f"[{t}] {m[:100]}" for m, t in recent_mems[:15]])
+            ctx_parts.append(f"Knowledge base:\n{mem_text}")
+        if errors:
+            ctx_parts.append("Recent failures (agent):\n" + "\n".join([f"{e[:80]} (x{n})" for _, e, n in errors]))
+        if improvements:
+            ctx_parts.append("Recent improvements (agent):\n" + "\n".join([f"[{c}] {d[:100]}" for c, d in improvements]))
+
+        # ── 24h news digest: eight 3-hour reflections compiled together ──
+        news_digest = ""
+        news_meta = {}
+        try:
+            from eli.tools.news.news_synthesis import build_morning_digest
+            news_meta = build_morning_digest(hours=24) or {}
+            if news_meta.get("digest"):
+                ctx_parts.append(
+                    f"24h news digest ({news_meta.get('reflection_count',0)} "
+                    f"3h reflections, {news_meta.get('article_count',0)} articles):\n"
+                    f"{news_meta['digest']}"
+                )
+        except Exception as _nde:
+            print(f"[PROACTIVE] Morning news digest error: {_nde}")
+
+        # ── Include active habit rules in briefing context ──
+        try:
+            from eli.planning.habits import detect_habits
+            _mem_h = self.user_mem or self.agent_mem
+            if _mem_h and hasattr(_mem_h, 'get_habit_rules'):
+                _rules = _mem_h.get_habit_rules(enabled_only=True) or []
+                if _rules:
+                    _rule_lines = []
+                    for _r in _rules:
+                        if not isinstance(_r, dict):
+                            try: _r = dict(_r)
+                            except: continue
+                        _rname = _r.get("name", "?")
+                        _rcmd = _r.get("command", "?")
+                        _rh = _r.get("hour", 0)
+                        _rm = _r.get("minute", 0)
+                        _rule_lines.append(f"  {_rname} ({_rcmd}) at {_rh:02d}:{_rm:02d}")
+                    if _rule_lines:
+                        ctx_parts.append("Detected user habits:\n" + "\n".join(_rule_lines))
+        except Exception:
+            pass
+
+        context = "\n\n".join(ctx_parts) if ctx_parts else "No recent activity."
+
+        # Morning prompt: synthesise across the 8 news reflections, then
+        # expand load-bearing items, then ask 3 targeted follow-up questions.
+        followup_directive = (
+            "After your briefing, expand on the most consequential news "
+            "item from the 24h digest above (with the depth a researcher would "
+            "expect), then ask the user three pointed follow-up questions tied "
+            "to specific reflection windows or items. Cite reflection windows "
+            "as [HH:MM-HH:MM] and never invent stories.\n"
+            if news_meta.get("digest") else ""
+        )
+
+        prompt = f"""You are ELI. Generate a specific, data-driven briefing based ONLY on the actual content below.
+No generic openers. No filler. Reference specific topics, files, errors, or patterns from the data.
+Be direct and analytical. Flag anything that needs attention.
+Date: {datetime.now().strftime("%A %B %d %H:%M")} | Interactions last 24h: {interaction_count}
+
+{context}
+
+{followup_directive}3-5 specific actionable points. No fluff."""
+
+        try:
+            from eli.cognition.inference_broker import get_broker as _pro_broker; chat_completion = lambda prompt, system=None, max_tokens=512, temperature=0.7, **kw: _pro_broker().infer(prompt, system=system, max_tokens=max_tokens, temperature=temperature, priority=20)
+            import concurrent.futures as _cf
+
+            with _cf.ThreadPoolExecutor(max_workers=1) as _ex:
+                _fut = _ex.submit(
+                    chat_completion,
+                    prompt,
+                    system="You are ELI. Reference actual data only. Write 5 detailed points, "
+                           "each 3-4 sentences with full reasoning. No one-liners.",
+                    max_tokens=1500,
+                    temperature=0.3,
+                )
+                briefing = _fut.result(timeout=120)
+
+            return f"🌅 {greeting}\n\n{briefing.strip()}"
+        except Exception:
+            # fallback summary
+            lines_out = [f"🌅 {greeting} — {datetime.now().strftime('%A %B %d')}"]
+            lines_out.append(f"📊 {interaction_count} interactions in last 24h")
+            if errors:
+                lines_out.append(f"⚠️  {len(errors)} recent failures — top: {errors[0][1][:60]}")
+            if improvements:
+                lines_out.append(f"💡 {len(improvements)} recent improvements — top: {improvements[0][1][:60]}")
+            if recent_mems:
+                lines_out.append(f"🧠 Last memory: {recent_mems[0][0][:80]}")
+            return "\n".join(lines_out)
+
+    def run(self):
+        """
+        Main proactive daemon loop
+        """
+        self.running = True
+        print("[PROACTIVE] Daemon started - continuous learning active")
+
+        last_analysis = time.time()
+        last_report = datetime.now().date()
+        last_news_fetch = 0.0
+
+        while self.running:
+            try:
+                if self.paused:
+                    time.sleep(5)
+                    continue
+
+                # Run analysis every 10 minutes
+                if time.time() - last_analysis > 600:
+                    patterns = self.analyze_user_patterns()
+                    improvements = self.analyze_code_quality()
+
+                    for pattern in patterns:
+                        self.suggestion_queue.put(("pattern", pattern))
+                    for improvement in improvements:
+                        self.suggestion_queue.put(("improvement", improvement))
+
+                    # ── Habit detection + execution ────────────────────────
+                    try:
+                        from eli.planning.habits import detect_habits
+                        detect_habits(days=14, min_occurrences=3)
+
+                        from datetime import datetime as _dt
+                        _now = _dt.now()
+                        _cur_h, _cur_m = _now.hour, _now.minute
+                        _mem = self.user_mem or self.agent_mem
+                        if _mem and hasattr(_mem, 'get_habit_rules'):
+                            for rule in (_mem.get_habit_rules(enabled_only=True) or []):
+                                if not isinstance(rule, dict):
+                                    try:
+                                        rule = dict(rule)
+                                    except Exception:
+                                        continue
+                                _rh = int(rule.get("hour", -1))
+                                _rm = int(rule.get("minute", -1))
+                                _name = rule.get("name", "scheduled action")
+                                _cmd = (rule.get("command") or "").strip()
+                                # Within 5-minute window of scheduled time
+                                if _rh == _cur_h and abs(_rm - _cur_m) <= 5:
+                                    print(f"[PROACTIVE] Habit triggered: '{_name}' @ {_rh:02d}:{_rm:02d}")
+                                    if _cmd:
+                                        # Execute and report result via queue
+                                        threading.Thread(
+                                            target=self.execute_habit,
+                                            args=(rule,),
+                                            daemon=True,
+                                        ).start()
+                                    else:
+                                        # No command — notify user
+                                        self.suggestion_queue.put(("habit", {
+                                            "type": "habit_trigger",
+                                            "name": _name,
+                                            "command": "",
+                                            "suggestion": f"Scheduled time for '{_name}' — no command configured"
+                                        }))
+                    except Exception as _he:
+                        print(f"[PROACTIVE] Habit detection error: {_he}")
+
+                    try:
+                        drain_proposals_to_agent_memory(self.agent_mem, max_items=32, archive=True)
+                    except Exception as _pq_exc:
+                        print(f"[PROACTIVE] Proposal drain error: {_pq_exc}")
+
+                    try:
+                        refresh_all_overlays_nonfatal(reason="proactive_tick")
+                    except Exception as _rf_exc:
+                        print(f"[PROACTIVE] Overlay refresh error: {_rf_exc}")
+
+                    last_analysis = time.time()
+
+                    # ── 3-hour news fetch + synthesis cycle ───────────────
+                    # Every 3 hours: fetch new articles, compile a synthesis
+                    # of the window, store it as a news_reflection. The
+                    # morning report later compiles 8 such reflections per 24h.
+                    if time.time() - last_news_fetch > 10800:  # 3 hours
+                        try:
+                            from eli.tools.news.news_fetcher import fetch_news as _fetch_news
+                            _nr = _fetch_news(sources=["hn", "reddit"])
+                            stored_new = int(_nr.get("stored_new", 0) or 0)
+
+                            from eli.tools.news.news_synthesis import synthesise_window
+                            _sr = synthesise_window()
+
+                            if not _sr.get("skipped"):
+                                self.suggestion_queue.put(("news", {
+                                    "type": "news_synthesis",
+                                    "suggestion": (
+                                        f"3h news synthesis: "
+                                        f"{stored_new} new articles, "
+                                        f"{_sr.get('article_count', 0)} in window."
+                                    ),
+                                }))
+                            last_news_fetch = time.time()
+                        except Exception as _ne:
+                            print(f"[PROACTIVE] News synthesis error: {_ne}")
+
+                    # ── Write artifact files for agent bus (do NOT drain queue) ──
+                    try:
+                        from eli.core.paths import get_paths as _gp
+                        _pro_dir = _gp().artifacts_dir / "proactive"
+                        _pro_dir.mkdir(parents=True, exist_ok=True)
+                        _ctx_lines = [f"[{p['type']}] {p.get('suggestion','')}" for p in patterns if p.get('suggestion')]
+                        _action_lines = [f"[improvement] {i.get('suggestion','')}" for i in improvements if i.get('suggestion')]
+                        if _ctx_lines:
+                            (_pro_dir / "latest_context.txt").write_text(
+                                "\n".join(_ctx_lines[-8:]), encoding="utf-8")
+                        if _action_lines:
+                            (_pro_dir / "latest_action.txt").write_text(
+                                "\n".join(_action_lines[-4:]), encoding="utf-8")
+                    except Exception as _pe:
+                        print(f"[PROACTIVE] artifact flush error: {_pe}")
+
+                # Generate morning report once per day between 6-10
+                current_date = datetime.now().date()
+                current_hour = datetime.now().hour
+                if current_date > last_report and 6 <= current_hour <= 10:
+                    report = self.generate_morning_report()
+                    if report:
+                        # Print to CLI
+                        print(f"\n[PROACTIVE] Morning report:\n{report}\n")
+                        # Push to GUI summary tab via queue
+                        self.suggestion_queue.put(("morning_report", {
+                            "type": "morning_report",
+                            "suggestion": report,
+                        }))
+                        # Store in user DB
+                        if hasattr(self, 'user_mem') and self.user_mem:
+                            try:
+                                self.user_mem.store_memory(
+                                    report[:500],
+                                    tags=["morning_report", "proactive", "briefing"],
+                                    source="proactive_daemon",
+                                    kind="briefing",
+                                )
+                            except Exception as _store_err:
+                                print(f"[PROACTIVE] Failed to store morning report: {_store_err}")
+                    last_report = current_date
+
+                _maybe_update_persona_from_db()
+                time.sleep(60)
+
+            except KeyboardInterrupt:
+                break
+            except Exception as e:
+                print(f"[PROACTIVE] Daemon error: {e}")
+                time.sleep(60)
+
+        print("[PROACTIVE] Daemon stopped")
+
+    def stop(self):
+        self.running = False
+
+    def pause(self):
+        self.paused = True
+
+    def resume(self):
+        self.paused = False
+
+
+# Singleton instance
+_daemon = None
+_daemon_started = False
+
+def get_daemon() -> ProactiveDaemon:
+    global _daemon
+    if _daemon is None:
+        _daemon = ProactiveDaemon()
+    return _daemon
+
+def start_daemon():
+    global _daemon_started
+    daemon = get_daemon()
+    if _daemon_started:
+        return daemon
+    _daemon_started = True
+    thread = threading.Thread(target=daemon.run, daemon=True)
+    thread.start()
+    return daemon
+
+
+# _ELI_PERSONA_DB_AUTOUPDATE_HOOK_V1
+_LAST_PERSONA_UPDATE = 0.0
+
+def _maybe_update_persona_from_db():
+    global _LAST_PERSONA_UPDATE
+    now = time.time()
+    if now - _LAST_PERSONA_UPDATE < 60.0:
+        return
+    _LAST_PERSONA_UPDATE = now
+
+    try:
+        script = get_paths().project_root / "scripts" / "persona_autoupdate_from_db.py"
+        if not script.exists():
+            return
+
+        env = dict(os.environ)
+        # Avoid hardcoded paths; point legacy ELI_DB_PATH to AGENT DB for persona tooling.
+        # (If that script should use USER db instead, change agent_db -> user_db here.)
+        paths = resolve_db_paths()
+        env.setdefault("ELI_DB_PATH", str(paths.user_db))
+
+        proactive_governed_enqueue(
+            kind="script_exec_proposal",
+            payload={
+                "argv": [sys.executable, str(script)],
+                "env_keys": sorted(list((env or {}).keys())),
+                "check": False,
+            },
+            source="proactive_daemon",
+            priority=80,
+            action_class="shell-exec",
+            requested_by="system",
+            user_confirmed=False,
+            approver="user",
+        )
+    except Exception:
+        return
+
+
+if __name__ == "__main__":
+    daemon = ProactiveDaemon()
+
+    print("\n" + "=" * 70)
+    print("Testing Proactive Daemon")
+    print("=" * 70 + "\n")
+
+    print("Analyzing user patterns...")
+    patterns = daemon.analyze_user_patterns()
+    print(f"Found {len(patterns)} patterns:")
+    for p in patterns:
+        print(f"  • {p}")
+
+    print("\nAnalyzing code quality...")
+    improvements = daemon.analyze_code_quality()
+    print(f"Found {len(improvements)} improvements:")
+    for i in improvements[:5]:
+        print(f"  • {i}")
+
+    print("\nGenerating morning report...")
+    report = daemon.generate_morning_report()
+    print(report)
+
+    print("\n" + "=" * 70)
+    print("Proactive Daemon Test Complete")
+    print("=" * 70)

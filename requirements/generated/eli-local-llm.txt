@@ -1,0 +1,11 @@
+# Auto-generated Phase 22 group: eli-local-llm.txt
+
+accelerate>=1.13
+datasets
+faiss-cpu
+llama-cpp-python
+onnxruntime>=1.25
+peft
+safetensors>=0.7
+torch
+transformers

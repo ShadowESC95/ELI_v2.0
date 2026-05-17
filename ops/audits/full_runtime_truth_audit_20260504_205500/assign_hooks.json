@@ -1,0 +1,57 @@
+[
+  {
+    "file": "eli/execution/executor_enhanced.py",
+    "line": 6803,
+    "text": "execute_action = execute"
+  },
+  {
+    "file": "eli/execution/executor_enhanced.py",
+    "line": 7090,
+    "text": "    execute_action = _install_media_executor(execute_action)"
+  },
+  {
+    "file": "eli/execution/portable_intent_contract.py",
+    "line": 143,
+    "text": "        route = try_route(text)"
+  },
+  {
+    "file": "eli/kernel/engine.py",
+    "line": 2922,
+    "text": "                generate = getattr(gguf_inference, \"generate\", None)"
+  },
+  {
+    "file": "eli/planning/agent_loop.py",
+    "line": 26,
+    "text": "    route = route_intent(content) if callable(route_intent) else {\"action\": \"CHAT\", \"args\": {}}"
+  },
+  {
+    "file": "eli/planning/agent_loop.py",
+    "line": 28,
+    "text": "        route = {\"action\": \"CHAT\", \"args\": {}}"
+  },
+  {
+    "file": "eli/runtime/response_packets.py",
+    "line": 43,
+    "text": "        route=dict(route or {}),"
+  },
+  {
+    "file": "tests/test_media_runtime_behaviour_lock.py",
+    "line": 22,
+    "text": "    execute_action = mr.install_media_executor(original)"
+  },
+  {
+    "file": "tests/test_media_runtime_behaviour_lock.py",
+    "line": 44,
+    "text": "    execute_action = mr.install_media_executor(lambda *a, **k: \"ORIGINAL\")"
+  },
+  {
+    "file": "tests/test_media_runtime_behaviour_lock.py",
+    "line": 77,
+    "text": "    execute_action = mr.install_media_executor(original)"
+  },
+  {
+    "file": "tests/test_media_runtime_behaviour_lock.py",
+    "line": 112,
+    "text": "    execute_action = mr.install_media_executor(original)"
+  }
+]

@@ -1,0 +1,73 @@
+# ELI MKXI — macOS requirements
+# Run: pip install -r requirements-macos.txt
+# NOTE: llama-cpp-python with Metal acceleration:
+#   CMAKE_ARGS="-DLLAMA_METAL=on" pip install llama-cpp-python
+
+platformdirs>=4.9.6
+pydantic>=2.13
+pydantic-settings>=2.14
+requests>=2.33
+Pillow>=12.0
+mss>=9.0
+PyAutoGUI>=0.9.54
+python-dotenv>=1.0
+PyYAML>=6.0
+tqdm>=4.67
+psutil>=7.0
+numpy>=2.0
+packaging>=26
+
+# GUI
+PySide6>=6.11
+
+# LLM — with Apple Metal GPU acceleration:
+# CMAKE_ARGS="-DLLAMA_METAL=on" pip install llama-cpp-python
+llama-cpp-python>=0.3
+
+# Vector store
+faiss-cpu>=1.7
+
+# TTS
+piper-tts>=1.4
+onnxruntime>=1.25
+pyttsx3>=2.9
+sounddevice>=0.5
+soundfile>=0.13
+
+# ASR
+faster-whisper>=1.2
+SpeechRecognition>=3.16
+PyAudio>=0.2
+
+# Image generation
+diffusers>=0.37
+safetensors>=0.7
+accelerate>=1.13
+transformers>=5.6
+tokenizers>=0.22
+
+# Documents / reports
+markdown>=3.5
+pdfplumber>=0.10
+pypdf>=4.0
+python-docx>=1.1
+
+# PyTorch (MPS — Apple Silicon or CPU)
+# pip install torch torchvision torchaudio
+torch>=2.0
+
+python-dateutil>=2.9
+filelock>=3.29
+fsspec>=2026
+sympy>=1.14
+networkx>=3.6
+Jinja2>=3.1
+regex>=2026
+rich>=15.0
+click>=8.3
+arrow>=1.4
+httpx>=0.28
+certifi>=2026
+charset-normalizer>=3.4
+idna>=3.13
+urllib3>=2.6
