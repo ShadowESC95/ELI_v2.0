@@ -1,0 +1,36 @@
+{
+  "generated_at": "2026-04-25T22:19:00",
+  "total": 5,
+  "capabilities": [
+    {
+      "action": "GET_WEATHER",
+      "source": "plugins/weather/plugin.py",
+      "active": true,
+      "plugin": "weather"
+    },
+    {
+      "action": "GET_WEATHER",
+      "source": "plugins/weather/plugin.py",
+      "active": true,
+      "plugin": "weather"
+    },
+    {
+      "action": "GET_WEATHER",
+      "source": "plugins/weather/plugin.py",
+      "active": true,
+      "plugin": "weather"
+    },
+    {
+      "action": "GET_WEATHER",
+      "source": "plugins/weather/plugin.py",
+      "active": true,
+      "plugin": "weather"
+    },
+    {
+      "action": "ELI_CALENDAR_FILE",
+      "source": "plugins/calendar/plugin.py",
+      "active": true,
+      "plugin": "calendar"
+    }
+  ]
+}

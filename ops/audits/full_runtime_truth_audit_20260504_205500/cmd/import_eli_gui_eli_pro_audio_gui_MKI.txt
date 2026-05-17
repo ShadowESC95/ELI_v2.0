@@ -1,0 +1,8 @@
+RC=0
+
+--- STDOUT ---
+⚠️  QScintilla not available. IDE will use basic editor.
+✅ Central ELI modules loaded.
+✅ Executor module loaded: eli.execution.executor_enhanced
+✅ Router module loaded: eli.execution.router_enhanced
+IMPORT_OK eli.gui.eli_pro_audio_gui_MKI

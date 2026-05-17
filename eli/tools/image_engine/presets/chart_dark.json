@@ -1,0 +1,9 @@
+{
+  "task": "generate_plot",
+  "kind": "auto",
+  "theme": "dark",
+  "palette": "neon_noir",
+  "width": 1400,
+  "height": 900,
+  "dpi": 160
+}

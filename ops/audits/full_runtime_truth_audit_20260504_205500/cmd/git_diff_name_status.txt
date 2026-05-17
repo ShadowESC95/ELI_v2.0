@@ -1,0 +1,36 @@
+RC=0
+
+--- STDOUT ---
+M	.capability_snapshot.json
+M	capability_manifest.json
+M	config/quick_actions.json
+M	config/settings.json
+M	eli/capability_inventory.generated.json
+M	eli/cognition/context_synthesiser.py
+M	eli/cognition/persona.txt
+D	eli/core/first_run.py
+D	eli/core/first_run_wizard.py
+M	eli/execution/media_runtime.py
+M	eli/kernel/engine.py
+M	eli/runtime/control_contracts.py
+D	eli/runtime/execution_intent_packets.py
+D	eli/runtime/execution_planner.py
+D	eli/runtime/tool_execution_authority.py
+D	packaging/debian/build-deb.sh
+D	packaging/debian/control.in
+D	packaging/debian/copyright
+D	packaging/debian/eli-mkxi.desktop
+D	packaging/debian/postinst
+D	packaging/debian/postrm
+D	packaging/debian/prerm
+D	packaging/linux/appimage/AppRun
+D	packaging/linux/appimage/eli-mkxi.desktop
+D	packaging/linux/build-appimage.sh
+D	packaging/macos/Info.plist
+D	packaging/macos/build-macos-app.sh
+D	packaging/macos/launcher.sh
+D	packaging/windows/build-windows.ps1
+D	packaging/windows/eli-mkxi.iss
+D	packaging/windows/eli-mkxi.nsi
+M	tests/test_01_core.py
+M	tests/test_planning.py

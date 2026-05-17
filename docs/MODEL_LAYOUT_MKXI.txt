@@ -1,0 +1,28 @@
+MKXI model and training layout
+
+models/
+  gguf/
+    base/           Base inference GGUF models
+    experimental/   Test or temporary GGUF models
+  embeddings/       Embedding GGUF models such as nomic-embed-text
+  lora/
+    adapters/       Adapter checkpoints and adapter directories
+    merged/         Fully merged model outputs
+  tts/piper/        Piper TTS models
+  tokenizers/       Extra tokenizer assets if required
+
+training/
+  lora/
+    datasets/raw/
+    datasets/processed/
+    configs/
+    runs/
+    scripts/
+    logs/
+    exports/
+
+artifacts/
+  runtime/
+  conversations/
+  indexes/
+  evals/

@@ -1,0 +1,37 @@
+RC=0
+
+--- STDOUT ---
+ .capability_snapshot.json                 |  67 ++-
+ capability_manifest.json                  |  85 +++-
+ config/quick_actions.json                 |   2 +-
+ config/settings.json                      |  52 ++-
+ eli/capability_inventory.generated.json   |  76 +++-
+ eli/cognition/context_synthesiser.py      |  29 ++
+ eli/cognition/persona.txt                 |   6 +-
+ eli/core/first_run.py                     | 485 --------------------
+ eli/core/first_run_wizard.py              | 733 ------------------------------
+ eli/execution/media_runtime.py            |   1 -
+ eli/kernel/engine.py                      | 190 ++++++++
+ eli/runtime/control_contracts.py          |  15 +
+ eli/runtime/execution_intent_packets.py   |   1 -
+ eli/runtime/execution_planner.py          |   1 -
+ eli/runtime/tool_execution_authority.py   |   1 -
+ packaging/debian/build-deb.sh             | 102 -----
+ packaging/debian/control.in               |  19 -
+ packaging/debian/copyright                |   8 -
+ packaging/debian/eli-mkxi.desktop         |  12 -
+ packaging/debian/postinst                 |  48 --
+ packaging/debian/postrm                   |  17 -
+ packaging/debian/prerm                    |  15 -
+ packaging/linux/appimage/AppRun           |  13 -
+ packaging/linux/appimage/eli-mkxi.desktop |  10 -
+ packaging/linux/build-appimage.sh         |  73 ---
+ packaging/macos/Info.plist                |  24 -
+ packaging/macos/build-macos-app.sh        |  93 ----
+ packaging/macos/launcher.sh               |  19 -
+ packaging/windows/build-windows.ps1       | 189 --------
+ packaging/windows/eli-mkxi.iss            |  92 ----
+ packaging/windows/eli-mkxi.nsi            |  90 ----
+ tests/test_01_core.py                     |   5 -
+ tests/test_planning.py                    |  13 -
+ 33 files changed, 492 insertions(+), 2094 deletions(-)

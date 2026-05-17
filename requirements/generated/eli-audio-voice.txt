@@ -1,0 +1,8 @@
+# Auto-generated Phase 22 group: eli-audio-voice.txt
+
+faster-whisper
+PyAudio>=0.2
+pyttsx3
+sounddevice
+soundfile
+SpeechRecognition

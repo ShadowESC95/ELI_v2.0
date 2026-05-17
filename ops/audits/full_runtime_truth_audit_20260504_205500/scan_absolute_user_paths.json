@@ -1,0 +1,22 @@
+[
+  {
+    "file": "eli/execution/executor_enhanced.py",
+    "line": 377,
+    "text": "        if ('re.compile(' in line or 're.search(' in line or 're.match(' in line or 'path_re =' in line or '/home/...' in line or '/home/\\\\S+' in line or 'C:\\\\Users\\\\[^\\\\]+' in line):"
+  },
+  {
+    "file": "eli/execution/router_enhanced.py",
+    "line": 1862,
+    "text": "    # e.g. \"/home/user/\u039e\u2013\u03c7\u2013\u03c6\u2013A.pdf , tell me what this is about\""
+  },
+  {
+    "file": "eli/execution/router_enhanced.py",
+    "line": 2188,
+    "text": "        # Extract explicit path like /home/... or ~/..."
+  },
+  {
+    "file": "eli/tools/image_engine/runtime_paths.py",
+    "line": 38,
+    "text": "    stale /home/... project root through the shell environment."
+  }
+]

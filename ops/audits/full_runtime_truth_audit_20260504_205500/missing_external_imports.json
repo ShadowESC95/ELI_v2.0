@@ -1,0 +1,692 @@
+[
+  {
+    "file": "eli/cognition/response_governance.py",
+    "line": 353,
+    "from": "response_governance",
+    "names": [
+      "score_response_quality"
+    ]
+  },
+  {
+    "file": "eli/execution/executor_enhanced.py",
+    "line": 7027,
+    "from": "controllers.os_controller",
+    "names": [
+      "take_screenshot"
+    ]
+  },
+  {
+    "file": "eli/gui/eli_pro_audio_gui_MKI.py",
+    "line": 53,
+    "from": "PyQt6.QtWidgets",
+    "names": [
+      "*"
+    ]
+  },
+  {
+    "file": "eli/gui/eli_pro_audio_gui_MKI.py",
+    "line": 54,
+    "from": "PyQt6.QtCore",
+    "names": [
+      "*"
+    ]
+  },
+  {
+    "file": "eli/gui/eli_pro_audio_gui_MKI.py",
+    "line": 55,
+    "from": "PyQt6.QtGui",
+    "names": [
+      "*"
+    ]
+  },
+  {
+    "file": "eli/gui/eli_pro_audio_gui_MKI.py",
+    "line": 81,
+    "from": "PyQt6.Qsci",
+    "names": [
+      "QsciScintilla",
+      "QsciLexerPython"
+    ]
+  },
+  {
+    "file": "eli/gui/eli_pro_audio_gui_MKI.py",
+    "line": 84,
+    "from": "PyQt5.Qsci",
+    "names": [
+      "QsciScintilla",
+      "QsciLexerPython"
+    ]
+  },
+  {
+    "file": "eli/gui/eli_pro_audio_gui_MKI.py",
+    "line": 69,
+    "from": "PyQt5.QtWidgets",
+    "names": [
+      "*"
+    ]
+  },
+  {
+    "file": "eli/gui/eli_pro_audio_gui_MKI.py",
+    "line": 70,
+    "from": "PyQt5.QtCore",
+    "names": [
+      "*"
+    ]
+  },
+  {
+    "file": "eli/gui/eli_pro_audio_gui_MKI.py",
+    "line": 71,
+    "from": "PyQt5.QtGui",
+    "names": [
+      "*"
+    ]
+  },
+  {
+    "file": "eli/gui/eli_pro_audio_gui_MKI.py",
+    "line": 7498,
+    "import": "pdfplumber"
+  },
+  {
+    "file": "eli/gui/labs_tab.py",
+    "line": 37,
+    "from": "PyQt6.QtWidgets",
+    "names": [
+      "QWidget",
+      "QVBoxLayout",
+      "QHBoxLayout",
+      "QGridLayout",
+      "QTabWidget",
+      "QSplitter",
+      "QLabel",
+      "QPushButton",
+      "QLineEdit",
+      "QTextEdit",
+      "QPlainTextEdit",
+      "QListWidget",
+      "QListWidgetItem",
+      "QTableWidget",
+      "QTableWidgetItem",
+      "QGroupBox",
+      "QFormLayout",
+      "QComboBox",
+      "QCheckBox",
+      "QTreeView",
+      "QFileDialog",
+      "QMessageBox",
+      "QInputDialog",
+      "QScrollArea",
+      "QFileSystemModel",
+      "QHeaderView",
+      "QSizePolicy",
+      "QFrame",
+      "QApplication",
+      "QProgressBar",
+      "QSpinBox",
+      "QDoubleSpinBox",
+      "QAbstractItemView",
+      "QStackedWidget"
+    ]
+  },
+  {
+    "file": "eli/gui/labs_tab.py",
+    "line": 47,
+    "from": "PyQt6.QtCore",
+    "names": [
+      "Qt",
+      "QTimer",
+      "QThread",
+      "QObject",
+      "pyqtSignal",
+      "QSize",
+      "QDir"
+    ]
+  },
+  {
+    "file": "eli/gui/labs_tab.py",
+    "line": 48,
+    "from": "PyQt6.QtGui",
+    "names": [
+      "QFont",
+      "QColor",
+      "QTextCursor",
+      "QSyntaxHighlighter",
+      "QTextCharFormat",
+      "QPalette"
+    ]
+  },
+  {
+    "file": "eli/gui/labs_tab.py",
+    "line": 83,
+    "from": "PyQt6.Qsci",
+    "names": [
+      "QsciScintilla",
+      "QsciLexerPython",
+      "QsciAPIs"
+    ]
+  },
+  {
+    "file": "eli/gui/labs_tab.py",
+    "line": 85,
+    "from": "PyQt5.Qsci",
+    "names": [
+      "QsciScintilla",
+      "QsciLexerPython",
+      "QsciAPIs"
+    ]
+  },
+  {
+    "file": "eli/gui/labs_tab.py",
+    "line": 1383,
+    "import": "pdfplumber"
+  },
+  {
+    "file": "eli/gui/labs_tab.py",
+    "line": 1839,
+    "import": "markdown"
+  },
+  {
+    "file": "eli/gui/labs_tab.py",
+    "line": 66,
+    "from": "PyQt5.QtWidgets",
+    "names": [
+      "QWidget",
+      "QVBoxLayout",
+      "QHBoxLayout",
+      "QGridLayout",
+      "QTabWidget",
+      "QSplitter",
+      "QLabel",
+      "QPushButton",
+      "QLineEdit",
+      "QTextEdit",
+      "QPlainTextEdit",
+      "QListWidget",
+      "QListWidgetItem",
+      "QTableWidget",
+      "QTableWidgetItem",
+      "QGroupBox",
+      "QFormLayout",
+      "QComboBox",
+      "QCheckBox",
+      "QTreeView",
+      "QFileDialog",
+      "QMessageBox",
+      "QInputDialog",
+      "QScrollArea",
+      "QFileSystemModel",
+      "QHeaderView",
+      "QSizePolicy",
+      "QFrame",
+      "QApplication",
+      "QProgressBar",
+      "QSpinBox",
+      "QDoubleSpinBox",
+      "QAbstractItemView",
+      "QStackedWidget"
+    ]
+  },
+  {
+    "file": "eli/gui/labs_tab.py",
+    "line": 76,
+    "from": "PyQt5.QtCore",
+    "names": [
+      "Qt",
+      "QTimer",
+      "QThread",
+      "QObject",
+      "pyqtSignal",
+      "QSize",
+      "QDir"
+    ]
+  },
+  {
+    "file": "eli/gui/labs_tab.py",
+    "line": 77,
+    "from": "PyQt5.QtGui",
+    "names": [
+      "QFont",
+      "QColor",
+      "QTextCursor",
+      "QSyntaxHighlighter",
+      "QTextCharFormat",
+      "QPalette"
+    ]
+  },
+  {
+    "file": "eli/gui/qt_compat.py",
+    "line": 26,
+    "from": "PyQt6.QtCore",
+    "names": [
+      "Qt",
+      "QTimer",
+      "QThread",
+      "QObject",
+      "pyqtSignal",
+      "pyqtSlot"
+    ]
+  },
+  {
+    "file": "eli/gui/qt_compat.py",
+    "line": 27,
+    "from": "PyQt6.QtGui",
+    "names": [
+      "QColor",
+      "QFont",
+      "QIcon",
+      "QPixmap",
+      "QImage",
+      "QPainter",
+      "QPalette",
+      "QKeySequence",
+      "QTextCursor",
+      "QTextCharFormat",
+      "QBrush",
+      "QPen",
+      "QAction"
+    ]
+  },
+  {
+    "file": "eli/gui/qt_compat.py",
+    "line": 31,
+    "from": "PyQt6.QtWidgets",
+    "names": [
+      "QApplication",
+      "QMainWindow",
+      "QWidget",
+      "QDialog",
+      "QDockWidget",
+      "QVBoxLayout",
+      "QHBoxLayout",
+      "QGridLayout",
+      "QFormLayout",
+      "QStackedLayout",
+      "QLabel",
+      "QPushButton",
+      "QLineEdit",
+      "QTextEdit",
+      "QPlainTextEdit",
+      "QComboBox",
+      "QCheckBox",
+      "QRadioButton",
+      "QSpinBox",
+      "QDoubleSpinBox",
+      "QSlider",
+      "QProgressBar",
+      "QProgressDialog",
+      "QListWidget",
+      "QListWidgetItem",
+      "QTreeWidget",
+      "QTreeWidgetItem",
+      "QTableWidget",
+      "QTableWidgetItem",
+      "QTabWidget",
+      "QTabBar",
+      "QGroupBox",
+      "QFrame",
+      "QScrollArea",
+      "QSplitter",
+      "QMenuBar",
+      "QMenu",
+      "QToolBar",
+      "QStatusBar",
+      "QSystemTrayIcon",
+      "QFileDialog",
+      "QMessageBox",
+      "QInputDialog",
+      "QColorDialog",
+      "QFontDialog",
+      "QSizePolicy",
+      "QStyle"
+    ]
+  },
+  {
+    "file": "eli/gui/qt_compat.py",
+    "line": 46,
+    "from": "PyQt5.QtCore",
+    "names": [
+      "Qt",
+      "QTimer",
+      "QThread",
+      "QObject",
+      "pyqtSignal",
+      "pyqtSlot"
+    ]
+  },
+  {
+    "file": "eli/gui/qt_compat.py",
+    "line": 47,
+    "from": "PyQt5.QtGui",
+    "names": [
+      "QColor",
+      "QFont",
+      "QIcon",
+      "QPixmap",
+      "QImage",
+      "QPainter",
+      "QPalette",
+      "QKeySequence",
+      "QTextCursor",
+      "QTextCharFormat",
+      "QBrush",
+      "QPen"
+    ]
+  },
+  {
+    "file": "eli/gui/qt_compat.py",
+    "line": 51,
+    "from": "PyQt5.QtWidgets",
+    "names": [
+      "QApplication",
+      "QMainWindow",
+      "QWidget",
+      "QDialog",
+      "QDockWidget",
+      "QVBoxLayout",
+      "QHBoxLayout",
+      "QGridLayout",
+      "QFormLayout",
+      "QStackedLayout",
+      "QLabel",
+      "QPushButton",
+      "QLineEdit",
+      "QTextEdit",
+      "QPlainTextEdit",
+      "QComboBox",
+      "QCheckBox",
+      "QRadioButton",
+      "QSpinBox",
+      "QDoubleSpinBox",
+      "QSlider",
+      "QProgressBar",
+      "QProgressDialog",
+      "QListWidget",
+      "QListWidgetItem",
+      "QTreeWidget",
+      "QTreeWidgetItem",
+      "QTableWidget",
+      "QTableWidgetItem",
+      "QTabWidget",
+      "QTabBar",
+      "QGroupBox",
+      "QFrame",
+      "QScrollArea",
+      "QSplitter",
+      "QMenuBar",
+      "QMenu",
+      "QToolBar",
+      "QStatusBar",
+      "QSystemTrayIcon",
+      "QFileDialog",
+      "QMessageBox",
+      "QInputDialog",
+      "QColorDialog",
+      "QFontDialog",
+      "QSizePolicy",
+      "QAction",
+      "QStyle"
+    ]
+  },
+  {
+    "file": "eli/kernel/engine.py",
+    "line": 8,
+    "from": "scheduler",
+    "names": [
+      "get_scheduler"
+    ]
+  },
+  {
+    "file": "eli/memory/__init__.py",
+    "line": 9,
+    "from": "memory",
+    "names": [
+      "DBPaths",
+      "Memory",
+      "_clear_memory_singletons",
+      "get_agent_memory",
+      "get_memory",
+      "get_memory_authority",
+      "resolve_db_paths"
+    ]
+  },
+  {
+    "file": "eli/memory/__init__.py",
+    "line": 197,
+    "from": "memory",
+    "names": [
+      "get_search_memory",
+      "get_memory_authority",
+      "rebuild_vector_index_from_search_db"
+    ]
+  },
+  {
+    "file": "eli/memory/__init__.py",
+    "line": 41,
+    "from": "memory_adapter",
+    "names": [
+      "memory_store_fn",
+      "memory_search_fn",
+      "memory_recent_fn"
+    ]
+  },
+  {
+    "file": "eli/memory/stores.py",
+    "line": 18,
+    "from": "memory",
+    "names": [
+      "resolve_db_paths"
+    ]
+  },
+  {
+    "file": "eli/plugins/base/__init__.py",
+    "line": 1,
+    "from": "base",
+    "names": [
+      "Plugin"
+    ]
+  },
+  {
+    "file": "eli/plugins/document_reader/plugin.py",
+    "line": 100,
+    "import": "pdfplumber"
+  },
+  {
+    "file": "eli/plugins/web/plugin.py",
+    "line": 125,
+    "from": "duckduckgo_search",
+    "names": [
+      "DDGS"
+    ]
+  },
+  {
+    "file": "eli/plugins/web/plugin.py",
+    "line": 128,
+    "from": "ddgs",
+    "names": [
+      "DDGS"
+    ]
+  },
+  {
+    "file": "eli/runtime/grounded_remediation.py",
+    "line": 17,
+    "from": "incident_log",
+    "names": [
+      "write_incident"
+    ]
+  },
+  {
+    "file": "eli/tools/image_engine/__init__.py",
+    "line": 3,
+    "from": "gui_bridge",
+    "names": [
+      "ImageGenerationRequest",
+      "ImageGenerationResult",
+      "PALETTE_CHOICES",
+      "SCENE_CHOICES",
+      "STYLE_CHOICES",
+      "build_personalized_prompt",
+      "discover_local_image_models",
+      "discover_presets",
+      "generate_images",
+      "list_recent_outputs",
+      "output_dir",
+      "tool_root"
+    ]
+  },
+  {
+    "file": "eli/tools/image_engine/gui_bridge.py",
+    "line": 12,
+    "from": "image_engine.visual_core",
+    "names": [
+      "PALETTES",
+      "apply_preset_defaults",
+      "build_parser",
+      "generate_batch",
+      "package_root",
+      "validate_args"
+    ]
+  },
+  {
+    "file": "eli/tools/image_engine/image_engine/__init__.py",
+    "line": 3,
+    "from": "service",
+    "names": [
+      "ImageEngine"
+    ]
+  },
+  {
+    "file": "eli/tools/image_engine/image_engine/__init__.py",
+    "line": 4,
+    "from": "contracts",
+    "names": [
+      "EngineConfig",
+      "JobRequest",
+      "JobResult"
+    ]
+  },
+  {
+    "file": "eli/tools/image_engine/image_engine/__init__.py",
+    "line": 5,
+    "from": "visual_core",
+    "names": [
+      "generate_batch"
+    ]
+  },
+  {
+    "file": "eli/tools/image_engine/image_engine/__main__.py",
+    "line": 1,
+    "from": "cli",
+    "names": [
+      "main"
+    ]
+  },
+  {
+    "file": "eli/tools/image_engine/image_engine/cli.py",
+    "line": 9,
+    "from": "contracts",
+    "names": [
+      "EngineConfig",
+      "JobRequest"
+    ]
+  },
+  {
+    "file": "eli/tools/image_engine/image_engine/cli.py",
+    "line": 10,
+    "from": "service",
+    "names": [
+      "ImageEngine"
+    ]
+  },
+  {
+    "file": "eli/tools/image_engine/image_engine/memory.py",
+    "line": 8,
+    "from": "contracts",
+    "names": [
+      "utc_now"
+    ]
+  },
+  {
+    "file": "eli/tools/image_engine/image_engine/service.py",
+    "line": 11,
+    "from": "contracts",
+    "names": [
+      "ArtifactRecord",
+      "EngineConfig",
+      "JobRequest",
+      "JobResult",
+      "slug",
+      "utc_now"
+    ]
+  },
+  {
+    "file": "eli/tools/image_engine/image_engine/service.py",
+    "line": 12,
+    "from": "memory",
+    "names": [
+      "ImageMemory"
+    ]
+  },
+  {
+    "file": "eli/tools/image_engine/image_engine/service.py",
+    "line": 13,
+    "from": "prompt_compiler",
+    "names": [
+      "PromptCompiler"
+    ]
+  },
+  {
+    "file": "eli/tools/image_engine/image_engine/service.py",
+    "line": 14,
+    "from": "project_analyzer",
+    "names": [
+      "analyze_project_profile"
+    ]
+  },
+  {
+    "file": "eli/tools/image_engine/image_engine/service.py",
+    "line": 15,
+    "from": "quality",
+    "names": [
+      "choose_best",
+      "image_hash",
+      "score_image"
+    ]
+  },
+  {
+    "file": "eli/tools/image_engine/image_engine/service.py",
+    "line": 16,
+    "from": "plotting",
+    "names": [
+      "generate_plot"
+    ]
+  },
+  {
+    "file": "eli/utils/platform_compat.py",
+    "line": 539,
+    "from": "comtypes",
+    "names": [
+      "CLSCTX_ALL"
+    ]
+  },
+  {
+    "file": "eli/utils/platform_compat.py",
+    "line": 540,
+    "from": "pycaw.pycaw",
+    "names": [
+      "AudioUtilities",
+      "IAudioEndpointVolume"
+    ]
+  },
+  {
+    "file": "eli/utils/platform_compat.py",
+    "line": 632,
+    "import": "winsound"
+  },
+  {
+    "file": "eli/utils/platform_compat.py",
+    "line": 362,
+    "from": "plyer",
+    "names": [
+      "notification"
+    ]
+  }
+]

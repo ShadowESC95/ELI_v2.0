@@ -1,0 +1,29 @@
+include README.md
+include pyproject.toml
+include .env.example .env.full.example .env.mkxi
+include requirements*.txt
+include eli.sh eli.bat
+include install.sh install.bat install.ps1
+include eli-mkxi.desktop
+
+recursive-include eli *.py *.json *.yaml *.yml *.txt *.toml *.md
+recursive-include eli/cognition persona*.txt
+recursive-include eli/plugins/registry *.json
+recursive-include eli/tools/image_engine/presets *.json
+recursive-include eli/tools/image_engine/config *.json
+
+recursive-include packaging *
+recursive-include config *.json *.yaml *.yml
+
+global-exclude __pycache__
+global-exclude *.pyc
+global-exclude *.pyo
+global-exclude *.so
+global-exclude .DS_Store
+prune build
+prune dist
+prune .venv
+prune .pytest_cache
+prune ops/backups
+prune artifacts
+prune models

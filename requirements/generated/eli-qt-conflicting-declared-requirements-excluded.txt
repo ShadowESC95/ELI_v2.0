@@ -1,0 +1,3 @@
+# Declared manifest requirements excluded from canonical Phase 22 full env under PySide6-only policy.
+
+PyQt6>=6.6

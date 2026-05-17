@@ -1,0 +1,53 @@
+# Auto-updated persona overlay
+# Generated from habits, reflection, self-improvement, memory, and runtime signals.
+
+## Runtime Persona Notes
+- This file is ELI's auto-updating persona overlay.
+- User profile (name, preferences) is stored separately in user_profile.json.
+- Prefer concrete continuity, memory-backed context, and direct language.
+
+## Habits (Auto-Updated)
+- CHAT @ 00:00 -> CHAT [enabled]
+- RUNTIME_AUDIT @ 00:00 -> RUNTIME_AUDIT [enabled]
+- EXPLAIN_COGNITION_RUNTIME @ 00:00 -> EXPLAIN_COGNITION_RUNTIME [enabled]
+- META_DIAGNOSTIC @ 00:00 -> META_DIAGNOSTIC [enabled]
+- model_load @ 00:00 -> model_load [enabled]
+- EXPLAIN_LAST_RESPONSE @ 00:00 -> EXPLAIN_LAST_RESPONSE [enabled]
+- GUI_RUNTIME_AUDIT @ 00:00 -> GUI_RUNTIME_AUDIT [enabled]
+- PERSONAL_MEMORY_SUMMARY @ 00:00 -> PERSONAL_MEMORY_SUMMARY [enabled]
+- NAME_SOURCE_AUDIT @ 00:00 -> NAME_SOURCE_AUDIT [enabled]
+- PERSONAL_MEMORY_DEEP_EXPLAIN @ 00:00 -> PERSONAL_MEMORY_DEEP_EXPLAIN [enabled]
+
+## Reflection / Observations (Auto-Updated)
+- [habit:0fbd1fc7f6] Repeated runtime pattern seen 4x in the last window: event=command_result action=FRONTIER_STATUS outcome=ok. Use this as routing context before retrying the same behavior.
+- { "surface": "name_source_evidence", "allowed_sources": [ "SQLite memory rows", "conversation rows", "settings fields", "profile artifacts", "imported or quarantined memory" ], "question": "how do you know my name and wh
+- Active-user profile memory inventory: - active_user_id: af132be6-d627-4cf3-a394-13657c329bdc - confirmed_identity_items: 0 - stored_profile_categories: Working Style(3), Active Projects(3), Recent Significant Changes(1)
+- FAIL <LOCAL_PATH> - router: lines [1176, 1177, 1178, 2724, 3575] - executor: lines [1171, 1172, 1173, 1255, 3576, 5969, 5976, 6075] - cognition: lines [2668,
+- Proactive daemon started
+
+## Runtime Patterns (Auto-Updated)
+- CHAT / user seen 76x
+- CHAT / conversation_turn seen 76x
+- CHAT / assistant seen 38x
+- CHAT / user seen 38x
+- CHAT / conversation_turn seen 38x
+
+## Self Improvement (Auto-Updated)
+- Investigate failure: SEQUENCE_STEP {"question": "test"} → Unsupported executor action: SEQUENCE_STEP
+- Investigate failure: TEMPLATE {"question": "test"} → Unsupported executor action: TEMPLATE
+- Investigate failure: WEB_SEARCH {} → No query provided
+- Investigate failure: SEARCH_NOTES {} → No query
+- Investigate failure: GET_WEATHER {"location": "Dublin"} → <urlopen error [Errno -2] Name or service not known>
+- Investigate failure: SEQUENCE_STEP {} → Unsupported executor action: SEQUENCE_STEP
+- Investigate failure: TEMPLATE {} → Unsupported executor action: TEMPLATE
+- Investigate failure: REPORT_BUILDER::pipeline_exception::Document::review → ValueError: Requested tokens (16380) exceed context window of 8192
+
+## Recent Failure Patterns (Auto-Updated)
+- Unsupported executor action: TEMPLATE
+- Unsupported executor action: SEQUENCE_STEP
+
+## Processed Memory Themes (Auto-Updated)
+- Reflection (24h): Conversation volume: 222 user messages in last 24h; Top topics: know, wiring, runtime, actual, scan; Repeated runtime patterns: CHAT on conversation_turn (76x), CHAT on user (76x), CHAT on user (76x), CHAT on conversation_turn (76x), CHAT on assistant (38x); Use
+- Reflection (24h): Conversation volume: 166 user messages in last 24h; Top topics: know, runtime, actual, scan, name; Repeated runtime patterns: CHAT on conversation_turn (76x), CHAT on user (76x), CHAT on user (76x), CHAT on conversation_turn (76x), CHAT on assistant (38x); User
+- Session context: 1 exchanges, deep engagement. Active topics: pipeline, explain, current, architecture.
+- Reflection (24h): Conversation volume: 155 user messages in last 24h; Top topics: know, runtime, actual, scan, name; Repeated runtime patterns: CHAT on conversation_turn (52x), CHAT on user (52x), CHAT on user (52x), CHAT on conversation_turn (52x), NAME_SOURCE_AUDIT (26x); User

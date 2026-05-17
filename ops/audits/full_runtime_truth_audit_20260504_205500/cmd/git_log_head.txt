@@ -1,0 +1,11 @@
+RC=0
+
+--- STDOUT ---
+4858ffb (HEAD -> refactor/cleanup_20260501_193622, origin/refactor/cleanup_20260501_193622) Add generic portable runtime routing and script generation contract
+fefb3ec Repair GUI runtime schema contract wiring
+60c98aa Robust GPU-OOM fallback: detect tight VRAM, force CPU mode, surface orphaned processes
+eb4e286 Labs Report prompt-preview, Quick Actions categories, Agent Wizard preview, STT/TTS diag panel
+bda362f Wire Labs Report tab actions to write back into the editor
+efc50ba Critical runtime fixes: TTS echo loop, auto-speak gate, ctx overflow, proactive dock
+6fd148f Expand quick_actions.json to expose new actions for GUI bypass-persona
+140b429 Wire agent wizard to bus auto-loader

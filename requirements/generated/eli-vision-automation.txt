@@ -1,0 +1,7 @@
+# Auto-generated Phase 22 group: eli-vision-automation.txt
+
+mediapipe
+mss
+opencv-python
+PyAutoGUI
+python-xlib
