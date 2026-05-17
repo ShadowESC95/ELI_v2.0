@@ -12,7 +12,7 @@ Fresh Linux/source checkout:
 git clone https://github.com/ShadowESC95/ELI_MKXI_v2.0_PRO.git
 cd ELI_MKXI_v2.0_PRO
 bash scripts/eli_one_click_setup.sh
-bash scripts/eli_one_click_run.sh
+eli
 ```
 
 Equivalent startup entrypoint with optional logging, trace, setup, and asset
@@ -23,6 +23,17 @@ bash scripts/eli_startup.sh
 bash scripts/eli_startup.sh --setup --with-github-assets
 bash scripts/eli_startup.sh --trace
 ```
+
+`scripts/eli_one_click_setup.sh` installs `~/.local/bin/eli` by default. That
+launcher runs this checkout through its `.venv`, so a normal terminal can start
+ELI with:
+
+```bash
+eli
+```
+
+If your shell has cached another `eli` command, run `hash -r` or open a new
+terminal.
 
 If the large local model/voice release assets have been uploaded to the private
 GitHub release, restore them during setup:
