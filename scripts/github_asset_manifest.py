@@ -50,6 +50,12 @@ def _sha256(path: Path, limit_bytes: int = 0) -> str:
 
 
 def _classify(rel: str) -> Dict[str, Any]:
+    if Path(rel).name.startswith(".goutputstream-"):
+        return {
+            "category": "transient_partial_file",
+            "upload_recommended": False,
+            "reason": "temporary partial write file; not a real project asset",
+        }
     if rel.startswith(".venv/") or "/site-packages/" in rel:
         return {
             "category": "rebuildable_virtualenv",
@@ -157,4 +163,3 @@ def main(argv: Iterable[str] | None = None) -> int:
 
 if __name__ == "__main__":
     raise SystemExit(main())
-
