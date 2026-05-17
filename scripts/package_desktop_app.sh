@@ -77,15 +77,12 @@ if [ "$SKIP_WHEEL" -eq 0 ]; then
   (cd "$ROOT" && python3 -m build --wheel --no-isolation)
 fi
 
-echo "[package] exporting tracked source"
-(
-  cd "$ROOT"
-  if [ "$WITH_ASSETS" -eq 1 ]; then
-    git ls-files -z
-  else
-    git ls-files -z -- ':!:models/**' ':!:tts_piper/**'
-  fi | tar --null -T - -cf -
-) | tar -xf - -C "$STAGING"
+echo "[package] exporting committed source from HEAD"
+if [ "$WITH_ASSETS" -eq 1 ]; then
+  (cd "$ROOT" && git archive --format=tar HEAD) | tar -xf - -C "$STAGING"
+else
+  (cd "$ROOT" && git archive --format=tar HEAD -- ':!:models/**' ':!:tts_piper/**') | tar -xf - -C "$STAGING"
+fi
 
 mkdir -p "$STAGING/dist" "$STAGING/packaging/desktop" "$STAGING/models" "$STAGING/tts_piper"
 if ls "$ROOT"/dist/eli_mkxi-*.whl >/dev/null 2>&1; then
