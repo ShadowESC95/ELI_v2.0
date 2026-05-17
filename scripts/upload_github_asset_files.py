@@ -44,6 +44,9 @@ def _ensure_release(repo: str, tag: str) -> None:
 
 def _link_or_copy(src: Path, dst: Path) -> None:
     dst.parent.mkdir(parents=True, exist_ok=True)
+    if src.is_symlink():
+        shutil.copy2(src.resolve(), dst)
+        return
     try:
         os.link(src, dst)
     except OSError:
