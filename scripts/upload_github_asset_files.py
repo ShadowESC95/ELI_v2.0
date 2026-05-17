@@ -44,6 +44,8 @@ def _ensure_release(repo: str, tag: str) -> None:
 
 def _link_or_copy(src: Path, dst: Path) -> None:
     dst.parent.mkdir(parents=True, exist_ok=True)
+    if dst.is_symlink():
+        dst.unlink()
     if src.is_symlink():
         shutil.copy2(src.resolve(), dst)
         return
@@ -134,7 +136,7 @@ def upload(args: argparse.Namespace) -> int:
                     chunk.unlink()
         else:
             staged = work / base_name
-            if staged.exists():
+            if staged.exists() or staged.is_symlink():
                 staged.unlink()
             _link_or_copy(src, staged)
             _run(["gh", "release", "upload", tag, str(staged), "--repo", repo, "--clobber"])
