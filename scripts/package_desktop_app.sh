@@ -113,14 +113,17 @@ chmod +x "$STAGING/INSTALL_ELI.sh"
 
 cat > "$STAGING/packaging/desktop/ELI_MKXI_v2_PRO.desktop.template" <<'DESKTOP_EOF'
 [Desktop Entry]
-Name=ELI MKXI v2.0 PRO
+Name=ELI Pro
+GenericName=Local AI Assistant
 Comment=Local AI cognitive runtime and assistant
 Exec=__APP_ROOT__/RUN_ELI.sh
 Icon=__APP_ROOT__/blueprints/eli_logo2.png
 Type=Application
-Categories=Utility;Science;ArtificialIntelligence;
+Categories=Utility;
+Keywords=ai;assistant;llm;local;eli;mkxi;
 StartupNotify=true
 Terminal=false
+StartupWMClass=ELI
 DESKTOP_EOF
 
 cat > "$STAGING/packaging/desktop/install_desktop_launcher.sh" <<'DESKTOP_INSTALL_EOF'
@@ -131,9 +134,10 @@ DESKTOP_DIR="${XDG_DATA_HOME:-$HOME/.local/share}/applications"
 mkdir -p "$DESKTOP_DIR"
 sed "s#__APP_ROOT__#$APP_ROOT#g" \
   "$APP_ROOT/packaging/desktop/ELI_MKXI_v2_PRO.desktop.template" \
-  > "$DESKTOP_DIR/eli-mkxi-v2-pro.desktop"
-chmod +x "$DESKTOP_DIR/eli-mkxi-v2-pro.desktop"
-echo "$DESKTOP_DIR/eli-mkxi-v2-pro.desktop"
+  > "$DESKTOP_DIR/eli.desktop"
+rm -f "$DESKTOP_DIR/eli-pro.desktop" "$DESKTOP_DIR/eli-mkxi-v2-pro.desktop"
+chmod +x "$DESKTOP_DIR/eli.desktop"
+echo "$DESKTOP_DIR/eli.desktop"
 DESKTOP_INSTALL_EOF
 chmod +x "$STAGING/packaging/desktop/install_desktop_launcher.sh"
 

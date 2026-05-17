@@ -77,6 +77,8 @@ if [ "$SAFE_MODE" -eq 1 ]; then
   export ELI_DISABLE_PROACTIVE=1
 fi
 export ELI_PROJECT_ROOT="$ROOT"
+export PYTHONPATH="$ROOT${PYTHONPATH:+:$PYTHONPATH}"
+cd "$ROOT"
 
 need_setup=0
 if [ "$RUN_SETUP" = "force" ]; then

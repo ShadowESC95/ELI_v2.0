@@ -1,9 +1,11 @@
 [Desktop Entry]
-Name=ELI MKXI
-Comment=Local AI Assistant with GPU-accelerated inference
-Exec=/opt/eli-mkxi/eli.sh
-Icon=/opt/eli-mkxi/assets/eli.png
+Name=ELI Pro
+GenericName=Local AI Assistant
+Comment=Local AI cognitive runtime and assistant
+Exec=eli
+Icon=eli
 Type=Application
-Categories=Utility;Science;ArtificialIntelligence;
+Categories=Utility;
 StartupNotify=true
 Terminal=false
+StartupWMClass=ELI
