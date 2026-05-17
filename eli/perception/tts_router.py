@@ -96,6 +96,18 @@ def _voice_search_dirs() -> list[Path]:
     return unique
 
 
+def _has_piper_config(model: Path) -> bool:
+    return any(
+        p.exists()
+        for p in (
+            Path(str(model) + ".json"),
+            model.with_suffix(".onnx.json"),
+            model.with_suffix(".json"),
+            model.parent / "config.json",
+        )
+    )
+
+
 def _play_wav_bytes(wav_bytes: bytes) -> bool:
     """Play WAV bytes on any supported OS without requiring Linux audio CLIs."""
     if not wav_bytes:
@@ -137,12 +149,14 @@ def _raw_pcm_to_wav(raw_bytes: bytes, sample_rate: int = 22050) -> bytes:
 
 
 def list_voices() -> list[str]:
-    """Return names of all installed Piper voices (without .onnx extension)."""
+    """Return runnable Piper voices (without .onnx extension)."""
     voices: list[str] = []
     seen: set[str] = set()
     for d in _voice_search_dirs():
         try:
             for f in sorted(d.glob("*.onnx")):
+                if not _has_piper_config(f):
+                    continue
                 name = f.stem  # e.g. en_US-lessac-high
                 if name not in seen:
                     seen.add(name)
@@ -166,15 +180,15 @@ def find_voice_model(voice_name: str) -> Optional[Path]:
     for d in _voice_search_dirs():
         candidate = d / f"{vn}.onnx"
         try:
-            if candidate.exists():
+            if candidate.exists() and _has_piper_config(candidate):
                 return candidate.resolve()
         except Exception:
             pass
 
-    # Fallback: any .onnx in search dirs
+    # Fallback: any runnable .onnx in search dirs
     for d in _voice_search_dirs():
         try:
-            hits = sorted(d.glob("*.onnx"))
+            hits = [p for p in sorted(d.glob("*.onnx")) if _has_piper_config(p)]
             if hits:
                 return hits[0].resolve()
         except Exception:

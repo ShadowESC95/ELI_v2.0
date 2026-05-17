@@ -4165,6 +4165,136 @@ def _eli_phase38_open_typo_or_core_route(raw, *args, **kwargs):
     }
 
 
+def _eli_media_contract_post(raw, result):
+    """Final media-routing contract for legacy GUI/STT command shapes."""
+    try:
+        original = str(raw or "")
+        low = re.sub(r"\s+", " ", original.lower()).strip(" .,!?:;")
+        if not low:
+            return result
+        text = re.sub(r"^(?:eli|vera|computer|assistant|buddy)\s+", "", low).strip()
+
+        def _target(value: str) -> str:
+            target = re.sub(r"^(?:the|a|an)\s+", "", str(value or "").strip(" .,!?:;"))
+            target = target.replace("prime video", "primevideo")
+            target = target.replace("disney plus", "disneyplus")
+            if target in {"tv", "and tv", "television", "the tv"}:
+                return "mpv"
+            return target
+
+        def _play(target: str, query: str, matched_by: str):
+            return _mk(
+                "PLAY_MEDIA",
+                {"target": _target(target), "query": str(query or "").strip()},
+                0.97,
+                matched_by=matched_by,
+                entities={"target": _target(target), "query": str(query or "").strip()},
+            )
+
+        if (
+            re.match(r"^play\b", text)
+            and "situation brief" in text
+            and "conversation history" in text
+        ):
+            return _mk("CHAT", {"message": original}, 0.99, matched_by="media.internal_prompt_echo_guard")
+
+        if re.fullmatch(r"play(?:\s+the)?", text) or re.fullmatch(r"play\s+.+\s+(?:by|on)", text):
+            return _mk(
+                "NOOP",
+                {"message": "Incomplete command: tell me what to play and the artist name or service."},
+                0.99,
+                matched_by="media.incomplete_play_guard",
+            )
+
+        m = re.match(r"^play\s+(youtube|spotify|soundcloud)\s+(.+)$", text)
+        if m:
+            return _play(m.group(1), m.group(2), "media.play_target_prefix_contract")
+
+        m = re.match(r"^(youtube|spotify|soundcloud)\s+play\s+(.+)$", text)
+        if m:
+            return _play(m.group(1), m.group(2), "media.target_play_prefix_contract")
+
+        m = re.match(r"^on\s+(youtube|spotify|soundcloud)\s+play\s+(.+)$", text)
+        if m:
+            return _play(m.group(1), m.group(2), "media.on_target_play_contract")
+
+        m = re.match(r"^play\s+(.+?)\s+on\s+(youtube|spotify|soundcloud|mpv)\s*$", text)
+        if m:
+            return _play(m.group(2), m.group(1), "media.play_query_on_target_contract")
+
+        m = re.match(r"^play\s+(.+\s+by\s+.+)$", text)
+        if m:
+            return _play("spotify", m.group(1), "media.play_song_by_artist_contract")
+
+        m = re.match(r"^(open|launch|start|close|quit|kill|exit)\s+(.+?)$", text)
+        if m:
+            verb = m.group(1)
+            name = _clean_app_name(m.group(2)).lower()
+            known = (
+                name in WEBSITE_ALIASES
+                or name in MEDIA_APPS
+                or name in DESKTOP_APP_PRIORITY
+                or name in APP_ALIASES
+                or name in {"browser", "youtube"}
+            )
+            if known:
+                action = "CLOSE_APP" if verb in {"close", "quit", "kill", "exit"} else "OPEN_APP"
+                return _mk(action, {"name": name}, 0.98, matched_by="app.wake_prefix_contract")
+
+        controls = {
+            "pause": ("PAUSE_MEDIA", "pause"),
+            "resume": ("PLAY_MEDIA", "play"),
+            "play": ("PLAY_MEDIA", "play"),
+            "stop": ("STOP_MEDIA", "stop"),
+            "next": ("NEXT_MEDIA", "next"),
+            "skip": ("NEXT_MEDIA", "next"),
+            "previous": ("PREVIOUS_MEDIA", "previous"),
+            "prev": ("PREVIOUS_MEDIA", "previous"),
+            "back": ("PREVIOUS_MEDIA", "previous"),
+        }
+        target_words = "|".join(sorted(map(re.escape, MEDIA_APPS + ["and tv", "tv"]), key=len, reverse=True))
+
+        m = re.match(rf"^({'|'.join(controls)})\s+({target_words})$", text)
+        if m:
+            action, command = controls[m.group(1)]
+            target = _target(m.group(2))
+            return _mk(
+                action,
+                {"target": target},
+                0.97,
+                matched_by="media.targeted_control_contract",
+                entities={"target": target, "command": command},
+            )
+
+        m = re.match(rf"^({target_words})\s+({'|'.join(controls)})$", text)
+        if m:
+            action, command = controls[m.group(2)]
+            target = _target(m.group(1))
+            return _mk(
+                action,
+                {"target": target},
+                0.97,
+                matched_by="media.reverse_targeted_control_contract",
+                entities={"target": target, "command": command},
+            )
+
+        m = re.match(r"^(pause|resume)\s+(.+)$", text)
+        if m:
+            command = "play" if m.group(1) == "resume" else "pause"
+            target = _target(m.group(2))
+            if target and len(target.split()) <= 5:
+                return _mk(
+                    "MEDIA_CONTROL",
+                    {"command": command, "target": target, "type": "dynamic"},
+                    0.91,
+                    matched_by="media.dynamic_control_contract",
+                    entities={"target": target, "command": command},
+                )
+    except Exception:
+        return result
+    return result
+
+
 def _eli_phase38_media_query_cleaner_post(result):
     try:
         if isinstance(result, dict) and str(result.get("action") or "").upper() == "PLAY_MEDIA":
@@ -4837,6 +4967,7 @@ try:
         _ELI_ROUTE_PRIORITY_STAGES = _eli_route_priority_stages()
 
         def _eli_route_apply_post_contracts(raw, out):
+            out = _eli_media_contract_post(raw, out)
             out = _eli_phase38_media_query_cleaner_post(out)
             out = _eli_phase38_tiny_fragment_post(raw, out)
             out = _eli_phase38_personal_memory_summary_compat_post(out)

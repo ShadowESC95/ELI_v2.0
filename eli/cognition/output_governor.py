@@ -183,6 +183,15 @@ def repair_local_persona_drift(text: str, user_input: str = "") -> str:
     _eli_phase13_repair_context = bool(
         _LOCAL_REPAIR_FRAME_RE.search(_eli_phase13_repair_prompt)
     )
+    if _eli_phase13_repair_context and (
+        _MEDICAL_METAPHOR_DRIFT_RE.search(result)
+        or _GENERIC_MEMORY_IDENTITY_DRIFT_RE.search(result)
+    ):
+        return (
+            "Wrong frame. You meant surgery on ELI - code/persona/memory repair - "
+            "not human neurosurgery. The response drifted into generic medical "
+            "filler and should be regenerated from local system context."
+        )
     if _GENERIC_MEMORY_IDENTITY_DRIFT_RE.search(result):
         result = _GENERIC_MEMORY_IDENTITY_DRIFT_RE.sub("", result).strip()
         result = re.sub(
@@ -771,4 +780,3 @@ def validate_against_evidence(
             "ratio": ratio,
         },
     }
-
