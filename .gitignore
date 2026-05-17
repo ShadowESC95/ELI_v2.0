@@ -117,7 +117,11 @@ models/**/*.pt
 models/**/*.pth
 models/**/*.bin
 models/.goutputstream-*
-# Local release staging
+# Local build/release staging
+build/
+*.egg-info/
+dist/
+!dist/.gitkeep
 dist/github_artifacts/staged_assets/
 dist/github_artifacts/release_uploads_*.txt
 dist/github_artifacts/release_skipped_*.txt
