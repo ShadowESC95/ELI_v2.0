@@ -15,6 +15,15 @@ bash scripts/eli_one_click_setup.sh
 bash scripts/eli_one_click_run.sh
 ```
 
+Equivalent startup entrypoint with optional logging, trace, setup, and asset
+restore flags:
+
+```bash
+bash scripts/eli_startup.sh
+bash scripts/eli_startup.sh --setup --with-github-assets
+bash scripts/eli_startup.sh --trace
+```
+
 If the large local model/voice release assets have been uploaded to the private
 GitHub release, restore them during setup:
 
@@ -34,6 +43,20 @@ Build an installable wheel/sdist:
 ```bash
 bash scripts/package_eli_release.sh
 python -m pip install "dist/eli_mkxi-*.whl[full]"
+```
+
+Build a portable Linux desktop package:
+
+```bash
+bash scripts/package_desktop_app.sh
+```
+
+The package is written to `dist/app_packages/` and includes `INSTALL_ELI.sh`,
+`RUN_ELI.sh`, a desktop launcher installer, and the built wheel. By default it
+does not embed local GGUF/TTS assets; restore those with:
+
+```bash
+./RUN_ELI.sh --with-github-assets
 ```
 
 ## GitHub Large Assets
@@ -63,7 +86,7 @@ bash scripts/upload_github_assets.sh
 Restore release assets after cloning:
 
 ```bash
-bash scripts/restore_github_assets.sh
+python scripts/restore_github_asset_files.py
 ```
 
 If the machine does not have enough free disk to create one archive set, use the
@@ -74,6 +97,10 @@ checkout's 70 GB+ model directory:
 python scripts/upload_github_asset_files.py
 python scripts/restore_github_asset_files.py
 ```
+
+`scripts/restore_github_assets.sh` is retained for legacy split-archive
+releases. The current uploaded `local-assets-v2.0` release uses the direct/chunk
+manifest restored by `scripts/restore_github_asset_files.py`.
 
 The repository is designed to be movable. Do not commit user-specific absolute
 paths such as `/home/name/...`, `C:\Users\name\...`, or `/Users/name/...`.
