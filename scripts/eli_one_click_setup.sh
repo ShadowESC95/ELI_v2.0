@@ -7,9 +7,12 @@ CPU_ONLY=0
 SKIP_TORCH=0
 WITH_GITHUB_ASSETS=0
 INSTALL_DESKTOP=1
+INSTALL_COMMAND=1
 ASSET_MODE="direct"
 REPO="${GITHUB_REPOSITORY:-ShadowESC95/ELI_MKXI_v2.0_PRO}"
 TAG="${ELI_ASSET_RELEASE_TAG:-local-assets-v2.0}"
+COMMAND_NAME="${ELI_COMMAND_NAME:-eli}"
+BIN_DIR="${ELI_BIN_DIR:-$HOME/.local/bin}"
 
 usage() {
   cat <<EOF
@@ -23,6 +26,9 @@ Options:
   --repo OWNER/REPO       Asset repo. Default: $REPO
   --tag TAG               Asset release tag. Default: $TAG
   --no-desktop            Do not install user desktop launcher.
+  --no-command            Do not install the terminal command.
+  --command-name NAME     Terminal command name. Default: $COMMAND_NAME
+  --bin-dir PATH          Terminal command install dir. Default: $BIN_DIR
   -h, --help              Show help.
 EOF
 }
@@ -45,6 +51,15 @@ while [ "$#" -gt 0 ]; do
       TAG="${1:?--tag requires a value}"
       ;;
     --no-desktop) INSTALL_DESKTOP=0 ;;
+    --no-command) INSTALL_COMMAND=0 ;;
+    --command-name)
+      shift
+      COMMAND_NAME="${1:?--command-name requires a value}"
+      ;;
+    --bin-dir)
+      shift
+      BIN_DIR="${1:?--bin-dir requires a path}"
+      ;;
     -h|--help)
       usage
       exit 0
@@ -101,6 +116,14 @@ EOF
   echo "[setup] Desktop launcher installed: $DESKTOP_DIR/eli-mkxi-v2-pro.desktop"
 fi
 
+if [ "$INSTALL_COMMAND" -eq 1 ]; then
+  bash "$ROOT/scripts/install_eli_command.sh" \
+    --name "$COMMAND_NAME" \
+    --bin-dir "$BIN_DIR" \
+    --force
+fi
+
 echo ""
 echo "[setup] Complete. Run:"
+echo "  $COMMAND_NAME"
 echo "  scripts/eli_one_click_run.sh"

@@ -145,6 +145,7 @@ ELI MKXI v2.0 PRO portable desktop package
 
 Run:
   ./INSTALL_ELI.sh
+  eli
   ./RUN_ELI.sh
 
 Restore model/voice assets from GitHub release:
@@ -156,6 +157,10 @@ Manual restore:
 
 Desktop launcher:
   ./packaging/desktop/install_desktop_launcher.sh
+
+Terminal command:
+  ./INSTALL_ELI.sh installs ~/.local/bin/eli by default.
+  If your shell has cached an older eli command, run: hash -r
 
 This package intentionally excludes .venv, runtime/private artifacts, caches, and heavy model/voice assets unless built with --with-assets.
 README_EOF
