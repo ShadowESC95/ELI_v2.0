@@ -8,6 +8,14 @@ from typing import Iterable, Mapping, Any
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 
+PROJECT_ALIAS_PATH_RE = re.compile(
+    r"(?:"
+    r"/home/[A-Za-z0-9._-]+/[^\s]*?ELI_MKXI[^/\s]*"
+    r"|/Users/[A-Za-z0-9._-]+/[^\s]*?ELI_MKXI[^/\s]*"
+    r"|[A-Za-z]:\\Users\\[^\\\s]+\\[^\s]*?ELI_MKXI[^\\\s]*"
+    r")"
+)
+
 BAD_RESPONSE_PATTERNS = [
     # Generic assistant poison
     re.compile(r"\bAs\s+an?\s+AI\b", re.I),
@@ -45,6 +53,7 @@ BAD_RESPONSE_PATTERNS = [
 def normalise_text(text: object) -> str:
     s = "" if text is None else str(text)
     s = s.replace(str(PROJECT_ROOT), "<PROJECT_ROOT>")
+    s = PROJECT_ALIAS_PATH_RE.sub("<PROJECT_ROOT>", s)
     s = re.sub(r"/home/[A-Za-z0-9._-]+", "<HOME>", s)
     s = re.sub(r"/Users/[A-Za-z0-9._-]+", "<HOME>", s)
     # PHASE16C_WINDOWS_HOME_REDACTION
