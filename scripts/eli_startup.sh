@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# ELI MKXI v2.0 PRO startup entrypoint.
+# ELI Pro startup entrypoint.
 # Installs when needed, optionally restores GitHub model/voice assets, then launches ELI.
 set -euo pipefail
 

@@ -86,7 +86,7 @@ case "$ASSET_MODE" in
     ;;
 esac
 
-echo "[setup] Installing ELI MKXI v2.0 PRO"
+echo "[setup] Installing ELI Pro"
 bash "$ROOT/install.sh" "${INSTALL_ARGS[@]}"
 
 if [ "$WITH_GITHUB_ASSETS" -eq 1 ]; then
@@ -133,6 +133,11 @@ if [ "$INSTALL_COMMAND" -eq 1 ]; then
     --name "$COMMAND_NAME" \
     --bin-dir "$BIN_DIR" \
     --force
+fi
+
+if [ -d /opt/eli ] || [ -d /etc/eli ]; then
+  echo "[setup] Legacy ELI package remnants detected."
+  echo "[setup] Remove them with: sudo bash $ROOT/scripts/purge_legacy_eli.sh --yes"
 fi
 
 echo ""
