@@ -3977,7 +3977,8 @@ class _ReportTab(QWidget):
                     )
                     if run_review:
                         _set_status(
-                            f"ELI Report Builder: reviewing/revising section {index}/{len(sections)} — "
+                            f"ELI Report Builder: critiquing draft against quality contract "
+                            f"and applying review feedback for section {index}/{len(sections)} - "
                             f"{section.get('title', 'Untitled')}"
                         )
                         section_text = self._rb_review_and_revise_section(

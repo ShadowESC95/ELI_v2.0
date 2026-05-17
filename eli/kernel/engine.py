@@ -5685,7 +5685,18 @@ Answer:"""
                         gen_overrides={"max_tokens": 1400, "temperature": 0.35},
                     )
                     _expanded = str(_expanded or "").strip()
-                    if len(_expanded.split()) > _wc:
+                    _expanded_low = _expanded.lower()
+                    _expanded_failed = any(
+                        marker in _expanded_low
+                        for marker in (
+                            "model not ready",
+                            "gguf error",
+                            "gguf model unavailable",
+                            "broker unavailable",
+                            "inference failed",
+                        )
+                    )
+                    if _expanded and not _expanded_failed and len(_expanded.split()) > _wc:
                         response = _expanded
                         try:
                             from eli.cognition.reasoning_modes import apply_final_reasoning_contract as _rm_final2
