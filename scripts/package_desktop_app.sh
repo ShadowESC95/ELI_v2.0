@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Build a portable desktop application package for ELI MKXI v2.0 PRO.
+# Build a portable desktop application package for ELI Pro.
 # Default package excludes heavyweight model/voice assets; restore them from GitHub release after install.
 set -euo pipefail
 
@@ -142,7 +142,7 @@ DESKTOP_INSTALL_EOF
 chmod +x "$STAGING/packaging/desktop/install_desktop_launcher.sh"
 
 cat > "$STAGING/README_INSTALL.txt" <<README_EOF
-ELI MKXI v2.0 PRO portable desktop package
+ELI Pro portable desktop package
 
 Run:
   ./INSTALL_ELI.sh
@@ -162,6 +162,7 @@ Desktop launcher:
 Terminal command:
   ./INSTALL_ELI.sh installs ~/.local/bin/eli by default.
   If your shell has cached an older eli command, run: hash -r
+  To remove an old system ELI package: sudo bash scripts/purge_legacy_eli.sh --yes
 
 This package intentionally excludes .venv, runtime/private artifacts, caches, and heavy model/voice assets unless built with --with-assets.
 README_EOF
