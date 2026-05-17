@@ -83,20 +83,30 @@ def upload(args: argparse.Namespace) -> int:
 
     manifest = build_manifest(include_hashes=False)
     rows = _selected_rows(manifest, args.include_runtime, args.include_venv)
-    upload_plan: Dict[str, Any] = {
-        "schema": "eli_direct_github_asset_plan_v1",
-        "repo": repo,
-        "tag": tag,
-        "chunk_bytes": int(args.chunk_bytes),
-        "files": [],
-    }
-
     plan_path = work / "direct_asset_manifest.json"
+    if plan_path.exists():
+        upload_plan = json.loads(plan_path.read_text(encoding="utf-8"))
+        upload_plan.setdefault("files", [])
+        upload_plan["repo"] = repo
+        upload_plan["tag"] = tag
+        upload_plan["chunk_bytes"] = int(args.chunk_bytes)
+    else:
+        upload_plan: Dict[str, Any] = {
+            "schema": "eli_direct_github_asset_plan_v1",
+            "repo": repo,
+            "tag": tag,
+            "chunk_bytes": int(args.chunk_bytes),
+            "files": [],
+        }
+    completed = {str(row.get("path")) for row in upload_plan.get("files") or []}
     plan_path.write_text(json.dumps(upload_plan, indent=2), encoding="utf-8")
     _run(["gh", "release", "upload", tag, str(plan_path), "--repo", repo, "--clobber"])
 
     for idx, row in enumerate(rows, 1):
         rel = str(row["path"])
+        if rel in completed:
+            print(f"[asset {idx}/{len(rows)}] skip completed {rel}", flush=True)
+            continue
         src = ROOT / rel
         if not src.exists() or not src.is_file():
             continue
@@ -109,7 +119,9 @@ def upload(args: argparse.Namespace) -> int:
             "assets": [],
         }
         print(f"[asset {idx}/{len(rows)}] {rel} ({size} bytes)", flush=True)
-        if size > int(args.chunk_bytes):
+        if size == 0:
+            print("  [empty] recorded without GitHub asset upload", flush=True)
+        elif size > int(args.chunk_bytes):
             prefix = work / f"{base_name}.part-"
             chunks = _split_file(src, prefix, int(args.chunk_bytes))
             for chunk in chunks:
@@ -150,4 +162,3 @@ def main() -> int:
 
 if __name__ == "__main__":
     raise SystemExit(main())
-
