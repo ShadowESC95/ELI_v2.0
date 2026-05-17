@@ -66,6 +66,15 @@ Restore release assets after cloning:
 bash scripts/restore_github_assets.sh
 ```
 
+If the machine does not have enough free disk to create one archive set, use the
+direct/chunked uploader. It stages one file at a time and is better for this
+checkout's 70 GB+ model directory:
+
+```bash
+python scripts/upload_github_asset_files.py
+python scripts/restore_github_asset_files.py
+```
+
 The repository is designed to be movable. Do not commit user-specific absolute
 paths such as `/home/name/...`, `C:\Users\name\...`, or `/Users/name/...`.
 Use project-relative paths, `ELI_PROJECT_ROOT`, or the path helpers in
