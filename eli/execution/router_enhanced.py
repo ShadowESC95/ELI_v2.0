@@ -195,6 +195,33 @@ def _eli_weather_prepass(user_text: str):
     return None
 
 
+_SHELL_PREPASS_CMDS = {
+    "ls", "cd", "pwd", "cat", "head", "tail", "grep", "find", "wc",
+    "date", "df", "du", "free", "top", "ps", "kill", "chmod", "chown",
+    "cp", "mv", "rm", "mkdir", "rmdir", "touch", "echo", "which", "whoami",
+    "uname", "uptime", "hostname", "ip", "ifconfig", "ping", "curl", "wget",
+    "tar", "zip", "unzip", "apt", "pip", "npm", "git", "docker", "systemctl",
+    "python", "python3", "bash", "sh", "env", "export", "source", "less", "more",
+}
+
+
+def _eli_shell_prepass(user_text: str):
+    """Early-stage shell command detector — fires before OPEN_APP can steal 'run X'."""
+    import re as _re
+    m = _re.match(r"^\s*(?:run|execute)\s+(\S+(?:\s+.*)?)$", user_text.strip(), _re.I)
+    if m:
+        parts = m.group(1).strip().split()
+        if parts and parts[0].lower() in _SHELL_PREPASS_CMDS:
+            cmd = m.group(1).strip()
+            return {
+                "action": "SHELL_EXEC",
+                "args": {"cmd": cmd},
+                "confidence": 0.95,
+                "meta": {"matched_by": "shell.prepass"},
+            }
+    return None
+
+
 def _mk(
     action: str,
     args: Optional[Dict[str, Any]] = None,
@@ -1650,6 +1677,8 @@ def route(text: str) -> Dict[str, Any]:
         re.search(r"\b(?:list|show)\s+(?:me\s+)?(?:all\s+(?:of\s+)?)?(?:your\s+)?capabilities\b", low)
         or re.search(r"\bfull\s+list\s+of\s+(?:your\s+)?capabilities\b", low)
         or low in ("capabilities", "what can you do", "what can you do?")
+        or re.search(r"\b(what|which|list|show)\b.{0,25}\b(agents?|capabilities|skills|actions|tools)\b", low)
+        or re.search(r"\bwhat agents\b|\bwhat can you do\b|\bwhat are you capable\b|\byour agents\b|\byour capabilities\b|\byour skills\b", low)
     ):
         return _mk("LIST_CAPABILITIES", {}, 1.0,
                    matched_by="system.capabilities")
@@ -2225,11 +2254,11 @@ def route(text: str) -> Dict[str, Any]:
 
     if any(w in low for w in ["weather", "forecast", "temperature"]):
         location_match = re.search(
-            r'\b(?:in|at|for)\b\s+([\w\s\-]+?)(?:\s*[,.]|\s+and\s+|\s+(?:provide|tell|show|give|also|then|next|tomorrow|today|forecast)|$)',
+            r'\b(?:in|at|for)\b\s+([\w\s\-]+?)(?:\s*[,?!.]|\s+and\s+|\s+(?:provide|tell|show|give|also|then|next|tomorrow|today|forecast)|$)',
             raw,
             re.I)
-        location = location_match.group(1).strip() if location_match else None
-        return _mk("GET_WEATHER", {"location": location}, 0.95, matched_by="info.weather", entities={
+        location = location_match.group(1).strip().rstrip("?.!, ") if location_match else None
+        return _mk("GET_WEATHER", {"location": location, "_raw_user_text": raw}, 0.95, matched_by="info.weather", entities={
                    "location": location} if location else None)
 
     if any(w in low for w in ["calendar", "calender",
@@ -2654,11 +2683,11 @@ def route(text: str) -> Dict[str, Any]:
     # Weather: umbrella / rain queries
     if re.search(r"\b(?:umbrella|rain(?:ing)?|snow(?:ing)?|storm)\b", low):
         location_match = re.search(
-            r'\b(?:in|at|for)\b\s+([\w\s\-]+?)(?:\s*[,.]|\s+and\s+|\s+(?:provide|tell|show|give|also|then|next|tomorrow|today|forecast)|$)',
+            r'\b(?:in|at|for)\b\s+([\w\s\-]+?)(?:\s*[,?!.]|\s+and\s+|\s+(?:provide|tell|show|give|also|then|next|tomorrow|today|forecast)|$)',
             raw,
             re.I)
-        location = location_match.group(1).strip() if location_match else None
-        return _mk("GET_WEATHER", {"location": location}, 0.90, matched_by="info.weather",
+        location = location_match.group(1).strip().rstrip("?.!, ") if location_match else None
+        return _mk("GET_WEATHER", {"location": location, "_raw_user_text": raw}, 0.90, matched_by="info.weather",
                    entities={"location": location} if location else None)
 
     # "what is the time" / "what's the time" (expanded TIME patterns)
@@ -4957,6 +4986,8 @@ try:
                 ("personal_memory_pre_route", _stage_personal_memory_pre_route),
                 ("lrf_pre_route", _stage_lrf_pre_route),
                 ("portable_route", _stage_portable_route),
+                ("weather_prepass", lambda t, *a, **k: _eli_weather_prepass(t)),
+                ("shell_prepass",   lambda t, *a, **k: _eli_shell_prepass(t)),
                 ("voice_contract", _stage_voice_contract),
                 ("persona_override", _stage_persona_override),
                 ("followup_passthrough", _stage_followup_passthrough),
