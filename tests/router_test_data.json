@@ -1,0 +1,54 @@
+[
+  {
+    "input": "open google.com",
+    "expected_action": "OPEN_APP"
+  },
+  {
+    "input": "play next song",
+    "expected_action": "NEXT_MEDIA"
+  },
+  {
+    "input": "resume playback",
+    "expected_action": "MEDIA_CONTROL"
+  },
+  {
+    "input": "pause music",
+    "expected_action": "MEDIA_CONTROL"
+  },
+  {
+    "input": "stop the music",
+    "expected_action": "STOP_MEDIA"
+  },
+  {
+    "input": "what do you know about me",
+    "expected_action": "PERSONAL_MEMORY_SUMMARY"
+  },
+  {
+    "input": "summarize the PDF",
+    "expected_action": "MEMORY_RECALL"
+  },
+  {
+    "input": "read the document",
+    "expected_action": "CHAT"
+  },
+  {
+    "input": "search for cats",
+    "expected_action": "OPEN_BROWSER"
+  },
+  {
+    "input": "google Python tutorials",
+    "expected_action": "OPEN_BROWSER"
+  },
+  {
+    "input": "look up ELI",
+    "expected_action": "OPEN_BROWSER"
+  },
+  {
+    "input": "hello",
+    "expected_action": "NOOP"
+  },
+  {
+    "input": "xyzzy plugh",
+    "expected_action": "NOOP"
+  }
+]

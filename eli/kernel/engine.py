@@ -1184,6 +1184,22 @@ def _mw_rs_is_runtime_status_question(text) -> bool:
     low = raw.lower()
     if not low:
         return False
+    # Pure persona/identity questions must go through Stage 11 LLM, not the
+    # runtime-status technical dump path. Bail out early if no technical
+    # runtime keyword is present alongside the identity phrase.
+    import re as _re
+    _TECH_KW = (
+        "model", "gpu", "ctx", "context size", "layers", "vram", "batch",
+        "running on", "runtime", "provider", "hardware", "temperature",
+        "tokens", "quantiz", "gguf", "config", "settings", "memory"
+    )
+    _is_persona = bool(_re.search(
+        r"\b(who are you|what are you|tell me about yourself|describe yourself"
+        r"|do you know who you are|what is your name|are you an ai|are you alive"
+        r"|your personality|your character|your purpose|what can you do)\b", low
+    ))
+    if _is_persona and not any(kw in low for kw in _TECH_KW):
+        return False
     # Prefer the real router contract where possible.
     try:
         routed = route_intent(raw)
@@ -1191,9 +1207,8 @@ def _mw_rs_is_runtime_status_question(text) -> bool:
             return str(routed.get("action") or "").strip().upper() == "RUNTIME_STATUS"
     except Exception:
         pass
-    import re as _re
     return bool(
-        _re.search(r"\b(who are you|what are you actually running on|runtime status|model|context size|gpu layers|gpu|ctx)\b", low)
+        _re.search(r"\b(what are you actually running on|runtime status|context size|gpu layers|gpu|ctx)\b", low)
         and _re.search(r"\b(running|runtime|model|context|ctx|gpu|layers|provider|everything)\b", low)
     )
 
@@ -3656,12 +3671,24 @@ Answer:"""
 
                                 def _quick_infer(p: str) -> str:
                                     try:
-                                        _broker = _get_inference_broker()
-                                        if _broker:
-                                            return _broker.infer(p, max_tokens=48) or ""
+                                        from eli.cognition.gguf_inference import gguf_try_infer
+                                        _hyp = gguf_try_infer(
+                                            p,
+                                            system="You are a knowledge assistant. Write a short factual answer (2-3 sentences, no roleplay, no filler).",
+                                            max_tokens=96,
+                                            temperature=0.4,
+                                            lock_timeout=2.0,
+                                        ) or ""
+                                        # Reject meta-responses (model confusion artifacts)
+                                        _low = _hyp.strip().lower()
+                                        if any(s in _low for s in (
+                                            "please provide", "user query", "i cannot",
+                                            "no query", "provide the query", "enter your"
+                                        )):
+                                            return ""
+                                        return _hyp.strip()
                                     except Exception:
                                         return ""
-                                    return ""
 
                                 def _run_hyde():
                                     try:
@@ -4339,10 +4366,15 @@ Answer:"""
                 gen_overrides).items() if v is not None})
 
         if not self._gguf_available and gguf_inference is not None:
-            try:
-                self._init_gguf()
-            except Exception:
-                pass
+            _ovr = gguf_inference.get_live_runtime_override() or {}
+            if _ovr.get("loaded"):
+                self._gguf_available = True
+                self._gguf_load_error = None
+            else:
+                try:
+                    self._init_gguf()
+                except Exception:
+                    pass
 
         try:
             _mode_contract = dict(getattr(self, "_last_mode_execution_contract", {}) or {})
@@ -4513,6 +4545,12 @@ Answer:"""
             gen.update({k: v for k, v in dict(
                 gen_overrides).items() if v is not None})
 
+        # Self-heal: GUI loads model via live override without setting _gguf_available
+        if not self._gguf_available and gguf_inference is not None:
+            _ovr = gguf_inference.get_live_runtime_override() or {}
+            if _ovr.get("loaded"):
+                self._gguf_available = True
+                self._gguf_load_error = None
         if self._gguf_available and gguf_inference is not None:
             try:
                 try:
@@ -6111,6 +6149,11 @@ Answer:"""
             )
 
             _corr_response = None
+            if not self._gguf_available and gguf_inference is not None:
+                _ovr3 = gguf_inference.get_live_runtime_override() or {}
+                if _ovr3.get("loaded"):
+                    self._gguf_available = True
+                    self._gguf_load_error = None
             if self._gguf_available and gguf_inference is not None:
                 try:
                     broker = _get_inference_broker() if _get_inference_broker else None

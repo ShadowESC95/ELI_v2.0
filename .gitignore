@@ -1,127 +1,18 @@
-
-artifacts/*
-!artifacts/conversations/
-artifacts/conversations/
-artifacts/conversations/*
-artifacts/conversations/*.json
-artifacts/conversations/quarantine/*.json
-!artifacts/db/
-artifacts/db/
-artifacts/db/*
-artifacts/db/*.sqlite3
-artifacts/db/*.sqlite3-*
-artifacts/proactive/
-artifacts/runtime/
-artifacts/runtime_snapshot.json
-artifacts/user_profile.json
-artifacts/vectors/
-*.bak
-*.before_*
-*.bin
-checkpoints/
-.claude/
-config/settings.json.*.bak
-config/settings.local.json
-config/user_id
-config/user_profile.json
-credentials/
-*.crt
-*.db
-.DS_Store
-# Stray intent-name marker files that appear at project root from
-# manual `touch` mishaps; these are intent constants, not legitimate files.
-/NOOP
-/CLOSE_APP
-/OPEN_APP
-/PLAY_MEDIA
-/STOP_MEDIA
-/PAUSE_MEDIA
-eli/tools/image_engine/logs/
-eli/tools/image_engine/logs/*
-eli/tools/image_engine/outputs/
-eli/tools/image_engine/outputs/*
-eli/tools/image_engine/projects/
-eli/tools/image_engine/projects/*
-!eli/tools/image_engine/projects/.gitkeep
-.env
-.env.*
-env/
-!.env.example
-# Generated image-engine runtime output
-*.gguf
-.idea/
-*.jsonl
-# Keep empty runtime directories, but never ship runtime contents
-*.key
-# Local machine/runtime config
-# Local patch backups
-# Local per-user identity/profile state - never redistribute
-*.log
-logs/
-models/**/*.gguf
-.mypy_cache/
-*.onnx
-ops/archives/
-ops/backups/
-ops/tmp/
-ops/upload_probe/
-*.pem
-*.pt
-*.pth
-*.pyc
 __pycache__/
+*.pyc
+*.pyo
+*.coverage
+.coverage
+*.tar.gz
+*.broken
+
+.code_monitor_state.json
+
+eli/capability_inventory.generated.json
+
+eli_artifacts_*/
+*_examination_report_*.txt
+core_modules_examination_*.txt
+eli_diag_output.txt
+
 .pytest_cache/
-.ruff_cache/
-*.safetensors
-secrets/
-*.sqlite
-*.sqlite3
-Thumbs.db
-*.token
-.venv/
-venv/
-.vscode/
-config/settings.json
-config/*.bak*
-artifacts/
-ops/reports/
-*.sqlite3-wal
-*.sqlite3-shm
-*.faiss
-meta.pkl
-outputs/
-# Generated learning / LoRA dry-run plans
-training/runs/
-# ELI_LOCAL_MODEL_ARTIFACT_GUARD_V1
-.env.mkxi
-# Local model/runtime artifacts: do not upload model weights or adapters.
-models/**/*.safetensors
-models/hf/
-models/lora/
-models/embeddings/
-models/whisper/
-# Runtime/private state.
-artifacts/scripts/
-# Launcher local backups.
-*.backup.*
-# Local Python environment
-# Local runtime/private state
-# Heavy/trainable model assets
-# Local Python environments
-# Local/private runtime state
-# Heavy/trainable/private model assets
-# Local/generated backups
-*.bak_*
-models/**/*.onnx
-models/**/*.pt
-models/**/*.pth
-models/**/*.bin
-models/.goutputstream-*
-# Local build/release staging
-build/
-*.egg-info/
-dist/
-!dist/.gitkeep
-dist/github_artifacts/staged_assets/
-dist/github_artifacts/release_uploads_*.txt
-dist/github_artifacts/release_skipped_*.txt

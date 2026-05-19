@@ -6762,7 +6762,20 @@ def _execute_impl(action: str, args: Optional[Dict[str, Any]] = None) -> Dict[st
                     msg = f"News fetch failed. Errors: {'; '.join(errs[:3])[:300]}"
                     return {'ok': False, 'action': a, 'content': msg, 'response': msg}
                 recent = fetcher.get_recent(limit=10, category=topic)
-                msg = _format_articles(recent, header) or f"Fetched {res['fetched']} articles."
+                msg = _format_articles(recent, header)
+                if not msg and res['fetched'] > 0:
+                    try:
+                        from eli.tools.news.news_synthesis import synthesise_window as _synth_w
+                        _sw = _synth_w()
+                        msg = (_sw.get('digest') or _sw.get('summary') or '').strip() or None
+                    except Exception:
+                        msg = None
+                    if not msg:
+                        recent2 = fetcher.get_recent(limit=20)
+                        msg = _format_articles(recent2, header)
+                    msg = msg or f"Fetched {res['fetched']} articles — ask 'morning report' for a full digest."
+                elif not msg:
+                    msg = f"Fetched {res['fetched']} articles."
                 if errs:
                     msg += f"\n\n⚠ Some sources failed: {'; '.join(errs[:2])[:200]}"
                 return {'ok': True, 'action': a, 'content': msg, 'response': msg}
