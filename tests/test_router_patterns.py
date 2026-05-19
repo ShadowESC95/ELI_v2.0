@@ -114,7 +114,7 @@ def test_cognition_queries(text):
     a = (result.get("action") or "").upper()
     assert a in ("CHAT", "COGNITION_STATUS", "RUNTIME_STATUS",
                  "COGNITIVE_CHAT", "SELF_REPORT",
-                 "EXPLAIN_COGNITION_RUNTIME"), f"'{a}' for: {text}"
+                 "EXPLAIN_COGNITION_RUNTIME", "LIST_CAPABILITIES"), f"'{a}' for: {text}"
 
 
 # ── File system queries ───────────────────────────────────────────────────

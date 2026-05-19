@@ -338,6 +338,7 @@ def _stream_clean_chunks(chunks):
 
 
 _llm: Optional[Llama] = None
+_live_runtime_override: Optional[Dict[str, Any]] = None
 _load_failed: bool = False  # sentinel: don't retry after a confirmed failure
 try:
     from eli.runtime.native_locks import LLAMA_CPP_NATIVE_LOCK as _LLM_CALL_LOCK

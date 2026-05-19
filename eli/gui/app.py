@@ -304,6 +304,14 @@ def main():
     cfg         = _load_config()
     saved_model = cfg.get("model_path") or cfg.get("bundled_model_path") or ""
     first_run   = not cfg.get("first_run_complete", False)
+
+    # If the GUI startup picker is enabled, skip the terminal pre-load entirely.
+    # StartupModelSelectionDialog owns model selection, hw-tuning, and load.
+    if cfg.get("show_startup_model_picker", True) and "--setup" not in sys.argv:
+        import eli.gui.eli_pro_audio_gui_MKI as _gui_mod
+        _gui_mod.main()
+        return
+
     saved_path  = Path(saved_model) if saved_model else None
     force_setup = "--setup" in sys.argv
     silent      = (not first_run) and (not force_setup) and (saved_path is not None) and saved_path.exists()

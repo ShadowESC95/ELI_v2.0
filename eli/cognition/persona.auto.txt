@@ -1,4 +1,51 @@
-# ELI Auto Persona Overlay
+# Auto-updated persona overlay
+# Generated from habits, reflection, self-improvement, memory, and runtime signals.
 
-This file is intentionally empty in release checkpoints.
-Runtime reflections and gathered user-specific state are regenerated locally.
+## Runtime Persona Notes
+- This file is ELI's auto-updating persona overlay.
+- User profile (name, preferences) is stored separately in user_profile.json.
+- Prefer concrete continuity, memory-backed context, and direct language.
+
+## Habits (Auto-Updated)
+- model_load @ 00:00 -> model_load [enabled]
+- NOOP @ 00:00 -> NOOP [enabled]
+- EXPLAIN_COGNITION_RUNTIME @ 00:00 -> EXPLAIN_COGNITION_RUNTIME [enabled]
+- IMPORT_AUDIT @ 00:00 -> IMPORT_AUDIT [enabled]
+- RUNTIME_AUDIT @ 00:00 -> RUNTIME_AUDIT [enabled]
+- OPEN_APP @ 00:00 -> OPEN_APP [enabled]
+- spotify @ 00:00 -> spotify [enabled]
+- PLAY_MEDIA @ 00:00 -> PLAY_MEDIA [enabled]
+- NEXT_MEDIA @ 00:00 -> NEXT_MEDIA [enabled]
+- VOLUME @ 00:00 -> VOLUME [enabled]
+
+## Reflection / Observations (Auto-Updated)
+- [habit:29b9547c85] Repeated runtime pattern seen 3x in the last window: event=command_result action=SELF_REPORT outcome=ok. Use this as routing context before retrying the same behavior.
+- [habit:facf36f9b0] Repeated runtime pattern seen 3x in the last window: event=command_result action=EXPLAIN_MEMORY_RUNTIME outcome=ok. Use this as routing context before retrying the same behavior.
+- [habit:748b78be9d] Repeated runtime pattern seen 9x in the last window: event=command_result action=SCREENSHOT outcome=ok. Use this as routing context before retrying the same behavior.
+- [habit:3df15b6a89] Repeated runtime pattern seen 10x in the last window: event=command_result action=PERSONAL_MEMORY_DEEP_EXPLAIN outcome=ok. Use this as routing context before retrying the same behavior.
+- [habit:96435094dc] Repeated runtime pattern seen 10x in the last window: event=command_result action=NOOP outcome=ok. Use this as routing context before retrying the same behavior.
+- Proactive daemon started
+
+## Runtime Patterns (Auto-Updated)
+- CHAT / user seen 44x
+- CHAT / conversation_turn seen 44x
+- CHAT / assistant seen 33x
+- CHAT / conversation_turn seen 33x
+- PROACTIVE_STATUS seen 23x
+- CHAT / conversation_turn seen 22x
+
+## Self Improvement (Auto-Updated)
+- Investigate failure: NEXT_MEDIA {} → No player could handle this command
+- Investigate failure: MEMORY_RECALL {"query": "test"} → name 'q' is not defined
+- Investigate failure: WEB_SEARCH {} → No query provided
+- Investigate failure: SEARCH_NOTES {} → No query
+- Investigate failure: GET_WEATHER {"location": null} → missing_location
+
+## Recent Failure Patterns (Auto-Updated)
+- name 'q' is not defined
+
+## Processed Memory Themes (Auto-Updated)
+- Reflection (24h): Conversation volume: 3 user messages in last 24h; Top topics: know, break, brief, long, been; Recent generated artifacts: ton_618_mass_density_vs_earth.py, quantum_decoherence_depth.py, type_ia_supernova_redshift.py, relative_time.py; latest=ton_618_mass_density
+- Reflection (24h): App usage: spotify (1x), terminal (1x), ls (1x); Conversation volume: 255 user messages in last 24h; Top topics: know, wiring, name, runtime, which; Repeated runtime patterns: CHAT on conversation_turn (44x), CHAT on user (44x), CHAT on user (44x), CHAT on conve
+- Session context: 12 exchanges, light engagement. Active topics: morning, afternoon, exactly, currently.
+- Reflection (24h): App usage: spotify (1x), terminal (1x), ls (1x); Conversation volume: 201 user messages in last 24h; Top topics: know, wiring, every, file, runtime; Repeated runtime patterns: CHAT on conversation_turn (44x), CHAT on user (44x), CHAT on user (44x), CHAT on conve

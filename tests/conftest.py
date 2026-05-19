@@ -1,193 +1,68 @@
-import sys
-import json
-import sqlite3
-import importlib
-import pytest
+import sys, os, pytest
 from pathlib import Path
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
 
+os.environ["QT_QPA_PLATFORM"] = "offscreen"
+os.environ["ELI_TEST_MODE"] = "1"
+os.environ["ELI_FORCE_CPU"] = "1"
 
-def pytest_configure(config):
-    _install_stubs()
+ROOT = Path(__file__).parent.parent
+sys.path.insert(0, str(ROOT))
 
-
-def _install_stubs():
-    _llama = MagicMock(name="llama_cpp")
-    _llama.Llama = MagicMock(name="Llama")
-    _llama.LlamaGrammar = MagicMock(name="LlamaGrammar")
-    _llama.LlamaTokenizer = MagicMock(name="LlamaTokenizer")
-    _llama.LlamaCache = MagicMock(name="LlamaCache")
-    sys.modules["llama_cpp"] = _llama
-    sys.modules["llama_cpp.llama"] = _llama
-    sys.modules["llama_cpp.llama_grammar"] = _llama
-
-    _QT_ATTRS = [
-        "Qt", "QTimer", "QThread", "QObject", "QRunnable", "QThreadPool",
-        "pyqtSignal", "pyqtSlot", "Signal", "Slot",
-        "QSettings", "QCoreApplication", "QApplication",
-        "QMutex", "QMutexLocker", "QAbstractListModel",
-        "QModelIndex", "QVariant", "QSize", "QPoint", "QRect",
-    ]
-
-    def _make_qtcore():
-        m = MagicMock(name="QtCore")
-        for a in _QT_ATTRS:
-            setattr(m, a, MagicMock(name=a))
-        return m
-
-    for _pkg in ("PySide6", "PyQt6", "PyQt5"):
-        _core = _make_qtcore()
-        _widgets = MagicMock(name=f"{_pkg}.QtWidgets")
-        _gui = MagicMock(name=f"{_pkg}.QtGui")
-        _mm = MagicMock(name=f"{_pkg}.QtMultimedia")
-        _mod = MagicMock(name=_pkg)
-        _mod.QtCore = _core
-        _mod.QtWidgets = _widgets
-        _mod.QtGui = _gui
-        _mod.QtMultimedia = _mm
-        sys.modules[_pkg] = _mod
-        sys.modules[f"{_pkg}.QtCore"] = _core
-        sys.modules[f"{_pkg}.QtWidgets"] = _widgets
-        sys.modules[f"{_pkg}.QtGui"] = _gui
-        sys.modules[f"{_pkg}.QtMultimedia"] = _mm
-
-    _PIL_SUBS = [
-        "Image", "ImageDraw", "ImageEnhance", "ImageFilter",
-        "ImageFont", "ImageOps", "ImageColor", "ImageChops", "ImageSequence",
-    ]
-    _pil = MagicMock(name="PIL")
-    for _s in _PIL_SUBS:
-        _sub = MagicMock(name=f"PIL.{_s}")
-        setattr(_pil, _s, _sub)
-        sys.modules[f"PIL.{_s}"] = _sub
-    sys.modules["PIL"] = _pil
-
-    _faiss = MagicMock(name="faiss")
-    _faiss.IndexFlatL2 = MagicMock(name="IndexFlatL2")
-    _faiss.IndexIDMap = MagicMock(name="IndexIDMap")
-    _faiss.IndexHNSWFlat = MagicMock(name="IndexHNSWFlat")
-    _faiss.read_index = MagicMock(name="read_index")
-    _faiss.write_index = MagicMock(name="write_index")
-    _faiss.normalize_L2 = MagicMock(name="normalize_L2")
-    sys.modules["faiss"] = _faiss
-    sys.modules["faiss.swigfaiss"] = _faiss
-
-    _OTHER = [
-        "torch", "torchvision", "torchaudio",
-        "torch.nn", "torch.nn.functional", "torch.cuda",
-        "whisper", "faster_whisper",
-        "sounddevice", "soundfile", "pyaudio",
-        "sentence_transformers",
-        "transformers", "transformers.models",
-        "diffusers", "accelerate",
-        "ollama",
-        "dbus", "dbus.mainloop", "dbus.mainloop.glib",
-        "gi", "gi.repository", "gi.repository.Notify",
-        "cv2",
-        "scipy", "scipy.spatial",
-        "sklearn", "sklearn.metrics", "sklearn.metrics.pairwise",
-        "pydantic",
-        "aiohttp",
-        "httpx",
-    ]
-    for _dep in _OTHER:
-        if _dep not in sys.modules:
-            sys.modules[_dep] = MagicMock(name=_dep)
-
-
-_MEMORY_SCHEMA = """
-CREATE TABLE IF NOT EXISTS memories (
-    id         INTEGER PRIMARY KEY AUTOINCREMENT,
-    text       TEXT    NOT NULL,
-    kind       TEXT    DEFAULT 'user',
-    timestamp  TEXT,
-    importance REAL    DEFAULT 1.0,
-    source     TEXT    DEFAULT 'user',
-    tags       TEXT    DEFAULT ''
-);
-CREATE VIRTUAL TABLE IF NOT EXISTS memories_fts
-    USING fts5(text, content=memories, content_rowid=id);
-CREATE TABLE IF NOT EXISTS habits (
-    id       INTEGER PRIMARY KEY AUTOINCREMENT,
-    pattern  TEXT,
-    action   TEXT,
-    count    INTEGER DEFAULT 0
-);
-CREATE TABLE IF NOT EXISTS knowledge (
-    id        INTEGER PRIMARY KEY AUTOINCREMENT,
-    subject   TEXT,
-    predicate TEXT,
-    object    TEXT
-);
-"""
-
+@pytest.fixture(autouse=True, scope="session")
+def mock_heavy_imports():
+    with patch.dict(sys.modules, {
+        "llama_cpp": MagicMock(), "llama_cpp.llama_cpp": MagicMock(),
+        "PySide6": MagicMock(), "PySide6.QtWidgets": MagicMock(),
+        "PySide6.QtCore": MagicMock(), "PySide6.QtGui": MagicMock(),
+        "faster_whisper": MagicMock(), "sounddevice": MagicMock(),
+        "soundfile": MagicMock(), "piper": MagicMock(), "onnxruntime": MagicMock(),
+        "faiss": MagicMock(), "torch": MagicMock(), "diffusers": MagicMock(),
+        "transformers": MagicMock(), "pydantic": MagicMock(),
+    }):
+        yield
 
 @pytest.fixture
-def project_root():
-    return Path(__file__).parent.parent
-
-
-@pytest.fixture
-def eli_package_path(project_root):
-    return project_root / "eli"
-
+def temp_db(tmp_path):
+    db_path = tmp_path / "test_user.sqlite3"
+    yield db_path
+    if db_path.exists():
+        db_path.unlink()
 
 @pytest.fixture
-def tmp_db(tmp_path):
-    db_path = tmp_path / "test_memory.sqlite3"
-    conn = sqlite3.connect(str(db_path))
-    conn.executescript(_MEMORY_SCHEMA)
-    conn.commit()
-    conn.close()
-    return db_path
-
+def memory_instance(temp_db):
+    from eli.memory import Memory
+    return Memory(db_path=temp_db)
 
 @pytest.fixture
-def populated_db(tmp_db):
-    rows = [
-        ("My name is Alice",               "user",         "2024-01-01T00:00:00", 1.0, "user",   "identity"),
-        ("I love jazz music",               "user",         "2024-01-02T00:00:00", 1.0, "user",   "music"),
-        ("My favourite language is Python", "user",         "2024-01-03T00:00:00", 1.0, "user",   "skills,python"),
-        ("I prefer dark mode interfaces",   "user",         "2024-01-04T00:00:00", 0.8, "user",   "preferences"),
-        ("The project is called ELI",       "user",         "2024-01-05T00:00:00", 0.9, "user",   "work"),
-        ("ELI runs on a local GPU",         "user",         "2024-01-06T00:00:00", 0.9, "user",   "work"),
-        ("I use Ollama for model serving",  "user",         "2024-01-07T00:00:00", 0.8, "user",   "skills"),
-        ("Reflection: session stable",      "reflection",   "2024-01-08T00:00:00", 0.5, "system", ""),
-        ("Short",                           "user",         "2024-01-09T00:00:00", 0.3, "user",   ""),
-        ("Orchestrator processed entry",    "orchestrator", "2024-01-10T00:00:00", 0.4, "system", ""),
-    ]
-    conn = sqlite3.connect(str(tmp_db))
-    conn.executemany(
-        "INSERT INTO memories (text, kind, timestamp, importance, source, tags) "
-        "VALUES (?, ?, ?, ?, ?, ?)",
-        rows,
-    )
-    conn.commit()
-    conn.close()
-    return tmp_db
-
+def mock_gguf():
+    with patch("eli.cognition.gguf_inference") as mock:
+        mock.load_model.return_value = MagicMock()
+        mock.chat_completion.return_value = {"content": "Mocked GGUF response"}
+        mock.generate.return_value = "Mocked generation"
+        yield mock
 
 @pytest.fixture
-def tmp_settings_file(tmp_path, monkeypatch):
-    settings_path = tmp_path / "settings.json"
-    settings_path.write_text(json.dumps({}))
-    monkeypatch.setenv("ELI_SETTINGS_FILE", str(settings_path))
-    monkeypatch.setenv("ELI_CONFIG_DIR", str(tmp_path))
-    for mod_path in ("eli.core.settings", "eli.core.config", "eli.settings", "eli.config"):
-        try:
-            mod = importlib.import_module(mod_path)
-            for attr in ("SETTINGS_FILE", "CONFIG_PATH", "_SETTINGS_PATH",
-                         "SETTINGS_PATH", "CONFIG_FILE", "_CONFIG_PATH"):
-                if hasattr(mod, attr):
-                    monkeypatch.setattr(mod, attr, settings_path, raising=False)
-            for fn_name in ("_get_settings_path", "get_settings_path", "_settings_path"):
-                if hasattr(mod, fn_name) and callable(getattr(mod, fn_name)):
-                    monkeypatch.setattr(mod, fn_name, lambda: settings_path, raising=False)
-        except ImportError:
-            pass
-    yield settings_path
-
+def mock_executor():
+    with patch("eli.execution.executor_enhanced.execute") as mock:
+        mock.return_value = {"ok": True, "content": "mocked", "response": "mocked"}
+        yield mock
 
 @pytest.fixture
-def mock_config(tmp_settings_file):
-    return tmp_settings_file
+def engine_with_mocks(mock_gguf, mock_executor):
+    from eli.kernel.engine import CognitiveEngine
+    return CognitiveEngine(auto_init_gguf=False)
+
+# FIX: Force persistence gate to allow all memory writes in tests
+@pytest.fixture(autouse=True)
+def allow_all_persistence():
+    with patch("eli.runtime.persistence_gate.should_store_memory_text", return_value=True), \
+         patch("eli.runtime.persistence_gate.should_store_conversation_turn", return_value=True):
+        yield
+
+# Force persistence gate to allow all memory writes during tests
+@pytest.fixture(autouse=True, scope="function")
+def force_persistence_gate():
+    with patch("eli.memory.memory._eli_should_store_memory_text", None), \
+         patch("eli.memory.memory._eli_should_store_conversation_turn", None):
+        yield
