@@ -84,6 +84,9 @@ class ContextSynthesiser:
                    recent_turns: Optional[List[Any]] = None,
                    last_request_meta: Optional[Dict[str, Any]] = None) -> str:
         sections: List[str] = []
+        # NOTE: synthesise() is not called by the live engine pipeline.
+        # The engine uses build_persona_handoff() directly (imported at engine.py:28).
+        # This method is kept for any tooling that calls it directly.
         try:
             from eli.kernel.state import get_user_name as _gun
             _uname = (_gun("") or "").strip()
@@ -307,6 +310,26 @@ def build_persona_handoff(
     parts: list[str] = []
     parts.append("GROUNDING PACKAGE FOR ELI")
     parts.append(f"USER INPUT: {user_input}")
+
+    # ── User identity ──────────────────────────────────────────────────────
+    try:
+        from eli.kernel.state import get_user_name as _bph_gun
+        _bph_name = (_bph_gun("") or "").strip()
+        if _bph_name:
+            parts.append(f"USER NAME: {_bph_name}")
+        else:
+            # First-run onboarding: no name stored yet. Instruct ELI to ask.
+            # Limit to first few turns so it doesn't repeat every message forever.
+            _bph_turn_count = len(list(recent_turns or []))
+            if _bph_turn_count <= 4:
+                parts.append(
+                    "ONBOARDING: You do not know this user's name yet. "
+                    "Naturally work a name request into your response — brief and conversational, "
+                    "not a form. E.g. end with 'By the way, what should I call you?' "
+                    "Do this once per session until the user provides a name."
+                )
+    except Exception:
+        pass
 
     # Truthful one-line runtime status — empty when the model loaded
     # exactly as requested on GPU. Non-empty when on CPU or when the
