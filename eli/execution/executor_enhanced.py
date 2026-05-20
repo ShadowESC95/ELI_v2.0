@@ -2579,11 +2579,18 @@ def set_user_name(name: str) -> Dict[str, Any]:
     if not n:
         msg = "Empty name."
         return {"ok": False, "action": "SET_USER_NAME", "error": "empty_name", "content": msg, "response": msg}
+    # Write to runtime state (legacy path)
     st = _load_state()
     st["user_name"] = n
     st["updated_at"] = time.time()
     _save_state(st)
-    msg = f"Name set to {n}."
+    # Write to user_profile.json (authoritative path read by get_user_name())
+    try:
+        from eli.kernel.state import set_user_name as _state_set_user_name
+        _state_set_user_name(n)
+    except Exception as _sue:
+        print(f"[EXECUTOR] set_user_name profile write failed: {_sue}", flush=True)
+    msg = f"Got it. I'll call you {n}."
     return {"ok": True, "action": "SET_USER_NAME", "user_name": n, "content": msg, "response": msg}
 
 
@@ -4119,27 +4126,59 @@ def _execute_impl(action: str, args: Optional[Dict[str, Any]] = None) -> Dict[st
             _cmd_str = str(cmd) if not isinstance(cmd, str) else cmd
             _cmd_low = _cmd_str.lower().strip()
             
-            # Destructive command patterns — block outright
+            # ── Destructive / dangerous command patterns — block outright ──
             _BLOCKED_PATTERNS = [
-                r"\brm\s+(-[rf]+\s+)?/(?!tmp)",      # rm -rf / (except /tmp)
-                r"\bmkfs\b",                             # format filesystem
-                r"\bdd\s+.*of=/dev/",                   # dd to raw device
-                r"\bchmod\s+777\s+/",                  # chmod 777 on root
-                r"\b:(){ :|:& };:",                      # fork bomb
-                r"\bshutdown\b|\breboot\b|\bpoweroff\b",  # system power (use OPEN_POWER_SETTINGS)
-                r"\bcurl\b.*\|\s*(?:ba)?sh",          # curl | bash (remote exec)
-                r"\bwget\b.*\|\s*(?:ba)?sh",          # wget | bash
-                r"\b/dev/sd[a-z]",                       # raw disk access
-                r"\biptables\s+-F",                     # flush firewall rules
-                r"\bmv\s+/",                            # mv from root
+                r"\brm\s+(-[rf]+\s+)?/(?!tmp)",           # rm -rf / (except /tmp)
+                r"\bmkfs\b",                                # format filesystem
+                r"\bdd\s+.*of=/dev/",                      # dd to raw device
+                r"\bchmod\s+777\s+/",                      # chmod 777 on root
+                r"\b:\(\)\s*\{.*\}",                        # fork bomb
+                r"\bshutdown\b|\breboot\b|\bpoweroff\b",   # system power control
+                r"\bcurl\b.*\|\s*(?:ba)?sh\b",             # curl | bash (remote exec)
+                r"\bwget\b.*\|\s*(?:ba)?sh\b",             # wget | bash
+                r"\b/dev/sd[a-z]\b",                        # raw disk device access
+                r"\biptables\s+-F\b",                       # flush firewall rules
+                r"\bmv\s+/\S",                              # mv files from root
+                r"\b(?:bash|sh|zsh|ksh|fish|dash)\s+-c\b", # shell -c arbitrary exec
+                r"\bpython\d*\s+-c\b",                      # python -c arbitrary exec
+                r"\bperl\s+-e\b",                           # perl -e arbitrary exec
+                r"\bruby\s+-e\b",                           # ruby -e arbitrary exec
+                r"\bnc\b.*-e\b",                            # netcat reverse shell
+                r"\b(?:ncat|netcat)\b.*-e\b",               # netcat variants
+                r">\s*/etc/",                               # redirect to system config
+                r">\s*/boot/",                              # redirect to boot partition
+                r"\bchpasswd\b|\bpasswd\b\s+\w",           # password change
+                r"\bvisudo\b|\bsudoers\b",                  # sudoers modification
+                r"\bcrontab\s+-[re]\b",                     # crontab modification
             ]
-            
+
             for pat in _BLOCKED_PATTERNS:
                 if re.search(pat, _cmd_low):
                     msg = f"Blocked dangerous command: {_cmd_str[:60]}"
                     return {"ok": False, "action": a, "error": "security_blocked",
                             "content": msg, "response": msg, "blocked": True}
-            
+
+            # ── Denylist dangerous executable names as argv[0] ──
+            import shlex as _shlex_sec
+            try:
+                _argv0 = (_shlex_sec.split(_cmd_str) or [""])[0]
+                _argv0_base = os.path.basename(_argv0).lower()
+            except Exception:
+                _argv0_base = ""
+            _DENIED_EXECUTABLES = {
+                "bash", "sh", "zsh", "ksh", "fish", "dash",  # shell interpreters
+                "python", "python3", "python2",                # scripting engines
+                "perl", "ruby", "node", "nodejs",              # more scripting engines
+                "nc", "ncat", "netcat",                        # network tools
+                "dd", "mkfs", "fdisk", "parted",               # disk tools
+                "rm", "shred", "wipe",                         # destructive file ops
+                "iptables", "ip6tables", "nftables",           # firewall manipulation
+            }
+            if _argv0_base in _DENIED_EXECUTABLES:
+                msg = f"Execution of '{_argv0_base}' is not permitted via RUN_CMD for security reasons."
+                return {"ok": False, "action": a, "error": "security_blocked",
+                        "content": msg, "response": msg, "blocked": True}
+
             # Warn on sudo — allow but flag
             _needs_sudo = "sudo " in _cmd_low
             cwd = args.get("cwd") or None

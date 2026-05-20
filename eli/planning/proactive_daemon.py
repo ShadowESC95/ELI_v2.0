@@ -741,13 +741,40 @@ def get_daemon() -> ProactiveDaemon:
         _daemon = ProactiveDaemon()
     return _daemon
 
+def _guarded_daemon_run(daemon) -> None:
+    """Run the daemon with a crash guard.
+
+    On unhandled exception, writes the traceback to
+    artifacts/proactive_daemon_down.flag so the GUI can surface a warning
+    and offer a restart button.
+    """
+    try:
+        daemon.run()
+    except Exception as _exc:
+        import traceback as _tb
+        _crash_text = _tb.format_exc()
+        try:
+            _flag = get_paths().artifacts_dir / "proactive_daemon_down.flag"
+            _flag.parent.mkdir(parents=True, exist_ok=True)
+            _flag.write_text(str(_exc)[:500], encoding="utf-8")
+            # Full traceback goes to the crash log for debugging
+            _crash_log = get_paths().artifacts_dir / "proactive_daemon_crash.txt"
+            _crash_log.write_text(_crash_text, encoding="utf-8")
+        except Exception:
+            pass
+        print(f"[PROACTIVE_DAEMON] Crashed: {_exc}", flush=True)
+
+
 def start_daemon():
     global _daemon_started
     daemon = get_daemon()
     if _daemon_started:
         return daemon
     _daemon_started = True
-    thread = threading.Thread(target=daemon.run, daemon=True)
+    thread = threading.Thread(
+        target=_guarded_daemon_run, args=(daemon,),
+        daemon=True, name="eli-proactive-daemon",
+    )
     thread.start()
     return daemon
 
