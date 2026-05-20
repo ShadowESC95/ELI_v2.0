@@ -184,7 +184,7 @@ class WorkingMemory:
         lines = ["WORKING MEMORY (pinned facts for this session):"]
         for fact in sorted(self._facts.values(),
                            key=lambda f: f.importance, reverse=True):
-            src = f"[{fact.source}]" if fact.source != "auto" else ""
+            src = f"({fact.source})" if fact.source != "auto" else ""
             lines.append(f"  • {fact.text} {src}".rstrip())
         return "\n".join(lines)
 

@@ -474,7 +474,15 @@ class KnowledgeGraph:
             (r"([A-Z][a-z]{1,20})\s+uses?\s+([A-Za-z0-9 _\-]+?)(?:[.,]|$)", "uses"),
         ]
 
+        # Only extract identity predicates from user-authored text, never from
+        # assistant turns or internal memory synthesis, to prevent hallucinated
+        # assistant responses from poisoning the knowledge graph.
+        _identity_predicates = {"has_name", "nickname"}
+        _trusted_sources = {"user", "user_explicit", "identity_extract"}
+
         for pattern, predicate in patterns:
+            if predicate in _identity_predicates and source not in _trusted_sources:
+                continue
             for m in re.finditer(pattern, text, re.I):
                 groups = m.groups()
                 if predicate in ("has_name", "nickname", "prefers"):

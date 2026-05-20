@@ -51,11 +51,17 @@ eli/artifacts/
 
 # ── Generated / auto-updated files ──────────────────────────────────────────
 eli/capability_inventory.generated.json
+capability_inventory.generated.json
+eli/capability_manifest.json
 eli/cognition/persona.auto.txt
 capability_manifest.json
 .capability_snapshot.json
+.code_monitor_state.json
 config/settings.json
 config/user_id
+# Legacy and scratch artefacts
+.artifacts_legacy_*/
+Pasted\ text.txt
 
 # ── Secrets / environment ────────────────────────────────────────────────────
 .env

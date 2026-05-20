@@ -1,8 +1,19 @@
 # ELI MKXI v2.0 PRO
 
-ELI MKXI is a local-first AI assistant package with a PySide6 GUI, GGUF
-inference support, persistent SQLite memory, local tools, speech/audio paths,
-image/report tooling, and OS integration helpers.
+ELI MKXI is a 100% local, privacy-first AI assistant. It runs entirely on your
+own hardware — no cloud APIs, no telemetry. Features include:
+
+- **GGUF inference** via llama-cpp-python (CPU and GPU, auto-tuned at boot)
+- **PySide6 GUI** with dockable panels, quick-action board, and live telemetry
+- **Persistent memory** — SQLite + FAISS vector index for semantic recall
+- **Multi-agent bus** — parallel agent dispatch with confidence aggregation
+- **Security hardening** — prompt injection guard, SQL identifier validation,
+  shell command security gate, custom agent SHA-256 trust registry
+- **Headless / CLI mode** — `eli --headless` for terminal-only use
+- **First-boot wizard** — guides zero-model setup to HuggingFace download
+- **Proactive daemon** — background goal/habit/insight generation
+- **Self-improvement** — failure analysis, capability manifest regeneration
+- **Plugin system** — install, enable/disable, and uninstall tools at runtime
 
 ## One-Click Setup
 
@@ -120,22 +131,24 @@ Use project-relative paths, `ELI_PROJECT_ROOT`, or the path helpers in
 
 ## Project Layout
 
-- `eli/core`: paths, settings, contracts, hardware profile
-- `eli/kernel`: control loop, engine, state models
-- `eli/cognition`: reasoning, grounding, synthesis
-- `eli/memory`: episodic, semantic, knowledge graph, working memory
-- `eli/planning`: goals, jobs, autonomy, scheduling
-- `eli/execution`: router, executor, tool authority
-- `eli/perception`: audio, screenshots, OS controller, TTS/STT
-- `eli/runtime`: arbitration, verification, security policy
-- `eli/integrations`: Ollama, GGUF, media backends, adapters
-- `eli/plugins`: tool plugins
-- `eli/gui`: GUI launcher and client code
-- `config`: portable default settings
-- `models`: optional local model payloads
-- `packaging`: Windows, macOS, Linux packaging scripts
-- `dist`: generated release artifacts
-- `outputs`: generated instruction/export files
+- `eli/core` — paths, settings, contracts, hardware profile
+- `eli/kernel` — control loop, cognitive engine, state models
+- `eli/cognition` — reasoning, grounding, agent bus, working memory
+- `eli/memory` — episodic, semantic, FAISS vector index, knowledge graph
+- `eli/planning` — goals, jobs, autonomy, proactive daemon, scheduling
+- `eli/execution` — router, executor, tool authority, shell security gate
+- `eli/perception` — audio, screenshots, OS controller, TTS/STT
+- `eli/runtime` — arbitration, verification, security policy
+- `eli/integrations` — Ollama, GGUF, media backends, adapters
+- `eli/plugins` — tool plugins (install/enable/disable at runtime)
+- `eli/gui` — GUI launcher and `EliMainWindow`
+- `eli/gui/panels` — extracted panel components (startup, settings, agents)
+- `eli/cli` — headless REPL (`eli --headless`)
+- `config` — portable default settings and templates
+- `models` — local model payloads (gitignored, distribute separately)
+- `tests` — pytest suite (40+ integration tests)
+- `packaging` — Windows, macOS, Linux packaging scripts
+- `dist` — generated release artifacts
 
 ## Supported OS Names And Aliases
 
@@ -234,11 +247,21 @@ python -m pip install -e .
 
 ## Running
 
-Source checkout:
+Source checkout (GUI):
 
 ```bash
 python -m eli
 ```
+
+Headless / terminal REPL:
+
+```bash
+python -m eli --headless
+# or short form:
+python -m eli -H
+```
+
+Headless slash commands: `/status`, `/mode`, `/reset`, `/help`, `/quit`
 
 Linux installed package:
 
@@ -290,6 +313,36 @@ instant:
   not full desktop GUI/control parity.
 - GPU acceleration still depends on local drivers, CUDA/Metal/MPS support, and
   native wheels.
+
+## Security
+
+ELI applies multiple layers of defence-in-depth:
+
+| Layer | What it protects |
+|-------|-----------------|
+| Prompt injection guard | Strips `[INST]`, `<\|im_start\|>system`, jailbreak phrases before the LLM sees input |
+| SQL identifier validation | All f-string SQL identifiers pass an allowlist regex — no injection via column/table names |
+| Shell security gate | `RUN_CMD` blocks `bash -c`, `python -c`, `perl -e`, `dd`, `rm`, `iptables`, etc. |
+| Custom agent trust | SHA-256 hash registry — unregistered or tampered agent files are skipped at load |
+| Input length cap | Requests over `ELI_MAX_INPUT_LEN` (default 8192) are truncated |
+
+Register a new custom agent:
+
+```bash
+python -m eli --trust-agent path/to/my_agent.py
+```
+
+Override max input length:
+
+```bash
+export ELI_MAX_INPUT_LEN=16384
+```
+
+Bypass agent trust for local development only:
+
+```bash
+export ELI_TRUST_ALL_AGENTS=1
+```
 
 ## Verification
 
