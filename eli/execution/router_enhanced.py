@@ -14,7 +14,8 @@ def _eli_pipeline_trace(stage: str, **data):
     try:
         import json, time
         from pathlib import Path
-        out = Path("/home/jay/Desktop/ELI_MKXI-main_MAY_NEWEST/ops/reports/pipeline_visibility/runtime_pipeline_trace.jsonl")
+        from eli.core.paths import get_paths
+        out = Path(get_paths().project_root) / "ops" / "reports" / "pipeline_visibility" / "runtime_pipeline_trace.jsonl"
         out.parent.mkdir(parents=True, exist_ok=True)
         with out.open("a", encoding="utf-8") as f:
             f.write(json.dumps({"ts": time.time(), "stage": stage, **data}, ensure_ascii=False, default=str) + "\n")
@@ -528,6 +529,35 @@ def _looks_like_conversation_summary(low: str) -> bool:
 # ============================================================
 # ROUTER
 # ============================================================
+def _route_set_user_name(raw: str, low: str) -> Optional[Dict[str, Any]]:
+    """Detect explicit name-setting statements and route to SET_USER_NAME."""
+    import re as _re
+    # "my name is X", "call me X", "i'm X" / "i am X" (followed by end or punctuation)
+    _patterns = (
+        r"(?:my name is|my name's)\s+([A-Za-z][A-Za-z\-']{1,30})\b",
+        r"call me\s+([A-Za-z][A-Za-z\-']{1,30})\b",
+        r"(?:you can call me|please call me)\s+([A-Za-z][A-Za-z\-']{1,30})\b",
+        r"^(?:i'?m|i am)\s+([A-Z][a-z]{1,24})\s*[.,!?]?\s*$",
+        r"^([A-Z][a-z]{1,24})\s*[.,!?]?\s*$",  # bare name as full message
+    )
+    for pat in _patterns:
+        m = _re.search(pat, raw, _re.IGNORECASE)
+        if m:
+            candidate = m.group(1).strip().rstrip(".,!?")
+            # Reject common false positives
+            _bad = {"you", "eli", "okay", "ok", "sure", "fine", "good", "here",
+                    "yes", "no", "hi", "hey", "hello", "there", "done", "ready",
+                    "sorry", "thanks", "thank", "great", "right", "wrong"}
+            if candidate.lower() not in _bad and len(candidate) >= 2:
+                return _mk(
+                    "SET_USER_NAME",
+                    {"name": candidate},
+                    0.97,
+                    matched_by="identity.set_user_name",
+                )
+    return None
+
+
 def _route_grounded_runtime_intent(
         raw: str, low: str) -> Optional[Dict[str, Any]]:
     if not raw:
@@ -4965,6 +4995,11 @@ try:
             def _stage_identity_contract(text, *_a, **_k):
                 return _eli_phase38_identity_contract(text)
 
+            def _stage_set_user_name(text, *_a, **_k):
+                import re as _re
+                low = _re.sub(r"\s+", " ", str(text or "").lower()).strip()
+                return _route_set_user_name(str(text or ""), low)
+
             def _stage_core_router(text, *a, **k):
                 return _eli_phase38_open_typo_or_core_route(text, *a, **k)
 
@@ -4991,6 +5026,7 @@ try:
                 ("voice_contract", _stage_voice_contract),
                 ("persona_override", _stage_persona_override),
                 ("followup_passthrough", _stage_followup_passthrough),
+                ("set_user_name", _stage_set_user_name),
                 ("identity_contract", _stage_identity_contract),
                 ("core_router", _stage_core_router),
             )

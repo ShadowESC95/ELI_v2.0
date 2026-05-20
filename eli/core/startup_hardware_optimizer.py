@@ -311,16 +311,40 @@ def allocate(profile_model: str, model_gb: float, ram_gb: float, gpu: Optional[G
         notes.append("CPU/no measurable GPU: model remains in RAM/CPU, gpu_layers=0.")
         return n_ctx, 0, min(batch, 128), max_tokens_from_ctx(n_ctx), ctx_fraction, notes
 
-    usable_vram = max(0, gpu.free_mb - int(os.environ.get("ELI_VRAM_RESERVE_MB", "900")))
+    # Use free_mb + configurable bonus when snapshot looks transient
+    # (other processes contesting VRAM — below ELI_VRAM_LOW_FRAC of total).
+    # ELI_VRAM_LOW_FRAC          : threshold fraction (default 0.30)
+    # ELI_VRAM_TRANSIENT_BONUS_MB: MB added to free_mb as headroom estimate (default 1500)
+    # ELI_VRAM_TRANSIENT_CAP_FRAC: hard cap as fraction of total_mb (default 0.95)
+    _low_frac = float(os.environ.get("ELI_VRAM_LOW_FRAC", "0.30"))
+    _low_vram_threshold = gpu.total_mb * _low_frac
+    if gpu.free_mb < _low_vram_threshold:
+        _transient_bonus = int(os.environ.get("ELI_VRAM_TRANSIENT_BONUS_MB", "1500"))
+        _cap_frac = float(os.environ.get("ELI_VRAM_TRANSIENT_CAP_FRAC", "0.95"))
+        vram_basis = min(gpu.free_mb + _transient_bonus, int(gpu.total_mb * _cap_frac))
+        notes.append(
+            f"VRAM snapshot: only {gpu.free_mb}MB free of {gpu.total_mb}MB total "
+            f"({gpu.free_mb / max(gpu.total_mb, 1) * 100:.0f}% — transient/contested). "
+            f"Applying bonus {_transient_bonus}MB → vram_basis={vram_basis}MB "
+            f"(cap={int(gpu.total_mb * _cap_frac)}MB). "
+            f"Override: ELI_VRAM_TRANSIENT_BONUS_MB / ELI_VRAM_TRANSIENT_CAP_FRAC."
+        )
+    else:
+        vram_basis = gpu.free_mb
+
+    # Single consolidated reserve — covers OS overhead, driver buffers, and ELI runtime.
+    # ELI_VRAM_RESERVE_MB env var overrides the default.  No second subtraction below.
+    runtime_reserve = int(os.environ.get("ELI_VRAM_RESERVE_MB", "900"))
+    usable_vram = max(0, vram_basis - runtime_reserve)
+
     target_vram = int(os.environ.get("ELI_VRAM_TARGET_MB", "0") or "0")
     if target_vram > 0:
         usable_vram = min(usable_vram, target_vram)
 
-    runtime_reserve = int(os.environ.get("ELI_RUNTIME_VRAM_RESERVE_MB", "900"))
     kv = kv_cache_mb(n_ctx, layers_total)
     batch_reserve = max(384, int(batch * 3.0))
 
-    remaining = usable_vram - runtime_reserve - kv - batch_reserve
+    remaining = usable_vram - kv - batch_reserve
 
     if forced_layers:
         gpu_layers = int(forced_layers)
@@ -334,11 +358,11 @@ def allocate(profile_model: str, model_gb: float, ram_gb: float, gpu: Optional[G
         f"Universal ctx-first allocation: train_ctx={train_ctx}, target_fraction={ctx_fraction:.2f}, "
         f"requested_ctx≈{raw_ctx}, rounded_requested_ctx={rounded_requested_ctx}, "
         f"applied_ctx={n_ctx}, ram_model_cap={cap_ctx}, "
-        f"batch={batch}, usable_vram≈{usable_vram}MB, model_gb={model_gb}, "
-        f"layers_est={layers_total}, layer_mb≈{per_layer:.1f}."
+        f"batch={batch}, vram_basis≈{vram_basis}MB, usable_vram≈{usable_vram}MB, "
+        f"model_gb={model_gb}, layers_est={layers_total}, layer_mb≈{per_layer:.1f}."
     )
     notes.append(
-        f"VRAM reservations: runtime≈{runtime_reserve}MB, KV≈{kv:.0f}MB, "
+        f"VRAM reservations: reserve≈{runtime_reserve}MB, KV≈{kv:.0f}MB, "
         f"batch≈{batch_reserve}MB, remaining_for_layers≈{remaining:.0f}MB, "
         f"gpu_layers={gpu_layers}. Non-offloaded layers use RAM/CPU."
     )
