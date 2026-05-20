@@ -767,7 +767,8 @@ class LocalModelManager:
             try:
                 import json as _eli_hw_json
                 from pathlib import Path as _EliHwPath
-                _eli_profile_path = _EliHwPath("/home/jay/Desktop/ELI_MKXI-main_MAY_NEWEST/artifacts/runtime_hardware_profile.json")
+                from eli.core.paths import get_paths as _eli_get_paths
+                _eli_profile_path = _EliHwPath(_eli_get_paths().artifacts_dir) / "runtime_hardware_profile.json"
                 if _eli_profile_path.exists():
                     _eli_profile = _eli_hw_json.loads(_eli_profile_path.read_text(encoding="utf-8"))
                     n_ctx = int(_eli_profile.get("n_ctx", n_ctx))
@@ -851,12 +852,70 @@ class LocalModelManager:
                 _add_attempt("ctx8k-half-gpu", min(_base_ctx, 8192), max(1, _base_layers // 2), min(_base_batch, 128))
                 _add_attempt("ctx6k-half-gpu", min(_base_ctx, 6144), max(1, _base_layers // 2), min(_base_batch, 96))
                 _add_attempt("ctx4k-third-gpu", min(_base_ctx, 4096), max(1, _base_layers // 3), min(_base_batch, 64))
-                _add_attempt("ctx4k-cpu-fallback", min(_base_ctx, 4096), 0, min(_base_batch, 64))
+                # Live-tuner: re-run allocate() with current GPU free VRAM.
+                # Finds the best ctx/layers/batch the hardware can actually support
+                # right now, without relying on the (possibly stale) startup profile.
+                try:
+                    import os as _os
+                    from eli.core.startup_hardware_optimizer import (
+                        detect_nvidia_gpus as _dng, select_gpu as _sg,
+                        allocate as _hw_alloc, find_model as _fm,
+                        load_settings as _hls, size_gb as _sgb,
+                        detect_ram_gb as _drg,
+                    )
+                    _lt_gpus = _dng()
+                    _lt_gpu = _sg(_lt_gpus)
+                    if _lt_gpu and _lt_gpu.free_mb > 0:
+                        _lt_settings = _hls()
+                        _lt_model = _fm(_lt_settings)
+                        _lt_model_gb = _sgb(_lt_model) if _lt_model else 0.0
+                        _lt_ram = _drg()
+                        if _lt_model_gb > 0:
+                            _lt_ctx, _lt_layers, _lt_batch, _, _, _ = _hw_alloc(
+                                _lt_model, _lt_model_gb, _lt_ram, _lt_gpu
+                            )
+                            if _lt_layers > 0:
+                                _add_attempt("live-tuner-gpu", _lt_ctx, _lt_layers, _lt_batch)
+                            # CPU path at live-tuner ctx (better than the 4096 floor)
+                            _add_attempt("live-tuner-cpu", _lt_ctx, 0, min(_lt_batch, 96))
+                except Exception:
+                    pass
+                # Dynamic CPU ctx floor: derive from RAM capacity, never a hardcoded int.
+                # ELI_MIN_CTX env var overrides if set.
+                try:
+                    import os as _os2
+                    _env_min = _os2.environ.get("ELI_MIN_CTX", "").strip()
+                    if _env_min:
+                        _cpu_ctx_floor = int(_env_min)
+                    else:
+                        from eli.core.startup_hardware_optimizer import (
+                            ram_ctx_cap as _rcc, detect_ram_gb as _drg2
+                        )
+                        _cpu_ctx_floor = _rcc(_drg2(), 0)
+                    _cpu_ctx_floor = min(_cpu_ctx_floor, _base_ctx)
+                except Exception:
+                    _cpu_ctx_floor = _base_ctx
+                _add_attempt("cpu-fallback", _cpu_ctx_floor, 0, min(_base_batch, 96))
+                _add_attempt("cpu-fallback-half-ctx", max(1024, _cpu_ctx_floor // 2), 0, min(_base_batch, 64))
             else:
+                # CPU-only path: derive context steps from RAM capacity + ELI_MIN_CTX.
+                # No hardcoded ctx floors — all values are calculated dynamically.
+                try:
+                    import os as _os3
+                    _env_min_cpu = _os3.environ.get("ELI_MIN_CTX", "").strip()
+                    if _env_min_cpu:
+                        _cpu_base_ctx = min(int(_env_min_cpu), _base_ctx)
+                    else:
+                        from eli.core.startup_hardware_optimizer import (
+                            ram_ctx_cap as _rcc2, detect_ram_gb as _drg3
+                        )
+                        _cpu_base_ctx = min(_rcc2(_drg3(), 0), _base_ctx)
+                except Exception:
+                    _cpu_base_ctx = _base_ctx
                 _add_attempt("cpu-batch-96", _base_ctx, 0, min(_base_batch, 96))
-                _add_attempt("cpu-ctx8k-batch96", min(_base_ctx, 8192), 0, min(_base_batch, 96))
-                _add_attempt("cpu-ctx4k-batch64", min(_base_ctx, 4096), 0, min(_base_batch, 64))
-                _add_attempt("cpu-ctx2k-batch32", min(_base_ctx, 2048), 0, min(_base_batch, 32))
+                _add_attempt("cpu-ctx-ram-cap", _cpu_base_ctx, 0, min(_base_batch, 96))
+                _add_attempt("cpu-ctx-half-ram-cap", max(1024, _cpu_base_ctx // 2), 0, min(_base_batch, 64))
+                _add_attempt("cpu-ctx-quarter-ram-cap", max(1024, _cpu_base_ctx // 4), 0, min(_base_batch, 32))
 
             _applied = None
             _last_error = ""
@@ -1263,364 +1322,17 @@ class ExecutorBridge:
 executor_bridge = ExecutorBridge()
 
 # ============================================================
-# STARTUP MODEL + HARDWARE TUNING UI
+# STARTUP MODEL + HARDWARE TUNING UI  (extracted → eli/gui/panels/startup.py)
 # ============================================================
-class HardwareTuningDock(QDockWidget):
-    def __init__(self, parent=None):
-        super().__init__("Hardware Tuning", parent)
-        self.setAllowedAreas(
-            Qt.DockWidgetArea.LeftDockWidgetArea
-            | Qt.DockWidgetArea.RightDockWidgetArea
-            | Qt.DockWidgetArea.BottomDockWidgetArea
-        )
-        root = QWidget()
-        layout = QVBoxLayout(root)
-        layout.setContentsMargins(10, 10, 10, 10)
-        layout.setSpacing(8)
-
-        self.status_label = QLabel("Idle")
-        self.status_label.setStyleSheet("font-weight:700;color:#88c0d0;")
-        layout.addWidget(self.status_label)
-
-        self.summary_label = QLabel("No tuning run yet.")
-        self.summary_label.setWordWrap(True)
-        self.summary_label.setStyleSheet("color:#c8d0e0;")
-        layout.addWidget(self.summary_label)
-
-        self.log_view = QPlainTextEdit()
-        self.log_view.setReadOnly(True)
-        self.log_view.setPlaceholderText("Hardware tuning logs appear here.")
-        layout.addWidget(self.log_view, stretch=1)
-
-        self.setWidget(root)
-
-    def set_status(self, text: str):
-        self.status_label.setText(str(text or ""))
-
-    def set_summary(self, text: str):
-        self.summary_label.setText(str(text or ""))
-
-    def append_log(self, text: str):
-        ts = now_hms()
-        self.log_view.appendPlainText(f"[{ts}] {text}")
+from eli.gui.panels.startup import HardwareTuningDock  # noqa: E402
 
 
-class StartupModelSelectionDialog(QDialog):
-    def __init__(
-        self,
-        *,
-        parent=None,
-        models: Optional[List[Dict[str, Any]]] = None,
-        current_provider: str = "bundled_gguf",
-        current_model_path: str = "",
-        ollama_host: str = "http://localhost:11434",
-        ollama_model: str = "",
-        ollama_models: Optional[List[str]] = None,
-    ):
-        super().__init__(parent)
-        self.setWindowTitle("Startup Model Selection")
-        self.setMinimumWidth(760)
-        self._models = list(models or [])
-
-        layout = QVBoxLayout(self)
-        layout.setContentsMargins(14, 14, 14, 14)
-        layout.setSpacing(10)
-
-        intro = QLabel(
-            "Choose which model to load for this session. "
-            "You can run automatic hardware tuning before load."
-        )
-        intro.setWordWrap(True)
-        intro.setStyleSheet("color:#c8d0e0;")
-        layout.addWidget(intro)
-
-        form = QFormLayout()
-        form.setHorizontalSpacing(12)
-        form.setVerticalSpacing(8)
-
-        self.provider_combo = QComboBox()
-        self.provider_combo.addItem(MODEL_PROVIDER_LABELS["bundled_gguf"], "bundled_gguf")
-        self.provider_combo.addItem(MODEL_PROVIDER_LABELS["custom_gguf"], "custom_gguf")
-        self.provider_combo.addItem(MODEL_PROVIDER_LABELS["ollama"], "ollama")
-        form.addRow("Provider", self.provider_combo)
-
-        self.gguf_combo = QComboBox()
-        self.gguf_combo.setSizeAdjustPolicy(QComboBox.SizeAdjustPolicy.AdjustToContents)
-        for m in self._models:
-            label = f"[{m.get('source','?')}] {m.get('name','model')} ({float(m.get('size_gb', 0.0)):.2f} GB)"
-            self.gguf_combo.addItem(label, str(m.get("path") or ""))
-        form.addRow("GGUF models", self.gguf_combo)
-
-        self.model_path_input = QLineEdit(current_model_path or "")
-        form.addRow("Custom path", self.model_path_input)
-        browse_btn = QPushButton("Browse…")
-        browse_btn.clicked.connect(self._browse_gguf_file)
-        form.addRow("", browse_btn)
-
-        self.ollama_host_input = QLineEdit(ollama_host or "http://localhost:11434")
-        form.addRow("Ollama host", self.ollama_host_input)
-        self.ollama_model_combo = QComboBox()
-        self.ollama_model_combo.setEditable(True)
-        for name in list(ollama_models or []):
-            self.ollama_model_combo.addItem(str(name))
-        if ollama_model:
-            self.ollama_model_combo.setEditText(ollama_model)
-        form.addRow("Ollama model", self.ollama_model_combo)
-        layout.addLayout(form)
-
-        self.auto_tune_checkbox = QCheckBox("Hardware tuning is required for GGUF and runs before load")
-        self.auto_tune_checkbox.setChecked(True)
-        self.auto_tune_checkbox.setEnabled(False)
-        layout.addWidget(self.auto_tune_checkbox)
-
-        self.ctx_fraction_spin = QDoubleSpinBox()
-        self.ctx_fraction_spin.setRange(0.10, 0.95)
-        self.ctx_fraction_spin.setSingleStep(0.05)
-        self.ctx_fraction_spin.setDecimals(2)
-        self.ctx_fraction_spin.setValue(float(os.environ.get("ELI_CTX_FRACTION", "0.65")))
-        form.addRow("Context target fraction", self.ctx_fraction_spin)
-
-        self.target_batch_spin = QSpinBox()
-        self.target_batch_spin.setRange(16, 4096)
-        self.target_batch_spin.setSingleStep(16)
-        self.target_batch_spin.setValue(int(os.environ.get("ELI_TARGET_BATCH", "256")))
-        form.addRow("Target batch", self.target_batch_spin)
-
-        self.vram_reserve_spin = QSpinBox()
-        self.vram_reserve_spin.setRange(0, 16384)
-        self.vram_reserve_spin.setSingleStep(128)
-        self.vram_reserve_spin.setValue(int(os.environ.get("ELI_VRAM_RESERVE_MB", "900")))
-        form.addRow("VRAM reserve MB", self.vram_reserve_spin)
-
-        self.runtime_reserve_spin = QSpinBox()
-        self.runtime_reserve_spin.setRange(0, 16384)
-        self.runtime_reserve_spin.setSingleStep(128)
-        self.runtime_reserve_spin.setValue(int(os.environ.get("ELI_RUNTIME_VRAM_RESERVE_MB", "900")))
-        form.addRow("Runtime reserve MB", self.runtime_reserve_spin)
-
-        self.model_train_ctx_spin = QSpinBox()
-        self.model_train_ctx_spin.setRange(0, 262144)
-        self.model_train_ctx_spin.setSingleStep(2048)
-        self.model_train_ctx_spin.setValue(int(os.environ.get("ELI_MODEL_TRAIN_CTX", "0")))
-        form.addRow("Model train ctx override (0=auto)", self.model_train_ctx_spin)
-
-        self.load_now_checkbox = QCheckBox("Load selected model now")
-        self.load_now_checkbox.setChecked(True)
-        layout.addWidget(self.load_now_checkbox)
-
-        buttons = QDialogButtonBox(
-            QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel
-        )
-        
-        def _eli_apply_runtime_env():
-            os.environ["ELI_CTX_FRACTION"] = str(float(self.ctx_fraction_spin.value()))
-            os.environ["ELI_TARGET_BATCH"] = str(int(self.target_batch_spin.value()))
-            os.environ["ELI_VRAM_RESERVE_MB"] = str(int(self.vram_reserve_spin.value()))
-            os.environ["ELI_RUNTIME_VRAM_RESERVE_MB"] = str(int(self.runtime_reserve_spin.value()))
-
-            if int(self.model_train_ctx_spin.value()) > 0:
-                os.environ["ELI_MODEL_TRAIN_CTX"] = str(int(self.model_train_ctx_spin.value()))
-            else:
-                os.environ.pop("ELI_MODEL_TRAIN_CTX", None)
-
-        _old_accept = self.accept
-
-        def _eli_accept_wrapper():
-            _eli_apply_runtime_env()
-            try:
-                selected_path = self.model_path_input.text().strip()
-                if selected_path:
-                    os.environ["ELI_MODEL_PATH"] = selected_path
-
-                from eli.core.startup_hardware_optimizer import build_profile, apply_profile
-                _profile = build_profile()
-                apply_profile(_profile)
-
-                print(
-                    "[STARTUP_DIALOG][HW_OPT] regenerated profile "
-                    f"ctx={_profile.n_ctx} gpu_layers={_profile.n_gpu_layers} "
-                    f"batch={_profile.batch_size} fraction={_profile.ctx_fraction}"
-                )
-            except Exception as _eli_opt_err:
-                print(f"[STARTUP_DIALOG][HW_OPT] regeneration failed: {_eli_opt_err}")
-
-            _old_accept()
-
-        self.accept = _eli_accept_wrapper
-
-        buttons.accepted.connect(self.accept)
-        buttons.rejected.connect(self.reject)
-        layout.addWidget(buttons)
-
-        self.provider_combo.currentIndexChanged.connect(self._sync_provider_controls)
-        self.gguf_combo.currentIndexChanged.connect(self._sync_model_path_from_combo)
-
-        provider_idx = self.provider_combo.findData(current_provider)
-        if provider_idx >= 0:
-            self.provider_combo.setCurrentIndex(provider_idx)
-        self._select_model_path(current_model_path)
-        self._sync_provider_controls()
-
-    def _browse_gguf_file(self):
-        file_path, _ = QFileDialog.getOpenFileName(
-            self,
-            "Select GGUF Model",
-            str(PROJECT_ROOT / "models"),
-            "GGUF Files (*.gguf);;All Files (*)",
-        )
-        if file_path:
-            self.model_path_input.setText(file_path)
-            provider_idx = self.provider_combo.findData("custom_gguf")
-            if provider_idx >= 0:
-                self.provider_combo.setCurrentIndex(provider_idx)
-
-    def _sync_provider_controls(self):
-        provider = self.selected_provider()
-        is_ollama = provider == "ollama"
-        self.gguf_combo.setEnabled(not is_ollama)
-        self.model_path_input.setEnabled(provider == "custom_gguf")
-        self.ollama_host_input.setEnabled(is_ollama)
-        self.ollama_model_combo.setEnabled(is_ollama)
-        # For GGUF providers, hardware tuning is mandatory before load.
-        if is_ollama:
-            self.auto_tune_checkbox.setChecked(False)
-            self.auto_tune_checkbox.setEnabled(False)
-        else:
-            self.auto_tune_checkbox.setChecked(True)
-            self.auto_tune_checkbox.setEnabled(False)
-
-    def _sync_model_path_from_combo(self):
-        if self.selected_provider() == "ollama":
-            return
-        path = str(self.gguf_combo.currentData() or "").strip()
-        if path:
-            self.model_path_input.setText(path)
-
-    def _select_model_path(self, path: str):
-        target = str(path or "").strip()
-        if not target:
-            if self.gguf_combo.count():
-                self.gguf_combo.setCurrentIndex(0)
-                self._sync_model_path_from_combo()
-            return
-        idx = self.gguf_combo.findData(target)
-        if idx < 0:
-            try:
-                target_resolved = str(Path(target).expanduser().resolve())
-            except Exception:
-                target_resolved = target
-            for i in range(self.gguf_combo.count()):
-                data = str(self.gguf_combo.itemData(i) or "")
-                try:
-                    if str(Path(data).expanduser().resolve()) == target_resolved:
-                        idx = i
-                        break
-                except Exception:
-                    continue
-        if idx >= 0:
-            self.gguf_combo.setCurrentIndex(idx)
-        self.model_path_input.setText(target)
-
-    def selected_provider(self) -> str:
-        return str(self.provider_combo.currentData() or "bundled_gguf")
-
-    def selected_model_path(self) -> str:
-        provider = self.selected_provider()
-        if provider == "bundled_gguf":
-            return str(self.gguf_combo.currentData() or "").strip()
-        return self.model_path_input.text().strip()
-
-    def selected_ollama_host(self) -> str:
-        return self.ollama_host_input.text().strip() or "http://localhost:11434"
-
-    def selected_ollama_model(self) -> str:
-        return self.ollama_model_combo.currentText().strip()
-
-    def should_auto_tune(self) -> bool:
-        return self.selected_provider() != "ollama"
-
-    def should_load_now(self) -> bool:
-        return bool(self.load_now_checkbox.isChecked())
-
-    def accept(self):
-        provider = self.selected_provider()
-        if provider == "ollama":
-            if not self.selected_ollama_model():
-                QMessageBox.warning(self, "Missing Ollama model", "Choose an Ollama model before continuing.")
-                return
-        else:
-            model_path = self.selected_model_path()
-            if not model_path:
-                QMessageBox.warning(self, "Missing model path", "Choose a GGUF model before continuing.")
-                return
-        super().accept()
-
+from eli.gui.panels.startup import StartupModelSelectionDialog, FirstBootWizard  # noqa: E402
 # ============================================================
-# AGENT EDIT DIALOG
 # ============================================================
-class AgentEditDialog(QDialog):
-    """Edit an individual agent's metadata and persona."""
-
-    def __init__(self, agent_info: dict, parent=None):
-        super().__init__(parent)
-        self.agent_info = dict(agent_info)
-        self.setWindowTitle(f"Edit Agent: {agent_info.get('name', 'Unknown')}")
-        self.setMinimumWidth(520)
-        self.setMinimumHeight(400)
-        self._build_ui()
-
-    def _build_ui(self):
-        layout = QVBoxLayout(self)
-
-        form = QFormLayout()
-        self.name_edit = QLineEdit(self.agent_info.get("name", ""))
-        self.name_edit.setReadOnly(True)  # class name is fixed
-        form.addRow("Name:", self.name_edit)
-
-        self.desc_edit = QTextEdit()
-        self.desc_edit.setPlainText(self.agent_info.get("description", ""))
-        self.desc_edit.setFixedHeight(80)
-        form.addRow("Description:", self.desc_edit)
-
-        self.timeout_spin = QDoubleSpinBox()
-        self.timeout_spin.setRange(0.5, 60.0)
-        self.timeout_spin.setSingleStep(0.5)
-        self.timeout_spin.setValue(float(self.agent_info.get("timeout_s", 5.0)))
-        form.addRow("Timeout (s):", self.timeout_spin)
-
-        self.persona_edit = QTextEdit()
-        self.persona_edit.setPlainText(self.agent_info.get("persona", ""))
-        self.persona_edit.setPlaceholderText(
-            "Optional persona / system-prompt injection for this agent…"
-        )
-        self.persona_edit.setFixedHeight(120)
-        form.addRow("Persona / Notes:", self.persona_edit)
-
-        self.enabled_chk = QCheckBox("Enabled")
-        self.enabled_chk.setChecked(self.agent_info.get("enabled", True))
-        form.addRow(self.enabled_chk)
-
-        layout.addLayout(form)
-
-        btn_row = QHBoxLayout()
-        save_btn = QPushButton("💾 Save")
-        save_btn.clicked.connect(self.accept)
-        cancel_btn = QPushButton("Cancel")
-        cancel_btn.clicked.connect(self.reject)
-        btn_row.addWidget(save_btn)
-        btn_row.addWidget(cancel_btn)
-        layout.addLayout(btn_row)
-
-    def get_result(self) -> dict:
-        return {
-            **self.agent_info,
-            "description": self.desc_edit.toPlainText().strip(),
-            "timeout_s": self.timeout_spin.value(),
-            "persona": self.persona_edit.toPlainText().strip(),
-            "enabled": self.enabled_chk.isChecked(),
-        }
-
-
+# AGENT EDIT DIALOG  (extracted → eli/gui/panels/agent_wizard.py)
+# ============================================================
+from eli.gui.panels.agent_wizard import AgentEditDialog  # noqa: E402
 # ============================================================
 # QUICK ACTIONS — helper classes
 # ============================================================
@@ -2057,601 +1769,10 @@ class _ZoomableImagePreview(QScrollArea):
 
 
 # ============================================================
-# ADVANCED SETTINGS DIALOG
 # ============================================================
-class AdvancedSettingsDialog(QDialog):
-    """
-    Comprehensive settings dialog with four tabs:
-      1. Agents   — list, edit, enable/disable all bus agents
-      2. Models   — list installed GGUF + Ollama models
-      3. Plugins  — install, enable/disable, uninstall
-      4. Upgrade  — self-improvement cycle + capability manifest
-    """
-    # Thread-safe signals — worker threads emit these; Qt delivers them on the main thread
-    _plugin_log_sig  = pyqtSignal(str)
-    _plugin_refresh_sig = pyqtSignal()
-    _upgrade_log_sig = pyqtSignal(str)
-
-    def __init__(self, parent=None, start_tab: int = 0):
-        super().__init__(parent)
-        self.setWindowTitle("⚙️ Advanced Settings")
-        self.setMinimumSize(780, 560)
-        self._agent_overrides: dict = {}
-        self._build_ui()
-        # Connect thread-safe signals to actual GUI slots
-        self._plugin_log_sig.connect(self._do_log_plugin,  Qt.ConnectionType.QueuedConnection)
-        self._plugin_refresh_sig.connect(self._populate_plugins_table, Qt.ConnectionType.QueuedConnection)
-        self._upgrade_log_sig.connect(self._do_log_upgrade, Qt.ConnectionType.QueuedConnection)
-        # Jump to the requested tab
-        if 0 <= start_tab < self.inner_tabs.count():
-            self.inner_tabs.setCurrentIndex(start_tab)
-
-    # ── UI skeleton ────────────────────────────────────────────────────────────
-    def _build_ui(self):
-        root = QVBoxLayout(self)
-        self.inner_tabs = QTabWidget()
-        root.addWidget(self.inner_tabs)
-
-        self.inner_tabs.addTab(self._build_agents_tab(), "🤖 Agents")
-        self.inner_tabs.addTab(self._build_models_tab(), "🧠 Models")
-        self.inner_tabs.addTab(self._build_plugins_tab(), "🔌 Plugins")
-        self.inner_tabs.addTab(self._build_upgrade_tab(), "🔄 Self-Upgrade")
-
-        close_btn = QPushButton("Close")
-        close_btn.clicked.connect(self.accept)
-        root.addWidget(close_btn)
-
-    # ── Agents tab ─────────────────────────────────────────────────────────────
-    def _build_agents_tab(self) -> QWidget:
-        w = QWidget()
-        layout = QVBoxLayout(w)
-
-        lbl = QLabel("All registered ELI agents. Edit timeout, description, persona, or disable individual agents.")
-        lbl.setWordWrap(True)
-        layout.addWidget(lbl)
-
-        self.agents_table = QTableWidget()
-        self.agents_table.setColumnCount(5)
-        self.agents_table.setHorizontalHeaderLabels(
-            ["Name", "Description", "Timeout (s)", "Enabled", "Actions"]
-        )
-        self.agents_table.horizontalHeader().setSectionResizeMode(1, QHeaderView.ResizeMode.Stretch)
-        self.agents_table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
-        self.agents_table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
-        layout.addWidget(self.agents_table)
-
-        self._populate_agents_table()
-
-        btn_row = QHBoxLayout()
-        refresh_btn = QPushButton("🔄 Refresh")
-        refresh_btn.clicked.connect(self._populate_agents_table)
-        btn_row.addWidget(refresh_btn)
-        save_btn = QPushButton("💾 Apply Changes")
-        save_btn.clicked.connect(self._apply_agent_changes)
-        btn_row.addWidget(save_btn)
-        btn_row.addStretch()
-        layout.addLayout(btn_row)
-        return w
-
-    def _get_agent_list(self) -> list:
-        """Return list of agent info dicts from the live agent bus."""
-        agents = []
-        try:
-            from eli.cognition.agent_bus import _ALL_AGENTS
-            for ag in _ALL_AGENTS:
-                overrides = self._agent_overrides.get(ag.name, {})
-                agents.append({
-                    "name": ag.name,
-                    "class": type(ag).__name__,
-                    "description": overrides.get("description", getattr(ag, "__doc__", "") or ""),
-                    "timeout_s": overrides.get("timeout_s", getattr(ag, "timeout_s", 5.0)),
-                    "enabled": overrides.get("enabled", getattr(ag, "_enabled", True)),
-                    "persona": overrides.get("persona", ""),
-                })
-        except Exception as e:
-            agents.append({
-                "name": f"(unavailable: {e})", "class": "", "description": "",
-                "timeout_s": 5.0, "enabled": True, "persona": "",
-            })
-        return agents
-
-    def _populate_agents_table(self):
-        agents = self._get_agent_list()
-        self.agents_table.setRowCount(len(agents))
-        self._agent_rows = agents  # store for apply
-
-        for row, ag in enumerate(agents):
-            self.agents_table.setItem(row, 0, QTableWidgetItem(ag["name"]))
-            desc = (ag["description"] or "").strip().replace("\n", " ")[:80]
-            self.agents_table.setItem(row, 1, QTableWidgetItem(desc))
-            self.agents_table.setItem(row, 2, QTableWidgetItem(str(ag["timeout_s"])))
-
-            chk_widget = QWidget()
-            chk_layout = QHBoxLayout(chk_widget)
-            chk_layout.setContentsMargins(8, 0, 8, 0)
-            chk = QCheckBox()
-            chk.setChecked(ag.get("enabled", True))
-            chk.setProperty("agent_name", ag["name"])
-            chk_layout.addWidget(chk)
-            self.agents_table.setCellWidget(row, 3, chk_widget)
-
-            edit_btn = QPushButton("✏️ Edit")
-            edit_btn.setProperty("agent_name", ag["name"])
-            edit_btn.clicked.connect(lambda _, r=row, a=ag: self._edit_agent(r, a))
-            self.agents_table.setCellWidget(row, 4, edit_btn)
-
-        self.agents_table.resizeRowsToContents()
-
-    def _edit_agent(self, row: int, agent_info: dict):
-        dlg = AgentEditDialog(agent_info, parent=self)
-        if dlg.exec() == QDialog.DialogCode.Accepted:
-            result = dlg.get_result()
-            self._agent_overrides[agent_info["name"]] = result
-            # Update table display
-            self.agents_table.item(row, 2).setText(str(result["timeout_s"]))
-            desc = (result["description"] or "").replace("\n", " ")[:80]
-            self.agents_table.item(row, 1).setText(desc)
-            # Update the checkbox in col 3
-            chk_w = self.agents_table.cellWidget(row, 3)
-            if chk_w:
-                chk = chk_w.findChild(QCheckBox)
-                if chk:
-                    chk.setChecked(result["enabled"])
-
-    def _apply_agent_changes(self):
-        """Write timeout/enabled overrides back to live agent instances."""
-        try:
-            from eli.cognition.agent_bus import _ALL_AGENTS
-            applied = []
-            for ag in _ALL_AGENTS:
-                overrides = self._agent_overrides.get(ag.name, {})
-                if overrides:
-                    if "timeout_s" in overrides:
-                        ag.timeout_s = overrides["timeout_s"]
-                    if "enabled" in overrides:
-                        ag._enabled = overrides["enabled"]
-                    applied.append(ag.name)
-            # Also read checkbox states from table
-            for row in range(self.agents_table.rowCount()):
-                chk_w = self.agents_table.cellWidget(row, 3)
-                if chk_w:
-                    chk = chk_w.findChild(QCheckBox)
-                    if chk:
-                        name = chk.property("agent_name")
-                        for ag in _ALL_AGENTS:
-                            if ag.name == name:
-                                ag._enabled = chk.isChecked()
-            QMessageBox.information(self, "Agents", f"Applied overrides to: {', '.join(applied) or 'none'}.\nChanges are live until restart.")
-        except Exception as e:
-            QMessageBox.warning(self, "Error", f"Could not apply changes: {e}")
-
-    # ── Models tab ─────────────────────────────────────────────────────────────
-    def _build_models_tab(self) -> QWidget:
-        w = QWidget()
-        layout = QVBoxLayout(w)
-
-        lbl = QLabel("Installed GGUF models and available Ollama models.")
-        lbl.setWordWrap(True)
-        layout.addWidget(lbl)
-
-        self.models_table = QTableWidget()
-        self.models_table.setColumnCount(4)
-        self.models_table.setHorizontalHeaderLabels(["Name", "Type", "Size", "Path / Tag"])
-        self.models_table.horizontalHeader().setSectionResizeMode(3, QHeaderView.ResizeMode.Stretch)
-        self.models_table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
-        layout.addWidget(self.models_table)
-
-        btn_row = QHBoxLayout()
-        refresh_btn = QPushButton("🔄 Refresh Models")
-        refresh_btn.clicked.connect(self._populate_models_table)
-        btn_row.addWidget(refresh_btn)
-        btn_row.addStretch()
-        layout.addLayout(btn_row)
-
-        self._populate_models_table()
-        return w
-
-    def _populate_models_table(self):
-        rows = []
-        # GGUF models
-        try:
-            models = discover_gguf_models()
-            for m in models:
-                size_str = f"{m.get('size_gb', 0.0):.2f} GB"
-                rows.append((m.get("name", "?"), "GGUF", size_str, m.get("path", "")))
-        except Exception:
-            pass
-        # Ollama models
-        try:
-            host = "http://localhost:11434"
-            om = OllamaModelManager()
-            ollama_names = om.list_models(host)
-            for name in ollama_names:
-                rows.append((name, "Ollama", "—", host))
-        except Exception:
-            pass
-
-        self.models_table.setRowCount(len(rows))
-        for i, (name, mtype, size, path) in enumerate(rows):
-            self.models_table.setItem(i, 0, QTableWidgetItem(name))
-            self.models_table.setItem(i, 1, QTableWidgetItem(mtype))
-            self.models_table.setItem(i, 2, QTableWidgetItem(size))
-            self.models_table.setItem(i, 3, QTableWidgetItem(str(path)))
-        self.models_table.resizeRowsToContents()
-
-    # ── Plugins tab ────────────────────────────────────────────────────────────
-    def _build_plugins_tab(self) -> QWidget:
-        w = QWidget()
-        layout = QVBoxLayout(w)
-
-        lbl = QLabel("Manage ELI plugins. Install from registry, enable, disable, or uninstall.")
-        lbl.setWordWrap(True)
-        layout.addWidget(lbl)
-
-        self.plugins_table = QTableWidget()
-        self.plugins_table.setColumnCount(5)
-        self.plugins_table.setHorizontalHeaderLabels(
-            ["ID", "Version", "Status", "Description", "Actions"]
-        )
-        self.plugins_table.horizontalHeader().setSectionResizeMode(3, QHeaderView.ResizeMode.Stretch)
-        self.plugins_table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
-        layout.addWidget(self.plugins_table)
-
-        self.plugin_log = QTextEdit()
-        self.plugin_log.setReadOnly(True)
-        self.plugin_log.setFixedHeight(90)
-        self.plugin_log.setPlaceholderText("Plugin operations log…")
-        layout.addWidget(self.plugin_log)
-
-        btn_row = QHBoxLayout()
-        refresh_btn = QPushButton("🔄 Refresh")
-        refresh_btn.clicked.connect(self._populate_plugins_table)
-        btn_row.addWidget(refresh_btn)
-        registry_btn = QPushButton("🌐 Fetch Registry")
-        registry_btn.clicked.connect(self._fetch_registry)
-        btn_row.addWidget(registry_btn)
-        btn_row.addStretch()
-        layout.addLayout(btn_row)
-
-        self._populate_plugins_table()
-        return w
-
-    def _get_plugin_manager(self):
-        try:
-            from eli.plugins.manager import get_manager
-            return get_manager()
-        except Exception as e:
-            self._log_plugin(f"Plugin manager unavailable: {e}")
-            return None
-
-    def _log_plugin(self, msg: str):
-        """Thread-safe: callable from any thread."""
-        self._plugin_log_sig.emit(str(msg))
-
-    def _do_log_plugin(self, msg: str):
-        """Runs on main thread via signal."""
-        if hasattr(self, "plugin_log"):
-            self.plugin_log.append(msg)
-
-    def _populate_plugins_table(self):
-        mgr = self._get_plugin_manager()
-        if mgr is None:
-            self.plugins_table.setRowCount(0)
-            return
-
-        installed = {p["id"]: p for p in mgr.list_installed()}
-        available = mgr.list_available()
-
-        # Merge: show all available, mark which are installed
-        all_ids = {e["id"] for e in available}
-        # Also add installed ones not in registry
-        for pid in installed:
-            all_ids.add(pid)
-
-        rows = []
-        for entry in available:
-            pid = entry["id"]
-            inst = installed.get(pid)
-            status = "installed+enabled" if (inst and inst.get("enabled")) else \
-                     "installed" if inst else "available"
-            rows.append({
-                "id": pid,
-                "version": entry.get("version", "?"),
-                "status": status,
-                "description": entry.get("description", ""),
-                "installed": inst is not None,
-                "enabled": inst.get("enabled", False) if inst else False,
-            })
-
-        self.plugins_table.setRowCount(len(rows))
-        for i, row in enumerate(rows):
-            self.plugins_table.setItem(i, 0, QTableWidgetItem(row["id"]))
-            self.plugins_table.setItem(i, 1, QTableWidgetItem(row["version"]))
-            self.plugins_table.setItem(i, 2, QTableWidgetItem(row["status"]))
-            self.plugins_table.setItem(i, 3, QTableWidgetItem(row["description"][:60]))
-
-            btn_w = QWidget()
-            btn_l = QHBoxLayout(btn_w)
-            btn_l.setContentsMargins(4, 2, 4, 2)
-            btn_l.setSpacing(4)
-
-            if not row["installed"]:
-                inst_btn = QPushButton("⬇ Install")
-                inst_btn.clicked.connect(lambda _, pid=row["id"]: self._install_plugin(pid))
-                btn_l.addWidget(inst_btn)
-            else:
-                if row["enabled"]:
-                    dis_btn = QPushButton("⏸ Disable")
-                    dis_btn.clicked.connect(lambda _, pid=row["id"]: self._disable_plugin(pid))
-                    btn_l.addWidget(dis_btn)
-                else:
-                    en_btn = QPushButton("▶ Enable")
-                    en_btn.clicked.connect(lambda _, pid=row["id"]: self._enable_plugin(pid))
-                    btn_l.addWidget(en_btn)
-                rm_btn = QPushButton("🗑 Remove")
-                rm_btn.clicked.connect(lambda _, pid=row["id"]: self._uninstall_plugin(pid))
-                btn_l.addWidget(rm_btn)
-
-            self.plugins_table.setCellWidget(i, 4, btn_w)
-
-        self.plugins_table.resizeRowsToContents()
-
-    def _install_plugin(self, plugin_id: str):
-        self._log_plugin(f"Installing {plugin_id}…")
-        def worker():
-            mgr = self._get_plugin_manager()
-            if mgr:
-                result = mgr.install(plugin_id, progress_cb=self._log_plugin)
-                if result.get("ok", True):
-                    self._log_plugin(f"✅ {plugin_id} installed.")
-                else:
-                    self._log_plugin(f"❌ {plugin_id}: {result.get('error','unknown error')}")
-            # signal-safe table refresh from worker thread
-            self._plugin_refresh_sig.emit()
-        threading.Thread(target=worker, daemon=True).start()
-
-    def _enable_plugin(self, plugin_id: str):
-        mgr = self._get_plugin_manager()
-        if mgr:
-            mgr.enable(plugin_id)
-            self._log_plugin(f"✅ {plugin_id} enabled.")
-            self._populate_plugins_table()
-
-    def _disable_plugin(self, plugin_id: str):
-        mgr = self._get_plugin_manager()
-        if mgr:
-            mgr.disable(plugin_id)
-            self._log_plugin(f"⏸ {plugin_id} disabled.")
-            self._populate_plugins_table()
-
-    def _uninstall_plugin(self, plugin_id: str):
-        reply = QMessageBox.question(
-            self, "Uninstall Plugin",
-            f"Remove plugin '{plugin_id}'? This will delete its files.",
-            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
-            QMessageBox.StandardButton.No,
-        )
-        if reply == QMessageBox.StandardButton.Yes:
-            mgr = self._get_plugin_manager()
-            if mgr:
-                mgr.uninstall(plugin_id)
-                self._log_plugin(f"🗑 {plugin_id} uninstalled.")
-                self._populate_plugins_table()
-
-    def _fetch_registry(self):
-        self._log_plugin("Fetching plugin registry…")
-        def worker():
-            mgr = self._get_plugin_manager()
-            if mgr:
-                try:
-                    mgr.refresh_registry()
-                    self._log_plugin("✅ Registry refreshed.")
-                except Exception as e:
-                    self._log_plugin(f"❌ Registry fetch error: {e}")
-            self._plugin_refresh_sig.emit()
-        threading.Thread(target=worker, daemon=True).start()
-
-    # ── Self-Upgrade tab ───────────────────────────────────────────────────────
-    def _build_upgrade_tab(self) -> QWidget:
-        w = QWidget()
-        layout = QVBoxLayout(w)
-
-        lbl = QLabel(
-            "Self-upgrade tools: run improvement cycle, update capability manifest, "
-            "view improvement proposals, and apply system updates."
-        )
-        lbl.setWordWrap(True)
-        layout.addWidget(lbl)
-
-        # Status panel
-        status_group = QGroupBox("System Status")
-        status_layout = QFormLayout(status_group)
-        self.upgrade_agent_status = QLabel("Loading…")
-        status_layout.addRow("Agent Bus:", self.upgrade_agent_status)
-        self.upgrade_plugin_status = QLabel("Loading…")
-        status_layout.addRow("Plugins:", self.upgrade_plugin_status)
-        self.upgrade_memory_status = QLabel("Loading…")
-        status_layout.addRow("Memory:", self.upgrade_memory_status)
-        layout.addWidget(status_group)
-
-        # Action buttons
-        actions_group = QGroupBox("Actions")
-        actions_layout = QGridLayout(actions_group)
-
-        cycle_btn = QPushButton("🔄 Run Self-Improvement Cycle")
-        cycle_btn.setToolTip("Analyze recent failures and generate improvement proposals")
-        cycle_btn.clicked.connect(self._run_improvement_cycle)
-        actions_layout.addWidget(cycle_btn, 0, 0)
-
-        manifest_btn = QPushButton("📋 Update Capability Manifest")
-        manifest_btn.setToolTip("Scan executor and plugins and regenerate capability_manifest.json")
-        manifest_btn.clicked.connect(self._update_capability_manifest)
-        actions_layout.addWidget(manifest_btn, 0, 1)
-
-        persona_btn = QPushButton("🧬 Refresh Persona")
-        persona_btn.setToolTip("Re-derive ELI's persona from memory and self-model")
-        persona_btn.clicked.connect(self._refresh_persona)
-        actions_layout.addWidget(persona_btn, 1, 0)
-
-        kg_btn = QPushButton("🗺 Rebuild Knowledge Graph")
-        kg_btn.setToolTip("Re-extract entity triples from all stored memories")
-        kg_btn.clicked.connect(self._rebuild_kg)
-        actions_layout.addWidget(kg_btn, 1, 1)
-
-        faiss_btn = QPushButton("🔢 Rebuild FAISS Index")
-        faiss_btn.setToolTip("Re-vectorize all memories in the FAISS index")
-        faiss_btn.clicked.connect(self._rebuild_faiss)
-        actions_layout.addWidget(faiss_btn, 2, 0)
-
-        layout.addWidget(actions_group)
-
-        # Output log
-        self.upgrade_log = QTextEdit()
-        self.upgrade_log.setReadOnly(True)
-        self.upgrade_log.setPlaceholderText("Upgrade output will appear here…")
-        layout.addWidget(self.upgrade_log)
-
-        # Load initial status
-        QTimer.singleShot(200, self._refresh_upgrade_status)
-        return w
-
-    def _log_upgrade(self, msg: str):
-        """Thread-safe: callable from any thread."""
-        self._upgrade_log_sig.emit(str(msg))
-
-    def _do_log_upgrade(self, msg: str):
-        """Runs on main thread via signal."""
-        if hasattr(self, "upgrade_log"):
-            self.upgrade_log.append(f"[{datetime.now().strftime('%H:%M:%S')}] {msg}")
-
-    def _refresh_upgrade_status(self):
-        try:
-            from eli.cognition.agent_bus import _ALL_AGENTS
-            enabled = sum(1 for a in _ALL_AGENTS if getattr(a, "_enabled", True))
-            self.upgrade_agent_status.setText(f"{enabled}/{len(_ALL_AGENTS)} agents active")
-        except Exception as e:
-            self.upgrade_agent_status.setText(f"unavailable ({e})")
-
-        try:
-            from eli.plugins.manager import get_manager
-            mgr = get_manager()
-            inst = mgr.list_installed()
-            enabled_plugins = [p for p in inst if p.get("enabled")]
-            self.upgrade_plugin_status.setText(f"{len(enabled_plugins)}/{len(inst)} enabled")
-        except Exception as e:
-            self.upgrade_plugin_status.setText(f"unavailable ({e})")
-
-        try:
-            from eli.memory.memory import get_memory
-            mem = get_memory()
-            import sqlite3
-            from eli.core.paths import user_db_path
-            conn = sqlite3.connect(str(user_db_path()))
-            mc = conn.execute("SELECT COUNT(*) FROM memories").fetchone()[0]
-            conn.close()
-            self.upgrade_memory_status.setText(f"{mc} memories stored")
-        except Exception as e:
-            self.upgrade_memory_status.setText(f"unavailable ({e})")
-
-    def _run_improvement_cycle(self):
-        self._log_upgrade("Starting self-improvement cycle…")
-        def worker():
-            try:
-                from eli.runtime.self_improvement import SelfImprovementEngine
-                eng = SelfImprovementEngine()
-                result = eng.analyze_and_improve()
-                proposals = result.get("improvements", []) if isinstance(result, dict) else list(result or [])
-                if proposals:
-                    for p in proposals[:5]:
-                        desc = p.get("description", str(p))[:120] if isinstance(p, dict) else str(p)[:120]
-                        self._log_upgrade(f"  💡 {desc}")
-                    self._log_upgrade(f"✅ Cycle complete. {len(proposals)} proposal(s) generated.")
-                else:
-                    self._log_upgrade("✅ Cycle complete. No new proposals.")
-            except Exception as e:
-                self._log_upgrade(f"❌ Cycle error: {e}")
-        threading.Thread(target=worker, daemon=True).start()
-
-    def _update_capability_manifest(self):
-        self._log_upgrade("Updating capability manifest…")
-        def worker():
-            try:
-                from eli.tools.registry.capability_updater import update_capability_manifest
-                update_capability_manifest()
-                self._log_upgrade("✅ Capability manifest updated.")
-            except Exception as e:
-                # fallback: run auto_update.py script
-                try:
-                    import subprocess, sys
-                    root = Path(__file__).resolve().parents[2]
-                    result = subprocess.run(
-                        [sys.executable, str(root / "auto_update.py"), "--dry-run"],
-                        capture_output=True, text=True, timeout=30
-                    )
-                    self._log_upgrade(result.stdout[-500:] if result.stdout else f"❌ {e}")
-                except Exception as e2:
-                    self._log_upgrade(f"❌ {e} / {e2}")
-        threading.Thread(target=worker, daemon=True).start()
-
-    def _refresh_persona(self):
-        self._log_upgrade("Refreshing persona overlay…")
-        def worker():
-            try:
-                from eli.cognition.persona_updater import update_persona_overlay
-                update_persona_overlay()
-                self._log_upgrade("✅ Persona refreshed.")
-            except Exception as e:
-                self._log_upgrade(f"❌ Persona refresh error: {e}")
-        threading.Thread(target=worker, daemon=True).start()
-
-    def _rebuild_kg(self):
-        self._log_upgrade("Rebuilding knowledge graph from memories…")
-        def worker():
-            try:
-                from eli.memory.knowledge_graph import get_knowledge_graph, reset_knowledge_graph
-                import sqlite3
-                from eli.core.paths import user_db_path
-                reset_knowledge_graph()
-                kg = get_knowledge_graph()
-                conn = sqlite3.connect(str(user_db_path()))
-                conn.row_factory = sqlite3.Row
-                rows = conn.execute(
-                    "SELECT COALESCE(text, content, '') AS text, COALESCE(source,'user') AS source "
-                    "FROM memories WHERE COALESCE(text,content,'') != ''"
-                ).fetchall()
-                conn.close()
-                ok = 0
-                for row in rows:
-                    kg.extract_from_memory(row["text"], source=row["source"])
-                    ok += 1
-                stats = kg.stats()
-                self._log_upgrade(
-                    f"✅ KG rebuilt from {ok} memories → {stats['entities']} entities, {stats['relations']} relations."
-                )
-            except Exception as e:
-                self._log_upgrade(f"❌ KG rebuild error: {e}")
-        threading.Thread(target=worker, daemon=True).start()
-
-    def _rebuild_faiss(self):
-        self._log_upgrade("Rebuilding FAISS vector index (full) — this may take a minute…")
-        def worker():
-            try:
-                from eli.memory import rebuild_vector_index_from_search_db
-                result = rebuild_vector_index_from_search_db()
-                if result.get("ok"):
-                    self._log_upgrade(
-                        "✅ FAISS rebuild complete: "
-                        f"{result.get('indexed', 0)}/{result.get('source_count', 0)} vectors indexed "
-                        f"({result.get('faiss_index_path', 'unknown index')})"
-                    )
-                else:
-                    self._log_upgrade(f"❌ FAISS rebuild failed: {result.get('error', result)}")
-            except Exception as e:
-                self._log_upgrade(f"❌ FAISS rebuild error: {e}")
-        threading.Thread(target=worker, daemon=True).start()
-
-
+# ADVANCED SETTINGS DIALOG  (extracted → eli/gui/panels/settings.py)
 # ============================================================
+from eli.gui.panels.settings import AdvancedSettingsDialog  # noqa: E402
 # ENGINE ADAPTER — feeds the AgentOrchestrator without a second model load
 # ============================================================
 class _GUIEngineAdapter:
@@ -7464,6 +6585,7 @@ _register()
             def _tick_proactive():
                 try:
                     self._update_proactive_status_label()
+                    self._check_proactive_daemon_crash()
                 except Exception as exc:
                     print(f"[GUI] proactive-status tick failed (non-fatal): {exc}")
             self._proactive_status_timer = QTimer(self)
@@ -8676,33 +7798,15 @@ _register()
                                 first_token = False
                             self.chat_response_signal.emit(token)
                         if first_token:
+                            # The engine's _stream_chat() handles all internal
+                            # recovery (Stage 11 → direct GGUF fallback → fault message).
+                            # A zero-token generator here means a truly silent action
+                            # (e.g. VOLUME) that intentionally produces no visible output.
+                            # Do NOT re-call process() — that would execute the action twice.
+                            print("[GUI] Stream generator produced zero tokens (silent action or suppressed output).")
                             response = ""
-                            try:
-                                if _ce_ok:
-                                    fallback_result = _ce.process(
-                                        user_message,
-                                        stream=False,
-                                        reasoning_mode=reasoning_mode,
-                                    )
-                                else:
-                                    fallback_result = None
-
-                                response = _eli_gui_visible_text(fallback_result)
-                            except Exception as _empty_stream_fallback_err:
-                                print(f"[GUI] Empty-stream fallback failed: {_empty_stream_fallback_err}")
-                                response = ""
-
-                            if response:
-                                self.chat_response_signal.emit(response)
-                                _response_streamed = True
-                                _storage_handled = True
-                            else:
-                                response = (
-                                    "❌ Stage 11 produced an empty stream, and the non-streaming "
-                                    "fallback also returned no visible output."
-                                )
-                                self.chat_response_signal.emit(response)
-                                _response_streamed = True
+                            _response_streamed = True
+                            _storage_handled = True
                         else:
                             self.chat_response_signal.emit('__STREAM_END__')
                             _response_streamed = True
@@ -8961,6 +8065,48 @@ _register()
         else:
             label.setText("  🔴 Proactive: off  ")
             label.setToolTip("Proactive daemon is not running.")
+
+    def _check_proactive_daemon_crash(self):
+        """Check for a proactive daemon crash flag and surface it to the user.
+
+        The proactive daemon writes artifacts/proactive_daemon_down.flag when it
+        crashes.  This method reads that flag, shows a status-bar warning with a
+        restart button, and clears the flag once acknowledged.
+        """
+        try:
+            from eli.core.paths import get_paths as _gp
+            flag_path = _gp().artifacts_dir / "proactive_daemon_down.flag"
+            if not flag_path.exists():
+                return
+            crash_msg = flag_path.read_text(encoding="utf-8", errors="replace").strip()
+            flag_path.unlink(missing_ok=True)
+
+            label = getattr(self, "_proactive_status_label", None)
+            if label is not None:
+                label.setText("  ⚠️ Proactive: crashed  ")
+                label.setToolTip(
+                    f"Proactive daemon crashed: {crash_msg[:120]}\n"
+                    "Click to restart."
+                )
+                # One-shot: clicking the label attempts to restart the daemon
+                try:
+                    label.mousePressEvent = lambda _e: self._restart_proactive_daemon()
+                except Exception:
+                    pass
+
+            print(f"[GUI] Proactive daemon crash detected: {crash_msg[:200]}")
+        except Exception:
+            pass
+
+    def _restart_proactive_daemon(self):
+        """Attempt to restart the proactive daemon after a crash."""
+        try:
+            from eli.planning.proactive_daemon import start_daemon as _start_pd
+            self._proactive_daemon = _start_pd()
+            print("[GUI] Proactive daemon restarted.")
+            self._update_proactive_status_label()
+        except Exception as exc:
+            print(f"[GUI] Failed to restart proactive daemon: {exc}")
 
     def _update_summary_display(self, html: str):
         self.summaries_display.clear()
@@ -10176,6 +9322,23 @@ def main():
     app = QApplication(sys.argv)
     app.setStyle('Fusion')
     app.setApplicationName(APP_NAME)
+
+    # ── First-boot check: show wizard if no models are installed ─────────────
+    try:
+        _existing_models = discover_gguf_models()
+    except Exception:
+        _existing_models = []
+    if not _existing_models:
+        _wizard = FirstBootWizard()
+        _wizard.exec()
+        # Re-check after wizard — user may have placed a model
+        try:
+            _existing_models = discover_gguf_models()
+        except Exception:
+            _existing_models = []
+        if not _existing_models:
+            # Wizard dismissed without a model — still launch but warn
+            print("[ELI] No models installed. GUI will launch without a model loaded.")
 
     window = EliMainWindow()
     window._debug_boot_ts = time.time()

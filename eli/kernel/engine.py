@@ -373,6 +373,72 @@ def _strip_special_tokens(text: str) -> str:
     return t.strip()
 
 
+_ELI_MAX_INPUT_LEN = int(__import__("os").environ.get("ELI_MAX_INPUT_LEN", "8192"))
+
+# Patterns that signal a prompt injection attempt.  These match common
+# jailbreak / role-override prefixes.  Matched segments are replaced with
+# [filtered] so the LLM receives the rest of the message but the injection
+# payload is neutralised.
+_ELI_INJECTION_PATTERNS = re.compile(
+    r"(?i)"
+    r"(\[INST\]|\[/INST\])"                              # llama2 role tokens
+    r"|(<\|im_start\|>\s*system)"                         # chatml system header
+    r"|(<<SYS>>|<</SYS>>)"                                # llama2 sys block
+    r"|(###\s*(?:system|instruction|context)\s*:)"        # common injection prefix
+    r"|(SYSTEM\s*:\s*(?=ignore|override|disregard))"      # explicit override
+    r"|((?:ignore|disregard|forget)\s+(?:all\s+)?(?:previous|prior|above)\s+instructions)" # classic injection
+    r"|(you\s+are\s+now\s+(?:a\s+)?(?:dan|jailbreak|unrestricted|free))"  # persona override
+    r"|(\bOVERRIDE\b\s*:\s*)"                             # OVERRIDE: prefix
+    r"|(\bACT\s+AS\b\s+(?:if\s+you\s+(?:are|were)\s+)?(?:a\s+)?(?:human|person|unrestricted))"
+)
+
+
+def _eli_sanitize_user_input(text: str) -> str:
+    """Strip control characters and neutralise prompt injection patterns.
+
+    Called once at the top of CognitiveEngine.process() before the input
+    reaches the router, agent bus, or LLM prompt assembly.
+
+    - Strips null bytes and non-printable control characters (preserves \\n, \\t).
+    - Replaces known injection role-prefix patterns with [filtered].
+    - Truncates to ELI_MAX_INPUT_LEN characters (default 8192).
+    - Returns the original value unchanged if it is empty or None.
+    """
+    if not text:
+        return text or ""
+    # Strip null bytes and non-printable control chars (keep \n \t \r)
+    cleaned = re.sub(r"[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]", "", text)
+    # Neutralise injection patterns
+    cleaned = _ELI_INJECTION_PATTERNS.sub("[filtered]", cleaned)
+    # Enforce length limit
+    if len(cleaned) > _ELI_MAX_INPUT_LEN:
+        cleaned = cleaned[:_ELI_MAX_INPUT_LEN] + " [truncated]"
+    return cleaned
+
+
+def _eli_summarize_tool_result(action: str, result: dict) -> str:
+    """Return a compact summary string for pinning a tool result into WorkingMemory.
+
+    Returns an empty string if there is nothing worth pinning (e.g. media
+    controls or system stats that don't affect conversational context).
+    """
+    _skip_actions = {
+        "MEDIA_CONTROL", "PLAY_MEDIA", "PAUSE_MEDIA", "STOP_MEDIA",
+        "NEXT_MEDIA", "PREVIOUS_MEDIA", "VOLUME", "SCREENSHOT",
+        "CPU_USAGE", "RAM_USAGE", "SYSTEM_STATS", "GPU_STATUS",
+        "GET_TIME", "GET_DATE", "TIME", "DATE",
+        "SPEAK", "DICTATE", "TRANSCRIBE",
+    }
+    if action in _skip_actions:
+        return ""
+    content = str(result.get("content") or result.get("response") or "").strip()
+    if not content:
+        return ""
+    # Keep it concise — WorkingMemory is a session-scope hint, not an archive
+    summary = f"{action}: {content}"
+    return summary[:120]
+
+
 def _sanitize_identity_drift(text: str) -> str:
     t = (text or "").strip()
     if not t:
@@ -6615,6 +6681,82 @@ Answer:"""
             situation_brief=situation_brief,
         ).strip()
 
+    def _eli_tool_failure_replan(
+        self,
+        user_input: str,
+        failed_action: str,
+        failed_args: dict,
+        failed_result: dict,
+        _retry_count: int = 0,
+    ) -> dict:
+        """Attempt a re-plan when a tool execution fails.
+
+        Calls the LLM with a short prompt to propose an alternative action.
+        Caps at 2 retry attempts.  Falls back to the original failure result
+        if the LLM is unavailable or the re-plan also fails.
+
+        Only runs for actions that are not purely informational or OS-level
+        (those failures are expected in headless/testing environments).
+        """
+        _SKIP_REPLAN_ACTIONS = {
+            "TIME", "DATE", "GET_TIME", "GET_DATE", "SPEAK", "DICTATE",
+            "TRANSCRIBE", "SCREENSHOT", "VOLUME", "MEDIA_CONTROL",
+            "CPU_USAGE", "RAM_USAGE", "SYSTEM_STATS", "GPU_STATUS",
+            "CHAT",  # LLM failure is handled upstream
+        }
+        if _retry_count >= 2 or failed_action.upper() in _SKIP_REPLAN_ACTIONS:
+            return failed_result
+
+        if not self._gguf_available:
+            return failed_result
+
+        error_summary = str(
+            failed_result.get("error")
+            or failed_result.get("stderr")
+            or failed_result.get("content")
+            or "Unknown error"
+        )[:200]
+
+        replan_prompt = (
+            f"Tool execution failed.\n"
+            f"Action: {failed_action}\n"
+            f"Args: {str(failed_args)[:200]}\n"
+            f"Error: {error_summary}\n"
+            f"User requested: {user_input[:200]}\n\n"
+            "Propose one alternative action to achieve the same goal. "
+            'Reply with JSON only: {"action": "ACTION_NAME", "args": {}}. '
+            "If no alternative exists, reply with: {}"
+        )
+
+        try:
+            from eli.cognition import gguf_inference as _gi
+            alt = _gi.generate_json(replan_prompt, max_tokens=64)
+            if not isinstance(alt, dict) or not alt.get("action"):
+                return failed_result
+
+            alt_action = str(alt["action"]).upper().strip()
+            alt_args = dict(alt.get("args") or {})
+
+            if alt_action == failed_action.upper():
+                return failed_result  # Same action would fail again
+
+            print(f"[REPLAN] Retrying {failed_action} → {alt_action} (attempt {_retry_count + 1})")
+            from eli.execution.executor_enhanced import execute as _exec
+            alt_result = _exec(alt_action, alt_args)
+
+            if alt_result.get("ok"):
+                alt_result["_replanned_from"] = failed_action
+                return alt_result
+
+            # Alt also failed — recurse once more if budget allows
+            return self._eli_tool_failure_replan(
+                user_input, alt_action, alt_args, alt_result, _retry_count + 1
+            )
+
+        except Exception as _replan_err:
+            print(f"[REPLAN] Re-plan attempt failed: {_replan_err}")
+            return failed_result
+
     def _govern_visible_response(
         self,
         user_input: str,
@@ -6854,6 +6996,12 @@ Answer:"""
             mode=(reasoning_mode or "quick"),
             chars=len(str(user_input or "")),
         )
+
+        # ── Prompt injection guard ─────────────────────────────────────────────
+        # Applied before ANY processing so injected text never reaches the LLM
+        # or the router in its raw form.
+        user_input = _eli_sanitize_user_input(user_input)
+        # ── End prompt injection guard ─────────────────────────────────────────
 
         # ELI_REASONING_MODE_STAMP_V1
         # Stamp active reasoning mode onto self so downstream consumers
@@ -8694,6 +8842,27 @@ Answer:"""
                 )
             except Exception as e:
                 print(f"[SELF] Failed to log: {e}")
+
+            # ── Tool-failure reflection: attempt a re-plan (max 2 retries) ──
+            result = self._eli_tool_failure_replan(user_input, action, args, result)
+            # ── End tool-failure reflection ───────────────────────────────
+
+        # ── WorkingMemory: pin successful tool results ─────────────────────
+        if result.get("ok") and self._working_memory:
+            try:
+                _wm_summary = _eli_summarize_tool_result(action, result)
+                if _wm_summary:
+                    _wm_imp = 0.85 if action in (
+                        "SET_USER_NAME", "REMEMBER", "STORE_MEMORY",
+                        "SET_PREFERENCE", "CALENDAR_ADD",
+                    ) else 0.65
+                    self._working_memory.pin(
+                        _wm_summary, source="executor", importance=_wm_imp
+                    )
+            except Exception:
+                pass
+        # ── End WorkingMemory pin ──────────────────────────────────────────
+
         raw_response = str(result.get("content", "") or result.get("response", "") or "").strip()
         final_response = raw_response
 
@@ -8796,6 +8965,9 @@ Answer:"""
                 if str(_p41_action or "").upper() in _p41_silent_actions:
                     _p41_res = _p41_execute(str(_p41_action).upper(), _p41_args)
                     print(f"[COGNITIVE][PHASE41] silent direct action {_p41_action} executed; suppressing GUI output: {_p41_res}")
+                    # Yield a zero-width space so the GUI generator is non-empty and
+                    # does NOT trigger the stream=False double-call fallback.
+                    yield "\u200b"
                     return
         except Exception as _p41_err:
             print(f"[COGNITIVE][PHASE41] silent direct fastpath skipped: {_p41_err}")

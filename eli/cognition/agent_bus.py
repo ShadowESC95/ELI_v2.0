@@ -58,11 +58,68 @@ import os
 import re
 
 from pathlib import Path
+import sqlite3 as _sqlite3
 import threading
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed, TimeoutError as FuturesTimeout
 from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional, Set
+
+
+# ---------------------------------------------------------------------------
+# Agent dispatch persistence
+# ---------------------------------------------------------------------------
+
+def _persist_dispatch_result(
+    action: str,
+    agents_used: List[str],
+    confidence: float,
+    elapsed_ms: float,
+    ok: bool,
+    summary: str,
+) -> None:
+    """Write a summary row to agent.sqlite3 in a daemon thread (non-blocking).
+
+    Creates the agent_dispatches table on first use.  Failures are silently
+    swallowed so the dispatch path is never blocked by a DB write error.
+    """
+    def _write() -> None:
+        try:
+            from eli.core.paths import get_paths as _gp
+            db_path = _gp().artifacts_dir / "agent.sqlite3"
+            db_path.parent.mkdir(parents=True, exist_ok=True)
+            with _sqlite3.connect(str(db_path), timeout=3.0) as _conn:
+                _conn.execute(
+                    """CREATE TABLE IF NOT EXISTS agent_dispatches (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        ts REAL NOT NULL,
+                        action TEXT,
+                        agents_used TEXT,
+                        confidence REAL,
+                        elapsed_ms REAL,
+                        ok INTEGER,
+                        summary TEXT
+                    )"""
+                )
+                _conn.execute(
+                    "INSERT INTO agent_dispatches "
+                    "(ts, action, agents_used, confidence, elapsed_ms, ok, summary) "
+                    "VALUES (?, ?, ?, ?, ?, ?, ?)",
+                    (
+                        time.time(),
+                        action,
+                        ",".join(agents_used),
+                        round(confidence, 4),
+                        round(elapsed_ms, 1),
+                        1 if ok else 0,
+                        summary[:500],
+                    ),
+                )
+                _conn.commit()
+        except Exception:
+            pass  # Never block the dispatch path
+
+    threading.Thread(target=_write, daemon=True, name="eli-agent-persist").start()
 
 
 # ---------------------------------------------------------------------------
@@ -1344,6 +1401,16 @@ class AgentBus:
             f"elapsed={elapsed:.0f}ms"
         )
 
+        # Persist dispatch summary to agent.sqlite3 (non-blocking daemon thread)
+        _persist_dispatch_result(
+            action=action,
+            agents_used=agents_used,
+            confidence=agg_conf,
+            elapsed_ms=elapsed,
+            ok=bool(agents_used),
+            summary=f"intent={action} label={label} agents={','.join(agents_used[:6])}",
+        )
+
         return DispatchResult(
             intent_action=action,
             intent_confidence=intent_conf,
@@ -1887,8 +1954,47 @@ _DIRECT_ACTIONS: Set[str] = SystemAgent.SYSTEM_ACTIONS | PluginAgent.PLUGIN_ACTI
 # Older or hand-rolled agents may sit at eli/cognition/custom/.
 # Either location is loaded at import time so register_agent() inside the
 # module attaches the new class to _ALL_AGENTS.
+def _get_trusted_agents_registry() -> dict:
+    """Load the trusted-agents hash registry from config/trusted_agents.json.
+
+    Returns a dict mapping filename → sha256_hex for all pre-approved agents.
+    The file is created on first trust grant; missing file means no trusted agents.
+    """
+    import json as _json_ta
+    from eli.core.paths import get_paths as _get_paths_ta
+    try:
+        registry_path = _get_paths_ta().config_dir / "trusted_agents.json"
+        if registry_path.exists():
+            return _json_ta.loads(registry_path.read_text(encoding="utf-8"))
+    except Exception:
+        pass
+    return {}
+
+
+def _trust_custom_agent(py_file: Path) -> None:
+    """Register a custom agent file as trusted by recording its SHA-256 hash.
+
+    Call this once per file to add it to the trust registry so it can be
+    loaded in future sessions.  Use `eli --trust-agent <path>` from the CLI.
+    """
+    import hashlib as _hl_ta, json as _json_ta
+    from eli.core.paths import get_paths as _get_paths_ta
+    sha = _hl_ta.sha256(py_file.read_bytes()).hexdigest()
+    registry_path = _get_paths_ta().config_dir / "trusted_agents.json"
+    try:
+        existing: dict = {}
+        if registry_path.exists():
+            existing = _json_ta.loads(registry_path.read_text(encoding="utf-8"))
+        existing[py_file.name] = sha
+        registry_path.parent.mkdir(parents=True, exist_ok=True)
+        registry_path.write_text(_json_ta.dumps(existing, indent=2), encoding="utf-8")
+        print(f"[AGENTBUS] Trusted agent registered: {py_file.name} ({sha[:12]}…)")
+    except Exception as _e:
+        print(f"[AGENTBUS] Failed to register agent trust for {py_file.name}: {_e}")
+
+
 def _load_custom_agents() -> None:
-    import importlib.util as _ilu
+    import importlib.util as _ilu, hashlib as _hl
     project_root = Path(__file__).resolve().parents[1]
     candidate_dirs = [
         Path(__file__).resolve().parent / "custom",
@@ -1899,6 +2005,10 @@ def _load_custom_agents() -> None:
     ).strip()
     if extra:
         candidate_dirs.append(Path(extra).expanduser().resolve())
+
+    trusted = _get_trusted_agents_registry()
+    # Bypass trust check in dev/test mode
+    trust_bypass = os.environ.get("ELI_TRUST_ALL_AGENTS", "").strip().lower() in ("1", "true", "yes")
 
     seen = set()
     for custom_dir in candidate_dirs:
@@ -1911,6 +2021,25 @@ def _load_custom_agents() -> None:
                 if py_file.name in seen:
                     continue
                 seen.add(py_file.name)
+
+                # ── Trust verification ──────────────────────────────────────
+                if not trust_bypass:
+                    file_hash = _hl.sha256(py_file.read_bytes()).hexdigest()
+                    trusted_hash = trusted.get(py_file.name)
+                    if trusted_hash is None:
+                        print(
+                            f"[AGENTBUS] SECURITY: Custom agent '{py_file.name}' is not trusted. "
+                            f"Run `eli --trust-agent {py_file}` to approve it before loading."
+                        )
+                        continue
+                    if file_hash != trusted_hash:
+                        print(
+                            f"[AGENTBUS] SECURITY: Custom agent '{py_file.name}' hash mismatch — "
+                            f"file may have been modified. Re-run `eli --trust-agent {py_file}` "
+                            f"to re-approve after reviewing the changes."
+                        )
+                        continue
+                # ── Load ────────────────────────────────────────────────────
                 try:
                     spec = _ilu.spec_from_file_location(py_file.stem, str(py_file))
                     mod = _ilu.module_from_spec(spec)
