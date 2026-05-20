@@ -173,18 +173,50 @@ def get_memory_authority() -> Dict[str, str]:
 # SQLite helpers
 # ---------------------------------------------------------------------
 
+import re as _re_sql
+
+# Allowlist of known table names used in schema migrations.
+_KNOWN_TABLES: frozenset = frozenset({
+    "memories", "conversation_turns", "conversations", "session_summaries",
+    "kg_entities", "kg_relations", "recall_log", "error_tracking",
+    "improvements", "failures", "habit_rules", "habit_events",
+    "memories_fts", "self_improvements", "capabilities",
+    "agent_dispatches", "proactive_insights",
+})
+
+_IDENTIFIER_RE = _re_sql.compile(r'^[A-Za-z_][A-Za-z0-9_]*$')
+
+
+def _validate_identifier(name: str, context: str = "identifier") -> str:
+    """Validate a SQL identifier (table or column name) before f-string interpolation.
+
+    Only allows characters safe for SQL identifiers.  Raises ValueError on
+    anything that looks like an injection attempt.
+    """
+    if not isinstance(name, str) or not _IDENTIFIER_RE.match(name):
+        raise ValueError(
+            f"Invalid SQL {context} '{name}': only [A-Za-z0-9_] allowed"
+        )
+    return name
+
+
 def _table_names(conn: sqlite3.Connection) -> set[str]:
     return {r[0] for r in conn.execute("SELECT name FROM sqlite_master WHERE type='table'").fetchall()}
 
 
 def _cols(conn: sqlite3.Connection, table: str) -> List[str]:
-    return [r[1] for r in conn.execute(f"PRAGMA table_info({table})").fetchall()]
+    t = _validate_identifier(table, "table")
+    return [r[1] for r in conn.execute(f"PRAGMA table_info({t})").fetchall()]
 
 
 def _ensure_column(conn: sqlite3.Connection, table: str, col: str, ddl: str) -> None:
+    t = _validate_identifier(table, "table")
     cols = _cols(conn, table)
     if col not in cols:
-        conn.execute(f"ALTER TABLE {table} ADD COLUMN {ddl}")
+        # ddl is e.g. "col_name TEXT DEFAULT NULL" — validate first token as the column name
+        col_name = ddl.split()[0] if ddl else ""
+        _validate_identifier(col_name, "column")
+        conn.execute(f"ALTER TABLE {t} ADD COLUMN {ddl}")
 
 
 # ---------------------------------------------------------------------
@@ -219,7 +251,9 @@ def _eli_format_tags(value) -> str:
 def _add_column_if_missing(conn, table, name, decl):
     cols = _table_columns(conn, table)
     if name not in cols:
-        conn.execute(f"ALTER TABLE {table} ADD COLUMN {name} {decl}")
+        t = _validate_identifier(table, "table")
+        _validate_identifier(name, "column")
+        conn.execute(f"ALTER TABLE {t} ADD COLUMN {name} {decl}")
 
 def _ensure_memory_schema(conn):
     conn.execute(
@@ -676,8 +710,9 @@ def _ensure_memory_schema(conn):
 
 def _table_columns(conn, table):
     try:
-        return [r[1] for r in conn.execute(f"PRAGMA table_info({table})").fetchall()]
-    except Exception:
+        t = _validate_identifier(table, "table")
+        return [r[1] for r in conn.execute(f"PRAGMA table_info({t})").fetchall()]
+    except (ValueError, Exception):
         return []
 
 def _memory_db_path_for_instance(self):
@@ -690,7 +725,9 @@ def _memory_db_path_for_instance(self):
 
 def _add_contract_column(conn, table, name, decl):
     if name not in _contract_table_columns(conn, table):
-        conn.execute(f"ALTER TABLE {table} ADD COLUMN {name} {decl}")
+        t = _validate_identifier(table, "table")
+        _validate_identifier(name, "column")
+        conn.execute(f"ALTER TABLE {t} ADD COLUMN {name} {decl}")
 
 def _ensure_contract_schema(conn):
     # improvements
@@ -768,8 +805,9 @@ def _ensure_contract_schema(conn):
 
 def _contract_table_columns(conn, table):
     try:
-        return [r[1] for r in conn.execute(f"PRAGMA table_info({table})").fetchall()]
-    except Exception:
+        t = _validate_identifier(table, "table")
+        return [r[1] for r in conn.execute(f"PRAGMA table_info({t})").fetchall()]
+    except (ValueError, Exception):
         return []
 
 def _jsonify_contract_value(v):
@@ -787,7 +825,9 @@ def _now_ts():
 
 def _add_memory_column(conn, table, name, decl):
     if name not in _memory_table_columns(conn, table):
-        conn.execute(f"ALTER TABLE {table} ADD COLUMN {name} {decl}")
+        t = _validate_identifier(table, "table")
+        _validate_identifier(name, "column")
+        conn.execute(f"ALTER TABLE {t} ADD COLUMN {name} {decl}")
 
 def _ensure_full_memory_schema(conn):
     # Include `importance` in fresh DBs so all storage paths share one schema.
@@ -1124,8 +1164,9 @@ def _ensure_full_memory_schema(conn):
 
 def _memory_table_columns(conn, table):
     try:
-        return [r[1] for r in conn.execute(f"PRAGMA table_info({table})").fetchall()]
-    except Exception:
+        t = _validate_identifier(table, "table")
+        return [r[1] for r in conn.execute(f"PRAGMA table_info({t})").fetchall()]
+    except (ValueError, Exception):
         return []
 
 def _examples_json(v):
@@ -1656,9 +1697,39 @@ class Memory(metaclass=_MemoryMeta):
                 f"AND LENGTH(COALESCE(text, content, '')) <= 1500"
             )
 
-            # --- Stage 5: FTS5 keyword search (primary path) ---
+            # --- Stage 5: Vector semantic search (primary path) ---
+            # FAISS runs first.  FTS5/LIKE only runs as a supplementary
+            # path when the vector index is empty or returns fewer than
+            # limit // 2 results (e.g. very short query or cold start).
+            vector_results = []
+            _vector_index_populated = False
+            try:
+                from eli.memory.vector_store import get_vector_store
+                _vs = get_vector_store()
+                _idx = getattr(_vs, '_index', None) if _vs is not None else None
+                _ntotal = int(getattr(_idx, 'ntotal', 0) or 0)
+                _vector_index_populated = _ntotal > 0
+                if _vs is not None and _ntotal > 0:
+                    _hits = _vs.search(q, top_k=limit) or []
+                    for h in _hits:
+                        vector_results.append({
+                            'id': h.get('memory_id', f"vec:{h.get('pos', 0)}"),
+                            'ts': h.get('ts', 0),
+                            'timestamp': h.get('ts', 0),
+                            'text': h.get('text', ''),
+                            'tags': h.get('tags', ''),
+                            'weight': float(h.get('score', 0.5)) + 0.5,
+                            'importance': float(h.get('score', 0.5)),
+                            '_source': 'vector',
+                        })
+            except Exception:
+                pass
+
+            # --- Stage 6: FTS5 keyword search (supplementary / fallback) ---
+            # Only run when the vector index had < limit//2 results or is empty.
+            _need_keyword = (not _vector_index_populated) or (len(vector_results) < max(1, limit // 2))
             fts_rows = []
-            if _has_table(conn, "memories_fts"):
+            if _need_keyword and _has_table(conn, "memories_fts"):
                 try:
                     fts_q = " OR ".join(
                         f'"{t}"' for t in re.split(r"[^a-zA-Z0-9_]+", q) if len(t) > 1
@@ -1681,10 +1752,10 @@ class Memory(metaclass=_MemoryMeta):
                 except Exception:
                     fts_rows = []
 
-            # --- LIKE fallback if FTS5 is empty ---
+            # --- LIKE fallback if both vector and FTS5 are empty ---
             like_rows = []
             like = f"%{q.lower()}%"
-            if not fts_rows:
+            if _need_keyword and not fts_rows:
                 try:
                     like_rows = conn.execute(
                         f"""
@@ -1701,7 +1772,7 @@ class Memory(metaclass=_MemoryMeta):
                 except Exception:
                     like_rows = []
 
-            if not fts_rows and not like_rows:
+            if _need_keyword and not fts_rows and not like_rows:
                 toks = [
                     t.lower()
                     for t in re.split(r"[^a-zA-Z0-9_]+", q)
@@ -1739,28 +1810,6 @@ class Memory(metaclass=_MemoryMeta):
                  "_source": "fts" if fts_rows else "like"}
                 for r in (fts_rows or like_rows)[:limit]
             ]
-
-            # --- Stage 6: Vector semantic search ---
-            vector_results = []
-            try:
-                from eli.memory.vector_store import get_vector_store
-                _vs = get_vector_store()
-                _idx = getattr(_vs, '_index', None) if _vs is not None else None
-                _ntotal = int(getattr(_idx, 'ntotal', 0) or 0)
-                if _vs is not None and _ntotal > 0:
-                    _hits = _vs.search(q, top_k=limit) or []
-                    for h in _hits:
-                        vector_results.append({
-                            'id': h.get('memory_id', f"vec:{h.get('pos', 0)}"),
-                            'ts': h.get('ts', 0),
-                            'timestamp': h.get('ts', 0),
-                            'text': h.get('text', ''),
-                            'tags': h.get('tags', ''),
-                            'weight': float(h.get('score', 0.5)) + 0.5,
-                            '_source': 'vector',
-                        })
-            except Exception:
-                pass
 
             # --- Stage 8: Hybrid Merge — deduplicate and combine ---
             seen_texts: set = set()
@@ -2053,6 +2102,19 @@ class Memory(metaclass=_MemoryMeta):
                     "title": session_id,
                 }
                 _insert_payload(conn, "conversations", payload)
+
+            # Dedup guard: skip insert if identical (session, role, content) was
+            # stored within the last 10 seconds. Prevents double-writes from
+            # re-entrant paths (proactive daemon, secondary mirror, etc.).
+            existing = conn.execute(
+                "SELECT id FROM conversation_turns "
+                "WHERE session_id = ? AND role = ? AND content = ? "
+                "AND COALESCE(ts, timestamp, 0) >= ? "
+                "LIMIT 1",
+                (session_id, role, content, now - 10.0),
+            ).fetchone()
+            if existing:
+                return existing[0]
 
             payload = {
                 "session_id": session_id,
@@ -2553,7 +2615,8 @@ class Memory(metaclass=_MemoryMeta):
 
     def _eli_habit_columns(self, conn, table_name):
         try:
-            rows = conn.execute(f'PRAGMA table_info("{table_name}")').fetchall()
+            t = _validate_identifier(table_name, "table")
+            rows = conn.execute(f"PRAGMA table_info({t})").fetchall()
             cols = []
             for r in rows:
                 try:
