@@ -6,10 +6,15 @@ from eli.runtime.identity_validation import extract_explicit_identity_facts, nor
 
 
 _ERR_PATTERNS = (
-    "gguf streaming failed", "gguf error", "model not ready",
+    "gguf streaming failed", "gguf error", "gguf init deferred",
+    "gguf unavailable", "no gguf model found",
+    "model not ready",
     "requested tokens", "exceed context window", "inference failed",
-    "context window", "broker unavailable",
+    "broker unavailable",
 )
+
+# These prefixes mark ELI system / error messages — never store as assistant turns.
+_ERR_PREFIXES = ("[eli] ", "[eli]")
 
 _ASSISTANT_TRIVIAL = {
     "i'm here.", "i'm here", "got it.", "got it", "ok.", "ok"
@@ -61,7 +66,11 @@ def should_store_conversation_turn(role: str, text: Any) -> bool:
         return False
     low = t.lower()
     if role == "assistant":
-        if any(p in low for p in _ERR_PATTERNS) and len(low) < 400:
+        # Block [ELI] system/error prefix messages regardless of length.
+        if any(low.startswith(p) for p in _ERR_PREFIXES):
+            return False
+        # Block known error patterns (no length guard — short OR long error dumps).
+        if any(p in low for p in _ERR_PATTERNS):
             return False
         if low in _ASSISTANT_TRIVIAL:
             return False
@@ -77,7 +86,9 @@ def should_store_memory_text(text: Any, role: str = "user", tags: Any = None) ->
     tag_list = _tag_list(tags)
     tag_low = {x.lower() for x in tag_list}
 
-    if any(p in low for p in _ERR_PATTERNS) and len(low) < 400:
+    if any(low.startswith(p) for p in _ERR_PREFIXES):
+        return False
+    if any(p in low for p in _ERR_PATTERNS):
         return False
 
     if any(p in low for p in _ELI_SELF_PATTERNS):

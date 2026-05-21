@@ -1,4 +1,0 @@
-RC=0
-
---- STDOUT ---
-IMPORT_OK eli.cognition.gguf_inference

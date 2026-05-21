@@ -6159,6 +6159,38 @@ Answer:"""
         # 16k-ctx model.
         brief = self._cap_text(brief, 8192, "persona_handoff")
 
+        # ── Proactive daemon output injection ────────────────────────────────
+        # The proactive daemon writes pattern/insight files to disk continuously.
+        # Inject the latest context (if fresh < 30 min) so ELI is always aware
+        # of active patterns without requiring explicit "proactive status" queries.
+        try:
+            import time as _inj_time
+            from eli.core.paths import get_paths as _inj_paths
+            _pro_ctx_file = _inj_paths().artifacts_dir / "proactive" / "latest_context.txt"
+            if _pro_ctx_file.exists():
+                _pro_age = _inj_time.time() - _pro_ctx_file.stat().st_mtime
+                if _pro_age < 1800:  # only inject if written within last 30 min
+                    _pro_text = _pro_ctx_file.read_text(encoding="utf-8").strip()
+                    if _pro_text:
+                        _pro_block = f"[PROACTIVE AWARENESS]\n{_pro_text}"
+                        brief = (brief + "\n\n" + _pro_block).strip() if brief else _pro_block
+                        brief = self._cap_text(brief, 8192, "persona_handoff_with_proactive")
+        except Exception:
+            pass
+        # ── Self-awareness: habit execution summary ──────────────────────────
+        try:
+            _habit_file = _inj_paths().artifacts_dir / "proactive" / "latest_action.txt"
+            if _habit_file.exists():
+                _habit_age = _inj_time.time() - _habit_file.stat().st_mtime
+                if _habit_age < 3600:  # inject if within last hour
+                    _habit_text = _habit_file.read_text(encoding="utf-8").strip()
+                    if _habit_text:
+                        _habit_block = f"[RECENT SELF-IMPROVEMENT SIGNALS]\n{_habit_text}"
+                        brief = (brief + "\n\n" + _habit_block).strip() if brief else _habit_block
+                        brief = self._cap_text(brief, 8192, "persona_handoff_with_habits")
+        except Exception:
+            pass
+
         try:
             if working_memory is not None:
                 setattr(working_memory, "persona_handoff", brief)
@@ -6199,6 +6231,12 @@ Answer:"""
 
         # CORRECTION shortcut: dynamic repair using the corrected target only.
         if _qclass == 'CORRECTION':
+            # Wire correction into adaptation loop
+            try:
+                _si_corr = get_self_improvement()
+                _si_corr.handle_correction(user_input, "CORRECTION")
+            except Exception:
+                pass
             _corr_target = user_input
             try:
                 _quoted = re.findall(r'"([^"]{1,300})"', user_input or "")
@@ -7525,6 +7563,11 @@ Answer:"""
                 flush=True,
             )
         print(f"[COGNITIVE][TIMING] route={time.perf_counter() -t_route:.3f}s total_since_start={time.perf_counter() -t0:.3f}s")
+        # ── Always-visible pipeline stage header ──────────────────────────────
+        _pipe_action_s1 = str(intent.get("action") or "CHAT").upper()
+        _pipe_conf_s1 = float(intent.get("confidence") or 0.0)
+        _pipe_matched_s1 = str((intent.get("meta") or {}).get("matched_by") or "unknown")[:50]
+        print(f"[PIPELINE] Stage 1: Intent → {_pipe_action_s1} (conf={_pipe_conf_s1:.2f} via={_pipe_matched_s1})")
 
         trace = self._next_trace(user_input, intent, reasoning_mode)
 
@@ -7813,7 +7856,14 @@ Answer:"""
                 or not _is_brief_phatic_prompt(user_input)
             )
         )
+        if not _eli_orch_should_run:
+            # Quick/fast mode: the full 12-stage orchestrator is bypassed.
+            # Log stages 2-4 here so the pipeline is always traceable.
+            print(f"[PIPELINE] Stage 2: Persona Lock → deferred (quick path)")
+            print(f"[PIPELINE] Stage 3: HyDE → skipped ({_eli_proc_mode} mode)")
+            print(f"[PIPELINE] Stage 4: Planner → {_eli_proc_mode} [kw:6 sem:8 rag:skip kg:identity-only]")
         if _eli_orch_should_run:
+            print(f"[PIPELINE] Stage 2-11: Orchestrator → {_eli_proc_mode} mode (full 12-stage)")
             _eli_pipe("orchestrator_dispatch", mode=_eli_proc_mode, stream=stream)
             try:
                 _orch_result = self._run_internal_orchestrator(
@@ -7839,6 +7889,12 @@ Answer:"""
             trace["agent_confidence"] = bus_result.aggregated_confidence
             trace["confidence_label"] = bus_result.confidence_label
             trace["agents_used"] = bus_result.agents_used
+            # ── Always-visible Stage 5-9 summary ─────────────────────────────
+            _pipe_bus_agents = list(getattr(bus_result, "agents_used", []) or [])
+            _pipe_bus_conf = float(getattr(bus_result, "aggregated_confidence", 0.0) or 0.0)
+            _pipe_bus_label = str(getattr(bus_result, "confidence_label", "?") or "?")
+            _pipe_bus_mem = len(str(bus_memory_context or ""))
+            print(f"[PIPELINE] Stage 5-9: AgentBus → agents={_pipe_bus_agents} mem={_pipe_bus_mem}ch conf={_pipe_bus_conf:.2f} ({_pipe_bus_label})")
             trace["orchestrator_plan"] = (
                 bus_result.orchestrator_plan
                 or self._build_runtime_orchestrator_plan(
@@ -9137,6 +9193,7 @@ Answer:"""
 
             if situation_brief:
                 print(f"[COGNITIVE] Persona handoff → {len(situation_brief)} char brief")
+                print(f"[PIPELINE] Stage 10: Context → {len(memory_context)}ch  Stage 10.5: Persona Handoff → {len(situation_brief)}ch")
                 _eli_pipe_stream("persona_handoff", chars=len(situation_brief))
         except Exception as _handoff_err:
             print(f"[COGNITIVE] Persona handoff failed (non-fatal): {_handoff_err}")
@@ -9183,6 +9240,7 @@ Answer:"""
         # 4. Primary Stage 11 streaming path.
         try:
             print("[COGNITIVE] Stream: Stage 11 primary path")
+            print(f"[PIPELINE] Stage 11: LLM Generation → streaming ({reasoning_mode or 'quick'} mode)")
             print(
                 f"[COGNITIVE][PIPELINE] stage_11_enter "
                 f"req={_eli_pipeline_req} "
@@ -9219,6 +9277,41 @@ Answer:"""
                         self._store_assistant_turn(final_text)
                     except Exception as _store_err:
                         print(f"[COGNITIVE] Stream assistant-turn store failed: {_store_err}")
+                    # ── Stage 12: Confidence scoring ──────────────────────────
+                    try:
+                        _s12_intent_conf = float(
+                            (getattr(pre_built_bus_result, "intent_confidence", None)
+                             or 0.6) if pre_built_bus_result else 0.6
+                        )
+                        _s12_score = self._score_response_confidence(
+                            prompt, final_text, memory_context, _s12_intent_conf, None)
+                        _s12_agent_conf = float(
+                            getattr(pre_built_bus_result, "aggregated_confidence", 0.0) or 0.0
+                        ) if pre_built_bus_result else 0.0
+                        _s12_label = str(
+                            getattr(pre_built_bus_result, "confidence_label", "?") or "?"
+                        ) if pre_built_bus_result else "?"
+                        _s12_threshold = 0.54 if (reasoning_mode or "quick") == "quick" else 0.66
+                        _s12_pass = "PASS" if _s12_score >= _s12_threshold else "LOW"
+                        print(
+                            f"[PIPELINE] Stage 12: Confidence → "
+                            f"response={_s12_score:.2f} agent={_s12_agent_conf:.2f} "
+                            f"({_s12_label}) threshold={_s12_threshold:.2f} [{_s12_pass}]"
+                        )
+                        # Adaptation: log low-confidence responses for self-improvement
+                        if _s12_score < _s12_threshold:
+                            try:
+                                _si = get_self_improvement()
+                                _si.memory.log_failure(
+                                    prompt,
+                                    error=f"Low stream confidence score={_s12_score:.2f}",
+                                    confidence=_s12_score,
+                                    context={"agent_conf": _s12_agent_conf, "mode": reasoning_mode or "quick"},
+                                )
+                            except Exception:
+                                pass
+                    except Exception as _s12_err:
+                        print(f"[PIPELINE] Stage 12: Confidence scoring failed: {_s12_err}")
                 print(f"[COGNITIVE][TIMING] stream_total={_time.perf_counter() - started:.3f}s")
                 return
 
