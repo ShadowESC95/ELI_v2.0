@@ -1,8 +1,0 @@
-=== Runtime learning state files ===
-artifacts/proactive/latest_context.txt	4 KB
-artifacts/runtime/last_trace.json	4 KB
-artifacts/runtime/self_update_last.json	8 KB
-artifacts/runtime/state.json	4 KB
-artifacts/runtime/user_profile.json	4 KB
-artifacts/runtime/voice_profile.json	4 KB
-artifacts/runtime/world_model.json	64 KB

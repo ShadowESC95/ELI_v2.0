@@ -1,7 +1,0 @@
-RC=0
-
---- STDOUT ---
-  cleanup/unrelated-working-tree-audit 2a3456a [origin/cleanup/unrelated-working-tree-audit] Add broad regression and integration test suite
-  main                                 b72ce9e Improve grounded memory inventory reporting
-  refactor/cleanup_20260501_193529     b72ce9e Improve grounded memory inventory reporting
-* refactor/cleanup_20260501_193622     4858ffb Add generic portable runtime routing and script generation contract

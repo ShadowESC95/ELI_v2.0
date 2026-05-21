@@ -1,5 +1,0 @@
-RC=0
-
---- STDOUT ---
-[AGENTBUS] Loaded custom agent: tvshowagent.py from /home/jay/Desktop/ELI_MKXI/eli/brain/agents/custom
-IMPORT_OK eli.kernel.engine
