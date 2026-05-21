@@ -705,7 +705,7 @@ def _format_runtime_paths(report: Dict[str, Any]) -> str:
 
 def _gui_runtime_audit_report() -> Dict[str, Any]:
     gui_path = _canonical_runtime_file_map()['gui']
-    entry = {'path': str(gui_path), 'status': 'PASS', 'issues': [], 'evidence': {}}
+    entry = {'path': str(gui_path), 'status': 'PASS', 'issues': [], 'evidence': {}, 'snippets': {}}
     if not gui_path.exists():
         entry['status'] = 'FAIL'; entry['issues'].append({'type': 'missing_file', 'line': 0, 'message': 'file not found'})
         return {'ok': True, 'entry': entry}
@@ -721,6 +721,12 @@ def _gui_runtime_audit_report() -> Dict[str, Any]:
     for key, needle in patterns.items():
         hits = [i for i, line in enumerate(lines, 1) if needle in line]
         entry['evidence'][key] = hits
+        # Store actual code at the first 3 matching lines so the model reports
+        # what is really there rather than fabricating plausible-looking code.
+        entry['snippets'][key] = [
+            f"  line {lineno}: {lines[lineno-1].strip()}"
+            for lineno in hits[:3]
+        ]
         if not hits:
             entry['status'] = 'FAIL'
             entry['issues'].append({'type': 'missing_hook', 'line': 0, 'message': f'{key} hook not found: {needle}'})
@@ -731,14 +737,18 @@ def _gui_runtime_audit_report() -> Dict[str, Any]:
 
 def _format_gui_runtime_audit(report: Dict[str, Any]) -> str:
     entry = report.get('entry', {})
-    lines = [f"{entry.get('status', 'FAIL')} {entry.get('path', '')}"]
-    for key, hits in (entry.get('evidence') or {}).items():
-        lines.append(f"  - {key}: lines {hits if hits else 'missing'}")
+    out = [f"{entry.get('status', 'FAIL')} {entry.get('path', '')}"]
+    evidence = entry.get('evidence') or {}
+    snippets = entry.get('snippets') or {}
+    for key, hits in evidence.items():
+        out.append(f"  - {key}: lines {hits if hits else 'MISSING'}")
+        for snip in snippets.get(key, []):
+            out.append(f"    {snip}")
     for issue in entry.get('issues', []):
         line_no = int(issue.get('line', 0) or 0)
         prefix = f"  - line {line_no}" if line_no else '  - line ?'
-        lines.append(f"{prefix} [{issue.get('type')}] {issue.get('message')}")
-    return '\n'.join(lines)
+        out.append(f"{prefix} [{issue.get('type')}] {issue.get('message')}")
+    return '\n'.join(out)
 
 def _explain_memory_runtime_report() -> Dict[str, Any]:
     import sqlite3
@@ -2003,9 +2013,24 @@ def next_media() -> Dict[str, Any]:
     return result
 
 
-def previous_media() -> Dict[str, Any]:
-    """Go to previous track."""
-    result = _playerctl("previous")
+def previous_media(target: str | None = None) -> Dict[str, Any]:
+    """Go to previous track.
+
+    Spotify's MPRIS implementation of 'Previous' behaves like a media key:
+    if playback position > 3s it seeks to 0 (restart current track) instead
+    of going to the previous track. We force position=0 before sending
+    Previous so the command always skips back regardless of current position.
+    """
+    p = _resolve_media_target(target) or _get_active_player()
+    if p and "spotify" in p.lower():
+        try:
+            subprocess.run(
+                ["playerctl", "-p", p, "position", "0"],
+                capture_output=True, timeout=2,
+            )
+        except Exception:
+            pass
+    result = _playerctl("previous", p)
     result["action"] = "PREVIOUS_MEDIA"
     return result
 

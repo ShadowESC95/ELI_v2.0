@@ -40,7 +40,7 @@ import re as _eli_re
 import subprocess as _eli_subprocess
 import time as _eli_time
 
-_ELI_ECHO_GATE_DEFAULT_S = float(_eli_os.environ.get("ELI_STT_POST_COMMAND_ECHO_GATE", "2.5"))
+_ELI_ECHO_GATE_DEFAULT_S = float(_eli_os.environ.get("ELI_STT_POST_COMMAND_ECHO_GATE", "1.0"))
 _ELI_DUCK_LEVEL = _eli_os.environ.get("ELI_WAKE_DUCK_LEVEL", "18%")
 _ELI_DUCK_ENABLED = _eli_os.environ.get("ELI_WAKE_DUCK_ENABLED", "1") != "0"
 
@@ -230,17 +230,24 @@ DUCK_LEVEL = os.environ.get("ELI_STT_DUCK_LEVEL", "15%")
 RESTORE_DELAY_S = float(os.environ.get("ELI_STT_RESTORE_DELAY", "0.20"))
 MAIN_TIMEOUT = float(os.environ.get("ELI_STT_MAIN_TIMEOUT", "1.2"))
 PHRASE_TIME_LIMIT = float(os.environ.get("ELI_STT_PHRASE_TIME_LIMIT", "6.0"))
-WAKE_ARM_TIMEOUT = float(os.environ.get("ELI_STT_WAKE_ARM_TIMEOUT", "5.0"))
+WAKE_ARM_TIMEOUT = float(os.environ.get("ELI_STT_WAKE_ARM_TIMEOUT", "12.0"))
+# Shorter pause when unarmed — wake word is one word, safe-direct is 1-3 words.
+# 0.6s of silence is enough to know the phrase ended; avoids ~0.6s extra wait per wake event.
+UNARMED_PAUSE_S = float(os.environ.get("ELI_STT_UNARMED_PAUSE", "0.30"))
 WAKE_DEBOUNCE_S = float(os.environ.get("ELI_STT_WAKE_DEBOUNCE", "0.7"))
 ELI_DISABLE_WAKE_WORD = os.environ.get("ELI_DISABLE_WAKE_WORD", "0").lower() in ("1", "true", "yes", "on")
-ALLOW_DIRECT_CHAT_WITHOUT_WAKE = os.environ.get("ELI_STT_ALLOW_DIRECT_CHAT", "0").lower() in ("1", "true", "yes", "on")
+def _allow_direct_chat() -> bool:
+    """Runtime check so the GUI can flip ELI_STT_ALLOW_DIRECT_CHAT without a restart."""
+    return os.environ.get("ELI_STT_ALLOW_DIRECT_CHAT", "0").lower() in ("1", "true", "yes", "on")
+
+ALLOW_DIRECT_CHAT_WITHOUT_WAKE = _allow_direct_chat()  # kept for backwards compat
 MIN_DIRECT_CHAT_WORDS = int(os.environ.get("ELI_STT_MIN_DIRECT_CHAT_WORDS", "4"))
 
-# Require wake-word for safe-direct routing
-# During voice debugging, even pause/next/volume require wake.
-# This prevents lyrics, YouTube, assistant TTS, or speaker bleed from firing controls.
+# Hard override: require wake word for ALL safe-direct commands regardless of media state.
+# Default off — media-aware gating in classify() handles the speaker-bleed case dynamically.
+# Set ELI_STT_REQUIRE_WAKE_FOR_SAFE_DIRECT=1 to force wake word even in silence.
 REQUIRE_WAKE_FOR_SAFE_DIRECT = os.environ.get(
-    "ELI_STT_REQUIRE_WAKE_FOR_SAFE_DIRECT", "1"
+    "ELI_STT_REQUIRE_WAKE_FOR_SAFE_DIRECT", "0"
 ).lower() in ("1", "true", "yes", "on")
 
 
@@ -521,6 +528,18 @@ def _media_voice_alias_legacy(text: str) -> str:
     t = re.sub(r"^played\s+", "play ", t)
     t = re.sub(r"^opens\s+", "open ", t)
 
+    # "put" → "play" when it looks like a media search (Whisper mishears "play"
+    # as "put" / "put our" / "put a" very often with short commands).
+    # Only rewrite when followed by a filler article that signals the original
+    # was "play" — bare "put X" could be a legitimate system command.
+    t = re.sub(r"^put\s+(?:our|a|the)\s+", "play ", t)
+    # Also rewrite "put X on spotify/youtube/yt/mpv" unconditionally.
+    t = re.sub(
+        r"^put\s+(.+?)\s+on\s+(spotify|youtube|yt|mpv)\b",
+        lambda m: f"play {m.group(1)} on {m.group(2)}",
+        t,
+    )
+
     # Al Jazeera is a brutal one for Whisper/base.en.
     # Keep this intentionally narrow to command/media phrases.
     alj_patterns = [
@@ -689,7 +708,14 @@ class VoiceGate:
                     self.clear()
                     return "ignore_unarmed", None, None
 
-                combined = _eli_media_voice_alias(f"{self._pending_prefix} {text}")
+                # If the user re-said the full command (text already self-contained and
+                # complete), use text directly rather than prepending the pending prefix
+                # — prevents duplication like "play diabolic play diabolic on spotify".
+                _pref_verb = self._pending_prefix.split()[0] if self._pending_prefix else ""
+                if _pref_verb and text.startswith(_pref_verb + " ") and not _is_potentially_incomplete_media_play(text):
+                    combined = _eli_media_voice_alias(text)
+                else:
+                    combined = _eli_media_voice_alias(f"{self._pending_prefix} {text}")
                 print(f"🔗 [AUDIO] Combined: '{self._pending_prefix}' + '{text}' → '{combined}'")
                 self._pending_prefix = ""
                 self.clear()
@@ -704,19 +730,22 @@ class VoiceGate:
             self.clear()
             return "dispatch", text, None
 
-        # Safe direct commands normally do not need wake, but while media is actively
-        # playing, require wake to stop lyrics/YouTube audio from firing controls.
-        # Force safe-direct routing without wake-word
-        # Fast deterministic commands bypass wake. Freeform chat still requires wake.
+        # Safe direct commands (play/pause/next/volume/etc.) always dispatch without
+        # wake word. REQUIRE_WAKE_FOR_SAFE_DIRECT is an opt-in hard override
+        # (default off) — set ELI_STT_REQUIRE_WAKE_FOR_SAFE_DIRECT=1 only if you
+        # want wake-word-always mode for debugging.
         if _is_safe_direct(text):
+            if REQUIRE_WAKE_FOR_SAFE_DIRECT:
+                return "ignore_unarmed", None, None
             return "dispatch", text, None
+
         # Guarded commands without wake are ignored.
         if _is_guarded_command(text):
             return "guarded_without_wake", None, None
 
         # Free-form direct chat without wake is optional. Use a minimum word count
         # so ambient snippets like "marketing people" or "mot" do not trigger the LLM.
-        if ALLOW_DIRECT_CHAT_WITHOUT_WAKE and _word_count(text) >= MIN_DIRECT_CHAT_WORDS:
+        if _allow_direct_chat() and _word_count(text) >= MIN_DIRECT_CHAT_WORDS:
             return "dispatch", text, None
 
         return "ignore_unarmed", None, None
@@ -944,7 +973,7 @@ class ELIAudioSTT:
         # Short post-command gate so ELI/media output does not immediately get
         # re-transcribed as the next user command.
         try:
-            gate_s = float(__import__("os").environ.get("ELI_STT_POST_COMMAND_ECHO_GATE", "2.5"))
+            gate_s = float(__import__("os").environ.get("ELI_STT_POST_COMMAND_ECHO_GATE", "1.0"))
         except Exception:
             gate_s = 2.5
         self._eli_ignore_until = __import__("time").monotonic() + gate_s
@@ -1003,12 +1032,43 @@ class ELIAudioSTT:
                         # adjust it when the gate is armed so natural pauses don't
                         # cut commands short.
                         if self._voice_gate.armed():
+                            # Wider pause window while armed — user is mid-command
+                            # and natural pauses (e.g. "play ... on spotify") must
+                            # not cut the phrase short.
                             self.recognizer.pause_threshold = float(
                                 os.environ.get("ELI_STT_ARMED_PAUSE", "1.4")
                             )
-                        else:
+                            self.recognizer.non_speaking_duration = float(
+                                os.environ.get("ELI_STT_NON_SPEAKING_DURATION", "0.35")
+                            )
+                            _active_phrase_limit = PHRASE_TIME_LIMIT
+                        elif _allow_direct_chat():
+                            # Direct listen mode — user may speak long natural sentences.
+                            # 1.5s silence ends the phrase (short enough that "pause" or
+                            # "next" dispatch promptly even with mild background noise;
+                            # long enough to not cut mid-sentence natural pauses).
+                            # 20s phrase cap guarantees a submit if background noise
+                            # prevents silence detection entirely.
                             self.recognizer.pause_threshold = float(
-                                os.environ.get("ELI_STT_PAUSE_THRESHOLD", "1.20")
+                                os.environ.get("ELI_STT_DIRECT_PAUSE", "1.5")
+                            )
+                            self.recognizer.non_speaking_duration = float(
+                                os.environ.get("ELI_STT_NON_SPEAKING_DURATION", "0.35")
+                            )
+                            _active_phrase_limit = float(
+                                os.environ.get("ELI_STT_DIRECT_PHRASE_LIMIT", "20.0")
+                            )
+                        else:
+                            # Tight pause when unarmed — we're only listening for
+                            # the wake word (1-3 words). 0.30s of silence is enough;
+                            # shorter non_speaking_duration and phrase_time_limit
+                            # reduce whisper input size for faster wake detection.
+                            self.recognizer.pause_threshold = UNARMED_PAUSE_S
+                            self.recognizer.non_speaking_duration = float(
+                                os.environ.get("ELI_STT_UNARMED_NON_SPEAKING", "0.15")
+                            )
+                            _active_phrase_limit = float(
+                                os.environ.get("ELI_STT_UNARMED_PHRASE_LIMIT", "3.0")
                             )
 
                         # Periodic recalibration during quiet periods so the
@@ -1026,8 +1086,17 @@ class ELIAudioSTT:
                                 print(f"[AUDIO] Recal failed: {_recal_err}", flush=True)
                             _silent_streak = 0
 
-                        audio = self.recognizer.listen(source, timeout=MAIN_TIMEOUT, phrase_time_limit=PHRASE_TIME_LIMIT)
+                        audio = self.recognizer.listen(source, timeout=MAIN_TIMEOUT, phrase_time_limit=_active_phrase_limit)
                     except sr.WaitTimeoutError:
+                        # Restore duck if the gate expired while we were waiting
+                        # for the user to speak (covers arm_incomplete → silence → timeout).
+                        if self._eli_duck_snapshot is not None and not self._voice_gate.armed():
+                            try:
+                                _eli_restore_output(self._eli_duck_snapshot)
+                                self._eli_duck_snapshot = None
+                                print("[AUDIO_DUCK] Gate expired (no speech) — volume restored", flush=True)
+                            except Exception as _re:
+                                print(f"[AUDIO_DUCK][RESTORE_ERROR] {_re}", flush=True)
                         continue
                     except Exception as e:
                         if not self.is_listening or self._stop_event.is_set():
@@ -1081,13 +1150,30 @@ class ELIAudioSTT:
 
                     self.audio_queue.put(transcript)
 
+                    # Restore volume if we took a duck snapshot but the gate
+                    # expired without ever dispatching a command (e.g. arm →
+                    # arm_incomplete → user went silent → gate timed out).
+                    if self._eli_duck_snapshot is not None and not self._voice_gate.armed():
+                        try:
+                            _eli_restore_output(self._eli_duck_snapshot)
+                            self._eli_duck_snapshot = None
+                            print("[AUDIO_DUCK] Gate expired without dispatch — volume restored", flush=True)
+                        except Exception as _re:
+                            print(f"[AUDIO_DUCK][RESTORE_ERROR] {_re}", flush=True)
+
                     action, payload, wake = self._voice_gate.classify(transcript)
 
                     if action == "arm":
                         print(f"🔊 [AUDIO] Wake word detected: '{wake}'")
                         print("🎧 [AUDIO] Guarded command window armed")
                         try:
-                            self._eli_duck_snapshot = _eli_duck_output()
+                            # Only snapshot+duck if not already ducked.
+                            # Re-arm (user says wake word twice) must NOT overwrite
+                            # the original pre-duck volume with the ducked level.
+                            if self._eli_duck_snapshot is None:
+                                self._eli_duck_snapshot = _eli_duck_output()
+                            else:
+                                print("[AUDIO_DUCK] Already ducked — keeping existing snapshot", flush=True)
                         except Exception as e:
                             print(f"[AUDIO_DUCK][ERROR] {e}", flush=True)
                         continue

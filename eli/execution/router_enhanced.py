@@ -544,10 +544,17 @@ def _route_set_user_name(raw: str, low: str) -> Optional[Dict[str, Any]]:
         m = _re.search(pat, raw, _re.IGNORECASE)
         if m:
             candidate = m.group(1).strip().rstrip(".,!?")
-            # Reject common false positives
+            # Reject common false positives and reserved media/control words
             _bad = {"you", "eli", "okay", "ok", "sure", "fine", "good", "here",
                     "yes", "no", "hi", "hey", "hello", "there", "done", "ready",
-                    "sorry", "thanks", "thank", "great", "right", "wrong"}
+                    "sorry", "thanks", "thank", "great", "right", "wrong",
+                    # Media control reserved words — must never become a name
+                    "play", "pause", "resume", "stop", "next", "skip", "back",
+                    "previous", "mute", "unmute", "louder", "quieter", "volume",
+                    "shuffle", "repeat", "rewind", "forward", "restart",
+                    # Voice/system reserved words
+                    "start", "go", "cancel", "abort", "quit", "exit", "close",
+                    "open", "search", "find", "show", "hide", "run", "launch"}
             if candidate.lower() not in _bad and len(candidate) >= 2:
                 return _mk(
                     "SET_USER_NAME",
@@ -2902,6 +2909,15 @@ def _eli_mqc_clean_query(q: str) -> str:
     """
     q = _eli_mqc_re.sub(r"\s+", " ", str(q or "")).strip(" .,!?:;")
     q = _eli_mqc_re.sub(r"^(open|play|search|find)\s+", "", q, flags=_eli_mqc_re.I).strip()
+    # Strip trailing service qualifiers — the router already extracted `target`.
+    # Without this, "logic by diabolic on spotify" → query="logic by diabolic on spotify"
+    # instead of the expected "logic by diabolic".
+    q = _eli_mqc_re.sub(
+        r"\s+on\s+(spotify|youtube|yt|mpv|soundcloud|apple\s+music|tidal|deezer)\s*$",
+        "",
+        q,
+        flags=_eli_mqc_re.I,
+    ).strip()
     q = _eli_mqc_re.sub(
         r"\b(?:alt\s*[- ]?\s*0|hours\s+of\s+zero|i'll\s+just\s+air|"
         r"and\s+i'll\s+just\s+air|algezera|algezira|algazear|algazare|"

@@ -948,7 +948,7 @@ class VoiceAgent(_BaseAgent):
     Does not produce audio itself — that remains in the GUI/TTS router.
     """
     name = "voice"
-    timeout_s = 2.0
+    timeout_s = 5.0
 
     def run(self, user_input: str, intent: Dict[str, Any],
             session_id: str, user_id: str) -> AgentResult:
@@ -1115,7 +1115,7 @@ class OrchestratorAgent(_BaseAgent):
     The engine executes the plan after the bus returns.
     """
     name = "orchestrator"
-    timeout_s = 2.0
+    timeout_s = 3.0
 
     # Tasks that clearly need multiple capabilities
     MULTI_STEP_TRIGGERS = [
@@ -1159,106 +1159,112 @@ class OrchestratorAgent(_BaseAgent):
     def run(self, user_input: str, intent: Dict[str, Any],
             session_id: str, user_id: str) -> AgentResult:
         t0 = time.perf_counter()
-        action = (intent.get("action") or "CHAT").upper()
-        low = (user_input or "").lower()
+        try:
+            action = (intent.get("action") or "CHAT").upper()
+            low = (user_input or "").lower()
 
-        # Only plan for complex multi-step tasks
-        needs_planning = action == "CHAT" and any(
-            sum(1 for kw in group if kw in low) >= 2
-            for group in self.MULTI_STEP_TRIGGERS
-        )
+            # Only plan for complex multi-step tasks
+            needs_planning = action == "CHAT" and any(
+                sum(1 for kw in group if kw in low) >= 2
+                for group in self.MULTI_STEP_TRIGGERS
+            )
 
-        # Also plan for known multi-step action types
-        if action in ("GENERATE_SCRIPT", "GENERATE_DOCUMENT", "DOC_GENERATE", "DATA_FABRICATOR"):
-            needs_planning = True
+            # Also plan for known multi-step action types
+            if action in ("GENERATE_SCRIPT", "GENERATE_DOCUMENT", "DOC_GENERATE", "DATA_FABRICATOR"):
+                needs_planning = True
 
-        if action in self.GROUNDED_SYNTHESIS_ACTIONS:
-            needs_planning = True
+            if action in self.GROUNDED_SYNTHESIS_ACTIONS:
+                needs_planning = True
 
-        expressive = any(x in low for x in (
-            "how are you", "how is the head", "head today", "personality back",
-            "original personality", "come back to life", "are you back", "you alive",
-        ))
-        introspection = any(x in low for x in (
-            "memory", "runtime", "cognition", "what patterns have you detected",
-            "how i use you", "config", "gpu layers", "temperature", "context",
-            "threads", "max tokens", "daemons",
-        ))
-        if expressive and introspection:
-            needs_planning = True
+            expressive = any(x in low for x in (
+                "how are you", "how is the head", "head today", "personality back",
+                "original personality", "come back to life", "are you back", "you alive",
+            ))
+            introspection = any(x in low for x in (
+                "memory", "runtime", "cognition", "what patterns have you detected",
+                "how i use you", "config", "gpu layers", "temperature", "context",
+                "threads", "max tokens", "daemons",
+            ))
+            if expressive and introspection:
+                needs_planning = True
 
-        if not needs_planning:
-            return AgentResult(agent=self.name, ok=True, confidence=0.0,
-                               data={"skipped": True})
+            if not needs_planning:
+                return AgentResult(agent=self.name, ok=True, confidence=0.0,
+                                   data={"skipped": True})
 
-        elapsed = (time.perf_counter() - t0) * 1000
-        plan: Dict[str, Any] = {}
+            elapsed = (time.perf_counter() - t0) * 1000
+            plan: Dict[str, Any] = {}
 
-        if action == "GENERATE_SCRIPT":
-            plan = {
-                "type": "generate_and_open",
-                "primary_action": "GENERATE_SCRIPT",
-                "post_actions": [{"action": "OPEN_IN_IDE", "args": {"path": ""}}],
-                "description": "Generate Python script, save to artifacts/scripts/, open in IDE",
-            }
-        elif action in ("GENERATE_DOCUMENT", "DOC_GENERATE", "DATA_FABRICATOR"):
-            plan = {
-                "type": "generate_and_open",
-                "primary_action": action,
-                "post_actions": [{"action": "OPEN_IN_IDE", "args": {"path": ""}}],
-                "description": "Generate document, save, open in editor",
-            }
-        elif action in self.GROUNDED_SYNTHESIS_ACTIONS:
-            plan = {
-                "type": "grounded_evidence_synthesis",
-                "primary_action": action,
-                "requires_stage_1": True,
-                "requires_stage_11": True,
-                "requires_stage_12": True,
-                "may_skip_middle_stages": True,
-                "subtasks": [
-                    "ingest user request and runtime mode",
-                    "route and gather authoritative local evidence",
-                    "assemble evidence into working context",
-                    "synthesize one persona-bound final answer",
-                    "store response, learning signal, and trace metadata",
-                ],
-                "description": "Use deterministic evidence as grounding, then complete persona synthesis and learning instead of returning raw evidence.",
-            }
-        elif "presentation" in low or "slides" in low:
-            plan = {
-                "type": "content_then_document",
-                "primary_action": "CHAT",
-                "suggested_followup": "DOC_GENERATE",
-                "description": "Answer with content outline, offer to generate a document/slides",
-            }
-        elif "terminal" in low and any(x in low for x in ("run", "execute", "type")):
-            plan = {
-                "type": "sequence",
-                "primary_action": "SEQUENCE",
-                "description": "Multi-step terminal command chain",
-            }
-        elif expressive and introspection:
-            plan = {
-                "type": "grounded_chat_synthesis",
-                "primary_action": "CHAT",
-                "requires_single_broker": True,
-                "subtasks": [
-                    "state/personality framing",
-                    "memory/runtime grounding",
-                    "usage-pattern analysis if relevant",
-                    "single final synthesized answer",
-                ],
-                "description": "Ground mixed personality/state + memory/runtime prompts through one brokered synthesis step",
-            }
+            if action == "GENERATE_SCRIPT":
+                plan = {
+                    "type": "generate_and_open",
+                    "primary_action": "GENERATE_SCRIPT",
+                    "post_actions": [{"action": "OPEN_IN_IDE", "args": {"path": ""}}],
+                    "description": "Generate Python script, save to artifacts/scripts/, open in IDE",
+                }
+            elif action in ("GENERATE_DOCUMENT", "DOC_GENERATE", "DATA_FABRICATOR"):
+                plan = {
+                    "type": "generate_and_open",
+                    "primary_action": action,
+                    "post_actions": [{"action": "OPEN_IN_IDE", "args": {"path": ""}}],
+                    "description": "Generate document, save, open in editor",
+                }
+            elif action in self.GROUNDED_SYNTHESIS_ACTIONS:
+                plan = {
+                    "type": "grounded_evidence_synthesis",
+                    "primary_action": action,
+                    "requires_stage_1": True,
+                    "requires_stage_11": True,
+                    "requires_stage_12": True,
+                    "may_skip_middle_stages": True,
+                    "subtasks": [
+                        "ingest user request and runtime mode",
+                        "route and gather authoritative local evidence",
+                        "assemble evidence into working context",
+                        "synthesize one persona-bound final answer",
+                        "store response, learning signal, and trace metadata",
+                    ],
+                    "description": "Use deterministic evidence as grounding, then complete persona synthesis and learning instead of returning raw evidence.",
+                }
+            elif "presentation" in low or "slides" in low:
+                plan = {
+                    "type": "content_then_document",
+                    "primary_action": "CHAT",
+                    "suggested_followup": "DOC_GENERATE",
+                    "description": "Answer with content outline, offer to generate a document/slides",
+                }
+            elif "terminal" in low and any(x in low for x in ("run", "execute", "type")):
+                plan = {
+                    "type": "sequence",
+                    "primary_action": "SEQUENCE",
+                    "description": "Multi-step terminal command chain",
+                }
+            elif expressive and introspection:
+                plan = {
+                    "type": "grounded_chat_synthesis",
+                    "primary_action": "CHAT",
+                    "requires_single_broker": True,
+                    "subtasks": [
+                        "state/personality framing",
+                        "memory/runtime grounding",
+                        "usage-pattern analysis if relevant",
+                        "single final synthesized answer",
+                    ],
+                    "description": "Ground mixed personality/state + memory/runtime prompts through one brokered synthesis step",
+                }
 
-        print(f"[AGENT:orchestrator] action={action} plan_type={plan.get('type','none')} "
-              f"elapsed={elapsed:.0f}ms")
-        return AgentResult(
-            agent=self.name, ok=True, confidence=0.70 if plan else 0.0,
-            data={"plan": plan, "needs_planning": bool(plan)},
-            elapsed_ms=elapsed,
-        )
+            print(f"[AGENT:orchestrator] action={action} plan_type={plan.get('type','none')} "
+                  f"elapsed={elapsed:.0f}ms")
+            return AgentResult(
+                agent=self.name, ok=True, confidence=0.70 if plan else 0.0,
+                data={"plan": plan, "needs_planning": bool(plan)},
+                elapsed_ms=elapsed,
+            )
+        except Exception as _orch_err:
+            elapsed = (time.perf_counter() - t0) * 1000
+            print(f"[AGENT:orchestrator] ERROR: {_orch_err}")
+            return AgentResult(agent=self.name, ok=False, confidence=0.0,
+                               data={}, elapsed_ms=elapsed, error=str(_orch_err))
 
 
 # ---------------------------------------------------------------------------
