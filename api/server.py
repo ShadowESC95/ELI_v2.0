@@ -9,8 +9,8 @@ from typing import Optional
 import time
 import uvicorn
 
-from eli.brain.cognitive_engine import get_engine
-from eli.brain.memory import get_memory
+from eli.kernel.engine import get_engine
+from eli.memory.memory import get_memory
 
 app = FastAPI(
     title="ELI Cognitive OS Agent API",
@@ -92,7 +92,7 @@ async def chat(request: ChatRequest):
 async def execute(request: ExecuteRequest):
     """Execute a direct ELI command (OPEN_APP, SCREENSHOT, etc.)."""
     try:
-        from eli.tools.executor_enhanced import execute as exec_cmd
+        from eli.execution.executor_enhanced import execute as exec_cmd
         
         result = exec_cmd(request.action, request.args)
         
@@ -109,8 +109,8 @@ async def execute(request: ExecuteRequest):
 async def status(user_id: str):
     """Get ELI's current status for a user."""
     try:
-        from eli.tools.executor_enhanced import get_status
-        from eli.brain import config
+        from eli.execution.executor_enhanced import get_status
+        from eli.core import config
         
         status_data = get_status()
         
@@ -129,7 +129,7 @@ async def status(user_id: str):
 # ----------------------------------------------------------------------
 def main():
     uvicorn.run(
-        "eli.api.server:app",
+        "api.server:app",
         host="0.0.0.0",
         port=8081,
         reload=True,
