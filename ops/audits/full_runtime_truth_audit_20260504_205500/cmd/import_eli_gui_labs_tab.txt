@@ -1,4 +1,0 @@
-RC=0
-
---- STDOUT ---
-IMPORT_OK eli.gui.labs_tab

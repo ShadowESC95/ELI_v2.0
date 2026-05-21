@@ -115,7 +115,9 @@ class SelfImprovementEngine:
                 "SELECT id, occurrence_count FROM error_tracking WHERE error_type = ? AND details = ?",
                 (error_type, details),
             ).fetchone()
+            new_count = 1
             if row:
+                new_count = (row[1] or 1) + 1
                 conn.execute(
                     "UPDATE error_tracking SET occurrence_count = occurrence_count + 1, last_seen = ?, timestamp = ? WHERE id = ?",
                     (now, now, row[0]),
@@ -128,6 +130,58 @@ class SelfImprovementEngine:
             conn.commit()
         finally:
             conn.close()
+
+        # Auto-trigger improvement analysis when an error pattern recurs 5× (and every 5× after)
+        if new_count >= 5 and new_count % 5 == 0:
+            print(f"[SELF-IMPROVE] Recurring error pattern detected ({new_count}×) — auto-triggering capability analysis")
+            threading.Thread(target=self._background_analyze, daemon=True).start()
+
+    def _background_analyze(self) -> None:
+        """Run analyze_and_improve then attempt code patches for high-recurrence failures."""
+        try:
+            result = self.analyze_and_improve()
+            imps = result.get("improvements", [])
+            if imps:
+                print(f"[SELF-IMPROVE] Auto-analysis complete: {len(imps)} proposal(s) generated")
+            else:
+                print("[SELF-IMPROVE] Auto-analysis complete: no new proposals")
+        except Exception as _ae:
+            print(f"[SELF-IMPROVE] Auto-analysis failed: {_ae}")
+            return
+
+        # Attempt code patches for failures with file tracebacks and high recurrence.
+        # Only runs when an inference broker is available (model loaded).
+        try:
+            broker = get_broker()
+            if broker is None:
+                return
+        except Exception:
+            return
+
+        try:
+            high_recurrence = self.analyze_failures(limit=5, days=14, min_cluster_size=5)
+            patchable = [
+                f for f in high_recurrence
+                if f.get("error") and 'File "' in str(f.get("error", ""))
+            ]
+            if not patchable:
+                return
+            print(f"[SELF-IMPROVE] Attempting code patches for {len(patchable)} high-recurrence failure(s)")
+            for failure in patchable[:2]:  # cap at 2 patches per cycle to limit LLM load
+                try:
+                    patch = self.generate_code_patch(failure)
+                    if not patch.get("ok"):
+                        print(f"[SELF-IMPROVE] Patch generation skipped: {patch.get('error', '?')}")
+                        continue
+                    apply_result = self.apply_code_patch(patch)
+                    if apply_result.get("ok"):
+                        print(f"[SELF-IMPROVE] Patch applied to {patch.get('file')}: {patch.get('description')}")
+                    else:
+                        print(f"[SELF-IMPROVE] Patch rejected: {apply_result.get('error', '?')}")
+                except Exception as _patch_err:
+                    print(f"[SELF-IMPROVE] Patch attempt failed: {_patch_err}")
+        except Exception as _chain_err:
+            print(f"[SELF-IMPROVE] Patch chain failed: {_chain_err}")
 
     def log_improvement(self, category: str, description: str, area: str = "runtime",
                         code_before: str = "", code_after: str = ""):

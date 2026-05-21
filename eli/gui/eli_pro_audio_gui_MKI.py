@@ -2236,6 +2236,7 @@ class EliMainWindow(QMainWindow):
         self.setMinimumSize(400, 300)
         self.setGeometry(screen.x() + 20, screen.y() + 20, screen.width() - 40, screen.height() - 40)
         self.is_generating = False
+        self._model_loading = False
         self.conversation_history = []
         self.current_theme = "dark"
         self._user_text_color = "#a3be8c"  # user message colour (changeable via picker)
@@ -2687,18 +2688,44 @@ class EliMainWindow(QMainWindow):
         # Existing-router/executor fast path for deterministic voice commands.
         # This avoids CognitiveEngine/LLM latency for safe actions.
         try:
-            _voice_text = ""
-            for _k in ("cmd", "text", "command", "transcript", "message"):
-                if _k in locals() and locals().get(_k):
-                    _voice_text = str(locals().get(_k))
-                    break
-        
+            _voice_text = text  # function parameter — no need to search locals
+
             from eli.execution import router_enhanced as _eli_voice_router
             from eli.execution import executor_enhanced as _eli_voice_executor
-        
-            _route = _eli_voice_router.route(_voice_text)
-            _action = str((_route or {}).get("action") or "").upper()
-            _args = (_route or {}).get("args") or {}
+
+            # Stage-0 instant dispatch: exact-match quick commands bypass the
+            # full router pipeline entirely. Saves ~30-60ms per command and
+            # ensures media controls fire as fast as possible.
+            _INSTANT_DISPATCH = {
+                "pause":          ("PAUSE_MEDIA",    {}),
+                "play":           ("PLAY_MEDIA",     {}),
+                "resume":         ("PLAY_MEDIA",     {}),
+                "stop":           ("STOP_MEDIA",     {}),
+                "next":           ("NEXT_MEDIA",     {}),
+                "next song":      ("NEXT_MEDIA",     {}),
+                "next track":     ("NEXT_MEDIA",     {}),
+                "skip":           ("NEXT_MEDIA",     {}),
+                "previous":       ("PREVIOUS_MEDIA", {}),
+                "previous song":  ("PREVIOUS_MEDIA", {}),
+                "previous track": ("PREVIOUS_MEDIA", {}),
+                "back":           ("PREVIOUS_MEDIA", {}),
+                "volume up":      ("VOLUME", {"direction": "up",   "delta": 15}),
+                "volume down":    ("VOLUME", {"direction": "down", "delta": 15}),
+                "louder":         ("VOLUME", {"direction": "up",   "delta": 15}),
+                "quieter":        ("VOLUME", {"direction": "down", "delta": 15}),
+                "mute":           ("VOLUME", {"direction": "mute"}),
+                "unmute":         ("VOLUME", {"direction": "unmute"}),
+            }
+            _vt_lower = _voice_text.lower().strip()
+            if _vt_lower in _INSTANT_DISPATCH:
+                _action, _args = _INSTANT_DISPATCH[_vt_lower]
+                _route = {"action": _action, "args": _args,
+                          "confidence": 1.0,
+                          "meta": {"matched_by": "gui.instant_dispatch"}}
+            else:
+                _route = _eli_voice_router.route(_voice_text)
+                _action = str((_route or {}).get("action") or "").upper()
+                _args = (_route or {}).get("args") or {}
         
             _direct_actions = {
                 "NOOP",
@@ -2838,6 +2865,32 @@ class EliMainWindow(QMainWindow):
             print(f"[GUI_DIRECT_EXEC][FALLBACK] {type(_direct_e).__name__}: {_direct_e}", flush=True)
         self.chat_input.setPlainText(text)
         self.send_message()
+
+    def _apply_direct_chat_env(self):
+        """Sync ELI_STT_ALLOW_DIRECT_CHAT env var from the checkbox — takes effect immediately."""
+        import os as _os
+        val = "1" if self.allow_direct_chat_checkbox.isChecked() else "0"
+        _os.environ["ELI_STT_ALLOW_DIRECT_CHAT"] = val
+        # Keep wake word button in sync with the settings-page checkbox
+        if hasattr(self, "wake_word_btn"):
+            self.wake_word_btn.blockSignals(True)
+            self.wake_word_btn.setChecked(not self.allow_direct_chat_checkbox.isChecked())
+            self.wake_word_btn.setText("Wake: ON" if self.wake_word_btn.isChecked() else "Wake: OFF")
+            self.wake_word_btn.blockSignals(False)
+        self.save_settings(silent=True)
+
+    def _on_wake_word_toggled(self, wake_on: bool):
+        """Wake word button in the chat toolbar — mirrors the Audio settings checkbox."""
+        import os as _os
+        # wake_on=True → wake word required → direct chat disabled
+        _os.environ["ELI_STT_ALLOW_DIRECT_CHAT"] = "0" if wake_on else "1"
+        self.wake_word_btn.setText("Wake: ON" if wake_on else "Wake: OFF")
+        # Keep settings-page checkbox in sync
+        if hasattr(self, "allow_direct_chat_checkbox"):
+            self.allow_direct_chat_checkbox.blockSignals(True)
+            self.allow_direct_chat_checkbox.setChecked(not wake_on)
+            self.allow_direct_chat_checkbox.blockSignals(False)
+        self.save_settings(silent=True)
 
     def _stt_toggle(self, checked: bool):
         if checked:
@@ -3459,14 +3512,22 @@ class EliMainWindow(QMainWindow):
         clear_btn.clicked.connect(self.clear_chat)
         btn_layout.addWidget(clear_btn)
 
-        self.tts_btn = QPushButton("🔊 Speak")
-        self.tts_btn.setToolTip("Speak last ELI response via Piper TTS")
-        self.tts_btn.setStyleSheet(
-            _BTN_BASE + "QPushButton { background-color:#2196F3; }"
-            "QPushButton:hover { background-color:#1976D2; }"
+        self.wake_word_btn = QPushButton("Wake: ON")
+        self.wake_word_btn.setCheckable(True)
+        self.wake_word_btn.setChecked(True)
+        self.wake_word_btn.setToolTip(
+            "Toggle wake word requirement.\n"
+            "ON = say 'computer' before commands.\n"
+            "OFF = all speech is treated as a command (direct listen mode)."
         )
-        self.tts_btn.clicked.connect(self._speak_last_response)
-        btn_layout.addWidget(self.tts_btn)
+        self.wake_word_btn.setStyleSheet(
+            _BTN_BASE + "QPushButton { background-color:#4CAF50; }"
+            "QPushButton:checked { background-color:#4CAF50; }"
+            "QPushButton:!checked { background-color:#F44336; }"
+            "QPushButton:hover { background-color:#388E3C; }"
+        )
+        self.wake_word_btn.toggled.connect(self._on_wake_word_toggled)
+        btn_layout.addWidget(self.wake_word_btn)
 
         self.auto_speak_btn = QPushButton("🔇 Auto")
         self.auto_speak_btn.setCheckable(True)
@@ -6910,6 +6971,22 @@ _register()
             "STT calibration, voice profile, and TTS diagnostics."
         )
 
+        # ── Wake word / listen mode ───────────────────────────────────────
+        wake_card = self._section_card(vbox, "STT — WAKE WORD SETTINGS")
+
+        self.allow_direct_chat_checkbox = QCheckBox(
+            "Allow chat without wake word (direct listen mode)"
+        )
+        self.allow_direct_chat_checkbox.setToolTip(
+            "When enabled, ELI transcribes every phrase as a chat message without\n"
+            "requiring 'computer' first. Useful for hands-free or quiet environments.\n"
+            "Env: ELI_STT_ALLOW_DIRECT_CHAT"
+        )
+        self.allow_direct_chat_checkbox.stateChanged.connect(
+            lambda _: self._apply_direct_chat_env()
+        )
+        wake_card.addRow(self.allow_direct_chat_checkbox)
+
         # ── STT diagnostic panel ─────────────────────────────────────────
         stt_card = self._section_card(vbox, "STT — VOICE PROFILE & CALIBRATION")
 
@@ -7322,6 +7399,10 @@ _register()
             f"Auto-detected: ctx={optimal['n_ctx']}  gpu={optimal['n_gpu_layers']}  "
             f"threads={optimal['n_threads']}  batch={optimal.get('batch_size', 128)}"
         )
+        try:
+            self.save_settings(silent=True)
+        except Exception as _se:
+            print(f"[SETTINGS] Auto-save after detect_optimal failed: {_se}")
 
     def _apply_hardware_recommendation_for_model(self, model_path: str) -> Dict[str, Any]:
         result: Dict[str, Any] = {"ok": False, "model_path": model_path}
@@ -7408,6 +7489,16 @@ _register()
                 dock.set_status("Tuning complete")
                 dock.set_summary(summary)
             self.status_signal.emit(summary)
+
+            # Persist tuned values so CLI startup and next session see the same
+            # parameters that the dock is reporting. Without this save, the disk
+            # file keeps stale defaults and conflicts with what the dock shows.
+            try:
+                self.save_settings(silent=True)
+                self._hardware_tuning_log("Settings saved — CLI and next session will use these values.")
+            except Exception as _save_err:
+                self._hardware_tuning_log(f"Warning: auto-save after tuning failed: {_save_err}")
+
             result.update({"ok": True, "recommendation": rec.to_dict() if hasattr(rec, "to_dict") else {}})
             return result
         except Exception as e:
@@ -7513,8 +7604,19 @@ _register()
             return backend
         if notify:
             try:
-                QMessageBox.warning(self, 'Model Not Loaded',
-                    'Please load a model first via Model menu or Settings tab.')
+                _eli_color = getattr(self, '_eli_text_color', '#88c0d0')
+                if getattr(self, '_model_loading', False):
+                    self.chat_display.append(
+                        f'\n<b><span style="color:{_eli_color};">ELI:</span></b>'
+                        f'<br>Still loading the model — give me just a moment. '
+                        f'Once the status bar turns green I\'ll be ready to go.<br>'
+                    )
+                else:
+                    self.chat_display.append(
+                        f'\n<b><span style="color:{_eli_color};">ELI:</span></b>'
+                        f'<br>No model is loaded yet. Open the <b>Settings</b> tab '
+                        f'or use the <b>Model</b> menu to load one.<br>'
+                    )
             except Exception:
                 print('[WARN] Model not loaded')
         return None
@@ -7569,6 +7671,7 @@ _register()
             pass
 
         def load_worker():
+            self._model_loading = True
             try:
                 if provider == 'ollama':
                     host = self.ollama_host_input.text().strip()
@@ -7624,6 +7727,7 @@ _register()
                     self.status_signal.emit("Send enabled")
                     print(f"Model Load Error: {err}")
             finally:
+                self._model_loading = False
                 self.status_signal.emit("Ready")
 
         threading.Thread(target=load_worker, daemon=True).start()
@@ -8211,7 +8315,7 @@ _register()
     def generate_suggestions(self):
         backend = self._text_backend_ready(notify=False)
         if backend is None:
-            QMessageBox.warning(self, 'Model Not Loaded', 'Please load a chat model first.')
+            self.status_signal.emit('⚠️ Load a model first to generate suggestions.')
             return
 
         self.suggestions_display.clear()
@@ -8297,7 +8401,7 @@ _register()
     def generate_summary(self):
         backend = self._text_backend_ready(notify=False)
         if backend is None:
-            QMessageBox.warning(self, 'Model Not Loaded', 'Please load a chat model first.')
+            self.status_signal.emit('⚠️ Load a model first to summarize.')
             return
         if not self.conversation_history:
             QMessageBox.information(self, 'No Conversation', 'No conversation to summarize.')
@@ -8357,7 +8461,7 @@ _register()
     def analyze_context(self):
         backend = self._text_backend_ready(notify=False)
         if backend is None:
-            QMessageBox.warning(self, 'Model Not Loaded', 'Please load a chat model first.')
+            self.status_signal.emit('⚠️ Load a model first to analyze context.')
             return
 
         self.insights_display.clear()
@@ -8784,6 +8888,22 @@ _register()
         except Exception as e:
             print(f"⚠️ Failed to apply provider/path settings to widgets: {e}")
 
+        # STT behaviour flags
+        try:
+            _direct = bool(s.get("allow_direct_chat_without_wake", False))
+            self.allow_direct_chat_checkbox.blockSignals(True)
+            self.allow_direct_chat_checkbox.setChecked(_direct)
+            self.allow_direct_chat_checkbox.blockSignals(False)
+            import os as _os_s
+            _os_s.environ["ELI_STT_ALLOW_DIRECT_CHAT"] = "1" if _direct else "0"
+            if hasattr(self, "wake_word_btn"):
+                self.wake_word_btn.blockSignals(True)
+                self.wake_word_btn.setChecked(not _direct)
+                self.wake_word_btn.setText("Wake: ON" if not _direct else "Wake: OFF")
+                self.wake_word_btn.blockSignals(False)
+        except Exception:
+            pass
+
         # GUI-local flags + theme
         try:
             self.auto_save_checkbox.setChecked(bool(s.get("auto_save", True)))
@@ -8893,6 +9013,7 @@ _register()
             "image_auto_open": bool(self.image_auto_open_checkbox.isChecked()),
             "image_use_chat_context": bool(self.image_use_chat_context_checkbox.isChecked()),
             "image_use_proactive_context": bool(self.image_use_proactive_context_checkbox.isChecked()),
+            "allow_direct_chat_without_wake": bool(self.allow_direct_chat_checkbox.isChecked()),
         }
 
         try:
