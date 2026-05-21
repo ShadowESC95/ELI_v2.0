@@ -943,11 +943,31 @@ def route(text: str) -> Dict[str, Any]:
         return _mk("EXPLAIN_MEMORY_RUNTIME", {}, 0.99, matched_by="router.memory_status_to_grounded", allow_chat_without_evidence=False)
 
     # ELI_ROUTER_REASONING_MODE_STATUS_FIX_20260505: answer the active mode label; do not hijack into full runtime diagnostics.
-    if (
+    # Only intercept queries specifically asking about the CURRENT/ACTIVE mode.
+    # Queries about ALL modes, every mode, how many modes, explain modes, differences, etc.
+    # must fall through to CHAT so the full pipeline synthesises from the source files.
+    _asking_about_all_modes = re.search(
+        r"\b(all|every|each|how many|list|explain|full|describe|detail|difference|differ|compare|what are|tell me about|tell me all|tell me everything|what do|how do|modes?\s+you\s+have|modes?\s+does|all.*mode|every.*mode)\b",
+        low,
+    )
+    if not _asking_about_all_modes and (
         re.fullmatch(r"(?:what(?:'s| is)|which is|tell me|show me)?\s*(?:your|eli'?s|the|my)?\s*(?:current|active)?\s*reasoning mode(?:\s*,?\s*eli)?\??", low)
         or re.search(r"\b(?:what(?:'s| is)|which|current|active)\b.{0,40}\breasoning mode\b", low)
     ):
         return _mk("REASONING_MODE_STATUS", {}, 0.995, matched_by="reasoning.mode_status", allow_chat_without_evidence=False)
+
+    # Route broad "explain / describe / breakdown / list all reasoning modes" queries to
+    # EXPLAIN_ALL_REASONING_MODES so the executor reads directly from reasoning_modes.py
+    # and the GGUF synthesises from real file evidence, not training knowledge.
+    if _asking_about_all_modes and re.search(r"\b(reasoning mode|modes?)\b", low):
+        return _mk(
+            "EXPLAIN_ALL_REASONING_MODES", {},
+            0.99,
+            matched_by="reasoning.all_modes_grounded",
+            allow_chat_without_evidence=False,
+            need_grounding=True,
+            task_family="grounded_audit",
+        )
 
     if re.search(r"\b(cognition pipeline|input to output|every step|no vague descriptions)\b", low):
         return _mk("CHAT", {"message": raw}, 0.95, matched_by="router.cognition_status_to_chat")
@@ -3163,7 +3183,19 @@ def _eli_lrf_pre_route(text):
             task_family="grounded_audit",
         )
 
-    if "reasoning mode" in low and not _eli_lrf_re.search(
+    # Only report current mode status if the query is specifically about the active/current mode.
+    # Queries asking about ALL modes, explaining modes, differences, etc. must reach CHAT/synthesis.
+    _lrf_asking_all_modes = _eli_lrf_re.search(
+        r"\b(all|every|each|how many|list|explain|full|describe|detail|difference|differ|compare|what are|tell me about|tell me all|tell me everything|what do|how do|modes?\s+you\s+have|modes?\s+does)\b",
+        low,
+    )
+    if _lrf_asking_all_modes and _eli_lrf_re.search(r"\b(reasoning mode|modes?)\b", low):
+        return _eli_lrf_mk(
+            "EXPLAIN_ALL_REASONING_MODES", {},
+            0.99,
+            "reasoning.all_modes_grounded.second_fix",
+        )
+    if "reasoning mode" in low and not _lrf_asking_all_modes and not _eli_lrf_re.search(
         r"\b(cognition pipeline|input to output|every step|memory system|db tables|functions|files|runtime audit|diagnostic|diagnostics|full audit)\b",
         low,
     ):
