@@ -7073,6 +7073,10 @@ Answer:"""
                     r"\b(cognition pipeline|input to output|every step|memory system|db tables|runtime audit|diagnostic|diagnostics|full audit)\b",
                     _eli_reasoning_status_low,
                 )
+                and not _eli_reasoning_status_re.search(
+                    r"\b(all|every|each|how many|list|explain|full|describe|detail|difference|differ|compare|breakdown|what are|tell me about|tell me all|tell me everything)\b",
+                    _eli_reasoning_status_low,
+                )
             )
             if _eli_reasoning_status_is_query:
                 _eli_pipe("mw_reasoning_status_hit")
