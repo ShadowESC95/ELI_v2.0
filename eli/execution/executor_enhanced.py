@@ -993,6 +993,66 @@ def _format_memory_runtime(report: Dict[str, Any]) -> str:
 
     return "\n".join(lines)
 
+def _explain_all_reasoning_modes_report() -> Dict[str, Any]:
+    """Read all mode data directly from reasoning_modes.py and return as structured evidence."""
+    try:
+        from eli.cognition.reasoning_modes import (
+            _MODE_DESCRIPTIONS,
+            _MODE_TASK_PIPELINE,
+            _MODE_INSTRUCTION_STACK,
+            _MODE_MIN_TOKENS,
+            _MODE_MAX_TOKENS_CAP,
+            _MODE_TEMPERATURE_CEIL,
+            _DISPLAY,
+            PRIVATE_REASONING_MODES,
+        )
+        modes = list(_DISPLAY.keys())
+        mode_data = {}
+        for key in modes:
+            mode_data[key] = {
+                "display": _DISPLAY.get(key, key),
+                "private": key in PRIVATE_REASONING_MODES,
+                "description": _MODE_DESCRIPTIONS.get(key, ""),
+                "pipeline_stages": _MODE_TASK_PIPELINE.get(key, []),
+                "instructions": _MODE_INSTRUCTION_STACK.get(key, []),
+                "min_tokens": _MODE_MIN_TOKENS.get(key, 0),
+                "max_tokens_cap": _MODE_MAX_TOKENS_CAP.get(key, 0),
+                "temperature_ceil": _MODE_TEMPERATURE_CEIL.get(key, 0.7),
+            }
+        import importlib, inspect
+        try:
+            mod = importlib.import_module("eli.cognition.reasoning_modes")
+            src_path = inspect.getfile(mod)
+        except Exception:
+            src_path = "eli/cognition/reasoning_modes.py"
+        return {"ok": True, "source": src_path, "modes": modes, "mode_data": mode_data}
+    except Exception as exc:
+        return {"ok": False, "error": str(exc)}
+
+
+def _format_all_reasoning_modes(report: Dict[str, Any]) -> str:
+    if not report.get("ok"):
+        return f"Reasoning modes report failed: {report.get('error')}"
+    lines = [f"Source: {report.get('source', 'eli/cognition/reasoning_modes.py')}"]
+    lines.append(f"Total modes: {len(report.get('modes', []))}")
+    lines.append("")
+    for key in report.get("modes", []):
+        d = report["mode_data"][key]
+        lines.append(f"## {d['display']} (key={key})")
+        lines.append(f"  private: {d['private']}")
+        lines.append(f"  temperature_ceil: {d['temperature_ceil']}")
+        lines.append(f"  token_floor: {d['min_tokens']}  token_cap: {d['max_tokens_cap']}")
+        lines.append(f"  description: {d['description']}")
+        lines.append(f"  pipeline_stages:")
+        for s in d["pipeline_stages"]:
+            lines.append(f"    - {s}")
+        lines.append(f"  instructions:")
+        for instr in d["instructions"]:
+            lines.append(f"    - {instr}")
+        lines.append("")
+    return "\n".join(lines)
+
+
 def _explain_cognition_runtime_report() -> Dict[str, Any]:
     files = _canonical_runtime_file_map()
     cog_path = files['cognitive_engine']
@@ -1389,6 +1449,7 @@ SUPPORTED_ACTIONS = [
     'DICTATE',
     'ELI_IDENTITY_AUDIT',
     'EXECUTE_GOAL',
+    'EXPLAIN_ALL_REASONING_MODES',
     'EXPLAIN_COGNITION_RUNTIME',
     'EXPLAIN_LAST_RESPONSE',
     'EXPLAIN_MEMORY_RUNTIME',
@@ -2050,32 +2111,95 @@ def repeat_media(target: str | None = None) -> Dict[str, Any]:
 
 
 def play_specific(query: str, target: str | None = None) -> Dict[str, Any]:
-    """Play a specific song/artist/genre by opening a search in Spotify or browser.
-    Uses: playerctl open (Spotify URI) or falls back to browser search.
+    """Play a specific song/artist/genre.
+    - Specific track ("X by Y"): yt-dlp + mpv — local, plays the exact song immediately
+    - Spotify target without track/artist: Spotify search URI (opens search view)
+    - YouTube target or fallback: yt-dlp + mpv, then browser
     """
-    import subprocess as _sp; import urllib.parse
+    import subprocess as _sp
+    import urllib.parse
+    import re as _re
     player = _resolve_media_target(target) or _get_active_player()
-    
-    # Try Spotify D-Bus search first
-    if player and "spotify" in player.lower():
+    t = (target or "").lower()
+
+    # Strip noise words that voice recognition adds
+    def _clean_query(q: str) -> str:
+        q = q.strip()
+        q = _re.sub(
+            r"^(?:a\s+song\s+|the\s+song\s+|the\s+track\s+|a\s+track\s+|me\s+a?\s*|some\s+)",
+            "", q, flags=_re.I,
+        )
+        return q.strip()
+
+    query = _clean_query(query)
+
+    _by_m = _re.match(r"^(.+?)\s+by\s+(.+)$", query, _re.I)
+
+    # ── Specific track request → yt-dlp + mpv (local, exact, instant) ────────
+    # "X by Y" always uses yt-dlp+mpv regardless of target — it's local and
+    # guaranteed to play the exact song. Spotify's search URI doesn't auto-play.
+    if _by_m and shutil.which("yt-dlp") and shutil.which("mpv"):
         try:
-            encoded = urllib.parse.quote(query)
-            uri = f"spotify:search:{encoded}"
-            _sp.run(["dbus-send", "--print-reply", "--dest=org.mpris.MediaPlayer2.spotify",
-                      "/org/mpris/MediaPlayer2", "org.mpris.MediaPlayer2.Player.OpenUri",
-                      f"string:{uri}"], capture_output=True, timeout=5)
+            track_part = _by_m.group(1).strip()
+            artist_part = _by_m.group(2).strip()
+            yt_query = f"{track_part} {artist_part} official audio"
+            ipc = os.environ.get("ELI_YOUTUBE_MPV_IPC", "/tmp/eli_youtube_mpv.sock")
+            _sp.Popen(
+                ["mpv", f"ytdl://ytsearch1:{yt_query}",
+                 f"--input-ipc-server={ipc}",
+                 "--ytdl-format=bestaudio/best",
+                 "--title=ELI-Music"],
+                stdout=_sp.DEVNULL, stderr=_sp.DEVNULL, start_new_session=True,
+            )
+            msg = f"Playing '{track_part}' by {artist_part}"
+            return {"ok": True, "action": "PLAY_MEDIA", "content": msg, "response": msg}
+        except Exception:
+            pass
+
+    # ── Spotify (non-specific / genre / playlist queries) ────────────────────
+    if player and "spotify" in player.lower() and "youtube" not in t:
+        try:
+            uri = f"spotify:search:{urllib.parse.quote(query)}"
+            _sp.run(
+                ["dbus-send", "--print-reply",
+                 "--dest=org.mpris.MediaPlayer2.spotify",
+                 "/org/mpris/MediaPlayer2",
+                 "org.mpris.MediaPlayer2.Player.OpenUri",
+                 f"string:{uri}"],
+                capture_output=True, timeout=5,
+            )
             msg = f"Searching Spotify for: {query}"
             return {"ok": True, "action": "PLAY_MEDIA", "content": msg, "response": msg}
         except Exception:
             pass
-    
-    # Fallback: open YouTube Music search in browser
+
+    # ── YouTube via yt-dlp + mpv (best quality, plays immediately) ───────────
+    if shutil.which("yt-dlp") and shutil.which("mpv"):
+        try:
+            ipc = os.environ.get("ELI_YOUTUBE_MPV_IPC", "/tmp/eli_youtube_mpv.sock")
+            _sp.Popen(
+                ["mpv", f"ytdl://ytsearch1:{query}",
+                 f"--input-ipc-server={ipc}",
+                 "--ytdl-format=bestaudio/best",
+                 "--title=ELI-YouTube"],
+                stdout=_sp.DEVNULL, stderr=_sp.DEVNULL, start_new_session=True,
+            )
+            msg = f"Playing '{query}' on YouTube"
+            return {"ok": True, "action": "PLAY_MEDIA", "content": msg, "response": msg}
+        except Exception:
+            pass
+
+    # ── YouTube in browser (opens search, autoplay on) ───────────────────────
     try:
-        encoded = urllib.parse.quote(query)
-        url = f"https://music.youtube.com/search?q={encoded}"
+        encoded = urllib.parse.quote_plus(query)
+        if "youtube" in t or not (player and "spotify" in player.lower()):
+            url = f"https://www.youtube.com/results?search_query={encoded}&autoplay=1"
+        else:
+            url = f"https://music.youtube.com/search?q={encoded}"
         if shutil.which("xdg-open"):
-            _sp.run(["xdg-open", url], capture_output=True, timeout=5)
-        msg = f"Searching for: {query}"
+            _sp.Popen(["xdg-open", url], stdout=_sp.DEVNULL, stderr=_sp.DEVNULL,
+                      start_new_session=True)
+        msg = f"Opening YouTube: {query}"
         return {"ok": True, "action": "PLAY_MEDIA", "content": msg, "response": msg}
     except Exception as e:
         return {"ok": False, "action": "PLAY_MEDIA", "error": str(e),
@@ -7604,6 +7728,9 @@ def execute(action: str, args: Optional[Dict[str, Any]] = None, **kwargs) -> Dic
     if a == 'GUI_RUNTIME_AUDIT':
         rep = _gui_runtime_audit_report(); txt = _format_gui_runtime_audit(rep)
         return {'ok': True, 'action': a, 'report': rep, 'content': txt, 'response': txt}
+    if a == 'EXPLAIN_ALL_REASONING_MODES':
+        rep = _explain_all_reasoning_modes_report(); txt = _format_all_reasoning_modes(rep)
+        return {'ok': bool(rep.get('ok', True)), 'action': a, 'report': rep, 'content': txt, 'response': txt}
     if a == 'EXPLAIN_MEMORY_RUNTIME':
         rep = _explain_memory_runtime_report(); txt = _format_memory_runtime(rep)
         return {'ok': True, 'action': a, 'report': rep, 'content': txt, 'response': txt}
