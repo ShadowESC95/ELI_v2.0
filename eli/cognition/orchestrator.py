@@ -795,6 +795,70 @@ class AgentOrchestrator:
         except Exception as _ph_err:
             print(f"[ORCHESTRATOR] Stage 10.5: Persona Handoff unavailable: {_ph_err}")
 
+        # ELI_PRIVATE_REASONING_DISPATCH_V1
+        # For private reasoning modes (chain_of_thought, self_consistency,
+        # tree_of_thoughts, constitutional_ai) the orchestrator MUST hand off
+        # to _run_chat_reasoning_loop so the mode-specific algorithm runs.
+        # Otherwise the call below collapses to a single GGUF call and the
+        # generate->critique->revise (or propose->develop, or N-sample->select)
+        # pipeline never executes. Quick mode is untouched.
+        try:
+            from eli.cognition.reasoning_modes import is_private_reasoning_mode as _rm_private_chat
+            _chat_is_private = _rm_private_chat(reasoning_mode)
+        except Exception:
+            _chat_is_private = bool(
+                reasoning_mode
+                and str(reasoning_mode).strip().lower()
+                not in {"", "quick", "fast", "balanced"}
+            )
+
+        if _chat_is_private and hasattr(self.engine, "_run_chat_reasoning_loop"):
+            print(f"[ORCHESTRATOR] Stage 11: private reasoning loop -> {reasoning_mode}")
+            wm.trace["stage_11"] = "llm_generation_private_loop"
+            _eli_pipe_orch("stage_11_private_loop", mode=str(reasoning_mode), action=action)
+            try:
+                _loop_intent = dict(intent) if isinstance(intent, dict) else {"action": "CHAT"}
+                _loop_result = self.engine._run_chat_reasoning_loop(
+                    user_input=user_input,
+                    memory_context=str(getattr(wm, "assembled_context", "") or ""),
+                    intent=_loop_intent,
+                    reasoning_mode=reasoning_mode,
+                    trace=wm.trace,
+                    gen_overrides=None,
+                    situation_brief="",
+                )
+                _loop_response = str((_loop_result or {}).get("response") or "").strip()
+                if _loop_response:
+                    wm.final_response = _loop_response
+                    try:
+                        self.engine.enqueue_post_response_storage(
+                            user_input,
+                            _loop_response,
+                            intent,
+                            command=False,
+                            working_memory=wm,
+                        )
+                    except Exception as _pps_err:
+                        print(f"[ORCHESTRATOR] post-response storage skipped: {_pps_err}")
+                    _eli_orch_complete_final_stage(
+                        "completed",
+                        note="chat_private_reasoning_loop",
+                    )
+                    self.engine._in_orchestrator = False
+                    return {
+                        "ok": True,
+                        "action": "CHAT",
+                        "content": _loop_response,
+                        "response": _loop_response,
+                        "trace": wm.trace,
+                        "evidence_used": bool(((_loop_result or {}).get("evidence") or {}).get("used")),
+                        "reasoning_mode": str(reasoning_mode or ""),
+                    }
+                print("[ORCHESTRATOR] private reasoning loop returned empty -> falling back to single-shot")
+            except Exception as _priv_err:
+                print(f"[ORCHESTRATOR] private reasoning loop failed -> falling back to single-shot: {_priv_err}")
+        # ELI_PRIVATE_REASONING_DISPATCH_V1_END
+
         wm.trace["stage_11"] = "llm_generation"
         print("[ORCHESTRATOR] Stage 11: LLM Generation →", "streaming" if stream else "oneshot")
         _eli_pipe_orch("stage_11", mode=("streaming" if stream else "oneshot"), action=action)
