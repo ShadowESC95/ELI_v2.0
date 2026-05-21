@@ -6,6 +6,8 @@ from pathlib import Path
 _MODEL = None
 _MODEL_KEY = None
 _MODEL_LOCK = threading.Lock()
+_MODEL_LOADING = False   # True while a download/load is in progress
+_MODEL_READY = threading.Event()  # set once the model is loaded successfully
 
 
 def _env(name, default):
@@ -15,8 +17,8 @@ def _env(name, default):
 def _model_settings():
     model = _env("ELI_WHISPER_MODEL", "small.en")
     model_dir = _env("ELI_WHISPER_MODEL_DIR", "models/whisper")
-    device = _env("ELI_WHISPER_DEVICE", "cpu")
-    compute_type = _env("ELI_WHISPER_COMPUTE_TYPE", "int8")
+    device = _env("ELI_WHISPER_DEVICE", "cuda")
+    compute_type = _env("ELI_WHISPER_COMPUTE_TYPE", "float16")
     local_only = _env("ELI_WHISPER_LOCAL_ONLY", "0").lower() in {"1", "true", "yes", "on"}
 
     candidate = Path(model_dir) / model
@@ -27,35 +29,58 @@ def _model_settings():
 
 
 def get_model():
-    global _MODEL, _MODEL_KEY
+    global _MODEL, _MODEL_KEY, _MODEL_LOADING
 
     model, model_dir, device, compute_type, local_only = _model_settings()
     key = (model, model_dir, device, compute_type, local_only)
 
+    # Fast path — model already loaded and key matches
+    if _MODEL is not None and _MODEL_KEY == key:
+        return _MODEL
+
     with _MODEL_LOCK:
+        # Re-check after acquiring lock (another thread may have loaded it)
         if _MODEL is not None and _MODEL_KEY == key:
             return _MODEL
 
-        from faster_whisper import WhisperModel
+        # Another thread is currently downloading — wait for it
+        if _MODEL_LOADING:
+            pass  # fall through; will wait on _MODEL_READY below
 
-        print(
-            f"[LOCAL_STT] loading faster-whisper model={model!r} "
-            f"device={device!r} compute={compute_type!r} "
-            f"download_root={model_dir!r} local_only={local_only}",
-            flush=True,
-        )
+        else:
+            _MODEL_LOADING = True
+            _MODEL_READY.clear()
 
-        _MODEL = WhisperModel(
-            model,
-            device=device,
-            compute_type=compute_type,
-            download_root=model_dir,
-            local_files_only=local_only,
-        )
-        _MODEL_KEY = key
+            from faster_whisper import WhisperModel
 
-        print("[LOCAL_STT] faster-whisper ready", flush=True)
-        return _MODEL
+            print(
+                f"[LOCAL_STT] loading faster-whisper model={model!r} "
+                f"device={device!r} compute={compute_type!r} "
+                f"download_root={model_dir!r} local_only={local_only}",
+                flush=True,
+            )
+
+            try:
+                _MODEL = WhisperModel(
+                    model,
+                    device=device,
+                    compute_type=compute_type,
+                    download_root=model_dir,
+                    local_files_only=local_only,
+                )
+                _MODEL_KEY = key
+                print("[LOCAL_STT] faster-whisper ready", flush=True)
+            finally:
+                _MODEL_LOADING = False
+                _MODEL_READY.set()  # unblock any waiters even on failure
+
+            return _MODEL
+
+    # We didn't win the load race — wait for the loader to finish then return
+    _MODEL_READY.wait(timeout=300)
+    if _MODEL is None:
+        raise RuntimeError("[LOCAL_STT] model failed to load in background thread")
+    return _MODEL
 
 
 def transcribe_speech_recognition_audio(audio):

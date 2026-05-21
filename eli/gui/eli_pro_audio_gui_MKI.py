@@ -2866,6 +2866,104 @@ class EliMainWindow(QMainWindow):
         self.chat_input.setPlainText(text)
         self.send_message()
 
+    def _populate_mic_device_combo(self, restore: bool = False):
+        """Populate mic selector with ALSA devices + PulseAudio/PipeWire BT sources."""
+        import os as _os
+        prev = self.mic_device_combo.currentData() if restore else None
+        self.mic_device_combo.blockSignals(True)
+        self.mic_device_combo.clear()
+
+        # Default / system choice
+        self.mic_device_combo.addItem("System default", ("alsa", None))
+
+        # ALSA devices via SpeechRecognition
+        try:
+            import speech_recognition as _sr
+            for idx, name in enumerate(_sr.Microphone.list_microphone_names()):
+                if any(skip in name.lower() for skip in ("monitor", "iec958", "spdif", "a52",
+                                                          "speex", "upmix", "vdownmix", "samplerate",
+                                                          "lavrate", "hdmi", "nvidia")):
+                    continue
+                self.mic_device_combo.addItem(f"{name}", ("alsa", idx))
+        except Exception:
+            pass
+
+        # PulseAudio / PipeWire sources (catches BT headsets)
+        try:
+            import subprocess as _sp
+            _out = _sp.check_output(["pactl", "list", "sources", "short"],
+                                    text=True, timeout=3)
+            for line in _out.strip().splitlines():
+                parts = line.split("\t")
+                if len(parts) < 2:
+                    continue
+                src_name = parts[1].strip()
+                # Skip monitors and virtual sinks
+                if ".monitor" in src_name:
+                    continue
+                label = src_name
+                # Make BT sources human-readable
+                if src_name.startswith("bluez_input"):
+                    label = f"Bluetooth: {src_name.split('.')[1].replace('_', ':')}"
+                elif "alsa_input" in src_name:
+                    continue  # already covered by ALSA list above
+                self.mic_device_combo.addItem(label, ("pulse", src_name))
+        except Exception:
+            pass
+
+        self.mic_device_combo.blockSignals(False)
+
+        # Restore previous selection or load from settings
+        saved = prev or getattr(self, "_saved_mic_device", None)
+        if saved:
+            for i in range(self.mic_device_combo.count()):
+                if self.mic_device_combo.itemData(i) == saved:
+                    self.mic_device_combo.setCurrentIndex(i)
+                    break
+
+    def _apply_stt_sensitivity(self):
+        """Push energy threshold / dynamic flag into the live recognizer and env."""
+        import os as _os
+        dynamic = self.dynamic_energy_checkbox.isChecked()
+        threshold = self.energy_threshold_input.value()
+        _os.environ["ELI_STT_DYNAMIC_ENERGY"] = "1" if dynamic else "0"
+        _os.environ["ELI_STT_ENERGY_THRESHOLD"] = str(threshold)
+        # Apply to live recognizer if STT is running
+        try:
+            from eli.perception.audio_stt import _get_recognizer
+            rec = _get_recognizer()
+            if rec is not None:
+                rec.dynamic_energy_threshold = dynamic
+                if not dynamic:
+                    rec.energy_threshold = float(threshold)
+        except Exception:
+            pass
+        if getattr(self, "_first_run_complete", False):
+            self.save_settings(silent=True)
+
+    def _on_mic_device_changed(self, _save: bool = True):
+        """Apply mic device selection to env vars immediately."""
+        import os as _os
+        data = self.mic_device_combo.currentData()
+        if not data:
+            return
+        kind, value = data
+        if kind == "alsa":
+            if value is None:
+                _os.environ.pop("ELI_MIC_DEVICE_INDEX", None)
+                _os.environ.pop("PULSE_SOURCE", None)
+            else:
+                _os.environ["ELI_MIC_DEVICE_INDEX"] = str(value)
+                _os.environ.pop("PULSE_SOURCE", None)
+        elif kind == "pulse":
+            _os.environ["ELI_MIC_DEVICE_INDEX"] = "14"
+            _os.environ["PULSE_SOURCE"] = value
+        self._saved_mic_device = data
+        # Don't save during load_settings — caller sets _save=False to avoid
+        # triggering a model reload cycle on startup.
+        if _save and getattr(self, "_first_run_complete", False):
+            self.save_settings(silent=True)
+
     def _apply_direct_chat_env(self):
         """Sync ELI_STT_ALLOW_DIRECT_CHAT env var from the checkbox — takes effect immediately."""
         import os as _os
@@ -6971,6 +7069,50 @@ _register()
             "STT calibration, voice profile, and TTS diagnostics."
         )
 
+        # ── Microphone selector ───────────────────────────────────────────
+        mic_card = self._section_card(vbox, "STT — MICROPHONE DEVICE")
+
+        self.mic_device_combo = QComboBox()
+        self.mic_device_combo.setToolTip(
+            "Select the microphone ELI listens on.\n"
+            "Bluetooth headsets appear as PulseAudio sources.\n"
+            "Changes take effect the next time the mic is toggled."
+        )
+        self._populate_mic_device_combo()
+        self.mic_device_combo.currentIndexChanged.connect(lambda _: self._on_mic_device_changed(_save=True))
+        mic_card.addRow(self._field_label("Device"), self.mic_device_combo)
+
+        refresh_mic_btn = QPushButton("↻ Refresh")
+        refresh_mic_btn.setToolTip("Re-scan for new microphones or Bluetooth devices.")
+        refresh_mic_btn.clicked.connect(lambda: self._populate_mic_device_combo(restore=True))
+        mic_card.addRow("", refresh_mic_btn)
+
+        # Sensitivity
+        self.dynamic_energy_checkbox = QCheckBox("Dynamic energy threshold (auto-adjusts to ambient noise)")
+        self.dynamic_energy_checkbox.setToolTip(
+            "Continuously adapts the voice detection threshold to ambient noise.\n"
+            "Enable this if you have to shout or if ELI mishears background noise.\n"
+            "Env: ELI_STT_DYNAMIC_ENERGY"
+        )
+        self.dynamic_energy_checkbox.stateChanged.connect(self._apply_stt_sensitivity)
+        mic_card.addRow(self.dynamic_energy_checkbox)
+
+        _thresh_row = QHBoxLayout()
+        self.energy_threshold_input = QSpinBox()
+        self.energy_threshold_input.setRange(50, 10000)
+        self.energy_threshold_input.setValue(1200)
+        self.energy_threshold_input.setSingleStep(50)
+        self.energy_threshold_input.setToolTip(
+            "Minimum audio energy to register as speech.\n"
+            "Lower = more sensitive (picks up quiet speech).\n"
+            "Higher = less sensitive (ignores background noise).\n"
+            "Only used when dynamic threshold is OFF. Env: ELI_STT_ENERGY_THRESHOLD"
+        )
+        self.energy_threshold_input.valueChanged.connect(self._apply_stt_sensitivity)
+        _thresh_row.addWidget(self.energy_threshold_input)
+        _thresh_row.addStretch()
+        mic_card.addRow(self._field_label("Energy threshold"), _thresh_row)
+
         # ── Wake word / listen mode ───────────────────────────────────────
         wake_card = self._section_card(vbox, "STT — WAKE WORD SETTINGS")
 
@@ -8888,6 +9030,31 @@ _register()
         except Exception as e:
             print(f"⚠️ Failed to apply provider/path settings to widgets: {e}")
 
+        # Mic device selection
+        try:
+            _mic = s.get("mic_device")
+            if _mic:
+                self._saved_mic_device = tuple(_mic) if isinstance(_mic, list) else _mic
+                self._on_mic_device_changed(_save=False)
+        except Exception:
+            pass
+
+        # STT sensitivity (energy threshold)
+        try:
+            _dynamic = bool(s.get("stt_dynamic_energy", False))
+            _threshold = int(s.get("stt_energy_threshold", 1200))
+            self.dynamic_energy_checkbox.blockSignals(True)
+            self.dynamic_energy_checkbox.setChecked(_dynamic)
+            self.dynamic_energy_checkbox.blockSignals(False)
+            self.energy_threshold_input.blockSignals(True)
+            self.energy_threshold_input.setValue(_threshold)
+            self.energy_threshold_input.blockSignals(False)
+            import os as _os_e
+            _os_e.environ["ELI_STT_DYNAMIC_ENERGY"] = "1" if _dynamic else "0"
+            _os_e.environ["ELI_STT_ENERGY_THRESHOLD"] = str(_threshold)
+        except Exception:
+            pass
+
         # STT behaviour flags
         try:
             _direct = bool(s.get("allow_direct_chat_without_wake", False))
@@ -9014,6 +9181,9 @@ _register()
             "image_use_chat_context": bool(self.image_use_chat_context_checkbox.isChecked()),
             "image_use_proactive_context": bool(self.image_use_proactive_context_checkbox.isChecked()),
             "allow_direct_chat_without_wake": bool(self.allow_direct_chat_checkbox.isChecked()),
+            "mic_device": list(self.mic_device_combo.currentData()) if self.mic_device_combo.currentData() else None,
+            "stt_dynamic_energy": bool(self.dynamic_energy_checkbox.isChecked()),
+            "stt_energy_threshold": int(self.energy_threshold_input.value()),
         }
 
         try:

@@ -40,7 +40,7 @@ import re as _eli_re
 import subprocess as _eli_subprocess
 import time as _eli_time
 
-_ELI_ECHO_GATE_DEFAULT_S = float(_eli_os.environ.get("ELI_STT_POST_COMMAND_ECHO_GATE", "1.0"))
+_ELI_ECHO_GATE_DEFAULT_S = float(_eli_os.environ.get("ELI_STT_POST_COMMAND_ECHO_GATE", "0.5"))
 _ELI_DUCK_LEVEL = _eli_os.environ.get("ELI_WAKE_DUCK_LEVEL", "18%")
 _ELI_DUCK_ENABLED = _eli_os.environ.get("ELI_WAKE_DUCK_ENABLED", "1") != "0"
 
@@ -232,8 +232,8 @@ MAIN_TIMEOUT = float(os.environ.get("ELI_STT_MAIN_TIMEOUT", "1.2"))
 PHRASE_TIME_LIMIT = float(os.environ.get("ELI_STT_PHRASE_TIME_LIMIT", "6.0"))
 WAKE_ARM_TIMEOUT = float(os.environ.get("ELI_STT_WAKE_ARM_TIMEOUT", "12.0"))
 # Shorter pause when unarmed — wake word is one word, safe-direct is 1-3 words.
-# 0.6s of silence is enough to know the phrase ended; avoids ~0.6s extra wait per wake event.
-UNARMED_PAUSE_S = float(os.environ.get("ELI_STT_UNARMED_PAUSE", "0.30"))
+# 0.20s of silence is enough to know a short command ended.
+UNARMED_PAUSE_S = float(os.environ.get("ELI_STT_UNARMED_PAUSE", "0.20"))
 WAKE_DEBOUNCE_S = float(os.environ.get("ELI_STT_WAKE_DEBOUNCE", "0.7"))
 ELI_DISABLE_WAKE_WORD = os.environ.get("ELI_DISABLE_WAKE_WORD", "0").lower() in ("1", "true", "yes", "on")
 def _allow_direct_chat() -> bool:
@@ -763,7 +763,7 @@ class ELIAudioSTT:
 
         # Local Whisper needs a more sensitive capture front-end than Google STT.
         # These values control when SpeechRecognition decides speech has started/stopped.
-        self.recognizer.energy_threshold = int(os.environ.get("ELI_STT_ENERGY_THRESHOLD", "90"))
+        self.recognizer.energy_threshold = int(os.environ.get("ELI_STT_ENERGY_THRESHOLD", "1200"))
         self.recognizer.dynamic_energy_threshold = os.environ.get(
             "ELI_STT_DYNAMIC_ENERGY", "0"
         ).lower() in {"1", "true", "yes", "on"}
@@ -771,6 +771,10 @@ class ELIAudioSTT:
         self.recognizer.non_speaking_duration = float(
             os.environ.get("ELI_STT_NON_SPEAKING_DURATION", "0.35")
         )
+        # Minimum sustained duration (seconds) of above-threshold audio before it
+        # counts as a phrase. 0.2s is enough to distinguish a real word from a
+        # brief transient; 0.5s was silently dropping short commands like "next".
+        self.recognizer.phrase_threshold = float(os.environ.get("ELI_STT_PHRASE_THRESHOLD", "0.2"))
         print(
             f"[STT_CONFIG] energy={self.recognizer.energy_threshold} "
             f"dynamic={self.recognizer.dynamic_energy_threshold} "
@@ -809,19 +813,42 @@ class ELIAudioSTT:
         # estimate alone.
         self._voice_profile = self._load_voice_profile()
 
-        print("[AUDIO] Calibrating microphone for ambient noise...")
-        _suppress_alsa()
-        try:
-            with self.microphone as source:
-                # Longer initial calibration captures HVAC, monitor hum, etc.
-                cal_duration = float(os.environ.get("ELI_STT_AMBIENT_CAL_SEC", "1.5"))
-                self.recognizer.adjust_for_ambient_noise(source, duration=cal_duration)
-        finally:
-            _restore_stderr()
+        # Ambient calibration: adjusts the energy threshold to sit above the
+        # current room noise floor. With ELI's noise cancellation active (via
+        # module-echo-cancel in the launcher), ambient RMS is ~30-60 so calibration
+        # is safe. Without noise cancel (raw mic + music/HVAC), calibration can
+        # spike to 800-8000 making normal speech undetectable. In that case set
+        # ELI_STT_CALIBRATE=0 to use the fixed ELI_STT_ENERGY_THRESHOLD instead.
+        _do_calibrate = os.environ.get("ELI_STT_CALIBRATE", "0").lower() not in {"0", "false", "no", "off"}
+        if _do_calibrate:
+            print("[AUDIO] Calibrating microphone for ambient noise...")
+            _suppress_alsa()
+            try:
+                with self.microphone as source:
+                    cal_duration = float(os.environ.get("ELI_STT_AMBIENT_CAL_SEC", "1.5"))
+                    _pre_cal = self.recognizer.energy_threshold
+                    self.recognizer.adjust_for_ambient_noise(source, duration=cal_duration)
+                    # Hard cap so loud startup noise can't push threshold into shouting range.
+                    _cal_cap = float(os.environ.get("ELI_STT_CAL_CAP", "2000"))
+                    if self.recognizer.energy_threshold > _cal_cap:
+                        print(
+                            f"[AUDIO] Calibration capped {self.recognizer.energy_threshold:.0f}"
+                            f" → {_cal_cap:.0f} (ELI_STT_CAL_CAP)",
+                            flush=True,
+                        )
+                        self.recognizer.energy_threshold = _cal_cap
+            finally:
+                _restore_stderr()
+        else:
+            print(
+                f"[AUDIO] Ambient calibration skipped (ELI_STT_CALIBRATE=0). "
+                f"Fixed threshold={self.recognizer.energy_threshold:.0f}",
+                flush=True,
+            )
         # Bias against picked-up profile, if any history exists.
         self._apply_voice_profile_bias()
         print(
-            f"[AUDIO] Microphone calibration complete "
+            f"[AUDIO] Microphone ready "
             f"(energy={self.recognizer.energy_threshold:.0f}, "
             f"voice_profile_n={self._voice_profile.get('count', 0)})"
         )
@@ -856,18 +883,23 @@ class ELIAudioSTT:
             pass
 
     def _apply_voice_profile_bias(self) -> None:
-        """Bias energy_threshold toward the user's known speech volume range."""
+        """Bias energy_threshold toward the user's known speech volume range.
+        The bias can only LOWER the threshold toward the user's voice level —
+        it must never raise it above what was already set, so a polluted profile
+        (built from shouting sessions) cannot make ELI deaf to normal speech."""
         if self._voice_profile.get("count", 0) < 5:
             return  # Not enough data yet.
-        # Floor the threshold at half the user's mean energy and at most 90% of mean.
         mean = float(self._voice_profile.get("energy_mean") or 0.0)
         if mean <= 0:
             return
         ambient_thr = float(self.recognizer.energy_threshold)
-        floor_thr = max(60.0, mean * 0.45)
-        ceil_thr = min(8000.0, mean * 0.90)
-        target = max(floor_thr, min(ambient_thr, ceil_thr))
-        self.recognizer.energy_threshold = float(target)
+        # Target: 45% of mean energy (centre of expected voice range).
+        # Hard cap at 2000 so a shout-polluted profile can't push this above
+        # the point where normal speech becomes inaudible.
+        target = min(max(60.0, mean * 0.45), 2000.0)
+        # Only apply if it would LOWER the threshold, never raise it.
+        if target < ambient_thr:
+            self.recognizer.energy_threshold = float(target)
 
     def _record_voice_sample(self, audio) -> None:
         """Update voice profile statistics from a confirmed user utterance."""
@@ -973,9 +1005,9 @@ class ELIAudioSTT:
         # Short post-command gate so ELI/media output does not immediately get
         # re-transcribed as the next user command.
         try:
-            gate_s = float(__import__("os").environ.get("ELI_STT_POST_COMMAND_ECHO_GATE", "1.0"))
+            gate_s = float(__import__("os").environ.get("ELI_STT_POST_COMMAND_ECHO_GATE", "0.5"))
         except Exception:
-            gate_s = 2.5
+            gate_s = 0.5
         self._eli_ignore_until = __import__("time").monotonic() + gate_s
         self._eli_ignore_reason = "post_command_echo_gate"
         print(f"[AUDIO_ECHO_GATE] ignoring mic for {gate_s:.1f}s after command dispatch", flush=True)
@@ -1073,9 +1105,14 @@ class ELIAudioSTT:
 
                         # Periodic recalibration during quiet periods so the
                         # energy threshold tracks ambient noise drift.
-                        if _silent_streak >= _recal_every and _recal_every > 0:
+                        _do_recal = os.environ.get("ELI_STT_CALIBRATE", "0").lower() not in {"0", "false", "no", "off"}
+                        if _do_recal and _silent_streak >= _recal_every and _recal_every > 0:
                             try:
+                                _pre_recal = self.recognizer.energy_threshold
                                 self.recognizer.adjust_for_ambient_noise(source, duration=0.5)
+                                _recal_cap = float(os.environ.get("ELI_STT_CAL_CAP", "2000"))
+                                if self.recognizer.energy_threshold > _recal_cap:
+                                    self.recognizer.energy_threshold = _recal_cap
                                 self._apply_voice_profile_bias()
                                 print(
                                     f"🎚️ [AUDIO] Recalibrated ambient: "
@@ -1085,6 +1122,8 @@ class ELIAudioSTT:
                             except Exception as _recal_err:
                                 print(f"[AUDIO] Recal failed: {_recal_err}", flush=True)
                             _silent_streak = 0
+                        elif not _do_recal and _silent_streak >= _recal_every and _recal_every > 0:
+                            _silent_streak = 0  # reset counter even when calibration is off
 
                         audio = self.recognizer.listen(source, timeout=MAIN_TIMEOUT, phrase_time_limit=_active_phrase_limit)
                     except sr.WaitTimeoutError:
@@ -1211,6 +1250,13 @@ def get_audio_stt():
     if _AUDIO_STT is None:
         _AUDIO_STT = ELIAudioSTT()
     return _AUDIO_STT
+
+
+def _get_recognizer():
+    """Return the active sr.Recognizer if STT is running, else None."""
+    if _AUDIO_STT is not None:
+        return _AUDIO_STT.recognizer
+    return None
 
 
 def start_audio_listening(callback=None):
