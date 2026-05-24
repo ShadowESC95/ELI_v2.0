@@ -364,9 +364,9 @@ def build_persona_handoff(
     except Exception:
         pass
 
-    # ELI's World — current embodied state. Injected so ELI can answer
-    # "what are you doing in the anomaly room?" with narrative truth rather
-    # than runtime JSON. Loaded from EliWorldStorage (fast JSON disk read).
+    # ELI's World — full 9-room topology + current embodied state. Injected so
+    # ELI can answer "what are you doing in the anomaly room?" or "what is the
+    # reflection chamber?" with narrative truth rather than runtime JSON.
     try:
         from eli.world.persistence.storage import EliWorldStorage as _WS
         _wstate = _WS().load()
@@ -374,7 +374,8 @@ def build_persona_handoff(
         _room_id = getattr(_avatar, "room", "") or ""
         _activity = getattr(_avatar, "activity", "") or ""
         _attn = getattr(_avatar, "attention_target", "") or ""
-        _room_info = (_wstate.rooms or {}).get(_room_id, {})
+        _all_rooms = _wstate.rooms or {}
+        _room_info = _all_rooms.get(_room_id, {})
         _room_name = (_room_info.get("name") or _room_id.replace("_", " ").title()) if _room_info else _room_id.replace("_", " ").title()
         _room_purpose = (_room_info.get("purpose") or "") if _room_info else ""
         _room_objects = [
@@ -382,6 +383,7 @@ def build_persona_handoff(
             if getattr(obj, "room", "") == _room_id
         ]
         _world_parts: list[str] = []
+        # Current location detail
         if _room_name:
             _world_parts.append(f"current room: {_room_name}")
         if _room_purpose:
@@ -393,6 +395,16 @@ def build_persona_handoff(
         if _room_objects:
             _obj_names = [getattr(o, "name", str(o)) for o in _room_objects[:4]]
             _world_parts.append(f"objects present: {', '.join(_obj_names)}")
+        # Full world layout — all 9 rooms so ELI knows its complete house
+        if _all_rooms:
+            _layout_lines: list[str] = []
+            for _rid, _rdata in _all_rooms.items():
+                _rn = _rdata.get("name", _rid.replace("_", " ").title())
+                _rp = _rdata.get("purpose", "")
+                _here = " ◄ HERE" if _rid == _room_id else ""
+                _layout_lines.append(f"    {_rn}{_here}: {_rp}")
+            if _layout_lines:
+                _world_parts.append("all 9 rooms:\n" + "\n".join(_layout_lines))
         if len(_world_parts) >= 2:
             parts.append("ELI WORLD STATE:\n" + "\n".join(f"  {p}" for p in _world_parts))
     except Exception:
