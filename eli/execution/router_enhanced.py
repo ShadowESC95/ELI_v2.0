@@ -646,7 +646,7 @@ def _route_grounded_runtime_intent(
     # Identity-route fix: short identity questions go to cognition
     # Do not send identity questions through generic CHAT first.
     # Let the grounded live-introspection actions handle them.
-    if re.search(r"\b(who are you|what are you|what is your name|what's your name|tell me about yourself)\b", raw, re.I):
+    if re.search(r"\b(who are you|what are you(?!\s+\w)|what is your name|what's your name|tell me about yourself)\b", raw, re.I):
         return _mk("SELF_REPORT", {}, 0.99, matched_by="identity.self_report_preempt", allow_chat_without_evidence=False)
 
     if re.search(
