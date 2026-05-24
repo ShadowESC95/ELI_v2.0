@@ -254,14 +254,37 @@ if CENTRAL_IMPORTS_AVAILABLE and get_paths:
     MEMORY_DB = _eli_path_get(_paths, "memory_db")
     CONVERSATIONS_DIR = _paths.conversations_dir
     ARTIFACTS_DIR = _paths.artifacts_dir
-    DEFAULT_MODEL_PATH = str(_paths.model) if _paths.model and _paths.model.exists() else str(PROJECT_ROOT / "models" / "gguf" / "base" / "mistral-7b-instruct-v0.2.Q3_K_M.gguf")
+    # No model filename is hardcoded — scan models/ for any .gguf at startup.
+    # Returns "" when nothing is found so the heal loop doesn't fire on a stale
+    # baked-in default and the GUI/startup-picker can prompt the user instead.
+    def _eli_pick_any_bundled_model() -> str:
+        try:
+            root = PROJECT_ROOT / "models"
+            if root.exists():
+                for p in sorted(root.rglob("*.gguf")):
+                    if p.is_file():
+                        return str(p)
+        except Exception:
+            pass
+        return ""
+    DEFAULT_MODEL_PATH = str(_paths.model) if _paths.model and _paths.model.exists() else _eli_pick_any_bundled_model()
     BUNDLED_MODEL_DIR = PROJECT_ROOT / "models"
     CUSTOM_MODELS_DIR = APP_DIR / "models"
 else:
     MEMORY_DB = PROJECT_ROOT / "artifacts" / "eli_memory.sqlite3"
     CONVERSATIONS_DIR = PROJECT_ROOT / "artifacts" / "conversations"
     ARTIFACTS_DIR = PROJECT_ROOT / "artifacts"
-    DEFAULT_MODEL_PATH = str(PROJECT_ROOT / "models" / "gguf" / "base" / "mistral-7b-instruct-v0.2.Q3_K_M.gguf")
+    def _eli_pick_any_bundled_model() -> str:
+        try:
+            root = PROJECT_ROOT / "models"
+            if root.exists():
+                for p in sorted(root.rglob("*.gguf")):
+                    if p.is_file():
+                        return str(p)
+        except Exception:
+            pass
+        return ""
+    DEFAULT_MODEL_PATH = _eli_pick_any_bundled_model()
     BUNDLED_MODEL_DIR = PROJECT_ROOT / "models"
     CUSTOM_MODELS_DIR = APP_DIR / "models"
 
@@ -2220,6 +2243,8 @@ class EliMainWindow(QMainWindow):
     _image_chat_sig  = pyqtSignal(str)
     # Generated artifacts: open saved scripts/docs in the GUI from worker threads
     _generated_artifact_open_sig = pyqtSignal(object)
+    # Confidence/grounding badge update signal (worker → main thread)
+    _conf_meta_update_sig = pyqtSignal()
 
     def __init__(self):
         super().__init__()
@@ -2288,6 +2313,7 @@ class EliMainWindow(QMainWindow):
         self.chat_image_generation_failed_signal.connect(self._chat_image_generation_failed, Qt.ConnectionType.QueuedConnection)
         self.wizard_say_signal.connect(self._wizard_display_message, Qt.ConnectionType.QueuedConnection)
         self._mem_refresh_sig.connect(self.refresh_memory_stats, Qt.ConnectionType.QueuedConnection)
+        self._conf_meta_update_sig.connect(self._update_confidence_meta_label, Qt.ConnectionType.QueuedConnection)
         self._image_chat_sig.connect(self._on_image_chat_response, Qt.ConnectionType.QueuedConnection)
         self._generated_artifact_open_sig.connect(
             self._open_generated_artifact_from_result,
@@ -2467,6 +2493,7 @@ class EliMainWindow(QMainWindow):
         # ---------- START PROACTIVE DAEMON ----------
         self._proactive_daemon = None
         self._proactive_dock = None
+        self._operator_console_dock = None
         self._proactive_event_count = 0
         if start_daemon:
             try:
@@ -2483,6 +2510,16 @@ class EliMainWindow(QMainWindow):
                     print("[GUI] ProactiveDock attached (hidden until opened)")
                 except Exception as _dock_err:
                     print(f"[GUI] ProactiveDock unavailable (non-fatal): {_dock_err}")
+                # Attach OperatorConsoleDock — hidden by default, toggled via View menu
+                try:
+                    from eli.gui.docks.operator_console_dock import OperatorConsoleDock
+                    self._operator_console_dock = OperatorConsoleDock(self)
+                    self.addDockWidget(Qt.DockWidgetArea.RightDockWidgetArea, self._operator_console_dock)
+                    self._operator_console_dock.hide()
+                    print("[GUI] OperatorConsoleDock attached (hidden until opened)")
+                except Exception as _ocd_err:
+                    print(f"[GUI] OperatorConsoleDock unavailable (non-fatal): {_ocd_err}")
+                    self._operator_console_dock = None
                 # Consume daemon suggestion_queue → proactive tab (thread-safe)
                 threading.Thread(
                     target=self._daemon_queue_consumer, daemon=True,
@@ -2983,6 +3020,10 @@ class EliMainWindow(QMainWindow):
         # wake_on=True → wake word required → direct chat disabled
         _os.environ["ELI_STT_ALLOW_DIRECT_CHAT"] = "0" if wake_on else "1"
         self.wake_word_btn.setText("Wake: ON" if wake_on else "Wake: OFF")
+        print(
+            f"[WAKE] {'ON — say \"computer\" before commands' if wake_on else 'OFF — all speech dispatched (≥2 words)'}",
+            flush=True,
+        )
         # Keep settings-page checkbox in sync
         if hasattr(self, "allow_direct_chat_checkbox"):
             self.allow_direct_chat_checkbox.blockSignals(True)
@@ -3165,6 +3206,12 @@ class EliMainWindow(QMainWindow):
         self.status_bar = self.statusBar()
         self.status_label = QLabel("🔴 Model not loaded")
         self.status_bar.addWidget(self.status_label)
+        # Confidence / grounding metadata badge — updated after each response
+        self._confidence_meta_label = QLabel("")
+        self._confidence_meta_label.setStyleSheet(
+            "color:#7a9cbf;font-size:10px;padding:0 6px;"
+        )
+        self.status_bar.addWidget(self._confidence_meta_label)
         # Proactive daemon status indicator (right side of status bar)
         self._proactive_status_label = QLabel()
         self.status_bar.addPermanentWidget(self._proactive_status_label)
@@ -3239,6 +3286,12 @@ class EliMainWindow(QMainWindow):
         toggle_hw.triggered.connect(self._toggle_hardware_tuning_dock)
         self._toggle_hardware_dock_action = toggle_hw
         view_menu.addAction(toggle_hw)
+        toggle_op = QAction("Operator Console", self)
+        toggle_op.setCheckable(True)
+        toggle_op.setShortcut("Ctrl+Shift+O")
+        toggle_op.triggered.connect(self._toggle_operator_console_dock)
+        self._toggle_operator_console_action = toggle_op
+        view_menu.addAction(toggle_op)
         help_menu = menubar.addMenu("&Help")
         about_action = QAction("About", self)
         about_action.triggered.connect(self.show_about)
@@ -3301,6 +3354,32 @@ class EliMainWindow(QMainWindow):
                 pass
         except Exception as _e:
             print(f"[GUI] toggle proactive dock failed: {_e}")
+
+    def _toggle_operator_console_dock(self, checked: bool = None):
+        """Show or hide the Operator Console dock. Wired to View → Operator Console
+        (Ctrl+Shift+O)."""
+        try:
+            dock = getattr(self, "_operator_console_dock", None)
+            if dock is None:
+                try:
+                    from eli.gui.docks.operator_console_dock import OperatorConsoleDock
+                    dock = OperatorConsoleDock(self)
+                    self._operator_console_dock = dock
+                    self.addDockWidget(Qt.DockWidgetArea.RightDockWidgetArea, dock)
+                except Exception as _err:
+                    print(f"[GUI] OperatorConsoleDock attach failed: {_err}")
+                    return
+            if checked is None:
+                checked = not dock.isVisible()
+            dock.setVisible(bool(checked))
+            if checked:
+                dock.raise_()
+            try:
+                self._toggle_operator_console_action.setChecked(bool(checked))
+            except Exception:
+                pass
+        except Exception as _e:
+            print(f"[GUI] toggle operator console dock failed: {_e}")
 
     def _ensure_hardware_tuning_dock(self):
         dock = getattr(self, "_hardware_tuning_dock", None)
@@ -3619,10 +3698,11 @@ class EliMainWindow(QMainWindow):
             "OFF = all speech is treated as a command (direct listen mode)."
         )
         self.wake_word_btn.setStyleSheet(
-            _BTN_BASE + "QPushButton { background-color:#4CAF50; }"
-            "QPushButton:checked { background-color:#4CAF50; }"
+            _BTN_BASE
+            + "QPushButton:checked { background-color:#4CAF50; }"
             "QPushButton:!checked { background-color:#F44336; }"
-            "QPushButton:hover { background-color:#388E3C; }"
+            "QPushButton:checked:hover { background-color:#388E3C; }"
+            "QPushButton:!checked:hover { background-color:#C62828; }"
         )
         self.wake_word_btn.toggled.connect(self._on_wake_word_toggled)
         btn_layout.addWidget(self.wake_word_btn)
@@ -5800,27 +5880,6 @@ class EliMainWindow(QMainWindow):
             except Exception as _fallback_err:
                 print(f"[Experimental] fallback tab failed: {_fallback_err}")
 
-    def create_documents_tab(self):
-        docs_widget = QWidget()
-        layout = QVBoxLayout(docs_widget)
-        header = QLabel("📄 Document Viewer")
-        header.setStyleSheet("font-size: 13px; font-weight: bold; padding: 6px;")
-        layout.addWidget(header)
-        toolbar = QHBoxLayout()
-        open_doc_btn = QPushButton("📂 Open Document")
-        open_doc_btn.clicked.connect(self.open_document)
-        toolbar.addWidget(open_doc_btn)
-        toolbar.addStretch()
-        self.doc_info_label = QLabel("No document loaded")
-        toolbar.addWidget(self.doc_info_label)
-        layout.addLayout(toolbar)
-        self.doc_display = QTextEdit()
-        self.doc_display.setReadOnly(True)
-        self.doc_display.setPlaceholderText("Open a document to view its contents...")
-        layout.addWidget(self.doc_display)
-        self._documents_widget = docs_widget
-        self.tabs.addTab(docs_widget, "📄 Documents")
-
     def create_files_tab(self):
         files_widget = QWidget()
         layout = QVBoxLayout(files_widget)
@@ -6212,6 +6271,7 @@ _register()
         ("Audio",       "🎙"),
         ("Application", "🖥"),
         ("Agents",      "🤖"),
+        ("Gaze",        "👁"),
         ("Advanced",    "⚙️"),
     ]
 
@@ -6274,6 +6334,7 @@ _register()
         self._settings_stack.addWidget(self._build_settings_audio_page())
         self._settings_stack.addWidget(self._build_settings_app_page())
         self._settings_stack.addWidget(self._build_settings_agents_page())
+        self._settings_stack.addWidget(self._build_settings_gaze_page())
         self._settings_stack.addWidget(self._build_settings_advanced_page())
 
         self._settings_zoom_view = _ZoomableSettingsView(self._settings_stack)
@@ -7363,7 +7424,197 @@ _register()
         vbox.addStretch()
         return page
 
-    # ── Page 5 — Advanced ─────────────────────────────────────────────────────
+    # ── Page 5 — Gaze ─────────────────────────────────────────────────────────
+    def _build_settings_gaze_page(self) -> QWidget:
+        page, vbox = self._settings_page(
+            "Gaze Engine",
+            "Webcam-based gaze tracking — iris position → screen coordinates via ridge regression.",
+        )
+
+        # ── Enable toggle ─────────────────────────────────────────────────────
+        form = self._section_card(vbox, "ENGINE")
+
+        self.gaze_enabled_checkbox = QCheckBox("Enable gaze engine on startup")
+        self.gaze_enabled_checkbox.setChecked(False)
+        self.gaze_enabled_checkbox.setStyleSheet("color:#c8d0e0;")
+        self.gaze_enabled_checkbox.toggled.connect(self._on_gaze_toggle)
+        form.addRow("", self.gaze_enabled_checkbox)
+
+        # Camera index
+        gaze_cam_row = QWidget()
+        gaze_cam_lay = QHBoxLayout(gaze_cam_row)
+        gaze_cam_lay.setContentsMargins(0, 0, 0, 0)
+        gaze_cam_lay.setSpacing(6)
+        self.gaze_camera_input = QLineEdit("auto")
+        self.gaze_camera_input.setFixedWidth(60)
+        self.gaze_camera_input.setStyleSheet(
+            "QLineEdit{background:#252930;color:#c8d0e0;border:1px solid #3a3f4b;"
+            "border-radius:4px;padding:2px 6px;font-size:11px;}"
+        )
+        self.gaze_camera_input.setToolTip(
+            "Camera index (0, 1, 2 …) or 'auto' to scan all V4L2 devices"
+        )
+        gaze_cam_lay.addWidget(self.gaze_camera_input)
+        gaze_cam_lay.addStretch()
+        form.addRow(self._field_label("Camera"), gaze_cam_row)
+
+        # ── Status row ───────────────────────────────────────────────────────
+        form2 = self._section_card(vbox, "STATUS")
+
+        self._gaze_status_label = QLabel("● stopped")
+        self._gaze_status_label.setStyleSheet("color:#6b7a90;font-size:11px;")
+        form2.addRow("", self._gaze_status_label)
+
+        self._gaze_cal_label = QLabel("Calibration: unknown")
+        self._gaze_cal_label.setStyleSheet("color:#6b7a90;font-size:10px;")
+        form2.addRow("", self._gaze_cal_label)
+
+        refresh_btn = QPushButton("↻  Refresh status")
+        refresh_btn.setFixedHeight(26)
+        refresh_btn.setStyleSheet(
+            "QPushButton{background:#2e3440;color:#8b9ab0;font-size:10px;"
+            "border:1px solid #3a3f4b;border-radius:4px;}"
+            "QPushButton:hover{background:#3b4252;color:#d8dee9;}"
+        )
+        refresh_btn.clicked.connect(self._refresh_gaze_status)
+        form2.addRow("", refresh_btn)
+
+        # ── Control buttons ───────────────────────────────────────────────────
+        form3 = self._section_card(vbox, "CONTROLS")
+
+        btn_row = QWidget()
+        btn_lay = QHBoxLayout(btn_row)
+        btn_lay.setContentsMargins(0, 0, 0, 0)
+        btn_lay.setSpacing(8)
+
+        start_btn = QPushButton("▶  Start")
+        start_btn.setFixedHeight(30)
+        start_btn.setStyleSheet(
+            "QPushButton{background:#4c7a4c;color:#fff;font-weight:600;"
+            "border:none;border-radius:5px;padding:0 14px;font-size:11px;}"
+            "QPushButton:hover{background:#5a9a5a;}"
+        )
+        start_btn.clicked.connect(self._gaze_start_clicked)
+        btn_lay.addWidget(start_btn)
+
+        stop_btn = QPushButton("⏹  Stop")
+        stop_btn.setFixedHeight(30)
+        stop_btn.setStyleSheet(
+            "QPushButton{background:#7a3c3c;color:#fff;font-weight:600;"
+            "border:none;border-radius:5px;padding:0 14px;font-size:11px;}"
+            "QPushButton:hover{background:#9a4c4c;}"
+        )
+        stop_btn.clicked.connect(self._gaze_stop_clicked)
+        btn_lay.addWidget(stop_btn)
+
+        btn_lay.addStretch()
+        form3.addRow("", btn_row)
+
+        # ── Calibration ───────────────────────────────────────────────────────
+        form4 = self._section_card(vbox, "CALIBRATION")
+
+        cal_info = QLabel(
+            "Calibration maps your iris position to screen coordinates via ridge\n"
+            "regression on MediaPipe landmarks.  Run the script below with your\n"
+            "webcam active and follow the on-screen dot targets (~2 min)."
+        )
+        cal_info.setWordWrap(True)
+        cal_info.setStyleSheet("color:#6b7a90;font-size:10px;background:transparent;")
+        form4.addRow("", cal_info)
+
+        cal_btn = QPushButton("📋  Show calibration instructions")
+        cal_btn.setFixedHeight(28)
+        cal_btn.setStyleSheet(
+            "QPushButton{background:#3b4252;color:#d8dee9;font-weight:500;"
+            "border:none;border-radius:5px;padding:0 14px;font-size:11px;}"
+            "QPushButton:hover{background:#4c566a;}"
+        )
+        cal_btn.clicked.connect(self._gaze_calibrate_info)
+        form4.addRow("", cal_btn)
+
+        vbox.addStretch()
+
+        # Populate status on page build
+        QTimer.singleShot(200, self._refresh_gaze_status)
+        return page
+
+    def _on_gaze_toggle(self, checked: bool):
+        self.save_settings(silent=True)
+        if checked:
+            self._gaze_start_clicked()
+        else:
+            self._gaze_stop_clicked()
+
+    def _gaze_start_clicked(self):
+        try:
+            from eli.perception.gaze_engine import start_gaze_engine
+            cam = getattr(self, "gaze_camera_input", None)
+            camera = cam.text().strip() if cam else "auto"
+            if camera not in ("auto",) and not camera.isdigit():
+                camera = "auto"
+            result = start_gaze_engine(camera=camera if camera == "auto" else int(camera))
+            msg = result.get("message", "")
+            if not result.get("ok") and not result.get("already_running"):
+                QMessageBox.warning(self, "Gaze Engine", msg)
+        except Exception as e:
+            QMessageBox.warning(self, "Gaze Engine", str(e))
+        self._refresh_gaze_status()
+
+    def _gaze_stop_clicked(self):
+        try:
+            from eli.perception.gaze_engine import stop_gaze_engine
+            stop_gaze_engine()
+        except Exception as e:
+            QMessageBox.warning(self, "Gaze Engine", str(e))
+        self._refresh_gaze_status()
+
+    def _gaze_calibrate_info(self):
+        try:
+            import subprocess, sys as _sys
+            from eli.perception.gaze_engine import get_calibration_path, needs_calibration
+            cal_path = get_calibration_path()
+            script = str(
+                __import__("pathlib").Path(__file__).resolve().parents[2]
+                / "experimental" / "eli_ar_avatar_kit" / "scripts"
+                / "eli_gaze_calibrate_plus.py"
+            )
+            exists_note = "✅ Calibration file exists." if not needs_calibration() else "⚠ No calibration file yet."
+            QMessageBox.information(
+                self,
+                "Gaze Calibration",
+                f"{exists_note}\n\n"
+                f"To calibrate, run in a terminal:\n\n"
+                f"  python {script} --points 25\n\n"
+                f"Saved to:\n  {cal_path}",
+            )
+        except Exception as e:
+            QMessageBox.information(self, "Gaze Calibration", str(e))
+
+    def _refresh_gaze_status(self):
+        try:
+            from eli.perception.gaze_engine import get_gaze_status
+            st = get_gaze_status()
+            running = st.get("running", False)
+            calibrated = st.get("calibrated", False)
+            if hasattr(self, "_gaze_status_label"):
+                if running:
+                    self._gaze_status_label.setText("● running")
+                    self._gaze_status_label.setStyleSheet("color:#88c0d0;font-size:11px;font-weight:600;")
+                else:
+                    self._gaze_status_label.setText("● stopped")
+                    self._gaze_status_label.setStyleSheet("color:#6b7a90;font-size:11px;")
+            if hasattr(self, "_gaze_cal_label"):
+                if calibrated:
+                    self._gaze_cal_label.setText(f"Calibration: ✅  {st.get('calibration_path','')}")
+                    self._gaze_cal_label.setStyleSheet("color:#a3be8c;font-size:10px;")
+                else:
+                    self._gaze_cal_label.setText("Calibration: ⚠  not found — run: gaze calibrate")
+                    self._gaze_cal_label.setStyleSheet("color:#bf616a;font-size:10px;")
+        except Exception:
+            if hasattr(self, "_gaze_status_label"):
+                self._gaze_status_label.setText("● unavailable")
+
+    # ── Page 6 — Advanced ─────────────────────────────────────────────────────
     def _build_settings_advanced_page(self) -> QWidget:
         page, vbox = self._settings_page(
             "Advanced",
@@ -8138,6 +8389,11 @@ _register()
                 if getattr(self, '_tts_auto', False):
                     self._speak_response(response)
                 self._mem_refresh_sig.emit()
+                # Refresh confidence/grounding badge in status bar (via queued signal — worker thread safe)
+                try:
+                    self._conf_meta_update_sig.emit()
+                except Exception:
+                    pass
 
             except Exception as e:
                 self.chat_response_signal.emit(f"❌ Error: {str(e)}")
@@ -8296,6 +8552,45 @@ _register()
                     maybe_speak(plain, enabled=True)
                 except Exception:
                     pass
+
+    def _update_confidence_meta_label(self):
+        """Refresh the status-bar confidence/grounding badge from engine._last_request_meta."""
+        label = getattr(self, "_confidence_meta_label", None)
+        if label is None:
+            return
+        try:
+            ce = getattr(self, "_cognitive_engine", None)
+            meta = dict(getattr(ce, "_last_request_meta", {}) or {}) if ce is not None else {}
+            if not meta:
+                label.setText("")
+                return
+            agg = meta.get("aggregated_confidence") or meta.get("confidence")
+            grnd = meta.get("grounding_confidence")
+            lbl = meta.get("confidence_label", "")
+            action = meta.get("result_action") or meta.get("action") or ""
+            parts = []
+            if agg is not None:
+                try:
+                    _a = float(agg)
+                    parts.append(f"conf {_a:.2f}" + (f" ({lbl})" if lbl else ""))
+                except Exception:
+                    pass
+            if grnd is not None:
+                try:
+                    _g = float(grnd)
+                    grnd_tag = "✓" if _g >= 0.40 else ("~" if _g >= 0.10 else "⚠")
+                    parts.append(f"grounding {grnd_tag}{_g:.2f}")
+                except Exception:
+                    pass
+            if action:
+                parts.append(action)
+            label.setText("  " + "  |  ".join(parts) + "  " if parts else "")
+            label.setToolTip(
+                f"Last response metadata:\n"
+                + "\n".join(f"  {k}: {v}" for k, v in sorted(meta.items()))
+            )
+        except Exception:
+            pass
 
     def _update_proactive_status_label(self):
         """Refresh the status-bar proactive indicator."""
@@ -8772,18 +9067,21 @@ _register()
         suffix = path.suffix.lower()
         wants_labs = bool(result.get("open_in_labs"))
         wants_ide = bool(result.get("open_in_ide"))
+        is_script_action = action in {
+            "GENERATE_SCRIPT", "CREATE_SCRIPT", "WRITE_SCRIPT",
+            "GENERATE_CODE", "WRITE_CODE", "FIX_FILE",
+        }
 
-        if suffix == ".py":
-            if wants_labs and self._load_path_into_labs_sim_ide(path):
+        # Every generated script goes to the IDE tab — no extension whitelist.
+        if is_script_action:
+            if wants_labs and suffix == ".py" and self._load_path_into_labs_sim_ide(path):
                 return
-            if wants_ide or wants_labs:
-                self._load_path_into_main_ide(path)
-                return
+            self._load_path_into_main_ide(path)
+            return
 
         if suffix in {".md", ".txt", ".log"}:
             try:
                 self.open_text_file(path)
-                self._focus_tab_widget(getattr(self, "_documents_widget", None))
                 self.status_signal.emit(f"Opened document: {path.name}")
             except Exception as e:
                 self.status_signal.emit(f"Failed to open generated document: {e}")
@@ -8792,7 +9090,6 @@ _register()
         if suffix == ".pdf":
             try:
                 self.open_pdf(path)
-                self._focus_tab_widget(getattr(self, "_documents_widget", None))
                 self.status_signal.emit(f"Opened PDF: {path.name}")
             except Exception as e:
                 self.status_signal.emit(f"Failed to open generated PDF: {e}")
@@ -8894,46 +9191,97 @@ _register()
             else:
                 self.open_text_file(path_obj)
 
+    def _load_into_labs_file_chat(self, path: Path) -> bool:
+        """Load a file into Labs > File Chat and switch to that tab. Returns True on success."""
+        try:
+            labs = getattr(self, "_labs_widget", None)
+            if labs is None:
+                return False
+            fc = getattr(labs, "_file_chat_tab", None)
+            if fc is None:
+                return False
+            fc._load_path(str(path))
+            # Switch to Labs tab, then to File Chat sub-tab
+            self._focus_tab_widget(labs)
+            inner = getattr(labs, "_inner_tabs", None)
+            if inner is not None:
+                idx = inner.indexOf(fc)
+                if idx >= 0:
+                    inner.setCurrentIndex(idx)
+            return True
+        except Exception:
+            return False
+
     def open_text_file(self, path: Path):
+        if self._load_into_labs_file_chat(path):
+            return
+        # Fallback: floating read-only viewer
         try:
             content = path.read_text(encoding='utf-8', errors='replace')
-            self.doc_display.setPlainText(content)
-            self.doc_info_label.setText(f"File: {path.name} ({len(content)} chars)")
+            dlg = QDialog(self)
+            dlg.setWindowTitle(str(path.name))
+            dlg.resize(800, 600)
+            v = QVBoxLayout(dlg)
+            t = QTextEdit()
+            t.setReadOnly(True)
+            t.setPlainText(content)
+            v.addWidget(t)
+            btn = QPushButton("Close")
+            btn.clicked.connect(dlg.accept)
+            v.addWidget(btn)
+            dlg.exec()
         except Exception as e:
             QMessageBox.critical(self, "Error", f"Failed to open file: {str(e)}")
 
     def open_pdf(self, path: Path):
+        text = ""
         try:
             try:
                 import pypdf
                 reader = pypdf.PdfReader(str(path))
-                text = ""
                 for page in reader.pages[:10]:
                     text += page.extract_text() + "\n\n"
-                self.doc_display.setPlainText(text)
-                self.doc_info_label.setText(f"PDF: {path.name} ({len(reader.pages)} pages)")
-                return
             except ImportError:
-                pass
-            try:
-                import PyPDF2
-                with open(path, 'rb') as f:
-                    reader = PyPDF2.PdfReader(f)
-                    text = ""
-                    for page in reader.pages[:10]:
-                        text += page.extract_text() + "\n\n"
-                self.doc_display.setPlainText(text)
-                self.doc_info_label.setText(f"PDF: {path.name} ({len(reader.pages)} pages)")
-                return
-            except ImportError:
-                pass
-            self.doc_display.setPlainText(
-                f"PDF viewing requires pypdf or PyPDF2.\n\n"
-                f"Install with: pip install pypdf\n\n"
-                f"File: {path}"
-            )
+                try:
+                    import PyPDF2
+                    with open(path, 'rb') as f:
+                        reader = PyPDF2.PdfReader(f)
+                        for page in reader.pages[:10]:
+                            text += page.extract_text() + "\n\n"
+                except ImportError:
+                    text = (
+                        f"PDF viewing requires pypdf or PyPDF2.\n\n"
+                        f"Install with: pip install pypdf\n\nFile: {path}"
+                    )
         except Exception as e:
             QMessageBox.critical(self, "Error", f"Failed to open PDF: {str(e)}")
+            return
+        # Write extracted text to a temp .txt and load into Labs File Chat
+        try:
+            import tempfile
+            with tempfile.NamedTemporaryFile(
+                mode='w', suffix='.txt', prefix=path.stem + '_',
+                delete=False, encoding='utf-8'
+            ) as tmp:
+                tmp.write(text)
+                tmp_path = Path(tmp.name)
+            if self._load_into_labs_file_chat(tmp_path):
+                return
+        except Exception:
+            pass
+        # Fallback: floating viewer
+        dlg = QDialog(self)
+        dlg.setWindowTitle(str(path.name))
+        dlg.resize(800, 600)
+        v = QVBoxLayout(dlg)
+        t = QTextEdit()
+        t.setReadOnly(True)
+        t.setPlainText(text)
+        v.addWidget(t)
+        btn = QPushButton("Close")
+        btn.clicked.connect(dlg.accept)
+        v.addWidget(btn)
+        dlg.exec()
 
     def browse_directory(self, path: str):
         self.file_tree.setRootIndex(self.file_model.index(path))
@@ -9071,6 +9419,27 @@ _register()
         except Exception:
             pass
 
+        # Gaze engine
+        try:
+            _gaze_on = bool(s.get("gaze_engine_enabled", False))
+            _gaze_cam = str(s.get("gaze_camera", "auto") or "auto")
+            if hasattr(self, "gaze_enabled_checkbox"):
+                self.gaze_enabled_checkbox.blockSignals(True)
+                self.gaze_enabled_checkbox.setChecked(_gaze_on)
+                self.gaze_enabled_checkbox.blockSignals(False)
+            if hasattr(self, "gaze_camera_input"):
+                self.gaze_camera_input.blockSignals(True)
+                self.gaze_camera_input.setText(_gaze_cam)
+                self.gaze_camera_input.blockSignals(False)
+            if _gaze_on:
+                try:
+                    from eli.perception.gaze_engine import start_gaze_engine
+                    start_gaze_engine(camera=_gaze_cam if _gaze_cam == "auto" else int(_gaze_cam) if _gaze_cam.isdigit() else "auto")
+                except Exception as _ge:
+                    print(f"[GUI] Gaze engine auto-start failed: {_ge}")
+        except Exception:
+            pass
+
         # GUI-local flags + theme
         try:
             self.auto_save_checkbox.setChecked(bool(s.get("auto_save", True)))
@@ -9184,6 +9553,8 @@ _register()
             "mic_device": list(self.mic_device_combo.currentData()) if self.mic_device_combo.currentData() else None,
             "stt_dynamic_energy": bool(self.dynamic_energy_checkbox.isChecked()),
             "stt_energy_threshold": int(self.energy_threshold_input.value()),
+            "gaze_engine_enabled": bool(getattr(self, "gaze_enabled_checkbox", None) and self.gaze_enabled_checkbox.isChecked()),
+            "gaze_camera": str(self.gaze_camera_input.text().strip() if hasattr(self, "gaze_camera_input") else "auto"),
         }
 
         try:
