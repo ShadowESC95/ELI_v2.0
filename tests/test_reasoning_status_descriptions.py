@@ -23,7 +23,7 @@ def test_mode_descriptions_exist_and_are_distinct():
 
 def test_mode_descriptions_capture_core_contract_terms():
     assert "direct" in mode_description("quick").lower()
-    assert "single-pass" in mode_description("chain_of_thought").lower()
+    assert "scratchpad" in mode_description("chain_of_thought").lower()
     assert "n-sample" in mode_description("self_consistency").lower()
     assert "propose" in mode_description("tree_of_thoughts").lower()
     assert "critique" in mode_description("constitutional_ai").lower()
