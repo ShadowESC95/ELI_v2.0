@@ -3184,10 +3184,12 @@ class CognitiveEngine:
 
     def _next_trace(self, user_input: str,
                     intent: Dict[str, Any], reasoning_mode: Optional[str]) -> Dict[str, Any]:
+        if not hasattr(self, "_request_counter"):
+            self._request_counter = 0
         self._request_counter += 1
         trace = {
             "request_id": f"req-{self._request_counter:06d}",
-            "session_id": self.session_id,
+            "session_id": getattr(self, "session_id", str(int(time.time()))),
             "user_input": user_input,
             "reasoning_mode": str(reasoning_mode or "quick"),
             "intent": intent,
@@ -7412,6 +7414,23 @@ Answer:"""
         user_input = _eli_sanitize_user_input(user_input)
         # ── End prompt injection guard ─────────────────────────────────────────
 
+        # ── Minimal attr guard for __new__-constructed instances (tests) ───────
+        if not hasattr(self, "session_id"):
+            self.session_id = str(int(time.time()))
+        if not hasattr(self, "user_id"):
+            self.user_id = str(__import__("uuid").uuid4())
+        if not hasattr(self, "_request_counter"):
+            self._request_counter = 0
+        if not hasattr(self, "_gguf_available"):
+            self._gguf_available = False
+        if not hasattr(self, "_gguf_lock"):
+            self._gguf_lock = __import__("threading").Lock()
+        if not hasattr(self, "_last_trace"):
+            self._last_trace = {}
+        if not hasattr(self, "_conversation_history"):
+            self._conversation_history = []
+        # ── End minimal attr guard ─────────────────────────────────────────────
+
         # === ELI_MULTI_QUESTION_SPLITTER_V2 ===
         # Handles inputs containing multiple distinct questions, e.g.:
         #   "Story pal? Who are you, and who am I?"  →  3 answers
@@ -7701,10 +7720,9 @@ Answer:"""
                     pass
                 _eli_mc_mw_mode = _eli_mc_mode_v4((), _eli_mc_mw_kwargs)
                 _eli_pipe("mw_memory_count_hit", mode=_eli_mc_mw_mode)
-                # Non-quick modes fall through to the full pipeline so GGUF synthesises
-                # the evidence in the user's active reasoning mode.
-                if _mw_rs_is_quick(_eli_mc_mw_mode):
-                    return _eli_mc_payload_v5(user_input, _eli_mc_mw_mode)
+                # MEMORY_COUNT is always deterministic (SQLite fact lookup, no GGUF needed).
+                # Mode affects depth: quick → concise count only, non-quick → grounded detail.
+                return _eli_mc_payload_v5(user_input, _eli_mc_mw_mode)
         except Exception as _eli_mc_middleware_err:
             log.debug(f"[ENGINE][WARN] memory-count v5 middleware failed: {_eli_mc_middleware_err}")
         # === END ELI_ENGINE_MIDDLEWARE_MEMORY_COUNT_V5 ===
@@ -8052,7 +8070,7 @@ Answer:"""
         except Exception:
             pass
 
-        context = self.memory.get_recent_conversation(5, user_id=self.user_id)
+        context = self.memory.get_recent_conversation(5, user_id=getattr(self, "user_id", None))
 
         t_route = time.perf_counter()
         intent = self._parse_intent(user_input, context)
