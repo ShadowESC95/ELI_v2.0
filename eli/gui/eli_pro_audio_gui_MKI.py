@@ -113,7 +113,7 @@ try:
     from eli.core.paths import get_paths
     from eli.memory import get_memory, Memory
     from eli.cognition import gguf_inference
-    from eli.planning.proactive_daemon import start_daemon   # <-- ADDED
+    from eli.planning.proactive_daemon import start_daemon
     CENTRAL_IMPORTS_AVAILABLE = True
     print("✅ Central ELI modules loaded.")
 except ImportError as e:
@@ -124,7 +124,7 @@ except ImportError as e:
     get_memory = None
     gguf_inference = None
     Memory = None
-    start_daemon = None   # <-- ADDED
+    start_daemon = None
 
 # ============================================================
 # Adapter for central Memory to match GUI's expected interface
