@@ -13,9 +13,17 @@ from pathlib import Path
 import re
 
 import logging
+import time
 from typing import Any, Dict, List, Optional
 
 log = logging.getLogger(__name__)
+
+# Module-level debounce: skip update_persona_overlay() calls that occur within
+# 30 seconds of the previous run. Prevents the 8+ firings per short session
+# caused by awareness_boot + reflection + proactive daemon all running without
+# coordination.
+_PERSONA_OVERLAY_LAST_RUN: float = 0.0
+_PERSONA_OVERLAY_MIN_INTERVAL: float = 120.0
 
 
 def _safe_call(obj: Any, name: str, *args, **kwargs):
@@ -221,7 +229,13 @@ def _get_reflection_themes(memory: Any, limit: int = 6) -> List[str]:
 
 
 def _get_session_narrative(memory: Any, limit: int = 3) -> List[str]:
-    """Pull recent session summaries from the session_summaries table."""
+    """Pull recent session summaries.
+
+    The engine writes session narratives to the `memories` table (tagged
+    'session_summary') at shutdown via store_memory().  The old path queried
+    `session_summaries` which is always empty.  Read from `memories` so the
+    persona overlay actually sees continuity context.
+    """
     try:
         import sqlite3 as _sqlite3
         db_path = getattr(memory, "db_path", None) or getattr(memory, "_db_path", None)
@@ -235,9 +249,9 @@ def _get_session_narrative(memory: Any, limit: int = 3) -> List[str]:
         try:
             rows = con.execute(
                 """
-                SELECT COALESCE(summary, content, '') AS body
-                FROM session_summaries
-                WHERE length(COALESCE(summary, content, '')) > 20
+                SELECT text FROM memories
+                WHERE tags LIKE '%session_summary%'
+                  AND length(COALESCE(text, '')) > 20
                 ORDER BY ROWID DESC
                 LIMIT ?
                 """,
@@ -281,6 +295,12 @@ def update_persona_overlay(memory: Any = None) -> Dict[str, Any]:
 
     Returns {"ok": bool, "changed": bool, "sections": int}.
     """
+    global _PERSONA_OVERLAY_LAST_RUN
+    now = time.time()
+    if now - _PERSONA_OVERLAY_LAST_RUN < _PERSONA_OVERLAY_MIN_INTERVAL:
+        return {"ok": True, "skipped": True, "reason": "debounce"}
+    _PERSONA_OVERLAY_LAST_RUN = now
+
     if memory is None:
         try:
             from eli.memory import get_memory
@@ -397,6 +417,31 @@ def _read_user_patterns(memory: Any) -> Dict[str, List[str]]:
         return {}
 
 
+def _extract_name_from_identity_item(text: str) -> str:
+    """
+    Extract a bare personal name from identity pattern strings like:
+      "User's name is jason."
+      "User's preferred name is Jason."
+      "The user's name is jay."
+    Returns the candidate name, or "" if nothing found.
+    """
+    import re as _re
+    m = _re.search(
+        r"(?:name is|preferred name is|called|known as)\s+([A-Za-z][A-Za-z' -]{1,29})\b",
+        text,
+        _re.I,
+    )
+    if not m:
+        return ""
+    candidate = m.group(1).strip(" .,;")
+    # Reject obvious non-names
+    if candidate.lower() in {
+        "unknown", "none", "the", "a", "an", "no", "not", "asking", "user",
+    }:
+        return ""
+    return candidate
+
+
 def update_user_profile_overlay(memory: Any = None) -> Dict[str, Any]:
     """
     Update user_profile.json from identity signals discovered in memory.
@@ -404,13 +449,13 @@ def update_user_profile_overlay(memory: Any = None) -> Dict[str, Any]:
     than relying on free-text memory search which is fragile.
     """
     try:
-        from eli.kernel.state import load_user_profile, update_user_profile, get_user_name
+        from eli.kernel.state import load_user_profile, update_user_profile, get_user_name, set_user_name
     except Exception as exc:
         return {"ok": False, "error": str(exc)}
 
     updates: Dict[str, Any] = {}
 
-    # Authoritative name from state.json always wins
+    # Authoritative name from user_profile.json always wins
     name = get_user_name().strip()
     if name:
         updates["name"] = name
@@ -433,8 +478,19 @@ def update_user_profile_overlay(memory: Any = None) -> Dict[str, Any]:
         if research_lines:
             updates["research"] = research_lines[:3]
 
-        # Identity signals (nickname, etc.) — only non-name ones
+        # Identity signals: extract name from identity.name patterns if profile lacks it,
+        # and write it back via set_user_name() so it persists for future sessions.
         for item in patterns.get("identity", []):
+            if "name" not in updates:
+                # Recover name from "User's name is X." / "preferred name is X." patterns
+                recovered = _extract_name_from_identity_item(item)
+                if recovered:
+                    try:
+                        set_user_name(recovered)  # write to user_profile.json
+                        log.info("persona_updater: recovered name %r from user_patterns", recovered)
+                    except Exception:
+                        pass
+                    updates["name"] = recovered
             if "nickname" in item.lower() or "nick" in item.lower() or "alias" in item.lower():
                 if "nickname" not in updates:
                     updates["nickname"] = item
