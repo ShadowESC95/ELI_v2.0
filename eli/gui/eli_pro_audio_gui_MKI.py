@@ -9458,7 +9458,14 @@ _register()
 
         # Identity + image studio defaults
         try:
-            self.user_name_input.setText(str(s.get("user_name", "") or ""))
+            _gui_user_name = str(s.get("user_name", "") or "").strip()
+            if not _gui_user_name:
+                try:
+                    from eli.kernel.state import get_user_name as _gun
+                    _gui_user_name = _gun() or ""
+                except Exception:
+                    pass
+            self.user_name_input.setText(_gui_user_name)
             self.image_profile_notes_input.setPlainText(str(s.get("image_profile_notes", "") or ""))
             self.image_style_profile_combo.setCurrentText(str(s.get("image_style_profile", "auto") or "auto"))
             self.image_palette_profile_combo.setCurrentText(str(s.get("image_palette_profile", "auto") or "auto"))

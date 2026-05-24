@@ -7691,11 +7691,10 @@ Answer:"""
             if _mw_mc_turns_is_question(_mw_mct_text):
                 _mw_mct_mode = _mw_rs_mode_from_args((user_input,), _mw_mct_kwargs)
                 _eli_pipe("mw_memory_count_turns_hit", mode=_mw_mct_mode)
-                # Non-quick modes fall through to the full pipeline so GGUF synthesises
-                # the evidence in the user's active reasoning mode.
-                if _mw_rs_is_quick(_mw_mct_mode):
-                    log.debug("[ENGINE] memory count + conversation turns middleware returned from live SQLite")
-                    return _mw_mc_turns_result(_mw_mct_mode)
+                # MEMORY_COUNT_TURNS is a deterministic SQLite telemetry lookup, no GGUF needed.
+                # Mode is passed through for depth control but the answer is always grounded.
+                log.debug("[ENGINE] memory count + conversation turns middleware returned from live SQLite")
+                return _mw_mc_turns_result(_mw_mct_mode)
         except Exception as _mw_mct_err:
             log.debug(f"[ENGINE][WARN] memory-count turns middleware failed: {_mw_mct_err}")
         # === END ELI_ENGINE_MIDDLEWARE_MEMORY_COUNT_TURNS_TELEMETRY_V1 ===
