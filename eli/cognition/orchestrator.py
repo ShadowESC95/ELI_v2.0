@@ -14,6 +14,10 @@ from typing import Any, Dict, Generator, List, Optional, Tuple
 from eli.execution.executor_enhanced import execute as execute_action
 
 
+
+from eli.utils.log import get_logger
+log = get_logger(__name__)
+
 @dataclass
 class WorkingMemory:
     user_input: str
@@ -162,7 +166,7 @@ class MemoryAgent:
             hyde = (hyde or "").strip()
             return q if not hyde else f"{q}\n\n{hyde}"
         except Exception as e:
-            print(f"[ORCHESTRATOR] Error: {e}")
+            log.debug(f"[ORCHESTRATOR] Error: {e}")
             return q
 
     def parallel_retrieve(self, user_input: str, hyde_query: str,
@@ -217,7 +221,7 @@ class MemoryAgent:
                 "meta": {"kind": "knowledge_graph", "query": query},
             }]
         except Exception as e:
-            print(f"[ORCHESTRATOR] Stage 5b: KG search error: {e}")
+            log.debug(f"[ORCHESTRATOR] Stage 5b: KG search error: {e}")
             return []
 
     def conversation_search(self, query: str, limit: int) -> List[Dict[str, Any]]:
@@ -273,7 +277,7 @@ class MemoryAgent:
                 })
             return normalized
         except Exception as e:
-            print(f"[ORCHESTRATOR] Stage 5c: conversation search error: {e}")
+            log.debug(f"[ORCHESTRATOR] Stage 5c: conversation search error: {e}")
             return []
 
     def keyword_search(self, query: str, limit: int) -> List[Dict[str, Any]]:
@@ -324,9 +328,9 @@ class MemoryAgent:
                             "text": text,
                             "meta": h,
                         })
-                print(f"[ORCHESTRATOR] Stage 6: FAISS → {len(hits)} vector hits (ntotal={ntotal})")
+                log.debug(f"[ORCHESTRATOR] Stage 6: FAISS → {len(hits)} vector hits (ntotal={ntotal})")
         except Exception as e:
-            print(f"[ORCHESTRATOR] Stage 6 FAISS error: {e}")
+            log.debug(f"[ORCHESTRATOR] Stage 6 FAISS error: {e}")
 
         # ── Secondary: conversation history search ────────────────────────
         try:
@@ -342,7 +346,7 @@ class MemoryAgent:
                         "meta": h,
                     })
         except Exception as e:
-            print(f"[ORCHESTRATOR] Stage 6 conv search error: {e}")
+            log.debug(f"[ORCHESTRATOR] Stage 6 conv search error: {e}")
 
         return hits
 
@@ -363,7 +367,7 @@ class MemoryAgent:
                         })
                 return out
         except Exception as e:
-            print(f"[ORCHESTRATOR] Error: {e}")
+            log.debug(f"[ORCHESTRATOR] Error: {e}")
         return []
 
     def hybrid_merge(self, keyword_hits: List[Dict[str, Any]], semantic_hits: List[Dict[str, Any]],
@@ -386,8 +390,35 @@ class MemoryAgent:
                     return merged
         return merged
 
+    # Phrases that are deterministic lookup non-answers. They must never be
+    # injected as retrieved context for a subsequent unrelated query — doing so
+    # causes the LLM to echo them back verbatim for completely different questions.
+    _CONTEXT_RESPONSE_BLACKLIST = {
+        "i do not have a personal memory of the user's name",
+        "no confirmed name/identity label is stored",
+        "no confirmed name",
+        "i have no memory of your name",
+        "i don't have a record of your name",
+        # Variants observed in session logs that were slipping through:
+        "i don't have a personal name or identity stored",
+        "i do not have a personal name or identity stored",
+        "no memories found for your name",
+        "i do not have a confirmed name/identity row",
+        "i don't have a confirmed name",
+        "no personal name or identity stored",
+        "personal name or identity stored for the active user",
+    }
+
     def rerank(self, query: str,
                hits: List[Dict[str, Any]], top_k: int = 8) -> List[Dict[str, Any]]:
+        # Strip placeholder non-answers before scoring so they can never
+        # contaminate context for an unrelated query.
+        _bl = self._CONTEXT_RESPONSE_BLACKLIST
+        hits = [
+            h for h in hits
+            if not any(p in (h.get("text") or "").lower() for p in _bl)
+        ]
+
         def score(item: Dict[str, Any]) -> float:
             text = (item.get("text") or "").lower()
             q = (query or "").lower()
@@ -430,13 +461,13 @@ class AgentOrchestrator:
                 from eli.runtime import grounded_remediation as _gr
                 _conf = _gr.handle_confirmation(user_input)
                 if _conf is not None:
-                    print(f"[GROUNDED_REMEDIATION] confirmation intercept consumed: {user_input!r}")
+                    log.debug(f"[GROUNDED_REMEDIATION] confirmation intercept consumed: {user_input!r}")
                     return _conf
                 _handled = _gr.try_handle_query(user_input)
                 if _handled:
                     return _handled
             except Exception as _gr_e:
-                print(f"[GROUNDED_REMEDIATION] orchestrator intercept failed: {_gr_e}")
+                log.debug(f"[GROUNDED_REMEDIATION] orchestrator intercept failed: {_gr_e}")
 
         if getattr(self.engine, "_in_orchestrator", False):
             raise RuntimeError("Recursion detected in orchestrator.run()")
@@ -451,7 +482,7 @@ class AgentOrchestrator:
                 parts = [f"stage={stage}", f"req={_eli_pipeline_req}"]
                 for k, v in fields.items():
                     parts.append(f"{k}={v}")
-                print("[PIPELINE][ORCH] " + " ".join(parts), flush=True)
+                log.debug("[PIPELINE][ORCH] " + " ".join(parts))
             except Exception:
                 pass
 
@@ -494,12 +525,12 @@ class AgentOrchestrator:
         wm.trace["stage_1"] = "intent_routing"
         intent = self.engine.parse_intent(user_input, stm.recent_turns)
         wm.intent = intent
-        print("[ORCHESTRATOR] Stage 1: Intent Routing →", intent.get("action"))
+        log.debug(f"[ORCHESTRATOR] Stage 1: Intent Routing → {intent.get('action')}")
         _eli_pipe_orch("stage_1", action=intent.get("action"), confidence=float(intent.get("confidence") or 0.0))
 
         wm.trace["stage_2"] = "persona_lock_verify"
         wm.persona_ok = self.engine.verify_persona_lock()
-        print("[ORCHESTRATOR] Stage 2: Persona Lock →", wm.persona_ok)
+        log.debug(f"[ORCHESTRATOR] Stage 2: Persona Lock → {wm.persona_ok}")
         _eli_pipe_orch("stage_2", persona_ok=wm.persona_ok)
         if not wm.persona_ok:
             self.engine.repair_persona_lock()
@@ -557,7 +588,7 @@ class AgentOrchestrator:
                 }
             except Exception as _bus_err:
                 wm.trace["agent_bus_nonchat"] = {"error": str(_bus_err)}
-                print(f"[ORCHESTRATOR] Non-chat AgentBus unavailable: {_bus_err}")
+                log.debug(f"[ORCHESTRATOR] Non-chat AgentBus unavailable: {_bus_err}")
 
             # ── ReAct observation loop (mode-aware max iterations) ───────────
             _mode_for_react = (reasoning_mode or "balanced").lower()
@@ -633,7 +664,7 @@ class AgentOrchestrator:
                 wm.trace["stage_9"] = "skipped_nonchat_rerank"
                 wm.trace["stage_10"] = "nonchat_executor_evidence_assembly"
                 _eli_pipe_orch("stage_10", mode="nonchat_executor_evidence_assembly")
-                print(f"[ORCHESTRATOR] Stages 3-9 skipped → not required for {action}")
+                log.debug(f"[ORCHESTRATOR] Stages 3-9 skipped → not required for {action}")
                 wm.assembled_context = (
                     "You are ELI.\n"
                     "Answer the user's request using the executor observations below.\n"
@@ -656,12 +687,12 @@ class AgentOrchestrator:
                             working_memory=wm,
                         )
                     _ph = str(getattr(wm, "persona_handoff", "") or "")
-                    print("[ORCHESTRATOR] Stage 10.5: Persona Handoff →", len(_ph), "chars")
+                    log.debug(f"[ORCHESTRATOR] Stage 10.5: Persona Handoff → {len(_ph)} chars")
                 except Exception as _ph_err:
-                    print(f"[ORCHESTRATOR] Stage 10.5: Persona Handoff unavailable: {_ph_err}")
+                    log.debug(f"[ORCHESTRATOR] Stage 10.5: Persona Handoff unavailable: {_ph_err}")
 
                 wm.trace["stage_11"] = "llm_generation"
-                print("[ORCHESTRATOR] Stage 11: LLM Generation →", "streaming" if stream else "oneshot")
+                log.debug(f"[ORCHESTRATOR] Stage 11: LLM Generation → {'streaming' if stream else 'oneshot'}")
                 _eli_pipe_orch("stage_11", mode=("streaming" if stream else "oneshot"), action=action)
 
                 if stream:
@@ -725,7 +756,7 @@ class AgentOrchestrator:
         wm.trace["stage_4"] = "planner"
         retrieval_plan = self.planner_agent.plan_retrieval(
             user_input, intent, "", stm, reasoning_mode=reasoning_mode)
-        print("[ORCHESTRATOR] Stage 4: Planner → mode=%s %s" % (
+        log.debug("[ORCHESTRATOR] Stage 4: Planner → mode=%s %s" % (
             reasoning_mode or "balanced", retrieval_plan))
         _eli_pipe_orch("stage_4", mode=(reasoning_mode or "balanced"))
 
@@ -733,7 +764,7 @@ class AgentOrchestrator:
         wm.hyde_query = self.memory_agent.build_hyde_query(
             user_input, skip_hyde=retrieval_plan.get("skip_hyde", False))
         hyde_preview = wm.hyde_query[:60] + "..." if len(wm.hyde_query) > 60 else wm.hyde_query
-        print("[ORCHESTRATOR] Stage 3: HyDE Query →", hyde_preview)
+        log.debug(f"[ORCHESTRATOR] Stage 3: HyDE Query → {hyde_preview}")
         _eli_pipe_orch("stage_3", hyde_chars=len(wm.hyde_query or ""))
 
         wm.trace["stage_5_6_7"] = "parallel_retrieval"
@@ -747,21 +778,19 @@ class AgentOrchestrator:
         wm.semantic_hits = semantic_hits
         wm.rag_hits = rag_hits
         wm.kg_hits = kg_hits
-        print("[ORCHESTRATOR] Stage 5/6/7: Parallel Retrieval → keyword:",
-              len(keyword_hits), "semantic:", len(semantic_hits), "rag:", len(rag_hits),
-              "kg:", len(kg_hits))
+        log.debug(f"[ORCHESTRATOR] Stage 5/6/7: Parallel Retrieval → keyword: {len(keyword_hits)} semantic: {len(semantic_hits)} rag: {len(rag_hits)} kg: {len(kg_hits)}")
         _eli_pipe_orch("stage_5_6_7", keyword=len(keyword_hits), semantic=len(semantic_hits), rag=len(rag_hits), kg=len(kg_hits))
 
         wm.trace["stage_8"] = "hybrid_merge"
         wm.merged_hits = self.memory_agent.hybrid_merge(
             keyword_hits, semantic_hits, rag_hits, kg_hits=kg_hits)
-        print("[ORCHESTRATOR] Stage 8: Hybrid Merge →", len(wm.merged_hits), "items")
+        log.debug(f"[ORCHESTRATOR] Stage 8: Hybrid Merge → {len(wm.merged_hits)} items")
         _eli_pipe_orch("stage_8", merged=len(wm.merged_hits))
 
         wm.trace["stage_9"] = "cross_encoder_rerank"
         wm.reranked_hits = self.memory_agent.rerank(
             user_input, wm.merged_hits)
-        print("[ORCHESTRATOR] Stage 9: Rerank →", len(wm.reranked_hits), "items")
+        log.debug(f"[ORCHESTRATOR] Stage 9: Rerank → {len(wm.reranked_hits)} items")
         _eli_pipe_orch("stage_9", reranked=len(wm.reranked_hits))
 
         wm.trace["stage_10"] = "context_assembly"
@@ -772,7 +801,7 @@ class AgentOrchestrator:
             intent=intent,
             reasoning_mode=reasoning_mode,
         )
-        print("[ORCHESTRATOR] Stage 10: Context Assembly →", len(wm.assembled_context), "chars")
+        log.debug(f"[ORCHESTRATOR] Stage 10: Context Assembly → {len(wm.assembled_context)} chars")
         _eli_pipe_orch("stage_10", assembled_chars=len(wm.assembled_context or ""))
 
         wm.trace["stage_10_5"] = "persona_handoff"
@@ -786,9 +815,9 @@ class AgentOrchestrator:
                     working_memory=wm,
                 )
             _ph = str(getattr(wm, "persona_handoff", "") or "")
-            print("[ORCHESTRATOR] Stage 10.5: Persona Handoff →", len(_ph), "chars")
+            log.debug(f"[ORCHESTRATOR] Stage 10.5: Persona Handoff → {len(_ph)} chars")
         except Exception as _ph_err:
-            print(f"[ORCHESTRATOR] Stage 10.5: Persona Handoff unavailable: {_ph_err}")
+            log.debug(f"[ORCHESTRATOR] Stage 10.5: Persona Handoff unavailable: {_ph_err}")
 
         # ELI_PRIVATE_REASONING_DISPATCH_V1
         # For private reasoning modes (chain_of_thought, self_consistency,
@@ -808,7 +837,7 @@ class AgentOrchestrator:
             )
 
         if _chat_is_private and hasattr(self.engine, "_run_chat_reasoning_loop"):
-            print(f"[ORCHESTRATOR] Stage 11: private reasoning loop -> {reasoning_mode}")
+            log.debug(f"[ORCHESTRATOR] Stage 11: private reasoning loop -> {reasoning_mode}")
             wm.trace["stage_11"] = "llm_generation_private_loop"
             _eli_pipe_orch("stage_11_private_loop", mode=str(reasoning_mode), action=action)
             try:
@@ -834,7 +863,7 @@ class AgentOrchestrator:
                             working_memory=wm,
                         )
                     except Exception as _pps_err:
-                        print(f"[ORCHESTRATOR] post-response storage skipped: {_pps_err}")
+                        log.debug(f"[ORCHESTRATOR] post-response storage skipped: {_pps_err}")
                     _eli_orch_complete_final_stage(
                         "completed",
                         note="chat_private_reasoning_loop",
@@ -849,13 +878,13 @@ class AgentOrchestrator:
                         "evidence_used": bool(((_loop_result or {}).get("evidence") or {}).get("used")),
                         "reasoning_mode": str(reasoning_mode or ""),
                     }
-                print("[ORCHESTRATOR] private reasoning loop returned empty -> falling back to single-shot")
+                log.debug("[ORCHESTRATOR] private reasoning loop returned empty -> falling back to single-shot")
             except Exception as _priv_err:
-                print(f"[ORCHESTRATOR] private reasoning loop failed -> falling back to single-shot: {_priv_err}")
+                log.debug(f"[ORCHESTRATOR] private reasoning loop failed -> falling back to single-shot: {_priv_err}")
         # ELI_PRIVATE_REASONING_DISPATCH_V1_END
 
         wm.trace["stage_11"] = "llm_generation"
-        print("[ORCHESTRATOR] Stage 11: LLM Generation →", "streaming" if stream else "oneshot")
+        log.debug(f"[ORCHESTRATOR] Stage 11: LLM Generation → {'streaming' if stream else 'oneshot'}")
         _eli_pipe_orch("stage_11", mode=("streaming" if stream else "oneshot"), action=action)
 
         if stream:
