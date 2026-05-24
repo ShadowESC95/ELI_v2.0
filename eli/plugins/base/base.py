@@ -13,6 +13,10 @@ import pkgutil
 import inspect
 from typing import Dict, Any, Callable, List, Optional
 
+
+from eli.utils.log import get_logger
+log = get_logger(__name__)
+
 class Plugin:
     """Base class for all ELI plugins."""
     name: str = None
@@ -72,9 +76,9 @@ def load_plugins() -> Dict[str, Plugin]:
                     _seen_classes.add(id(attr))
                     instance = attr()
                     plugins[instance.name] = instance
-                    print(f"[PLUGIN] Loaded: {instance.name} – {instance.description}")
+                    log.debug(f"[PLUGIN] Loaded: {instance.name} – {instance.description}")
         except Exception as e:
-            print(f"[PLUGIN] Failed to load {name}: {e}")
+            log.debug(f"[PLUGIN] Failed to load {name}: {e}")
     _plugins = plugins
     return plugins
 

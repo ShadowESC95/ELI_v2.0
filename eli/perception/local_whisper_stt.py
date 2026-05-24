@@ -3,6 +3,10 @@ import tempfile
 import threading
 from pathlib import Path
 
+
+from eli.utils.log import get_logger
+log = get_logger(__name__)
+
 _MODEL = None
 _MODEL_KEY = None
 _MODEL_LOCK = threading.Lock()
@@ -53,11 +57,10 @@ def get_model():
 
             from faster_whisper import WhisperModel
 
-            print(
+            log.debug(
                 f"[LOCAL_STT] loading faster-whisper model={model!r} "
                 f"device={device!r} compute={compute_type!r} "
                 f"download_root={model_dir!r} local_only={local_only}",
-                flush=True,
             )
 
             try:
@@ -69,7 +72,7 @@ def get_model():
                     local_files_only=local_only,
                 )
                 _MODEL_KEY = key
-                print("[LOCAL_STT] faster-whisper ready", flush=True)
+                log.debug("[LOCAL_STT] faster-whisper ready")
             finally:
                 _MODEL_LOADING = False
                 _MODEL_READY.set()  # unblock any waiters even on failure

@@ -7,6 +7,10 @@ from typing import Optional
 from eli.plugins.base.base import Plugin
 
 
+
+from eli.utils.log import get_logger
+log = get_logger(__name__)
+
 class PomodoroTimerPlugin(Plugin):
     name = "pomodoro"
     description = "Focus sessions with Pomodoro technique"
@@ -80,7 +84,7 @@ class PomodoroTimerPlugin(Plugin):
 
     def _on_complete(self, session: str) -> None:
         self._session_type = ""
-        print(f"[POMODORO] {session.capitalize()} session complete! Take a {'break' if session == 'work' else 'look at your work'}.")
+        log.debug(f"[POMODORO] {session.capitalize()} session complete! Take a {'break' if session == 'work' else 'look at your work'}.")
         try:
             from eli.perception.tts_router import maybe_speak
             maybe_speak(f"Pomodoro {session} session complete!", enabled=True)

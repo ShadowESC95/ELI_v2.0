@@ -2,6 +2,10 @@ from __future__ import annotations
 import sqlite3, threading, time
 from typing import Any, Dict, List, Optional
 
+
+from eli.utils.log import get_logger
+log = get_logger(__name__)
+
 __all__ = ["MemoryAdapter", "get_memory_adapter"]
 
 _adapter: Optional["MemoryAdapter"] = None
@@ -41,7 +45,7 @@ class MemoryAdapter:
             raw = self._mem.recall_memory(query, limit=limit) or []
             return [_row_to_dict(r) for r in raw]
         except Exception as e:
-            print(f"[MEMORY_ADAPTER] recall_memory failed: {e}")
+            log.debug(f"[MEMORY_ADAPTER] recall_memory failed: {e}")
             return []
 
     def store_memory(self, text: str, tags: Optional[List[str]] = None,
@@ -54,7 +58,7 @@ class MemoryAdapter:
                                                 confidence=confidence)
                 ok = result.get("ok", False) if isinstance(result, dict) else bool(result)
             except Exception as e:
-                print(f"[MEMORY_ADAPTER] store_memory failed: {e}")
+                log.debug(f"[MEMORY_ADAPTER] store_memory failed: {e}")
                 return False
         if ok:
             try:
@@ -63,7 +67,7 @@ class MemoryAdapter:
                 if vs is not None:
                     vs.add(text, metadata={"tags": ",".join(tags or []), "source": source})
             except Exception as ve:
-                print(f"[MEMORY_ADAPTER] vector index failed (non-fatal): {ve}")
+                log.debug(f"[MEMORY_ADAPTER] vector index failed (non-fatal): {ve}")
         return ok
 
     def add_conversation_turn(self, role: str, content: str,
@@ -77,9 +81,9 @@ class MemoryAdapter:
                     if attempt < 4:
                         time.sleep(0.05 * (2 ** attempt))
                     else:
-                        print(f"[MEMORY_ADAPTER] add_conversation_turn gave up: {e}")
+                        log.debug(f"[MEMORY_ADAPTER] add_conversation_turn gave up: {e}")
                 except Exception as e:
-                    print(f"[MEMORY_ADAPTER] add_conversation_turn failed: {e}")
+                    log.debug(f"[MEMORY_ADAPTER] add_conversation_turn failed: {e}")
                     return
 
     def get_memory_status(self) -> Dict[str, Any]:
@@ -105,7 +109,7 @@ class MemoryAdapter:
             finally:
                 conn.close()
         except Exception as e:
-            print(f"[MEMORY_ADAPTER] get_memory_status failed: {e}")
+            log.debug(f"[MEMORY_ADAPTER] get_memory_status failed: {e}")
             return {"conversation_turns": 0, "memory_entries": 0,
                     "distinct_sessions": 0, "error": str(e)}
 
@@ -113,14 +117,14 @@ class MemoryAdapter:
         try:
             self._mem.add_observation(source, content)
         except Exception as e:
-            print(f"[MEMORY_ADAPTER] add_observation failed: {e}")
+            log.debug(f"[MEMORY_ADAPTER] add_observation failed: {e}")
 
     def get_recent_observations(self, limit: int = 8) -> List[Dict[str, Any]]:
         try:
             raw = self._mem.get_recent_observations(limit=limit) or []
             return [_row_to_dict(r) for r in raw]
         except Exception as e:
-            print(f"[MEMORY_ADAPTER] get_recent_observations failed: {e}")
+            log.debug(f"[MEMORY_ADAPTER] get_recent_observations failed: {e}")
             return []
 
     def __getattr__(self, name: str) -> Any:

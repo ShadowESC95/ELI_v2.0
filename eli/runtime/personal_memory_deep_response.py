@@ -6,6 +6,10 @@ import sqlite3
 from pathlib import Path
 from typing import Any, Dict, Iterable, List, Tuple
 
+
+from eli.utils.log import get_logger
+log = get_logger(__name__)
+
 CATEGORY_PATTERNS = {
     "ELI / MKXI / local assistant engineering": re.compile(
         r"\b(eli|mkxi|mkix|jarvis|agent|orchestrator|gguf|llama|runtime|router|executor|"
@@ -332,8 +336,8 @@ try:
     def build_personal_memory_deep_response(user_input: str = "", mode_label: str = "") -> str:  # type: ignore[override]
         return _eli_clean_personal_memory_response(user_input=user_input, mode_label=mode_label)
 
-    print("[MEMORY] clean personal-memory response override installed", flush=True)
+    log.debug("[MEMORY] clean personal-memory response override installed")
 
 except Exception as _eli_clean_personal_memory_err:
-    print(f"[MEMORY] clean personal-memory response override failed: {_eli_clean_personal_memory_err}", flush=True)
+    log.debug(f"[MEMORY] clean personal-memory response override failed: {_eli_clean_personal_memory_err}")
 # =============================================================================

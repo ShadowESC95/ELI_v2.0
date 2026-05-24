@@ -20,6 +20,10 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
+
+from eli.utils.log import get_logger
+log = get_logger(__name__)
+
 _LABS_PLOT_DIR = Path(os.environ.get("ELI_LABS_PLOT_DIR") or tempfile.gettempdir())
 _LABS_PLOT_FILES = {
     "plot": _LABS_PLOT_DIR / "eli_labs_plot.png",
@@ -433,7 +437,7 @@ class _NotebookTab(QWidget):
             self._DATA_FILE.parent.mkdir(parents=True, exist_ok=True)
             self._DATA_FILE.write_text(json.dumps(self._projects, indent=2), encoding="utf-8")
         except Exception as ex:
-            print(f"[Notebook] save error: {ex}")
+            log.debug(f"[Notebook] save error: {ex}")
 
     def _load(self):
         try:
@@ -2799,7 +2803,7 @@ class _ReportTab(QWidget):
             effective_max = max(32, min(int(requested_max), cap_max))
 
         if fit_meta.get("compacted"):
-            print(
+            log.debug(
                 "[REPORT_BUILDER][CTX] "
                 f"stage={stage} n_ctx={fit_meta.get('n_ctx')} "
                 f"available_tokens={fit_meta.get('available_tokens')} "
@@ -2836,7 +2840,7 @@ class _ReportTab(QWidget):
             retry_effective_max = (
                 retry_cap if requested_max <= 0 else max(32, min(int(requested_max), retry_cap))
             )
-            print(
+            log.debug(
                 "[REPORT_BUILDER][CTX][retry] "
                 f"stage={stage} n_ctx={retry_meta.get('n_ctx')} "
                 f"available_tokens={retry_meta.get('available_tokens')} "
@@ -3557,7 +3561,7 @@ class _ReportTab(QWidget):
                 min_chars=180,
             )
         except Exception as exc:
-            print(f"[REPORT_BUILDER][review] skipped stage={stage_prefix}: {exc}")
+            log.debug(f"[REPORT_BUILDER][review] skipped stage={stage_prefix}: {exc}")
             return section_text
         try:
             revised = self._rb_infer(
@@ -3577,7 +3581,7 @@ class _ReportTab(QWidget):
                 min_chars=500,
             )
         except Exception as exc:
-            print(f"[REPORT_BUILDER][revise] skipped stage={stage_prefix}: {exc}")
+            log.debug(f"[REPORT_BUILDER][revise] skipped stage={stage_prefix}: {exc}")
             return section_text
         original_words = max(1, self._rb_word_count(section_text))
         revised_words = self._rb_word_count(revised)
@@ -3641,7 +3645,7 @@ class _ReportTab(QWidget):
                 min_chars=800,
             )
         except Exception as exc:
-            print(f"[REPORT_BUILDER][global_polish] skipped: {exc}")
+            log.debug(f"[REPORT_BUILDER][global_polish] skipped: {exc}")
             return full_draft
         original_words = max(1, self._rb_word_count(full_draft))
         polished_words = self._rb_word_count(polished)
@@ -4679,7 +4683,7 @@ class _WorkspacesTab(QWidget):
             self._DATA_FILE.parent.mkdir(parents=True, exist_ok=True)
             self._DATA_FILE.write_text(json.dumps(self._workspaces, indent=2), encoding="utf-8")
         except Exception as ex:
-            print(f"[Workspaces] save error: {ex}")
+            log.debug(f"[Workspaces] save error: {ex}")
 
     def _load(self):
         try:

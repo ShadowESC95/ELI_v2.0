@@ -8,6 +8,10 @@ from __future__ import annotations
 
 import sys
 
+
+from eli.utils.log import get_logger
+log = get_logger(__name__)
+
 def main(argv=None) -> int:
     if argv is None:
         argv = sys.argv[1:]
@@ -30,9 +34,9 @@ def main(argv=None) -> int:
             if hasattr(jobqueue, "worker_main"):
                 return int(jobqueue.worker_main(argv[1:]) or 0)
     except Exception as e:
-        print(f"[jobq shim] failed to dispatch: {e}", file=sys.stderr)
+        log.error(f"[jobq shim] failed to dispatch: {e}")
 
-    print("[jobq shim] No compatible jobqueue CLI entrypoint found.", file=sys.stderr)
+    log.error("[jobq shim] No compatible jobqueue CLI entrypoint found.")
     return 2
 
 if __name__ == "__main__":

@@ -78,7 +78,7 @@ def _env_int(name: str, default: Optional[int] = None) -> Optional[int]:
     try:
         return int(v)
     except Exception:
-        print(f"[GGUF] Warning: {name}={v!r} is not an int; ignoring")
+        log.debug(f"[GGUF] Warning: {name}={v!r} is not an int; ignoring")
         return default
 
 
@@ -91,7 +91,7 @@ def _env_bool(name: str, default: Optional[bool] = None) -> Optional[bool]:
         return True
     if v in ("0", "false", "no", "n", "off"):
         return False
-    print(f"[GGUF] Warning: {name}={v!r} is not a bool; ignoring")
+    log.debug(f"[GGUF] Warning: {name}={v!r} is not a bool; ignoring")
     return default
 
 def _load_runtime_settings() -> Dict[str, Any]:
@@ -127,7 +127,7 @@ def get_model_path() -> Optional[Path]:
         p = Path(env_path).expanduser()
         if p.exists():
             return p
-        print(f"[GGUF] Warning: ELI_GGUF_MODEL_PATH={p} does not exist")
+        log.debug(f"[GGUF] Warning: ELI_GGUF_MODEL_PATH={p} does not exist")
         return None
 
     if os.getenv("PYTEST_CURRENT_TEST"):
@@ -277,7 +277,7 @@ def _clean_eli_output(text: str) -> str:
     low = t.lower().strip()
     if any(low.startswith(p) for p in bad_heads):
         # Strip the offending preamble and return what's left, or a retry hint
-        print(f"[GGUF][CLEAN] Persona drift stripped: {t[:80]!r}")
+        log.debug(f"[GGUF][CLEAN] Persona drift stripped: {t[:80]!r}")
         # Try to salvage content after the first sentence
         rest = re.sub(r"^[^.!?]*[.!?]\s*", "", t, count=1).strip()
         if len(rest) >= 2:
@@ -289,7 +289,7 @@ def _clean_eli_output(text: str) -> str:
     t = re.sub(r'\s*\(Note:.*$', '', t, flags=re.I | re.DOTALL).strip()
 
     if not t.strip():
-        print(f"[GGUF][CLEAN] Empty after cleaning, returning raw fallback")
+        log.debug(f"[GGUF][CLEAN] Empty after cleaning, returning raw fallback")
         raw_fallback = str(text or "").strip()
         # Strip meta-commentary from fallback too
         raw_fallback = re.sub(r'\s*\(Note:.*$', '', raw_fallback, flags=re.I | re.DOTALL).strip()
@@ -316,7 +316,7 @@ def _stream_clean_chunks(chunks):
             yield {"response": raw}
             continue
         head_buffer += raw
-        print(f"[GGUF][RAW_HEAD] {head_buffer[:400]!r}")
+        log.debug(f"[GGUF][RAW_HEAD] {head_buffer[:400]!r}")
         stripped = head_buffer.strip().lower()
         if stripped in possible_prefixes and len(head_buffer) < max_head:
             continue
@@ -412,10 +412,9 @@ def load_model(force_reload: bool = False):
 
     effective_n_gpu_layers = int(n_gpu_layers)
     if requested_n_gpu_layers > 0 and gpu_offload_supported is False:
-        print(
+        log.debug(
             "[GGUF][GPU] GPU offload unsupported on this runtime "
             "(driver/CUDA/backend unavailable). Forcing CPU mode.",
-            flush=True,
         )
         effective_n_gpu_layers = 0
 
@@ -436,7 +435,7 @@ def load_model(force_reload: bool = False):
     if cache_v:
         kwargs["cache_type_v"] = cache_v
 
-    print(
+    log.debug(
         "[GGUF] Params: "
         f"ctx={n_ctx}, gpu_layers={effective_n_gpu_layers}, batch={n_batch}, threads={n_threads} "
         f"(requested_gpu_layers={requested_n_gpu_layers}, gpu_offload_supported={gpu_offload_supported})"
@@ -475,7 +474,7 @@ def load_model(force_reload: bool = False):
         _sync_world_model_runtime(globals()["_live_runtime_params"])
         print(f"✅ shared runtime snapshot written: {snap_path}")
     except Exception as e:
-        print(f"[GGUF] shared runtime snapshot write failed: {e}")
+        log.debug(f"[GGUF] shared runtime snapshot write failed: {e}")
 
     return _llm
 def _format_prompt(system: Optional[str], user: str) -> str:
@@ -573,7 +572,7 @@ def _safe_invoke_llm(llm, full_prompt: str, *, temperature, max_tokens, top_p, t
                 new_attempt = max(64, attempt_max // 2)
                 if new_attempt == attempt_max:
                     break
-                print(f"[GGUF] Context-window retry: reducing max_tokens {attempt_max} -> {new_attempt}")
+                log.debug(f"[GGUF] Context-window retry: reducing max_tokens {attempt_max} -> {new_attempt}")
                 attempt_max = new_attempt
                 continue
             raise
@@ -695,7 +694,7 @@ def _generate_legacy(
 
     if stream:
         prompt_tokens = _estimate_prompt_tokens(llm, full_prompt)
-        print(f"[GGUF][TIMING] prompt_tokens={prompt_tokens} prompt_chars={len(full_prompt)} max_tokens={max_tokens}")
+        log.debug(f"[GGUF][TIMING] prompt_tokens={prompt_tokens} prompt_chars={len(full_prompt)} max_tokens={max_tokens}")
         started = time.perf_counter()
         response = _safe_invoke_llm(
             llm,
@@ -713,10 +712,10 @@ def _generate_legacy(
             cleaned = chunk.get("response", "")
             if cleaned:
                 yield {"response": cleaned}
-        print(f"[GGUF][TIMING] stream_call_total={time.perf_counter()-started:.3f}s")
+        log.debug(f"[GGUF][TIMING] stream_call_total={time.perf_counter()-started:.3f}s")
     else:
         prompt_tokens = _estimate_prompt_tokens(llm, full_prompt)
-        print(f"[GGUF][TIMING] prompt_tokens={prompt_tokens} prompt_chars={len(full_prompt)} max_tokens={max_tokens}")
+        log.debug(f"[GGUF][TIMING] prompt_tokens={prompt_tokens} prompt_chars={len(full_prompt)} max_tokens={max_tokens}")
         started = time.perf_counter()
         response = _safe_invoke_llm(
             llm,
@@ -730,9 +729,9 @@ def _generate_legacy(
             stream=False,
             grammar=grammar,
         )
-        print(f"[GGUF][TIMING] nonstream_call_total={time.perf_counter()-started:.3f}s")
+        log.debug(f"[GGUF][TIMING] nonstream_call_total={time.perf_counter()-started:.3f}s")
         _raw_text = response["choices"][0]["text"]
-        print(f"[GGUF][RAW_TEXT] {_raw_text[:400]!r}")
+        log.debug(f"[GGUF][RAW_TEXT] {_raw_text[:400]!r}")
         yield {"response": _clean_eli_output(_raw_text)}
 
 
@@ -825,7 +824,7 @@ def _generate_json_legacy_1(
         content = response["choices"][0]["text"]
         return json.loads(content)
     except Exception as e:
-        print(f"[GGUF] JSON generation failed: {e}")
+        log.debug(f"[GGUF] JSON generation failed: {e}")
         raise RuntimeError(f"Failed to generate JSON: {e}") from e
 
 
@@ -834,7 +833,7 @@ def _chat_completion_legacy(prompt: str, system: Optional[str] = None, **kwargs)
     generator = _generate_impl(prompt=prompt, system=system, stream=False, **kwargs)
     for chunk in generator:
         _raw_chunk = chunk.get("response", "")
-        print(f"[GGUF][RAW_CHUNK] {_raw_chunk[:400]!r}")
+        log.debug(f"[GGUF][RAW_CHUNK] {_raw_chunk[:400]!r}")
         return _clean_eli_output(_raw_chunk)
     return ""
 
@@ -1044,6 +1043,10 @@ def get_last_load_params() -> Dict[str, Any]:
 
 
 import atexit as _atexit
+
+from eli.utils.log import get_logger
+log = get_logger(__name__)
+
 _atexit.register(unload_model)
 
 # Aliases expected by cognitive_engine._init_gguf()
@@ -1069,7 +1072,7 @@ def _sync_world_model_runtime(payload):
         refresh_world_model_runtime(snap)
     except Exception as e:
         try:
-            print(f"[GGUF] PhaseAR2 world_model runtime sync failed: {e}")
+            log.debug(f"[GGUF] PhaseAR2 world_model runtime sync failed: {e}")
         except Exception:
             pass
 
@@ -1080,9 +1083,9 @@ def _write_shared_runtime_snapshot(payload: Dict[str, Any]) -> None:
         snap_path = Path(get_paths().artifacts_dir) / "runtime_snapshot.json"
         snap_path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
         _sync_world_model_runtime(payload)
-        print(f"[GGUF] shared runtime snapshot -> {snap_path}")
+        log.debug(f"[GGUF] shared runtime snapshot -> {snap_path}")
     except Exception as e:
-        print(f"[GGUF] shared runtime snapshot write failed: {e}")
+        log.debug(f"[GGUF] shared runtime snapshot write failed: {e}")
 
 
 def set_runtime_override(payload: Dict[str, Any] | None) -> Dict[str, Any]:
@@ -1657,19 +1660,17 @@ try:
 
                 try:
                     if candidate.get("override"):
-                        print(
+                        log.debug(
                             "[GGUF][ADAPTIVE] load attempt "
                             f"{idx}: ctx={candidate.get('n_ctx')} "
                             f"gpu_layers={candidate.get('n_gpu_layers')} "
                             f"batch={candidate.get('n_batch')} "
                             f"label={candidate.get('label')}",
-                            flush=True,
                         )
                     else:
-                        print(
+                        log.debug(
                             "[GGUF][ADAPTIVE] load attempt "
                             f"{idx}: requested/raw config label={candidate.get('label')}",
-                            flush=True,
                         )
 
                     result = _eli_call_raw_load_with_candidate(args, call_kwargs, candidate)
@@ -1680,10 +1681,9 @@ try:
                     _ELI_ADAPTIVE_LOAD_REPORT["attempts"].append(attempt)
                     _ELI_ADAPTIVE_LOAD_REPORT["finished_at"] = _eli_adapt_time.time()
 
-                    print(
+                    log.debug(
                         "[GGUF][ADAPTIVE] load OK "
                         f"attempt={idx} label={candidate.get('label')}",
-                        flush=True,
                     )
                     return result
 
@@ -1692,10 +1692,9 @@ try:
                     attempt["error"] = str(e)
                     _ELI_ADAPTIVE_LOAD_REPORT["attempts"].append(attempt)
 
-                    print(
+                    log.debug(
                         "[GGUF][ADAPTIVE] load failed on current runtime "
                         f"attempt={idx} label={candidate.get('label')} error={e}",
-                        flush=True,
                     )
 
                     _eli_try_unload_after_failed_load()
@@ -1709,10 +1708,10 @@ try:
 
         load_model._eli_adaptive_cold_loader = True
 
-        print("[GGUF][ADAPTIVE] cold load fallback wrapper installed", flush=True)
+        log.debug("[GGUF][ADAPTIVE] cold load fallback wrapper installed")
 
 except Exception as _eli_adaptive_loader_err:
-    print(f"[GGUF][ADAPTIVE] cold load fallback wrapper failed: {_eli_adaptive_loader_err}", flush=True)
+    log.debug(f"[GGUF][ADAPTIVE] cold load fallback wrapper failed: {_eli_adaptive_loader_err}")
 
 # =============================================================================
 # ELI EFFECTIVE GGUF RUNTIME SNAPSHOT CONTRACT
@@ -1761,7 +1760,7 @@ try:
                 p.write_text(_eli_eff_json.dumps(payload, indent=2, ensure_ascii=False), encoding="utf-8")
             except Exception as e:
                 try:
-                    print(f"[GGUF][EFFECTIVE] runtime snapshot write failed: {e}", flush=True)
+                    log.debug(f"[GGUF][EFFECTIVE] runtime snapshot write failed: {e}")
                 except Exception:
                     pass
 
@@ -1998,7 +1997,7 @@ try:
             _ELI_EFFECTIVE_RUNTIME_REPORT = dict(payload)
             _eli_eff_write_json(_eli_eff_snapshot_path(), payload)
             try:
-                print(
+                log.debug(
                     "[GGUF][EFFECTIVE] "
                     f"requested ctx={payload['requested'].get('n_ctx')} "
                     f"gpu_layers={payload['requested'].get('n_gpu_layers')} "
@@ -2006,7 +2005,6 @@ try:
                     f"effective ctx={payload['effective'].get('n_ctx')} "
                     f"gpu_layers={payload['effective'].get('n_gpu_layers')} "
                     f"batch={payload['effective'].get('n_batch')}",
-                    flush=True,
                 )
             except Exception:
                 pass
@@ -2018,12 +2016,12 @@ try:
         globals()["load_model"] = load_model
 
         try:
-            print("[GGUF][EFFECTIVE] requested/effective runtime snapshot contract installed", flush=True)
+            log.debug("[GGUF][EFFECTIVE] requested/effective runtime snapshot contract installed")
         except Exception:
             pass
 
 except Exception as _eli_effective_runtime_err:
     try:
-        print(f"[GGUF][EFFECTIVE] runtime snapshot contract failed: {_eli_effective_runtime_err}", flush=True)
+        log.debug(f"[GGUF][EFFECTIVE] runtime snapshot contract failed: {_eli_effective_runtime_err}")
     except Exception:
         pass
