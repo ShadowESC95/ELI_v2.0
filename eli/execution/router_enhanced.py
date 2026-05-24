@@ -23,9 +23,9 @@ def _eli_pipeline_trace(stage: str, **data):
         # Set ELI_PIPELINE_TRACE_VERBOSE=1 to restore the per-call print.
         if os.environ.get("ELI_PIPELINE_TRACE_VERBOSE", "0").lower() in {"1", "true", "yes", "on"}:
             _preview = {k: (v[:60] + "..." if isinstance(v, str) and len(v) > 60 else v) for k, v in data.items()}
-            print(f"[PIPELINE_TRACE] {stage} {_preview}", flush=True)
+            log.debug(f"[PIPELINE_TRACE] {stage} {_preview}")
     except Exception as _e:
-        print(f"[PIPELINE_TRACE_ERR] {stage}: {_e}", flush=True)
+        log.debug(f"[PIPELINE_TRACE_ERR] {stage}: {_e}")
 
 def _eli_phase10_is_codebase_audit_request(text: str) -> bool:
     """
@@ -1261,12 +1261,14 @@ def route(text: str) -> Dict[str, Any]:
         return _mk("MEMORY_RECALL", {"query": "information about user"},
                    0.98, matched_by="memory.user_recall", entities={"query": "user"})
 
-    # Forms with 'for X': 'search your memory for python'
+    # Forms with 'for X': 'search your memory/memories for python'
+    # NOTE: memor(?:y|ies) handles both singular and plural to prevent
+    # "search your memories for X" from falling through to OPEN_BROWSER web.search.
     _mem_search_patterns = (
-        r'^search\s+(?:your\s+)?memory\s+(?:for\s+)?(.+)$',
-        r'^(?:look|check)\s+(?:in\s+)?(?:your\s+)?memory\s+(?:for\s+)?(.+)$',
-        r'^(?:do\s+you\s+(?:have|know)\s+anything\s+(?:in\s+memory\s+)?(?:about|related\s+to))\s+(.+)$',
-        r'^(?:recall|retrieve)\s+(?:from\s+memory\s+)?(?:anything\s+(?:about|related\s+to)\s+)?(.+)$',
+        r'^search\s+(?:your\s+)?memor(?:y|ies)\s+(?:for\s+)?(.+)$',
+        r'^(?:look|check)\s+(?:in\s+)?(?:your\s+)?memor(?:y|ies)\s+(?:for\s+)?(.+)$',
+        r'^(?:do\s+you\s+(?:have|know)\s+anything\s+(?:in\s+memor(?:y|ies)\s+)?(?:about|related\s+to))\s+(.+)$',
+        r'^(?:recall|retrieve)\s+(?:from\s+memor(?:y|ies)\s+)?(?:anything\s+(?:about|related\s+to)\s+)?(.+)$',
     )
     for _mp in _mem_search_patterns:
         _mm = re.match(_mp, low, re.I)
@@ -2134,10 +2136,11 @@ def route(text: str) -> Dict[str, Any]:
             return _mk("OPEN_URL", {"url": url}, 0.97,
                        matched_by="web.browse_to", entities={"url": url})
 
+    # Guard: "search your memory/memories ..." must never fall through to web search.
     m = re.match(r"^(?:search\s+(?:for\s+)?)(.+)$", raw, re.I)
     if m:
         query = m.group(1).strip()
-        if query:
+        if query and not re.match(r"(?:your\s+)?memor(?:y|ies)\b", query, re.I):
             return _mk("OPEN_BROWSER", {"query": query}, 0.95,
                        matched_by="web.search", entities={"query": query})
 
@@ -3717,6 +3720,10 @@ def _eli_is_memory_count_question(text):
 import re as _eli_recent_mem_re
 
 
+
+from eli.utils.log import get_logger
+log = get_logger(__name__)
+
 def _eli_recent_memory_processing_question(text: object) -> bool:
     low = str(text or "").strip().lower()
     if not low:
@@ -4014,16 +4021,14 @@ try:
             flush=True,
         )
     else:
-        print(
+        log.debug(
             "[ROUTER] canonical public routing surface export skipped: final route is not callable",
-            flush=True,
         )
 
 except Exception as _eli_phase33_router_surface_err:
-    print(
+    log.debug(
         f"[ROUTER] canonical public routing surface export failed: "
         f"{_eli_phase33_router_surface_err}",
-        flush=True,
     )
 # =============================================================================
 
@@ -5014,7 +5019,7 @@ def _eli_phase38_flattened_route(raw="", *args, **kwargs):
 
 _ELI_PHASE38_FLATTENED_CANONICAL_DISPATCH_V1 = True
 _ELI_PHASE38_FLATTENED_CANONICAL_DISPATCH_RETIRED = True
-print("[ROUTER] Phase 38 flattened canonical dispatch pipeline prepared (legacy inert)", flush=True)
+log.debug("[ROUTER] Phase 38 flattened canonical dispatch pipeline prepared (legacy inert)")
 
 # =============================================================================
 # End ELI_PHASE38_FLATTENED_CANONICAL_DISPATCH_V1
@@ -5364,7 +5369,7 @@ try:
                 _preview = text.replace("\n", " ").strip()
                 if len(_preview) > 160:
                     _preview = _preview[:157] + "..."
-                print(f"[PIPELINE][ROUTER] begin text={_preview!r}", flush=True)
+                log.debug(f"[PIPELINE][ROUTER] begin text={_preview!r}")
 
             for stage_name, stage_fn in _ELI_ROUTE_PRIORITY_STAGES:
                 _stage_t0 = _perf() if _trace else 0.0
@@ -5374,9 +5379,8 @@ try:
                     candidate = None
                 if _trace:
                     _dt = (_perf() - _stage_t0) * 1000.0
-                    print(
+                    log.debug(
                         f"[PIPELINE][ROUTER] stage={stage_name} hit={candidate is not None} dt_ms={_dt:.2f}",
-                        flush=True,
                     )
                 if candidate is not None:
                     result = candidate
@@ -5398,10 +5402,9 @@ try:
                 result["meta"] = meta
                 if _trace:
                     _total = (_perf() - _route_t0) * 1000.0
-                    print(
+                    log.debug(
                         f"[PIPELINE][ROUTER] final action={result.get('action')} "
                         f"confidence={result.get('confidence')} stage={matched_by} total_ms={_total:.2f}",
-                        flush=True,
                     )
             return _eli_phase38_enrich_pdf_if_needed(text, result)
 
@@ -5411,6 +5414,6 @@ try:
         parse_command = route
         classify = route
 
-        print("[ROUTER] explicit priority pipeline installed", flush=True)
+        log.debug("[ROUTER] explicit priority pipeline installed")
 except Exception as _eli_route_priority_pipeline_err:
-    print(f"[ROUTER] explicit priority pipeline install failed: {_eli_route_priority_pipeline_err}", flush=True)
+    log.debug(f"[ROUTER] explicit priority pipeline install failed: {_eli_route_priority_pipeline_err}")
