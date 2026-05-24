@@ -45,6 +45,11 @@ def is_personal_memory_query(user_text: Any) -> bool:
         "summarise me",
         "summarize me",
         "from memory",
+        "search your memories",
+        "search your memory",
+        "search memories for",
+        "search memory for",
+        "my name",
     )
 
     return any(m in low for m in personal_markers)
@@ -194,6 +199,34 @@ def personal_memory_surface(question: Any = None) -> str:
     eli_project: list[dict[str, Any]] = []
     research: list[dict[str, Any]] = []
     counts: dict[str, int] = {}
+
+    # ── HIGHEST PRIORITY: user_profile.json (written by set_user_name/update_user_profile) ──
+    # This is the authoritative store — SQLite identity patterns are backup evidence only.
+    try:
+        from eli.kernel.state import get_user_name as _gun, load_user_profile as _lup
+        _profile_name = _gun()
+        if _profile_name:
+            identity.insert(0, _item(
+                "user_profile", "name",
+                f"User's confirmed name: {_profile_name}",
+                1000, 10, time.time(),
+            ))
+        _prof = _lup()
+        _now_ts = time.time()
+        for _pref in (_prof.get("preferences") or []):
+            _pref = (_pref or "").strip()
+            if _pref:
+                prefs.append(_item("user_profile", "pref", _pref, 500, 8, _now_ts))
+        for _proj in (_prof.get("active_projects") or []):
+            _proj = (_proj or "").strip()
+            if _proj:
+                eli_project.append(_item("user_profile", "project", _proj, 500, 8, _now_ts))
+        for _res in (_prof.get("research") or []):
+            _res = (_res or "").strip()
+            if _res:
+                research.append(_item("user_profile", "research", _res, 500, 8, _now_ts))
+    except Exception:
+        pass
 
     con = sqlite3.connect(str(db))
     con.row_factory = sqlite3.Row
