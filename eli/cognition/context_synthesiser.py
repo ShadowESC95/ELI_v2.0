@@ -364,6 +364,40 @@ def build_persona_handoff(
     except Exception:
         pass
 
+    # ELI's World — current embodied state. Injected so ELI can answer
+    # "what are you doing in the anomaly room?" with narrative truth rather
+    # than runtime JSON. Loaded from EliWorldStorage (fast JSON disk read).
+    try:
+        from eli.world.persistence.storage import EliWorldStorage as _WS
+        _wstate = _WS().load()
+        _avatar = _wstate.avatar
+        _room_id = getattr(_avatar, "room", "") or ""
+        _activity = getattr(_avatar, "activity", "") or ""
+        _attn = getattr(_avatar, "attention_target", "") or ""
+        _room_info = (_wstate.rooms or {}).get(_room_id, {})
+        _room_name = (_room_info.get("name") or _room_id.replace("_", " ").title()) if _room_info else _room_id.replace("_", " ").title()
+        _room_purpose = (_room_info.get("purpose") or "") if _room_info else ""
+        _room_objects = [
+            obj for obj in (_wstate.objects or {}).values()
+            if getattr(obj, "room", "") == _room_id
+        ]
+        _world_parts: list[str] = []
+        if _room_name:
+            _world_parts.append(f"current room: {_room_name}")
+        if _room_purpose:
+            _world_parts.append(f"room purpose: {_room_purpose}")
+        if _activity:
+            _world_parts.append(f"activity: {_activity}")
+        if _attn:
+            _world_parts.append(f"attention: {_attn}")
+        if _room_objects:
+            _obj_names = [getattr(o, "name", str(o)) for o in _room_objects[:4]]
+            _world_parts.append(f"objects present: {', '.join(_obj_names)}")
+        if len(_world_parts) >= 2:
+            parts.append("ELI WORLD STATE:\n" + "\n".join(f"  {p}" for p in _world_parts))
+    except Exception:
+        pass
+
     # Placeholder non-answers from deterministic lookup paths must not appear
     # in the dialogue context injected into the LLM — they cause the model to
     # echo them verbatim for completely unrelated subsequent questions.
