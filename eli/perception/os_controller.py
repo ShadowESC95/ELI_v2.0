@@ -16,6 +16,10 @@ from typing import Optional, Dict, Any
 from eli.utils import platform_compat as platform
 from eli.utils.platform_compat import LINUX, WINDOWS, MACOS
 
+
+from eli.utils.log import get_logger
+log = get_logger(__name__)
+
 # ----------------------------------------------------------------------
 # Environment detection
 # ----------------------------------------------------------------------
@@ -420,9 +424,9 @@ def set_clipboard(text: str) -> Dict[str, Any]:
             if proc.returncode == 0:
                 return {"ok": True, "content": "Clipboard set", "response": "Clipboard set"}
             else:
-                print(f"[CLIPBOARD] wl-copy failed: {proc.stderr}")
+                log.debug(f"[CLIPBOARD] wl-copy failed: {proc.stderr}")
         except Exception as e:
-            print(f"[CLIPBOARD] wl-copy exception: {e}")
+            log.debug(f"[CLIPBOARD] wl-copy exception: {e}")
 
     # X11 fallback
     if _check_tool("xclip"):
@@ -437,9 +441,9 @@ def set_clipboard(text: str) -> Dict[str, Any]:
             if proc.returncode == 0:
                 return {"ok": True, "content": "Clipboard set", "response": "Clipboard set"}
             else:
-                print(f"[CLIPBOARD] xclip failed: {proc.stderr}")
+                log.debug(f"[CLIPBOARD] xclip failed: {proc.stderr}")
         except Exception as e:
-            print(f"[CLIPBOARD] xclip exception: {e}")
+            log.debug(f"[CLIPBOARD] xclip exception: {e}")
 
     return {"ok": False, "error": "No clipboard tool works",
             "content": "Failed to set clipboard", "response": "Failed to set clipboard"}
@@ -462,9 +466,9 @@ def get_clipboard() -> Optional[str]:
             if proc.returncode == 0:
                 return proc.stdout.strip()
             else:
-                print(f"[CLIPBOARD] wl-paste failed: {proc.stderr}")
+                log.debug(f"[CLIPBOARD] wl-paste failed: {proc.stderr}")
         except Exception as e:
-            print(f"[CLIPBOARD] wl-paste exception: {e}")
+            log.debug(f"[CLIPBOARD] wl-paste exception: {e}")
 
     if _check_tool("xclip"):
         try:

@@ -11,6 +11,10 @@ from pathlib import Path
 from eli.core.paths import config_dir, models_dir, project_root
 from eli.core.runtime_settings import _settings_file, load_settings, save_settings
 
+
+from eli.utils.log import get_logger
+log = get_logger(__name__)
+
 BASE_DIR = project_root()
 MODELS_DIR = models_dir()
 CFG_PATH = _settings_file()
@@ -729,7 +733,7 @@ def main():
             register_user_info_exit_flush()
             ensure_user_info_background_updater(1800)
         except Exception as _ui_e:
-            print(f"[GUI] user-info background updater not started: {_ui_e}")
+            log.debug(f"[GUI] user-info background updater not started: {_ui_e}")
 
     _gui_mod.main()
 

@@ -30,6 +30,10 @@ except Exception:
 
 from eli.core.paths import get_paths
 
+
+from eli.utils.log import get_logger
+log = get_logger(__name__)
+
 # Keys in settings.json that store filesystem paths to model files/dirs.
 _MODEL_PATH_KEYS = {
     "model_path", "bundled_model_path", "custom_model_path",
@@ -273,7 +277,7 @@ def _heal_model_paths(settings: Dict[str, Any]) -> tuple[Dict[str, Any], bool]:
 
         if found:
             if not _HEAL_LOGGED:
-                print(f"[SETTINGS] Healed stale path '{key}': {val} → {found}")
+                log.debug(f"[SETTINGS] Healed stale path '{key}': {val} → {found}")
             out[key] = found
             changed = True
 
@@ -317,10 +321,10 @@ def _load_settings_unsanitized() -> Dict[str, Any]:
                 encoding="utf-8",
             )
             if not _MIGRATION_LOGGED:
-                print(f"[SETTINGS] Migrated {len(migrated_keys)} legacy keys: {migrated_keys}")
+                log.debug(f"[SETTINGS] Migrated {len(migrated_keys)} legacy keys: {migrated_keys}")
                 _MIGRATION_LOGGED = True
         except Exception as e:
-            print(f"[SETTINGS] Migration save failed (non-fatal): {e}")
+            log.debug(f"[SETTINGS] Migration save failed (non-fatal): {e}")
 
     settings.update(migrated_data)
 

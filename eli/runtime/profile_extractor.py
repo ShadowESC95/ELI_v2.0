@@ -61,6 +61,7 @@ def ensure_profile_tables(db_path: Path | None = None) -> None:
             session_id TEXT,
             user_id TEXT,
             summary TEXT,
+            content TEXT,
             turns_count INTEGER,
             started_at REAL,
             ended_at REAL,

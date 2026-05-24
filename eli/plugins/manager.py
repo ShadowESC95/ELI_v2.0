@@ -178,7 +178,7 @@ class PluginManager:
             try:
                 self._load_plugin_from_file(pid, plugin_py)
             except Exception as exc:
-                print(f"[PLUGIN] Failed to auto-load {pid}: {exc}")
+                log.debug(f"[PLUGIN] Failed to auto-load {pid}: {exc}")
 
     def _load_plugin_from_file(self, plugin_id: str, path: Path) -> Optional[Plugin]:
         spec = importlib.util.spec_from_file_location(
@@ -198,7 +198,7 @@ class PluginManager:
                 instance = attr()
                 with self._lock:
                     self._loaded[plugin_id] = instance
-                print(f"[PLUGIN] Loaded: {plugin_id} — {instance.description}")
+                log.debug(f"[PLUGIN] Loaded: {plugin_id} — {instance.description}")
                 return instance
         return None
 
@@ -246,7 +246,7 @@ class PluginManager:
             return {"ok": False, "error": f"Plugin '{plugin_id}' not found in registry"}
 
         def _log(msg: str) -> None:
-            print(f"[PLUGIN:install:{plugin_id}] {msg}")
+            log.debug(f"[PLUGIN:install:{plugin_id}] {msg}")
             if progress_cb:
                 progress_cb(msg)
 
@@ -513,6 +513,10 @@ def _make_builtin_stub(entry: Dict) -> str:
     return f'''# Auto-generated builtin stub for plugin: {pid}
 from eli.plugins.base.base import Plugin
 
+
+
+from eli.utils.log import get_logger
+log = get_logger(__name__)
 
 class {name.replace(" ", "")}Plugin(Plugin):
     name = "{pid}"

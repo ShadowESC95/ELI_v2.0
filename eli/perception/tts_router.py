@@ -22,6 +22,10 @@ from typing import Optional
 
 from eli.utils.platform_compat import LINUX, play_sound
 
+
+from eli.utils.log import get_logger
+log = get_logger(__name__)
+
 _LOCK = threading.Lock()
 _ENGINE = None  # lazy pyttsx3 engine
 _NO_BACKEND_CONFIRMED = False
@@ -373,7 +377,7 @@ def _speak_piper_cli(text, voice_name=None):
     model = find_voice_model(active)
 
     if not model:
-        print(f"[TTS_FINAL_PIPER_ONLY] no voice model for active={active}", flush=True)
+        log.debug(f"[TTS_FINAL_PIPER_ONLY] no voice model for active={active}")
         return False
 
     _eli_packaged_cli_bins = [
@@ -392,7 +396,7 @@ def _speak_piper_cli(text, voice_name=None):
     )
 
     if not (_Path(piper_bin).exists() or _shutil.which(piper_bin)):
-        print(f"[TTS_FINAL_PIPER_ONLY] missing piper binary: {piper_bin}", flush=True)
+        log.debug(f"[TTS_FINAL_PIPER_ONLY] missing piper binary: {piper_bin}")
         return False
 
     players = []
@@ -402,7 +406,7 @@ def _speak_piper_cli(text, voice_name=None):
             players.append(found)
 
     if not players:
-        print("[TTS_FINAL_PIPER_ONLY] missing aplay/paplay", flush=True)
+        log.debug("[TTS_FINAL_PIPER_ONLY] missing aplay/paplay")
         return False
 
     cfg = _find_piper_config(model)
@@ -431,16 +435,15 @@ def _speak_piper_cli(text, voice_name=None):
         )
 
         if proc.returncode != 0:
-            print(f"[TTS_FINAL_PIPER_ONLY] piper failed rc={proc.returncode}: {proc.stderr[-800:]}", flush=True)
+            log.debug(f"[TTS_FINAL_PIPER_ONLY] piper failed rc={proc.returncode}: {proc.stderr[-800:]}")
             return False
 
         if not wav.exists() or wav.stat().st_size < 1000:
-            print(f"[TTS_FINAL_PIPER_ONLY] wav missing/empty: {wav}", flush=True)
+            log.debug(f"[TTS_FINAL_PIPER_ONLY] wav missing/empty: {wav}")
             return False
 
-        print(
+        log.debug(
             f"[TTS_FINAL_PIPER_ONLY] voice={active} model={_Path(model).name} bytes={wav.stat().st_size}",
-            flush=True,
         )
 
         for player in players:
@@ -458,9 +461,8 @@ def _speak_piper_cli(text, voice_name=None):
                 check=False,
             )
 
-            print(
+            log.debug(
                 f"[TTS_FINAL_PIPER_ONLY_PLAY] player={player_name} rc={play_proc.returncode}",
-                flush=True,
             )
 
             if play_proc.returncode == 0:
@@ -468,9 +470,8 @@ def _speak_piper_cli(text, voice_name=None):
                 return True
 
             if play_proc.stderr:
-                print(
+                log.debug(
                     f"[TTS_FINAL_PIPER_ONLY_PLAY] stderr={play_proc.stderr[-800:]}",
-                    flush=True,
                 )
 
         return False
@@ -537,10 +538,10 @@ def _run_tts(text: str, voice_name: str | None = None) -> bool:
 
     ok_all = True
     for i, chunk in enumerate(chunks, 1):
-        print(f"[TTS_FINAL_PIPER_ONLY_CHUNK] {i}/{len(chunks)} voice={active} chars={len(chunk)}", flush=True)
+        log.debug(f"[TTS_FINAL_PIPER_ONLY_CHUNK] {i}/{len(chunks)} voice={active} chars={len(chunk)}")
         ok = _speak_piper_cli(chunk, active)
         if not ok:
-            print("[TTS_FINAL_PIPER_ONLY] failed; robot fallback disabled.", flush=True)
+            log.debug("[TTS_FINAL_PIPER_ONLY] failed; robot fallback disabled.")
             ok_all = False
             break
 

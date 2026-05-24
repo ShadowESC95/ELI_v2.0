@@ -37,6 +37,9 @@ import re
 import shutil
 from collections import deque
 
+from eli.utils.log import get_logger
+log = get_logger(__name__)
+
 # Direct script launches (`python eli/gui/eli_pro_audio_gui_MKI.py`) do not put
 # the project root on sys.path. Bootstrap it early so `import eli.*` succeeds.
 _BOOT_PROJECT_ROOT = Path(__file__).resolve().parents[2]
@@ -525,7 +528,7 @@ def recommend_model_setup(models, sysinfo, ollama_models=None):
                     ),
                 }
         except Exception as e:
-            print(f"[SETTINGS] hardware-profile recommendation failed: {e}")
+            log.debug(f"[SETTINGS] hardware-profile recommendation failed: {e}")
 
         # Fallback: smallest bundled model first, then smallest custom model.
         try:
@@ -760,7 +763,7 @@ class LocalModelManager:
             snap_path.write_text(json.dumps(payload, indent=2), encoding='utf-8')
             print(f'✅ shared runtime snapshot written: {snap_path}')
         except Exception as e:
-            print(f'[GUI] shared runtime snapshot write failed: {e}')
+            log.debug(f'[GUI] shared runtime snapshot write failed: {e}')
 
     def load_model(
         self,
@@ -797,12 +800,12 @@ class LocalModelManager:
                     n_ctx = int(_eli_profile.get("n_ctx", n_ctx))
                     n_gpu_layers = int(_eli_profile.get("n_gpu_layers", n_gpu_layers))
                     n_batch = int(_eli_profile.get("batch_size", n_batch))
-                    print(
+                    log.debug(
                         f"[GUI][HW_AUTHORITY] using startup profile "
                         f"ctx={n_ctx} gpu_layers={n_gpu_layers} batch={n_batch}"
                     )
             except Exception as _eli_hw_err:
-                print(f"[GUI][HW_AUTHORITY] profile read failed: {_eli_hw_err}")
+                log.debug(f"[GUI][HW_AUTHORITY] profile read failed: {_eli_hw_err}")
 
             print(f"   GPU-layer load parameter: {n_gpu_layers}")
             print(f"   Batch size: {n_batch}")
@@ -818,24 +821,21 @@ class LocalModelManager:
                 gpu_offload_supported = None
             effective_n_gpu_layers = int(n_gpu_layers)
             if requested_n_gpu_layers > 0 and gpu_offload_supported is False:
-                print(
+                log.debug(
                     "[GUI][GPU] GPU offload unsupported by current runtime "
                     "(driver/CUDA/backend unavailable). Forcing CPU mode.",
-                    flush=True,
                 )
                 effective_n_gpu_layers = 0
             effective_n_batch = int(n_batch)
             if int(effective_n_gpu_layers) <= 0 and int(effective_n_batch) > 128:
-                print(
+                log.debug(
                     f"[GUI][CPU] Clamping batch size {effective_n_batch} -> 128 for CPU-only mode.",
-                    flush=True,
                 )
                 effective_n_batch = 128
-            print(
+            log.debug(
                 f"[GUI][GPU] requested_layers={requested_n_gpu_layers} "
                 f"effective_layers={effective_n_gpu_layers} "
                 f"offload_supported={gpu_offload_supported}",
-                flush=True,
             )
             self.n_ctx = int(n_ctx)
             self.n_threads = int(n_threads)
@@ -943,10 +943,9 @@ class LocalModelManager:
             _applied = None
             _last_error = ""
             for i, _cand in enumerate(_attempts, start=1):
-                print(
+                log.debug(
                     f"[GUI][LOAD] attempt {i}/{len(_attempts)}: {_cand['label']} "
                     f"(ctx={_cand['n_ctx']} gpu_layers={_cand['n_gpu_layers']} batch={_cand['n_batch']})",
-                    flush=True,
                 )
                 llama_kwargs: Dict[str, Any] = dict(
                     model_path=str(path_obj),
@@ -974,7 +973,7 @@ class LocalModelManager:
                     break
                 except Exception as _attempt_err:
                     _last_error = str(_attempt_err)
-                    print(f"[GUI][LOAD] attempt failed: {_last_error}", flush=True)
+                    log.debug(f"[GUI][LOAD] attempt failed: {_last_error}")
                     self.model = None
                     gc.collect()
                     continue
@@ -988,10 +987,9 @@ class LocalModelManager:
             applied_n_ctx = int(_applied["n_ctx"])
             applied_n_gpu_layers = int(_applied["n_gpu_layers"])
             applied_n_batch = int(_applied["n_batch"])
-            print(
+            log.debug(
                 f"[GUI][LOAD] selected={_applied['label']} "
                 f"(ctx={applied_n_ctx} gpu_layers={applied_n_gpu_layers} batch={applied_n_batch})",
-                flush=True,
             )
 
             setattr(self.model, "n_ctx", int(applied_n_ctx))
@@ -1006,7 +1004,7 @@ class LocalModelManager:
                 from eli.cognition import gguf_inference as _gg
                 _gg._llm = self.model
             except Exception as _wire_err:
-                print(f"[GUI] gguf runtime handoff failed: {_wire_err}")
+                log.debug(f"[GUI] gguf runtime handoff failed: {_wire_err}")
             self.is_loaded = True
             self.n_ctx = int(self.n_ctx or 0)
             self.n_threads = int(self.n_threads or 0)
@@ -1030,7 +1028,7 @@ class LocalModelManager:
                 })
                 print("✅ gguf_inference live runtime override published")
             except Exception as e:
-                print(f"[GUI] live runtime override publish failed: {e}")
+                log.debug(f"[GUI] live runtime override publish failed: {e}")
             self.load_error = None
             print(f"✅ Model loaded successfully")
             self._write_shared_runtime_snapshot(
@@ -1124,7 +1122,7 @@ class OllamaModelManager:
                 return False
             models = self.list_models(self.host)
             if models and self.model_name not in models:
-                print(f"[OLLAMA] model not in /api/tags yet, continuing anyway: {self.model_name}")
+                log.debug(f"[OLLAMA] model not in /api/tags yet, continuing anyway: {self.model_name}")
             self.load_error = None
             self.is_loaded = True
             return True
@@ -1862,13 +1860,13 @@ class _GUIEngineAdapter:
             if self._ce is not None and hasattr(self._ce, "parse_intent"):
                 return self._ce.parse_intent(user_input, context)
         except Exception as _ce_delegate_err:
-            print(f"[GUI] parse_intent CE delegation failed: {_ce_delegate_err}")
+            log.debug(f"[GUI] parse_intent CE delegation failed: {_ce_delegate_err}")
 
         try:
             from eli.execution.router_enhanced import route
             return route(user_input)
         except Exception as e:
-            print(f"[ENGINE-ADAPTER] parse_intent fallback: {e}")
+            log.debug(f"[ENGINE-ADAPTER] parse_intent fallback: {e}")
             return {"action": "CHAT", "args": {"message": user_input},
                     "confidence": 0.7, "meta": {}}
 
@@ -1900,11 +1898,11 @@ class _GUIEngineAdapter:
                 user_id=self.user_id,
             )
             ctx = (dr.memory_context or "").strip()
-            print(f"[ENGINE-ADAPTER] AgentBus: agents_used={dr.agents_used} "
+            log.debug(f"[ENGINE-ADAPTER] AgentBus: agents_used={dr.agents_used} "
                   f"conf={dr.aggregated_confidence:.2f} ctx_chars={len(ctx)}")
             return ctx
         except Exception as e:
-            print(f"[ENGINE-ADAPTER] AgentBus dispatch failed: {e}")
+            log.debug(f"[ENGINE-ADAPTER] AgentBus dispatch failed: {e}")
             return ""
 
     def assemble_precise_context(self, user_input: str, working_memory,
@@ -1925,7 +1923,7 @@ class _GUIEngineAdapter:
                     reasoning_mode=reasoning_mode,
                 )
         except Exception as _ce_delegate_err:
-            print(f"[GUI] assemble_precise_context CE delegation failed: {_ce_delegate_err}")
+            log.debug(f"[GUI] assemble_precise_context CE delegation failed: {_ce_delegate_err}")
 
         import time as _t
 
@@ -2053,7 +2051,7 @@ class _GUIEngineAdapter:
                     reasoning_mode=reasoning_mode,
                 )
         except Exception as _ce_delegate_err:
-            print(f"[GUI] generate_from_assembled_prompt CE delegation failed: {_ce_delegate_err}")
+            log.debug(f"[GUI] generate_from_assembled_prompt CE delegation failed: {_ce_delegate_err}")
 
         if raw_direct:
             # HyDE hypothetical-doc generation — minimal system, tiny token budget
@@ -2079,7 +2077,7 @@ class _GUIEngineAdapter:
                         temperature=self._temperature,
                     )
         except Exception as e:
-            print(f"[ENGINE-ADAPTER] generate_from_assembled_prompt: {e}")
+            log.debug(f"[ENGINE-ADAPTER] generate_from_assembled_prompt: {e}")
         return ""
 
     def generate_stream_from_assembled_prompt(self, prompt: str,
@@ -2098,7 +2096,7 @@ class _GUIEngineAdapter:
                 )
                 return
         except Exception as _ce_delegate_err:
-            print(f"[GUI] generate_stream_from_assembled_prompt CE delegation failed: {_ce_delegate_err}")
+            log.debug(f"[GUI] generate_stream_from_assembled_prompt CE delegation failed: {_ce_delegate_err}")
 
         system = (working_memory.assembled_context
                   if working_memory and working_memory.assembled_context
@@ -2124,7 +2122,7 @@ class _GUIEngineAdapter:
                 for i in range(0, len(response), 8):
                     yield response[i:i + 8]
         except Exception as e:
-            print(f"[ENGINE-ADAPTER] generate_stream_from_assembled_prompt: {e}")
+            log.debug(f"[ENGINE-ADAPTER] generate_stream_from_assembled_prompt: {e}")
             yield f"[Error: {e}]"
 
     def enqueue_post_response_storage(self, user_input: str, response: str,
@@ -2140,14 +2138,14 @@ class _GUIEngineAdapter:
             # GUI layer must not duplicate chat-turn writes.
             pass
         except Exception as e:
-            print(f"[ENGINE-ADAPTER] post_storage failed: {e}")
+            log.debug(f"[ENGINE-ADAPTER] post_storage failed: {e}")
         # Weight decay — 1 % of responses (amortised cost)
         try:
             import random as _rnd
             if _rnd.random() < 0.01 and hasattr(self.memory, "apply_weight_decay"):
                 decayed = self.memory.apply_weight_decay()
                 if decayed:
-                    print(f"[MEMORY] Weight decay: {decayed} entries aged")
+                    log.debug(f"[MEMORY] Weight decay: {decayed} entries aged")
         except Exception:
             pass
 
@@ -2410,14 +2408,14 @@ class EliMainWindow(QMainWindow):
                 try:
                     _ggi._write_shared_runtime_snapshot(dict(_eli_runtime_publish))
                 except Exception as _gg_snap_err:
-                    print(f"[GUI] gguf preloaded snapshot write failed: {_gg_snap_err}")
+                    log.debug(f"[GUI] gguf preloaded snapshot write failed: {_gg_snap_err}")
                 print("✅ gguf_inference preloaded runtime override published")
             except Exception as _pre_wire_err:
                 model_manager.n_ctx = _pre_int('n_ctx', 0)
                 model_manager.n_threads = _pre_int('n_threads', 0)
                 model_manager.n_gpu_layers = _pre_int('n_gpu_layers', 0)
                 model_manager.n_batch = _pre_int('n_batch', 0)
-                print(f"[GUI] preloaded runtime handoff failed: {_pre_wire_err}")
+                log.debug(f"[GUI] preloaded runtime handoff failed: {_pre_wire_err}")
 
             try:
                 model_manager._write_shared_runtime_snapshot(
@@ -2427,7 +2425,7 @@ class EliMainWindow(QMainWindow):
                     model_manager.n_gpu_layers,
                 )
             except Exception as _pre_snap_err:
-                print(f"[GUI] preloaded runtime snapshot write failed: {_pre_snap_err}")
+                log.debug(f"[GUI] preloaded runtime snapshot write failed: {_pre_snap_err}")
 
             self.active_backend = model_manager
             self.status_signal.emit(
@@ -2480,7 +2478,7 @@ class EliMainWindow(QMainWindow):
                 setattr(_gguf_runtime, "_live_runtime_override", dict(_runtime_handoff))
                 setattr(_gguf_runtime, "_live_runtime_params", dict(_runtime_handoff))
             except Exception as _handoff_err:
-                print(f"[GUI] preloaded runtime handoff failed: {_handoff_err}")
+                log.debug(f"[GUI] preloaded runtime handoff failed: {_handoff_err}")
             return dict(_runtime_handoff)
 
         try:
@@ -2499,26 +2497,26 @@ class EliMainWindow(QMainWindow):
             try:
                 from eli.planning.proactive_daemon import start_daemon as _start_pd
                 self._proactive_daemon = _start_pd()
-                print("[GUI] Proactive daemon started — USER DB:", self._proactive_daemon.user_mem.db_path)
-                print("[GUI] Proactive daemon started — AGENT DB:", self._proactive_daemon.agent_mem.db_path)
+                log.debug(f"[GUI] Proactive daemon started — USER DB: {self._proactive_daemon.user_mem.db_path}")
+                log.debug(f"[GUI] Proactive daemon started — AGENT DB: {self._proactive_daemon.agent_mem.db_path}")
                 # Attach ProactiveDock so proactive output has a dedicated panel
                 try:
                     from eli.gui.docks.proactive_dock import ProactiveDock
                     self._proactive_dock = ProactiveDock(self)
                     self.addDockWidget(Qt.DockWidgetArea.RightDockWidgetArea, self._proactive_dock)
                     self._proactive_dock.hide()  # hidden by default — user opens it explicitly
-                    print("[GUI] ProactiveDock attached (hidden until opened)")
+                    log.debug("[GUI] ProactiveDock attached (hidden until opened)")
                 except Exception as _dock_err:
-                    print(f"[GUI] ProactiveDock unavailable (non-fatal): {_dock_err}")
+                    log.debug(f"[GUI] ProactiveDock unavailable (non-fatal): {_dock_err}")
                 # Attach OperatorConsoleDock — hidden by default, toggled via View menu
                 try:
                     from eli.gui.docks.operator_console_dock import OperatorConsoleDock
                     self._operator_console_dock = OperatorConsoleDock(self)
                     self.addDockWidget(Qt.DockWidgetArea.RightDockWidgetArea, self._operator_console_dock)
                     self._operator_console_dock.hide()
-                    print("[GUI] OperatorConsoleDock attached (hidden until opened)")
+                    log.debug("[GUI] OperatorConsoleDock attached (hidden until opened)")
                 except Exception as _ocd_err:
-                    print(f"[GUI] OperatorConsoleDock unavailable (non-fatal): {_ocd_err}")
+                    log.debug(f"[GUI] OperatorConsoleDock unavailable (non-fatal): {_ocd_err}")
                     self._operator_console_dock = None
                 # Consume daemon suggestion_queue → proactive tab (thread-safe)
                 threading.Thread(
@@ -2527,9 +2525,9 @@ class EliMainWindow(QMainWindow):
                 # Refresh status label now that daemon is set (init_ui ran before daemon started)
                 QTimer.singleShot(200, self._update_proactive_status_label)
             except Exception as e:
-                print(f"[GUI] Failed to start proactive daemon: {e}")
+                log.debug(f"[GUI] Failed to start proactive daemon: {e}")
         else:
-            print("[GUI] Proactive daemon not available (import failed)")
+            log.debug("[GUI] Proactive daemon not available (import failed)")
 
         # ---------- COGNITIVE ENGINE SINGLETON ----------
         self._cognitive_engine = None
@@ -2539,9 +2537,9 @@ class EliMainWindow(QMainWindow):
                 auto_init_gguf=False,
                 enforce_hardware_authority=False,
             )
-            print("[GUI] CognitiveEngine singleton ready (reflection/habit/awareness active)")
+            log.debug("[GUI] CognitiveEngine singleton ready (reflection/habit/awareness active)")
         except Exception as _ce_init_err:
-            print(f"[GUI] CognitiveEngine init skipped (non-fatal): {_ce_init_err}")
+            log.debug(f"[GUI] CognitiveEngine init skipped (non-fatal): {_ce_init_err}")
 
     # ── Daemon queue consumer ──────────────────────────────────────────────
     def _daemon_queue_consumer(self):
@@ -2566,12 +2564,12 @@ class EliMainWindow(QMainWindow):
                     stype = data.get("type", "pattern")
                     sugg  = data.get("suggestion", "")
                     line  = f"<b>[{stype}]</b> {sugg}"
-                    print(f"[PROACTIVE] {stype}: {sugg}")
+                    log.debug(f"[PROACTIVE] {stype}: {sugg}")
                     self.proactive_suggestions_signal.emit(line)
                 elif kind == "improvement":
                     cat  = data.get("category", "code")
                     det  = data.get("detail", "") or data.get("description", "") or data.get("suggestion", "")
-                    print(f"[PROACTIVE] code insight [{cat}]: {det[:120]}")
+                    log.debug(f"[PROACTIVE] code insight [{cat}]: {det[:120]}")
                     self.proactive_insights_signal.emit(
                         f"<b>[{cat}]</b> {det[:200]}")
                 elif kind in ("habit", "habit_result"):
@@ -2579,24 +2577,24 @@ class EliMainWindow(QMainWindow):
                     sugg = data.get("suggestion", "")
                     ok   = data.get("ok", None)
                     icon = ("✓" if ok else "✗") if ok is not None else "⏰"
-                    print(f"[PROACTIVE] habit {icon} '{name}': {sugg}")
+                    log.debug(f"[PROACTIVE] habit {icon} '{name}': {sugg}")
                     self.proactive_suggestions_signal.emit(
                         f"<b>[habit {icon}]</b> {name}: {sugg}")
                 elif kind == "morning_report":
                     report_text = data.get("suggestion", "")
-                    print(f"[PROACTIVE] morning report ready")
+                    log.debug(f"[PROACTIVE] morning report ready")
                     # Route to summaries tab
                     self.proactive_summary_signal.emit(
                         f"<pre style='white-space:pre-wrap'>{report_text}</pre>")
                 else:
                     sugg = data.get("suggestion", str(data)[:200]) if isinstance(data, dict) else str(data)[:200]
-                    print(f"[PROACTIVE] [{kind}]: {sugg[:120]}")
+                    log.debug(f"[PROACTIVE] [{kind}]: {sugg[:120]}")
                     self.proactive_suggestions_signal.emit(
                         f"<b>[{kind}]</b> {sugg[:200]}")
                 # NOTE: do NOT touch _proactive_dock widgets from this thread —
                 # dock forwarding is handled by _update_suggestions_display on the GUI thread.
             except Exception as _sig_err:
-                print(f"[GUI] daemon queue signal failed: {_sig_err}")
+                log.debug(f"[GUI] daemon queue signal failed: {_sig_err}")
 
     # ---------- Advanced memory retrieval ----------
     def _retrieve_relevant_memories(self, query: str, limit: int = 20) -> str:
@@ -2686,7 +2684,7 @@ class EliMainWindow(QMainWindow):
                 from eli.perception.tts_router import speak as _tts_speak, get_active_voice
                 _tts_speak(clean, voice_name=get_active_voice())
             except Exception as e:
-                print(f'[TTS] {e}')
+                log.debug(f'[TTS] {e}')
         threading.Thread(target=_run, daemon=True).start()
 
     def _interrupt_speech(self):
@@ -2715,13 +2713,13 @@ class EliMainWindow(QMainWindow):
                 sel.setCurrentText(name)
                 sel.blockSignals(False)
         except Exception as ex:
-            print(f"[GUI] voice change failed: {ex}")
+            log.debug(f"[GUI] voice change failed: {ex}")
 
     def _on_stt_transcript(self, text: str):
         text = text.strip()
         if not text:
             return
-        print(f"[STT→GUI] {text}")
+        log.debug(f"[STT→GUI] {text}")
         # Existing-router/executor fast path for deterministic voice commands.
         # This avoids CognitiveEngine/LLM latency for safe actions.
         try:
@@ -2804,12 +2802,12 @@ class EliMainWindow(QMainWindow):
                                 self._central_memory.add_conversation_turn(
                                     "user", _user_voice_text, session_id=_session_id, user_id=_user_id)
                         except Exception as _mem_user_e:
-                            print(f"[GUI_DIRECT_EXEC][MEM_USER_FAIL] {_mem_user_e}", flush=True)
-                        print(f"[GUI_DIRECT_EXEC][USER_APPEND] {_user_voice_text}", flush=True)
+                            log.debug(f"[GUI_DIRECT_EXEC][MEM_USER_FAIL] {_mem_user_e}")
+                        log.debug(f"[GUI_DIRECT_EXEC][USER_APPEND] {_user_voice_text}")
                 except Exception as _user_ui_e:
-                    print(f"[GUI_DIRECT_EXEC][USER_APPEND_FAIL] {_user_ui_e}", flush=True)
+                    log.debug(f"[GUI_DIRECT_EXEC][USER_APPEND_FAIL] {_user_ui_e}")
 
-                print(f"[GUI_DIRECT_EXEC] route={_route}", flush=True)
+                log.debug(f"[GUI_DIRECT_EXEC] route={_route}")
                 _res = _eli_voice_executor.execute_action(_action, _args)
                 _ok = bool((_res or {}).get("ok", True)) if isinstance(_res, dict) else True
         
@@ -2818,7 +2816,7 @@ class EliMainWindow(QMainWindow):
                 else:
                     _reply = str(_res)
         
-                print(f"[GUI_DIRECT_EXEC] {_reply}", flush=True)
+                log.debug(f"[GUI_DIRECT_EXEC] {_reply}")
                 try:
                     if getattr(self, "_central_memory", None):
                         if _reply:
@@ -2866,7 +2864,7 @@ class EliMainWindow(QMainWindow):
                                     {"path": _path, "success": True, "source": "gui_direct_exec"},
                                 )
                 except Exception as _mem_result_e:
-                    print(f"[GUI_DIRECT_EXEC][MEM_RESULT_FAIL] {_mem_result_e}", flush=True)
+                    log.debug(f"[GUI_DIRECT_EXEC][MEM_RESULT_FAIL] {_mem_result_e}")
                 # Honour the Auto-Speak toggle: only emit TTS when the user
                 # has it enabled. Voice-initiated commands also opt in via
                 # the _last_input_was_voice flag — direct-exec replies to
@@ -2878,11 +2876,11 @@ class EliMainWindow(QMainWindow):
                     try:
                         from eli.perception.tts_router import speak_text as _eli_gui_direct_speak
                         _eli_gui_direct_speak(_speak_text)
-                        print(f"[GUI_DIRECT_EXEC][TTS] {_speak_text}", flush=True)
+                        log.debug(f"[GUI_DIRECT_EXEC][TTS] {_speak_text}")
                     except Exception as _tts_e:
-                        print(f"[GUI_DIRECT_EXEC][TTS_FAIL] {_tts_e}", flush=True)
+                        log.debug(f"[GUI_DIRECT_EXEC][TTS_FAIL] {_tts_e}")
                 elif _speak_text:
-                    print(f"[GUI_DIRECT_EXEC][TTS_SKIPPED] auto-speak off", flush=True)
+                    log.debug(f"[GUI_DIRECT_EXEC][TTS_SKIPPED] auto-speak off")
         
                 # Best-effort GUI append. Execution must not depend on UI method names.
                 try:
@@ -2895,11 +2893,11 @@ class EliMainWindow(QMainWindow):
                     elif hasattr(self, "chat_display"):
                         self.chat_display.append(f"🤖 ELI:\n{_reply}")
                 except Exception as _ui_e:
-                    print(f"[GUI_DIRECT_EXEC][UI_APPEND_FAIL] {_ui_e}", flush=True)
+                    log.debug(f"[GUI_DIRECT_EXEC][UI_APPEND_FAIL] {_ui_e}")
         
                 return
         except Exception as _direct_e:
-            print(f"[GUI_DIRECT_EXEC][FALLBACK] {type(_direct_e).__name__}: {_direct_e}", flush=True)
+            log.debug(f"[GUI_DIRECT_EXEC][FALLBACK] {type(_direct_e).__name__}: {_direct_e}")
         self.chat_input.setPlainText(text)
         self.send_message()
 
@@ -3020,9 +3018,8 @@ class EliMainWindow(QMainWindow):
         # wake_on=True → wake word required → direct chat disabled
         _os.environ["ELI_STT_ALLOW_DIRECT_CHAT"] = "0" if wake_on else "1"
         self.wake_word_btn.setText("Wake: ON" if wake_on else "Wake: OFF")
-        print(
+        log.debug(
             f"[WAKE] {'ON — say \"computer\" before commands' if wake_on else 'OFF — all speech dispatched (≥2 words)'}",
-            flush=True,
         )
         # Keep settings-page checkbox in sync
         if hasattr(self, "allow_direct_chat_checkbox"):
@@ -3037,15 +3034,15 @@ class EliMainWindow(QMainWindow):
             def _cb(text):
                 text = (text or "").strip()
                 if text:
-                    print(f"[STT] emitting: {text}")
+                    log.debug(f"[STT] emitting: {text}")
                     self.stt_transcript.emit(text)
             try:
                 from eli.perception.audio_stt import start_audio_listening, stop_audio_listening
                 start_audio_listening(callback=_cb)
                 self._stt_stop_ref = stop_audio_listening
-                print("[STT] listening started — say: computer, <command>")
+                log.debug("[STT] listening started — say: computer, <command>")
             except Exception as e:
-                print(f"[STT] start failed: {e}")
+                log.debug(f"[STT] start failed: {e}")
                 self.stt_btn.setChecked(False)
                 self.stt_btn.setText("🎤 Mic: OFF")
         else:
@@ -3054,9 +3051,9 @@ class EliMainWindow(QMainWindow):
                 fn = getattr(self, "_stt_stop_ref", None)
                 if fn:
                     fn()
-                print("[STT] listening stopped")
+                log.debug("[STT] listening stopped")
             except Exception as e:
-                print(f"[STT] stop failed: {e}")
+                log.debug(f"[STT] stop failed: {e}")
 
     # Map both the long and the slim bottom-row labels to canonical mode ids.
     _REASONING_MODE_LABELS = {
@@ -3341,7 +3338,7 @@ class EliMainWindow(QMainWindow):
                     self._proactive_dock = dock
                     self.addDockWidget(Qt.DockWidgetArea.RightDockWidgetArea, dock)
                 except Exception as _err:
-                    print(f"[GUI] ProactiveDock attach failed: {_err}")
+                    log.debug(f"[GUI] ProactiveDock attach failed: {_err}")
                     return
             if checked is None:
                 checked = not dock.isVisible()
@@ -3353,7 +3350,7 @@ class EliMainWindow(QMainWindow):
             except Exception:
                 pass
         except Exception as _e:
-            print(f"[GUI] toggle proactive dock failed: {_e}")
+            log.debug(f"[GUI] toggle proactive dock failed: {_e}")
 
     def _toggle_operator_console_dock(self, checked: bool = None):
         """Show or hide the Operator Console dock. Wired to View → Operator Console
@@ -3367,7 +3364,7 @@ class EliMainWindow(QMainWindow):
                     self._operator_console_dock = dock
                     self.addDockWidget(Qt.DockWidgetArea.RightDockWidgetArea, dock)
                 except Exception as _err:
-                    print(f"[GUI] OperatorConsoleDock attach failed: {_err}")
+                    log.debug(f"[GUI] OperatorConsoleDock attach failed: {_err}")
                     return
             if checked is None:
                 checked = not dock.isVisible()
@@ -3379,7 +3376,7 @@ class EliMainWindow(QMainWindow):
             except Exception:
                 pass
         except Exception as _e:
-            print(f"[GUI] toggle operator console dock failed: {_e}")
+            log.debug(f"[GUI] toggle operator console dock failed: {_e}")
 
     def _ensure_hardware_tuning_dock(self):
         dock = getattr(self, "_hardware_tuning_dock", None)
@@ -3392,7 +3389,7 @@ class EliMainWindow(QMainWindow):
             dock.hide()
             return dock
         except Exception as e:
-            print(f"[GUI] hardware tuning dock attach failed: {e}")
+            log.debug(f"[GUI] hardware tuning dock attach failed: {e}")
             self._hardware_tuning_dock = None
             return None
 
@@ -3736,7 +3733,7 @@ class EliMainWindow(QMainWindow):
         except Exception as _ve:
             self.voice_combo.addItem("(no voices)")
             self.voice_combo.setEnabled(False)
-            print(f"[GUI] voice list unavailable: {_ve}")
+            log.debug(f"[GUI] voice list unavailable: {_ve}")
         self.voice_combo.currentTextChanged.connect(self._on_voice_changed)
         btn_layout.addWidget(self.voice_combo)
 
@@ -4295,7 +4292,7 @@ class EliMainWindow(QMainWindow):
             from eli.tools.image_engine import discover_local_image_models
             paths = [str(p) for p in discover_local_image_models()]
         except Exception as e:
-            print(f"[IMAGE] model scan failed: {e}")
+            log.debug(f"[IMAGE] model scan failed: {e}")
 
         if hasattr(self, "image_model_combo"):
             current = self.image_model_combo.currentText().strip()
@@ -4367,7 +4364,7 @@ class EliMainWindow(QMainWindow):
             presets = discover_presets()
         except Exception as e:
             presets = []
-            print(f"[IMAGE] preset scan failed: {e}")
+            log.debug(f"[IMAGE] preset scan failed: {e}")
         if hasattr(self, "image_preset_combo"):
             current = self.image_preset_combo.currentText()
             self.image_preset_combo.blockSignals(True)
@@ -4386,7 +4383,7 @@ class EliMainWindow(QMainWindow):
             outputs = list_recent_outputs(limit=30)
         except Exception as e:
             outputs = []
-            print(f"[IMAGE] output scan failed: {e}")
+            log.debug(f"[IMAGE] output scan failed: {e}")
         if not hasattr(self, "image_results_list"):
             return
         self.image_results_list.clear()
@@ -4696,7 +4693,7 @@ class EliMainWindow(QMainWindow):
                     source="image_studio",
                 )
         except Exception as e:
-            print(f"[IMAGE] memory log failed: {e}")
+            log.debug(f"[IMAGE] memory log failed: {e}")
 
         try:
             if self._proactive_daemon:
@@ -4708,7 +4705,7 @@ class EliMainWindow(QMainWindow):
                     },
                 ))
         except Exception as e:
-            print(f"[IMAGE] proactive queue update failed: {e}")
+            log.debug(f"[IMAGE] proactive queue update failed: {e}")
 
         try:
             note = (
@@ -4868,7 +4865,7 @@ class EliMainWindow(QMainWindow):
                     lines.append("Generate some interactions with ELI to build improvement data.")
 
                 lines.append("\n--- Cycle complete ---")
-                print("[PROACTIVE] Self-improvement cycle done:", len(imps), "improvements,", len(fails), "failures")
+                log.debug(f"[PROACTIVE] Self-improvement cycle done: {len(imps)} improvements, {len(fails)} failures")
                 self.self_improve_improvements_signal.emit("\n".join(lines))
             except Exception as exc:
                 self.self_improve_improvements_signal.emit(f"Error running cycle: {exc}")
@@ -5843,15 +5840,15 @@ class EliMainWindow(QMainWindow):
             from eli.gui.tabs.eli_world_tab import EliWorldTab
             self._eli_world_widget = EliWorldTab(parent=self)
             self.tabs.addTab(self._eli_world_widget, "🌍 Eli's World")
-            print("[EliWorld] tab loaded")
+            log.debug("[EliWorld] tab loaded")
         except Exception as _eli_world_err:
-            print(f"[EliWorld] failed to load: {_eli_world_err}")
+            log.debug(f"[EliWorld] failed to load: {_eli_world_err}")
             try:
                 fallback = QWidget()
                 QVBoxLayout(fallback).addWidget(QLabel(f"Eli's World unavailable: {_eli_world_err}"))
                 self.tabs.addTab(fallback, "🌍 Eli's World")
             except Exception as _fallback_err:
-                print(f"[EliWorld] fallback tab failed: {_fallback_err}")
+                log.debug(f"[EliWorld] fallback tab failed: {_fallback_err}")
 
     def create_labs_tab(self):
         try:
@@ -5859,7 +5856,7 @@ class EliMainWindow(QMainWindow):
             self._labs_widget = LabsTab(parent_window=self)
             self.tabs.addTab(self._labs_widget, "⚗️  Labs")
         except Exception as _labs_err:
-            print(f"[Labs] failed to load: {_labs_err}")
+            log.debug(f"[Labs] failed to load: {_labs_err}")
             fallback = QWidget()
             QVBoxLayout(fallback).addWidget(QLabel(f"Labs tab unavailable: {_labs_err}"))
             self.tabs.addTab(fallback, "⚗️  Labs")
@@ -5870,15 +5867,15 @@ class EliMainWindow(QMainWindow):
             from eli.gui.tabs.experimental_tab import ExperimentalTab
             self._experimental_widget = ExperimentalTab(parent=self)
             self.tabs.addTab(self._experimental_widget, "🧪 Experimental")
-            print("[Experimental] tab loaded")
+            log.debug("[Experimental] tab loaded")
         except Exception as _experimental_err:
-            print(f"[Experimental] failed to load: {_experimental_err}")
+            log.debug(f"[Experimental] failed to load: {_experimental_err}")
             try:
                 fallback = QWidget()
                 QVBoxLayout(fallback).addWidget(QLabel(f"Experimental tab unavailable: {_experimental_err}"))
                 self.tabs.addTab(fallback, "🧪 Experimental")
             except Exception as _fallback_err:
-                print(f"[Experimental] fallback tab failed: {_fallback_err}")
+                log.debug(f"[Experimental] fallback tab failed: {_fallback_err}")
 
     def create_files_tab(self):
         files_widget = QWidget()
@@ -6169,6 +6166,10 @@ from eli.cognition.agent_bus import _BaseAgent, AgentResult
 from eli.runtime.output_sanitizer import sanitize_visible_output
 
 
+
+from eli.utils.log import get_logger
+log = get_logger(__name__)
+
 class {class_name}(_BaseAgent):
     name = "{agent_name}"
     timeout_s = 5.0
@@ -6251,7 +6252,7 @@ _register()
                 bus._pool._max_workers = len(_ALL_AGENTS)
             return True
         except Exception as e:
-            print(f"[WIZARD] Live registration failed: {e}")
+            log.debug(f"[WIZARD] Live registration failed: {e}")
             return False
 
     # ── Open advanced settings dialog ─────────────────────────────────────────
@@ -6754,7 +6755,7 @@ _register()
                     from eli.perception.tts_router import speak
                     speak("ELI voice test. Systems operational.", voice_name=self._voice_selector.currentText())
                 except Exception as e:
-                    print(f"[TTS] Test error: {e}")
+                    log.debug(f"[TTS] Test error: {e}")
             _test_btn.clicked.connect(_test_voice)
             tts_form.addRow(_test_btn)
 
@@ -6794,7 +6795,7 @@ _register()
                 try:
                     self.refresh_memory_stats()
                 except Exception as exc:
-                    print(f"[GUI] memory-stats tick failed (non-fatal): {exc}")
+                    log.debug(f"[GUI] memory-stats tick failed (non-fatal): {exc}")
             self._memory_stats_timer = QTimer(self)
             self._memory_stats_timer.setInterval(30_000)
             self._memory_stats_timer.timeout.connect(_tick_memory)
@@ -6807,7 +6808,7 @@ _register()
                     self._update_proactive_status_label()
                     self._check_proactive_daemon_crash()
                 except Exception as exc:
-                    print(f"[GUI] proactive-status tick failed (non-fatal): {exc}")
+                    log.debug(f"[GUI] proactive-status tick failed (non-fatal): {exc}")
             self._proactive_status_timer = QTimer(self)
             self._proactive_status_timer.setInterval(5_000)
             self._proactive_status_timer.timeout.connect(_tick_proactive)
@@ -7795,7 +7796,7 @@ _register()
         try:
             self.save_settings(silent=True)
         except Exception as _se:
-            print(f"[SETTINGS] Auto-save after detect_optimal failed: {_se}")
+            log.debug(f"[SETTINGS] Auto-save after detect_optimal failed: {_se}")
 
     def _apply_hardware_recommendation_for_model(self, model_path: str) -> Dict[str, Any]:
         result: Dict[str, Any] = {"ok": False, "model_path": model_path}
@@ -7900,7 +7901,7 @@ _register()
             if dock is not None:
                 dock.set_status("Tuning failed")
                 dock.set_summary(msg)
-            print(f"[SETTINGS] {msg}")
+            log.debug(f"[SETTINGS] {msg}")
             result["error"] = str(e)
             return result
 
@@ -7989,7 +7990,7 @@ _register()
             if self.auto_load_checkbox.isChecked():
                 self.load_model()
         except Exception as e:
-            print(f'[FIRST RUN] setup warning: {e}')
+            log.debug(f'[FIRST RUN] setup warning: {e}')
 
     def _text_backend_ready(self, notify: bool = True):
         backend = self.get_active_backend()
@@ -8011,7 +8012,7 @@ _register()
                         f'or use the <b>Model</b> menu to load one.<br>'
                     )
             except Exception:
-                print('[WARN] Model not loaded')
+                log.debug('[WARN] Model not loaded')
         return None
 
     def get_active_backend(self):
@@ -8195,7 +8196,7 @@ _register()
         try:
             self._maybe_auto_select_reasoning_mode(user_message)
         except Exception as _amx:
-            print(f"[GUI] auto reasoning-mode selection failed: {_amx}")
+            log.debug(f"[GUI] auto reasoning-mode selection failed: {_amx}")
 
         # Resolve any drag-and-drop attachments into inline context
         dropped_paths = list(getattr(self.chat_input, "_dropped_paths", []))
@@ -8259,7 +8260,7 @@ _register()
                 _orchestrator_ok = False
 
                 if _ce is not None:
-                    print("[GUI] PATH1 -> CognitiveEngine.process (orchestrator owned inside CE)")
+                    log.debug("[GUI] PATH1 -> CognitiveEngine.process (orchestrator owned inside CE)")
                     try:
                         result = _ce.process(
                             user_message,
@@ -8268,11 +8269,11 @@ _register()
                         )
                         _ce_ok = True
                     except Exception as _ce_err:
-                        print(f"[GUI] CognitiveEngine.process failed: {_ce_err}")
+                        log.debug(f"[GUI] CognitiveEngine.process failed: {_ce_err}")
                         result = None
 
                 if not _ce_ok:
-                    print("[GUI] PATH2 removed -> falling back to direct backend only if CognitiveEngine fails")
+                    log.debug("[GUI] PATH2 removed -> falling back to direct backend only if CognitiveEngine fails")
                     result = None
 
                 full_tokens = []
@@ -8300,7 +8301,7 @@ _register()
                             # A zero-token generator here means a truly silent action
                             # (e.g. VOLUME) that intentionally produces no visible output.
                             # Do NOT re-call process() — that would execute the action twice.
-                            print("[GUI] Stream generator produced zero tokens (silent action or suppressed output).")
+                            log.debug("[GUI] Stream generator produced zero tokens (silent action or suppressed output).")
                             response = ""
                             _response_streamed = True
                             _storage_handled = True
@@ -8316,7 +8317,7 @@ _register()
                         try:
                             self._generated_artifact_open_sig.emit(dict(result))
                         except Exception as _artifact_emit_err:
-                            print(f"[GUI] generated artifact open signal failed: {_artifact_emit_err}")
+                            log.debug(f"[GUI] generated artifact open signal failed: {_artifact_emit_err}")
                         response = _eli_gui_visible_text(result)
                         if _ce_ok:
                             _storage_handled = True
@@ -8635,7 +8636,7 @@ _register()
                 except Exception:
                     pass
 
-            print(f"[GUI] Proactive daemon crash detected: {crash_msg[:200]}")
+            log.debug(f"[GUI] Proactive daemon crash detected: {crash_msg[:200]}")
         except Exception:
             pass
 
@@ -8644,10 +8645,10 @@ _register()
         try:
             from eli.planning.proactive_daemon import start_daemon as _start_pd
             self._proactive_daemon = _start_pd()
-            print("[GUI] Proactive daemon restarted.")
+            log.debug("[GUI] Proactive daemon restarted.")
             self._update_proactive_status_label()
         except Exception as exc:
-            print(f"[GUI] Failed to restart proactive daemon: {exc}")
+            log.debug(f"[GUI] Failed to restart proactive daemon: {exc}")
 
     def _update_summary_display(self, html: str):
         self.summaries_display.clear()
@@ -9035,7 +9036,7 @@ _register()
             self.status_signal.emit(f"Opened in Labs Sim/IDE: {path.name}")
             return True
         except Exception as e:
-            print(f"[GUI] Labs Sim/IDE open failed: {e}")
+            log.debug(f"[GUI] Labs Sim/IDE open failed: {e}")
             return False
 
     def _open_generated_artifact_from_result(self, result) -> None:
@@ -9436,7 +9437,7 @@ _register()
                     from eli.perception.gaze_engine import start_gaze_engine
                     start_gaze_engine(camera=_gaze_cam if _gaze_cam == "auto" else int(_gaze_cam) if _gaze_cam.isdigit() else "auto")
                 except Exception as _ge:
-                    print(f"[GUI] Gaze engine auto-start failed: {_ge}")
+                    log.debug(f"[GUI] Gaze engine auto-start failed: {_ge}")
         except Exception:
             pass
 
@@ -9564,7 +9565,7 @@ _register()
             if not silent:
                 QMessageBox.critical(self, "Error", f"Failed to save settings: {e}")
             else:
-                print(f"[SETTINGS] Save failed: {e}")
+                log.debug(f"[SETTINGS] Save failed: {e}")
             return
 
         try:
@@ -9576,7 +9577,7 @@ _register()
                 image_visual_notes=updates.get("image_profile_notes", ""),
             )
         except Exception as e:
-            print(f"[SETTINGS] User profile sync skipped: {e}")
+            log.debug(f"[SETTINGS] User profile sync skipped: {e}")
 
         # max_tokens, temperature, top_p, top_k, repeat_penalty are
         # per-inference params — handled at call time, no reload needed.
@@ -9603,7 +9604,7 @@ _register()
                     k for k in reload_keys
                     if existing.get(k) != updates.get(k)
                 )
-                print(f"[SETTINGS] Reload-required keys changed: {changed_keys}")
+                log.debug(f"[SETTINGS] Reload-required keys changed: {changed_keys}")
                 import threading as _settings_reload_thr
 
                 def _do_reload():
@@ -9611,7 +9612,7 @@ _register()
                         result = gguf_inference.reload_model(await_completion=True)
                         if result.get("ok"):
                             params = result.get("params") or {}
-                            print(
+                            log.debug(
                                 "[SETTINGS] Model reloaded — "
                                 f"ctx={params.get('n_ctx')} "
                                 f"gpu_layers={params.get('n_gpu_layers')} "
@@ -9619,15 +9620,15 @@ _register()
                                 f"batch={params.get('n_batch')}"
                             )
                         else:
-                            print(f"[SETTINGS] Reload failed: {result.get('error')}")
+                            log.debug(f"[SETTINGS] Reload failed: {result.get('error')}")
                     except Exception as exc:
-                        print(f"[SETTINGS] Reload thread error: {exc}")
+                        log.debug(f"[SETTINGS] Reload thread error: {exc}")
 
                 _settings_reload_thr.Thread(
                     target=_do_reload, name="settings-reload", daemon=True,
                 ).start()
         except Exception as e:
-            print(f"[SETTINGS] Active reload skipped: {e}")
+            log.debug(f"[SETTINGS] Active reload skipped: {e}")
 
         if not silent:
             if requires_reload:
@@ -9810,7 +9811,7 @@ _register()
         )
 
     def _append_log(self, message: str):
-        print(f"[LOG] {message}")
+        log.debug(f"[LOG] {message}")
 
     def _update_status(self, message: str):
         if message == 'Send enabled':
@@ -9957,13 +9958,13 @@ _register()
             if _ce is not None and hasattr(_ce, 'shutdown'):
                 _ce.shutdown()
         except Exception as _sd_err:
-            print(f"[GUI] CognitiveEngine shutdown failed (non-fatal): {_sd_err}")
+            log.debug(f"[GUI] CognitiveEngine shutdown failed (non-fatal): {_sd_err}")
 
         try:
             if self.auto_save_checkbox.isChecked() and self.conversation_history:
                 self.save_conversation()
         except Exception as _save_err:
-            print(f"[GUI] Conversation autosave failed during close: {_save_err}")
+            log.debug(f"[GUI] Conversation autosave failed during close: {_save_err}")
 
         try:
             event.accept()
@@ -10000,7 +10001,7 @@ def main():
             _existing_models = []
         if not _existing_models:
             # Wizard dismissed without a model — still launch but warn
-            print("[ELI] No models installed. GUI will launch without a model loaded.")
+            log.debug("[ELI] No models installed. GUI will launch without a model loaded.")
 
     window = EliMainWindow()
     window._debug_boot_ts = time.time()

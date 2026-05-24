@@ -22,6 +22,10 @@ import re
 import os
 
 
+
+from eli.utils.log import get_logger
+log = get_logger(__name__)
+
 Color = Tuple[int, int, int]
 RGBA = Tuple[int, int, int, int]
 
@@ -1574,8 +1578,8 @@ def build_backend(args):
         try:
             return DiffusionBackend(args.model, args.device)
         except Exception as e:
-            print(f"[warning] Could not load diffusion backend: {e}")
-            print("[warning] Falling back to procedural backend.")
+            log.debug(f"[warning] Could not load diffusion backend: {e}")
+            log.debug("[warning] Falling back to procedural backend.")
 
     return ProceduralBackend()
 
@@ -1737,7 +1741,7 @@ def parse_args():
         raise ValueError("--count must be at least 1")
 
     if args.width % 8 != 0 or args.height % 8 != 0:
-        print("[warning] Width and height are usually best when divisible by 8.")
+        log.debug("[warning] Width and height are usually best when divisible by 8.")
 
     return args
 
