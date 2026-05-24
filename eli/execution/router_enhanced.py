@@ -941,7 +941,7 @@ def route(text: str) -> Dict[str, Any]:
     if re.search(r"\b(what do you know about me from memory|what do you know about me|what do you remember of me|who am i|what is my name|do you remember me|do you know me|my preferences|my persona|my ethos)\b", low):
         return _mk("USER_IDENTITY_SUMMARY", {}, 0.99, matched_by="router.user_identity_summary", allow_chat_without_evidence=False)
 
-    if re.search(r"\b(who are you|what are you|what is your name|what's your name|tell me about yourself|what is your purpose|what model(?: are you| do you use| is this)?|which model(?: are you| do you use| is this)?|what llm|which llm)\b", low):
+    if re.search(r"\b(who are you|what are you(?!\s+\w)|what is your name|what's your name|tell me about yourself|what is your purpose|what model(?: are you| do you use| is this)?|which model(?: are you| do you use| is this)?|what llm|which llm)\b", low):
         return _mk("SELF_REPORT", {}, 0.99, matched_by="router.self_report", allow_chat_without_evidence=False)
     # --- end explicit grounded speech-act route authority ---
 
@@ -4386,7 +4386,7 @@ def _eli_phase38_identity_contract(raw):
     low = _re.sub(r"\s+", " ", str(raw or "").lower()).strip(" .,!?:;")
 
     if _re.search(
-        r"\b(who are you|what are you|what is your name|what's your name|tell me about yourself)\b",
+        r"\b(who are you|what are you(?!\s+\w)|what is your name|what's your name|tell me about yourself)\b",
         low,
     ):
         return _mk(

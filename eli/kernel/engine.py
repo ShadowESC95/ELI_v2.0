@@ -5562,6 +5562,12 @@ Answer:"""
             or _eli_bad_identity_self_report_output(user_input, final_text)
         ):
             bad_final = True
+        elif re.search(r"^\s*P[1-5]\s*:?\s*(PASS|FAIL)\b", final_text, re.MULTILINE | re.I):
+            # Critique transcript leaked into revision output — model included P-line
+            # evaluation instead of just writing the revised answer. Reject and use
+            # the initial draft.
+            log.debug("[REASONING][Constitutional] revision contained P1-P5 critique lines — leaked critique rejected")
+            bad_final = True
         if bad_final:
             log.debug("[REASONING][Constitutional] revised final rejected; returning initial draft")
             return _strip_reasoning_scaffold(initial)
