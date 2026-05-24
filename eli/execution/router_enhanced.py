@@ -649,7 +649,14 @@ def _route_grounded_runtime_intent(
     if re.search(r"\b(who are you|what are you|what is your name|what's your name|tell me about yourself)\b", raw, re.I):
         return _mk("SELF_REPORT", {}, 0.99, matched_by="identity.self_report_preempt", allow_chat_without_evidence=False)
 
-    if re.search(r"\b(who am i|do you know who i am|do you know me|do you remember me|what is my name|what do you know about me)\b", raw, re.I):
+    if re.search(
+        r"\b(who am i|do you know who i am|do you know me|do you remember me|"
+        r"what is my name|what('s| is) my name|what do you know about me|"
+        r"you do not know who i am|you don'?t know who i am|"
+        r"don'?t you know who i am|don'?t you know me|"
+        r"you don'?t know me|you have no idea who i am)\b",
+        raw, re.I
+    ):
         return _mk("USER_IDENTITY_SUMMARY", {}, 0.99, matched_by="identity.user_summary_preempt", allow_chat_without_evidence=False)
 
     # Last-turn trace questions require retrieval + live _prev_bus_result
@@ -4391,7 +4398,11 @@ def _eli_phase38_identity_contract(raw):
         )
 
     if _re.search(
-        r"\b(who am i|do you know who i am|do you know me|do you remember me|what is my name|what do you know about me)\b",
+        r"\b(who am i|do you know who i am|do you know me|do you remember me|"
+        r"what is my name|what('s| is) my name|what do you know about me|"
+        r"you do not know who i am|you don'?t know who i am|"
+        r"don'?t you know who i am|don'?t you know me|"
+        r"you don'?t know me|you have no idea who i am)\b",
         low,
     ):
         return _mk(
