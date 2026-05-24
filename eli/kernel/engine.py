@@ -3956,11 +3956,24 @@ Answer:"""
                         in ("1", "true", "yes", "on")
                     )
                     _hyde_words = len((query or "").split())
+                    # Skip HyDE when the query is a control/action command — the
+                    # generic knowledge-assistant system prompt produces irrelevant
+                    # hypothetical documents (e.g. "financial audit" definitions for
+                    # "run a fulltime audit") which then pollute memory retrieval.
+                    _query_low = (query or "").lower()
+                    _hyde_is_control_cmd = bool(re.search(
+                        r"\b(audit|diagnos[ei]|health.?check|runtime|pipeline|"
+                        r"run\s+\w+|do\s+(an?\s+)?\w+|wanna\s+\w+|perform\s+\w+|"
+                        r"show\s+(me\s+)?(the\s+)?\w+|check\s+(the\s+)?\w+|"
+                        r"list\s+\w+|enable|disable|start|stop|reset|reload)\b",
+                        _query_low,
+                    ))
                     _hyde_eligible = (
                         not _hyde_disabled
                         and _hyde_words >= 8              # fire for any substantive query
                         and not _is_brief_phatic_prompt(query)
                         and not commandish
+                        and not _hyde_is_control_cmd
                     )
                     if _hyde_eligible:
                         try:
@@ -7918,6 +7931,25 @@ Answer:"""
 
         action = intent.get("action", "CHAT")
         args = intent.get("args", {})
+
+        def _eli_phase13_explicit_meta_diagnostic_request(probe: str) -> bool:
+            """Return True only when the user is explicitly requesting a meta/diagnostic
+            investigation — e.g. expressing frustration about ELI's behaviour, asking
+            what went wrong, or demanding an explanation. Implicit upgrades (e.g. a
+            routine CHAT message that was quietly re-routed to META_DIAGNOSTIC) should
+            return False so the action falls back to CHAT."""
+            import re as _p13re
+            _p = str(probe or "").strip().lower()
+            if not _p:
+                return False
+            _explicit_signals = (
+                r"\b(what'?s?\s+(going\s+on|wrong|broken|happened)|why did you|"
+                r"why are you|what the (fuck|hell|heck)|wtf|diagnos[ei]|"
+                r"explain (your|this|that|the)\s+(response|answer|behaviour|behavior|output)|"
+                r"debug|trace|pipeline|introspect|meta.diagnostic|"
+                r"pay attention|you('?re| are) (broken|confused|wrong|off))\b"
+            )
+            return bool(_p13re.search(_explicit_signals, _p, _p13re.IGNORECASE))
 
         try:
             from eli.runtime.control_contracts import route_control_text as _route_control_text

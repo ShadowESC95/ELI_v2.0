@@ -91,7 +91,8 @@ _RE_CHAT_FILLER = re.compile(
     r"|alright|cool|nice|great|fine)\s*[.!?]*\s*$", re.I)
 _RE_GROUNDED_PIPELINE = re.compile(
     r"\b(cognition pipeline|input to output|every step|memory system|db tables"
-    r"|runtime audit|diagnostic|diagnostics|full audit)\b", re.I)
+    r"|runtime audit|diagnostic|diagnostics|full audit|fulltime audit|full.time audit"
+    r"|system audit|run.*audit|do.*audit|wanna.*audit)\b", re.I)
 _RE_URL = re.compile(r"https?://\S+|www\.\S+", re.I)
 _RE_SHELL_CMD = re.compile(r"^(sudo|bash|sh|python|pip|apt|dnf|brew|npm|git)\s", re.I)
 
@@ -578,28 +579,37 @@ def _route_set_user_name(raw: str, low: str) -> Optional[Dict[str, Any]]:
         r"(?:my name is|my name's)\s+([A-Za-z][A-Za-z\-']{1,30})\b",
         r"call me\s+([A-Za-z][A-Za-z\-']{1,30})\b",
         r"(?:you can call me|please call me)\s+([A-Za-z][A-Za-z\-']{1,30})\b",
-        r"^(?:i'?m|i am)\s+([A-Z][a-z]{1,24})\s*[.,!?]?\s*$",
-        r"^([A-Z][a-z]{1,24})\s*[.,!?]?\s*$",  # bare name as full message
+        r"^(?:i'?m|i am)\s+([A-Z][a-z]{2,24})\s*[.,!?]?\s*$",
+        r"^([A-Z][a-z]{3,24})\s*[.,!?]?\s*$",  # bare name as full message — min 4 chars to avoid abbreviations
     )
+    # Common abbreviations / acronyms that must never be treated as names.
+    # Includes ETA and any 2-3 letter all-caps or common short tokens.
+    _bad = {"you", "eli", "okay", "ok", "sure", "fine", "good", "here",
+            "yes", "no", "hi", "hey", "hello", "there", "done", "ready",
+            "sorry", "thanks", "thank", "great", "right", "wrong",
+            # Media control reserved words — must never become a name
+            "play", "pause", "resume", "stop", "next", "skip", "back",
+            "previous", "mute", "unmute", "louder", "quieter", "volume",
+            "shuffle", "repeat", "rewind", "forward", "restart",
+            # Voice/system reserved words
+            "start", "go", "cancel", "abort", "quit", "exit", "close",
+            "open", "search", "find", "show", "hide", "run", "launch",
+            # Command keywords — must never become a user name
+            "help", "commands", "command", "list", "check", "status",
+            "info", "about", "what", "when", "where", "who", "why", "how",
+            # Common abbreviations / acronyms — never a personal name
+            "eta", "ata", "ota", "asap", "fyi", "btw", "tbd", "tba",
+            "aka", "tldr", "diy", "imo", "imho", "afk", "brb", "wtf",
+            "omg", "lol", "idk", "nvm", "tbh", "irl", "gg", "rn",
+            "api", "gui", "cli", "url", "cpu", "gpu", "ram", "ssd",}
     for pat in _patterns:
         m = _re.search(pat, raw, _re.IGNORECASE)
         if m:
             candidate = m.group(1).strip().rstrip(".,!?")
-            # Reject common false positives and reserved media/control words
-            _bad = {"you", "eli", "okay", "ok", "sure", "fine", "good", "here",
-                    "yes", "no", "hi", "hey", "hello", "there", "done", "ready",
-                    "sorry", "thanks", "thank", "great", "right", "wrong",
-                    # Media control reserved words — must never become a name
-                    "play", "pause", "resume", "stop", "next", "skip", "back",
-                    "previous", "mute", "unmute", "louder", "quieter", "volume",
-                    "shuffle", "repeat", "rewind", "forward", "restart",
-                    # Voice/system reserved words
-                    "start", "go", "cancel", "abort", "quit", "exit", "close",
-                    "open", "search", "find", "show", "hide", "run", "launch",
-                    # Command keywords — must never become a user name
-                    "help", "commands", "command", "list", "check", "status",
-                    "info", "about", "what", "when", "where", "who", "why", "how"}
-            if candidate.lower() not in _bad and len(candidate) >= 2:
+            # Additional guard: reject pure abbreviations (≤3 chars with no vowel variety)
+            _clow = candidate.lower()
+            _has_vowel = any(c in "aeiou" for c in _clow)
+            if _clow not in _bad and len(candidate) >= 3 and _has_vowel:
                 return _mk(
                     "SET_USER_NAME",
                     {"name": candidate},
@@ -1020,7 +1030,14 @@ def route(text: str) -> Dict[str, Any]:
         return _mk("GAZE_CALIBRATE", {}, 0.95, matched_by="gaze.calibrate.preempt")
     # ── end gaze engine control ───────────────────────────────────────────────
 
-    if re.search(r"\b(run a full runtime audit|run full runtime audit|runtime audit|system audit|health check|diagnostic|diagnostics|what'?s actually broken|what is actually broken)\b", low):
+    if re.search(
+        r"\b(run a full runtime audit|run full runtime audit|runtime audit|system audit|health check|diagnostic|diagnostics|what'?s actually broken|what is actually broken)\b"
+        r"|\b(perform|do|run|wanna run|want to run|let'?s run)\b.{0,30}\b(full.?time\s+audit|full\s+audit|runtime audit|system audit|audit)\b"
+        r"|\b(fulltime|full.time)\s+audit\b"
+        r"|\bdo an? audit\b"
+        r"|\bcheck (the\s+)?(runtime|system|modules?|pipeline)\b",
+        low,
+    ):
         return _mk("RUNTIME_AUDIT", {}, 0.95, matched_by="audit.runtime.preempt",
                    need_grounding=True, task_family="grounded_audit")
 
