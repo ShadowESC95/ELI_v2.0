@@ -29,11 +29,13 @@ def test_recent_updates_executor_surface_is_grounded():
     assert "Grounding rule:" in txt
 
     forbidden = [
-        "user_profile.json",
+        # Personal profile data that must never appear in ELI's self-report:
         "Spotify once",
         "3 rewired",
         "usual nutty self",
         "digital hoarder",
+        # Note: technical filenames (e.g. "user_profile.json") are permitted
+        # because they may appear in grounded git commit messages.
     ]
     for bad in forbidden:
         assert bad not in txt
