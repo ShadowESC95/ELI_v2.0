@@ -9766,6 +9766,9 @@ try:
                         _candidate = _m.group(1).strip(" .,;")
                         if _candidate.lower() not in {
                             "unknown", "none", "the", "a", "an", "no", "not", "asking", "user",
+                            "screenshot", "name", "unnamed", "anonymous", "guest", "admin",
+                            "root", "system", "default", "test", "sample", "example",
+                            "placeholder", "null", "undefined",
                         }:
                             try:
                                 set_user_name(_candidate)  # persist for future sessions
