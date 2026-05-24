@@ -1641,7 +1641,7 @@ class Memory(metaclass=_MemoryMeta):
         finally:
             conn.close()
 
-    def recall_memory(self, query, limit=10):
+    def recall_memory(self, query, limit=10, keyword_only: bool = False):
         q = _norm_text(query).strip()
         if not q:
             return []
@@ -1701,33 +1701,39 @@ class Memory(metaclass=_MemoryMeta):
             # FAISS runs first.  FTS5/LIKE only runs as a supplementary
             # path when the vector index is empty or returns fewer than
             # limit // 2 results (e.g. very short query or cold start).
+            # When keyword_only=True (called from orchestrator's keyword_search),
+            # FAISS is skipped entirely — the orchestrator runs its own dedicated
+            # semantic_search() step, so running FAISS here would produce
+            # duplicate vector hits with a mismatched "fts5" source label.
             vector_results = []
             _vector_index_populated = False
-            try:
-                from eli.memory.vector_store import get_vector_store
-                _vs = get_vector_store()
-                _idx = getattr(_vs, '_index', None) if _vs is not None else None
-                _ntotal = int(getattr(_idx, 'ntotal', 0) or 0)
-                _vector_index_populated = _ntotal > 0
-                if _vs is not None and _ntotal > 0:
-                    _hits = _vs.search(q, top_k=limit) or []
-                    for h in _hits:
-                        vector_results.append({
-                            'id': h.get('memory_id', f"vec:{h.get('pos', 0)}"),
-                            'ts': h.get('ts', 0),
-                            'timestamp': h.get('ts', 0),
-                            'text': h.get('text', ''),
-                            'tags': h.get('tags', ''),
-                            'weight': float(h.get('score', 0.5)) + 0.5,
-                            'importance': float(h.get('score', 0.5)),
-                            '_source': 'vector',
-                        })
-            except Exception:
-                pass
+            if not keyword_only:
+                try:
+                    from eli.memory.vector_store import get_vector_store
+                    _vs = get_vector_store()
+                    _idx = getattr(_vs, '_index', None) if _vs is not None else None
+                    _ntotal = int(getattr(_idx, 'ntotal', 0) or 0)
+                    _vector_index_populated = _ntotal > 0
+                    if _vs is not None and _ntotal > 0:
+                        _hits = _vs.search(q, top_k=limit) or []
+                        for h in _hits:
+                            vector_results.append({
+                                'id': h.get('memory_id', f"vec:{h.get('pos', 0)}"),
+                                'ts': h.get('ts', 0),
+                                'timestamp': h.get('ts', 0),
+                                'text': h.get('text', ''),
+                                'tags': h.get('tags', ''),
+                                'weight': float(h.get('score', 0.5)) + 0.5,
+                                'importance': float(h.get('score', 0.5)),
+                                '_source': 'vector',
+                            })
+                except Exception:
+                    pass
 
             # --- Stage 6: FTS5 keyword search (supplementary / fallback) ---
-            # Only run when the vector index had < limit//2 results or is empty.
-            _need_keyword = (not _vector_index_populated) or (len(vector_results) < max(1, limit // 2))
+            # Always run in keyword_only mode. Otherwise run when vector returned
+            # fewer than limit//2 results or the index is empty.
+            _need_keyword = keyword_only or (not _vector_index_populated) or (len(vector_results) < max(1, limit // 2))
             fts_rows = []
             if _need_keyword and _has_table(conn, "memories_fts"):
                 try:
@@ -1899,8 +1905,12 @@ class Memory(metaclass=_MemoryMeta):
                 except Exception:
                     pass
             # --- Knowledge Graph enrichment ---
-            # Only inject KG context for identity/user-directed queries.
-            if _identity_query:
+            # Skipped when keyword_only=True — the orchestrator runs its own
+            # kg_search() step and manages KG insertion into hybrid_merge()
+            # with dedicated priority ordering. Injecting here would add a KG
+            # hit in both the keyword bucket AND the kg bucket, causing the
+            # orchestrator's dedup (text[:240]) to silently drop one copy.
+            if not keyword_only:
                 try:
                     from eli.memory.knowledge_graph import get_knowledge_graph
                     _kg = get_knowledge_graph()
@@ -1919,6 +1929,57 @@ class Memory(metaclass=_MemoryMeta):
                         })
                 except Exception:
                     pass
+            # --- Deep history fallback: search conversation_turns when memories sparse ---
+            # This surfaces things the user said that were never extracted as facts.
+            if len(out) < 2 and _has_table(conn, "conversation_turns"):
+                try:
+                    _conv_like = f"%{q.lower()}%"
+                    _conv_rows = conn.execute(
+                        """SELECT COALESCE(timestamp, ts, 0), role, content
+                           FROM conversation_turns
+                           WHERE LOWER(content) LIKE ?
+                           AND role = 'user'
+                           ORDER BY COALESCE(timestamp, ts, 0) DESC
+                           LIMIT ?""",
+                        (_conv_like, max(3, limit - len(out))),
+                    ).fetchall()
+                    for _cr in _conv_rows:
+                        _txt = (_cr[2] or "").strip()
+                        _key = _txt[:160].lower()
+                        if _key and _key not in _seen_filtered and len(_txt) >= 10:
+                            _seen_filtered.add(_key)
+                            out.append({
+                                "id": f"conv_turn:{_cr[0]}",
+                                "ts": float(_cr[0] or 0),
+                                "timestamp": float(_cr[0] or 0),
+                                "text": _txt,
+                                "tags": "conversation,user",
+                                "weight": 0.6,
+                                "importance": 0.35,
+                                "_source": "conversation_turns",
+                            })
+                except Exception:
+                    pass
+
+            # --- Recall frequency learning: boost importance of top recalled memories ---
+            # Every recall of a memory is a signal it matters. Increment importance
+            # by a small delta so frequently-recalled facts surface higher over time.
+            try:
+                _boost_ids = [
+                    int(_h["id"]) for _h in out[:3]
+                    if not str(_h.get("id", "")).startswith(("kg:", "sem:", "conv"))
+                    and _h.get("id") is not None
+                ]
+                if _boost_ids:
+                    for _bid in _boost_ids:
+                        conn.execute(
+                            "UPDATE memories SET importance = MIN(1.0, COALESCE(importance, 0.5) + 0.02) WHERE id = ?",
+                            (_bid,),
+                        )
+                    conn.commit()
+            except Exception:
+                pass
+
             now = _now_ts()
             rl_cols = _memory_table_columns(conn, "recall_log")
             payload = {
@@ -2036,6 +2097,7 @@ class Memory(metaclass=_MemoryMeta):
                 UPDATE memories
                 SET weight = MAX(?, COALESCE(weight, 1.0) * ?)
                 WHERE COALESCE(timestamp, ts, 0) < ?
+                AND COALESCE(importance, 0.5) < 0.85
                 """,
                 (min_weight, decay_factor, cutoff_ts),
             )

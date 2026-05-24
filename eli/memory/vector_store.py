@@ -81,6 +81,34 @@ class VectorStore:
         self._index_path, self._meta_path = _get_index_paths()
         self._load()
         self._init_embedder()
+        # Check for divergence between loaded index and SQLite memories count.
+        # If >20% of memories are missing from FAISS, schedule a rebuild so
+        # semantic search is accurate even after unclean shutdowns.
+        if not self._needs_rebuild:
+            try:
+                import sqlite3 as _sq
+                from eli.core.paths import user_db_path as _udb
+                _db = str(_udb())
+                if _db and os.path.exists(_db):
+                    _con = _sq.connect(_db)
+                    try:
+                        _sqlite_count = _con.execute(
+                            "SELECT COUNT(*) FROM memories "
+                            "WHERE length(COALESCE(text, content, '')) > 10"
+                        ).fetchone()[0]
+                    except Exception:
+                        _sqlite_count = 0
+                    finally:
+                        _con.close()
+                    _vec_count = self._index.ntotal if self._index is not None else 0
+                    if _sqlite_count > 0 and _vec_count < _sqlite_count * 0.8:
+                        print(
+                            f"[VECTOR_STORE] Index divergence detected: "
+                            f"{_vec_count} vectors vs {_sqlite_count} DB memories — scheduling rebuild"
+                        )
+                        self._needs_rebuild = True
+            except Exception:
+                pass
         if self._needs_rebuild and self._embedder is not None:
             threading.Thread(target=self._auto_rebuild, daemon=True, name="eli-vs-rebuild").start()
 

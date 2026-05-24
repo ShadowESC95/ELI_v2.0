@@ -1,4 +1,11 @@
+import importlib
+import pytest
 from eli.learning.training_preflight import preflight_target
+
+_TRAINING_MODULES = ("peft", "accelerate", "datasets")
+_training_deps_available = all(
+    importlib.util.find_spec(m) is not None for m in _TRAINING_MODULES
+)
 
 
 def test_preflight_blocks_missing_phi_base_when_isolated(tmp_path):
@@ -20,6 +27,10 @@ def test_preflight_keeps_phi_ultra_target_scope():
     assert report["guard_plan"]["target"] == "eli_phi_ultra"
 
 
+@pytest.mark.skipif(
+    not _training_deps_available,
+    reason="peft/accelerate/datasets not installed — training pipeline unavailable",
+)
 def test_preflight_can_train_after_phi_base_download():
     report = preflight_target("eli_phi")
 

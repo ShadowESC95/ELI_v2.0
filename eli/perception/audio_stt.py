@@ -241,7 +241,7 @@ def _allow_direct_chat() -> bool:
     return os.environ.get("ELI_STT_ALLOW_DIRECT_CHAT", "0").lower() in ("1", "true", "yes", "on")
 
 ALLOW_DIRECT_CHAT_WITHOUT_WAKE = _allow_direct_chat()  # kept for backwards compat
-MIN_DIRECT_CHAT_WORDS = int(os.environ.get("ELI_STT_MIN_DIRECT_CHAT_WORDS", "4"))
+MIN_DIRECT_CHAT_WORDS = int(os.environ.get("ELI_STT_MIN_DIRECT_CHAT_WORDS", "2"))
 
 # Hard override: require wake word for ALL safe-direct commands regardless of media state.
 # Default off — media-aware gating in classify() handles the speaker-bleed case dynamically.
@@ -270,6 +270,7 @@ def _collapse_repeated_phrase(text: str) -> str:
     if n < 2:
         return t
 
+    # Whole-phrase repetition (e.g. "pause pause pause" → "pause")
     for size in range(1, min(5, n // 2) + 1):
         chunk = words[:size]
         i = 0
@@ -279,6 +280,23 @@ def _collapse_repeated_phrase(text: str) -> str:
             i += size
         if reps >= 2 and i == n:
             return " ".join(chunk)
+
+    # Leading-loop bleed: "X X X Y" where X repeats 3+ times then a tail follows.
+    # Almost always music/speaker bleed picking up a chorus + a different snippet.
+    # Drop the repeated portion; keep the tail (it's most likely the real command).
+    for size in range(1, min(4, n // 3) + 1):
+        chunk = words[:size]
+        i = 0
+        reps = 0
+        while i + size <= n and words[i:i + size] == chunk:
+            reps += 1
+            i += size
+        if reps >= 3 and i < n:
+            tail = words[i:]
+            # If tail is also just the chunk word(s), the whole thing was a loop.
+            if all(w in chunk for w in tail):
+                return " ".join(chunk)
+            return " ".join(tail)
 
     deduped = [words[0]]
     for w in words[1:]:
@@ -744,9 +762,11 @@ class VoiceGate:
             return "guarded_without_wake", None, None
 
         # Free-form direct chat without wake is optional. Use a minimum word count
-        # so ambient snippets like "marketing people" or "mot" do not trigger the LLM.
-        if _allow_direct_chat() and _word_count(text) >= MIN_DIRECT_CHAT_WORDS:
-            return "dispatch", text, None
+        # so ambient snippets like "mot" or single-noise blips do not trigger the LLM.
+        if _allow_direct_chat():
+            if _word_count(text) >= MIN_DIRECT_CHAT_WORDS:
+                return "dispatch", text, None
+            return "ignore_too_short", None, None
 
         return "ignore_unarmed", None, None
 
@@ -972,7 +992,8 @@ class ELIAudioSTT:
         try:
             from eli.perception.local_whisper_stt import transcribe_speech_recognition_audio as _eli_local_stt
             return _collapse_repeated_phrase(_eli_local_stt(audio).lower().strip())
-        except Exception:
+        except Exception as _stt_err:
+            print(f"[STT][ERROR] transcription failed: {type(_stt_err).__name__}: {_stt_err}", flush=True)
             return ""
 
     def _emit(self, cmd: str):
@@ -1163,7 +1184,25 @@ class ELIAudioSTT:
 
                     transcript = _collapse_repeated_phrase(transcript)
                     transcript = _eli_fast_command_alias(transcript)
-                    print(f"👂 [AUDIO] Heard: '{transcript}'")
+                    # Speaker-bleed filter: when media is audible and the transcript
+                    # looks like a song-loop capture (high token-repetition density),
+                    # drop it. Real commands rarely have >60% repetition.
+                    try:
+                        _words = transcript.split()
+                        if len(_words) >= 4 and _eli_media_probably_audible():
+                            _unique = len(set(_words))
+                            _rep_ratio = 1.0 - (_unique / len(_words))
+                            if _rep_ratio >= 0.5:
+                                print(
+                                    f"🎵 [AUDIO_BLEED_FILTER] dropped likely-music transcript "
+                                    f"(rep_ratio={_rep_ratio:.2f}): {transcript!r}",
+                                    flush=True,
+                                )
+                                continue
+                    except Exception:
+                        pass
+                    _heard_preview = transcript if len(transcript) <= 80 else (transcript[:77] + "...")
+                    print(f"👂 [AUDIO] Heard ({len(transcript)} chars): '{_heard_preview}'", flush=True)
 
                     # Drop mic input during short post-command cooldown.
                     try:
@@ -1223,11 +1262,19 @@ class ELIAudioSTT:
                         continue
 
                     if action == "guarded_without_wake":
-                        print(f"⚠️ [AUDIO] Guarded command ignored without wake word: '{transcript}'")
+                        print("⚠️ [AUDIO] guarded — wake word required", flush=True)
                         continue
 
                     if action == "ignore_unarmed":
-                        print(f"🫥 [AUDIO] Ignored without wake word: '{transcript}'")
+                        print("🫥 [AUDIO] ignored — no wake word", flush=True)
+                        continue
+
+                    if action == "ignore_too_short":
+                        print(
+                            f"🫥 [AUDIO] ignored — too short "
+                            f"({_word_count(transcript)} words, need {MIN_DIRECT_CHAT_WORDS})",
+                            flush=True,
+                        )
                         continue
 
                     if action == "ignore":

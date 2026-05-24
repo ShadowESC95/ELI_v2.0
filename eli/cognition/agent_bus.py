@@ -123,6 +123,222 @@ def _persist_dispatch_result(
 
 
 # ---------------------------------------------------------------------------
+# Evidence-driven confidence scoring (no hardcoded per-agent weights)
+# ---------------------------------------------------------------------------
+#
+# Design constants. These describe the *structure* of the scoring algorithm,
+# not arbitrary per-agent weights. Per-agent contributions are derived from
+# (agent.confidence × evidence_density × calibration), all dynamic.
+
+_ROUTE_BASE_WEIGHT = 0.30          # route-certainty share of total score
+_SINGLE_AGENT_CAP = 0.30           # max contribution from any one agent
+_EMPTY_BUS_CEILING = 0.65          # score ceiling when no grounded evidence
+_DENSITY_SCALE = 1500.0            # chars-equivalent where density ≈ 0.63
+_LIST_ITEM_CHAR_EQUIV = 50         # treat each list item as N chars
+_CALIBRATION_MIN_RUNS = 5          # need this many runs before calibration applies
+_CALIBRATION_HALF_LIFE = 50.0      # EMA half-life in runs
+_METRICS_CACHE_TTL_S = 30.0        # how long to cache calibration table reads
+
+_EVIDENCE_KEYS = (
+    "snippets", "results", "hits", "items", "content",
+    "entries", "rules", "insights", "memory_context",
+)
+
+_metrics_cache_lock = threading.Lock()
+_metrics_cache: Dict[str, Any] = {"loaded_at": 0.0, "rows": {}}
+
+
+def _evidence_density(data: Dict[str, Any]) -> float:
+    """Continuous payload measure in [0, 1].
+
+    Sums list lengths (weighted by _LIST_ITEM_CHAR_EQUIV) plus string lengths
+    across known evidence keys, then maps through 1 - exp(-x/scale) so the
+    response is smooth: more evidence → higher density, asymptotic to 1.
+
+    A 200-char one-liner ≈ 0.12; a 1500-char report ≈ 0.63; 5000 chars ≈ 0.96.
+    """
+    import math
+    if not isinstance(data, dict):
+        return 0.0
+    total = 0.0
+    for k in _EVIDENCE_KEYS:
+        v = data.get(k)
+        if isinstance(v, (list, tuple)):
+            total += float(len(v)) * float(_LIST_ITEM_CHAR_EQUIV)
+        elif isinstance(v, str):
+            total += float(len(v))
+    if total <= 0:
+        return 0.0
+    return float(1.0 - math.exp(-total / float(_DENSITY_SCALE)))
+
+
+def _stage_score_for_result(r: "AgentResult") -> Optional[float]:
+    """Bridge agent result to evidence_arbitration scoring helpers when applicable.
+
+    Returns a confidence-style score in [0, 1] for results that look like tool
+    invocations (have 'ok'/'status'/'action' shape), else None so the caller
+    falls back to agent.confidence alone.
+    """
+    try:
+        from eli.runtime.evidence_arbitration import _score_tool_result
+    except Exception:
+        return None
+    d = r.data or {}
+    if not isinstance(d, dict):
+        return None
+    if not any(k in d for k in ("ok", "status", "action")):
+        return None
+    try:
+        return float(_score_tool_result(d).score)
+    except Exception:
+        return None
+
+
+def _agent_metrics_db_path() -> Optional[Any]:
+    try:
+        from eli.core.paths import get_paths as _gp
+        p = _gp().artifacts_dir / "agent.sqlite3"
+        p.parent.mkdir(parents=True, exist_ok=True)
+        return p
+    except Exception:
+        return None
+
+
+def _ensure_agent_metrics_table(conn: "_sqlite3.Connection") -> None:
+    conn.execute(
+        """CREATE TABLE IF NOT EXISTS agent_metrics (
+            agent TEXT NOT NULL,
+            action TEXT NOT NULL,
+            runs INTEGER NOT NULL DEFAULT 0,
+            contributions INTEGER NOT NULL DEFAULT 0,
+            sum_self_conf REAL NOT NULL DEFAULT 0.0,
+            sum_density REAL NOT NULL DEFAULT 0.0,
+            rolling_score REAL NOT NULL DEFAULT 0.5,
+            last_updated REAL NOT NULL DEFAULT 0.0,
+            PRIMARY KEY (agent, action)
+        )"""
+    )
+
+
+def _load_agent_metrics_cached() -> Dict[tuple, Dict[str, float]]:
+    """Return {(agent, action): {runs, rolling_score, ...}} with TTL cache."""
+    now = time.time()
+    with _metrics_cache_lock:
+        if now - float(_metrics_cache.get("loaded_at", 0.0)) < _METRICS_CACHE_TTL_S:
+            return dict(_metrics_cache.get("rows", {}) or {})
+    rows: Dict[tuple, Dict[str, float]] = {}
+    db_path = _agent_metrics_db_path()
+    if db_path is not None:
+        try:
+            with _sqlite3.connect(str(db_path), timeout=2.0) as conn:
+                _ensure_agent_metrics_table(conn)
+                cur = conn.execute(
+                    "SELECT agent, action, runs, contributions, "
+                    "sum_self_conf, sum_density, rolling_score FROM agent_metrics"
+                )
+                for agent, action, runs, contribs, sc, sd, rs in cur.fetchall():
+                    rows[(str(agent), str(action))] = {
+                        "runs": int(runs or 0),
+                        "contributions": int(contribs or 0),
+                        "sum_self_conf": float(sc or 0.0),
+                        "sum_density": float(sd or 0.0),
+                        "rolling_score": float(rs or 0.5),
+                    }
+        except Exception:
+            pass
+    with _metrics_cache_lock:
+        _metrics_cache["loaded_at"] = now
+        _metrics_cache["rows"] = dict(rows)
+    return rows
+
+
+def _calibration_factor(
+    agent: str,
+    action: str,
+    metrics: Dict[tuple, Dict[str, float]],
+) -> float:
+    """Return a multiplier in [0.5, 1.5] derived from rolling success.
+
+    Returns 1.0 (neutral) when fewer than _CALIBRATION_MIN_RUNS data points
+    exist. Otherwise: factor = 0.5 + rolling_score, clamped.
+    """
+    row = metrics.get((agent, action))
+    if not row or int(row.get("runs", 0)) < _CALIBRATION_MIN_RUNS:
+        return 1.0
+    rs = float(row.get("rolling_score", 0.5))
+    return max(0.5, min(1.5, 0.5 + rs))
+
+
+def _persist_agent_metrics_for_dispatch(
+    action: str,
+    results: List["AgentResult"],
+) -> None:
+    """Update agent_metrics rows in a daemon thread.
+
+    For each agent that ran, increments runs; if it had evidence, updates
+    contributions, sums, and rolling_score (EMA of self_conf × density).
+    """
+    snapshots = []
+    for r in results:
+        try:
+            if not r.ok or (r.data or {}).get("skipped"):
+                continue
+            self_conf = max(0.0, min(1.0, float(r.confidence or 0.0)))
+            density = _evidence_density(r.data or {}) if r.has_evidence else 0.0
+            snapshots.append((str(r.agent), self_conf, density, bool(r.has_evidence)))
+        except Exception:
+            continue
+    if not snapshots:
+        return
+
+    def _write() -> None:
+        try:
+            db_path = _agent_metrics_db_path()
+            if db_path is None:
+                return
+            alpha = 1.0 - 0.5 ** (1.0 / float(_CALIBRATION_HALF_LIFE))
+            now = time.time()
+            with _sqlite3.connect(str(db_path), timeout=3.0) as conn:
+                _ensure_agent_metrics_table(conn)
+                # Atomic upsert: all arithmetic happens in SQL so concurrent
+                # writers can't lose increments via read-modify-write races.
+                for agent, self_conf, density, has_ev in snapshots:
+                    sample = self_conf * density  # in [0, 1]
+                    contrib_inc = 1 if has_ev else 0
+                    sc_inc = self_conf if has_ev else 0.0
+                    d_inc = density if has_ev else 0.0
+                    conn.execute(
+                        "INSERT INTO agent_metrics "
+                        "(agent, action, runs, contributions, sum_self_conf, "
+                        "sum_density, rolling_score, last_updated) "
+                        "VALUES (?, ?, 1, ?, ?, ?, ?, ?) "
+                        "ON CONFLICT(agent, action) DO UPDATE SET "
+                        "runs = runs + 1, "
+                        "contributions = contributions + excluded.contributions, "
+                        "sum_self_conf = sum_self_conf + excluded.sum_self_conf, "
+                        "sum_density = sum_density + excluded.sum_density, "
+                        "rolling_score = (1 - ?) * rolling_score + ? * ?, "
+                        "last_updated = excluded.last_updated",
+                        (
+                            agent, action,
+                            contrib_inc, sc_inc, d_inc,
+                            # First-insert rolling: start at neutral 0.5 then
+                            # EMA toward this sample.
+                            (1.0 - alpha) * 0.5 + alpha * sample,
+                            now,
+                            alpha, alpha, sample,
+                        ),
+                    )
+                conn.commit()
+            with _metrics_cache_lock:
+                _metrics_cache["loaded_at"] = 0.0  # invalidate cache
+        except Exception:
+            pass
+
+    threading.Thread(target=_write, daemon=True, name="eli-agent-metrics").start()
+
+
+# ---------------------------------------------------------------------------
 # Data structures
 # ---------------------------------------------------------------------------
 
@@ -157,8 +373,9 @@ class DispatchResult:
     agent_results: List[AgentResult] = field(default_factory=list)
     memory_context: str = ""
     action_result: Optional[Dict[str, Any]] = None   # for non-CHAT intents
-    aggregated_confidence: float = 0.0
+    aggregated_confidence: float = 0.0               # composite (route + grounding)
     confidence_label: str = ""                        # human-readable tier
+    grounding_confidence: float = 0.0                # answer quality signal (agent evidence only)
     agents_used: List[str] = field(default_factory=list)
     elapsed_ms: float = 0.0
     orchestrator_plan: Optional[Dict[str, Any]] = None  # multi-step plan from OrchestratorAgent
@@ -220,30 +437,19 @@ def _confidence_label(score: float) -> str:
 
 
 def _query_is_grounded(user_input: str, action: str) -> bool:
-    low = (user_input or "").strip().lower()
-    if action in {
-        "RUNTIME_AUDIT", "IMPORT_AUDIT", "RESOLVE_RUNTIME_PATHS", "GUI_RUNTIME_AUDIT",
-        "EXPLAIN_MEMORY_RUNTIME", "EXPLAIN_COGNITION_RUNTIME", "RUNTIME_STATUS",
-        "MEMORY_STATUS", "COGNITION_STATUS", "LIST_CAPABILITIES", "AWARENESS_STATUS",
-        "CODE_CHANGES", "FRONTIER_STATUS", "ELI_IDENTITY_AUDIT",
-    }:
-        return True
-    triggers = (
-        "who are you", "what are you running", "gpu layers", "context size",
-        "batch", "temperature", "what do you know about me", "from memory",
-        "memory internals", "how does your memory work", "how does memory work",
-        "runtime audit", "import audit", "what changed", "wiring", "line ",
-        ".py", "db table", "db tables", "which file", "which files",
-        "broker", "orchestrator", "agent bus", "prompt to response", "response loop",
-        "pipeline", "folders and paths involved", "full wiring",
-        "how many agents", "agent roster", "what agents", "which agents",
-        "how many stages", "pipeline stages", "prompt->response", "cognitive pipeline",
-        "cognition pipeline", "how do you work", "how does your cognition",
-        "frontier status", "full system audit", "full system wiring", "cross-system matrix",
-        "eli identity audit", "classify eli", "classification audit",
-        "world tab", "labs tab", "image engine", "proactive daemon",
-    )
-    return any(t in low for t in triggers)
+    """Delegate to the canonical single-source-of-truth in eli.core.grounding."""
+    try:
+        from eli.core.grounding import is_grounded_query
+        return is_grounded_query(user_input, action)
+    except Exception:
+        # Fallback: at minimum honour the action set.
+        return action in {
+            "RUNTIME_AUDIT", "IMPORT_AUDIT", "RESOLVE_RUNTIME_PATHS",
+            "GUI_RUNTIME_AUDIT", "EXPLAIN_MEMORY_RUNTIME",
+            "EXPLAIN_COGNITION_RUNTIME", "RUNTIME_STATUS", "MEMORY_STATUS",
+            "COGNITION_STATUS", "LIST_CAPABILITIES", "AWARENESS_STATUS",
+            "CODE_CHANGES", "FRONTIER_STATUS", "ELI_IDENTITY_AUDIT",
+        }
 
 
 def _query_mentions_code_or_architecture(user_input: str) -> bool:
@@ -564,43 +770,73 @@ class SystemAgent(_BaseAgent):
     # CognitiveEngine AFTER the bus returns, not inside the bus's parallel phase.
     # The bus runs with hard timeouts; LLM actions would always time out and double-execute.
     SYSTEM_ACTIONS: Set[str] = {
+        # ── App / OS control ──────────────────────────────────────────────────
         "OPEN_APP", "OPEN_URL", "OPEN_FILE_SYSTEM", "OPEN_BROWSER",
         "OPEN_AUDIO_SETTINGS", "OPEN_SYSTEM_SETTINGS", "OPEN_POWER_SETTINGS",
         "OPEN_COMMUNICATION_HUB", "OPEN_MEDIA_HUB", "OPEN_NETWORK_BROWSER",
-        "OPEN_IDE", "OPEN_IN_IDE",
-        "STOP_MEDIA", "PAUSE_MEDIA", "PLAY_MEDIA", "NEXT_MEDIA", "PREVIOUS_MEDIA",
-        "MEDIA_CONTROL",
-        "VOLUME", "SCREENSHOT", "KEYBOARD",
-        "SET_CLIPBOARD", "GET_CLIPBOARD",
-        "RUN_CMD", "SHELL_EXEC", "LIST_DIR", "READ_FILE",
-        "SET_ALARM", "SET_TIMER",
-        "WRITE_NOTE", "CREATE_FOLDER", "CLOSE_APP",
+        "OPEN_IDE", "OPEN_IN_IDE", "CLOSE_APP", "FOCUS_APP",
+        # ── Window / workspace management ────────────────────────────────────
         "TILE_WINDOWS", "MINIMISE_ALL", "RESTORE_WINDOWS",
         "MAXIMISE_WINDOW", "NEXT_WINDOW", "PREVIOUS_WINDOW",
-        "SWITCH_WORKSPACE", "FOCUS_APP",
-        "SCREEN_LOCATE",
+        "SWITCH_WORKSPACE",
+        # ── Media ─────────────────────────────────────────────────────────────
+        "STOP_MEDIA", "PAUSE_MEDIA", "PLAY_MEDIA", "NEXT_MEDIA", "PREVIOUS_MEDIA",
+        "MEDIA_CONTROL", "SHUFFLE_MEDIA", "REPEAT_MEDIA",
+        # ── Input / output ────────────────────────────────────────────────────
+        "VOLUME", "SCREENSHOT", "KEYBOARD", "MOUSE_CONTROL",
+        "SET_CLIPBOARD", "GET_CLIPBOARD",
+        "SPEAK", "DICTATE", "TRANSCRIBE",
+        # ── File / shell ──────────────────────────────────────────────────────
+        "RUN_CMD", "SHELL_EXEC", "LIST_DIR", "READ_FILE", "CREATE_FOLDER",
+        # ── Scheduling / timers ───────────────────────────────────────────────
+        "SET_ALARM", "SET_TIMER",
+        "POMODORO_START", "POMODORO_STOP", "POMODORO_STATUS",
+        # ── Time / date ───────────────────────────────────────────────────────
         "TIME", "DATE",
+        # ── Screen intelligence ───────────────────────────────────────────────
+        "SCREEN_LOCATE", "OCR_IMAGE", "SCREEN_READ_ANALYZE",
+        # ── Analysis ─────────────────────────────────────────────────────────
         "ANALYZE_PDF", "ANALYZE_CSV",
+        # ── Notes ────────────────────────────────────────────────────────────
+        "WRITE_NOTE", "NEW_NOTE", "LIST_NOTES", "SEARCH_NOTES",
+        # ── System stats ─────────────────────────────────────────────────────
+        "GPU_STATUS", "CPU_USAGE", "RAM_USAGE", "SYSTEM_STATS", "HARDWARE_PROFILE",
+        # ── Network / web ─────────────────────────────────────────────────────
+        "WEB_SEARCH", "GET_WEATHER", "NEWS_FETCH", "MORNING_REPORT",
+        # ── Smart home ───────────────────────────────────────────────────────
+        "SMART_HOME",
+        # ── Plugin management ─────────────────────────────────────────────────
+        "PLUGIN_LIST", "PLUGIN_ENABLE", "PLUGIN_DISABLE",
+        "PLUGIN_INSTALL", "PLUGIN_UNINSTALL", "PLUGIN_SEARCH", "PLUGIN_STATUS",
+        # ── Proactive daemon ──────────────────────────────────────────────────
+        "PROACTIVE_START", "PROACTIVE_STOP", "PROACTIVE_STATUS",
+        # ── Runtime / cognition status (grounded, no LLM) ─────────────────────
         "RUNTIME_STATUS", "REASONING_MODE_STATUS", "MEMORY_STATUS", "COGNITION_STATUS",
         "USER_IDENTITY_SUMMARY", "SELF_REPORT", "EXPLAIN_LAST_RESPONSE",
-        "GPU_STATUS", "SELF_IMPROVEMENT_LOG",
+        "SELF_IMPROVEMENT_LOG",
         "MEMORY_STORE", "MEMORY_RECALL", "MEMORY_STATS",
         "PERSONAL_MEMORY_SUMMARY", "PERSONAL_MEMORY_DEEP_EXPLAIN",
         "RUNTIME_AUDIT", "IMPORT_AUDIT", "RESOLVE_RUNTIME_PATHS", "GUI_RUNTIME_AUDIT",
-        "EXPLAIN_MEMORY_RUNTIME", "EXPLAIN_COGNITION_RUNTIME",
+        "EXPLAIN_MEMORY_RUNTIME", "EXPLAIN_COGNITION_RUNTIME", "EXPLAIN_ALL_REASONING_MODES",
         "NAME_SOURCE_AUDIT", "ROUTING_FAULT_EXPLAIN", "FRONTIER_STATUS", "ELI_IDENTITY_AUDIT",
         "LIST_CAPABILITIES", "AWARENESS_STATUS", "CODE_CHANGES", "SELF_TEST",
         "PERSONA_LOCK_SET", "PERSONA_LOCK_STATUS", "PERSONA_LOCK_CLEAR",
         "CHECK_CHRONAL_ALIGNMENT",
+        # ── Self-awareness / self-improvement (read-only or DB-only, no GGUF) ─
+        "SELF_ANALYZE", "SELF_IMPROVE", "SELF_PATCH",
+        "HABIT_STATUS",
+        # ── Sequencing ───────────────────────────────────────────────────────
         "SEQUENCE",
     }
 
     # LLM-heavy actions: executed by CognitiveEngine after bus returns, never dispatched
     # inside the parallel phase (avoids timeout + double-execution).
+    # SUMMARIZE_FILE uses GGUF. CONVERT_DOCUMENT may use GGUF. All GENERATE_* / FIX_FILE
+    # / DATA_FABRICATOR / SHOW_DIFF are multi-second GGUF calls.
     LLM_ACTIONS: Set[str] = {
         "GENERATE_SCRIPT", "GENERATE_PROJECT", "GENERATE_DOCUMENT",
         "DOC_GENERATE", "CREATE_DOCUMENT", "FIX_FILE", "DATA_FABRICATOR",
-        "SHOW_DIFF", "CHAT",
+        "SHOW_DIFF", "SUMMARIZE_FILE", "CONVERT_DOCUMENT", "CHAT",
     }
 
     def run(self, user_input: str, intent: Dict[str, Any],
@@ -1001,103 +1237,84 @@ def _aggregate_confidence(
     intent_conf: float,
     results: List[AgentResult],
     intent_action: str,
-) -> float:
-    """Aggregate evidence-confidence across the agent bus.
+) -> Tuple[float, float]:
+    """Evidence-driven aggregation. No hardcoded per-agent weights.
 
-    Calibration rule: intent_conf alone never produces high agg_conf.
-    intent_conf is *route* confidence (regex matched a phrase), not
-    *answer* confidence. A 0.99 router match with zero agent evidence
-    should not yield 0.98 final — it should yield ~0.55, signalling
-    "we know what was asked, but no agents grounded an answer".
+    Returns (aggregated_confidence, grounding_confidence):
+      - aggregated_confidence: route-certainty + agent evidence, blended
+      - grounding_confidence:  pure agent-evidence score (route-independent)
 
-    Weights:
-      base = 0.30 * intent_conf            (route certainty alone is weak)
-      + agent contributions (capped per agent type)
-      - empty-bus penalty if NO agent produced grounded data
+    Per-agent contribution = evidence_quality × density × calibration
+    where:
+      - evidence_quality is the agent's self-reported confidence, optionally
+        blended (geometric mean) with evidence_arbitration._score_tool_result
+        for results that look tool-typed.
+      - density is a continuous payload measure across known evidence keys
+        (see _evidence_density), smooth and asymptotic to 1.
+      - calibration is a rolling per-(agent, action) multiplier learned from
+        the agent_metrics table (starts neutral at 1.0).
 
-    Empty-bus penalty: when 0 contributors return signal, the result is
-    a near-pure regex match. The aggregated score should reflect that
-    we did not actually verify anything.
+    Single-agent contributions are capped at _SINGLE_AGENT_CAP so no one
+    agent can dominate. Empty-bus dispatches are capped at _EMPTY_BUS_CEILING.
     """
-    base = 0.30 * float(intent_conf or 0.0)
+    base = _ROUTE_BASE_WEIGHT * float(intent_conf or 0.0)
     score = base
-
-    grounded_signal = 0.0  # tracks whether ANY contributor returned grounded data
+    grounding = 0.0
+    grounded_signal = 0.0
     contributors = 0
 
+    calibration_rows = _load_agent_metrics_cached()
+
     for r in results:
-        if r.data.get("skipped"):
+        if not r.ok or (r.data or {}).get("skipped"):
             continue
-        if not r.ok:
+        if r.agent == "orchestrator":
+            # Planner role: produces a plan, not evidence. Excluded from
+            # contribution count and weight (was implicitly 0 before).
             continue
+        if not r.has_evidence:
+            continue
+
+        self_conf = max(0.0, min(1.0, float(r.confidence or 0.0)))
+        if self_conf <= 0.0:
+            continue
+
+        density = _evidence_density(r.data or {})
+        if density <= 0.0:
+            continue
+
+        cal = _calibration_factor(r.agent, intent_action, calibration_rows)
+
+        stage_score = _stage_score_for_result(r)
+        if stage_score is not None and stage_score > 0.0:
+            evidence_quality = (self_conf * stage_score) ** 0.5
+        else:
+            evidence_quality = self_conf
+
+        contribution = evidence_quality * density * cal
+        contribution = max(0.0, min(_SINGLE_AGENT_CAP, contribution))
+        if contribution <= 0.0:
+            continue
+
+        score += contribution
+        grounding += contribution
+        grounded_signal += contribution * 0.5
         contributors += 1
 
-        if r.agent == "memory":
-            mem_hits = int(r.data.get("hit_count", 0) or 0)
-            grounded_signal += min(0.25, mem_hits * 0.05)
-            score += min(0.25, mem_hits * 0.05)
+    # Cross-agent corroboration bonus: scales with total signal so three
+    # agents with weak evidence don't beat one with strong evidence.
+    if contributors >= 3 and grounded_signal > 0.0:
+        bonus = min(0.10, grounded_signal * 0.20)
+        score += bonus
+        grounding += bonus
 
-        elif r.agent == "system":
-            content = str(r.data.get("content") or "")
-            score += 0.12
-            if "/" in content or ".py" in content:
-                grounded_signal += 0.10
-                score += 0.10
-
-        elif r.agent == "plugin":
-            score += 0.12
-            grounded_signal += 0.06
-
-        elif r.agent == "habit":
-            habit_hits = len(r.data.get("rules") or [])
-            score += min(0.10, habit_hits * 0.05)
-            if habit_hits:
-                grounded_signal += 0.05
-
-        elif r.agent == "self_improvement":
-            failures = r.data.get("failures") or []
-            if failures:
-                score += 0.05
-                grounded_signal += 0.03
-
-        elif r.agent == "proactive":
-            insights = r.data.get("insights") or []
-            if insights:
-                score += 0.05
-                grounded_signal += 0.03
-
-        elif r.agent == "voice":
-            score += 0.03
-
-        elif r.agent == "introspection":
-            if r.data.get("content"):
-                score += 0.15           # grounded self-knowledge is high value
-                grounded_signal += 0.15
-
-        elif r.agent == "reflection":
-            insights = r.data.get("insights") or []
-            score += min(0.08, len(insights) * 0.02)
-            # Reflection insights are introspective, not grounded evidence —
-            # they don't count toward grounded_signal.
-
-        elif r.agent == "file_code":
-            snippets = r.data.get("snippets") or []
-            score += min(0.15, len(snippets) * 0.04)
-            if snippets:
-                grounded_signal += min(0.10, len(snippets) * 0.03)
-
-    # Multi-contributor bonus: only when there's also grounded signal,
-    # not just three agents that all returned 'I had nothing'.
-    if contributors >= 3 and grounded_signal > 0.05:
-        score += 0.05
-
-    # Empty-bus penalty: if no agent produced any grounded evidence,
-    # cap the aggregated score at "medium" (0.65). High-confidence
-    # claims require grounding.
+    # Empty-bus ceiling: route signal alone cannot reach high confidence.
     if grounded_signal <= 0.0:
-        score = min(score, 0.65)
+        score = min(score, _EMPTY_BUS_CEILING)
 
-    return max(0.02, min(0.98, score))
+    _persist_agent_metrics_for_dispatch(intent_action, results)
+
+    return max(0.02, min(0.98, score)), max(0.0, min(0.98, grounding))
 
 
 # ---------------------------------------------------------------------------
@@ -1312,7 +1529,29 @@ class AgentBus:
         action = (intent.get("action") or "CHAT").upper()
         intent_conf = float(intent.get("confidence") or 0.5)
 
-        selected_names = _select_agents_for_intent(user_input, action)
+        # ── Tiny-query gate ────────────────────────────────────────────────
+        # Short filler inputs ("ok", "yes", "sure", "thanks") routed to CHAT
+        # gain nothing from a 14-agent broad fanout: MemoryAgent already self-
+        # gates on < 10 words, and the rest skip too. Avoid spawning 14 futures
+        # whose only work is to return skipped=True.
+        # Gate: CHAT + ≤ 3 tokens + matches filler pattern → minimal set.
+        _low_input = (user_input or "").strip().lower()
+        _word_count = len(_low_input.split())
+        _is_tiny_chat = (
+            action == "CHAT"
+            and _word_count <= 3
+            and bool(re.match(
+                r"^(ok|okay|yes|no|yeah|nope|sure|thanks|thank you|got it"
+                r"|understood|alright|cool|nice|great|fine|hmm+|hm|mhm"
+                r"|yep|nah|right|exactly|agreed|perfect|done)\s*[.!?]*$",
+                _low_input,
+            ))
+        )
+        if _is_tiny_chat:
+            selected_names = {"memory", "orchestrator"}
+        else:
+            selected_names = _select_agents_for_intent(user_input, action)
+
         active_agents = [
             a for a in _ALL_AGENTS
             if getattr(a, "_enabled", True)
@@ -1385,7 +1624,7 @@ class AgentBus:
                     failed_result = dict(r.data)
             action_result = ok_result if ok_result is not None else failed_result
 
-        agg_conf = _aggregate_confidence(intent_conf, results, action)
+        agg_conf, grounding_conf = _aggregate_confidence(intent_conf, results, action)
         label = _confidence_label(agg_conf)
         agents_used = [r.agent for r in results
                        if r.ok and not r.data.get("skipped")]
@@ -1425,6 +1664,7 @@ class AgentBus:
             action_result=action_result,
             aggregated_confidence=agg_conf,
             confidence_label=label,
+            grounding_confidence=grounding_conf,
             agents_used=agents_used,
             elapsed_ms=elapsed,
             orchestrator_plan=orchestrator_plan,

@@ -1,3 +1,4 @@
+import random
 from eli.planning.proposal_adapters import proactive_governed_enqueue
 from eli.runtime.self_model_refresh import refresh_all_overlays_nonfatal
 from eli.planning.proposal_memory_bridge import drain_proposals_to_agent_memory
@@ -259,6 +260,55 @@ class ProactiveDaemon:
                 )
             except Exception:
                 pass
+
+        # --- Trend detection: compare against last stored observation ---
+        # This closes the loop: patterns are not just logged once, they're
+        # compared to past patterns to surface rising/falling trends.
+        try:
+            import json as _tj
+            _last_obs = self.agent_mem.get_recent_observations(limit=5) if self.agent_mem else []
+            _past_topics: set = set()
+            for _obs in _last_obs:
+                _obs_content = str(_obs.get("content") or _obs.get("notes") or "")
+                if "topic_focus" in _obs_content:
+                    try:
+                        _obs_data = json.loads(_obs_content) if _obs_content.startswith("{") else {}
+                        for _t in _obs_data.get("topics", []):
+                            _past_topics.add(str(_t).lower())
+                    except Exception:
+                        pass
+            for _pat in patterns:
+                if _pat.get("type") == "topic_focus":
+                    _cur_topics = set(str(t).lower() for t in _pat.get("topics", []))
+                    _new_topics = _cur_topics - _past_topics
+                    _dropped = _past_topics - _cur_topics
+                    if _new_topics:
+                        patterns.append({
+                            "type": "trend_emerging",
+                            "topics": list(_new_topics),
+                            "suggestion": f"Emerging focus: {', '.join(_new_topics)} (not seen in prior ticks)",
+                        })
+                    if _dropped and _past_topics:
+                        patterns.append({
+                            "type": "trend_fading",
+                            "topics": list(_dropped),
+                            "suggestion": f"Fading interest: {', '.join(_dropped)} (seen before, gone now)",
+                        })
+                    break
+        except Exception:
+            pass
+
+        # Persist current patterns as an observation for future trend comparison
+        try:
+            _obs_payload = json.dumps({
+                "patterns": [{"type": p.get("type"), "topics": p.get("topics", [])} for p in patterns],
+                "ts": time.time(),
+            })
+            _obs_mem = self.agent_mem or self.user_mem
+            if _obs_mem:
+                _obs_mem.add_observation("proactive_pattern_tick", _obs_payload)
+        except Exception:
+            pass
 
         print(f"[PROACTIVE] Pattern analysis: {len(patterns)} signals ({', '.join(p['type'] for p in patterns)})")
         return patterns
@@ -640,6 +690,89 @@ Date: {datetime.now().strftime("%A %B %d %H:%M")} | Interactions last 24h: {inte
                     except Exception as _rf_exc:
                         print(f"[PROACTIVE] Overlay refresh error: {_rf_exc}")
 
+                    # ── World awareness: fire reflection event on each tick ──
+                    try:
+                        from eli.world.world_event_bus import fire_world_event as _wfe
+                        _pat_count = len([p for p in patterns if p.get("suggestion")])
+                        _imp_count = len([i for i in improvements if i.get("suggestion")])
+                        _wfe(
+                            "reflection",
+                            "proactive_daemon",
+                            f"Proactive tick: {_pat_count} patterns, {_imp_count} improvements analysed.",
+                            {
+                                "pattern_count": _pat_count,
+                                "improvement_count": _imp_count,
+                                "reflection_depth": min(1.0, (_pat_count + _imp_count) * 0.1),
+                            },
+                        )
+                    except Exception:
+                        pass
+
+                    # ── World → runtime feedback loop ────────────────────────
+                    # Read AwarenessState-driven suggestions from the world engine
+                    # and merge high-priority ones into the self-improvement memory
+                    # so they surface as proactive proposals in future ticks.
+                    try:
+                        from eli.world.local_world_bridge import get_awareness_driven_suggestions as _gads
+                        _world_suggs = _gads()
+                        for _ws in _world_suggs:
+                            _ws_priority = float(_ws.get("priority", 0.0))
+                            _ws_action = str(_ws.get("action") or "")
+                            if _ws_priority >= 0.55:
+                                # Log to self-improvement memory
+                                try:
+                                    from eli.runtime.self_improvement import get_self_improvement as _gsi_ws
+                                    _si_ws = _gsi_ws()
+                                    _si_ws.log_failure(
+                                        input_text=f"[world_suggestion] {_ws_action}",
+                                        error=_ws.get("reason", "world awareness threshold exceeded"),
+                                        confidence=max(0.0, 1.0 - _ws_priority),
+                                        context={
+                                            "source": "world_autonomy",
+                                            "suggested_action": _ws_action,
+                                            "priority": _ws_priority,
+                                        },
+                                    )
+                                except Exception:
+                                    pass
+
+                            if _ws_priority >= 0.70 and _ws_action:
+                                # HIGH priority: actually execute the suggested action.
+                                # Queue as a suggestion so the proactive listener can
+                                # surface it to the user in the next response.
+                                self.suggestion_queue.put(("world_action", {
+                                    "type": "world_driven_action",
+                                    "action": _ws_action,
+                                    "reason": _ws.get("reason", ""),
+                                    "priority": _ws_priority,
+                                    "suggestion": (
+                                        f"[AUTO] World awareness triggered {_ws_action}: "
+                                        f"{_ws.get('reason', '')[:120]}"
+                                    ),
+                                }))
+                                # Also store as a user-visible memory note
+                                try:
+                                    _obs_mem = self.agent_mem or self.user_mem
+                                    if _obs_mem:
+                                        _obs_mem.store_memory(
+                                            f"ELI autonomy: {_ws_action} triggered — {_ws.get('reason','')[:120]}",
+                                            tags=["eli_autonomy", "world_action", "auto"],
+                                            kind="insight",
+                                            source="eli_world",
+                                            importance=0.72,
+                                        )
+                                except Exception:
+                                    pass
+
+                            if _ws_priority >= 0.55:
+                                print(
+                                    f"[PROACTIVE] World suggestion: "
+                                    f"action={_ws_action} priority={_ws_priority:.2f} "
+                                    f"reason={_ws.get('reason','')[:80]}"
+                                )
+                    except Exception as _world_loop_err:
+                        print(f"[PROACTIVE] World→runtime feedback failed: {_world_loop_err}")
+
                     last_analysis = time.time()
 
                     # ── 3-hour news fetch + synthesis cycle ───────────────
@@ -790,32 +923,14 @@ def _maybe_update_persona_from_db():
     _LAST_PERSONA_UPDATE = now
 
     try:
-        script = get_paths().project_root / "scripts" / "persona_autoupdate_from_db.py"
-        if not script.exists():
-            return
-
-        env = dict(os.environ)
-        # Avoid hardcoded paths; point legacy ELI_DB_PATH to AGENT DB for persona tooling.
-        # (If that script should use USER db instead, change agent_db -> user_db here.)
-        paths = resolve_db_paths()
-        env.setdefault("ELI_DB_PATH", str(paths.user_db))
-
-        proactive_governed_enqueue(
-            kind="script_exec_proposal",
-            payload={
-                "argv": [sys.executable, str(script)],
-                "env_keys": sorted(list((env or {}).keys())),
-                "check": False,
-            },
-            source="proactive_daemon",
-            priority=80,
-            action_class="shell-exec",
-            requested_by="system",
-            user_confirmed=False,
-            approver="user",
-        )
-    except Exception:
-        return
+        from eli.cognition.persona_updater import update_persona_overlay
+        from eli.memory.memory import get_memory
+        update_persona_overlay(memory=get_memory())
+    except Exception as _e:
+        try:
+            print(f"[PROACTIVE] persona overlay update failed: {_e}")
+        except Exception:
+            pass
 
 
 if __name__ == "__main__":
