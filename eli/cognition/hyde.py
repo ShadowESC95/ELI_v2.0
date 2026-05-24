@@ -7,6 +7,10 @@ from __future__ import annotations
 from typing import List, Optional
 
 
+
+from eli.utils.log import get_logger
+log = get_logger(__name__)
+
 def expand_query_hyde(
     query: str,
     inference_fn,  # callable(prompt) -> str
@@ -61,5 +65,5 @@ def hyde_vector_search(
         results.sort(key=lambda x: x.get("score", 0), reverse=True)
         return results[:k]
     except Exception as e:
-        print(f"[HyDE] search failed: {e}")
+        log.debug(f"[HyDE] search failed: {e}")
         return []

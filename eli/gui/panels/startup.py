@@ -18,6 +18,9 @@ from eli.gui.panels._qt import (
     QVBoxLayout, QHBoxLayout, QWidget, Qt, now_hms, pyqtSignal,
 )
 
+from eli.utils.log import get_logger
+log = get_logger(__name__)
+
 try:
     from eli.core.paths import get_paths as _get_paths
     _MODELS_DIR = _get_paths().models_dir
@@ -206,33 +209,35 @@ class StartupModelSelectionDialog(QDialog):
                 from eli.perception.local_whisper_stt import preload_model as _eli_preload_whisper
                 if _eli_preload_whisper():
                     _whisper_on_cuda = True
-                    print(
+                    log.debug(
                         "[STARTUP_DIALOG][AUDIO_PRELOAD] whisper claimed VRAM "
-                        "before GGUF autotune", flush=True,
+                        "before GGUF autotune",
                     )
             except Exception as _wp_err:
-                print(f"[STARTUP_DIALOG][AUDIO_PRELOAD] skipped: {_wp_err}", flush=True)
+                log.debug(f"[STARTUP_DIALOG][AUDIO_PRELOAD] skipped: {_wp_err}")
             try:
                 selected_path = self.model_path_input.text().strip()
                 if selected_path:
                     os.environ["ELI_MODEL_PATH"] = selected_path
-                # When Whisper is already resident on the GPU, batch=256 consistently
-                # fails to create a llama_context (VRAM too tight), wasting one retry
-                # cycle. Cap at 128 so the first load attempt succeeds immediately.
-                # The user can override with ELI_TARGET_BATCH if they want 256.
-                if _whisper_on_cuda and not os.environ.get("ELI_TARGET_BATCH", "").strip():
-                    os.environ["ELI_TARGET_BATCH"] = "128"
-                    print("[STARTUP_DIALOG][AUDIO_PRELOAD] Whisper on CUDA → capping batch to 128", flush=True)
+                # When Whisper is resident on GPU, batch=256 consistently OOMs on
+                # the first llama_context load attempt. Always cap to 128 when
+                # Whisper is on CUDA — even if ELI_TARGET_BATCH is already set
+                # (prior sessions may have left "256" in the env).
+                if _whisper_on_cuda:
+                    _existing_batch = int(os.environ.get("ELI_TARGET_BATCH", "256") or "256")
+                    if _existing_batch > 128:
+                        os.environ["ELI_TARGET_BATCH"] = "128"
+                        log.debug("[STARTUP_DIALOG][AUDIO_PRELOAD] Whisper on CUDA → capping batch to 128")
                 from eli.core.startup_hardware_optimizer import build_profile, apply_profile
                 _profile = build_profile()
                 apply_profile(_profile)
-                print(
+                log.debug(
                     "[STARTUP_DIALOG][HW_OPT] regenerated profile "
                     f"ctx={_profile.n_ctx} gpu_layers={_profile.n_gpu_layers} "
                     f"batch={_profile.batch_size} fraction={_profile.ctx_fraction}"
                 )
             except Exception as _err:
-                print(f"[STARTUP_DIALOG][HW_OPT] regeneration failed: {_err}")
+                log.debug(f"[STARTUP_DIALOG][HW_OPT] regeneration failed: {_err}")
             _old_accept()
 
         self.accept = _accept_wrapper

@@ -2,6 +2,10 @@ from __future__ import annotations
 import threading
 from typing import Optional, Dict, Any
 
+
+from eli.utils.log import get_logger
+log = get_logger(__name__)
+
 _broker: Optional["InferenceBroker"] = None
 _broker_lock = threading.Lock()
 
@@ -15,7 +19,7 @@ def get_inference_broker() -> Optional["InferenceBroker"]:
             try:
                 _broker = InferenceBroker()
             except Exception as e:
-                print(f"[BROKER] Failed to create InferenceBroker: {e}")
+                log.debug(f"[BROKER] Failed to create InferenceBroker: {e}")
                 return None
     return _broker
 
@@ -33,7 +37,7 @@ class InferenceBroker:
             self._gguf = gi
         except Exception as e:
             self._load_error = str(e)
-            print(f"[BROKER] gguf_inference unavailable: {e}")
+            log.debug(f"[BROKER] gguf_inference unavailable: {e}")
 
     @property
     def gguf_ready(self) -> bool:

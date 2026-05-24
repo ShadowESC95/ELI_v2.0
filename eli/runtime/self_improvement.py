@@ -16,6 +16,10 @@ from eli.memory import get_agent_memory
 from eli.cognition.inference_broker import get_broker
 from eli.memory import get_memory, Memory
 
+
+from eli.utils.log import get_logger
+log = get_logger(__name__)
+
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 
 
@@ -133,7 +137,7 @@ class SelfImprovementEngine:
 
         # Auto-trigger improvement analysis when an error pattern recurs 5× (and every 5× after)
         if new_count >= 5 and new_count % 5 == 0:
-            print(f"[SELF-IMPROVE] Recurring error pattern detected ({new_count}×) — auto-triggering capability analysis")
+            log.debug(f"[SELF-IMPROVE] Recurring error pattern detected ({new_count}×) — auto-triggering capability analysis")
             threading.Thread(target=self._background_analyze, daemon=True).start()
 
     def _background_analyze(self) -> None:
@@ -142,11 +146,11 @@ class SelfImprovementEngine:
             result = self.analyze_and_improve()
             imps = result.get("improvements", [])
             if imps:
-                print(f"[SELF-IMPROVE] Auto-analysis complete: {len(imps)} proposal(s) generated")
+                log.debug(f"[SELF-IMPROVE] Auto-analysis complete: {len(imps)} proposal(s) generated")
             else:
-                print("[SELF-IMPROVE] Auto-analysis complete: no new proposals")
+                log.debug("[SELF-IMPROVE] Auto-analysis complete: no new proposals")
         except Exception as _ae:
-            print(f"[SELF-IMPROVE] Auto-analysis failed: {_ae}")
+            log.debug(f"[SELF-IMPROVE] Auto-analysis failed: {_ae}")
             return
 
         # Attempt code patches for failures with file tracebacks and high recurrence.
@@ -166,22 +170,22 @@ class SelfImprovementEngine:
             ]
             if not patchable:
                 return
-            print(f"[SELF-IMPROVE] Attempting code patches for {len(patchable)} high-recurrence failure(s)")
+            log.debug(f"[SELF-IMPROVE] Attempting code patches for {len(patchable)} high-recurrence failure(s)")
             for failure in patchable[:2]:  # cap at 2 patches per cycle to limit LLM load
                 try:
                     patch = self.generate_code_patch(failure)
                     if not patch.get("ok"):
-                        print(f"[SELF-IMPROVE] Patch generation skipped: {patch.get('error', '?')}")
+                        log.debug(f"[SELF-IMPROVE] Patch generation skipped: {patch.get('error', '?')}")
                         continue
                     apply_result = self.apply_code_patch(patch)
                     if apply_result.get("ok"):
-                        print(f"[SELF-IMPROVE] Patch applied to {patch.get('file')}: {patch.get('description')}")
+                        log.debug(f"[SELF-IMPROVE] Patch applied to {patch.get('file')}: {patch.get('description')}")
                     else:
-                        print(f"[SELF-IMPROVE] Patch rejected: {apply_result.get('error', '?')}")
+                        log.debug(f"[SELF-IMPROVE] Patch rejected: {apply_result.get('error', '?')}")
                 except Exception as _patch_err:
-                    print(f"[SELF-IMPROVE] Patch attempt failed: {_patch_err}")
+                    log.debug(f"[SELF-IMPROVE] Patch attempt failed: {_patch_err}")
         except Exception as _chain_err:
-            print(f"[SELF-IMPROVE] Patch chain failed: {_chain_err}")
+            log.debug(f"[SELF-IMPROVE] Patch chain failed: {_chain_err}")
 
     def log_improvement(self, category: str, description: str, area: str = "runtime",
                         code_before: str = "", code_after: str = ""):
@@ -438,7 +442,7 @@ class SelfImprovementEngine:
             pass
 
         rel = str(p.relative_to(PROJECT_ROOT))
-        print(f"[SELF-IMPROVE] Patch applied: {rel} — {description}")
+        log.debug(f"[SELF-IMPROVE] Patch applied: {rel} — {description}")
         return {
             "ok": True,
             "applied": True,
@@ -503,7 +507,7 @@ class SelfImprovementEngine:
                         "status": "patch_generation_failed",
                         "reason": reason,
                     })
-                    print(f"[SELF-IMPROVE] Skipped (generation failed): {err_preview[:60]} — {reason}")
+                    log.debug(f"[SELF-IMPROVE] Skipped (generation failed): {err_preview[:60]} — {reason}")
                     continue
 
                 results["patches_generated"] += 1
@@ -540,7 +544,7 @@ class SelfImprovementEngine:
                         "status": "apply_failed",
                         "reason": apply_result.get("message", "unknown"),
                     })
-                    print(f"[SELF-IMPROVE] Apply failed: {apply_result.get('message')}")
+                    log.debug(f"[SELF-IMPROVE] Apply failed: {apply_result.get('message')}")
 
             except Exception as exc:
                 results["patches_failed"] += 1
@@ -550,7 +554,7 @@ class SelfImprovementEngine:
                     "status": "exception",
                     "reason": str(exc)[:120],
                 })
-                print(f"[SELF-IMPROVE] Exception during patch cycle: {exc}")
+                log.debug(f"[SELF-IMPROVE] Exception during patch cycle: {exc}")
 
         applied = results["patches_applied"]
         total = results["patches_generated"]
@@ -559,7 +563,7 @@ class SelfImprovementEngine:
             f"({results['patches_failed']} failed, {results['patches_skipped']} skipped). "
             f"Analyzed {len(failures)} recurring failures."
         )
-        print(f"[SELF-IMPROVE] {results['summary']}")
+        log.debug(f"[SELF-IMPROVE] {results['summary']}")
         return results
 
     def list_applied_patches(self, limit: int = 20) -> List[Dict[str, Any]]:

@@ -32,7 +32,7 @@ def _persona_block(root: Path) -> str:
     persona_path = root / "eli" / "cognition" / "persona.txt"
     persona = _read_text(persona_path)
     if not persona:
-        persona = "You are ELI (Entropy Logical Interface). Be correct, useful, and honest."
+        persona = "You are ELI (Enhanced Learning Interface). Be correct, useful, and honest."
     return "=== ELI PERSONA (source: eli/cognition/persona.txt) ===\n" + persona.strip()
 
 

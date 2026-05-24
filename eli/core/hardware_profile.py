@@ -197,7 +197,7 @@ def _derive_mode_presets(base_n_ctx: int, base_max_tokens: int,
             "passes": 1,                       # algorithm runs gen→critique→revise
             "stages": ["generate", "critique", "revise"],
             "max_tokens_generate": int(base_max * 0.85),
-            "max_tokens_critique": int(base_max * 0.30),
+            "max_tokens_critique": min(256, int(base_max * 0.15)),
             "max_tokens_revise":   int(base_max * 0.85),
             "temperature": max(0.2, float(base_temperature) - 0.4),
             "top_p": 0.85,

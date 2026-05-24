@@ -38,6 +38,9 @@ from eli.memory import (
     resolve_db_paths,
 )
 
+from eli.utils.log import get_logger
+log = get_logger(__name__)
+
 class ProactiveDaemon:
     """
     Self-improving proactive intelligence daemon
@@ -61,9 +64,9 @@ class ProactiveDaemon:
         # (but this should always refer to AGENT DB in Option B)
         self.db_path = Path(self.agent_mem.db_path)
 
-        print("[PROACTIVE] Daemon initialized")
-        print(f"[PROACTIVE] USER DB  : {self.user_mem.db_path}")
-        print(f"[PROACTIVE] AGENT DB : {self.agent_mem.db_path}")
+        log.debug("[PROACTIVE] Daemon initialized")
+        log.debug(f"[PROACTIVE] USER DB  : {self.user_mem.db_path}")
+        log.debug(f"[PROACTIVE] AGENT DB : {self.agent_mem.db_path}")
 
     # ------------------------------
     # Low-level helpers (agent DB)
@@ -310,7 +313,7 @@ class ProactiveDaemon:
         except Exception:
             pass
 
-        print(f"[PROACTIVE] Pattern analysis: {len(patterns)} signals ({', '.join(p['type'] for p in patterns)})")
+        log.debug(f"[PROACTIVE] Pattern analysis: {len(patterns)} signals ({', '.join(p['type'] for p in patterns)})")
         return patterns
 
     def analyze_code_quality(self) -> List[Dict[str, Any]]:
@@ -383,7 +386,7 @@ class ProactiveDaemon:
                     })
 
             except Exception as e:
-                print(f"[PROACTIVE] Code analysis error for {file_path.name}: {e}")
+                log.debug(f"[PROACTIVE] Code analysis error for {file_path.name}: {e}")
 
         # Store improvements summary into AGENT DB
         for item in improvements:
@@ -409,7 +412,7 @@ class ProactiveDaemon:
             )
             out = (result.stdout or result.stderr or "").strip()[:500]
             status = "✓" if result.returncode == 0 else f"✗ (rc={result.returncode})"
-            print(f"[PROACTIVE] Habit executed '{name}': {status} — {out[:120]}")
+            log.debug(f"[PROACTIVE] Habit executed '{name}': {status} — {out[:120]}")
             self.suggestion_queue.put(("habit_result", {
                 "type": "habit_result",
                 "name": name,
@@ -429,11 +432,11 @@ class ProactiveDaemon:
             return {"ok": result.returncode == 0, "output": out, "returncode": result.returncode}
         except subprocess.TimeoutExpired:
             msg = f"Habit '{name}' timed out after 30s"
-            print(f"[PROACTIVE] {msg}")
+            log.debug(f"[PROACTIVE] {msg}")
             return {"ok": False, "error": msg}
         except Exception as exc:
             msg = str(exc)
-            print(f"[PROACTIVE] Habit execution error '{name}': {msg}")
+            log.debug(f"[PROACTIVE] Habit execution error '{name}': {msg}")
             return {"ok": False, "error": msg}
 
     def track_error(self, error_type: str, error_message: str, context: str):
@@ -450,7 +453,7 @@ class ProactiveDaemon:
                 command=error_type,
             )
         except Exception as e:
-            print(f"[PROACTIVE] Error tracking failed: {e}")
+            log.debug(f"[PROACTIVE] Error tracking failed: {e}")
 
     def generate_morning_report(self) -> str:
         """
@@ -538,7 +541,7 @@ class ProactiveDaemon:
                     f"{news_meta['digest']}"
                 )
         except Exception as _nde:
-            print(f"[PROACTIVE] Morning news digest error: {_nde}")
+            log.debug(f"[PROACTIVE] Morning news digest error: {_nde}")
 
         # ── Include active habit rules in briefing context ──
         try:
@@ -617,7 +620,7 @@ Date: {datetime.now().strftime("%A %B %d %H:%M")} | Interactions last 24h: {inte
         Main proactive daemon loop
         """
         self.running = True
-        print("[PROACTIVE] Daemon started - continuous learning active")
+        log.debug("[PROACTIVE] Daemon started - continuous learning active")
 
         last_analysis = time.time()
         last_report = datetime.now().date()
@@ -661,7 +664,7 @@ Date: {datetime.now().strftime("%A %B %d %H:%M")} | Interactions last 24h: {inte
                                 _cmd = (rule.get("command") or "").strip()
                                 # Within 5-minute window of scheduled time
                                 if _rh == _cur_h and abs(_rm - _cur_m) <= 5:
-                                    print(f"[PROACTIVE] Habit triggered: '{_name}' @ {_rh:02d}:{_rm:02d}")
+                                    log.debug(f"[PROACTIVE] Habit triggered: '{_name}' @ {_rh:02d}:{_rm:02d}")
                                     if _cmd:
                                         # Execute and report result via queue
                                         threading.Thread(
@@ -678,17 +681,17 @@ Date: {datetime.now().strftime("%A %B %d %H:%M")} | Interactions last 24h: {inte
                                             "suggestion": f"Scheduled time for '{_name}' — no command configured"
                                         }))
                     except Exception as _he:
-                        print(f"[PROACTIVE] Habit detection error: {_he}")
+                        log.debug(f"[PROACTIVE] Habit detection error: {_he}")
 
                     try:
                         drain_proposals_to_agent_memory(self.agent_mem, max_items=32, archive=True)
                     except Exception as _pq_exc:
-                        print(f"[PROACTIVE] Proposal drain error: {_pq_exc}")
+                        log.debug(f"[PROACTIVE] Proposal drain error: {_pq_exc}")
 
                     try:
                         refresh_all_overlays_nonfatal(reason="proactive_tick")
                     except Exception as _rf_exc:
-                        print(f"[PROACTIVE] Overlay refresh error: {_rf_exc}")
+                        log.debug(f"[PROACTIVE] Overlay refresh error: {_rf_exc}")
 
                     # ── World awareness: fire reflection event on each tick ──
                     try:
@@ -765,13 +768,13 @@ Date: {datetime.now().strftime("%A %B %d %H:%M")} | Interactions last 24h: {inte
                                     pass
 
                             if _ws_priority >= 0.55:
-                                print(
+                                log.debug(
                                     f"[PROACTIVE] World suggestion: "
                                     f"action={_ws_action} priority={_ws_priority:.2f} "
                                     f"reason={_ws.get('reason','')[:80]}"
                                 )
                     except Exception as _world_loop_err:
-                        print(f"[PROACTIVE] World→runtime feedback failed: {_world_loop_err}")
+                        log.debug(f"[PROACTIVE] World→runtime feedback failed: {_world_loop_err}")
 
                     last_analysis = time.time()
 
@@ -799,7 +802,7 @@ Date: {datetime.now().strftime("%A %B %d %H:%M")} | Interactions last 24h: {inte
                                 }))
                             last_news_fetch = time.time()
                         except Exception as _ne:
-                            print(f"[PROACTIVE] News synthesis error: {_ne}")
+                            log.debug(f"[PROACTIVE] News synthesis error: {_ne}")
 
                     # ── Write artifact files for agent bus (do NOT drain queue) ──
                     try:
@@ -815,7 +818,7 @@ Date: {datetime.now().strftime("%A %B %d %H:%M")} | Interactions last 24h: {inte
                             (_pro_dir / "latest_action.txt").write_text(
                                 "\n".join(_action_lines[-4:]), encoding="utf-8")
                     except Exception as _pe:
-                        print(f"[PROACTIVE] artifact flush error: {_pe}")
+                        log.debug(f"[PROACTIVE] artifact flush error: {_pe}")
 
                 # Generate morning report once per day between 6-10
                 current_date = datetime.now().date()
@@ -840,7 +843,7 @@ Date: {datetime.now().strftime("%A %B %d %H:%M")} | Interactions last 24h: {inte
                                     kind="briefing",
                                 )
                             except Exception as _store_err:
-                                print(f"[PROACTIVE] Failed to store morning report: {_store_err}")
+                                log.debug(f"[PROACTIVE] Failed to store morning report: {_store_err}")
                     last_report = current_date
 
                 _maybe_update_persona_from_db()
@@ -849,10 +852,10 @@ Date: {datetime.now().strftime("%A %B %d %H:%M")} | Interactions last 24h: {inte
             except KeyboardInterrupt:
                 break
             except Exception as e:
-                print(f"[PROACTIVE] Daemon error: {e}")
+                log.debug(f"[PROACTIVE] Daemon error: {e}")
                 time.sleep(60)
 
-        print("[PROACTIVE] Daemon stopped")
+        log.debug("[PROACTIVE] Daemon stopped")
 
     def stop(self):
         self.running = False
@@ -895,7 +898,7 @@ def _guarded_daemon_run(daemon) -> None:
             _crash_log.write_text(_crash_text, encoding="utf-8")
         except Exception:
             pass
-        print(f"[PROACTIVE_DAEMON] Crashed: {_exc}", flush=True)
+        log.debug(f"[PROACTIVE_DAEMON] Crashed: {_exc}")
 
 
 def start_daemon():
@@ -928,7 +931,7 @@ def _maybe_update_persona_from_db():
         update_persona_overlay(memory=get_memory())
     except Exception as _e:
         try:
-            print(f"[PROACTIVE] persona overlay update failed: {_e}")
+            log.debug(f"[PROACTIVE] persona overlay update failed: {_e}")
         except Exception:
             pass
 

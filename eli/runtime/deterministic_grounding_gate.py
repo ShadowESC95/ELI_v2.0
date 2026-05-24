@@ -459,7 +459,7 @@ def _current_mode_label(engine: Any = None) -> str:
             low = s.lower()
 
             if low in {"quick", "quick mode", "fast", "fast mode", "direct", "direct mode"}:
-                print("[GROUNDING_GATE] ignoring stale helper Quick; no live engine mode published", flush=True)
+                log.debug("[GROUNDING_GATE] ignoring stale helper Quick; no live engine mode published")
                 return ""
 
             return s
@@ -3468,6 +3468,7 @@ def _eli_v12_dynamic_identity_tokens() -> list[str]:
     bad = {
         "eli",
         "entropy logical interface",
+        "enhanced learning interface",
         "user",
         "local user",
         "current user",
@@ -3920,6 +3921,10 @@ import subprocess as _eli_v14_subprocess
 from pathlib import Path as _EliV14Path
 
 
+
+from eli.utils.log import get_logger
+log = get_logger(__name__)
+
 def _eli_v14_project_root() -> _EliV14Path:
     try:
         return _EliV14Path(__file__).resolve().parents[2]
@@ -4338,6 +4343,6 @@ try:
         def render_action(action, args=None, user_input="", mode_label=""):  # type: ignore[override]
             return _ELI_DG_POLICY_ENGINE.render(action, args=args, user_input=user_input, mode_label=mode_label)
 
-        print("[GROUNDING] immutable policy engine installed", flush=True)
+        log.debug("[GROUNDING] immutable policy engine installed")
 except Exception as _eli_dg_policy_engine_err:
-    print(f"[GROUNDING] immutable policy engine install failed: {_eli_dg_policy_engine_err}", flush=True)
+    log.debug(f"[GROUNDING] immutable policy engine install failed: {_eli_dg_policy_engine_err}")

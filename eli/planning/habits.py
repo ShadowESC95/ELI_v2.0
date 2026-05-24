@@ -11,6 +11,10 @@ import hashlib
 from eli.memory import get_memory
 
 
+
+from eli.utils.log import get_logger
+log = get_logger(__name__)
+
 def log_event(event_type: str, data: dict):
     """Log an event for habit analysis."""
     mem = get_memory()
@@ -156,7 +160,7 @@ def detect_habits(days: int = 14, min_occurrences: int = 3):
         if not exists:
             # positional args on purpose: tests inspect args[0], args[1], args[2], args[3]
             mem.add_habit_rule(name, command, hour, minute, None)
-            print(f"[HABIT] New rule created: {name}")
+            log.debug(f"[HABIT] New rule created: {name}")
 
     _write_behavior_observations(mem, behavior_counts, behavior_examples, min_occurrences)
 
