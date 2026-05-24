@@ -7412,14 +7412,58 @@ Answer:"""
         user_input = _eli_sanitize_user_input(user_input)
         # ── End prompt injection guard ─────────────────────────────────────────
 
-        # === ELI_COMPOUND_IDENTITY_SPLITTER_V1 ===
-        # "Who are you, and who am I?" — router picks one action and drops the other.
-        # Detect well-known compound identity patterns and make two sequential calls,
-        # returning the joined result. Narrow scope: only identity + user-identity pairs.
+        # === ELI_MULTI_QUESTION_SPLITTER_V2 ===
+        # Handles inputs containing multiple distinct questions, e.g.:
+        #   "Story pal? Who are you, and who am I?"  →  3 answers
+        #   "Who are you, and who am I?"              →  2 answers (single-? compound)
+        #
+        # Two-pass approach:
+        #   Pass 1 (GENERAL): split on '?' when >1 '?' present. Each segment becomes
+        #          a separate process() call. Cap at 4 sub-questions to prevent abuse.
+        #   Pass 2 (COMPOUND): within a single-? input, detect "who are you + who am I"
+        #          joined by 'and' and split those into two sequential calls.
+        #
+        # Pass 1 runs first. "Who are you, and who am I?" has only 1 '?' so it falls
+        # through to Pass 2. "Story pal? Who are you, and who am I?" has 2 '?' so
+        # Pass 1 splits it into ["Story pal", "Who are you, and who am I"], processes
+        # each, and the second segment gets caught by Pass 2 in its nested call.
+        try:
+            import re as _mqs_re
+            _mqs_raw = str(user_input or "").strip()
+            _mqs_q_count = _mqs_raw.count("?")
+            if _mqs_q_count > 1:
+                # Split on '?' — each segment that's non-trivial is a sub-question.
+                _mqs_parts = _mqs_raw.split("?")
+                _mqs_segs = [p.strip() for p in _mqs_parts if len(p.strip()) > 3]
+                if len(_mqs_segs) >= 2:
+                    _mqs_segs = _mqs_segs[:4]  # cap at 4
+                    log.debug(
+                        "[ENGINE] multi-question split: %d sub-questions from %r",
+                        len(_mqs_segs), _mqs_raw[:80],
+                    )
+                    _mqs_kwargs = {k: v for k, v in kwargs.items()}
+                    _mqs_responses = []
+                    for _mqs_seg in _mqs_segs:
+                        _mqs_q = _mqs_seg.rstrip("?").strip() + "?"
+                        try:
+                            _mqs_r = self.process(
+                                _mqs_q, source=source, stream=False,
+                                reasoning_mode=reasoning_mode, **_mqs_kwargs,
+                            )
+                            _mqs_r = str(_mqs_r or "").strip()
+                            if _mqs_r:
+                                _mqs_responses.append(_mqs_r)
+                        except Exception as _mqs_sub_err:
+                            log.debug("[ENGINE] multi-question sub-call failed: %s", _mqs_sub_err)
+                    if len(_mqs_responses) >= 2:
+                        return "\n\n".join(_mqs_responses)
+        except Exception as _mqs_err:
+            log.debug("[ENGINE] multi-question splitter failed: %s", _mqs_err)
+
+        # Pass 2: single-? compound identity — "who are you, and who am I?"
         try:
             import re as _cis_re
             _cis_raw = str(user_input or "").strip()
-            # Pattern: "who are you [, and/+] who am I" (any order)
             _cis_ab = _cis_re.search(
                 r"(?i)"
                 r"(?:who\s+are\s+you|what\s+are\s+you|tell\s+me\s+about\s+yourself)"
@@ -7454,7 +7498,7 @@ Answer:"""
                 return _cis_a or _cis_b
         except Exception as _cis_err:
             log.debug("[ENGINE] compound identity splitter failed: %s", _cis_err)
-        # === END ELI_COMPOUND_IDENTITY_SPLITTER_V1 ===
+        # === END ELI_MULTI_QUESTION_SPLITTER_V2 ===
 
         # ELI_REASONING_MODE_STAMP_V1
         # Stamp active reasoning mode onto self so downstream consumers
