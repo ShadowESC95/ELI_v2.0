@@ -130,3 +130,35 @@ def fire_improvement_event(proposal_count: int, failure_count: int) -> None:
             f"Self-improvement found {failure_count} unresolved failures, no proposals generated.",
             {"failure_count": failure_count},
         )
+
+
+def fire_reasoning_stage_event(
+    mode: str,
+    stage: int,
+    total_stages: int,
+    stage_name: str,
+) -> None:
+    """
+    Fire a world event at the start of each GGUF pass in a multi-pass reasoning mode.
+
+    This is the live progress signal for the World tab during the 30-60s silence
+    that would otherwise occur while private reasoning modes buffer their output.
+    Non-blocking; fails silently if the world subsystem is unavailable.
+
+    Args:
+        mode:         Reasoning mode name ("chain_of_thought", "tree_of_thoughts", etc.)
+        stage:        1-based index of the current stage.
+        total_stages: Total number of stages for this mode invocation.
+        stage_name:   Human-readable stage label (e.g. "private_scratchpad_reasoning").
+    """
+    fire_world_event(
+        "reasoning_stage",
+        "reasoning_engine",
+        f"[{mode}] Stage {stage}/{total_stages}: {stage_name}",
+        {
+            "mode": mode,
+            "stage": stage,
+            "total_stages": total_stages,
+            "stage_name": stage_name,
+        },
+    )

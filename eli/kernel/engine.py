@@ -5288,6 +5288,11 @@ Answer:"""
         temp_final     = float(preset.get("temperature_final",     max(0.10, base_temp - 0.15)))
 
         # Stage 1: private chain-of-thought scratchpad
+        try:
+            from eli.world.world_event_bus import fire_reasoning_stage_event as _frs
+            _frs("chain_of_thought", 1, 2, "private_scratchpad_reasoning")
+        except Exception:
+            pass
         reason_prompt = (
             "Think through the following request step by step. "
             "This is your PRIVATE reasoning scratchpad — it will NOT be shown to the user. "
@@ -5311,6 +5316,11 @@ Answer:"""
         )
 
         # Stage 2: final answer informed by private reasoning
+        try:
+            from eli.world.world_event_bus import fire_reasoning_stage_event as _frs
+            _frs("chain_of_thought", 2, 2, "final_synthesis")
+        except Exception:
+            pass
         final_prompt = (
             "Using your internal reasoning below, write ONLY the final answer to the original request. "
             "Do NOT reproduce your reasoning steps or numbered list. "
@@ -5352,6 +5362,11 @@ Answer:"""
         temp_develop = float(preset.get("temperature_develop",
                                          gen_overrides.get("temperature", 0.4)))
 
+        try:
+            from eli.world.world_event_bus import fire_reasoning_stage_event as _frs
+            _frs("tree_of_thoughts", 1, 2, "branch_tree_proposal")
+        except Exception:
+            pass
         propose_prompt = (
             f"For the following request, propose {k} DISTINCT high-level approaches. "
             f"For each: name it (1-5 words), state the core idea (1 sentence), "
@@ -5370,6 +5385,11 @@ Answer:"""
         log.debug(f"[REASONING][ToT] proposed {k} candidates ({len(candidates)} chars, "
               f"max_tok={max_tok_propose}, temp={temp_propose})")
 
+        try:
+            from eli.world.world_event_bus import fire_reasoning_stage_event as _frs
+            _frs("tree_of_thoughts", 2, 2, "highest_branch_development")
+        except Exception:
+            pass
         develop_prompt = (
             f"You internally evaluated {k} approaches (NOT SHOWN TO USER):\n\n"
             f"{candidates}\n\n"
@@ -5409,6 +5429,11 @@ Answer:"""
         gen_temp = float(preset.get("temperature", 0.3))
 
         # Stage 1: initial response
+        try:
+            from eli.world.world_event_bus import fire_reasoning_stage_event as _frs
+            _frs("constitutional_ai", 1, 3, "initial_draft")
+        except Exception:
+            pass
         gen_overrides_1 = dict(gen_overrides or {})
         gen_overrides_1["max_tokens"] = max_tok_gen
         gen_overrides_1["temperature"] = gen_temp
@@ -5420,6 +5445,11 @@ Answer:"""
         log.debug(f"[REASONING][Constitutional] initial draft ({len(initial)} chars, max_tok={max_tok_gen})")
 
         # Stage 2: critique against principles
+        try:
+            from eli.world.world_event_bus import fire_reasoning_stage_event as _frs
+            _frs("constitutional_ai", 2, 3, "principle_critique")
+        except Exception:
+            pass
         critique_prompt = (
             "Critique the following draft response against these principles. "
             "NOTE: ELI's own identity facts (capability count, local model name, "
@@ -5482,6 +5512,11 @@ Answer:"""
                 + "\n  You MUST correct every FAIL above. Hedge unsupported claims with "
                 "'typically', 'as configured', or 'by design'. Do not repeat the failing claim verbatim."
             )
+        try:
+            from eli.world.world_event_bus import fire_reasoning_stage_event as _frs
+            _frs("constitutional_ai", 3, 3, "revision_and_finalize")
+        except Exception:
+            pass
         revise_prompt = (
             "Revise the draft to address the critique. Output ONLY the revised response — "
             "do not narrate the revision, do not restate the critique. "
@@ -5554,7 +5589,13 @@ Answer:"""
         sample_overrides = dict(gen_overrides or {})
         sample_overrides["temperature"] = max(sample_temp, 0.6)
         sample_overrides["max_tokens"] = sample_max_tok
+        _sc_total_stages = n + 1  # n samples + 1 consensus selection pass
         for i in range(n):
+            try:
+                from eli.world.world_event_bus import fire_reasoning_stage_event as _frs
+                _frs("self_consistency", i + 1, _sc_total_stages, "sample_generation")
+            except Exception:
+                pass
             s = self._get_chat_response(
                 user_input, working_context,
                 reasoning_mode="self_consistency", gen_overrides=sample_overrides,
@@ -5565,6 +5606,11 @@ Answer:"""
                   f"max_tok={sample_max_tok}, temp={sample_temp:.2f})")
 
         # Selection: which sample is most defensible / consistent?
+        try:
+            from eli.world.world_event_bus import fire_reasoning_stage_event as _frs
+            _frs("self_consistency", _sc_total_stages, _sc_total_stages, "consensus_selection")
+        except Exception:
+            pass
         labelled = "\n\n".join(f"=== SAMPLE {i+1} ===\n{s}" for i, s in enumerate(samples))
         select_prompt = (
             f"{n} independent attempts to answer the same request are below. "
