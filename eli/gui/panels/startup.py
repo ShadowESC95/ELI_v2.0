@@ -201,9 +201,11 @@ class StartupModelSelectionDialog(QDialog):
             # full free VRAM, assigns all layers to GGUF, and whisper hits CUDA
             # OOM on first utterance. With this, autotune sees the reduced free
             # VRAM and correctly down-sizes gpu_layers for the LLM.
+            _whisper_on_cuda = False
             try:
                 from eli.perception.local_whisper_stt import preload_model as _eli_preload_whisper
                 if _eli_preload_whisper():
+                    _whisper_on_cuda = True
                     print(
                         "[STARTUP_DIALOG][AUDIO_PRELOAD] whisper claimed VRAM "
                         "before GGUF autotune", flush=True,
@@ -214,6 +216,13 @@ class StartupModelSelectionDialog(QDialog):
                 selected_path = self.model_path_input.text().strip()
                 if selected_path:
                     os.environ["ELI_MODEL_PATH"] = selected_path
+                # When Whisper is already resident on the GPU, batch=256 consistently
+                # fails to create a llama_context (VRAM too tight), wasting one retry
+                # cycle. Cap at 128 so the first load attempt succeeds immediately.
+                # The user can override with ELI_TARGET_BATCH if they want 256.
+                if _whisper_on_cuda and not os.environ.get("ELI_TARGET_BATCH", "").strip():
+                    os.environ["ELI_TARGET_BATCH"] = "128"
+                    print("[STARTUP_DIALOG][AUDIO_PRELOAD] Whisper on CUDA → capping batch to 128", flush=True)
                 from eli.core.startup_hardware_optimizer import build_profile, apply_profile
                 _profile = build_profile()
                 apply_profile(_profile)
