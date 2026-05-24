@@ -27,6 +27,10 @@ from pathlib import Path
 from typing import Any, Dict, Generator, List, Optional
 from eli.cognition.context_synthesiser import build_persona_handoff
 
+
+from eli.utils.log import get_logger
+log = get_logger(__name__)
+
 def _eli_path_get(obj, key, default=None):
     """
     Compatibility helper for ELI path containers.
@@ -337,7 +341,7 @@ def _load_persona_text() -> str:
         pass
 
     return (
-        "You are ELI — Entropy Logical Interface. You run locally on this Linux "
+        "You are ELI — Enhanced Learning Interface. You run locally on this Linux "
         "machine. Be terse, grounded, direct, and never claim to be a generic "
         "cloud AI assistant."
     )
@@ -2713,11 +2717,11 @@ class CognitiveEngine:
                 if _wm_db:
                     _restored = self._working_memory.restore(_wm_db)
                     if _restored:
-                        print(f"[COGNITIVE] WorkingMemory: restored {_restored} pins from last session")
+                        log.debug(f"[COGNITIVE] WorkingMemory: restored {_restored} pins from last session")
             except Exception as _wm_restore_err:
-                print(f"[COGNITIVE] WorkingMemory restore failed (non-fatal): {_wm_restore_err}")
+                log.debug(f"[COGNITIVE] WorkingMemory restore failed (non-fatal): {_wm_restore_err}")
         except Exception as _wm_err:
-            print(f"[COGNITIVE] WorkingMemory init failed (non-fatal): {_wm_err}")
+            log.debug(f"[COGNITIVE] WorkingMemory init failed (non-fatal): {_wm_err}")
             self._working_memory = None
         self._wm_turn_counter = 0  # track turns for periodic WM persistence
         # ── Engagement Tracker (auto reasoning-mode escalation) ───────────────
@@ -2725,7 +2729,7 @@ class CognitiveEngine:
             from eli.cognition.engagement_tracker import EngagementTracker
             self._engagement = EngagementTracker()
         except Exception as _et_err:
-            print(f"[COGNITIVE] EngagementTracker init failed (non-fatal): {_et_err}")
+            log.debug(f"[COGNITIVE] EngagementTracker init failed (non-fatal): {_et_err}")
             self._engagement = None
         # Boot self-awareness subsystem
         self._awareness = None
@@ -2733,7 +2737,7 @@ class CognitiveEngine:
             from eli.runtime.awareness_boot import boot_awareness
             self._awareness = boot_awareness(memory=self.memory, quiet=True)
         except Exception as _aw_err:
-            print(f"[COGNITIVE] Awareness boot failed (non-fatal): {_aw_err}")
+            log.debug(f"[COGNITIVE] Awareness boot failed (non-fatal): {_aw_err}")
 
         self._shutdown_called = False
         self._orchestrator_active = False
@@ -2751,27 +2755,27 @@ class CognitiveEngine:
                 _ha = enforce_hardware_authority()
                 if _ha.get("rewritten"):
                     self._hardware_authority_banner = _ha.get("banner")
-                    print(f"[COGNITIVE] {_ha.get('banner')}", flush=True)
+                    log.debug(f"[COGNITIVE] {_ha.get('banner')}")
                 self._hardware_authority_warnings = list(_ha.get("warnings") or [])
                 for _w in self._hardware_authority_warnings:
-                    print(f"[COGNITIVE] hardware advisory: {_w}", flush=True)
+                    log.debug(f"[COGNITIVE] hardware advisory: {_w}")
             except Exception as _ha_err:
-                print(f"[COGNITIVE] hardware authority check failed (non-fatal): {_ha_err}", flush=True)
+                log.debug(f"[COGNITIVE] hardware authority check failed (non-fatal): {_ha_err}")
         elif not self._test_mode:
-            print("[COGNITIVE] hardware authority enforcement deferred", flush=True)
+            log.debug("[COGNITIVE] hardware authority enforcement deferred")
 
         if bool(auto_init_gguf):
             self._init_gguf()
         else:
             self._gguf_available = False
             self._gguf_load_error = "GGUF init deferred until explicit model load"
-            print("[COGNITIVE] GGUF init deferred (waiting for explicit model load)")
+            log.debug("[COGNITIVE] GGUF init deferred (waiting for explicit model load)")
         if not self._test_mode:
             self._start_reflection_loop()
             self._start_habit_loop()
             self._start_habit_scheduler()
             self._start_self_improvement_loop()
-        print("[COGNITIVE] active == canonical ✓")  # Fix 6b: startup path log
+        log.debug("[COGNITIVE] active == canonical ✓")  # Fix 6b: startup path log
         if not self._test_mode:
             self._start_proactive_listener()
         else:
@@ -2781,16 +2785,16 @@ class CognitiveEngine:
         try:
             from eli.plugins.base.base import register_all_plugins
             register_all_plugins()
-            print("[COGNITIVE] Plugins registered.")
+            log.debug("[COGNITIVE] Plugins registered.")
         except Exception as _plug_err:
-            print(f"[COGNITIVE] Plugin registration failed (non-fatal): {_plug_err}")
+            log.debug(f"[COGNITIVE] Plugin registration failed (non-fatal): {_plug_err}")
 
         # Rotate stale conversation logs at startup (compress old JSONL files)
         try:
             from eli.perception.log_rotation import convlog_rotate_old
             _rot = convlog_rotate_old()
             if _rot.get("archived") or _rot.get("deleted"):
-                print(f"[COGNITIVE] Log rotation: archived={len(_rot['archived'])} deleted={len(_rot['deleted'])}")
+                log.debug(f"[COGNITIVE] Log rotation: archived={len(_rot['archived'])} deleted={len(_rot['deleted'])}")
         except Exception:
             pass
 
@@ -2810,17 +2814,17 @@ class CognitiveEngine:
                         return _handler
                     _signal.signal(_sig, _make_handler(_prev))
             except Exception as _sig_err:
-                print(f"[COGNITIVE] Signal handler registration failed (non-fatal): {_sig_err}")
+                log.debug(f"[COGNITIVE] Signal handler registration failed (non-fatal): {_sig_err}")
         # Auto-update capability manifest on startup
         try:
             from eli.tools.registry.capability_updater import update_capability_manifest
             _cap_result = update_capability_manifest()
             if _cap_result.get('ok'):
-                print(
+                log.debug(
     f"[COGNITIVE] Capability manifest updated: {
         _cap_result['total']} capabilities")
         except Exception as _cap_err:
-            print(
+            log.debug(
     f"[COGNITIVE] Capability manifest update failed (non-fatal): {_cap_err}")
 
     def shutdown(self) -> None:
@@ -2845,10 +2849,10 @@ class CognitiveEngine:
         self._shutdown_called = True
 
         if _eli_test_mode():
-            print("[COGNITIVE] Shutdown: test mode, persistent flush skipped.")
+            log.debug("[COGNITIVE] Shutdown: test mode, persistent flush skipped.")
             return
 
-        print("[COGNITIVE] Shutdown: flushing session state…")
+        log.debug("[COGNITIVE] Shutdown: flushing session state…")
 
         # 1. Stop the proactive daemon FIRST so no more writes happen
         # during the rest of teardown.
@@ -2856,18 +2860,18 @@ class CognitiveEngine:
             daemon = getattr(self, "proactive_daemon", None)
             if daemon is not None and hasattr(daemon, "stop"):
                 daemon.stop()
-                print("[COGNITIVE] Shutdown: proactive daemon stopped")
+                log.debug("[COGNITIVE] Shutdown: proactive daemon stopped")
         except Exception as _pd_err:
-            print(f"[COGNITIVE] Shutdown: proactive daemon stop failed (non-fatal): {_pd_err}")
+            log.debug(f"[COGNITIVE] Shutdown: proactive daemon stop failed (non-fatal): {_pd_err}")
 
         # 2. Flush working memory → persistent store
         try:
             if self._working_memory:
                 saved = self._working_memory.flush_to_memory(self.memory)
                 if saved:
-                    print(f"[COGNITIVE] Shutdown: {saved} WorkingMemory fact(s) persisted")
+                    log.debug(f"[COGNITIVE] Shutdown: {saved} WorkingMemory fact(s) persisted")
         except Exception as _wm_err:
-            print(f"[COGNITIVE] Shutdown: WM flush failed (non-fatal): {_wm_err}")
+            log.debug(f"[COGNITIVE] Shutdown: WM flush failed (non-fatal): {_wm_err}")
 
         # 3. Log session narrative as a memory for next-session continuity
         try:
@@ -2882,9 +2886,9 @@ class CognitiveEngine:
                         kind="reflection",
                         importance=0.70,
                     )
-                    print(f"[COGNITIVE] Shutdown: session narrative stored (depth={depth:.2f})")
+                    log.debug(f"[COGNITIVE] Shutdown: session narrative stored (depth={depth:.2f})")
         except Exception as _eng_err:
-            print(f"[COGNITIVE] Shutdown: engagement flush failed (non-fatal): {_eng_err}")
+            log.debug(f"[COGNITIVE] Shutdown: engagement flush failed (non-fatal): {_eng_err}")
 
         # 4. Final reflection pass — extract patterns from this session's memories
         try:
@@ -2906,9 +2910,9 @@ class CognitiveEngine:
             close_fn = getattr(self.memory, "close", None)
             if callable(close_fn):
                 close_fn()
-                print("[COGNITIVE] Shutdown: memory store closed")
+                log.debug("[COGNITIVE] Shutdown: memory store closed")
         except Exception as _mem_err:
-            print(f"[COGNITIVE] Shutdown: memory close failed (non-fatal): {_mem_err}")
+            log.debug(f"[COGNITIVE] Shutdown: memory close failed (non-fatal): {_mem_err}")
 
         # 7. Close the vector-store embedder (also a llama_cpp Llama instance,
         # so it needs the same explicit unload treatment as the main model).
@@ -2926,19 +2930,19 @@ class CognitiveEngine:
                     _u_close = getattr(_underlying, "close", None) if _underlying is not None else None
                     if callable(_u_close):
                         _u_close()
-                print("[COGNITIVE] Shutdown: vector-store embedder closed")
+                log.debug("[COGNITIVE] Shutdown: vector-store embedder closed")
         except Exception as _emb_err:
-            print(f"[COGNITIVE] Shutdown: embedder close failed (non-fatal): {_emb_err}")
+            log.debug(f"[COGNITIVE] Shutdown: embedder close failed (non-fatal): {_emb_err}")
 
         # 8. Explicit GGUF unload — prevents Llama.__del__ segfault on exit.
         try:
             from eli.cognition.gguf_inference import unload_model
             unload_model()
-            print("[COGNITIVE] Shutdown: GGUF model unloaded")
+            log.debug("[COGNITIVE] Shutdown: GGUF model unloaded")
         except Exception as _gguf_err:
-            print(f"[COGNITIVE] Shutdown: GGUF unload failed (non-fatal): {_gguf_err}")
+            log.debug(f"[COGNITIVE] Shutdown: GGUF unload failed (non-fatal): {_gguf_err}")
 
-        print("[COGNITIVE] Shutdown: complete.")
+        log.debug("[COGNITIVE] Shutdown: complete.")
 
     def get_persona(self) -> str:
         """Return the current ELI persona string."""
@@ -3194,7 +3198,7 @@ class CognitiveEngine:
             "final": {},
         }
         self._last_trace = trace
-        print(
+        log.debug(
     f"[COGNITIVE][TRACE] request_id={
         trace['request_id']} mode={
             trace['reasoning_mode']}")
@@ -3205,7 +3209,7 @@ class CognitiveEngine:
         record = {"phase": phase, "ts": time.time(), **meta}
         trace.setdefault("phases", []).append(record)
         meta_str = " ".join(f"{k}={v}" for k, v in meta.items())
-        print(f"[COGNITIVE][FINAL] {phase}" +
+        log.debug(f"[COGNITIVE][FINAL] {phase}" +
      (f" {meta_str}" if meta_str else ""))
 
     def _init_gguf(self) -> None:
@@ -3219,12 +3223,12 @@ class CognitiveEngine:
         try:
             if gguf_inference is None:
                 self._gguf_load_error = "GGUF module not available"
-                print(f"[COGNITIVE] {self._gguf_load_error}")
+                log.debug(f"[COGNITIVE] {self._gguf_load_error}")
                 return
             model_path = gguf_inference.get_model_path()
             if not model_path:
                 self._gguf_load_error = "No GGUF model found"
-                print(f"[COGNITIVE] {self._gguf_load_error}")
+                log.debug(f"[COGNITIVE] {self._gguf_load_error}")
                 return
             model = gguf_inference.load_model()
             if model is not None:
@@ -3251,16 +3255,16 @@ class CognitiveEngine:
                     self._gpu_layers = int(settings.get("n_gpu_layers", 0))
                 except Exception:
                     self._gpu_layers = 0
-                print("[COGNITIVE] GGUF model loaded successfully")
+                log.debug("[COGNITIVE] GGUF model loaded successfully")
             else:
                 self._gguf_available = False
                 getter = getattr(gguf_inference, "get_last_error", None)
                 self._gguf_load_error = getter() if callable(getter) else "GGUF load failed"
-                print(f"[COGNITIVE] GGUF model load failed: {self._gguf_load_error}")
+                log.debug(f"[COGNITIVE] GGUF model load failed: {self._gguf_load_error}")
         except Exception as e:
             self._gguf_available = False
             self._gguf_load_error = str(e)
-            print(f"[COGNITIVE] GGUF init failed: {e}")
+            log.debug(f"[COGNITIVE] GGUF init failed: {e}")
 
     def _extract_last_n(self, query: str) -> Optional[int]:
         m = re.search(
@@ -3638,10 +3642,9 @@ class CognitiveEngine:
         if len(s) <= budget_chars:
             return s
         kept = s[:budget_chars].rstrip()
-        print(
+        log.debug(
             f"[COGNITIVE] evidence truncated for ctx fit: label={label!r} "
             f"{len(s)} → {budget_chars} chars",
-            flush=True,
         )
         return kept + f"\n[…{label} truncated to {budget_chars} chars to fit context window]"
 
@@ -3713,7 +3716,7 @@ class CognitiveEngine:
                         + self._cap_text(_ev_text, BUDGET_EXECUTOR, f"executor_{_ev_action}")
                     )
         except Exception as _ev_err:
-            print(f'[COGNITIVE] Evidence executor call failed: {_ev_err}')
+            log.debug(f'[COGNITIVE] Evidence executor call failed: {_ev_err}')
 
         evidence_block = "\n\n".join(
             parts) if parts else "(no evidence gathered)"
@@ -3740,7 +3743,7 @@ Answer:"""
         profile = self._memory_profile_for_intent(
             intent or {"action": "CHAT"}, query)
         if _is_brief_phatic_prompt(lowered):
-            print(
+            log.debug(
                 "[MEMORY] Short phatic prompt detected; skipping stored-memory recall.")
             return ""
         # ── Tiered memory fetch based on query complexity ──
@@ -3810,7 +3813,7 @@ Answer:"""
         # ~300 chars per turn ≈ 100 tokens; cap turns to fit available token budget
         _max_turns = max(10, _ctx_for_turns * 3 // 300)
         if fetch_limit > _max_turns:
-            print(
+            log.debug(
     '[MEMORY] Capping fetch_limit ' +
     str(fetch_limit) +
     '→' +
@@ -3819,7 +3822,7 @@ Answer:"""
     str(_ctx_for_turns) +
      ')')
             fetch_limit = _max_turns
-        print(
+        log.debug(
     f"[MEMORY] Fetch strategy: limit={fetch_limit} (tier={
         "greeting" if _is_greeting else "command" if _is_command else "memory" if _is_memory_query else "default"}), since={since_date}, cross_session={explicit_cross_session}, commandish={commandish}")
 
@@ -3862,7 +3865,7 @@ Answer:"""
                 else:
                     conversations = self.memory.get_recent_conversation(
                         limit=fetch_limit, user_id=self.user_id)
-                print(
+                log.debug(
     f"[MEMORY] Fetched {
         len(conversations)} conversation turns from active chat DB.")
                 if conversations:
@@ -3896,7 +3899,7 @@ Answer:"""
     "Active chat history (chronological, oldest→newest):\n" +
      "\n".join(lines_out))
             except Exception as e:
-                print(f"[MEMORY] Conversation retrieval failed: {e}")
+                log.debug(f"[MEMORY] Conversation retrieval failed: {e}")
 
         if profile.get("semantic_chat"):
             try:
@@ -3936,13 +3939,13 @@ Answer:"""
                                 "Semantically relevant active-chat turns:\n" +
                                 "\n".join(lines_out))
             except Exception as e:
-                print(f"[MEMORY] Semantic search failed: {e}")
+                log.debug(f"[MEMORY] Semantic search failed: {e}")
 
         if profile.get("stored_memories"):
             try:
                 if query and not commandish and not re.match(
                     r"^(list|read|open|show)\b", lowered):
-                    print(
+                    log.debug(
                         f"[MEMORY] Searching stored memories for: {query[:50]}...")
                     mem_results = self.memory.recall_memory(
                         query=query, limit=limit)
@@ -4016,7 +4019,7 @@ Answer:"""
                                 _ht.start()
                                 _ht.join(timeout=4.0)  # hard 4s cap
                                 if _ht.is_alive():
-                                    print("[HyDE] expansion timed out (4s) — skipping")
+                                    log.debug("[HyDE] expansion timed out (4s) — skipping")
                                 elif _hyde_result[0]:
                                     _hyp_queries = _hyde_result[0]
                                     _seen_texts = {(r.get("text") or "")[:80] for r in mem_results}
@@ -4033,10 +4036,10 @@ Answer:"""
                                                     "ts": _h.get("ts", 0),
                                                 })
                         except Exception as _hyde_err:
-                            print(f"[HyDE] expansion skipped: {_hyde_err}")
+                            log.debug(f"[HyDE] expansion skipped: {_hyde_err}")
                     else:
                         if not _hyde_disabled and _hyde_words < 7:
-                            print(f"[HyDE] skipped (query too short: {_hyde_words} words)")
+                            log.debug(f"[HyDE] skipped (query too short: {_hyde_words} words)")
 
                     paths = resolve_db_paths()
                     active_db = Path(
@@ -4045,7 +4048,7 @@ Answer:"""
                     ).resolve() if _eli_path_get(paths, "memory_db") else active_db
                     if canonical_db != active_db:
                         # Dual-DB divergence warning
-                        print(
+                        log.debug(
     f"[WARNING] DB divergence detected: active {active_db} != canonical {canonical_db}. canonical DB does not exist?")
                         try:
                             legacy_mem = Memory(db_path=canonical_db)
@@ -4054,9 +4057,9 @@ Answer:"""
                                 if hit not in mem_results:
                                     mem_results.append(hit)
                         except Exception as legacy_e:
-                            print(
+                            log.debug(
     f"[MEMORY] Canonical memory-db recall failed: {legacy_e}")
-                    print(
+                    log.debug(
     f"[MEMORY] Stored memory search returned: {
         len(mem_results) if mem_results else 0} results")
                     if mem_results:
@@ -4081,7 +4084,7 @@ Answer:"""
                             f" If asked when/whether this was mentioned, state: 'I have no record of that in my memory.']"
                         )
             except Exception as e:
-                print(f"[MEMORY] Memory recall failed: {e}")
+                log.debug(f"[MEMORY] Memory recall failed: {e}")
 
         if profile.get("reflections"):
             try:
@@ -4098,7 +4101,7 @@ Answer:"""
                         context_parts.append(
                             "Recent self-reflections:\n" + "\n".join(lines_out[:3]))
             except Exception as e:
-                print(f"[MEMORY] Reflection recall failed: {e}")
+                log.debug(f"[MEMORY] Reflection recall failed: {e}")
 
         if profile.get("runtime_facts"):
             try:
@@ -4111,7 +4114,7 @@ Answer:"""
                 if runtime_facts:
                     context_parts.append("Runtime facts:\n" + runtime_facts)
             except Exception as e:
-                print(f"[MEMORY] Runtime fact block failed: {e}")
+                log.debug(f"[MEMORY] Runtime fact block failed: {e}")
 
         full_context = "\n\n".join(context_parts)
         try:
@@ -4131,7 +4134,7 @@ Answer:"""
             if nl > 0:
                 trimmed = trimmed[nl + 1:]
             full_context = "...[older memory trimmed]\n" + trimmed
-        print(f"[MEMORY] Final context length: {len(full_context)} chars")
+        log.debug(f"[MEMORY] Final context length: {len(full_context)} chars")
         return full_context
 
     def _executor_query_args(self, user_input: str,
@@ -4178,7 +4181,7 @@ Answer:"""
             self._trace_phase(trace, "executor_call", action=action)
         result = execute_action(action, payload)
         elapsed = time.perf_counter() - started
-        print(f"[COGNITIVE][TIMING] executor_{action.lower()}={elapsed:.3f}s")
+        log.debug(f"[COGNITIVE][TIMING] executor_{action.lower()}={elapsed:.3f}s")
         content = str(
     (result or {}).get("content") or (
         result or {}).get("response") or "")
@@ -4323,7 +4326,7 @@ Answer:"""
                     generated = generated.rstrip(". ") + "?"
                 return generated
         except Exception as clarifier_err:
-            print(f"[COGNITIVE][FINAL] dynamic clarifier failed: {clarifier_err}")
+            log.debug(f"[COGNITIVE][FINAL] dynamic clarifier failed: {clarifier_err}")
 
         if any(k in low for k in [
                "runtime files", "canonical gui file", "runtime paths", "canonical runtime modules"]):
@@ -4744,7 +4747,7 @@ Answer:"""
                 )
                 _trimmed_mem = _eli_sanitize_identity_context_block(memory_context, prompt)
                 if len(memory_context) > _mem_char_budget:
-                    print(
+                    log.debug(
                         f"[COGNITIVE] Trimming memory context "
                         f"{len(memory_context)}→{_mem_char_budget} chars "
                         f"(n_ctx={_n_ctx_guard}, max_tokens={_max_tok_guard})"
@@ -4765,10 +4768,10 @@ Answer:"""
                     reasoning_mode=reasoning_mode,
                     situation_brief=situation_brief,
                 )
-                print("[COGNITIVE] Generating response with GGUF...")
+                log.debug("[COGNITIVE] Generating response with GGUF...")
                 broker = _get_inference_broker() if _get_inference_broker else None
                 if broker and broker.gguf_ready:
-                    print("[COGNITIVE] Using broker path")
+                    log.debug("[COGNITIVE] Using broker path")
                     # Pre-flight: clamp max_tokens so prompt+output fits n_ctx.
                     # CRITICAL: use the LIVE loaded model's n_ctx, not the
                     # configured value. Mistral may have fallen back to 1024
@@ -4791,7 +4794,7 @@ Answer:"""
                     _req_pf1 = int(gen["max_tokens"])
                     _safe_max_pf1 = _avail_pf1 if _req_pf1 <= 0 else max(128, min(_req_pf1, _avail_pf1))
                     if 0 < _req_pf1 < _safe_max_pf1:
-                        print(
+                        log.debug(
     f"[COGNITIVE] Clamping max_tokens {_req_pf1}→{_safe_max_pf1} (est={_pt_pf1}, n_ctx={_n_ctx_pf1})")
                     # Hard guard: if the prompt itself exceeds n_ctx, truncate
                     # it before sending — an oversized prompt crashes llama.cpp.
@@ -4804,7 +4807,7 @@ Answer:"""
                         _sys_budget = max(200, _max_prompt_chars - _prompt_budget)
                         enhanced_system = enhanced_system[-_sys_budget:]
                         prompt = prompt[-_prompt_budget:]
-                        print(
+                        log.debug(
     f"[COGNITIVE] Prompt overflow: truncated system→{_sys_budget}chars "
     f"prompt→{_prompt_budget}chars to fit n_ctx={_n_ctx_pf1}")
                     response = broker.infer(
@@ -4814,14 +4817,14 @@ Answer:"""
                         temperature=gen["temperature"],
                     )
                 else:
-                    print("[COGNITIVE] Using direct GGUF path (broker unavailable)")
+                    log.debug("[COGNITIVE] Using direct GGUF path (broker unavailable)")
                     _n_ctx_pf2 = int(gen.get("n_ctx", 16384))
                     _pt_pf2 = max(1, (len(enhanced_system) + len(prompt)) // 3)
                     _avail_pf2 = max(128, _n_ctx_pf2 - _pt_pf2 - 64)
                     _req_pf2 = int(gen["max_tokens"])
                     _safe_max_pf2 = _avail_pf2 if _req_pf2 <= 0 else max(128, min(_req_pf2, _avail_pf2))
                     if 0 < _req_pf2 < _safe_max_pf2:
-                        print(
+                        log.debug(
     f"[COGNITIVE] Direct GGUF: clamping max_tokens {_req_pf2}→{_safe_max_pf2} (est={_pt_pf2}, n_ctx={_n_ctx_pf2})")
                     # Hard guard for direct path too
                     _max_prompt_chars2 = max(400, (_n_ctx_pf2 - _safe_max_pf2 - 64) * 3)
@@ -4830,7 +4833,7 @@ Answer:"""
                         _prompt_budget2 = _max_prompt_chars2 - _sys_budget2
                         enhanced_system = enhanced_system[-_sys_budget2:]
                         prompt = prompt[-_prompt_budget2:]
-                        print(
+                        log.debug(
     f"[COGNITIVE] Direct GGUF overflow: truncated to fit n_ctx={_n_ctx_pf2}")
                     with self._gguf_lock:
                         response = gguf_inference.chat_completion(
@@ -4845,13 +4848,13 @@ Answer:"""
             except Exception as e:
                 self._gguf_available = False
                 self._gguf_load_error = str(e)
-                print(f"[COGNITIVE] GGUF chat failed: {e}")
+                log.debug(f"[COGNITIVE] GGUF chat failed: {e}")
                 if provider not in ("ollama",):
                     return f"[ELI] GGUF error: {e}"
         if provider not in ("ollama",):
             detail = self._gguf_load_error or "GGUF model unavailable"
             return f"[ELI] Model not ready: {detail}. Check config/settings.json."
-        print("[COGNITIVE] Falling back to Ollama for chat response")
+        log.debug("[COGNITIVE] Falling back to Ollama for chat response")
         try:
             full_prompt = f"{memory_context}\n\nUser: {prompt}\n\nELI:" if memory_context else prompt
             result = ollama_chat(full_prompt, skip_router=True)
@@ -4863,7 +4866,7 @@ Answer:"""
                 response = str(result).strip()
             return _normalize_assistant_text(prompt, response)
         except Exception as e:
-            print(f"[COGNITIVE] Ollama fallback also failed: {e}")
+            log.debug(f"[COGNITIVE] Ollama fallback also failed: {e}")
             return f"I encountered an error while generating a response: {e}"
 
     def _stream_model_response(self, prompt: str, memory_context: str = "",
@@ -4909,7 +4912,7 @@ Answer:"""
                 )
                 _trimmed_mem_s = _eli_sanitize_identity_context_block(memory_context, prompt)
                 if len(memory_context) > _mem_char_budget_s:
-                    print(
+                    log.debug(
                         f"[COGNITIVE] Stream: trimming memory context "
                         f"{len(memory_context)}→{_mem_char_budget_s} chars"
                     )
@@ -4933,7 +4936,7 @@ Answer:"""
                 _req_s = int(gen["max_tokens"])
                 _safe_max = _avail_s if _req_s <= 0 else max(128, min(_req_s, _avail_s))
                 if 0 < _req_s < _safe_max:
-                    print(
+                    log.debug(
     f"[COGNITIVE] Stream: clamping {_req_s}→{_safe_max} (est={_pt}, n_ctx={_n_ctx})")
                 # Hard guard: if combined prompt still exceeds n_ctx, truncate
                 # before calling generate() — an oversized prompt causes segfault.
@@ -4943,12 +4946,12 @@ Answer:"""
                     _prm_bud = _max_stream_chars - _sys_bud
                     enhanced_system = enhanced_system[-_sys_bud:]
                     prompt = prompt[-_prm_bud:]
-                    print(
+                    log.debug(
     f"[COGNITIVE] Stream overflow: truncated to fit n_ctx={_n_ctx}")
 
                 generate = getattr(gguf_inference, "generate", None)
                 if callable(generate):
-                    print("[COGNITIVE] Stream: using generate() with stream=True")
+                    log.debug("[COGNITIVE] Stream: using generate() with stream=True")
                     _yielded = False
                     with self._gguf_lock:
                         for chunk in generate(
@@ -4968,7 +4971,7 @@ Answer:"""
                                 yield token
                     if _yielded:
                         return
-                    print("[COGNITIVE] Stream: generate() produced zero visible tokens; falling back to non-streaming Stage 11")
+                    log.debug("[COGNITIVE] Stream: generate() produced zero visible tokens; falling back to non-streaming Stage 11")
                     response = self._get_chat_response(
                         prompt,
                         memory_context,
@@ -4986,7 +4989,7 @@ Answer:"""
                 # generate() not available — use broker (pseudo-streaming)
                 broker = _get_inference_broker() if _get_inference_broker else None
                 if broker and broker.gguf_ready:
-                    print(
+                    log.debug(
                         "[COGNITIVE] Stream: generate() unavailable, falling back to broker (pseudo-stream)")
                     response = broker.infer(
                         prompt,
@@ -5003,7 +5006,7 @@ Answer:"""
                 import traceback
                 self._gguf_available = False
                 self._gguf_load_error = str(e)
-                print(f"[COGNITIVE] GGUF streaming failed: {e}")
+                log.debug(f"[COGNITIVE] GGUF streaming failed: {e}")
                 if provider != "ollama":
                     yield f"GGUF streaming failed: {e}"
                     return
@@ -5134,13 +5137,13 @@ Answer:"""
                     _mode_str, user_input, working_context, gen_overrides, situation_brief
                 )
             except Exception as exc:
-                print(f"[REASONING][{_mode_str}] algorithm failed: {exc} — falling through to pass-loop")
+                log.debug(f"[REASONING][{_mode_str}] algorithm failed: {exc} — falling through to pass-loop")
                 algo_resp = None
             if algo_resp:
                 algo_score = self._score_response_confidence(
                     user_input, algo_resp, working_context, intent_conf, evidence
                 )
-                print(f"[REASONING][{_mode_str}] final score={algo_score:.2f} threshold={threshold:.2f}")
+                log.debug(f"[REASONING][{_mode_str}] final score={algo_score:.2f} threshold={threshold:.2f}")
                 if trace is not None:
                     trace.setdefault('confidence', []).append(
                         {'pass_no': 'algorithm', 'score': algo_score, 'threshold': threshold})
@@ -5168,10 +5171,10 @@ Answer:"""
     gen_overrides=gen_overrides,
     situation_brief=situation_brief)
             elapsed = time.perf_counter() - started
-            print(f'[COGNITIVE][TIMING] chat_pass_{pass_no}={elapsed:.3f}s')
+            log.debug(f'[COGNITIVE][TIMING] chat_pass_{pass_no}={elapsed:.3f}s')
             score = self._score_response_confidence(
     user_input, response, working_context, intent_conf, evidence)
-            print(
+            log.debug(
     f'[COGNITIVE][FINAL] confidence pass_no={pass_no} score={
         score:.2f} threshold={
             threshold:.2f}')
@@ -5189,7 +5192,7 @@ Answer:"""
                 working_context = (
     working_context +
      "\n\nRevision directive:\n- Previous candidate was below confidence threshold.\n- Remove hedging.\n- Use only grounded facts from context and executor evidence.\n- If exact file paths or line numbers are required, include them explicitly.\n").strip()
-                print(
+                log.debug(
     f'[COGNITIVE][FINAL] retry next_pass={
         pass_no + 1} reason=below_threshold')
         if best_score < threshold and profile.get(
@@ -5211,10 +5214,9 @@ Answer:"""
             }
 
             if _eli_gc_action in _eli_gc_grounded_actions:
-                print(
+                log.debug(
                     f"[COGNITIVE][FINAL] grounded-control no-clarify v2 suppressed "
                     f"action={_eli_gc_action} score={best_score:.2f} threshold={threshold:.2f}",
-                    flush=True,
                 )
                 return {
                     'response': best_answer,
@@ -5225,7 +5227,7 @@ Answer:"""
                     'clarify_suppressed': True,
                 }
 
-            print(
+            log.debug(
                 f'[COGNITIVE][FINAL] clarify score={best_score:.2f} threshold={threshold:.2f}'
             )
 
@@ -5288,7 +5290,7 @@ Answer:"""
             reasoning_mode="tree_of_thoughts", gen_overrides=propose_overrides,
             situation_brief=situation_brief,
         )
-        print(f"[REASONING][ToT] proposed {k} candidates ({len(candidates)} chars, "
+        log.debug(f"[REASONING][ToT] proposed {k} candidates ({len(candidates)} chars, "
               f"max_tok={max_tok_propose}, temp={temp_propose})")
 
         develop_prompt = (
@@ -5313,7 +5315,7 @@ Answer:"""
         )
         # Strip leftover scaffolding if the model still leaked deliberation prefixes
         final = _strip_reasoning_scaffold(final)
-        print(f"[REASONING][ToT] developed final ({len(final)} chars, "
+        log.debug(f"[REASONING][ToT] developed final ({len(final)} chars, "
               f"max_tok={max_tok_develop}, temp={temp_develop})")
         return final
 
@@ -5338,12 +5340,15 @@ Answer:"""
             reasoning_mode="constitutional_ai", gen_overrides=gen_overrides_1,
             situation_brief=situation_brief,
         )
-        print(f"[REASONING][Constitutional] initial draft ({len(initial)} chars, max_tok={max_tok_gen})")
+        log.debug(f"[REASONING][Constitutional] initial draft ({len(initial)} chars, max_tok={max_tok_gen})")
 
         # Stage 2: critique against principles
         critique_prompt = (
             "Critique the following draft response against these principles. "
-            "For each, output PASS or FAIL with one-sentence justification:\n"
+            "NOTE: ELI's own identity facts (capability count, local model name, "
+            "architecture, design goals, runtime configuration) are considered grounded "
+            "— do not fail P1 or P2 for those.\n"
+            "For each principle, output PASS or FAIL with one-sentence justification:\n"
             "  P1. Factual accuracy: every claim is grounded in supplied context or general knowledge known to be reliable.\n"
             "  P2. No unsupported claims: nothing asserted that the draft cannot defend.\n"
             "  P3. Completeness: the draft answers what was actually asked, not a related question.\n"
@@ -5351,7 +5356,7 @@ Answer:"""
             "  P5. No harm: the draft does not recommend actions that would cause harm if followed.\n\n"
             f"REQUEST: {user_input}\n\nDRAFT:\n{initial}\n\n"
             f"Output exactly:\nP1: PASS|FAIL — reason\nP2: PASS|FAIL — reason\n... etc.\n"
-            f"After the five lines, list the two most important specific revisions needed."
+            f"After the five lines, list the single most important specific revision needed (one line only)."
         )
         critique_overrides = dict(gen_overrides or {})
         critique_overrides["temperature"] = max(0.1, gen_temp - 0.1)
@@ -5361,7 +5366,7 @@ Answer:"""
             reasoning_mode="constitutional_ai", gen_overrides=critique_overrides,
             situation_brief=situation_brief,
         )
-        print(f"[REASONING][Constitutional] critique ({len(critique)} chars, max_tok={max_tok_crit})")
+        log.debug(f"[REASONING][Constitutional] critique ({len(critique)} chars, max_tok={max_tok_crit})")
 
         # Stage 3: revise. Skip if all five principles passed (fast path).
         # The model sometimes emits duplicate P-lines, e.g. an early PASS and a
@@ -5381,7 +5386,7 @@ Answer:"""
         else:
             all_pass = "FAIL" not in crit_upper and all(f"P{i}: PASS" in crit_upper for i in range(1, 6))
         if all_pass:
-            print("[REASONING][Constitutional] all principles PASS → returning initial draft")
+            log.debug("[REASONING][Constitutional] all principles PASS → returning initial draft")
             return initial
 
         revise_prompt = (
@@ -5389,7 +5394,11 @@ Answer:"""
             "do not narrate the revision, do not restate the critique. "
             "Do not output a question, the request, a title, or the critique. "
             "For identity/self-report questions, answer in first person as ELI. "
-            "Do not swap ELI's identity with the user's identity.\n\n"
+            "Do not swap ELI's identity with the user's identity.\n"
+            "IMPORTANT: preserve all substantive content from the original draft. "
+            "For grounding failures (P1/P2), add hedging language such as 'by design', "
+            "'as configured', or 'typically' rather than deleting the claim. "
+            "The revised response must be at least as detailed as the original draft.\n\n"
             f"REQUEST: {user_input}\n\nORIGINAL DRAFT:\n{initial}\n\nCRITIQUE:\n{critique}"
         )
         revise_overrides = dict(gen_overrides or {})
@@ -5400,7 +5409,7 @@ Answer:"""
             reasoning_mode="constitutional_ai", gen_overrides=revise_overrides,
             situation_brief=situation_brief,
         )
-        print(f"[REASONING][Constitutional] revised final ({len(final)} chars, max_tok={max_tok_rev})")
+        log.debug(f"[REASONING][Constitutional] revised final ({len(final)} chars, max_tok={max_tok_rev})")
         final_text = str(final or "").strip()
         final_low = final_text.lower()
         request_low = str(user_input or "").strip().lower()
@@ -5424,7 +5433,7 @@ Answer:"""
         ):
             bad_final = True
         if bad_final:
-            print("[REASONING][Constitutional] revised final rejected; returning initial draft")
+            log.debug("[REASONING][Constitutional] revised final rejected; returning initial draft")
             return _strip_reasoning_scaffold(initial)
         return _strip_reasoning_scaffold(final)
 
@@ -5457,7 +5466,7 @@ Answer:"""
                 situation_brief=situation_brief,
             )
             samples.append(s)
-            print(f"[REASONING][SelfConsistency] sample {i+1}/{n} ({len(s)} chars, "
+            log.debug(f"[REASONING][SelfConsistency] sample {i+1}/{n} ({len(s)} chars, "
                   f"max_tok={sample_max_tok}, temp={sample_temp:.2f})")
 
         # Selection: which sample is most defensible / consistent?
@@ -5486,7 +5495,7 @@ Answer:"""
         import re as _re_sc
         _has_leak = bool(_re_sc.search(r"===\s*SAMPLE\s+\d+\s*===", chosen or ""))
         if _has_leak:
-            print(f"[REASONING][SelfConsistency] selector leaked sample markers — using longest-sample fallback", flush=True)
+            log.debug(f"[REASONING][SelfConsistency] selector leaked sample markers — using longest-sample fallback")
             _candidates = [s for s in samples if s and len(s.strip()) > 20]
             if _candidates:
                 chosen = max(_candidates, key=lambda s: len(s.strip()))
@@ -5495,7 +5504,7 @@ Answer:"""
         chosen = _re_sc.sub(r"===\s*SAMPLE\s+\d+\s*===\s*\n?", "", chosen or "").strip()
         chosen = _strip_reasoning_scaffold(chosen)
 
-        print(f"[REASONING][SelfConsistency] selected ({len(chosen)} chars)")
+        log.debug(f"[REASONING][SelfConsistency] selected ({len(chosen)} chars)")
         return chosen
 
     def _supports_mode_algorithm(self, mode: str) -> bool:
@@ -5543,7 +5552,7 @@ Answer:"""
 
             try:
                 _rt = contract.get("runtime") or {}
-                print(
+                log.debug(
                     "[MODE][CONTRACT] "
                     f"mode={mode} max_tokens={overrides.get('max_tokens')} "
                     f"temp={overrides.get('temperature')} "
@@ -5628,14 +5637,14 @@ Answer:"""
             except Exception:
                 pass
             self._last_runtime_retune_ts = now_ts
-            print(
+            log.debug(
                 "[MODE][RUNTIME_ADAPT] "
                 f"mode={mode} ctx={live_ctx}->{target_ctx} "
                 f"batch={live_batch}->{target_batch} "
                 f"gpu_layers={live_gpu}->{target_gpu}"
             )
         except Exception as _mode_reload_err:
-            print(f"[MODE][RUNTIME_ADAPT] reload failed: {_mode_reload_err}")
+            log.debug(f"[MODE][RUNTIME_ADAPT] reload failed: {_mode_reload_err}")
 
     def _runtime_memory_snapshot(self) -> Dict[str, Any]:
         snap: Dict[str, Any] = {
@@ -5887,10 +5896,10 @@ Answer:"""
                     pa_args["path"] = primary_result.get("script_path", "")
                 if pa:
                     r = execute_action(pa, pa_args)
-                    print(
+                    log.debug(
                         f"[COGNITIVE] Post-action {pa}: ok={r.get('ok', False)}")
             except Exception as e:
-                print(f"[COGNITIVE] Post-action failed: {e}")
+                log.debug(f"[COGNITIVE] Post-action failed: {e}")
 
     def _build_runtime_orchestrator_plan(
         self,
@@ -6088,7 +6097,7 @@ Answer:"""
                         except Exception:
                             pass
         except Exception as _depth_err:
-            print(f"[COGNITIVE] non-quick depth expansion skipped: {_depth_err}")
+            log.debug(f"[COGNITIVE] non-quick depth expansion skipped: {_depth_err}")
         try:
             from eli.runtime.diagnostic_patterns import is_vague_dynamic_status_claim
             if is_vague_dynamic_status_claim(response):
@@ -6109,11 +6118,11 @@ Answer:"""
                             action="META_DIAGNOSTIC",
                         ).strip()
                     except Exception as _dyn_syn_err:
-                        print(f"[COGNITIVE] Dynamic-status evidence synthesis failed: {_dyn_syn_err}")
+                        log.debug(f"[COGNITIVE] Dynamic-status evidence synthesis failed: {_dyn_syn_err}")
                     response = synthesized or evidence_packet
                     evidence_used = True
         except Exception as _dyn_guard_err:
-            print(f"[COGNITIVE] Dynamic-status guard skipped: {_dyn_guard_err}")
+            log.debug(f"[COGNITIVE] Dynamic-status guard skipped: {_dyn_guard_err}")
         # Strip role-leakage artefacts ([HH:MM] User: …, "Assistant:", etc.)
         try:
             from eli.cognition.response_sanitizer import sanitize_assistant_text as _san
@@ -6131,7 +6140,7 @@ Answer:"""
         score = float(score)
         threshold = float(threshold)
 
-        print(
+        log.debug(
             f"[COGNITIVE][FINAL] final score={score:.2f} "
             f"threshold={threshold:.2f} clarified={bool(clarified)} "
             f"evidence_used={grounded}"
@@ -6176,7 +6185,7 @@ Answer:"""
             if _random.random() < 0.01:
                 _decayed = self.memory.apply_weight_decay()
                 if _decayed:
-                    print(f"[MEMORY] Weight decay applied to {_decayed} old memories")
+                    log.debug(f"[MEMORY] Weight decay applied to {_decayed} old memories")
         except Exception:
             pass
 
@@ -6379,7 +6388,7 @@ Answer:"""
                     if agent_bus_context else _diag_block
                 )
         except Exception as _diag_inject_err:
-            print(f"[COGNITIVE] diagnostic evidence inject skipped: {_diag_inject_err}")
+            log.debug(f"[COGNITIVE] diagnostic evidence inject skipped: {_diag_inject_err}")
 
         # ── LAST_TURN_TRACE injection ────────────────────────────────────
         # Grounds meta-questions about the prior response (confidence, agents,
@@ -6415,7 +6424,7 @@ Answer:"""
                     (_trace_block + "\n\n" + agent_bus_context).strip()
                     if agent_bus_context else _trace_block)
         except Exception as _lt_err:
-            print(f"[COGNITIVE] last-turn trace inject skipped: {_lt_err}")
+            log.debug(f"[COGNITIVE] last-turn trace inject skipped: {_lt_err}")
 
         try:
             try:
@@ -6424,7 +6433,7 @@ Answer:"""
                     user_input=user_input,
                 )
             except Exception as _eli_scrub_err:
-                print(f"[COGNITIVE] recent-turn scrub failed: {_eli_scrub_err}")
+                log.debug(f"[COGNITIVE] recent-turn scrub failed: {_eli_scrub_err}")
 
             handoff_obj = build_persona_handoff(
                 user_input=user_input,
@@ -6436,7 +6445,7 @@ Answer:"""
             )
             brief = _normalise_handoff(handoff_obj)
         except Exception as e:
-            print(f"[COGNITIVE] persona handoff build failed: {e}")
+            log.debug(f"[COGNITIVE] persona handoff build failed: {e}")
             brief = ""
 
         # Phase 6: cap the persona handoff at 8 KB. The handoff is the largest
@@ -6557,7 +6566,7 @@ Answer:"""
                 if _orch_result is not None:
                     return _orch_result
             except Exception as _orch_err:
-                print(f"[COGNITIVE] internal orchestrator failed, falling back to core pipeline: {_orch_err}")
+                log.debug(f"[COGNITIVE] internal orchestrator failed, falling back to core pipeline: {_orch_err}")
 
         # CORRECTION shortcut: dynamic repair using the corrected target only.
         if _qclass == 'CORRECTION':
@@ -6607,7 +6616,7 @@ Answer:"""
                                 temperature=0.35,
                             )
                 except Exception as _ce:
-                    print(f"[COGNITIVE] Correction GGUF call failed: {_ce}")
+                    log.debug(f"[COGNITIVE] Correction GGUF call failed: {_ce}")
                     _corr_response = None
 
             if _corr_response:
@@ -6635,7 +6644,7 @@ Answer:"""
                         "trace": trace,
                     }
 
-            print("[COGNITIVE] Correction: no direct correction response, escalating to GENERAL pipeline")
+            log.debug("[COGNITIVE] Correction: no direct correction response, escalating to GENERAL pipeline")
             _qclass = 'GENERAL'
 
         try:
@@ -6651,7 +6660,7 @@ Answer:"""
                 pass
             return str(getattr(dr, "memory_context", "") or "").strip()
         except Exception as e:
-            print(f"[COGNITIVE] _dispatch_agent_bus failed: {e}")
+            log.debug(f"[COGNITIVE] _dispatch_agent_bus failed: {e}")
             return ""
 
     def _store_user_turn(self, text: str) -> None:
@@ -6660,7 +6669,7 @@ Answer:"""
         try:
             self.memory.add_conversation_turn("user", text, self.session_id, self.user_id)
         except Exception as e:
-            print(f"[COGNITIVE] User turn store failed: {e}")
+            log.debug(f"[COGNITIVE] User turn store failed: {e}")
 
     def _store_assistant_turn(self, text: str) -> None:
         if not text:
@@ -6688,7 +6697,7 @@ Answer:"""
         try:
             self.memory.add_conversation_turn("assistant", text, self.session_id, self.user_id)
         except Exception as e:
-            print(f"[COGNITIVE] Assistant turn store failed: {e}")
+            log.debug(f"[COGNITIVE] Assistant turn store failed: {e}")
 
     def _publish_last_response_meta(
         self,
@@ -6819,7 +6828,7 @@ Answer:"""
                     try:
                         self.enqueue_post_response_storage(user_input, final, {"action": "CHAT"}, command=False)
                     except Exception as _store_err:
-                        print(f"[COGNITIVE] orchestrator stream storage failed: {_store_err}")
+                        log.debug(f"[COGNITIVE] orchestrator stream storage failed: {_store_err}")
             return _wrapped()
 
         return result
@@ -6914,7 +6923,7 @@ Answer:"""
             if grounded:
                 blocks.append(grounded)
         except Exception as e:
-            print(f"[COGNITIVE] assemble_precise_context grounded evidence failed: {e}")
+            log.debug(f"[COGNITIVE] assemble_precise_context grounded evidence failed: {e}")
 
         assembled_context = "\n\n".join(b for b in blocks if b).strip()
 
@@ -6942,7 +6951,7 @@ Answer:"""
                     reserved_tokens=reserved,
                 ) or ""
             except Exception as e:
-                print(f"[COGNITIVE] assemble_precise_context fallback memory build failed: {e}")
+                log.debug(f"[COGNITIVE] assemble_precise_context fallback memory build failed: {e}")
                 assembled_context = ""
 
             try:
@@ -6953,7 +6962,7 @@ Answer:"""
                         if assembled_context else grounded
                     )
             except Exception as e:
-                print(f"[COGNITIVE] assemble_precise_context fallback grounded evidence failed: {e}")
+                log.debug(f"[COGNITIVE] assemble_precise_context fallback grounded evidence failed: {e}")
 
         try:
             handoff_brief = ""
@@ -6977,7 +6986,7 @@ Answer:"""
                         working_memory=working_memory,
                     ) or ""
                 except Exception as e:
-                    print(f"[COGNITIVE] assemble_precise_context handoff build failed: {e}")
+                    log.debug(f"[COGNITIVE] assemble_precise_context handoff build failed: {e}")
                     handoff_brief = ""
 
                 setattr(working_memory, "assembled_context", assembled_context)
@@ -7014,7 +7023,7 @@ Answer:"""
                 )
                 return (response or "").strip()
             except Exception as e:
-                print(f"[COGNITIVE] raw_direct fast path failed: {e}; falling back")
+                log.debug(f"[COGNITIVE] raw_direct fast path failed: {e}; falling back")
                 # fall through to slow path
         memory_context = ""
         try:
@@ -7042,7 +7051,7 @@ Answer:"""
                 working_memory=working_memory,
             ) or ""
         except Exception as e:
-            print(f"[COGNITIVE] generate_from_assembled_prompt handoff failed: {e}")
+            log.debug(f"[COGNITIVE] generate_from_assembled_prompt handoff failed: {e}")
             situation_brief = ""
 
         _gen_overrides = None
@@ -7122,7 +7131,7 @@ Answer:"""
             if alt_action == failed_action.upper():
                 return failed_result  # Same action would fail again
 
-            print(f"[REPLAN] Retrying {failed_action} → {alt_action} (attempt {_retry_count + 1})")
+            log.debug(f"[REPLAN] Retrying {failed_action} → {alt_action} (attempt {_retry_count + 1})")
             from eli.execution.executor_enhanced import execute as _exec
             alt_result = _exec(alt_action, alt_args)
 
@@ -7136,7 +7145,7 @@ Answer:"""
             )
 
         except Exception as _replan_err:
-            print(f"[REPLAN] Re-plan attempt failed: {_replan_err}")
+            log.debug(f"[REPLAN] Re-plan attempt failed: {_replan_err}")
             return failed_result
 
     def _govern_visible_response(
@@ -7225,7 +7234,7 @@ Answer:"""
                     yield piece
                 return
         except Exception as _rm_stream_err:
-            print(f"[COGNITIVE] Private reasoning buffered stream failed; falling back to guarded stream: {_rm_stream_err}")
+            log.debug(f"[COGNITIVE] Private reasoning buffered stream failed; falling back to guarded stream: {_rm_stream_err}")
 
         try:
             _stm = getattr(working_memory, "short_term_memory", None)
@@ -7247,7 +7256,7 @@ Answer:"""
                 working_memory=working_memory,
             ) or ""
         except Exception as e:
-            print(f"[COGNITIVE] generate_stream_from_assembled_prompt handoff failed: {e}")
+            log.debug(f"[COGNITIVE] generate_stream_from_assembled_prompt handoff failed: {e}")
             situation_brief = ""
 
         def _live_stream() -> Generator[str, None, None]:
@@ -7358,7 +7367,7 @@ Answer:"""
                 parts = [f"event={event}", f"req={_eli_pipeline_req or 'n/a'}"]
                 for k, v in fields.items():
                     parts.append(f"{k}={v}")
-                print("[PIPELINE][ENGINE] " + " ".join(parts), flush=True)
+                log.debug("[PIPELINE][ENGINE] " + " ".join(parts))
             except Exception:
                 pass
 
@@ -7434,7 +7443,7 @@ Answer:"""
                 except Exception:
                     return "Current reasoning mode: unavailable"
         except Exception as _eli_reasoning_status_middleware_err:
-            print(f"[ENGINE][WARN] reasoning-status middleware failed: {_eli_reasoning_status_middleware_err}", flush=True)
+            log.debug(f"[ENGINE][WARN] reasoning-status middleware failed: {_eli_reasoning_status_middleware_err}")
         # === END ELI_ENGINE_MIDDLEWARE_REASONING_STATUS_V1 ===
 
         # === ELI_ENGINE_MIDDLEWARE_PERSONAL_MEMORY_QUICK_V1 ===
@@ -7474,7 +7483,7 @@ Answer:"""
                         except Exception as _eli_pm_mem_err:
                             return f"Personal memory deep response failed: {type(_eli_pm_mem_err).__name__}: {_eli_pm_mem_err}"
         except Exception as _eli_pm_middleware_err:
-            print(f"[ENGINE][WARN] personal-memory quick middleware failed: {_eli_pm_middleware_err}", flush=True)
+            log.debug(f"[ENGINE][WARN] personal-memory quick middleware failed: {_eli_pm_middleware_err}")
         # === END ELI_ENGINE_MIDDLEWARE_PERSONAL_MEMORY_QUICK_V1 ===
 
 
@@ -7505,7 +7514,7 @@ Answer:"""
                 _mw_rs_evidence = _mw_rs_call_runtime_status(_mw_rs_text)
                 return _mw_rs_synthesize(_mw_rs_text, _mw_rs_mode, _mw_rs_evidence)
         except Exception as _mw_rs_err:
-            print(f"[ENGINE][WARN] runtime-status Quick-direct middleware failed: {_mw_rs_err}", flush=True)
+            log.debug(f"[ENGINE][WARN] runtime-status Quick-direct middleware failed: {_mw_rs_err}")
         # === END ELI_ENGINE_MIDDLEWARE_RUNTIME_STATUS_NONQUICK_FULL_PIPELINE_V1 ===
 
 
@@ -7534,11 +7543,11 @@ Answer:"""
                 _mw_mrs_mode = _mw_rs_mode_from_args((user_input,), _mw_mrs_kwargs)
                 _eli_pipe("mw_memory_runtime_hit", mode=_mw_mrs_mode, quick=_mw_rs_is_quick(_mw_mrs_mode))
                 if _mw_rs_is_quick(_mw_mrs_mode):
-                    print("[ENGINE] EXPLAIN_MEMORY_RUNTIME Quick: direct evidence returned", flush=True)
+                    log.debug("[ENGINE] EXPLAIN_MEMORY_RUNTIME Quick: direct evidence returned")
                     return _mw_mem_runtime_strict_collect_evidence(_mw_mrs_text, _mw_mrs_mode)
                 # Non-Quick: fall through to the full pipeline.
         except Exception as _mw_mrs_err:
-            print(f"[ENGINE][WARN] memory-runtime Quick-direct middleware failed: {_mw_mrs_err}", flush=True)
+            log.debug(f"[ENGINE][WARN] memory-runtime Quick-direct middleware failed: {_mw_mrs_err}")
         # === END ELI_ENGINE_MIDDLEWARE_MEMORY_RUNTIME_STRICT_V1 ===
 
 
@@ -7557,10 +7566,10 @@ Answer:"""
             if _mw_mc_turns_is_question(_mw_mct_text):
                 _mw_mct_mode = _mw_rs_mode_from_args((user_input,), _mw_mct_kwargs)
                 _eli_pipe("mw_memory_count_turns_hit", mode=_mw_mct_mode)
-                print("[ENGINE] memory count + conversation turns middleware returned from live SQLite", flush=True)
+                log.debug("[ENGINE] memory count + conversation turns middleware returned from live SQLite")
                 return _mw_mc_turns_result(_mw_mct_mode)
         except Exception as _mw_mct_err:
-            print(f"[ENGINE][WARN] memory-count turns middleware failed: {_mw_mct_err}", flush=True)
+            log.debug(f"[ENGINE][WARN] memory-count turns middleware failed: {_mw_mct_err}")
         # === END ELI_ENGINE_MIDDLEWARE_MEMORY_COUNT_TURNS_TELEMETRY_V1 ===
 
 
@@ -7585,7 +7594,7 @@ Answer:"""
                 _eli_pipe("mw_memory_count_hit", mode=_eli_mc_mw_mode)
                 return _eli_mc_payload_v5(user_input, _eli_mc_mw_mode)
         except Exception as _eli_mc_middleware_err:
-            print(f"[ENGINE][WARN] memory-count v5 middleware failed: {_eli_mc_middleware_err}", flush=True)
+            log.debug(f"[ENGINE][WARN] memory-count v5 middleware failed: {_eli_mc_middleware_err}")
         # === END ELI_ENGINE_MIDDLEWARE_MEMORY_COUNT_V5 ===
 
         # === ELI_ENGINE_MIDDLEWARE_RECENT_MEMORY_PROCESSING_V4 ===
@@ -7634,7 +7643,7 @@ Answer:"""
                 # (Quick-direct path above still active.)
 
         except Exception as _eli_recent_mem_middleware_err:
-            print(f"[ENGINE][WARN] recent-memory-processing middleware failed: {_eli_recent_mem_middleware_err}", flush=True)
+            log.debug(f"[ENGINE][WARN] recent-memory-processing middleware failed: {_eli_recent_mem_middleware_err}")
         # === END ELI_ENGINE_MIDDLEWARE_RECENT_MEMORY_PROCESSING_V4 ===
 
         # === ELI_ENGINE_MIDDLEWARE_SELF_REPORT_RECENT_UPDATES_V4 ===
@@ -7718,7 +7727,7 @@ Answer:"""
                 # (Quick-direct path above still active.)
 
         except Exception as _eli_self_report_middleware_err:
-            print(f"[ENGINE][WARN] self-report recent-updates middleware failed: {_eli_self_report_middleware_err}", flush=True)
+            log.debug(f"[ENGINE][WARN] self-report recent-updates middleware failed: {_eli_self_report_middleware_err}")
         # === END ELI_ENGINE_MIDDLEWARE_SELF_REPORT_RECENT_UPDATES_V4 ===
 
 
@@ -7740,7 +7749,7 @@ Answer:"""
             self._store_user_turn(user_input)
             _user_turn_stored = True
         except Exception as _early_store_err:
-            print(f"[COGNITIVE] Early user turn store failed: {_early_store_err}")
+            log.debug(f"[COGNITIVE] Early user turn store failed: {_early_store_err}")
 
         # Always clear stale per-turn diagnostic evidence before we decide.
         self._diagnostic_evidence_block = ""
@@ -7784,11 +7793,11 @@ Answer:"""
                             if _eli_block:
                                 self._diagnostic_evidence_block = _eli_block
                                 self._diagnostic_action_hint = _eli_diag_action
-                                print(f"[DETERMINISTIC_INTROSPECTION] mode={_eli_resolved_mode} action={_eli_diag_action} evidence={len(_eli_block)} chars (full pipeline)")
+                                log.debug(f"[DETERMINISTIC_INTROSPECTION] mode={_eli_resolved_mode} action={_eli_diag_action} evidence={len(_eli_block)} chars (full pipeline)")
                         except Exception as _eli_ev_err:
-                            print(f"[DETERMINISTIC_INTROSPECTION] evidence gather failed: {_eli_ev_err}")
+                            log.debug(f"[DETERMINISTIC_INTROSPECTION] evidence gather failed: {_eli_ev_err}")
         except Exception as _eli_det_err:
-            print(f"[DETERMINISTIC_INTROSPECTION] mode-aware gate error: {_eli_det_err}")
+            log.debug(f"[DETERMINISTIC_INTROSPECTION] mode-aware gate error: {_eli_det_err}")
 
         # Direct grounded persona answer: quick mode only. Non-quick modes
         # let the full memory/persona pipeline produce the response.
@@ -7822,7 +7831,7 @@ Answer:"""
                     _hint = self._engagement.reasoning_mode_hint()
                     # Only escalate, never downgrade from an explicit caller choice
                     if _hint != "quick" and reasoning_mode is None:
-                        print(f"[COGNITIVE] Engagement auto-escalate: quick → {_hint} "
+                        log.debug(f"[COGNITIVE] Engagement auto-escalate: quick → {_hint} "
                               f"(depth={self._engagement.session_depth():.2f})")
                         reasoning_mode = _hint
             except Exception:
@@ -7846,45 +7855,88 @@ Answer:"""
         except Exception:
             pass
 
-        # Detect and persist explicit user identity declarations. Do not infer a
-        # name from broad grammar fragments or assistant-generated context.
+        # Detect and persist explicit user identity declarations. Also allows
+        # the user to CORRECT a previously stored name — "my name is X" is
+        # always treated as authoritative even if a name is already stored.
         try:
+            import re as _re_id
             from eli.kernel.state import get_user_name as _gun3, set_user_name as _sun3
             from eli.runtime.identity_validation import extract_explicit_identity_facts
             _cur_name = _gun3().strip()
-            if not _cur_name:
-                _facts = extract_explicit_identity_facts(user_input)
-                _candidate = (
-                    _facts.get("preferred_name")
-                    or _facts.get("name")
-                    or _facts.get("nickname")
-                    or ""
-                ).strip()
-                if _candidate:
-                    _sun3(_candidate)
-                    # Also store in semantic memory for recall.
-                    try:
-                        self.memory.store_memory(
+            # Always extract — allows correction of a previously stored name.
+            _facts = extract_explicit_identity_facts(user_input)
+            _candidate = (
+                _facts.get("preferred_name")
+                or _facts.get("name")
+                or _facts.get("nickname")
+                or ""
+            ).strip()
+            # Only accept the candidate if the input phrasing is explicit
+            # ("my name is X", "call me X", "I'm X") — not inferred fragments.
+            _explicit_name_patterns = [
+                r"\bmy name is\s+(\w+)",
+                r"\bcall me\s+(\w+)",
+                r"\bi(?:'m| am)\s+(\w+)",
+                r"\bname(?:'s| is)\s+(\w+)",
+            ]
+            _explicit_match = any(
+                _re_id.search(p, user_input, _re_id.I)
+                for p in _explicit_name_patterns
+            )
+            if _candidate and _explicit_match and _candidate.lower() != _cur_name.lower():
+                _sun3(_candidate)
+                try:
+                    self.memory.store_memory(
+                        f"User's preferred name is {_candidate}.",
+                        tags=["user", "identity", "name"],
+                        source="runtime_identity_extractor",
+                        kind="identity",
+                        importance=0.92,
+                    )
+                    if self._working_memory:
+                        self._working_memory.pin(
                             f"User's preferred name is {_candidate}.",
-                            tags=["user", "identity", "name"],
-                            source="runtime_identity_extractor",
-                            kind="identity",
-                            importance=0.92,
-                        )
-                        # Pin immediately into working memory.
+                            source="identity", importance=0.92)
+                except Exception:
+                    pass
+                try:
+                    from eli.cognition.persona import append_preference
+                    append_preference(f"User's preferred name: {_candidate}")
+                except Exception:
+                    pass
+                log.debug(f"[COGNITIVE] Explicit user identity detected and stored: {_candidate}")
+        except Exception:
+            pass
+
+        # Detect in-session ELI acronym corrections ("ELI = X", "ELI stands for X")
+        # and pin them to working memory so the LLM uses the corrected name for the
+        # rest of the session without waiting for a source-file edit.
+        try:
+            import re as _re_eli
+            _eli_acronym_patterns = [
+                r"\bELI\s*(?:=|stands for|means|is)\s*(.{5,60})",
+                r"\bELI\s+(?:stands|stood)\s+for\s+(.{5,60})",
+            ]
+            for _pat in _eli_acronym_patterns:
+                _m = _re_eli.search(_pat, user_input, _re_eli.I)
+                if _m:
+                    _correction = _m.group(1).strip().rstrip(".,!?")
+                    if _correction and "enhanced" in _correction.lower():
+                        _pin_text = f"ELI stands for: {_correction}"
                         if self._working_memory:
-                            self._working_memory.pin(
-                                f"User's preferred name is {_candidate}.",
-                                source="identity", importance=0.92)
-                    except Exception:
-                        pass
-                    # Update persona auto-overlay.
-                    try:
-                        from eli.cognition.persona import append_preference
-                        append_preference(f"User's preferred name: {_candidate}")
-                    except Exception:
-                        pass
-                    print(f"[COGNITIVE] Explicit user identity detected and stored: {_candidate}")
+                            self._working_memory.pin(_pin_text, source="user_correction", importance=0.95)
+                        try:
+                            self.memory.store_memory(
+                                _pin_text,
+                                tags=["eli", "identity", "acronym"],
+                                source="user_correction",
+                                kind="identity",
+                                importance=0.95,
+                            )
+                        except Exception:
+                            pass
+                        log.debug(f"[COGNITIVE] ELI acronym correction stored: {_correction}")
+                        break
         except Exception:
             pass
 
@@ -7903,17 +7955,16 @@ Answer:"""
         intent = _eli_phase19_rebind_grounded_followup(self, user_input, intent)
         _eli_p19_after_action = str((intent or {}).get("action") or "CHAT").upper()
         if _eli_p19_after_action != _eli_p19_before_action:
-            print(
+            log.debug(
                 f"[COGNITIVE] Phase 19 grounded follow-up rebound "
                 f"{_eli_p19_before_action} -> {_eli_p19_after_action}",
-                flush=True,
             )
-        print(f"[COGNITIVE][TIMING] route={time.perf_counter() -t_route:.3f}s total_since_start={time.perf_counter() -t0:.3f}s")
+        log.debug(f"[COGNITIVE][TIMING] route={time.perf_counter() -t_route:.3f}s total_since_start={time.perf_counter() -t0:.3f}s")
         # ── Always-visible pipeline stage header ──────────────────────────────
         _pipe_action_s1 = str(intent.get("action") or "CHAT").upper()
         _pipe_conf_s1 = float(intent.get("confidence") or 0.0)
         _pipe_matched_s1 = str((intent.get("meta") or {}).get("matched_by") or "unknown")[:50]
-        print(f"[PIPELINE] Stage 1: Intent → {_pipe_action_s1} (conf={_pipe_conf_s1:.2f} via={_pipe_matched_s1})")
+        log.debug(f"[PIPELINE] Stage 1: Intent → {_pipe_action_s1} (conf={_pipe_conf_s1:.2f} via={_pipe_matched_s1})")
 
         trace = self._next_trace(user_input, intent, reasoning_mode)
 
@@ -7927,7 +7978,7 @@ Answer:"""
                     context={"intent": intent},
                 )
             except Exception as e:
-                print(f"[SELF] Failed to log: {e}")
+                log.debug(f"[SELF] Failed to log: {e}")
 
         action = intent.get("action", "CHAT")
         args = intent.get("args", {})
@@ -7964,7 +8015,7 @@ Answer:"""
                 intent["meta"] = _meta
                 action = _forced_control
                 args = {}
-                print(f"[COGNITIVE] Control contract upgraded action -> {_forced_control}")
+                log.debug(f"[COGNITIVE] Control contract upgraded action -> {_forced_control}")
                 if str(action or "").strip().upper() == "META_DIAGNOSTIC":
                     _eli_phase13_diag_probe = str(
                         locals().get("user_input")
@@ -7975,7 +8026,7 @@ Answer:"""
                         or ""
                     )
                     if not _eli_phase13_explicit_meta_diagnostic_request(_eli_phase13_diag_probe):
-                        print("[COGNITIVE] Phase 13 implicit META_DIAGNOSTIC veto -> CHAT")
+                        log.debug("[COGNITIVE] Phase 13 implicit META_DIAGNOSTIC veto -> CHAT")
                         action = "CHAT"
                         for _eli_phase13_route_obj in (
                             locals().get("parsed"),
@@ -7992,7 +8043,7 @@ Answer:"""
                                 if isinstance(_eli_phase13_route_obj["meta"], dict):
                                     _eli_phase13_route_obj["meta"]["phase13_meta_diagnostic_veto"] = True
         except Exception as _control_route_err:
-            print(f"[COGNITIVE] Control contract route check failed: {_control_route_err}")
+            log.debug(f"[COGNITIVE] Control contract route check failed: {_control_route_err}")
 
         try:
             _matched_by = str((intent.get("meta") or {}).get("matched_by") or "")
@@ -8032,7 +8083,7 @@ Answer:"""
             intent["meta"] = _meta
             action = "RUNTIME_STATUS"
             args = {}
-            print("[COGNITIVE] Upgraded CHAT -> RUNTIME_STATUS for grounded runtime query")
+            log.debug("[COGNITIVE] Upgraded CHAT -> RUNTIME_STATUS for grounded runtime query")
 
         # --- Stage 2: Persona Lock Verify (authority gate) ---
         try:
@@ -8047,7 +8098,7 @@ Answer:"""
                     "meta": {"blocked": True, "gate": _gate_result}, "trace": trace,
                 }
         except Exception as _gate_err:
-            print(f"[COGNITIVE] Authority gate check failed (non-fatal): {_gate_err}")
+            log.debug(f"[COGNITIVE] Authority gate check failed (non-fatal): {_gate_err}")
 
 
         # === PHASE45_PROCESS_COMMAND_FASTPATH ===
@@ -8062,16 +8113,16 @@ Answer:"""
                 try:
                     self._learn_from_result(intent, _p45_result)
                 except Exception as _p45_learn_err:
-                    print(f"[PHASE45] learn skipped: {_p45_learn_err}")
+                    log.debug(f"[PHASE45] learn skipped: {_p45_learn_err}")
                 try:
                     if _p45_result.get("response"):
                         self._store_assistant_turn(str(_p45_result.get("response") or ""))
                 except Exception as _p45_store_err:
-                    print(f"[PHASE45] store skipped: {_p45_store_err}")
-                print(f"[PHASE45] direct command {_p45_action} completed in {time.perf_counter() - _p45_started:.3f}s")
+                    log.debug(f"[PHASE45] store skipped: {_p45_store_err}")
+                log.debug(f"[PHASE45] direct command {_p45_action} completed in {time.perf_counter() - _p45_started:.3f}s")
                 return _p45_result
         except Exception as _p45_err:
-            print(f"[PHASE45] direct command fastpath failed: {_p45_err}")
+            log.debug(f"[PHASE45] direct command fastpath failed: {_p45_err}")
         # === END PHASE45_PROCESS_COMMAND_FASTPATH ===
 
         # Agent bus dispatch
@@ -8118,11 +8169,11 @@ Answer:"""
                     intent["action"] = "RUNTIME_STATUS"
                     intent.setdefault("args", {})["question"] = str(user_input or "")
                     action = "RUNTIME_STATUS"
-                    print("[COGNITIVE] Preserved RUNTIME_STATUS; blocked SELF_REPORT upgrade", flush=True)
+                    log.debug("[COGNITIVE] Preserved RUNTIME_STATUS; blocked SELF_REPORT upgrade")
         except Exception as _eli_prs_err:
-            print(f"[COGNITIVE][WARN] runtime-status action preservation failed: {_eli_prs_err}", flush=True)
+            log.debug(f"[COGNITIVE][WARN] runtime-status action preservation failed: {_eli_prs_err}")
         # === END ELI_ENGINE_PRESERVE_RUNTIME_STATUS_ACTION_V1 ===
-        print(f'[COGNITIVE] Query class: {_qclass}')
+        log.debug(f'[COGNITIVE] Query class: {_qclass}')
 
         # PHASE36_SILENT_QUICK_CONTROLS:
         # Volume is a local OS control, not a conversational request.
@@ -8224,11 +8275,11 @@ Answer:"""
         if not _eli_orch_should_run:
             # Quick/fast mode: the full 12-stage orchestrator is bypassed.
             # Log stages 2-4 here so the pipeline is always traceable.
-            print(f"[PIPELINE] Stage 2: Persona Lock → deferred (quick path)")
-            print(f"[PIPELINE] Stage 3: HyDE → skipped ({_eli_proc_mode} mode)")
-            print(f"[PIPELINE] Stage 4: Planner → {_eli_proc_mode} [kw:6 sem:8 rag:skip kg:identity-only]")
+            log.debug(f"[PIPELINE] Stage 2: Persona Lock → deferred (quick path)")
+            log.debug(f"[PIPELINE] Stage 3: HyDE → skipped ({_eli_proc_mode} mode)")
+            log.debug(f"[PIPELINE] Stage 4: Planner → {_eli_proc_mode} [kw:6 sem:8 rag:skip kg:identity-only]")
         if _eli_orch_should_run:
-            print(f"[PIPELINE] Stage 2-11: Orchestrator → {_eli_proc_mode} mode (full 12-stage)")
+            log.debug(f"[PIPELINE] Stage 2-11: Orchestrator → {_eli_proc_mode} mode (full 12-stage)")
             _eli_pipe("orchestrator_dispatch", mode=_eli_proc_mode, stream=stream)
             try:
                 _orch_result = self._run_internal_orchestrator(
@@ -8240,7 +8291,7 @@ Answer:"""
                     _eli_pipe("orchestrator_return", mode=_eli_proc_mode, stream=stream)
                     return _orch_result
             except Exception as _orch_err:
-                print(f"[COGNITIVE] internal orchestrator failed, falling back to legacy pipeline: {_orch_err}")
+                log.debug(f"[COGNITIVE] internal orchestrator failed, falling back to legacy pipeline: {_orch_err}")
 
         try:
             from eli.cognition.agent_bus import get_bus
@@ -8261,7 +8312,7 @@ Answer:"""
             _pipe_bus_grounding = float(getattr(bus_result, "grounding_confidence", 0.0) or 0.0)
             _pipe_bus_label = str(getattr(bus_result, "confidence_label", "?") or "?")
             _pipe_bus_mem = len(str(bus_memory_context or ""))
-            print(f"[PIPELINE] Stage 5-9: AgentBus → agents={_pipe_bus_agents} mem={_pipe_bus_mem}ch conf={_pipe_bus_conf:.2f} grounding={_pipe_bus_grounding:.2f} ({_pipe_bus_label})")
+            log.debug(f"[PIPELINE] Stage 5-9: AgentBus → agents={_pipe_bus_agents} mem={_pipe_bus_mem}ch conf={_pipe_bus_conf:.2f} grounding={_pipe_bus_grounding:.2f} ({_pipe_bus_label})")
 
             # ── World awareness feed (non-blocking) ───────────────────────────
             try:
@@ -8417,10 +8468,9 @@ Answer:"""
                             and not _bypass_persona
                         )
                         if _is_grounded_control_nonquick:
-                            print(
+                            log.debug(
                                 f"[COGNITIVE] Non-Quick grounded control action {_action_upper}: "
                                 f"compact synthesis on {len(_direct_content)} chars of evidence",
-                                flush=True,
                             )
                             _compact_synth = self._compact_grounded_synthesis(
                                 user_input=user_input,
@@ -8455,7 +8505,7 @@ Answer:"""
                                 try:
                                     self._execute_post_actions(trace, _chosen_payload)
                                 except Exception as _pa_err:
-                                    print(f"[COGNITIVE] Compact-synth post-actions failed: {_pa_err}")
+                                    log.debug(f"[COGNITIVE] Compact-synth post-actions failed: {_pa_err}")
                                 return {
                                     "ok": True,
                                     "action": _action_upper,
@@ -8474,10 +8524,9 @@ Answer:"""
                                 }
                             # Compact synth failed/empty — fall through to standard
                             # _synthesize_answer below as a defensive backup.
-                            print(
+                            log.debug(
                                 f"[COGNITIVE] Compact synthesis returned empty for {_action_upper}; "
                                 "falling back to standard synthesis",
-                                flush=True,
                             )
                             # Fail-closed: if we have executor evidence for a control
                             # action, preserve the executor's metadata (evidence_source,
@@ -8526,7 +8575,7 @@ Answer:"""
                             try:
                                 self._execute_post_actions(trace, _chosen_payload)
                             except Exception as _pa_err:
-                                print(f"[COGNITIVE] Direct post-actions failed: {_pa_err}")
+                                log.debug(f"[COGNITIVE] Direct post-actions failed: {_pa_err}")
                             return {
                                 "ok": bool(_chosen_payload.get("ok", True)),
                                 "action": _action_upper,
@@ -8562,7 +8611,7 @@ Answer:"""
                                     action=_action_upper,
                                 )
                             except Exception as _syn_err:
-                                print(f"[COGNITIVE] Direct-action persona synthesis failed: {_syn_err}")
+                                log.debug(f"[COGNITIVE] Direct-action persona synthesis failed: {_syn_err}")
                                 _synth_text = ""
                             _synth_stripped = _synth_text.strip() if _synth_text else ""
                             _is_gguf_fail = (
@@ -8621,7 +8670,7 @@ Answer:"""
                             try:
                                 self._execute_post_actions(trace, _chosen_payload)
                             except Exception as _pa_err:
-                                print(f"[COGNITIVE] Direct post-actions failed: {_pa_err}")
+                                log.debug(f"[COGNITIVE] Direct post-actions failed: {_pa_err}")
                             # Merge compact-synth-fail metadata so callers
                             # always receive evidence_source/source/report even
                             # when GGUF synthesis is unavailable (test mode / no model).
@@ -8654,9 +8703,9 @@ Answer:"""
                                 },
                             }
             except Exception as _direct_return_err:
-                print(f"[COGNITIVE] direct action return skipped: {_direct_return_err}")
+                log.debug(f"[COGNITIVE] direct action return skipped: {_direct_return_err}")
         except Exception as _bus_err:
-            print(
+            log.debug(
     f"[COGNITIVE] AgentBus dispatch failed (non-fatal): {_bus_err}")
 
         try:
@@ -8779,17 +8828,16 @@ Answer:"""
                     )
                     _eli_rs_hits = [term for term in _eli_rs_poison_terms if term in _eli_rs_lc]
                     if _eli_rs_hits:
-                        print(
+                        log.debug(
                             f"[COGNITIVE] Runtime-status poisoned synthesis rejected; retrying compact synthesis",
-                            flush=True,
                         )
                         _synth = ""
 
                 if _synth and _output_violates_evidence(_synth, _ev_text):
-                    print(f"[COGNITIVE] Full control synthesis rejected action={action}; retrying compact synthesis")
+                    log.debug(f"[COGNITIVE] Full control synthesis rejected action={action}; retrying compact synthesis")
                     _synth = ""
                 if _synth and str(action or "").upper() == "SELF_REPORT" and _eli_bad_identity_self_report_output(user_input, _synth):
-                    print("[COGNITIVE] Full control synthesis rejected action=SELF_REPORT; identity answer incomplete or pronoun-drifted")
+                    log.debug("[COGNITIVE] Full control synthesis rejected action=SELF_REPORT; identity answer incomplete or pronoun-drifted")
                     _synth = ""
 
                 if not _synth and _ev_result.get("ok") and _ev_text:
@@ -8801,10 +8849,10 @@ Answer:"""
                             reasoning_mode=_ctrl_mode,
                         )
                     except Exception as _ctrl_synth_err:
-                        print(f"[COGNITIVE] Control synthesis fallback failed: {_ctrl_synth_err}")
+                        log.debug(f"[COGNITIVE] Control synthesis fallback failed: {_ctrl_synth_err}")
                         _synth = ""
                     if _synth and str(action or "").upper() == "SELF_REPORT" and _eli_bad_identity_self_report_output(user_input, _synth):
-                        print("[COGNITIVE] Compact control synthesis rejected action=SELF_REPORT; identity answer incomplete or pronoun-drifted")
+                        log.debug("[COGNITIVE] Compact control synthesis rejected action=SELF_REPORT; identity answer incomplete or pronoun-drifted")
                         _synth = ""
 
                 if not _synth:
@@ -8848,11 +8896,11 @@ Answer:"""
                 try:
                     self._execute_post_actions(trace, _ev_result)
                 except Exception as _pa_err:
-                    print(f"[COGNITIVE] Control post-actions failed: {_pa_err}")
+                    log.debug(f"[COGNITIVE] Control post-actions failed: {_pa_err}")
                 return _final
 
         except Exception as _control_contract_err:
-            print(f"[COGNITIVE] Control contract failed: {_control_contract_err}")
+            log.debug(f"[COGNITIVE] Control contract failed: {_control_contract_err}")
 
         # Grounded fast-path: aggregate ≥ 0.7 AND grounding > 0.05 (at least one agent
         # contributed real evidence). Pure route-match with no agent grounding (grounding=0)
@@ -8886,7 +8934,7 @@ Answer:"""
                                     _action_result = dict(_data)
                                     break
                         except Exception as _phase13b_reuse_err:
-                            print(f"[COGNITIVE] Phase 13b bus action reuse failed: {_phase13b_reuse_err}", flush=True)
+                            log.debug(f"[COGNITIVE] Phase 13b bus action reuse failed: {_phase13b_reuse_err}")
 
                     if _action_result is None:
                         _action_result = _eli_phase13c_bus_action_result(bus_result, action)
@@ -8901,7 +8949,7 @@ Answer:"""
                         evidence_parts.append(
     f"=== {action} Result ===\n{_action_content}")
                 except Exception as _ae:
-                    print(f"[COGNITIVE] Evidence action call failed: {_ae}")
+                    log.debug(f"[COGNITIVE] Evidence action call failed: {_ae}")
             context_block = ""
             if _qclass != "COMMAND":
                 context_block = bus_result.to_context_block() if hasattr(
@@ -8964,7 +9012,7 @@ Answer:"""
                             + _ev_for_synthesis
                         )
 
-                    print("[COGNITIVE] Routing grounded control evidence through normal synthesis")
+                    log.debug("[COGNITIVE] Routing grounded control evidence through normal synthesis")
                     grounded_result = self._run_chat_reasoning_loop(
                         user_input,
                         _ev_for_synthesis,
@@ -9005,14 +9053,14 @@ Answer:"""
                             try:
                                 self._learn_from_result(intent, bus_result.action_result or {})
                             except Exception as learn_err:
-                                print(f"[COGNITIVE] Grounded learn hook failed: {learn_err}")
+                                log.debug(f"[COGNITIVE] Grounded learn hook failed: {learn_err}")
                             try:
                                 self._execute_post_actions(trace, bus_result.action_result or {})
                             except Exception as post_err:
-                                print(f"[COGNITIVE] Grounded post-actions failed: {post_err}")
+                                log.debug(f"[COGNITIVE] Grounded post-actions failed: {post_err}")
                             return final_result
                 except Exception as grounded_err:
-                    print(f"[COGNITIVE] Grounded control synthesis failed: {grounded_err}")
+                    log.debug(f"[COGNITIVE] Grounded control synthesis failed: {grounded_err}")
 
             if evidence and action not in {'CHAT', 'chat'}:
                 try:
@@ -9029,7 +9077,7 @@ Answer:"""
                         self._execute_post_actions(
     trace, bus_result.action_result or {})
                     except Exception as _pa_err:
-                        print(f"[COGNITIVE] Post-actions: {_pa_err}")
+                        log.debug(f"[COGNITIVE] Post-actions: {_pa_err}")
 
                     return {
                         'ok': ok_flag,
@@ -9040,7 +9088,7 @@ Answer:"""
                         'trace': trace,
                     }
                 except Exception as e:
-                    print(f'[COGNITIVE] Grounded synthesis failed: {e}')
+                    log.debug(f'[COGNITIVE] Grounded synthesis failed: {e}')
         if (intent.get("meta", {}).get("need_grounding") and
                 intent.get("meta", {}).get("task_family") == "grounded_status"):
             evidence_prompt = self._build_evidence_prompt(
@@ -9127,7 +9175,7 @@ Answer:"""
                 # context needed
                 if _qclass == 'FACTUAL':
                     memory_context = ''
-                    print('[MEMORY] FACTUAL query — skipping memory retrieval')
+                    log.debug('[MEMORY] FACTUAL query — skipping memory retrieval')
                 else:
                     memory_context = self._retrieve_relevant_memories(
     user_input, intent=intent, reserved_tokens=_reserved_tok)
@@ -9138,7 +9186,7 @@ Answer:"""
                             _pinned = self._working_memory.absorb_memory_hits(
                                 _hits_raw, current_turn=self._request_counter)
                             if _pinned:
-                                print(f"[WM] Pinned {_pinned} new fact(s) from memory hits")
+                                log.debug(f"[WM] Pinned {_pinned} new fact(s) from memory hits")
                     except Exception:
                         pass
                 if bus_memory_context and bus_memory_context not in memory_context:
@@ -9161,7 +9209,7 @@ Answer:"""
                         memory_context = (
                             memory_context + "\n\n" + _bus_block
                         ).strip() if memory_context else _bus_block
-                print(f"[COGNITIVE][TIMING] memory_context={time.perf_counter() -t_mem:.3f}s")
+                log.debug(f"[COGNITIVE][TIMING] memory_context={time.perf_counter() -t_mem:.3f}s")
 
                 # ── SYNTHESISE: build situation brief from all gathered data ─
                 # Agents (bus) supply context. Synthesiser distils it.
@@ -9175,9 +9223,9 @@ Answer:"""
                         recent_turns=context or [],
                         working_memory=None,
                     ) or ""
-                    print(f"[COGNITIVE] Persona handoff (non-stream) → {len(_ns_brief)} char brief")
+                    log.debug(f"[COGNITIVE] Persona handoff (non-stream) → {len(_ns_brief)} char brief")
                 except Exception as _ns_err:
-                    print(f"[COGNITIVE] Persona handoff (non-stream) failed: {_ns_err}")
+                    log.debug(f"[COGNITIVE] Persona handoff (non-stream) failed: {_ns_err}")
                     _ns_brief = ""
 
                 if self._should_bypass_reasoning_loop(
@@ -9192,7 +9240,7 @@ Answer:"""
                         gen_overrides=overrides,
                         situation_brief=_ns_brief,
                     ).strip()
-                    print(f"[COGNITIVE][TIMING] direct_chat={time.perf_counter() -t_chat:.3f}s")
+                    log.debug(f"[COGNITIVE][TIMING] direct_chat={time.perf_counter() -t_chat:.3f}s")
                     response = _normalize_assistant_text(user_input, response)
                     # Fix 3b: compute bypass_score via
                     # _score_response_confidence
@@ -9232,7 +9280,7 @@ Answer:"""
                     reasoning_mode=reasoning_mode,
                 )
             except Exception as e:
-                print(f"[COGNITIVE] Chat failed: {e}")
+                log.debug(f"[COGNITIVE] Chat failed: {e}")
 
                 return {
                     "ok": False,
@@ -9393,7 +9441,7 @@ Answer:"""
                         action=action,
                     )
                 except Exception as _syn_err:
-                    print(f"[COGNITIVE] Grounded persona synthesis failed: {_syn_err}")
+                    log.debug(f"[COGNITIVE] Grounded persona synthesis failed: {_syn_err}")
 
                 final_source = synthesized
                 if not final_source and str(action).upper() not in _grounded_meta_actions:
@@ -9411,7 +9459,7 @@ Answer:"""
                     "trace": trace,
                 }
             except Exception as e:
-                print(f"[COGNITIVE] Grounded passthrough failed: {e}")
+                log.debug(f"[COGNITIVE] Grounded passthrough failed: {e}")
                 return {
                     "ok": False,
                     "action": action,
@@ -9440,7 +9488,7 @@ Answer:"""
                     context={"intent": intent, "result": result},
                 )
             except Exception as e:
-                print(f"[SELF] Failed to log: {e}")
+                log.debug(f"[SELF] Failed to log: {e}")
 
             # ── Tool-failure reflection: attempt a re-plan (max 2 retries) ──
             result = self._eli_tool_failure_replan(user_input, action, args, result)
@@ -9501,7 +9549,7 @@ Answer:"""
                     action=action,
                 ).strip()
             except Exception as _final_syn_err:
-                print(f"[COGNITIVE] Final executor synthesis failed: {_final_syn_err}")
+                log.debug(f"[COGNITIVE] Final executor synthesis failed: {_final_syn_err}")
                 final_response = raw_response
         self._store_assistant_turn(final_response)
         self._learn_from_result(intent, result)
@@ -9514,16 +9562,16 @@ Answer:"""
         try:
             router_intent = route_intent(text)
             if router_intent and router_intent.get("confidence", 0) > 0.5:
-                print(f"[COGNITIVE] Router parsed: {router_intent}")
+                log.debug(f"[COGNITIVE] Router parsed: {router_intent}")
                 return router_intent
         except Exception as e:
-            print(f"[COGNITIVE] Router failed: {e}")
+            log.debug(f"[COGNITIVE] Router failed: {e}")
         # Fallback: LLM-based intent parsing with result cache to avoid double inference
         try:
             from eli.cognition.llm_intent import parse_cached
             llm_intent = parse_cached(text)
             if llm_intent and llm_intent.get("confidence", 0) > 0.4:
-                print(f"[COGNITIVE] LLM intent parsed (cached): {llm_intent.get('action')}")
+                log.debug(f"[COGNITIVE] LLM intent parsed (cached): {llm_intent.get('action')}")
                 return llm_intent
         except Exception:
             pass
@@ -9563,13 +9611,13 @@ Answer:"""
                 _p41_silent_actions = {"VOLUME"}
                 if str(_p41_action or "").upper() in _p41_silent_actions:
                     _p41_res = _p41_execute(str(_p41_action).upper(), _p41_args)
-                    print(f"[COGNITIVE][PHASE41] silent direct action {_p41_action} executed; suppressing GUI output: {_p41_res}")
+                    log.debug(f"[COGNITIVE][PHASE41] silent direct action {_p41_action} executed; suppressing GUI output: {_p41_res}")
                     # Yield a zero-width space so the GUI generator is non-empty and
                     # does NOT trigger the stream=False double-call fallback.
                     yield "\u200b"
                     return
         except Exception as _p41_err:
-            print(f"[COGNITIVE][PHASE41] silent direct fastpath skipped: {_p41_err}")
+            log.debug(f"[COGNITIVE][PHASE41] silent direct fastpath skipped: {_p41_err}")
         # === END PHASE41_SILENT_DIRECT_ACTION_STREAM_FIX ===
 
         """
@@ -9597,7 +9645,7 @@ Answer:"""
                 parts = [f"stage={stage}", f"req={_eli_pipeline_req}"]
                 for k, v in fields.items():
                     parts.append(f"{k}={v}")
-                print("[PIPELINE][ENGINE_STREAM] " + " ".join(parts), flush=True)
+                log.debug("[PIPELINE][ENGINE_STREAM] " + " ".join(parts))
             except Exception:
                 pass
 
@@ -9615,7 +9663,7 @@ Answer:"""
                 _p45_raw = execute_action(_p45_action, _p45_args)
                 _p45_result = _phase45_force_direct_result(_p45_action, _p45_raw)
                 _p45_text = str(_p45_result.get("response") or _p45_result.get("content") or "")
-                print(f"[PHASE45] stream direct command {_p45_action} completed in {_time.perf_counter() - _p45_started:.3f}s")
+                log.debug(f"[PHASE45] stream direct command {_p45_action} completed in {_time.perf_counter() - _p45_started:.3f}s")
                 # Silent commands still yield a zero-width marker so the GUI does
                 # not think the stream failed and print the "no visible output" error.
                 if not _p45_text and _p45_action in _PHASE45_SILENT_FAST_ACTIONS:
@@ -9627,7 +9675,7 @@ Answer:"""
                 yield "\u200b"
                 return
         except Exception as _p45_stream_err:
-            print(f"[PHASE45] stream command fastpath failed: {_p45_stream_err}")
+            log.debug(f"[PHASE45] stream command fastpath failed: {_p45_stream_err}")
         # === END PHASE45_STREAM_COMMAND_FASTPATH ===
 
 
@@ -9638,7 +9686,7 @@ Answer:"""
         if not reasoning_mode:
             reasoning_mode = getattr(self, "_current_reasoning_mode", None) or None
 
-        print(
+        log.debug(
             f"[COGNITIVE][PIPELINE] stream_chat begin "
             f"req={_eli_pipeline_req} "
             f"mode={reasoning_mode or 'quick'} "
@@ -9671,16 +9719,26 @@ Answer:"""
         # Rapport prompts deliberately skip deep memory/HyDE retrieval: casual banter should not be
         # converted into a corporate status query or safety lecture.
         if _rapport_mode:
+            # Skip deep memory/HyDE retrieval but inject the user profile so
+            # ELI knows who it's talking to and can respond personally rather
+            # than with generic chatbot filler.
             memory_context = ""
-            print("[COGNITIVE] Stream: rapport prompt — skipping memory/HyDE context")
-            _eli_pipe_stream("context_mode", mode="rapport_skip")
+            try:
+                from eli.kernel.state import get_user_profile_text as _gup
+                _profile_txt = (_gup() or "").strip()
+                if _profile_txt:
+                    memory_context = f"USER PROFILE:\n{_profile_txt}"
+            except Exception:
+                pass
+            log.debug("[COGNITIVE] Stream: rapport prompt — lightweight profile context only")
+            _eli_pipe_stream("context_mode", mode="rapport_profile_only")
         elif _phatic_stream:
             memory_context = ""
-            print("[COGNITIVE] Stream: phatic prompt — skipping memory/evidence context")
+            log.debug("[COGNITIVE] Stream: phatic prompt — skipping memory/evidence context")
             _eli_pipe_stream("context_mode", mode="phatic_skip")
         elif pre_built_memory_context:
             memory_context = str(pre_built_memory_context or "")
-            print("[COGNITIVE] Stream: reusing pre-built bus memory context — skipping second dispatch")
+            log.debug("[COGNITIVE] Stream: reusing pre-built bus memory context — skipping second dispatch")
             _eli_pipe_stream("context_mode", mode="prebuilt_reuse", chars=len(memory_context))
         else:
             try:
@@ -9689,7 +9747,7 @@ Answer:"""
                     intent={"action": "CHAT"},
                 )
             except Exception as _mem_err:
-                print(f"[COGNITIVE] Stream memory retrieval failed: {_mem_err}")
+                log.debug(f"[COGNITIVE] Stream memory retrieval failed: {_mem_err}")
                 memory_context = ""
 
             try:
@@ -9697,10 +9755,10 @@ Answer:"""
                 if evidence_context:
                     memory_context = (memory_context + "\n\n" + evidence_context).strip()
             except Exception as _ev_err:
-                print(f"[COGNITIVE] Stream evidence build failed: {_ev_err}")
+                log.debug(f"[COGNITIVE] Stream evidence build failed: {_ev_err}")
             _eli_pipe_stream("context_mode", mode="retrieved", chars=len(memory_context))
 
-        print(f"[COGNITIVE][TIMING] memory_context={_time.perf_counter() - started:.3f}s")
+        log.debug(f"[COGNITIVE][TIMING] memory_context={_time.perf_counter() - started:.3f}s")
 
         # 2. Build persona handoff once. Try the richest signature first, then degrade.
         situation_brief = ""
@@ -9735,11 +9793,11 @@ Answer:"""
                     continue
 
             if situation_brief:
-                print(f"[COGNITIVE] Persona handoff → {len(situation_brief)} char brief")
-                print(f"[PIPELINE] Stage 10: Context → {len(memory_context)}ch  Stage 10.5: Persona Handoff → {len(situation_brief)}ch")
+                log.debug(f"[COGNITIVE] Persona handoff → {len(situation_brief)} char brief")
+                log.debug(f"[PIPELINE] Stage 10: Context → {len(memory_context)}ch  Stage 10.5: Persona Handoff → {len(situation_brief)}ch")
                 _eli_pipe_stream("persona_handoff", chars=len(situation_brief))
         except Exception as _handoff_err:
-            print(f"[COGNITIVE] Persona handoff failed (non-fatal): {_handoff_err}")
+            log.debug(f"[COGNITIVE] Persona handoff failed (non-fatal): {_handoff_err}")
             situation_brief = ""
             _eli_pipe_stream("persona_handoff_error", error=type(_handoff_err).__name__)
 
@@ -9782,9 +9840,9 @@ Answer:"""
 
         # 4. Primary Stage 11 streaming path.
         try:
-            print("[COGNITIVE] Stream: Stage 11 primary path")
-            print(f"[PIPELINE] Stage 11: LLM Generation → streaming ({reasoning_mode or 'quick'} mode)")
-            print(
+            log.debug("[COGNITIVE] Stream: Stage 11 primary path")
+            log.debug(f"[PIPELINE] Stage 11: LLM Generation → streaming ({reasoning_mode or 'quick'} mode)")
+            log.debug(
                 f"[COGNITIVE][PIPELINE] stage_11_enter "
                 f"req={_eli_pipeline_req} "
                 f"mode={reasoning_mode or 'quick'} "
@@ -9819,7 +9877,7 @@ Answer:"""
                     try:
                         self._store_assistant_turn(final_text)
                     except Exception as _store_err:
-                        print(f"[COGNITIVE] Stream assistant-turn store failed: {_store_err}")
+                        log.debug(f"[COGNITIVE] Stream assistant-turn store failed: {_store_err}")
                     # ── Stage 12: Confidence scoring ──────────────────────────
                     try:
                         _s12_intent_conf = float(
@@ -9836,7 +9894,7 @@ Answer:"""
                         ) if pre_built_bus_result else "?"
                         _s12_threshold = 0.54 if (reasoning_mode or "quick") == "quick" else 0.66
                         _s12_pass = "PASS" if _s12_score >= _s12_threshold else "LOW"
-                        print(
+                        log.debug(
                             f"[PIPELINE] Stage 12: Confidence → "
                             f"response={_s12_score:.2f} agent={_s12_agent_conf:.2f} "
                             f"({_s12_label}) threshold={_s12_threshold:.2f} [{_s12_pass}]"
@@ -9854,7 +9912,7 @@ Answer:"""
                             except Exception:
                                 pass
                     except Exception as _s12_err:
-                        print(f"[PIPELINE] Stage 12: Confidence scoring failed: {_s12_err}")
+                        log.debug(f"[PIPELINE] Stage 12: Confidence scoring failed: {_s12_err}")
                 # ── Stream meta publish ───────────────────────────────────────
                 # _last_request_meta is not updated by the streaming generator path;
                 # publish it here so the GUI confidence badge reflects this turn.
@@ -9884,12 +9942,12 @@ Answer:"""
                         "response_chars": len(final_text),
                     }
                 except Exception as _smeta_err:
-                    print(f"[PIPELINE] Stream meta publish failed: {_smeta_err}")
-                print(f"[COGNITIVE][TIMING] stream_total={_time.perf_counter() - started:.3f}s")
+                    log.debug(f"[PIPELINE] Stream meta publish failed: {_smeta_err}")
+                log.debug(f"[COGNITIVE][TIMING] stream_total={_time.perf_counter() - started:.3f}s")
                 return
 
-            print("[COGNITIVE] Stream: Stage 11 primary path yielded zero visible tokens")
-            print(
+            log.debug("[COGNITIVE] Stream: Stage 11 primary path yielded zero visible tokens")
+            log.debug(
                 f"[COGNITIVE][PIPELINE] stage_11_zero_token "
                 f"req={_eli_pipeline_req} "
                 f"mode_at_check={reasoning_mode or None} "
@@ -9917,11 +9975,11 @@ Answer:"""
                     self._store_assistant_turn(_fault)
                 except Exception:
                     pass
-                print(f"[COGNITIVE][TIMING] stream_total={_time.perf_counter() - started:.3f}s")
+                log.debug(f"[COGNITIVE][TIMING] stream_total={_time.perf_counter() - started:.3f}s")
                 return
 
         except Exception as _stage11_err:
-            print(f"[COGNITIVE] Stream Stage 11 primary failed: {_stage11_err}")
+            log.debug(f"[COGNITIVE] Stream Stage 11 primary failed: {_stage11_err}")
             _mode_now = str(reasoning_mode or "quick").strip().lower()
             if _mode_now not in {"quick", "fast", "direct"}:
                 _fault = (
@@ -9935,11 +9993,11 @@ Answer:"""
         try:
             _mode_now = str(reasoning_mode or "quick").strip().lower()
             if _mode_now not in {"quick", "fast", "direct"}:
-                print(f"[COGNITIVE] Direct GGUF fallback blocked for non-Quick mode: {_mode_now}")
+                log.debug(f"[COGNITIVE] Direct GGUF fallback blocked for non-Quick mode: {_mode_now}")
                 return
 
-            print("[COGNITIVE] Stream: direct gguf fallback path")
-            print(f"[COGNITIVE][PIPELINE] gguf_fallback req={_eli_pipeline_req} mode_now={_mode_now!r}")
+            log.debug("[COGNITIVE] Stream: direct gguf fallback path")
+            log.debug(f"[COGNITIVE][PIPELINE] gguf_fallback req={_eli_pipeline_req} mode_now={_mode_now!r}")
             _eli_pipe_stream("gguf_fallback", mode_now=_mode_now)
             from eli.cognition import gguf_inference as _gi
 
@@ -10027,12 +10085,12 @@ Answer:"""
                     try:
                         self._store_assistant_turn(final_text)
                     except Exception as _store_err:
-                        print(f"[COGNITIVE] Stream direct-fallback store failed: {_store_err}")
-                print(f"[COGNITIVE][TIMING] stream_total={_time.perf_counter() - started:.3f}s")
+                        log.debug(f"[COGNITIVE] Stream direct-fallback store failed: {_store_err}")
+                log.debug(f"[COGNITIVE][TIMING] stream_total={_time.perf_counter() - started:.3f}s")
                 return
 
         except Exception as _direct_err:
-            print(f"[COGNITIVE] Stream direct gguf fallback failed: {_direct_err}")
+            log.debug(f"[COGNITIVE] Stream direct gguf fallback failed: {_direct_err}")
 
         # 6. Final visible failure. This should only happen if both generation paths failed.
 
@@ -10046,10 +10104,10 @@ Answer:"""
             else:
                 _p41_action2 = str(getattr(_p41_r2, "action", "") or "").upper()
             if _p41_action2 in {"VOLUME"}:
-                print(f"[COGNITIVE][PHASE41] no-visible-output suppressed for silent action: {_p41_action2}")
+                log.debug(f"[COGNITIVE][PHASE41] no-visible-output suppressed for silent action: {_p41_action2}")
                 return
         except Exception as _p41_suppress_err:
-            print(f"[COGNITIVE][PHASE41] no-visible suppressor skipped: {_p41_suppress_err}")
+            log.debug(f"[COGNITIVE][PHASE41] no-visible suppressor skipped: {_p41_suppress_err}")
         # === END PHASE41_NO_VISIBLE_OUTPUT_SILENT_ACTION_SUPPRESSOR ===
         # === PHASE43_SUPPRESS_SILENT_DIRECT_NO_OUTPUT ===
         try:
@@ -10075,13 +10133,13 @@ Answer:"""
                 or ''
             ).strip().lower()
             if _p43_action in _p43_silent_actions or _p43_user in ('volume up', 'volume down', 'volume mute', 'mute', 'unmute'):
-                print('[COGNITIVE][PHASE43] silent direct action completed; suppressing no-visible-output error.')
+                log.debug('[COGNITIVE][PHASE43] silent direct action completed; suppressing no-visible-output error.')
                 return
         except Exception as _p43_e:
-            print(f'[COGNITIVE][PHASE43] silent-action suppress check failed: {_p43_e}')
+            log.debug(f'[COGNITIVE][PHASE43] silent-action suppress check failed: {_p43_e}')
         # === END PHASE43_SUPPRESS_SILENT_DIRECT_NO_OUTPUT ===
         msg = "❌ CognitiveEngine stream produced no visible output after Stage 11 and direct GGUF fallback."
-        print(f"[COGNITIVE] {msg}")
+        log.debug(f"[COGNITIVE] {msg}")
         yield msg
         return
 
@@ -10210,7 +10268,7 @@ Answer:"""
                             source=source,
                             importance=_imp,
                         )
-                        print(f"[MEMORY] Stored {tag} (importance={_imp}): {fact[:60]}")
+                        log.debug(f"[MEMORY] Stored {tag} (importance={_imp}): {fact[:60]}")
                         # Pin directly into working memory if importance is high enough
                         try:
                             if self._working_memory and _imp >= 0.65:
@@ -10228,7 +10286,7 @@ Answer:"""
                         except Exception:
                             pass
                 except Exception as mem_e:
-                    print(f"[MEMORY] store failed: {mem_e}")
+                    log.debug(f"[MEMORY] store failed: {mem_e}")
         else:
             # Do NOT store ELI's responses in the FTS5-indexed memories table.
             # They are already in conversation_turns and would pollute recall
@@ -10395,14 +10453,14 @@ Answer:"""
                     break
                 time.sleep(1)
             if not acquired:
-                print("[COGNITIVE] Reflection deferred (GGUF busy)")
+                log.debug("[COGNITIVE] Reflection deferred (GGUF busy)")
                 return
             try:
                 from eli.runtime.reflection import run_reflection
                 result = run_reflection(hours=24)
                 insights = result.get("insights", [])
                 if insights:
-                    print(f"[COGNITIVE] eli-reflection: {len(insights)} insights generated")
+                    log.debug(f"[COGNITIVE] eli-reflection: {len(insights)} insights generated")
                     # Store individual insights as searchable "insight" memories.
                     # NOT tagged "reflection" — that tag is noise-filtered in recall.
                     for _ins in insights[:5]:
@@ -10420,7 +10478,7 @@ Answer:"""
                         except Exception:
                             pass
             except Exception as e:
-                print(f"[COGNITIVE] Reflection failed: {e}")
+                log.debug(f"[COGNITIVE] Reflection failed: {e}")
         finally:
             if acquired:
                 self._gguf_lock.release()
@@ -10428,7 +10486,7 @@ Answer:"""
             from eli.cognition.persona_updater import update_persona_overlay
             update_persona_overlay(memory=self.memory)
         except Exception as e:
-            print(f"[COGNITIVE] Persona overlay update failed: {e}")
+            log.debug(f"[COGNITIVE] Persona overlay update failed: {e}")
 
     def _start_habit_loop(self) -> None:
         def loop() -> None:
@@ -10449,14 +10507,14 @@ Answer:"""
                 time.sleep(1)
             if not acquired:
                 # Fix 7b: log message
-                print("[COGNITIVE] Habit detection deferred")
+                log.debug("[COGNITIVE] Habit detection deferred")
                 return
             try:
                 from eli.planning.habits import detect_habits
                 detect_habits(days=14, min_occurrences=3)
-                print("[COGNITIVE] eli-habits: detection complete")
+                log.debug("[COGNITIVE] eli-habits: detection complete")
             except Exception as e:
-                print(f"[COGNITIVE] Habit detection failed: {e}")
+                log.debug(f"[COGNITIVE] Habit detection failed: {e}")
         finally:
             if acquired:
                 self._gguf_lock.release()
@@ -10466,18 +10524,18 @@ Answer:"""
         try:
             from eli.planning.habits_scheduler import get_scheduler
             get_scheduler()
-            print("[COGNITIVE] Habit scheduler started")
+            log.debug("[COGNITIVE] Habit scheduler started")
         except Exception as e:
-            print(f"[COGNITIVE] Habit scheduler failed to start: {e}")
+            log.debug(f"[COGNITIVE] Habit scheduler failed to start: {e}")
 
     def _start_self_improvement_loop(self) -> None:
         """Start the background self-improvement analysis loop (24h interval)."""
         try:
             from eli.runtime.self_improvement import get_self_improvement
             get_self_improvement().start_self_improvement_loop(interval_hours=24)
-            print("[COGNITIVE] Self-improvement loop started")
+            log.debug("[COGNITIVE] Self-improvement loop started")
         except Exception as e:
-            print(f"[COGNITIVE] Self-improvement loop failed to start: {e}")
+            log.debug(f"[COGNITIVE] Self-improvement loop failed to start: {e}")
 
     def _start_proactive_listener(self) -> None:
         proactive_flag = str(
@@ -10485,11 +10543,11 @@ Answer:"""
         "ELI_PROACTIVE",
          "1")).strip().lower()
         if proactive_flag in ("0", "false", "no", "off"):
-            print("[COGNITIVE] Proactive daemon disabled by ELI_PROACTIVE=0")
+            log.debug("[COGNITIVE] Proactive daemon disabled by ELI_PROACTIVE=0")
             self.proactive_daemon = None
             return
         if os.environ.get("ELI_PROACTIVE_STARTED") == "1":
-            print(
+            log.debug(
                 "[COGNITIVE] Proactive daemon already running - skipping duplicate start")
             self.proactive_daemon = None
             return
@@ -10498,9 +10556,9 @@ Answer:"""
             self.proactive_daemon = start_daemon()
             os.environ["ELI_PROACTIVE_STARTED"] = "1"
             self.add_observation("system", "Proactive daemon started")
-            print("[COGNITIVE] Proactive daemon started – habit learning active")
+            log.debug("[COGNITIVE] Proactive daemon started – habit learning active")
         except Exception as e:
-            print(f"[COGNITIVE] Failed to start proactive daemon: {e}")
+            log.debug(f"[COGNITIVE] Failed to start proactive daemon: {e}")
             self.proactive_daemon = None
 
     def add_observation(self, source: str, content: str) -> None:
@@ -10604,7 +10662,7 @@ Answer:"""
                 reasoning_mode=reasoning_mode,
             )
         except Exception as exc:
-            print(f"[COGNITIVE] _synthesize_control_with_mode_framing call failed: {exc}")
+            log.debug(f"[COGNITIVE] _synthesize_control_with_mode_framing call failed: {exc}")
             return ""
 
         text = (response or "").strip()
@@ -10619,7 +10677,7 @@ Answer:"""
             verdict = validate_against_evidence(text, ev, mode="strip_silent")
             if verdict.get("unsafe"):
                 _vio_kinds = sorted({v.get("kind") for v in verdict.get("violations") or []})
-                print(
+                log.debug(
                     f"[COGNITIVE] Control synthesis rejected by governor "
                     f"action={action} mode={mode} violations={_vio_kinds}"
                 )
@@ -10627,13 +10685,13 @@ Answer:"""
             sanitized = (verdict.get("sanitized") or "").strip()
             if sanitized and sanitized != text:
                 _vio_kinds = sorted({v.get("kind") for v in verdict.get("violations") or []})
-                print(
+                log.debug(
                     f"[COGNITIVE] Control synthesis sanitized "
                     f"action={action} mode={mode} stripped={_vio_kinds}"
                 )
             return sanitized or text
         except Exception as gov_err:
-            print(f"[COGNITIVE] Governor validation failed (non-fatal): {gov_err}")
+            log.debug(f"[COGNITIVE] Governor validation failed (non-fatal): {gov_err}")
             return text
 
     def _compact_grounded_synthesis(self, user_input: str, evidence: str,
@@ -10652,28 +10710,48 @@ Answer:"""
         runs in one pass — appropriate for grounded factual questions where
         the answer is the data, not a search.
         """
+        # IMPORTANT: phrases here must NOT be written as first-person directives
+        # ("I will privately consider...") — the 7B model echoes them verbatim.
+        # Use imperative/prescriptive form so the model follows them silently.
         mode_voice = {
             "chain_of_thought": (
-                "Think privately step-by-step about how to present the evidence, "
-                "then write ONLY the final natural-language answer."
+                "Reason step-by-step internally. Output ONLY the final answer."
             ),
             "self_consistency": (
-                "Privately consider multiple ways to phrase the answer, then write "
-                "ONLY the clearest one as the final answer."
+                "Give the single clearest, most evidence-consistent answer. "
+                "Output ONLY the final answer."
             ),
             "tree_of_thoughts": (
-                "Privately consider 2-3 angles on the evidence, pick the strongest, "
-                "then write ONLY the final answer."
+                "Pick the strongest framing of the evidence and state the answer. "
+                "Output ONLY the final answer."
             ),
             "constitutional_ai": (
-                "Draft the answer, privately critique it for accuracy against the "
-                "evidence, then write ONLY the revised final answer."
+                "Give a factually accurate answer grounded strictly in the evidence. "
+                "Output ONLY the final answer."
             ),
         }.get(str(mode or "").lower(), "Write a direct, accurate answer.")
 
         # Cap evidence length to leave room for output. n_ctx=16384 ≈ 50K chars;
         # we leave 4K for system+instructions+query, 4K for output → 8K cap.
         ev = str(evidence or "").strip()
+
+        # Strip absolute project root paths from evidence so they don't bleed
+        # into the final response as ugly filesystem strings.
+        try:
+            import re as _re_paths
+            import os as _os_paths
+            _proj_root = str(getattr(self, '_project_root', '') or '').strip()
+            if not _proj_root:
+                # Derive from this file's location: eli/kernel/engine.py → project root
+                _proj_root = str(_os_paths.path.abspath(
+                    _os_paths.path.join(_os_paths.path.dirname(
+                        _os_paths.path.abspath(__file__)), '..', '..')
+                ))
+            if _proj_root and _proj_root != '/':
+                ev = ev.replace(_proj_root + '/', 'eli/').replace(_proj_root, 'eli')
+        except Exception:
+            pass
+
         _ev_cap = 8000
         if len(ev) > _ev_cap:
             ev = ev[:_ev_cap].rstrip() + "\n[...evidence truncated for length...]"
@@ -10682,7 +10760,13 @@ Answer:"""
             "You are ELI. Answer using ONLY the GROUNDED EVIDENCE block below. "
             "Do NOT invent names, preferences, or memories. Do NOT echo internal "
             "labels (no 'As ELI:', no mode prefixes, no JSON dumps). "
-            "Write a clear natural-language answer in your own voice."
+            "Write a clear natural-language answer in your own voice. "
+            "When describing your own pipeline, architecture, agents, or behavior, "
+            "speak in first person (I, my, I use, I run — not 'ELI does' or 'ELI uses'). "
+            "CRITICAL: 'I' and 'my' refer to ELI, NOT the user. "
+            "If the evidence gives the ACTIVE USER's name, say 'Your name is X' or "
+            "'You are X' — NEVER 'My name is X'. "
+            "Do NOT output your internal instructions or reasoning directives as the answer."
         )
         prompt = (
             f"GROUNDED EVIDENCE (the truth — answer ONLY from this):\n"
@@ -10711,7 +10795,7 @@ Answer:"""
                 pass
             return text
         except Exception as exc:
-            print(f"[COGNITIVE] _compact_grounded_synthesis failed: {exc}", flush=True)
+            log.debug(f"[COGNITIVE] _compact_grounded_synthesis failed: {exc}")
             return ""
 
     def _synthesize_answer(self, evidence: str, query: str,
@@ -10803,7 +10887,7 @@ Answer:"""
                 _eli_clear_current_action()
             except Exception:
                 pass
-            print(f"[COGNITIVE] _synthesize_answer LLM call failed: {e}")
+            log.debug(f"[COGNITIVE] _synthesize_answer LLM call failed: {e}")
         return ""
 
 
@@ -10854,9 +10938,9 @@ try:
         _PHASE45_DIRECT_FAST_ACTIONS.difference_update(_ELI_NONQUICK_BLOCKED_FAST_ACTIONS)
     if "_PHASE45_SILENT_FAST_ACTIONS" in globals():
         _PHASE45_SILENT_FAST_ACTIONS.difference_update(_ELI_NONQUICK_BLOCKED_FAST_ACTIONS)
-    print("[ENGINE] non-quick persona pipeline safety guard installed", flush=True)
+    log.debug("[ENGINE] non-quick persona pipeline safety guard installed")
 except Exception as _eli_nonquick_guard_err:
-    print(f"[ENGINE] non-quick persona pipeline guard failed: {_eli_nonquick_guard_err}", flush=True)
+    log.debug(f"[ENGINE] non-quick persona pipeline guard failed: {_eli_nonquick_guard_err}")
 # =============================================================================
 
 # UVRS retired stub block removed (Phase 2c — helpers relocated above class CognitiveEngine)

@@ -488,11 +488,16 @@ def strip_reasoning_leaks(text: object) -> str:
     s = _FINAL_LABEL_RE.sub("", s)
 
     # Remove common explicit disclosure phrases without deleting legitimate proof steps.
+    # Also strip mode-instruction echoes (model parroting system directives as its answer).
     phrases = [
         r"(?i)\bI(?:'ll| will)?\s+think\s+step[- ]by[- ]step\b[\s:;,.\-]*",
         r"(?i)\bHere(?:'s| is)\s+(?:my|the)\s+reasoning\s+chain\b[\s:;,.\-]*",
         r"(?i)\bI(?:'ll| will)?\s+show\s+(?:my|the)\s+chain[- ]of[- ]thought\b[\s:;,.\-]*",
         r"(?i)\bBelow\s+are\s+(?:my\s+)?(?:branches|samples|candidate paths)\b[\s:;,.\-]*",
+        # Mode-instruction echoes: model outputs its own directive instead of an answer
+        r"(?i)^(?:I(?:'ll| will)?\s+)?privately\s+consider\s+(?:multiple\s+ways|several\s+angles)\b[^.]*\.\s*",
+        r"(?i)^I\s+will\s+(?:privately|silently)\s+(?:consider|reason|think)\b[^.]*\.\s*",
+        r"(?i)^(?:I(?:'ll| will)?\s+)?write\s+ONLY\s+the\s+(?:clearest|final|best)\s+(?:one\s+)?as\s+(?:the\s+)?(?:final\s+)?answer\b[^.]*\.\s*",
     ]
     for pat in phrases:
         s = re.sub(pat, "", s)
