@@ -14,9 +14,15 @@ CONTROL_ACTIONS = {
     "EXPLAIN_LAST_RESPONSE",
     "EXPLAIN_MEMORY_RUNTIME",
     "EXPLAIN_COGNITION_RUNTIME",
+    # EXPLAIN_ALL_REASONING_MODES: executor reads reasoning_modes.py and returns
+    # the full multi-paragraph mode descriptions. Must bypass quick-mode 512-token
+    # GGUF cap by going through the control evidence path (direct_evidence_actions
+    # inside finalise_control_result returns the executor text unchanged).
+    "EXPLAIN_ALL_REASONING_MODES",
     "RUNTIME_AUDIT",
     "IMPORT_AUDIT",
     "GUI_RUNTIME_AUDIT",
+    "DIAGNOSE_WRAPPERS",
     "RESOLVE_RUNTIME_PATHS",
     "MEMORY_STATUS",
     "COGNITION_STATUS",
@@ -33,6 +39,12 @@ CONTROL_ACTIONS = {
     "IMAGE_STATUS",
     "FRONTIER_STATUS",
     "ELI_IDENTITY_AUDIT",
+    # Gaze engine control — start/stop/status/calibrate are executor-direct,
+    # no GGUF synthesis needed.
+    "GAZE_ENABLE",
+    "GAZE_DISABLE",
+    "GAZE_STATUS",
+    "GAZE_CALIBRATE",
 }
 
 
@@ -160,9 +172,15 @@ def route_control_text(user_input: Any, current_action: Any = None) -> str | Non
     if re.search(r"\b(run a full runtime audit|run full runtime audit|runtime audit|system audit|health check|diagnostics?|what'?s actually broken|what is actually broken)\b", low):
         return "RUNTIME_AUDIT"
 
+    # META_DIAGNOSTIC: clarification requests about ELI's own background activity.
+    # The bare "what updates?" branch requires a disambiguation word (talking about,
+    # mean, referring to, doing, going on) so "What updates have you performed?"
+    # or "What updates and checks have you performed as of late?" route to SELF_REPORT
+    # instead of being misidentified as a confused clarification request.
     if re.search(
         r"\b("
-        r"what (?:updates?|changes?|routine checks?)"
+        r"what (?:updates?|changes?|routine checks?)\s+(?:are you|do you mean|did you mean|is that|is this|was that)"
+        r"|what (?:updates?|changes?|routine checks?)\s+(?:talking about|mean|refer)"
         r"|what do you mean .{0,80}(?:updates?|processing|routine check|up and running|go live)"
         r"|what .{0,80}(?:updates?|processing|routine check|up and running|go live).{0,80}(?:talking about|mean)"
         r"|what (?:the )?(?:fuck|hell|heck) .{0,80}(?:updates?|processing|routine check|up and running|go live)"
@@ -298,13 +316,34 @@ def _trace_text(trace: Dict[str, Any]) -> str:
 
     agents = trace.get("agents_used") or trace.get("agents") or []
 
+    agg = trace.get("aggregated_confidence")
+    if agg is None:
+        agg = trace.get("confidence")
+    try:
+        agg_val = float(agg) if agg is not None else None
+    except (TypeError, ValueError):
+        agg_val = None
+
+    if agg_val is None:
+        label = trace.get("confidence_label") or ""
+    else:
+        try:
+            from eli.cognition.agent_bus import _confidence_label as _lbl
+            label = _lbl(agg_val)
+        except Exception:
+            label = trace.get("confidence_label") or ""
+
+    grounding = trace.get("grounding_confidence")
+    conf_str = "" if agg_val is None else f"{agg_val:.2f}"
+
     return "\n".join([
         "Previous-response trace evidence:",
         f"- request_id: {trace.get('request_id') or ''}",
         f"- route_action: {trace.get('route_action') or trace.get('intent') or trace.get('action') or ''}",
         f"- result_action: {trace.get('result_action') or trace.get('action') or ''}",
-        f"- confidence: {trace.get('confidence') or trace.get('aggregated_confidence') or ''}",
-        f"- confidence_label: {trace.get('confidence_label') or ''}",
+        f"- confidence: {conf_str} (aggregated)",
+        f"- confidence_label: {label}",
+        f"- grounding_confidence: {grounding if grounding is not None else 'n/a'}",
         f"- agents_used: {', '.join(map(str, agents)) if agents else 'none recorded'}",
         f"- plan: {trace.get('plan') or trace.get('orchestrator_plan') or 'none'}",
         f"- evidence_used: {trace.get('evidence_used')}",
@@ -748,6 +787,9 @@ def finalise_control_result(engine: Any, user_input: Any, action: str, evidence_
         "EXPLAIN_LAST_RESPONSE",
         "EXPLAIN_MEMORY_RUNTIME",
         "EXPLAIN_COGNITION_RUNTIME",
+        # Returns full multi-paragraph mode descriptions from reasoning_modes.py —
+        # must not be truncated by quick-mode GGUF synthesis (512 tok cap).
+        "EXPLAIN_ALL_REASONING_MODES",
         "RUNTIME_AUDIT",
         "IMPORT_AUDIT",
         "GUI_RUNTIME_AUDIT",
@@ -761,6 +803,11 @@ def finalise_control_result(engine: Any, user_input: Any, action: str, evidence_
         "SELF_IMPROVE",
         "SELF_IMPROVEMENT_LOG",
         "SELF_UPDATE",
+        # Gaze engine — executor returns status text directly, no GGUF pass.
+        "GAZE_ENABLE",
+        "GAZE_DISABLE",
+        "GAZE_STATUS",
+        "GAZE_CALIBRATE",
     }
     # Mode contract:
     #   * Quick mode → engine passes synthesized_text="" so compact (deterministic

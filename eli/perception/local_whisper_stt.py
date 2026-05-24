@@ -83,6 +83,16 @@ def get_model():
     return _MODEL
 
 
+def preload_model() -> bool:
+    """Eagerly load whisper at startup so it claims its VRAM before the GGUF
+    autotune runs. Uses the SAME device/compute as configured — never downgrades."""
+    try:
+        get_model()
+        return _MODEL is not None
+    except Exception:
+        return False
+
+
 def transcribe_speech_recognition_audio(audio):
     wav_bytes = audio.get_wav_data(convert_rate=16000, convert_width=2)
     if not wav_bytes:
