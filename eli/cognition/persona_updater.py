@@ -437,6 +437,9 @@ def _extract_name_from_identity_item(text: str) -> str:
     # Reject obvious non-names
     if candidate.lower() in {
         "unknown", "none", "the", "a", "an", "no", "not", "asking", "user",
+        "screenshot", "name", "unnamed", "anonymous", "guest", "admin",
+        "root", "system", "default", "test", "sample", "example",
+        "placeholder", "null", "undefined",
     }:
         return ""
     return candidate
