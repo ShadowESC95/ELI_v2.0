@@ -155,7 +155,7 @@ class MemoryAgent:
         _tokens = set(_re.findall(r"\b[a-z]+\b", _low))
         if _self_ref_words & _tokens:
             return q
-        prompt = "Grounded reply required. No hypothetical answer allowed. User query:"
+        prompt = f"Write a brief factual answer to: {q}"
         try:
             hyde = self.engine.generate_from_assembled_prompt(
                 prompt, None, reasoning_mode="quick", raw_direct=True)
@@ -195,36 +195,27 @@ class MemoryAgent:
         return keyword_hits, semantic_hits, rag_hits, kg_hits
 
     def kg_search(self, query: str, limit: int) -> List[Dict[str, Any]]:
-        """Query the knowledge graph via the memory facade.
+        """Query the knowledge graph directly — no recall_memory pass-through.
 
-        Reuses memory.recall_memory() and filters to KG-sourced rows rather
-        than re-implementing KG search — the facade already returns entries
-        like 'User --[has_name]--> <stored_name>' with source='knowledge_graph'.
+        Previously called recall_memory and filtered to KG rows, which caused
+        a full second FAISS+FTS5+recall pipeline run just to get KG facts.
+        Now queries get_knowledge_graph().context_for_prompt() directly, which
+        is a lightweight SQLite-only lookup with no embedding overhead.
         """
         try:
-            mem = getattr(self.engine, "memory", None)
-            if mem is None or not hasattr(mem, "recall_memory"):
+            from eli.memory.knowledge_graph import get_knowledge_graph
+            _kg = get_knowledge_graph()
+            # Scale max_chars roughly with limit (default ~600 at limit=6)
+            _max_chars = max(400, min(1200, limit * 100))
+            _ctx = _kg.context_for_prompt(query, max_chars=_max_chars)
+            if not _ctx:
                 return []
-            raw = mem.recall_memory(query, limit=max(limit * 3, limit)) or []
-            normalized: List[Dict[str, Any]] = []
-            for h in raw:
-                if not isinstance(h, dict):
-                    continue
-                src = str(h.get("source", "")).lower()
-                if src not in ("knowledge_graph", "kg"):
-                    continue
-                text = (h.get("text") or h.get("content") or "").strip()
-                if not text:
-                    continue
-                normalized.append({
-                    "source": "knowledge_graph",
-                    "score": float(h.get("score", 0.95) or 0.95),
-                    "text": text,
-                    "meta": h,
-                })
-                if len(normalized) >= limit:
-                    break
-            return normalized
+            return [{
+                "source": "knowledge_graph",
+                "score": 0.95,
+                "text": _ctx,
+                "meta": {"kind": "knowledge_graph", "query": query},
+            }]
         except Exception as e:
             print(f"[ORCHESTRATOR] Stage 5b: KG search error: {e}")
             return []
@@ -286,7 +277,11 @@ class MemoryAgent:
             return []
 
     def keyword_search(self, query: str, limit: int) -> List[Dict[str, Any]]:
-        hits = self.engine.recall_memory_query(query, limit=limit) or []
+        # keyword_only=True: FAISS is skipped inside recall_memory so we don't
+        # double-search vectors (semantic_search handles FAISS separately).
+        # KG injection is also skipped — kg_search() below queries KG directly.
+        hits = self.engine.recall_memory_query(
+            query, limit=limit, keyword_only=True) or []
         normalized = []
         for h in hits:
             text = (h.get("text") or h.get("content") or "").strip()

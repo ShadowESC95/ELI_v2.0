@@ -332,10 +332,16 @@ def allocate(profile_model: str, model_gb: float, ram_gb: float, gpu: Optional[G
     else:
         vram_basis = gpu.free_mb
 
-    # Single consolidated reserve — covers OS overhead, driver buffers, and ELI runtime.
-    # ELI_VRAM_RESERVE_MB env var overrides the default.  No second subtraction below.
-    runtime_reserve = int(os.environ.get("ELI_VRAM_RESERVE_MB", "900"))
+    # Consolidated reserve — covers OS overhead, driver buffers, ELI runtime,
+    # AND faster-whisper STT. ELI_VRAM_RESERVE_MB env var overrides if you want
+    # to tune it.
+    runtime_reserve = int(os.environ.get("ELI_VRAM_RESERVE_MB", "1500"))
     usable_vram = max(0, vram_basis - runtime_reserve)
+    # Additionally cap usable_vram to 80% of total VRAM so the LLM never
+    # monopolises the GPU (leaves 20% headroom for transient allocations,
+    # cudnn workspace, and other ELI subsystems).
+    _hard_cap_mb = int(gpu.total_mb * 0.80) if (gpu and gpu.total_mb > 0) else usable_vram
+    usable_vram = min(usable_vram, _hard_cap_mb)
 
     target_vram = int(os.environ.get("ELI_VRAM_TARGET_MB", "0") or "0")
     if target_vram > 0:

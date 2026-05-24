@@ -22,7 +22,9 @@ def test_engine_process_non_chat(mock_execute):
 
 @patch("eli.cognition.gguf_inference.chat_completion", return_value="Mocked chat response")
 def test_engine_process_chat(mock_gguf, engine_with_mocks):
-    result = engine_with_mocks.process("hello", stream=False)
+    # Use a complete sentence with a terminator so the fragment guard does not
+    # intercept it and route to NOOP before the GGUF layer is reached.
+    result = engine_with_mocks.process("Hello, how are you today?", stream=False)
     assert result.get("content") == "Mocked chat response" or result.get("response")
 
 def test_engine_verify_persona_lock():

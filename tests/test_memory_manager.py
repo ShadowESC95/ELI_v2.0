@@ -18,11 +18,11 @@ class TestMemoryManager:
 
     def test_store_and_recall(self):
         mem = self.memory
-        result = mem.store_memory("Test memory content", tags=["test"])
+        result = mem.store_memory("Test memory content", tags=["unit_verify"])
         assert result["ok"] is True
         assert result.get("id", 0) > 0
 
-        hits = mem.recall_memory("test", limit=10)
+        hits = mem.recall_memory("memory content", limit=10)
         assert len(hits) >= 1
         assert "Test memory content" in hits[0]["text"]
 

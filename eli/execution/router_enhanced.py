@@ -12,14 +12,18 @@ from __future__ import annotations
 
 def _eli_pipeline_trace(stage: str, **data):
     try:
-        import json, time
+        import json, time, os
         from pathlib import Path
         from eli.core.paths import get_paths
         out = Path(get_paths().project_root) / "ops" / "reports" / "pipeline_visibility" / "runtime_pipeline_trace.jsonl"
         out.parent.mkdir(parents=True, exist_ok=True)
         with out.open("a", encoding="utf-8") as f:
             f.write(json.dumps({"ts": time.time(), "stage": stage, **data}, ensure_ascii=False, default=str) + "\n")
-        print(f"[PIPELINE_TRACE] {stage} {data}", flush=True)
+        # CLI print: silent by default (file write still happens for forensics).
+        # Set ELI_PIPELINE_TRACE_VERBOSE=1 to restore the per-call print.
+        if os.environ.get("ELI_PIPELINE_TRACE_VERBOSE", "0").lower() in {"1", "true", "yes", "on"}:
+            _preview = {k: (v[:60] + "..." if isinstance(v, str) and len(v) > 60 else v) for k, v in data.items()}
+            print(f"[PIPELINE_TRACE] {stage} {_preview}", flush=True)
     except Exception as _e:
         print(f"[PIPELINE_TRACE_ERR] {stage}: {_e}", flush=True)
 
@@ -56,6 +60,40 @@ import re
 from eli.runtime.response_policy import should_force_cognitive_for_user_text
 from pathlib import Path
 from typing import Dict, Any, Optional, Tuple, List
+
+# ============================================================
+# PRE-COMPILED REGEX — module-level so route() pays zero compile cost.
+# Python caches up to 512 recently-used patterns, but 379 inline calls
+# still pay a dict-lookup on every invocation; module-level compiled
+# patterns bypass the cache lookup entirely.
+# ============================================================
+_RE_MEDIA_CONTROL = re.compile(
+    r"\b(play|pause|stop|resume|next|previous|skip|mute|unmute|volume|repeat|shuffle)\b", re.I)
+_RE_OPEN_APP = re.compile(
+    r"\b(open|launch|start|run|load)\b.{1,30}\b(app|application|program|browser|terminal|ide|editor)\b",
+    re.I)
+_RE_MEMORY_QUERY = re.compile(
+    r"\b(remember|recall|memory|what do you know|stored|from memory|profile)\b", re.I)
+_RE_SELF_AWARE = re.compile(
+    r"\b(who are you|what are you|tell me about yourself|your (identity|persona|purpose|capabilities))\b",
+    re.I)
+_RE_REASONING_MODE = re.compile(r"\breasoning\s+mode", re.I)
+_RE_ALL_MODES = re.compile(
+    r"\b(all|every|each|how many|list|explain|full|describe|detail|difference|differ|compare"
+    r"|what are|tell me about|tell me all|tell me everything|what do|how do"
+    r"|modes?\s+you\s+have|modes?\s+does|all.*mode|every.*mode)\b", re.I)
+_RE_RUNTIME_AUDIT = re.compile(
+    r"\b(audit|inspect|diagnose|scan|what('s| is) wrong|broken|missing|wiring|pipeline)\b", re.I)
+_RE_SYSTEM_STATS = re.compile(
+    r"\b(cpu|ram|memory usage|disk|gpu|system stats|hardware|uptime|load)\b", re.I)
+_RE_CHAT_FILLER = re.compile(
+    r"^\s*(ok|okay|yes|no|yeah|nope|sure|thanks|thank you|got it|understood"
+    r"|alright|cool|nice|great|fine)\s*[.!?]*\s*$", re.I)
+_RE_GROUNDED_PIPELINE = re.compile(
+    r"\b(cognition pipeline|input to output|every step|memory system|db tables"
+    r"|runtime audit|diagnostic|diagnostics|full audit)\b", re.I)
+_RE_URL = re.compile(r"https?://\S+|www\.\S+", re.I)
+_RE_SHELL_CMD = re.compile(r"^(sudo|bash|sh|python|pip|apt|dnf|brew|npm|git)\s", re.I)
 
 # ============================================================
 # STATIC CONFIG
@@ -412,6 +450,9 @@ def _extract_pdf_paths(raw: str) -> list[str]:
     from pathlib import Path
 
     text = str(raw or "")
+    # ELI PATCH: correct common STT errors
+    if 'taste' in text and ('today' in text or 'now' in text):
+        text = text.replace('taste','date')
     found: list[str] = []
 
     full_path_re = re.compile(
@@ -554,7 +595,10 @@ def _route_set_user_name(raw: str, low: str) -> Optional[Dict[str, Any]]:
                     "shuffle", "repeat", "rewind", "forward", "restart",
                     # Voice/system reserved words
                     "start", "go", "cancel", "abort", "quit", "exit", "close",
-                    "open", "search", "find", "show", "hide", "run", "launch"}
+                    "open", "search", "find", "show", "hide", "run", "launch",
+                    # Command keywords — must never become a user name
+                    "help", "commands", "command", "list", "check", "status",
+                    "info", "about", "what", "when", "where", "who", "why", "how"}
             if candidate.lower() not in _bad and len(candidate) >= 2:
                 return _mk(
                     "SET_USER_NAME",
@@ -820,10 +864,7 @@ def route(text: str) -> Dict[str, Any]:
     # --- strict control actions: never fall through to generic CHAT ---    # ELI_PATCH_PERSONAL_MEMORY_ROUTE_PRECEDENCE_20260511
     # Personalised/internal-memory questions must beat the generic memory-runtime route.
     # This is routing precedence only; final response synthesis remains downstream.
-    try:
-        _pm_text = (text or query or prompt or user_text or "").lower()
-    except Exception:
-        _pm_text = ""
+    _pm_text = low  # `low` is always defined: low = raw.lower()
     if (
         ("memory" in _pm_text)
         and (
@@ -897,14 +938,25 @@ def route(text: str) -> Dict[str, Any]:
     if re.search(r"\b(explain exactly how your memory system works internally|memory system works internally|which files.*which db tables.*which functions)\b", low):
         return _mk("EXPLAIN_MEMORY_RUNTIME", {}, 0.99, matched_by="router.memory_runtime_to_grounded", allow_chat_without_evidence=False)
 
-    if re.search(r"\b(explain your cognition pipeline|cognition pipeline from input to output|input to output.*every step|cognitive pipeline)\b", low):
-        return _mk("CHAT", {"message": raw}, 0.95, matched_by="router.cognition_runtime_to_chat", allow_chat_without_evidence=False)
-
     if re.search(r"\b(run a full runtime audit|runtime audit.*broken or missing)\b", low):
         return _mk("RUNTIME_AUDIT", {}, 0.99, matched_by="router.runtime_audit", allow_chat_without_evidence=False, need_grounding=True, task_family="grounded_audit")
 
     if re.search(r"\b(what imports are failing|what imports are missing|imports are failing or missing)\b", low):
         return _mk("IMPORT_AUDIT", {}, 0.99, matched_by="router.import_audit", allow_chat_without_evidence=False, need_grounding=True, task_family="grounded_audit")
+
+    if re.search(
+        r"\b(diagnose\s+wrappers?|show\s+(?:the\s+)?(?:executor\s+)?(?:wrapper|middleware)\s+(?:chain|stack|table)|"
+        r"what\s+wraps?\s+(?:the\s+)?executor|executor\s+middleware\s+(?:chain|stack|table)|"
+        r"list\s+(?:the\s+)?executor\s+wrappers?)\b",
+        low,
+    ):
+        return _mk(
+            "DIAGNOSE_WRAPPERS", {}, 0.99,
+            matched_by="router.diagnose_wrappers",
+            allow_chat_without_evidence=False,
+            need_grounding=True,
+            task_family="grounded_audit",
+        )
 
     if re.search(r"\b(show me the resolved runtime paths|resolved runtime paths|runtime paths for every critical file|critical file you depend on)\b", low):
         return _mk("RESOLVE_RUNTIME_PATHS", {}, 0.99, matched_by="runtime.paths.preempt", allow_chat_without_evidence=False)
@@ -925,6 +977,48 @@ def route(text: str) -> Dict[str, Any]:
 
     if re.search(r"\b(audit your gui file|gui runtime audit|gui file.*wired incorrectly)\b", low):
         return _mk("GUI_RUNTIME_AUDIT", {}, 0.99, matched_by="gui.runtime.preempt")
+
+    # Voice/STT diagnostics must be checked BEFORE general RUNTIME_AUDIT
+    # because RUNTIME_AUDIT's regex catches bare "diagnostic/diagnostics" which
+    # swallows "voice diagnostics", "mic diagnostics", etc.
+    if re.search(r"\b(voice|stt|speech[- ]to[- ]text|whisper|microphone|mic)\s+"
+                 r"(diagnostic|diagnostics|status|test|check|health)\b"
+                 r"|\b(diagnostic|diagnostics|status|test|check|health)\s+(voice|stt|speech|whisper|mic)\b",
+                 low):
+        return _mk("VOICE_DIAGNOSTICS", {}, 0.93, matched_by="voice.diagnostics.preempt")
+
+    # ── Gaze engine control ────────────────────────────────────────────────────
+    # Must sit before RUNTIME_AUDIT so "gaze status" / "gaze diagnostics" don't
+    # get absorbed by the generic audit preempt.
+    if re.search(
+        r"\b(gaze\s*(engine|tracker|tracking|system)?\s*(status|diagnostics?|check|health|info))\b"
+        r"|\b(is\s+gaze\s+(running|active|on|enabled))\b"
+        r"|\b(gaze\s+engine\s+status)\b",
+        low,
+    ):
+        return _mk("GAZE_STATUS", {}, 0.95, matched_by="gaze.status.preempt")
+
+    if re.search(
+        r"\b(enable|start|turn\s+on|activate|switch\s+on)\s+(the\s+)?(gaze|gaze\s+engine|gaze\s+track(er|ing))\b"
+        r"|\bgaze\s+(engine\s+)?(on|enable|start|activate)\b",
+        low,
+    ):
+        return _mk("GAZE_ENABLE", {}, 0.96, matched_by="gaze.enable.preempt")
+
+    if re.search(
+        r"\b(disable|stop|turn\s+off|deactivate|switch\s+off)\s+(the\s+)?(gaze|gaze\s+engine|gaze\s+track(er|ing))\b"
+        r"|\bgaze\s+(engine\s+)?(off|disable|stop|deactivate)\b",
+        low,
+    ):
+        return _mk("GAZE_DISABLE", {}, 0.96, matched_by="gaze.disable.preempt")
+
+    if re.search(
+        r"\b(calibrate\s+gaze|gaze\s+calibr|run\s+gaze\s+calibr|gaze\s+setup)"
+        r"|\b(calibrate\s+(the\s+)?gaze\s+engine)",
+        low,
+    ):
+        return _mk("GAZE_CALIBRATE", {}, 0.95, matched_by="gaze.calibrate.preempt")
+    # ── end gaze engine control ───────────────────────────────────────────────
 
     if re.search(r"\b(run a full runtime audit|run full runtime audit|runtime audit|system audit|health check|diagnostic|diagnostics|what'?s actually broken|what is actually broken)\b", low):
         return _mk("RUNTIME_AUDIT", {}, 0.95, matched_by="audit.runtime.preempt",
@@ -1262,10 +1356,6 @@ def route(text: str) -> Dict[str, Any]:
         return _mk("RUNTIME_STATUS", {}, 0.99, matched_by="runtime.status")
     if re.search(r"\bwhat\s+code\s+(changed|has changed)\b|\bcode\s+changes?\b", low):
         return _mk("CODE_CHANGES", {"query": raw}, 0.95, matched_by="router.code_changes")
-    if re.search(r"\baudit\s+gui\s+runtime\b", low):
-        return _mk("GUI_RUNTIME_AUDIT", {}, 0.99, matched_by="router.gui_runtime_audit")
-    if re.search(r"\bresolve\s+runtime\s+paths\b", low):
-        return _mk("RESOLVE_RUNTIME_PATHS", {}, 0.99, matched_by="router.resolve_runtime_paths")
     if re.search(
             r"\b(?:code|source)\s+(?:changes?|diff|modifications?)\b", low):
         return _mk("CODE_CHANGES", {"query": raw}, 0.95, matched_by="awareness.code_changes",
@@ -1728,7 +1818,7 @@ def route(text: str) -> Dict[str, Any]:
         r"\bwhat'?s?\s+the\s+day\b", r"\bwhat'?s?\s+the\s+days\b",
         r'\bwhat days\b', r'\bwhat is the day\b', r'\bday is it\b',
     ]):
-        return _mk("DATE", {}, 1.0, matched_by="system.date")
+        return _mk("DATE", {"original_query": text}, 1.0, matched_by="system.date")
 
     if (
         re.search(r"\b(?:list|show)\s+(?:me\s+)?(?:all\s+(?:of\s+)?)?(?:your\s+)?capabilities\b", low)
@@ -2896,6 +2986,49 @@ def route(text: str) -> Dict[str, Any]:
                 "response_contract": "nonquick_continuity_diagnostic",
             },
         )
+
+    # ── Persona lock ──────────────────────────────────────────────────────────
+    # STATUS must be checked first — "persona lock status" contains "persona lock"
+    # which would be caught by the SET regex if ordered after it.
+    if re.search(r"\bpersona\s+lock\s+status\b|\bcheck\s+persona\s+lock\b|\bis\s+persona\s+locked\b", low):
+        return _mk("PERSONA_LOCK_STATUS", {}, 0.92, matched_by="persona.lock_status")
+
+    if re.search(r"\bunlock\s+persona\b|\bclear\s+persona\s+lock\b|\bpersona\s+unlock\b|"
+                 r"\bremove\s+persona\s+lock\b|\breset\s+persona\s+lock\b", low):
+        return _mk("PERSONA_LOCK_CLEAR", {}, 0.92, matched_by="persona.lock_clear")
+
+    if re.search(r"\bpersona\s+lock\b|\block\s+persona\b|\bset\s+persona\s+lock\b", low):
+        _model_arg = {}
+        _m_model = re.search(r"\bto\s+([a-zA-Z0-9_:/-]+\.(?:gguf|bin|ggml))\b", low)
+        if _m_model:
+            _model_arg["model"] = _m_model.group(1)
+        return _mk("PERSONA_LOCK_SET", _model_arg, 0.92, matched_by="persona.lock_set")
+
+    # ── Skip YouTube ad ───────────────────────────────────────────────────────
+    if re.search(r"\bskip\s+(?:the\s+)?(?:youtube\s+)?ad\b|\bskip\s+this\s+ad\b|"
+                 r"\bbypass\s+(?:the\s+)?ad\b|\bskip\s+advertisement\b", low):
+        return _mk("SKIP_YOUTUBE_AD", {}, 0.95, matched_by="media.skip_ad")
+
+    # ── Clear chat history ───────────────────────────────────────────────────
+    if re.search(r"\bclear\s+(?:chat|conversation|history|our\s+conversation)\b|"
+                 r"\breset\s+(?:chat|conversation|history)\b|\berase\s+(?:chat|history)\b|"
+                 r"\bwipe\s+(?:chat|conversation|history)\b", low):
+        return _mk("CLEAR_CHAT_HISTORY", {}, 0.93, matched_by="system.clear_chat")
+
+    # ── Listen for command ───────────────────────────────────────────────────
+    if re.search(r"\b(listen\s+for\s+(?:a\s+)?command|start\s+listening|listen\s+for\s+speech|"
+                 r"activate\s+(?:voice|speech)\s+input|begin\s+listening)\b", low):
+        _timeout = 5.0
+        _m_to = re.search(r"(\d+)\s*(?:second|sec|s)\b", low)
+        if _m_to:
+            _timeout = float(_m_to.group(1))
+        return _mk("LISTEN_FOR_COMMAND", {"timeout": _timeout}, 0.90, matched_by="voice.listen_for_command")
+
+    # ── Help ─────────────────────────────────────────────────────────────────
+    if re.search(r"^\s*(?:help|commands?|what\s+(?:can\s+i|commands?|actions?)|"
+                 r"what\s+(?:do\s+you|are\s+your)\s+(?:command|capability|action)|"
+                 r"show\s+(?:me\s+)?(?:help|commands?|capabilities?)|list\s+command)\b", low):
+        return _mk("HELP", {}, 0.90, matched_by="system.help")
 
     _eli_pipeline_trace("router.fallback_chat_selected", text=str(raw)[:160])
     return _mk("CHAT", {"message": raw}, 0.6, matched_by="fallback.chat")
@@ -4197,6 +4330,15 @@ def _eli_phase38_followup_passthrough_contract(raw):
         "expand",
         "explain more",
         "tell me more",
+        "go ahead",
+        "go ahead please",
+        "yeah go ahead",
+        "please go ahead",
+        "yes go ahead",
+        "sure go ahead",
+        "go",
+        "proceed",
+        "keep going",
     }:
         return _mk(
             "CHAT",
@@ -4312,6 +4454,20 @@ def _eli_media_contract_post(raw, result):
                 0.99,
                 matched_by="media.incomplete_play_guard",
             )
+
+        # ── "youtube web/website" variants → browser (yt-dlp resolves watch URL) ─
+        _ytw = r"youtube\s+web(?:site)?"
+        m = re.match(rf"^play\s+(.+?)\s+on\s+({_ytw})\s*$", text)
+        if m:
+            return _play(m.group(2), m.group(1), "media.play_on_youtube_web_contract")
+
+        m = re.match(rf"^play\s+({_ytw})\s+(.+)$", text)
+        if m:
+            return _play(m.group(1), m.group(2), "media.play_youtube_web_prefix_contract")
+
+        m = re.match(rf"^(.+?)\s+(?:by\s+.+?\s+)?on\s+({_ytw})\s*$", text)
+        if m:
+            return _play(m.group(2), m.group(1), "media.query_on_youtube_web_contract")
 
         m = re.match(r"^play\s+(youtube|spotify|soundcloud)\s+(.+)$", text)
         if m:
@@ -4971,6 +5127,67 @@ try:
             def _stage_identity_name_source_contract(text, *_a, **_k):
                 return _eli_phase38_identity_name_source_single_safe_contract(text)
 
+            def _stage_generate_script_prepass(text, *_a, **_k):
+                """Fire BEFORE GPU/runtime guards so 'write a bash script that monitors GPU...'
+                always routes to GENERATE_SCRIPT, not GPU_STATUS."""
+                import re as _rgs
+                raw2 = str(text or "").strip()
+                low2 = raw2.lower()
+                # Skip complaint/follow-up phrases — they are not generation requests
+                _complaint_starts = (
+                    "you did not", "you didn't", "you just", "that script", "this script",
+                    "why did you", "why didn't you", "where is", "where did",
+                )
+                _complaint_frags = (
+                    "did not generate", "didn't generate", "never ran", "not generated",
+                    "no ide opened", "did not open", "didn't open",
+                )
+                if low2.startswith(_complaint_starts) or any(f in low2 for f in _complaint_frags):
+                    return None
+                # Skip questions
+                if raw2.rstrip().endswith("?"):
+                    return None
+                # First token must be a creation verb (typo-tolerant whitelist).
+                _CREATION_VERBS = {
+                    "write", "writ", "writes", "wrtie", "wright",
+                    "create", "creat", "craete", "cretae", "creaet", "crete", "crate",
+                    "generate", "generat", "genrate", "genarate", "gnerate", "generete",
+                    "make", "mak", "makes",
+                    "build", "buil", "builds",
+                    "code", "cod", "codes",
+                }
+                _first_tok = low2.split()[0] if low2.split() else ""
+                if _first_tok not in _CREATION_VERBS:
+                    return None
+                # Non-code creative scripts (film/podcast/etc.) → skip
+                _NON_CODE_SCRIPT2 = _rgs.compile(
+                    r"\b(?:for|about|on|regarding)\s+(?:[\w]+\s+)*?"
+                    r"(?:presentation|slides?|talk|speech|podcast|film|movie|play|show|actors?|"
+                    r"onboarding|marketing|campaign|video|youtube|event|ceremony|wedding|"
+                    r"performance|audience|interview|screenplay)\b", _rgs.I)
+                _CREATIVE_SCRIPT2 = _rgs.compile(
+                    r"\b(?:film\s+script|movie\s+script|play\s+script|podcast\s+script|"
+                    r"write\s+a\s+(?:podcast|film|stage|theatre|movie)\s+script|"
+                    r"theatre\s+script|stage\s+script|script\s+for\s+(?:a\s+)?(?:film|movie|"
+                    r"play|podcast|show|talk|video|event|presentation|slides?|actors?|"
+                    r"onboarding|ceremony|wedding|performance|audience|interview|"
+                    r"marketing|campaign|youtube))\b", _rgs.I)
+                if _NON_CODE_SCRIPT2.search(raw2) or _CREATIVE_SCRIPT2.search(raw2):
+                    return None
+                # Explicit language keywords
+                _LANG_RE = _rgs.compile(
+                    r"\b(?:bash|python|shell|sh|javascript|js|typescript|ts|ruby|perl|"
+                    r"powershell|zsh|fish|lua|go|golang|rust|c\+\+|cpp|java|"
+                    r"script|function|program|module|code)\b", _rgs.I)
+                if _LANG_RE.search(raw2):
+                    return {
+                        "action": "GENERATE_SCRIPT",
+                        "args": {"description": raw2, "use_gguf_only": True, "forbid_ollama": True},
+                        "confidence": 0.97,
+                        "meta": {"matched_by": "eli.generate_script_prepass"},
+                    }
+                return None
+
             def _stage_runtime_cognition_failure_guard(text, *_a, **_k):
                 rcfg = globals().get("_eli_runtime_cognition_failure_guard")
                 if callable(rcfg):
@@ -5064,6 +5281,7 @@ try:
                 ("final_memory_contract", _stage_final_memory_contract),
                 ("runtime_or_name_contract", _stage_runtime_or_name_contract),
                 ("identity_name_source_contract", _stage_identity_name_source_contract),
+                ("generate_script_prepass", _stage_generate_script_prepass),
                 ("runtime_cognition_failure_guard", _stage_runtime_cognition_failure_guard),
                 ("self_improvement_guard", _stage_self_improvement_guard),
                 ("personal_memory_pre_route", _stage_personal_memory_pre_route),

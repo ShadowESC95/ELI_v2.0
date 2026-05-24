@@ -34,7 +34,7 @@ ALL_MODULES = [
     "eli.cognition.response_governance",
     "eli.cognition.response_sanitizer",
     "eli.cognition.user_info_builder",
-    "eli.cognition.working_memory",
+    # eli.cognition.working_memory — deleted module, removed from list
     # ── core ──────────────────────────────────────────────────────────────────
     "eli.core",
     "eli.core.architecture_contracts",
@@ -103,7 +103,7 @@ ALL_MODULES = [
     "eli.memory.stores",
     "eli.memory.system_index",
     "eli.memory.vector_store",
-    "eli.memory.working_memory",
+    # eli.memory.working_memory — deleted module, removed from list
     # ── perception ────────────────────────────────────────────────────────────
     "eli.perception",
     "eli.perception.analyze_csv",
