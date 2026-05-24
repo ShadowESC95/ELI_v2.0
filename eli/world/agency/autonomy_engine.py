@@ -10,6 +10,38 @@ from eli.world.avatar.behaviour_controller import AvatarBehaviourController
 from eli.world.avatar.persona_mapper import PersonaToAvatarMapper
 from eli.world.core.ontology import get_object_template
 from eli.world.core.schemas import EliWorldState, RoomType, WorldAction, WorldActionType, WorldEvent, WorldObject
+
+# ── Reasoning-stage room + object routing ────────────────────────────────────
+# Maps (mode, stage_name) → (RoomType value, object_template_id | None).
+# Used by propose_actions to move the avatar and materialise stage objects
+# during the multi-pass reasoning silence.
+_REASONING_STAGE_ROOM_MAP: dict = {
+    ("chain_of_thought",  "private_scratchpad_reasoning"): (RoomType.REFLECTION_CHAMBER.value, "cot_scratchpad"),
+    ("chain_of_thought",  "final_synthesis"):               (RoomType.REFLECTION_CHAMBER.value, "cot_synthesis"),
+    ("tree_of_thoughts",  "branch_tree_proposal"):          (RoomType.SIMULATION_LAB.value,     "tot_branch_tree"),
+    ("tree_of_thoughts",  "highest_branch_development"):    (RoomType.SIMULATION_LAB.value,     "tot_development"),
+    ("constitutional_ai", "initial_draft"):                  (RoomType.EVIDENCE_WALL.value,      "cai_draft"),
+    ("constitutional_ai", "principle_critique"):             (RoomType.ANOMALY_ROOM.value,       "cai_critique_panel"),
+    ("constitutional_ai", "revision_and_finalize"):          (RoomType.REFLECTION_CHAMBER.value, "cot_synthesis"),
+    ("self_consistency",  "sample_generation"):              (RoomType.EVIDENCE_WALL.value,      "sc_sample_cluster"),
+    ("self_consistency",  "consensus_selection"):            (RoomType.EVIDENCE_WALL.value,      "sc_sample_cluster"),
+}
+
+_REASONING_MODE_DEFAULT_ROOMS: dict = {
+    "chain_of_thought":  RoomType.REFLECTION_CHAMBER.value,
+    "tree_of_thoughts":  RoomType.SIMULATION_LAB.value,
+    "constitutional_ai": RoomType.EVIDENCE_WALL.value,
+    "self_consistency":  RoomType.EVIDENCE_WALL.value,
+}
+
+
+def _reasoning_stage_routing(mode: str, stage_name: str):
+    """Return (room_value, template_id | None) for the given mode + stage."""
+    key = (mode, stage_name)
+    if key in _REASONING_STAGE_ROOM_MAP:
+        return _REASONING_STAGE_ROOM_MAP[key]
+    room = _REASONING_MODE_DEFAULT_ROOMS.get(mode, RoomType.CORE_ROOM.value)
+    return (room, None)
 from eli.world.persistence.journal import append_journal_entry
 from eli.world.persistence.provenance import make_provenance_id, record_provenance
 from eli.world.persistence.snapshots import create_snapshot
@@ -82,6 +114,26 @@ class EliWorldAutonomyEngine:
             actions.append(self._create_object_action("upgrade_console", RoomType.UPGRADE_BAY.value, "An improvement proposal was generated and needs visible staging."))
         if event.event_type in {"tool_activity", "code_work", "project_work"}:
             actions.append(self._create_object_action("project_workbench", RoomType.WORKSHOP.value, "Tool/project activity is active; workspace should be foregrounded."))
+
+        # ── Reasoning-stage routing ───────────────────────────────────────────
+        # Move the avatar to the semantically appropriate room and materialise
+        # the corresponding symbolic object so the World tab shows live activity
+        # during the multi-pass reasoning silence.
+        if event.event_type == "reasoning_stage":
+            _r_mode  = event.payload.get("mode", "")
+            _r_stage = int(event.payload.get("stage", 1))
+            _r_total = event.payload.get("total_stages", "?")
+            _r_name  = event.payload.get("stage_name", "")
+            _r_room, _r_tpl = _reasoning_stage_routing(_r_mode, _r_name)
+            state.avatar.room = _r_room
+            state.avatar.activity = f"reasoning:{_r_name}"
+            state.avatar.attention_target = _r_name
+            if _r_tpl:
+                actions.append(self._create_object_action(
+                    _r_tpl,
+                    _r_room,
+                    f"[{_r_mode}] Stage {_r_stage}/{_r_total}: {_r_name} — ELI is actively reasoning.",
+                ))
 
         actions.append(WorldAction(
             action_type=WorldActionType.AVATAR_MOVE.value,
@@ -159,6 +211,14 @@ class EliWorldAutonomyEngine:
             a.tool_activity = max(0.0, a.tool_activity - 0.2)
             a.uncertainty = max(0.0, a.uncertainty - 0.15)
             a.evidence_confidence = min(1.0, a.evidence_confidence + 0.1)
+        elif et == "reasoning_stage":
+            # Multi-pass inference is cognitively intensive — high focus and reflection.
+            a.focus = min(1.0, a.focus + 0.30)
+            a.reflection_depth = min(1.0, a.reflection_depth + 0.20)
+            a.tool_activity = min(1.0, a.tool_activity + 0.25)
+            total = int(event.payload.get("total_stages", 1))
+            if total > 1:
+                a.curiosity = min(1.0, a.curiosity + 0.10)
         a.timestamp = time()
 
     def _stable_object_id(self, template_id: str, room: str) -> str:
