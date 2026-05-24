@@ -10,7 +10,13 @@ from eli.core.paths import get_paths
 from eli.runtime.identity_validation import normalize_identity_candidate
 
 
-_BAD_NAMES = {"asking", "[user]", "<user>", "<username>", "<local_user>", "unknown", "none"}
+_BAD_NAMES = {
+    "asking", "[user]", "<user>", "<username>", "<local_user>", "unknown", "none",
+    # Common false-positive words that appear near names in logs/UI/code context:
+    "screenshot", "user", "the", "a", "an", "no", "not", "name", "unnamed",
+    "anonymous", "guest", "admin", "root", "system", "default", "test", "sample",
+    "example", "placeholder", "null", "undefined", "true", "false",
+}
 
 
 def _runtime_dir() -> Path:
@@ -139,6 +145,21 @@ def set_user_name(name: str, user_id: str | None = None) -> str:
 
     save_user_profile(profile, user_id)
     sync_identity_to_world_model(user_id=user_id)
+
+    # Keep settings.json["user_name"] in sync so the GUI always reflects the
+    # current identity without requiring a session restart.
+    try:
+        from eli.core.paths import get_paths as _gp
+        import json as _json
+        _cfg = _gp().config_dir / "settings.json"
+        if _cfg.exists():
+            _s = _json.loads(_cfg.read_text(encoding="utf-8"))
+            if isinstance(_s, dict) and _s.get("user_name", "") != n:
+                _s["user_name"] = n
+                _cfg.write_text(_json.dumps(_s, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+    except Exception:
+        pass
+
     return n
 
 
