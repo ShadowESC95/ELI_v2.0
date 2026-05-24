@@ -50,8 +50,8 @@ _MODE_INSTRUCTION_STACK = {
         "If evidence is required, quote concrete values from grounded context without embellishment.",
     ],
     "chain_of_thought": [
-        "Use one private structured reasoning pass and reveal only the final answer.",
-        "State assumptions only when they materially affect the visible conclusion.",
+        "Stage 1 (private scratchpad): think exhaustively step-by-step — never shown to user.",
+        "Stage 2 (final answer): synthesize the scratchpad into a clean direct response only.",
         "Prefer deterministic facts and reproducible checks over stylistic elaboration.",
     ],
     "self_consistency": [
@@ -80,8 +80,9 @@ _MODE_TASK_PIPELINE = {
     "chain_of_thought": [
         "stage_1_intent_route",
         "stage_2_context_assembly",
-        "stage_3_private_single_pass_reasoning",
-        "stage_4_confidence_gate_and_finalize",
+        "stage_3_private_scratchpad_reasoning",
+        "stage_4_private_final_synthesis",
+        "stage_5_confidence_gate_and_finalize",
     ],
     "self_consistency": [
         "stage_1_intent_route",
@@ -517,8 +518,8 @@ def apply_final_reasoning_contract(text: object, mode: object = None) -> str:
 # Per-mode descriptions grounded in the actual kernel/engine.py dispatch model.
 # Keep this conceptual and test-backed: do not hard-code volatile line numbers.
 # Quick is deterministic/direct where possible; private modes are handled by
-# engine runner methods such as _run_chat_reasoning_loop,
-# _run_self_consistency, _run_tree_of_thoughts, and _run_constitutional_ai.
+# engine runner methods such as _run_chain_of_thought, _run_self_consistency,
+# _run_tree_of_thoughts, and _run_constitutional_ai.
 _MODE_DESCRIPTIONS = {
     "quick": (
         "Public, fast path. Deterministic responders answer directly with no GGUF "
@@ -528,12 +529,13 @@ _MODE_DESCRIPTIONS = {
         "matters or you want raw evidence without persona narration."
     ),
     "chain_of_thought": (
-        "Private, single-pass. One LLM call with system_instruction_for_mode injecting "
-        "a PRIVATE REASONING STRATEGY directive. The model reasons step-by-step "
-        "internally and emits only the final answer; strip_reasoning_leaks() scrubs "
-        "any leaked scratchpad, branches, or critique markers before display. No "
-        "multi-sampling, no critique cycle. Cheapest of the four private modes by "
-        "tokens and wall time."
+        "Private, two-pass scratchpad-then-synthesize. Stage 1: private scratchpad "
+        "reasoning pass at temp ~0.5 — the model works through the problem step-by-step "
+        "exhaustively (never shown to user). Stage 2: final synthesis pass at lower "
+        "temperature (~0.35) that converts the private reasoning into a clean, direct "
+        "answer with no step-narration. strip_reasoning_leaks() scrubs any scaffold "
+        "prefixes from stage 2 output. Two sequential GGUF calls; cheapest of the four "
+        "private multi-pass modes by total token cost."
     ),
     "self_consistency": (
         "Private, N-sample consensus. Generates N candidate answers (N pulled from "
