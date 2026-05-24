@@ -367,6 +367,9 @@ def build_persona_handoff(
     # ELI's World — full 9-room topology + current embodied state. Injected so
     # ELI can answer "what are you doing in the anomaly room?" or "what is the
     # reflection chamber?" with narrative truth rather than runtime JSON.
+    # IMPORTANT NOTE ON FRAMING: the 7B model tends to interpret "room" as a
+    # physical location unless explicitly told otherwise. The header below is
+    # intentionally directive so the scratchpad picks it up during CoT stage 1.
     try:
         from eli.world.persistence.storage import EliWorldStorage as _WS
         _wstate = _WS().load()
@@ -383,13 +386,15 @@ def build_persona_handoff(
             if getattr(obj, "room", "") == _room_id
         ]
         _world_parts: list[str] = []
-        # Current location detail
+        # Current location — explicit semantic frame to prevent physical-location misinterpretation
         if _room_name:
-            _world_parts.append(f"current room: {_room_name}")
+            _world_parts.append(
+                f"CURRENT ROOM (IMPORTANT — when asked 'what room are you in?' answer: {_room_name})"
+            )
         if _room_purpose:
             _world_parts.append(f"room purpose: {_room_purpose}")
         if _activity:
-            _world_parts.append(f"activity: {_activity}")
+            _world_parts.append(f"current activity: {_activity}")
         if _attn:
             _world_parts.append(f"attention: {_attn}")
         if _room_objects:
@@ -404,9 +409,12 @@ def build_persona_handoff(
                 _here = " ◄ HERE" if _rid == _room_id else ""
                 _layout_lines.append(f"    {_rn}{_here}: {_rp}")
             if _layout_lines:
-                _world_parts.append("all 9 rooms:\n" + "\n".join(_layout_lines))
+                _world_parts.append("all 9 rooms (symbolic cognitive rooms, not physical locations):\n" + "\n".join(_layout_lines))
         if len(_world_parts) >= 2:
-            parts.append("ELI WORLD STATE:\n" + "\n".join(f"  {p}" for p in _world_parts))
+            parts.append(
+                "ELI WORLD STATE (ELI has a symbolic 9-room internal world — these are cognitive/virtual rooms, not physical locations):\n"
+                + "\n".join(f"  {p}" for p in _world_parts)
+            )
     except Exception:
         pass
 
