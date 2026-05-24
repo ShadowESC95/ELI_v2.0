@@ -175,6 +175,10 @@ def get_memory_authority() -> Dict[str, str]:
 
 import re as _re_sql
 
+
+from eli.utils.log import get_logger
+log = get_logger(__name__)
+
 # Allowlist of known table names used in schema migrations.
 _KNOWN_TABLES: frozenset = frozenset({
     "memories", "conversation_turns", "conversations", "session_summaries",
@@ -703,9 +707,9 @@ def _ensure_memory_schema(conn):
         _add_column_if_missing(conn, "learning_replay", name, decl)
 
     conn.execute(
-        "CREATE TABLE IF NOT EXISTS session_summaries (id INTEGER PRIMARY KEY AUTOINCREMENT, session_id TEXT, summary TEXT, timestamp REAL, ts REAL)"
+        "CREATE TABLE IF NOT EXISTS session_summaries (id INTEGER PRIMARY KEY AUTOINCREMENT, session_id TEXT, summary TEXT, content TEXT, timestamp REAL, ts REAL)"
     )
-    for name, decl in [("session_id", "TEXT"), ("summary", "TEXT"), ("timestamp", "REAL"), ("ts", "REAL")]:
+    for name, decl in [("session_id", "TEXT"), ("summary", "TEXT"), ("content", "TEXT"), ("timestamp", "REAL"), ("ts", "REAL")]:
         _add_column_if_missing(conn, "session_summaries", name, decl)
 
 def _table_columns(conn, table):
@@ -1028,6 +1032,7 @@ def _ensure_full_memory_schema(conn):
             session_id TEXT,
             user_id TEXT,
             summary TEXT,
+            content TEXT,
             turns_count INTEGER,
             started_at REAL,
             ended_at REAL,
@@ -1038,8 +1043,8 @@ def _ensure_full_memory_schema(conn):
     """)
     for n, d in [
         ("session_id", "TEXT"), ("user_id", "TEXT"), ("summary", "TEXT"),
-        ("turns_count", "INTEGER"), ("started_at", "REAL"), ("ended_at", "REAL"),
-        ("source", "TEXT"), ("timestamp", "REAL"), ("ts", "REAL")
+        ("content", "TEXT"), ("turns_count", "INTEGER"), ("started_at", "REAL"),
+        ("ended_at", "REAL"), ("source", "TEXT"), ("timestamp", "REAL"), ("ts", "REAL")
     ]:
         _add_memory_column(conn, "session_summaries", n, d)
 
@@ -1592,7 +1597,7 @@ class Memory(metaclass=_MemoryMeta):
                 sec_conn.commit()
                 sec_conn.close()
             except Exception as e:
-                print(f"[MEMORY] Failed to write to secondary {sec_path}: {e}")
+                log.debug(f"[MEMORY] Failed to write to secondary {sec_path}: {e}")
 
         # World-model sync is part of the normal write path.
         _eli_sync_world_model_from_memory(self, kind="memory",
@@ -2105,7 +2110,7 @@ class Memory(metaclass=_MemoryMeta):
             conn.commit()
             return int(updated or 0)
         except Exception as e:
-            print(f"[MEMORY] weight_decay failed: {e}")
+            log.debug(f"[MEMORY] weight_decay failed: {e}")
             return 0
         finally:
             conn.close()
@@ -2208,7 +2213,7 @@ class Memory(metaclass=_MemoryMeta):
                 sec_conn.commit()
                 sec_conn.close()
             except Exception as e:
-                print(f"[MEMORY] Failed to add conversation turn to secondary {sec_path}: {e}")
+                log.debug(f"[MEMORY] Failed to add conversation turn to secondary {sec_path}: {e}")
 
         # World-model sync is part of the normal write path.
         _eli_sync_world_model_from_memory(self, kind="conversation_turn",
@@ -2282,7 +2287,7 @@ class Memory(metaclass=_MemoryMeta):
                 from eli.runtime.profile_extractor import write_patterns_from_turn
                 write_patterns_from_turn(content, db_path=self.db_path, ts_value=now)
             except Exception as e:
-                print(f"[MEMORY] profile extraction failed: {e}")
+                log.debug(f"[MEMORY] profile extraction failed: {e}")
 
         return rid
 
@@ -3224,10 +3229,13 @@ class Memory(metaclass=_MemoryMeta):
 
 
     def add_observation(self, *args, **kwargs):
-        if not args:
+        if not args and not kwargs:
             raise TypeError("add_observation requires at least one positional argument")
 
-        first = _norm_text(args[0]).strip()
+        # Support both positional (category, observation) and kwargs-only
+        # (category=, observation=, source=) calling conventions.
+        # awareness_boot uses kwargs-only; older call sites use positional.
+        first = _norm_text(args[0]).strip() if args else ""
         second = _norm_text(args[1]).strip() if len(args) > 1 else _norm_text(kwargs.pop("observation", "")).strip()
 
         named_content = kwargs.pop("content", None)

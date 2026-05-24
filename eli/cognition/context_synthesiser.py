@@ -3,7 +3,7 @@ from __future__ import annotations
 
 ELI_VOICE_ANCHOR = """
 IDENTITY / VOICE — NON-NEGOTIABLE:
-You are ELI — Entropy Logical Interface, running locally on this Linux machine.
+You are ELI — Enhanced Learning Interface, running locally on this Linux machine.
 Do not speak as a generic AI assistant.
 Do not say you lack memory; memory is SQLite-backed and local.
 Do not say you lack identity; your operational identity is ELI.
@@ -117,7 +117,7 @@ class ContextSynthesiser:
                 if bus_block:
                     sections.append(f"AGENT DATA:\n{bus_block[:800]}")
             except Exception as e:
-                print(f"[SYNTHESISER] bus_result failed: {e}")
+                log.debug(f"[SYNTHESISER] bus_result failed: {e}")
 
         if last_request_meta:
             meta_lines = []
@@ -187,11 +187,15 @@ class ContextSynthesiser:
                     )
             return "\n".join(lines)
         except Exception as e:
-            print(f"[SYNTHESISER] vector search failed (non-fatal): {e}")
+            log.debug(f"[SYNTHESISER] vector search failed (non-fatal): {e}")
             return ""
 
 
 from typing import Any, Dict
+
+
+from eli.utils.log import get_logger
+log = get_logger(__name__)
 
 def live_runtime_brief() -> str:
     """One-line truthful summary of where ELI is actually running.
@@ -330,7 +334,11 @@ def build_persona_handoff(
         from eli.kernel.state import get_user_name as _bph_gun
         _bph_name = (_bph_gun("") or "").strip()
         if _bph_name:
-            parts.append(f"USER NAME: {_bph_name}")
+            # Emphatic — LLM must not override this with stale dialogue history.
+            parts.append(
+                f"USER NAME: {_bph_name} — the user has confirmed this name. "
+                f"Always address them as {_bph_name}. Never say you do not know their name."
+            )
         else:
             # First-run onboarding: no name stored yet. Instruct ELI to ask.
             # Limit to first few turns so it doesn't repeat every message forever.
@@ -356,6 +364,25 @@ def build_persona_handoff(
     except Exception:
         pass
 
+    # Placeholder non-answers from deterministic lookup paths must not appear
+    # in the dialogue context injected into the LLM — they cause the model to
+    # echo them verbatim for completely unrelated subsequent questions.
+    _DIALOGUE_BLACKLIST = {
+        "i do not have a personal memory of the user's name",
+        "no confirmed name/identity label is stored",
+        "no confirmed name",
+        "i have no memory of your name",
+        "i don't have a record of your name",
+        # Variants observed in session logs that were slipping through:
+        "i don't have a personal name or identity stored",
+        "i do not have a personal name or identity stored",
+        "no memories found for your name",
+        "i do not have a confirmed name/identity row",
+        "i don't have a confirmed name",
+        "no personal name or identity stored",
+        "personal name or identity stored for the active user",
+    }
+
     dialogue_lines: list[str] = []
     try:
         for turn in list(recent_turns or [])[-8:]:
@@ -376,6 +403,11 @@ def build_persona_handoff(
 
             content = _clean(content)
             role = _clean(role).lower() or "?"
+
+            # Skip stale placeholder non-answers so they can't contaminate context
+            if any(p in content.lower() for p in _DIALOGUE_BLACKLIST):
+                continue
+
             if content:
                 short = textwrap.shorten(content, width=220, placeholder="...")
                 dialogue_lines.append(f"- {role}: {short}")
