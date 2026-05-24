@@ -1,4 +1,4 @@
-"""Tests for eli.memory.working_memory and eli.cognition.working_memory — ~80 tests."""
+"""Tests for eli.cognition.working_memory — ~80 tests."""
 from __future__ import annotations
 
 import pytest
@@ -8,7 +8,7 @@ from unittest.mock import MagicMock
 # ── Import ────────────────────────────────────────────────────────────────
 
 try:
-    from eli.memory.working_memory import WorkingMemory
+    from eli.cognition.working_memory import WorkingMemory
     HAS_WORKING_MEM = True
 except ImportError:
     HAS_WORKING_MEM = False

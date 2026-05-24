@@ -166,7 +166,7 @@ class StartupModelSelectionDialog(QDialog):
         self.vram_reserve_spin = QSpinBox()
         self.vram_reserve_spin.setRange(0, 16384)
         self.vram_reserve_spin.setSingleStep(128)
-        self.vram_reserve_spin.setValue(int(os.environ.get("ELI_VRAM_RESERVE_MB", "900")))
+        self.vram_reserve_spin.setValue(int(os.environ.get("ELI_VRAM_RESERVE_MB", "1500")))
         form.addRow("VRAM reserve MB", self.vram_reserve_spin)
 
         self.model_train_ctx_spin = QSpinBox()
@@ -196,6 +196,20 @@ class StartupModelSelectionDialog(QDialog):
 
         def _accept_wrapper():
             _apply_env()
+            # Preload faster-whisper FIRST so its VRAM allocation is visible to
+            # the GGUF hardware autotune below. Without this, the autotune sees
+            # full free VRAM, assigns all layers to GGUF, and whisper hits CUDA
+            # OOM on first utterance. With this, autotune sees the reduced free
+            # VRAM and correctly down-sizes gpu_layers for the LLM.
+            try:
+                from eli.perception.local_whisper_stt import preload_model as _eli_preload_whisper
+                if _eli_preload_whisper():
+                    print(
+                        "[STARTUP_DIALOG][AUDIO_PRELOAD] whisper claimed VRAM "
+                        "before GGUF autotune", flush=True,
+                    )
+            except Exception as _wp_err:
+                print(f"[STARTUP_DIALOG][AUDIO_PRELOAD] skipped: {_wp_err}", flush=True)
             try:
                 selected_path = self.model_path_input.text().strip()
                 if selected_path:

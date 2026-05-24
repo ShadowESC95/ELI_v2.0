@@ -462,16 +462,20 @@ class KnowledgeGraph:
             return 0
 
         patterns: List[Tuple[str, str]] = [
-            # "User's name is X"  /  "my name is X"
-            (r"(?:user(?:'s)?\s+name\s+is|my\s+name\s+is)\s+([A-Z][a-z]{1,24})", "has_name"),
-            # "nickname: X"  /  "also known as X"  /  "call me X"
-            (r"(?:nickname[:\s]+|also\s+known\s+as\s+|call\s+me\s+)([A-Z][a-z]{1,20})", "nickname"),
-            # "X works on Y"
-            (r"([A-Z][a-z]{1,20})\s+works\s+on\s+([A-Za-z0-9 _\-]+?)(?:[.,]|$)", "works_on"),
-            # "X prefers Y"
-            (r"(?:user\s+)?prefers?\s+([A-Za-z0-9 _\-]+?)(?:[.,]|$)", "prefers"),
-            # "X uses Y"
-            (r"([A-Z][a-z]{1,20})\s+uses?\s+([A-Za-z0-9 _\-]+?)(?:[.,]|$)", "uses"),
+            # "User's name is X" / "my name is X"
+            (r"(?:user(?:'s)?\s+name\s+is|my\s+name\s+is)\s+([A-Za-z][a-zA-Z ]{1,24})", "has_name"),
+            # "nickname: X" / "also known as X" / "call me X"
+            (r"(?:nickname[:\s]+|also\s+known\s+as\s+|call\s+me\s+)([A-Za-z][a-zA-Z ]{1,20})", "nickname"),
+            # "X works on Y" — relaxed: any word, any case
+            (r"([A-Za-z][a-zA-Z0-9]{1,20})\s+works\s+on\s+([A-Za-z0-9 _\-\.]{2,50})(?:[.,]|$)", "works_on"),
+            # "prefers X" / "user prefers X"
+            (r"(?:user\s+)?prefers?\s+([A-Za-z0-9 _\-\.]{2,40})(?:[.,]|$)", "prefers"),
+            # "likes X" / "user likes X"
+            (r"(?:user\s+)?likes?\s+([A-Za-z0-9 _\-\.]{2,40})(?:[.,]|$)", "prefers"),
+            # "X uses Y" — relaxed: any word, any case
+            (r"([A-Za-z][a-zA-Z0-9]{1,20})\s+uses?\s+([A-Za-z0-9 _\-\.]{2,40})(?:[.,]|$)", "uses"),
+            # "I am a X" / "I'm a X"
+            (r"(?:i\s+am|i'm)\s+(?:a\s+|an\s+)?([A-Za-z][a-zA-Z ]{2,30})(?:[.,]|$)", "is_a"),
         ]
 
         # Only extract identity predicates from user-authored text, never from
@@ -485,18 +489,44 @@ class KnowledgeGraph:
                 continue
             for m in re.finditer(pattern, text, re.I):
                 groups = m.groups()
-                if predicate in ("has_name", "nickname", "prefers"):
+                if predicate in ("has_name", "nickname", "prefers", "is_a"):
                     # subject is implicit "User"
-                    obj = groups[-1].strip().title()
+                    obj = groups[-1].strip()
                     if (obj and len(obj) > 1
-                            and obj.lower() not in _STOPWORDS
-                            and obj.isalpha()):
+                            and obj.lower() not in _STOPWORDS):
                         self.upsert_entity("User", "person")
                         self.upsert_entity(obj, "value")
+                        # Contradiction detection for identity predicates:
+                        # if User already has a different has_name/nickname, retire
+                        # the old relation by lowering its weight before adding new.
+                        if predicate in _identity_predicates:
+                            try:
+                                uid = self.get_entity_id("User")
+                                if uid is not None:
+                                    conn = self._conn()
+                                    try:
+                                        old_rels = conn.execute(
+                                            "SELECT r.id, e.name FROM kg_relations r "
+                                            "JOIN kg_entities e ON e.id = r.object_id "
+                                            "WHERE r.subject_id=? AND LOWER(r.predicate)=? AND r.weight > 0.1",
+                                            (uid, predicate),
+                                        ).fetchall()
+                                        for _rid, _old_name in old_rels:
+                                            if _old_name.lower() != obj.lower():
+                                                # Conflict: demote old relation weight
+                                                conn.execute(
+                                                    "UPDATE kg_relations SET weight = 0.05 WHERE id = ?",
+                                                    (_rid,),
+                                                )
+                                        conn.commit()
+                                    finally:
+                                        conn.close()
+                            except Exception:
+                                pass
                         if self.add_relation("User", predicate, obj, source=source):
                             added += 1
                 elif len(groups) >= 2:
-                    subj = groups[0].strip().title()
+                    subj = groups[0].strip()
                     obj = groups[1].strip()
                     if (subj and obj
                             and len(subj) > 1 and len(obj) > 1

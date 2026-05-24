@@ -209,6 +209,62 @@ class WorkingMemory:
                     pass
         return saved
 
+    def persist(self, db_path: str) -> None:
+        """Persist high-importance pinned facts to SQLite for cross-session recovery."""
+        import sqlite3
+        try:
+            conn = sqlite3.connect(str(db_path))
+            conn.execute("""
+                CREATE TABLE IF NOT EXISTS working_memory_pins (
+                    key TEXT PRIMARY KEY,
+                    text TEXT NOT NULL,
+                    source TEXT DEFAULT 'auto',
+                    importance REAL DEFAULT 0.5,
+                    hit_count INTEGER DEFAULT 1,
+                    saved_at REAL
+                )
+            """)
+            conn.execute("DELETE FROM working_memory_pins")
+            now = time.time()
+            for key, fact in self._facts.items():
+                if fact.importance >= 0.65:
+                    conn.execute(
+                        "INSERT OR REPLACE INTO working_memory_pins "
+                        "(key, text, source, importance, hit_count, saved_at) VALUES (?,?,?,?,?,?)",
+                        (key, fact.text, fact.source, fact.importance, fact.hit_count, now),
+                    )
+            conn.commit()
+            conn.close()
+        except Exception:
+            pass
+
+    def restore(self, db_path: str) -> int:
+        """Load pinned facts from SQLite into this session. Returns count loaded."""
+        import sqlite3
+        loaded = 0
+        try:
+            conn = sqlite3.connect(str(db_path))
+            try:
+                rows = conn.execute(
+                    "SELECT key, text, source, importance, hit_count "
+                    "FROM working_memory_pins ORDER BY importance DESC LIMIT ?",
+                    (MAX_PINS,),
+                ).fetchall()
+            except Exception:
+                conn.close()
+                return 0
+            conn.close()
+            for row in rows:
+                key, text, source, importance, hit_count = row
+                if text and text.strip():
+                    fact = _PinnedFact(text, source or "auto", self._turn, float(importance or 0.5))
+                    fact.hit_count = int(hit_count or 1)
+                    self._facts[key or self._key(text)] = fact
+                    loaded += 1
+        except Exception:
+            pass
+        return loaded
+
     def summary(self) -> Dict[str, Any]:
         return {
             "turn": self._turn,
