@@ -9264,8 +9264,10 @@ Answer:"""
                         _ev_for_synthesis = "\n".join(_clean_lines)
                         # Prepend instruction so the model knows what to include
                         _ev_for_synthesis = (
-                            "[INSTRUCTION: Report PERSONAL facts about the user only — "
-                            "name, preferences, work context, interests, habits. "
+                            "[INSTRUCTION: This is the ACTIVE USER'S identity data — NOT ELI's. "
+                            "Answer in SECOND PERSON. Say 'Your name is X' or 'You are X'. "
+                            "NEVER say 'My name is X' — ELI's name is ELI, not the user's name. "
+                            "Report personal facts about the user only: name, preferences, work context, interests, habits. "
                             "Do NOT include system diagnostic statistics or DB counts.]\n\n"
                             + _ev_for_synthesis
                         )
