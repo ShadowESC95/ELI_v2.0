@@ -3158,13 +3158,16 @@ class CognitiveEngine:
             "critique": mode in {"self_consistency", "tree_of_thoughts", "constitutional_ai"},
         }
         # Carry through algorithm-specific extras for the helpers in
-        # _run_tree_of_thoughts / _run_constitutional_ai / _run_self_consistency.
+        # _run_chain_of_thought / _run_tree_of_thoughts /
+        # _run_constitutional_ai / _run_self_consistency.
         for key in (
             "samples", "branches", "stages",
             "max_tokens_propose", "max_tokens_develop",
             "max_tokens_per_sample", "max_tokens_final",
             "max_tokens_generate", "max_tokens_critique", "max_tokens_revise",
+            "max_tokens_reasoning",
             "temperature_propose", "temperature_develop",
+            "temperature_reasoning", "temperature_final",
             "top_k", "voice",
         ):
             if key in preset:
@@ -5248,17 +5251,89 @@ Answer:"""
     # ─────────────────────────────────────────────────────────────────────────
     # Reasoning-mode algorithms.
     #
-    # Modes are not just system-prompt strings on the same single-pass call.
-    # Each one runs its own algorithm:
+    # All four private modes run distinct multi-stage GGUF pipelines:
+    #   - chain_of_thought:  private scratchpad reasoning → final clean answer
     #   - tree_of_thoughts:  propose K candidate approaches → score → develop best
     #   - constitutional_ai: generate → critique against principles → revise
     #   - self_consistency:  N samples → LLM picks the most consistent
-    #   - chain_of_thought:  single call (instruction enforces step format)
-    #   - quick:             single call, no overhead
-    # The cheaper modes route through the standard pass-loop above; the
-    # heavier modes call the helpers below. All paths still feed the
+    #   - quick:             single call, no overhead (pass-loop only)
+    # All four private modes go through _run_mode_algorithm; quick routes
+    # through the standard pass-loop above. All paths still feed the
     # confidence-threshold retry as a safety net.
     # ─────────────────────────────────────────────────────────────────────────
+
+    def _run_chain_of_thought(self, user_input: str, working_context: str,
+                              gen_overrides: Dict[str, Any], situation_brief: str) -> str:
+        """Two-stage private CoT: private scratchpad reasoning → final clean answer.
+
+        Stage 1 (private): generate a structured, exhaustive reasoning chain — never
+        shown to the user; only used as context for stage 2.
+        Stage 2 (final):   condense the private reasoning into a clean, direct answer
+        with no step-narration or preamble.
+
+        Per-stage budgets come from `mode_presets["cot"]` keys
+        `max_tokens_reasoning` / `max_tokens_final` (or fall back to 60%/80% of
+        the total `max_tokens` budget).
+        """
+        preset = self._mode_profile("chain_of_thought")
+        max_tok_total = int(
+            preset.get("max_tokens") or (gen_overrides or {}).get("max_tokens") or 2048
+        )
+        if max_tok_total <= 0:
+            max_tok_total = 2048
+        max_tok_reason = int(preset.get("max_tokens_reasoning", max(512, int(max_tok_total * 0.60))))
+        max_tok_final  = int(preset.get("max_tokens_final",     max(512, int(max_tok_total * 0.80))))
+        base_temp      = float(preset.get("temperature", 0.5))
+        temp_reason    = float(preset.get("temperature_reasoning", min(0.50, base_temp)))
+        temp_final     = float(preset.get("temperature_final",     max(0.10, base_temp - 0.15)))
+
+        # Stage 1: private chain-of-thought scratchpad
+        reason_prompt = (
+            "Think through the following request step by step. "
+            "This is your PRIVATE reasoning scratchpad — it will NOT be shown to the user. "
+            "Work through: what is being asked, what relevant facts or context apply, "
+            "what assumptions are safe to make, what the answer should cover, "
+            "and any edge cases or ambiguities. "
+            "Be explicit, exhaustive, and structured. Use numbered steps.\n\n"
+            f"REQUEST: {user_input}"
+        )
+        reason_overrides = dict(gen_overrides or {})
+        reason_overrides["temperature"] = temp_reason
+        reason_overrides["max_tokens"]  = max_tok_reason
+        private_reasoning = self._get_chat_response(
+            reason_prompt, working_context,
+            reasoning_mode="chain_of_thought", gen_overrides=reason_overrides,
+            situation_brief=situation_brief,
+        )
+        log.debug(
+            f"[REASONING][CoT] private scratchpad ({len(private_reasoning)} chars, "
+            f"max_tok={max_tok_reason}, temp={temp_reason:.2f})"
+        )
+
+        # Stage 2: final answer informed by private reasoning
+        final_prompt = (
+            "Using your internal reasoning below, write ONLY the final answer to the original request. "
+            "Do NOT reproduce your reasoning steps or numbered list. "
+            "Do NOT include any preamble like 'Based on my reasoning', 'After thinking through this', "
+            "'In conclusion', or any meta-commentary about the process. "
+            "Write in natural prose as if this is your complete, direct response.\n\n"
+            f"INTERNAL REASONING (private — do not quote back):\n{private_reasoning}\n\n"
+            f"ORIGINAL REQUEST: {user_input}"
+        )
+        final_overrides = dict(gen_overrides or {})
+        final_overrides["temperature"] = temp_final
+        final_overrides["max_tokens"]  = max_tok_final
+        final = self._get_chat_response(
+            final_prompt, working_context,
+            reasoning_mode="chain_of_thought", gen_overrides=final_overrides,
+            situation_brief=situation_brief,
+        )
+        final = _strip_reasoning_scaffold(final)
+        log.debug(
+            f"[REASONING][CoT] final answer ({len(final)} chars, "
+            f"max_tok={max_tok_final}, temp={temp_final:.2f})"
+        )
+        return final
 
     def _run_tree_of_thoughts(self, user_input: str, working_context: str,
                               gen_overrides: Dict[str, Any], situation_brief: str,
@@ -5528,12 +5603,14 @@ Answer:"""
         return chosen
 
     def _supports_mode_algorithm(self, mode: str) -> bool:
-        """Modes whose algorithm goes through the multi-stage helpers above."""
-        return mode in {"tree_of_thoughts", "constitutional_ai", "self_consistency"}
+        """All four private modes run multi-stage GGUF pipelines."""
+        return mode in {"chain_of_thought", "tree_of_thoughts", "constitutional_ai", "self_consistency"}
 
     def _run_mode_algorithm(self, mode: str, user_input: str, working_context: str,
                             gen_overrides: Dict[str, Any], situation_brief: str) -> Optional[str]:
         """Dispatch to the per-mode algorithm. Returns None if mode is not algorithmic."""
+        if mode == "chain_of_thought":
+            return self._run_chain_of_thought(user_input, working_context, gen_overrides, situation_brief)
         if mode == "tree_of_thoughts":
             return self._run_tree_of_thoughts(user_input, working_context, gen_overrides, situation_brief)
         if mode == "constitutional_ai":
