@@ -107,6 +107,24 @@ def reflect_on_period(hours: int = 24) -> Dict[str, Any]:
                 mem.store_memory(reflection_text, tags=["reflection", "auto"])
         except Exception:
             pass
+        # Also store each individual insight as a searchable "insight" memory.
+        # "reflection" kind/tag is noise-filtered in recall — "insight" kind surfaces.
+        for _ins in insights[:6]:
+            _ins_text = str(_ins or "").strip()
+            if not _ins_text or len(_ins_text) < 15:
+                continue
+            try:
+                _existing = mem.recall_memory(_ins_text[:40], limit=2)
+                if not any(_ins_text[:30].lower() in str(m.get("text", "")).lower() for m in _existing):
+                    mem.store_memory(
+                        _ins_text,
+                        tags=["eli_insight", "auto"],
+                        kind="insight",
+                        source="eli_reflection",
+                        importance=0.65,
+                    )
+            except Exception:
+                pass
 
     if not insights:
         insights.append("No evidence-backed activity signals recorded for this period.")

@@ -309,6 +309,20 @@ def build_persona_handoff(
 
     parts: list[str] = []
     parts.append("GROUNDING PACKAGE FOR ELI")
+    parts.append(
+        "INSTRUCTIONS FOR USING THIS GROUNDING PACKAGE: "
+        "This package is INTERNAL CONTEXT only. It contains diagnostic signals "
+        "(habits, runtime patterns, failure logs, memory themes, system status). "
+        "Use it to inform your answer — never quote, paraphrase, or list its contents "
+        "verbatim in your reply. Never name internal symbols (e.g. 'security_blocked', "
+        "'RUN_CMD', 'PAUSE_MEDIA', 'NOOP', 'gui_direct_command', 'autonomy_pressure'). "
+        "Your reply must NOT begin with a speaker label, role label, stage label, "
+        "or mode label. Forbidden opening prefixes include: 'As ELI:', 'ELI:', "
+        "'As an AI', 'As a:', 'Quick:', 'CoT:', 'Chain of Thought:', "
+        "'Constitutional:', 'Approach 1:', 'Approach 2:', 'Approach 3:', "
+        "'Stage 1:', 'Selected:', and any analogous self-narrating preamble. "
+        "Answer the user's actual message in natural language only."
+    )
     parts.append(f"USER INPUT: {user_input}")
 
     # ── User identity ──────────────────────────────────────────────────────
@@ -420,13 +434,20 @@ def build_persona_handoff(
             pass
 
     parts.append(
-        "\nFINAL INSTRUCTION TO ELI:\n"
-        "Read the grounding package above. Respond as ELI in persona. "
-        "Write one direct, natural answer to the user's actual question. "
+        "\nFINAL INSTRUCTION:\n"
+        "Write ONE direct, natural answer to the user's actual question. "
+        "Begin with the answer itself — never with a speaker label, role label, "
+        "stage label, mode label, or framing preamble. Specifically forbidden "
+        "opening forms: 'As ELI:', 'ELI:', 'As a:', 'As an assistant', 'Quick:', "
+        "'CoT:', 'Chain of Thought:', 'Constitutional:', 'Approach N:', "
+        "'Approach 1/2/3:', 'Stage N:', 'Step N:', 'Selected approach:', or any "
+        "similar self-narration. The user wants the answer; speak in your own "
+        "voice without announcing it. "
         "Use RECENT DIALOGUE for callbacks, jokes, fragments, and conversational continuity. "
         "Prioritise GROUNDED FACTS for status/runtime/file/memory queries. "
-        "If the user is complaining about repeated failures, identify the repeated pattern and name the next concrete check. "
-        "Do not dump raw tool output. Do not expose internal stage labels unless explicitly asked."
+        "If the user is complaining about repeated failures, identify the repeated "
+        "pattern and name the next concrete check. "
+        "Do not dump raw tool output. Do not expose internal stage labels."
     )
     if action == "RUNTIME_STATUS":
         parts.append(

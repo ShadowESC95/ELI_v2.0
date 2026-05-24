@@ -4894,6 +4894,22 @@ class _SimIDETab(QWidget):
             self._editor.setText(text)
         else:
             self._editor.setPlainText(text)
+        # Clear stale plot so previous run's image doesn't persist
+        if _MPL and getattr(self, "_canvas", None) and getattr(self, "_fig", None):
+            try:
+                self._fig.clear()
+                self._canvas.draw()
+            except Exception:
+                pass
+        # Delete cached plot files so "Refresh plot" doesn't show the old image
+        try:
+            from pathlib import Path as _P
+            for _pf in _LABS_PLOT_FILES.values():
+                _fp = _P(_pf)
+                if _fp.exists():
+                    _fp.unlink(missing_ok=True)
+        except Exception:
+            pass
 
     def _load_starter(self, name: str):
         code = self._STARTERS.get(name, "")

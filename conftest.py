@@ -155,7 +155,7 @@ CREATE TABLE IF NOT EXISTS knowledge (
 
 @pytest.fixture
 def project_root():
-    return Path(__file__).parent.parent
+    return Path(__file__).parent
 
 
 @pytest.fixture

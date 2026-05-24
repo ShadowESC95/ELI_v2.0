@@ -23,7 +23,9 @@ def _safe_call(obj: Any, name: str, *args, **kwargs):
     if callable(fn):
         try:
             return fn(*args, **kwargs)
-        except Exception:
+        except Exception as _exc:
+            log.warning("persona_updater._safe_call: %s.%s raised %s: %s",
+                        type(obj).__name__, name, type(_exc).__name__, _exc)
             return None
     return None
 
@@ -33,7 +35,9 @@ def _clean(value: Any) -> str:
 
 
 def _top_lines(rows: Any, key: str, limit: int = 8) -> List[str]:
-    """Extract text lines from memory rows, filtering out raw user chat messages."""
+    """Extract text lines from memory rows, filtering out raw user chat messages,
+    red-team probe logs, and other content that would contaminate the LLM context
+    if injected into the persona overlay."""
     import re as _re
     # Raw conversational messages should never go into the persona overlay
     _chat_noise = _re.compile(
@@ -42,15 +46,32 @@ def _top_lines(rows: Any, key: str, limit: int = 8) -> List[str]:
         r"let me|tell me|give me|show me|help me|could you|would you)",
         _re.I
     )
+    # Red-team / security probe logs MUST NOT enter the persona overlay.
+    # When the LLM sees them in context it confabulates responses mentioning
+    # "security_blocked", raw shell commands, file paths like /etc/passwd, etc.
+    # These are internal diagnostic signals, not signals about persona.
+    _diagnostic_noise = _re.compile(
+        r"(?:security[_\s]+blocked|"
+        r"\bRUN_CMD\b|\bSHELL_EXEC\b|"
+        r"\b(?:rm\s+-rf|chmod|chown|chpasswd|crontab|iptables|dd\s+if=|nc\s+-l|"
+        r"echo\s+\S+\s*>|cat\s+/etc/|ls\s+-la|mkfs|fdisk|kill\s+-9)\b|"
+        r"/etc/(?:passwd|shadow|sudoers|hosts)|"
+        r"/dev/(?:null|zero|random)|"
+        r"investigate failure:\s*run_cmd)",
+        _re.I,
+    )
     out: List[str] = []
     if not rows:
         return out
-    for row in rows[:limit * 3]:  # scan more to find non-noise entries
+    for row in rows[:limit * 5]:  # scan more to find non-noise entries
         text = _clean(row.get(key) if isinstance(row, dict) else "")
         if not text:
             continue
         # Skip raw conversational user messages
         if _chat_noise.match(text):
+            continue
+        # Skip red-team probe logs (security_blocked, raw shell commands, etc.)
+        if _diagnostic_noise.search(text):
             continue
         # Skip very short entries (likely noise)
         if len(text) < 20:
