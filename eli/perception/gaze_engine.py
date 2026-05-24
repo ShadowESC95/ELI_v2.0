@@ -35,6 +35,10 @@ import time
 from pathlib import Path
 from typing import Any, Dict, Optional
 
+
+from eli.utils.log import get_logger
+log = get_logger(__name__)
+
 # ── gaze_core location ────────────────────────────────────────────────────────
 # The kit lives in experimental/; inject it once, lazily.
 _GAZE_CORE_CANDIDATES: list[Path] = [
@@ -191,7 +195,7 @@ class _GazeEngineService:
             try:
                 mapper = GazeMapper(cal_path)
             except Exception as e:
-                print(f"[GAZE] Calibration load failed: {e} — running uncalibrated")
+                log.debug(f"[GAZE] Calibration load failed: {e} — running uncalibrated")
 
         state_path = _gaze_state_dir() / "latest_gaze.json"
         state_path.parent.mkdir(parents=True, exist_ok=True)

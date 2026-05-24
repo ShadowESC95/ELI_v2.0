@@ -66,6 +66,10 @@ from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional, Set
 
 
+
+from eli.utils.log import get_logger
+log = get_logger(__name__)
+
 # ---------------------------------------------------------------------------
 # Agent dispatch persistence
 # ---------------------------------------------------------------------------
@@ -599,7 +603,7 @@ def _eli_memory_should_run(user_input: str, action: str) -> bool:
         return True
 
     # Tiny fragments after wake, e.g. "here i will", should not drag in memory.
-    if len(words) < 10:
+    if len(words) < 4:
         return False
 
     return True
@@ -623,7 +627,7 @@ class MemoryAgent(_BaseAgent):
             action = str((intent or {}).get("action") or "CHAT").upper().strip()
             if not _eli_memory_should_run(user_input, action):
                 elapsed = (time.perf_counter() - t0) * 1000
-                print(f"[AGENT:memory] skipped action={action} short_or_irrelevant elapsed={elapsed:.0f}ms")
+                log.debug(f"[AGENT:memory] skipped action={action} short_or_irrelevant elapsed={elapsed:.0f}ms")
                 return AgentResult(
                     agent=self.name,
                     ok=True,
@@ -735,7 +739,7 @@ class MemoryAgent(_BaseAgent):
             memory_context = "\n\n".join(context_parts).strip()
             elapsed = (time.perf_counter() - t0) * 1000
 
-            print(f"[AGENT:memory] hits={total_hits} ctx_chars={len(memory_context)} "
+            log.debug(f"[AGENT:memory] hits={total_hits} ctx_chars={len(memory_context)} "
                   f"conf={local_conf:.2f} elapsed={elapsed:.0f}ms")
 
             return AgentResult(
@@ -750,7 +754,7 @@ class MemoryAgent(_BaseAgent):
             )
         except Exception as e:
             elapsed = (time.perf_counter() - t0) * 1000
-            print(f"[AGENT:memory] ERROR: {e}")
+            log.debug(f"[AGENT:memory] ERROR: {e}")
             return AgentResult(agent=self.name, ok=False, confidence=0.0,
                                data={}, elapsed_ms=elapsed, error=str(e))
 
@@ -854,12 +858,12 @@ class SystemAgent(_BaseAgent):
         try:
             from eli.execution.executor_enhanced import execute
             result = execute(action, intent.get("args") or {})
-            print(f"[AGENT:system] execute result: {result}")
+            log.debug(f"[AGENT:system] execute result: {result}")
             elapsed = (time.perf_counter() - t0) * 1000
             ok = bool(result.get("ok", False))
             local_conf = 0.92 if ok else 0.20
             content = result.get("content") or result.get("response") or ""
-            print(f"[AGENT:system] action={action} ok={ok} "
+            log.debug(f"[AGENT:system] action={action} ok={ok} "
                   f"conf={local_conf:.2f} elapsed={elapsed:.0f}ms")
             return AgentResult(
                 agent=self.name, ok=ok, confidence=local_conf,
@@ -869,7 +873,7 @@ class SystemAgent(_BaseAgent):
             )
         except Exception as e:
             elapsed = (time.perf_counter() - t0) * 1000
-            print(f"[AGENT:system] ERROR action={action}: {e}")
+            log.debug(f"[AGENT:system] ERROR action={action}: {e}")
             return AgentResult(agent=self.name, ok=False, confidence=0.0,
                                data={}, elapsed_ms=elapsed, error=str(e))
 
@@ -902,7 +906,7 @@ class HabitAgent(_BaseAgent):
             events = mem.get_habit_events(event_type="app_launch", days=14)
             elapsed = (time.perf_counter() - t0) * 1000
             local_conf = 0.70 if rules else 0.30
-            print(f"[AGENT:habit] rules={len(rules)} events={len(events)} "
+            log.debug(f"[AGENT:habit] rules={len(rules)} events={len(events)} "
                   f"conf={local_conf:.2f} elapsed={elapsed:.0f}ms")
             return AgentResult(
                 agent=self.name, ok=True, confidence=local_conf,
@@ -911,7 +915,7 @@ class HabitAgent(_BaseAgent):
             )
         except Exception as e:
             elapsed = (time.perf_counter() - t0) * 1000
-            print(f"[AGENT:habit] ERROR: {e}")
+            log.debug(f"[AGENT:habit] ERROR: {e}")
             return AgentResult(agent=self.name, ok=False, confidence=0.0,
                                data={}, elapsed_ms=elapsed, error=str(e))
 
@@ -948,7 +952,7 @@ class SelfImprovementAgent(_BaseAgent):
                 pass
             elapsed = (time.perf_counter() - t0) * 1000
             local_conf = 0.65 if failures or proposals else 0.25
-            print(f"[AGENT:self_improvement] failures={len(failures)} "
+            log.debug(f"[AGENT:self_improvement] failures={len(failures)} "
                   f"proposals={len(proposals)} conf={local_conf:.2f} "
                   f"elapsed={elapsed:.0f}ms")
             return AgentResult(
@@ -958,7 +962,7 @@ class SelfImprovementAgent(_BaseAgent):
             )
         except Exception as e:
             elapsed = (time.perf_counter() - t0) * 1000
-            print(f"[AGENT:self_improvement] ERROR: {e}")
+            log.debug(f"[AGENT:self_improvement] ERROR: {e}")
             return AgentResult(agent=self.name, ok=False, confidence=0.0,
                                data={}, elapsed_ms=elapsed, error=str(e))
 
@@ -1006,7 +1010,7 @@ class ProactiveAgent(_BaseAgent):
             status = execute("PROACTIVE_STATUS", {})
             elapsed = (time.perf_counter() - t0) * 1000
             local_conf = 0.70 if insights else 0.35
-            print(f"[AGENT:proactive] insights={len(insights)} "
+            log.debug(f"[AGENT:proactive] insights={len(insights)} "
                   f"daemon_running={status.get('running', False)} "
                   f"conf={local_conf:.2f} elapsed={elapsed:.0f}ms")
             return AgentResult(
@@ -1016,7 +1020,7 @@ class ProactiveAgent(_BaseAgent):
             )
         except Exception as e:
             elapsed = (time.perf_counter() - t0) * 1000
-            print(f"[AGENT:proactive] ERROR: {e}")
+            log.debug(f"[AGENT:proactive] ERROR: {e}")
             return AgentResult(agent=self.name, ok=False, confidence=0.0,
                                data={}, elapsed_ms=elapsed, error=str(e))
 
@@ -1072,7 +1076,7 @@ class FrontierAgent(_BaseAgent):
                 content = format_frontier_status_report(report)
             elapsed = (time.perf_counter() - t0) * 1000
             conf = 0.90 if bool(report.get("ok", False)) else 0.45
-            print(
+            log.debug(
                 f"[AGENT:frontier] ok={report.get('ok', False)} "
                 f"imports={sum(1 for m in report.get('module_matrix', []) if m.get('import_ok'))}/"
                 f"{len(report.get('module_matrix', []))} elapsed={elapsed:.0f}ms"
@@ -1087,7 +1091,7 @@ class FrontierAgent(_BaseAgent):
             )
         except Exception as e:
             elapsed = (time.perf_counter() - t0) * 1000
-            print(f"[AGENT:frontier] ERROR: {e}")
+            log.debug(f"[AGENT:frontier] ERROR: {e}")
             return AgentResult(
                 agent=self.name,
                 ok=False,
@@ -1121,11 +1125,11 @@ class PluginAgent(_BaseAgent):
         try:
             from eli.execution.executor_enhanced import execute
             result = execute(action, intent.get("args") or {})
-            print(f"[AGENT:plugin] execute result: {result}")
+            log.debug(f"[AGENT:plugin] execute result: {result}")
             elapsed = (time.perf_counter() - t0) * 1000
             ok = bool(result.get("ok", False))
             local_conf = 0.88 if ok else 0.18
-            print(f"[AGENT:plugin] action={action} ok={ok} "
+            log.debug(f"[AGENT:plugin] action={action} ok={ok} "
                   f"conf={local_conf:.2f} elapsed={elapsed:.0f}ms")
             return AgentResult(
                 agent=self.name, ok=ok, confidence=local_conf,
@@ -1135,7 +1139,7 @@ class PluginAgent(_BaseAgent):
             )
         except Exception as e:
             elapsed = (time.perf_counter() - t0) * 1000
-            print(f"[AGENT:plugin] ERROR action={action}: {e}")
+            log.debug(f"[AGENT:plugin] ERROR action={action}: {e}")
             return AgentResult(agent=self.name, ok=False, confidence=0.0,
                                data={}, elapsed_ms=elapsed, error=str(e))
 
@@ -1165,7 +1169,7 @@ class CapabilityAgent(_BaseAgent):
             elapsed = (time.perf_counter() - t0) * 1000
             ok = bool(result.get("ok", False))
             local_conf = 0.90 if ok else 0.20
-            print(f"[AGENT:capability] action={exec_action} ok={ok} conf={local_conf:.2f} elapsed={elapsed:.0f}ms")
+            log.debug(f"[AGENT:capability] action={exec_action} ok={ok} conf={local_conf:.2f} elapsed={elapsed:.0f}ms")
             return AgentResult(
                 agent=self.name, ok=ok, confidence=local_conf,
                 data={**result, "action": exec_action, "content": result.get("content") or result.get("response") or ""},
@@ -1174,7 +1178,7 @@ class CapabilityAgent(_BaseAgent):
             )
         except Exception as e:
             elapsed = (time.perf_counter() - t0) * 1000
-            print(f"[AGENT:capability] ERROR: {e}")
+            log.debug(f"[AGENT:capability] ERROR: {e}")
             return AgentResult(agent=self.name, ok=False, confidence=0.0, data={}, elapsed_ms=elapsed, error=str(e))
 
 
@@ -1219,7 +1223,7 @@ class VoiceAgent(_BaseAgent):
                        else ", STT: faster-whisper not installed")
                 )
             }
-            print(f"[AGENT:voice] engine={engine} stt={stt_avail} "
+            log.debug(f"[AGENT:voice] engine={engine} stt={stt_avail} "
                   f"elapsed={elapsed:.0f}ms")
             return AgentResult(agent=self.name, ok=True, confidence=0.65,
                                data=info, elapsed_ms=elapsed)
@@ -1470,7 +1474,7 @@ class OrchestratorAgent(_BaseAgent):
                     "description": "Ground mixed personality/state + memory/runtime prompts through one brokered synthesis step",
                 }
 
-            print(f"[AGENT:orchestrator] action={action} plan_type={plan.get('type','none')} "
+            log.debug(f"[AGENT:orchestrator] action={action} plan_type={plan.get('type','none')} "
                   f"elapsed={elapsed:.0f}ms")
             return AgentResult(
                 agent=self.name, ok=True, confidence=0.70 if plan else 0.0,
@@ -1479,7 +1483,7 @@ class OrchestratorAgent(_BaseAgent):
             )
         except Exception as _orch_err:
             elapsed = (time.perf_counter() - t0) * 1000
-            print(f"[AGENT:orchestrator] ERROR: {_orch_err}")
+            log.debug(f"[AGENT:orchestrator] ERROR: {_orch_err}")
             return AgentResult(agent=self.name, ok=False, confidence=0.0,
                                data={}, elapsed_ms=elapsed, error=str(_orch_err))
 
@@ -1573,13 +1577,13 @@ class AgentBus:
                 result = future.result(timeout=agent.timeout_s)
                 results.append(result)
             except FuturesTimeout:
-                print(f"[AGENTBUS] {agent.name} timed out after {agent.timeout_s}s")
+                log.debug(f"[AGENTBUS] {agent.name} timed out after {agent.timeout_s}s")
                 results.append(AgentResult(
                     agent=agent.name, ok=False, confidence=0.0,
                     data={}, error="timeout",
                 ))
             except Exception as e:
-                print(f"[AGENTBUS] {agent.name} raised: {e}")
+                log.debug(f"[AGENTBUS] {agent.name} raised: {e}")
                 results.append(AgentResult(
                     agent=agent.name, ok=False, confidence=0.0,
                     data={}, error=str(e),
@@ -1637,7 +1641,7 @@ class AgentBus:
                 orchestrator_plan = r.data["plan"]
                 break
 
-        print(
+        log.debug(
             f"[AGENTBUS] action={action} "
             f"profile={sorted(selected_names) if selected_names is not None else 'default'} "
             f"agents_used={agents_used} "
@@ -1960,7 +1964,7 @@ class FileCodeAgent(_BaseAgent):
 
             local_conf = 0.78 if snippets else 0.20
             elapsed = (time.perf_counter() - t0) * 1000
-            print(f"[AGENT:file_code] snippets={len(snippets)} files_scanned={files_scanned} conf={local_conf:.2f} elapsed={elapsed:.0f}ms")
+            log.debug(f"[AGENT:file_code] snippets={len(snippets)} files_scanned={files_scanned} conf={local_conf:.2f} elapsed={elapsed:.0f}ms")
             return AgentResult(
                 agent=self.name,
                 ok=True,
@@ -1970,7 +1974,7 @@ class FileCodeAgent(_BaseAgent):
             )
         except Exception as e:
             elapsed = (time.perf_counter() - t0) * 1000
-            print(f"[AGENT:file_code] ERROR: {e}")
+            log.debug(f"[AGENT:file_code] ERROR: {e}")
             return AgentResult(
                 agent=self.name,
                 ok=False,
@@ -2018,7 +2022,7 @@ class IntrospectionBusAgent(_BaseAgent):
             runtime = ia.get_runtime()
             content = f"Pipeline:\n{pipeline}\n\nMemory stats:\n{memory_stats}\n\nRuntime:\n{runtime}"
             elapsed = (time.perf_counter() - t0) * 1000
-            print(f"[AGENT:introspection] content_chars={len(content)} elapsed={elapsed:.0f}ms")
+            log.debug(f"[AGENT:introspection] content_chars={len(content)} elapsed={elapsed:.0f}ms")
             return AgentResult(
                 agent=self.name, ok=True, confidence=0.90,
                 data={"content": content, "snippets": [content[:800]]},
@@ -2026,7 +2030,7 @@ class IntrospectionBusAgent(_BaseAgent):
             )
         except Exception as e:
             elapsed = (time.perf_counter() - t0) * 1000
-            print(f"[AGENT:introspection] ERROR: {e}")
+            log.debug(f"[AGENT:introspection] ERROR: {e}")
             return AgentResult(agent=self.name, ok=False, confidence=0.0,
                                data={}, elapsed_ms=elapsed, error=str(e))
 
@@ -2092,7 +2096,7 @@ class ReflectionAgent(_BaseAgent):
 
             local_conf = 0.68 if insights else 0.20
             elapsed = (time.perf_counter() - t0) * 1000
-            print(f"[AGENT:reflection] insights={len(insights)} conf={local_conf:.2f} elapsed={elapsed:.0f}ms")
+            log.debug(f"[AGENT:reflection] insights={len(insights)} conf={local_conf:.2f} elapsed={elapsed:.0f}ms")
             return AgentResult(
                 agent=self.name,
                 ok=True,
@@ -2102,7 +2106,7 @@ class ReflectionAgent(_BaseAgent):
             )
         except Exception as e:
             elapsed = (time.perf_counter() - t0) * 1000
-            print(f"[AGENT:reflection] ERROR: {e}")
+            log.debug(f"[AGENT:reflection] ERROR: {e}")
             return AgentResult(
                 agent=self.name,
                 ok=False,
@@ -2146,7 +2150,7 @@ class KnowledgeGraphAgent(_BaseAgent):
 
             confidence = min(0.85, 0.4 + stats["relations"] * 0.02)
             kg_block = f"Knowledge graph context:\n{ctx}"
-            print(f"[AGENT:knowledge_graph] {stats['entities']} entities, "
+            log.debug(f"[AGENT:knowledge_graph] {stats['entities']} entities, "
                   f"{stats['relations']} relations, ctx_chars={len(ctx)} "
                   f"elapsed={elapsed:.0f}ms")
             return AgentResult(
@@ -2234,9 +2238,9 @@ def _trust_custom_agent(py_file: Path) -> None:
         existing[py_file.name] = sha
         registry_path.parent.mkdir(parents=True, exist_ok=True)
         registry_path.write_text(_json_ta.dumps(existing, indent=2), encoding="utf-8")
-        print(f"[AGENTBUS] Trusted agent registered: {py_file.name} ({sha[:12]}…)")
+        log.debug(f"[AGENTBUS] Trusted agent registered: {py_file.name} ({sha[:12]}…)")
     except Exception as _e:
-        print(f"[AGENTBUS] Failed to register agent trust for {py_file.name}: {_e}")
+        log.debug(f"[AGENTBUS] Failed to register agent trust for {py_file.name}: {_e}")
 
 
 def _load_custom_agents() -> None:
@@ -2273,13 +2277,13 @@ def _load_custom_agents() -> None:
                     file_hash = _hl.sha256(py_file.read_bytes()).hexdigest()
                     trusted_hash = trusted.get(py_file.name)
                     if trusted_hash is None:
-                        print(
+                        log.debug(
                             f"[AGENTBUS] SECURITY: Custom agent '{py_file.name}' is not trusted. "
                             f"Run `eli --trust-agent {py_file}` to approve it before loading."
                         )
                         continue
                     if file_hash != trusted_hash:
-                        print(
+                        log.debug(
                             f"[AGENTBUS] SECURITY: Custom agent '{py_file.name}' hash mismatch — "
                             f"file may have been modified. Re-run `eli --trust-agent {py_file}` "
                             f"to re-approve after reviewing the changes."
@@ -2290,11 +2294,11 @@ def _load_custom_agents() -> None:
                     spec = _ilu.spec_from_file_location(py_file.stem, str(py_file))
                     mod = _ilu.module_from_spec(spec)
                     spec.loader.exec_module(mod)
-                    print(f"[AGENTBUS] Loaded custom agent: {py_file.name} from {custom_dir}")
+                    log.debug(f"[AGENTBUS] Loaded custom agent: {py_file.name} from {custom_dir}")
                 except Exception as _e:
-                    print(f"[AGENTBUS] Failed to load custom agent {py_file.name}: {_e}")
+                    log.debug(f"[AGENTBUS] Failed to load custom agent {py_file.name}: {_e}")
         except Exception as _e:
-            print(f"[AGENTBUS] Custom agent dir scan failed for {custom_dir}: {_e}")
+            log.debug(f"[AGENTBUS] Custom agent dir scan failed for {custom_dir}: {_e}")
 
 
 _load_custom_agents()

@@ -254,7 +254,7 @@ def build_live_evidence(
     )
 
     return RuntimeStatusEvidence(
-        name="ELI / Entropy Logical Interface",
+        name="ELI / Enhanced Learning Interface",
         role="local GGUF-backed assistant running inside this ELI MKXI project",
         provider=_first(runtime.get("provider"), cfg.get("provider"), "gguf"),
         model_name=model_name,

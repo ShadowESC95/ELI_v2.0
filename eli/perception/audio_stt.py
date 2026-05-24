@@ -94,12 +94,12 @@ def _eli_duck_output():
 
     if snap and snap[0] == "wpctl":
         _eli_run_quiet(["wpctl", "set-volume", "@DEFAULT_AUDIO_SINK@", _ELI_DUCK_LEVEL], timeout=1.0)
-        print(f"[AUDIO_DUCK] ducked output to {_ELI_DUCK_LEVEL}; snapshot={snap[1]!r}", flush=True)
+        log.debug(f"[AUDIO_DUCK] ducked output to {_ELI_DUCK_LEVEL}; snapshot={snap[1]!r}")
         return snap
 
     if snap and snap[0] == "pactl":
         _eli_run_quiet(["pactl", "set-sink-volume", "@DEFAULT_SINK@", _ELI_DUCK_LEVEL], timeout=1.0)
-        print(f"[AUDIO_DUCK] ducked output to {_ELI_DUCK_LEVEL}; snapshot=pactl", flush=True)
+        log.debug(f"[AUDIO_DUCK] ducked output to {_ELI_DUCK_LEVEL}; snapshot=pactl")
         return snap
 
     return None
@@ -115,11 +115,11 @@ def _eli_restore_output(snapshot):
         vol = _eli_parse_wpctl_volume(raw)
         if vol is not None:
             _eli_run_quiet(["wpctl", "set-volume", "@DEFAULT_AUDIO_SINK@", str(vol)], timeout=1.0)
-            print(f"[AUDIO_DUCK] restored output volume to {vol}", flush=True)
+            log.debug(f"[AUDIO_DUCK] restored output volume to {vol}")
         return
 
     # pactl output is messier. Avoid unsafe parsing. Best effort only.
-    print("[AUDIO_DUCK] pactl restore snapshot present; wpctl restore unavailable", flush=True)
+    log.debug("[AUDIO_DUCK] pactl restore snapshot present; wpctl restore unavailable")
 
 
 def _eli_echo_like_assistant_output(text):
@@ -175,6 +175,10 @@ def _eli_echo_like_assistant_output(text):
 # Silence ALSA/Jack/PulseAudio stderr noise during microphone init
 import ctypes
 import ctypes.util
+
+from eli.utils.log import get_logger
+log = get_logger(__name__)
+
 try:
     _libc = ctypes.CDLL(ctypes.util.find_library("c"))
     _devnull_fd = os.open(os.devnull, os.O_WRONLY)
@@ -333,7 +337,7 @@ def _eli_fast_command_alias(text: str) -> str:
     mapped = exact.get(t)
     if mapped:
         if mapped != t:
-            print(f"[STT_ALIAS] {raw!r} -> {mapped!r}", flush=True)
+            log.debug(f"[STT_ALIAS] {raw!r} -> {mapped!r}")
         return mapped
 
     return t
@@ -795,21 +799,20 @@ class ELIAudioSTT:
         # counts as a phrase. 0.2s is enough to distinguish a real word from a
         # brief transient; 0.5s was silently dropping short commands like "next".
         self.recognizer.phrase_threshold = float(os.environ.get("ELI_STT_PHRASE_THRESHOLD", "0.2"))
-        print(
+        log.debug(
             f"[STT_CONFIG] energy={self.recognizer.energy_threshold} "
             f"dynamic={self.recognizer.dynamic_energy_threshold} "
             f"pause={self.recognizer.pause_threshold} "
             f"non_speaking={self.recognizer.non_speaking_duration}",
-            flush=True,
         )
 
         device_index = os.environ.get("ELI_MIC_DEVICE_INDEX")
         if device_index is not None:
             try:
                 self.microphone = sr.Microphone(device_index=int(device_index))
-                print(f"[AUDIO] Using microphone device index {device_index}")
+                log.debug(f"[AUDIO] Using microphone device index {device_index}")
             except Exception as e:
-                print(f"[AUDIO] Failed to use device {device_index}: {e}. Falling back to default mic.")
+                log.debug(f"[AUDIO] Failed to use device {device_index}: {e}. Falling back to default mic.")
                 self.microphone = sr.Microphone()
         else:
             self.microphone = sr.Microphone()
@@ -841,7 +844,7 @@ class ELIAudioSTT:
         # ELI_STT_CALIBRATE=0 to use the fixed ELI_STT_ENERGY_THRESHOLD instead.
         _do_calibrate = os.environ.get("ELI_STT_CALIBRATE", "0").lower() not in {"0", "false", "no", "off"}
         if _do_calibrate:
-            print("[AUDIO] Calibrating microphone for ambient noise...")
+            log.debug("[AUDIO] Calibrating microphone for ambient noise...")
             _suppress_alsa()
             try:
                 with self.microphone as source:
@@ -851,23 +854,21 @@ class ELIAudioSTT:
                     # Hard cap so loud startup noise can't push threshold into shouting range.
                     _cal_cap = float(os.environ.get("ELI_STT_CAL_CAP", "2000"))
                     if self.recognizer.energy_threshold > _cal_cap:
-                        print(
+                        log.debug(
                             f"[AUDIO] Calibration capped {self.recognizer.energy_threshold:.0f}"
                             f" → {_cal_cap:.0f} (ELI_STT_CAL_CAP)",
-                            flush=True,
                         )
                         self.recognizer.energy_threshold = _cal_cap
             finally:
                 _restore_stderr()
         else:
-            print(
+            log.debug(
                 f"[AUDIO] Ambient calibration skipped (ELI_STT_CALIBRATE=0). "
                 f"Fixed threshold={self.recognizer.energy_threshold:.0f}",
-                flush=True,
             )
         # Bias against picked-up profile, if any history exists.
         self._apply_voice_profile_bias()
-        print(
+        log.debug(
             f"[AUDIO] Microphone ready "
             f"(energy={self.recognizer.energy_threshold:.0f}, "
             f"voice_profile_n={self._voice_profile.get('count', 0)})"
@@ -955,13 +956,13 @@ class ELIAudioSTT:
             self.callback = callback
             if self._thread and self._thread.is_alive():
                 self.is_listening = True
-                print("[AUDIO] Already listening")
+                log.debug("[AUDIO] Already listening")
                 return
             self.is_listening = True
             self._stop_event.clear()
             self._thread = threading.Thread(target=self._listen_loop, daemon=True, name="ELI-STT")
             self._thread.start()
-        print("[AUDIO] Started listening for voice commands")
+        log.debug("[AUDIO] Started listening for voice commands")
 
     def stop_listening(self):
         with self._state_lock:
@@ -973,7 +974,7 @@ class ELIAudioSTT:
         with self._state_lock:
             if self._thread is thread and thread and not thread.is_alive():
                 self._thread = None
-        print("[AUDIO] Stopped listening")
+        log.debug("[AUDIO] Stopped listening")
 
     def listen_once(self, timeout=5) -> str:
         try:
@@ -993,7 +994,7 @@ class ELIAudioSTT:
             from eli.perception.local_whisper_stt import transcribe_speech_recognition_audio as _eli_local_stt
             return _collapse_repeated_phrase(_eli_local_stt(audio).lower().strip())
         except Exception as _stt_err:
-            print(f"[STT][ERROR] transcription failed: {type(_stt_err).__name__}: {_stt_err}", flush=True)
+            log.debug(f"[STT][ERROR] transcription failed: {type(_stt_err).__name__}: {_stt_err}")
             return ""
 
     def _emit(self, cmd: str):
@@ -1010,7 +1011,7 @@ class ELIAudioSTT:
             try:
                 self.callback(cmd)
             except Exception as e:
-                print(f"[AUDIO] Callback error: {e}")
+                log.debug(f"[AUDIO] Callback error: {e}")
         else:
             print("   ↳ NO CALLBACK SET")
 
@@ -1021,7 +1022,7 @@ class ELIAudioSTT:
                 _eli_restore_output(snap)
                 self._eli_duck_snapshot = None
         except Exception as e:
-            print(f"[AUDIO_DUCK][RESTORE_ERROR] {e}", flush=True)
+            log.debug(f"[AUDIO_DUCK][RESTORE_ERROR] {e}")
 
         # Short post-command gate so ELI/media output does not immediately get
         # re-transcribed as the next user command.
@@ -1031,14 +1032,14 @@ class ELIAudioSTT:
             gate_s = 0.5
         self._eli_ignore_until = __import__("time").monotonic() + gate_s
         self._eli_ignore_reason = "post_command_echo_gate"
-        print(f"[AUDIO_ECHO_GATE] ignoring mic for {gate_s:.1f}s after command dispatch", flush=True)
+        log.debug(f"[AUDIO_ECHO_GATE] ignoring mic for {gate_s:.1f}s after command dispatch")
 
     def _listen_loop(self):
         try:
             _suppress_alsa()
             with self.microphone as source:
                 _restore_stderr()
-                print("[AUDIO] Microphone ready")
+                log.debug("[AUDIO] Microphone ready")
                 # Adaptive recalibration: every ELI_STT_RECALIBRATE_EVERY cycles
                 # of silence, redo ambient_noise to follow drifting fan/HVAC noise.
                 _recal_every = int(os.environ.get("ELI_STT_RECALIBRATE_EVERY", "60"))
@@ -1141,7 +1142,7 @@ class ELIAudioSTT:
                                     flush=True,
                                 )
                             except Exception as _recal_err:
-                                print(f"[AUDIO] Recal failed: {_recal_err}", flush=True)
+                                log.debug(f"[AUDIO] Recal failed: {_recal_err}")
                             _silent_streak = 0
                         elif not _do_recal and _silent_streak >= _recal_every and _recal_every > 0:
                             _silent_streak = 0  # reset counter even when calibration is off
@@ -1154,14 +1155,14 @@ class ELIAudioSTT:
                             try:
                                 _eli_restore_output(self._eli_duck_snapshot)
                                 self._eli_duck_snapshot = None
-                                print("[AUDIO_DUCK] Gate expired (no speech) — volume restored", flush=True)
+                                log.debug("[AUDIO_DUCK] Gate expired (no speech) — volume restored")
                             except Exception as _re:
-                                print(f"[AUDIO_DUCK][RESTORE_ERROR] {_re}", flush=True)
+                                log.debug(f"[AUDIO_DUCK][RESTORE_ERROR] {_re}")
                         continue
                     except Exception as e:
                         if not self.is_listening or self._stop_event.is_set():
                             break
-                        print(f"[AUDIO] Listen error: {e}")
+                        log.debug(f"[AUDIO] Listen error: {e}")
                         time.sleep(0.1)
                         continue
 
@@ -1235,9 +1236,9 @@ class ELIAudioSTT:
                         try:
                             _eli_restore_output(self._eli_duck_snapshot)
                             self._eli_duck_snapshot = None
-                            print("[AUDIO_DUCK] Gate expired without dispatch — volume restored", flush=True)
+                            log.debug("[AUDIO_DUCK] Gate expired without dispatch — volume restored")
                         except Exception as _re:
-                            print(f"[AUDIO_DUCK][RESTORE_ERROR] {_re}", flush=True)
+                            log.debug(f"[AUDIO_DUCK][RESTORE_ERROR] {_re}")
 
                     action, payload, wake = self._voice_gate.classify(transcript)
 
@@ -1251,9 +1252,9 @@ class ELIAudioSTT:
                             if self._eli_duck_snapshot is None:
                                 self._eli_duck_snapshot = _eli_duck_output()
                             else:
-                                print("[AUDIO_DUCK] Already ducked — keeping existing snapshot", flush=True)
+                                log.debug("[AUDIO_DUCK] Already ducked — keeping existing snapshot")
                         except Exception as e:
-                            print(f"[AUDIO_DUCK][ERROR] {e}", flush=True)
+                            log.debug(f"[AUDIO_DUCK][ERROR] {e}")
                         continue
 
                     if action == "arm_incomplete":
@@ -1311,7 +1312,7 @@ def start_audio_listening(callback=None):
         get_audio_stt().start_listening(callback)
         return True
     except Exception as e:
-        print(f"[STT] start failed: {e}")
+        log.debug(f"[STT] start failed: {e}")
         return False
 
 
@@ -1378,11 +1379,11 @@ def _eli_media_voice_alias(text: str) -> str:
     if compact in canonical:
         mapped = canonical[compact]
         if mapped != raw.strip().lower():
-            print(f"[STT_ALIAS] {raw!r} -> {mapped!r}", flush=True)
+            log.debug(f"[STT_ALIAS] {raw!r} -> {mapped!r}")
         return mapped
 
     if _audio_noise_alias(raw):
-        print(f"[STT_ALIAS_BLOCKED_FINAL] {raw!r} not converted", flush=True)
+        log.debug(f"[STT_ALIAS_BLOCKED_FINAL] {raw!r} not converted")
         return raw
 
     if callable(_LEGACY_MEDIA_VOICE_ALIAS):
@@ -1394,12 +1395,12 @@ def _eli_media_voice_alias(text: str) -> str:
                 "volume up", "volume down", "mute", "unmute",
                 "play", "pause", "resume", "stop", "next", "previous"
             }:
-                print(f"[STT_ALIAS_BLOCKED_FINAL] old alias tried {raw!r} -> {mapped!r}", flush=True)
+                log.debug(f"[STT_ALIAS_BLOCKED_FINAL] old alias tried {raw!r} -> {mapped!r}")
                 return raw
 
             return mapped
         except Exception as e:
-            print(f"[STT_ALIAS_BLOCKED_FINAL] alias error: {e}", flush=True)
+            log.debug(f"[STT_ALIAS_BLOCKED_FINAL] alias error: {e}")
             return raw
 
     return raw

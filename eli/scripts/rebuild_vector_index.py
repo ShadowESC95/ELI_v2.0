@@ -25,6 +25,10 @@ import time
 from pathlib import Path
 
 
+
+from eli.utils.log import get_logger
+log = get_logger(__name__)
+
 def _resolve_db_path(explicit: str | None) -> Path:
     if explicit:
         return Path(explicit).expanduser().resolve()
@@ -52,20 +56,20 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
 
     db_path = _resolve_db_path(args.db)
-    print(f"[rebuild_vector_index] DB: {db_path}")
+    log.debug(f"[rebuild_vector_index] DB: {db_path}")
     if not db_path.exists():
-        print(f"[rebuild_vector_index] ERROR: DB not found at {db_path}", file=sys.stderr)
+        log.error(f"[rebuild_vector_index] ERROR: DB not found at {db_path}")
         return 1
 
     try:
         from eli.memory.vector_store import get_vector_store
     except ImportError as exc:
-        print(f"[rebuild_vector_index] ERROR: cannot import vector_store: {exc}", file=sys.stderr)
+        log.error(f"[rebuild_vector_index] ERROR: cannot import vector_store: {exc}")
         return 1
 
     vs = get_vector_store()
     if vs is None:
-        print("[rebuild_vector_index] No vector store available (FAISS not installed?).")
+        log.debug("[rebuild_vector_index] No vector store available (FAISS not installed?).")
         return 0
 
     import sqlite3
@@ -78,9 +82,9 @@ def main(argv: list[str] | None = None) -> int:
     ).fetchall()
     conn.close()
 
-    print(f"[rebuild_vector_index] Found {len(rows)} memories to index.")
+    log.debug(f"[rebuild_vector_index] Found {len(rows)} memories to index.")
     if args.dry_run:
-        print("[rebuild_vector_index] Dry run — no changes written.")
+        log.debug("[rebuild_vector_index] Dry run — no changes written.")
         return 0
 
     indexed = 0
@@ -108,7 +112,7 @@ def main(argv: list[str] | None = None) -> int:
         vs.flush()
 
     elapsed = time.perf_counter() - t0
-    print(
+    log.debug(
         f"[rebuild_vector_index] Indexed {indexed}/{len(rows)} memories "
         f"in {elapsed:.2f}s."
     )

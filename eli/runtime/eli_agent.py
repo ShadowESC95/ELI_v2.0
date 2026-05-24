@@ -4,6 +4,10 @@ import platform as _platform
 from pathlib import Path
 import requests
 
+
+from eli.utils.log import get_logger
+log = get_logger(__name__)
+
 # ---------------- Config ----------------
 OLLAMA_URL = os.environ.get("ELI_OLLAMA_URL", "http://localhost:11434/api/chat")
 MODEL      = os.environ.get("ELI_MODEL", "xichi-analyst-qwen32:2025-12-09a")
@@ -45,7 +49,7 @@ def notify(title, body):
         _notify(title, body[:240])
     except Exception:
         pass
-    print(f"[{title}] {body}")
+    log.debug(f"[{title}] {body}")
 
 def speak(text):
     notify("ELI", text)

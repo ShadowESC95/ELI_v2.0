@@ -11,6 +11,10 @@ from typing import List, Dict
 from eli.memory import get_memory
 from eli.execution.executor_enhanced import execute
 
+
+from eli.utils.log import get_logger
+log = get_logger(__name__)
+
 class HabitScheduler:
     def __init__(self):
         self.memory = get_memory()
@@ -48,7 +52,7 @@ class HabitScheduler:
     def _execute_rule(self, rule: Dict):
         """Run a habit rule and record its execution."""
         command = rule['command']
-        print(f"[SCHEDULER] Executing habit '{rule['name']}': {command}")
+        log.debug(f"[SCHEDULER] Executing habit '{rule['name']}': {command}")
 
         # Try to parse as a natural language command – use cognitive engine
         try:

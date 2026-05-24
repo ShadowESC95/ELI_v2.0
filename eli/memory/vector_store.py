@@ -2,6 +2,10 @@ from __future__ import annotations
 import os, pickle, threading
 from typing import Any, Dict, List, Optional
 
+
+from eli.utils.log import get_logger
+log = get_logger(__name__)
+
 try:
     from eli.runtime.native_locks import FAISS_IO_LOCK, LLAMA_CPP_NATIVE_LOCK
 except Exception:
@@ -35,14 +39,14 @@ def get_vector_store() -> Optional["VectorStore"]:
     if _store is not None:
         return _store
     if not FAISS_AVAILABLE:
-        print("[VECTOR_STORE] faiss not installed — vector search disabled")
+        log.debug("[VECTOR_STORE] faiss not installed — vector search disabled")
         return None
     with _store_lock:
         if _store is None:
             try:
                 _store = VectorStore()
             except Exception as e:
-                print(f"[VECTOR_STORE] Init failed: {e}")
+                log.debug(f"[VECTOR_STORE] Init failed: {e}")
                 return None
     return _store
 
@@ -102,7 +106,7 @@ class VectorStore:
                         _con.close()
                     _vec_count = self._index.ntotal if self._index is not None else 0
                     if _sqlite_count > 0 and _vec_count < _sqlite_count * 0.8:
-                        print(
+                        log.debug(
                             f"[VECTOR_STORE] Index divergence detected: "
                             f"{_vec_count} vectors vs {_sqlite_count} DB memories — scheduling rebuild"
                         )
@@ -116,7 +120,7 @@ class VectorStore:
         # === PHASE43_SKIP_VECTOR_EMBED_DURING_SHUTDOWN ===
         try:
             if os.environ.get('ELI_SHUTTING_DOWN') == '1':
-                print('[VECTOR_STORE][PHASE43] skipping embedding during shutdown')
+                log.debug('[VECTOR_STORE][PHASE43] skipping embedding during shutdown')
                 return False
         except Exception:
             pass
@@ -194,10 +198,10 @@ class VectorStore:
                     r = self._llm.create_embedding(pfx + text)
                     return r['data'][0]['embedding']
             self._embedder = _EmbedShim(_llm)
-            print('[VECTOR_STORE] Embedder ready (nomic-embed-text-v1.5.Q4_K_M.gguf)')
+            log.debug('[VECTOR_STORE] Embedder ready (nomic-embed-text-v1.5.Q4_K_M.gguf)')
         except Exception as e:
             self._embedder_error = str(e)
-            print('[VECTOR_STORE] Embedder unavailable, keyword fallback: ' + str(e))
+            log.debug('[VECTOR_STORE] Embedder unavailable, keyword fallback: ' + str(e))
 
     def _auto_rebuild(self) -> None:
         """Background rebuild triggered on startup when saved index is empty but DB has memories."""
@@ -220,7 +224,7 @@ class VectorStore:
             finally:
                 con.close()
         except Exception as e:
-            print(f"[VECTOR_STORE] Auto-rebuild DB read failed: {e}")
+            log.debug(f"[VECTOR_STORE] Auto-rebuild DB read failed: {e}")
             return
         if not raw:
             return
@@ -228,9 +232,9 @@ class VectorStore:
             {"text": row[0].strip(), "source": row[1], "tags": row[2], "kind": row[3], "id": row[4]}
             for row in raw if row[0].strip()
         ]
-        print(f"[VECTOR_STORE] Auto-rebuilding index from {len(entries)} memories…")
+        log.debug(f"[VECTOR_STORE] Auto-rebuilding index from {len(entries)} memories…")
         self.rebuild_full(entries)
-        print(f"[VECTOR_STORE] Auto-rebuild complete: {self.ntotal} vectors")
+        log.debug(f"[VECTOR_STORE] Auto-rebuild complete: {self.ntotal} vectors")
 
     def _embed(self, text: str) -> Optional[Any]:
         if self._embedder is None:
@@ -244,7 +248,7 @@ class VectorStore:
                 faiss.normalize_L2(arr)
                 return arr
             except Exception as e:
-                print(f"[VECTOR_STORE] embed failed: {e}")
+                log.debug(f"[VECTOR_STORE] embed failed: {e}")
                 return None
 
     def _keyword_fallback(self, query: str, top_k: int) -> List[Dict[str, Any]]:
@@ -270,13 +274,13 @@ class VectorStore:
                 with open(self._meta_path, "rb") as f:
                     self._meta = pickle.load(f)
                 loaded = self._index.ntotal
-                print(f"[VECTOR_STORE] Loaded {loaded} vectors")
+                log.debug(f"[VECTOR_STORE] Loaded {loaded} vectors")
                 if loaded == 0:
                     # Saved index is empty — schedule a background rebuild after embedder init
                     self._needs_rebuild = True
                 return
             except Exception as e:
-                print(f"[VECTOR_STORE] Load failed, starting fresh: {e}")
+                log.debug(f"[VECTOR_STORE] Load failed, starting fresh: {e}")
         self._index = faiss.IndexFlatL2(EMBED_DIM)
         self._meta = []
         self._needs_rebuild = True
@@ -298,7 +302,7 @@ class VectorStore:
                     with open(self._meta_path, "wb") as f:
                         pickle.dump(meta_snapshot, f)
             except Exception as e:
-                print(f"[VECTOR_STORE] Background save failed: {e}")
+                log.debug(f"[VECTOR_STORE] Background save failed: {e}")
         threading.Thread(target=_write, daemon=True, name="eli-vs-save").start()
 
     def _prune(self) -> None:
@@ -314,7 +318,7 @@ class VectorStore:
                 new_index.add(vec)
         self._index = new_index
         self._meta = keep
-        print(f"[VECTOR_STORE] Pruned to {MAX_ENTRIES} entries")
+        log.debug(f"[VECTOR_STORE] Pruned to {MAX_ENTRIES} entries")
 
     def flush(self) -> None:
         """Force-save index and metadata to disk."""
@@ -326,7 +330,7 @@ class VectorStore:
                     pickle.dump(self._meta, f)
                 self._adds_since_save = 0
             except Exception as e:
-                print(f"[VECTOR_STORE] flush failed: {e}")
+                log.debug(f"[VECTOR_STORE] flush failed: {e}")
 
     def rebuild_full(self, texts_and_meta: List[Dict[str, Any]]) -> None:
         """Rebuild the entire FAISS index from a list of {text, ...metadata} dicts."""
@@ -343,7 +347,7 @@ class VectorStore:
             self._meta = new_meta
             self._adds_since_save = 0
         self.flush()
-        print(f"[VECTOR_STORE] Rebuilt index with {new_index.ntotal} vectors")
+        log.debug(f"[VECTOR_STORE] Rebuilt index with {new_index.ntotal} vectors")
 
 
 

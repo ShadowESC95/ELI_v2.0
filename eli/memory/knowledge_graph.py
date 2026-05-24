@@ -43,6 +43,10 @@ _STOPWORDS = frozenset({
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
+
+from eli.utils.log import get_logger
+log = get_logger(__name__)
+
 _INSTANCE: Optional["KnowledgeGraph"] = None
 _LOCK = threading.Lock()
 
@@ -549,7 +553,7 @@ def get_knowledge_graph() -> KnowledgeGraph:
                 try:
                     _INSTANCE = KnowledgeGraph()
                 except Exception as e:
-                    print(f"[KG] init failed: {e}")
+                    log.debug(f"[KG] init failed: {e}")
                     raise
     return _INSTANCE
 

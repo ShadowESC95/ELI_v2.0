@@ -27,6 +27,10 @@ import time
 from eli.cognition.context_builder import build_context
 from eli.memory import add_memory, log_event
 
+
+from eli.utils.log import get_logger
+log = get_logger(__name__)
+
 def _eli_path_get(obj, key, default=None):
     """
     Compatibility helper for ELI path containers.
@@ -135,7 +139,7 @@ def _requests_post_stream(url: str, payload: Dict[str, Any], timeout: int = 600)
                 yield json.loads(raw)
             except Exception:
                 if _dbg_enabled():
-                    print(f"[eli.chat_model] bad_json_line: {raw[:120]!r}")
+                    log.debug(f"[eli.chat_model] bad_json_line: {raw[:120]!r}")
                 continue
 
 
@@ -255,7 +259,7 @@ def chat_stream(
         if _dbg_enabled():
             now = time.time()
             if now - last_yield_ts > 2.0:
-                print(f"[eli.chat_model] streaming... seen={len(seen_text)} chars")
+                log.debug(f"[eli.chat_model] streaming... seen={len(seen_text)} chars")
                 last_yield_ts = now
 
 

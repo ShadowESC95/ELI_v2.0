@@ -305,7 +305,11 @@ def handle_diagnostic_action(action: str, text: str, engine: Any = None) -> Opti
         return _explain_last_response(engine)
 
     if action == "EXPLAIN_COGNITION_RUNTIME":
-        return _cognition_report(engine)
+        # Return None so quick-mode falls through to the LLM pipeline.
+        # The static _cognition_report() only describes the bypass mechanism
+        # itself — not the actual 12-stage pipeline the user is asking about.
+        # Non-quick modes use gather_evidence() + LLM synthesis (correct path).
+        return None
 
     if action == "IMPORT_AUDIT":
         return _import_audit()
