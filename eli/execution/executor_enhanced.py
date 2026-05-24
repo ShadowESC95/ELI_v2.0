@@ -2893,7 +2893,7 @@ def set_user_name(name: str) -> Dict[str, Any]:
         from eli.kernel.state import set_user_name as _state_set_user_name
         _state_set_user_name(n)
     except Exception as _sue:
-        print(f"[EXECUTOR] set_user_name profile write failed: {_sue}", flush=True)
+        log.debug(f"[EXECUTOR] set_user_name profile write failed: {_sue}")
     msg = f"Got it. I'll call you {n}."
     return {"ok": True, "action": "SET_USER_NAME", "user_name": n, "content": msg, "response": msg}
 
@@ -3035,7 +3035,7 @@ def _init_tts():
         import pyttsx3
     except Exception as e:
         if DEBUG:
-            print(f"[TTS] pyttsx3 not available: {e}")
+            log.debug(f"[TTS] pyttsx3 not available: {e}")
         _TTS_ENGINE = None
         return
 
@@ -3052,14 +3052,14 @@ def _init_tts():
                     break
         except Exception as e:
             if DEBUG:
-                print(f"[TTS] voice selection failed: {e}")
+                log.debug(f"[TTS] voice selection failed: {e}")
 
     if rate:
         try:
             eng.setProperty("rate", int(rate))
         except Exception as e:
             if DEBUG:
-                print(f"[TTS] rate set failed: {e}")
+                log.debug(f"[TTS] rate set failed: {e}")
 
     _TTS_ENGINE = eng
 
@@ -3117,7 +3117,7 @@ def _speak_legacy(text: str):
         from eli.perception.tts_router import maybe_speak
         maybe_speak(text, enabled=True)
     except Exception as e:
-        print("[ELI-TTS] exception:", repr(e))
+        log.debug(f"[ELI-TTS] exception: {repr(e)}")
     return
 
 
@@ -3140,7 +3140,7 @@ def _eli_tts_echo(_text: str) -> None:
     # Always show what ELI *tries* to say, even if audio routing is cursed.
     try:
         if os.environ.get("ELI_TTS_ECHO", "1") != "0":
-            print(f"[ELI-SAY] {_text}", flush=True)
+            log.debug(f"[ELI-SAY] {_text}")
         if os.environ.get("ELI_TTS_LOG", "1") != "0":
             from pathlib import Path
             import json
@@ -3877,10 +3877,10 @@ def _notify(title: str, msg: str):
         if os.environ.get("ELI_NOTIFY", "1") == "1":
             notify(title, msg)
         if os.environ.get("ELI_VOICE_DEBUG", "0") == "1":
-            print(f"[NOTIFY] {title}: {msg}")
+            log.debug(f"[NOTIFY] {title}: {msg}")
     except Exception:
         if os.environ.get("ELI_VOICE_DEBUG", "0") == "1":
-            print(f"[NOTIFY] {title}: {msg}")
+            log.debug(f"[NOTIFY] {title}: {msg}")
 
 
 # ----------------------------
@@ -5078,9 +5078,8 @@ def _execute_impl(action: str, args: Optional[Dict[str, Any]] = None) -> Dict[st
                     content = _re.sub(r"\n?```$", "", content.strip(), flags=_re.MULTILINE)
                     content = content.strip()
                     if len(content) < _min_doc_chars:
-                        print(
+                        log.debug(
                             f"[CREATE_DOCUMENT] rejected short document: {len(content)} chars < {_min_doc_chars}",
-                            flush=True,
                         )
                     else:
                     
@@ -5118,7 +5117,7 @@ def _execute_impl(action: str, args: Optional[Dict[str, Any]] = None) -> Dict[st
                             "open_in_ide": True,
                         }
         except Exception as _e:
-            print(f"[CREATE_DOCUMENT] GGUF error: {_e}")
+            log.debug(f"[CREATE_DOCUMENT] GGUF error: {_e}")
         
         # Fallback
         msg = "Document generation failed — GGUF model unavailable or produced a document below the quality threshold."
@@ -6249,11 +6248,11 @@ def _execute_impl(action: str, args: Optional[Dict[str, Any]] = None) -> Dict[st
                     if _pos >= len(full_text):
                         break
 
-                print(f"[ANALYZE_PDF] {len(_chunks_to_process)} chunk(s), "
+                log.debug(f"[ANALYZE_PDF] {len(_chunks_to_process)} chunk(s), "
                       f"~{_chars_per_chunk} chars each, task={_task_label}")
 
                 for _ci, _chunk_text in enumerate(_chunks_to_process, 1):
-                    print(f"[ANALYZE_PDF] Processing chunk {_ci}/{len(_chunks_to_process)}...")
+                    log.debug(f"[ANALYZE_PDF] Processing chunk {_ci}/{len(_chunks_to_process)}...")
                     _chunk_prompt = (
                         f"Section {_ci} of {len(_chunks_to_process)}:\n\n"
                         f"{_chunk_text}\n\n"
@@ -6266,7 +6265,7 @@ def _execute_impl(action: str, args: Optional[Dict[str, Any]] = None) -> Dict[st
                                 f"## Section {_ci} Analysis\n\n{_out.strip()}"
                             )
                     except Exception as _ce:
-                        print(f"[ANALYZE_PDF] Chunk {_ci} failed: {_ce}")
+                        log.debug(f"[ANALYZE_PDF] Chunk {_ci} failed: {_ce}")
                         _section_outputs.append(
                             f"## Section {_ci}\n\n[Processing failed: {_ce}]"
                         )
@@ -6274,7 +6273,7 @@ def _execute_impl(action: str, args: Optional[Dict[str, Any]] = None) -> Dict[st
                 # Synthesis pass if multiple chunks
                 _analysis_body = None
                 if len(_section_outputs) > 1:
-                    print(f"[ANALYZE_PDF] Running synthesis pass over {len(_section_outputs)} sections...")
+                    log.debug(f"[ANALYZE_PDF] Running synthesis pass over {len(_section_outputs)} sections...")
                     _synth_input = "\n\n".join(_section_outputs)
                     # If synthesis input fits, do it in one pass; otherwise just concatenate
                     _synth_avail = _pgi.available_generation_tokens(
@@ -6294,7 +6293,7 @@ def _execute_impl(action: str, args: Optional[Dict[str, Any]] = None) -> Dict[st
                                     + "\n\n".join(_section_outputs)
                                 )
                         except Exception as _se2:
-                            print(f"[ANALYZE_PDF] Synthesis failed: {_se2}")
+                            log.debug(f"[ANALYZE_PDF] Synthesis failed: {_se2}")
                     if not _analysis_body:
                         _analysis_body = "\n\n".join(_section_outputs)
                 elif _section_outputs:
@@ -6350,7 +6349,7 @@ def _execute_impl(action: str, args: Optional[Dict[str, Any]] = None) -> Dict[st
                     "sections": len(_section_outputs), "saved_to": _saved_path}
         except Exception as e:
             import traceback as _tb
-            print(f"[ANALYZE_PDF] Fatal: {_tb.format_exc()}")
+            log.debug(f"[ANALYZE_PDF] Fatal: {_tb.format_exc()}")
             return {"ok": False, "action": a, "error": str(e),
                     "content": str(e), "response": str(e)}
 
@@ -6781,7 +6780,7 @@ def _execute_impl(action: str, args: Optional[Dict[str, Any]] = None) -> Dict[st
                     if _reject_reason is None:
                         code = candidate
                         break
-                    print(f"[GENERATE_SCRIPT] attempt {_attempt + 1} rejected: {_reject_reason}", flush=True)
+                    log.debug(f"[GENERATE_SCRIPT] attempt {_attempt + 1} rejected: {_reject_reason}")
                 if not code:
                     msg = f"Generated script rejected after retries: {_reject_reason or 'unknown'}"
                     return {"ok": False, "action": a, "error": msg, "content": msg, "response": msg}
@@ -6810,7 +6809,7 @@ def _execute_impl(action: str, args: Optional[Dict[str, Any]] = None) -> Dict[st
                         "content": _gs_chat, "response": _gs_chat,
                         "open_in_ide": True}
         except Exception as _e:
-            print(f"[GENERATE_SCRIPT] GGUF failed: {_e}, falling back to Ollama")
+            log.debug(f"[GENERATE_SCRIPT] GGUF failed: {_e}, falling back to Ollama")
         # Ollama fallback
         result = chat(prompt, skip_router=True)
         code = result.get("content", "").strip()
@@ -6972,7 +6971,7 @@ def _execute_impl(action: str, args: Optional[Dict[str, Any]] = None) -> Dict[st
                         cand = _re_ff.sub(r"\n?```$", "", cand.strip(), flags=_re_ff.MULTILINE).strip()
                         _candidate = cand
             except Exception as _ff_e:
-                print(f"[FIX_FILE] GGUF path failed: {_ff_e}, falling back to chat", flush=True)
+                log.debug(f"[FIX_FILE] GGUF path failed: {_ff_e}, falling back to chat")
             if not _candidate:
                 chat_result = chat(_ff_prompt, skip_router=True)
                 raw = (chat_result.get("content") or "").strip()
@@ -6995,7 +6994,7 @@ def _execute_impl(action: str, args: Optional[Dict[str, Any]] = None) -> Dict[st
                 _api_bad = _verify_python_apis_ff(_candidate)
                 if _api_bad:
                     ff_reject_reason = _api_bad
-                    print(f"[FIX_FILE] attempt {_ff_attempt + 1} rejected: {_api_bad}", flush=True)
+                    log.debug(f"[FIX_FILE] attempt {_ff_attempt + 1} rejected: {_api_bad}")
                     continue
             fixed_code = _candidate
             break
@@ -8288,7 +8287,7 @@ def execute(action: str, args: Optional[Dict[str, Any]] = None, **kwargs) -> Dic
         ev = {
             "identity": {
                 "name": "ELI",
-                "expanded_name": "Entropy Logical Interface",
+                "expanded_name": "Enhanced Learning Interface",
                 "grounding_sources": [
                     "persona",
                     "memory",
@@ -8721,7 +8720,7 @@ try:
     from eli.execution.media_runtime import install_media_executor as _install_media_executor
     execute_action = _install_media_executor(execute_action)
 except Exception as _media_runtime_error:
-    print(f"[MEDIA_RUNTIME] failed to install media executor wrapper: {_media_runtime_error}", flush=True)
+    log.debug(f"[MEDIA_RUNTIME] failed to install media executor wrapper: {_media_runtime_error}")
 
 
 # gui_schema_contract_guard
@@ -9421,6 +9420,10 @@ import os as _eli_tile_os
 import re as _eli_tile_re
 import subprocess as _eli_tile_subprocess
 
+
+from eli.utils.log import get_logger
+log = get_logger(__name__)
+
 _ELI_TILE_ORIG_EXECUTE = globals().get("execute")
 _ELI_TILE_ORIG_EXECUTE_ACTION = globals().get("execute_action")
 
@@ -9722,9 +9725,9 @@ except Exception:
 try:
     from eli.runtime.generated_script_guard import install as _eli_install_generated_script_guard
     _eli_install_generated_script_guard(globals())
-    print("[EXECUTOR] generated-script safety wrapper installed", flush=True)
+    log.debug("[EXECUTOR] generated-script safety wrapper installed")
 except Exception as _eli_gen_guard_err:
-    print(f"[EXECUTOR] generated-script guard install failed: {_eli_gen_guard_err}", flush=True)
+    log.debug(f"[EXECUTOR] generated-script guard install failed: {_eli_gen_guard_err}")
 # --- end ELI generated-script safety installer ---
 
 # =============================================================================
@@ -9735,8 +9738,43 @@ except Exception as _eli_gen_guard_err:
 try:
     def _eli_identity_only_name():
         try:
-            from eli.kernel.state import get_user_name
-            return str(get_user_name("") or "").strip()
+            from eli.kernel.state import get_user_name, set_user_name
+            name = str(get_user_name("") or "").strip()
+            if name:
+                return name
+            # Fallback: recover from user_patterns SQLite if profile lacks name.
+            # This handles the case where the user stated their name in a past
+            # session but the profile was never updated from user_patterns.
+            try:
+                import sqlite3 as _sq3, re as _re2
+                from eli.core.paths import user_db_path
+                _db = str(user_db_path())
+                _con = _sq3.connect(_db)
+                _rows = _con.execute(
+                    "SELECT pattern_data FROM user_patterns "
+                    "WHERE pattern_type='identity.name' "
+                    "  AND length(COALESCE(pattern_data,''))>3 "
+                    "ORDER BY COALESCE(ts, timestamp, id) DESC LIMIT 5"
+                ).fetchall()
+                _con.close()
+                for (_pdata,) in _rows:
+                    _m = _re2.search(
+                        r"(?:name is|preferred name is|called|known as)\s+([A-Za-z][A-Za-z' -]{1,29})\b",
+                        str(_pdata or ""), _re2.I,
+                    )
+                    if _m:
+                        _candidate = _m.group(1).strip(" .,;")
+                        if _candidate.lower() not in {
+                            "unknown", "none", "the", "a", "an", "no", "not", "asking", "user",
+                        }:
+                            try:
+                                set_user_name(_candidate)  # persist for future sessions
+                            except Exception:
+                                pass
+                            return _candidate
+            except Exception:
+                pass
+            return ""
         except Exception:
             return ""
 
@@ -9789,7 +9827,7 @@ try:
     # middleware table now calls _eli_identity_only_response() directly.
     pass
 except Exception as _eli_identity_only_err:
-    print(f"[EXECUTOR] identity-only helpers failed: {_eli_identity_only_err}", flush=True)
+    log.debug(f"[EXECUTOR] identity-only helpers failed: {_eli_identity_only_err}")
 # =============================================================================
 
 # =============================================================================
@@ -10036,7 +10074,7 @@ try:
     # _eli_profile_scope_clean_memory_runtime_text() directly.
     pass
 except Exception as _eli_profile_scope_exec_err:
-    print(f"[EXECUTOR] profile memory scope contract failed: {_eli_profile_scope_exec_err}", flush=True)
+    log.debug(f"[EXECUTOR] profile memory scope contract failed: {_eli_profile_scope_exec_err}")
 # =============================================================================
 
 # =============================================================================
@@ -10175,7 +10213,7 @@ try:
     pass
 
 except Exception as _eli_memory_runtime_sanitizer_err:
-    print(f"[EXECUTOR] memory-runtime report sanitizer failed: {_eli_memory_runtime_sanitizer_err}", flush=True)
+    log.debug(f"[EXECUTOR] memory-runtime report sanitizer failed: {_eli_memory_runtime_sanitizer_err}")
 # =============================================================================
 
 # =============================================================================
@@ -10320,7 +10358,7 @@ try:
     # table now intercepts and calls _eli_memory_count_evidence() directly.
     pass
 except Exception as _err:
-    print(f"[EXECUTOR] memory-count compact evidence provider failed: {_err}", flush=True)
+    log.debug(f"[EXECUTOR] memory-count compact evidence provider failed: {_err}")
 
 # =============================================================================
 # ELI RECENT MEMORY PROCESSING EVIDENCE PROVIDER
@@ -10633,7 +10671,7 @@ try:
     pass
 
 except Exception as _eli_recent_memory_exec_err:
-    print(f"[EXECUTOR] recent-memory-processing provider install failed: {_eli_recent_memory_exec_err}", flush=True)
+    log.debug(f"[EXECUTOR] recent-memory-processing provider install failed: {_eli_recent_memory_exec_err}")
 
 # =============================================================================
 # ELI RECENT MEMORY PROCESSING EVIDENCE CLEANUP V2
@@ -10770,7 +10808,7 @@ try:
     pass
 
 except Exception as _eli_recent_mem_v2_exec_err:
-    print(f"[EXECUTOR] recent-memory-processing cleanup v2 install failed: {_eli_recent_mem_v2_exec_err}", flush=True)
+    log.debug(f"[EXECUTOR] recent-memory-processing cleanup v2 install failed: {_eli_recent_mem_v2_exec_err}")
 
 # =============================================================================
 # ELI SELF-REPORT RECENT UPDATES EVIDENCE PROVIDER
@@ -10907,7 +10945,7 @@ try:
 
         lines = []
         lines.append("Grounded ELI self-report / recent update evidence:")
-        lines.append(f"- identity: ELI / Entropy Logical Interface")
+        lines.append(f"- identity: ELI / Enhanced Learning Interface")
         if report["branch"]:
             lines.append(f"- current_branch: {report['branch']}")
         if report["capabilities"]["manifest_total"] is not None:
@@ -10985,7 +11023,7 @@ try:
     # _eli_self_build_recent_updates_report() directly.
     pass
 except Exception as _eli_self_report_recent_exec_error:
-    print("[EXECUTOR][WARN] self-report recent-updates provider failed:", _eli_self_report_recent_exec_error)
+    log.debug(f"[EXECUTOR][WARN] self-report recent-updates provider failed: {_eli_self_report_recent_exec_error}")
 
 # =============================================================================
 # ELI_GUI_RUNTIME_AUDIT_VISIBLE_RESULT_CONTRACT
@@ -11074,10 +11112,10 @@ try:
 
         return fixed
 
-    print("[EXECUTOR] GUI_RUNTIME_AUDIT visible result contract installed", flush=True)
+    log.debug("[EXECUTOR] GUI_RUNTIME_AUDIT visible result contract installed")
 
 except Exception as _eli_gui_audit_visible_contract_err:
-    print(f"[EXECUTOR] GUI_RUNTIME_AUDIT visible result contract failed: {_eli_gui_audit_visible_contract_err}", flush=True)
+    log.debug(f"[EXECUTOR] GUI_RUNTIME_AUDIT visible result contract failed: {_eli_gui_audit_visible_contract_err}")
 # =============================================================================
 
 # =============================================================================
@@ -11094,9 +11132,9 @@ try:
             execute_action._eli_final_alias_sync_v1 = True
         except Exception:
             pass
-        print("[EXECUTOR] final execute_action alias synced to execute", flush=True)
+        log.debug("[EXECUTOR] final execute_action alias synced to execute")
 except Exception as _eli_executor_final_alias_sync_err:
-    print(f"[EXECUTOR] final execute_action alias sync failed: {_eli_executor_final_alias_sync_err}", flush=True)
+    log.debug(f"[EXECUTOR] final execute_action alias sync failed: {_eli_executor_final_alias_sync_err}")
 # =============================================================================
 
 # RUNTIME_STATUS evidence metadata normalization is now done inline by
@@ -11175,7 +11213,7 @@ try:
             return "\n".join(lines).strip()
 
 except Exception as _eli_phase11_multipdf_executor_err:
-    print(f"[EXECUTOR] Phase 11 multi-PDF helpers failed: {_eli_phase11_multipdf_executor_err}", flush=True)
+    log.debug(f"[EXECUTOR] Phase 11 multi-PDF helpers failed: {_eli_phase11_multipdf_executor_err}")
 
 # =============================================================================
 # ELI_EXECUTOR_CANONICAL_MIDDLEWARE_TABLE_V1
@@ -11471,10 +11509,9 @@ try:
                     _core_t0 = _perf()
                     out = _eli_exec_core(ctx)
                     _dt = (_perf() - _core_t0) * 1000.0
-                    print(
+                    log.debug(
                         f"[PIPELINE][EXECUTOR] core action={ctx.get('action')} "
                         f"ok={bool(isinstance(out, dict) and out.get('ok'))} dt_ms={_dt:.2f}",
-                        flush=True,
                     )
                     return out
                 return _eli_exec_core(ctx)
@@ -11483,17 +11520,15 @@ try:
             if ctx.get("_pipeline_trace"):
                 _perf = __import__("time").perf_counter
                 _mw_t0 = _perf()
-                print(
+                log.debug(
                     f"[PIPELINE][EXECUTOR] enter mw={_name} action={ctx.get('action')}",
-                    flush=True,
                 )
                 out = mw(ctx, lambda next_ctx=None: _eli_exec_apply_middleware(ctx if next_ctx is None else next_ctx, index + 1))
                 _dt = (_perf() - _mw_t0) * 1000.0
                 _ok = bool(isinstance(out, dict) and out.get("ok"))
-                print(
+                log.debug(
                     f"[PIPELINE][EXECUTOR] exit  mw={_name} action={ctx.get('action')} "
                     f"ok={_ok} out_type={type(out).__name__} dt_ms={_dt:.2f}",
-                    flush=True,
                 )
                 return out
             return mw(ctx, lambda next_ctx=None: _eli_exec_apply_middleware(ctx if next_ctx is None else next_ctx, index + 1))
@@ -11504,13 +11539,12 @@ try:
             if _trace:
                 ctx["_pipeline_trace"] = True
                 _preview = str(ctx.get("action") or "")
-                print(f"[PIPELINE][EXECUTOR] begin action={_preview}", flush=True)
+                log.debug(f"[PIPELINE][EXECUTOR] begin action={_preview}")
             out = _eli_exec_apply_middleware(ctx, 0)
             if isinstance(out, dict):
                 if _trace:
-                    print(
+                    log.debug(
                         f"[PIPELINE][EXECUTOR] final action={out.get('action')} ok={out.get('ok')}",
-                        flush=True,
                     )
                 return out
             txt = str(out or "")
@@ -11527,6 +11561,6 @@ try:
         except Exception:
             pass
 
-        print("[EXECUTOR] canonical middleware table installed", flush=True)
+        log.debug("[EXECUTOR] canonical middleware table installed")
 except Exception as _eli_executor_canonical_middleware_err:
-    print(f"[EXECUTOR] canonical middleware table install failed: {_eli_executor_canonical_middleware_err}", flush=True)
+    log.debug(f"[EXECUTOR] canonical middleware table install failed: {_eli_executor_canonical_middleware_err}")
