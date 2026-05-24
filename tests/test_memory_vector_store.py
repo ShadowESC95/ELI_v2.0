@@ -217,4 +217,5 @@ def test_vector_store_rebuild_method_exists():
 
 
 def test_rebuild_vector_index_script_exists(project_root):
-    assert (project_root / "eli" / "memory" / "rebuild_vector_index.py").exists()
+    # Script was moved from eli/memory/ to eli/scripts/
+    assert (project_root / "eli" / "scripts" / "rebuild_vector_index.py").exists()
