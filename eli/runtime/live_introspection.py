@@ -470,30 +470,128 @@ def build_report(action: str, user_input: str = "") -> Dict[str, Any]:
         return {"ok": True, "action": act, "report": {"ok": True, "entries": entries}, "content": content, "response": content}
 
     if act == "RUNTIME_AUDIT":
-        files = [
+        import re as _re_audit
+        import ast as _ast_audit
+
+        _audit_files = [
             "eli/kernel/engine.py",
             "eli/cognition/orchestrator.py",
             "eli/cognition/agent_bus.py",
+            "eli/cognition/context_synthesiser.py",
             "eli/cognition/working_memory.py",
             "eli/cognition/gguf_inference.py",
+            "eli/cognition/output_governor.py",
             "eli/execution/router_enhanced.py",
             "eli/execution/executor_enhanced.py",
+            "eli/runtime/live_introspection.py",
             "eli/gui/eli_pro_audio_gui_MKI.py",
             "eli/planning/proactive_daemon.py",
             "eli/memory/memory.py",
+            "eli/world/agency/autonomy_engine.py",
+            "eli/world/world_event_bus.py",
             "eli/core/paths.py",
         ]
-        entries = []
-        for rel in files:
+
+        def _live_audit_file(rel: str) -> Dict[str, Any]:
             p = _root() / rel
-            entries.append({"path": str(p), "status": "PASS" if p.exists() else "FAIL", "issues": [] if p.exists() else [{"type": "missing_file", "line": 0, "message": "file not found"}]})
-        content_lines = []
+            entry: Dict[str, Any] = {
+                "path": rel, "status": "PASS", "issues": [],
+                "checks": ["existence", "syntax", "merge_markers",
+                           "hardcoded_paths", "stubs"],
+            }
+            if not p.exists():
+                entry["status"] = "FAIL"
+                entry["issues"].append({"type": "missing_file", "line": 0,
+                                        "message": "file not found on disk"})
+                return entry
+            try:
+                text = p.read_text(encoding="utf-8", errors="replace")
+            except Exception as exc:
+                entry["status"] = "FAIL"
+                entry["issues"].append({"type": "read_error", "line": 0,
+                                        "message": str(exc)})
+                return entry
+            lines_list = text.splitlines()
+            # 1. Syntax
+            try:
+                compile(text, str(p), "exec")
+            except SyntaxError as exc:
+                entry["issues"].append({
+                    "type": "syntax_error",
+                    "line": int(getattr(exc, "lineno", 0) or 0),
+                    "message": str(exc),
+                })
+            # 2. Merge conflict markers
+            for i, ln in enumerate(lines_list, 1):
+                if any(m in ln for m in ("<<<<<<< ", "=======", ">>>>>>> ")):
+                    entry["issues"].append({
+                        "type": "merge_conflict_marker", "line": i,
+                        "message": ln.strip()[:80],
+                    })
+            # 3. Hardcoded absolute user-home paths in non-comment lines
+            for i, ln in enumerate(lines_list, 1):
+                stripped = ln.strip()
+                if stripped.startswith("#"):
+                    continue
+                if _re_audit.search(r'["\'/](home/[a-zA-Z_][a-zA-Z0-9_]*/(?!Desktop/ELI)[^\s"\']{4,})', ln):
+                    entry["issues"].append({
+                        "type": "hardcoded_user_path", "line": i,
+                        "message": ln.strip()[:90],
+                    })
+            # 4. Obvious stubs / dead code
+            _stub_pat = _re_audit.compile(
+                r'raise\s+NotImplementedError|'
+                r'\bpass\b\s*#\s*(?:TODO|stub|placeholder|fake|decorat|FIXME)',
+                _re_audit.I)
+            for i, ln in enumerate(lines_list, 1):
+                if _stub_pat.search(ln):
+                    entry["issues"].append({
+                        "type": "stub_or_not_implemented", "line": i,
+                        "message": ln.strip()[:80],
+                    })
+            if entry["issues"]:
+                severe = [x for x in entry["issues"]
+                          if x["type"] in ("syntax_error", "merge_conflict_marker",
+                                           "missing_file", "read_error")]
+                entry["status"] = "FAIL" if severe else "WARN"
+            return entry
+
+        entries = [_live_audit_file(rel) for rel in _audit_files]
+        n_fail = sum(1 for e in entries if e["status"] == "FAIL")
+        n_warn = sum(1 for e in entries if e["status"] == "WARN")
+        n_pass = sum(1 for e in entries if e["status"] == "PASS")
+        methodology = (
+            "WHAT THIS AUDIT CHECKS: (1) file existence, (2) Python syntax "
+            "compilation, (3) merge conflict markers, (4) hardcoded absolute "
+            "user-home paths outside the project root, (5) NotImplementedError/"
+            "stub patterns.\n"
+            "WHAT THIS AUDIT DOES NOT CHECK: live agent execution, runtime "
+            "wiring correctness, whether agents are actively querying files, "
+            "semantic logic, or pipeline completeness.\n"
+            "A PASS means the file is structurally clean. It does NOT confirm "
+            "that all functionality is working correctly at runtime."
+        )
+        content_lines = [methodology, ""]
         for e in entries:
-            content_lines.append(f"{e['status']} {e['path']}")
-            for issue in e["issues"]:
-                content_lines.append(f"  - line {issue['line'] or '?'} [{issue['type']}] {issue['message']}")
+            content_lines.append(f"{e['status']}  {e['path']}")
+            for issue in e.get("issues", []):
+                content_lines.append(
+                    f"  [{issue['type']}] line {issue.get('line','?')}: "
+                    f"{issue.get('message','')}"
+                )
+        content_lines.append(
+            f"\nSummary: {n_pass} PASS / {n_warn} WARN / {n_fail} FAIL "
+            f"across {len(entries)} files."
+        )
         content = "\n".join(content_lines)
-        return {"ok": True, "action": act, "report": {"ok": True, "entries": entries}, "content": content, "response": content}
+        report = {
+            "ok": True, "entries": entries,
+            "summary": {"pass": n_pass, "warn": n_warn, "fail": n_fail,
+                        "total": len(entries)},
+            "methodology": methodology,
+        }
+        return {"ok": True, "action": act, "report": report,
+                "content": content, "response": content}
 
     if act == "EXPLAIN_COGNITION_RUNTIME":
         stage_names = [
@@ -522,12 +620,34 @@ def build_report(action: str, user_input: str = "") -> Dict[str, Any]:
             "eli/kernel/pipeline.py",
             "eli/planning/proactive_daemon.py",
         ]
+        import ast as _ast_li
+        _engine_path = _root() / "eli/kernel/engine.py"
+        _cognitive_engine_class = False
+        _process_method = False
+        _orchestrator_ref = False
+        if _engine_path.exists():
+            try:
+                _engine_src = _engine_path.read_text(errors="replace")
+                _ast_tree = _ast_li.parse(_engine_src)
+                _cognitive_engine_class = any(
+                    isinstance(n, _ast_li.ClassDef) and n.name == "CognitiveEngine"
+                    for n in _ast_li.walk(_ast_tree)
+                )
+                _process_method = any(
+                    isinstance(n, _ast_li.FunctionDef) and n.name == "process"
+                    for n in _ast_li.walk(_ast_tree)
+                )
+                _orchestrator_ref = (
+                    "_orchestrator" in _engine_src or "self.orchestrator" in _engine_src
+                )
+            except Exception:
+                pass
         report = {
             "ok": True,
-            "live_orchestration_surface": str(_root() / "eli/kernel/engine.py"),
-            "cognitive_engine_class_in_engine_py": True,
-            "process_method_in_engine_py": True,
-            "internal_orchestrator_ref": True,
+            "live_orchestration_surface": str(_engine_path),
+            "cognitive_engine_class_in_engine_py": _cognitive_engine_class,
+            "process_method_in_engine_py": _process_method,
+            "internal_orchestrator_ref": _orchestrator_ref,
             "pipeline_stage_count": 12,
             "pipeline_stage_names": stage_names,
             "files": [{"path": str(_root() / f), "exists": (_root() / f).exists()} for f in files],

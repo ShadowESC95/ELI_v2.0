@@ -5028,9 +5028,7 @@ def _eli_phase38_flattened_route(raw="", *args, **kwargs):
     return _eli_phase38_enrich_pdf_if_needed(text, result)
 
 
-_ELI_PHASE38_FLATTENED_CANONICAL_DISPATCH_V1 = True
-_ELI_PHASE38_FLATTENED_CANONICAL_DISPATCH_RETIRED = True
-log.debug("[ROUTER] Phase 38 flattened canonical dispatch pipeline prepared (legacy inert)")
+log.debug("[ROUTER] router_enhanced module loaded — canonical dispatch pipeline active")
 
 # =============================================================================
 # End ELI_PHASE38_FLATTENED_CANONICAL_DISPATCH_V1
