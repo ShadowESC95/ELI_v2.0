@@ -5389,6 +5389,22 @@ Answer:"""
             log.debug("[REASONING][Constitutional] all principles PASS → returning initial draft")
             return initial
 
+        # Extract FAIL lines from the critique and inject as hard constraints so
+        # the 7B model cannot simply regenerate the same failing answer. Without this,
+        # the model treats the critique as background and ignores specific failures.
+        _fail_lines = []
+        for _crit_line in critique.splitlines():
+            _crit_line = _crit_line.strip()
+            if re.match(r"P[1-5]:\s*FAIL\b", _crit_line, re.I):
+                _fail_lines.append(_crit_line)
+        _mandatory_block = ""
+        if _fail_lines:
+            _mandatory_block = (
+                "\n\nMANDATORY CORRECTIONS — these principles FAILED and MUST be fixed:\n"
+                + "\n".join(f"  {l}" for l in _fail_lines)
+                + "\n  You MUST correct every FAIL above. Hedge unsupported claims with "
+                "'typically', 'as configured', or 'by design'. Do not repeat the failing claim verbatim."
+            )
         revise_prompt = (
             "Revise the draft to address the critique. Output ONLY the revised response — "
             "do not narrate the revision, do not restate the critique. "
@@ -5398,12 +5414,14 @@ Answer:"""
             "IMPORTANT: preserve all substantive content from the original draft. "
             "For grounding failures (P1/P2), add hedging language such as 'by design', "
             "'as configured', or 'typically' rather than deleting the claim. "
-            "The revised response must be at least as detailed as the original draft.\n\n"
+            "The revised response must be at least as detailed as the original draft."
+            f"{_mandatory_block}\n\n"
             f"REQUEST: {user_input}\n\nORIGINAL DRAFT:\n{initial}\n\nCRITIQUE:\n{critique}"
         )
         revise_overrides = dict(gen_overrides or {})
         revise_overrides["max_tokens"] = max_tok_rev
-        revise_overrides["temperature"] = gen_temp
+        # Lower revision temperature so the model doesn't just regenerate the same answer
+        revise_overrides["temperature"] = max(0.1, gen_temp - 0.15)
         final = self._get_chat_response(
             revise_prompt, working_context,
             reasoning_mode="constitutional_ai", gen_overrides=revise_overrides,
@@ -7394,6 +7412,50 @@ Answer:"""
         user_input = _eli_sanitize_user_input(user_input)
         # ── End prompt injection guard ─────────────────────────────────────────
 
+        # === ELI_COMPOUND_IDENTITY_SPLITTER_V1 ===
+        # "Who are you, and who am I?" — router picks one action and drops the other.
+        # Detect well-known compound identity patterns and make two sequential calls,
+        # returning the joined result. Narrow scope: only identity + user-identity pairs.
+        try:
+            import re as _cis_re
+            _cis_raw = str(user_input or "").strip()
+            # Pattern: "who are you [, and/+] who am I" (any order)
+            _cis_ab = _cis_re.search(
+                r"(?i)"
+                r"(?:who\s+are\s+you|what\s+are\s+you|tell\s+me\s+about\s+yourself)"
+                r"(?:[^?]{0,40}?)"
+                r"(?:,?\s*and\s+|[,;]\s*)"
+                r"(?:who\s+am\s+i|what(?:'s|\s+is)\s+my\s+name|do\s+you\s+know\s+(?:who\s+i\s+am|me))",
+                _cis_raw,
+            )
+            _cis_ba = _cis_re.search(
+                r"(?i)"
+                r"(?:who\s+am\s+i|what(?:'s|\s+is)\s+my\s+name|do\s+you\s+know\s+(?:who\s+i\s+am|me))"
+                r"(?:[^?]{0,40}?)"
+                r"(?:,?\s*and\s+|[,;]\s*)"
+                r"(?:who\s+are\s+you|what\s+are\s+you|tell\s+me\s+about\s+yourself)",
+                _cis_raw,
+            )
+            if _cis_ab or _cis_ba:
+                log.debug("[ENGINE] compound identity question detected — splitting into two calls")
+                _cis_kwargs = {k: v for k, v in kwargs.items()}
+                _cis_a = self.process(
+                    "who are you", source=source, stream=False,
+                    reasoning_mode=reasoning_mode, **_cis_kwargs,
+                )
+                _cis_b = self.process(
+                    "who am i", source=source, stream=False,
+                    reasoning_mode=reasoning_mode, **_cis_kwargs,
+                )
+                _cis_a = str(_cis_a or "").strip()
+                _cis_b = str(_cis_b or "").strip()
+                if _cis_a and _cis_b:
+                    return f"{_cis_a}\n\n{_cis_b}"
+                return _cis_a or _cis_b
+        except Exception as _cis_err:
+            log.debug("[ENGINE] compound identity splitter failed: %s", _cis_err)
+        # === END ELI_COMPOUND_IDENTITY_SPLITTER_V1 ===
+
         # ELI_REASONING_MODE_STAMP_V1
         # Stamp active reasoning mode onto self so downstream consumers
         # (executor short-paths, deterministic resolvers via _ATTRS lookup
@@ -7566,8 +7628,11 @@ Answer:"""
             if _mw_mc_turns_is_question(_mw_mct_text):
                 _mw_mct_mode = _mw_rs_mode_from_args((user_input,), _mw_mct_kwargs)
                 _eli_pipe("mw_memory_count_turns_hit", mode=_mw_mct_mode)
-                log.debug("[ENGINE] memory count + conversation turns middleware returned from live SQLite")
-                return _mw_mc_turns_result(_mw_mct_mode)
+                # Non-quick modes fall through to the full pipeline so GGUF synthesises
+                # the evidence in the user's active reasoning mode.
+                if _mw_rs_is_quick(_mw_mct_mode):
+                    log.debug("[ENGINE] memory count + conversation turns middleware returned from live SQLite")
+                    return _mw_mc_turns_result(_mw_mct_mode)
         except Exception as _mw_mct_err:
             log.debug(f"[ENGINE][WARN] memory-count turns middleware failed: {_mw_mct_err}")
         # === END ELI_ENGINE_MIDDLEWARE_MEMORY_COUNT_TURNS_TELEMETRY_V1 ===
@@ -7592,7 +7657,10 @@ Answer:"""
                     pass
                 _eli_mc_mw_mode = _eli_mc_mode_v4((), _eli_mc_mw_kwargs)
                 _eli_pipe("mw_memory_count_hit", mode=_eli_mc_mw_mode)
-                return _eli_mc_payload_v5(user_input, _eli_mc_mw_mode)
+                # Non-quick modes fall through to the full pipeline so GGUF synthesises
+                # the evidence in the user's active reasoning mode.
+                if _mw_rs_is_quick(_eli_mc_mw_mode):
+                    return _eli_mc_payload_v5(user_input, _eli_mc_mw_mode)
         except Exception as _eli_mc_middleware_err:
             log.debug(f"[ENGINE][WARN] memory-count v5 middleware failed: {_eli_mc_middleware_err}")
         # === END ELI_ENGINE_MIDDLEWARE_MEMORY_COUNT_V5 ===
