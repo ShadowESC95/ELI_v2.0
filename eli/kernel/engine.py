@@ -3128,20 +3128,40 @@ class CognitiveEngine:
         """
         mode = str(reasoning_mode or "quick").strip().lower() or "quick"
         settings = {}
+        # Alias map so legacy settings.json keys (e.g. "cot") still resolve
+        # to the canonical mode key used everywhere else in the engine.
+        _PRESET_ALIASES = {
+            "chain_of_thought": ["chain_of_thought", "cot", "chain"],
+            "self_consistency":  ["self_consistency", "self-c", "self-consistency"],
+            "tree_of_thoughts":  ["tree_of_thoughts", "tot", "tree"],
+            "constitutional_ai": ["constitutional_ai", "constitutional", "cai"],
+        }
         try:
             settings = runtime_settings.load_settings() or {}
             presets = settings.get("mode_presets") or {}
             preset = presets.get(mode)
+            # Try alias keys if canonical key not found
+            if not preset and mode in _PRESET_ALIASES:
+                for _alias in _PRESET_ALIASES[mode]:
+                    preset = presets.get(_alias)
+                    if preset:
+                        break
         except Exception:
             preset = None
 
         if not preset:
             # Generic safe-default profile when no preset has been
             # written yet (pre-first-run, or settings.json corrupted).
+            _default_max = {
+                "chain_of_thought": 4096,
+                "self_consistency": 3072,
+                "tree_of_thoughts": 3072,
+                "constitutional_ai": 4096,
+            }
             preset = {
                 "passes": 1,
                 "threshold": 0.54 if mode == "quick" else 0.65,
-                "max_tokens": -1 if mode == "quick" else 1536,
+                "max_tokens": -1 if mode == "quick" else _default_max.get(mode, 1536),
                 "temperature": 0.7,
                 "top_p": 0.9,
             }
@@ -7360,19 +7380,63 @@ Answer:"""
             memory_context = ""
             situation_brief = ""
 
-        # Private reasoning modes are buffered until final governance is applied.
-        # Live chunk streaming is kept for Quick mode only, because raw private
-        # strategy chunks can expose scratchpad/branches/samples before the final
-        # sanitizer sees them.
+        # Private reasoning modes run the real multi-pass algorithms (CoT, ToT,
+        # CAI, SC) then buffer the finished result before yielding chunks.
+        # Quick mode streams live.  Raw private-strategy chunks must never reach
+        # the GUI before the final sanitiser runs on them.
         try:
-            from eli.cognition.reasoning_modes import is_private_reasoning_mode as _rm_private
+            from eli.cognition.reasoning_modes import (
+                is_private_reasoning_mode as _rm_private,
+                canonical_mode as _rm_canonical,
+            )
             if _rm_private(reasoning_mode):
-                final = self.generate_from_assembled_prompt(
-                    prompt,
-                    working_memory=working_memory,
-                    reasoning_mode=reasoning_mode,
-                    **kwargs,
+                _rm_key = _rm_canonical(reasoning_mode)
+                _rm_profile = self._mode_profile(_rm_key)
+                _rm_gen_overrides = self._chat_generation_overrides(
+                    prompt, memory_context, reasoning_mode=_rm_key,
                 )
+                situation_brief_rm = ""
+                try:
+                    _stm_rm = getattr(working_memory, "short_term_memory", None)
+                    _recent_rm = list(getattr(_stm_rm, "recent_turns", []) or [])
+                    _bus_rm = getattr(working_memory, "bus_result", None)
+                    situation_brief_rm = str(
+                        self._build_persona_handoff_once(
+                            user_input=prompt,
+                            memory_context=memory_context,
+                            bus_result=_bus_rm,
+                            recent_turns=_recent_rm,
+                            working_memory=working_memory,
+                        ) or ""
+                    )
+                except Exception:
+                    situation_brief_rm = ""
+                # Route to the real per-mode algorithm; falls back to a single
+                # _get_chat_response call if _run_mode_algorithm returns None.
+                final = None
+                if self._supports_mode_algorithm(_rm_key):
+                    try:
+                        final = self._run_mode_algorithm(
+                            _rm_key, prompt, memory_context,
+                            _rm_gen_overrides, situation_brief_rm,
+                        )
+                        log.debug(
+                            f"[COGNITIVE][STREAM] private mode {_rm_key}: "
+                            f"algorithm produced {len(final or '')} chars"
+                        )
+                    except Exception as _algo_err:
+                        log.debug(
+                            f"[COGNITIVE][STREAM] {_rm_key} algorithm failed: "
+                            f"{_algo_err} — falling back to single pass"
+                        )
+                        final = None
+                if not final:
+                    final = self._get_chat_response(
+                        prompt, memory_context,
+                        reasoning_mode=_rm_key,
+                        gen_overrides=_rm_gen_overrides,
+                        situation_brief=situation_brief_rm,
+                    )
                 final = self._govern_visible_response(
                     str(prompt or ""),
                     str(final or ""),
