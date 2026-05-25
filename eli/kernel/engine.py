@@ -7722,7 +7722,28 @@ Answer:"""
                                 _mqs_q, source=source, stream=False,
                                 reasoning_mode=reasoning_mode, **_mqs_kwargs,
                             )
-                            _mqs_r = str(_mqs_r or "").strip()
+                            # Extract user-visible text from dict/str/generator result
+                            if isinstance(_mqs_r, dict):
+                                _mqs_r = (
+                                    _mqs_r.get("response") or _mqs_r.get("content")
+                                    or _mqs_r.get("text") or ""
+                                ).strip()
+                            elif not isinstance(_mqs_r, str):
+                                try:
+                                    _mqs_parts = []
+                                    for _mqs_chunk in _mqs_r:
+                                        if isinstance(_mqs_chunk, dict):
+                                            _mqs_parts.append(
+                                                _mqs_chunk.get("response") or _mqs_chunk.get("content")
+                                                or _mqs_chunk.get("token") or ""
+                                            )
+                                        elif isinstance(_mqs_chunk, str):
+                                            _mqs_parts.append(_mqs_chunk)
+                                    _mqs_r = "".join(_mqs_parts).strip()
+                                except Exception:
+                                    _mqs_r = str(_mqs_r or "").strip()
+                            else:
+                                _mqs_r = (_mqs_r or "").strip()
                             if _mqs_r:
                                 _mqs_responses.append(_mqs_r)
                         except Exception as _mqs_sub_err:
