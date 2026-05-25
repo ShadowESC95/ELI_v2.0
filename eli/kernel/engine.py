@@ -7741,8 +7741,29 @@ Answer:"""
                     "who am i", source=source, stream=False,
                     reasoning_mode=reasoning_mode, **_cis_kwargs,
                 )
-                _cis_a = str(_cis_a or "").strip()
-                _cis_b = str(_cis_b or "").strip()
+
+                def _extract_text(r):
+                    """Extract user-visible text from a process() result (str, dict, or generator)."""
+                    if isinstance(r, dict):
+                        return (
+                            r.get("response") or r.get("content") or r.get("text") or ""
+                        ).strip()
+                    if isinstance(r, str):
+                        return r.strip()
+                    # generator — consume
+                    try:
+                        parts = []
+                        for chunk in r:
+                            if isinstance(chunk, dict):
+                                parts.append(chunk.get("response") or chunk.get("content") or chunk.get("token") or "")
+                            elif isinstance(chunk, str):
+                                parts.append(chunk)
+                        return "".join(parts).strip()
+                    except Exception:
+                        return str(r or "").strip()
+
+                _cis_a = _extract_text(_cis_a)
+                _cis_b = _extract_text(_cis_b)
                 if _cis_a and _cis_b:
                     return f"{_cis_a}\n\n{_cis_b}"
                 return _cis_a or _cis_b

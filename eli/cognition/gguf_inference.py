@@ -1625,6 +1625,14 @@ try:
             if kwargs.pop("_eli_disable_adaptive_cold_loader", False):
                 return _ELI_RAW_GGUF_LOAD_MODEL(*args, **kwargs)
 
+            # Fast-path: model already in memory, no force_reload requested.
+            # Skip VRAM probe + candidate loop entirely — just return the cached
+            # instance.  Avoids "[GGUF][ADAPTIVE] load attempt 1" noise on every
+            # inference call when the model is healthy.
+            _force = kwargs.get("force_reload", False) or (args and args[0])
+            if _llm is not None and not _force:
+                return _llm
+
             requested = _eli_requested_runtime_from_kwargs(kwargs)
             gpu = _eli_probe_nvidia_vram()
             candidates = _eli_build_adaptive_candidates(requested, gpu)
