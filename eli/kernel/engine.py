@@ -10150,6 +10150,25 @@ Answer:"""
             log.debug(f"[PHASE45] stream command fastpath failed: {_p45_stream_err}")
         # === END PHASE45_STREAM_COMMAND_FASTPATH ===
 
+        # === SHORT_AMBIGUOUS_INPUT_FASTPATH ===
+        # If the input is ≤3 words AND agent bus confidence is very low (<0.22),
+        # the input is almost certainly STT noise or a fragment the model can't
+        # helpfully answer. Skip 13-second LLM generation and return a one-line
+        # prompt for the user to repeat themselves. "peace is this" at conf=0.18
+        # is a textbook case — the model would otherwise output 8 numbered paragraphs
+        # of interpretation. Only fires when the bus result was actually built and
+        # reported very low confidence (avoids silencing legitimate 3-word commands
+        # like "play some music" which route to specific actions at higher confidence).
+        try:
+            _saf_words = [w for w in prompt.split() if w]
+            _saf_bus_conf = float(getattr(pre_built_bus_result, "aggregated_confidence", 1.0) or 1.0) \
+                if pre_built_bus_result is not None else 1.0
+            if len(_saf_words) <= 3 and _saf_bus_conf < 0.22:
+                yield "Didn't catch that — say it again?"
+                return
+        except Exception:
+            pass
+        # === END SHORT_AMBIGUOUS_INPUT_FASTPATH ===
 
         # ELI_REASONING_MODE_RECOVERY_V1
         # Some indirect stream paths may omit the explicit reasoning_mode kwarg.
