@@ -574,19 +574,37 @@ def _looks_like_conversation_summary(low: str) -> bool:
 def _route_set_user_name(raw: str, low: str) -> Optional[Dict[str, Any]]:
     """Detect explicit name-setting statements and route to SET_USER_NAME."""
     import re as _re
+
+    # Negation guard: bail immediately on "my name is NOT", "my name isn't",
+    # "that is not my name", "not my name", "I am not", etc.
+    _negation_patterns = (
+        r"\bmy name is(?:n't| not)\b",
+        r"\bmy name isn't\b",
+        r"\bnot my name\b",
+        r"\bthat(?:'s| is) not my name\b",
+        r"\bdon't call me\b",
+        r"\bdo not call me\b",
+        r"\bi am not\b",
+        r"\bi'm not\b",
+        r"\bmy name is not\b",
+    )
+    for _npat in _negation_patterns:
+        if _re.search(_npat, low, _re.IGNORECASE):
+            return None
+
     # "my name is X", "call me X", "i'm X" / "i am X" (followed by end or punctuation)
     _patterns = (
         r"(?:my name is|my name's)\s+([A-Za-z][A-Za-z\-']{1,30})\b",
         r"call me\s+([A-Za-z][A-Za-z\-']{1,30})\b",
         r"(?:you can call me|please call me)\s+([A-Za-z][A-Za-z\-']{1,30})\b",
         r"^(?:i'?m|i am)\s+([A-Z][a-z]{2,24})\s*[.,!?]?\s*$",
-        r"^([A-Z][a-z]{3,24})\s*[.,!?]?\s*$",  # bare name as full message — min 4 chars to avoid abbreviations
+        # Bare name as full message: require actual uppercase first char (typed, not STT-lowercased)
+        r"^([A-Z][a-z]{3,24})\s*[.,!?]?\s*$",
     )
-    # Common abbreviations / acronyms that must never be treated as names.
-    # Includes ETA and any 2-3 letter all-caps or common short tokens.
+    # Common words / abbreviations that must never be treated as names.
     _bad = {"you", "eli", "okay", "ok", "sure", "fine", "good", "here",
             "yes", "no", "hi", "hey", "hello", "there", "done", "ready",
-            "sorry", "thanks", "thank", "great", "right", "wrong",
+            "sorry", "thanks", "thank", "great", "right", "wrong", "not",
             # Media control reserved words — must never become a name
             "play", "pause", "resume", "stop", "next", "skip", "back",
             "previous", "mute", "unmute", "louder", "quieter", "volume",
@@ -597,18 +615,32 @@ def _route_set_user_name(raw: str, low: str) -> Optional[Dict[str, Any]]:
             # Command keywords — must never become a user name
             "help", "commands", "command", "list", "check", "status",
             "info", "about", "what", "when", "where", "who", "why", "how",
+            # Common English words that STT might produce as single-word utterances
+            "port", "read", "write", "note", "chat", "call", "ping", "send",
+            "move", "copy", "load", "save", "take", "make", "time", "date",
+            "week", "test", "demo", "data", "text", "file", "code", "mode",
+            "this", "that", "with", "from", "into", "just", "also", "only",
+            "more", "less", "most", "very", "some", "none", "both", "each",
+            "then", "than", "when", "well", "will", "been", "have", "does",
+            "done", "used", "like", "want", "need", "make", "knew", "know",
+            "told", "tell", "said", "says", "came", "come", "goes", "went",
+            "seem", "seen", "been", "gave", "give", "took", "take", "keep",
             # Common abbreviations / acronyms — never a personal name
             "eta", "ata", "ota", "asap", "fyi", "btw", "tbd", "tba",
             "aka", "tldr", "diy", "imo", "imho", "afk", "brb", "wtf",
             "omg", "lol", "idk", "nvm", "tbh", "irl", "gg", "rn",
             "api", "gui", "cli", "url", "cpu", "gpu", "ram", "ssd",}
-    for pat in _patterns:
+
+    for i, pat in enumerate(_patterns):
         m = _re.search(pat, raw, _re.IGNORECASE)
         if m:
             candidate = m.group(1).strip().rstrip(".,!?")
-            # Additional guard: reject pure abbreviations (≤3 chars with no vowel variety)
             _clow = candidate.lower()
             _has_vowel = any(c in "aeiou" for c in _clow)
+            # Bare-word pattern (index 4): require actual uppercase first letter in raw text.
+            # STT produces all-lowercase; a typed name would be capitalised.
+            if i == 4 and not raw[0].isupper():
+                continue
             if _clow not in _bad and len(candidate) >= 3 and _has_vowel:
                 return _mk(
                     "SET_USER_NAME",
