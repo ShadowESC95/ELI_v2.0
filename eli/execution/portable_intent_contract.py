@@ -273,15 +273,34 @@ def try_route(text: str) -> Optional[dict]:
 
     m = re.fullmatch(r"(.+?)\s+by\s+(.+)", norm)
     if m and len(norm.split()) >= 4:
-        query = _clean_target(raw)
-        query = re.sub(r"(?i)^\s*play\s+", "", query).strip()
-        target = "spotify"
-        return {
-            "action": "PLAY_MEDIA",
-            "args": {"query": query, "target": target, "service": target},
-            "confidence": 0.96,
-            "meta": {"matched_by": "portable_intent_contract.implied_song_by_artist"},
+        # Guard against conversational sentences where "by" is a preposition,
+        # not a "song by artist" separator.  The title (before "by") must not
+        # contain common English function/pronoun/verb words that signal a
+        # sentence rather than a media title.  Also block if the text starts
+        # with a negation or conversational opener.
+        _before_by = m.group(1).strip()
+        _before_words = set(_before_by.lower().split())
+        _sentence_signals = {
+            "you", "will", "would", "could", "should", "can", "me", "my",
+            "i", "we", "they", "he", "she", "it", "is", "are", "was",
+            "were", "be", "been", "am", "no", "yes", "ok", "okay", "got",
+            "get", "go", "did", "do", "does", "done", "please", "that",
+            "this", "which", "what", "how", "run", "come", "take", "give",
+            "your", "our", "their", "its", "first", "now", "then", "also",
+            "just", "not", "never", "always", "but", "and", "or", "so",
         }
+        if _before_words & _sentence_signals:
+            pass  # "by" is a preposition in a sentence — not a media query
+        else:
+            query = _clean_target(raw)
+            query = re.sub(r"(?i)^\s*play\s+", "", query).strip()
+            target = "spotify"
+            return {
+                "action": "PLAY_MEDIA",
+                "args": {"query": query, "target": target, "service": target},
+                "confidence": 0.96,
+                "meta": {"matched_by": "portable_intent_contract.implied_song_by_artist"},
+            }
 
     wants_generation = re.search(r"\b(?:generate|write|create|build|make)\b", norm)
     wants_code = re.search(r"\b(?:script|code|program|module|tool|app)\b", norm)
