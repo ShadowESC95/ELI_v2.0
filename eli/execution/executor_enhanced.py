@@ -9334,11 +9334,51 @@ except NameError:
         if ext == "py":
             try:
                 compile(code, "<eli-generated-script>", "exec")
-            except SyntaxError as exc:
-                return _eli_v3_error(
-                    action_name,
-                    f"Generated Python script failed syntax validation: {exc}",
+            except SyntaxError as _v3_syn_exc:
+                # One retry with a stricter prompt: standard library only, no
+                # third-party packages. Catches hallucinated APIs like
+                # pytz.utc.location.LocationIn that pass regex checks but fail compile.
+                _v3_retry_prompt = (
+                    "You are ELI's local code generation engine. The previous attempt had a syntax error: "
+                    f"{_v3_syn_exc}\n\n"
+                    "Write a CORRECTED, complete, runnable Python script for the task below.\n"
+                    "STRICT REQUIREMENTS:\n"
+                    "- Standard library ONLY. Do not import any third-party package (no ephem, pytz, astral, requests, etc.).\n"
+                    "- No markdown fences, no commentary, no TODO markers.\n"
+                    "- Must be syntactically valid Python 3.\n"
+                    "- Use an `if __name__ == '__main__':` entry point.\n\n"
+                    f"Task:\n{description}"
                 )
+                _v3_retry_raw = None
+                _v3_chat = globals().get("chat")
+                if callable(_v3_chat):
+                    try:
+                        _v3_retry_raw = _v3_chat(_v3_retry_prompt, skip_router=True)
+                    except TypeError:
+                        _v3_retry_raw = _v3_chat(_v3_retry_prompt)
+                if _v3_retry_raw is None:
+                    try:
+                        from eli.cognition import gguf_inference as _v3_gi
+                        _v3_retry_raw = _v3_gi.generate(
+                            _v3_retry_prompt,
+                            max_tokens=int(data.get("max_tokens") or 1200),
+                        )
+                    except Exception:
+                        pass
+                if _v3_retry_raw:
+                    code = _eli_v3_extract_code(_v3_retry_raw, language=language)
+                    try:
+                        compile(code, "<eli-generated-script>", "exec")
+                    except SyntaxError as _v3_retry_exc:
+                        return _eli_v3_error(
+                            action_name,
+                            f"Generated Python script failed syntax validation (after retry): {_v3_retry_exc}",
+                        )
+                else:
+                    return _eli_v3_error(
+                        action_name,
+                        f"Generated Python script failed syntax validation: {_v3_syn_exc}",
+                    )
 
         out_dir = _eli_v3_artifacts_dir() / "scripts"
         out_dir.mkdir(parents=True, exist_ok=True)
