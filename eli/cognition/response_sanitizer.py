@@ -47,6 +47,9 @@ def sanitize_assistant_text(text: Any) -> str:
     out = out.strip()
     return out or "..."
 
+# 1-arg sanitize-only alias.  Note: output_governor.normalize_assistant_text
+# takes (user_input, text) and does persona/contract repair on top — different
+# function, different module, different signature.
 def normalize_assistant_text(text: Any) -> str:
     return sanitize_assistant_text(text)
 

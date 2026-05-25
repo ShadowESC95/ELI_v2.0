@@ -112,8 +112,8 @@ def set_pending_for_test(plan: dict, result: dict, stage: str = "offered") -> No
         }
         _save_pending_state(_PENDING)
 
-def _run(cmd: str) -> dict:
-    proc = subprocess.run(cmd, shell=True, text=True, capture_output=True)
+def _run(cmd: str, timeout: int = 30) -> dict:
+    proc = subprocess.run(cmd, shell=True, text=True, capture_output=True, timeout=timeout)
     return {
         "cmd": cmd,
         "rc": proc.returncode,
