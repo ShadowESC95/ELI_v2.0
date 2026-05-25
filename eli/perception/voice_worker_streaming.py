@@ -41,11 +41,15 @@ class VoiceWorker:
     def speak(self, text: str):
         with self._lock:
             self._active = True
-        t = threading.Thread(target=self._run, args=(text,), daemon=True)
-        self._current_thread = t
+            t = threading.Thread(target=self._run, args=(text,), daemon=True)
+            self._current_thread = t
         t.start()
 
     def _run(self, text: str):
+        # Read the flag once while holding the lock. If interrupt() fires
+        # after this point the long speak_if_enabled call will still run —
+        # that's the inherent trade-off of non-blocking TTS dispatch. The
+        # flag is reset to False when we finish so the next speak() is clean.
         with self._lock:
             active = self._active
         if active:
