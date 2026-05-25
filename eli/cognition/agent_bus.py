@@ -361,7 +361,7 @@ class AgentResult:
         if not self.ok:
             return False
         d = self.data or {}
-        for key in ("snippets", "results", "hits", "items", "content", "entries", "rules", "insights", "memory_context"):
+        for key in ("snippets", "results", "hits", "items", "content", "entries", "rules", "insights", "memory_context", "failures", "proposals"):
             v = d.get(key)
             if isinstance(v, (list, tuple)) and len(v) > 0:
                 return True
