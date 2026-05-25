@@ -2879,10 +2879,36 @@ def open_browser(url: str = "https://duckduckgo.com", urls: list = None) -> Dict
 
 
 def set_user_name(name: str) -> Dict[str, Any]:
+    import re as _re_sun
     n = (name or "").strip()
     if not n:
         msg = "Empty name."
         return {"ok": False, "action": "SET_USER_NAME", "error": "empty_name", "content": msg, "response": msg}
+
+    # --- Validation gate: reject phrase-like or sentence-fragment names ---
+    _NAME_SENTENCE_SIGNALS = frozenset({
+        "my", "by", "your", "the", "a", "an", "is", "was", "are", "were",
+        "be", "been", "am", "not", "no", "yes", "ok", "okay", "it", "its",
+        "this", "that", "which", "what", "who", "how", "why", "when",
+        "will", "would", "could", "should", "can", "may", "might", "do",
+        "does", "did", "have", "has", "had", "i", "me", "we", "you",
+        "they", "he", "she", "and", "or", "but", "so", "if", "then",
+        "to", "for", "of", "in", "on", "at", "with", "about", "just",
+        "name", "call", "called", "calling", "named",
+    })
+    _tokens = n.split()
+    # Reject if: too long (> 25 chars), too many tokens (> 3 words for a name),
+    # or any token matches a sentence-signal word
+    _is_phrase = (
+        len(n) > 25
+        or len(_tokens) > 3
+        or any(t.lower() in _NAME_SENTENCE_SIGNALS for t in _tokens)
+        or bool(_re_sun.search(r"[^A-Za-z0-9'\-\. ]", n))  # exotic punctuation
+    )
+    if _is_phrase:
+        log.debug(f"[EXECUTOR] set_user_name: rejected phrase-like name {n!r}")
+        msg = "That doesn't look like a name — please say just the name."
+        return {"ok": False, "action": "SET_USER_NAME", "error": "invalid_name", "content": msg, "response": msg}
     # Write to runtime state (legacy path)
     st = _load_state()
     st["user_name"] = n
