@@ -6706,10 +6706,48 @@ Answer:"""
         return brief
 
     def verify_persona_lock(self) -> bool:
+        """
+        Returns True when the GGUF model is loaded and its on-disk path matches
+        the expected path from gguf_inference.get_model_path().
+
+        Called at Stage 2 of the orchestrator pipeline before every inference
+        pass.  If it returns False, orchestrator triggers repair_persona_lock().
+        """
+        if not self._gguf_available:
+            return False
+        # Verify the loaded model path still matches the configured one so a
+        # model swap or accidental unload is caught before inference runs.
+        try:
+            if gguf_inference is not None and hasattr(gguf_inference, "get_model_path"):
+                expected = gguf_inference.get_model_path()
+                if expected is not None:
+                    if str(expected) != self._model_path:
+                        log.debug(
+                            f"[COGNITIVE] verify_persona_lock: path mismatch "
+                            f"expected={expected} loaded={self._model_path}"
+                        )
+                        return False
+        except Exception as _vpl_err:
+            log.debug(f"[COGNITIVE] verify_persona_lock: path check failed ({_vpl_err}); treating as ok")
         return True
 
     def repair_persona_lock(self):
-        return None
+        """
+        Attempt to reload the GGUF model.  Called by orchestrator when
+        verify_persona_lock() returns False.  Logs the outcome; the
+        orchestrator decides whether to abort or continue.
+        """
+        log.debug("[COGNITIVE] repair_persona_lock: attempting GGUF reload")
+        try:
+            self._init_gguf()
+            if self._gguf_available:
+                log.debug("[COGNITIVE] repair_persona_lock: GGUF model reloaded successfully")
+            else:
+                log.warning(
+                    f"[COGNITIVE] repair_persona_lock: reload failed — {self._gguf_load_error}"
+                )
+        except Exception as _rpl_err:
+            log.warning(f"[COGNITIVE] repair_persona_lock: exception during reload — {_rpl_err}")
 
     def recall_memory_query(self, query: str, limit: int = 12,
                              keyword_only: bool = False) -> list:
