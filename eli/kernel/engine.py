@@ -6714,7 +6714,29 @@ Answer:"""
         pass.  If it returns False, orchestrator triggers repair_persona_lock().
         """
         if not self._gguf_available:
-            return False
+            # CE may have used deferred init while the GUI loaded the model
+            # directly into gguf_inference._llm.  Sync our state from the
+            # module before deciding the lock is broken.
+            try:
+                if gguf_inference is not None and hasattr(gguf_inference, "is_loaded"):
+                    if gguf_inference.is_loaded():
+                        self._gguf_available = True
+                        mp = gguf_inference.get_model_path()
+                        if mp:
+                            self._model_path = str(mp)
+                        log.debug("[COGNITIVE] verify_persona_lock: synced _gguf_available=True from gguf_inference module")
+                elif gguf_inference is not None:
+                    # Fallback: check internal _llm attr
+                    if getattr(gguf_inference, "_llm", None) is not None:
+                        self._gguf_available = True
+                        mp = gguf_inference.get_model_path() if hasattr(gguf_inference, "get_model_path") else None
+                        if mp:
+                            self._model_path = str(mp)
+                        log.debug("[COGNITIVE] verify_persona_lock: synced _gguf_available=True from gguf_inference._llm")
+            except Exception as _sync_err:
+                log.debug(f"[COGNITIVE] verify_persona_lock: sync check failed ({_sync_err})")
+            if not self._gguf_available:
+                return False
         # Verify the loaded model path still matches the configured one so a
         # model swap or accidental unload is caught before inference runs.
         try:
