@@ -1871,10 +1871,21 @@ class _GUIEngineAdapter:
                     "confidence": 0.7, "meta": {}}
 
     def verify_persona_lock(self) -> bool:
+        """Delegate to CognitiveEngine when available; fall back to True."""
+        try:
+            if self._ce is not None and hasattr(self._ce, "verify_persona_lock"):
+                return self._ce.verify_persona_lock()
+        except Exception as _vpl_err:
+            log.debug(f"[GUI] verify_persona_lock CE delegation failed: {_vpl_err}")
         return True
 
     def repair_persona_lock(self):
-        pass
+        """Delegate to CognitiveEngine when available."""
+        try:
+            if self._ce is not None and hasattr(self._ce, "repair_persona_lock"):
+                self._ce.repair_persona_lock()
+        except Exception as _rpl_err:
+            log.debug(f"[GUI] repair_persona_lock CE delegation failed: {_rpl_err}")
 
     def recall_memory_query(self, query: str, limit: int = 12) -> list:
         if self.memory is None:
