@@ -31,16 +31,6 @@ class DBPaths:
     def memory_db():
         return memory_db_path()
 
-# Function-style aliases for backward compat
-def get_user_db_path():
-    return user_db_path()
-
-def get_agent_db_path():
-    return agent_db_path()
-
-def get_memory_db_path():
-    return memory_db_path()
-
 # Canonical database path implementation:
 #   - get_db_paths() returns an _AttrDict (dict subclass with attribute
 #     access) so both p.user_db and p["user_db"] work.
