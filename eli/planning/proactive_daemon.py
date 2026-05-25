@@ -1,6 +1,3 @@
-from eli.runtime.self_model_refresh import refresh_all_overlays_nonfatal
-from eli.planning.proposal_memory_bridge import drain_proposals_to_agent_memory
-
 #!/usr/bin/env python3
 """
 ELI Proactive Daemon - Self-Improvement & Intelligence System
@@ -23,6 +20,8 @@ from typing import Dict, List, Any, Optional
 import threading
 import queue
 from eli.core.paths import get_paths
+from eli.runtime.self_model_refresh import refresh_all_overlays_nonfatal
+from eli.planning.proposal_memory_bridge import drain_proposals_to_agent_memory
 
 # IMPORTANT: don't force sys.path unless you're running this file directly.
 # In normal package use, PYTHONPATH/src handles it.
@@ -239,7 +238,7 @@ class ProactiveDaemon:
             proj_rows = cur.fetchall()
             con.close()
             if proj_rows:
-                proj = proj_rows[0][0].strip()[:120] if proj_rows else ""
+                proj = proj_rows[0][0].strip()[:120]
                 if proj:
                     patterns.append({
                         "type": "active_project",

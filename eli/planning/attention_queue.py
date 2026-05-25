@@ -134,6 +134,7 @@ def recent_attention(limit: int = 25, ranked: bool = True) -> Dict[str, Any]:
     if ranked:
         items = sorted(items, key=lambda r: _rank_item(r), reverse=True)
     else:
+        # Take the tail (most recent appended entries) then reverse so newest is first.
         items = items[-max(1, int(limit)) :]
         items.reverse()
     items = items[: max(1, int(limit))]
