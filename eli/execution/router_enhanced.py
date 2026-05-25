@@ -587,6 +587,12 @@ def _route_set_user_name(raw: str, low: str) -> Optional[Dict[str, Any]]:
         r"\bi am not\b",
         r"\bi'm not\b",
         r"\bmy name is not\b",
+        # "User is not my name" / "X is not my name"
+        r"\bis not my name\b",
+        # "that's not my name" / "that is not my name"
+        r"\bthat(?:'?s?|\s+is)\s+not\s+my\b",
+        # "stop calling me X" / "don't call me X"
+        r"\bstop calling me\b",
     )
     for _npat in _negation_patterns:
         if _re.search(_npat, low, _re.IGNORECASE):
@@ -1212,7 +1218,8 @@ def route(text: str) -> Dict[str, Any]:
                  r"|\bcurrent\s+events?\b|\blatest\s+news\b"
                  r"|\btoday'?s?\s+news\b|\bworld\s+news\b|\bnews\s+today\b"
                  r"|\bany\s+news\b|\bwhat'?s?\s+new\b"
-                 r"|\bthe\s+news\b|\bheadlines?\b|\bnews[,\s]*eli\b|\beli[,\s]*news\b", low):
+                 r"|\bthe\s+news\b|\bheadlines?\b|\bnews[,\s]*eli\b|\beli[,\s]*news\b", low) \
+            and not re.search(r"\b(dude|bro|man|wtf|omg|lol|hey|seriously|really)\b", low):
         # Extract topic from "news in/about/on/for X" or "X news" phrasing.
         _topic = ""
         _tm = re.search(r"\bnews\s+(?:in|about|on|for|regarding|covering)\s+([a-z][a-z0-9 \-]{2,40})\b", low)
@@ -5349,13 +5356,16 @@ try:
                 ("self_improvement_guard", _stage_self_improvement_guard),
                 ("personal_memory_pre_route", _stage_personal_memory_pre_route),
                 ("lrf_pre_route", _stage_lrf_pre_route),
+                # set_user_name runs before portable_route so explicit identity
+                # assertions ("call me Jason", "my name is X") are never
+                # misclassified as media-play requests by portable_intent_contract.
+                ("set_user_name", _stage_set_user_name),
                 ("portable_route", _stage_portable_route),
                 ("weather_prepass", lambda t, *a, **k: _eli_weather_prepass(t)),
                 ("shell_prepass",   lambda t, *a, **k: _eli_shell_prepass(t)),
                 ("voice_contract", _stage_voice_contract),
                 ("persona_override", _stage_persona_override),
                 ("followup_passthrough", _stage_followup_passthrough),
-                ("set_user_name", _stage_set_user_name),
                 ("identity_contract", _stage_identity_contract),
                 ("core_router", _stage_core_router),
             )
