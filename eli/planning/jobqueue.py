@@ -110,8 +110,8 @@ def _claim_next(conn: sqlite3.Connection) -> Optional[int]:
     if not r:
         return None
     jid = int(r[0])
-    conn.execute("UPDATE jobs SET status='running' WHERE id=? AND status='queued'", (jid,))
-    if conn.total_changes == 0:
+    cur = conn.execute("UPDATE jobs SET status='running' WHERE id=? AND status='queued'", (jid,))
+    if cur.rowcount == 0:
         return None
     return jid
 

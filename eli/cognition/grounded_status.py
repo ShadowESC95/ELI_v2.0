@@ -199,7 +199,7 @@ def _memory_like_rows(limit: int = 16) -> List[Tuple[str, str, str]]:
         "session context:",
     )
 
-    for db in DB_PATHS:
+    for db in _db_paths():
         con = _connect(db)
         if con is None:
             continue
@@ -248,7 +248,7 @@ def _memory_like_rows(limit: int = 16) -> List[Tuple[str, str, str]]:
 def _memory_counts() -> Dict[str, Any]:
     out: Dict[str, Any] = {"databases": [], "total_rows": 0}
 
-    for db in DB_PATHS:
+    for db in _db_paths():
         db_info: Dict[str, Any] = {
             "path": str(db),
             "exists": db.exists(),
