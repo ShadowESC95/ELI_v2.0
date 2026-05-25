@@ -199,19 +199,38 @@ def coerce_user_visible(result: Any, user_input: Any = "", mode: Any = "") -> st
                 or "missing_user_visible_text" in _s[:800]
             )
         ):
-            # Runtime truth/status evidence is already user-facing.
-            # Do not collapse it into the generic diagnostic fallback.
+            # Never dump raw JSON to the user — format surface packets as readable text.
             try:
-                _raw_surface_text = str(_s or "")
+                _blob = json.loads(_s)
+                _surface = _blob.get("surface", "")
+                if _surface == "runtime_truth_evidence":
+                    _eff = _blob.get("effective", {})
+                    _cfg = _blob.get("configured", {})
+                    _lines = [
+                        f"Provider: {_blob.get('provider', 'unknown')}",
+                        f"Model: {_blob.get('model_path', 'unknown')}",
+                        (
+                            f"Effective — ctx: {_eff.get('n_ctx', '?')}, "
+                            f"gpu_layers: {_eff.get('n_gpu_layers', '?')}, "
+                            f"threads: {_eff.get('n_threads', '?')}, "
+                            f"batch: {_eff.get('n_batch', '?')}"
+                        ),
+                        f"GPU: {_eff.get('gpu', 'unavailable')}",
+                    ]
+                    return "\n".join(_lines)
+                if _surface == "identity_evidence":
+                    return "Identity: ELI — runtime snapshot present, persona files loaded."
+                if _surface in ("runtime_evidence", "identity_runtime_evidence"):
+                    _resp = _blob.get("response") or _blob.get("content") or ""
+                    if _resp:
+                        return str(_resp).strip()
+                # Generic surface: try response/content fields before giving up.
+                for _k in ("response", "content", "text", "message"):
+                    _v = _blob.get(_k)
+                    if isinstance(_v, str) and _v.strip():
+                        return _v.strip()
             except Exception:
-                _raw_surface_text = ""
-            _raw_surface_head = _raw_surface_text[:1200]
-            if (
-                "runtime_truth_evidence" in _raw_surface_head
-                or _raw_surface_text.lstrip().startswith("Runtime status")
-                or _raw_surface_text.lstrip().startswith("Runtime truth report")
-            ):
-                return _raw_surface_text
+                pass
             return "A diagnostic evidence packet was produced, but it is not a user-facing answer."
         return result
 
