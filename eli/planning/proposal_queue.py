@@ -108,12 +108,9 @@ def drain_records(limit: int = 100, archive: bool = True) -> List[ProposalRecord
     drained = rows[: max(0, int(limit))]
     remaining = rows[len(drained):]
 
-    if archive and drained:
-        ap = archive_path()
-        with ap.open("a", encoding="utf-8") as fh:
-            for rec in drained:
-                fh.write(json.dumps(rec.to_dict(), ensure_ascii=False) + "\n")
-
+    # Write remaining back to the queue file FIRST so that a crash between
+    # here and the archive write loses archive entries (acceptable) rather than
+    # leaving records in both files and re-executing them (not acceptable).
     if remaining:
         q.write_text(
             "".join(json.dumps(r.to_dict(), ensure_ascii=False) + "\n" for r in remaining),
@@ -121,6 +118,12 @@ def drain_records(limit: int = 100, archive: bool = True) -> List[ProposalRecord
         )
     else:
         q.unlink(missing_ok=True)
+
+    if archive and drained:
+        ap = archive_path()
+        with ap.open("a", encoding="utf-8") as fh:
+            for rec in drained:
+                fh.write(json.dumps(rec.to_dict(), ensure_ascii=False) + "\n")
 
     return drained
 
