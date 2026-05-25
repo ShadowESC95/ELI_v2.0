@@ -639,7 +639,7 @@ def _route_set_user_name(raw: str, low: str) -> Optional[Dict[str, Any]]:
             _has_vowel = any(c in "aeiou" for c in _clow)
             # Bare-word pattern (index 4): require actual uppercase first letter in raw text.
             # STT produces all-lowercase; a typed name would be capitalised.
-            if i == 4 and not raw[0].isupper():
+            if i == 4 and (not raw or not raw[0].isupper()):
                 continue
             if _clow not in _bad and len(candidate) >= 3 and _has_vowel:
                 return _mk(

@@ -122,6 +122,7 @@ def _recall_recent_legacy_1(limit: int = 10, k=None) -> "Dict[str, Any]":
     db_path.parent.mkdir(parents=True, exist_ok=True)
 
     rows_out = []
+    con = None
     try:
         con = sqlite3.connect(db_path.as_posix())
         cur = con.cursor()
@@ -141,7 +142,6 @@ def _recall_recent_legacy_1(limit: int = 10, k=None) -> "Dict[str, Any]":
             (limit,)
         )
         rows = cur.fetchall()
-        con.close()
 
         for rid, ts, text, tags in rows:
             rows_out.append({
@@ -166,6 +166,9 @@ def _recall_recent_legacy_1(limit: int = 10, k=None) -> "Dict[str, Any]":
             "memories": [],
             "items": [],
         }
+    finally:
+        if con is not None:
+            con.close()
 
 
 def _ollama_embed(text: str) -> Optional["np.ndarray"]:
@@ -365,6 +368,7 @@ def recall_recent(limit: int = 10, k=None) -> "Dict[str, Any]":
     db_path.parent.mkdir(parents=True, exist_ok=True)
 
     rows_out = []
+    con = None
     try:
         con = sqlite3.connect(db_path.as_posix())
         cur = con.cursor()
@@ -386,7 +390,6 @@ def recall_recent(limit: int = 10, k=None) -> "Dict[str, Any]":
             (limit,)
         )
         rows = cur.fetchall()
-        con.close()
 
         for r in rows:
             rid, ts, text, tags = r
@@ -412,6 +415,9 @@ def recall_recent(limit: int = 10, k=None) -> "Dict[str, Any]":
             "memories": [],
             "items": [],
         }
+    finally:
+        if con is not None:
+            con.close()
 
 
 
@@ -430,17 +436,19 @@ def _compat_sqlite_insert_memory(text: str, tags: str = "") -> dict:
     ))
     db_path.parent.mkdir(parents=True, exist_ok=True)
     con = sqlite3.connect(db_path.as_posix())
-    cur = con.cursor()
-    cur.execute("""
-        CREATE TABLE IF NOT EXISTS memory (
-            id INTEGER PRIMARY KEY,
-            ts TEXT DEFAULT CURRENT_TIMESTAMP,
-            text TEXT,
-            tags TEXT
-        )
-    """)
-    cur.execute("INSERT INTO memory(text, tags) VALUES(?, ?)", (text or "", tags or ""))
-    row_id = cur.lastrowid
-    con.commit()
-    con.close()
+    try:
+        cur = con.cursor()
+        cur.execute("""
+            CREATE TABLE IF NOT EXISTS memory (
+                id INTEGER PRIMARY KEY,
+                ts TEXT DEFAULT CURRENT_TIMESTAMP,
+                text TEXT,
+                tags TEXT
+            )
+        """)
+        cur.execute("INSERT INTO memory(text, tags) VALUES(?, ?)", (text or "", tags or ""))
+        row_id = cur.lastrowid
+        con.commit()
+    finally:
+        con.close()
     return {"ok": True, "id": row_id}
