@@ -423,13 +423,15 @@ def format_user_identity() -> str:
     if not name:
         name = memory_identity.get("name", "")
 
-    system_user = getpass.getuser()
+    # linux_user is intentionally NOT included in the evidence block.
+    # The model must not infer the user's personal name from the OS username.
+    # Only profile/memory-grounded names are reported above.
+    _ = getpass.getuser()  # still imported for potential audit use elsewhere
 
     lines = ["Grounded user identity:"]
     lines.append(f"- preferred_name: {preferred or 'unknown'}")
     lines.append(f"- name: {name or 'unknown'}")
     lines.append(f"- profile_source: {source or 'none'}")
-    lines.append(f"- linux_user: {system_user}")
     lines.append("")
     lines.append("Evidence snippets:")
 

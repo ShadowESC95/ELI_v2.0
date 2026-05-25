@@ -2523,7 +2523,7 @@ def _eli_personal_memory_answer_v2(mode_label: str = "") -> str:  # type: ignore
         buckets[_eli_v8_bucket_for_fact(fact)].append(fact)
 
     if not buckets["identity"]:
-        buckets["identity"].append(_eli_v8_fallback_identity())
+        buckets["identity"].append("No confirmed user identity in local memory.")
 
     lines = [
         "What I know about this user from local memory:",
@@ -2713,10 +2713,9 @@ def _eli_v9_identity_label() -> tuple[str, str]:
     if names:
         return names[0], "local_memory"
 
-    try:
-        return _eli_v9_getpass.getuser(), "os_user_fallback"
-    except Exception:
-        return "current local user", "os_user_fallback"
+    # Do NOT fall back to the OS username — that is a system account name,
+    # not the user's personal identity. Return empty when nothing is known.
+    return "", "no_identity"
 
 
 def _eli_v9_bucket_for_fact(fact: str) -> str:
@@ -3049,10 +3048,7 @@ def _eli_v10_identity_label() -> tuple[str, str]:
     if names:
         return names[0], "local_memory"
 
-    try:
-        return _eli_v9_getpass.getuser(), "os_user_fallback"  # type: ignore[name-defined]
-    except Exception:
-        return "current local user", "os_user_fallback"
+    return "", "no_identity"
 
 
 def _eli_v10_personal_memory_answer(mode_label: str = "") -> str:
