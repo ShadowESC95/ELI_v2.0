@@ -49,6 +49,15 @@ _INVALID_SINGLE_TOKENS = {
     "waiting",
     "coming",
     "running",
+    # Pronouns / possessives / prepositions that never form part of a real name
+    "my", "by", "your", "our", "their", "his", "her",
+    "i", "me", "we", "they", "he", "she",
+    "is", "are", "was", "were", "be", "been", "am",
+    "in", "on", "at", "to", "for", "of", "with", "from",
+    "and", "or", "but", "so", "if", "then",
+    # Meta-words that appear when an LLM describes rather than states a name
+    "name", "named", "called", "call", "nickname",
+    "preferred", "prefer", "known",
 }
 
 _PLACEHOLDER_RE = re.compile(r"(?i)<[^>]*(?:user|name|username|local_user)[^>]*>|\[[^\]]*(?:user|name|username)[^\]]*\]")
