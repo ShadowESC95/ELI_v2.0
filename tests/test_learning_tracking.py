@@ -50,6 +50,14 @@ def test_app_command_updates_habit_tables_and_replay_buffer(tmp_path):
 def test_runtime_evidence_ledger_tracks_repeated_events(tmp_path):
     db = tmp_path / "user.sqlite3"
 
+    import time as _time
+    # Use explicit timestamps >10 seconds apart so the dedup gate in
+    # record_event doesn't suppress the second write.  The dedup window
+    # exists to prevent concurrent-thread noise within a single turn;
+    # repeated_event_signals() tracks genuine recurrences across turns.
+    t0 = _time.time() - 30  # 30 seconds ago
+    t1 = _time.time() - 5   # 5 seconds ago
+
     record_event(
         "executor_action",
         source="test",
@@ -59,6 +67,7 @@ def test_runtime_evidence_ledger_tracks_repeated_events(tmp_path):
         payload={"error": "Path not found"},
         outcome="failed",
         db_path=db,
+        timestamp=t0,
     )
     record_event(
         "executor_action",
@@ -69,6 +78,7 @@ def test_runtime_evidence_ledger_tracks_repeated_events(tmp_path):
         payload={"error": "Path not found"},
         outcome="failed",
         db_path=db,
+        timestamp=t1,
     )
 
     rows = recent_events(limit=5, db_path=db)
