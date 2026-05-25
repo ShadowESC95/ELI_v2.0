@@ -5559,7 +5559,9 @@ class EliMainWindow(QMainWindow):
         def worker():
             try:
                 import tempfile, time as _t
-                out = tempfile.mktemp(prefix="eli_sc_", suffix=".png")
+                # Use NamedTemporaryFile to atomically claim the path (avoids mktemp TOCTOU race).
+                with tempfile.NamedTemporaryFile(prefix="eli_sc_", suffix=".png", delete=False) as _tf:
+                    out = _tf.name
                 try:
                     from eli.perception.os_controller import take_screenshot
 

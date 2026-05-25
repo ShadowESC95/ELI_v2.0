@@ -388,6 +388,7 @@ def _speak_piper_cli(text, voice_name=None):
 
     piper_bin = (
         _os.environ.get("ELI_PIPER_BINARY", "").strip().strip('"')
+        or _os.environ.get("ELI_PIPER_BIN", "").strip()
         or _eli_packaged_cli_bin
         or _shutil.which("piper")
         or str(_Path.cwd() / ".venv" / "bin" / "piper")

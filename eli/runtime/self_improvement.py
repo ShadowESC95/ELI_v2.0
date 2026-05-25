@@ -644,8 +644,8 @@ class SelfImprovementEngine:
             while True:
                 try:
                     self.analyze_and_improve()
-                except Exception:
-                    pass
+                except Exception as _exc:
+                    log.warning("[SELF_IMPROVEMENT] analyze_and_improve error: %s", _exc)
                 time.sleep(interval_hours * 3600)
 
         threading.Thread(target=loop, daemon=True).start()
