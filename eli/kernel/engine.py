@@ -8752,6 +8752,13 @@ Answer:"""
                             "SELF_UPDATE",
                             "DIAGNOSE_WRAPPERS",
                             "SELF_REPORT",
+                            # Identity/profile actions: executor evidence is the
+                            # grounded answer; compact synthesis prevents the
+                            # full 7K-token prompt overflow they get on the
+                            # standard broker path.
+                            "USER_IDENTITY_SUMMARY",
+                            "PERSONAL_MEMORY_SUMMARY",
+                            "PERSONAL_MEMORY_DEEP_EXPLAIN",
                         }
                         try:
                             from eli.cognition.reasoning_modes import canonical_mode as _eli_direct_canon_mode
