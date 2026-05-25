@@ -9907,16 +9907,29 @@ _register()
             return
 
         # ── Non-streamed complete response ───────────────────────────────────
-        # Pre-process: pretty-format command result blobs before display
+        # Pre-process: extract user-visible text from any stray dict blobs
+        # before display so raw Python repr never reaches the chat widget.
         _r = text
-        if _r.strip().startswith("\u26a1 {") or (_r.strip().startswith("{'ok':") and "results" in _r):
+        _r_stripped = _r.strip()
+        if _r_stripped.startswith("\u26a1 {") or _r_stripped.startswith("{'") or _r_stripped.startswith("{\""):
             try:
                 import ast as _ast, re as _re2
-                _blob = _re2.sub(r"^\u26a1\s*", "", _r.strip())
+                _blob = _re2.sub(r"^\u26a1\s*", "", _r_stripped)
                 _data = _ast.literal_eval(_blob)
-                if isinstance(_data, dict) and _data.get("ok") and "results" in _data:
-                    _rs = _data["results"]
-                    _r = "\U0001f4cb " + " | ".join(r["text"] for r in _rs[:3]) if _rs else "\U0001f4cb No memories found."
+                if isinstance(_data, dict):
+                    if _data.get("ok") and "results" in _data:
+                        _rs = _data["results"]
+                        _r = "\U0001f4cb " + " | ".join(r["text"] for r in _rs[:3]) if _rs else "\U0001f4cb No memories found."
+                    else:
+                        # Any other result dict \u2014 extract the user-visible field
+                        _r = (
+                            _data.get("response") or _data.get("content")
+                            or _data.get("text") or _data.get("message")
+                            or _data.get("result") or _data.get("answer")
+                            or _data.get("output") or _r
+                        )
+                        if not isinstance(_r, str):
+                            _r = str(_r)
             except Exception:
                 pass
 
