@@ -1731,7 +1731,7 @@ class FileCodeAgent(_BaseAgent):
                     elapsed_ms=elapsed,
                 )
 
-            root = Path(__file__).resolve().parents[2]
+            root = Path(__file__).resolve().parents[1]  # eli/ — files_map paths are relative to eli/
 
             # phaseBW5 fix: canonicalised paths under the live `eli/`
             # layout. Previous values pointed at `brain/...` and
