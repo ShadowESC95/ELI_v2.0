@@ -1,5 +1,3 @@
-import random
-from eli.planning.proposal_adapters import proactive_governed_enqueue
 from eli.runtime.self_model_refresh import refresh_all_overlays_nonfatal
 from eli.planning.proposal_memory_bridge import drain_proposals_to_agent_memory
 
@@ -870,6 +868,7 @@ Date: {datetime.now().strftime("%A %B %d %H:%M")} | Interactions last 24h: {inte
 # Singleton instance
 _daemon = None
 _daemon_started = False
+_daemon_start_lock = threading.Lock()
 
 def get_daemon() -> ProactiveDaemon:
     global _daemon
@@ -903,10 +902,11 @@ def _guarded_daemon_run(daemon) -> None:
 
 def start_daemon():
     global _daemon_started
-    daemon = get_daemon()
-    if _daemon_started:
-        return daemon
-    _daemon_started = True
+    with _daemon_start_lock:
+        if _daemon_started:
+            return _daemon
+        daemon = get_daemon()
+        _daemon_started = True
     thread = threading.Thread(
         target=_guarded_daemon_run, args=(daemon,),
         daemon=True, name="eli-proactive-daemon",

@@ -2,6 +2,7 @@
 """LLM intent parsing - NOW USING GGUF instead of Ollama"""
 import json
 import os
+import threading
 from typing import Dict, Any
 from . import gguf_inference
 
@@ -9,7 +10,9 @@ from . import gguf_inference
 from eli.utils.log import get_logger
 log = get_logger(__name__)
 
-_cache = {}
+_cache: Dict[str, Any] = {}
+_cache_lock = threading.Lock()
+_CACHE_MAX = 256  # prevent unbounded growth
 
 def parse_with_llm(text: str) -> Dict[str, Any]:
     """Parse intent using GGUF model (not Ollama)."""
@@ -41,8 +44,15 @@ JSON:"""
 
 def parse_cached(text: str) -> Dict[str, Any]:
     """Cached version of parse_with_llm."""
-    if text in _cache:
-        return _cache[text]
+    with _cache_lock:
+        if text in _cache:
+            return _cache[text]
     result = parse_with_llm(text)
-    _cache[text] = result
+    with _cache_lock:
+        if len(_cache) >= _CACHE_MAX:
+            # evict oldest half when cap hit
+            keys = list(_cache.keys())
+            for k in keys[: _CACHE_MAX // 2]:
+                _cache.pop(k, None)
+        _cache[text] = result
     return result

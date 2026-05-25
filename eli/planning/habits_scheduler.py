@@ -38,7 +38,13 @@ class HabitScheduler:
                     raise
 
             for rule in rules:
-                if rule['hour'] == current_hour and rule['minute'] == current_minute:
+                try:
+                    rule_hour = rule['hour']
+                    rule_minute = rule['minute']
+                except (KeyError, TypeError):
+                    log.debug(f"[SCHEDULER] Skipping malformed rule (missing hour/minute): {rule!r}")
+                    continue
+                if rule_hour == current_hour and rule_minute == current_minute:
                     # Check day‑of‑week if specified
                     days = rule.get('days')
                     if days is not None:
@@ -51,8 +57,12 @@ class HabitScheduler:
 
     def _execute_rule(self, rule: Dict):
         """Run a habit rule and record its execution."""
-        command = rule['command']
-        log.debug(f"[SCHEDULER] Executing habit '{rule['name']}': {command}")
+        try:
+            command = rule['command']
+        except (KeyError, TypeError):
+            log.debug(f"[SCHEDULER] Skipping malformed rule (missing command): {rule!r}")
+            return
+        log.debug(f"[SCHEDULER] Executing habit '{rule.get('name', '?')}': {command}")
 
         # Try to parse as a natural language command – use cognitive engine
         try:
