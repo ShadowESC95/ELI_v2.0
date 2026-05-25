@@ -29,7 +29,6 @@ log = get_logger(__name__)
 _LOCK = threading.Lock()
 _ENGINE = None  # lazy pyttsx3 engine
 _NO_BACKEND_CONFIRMED = False
-_PIPER_VOICE_CACHE: dict = {}  # voice_name → PiperVoice instance
 
 # === PHASE13B_V2_PACKAGED_TTS_PIPER_SEARCH ===
 # Packaged ELI builds place Piper assets under:
@@ -224,8 +223,7 @@ def set_active_voice(voice_name: str) -> None:
         save_settings({"tts_voice": voice_name})
     except Exception:
         pass
-    # Clear cached voice instance so next speak() reloads
-    _PIPER_VOICE_CACHE.pop(voice_name, None)
+    # (Piper Python API voice cache was removed; nothing to clear here)
 
 
 # ── Text cleanup ───────────────────────────────────────────────────────────

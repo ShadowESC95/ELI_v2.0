@@ -48,7 +48,8 @@ class VoiceWorker(QThread):
                 env=env,
             )
 
-            assert self._proc.stdout is not None
+            if self._proc.stdout is None:
+                raise RuntimeError("Popen stdout is None — check subprocess.PIPE")
             for ln in self._proc.stdout:
                 if self._stop:
                     break
