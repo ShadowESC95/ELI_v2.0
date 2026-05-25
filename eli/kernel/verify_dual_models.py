@@ -106,7 +106,7 @@ if __name__ == "__main__":
     
         # Check if router is using the right model
         import eli.execution.router_enhanced
-        router_module_model = getattr(eli_tools.router, 'MODEL', 'unknown')
+        router_module_model = getattr(eli.execution.router_enhanced, 'MODEL', 'unknown')
         print(f"Router module MODEL variable: {router_module_model}")
     
         if router_model in router_module_model:
