@@ -2136,6 +2136,12 @@ class Memory(metaclass=_MemoryMeta):
         user_id = user_id or "default-user"
         now = time.time()
 
+        # Dedup flag: set to True by _write_to_conn when it finds the turn was
+        # already stored within the last 10 seconds. Gates ALL downstream writes
+        # (log_learning_event, record_event, profile_extractor) so that a second
+        # concurrent call for the same message produces zero extra rows anywhere.
+        _was_deduped = [False]
+
         # Helper to write to a single connection
         def _write_to_conn(conn):
             ccols = _memory_table_columns(conn, "conversations")
@@ -2181,6 +2187,7 @@ class Memory(metaclass=_MemoryMeta):
                 (session_id, role, content, now - 10.0),
             ).fetchone()
             if existing:
+                _was_deduped[0] = True
                 return existing[0]
 
             payload = {
@@ -2201,6 +2208,11 @@ class Memory(metaclass=_MemoryMeta):
             conn_primary.commit()
         finally:
             conn_primary.close()
+
+        # If the primary write was deduped, skip all downstream writes.
+        # A second concurrent call for the same turn has already been handled.
+        if _was_deduped[0]:
+            return rid
 
         # Secondaries
         for sec_path in self.secondary_paths:
