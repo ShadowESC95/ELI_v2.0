@@ -511,6 +511,16 @@ def _select_agents_for_intent(user_input: str, action: str) -> Optional[Set[str]
             selected.add("capability")
         return selected
 
+    if action in {"USER_IDENTITY_SUMMARY", "PERSONAL_MEMORY_SUMMARY", "PERSONAL_MEMORY_DEEP_EXPLAIN"}:
+        # Focused identity/profile set — no file_code (code snippets inflate
+        # context without adding value to "who am i" answers).
+        selected = {"system", "memory", "orchestrator"}
+        if any(t in low for t in ("reflection", "patterns", "noticed", "insight")):
+            selected.add("reflection")
+        if any(t in low for t in ("entity", "entities", "relation", "graph", "knowledge graph")):
+            selected.add("knowledge_graph")
+        return selected
+
     if action in {
         "FRONTIER_STATUS",
         "ELI_IDENTITY_AUDIT",
@@ -2000,7 +2010,7 @@ class IntrospectionBusAgent(_BaseAgent):
         action = (intent.get("action") or "").upper()
 
         relevant = action in {"EXPLAIN_COGNITION_RUNTIME", "EXPLAIN_MEMORY_RUNTIME",
-                              "RUNTIME_STATUS", "COGNITION_STATUS"} or any(
+                              "RUNTIME_STATUS", "COGNITION_STATUS", "SELF_REPORT"} or any(
             x in low for x in (
                 "how many agents", "agent bus", "agent roster", "what agents", "which agents",
                 "how many stages", "pipeline stages", "prompt to response", "prompt->response",
