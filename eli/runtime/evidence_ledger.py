@@ -100,6 +100,12 @@ def ensure_schema(conn: sqlite3.Connection) -> None:
     conn.execute("CREATE INDEX IF NOT EXISTS idx_runtime_events_signature ON runtime_events(signature)")
 
 
+# Dedup window: identical signature written within this many seconds → skip insert.
+# Handles race conditions from concurrent threads and duplicate call paths for the
+# same conversation turn. Set to 0 to disable.
+_DEDUP_WINDOW_SECONDS: float = 10.0
+
+
 def record_event(
     event_type: str,
     *,
@@ -123,6 +129,16 @@ def record_event(
     sig = _signature([event_type, source, action, subject, content, payload.get("error") or payload.get("path") or ""])
     conn = _connect(db_path)
     try:
+        # Deduplication: skip if the same signature was inserted within the dedup window.
+        # This prevents duplicate rows from concurrent threads writing the same event.
+        if _DEDUP_WINDOW_SECONDS > 0:
+            existing = conn.execute(
+                "SELECT id FROM runtime_events WHERE signature = ? AND ts >= ? LIMIT 1",
+                (sig, now - _DEDUP_WINDOW_SECONDS),
+            ).fetchone()
+            if existing:
+                return int(existing[0])
+
         cur = conn.execute(
             """
             INSERT INTO runtime_events (
