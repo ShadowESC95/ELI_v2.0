@@ -7998,6 +7998,11 @@ def _action_post_dispatch(
         "unsupported",
         "unsupported_action",
         "no_query",
+        # Variants actually produced by executor actions (mixed-case / with spaces)
+        "no query",
+        "no query provided",
+        # Security filter working as intended — not a bug
+        "security_blocked",
     ))
     try:
         if isinstance(result, dict) and not bool(result.get("ok", True)):
