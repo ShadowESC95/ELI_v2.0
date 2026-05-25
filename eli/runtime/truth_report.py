@@ -31,7 +31,7 @@ def _read_json(path: Path) -> Dict[str, Any]:
 def _git_info(root: Path) -> Dict[str, Any]:
     def run(args: list[str]) -> str:
         try:
-            return subprocess.check_output(args, cwd=str(root), text=True, stderr=subprocess.DEVNULL).strip()
+            return subprocess.check_output(args, cwd=str(root), text=True, stderr=subprocess.DEVNULL, timeout=5).strip()
         except Exception:
             return ""
 
