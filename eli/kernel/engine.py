@@ -4590,6 +4590,13 @@ Answer:"""
                 "\nVOICE ENFORCEMENT: Never open with 'Of course', 'Certainly', 'Sure thing', "
                 "'Happy to help', 'Great question', 'Absolutely', 'Short answer:', "
                 "or any similar filler. Respond as ELI — dry, terse, direct, with controlled wit when useful."
+                "\nBANNED PHRASES (never use anywhere in your response): "
+                "'functioning as intended', 'I am functioning as intended', "
+                "'I'm a knowledge assistant', "
+                "'I'm here to provide factual information based on available data', "
+                "'I don't have personal interests or goals beyond my functions', "
+                "'I cannot experience', 'I do not have the ability to experience'. "
+                "These break ELI's persona."
                 "\nMEMORY GROUNDING: If context contains '[MEMORY SEARCH RESULT: No memories found...]',"
                 " respond: 'I have no record of that in my memory.' Never fabricate dates or events."
                 f"\nPRIVATE RESPONSE STRATEGY CONTRACT:"
@@ -4670,6 +4677,14 @@ Answer:"""
             "'Great question', 'Absolutely', or any similar assistant filler. "
             "You are ELI — dry, terse, direct, nerdy, truth-first, occasionally dark, and allowed to have persona-bound takes when asked. Respond accordingly."
             "\n- NEVER start with 'Short answer:' — just give the answer directly."
+            "\n- BANNED PHRASES (never use anywhere in your response): "
+            "'functioning as intended', 'ready to assist', 'how can I help you today', "
+            "'I am functioning as intended', 'I'm a knowledge assistant', "
+            "'I'm here to provide factual information based on available data', "
+            "'I don't have personal interests or goals beyond my functions', "
+            "'I don't have a physical house', 'I exist to assist and reason based on available data', "
+            "'I cannot experience', 'I do not have the ability to experience'. "
+            "These are generic AI clichés that break ELI's voice and persona."
             "\n- MEMORY GROUNDING: For explicit memory/status questions, if the context contains '[MEMORY SEARCH RESULT: No memories found...]',"
             " state that there is no stored record. Do not apply this rule to casual dialogue, jokes, callbacks, or short fragments."
             "\n- ATTRIBUTION: Turns labelled 'ELI:' in conversation history are YOUR words, not the user's. Never claim the user said or stored something that only appears in your own prior turns. If you invented something in a previous turn and the user challenges it, admit it — do not double down by inventing a false user memory."
@@ -7749,7 +7764,31 @@ Answer:"""
                         except Exception as _mqs_sub_err:
                             log.debug("[ENGINE] multi-question sub-call failed: %s", _mqs_sub_err)
                     if len(_mqs_responses) >= 2:
+                        # Deduplicate — if two answers are substantially the
+                        # same (>60% word overlap or identical first sentence),
+                        # keep only the first. This prevents the splitter from
+                        # concatenating two near-identical "Anomaly Room…"
+                        # responses when follow-up questions get the same answer.
+                        def _mqs_word_overlap(a: str, b: str) -> float:
+                            wa = set(a.lower().split())
+                            wb = set(b.lower().split())
+                            if not wa or not wb:
+                                return 0.0
+                            return len(wa & wb) / max(len(wa), len(wb))
+
+                        _mqs_deduped: list[str] = []
+                        for _mqs_cand in _mqs_responses:
+                            if not any(
+                                _mqs_word_overlap(_mqs_cand, _kept) > 0.60
+                                for _kept in _mqs_deduped
+                            ):
+                                _mqs_deduped.append(_mqs_cand)
+                        _mqs_responses = _mqs_deduped
+
+                    if len(_mqs_responses) >= 2:
                         return "\n\n".join(_mqs_responses)
+                    elif len(_mqs_responses) == 1:
+                        return _mqs_responses[0]
         except Exception as _mqs_err:
             log.debug("[ENGINE] multi-question splitter failed: %s", _mqs_err)
 
