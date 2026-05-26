@@ -1229,8 +1229,20 @@ def route(text: str) -> Dict[str, Any]:
             _tm = re.search(r"\b([a-z][a-z0-9 \-]{2,40})\s+news\b", low)
         if _tm:
             _topic = _tm.group(1).strip().rstrip("?.!,;:")
-            # Reject contraction artifacts like "s the latest" (from "what's")
-            if _topic and len(_topic.split()[0]) < 2:
+            # Reject non-topic matches: contraction artifacts ("s the latest"),
+            # question fragments ("what is the latest"), and stop words.
+            _TOPIC_NOISE = {
+                "the", "any", "today", "world", "current", "latest",
+                "what", "is", "are", "some", "news", "it", "me",
+                "what is the latest", "is the latest", "the latest",
+                "what are the", "what is",
+            }
+            _first_word = _topic.split()[0] if _topic else ""
+            if (not _topic
+                    or len(_first_word) < 2
+                    or _topic in _TOPIC_NOISE
+                    or _first_word in {"what", "how", "why", "when", "where", "who",
+                                       "is", "are", "was", "were", "the", "a", "an"}):
                 _topic = ""
         args_news = {"mode": "fetch_and_show", "sources": ["all"]}
         if _topic and _topic not in {"the", "any", "today", "world", "current", "latest"}:
