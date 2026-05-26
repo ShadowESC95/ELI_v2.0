@@ -155,28 +155,37 @@ def size_gb(path: str) -> float:
 
 
 def train_ctx_for_model(model_path: str) -> int:
+    """Return the model's native training context length.
+
+    Checked first via ELI_MODEL_TRAIN_CTX env override, then by filename
+    pattern matching. When in doubt, err on the side of the larger value —
+    llama.cpp will clamp at load time anyway.
+    """
     forced = os.environ.get("ELI_MODEL_TRAIN_CTX", "").strip()
     if forced:
         return int(forced)
 
     name = Path(model_path).name.lower()
 
-    if "mistral-small-3.1" in name or "mistral-small" in name:
-        return 131072
-    if "qwen2.5" in name or "qwen2-5" in name:
-        return 32768
-    if "qwen3" in name:
-        return 32768
-    if "qwen2" in name:
-        return 32768
-    if "llama-3.1" in name or "llama-3.2" in name:
-        return 131072
-    if "llama-3" in name or "llama3" in name:
-        return 8192
-    if "mistral-7b" in name:
-        return 32768
-    if "tinyllama" in name:
-        return 2048
+    # ---- 128 K class ----
+    if "deepseek" in name:                                    return 131072
+    if "mistral-small-3.1" in name or "mistral-small" in name: return 131072
+    if "llama-3.1" in name or "llama-3.2" in name:           return 131072
+    if "phi-3" in name or "phi-4" in name:                   return 131072
+    if "gemma-2" in name or "gemma2" in name:                return 131072
+    if "falcon3" in name or "falcon-3" in name:              return 131072
+
+    # ---- 32 K class ----
+    if "qwen2.5" in name or "qwen2-5" in name:               return 32768
+    if "qwen3" in name:                                       return 32768
+    if "qwen2" in name:                                       return 32768
+    if "mistral-7b" in name:                                  return 32768
+
+    # ---- smaller / older ----
+    if "llama-3" in name or "llama3" in name:                return 8192
+    if "phi-2" in name:                                       return 4096
+    if "tinyllama" in name:                                   return 2048
+    if "gemma" in name:                                       return 8192
 
     return 32768
 
@@ -198,37 +207,29 @@ def layer_mb(model_gb: float, layers: int) -> float:
 
 
 def kv_cache_mb(n_ctx: int, layers: int) -> float:
-    # q4 KV approximation. Conservative enough for launch planning.
+    # q4 KV approximation.
     return (n_ctx * layers * 1024) / 1048576.0
 
 
 def round_ctx(raw: int) -> int:
     allowed = [
         2048, 4096, 6144, 8192, 12288, 16384,
-        20480, 22528, 24576, 32768, 49152, 65536, 98304, 131072
+        20480, 22528, 24576, 32768, 49152, 65536, 98304, 131072,
     ]
     return max(v for v in allowed if v <= max(2048, raw))
 
 
 def ram_ctx_cap(ram_gb: float, model_gb: float) -> int:
-    if ram_gb < 8:
-        cap = 2048
-    elif ram_gb < 16:
-        cap = 4096
-    elif ram_gb < 24:
-        cap = 8192
-    elif ram_gb < 28:
-        cap = 16384
-    elif ram_gb < 48:
-        cap = 24576
-    elif ram_gb < 64:
-        cap = 32768
-    elif ram_gb < 96:
-        cap = 49152
-    elif ram_gb < 128:
-        cap = 65536
-    else:
-        cap = 131072
+    """Conservative RAM ctx cap for models with CPU-resident KV layers."""
+    if ram_gb < 8:    cap = 2048
+    elif ram_gb < 16: cap = 4096
+    elif ram_gb < 24: cap = 8192
+    elif ram_gb < 28: cap = 16384
+    elif ram_gb < 48: cap = 24576
+    elif ram_gb < 64: cap = 32768
+    elif ram_gb < 96: cap = 49152
+    elif ram_gb < 128: cap = 65536
+    else:             cap = 131072
 
     if model_gb >= 30 and ram_gb < 96:
         cap = min(cap, 16384)
@@ -239,12 +240,11 @@ def ram_ctx_cap(ram_gb: float, model_gb: float) -> int:
 
 
 def max_tokens_from_ctx(n_ctx: int) -> int:
-    if n_ctx >= 8192:
-        return 4096
-    if n_ctx >= 6144:
-        return 3072
-    if n_ctx >= 4096:
-        return 2048
+    if n_ctx >= 65536: return 8192
+    if n_ctx >= 32768: return 6144
+    if n_ctx >= 8192:  return 4096
+    if n_ctx >= 6144:  return 3072
+    if n_ctx >= 4096:  return 2048
     return 1024
 
 
@@ -287,93 +287,150 @@ def mode_presets(n_ctx: int, max_tokens: int) -> Dict[str, Dict[str, Any]]:
     }
 
 
-def allocate(profile_model: str, model_gb: float, ram_gb: float, gpu: Optional[GPUInfo]) -> tuple[int, int, int, int, float, List[str]]:
+def allocate(
+    profile_model: str,
+    model_gb: float,
+    ram_gb: float,
+    gpu: Optional[GPUInfo],
+    settings: Optional[Dict[str, Any]] = None,
+) -> tuple[int, int, int, int, float, List[str]]:
+    """Compute optimal (n_ctx, gpu_layers, batch, max_tokens, ctx_fraction, notes).
+
+    Priority chain for every parameter:
+      1. ELI_FORCE_* environment variables  — absolute override
+      2. settings.json user values          — user explicitly saved these
+      3. Computed optimal from VRAM/RAM     — automatic fallback
+
+    The fraction=0.65 cap has been removed.  ctx is now sized directly from
+    available KV-cache headroom so small fully-offloadable models automatically
+    receive their full training context on GPUs with enough VRAM.
+    """
+    settings = settings or {}
     notes: List[str] = []
 
-    train_ctx = train_ctx_for_model(profile_model)
-    ctx_fraction = float(os.environ.get("ELI_CTX_FRACTION", "0.65"))
-    target_batch = int(os.environ.get("ELI_TARGET_BATCH", "256"))
+    train_ctx    = train_ctx_for_model(profile_model)
+    layers_total = estimate_layers(model_gb)
+    per_layer    = layer_mb(model_gb, layers_total)
 
-    forced_ctx = os.environ.get("ELI_FORCE_CTX", "").strip()
-    forced_batch = os.environ.get("ELI_FORCE_BATCH", "").strip()
+    # ---- Explicit overrides (highest priority) ----
+    forced_ctx    = os.environ.get("ELI_FORCE_CTX",        "").strip()
+    forced_batch  = os.environ.get("ELI_FORCE_BATCH",      "").strip()
     forced_layers = os.environ.get("ELI_FORCE_GPU_LAYERS", "").strip()
 
-    raw_ctx = int(train_ctx * ctx_fraction)
-    rounded_requested_ctx = round_ctx(raw_ctx)
-    cap_ctx = ram_ctx_cap(ram_gb, model_gb)
-    n_ctx = int(forced_ctx) if forced_ctx else min(rounded_requested_ctx, cap_ctx)
-    batch = int(forced_batch) if forced_batch else target_batch
+    # ---- User settings (2nd priority) ----
+    user_ctx    = str(settings.get("n_ctx")        or settings.get("ctx")        or "").strip()
+    user_batch  = str(settings.get("batch_size")   or settings.get("n_batch")    or "").strip()
+    user_layers = str(settings.get("n_gpu_layers") or settings.get("gpu_layers") or "").strip()
 
-    layers_total = estimate_layers(model_gb)
-    per_layer = layer_mb(model_gb, layers_total)
+    # ---- Fallback defaults ----
+    target_batch  = int(os.environ.get("ELI_TARGET_BATCH",  "512"))
+    ctx_fraction  = float(os.environ.get("ELI_CTX_FRACTION", "0.9"))  # only used for partial-offload fallback
 
+    # ---- CPU-only path ----
     if gpu is None or gpu.total_mb <= 0:
-        notes.append("CPU/no measurable GPU: model remains in RAM/CPU, gpu_layers=0.")
-        return n_ctx, 0, min(batch, 128), max_tokens_from_ctx(n_ctx), ctx_fraction, notes
+        _raw = int(train_ctx * ctx_fraction)
+        _cpu_ctx = int(forced_ctx or user_ctx or round_ctx(min(_raw, ram_ctx_cap(ram_gb, model_gb))))
+        _cpu_batch = int(forced_batch or user_batch or 256)
+        notes.append(f"CPU/no measurable GPU: gpu_layers=0. ctx={_cpu_ctx} batch={_cpu_batch}.")
+        return _cpu_ctx, 0, _cpu_batch, max_tokens_from_ctx(_cpu_ctx), ctx_fraction, notes
 
-    # Use free_mb + configurable bonus when snapshot looks transient
-    # (other processes contesting VRAM — below ELI_VRAM_LOW_FRAC of total).
-    # ELI_VRAM_LOW_FRAC          : threshold fraction (default 0.30)
-    # ELI_VRAM_TRANSIENT_BONUS_MB: MB added to free_mb as headroom estimate (default 1500)
-    # ELI_VRAM_TRANSIENT_CAP_FRAC: hard cap as fraction of total_mb (default 0.95)
+    # ---- VRAM budget ----
     _low_frac = float(os.environ.get("ELI_VRAM_LOW_FRAC", "0.30"))
-    _low_vram_threshold = gpu.total_mb * _low_frac
-    if gpu.free_mb < _low_vram_threshold:
-        _transient_bonus = int(os.environ.get("ELI_VRAM_TRANSIENT_BONUS_MB", "1500"))
+    if gpu.free_mb < gpu.total_mb * _low_frac:
+        _bonus   = int(os.environ.get("ELI_VRAM_TRANSIENT_BONUS_MB",  "1500"))
         _cap_frac = float(os.environ.get("ELI_VRAM_TRANSIENT_CAP_FRAC", "0.95"))
-        vram_basis = min(gpu.free_mb + _transient_bonus, int(gpu.total_mb * _cap_frac))
+        vram_basis = min(gpu.free_mb + _bonus, int(gpu.total_mb * _cap_frac))
         notes.append(
-            f"VRAM snapshot: only {gpu.free_mb}MB free of {gpu.total_mb}MB total "
-            f"({gpu.free_mb / max(gpu.total_mb, 1) * 100:.0f}% — transient/contested). "
-            f"Applying bonus {_transient_bonus}MB → vram_basis={vram_basis}MB "
-            f"(cap={int(gpu.total_mb * _cap_frac)}MB). "
-            f"Override: ELI_VRAM_TRANSIENT_BONUS_MB / ELI_VRAM_TRANSIENT_CAP_FRAC."
+            f"Low VRAM snapshot ({gpu.free_mb}/{gpu.total_mb} MB): "
+            f"transient bonus applied → basis={vram_basis} MB."
         )
     else:
         vram_basis = gpu.free_mb
 
-    # Consolidated reserve — covers OS overhead, driver buffers, ELI runtime,
-    # AND faster-whisper STT. ELI_VRAM_RESERVE_MB env var overrides if you want
-    # to tune it.
-    runtime_reserve = int(os.environ.get("ELI_VRAM_RESERVE_MB", "1500"))
-    usable_vram = max(0, vram_basis - runtime_reserve)
-    # Additionally cap usable_vram to 80% of total VRAM so the LLM never
-    # monopolises the GPU (leaves 20% headroom for transient allocations,
-    # cudnn workspace, and other ELI subsystems).
-    _hard_cap_mb = int(gpu.total_mb * 0.80) if (gpu and gpu.total_mb > 0) else usable_vram
-    usable_vram = min(usable_vram, _hard_cap_mb)
+    runtime_reserve  = int(os.environ.get("ELI_VRAM_RESERVE_MB",    "1500"))
+    hard_cap_frac    = float(os.environ.get("ELI_VRAM_HARD_CAP_FRAC", "0.85"))
+    usable_vram      = min(max(0, vram_basis - runtime_reserve), int(gpu.total_mb * hard_cap_frac))
 
-    target_vram = int(os.environ.get("ELI_VRAM_TARGET_MB", "0") or "0")
-    if target_vram > 0:
-        usable_vram = min(usable_vram, target_vram)
+    # ---- Batch compute-buffer reserve ----
+    # Sized by model footprint × batch, NOT by n_ctx.
+    # llama.cpp SDPA/Flash-Attention compute buffers are ctx-independent;
+    # the old batch×ctx formula was only valid for non-flash attention paths.
+    # ELI_BATCH_RES_FACTOR (default 0.35): multiply model_gb × batch to get MB.
+    _brf = float(os.environ.get("ELI_BATCH_RES_FACTOR", "0.35"))
+
+    def _batch_reserve(b: int) -> int:
+        return max(256, int(model_gb * b * _brf))
+
+    # ---- Determine batch ----
+    if forced_batch:
+        n_batch = int(forced_batch)
+    elif user_batch:
+        n_batch = int(user_batch)
+    else:
+        # Descend from target until batch fits within 40 % of VRAM budget.
+        _floor = min(256, target_batch)
+        n_batch = _floor
+        _b = target_batch
+        while _b >= _floor:
+            if _batch_reserve(_b) <= usable_vram * 0.40:
+                n_batch = _b
+                break
+            _b = _b // 2
+
+    batch_res          = _batch_reserve(n_batch)
+    budget_after_batch = max(0, usable_vram - batch_res)
+
+    # ---- Determine ctx ----
+    model_vram_mb = model_gb * 1024.0          # VRAM needed for full offload
+    kv_per_token  = layers_total * 1024 / 1048576.0  # MB per ctx token (q4_0 KV)
+
+    if forced_ctx:
+        n_ctx = int(forced_ctx)
+        ctx_source = "ELI_FORCE_CTX"
+    elif user_ctx:
+        n_ctx = int(user_ctx)
+        ctx_source = "settings.json"
+    elif model_vram_mb <= budget_after_batch * 0.70:
+        # Model fits fully on GPU → maximize ctx from KV headroom.
+        kv_budget = max(0.0, budget_after_batch - model_vram_mb)
+        max_ctx_vram = max(2048, int(kv_budget / max(kv_per_token, 1e-6)))
+        n_ctx = round_ctx(min(train_ctx, max_ctx_vram))
+        ctx_source = f"VRAM-optimal (kv_budget={kv_budget:.0f}MB)"
+    else:
+        # Partial offload → use fraction-based ctx capped by RAM.
+        raw_ctx = int(train_ctx * ctx_fraction)
+        n_ctx = round_ctx(min(raw_ctx, ram_ctx_cap(ram_gb, model_gb)))
+        ctx_source = f"fraction ({ctx_fraction:.2f} × train_ctx, RAM-capped)"
 
     kv = kv_cache_mb(n_ctx, layers_total)
-    batch_reserve = max(384, int(batch * 3.0))
 
-    remaining = usable_vram - kv - batch_reserve
-
+    # ---- Determine gpu_layers ----
     if forced_layers:
         gpu_layers = int(forced_layers)
+        layer_source = "ELI_FORCE_GPU_LAYERS"
+    elif user_layers:
+        gpu_layers = int(user_layers)
+        layer_source = "settings.json"
     else:
-        gpu_layers = max(0, min(layers_total, int(max(0, remaining) // max(per_layer, 1.0))))
+        remaining   = budget_after_batch - kv
+        layers_fit  = max(0, min(layers_total, int(max(0.0, remaining) / max(per_layer, 1.0))))
+        gpu_layers  = 99 if layers_fit >= layers_total else layers_fit
+        layer_source = "computed"
 
-    if gpu_layers >= layers_total:
-        gpu_layers = 99
+    max_tok = max_tokens_from_ctx(n_ctx)
 
     notes.append(
-        f"Universal ctx-first allocation: train_ctx={train_ctx}, target_fraction={ctx_fraction:.2f}, "
-        f"requested_ctx≈{raw_ctx}, rounded_requested_ctx={rounded_requested_ctx}, "
-        f"applied_ctx={n_ctx}, ram_model_cap={cap_ctx}, "
-        f"batch={batch}, vram_basis≈{vram_basis}MB, usable_vram≈{usable_vram}MB, "
-        f"model_gb={model_gb}, layers_est={layers_total}, layer_mb≈{per_layer:.1f}."
+        f"train_ctx={train_ctx} model={model_gb:.2f}GB layers={layers_total} "
+        f"usable_vram={usable_vram}MB model_vram={model_vram_mb:.0f}MB"
     )
     notes.append(
-        f"VRAM reservations: reserve≈{runtime_reserve}MB, KV≈{kv:.0f}MB, "
-        f"batch≈{batch_reserve}MB, remaining_for_layers≈{remaining:.0f}MB, "
-        f"gpu_layers={gpu_layers}. Non-offloaded layers use RAM/CPU."
+        f"batch={n_batch}(res={batch_res}MB, src='{('forced' if forced_batch else 'user' if user_batch else 'computed')}') "
+        f"ctx={n_ctx}(src='{ctx_source}') "
+        f"kv={kv:.0f}MB gpu_layers={gpu_layers}(src='{layer_source}') "
+        f"max_tokens={max_tok}"
     )
 
-    return n_ctx, gpu_layers, batch, max_tokens_from_ctx(n_ctx), ctx_fraction, notes
+    return n_ctx, gpu_layers, n_batch, max_tok, ctx_fraction, notes
 
 
 def build_profile() -> HardwareProfile:
@@ -388,7 +445,10 @@ def build_profile() -> HardwareProfile:
     cpu_threads = os.cpu_count() or 4
     n_threads = max(2, cpu_threads - 2)
 
-    n_ctx, gpu_layers, batch, max_tokens, ctx_fraction, notes = allocate(model, model_gb, ram, gpu)
+    # Pass user settings so allocate() can honour them first.
+    n_ctx, gpu_layers, batch, max_tokens, ctx_fraction, notes = allocate(
+        model, model_gb, ram, gpu, settings=settings
+    )
 
     return HardwareProfile(
         hostname=platform.node(),
@@ -408,7 +468,7 @@ def build_profile() -> HardwareProfile:
         n_threads=n_threads,
         max_tokens=max_tokens,
         mode_presets=mode_presets(n_ctx, max_tokens),
-        reasoning=notes + [f"Generated max_tokens selected: {max_tokens}."],
+        reasoning=notes + [f"Generated max_tokens={max_tokens}."],
     )
 
 
