@@ -105,9 +105,13 @@ def test_compact_persona_not_empty(engine):
     result = engine._compact_persona()
     assert len(result.strip()) > 0
 
-def test_compact_persona_limit_2200_chars(engine):
+def test_compact_persona_limit_chars(engine):
+    # Limit raised from 2200 to 3800 to include wit/chemistry/sarcasm contract
+    # sections that appear after the 2200-char mark in persona.txt.
+    # The previous 2200 limit silently dropped "Do not become bland, HR-coded"
+    # and the full smalltalk contract, causing flat responses on casual inputs.
     result = engine._compact_persona()
-    assert len(result) <= 2200 + 100
+    assert len(result) <= 3800 + 100
 
 
 # ── _normalize_assistant_text ─────────────────────────────────────────────

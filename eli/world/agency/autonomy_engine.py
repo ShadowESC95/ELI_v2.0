@@ -183,13 +183,27 @@ class EliWorldAutonomyEngine:
     def _update_awareness_from_event(self, state: EliWorldState, event: WorldEvent) -> None:
         a = state.awareness
         et = event.event_type
+
+        # Time-based passive decay — prevents stale accumulated pressure from
+        # persisting across sessions.  Applied before the event so any single
+        # event starts from a fresh baseline after a quiet period.
+        _elapsed = max(0.0, time() - float(a.timestamp or 0.0))
+        if _elapsed > 300:  # only decay after 5+ minutes of inactivity
+            # Decay factor: 0 at 5 min, 1.0 at 60 min (linear, capped)
+            _df = min(1.0, (_elapsed - 300) / 3300)
+            a.repair_pressure = max(0.0, a.repair_pressure - 0.35 * _df)
+            a.uncertainty = max(0.0, a.uncertainty - 0.20 * _df)
+            a.autonomy_pressure = max(0.0, a.autonomy_pressure - 0.15 * _df)
+            a.reflection_depth = max(0.0, a.reflection_depth - 0.15 * _df)
+            a.tool_activity = max(0.0, a.tool_activity - 0.20 * _df)
+
         if et == "memory_recall":
             a.memory_confidence = max(0.0, min(1.0, float(event.payload.get("confidence", a.memory_confidence))))
             a.focus = min(1.0, a.focus + 0.1)
         elif et == "memory_uncertainty":
             a.memory_confidence = max(0.0, a.memory_confidence - 0.25)
             a.uncertainty = min(1.0, a.uncertainty + 0.25)
-            a.repair_pressure = min(1.0, a.repair_pressure + 0.2)
+            a.repair_pressure = min(1.0, a.repair_pressure + 0.15)  # was 0.2 — capped lower
         elif et == "evidence_weak":
             a.evidence_confidence = max(0.0, a.evidence_confidence - 0.3)
             a.uncertainty = min(1.0, a.uncertainty + 0.25)
@@ -201,8 +215,11 @@ class EliWorldAutonomyEngine:
             a.curiosity = min(1.0, a.curiosity + 0.1)
             a.autonomy_pressure = min(1.0, a.autonomy_pressure + 0.1)
         elif et in {"error_detected", "runtime_fault"}:
-            a.repair_pressure = min(1.0, a.repair_pressure + 0.4)
-            a.uncertainty = min(1.0, a.uncertainty + 0.2)
+            # Cap single-event spike at 0.2 (was 0.4) to prevent a burst of
+            # errors quickly saturating repair_pressure and locking ELI into
+            # permanent "concerned/diagnosing" posture.
+            a.repair_pressure = min(1.0, a.repair_pressure + 0.2)
+            a.uncertainty = min(1.0, a.uncertainty + 0.15)
         elif et in {"improvement_proposal", "upgrade_candidate"}:
             a.autonomy_pressure = min(1.0, a.autonomy_pressure + 0.35)
             a.focus = min(1.0, a.focus + 0.1)
