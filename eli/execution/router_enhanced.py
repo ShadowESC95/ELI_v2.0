@@ -4715,6 +4715,40 @@ def _eli_phase38_tiny_fragment_post(raw, result):
                 return _mk("TIME", {}, 0.999, matched_by="system.time.fragment")
 
             if looks_fragmentary and not allowed_short:
+                # install/download commands are valid 2-word actions — bypass
+                # the fragment guard and let the remediation handler process them.
+                _idm = _re.match(r"^(install|download|get|setup)\s+(\S+)", low)
+                if _idm:
+                    return _mk(
+                        "CONFIRM_PENDING_REMEDIATION",
+                        {"message": str(raw or "").strip()},
+                        0.97,
+                        matched_by="remediation.install_download_fragment_bypass",
+                    )
+
+                # Pending-repair confirmation bypass — if a repair plan is waiting
+                # and the input contains a clear yes/no word (even with STT noise),
+                # route to remediation instead of dropping as a fragment.
+                try:
+                    from eli.runtime import grounded_remediation as _gr_frag
+                    if _gr_frag.get_pending():
+                        if _re.search(r'\b(yes|confirm|confirmed|proceed|go ahead|do it)\b', low, _re.I):
+                            return _mk(
+                                "CONFIRM_PENDING_REMEDIATION",
+                                {"message": str(raw or "").strip()},
+                                0.95,
+                                matched_by="pending_remediation.yes_intercept",
+                            )
+                        if _re.search(r'\b(no|cancel|abort|stop|never mind)\b', low, _re.I):
+                            return _mk(
+                                "CONFIRM_PENDING_REMEDIATION",
+                                {"message": str(raw or "").strip()},
+                                0.95,
+                                matched_by="pending_remediation.no_intercept",
+                            )
+                except Exception:
+                    pass
+
                 grid_text = str(raw or "").strip().lower().replace("×", "x")
                 grid_text = _re.sub(r"\btree\b", "3", grid_text)
                 grid_text = _re.sub(r"\bthree\b", "3", grid_text)
@@ -5338,7 +5372,48 @@ try:
             def _stage_core_router(text, *a, **k):
                 return _eli_phase38_open_typo_or_core_route(text, *a, **k)
 
+            def _stage_pending_remediation_confirm(text, *_a, **_k):
+                """
+                Pre-pass: if a remediation offer is pending (e.g. 'install netflix?'),
+                intercept YES/NO and direct install/download commands before anything
+                else can swallow them as CHAT or block them as fragments.
+                """
+                try:
+                    import re as _re
+                    from eli.runtime import grounded_remediation as _gr
+                    if not _gr.get_pending():
+                        return None
+                    low = _re.sub(r"\s+", " ", str(text or "").strip().lower())
+                    if _gr.YES_RE.match(low):
+                        return {
+                            "action": "CONFIRM_PENDING_REMEDIATION",
+                            "args": {"message": low},
+                            "confidence": 0.99,
+                            "meta": {"matched_by": "pending_remediation.yes_intercept"},
+                        }
+                    if _gr.NO_RE.match(low):
+                        return {
+                            "action": "CANCEL_PENDING_REMEDIATION",
+                            "args": {"message": low},
+                            "confidence": 0.99,
+                            "meta": {"matched_by": "pending_remediation.no_intercept"},
+                        }
+                    # "install X" / "download X" — route to confirmation handler
+                    # which will either advance the pending plan or diagnose fresh.
+                    _im = _re.match(r"^(install|download|get)\s+(\S+)", low)
+                    if _im:
+                        return {
+                            "action": "CONFIRM_PENDING_REMEDIATION",
+                            "args": {"message": low},
+                            "confidence": 0.97,
+                            "meta": {"matched_by": "pending_remediation.install_download_intercept"},
+                        }
+                except Exception:
+                    pass
+                return None
+
             return (
+                ("pending_remediation_confirm", _stage_pending_remediation_confirm),
                 ("precedence", _stage_precedence),
                 ("identity_audit", _stage_identity_audit),
                 ("frontier_status", _stage_frontier_status),
