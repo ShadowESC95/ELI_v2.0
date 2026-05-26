@@ -304,7 +304,12 @@ def try_route(text: str) -> Optional[dict]:
 
     wants_generation = re.search(r"\b(?:generate|write|create|build|make)\b", norm)
     wants_code = re.search(r"\b(?:script|code|program|module|tool|app)\b", norm)
-    if wants_generation and wants_code and not _looks_like_generation_complaint(norm):
+    # Reject if a negation word immediately precedes the generation verb —
+    # e.g. "not generate a new python script" must not fire GENERATE_SCRIPT.
+    _negated_generation = bool(wants_generation and re.search(
+        r"\b(?:not|don'?t|never|no|stop|without|rather\s+than|instead\s+of)\b\s+\w*\s*"
+        r"(?:generate|write|create|build|make)\b", norm))
+    if wants_generation and wants_code and not _looks_like_generation_complaint(norm) and not _negated_generation:
         language = infer_script_language(raw)
         return {
             "action": "GENERATE_SCRIPT",

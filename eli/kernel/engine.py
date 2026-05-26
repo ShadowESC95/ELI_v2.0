@@ -2764,6 +2764,13 @@ class CognitiveEngine:
         elif not self._test_mode:
             log.debug("[COGNITIVE] hardware authority enforcement deferred")
 
+        # Always initialise GGUF runtime attributes so verify_persona_lock()
+        # and other callers never hit AttributeError regardless of whether
+        # _init_gguf() is invoked.  _init_gguf() overwrites these when it runs.
+        self._model_path = "unknown"
+        self._ctx = 16384
+        self._gpu_layers = 0
+
         if bool(auto_init_gguf):
             self._init_gguf()
         else:

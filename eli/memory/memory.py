@@ -2051,8 +2051,27 @@ class Memory(metaclass=_MemoryMeta):
         # ---- Lexical filter + dedup -----------------------------------------
         # Drops vector hits with no token overlap to the query unless the
         # query looks like an identity question, then dedups by (id, text[:500]).
+        # Also filters ALL sources when the query is a pure social greeting /
+        # generic phrase (no meaningful content terms) to prevent low-relevance
+        # hits from being injected and causing hallucinated memory claims.
         _q_lower = str(query or "").lower()
         _q_terms = set(re.findall(r"[a-z0-9]+", _q_lower))
+
+        # Stopwords that carry no content signal for memory matching.
+        _STOPWORDS = {
+            "i", "me", "my", "you", "your", "we", "it", "the", "a", "an",
+            "is", "are", "was", "were", "be", "been", "am",
+            "and", "or", "but", "not", "in", "on", "at", "to", "for",
+            "of", "with", "by", "as", "do", "does", "did", "have", "has",
+            "had", "will", "would", "could", "should", "can", "may", "might",
+            "that", "this", "there", "here", "what", "when", "where", "which",
+            "who", "how", "why", "so", "if", "then", "than", "very", "just",
+            "up", "down", "out", "about", "now", "today", "pal", "hey",
+        }
+        _content_terms = _q_terms - _STOPWORDS
+        # A query is "social/generic" when it has no content terms at all
+        # (pure greetings, chitchat, filler phrases like "how are you today").
+        _is_social_query = len(_content_terms) == 0
 
         def _hardening_text_of(hit):
             if not isinstance(hit, dict):
@@ -2089,6 +2108,11 @@ class Memory(metaclass=_MemoryMeta):
                     continue
                 if _overlap == 0 and len(_q_terms) >= 2:
                     continue
+            elif _is_social_query and not _hardening_looks_identity_query(_q_lower):
+                # For social/generic queries, drop ALL non-identity hits from
+                # every source (fts, like, conversation_turns, kg) — they have
+                # no meaningful content overlap and risk hallucinated claims.
+                continue
             _filtered.append(_hit)
 
         _dedup = []
