@@ -315,8 +315,11 @@ def _gpu_layers_for_model(size_gb: float, free_vram_mb: int, n_ctx: int,
     When kv_quantized=True, the KV cache uses ~25% of fp16 size (q4_0 K
     and q4_0 V), letting much larger n_ctx fit on the same GPU.
 
-    Returns 9999 sentinel if the entire model fits, 0 if no GPU or
-    insufficient VRAM, or a partial layer count otherwise.
+    Returns 99 sentinel if the entire model fits (llama.cpp loads all layers
+    when n_gpu_layers exceeds actual layer count; 99 is always above any
+    real-world 7–70B model's layer count and avoids the 9999 sentinel that
+    _eli_requested_runtime_from_kwargs() treats as an uncalibrated user value).
+    Returns 0 if no GPU or insufficient VRAM, or a partial layer count otherwise.
     """
     if free_vram_mb <= 0:
         return 0
@@ -328,7 +331,7 @@ def _gpu_layers_for_model(size_gb: float, free_vram_mb: int, n_ctx: int,
         return 0
     n = int(available_for_model / mb_per_layer)
     if n >= total_layers:
-        return 9999  # all layers fit — let llama.cpp handle it
+        return 99  # all layers fit — llama.cpp handles any value > actual layer count
     return max(0, n)
 
 
@@ -453,13 +456,14 @@ def recommend(hw: Optional[HardwareProfile] = None,
                     f"(vram_for_kv={_vram_for_kv:.0f}MB kv/tok={_kv_per_token_mb:.3f}MB)"
                 )
 
-    if chosen_layers >= 9999:
+    total_layers = _layers_for_size(chosen["size_gb"])
+    _full_offload = chosen_layers >= total_layers  # 99 >= actual layer count → all layers on GPU
+    if _full_offload:
         rec.reasoning.append(
             f"Model: {chosen['name']} ({chosen['size_gb']:.2f}GB) — "
             f"all layers on GPU (free VRAM sufficient)"
         )
     elif chosen_layers > 0:
-        total_layers = _layers_for_size(chosen["size_gb"])
         rec.reasoning.append(
             f"Model: {chosen['name']} ({chosen['size_gb']:.2f}GB) — "
             f"{chosen_layers}/{total_layers} layers on GPU "
@@ -472,15 +476,17 @@ def recommend(hw: Optional[HardwareProfile] = None,
         )
 
     # Batch size: scales linearly with GPU offload ratio.
-    # offload_ratio = layers_on_gpu / total_layers, clamped [0, 1].
-    # Range [128, 1024], aligned to 64-byte boundaries.
-    # CPU-only → floor of 128.
-    total_layers = _layers_for_size(chosen["size_gb"])
+    # Full offload → capped at 512 (safe for 8 GB VRAM; 1024 causes VRAM
+    # pressure under concurrent reasoning passes on RTX 2060-class hardware).
+    # Partial offload → interpolate 128..512 by actual offload fraction.
+    # CPU-only → floor of 128. Aligned to 64-byte boundaries.
     if chosen_layers == 0:
         rec.batch_size = 128
+    elif _full_offload:
+        rec.batch_size = 512  # all layers fit → deterministic cap, not formula
     else:
         _offload = min(1.0, chosen_layers / max(1, total_layers))
-        _raw_b = int(128 + _offload * (1024 - 128))
+        _raw_b = int(128 + _offload * (512 - 128))
         rec.batch_size = max(128, (_raw_b // 64) * 64)
 
     rec.use_mmap = True
@@ -600,11 +606,11 @@ def _settings_out_of_bounds(settings: Dict[str, Any],
     except Exception:
         pass
     try:
-        # n_gpu_layers: -1 / 9999 sentinels mean "all layers". Compare raw.
+        # n_gpu_layers: -1 / 99 / 9999 sentinels mean "all layers". Compare raw.
         s_layers = int(settings.get("n_gpu_layers", 0))
         r_layers = int(rec.n_gpu_layers)
-        # Treat 9999 (full offload) as legitimate ceiling on either side.
-        if 0 < r_layers < 9999 and s_layers > r_layers:
+        # Treat 99+ (full offload sentinel) as a legitimate ceiling on either side.
+        if 0 < r_layers < 99 and s_layers > r_layers:
             reasons.append(f"n_gpu_layers {s_layers} > recommended {r_layers}")
     except Exception:
         pass

@@ -197,45 +197,60 @@ class EliWorldAutonomyEngine:
             a.reflection_depth = max(0.0, a.reflection_depth - 0.15 * _df)
             a.tool_activity = max(0.0, a.tool_activity - 0.20 * _df)
 
+        # ── Exponential approach helper ───────────────────────────────────────
+        # Replaces hard linear accumulation:  new = prev + inc
+        # With exponential approach:          new = prev + inc * (1 - prev)
+        # Effect: increments slow naturally as values approach 1.0, preventing
+        # hard saturation after a burst of events during an active session.
+        # Decrease paths remain linear (they benefit from hard floor at 0.0).
+        def _ease_up(prev: float, inc: float) -> float:
+            return min(1.0, prev + inc * max(0.0, 1.0 - prev))
+
+        def _ease_down(prev: float, amt: float) -> float:
+            return max(0.0, prev - amt)
+
         if et == "memory_recall":
             a.memory_confidence = max(0.0, min(1.0, float(event.payload.get("confidence", a.memory_confidence))))
-            a.focus = min(1.0, a.focus + 0.1)
+            a.focus = _ease_up(a.focus, 0.1)
+            # Strong memory hit → evidence is being grounded; restore confidence.
+            a.evidence_confidence = _ease_up(a.evidence_confidence, 0.15)
+            a.uncertainty = _ease_down(a.uncertainty, 0.10)
         elif et == "memory_uncertainty":
-            a.memory_confidence = max(0.0, a.memory_confidence - 0.25)
-            a.uncertainty = min(1.0, a.uncertainty + 0.25)
-            a.repair_pressure = min(1.0, a.repair_pressure + 0.15)  # was 0.2 — capped lower
+            a.memory_confidence = _ease_down(a.memory_confidence, 0.25)
+            a.uncertainty = _ease_up(a.uncertainty, 0.25)
+            a.repair_pressure = _ease_up(a.repair_pressure, 0.15)
         elif et == "evidence_weak":
-            a.evidence_confidence = max(0.0, a.evidence_confidence - 0.3)
-            a.uncertainty = min(1.0, a.uncertainty + 0.25)
+            a.evidence_confidence = _ease_down(a.evidence_confidence, 0.20)  # was 0.3 — softer drop
+            a.uncertainty = _ease_up(a.uncertainty, 0.15)                    # was 0.25 — softer rise
         elif et == "tool_activity":
-            a.tool_activity = min(1.0, a.tool_activity + 0.35)
-            a.focus = min(1.0, a.focus + 0.15)
+            a.tool_activity = _ease_up(a.tool_activity, 0.35)
+            a.focus = _ease_up(a.focus, 0.15)
         elif et == "reflection":
-            a.reflection_depth = min(1.0, a.reflection_depth + 0.35)
-            a.curiosity = min(1.0, a.curiosity + 0.1)
-            a.autonomy_pressure = min(1.0, a.autonomy_pressure + 0.1)
+            a.reflection_depth = _ease_up(a.reflection_depth, 0.35)
+            a.curiosity = _ease_up(a.curiosity, 0.1)
+            a.autonomy_pressure = _ease_up(a.autonomy_pressure, 0.1)
         elif et in {"error_detected", "runtime_fault"}:
-            # Cap single-event spike at 0.2 (was 0.4) to prevent a burst of
-            # errors quickly saturating repair_pressure and locking ELI into
-            # permanent "concerned/diagnosing" posture.
-            a.repair_pressure = min(1.0, a.repair_pressure + 0.2)
-            a.uncertainty = min(1.0, a.uncertainty + 0.15)
+            # Cap single-event spike via ease_up — burst of errors can no longer
+            # saturate repair_pressure and lock ELI into permanent concern posture.
+            a.repair_pressure = _ease_up(a.repair_pressure, 0.2)
+            a.uncertainty = _ease_up(a.uncertainty, 0.15)
         elif et in {"improvement_proposal", "upgrade_candidate"}:
-            a.autonomy_pressure = min(1.0, a.autonomy_pressure + 0.35)
-            a.focus = min(1.0, a.focus + 0.1)
+            a.autonomy_pressure = _ease_up(a.autonomy_pressure, 0.35)
+            a.focus = _ease_up(a.focus, 0.1)
         elif et in {"task_completed", "repair_completed"}:
-            a.repair_pressure = max(0.0, a.repair_pressure - 0.3)
-            a.tool_activity = max(0.0, a.tool_activity - 0.2)
-            a.uncertainty = max(0.0, a.uncertainty - 0.15)
-            a.evidence_confidence = min(1.0, a.evidence_confidence + 0.1)
+            a.repair_pressure = _ease_down(a.repair_pressure, 0.3)
+            a.tool_activity = _ease_down(a.tool_activity, 0.2)
+            a.uncertainty = _ease_down(a.uncertainty, 0.15)
+            a.evidence_confidence = _ease_up(a.evidence_confidence, 0.15)  # was 0.1
         elif et == "reasoning_stage":
-            # Multi-pass inference is cognitively intensive — high focus and reflection.
-            a.focus = min(1.0, a.focus + 0.30)
-            a.reflection_depth = min(1.0, a.reflection_depth + 0.20)
-            a.tool_activity = min(1.0, a.tool_activity + 0.25)
+            # Multi-pass inference: cognitively intensive — but ease_up prevents
+            # rapid saturation during a burst of reasoning passes.
+            a.focus = _ease_up(a.focus, 0.30)
+            a.reflection_depth = _ease_up(a.reflection_depth, 0.20)
+            a.tool_activity = _ease_up(a.tool_activity, 0.25)
             total = int(event.payload.get("total_stages", 1))
             if total > 1:
-                a.curiosity = min(1.0, a.curiosity + 0.10)
+                a.curiosity = _ease_up(a.curiosity, 0.10)
         a.timestamp = time()
 
     def _stable_object_id(self, template_id: str, room: str) -> str:
