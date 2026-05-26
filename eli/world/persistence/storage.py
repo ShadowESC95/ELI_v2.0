@@ -7,7 +7,26 @@ from eli.world.agency.world_constitution import get_world_constitution, get_worl
 from eli.world.core.ontology import get_default_rooms
 from eli.world.core.schemas import AwarenessState, AvatarState, EliWorldState, WorldAction, WorldEvent, WorldObject
 
-WORLD_DIR = Path("artifacts/world")
+
+def _world_dir() -> Path:
+    """Return the absolute path to the world state directory.
+
+    Uses get_paths() so the directory resolves correctly regardless of
+    working directory — critical because this module is imported from
+    multiple entry points (GUI, daemon, CLI) that may set cwd differently.
+    Relative Path("artifacts/world") would fail silently when cwd is not
+    the project root, causing load() to create a default state with
+    room="core_room" every time, overriding the persisted room placement.
+    """
+    try:
+        from eli.core.paths import get_paths as _gp
+        return Path(_gp().artifacts_dir) / "world"
+    except Exception:
+        # Fallback: resolve relative to this file → project root / artifacts / world
+        return Path(__file__).resolve().parents[4] / "artifacts" / "world"
+
+
+WORLD_DIR = _world_dir()
 STATE_PATH = WORLD_DIR / "eli_world_state.json"
 EVENTS_PATH = WORLD_DIR / "events.jsonl"
 ACTIONS_PATH = WORLD_DIR / "actions.jsonl"
