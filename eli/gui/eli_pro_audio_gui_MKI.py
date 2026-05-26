@@ -2831,9 +2831,15 @@ class EliMainWindow(QMainWindow):
                     _reply = str(_res)
         
                 log.debug(f"[GUI_DIRECT_EXEC] {_reply}")
+                # NOOP (fragment guard) responses must not enter conversation
+                # history, be spoken, or be displayed — they are internal
+                # routing events.  Storing the fragment-guard JSON as an
+                # assistant turn poisons subsequent LLM context, causing the
+                # model to mimic the JSON format in real responses.
+                _is_noop = (_action == "NOOP")
                 try:
                     if getattr(self, "_central_memory", None):
-                        if _reply:
+                        if _reply and not _is_noop:
                             self._central_memory.add_conversation_turn(
                                 "assistant", _reply, session_id=_session_id, user_id=_user_id)
                         self._central_memory.log_learning_event(
@@ -2886,9 +2892,12 @@ class EliMainWindow(QMainWindow):
                 # auto-speak is on.
                 _tts_auto_on = bool(getattr(self, "_tts_auto", False))
                 _speak_text = str(_reply or "").strip()
+                # NOOP: never speak
+                if _is_noop:
+                    _speak_text = ""
                 # For remediation previews, drop the bash script body before TTS
                 # so the mic doesn't pick up hundreds of chars of shell code.
-                if _action == "CONFIRM_PENDING_REMEDIATION" and _speak_text:
+                elif _action == "CONFIRM_PENDING_REMEDIATION" and _speak_text:
                     for _cut_marker in ("Exact command", "```", "## Command", "Command(s):", "Commands:"):
                         _cut_idx = _speak_text.find(_cut_marker)
                         if _cut_idx > 0:
@@ -2904,18 +2913,19 @@ class EliMainWindow(QMainWindow):
                 elif _speak_text:
                     log.debug(f"[GUI_DIRECT_EXEC][TTS_SKIPPED] auto-speak off")
         
-                # Best-effort GUI append. Execution must not depend on UI method names.
-                try:
-                    if hasattr(self, "append_assistant_message"):
-                        self.append_assistant_message(_reply)
-                    elif hasattr(self, "add_assistant_message"):
-                        self.add_assistant_message(_reply)
-                    elif hasattr(self, "_append_assistant_message"):
-                        self._append_assistant_message(_reply)
-                    elif hasattr(self, "chat_display"):
-                        self.chat_display.append(f"🤖 ELI:\n{_reply}")
-                except Exception as _ui_e:
-                    log.debug(f"[GUI_DIRECT_EXEC][UI_APPEND_FAIL] {_ui_e}")
+                # Best-effort GUI append. NOOP is silent — no chat display.
+                if not _is_noop:
+                    try:
+                        if hasattr(self, "append_assistant_message"):
+                            self.append_assistant_message(_reply)
+                        elif hasattr(self, "add_assistant_message"):
+                            self.add_assistant_message(_reply)
+                        elif hasattr(self, "_append_assistant_message"):
+                            self._append_assistant_message(_reply)
+                        elif hasattr(self, "chat_display"):
+                            self.chat_display.append(f"🤖 ELI:\n{_reply}")
+                    except Exception as _ui_e:
+                        log.debug(f"[GUI_DIRECT_EXEC][UI_APPEND_FAIL] {_ui_e}")
         
                 return
         except Exception as _direct_e:
