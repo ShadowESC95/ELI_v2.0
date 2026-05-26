@@ -358,6 +358,28 @@ def _ensure_memory_schema(conn):
     ]:
         _add_column_if_missing(conn, "conversations", name, decl)
 
+    # ── Performance indexes ─────────────────────────────────────────────────
+    # memories(ts) — ORDER BY COALESCE(timestamp, ts) used in every recall query
+    # conversations(user_id, session_id) — WHERE clause in search_conversations
+    # conversation_turns(session_id, timestamp) — ORDER BY in deep history fallback
+    try:
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_memories_ts ON memories(ts DESC)"
+        )
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_memories_importance ON memories(importance DESC)"
+        )
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_conversations_user_session "
+            "ON conversations(user_id, session_id)"
+        )
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_conversation_turns_session "
+            "ON conversation_turns(session_id, timestamp DESC)"
+        )
+    except Exception:
+        pass
+
     conn.execute(
         """
         CREATE TABLE IF NOT EXISTS conversation_turns (
@@ -1996,7 +2018,10 @@ class Memory(metaclass=_MemoryMeta):
             }
             _insert_payload(conn, "recall_log", payload)
             conn.commit()
-            return out
+            # Enforce the caller's limit on the final merged list.
+            # conversation_turns fallback uses max(3, limit-len) which can push
+            # total above `limit` when the initial result set is small.
+            return out[:limit]
         finally:
             conn.close()
 

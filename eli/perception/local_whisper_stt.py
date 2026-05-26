@@ -22,8 +22,10 @@ def _env(name, default):
 def _model_settings():
     model = _env("ELI_WHISPER_MODEL", "small.en")
     model_dir = _env("ELI_WHISPER_MODEL_DIR", "models/whisper")
-    device = _env("ELI_WHISPER_DEVICE", "cuda")
-    compute_type = _env("ELI_WHISPER_COMPUTE_TYPE", "float16")
+    # Default to CPU so Whisper doesn't compete with the GGUF model for VRAM.
+    # Set ELI_WHISPER_DEVICE=cuda to override (only useful when no GGUF is loaded).
+    device = _env("ELI_WHISPER_DEVICE", "cpu")
+    compute_type = _env("ELI_WHISPER_COMPUTE_TYPE", "int8")
     local_only = _env("ELI_WHISPER_LOCAL_ONLY", "0").lower() in {"1", "true", "yes", "on"}
 
     # If CUDA has previously OOM'd this session, stay on CPU permanently
@@ -94,10 +96,15 @@ def get_model():
 
 def preload_model() -> bool:
     """Eagerly load whisper at startup so it claims its VRAM before the GGUF
-    autotune runs. Uses the SAME device/compute as configured — never downgrades."""
+    autotune runs. Returns True only when the model loaded onto CUDA — the
+    startup dialog uses this to decide whether to cap ELI_TARGET_BATCH.
+    Returns False on CPU loads (no VRAM impact on the GGUF autotune)."""
     try:
         get_model()
-        return _MODEL is not None
+        if _MODEL is None:
+            return False
+        _, _, device, _, _ = _model_settings()
+        return device == "cuda"
     except Exception:
         return False
 
@@ -149,10 +156,17 @@ def transcribe_speech_recognition_audio(audio):
         try:
             return _do_transcribe(model, wav_path, language)
         except RuntimeError as exc:
-            if "out of memory" not in str(exc).lower():
+            _exc_str = str(exc).lower()
+            _is_vram_failure = (
+                "out of memory" in _exc_str
+                or "cublas_status_alloc_failed" in _exc_str
+                or "cuda error" in _exc_str
+                or "cufft" in _exc_str
+            )
+            if not _is_vram_failure:
                 raise
-            # CUDA OOM: flush cache and retry once on CPU
-            log.warning("[LOCAL_STT] CUDA OOM during transcription — flushing cache and retrying on CPU")
+            # CUDA VRAM failure: flush cache and retry once on CPU
+            log.warning("[LOCAL_STT] CUDA failure during transcription — flushing cache and retrying on CPU")
             try:
                 import torch
                 torch.cuda.empty_cache()
