@@ -2897,26 +2897,36 @@ class EliMainWindow(QMainWindow):
                 # NOOP: never speak
                 if _is_noop:
                     _speak_text = ""
-                # NEWS_FETCH: speak only a brief headline summary, not the full list
+                # NEWS_FETCH: speak count + top 2 non-arXiv headlines, word-boundary clipped
                 elif _action == "NEWS_FETCH" and _speak_text:
                     try:
                         import re as _re_news
-                        # Extract fetch count line (e.g. "130 articles fetched, 4 new:")
+                        # Count line: "145 articles fetched, 7 new"
                         _count_m = _re_news.search(
-                            r"(\d+\s+articles?\s+fetched.*?(?:new|updated)?)[:\.]?", _speak_text, _re_news.I)
-                        _count_str = _count_m.group(1).strip() if _count_m else ""
-                        # Extract first 2 bullet-point headlines
-                        _headlines = _re_news.findall(r"•\s+\[[^\]]+\]\s+\([^)]+\)\s+([^\n•]{10,100})", _speak_text)
-                        _top = [h.strip().rstrip("…") for h in _headlines[:2]]
+                            r"(\d+\s+articles?\s+fetched[^:\n]*)", _speak_text, _re_news.I)
+                        _count_str = _count_m.group(1).strip().rstrip(".:,") if _count_m else ""
+                        # Prefer BBC/HackerNews/Phys.org over arXiv for voice headlines
+                        # Pattern: • [Source] (date) Headline text
+                        _all_hl = _re_news.findall(
+                            r"•\s+\[([^\]]+)\]\s+\([^)]+\)\s+([^\n]{10,})", _speak_text)
+                        _preferred = [h for src, h in _all_hl if "arxiv" not in src.lower()]
+                        _fallback  = [h for src, h in _all_hl if "arxiv" in src.lower()]
+                        _picks = (_preferred or _fallback)[:2]
+                        def _clip(t, n=65):
+                            t = t.strip().rstrip("…")
+                            if len(t) <= n:
+                                return t
+                            cut = t[:n].rsplit(" ", 1)[0]
+                            return cut or t[:n]
+                        _top = [_clip(h) for h in _picks]
                         if _count_str or _top:
                             _speak_text = _count_str
                             if _top:
                                 _speak_text += (". Top stories: " if _count_str else "Top stories: ") + "; ".join(_top)
                         else:
-                            # Fallback: first 120 chars
-                            _speak_text = _speak_text[:120].strip()
+                            _speak_text = _count_str or _speak_text[:80].strip()
                     except Exception:
-                        _speak_text = _speak_text[:120].strip()
+                        _speak_text = _speak_text[:80].strip()
                 # For remediation previews, drop the bash script body before TTS
                 # so the mic doesn't pick up hundreds of chars of shell code.
                 elif _action == "CONFIRM_PENDING_REMEDIATION" and _speak_text:
