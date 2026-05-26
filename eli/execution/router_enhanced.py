@@ -1229,6 +1229,9 @@ def route(text: str) -> Dict[str, Any]:
             _tm = re.search(r"\b([a-z][a-z0-9 \-]{2,40})\s+news\b", low)
         if _tm:
             _topic = _tm.group(1).strip().rstrip("?.!,;:")
+            # Reject contraction artifacts like "s the latest" (from "what's")
+            if _topic and len(_topic.split()[0]) < 2:
+                _topic = ""
         args_news = {"mode": "fetch_and_show", "sources": ["all"]}
         if _topic and _topic not in {"the", "any", "today", "world", "current", "latest"}:
             args_news["topic"] = _topic
