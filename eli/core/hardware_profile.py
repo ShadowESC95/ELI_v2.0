@@ -382,18 +382,15 @@ def recommend(hw: Optional[HardwareProfile] = None,
     else:
         rec.reasoning.append("KV cache: fp16 (no quantization)")
 
-    # Context window. Now driven by available RAM AND VRAM. With KV-q4
-    # enabled, 16k ctx fits even on a 4 GB GPU with most of the model
-    # offloaded — that is the regime we want by default.
-    if hw.available_ram_gb >= 16:
-        rec.n_ctx = 16384
-    elif hw.available_ram_gb >= 8:
-        rec.n_ctx = 8192
-    elif hw.available_ram_gb >= 4:
-        rec.n_ctx = 4096
-    else:
-        rec.n_ctx = 2048
-    rec.reasoning.append(f"n_ctx={rec.n_ctx} (scales with available RAM)")
+    # Context window: proportional to available RAM — 1 GB ≈ 1024 ctx tokens.
+    # Rounded to the nearest 2048-grain; clamped to [2048, 131072].
+    _raw_ctx = int(hw.available_ram_gb * 1024)
+    _ctx_grain = 2048
+    rec.n_ctx = max(2048, (max(2048, min(131072, _raw_ctx)) // _ctx_grain) * _ctx_grain)
+    rec.reasoning.append(
+        f"n_ctx={rec.n_ctx} "
+        f"(available_ram={hw.available_ram_gb:.1f}GB × 1024, 2048-grain)"
+    )
 
     # Pick the largest model that actually fits, given the chosen ctx and
     # KV-quantization regime.
@@ -452,22 +449,17 @@ def recommend(hw: Optional[HardwareProfile] = None,
             f"Model: {chosen['name']} ({chosen['size_gb']:.2f}GB) — CPU only"
         )
 
-    # Batch size: scales aggressively with GPU offload. Larger batch =
-    # faster prompt prefill on GPU. Capped at 1024 to keep the kv-cache
-    # alloc spike under control on small VRAM cards.
+    # Batch size: scales linearly with GPU offload ratio.
+    # offload_ratio = layers_on_gpu / total_layers, clamped [0, 1].
+    # Range [128, 1024], aligned to 64-byte boundaries.
+    # CPU-only → floor of 128.
     total_layers = _layers_for_size(chosen["size_gb"])
-    if chosen_layers >= 9999 or chosen_layers >= total_layers:
-        rec.batch_size = 1024
-    elif chosen_layers >= 24:
-        rec.batch_size = 768
-    elif chosen_layers >= 20:
-        rec.batch_size = 512
-    elif chosen_layers >= 12:
-        rec.batch_size = 384
-    elif chosen_layers >= 6:
-        rec.batch_size = 256
-    else:
+    if chosen_layers == 0:
         rec.batch_size = 128
+    else:
+        _offload = min(1.0, chosen_layers / max(1, total_layers))
+        _raw_b = int(128 + _offload * (1024 - 128))
+        rec.batch_size = max(128, (_raw_b // 64) * 64)
 
     rec.use_mmap = True
     rec.use_mlock = (hw.available_ram_gb >= 16)
@@ -497,10 +489,12 @@ def recommend(hw: Optional[HardwareProfile] = None,
 
 
 def apply_recommendation(rec: ModelRecommendation) -> Dict[str, Any]:
-    """Write the recommendation as flat keys to config/settings.json.
+    """Write the recommendation to config/settings.json.
 
-    Writes ONLY the flat canonical keys. Does NOT write mode_profiles
-    or active_mode, which are no longer part of the runtime settings shape.
+    Hardware-computed runtime-tune values (n_ctx, n_gpu_layers, batch_size)
+    are written to hw_profile_* keys only — the canonical keys are the user's
+    domain and must not be auto-overwritten.  All other fields (model_path,
+    n_threads, cache_type_k/v, mode_presets, etc.) are safe to write.
     """
     try:
         from eli.core.runtime_settings import load_settings, save_settings
@@ -509,21 +503,18 @@ def apply_recommendation(rec: ModelRecommendation) -> Dict[str, Any]:
         settings["bundled_model_path"] = rec.model_path
         settings["custom_model_path"] = rec.model_path
         settings["gguf_model_path"] = rec.model_path
-        settings["n_gpu_layers"] = rec.n_gpu_layers
-        settings["n_ctx"] = rec.n_ctx
-        settings["batch_size"] = rec.batch_size
+        # Hardware-computed values stored under isolated keys only.
+        settings["hw_profile_n_gpu_layers"] = rec.n_gpu_layers
+        settings["hw_profile_n_ctx"] = rec.n_ctx
+        settings["hw_profile_batch_size"] = rec.batch_size
         settings["n_threads"] = rec.n_threads
         settings["max_tokens"] = rec.max_tokens
         settings["temperature"] = rec.temperature
         settings["use_mmap"] = rec.use_mmap
         settings["use_mlock"] = rec.use_mlock
         settings["provider"] = rec.provider
-        # KV-cache quantization keys: empty string clears any previous
-        # value, populated string enables that quantization regime.
         settings["cache_type_k"] = rec.cache_type_k
         settings["cache_type_v"] = rec.cache_type_v
-        # Per-reasoning-mode presets — engine reads these so each mode
-        # has parameters derived from this hardware tune, not hard-coded.
         settings["mode_presets"] = dict(rec.mode_presets)
         save_settings(settings)
         return {"ok": True, "settings_updated": True}
@@ -693,13 +684,25 @@ def enforce_hardware_authority(*, force: bool = False) -> Dict[str, Any]:
     except Exception:
         pass
 
-    reasons = _settings_out_of_bounds(settings, rec)
+    # _settings_out_of_bounds is advisory only — it no longer triggers a
+    # rewrite.  The user's n_ctx / n_gpu_layers / batch_size are theirs to set
+    # and are never auto-overwritten by the profiler.
+    _oob = _settings_out_of_bounds(settings, rec)
+    if _oob:
+        try:
+            import logging as _logging
+            _logging.getLogger(__name__).debug(
+                "[HW_AUTHORITY] advisory (not enforced): %s", ", ".join(_oob)
+            )
+        except Exception:
+            pass
+
     fingerprint_changed = (previous_fp is not None and previous_fp != fingerprint)
     model_invalid = not _user_model_path_is_valid(settings)
-    if model_invalid:
-        reasons.append(f"model_path invalid or points at embedder: {settings.get('model_path')!r}")
 
-    if not force and not fingerprint_changed and not reasons:
+    # Only proceed if something actually warrants writing:
+    # new hardware fingerprint, invalid model path, or explicit force.
+    if not force and not fingerprint_changed and not model_invalid:
         return {
             "ok": True, "rewritten": False, "reason": "",
             "fingerprint": fingerprint,
@@ -712,21 +715,21 @@ def enforce_hardware_authority(*, force: bool = False) -> Dict[str, Any]:
         primary_reason = "model_path was missing or pointed at an embedder; profiler chose a chat model"
     elif fingerprint_changed:
         primary_reason = f"hardware fingerprint changed ({previous_fp} -> {fingerprint})"
-    elif reasons:
-        primary_reason = "settings exceed profiler-recommended bounds: " + "; ".join(reasons)
     else:
         primary_reason = "forced re-apply"
 
-    # Only rewrite the fields that actually need to change. The user's
-    # explicit model_path is preserved when valid.
-    before = {k: settings.get(k) for k in ("n_ctx", "n_gpu_layers", "batch_size", "model_path")}
+    # Track what changes (hw_profile_* keys + model_path when invalid).
+    before = {k: settings.get(k) for k in (
+        "hw_profile_n_ctx", "hw_profile_n_gpu_layers", "hw_profile_batch_size", "model_path"
+    )}
     new_settings = dict(settings)
 
-    # Runtime tune always re-applies on rewrite (these are the parameters
-    # the profiler authoritatively decides).
-    new_settings["n_ctx"] = int(rec.n_ctx)
-    new_settings["n_gpu_layers"] = int(rec.n_gpu_layers)
-    new_settings["batch_size"] = int(rec.batch_size)
+    # Hardware-computed recommendation stored under hw_profile_* only.
+    # n_ctx / n_gpu_layers / batch_size (canonical keys) are NOT touched —
+    # they belong to the user and load_model() uses them for attempt 1.
+    new_settings["hw_profile_n_ctx"] = int(rec.n_ctx)
+    new_settings["hw_profile_n_gpu_layers"] = int(rec.n_gpu_layers)
+    new_settings["hw_profile_batch_size"] = int(rec.batch_size)
     new_settings["n_threads"] = int(rec.n_threads)
     new_settings["cache_type_k"] = rec.cache_type_k
     new_settings["cache_type_v"] = rec.cache_type_v
@@ -762,7 +765,7 @@ def enforce_hardware_authority(*, force: bool = False) -> Dict[str, Any]:
         after_v = new_settings.get(k)
         if str(before_v) != str(after_v):
             diffs.append(f"{k}: {before_v} → {after_v}")
-    banner = "Hardware profile re-applied. " + primary_reason
+    banner = "Hardware profile updated. " + primary_reason
     if diffs:
         banner += " | " + ", ".join(diffs)
 
