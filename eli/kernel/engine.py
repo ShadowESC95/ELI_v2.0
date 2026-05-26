@@ -4816,19 +4816,36 @@ Answer:"""
                     # CRITICAL: use the LIVE loaded model's n_ctx, not the
                     # configured value. Mistral may have fallen back to 1024
                     # ctx if VRAM was tight; the configured 4096 is a lie.
+                    # Start from gen (settings-derived) as last-resort fallback.
                     _n_ctx_pf1 = int(gen.get("n_ctx", 16384))
+                    # Override with the LIVE loaded value.  Priority chain:
+                    #   1. _live_runtime_params["n_ctx"] — set by gguf_inference
+                    #      after a successful load; always correct.
+                    #   2. runtime_snapshot.json effective.n_ctx — written by
+                    #      the GUI launcher immediately after load.
+                    #   3. llm.n_ctx() method — last resort (may throw).
+                    # gen.get("n_ctx") / settings["n_ctx"] is the CONFIGURED
+                    # value and is often stale — do NOT use it as the source.
                     try:
-                        from eli.cognition.gguf_inference import load_model as _eli_load_live
-                        _live_llm = _eli_load_live()
-                        if _live_llm is not None and hasattr(_live_llm, "n_ctx"):
-                            _live_n_ctx = int(_live_llm.n_ctx())
-                            # Use live value unconditionally — the configured
-                            # value in settings.json is often stale (e.g. still
-                            # showing 16384 while the model loaded at 116736).
-                            # min() was wrong: it always picked the smaller stale
-                            # configured value and caused spurious prompt truncation.
-                            if _live_n_ctx > 0:
-                                _n_ctx_pf1 = _live_n_ctx
+                        import eli.cognition.gguf_inference as _eli_gguf_mod
+                        _lrp = getattr(_eli_gguf_mod, "_live_runtime_params", None) or {}
+                        _lrp_ctx = int(_lrp.get("n_ctx", 0))
+                        if _lrp_ctx > 0:
+                            _n_ctx_pf1 = _lrp_ctx
+                        else:
+                            # Fallback: runtime snapshot file
+                            import json as _jsnap
+                            from eli.core.paths import project_root as _eli_root
+                            _snap_path = _eli_root() / "artifacts" / "runtime_snapshot.json"
+                            if _snap_path.exists():
+                                _snap = _jsnap.loads(_snap_path.read_text(encoding="utf-8"))
+                                _snap_ctx = int(
+                                    (_snap.get("effective") or {}).get("n_ctx")
+                                    or _snap.get("n_ctx")
+                                    or 0
+                                )
+                                if _snap_ctx > 0:
+                                    _n_ctx_pf1 = _snap_ctx
                     except Exception:
                         pass
                     # Token estimate uses 3.5 chars/token (Mistral-ish);
