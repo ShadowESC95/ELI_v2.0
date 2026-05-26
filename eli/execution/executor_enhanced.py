@@ -8031,9 +8031,20 @@ def _action_post_dispatch(
         "security_blocked",
     ))
     try:
+        # Grounded-remediation exit-20 ("No grounded install candidate found") is
+        # an honest terminal outcome, not a retryable failure. Don't log it as a
+        # failure and don't append the "attempt N" hint.
+        _remediation_actions = frozenset((
+            "CONFIRM_PENDING_REMEDIATION",
+            "CANCEL_PENDING_REMEDIATION",
+        ))
         if isinstance(result, dict) and not bool(result.get("ok", True)):
             import json as _json
             from eli.memory.memory import get_memory as _get_memory
+
+            # Remediation actions are terminal honest outcomes — skip failure logging.
+            if str(action or "").upper() in _remediation_actions:
+                return result
 
             raw_error = result.get("error")
             err_text = str(
@@ -9160,21 +9171,32 @@ except NameError:
 
         if action_name in {"OPEN_APP", "LAUNCH_APP", "OPEN_APPLICATION"}:
             from eli.system.portable_app_control import open_app
-            return open_app(data.get("name") or data.get("target") or data.get("app") or "")
+            _r = open_app(data.get("name") or data.get("target") or data.get("app") or "")
+            # Only short-circuit on success; failures fall through to _execute_impl
+            # so grounded_remediation can offer the install/download dialogue.
+            if isinstance(_r, dict) and _r.get("ok"):
+                return _r
+            return None
 
         if action_name in {"CLOSE_APP", "QUIT_APP", "EXIT_APP", "CLOSE_APPLICATION"}:
             from eli.system.portable_app_control import close_app
-            return close_app(
+            _r = close_app(
                 data.get("name") or data.get("target") or data.get("app") or "",
                 force=bool(data.get("force", False)),
             )
+            if isinstance(_r, dict) and _r.get("ok"):
+                return _r
+            return None
 
         if action_name in {
             "MINIMIZE_APP", "MINIMISE_APP", "HIDE_APP",
             "MINIMIZE_WINDOW", "MINIMISE_WINDOW",
         }:
             from eli.system.portable_app_control import minimize_app
-            return minimize_app(data.get("name") or data.get("target") or data.get("app") or "")
+            _r = minimize_app(data.get("name") or data.get("target") or data.get("app") or "")
+            if isinstance(_r, dict) and _r.get("ok"):
+                return _r
+            return None
 
         return None
 
