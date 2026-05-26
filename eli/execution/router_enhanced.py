@@ -1269,6 +1269,11 @@ def route(text: str) -> Dict[str, Any]:
                        {"mode": "fetch_and_show", "topic": topic, "sources": ["all"]},
                        0.93, matched_by="news.show_about_topic")
 
+    if re.search(r"\b(where|what)\b.{0,15}\bmy\s+news\b"
+                 r"|\bshow\s+(?:me\s+)?(?:the\s+)?news\b"
+                 r"|\bwhere(?:'?s?\s+|\s+is\s+)(?:the\s+)?news\b", low):
+        return _mk("NEWS_FETCH", {"mode": "recent"}, 0.93, matched_by="news.show_cached")
+
     if re.search(r"\bnews\s+(stats?|status|count|database)\b", low):
         return _mk("NEWS_FETCH", {"mode": "stats"}, 0.91, matched_by="news.stats")
 
