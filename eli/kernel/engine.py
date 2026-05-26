@@ -3035,8 +3035,13 @@ class CognitiveEngine:
 
     def _compact_persona(self) -> str:
         persona = _load_persona_text().strip()
-        if len(persona) > 2200:
-            persona = persona[:2200].rstrip() + "\n[persona trimmed]"
+        # 3800-char limit captures all critical voice directives including the
+        # wit/sarcasm/chemistry contract sections that appear after the first
+        # 2200 chars.  The previous 2200 limit silently dropped "Do not become
+        # bland, HR-coded" and the full smalltalk contract, causing flat robotic
+        # responses on any short casual input that triggered compact mode.
+        if len(persona) > 3800:
+            persona = persona[:3800].rstrip() + "\n[persona trimmed]"
         return persona
 
     def _quick_smalltalk_response(self, user_input: str) -> Optional[str]:

@@ -1382,10 +1382,12 @@ try:
         def _eli_requested_runtime_from_kwargs(kwargs):
             """
             Pull requested runtime from the same source priority as raw load_model():
-            explicit kwargs -> GGUF env -> runtime settings -> config defaults.
+            explicit kwargs -> GGUF env -> hw_profile settings -> canonical settings -> config defaults.
 
-            This is reporting evidence. It must describe the resolved loader
-            request, not a hard-coded theoretical default.
+            hw_profile_* values are preferred over canonical values when they exist —
+            they are the hardware-calibrated baseline that is known to work on this
+            machine without OOM.  Canonical values (user spinbox) may be larger
+            sentinel values (e.g. n_gpu_layers=9999) that the GPU cannot satisfy.
             """
             try:
                 _settings = _load_runtime_settings()
@@ -1408,32 +1410,55 @@ try:
                     pass
                 return fallback
 
+            # hw_profile_* values are the hardware-calibrated baseline.
+            # Prefer them over canonical settings when the canonical looks like
+            # a sentinel (>= 9000 for gpu_layers, very large for ctx).
+            _hw_ctx   = _eli_adapt_int(_settings.get("hw_profile_n_ctx"), 0)
+            _hw_gpu   = _eli_adapt_int(_settings.get("hw_profile_n_gpu_layers"), 0)
+            _hw_batch = _eli_adapt_int(_settings.get("hw_profile_batch_size"), 0)
+
+            _raw_ctx = _eli_adapt_int(
+                kwargs.get("n_ctx")
+                or kwargs.get("ctx")
+                or _eli_adapt_os.environ.get("ELI_GGUF_N_CTX")
+                or _runtime_value(_settings, "n_ctx", "context_size")
+                or cfg_value("get_gguf_n_ctx", 32768),
+                32768,
+            )
+            _raw_gpu = _eli_adapt_int(
+                kwargs.get("n_gpu_layers")
+                or kwargs.get("gpu_layers")
+                or _eli_adapt_os.environ.get("ELI_GGUF_N_GPU_LAYERS")
+                or _runtime_value(_settings, "gpu_layers", "n_gpu_layers")
+                or cfg_value("get_gguf_n_gpu_layers", 0),
+                0,
+            )
+            _raw_batch = _eli_adapt_int(
+                kwargs.get("n_batch")
+                or kwargs.get("batch_size")
+                or kwargs.get("batch")
+                or _eli_adapt_os.environ.get("ELI_GGUF_N_BATCH")
+                or _runtime_value(_settings, "batch_size", "n_batch")
+                or cfg_value("get_gguf_n_batch", 512),
+                512,
+            )
+
+            # When canonical gpu_layers is a sentinel value and hw_profile
+            # has a calibrated value, use the hw_profile value as the base.
+            # This prevents the first attempt always OOMing on 9999 layers.
+            if _hw_gpu > 0 and _raw_gpu >= 9000:
+                _raw_gpu = _hw_gpu
+            if _hw_ctx > 0 and _raw_ctx > _hw_ctx * 1.5:
+                # Canonical ctx is significantly larger than hw-recommended —
+                # use hw_profile as base to avoid OOM on the first attempt.
+                _raw_ctx = _hw_ctx
+            if _hw_batch > 0 and _raw_batch > _hw_batch * 2:
+                _raw_batch = _hw_batch
+
             return {
-                "n_ctx": _eli_adapt_int(
-                    kwargs.get("n_ctx")
-                    or kwargs.get("ctx")
-                    or _eli_adapt_os.environ.get("ELI_GGUF_N_CTX")
-                    or _runtime_value(_settings, "n_ctx", "context_size")
-                    or cfg_value("get_gguf_n_ctx", 32768),
-                    32768,
-                ),
-                "n_gpu_layers": _eli_adapt_int(
-                    kwargs.get("n_gpu_layers")
-                    or kwargs.get("gpu_layers")
-                    or _eli_adapt_os.environ.get("ELI_GGUF_N_GPU_LAYERS")
-                    or _runtime_value(_settings, "gpu_layers", "n_gpu_layers")
-                    or cfg_value("get_gguf_n_gpu_layers", 0),
-                    0,
-                ),
-                "n_batch": _eli_adapt_int(
-                    kwargs.get("n_batch")
-                    or kwargs.get("batch_size")
-                    or kwargs.get("batch")
-                    or _eli_adapt_os.environ.get("ELI_GGUF_N_BATCH")
-                    or _runtime_value(_settings, "batch_size", "n_batch")
-                    or cfg_value("get_gguf_n_batch", 512),
-                    512,
-                ),
+                "n_ctx": _raw_ctx,
+                "n_gpu_layers": _raw_gpu,
+                "n_batch": _raw_batch,
             }
 
         def _eli_unique_candidates(candidates):
@@ -1465,6 +1490,19 @@ try:
             free = int(gpu.get("free_mib") or 0)
             basis = free if free > 0 else total
 
+            # VRAM-proportional ctx cap — replaces hardcoded tier values.
+            # Allocates 40% of free VRAM to the KV cache after a 512 MiB
+            # floor for CUDA context overhead.  KV at fp16 for a typical
+            # 7B-class model is ~160 KB/token (32 layers × 8 GQA heads ×
+            # 128 head_dim × 2 bytes × 2 for K+V with 25% headroom).
+            # Aligned to 2048-token granularity for llama.cpp.
+            _kv_bytes_per_token = 163840  # 160 KiB / token
+            _kv_budget_mb = max(0, int(basis * 0.40) - 512) if basis > 0 else 0
+            _vram_ctx = (
+                max(2048, (_kv_budget_mb * 1024 * 1024 // _kv_bytes_per_token // 2048) * 2048)
+                if _kv_budget_mb > 0 else 2048
+            )
+
             candidates = [
                 {
                     "label": "requested/raw-no-override",
@@ -1473,13 +1511,14 @@ try:
             ]
 
             # VRAM-aware conservative candidate. This is threshold-based, not
-            # machine-name based.
+            # machine-name based.  ctx cap is derived from the VRAM formula
+            # above — no hardcoded context-window values.
             if basis > 0:
                 if basis <= 4096:
                     candidates.append({
                         "label": "adaptive-vram<=4g",
                         "override": True,
-                        "n_ctx": min(req_ctx, 16384),
+                        "n_ctx": min(req_ctx, _vram_ctx),
                         "n_gpu_layers": min(req_gpu, max(0, req_gpu // 4)),
                         "n_batch": min(req_batch, 256),
                     })
@@ -1487,7 +1526,7 @@ try:
                     candidates.append({
                         "label": "adaptive-vram<=6g",
                         "override": True,
-                        "n_ctx": min(req_ctx, 16384),
+                        "n_ctx": min(req_ctx, _vram_ctx),
                         "n_gpu_layers": min(req_gpu, max(0, req_gpu // 3)),
                         "n_batch": min(req_batch, 256),
                     })
@@ -1495,9 +1534,9 @@ try:
                     candidates.append({
                         "label": "adaptive-vram<=8g",
                         "override": True,
-                        "n_ctx": min(req_ctx, 24576),
+                        "n_ctx": min(req_ctx, _vram_ctx),
                         "n_gpu_layers": min(req_gpu, max(0, req_gpu // 2)),
-                        "n_batch": min(req_batch, 512),
+                        "n_batch": min(req_batch, max(128, req_batch // 2)),
                     })
                 else:
                     candidates.append({

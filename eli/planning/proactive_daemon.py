@@ -209,20 +209,38 @@ class ProactiveDaemon:
             pass
 
         # ── Pattern 4: Recurring errors from agent DB ────────────────────────
+        # Filter out world-awareness metric strings (repair_pressure=X.XX,
+        # memory_confidence=X.XX, etc.) — these are state readings, not real
+        # errors, and should never surface as recurring failure patterns.
+        _AWARENESS_METRIC_RE = re.compile(
+            r"\b(?:repair_pressure|memory_confidence|evidence_confidence|"
+            r"uncertainty|autonomy_pressure|reflection_depth|tool_activity|"
+            r"curiosity|focus|cognitive_load)\s*=\s*\d",
+            re.IGNORECASE,
+        )
         try:
             con = sqlite3.connect(str(self.db_path))
             cur = con.cursor()
             cur.execute(
                 "SELECT error, occurrence_count FROM failures "
-                "WHERE occurrence_count >= 2 ORDER BY timestamp DESC LIMIT 3"
+                "WHERE occurrence_count >= 2 ORDER BY timestamp DESC LIMIT 10"
             )
+            _added = 0
             for err, cnt in (cur.fetchall() or []):
+                err_str = str(err or "").strip()
+                # Skip awareness metric entries — they pollute recurring_error
+                # pattern detection and falsely raise repair_pressure again.
+                if _AWARENESS_METRIC_RE.search(err_str):
+                    continue
+                if _added >= 3:
+                    break
                 patterns.append({
                     "type": "recurring_error",
-                    "error": str(err)[:80],
+                    "error": err_str[:80],
                     "count": int(cnt or 1),
-                    "suggestion": f"Recurring error (×{cnt}): {str(err)[:80]}"
+                    "suggestion": f"Recurring error (×{cnt}): {err_str[:80]}"
                 })
+                _added += 1
             con.close()
         except Exception:
             pass
