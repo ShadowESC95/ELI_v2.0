@@ -317,14 +317,20 @@ def allocate(
     forced_batch  = os.environ.get("ELI_FORCE_BATCH",      "").strip()
     forced_layers = os.environ.get("ELI_FORCE_GPU_LAYERS", "").strip()
 
-    # ---- User settings (2nd priority) ----
-    user_ctx    = str(settings.get("n_ctx")        or settings.get("ctx")        or "").strip()
-    user_batch  = str(settings.get("batch_size")   or settings.get("n_batch")    or "").strip()
-    user_layers = str(settings.get("n_gpu_layers") or settings.get("gpu_layers") or "").strip()
+    # ---- User-pinned preferences (2nd priority) ----
+    # Use ONLY the dedicated user_preferred_* keys, never the auto-tuned
+    # n_ctx / batch_size / n_gpu_layers keys that apply_profile() writes.
+    # Those are optimizer outputs and must not feed back in as inputs.
+    # To pin a value manually, add "user_preferred_ctx": N to settings.json.
+    user_ctx    = str(settings.get("user_preferred_ctx")        or "").strip()
+    user_batch  = str(settings.get("user_preferred_batch")      or "").strip()
+    user_layers = str(settings.get("user_preferred_gpu_layers") or "").strip()
 
-    # ---- Fallback defaults ----
+    # ---- Dialog / env fallbacks (3rd priority) ----
+    # ELI_CTX_FRACTION and ELI_TARGET_BATCH are set by the startup dialog
+    # spinboxes and propagated as env vars — this is the normal user path.
     target_batch  = int(os.environ.get("ELI_TARGET_BATCH",  "512"))
-    ctx_fraction  = float(os.environ.get("ELI_CTX_FRACTION", "0.9"))  # only used for partial-offload fallback
+    ctx_fraction  = float(os.environ.get("ELI_CTX_FRACTION", "0.9"))
 
     # ---- CPU-only path ----
     if gpu is None or gpu.total_mb <= 0:
@@ -394,8 +400,10 @@ def allocate(
         # Model fits fully on GPU → maximize ctx from KV headroom.
         kv_budget = max(0.0, budget_after_batch - model_vram_mb)
         max_ctx_vram = max(2048, int(kv_budget / max(kv_per_token, 1e-6)))
-        n_ctx = round_ctx(min(train_ctx, max_ctx_vram))
-        ctx_source = f"VRAM-optimal (kv_budget={kv_budget:.0f}MB)"
+        # Honour the user's fraction cap from the startup dialog (ELI_CTX_FRACTION).
+        fraction_cap = round_ctx(int(train_ctx * ctx_fraction))
+        n_ctx = round_ctx(min(train_ctx, max_ctx_vram, fraction_cap))
+        ctx_source = f"VRAM-optimal capped at fraction {ctx_fraction:.2f} (kv_budget={kv_budget:.0f}MB)"
     else:
         # Partial offload → use fraction-based ctx capped by RAM.
         raw_ctx = int(train_ctx * ctx_fraction)
