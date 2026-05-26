@@ -2789,7 +2789,7 @@ class EliMainWindow(QMainWindow):
                 # Remediation confirm/cancel must bypass GGUF synthesis
                 "CONFIRM_PENDING_REMEDIATION", "CANCEL_PENDING_REMEDIATION",
                 "CHECK_TARGET_STATUS", "EXPLAIN_LAST_FAILURE",
-                # News is pre-formatted by executor; LLM synthesis hallucinates
+                # News: pre-formatted headlines; LLM path causes CUDA OOM (10k+ token prompt)
                 "NEWS_FETCH",
             }
         
@@ -2897,36 +2897,23 @@ class EliMainWindow(QMainWindow):
                 # NOOP: never speak
                 if _is_noop:
                     _speak_text = ""
-                # NEWS_FETCH: speak count + top 2 non-arXiv headlines, word-boundary clipped
+                # NEWS_FETCH: speak all headlines as "Source: Title" matching what GUI shows
                 elif _action == "NEWS_FETCH" and _speak_text:
                     try:
-                        import re as _re_news
-                        # Count line: "145 articles fetched, 7 new"
-                        _count_m = _re_news.search(
-                            r"(\d+\s+articles?\s+fetched[^:\n]*)", _speak_text, _re_news.I)
-                        _count_str = _count_m.group(1).strip().rstrip(".:,") if _count_m else ""
-                        # Prefer BBC/HackerNews/Phys.org over arXiv for voice headlines
-                        # Pattern: • [Source] (date) Headline text
-                        _all_hl = _re_news.findall(
-                            r"•\s+\[([^\]]+)\]\s+\([^)]+\)\s+([^\n]{10,})", _speak_text)
-                        _preferred = [h for src, h in _all_hl if "arxiv" not in src.lower()]
-                        _fallback  = [h for src, h in _all_hl if "arxiv" in src.lower()]
-                        _picks = (_preferred or _fallback)[:2]
-                        def _clip(t, n=65):
-                            t = t.strip().rstrip("…")
-                            if len(t) <= n:
-                                return t
-                            cut = t[:n].rsplit(" ", 1)[0]
-                            return cut or t[:n]
-                        _top = [_clip(h) for h in _picks]
-                        if _count_str or _top:
-                            _speak_text = _count_str
-                            if _top:
-                                _speak_text += (". Top stories: " if _count_str else "Top stories: ") + "; ".join(_top)
-                        else:
-                            _speak_text = _count_str or _speak_text[:80].strip()
+                        import re as _re_n
+                        # Extract header count line
+                        _hdr_m = _re_n.search(r"\((\d+\s+fetched[^)]*)\)", _speak_text, _re_n.I)
+                        _hdr = _hdr_m.group(1) if _hdr_m else ""
+                        # Extract all headlines: • [Source] (optional-date) Title
+                        _hl = _re_n.findall(r"•\s+\[([^\]]+)\](?:\s+\([^)]+\))?\s+(.+)", _speak_text)
+                        _parts = []
+                        if _hdr:
+                            _parts.append(_hdr.replace(",", ","))
+                        for src, title in _hl:
+                            _parts.append(f"{src}: {title.strip().rstrip('…')}")
+                        _speak_text = ". ".join(_parts) if _parts else _speak_text.split("\n")[0][:200]
                     except Exception:
-                        _speak_text = _speak_text[:80].strip()
+                        _speak_text = _speak_text.split("\n")[0][:200]
                 # For remediation previews, drop the bash script body before TTS
                 # so the mic doesn't pick up hundreds of chars of shell code.
                 elif _action == "CONFIRM_PENDING_REMEDIATION" and _speak_text:
@@ -2935,17 +2922,8 @@ class EliMainWindow(QMainWindow):
                         if _cut_idx > 0:
                             _speak_text = _speak_text[:_cut_idx].strip() + " — confirm repair?"
                             break
-                if _tts_auto_on and _speak_text:
-                    try:
-                        from eli.perception.tts_router import speak_text as _eli_gui_direct_speak
-                        _eli_gui_direct_speak(_speak_text)
-                        log.debug(f"[GUI_DIRECT_EXEC][TTS] {_speak_text}")
-                    except Exception as _tts_e:
-                        log.debug(f"[GUI_DIRECT_EXEC][TTS_FAIL] {_tts_e}")
-                elif _speak_text:
-                    log.debug(f"[GUI_DIRECT_EXEC][TTS_SKIPPED] auto-speak off")
-        
-                # Best-effort GUI append. NOOP is silent — no chat display.
+                # GUI append first so text is visible before TTS begins.
+                # NOOP is silent — no chat display.
                 if not _is_noop:
                     try:
                         if hasattr(self, "append_assistant_message"):
@@ -2956,8 +2934,23 @@ class EliMainWindow(QMainWindow):
                             self._append_assistant_message(_reply)
                         elif hasattr(self, "chat_display"):
                             self.chat_display.append(f"🤖 ELI:\n{_reply}")
+                        # Flush Qt paint queue so text renders before TTS blocks the thread
+                        try:
+                            QApplication.processEvents()
+                        except Exception:
+                            pass
                     except Exception as _ui_e:
                         log.debug(f"[GUI_DIRECT_EXEC][UI_APPEND_FAIL] {_ui_e}")
+
+                if _tts_auto_on and _speak_text:
+                    try:
+                        from eli.perception.tts_router import speak_text as _eli_gui_direct_speak
+                        _eli_gui_direct_speak(_speak_text)
+                        log.debug(f"[GUI_DIRECT_EXEC][TTS] {_speak_text}")
+                    except Exception as _tts_e:
+                        log.debug(f"[GUI_DIRECT_EXEC][TTS_FAIL] {_tts_e}")
+                elif _speak_text:
+                    log.debug(f"[GUI_DIRECT_EXEC][TTS_SKIPPED] auto-speak off")
         
                 return
         except Exception as _direct_e:

@@ -1,6 +1,11 @@
 from __future__ import annotations
 import threading
+import time
 from typing import Any, Dict, List, Optional
+
+# Cooldown: autonomy_pressure SELF_IMPROVE suggestion fires at most once per hour
+_SELF_IMPROVE_SUGGEST_COOLDOWN = 3600.0
+_last_self_improve_suggest: float = 0.0
 from eli.world.agency.autonomy_engine import EliWorldAutonomyEngine
 from eli.world.agency.reflection_bridge import load_persona_text
 from eli.world.core.schemas import AwarenessState, EliWorldState, WorldEvent
@@ -70,16 +75,21 @@ def get_awareness_driven_suggestions() -> List[Dict[str, Any]]:
         })
 
     # High autonomy pressure + sufficient reflection depth → trigger self-improvement
+    # Throttled: at most once per hour to prevent auto-trigger loops
+    global _last_self_improve_suggest
     if a.autonomy_pressure > 0.65 and a.reflection_depth > 0.40:
-        suggestions.append({
-            "action": "SELF_IMPROVE",
-            "reason": (
-                f"autonomy_pressure={a.autonomy_pressure:.2f} "
-                f"reflection_depth={a.reflection_depth:.2f} — "
-                "self-improvement cycle warranted"
-            ),
-            "priority": round((a.autonomy_pressure + a.reflection_depth) / 2, 2),
-        })
+        _now = time.monotonic()
+        if _now - _last_self_improve_suggest >= _SELF_IMPROVE_SUGGEST_COOLDOWN:
+            _last_self_improve_suggest = _now
+            suggestions.append({
+                "action": "SELF_IMPROVE",
+                "reason": (
+                    f"autonomy_pressure={a.autonomy_pressure:.2f} "
+                    f"reflection_depth={a.reflection_depth:.2f} — "
+                    "self-improvement cycle warranted"
+                ),
+                "priority": round((a.autonomy_pressure + a.reflection_depth) / 2, 2),
+            })
 
     # High uncertainty + weak evidence → log the state for review (no aggressive action)
     if a.uncertainty > 0.75 and a.evidence_confidence < 0.45:
