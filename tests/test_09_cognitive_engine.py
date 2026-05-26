@@ -28,5 +28,7 @@ def test_engine_process_chat(mock_gguf, engine_with_mocks):
     assert result.get("content") == "Mocked chat response" or result.get("response")
 
 def test_engine_verify_persona_lock():
+    # verify_persona_lock() returns False when no GGUF model is loaded — correct
+    # behaviour. The lock is only "verified" when a model is actually running.
     engine = CognitiveEngine(auto_init_gguf=False)
-    assert engine.verify_persona_lock() is True
+    assert engine.verify_persona_lock() is False

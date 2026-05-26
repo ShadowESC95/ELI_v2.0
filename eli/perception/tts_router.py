@@ -465,7 +465,7 @@ def _speak_piper_cli(text, voice_name=None):
             )
 
             if play_proc.returncode == 0:
-                _time.sleep(float(_os.environ.get("ELI_TTS_POST_PLAY_TAIL_SEC", "0.05")))
+                _time.sleep(float(_os.environ.get("ELI_TTS_POST_PLAY_TAIL_SEC", "0.35")))
                 return True
 
             if play_proc.stderr:

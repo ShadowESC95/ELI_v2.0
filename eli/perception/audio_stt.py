@@ -1070,14 +1070,58 @@ class ELIAudioSTT:
                     except Exception:
                         return False
 
+                # ── Background TTS monitor ───────────────────────────────────
+                # recognizer.listen() blocks for up to phrase_time_limit (20 s in
+                # direct-chat mode).  While it's blocking the while-loop's
+                # _eli_is_speaking() guard never runs — so TTS audio accumulates
+                # in the open PyAudio stream and is returned as a transcript.
+                # A daemon thread continuously polls the speaking lock every 0.1 s
+                # so _tts_mon_last[0] is updated even while listen() is blocking.
+                # After listen() returns we can tell whether TTS overlapped the
+                # capture window and drop the echo before Whisper even sees it.
+                import threading as _threading
+                _tts_mon_last: list[float] = [0.0]   # shared: last seen active (monotonic)
+                _tts_mon_stop = _threading.Event()
+                _post_tts_drain_s = float(
+                    os.environ.get("ELI_STT_POST_TTS_DRAIN_SEC", "1.5")
+                )
+
+                def _tts_monitor_fn():
+                    while not _tts_mon_stop.is_set():
+                        try:
+                            if _eli_is_speaking():
+                                _tts_mon_last[0] = time.monotonic()
+                        except Exception:
+                            pass
+                        time.sleep(0.1)
+
+                _tts_mon_thread = _threading.Thread(
+                    target=_tts_monitor_fn, daemon=True, name="eli-tts-monitor"
+                )
+                _tts_mon_thread.start()
+
                 while self.is_listening and not self._stop_event.is_set():
                     try:
                         # Hard-pause mic capture while ELI's TTS is actively
                         # speaking. Without this, the mic transcribes ELI's
                         # own voice and triggers a chain of repeat commands.
                         if _eli_is_speaking():
+                            _tts_mon_last[0] = time.monotonic()
                             time.sleep(0.15)
                             continue
+
+                        # Post-TTS drain cooldown ─────────────────────────────
+                        # If TTS ended less than _post_tts_drain_s ago, skip
+                        # the listen() call entirely and let PyAudio's ring
+                        # buffer cycle through stale TTS frames before we
+                        # accept new mic input.
+                        # Override: ELI_STT_POST_TTS_DRAIN_SEC
+                        if _tts_mon_last[0] > 0:
+                            _drain_elapsed = time.monotonic() - _tts_mon_last[0]
+                            if _drain_elapsed < _post_tts_drain_s:
+                                time.sleep(0.15)
+                                continue
+
                         self._listen_count = getattr(self, '_listen_count', 0) + 1
                         if self._listen_count <= 1 or self._listen_count % 20 == 0:
                             print(f"👂 [AUDIO] Listening... (cycle {self._listen_count})")
@@ -1147,6 +1191,7 @@ class ELIAudioSTT:
                         elif not _do_recal and _silent_streak >= _recal_every and _recal_every > 0:
                             _silent_streak = 0  # reset counter even when calibration is off
 
+                        _listen_start = time.monotonic()
                         audio = self.recognizer.listen(source, timeout=MAIN_TIMEOUT, phrase_time_limit=_active_phrase_limit)
                     except sr.WaitTimeoutError:
                         # Restore duck if the gate expired while we were waiting
@@ -1171,6 +1216,23 @@ class ELIAudioSTT:
                         _silent_streak += 1
                         continue
                     _silent_streak = 0
+
+                    # ── TTS window overlap check ──────────────────────────────
+                    # The background monitor stamped _tts_mon_last[0] whenever TTS
+                    # was active.  If that stamp falls at or after _listen_start
+                    # (with a small 0.2 s pre-roll tolerance), TTS was playing
+                    # while the mic was open — the transcript is ELI's own voice.
+                    # Drop it and restart the drain cooldown so the next listen()
+                    # call only fires after fresh frames fill the buffer.
+                    if _tts_mon_last[0] >= _listen_start - 0.2:
+                        _tts_mon_last[0] = time.monotonic()   # restart drain timer
+                        print(
+                            f"🔇 [AUDIO_ECHO_GATE] TTS active during listen window — dropped: "
+                            f"{transcript!r}",
+                            flush=True,
+                        )
+                        continue
+
                     # If the lock appeared during the listen() call (TTS
                     # started while we were still capturing), drop the
                     # transcript — it is almost certainly ELI's own voice.
@@ -1285,6 +1347,10 @@ class ELIAudioSTT:
                         self._emit(payload)
                         continue
         finally:
+            try:
+                _tts_mon_stop.set()
+            except Exception:
+                pass
             with self._state_lock:
                 self.is_listening = False
                 self._thread = None
