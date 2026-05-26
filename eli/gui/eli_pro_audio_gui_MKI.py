@@ -2786,6 +2786,9 @@ class EliMainWindow(QMainWindow):
                 # ELI_GUI_TILE_DIRECT_EXEC_FIX_20260505
                 "TILE_WINDOWS", "MINIMISE_ALL", "RESTORE_WINDOWS",
                 "OPEN_APP", "CLOSE_APP",
+                # Remediation confirm/cancel must bypass GGUF synthesis
+                "CONFIRM_PENDING_REMEDIATION", "CANCEL_PENDING_REMEDIATION",
+                "CHECK_TARGET_STATUS", "EXPLAIN_LAST_FAILURE",
             }
         
             if _action in _direct_actions:

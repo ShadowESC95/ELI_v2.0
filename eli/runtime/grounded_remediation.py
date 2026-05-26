@@ -1190,19 +1190,57 @@ def try_handle_query(text: str) -> str | None:
         return None
 
     # ---- Pending-repair confirmation intercept --------------------------
-    # Consume YES/NO
-    # answers against any pending repair state before falling through to
-    # open/check/install dispatch below.
+    # Consume YES/NO answers against any pending repair state before falling
+    # through to open/check/install dispatch below.
+    # Uses both exact match (YES_RE/NO_RE) and fuzzy word-in-input matching
+    # to tolerate STT noise like "confirmed yes" or "namagem1 yes".
+    _YES_WORD = re.compile(r'\b(yes|y|yeah|yep|confirm|confirmed|go ahead|do it|proceed|install it|download it)\b', re.I)
+    _NO_WORD  = re.compile(r'\b(no|n|cancel|stop|abort|never mind|dont|don\'t)\b', re.I)
     pending = get_pending()
     if pending:
         stage = str(pending.get("stage") or "").strip().lower()
-        if YES_RE.match(raw) and stage in {"offered", "pending", "proposed"}:
-            pending["stage"] = "previewed"
-            globals()["_PENDING"] = pending
+        _is_yes = bool(YES_RE.match(raw) or _YES_WORD.search(raw))
+        _is_no  = bool(NO_RE.match(raw) or _NO_WORD.search(raw))
+        # YES takes priority over NO when both appear (e.g. "yes no wait")
+        if _is_yes and stage in {"offered", "pending", "proposed"}:
+            with _LOCK:
+                pending["stage"] = "previewed"
+                globals()["_PENDING"] = pending
+                _save_pending_state(pending)
             return render_repair_preview(pending.get("plan") or {})
-        if NO_RE.match(raw) and stage in {"offered", "previewed", "pending", "proposed"}:
+        if _is_yes and stage == "previewed":
+            return execute_pending_plan()
+        if _is_no and stage in {"offered", "previewed", "pending", "proposed"}:
             clear_pending()
             return "Cancelled."
+
+    # ---- "install X" / "download X" explicit commands ------------------
+    # Handles both:
+    #   (a) user confirming a pending offer by naming the app directly
+    #       e.g. "install netflix" after ELI asked about installing netflix
+    #   (b) fresh direct install request with no prior pending state
+    _idm = re.match(r"^\s*(install|download|get|setup|set up)\s+(.+?)\s*$", raw, re.I)
+    if _idm:
+        subject = extract_app_name(_idm.group(2).strip())
+        _pending = get_pending()
+        if _pending:
+            _plan = _pending.get("plan") or {}
+            _stage = str(_pending.get("stage") or "").strip().lower()
+            if str(_plan.get("subject", "")).lower() == subject.lower():
+                # App matches the pending offer — advance the plan
+                if _stage in {"offered", "pending", "proposed"}:
+                    _pending["stage"] = "previewed"
+                    globals()["_PENDING"] = _pending
+                    _save_pending_state(_pending)
+                    return render_repair_preview(_plan)
+                if _stage == "previewed":
+                    return execute_pending_plan()
+        # No matching pending state — diagnose and offer
+        diag = diagnose_app(subject)
+        if not diag.get("ok"):
+            return offer_for_result(diag)
+        return f"{subject} appears to be already installed on this machine."
+
     m = re.match(r"^\s*(open|run|launch|start)\s+(.+?)\s*$", raw, re.I)
     if m:
         raw_subject = m.group(2).strip()
