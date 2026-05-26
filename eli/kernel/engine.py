@@ -4822,8 +4822,13 @@ Answer:"""
                         _live_llm = _eli_load_live()
                         if _live_llm is not None and hasattr(_live_llm, "n_ctx"):
                             _live_n_ctx = int(_live_llm.n_ctx())
+                            # Use live value unconditionally — the configured
+                            # value in settings.json is often stale (e.g. still
+                            # showing 16384 while the model loaded at 116736).
+                            # min() was wrong: it always picked the smaller stale
+                            # configured value and caused spurious prompt truncation.
                             if _live_n_ctx > 0:
-                                _n_ctx_pf1 = min(_n_ctx_pf1, _live_n_ctx)
+                                _n_ctx_pf1 = _live_n_ctx
                     except Exception:
                         pass
                     # Token estimate uses 3.5 chars/token (Mistral-ish);

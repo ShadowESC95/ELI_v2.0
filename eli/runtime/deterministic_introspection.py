@@ -26,7 +26,9 @@ def classify_diagnostic_action(text: str) -> Optional[str]:
     if not low:
         return None
 
-    if re.search(r"\b(who are you|what are you running|runtime status|model.*context|gpu layers|context size)\b", low):
+    # "who are you" is a persona/identity question — let the LLM answer it
+    # in ELI's voice.  Only map *technical* runtime queries to RUNTIME_STATUS.
+    if re.search(r"\b(what are you running|runtime status|model.*context|gpu layers|context size)\b", low):
         return "RUNTIME_STATUS"
 
     if re.search(r"\b(how many memories|memory system|memory runtime|what do you know about me from memory|memory count|stored memories)\b", low):
@@ -288,7 +290,10 @@ def handle_diagnostic_action(action: str, text: str, engine: Any = None) -> Opti
 
     if action in {"SELF_REPORT", "RUNTIME_STATUS", "GUI_RUNTIME_AUDIT"}:
         from eli.runtime.truth_report import runtime_truth_report, format_runtime_truth
-        return format_runtime_truth(runtime_truth_report(engine=engine))
+        from eli.runtime.user_visible_response_surface import coerce_user_visible
+        return coerce_user_visible(
+            format_runtime_truth(runtime_truth_report(engine=engine))
+        )
 
     if action == "USER_IDENTITY_SUMMARY":
         try:
