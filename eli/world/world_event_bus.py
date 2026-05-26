@@ -115,7 +115,14 @@ def fire_tool_result_event(action: str, ok: bool, source: str = "executor") -> N
 
 
 def fire_improvement_event(proposal_count: int, failure_count: int) -> None:
-    """Fire when self-improvement cycle produces proposals."""
+    """Fire when self-improvement cycle produces proposals.
+
+    Always fires repair_completed so repair_pressure decreases after a review
+    cycle — regardless of whether new proposals were generated.  Firing
+    runtime_fault on a 0-proposal cycle (the normal steady-state) was
+    incorrectly causing repair_pressure to accumulate across every SELF_IMPROVE
+    run and triggering an infinite proactive-daemon loop.
+    """
     if proposal_count > 0:
         fire_world_event(
             "improvement_proposal",
@@ -123,13 +130,14 @@ def fire_improvement_event(proposal_count: int, failure_count: int) -> None:
             f"Self-improvement cycle: {proposal_count} proposals from {failure_count} failures.",
             {"proposal_count": proposal_count, "failure_count": failure_count},
         )
-    elif failure_count > 0:
-        fire_world_event(
-            "runtime_fault",
-            "self_improvement",
-            f"Self-improvement found {failure_count} unresolved failures, no proposals generated.",
-            {"failure_count": failure_count},
-        )
+    # Always acknowledge cycle completion so repair_pressure can decrease.
+    fire_world_event(
+        "repair_completed",
+        "self_improvement",
+        f"Self-improvement review cycle complete: {failure_count} failure(s) inspected, "
+        f"{proposal_count} proposal(s) generated.",
+        {"proposal_count": proposal_count, "failure_count": failure_count},
+    )
 
 
 def fire_reasoning_stage_event(

@@ -1550,6 +1550,7 @@ SUPPORTED_ACTIONS = [
     'EXPLAIN_COGNITION_RUNTIME',
     'EXPLAIN_LAST_RESPONSE',
     'EXPLAIN_MEMORY_RUNTIME',
+    'FILE_AUDIT',
     'FIX_FILE',
     'FRONTIER_STATUS',
     'FOCUS_APP',
@@ -5928,7 +5929,95 @@ def _execute_impl(action: str, args: Optional[Dict[str, Any]] = None) -> Dict[st
                 pass
 
             msg = "\n".join(lines)
+            # Fire repair_completed so the world engine decreases repair_pressure.
+            # Without this, repair_pressure accumulates permanently and triggers
+            # an infinite proactive SELF_ANALYZE loop.
+            try:
+                from eli.world.world_event_bus import fire_world_event as _fwe_sa
+                _fwe_sa(
+                    "repair_completed",
+                    "self_analyze",
+                    f"SELF_ANALYZE completed: reviewed {len(failures)} failure(s).",
+                    {"failures_reviewed": len(failures)},
+                )
+            except Exception:
+                pass
             return {"ok": True, "action": a, "content": msg, "response": msg}
+        except Exception as e:
+            return {"ok": False, "action": a, "error": str(e), "content": str(e), "response": str(e)}
+
+    # ---- FILE_AUDIT ----
+    if a == "FILE_AUDIT":
+        try:
+            import os as _os
+            from pathlib import Path as _Path
+
+            # Determine scan root: default to the ELI package directory
+            _project_root = _Path(__file__).resolve().parents[2]
+            _eli_root = _project_root / "eli"
+            _scope = (args or {}).get("scope", "eli")
+
+            if not _eli_root.exists():
+                _eli_root = _project_root
+
+            # Walk the directory tree and collect stats
+            _dir_stats: dict = {}
+            _total_files = 0
+            _total_py = 0
+            _skipped = {"__pycache__", ".git", ".venv", "venv", "node_modules"}
+
+            for _dirpath, _dirnames, _filenames in _os.walk(str(_eli_root)):
+                # Prune skip dirs in-place
+                _dirnames[:] = [d for d in _dirnames if d not in _skipped]
+                _rel = str(_Path(_dirpath).relative_to(_project_root))
+                _py_files = [f for f in _filenames if f.endswith(".py")]
+                _non_py = [f for f in _filenames if not f.endswith(".py") and not f.endswith(".pyc")]
+                if _filenames:
+                    _dir_stats[_rel] = {
+                        "py": len(_py_files),
+                        "other": len(_non_py),
+                        "total": len(_filenames),
+                    }
+                    _total_files += len(_filenames)
+                    _total_py += len(_py_files)
+
+            # Build human-readable report
+            _lines = [
+                f"File Audit: {_eli_root}",
+                f"Directories scanned: {len(_dir_stats)}",
+                f"Total files: {_total_files}  (Python: {_total_py}  Other: {_total_files - _total_py})",
+                "",
+                "Directory breakdown (non-empty dirs, sorted):",
+            ]
+            for _rel_dir in sorted(_dir_stats.keys()):
+                _ds = _dir_stats[_rel_dir]
+                _lines.append(
+                    f"  {_rel_dir}/  "
+                    f"[{_ds['total']} files: {_ds['py']} .py, {_ds['other']} other]"
+                )
+
+            # Also list top-level .py module names in eli/ directly
+            _top_py = sorted(
+                f.name for f in _eli_root.iterdir()
+                if f.is_file() and f.suffix == ".py"
+            )
+            if _top_py:
+                _lines.append("")
+                _lines.append(f"eli/ root-level modules: {', '.join(_top_py)}")
+
+            _msg = "\n".join(_lines)
+            # Fire task_completed to keep world state clean
+            try:
+                from eli.world.world_event_bus import fire_world_event as _fwe_fa
+                _fwe_fa(
+                    "task_completed",
+                    "file_audit",
+                    f"FILE_AUDIT completed: {_total_files} files in {len(_dir_stats)} dirs.",
+                    {"total_files": _total_files, "total_py": _total_py},
+                )
+            except Exception:
+                pass
+            return {"ok": True, "action": a, "content": _msg, "response": _msg}
         except Exception as e:
             return {"ok": False, "action": a, "error": str(e), "content": str(e), "response": str(e)}
 
@@ -7483,7 +7572,7 @@ def _execute_impl(action: str, args: Optional[Dict[str, Any]] = None) -> Dict[st
             from eli.tools.news.news_fetcher import NewsFetcher
             fetcher = NewsFetcher()
 
-            def _format_articles(articles, header=""):
+            def _format_articles(articles, header="", with_summaries=False):
                 if not articles:
                     return None
                 lines = [header] if header else []
@@ -7491,7 +7580,7 @@ def _execute_impl(action: str, args: Optional[Dict[str, Any]] = None) -> Dict[st
                     pub = (r.get('published') or '')[:10]
                     date_str = f" ({pub})" if pub else ""
                     lines.append(f"• [{r['source']}]{date_str} {r['title']}")
-                    if r.get('summary') and len(r['summary'].strip()) > 20:
+                    if with_summaries and r.get('summary') and len(r['summary'].strip()) > 20:
                         lines.append(f"  {r['summary'][:160].strip()}…")
                 return "\n".join(lines)
 
@@ -7500,7 +7589,7 @@ def _execute_impl(action: str, args: Optional[Dict[str, Any]] = None) -> Dict[st
                 if not results:
                     msg = f"No stored news found for '{query}'. Try: 'fetch latest news' first."
                 else:
-                    msg = _format_articles(results, f"News results for '{query}':")
+                    msg = _format_articles(results, f"News results for '{query}':", with_summaries=True)
                 return {'ok': True, 'action': a, 'content': msg, 'response': msg}
 
             elif mode == 'recent':
@@ -7526,13 +7615,16 @@ def _execute_impl(action: str, args: Optional[Dict[str, Any]] = None) -> Dict[st
                 _src = sources if sources and sources != ['all'] else None
                 res = fetcher.fetch(sources=_src, topic=topic)
                 errs = res.get('errors', [])
-                header = f"Live news — {res['fetched']} articles fetched, {res['stored_new']} new:"
-                if res['fetched'] == 0 and errs:
+                _fetched = res['fetched']
+                _new = res['stored_new']
+                _new_str = f", {_new} new" if _new else ""
+                header = f"Here are the latest headlines ({_fetched} fetched{_new_str}):"
+                if _fetched == 0 and errs:
                     msg = f"News fetch failed. Errors: {'; '.join(errs[:3])[:300]}"
                     return {'ok': False, 'action': a, 'content': msg, 'response': msg}
                 recent = fetcher.get_recent(limit=10, category=topic)
                 msg = _format_articles(recent, header)
-                if not msg and res['fetched'] > 0:
+                if not msg and _fetched > 0:
                     try:
                         from eli.tools.news.news_synthesis import synthesise_window as _synth_w
                         _sw = _synth_w()
@@ -7542,9 +7634,9 @@ def _execute_impl(action: str, args: Optional[Dict[str, Any]] = None) -> Dict[st
                     if not msg:
                         recent2 = fetcher.get_recent(limit=20)
                         msg = _format_articles(recent2, header)
-                    msg = msg or f"Fetched {res['fetched']} articles — ask 'morning report' for a full digest."
+                    msg = msg or f"Fetched {_fetched} articles — ask 'morning report' for a full digest."
                 elif not msg:
-                    msg = f"Fetched {res['fetched']} articles."
+                    msg = f"Fetched {_fetched} articles."
                 if errs:
                     msg += f"\n\n⚠ Some sources failed: {'; '.join(errs[:2])[:200]}"
                 return {'ok': True, 'action': a, 'content': msg, 'response': msg}
