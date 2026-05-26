@@ -2789,6 +2789,8 @@ class EliMainWindow(QMainWindow):
                 # Remediation confirm/cancel must bypass GGUF synthesis
                 "CONFIRM_PENDING_REMEDIATION", "CANCEL_PENDING_REMEDIATION",
                 "CHECK_TARGET_STATUS", "EXPLAIN_LAST_FAILURE",
+                # News is pre-formatted by executor; LLM synthesis hallucinates
+                "NEWS_FETCH",
             }
         
             if _action in _direct_actions:
@@ -2895,6 +2897,26 @@ class EliMainWindow(QMainWindow):
                 # NOOP: never speak
                 if _is_noop:
                     _speak_text = ""
+                # NEWS_FETCH: speak only a brief headline summary, not the full list
+                elif _action == "NEWS_FETCH" and _speak_text:
+                    try:
+                        import re as _re_news
+                        # Extract fetch count line (e.g. "130 articles fetched, 4 new:")
+                        _count_m = _re_news.search(
+                            r"(\d+\s+articles?\s+fetched.*?(?:new|updated)?)[:\.]?", _speak_text, _re_news.I)
+                        _count_str = _count_m.group(1).strip() if _count_m else ""
+                        # Extract first 2 bullet-point headlines
+                        _headlines = _re_news.findall(r"•\s+\[[^\]]+\]\s+\([^)]+\)\s+([^\n•]{10,100})", _speak_text)
+                        _top = [h.strip().rstrip("…") for h in _headlines[:2]]
+                        if _count_str or _top:
+                            _speak_text = _count_str
+                            if _top:
+                                _speak_text += (". Top stories: " if _count_str else "Top stories: ") + "; ".join(_top)
+                        else:
+                            # Fallback: first 120 chars
+                            _speak_text = _speak_text[:120].strip()
+                    except Exception:
+                        _speak_text = _speak_text[:120].strip()
                 # For remediation previews, drop the bash script body before TTS
                 # so the mic doesn't pick up hundreds of chars of shell code.
                 elif _action == "CONFIRM_PENDING_REMEDIATION" and _speak_text:
