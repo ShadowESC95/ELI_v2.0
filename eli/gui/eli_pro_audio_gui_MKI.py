@@ -2886,6 +2886,14 @@ class EliMainWindow(QMainWindow):
                 # auto-speak is on.
                 _tts_auto_on = bool(getattr(self, "_tts_auto", False))
                 _speak_text = str(_reply or "").strip()
+                # For remediation previews, drop the bash script body before TTS
+                # so the mic doesn't pick up hundreds of chars of shell code.
+                if _action == "CONFIRM_PENDING_REMEDIATION" and _speak_text:
+                    for _cut_marker in ("Exact command", "```", "## Command", "Command(s):", "Commands:"):
+                        _cut_idx = _speak_text.find(_cut_marker)
+                        if _cut_idx > 0:
+                            _speak_text = _speak_text[:_cut_idx].strip() + " — confirm repair?"
+                            break
                 if _tts_auto_on and _speak_text:
                     try:
                         from eli.perception.tts_router import speak_text as _eli_gui_direct_speak
