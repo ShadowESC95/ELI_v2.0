@@ -220,6 +220,29 @@ MEDIA_APPS = [
 # ============================================================
 
 def _eli_weather_prepass(user_text: str):
+    low = user_text.lower().strip()
+    # Guard: only fire when the sentence is *requesting* weather info.
+    # Skip if the user is talking *about* a weather-related topic (e.g.
+    # "the script is for a weather forecast", "stop telling me the weather").
+    _REQUEST_SIGNALS = re.compile(
+        r"\b(?:what(?:'s|s|\s+is|\s+will)?\s+(?:the\s+)?(?:weather|forecast|temperature|temp)|"
+        r"how(?:'s|\s+is)\s+(?:the\s+)?weather|"
+        r"(?:check|get|tell\s+me|show(?:\s+me)?|give\s+me)\s+(?:the\s+)?(?:weather|forecast|temperature)|"
+        r"(?:will\s+it|is\s+it|going\s+to)\s+(?:rain|snow|be\s+(?:hot|cold|warm|sunny|cloudy)))\b",
+        re.I)
+    # Also allow bare "weather in X" / "weather for X" at the start of input
+    _BARE_WEATHER_REQUEST = re.compile(
+        r"^(?:weather|forecast|temperature)\b[^.!?]{0,60}\b(?:in|at|for)\s+[A-Za-z]",
+        re.I)
+    _TOPIC_PHRASES = re.compile(
+        r"\b(?:script|code|program|file|function|task|fix|issue|error|this|that|the\s+\w+)\s+"
+        r"(?:is|was|are|were|for|about|regarding|related\s+to)\s+(?:a\s+)?(?:weather|forecast|temperature)\b|"
+        r"\b(?:stop|don'?t|cease|quit)\b.{0,30}\bweather\b",
+        re.I)
+    if _TOPIC_PHRASES.search(low):
+        return None
+    if not _REQUEST_SIGNALS.search(low) and not _BARE_WEATHER_REQUEST.search(low):
+        return None
     m = re.search(
         r"(?:weather|forecast|temperature).{0,40}?(?:in|at|for) ([A-Za-z][A-Za-z ,]+?)(?:\?|$|[,;]|\band\b)",
         user_text,
@@ -2511,13 +2534,27 @@ def route(text: str) -> Dict[str, Any]:
             return _mk("GET_CLIPBOARD", {}, 0.9, matched_by="clipboard.get")
 
     if any(w in low for w in ["weather", "forecast", "temperature"]):
-        location_match = re.search(
-            r'\b(?:in|at|for)\b\s+([\w\s\-]+?)(?:\s*[,?!.]|\s+and\s+|\s+(?:provide|tell|show|give|also|then|next|tomorrow|today|forecast)|$)',
-            raw,
-            re.I)
-        location = location_match.group(1).strip().rstrip("?.!, ") if location_match else None
-        return _mk("GET_WEATHER", {"location": location, "_raw_user_text": raw}, 0.95, matched_by="info.weather", entities={
-                   "location": location} if location else None)
+        # Only route when the sentence is an actual weather *request*, not a
+        # sentence that merely mentions weather as a subject/object/topic.
+        _wx_request = re.search(
+            r"\b(?:what(?:'s|s|\s+is|\s+will)?\s+(?:the\s+)?(?:weather|forecast|temperature)|"
+            r"how(?:'s|\s+is)\s+(?:the\s+)?weather|"
+            r"(?:check|get|tell\s+me|show(?:\s+me)?|give\s+me)\s+(?:the\s+)?(?:weather|forecast|temperature)|"
+            r"(?:will\s+it|is\s+it|going\s+to)\s+(?:rain|snow|be\s+(?:hot|cold|warm|sunny|cloudy)))\b",
+            low, re.I)
+        _wx_topic = re.search(
+            r"\b(?:script|code|program|file|function|task|fix|issue|error|this|that)\s+"
+            r"(?:is|was|are|were|for|about)\s+(?:a\s+)?(?:weather|forecast)|"
+            r"\b(?:stop|don'?t|cease|quit)\b.{0,30}\bweather\b",
+            low, re.I)
+        if _wx_request and not _wx_topic:
+            location_match = re.search(
+                r'\b(?:in|at|for)\b\s+([\w\s\-]+?)(?:\s*[,?!.]|\s+and\s+|\s+(?:provide|tell|show|give|also|then|next|tomorrow|today|forecast)|$)',
+                raw,
+                re.I)
+            location = location_match.group(1).strip().rstrip("?.!, ") if location_match else None
+            return _mk("GET_WEATHER", {"location": location, "_raw_user_text": raw}, 0.95, matched_by="info.weather", entities={
+                       "location": location} if location else None)
 
     if any(w in low for w in ["calendar", "calender",
            "calander", "event", "appointment", "meeting"]):
@@ -5328,6 +5365,11 @@ try:
                 }
                 _first_tok = low2.split()[0] if low2.split() else ""
                 if _first_tok not in _CREATION_VERBS:
+                    return None
+                # Reject negated generation: "not generate...", "don't write..."
+                if _rgs.search(
+                    r"\b(?:not|don'?t|never|no|stop|without|rather\s+than|instead\s+of)\b\s+\w*\s*"
+                    r"(?:generate|write|create|build|make)\b", low2):
                     return None
                 # Non-code creative scripts (film/podcast/etc.) → skip
                 _NON_CODE_SCRIPT2 = _rgs.compile(

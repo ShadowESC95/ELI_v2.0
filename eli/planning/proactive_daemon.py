@@ -719,20 +719,19 @@ Date: {datetime.now().strftime("%A %B %d %H:%M")} | Interactions last 24h: {inte
                             _ws_priority = float(_ws.get("priority", 0.0))
                             _ws_action = str(_ws.get("action") or "")
                             if _ws_priority >= 0.55:
-                                # Log to self-improvement memory
+                                # Record as an observation (NOT a failure) so it
+                                # surfaces as a proposal without incrementing the
+                                # failure count — which would raise repair_pressure
+                                # and create an infinite feedback loop.
                                 try:
-                                    from eli.runtime.self_improvement import get_self_improvement as _gsi_ws
-                                    _si_ws = _gsi_ws()
-                                    _si_ws.log_failure(
-                                        input_text=f"[world_suggestion] {_ws_action}",
-                                        error=_ws.get("reason", "world awareness threshold exceeded"),
-                                        confidence=max(0.0, 1.0 - _ws_priority),
-                                        context={
-                                            "source": "world_autonomy",
-                                            "suggested_action": _ws_action,
-                                            "priority": _ws_priority,
-                                        },
-                                    )
+                                    _obs_target = self.agent_mem or self.user_mem
+                                    if _obs_target:
+                                        _obs_target.add_observation(
+                                            source="world_autonomy",
+                                            category="world_suggestion",
+                                            observation=f"[world_suggestion] {_ws_action}",
+                                            content=_ws.get("reason", "world awareness threshold exceeded"),
+                                        )
                                 except Exception:
                                     pass
 
