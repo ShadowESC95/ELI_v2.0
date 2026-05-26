@@ -212,11 +212,15 @@ def kv_cache_mb(n_ctx: int, layers: int) -> float:
 
 
 def round_ctx(raw: int) -> int:
-    allowed = [
-        2048, 4096, 6144, 8192, 12288, 16384,
-        20480, 22528, 24576, 32768, 49152, 65536, 98304, 131072,
-    ]
-    return max(v for v in allowed if v <= max(2048, raw))
+    """Round raw ctx down to the nearest multiple of 2048 (minimum 2048).
+
+    Previously used a sparse fixed list which created large dead zones where
+    many different fraction inputs produced the same ctx value.  A 2048-grain
+    rounding gives proportional results across the full fraction range.
+    """
+    if raw <= 0:
+        return 2048
+    return max(2048, (raw // 2048) * 2048)
 
 
 def ram_ctx_cap(ram_gb: float, model_gb: float) -> int:
