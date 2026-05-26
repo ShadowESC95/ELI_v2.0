@@ -182,7 +182,7 @@ def resolve_app(query: str) -> AppCandidate:
         return contains[0]
 
     names = [app.name for app in apps]
-    close = difflib.get_close_matches(raw, names, n=1, cutoff=0.55)
+    close = difflib.get_close_matches(raw, names, n=1, cutoff=0.72)
     if close:
         for app in apps:
             if app.name == close[0]:

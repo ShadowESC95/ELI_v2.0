@@ -1077,8 +1077,14 @@ def route(text: str) -> Dict[str, Any]:
 
     # ── File Audit (must precede RUNTIME_AUDIT — "do a file audit" would
     # otherwise be stolen by the broad 'do ... audit' RUNTIME_AUDIT pattern) ──
+    # NOTE: "list" is intentionally excluded from bare "files?" matching.
+    # "list the files in my downloads folder" must fall through to LIST_DIR.
+    # Only audit|examine|inspect|scan|inventory pair with bare "files?".
+    # "list" only triggers FILE_AUDIT when paired with code-specific nouns
+    # (codebase, source, modules, scripts, project files) or explicit qualifiers.
     if re.search(
-        r"\b(audit|examine|inspect|scan|list|inventory)\b.{0,40}\b(files?|codebase|source|modules?|scripts?|project\s+files?)\b"
+        r"\b(audit|examine|inspect|scan|inventory)\b.{0,40}\b(files?|codebase|source|modules?|scripts?|project\s+files?)\b"
+        r"|\b(list|inventory)\b.{0,40}\b(codebase|source|modules?|scripts?|project\s+files?)\b"
         r"|\bfile\s+(audit|scan|inventory|check|examination)\b"
         r"|\baudis?\s+(?:all\s+(?:of\s+)?(?:your|the)\s+)?files?\b"
         r"|\b(do|perform|run)\s+(?:a\s+)?file\s+audit\b"
@@ -4604,6 +4610,22 @@ def _eli_media_contract_post(raw, result):
         m = re.match(r"^play\s+(.+\s+by\s+.+)$", text)
         if m:
             return _play("spotify", m.group(1), "media.play_song_by_artist_contract")
+
+        # Implied song request — "title by artist" with no "play" verb.
+        # Matches "all eyez on me by tupac" / "bohemian rhapsody by queen".
+        # Negative lookahead excludes sentences starting with action/question verbs
+        # so "explain X by Y" / "search X by Y" / "what is X by Y" fall through.
+        m = re.match(
+            r"^(?!(?:search|find|look|show|get|tell|what|how|why|when|where|which|who"
+            r"|is|are|was|were|will|can|could|should|would|do|does|did"
+            r"|make|create|run|start|stop|open|close|pause|explain|describe|define"
+            r"|read|write|list|audit|check|scan|review|analyse|analyze"
+            r"|created?|written?|made|designed?|built|developed?)\b)"
+            r"(.{4,70})\s+by\s+([a-z][a-z\s]{1,35})$",
+            text,
+        )
+        if m:
+            return _play("spotify", raw, "media.implied_song_by_artist")
 
         m = re.match(r"^(open|launch|start|close|quit|kill|exit)\s+(.+?)$", text)
         if m:

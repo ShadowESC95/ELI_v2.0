@@ -20,7 +20,6 @@ from pathlib import Path
 from eli.utils.log import get_logger
 log = get_logger(__name__)
 
-
 def _resolve_db_path(explicit: str | None) -> Path:
     if explicit:
         return Path(explicit).expanduser().resolve()
@@ -30,7 +29,6 @@ def _resolve_db_path(explicit: str | None) -> Path:
     except Exception:
         pass
     return Path.home() / ".eli" / "user.sqlite3"
-
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="Rebuild ELI FAISS vector index.")
@@ -138,7 +136,6 @@ def main(argv: list[str] | None = None) -> int:
         f"in {elapsed:.2f}s → {idx_path}"
     )
     return 0
-
 
 if __name__ == "__main__":
     sys.exit(main())
