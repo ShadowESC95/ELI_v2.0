@@ -431,6 +431,28 @@ def recommend(hw: Optional[HardwareProfile] = None,
     rec.model_size_gb = chosen["size_gb"]
     rec.n_gpu_layers = chosen_layers
 
+    # Refine n_ctx now that we know the model and GPU offload level.
+    # For GPU systems, cap ctx at what the remaining VRAM can hold for KV cache.
+    # Without this the RAM-based formula over-allocates on VRAM-limited machines
+    # and causes OOM on the first load attempt.
+    if hw.has_gpu and hw.free_vram_mb > 0 and chosen_layers > 0:
+        _total_layers_est = _layers_for_size(chosen["size_gb"])
+        _model_vram_mb = chosen["size_gb"] * 1024.0
+        _reserve_mb = float(_CUDA_OVERHEAD_MB) + 1500.0   # CUDA + runtime headroom
+        _vram_for_kv = max(0.0, hw.free_vram_mb - _model_vram_mb - _reserve_mb)
+        _kv_factor = 4 if kv_q else 1
+        _kv_per_token_mb = (_total_layers_est * _KV_BYTES_PER_TOKEN_PER_LAYER / 1_048_576) / _kv_factor
+        if _kv_per_token_mb > 0:
+            _max_ctx_vram = max(2048, int(_vram_for_kv / _kv_per_token_mb))
+            if _max_ctx_vram < rec.n_ctx:
+                _old = rec.n_ctx
+                _ctx_grain = 2048
+                rec.n_ctx = max(2048, (_max_ctx_vram // _ctx_grain) * _ctx_grain)
+                rec.reasoning.append(
+                    f"n_ctx capped {_old} → {rec.n_ctx} by VRAM budget "
+                    f"(vram_for_kv={_vram_for_kv:.0f}MB kv/tok={_kv_per_token_mb:.3f}MB)"
+                )
+
     if chosen_layers >= 9999:
         rec.reasoning.append(
             f"Model: {chosen['name']} ({chosen['size_gb']:.2f}GB) — "
