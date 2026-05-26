@@ -3428,6 +3428,11 @@ class Memory(metaclass=_MemoryMeta):
             if user_id:
                 where.append("user_id = ?")
                 params.append(user_id)
+            # Exclude fragment-guard NOOP entries — they are internal routing
+            # events that were stored before the NOOP-suppression fix.
+            # Including them in LLM context causes the model to mimic JSON format.
+            where.append("content NOT LIKE '%\"event\": \"input_fragment_guard\"%'")
+            where.append("content NOT LIKE '%fragmentary_input%'")
             if where:
                 sql += " WHERE " + " AND ".join(where)
             sql += " ORDER BY COALESCE(timestamp, ts, 0) DESC LIMIT ?"
