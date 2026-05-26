@@ -224,32 +224,20 @@ def round_ctx(raw: int) -> int:
 
 
 def ram_ctx_cap(ram_gb: float, model_gb: float) -> int:
-    """Conservative RAM ctx cap for models with CPU-resident KV layers."""
-    if ram_gb < 8:    cap = 2048
-    elif ram_gb < 16: cap = 4096
-    elif ram_gb < 24: cap = 8192
-    elif ram_gb < 28: cap = 16384
-    elif ram_gb < 48: cap = 24576
-    elif ram_gb < 64: cap = 32768
-    elif ram_gb < 96: cap = 49152
-    elif ram_gb < 128: cap = 65536
-    else:             cap = 131072
+    """Conservative RAM ctx cap for models with CPU-resident KV layers.
 
-    if model_gb >= 30 and ram_gb < 96:
-        cap = min(cap, 16384)
-    elif model_gb >= 18 and ram_gb < 48:
-        cap = min(cap, 16384)
-
-    return cap
+    Derived from available headroom: each GB of net RAM (total minus model
+    footprint and a fixed 2 GB OS/runtime reserve) supports ~1024 ctx tokens.
+    Clamped to [2048, 131072] and rounded to the nearest 2048-grain.
+    """
+    _os_reserve_gb = 2.0
+    net_gb = max(0.0, ram_gb - model_gb - _os_reserve_gb)
+    return round_ctx(max(2048, min(131072, int(net_gb * 1024))))
 
 
 def max_tokens_from_ctx(n_ctx: int) -> int:
-    if n_ctx >= 65536: return 8192
-    if n_ctx >= 32768: return 6144
-    if n_ctx >= 8192:  return 4096
-    if n_ctx >= 6144:  return 3072
-    if n_ctx >= 4096:  return 2048
-    return 1024
+    """Max generation tokens as half the context window, capped at [1024, 8192]."""
+    return max(1024, min(8192, n_ctx // 2))
 
 
 def mode_presets(n_ctx: int, max_tokens: int) -> Dict[str, Dict[str, Any]]:
@@ -485,16 +473,27 @@ def build_profile() -> HardwareProfile:
 
 
 def apply_profile(profile: HardwareProfile) -> None:
+    """Write hardware profile to disk.
+
+    Hardware-computed values (n_ctx, n_gpu_layers, batch_size) are stored
+    under hw_profile_* keys and in runtime_hardware_profile.json.  They are
+    NEVER written to the canonical n_ctx / n_gpu_layers / batch_size keys in
+    settings.json — those belong to the user and must not be auto-overwritten.
+
+    The GUI load_model() picks up hw_profile_* values as attempt 2 (fallback)
+    after the user's explicit settings have been tried first.
+    """
     settings = load_settings()
     SETTINGS_PATH.parent.mkdir(parents=True, exist_ok=True)
 
     settings["model_path"] = profile.model_path
-    settings["n_ctx"] = profile.n_ctx
-    settings["ctx"] = profile.n_ctx
-    settings["n_gpu_layers"] = profile.n_gpu_layers
-    settings["gpu_layers"] = profile.n_gpu_layers
-    settings["batch_size"] = profile.batch_size
-    settings["n_batch"] = profile.batch_size
+
+    # Hardware recommendation stored under isolated keys only.
+    settings["hw_profile_n_ctx"] = profile.n_ctx
+    settings["hw_profile_n_gpu_layers"] = profile.n_gpu_layers
+    settings["hw_profile_batch_size"] = profile.batch_size
+
+    # Thread count and generation caps are hardware-determined; safe to update.
     settings["n_threads"] = profile.n_threads
     settings["max_tokens"] = profile.max_tokens
     settings["mode_presets"] = profile.mode_presets
@@ -503,6 +502,8 @@ def apply_profile(profile: HardwareProfile) -> None:
 
     SETTINGS_PATH.write_text(json.dumps(settings, indent=2), encoding="utf-8")
 
+    # runtime_hardware_profile.json is the artifact read by load_model()
+    # for the hw-profile fallback attempt — keep writing it unchanged.
     REPORT_PATH.parent.mkdir(parents=True, exist_ok=True)
     REPORT_PATH.write_text(json.dumps(asdict(profile), indent=2), encoding="utf-8")
 
