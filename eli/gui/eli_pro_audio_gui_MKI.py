@@ -7931,17 +7931,8 @@ _register()
                     "(gpu_layers=0, batch<=128)."
                 )
 
-            self.n_ctx_input.setValue(int(rec.n_ctx))
-            self.n_threads_input.setValue(int(rec.n_threads))
-            self.n_gpu_layers_input.setValue(int(rec.n_gpu_layers))
-            self.batch_size_input.setValue(int(rec.batch_size))
-            # UI spinbox does not allow -1 sentinel, so use a context-scaled cap.
-            _max_tok = int(rec.max_tokens)
-            if _max_tok <= 0:
-                _max_tok = max(1024, min(int(rec.n_ctx // 4), int(self.max_tokens_input.maximum())))
-            self.max_tokens_input.setValue(max(int(self.max_tokens_input.minimum()), min(int(self.max_tokens_input.maximum()), _max_tok)))
-            self.temperature_input.setValue(float(rec.temperature))
-
+            # KV-cache quantization: hardware fact — safe to update in the combo
+            # (affects how VRAM is used, not a user performance preference).
             _ck = str(getattr(rec, "cache_type_k", "") or "")
             _cv = str(getattr(rec, "cache_type_v", "") or "")
             _ki = self.cache_type_k_combo.findText(_ck)
@@ -7960,8 +7951,12 @@ _register()
             for line in list(getattr(rec, "reasoning", []) or []):
                 self._hardware_tuning_log(str(line))
 
+            # HW Profile is informational — show what was computed for this
+            # hardware / model combination without overwriting the user's
+            # n_ctx / n_gpu_layers / batch_size spinbox values.  The user's
+            # Settings panel values drive attempt 1; the hw profile is attempt 2.
             summary = (
-                f"Applied: ctx={int(rec.n_ctx)} gpu_layers={int(rec.n_gpu_layers)} "
+                f"HW Profile: ctx={int(rec.n_ctx)} gpu_layers={int(rec.n_gpu_layers)} "
                 f"threads={int(rec.n_threads)} batch={int(rec.batch_size)} "
                 f"kv={_ck or 'fp16'}"
             )
@@ -7971,14 +7966,20 @@ _register()
                 dock.set_summary(summary)
             self.status_signal.emit(summary)
 
-            # Persist tuned values so CLI startup and next session see the same
-            # parameters that the dock is reporting. Without this save, the disk
-            # file keeps stale defaults and conflicts with what the dock shows.
+            # Persist hw_profile_* keys only — never overwrite the user's
+            # canonical n_ctx / n_gpu_layers / batch_size.
             try:
-                self.save_settings(silent=True)
-                self._hardware_tuning_log("Settings saved — CLI and next session will use these values.")
+                from eli.core.runtime_settings import load_settings as _rs_load, save_settings as _rs_save
+                _s = dict(_rs_load() or {})
+                _s["hw_profile_n_ctx"] = int(rec.n_ctx)
+                _s["hw_profile_n_gpu_layers"] = int(rec.n_gpu_layers)
+                _s["hw_profile_batch_size"] = int(rec.batch_size)
+                _s["cache_type_k"] = _ck
+                _s["cache_type_v"] = _cv
+                _rs_save(_s)
+                self._hardware_tuning_log("HW profile stored (hw_profile_* keys) — user settings unchanged.")
             except Exception as _save_err:
-                self._hardware_tuning_log(f"Warning: auto-save after tuning failed: {_save_err}")
+                self._hardware_tuning_log(f"Warning: hw_profile save failed: {_save_err}")
 
             result.update({"ok": True, "recommendation": rec.to_dict() if hasattr(rec, "to_dict") else {}})
             return result
@@ -8188,6 +8189,22 @@ _register()
                         )
                     else:
                         self.status_signal.emit(f"🟢 Model ready: {model_name_display}")
+                    # Tell the CognitiveEngine the model is available so its
+                    # world-model / self-awareness reports the correct state
+                    # (avoids "GGUF init deferred" appearing in chat responses).
+                    _ce = getattr(self, "_cognitive_engine", None)
+                    if _ce is not None:
+                        try:
+                            _ce._gguf_available = True
+                            _ce._gguf_load_error = None
+                            _loaded_path = str(
+                                getattr(model_manager, "model_path", model_path) or model_path
+                            )
+                            _ce._model_path = _loaded_path
+                            _ce._ctx = int(getattr(model_manager, "n_ctx", 0) or 0)
+                            _ce._gpu_layers = int(getattr(model_manager, "n_gpu_layers", 0) or 0)
+                        except Exception:
+                            pass
                     try:
                         if provider != "ollama":
                             _requested_gpu = int(getattr(model_manager, "requested_n_gpu_layers", 0) or 0)
