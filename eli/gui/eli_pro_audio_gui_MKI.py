@@ -787,9 +787,15 @@ class LocalModelManager:
                 return False
             print(f"🔄 Loading model: {path_obj.name}")
             print(f"   Size: {path_obj.stat().st_size / (1024**3):.2f} GB")
-            # ELI HARDWARE PROFILE AUTHORITY v1
-            # Startup hardware scan is authoritative across tablets, CPU-only machines,
-            # single GPU rigs, multi-GPU rigs, and workstations.
+            # Preserve user's explicit settings — attempt 1 always honours these exactly.
+            # The hardware profile is read separately and inserted as a fallback candidate
+            # so it never overrides deliberate user choices.
+            _user_ctx = int(n_ctx)
+            _user_gpu_layers = int(n_gpu_layers)
+            _user_batch = int(n_batch)
+            _hw_profile_ctx = None
+            _hw_profile_gpu_layers = None
+            _hw_profile_batch = None
             try:
                 import json as _eli_hw_json
                 from pathlib import Path as _EliHwPath
@@ -797,15 +803,18 @@ class LocalModelManager:
                 _eli_profile_path = _EliHwPath(_eli_get_paths().artifacts_dir) / "runtime_hardware_profile.json"
                 if _eli_profile_path.exists():
                     _eli_profile = _eli_hw_json.loads(_eli_profile_path.read_text(encoding="utf-8"))
-                    n_ctx = int(_eli_profile.get("n_ctx", n_ctx))
-                    n_gpu_layers = int(_eli_profile.get("n_gpu_layers", n_gpu_layers))
-                    n_batch = int(_eli_profile.get("batch_size", n_batch))
+                    _hw_profile_ctx = int(_eli_profile.get("n_ctx", _user_ctx))
+                    _hw_profile_gpu_layers = int(_eli_profile.get("n_gpu_layers", _user_gpu_layers))
+                    _hw_profile_batch = int(_eli_profile.get("batch_size", _user_batch))
                     log.debug(
-                        f"[GUI][HW_AUTHORITY] using startup profile "
-                        f"ctx={n_ctx} gpu_layers={n_gpu_layers} batch={n_batch}"
+                        f"[GUI][HW_PROFILE] startup profile read: "
+                        f"ctx={_hw_profile_ctx} gpu_layers={_hw_profile_gpu_layers} "
+                        f"batch={_hw_profile_batch} "
+                        f"(user: ctx={_user_ctx} gpu_layers={_user_gpu_layers} "
+                        f"batch={_user_batch})"
                     )
             except Exception as _eli_hw_err:
-                log.debug(f"[GUI][HW_AUTHORITY] profile read failed: {_eli_hw_err}")
+                log.debug(f"[GUI][HW_PROFILE] profile read failed: {_eli_hw_err}")
 
             print(f"   GPU-layer load parameter: {n_gpu_layers}")
             print(f"   Batch size: {n_batch}")
@@ -863,10 +872,23 @@ class LocalModelManager:
                     "n_batch": _batch,
                 })
 
-            _base_ctx = int(n_ctx)
+            _base_ctx = _user_ctx
             _base_layers = int(effective_n_gpu_layers)
             _base_batch = int(effective_n_batch)
+            # Attempt 1: user's exact settings
             _add_attempt("requested", _base_ctx, _base_layers, _base_batch)
+
+            # Attempt 2 (if it differs): hardware profile recommendation.
+            # Gives the auto-detected safe ceiling a chance right after the user's
+            # request without ever displacing it as the first try.
+            if _hw_profile_ctx is not None:
+                _hw_eff_layers = int(_hw_profile_gpu_layers)
+                if gpu_offload_supported is False:
+                    _hw_eff_layers = 0
+                _hw_eff_batch = int(_hw_profile_batch)
+                if _hw_eff_layers <= 0 and _hw_eff_batch > 128:
+                    _hw_eff_batch = 128
+                _add_attempt("hw-profile", _hw_profile_ctx, _hw_eff_layers, _hw_eff_batch)
 
             if _base_layers > 0:
                 _add_attempt("lower-batch-256", _base_ctx, _base_layers, min(_base_batch, 256))
