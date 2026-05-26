@@ -49,6 +49,9 @@ _POISONED_ASSISTANT_TURN_RE = re.compile(
     r"|i\s+don'?t\s+have\s+information\s+about\s+a\s+person\s+named\s+eli"
     r"|you\s+may\s+need\s+to\s+ask\s+eli\s+directly"
     r")\b"
+    # Fragment-guard NOOP JSON — internal routing event, must never reach LLM
+    r"|\"event\"\s*:\s*\"input_fragment_guard\""
+    r"|\"reason\"\s*:\s*\"fragmentary_input\""
 )
 
 
