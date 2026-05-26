@@ -645,39 +645,37 @@ def detect_system_capabilities() -> Dict[str, Any]:
 def recommend_optimal_settings(sysinfo: Dict[str, Any]) -> Dict[str, Any]:
     """Auto-detect sensible defaults from the current machine's hardware.
 
-    Project-wide baseline is ctx=16384 and max_tokens=4096 unless the machine
-    is genuinely too small to support it comfortably.
+    All values are derived from live hardware metrics — no step tables.
     """
     ram_gb    = float(sysinfo.get('total_ram_gb', 8) or 8)
     vram_mb   = int(sysinfo.get('vram_mb', 0) or 0)
     cpu_count = int(sysinfo.get('cpu_count', 4) or 4)
     has_gpu   = bool(sysinfo.get('has_gpu', False))
 
-    # Context window: preserve the 16k project baseline on normal machines.
-    if ram_gb >= 12:
-        n_ctx = 16384
-    elif ram_gb >= 8:
-        n_ctx = 8192
-    else:
-        n_ctx = 4096
+    # n_ctx: proportional to available RAM (1 GB ≈ 1024 tokens), 2048-grain.
+    _raw_ctx = max(4096, min(131072, int(ram_gb * 1024)))
+    n_ctx = max(4096, (_raw_ctx // 2048) * 2048)
 
-    # GPU layers: fit as much as VRAM allows.
+    # GPU layers: 9999 sentinel for "all layers" when VRAM is large;
+    # proportional estimate otherwise (≈ 1 layer per 150 MB free VRAM).
     if not has_gpu or vram_mb <= 0:
         n_gpu_layers = 0
     elif vram_mb >= 8000:
-        n_gpu_layers = 99
-    elif vram_mb >= 6000:
-        n_gpu_layers = 40
-    elif vram_mb >= 4000:
-        n_gpu_layers = 24
-    elif vram_mb >= 2000:
-        n_gpu_layers = 12
+        n_gpu_layers = 9999
     else:
-        n_gpu_layers = 4
+        n_gpu_layers = min(99, max(4, vram_mb // 150))
 
-    n_threads  = max(1, cpu_count - 2)
-    batch_size = 512 if vram_mb >= 6000 else (384 if vram_mb >= 4000 else 256)
-    max_tokens = min(4096, max(1024, int(n_ctx // 4)))
+    n_threads = max(1, cpu_count - 2)
+
+    # Batch: proportional to free VRAM (≈ 1 unit per 10 MB), aligned to 64.
+    if has_gpu and vram_mb > 0:
+        _raw_batch = max(128, int(vram_mb / 10))
+        batch_size = max(128, (_raw_batch // 64) * 64)
+    else:
+        batch_size = 128
+
+    # max_tokens: half of ctx, clamped to [1024, 8192].
+    max_tokens = max(1024, min(8192, n_ctx // 2))
 
     return {
         'n_ctx':        n_ctx,
@@ -891,12 +889,16 @@ class LocalModelManager:
                 _add_attempt("hw-profile", _hw_profile_ctx, _hw_eff_layers, _hw_eff_batch)
 
             if _base_layers > 0:
-                _add_attempt("lower-batch-256", _base_ctx, _base_layers, min(_base_batch, 256))
-                _add_attempt("lower-batch-128", _base_ctx, _base_layers, min(_base_batch, 128))
-                _add_attempt("ctx12k-batch128", min(_base_ctx, 12288), _base_layers, min(_base_batch, 128))
-                _add_attempt("ctx8k-half-gpu", min(_base_ctx, 8192), max(1, _base_layers // 2), min(_base_batch, 128))
-                _add_attempt("ctx6k-half-gpu", min(_base_ctx, 6144), max(1, _base_layers // 2), min(_base_batch, 96))
-                _add_attempt("ctx4k-third-gpu", min(_base_ctx, 4096), max(1, _base_layers // 3), min(_base_batch, 64))
+                # Fallback chain — all sizes are fractions of user's settings; no hardcoded values.
+                _b_half = max(64, _base_batch // 2)
+                _b_qtr  = max(32, _base_batch // 4)
+                _b_min  = max(32, _base_batch // 8)
+                _add_attempt("lower-batch-half",   _base_ctx,                       _base_layers,               _b_half)
+                _add_attempt("lower-batch-qtr",    _base_ctx,                       _base_layers,               _b_qtr)
+                _add_attempt("ctx75pct-batch-qtr", max(2048, _base_ctx * 3 // 4),   _base_layers,               _b_qtr)
+                _add_attempt("ctx50pct-half-gpu",  max(2048, _base_ctx // 2),        max(1, _base_layers // 2),  _b_qtr)
+                _add_attempt("ctx37pct-half-gpu",  max(2048, _base_ctx * 3 // 8),   max(1, _base_layers // 2),  _b_min)
+                _add_attempt("ctx25pct-third-gpu", max(2048, _base_ctx // 4),        max(1, _base_layers // 3),  _b_min)
                 # Live-tuner: re-run allocate() with current GPU free VRAM.
                 # Finds the best ctx/layers/batch the hardware can actually support
                 # right now, without relying on the (possibly stale) startup profile.
@@ -921,8 +923,8 @@ class LocalModelManager:
                             )
                             if _lt_layers > 0:
                                 _add_attempt("live-tuner-gpu", _lt_ctx, _lt_layers, _lt_batch)
-                            # CPU path at live-tuner ctx (better than the 4096 floor)
-                            _add_attempt("live-tuner-cpu", _lt_ctx, 0, min(_lt_batch, 96))
+                            # CPU path at live-tuner ctx
+                            _add_attempt("live-tuner-cpu", _lt_ctx, 0, max(32, _lt_batch // 2))
                 except Exception:
                     pass
                 # Dynamic CPU ctx floor: derive from RAM capacity, never a hardcoded int.
@@ -940,8 +942,8 @@ class LocalModelManager:
                     _cpu_ctx_floor = min(_cpu_ctx_floor, _base_ctx)
                 except Exception:
                     _cpu_ctx_floor = _base_ctx
-                _add_attempt("cpu-fallback", _cpu_ctx_floor, 0, min(_base_batch, 96))
-                _add_attempt("cpu-fallback-half-ctx", max(1024, _cpu_ctx_floor // 2), 0, min(_base_batch, 64))
+                _add_attempt("cpu-fallback",      _cpu_ctx_floor,                 0, max(32, _base_batch // 2))
+                _add_attempt("cpu-fallback-half", max(1024, _cpu_ctx_floor // 2), 0, max(32, _base_batch // 4))
             else:
                 # CPU-only path: derive context steps from RAM capacity + ELI_MIN_CTX.
                 # No hardcoded ctx floors — all values are calculated dynamically.
@@ -957,10 +959,14 @@ class LocalModelManager:
                         _cpu_base_ctx = min(_rcc2(_drg3(), 0), _base_ctx)
                 except Exception:
                     _cpu_base_ctx = _base_ctx
-                _add_attempt("cpu-batch-96", _base_ctx, 0, min(_base_batch, 96))
-                _add_attempt("cpu-ctx-ram-cap", _cpu_base_ctx, 0, min(_base_batch, 96))
-                _add_attempt("cpu-ctx-half-ram-cap", max(1024, _cpu_base_ctx // 2), 0, min(_base_batch, 64))
-                _add_attempt("cpu-ctx-quarter-ram-cap", max(1024, _cpu_base_ctx // 4), 0, min(_base_batch, 32))
+                # CPU-only fallback chain — fractions of user's batch, no hardcoded caps.
+                _b_half = max(32, _base_batch // 2)
+                _b_qtr  = max(32, _base_batch // 4)
+                _b_min  = max(32, _base_batch // 8)
+                _add_attempt("cpu-batch-half",  _base_ctx,                          0, _b_half)
+                _add_attempt("cpu-ctx-ram-cap", _cpu_base_ctx,                      0, _b_half)
+                _add_attempt("cpu-ctx-half",    max(1024, _cpu_base_ctx // 2),      0, _b_qtr)
+                _add_attempt("cpu-ctx-quarter", max(1024, _cpu_base_ctx // 4),      0, _b_min)
 
             _applied = None
             _last_error = ""
