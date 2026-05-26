@@ -1075,6 +1075,25 @@ def route(text: str) -> Dict[str, Any]:
         return _mk("GAZE_CALIBRATE", {}, 0.95, matched_by="gaze.calibrate.preempt")
     # ── end gaze engine control ───────────────────────────────────────────────
 
+    # ── File Audit (must precede RUNTIME_AUDIT — "do a file audit" would
+    # otherwise be stolen by the broad 'do ... audit' RUNTIME_AUDIT pattern) ──
+    if re.search(
+        r"\b(audit|examine|inspect|scan|list|inventory)\b.{0,40}\b(files?|codebase|source|modules?|scripts?|project\s+files?)\b"
+        r"|\bfile\s+(audit|scan|inventory|check|examination)\b"
+        r"|\baudis?\s+(?:all\s+(?:of\s+)?(?:your|the)\s+)?files?\b"
+        r"|\b(do|perform|run)\s+(?:a\s+)?file\s+audit\b"
+        r"|\blist\s+(?:all\s+)?(?:your\s+)?files?\b",
+        low,
+    ):
+        return _mk(
+            "FILE_AUDIT",
+            {"scope": "eli", "message": raw},
+            0.95,
+            matched_by="router.file_audit",
+            need_grounding=True,
+            task_family="grounded_audit",
+        )
+
     if re.search(
         r"\b(run a full runtime audit|run full runtime audit|runtime audit|system audit|health check|diagnostic|diagnostics|what'?s actually broken|what is actually broken)\b"
         r"|\b(perform|do|run|wanna run|want to run|let'?s run)\b.{0,30}\b(full.?time\s+audit|full\s+audit|runtime audit|system audit|audit)\b"
@@ -3546,7 +3565,12 @@ def _eli_self_improvement_phrase_guard(text):
             },
         }
 
-    if re.search(r"\b(run|start|perform|execute)\s+(?:an?\s+)?(?:self[- ]?)?improvement\s+cycle\b", low):
+    if re.search(
+        r"\b(run|start|perform|execute)\s+(?:an?\s+)?(?:self[- ]?)?improvement(?:\s+cycle)?\b"
+        r"|\bimprove\s+yourself\b"
+        r"|\bself[- ]?improve\b",
+        low,
+    ):
         return {
             "action": "SELF_IMPROVE",
             "args": {},
