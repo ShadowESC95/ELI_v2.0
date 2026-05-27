@@ -74,11 +74,25 @@ def set_busy(value: bool) -> None:
     with _LOCK:
         _BUSY = bool(value)
 
+_PENDING_TTL_SECONDS = 300  # 5 minutes — stale repair offers auto-expire
+
 def get_pending():
     global _PENDING
     with _LOCK:
         if _PENDING is None:
             _PENDING = _load_pending_state()
+        if _PENDING is not None:
+            created_raw = _PENDING.get("created_at")
+            if created_raw:
+                try:
+                    from datetime import timezone as _tz
+                    created_dt = datetime.fromisoformat(created_raw)
+                    age = (datetime.now(_tz.utc) - created_dt).total_seconds()
+                    if age > _PENDING_TTL_SECONDS:
+                        _PENDING = None
+                        _save_pending_state(None)
+                except Exception:
+                    pass
         return _PENDING
 
 def clear_pending() -> None:
