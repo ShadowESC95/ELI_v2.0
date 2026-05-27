@@ -1615,7 +1615,13 @@ def route(text: str) -> Dict[str, Any]:
         r"theatre\s+script|stage\s+script|script\s+for\s+(?:a\s+)?(?:film|movie|play|"
         r"podcast|show|talk|video|event|presentation|slides?|actors?|onboarding|ceremony|"
         r"wedding|performance|audience|interview|marketing|campaign|youtube))\b", re.I)
-    if _NON_CODE_SCRIPT.search(raw) or _CREATIVE_SCRIPT.search(raw):
+    # _NON_CODE_SCRIPT must only fire when there's a clear creation intent.
+    # Without this guard "...drowning on youtube" matches because "on" is in
+    # the preposition set and "youtube" is in the keyword list.
+    _CREATION_VERB = re.compile(
+        r"\b(?:write|create|generate|make|build|prepare|draft|produce|develop|design)\b",
+        re.I)
+    if (_CREATION_VERB.search(raw) and _NON_CODE_SCRIPT.search(raw)) or _CREATIVE_SCRIPT.search(raw):
         return _mk("CHAT", {"message": raw}, 0.75,
                    matched_by="dev.non_code_script")
 
