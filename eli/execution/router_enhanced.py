@@ -987,6 +987,18 @@ def route(text: str) -> Dict[str, Any]:
     if re.search(r"\b(what are you actually running on|running on right now|context size|gpu layers|threads|batch|provider|runtime status)\b", low):
         return _mk("RUNTIME_STATUS", {}, 0.99, matched_by="router.runtime_status", allow_chat_without_evidence=False)
 
+    # Self-referential temperature: "what's your temperature", "your temperature out now",
+    # "what is your inference temperature", "what temp are you running at" etc.
+    # Must fire BEFORE the weather prepass which also matches "temperature".
+    if re.search(
+        r"\b(?:your|eli(?:'s)?|its)\s+(?:inference\s+)?temp(?:erature)?\b"
+        r"|\binference\s+temp(?:erature)?\b"
+        r"|\bgeneration\s+temp(?:erature)?\b"
+        r"|\btemp(?:erature)?\s+(?:(?:are\s+)?you(?:'re|\s+are)?\s+(?:running|at|set|using|on)|out\s+now|setting|parameter|value|right\s+now|currently)\b",
+        low,
+    ):
+        return _mk("RUNTIME_STATUS", {}, 0.97, matched_by="router.self_temp_runtime_status", allow_chat_without_evidence=False)
+
     if re.search(r"\b(explain exactly how your memory system works internally|memory system works internally|which files.*which db tables.*which functions|memory runtime surface|memory runtime)\b", low):
         return _mk("EXPLAIN_MEMORY_RUNTIME", {}, 0.99, matched_by="router.memory_runtime", allow_chat_without_evidence=False)
 
@@ -2356,8 +2368,34 @@ def route(text: str) -> Dict[str, Any]:
     m = re.search(r"\b(press|hit)\s+([a-zA-Z0-9_\-]+)\b", raw, re.I)
     if m:
         key = m.group(2)
-        return _mk("KEYBOARD", {"key": key}, 0.9,
-                   matched_by="io.keyboard_key", entities={"key": key})
+        # Guard: only fire KEYBOARD when the captured word is actually a
+        # recognised key name.  "hit me with it", "hit that button" etc. must
+        # NOT route here — "me", "that", "it" are not keys.
+        _KNOWN_KEYS = frozenset({
+            # navigation / control
+            "enter", "return", "space", "tab", "escape", "esc", "backspace",
+            "delete", "del", "insert", "ins", "home", "end",
+            "pageup", "pagedown", "page_up", "page_down",
+            # arrows
+            "up", "down", "left", "right",
+            # function keys
+            "f1", "f2", "f3", "f4", "f5", "f6",
+            "f7", "f8", "f9", "f10", "f11", "f12",
+            # modifiers (used alone or named in combos)
+            "ctrl", "control", "alt", "shift", "super", "win", "meta",
+            # punctuation / symbol names
+            "comma", "period", "dot", "slash", "backslash",
+            "minus", "plus", "equals", "semicolon", "quote",
+            "bracketleft", "bracketright",
+            # single alpha keys a-z
+            "a","b","c","d","e","f","g","h","i","j","k","l","m",
+            "n","o","p","q","r","s","t","u","v","w","x","y","z",
+            # digits 0-9
+            "0","1","2","3","4","5","6","7","8","9",
+        })
+        if key.lower() in _KNOWN_KEYS:
+            return _mk("KEYBOARD", {"key": key}, 0.9,
+                       matched_by="io.keyboard_key", entities={"key": key})
 
     # ------------------------------------------------------------
     # 9) CALENDAR shortcuts before generic read/show
@@ -4462,9 +4500,11 @@ def _eli_phase38_persona_override_contract(raw):
             "CHAT",
             {
                 "message": (
-                    "Summarize the current operational state of ELI in ELI's direct voice. "
-                    "Mention what is functioning, what is degraded, and the next priority. "
-                    "Do not pivot into the user's personal profile unless explicitly asked."
+                    "Brief operational status in ELI's direct, dry voice. "
+                    "One or two sentences max. Say what's running, call out anything broken or "
+                    "degraded if relevant, say what's next if there is something. "
+                    "No bullet points. No corporate framing. No \"I am happy to report\" filler. "
+                    "Just the facts, ELI's way."
                 )
             },
             0.95,
