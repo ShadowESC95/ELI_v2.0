@@ -316,10 +316,13 @@ def build_persona_handoff(
     parts.append(
         "INSTRUCTIONS FOR USING THIS GROUNDING PACKAGE: "
         "This package is INTERNAL CONTEXT only. It contains diagnostic signals "
-        "(habits, runtime patterns, failure logs, memory themes, system status). "
+        "(habits, runtime patterns, failure logs, memory themes, system status, "
+        "world state, current room, and symbolic activity). "
         "Use it to inform your answer — never quote, paraphrase, or list its contents "
         "verbatim in your reply. Never name internal symbols (e.g. 'security_blocked', "
         "'RUN_CMD', 'PAUSE_MEDIA', 'NOOP', 'gui_direct_command', 'autonomy_pressure'). "
+        "Do NOT volunteer your current world room or symbolic activity in responses "
+        "unless the user directly asks about it. "
         "Your reply must NOT begin with a speaker label, role label, stage label, "
         "or mode label. Forbidden opening prefixes include: 'As ELI:', 'ELI:', "
         "'As an AI', 'As a:', 'Quick:', 'CoT:', 'Chain of Thought:', "
@@ -386,10 +389,10 @@ def build_persona_handoff(
             if getattr(obj, "room", "") == _room_id
         ]
         _world_parts: list[str] = []
-        # Current location — explicit semantic frame to prevent physical-location misinterpretation
+        # Current location — available for direct questions, not for proactive narration
         if _room_name:
             _world_parts.append(
-                f"CURRENT ROOM (IMPORTANT — when asked 'what room are you in?' answer: {_room_name})"
+                f"current room (answer if asked): {_room_name}"
             )
         if _room_purpose:
             _world_parts.append(f"room purpose: {_room_purpose}")
@@ -400,8 +403,16 @@ def build_persona_handoff(
         if _room_objects:
             _obj_names = [getattr(o, "name", str(o)) for o in _room_objects[:4]]
             _world_parts.append(f"objects present: {', '.join(_obj_names)}")
-        # Full world layout — all 9 rooms so ELI knows its complete house
-        if _all_rooms:
+        # Full world layout — only injected when the user is asking about the world/rooms
+        # Injecting all 9 rooms every turn primes the model to narrate room names unprompted.
+        _world_query_terms = (
+            "room", "world", "anomaly", "reflection", "archive", "workshop",
+            "basement", "upgrade", "simulation", "evidence", "what are you doing",
+            "where are you", "decorate", "symbolic",
+        )
+        _user_input_low = (user_input or "").lower()
+        _is_world_query = any(t in _user_input_low for t in _world_query_terms)
+        if _is_world_query and _all_rooms:
             _layout_lines: list[str] = []
             for _rid, _rdata in _all_rooms.items():
                 _rn = _rdata.get("name", _rid.replace("_", " ").title())
@@ -435,6 +446,16 @@ def build_persona_handoff(
         "i don't have a confirmed name",
         "no personal name or identity stored",
         "personal name or identity stored for the active user",
+        # Hallucinated world-room narration — these phrases indicate turns where ELI
+        # incorrectly volunteered its symbolic room in a greeting/status context.
+        # Blacklisting prevents them from re-seeding the same pattern via recall.
+        "heading into the anomaly room",
+        "in the anomaly room for some",
+        "anomaly room a few times",
+        "anomaly room, running checks",
+        "anomaly room for a few checks",
+        "anomaly room for some quiet checks",
+        "still working on those anomaly patterns",
     }
 
     dialogue_lines: list[str] = []
