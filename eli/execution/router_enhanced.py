@@ -3993,7 +3993,9 @@ def _eli_self_report_recent_updates_question(text):
         "checks have been",
         "checks were",
         "performed as of late",
-        "as of late",
+        # NOTE: bare "as of late" removed — it fires on casual idioms like
+        # "are you saying i'm obsessive these days as of late".
+        # "performed as of late" above is specific enough.
         "recent checks",
         "routine updates",
         "recent updates",
