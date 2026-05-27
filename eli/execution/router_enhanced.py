@@ -704,11 +704,11 @@ def _route_grounded_runtime_intent(
         return _mk("CHAT", {"message": raw}, 0.99, matched_by="runtime.status.identity_grounded_chat", allow_chat_without_evidence=False)
 
     # identity precedence
-    # Identity-route fix: short identity questions go to cognition
-    # Do not send identity questions through generic CHAT first.
-    # Let the grounded live-introspection actions handle them.
+    # Pure persona/character questions go to CHAT so ELI answers from its own
+    # voice and memory. SELF_REPORT is reserved for *technical* runtime queries
+    # (model path, gpu layers, provider, context size) — not "who are you".
     if re.search(r"\b(who are you|what are you(?!\s+\w)|what is your name|what's your name|tell me about yourself)\b", raw, re.I):
-        return _mk("SELF_REPORT", {}, 0.99, matched_by="identity.self_report_preempt", allow_chat_without_evidence=False)
+        return _mk("CHAT", {"message": raw}, 0.99, matched_by="identity.persona_chat", allow_chat_without_evidence=True)
 
     if re.search(
         r"\b(who am i|do you know who i am|do you know me|do you remember me|"
@@ -1002,7 +1002,12 @@ def route(text: str) -> Dict[str, Any]:
     if re.search(r"\b(what do you know about me from memory|what do you know about me|what do you remember of me|who am i|what is my name|do you remember me|do you know me|my preferences|my persona|my ethos)\b", low):
         return _mk("USER_IDENTITY_SUMMARY", {}, 0.99, matched_by="router.user_identity_summary", allow_chat_without_evidence=False)
 
-    if re.search(r"\b(who are you|what are you(?!\s+\w)|what is your name|what's your name|tell me about yourself|what is your purpose|what model(?: are you| do you use| is this)?|which model(?: are you| do you use| is this)?|what llm|which llm)\b", low):
+    # Pure persona questions (no runtime keywords) → CHAT so ELI answers from
+    # its own character and memory, not a raw JSON spec dump.
+    if re.search(r"\b(who are you|what are you(?!\s+\w)|what is your name|what's your name|tell me about yourself|what is your purpose)\b", low) and not re.search(r"\b(model|running on|provider|context|gpu|llm|specs?|technical|runtime|layers|threads|batch)\b", low):
+        return _mk("CHAT", {"message": raw}, 0.99, matched_by="router.identity_persona_chat", allow_chat_without_evidence=True)
+    # Technical model/runtime queries → SELF_REPORT (actual spec evidence needed)
+    if re.search(r"\b(what model(?: are you| do you use| is this)?|which model(?: are you| do you use| is this)?|what llm|which llm|what are you running on|what are you actually)\b", low):
         return _mk("SELF_REPORT", {}, 0.99, matched_by="router.self_report", allow_chat_without_evidence=False)
     # --- end explicit grounded speech-act route authority ---
 
@@ -4515,6 +4520,16 @@ def _eli_phase38_identity_contract(raw):
         r"\b(who are you|what are you(?!\s+\w)|what is your name|what's your name|tell me about yourself)\b",
         low,
     ):
+        # Persona/identity questions answered from ELI's character + memory.
+        # SELF_REPORT (raw spec JSON) is wrong here — that's for runtime/model queries.
+        if not _re.search(r"\b(model|running on|provider|context|gpu|llm|specs?|technical|runtime|layers|threads|batch)\b", low):
+            return _mk(
+                "CHAT",
+                {"message": raw},
+                0.99,
+                matched_by="identity.persona_chat",
+                allow_chat_without_evidence=True,
+            )
         return _mk(
             "SELF_REPORT",
             {},

@@ -451,26 +451,26 @@ class NewsFetcher:
             _init_db(conn)
             if topic:
                 rows = conn.execute(
-                    "SELECT source, title, url, summary, category, published "
+                    "SELECT source, title, url, summary, category, published, fetched_at "
                     "FROM news_articles ORDER BY fetched_at DESC LIMIT ?",
                     (max(limit * 8, 80),),
                 ).fetchall()
             elif category:
                 rows = conn.execute(
-                    "SELECT source, title, url, summary, category, published "
+                    "SELECT source, title, url, summary, category, published, fetched_at "
                     "FROM news_articles WHERE category=? "
                     "ORDER BY fetched_at DESC LIMIT ?",
                     (category, limit),
                 ).fetchall()
             else:
                 rows = conn.execute(
-                    "SELECT source, title, url, summary, category, published "
+                    "SELECT source, title, url, summary, category, published, fetched_at "
                     "FROM news_articles ORDER BY fetched_at DESC LIMIT ?",
                     (limit,),
                 ).fetchall()
         return [
             {"source": r[0], "title": r[1], "url": r[2],
-             "summary": r[3], "category": r[4], "published": r[5]}
+             "summary": r[3], "category": r[4], "published": r[5], "fetched_at": r[6]}
             for r in rows
             if not topic or _article_matches_topic({
                 "source": r[0], "title": r[1], "url": r[2],

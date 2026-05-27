@@ -192,6 +192,31 @@ def try_route(text: str) -> Optional[dict]:
     if re.fullmatch(r"(?:start\s+pomodoro|begin\s+pomodoro|pomodoro\s+start)(?:\s+timer)?", norm):
         return None
 
+    # ── Shell command prepass ────────────────────────────────────────────────
+    # Must fire BEFORE the OPEN_APP "run X" pattern so "run ls", "run ps",
+    # "run git status" etc. route to SHELL_EXEC, not PulseAudio / some random app.
+    _PORTABLE_SHELL_CMDS = frozenset({
+        "ls", "cd", "pwd", "cat", "head", "tail", "grep", "find", "wc",
+        "date", "df", "du", "free", "top", "ps", "kill", "chmod", "chown",
+        "cp", "mv", "rm", "mkdir", "rmdir", "touch", "echo", "which", "whoami",
+        "uname", "uptime", "hostname", "ip", "ifconfig", "ping", "curl", "wget",
+        "tar", "zip", "unzip", "apt", "pip", "npm", "git", "docker", "systemctl",
+        "python", "python3", "bash", "sh", "env", "export", "source", "less", "more",
+        "htop", "nano", "vim", "vi", "ssh", "scp", "rsync", "nc", "netstat", "ss",
+        "lsblk", "lsusb", "lspci", "dmesg", "journalctl", "lsof", "strace",
+        "make", "cmake", "gcc", "g++", "cargo", "go", "java", "node", "ruby",
+    })
+    m_shell = re.fullmatch(r"(?:run|execute)\s+(\S+(?:\s+.+)?)", norm)
+    if m_shell:
+        parts = m_shell.group(1).strip().split()
+        if parts and parts[0].lower() in _PORTABLE_SHELL_CMDS:
+            return {
+                "action": "SHELL_EXEC",
+                "args": {"cmd": m_shell.group(1).strip()},
+                "confidence": 0.96,
+                "meta": {"matched_by": "portable_intent_contract.shell_exec"},
+            }
+
     m = re.fullmatch(r"(?:open|opens|launch|start|run)\s+(.+)", norm)
     if m:
         target = _clean_target(m.group(1))
