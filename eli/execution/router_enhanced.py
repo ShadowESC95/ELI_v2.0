@@ -1960,9 +1960,30 @@ def route(text: str) -> Dict[str, Any]:
     ]):
         return _mk("TIME", {}, 1.0, matched_by="system.time")
 
-    if any(re.search(p, low) for p in [
+    # Pre-guard: conversational openers mean this sentence is NOT a date request
+    # even if it contains the word "date" (e.g. "yeah that's fair enough i have
+    # asked you what the date and time is quite a bit lately").
+    _date_conv_starters = frozenset({
+        "yeah", "yes", "yep", "yup", "no", "nope", "ok", "okay",
+        "so", "well", "fair", "right", "sure", "true", "exactly",
+        "indeed", "agreed", "alright", "fine", "cool",
+    })
+    _date_anti_signals = (
+        "i have asked", "i've asked", "i asked", "i said", "i told",
+        "i keep asking", "i've been asking", "i was asking",
+        "asked you what", "asked about the date",
+    )
+    _first_word_low = low.split()[0] if low.split() else ""
+    _is_date_conv = (
+        _first_word_low in _date_conv_starters
+        or any(s in low for s in _date_anti_signals)
+    )
+    if not _is_date_conv and any(re.search(p, low) for p in [
         r"\bwhat(?:'?s|\s+is)?\s+(?:the\s+)?date\b",
-        r'\bcurrent date\b', r'\btoday.*date\b', r'^date[?!.\s]*$',
+        r'\bcurrent date\b',
+        # today's date / today is the date — no greedy .* (would match "update")
+        r"\btoday'?s?\s+(?:is\s+the\s+|the\s+)?date\b",
+        r'^date[?!.\s]*$',
         r"\bwhat(?:'s| is) today\b",
         r'\bwhat day is it\b', r'\bwhat day is this\b',
         r"\bwhat'?s?\s+the\s+day\b", r"\bwhat'?s?\s+the\s+days\b",
