@@ -228,13 +228,21 @@ class StartupModelSelectionDialog(QDialog):
                     if _existing_batch > 128:
                         os.environ["ELI_TARGET_BATCH"] = "128"
                         log.debug("[STARTUP_DIALOG][AUDIO_PRELOAD] Whisper on CUDA → capping batch to 128")
-                from eli.core.startup_hardware_optimizer import build_profile, apply_profile
-                _profile = build_profile()
-                apply_profile(_profile)
+                from eli.core.hardware_profile import (
+                    detect_hardware as _hp_detect,
+                    discover_models as _hp_models,
+                    recommend as _hp_recommend,
+                    apply_recommendation as _hp_apply,
+                )
+                _hw   = _hp_detect()
+                _mods = _hp_models()
+                _rec  = _hp_recommend(_hw, _mods)
+                _hp_apply(_rec)
                 log.debug(
                     "[STARTUP_DIALOG][HW_OPT] regenerated profile "
-                    f"ctx={_profile.n_ctx} gpu_layers={_profile.n_gpu_layers} "
-                    f"batch={_profile.batch_size} fraction={_profile.ctx_fraction}"
+                    f"ctx={_rec.n_ctx} gpu_layers={_rec.n_gpu_layers} "
+                    f"batch={_rec.batch_size} gpu={_hw.gpu_name} "
+                    f"free_vram={_hw.free_vram_mb}MB"
                 )
             except Exception as _err:
                 log.debug(f"[STARTUP_DIALOG][HW_OPT] regeneration failed: {_err}")
@@ -538,12 +546,20 @@ class FirstBootWizard(QDialog):
 
     def _run_hw_detection(self):
         try:
-            from eli.core.startup_hardware_optimizer import build_profile, apply_profile
-            profile = build_profile()
-            apply_profile(profile)
+            from eli.core.hardware_profile import (
+                detect_hardware as _hp_detect,
+                discover_models as _hp_models,
+                recommend as _hp_recommend,
+                apply_recommendation as _hp_apply,
+            )
+            _hw   = _hp_detect()
+            _mods = _hp_models()
+            rec   = _hp_recommend(_hw, _mods)
+            _hp_apply(rec)
             self._hw_result_label.setText(
-                f"Detected: {profile.cpu}  |  GPU layers: {profile.n_gpu_layers}  "
-                f"|  Context: {profile.n_ctx}  |  Batch: {profile.batch_size}"
+                f"GPU: {_hw.gpu_name}  |  GPU layers: {rec.n_gpu_layers}  "
+                f"|  Context: {rec.n_ctx}  |  Batch: {rec.batch_size}  "
+                f"|  Free VRAM: {_hw.free_vram_mb}MB"
             )
         except Exception as exc:
             self._hw_result_label.setText(f"Detection failed: {exc}")
