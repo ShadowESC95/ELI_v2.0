@@ -385,15 +385,27 @@ def recommend(hw: Optional[HardwareProfile] = None,
     else:
         rec.reasoning.append("KV cache: fp16 (no quantization)")
 
-    # Context window: proportional to available RAM — 1 GB ≈ 1024 ctx tokens.
-    # Rounded to the nearest 2048-grain; clamped to [2048, 131072].
-    _raw_ctx = int(hw.available_ram_gb * 1024)
+    # Context window:
+    # • GPU systems  — drive ctx from VRAM KV budget, not RAM.
+    #   Available RAM fluctuates with other processes and gives misleadingly
+    #   low values (e.g. 2 GB free when 16 GB total) that result in ctx=2048
+    #   on a machine that can handle 18 K+ tokens.  We start with the model's
+    #   full training window and let the VRAM refinement below set the real
+    #   ceiling after model selection.
+    # • CPU-only     — RAM is the binding constraint; use available RAM.
     _ctx_grain = 2048
-    rec.n_ctx = max(2048, (max(2048, min(131072, _raw_ctx)) // _ctx_grain) * _ctx_grain)
-    rec.reasoning.append(
-        f"n_ctx={rec.n_ctx} "
-        f"(available_ram={hw.available_ram_gb:.1f}GB × 1024, 2048-grain)"
-    )
+    if hw.has_gpu and hw.free_vram_mb > 0:
+        rec.n_ctx = 32768  # generous start; VRAM refinement will set actual value
+        rec.reasoning.append(
+            f"n_ctx initial=32768 (GPU system — will be refined by VRAM budget)"
+        )
+    else:
+        _raw_ctx = int(hw.available_ram_gb * 1024)
+        rec.n_ctx = max(2048, (max(2048, min(131072, _raw_ctx)) // _ctx_grain) * _ctx_grain)
+        rec.reasoning.append(
+            f"n_ctx={rec.n_ctx} "
+            f"(CPU-only: available_ram={hw.available_ram_gb:.1f}GB × 1024, 2048-grain)"
+        )
 
     # Pick the largest model that actually fits, given the chosen ctx and
     # KV-quantization regime.
@@ -447,14 +459,18 @@ def recommend(hw: Optional[HardwareProfile] = None,
         _kv_per_token_mb = (_total_layers_est * _KV_BYTES_PER_TOKEN_PER_LAYER / 1_048_576) / _kv_factor
         if _kv_per_token_mb > 0:
             _max_ctx_vram = max(2048, int(_vram_for_kv / _kv_per_token_mb))
-            if _max_ctx_vram < rec.n_ctx:
-                _old = rec.n_ctx
-                _ctx_grain = 2048
-                rec.n_ctx = max(2048, (_max_ctx_vram // _ctx_grain) * _ctx_grain)
-                rec.reasoning.append(
-                    f"n_ctx capped {_old} → {rec.n_ctx} by VRAM budget "
-                    f"(vram_for_kv={_vram_for_kv:.0f}MB kv/tok={_kv_per_token_mb:.3f}MB)"
-                )
+            _ctx_grain = 2048
+            _vram_ctx = max(2048, (_max_ctx_vram // _ctx_grain) * _ctx_grain)
+            # Always set from VRAM budget — VRAM is the binding constraint on GPU
+            # systems, regardless of whether the initial estimate was too high or
+            # too low.  This prevents ctx=2048 from low available_ram on a GPU
+            # machine while also preventing OOM from over-allocation.
+            _old = rec.n_ctx
+            rec.n_ctx = _vram_ctx
+            rec.reasoning.append(
+                f"n_ctx set {_old} → {rec.n_ctx} from VRAM budget "
+                f"(vram_for_kv={_vram_for_kv:.0f}MB kv/tok={_kv_per_token_mb:.3f}MB)"
+            )
 
     total_layers = _layers_for_size(chosen["size_gb"])
     _full_offload = chosen_layers >= total_layers  # 99 >= actual layer count → all layers on GPU
@@ -545,6 +561,31 @@ def apply_recommendation(rec: ModelRecommendation) -> Dict[str, Any]:
         settings["cache_type_v"] = rec.cache_type_v
         settings["mode_presets"] = dict(rec.mode_presets)
         save_settings(settings)
+
+        # Keep the GUI's hw-profile artifact in sync.
+        # eli_pro_audio_gui_MKI.py reads artifacts/runtime_hardware_profile.json
+        # (keys: n_ctx, n_gpu_layers, batch_size) as its hw-profile fallback.
+        # Without this write the GUI would show stale values from a previous
+        # optimizer run, making it look like the profile wasn't updated.
+        try:
+            import json as _json
+            from eli.core.paths import project_root as _project_root
+            _art_path = _project_root() / "artifacts" / "runtime_hardware_profile.json"
+            _art_path.parent.mkdir(parents=True, exist_ok=True)
+            _art_path.write_text(
+                _json.dumps(
+                    {
+                        "n_ctx": rec.n_ctx,
+                        "n_gpu_layers": rec.n_gpu_layers,
+                        "batch_size": rec.batch_size,
+                    },
+                    indent=2,
+                ),
+                encoding="utf-8",
+            )
+        except Exception:
+            pass  # non-fatal — settings.json is the source of truth
+
         return {"ok": True, "settings_updated": True}
     except Exception as exc:
         return {"ok": False, "error": str(exc)}

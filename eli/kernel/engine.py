@@ -4573,7 +4573,7 @@ Answer:"""
                 "Begin your reply with your OWN words."
             )
             import time as _time
-            _now = _time.strftime("%H:%M:%S %Z", _time.localtime())
+            _now = _time.strftime("%H:%M:%S UTC%z", _time.localtime())
             _date = _time.strftime("%A %d %B %Y", _time.localtime())
             _compact_wants_depth = any(x in (user_input or "").lower() for x in (
                 "longer", "more detail", "in depth", "in-depth", "elaborate", "thorough",
@@ -4658,7 +4658,7 @@ Answer:"""
         )
         # ── Response discipline rules (appended last so they override persona) ──
         import time as _time
-        _now = _time.strftime("%H:%M:%S %Z", _time.localtime())
+        _now = _time.strftime("%H:%M:%S UTC%z", _time.localtime())
         _date = _time.strftime("%A %d %B %Y", _time.localtime())
         _user_wants_depth = any(x in (user_input or "").lower() for x in (
             "longer", "more detail", "in depth", "in-depth", "elaborate", "thorough",
@@ -5395,6 +5395,10 @@ Answer:"""
             "Do NOT reproduce your reasoning steps or numbered list. "
             "Do NOT include any preamble like 'Based on my reasoning', 'After thinking through this', "
             "'In conclusion', or any meta-commentary about the process. "
+            "CRITICAL — GROUNDING RULE: Do NOT invent specific facts (timestamps, times, dates, "
+            "names, file paths, or values) that are not explicitly present in the provided context "
+            "or the user's own words. If a specific fact is not in the context, say you don't have "
+            "that information rather than guessing or approximating. "
             "Write in natural prose as if this is your complete, direct response.\n\n"
             f"INTERNAL REASONING (private — do not quote back):\n{private_reasoning}\n\n"
             f"ORIGINAL REQUEST: {user_input}"
@@ -6731,16 +6735,10 @@ Answer:"""
                 if _is_notable:
                     _world_lines.append(f"  {_fld}: {_val:.2f}")
             if _world_lines:
-                _avatar = _ws.get("avatar", {})
-                _expr = _avatar.get("expression", "")
-                _posture = _avatar.get("posture", "")
-                _room = _avatar.get("room", "")
                 _world_block = (
                     "[ELI INTERNAL STATE]\n"
                     + "\n".join(_world_lines)
                 )
-                if _expr or _posture:
-                    _world_block += f"\n  avatar: {_expr}/{_posture} in {_room}"
                 brief = (brief + "\n\n" + _world_block).strip() if brief else _world_block
                 brief = self._cap_text(brief, 8192, "persona_handoff_with_world")
         except Exception:
