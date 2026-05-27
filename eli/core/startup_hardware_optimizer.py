@@ -414,12 +414,6 @@ def allocate(
     else:
         remaining   = budget_after_batch - kv
         layers_fit  = max(0, min(layers_total, int(max(0.0, remaining) / max(per_layer, 1.0))))
-        # Near-complete offload rounding: whisper and other processes consume VRAM
-        # at startup-dialog time, so free_mb is lower than what llama.cpp actually
-        # gets.  If ≥75 % of layers fit by measurement, promote to full offload
-        # (99) — the remaining headroom almost certainly covers the difference.
-        if 0 < layers_fit < layers_total and layers_fit >= int(layers_total * 0.75):
-            layers_fit  = layers_total
         gpu_layers  = 99 if layers_fit >= layers_total else layers_fit
         layer_source = "computed"
 
