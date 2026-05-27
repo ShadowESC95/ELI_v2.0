@@ -7575,10 +7575,30 @@ def _execute_impl(action: str, args: Optional[Dict[str, Any]] = None) -> Dict[st
             def _format_articles(articles, header="", with_summaries=False):
                 if not articles:
                     return None
+                import time as _time_mod
+                from datetime import datetime as _dt, date as _date_cls
+                _today = _date_cls.today()
                 lines = [header] if header else []
                 for r in articles:
-                    pub = (r.get('published') or '')[:10]
-                    date_str = f" ({pub})" if pub else ""
+                    fetched_raw = r.get('fetched_at')
+                    pub_raw = (r.get('published') or '')[:10]
+                    # Show fetch time (HH:MM) for today's articles; date otherwise.
+                    # This prevents yesterday's RSS publication dates appearing as
+                    # "current" news when ELI fetched them today.
+                    if fetched_raw:
+                        try:
+                            fetched_dt = _dt.fromtimestamp(float(fetched_raw))
+                            if fetched_dt.date() == _today:
+                                date_str = f" (fetched {fetched_dt.strftime('%H:%M')})"
+                            else:
+                                # Article is from a prior fetch — show the fetch date
+                                date_str = f" (fetched {fetched_dt.strftime('%d %b')})"
+                        except Exception:
+                            date_str = f" ({pub_raw})" if pub_raw else ""
+                    elif pub_raw:
+                        date_str = f" ({pub_raw})"
+                    else:
+                        date_str = ""
                     lines.append(f"• [{r['source']}]{date_str} {r['title']}")
                     if with_summaries and r.get('summary') and len(r['summary'].strip()) > 20:
                         lines.append(f"  {r['summary'][:160].strip()}…")
@@ -7593,6 +7613,20 @@ def _execute_impl(action: str, args: Optional[Dict[str, Any]] = None) -> Dict[st
                 return {'ok': True, 'action': a, 'content': msg, 'response': msg}
 
             elif mode == 'recent':
+                # Auto-refresh if last fetch was more than 6 hours ago
+                import time as _news_time
+                st_info = fetcher.stats()
+                _last_ts_str = st_info.get('last_fetched') or ''
+                _stale = True
+                if _last_ts_str and _last_ts_str != 'never':
+                    try:
+                        import time as _nt
+                        _last_ts = _nt.mktime(_nt.strptime(_last_ts_str, "%Y-%m-%d %H:%M:%S"))
+                        _stale = (_news_time.time() - _last_ts) > 6 * 3600
+                    except Exception:
+                        _stale = True
+                if _stale:
+                    fetcher.fetch(sources=None, topic=topic)
                 results = fetcher.get_recent(limit=12, category=topic)
                 if not results:
                     msg = "No news stored yet — fetching now…"

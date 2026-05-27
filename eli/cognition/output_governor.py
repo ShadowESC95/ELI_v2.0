@@ -217,10 +217,22 @@ def repair_local_persona_drift(text: str, user_input: str = "") -> str:
 _HR_PHRASE_REPLACEMENTS = (
     (re.compile(r"\bI'd be pleased to delve deeper into\b", re.I), "Here is the useful version of"),
     (re.compile(r"\bI'd be happy to provide more details about\b", re.I), "Here is more detail on"),
-    (re.compile(r"\bfeel free to ask\b", re.I), "ask directly"),
+    # Strip the entire "feel free to ask [...]" clause — not just the phrase.
+    # "Feel free to ask if you have questions." → stripped entirely.
+    (re.compile(r"[^.!?\n]*\bfeel free to ask\b[^.!?\n]*[.!?]?\s*", re.I), ""),
+    # Strip "I'd be happy/pleased to [do X]." — whole closing clause.
+    (re.compile(r"[^.!?\n]*\bI(?:'d| would) be (?:happy|pleased|glad) to\b[^.!?\n]*[.!?]?\s*", re.I), ""),
+    # Strip "Don't hesitate to ask [...]."
+    (re.compile(r"[^.!?\n]*\bdon'?t hesitate to ask\b[^.!?\n]*[.!?]?\s*", re.I), ""),
+    # Strip "Let me know if [you need anything / you have questions]."
+    (re.compile(r"[^.!?\n]*\blet me know if (?:you|there)[^.!?\n]*[.!?]?\s*", re.I), ""),
+    # Strip "Is there anything else I can [help/assist] [you with]?"
+    (re.compile(r"[^.!?\n]*\bis there anything else I can\b[^.!?\n]*[.!?]?\s*", re.I), ""),
     (re.compile(r"\ba wealth of information\b", re.I), "stored information"),
     (re.compile(r"\breadily accessible\b", re.I), "available"),
     (re.compile(r"\bplease note that\b", re.I), "note:"),
+    (re.compile(r"\bI hope this helps\b[^.!?\n]*[.!?]?\s*", re.I), ""),
+    (re.compile(r"\bHope this helps\b[^.!?\n]*[.!?]?\s*", re.I), ""),
 )
 
 
