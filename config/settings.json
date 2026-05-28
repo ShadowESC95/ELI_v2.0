@@ -184,6 +184,7 @@
       "Generated max_tokens=8192."
     ]
   },
+  "auto_patch_enabled": false,
   "allow_direct_chat_without_wake": false,
   "mic_device": [
     "alsa",
@@ -195,5 +196,5 @@
   "gaze_camera": "auto",
   "hw_profile_n_ctx": 32768,
   "hw_profile_n_gpu_layers": 99,
-  "hw_profile_batch_size": 512
+  "hw_profile_batch_size": 128
 }

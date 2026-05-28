@@ -15,6 +15,11 @@ class SecurityManager:
         self.allowed_roots = self._get_allowed_roots()
         self.allowed_commands = self._get_allowed_commands()
         self.allowed_apps = self._get_allowed_apps()
+        if not self.allowed_commands and os.environ.get("ELI_FULL_CONTROL", "0") != "1":
+            logger.warning(
+                "SecurityManager: ELI_ALLOWED_CMDS is unset — all shell commands are permitted. "
+                "Set ELI_ALLOWED_CMDS=<cmd1,cmd2,...> to restrict, or ELI_FULL_CONTROL=1 to silence this warning."
+            )
         
     def _get_project_root(self) -> Path:
         """Get ELI project root"""
@@ -109,7 +114,9 @@ class SecurityManager:
         if "*" in self.allowed_commands:
             return True
         
-        # Empty allowed list means no restrictions
+        # ELI_ALLOWED_CMDS is unset — pass-through mode, all shell commands are permitted.
+        # Set ELI_ALLOWED_CMDS to a comma-separated list to enforce a whitelist.
+        # Set ELI_FULL_CONTROL=1 to explicitly bypass all command restrictions.
         if not self.allowed_commands:
             return True
         
