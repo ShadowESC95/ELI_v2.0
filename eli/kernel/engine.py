@@ -833,6 +833,13 @@ def _is_brief_phatic_prompt(text: str) -> bool:
         "you doing", "you alright", "you good", "you okay",
         "all good", "everything ok", "everything good",
         "how are things", "hows things",
+        # ELI-directed wellbeing / status queries — these do not need to start
+        # with a greeting word to be phatic; "how has your last X been" is a
+        # social check-in regardless of how the sentence opens.
+        "how has your last", "how have you been", "how's your last",
+        "how was your last", "how was your day", "how has your day",
+        "checking up on you", "just checking up", "just checking in",
+        "how has your", "how was your",
     )
     starts_as_greeting = any(normalized.startswith(g) for g in _greeting_starts)
     has_checkin = any(p in normalized for p in _checkIn_phrases)
@@ -846,6 +853,18 @@ def _is_brief_phatic_prompt(text: str) -> bool:
     has_task = any(t in normalized for t in _task_words)
 
     if starts_as_greeting and has_checkin and not has_task:
+        return True
+
+    # ELI wellbeing/status check-in: does not require greeting opener.
+    # "Still here pal, how has your last 24 hours been?" is phatic even
+    # though it starts with "still" rather than "hey/hi/hello".
+    _eli_status_phrases = (
+        "how has your last", "how have you been", "how's your last",
+        "how was your last", "checking up on you", "just checking up",
+        "just checking in",
+    )
+    has_eli_status = any(p in normalized for p in _eli_status_phrases)
+    if has_eli_status and not has_task and n <= 30:
         return True
 
     return False
@@ -4008,12 +4027,28 @@ Answer:"""
                         r"list\s+\w+|enable|disable|start|stop|reset|reload)\b",
                         _query_low,
                     ))
+                    # Skip HyDE for questions directed AT ELI about its own state or
+                    # recent activities. These generate first-person hypotheticals
+                    # ("I've been processing queries / tuning parameters") that bias
+                    # semantic memory retrieval toward the most recent task memories
+                    # regardless of what the user actually wants, causing the retrieved
+                    # memories to poison the context and produce looping responses.
+                    _hyde_is_eli_status_query = bool(re.search(
+                        r"\b(?:how|what).{0,30}(?:you|your|eli).{0,30}"
+                        r"\b(?:been|doing|up\s+to|last\s+\d+|past\s+\d+|recently|lately|since)\b",
+                        _query_low,
+                    )) or bool(re.search(
+                        r"\b(?:checking\s+(?:up|in)\s+on\s+(?:you|eli)|"
+                        r"how\s+(?:has|have|was|were)\s+(?:your|eli|you))\b",
+                        _query_low,
+                    ))
                     _hyde_eligible = (
                         not _hyde_disabled
                         and _hyde_words >= 8              # fire for any substantive query
                         and not _is_brief_phatic_prompt(query)
                         and not commandish
                         and not _hyde_is_control_cmd
+                        and not _hyde_is_eli_status_query
                     )
                     if _hyde_eligible:
                         try:
