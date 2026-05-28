@@ -2,6 +2,8 @@ from __future__ import annotations
 import os, pickle, threading
 from typing import Any, Dict, List, Optional
 
+from eli.core.paths import project_root as _project_root
+
 
 from eli.utils.log import get_logger
 log = get_logger(__name__)
@@ -171,8 +173,7 @@ class VectorStore:
             import os
             from pathlib import Path
             from llama_cpp import Llama
-            _root = Path(__file__).resolve().parents[2]
-            _models_dir = Path(os.getenv('ELI_MODELS_DIR', str(_root / 'models')))
+            _models_dir = Path(os.getenv('ELI_MODELS_DIR', str(_project_root() / 'models')))
             env_embed = os.getenv('ELI_EMBED_MODEL_PATH', '').strip()
             if env_embed:
                 _model_path = str(Path(env_embed).expanduser().resolve())
@@ -361,7 +362,6 @@ def _get_index_paths() -> tuple:
     - artifacts/vectors/meta.pkl
     """
     from pathlib import Path
-    root = Path(__file__).resolve().parents[2]
-    vdir = root / "artifacts" / "vectors"
+    vdir = _project_root() / "artifacts" / "vectors"
     vdir.mkdir(parents=True, exist_ok=True)
     return str((vdir / "index.faiss").resolve()), str((vdir / "meta.pkl").resolve())
