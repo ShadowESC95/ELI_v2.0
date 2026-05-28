@@ -4,8 +4,11 @@ from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 import json
+import logging
 import threading
 import time
+
+log = logging.getLogger(__name__)
 
 from eli.core.paths import get_paths
 
@@ -163,8 +166,13 @@ def load_world_model(force_reload: bool = False) -> WorldModel:
                 raw = json.loads(p.read_text(encoding="utf-8"))
                 _WORLD = _from_dict(dict(raw or {}))
                 return _WORLD
-            except Exception:
-                pass
+            except Exception as _wm_err:
+                log.warning(
+                    "[world_model] Failed to parse world model at %s — keeping file intact, "
+                    "starting fresh in memory: %s", p, _wm_err
+                )
+                _WORLD = WorldModel()
+                return _WORLD
 
         _WORLD = WorldModel()
         save_world_model(_WORLD)

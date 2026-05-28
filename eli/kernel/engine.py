@@ -3359,28 +3359,21 @@ class CognitiveEngine:
             ))
 
     def _capability_summary(self) -> str:
-        if hasattr(
-            self, '_awareness') and self._awareness and self._awareness.capability_count > 0:
+        if hasattr(self, '_awareness') and self._awareness and self._awareness.capability_count > 0:
             count = self._awareness.capability_count
             preview = ", ".join(self._awareness.capability_names[:12])
             more = f", +{count - 12} more" if count > 12 else ""
-            return None
-        manifest_path = Path(__file__).resolve(
-        ).parents[2] / "capability_inventory.generated.json"
+            return f"I have {count} capabilities: {preview}{more}."
+        manifest_path = Path(__file__).resolve().parents[2] / "capability_inventory.generated.json"
         try:
             if manifest_path.exists():
-                data = json.loads(
-    manifest_path.read_text(
-        encoding="utf-8",
-         errors="replace"))
+                data = json.loads(manifest_path.read_text(encoding="utf-8", errors="replace"))
                 caps = data.get("capabilities", [])
                 if isinstance(caps, list):
-                    names = [c.get("action", "")
-                                   for c in caps if isinstance(c, dict)]
+                    names = [c.get("action", "") for c in caps if isinstance(c, dict) and c.get("action")]
                     preview = ", ".join(names[:12])
-                    more = f", +{len(names) -
-     12} more" if len(names) > 12 else ""
-                    return None
+                    more = f", +{len(names) - 12} more" if len(names) > 12 else ""
+                    return f"I have {len(names)} capabilities: {preview}{more}."
         except Exception:
             pass
         return ""
