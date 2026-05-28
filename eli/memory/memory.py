@@ -290,7 +290,7 @@ class _MemoryMeta(type):
 def _eli_count_table(conn, table_name: str) -> int:
     if not _eli_table_exists(conn, table_name):
         return 0
-    row = conn.execute(f"SELECT COUNT(*) FROM {table_name}").fetchone()
+    row = conn.execute(f'SELECT COUNT(*) FROM "{table_name}"').fetchone()
     return int((row[0] if row else 0) or 0)
 
 def _eli_format_tags(value) -> str:
