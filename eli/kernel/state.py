@@ -201,7 +201,14 @@ def update_user_profile(update: Dict[str, Any] | None = None, user_id: str | Non
 
 
 def _format_profile_value(key: str, v: Any) -> str:
-    label = key.replace("_", " ").capitalize()
+    # Temporal framing: these fields are populated from past-session patterns.
+    # Labelling them as recalled context prevents the LLM treating them as
+    # the user's current request or ELI's current ongoing activity.
+    _PAST_SESSION_KEYS = {
+        "active_projects": "Recalled past topics (previous sessions — not current request)",
+        "research": "Recalled research areas (previous sessions)",
+    }
+    label = _PAST_SESSION_KEYS.get(key) or key.replace("_", " ").capitalize()
     if isinstance(v, (list, tuple)):
         items = [str(x).strip() for x in v if str(x).strip()]
         if not items:
