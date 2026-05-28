@@ -17,8 +17,8 @@ class SecurityManager:
         self.allowed_apps = self._get_allowed_apps()
         if not self.allowed_commands and os.environ.get("ELI_FULL_CONTROL", "0") != "1":
             logger.warning(
-                "SecurityManager: ELI_ALLOWED_CMDS is unset — all shell commands are permitted. "
-                "Set ELI_ALLOWED_CMDS=<cmd1,cmd2,...> to restrict, or ELI_FULL_CONTROL=1 to silence this warning."
+                "SecurityManager: ELI_ALLOWED_CMDS is unset — shell commands are BLOCKED (fail-closed). "
+                "Set ELI_FULL_CONTROL=1 to allow all commands, or ELI_ALLOWED_CMDS=cmd1,cmd2 to whitelist specific ones."
             )
         
     def _get_project_root(self) -> Path:
@@ -114,11 +114,11 @@ class SecurityManager:
         if "*" in self.allowed_commands:
             return True
         
-        # ELI_ALLOWED_CMDS is unset — pass-through mode, all shell commands are permitted.
-        # Set ELI_ALLOWED_CMDS to a comma-separated list to enforce a whitelist.
-        # Set ELI_FULL_CONTROL=1 to explicitly bypass all command restrictions.
+        # ELI_ALLOWED_CMDS is unset and ELI_FULL_CONTROL is not set — fail-closed.
+        # To allow all commands: set ELI_FULL_CONTROL=1 at launch.
+        # To allow specific commands: set ELI_ALLOWED_CMDS=cmd1,cmd2,...
         if not self.allowed_commands:
-            return True
+            return False
         
         # Check normalized command
         normalized = os.path.normpath(command)
