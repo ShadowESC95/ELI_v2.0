@@ -140,7 +140,7 @@ class IntrospectionAgent:
         # Path(__file__).parents[2] resolves to the project root
         # (eli/cognition/introspection_agent.py -> eli -> project_root).
         # We then descend back into eli/ for actual source files.
-        root = Path(__file__).resolve().parents[2]
+        root = get_paths().project_root
         eli_dir = root / "eli"
         files = [
             str(eli_dir / "kernel" / "engine.py"),

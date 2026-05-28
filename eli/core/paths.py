@@ -361,6 +361,12 @@ def get_models_dir() -> Path:
 _gguf_model_path: str | None = None
 
 def project_root() -> Path:
+    env = os.environ.get("ELI_PROJECT_ROOT")
+    if env:
+        return Path(env).expanduser().resolve()
+    found = _find_project_root()
+    if found is not None:
+        return found
     return Path(__file__).resolve().parents[2]
 
 def models_root() -> Path:

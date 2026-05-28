@@ -200,10 +200,6 @@ def _is_chatml_model(model_path: Optional[Path]) -> bool:
     return any(x in name for x in _chatml_names)
 
 
-def _is_qwen_model(model_path: Optional[Path]) -> bool:
-    """Kept for backwards compatibility — delegates to _is_chatml_model."""
-    return _is_chatml_model(model_path)
-
 
 def _is_llama_model(model_path: Optional[Path]) -> bool:
     """Llama-3 models use header-based format."""
@@ -484,7 +480,7 @@ def _format_prompt(system: Optional[str], user: str) -> str:
     model_path = get_model_path()
 
     # Qwen / ChatML format (OpenHermes, Hermes, Dolphin, Zephyr, DeepSeek, Qwen…)
-    if _is_qwen_model(model_path):
+    if _is_chatml_model(model_path):
         parts = []
         if system:
             parts.append(f"<|im_start|>system\n{system}<|im_end|>")
@@ -692,7 +688,7 @@ def _generate_legacy(
         stop += ["<|eot_id|>", "<|end_of_text|>", "<|start_header_id|>"]
     else:
         stop += ["<|end|>", "<|eot_id|>"]
-    if _is_qwen_model(_mp):
+    if _is_chatml_model(_mp):
         stop += ["<|im_end|>"]  # already in universal but explicit for qwen
 
     # Deduplicate while preserving order
