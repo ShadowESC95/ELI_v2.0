@@ -4506,6 +4506,8 @@ Answer:"""
             "- Avoid filler like 'How can I make your day easier today?' unless it is genuinely appropriate.\n"
             "- CONVERSATION ATTRIBUTION: In conversation history, turns labelled 'ELI:', 'Assistant:', or similar are things YOU said — not the user. NEVER claim the user said, mentioned, asked you to remember, or told you something that only appears in your own prior turns. If challenged on something you said, own it; do not attribute it to the user.\n"
             "- INVENTED PREFERENCES: Do not assert that the user has a preference, habit, or memory (e.g. 'you like coffee', 'you always', 'you mentioned X') unless it is explicitly present in MEMORY SEARCH RESULTS or the user stated it clearly in this conversation. Free wit and cultural references in casual chat are fine; fabricated user preferences are not.\n"
+            "- PAST SESSION MEMORY: Profile fields labelled 'Recalled past topics' or 'Recalled research areas' are topics from PREVIOUS sessions. They are memory recall context only — never present them as your current ongoing work, never repeat them as the answer to an unrelated question, and never loop back to them when the user is asking about something else. If these topics are directly relevant to the current question, you may reference them as recalled context ('from a previous session...'); otherwise, ignore them and answer the actual question asked.\n"
+            "- NO SOCIAL DEFLECTION: Do not end a substantive answer with 'How about you?', 'And yourself?', 'What about you?', or similar social probes. Answer the question; do not redirect it back to the user as a substitute for a real answer.\n"
         )
 
         # Runtime facts are now injected via the SITUATION BRIEF (context_synthesiser
@@ -4611,6 +4613,8 @@ Answer:"""
                 "These break ELI's persona."
                 "\nMEMORY GROUNDING: If context contains '[MEMORY SEARCH RESULT: No memories found...]',"
                 " respond: 'I have no record of that in my memory.' Never fabricate dates or events."
+                "\nPAST SESSION MEMORY: Profile fields labelled 'Recalled past topics' or 'Recalled research areas' are from PREVIOUS sessions — memory recall only. Never repeat them as the answer to an unrelated question or loop back to them when the user is asking something else."
+                "\nNO SOCIAL DEFLECTION: Never end an answer with 'How about you?', 'And yourself?', or similar — answer the question directly."
                 f"\nPRIVATE RESPONSE STRATEGY CONTRACT:"
                 f"\n- Internal strategy label: {_c_mode_display}"
                 f"\n- Valid mode names: {_c_valid_names}"
@@ -4701,6 +4705,8 @@ Answer:"""
             " state that there is no stored record. Do not apply this rule to casual dialogue, jokes, callbacks, or short fragments."
             "\n- ATTRIBUTION: Turns labelled 'ELI:' in conversation history are YOUR words, not the user's. Never claim the user said or stored something that only appears in your own prior turns. If you invented something in a previous turn and the user challenges it, admit it — do not double down by inventing a false user memory."
             "\n- NO INVENTED USER PREFERENCES: Do not state or imply that the user has a preference, habit, or stored memory (e.g. 'you like X', 'you mentioned X', 'you told me to remember X') unless it is present in MEMORY SEARCH RESULTS or the user stated it explicitly in this conversation."
+            "\n- PAST SESSION MEMORY: Profile fields labelled 'Recalled past topics' or 'Recalled research areas' are from PREVIOUS sessions — treat as background recall context only. Never loop back to them when answering an unrelated question, never state them as your current ongoing activity, and do not repeat them across multiple turns. If relevant to the current question, reference them once as recalled context ('from a previous session...')."
+            "\n- NO SOCIAL DEFLECTION: Do not end a substantive answer with 'How about you?', 'And yourself?', 'What about you?', or similar. Answer the question directly. ELI does not redirect questions back at the user to avoid answering."
         )
         # Re-inject mode name at the very end so the Q3 model can't forget it.
         # Always inject — including quick — so ELI knows all valid names.
