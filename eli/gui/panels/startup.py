@@ -233,10 +233,32 @@ class StartupModelSelectionDialog(QDialog):
                     discover_models as _hp_models,
                     recommend as _hp_recommend,
                     apply_recommendation as _hp_apply,
+                    _is_embedder_path as _hp_is_embedder,
                 )
                 _hw   = _hp_detect()
                 _mods = _hp_models()
-                _rec  = _hp_recommend(_hw, _mods)
+                # Compute hw-profile specifically for the model the user chose,
+                # not for the largest model that partially fits on GPU. Without
+                # this, a 24B model on disk gets chosen (12 layers, batch=192)
+                # and those params are applied to the 7B the user actually loads.
+                _sel = (self.model_path_input.text().strip()
+                        or str(self.gguf_combo.currentData() or "").strip())
+                _rec_models = _mods
+                if _sel:
+                    try:
+                        _sp = Path(_sel).expanduser().resolve()
+                        if (_sp.exists() and _sp.suffix.lower() == ".gguf"
+                                and not _hp_is_embedder(_sp)):
+                            _sz = _sp.stat().st_size
+                            _rec_models = [{
+                                "name": _sp.name,
+                                "path": str(_sp),
+                                "size_bytes": _sz,
+                                "size_gb": _sz / 1e9,
+                            }]
+                    except Exception:
+                        pass
+                _rec  = _hp_recommend(_hw, _rec_models)
                 _hp_apply(_rec)
                 log.debug(
                     "[STARTUP_DIALOG][HW_OPT] regenerated profile "

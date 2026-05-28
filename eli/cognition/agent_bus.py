@@ -619,7 +619,7 @@ def _eli_memory_should_run(user_input: str, action: str) -> bool:
     return True
 
 
-class MemoryAgent(_BaseAgent):
+class BusMemoryAgent(_BaseAgent):
     """
     Retrieves semantic memories, conversation history, session summaries,
     and stored user facts — all from local SQLite.
@@ -671,18 +671,16 @@ class MemoryAgent(_BaseAgent):
 
             context_parts: List[str] = []
             if recent:
-                # recent is DESC-sorted (newest first). Take the 20 most recent
-                # turns, then strip the trailing user+assistant pair so the model
-                # doesn't regurgitate the live prompt or its own last reply.
-                turns_to_show = list(recent[:20])  # newest-first slice of 20
-                # Drop the most-recent assistant turn (prevent verbatim replay)
-                # and the most-recent user turn (it's the current live prompt).
-                while turns_to_show and turns_to_show[0].get("role") in ("user", "assistant"):
-                    turns_to_show = turns_to_show[1:]
-                    if len(turns_to_show) >= 2:
-                        break  # strip at most the latest user+assistant pair
-                # Reverse to chronological order for display (oldest → newest)
-                display_turns = list(reversed(turns_to_show))
+                # get_recent_conversation returns CHRONOLOGICAL order (oldest first)
+                # — confirmed at memory.py: fetches DESC then list(reversed(rows)).
+                # Take the newest 20, then drop the trailing user+assistant pair
+                # so the model doesn't regurgitate the live prompt or its own last reply.
+                turns_to_show = list(recent[-20:])  # newest 20, still chronological
+                if turns_to_show and turns_to_show[-1].get("role") == "assistant":
+                    turns_to_show = turns_to_show[:-1]  # drop model's last reply
+                if turns_to_show and turns_to_show[-1].get("role") == "user":
+                    turns_to_show = turns_to_show[:-1]  # drop current live prompt
+                display_turns = turns_to_show  # already chronological — no reverse needed
                 lines = []
                 char_count = 0
                 for t in display_turns:
@@ -2179,7 +2177,7 @@ class KnowledgeGraphAgent(_BaseAgent):
 # All agent classes are defined above. _ALL_AGENTS is placed here so that
 # FileCodeAgent and ReflectionAgent exist when the list is evaluated.
 _ALL_AGENTS: List[_BaseAgent] = [
-    MemoryAgent(),
+    BusMemoryAgent(),
     SystemAgent(),
     HabitAgent(),
     SelfImprovementAgent(),

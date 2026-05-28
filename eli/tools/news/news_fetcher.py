@@ -372,6 +372,12 @@ class NewsFetcher:
         sources: list of any of ['hn', 'reddit', 'arxiv', 'rss', 'all']
         Returns summary dict.
         """
+        try:
+            from eli.core.config import network_allowed
+            if not network_allowed():
+                return {"skipped": "offline_mode", "fetched": 0, "stored_new": 0, "errors": []}
+        except Exception:
+            return {"skipped": "offline_mode", "fetched": 0, "stored_new": 0, "errors": []}
         sources = _topic_default_sources(topic, sources)
         if sources is None or "all" in sources:
             sources = ["hn", "reddit", "arxiv", "rss"]
@@ -526,7 +532,10 @@ def _get_fetcher() -> NewsFetcher:
 
 
 def fetch_news(topic: str = "", sources: Optional[List[str]] = None) -> Dict[str, Any]:
-    """Fetch current news and store in ELI's DB. Returns summary."""
+    """Fetch current news and store in ELI's DB. Returns summary.
+
+    Gated by network_allowed() — returns immediately in offline mode (the default).
+    """
     return _get_fetcher().fetch(sources=sources, topic=topic)
 
 

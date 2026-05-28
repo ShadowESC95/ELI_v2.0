@@ -597,7 +597,14 @@ def _ctx_max_tokens(llm, full_prompt: str, reserve: int = 128) -> int:
     try:
         n_ctx = llm.n_ctx()
     except Exception:
-        n_ctx = 16384
+        # Prefer the env var set by runtime_settings.apply_runtime_to_env() at
+        # model-load time — it reflects what the model actually loaded with,
+        # which may differ from the config default if the hardware optimizer clamped it.
+        import os as _os
+        n_ctx = int(_os.environ.get("ELI_GGUF_N_CTX") or _os.environ.get("ELI_N_CTX") or 0)
+        if n_ctx <= 0:
+            from eli.core import config as _cfg
+            n_ctx = _cfg.get_gguf_n_ctx()
     prompt_tokens = _estimate_prompt_tokens(llm, full_prompt)
     available = int(n_ctx) - int(prompt_tokens) - int(reserve)
     return max(0, int(available))
