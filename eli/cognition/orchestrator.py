@@ -19,7 +19,7 @@ from eli.utils.log import get_logger
 log = get_logger(__name__)
 
 @dataclass
-class WorkingMemory:
+class OrchestratorContext:
     user_input: str
     intent: Dict[str, Any] = field(default_factory=dict)
     persona_ok: bool = False
@@ -488,7 +488,7 @@ class AgentOrchestrator:
 
         _eli_pipe_orch("begin", mode=(reasoning_mode or "quick"), stream=stream, chars=len(str(user_input or "")))
 
-        wm = WorkingMemory(user_input=user_input)
+        wm = OrchestratorContext(user_input=user_input)
         def _eli_orch_complete_final_stage(status: str, note: str = "") -> None:
             # Ensure downstream consumers always see a complete stage trail:
             # stages that were not needed are explicitly marked as skipped,
