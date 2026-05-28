@@ -1,5 +1,6 @@
 # === PHASEN6_EXECUTOR_SYNTAX_PATCH ===
 from __future__ import annotations
+import hashlib
 import subprocess
 import time
 import json
@@ -4460,7 +4461,12 @@ def _execute_impl(action: str, args: Optional[Dict[str, Any]] = None) -> Dict[st
             cmd = args.get("cmd") or args.get("command") or ""
             
             # ── SECURITY GATE ──
-            _cmd_str = str(cmd) if not isinstance(cmd, str) else cmd
+            # When cmd is a list, join to a string for pattern matching so that
+            # ["bash", "-c", "..."] cannot bypass regex checks via str(list) repr.
+            if isinstance(cmd, (list, tuple)):
+                _cmd_str = " ".join(str(x) for x in cmd)
+            else:
+                _cmd_str = str(cmd)
             _cmd_low = _cmd_str.lower().strip()
             
             # ── Destructive / dangerous command patterns — block outright ──
@@ -4498,7 +4504,10 @@ def _execute_impl(action: str, args: Optional[Dict[str, Any]] = None) -> Dict[st
             # ── Denylist dangerous executable names as argv[0] ──
             import shlex as _shlex_sec
             try:
-                _argv0 = (_shlex_sec.split(_cmd_str) or [""])[0]
+                if isinstance(cmd, (list, tuple)):
+                    _argv0 = str(cmd[0]) if cmd else ""
+                else:
+                    _argv0 = (_shlex_sec.split(_cmd_str) or [""])[0]
                 _argv0_base = os.path.basename(_argv0).lower()
             except Exception:
                 _argv0_base = ""
@@ -7117,7 +7126,8 @@ def _execute_impl(action: str, args: Optional[Dict[str, Any]] = None) -> Dict[st
             msg = f"Fix failed after retries: {ff_reject_reason or 'unknown reason'}"
             return {"ok": False, "action": a, "error": msg, "content": msg, "response": msg}
         try:
-            backup = pp.with_suffix(pp.suffix + ".bak")
+            _ts = datetime.now().strftime("%Y%m%d_%H%M%S")
+            backup = pp.with_suffix(pp.suffix + f".bak.{_ts}")
             backup.write_text(original, encoding="utf-8")
         except Exception as _bak_err:
             msg = f"FIX_FILE aborted: could not write backup for {pp}: {_bak_err}"
