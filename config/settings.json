@@ -32,7 +32,7 @@
   "top_p": 0.95,
   "top_k": 40,
   "repeat_penalty": 1.1,
-  "n_gpu_layers": 9999,
+  "n_gpu_layers": 25,
   "n_threads": 10,
   "batch_size": 256,
   "cache_type_k": "q4_0",
@@ -195,6 +195,6 @@
   "gaze_engine_enabled": false,
   "gaze_camera": "auto",
   "hw_profile_n_ctx": 32768,
-  "hw_profile_n_gpu_layers": 99,
+  "hw_profile_n_gpu_layers": 25,
   "hw_profile_batch_size": 128
 }
