@@ -797,7 +797,13 @@ Date: {datetime.now().strftime("%A %B %d %H:%M")} | Interactions last 24h: {inte
                     # Every 3 hours: fetch new articles, compile a synthesis
                     # of the window, store it as a news_reflection. The
                     # morning report later compiles 8 such reflections per 24h.
-                    if time.time() - last_news_fetch > 10800:  # 3 hours
+                    _news_net_ok = False
+                    try:
+                        from eli.core.config import network_allowed as _net_ok
+                        _news_net_ok = _net_ok()
+                    except Exception:
+                        pass
+                    if _news_net_ok and time.time() - last_news_fetch > 10800:  # 3 hours
                         try:
                             from eli.tools.news.news_fetcher import fetch_news as _fetch_news
                             _nr = _fetch_news(sources=["hn", "reddit"])

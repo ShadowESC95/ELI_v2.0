@@ -2768,7 +2768,7 @@ class CognitiveEngine:
         # and other callers never hit AttributeError regardless of whether
         # _init_gguf() is invoked.  _init_gguf() overwrites these when it runs.
         self._model_path = "unknown"
-        self._ctx = 16384
+        self._ctx = runtime_settings.DEFAULT_N_CTX
         self._gpu_layers = 0
 
         if bool(auto_init_gguf):
@@ -2990,9 +2990,9 @@ class CognitiveEngine:
             settings = {}
 
         try:
-            n_ctx = int(settings.get("n_ctx", getattr(self, "_ctx", 16384)) or getattr(self, "_ctx", 16384))
+            n_ctx = int(settings.get("n_ctx", getattr(self, "_ctx", runtime_settings.DEFAULT_N_CTX)) or getattr(self, "_ctx", runtime_settings.DEFAULT_N_CTX))
         except Exception:
-            n_ctx = int(getattr(self, "_ctx", 16384))
+            n_ctx = int(getattr(self, "_ctx", runtime_settings.DEFAULT_N_CTX))
 
         try:
             requested = int(settings.get("max_tokens", config.get_num_predict()))
@@ -3255,7 +3255,7 @@ class CognitiveEngine:
         self._gguf_load_error = None
         # Initialize runtime facts to defaults
         self._model_path = "unknown"
-        self._ctx = 16384
+        self._ctx = runtime_settings.DEFAULT_N_CTX
         self._gpu_layers = 0
         try:
             if gguf_inference is None:
@@ -3283,9 +3283,9 @@ class CognitiveEngine:
                         self._ctx = int(gguf_inference.get_context_size())
                     else:
                         settings = runtime_settings.load_settings()
-                        self._ctx = int((settings or {}).get("n_ctx", 16384))
+                        self._ctx = int((settings or {}).get("n_ctx", runtime_settings.DEFAULT_N_CTX))
                 except Exception:
-                    self._ctx = 16384
+                    self._ctx = runtime_settings.DEFAULT_N_CTX
                 # GPU layers from settings
                 try:
                     settings = runtime_settings.load_settings()
@@ -6279,25 +6279,24 @@ Answer:"""
             _eli_mode_key = _eli_final_mode(reasoning_mode)
         except Exception:
             _eli_mode_key = str(reasoning_mode or "quick").strip().lower() or "quick"
-        # Depth policy: non-Quick modes should not collapse to terse one-liners.
-        # Keep quick mode short/fast.
+        # Depth policy: only complete genuinely truncated non-quick responses.
+        # Do not fire a second full inference just because the answer is short —
+        # a concise correct answer is not truncation.
         try:
             if _eli_mode_key != "quick" and not _is_brief_phatic_prompt(user_input):
-                _wc = len(str(response or "").split())
-                if _wc < 70:
+                from eli.cognition.output_governor import _looks_truncated
+                if _looks_truncated(response):
                     _expand_prompt = (
-                        "Expand the draft answer into an in-depth response while staying faithful to the same grounded facts. "
-                        "Do not invent new evidence. Keep first-person ELI voice. "
-                        "Target 3-6 concise paragraphs with concrete detail.\n\n"
-                        f"USER REQUEST:\n{user_input}\n\n"
-                        f"DRAFT ANSWER:\n{response}\n\n"
-                        "EXPANDED FINAL ANSWER:"
+                        "Complete the truncated answer below in the same voice and with the "
+                        "same grounded facts. Finish the current thought; do not add new content.\n\n"
+                        f"USER REQUEST:\n{user_input}\n\nTRUNCATED DRAFT:\n{response}\n\nCOMPLETED ANSWER:"
                     )
+                    _wc = len(str(response or "").split())
                     _expanded = self._get_chat_response(
                         _expand_prompt,
                         "",
                         reasoning_mode=reasoning_mode,
-                        gen_overrides={"max_tokens": 1400, "temperature": 0.35},
+                        gen_overrides={"max_tokens": 512, "temperature": 0.25},
                     )
                     _expanded = str(_expanded or "").strip()
                     _expanded_low = _expanded.lower()
@@ -6670,16 +6669,11 @@ Answer:"""
             log.debug(f"[COGNITIVE] persona handoff build failed: {e}")
             brief = ""
 
-        # Phase 6: cap the persona handoff at 8 KB. The handoff is the largest
-        # single block injected into the system prompt; without a ceiling it
-        # can crowd out memory_context + user_input + generation budget on a
-        # 16k-ctx model.
-        brief = self._cap_text(brief, 8192, "persona_handoff")
-
         # ── Proactive daemon output injection ────────────────────────────────
         # The proactive daemon writes pattern/insight files to disk continuously.
         # Inject the latest context (if fresh < 30 min) so ELI is always aware
         # of active patterns without requiring explicit "proactive status" queries.
+        _extra_blocks = []
         try:
             import time as _inj_time
             from eli.core.paths import get_paths as _inj_paths
@@ -6689,9 +6683,7 @@ Answer:"""
                 if _pro_age < 1800:  # only inject if written within last 30 min
                     _pro_text = _pro_ctx_file.read_text(encoding="utf-8").strip()
                     if _pro_text:
-                        _pro_block = f"[PROACTIVE AWARENESS]\n{_pro_text}"
-                        brief = (brief + "\n\n" + _pro_block).strip() if brief else _pro_block
-                        brief = self._cap_text(brief, 8192, "persona_handoff_with_proactive")
+                        _extra_blocks.append(f"[PROACTIVE AWARENESS]\n{_pro_text}")
         except Exception:
             pass
         # ── Self-awareness: habit execution summary ──────────────────────────
@@ -6702,9 +6694,7 @@ Answer:"""
                 if _habit_age < 3600:  # inject if within last hour
                     _habit_text = _habit_file.read_text(encoding="utf-8").strip()
                     if _habit_text:
-                        _habit_block = f"[RECENT SELF-IMPROVEMENT SIGNALS]\n{_habit_text}"
-                        brief = (brief + "\n\n" + _habit_block).strip() if brief else _habit_block
-                        brief = self._cap_text(brief, 8192, "persona_handoff_with_habits")
+                        _extra_blocks.append(f"[RECENT SELF-IMPROVEMENT SIGNALS]\n{_habit_text}")
         except Exception:
             pass
 
@@ -6735,14 +6725,16 @@ Answer:"""
                 if _is_notable:
                     _world_lines.append(f"  {_fld}: {_val:.2f}")
             if _world_lines:
-                _world_block = (
-                    "[ELI INTERNAL STATE]\n"
-                    + "\n".join(_world_lines)
-                )
-                brief = (brief + "\n\n" + _world_block).strip() if brief else _world_block
-                brief = self._cap_text(brief, 8192, "persona_handoff_with_world")
+                _extra_blocks.append("[ELI INTERNAL STATE]\n" + "\n".join(_world_lines))
         except Exception:
             pass
+
+        # Assemble all injections and cap ONCE so no individual block is silently
+        # truncated mid-sentence by a per-injection cap.
+        if _extra_blocks:
+            brief = "\n\n".join(filter(None, [brief] + _extra_blocks))
+        # Phase 6: single 8 KB ceiling for the full assembled handoff.
+        brief = self._cap_text(brief, 8192, "persona_handoff")
 
         try:
             if working_memory is not None:
@@ -6948,6 +6940,13 @@ Answer:"""
             log.debug(f"[COGNITIVE] User turn store failed: {e}")
 
     def _store_assistant_turn(self, text: str) -> None:
+        if not text:
+            return
+        # Govern here so every storage path (canonical + fastpath bypasses) is covered.
+        try:
+            text = govern_output(str(text), is_grounded=False)
+        except Exception as _gov_err:
+            log.debug(f"[COGNITIVE] store-time govern failed: {_gov_err}")
         if not text:
             return
         try:

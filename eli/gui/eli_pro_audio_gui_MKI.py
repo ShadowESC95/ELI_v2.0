@@ -5892,7 +5892,7 @@ class EliMainWindow(QMainWindow):
             from eli.kernel.engine import get_engine
             engine = get_engine()
             if engine is not None and hasattr(engine, "process"):
-                result = engine.process(prompt, stream=False, reasoning_mode="quick")
+                result = engine.process(prompt, stream=False, reasoning_mode="quick")  # internal helper — quick intentional
                 text = _normalise_engine_text(result)
                 if text:
                     return text
