@@ -95,6 +95,52 @@ _memory = None
 _agent_memory_singleton = None
 _agent_memory = None
 
+# ── Recall write queue ────────────────────────────────────────────────────────
+# recall_memory() fires UPDATE + INSERT on every read, creating write contention
+# on the hot path. Queue write callables and flush in a background daemon thread.
+_recall_write_queue: List = []  # list of (db_path, callable(conn))
+_recall_write_lock = threading.Lock()
+_RECALL_FLUSH_BATCH = 50  # flush when queue reaches this size
+
+
+def _enqueue_recall_write(db_path: Path, fn) -> None:
+    """Queue a write callable `fn(conn)` to be applied against `db_path`."""
+    with _recall_write_lock:
+        _recall_write_queue.append((db_path, fn))
+        if len(_recall_write_queue) >= _RECALL_FLUSH_BATCH:
+            _flush_recall_writes_locked()
+
+
+def _flush_recall_writes_locked() -> None:
+    """Drain the queue. Must be called with _recall_write_lock held."""
+    if not _recall_write_queue:
+        return
+    batch = list(_recall_write_queue)
+    _recall_write_queue.clear()
+    by_db: Dict[Path, List] = {}
+    for db_path, fn in batch:
+        by_db.setdefault(db_path, []).append(fn)
+    for db_path, fns in by_db.items():
+        try:
+            conn = sqlite3.connect(str(db_path), timeout=5)
+            try:
+                for fn in fns:
+                    try:
+                        fn(conn)
+                    except Exception:
+                        pass
+                conn.commit()
+            finally:
+                conn.close()
+        except Exception:
+            pass
+
+
+def flush_recall_writes() -> None:
+    """Public flush — call on idle or shutdown to drain the queue."""
+    with _recall_write_lock:
+        _flush_recall_writes_locked()
+
 
 def _clear_memory_singletons() -> None:
     """Clear all cached Memory instances (call between tests)."""
@@ -1989,35 +2035,39 @@ class Memory(metaclass=_MemoryMeta):
                     pass
 
             # --- Recall frequency learning: boost importance of top recalled memories ---
-            # Every recall of a memory is a signal it matters. Increment importance
-            # by a small delta so frequently-recalled facts surface higher over time.
+            # Queued and flushed in background to keep the read path write-free.
             try:
                 _boost_ids = [
                     int(_h["id"]) for _h in out[:3]
                     if not str(_h.get("id", "")).startswith(("kg:", "sem:", "conv"))
                     and _h.get("id") is not None
                 ]
-                if _boost_ids:
-                    for _bid in _boost_ids:
-                        conn.execute(
+                for _bid in _boost_ids:
+                    _bid_cap = _bid  # capture for closure
+                    _enqueue_recall_write(
+                        self.db_path,
+                        lambda c, bid=_bid_cap: c.execute(
                             "UPDATE memories SET importance = MIN(1.0, COALESCE(importance, 0.5) + 0.02) WHERE id = ?",
-                            (_bid,),
-                        )
-                    conn.commit()
+                            (bid,),
+                        ),
+                    )
             except Exception:
                 pass
 
-            now = _now_ts()
-            rl_cols = _memory_table_columns(conn, "recall_log")
-            payload = {
-                "ts": now,
-                "timestamp": now,
-                "query": q,
-                "results_count": len(out),
-                "result_count": len(out),
-            }
-            _insert_payload(conn, "recall_log", payload)
-            conn.commit()
+            try:
+                _now = _now_ts()
+                _q_cap = q
+                _cnt = len(out)
+                _enqueue_recall_write(
+                    self.db_path,
+                    lambda c, ts=_now, query=_q_cap, cnt=_cnt: _insert_payload(
+                        c, "recall_log",
+                        {"ts": ts, "timestamp": ts, "query": query,
+                         "results_count": cnt, "result_count": cnt},
+                    ),
+                )
+            except Exception:
+                pass
             # Enforce the caller's limit on the final merged list.
             # conversation_turns fallback uses max(3, limit-len) which can push
             # total above `limit` when the initial result set is small.

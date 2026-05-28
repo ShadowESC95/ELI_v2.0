@@ -128,7 +128,7 @@ class ExecutorAgent:
         return execute_action(action, payload)
 
 
-class MemoryAgent:
+class OrchestratorMemoryAgent:
     def __init__(self, engine):
         self.engine = engine
 
@@ -443,7 +443,7 @@ class AgentOrchestrator:
     def __init__(self, engine):
         self.engine = engine
         self.executor_agent = ExecutorAgent(engine)
-        self.memory_agent = MemoryAgent(engine)
+        self.memory_agent = OrchestratorMemoryAgent(engine)
         self.planner_agent = PlannerAgent(engine)
 
     def run(self, user_input: Optional[str] = None, *, stream: bool = False,
@@ -715,14 +715,6 @@ class AgentOrchestrator:
                 )
                 wm.final_response = response
 
-                self.engine.enqueue_post_response_storage(
-                    user_input,
-                    response,
-                    intent,
-                    command=False,
-                    working_memory=wm,
-                )
-
                 _eli_orch_complete_final_stage(
                     "completed",
                     note="nonchat_synth",
@@ -736,12 +728,6 @@ class AgentOrchestrator:
                     "trace": wm.trace,
                 }
 
-            self.engine.enqueue_post_response_storage(
-                user_input,
-                str(result.get("content") or result.get("response") or ""),
-                intent,
-                command=True,
-            )
             wm.trace["stage_nonchat"] = "executor_direct_result"
             wm.trace["stage_10"] = "skipped_nonchat_direct_result"
             wm.trace["stage_10_5"] = "skipped_nonchat_direct_result"
@@ -854,16 +840,6 @@ class AgentOrchestrator:
                 _loop_response = str((_loop_result or {}).get("response") or "").strip()
                 if _loop_response:
                     wm.final_response = _loop_response
-                    try:
-                        self.engine.enqueue_post_response_storage(
-                            user_input,
-                            _loop_response,
-                            intent,
-                            command=False,
-                            working_memory=wm,
-                        )
-                    except Exception as _pps_err:
-                        log.debug(f"[ORCHESTRATOR] post-response storage skipped: {_pps_err}")
                     _eli_orch_complete_final_stage(
                         "completed",
                         note="chat_private_reasoning_loop",
@@ -906,14 +882,6 @@ class AgentOrchestrator:
             reasoning_mode=reasoning_mode,
         )
         wm.final_response = response
-
-        self.engine.enqueue_post_response_storage(
-            user_input,
-            response,
-            intent,
-            command=False,
-            working_memory=wm,
-        )
 
         _eli_orch_complete_final_stage(
             "completed",

@@ -66,6 +66,10 @@ def _settings_file() -> Path:
 
 SETTINGS_FILE = _settings_file()
 
+# Single source of truth for the n_ctx default.
+# config.py and engine.py reference this so changing it here is sufficient.
+DEFAULT_N_CTX: int = 16384
+
 # Canonical keys. Legacy duplicates (`gpu_layers`, `cpu_threads`) are migrated
 # into these on first load and then removed from the file.
 DEFAULTS: Dict[str, Any] = {
@@ -96,7 +100,7 @@ DEFAULTS: Dict[str, Any] = {
     "image_auto_open": True,
     "image_use_chat_context": True,
     "image_use_proactive_context": True,
-    "n_ctx": 16384,
+    "n_ctx": DEFAULT_N_CTX,
     "max_tokens": 4096,
     "temperature": 0.7,
     "top_p": 0.95,
