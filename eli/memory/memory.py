@@ -288,6 +288,10 @@ class _MemoryMeta(type):
 # ═══════════════════════════════════════════════════════════════
 
 def _eli_count_table(conn, table_name: str) -> int:
+    try:
+        _validate_identifier(table_name, "table")
+    except (ValueError, Exception):
+        return 0
     if not _eli_table_exists(conn, table_name):
         return 0
     row = conn.execute(f'SELECT COUNT(*) FROM "{table_name}"').fetchone()
