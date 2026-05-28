@@ -3718,7 +3718,7 @@ class CognitiveEngine:
         try:
             persona = self._compact_persona()
         except Exception:
-            persona = self._compact_persona() if compact_override else self.get_persona()
+            persona = self.get_persona()
         parts.append(f"You are ELI. {persona}")
         if bus_result.agents_used:
             parts.append(

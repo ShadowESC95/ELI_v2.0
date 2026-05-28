@@ -291,28 +291,6 @@ class _PySyntaxHighlighter(QSyntaxHighlighter):
 # Worker: run Python code in subprocess
 # ═══════════════════════════════════════════════════════════════════════════
 
-class _CodeRunner(QObject):
-    finished = pyqtSignal(str, str)  # stdout, stderr
-
-    def __init__(self, code: str, cwd: str):
-        super().__init__()
-        self._code = code
-        self._cwd = cwd
-
-    def run(self):
-        try:
-            result = subprocess.run(
-                [sys.executable, "-c", self._code],
-                capture_output=True, text=True, timeout=60,
-                cwd=self._cwd,
-            )
-            self.finished.emit(result.stdout, result.stderr)
-        except subprocess.TimeoutExpired:
-            self.finished.emit("", "Timeout: execution exceeded 60 s")
-        except Exception as ex:
-            self.finished.emit("", str(ex))
-
-
 class _CodeRunnerThread(QThread):
     finished = pyqtSignal(str, str)
 
@@ -4793,6 +4771,7 @@ class _SimIDETab(QWidget):
 
         self._run_btn = QPushButton("▶ Run")
         self._run_btn.setStyleSheet("background:#2d7d46;color:white;font-weight:bold;padding:4px 12px;")
+        self._run_btn.setToolTip("Runs code with full process privileges — no sandbox. Only run code you trust.")
         self._run_btn.clicked.connect(self._run_code)
         tb.addWidget(self._run_btn)
 
