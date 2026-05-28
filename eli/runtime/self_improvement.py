@@ -154,6 +154,17 @@ class SelfImprovementEngine:
             return
 
         # Attempt code patches for failures with file tracebacks and high recurrence.
+        # Gated behind auto_patch_enabled (default off) so patches never apply without
+        # explicit user opt-in via settings.json.
+        try:
+            _settings = json.loads((PROJECT_ROOT / "config" / "settings.json").read_text(encoding="utf-8"))
+            if not _settings.get("auto_patch_enabled", False):
+                log.debug("[SELF-IMPROVE] auto_patch_enabled is off — patch proposals logged but not applied")
+                return
+        except Exception:
+            log.debug("[SELF-IMPROVE] Could not read settings — skipping auto-patch for safety")
+            return
+
         # Only runs when an inference broker is available (model loaded).
         try:
             broker = get_broker()

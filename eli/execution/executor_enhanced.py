@@ -7119,8 +7119,9 @@ def _execute_impl(action: str, args: Optional[Dict[str, Any]] = None) -> Dict[st
         try:
             backup = pp.with_suffix(pp.suffix + ".bak")
             backup.write_text(original, encoding="utf-8")
-        except Exception:
-            backup = None
+        except Exception as _bak_err:
+            msg = f"FIX_FILE aborted: could not write backup for {pp}: {_bak_err}"
+            return {"ok": False, "action": a, "error": msg, "content": msg, "response": msg}
         pp.write_text(fixed_code, encoding="utf-8")
         evt = {
             "event": "artifact_generated",
