@@ -453,23 +453,29 @@ def recommend(hw: Optional[HardwareProfile] = None,
     if hw.has_gpu and hw.free_vram_mb > 0 and chosen_layers > 0:
         _total_layers_est = _layers_for_size(chosen["size_gb"])
         _model_vram_mb = chosen["size_gb"] * 1024.0
-        _reserve_mb = float(_CUDA_OVERHEAD_MB) + 1500.0   # CUDA + runtime headroom
-        _vram_for_kv = max(0.0, hw.free_vram_mb - _model_vram_mb - _reserve_mb)
+        # In partial offload only the GPU-resident fraction of the model occupies
+        # VRAM. Subtracting the full model size when layers < total causes
+        # vram_for_kv to go negative (→ 0 → ctx=2048) even when KV fits fine.
+        _offload_frac = min(1.0, chosen_layers / max(1, _total_layers_est))
+        _gpu_model_mb = _model_vram_mb * _offload_frac
+        # All layers' KV cache lives on GPU by default in llama.cpp (even for
+        # CPU-resident layers). Reserve only the fixed CUDA overhead here; the
+        # old +1500 "runtime headroom" double-counted the batch/compute reserve
+        # already accounted for during layer selection above.
+        _vram_for_kv = max(0.0, hw.free_vram_mb - _gpu_model_mb - float(_CUDA_OVERHEAD_MB))
         _kv_factor = 4 if kv_q else 1
         _kv_per_token_mb = (_total_layers_est * _KV_BYTES_PER_TOKEN_PER_LAYER / 1_048_576) / _kv_factor
         if _kv_per_token_mb > 0:
             _max_ctx_vram = max(2048, int(_vram_for_kv / _kv_per_token_mb))
             _ctx_grain = 2048
-            _vram_ctx = max(2048, (_max_ctx_vram // _ctx_grain) * _ctx_grain)
-            # Always set from VRAM budget — VRAM is the binding constraint on GPU
-            # systems, regardless of whether the initial estimate was too high or
-            # too low.  This prevents ctx=2048 from low available_ram on a GPU
-            # machine while also preventing OOM from over-allocation.
+            # Cap at the initial estimate (model training ctx); never inflate beyond it.
+            _vram_ctx = max(2048, min(rec.n_ctx, (_max_ctx_vram // _ctx_grain) * _ctx_grain))
             _old = rec.n_ctx
             rec.n_ctx = _vram_ctx
             rec.reasoning.append(
                 f"n_ctx set {_old} → {rec.n_ctx} from VRAM budget "
-                f"(vram_for_kv={_vram_for_kv:.0f}MB kv/tok={_kv_per_token_mb:.3f}MB)"
+                f"(vram_for_kv={_vram_for_kv:.0f}MB kv/tok={_kv_per_token_mb:.3f}MB "
+                f"gpu_model={_gpu_model_mb:.0f}MB offload={_offload_frac:.2f})"
             )
 
     total_layers = _layers_for_size(chosen["size_gb"])
@@ -504,6 +510,14 @@ def recommend(hw: Optional[HardwareProfile] = None,
         _offload = min(1.0, chosen_layers / max(1, total_layers))
         _raw_b = int(128 + _offload * (512 - 128))
         rec.batch_size = max(128, (_raw_b // 64) * 64)
+
+    # Honor the startup dialog's ELI_TARGET_BATCH as an upper cap.
+    # This lets the user throttle batch (e.g. when running alongside other
+    # GPU workloads) without the profiler silently ignoring the setting.
+    _env_batch_cap = int(os.environ.get("ELI_TARGET_BATCH", "0") or "0")
+    if 0 < _env_batch_cap < rec.batch_size:
+        rec.batch_size = max(128, (_env_batch_cap // 64) * 64)
+        rec.reasoning.append(f"batch capped to {rec.batch_size} by ELI_TARGET_BATCH={_env_batch_cap}")
 
     rec.use_mmap = True
     rec.use_mlock = (hw.available_ram_gb >= 16)

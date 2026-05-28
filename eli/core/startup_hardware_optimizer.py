@@ -388,7 +388,7 @@ def allocate(
     elif user_ctx:
         n_ctx = int(user_ctx)
         ctx_source = "settings.json"
-    elif model_vram_mb <= budget_after_batch * 0.70:
+    elif model_vram_mb <= budget_after_batch:
         # Model fits fully on GPU → maximize ctx from KV headroom.
         kv_budget = max(0.0, budget_after_batch - model_vram_mb)
         max_ctx_vram = max(2048, int(kv_budget / max(kv_per_token, 1e-6)))

@@ -24,6 +24,7 @@ from eli.core.runtime_settings import (
     load_settings as _rs_load,
     save_settings as _rs_save,
     _settings_file as _rs_file,
+    DEFAULT_N_CTX as _DEFAULT_N_CTX,
 )
 from eli.core.paths import config_dir, gguf_models_dir, project_root
 
@@ -190,9 +191,9 @@ def get_gguf_n_ctx() -> int:
         except Exception:
             pass
     try:
-        return int(get("n_ctx", 16384))
+        return int(get("n_ctx", _DEFAULT_N_CTX))
     except Exception:
-        return 16384
+        return _DEFAULT_N_CTX
 
 
 def set_gguf_n_batch(batch: int):
@@ -326,3 +327,17 @@ def get_n_threads() -> int:
 
 def set_n_threads(n: int) -> None:
     set("n_threads", int(n))
+
+
+# ---------- Network / offline policy ----------
+
+def network_allowed() -> bool:
+    """Return True only if networked features are explicitly enabled.
+
+    Defaults OFF so ELI's 'fully offline' claim is true out of the box.
+    Opt-in via settings (network_enabled=true) or ELI_OFFLINE=0/false/no env var.
+    """
+    env = os.getenv("ELI_OFFLINE")
+    if env is not None:
+        return env.strip().lower() not in ("1", "true", "yes")
+    return bool(get("network_enabled", False))

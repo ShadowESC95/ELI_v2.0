@@ -21,7 +21,8 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 
-PROJECT_ROOT = Path(__file__).resolve().parents[2]
+from eli.core.paths import project_root as _project_root
+PROJECT_ROOT = _project_root()
 
 
 def _run(cmd: List[str], cwd: Optional[Path] = None, timeout: int = 120) -> Dict[str, Any]:
@@ -152,8 +153,12 @@ class SelfUpgrader:
 
     def _pip_upgrade(self):
         """Reinstall ELI package in editable mode to pick up any new deps."""
+        # Prefer pyproject.toml editable install; fall back to requirements.txt.
+        pyproject = PROJECT_ROOT / "pyproject.toml"
         req = PROJECT_ROOT / "requirements.txt"
-        if req.exists():
+        if pyproject.exists():
+            r = _run([sys.executable, "-m", "pip", "install", "-q", "--upgrade", "-e", str(PROJECT_ROOT)], timeout=180)
+        elif req.exists():
             r = _run([sys.executable, "-m", "pip", "install", "-q", "-r", str(req)], timeout=180)
         else:
             r = _run([sys.executable, "-m", "pip", "install", "-q", "-e", str(PROJECT_ROOT)], timeout=180)
@@ -173,7 +178,8 @@ class SelfUpgrader:
                 f"({result.get('indexed', 0)}/{result.get('source_count', 0)} vectors)."
             )
         except Exception as e:
-            script = PROJECT_ROOT / "scripts" / "rebuild_faiss.py"
+            # Primary import failed; try the canonical rebuild script path.
+            script = PROJECT_ROOT / "eli" / "scripts" / "rebuild_vector_index.py"
             if script.exists():
                 r = _run([sys.executable, str(script)], timeout=120)
                 return r["ok"], r["stdout"][:80] or r["stderr"][:80]
