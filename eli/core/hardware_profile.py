@@ -498,18 +498,38 @@ def recommend(hw: Optional[HardwareProfile] = None,
         )
 
     # Batch size: scales linearly with GPU offload ratio.
-    # Full offload → capped at 512 (safe for 8 GB VRAM; 1024 causes VRAM
-    # pressure under concurrent reasoning passes on RTX 2060-class hardware).
     # Partial offload → interpolate 128..512 by actual offload fraction.
     # CPU-only → floor of 128. Aligned to 64-byte boundaries.
     if chosen_layers == 0:
         rec.batch_size = 128
     elif _full_offload:
-        rec.batch_size = 512  # all layers fit → deterministic cap, not formula
+        rec.batch_size = 512
     else:
         _offload = min(1.0, chosen_layers / max(1, total_layers))
         _raw_b = int(128 + _offload * (512 - 128))
         rec.batch_size = max(128, (_raw_b // 64) * 64)
+
+    # VRAM headroom check: llama.cpp compute buffers (rope, attention accumulation,
+    # graph workspace) consume VRAM beyond the model + KV allocation. On 8 GB cards
+    # with full offload and long ctx, this leaves insufficient room for batch=512.
+    # Thresholds derived empirically: ~750 MB needed for batch=512 on 7B models.
+    if hw.has_gpu and hw.free_vram_mb > 0 and chosen_layers > 0 and rec.batch_size > 128:
+        _offload_f = min(1.0, chosen_layers / max(1, total_layers))
+        _kv_at_ctx = _kv_cache_mb(rec.n_ctx, total_layers, quant=kv_q)
+        _gpu_model_for_batch = chosen["size_gb"] * 1024.0 * _offload_f
+        _compute_headroom = (hw.free_vram_mb
+                             - _gpu_model_for_batch
+                             - _kv_at_ctx
+                             - float(_CUDA_OVERHEAD_MB))
+        _safe_batch = (512 if _compute_headroom >= 1000 else
+                       256 if _compute_headroom >= 400 else 128)
+        if rec.batch_size > _safe_batch:
+            rec.batch_size = _safe_batch
+            rec.reasoning.append(
+                f"batch reduced to {rec.batch_size} — compute headroom "
+                f"{_compute_headroom:.0f}MB (model={_gpu_model_for_batch:.0f} "
+                f"kv={_kv_at_ctx:.0f} cuda={_CUDA_OVERHEAD_MB}MB)"
+            )
 
     # Honor the startup dialog's ELI_TARGET_BATCH as an upper cap.
     # This lets the user throttle batch (e.g. when running alongside other
