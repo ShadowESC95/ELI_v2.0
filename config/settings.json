@@ -34,7 +34,7 @@
   "repeat_penalty": 1.1,
   "n_gpu_layers": 9999,
   "n_threads": 10,
-  "batch_size": 512,
+  "batch_size": 256,
   "cache_type_k": "q4_0",
   "cache_type_v": "q4_0",
   "use_mmap": true,
@@ -47,7 +47,7 @@
   "auto_load": true,
   "first_run_complete": true,
   "theme": "dark",
-  "gguf_model_path": "models/mistral-small-3.1-24b-instruct-2503-q5_k_m.gguf",
+  "gguf_model_path": "models/Qwen2.5-7B-Instruct-Q4_K_M.gguf",
   "hardware_fingerprint": "88d063a4e3a2ed26",
   "mode_presets": {
     "quick": {
