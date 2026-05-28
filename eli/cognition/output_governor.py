@@ -509,12 +509,6 @@ _EVASIVE_PHRASES = (
     "i'm here to assist",
     "i'm here to help",
     "i cannot provide an answer to that question",
-    # Social-probe deflections: model redirecting question back to user instead of answering.
-    # These are evasion under a different disguise — the answer substituted by a counter-question.
-    "how about you",
-    "what about you",
-    "and yourself",
-    "how about yourself",
 )
 
 
