@@ -1,0 +1,199 @@
+{
+  "provider": "custom_gguf",
+  "model_path": "models/Qwen2.5-7B-Instruct-Q4_K_M.gguf",
+  "bundled_model_path": "models/DeepSeek-R1-Distill-Qwen-1.5B-Q4_K_M.gguf",
+  "custom_model_path": "models/Qwen2.5-7B-Instruct-Q4_K_M.gguf",
+  "ollama_host": "http://localhost:11434",
+  "ollama_model": "",
+  "persona_file": "",
+  "user_name": "jason",
+  "user_text_color": "#4DA3FF",
+  "image_style_profile": "auto",
+  "image_palette_profile": "auto",
+  "image_profile_notes": "",
+  "image_backend": "auto",
+  "image_model_path": "models/eli-merged-phi3-cpu/model-00001-of-00004.safetensors",
+  "image_device": "auto",
+  "image_quality_preset": "ultra",
+  "image_steps": 36,
+  "image_guidance": 7.2,
+  "image_negative_prompt": "",
+  "image_default_project_path": "",
+  "image_default_count": 1,
+  "image_default_width": 1400,
+  "image_default_height": 900,
+  "image_auto_personalize": true,
+  "image_auto_open": true,
+  "image_use_chat_context": true,
+  "image_use_proactive_context": true,
+  "n_ctx": 26624,
+  "max_tokens": 4096,
+  "temperature": 1.64,
+  "top_p": 0.95,
+  "top_k": 40,
+  "repeat_penalty": 1.1,
+  "n_gpu_layers": 9999,
+  "n_threads": 10,
+  "batch_size": 512,
+  "cache_type_k": "q4_0",
+  "cache_type_v": "q4_0",
+  "use_mmap": true,
+  "use_mlock": true,
+  "auto_speak": false,
+  "tts_voice": "en_US-amy-medium",
+  "mic_enabled": false,
+  "auto_save": true,
+  "log_to_file": false,
+  "auto_load": true,
+  "first_run_complete": true,
+  "theme": "dark",
+  "gguf_model_path": "models/mistral-small-3.1-24b-instruct-2503-q5_k_m.gguf",
+  "hardware_fingerprint": "88d063a4e3a2ed26",
+  "mode_presets": {
+    "quick": {
+      "passes": 1,
+      "max_tokens": 4096,
+      "temperature": 0.7,
+      "top_p": 0.9,
+      "top_k": 40,
+      "threshold": 0.54,
+      "voice": "Direct, single-pass. Answer the question. No staged reasoning. No self-narration about your process."
+    },
+    "chain_of_thought": {
+      "passes": 1,
+      "max_tokens": 3481,
+      "temperature": 0.49999999999999994,
+      "top_p": 0.85,
+      "top_k": 40,
+      "threshold": 0.6,
+      "voice": "Use structured hidden reasoning. Output final answer only. State assumptions only when useful for the visible answer. End with the final answer clearly separated from the reasoning."
+    },
+    "self_consistency": {
+      "passes": 1,
+      "samples": 3,
+      "max_tokens": 2252,
+      "temperature": 0.7,
+      "top_p": 0.85,
+      "top_k": 50,
+      "threshold": 0.65,
+      "voice": "Reason independently each time. Don't anchor on prior phrasings. The selection stage will pick the most defensible across samples."
+    },
+    "tree_of_thoughts": {
+      "passes": 1,
+      "branches": 3,
+      "max_tokens_propose": 1228,
+      "max_tokens_develop": 3481,
+      "temperature_propose": 0.6,
+      "temperature_develop": 0.39999999999999997,
+      "top_p": 0.8,
+      "top_k": 30,
+      "threshold": 0.7,
+      "voice": "Branch first, commit second. Each candidate approach is named, evaluated on feasibility, then the strongest is developed in full. Do not solve in the proposal phase."
+    },
+    "constitutional_ai": {
+      "passes": 1,
+      "stages": [
+        "generate",
+        "critique",
+        "revise"
+      ],
+      "max_tokens_generate": 3481,
+      "max_tokens_critique": 256,
+      "max_tokens_revise": 3481,
+      "temperature": 0.29999999999999993,
+      "top_p": 0.85,
+      "top_k": 30,
+      "threshold": 0.68,
+      "voice": "Generate carefully, then critique your own draft against the principles, then revise. The critique pass is honest, not theatrical — only fail principles when they actually fail."
+    }
+  },
+  "show_startup_model_picker": true,
+  "ctx": 24576,
+  "n_batch": 256,
+  "hardware_autotune_enabled": true,
+  "hardware_profile": {
+    "hostname": "ghost",
+    "os": "Linux 6.17.0-29-generic",
+    "cpu": "Intel(R) Core(TM) i7-8700 CPU @ 3.20GHz",
+    "cpu_threads": 12,
+    "ram_total_gb": 31.25,
+    "gpus": [
+      {
+        "index": 0,
+        "name": "NVIDIA GeForce RTX 2060 SUPER",
+        "vendor": "nvidia",
+        "total_mb": 8192,
+        "free_mb": 7156
+      }
+    ],
+    "selected_gpu": {
+      "index": 0,
+      "name": "NVIDIA GeForce RTX 2060 SUPER",
+      "vendor": "nvidia",
+      "total_mb": 8192,
+      "free_mb": 7156
+    },
+    "model_path": "models/Qwen2.5-7B-Instruct-Q4_K_M.gguf",
+    "model_size_gb": 4.36,
+    "model_train_ctx": 32768,
+    "ctx_fraction": 0.65,
+    "n_ctx": 20480,
+    "n_gpu_layers": 25,
+    "batch_size": 256,
+    "n_threads": 10,
+    "max_tokens": 8192,
+    "mode_presets": {
+      "quick": {
+        "max_tokens": 1024,
+        "passes": 1,
+        "memory_depth": "minimal"
+      },
+      "standard": {
+        "max_tokens": 3072,
+        "passes": 1,
+        "memory_depth": "normal"
+      },
+      "cot": {
+        "max_tokens": 8192,
+        "passes": 1,
+        "memory_depth": "normal"
+      },
+      "self_consistency": {
+        "samples": 3,
+        "max_tokens_per_sample": 2048,
+        "max_tokens_final": 3072
+      },
+      "tree_of_thoughts": {
+        "branches": 3,
+        "depth": 3,
+        "max_tokens_propose": 1024,
+        "max_tokens_develop": 3072,
+        "max_tokens_critique": 1024,
+        "max_tokens_revise": 8192
+      },
+      "constitutional_ai": {
+        "max_tokens_generate": 3072,
+        "max_tokens_critique": 1024,
+        "max_tokens_revise": 8192,
+        "max_tokens": 8192
+      }
+    },
+    "reasoning": [
+      "train_ctx=32768 model=4.36GB layers=32 usable_vram=4656MB model_vram=4465MB",
+      "batch=256(res=390MB, src='computed') ctx=20480(src='fraction (0.65 × train_ctx, RAM-capped)') kv=640MB gpu_layers=25(src='computed') max_tokens=8192",
+      "Generated max_tokens=8192."
+    ]
+  },
+  "allow_direct_chat_without_wake": false,
+  "mic_device": [
+    "alsa",
+    null
+  ],
+  "stt_dynamic_energy": false,
+  "stt_energy_threshold": 500,
+  "gaze_engine_enabled": false,
+  "gaze_camera": "auto",
+  "hw_profile_n_ctx": 32768,
+  "hw_profile_n_gpu_layers": 99,
+  "hw_profile_batch_size": 512
+}
