@@ -48,6 +48,25 @@ def _kv_cache_mb(n_ctx: int, n_layers: int = 32, quant: bool = False) -> float:
     return raw / 4 if quant else raw
 
 
+def _compute_graph_reserve_mb(n_ctx: int, batch: int = 256) -> float:
+    """Estimate the CUDA compute/graph buffer llama.cpp allocates at DECODE
+    time — separate from model weights and KV cache.
+
+    This buffer scales with context length (attention scratch / KQ buffers)
+    and batch size (activation buffers). It is allocated lazily on the first
+    generation, NOT at load. Failing to reserve it is why a profile could
+    load cleanly and then hard-crash (ggml-cuda.cu CUDA error / core dump)
+    on the first decode: model + KV + 350MB overhead fit, but the compute
+    buffer then pushed total VRAM over the card's limit.
+
+    Empirically on an 8GB card a full-offload 7B at 32k ctx / batch 256 needs
+    ~1.2-1.4GB here. Conservative linear estimate (errs slightly high so the
+    chosen ctx/layers stay inference-safe rather than load-safe-only):
+        base 256MB + 24MB per 1K ctx + 1.5MB per batch unit
+    """
+    return 256.0 + (max(0, int(n_ctx)) / 1024.0) * 24.0 + float(max(0, int(batch))) * 1.5
+
+
 def _layers_for_size(size_gb: float) -> int:
     """Total transformer layers heuristic by model size (GB)."""
     if size_gb < 1.5:   return 22
@@ -325,7 +344,11 @@ def _gpu_layers_for_model(size_gb: float, free_vram_mb: int, n_ctx: int,
         return 0
     total_layers = _layers_for_size(size_gb)
     kv_mb = _kv_cache_mb(n_ctx, total_layers, quant=kv_quantized)
-    available_for_model = free_vram_mb - kv_mb - _CUDA_OVERHEAD_MB
+    # Reserve the decode-time compute/graph buffer too, not just model+KV+overhead.
+    # Without this, full offload (99) gets chosen at max ctx, loads fine, then
+    # OOMs on the first decode when the compute buffer is allocated.
+    compute_mb = _compute_graph_reserve_mb(n_ctx)
+    available_for_model = free_vram_mb - kv_mb - _CUDA_OVERHEAD_MB - compute_mb
     mb_per_layer = (size_gb * 1024) / max(1, total_layers + 2)
     if available_for_model <= 0 or mb_per_layer <= 0:
         return 0
@@ -462,7 +485,10 @@ def recommend(hw: Optional[HardwareProfile] = None,
         # CPU-resident layers). Reserve only the fixed CUDA overhead here; the
         # old +1500 "runtime headroom" double-counted the batch/compute reserve
         # already accounted for during layer selection above.
-        _vram_for_kv = max(0.0, hw.free_vram_mb - _gpu_model_mb - float(_CUDA_OVERHEAD_MB))
+        # Reserve the decode-time compute/graph buffer alongside model+overhead
+        # so the chosen ctx is safe at FIRST GENERATION, not merely at load.
+        _compute_mb = _compute_graph_reserve_mb(rec.n_ctx, 256)
+        _vram_for_kv = max(0.0, hw.free_vram_mb - _gpu_model_mb - float(_CUDA_OVERHEAD_MB) - _compute_mb)
         _kv_factor = 4 if kv_q else 1
         _kv_per_token_mb = (_total_layers_est * _KV_BYTES_PER_TOKEN_PER_LAYER / 1_048_576) / _kv_factor
         if _kv_per_token_mb > 0:
@@ -521,15 +547,29 @@ def recommend(hw: Optional[HardwareProfile] = None,
                              - _gpu_model_for_batch
                              - _kv_at_ctx
                              - float(_CUDA_OVERHEAD_MB))
-        _safe_batch = (512 if _compute_headroom >= 1000 else
-                       256 if _compute_headroom >= 400 else 128)
+        # Pick the largest batch whose DECODE-time compute buffer actually fits
+        # the remaining headroom, plus a safety margin. The compute buffer grows
+        # with BOTH ctx and batch, so the old fixed thresholds (1000/400MB)
+        # under-estimated at long ctx and let batch stay too high — loading fine
+        # then OOMing on first decode. _compute_graph_reserve_mb errs high and
+        # the margin absorbs estimate error + display/VRAM fluctuation.
+        _SAFETY_MARGIN_MB = 400.0
+        _safe_batch = 128
+        for _cand_b in (512, 448, 384, 320, 256, 192, 128):
+            if _cand_b > rec.batch_size:
+                continue
+            _need = _compute_graph_reserve_mb(rec.n_ctx, _cand_b) + _SAFETY_MARGIN_MB
+            if _compute_headroom >= _need:
+                _safe_batch = _cand_b
+                break
         if rec.batch_size > _safe_batch:
-            rec.batch_size = _safe_batch
             rec.reasoning.append(
-                f"batch reduced to {rec.batch_size} — compute headroom "
-                f"{_compute_headroom:.0f}MB (model={_gpu_model_for_batch:.0f} "
-                f"kv={_kv_at_ctx:.0f} cuda={_CUDA_OVERHEAD_MB}MB)"
+                f"batch reduced {rec.batch_size}→{_safe_batch} — headroom "
+                f"{_compute_headroom:.0f}MB vs compute buffer "
+                f"{_compute_graph_reserve_mb(rec.n_ctx, rec.batch_size):.0f}MB"
+                f"+{_SAFETY_MARGIN_MB:.0f}MB margin at ctx={rec.n_ctx}"
             )
+            rec.batch_size = _safe_batch
 
     # Honor the startup dialog's ELI_TARGET_BATCH as an upper cap.
     # This lets the user throttle batch (e.g. when running alongside other
