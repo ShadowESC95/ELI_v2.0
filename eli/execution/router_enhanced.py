@@ -57,7 +57,6 @@ def _eli_phase10_is_codebase_audit_request(text: str) -> bool:
 import json
 import os
 import re
-from eli.runtime.response_policy import should_force_cognitive_for_user_text
 from pathlib import Path
 from typing import Dict, Any, Optional, Tuple, List
 
@@ -3255,30 +3254,8 @@ def _eli_mqc_clean_query(q: str) -> str:
 
 
 
-# Identity route wrapper: short identity questions reach cognition
-import re as _eli_id_re
-
-
-
-# Tiny-chat fragment guard: NOOP truly fragmentary inputs
-# Prevent one/two/fragmentary wake captures from going into full LLM + memory.
-# Examples: "resil", "i u", "preview", "find your mo-".
-import re as _eli_tiny_re
-
-
-
-# Short follow-up pass-through.
-# Lets phrases like "elaborate", "continue", "tell me more" reach CHAT
-# instead of being rejected as incomplete commands. Generic — no
-# user-specific name correction here; identity-aware substitution lives
-# in the cognition layer where the runtime user profile is available.
-import re as _eli_followup_re
-
-
-
-
-# Persona-route override: hand persona/voice queries to cognition
-import re as _eli_pr_re
+# Identity route wrapper, tiny-chat guard, follow-up pass-through,
+# and persona-route override all use the top-level re import.
 
 
 
