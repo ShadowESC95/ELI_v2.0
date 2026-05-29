@@ -1937,24 +1937,6 @@ def route(text: str) -> Dict[str, Any]:
     # "repeat" / "repeat track" / "loop"
     if re.match(r"^(?:repeat|loop)\b", low):
         return _mk("REPEAT_MEDIA", {}, 0.95, matched_by="media.repeat")
-        if re.search(
-                r"\b(next|skip)\s+(?:the\s+)?(?:song|track|media)\b", low):
-            return _mk("NEXT_MEDIA", {}, 0.9, matched_by="media.next_legacy")
-        if re.search(
-                r"\b(previous|back)\s+(?:the\s+)?(?:song|track|media)\b", low):
-            return _mk("PREVIOUS_MEDIA", {}, 0.9,
-                       matched_by="media.prev_legacy")
-
-        cmd = _canonical_media_command(low)
-        if cmd and re.search(
-                r"\b(?:pause|play|resume|stop|next|previous|prev|skip|shuffle|repeat)\b", low):
-            return _mk(
-                "MEDIA_CONTROL",
-                {"command": cmd, "type": "generic"},
-                0.85,
-                matched_by="media.generic",
-                entities={"command": cmd},
-            )
 
     # ------------------------------------------------------------
     # 5) TIME / DATE / CAPABILITIES
@@ -2759,34 +2741,6 @@ def route(text: str) -> Dict[str, Any]:
 
         canonical = app_aliases.get(target_low, target)
         return _mk("OPEN_APP", {"name": canonical}, 0.99, matched_by="open.app.literal_preempt")
-
-        # URL/domain
-        if _is_likely_url(cleaned):
-            url = _normalize_url(cleaned)
-            return _mk("OPEN_URL", {
-                       "url": url}, 0.98, matched_by="open.url_from_open_cmd", entities={"url": url})
-
-        # Website alias
-        if cleaned_low in WEBSITE_ALIASES:
-            url = WEBSITE_ALIASES[cleaned_low]
-            return _mk("OPEN_URL", {"url": url}, 0.98, matched_by="open.website_alias", entities={
-                       "url": url, "alias": cleaned_low})
-
-        # App alias / app priority
-        canonical_app = APP_ALIASES.get(cleaned_low, cleaned)
-        if canonical_app.lower() in DESKTOP_APP_PRIORITY:
-            return _mk("OPEN_APP", {"name": canonical_app}, 1.0,
-                       matched_by="open.app_priority", entities={"app": canonical_app})
-
-        # Path
-        if _is_likely_path(arg):
-            expanded = _expand_common_dir(arg)
-            return _mk("OPEN_FILE_SYSTEM", {
-                       "path": expanded}, 0.95, matched_by="open.path", entities={"path": expanded})
-
-        # Fallback app launch
-        return _mk("OPEN_APP", {"name": canonical_app}, 0.9,
-                   matched_by="open.app_fallback", entities={"app": canonical_app})
 
     # ------------------------------------------------------------
     # 14) SHELL EXEC (explicit only)
