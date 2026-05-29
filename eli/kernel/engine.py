@@ -7806,10 +7806,17 @@ Answer:"""
         try:
             _mqs_raw = str(user_input or "").strip()
             _mqs_q_count = _mqs_raw.count("?")
-            if _mqs_q_count > 1:
-                # Split on '?' — each segment that's non-trivial is a sub-question.
+            _mqs_total_words = len(_mqs_raw.split())
+            # Only split compound questions when the message is long enough to
+            # contain multiple genuine standalone questions. Short messages
+            # (≤25 words) are conversational — splitting loses context and
+            # produces canned per-fragment responses.
+            if _mqs_q_count > 1 and _mqs_total_words > 25:
+                # Split on '?' — each segment must be a standalone question
+                # (≥6 words); fragments like 'good "what"?' are not sub-questions.
                 _mqs_parts = _mqs_raw.split("?")
-                _mqs_segs = [p.strip() for p in _mqs_parts if len(p.strip()) > 3]
+                _mqs_segs = [p.strip() for p in _mqs_parts
+                             if len(p.strip().split()) >= 6]
                 if len(_mqs_segs) >= 2:
                     _mqs_segs = _mqs_segs[:4]  # cap at 4
                     log.debug(
