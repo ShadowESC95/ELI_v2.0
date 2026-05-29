@@ -72,8 +72,8 @@ for _eli_qt_candidate in _QT_IMPORT_ORDER:
                 QApplication, QProgressBar, QSpinBox, QDoubleSpinBox,
                 QAbstractItemView, QStackedWidget,
             )
-            from PySide6.QtCore import Qt, QTimer, QThread, QObject, Signal as pyqtSignal, QSize, QDir
-            from PySide6.QtGui import QFont, QColor, QTextCursor, QSyntaxHighlighter, QTextCharFormat, QPalette
+            from PySide6.QtCore import Qt, QTimer, QThread, QObject, Signal as pyqtSignal, QSize
+            from PySide6.QtGui import QFont, QColor, QSyntaxHighlighter, QTextCharFormat
             _QT = "PySide6"
             break
 
@@ -95,8 +95,8 @@ for _eli_qt_candidate in _QT_IMPORT_ORDER:
                 from PyQt6.QtWidgets import QFileSystemModel
             except ImportError:
                 from PyQt6.QtGui import QFileSystemModel
-            from PyQt6.QtCore import Qt, QTimer, QThread, QObject, pyqtSignal, QSize, QDir
-            from PyQt6.QtGui import QFont, QColor, QTextCursor, QSyntaxHighlighter, QTextCharFormat, QPalette
+            from PyQt6.QtCore import Qt, QTimer, QThread, QObject, pyqtSignal, QSize
+            from PyQt6.QtGui import QFont, QColor, QSyntaxHighlighter, QTextCharFormat
             _QT = "PyQt6"
             break
 
@@ -111,8 +111,8 @@ for _eli_qt_candidate in _QT_IMPORT_ORDER:
                 QApplication, QProgressBar, QSpinBox, QDoubleSpinBox,
                 QAbstractItemView, QStackedWidget,
             )
-            from PyQt5.QtCore import Qt, QTimer, QThread, QObject, pyqtSignal, QSize, QDir
-            from PyQt5.QtGui import QFont, QColor, QTextCursor, QSyntaxHighlighter, QTextCharFormat, QPalette
+            from PyQt5.QtCore import Qt, QTimer, QThread, QObject, pyqtSignal, QSize
+            from PyQt5.QtGui import QFont, QColor, QSyntaxHighlighter, QTextCharFormat
             _QT = "PyQt5"
             break
 
@@ -131,9 +131,9 @@ if _QT is None:
 # Python syntax highlighter (see _PySyntaxHighlighter usage below).
 try:
     if _QT == "PyQt6":
-        from PyQt6.Qsci import QsciScintilla, QsciLexerPython, QsciAPIs
+        from PyQt6.Qsci import QsciScintilla, QsciLexerPython
     elif _QT == "PyQt5":
-        from PyQt5.Qsci import QsciScintilla, QsciLexerPython, QsciAPIs
+        from PyQt5.Qsci import QsciScintilla, QsciLexerPython
     else:
         raise ImportError
     _QSCI = True

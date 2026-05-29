@@ -2257,7 +2257,6 @@ def _eli_personal_memory_answer_v2(mode_label: str = "") -> str:  # type: ignore
 # =============================================================================
 
 import getpass as _eli_getpass
-import json as _eli_v8_json
 import re as _eli_v8_re
 import sqlite3 as _eli_v8_sqlite3
 from pathlib import Path as _EliV8Path
@@ -2560,7 +2559,6 @@ def _eli_personal_memory_answer_v2(mode_label: str = "") -> str:  # type: ignore
 # - Keeps runtime SELF_REPORT only for explicit runtime-status questions.
 # =============================================================================
 
-import getpass as _eli_v9_getpass
 import re as _eli_v9_re
 from typing import Any as _EliV9Any, Mapping as _EliV9Mapping
 
@@ -3194,7 +3192,6 @@ def _eli_v14_render_action_legacy(action, args=None, user_input="", mode_label="
 
 import getpass as _eli_v11_getpass
 import re as _eli_v11_re
-from typing import Any as _EliV11Any
 
 
 _ELI_V11_RESPONSE_SURFACE_ACTIONS = {
@@ -3682,7 +3679,6 @@ _ELI_V12_PREVIOUS_INSTALL = globals().get("install")
 # =============================================================================
 
 import re as _eli_v13_re
-from typing import Any as _EliV13Any
 
 
 _ELI_V13_PREVIOUS_RENDER_ACTION = globals().get("render_action")
@@ -3910,7 +3906,6 @@ _ELI_V13_SURFACE_ACTIONS = set(globals().get("_ELI_V12_SURFACE_ACTIONS", set()))
 
 import getpass as _eli_v14_getpass
 import json as _eli_v14_json
-import os as _eli_v14_os
 import re as _eli_v14_re
 import socket as _eli_v14_socket
 import subprocess as _eli_v14_subprocess
@@ -4291,7 +4286,7 @@ try:
     if not globals().get("_ELI_DETERMINISTIC_GROUNDING_POLICY_ENGINE_V1"):
         _ELI_DETERMINISTIC_GROUNDING_POLICY_ENGINE_V1 = True
         from dataclasses import dataclass as _eli_dg_dataclass
-        from typing import Callable as _eli_dg_Callable, Iterable as _eli_dg_Iterable
+        from typing import Callable as _eli_dg_Callable
 
         _ELI_DG_POLICY_FALLBACK_RENDER = globals().get("_ELI_V14_PREVIOUS_RENDER_ACTION") or globals().get("render_action")
 

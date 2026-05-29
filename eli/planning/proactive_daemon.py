@@ -284,7 +284,6 @@ class ProactiveDaemon:
         # This closes the loop: patterns are not just logged once, they're
         # compared to past patterns to surface rising/falling trends.
         try:
-            import json as _tj
             _last_obs = self.agent_mem.get_recent_observations(limit=5) if self.agent_mem else []
             _past_topics: set = set()
             for _obs in _last_obs:

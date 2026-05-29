@@ -36,7 +36,7 @@ from __future__ import annotations
 QT_API = None
 
 try:
-    from PySide6.QtCore import Qt, QTimer, QThread, QObject, Signal as pyqtSignal, Slot as pyqtSlot
+    from PySide6.QtCore import Qt, QTimer, QThread, QObject, Signal as pyqtSignal
     from PySide6.QtGui import (  # noqa: F401
         QColor, QFont, QIcon, QPixmap, QImage, QPainter, QPalette, QKeySequence,
         QTextCursor, QTextCharFormat, QBrush, QPen, QAction,
@@ -58,7 +58,7 @@ try:
     QT_API = "PySide6"
 except Exception:
     try:
-        from PyQt6.QtCore import Qt, QTimer, QThread, QObject, pyqtSignal, pyqtSlot
+        from PyQt6.QtCore import Qt, QTimer, QThread, QObject, pyqtSignal
         from PyQt6.QtGui import (  # noqa: F401
             QColor, QFont, QIcon, QPixmap, QImage, QPainter, QPalette, QKeySequence,
             QTextCursor, QTextCharFormat, QBrush, QPen, QAction,
@@ -80,7 +80,7 @@ except Exception:
         QT_API = "PyQt6"
     except Exception:
         try:
-            from PyQt5.QtCore import Qt, QTimer, QThread, QObject, pyqtSignal, pyqtSlot
+            from PyQt5.QtCore import Qt, QTimer, QThread, QObject, pyqtSignal
             from PyQt5.QtGui import (  # noqa: F401
                 QColor, QFont, QIcon, QPixmap, QImage, QPainter, QPalette, QKeySequence,
                 QTextCursor, QTextCharFormat, QBrush, QPen,

@@ -3151,7 +3151,7 @@ def _speak_legacy(text: str):
 
 # --- TTS PATCH ---
 import tempfile
-from eli.utils.platform_compat import open_url, open_file, notify, copy_to_clipboard, play_sound, find_executable, LINUX, WINDOWS, MACOS
+from eli.utils.platform_compat import open_url, open_file, notify, copy_to_clipboard, play_sound, LINUX, WINDOWS, MACOS
 
 # ---- Ollama host canonical config ----
 OLLAMA_HOST = (os.environ.get("ELI_OLLAMA_HOST") or os.environ.get("OLLAMA_HOST") or "http://127.0.0.1:11434").rstrip("/")
@@ -3945,7 +3945,7 @@ def _save_artifact(content: str, subdir: str, filename: str, fmt: str = "md") ->
     if fmt == "docx":
         try:
             from docx import Document
-            from docx.shared import Pt, RGBColor
+            from docx.shared import Pt
             doc = Document()
             # Style
             style = doc.styles["Normal"]
@@ -7586,7 +7586,6 @@ def _execute_impl(action: str, args: Optional[Dict[str, Any]] = None) -> Dict[st
             def _format_articles(articles, header="", with_summaries=False):
                 if not articles:
                     return None
-                import time as _time_mod
                 from datetime import datetime as _dt, date as _date_cls
                 _today = _date_cls.today()
                 lines = [header] if header else []
@@ -9646,7 +9645,6 @@ except Exception:
 # ELI_EXECUTOR_VISIBLE_TILE_SECOND_FIX_20260505
 # Terminal action wrappers. Must sit late in file to override previous execute wrappers.
 import math as _eli_tile_math
-import os as _eli_tile_os
 import re as _eli_tile_re
 import subprocess as _eli_tile_subprocess
 
@@ -10604,7 +10602,6 @@ try:
     import re as _eli_recent_mem_re
     import sqlite3 as _eli_recent_mem_sqlite
     from pathlib import Path as _eli_recent_mem_Path
-    from typing import Any as _eli_recent_mem_Any
 
     def _eli_recent_mem_paths() -> dict:
         out = {}
@@ -10914,8 +10911,6 @@ except Exception as _eli_recent_memory_exec_err:
 # report before it reaches user-visible synthesis.
 # =============================================================================
 try:
-    import re as _eli_recent_mem_v2_re
-
     def _eli_recent_mem_v2_bad_runtime_text(text: object, question: object = "") -> bool:
         low = str(text or "").strip().lower()
         qlow = str(question or "").strip().lower()
