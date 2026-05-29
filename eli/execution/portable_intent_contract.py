@@ -210,9 +210,18 @@ def try_route(text: str) -> Optional[dict]:
     if m_shell:
         parts = m_shell.group(1).strip().split()
         if parts and parts[0].lower() in _PORTABLE_SHELL_CMDS:
+            # Extract the command from the ORIGINAL text, not the lowercased
+            # norm — shell commands are case-sensitive (paths like
+            # /home/jay/Desktop, flags like -R vs -r). norm is only used to
+            # detect that this IS a shell command; the cmd itself must keep
+            # the user's original case.
+            _raw_collapsed = re.sub(r"\s+", " ", raw).strip()
+            m_shell_raw = re.match(r"(?i)(?:run|execute)\s+(\S+(?:\s+.+)?)", _raw_collapsed)
+            _cmd = (m_shell_raw.group(1).strip() if m_shell_raw
+                    else m_shell.group(1).strip())
             return {
                 "action": "SHELL_EXEC",
-                "args": {"cmd": m_shell.group(1).strip()},
+                "args": {"cmd": _cmd},
                 "confidence": 0.96,
                 "meta": {"matched_by": "portable_intent_contract.shell_exec"},
             }
