@@ -1272,7 +1272,6 @@ def try_handle_query(text: str) -> str | None:
         if not diag.get("ok"):
             return offer_for_result(diag)
         return None
-        return explain_last_failure(m.group(1))
 
     m = re.match(r"^\s*(?:can you\s+)?(?:check|confirm)(?:\s+if)?\s+(.+?)\s+(?:is\s+)?(?:actually\s+)?(?:installed|on this machine|available|present)(?:\s+or\s+not)?\s*\??\s*$", raw, re.I)
     if m:

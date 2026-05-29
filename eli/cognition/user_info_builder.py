@@ -275,33 +275,6 @@ def _gather_semantic(conn: sqlite3.Connection, user_id: str | None = None) -> Li
             }
         )
     return out
-    rows = _query_all(
-        conn,
-        """
-        SELECT fact, COALESCE(tags,''), COALESCE(confidence,0), COALESCE(created_at,'')
-        FROM semantic
-        ORDER BY confidence DESC, created_at DESC
-        LIMIT 200
-        """,
-    )
-    seen = set()
-    for fact, tags, conf, created_at in rows:
-        fact = str(fact or "").strip()
-        if not fact:
-            continue
-        k = fact.lower()
-        if k in seen:
-            continue
-        seen.add(k)
-        out.append(
-            {
-                "fact": fact,
-                "tags": str(tags or ""),
-                "confidence": float(conf or 0),
-                "created_at": str(created_at or ""),
-            }
-        )
-    return out
 
 def _gather_user_patterns(conn: sqlite3.Connection, user_id: str | None = None) -> List[Dict[str, Any]]:
     out: List[Dict[str, Any]] = []
@@ -393,101 +366,6 @@ def _gather_stable_memories(conn: sqlite3.Connection, user_id: str | None = None
         (str(user_id or ""),),
     )
 
-    seen = set()
-    for _id, text, tags, importance, created_at in rows:
-        text = str(text or "").strip()
-        if not text:
-            continue
-        k = text.lower()
-        if k in seen:
-            continue
-        seen.add(k)
-        out.append(
-            {
-                "id": _id,
-                "text": text,
-                "tags": str(tags or ""),
-                "importance": float(importance or 0),
-                "created_at": str(created_at or ""),
-            }
-        )
-    return out
-
-    cols = _columns(conn, "memories")
-
-    # Strict multi-user rule:
-    # if memories has no user_id column, do not use it for user-profile synthesis.
-    # Unscoped memories are unsafe for identity/profile extraction.
-    if "user_id" not in cols:
-        return out
-
-    rows = _query_all(
-        conn,
-        """
-        SELECT
-            id,
-            COALESCE(text,''),
-            COALESCE(tags,''),
-            COALESCE(importance,0),
-            COALESCE(created_at, timestamp, ts, '')
-        FROM memories
-        WHERE
-            COALESCE(user_id,'') = ?
-            AND (
-                lower(COALESCE(tags,'')) LIKE '%user_fact%'
-                OR lower(COALESCE(tags,'')) LIKE '%preference%'
-                OR lower(COALESCE(tags,'')) LIKE '%identity%'
-                OR lower(COALESCE(tags,'')) LIKE '%project%'
-                OR lower(COALESCE(tags,'')) LIKE '%constraint%'
-                OR lower(COALESCE(tags,'')) LIKE '%long_term%'
-                OR COALESCE(importance,0) >= 0.85
-            )
-        ORDER BY importance DESC, COALESCE(created_at, timestamp, ts, '') DESC
-        LIMIT 200
-        """,
-        (str(user_id or ""),),
-    )
-    seen = set()
-    for _id, text, tags, importance, created_at in rows:
-        text = str(text or "").strip()
-        if not text:
-            continue
-        k = text.lower()
-        if k in seen:
-            continue
-        seen.add(k)
-        out.append(
-            {
-                "id": _id,
-                "text": text,
-                "tags": str(tags or ""),
-                "importance": float(importance or 0),
-                "created_at": str(created_at or ""),
-            }
-        )
-    return out
-    rows = _query_all(
-        conn,
-        """
-        SELECT
-            id,
-            COALESCE(text,''),
-            COALESCE(tags,''),
-            COALESCE(importance,0),
-            COALESCE(created_at,'')
-        FROM memories
-        WHERE
-            lower(COALESCE(tags,'')) LIKE '%user_fact%'
-            OR lower(COALESCE(tags,'')) LIKE '%preference%'
-            OR lower(COALESCE(tags,'')) LIKE '%identity%'
-            OR lower(COALESCE(tags,'')) LIKE '%project%'
-            OR lower(COALESCE(tags,'')) LIKE '%constraint%'
-            OR lower(COALESCE(tags,'')) LIKE '%long_term%'
-            OR COALESCE(importance,0) >= 0.85
-        ORDER BY importance DESC, created_at DESC
-        LIMIT 200
-        """,
-    )
     seen = set()
     for _id, text, tags, importance, created_at in rows:
         text = str(text or "").strip()
