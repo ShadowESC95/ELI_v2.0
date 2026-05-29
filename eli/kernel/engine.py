@@ -302,24 +302,49 @@ def _load_persona_text() -> str:
     """
     root = Path(__file__).resolve().parents[2]
 
-    candidates = [
+    # Base identity candidates — stop at first found
+    base_candidates = [
         root / "eli" / "cognition" / "persona.txt",
-        root / "eli" / "cognition" / "persona.auto.txt",
         root / "config" / "persona.txt",
-        root / "config" / "persona.auto.txt",
         Path(__file__).resolve().parents[1] / "persona" / "persona.txt",
         Path(__file__).resolve().parent / "persona.txt",
     ]
+    # Dynamic overlay — auto-updated every 120s by persona_updater
+    overlay_candidates = [
+        root / "eli" / "cognition" / "persona.auto.txt",
+        root / "config" / "persona.auto.txt",
+    ]
 
-    for cand in candidates:
+    base = ""
+    for cand in base_candidates:
         try:
             if cand.exists() and cand.is_file():
                 raw = cand.read_text(encoding="utf-8", errors="replace")
                 cleaned = _clean_persona(raw).strip()
                 if cleaned:
-                    return cleaned
+                    base = cleaned
+                    break
         except Exception:
             pass
+
+    overlay = ""
+    for cand in overlay_candidates:
+        try:
+            if cand.exists() and cand.is_file():
+                raw = cand.read_text(encoding="utf-8", errors="replace")
+                cleaned = _clean_persona(raw).strip()
+                if cleaned:
+                    overlay = cleaned
+                    break
+        except Exception:
+            pass
+
+    if base and overlay:
+        return base + "\n\n" + overlay
+    if base:
+        return base
+    if overlay:
+        return overlay
 
     try:
         forced = (config.get_eli_persona() or "").strip()
