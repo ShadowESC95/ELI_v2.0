@@ -178,8 +178,7 @@ class VectorStore:
             if env_embed:
                 _model_path = str(Path(env_embed).expanduser().resolve())
             else:
-                _project_root = Path(os.getenv('ELI_PROJECT_ROOT', str(_root))).expanduser().resolve()
-                _model_path = str((_project_root / 'models' / 'embeddings' / 'nomic-embed-text-v1.5.Q4_K_M.gguf').resolve())
+                _model_path = str((_project_root() / 'models' / 'embeddings' / 'nomic-embed-text-v1.5.Q4_K_M.gguf').resolve())
             if not os.path.exists(_model_path):
                 raise FileNotFoundError('Embed model not found: ' + _model_path)
             _llm = Llama(
