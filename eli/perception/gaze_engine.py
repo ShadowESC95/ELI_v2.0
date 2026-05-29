@@ -205,7 +205,6 @@ class _GazeEngineService:
 
         try:
             while not self._stop_event.is_set():
-                import cv2 as _cv2
                 ok, frame = cap.read()
                 if not ok or frame is None:
                     time.sleep(0.05)

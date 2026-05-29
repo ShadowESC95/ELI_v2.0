@@ -17,13 +17,13 @@ except ImportError:
         from PyQt6.QtWidgets import *
         from PyQt6.QtCore import *
         from PyQt6.QtGui import *
-        from PyQt6.QtCore import pyqtSignal, pyqtSlot
+        from PyQt6.QtCore import pyqtSignal
         QT_API = "PyQt6"
     except ImportError:
         from PyQt5.QtWidgets import *
         from PyQt5.QtCore import *
         from PyQt5.QtGui import *
-        from PyQt5.QtCore import pyqtSignal, pyqtSlot
+        from PyQt5.QtCore import pyqtSignal
         QT_API = "PyQt5"
 
 from datetime import datetime

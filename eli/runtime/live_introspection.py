@@ -471,7 +471,6 @@ def build_report(action: str, user_input: str = "") -> Dict[str, Any]:
 
     if act == "RUNTIME_AUDIT":
         import re as _re_audit
-        import ast as _ast_audit
 
         _audit_files = [
             "eli/kernel/engine.py",
