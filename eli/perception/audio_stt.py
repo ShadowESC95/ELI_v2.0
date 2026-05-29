@@ -38,8 +38,6 @@ from typing import Callable, Optional
 import os as _eli_os
 import re as _eli_re
 import subprocess as _eli_subprocess
-import time as _eli_time
-
 _ELI_ECHO_GATE_DEFAULT_S = float(_eli_os.environ.get("ELI_STT_POST_COMMAND_ECHO_GATE", "0.5"))
 _ELI_DUCK_LEVEL = _eli_os.environ.get("ELI_WAKE_DUCK_LEVEL", "18%")
 _ELI_DUCK_ENABLED = _eli_os.environ.get("ELI_WAKE_DUCK_ENABLED", "1") != "0"

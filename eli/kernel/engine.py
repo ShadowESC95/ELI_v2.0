@@ -20,7 +20,6 @@ import re
 import json
 import sys
 import time
-from eli.kernel.task_bus import run as _task_bus_run
 import threading
 from collections import Counter
 from pathlib import Path
@@ -56,7 +55,7 @@ def _eli_test_mode() -> bool:
 
 # Response governance (coverage patch)
 try:
-    from eli.cognition.response_governance import govern_response, normalize_response, should_store_as_memory
+    from eli.cognition.response_governance import normalize_response, should_store_as_memory
     _HAS_GOVERNANCE = True
 except ImportError:
     _HAS_GOVERNANCE = False
@@ -7802,7 +7801,6 @@ Answer:"""
         # Pass 1 splits it into ["Story pal", "Who are you, and who am I"], processes
         # each, and the second segment gets caught by Pass 2 in its nested call.
         try:
-            import re as _mqs_re
             _mqs_raw = str(user_input or "").strip()
             _mqs_q_count = _mqs_raw.count("?")
             if _mqs_q_count > 1:
@@ -11315,7 +11313,6 @@ Answer:"""
         # Strip absolute project root paths from evidence so they don't bleed
         # into the final response as ugly filesystem strings.
         try:
-            import re as _re_paths
             import os as _os_paths
             _proj_root = str(getattr(self, '_project_root', '') or '').strip()
             if not _proj_root:

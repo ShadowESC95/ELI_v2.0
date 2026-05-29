@@ -6078,7 +6078,6 @@ class EliMainWindow(QMainWindow):
         """Lazy-create the wizard preview signal/slot (main-thread dialog)."""
         if getattr(self, "_wizard_preview_sig", None) is not None:
             return
-        from eli.gui.qt_compat import pyqtSignal as _SigT  # type: ignore
         # Signal must be defined on the class, not the instance, but we
         # already create it via wizard_say_signal pattern. Use a Qt thread
         # marshalling pathway instead — schedule via QTimer on the main loop.
