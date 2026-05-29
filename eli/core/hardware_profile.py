@@ -121,7 +121,7 @@ class ModelRecommendation:
         }
 
 
-def _derive_mode_presets(base_n_ctx: int, base_max_tokens: int,
+def _derive_mode_presets(_base_n_ctx: int, base_max_tokens: int,
                          base_temperature: float) -> Dict[str, Dict[str, Any]]:
     """Derive per-reasoning-mode parameters from the base hardware-aware tune.
 
