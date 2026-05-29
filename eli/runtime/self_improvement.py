@@ -203,7 +203,7 @@ class SelfImprovementEngine:
         self.memory.log_improvement(category, description, area=area,
                                     code_before=code_before, code_after=code_after)
 
-    def handle_correction(self, original: str, corrected_action: str, corrected_args: dict = None):
+    def handle_correction(self, original: str, corrected_action: str, _corrected_args: dict = None):
         self.memory.log_correction(_safe_str(original), _safe_str(corrected_action))
         return {"ok": True}
 

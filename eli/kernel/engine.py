@@ -8000,34 +8000,33 @@ Answer:"""
         # legacy bottom block; the prior globals() guard was redundant.)
         try:
             _eli_pipe("mw_personal_memory_quick_check")
-            if True:
-                _eli_pm_mw_raw = str(user_input or "")
-                _eli_pm_mw_low = _eli_pm_mw_raw.lower()
-                _eli_pm_mw_kwargs = dict(kwargs)
-                try:
-                    _eli_pm_mw_kwargs.setdefault("reasoning_mode", reasoning_mode)
-                except Exception:
-                    pass
+            _eli_pm_mw_raw = str(user_input or "")
+            _eli_pm_mw_low = _eli_pm_mw_raw.lower()
+            _eli_pm_mw_kwargs = dict(kwargs)
+            try:
+                _eli_pm_mw_kwargs.setdefault("reasoning_mode", reasoning_mode)
+            except Exception:
+                pass
 
-                _eli_pm_mw_mode = _eli_pm_engine_mode_key(self, (), _eli_pm_mw_kwargs)
+            _eli_pm_mw_mode = _eli_pm_engine_mode_key(self, (), _eli_pm_mw_kwargs)
 
-                if _eli_pm_engine_wants_routing_fault(_eli_pm_mw_low):
-                    if _eli_pm_mw_mode == "quick":
-                        _eli_pipe("mw_personal_memory_quick_hit", kind="routing_fault", mode=_eli_pm_mw_mode)
-                        try:
-                            from eli.runtime.personal_memory_deep_response import build_routing_fault_explanation
-                            return build_routing_fault_explanation(_eli_pm_mw_raw)
-                        except Exception as _eli_pm_route_err:
-                            return f"Routing fault explanation failed: {type(_eli_pm_route_err).__name__}: {_eli_pm_route_err}"
+            if _eli_pm_engine_wants_routing_fault(_eli_pm_mw_low):
+                if _eli_pm_mw_mode == "quick":
+                    _eli_pipe("mw_personal_memory_quick_hit", kind="routing_fault", mode=_eli_pm_mw_mode)
+                    try:
+                        from eli.runtime.personal_memory_deep_response import build_routing_fault_explanation
+                        return build_routing_fault_explanation(_eli_pm_mw_raw)
+                    except Exception as _eli_pm_route_err:
+                        return f"Routing fault explanation failed: {type(_eli_pm_route_err).__name__}: {_eli_pm_route_err}"
 
-                if _eli_pm_engine_wants_personal_memory(_eli_pm_mw_low):
-                    if _eli_pm_mw_mode == "quick":
-                        _eli_pipe("mw_personal_memory_quick_hit", kind="personal_memory", mode=_eli_pm_mw_mode)
-                        try:
-                            from eli.runtime.personal_memory_deep_response import build_personal_memory_deep_response
-                            return build_personal_memory_deep_response(_eli_pm_mw_raw, mode_label=_eli_pm_mw_mode)
-                        except Exception as _eli_pm_mem_err:
-                            return f"Personal memory deep response failed: {type(_eli_pm_mem_err).__name__}: {_eli_pm_mem_err}"
+            if _eli_pm_engine_wants_personal_memory(_eli_pm_mw_low):
+                if _eli_pm_mw_mode == "quick":
+                    _eli_pipe("mw_personal_memory_quick_hit", kind="personal_memory", mode=_eli_pm_mw_mode)
+                    try:
+                        from eli.runtime.personal_memory_deep_response import build_personal_memory_deep_response
+                        return build_personal_memory_deep_response(_eli_pm_mw_raw, mode_label=_eli_pm_mw_mode)
+                    except Exception as _eli_pm_mem_err:
+                        return f"Personal memory deep response failed: {type(_eli_pm_mem_err).__name__}: {_eli_pm_mem_err}"
         except Exception as _eli_pm_middleware_err:
             log.debug(f"[ENGINE][WARN] personal-memory quick middleware failed: {_eli_pm_middleware_err}")
         # === END ELI_ENGINE_MIDDLEWARE_PERSONAL_MEMORY_QUICK_V1 ===
