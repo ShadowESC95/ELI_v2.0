@@ -3141,7 +3141,10 @@ class CognitiveEngine:
         if mode in {"tree_of_thoughts", "constitutional_ai",
             "self_consistency", "chain_of_thought"}:
             return words <= 14 and ctx_len <= 1200
-        return words <= 28 and ctx_len <= 1800
+        # quick mode: compact on word count alone — ctx_len gate was causing
+        # the full 13K persona to load for all normal queries, drowning the
+        # actual question at 0.3% signal ratio on a 7B quantized model.
+        return words <= 28
 
     def _reasoning_mode_instruction(
         self, reasoning_mode: Optional[str]) -> str:
