@@ -334,7 +334,27 @@ def try_route(text: str) -> Optional[dict]:
     _negated_generation = bool(wants_generation and re.search(
         r"\b(?:not|don'?t|never|no|stop|without|rather\s+than|instead\s+of)\b\s+\w*\s*"
         r"(?:generate|write|create|build|make)\b", norm))
-    if wants_generation and wants_code and not _looks_like_generation_complaint(norm) and not _negated_generation:
+    # "make sure/sense/it/certain/use/note/do" are conversational idioms, not
+    # code-generation commands. Only flag as generation if a real imperative
+    # verb (generate/write/create/build) is present, or "make" is not in an idiom.
+    _make_idiom_only = bool(
+        wants_generation
+        and not re.search(r"\b(?:generate|write|create|build)\b", norm)
+        and re.search(r"\bmake\s+(?:sure|sense|it|this|that|certain|use|note|do|up|mention)\b", norm)
+    )
+    # "code" used as a noun referring to existing code (noticed/seen/the/your/their
+    # code changes/base/review) is not a generation target.
+    _code_is_reference = bool(
+        wants_code
+        and re.search(r"\b(?:script|code|program)\b", norm)
+        and re.search(r"\b(?:noticed|seen|the|your|their|this|that|existing|current|latest)"
+                      r"\s+(?:code|script|program)\b", norm)
+    )
+    if (wants_generation and wants_code
+            and not _looks_like_generation_complaint(norm)
+            and not _negated_generation
+            and not _make_idiom_only
+            and not _code_is_reference):
         language = infer_script_language(raw)
         return {
             "action": "GENERATE_SCRIPT",
