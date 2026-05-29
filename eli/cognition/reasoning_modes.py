@@ -499,6 +499,12 @@ def strip_reasoning_leaks(text: object) -> str:
         r"(?i)^(?:I(?:'ll| will)?\s+)?privately\s+consider\s+(?:multiple\s+ways|several\s+angles)\b[^.]*\.\s*",
         r"(?i)^I\s+will\s+(?:privately|silently)\s+(?:consider|reason|think)\b[^.]*\.\s*",
         r"(?i)^(?:I(?:'ll| will)?\s+)?write\s+ONLY\s+the\s+(?:clearest|final|best)\s+(?:one\s+)?as\s+(?:the\s+)?(?:final\s+)?answer\b[^.]*\.\s*",
+        # ToT branch-selection decisions leaking into visible output:
+        # "I'll go with a quick context check..." / "Going with approach 1..."
+        r"(?i)^I(?:'ll| will)\s+go\s+with\s+(?:a\s+|the\s+|this\s+)?[^.!?\n]{0,120}[.!?]\s*",
+        r"(?i)^(?:Let(?:'s| me)\s+go\s+with|Going\s+with)\s+[^.!?\n]{0,100}[.!?]\s*",
+        r"(?i)^I(?:'ll| will)\s+(?:use|choose|select|apply|take)\s+(?:approach|candidate|option|path|branch)\s*(?:number\s+)?\d+\b[^.!?]*[.!?]\s*",
+        r"(?i)^I(?:'ll| will)\s+(?:use|choose|select|apply|try)\s+(?:the\s+)?(?:first|second|third|best|top)\s+(?:approach|candidate|option|path|branch)\b[^.!?]*[.!?]\s*",
     ]
     for pat in phrases:
         s = re.sub(pat, "", s)
