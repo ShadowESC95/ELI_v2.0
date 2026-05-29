@@ -649,6 +649,7 @@ def _generate_legacy(
     if llm is None:
         raise RuntimeError("GGUF model not available")
 
+    print(f"[DEBUG_PROMPT] system_chars={len(system or '')} user_chars={len(prompt or '')}")
     full_prompt = _format_prompt(system, prompt)
 
     available_tokens = _ctx_max_tokens(llm, full_prompt)
