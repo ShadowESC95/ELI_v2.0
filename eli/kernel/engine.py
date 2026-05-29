@@ -3141,10 +3141,24 @@ class CognitiveEngine:
         if mode in {"tree_of_thoughts", "constitutional_ai",
             "self_consistency", "chain_of_thought"}:
             return words <= 14 and ctx_len <= 1200
-        # quick mode: compact on word count alone — ctx_len gate was causing
-        # the full 13K persona to load for all normal queries, drowning the
-        # actual question at 0.3% signal ratio on a 7B quantized model.
-        return words <= 28
+        # quick mode: stay compact for any normal conversational message so the
+        # user's actual words dominate the prompt. The compact persona (3800 chars)
+        # already carries every critical voice/grounding rule; the extra ~10K of
+        # full persona only adds elaboration that buries the question on a small-ctx
+        # local model and makes it parrot recent turns (observed: a 33-word message
+        # tripped words<=28, loaded the full persona, ballooned the prompt to ~30K
+        # chars/7.3K tokens, and the 7B repeated its previous reply instead of
+        # answering). Explicit depth requests still get the full persona; genuine
+        # long-form paste-ins (>120 words) do too.
+        _low = (user_input or "").lower()
+        _wants_depth = any(x in _low for x in (
+            "in depth", "in-depth", "elaborate", "thorough", "comprehensive",
+            "explain fully", "go deeper", "full detail", "full details",
+            "step by step", "step-by-step", "be detailed", "give me everything",
+        ))
+        if _wants_depth:
+            return False
+        return words <= 120
 
     def _reasoning_mode_instruction(
         self, reasoning_mode: Optional[str]) -> str:
