@@ -196,5 +196,5 @@
   "gaze_camera": "auto",
   "hw_profile_n_ctx": 32768,
   "hw_profile_n_gpu_layers": 99,
-  "hw_profile_batch_size": 128
+  "hw_profile_batch_size": 256
 }

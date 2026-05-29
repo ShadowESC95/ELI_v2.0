@@ -311,20 +311,15 @@ def _load_persona_text() -> str:
         Path(__file__).resolve().parent / "persona.txt",
     ]
 
-    parts: List[str] = []
-
     for cand in candidates:
         try:
             if cand.exists() and cand.is_file():
                 raw = cand.read_text(encoding="utf-8", errors="replace")
                 cleaned = _clean_persona(raw).strip()
                 if cleaned:
-                    parts.append(f"=== PERSONA SOURCE: {cand} ===\n{cleaned}")
+                    return cleaned
         except Exception:
             pass
-
-    if parts:
-        return "\n\n".join(parts).strip()
 
     try:
         forced = (config.get_eli_persona() or "").strip()
@@ -7513,9 +7508,10 @@ Answer:"""
                                               reasoning_mode: Optional[str] = None,
                                               **kwargs):
         memory_context = ""
+        situation_brief = ""
         try:
             memory_context = getattr(working_memory, "assembled_context", "") or ""
-            situation_brief = ""
+            situation_brief = getattr(working_memory, "persona_handoff", "") or ""
         except Exception:
             memory_context = ""
             situation_brief = ""
@@ -7600,17 +7596,18 @@ Answer:"""
         except Exception:
             _bus_result = None
 
-        try:
-            situation_brief = self._build_persona_handoff_once(
-                user_input=prompt,
-                memory_context=memory_context,
-                bus_result=_bus_result,
-                recent_turns=recent_turns,
-                working_memory=working_memory,
-            ) or ""
-        except Exception as e:
-            log.debug(f"[COGNITIVE] generate_stream_from_assembled_prompt handoff failed: {e}")
-            situation_brief = ""
+        if not situation_brief:
+            try:
+                situation_brief = self._build_persona_handoff_once(
+                    user_input=prompt,
+                    memory_context=memory_context,
+                    bus_result=_bus_result,
+                    recent_turns=recent_turns,
+                    working_memory=working_memory,
+                ) or ""
+            except Exception as e:
+                log.debug(f"[COGNITIVE] generate_stream_from_assembled_prompt handoff failed: {e}")
+                situation_brief = ""
 
         def _live_stream() -> Generator[str, None, None]:
             """
@@ -10383,7 +10380,7 @@ Answer:"""
 
         wm = SimpleNamespace(
             user_input=user_input,
-            assembled_context=situation_brief,
+            assembled_context=memory_context,
             persona_handoff=situation_brief,
             final_response="",
             trace={},
