@@ -1446,10 +1446,19 @@ try:
                 512,
             )
 
-            # When canonical gpu_layers is a sentinel value and hw_profile
-            # has a calibrated value, use the hw_profile value as the base.
-            # This prevents the first attempt always OOMing on 9999 layers.
-            if _hw_gpu > 0 and _raw_gpu >= 9000:
+            # hw_profile_n_gpu_layers is the VRAM-calibrated ceiling computed
+            # for THIS model on THIS machine's current free VRAM. Any resolved
+            # value ABOVE it will try to offload more layers than fit and OOM
+            # on the first load attempt. Clamp down to the calibrated value
+            # whenever the resolved value exceeds it.
+            #
+            # The old guard only caught the >=9000 sentinel, which let stale
+            # real-looking values slip through — e.g. a prior 7B session left
+            # canonical n_gpu_layers=25, then a 24B model (calibrated to 13)
+            # would request 25, OOM, and thrash through the fallback ladder.
+            # hw_profile=99 ("all layers fit") is never exceeded by a real
+            # layer count, so a smaller real request is correctly left alone.
+            if _hw_gpu > 0 and _raw_gpu > _hw_gpu:
                 _raw_gpu = _hw_gpu
             if _hw_ctx > 0 and _raw_ctx > _hw_ctx * 1.5:
                 # Canonical ctx is significantly larger than hw-recommended —
