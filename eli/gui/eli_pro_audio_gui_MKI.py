@@ -7950,10 +7950,12 @@ _register()
             for line in list(getattr(rec, "reasoning", []) or []):
                 self._hardware_tuning_log(str(line))
 
-            # HW Profile is informational — show what was computed for this
-            # hardware / model combination without overwriting the user's
-            # n_ctx / n_gpu_layers / batch_size spinbox values.  The user's
-            # Settings panel values drive attempt 1; the hw profile is attempt 2.
+            # HW Profile is AUTHORITATIVE — these values are freshly computed
+            # for THIS model + THIS hardware's current free VRAM on every load.
+            # They become the primary load parameters (attempt 1), not advisory.
+            # Stale per-model values must never drive the load: switching from a
+            # 7B to a 24B model needs a fully recalculated profile, not the 7B's
+            # gpu_layers/ctx/batch left over in settings.json.
             summary = (
                 f"HW Profile: ctx={int(rec.n_ctx)} gpu_layers={int(rec.n_gpu_layers)} "
                 f"threads={int(rec.n_threads)} batch={int(rec.batch_size)} "
@@ -7965,18 +7967,38 @@ _register()
                 dock.set_summary(summary)
             self.status_signal.emit(summary)
 
-            # Persist hw_profile_* keys only — never overwrite the user's
-            # canonical n_ctx / n_gpu_layers / batch_size.
+            # Apply the calculated profile to the live spinboxes so load_model()
+            # reads the model-specific values as its primary (attempt 1) load.
+            # setValue() clamps to each spinbox's range automatically.
+            try:
+                self.n_ctx_input.setValue(int(rec.n_ctx))
+                self.n_gpu_layers_input.setValue(int(rec.n_gpu_layers))
+                self.batch_size_input.setValue(int(rec.batch_size))
+                if int(rec.n_threads) > 0:
+                    self.n_threads_input.setValue(int(rec.n_threads))
+            except Exception as _spin_err:
+                self._hardware_tuning_log(f"Warning: spinbox apply failed: {_spin_err}")
+
+            # Persist the calculated values as the canonical runtime settings AND
+            # the hw_profile_* mirror, so both the load path and any settings
+            # readers see the recalculated, model-specific profile.
             try:
                 from eli.core.runtime_settings import load_settings as _rs_load, save_settings as _rs_save
                 _s = dict(_rs_load() or {})
+                _s["n_ctx"] = int(rec.n_ctx)
+                _s["n_gpu_layers"] = int(rec.n_gpu_layers)
+                _s["batch_size"] = int(rec.batch_size)
+                if int(rec.n_threads) > 0:
+                    _s["n_threads"] = int(rec.n_threads)
                 _s["hw_profile_n_ctx"] = int(rec.n_ctx)
                 _s["hw_profile_n_gpu_layers"] = int(rec.n_gpu_layers)
                 _s["hw_profile_batch_size"] = int(rec.batch_size)
                 _s["cache_type_k"] = _ck
                 _s["cache_type_v"] = _cv
                 _rs_save(_s)
-                self._hardware_tuning_log("HW profile stored (hw_profile_* keys) — user settings unchanged.")
+                self._hardware_tuning_log(
+                    "HW profile applied as canonical settings (calculated for this model)."
+                )
             except Exception as _save_err:
                 self._hardware_tuning_log(f"Warning: hw_profile save failed: {_save_err}")
 
