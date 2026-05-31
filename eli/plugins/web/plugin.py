@@ -71,7 +71,7 @@ class WebSearchPlugin(Plugin):
         max_results = max(1, min(max_results, 10))
 
         try:
-            results = _duckduckgo_search(query, max_results=max_results)
+            results = _web_search_results(query, max_results=max_results)
         except Exception as exc:
             msg = f"Web search failed: {exc}"
             return {
@@ -136,6 +136,69 @@ def _duckduckgo_search(query: str, max_results: int = 5) -> List[Dict[str, Any]]
             out.append(dict(item))
 
     return out
+
+
+def _searxng_search(query: str, max_results: int = 5) -> List[Dict[str, Any]]:
+    """Query a configured SearXNG instance via its JSON API.
+
+    Returns [] when no instance is configured or the request fails, so the
+    caller falls back to DuckDuckGo. Instance URL comes from the ELI_SEARXNG_URL
+    env var or the `searxng_url` setting (e.g. "http://localhost:8888").
+    """
+    import os
+    import json as _json
+    import urllib.parse
+    import urllib.request
+
+    base = (os.environ.get("ELI_SEARXNG_URL") or "").strip()
+    if not base:
+        try:
+            from eli.core.config import get as _cfg_get
+            base = str(_cfg_get("searxng_url", "") or "").strip()
+        except Exception:
+            base = ""
+    if not base:
+        return []
+
+    url = base.rstrip("/") + "/search?" + urllib.parse.urlencode(
+        {"q": query, "format": "json"}
+    )
+    req = urllib.request.Request(
+        url, headers={"User-Agent": "ELI-AI-Assistant/1.0 (local; educational)"}
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=8) as r:
+            data = _json.loads(r.read().decode("utf-8", errors="replace"))
+    except Exception:
+        return []
+
+    out: List[Dict[str, Any]] = []
+    for item in (data.get("results") or [])[:max_results]:
+        href = item.get("url") or item.get("href") or ""
+        title = item.get("title") or ""
+        body = item.get("content") or item.get("snippet") or ""
+        if title or href:
+            out.append({"title": title, "href": href, "body": body})
+    return out
+
+
+def _web_search_results(query: str, max_results: int = 5) -> List[Dict[str, Any]]:
+    """Canonical web-search entry point: SearXNG (if configured) → DuckDuckGo.
+
+    SearXNG is preferred (self-hosted, not rate-limited, privacy-aligned).
+    DuckDuckGo via the ddgs package is the fallback when SearXNG is absent or
+    returns nothing.
+    """
+    try:
+        results = _searxng_search(query, max_results=max_results)
+    except Exception:
+        results = []
+    if results:
+        return results
+    try:
+        return _duckduckgo_search(query, max_results=max_results)
+    except Exception:
+        return []
 
 
 def execute(action: str, args: Dict[str, Any] | None = None) -> Dict[str, Any]:

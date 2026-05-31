@@ -95,7 +95,25 @@ def route_control_text(user_input: Any, current_action: Any = None) -> str | Non
     if re.search(r"\b(confidence in (?:your|my) last response|which agents contributed|what agents contributed|last response trace|previous response trace|last turn trace)\b", low):
         return "EXPLAIN_LAST_RESPONSE"
 
-    if re.search(
+    # Questions about identity/persona change over time are conversational —
+    # let them stay as CHAT so the LLM can reflect on them naturally.
+    _is_change_query = bool(re.search(
+        r"\b(changed?|changing|shift(?:ed|ing)?|different\s+since|evolv(?:ed|ing)|alter(?:ed|ing)|adapt(?:ed|ing)|grown?|has\s+(?:it|your|the)\s+\w+\s+changed?)\b",
+        low,
+    ))
+    # Conversational persona/relationship questions ("your likes", "our
+    # interactions", "how you feel", "your personality") want a reflective
+    # CHAT answer, not a runtime status dump. SELF_REPORT cannot produce these.
+    _is_conversational_persona = bool(re.search(
+        r"\b(your\s+(?:likes?|dislikes?|favou?rites?|hobbies|interests?|"
+        r"feelings?|personality|opinion|thoughts?|mood)|"
+        r"our\s+(?:interactions?|conversations?|chats?|relationship|history|"
+        r"discussions?|talks?)|"
+        r"how\s+(?:do\s+)?you\s+feel|what\s+do\s+you\s+(?:like|think|enjoy)|"
+        r"about\s+(?:us|me\s+and\s+you|you\s+and\s+(?:me|i)))\b",
+        low,
+    ))
+    if not _is_change_query and not _is_conversational_persona and re.search(
         r"\b("
         r"who are you"
         r"|who you are"

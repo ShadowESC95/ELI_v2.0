@@ -268,11 +268,17 @@ class VectorStore:
         ]
 
     def _load(self) -> None:
-        if os.path.exists(self._index_path) and os.path.exists(self._meta_path):
+        _meta_exists = os.path.exists(self._meta_path) or os.path.exists(_legacy_meta_path(self._meta_path))
+        if os.path.exists(self._index_path) and _meta_exists:
             try:
                 self._index = faiss.read_index(self._index_path)
-                with open(self._meta_path, "rb") as f:
-                    self._meta = pickle.load(f)
+                self._meta, _migrated = _load_meta(self._meta_path)
+                if _migrated:
+                    # Rewrite as JSON immediately and retire the legacy pickle.
+                    try:
+                        _dump_meta(self._meta_path, self._meta)
+                    except Exception as _mig_e:
+                        log.debug(f"[VECTOR_STORE] meta migration save failed: {_mig_e}")
                 loaded = self._index.ntotal
                 log.debug(f"[VECTOR_STORE] Loaded {loaded} vectors")
                 if loaded == 0:
@@ -299,8 +305,7 @@ class VectorStore:
                         if generation != self._save_generation:
                             return
                     faiss.write_index(idx_snapshot, self._index_path)
-                    with open(self._meta_path, "wb") as f:
-                        pickle.dump(meta_snapshot, f)
+                    _dump_meta(self._meta_path, meta_snapshot)
             except Exception as e:
                 log.debug(f"[VECTOR_STORE] Background save failed: {e}")
         threading.Thread(target=_write, daemon=True, name="eli-vs-save").start()
@@ -326,8 +331,7 @@ class VectorStore:
             try:
                 self._save_generation += 1
                 faiss.write_index(self._index, self._index_path)
-                with open(self._meta_path, "wb") as f:
-                    pickle.dump(self._meta, f)
+                _dump_meta(self._meta_path, self._meta)
                 self._adds_since_save = 0
             except Exception as e:
                 log.debug(f"[VECTOR_STORE] flush failed: {e}")
@@ -358,9 +362,50 @@ def _get_index_paths() -> tuple:
 
     Expected files:
     - artifacts/vectors/index.faiss
-    - artifacts/vectors/meta.pkl
+    - artifacts/vectors/meta.json   (canonical; legacy meta.pkl is migrated)
     """
     from pathlib import Path
     vdir = _project_root() / "artifacts" / "vectors"
     vdir.mkdir(parents=True, exist_ok=True)
-    return str((vdir / "index.faiss").resolve()), str((vdir / "meta.pkl").resolve())
+    return str((vdir / "index.faiss").resolve()), str((vdir / "meta.json").resolve())
+
+
+def _legacy_meta_path(meta_path: str) -> str:
+    """Path to the pre-migration pickle file for a given JSON meta path."""
+    return meta_path[:-5] + ".pkl" if meta_path.endswith(".json") else meta_path + ".pkl"
+
+
+def _load_meta(meta_path: str):
+    """Load vector metadata as JSON (canonical) or migrate a legacy pickle once.
+
+    JSON-only going forward: pickle deserialization executes arbitrary code, so
+    a poisoned meta file shipped with a redistributed ELI would be an RCE-on-load
+    vector. A pre-existing *local* meta.pkl (the user's own trusted artifact) is
+    read once here and rewritten as JSON by the next save, after which the pickle
+    is retired. Returns (meta_list, migrated_from_pickle).
+    """
+    import json as _json
+    if os.path.exists(meta_path):
+        with open(meta_path, "r", encoding="utf-8") as f:
+            return _json.load(f), False
+    legacy = _legacy_meta_path(meta_path)
+    if os.path.exists(legacy):
+        import pickle as _pickle
+        with open(legacy, "rb") as f:
+            meta = _pickle.load(f)
+        log.debug("[VECTOR_STORE] migrating legacy meta.pkl → meta.json (pickle load retired)")
+        return meta, True
+    raise FileNotFoundError(meta_path)
+
+
+def _dump_meta(meta_path: str, meta) -> None:
+    """Persist vector metadata as JSON, then retire any legacy pickle."""
+    import json as _json
+    with open(meta_path, "w", encoding="utf-8") as f:
+        _json.dump(meta, f, ensure_ascii=False, default=str)
+    legacy = _legacy_meta_path(meta_path)
+    try:
+        if os.path.exists(legacy):
+            os.remove(legacy)
+    except Exception:
+        pass

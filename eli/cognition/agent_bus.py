@@ -89,8 +89,8 @@ def _persist_dispatch_result(
     """
     def _write() -> None:
         try:
-            from eli.core.paths import get_paths as _gp
-            db_path = _gp().artifacts_dir / "agent.sqlite3"
+            from eli.core.paths import agent_db_path as _agent_db_path
+            db_path = _agent_db_path()
             db_path.parent.mkdir(parents=True, exist_ok=True)
             with _sqlite3.connect(str(db_path), timeout=3.0) as _conn:
                 _conn.execute(
@@ -200,8 +200,8 @@ def _stage_score_for_result(r: "AgentResult") -> Optional[float]:
 
 def _agent_metrics_db_path() -> Optional[Any]:
     try:
-        from eli.core.paths import get_paths as _gp
-        p = _gp().artifacts_dir / "agent.sqlite3"
+        from eli.core.paths import agent_db_path as _agent_db_path
+        p = _agent_db_path()
         p.parent.mkdir(parents=True, exist_ok=True)
         return p
     except Exception:
@@ -2127,7 +2127,7 @@ class ReflectionAgent(_BaseAgent):
 
 class KnowledgeGraphAgent(_BaseAgent):
     """
-    Queries the SQLite knowledge graph (eli_memory.sqlite3 kg_entities/kg_relations)
+    Queries the SQLite knowledge graph (user.sqlite3 kg_entities/kg_relations)
     for structured entity-relation context relevant to the current user input.
 
     Triggered by any non-trivial query — always runs, skips fast if no KG hits.
