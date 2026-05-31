@@ -942,9 +942,15 @@ def _eli_web_lookup_prepass(raw: str, low: str):
     if not low:
         return None
     # Never hijack ELI-internal / self / memory introspection or media control.
-    if re.search(r"\b(my|your|you)\b.{0,30}\b(memory|memories|remember|stored|profile|runtime|cognition|capabilit)", low):
+    if re.search(r"\b(my|your|you)\b.{0,30}\b(memory|memories|remember|stored|profile|runtime|cognition|capabilit|status|identity|persona)", low):
         return None
     if re.match(r"^(play|pause|resume|stop|next|previous|open|close|volume|mute|unmute)\b", low):
+        return None
+    # Local notes search/list is SEARCH_NOTES/LIST_NOTES, not a web lookup.
+    if re.search(r"\b(search|find|list|show|read|open)\s+(?:my\s+|the\s+)?notes?\b", low):
+        return None
+    # "news" has a dedicated NEWS_FETCH path — let core_router handle it.
+    if re.search(r"\bnews\b", low):
         return None
 
     explicit_search = re.search(
@@ -958,7 +964,7 @@ def _eli_web_lookup_prepass(raw: str, low: str):
         r"premier|premiere|coming\s+out|due|drop|drops)"
         r"|(?:season|episode|movie|film|game|album|series)\b.{0,30}\b(out|air|airing|"
         r"release|released|coming|drop|when)"
-        r"|release\s+date|latest\s+news|what'?s\s+the\s+latest|current\s+(?:price|score|status)"
+        r"|release\s+date|what'?s\s+the\s+latest|current\s+(?:price|score)"
         r"|who\s+won|how\s+much\s+is|is\s+.+\s+out\s+yet)\b",
         low,
     )
