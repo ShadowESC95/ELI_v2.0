@@ -12,7 +12,15 @@ from typing import Any, Dict
 
 
 def status() -> Dict[str, Any]:
-    return {"ok": True, "module": "authority_gate", "mode": "active"}
+    # Honest status: this is a pass-through hook, NOT an active enforcer. The
+    # real gates are approval_engine (proposals), persistence_gate, and the
+    # fail-closed shell allowlist in executor/_run + security.is_command_allowed.
+    return {
+        "ok": True,
+        "module": "authority_gate",
+        "mode": "delegating-stub",
+        "enforced_by": ["approval_engine", "persistence_gate", "security.is_command_allowed"],
+    }
 
 
 def allow(action: str, args: Dict[str, Any] | None = None) -> Dict[str, Any]:

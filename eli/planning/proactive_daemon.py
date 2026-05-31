@@ -251,17 +251,30 @@ class ProactiveDaemon:
             con = sqlite3.connect(str(user_db))
             cur = con.cursor()
             cur.execute(
-                "SELECT pattern_data FROM user_patterns WHERE pattern_type LIKE 'project%' "
+                "SELECT pattern_data, COALESCE(timestamp, ts) FROM user_patterns "
+                "WHERE pattern_type LIKE 'project%' "
                 "ORDER BY COALESCE(timestamp, ts, id) DESC LIMIT 3"
             )
             proj_rows = cur.fetchall()
             con.close()
             if proj_rows:
-                proj = proj_rows[0][0].strip()[:120]
+                proj = (proj_rows[0][0] or "").strip()[:120]
+                proj_ts = proj_rows[0][1]
                 if proj:
+                    import time as _time
+                    age_hours = (_time.time() - proj_ts) / 3600 if proj_ts else None
+                    if age_hours is not None and age_hours >= 4:
+                        age_days = age_hours / 24
+                        if age_days >= 2:
+                            age_label = f"{age_days:.0f}d ago"
+                        else:
+                            age_label = f"{age_hours:.0f}h ago"
+                        suggestion = f"Active project signal ({age_label}): {proj}"
+                    else:
+                        suggestion = f"Active project signal: {proj}"
                     patterns.append({
                         "type": "active_project",
-                        "suggestion": f"Active project signal: {proj}"
+                        "suggestion": suggestion
                     })
         except Exception:
             pass
@@ -421,6 +434,20 @@ class ProactiveDaemon:
         cmd = (rule.get("command") or "").strip()
         if not cmd:
             return {"ok": False, "error": "No command defined"}
+        # Kill-switch: habit commands run via the shell (they may use pipes/&&).
+        # That's fine for a user's own habits, but a redistributed/imported habit
+        # DB is untrusted — let deployments disable shell habits. Default on to
+        # preserve existing behavior; ELI_NO_HABIT_SHELL=1 or the
+        # habit_shell_enabled=false setting turns it off.
+        _habit_shell_on = os.environ.get("ELI_NO_HABIT_SHELL", "0") != "1"
+        if _habit_shell_on:
+            try:
+                from eli.core import config as _cfg
+                _habit_shell_on = bool(_cfg.get("habit_shell_enabled", True))
+            except Exception:
+                pass
+        if not _habit_shell_on:
+            return {"ok": False, "error": "Shell habits are disabled (habit_shell_enabled=false)"}
         try:
             result = subprocess.run(
                 cmd, shell=True, capture_output=True, text=True, timeout=30

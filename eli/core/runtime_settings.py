@@ -121,6 +121,29 @@ DEFAULTS: Dict[str, Any] = {
     "auto_load": True,
     "first_run_complete": False,
     "theme": "dark",
+    "searxng_url": "",
+    # --- Local vision (Qwen2.5-VL via llama-cpp; hot-swaps with the text model) ---
+    "vision_enabled": True,
+    "vision_model_path": "models/Qwen2.5-VL-7B-Instruct-Q4_K_M.gguf",
+    "vision_mmproj_path": "models/mmproj-Qwen2.5-VL-7B-Instruct-f16.gguf",
+    "vision_n_ctx": 4096,
+    "vision_n_gpu_layers": 99,
+    "vision_n_batch": 256,
+    # GPU clip segfaults on some cards (RTX 2060 SUPER / compute 7.5); keep the
+    # vision encoder on CPU. The language decoder still uses the GPU.
+    "vision_clip_on_gpu": False,
+    "vision_max_image_px": 1280,
+    "vision_max_tokens": 512,
+    "vision_temperature": 0.2,
+    "vision_default_prompt": "",
+    # Ambient vision: periodic screen glances for rolling awareness. OFF by
+    # default — with the hot-swap model each glance briefly unloads the text
+    # model, so keep the interval generous (seconds).
+    "ambient_vision_enabled": False,
+    "ambient_vision_interval": 300,
+    # Allow proactive habit rules to run shell commands. On by default (your own
+    # habits); set false to block shell execution from an untrusted/imported habit DB.
+    "habit_shell_enabled": True,
 }
 
 ENV_TO_KEY = {

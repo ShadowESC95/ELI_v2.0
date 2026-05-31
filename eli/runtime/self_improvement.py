@@ -241,8 +241,14 @@ class SelfImprovementEngine:
         try:
             conn = self.memory._get_connection()
             try:
+                # Only skip failures already investigated in the last 14 days.
+                # Older entries are re-queued so stale failures don't block forever.
+                _cutoff = time.time() - (14 * 86400)
                 rows = conn.execute(
-                    "SELECT description FROM improvements ORDER BY timestamp DESC LIMIT 50"
+                    "SELECT description FROM improvements "
+                    "WHERE COALESCE(timestamp, ts, 0) > ? "
+                    "ORDER BY COALESCE(timestamp, ts, 0) DESC LIMIT 50",
+                    (_cutoff,),
                 ).fetchall()
                 existing_descs = {str(r[0]).strip().lower() for r in rows if r[0]}
             except Exception:

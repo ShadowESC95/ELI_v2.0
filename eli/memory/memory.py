@@ -58,7 +58,7 @@ def resolve_db_paths() -> DBPaths:
     """
     Canonical three-DB resolution.
 
-    - memory_db: searchable memories + conversations (eli_memory.sqlite3)
+    - memory_db: searchable memories + conversations (consolidated into user.sqlite3)
     - user_db: user profile/state db
     - agent_db: proactive/agent/self-improvement db
 
@@ -1352,7 +1352,8 @@ def _path_from_args(db_path=None, db_type=None):
         if name == "agent":
             p = p / "agent.sqlite3"
         elif name == "memory":
-            p = p / "eli_memory.sqlite3"
+            # memory_db is consolidated into the canonical user DB (single store).
+            p = p / "user.sqlite3"
         else:
             p = p / "user.sqlite3"
 
@@ -2533,20 +2534,47 @@ class Memory(metaclass=_MemoryMeta):
         q = str(query or "").strip()
         if not q:
             return []
-        like = f"%{q.lower()}%"
+        # Extract meaningful keywords from the query instead of using it verbatim
+        # as a LIKE pattern (which almost never matches anything useful).
+        import re as _re
+        _stopwords = {
+            "a","an","the","is","are","was","were","be","been","being","have","has",
+            "had","do","does","did","will","would","could","should","may","might",
+            "i","me","my","we","our","you","your","he","she","it","they","what",
+            "how","when","where","who","which","that","this","these","those",
+            "and","or","but","if","in","on","at","to","for","of","with","by",
+            "say","said","tell","told","ask","asked","know","think","about",
+            "last","did","just","not","up","so","no","yes","ok","okay",
+        }
+        words = _re.findall(r"[a-zA-Z0-9α-ωΐ-Ͽ₀-₉]+", q.lower())
+        keywords = [w for w in words if len(w) > 2 and w not in _stopwords]
+        if not keywords:
+            # Fallback: use all non-trivial words
+            keywords = [w for w in words if len(w) > 2]
+        if not keywords:
+            return []
+
         conn = self._get_connection()
         try:
-            sql = (
-                "SELECT timestamp, session_id, user_id, role, content, ts FROM conversation_turns "
-                "WHERE LOWER(COALESCE(content, '')) LIKE ?"
+            # Build OR conditions — a turn is relevant if ANY keyword appears in it.
+            conditions = " OR ".join(
+                "LOWER(COALESCE(content, '')) LIKE ?" for _ in keywords
             )
-            params = [like]
+            params: list = [f"%{kw}%" for kw in keywords]
+            sql = (
+                f"SELECT timestamp, session_id, user_id, role, content, ts "
+                f"FROM conversation_turns "
+                f"WHERE ({conditions})"
+            )
             if user_id:
                 sql += " AND user_id = ?"
                 params.append(user_id)
+            # Fetch DESC then reverse so caller gets chronological order,
+            # consistent with get_recent_conversation().
             sql += " ORDER BY COALESCE(timestamp, ts, 0) DESC LIMIT ?"
             params.append(int(limit))
             rows = conn.execute(sql, params).fetchall()
+            rows = list(reversed(rows))  # chronological order
             return [
                 {
                     "timestamp": r[0] or r[5] or 0,
