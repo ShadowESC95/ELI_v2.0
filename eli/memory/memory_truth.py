@@ -75,7 +75,12 @@ def inspect_sqlite(path: Path) -> Dict[str, Any]:
 
 def inspect_vector_store() -> Dict[str, Any]:
     index_path = _artifact_path("vectors", "index.faiss")
-    meta_path = _artifact_path("vectors", "meta.pkl")
+    # Canonical metadata is JSON now; fall back to legacy pickle only if present.
+    meta_path = _artifact_path("vectors", "meta.json")
+    if not meta_path.exists():
+        _legacy = _artifact_path("vectors", "meta.pkl")
+        if _legacy.exists():
+            meta_path = _legacy
     out: Dict[str, Any] = {
         "index_path": str(index_path),
         "index_exists": index_path.exists(),
@@ -101,8 +106,13 @@ def inspect_vector_store() -> Dict[str, Any]:
 
     if meta_path.exists():
         try:
-            with meta_path.open("rb") as f:
-                meta = pickle.load(f)
+            if str(meta_path).endswith(".json"):
+                import json as _json
+                with meta_path.open("r", encoding="utf-8") as f:
+                    meta = _json.load(f)
+            else:
+                with meta_path.open("rb") as f:
+                    meta = pickle.load(f)
             out["meta_type"] = type(meta).__name__
             try:
                 out["meta_len"] = len(meta)

@@ -274,7 +274,7 @@ if CENTRAL_IMPORTS_AVAILABLE and get_paths:
     BUNDLED_MODEL_DIR = PROJECT_ROOT / "models"
     CUSTOM_MODELS_DIR = APP_DIR / "models"
 else:
-    MEMORY_DB = PROJECT_ROOT / "artifacts" / "eli_memory.sqlite3"
+    MEMORY_DB = PROJECT_ROOT / "artifacts" / "db" / "user.sqlite3"
     CONVERSATIONS_DIR = PROJECT_ROOT / "artifacts" / "conversations"
     ARTIFACTS_DIR = PROJECT_ROOT / "artifacts"
     def _eli_pick_any_bundled_model() -> str:
@@ -2568,6 +2568,15 @@ class EliMainWindow(QMainWindow):
         else:
             log.debug("[GUI] Proactive daemon not available (import failed)")
 
+        # Ambient vision daemon — self-gates on the `ambient_vision_enabled`
+        # toggle (OFF by default), so starting it unconditionally is cheap.
+        try:
+            from eli.perception.ambient_vision import start_ambient_vision
+            start_ambient_vision()
+            log.debug("[GUI] Ambient vision daemon started (gated on ambient_vision_enabled)")
+        except Exception as _av_err:
+            log.debug(f"[GUI] Ambient vision daemon unavailable (non-fatal): {_av_err}")
+
         # ---------- COGNITIVE ENGINE SINGLETON ----------
         self._cognitive_engine = None
         try:
@@ -2738,6 +2747,14 @@ class EliMainWindow(QMainWindow):
         self._tts_auto = checked
         try: self.auto_speak_btn.setText('🔊 Auto-Speak: ON' if checked else '🔇 Auto-Speak: OFF')
         except Exception: pass
+
+    def _on_network_toggled(self, checked: bool):
+        try:
+            from eli.core import config as _cfg
+            _cfg.set("network_enabled", checked)
+            self.net_btn.setText("🌐 Net: ON" if checked else "🌐 Net: OFF")
+        except Exception as e:
+            log.debug(f"[GUI] network toggle failed: {e}")
 
     def _on_voice_changed(self, name: str):
         if not name or name == "(no voices)":
@@ -3799,6 +3816,30 @@ class EliMainWindow(QMainWindow):
         )
         self.auto_speak_btn.toggled.connect(self._on_auto_speak_toggled)
         btn_layout.addWidget(self.auto_speak_btn)
+
+        _net_on = False
+        try:
+            from eli.core import config as _cfg
+            _net_on = bool(_cfg.get("network_enabled", False))
+        except Exception:
+            pass
+        self.net_btn = QPushButton("🌐 Net: ON" if _net_on else "🌐 Net: OFF")
+        self.net_btn.setCheckable(True)
+        self.net_btn.setChecked(_net_on)
+        self.net_btn.setToolTip(
+            "Toggle internet access for ELI.\n"
+            "ON  — news fetch, RSS feeds, and web tools are active.\n"
+            "OFF — fully offline; all AI runs locally with no network calls."
+        )
+        self.net_btn.setStyleSheet(
+            _BTN_BASE
+            + "QPushButton:checked { background-color:#4CAF50; }"
+            "QPushButton:!checked { background-color:#607D8B; }"
+            "QPushButton:checked:hover { background-color:#388E3C; }"
+            "QPushButton:!checked:hover { background-color:#455A64; }"
+        )
+        self.net_btn.toggled.connect(self._on_network_toggled)
+        btn_layout.addWidget(self.net_btn)
 
         # Voice selector — visible in chat row so the user doesn't dig into Settings.
         self.voice_combo = QComboBox()
@@ -4862,7 +4903,13 @@ class EliMainWindow(QMainWindow):
                 if not rows:
                     self.self_improve_failures_signal.emit("No failures recorded yet — keep chatting!")
                     return
-                out = [f"[{(ts or '')[:16]}] {str(inp or '')[:70]} → {str(err or '')[:70]}"
+                import time as _time
+                def _fmt_ts(ts):
+                    try:
+                        return _time.strftime("%Y-%m-%d %H:%M", _time.localtime(float(ts)))
+                    except Exception:
+                        return str(ts or "")[:16]
+                out = [f"[{_fmt_ts(ts)}] {str(inp or '')[:70]} → {str(err or '')[:70]}"
                        for inp, err, ts in rows]
                 self.self_improve_failures_signal.emit("\n".join(out))
             except Exception as e:

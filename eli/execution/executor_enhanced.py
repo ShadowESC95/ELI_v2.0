@@ -277,11 +277,32 @@ def _sha256_file(path: Path) -> str:
     return h.hexdigest()
 
 
+def _shell_command_allowed_fallback(cmd: str) -> bool:
+    """Fail-closed allowlist check used when the SecurityManager can't load.
+
+    Mirrors SecurityManager.is_command_allowed so a degraded manager can never
+    become fail-OPEN: with neither ELI_FULL_CONTROL nor ELI_ALLOWED_CMDS set,
+    nothing runs.
+    """
+    if os.environ.get("ELI_FULL_CONTROL", "0") == "1":
+        return True
+    raw = (os.environ.get("ELI_ALLOWED_CMDS") or "").strip()
+    if not raw:
+        return False  # fail-closed
+    allowed = {p for p in raw.replace(",", " ").split() if p}
+    if "*" in allowed:
+        return True
+    return os.path.normpath(cmd) in allowed or cmd in allowed
+
+
 def _run(argv: List[str], timeout: int = 15) -> Dict[str, Any]:
-    # Security gate: check command against allowlist before executing
-    sm = _get_security_manager()
-    if sm is not None and argv:
-        if not sm.is_command_allowed(argv[0]):
+    # Security gate: check command against allowlist before executing.
+    # Fail CLOSED — if the SecurityManager can't load, fall back to an inline
+    # allowlist check rather than running unchecked.
+    if argv:
+        sm = _get_security_manager()
+        allowed = sm.is_command_allowed(argv[0]) if sm is not None else _shell_command_allowed_fallback(argv[0])
+        if not allowed:
             msg = f"Command blocked by security policy: {argv[0]}"
             return {
                 "ok": False,
@@ -1362,13 +1383,14 @@ def _format_runtime_status(report: Dict[str, Any]) -> str:
     return '\n'.join(lines)
 
 def _get_db_schema_evidence() -> str:
-    """Introspect all 3 SQLite databases and return real table names + row counts."""
+    """Introspect the canonical SQLite databases and return real table names + row counts."""
     import sqlite3
     paths = get_paths()
+    # memory_db is consolidated into user.sqlite3, so it is not listed separately —
+    # doing so would show a phantom third database that is really the same file.
     db_files = {
         "user.sqlite3": Path(paths.user_db),
         "agent.sqlite3": Path(paths.agent_db),
-        "eli_memory.sqlite3": Path(_eli_path_get(paths, "memory_db")),
     }
     lines = ["DATABASE SCHEMA (ground truth from live introspection):"]
     for name, path in db_files.items():
@@ -1528,7 +1550,9 @@ DEFAULT_CHAT_MODEL = _resolve_default_chat_model()
 # Enumerated actions for capability_registry bootstrap
 SUPPORTED_ACTIONS = [
     'ADD_EVENT',
+    'AMBIENT_VISION',
     'ANALYZE_CSV',
+    'ANALYZE_IMAGE',
     'ANALYZE_PDF',
     'AWARENESS_STATUS',
     'CHAT',
@@ -4384,6 +4408,32 @@ def _execute_impl(action: str, args: Optional[Dict[str, Any]] = None) -> Dict[st
 
                 return False
 
+            # Web apps: open in browser rather than trying to install a package
+            _WEB_APPS = {
+                "gmail": "https://mail.google.com",
+                "google mail": "https://mail.google.com",
+                "netflix": "https://www.netflix.com",
+                "youtube": "https://www.youtube.com",
+                "google calendar": "https://calendar.google.com",
+                "google drive": "https://drive.google.com",
+                "google docs": "https://docs.google.com",
+                "google sheets": "https://sheets.google.com",
+                "whatsapp": "https://web.whatsapp.com",
+                "spotify web": "https://open.spotify.com",
+                "twitter": "https://www.twitter.com",
+                "x": "https://www.x.com",
+                "instagram": "https://www.instagram.com",
+                "facebook": "https://www.facebook.com",
+                "reddit": "https://www.reddit.com",
+            }
+            _web_url = _WEB_APPS.get(name.lower())
+            if _web_url:
+                import subprocess as _wsp
+                _wsp.Popen(["xdg-open", _web_url], stdout=_wsp.DEVNULL,
+                           stderr=_wsp.DEVNULL, start_new_session=True)
+                msg = f"Opening {name} in browser."
+                return {"ok": True, "action": a, "content": msg, "response": msg}
+
             app = _APP_FUZZY.get(name.lower(), name)
 
             if re.search(r'[:\.,]', name) and len(name.split()) > 3:
@@ -5291,6 +5341,35 @@ def _execute_impl(action: str, args: Optional[Dict[str, Any]] = None) -> Dict[st
         except Exception as e:
             return {"ok": False, "action": a, "error": str(e), "content": str(e), "response": str(e)}
 
+    # ---- AMBIENT_VISION (toggle periodic screen glances) ----
+    if a == "AMBIENT_VISION":
+        _av_enabled = args.get("enabled")
+        if _av_enabled is None:
+            # Infer from the phrasing if not explicit.
+            _av_txt = str(args.get("text") or args.get("message") or "").lower()
+            _av_enabled = not any(w in _av_txt for w in
+                                  ("stop", "off", "disable", "don't", "dont", "quit", "cease"))
+        _av_enabled = bool(_av_enabled)
+        try:
+            from eli.perception.ambient_vision import set_ambient_vision
+            st = set_ambient_vision(_av_enabled)
+        except Exception as e:
+            msg = f"Couldn't change ambient vision: {e}"
+            return {"ok": False, "action": a, "error": msg, "content": msg, "response": msg}
+        if _av_enabled:
+            from eli.perception import vision as _avv
+            _ok, _reason = _avv.vision_available()
+            if _ok:
+                msg = (f"Ambient vision is ON — I'll glance at your screen about every "
+                       f"{st.get('interval', 300)//60} min when I'm not mid-reply, and keep a "
+                       f"rolling sense of what you're working on.")
+            else:
+                msg = (f"Ambient vision toggle is ON, but I can't actually see yet: {_reason} "
+                       f"It'll start working once the vision model is installed.")
+        else:
+            msg = "Ambient vision is OFF — I'll only look at the screen when you ask."
+        return {"ok": True, "action": a, "enabled": _av_enabled, "content": msg, "response": msg}
+
     # ---- SCREEN_READ_ANALYZE ----
     if a == "SCREEN_READ_ANALYZE":
         try:
@@ -5311,15 +5390,23 @@ def _execute_impl(action: str, args: Optional[Dict[str, Any]] = None) -> Dict[st
                     return {"ok": False, "action": a,
                             "error": "Screenshot failed — no screenshot path returned.",
                             "content": "Screenshot failed.", "response": "Screenshot failed."}
-            # 2. OCR the screenshot
-            ocr_result = _execute_impl("OCR_IMAGE", {"path": ss_path})
-            ocr_text = ocr_result.get("text") or ocr_result.get("content") or ""
-            if not ocr_text.strip():
-                ocr_text = "(no text detected on screen)"
-            # Return text; cognitive_engine will route to LLM for analysis
-            msg = f"Screen content (OCR):\n\n{ocr_text}"
-            return {"ok": True, "action": a, "content": msg, "response": msg,
-                    "ocr_text": ocr_text, "screenshot_path": ss_path}
+            # 2. Analyse the screenshot with real vision (VL model) + OCR.
+            #    ANALYZE_IMAGE does the hot-swap vision call and falls back to
+            #    OCR-only honestly when no vision model is installed.
+            _sra_prompt = str(args.get("prompt") or args.get("instruction") or "").strip() or (
+                "You are ELI looking at the user's screen right now. Describe what is on "
+                "screen: the focused application, what the user appears to be doing, and any "
+                "important text, code, errors, or UI state. Be specific; never invent."
+            )
+            _sra = _execute_impl("ANALYZE_IMAGE", {"path": ss_path, "prompt": _sra_prompt})
+            _sra_body = str(_sra.get("content") or _sra.get("response") or "").strip()
+            if not _sra_body:
+                _sra_body = "I captured the screen but couldn't produce a description."
+            return {"ok": bool(_sra.get("ok", True)), "action": a,
+                    "content": _sra_body, "response": _sra_body,
+                    "vision_text": _sra.get("vision_text", ""),
+                    "ocr_text": _sra.get("ocr_text", ""),
+                    "screenshot_path": ss_path}
         except Exception as e:
             return {"ok": False, "action": a, "error": str(e), "content": str(e), "response": str(e)}
 
@@ -7467,6 +7554,87 @@ def _execute_impl(action: str, args: Optional[Dict[str, Any]] = None) -> Dict[st
         msg = f"Could not close {name}. Tried: {', '.join(tried) or 'no tools found'}."
         return {"ok": False, "action": a, "error": msg, "content": msg, "response": msg}
 
+    # ---- ANALYZE_IMAGE (metadata + OCR; never confabulate visual content) ----
+    if a == "ANALYZE_IMAGE":
+        import os as _ai_os
+        from pathlib import Path as _AIPP
+        path = str(args.get("path") or args.get("file") or "").strip()
+        if not path:
+            msg = "Specify an image file to analyze."
+            return {"ok": False, "action": a, "error": "missing path", "content": msg, "response": msg}
+        expanded = _ai_os.path.expanduser(path)
+        if not _ai_os.path.exists(expanded):
+            msg = f"Image not found: {expanded}"
+            return {"ok": False, "action": a, "error": msg, "content": msg, "response": msg}
+        try:
+            from eli.perception.analyze_image import analyze_image_file
+        except Exception as _ai_err:
+            msg = f"Image analysis is unavailable: {_ai_err}"
+            return {"ok": False, "action": a, "error": msg, "content": msg, "response": msg}
+        _ai_stem = _AIPP(expanded).stem
+        _ai_out = str(get_paths().artifacts_dir / f"image_report_{_ai_stem}.md")
+        try:
+            rep = analyze_image_file(expanded, _ai_out, ocr=True)
+        except Exception as _ai_err:
+            msg = f"Image analysis failed: {_ai_err}"
+            return {"ok": False, "action": a, "error": msg, "content": msg, "response": msg}
+        if not rep.get("ok"):
+            msg = rep.get("error") or "Image analysis failed."
+            return {"ok": False, "action": a, "error": msg, "content": msg, "response": msg}
+        _ai_w, _ai_h = rep.get("width"), rep.get("height")
+        _ai_dims = f"{_ai_w}×{_ai_h} px" if _ai_w and _ai_h else "unknown dimensions"
+        _ai_fmt = rep.get("format", "image")
+        _ai_size = int(rep.get("size_bytes") or 0)
+        _ai_ocr = (rep.get("ocr_text") or "").strip()
+        _ai_name = _AIPP(expanded).name
+        _ai_prompt = str(args.get("prompt") or args.get("instruction") or "").strip() or None
+
+        # Real vision first (local VL model, hot-swapped with the text model).
+        _ai_vision_text = ""
+        _ai_vision_err = ""
+        try:
+            from eli.perception import vision as _eli_vision
+            _va_ok, _va_reason = _eli_vision.vision_available()
+            if _va_ok:
+                _vres = _eli_vision.describe_image(expanded, prompt=_ai_prompt)
+                if _vres.get("ok"):
+                    _ai_vision_text = str(_vres.get("text") or "").strip()
+                else:
+                    _ai_vision_err = str(_vres.get("error") or "")
+            else:
+                _ai_vision_err = _va_reason
+        except Exception as _ai_vexc:
+            _ai_vision_err = str(_ai_vexc)
+
+        _ai_header = f"**{_ai_name}** ({_ai_fmt}, {_ai_dims}, {_ai_size:,} bytes)"
+        if _ai_vision_text:
+            body = f"Looking at {_ai_header}:\n\n{_ai_vision_text}"
+            if _ai_ocr:
+                body += f"\n\n---\nText I can read in it (OCR):\n\n{_ai_ocr}"
+        elif _ai_ocr:
+            body = (
+                f"I ran OCR on {_ai_header}. Here is the text I extracted from it:\n\n{_ai_ocr}"
+            )
+            if _ai_vision_err:
+                body += (
+                    f"\n\n(I couldn't run full visual analysis — {_ai_vision_err} — "
+                    f"so this is text only.)"
+                )
+        else:
+            body = (
+                f"I examined {_ai_header}. No readable text was detected via OCR"
+            )
+            if _ai_vision_err:
+                body += (
+                    f", and I couldn't run visual analysis ({_ai_vision_err}). "
+                    f"I won't guess at what it shows."
+                )
+            else:
+                body += ". I won't guess at what it shows."
+        return {"ok": True, "action": a, "path": expanded, "ocr_text": _ai_ocr,
+                "vision_text": _ai_vision_text, "report": rep,
+                "content": body, "response": body}
+
     # ---- SUMMARIZE_FILE ----
     if a == "SUMMARIZE_FILE":
         import os as _os2, subprocess as _sfsp
@@ -7478,8 +7646,43 @@ def _execute_impl(action: str, args: Optional[Dict[str, Any]] = None) -> Dict[st
                     "content": "Specify file to summarize.", "response": "Specify file to summarize."}
         expanded = _os2.path.expanduser(path)
         if not _os2.path.exists(expanded):
-            return {"ok": False, "action": a, "error": f"File not found: {expanded}",
-                    "content": f"File not found: {expanded}", "response": f"File not found: {expanded}"}
+            return {"ok": False, "action": a, "error": f"Path not found: {expanded}",
+                    "content": f"Path not found: {expanded}", "response": f"Path not found: {expanded}"}
+        # Images are binary — never read them as text. Delegate to OCR-based
+        # image analysis so we describe them honestly instead of dumping bytes.
+        if expanded.lower().endswith(
+                (".png", ".jpg", ".jpeg", ".gif", ".bmp", ".webp", ".tiff", ".tif")):
+            return _execute_impl("ANALYZE_IMAGE", {"path": expanded})
+        # Directory: if it contains PDFs, delegate to ANALYZE_PDF_FOLDER for real content
+        if _os2.path.isdir(expanded):
+            import glob as _glob
+            _pdfs = _glob.glob(_os2.path.join(expanded, "**", "*.pdf"), recursive=True)
+            if _pdfs:
+                return _execute_impl("ANALYZE_PDF_FOLDER", {"folder": expanded, "recursive": True})
+            # No PDFs: fall back to ls -R + GGUF description
+            try:
+                _ls_result = _sfsp.run(
+                    ["ls", "-R", expanded], capture_output=True, text=True, timeout=10)
+                _sf_raw = _ls_result.stdout[:8000]
+            except Exception as _dir_err:
+                _sf_raw = f"Directory listing failed: {_dir_err}"
+            _sf_summary = None
+            try:
+                from eli.cognition import gguf_inference as _sfgi
+                if _sfgi.load_model() is not None:
+                    _sf_user_msg = (
+                        f"{_sf_instruction}\n\nDirectory listing:\n\n{_sf_raw[:6000]}"
+                        if _sf_instruction else
+                        f"Describe the structure and contents of this directory tree:\n\n{_sf_raw[:6000]}"
+                    )
+                    _sf_summary = _sfgi.chat_completion(
+                        _sf_user_msg,
+                        system="You are a precise technical analyst. Describe the directory structure, key files, and inferred purpose.",
+                        max_tokens=700, temperature=0.3)
+            except Exception:
+                pass
+            _sf_body = _sf_summary if _sf_summary else _sf_raw[:3000]
+            return {"ok": True, "action": a, "content": _sf_body, "response": _sf_body}
         try:
             with open(expanded, errors="replace") as _sf:
                 _sf_raw = _sf.read(8000)
@@ -7784,26 +7987,58 @@ def _execute_impl(action: str, args: Optional[Dict[str, Any]] = None) -> Dict[st
             if not query:
                 return {"ok": False, "action": a, "error": "No query provided",
                         "content": "Provide a search query.", "response": "Provide a search query."}
-            # First try stored news DB
+
+            # Network gate: never open a browser or confabulate when offline.
             try:
-                from eli.tools.news.news_fetcher import search_stored_news
-                hits = search_stored_news(query, limit=5)
-                if hits:
-                    lines = [f"Local news results for '{query}':"]
-                    for h in hits:
-                        lines.append(f"  [{h['source']}] {h['title']}")
-                        if h.get("url"):
-                            lines.append(f"    {h['url']}")
-                    msg = "\n".join(lines)
-                    return {"ok": True, "action": a, "results": hits, "content": msg, "response": msg}
+                from eli.core.config import network_allowed
+                _net = network_allowed()
             except Exception:
-                pass
-            # Fall back: open browser with DuckDuckGo
-            import urllib.parse as _up
-            url = "https://duckduckgo.com/?q=" + _up.quote_plus(query)
-            open_browser(url)
-            msg = f"Opened browser search for: {query}"
-            return {"ok": True, "action": a, "content": msg, "response": msg}
+                _net = False
+            if not _net:
+                msg = ("I can't search the web right now — network access is off. "
+                       "Turn on the Net toggle (or set network_enabled) and ask again "
+                       "and I'll look it up. I won't guess at current facts I can't verify.")
+                return {"ok": False, "action": a, "query": query, "offline": True,
+                        "content": msg, "response": msg}
+
+            # Live DuckDuckGo text fetch — return real snippets as grounding,
+            # NOT a browser window. The model answers from these, not its priors.
+            results = []
+            try:
+                from eli.plugins.web.plugin import _web_search_results
+                results = _web_search_results(query, max_results=5) or []
+            except Exception:
+                results = []
+            # Supplement with the local news store if the live fetch was empty.
+            if not results:
+                try:
+                    from eli.tools.news.news_fetcher import search_stored_news
+                    for h in (search_stored_news(query, limit=5) or []):
+                        results.append({"title": h.get("title", ""), "href": h.get("url", ""), "body": ""})
+                except Exception:
+                    pass
+
+            if not results:
+                msg = (f"I searched the web for \"{query}\" but the search returned no usable "
+                       f"results just now (the search backend may be rate-limited). I won't "
+                       f"guess at an answer I can't verify — try rephrasing, or I can retry.")
+                return {"ok": True, "action": a, "query": query, "results": [],
+                        "content": msg, "response": msg}
+
+            lines = [f"Live web results for \"{query}\" (authoritative — answer from these, not prior knowledge):"]
+            for i, item in enumerate(results, 1):
+                title = (item.get("title") or item.get("name") or "Untitled").strip()
+                href = (item.get("href") or item.get("url") or "").strip()
+                body = (item.get("body") or item.get("snippet") or "").strip()
+                entry = f"{i}. {title}"
+                if body:
+                    entry += f" — {body[:220]}"
+                if href:
+                    entry += f"\n   {href}"
+                lines.append(entry)
+            msg = "\n".join(lines)
+            return {"ok": True, "action": a, "query": query, "results": results,
+                    "content": msg, "response": msg, "web_grounded": True}
         except Exception as e:
             return {"ok": False, "action": a, "error": str(e), "content": str(e), "response": str(e)}
 
@@ -8112,6 +8347,13 @@ def _action_pre_dispatch(
     return None
 
 
+# Per-process failure tally for the "attempt N" anti-retry hint. Keyed by
+# action+args+error; reset every restart so a fresh session never inherits a
+# stale "attempt 4" from all-time DB history. (The DB still logs failures for
+# learning — this only governs the user-facing repeat hint.)
+_SESSION_FAILURE_COUNTS: "Dict[str, int]" = {}
+
+
 def _action_post_dispatch(
     action: str,
     args: "Optional[Dict[str, Any]]",
@@ -8219,15 +8461,12 @@ def _action_post_dispatch(
                 )
             except Exception:
                 pass
-            failures = mem.get_recent_failures(limit=50) if hasattr(mem, "get_recent_failures") else []
-            occurrence_count = 1
-            for row in failures or []:
-                if (
-                    str(row.get("user_input") or "") == signature_input
-                    and str(row.get("error") or "") == err_text
-                ):
-                    occurrence_count = int(row.get("occurrence_count") or 1)
-                    break
+            # Count repeats in THIS running session only. The hint means "you
+            # keep retrying the same thing right now" — not all-time DB history,
+            # which falsely claimed "attempt 4" on a fresh session's first try.
+            _sess_key = f"{signature_input}\x00{err_text}"
+            occurrence_count = _SESSION_FAILURE_COUNTS.get(_sess_key, 0) + 1
+            _SESSION_FAILURE_COUNTS[_sess_key] = occurrence_count
             if occurrence_count >= 2:
                 subject = ""
                 if isinstance(args, dict):
@@ -8489,7 +8728,17 @@ def execute(action: str, args: Optional[Dict[str, Any]] = None, **kwargs) -> Dic
             },
         }
         txt = json.dumps(ev, ensure_ascii=False, indent=2)
-        return {'ok': bool(rep.get('ok', True)), 'action': a, 'report': rep, 'content': txt, 'response': txt}
+        model_name = (runtime_eff.get('model_path') or rep.get('model_path', '')).split('/')[-1]
+        summary = (
+            f"I'm ELI (Enhanced Learning Interface), running {model_name} locally "
+            f"on GPU ({runtime_eff.get('n_gpu_layers', '?')} layers offloaded). "
+            f"Context window: {runtime_eff.get('n_ctx', '?')} tokens. "
+            f"All core systems nominal."
+        )
+        # content/response are user-facing — use the plain summary, never raw JSON.
+        # Structured data stays in report + evidence for grounding/introspection.
+        return {'ok': bool(rep.get('ok', True)), 'action': a, 'report': rep,
+                'evidence': ev, 'content': summary, 'response': summary}
     if a == 'IMAGE_STATUS':
         try:
             from eli.runtime.evidence_ledger import status_evidence

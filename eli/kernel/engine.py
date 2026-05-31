@@ -76,6 +76,8 @@ except ImportError:
 # memory retrieval, persona synthesis, or GGUF. Chat/questions still use
 # the full cognitive path.
 _PHASE45_DIRECT_FAST_ACTIONS = {
+    'AMBIENT_VISION',  # deterministic toggle — return the executor's confirmation directly
+    'ANALYZE_IMAGE',  # executor OCR/metadata is authoritative — never let the model "describe" an image it can't see
     'ASK_CLARIFY',
     'CLOSE_APP',
     'DATE',
@@ -94,6 +96,8 @@ _PHASE45_DIRECT_FAST_ACTIONS = {
     'PLAY_MEDIA',
     'PREVIOUS_MEDIA',
     'SCREEN_LOCATE',
+    'SCREEN_READ_ANALYZE',  # vision/OCR result is authoritative — never re-narrate the screen
+    'SHELL_EXEC',  # executor result is authoritative — never let model contradict it
     'SHUFFLE_MEDIA',
     'SPEAK',
     'STOP_MEDIA',
@@ -2923,7 +2927,7 @@ class CognitiveEngine:
             if self._engagement:
                 narrative = self._engagement.session_narrative()
                 depth = self._engagement.session_depth()
-                if narrative and self._engagement._turns:
+                if narrative and self._engagement._turns and depth >= 0.25:
                     self.memory.store_memory(
                         narrative,
                         tags=["session_summary", "continuity"],
@@ -2932,6 +2936,8 @@ class CognitiveEngine:
                         importance=0.70,
                     )
                     log.debug(f"[COGNITIVE] Shutdown: session narrative stored (depth={depth:.2f})")
+                elif narrative and self._engagement._turns:
+                    log.debug(f"[COGNITIVE] Shutdown: session narrative skipped (depth={depth:.2f} < 0.25, casual session)")
         except Exception as _eng_err:
             log.debug(f"[COGNITIVE] Shutdown: engagement flush failed (non-fatal): {_eng_err}")
 
@@ -3866,6 +3872,9 @@ Answer:"""
             "yesterday", "3 days ago", "three days ago",
             "summarise", "summarize", "recap", "this session", "our conversation", "our chat",
             "what did we", "what have we", "what were we", "conversation so far",
+            "what did i say", "what have i said", "what was i saying", "what were we talking",
+            "last conversation", "last chat", "pick up where", "left off", "continue from",
+            "where were we", "what were we working on", "what did you say", "what have you said",
         ))
         # 'give me everything' / 'don't summarise' should NOT trigger cross-session
         # fetch — they're detail requests for current session, not history
@@ -4073,7 +4082,7 @@ Answer:"""
                     ))
                     _hyde_eligible = (
                         not _hyde_disabled
-                        and _hyde_words >= 8              # fire for any substantive query
+                        and _hyde_words >= 12             # raised: short queries hallucinate on misheard words
                         and not _is_brief_phatic_prompt(query)
                         and not commandish
                         and not _hyde_is_control_cmd
@@ -5065,6 +5074,63 @@ Answer:"""
                     if _nl_s > 0:
                         _trimmed_mem_s = _trimmed_mem_s[_nl_s:]
                 # ──────────────────────────────────────────────────────────
+
+                # Conversational context injection (current session only, last 30 min).
+                #  (a) Short follow-ups (≤6 words) get the recent exchange inline so
+                #      the model sees the current message in immediate context.
+                #  (b) CONFUSION signals — "what do you mean", "i don't understand",
+                #      "can you elaborate", "huh?", "what?", "you're looping", etc. —
+                #      ALSO get the recent exchange PLUS a directive to locate exactly
+                #      where the confusion arose and resolve it, instead of looping or
+                #      repeating the previous reply.
+                _orig_msg = (prompt or "").strip()
+                _low_msg = _orig_msg.lower()
+                _confusion = bool(re.search(
+                    r"\b(what do you mean|what does that mean|what'?s that mean|"
+                    r"can you (?:elaborate|clarify|explain)|please (?:elaborate|clarify|explain)|"
+                    r"\belaborate\b|\bclarif(?:y|ication)\b|i don'?t (?:understand|get it|follow)|"
+                    r"i'?m (?:confused|lost|not following)|that (?:doesn'?t|does not) make sense|"
+                    r"you'?re not making sense|makes no sense|come again|say that again|"
+                    r"are you (?:talking about|on about|referring to)|"
+                    r"you keep (?:saying|asking)|"
+                    r"that'?s not what i|i didn'?t ask|"
+                    r"you'?re (?:slack(?:ing)?|drift(?:ing)?|repeating|looping)|"
+                    r"starting to (?:slack|drift|loop|repeat))\b",
+                    _low_msg,
+                )) or _low_msg.rstrip("?!. ") in {"what", "huh", "eh", "sorry", "pardon", "you what"}
+                _short_followup = len(_orig_msg.split()) <= 6
+                if _confusion or _short_followup:
+                    try:
+                        _session_cutoff = time.time() - 1800  # 30 minutes
+                        _recent = self.memory.get_recent_conversation(
+                            limit=8, user_id=self.user_id)
+                        _prompt_key = _orig_msg[:80]
+                        _thread = [
+                            t for t in _recent
+                            if float(t.get("timestamp") or 0) >= _session_cutoff
+                            and not (t.get("role") == "user"
+                                     and (t.get("content") or "").strip()[:80] == _prompt_key)
+                        ]
+                        if len(_thread) >= 2:
+                            _n = 5 if _confusion else 3
+                            _thread_lines = []
+                            for _t in _thread[-_n:]:
+                                _r = "You" if _t.get("role") == "user" else "ELI"
+                                _c = (_t.get("content") or "").replace("\n", " ")[:180]
+                                _thread_lines.append(f"{_r}: {_c}")
+                            _block = "[Recent exchange]\n" + "\n".join(_thread_lines)
+                            if _confusion:
+                                _block += (
+                                    "\n\n[The user is signalling confusion or asking you to clarify. "
+                                    "Re-read the recent exchange above and pinpoint SPECIFICALLY what "
+                                    "caused it — a word you used, a claim you made, or a topic you raised "
+                                    "that they never mentioned. State plainly where the misunderstanding "
+                                    "is, then resolve it with a concrete answer or fix. Do NOT repeat your "
+                                    "previous reply, and do NOT re-ask a question they already rejected.]"
+                                )
+                            prompt = _block + "\n\nYou: " + _orig_msg
+                    except Exception:
+                        pass
 
                 enhanced_system = self._build_enhanced_system(
                     _trimmed_mem_s,
@@ -6794,6 +6860,10 @@ Answer:"""
                 )
                 if _is_notable:
                     _world_lines.append(f"  {_fld}: {_val:.2f}")
+            _av = _ws.get("avatar", {})
+            _av_room = (_av.get("room") or "").strip()
+            if _av_room:
+                _world_lines.insert(0, f"  current_room: {_av_room.replace('_', ' ').title()}")
             if _world_lines:
                 _extra_blocks.append("[ELI INTERNAL STATE]\n" + "\n".join(_world_lines))
         except Exception:
@@ -9642,6 +9712,73 @@ Answer:"""
                 except Exception as grounded_err:
                     log.debug(f"[COGNITIVE] Grounded control synthesis failed: {grounded_err}")
 
+            # WEB_SEARCH handling.
+            #  • NO usable results → surface the executor's honest message DIRECTLY,
+            #    bypassing the model. (It was re-narrating empty results as "the
+            #    network toggle was off" and inventing dates — never let it.)
+            #  • WITH results → run the hybrid synthesis so ELI answers from the
+            #    live results in its own voice, plus an optional follow-up.
+            if str(action).upper() == "WEB_SEARCH":
+                _ws_results = (_action_result.get("results") or []) if isinstance(_action_result, dict) else []
+                _ws_grounded = bool(isinstance(_action_result, dict) and _action_result.get("web_grounded"))
+                if not (_ws_results and _ws_grounded):
+                    _direct = ""
+                    if isinstance(_action_result, dict):
+                        _direct = str(_action_result.get("response")
+                                      or _action_result.get("content") or "").strip()
+                    if not _direct:
+                        _direct = ("I searched the web but got no usable results for that, "
+                                   "so I can't give you a verified answer — and I won't guess.")
+                    try:
+                        self._store_assistant_turn(_direct)
+                    except Exception:
+                        pass
+                    return {
+                        'ok': True, 'action': action,
+                        'content': _direct, 'response': _direct,
+                        'confidence': float(getattr(bus_result, "aggregated_confidence", 0.0) or 0.5),
+                        'grounded': True, 'trace': trace,
+                    }
+                if evidence:
+                    evidence = (
+                        "[INSTRUCTION: The block below is LIVE web search results — the "
+                        "authoritative, current source. Reply in ELI's voice as a hybrid:\n"
+                        "1) Lead with a direct answer to the user's question drawn ONLY from "
+                        "these results. If the results do not actually contain the answer, say "
+                        "so plainly — never fall back on prior/training knowledge or guess a "
+                        "date or fact.\n"
+                        "2) You MAY add a brief comment or piece of context if it genuinely helps.\n"
+                        "3) You MAY end with ONE short, relevant follow-up question or proposal "
+                        "for what the user might want next — only when it adds real value.\n"
+                        "Keep it tight and conversational. Never state facts not present in the "
+                        "results below.]\n\n"
+                        + evidence
+                    )
+
+            # ANALYZE_IMAGE handling. The executor already produced the only
+            # honest answer available — real OCR text, or a plain statement that
+            # no text was found and there's no vision model to describe pixels.
+            # Surface it DIRECTLY; never let the model narrate a picture it can't
+            # see (that is exactly the "you did not analyze that screenshot,
+            # you're lying" failure).
+            if str(action).upper() == "ANALYZE_IMAGE":
+                _img_direct = ""
+                if isinstance(_action_result, dict):
+                    _img_direct = str(_action_result.get("response")
+                                      or _action_result.get("content") or "").strip()
+                if _img_direct:
+                    try:
+                        self._store_assistant_turn(_img_direct)
+                    except Exception:
+                        pass
+                    ok_flag = bool(_action_result.get("ok", True)) if isinstance(_action_result, dict) else True
+                    return {
+                        'ok': ok_flag, 'action': action,
+                        'content': _img_direct, 'response': _img_direct,
+                        'confidence': float(getattr(bus_result, "aggregated_confidence", 0.0) or 0.5),
+                        'grounded': True, 'trace': trace,
+                    }
+
             if evidence and action not in {'CHAT', 'chat'}:
                 try:
                     synthesized = self._synthesize_answer(
@@ -9650,6 +9787,20 @@ Answer:"""
                     ok_flag = True
                     if isinstance(_action_result, dict):
                         ok_flag = bool(_action_result.get("ok", True))
+                    # Capture any follow-up offer ELI made (e.g. "Want me to set a
+                    # reminder?") so a later "yes" re-routes and executes it.
+                    if str(action).upper() == "WEB_SEARCH":
+                        try:
+                            from eli.runtime.pending_proposal import (
+                                extract_proposal, set_pending_proposal, clear_pending_proposal,
+                            )
+                            _prop = extract_proposal(synthesized)
+                            if _prop:
+                                set_pending_proposal(_prop)
+                            else:
+                                clear_pending_proposal()
+                        except Exception:
+                            pass
                     self._store_assistant_turn(synthesized)
                     self._learn_from_result(
     intent, bus_result.action_result or {})
@@ -10271,7 +10422,7 @@ Answer:"""
             _saf_words = [w for w in prompt.split() if w]
             _saf_bus_conf = float(getattr(pre_built_bus_result, "aggregated_confidence", 1.0) or 1.0) \
                 if pre_built_bus_result is not None else 1.0
-            if len(_saf_words) <= 3 and _saf_bus_conf < 0.22:
+            if len(_saf_words) <= 1 and _saf_bus_conf < 0.22:
                 yield "Didn't catch that — say it again?"
                 return
         except Exception:
@@ -10335,7 +10486,15 @@ Answer:"""
             memory_context = ""
             log.debug("[COGNITIVE] Stream: phatic prompt — skipping memory/evidence context")
             _eli_pipe_stream("context_mode", mode="phatic_skip")
-        elif pre_built_memory_context:
+        elif pre_built_memory_context and not any(p in prompt.lower() for p in (
+            # Force a fresh cross-session fetch for memory/recall queries — the
+            # prebuilt context was built for the *prior* turn without cross-session
+            # and won't contain prior-session content even when needed now.
+            "last conversation", "last chat", "what did i say", "what have i said",
+            "pick up where", "left off", "where were we", "what were we working on",
+            "previous session", "prior session", "recall", "past conversation",
+            "what did we", "what have we", "remember", "what were we discussing",
+        )):
             memory_context = str(pre_built_memory_context or "")
             log.debug("[COGNITIVE] Stream: reusing pre-built bus memory context — skipping second dispatch")
             _eli_pipe_stream("context_mode", mode="prebuilt_reuse", chars=len(memory_context))

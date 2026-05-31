@@ -95,6 +95,45 @@ _RE_GROUNDED_PIPELINE = re.compile(
 _RE_URL = re.compile(r"https?://\S+|www\.\S+", re.I)
 _RE_SHELL_CMD = re.compile(r"^(sudo|bash|sh|python|pip|apt|dnf|brew|npm|git)\s", re.I)
 
+# Tracks the last successfully resolved filesystem path across router calls
+_last_used_path: str | None = None
+
+
+def _eli_latest_screenshot() -> str | None:
+    """Return the path to the most recent screenshot image, or None.
+
+    Searches the user's Pictures dir (where SCREENSHOT saves) and a few common
+    fallbacks for the newest screenshot-named image by modification time.
+    """
+    import glob as _g
+    dirs: list[str] = []
+    try:
+        from eli.utils import platform_compat as _pf
+        dirs.append(str(_pf.user_pictures_dir()))
+    except Exception:
+        pass
+    dirs += [
+        os.path.expanduser("~/Pictures"),
+        os.path.expanduser("~/Pictures/Screenshots"),
+        os.path.expanduser("~/Desktop"),
+    ]
+    candidates: list[str] = []
+    seen: set[str] = set()
+    for d in dirs:
+        if not d or d in seen or not os.path.isdir(d):
+            continue
+        seen.add(d)
+        for pat in ("Screenshot*.png", "Screenshot*.jpg",
+                    "*creenshot*.png", "*creenshot*.jpg"):
+            candidates.extend(_g.glob(os.path.join(d, pat)))
+    if not candidates:
+        return None
+    try:
+        return max(set(candidates), key=lambda p: os.path.getmtime(p))
+    except Exception:
+        return None
+
+
 # ============================================================
 # STATIC CONFIG
 # ============================================================
@@ -838,6 +877,118 @@ def _eli_meta_continuity_probe(text: str) -> bool:
     ))
 # === END ELI non-Quick/meta-continuity routing contract v1 ===
 
+def _eli_react_to_content_prepass(original_text: str, raw: str, low: str):
+    """Force CHAT when the user asks ELI to react to / give an opinion on text
+    they have pasted or referenced.
+
+    Quoted material must never be scanned for status/command intent: the words
+    inside a pasted block belong to the thing being judged, not to an
+    instruction. Without this, a long paste that happens to mention ELI's
+    internals ("memory", "faiss", "runtime", "context") trips a status regex
+    and the turn is hijacked into a deterministic data dump instead of an
+    actual reply. Routing to CHAT with the full (whitespace-normalised) text as
+    the message also guarantees the referenced content is present in the prompt
+    so the model can genuinely evaluate it rather than confabulate.
+    """
+    if not low:
+        return None
+    react_frame = re.search(
+        r"\b(what(?:'s| is| do| are)?\s+(?:you|your)\s+(?:think|reckon|make|take|opinion|view|thoughts?)"
+        r"|what do you (?:think|reckon|make) of"
+        r"|your (?:thoughts?|opinion|take|view)\b"
+        r"|thoughts on\b"
+        r"|respond to\b|react to\b|reply to\b"
+        r"|the following (?:reply|response|message|text|paragraph)"
+        r"|this (?:reply|response|message|paste|text)\b"
+        r"|(?:reply|response|message|text) (?:from|by) \w+"
+        r"|i (?:just )?(?:sent|pasted|posted|shared|wrote)\b"
+        r"|(?:message|reply|response|text) (?:above|earlier)\b"
+        r"|(?:above|earlier) (?:message|reply|response)\b"
+        r"|read (?:this|the following)\b)",
+        low,
+    )
+    if not react_frame:
+        return None
+    src = original_text or ""
+    has_paste = ("-->" in src) or (src.count("\n") >= 2) or (len(src) > 600)
+    points_at_content = bool(re.search(
+        r"\b(the following|this (?:reply|response|message|paste|text)"
+        r"|(?:reply|response|message|text) (?:from|by) \w+"
+        r"|i (?:just )?(?:sent|pasted|posted|shared)"
+        r"|above|earlier|claude|chatgpt|gpt|that (?:reply|response|message))\b",
+        low,
+    ))
+    if not (has_paste or points_at_content):
+        return None
+    return _mk(
+        "CHAT",
+        {"message": raw},
+        0.9,
+        matched_by="chat.react_to_pasted_content",
+    )
+
+
+def _eli_web_lookup_prepass(raw: str, low: str):
+    """Route real-time factual lookups and explicit web searches to WEB_SEARCH
+    when networking is enabled.
+
+    Without this, 'search for X', 'when is X out', 'release date of X',
+    'latest news on X' fell through to CHAT and were answered from the model's
+    stale training weights — and ELI would then argue with the user about
+    current facts it cannot actually know. Gated on network_allowed(): offline
+    mode returns None (stays CHAT) so the persona can say it cannot check live
+    rather than confabulate.
+    """
+    if not low:
+        return None
+    # Never hijack ELI-internal / self / memory introspection or media control.
+    if re.search(r"\b(my|your|you)\b.{0,30}\b(memory|memories|remember|stored|profile|runtime|cognition|capabilit)", low):
+        return None
+    if re.match(r"^(play|pause|resume|stop|next|previous|open|close|volume|mute|unmute)\b", low):
+        return None
+
+    explicit_search = re.search(
+        r"\b(search\s+(?:the\s+)?(?:web|internet|online)|search\s+for|search\b|"
+        r"look\s+(?:it|this|that)?\s*up|google\b|"
+        r"check\s+the\s+(?:internet|web|online)|find\s+out)\b",
+        low,
+    )
+    realtime_fact = re.search(
+        r"\b(when\b.{0,45}\b(out|air|airs|airing|aired|release|released|releasing|"
+        r"premier|premiere|coming\s+out|due|drop|drops)"
+        r"|(?:season|episode|movie|film|game|album|series)\b.{0,30}\b(out|air|airing|"
+        r"release|released|coming|drop|when)"
+        r"|release\s+date|latest\s+news|what'?s\s+the\s+latest|current\s+(?:price|score|status)"
+        r"|who\s+won|how\s+much\s+is|is\s+.+\s+out\s+yet)\b",
+        low,
+    )
+    if not (explicit_search or realtime_fact):
+        return None
+
+    try:
+        from eli.core.config import network_allowed
+        if not network_allowed():
+            return None  # offline: stay CHAT; persona explains it can't check live
+    except Exception:
+        return None
+
+    query = raw
+    m = re.match(
+        r"^(?:can\s+you\s+|could\s+you\s+|please\s+|hey\s+)?(?:do\s+a\s+|run\s+a\s+)?"
+        r"(?:web\s+search|search\s+the\s+web\s+for|search\s+online\s+for|"
+        r"search\s+the\s+internet\s+for|search\s+for|search|look\s+up|google|"
+        r"find\s+out|check\s+the\s+internet\s+for|check\s+the\s+web\s+for)\s+(.+)$",
+        raw, re.I,
+    )
+    if m and m.group(1).strip():
+        query = m.group(1).strip()
+    query = re.sub(r"\b(for me|please|now|on the internet|online)\b\.?$", "", query, flags=re.I).strip(" .?!")
+    if not query:
+        query = raw.strip()
+    return _mk("WEB_SEARCH", {"query": query}, 0.92,
+               matched_by="web.realtime_lookup", entities={"query": query})
+
+
 def route(text: str) -> Dict[str, Any]:
 
     raw, low = _normalize_text(text)
@@ -845,6 +996,13 @@ def route(text: str) -> Dict[str, Any]:
     _plugin_prepass = _route_plugin_bridge_prepass(raw, low)
     if _plugin_prepass is not None:
         return _plugin_prepass
+
+    # React-to-pasted-content guard: opinion/evaluation requests over quoted or
+    # referenced text are conversational. Run before any status/grounding regex
+    # so quoted ELI-internal vocabulary can't hijack the turn into a data dump.
+    _react_prepass = _eli_react_to_content_prepass(text, raw, low)
+    if _react_prepass is not None:
+        return _react_prepass
 
 
 
@@ -1444,6 +1602,12 @@ def route(text: str) -> Dict[str, Any]:
         query = m.group(1).strip() if m else raw
         return _mk("PLUGIN_SEARCH", {"query": query}, 0.95, matched_by="plugin.search",
                    entities={"query": query}, task_family="plugin")
+    # Ambient vision toggle — must beat the generic "enable/disable X" plugin
+    # matcher below ("enable ambient vision" is not a plugin).
+    if re.search(r"\bambient\s+vision\b", low):
+        _av_off = bool(re.search(r"\b(?:disable|turn\s+off|stop|deactivate)\b", low))
+        return _mk("AMBIENT_VISION", {"enabled": not _av_off, "text": raw}, 0.96,
+                   matched_by="vision.ambient_off" if _av_off else "vision.ambient_on")
     if re.search(
             r"\benable\s+(?:the\s+)?(?:plugin\s+)?([a-z_]+)\s*(?:plugin)?\b", low):
         m = re.search(
@@ -1707,13 +1871,13 @@ def route(text: str) -> Dict[str, Any]:
 
     # ── Note taking: check BEFORE memory store to avoid confusion ──
     _note_m = re.match(
-        r'^(?:write|save|create|make|add)\s+(?:a\s+)?notes?[:\s]+(?:saying\s+)?(.+)$',
+        r'^(?:write|save|create|make|add|take|jot)\s+(?:(?:a|the|down)\s+)*notes?(?:\s+down)?[:\s]+(?:saying\s+|that\s+)?(.+)$',
         raw,
         re.I)
     if _note_m:
         return _mk("WRITE_NOTE", {"text": _note_m.group(
             1).strip()}, 0.97, matched_by="notes.write_early")
-    _note_m2 = re.match(r'^(?:write|add)\s+note\s+(.+)$', raw, re.I)
+    _note_m2 = re.match(r'^(?:write|add|take|jot)\s+note\s+(.+)$', raw, re.I)
     if _note_m2:
         return _mk("WRITE_NOTE", {"text": _note_m2.group(
             1).strip()}, 0.95, matched_by="notes.add_early")
@@ -2473,10 +2637,29 @@ def route(text: str) -> Dict[str, Any]:
                 return _mk("ANALYZE_PDF", {"path": _pdf_p, "instruction": raw},
                            0.95, matched_by="analyze.path_first_pdf")
 
-    # summarize: conversation vs file/topic
-    m = re.match(r"^(?:summari[sz]e|analyse|analyze)\s+(.+)$", raw, re.I)
+    # summarize / analyse / read / look at: conversation vs file/path
+    # Matches both:
+    #   "summarise /path"  "analyse and read /path"  "read /path"
+    #   "can you look at /path"  "look at, read, and analyse /path"
+    m = re.match(
+        r"^(?:please\s+)?(?:can\s+you\s+)?(?:summari[sz]e|analyse|analyze|read|look\s+at)"
+        r"(?:[,\s]+(?:and\s+)?(?:summari[sz]e|analyse|analyze|read|look\s+at))*"
+        r"[,\s]+(?:this\s+)?(.+)$",
+        raw, re.I,
+    ) or re.match(r"^(?:please\s+)?(?:summari[sz]e|analyse|analyze|read)\s+(.+)$", raw, re.I)
     if m:
         target = m.group(1).strip()
+        # If target contains an absolute path, extract from the first / or ~/
+        # This handles typos, extra verbs, and multi-word prefixes cleanly.
+        _path_hit = re.search(r'(?:^|[\s,])([~/][^\s]+)', target)
+        if _path_hit:
+            target = _path_hit.group(1).strip()
+        else:
+            # Fallback: strip leading filler words
+            target = re.sub(
+                r"^(?:and\s+)?(?:summari[sz]e|analyse|analyze|summaise|read|look\s+at|the|this|file|directory|folder)\s+",
+                "", target, flags=re.I,
+            ).strip()
         # If the target contains a PDF, use the robust extractor to avoid
         # Unicode/em-dash path issues (captures everything before the extension)
         if ".pdf" in target.lower():
@@ -2486,9 +2669,13 @@ def route(text: str) -> Dict[str, Any]:
                            0.95, matched_by="analyze.summarize_pdf")
         expanded = os.path.expanduser(target)
         _has_file_ext = bool(re.search(r'\.[a-zA-Z0-9]{1,5}$', target.strip()))
-        if _is_likely_path(target) or os.path.exists(
-                expanded) or _has_file_ext:
+        _has_path_prefix = target.strip().startswith(("/", "~", "./", "../"))
+        _path_exists = os.path.exists(expanded)
+        if (_has_path_prefix or _path_exists or _has_file_ext):
             abs_path = os.path.abspath(expanded)
+            global _last_used_path
+            if _path_exists:
+                _last_used_path = abs_path
             # Route PDFs → ANALYZE_PDF, CSVs → ANALYZE_CSV, everything else →
             # SUMMARIZE_FILE
             if abs_path.lower().endswith(".pdf"):
@@ -2497,8 +2684,30 @@ def route(text: str) -> Dict[str, Any]:
             if abs_path.lower().endswith(".csv"):
                 return _mk("ANALYZE_CSV", {"path": abs_path},
                            0.95, matched_by="analyze.summarize_csv")
+            if abs_path.lower().endswith(
+                    (".png", ".jpg", ".jpeg", ".gif", ".bmp", ".webp", ".tiff", ".tif")):
+                return _mk("ANALYZE_IMAGE", {"path": abs_path},
+                           0.95, matched_by="analyze.image")
             return _mk("SUMMARIZE_FILE", {
                        "path": abs_path}, 0.92, matched_by="analyze.summarize_file")
+        # Referential: "summarise the pdfs in that directory" with no explicit path
+        if any(w in low for w in ["pdf", "pdfs"]) and any(
+                w in low for w in ["that", "there", "those", "the folder", "the directory"]):
+            if _last_used_path and os.path.isdir(_last_used_path):
+                return _mk("ANALYZE_PDF_FOLDER", {"folder": _last_used_path, "recursive": True},
+                           0.90, matched_by="analyze.pdf_referential")
+        # Referential: "analyse the recent/last screenshot" → resolve newest
+        # screenshot file and OCR it, rather than confabulating from memory.
+        if "screenshot" in low:
+            _shot = _eli_latest_screenshot()
+            if _shot:
+                return _mk("ANALYZE_IMAGE", {"path": _shot},
+                           0.93, matched_by="analyze.recent_screenshot")
+        # Live screen: "look at my screen", "read the screen", "analyse my display"
+        # → capture + vision, not a memory lookup.
+        if re.search(r"\b(?:my|the)\s+(?:screen|display|monitor)\b", low):
+            return _mk("SCREEN_READ_ANALYZE", {}, 0.92,
+                       matched_by="screen.analyze_referential")
         return _mk("MEMORY_RECALL", {"query": target},
                    0.8, matched_by="memory.summarize_topic")
 
@@ -2509,6 +2718,11 @@ def route(text: str) -> Dict[str, Any]:
         if path_match:
             return _mk("ANALYZE_PDF", {"path": path_match, "instruction": raw}, 0.95,
                        matched_by="analyze.pdf", entities={"path": path_match})
+        # Referential: "the pdfs in that directory" → use last resolved path
+        _is_referential = any(w in low for w in ["that", "there", "those", "the folder", "the directory"])
+        if _is_referential and _last_used_path and os.path.isdir(_last_used_path):
+            return _mk("ANALYZE_PDF_FOLDER", {"folder": _last_used_path, "recursive": True},
+                       0.90, matched_by="analyze.pdf_referential")
         return _mk("ANALYZE_PDF", {"path": ".", "instruction": raw},
                    0.85, matched_by="analyze.pdf_default")
 
@@ -3051,14 +3265,38 @@ def route(text: str) -> Dict[str, Any]:
         return _mk("OCR_IMAGE", {"path": os.path.abspath(os.path.expanduser(path))},
                    0.95, matched_by="ocr.extract", entities={"path": path})
 
-    # SCREEN_READ_ANALYZE — screenshot then OCR + LLM analysis
+    # AMBIENT_VISION — continuous "watch my screen" toggle (distinct from a
+    # one-shot "what's on my screen"). Check OFF before ON.
+    if re.search(r"\b(?:stop|quit|disable|turn\s+off|cease)\b.{0,30}\b(?:watch|watching|"
+                 r"look(?:ing)?\s+at|ambient\s+vision|keep\s+an\s+eye)\b", raw, re.I) or \
+       re.search(r"\b(?:turn\s+off|disable)\s+ambient\s+vision\b", raw, re.I) or \
+       re.search(r"\bstop\s+watching\b", raw, re.I):
+        return _mk("AMBIENT_VISION", {"enabled": False, "text": raw}, 0.95,
+                   matched_by="vision.ambient_off")
+    if re.search(r"\b(?:watch|keep\s+watching|keep\s+an\s+eye\s+on|monitor)\s+(?:my|the)\s+screen\b",
+                 raw, re.I) or \
+       re.search(r"\b(?:enable|turn\s+on|start|activate)\s+ambient\s+vision\b", raw, re.I) or \
+       re.search(r"\b(?:keep\s+)?(?:watching|looking\s+at)\s+what\s+i(?:'m|\s+am)\s+doing\b", raw, re.I):
+        return _mk("AMBIENT_VISION", {"enabled": True, "text": raw}, 0.95,
+                   matched_by="vision.ambient_on")
+
+    # SCREEN_READ_ANALYZE — screenshot then vision (VL model) + OCR
     if re.search(
-            r"\b(?:read|analyse?|analyze|describe|interpret|what(?:'s|\s+is)\s+on)\s+"
-            r"(?:the\s+)?(?:screen|display|monitor|desktop)\b", raw, re.I):
+            r"\b(?:read|analyse?|analyze|describe|interpret|look\s+at|what(?:'s|\s+is)\s+on)\s+"
+            r"(?:the|my)\s+(?:screen|display|monitor|desktop)\b", raw, re.I):
         return _mk("SCREEN_READ_ANALYZE", {}, 0.95, matched_by="screen.read_analyze")
 
     if re.search(r"\bscreen\s*(?:read|analyse?|analyze|ocr)\b", raw, re.I):
         return _mk("SCREEN_READ_ANALYZE", {}, 0.93, matched_by="screen.read_ocr")
+
+    # Conversational vision: "what do you see", "can you see this/my screen",
+    # "look at my screen", "what am I looking at", "see what I see".
+    if re.search(
+            r"\b(?:what\s+do\s+you\s+see|what\s+can\s+you\s+see|can\s+you\s+see\s+"
+            r"(?:this|that|my\s+screen|what|the\s+screen)|see\s+what\s+i(?:'m|\s+am)?\s*"
+            r"(?:see|seeing|looking\s+at)|what\s+am\s+i\s+looking\s+at|look\s+at\s+"
+            r"(?:this|what\s+i'?m\s+doing)|see\s+my\s+screen)\b", raw, re.I):
+        return _mk("SCREEN_READ_ANALYZE", {}, 0.9, matched_by="screen.vision_conversational")
 
     # ------------------------------------------------------------
     # CONVERT_DOCUMENT — convert between document formats
@@ -4779,7 +5017,12 @@ def _eli_phase38_tiny_fragment_post(raw, result):
                 r"describe yourself|describe your|introduce yourself|tell me about yourself|"
                 r"how many memories|"
                 r"elaborate more|elaborate|continue|go on|more detail|expand|explain more|tell me more|"
-                r"remember this|save this|help me|explain|why|how|what|where|when|who"
+                r"remember this|save this|help me|explain|why|how|what|where|when|who|"
+                r"okay|ok|yes|no|nope|yep|yeah|sure|agreed|correct|exactly|right|fair|"
+                r"nice|cool|great|perfect|good|got it|understood|alright|indeed|true|false|"
+                r"hi|hello|hey|howya|hiya|yo|sup|afternoon|morning|evening|night|"
+                r"for fucksake|fucksake|for fuck sake|jesus|jaysus|seriously|what the|"
+                r"fuck off|piss off|cop on|come on|wise up"
                 r")\b",
                 low,
             )
@@ -4789,7 +5032,7 @@ def _eli_phase38_tiny_fragment_post(raw, result):
             looks_fragmentary = (
                 not ends_in_terminator
                 and (
-                    len(words) <= 2
+                    len(words) <= 1
                     or str(raw or "").strip().endswith("-")
                     or low in {"preview", "resil", "i u", "here i will", "find your mo"}
                 )
@@ -5492,6 +5735,17 @@ try:
                 low = _re.sub(r"\s+", " ", str(text or "").lower()).strip()
                 return _route_set_user_name(str(text or ""), low)
 
+            def _stage_web_lookup(text, *_a, **_k):
+                """Real-time factual lookups / explicit web search → WEB_SEARCH
+                when network is on. Runs late (just before the core router) so
+                every specific grounded/memory/identity/media stage wins first;
+                this only catches what would otherwise be a stale-weights CHAT."""
+                try:
+                    _raw, _low = _normalize_text(text)
+                    return _eli_web_lookup_prepass(_raw, _low)
+                except Exception:
+                    return None
+
             def _stage_core_router(text, *a, **k):
                 return _eli_phase38_open_typo_or_core_route(text, *a, **k)
 
@@ -5535,8 +5789,56 @@ try:
                     pass
                 return None
 
+            def _stage_pending_proposal_confirm(text, *_a, **_k):
+                """If ELI offered to do something ("Want me to set a reminder?")
+                and the user now affirms, re-route the stored proposal phrase
+                through the pipeline so it actually executes (or asks for
+                specifics). A decline clears it and falls through to chat."""
+                try:
+                    from eli.runtime.pending_proposal import (
+                        get_pending_proposal, clear_pending_proposal,
+                    )
+                    prop = get_pending_proposal()
+                    if not prop:
+                        return None
+                    low = re.sub(r"\s+", " ", str(text or "").strip().lower())
+                    try:
+                        from eli.runtime.grounded_remediation import YES_RE, NO_RE
+                    except Exception:
+                        YES_RE = re.compile(r"^\s*(yes|y|yeah|yep|sure|ok|okay|go ahead|do it|please do|go for it)\s*$", re.I)
+                        NO_RE = re.compile(r"^\s*(no|nope|nah|cancel|don'?t|never mind|leave it)\s*$", re.I)
+                    if NO_RE.match(low):
+                        clear_pending_proposal()
+                        return None
+                    if YES_RE.match(low):
+                        cmd = str(prop.get("command") or "").strip()
+                        clear_pending_proposal()
+                        if cmd:
+                            routed = route(cmd)  # pending already cleared → no recursion
+                            if isinstance(routed, dict):
+                                routed.setdefault("meta", {})
+                                routed["meta"]["matched_by"] = "pending_proposal.confirm"
+                                routed["meta"]["rerouted_from_proposal"] = cmd
+                                return routed
+                except Exception:
+                    return None
+                return None
+
+            def _stage_react_to_pasted_content(text, *_a, **_k):
+                """Highest-priority conversational guard: when the user asks ELI
+                to react to / give an opinion on text they pasted or referenced,
+                force CHAT before any status/memory/grounding stage can scan the
+                quoted material and hijack the turn into a data dump."""
+                try:
+                    _raw, _low = _normalize_text(text)
+                    return _eli_react_to_content_prepass(text, _raw, _low)
+                except Exception:
+                    return None
+
             return (
                 ("pending_remediation_confirm", _stage_pending_remediation_confirm),
+                ("pending_proposal_confirm", _stage_pending_proposal_confirm),
+                ("react_to_pasted_content", _stage_react_to_pasted_content),
                 ("precedence", _stage_precedence),
                 ("identity_audit", _stage_identity_audit),
                 ("frontier_status", _stage_frontier_status),
@@ -5565,6 +5867,7 @@ try:
                 ("persona_override", _stage_persona_override),
                 ("followup_passthrough", _stage_followup_passthrough),
                 ("identity_contract", _stage_identity_contract),
+                ("web_lookup", _stage_web_lookup),
                 ("core_router", _stage_core_router),
             )
 

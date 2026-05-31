@@ -13,17 +13,19 @@ from pathlib import Path
 import re
 
 import logging
+import threading
 import time
 from typing import Any, Dict, List, Optional
 
 log = logging.getLogger(__name__)
 
 # Module-level debounce: skip update_persona_overlay() calls that occur within
-# 30 seconds of the previous run. Prevents the 8+ firings per short session
-# caused by awareness_boot + reflection + proactive daemon all running without
-# coordination.
+# 120 seconds of the previous run. The Lock prevents the race condition where
+# multiple threads (reflection, proactive daemon, self-improvement) all read
+# _LAST_RUN=0.0 simultaneously at startup and all get past the check.
 _PERSONA_OVERLAY_LAST_RUN: float = 0.0
 _PERSONA_OVERLAY_MIN_INTERVAL: float = 120.0
+_PERSONA_OVERLAY_LOCK: threading.Lock = threading.Lock()
 
 
 def _safe_call(obj: Any, name: str, *args, **kwargs):
@@ -297,9 +299,10 @@ def update_persona_overlay(memory: Any = None) -> Dict[str, Any]:
     """
     global _PERSONA_OVERLAY_LAST_RUN
     now = time.time()
-    if now - _PERSONA_OVERLAY_LAST_RUN < _PERSONA_OVERLAY_MIN_INTERVAL:
-        return {"ok": True, "skipped": True, "reason": "debounce"}
-    _PERSONA_OVERLAY_LAST_RUN = now
+    with _PERSONA_OVERLAY_LOCK:
+        if now - _PERSONA_OVERLAY_LAST_RUN < _PERSONA_OVERLAY_MIN_INTERVAL:
+            return {"ok": True, "skipped": True, "reason": "debounce"}
+        _PERSONA_OVERLAY_LAST_RUN = now
 
     if memory is None:
         try:
@@ -370,6 +373,24 @@ def update_persona_overlay(memory: Any = None) -> Dict[str, Any]:
         log.warning("persona_updater: failed: %s", exc)
         return {"ok": False, "error": str(exc)}
 
+    # Run tone analysis — detects communication style, depth preference,
+    # humor engagement, correction rate, and frustration signals from recent
+    # conversation turns. Results are written to user_patterns as
+    # preference.tone.* entries and flow into user_profile.json below.
+    try:
+        from eli.cognition.tone_analyzer import run_tone_analysis
+        _tone_result = run_tone_analysis(memory)
+        if _tone_result.get("written"):
+            log.info("persona_updater: tone signals updated: %s", _tone_result["written"])
+    except Exception as _tone_err:
+        log.debug("persona_updater: tone analysis failed (non-fatal): %s", _tone_err)
+
+    # Sync user_patterns → knowledge graph so it grows from real user data.
+    try:
+        _populate_kg_from_user_patterns(memory)
+    except Exception as _kg_err:
+        log.debug("persona_updater: kg sync failed (non-fatal): %s", _kg_err)
+
     # Also update the user profile file from identity signals in memory
     update_user_profile_overlay(memory)
     return {"ok": True, "changed": True, "sections": len(sections)}
@@ -393,7 +414,7 @@ def _read_user_patterns(memory: Any) -> Dict[str, List[str]]:
         try:
             rows = con.execute(
                 """
-                SELECT pattern_type, pattern_data
+                SELECT pattern_type, pattern_data, COALESCE(timestamp, ts)
                 FROM user_patterns
                 WHERE length(COALESCE(pattern_data,'')) > 10
                 ORDER BY COALESCE(timestamp, ts, id) DESC
@@ -401,15 +422,22 @@ def _read_user_patterns(memory: Any) -> Dict[str, List[str]]:
             ).fetchall()
         finally:
             con.close()
+        import time as _time
+        now = _time.time()
         groups: Dict[str, List[str]] = {}
         seen: set = set()
-        for (ptype, pdata) in rows:
+        for (ptype, pdata, pts) in rows:
             pdata = (pdata or "").strip()
             key = pdata.lower()[:120]
             if not pdata or key in seen:
                 continue
             seen.add(key)
             prefix = (ptype or "other").split(".")[0]
+            if prefix == "project" and pts:
+                age_h = (now - float(pts)) / 3600
+                if age_h >= 4:
+                    age_label = f"{age_h/24:.0f}d ago" if age_h >= 48 else f"{age_h:.0f}h ago"
+                    pdata = f"{pdata} (last active: {age_label})"
             groups.setdefault(prefix, []).append(pdata)
         return groups
     except Exception as e:
@@ -443,6 +471,68 @@ def _extract_name_from_identity_item(text: str) -> str:
     }:
         return ""
     return candidate
+
+
+def _populate_kg_from_user_patterns(memory: Any) -> None:
+    """
+    Sync structured user_patterns data into the knowledge graph.
+    Extracts project, research, and preference signals and inserts
+    them as typed triples so the KG agent has meaningful content.
+    """
+    from eli.memory.knowledge_graph import get_knowledge_graph
+    kg = get_knowledge_graph()
+    patterns = _read_user_patterns(memory)
+
+    # Canonical user node
+    kg.upsert_entity("User", "person")
+
+    # Name from user_profile
+    try:
+        from eli.kernel.state import get_user_name
+        name = get_user_name().strip()
+        if name:
+            kg.upsert_entity(name, "person")
+            kg.add_relation("User", "has_name", name, source="user_profile")
+    except Exception:
+        pass
+
+    # Projects → works_on
+    for proj in patterns.get("project", [])[:4]:
+        m = re.search(
+            r"(?:developing|building|working\s+on|debugging|tuning)\s+([A-Za-z][A-Za-z0-9_\- ]{1,30})",
+            proj, re.I,
+        )
+        if m:
+            project_name = m.group(1).strip().rstrip("'s").strip()
+            if len(project_name) > 2:
+                kg.upsert_entity(project_name, "project")
+                kg.add_relation("User", "works_on", project_name, source="user_patterns")
+
+    # Research → researches
+    for res in patterns.get("research", [])[:3]:
+        for topic_match in re.finditer(
+            r"\b(physics|simulation|hydrogen|solar|field\s+framework|"
+            r"theoretical\s+physics|astrophysics|quantum|cosmology|"
+            r"ELI|machine\s+learning|AI|cognition)\b",
+            res, re.I,
+        ):
+            topic = topic_match.group(0).strip()
+            kg.upsert_entity(topic, "research_area")
+            kg.add_relation("User", "researches", topic, source="user_patterns")
+
+    # Preferences → key terms only (avoid polluting with long strings)
+    for pref in patterns.get("preference", [])[:4]:
+        m = re.search(
+            r"prefers?\s+(in[- ]depth|brief|executable|thorough|detailed|direct)\b",
+            pref, re.I,
+        )
+        if m:
+            pref_val = m.group(1).lower()
+            kg.upsert_entity(pref_val, "preference")
+            kg.add_relation("User", "prefers", pref_val, source="user_patterns")
+
+    log.debug("persona_updater: kg sync complete — %d entities, %d relations",
+              kg.stats().get("entities", 0), kg.stats().get("relations", 0))
 
 
 def update_user_profile_overlay(memory: Any = None) -> Dict[str, Any]:
