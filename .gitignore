@@ -109,3 +109,13 @@ eli/tools/image_engine/projects/
 
 # ── Package index options file (local tooling) ───────────────────────────────
 \[package-index-options\]
+
+# ── Agent tooling / local assistant state ────────────────────────────────────
+.claude/
+
+# ── Audit & analysis scratch (not source) ────────────────────────────────────
+eli_audit_uploads/
+*_full_analysis.md
+
+# ── User runtime data (notes ELI writes) ─────────────────────────────────────
+eli_notebook/
