@@ -587,19 +587,29 @@ def _media_voice_alias_legacy(text: str) -> str:
         t = re.sub(rf"\b{pat}\b", "al jazeera", t)
 
     # Service aliases. Strip junk after a clear service fragment at the end.
-    t = re.sub(
-        r"\bon\s+(?:you|your|youtub|youtube|you\s*tube|yt|your\s+ship)(?:\b.*)?$",
-        "on youtube",
-        t,
-    )
-    t = re.sub(
-        r"\bon\s+(?:spot|spott|spot\s+of\s*f?|spot\s+if\s+i|spotify|spodify|spotif(?:y)?)(?:\b.*)?$",
-        "on spotify",
-        t,
-    )
+    # GUARD: only rewrite a trailing "on you[tube]" / "on spot[ify]" into a
+    # service when the text is actually a media-play command. Without this,
+    # ordinary conversation ending in "on you" / "on your ..." ("checking up
+    # on you", "turned on your network") was being corrupted into "...youtube".
+    _looks_media_cmd = bool(re.match(
+        r"^(play|pay|played|put|open|opens|listen|watch|stream|queue)\b", t
+    )) or " play " in f" {t} "
+    if _looks_media_cmd:
+        t = re.sub(
+            r"\bon\s+(?:you|your|youtub|youtube|you\s*tube|yt|your\s+ship)(?:\b.*)?$",
+            "on youtube",
+            t,
+        )
+        t = re.sub(
+            r"\bon\s+(?:spot|spott|spot\s+of\s*f?|spot\s+if\s+i|spotify|spodify|spotif(?:y)?)(?:\b.*)?$",
+            "on spotify",
+            t,
+        )
 
     # Standalone service fragment completion used after pending media command.
-    if t in {"you", "your", "youtub", "youtube", "you tube", "yt", "your ship"}:
+    # Only unambiguous service words — bare "you"/"your" are normal speech and
+    # must never be auto-completed to YouTube.
+    if t in {"youtub", "youtube", "you tube", "yt"}:
         return "on youtube"
     if t in {"spot", "spott", "spot of", "spot of f", "spot if i", "spotify", "spodify", "spotif"}:
         return "on spotify"

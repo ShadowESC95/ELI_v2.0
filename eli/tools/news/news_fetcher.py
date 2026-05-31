@@ -10,7 +10,7 @@ Sources (all free, no auth):
   • arXiv API                     — research papers
   • Open RSS feeds via feedparser  — general news (BBC, Reuters etc)
 
-Stores everything in eli_memory.sqlite3 in a `news_articles` table.
+Stores everything in user.sqlite3 in a `news_articles` table.
 ELI can then search/recall news via the memory system.
 """
 from __future__ import annotations
@@ -33,7 +33,7 @@ def _get_db() -> Path:
         from eli.core.paths import memory_db_path
         return Path(memory_db_path())
     except Exception:
-        return Path(__file__).resolve().parents[3] / "artifacts" / "eli_memory.sqlite3"
+        return Path(__file__).resolve().parents[3] / "artifacts" / "db" / "user.sqlite3"
 
 
 # ── Schema ────────────────────────────────────────────────────────────────────
