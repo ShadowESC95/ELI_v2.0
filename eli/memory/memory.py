@@ -2715,22 +2715,14 @@ class Memory(metaclass=_MemoryMeta):
                     "enabled": 1,
                 })
 
-            rr = conn.execute(
-                "SELECT id FROM habit_rules WHERE COALESCE(name,'') = ?",
-                (key_name,),
-            ).fetchone()
-            if rr is None:
-                _insert_payload(conn, "habit_rules", {
-                    "name": key_name,
-                    "command": key_cmd,
-                    "enabled": 1,
-                    "timestamp": now,
-                    "ts": now,
-                    "pattern": key_name,
-                    "action": key_cmd,
-                    "trigger_phrase": key_name,
-                    "action_type": "auto",
-                })
+            # NOTE: we deliberately do NOT create a `habit_rules` row here.
+            # `habit_rules` are *time-scheduled* routines fired by HabitScheduler;
+            # they must only be created by the habit-learning path (eli/planning/
+            # habits.py), which clusters real events by hour/minute. Auto-promoting
+            # every logged event to a rule produced rows with no hour/minute (→ 00:00),
+            # so HabitScheduler replayed the entire action vocabulary at midnight as
+            # raw chat tokens (fabricated weather/news, etc.). habit_events (the audit
+            # log) and habits (the frequency counter) above are the correct sinks.
 
             conn.commit()
             return rid
