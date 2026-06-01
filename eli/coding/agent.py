@@ -125,6 +125,11 @@ class CodeAgent:
             cand = Candidate(code=dag_res.combined_code, language="python", origin="dag")
             tests = synthesize_tests(task, dag_res.combined_code, self.generate) if use_tests else ""
             verify_candidate(cand, tests=tests or None, run_timeout=run_timeout)
+            if cand.syntax_ok is False:
+                # Composition produced un-parseable code — don't ship it; let the
+                # single-shot path try for one coherent module instead.
+                log.debug("[CODE_AGENT] DAG composition failed syntax; falling back to single-shot")
+                return None
             return CodeResult(
                 ok=bool(cand.code.strip()), solved=cand.score >= target_score, code=cand.code,
                 language="python", score=cand.score,
