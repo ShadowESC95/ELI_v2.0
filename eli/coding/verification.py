@@ -145,7 +145,12 @@ def _parse_test_result(res: RunResult) -> tuple[int, int]:
 def score_candidate(cand: Candidate) -> float:
     """Aggregate 0..1 score. Weights shift toward whatever evidence exists:
     tests dominate when present; otherwise clean execution dominates."""
-    syntax = 1.0 if cand.syntax_ok else (0.0 if cand.syntax_ok is False else 0.5)
+    # Syntactically broken code can never be the "best" candidate — hard-cap it
+    # so a valid-but-untested candidate always beats an un-parseable one (and so
+    # a broken script is never shipped as a deliverable).
+    if cand.syntax_ok is False:
+        return 0.05
+    syntax = 1.0 if cand.syntax_ok else 0.5
     runs = 1.0 if cand.runs_clean else (0.0 if cand.runs_clean is False else 0.5)
     quality = _quality_signals(cand.code)
 

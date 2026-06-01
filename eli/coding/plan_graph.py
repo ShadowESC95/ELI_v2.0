@@ -80,7 +80,11 @@ def decompose_dag(task: str, generate: Optional[GenerateFn], *,
         return single, {"root": task}
 
 
-_IMPORT_RE = re.compile(r"^\s*(?:import\s+\S|from\s+\S+\s+import\s)", re.MULTILINE)
+# Only TOP-LEVEL imports (no leading indentation) are hoistable. An indented
+# import is function-local and must stay in the body — hoisting it to module top
+# (a) is semantically wrong and (b) would carry its indentation into the header,
+# producing an IndentationError. This was a real shipped bug.
+_TOP_IMPORT_RE = re.compile(r"^(?:import\s+\S|from\s+\S+\s+import\s)")
 
 
 def compose(order: List[str], solutions: Dict[str, str]) -> str:
@@ -95,11 +99,13 @@ def compose(order: List[str], solutions: Dict[str, str]) -> str:
             continue
         body_lines = []
         for line in code.splitlines():
-            if _IMPORT_RE.match(line) and not line.strip().startswith("from ."):
+            # Hoist only un-indented, non-relative imports; everything else
+            # (including indented in-function imports) stays in the body verbatim.
+            if _TOP_IMPORT_RE.match(line) and not line.startswith("from ."):
                 key = line.strip()
                 if key not in seen_imports:
                     seen_imports.add(key)
-                    imports.append(line.rstrip())
+                    imports.append(key)
             else:
                 body_lines.append(line)
         bodies.append(f"# ── component: {nid} ──\n" + "\n".join(body_lines).strip())
