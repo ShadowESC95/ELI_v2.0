@@ -1,8 +1,8 @@
 from __future__ import annotations
 
-import json
 import urllib.parse
-import urllib.request
+
+from eli.core.netguard import http_get_json
 
 
 PLUGIN_ID = "weather"
@@ -10,12 +10,10 @@ ACTIONS = ["GET_WEATHER"]
 
 
 def _get_json(url: str) -> dict:
-    req = urllib.request.Request(
-        url,
-        headers={"User-Agent": "ELI-Weather/1.0"},
-    )
-    with urllib.request.urlopen(req, timeout=20) as r:
-        return json.loads(r.read().decode("utf-8"))
+    # Routed through the central network gate: fails closed (OfflineError) when
+    # the Net toggle is off, exactly like NEWS_FETCH / WEB_SEARCH. open-meteo is
+    # a free, key-less API, but it is still the internet — so it must be gated.
+    return http_get_json(url, headers={"User-Agent": "ELI-Weather/1.0"})
 
 
 def _geocode(location: str) -> dict:
