@@ -122,10 +122,15 @@ DEFAULTS: Dict[str, Any] = {
     "first_run_complete": False,
     "theme": "dark",
     "searxng_url": "",
-    # --- Local vision (Qwen2.5-VL via llama-cpp; hot-swaps with the text model) ---
+    # --- Local vision (model-agnostic, via llama-cpp; hot-swaps with the text
+    # model). Paths empty = auto-discover any projector-paired VL GGUF in the
+    # models dir. No model name is hardcoded; override per-install via these
+    # keys or ELI_VISION_MODEL / ELI_VISION_MMPROJ. The llama-cpp chat handler is
+    # auto-detected from the filename; set vision_chat_handler to force it. ---
     "vision_enabled": True,
-    "vision_model_path": "models/Qwen2.5-VL-7B-Instruct-Q4_K_M.gguf",
-    "vision_mmproj_path": "models/mmproj-Qwen2.5-VL-7B-Instruct-f16.gguf",
+    "vision_model_path": "",
+    "vision_mmproj_path": "",
+    "vision_chat_handler": "",
     "vision_n_ctx": 4096,
     "vision_n_gpu_layers": 99,
     "vision_n_batch": 256,
@@ -136,11 +141,13 @@ DEFAULTS: Dict[str, Any] = {
     "vision_max_tokens": 512,
     "vision_temperature": 0.2,
     "vision_repeat_penalty": 1.3,
-    # Fast glance model (Moondream) — local GGUF, no API. Used for ambient
-    # glances + quick "what's on my screen"; falls back to the primary model.
+    # Fast glance model — local GGUF, no API. Used for ambient glances + quick
+    # "what's on my screen"; falls back to the primary model. Empty = auto-discover
+    # the smallest projector-paired VL GGUF. Model-agnostic (no name hardcoded).
     "vision_fast_enabled": True,
-    "vision_fast_model_path": "models/moondream2-text-model-f16.gguf",
-    "vision_fast_mmproj_path": "models/moondream2-mmproj-f16.gguf",
+    "vision_fast_model_path": "",
+    "vision_fast_mmproj_path": "",
+    "vision_fast_chat_handler": "",
     "vision_fast_n_ctx": 2048,
     "vision_fast_n_gpu_layers": 99,
     # Co-resident (no model swap) — big latency win; enable once 8GB VRAM fit
