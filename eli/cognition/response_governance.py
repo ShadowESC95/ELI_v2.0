@@ -72,7 +72,7 @@ def detect_confabulation(response: str, user_input: str = "") -> List[Dict[str, 
 
 
 def is_hard_knowledge_query(user_input: str) -> bool:
-    """Return True if the query is in a domain where 7B models typically confabulate."""
+    """Return True if the query is in a domain where smaller local models typically confabulate."""
     return any(p.search(user_input) for p in _HARD_KNOWLEDGE_DOMAINS)
 
 
