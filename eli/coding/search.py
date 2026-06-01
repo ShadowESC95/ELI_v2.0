@@ -95,6 +95,7 @@ def tree_search(
     explore_c: float = 0.7,
     run_timeout: float = 20.0,
     time_budget_s: float = 240.0,
+    no_improve_patience: int = 3,
     bug_memory: Optional[BugMemory] = None,
 ) -> SearchResult:
     t0 = time.time()
@@ -135,6 +136,8 @@ def tree_search(
 
     # ── Iterative expansion ──────────────────────────────────────────────────
     iterations = 0
+    best_score = max((c.score for c in nodes), default=0.0)
+    stale = 0
     for it in range(max_iterations):
         if time.time() - t0 > time_budget_s:
             break
@@ -156,6 +159,16 @@ def tree_search(
         trace.append({"step": f"refine#{it}<-{parent.id}", **child.summary()})
         if child.score >= target_score:
             return SearchResult(child, nodes, trace, iterations, time.time() - t0, solved=True)
+        # Early-exit: stop burning calls when refinements stop improving (e.g. an
+        # ill-posed task where every candidate scores ~0).
+        if child.score > best_score + 1e-6:
+            best_score = child.score
+            stale = 0
+        else:
+            stale += 1
+            if stale >= max(1, no_improve_patience):
+                trace.append({"step": "early_exit", "reason": f"no score improvement in {stale} refinements"})
+                break
 
     best = max(nodes, key=lambda c: c.score)
     return SearchResult(best, nodes, trace, iterations, time.time() - t0,
