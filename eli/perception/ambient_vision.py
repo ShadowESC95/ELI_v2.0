@@ -143,7 +143,11 @@ def _do_glance() -> None:
 def _run() -> None:
     log.debug("[AMBIENT_VISION] loop started")
     _state["running"] = True
-    last_glance = 0.0
+    # Start the clock now so the FIRST glance waits a full interval. Otherwise
+    # (last_glance=0) it fires immediately on toggle-on and collides with
+    # startup / an on-demand "what's on my screen", serializing two slow model
+    # swaps back to back.
+    last_glance = time.time()
     try:
         while not _stop_event.is_set():
             # Re-read the toggle every cycle so it can be flipped at runtime.
