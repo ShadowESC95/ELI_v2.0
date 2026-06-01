@@ -28,6 +28,15 @@ _MULTI_RE = re.compile(
     r"\b(?:pipeline|end[\s-]?to[\s-]?end|multiple\s+|several\s+|"
     r"then\s+\w+\s+(?:that|which)|and\s+then\b)", re.I)
 
+# Open-ended / hard / research-grade tasks: long, many candidates, often
+# unsolvable — should NOT block the UI. (This is what "solve the P vs NP
+# problem" tripped over: no heavy-compute keyword matched, so it ran foreground.)
+_OPEN_ENDED_RE = re.compile(
+    r"\bp\s*(?:vs\.?|versus)\s*np\b|\bopen\s+problem\b|\bnp[\s-]?(?:complete|hard)\b|"
+    r"\b(?:solve|prove|design|architect|build|implement)\b[^.?!]*"
+    r"\b(?:problem|theorem|conjecture|system|framework|engine|architecture|"
+    r"compiler|interpreter|from\s+scratch|end[\s-]?to[\s-]?end)\b", re.I)
+
 _FOREGROUND_RE = re.compile(
     r"\b(?:right\s+now|immediately|don'?t\s+background|in\s+the\s+foreground|"
     r"wait\s+for\s+it|quick(?:ly)?|just\s+do\s+it\s+now)\b", re.I)
@@ -57,6 +66,8 @@ def estimate_cost(task: str, *, language: str = "python", plan_steps: int = 0) -
         reasons.append(f"{len(_heavy_hits)} heavy-compute signal(s)")
     if _MULTI_RE.search(t):
         s += 0.3; reasons.append("multi-component")
+    if _OPEN_ENDED_RE.search(t):
+        s += 0.45; reasons.append("open-ended/hard")
     if len(t) > 240:
         s += 0.15; reasons.append("long/detailed spec")
     if plan_steps >= 4:
@@ -85,6 +96,10 @@ def should_background(task: str, *, language: str = "python", plan_steps: int = 
     if explicit_background(task):
         return {"background": True, "reason": "user asked to background it", "estimate": estimate_cost(task, language=language, plan_steps=plan_steps).to_dict()}
     est = estimate_cost(task, language=language, plan_steps=plan_steps)
+    # Open-ended / hard / research-grade work is inherently slow (many candidates,
+    # often unsolvable) — always background so it never blocks the UI.
+    if _OPEN_ENDED_RE.search(task or ""):
+        return {"background": True, "reason": "open-ended/hard task", "estimate": est.to_dict()}
     if est.level == "heavy":
         return {"background": True, "reason": "estimated heavy: " + ", ".join(est.reasons), "estimate": est.to_dict()}
     return {"background": False, "reason": f"estimated {est.level}", "estimate": est.to_dict()}

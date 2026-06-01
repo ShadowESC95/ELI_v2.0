@@ -6870,7 +6870,11 @@ def _execute_impl(action: str, args: Optional[Dict[str, Any]] = None) -> Dict[st
         if os.environ.get("ELI_GENERATE_SCRIPT_AGENT", "1").strip().lower() not in ("0", "false", "no", "off"):
             try:
                 from eli.coding import solve as _agent_solve
-                _ag = _agent_solve(desc, language=(_detected_lang or "python").lower())
+                # Single coherent script: no subtask DAG (composition is for
+                # multi-component CODE_SOLVE), and a lean beam/iters so a script
+                # request is a handful of calls, not minutes of fan-out.
+                _ag = _agent_solve(desc, language=(_detected_lang or "python").lower(),
+                                   use_dag=False, beam=2, max_iterations=2)
                 _ag_code = (_ag or {}).get("code") or ""
                 # Never ship a syntactically-broken Python script: if the agent's
                 # best effort doesn't even parse, drop to the inline generator
