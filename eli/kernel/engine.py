@@ -2745,6 +2745,18 @@ class CognitiveEngine:
         auto_init_gguf: bool = True,
         enforce_hardware_authority: bool = True,
     ):
+        # Network failsafe: install the process-wide socket guard before any
+        # subsystem (scheduler, daemons, plugins) can reach out. While the Net
+        # toggle is off, ALL outbound non-loopback connections fail closed —
+        # even code that forgot to call the gate. Respects the live toggle, so
+        # turning Net on at runtime re-enables outbound immediately. Idempotent.
+        try:
+            from eli.core.netguard import install_socket_guard
+            if install_socket_guard():
+                log.debug("[COGNITIVE] Network socket guard installed (offline = fail closed)")
+        except Exception as _ng_err:
+            log.debug(f"[COGNITIVE] Network socket guard install failed (non-fatal): {_ng_err}")
+
         self.memory = get_memory()
         self._test_mode = _eli_test_mode()
         self.scheduler = None if self._test_mode else get_scheduler()
