@@ -3336,6 +3336,7 @@ class EliMainWindow(QMainWindow):
         self.create_screen_control_tab()
         self.create_files_tab()
         self.create_labs_tab()
+        self.create_coding_tab()
         self.create_experimental_tab()
         self.create_eli_world_tab()
         self.create_settings_tab()
@@ -6059,6 +6060,17 @@ class EliMainWindow(QMainWindow):
             fallback = QWidget()
             QVBoxLayout(fallback).addWidget(QLabel(f"Labs tab unavailable: {_labs_err}"))
             self.tabs.addTab(fallback, "⚗️  Labs")
+
+    def create_coding_tab(self):
+        try:
+            from eli.gui.coding_tab import CodingTab
+            self._coding_widget = CodingTab(parent_window=self)
+            self.tabs.addTab(self._coding_widget, "🧩  Coding")
+        except Exception as _coding_err:
+            log.debug(f"[Coding] failed to load: {_coding_err}")
+            fallback = QWidget()
+            QVBoxLayout(fallback).addWidget(QLabel(f"Coding tab unavailable: {_coding_err}"))
+            self.tabs.addTab(fallback, "🧩  Coding")
 
     def create_experimental_tab(self):
         """Create safe experimental prototype inventory tab."""
