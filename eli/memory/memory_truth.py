@@ -159,15 +159,32 @@ def memory_truth_report() -> Dict[str, Any]:
 
 
 def format_memory_truth(report: Dict[str, Any] | None = None) -> str:
+    """Human-readable memory summary for user-facing answers.
+
+    Previously this returned a multi-hundred-line raw JSON `memory_truth_evidence`
+    dump straight into chat. The full structured report is still available via
+    memory_truth_report(); this returns prose. (Fix: issue #4 raw-JSON dump.)
+    """
     report = report or memory_truth_report()
+    s = report.get("summary", {}) if isinstance(report.get("summary"), dict) else {}
     dbs = report.get("databases", {})
     vectors = report.get("vectors", {})
     errors = []
     for block in (dbs.get("user", {}), dbs.get("agent", {}), vectors):
         errors.extend(block.get("errors", []) if isinstance(block, dict) else [])
-    payload = {
-        "surface": "memory_truth_evidence",
-        **report,
-        "errors": errors,
-    }
-    return json.dumps(payload, ensure_ascii=False, default=str, indent=2)
+
+    def _g(k):
+        v = s.get(k)
+        return v if v is not None else "?"
+
+    lines = ["Memory system — grounded counts:"]
+    lines.append(f"- long-term memories: {_g('user_memories')} (FTS index: {_g('user_memory_fts')})")
+    lines.append(f"- conversation turns: {_g('user_conversation_turns')} across {_g('user_conversations')} conversations")
+    lines.append(f"- observations: {_g('user_observations')}; recall-log rows: {_g('user_recall_log')}")
+    lines.append(f"- FAISS vectors: {_g('vector_ntotal')} (dim {_g('vector_dim')}, meta {_g('vector_meta_len')})")
+    lines.append(f"- agent-side: {_g('agent_memories')} memories, {_g('agent_observations')} observations")
+    if errors:
+        lines.append(f"- ⚠ {len(errors)} error(s): {errors[:3]}")
+    else:
+        lines.append("- status: all stores reachable, no errors.")
+    return "\n".join(lines)
