@@ -9649,6 +9649,45 @@ Answer:"""
                         or _action_result.get('response', '')
                         or ''
                     )
+                    # Self-contained executor answers (file/doc summaries +
+                    # conversions) are ALREADY the final, polished output — the
+                    # handler read the file and called the model itself. Feeding
+                    # them back through persona synthesis only risks the content
+                    # being truncated out by a large system prompt (observed:
+                    # SUMMARIZE_FILE returning a vague "no content provided"
+                    # answer after a 27K-char system prompt squeezed the file
+                    # summary out of n_ctx). Return the handler's answer directly.
+                    _SELF_CONTAINED_LLM_ACTIONS = {
+                        "SUMMARIZE_FILE", "CONVERT_DOCUMENT", "GENERATE_DOCUMENT",
+                        "DOC_GENERATE", "CREATE_DOCUMENT", "ANALYZE_PDF", "ANALYZE_CSV",
+                    }
+                    if _action_content and str(action or "").upper() in _SELF_CONTAINED_LLM_ACTIONS:
+                        _self_text = _action_content.strip()
+                        _self_payload = _action_result if isinstance(_action_result, dict) else {}
+                        try:
+                            self._store_assistant_turn(_self_text)
+                        except Exception:
+                            pass
+                        try:
+                            self._learn_from_result(intent, _self_payload)
+                        except Exception:
+                            pass
+                        try:
+                            self._execute_post_actions(trace, _self_payload)
+                        except Exception as _pa_err:
+                            log.debug(f"[COGNITIVE] self-contained post-actions failed: {_pa_err}")
+                        return {
+                            "ok": bool(_self_payload.get("ok", True)),
+                            "action": str(action or "").upper(),
+                            "content": _self_text,
+                            "response": _self_text,
+                            "trace": trace,
+                            "evidence_used": True,
+                            "grounded": True,
+                            "tool_result": _self_payload,
+                            "confidence": max(float(getattr(bus_result, "aggregated_confidence", 0.0) or 0.0), 0.85),
+                            "meta": {"response_mode": "self_contained_executor_answer"},
+                        }
                     if _action_content:
                         evidence_parts.append(
     f"=== {action} Result ===\n{_action_content}")
