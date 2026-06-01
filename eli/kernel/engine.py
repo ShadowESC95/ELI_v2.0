@@ -3003,6 +3003,14 @@ class CognitiveEngine:
         except Exception as _emb_err:
             log.debug(f"[COGNITIVE] Shutdown: embedder close failed (non-fatal): {_emb_err}")
 
+        # 7b. Close the resident co-resident vision model (Moondream), if any —
+        # a second resident CUDA context; release it before the text model.
+        try:
+            from eli.perception.vision import unload_resident_fast_model
+            unload_resident_fast_model()
+        except Exception as _rv_err:
+            log.debug(f"[COGNITIVE] Shutdown: resident vision close failed (non-fatal): {_rv_err}")
+
         # 8. Explicit GGUF unload — prevents Llama.__del__ segfault on exit.
         try:
             from eli.cognition.gguf_inference import unload_model

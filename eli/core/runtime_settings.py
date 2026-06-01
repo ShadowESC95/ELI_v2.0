@@ -136,6 +136,27 @@ DEFAULTS: Dict[str, Any] = {
     "vision_max_tokens": 512,
     "vision_temperature": 0.2,
     "vision_repeat_penalty": 1.3,
+    # Fast glance model (Moondream) — local GGUF, no API. Used for ambient
+    # glances + quick "what's on my screen"; falls back to the primary model.
+    "vision_fast_enabled": True,
+    "vision_fast_model_path": "models/moondream2-text-model-f16.gguf",
+    "vision_fast_mmproj_path": "models/moondream2-mmproj-f16.gguf",
+    "vision_fast_n_ctx": 2048,
+    "vision_fast_n_gpu_layers": 99,
+    # Co-resident (no model swap) — big latency win; enable once 8GB VRAM fit
+    # is confirmed with both models loaded.
+    "vision_fast_no_swap": False,
+    # Co-resident vision: load the fast (Moondream) model BEFORE the text model
+    # and keep it resident, so glances need no swap (~3.5s). The text model is
+    # capped to vision_coresident_text_ctx so both fit in 8GB (validated: 7B at
+    # ctx 18432, gpu_layers unchanged, + Q4 Moondream). Default OFF — flip on to
+    # enable; a bad fit can never strand boot because it degrades to full ctx.
+    "vision_coresident": False,
+    "vision_coresident_text_ctx": 18432,
+    # Fuse OCR (exact text) + Moondream (visual gist) with the text model into an
+    # accurate, grounded screen description — compensates for Moondream's
+    # inability to read dense UI text. Evidence-only; never invents.
+    "vision_fuse_with_text_model": True,
     "vision_default_prompt": "",
     # Ambient vision: periodic screen glances for rolling awareness. OFF by
     # default — with the hot-swap model each glance briefly unloads the text

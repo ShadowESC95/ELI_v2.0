@@ -373,6 +373,23 @@ def load_model(force_reload: bool = False):
     if n_ctx is None:
         n_ctx = _as_int(_runtime_value(settings, "n_ctx", "context_size"), config.get_gguf_n_ctx())
 
+    # Co-resident vision: load the small fast model FIRST (reserving its VRAM)
+    # and cap this text model's context so both fit in 8GB. Best-effort — if the
+    # fast model can't load, we fall through to full context (no harm to boot).
+    if bool(_runtime_value(settings, "vision_coresident", default=False)):
+        try:
+            from eli.perception import vision as _eli_vision
+            _rok, _rreason = _eli_vision.load_resident_fast_model()
+            if _rok:
+                _co_ctx = _as_int(_runtime_value(settings, "vision_coresident_text_ctx"), 18432)
+                if _co_ctx and int(n_ctx) > _co_ctx:
+                    log.debug(f"[GGUF] co-resident vision: capping text ctx {n_ctx} -> {_co_ctx}")
+                    n_ctx = _co_ctx
+            else:
+                log.debug(f"[GGUF] co-resident vision: fast model not loaded ({_rreason}); full ctx kept")
+        except Exception as _co_err:
+            log.debug(f"[GGUF] co-resident vision setup skipped: {_co_err}")
+
     n_gpu_layers = _env_int("ELI_GGUF_N_GPU_LAYERS", None)
     if n_gpu_layers is None:
         n_gpu_layers = _as_int(_runtime_value(settings, "gpu_layers", "n_gpu_layers"), config.get_gguf_n_gpu_layers())

@@ -778,6 +778,24 @@ class LocalModelManager:
         try:
             from llama_cpp import Llama
             from llama_cpp import llama_cpp as _llama_native
+            # Co-resident vision: reserve the small fast (Moondream) model's VRAM
+            # FIRST, then cap this text model's context so both fit in 8GB.
+            # Best-effort and fully guarded — if anything fails, the text model
+            # loads normally at full context (boot is never at risk).
+            try:
+                from eli.core import config as _co_cfg
+                if bool(_co_cfg.get("vision_coresident", False)):
+                    from eli.perception import vision as _co_vision
+                    _rok, _rreason = _co_vision.load_resident_fast_model()
+                    if _rok:
+                        _co_ctx = int(_co_cfg.get("vision_coresident_text_ctx", 18432) or 18432)
+                        if _co_ctx and int(n_ctx) > _co_ctx:
+                            print(f"   [CO-RESIDENT] vision model resident; capping ctx {n_ctx} -> {_co_ctx}")
+                            n_ctx = _co_ctx
+                    else:
+                        print(f"   [CO-RESIDENT] fast model not loaded ({_rreason}); full ctx kept")
+            except Exception as _co_err:
+                print(f"   [CO-RESIDENT] setup skipped: {_co_err}")
             path_obj = resolve_model_path(model_path)
             self.model_path = str(path_obj)
             if not path_obj.exists():
