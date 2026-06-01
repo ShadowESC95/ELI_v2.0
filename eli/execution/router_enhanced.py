@@ -2155,6 +2155,26 @@ def route(text: str) -> Dict[str, Any]:
     # Pre-guard: conversational openers mean this sentence is NOT a date request
     # even if it contains the word "date" (e.g. "yeah that's fair enough i have
     # asked you what the date and time is quite a bit lately").
+    # CREATE_FILE: "create/make/write/save a file called PATH containing CONTENT
+    # [, then read it back]". Requires both the word 'file' and a path with an
+    # extension, so it can't steal "write a function/script". Runs before DATE
+    # so "…containing today's date…" no longer answers with a bare date.
+    if re.search(r"\b(?:create|make|write|save|generate)\s+(?:a\s+|an\s+|the\s+|new\s+)*[a-z]*\s*file\b", low):
+        _cf_path_m = (
+            re.search(r"(?:called|named|at|to|in)\s+[\"']?([~/]?[\w./\-]+\.[A-Za-z0-9]{1,8})", raw)
+            or re.search(r"([~/][\w./\-]*\.[A-Za-z0-9]{1,8})", raw)
+            or re.search(r"\b([\w.\-]+\.[A-Za-z0-9]{1,6})\b", raw)
+        )
+        if _cf_path_m:
+            _cf_path = _cf_path_m.group(1)
+            _cf_content_m = re.search(
+                r"(?:containing|with\s+(?:the\s+)?(?:content|contents|text)|that\s+says|with)\s+(.+?)"
+                r"(?:,?\s*(?:then|and\s+(?:then\s+)?read|and\s+read\s+it\s+back)\b|[.!?]?\s*$)",
+                raw, re.IGNORECASE)
+            _cf_content = (_cf_content_m.group(1).strip() if _cf_content_m else "")
+            return _mk("CREATE_FILE", {"path": _cf_path, "content": _cf_content},
+                       0.96, matched_by="fs.create_file")
+
     _date_conv_starters = frozenset({
         "yeah", "yes", "yep", "yup", "no", "nope", "ok", "okay",
         "so", "well", "fair", "right", "sure", "true", "exactly",
