@@ -6886,6 +6886,20 @@ def _execute_impl(action: str, args: Optional[Dict[str, Any]] = None) -> Dict[st
                     except SyntaxError as _se_gs:
                         log.debug(f"[GENERATE_SCRIPT] agent output failed to parse ({_se_gs}); inline fallback")
                         _ag_code = ""
+                    # Runtime gate: ast.parse passes for valid-but-crashing code
+                    # (e.g. `pi` used without import → NameError only at run time).
+                    # Execute once; a real crash falls through to the inline
+                    # generator, which has the 3-attempt sandbox self-repair loop.
+                    if _ag_code.strip():
+                        try:
+                            from eli.coding.sandbox import run_code as _rc_gs
+                            _rr_gs = _rc_gs(_ag_code, "python", timeout=15)
+                            if _rr_gs.crashed:
+                                log.debug(f"[GENERATE_SCRIPT] agent output crashed at runtime "
+                                          f"({(_rr_gs.traceback_tail or '')[:120]}); inline fallback")
+                                _ag_code = ""
+                        except Exception:
+                            pass
                 if _ag_code.strip():
                     _safe = re.sub(r"[^a-z0-9]+", "_", desc.lower())[:40].strip("_") or "generated"
                     _fname = f"{_safe}{_detected_ext}"
