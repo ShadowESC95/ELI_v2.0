@@ -93,3 +93,9 @@ extracted content (text/OCR/structure) into the grounded pipeline.
      `gnome-screenshot`/`wpctl`/`piper` degrades silently to fallbacks (good) but
      there's no single "what perception capabilities do I actually have here?"
      probe surfaced to the user.
+
+
+---
+
+## Update Advisory — 2026-06-01
+- Unchanged this session. Still-open: the residual "7B" comment in `ambient_vision.py` should be scrubbed for model-agnostic consistency (see memory `eli-model-agnostic`).
