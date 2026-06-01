@@ -6314,8 +6314,17 @@ def _execute_impl(action: str, args: Optional[Dict[str, Any]] = None) -> Dict[st
                 _msg = "I need a location. Try: 'What's the weather in Wexford?'"
                 return {"ok": False, "action": a, "error": "missing_location", "content": _msg, "response": _msg}
 
+            # Network gate: weather is a live open-meteo call. Refuse honestly
+            # when the Net toggle is off rather than confabulating a reading.
+            from eli.core.netguard import should_block_network, offline_response, OfflineError
+            if should_block_network():
+                return offline_response(a, "check the weather")
+
             from eli.plugins.weather.plugin import get_weather as _gw
-            result = _gw(location)
+            try:
+                result = _gw(location)
+            except OfflineError:
+                return offline_response(a, "check the weather")
             if isinstance(result, dict):
                 result.setdefault("action", a)
                 return result
