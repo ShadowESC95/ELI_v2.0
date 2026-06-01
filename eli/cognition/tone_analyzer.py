@@ -181,15 +181,17 @@ def build_preference_strings(sig: Dict[str, Any]) -> Dict[str, str]:
     tech    = sig.get("tech_rate", 0)
     avg_wc  = sig.get("avg_word_count", 10)
 
+    # Emit a preference ONLY on positive evidence. Absence of a signal must NOT
+    # produce a confident negative directive — asserting "no humor → keep tone
+    # direct and neutral" or "rarely corrects ELI" from weak/sparse signal is
+    # both frequently wrong and harmful (it flattens ELI's voice and feeds false
+    # facts back into the persona). Silence is the correct output for no signal.
     if tech > 1.5 and casual < 0.3:
-        style = "User communicates in a primarily technical, precise style with low casual language."
+        out["style"] = "User communicates in a primarily technical, precise style with low casual language."
     elif casual > 0.5 and tech < 0.8:
-        style = "User communicates casually and informally — contractions, shorthand, conversational tone."
+        out["style"] = "User communicates casually and informally — contractions, shorthand, conversational tone."
     elif tech > 0.8 and casual > 0.3:
-        style = "User mixes technical precision with casual informal language depending on context."
-    else:
-        style = "User communicates in a neutral, direct style."
-    out["style"] = style
+        out["style"] = "User mixes technical precision with casual informal language depending on context."
 
     # ── Depth / response length preference ───────────────────────────────────
     more = sig.get("depth_more_rate", 0)
@@ -198,38 +200,30 @@ def build_preference_strings(sig: Dict[str, Any]) -> Dict[str, str]:
     short_r = sig.get("short_turn_ratio", 0)
 
     if more > 0.05 or (long_r > 0.30 and avg_wc > 14):
-        depth = "User prefers detailed, thorough responses — willing to engage with depth and complexity."
+        out["depth"] = "User prefers detailed, thorough responses — willing to engage with depth and complexity."
     elif less > 0.05 or (short_r > 0.55 and avg_wc < 7):
-        depth = "User prefers brief, direct answers — cut to the point, minimal explanation unless asked."
-    else:
-        depth = "User accepts moderate response length — detailed when the topic warrants it."
-    out["depth"] = depth
+        out["depth"] = "User prefers brief, direct answers — cut to the point, minimal explanation unless asked."
 
-    # ── Correction sensitivity ────────────────────────────────────────────────
+    # ── Correction sensitivity (only when corrections are actually frequent) ──
     corr = sig.get("correction_rate", 0)
     if corr > 0.10:
-        correction = (
+        out["correction"] = (
             f"User corrects ELI frequently (~{corr*100:.0f}% of turns) — "
             "prioritise accuracy and precision over speed; confirm understanding before proceeding."
         )
     elif corr > 0.04:
-        correction = "User occasionally corrects ELI — stay precise, acknowledge mistakes directly."
-    else:
-        correction = "User rarely needs to correct ELI — current accuracy level is working."
-    out["correction"] = correction
+        out["correction"] = "User occasionally corrects ELI — stay precise, acknowledge mistakes directly."
 
-    # ── Humor / banter engagement ─────────────────────────────────────────────
+    # ── Humor / banter engagement (positive only; never assert "be neutral") ──
     humor  = sig.get("humor_rate", 0)
     banter = sig.get("banter_rate", 0)
-    if humor > 0.05 or banter > 0.05:
+    if humor > 0.03 or banter > 0.03:
         out["humor"] = (
             "User actively engages with dry humor and banter — "
             "wit and sarcasm are welcome when timing is right."
         )
-    elif humor > 0.02 or banter > 0.02:
-        out["humor"] = "User occasionally responds to humor — light wit is acceptable."
-    else:
-        out["humor"] = "User has not engaged with humor — keep tone direct and neutral."
+    elif humor > 0.005 or banter > 0.005:
+        out["humor"] = "User responds to humor and banter — light wit is welcome."
 
     # ── Frustration / stress signal ───────────────────────────────────────────
     frust = sig.get("frustration_rate", 0)
@@ -239,13 +233,11 @@ def build_preference_strings(sig: Dict[str, Any]) -> Dict[str, str]:
             "be more concise, acknowledge errors faster, reduce hedging."
         )
 
-    # ── Session mode ──────────────────────────────────────────────────────────
+    # ── Session mode (only on clear signal) ───────────────────────────────────
     if tech > 1.2 and avg_wc > 10:
         out["mode"] = "User is typically in deep technical work mode — match that intensity."
     elif casual > 0.6 and avg_wc < 8:
         out["mode"] = "User often in casual check-in mode — brief responses keep the flow."
-    else:
-        out["mode"] = "User alternates between focused work and casual interaction — read the context."
 
     return out
 
@@ -351,6 +343,20 @@ def run_tone_analysis(memory: Any) -> Dict[str, Any]:
 
     signals  = analyze_turns(turns)
     prefs    = build_preference_strings(signals)
+
+    # Full replace: clear ALL prior tone preferences first, so dimensions that
+    # no longer have positive signal (e.g. a stale "rarely corrects" or "no
+    # humor") don't linger as false facts. Only currently-evidenced ones remain.
+    try:
+        import sqlite3 as _sq
+        _c = _sq.connect(db_path, timeout=5.0)
+        try:
+            _c.execute("DELETE FROM user_patterns WHERE pattern_type LIKE 'preference.tone.%'")
+            _c.commit()
+        finally:
+            _c.close()
+    except Exception as e:
+        log.debug("tone_analyzer: tone clear-before-write failed: %s", e)
 
     written = []
     for subtype, value in prefs.items():
