@@ -2170,7 +2170,15 @@ def route(text: str) -> Dict[str, Any]:
         _first_word_low in _date_conv_starters
         or any(s in low for s in _date_anti_signals)
     )
-    if not _is_date_conv and any(re.search(p, low) for p in [
+    # File-command guard: "create/write/make/save a file … today's date …, then
+    # read it back" is a file operation, not a date query — don't let "today's
+    # date" hijack it into a bare DATE answer. (Fix: issue #5 DATE misroute.)
+    _file_command = bool(
+        re.search(r"\b(?:create|write|make|save|append|generate|put)\b[^.?!]*\bfile\b", low)
+        or re.search(r"\bread it back\b", low)
+        or re.search(r"/\S*\.(?:txt|py|md|json|csv|sh|log|ini|cfg|yaml|yml)\b", low)
+    )
+    if not _is_date_conv and not _file_command and any(re.search(p, low) for p in [
         r"\bwhat(?:'?s|\s+is)?\s+(?:the\s+)?date\b",
         r'\bcurrent date\b',
         # today's date / today is the date — no greedy .* (would match "update")
