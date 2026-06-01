@@ -119,6 +119,29 @@ def test_coding_plan_graph_topo_solve_and_compose():
     assert any("already-built component" in s for s in seen)
 
 
+def test_compose_keeps_indented_imports_in_body():
+    """Regression: a function-local (indented) import must NOT be hoisted to the
+    module top (that produced an IndentationError in a shipped script). The
+    composed module must parse."""
+    import ast
+    from eli.coding.plan_graph import compose
+    solutions = {
+        "1": "import time\n\ndef a():\n    return time.time()\n",
+        "2": "def b():\n        from itertools import product\n        return list(product([1], [2]))\n",
+    }
+    out = compose(["1", "2"], solutions)
+    ast.parse(out)  # must not raise IndentationError
+    assert "\nimport time" in ("\n" + out)          # top-level import hoisted
+    assert "        from itertools import product" in out  # local import stays indented in body
+
+
+def test_broken_candidate_never_wins():
+    from eli.coding.verification import Candidate, score_candidate
+    broken = Candidate(code="    x = 1"); broken.syntax_ok = False
+    valid = Candidate(code="def f():\n    return 1\n"); valid.syntax_ok = True
+    assert score_candidate(broken) <= 0.05 < score_candidate(valid)
+
+
 def test_coding_single_node_returns_none():
     from eli.coding.plan_graph import solve_dag
 

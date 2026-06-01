@@ -6872,6 +6872,16 @@ def _execute_impl(action: str, args: Optional[Dict[str, Any]] = None) -> Dict[st
                 from eli.coding import solve as _agent_solve
                 _ag = _agent_solve(desc, language=(_detected_lang or "python").lower())
                 _ag_code = (_ag or {}).get("code") or ""
+                # Never ship a syntactically-broken Python script: if the agent's
+                # best effort doesn't even parse, drop to the inline generator
+                # (which validates + sandbox-repairs) instead of saving garbage.
+                if _ag_code.strip() and (_detected_lang or "").lower() == "python":
+                    try:
+                        import ast as _ast_gs
+                        _ast_gs.parse(_ag_code)
+                    except SyntaxError as _se_gs:
+                        log.debug(f"[GENERATE_SCRIPT] agent output failed to parse ({_se_gs}); inline fallback")
+                        _ag_code = ""
                 if _ag_code.strip():
                     _safe = re.sub(r"[^a-z0-9]+", "_", desc.lower())[:40].strip("_") or "generated"
                     _fname = f"{_safe}{_detected_ext}"
