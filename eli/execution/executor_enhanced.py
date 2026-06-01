@@ -7316,13 +7316,44 @@ def _execute_impl(action: str, args: Optional[Dict[str, Any]] = None) -> Dict[st
         try:
             from eli.coding import solve as _code_solve
             _lang = (args.get("language") or "python").strip().lower()
-            res = _code_solve(desc, language=_lang)
+            # Quick vs Thorough (from the Coding tab). Quick = single-shot, lean.
+            _mode = str(args.get("mode") or "").strip().lower()
+            _solve_kw = {}
+            def _argint(k):
+                try:
+                    return int(args.get(k)) if args.get(k) is not None else None
+                except Exception:
+                    return None
+            if _mode == "quick":
+                _solve_kw = {"use_dag": False, "beam": 2, "max_iterations": 2}
+            else:
+                if args.get("use_dag") is not None:
+                    _solve_kw["use_dag"] = bool(args.get("use_dag"))
+                if _argint("beam") is not None:
+                    _solve_kw["beam"] = _argint("beam")
+                if _argint("max_iterations") is not None:
+                    _solve_kw["max_iterations"] = _argint("max_iterations")
+            res = _code_solve(desc, language=_lang, **_solve_kw)
             code = res.get("code") or ""
             if not code.strip():
                 msg = res.get("message") or "coding agent produced no solution"
                 return {"ok": False, "action": a, "error": msg, "content": msg, "response": msg}
+            # Final syntax gate: never present un-parseable Python as runnable.
+            _runnable = True
+            _syntax_note = ""
+            if _lang == "python":
+                try:
+                    import ast as _ast_cs
+                    _ast_cs.parse(code)
+                except SyntaxError as _se_cs:
+                    _runnable = False
+                    _syntax_note = f"SyntaxError: {_se_cs.msg} (line {_se_cs.lineno})"
             _ext = {"python": ".py", "bash": ".sh", "javascript": ".js", "typescript": ".ts",
                     "ruby": ".rb", "go": ".go", "lua": ".lua"}.get(_lang, ".txt")
+            # Park un-runnable output as a .draft so a user never accidentally runs
+            # a broken file and hits a traceback.
+            if not _runnable:
+                _ext = _ext + ".draft"
             safe = _re_cs.sub(r"[^a-z0-9]+", "_", desc.lower())[:40].strip("_") or "solution"
             from pathlib import Path as _SPath
             scripts_dir = _SPath(__file__).resolve().parents[2] / "artifacts" / "scripts"
@@ -7333,13 +7364,15 @@ def _execute_impl(action: str, args: Optional[Dict[str, Any]] = None) -> Dict[st
                 "event": "artifact_generated", "kind": "code_solution",
                 "path": str(full_path), "filename": full_path.name, "language": _lang,
                 "solved": res.get("solved"), "score": res.get("score"),
-                "bug_class": res.get("bug_class"), "can_run": True, "opened": True,
+                "bug_class": res.get("bug_class"), "can_run": _runnable, "opened": _runnable,
+                "runnable": _runnable, "syntax_note": _syntax_note,
             }, ensure_ascii=False, default=str)
             return {"ok": True, "action": a, "code": code, "script_path": str(full_path),
-                    "filename": full_path.name, "solved": res.get("solved"),
+                    "filename": full_path.name, "solved": bool(res.get("solved")) and _runnable,
+                    "runnable": _runnable, "syntax_note": _syntax_note,
                     "score": res.get("score"), "plan": res.get("plan"),
                     "search": res.get("search"), "bug_class": res.get("bug_class"),
-                    "content": _payload, "response": _payload, "open_in_ide": True}
+                    "content": _payload, "response": _payload, "open_in_ide": _runnable}
         except Exception as _cs_e:
             msg = f"CODE_SOLVE failed: {_cs_e}"
             return {"ok": False, "action": a, "error": msg, "content": msg, "response": msg}
