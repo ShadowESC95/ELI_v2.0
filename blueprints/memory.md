@@ -122,3 +122,10 @@ gap ELI's own grounding admits.
      column-detection everywhere is compensating for schema instability.
   3. **No consolidation pipeline** — only multiplicative decay; memories don't
      graduate into the KG automatically.
+
+
+---
+
+## Update Advisory — 2026-06-01
+- `recall_memory` output now also feeds the `knowledge_graph` agent via the bus DAG upstream edge (memory → KG). No change to memory internals; just a new consumer.
+- The coding engine added a separate experiential store, `coding_memory.sqlite3` (`eli/coding/bug_memory.py`: bug→fix). Consider unifying it with the `failures`/`improvements`/`corrections` tables here into one experiential memory (flagged in `agent_algorithms.md` aspirational #4).
