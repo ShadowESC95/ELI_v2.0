@@ -62,6 +62,19 @@ class HabitScheduler:
         except (KeyError, TypeError):
             log.debug(f"[SCHEDULER] Skipping malformed rule (missing command): {rule!r}")
             return
+
+        # Defense-in-depth: refuse to fire auto-corrupt rules whose command is a
+        # bare action/capability token equal to the rule name (e.g. GET_WEATHER,
+        # NEWS_FETCH, GENERATE_SCRIPT). Those are NOT learned time-routines — feeding
+        # the token to engine.process() makes the router fall to fallback.chat and the
+        # model role-plays/fabricates the action. Genuine learned rules are named
+        # "Open <app> at HH:MM" (name != command). See memory.log_habit_event note.
+        _name = str(rule.get("name") or "").strip()
+        if command is not None and str(command).strip() == _name and _name:
+            log.debug(f"[SCHEDULER] Skipping non-schedulable token rule '{_name}' "
+                      f"(command == name; not a learned routine)")
+            return
+
         log.debug(f"[SCHEDULER] Executing habit '{rule.get('name', '?')}': {command}")
 
         # Try to parse as a natural language command – use cognitive engine
