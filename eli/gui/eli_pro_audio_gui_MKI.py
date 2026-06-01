@@ -2756,6 +2756,26 @@ class EliMainWindow(QMainWindow):
         except Exception as e:
             log.debug(f"[GUI] network toggle failed: {e}")
 
+    def _on_ambient_vision_toggled(self, checked: bool):
+        try:
+            from eli.perception.ambient_vision import set_ambient_vision
+            st = set_ambient_vision(checked)
+            self.ambient_vision_btn.setText("👁 Watch: ON" if checked else "👁 Watch: OFF")
+            if checked:
+                # Be honest in the UI if the vision model isn't installed yet.
+                try:
+                    from eli.perception import vision as _vision
+                    ok, reason = _vision.vision_available()
+                    if not ok:
+                        self.ambient_vision_btn.setToolTip(
+                            f"Ambient watch ON, but vision can't run yet: {reason}"
+                        )
+                except Exception:
+                    pass
+            log.debug(f"[GUI] ambient vision toggled -> {checked} ({st})")
+        except Exception as e:
+            log.debug(f"[GUI] ambient vision toggle failed: {e}")
+
     def _on_voice_changed(self, name: str):
         if not name or name == "(no voices)":
             return
@@ -3840,6 +3860,33 @@ class EliMainWindow(QMainWindow):
         )
         self.net_btn.toggled.connect(self._on_network_toggled)
         btn_layout.addWidget(self.net_btn)
+
+        # Ambient screen-watch toggle — periodic local vision glances.
+        _watch_on = False
+        try:
+            from eli.core import config as _cfg
+            _watch_on = bool(_cfg.get("ambient_vision_enabled", False))
+        except Exception:
+            pass
+        self.ambient_vision_btn = QPushButton("👁 Watch: ON" if _watch_on else "👁 Watch: OFF")
+        self.ambient_vision_btn.setCheckable(True)
+        self.ambient_vision_btn.setChecked(_watch_on)
+        self.ambient_vision_btn.setToolTip(
+            "Ambient screen watch — ELI periodically looks at your screen with local\n"
+            "vision and keeps a rolling sense of what you're doing.\n"
+            "ON  — glances every few minutes (only when not mid-reply).\n"
+            "OFF — ELI only looks when you ask.\n"
+            "Note: each glance briefly swaps in the vision model (~slow on this GPU)."
+        )
+        self.ambient_vision_btn.setStyleSheet(
+            _BTN_BASE
+            + "QPushButton:checked { background-color:#4CAF50; }"
+            "QPushButton:!checked { background-color:#607D8B; }"
+            "QPushButton:checked:hover { background-color:#388E3C; }"
+            "QPushButton:!checked:hover { background-color:#455A64; }"
+        )
+        self.ambient_vision_btn.toggled.connect(self._on_ambient_vision_toggled)
+        btn_layout.addWidget(self.ambient_vision_btn)
 
         # Voice selector — visible in chat row so the user doesn't dig into Settings.
         self.voice_combo = QComboBox()

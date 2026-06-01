@@ -654,6 +654,11 @@ def _route_set_user_name(raw: str, low: str) -> Optional[Dict[str, Any]]:
         r"\bthat(?:'?s?|\s+is)\s+not\s+my\b",
         # "stop calling me X" / "don't call me X"
         r"\bstop calling me\b",
+        # Questions/references about what ELI calls the user are NOT name-set
+        # commands: "why did you call me speak", "you called me X", "what did
+        # you call me". Bail so they fall through to CHAT.
+        r"\byou\s+call(?:ed)?\s+me\b",
+        r"\b(?:why|what|when|who|how|did|do|does)\b[^.?!]*\bcall(?:ed)?\s+me\b",
     )
     for _npat in _negation_patterns:
         if _re.search(_npat, low, _re.IGNORECASE):
@@ -699,7 +704,10 @@ def _route_set_user_name(raw: str, low: str) -> Optional[Dict[str, Any]]:
             "api", "gui", "cli", "url", "cpu", "gpu", "ram", "ssd",}
 
     for i, pat in enumerate(_patterns):
-        m = _re.search(pat, raw, _re.IGNORECASE)
+        # Use the LAST occurrence: "my name is speak, my name is jason" must
+        # resolve to the final assertion (jason), not a quoted earlier error.
+        _matches = list(_re.finditer(pat, raw, _re.IGNORECASE))
+        m = _matches[-1] if _matches else None
         if m:
             candidate = m.group(1).strip().rstrip(".,!?")
             _clow = candidate.lower()
