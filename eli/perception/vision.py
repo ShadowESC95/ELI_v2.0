@@ -89,6 +89,7 @@ def vision_settings() -> Dict[str, Any]:
         "max_image_px": _as_int(_cfg("vision_max_image_px", 1280), 1280),
         "max_tokens": _as_int(_cfg("vision_max_tokens", 512), 512),
         "temperature": float(_cfg("vision_temperature", 0.2) or 0.2),
+        "repeat_penalty": float(_cfg("vision_repeat_penalty", 1.3) or 1.3),
         "default_prompt": str(_cfg("vision_default_prompt", _DEFAULT_PROMPT) or _DEFAULT_PROMPT),
     }
 
@@ -303,6 +304,12 @@ def describe_image(
             messages=messages,
             max_tokens=max_tokens,
             temperature=float(settings["temperature"]),
+            # Curb repetition loops: on a repetitive screen (e.g. a terminal of
+            # identical lines) low-temp VL output can latch onto one phrase and
+            # repeat it for the whole budget. repeat_penalty + top_k break that.
+            repeat_penalty=float(settings.get("repeat_penalty", 1.3)),
+            top_p=0.9,
+            top_k=40,
         )
         text = ""
         try:
