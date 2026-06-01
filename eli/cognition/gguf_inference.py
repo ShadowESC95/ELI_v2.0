@@ -1,7 +1,11 @@
 """
-GGUF inference for ELI – CORRECTED for Mistral instruct models.
+GGUF inference for ELI — model-agnostic.
 
-FULL FIXED VERSION (no hardcoded paths, no forced parameter lowering):
+Detects the loaded model's family from its filename and applies the correct chat
+template (Mistral/Mixtral [INST], Llama-3 headers, Qwen/ChatML, etc.). No model
+name, size, or path is assumed; everything resolves from config/env.
+
+(no hardcoded paths, no forced parameter lowering):
 - Adds optional KV-cache quantization via env:
     ELI_GGUF_CACHE_TYPE_K (e.g. q4_0, q8_0)
     ELI_GGUF_CACHE_TYPE_V (e.g. q4_0, q8_0)

@@ -112,7 +112,7 @@ def score_response_quality(
 
     # Hard knowledge penalty
     if is_hard_knowledge_query(user_input):
-        scores["domain_difficulty"] = 0.4  # 7B models struggle here
+        scores["domain_difficulty"] = 0.4  # local models are less reliable on hard-knowledge queries
     else:
         scores["domain_difficulty"] = 0.9
 

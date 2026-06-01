@@ -2,19 +2,11 @@
 
 #!/usr/bin/env python3
 """
-ELI MKXI - Modern Comprehensive GUI
-100% Local Operation with Qwen2.5-32B GGUF
+ELI MKXI — desktop GUI.
 
-Features:
-- Modern dark/light theme
-- Multi-panel dockable interface
-- Integrated memory management
-- Proactive suggestions panel
-- IDE with syntax highlighting
-- Document viewer
-- File browser
-- Habits management
-- 100% local - NO external APIs
+Runs whatever local GGUF model is configured (model-agnostic). Dockable
+multi-panel interface: chat, memory, proactive suggestions, IDE, document
+viewer, file browser, habits, coding, and the EliWorld view.
 """
 
 from __future__ import annotations
@@ -2310,7 +2302,7 @@ class EliMainWindow(QMainWindow):
             app.setFont(_f)
             self._global_zoom_filter = _GlobalScrollZoom(self)
             app.installEventFilter(self._global_zoom_filter)
-        self.setWindowTitle(f"{APP_NAME} v{APP_VERSION} - 100% Local")
+        self.setWindowTitle(f"{APP_NAME} {APP_VERSION}")
         screen = QApplication.primaryScreen().availableGeometry()
         screen = QApplication.primaryScreen().availableGeometry()
         self.setMinimumSize(400, 300)
@@ -3705,18 +3697,20 @@ class EliMainWindow(QMainWindow):
     def create_chat_tab(self):
         chat_widget = QWidget()
         layout = QVBoxLayout(chat_widget)
-        header = QLabel(f"💬 {APP_NAME} - Local AI Assistant")
-        header.setStyleSheet("font-size: 13px; font-weight: bold; padding: 6px;")
+        header = QLabel(APP_NAME)
+        header.setStyleSheet(
+            "font-size: 18px; font-weight: 600; letter-spacing: 0.5px; "
+            "padding: 10px 6px 6px 6px;"
+        )
         layout.addWidget(header)
         info_frame = QFrame()
-        info_frame.setFrameStyle(QFrame.Shape.StyledPanel)
+        info_frame.setFrameStyle(QFrame.Shape.NoFrame)
         info_layout = QHBoxLayout(info_frame)
-        self.model_info_label = QLabel("🔴 Model: Not loaded")
+        info_layout.setContentsMargins(6, 0, 6, 4)
+        self.model_info_label = QLabel("● Model: not loaded")
+        self.model_info_label.setStyleSheet("color: #888; font-size: 11px;")
         info_layout.addWidget(self.model_info_label)
         info_layout.addStretch()
-        self.isolation_label = QLabel("🔒 100% LOCAL - No external connections")
-        self.isolation_label.setStyleSheet("color: #4CAF50; font-weight: bold;")
-        info_layout.addWidget(self.isolation_label)
         layout.addWidget(info_frame)
         class ZoomableTextEdit(QTextEdit):
             def wheelEvent(self, event):
@@ -10050,9 +10044,8 @@ _register()
             f"About {APP_NAME}",
             f"<h2>{APP_NAME}</h2>"
             f"<p>Version {APP_VERSION}</p>"
-            f"<p><b>100% Local AI Assistant</b></p>"
-            f"<p>Supports bundled GGUF, custom GGUF, and Ollama backends</p>"
-            f"<p>Primarily local-first; Ollama can be used when selected</p>"
+            f"<p>Local-first AI assistant. Runs any configured GGUF model; "
+            f"Ollama can be used when selected.</p>"
             f"<hr>"
             f"<p>Features:</p>"
             f"<ul>"
@@ -10244,12 +10237,7 @@ _register()
 # MAIN ENTRY POINT
 # ============================================================
 def main():
-    print(f"""
-╔══════════════════════════════════════════════════════════════════════╗
-║  {APP_NAME} v{APP_VERSION}                                           ║
-║  100% Local AI Assistant                                             ║
-╚══════════════════════════════════════════════════════════════════════╝
-    """)
+    print(f"\n  {APP_NAME} {APP_VERSION}\n  ───────────────\n")
 
     app = QApplication(sys.argv)
     app.setStyle('Fusion')
