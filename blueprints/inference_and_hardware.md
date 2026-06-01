@@ -93,3 +93,10 @@ platformdirs. One import surface (`get_paths`) so nothing hardcodes locations.
   4. `_portable_settings_for_storage` exists but isn't fully preventing personal
      values (e.g. `user_name`) from being persisted/committed — worth tightening
      for redistribution.
+
+
+---
+
+## Update Advisory — 2026-06-01
+- The coding agent reaches the model only via `inference_broker` (model-agnostic, injected generator) — consistent with this doc.
+- New background workers and the coding sandbox both run model/inference work off the main thread; they coordinate on the same `_LLM_CALL_LOCK`. Watch for lock contention when many background codegen jobs run concurrently (consider a small dedicated codegen worker cap).

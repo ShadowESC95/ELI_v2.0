@@ -109,3 +109,10 @@ recoverable instead of dead ends.
   3. Confidence/grounding is heuristic (additive score + threshold +
      `output_violates_evidence`), not a formal proof — fine, but it's a gate, not
      a guarantee.
+
+
+---
+
+## Update Advisory — 2026-06-01
+- A parallel verification layer now exists in `eli/coding/` (sandbox execution + synthesized tests + bug classification). Grounded code generation (GENERATE_SCRIPT) routes through it. Consider exposing the coding sandbox as another evidence source for the grounding gate.
+- The 7 stacked `render_action` overrides remain the top consolidation target here (unchanged).

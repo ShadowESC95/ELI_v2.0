@@ -56,21 +56,49 @@ a SECURITY debug line; approve via `eli --trust-agent <path>`. `ELI_TRUST_ALL_AG
 bypasses for dev only. Fail-closed (missing/mismatched hash ⇒ not loaded). See
 `orchestration_and_agents.md`.
 
-## 6. "Generated" scripts are pre-vetted, not sandboxed (`runtime/generated_script_guard.py`, 1k LOC)
+## 6. Code generation & self-modification — three paths
 
-Important nuance: this is **not** an arbitrary-code sandbox. It's a library of
-~5 hand-written, reviewed scripts (`_write_gpu_memory_watch_script`,
-`_write_relative_time_function_script`, `_write_type_ia_redshift_script`,
-`_write_quantum_decoherence_depth_script`, `_write_ton_618_mass_density_script`)
-that ELI *writes to disk* when asked for those capabilities. So when ELI "writes
-a script," it emits a vetted canned artifact rather than executing LLM-authored
-code. That's a deliberately conservative posture — safe, but it means
-script-generation is limited to the curated set (several are physics-domain,
-reflecting the author's work).
+ELI has **three** distinct codegen paths, with escalating capability and
+matching safeguards:
+
+1. **Pre-vetted canned library** (`runtime/generated_script_guard.py`, 1k LOC) —
+   ~5 hand-written, reviewed scripts (`_write_gpu_memory_watch_script`,
+   `_write_type_ia_redshift_script`, `_write_ton_618_mass_density_script`, …)
+   that ELI *writes to disk* on request. No LLM code is executed; safe but fixed
+   to the curated set (several physics-domain).
+2. **`GENERATE_SCRIPT`** (`execution/executor_enhanced.py`) — *real* LLM codegen.
+   Detects language/intent, prompts for frontier-quality code, then gates it:
+   - `_verify_python_module_apis` — imports the referenced libraries and confirms
+     `module.attr` references actually exist (catches hallucinated APIs).
+   - `_quality_reject_reason` — rejects refusals, stubs, too-short, no-real-compute,
+     missing-plot, `required=True`-without-default, SyntaxError.
+   - **`_sandbox_run_python` (added)** — executes the candidate in a bounded,
+     isolated subprocess (temp cwd, scrubbed env, `MPLBACKEND=Agg` so `plt.show()`
+     can't block, wall-clock timeout `ELI_GENSCRIPT_RUN_TIMEOUT`=20s, generous
+     `RLIMIT_CPU`; **no `RLIMIT_AS`** — it breaks numpy/scipy). A genuine
+     unhandled traceback is fed back as repair feedback into a **3-attempt
+     regenerate loop**; timeouts / signal kills / missing-optional-deps are
+     tolerated (never reject legit heavy scientific scripts). Disable with
+     `ELI_GENSCRIPT_VERIFY_RUN=0`.
+3. **Self-patching** (`runtime/self_improvement.py` `SelfImprovementEngine`) —
+   ELI modifies its *own* source for recurring failures. Gated behind
+   `auto_patch_enabled` (**default off**), ≤2 patches/cycle. Safeguards:
+   verbatim-`old`-match → `ast.parse` → timestamped backup (+ canonical
+   `.eli_bak`) → write → `py_compile` → **differential import smoke-test
+   (added)**: the patched module is imported in an isolated subprocess and
+   **auto-reverted** if it no longer loads, but only when the module imported
+   cleanly *before* the patch (so missing optional deps don't cause false
+   reverts). Project-root-confined, `.py`-only, logged to the `code_patches`
+   table.
 
 > **Code-health flag:** `generated_script_guard` uses the same stacked-override
 > pattern as the grounding gate — two `install()` definitions chained via
 > `_ELI_SQLITE_SCRIPT_PREVIOUS_INSTALL`. Works, but layered rather than edited.
+
+> **Possible next step (not done):** the self-patch loop verifies the module
+> still *imports*; it does not yet re-run the original failing input to confirm
+> the patch actually *fixes* the failure. A behavioural/test re-run would close
+> that last gap.
 
 ## Honest assessment
 
@@ -91,3 +119,10 @@ reflecting the author's work).
   4. Pre-vetted-scripts approach is safe but doesn't scale — genuinely dynamic
      capability generation would need a real sandbox (resource limits, seccomp,
      subprocess isolation), which doesn't exist yet.
+
+
+---
+
+## Update Advisory — 2026-06-01
+- Code generation (GENERATE_SCRIPT/CODE_SOLVE) and self-upgrade now route through the coding agent, whose sandbox (`eli/coding/sandbox.py`) bounds execution (temp cwd, scrubbed env, timeout, RLIMIT_CPU, Agg). §6 (three codegen paths) reflects this.
+- New: in-process background task threads (`eli/runtime/background_tasks.py`) — threads share the process (no OS isolation); a running thread cannot be force-killed. For untrusted heavy work prefer the subprocess `jobqueue`.
