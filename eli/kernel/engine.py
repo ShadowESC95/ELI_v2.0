@@ -3012,9 +3012,34 @@ class CognitiveEngine:
             log.debug(f"[COGNITIVE] Shutdown: resident vision close failed (non-fatal): {_rv_err}")
 
         # 8. Explicit GGUF unload — prevents Llama.__del__ segfault on exit.
+        # Suppress NATIVE (C-level) stderr only around the unload: llama.cpp's
+        # destructor prints a benign, non-actionable warning ("CUDA_Host compute
+        # buffer size … does not match expectation"). fd-level redirect (not
+        # contextlib) because the message comes from C, not Python. Scoped +
+        # restored in finally so ELI's own logging is unaffected.
         try:
+            import os as _os_sd, sys as _sys_sd
             from eli.cognition.gguf_inference import unload_model
-            unload_model()
+            _saved_fd = None
+            _devnull = None
+            try:
+                _sys_sd.stderr.flush()
+                _saved_fd = _os_sd.dup(2)
+                _devnull = _os_sd.open(_os_sd.devnull, _os_sd.O_WRONLY)
+                _os_sd.dup2(_devnull, 2)
+            except Exception:
+                _saved_fd = None
+            try:
+                unload_model()
+            finally:
+                try:
+                    if _saved_fd is not None:
+                        _os_sd.dup2(_saved_fd, 2)
+                        _os_sd.close(_saved_fd)
+                    if _devnull is not None:
+                        _os_sd.close(_devnull)
+                except Exception:
+                    pass
             log.debug("[COGNITIVE] Shutdown: GGUF model unloaded")
         except Exception as _gguf_err:
             log.debug(f"[COGNITIVE] Shutdown: GGUF unload failed (non-fatal): {_gguf_err}")
