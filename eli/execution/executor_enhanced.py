@@ -1602,6 +1602,7 @@ SUPPORTED_ACTIONS = [
     'CONVERT_DOCUMENT',
     'CPU_USAGE',
     'CREATE_DOCUMENT',
+    'CREATE_FILE',
     'CREATE_FOLDER',
     'DATA_FABRICATOR',
     'DATE',
@@ -7390,6 +7391,75 @@ def _execute_impl(action: str, args: Optional[Dict[str, Any]] = None) -> Dict[st
         except Exception as _cs_e:
             msg = f"CODE_SOLVE failed: {_cs_e}"
             return {"ok": False, "action": a, "error": msg, "content": msg, "response": msg}
+
+    # ---- CREATE_FILE — write text to a path (security-gated) + read back ----
+    if a == "CREATE_FILE":
+        import os as _os_cf, tempfile as _tf_cf, datetime as _dt_cf
+        from pathlib import Path as _P_cf
+        path = str(args.get("path") or args.get("file") or args.get("filename") or "").strip()
+        content = args.get("content")
+        if content is None:
+            content = args.get("text") or args.get("body") or ""
+        content = str(content)
+        if not path:
+            msg = "Specify a file path to create (e.g. /tmp/note.txt)."
+            return {"ok": False, "action": a, "error": "missing path", "content": msg, "response": msg}
+        # Light, safe substitution so "containing today's date / your version" resolves.
+        _today = _dt_cf.date.today().isoformat()
+        _ver = ""
+        try:
+            import eli as _eli_mod
+            _ver = str(getattr(_eli_mod, "__version__", "") or "")
+        except Exception:
+            _ver = ""
+        _ver = _ver or "unknown"
+        for _pat in ("today's date", "todays date", "the current date", "today’s date"):
+            content = re.sub(re.escape(_pat), _today, content, flags=re.IGNORECASE)
+        content = content.replace("{date}", _today).replace("{datetime}", _dt_cf.datetime.now().isoformat(timespec="seconds"))
+        content = re.sub(r"\byour version number\b|\bversion number\b|\byour version\b|\{version\}", _ver, content, flags=re.IGNORECASE)
+
+        p = _P_cf(_os_cf.path.expanduser(path))
+        if not p.is_absolute():
+            try:
+                from eli.core.paths import get_paths as _gp_cf
+                base = _P_cf(_gp_cf().artifacts_dir) / "scratch"
+            except Exception:
+                base = _P_cf(_tf_cf.gettempdir())
+            p = base / p
+        try:
+            p = p.resolve()
+        except Exception:
+            pass
+        # Security: allow under home / project / ELI_ALLOW_ROOTS (SecurityManager)
+        # or the system temp dir; refuse elsewhere unless ELI_FULL_CONTROL=1.
+        _allowed = False
+        try:
+            from eli.runtime.security import SecurityManager as _SM_cf
+            _allowed, _ = _SM_cf().is_path_allowed(str(p))
+        except Exception:
+            _allowed = False
+        if not _allowed:
+            try:
+                p.relative_to(_P_cf(_tf_cf.gettempdir()).resolve())
+                _allowed = True
+            except Exception:
+                _allowed = False
+        if not _allowed and _os_cf.environ.get("ELI_FULL_CONTROL", "0") != "1":
+            msg = (f"Refused: {p} is outside allowed roots (home, project, or temp). "
+                   "Set ELI_FULL_CONTROL=1 to override.")
+            return {"ok": False, "action": a, "error": "path_not_allowed", "content": msg, "response": msg}
+        try:
+            p.parent.mkdir(parents=True, exist_ok=True)
+            p.write_text(content, encoding="utf-8")
+            _readback = p.read_text(encoding="utf-8")
+        except Exception as _cf_e:
+            msg = f"Could not create {p}: {_cf_e}"
+            return {"ok": False, "action": a, "error": str(_cf_e), "content": msg, "response": msg}
+        _rb_show = _readback if len(_readback) <= 2000 else _readback[:2000] + "…"
+        msg = f"Created {p} ({len(content)} chars). Read back:\n{_rb_show}"
+        return {"ok": True, "action": a, "path": str(p), "created": True,
+                "bytes": len(content.encode('utf-8')), "readback": _readback,
+                "content": msg, "response": msg}
 
     # ---- GENERATE_PROJECT ----
     if a == "GENERATE_PROJECT":
