@@ -1547,9 +1547,45 @@ def _resolve_default_chat_model() -> str:
 
 DEFAULT_CHAT_MODEL = _resolve_default_chat_model()
 
+
+def _maybe_background_codegen(action, args):
+    """If a codegen task (CODE_SOLVE / GENERATE_SCRIPT) is estimated heavy, or the
+    user asked to background it, run it on a background thread and return a job-id
+    message immediately. Returns None to run inline. Re-dispatch carries
+    `_no_background` so the worker doesn't background again."""
+    try:
+        args = args or {}
+        if args.get("_no_background"):
+            return None
+        if os.environ.get("ELI_CODEGEN_BACKGROUND", "1").strip().lower() in ("0", "false", "no", "off"):
+            return None
+        desc = (args.get("description") or args.get("text") or args.get("prompt")
+                or args.get("query") or "").strip()
+        if not desc:
+            return None
+        from eli.coding.cost import should_background
+        decision = should_background(desc, language=(args.get("language") or "python"))
+        if not decision.get("background"):
+            return None
+        from eli.runtime.background_tasks import get_background_tasks
+        bt = get_background_tasks()
+        _bg_args = dict(args)
+        _bg_args["_no_background"] = True
+        jid = bt.submit(f"{action}: {desc[:60]}", lambda: execute(action, _bg_args))
+        msg = (f"That's a heavier task ({decision.get('reason')}). I've started it in the "
+               f"background as job #{jid} — say \"check job {jid}\" for the result, or "
+               f"\"background jobs\" to list them.")
+        return {"ok": True, "action": action, "background": True, "job_id": jid,
+                "content": msg, "response": msg}
+    except Exception as _bg_e:
+        log.debug(f"[CODEGEN_BG] background decision failed: {_bg_e}")
+        return None
+
+
 # Enumerated actions for capability_registry bootstrap
 SUPPORTED_ACTIONS = [
     'ADD_EVENT',
+    'BACKGROUND_JOBS',
     'AMBIENT_VISION',
     'ANALYZE_CSV',
     'ANALYZE_IMAGE',
@@ -1559,7 +1595,9 @@ SUPPORTED_ACTIONS = [
     'CHECK_CHRONAL_ALIGNMENT',
     'CLEAR_CHAT_HISTORY',
     'CLOSE_APP',
+    'CHECK_JOB',
     'CODE_CHANGES',
+    'CODE_SOLVE',
     'COGNITION_STATUS',
     'CONVERT_DOCUMENT',
     'CPU_USAGE',
@@ -6803,6 +6841,9 @@ def _execute_impl(action: str, args: Optional[Dict[str, Any]] = None) -> Dict[st
         if not desc:
             msg = "Missing description for GENERATE_SCRIPT"
             return {"ok": False, "action": a, "error": msg, "content": msg, "response": msg}
+        _bg = _maybe_background_codegen(a, args)
+        if _bg is not None:
+            return _bg
         # Detect target language from description
         _lang_map = {
             "bash": ("bash", ".sh"), "shell": ("bash", ".sh"), "sh": ("bash", ".sh"),
@@ -6822,6 +6863,36 @@ def _execute_impl(action: str, args: Optional[Dict[str, Any]] = None) -> Dict[st
                 _detected_lang = _lang
                 _detected_ext = _ext
                 break
+
+        # ── Route through the verified coding agent (plan → DAG/tree-search →
+        # execute → repair → bug-memory) for top-tier, runnable scripts. Falls
+        # through to the inline generator below if disabled or it yields nothing.
+        if os.environ.get("ELI_GENERATE_SCRIPT_AGENT", "1").strip().lower() not in ("0", "false", "no", "off"):
+            try:
+                from eli.coding import solve as _agent_solve
+                _ag = _agent_solve(desc, language=(_detected_lang or "python").lower())
+                _ag_code = (_ag or {}).get("code") or ""
+                if _ag_code.strip():
+                    _safe = re.sub(r"[^a-z0-9]+", "_", desc.lower())[:40].strip("_") or "generated"
+                    _fname = f"{_safe}{_detected_ext}"
+                    from pathlib import Path as _SPath
+                    _scripts_dir = _SPath(__file__).resolve().parents[2] / "artifacts" / "scripts"
+                    _scripts_dir.mkdir(parents=True, exist_ok=True)
+                    _full = _scripts_dir / _fname
+                    _full.write_text(_ag_code, encoding="utf-8")
+                    _gs_chat = json.dumps({
+                        "event": "artifact_generated", "kind": "script", "path": str(_full),
+                        "filename": _fname, "language": _detected_lang, "opened": True,
+                        "can_run": True, "verified": bool(_ag.get("solved")),
+                        "score": _ag.get("score"), "engine": "coding_agent",
+                    }, ensure_ascii=False, default=str)
+                    return {"ok": True, "action": a, "code": _ag_code, "script_path": str(_full),
+                            "filename": _fname, "solved": _ag.get("solved"), "score": _ag.get("score"),
+                            "plan": _ag.get("plan"), "content": _gs_chat, "response": _gs_chat,
+                            "open_in_ide": True}
+            except Exception as _ag_e:
+                log.debug(f"[GENERATE_SCRIPT] coding-agent path failed, inline fallback: {_ag_e}")
+
         # Topic intent — drives prompt depth, quality bar, and rejection rules
         _analytical = bool(re.search(
             r"\b(?:evaluat|calculat|comput|analy[sz]|estimat|predict|simulat|model|"
@@ -6998,6 +7069,69 @@ def _execute_impl(action: str, args: Optional[Dict[str, Any]] = None) -> Dict[st
                     return _bad
             return None
 
+        def _sandbox_run_python(_code: str) -> tuple[bool, str]:
+            """Execute generated Python in a bounded, isolated subprocess to catch
+            runtime crashes before the script is handed to the user. The result
+            feeds the regeneration loop as repair feedback.
+
+            Returns (ok, reason). ok=True when the script exits cleanly, runs past
+            the timeout (started fine — important for monitor/long-compute
+            scripts), is killed by a resource/signal limit, or fails only on a
+            missing optional dependency (not the code's fault on this machine).
+            ok=False ONLY on a genuine unhandled Python exception, with `reason`
+            set to the traceback tail. Disable with ELI_GENSCRIPT_VERIFY_RUN=0;
+            timeout via ELI_GENSCRIPT_RUN_TIMEOUT (default 20s)."""
+            import os as _os, sys as _sys, subprocess as _sp, tempfile as _tf
+            from pathlib import Path as _P
+            if _os.environ.get("ELI_GENSCRIPT_VERIFY_RUN", "1").strip().lower() in ("0", "false", "no", "off"):
+                return True, ""
+            try:
+                _timeout = float(_os.environ.get("ELI_GENSCRIPT_RUN_TIMEOUT", "20") or 20)
+            except Exception:
+                _timeout = 20.0
+            # Generous CPU cap as defence-in-depth (wall-clock timeout is primary).
+            # NB: deliberately NO RLIMIT_AS — it breaks numpy/scipy address-space
+            # use and would cause spurious MemoryErrors on exactly the scientific
+            # scripts ELI generates.
+            _preexec = None
+            try:
+                import resource as _rsrc
+                def _limits():
+                    try:
+                        _rsrc.setrlimit(_rsrc.RLIMIT_CPU, (30, 35))
+                    except Exception:
+                        pass
+                _preexec = _limits
+            except Exception:
+                _preexec = None
+            _env = {k: v for k, v in _os.environ.items()
+                    if not any(s in k.upper() for s in ("KEY", "TOKEN", "SECRET", "PASSWORD", "PASSWD"))}
+            _env["MPLBACKEND"] = "Agg"   # never open/block on a GUI window (plt.show())
+            _env["ELI_SANDBOX"] = "1"
+            try:
+                with _tf.TemporaryDirectory(prefix="eli_genscript_") as _td:
+                    _cand = _P(_td) / "candidate.py"
+                    _cand.write_text(_code, encoding="utf-8")
+                    try:
+                        _proc = _sp.run([_sys.executable, str(_cand)], cwd=_td, env=_env,
+                                        capture_output=True, text=True, timeout=_timeout,
+                                        preexec_fn=_preexec)
+                    except _sp.TimeoutExpired:
+                        return True, ""   # ran past budget = started fine
+            except Exception:
+                return True, ""           # sandbox infra failure — don't block generation
+            if _proc.returncode == 0:
+                return True, ""
+            _err = (_proc.stderr or "").strip()
+            # Only a real unhandled exception counts as a crash. Signal/limit kills
+            # and missing optional deps are tolerated (no traceback / not our bug).
+            if "Traceback (most recent call last)" not in _err:
+                return True, ""
+            if "ModuleNotFoundError" in _err or "ImportError" in _err:
+                return True, ""
+            _tail = "\n".join(_err.splitlines()[-6:])
+            return False, _tail or f"non-zero exit {_proc.returncode}"
+
         # Try GGUF first (local, fast, no Ollama dependency)
         try:
             from eli.cognition import gguf_inference as _gguf
@@ -7007,7 +7141,9 @@ def _execute_impl(action: str, args: Optional[Dict[str, Any]] = None) -> Dict[st
                 _attempt_tokens = 8000 if (_analytical or _wants_plot) else 4500
                 code = ""
                 _reject_reason = None
-                for _attempt in range(2):
+                # 3 attempts: room for a static-quality fix AND a runtime-crash
+                # repair pass (the sandbox traceback is fed back as feedback).
+                for _attempt in range(3):
                     _attempt_prompt = prompt
                     if _attempt > 0 and _reject_reason:
                         _attempt_prompt = (
@@ -7032,6 +7168,10 @@ def _execute_impl(action: str, args: Optional[Dict[str, Any]] = None) -> Dict[st
                     candidate = _re.sub(r"^```[a-z]*\n?", "", raw_out.strip(), flags=_re.MULTILINE)
                     candidate = _re.sub(r"\n?```$", "", candidate.strip(), flags=_re.MULTILINE).strip()
                     _reject_reason = _quality_reject_reason(candidate)
+                    if _reject_reason is None and _detected_lang == "Python":
+                        _ran_ok, _run_err = _sandbox_run_python(candidate)
+                        if not _ran_ok:
+                            _reject_reason = f"script crashed at runtime — fix this exact error:\n{_run_err}"
                     if _reject_reason is None:
                         code = candidate
                         break
@@ -7073,6 +7213,10 @@ def _execute_impl(action: str, args: Optional[Dict[str, Any]] = None) -> Dict[st
         code = _re.sub(r"\n?```$", "", code, flags=_re.MULTILINE)
         code = code.strip()
         _reject_reason2 = _quality_reject_reason(code)
+        if _reject_reason2 is None and _detected_lang == "Python":
+            _ran_ok2, _run_err2 = _sandbox_run_python(code)
+            if not _ran_ok2:
+                _reject_reason2 = f"script crashed at runtime: {_run_err2}"
         if _reject_reason2 is not None:
             msg = f"Generated script rejected: {_reject_reason2}"
             return {"ok": False, "action": a, "error": msg, "content": msg, "response": msg}
@@ -7105,6 +7249,86 @@ def _execute_impl(action: str, args: Optional[Dict[str, Any]] = None) -> Dict[st
         result["content"] = _gs_msg
         result["response"] = _gs_msg
         return result
+
+    # ---- Background job inspection ----
+    if a in ("CHECK_JOB", "BACKGROUND_JOBS"):
+        import re as _re_jb
+        from eli.runtime.background_tasks import get_background_tasks as _get_bt
+        _bt = _get_bt()
+        if a == "BACKGROUND_JOBS":
+            jobs = _bt.list(limit=15)
+            if not jobs:
+                msg = "No background jobs."
+            else:
+                msg = "Background jobs:\n" + "\n".join(
+                    f"  #{j['id']} [{j['status']}] {j['name']} ({j['elapsed_s']}s)" for j in jobs)
+            return {"ok": True, "action": a, "jobs": jobs, "content": msg, "response": msg}
+        _jid = args.get("job_id") or args.get("id")
+        if _jid is None:
+            _m = _re_jb.search(r"\b(\d+)\b", str(args.get("text") or args.get("query") or args.get("description") or ""))
+            _jid = _m.group(1) if _m else None
+        if _jid is None:
+            msg = "Which job? e.g. 'check job 3'."
+            return {"ok": False, "action": a, "content": msg, "response": msg}
+        t = _bt.get(int(_jid))
+        if not t:
+            msg = f"No background job #{_jid}."
+            return {"ok": False, "action": a, "content": msg, "response": msg}
+        if t["status"] == "done":
+            r = t.get("result") or {}
+            extra = ""
+            if isinstance(r, dict) and r.get("script_path"):
+                extra = f" → {r.get('script_path')}"
+                if r.get("solved"):
+                    extra += f" (verified, score {r.get('score')})"
+            msg = f"Job #{_jid} ({t['name']}) done in {t['elapsed_s']}s{extra}."
+        elif t["status"] == "failed":
+            msg = f"Job #{_jid} failed: {(t.get('error') or '')[:200]}"
+        else:
+            msg = f"Job #{_jid} ({t['name']}) is {t['status']} — {t['elapsed_s']}s elapsed."
+        return {"ok": True, "action": a, "job": t, "content": msg, "response": msg}
+
+    # ---- CODE_SOLVE — frontier coding agent (plan→search→verify→repair) ----
+    if a == "CODE_SOLVE":
+        import json as _json_cs, re as _re_cs
+        desc = (args.get("description") or args.get("text") or args.get("prompt")
+                or args.get("query") or "").strip()
+        if not desc:
+            msg = "Missing description for CODE_SOLVE"
+            return {"ok": False, "action": a, "error": msg, "content": msg, "response": msg}
+        _bg = _maybe_background_codegen(a, args)
+        if _bg is not None:
+            return _bg
+        try:
+            from eli.coding import solve as _code_solve
+            _lang = (args.get("language") or "python").strip().lower()
+            res = _code_solve(desc, language=_lang)
+            code = res.get("code") or ""
+            if not code.strip():
+                msg = res.get("message") or "coding agent produced no solution"
+                return {"ok": False, "action": a, "error": msg, "content": msg, "response": msg}
+            _ext = {"python": ".py", "bash": ".sh", "javascript": ".js", "typescript": ".ts",
+                    "ruby": ".rb", "go": ".go", "lua": ".lua"}.get(_lang, ".txt")
+            safe = _re_cs.sub(r"[^a-z0-9]+", "_", desc.lower())[:40].strip("_") or "solution"
+            from pathlib import Path as _SPath
+            scripts_dir = _SPath(__file__).resolve().parents[2] / "artifacts" / "scripts"
+            scripts_dir.mkdir(parents=True, exist_ok=True)
+            full_path = scripts_dir / f"{safe}{_ext}"
+            full_path.write_text(code, encoding="utf-8")
+            _payload = _json_cs.dumps({
+                "event": "artifact_generated", "kind": "code_solution",
+                "path": str(full_path), "filename": full_path.name, "language": _lang,
+                "solved": res.get("solved"), "score": res.get("score"),
+                "bug_class": res.get("bug_class"), "can_run": True, "opened": True,
+            }, ensure_ascii=False, default=str)
+            return {"ok": True, "action": a, "code": code, "script_path": str(full_path),
+                    "filename": full_path.name, "solved": res.get("solved"),
+                    "score": res.get("score"), "plan": res.get("plan"),
+                    "search": res.get("search"), "bug_class": res.get("bug_class"),
+                    "content": _payload, "response": _payload, "open_in_ide": True}
+        except Exception as _cs_e:
+            msg = f"CODE_SOLVE failed: {_cs_e}"
+            return {"ok": False, "action": a, "error": msg, "content": msg, "response": msg}
 
     # ---- GENERATE_PROJECT ----
     if a == "GENERATE_PROJECT":
