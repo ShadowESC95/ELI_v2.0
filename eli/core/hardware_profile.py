@@ -59,9 +59,11 @@ def _compute_graph_reserve_mb(n_ctx: int, batch: int = 256) -> float:
     on the first decode: model + KV + 350MB overhead fit, but the compute
     buffer then pushed total VRAM over the card's limit.
 
-    Empirically on an 8GB card a full-offload 7B at 32k ctx / batch 256 needs
-    ~1.2-1.4GB here. Conservative linear estimate (errs slightly high so the
-    chosen ctx/layers stay inference-safe rather than load-safe-only):
+    Reference measurement (8GB card, a ~7B-class full-offload model at 32k ctx
+    / batch 256) needed ~1.2-1.4GB here. The estimate below is model-agnostic:
+    it scales with ctx and batch only, never model identity. Conservative
+    linear estimate (errs slightly high so the chosen ctx/layers stay
+    inference-safe rather than load-safe-only):
         base 256MB + 24MB per 1K ctx + 1.5MB per batch unit
     """
     return 256.0 + (max(0, int(n_ctx)) / 1024.0) * 24.0 + float(max(0, int(batch))) * 1.5

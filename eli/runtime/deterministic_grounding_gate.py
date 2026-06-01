@@ -3986,7 +3986,7 @@ def _eli_v14_runtime_data() -> dict:
 
     configured = {
         "provider": settings.get("provider") or settings.get("llm_provider") or "custom_gguf",
-        "model_path": settings.get("model_path") or settings.get("gguf_model_path") or settings.get("ollama_model") or "models/openhermes-2.5-mistral-7b.Q3_K_M.gguf",
+        "model_path": settings.get("model_path") or settings.get("gguf_model_path") or settings.get("ollama_model") or snap.get("model_path") or "unconfigured",
         "n_ctx": settings.get("n_ctx") or settings.get("ctx") or settings.get("context_size") or 16384,
         "n_gpu_layers": settings.get("n_gpu_layers") or settings.get("gpu_layers") or "unknown",
         "n_threads": settings.get("n_threads") or settings.get("threads") or 4,

@@ -141,7 +141,7 @@ def _looks_like_runtime_status_complete(text: str) -> bool:
     # Accept either structured contract terms or executor/report terms.
     hits = sum(1 for term in RUNTIME_STATUS_REQUIRED_TERMS if term.lower() in low)
 
-    has_model = "qwen" in low or ".gguf" in low or "model_name" in low or "model path" in low
+    has_model = ".gguf" in low or "model_name" in low or "model path" in low or "model_path" in low
     has_ctx = "context_size" in low or "context size" in low or "n_ctx" in low
     has_gpu = "gpu_layers" in low or "gpu layers" in low or "n_gpu_layers" in low
     has_batch = "batch_size" in low or "batch size" in low or "n_batch" in low
