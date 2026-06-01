@@ -168,3 +168,11 @@ Execution (`AgentBus.dispatch`, agent_bus.py:1533):
 Highest leverage: **#1 (unify the two retrieval stacks)** and **#4 (harden the
 ReAct loop)** — those are where correctness actually drifts today. The bus's
 confidence math and timeout enforcement are already good and don't need work.
+
+
+---
+
+## Update Advisory — 2026-06-01
+- The bus now executes on the project-wide DAG (`eli/core/dag.py`): topological layers + upstream→downstream (`_AGENT_DEPENDENCIES`, default `knowledge_graph←memory`). See `dag.md`. Weakness #2 ("single isolated round") is now PARTIALLY addressed — agents can consume upstream results across layers.
+- Per-agent internal algorithms are now documented in `agent_algorithms.md` (this was the missing detail this doc deferred).
+- TODO: add a `verify`/`critic` layer agent (depends on the retrievers) and a first-class `web` retriever — the DAG already supports it.

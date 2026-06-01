@@ -79,3 +79,10 @@ though Phi-3 is the default trainable base.
   4. **Phi-3 default** — intentional and parameterised, but the canned
      `TrainerTarget`s and several resolver candidates are Phi-3-named, so adding
      a new base family is more than a config change.
+
+
+---
+
+## Update Advisory — 2026-06-01
+- Self-upgrade now consults the coding engine`s long-term bug memory (`eli/coding/bug_memory.py`): `generate_code_patch` classifies the failure and injects prior fixes for that bug class. See `background_tasks.md`.
+- The base/inference disconnect (trains Phi-3, serves another GGUF) is STILL OPEN — the loop only closes if the trained model is actually served.

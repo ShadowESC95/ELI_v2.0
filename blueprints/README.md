@@ -33,8 +33,18 @@ line-by-line read of all 315 files; claims are grounded in what was inspected.
 - **[runtime_planning_world.md](runtime_planning_world.md)** — runtime response/
   introspection surfaces, the proactive planning layer, the world/autonomy model,
   tools, and the plugin system.
-- `agent_bus.md` — *superseded* by `orchestration_and_agents.md` (bus-only,
-  earlier draft; kept for now).
+- **[coding_agent.md](coding_agent.md)** — the frontier coding agent (`eli/coding/`):
+  planner/implementer, mandatory execution feedback, UCB tree search, verification
+  gating, test synthesis, semantic bug classification, long-term bug/fix memory,
+  patch-based refinement. Wired as the `CODE_SOLVE` action.
+- **[coding_agent_test_prompts.md](coding_agent_test_prompts.md)** — runnable prompt
+  suite for exercising the coding agent against the live model.
+- **[dag.md](dag.md)** — the project-wide DAG engine (`eli/core/dag.py`) and how the
+  **agent bus** and the **coding engine** both run on it (topological layers,
+  upstream→downstream, subtask graphs).
+- **[background_tasks.md](background_tasks.md)** — unified code generation (GENERATE_SCRIPT
+  + self-upgrade route through the coding agent) and the in-process background task
+  manager (heavy work runs on threads; `CHECK_JOB`/`BACKGROUND_JOBS`).
 
 ## Cross-cutting themes (recurring across docs)
 
@@ -55,3 +65,10 @@ line-by-line read of all 315 files; claims are grounded in what was inspected.
 3. **The gap to "ground-breaking" is subtraction + observability**, in order:
    tame error-swallowing → split god-files → delete duplication/clutter + green
    the tests → consolidate the `runtime/` surfaces.
+
+
+---
+
+## Update Advisory — 2026-06-01
+- Index extended this session: added `agent_algorithms.md`, `dag.md`, `background_tasks.md`, `coding_agent.md`, `coding_agent_test_prompts.md`. Cross-cutting verdict still holds; the DAG engine + coding agent + background workers are net-new components layered on top.
+- TODO next pass: keep this index in sync as files grow; re-run the LOC sweep (project_overview table predates `eli/coding/`, `eli/core/dag.py`, `eli/runtime/background_tasks.py`, `eli/gui/coding_tab.py`).

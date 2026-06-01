@@ -168,3 +168,10 @@ Ranked by effect-per-effort:
 Do 1–3 and the engineering would match the ideas — which is the only thing
 standing between ELI and the label "frontier, ground-breaking software people
 can rely on."
+
+
+---
+
+## Update Advisory — 2026-06-01
+- New since the LOC table was captured: `eli/coding/` (coding agent), `eli/core/dag.py` (DAG engine), `eli/runtime/background_tasks.py`, `eli/gui/coding_tab.py`. Re-run the LOC/file sweep to refresh §2.
+- Highest-leverage item #1 (tame the ~2,322 `except Exception`) is STILL OPEN and remains the top priority — the new subsystems add surface that also deserves a structured error log. Items: god-file split + duplication cleanup unchanged.

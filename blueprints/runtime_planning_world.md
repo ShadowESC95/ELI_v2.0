@@ -103,3 +103,9 @@ downloads; runtime stays local.)
   4. Plugin registry points at an `eli-plugins/registry` GitHub URL — fine as
      opt-in, but ensure it degrades cleanly offline (the bundled fallback
      exists; verify it's always used when the network is absent).
+
+
+---
+
+## Update Advisory — 2026-06-01
+- New: `eli/runtime/background_tasks.py` — in-process thread task manager, deliberately DISTINCT from the durable subprocess `eli/planning/jobqueue.py` (different purpose, documented in `background_tasks.md`). The planning work-queue overlap (goal/proposal/attention/jobqueue) is still worth unifying.

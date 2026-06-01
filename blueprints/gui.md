@@ -78,3 +78,10 @@ author's physics/engineering work — see memories on QMSH / Ξ-χ physics).
   3. UI logic instantiating engine/memory directly makes a clean headless mode
      harder (there *is* `eli --headless`, but the GUI module re-implements
      bridges rather than sharing one service layer).
+
+
+---
+
+## Update Advisory — 2026-06-01
+- NEW tab added this session: `eli/gui/coding_tab.py` (`CodingTab`), wired via `create_coding_tab()` (called next to `create_labs_tab`). It is an EXTERNAL module (good pattern — keeps logic out of the 10k god-file) that drives `CODE_SOLVE` on the background task pool and shows a live jobs list.
+- The god-file split for `eli_pro_audio_gui_MKI.py` remains the open item; new tabs should follow the external-module pattern coding_tab uses.
