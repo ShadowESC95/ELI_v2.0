@@ -142,6 +142,30 @@ def test_broken_candidate_never_wins():
     assert score_candidate(broken) <= 0.05 < score_candidate(valid)
 
 
+def test_dag_node_prompts_carry_original_task():
+    """Each subtask node must see the ORIGINAL task (otherwise abstract subtask
+    labels drift into generic boilerplate — the Schwarzschild→GRAVITY=9.81 bug)."""
+    from eli.coding.plan_graph import solve_dag
+
+    def gen(prompt, system="", **k):
+        p = prompt.lower()
+        if "dependency graph" in p or "decompose software" in p:
+            return ('{"nodes":[{"id":"consts","task":"Define constants and mass","depends_on":[]},'
+                    '{"id":"calc","task":"Calculate the radius","depends_on":["consts"]}]}')
+        return ""
+
+    seen = []
+    class R:
+        def __init__(self, t): self.code = "x = 1"; self.score = 0.5; self._t = t
+    def solver(node_task):
+        seen.append(node_task)
+        return R(node_task)
+
+    task = "calculate the Schwarzschild radius for mass 6.6e10 and density 0.0044 kg/m^3"
+    solve_dag(task, gen, language="python", single_solver=solver)
+    assert seen and all("Schwarzschild radius" in nt and "0.0044" in nt for nt in seen)
+
+
 def test_coding_single_node_returns_none():
     from eli.coding.plan_graph import solve_dag
 
