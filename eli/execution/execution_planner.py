@@ -34,7 +34,16 @@ def _steps(*items: tuple[str, str, Dict[str, Any] | None]) -> List[PlanStep]:
     return out
 
 
-def build_execution_plan(rd: RouteDecision) -> ExecutionPlan:
+def build_execution_plan(rd: RouteDecision, agent_profile: List[str] | None = None) -> ExecutionPlan:
+    """Build the canonical typed execution plan for a routed turn.
+
+    When ``agent_profile`` is supplied (the AgentBus passes the agent set chosen
+    by ``_select_agents_for_intent``), it is the authoritative list of bus agents
+    that will run and overrides the coarse per-action default below. This keeps a
+    single source of truth for selection (the bus) while making ExecutionPlan the
+    typed artifact that *carries* and surfaces it. When omitted (non-bus callers,
+    e.g. EXECUTE_GOAL), the coarse default profile is used.
+    """
     c = contract_for_action(rd.action)
     action = str(rd.action or "CHAT").upper()
 
@@ -88,6 +97,9 @@ def build_execution_plan(rd: RouteDecision) -> ExecutionPlan:
             ("context_assembly", "assembly", {"mode": "action_result"}),
             ("final_response", "response", {"provider": c.provider}),
         )
+
+    if agent_profile is not None:
+        profile = list(agent_profile)
 
     return ExecutionPlan(
         action=action,

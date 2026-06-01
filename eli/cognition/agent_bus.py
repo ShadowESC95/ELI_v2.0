@@ -383,6 +383,7 @@ class DispatchResult:
     agents_used: List[str] = field(default_factory=list)
     elapsed_ms: float = 0.0
     orchestrator_plan: Optional[Dict[str, Any]] = None  # multi-step plan from OrchestratorAgent
+    execution_plan: Optional[Dict[str, Any]] = None  # canonical typed ExecutionPlan (execution_planner) that drove selection
 
     def to_context_block(self) -> str:
         """Serialise agent evidence into a compact text block for LLM injection."""
@@ -1564,10 +1565,32 @@ class AgentBus:
         else:
             selected_names = _select_agents_for_intent(user_input, action)
 
+        # Resolve the concrete agent set, then route it through the canonical
+        # typed ExecutionPlan so selection flows through one plan artifact rather
+        # than an ad-hoc set. selected_names is None → broad fan-out (all enabled).
+        if selected_names is None:
+            _profile_names = [a.name for a in _ALL_AGENTS if getattr(a, "_enabled", True)]
+        else:
+            _profile_names = sorted(selected_names)
+
+        execution_plan_dict: Optional[Dict[str, Any]] = None
+        plan_names: Set[str] = set(_profile_names)
+        try:
+            from eli.runtime.pipeline_models import RouteDecision as _RD
+            from eli.execution.execution_planner import build_execution_plan as _build_plan
+            _plan = _build_plan(
+                _RD(user_input=user_input, action=action, confidence=intent_conf),
+                agent_profile=_profile_names,
+            )
+            plan_names = set(_plan.agent_profile)
+            execution_plan_dict = _plan.to_dict()
+        except Exception as _plan_err:
+            log.debug(f"[AGENTBUS] execution_planner unavailable, using raw selection: {_plan_err}")
+
         active_agents = [
             a for a in _ALL_AGENTS
             if getattr(a, "_enabled", True)
-            and (selected_names is None or a.name in selected_names)
+            and a.name in plan_names
         ]
         futures = {
             self._pool.submit(
@@ -1680,6 +1703,7 @@ class AgentBus:
             agents_used=agents_used,
             elapsed_ms=elapsed,
             orchestrator_plan=orchestrator_plan,
+            execution_plan=execution_plan_dict,
         )
 
     def shutdown(self) -> None:
@@ -2193,15 +2217,25 @@ _ALL_AGENTS: List[_BaseAgent] = [
     KnowledgeGraphAgent(),
 ]
 
-try:
-    from eli.runtime.runtime_policy import timeout as _eli_agent_timeout
-    for _eli_agent in _ALL_AGENTS:
-        _eli_agent.timeout_s = _eli_agent_timeout(
-            f"agent_{getattr(_eli_agent, 'name', 'unknown')}",
-            float(getattr(_eli_agent, "timeout_s", 4.0) or 4.0),
-        )
-except Exception:
-    pass
+def _apply_runtime_policy_timeouts() -> None:
+    """Adapt every agent's timeout_s to the active hardware/runtime policy.
+
+    Called once for the built-in agents and again after custom agents load, so
+    user-supplied agents also get hardware-adapted timeouts (previously they
+    kept whatever they hardcoded because this ran before _load_custom_agents()).
+    """
+    try:
+        from eli.runtime.runtime_policy import timeout as _eli_agent_timeout
+        for _eli_agent in _ALL_AGENTS:
+            _eli_agent.timeout_s = _eli_agent_timeout(
+                f"agent_{getattr(_eli_agent, 'name', 'unknown')}",
+                float(getattr(_eli_agent, "timeout_s", 4.0) or 4.0),
+            )
+    except Exception:
+        pass
+
+
+_apply_runtime_policy_timeouts()
 
 # Action families that skip the LLM entirely — the system agent handles them
 _DIRECT_ACTIONS: Set[str] = SystemAgent.SYSTEM_ACTIONS | PluginAgent.PLUGIN_ACTIONS
@@ -2310,3 +2344,5 @@ def _load_custom_agents() -> None:
 
 
 _load_custom_agents()
+# Re-apply so custom agents registered into _ALL_AGENTS also get hardware-adapted timeouts.
+_apply_runtime_policy_timeouts()
