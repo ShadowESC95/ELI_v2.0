@@ -109,6 +109,14 @@ _PHASE45_DIRECT_FAST_ACTIONS = {
 # NOOP = fragment rejected or truly empty input; return silence, store nothing
 _PHASE45_SILENT_FAST_ACTIONS = {'NOOP'}
 
+# Process-global guard: the destructive shutdown steps (memory close, vector
+# embedder close, GGUF unload) act on MODULE-LEVEL singletons shared by every
+# CognitiveEngine instance. If a second instance runs shutdown after the first
+# already freed those native (CUDA) handles, the re-close is a double-free →
+# Segmentation fault on exit. This flag makes that teardown run at most once
+# per process, no matter how many instances (or atexit hooks) fire shutdown.
+_ELI_NATIVE_TEARDOWN_DONE = False
+
 def _phase45_action_name(action) -> str:
     return str(action or "").strip().upper()
 
@@ -2940,6 +2948,16 @@ class CognitiveEngine:
                     log.debug(f"[COGNITIVE] Shutdown: session narrative skipped (depth={depth:.2f} < 0.25, casual session)")
         except Exception as _eng_err:
             log.debug(f"[COGNITIVE] Shutdown: engagement flush failed (non-fatal): {_eng_err}")
+
+        # Steps 4-8 touch process-global singletons (memory store, vector
+        # embedder, GGUF model). Run them AT MOST ONCE per process — a second
+        # engine instance re-closing the already-freed CUDA handles segfaults.
+        global _ELI_NATIVE_TEARDOWN_DONE
+        if _ELI_NATIVE_TEARDOWN_DONE:
+            log.debug("[COGNITIVE] Shutdown: native teardown already done by another instance; skipping shared steps.")
+            log.debug("[COGNITIVE] Shutdown: complete.")
+            return
+        _ELI_NATIVE_TEARDOWN_DONE = True
 
         # 4. Final reflection pass — extract patterns from this session's memories
         try:
