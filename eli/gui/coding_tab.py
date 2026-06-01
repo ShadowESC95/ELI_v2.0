@@ -97,6 +97,9 @@ else:
             row = QHBoxLayout()
             self.lang = QComboBox(); self.lang.addItems(_LANGS)
             row.addWidget(QLabel("Language:")); row.addWidget(self.lang)
+            self.mode = QComboBox(); self.mode.addItems(["Thorough", "Quick"])
+            self.mode.setToolTip("Thorough = DAG + tree search (slower, best). Quick = single-shot (fast).")
+            row.addWidget(QLabel("Mode:")); row.addWidget(self.mode)
             self.solve_btn = QPushButton("Solve (verified)")
             self.solve_btn.clicked.connect(self._on_solve)
             row.addWidget(self.solve_btn); row.addStretch(1)
@@ -127,7 +130,9 @@ else:
             task = self.prompt.toPlainText().strip()
             if not task:
                 return
+            # Read widget values on the GUI thread (never inside the worker).
             lang = self.lang.currentText()
+            mode = self.mode.currentText().lower()
             try:
                 from eli.runtime.background_tasks import get_background_tasks
                 bt = get_background_tasks()
@@ -136,7 +141,7 @@ else:
                     from eli.execution.executor_enhanced import execute
                     # Force foreground inside the worker (we ARE the background here).
                     return execute("CODE_SOLVE", {"description": task, "language": lang,
-                                                  "_no_background": True})
+                                                  "mode": mode, "_no_background": True})
                 jid = bt.submit(f"CODE_SOLVE: {task[:50]}", _work)
                 self._watched[jid] = "queued"
                 self.result.setPlainText(f"Started job #{jid} — running the coding pipeline in the background…")
@@ -180,7 +185,9 @@ else:
                 self.result.setPlainText(f"Job #{jid} is {t['status']} ({t['elapsed_s']}s)…")
                 return
             r = t.get("result") or {}
+            _runnable = r.get("runnable", True)
+            _warn = "" if _runnable else f"⚠ NOT RUNNABLE — {r.get('syntax_note', 'syntax error')} (saved as .draft, not executed)\n"
             header = (f"Job #{jid} — {'solved' if r.get('solved') else 'best-effort'} "
-                      f"(score {r.get('score')}); saved: {r.get('script_path','?')}\n"
-                      f"plan: {r.get('plan')}\n" + "─" * 60 + "\n")
+                      f"(score {r.get('score')}); saved: {r.get('script_path', '?')}\n"
+                      + _warn + f"plan: {r.get('plan')}\n" + "─" * 60 + "\n")
             self.result.setPlainText(header + (r.get("code") or "(no code)"))

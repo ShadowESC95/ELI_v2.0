@@ -93,6 +93,25 @@ def _stub(prompt, system="", max_tokens=1000, temperature=0.2, **k):
             "if __name__ == '__main__':\n    main()\n")
 
 
+def test_search_early_exits_on_plateau():
+    """Tree search must stop refining when scores stop improving, so an ill-posed
+    task can't burn the whole iteration budget."""
+    from eli.coding.search import tree_search
+    from eli.coding.planner import Plan
+    calls = {"n": 0}
+
+    def gen(prompt, system="", **k):
+        calls["n"] += 1
+        if "test harness" in prompt.lower():
+            return "import candidate, sys\nprint('ELI_TESTS: 0/1')\nsys.exit(1)\n"
+        return "def f():\n    return 1 / 0\n"  # always crashes → never improves
+
+    r = tree_search("do x", gen, plan=Plan(approach="x", steps=["x"]), language="python",
+                    tests=None, beam=2, max_iterations=8, no_improve_patience=2, run_timeout=6)
+    assert r.iterations < 8
+    assert any(s.get("step") == "early_exit" for s in r.trace)
+
+
 def test_agent_repairs_via_search_and_records_fix():
     with tempfile.TemporaryDirectory() as td:
         bm = BugMemory(db_path=Path(td) / "bm.sqlite3")
