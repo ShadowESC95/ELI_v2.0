@@ -2946,8 +2946,52 @@ def set_user_name(name: str) -> Dict[str, Any]:
         _state_set_user_name(n)
     except Exception as _sue:
         log.debug(f"[EXECUTOR] set_user_name profile write failed: {_sue}")
+    # Self-heal stale identity patterns: when the name is (re)set, purge any
+    # identity.name / identity.preferred_name / identity.nickname rows in
+    # user_patterns that do NOT match the new name. This is what stops a wrong
+    # earlier value (e.g. a mis-extracted "speak") from surfacing forever, for
+    # ANY user — without it, set_user_name updated the profile but left the bad
+    # pattern behind.
+    try:
+        _purge_conflicting_identity_patterns(n)
+    except Exception as _pe:
+        log.debug(f"[EXECUTOR] identity-pattern purge failed (non-fatal): {_pe}")
     msg = f"Got it. I'll call you {n}."
     return {"ok": True, "action": "SET_USER_NAME", "user_name": n, "content": msg, "response": msg}
+
+
+def _purge_conflicting_identity_patterns(new_name: str) -> int:
+    """Delete identity.* user_patterns rows whose value conflicts with new_name.
+
+    Generic, user-agnostic: keeps only identity name/preferred/nickname patterns
+    that actually contain the confirmed name; removes the rest. Returns count.
+    """
+    import sqlite3 as _sq
+    nm = (new_name or "").strip().lower()
+    if not nm:
+        return 0
+    try:
+        from eli.memory.memory import get_memory as _gm
+        _db = str(_gm().db_path)
+    except Exception:
+        from eli.core.paths import get_paths as _gp
+        _db = str(_gp().artifacts_dir / "db" / "user.sqlite3")
+    conn = _sq.connect(_db)
+    try:
+        rows = conn.execute(
+            "SELECT rowid, COALESCE(pattern_data,'') FROM user_patterns "
+            "WHERE lower(COALESCE(pattern_type,'')) IN "
+            "('identity.preferred_name','identity.name','identity.nickname')"
+        ).fetchall()
+        stale = [rid for (rid, data) in rows if nm not in str(data).lower()]
+        for rid in stale:
+            conn.execute("DELETE FROM user_patterns WHERE rowid=?", (rid,))
+        conn.commit()
+        if stale:
+            log.debug(f"[EXECUTOR] purged {len(stale)} stale identity pattern(s) conflicting with {new_name!r}")
+        return len(stale)
+    finally:
+        conn.close()
 
 
 def get_status() -> Dict[str, Any]:
@@ -7931,18 +7975,15 @@ def _execute_impl(action: str, args: Optional[Dict[str, Any]] = None) -> Dict[st
     if a == 'EXECUTE_GOAL':
         goal = (args or {}).get('goal', '')
         try:
-            import importlib as _il
-            _mod = _il.import_module('eli.planning.task_planner')
-            _cls = getattr(_mod, 'TaskPlanner', None)
-            if _cls:
-                _inst = _cls()
-                for _m in ('execute_plan', 'run', 'plan_and_execute', 'plan'):
-                    _fn = getattr(_inst, _m, None)
-                    if _fn:
-                        _raw = _fn(goal)
-                        _result = _raw.get('result', str(_raw)) if isinstance(_raw, dict) else str(_raw)
-                        return {'ok': True, 'action': a, 'content': _result, 'response': _result}
-            return {'ok': False, 'action': a, 'error': 'No callable in brain.planning.task_planner'}
+            from eli.runtime.pipeline_models import RouteDecision as _RD
+            from eli.execution.execution_planner import build_execution_plan as _build_plan
+            _plan = _build_plan(_RD(user_input=str(goal or ''), action='EXECUTE_GOAL'))
+            _steps = [f"{i + 1}. {s.name} ({s.kind})" for i, s in enumerate(_plan.steps)]
+            _content = (
+                "Execution plan for goal:\n" + "\n".join(_steps)
+                if _steps else "No plan steps produced for goal."
+            )
+            return {'ok': True, 'action': a, 'content': _content, 'response': _content, 'plan': _plan.to_dict()}
         except Exception as _exc:
             return {'ok': False, 'action': a, 'error': str(_exc), 'content': str(_exc), 'response': str(_exc)}
 
