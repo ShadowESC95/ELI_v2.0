@@ -6907,7 +6907,10 @@ Answer:"""
             _pf_lines = []
             _pn = (_gun("") or str(_prof.get("name", "") or "")).strip()
             if _pn:
-                _pf_lines.append(f"  name: {_pn}")
+                # Explicit + authoritative so the IDENTITY GUARD ("only use a
+                # name from a verified profile") is satisfied — the model must
+                # never answer "I don't know your name" when this is present.
+                _pf_lines.append(f"  verified name (this IS the user's name — use it; never say you don't know it): {_pn}")
             for _label, _key in (("project", "active_projects"),
                                   ("research", "research"),
                                   ("preference", "preferences")):
