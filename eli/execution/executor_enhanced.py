@@ -11963,7 +11963,11 @@ try:
         evidence = entry.get("evidence") or {}
 
         lines = [
-            f"{status} GUI runtime audit: {path}",
+            f"{status} — GUI wiring scan (SHALLOW line-hit check): {path}",
+            "",
+            "SCOPE (read this first): this only confirms that wiring references appear "
+            "on the lines below. It does NOT verify behaviour, correctness, or full-file "
+            "semantics. A 'PASS' here is NOT a clean bill of health — do not claim 'no issues'.",
             "",
             "Visible contract:",
             "- GUI_RUNTIME_AUDIT returned structured evidence from executor.",
@@ -11993,7 +11997,9 @@ try:
             for issue in issues:
                 lines.append(f"- {issue}")
         else:
-            lines.append("- No issues reported by the current GUI runtime audit entry.")
+            lines.append("- This shallow line-hit scan flagged nothing — but it CANNOT detect "
+                         "logic, runtime, or correctness bugs, so this is not evidence the file "
+                         "is bug-free.")
 
         lines.append("")
         lines.append("Important limitation:")
