@@ -12,6 +12,10 @@ from dataclasses import dataclass, field
 from typing import Any, Dict, Generator, List, Optional, Tuple
 
 from eli.execution.executor_enhanced import execute as execute_action
+from eli.execution.executor_enhanced import SUPPORTED_ACTIONS as _SUPPORTED_ACTIONS
+
+# Normalized set for O(1) validation of ReAct-proposed tool actions.
+_VALID_ACTIONS = {str(a).strip().upper() for a in (_SUPPORTED_ACTIONS or [])}
 
 
 
@@ -630,13 +634,22 @@ class AgentOrchestrator:
 
                     try:
                         _tool_line = _react_decision[5:].strip()
-                        _next_action = _tool_line.split()[0]
+                        _tok = _tool_line.split()[0] if _tool_line.split() else ""
+                        # Strip stray punctuation the model may append (TOOL:DATE.)
+                        _next_action = _tok.strip(" .,:;!?\"'`").upper()
+                        # Only chain to a real, registered action. An unknown or
+                        # hallucinated action ends the loop instead of switching
+                        # to garbage the executor can't handle.
+                        if not _next_action or (_VALID_ACTIONS and _next_action not in _VALID_ACTIONS):
+                            log.debug(f"[ORCHESTRATOR] ReAct proposed unknown action {_next_action!r}; stopping loop")
+                            break
+                        # Merge args — preserve the original args, add observation context.
                         intent = dict(intent)
+                        _merged_args = dict(intent.get("args") or {}) if isinstance(intent.get("args"), dict) else {}
+                        _merged_args.setdefault("query", user_input)
+                        _merged_args["observation_context"] = _obs_ctx
                         intent["action"] = _next_action
-                        intent["args"] = {
-                            "query": user_input,
-                            "observation_context": _obs_ctx,
-                        }
+                        intent["args"] = _merged_args
                         action = _next_action
                     except Exception:
                         break
