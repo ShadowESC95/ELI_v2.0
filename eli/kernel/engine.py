@@ -6895,6 +6895,36 @@ Answer:"""
         except Exception:
             pass
 
+        # ── User profile facts injection ─────────────────────────────────────
+        # Surface the user's stored projects / research / preferences into the
+        # chat brief so ELI actually RECALLS them in normal conversation — not
+        # only inside the explicit PERSONAL_MEMORY_SUMMARY action. Storage works;
+        # this closes the recall gap. Generic across users; sourced from the
+        # per-user profile (the same data the summary uses).
+        try:
+            from eli.kernel.state import load_user_profile as _lup, get_user_name as _gun
+            _prof = _lup() or {}
+            _pf_lines = []
+            _pn = (_gun("") or str(_prof.get("name", "") or "")).strip()
+            if _pn:
+                _pf_lines.append(f"  name: {_pn}")
+            for _label, _key in (("project", "active_projects"),
+                                  ("research", "research"),
+                                  ("preference", "preferences")):
+                _vals = _prof.get(_key)
+                if isinstance(_vals, list):
+                    for _v in [str(x).strip() for x in _vals if str(x).strip()][:4]:
+                        _pf_lines.append(f"  {_label}: {_v}")
+                elif isinstance(_vals, str) and _vals.strip():
+                    _pf_lines.append(f"  {_label}: {_vals.strip()}")
+            if _pf_lines:
+                _extra_blocks.append(
+                    "[WHAT YOU KNOW ABOUT THE USER — from their stored profile; "
+                    "recall and use this, don't claim you know nothing about them]\n"
+                    + "\n".join(_pf_lines))
+        except Exception:
+            pass
+
         # Assemble all injections and cap ONCE so no individual block is silently
         # truncated mid-sentence by a per-injection cap.
         if _extra_blocks:
@@ -10435,25 +10465,9 @@ Answer:"""
             log.debug(f"[PHASE45] stream command fastpath failed: {_p45_stream_err}")
         # === END PHASE45_STREAM_COMMAND_FASTPATH ===
 
-        # === SHORT_AMBIGUOUS_INPUT_FASTPATH ===
-        # If the input is ≤3 words AND agent bus confidence is very low (<0.22),
-        # the input is almost certainly STT noise or a fragment the model can't
-        # helpfully answer. Skip 13-second LLM generation and return a one-line
-        # prompt for the user to repeat themselves. "peace is this" at conf=0.18
-        # is a textbook case — the model would otherwise output 8 numbered paragraphs
-        # of interpretation. Only fires when the bus result was actually built and
-        # reported very low confidence (avoids silencing legitimate 3-word commands
-        # like "play some music" which route to specific actions at higher confidence).
-        try:
-            _saf_words = [w for w in prompt.split() if w]
-            _saf_bus_conf = float(getattr(pre_built_bus_result, "aggregated_confidence", 1.0) or 1.0) \
-                if pre_built_bus_result is not None else 1.0
-            if len(_saf_words) <= 1 and _saf_bus_conf < 0.22:
-                yield "Didn't catch that — say it again?"
-                return
-        except Exception:
-            pass
-        # === END SHORT_AMBIGUOUS_INPUT_FASTPATH ===
+        # (SHORT_AMBIGUOUS_INPUT_FASTPATH removed — short/one-word inputs like
+        # "Hi" now reach the model normally instead of being rejected with
+        # "Didn't catch that — say it again?")
 
         # ELI_REASONING_MODE_RECOVERY_V1
         # Some indirect stream paths may omit the explicit reasoning_mode kwarg.
@@ -11374,9 +11388,9 @@ Answer:"""
             self-consistency voting) are skipped: evidence is already
             authoritative, so iterating just risks fabrication.
           - Mode is honoured via a single-line framing intro, NOT by running
-            the underlying algorithm. The 7B Q3 model cannot reliably elicit
-            distinct CoT/ToT/Self-C/Constitutional behaviours; trying to is
-            what produced the "1. Core Idea: ... Feasibility: 8/10" leakage.
+            the underlying algorithm. Smaller local models cannot reliably
+            elicit distinct CoT/ToT/Self-C/Constitutional behaviours; trying to
+            is what produced the "1. Core Idea: ... Feasibility: 8/10" leakage.
           - Evidence is presented in an immutable block; the prompt forbids
             contradiction, omission, and fabrication.
           - Output is validated by the structured evidence governor; if
