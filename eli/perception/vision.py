@@ -34,17 +34,185 @@ except Exception:  # pragma: no cover
 
 
 # ---------------------------------------------------------------------------
-# Defaults — Qwen2.5-VL-7B GGUF (same family as the default text model)
+# Model resolution — MODEL-AGNOSTIC. No model name or size is hardcoded on the
+# vision inference path. Paths resolve in priority order:
+#   1. env  (ELI_VISION_MODEL / _MMPROJ, ELI_VISION_FAST_MODEL / _MMPROJ)
+#   2. settings.json (vision_model_path / vision_mmproj_path / vision_fast_*)
+#   3. structural discovery: any GGUF in the models dir that has a paired
+#      projector (mmproj/clip) GGUF beside it is a VL model. Largest such pair
+#      = primary; smallest distinct pair = fast glance. Pairing is gated on real
+#      filename affinity, so a generically named projector is never mis-paired
+#      to an unrelated text model (it's left unresolved → honest "not configured"
+#      + install hint, never a wrong guess).
+# The required llama-cpp chat handler is resolved per-model too (config override
+# → filename auto-detect → generic Llava fallback), so ANY VL family llama-cpp
+# supports works — not just one.
 # ---------------------------------------------------------------------------
 
-_DEFAULT_VISION_MODEL = "models/Qwen2.5-VL-7B-Instruct-Q4_K_M.gguf"
-_DEFAULT_VISION_MMPROJ = "models/mmproj-Qwen2.5-VL-7B-Instruct-f16.gguf"
-# Fast glance model (Moondream2) — small (~1.8B), used for ambient glances and
-# quick "what's on my screen". 100% local GGUF via llama-cpp's
-# MoondreamChatHandler — NO API, NO network at inference (same as the primary
-# model). Files are obtained by a one-time manual download, like the Qwen pair.
-_DEFAULT_FAST_MODEL = "models/moondream2-text-model-f16.gguf"
-_DEFAULT_FAST_MMPROJ = "models/moondream2-mmproj-f16.gguf"
+# Quant/format/role tokens that carry no model-identity signal — ignored when
+# matching a projector to its base model.
+_GENERIC_TOKENS = frozenset({
+    "f16", "f32", "bf16", "fp16", "q2", "q3", "q4", "q5", "q6", "q8",
+    "k", "m", "s", "l", "xl", "xs", "0", "1",
+    "gguf", "instruct", "chat", "it", "base", "model", "text", "mmproj",
+    "proj", "projector", "clip", "encoder", "vision", "mtmd",
+})
+
+
+def _safe_size(p) -> int:
+    try:
+        return int(p.stat().st_size)
+    except Exception:
+        return 0
+
+
+def _model_tokens(stem: str) -> set:
+    import re as _re
+    toks = {t for t in _re.split(r"[^a-z0-9]+", stem.lower()) if t}
+    return {t for t in toks if t not in _GENERIC_TOKENS and len(t) > 1}
+
+
+def _is_projector(path) -> bool:
+    n = str(path).lower()
+    return any(k in n for k in ("mmproj", "clip", "projector", "-proj", "_proj", "mtmd"))
+
+
+def _discover_vl_pairs(models_dir):
+    """[(base_path, projector_path, base_size)] for every GGUF that has a paired
+    projector beside it, largest first. Structural + name-affinity — assumes NO
+    specific model name. Affinity must be > 0, so unrelated models are never
+    paired to a generic projector."""
+    out = []
+    try:
+        ggufs = list(Path(models_dir).rglob("*.gguf"))
+    except Exception:
+        return out
+    projectors = [p for p in ggufs if _is_projector(p)]
+    bases = [p for p in ggufs if not _is_projector(p)]
+    seen_base = set()
+    for proj in projectors:
+        proj_tokens = _model_tokens(proj.stem)
+        scored = []
+        for b in bases:
+            if b in seen_base or b.parent != proj.parent:
+                continue
+            affinity = len(proj_tokens & _model_tokens(b.stem))
+            if affinity > 0:
+                scored.append((affinity, _safe_size(b), b))
+        if not scored:
+            continue
+        scored.sort(key=lambda s: (s[0], s[1]), reverse=True)
+        base = scored[0][2]
+        seen_base.add(base)
+        out.append((base, proj, _safe_size(base)))
+    out.sort(key=lambda t: t[2], reverse=True)
+    return out
+
+
+def _candidate_model_dirs():
+    """Every plausible models directory, strongest signal first. The directory
+    holding the resolved text model is the most reliable indicator of where the
+    user actually keeps GGUFs (layouts vary: ./models, models/gguf/base, etc.)."""
+    dirs = []
+    env = os.getenv("ELI_MODELS_DIR")
+    if env:
+        dirs.append(Path(env).expanduser())
+    try:
+        from eli.core import config as _c
+        mp = _c.get_gguf_model_path()
+        if mp:
+            dirs.append(Path(mp).expanduser().parent)
+        dirs.append(Path(_c.get_model_dir()))
+    except Exception:
+        pass
+    try:
+        from eli.core.paths import project_root
+        dirs.append(Path(project_root()) / "models")
+    except Exception:
+        pass
+    dirs.append(Path("models"))
+    seen, out = set(), []
+    for d in dirs:
+        try:
+            rp = d.resolve()
+        except Exception:
+            continue
+        if rp in seen or not rp.exists():
+            continue
+        seen.add(rp)
+        out.append(rp)
+    return out
+
+
+_discovery_cache = None
+
+
+def _discovered_pairs():
+    global _discovery_cache
+    if _discovery_cache is None:
+        merged, seen_base = [], set()
+        for d in _candidate_model_dirs():
+            for base, proj, size in _discover_vl_pairs(d):
+                rb = base.resolve()
+                if rb in seen_base:
+                    continue
+                seen_base.add(rb)
+                merged.append((base, proj, size))
+        merged.sort(key=lambda t: t[2], reverse=True)
+        _discovery_cache = merged
+    return _discovery_cache
+
+
+# Filename-substring → llama-cpp chat-handler class. DATA, extensible, and
+# overridable via the `vision_chat_handler` setting. A handler is architecture-
+# specific in llama-cpp (you cannot run Qwen-VL through the Moondream handler),
+# so a hint table + explicit override is the correct abstraction — not a single
+# hardcoded handler. Most specific hints first.
+_HANDLER_HINTS = (
+    ("moondream",      "MoondreamChatHandler"),
+    ("qwen2.5-vl",     "Qwen25VLChatHandler"),
+    ("qwen2-vl",       "Qwen25VLChatHandler"),
+    ("qwen25vl",       "Qwen25VLChatHandler"),
+    ("qwen2vl",        "Qwen25VLChatHandler"),
+    ("minicpm",        "MiniCPMv26ChatHandler"),
+    ("nanollava",      "NanoLlavaChatHandler"),
+    ("obsidian",       "ObsidianChatHandler"),
+    ("llama-3-vision", "Llama3VisionAlphaChatHandler"),
+    ("llama3-vision",  "Llama3VisionAlphaChatHandler"),
+    ("llava-v1.6",     "Llava16ChatHandler"),
+    ("llava-1.6",      "Llava16ChatHandler"),
+    ("llava16",        "Llava16ChatHandler"),
+    ("llava-v1.5",     "Llava15ChatHandler"),
+    ("llava-1.5",      "Llava15ChatHandler"),
+    ("llava",          "Llava15ChatHandler"),
+)
+
+# Generic fallback when no hint matches — Llava 1.5 is the most widely-shared
+# multimodal GGUF chat format.
+_DEFAULT_HANDLER = "Llava15ChatHandler"
+
+
+def _resolve_handler_class(model_path: str, explicit: str = ""):
+    """Resolve the llama-cpp chat-handler class for a VL model.
+    config override → filename auto-detect → generic. Returns (cls, name)."""
+    from llama_cpp import llama_chat_format as _lcf
+    name = (explicit or "").strip()
+    if not name:
+        low = os.path.basename(str(model_path or "")).lower()
+        for hint, cls in _HANDLER_HINTS:
+            if hint in low:
+                name = cls
+                break
+    if not name:
+        name = _DEFAULT_HANDLER
+    handler_cls = getattr(_lcf, name, None)
+    if handler_cls is None:
+        available = sorted(n for n in dir(_lcf) if n.endswith("ChatHandler"))
+        raise RuntimeError(
+            f"vision chat handler {name!r} not available in this llama-cpp build; "
+            f"set 'vision_chat_handler' to one of: {available}"
+        )
+    return handler_cls, name
 _DEFAULT_PROMPT = (
     "You are ELI looking at the user's screen. Describe what is shown clearly "
     "and concisely: the application(s) in focus, what the user appears to be "
@@ -52,8 +220,9 @@ _DEFAULT_PROMPT = (
     "factual. Do not invent anything you cannot actually see."
 )
 
-# Hugging Face source for the install hint (the user downloads these once).
-_HF_REPO = "unsloth/Qwen2.5-VL-7B-Instruct-GGUF"
+# Example repo shown in the install hint ONLY as a worked example — ELI works
+# with any VL GGUF + projector, this is not a required model.
+_EXAMPLE_HF_REPO = "unsloth/Qwen2.5-VL-7B-Instruct-GGUF"
 
 
 def _cfg(key: str, default: Any = None) -> Any:
@@ -66,11 +235,29 @@ def _cfg(key: str, default: Any = None) -> Any:
 
 
 def vision_settings() -> Dict[str, Any]:
-    """Resolve the active vision configuration from settings (+ env overrides)."""
-    model = (os.environ.get("ELI_VISION_MODEL")
-             or str(_cfg("vision_model_path", _DEFAULT_VISION_MODEL) or "")).strip()
-    mmproj = (os.environ.get("ELI_VISION_MMPROJ")
-              or str(_cfg("vision_mmproj_path", _DEFAULT_VISION_MMPROJ) or "")).strip()
+    """Resolve the active vision configuration from settings (+ env overrides),
+    falling back to structural discovery so no model name is hardcoded."""
+    pairs = _discovered_pairs()
+    disc_primary = pairs[0] if pairs else None
+    disc_fast = pairs[-1] if len(pairs) >= 2 else None  # smallest distinct pair
+
+    def _resolve(env_key: str, cfg_key: str, disc_path) -> str:
+        v = (os.environ.get(env_key) or "").strip()
+        if v:
+            return v
+        v = str(_cfg(cfg_key, "") or "").strip()
+        if v:
+            return v
+        return str(disc_path) if disc_path else ""
+
+    model = _resolve("ELI_VISION_MODEL", "vision_model_path",
+                     disc_primary[0] if disc_primary else None)
+    mmproj = _resolve("ELI_VISION_MMPROJ", "vision_mmproj_path",
+                      disc_primary[1] if disc_primary else None)
+    chat_handler = (os.environ.get("ELI_VISION_HANDLER")
+                    or str(_cfg("vision_chat_handler", "") or "")).strip()
+    fast_chat_handler = (os.environ.get("ELI_VISION_FAST_HANDLER")
+                         or str(_cfg("vision_fast_chat_handler", "") or "")).strip()
 
     def _as_int(v, d):
         try:
@@ -82,6 +269,7 @@ def vision_settings() -> Dict[str, Any]:
         "enabled": bool(_cfg("vision_enabled", True)),
         "model_path": model,
         "mmproj_path": mmproj,
+        "chat_handler": chat_handler,
         "n_ctx": _as_int(_cfg("vision_n_ctx", 4096), 4096),
         # All layers on GPU by default — the text model is unloaded first, so the
         # ~7GB freed is enough for a 7B Q4 VL + clip. Lower if you hit OOM.
@@ -99,10 +287,11 @@ def vision_settings() -> Dict[str, Any]:
         "default_prompt": str(_cfg("vision_default_prompt", _DEFAULT_PROMPT) or _DEFAULT_PROMPT),
         # --- Fast glance model (Moondream) ---
         "fast_enabled": bool(_cfg("vision_fast_enabled", True)),
-        "fast_model_path": (os.environ.get("ELI_VISION_FAST_MODEL")
-                            or str(_cfg("vision_fast_model_path", _DEFAULT_FAST_MODEL) or "")).strip(),
-        "fast_mmproj_path": (os.environ.get("ELI_VISION_FAST_MMPROJ")
-                             or str(_cfg("vision_fast_mmproj_path", _DEFAULT_FAST_MMPROJ) or "")).strip(),
+        "fast_model_path": _resolve("ELI_VISION_FAST_MODEL", "vision_fast_model_path",
+                                    disc_fast[0] if disc_fast else None),
+        "fast_mmproj_path": _resolve("ELI_VISION_FAST_MMPROJ", "vision_fast_mmproj_path",
+                                     disc_fast[1] if disc_fast else None),
+        "fast_chat_handler": fast_chat_handler,
         "fast_n_ctx": _as_int(_cfg("vision_fast_n_ctx", 2048), 2048),
         "fast_n_gpu_layers": _as_int(_cfg("vision_fast_n_gpu_layers", 99), 99),
         # Co-resident mode: keep the text model loaded and run Moondream
@@ -131,9 +320,9 @@ def vision_available() -> Tuple[bool, str]:
         return False, f"Vision projector (mmproj) file not found: {pp}"
     try:
         import llama_cpp  # noqa: F401
-        from llama_cpp.llama_chat_format import Qwen25VLChatHandler  # noqa: F401
+        _resolve_handler_class(s["model_path"], s.get("chat_handler", ""))
     except Exception as e:
-        return False, f"llama-cpp-python multimodal support unavailable: {e}"
+        return False, f"llama-cpp-python multimodal handler unavailable: {e}"
     return True, "ready"
 
 
@@ -155,26 +344,37 @@ def fast_vision_available() -> Tuple[bool, str]:
     if not Path(pp).exists():
         return False, f"Fast projector (mmproj) file not found: {pp}"
     try:
-        from llama_cpp.llama_chat_format import MoondreamChatHandler  # noqa: F401
+        import llama_cpp  # noqa: F401
+        _resolve_handler_class(s["fast_model_path"], s.get("fast_chat_handler", ""))
     except Exception as e:
-        return False, f"Moondream handler unavailable: {e}"
+        return False, f"fast vision handler unavailable: {e}"
     return True, "ready"
 
 
 def install_hint() -> str:
-    """Human-readable instructions for obtaining the local vision model."""
+    """Human-readable instructions for obtaining a local vision model.
+
+    Model-agnostic: ANY multimodal GGUF + its projector works. ELI auto-detects
+    the llama-cpp handler from the filename; override with vision_chat_handler if
+    your model isn't auto-detected.
+    """
     s = vision_settings()
+    cur_model = s["model_path"] or "(none found — drop a VL GGUF + its mmproj in models/)"
+    cur_mmproj = s["mmproj_path"] or "(none found)"
     return (
-        "Local vision needs a Qwen2.5-VL GGUF model + its mmproj (vision projector). "
-        "They are not bundled (several GB). Download once, e.g.:\n\n"
-        f"  huggingface-cli download {_HF_REPO} \\\n"
-        "    Qwen2.5-VL-7B-Instruct-Q4_K_M.gguf mmproj-F16.gguf \\\n"
-        "    --local-dir models/\n\n"
-        f"Then point settings at them (expected by default):\n"
-        f"  vision_model_path = {s['model_path']}\n"
-        f"  vision_mmproj_path = {s['mmproj_path']}\n\n"
-        "Filenames vary by repo — set vision_model_path / vision_mmproj_path to match "
-        "whatever you downloaded (or ELI_VISION_MODEL / ELI_VISION_MMPROJ env vars)."
+        "Local vision needs ANY multimodal (VL) GGUF model + its mmproj (vision "
+        "projector) — e.g. Qwen2.5-VL, LLaVA, MiniCPM-V, Moondream, NanoLLaVA. "
+        "They are not bundled (several GB). Drop both files into models/ and ELI "
+        "will discover the pair automatically.\n\n"
+        f"Example (one of many valid models):\n"
+        f"  huggingface-cli download {_EXAMPLE_HF_REPO} \\\n"
+        "    *Q4_K_M.gguf *mmproj*.gguf --local-dir models/\n\n"
+        "Resolution order: ELI_VISION_MODEL/_MMPROJ env → vision_model_path/"
+        "vision_mmproj_path settings → auto-discovery of any projector-paired GGUF.\n"
+        f"  currently resolved model  = {cur_model}\n"
+        f"  currently resolved mmproj = {cur_mmproj}\n\n"
+        "If the chat handler isn't auto-detected from the filename, set "
+        "vision_chat_handler (e.g. 'Llava16ChatHandler') or ELI_VISION_HANDLER."
     )
 
 
@@ -269,20 +469,21 @@ def _load_vl(settings: Dict[str, Any], fast: bool = False):
         _force_cpu_clip()
 
     if fast:
-        # Local Moondream — constructor takes a local clip file; never
+        # Local glance model — constructor takes a local clip file; never
         # from_pretrained (the only thing that would hit the network).
-        from llama_cpp.llama_chat_format import MoondreamChatHandler as _Handler
         model = _abs(settings["fast_model_path"])
         mmproj = _abs(settings["fast_mmproj_path"])
         n_ctx = int(settings["fast_n_ctx"])
         n_gpu_layers = int(settings["fast_n_gpu_layers"])
+        _Handler, _hname = _resolve_handler_class(model, settings.get("fast_chat_handler", ""))
     else:
-        from llama_cpp.llama_chat_format import Qwen25VLChatHandler as _Handler
         model = _abs(settings["model_path"])
         mmproj = _abs(settings["mmproj_path"])
         n_ctx = int(settings["n_ctx"])
         n_gpu_layers = int(settings["n_gpu_layers"])
+        _Handler, _hname = _resolve_handler_class(model, settings.get("chat_handler", ""))
 
+    log.debug(f"[VISION] handler={_hname} model={os.path.basename(model)} (model-agnostic resolve)")
     handler = _Handler(clip_model_path=mmproj, verbose=False)
     llm = Llama(
         model_path=model,
