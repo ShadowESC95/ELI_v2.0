@@ -136,9 +136,19 @@ def solve_dag(task: str, generate: Optional[GenerateFn], *, language: str,
             f"# already-built component `{d}`:\n{solutions[d]}"
             for d in (node.depends_on if node else []) if d in solutions
         )
-        node_task = node_tasks.get(nid, task)
+        subtask = node_tasks.get(nid, task)
+        # Always anchor each node to the ORIGINAL task. Without this the node only
+        # sees its abstract subtask label (e.g. "Define constants and mass") and
+        # drifts into generic boilerplate that ignores the real requirements —
+        # observed: a Schwarzschild-radius request producing GRAVITY=9.81 /
+        # EARTH_RADIUS / mass=50.0 instead of the requested mass & density.
+        node_task = (
+            f"OVERALL GOAL (the complete program must satisfy this):\n{task}\n\n"
+            f"Implement ONLY this part of the overall goal, staying faithful to the "
+            f"goal's specific values, units, names, and intent:\n{subtask}"
+        )
         if dep_code:
-            node_task += ("\n\nYou MUST build on these already-implemented components "
+            node_task += ("\n\nBuild on these already-implemented components "
                           "(call them; do not reimplement):\n" + dep_code[:5000])
         try:
             res = single_solver(node_task)
