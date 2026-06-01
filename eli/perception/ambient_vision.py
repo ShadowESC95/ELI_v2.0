@@ -104,7 +104,8 @@ def _do_glance() -> None:
     try:
         from eli.perception import vision as _vision
         ok, reason = _vision.vision_available()
-        if not ok:
+        _fok, _freason = _vision.fast_vision_available()
+        if not (ok or _fok):
             _state["last_skip_reason"] = f"vision unavailable: {reason}"
             return
         # Capture the screen.
@@ -124,6 +125,7 @@ def _do_glance() -> None:
                 "Briefly note what the user is doing on screen right now: the focused "
                 "app and the task. One or two sentences. Only what you can actually see."
             ),
+            prefer_fast=True,  # glances use the small fast model when available
         )
         _state["last_glance_ts"] = time.time()
         _state["last_glance_ok"] = bool(res.get("ok"))

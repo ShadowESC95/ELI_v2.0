@@ -5398,7 +5398,7 @@ def _execute_impl(action: str, args: Optional[Dict[str, Any]] = None) -> Dict[st
                 "screen: the focused application, what the user appears to be doing, and any "
                 "important text, code, errors, or UI state. Be specific; never invent."
             )
-            _sra = _execute_impl("ANALYZE_IMAGE", {"path": ss_path, "prompt": _sra_prompt})
+            _sra = _execute_impl("ANALYZE_IMAGE", {"path": ss_path, "prompt": _sra_prompt, "prefer_fast": True})
             _sra_body = str(_sra.get("content") or _sra.get("response") or "").strip()
             if not _sra_body:
                 _sra_body = "I captured the screen but couldn't produce a description."
@@ -7588,15 +7588,19 @@ def _execute_impl(action: str, args: Optional[Dict[str, Any]] = None) -> Dict[st
         _ai_ocr = (rep.get("ocr_text") or "").strip()
         _ai_name = _AIPP(expanded).name
         _ai_prompt = str(args.get("prompt") or args.get("instruction") or "").strip() or None
+        _ai_prefer_fast = bool(args.get("prefer_fast"))
 
-        # Real vision first (local VL model, hot-swapped with the text model).
+        # Real vision first (local VL model). prefer_fast → small Moondream model
+        # for quick glances; falls back to the primary model.
         _ai_vision_text = ""
         _ai_vision_err = ""
         try:
             from eli.perception import vision as _eli_vision
             _va_ok, _va_reason = _eli_vision.vision_available()
+            if not _va_ok and _ai_prefer_fast:
+                _va_ok, _va_reason = _eli_vision.fast_vision_available()
             if _va_ok:
-                _vres = _eli_vision.describe_image(expanded, prompt=_ai_prompt)
+                _vres = _eli_vision.describe_image(expanded, prompt=_ai_prompt, prefer_fast=_ai_prefer_fast)
                 if _vres.get("ok"):
                     _ai_vision_text = str(_vres.get("text") or "").strip()
                 else:
@@ -7606,8 +7610,41 @@ def _execute_impl(action: str, args: Optional[Dict[str, Any]] = None) -> Dict[st
         except Exception as _ai_vexc:
             _ai_vision_err = str(_ai_vexc)
 
+        # Fuse OCR (exact text) + the vision gist into an accurate, grounded
+        # description via the text model — compensates for the small vision
+        # model's inability to read dense UI text. Strictly evidence-only.
+        _ai_fused = ""
+        try:
+            from eli.core import config as _ai_cfg
+            _fuse_on = bool(_ai_cfg.get("vision_fuse_with_text_model", True))
+        except Exception:
+            _fuse_on = True
+        if _fuse_on and (_ai_vision_text or _ai_ocr):
+            try:
+                from eli.cognition import gguf_inference as _fgi
+                _ocr_clip = (_ai_ocr or "")[:2500]
+                _vis_clip = (_ai_vision_text or "(no visual description available)")[:1200]
+                _fuse_user = (
+                    f"OCR text read from the screen (authoritative for names/titles):\n{_ocr_clip}\n\n"
+                    f"Vision model's visual description:\n{_vis_clip}\n\n"
+                    f"Using ONLY the evidence above, write 2-4 sentences on what application/"
+                    f"content is shown and what the user appears to be doing. Prefer the OCR text "
+                    f"for exact names. Do not invent anything not present in the evidence."
+                )
+                _ai_fused = (_fgi.chat_completion(
+                    _fuse_user,
+                    system=("You describe what is on the user's screen strictly from the provided "
+                            "OCR + vision evidence. Never invent apps, text, or activities. Be concise."),
+                    max_tokens=300, temperature=0.3,
+                ) or "").strip()
+            except Exception as _fuse_err:
+                log.debug(f"[ANALYZE_IMAGE] fusion skipped: {_fuse_err}")
+                _ai_fused = ""
+
         _ai_header = f"**{_ai_name}** ({_ai_fmt}, {_ai_dims}, {_ai_size:,} bytes)"
-        if _ai_vision_text:
+        if _ai_fused:
+            body = _ai_fused
+        elif _ai_vision_text:
             body = f"Looking at {_ai_header}:\n\n{_ai_vision_text}"
             if _ai_ocr:
                 body += f"\n\n---\nText I can read in it (OCR):\n\n{_ai_ocr}"
@@ -7632,7 +7669,7 @@ def _execute_impl(action: str, args: Optional[Dict[str, Any]] = None) -> Dict[st
             else:
                 body += ". I won't guess at what it shows."
         return {"ok": True, "action": a, "path": expanded, "ocr_text": _ai_ocr,
-                "vision_text": _ai_vision_text, "report": rep,
+                "vision_text": _ai_vision_text, "fused_text": _ai_fused, "report": rep,
                 "content": body, "response": body}
 
     # ---- SUMMARIZE_FILE ----
