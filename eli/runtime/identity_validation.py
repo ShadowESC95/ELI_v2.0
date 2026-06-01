@@ -120,12 +120,12 @@ def extract_explicit_identity_facts(text: Any) -> Dict[str, str]:
     if "?" in raw and not any(x in low for x in ("my name is", "call me", "i go by", "my nickname is")):
         return {}
 
+    # Unambiguous self-declarations only.
     patterns: tuple[tuple[str, str], ...] = (
         ("name", r"\bmy\s+name\s+is\s+([A-Za-z][A-Za-z .'\-]{1,48})(?=$|[.!?,])"),
         ("preferred_name", r"\bmy\s+preferred\s+name\s+is\s+([A-Za-z][A-Za-z .'\-]{1,48})(?=$|[.!?,])"),
         ("preferred_name", r"\bi\s+prefer\s+to\s+be\s+called\s+([A-Za-z][A-Za-z .'\-]{1,48})(?=$|[.!?,])"),
         ("preferred_name", r"\bi\s+go\s+by\s+([A-Za-z][A-Za-z .'\-]{1,48})(?=$|[.!?,])"),
-        ("preferred_name", r"\bcall\s+me\s+([A-Za-z][A-Za-z .'\-]{1,48})(?=$|[.!?,])"),
         ("nickname", r"\bmy\s+nickname\s+is\s+([A-Za-z][A-Za-z .'\-]{1,48})(?=$|[.!?,])"),
         ("nickname", r"\bnickname\s+is\s+([A-Za-z][A-Za-z .'\-]{1,48})(?=$|[.!?,])"),
     )
@@ -138,4 +138,22 @@ def extract_explicit_identity_facts(text: Any) -> Dict[str, str]:
         value = normalize_identity_candidate(match.group(1))
         if value and key not in facts:
             facts[key] = value
+
+    # "call me X" is the one ambiguous declarer: it also matches questions and
+    # complaints ("why did you call me X", "you called me X", "don't/stop call
+    # me X"). Only accept it as a real preferred-name declaration when it's a
+    # genuine first-person imperative — never from a question/reference/negation.
+    if "preferred_name" not in facts:
+        _call_me_is_declaration = not re.search(
+            r"\b(?:you|why|what|when|who|how|did|do|does|never|didn'?t|don'?t|"
+            r"do\s*not|did\s*not|stop|stopped|quit|cannot|can'?t|not)\b[^.?!]*"
+            r"\bcall(?:ed|ing)?\s+me\b",
+            low,
+        )
+        if _call_me_is_declaration:
+            _m = re.search(r"\bcall\s+me\s+([A-Za-z][A-Za-z .'\-]{1,48})(?=$|[.!?,])", raw, flags=re.I)
+            if _m:
+                _v = normalize_identity_candidate(_m.group(1))
+                if _v:
+                    facts["preferred_name"] = _v
     return facts
