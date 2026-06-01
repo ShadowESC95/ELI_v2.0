@@ -87,11 +87,11 @@ ALL_MODULES = [
     "eli.kernel.self_upgrade",
     "eli.kernel.state",
     "eli.kernel.task_bus",
-    "eli.kernel.verify_dual_models",
+    # eli.kernel.verify_dual_models — module does not exist (stale entry), removed 2026-06-01
     "eli.kernel.world_model",
     # ── memory ────────────────────────────────────────────────────────────────
     "eli.memory",
-    "eli.memory.db_paths",
+    # eli.memory.db_paths — module does not exist (stale entry; use eli.core.db_paths), removed 2026-06-01
     "eli.memory.habits_memory_db",
     "eli.memory.habits_memory_service",
     "eli.memory.knowledge_graph",
@@ -124,7 +124,7 @@ ALL_MODULES = [
     "eli.planning.attention_queue",
     "eli.planning.autonomy_controller",
     "eli.planning.autonomy_scheduler",
-    "eli.planning.db_paths",
+    # eli.planning.db_paths — module does not exist (stale entry; use eli.core.db_paths), removed 2026-06-01
     "eli.planning.goal_models",
     "eli.planning.goal_store",
     "eli.planning.goal_tick",
@@ -178,7 +178,7 @@ ALL_MODULES = [
     "eli.runtime.capability_sync",
     "eli.runtime.code_monitor",
     "eli.runtime.control_contracts",
-    "eli.runtime.eli_agent",
+    # eli.runtime.eli_agent — module does not exist (stale entry), removed 2026-06-01
     "eli.runtime.evidence_arbitration",
     "eli.runtime.evidence_store",
     "eli.runtime.fastpath_responder",
