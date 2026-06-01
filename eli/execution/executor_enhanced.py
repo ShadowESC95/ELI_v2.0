@@ -9064,10 +9064,20 @@ def execute(action: str, args: Optional[Dict[str, Any]] = None, **kwargs) -> Dic
         rep = _runtime_status_report()
         runtime_eff = rep.get('runtime') or {}
         settings_req = rep.get('settings') or {}
+        # Active user's confirmed name belongs in identity evidence — without it
+        # "who are you / who am I" answers say "name not provided" and then
+        # confabulate a low-confidence story. This is the authoritative profile
+        # name (same source USER_IDENTITY_SUMMARY uses).
+        try:
+            from eli.kernel.state import get_user_name as _gun_sr
+            _active_user = str(_gun_sr("") or "").strip()
+        except Exception:
+            _active_user = ""
         ev = {
             "identity": {
                 "name": "ELI",
                 "expanded_name": "Enhanced Learning Interface",
+                "active_user_name": _active_user or "unknown",
                 "grounding_sources": [
                     "persona",
                     "memory",
@@ -9098,6 +9108,8 @@ def execute(action: str, args: Optional[Dict[str, Any]] = None, **kwargs) -> Dic
             f"Context window: {runtime_eff.get('n_ctx', '?')} tokens. "
             f"All core systems nominal."
         )
+        if _active_user:
+            summary += f" You're {_active_user}."
         # content/response are user-facing — use the plain summary, never raw JSON.
         # Structured data stays in report + evidence for grounding/introspection.
         return {'ok': bool(rep.get('ok', True)), 'action': a, 'report': rep,
