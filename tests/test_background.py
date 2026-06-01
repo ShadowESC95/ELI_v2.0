@@ -52,6 +52,16 @@ def test_cost_explicit_phrasing_wins():
     assert should_background("run a huge monte carlo simulation right now")["background"] is False
 
 
+def test_cost_open_ended_backgrounds():
+    # Open-ended/hard tasks must background (they ran foreground and blocked the
+    # UI for minutes before this fix).
+    from eli.coding.cost import should_background
+    assert should_background("solve the P vs NP problem")["background"] is True
+    assert should_background("design a compiler from scratch")["background"] is True
+    # …but a trivial script stays foreground.
+    assert should_background("write a function to add two numbers")["background"] is False
+
+
 # ── executor job-inspection actions ─────────────────────────────────────────
 
 def test_executor_check_and_list_jobs():
