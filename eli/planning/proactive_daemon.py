@@ -156,13 +156,37 @@ class ProactiveDaemon:
             return patterns
 
         # ── Pattern 1: Peak activity hour (single result) ──────────────────
+        # Robust hour extraction. The old code did fromtimestamp(float(ts)).hour,
+        # which counted rows with ts=0/NULL/default (common in `memories`) as
+        # "hour 0" — producing a permanent fake "Peak activity at 00:00". Skip
+        # non-real timestamps; accept epoch seconds, epoch ms, and ISO strings.
+        def _real_hour(_ts):
+            # numeric epoch (seconds or ms)
+            try:
+                _v = float(_ts)
+                if _v >= 1_000_000_000_000:      # epoch milliseconds
+                    return datetime.fromtimestamp(_v / 1000.0).hour
+                if _v >= 1_000_000_000:          # epoch seconds (≥ 2001)
+                    return datetime.fromtimestamp(_v).hour
+                return None                      # 0 / tiny / default → not real activity
+            except (TypeError, ValueError):
+                pass
+            # ISO-ish datetime string fallback
+            _s = str(_ts).strip()
+            for _fmt in ("%Y-%m-%d %H:%M:%S.%f", "%Y-%m-%d %H:%M:%S",
+                         "%Y-%m-%dT%H:%M:%S.%f", "%Y-%m-%dT%H:%M:%S"):
+                try:
+                    return datetime.strptime(_s[:26], _fmt).hour
+                except Exception:
+                    continue
+            return None
+
         hour_counts: Dict[int, int] = {}
         for ts, text, _ in rows:
-            try:
-                hour = datetime.fromtimestamp(float(ts)).hour
-                hour_counts[hour] = hour_counts.get(hour, 0) + 1
-            except Exception:
+            _h = _real_hour(ts)
+            if _h is None:
                 continue
+            hour_counts[_h] = hour_counts.get(_h, 0) + 1
         if hour_counts and sum(hour_counts.values()) > 5:
             peak = max(hour_counts, key=hour_counts.get)
             patterns.append({
