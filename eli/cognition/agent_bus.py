@@ -565,6 +565,36 @@ def _select_agents_for_intent(user_input: str, action: str) -> Optional[Set[str]
 
 
 # ---------------------------------------------------------------------------
+# Agent dependency DAG
+# ---------------------------------------------------------------------------
+# Edges among bus agents: {agent: {agents it depends on}}. The bus builds a DAG
+# from the *selected* agents intersected with this map, runs them in topological
+# layers, and passes each completed layer's results to downstream agents via
+# intent["_upstream"]. Agents with no declared dependency stay in the first
+# layer and run fully in parallel (identical to the legacy flat fan-out).
+#
+# knowledge_graph ← memory: the KG agent seeds its lookup with what the memory
+# agent surfaced this turn (see KnowledgeGraphAgent.run). Add more edges here to
+# express further dependencies; cycles are rejected at build time.
+_AGENT_DEPENDENCIES: Dict[str, Set[str]] = {
+    "knowledge_graph": {"memory"},
+}
+
+
+def _agent_execution_layers(active_names: List[str]) -> List[List[str]]:
+    """Topological layers for the active agent set, honouring _AGENT_DEPENDENCIES
+    (restricted to the active set). Returns a single layer on any error so the
+    bus can never be broken by the DAG."""
+    try:
+        from eli.core.dag import build_dag
+        deps = {n: set(_AGENT_DEPENDENCIES.get(n, set())) & set(active_names) for n in active_names}
+        return build_dag(deps).topological_layers()
+    except Exception as exc:
+        log.debug(f"[AGENTBUS] layer build failed, using single layer: {exc}")
+        return [list(active_names)]
+
+
+# ---------------------------------------------------------------------------
 # Individual agents
 # ---------------------------------------------------------------------------
 
@@ -1592,33 +1622,12 @@ class AgentBus:
             if getattr(a, "_enabled", True)
             and a.name in plan_names
         ]
-        futures = {
-            self._pool.submit(
-                agent.run, user_input, intent, session_id, user_id
-            ): agent
-            for agent in active_agents
-        }
-
-        results: List[AgentResult] = []
-        max_timeout = max((a.timeout_s for a in active_agents), default=5.0)
-
-        for future in as_completed(futures, timeout=max_timeout + 1.0):
-            agent = futures[future]
-            try:
-                result = future.result(timeout=agent.timeout_s)
-                results.append(result)
-            except FuturesTimeout:
-                log.debug(f"[AGENTBUS] {agent.name} timed out after {agent.timeout_s}s")
-                results.append(AgentResult(
-                    agent=agent.name, ok=False, confidence=0.0,
-                    data={}, error="timeout",
-                ))
-            except Exception as e:
-                log.debug(f"[AGENTBUS] {agent.name} raised: {e}")
-                results.append(AgentResult(
-                    agent=agent.name, ok=False, confidence=0.0,
-                    data={}, error=str(e),
-                ))
+        # Execute on the dependency DAG (topological layers, upstream → downstream),
+        # falling back to flat parallel dispatch. When no dependency edges apply to
+        # the selected set, the DAG collapses to a single layer = identical to the
+        # flat fan-out, so this is non-regressive.
+        results: List[AgentResult] = self._run_agents(
+            active_agents, user_input, intent, session_id, user_id)
 
         # Assemble memory context: MemoryAgent first, then KnowledgeGraphAgent appended
         memory_context = ""
@@ -1705,6 +1714,73 @@ class AgentBus:
             orchestrator_plan=orchestrator_plan,
             execution_plan=execution_plan_dict,
         )
+
+    # ── Agent execution (DAG-layered, with flat fallback) ───────────────────
+    def _run_agents(self, active_agents: List["_BaseAgent"], user_input: str,
+                    intent: Dict[str, Any], session_id: str, user_id: str) -> List[AgentResult]:
+        use_dag = os.environ.get("ELI_AGENT_DAG", "1").strip().lower() not in ("0", "false", "no", "off")
+        if use_dag:
+            try:
+                return self._run_agents_layered(active_agents, user_input, intent, session_id, user_id)
+            except Exception as exc:
+                log.debug(f"[AGENTBUS] DAG dispatch failed ({exc}); falling back to flat")
+        return self._run_agents_flat(active_agents, user_input, intent, session_id, user_id)
+
+    def _collect_layer(self, layer_agents: List["_BaseAgent"], user_input: str,
+                       intent: Dict[str, Any], session_id: str, user_id: str) -> List[AgentResult]:
+        """Run one layer in parallel with per-agent hard timeouts; robust to the
+        outer as_completed timeout (stragglers recorded as timeouts)."""
+        futures = {
+            self._pool.submit(a.run, user_input, intent, session_id, user_id): a
+            for a in layer_agents
+        }
+        max_timeout = max((a.timeout_s for a in layer_agents), default=5.0)
+        results: List[AgentResult] = []
+        done: set = set()
+        try:
+            for future in as_completed(futures, timeout=max_timeout + 1.0):
+                agent = futures[future]
+                done.add(agent.name)
+                try:
+                    results.append(future.result(timeout=agent.timeout_s))
+                except FuturesTimeout:
+                    log.debug(f"[AGENTBUS] {agent.name} timed out after {agent.timeout_s}s")
+                    results.append(AgentResult(agent=agent.name, ok=False, confidence=0.0, data={}, error="timeout"))
+                except Exception as e:
+                    log.debug(f"[AGENTBUS] {agent.name} raised: {e}")
+                    results.append(AgentResult(agent=agent.name, ok=False, confidence=0.0, data={}, error=str(e)))
+        except FuturesTimeout:
+            pass  # outer wait elapsed; fill stragglers below
+        for fut, agent in futures.items():
+            if agent.name not in done:
+                results.append(AgentResult(agent=agent.name, ok=False, confidence=0.0, data={}, error="timeout"))
+        return results
+
+    def _run_agents_layered(self, active_agents: List["_BaseAgent"], user_input: str,
+                            intent: Dict[str, Any], session_id: str, user_id: str) -> List[AgentResult]:
+        by_name = {a.name: a for a in active_agents}
+        layers = _agent_execution_layers(list(by_name.keys()))
+        results: List[AgentResult] = []
+        upstream: Dict[str, Any] = {}     # completed agent name → its result data
+        for layer in layers:
+            layer_agents = [by_name[n] for n in layer if n in by_name]
+            if not layer_agents:
+                continue
+            layer_intent = intent
+            if upstream and isinstance(intent, dict):
+                layer_intent = dict(intent)
+                layer_intent["_upstream"] = dict(upstream)
+            layer_results = self._collect_layer(layer_agents, user_input, layer_intent, session_id, user_id)
+            for r in layer_results:
+                results.append(r)
+                if r.ok and not (r.data or {}).get("skipped"):
+                    upstream[r.agent] = r.data or {}
+        return results
+
+    def _run_agents_flat(self, active_agents: List["_BaseAgent"], user_input: str,
+                         intent: Dict[str, Any], session_id: str, user_id: str) -> List[AgentResult]:
+        """Legacy single-round parallel fan-out (DAG-disabled / fallback path)."""
+        return self._collect_layer(active_agents, user_input, intent, session_id, user_id)
 
     def shutdown(self) -> None:
         self._pool.shutdown(wait=False)
@@ -2173,7 +2249,26 @@ class KnowledgeGraphAgent(_BaseAgent):
                 return AgentResult(agent=self.name, ok=True, confidence=0.0,
                                    data={"skipped": True})
 
-            ctx = kg.context_for_prompt(user_input, max_chars=700)
+            # DAG upstream: seed the KG lookup with what the memory agent surfaced
+            # this turn (memory → knowledge_graph edge). Guarded: no upstream ⇒
+            # identical to the legacy user_input-only query.
+            _query = user_input
+            try:
+                _up = (intent or {}).get("_upstream") or {}
+                _mem = _up.get("memory") or {}
+                _hits = (_mem.get("results") or _mem.get("conv_hits") or [])
+                _terms = []
+                for _h in _hits[:3]:
+                    if isinstance(_h, dict):
+                        _t = (_h.get("text") or _h.get("content") or "").strip()
+                        if _t:
+                            _terms.append(_t[:80])
+                if _terms:
+                    _query = (user_input + " " + " ".join(_terms))[:600]
+            except Exception:
+                _query = user_input
+
+            ctx = kg.context_for_prompt(_query, max_chars=700)
             elapsed = (time.perf_counter() - t0) * 1000
 
             if not ctx:
