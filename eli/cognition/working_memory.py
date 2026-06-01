@@ -44,6 +44,18 @@ MAX_PINS = 20          # hard cap on pinned items
 MAX_AGE_TURNS = 40     # evict if not referenced for this many turns
 IMPORTANCE_THRESHOLD = 0.65  # auto-pin memories above this score
 
+# Executor command-echo signature, e.g. "SET_USER_NAME: Got it. I'll call you
+# SCREENSHOT." — an ALL-CAPS action token followed by a colon. These are tool
+# output echoes, NOT durable user facts; pinning them poisons the persona brief
+# (the model read "I'll call you SCREENSHOT" and addressed the user as such).
+# Real facts are mixed-case ("User identity: ...", "App usage: ..."), so this
+# never rejects a legitimate pin.
+_ACTION_ECHO_RE = re.compile(r"^\s*[A-Z][A-Z0-9_]{3,}\s*:")
+
+
+def _is_junk_pin(text: str) -> bool:
+    return bool(_ACTION_ECHO_RE.match(text or ""))
+
 
 class _PinnedFact:
     __slots__ = ("text", "source", "pinned_at_turn", "last_hit_turn",
@@ -99,6 +111,12 @@ class WorkingMemory:
         Pin a fact.  Returns True if newly added, False if already present
         (which still refreshes the hit counter).
         """
+        # Never pin tool-output echoes (e.g. "SET_USER_NAME: ... I'll call you
+        # SCREENSHOT.") — they masquerade as high-importance facts and corrupt
+        # the persona brief on every subsequent turn.
+        if _is_junk_pin(text):
+            return False
+
         key = self._key(text)
         if key in self._facts:
             self._facts[key].touch(self._turn)
