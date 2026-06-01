@@ -212,5 +212,9 @@
   "vision_temperature": 0.2,
   "vision_default_prompt": "",
   "ambient_vision_interval": 300,
-  "habit_shell_enabled": true
+  "habit_shell_enabled": true,
+  "vision_fast_model_path": "models/moondream2-text-model-Q4_K_M.gguf",
+  "vision_fast_mmproj_path": "models/moondream2-mmproj-f16-20250414.gguf",
+  "vision_fast_no_swap": false,
+  "vision_coresident": true
 }
