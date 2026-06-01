@@ -1826,6 +1826,33 @@ def route(text: str) -> Dict[str, Any]:
             "did not open", "didn't open", "dump it into chat", "not provide any path",
         ))
     )
+    # Background-job inspection
+    if re.search(r"\b(?:check|status\s+of|how'?s|show|view)\s+job\s+\d+|\bjob\s+\d+\b", low):
+        _jm = re.search(r"\bjob\s+(\d+)", low)
+        return _mk("CHECK_JOB", {"job_id": _jm.group(1) if _jm else None, "text": raw},
+                   0.95, matched_by="dev.check_job")
+    if re.search(r"\b(?:background\s+jobs|list\s+(?:background\s+|running\s+)?jobs|running\s+jobs|what\s+jobs)\b", low):
+        return _mk("BACKGROUND_JOBS", {}, 0.9, matched_by="dev.background_jobs")
+
+    # CODE_SOLVE — the verified coding agent (plan → DAG/tree search → execute →
+    # repair). Takes precedence over GENERATE_SCRIPT for requests that ask for
+    # verification/testing/robustness; plain "write a script" stays GENERATE_SCRIPT.
+    _CODE_SOLVE_RE = re.compile(
+        r"\b(?:code[\s_-]?solve"
+        r"|solve\s+(?:this\s+|the\s+)?(?:coding|programming|algorithm|leetcode|kata)"
+        r"|(?:implement|write|build|create|fix|code)\b[^.?!]*\b(?:and|with|then|that)\b[^.?!]*"
+        r"\b(?:tested|test|tests|verify|verified|unit\s+tests?|passes?\s+tests?|make\s+sure\s+it\s+(?:works|passes|runs))\b"
+        r"|verified\s+(?:code|solution|implementation)"
+        r"|use\s+the\s+coding\s+agent)\b", re.I)
+    if not _GENERATION_COMPLAINT and _CODE_SOLVE_RE.search(raw):
+        _cs_lang = "python"
+        _cs_lm = re.search(r"\b(bash|shell|javascript|js|typescript|ts|ruby|go|golang|lua)\b", low)
+        if _cs_lm:
+            _cs_lang = {"js": "javascript", "ts": "typescript", "golang": "go",
+                        "shell": "bash"}.get(_cs_lm.group(1), _cs_lm.group(1))
+        return _mk("CODE_SOLVE", {"description": raw, "language": _cs_lang}, 0.95,
+                   matched_by="dev.code_solve")
+
     if not _GENERATION_COMPLAINT and (any(p in low for p in code_triggers) or _CODE_SCRIPT_RE.search(raw)):
         return _mk("GENERATE_SCRIPT", {"description": raw, "use_gguf_only": True,
                    "forbid_ollama": True}, 0.95, matched_by="dev.generate_script")

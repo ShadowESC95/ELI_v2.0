@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import ast
 import json
+import os
 import re
 import shutil
 import sqlite3
@@ -10,7 +11,7 @@ import sys
 import threading
 import time
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 
 from eli.memory import get_agent_memory
 from eli.cognition.inference_broker import get_broker
@@ -28,6 +29,58 @@ def _safe_str(x: Any) -> str:
         return "" if x is None else str(x)
     except Exception:
         return ""
+
+
+def _dotted_module_for_path(p: Path) -> Optional[str]:
+    """Return the importable dotted module name for a project .py file, or None
+    if it isn't an importable module under the `eli` package."""
+    try:
+        rel = p.resolve().relative_to(PROJECT_ROOT)
+    except Exception:
+        return None
+    parts = list(rel.parts)
+    if not parts or parts[0] != "eli" or not parts[-1].endswith(".py"):
+        return None
+    parts[-1] = parts[-1][:-3]
+    if parts[-1] == "__init__":
+        parts = parts[:-1]
+    return ".".join(parts) if parts else None
+
+
+def _smoke_import_module(dotted: str, timeout: float = 30.0) -> Tuple[bool, str]:
+    """Import a module in an isolated subprocess; return (ok, detail).
+
+    `ok=False` on any import exception (including a bad/typo'd import the patch
+    introduced) or on timeout — a self-modifying engine treats "can't confirm it
+    loads within budget" as unsafe. Optional-dependency gaps are handled by the
+    *caller* via a differential check (import before vs after the patch), so this
+    deliberately does NOT special-case ModuleNotFoundError. Inability to launch
+    the subprocess at all (infra error) returns ok=True so we never falsely
+    revert on our own tooling failure.
+    """
+    code = (
+        "import importlib, sys\n"
+        f"m = {dotted!r}\n"
+        "try:\n"
+        "    importlib.import_module(m)\n"
+        "except Exception:\n"
+        "    import traceback; traceback.print_exc(); sys.exit(3)\n"
+    )
+    env = dict(os.environ)
+    env["ELI_PATCH_SMOKE"] = "1"
+    try:
+        proc = subprocess.run(
+            [sys.executable, "-c", code], cwd=str(PROJECT_ROOT),
+            capture_output=True, text=True, timeout=timeout, env=env,
+        )
+    except subprocess.TimeoutExpired:
+        return False, f"import of {dotted} exceeded {timeout:.0f}s"
+    except Exception as exc:
+        return True, f"smoke-test skipped (infra): {exc}"
+    if proc.returncode == 0:
+        return True, ""
+    tail = "\n".join((proc.stderr or "").splitlines()[-6:])
+    return False, tail
 
 
 def _ensure_columns(conn: sqlite3.Connection, table: str, columns: Dict[str, str]) -> None:
@@ -334,6 +387,21 @@ class SelfImprovementEngine:
             "- If no safe patch can be generated, return: {\"ok\": false, \"reason\": \"explanation\"}",
         ]
 
+        # Route self-upgrade through the coding engine's long-term bug memory:
+        # classify this failure and inject any prior fix for the same bug class
+        # so repeated bugs are repaired the way they were before. Guarded.
+        try:
+            from eli.coding.bug_memory import classify_bug, get_bug_memory
+            _dg = classify_bug(traceback_text=err, code=file_content)
+            _recalls = get_bug_memory().recall(_dg, limit=2)
+            if _recalls:
+                _known = "\n".join(f"- ({r.bug_class}, used {r.success_count}×) {r.fix_summary}" for r in _recalls)
+                prompt_parts.append(
+                    f"\nThis looks like a {_dg.bug_class.value} bug. Prior fixes that worked for "
+                    f"this class (reuse the approach where applicable):\n{_known}")
+        except Exception as _bm_e:
+            log.debug(f"[SELF-IMPROVE] bug-memory recall skipped: {_bm_e}")
+
         try:
             broker = get_broker()
             raw = broker.infer("\n".join(prompt_parts), max_tokens=600, temperature=0.05)
@@ -355,11 +423,14 @@ class SelfImprovementEngine:
         except Exception as exc:
             return {"ok": False, "error": f"LLM inference failed: {exc}"}
 
-    def apply_code_patch(self, patch: dict) -> dict:
+    def apply_code_patch(self, patch: dict, verify: bool = True) -> dict:
         """
         Apply a code patch: replace `old` with `new` in the target file.
-        Validates Python syntax before and after writing.
-        Creates a .eli_bak backup and reverts on any failure.
+        Validates Python syntax before and after writing, then (when ``verify``)
+        smoke-imports the patched module in an isolated subprocess so a patch
+        that compiles but breaks the module at import time is reverted instead of
+        kept. Creates a timestamped backup (plus a canonical `.eli_bak` for
+        revert_patch) and reverts on any failure.
         Returns {"ok": bool, "applied": bool, "message": str}
         """
         file_str = (patch.get("file") or "").strip()
@@ -407,9 +478,21 @@ class SelfImprovementEngine:
             return {"ok": False, "applied": False,
                     "message": f"Patch introduces syntax error at line {exc.lineno}: {exc.msg}"}
 
-        # Backup
+        # Pre-patch import baseline (differential verification). Only attribute a
+        # broken import to THIS patch if the module imported cleanly *before* it;
+        # this tolerates pre-existing missing optional deps without false reverts.
+        verify_dotted = _dotted_module_for_path(p) if verify else None
+        pre_import_ok = False
+        if verify_dotted:
+            pre_import_ok, _ = _smoke_import_module(verify_dotted)
+
+        # Backup — timestamped (keeps history so a second patch can't clobber the
+        # only undo) plus a canonical `.eli_bak` pointing at the latest, which
+        # revert_patch() restores from.
+        ts_backup = p.with_suffix(f".py.eli_bak.{int(time.time())}")
         backup = p.with_suffix(".py.eli_bak")
         try:
+            shutil.copy2(str(p), str(ts_backup))
             shutil.copy2(str(p), str(backup))
         except Exception as exc:
             return {"ok": False, "applied": False, "message": f"Could not create backup: {exc}"}
@@ -431,6 +514,20 @@ class SelfImprovementEngine:
                 shutil.copy2(str(backup), str(p))
             return {"ok": False, "applied": False,
                     "message": f"Compile error after patch (reverted): {exc}"}
+
+        # Behavioural verification — a patch can compile and still break the
+        # module at import time (unresolved name, broken top-level statement,
+        # bad import). For importable `eli` modules that imported cleanly before
+        # the patch, smoke-import the patched file in an isolated subprocess and
+        # revert if it no longer loads.
+        if verify_dotted and pre_import_ok:
+            imp_ok, imp_detail = _smoke_import_module(verify_dotted)
+            if not imp_ok:
+                if backup.exists():
+                    shutil.copy2(str(backup), str(p))
+                log.debug(f"[SELF-IMPROVE] Patch reverted — import verification failed: {imp_detail}")
+                return {"ok": False, "applied": False,
+                        "message": f"Patch broke module import (reverted): {imp_detail}"}
 
         # Log the applied patch
         try:
