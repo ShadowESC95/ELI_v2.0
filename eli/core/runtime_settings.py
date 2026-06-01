@@ -135,6 +135,7 @@ DEFAULTS: Dict[str, Any] = {
     "vision_max_image_px": 1280,
     "vision_max_tokens": 512,
     "vision_temperature": 0.2,
+    "vision_repeat_penalty": 1.3,
     "vision_default_prompt": "",
     # Ambient vision: periodic screen glances for rolling awareness. OFF by
     # default — with the hot-swap model each glance briefly unloads the text
