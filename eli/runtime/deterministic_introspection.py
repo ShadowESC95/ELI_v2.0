@@ -129,23 +129,26 @@ def _explain_last_response(engine: Any) -> str:
             or trace.get("bus_confidence")
             or trace.get("route_confidence")
         )
-    return json.dumps(
-        {
-            "surface": "last_response_evidence",
-            "last_response": {
-                "available": bool(response),
-                "chars": len(response) if response else 0,
-                "preview": response[:500] if response else "",
-            },
-            "trace": trace or {},
-            "agents": agents,
-            "confidence": confidence,
-            "confidence_note": "route/bus confidence is not the same thing as factual answer confidence",
-        },
-        ensure_ascii=False,
-        default=str,
-        indent=2,
-    )
+    # Human-readable summary, not a raw JSON trace dump into chat.
+    # (Fix: issue #4 raw-JSON dump — previously this returned json.dumps(...).)
+    _agent_list = agents
+    if isinstance(_agent_list, (list, tuple)):
+        _agent_str = ", ".join(str(a) for a in _agent_list) or "none"
+    elif _agent_list:
+        _agent_str = str(_agent_list)
+    else:
+        _agent_str = "none recorded"
+    _conf_str = (f"{confidence}" if confidence is not None else "not recorded")
+    lines = ["My last response:"]
+    if response:
+        _prev = response.strip().replace("\n", " ")
+        lines.append(f'- text: "{_prev[:240]}{"…" if len(_prev) > 240 else ""}"')
+    else:
+        lines.append("- text: (none recorded)")
+    lines.append(f"- agents that contributed: {_agent_str}")
+    lines.append(f"- route/bus confidence: {_conf_str} "
+                 "(note: this is routing/evidence confidence, not a guarantee the answer is factually correct)")
+    return "\n".join(lines)
 
 
 def _cognition_report(engine: Any) -> str:
