@@ -1600,6 +1600,50 @@ def _maybe_background_codegen(action, args):
         return None
 
 
+def _maybe_background_file_analysis(action, args):
+    """Heavy folder/PDF analysis (many PDFs → extract + summarise) is slow and
+    would block the UI. Run it on a background thread and return a job-id message
+    immediately. Returns None to run inline. The worker carries `_no_background`."""
+    try:
+        args = args or {}
+        if args.get("_no_background"):
+            return None
+        if os.environ.get("ELI_FILE_ANALYSIS_BACKGROUND", "1").strip().lower() in ("0", "false", "no", "off"):
+            return None
+        folder = str(args.get("folder") or args.get("path") or "").strip()
+        if not folder:
+            return None
+        from pathlib import Path as _PB
+        exp = os.path.expanduser(folder)
+        if not os.path.isdir(exp):
+            return None  # single file is fast enough inline
+        try:
+            _n_pdfs = sum(1 for _ in _PB(exp).rglob("*.pdf"))
+        except Exception:
+            _n_pdfs = 0
+        _threshold = int(os.environ.get("ELI_FILE_ANALYSIS_BG_THRESHOLD", "5") or 5)
+        # Background when there are enough PDFs to be slow, OR the user asked.
+        _asked = bool(args.get("_force_background"))
+        if _n_pdfs < _threshold and not _asked:
+            return None
+        from eli.runtime.background_tasks import get_background_tasks
+        bt = get_background_tasks()
+        _bg_args = dict(args)
+        _bg_args["_no_background"] = True
+        _bg_args["folder"] = folder
+        _label = os.path.basename(folder.rstrip("/")) or folder
+        jid = bt.submit(f"Analyse {_n_pdfs} PDFs: {_label}",
+                        lambda: execute("ANALYZE_PDF_FOLDER", _bg_args))
+        msg = (f"That folder has {_n_pdfs} PDFs — reading and summarising them properly takes time, "
+               f"so I've started it in the background as job #{jid}. Say “check job {jid}” for the "
+               f"summary when it's ready, or “background jobs” to see all running tasks.")
+        return {"ok": True, "action": "ANALYZE_PDF_FOLDER", "background": True, "job_id": jid,
+                "content": msg, "response": msg}
+    except Exception as _bg_e:
+        log.debug(f"[FILE_BG] background decision failed: {_bg_e}")
+        return None
+
+
 # Enumerated actions for capability_registry bootstrap
 SUPPORTED_ACTIONS = [
     'ADD_EVENT',
@@ -6745,6 +6789,10 @@ def _execute_impl(action: str, args: Optional[Dict[str, Any]] = None) -> Dict[st
             if not folder:
                 return {"ok": False, "action": a, "error": "Missing folder path",
                         "content": "Missing folder path", "response": "Missing folder path"}
+            # Heavy folders → run async and hand back a job id (don't block).
+            _bg = _maybe_background_file_analysis(a, args)
+            if _bg is not None:
+                return _bg
             recursive = bool(args.get("recursive", True))
             limit = args.get("limit")
             result = analyze_folder(folder, recursive=recursive, limit=int(limit) if limit else None)
@@ -7448,6 +7496,13 @@ def _execute_impl(action: str, args: Optional[Dict[str, Any]] = None) -> Dict[st
                 if r.get("solved"):
                     extra += f" (verified, score {r.get('score')})"
             msg = f"Job #{_jid} ({t['name']}) done in {t['elapsed_s']}s{extra}."
+            # Surface the actual result (e.g. the PDF-folder summary), not just a
+            # 'done' status — that's what the user is waiting for.
+            _job_content = ""
+            if isinstance(r, dict):
+                _job_content = str(r.get("content") or r.get("response") or "").strip()
+            if _job_content and _job_content not in (msg,):
+                msg += "\n\n" + _job_content
         elif t["status"] == "failed":
             msg = f"Job #{_jid} failed: {(t.get('error') or '')[:200]}"
         else:
