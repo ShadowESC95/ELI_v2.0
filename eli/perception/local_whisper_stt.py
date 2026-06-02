@@ -28,6 +28,18 @@ def _model_settings():
     compute_type = _env("ELI_WHISPER_COMPUTE_TYPE", "int8")
     local_only = _env("ELI_WHISPER_LOCAL_ONLY", "0").lower() in {"1", "true", "yes", "on"}
 
+    # Offline-by-default: when the Net toggle is off, force local-only so
+    # faster-whisper loads the CACHED model instead of validating against
+    # huggingface.co — which the network failsafe blocks (OfflineError on every
+    # transcription). The model lives in download_root; no network is needed.
+    if not local_only:
+        try:
+            from eli.core.config import network_allowed
+            if not network_allowed():
+                local_only = True
+        except Exception:
+            local_only = True
+
     # If CUDA has previously OOM'd this session, stay on CPU permanently
     if _CUDA_FAILED:
         device = "cpu"
