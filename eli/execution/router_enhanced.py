@@ -2718,14 +2718,27 @@ def route(text: str) -> Dict[str, Any]:
             re.search(r"\b(?:each|every|per[\s-]?|individual|one[\s-]by[\s-]one)\b", low)
             and re.search(r"(?:file|files|document|documents|doc|docs|pdf|pdfs|summar)", low)
         ) or bool(re.search(r"summar\w+\s+(?:for\s+|of\s+)?(?:each|every|all)\b", low))
-        # Bare doc-format reply ("a document", "docx, doc, pdf — i don't care")
-        # only counts when there is no explicit path in the message (an explicit
-        # path means a fresh file request, handled by the path routes below).
+        # Doc-output follow-up ("put it in a document", "as a docx", a bare
+        # "docx, doc, pdf — i don't care"). This must be REFERENTIAL to the
+        # analysis we just ran — NOT a fresh "create a document about <topic>",
+        # which is a generative request (GENERATE_DOCUMENT). Guards:
+        #   - no explicit path/topic ("about X", "on X", "explaining X"),
+        #   - either a back-reference (it/them/these/the summaries/each) OR a
+        #     short elliptical reply (a one-liner answering "which format?").
         _has_path_token = bool(re.search(r"[~/]", raw))
-        _doc_output_intent = (not _has_path_token) and bool(
-            re.search(r"\b(?:in|into|as|to)\s+a?\s*(?:document|docx|doc|word|pdf|file)\b", low)
-            or re.search(r"\b(?:make|create|generate|write|produce|put|save)\b.*\b(?:document|docx|doc|word|pdf)\b", low)
-            or re.search(r"\b(?:document|docx|word\s+doc)\b", low)
+        _fresh_topic = bool(re.search(r"\b(?:about|regarding|explaining|describing|on\s+the\s+(?:topic|subject)|on\s+\w)", low))
+        _referential = bool(re.search(r"\b(?:it|them|these|those|the\s+summar\w+|each|per[\s-]?file|the\s+results?|the\s+docs?|the\s+files?)\b", low))
+        _short_reply = len(low.split()) <= 7
+        _put_in_doc = bool(re.search(
+            r"\b(?:put|save|export|turn|compile|write)\b[^.]{0,30}\b(?:in|into|to|as)\s+a?\s*(?:document|docx|doc|word|pdf|file)\b", low))
+        _bare_fmt = bool(re.search(r"\b(?:document|docx|word\s+doc)\b", low))
+        # Two+ distinct explicit format tokens with no topic = a "which format?"
+        # reply (e.g. "docx, doc, pdf — i don't care"). "doc" is excluded here
+        # because it over-matches "document"/"doctor".
+        _multi_fmt = len(set(re.findall(r"\b(?:docx|pdf|word|markdown|md|odt|rtf)\b", low))) >= 2
+        _doc_output_intent = (
+            (not _has_path_token) and (not _fresh_topic)
+            and (_put_in_doc or _multi_fmt or (_bare_fmt and (_referential or _short_reply)))
         )
         if _per_file_intent or _doc_output_intent:
             _fmt = "docx"
