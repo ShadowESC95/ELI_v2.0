@@ -3563,16 +3563,24 @@ class Memory(metaclass=_MemoryMeta):
             rows = conn.execute(sql, params).fetchall()
             # Reverse to chronological order for the synthesiser
             rows = list(reversed(rows))
-            return [
-                {
+            out = []
+            for r in rows:
+                role, content = r[3], r[4]
+                # Defense-in-depth: never feed internal error/sentinel assistant
+                # turns (e.g. "GGUF unavailable…", "[ELI] Model not ready…") into
+                # recent-conversation context — the model parrots them as replies.
+                # Mirrors the storage gate so stale pre-gate rows are excluded too.
+                if (role == "assistant" and callable(_eli_should_store_conversation_turn)
+                        and not _eli_should_store_conversation_turn("assistant", content or "")):
+                    continue
+                out.append({
                     "timestamp": r[0],
                     "session_id": r[1],
                     "user_id": r[2],
-                    "role": r[3],
-                    "content": r[4],
-                }
-                for r in rows
-            ]
+                    "role": role,
+                    "content": content,
+                })
+            return out
         finally:
             conn.close()
 
