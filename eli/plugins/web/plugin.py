@@ -202,16 +202,36 @@ def _duckduckgo_html_search(query: str, max_results: int = 5) -> List[Dict[str, 
     with _open(req, timeout=10) as r:
         page = r.read().decode("utf-8", errors="replace")
 
+    def _strip(s: str) -> str:
+        return _html.unescape(_re.sub(r"<[^>]+>", "", s or "")).strip()
+
+    # Pull the snippet that follows each result title. DDG renders it as
+    # <a class="result__snippet">…</a> (sometimes a <div>). Without it the
+    # result is just a bare title/URL and the model has nothing to ground on —
+    # which is exactly how an "album release date" query came back with no real
+    # info and the model then guessed. Index snippet positions so each title is
+    # paired with the snippet that comes right after it.
+    _snips = [(mm.start(), _strip(mm.group(1)))
+              for mm in _re.finditer(
+                  r'<(?:a|div)[^>]+class="[^"]*result__snippet[^"]*"[^>]*>(.*?)</(?:a|div)>',
+                  page, _re.S)]
+
     out: List[Dict[str, Any]] = []
     for m in _re.finditer(r'<a[^>]+class="result__a"[^>]+href="([^"]+)"[^>]*>(.*?)</a>', page, _re.S):
         href = _html.unescape(m.group(1))
-        title = _html.unescape(_re.sub(r"<[^>]+>", "", m.group(2))).strip()
+        title = _strip(m.group(2))
         # DDG wraps real URLs in a redirect: //duckduckgo.com/l/?uddg=<encoded>
         _mu = _re.search(r"uddg=([^&]+)", href)
         if _mu:
             href = _up.unquote(_mu.group(1))
+        # First snippet appearing after this title in the page.
+        body = ""
+        for _pos, _txt in _snips:
+            if _pos > m.start() and _txt:
+                body = _txt
+                break
         if title and href:
-            out.append({"title": title, "href": href, "body": ""})
+            out.append({"title": title, "href": href, "body": body})
         if len(out) >= max_results:
             break
     return out
