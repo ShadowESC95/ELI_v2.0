@@ -181,19 +181,54 @@ class ProactiveDaemon:
                     continue
             return None
 
+        # Peak activity reflects WHEN THE USER ACTUALLY TALKS to ELI — only
+        # genuine user conversation turns, de-noised. Auto-generated memories,
+        # STT-echo fragments, [filtered]/repeated-char junk, and exact prompt
+        # replays (test sessions) must not skew the result.
         hour_counts: Dict[int, int] = {}
-        for ts, text, _ in rows:
-            _h = _real_hour(ts)
-            if _h is None:
-                continue
-            hour_counts[_h] = hour_counts.get(_h, 0) + 1
+        try:
+            _pc = sqlite3.connect(str(user_db))
+            _seen_norm: set = set()
+            for _uts, _utext in _pc.execute(
+                "SELECT timestamp, content FROM conversation_turns "
+                "WHERE role='user' ORDER BY timestamp DESC LIMIT 800"
+            ).fetchall():
+                _h = _real_hour(_uts)
+                if _h is None:
+                    continue
+                _t = str(_utext or "").strip()
+                _low = _t.lower()
+                if len(_t) < 4:
+                    continue
+                if "[filtered]" in _low or len(set(_t)) <= 2:
+                    continue  # filtered junk / "xxxx" / repeated-char noise
+                _norm = (_h, _low[:48])
+                if _norm in _seen_norm:
+                    continue  # dedupe identical prompts (test replays)
+                _seen_norm.add(_norm)
+                hour_counts[_h] = hour_counts.get(_h, 0) + 1
+            _pc.close()
+        except Exception:
+            pass
         if hour_counts and sum(hour_counts.values()) > 5:
-            peak = max(hour_counts, key=hour_counts.get)
-            patterns.append({
-                "type": "time_habit",
-                "peak_hour": peak,
-                "suggestion": f"Peak activity at {peak:02d}:00 ({hour_counts[peak]} interactions)"
-            })
+            _ranked = sorted(hour_counts.items(), key=lambda kv: kv[1], reverse=True)
+            peak, _peak_n = _ranked[0]
+            _second = _ranked[1][1] if len(_ranked) > 1 else 0
+            # Only claim a single peak when it's a clear winner; otherwise report
+            # the active window honestly instead of a misleading single hour.
+            if _peak_n >= max(3, int(_second * 1.3) + 1):
+                patterns.append({
+                    "type": "time_habit",
+                    "peak_hour": peak,
+                    "suggestion": f"Most active around {peak:02d}:00 ({_peak_n} distinct sessions)",
+                })
+            else:
+                _top = ", ".join(f"{h:02d}:00" for h, _ in _ranked[:3])
+                patterns.append({
+                    "type": "time_habit",
+                    "peak_hour": peak,
+                    "suggestion": f"Activity spread across {_top}",
+                })
 
         # ── Pattern 2: Meaningful topic focus (top 5 non-trivial words) ────
         word_counts: Dict[str, int] = {}
