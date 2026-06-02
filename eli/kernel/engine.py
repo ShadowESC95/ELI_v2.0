@@ -3140,6 +3140,30 @@ class CognitiveEngine:
             "cpu_only": bool(cpu_only),
         }
 
+    def _effective_n_ctx(self) -> int:
+        """Best-known context window (tokens). Live runtime params → snapshot →
+        conservative default. Used to budget the persona against evidence."""
+        try:
+            import eli.cognition.gguf_inference as _g
+            _lrp = getattr(_g, "_live_runtime_params", None) or {}
+            _c = int(_lrp.get("n_ctx", 0) or 0)
+            if _c > 0:
+                return _c
+        except Exception:
+            pass
+        try:
+            import json as _j
+            from eli.core.paths import project_root as _r
+            _p = _r() / "artifacts" / "runtime_snapshot.json"
+            if _p.exists():
+                _s = _j.loads(_p.read_text(encoding="utf-8"))
+                _c = int((_s.get("effective") or {}).get("n_ctx") or _s.get("n_ctx") or 0)
+                if _c > 0:
+                    return _c
+        except Exception:
+            pass
+        return 18432
+
     def _compact_persona(self) -> str:
         persona = _load_persona_text().strip()
         # Carry the full persona voice into compact/quick mode too. The earlier
@@ -4534,6 +4558,32 @@ Answer:"""
             reasoning_mode)
         # Reasoning mode is a private execution strategy. Do not overwrite the
         # safe private instruction with visible self-reporting text.
+
+        # Budget-aware persona: on grounded/broker turns the system prompt also
+        # carries the evidence (memory_context), profile, rules and brief. A full
+        # ~12k persona then overflows n_ctx and the EVIDENCE gets truncated out —
+        # exactly what produced the 'truncated system→…' lines. Trim the persona
+        # (keeping its head: VOICE + HARD CONSTRAINTS) to whatever room is left, so
+        # persona yields to evidence. Quick/chat turns carry little context, so the
+        # full persona is retained untouched.
+        try:
+            _nctx = self._effective_n_ctx()
+            # Reserve for the model's reply matching the grounded/broker contract
+            # (observed up to ~6.5k tokens) so a large output never forces the
+            # prompt to be truncated. 3.0 chars/token (conservative).
+            _target_chars = max(6000, int((_nctx - 6600) * 3.0))
+            # Non-persona content already in the system prompt: evidence
+            # (memory_context), brief, user input, reasoning instruction, plus the
+            # base_rules + user-profile block + scaffolding (~12k observed).
+            _other_chars = (
+                len(memory_context or "") + len(situation_brief or "")
+                + len(user_input or "") + len(reasoning_instruction or "") + 12000
+            )
+            _persona_budget = max(2000, _target_chars - _other_chars)
+            if len(persona) > _persona_budget:
+                persona = persona[:_persona_budget].rstrip() + "\n[persona trimmed to fit evidence]"
+        except Exception:
+            pass
 
         # Load user profile from user_profile.json — separate from ELI's persona.
         # Injected prominently so quantized models see it near the top.
