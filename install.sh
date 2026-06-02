@@ -96,13 +96,64 @@ echo "[..] Installing remaining dependencies..."
 # Make launchers executable
 chmod +x "$SCRIPT_DIR/eli.sh" 2>/dev/null || true
 
+# ── Seed a clean local config from the template (never overwrite) ─────────────
+# A fresh clone has no config/settings.json (it is gitignored and per-user).
+# Seed one from the clean template so first launch is offline-by-default with
+# the setup wizard enabled. Existing config is left untouched.
+SETTINGS="$SCRIPT_DIR/config/settings.json"
+TEMPLATE="$SCRIPT_DIR/config/templates/settings.template.json"
+if [ ! -f "$SETTINGS" ] && [ -f "$TEMPLATE" ]; then
+    mkdir -p "$SCRIPT_DIR/config"
+    cp "$TEMPLATE" "$SETTINGS"
+    echo "[OK] Seeded clean config: config/settings.json (offline, wizard enabled)"
+elif [ -f "$SETTINGS" ]; then
+    echo "[OK] Existing config/settings.json kept."
+fi
+
+# Models dir exists so first-boot can drop/download a model into it.
+mkdir -p "$SCRIPT_DIR/models"
+
+# ── Verify the install actually imports and the entry point resolves ─────────
+echo "[..] Verifying installation..."
+VERIFY_OK=1
+if ! "$PYTHON_VENV" -c "import eli" 2>/dev/null; then
+    echo "[ERROR] 'import eli' failed in the venv — the package did not install."
+    VERIFY_OK=0
+fi
+if ! "$PYTHON_VENV" -c "import eli.gui.app" 2>/dev/null; then
+    echo "[WARN] GUI entry (eli.gui.app) not importable — GUI extras may be missing."
+fi
+if [ -x "$VENV/bin/eli" ]; then
+    echo "[OK] 'eli' command installed at $VENV/bin/eli"
+else
+    echo "[WARN] 'eli' console script not found on the venv PATH."
+fi
+
 echo ""
 echo "=============================="
-echo "  Installation complete!"
+if [ "$VERIFY_OK" -eq 1 ]; then
+    echo "  Installation complete!"
+else
+    echo "  Installation finished WITH ERRORS — see above."
+fi
 echo "=============================="
 echo ""
-echo "Launch ELI with:"
+echo "Launch ELI (either works):"
 echo "  ./eli.sh"
+echo "  source .venv/bin/activate && eli"
+echo ""
+echo "NOTE: run ELI via the 'eli' command or ./eli.sh — do NOT run the GUI"
+echo "      .py file directly with system python (that gives"
+echo "      'ModuleNotFoundError: No module named eli' because the package"
+echo "      lives in this project's .venv)."
+echo ""
+echo "First launch shows a setup wizard. With no model yet, you can download"
+echo "one from the wizard, or fetch from the terminal:"
+echo "  source .venv/bin/activate"
+echo "  python -m eli.core.model_download --list      # see options"
+echo "  python -m eli.core.model_download qwen2.5-7b  # ~4.7 GB (recommended)"
+echo "  python -m eli.core.model_download --auto      # pick by detected VRAM"
 echo ""
 echo "Models location: $SCRIPT_DIR/models/"
+echo "ELI stays offline by default; downloads are a deliberate one-time action."
 echo ""
