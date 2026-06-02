@@ -6,6 +6,13 @@ grounding_confidence, response_mode, latency) plus answer text. 100% local,
 offline by default, no cloud judge, no required extra deps (PyYAML only, already
 a project dep).
 
+> Two tools share one driver: **`run_eval.py`** (behavioural PASS/FAIL board) and
+> **`profile_runtime.py`** (runtime-graph profiler — replays the stored
+> conversations + cases under a `sys.settrace` line tracer to report exact
+> line-% hit, action coverage, which of the 14 agents fire, and a hot/cold module
+> heatmap with a ranked cold-file cut-list). Full run commands for both are in
+> `tools/eval/README.md`.
+
 ---
 
 ## 1. Directory tree
@@ -19,6 +26,7 @@ tools/
     ├── assertions.py               # deterministic checks over a driver result
     ├── cases.yaml                  # the test cases (data, not code)
     ├── run_eval.py                 # pure-Python green/red board (canonical)
+    ├── profile_runtime.py          # runtime-graph profiler (what executes / dead code)
     ├── README.md                   # quickstart
     └── promptfoo/                  # optional Node UI front-end
         ├── eli_provider.py         # thin adapter → eli_driver
