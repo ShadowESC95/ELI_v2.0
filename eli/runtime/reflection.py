@@ -44,20 +44,38 @@ def reflect_on_period(hours: int = 24) -> Dict[str, Any]:
         user_msgs = [c for c in recent if c.get("role") == "user"]
         if user_msgs:
             insights.append(f"Conversation volume: {len(user_msgs)} user messages in last {hours}h")
-            # Topic detection from user messages
+            # Topic detection from user messages. Aggressive stopword filtering +
+            # a minimum frequency so the report shows real subjects, not
+            # conversational filler ("about", "just", "know", "going", etc.).
             all_words: Dict[str, int] = {}
-            _stopwords = {"i", "me", "my", "the", "a", "an", "is", "was", "it", "to", "do",
-                          "you", "your", "and", "or", "of", "in", "on", "for", "what", "how",
-                          "can", "that", "this", "with", "not", "are", "have", "has", "be"}
+            _stopwords = {
+                "i", "me", "my", "the", "a", "an", "is", "was", "it", "to", "do",
+                "you", "your", "and", "or", "of", "in", "on", "for", "what", "how",
+                "can", "that", "this", "with", "not", "are", "have", "has", "be",
+                # high-frequency conversational filler — never a meaningful topic
+                "about", "just", "know", "like", "really", "there", "here", "they",
+                "them", "then", "than", "some", "any", "get", "got", "one", "out",
+                "now", "but", "so", "we", "us", "our", "dont", "cant", "yeah", "okay",
+                "good", "morning", "hey", "eli", "thanks", "thank", "please", "going",
+                "fine", "been", "were", "will", "would", "could", "should", "also",
+                "very", "much", "more", "most", "into", "over", "from", "when", "who",
+                "why", "which", "because", "while", "said", "say", "says", "tell",
+                "told", "ask", "asked", "seeing", "want", "need", "make", "made",
+                "using", "use", "used", "lately", "stuff", "things", "thing", "your",
+                "yours", "still", "back", "thats", "whats", "gonna", "wanna", "let",
+            }
             for msg in user_msgs:
                 words = msg.get("content", "").lower().split()
                 for w in words:
                     clean = "".join(c for c in w if c.isalnum())
                     if len(clean) >= 4 and clean not in _stopwords:
                         all_words[clean] = all_words.get(clean, 0) + 1
-            top_topics = sorted(all_words.items(), key=lambda x: x[1], reverse=True)[:5]
+            # Require a topic to appear at least twice to count as a "topic".
+            top_topics = [(w, c) for w, c in
+                          sorted(all_words.items(), key=lambda x: x[1], reverse=True)
+                          if c >= 2][:5]
             if top_topics:
-                insights.append(f"Top topics: {', '.join(w for w, _ in top_topics)}")
+                insights.append("Top topics: " + ", ".join(w for w, _ in top_topics))
     except Exception:
         pass
 
@@ -73,15 +91,33 @@ def reflect_on_period(hours: int = 24) -> Dict[str, Any]:
     try:
         from eli.runtime.evidence_ledger import artifact_snapshot, recent_events, repeated_event_signals
 
-        repeated = repeated_event_signals(limit=5, days=max(1, int((hours + 23) // 24)))
+        repeated = repeated_event_signals(limit=12, days=max(1, int((hours + 23) // 24)))
         if repeated:
+            # Internal/meta actions are not meaningful "patterns" for a human
+            # report — they're just the assistant's own plumbing. Drop them, and
+            # dedup by label so the same action isn't listed twice.
+            _NOISE_ACTIONS = {
+                "CHAT", "NOOP", "CHECK_JOB", "BACKGROUND_JOBS", "HABIT_RUN",
+                "MORNING_REPORT", "DATE", "TIME", "SELF_REPORT", "RUNTIME_AUDIT",
+                "GUI_RUNTIME_AUDIT", "MEMORY_STATUS", "MEMORY_RECALL", "SELF_ANALYZE",
+            }
             parts = []
-            for item in repeated[:5]:
-                label = item.get("action") or item.get("event_type") or "event"
+            seen = set()
+            for item in repeated:
+                label = str(item.get("action") or item.get("event_type") or "event").strip()
+                if label.upper() in _NOISE_ACTIONS:
+                    continue
                 subject = item.get("subject") or ""
+                key = (label.lower(), str(subject).lower())
+                if key in seen:
+                    continue
+                seen.add(key)
                 suffix = f" on {subject}" if subject else ""
                 parts.append(f"{label}{suffix} ({item.get('count')}x)")
-            insights.append("Repeated runtime patterns: " + ", ".join(parts))
+                if len(parts) >= 5:
+                    break
+            if parts:
+                insights.append("Repeated actions: " + ", ".join(parts))
 
         challenges = recent_events(limit=8, event_type="user_challenge")
         if challenges:
