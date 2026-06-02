@@ -2706,6 +2706,36 @@ def route(text: str) -> Dict[str, Any]:
                 return _mk("ANALYZE_PDF", {"path": _pdf_p, "instruction": raw},
                            0.95, matched_by="analyze.path_first_pdf")
 
+    # Per-file / "put it in a document" follow-up against the last analysed
+    # folder. "i want the summary for each file", "summarise each document",
+    # "a docx, doc, pdf — i don't care" used to fall into CHAT (then the model
+    # confabulated fake filenames and a document it never wrote). Route them to
+    # ANALYZE_PDF_FOLDER's per-file mode, which summarises every doc and writes a
+    # real .docx. Only fires when we actually have a folder in context.
+    global _last_used_path
+    if _last_used_path and os.path.isdir(os.path.expanduser(str(_last_used_path))):
+        _per_file_intent = bool(
+            re.search(r"\b(?:each|every|per[\s-]?|individual|one[\s-]by[\s-]one)\b", low)
+            and re.search(r"(?:file|files|document|documents|doc|docs|pdf|pdfs|summar)", low)
+        ) or bool(re.search(r"summar\w+\s+(?:for\s+|of\s+)?(?:each|every|all)\b", low))
+        # Bare doc-format reply ("a document", "docx, doc, pdf — i don't care")
+        # only counts when there is no explicit path in the message (an explicit
+        # path means a fresh file request, handled by the path routes below).
+        _has_path_token = bool(re.search(r"[~/]", raw))
+        _doc_output_intent = (not _has_path_token) and bool(
+            re.search(r"\b(?:in|into|as|to)\s+a?\s*(?:document|docx|doc|word|pdf|file)\b", low)
+            or re.search(r"\b(?:make|create|generate|write|produce|put|save)\b.*\b(?:document|docx|doc|word|pdf)\b", low)
+            or re.search(r"\b(?:document|docx|word\s+doc)\b", low)
+        )
+        if _per_file_intent or _doc_output_intent:
+            _fmt = "docx"
+            if re.search(r"\bmark ?down\b|\bmd\b", low):
+                _fmt = "md"
+            return _mk("ANALYZE_PDF_FOLDER",
+                       {"folder": _last_used_path, "recursive": True,
+                        "per_file": True, "_force_background": True, "format": _fmt},
+                       0.9, matched_by="analyze.pdf_per_file_followup")
+
     # summarize / analyse / read / look at: conversation vs file/path
     # Matches both:
     #   "summarise /path"  "analyse and read /path"  "read /path"
@@ -2756,7 +2786,6 @@ def route(text: str) -> Dict[str, Any]:
         _path_exists = os.path.exists(expanded)
         if (_has_path_prefix or _path_exists or _has_file_ext):
             abs_path = os.path.abspath(expanded)
-            global _last_used_path
             if _path_exists:
                 _last_used_path = abs_path
             # Route PDFs → ANALYZE_PDF, CSVs → ANALYZE_CSV, everything else →

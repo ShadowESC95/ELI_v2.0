@@ -6806,6 +6806,91 @@ def _execute_impl(action: str, args: Optional[Dict[str, Any]] = None) -> Dict[st
                 return {"ok": True, "action": a, "content": msg, "response": msg,
                         "count": 0, "stored": 0, "errors": errors}
 
+            # ── Per-file mode ───────────────────────────────────────────────
+            # "summarise each file / put it in a document": summarise EVERY doc
+            # individually, assemble a structured document, and write a real
+            # .docx (md fallback). Returned inline too, so `check job N` surfaces
+            # the full per-file breakdown — not a single folder-level blurb.
+            if args.get("per_file") or args.get("each_file"):
+                from eli.cognition import gguf_inference as _gi
+                _model_ok = False
+                try:
+                    _model_ok = _gi.load_model() is not None
+                except Exception:
+                    _model_ok = False
+                _doc_blocks: list = []
+                _per_file_done = 0
+                for r in results:
+                    _doc = r.get("doc", {}) or {}
+                    _name = _ospdf.path.basename(str(_doc.get("path", ""))) or "document.pdf"
+                    _pages = _doc.get("pages", "?")
+                    # Use the richest text we extracted: chunks joined, capped.
+                    _chunks = r.get("chunks") or []
+                    _body = ("\n\n".join(_chunks) if _chunks else (r.get("preview") or "")).strip()
+                    _doc_summary = ""
+                    if _body and _model_ok:
+                        try:
+                            _doc_summary = (_gi.chat_completion(
+                                f"Summarise this single research document titled “{_name}”. "
+                                f"Cover: (1) the central topic/claim, (2) the methods/formalism used, "
+                                f"(3) key findings or conclusions, and (4) any notable equations or "
+                                f"results named in the text. Be specific and grounded ONLY in the text "
+                                f"below — do not invent results or citations.\n\n{_body[:12000]}",
+                                system="You are a precise technical analyst summarising one research PDF.",
+                                max_tokens=520, temperature=0.3) or "").strip()
+                        except Exception as _pf_err:
+                            log.debug(f"[ANALYZE_PDF_FOLDER] per-file summary failed for {_name}: {_pf_err}")
+                            _doc_summary = ""
+                    if not _doc_summary:
+                        _prev = (r.get("preview") or "").strip()
+                        _doc_summary = (f"(No model summary available — extracted opening text:)\n\n{_prev[:800]}"
+                                        if _prev else "(No readable text extracted from this document.)")
+                    else:
+                        _per_file_done += 1
+                    _doc_blocks.append(f"## {_name}\n_({_pages} pages)_\n\n{_doc_summary}")
+
+                _doc_title = f"Per-file summaries — {_fname}"
+                _doc_md = (f"# {_doc_title}\n\n"
+                           f"{count} document(s) summarised individually.\n\n"
+                           + "\n\n".join(_doc_blocks))
+                if errors:
+                    _doc_md += f"\n\n## Unreadable files\n\n{len(errors)} file(s) could not be read."
+
+                _fmt = str(args.get("format") or "docx").strip().lower().lstrip(".")
+                if _fmt not in ("docx", "md", "txt"):
+                    _fmt = "docx"
+                try:
+                    _doc_path = _save_artifact(_doc_md, "documents",
+                                               f"{_fname}_per_file_summaries", fmt=_fmt)
+                except Exception as _save_err:
+                    log.debug(f"[ANALYZE_PDF_FOLDER] doc save failed ({_save_err}); md fallback")
+                    _doc_path = _save_artifact(_doc_md, "documents",
+                                               f"{_fname}_per_file_summaries", fmt="md")
+
+                # Persist each doc to memory as well (same as the folder path).
+                try:
+                    from eli.memory import resolve_db_paths as _rdb
+                    _db = _rdb().user_db
+                    if _db:
+                        for r in results:
+                            try:
+                                store_analysis_to_memory(_db, PDFAnalysis(
+                                    doc=PDFDoc(**(r.get("doc") or {})),
+                                    preview=r.get("preview", ""),
+                                    chunks=r.get("chunks", []) or [],
+                                    warnings=r.get("warnings", []) or []))
+                            except Exception:
+                                pass
+                except Exception:
+                    pass
+
+                _header = (f"Summarised {count} document(s) in “{_fname}” individually "
+                           f"({_per_file_done} via model). Saved to:\n{_doc_path}\n")
+                msg = _header + "\n" + "\n\n".join(_doc_blocks)
+                return {"ok": True, "action": a, "content": msg, "response": msg,
+                        "count": count, "per_file": True, "document_path": _doc_path,
+                        "errors": errors}
+
             # Per-document index + aggregated opening-pages text for a REAL summary.
             index_lines: list = []
             preview_parts: list = []
