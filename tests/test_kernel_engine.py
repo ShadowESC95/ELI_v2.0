@@ -106,12 +106,12 @@ def test_compact_persona_not_empty(engine):
     assert len(result.strip()) > 0
 
 def test_compact_persona_limit_chars(engine):
-    # Limit raised from 2200 to 3800 to include wit/chemistry/sarcasm contract
-    # sections that appear after the 2200-char mark in persona.txt.
-    # The previous 2200 limit silently dropped "Do not become bland, HR-coded"
-    # and the full smalltalk contract, causing flat responses on casual inputs.
+    # Limit raised 2200 -> 3800 -> 12000 so the FULL persona voice (personality
+    # ownership, EliWorld, banned-disclaimer sections) reaches the model in
+    # compact/quick mode instead of being clipped. The 12000 cap is now a pure
+    # safety valve against runaway growth; it still fits the context window.
     result = engine._compact_persona()
-    assert len(result) <= 3800 + 100
+    assert len(result) <= 12000 + 100
 
 
 # ── _normalize_assistant_text ─────────────────────────────────────────────
