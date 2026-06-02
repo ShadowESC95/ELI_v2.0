@@ -592,22 +592,26 @@ def _extract_int(raw: str, default: int, min_value: int,
 
 
 def _canonical_media_command(low: str) -> Optional[str]:
+    # Whole-word matching only. Substring matching fired media commands from
+    # ordinary prose — e.g. "prev" inside "prevent", "mute" inside "commuter".
+    # (Word boundaries don't save "next" in "the next log lands" — that's a real
+    # word — so callers must ALSO gate on command shape/length, see below.)
     # Specific ordering matters
-    if "unmute" in low:
+    if re.search(r"\bunmute\b", low):
         return "unmute"
-    if "mute" in low:
+    if re.search(r"\bmute\b", low):
         return "mute"
-    if "pause" in low or re.search(r"\bstop\b", low):
+    if re.search(r"\b(?:pause|stop)\b", low):
         return "pause"  # generic media stop often means pause
-    if "resume" in low or re.search(r"\bplay\b", low):
+    if re.search(r"\b(?:resume|play)\b", low):
         return "play"
-    if "next" in low or "skip" in low:
+    if re.search(r"\b(?:next|skip)\b", low):
         return "next"
-    if "previous" in low or "prev" in low or re.search(r"\bback\b", low):
+    if re.search(r"\b(?:previous|prev|back)\b", low):
         return "previous"
-    if "shuffle" in low:
+    if re.search(r"\bshuffle\b", low):
         return "shuffle"
-    if "repeat" in low:
+    if re.search(r"\b(?:repeat|loop)\b", low):
         return "repeat"
     return None
 
@@ -2089,9 +2093,14 @@ def route(text: str) -> Dict[str, Any]:
                    matched_by="media.prev_on_service",
                    entities={"target": target, "command": "previous"})
 
-    # Browser/video media
-    if any(k in low for k in ["netflix", "youtube", "browser", "tab",
-           "video", "prime", "disney", "twitch", "hulu", "bro", "brows"]):
+    # Browser/video media. Whole-word match only — "tab" as a substring fired
+    # on "me·tab·olise", which (with "next" from "the next log lands") routed a
+    # whole pasted paragraph to a browser next-track command. The "bro"/"brows"
+    # fragments were removed for the same reason. Also gate on command shape:
+    # a real media control is terse, so anything longer than a short phrase is
+    # not a bare "next/pause/play", no matter what words it contains.
+    if (len(low.split()) <= 9
+            and re.search(r"\b(?:netflix|youtube|browser|tab|video|prime|disney|twitch|hulu)\b", low)):
         cmd = _canonical_media_command(low)
         if cmd:
             if "forward" in low:
