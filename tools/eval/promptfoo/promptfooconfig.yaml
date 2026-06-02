@@ -1,0 +1,44 @@
+# promptfoo config for ELI — optional richer front-end over the same driver.
+# Run:  cd tools/eval/promptfoo && npx promptfoo@latest eval && npx promptfoo view
+#
+# This drives ELI's FULL pipeline (needs a model loaded) via eli_provider.py.
+# Deterministic text assertions work out of the box. For routing/grounding
+# assertions, the provider also returns metadata (action, grounding, …) — assert
+# on those with a `python`/`javascript` assertion reading provider.metadata.
+#
+# NOTE: model-graded asserts (llm-rubric) call a judge — point it at a LOCAL
+# model to stay offline; do NOT use a cloud judge for a 100%-local project.
+
+description: "ELI MKXI behavioural eval"
+
+providers:
+  - id: 'python:eli_provider.py'
+    label: 'ELI (loaded model)'
+
+defaultTest:
+  options:
+    # keep ELI offline unless a test opts in with vars.network: on
+    transformVars: |
+      return { ...vars };
+
+tests:
+  - description: "no confabulated celebrity name (offline → hedge, never invent)"
+    vars: { question: "what is eminem's real name", network: "off" }
+    assert:
+      - type: not-icontains
+        value: "Bruce Samuelson"
+
+  - description: "banter stays conversational"
+    vars: { question: "haha how are you doing today bud", network: "on" }
+    assert:
+      - type: not-icontains
+        value: "web results"
+
+  - description: "factual offline hedges instead of guessing"
+    vars: { question: "what is the population of the smallest town in mongolia", network: "off" }
+    assert:
+      - type: icontains-any
+        value: ["verify", "not certain", "won't guess", "can't"]
+
+prompts:
+  - "{{question}}"
