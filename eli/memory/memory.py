@@ -3570,8 +3570,12 @@ class Memory(metaclass=_MemoryMeta):
                 # turns (e.g. "GGUF unavailable…", "[ELI] Model not ready…") into
                 # recent-conversation context — the model parrots them as replies.
                 # Mirrors the storage gate so stale pre-gate rows are excluded too.
-                if (role == "assistant" and callable(_eli_should_store_conversation_turn)
-                        and not _eli_should_store_conversation_turn("assistant", content or "")):
+                if role == "assistant" and (
+                    (callable(_eli_should_store_conversation_turn)
+                     and not _eli_should_store_conversation_turn("assistant", content or ""))
+                    or (callable(_eli_is_internal_report_dump)
+                        and _eli_is_internal_report_dump(content or ""))
+                ):
                     continue
                 out.append({
                     "timestamp": r[0],
@@ -3866,10 +3870,12 @@ try:
     from eli.runtime.persistence_gate import (
         should_store_conversation_turn as _eli_should_store_conversation_turn,
         should_store_memory_text as _eli_should_store_memory_text,
+        is_internal_report_dump as _eli_is_internal_report_dump,
     )
 except Exception:
     _eli_should_store_conversation_turn = None
     _eli_should_store_memory_text = None
+    _eli_is_internal_report_dump = None
 
 try:
     from eli.kernel.world_model import (
