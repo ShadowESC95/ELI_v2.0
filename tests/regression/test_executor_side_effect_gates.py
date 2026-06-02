@@ -6,24 +6,33 @@ def _executor():
     return importlib.import_module("eli.execution.executor_enhanced")
 
 
-def test_web_search_uses_mocked_browser_not_real_browser(monkeypatch):
+def test_web_search_uses_mocked_fetch_not_real_network(monkeypatch):
+    # WEB_SEARCH no longer opens a browser; it does a headless text fetch and
+    # returns grounded snippets. Verify it (a) honours the offline gate by being
+    # given network, and (b) uses the mocked fetch — never a real network call.
     ex = _executor()
 
-    opened = {}
+    # Pass the offline-by-default gate.
+    import eli.core.config as cfg
+    monkeypatch.setattr(cfg, "network_allowed", lambda: True)
 
-    def fake_open_browser(url):
-        opened["url"] = url
-        return True
+    captured = {}
 
-    # Avoid stored-news short-circuit if module exists.
-    monkeypatch.setattr(ex, "open_browser", fake_open_browser, raising=False)
+    def fake_results(query, max_results=5):
+        captured["query"] = query
+        return [{"title": "Entropy field simulation",
+                 "href": "https://example.org/entropy",
+                 "body": "A grounded snippet."}]
+
+    import eli.plugins.web.plugin as webplugin
+    monkeypatch.setattr(webplugin, "_web_search_results", fake_results, raising=False)
 
     result = ex.execute("WEB_SEARCH", {"query": "entropy field simulation"})
 
     assert isinstance(result, dict)
     assert result.get("ok") is True
-    assert "duckduckgo.com" in opened["url"]
-    assert "entropy+field+simulation" in opened["url"]
+    assert result.get("web_grounded") is True
+    assert captured["query"] == "entropy field simulation"
 
 
 def test_speak_uses_mocked_tts_not_real_audio(monkeypatch):
