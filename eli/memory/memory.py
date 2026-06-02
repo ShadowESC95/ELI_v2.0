@@ -3266,9 +3266,27 @@ class Memory(metaclass=_MemoryMeta):
             conn.close()
 
 
+    # Transient / user-input / environment outcomes — NOT actionable code bugs.
+    # The failures table feeds self-improvement + the proactive "recurring errors"
+    # surface, which exist to find CODE to fix. Recording "you asked for a job/file/
+    # app that doesn't exist", "network is off", or STT garble made noise like
+    # "No background job #999999 (x21)" dominate that surface forever.
+    _NON_ACTIONABLE_FAILURE_PATTERNS = (
+        "no background job #", "no media player", "no player could handle",
+        "no players found", "network access is off", "can't search the web",
+        "cannot search the web", "path not found", "file not found",
+        "no location match", "missing_location", "missing path", "missing folder",
+        "is not installed", "could not open", "could not close",
+    )
+
     def log_failure(self, user_input, error="", confidence=0.0, context=None, details=None, source="manual", **kwargs):
         user_input = str(user_input or "").strip()
         error_text = str(error or kwargs.get("error") or "").strip()
+        # Skip non-actionable transient/user errors so they don't pollute the
+        # self-improve / proactive failure surface.
+        _low_err = error_text.lower()
+        if any(p in _low_err for p in self._NON_ACTIONABLE_FAILURE_PATTERNS):
+            return None
         ctx = context if context is not None else kwargs.get("context")
         ctx_text = _jsonify_contract_value(ctx)
         details_text = _jsonify_contract_value(details if details not in (None, "") else ctx)
