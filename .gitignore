@@ -120,3 +120,6 @@ eli_audit_uploads/
 # ── User runtime data (notes ELI writes) ─────────────────────────────────────
 eli_notebook/
 .pytest_artifacts/
+
+# ── Per-user runtime config (never ship personal settings) ───────────────────
+config/settings.json
