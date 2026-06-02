@@ -6283,9 +6283,15 @@ def _execute_impl(action: str, args: Optional[Dict[str, Any]] = None) -> Dict[st
     if a == "MORNING_REPORT":
         try:
             from eli.runtime.reflection import run_reflection
+            from datetime import datetime as _dt
             result = run_reflection(hours=24)
             insights = result.get("insights", [])
-            msg = "Morning Report:\n" + "\n".join(f"  - {i}" for i in insights) if insights else "Morning Report: No significant activity."
+            _stamp = _dt.now().strftime("%A %d %B %Y, %H:%M")
+            if insights:
+                msg = (f"Morning report — {_stamp} (activity over the last 24h):\n"
+                       + "\n".join(f"  • {i}" for i in insights))
+            else:
+                msg = f"Morning report — {_stamp}: no notable activity in the last 24h."
             return {"ok": True, "action": a, "content": msg, "response": msg}
         except Exception as e:
             return {"ok": False, "action": a, "error": str(e), "content": str(e), "response": str(e)}
