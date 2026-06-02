@@ -9701,6 +9701,10 @@ Answer:"""
                     _SELF_CONTAINED_LLM_ACTIONS = {
                         "SUMMARIZE_FILE", "CONVERT_DOCUMENT", "GENERATE_DOCUMENT",
                         "DOC_GENERATE", "CREATE_DOCUMENT", "ANALYZE_PDF", "ANALYZE_CSV",
+                        # MORNING_REPORT is a complete structured report — return it
+                        # verbatim. Re-synthesising it lost half the content and the
+                        # large system prompt truncated the evidence out of n_ctx.
+                        "MORNING_REPORT",
                     }
                     if _action_content and str(action or "").upper() in _SELF_CONTAINED_LLM_ACTIONS:
                         _self_text = _action_content.strip()
