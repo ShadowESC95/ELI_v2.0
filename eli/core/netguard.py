@@ -28,8 +28,10 @@ defence-in-depth — forgetting the helper fails closed rather than leaking.
 
 from __future__ import annotations
 
+import contextlib
 import json
 import socket
+import threading
 import urllib.request
 from typing import Any, Dict, Optional
 
@@ -38,7 +40,43 @@ class OfflineError(RuntimeError):
     """Raised when a network operation is attempted while ELI is offline."""
 
 
+# In-process, scoped override. A *deliberate, user-initiated* networked task
+# (e.g. downloading a model the user picked in the first-boot wizard) can open a
+# narrow window where network is permitted, WITHOUT changing the persisted
+# offline-by-default policy. Everything still routes through this module —
+# guarded_urlopen and the socket guard both consult _net_allowed() — so the
+# download is gated, just temporarily allowed. The window closes automatically.
+_allow_lock = threading.Lock()
+_allow_depth = 0          # reentrant: nested allow_network() blocks
+_allow_reason = ""        # last reason, for diagnostics
+
+
+def network_override_active() -> bool:
+    return _allow_depth > 0
+
+
+@contextlib.contextmanager
+def allow_network(reason: str = "user-initiated network task"):
+    """Temporarily permit outbound network for an explicit, user-initiated task.
+
+    Scoped and reentrant: offline-by-default is restored when the block exits,
+    even on exception. This does NOT touch the persisted network_enabled setting.
+    """
+    global _allow_depth, _allow_reason
+    with _allow_lock:
+        _allow_depth += 1
+        _allow_reason = str(reason or "")
+    try:
+        yield
+    finally:
+        with _allow_lock:
+            _allow_depth = max(0, _allow_depth - 1)
+
+
 def _net_allowed() -> bool:
+    # A scoped allow_network() window wins — it is an explicit user action.
+    if _allow_depth > 0:
+        return True
     try:
         from eli.core.config import network_allowed
         return bool(network_allowed())
