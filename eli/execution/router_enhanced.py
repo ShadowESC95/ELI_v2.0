@@ -2720,9 +2720,23 @@ def route(text: str) -> Dict[str, Any]:
         target = m.group(1).strip()
         # If target contains an absolute path, extract from the first / or ~/
         # This handles typos, extra verbs, and multi-word prefixes cleanly.
-        _path_hit = re.search(r'(?:^|[\s,])([~/][^\s]+)', target)
+        _path_hit = re.search(r'[~/].*$', target)
         if _path_hit:
-            target = _path_hit.group(1).strip()
+            # Capture the FULL remainder (paths legitimately contain spaces,
+            # parens, ×, –, accents — e.g. physics dirs). Then prefer the LONGEST
+            # existing prefix so a real spaced path is kept intact while trailing
+            # chatter ("... and tell me about it") is dropped. Truncating at the
+            # first space (old [^\s]+) cut spaced paths and led to phantom paths
+            # the model then "summarised" from the name.
+            _cand = _path_hit.group(0).strip()
+            if not os.path.exists(os.path.expanduser(_cand)):
+                _toks = _cand.split()
+                for _k in range(len(_toks), 0, -1):
+                    _sub = " ".join(_toks[:_k])
+                    if os.path.exists(os.path.expanduser(_sub)):
+                        _cand = _sub
+                        break
+            target = _cand
         else:
             # Fallback: strip leading filler words
             target = re.sub(

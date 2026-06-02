@@ -33,6 +33,11 @@ def pytest_configure(config):
     _test_root = _os.path.join(_os.path.dirname(__file__), ".pytest_artifacts")
     _os.makedirs(_test_root, exist_ok=True)
     _os.environ["ELI_ARTIFACTS_DIR"] = _test_root
+    # Deterministic network baseline: tests must not depend on the user's live
+    # Net toggle (config/settings.json network_enabled). Force offline so e.g.
+    # search routing is stable (offline → OPEN_BROWSER); tests that need network
+    # mock network_allowed() directly.
+    _os.environ.setdefault("ELI_OFFLINE", "1")
 
 
 def _install_stubs():
