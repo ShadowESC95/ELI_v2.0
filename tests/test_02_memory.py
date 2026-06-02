@@ -77,10 +77,12 @@ def test_memory_stores_loadable():
 
 
 def test_memory_db_paths_exists():
-    mod = importlib.import_module("eli.memory.db_paths")
-    syms = dir(mod)
-    assert any("path" in s.lower() or "db" in s.lower() for s in syms), \
-        f"eli.memory.db_paths looks empty: {syms}"
+    # db_paths lives in eli.core.db_paths; the memory layer exposes the
+    # resolve_db_paths() helper. Verify the memory-layer API resolves DB paths.
+    from eli.memory import resolve_db_paths
+    paths = resolve_db_paths()
+    assert paths is not None
+    assert any(getattr(paths, a, None) for a in ("user_db", "agent_db", "memory_db"))
 
 
 def test_memory_populate_loadable():
