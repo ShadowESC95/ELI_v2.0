@@ -86,6 +86,28 @@
   assert:
     - {type: action_is, value: [WEB_SEARCH]}
 
+# ── Conversation back-reference must NOT keyword-search long-term memory ────
+# "read my previous reply" used to route to MEMORY_RECALL and dredge up days-old
+# "from a previous session…" chatter instead of the actual last turn.
+- id: previous_reply_not_memory_recall
+  target: router
+  prompt: "read my previous reply"
+  assert:
+    - {type: action_not, value: [MEMORY_RECALL]}
+    - {type: action_is, value: [CHAT]}
+
+- id: read_the_response_not_recall
+  target: router
+  prompt: "read the response"
+  assert:
+    - {type: action_not, value: [MEMORY_RECALL]}
+
+- id: read_last_message_not_recall
+  target: router
+  prompt: "read my last message"
+  assert:
+    - {type: action_not, value: [MEMORY_RECALL]}
+
 # ── Engine-level: grounding / hedging / confabulation (need a model) ────────
 - id: factual_offline_hedges
   target: engine
