@@ -2887,6 +2887,17 @@ def route(text: str) -> Dict[str, Any]:
             "it", "this", "that",
         }:
             return _mk("CHAT", {"message": raw}, 0.6, matched_by="chat.vague_file_ref")
+        # Conversation back-reference ("read my previous reply", "what did I just
+        # say", "read the response") is NOT a long-term topic to keyword-search —
+        # it refers to the LIVE transcript. MEMORY_RECALL here does a LIKE on the
+        # words "previous"/"reply" and dredges up days-old "from a previous
+        # session…" chatter while never finding the actual last turn. Defer to
+        # CHAT, whose context already carries the recent conversation_turns.
+        if (re.search(r"\b(?:previous|last|that|my|the)\s+(?:reply|message|response|answer|comment)\b", low)
+                or re.search(r"\bwhat\s+(?:did\s+)?i\s+(?:just\s+)?(?:say|said|wrote|ask|asked)\b", low)
+                or re.search(r"\bread\s+(?:the|my)\s+(?:response|reply|message|answer)\b", low)
+                or re.search(r"\bthe\s+(?:last\s+)?thing\s+i\s+(?:just\s+)?said\b", low)):
+            return _mk("CHAT", {"message": raw}, 0.6, matched_by="chat.conversation_self_ref")
         return _mk("MEMORY_RECALL", {"query": target},
                    0.8, matched_by="memory.summarize_topic")
 
