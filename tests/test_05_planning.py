@@ -117,5 +117,8 @@ def test_planning_task_planner_loadable():
 
 
 def test_planning_db_paths_loadable():
-    mod = importlib.import_module("eli.planning.db_paths")
-    assert mod is not None
+    # Planning has no own db_paths module; it uses the shared resolve_db_paths()
+    # (imported by the proactive daemon). Verify that wiring is intact.
+    from eli.planning.proactive_daemon import resolve_db_paths
+    assert resolve_db_paths is not None
+    assert resolve_db_paths() is not None

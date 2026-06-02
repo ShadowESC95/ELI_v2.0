@@ -37,24 +37,26 @@ def test_stores_importable():
 
 
 # ── DB Paths ──────────────────────────────────────────────────────────────
+# Canonical module is eli.core.db_paths (db_paths was consolidated there; it was
+# never a submodule of eli.memory). eli.memory exposes resolve_db_paths().
 
 def test_db_paths_importable():
-    from eli.memory.db_paths import get_db_paths
+    from eli.core.db_paths import get_db_paths
     assert get_db_paths is not None
 
 def test_db_paths_resolve_returns_something():
-    from eli.memory.db_paths import get_db_paths
+    from eli.core.db_paths import get_db_paths
     result = get_db_paths()
     assert result is not None
 
 def test_db_paths_has_user_db():
-    from eli.memory.db_paths import get_db_paths
+    from eli.core.db_paths import get_db_paths
     result = get_db_paths()
     user_db = getattr(result, "user_db", None) or getattr(result, "memory_db", None)
     assert user_db is not None
 
 def test_db_paths_user_db_is_path():
-    from eli.memory.db_paths import get_db_paths
+    from eli.core.db_paths import get_db_paths
     result = get_db_paths()
     user_db = getattr(result, "user_db", None)
     if user_db:
