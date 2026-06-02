@@ -24,6 +24,24 @@ def _eli_path_get(obj, key, default=None):
         return obj.get(key, default)
     return getattr(obj, key, default)
 
+
+def _eli_generated_scripts_dir() -> Path:
+    """Directory for generated scripts.
+
+    Honors ELI_ARTIFACTS_DIR / ELI_DATA_DIR so writes can be redirected (tests
+    isolate to a temp dir; installed deployments use the user data dir) instead of
+    always landing in the source tree's artifacts/scripts. Default unchanged:
+    <project_root>/artifacts/scripts.
+    """
+    root = Path(__file__).resolve().parents[2] / "artifacts"
+    env = os.environ.get("ELI_ARTIFACTS_DIR") or os.environ.get("ELI_DATA_DIR")
+    if env:
+        base = Path(env).expanduser()
+        root = base if base.is_absolute() else (Path(__file__).resolve().parents[2] / base)
+    d = root / "scripts"
+    d.mkdir(parents=True, exist_ok=True)
+    return d
+
 # === PHASEN_RESPONSE_MODE_HELPER ===
 def _eli_attach_response_mode(result, action=None, args=None, meta=None):
     try:
@@ -6920,7 +6938,7 @@ def _execute_impl(action: str, args: Optional[Dict[str, Any]] = None) -> Dict[st
                     _safe = re.sub(r"[^a-z0-9]+", "_", desc.lower())[:40].strip("_") or "generated"
                     _fname = f"{_safe}{_detected_ext}"
                     from pathlib import Path as _SPath
-                    _scripts_dir = _SPath(__file__).resolve().parents[2] / "artifacts" / "scripts"
+                    _scripts_dir = _eli_generated_scripts_dir()
                     _scripts_dir.mkdir(parents=True, exist_ok=True)
                     _full = _scripts_dir / _fname
                     _full.write_text(_ag_code, encoding="utf-8")
@@ -7226,7 +7244,7 @@ def _execute_impl(action: str, args: Optional[Dict[str, Any]] = None) -> Dict[st
                 safe = _re.sub(r"[^a-z0-9]+", "_", desc.lower())[:40].strip("_")
                 fname = f"{safe}{_detected_ext}" if safe else f"generated{_detected_ext}"
                 from pathlib import Path as _SPath
-                scripts_dir = _SPath(__file__).resolve().parents[2] / "artifacts" / "scripts"
+                scripts_dir = _eli_generated_scripts_dir()
                 scripts_dir.mkdir(parents=True, exist_ok=True)
                 full_path = scripts_dir / fname
                 full_path.write_text(code, encoding="utf-8")
@@ -7268,7 +7286,7 @@ def _execute_impl(action: str, args: Optional[Dict[str, Any]] = None) -> Dict[st
         fname = f"{safe}{_detected_ext}" if safe else f"generated{_detected_ext}"
         # Save script to disk
         from pathlib import Path as _SPath
-        scripts_dir = _SPath(__file__).resolve().parents[2] / "artifacts" / "scripts"
+        scripts_dir = _eli_generated_scripts_dir()
         scripts_dir.mkdir(parents=True, exist_ok=True)
         full_path = scripts_dir / fname
         full_path.write_text(code, encoding="utf-8")
@@ -7386,7 +7404,7 @@ def _execute_impl(action: str, args: Optional[Dict[str, Any]] = None) -> Dict[st
                 _ext = _ext + ".draft"
             safe = _re_cs.sub(r"[^a-z0-9]+", "_", desc.lower())[:40].strip("_") or "solution"
             from pathlib import Path as _SPath
-            scripts_dir = _SPath(__file__).resolve().parents[2] / "artifacts" / "scripts"
+            scripts_dir = _eli_generated_scripts_dir()
             scripts_dir.mkdir(parents=True, exist_ok=True)
             full_path = scripts_dir / f"{safe}{_ext}"
             full_path.write_text(code, encoding="utf-8")
