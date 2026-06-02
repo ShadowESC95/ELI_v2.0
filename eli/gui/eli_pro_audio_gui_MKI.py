@@ -10250,8 +10250,35 @@ def main():
         _existing_models = []
     if not _existing_models:
         _wizard = FirstBootWizard()
-        _wizard.exec()
-        # Re-check after wizard — user may have placed a model
+        _accepted = _wizard.exec()
+        # Persist the wizard's selection so a downloaded/selected model becomes
+        # the CONFIGURED model — otherwise the wizard's work is thrown away and
+        # the app launches "model not loaded" even after a successful download.
+        try:
+            from eli.core.runtime_settings import update_settings as _rs_update
+            _wiz_provider = _wizard.selected_provider()
+            if _wiz_provider == "ollama":
+                update_kwargs = {
+                    "provider": "ollama",
+                    "ollama_host": _wizard.selected_ollama_host(),
+                    "ollama_model": _wizard.selected_ollama_model(),
+                    "first_run_complete": True,
+                }
+            else:
+                _wiz_path = _wizard.selected_model_path()
+                update_kwargs = {"first_run_complete": True}
+                if _wiz_path:
+                    update_kwargs.update({
+                        "provider": "custom_gguf",
+                        "model_path": _wiz_path,
+                        "custom_model_path": _wiz_path,
+                        "gguf_model_path": _wiz_path,
+                    })
+            if _accepted:
+                _rs_update(**update_kwargs)
+        except Exception as _persist_err:
+            log.debug(f"[ELI] First-boot selection persist failed: {_persist_err}")
+        # Re-check after wizard — user may have placed/downloaded a model
         try:
             _existing_models = discover_gguf_models()
         except Exception:
