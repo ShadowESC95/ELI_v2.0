@@ -9651,7 +9651,20 @@ Answer:"""
         # contributed real evidence). Pure route-match with no agent grounding (grounding=0)
         # should not short-circuit synthesis even if aggregate looks "high" due to base weight.
         _bus_grounding_ok = float(getattr(bus_result, "grounding_confidence", 0.0) or 0.0) > 0.05
-        if bus_result is not None and bus_result.aggregated_confidence >= 0.7 and _bus_grounding_ok:
+        # Self-contained file/doc actions read real files and carry their own
+        # existence guards. They MUST be executed (not LLM-synthesised from the
+        # prompt, which fabricates summaries of files it never read). These are
+        # deferred from the parallel bus (LLM_ACTIONS), so their bus confidence is
+        # low — execute them here regardless of the 0.7 grounded fast-path gate.
+        _FILE_SELF_CONTAINED_ACTIONS = {
+            "SUMMARIZE_FILE", "CONVERT_DOCUMENT", "ANALYZE_PDF", "ANALYZE_CSV",
+            "ANALYZE_PDF_FOLDER", "GENERATE_DOCUMENT", "CREATE_DOCUMENT", "DOC_GENERATE",
+        }
+        _is_file_self_contained = str(action or "").upper() in _FILE_SELF_CONTAINED_ACTIONS
+        if bus_result is not None and (
+            (bus_result.aggregated_confidence >= 0.7 and _bus_grounding_ok)
+            or _is_file_self_contained
+        ):
             evidence_parts: List[str] = []
             _action_result = None
             _action_content = ""
@@ -9683,6 +9696,16 @@ Answer:"""
 
                     if _action_result is None:
                         _action_result = _eli_phase13c_bus_action_result(bus_result, action)
+                    # File/doc actions are deferred in the bus (skipped placeholder).
+                    # Never accept a skipped/empty reuse for them — force real
+                    # execution so the executor reads the file (with its existence
+                    # guard) instead of the model fabricating from the path.
+                    if _is_file_self_contained and (
+                        not isinstance(_action_result, dict)
+                        or _action_result.get("skipped")
+                        or not (_action_result.get("content") or _action_result.get("response"))
+                    ):
+                        _action_result = execute_action(action, args)
                     if _action_result is None:
                         _action_result = execute_action(action, args)
                     _action_content = (
@@ -9701,6 +9724,7 @@ Answer:"""
                     _SELF_CONTAINED_LLM_ACTIONS = {
                         "SUMMARIZE_FILE", "CONVERT_DOCUMENT", "GENERATE_DOCUMENT",
                         "DOC_GENERATE", "CREATE_DOCUMENT", "ANALYZE_PDF", "ANALYZE_CSV",
+                        "ANALYZE_PDF_FOLDER",
                         # MORNING_REPORT is a complete structured report — return it
                         # verbatim. Re-synthesising it lost half the content and the
                         # large system prompt truncated the evidence out of n_ctx.
