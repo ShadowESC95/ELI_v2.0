@@ -11828,6 +11828,14 @@ Answer:"""
             _max_tokens = int(max_tokens_override) if (max_tokens_override is not None and max_tokens_override != 0) else -1
             if _nonquick_depth and _max_tokens == -1:
                 _max_tokens = 1800
+            # A grounded factual answer (web/news lookup) is a few sentences, not
+            # an essay. In quick mode max_tokens=-1 means "fill the rest of the
+            # context" (~8.8k tokens observed) — that both slows the reply AND
+            # starves the prompt budget, forcing the system prompt + grounding
+            # instruction to be truncated. Cap it so the evidence fits and the
+            # answer stays tight. Non-quick keeps its larger 1800 budget above.
+            if _max_tokens == -1 and str(action or "").upper() in ("WEB_SEARCH", "NEWS_FETCH"):
+                _max_tokens = 700
             _gen_kwargs = _eli_apply_response_kwargs(
                 {"max_tokens": _max_tokens, "temperature": 0.35},
                 _contract,
