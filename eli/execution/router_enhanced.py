@@ -2777,6 +2777,15 @@ def route(text: str) -> Dict[str, Any]:
         if re.search(r"\b(?:my|the)\s+(?:screen|display|monitor)\b", low):
             return _mk("SCREEN_READ_ANALYZE", {}, 0.92,
                        matched_by="screen.analyze_referential")
+        # A bare generic file-noun ("read the document", "summarize the file")
+        # with no actual filename/path is NOT a memory topic — there is nothing
+        # stored to "recall". Defer to CHAT so ELI asks which file, rather than
+        # recalling a phantom "document"/"file" topic.
+        if target.strip().lower() in {
+            "document", "documents", "doc", "docs", "file", "files",
+            "it", "this", "that",
+        }:
+            return _mk("CHAT", {"message": raw}, 0.6, matched_by="chat.vague_file_ref")
         return _mk("MEMORY_RECALL", {"query": target},
                    0.8, matched_by="memory.summarize_topic")
 

@@ -95,6 +95,23 @@ def route_control_text(user_input: Any, current_action: Any = None) -> str | Non
     if re.search(r"\b(confidence in (?:your|my) last response|which agents contributed|what agents contributed|last response trace|previous response trace|last turn trace)\b", low):
         return "EXPLAIN_LAST_RESPONSE"
 
+    # Persona/identity-EVOLUTION questions ("how has your persona/identity
+    # evolved/changed/been defined") are grounded self-report — answer from real
+    # identity grounding, not generic change-chat. This MUST run before the
+    # _is_change_query suppression below: that guard matches "evolved/changed"
+    # and would otherwise force these specific questions to CHAT, even though the
+    # SELF_REPORT regex already lists them (an internal contradiction).
+    if re.search(
+        r"\b(?:persona|identity)\b.{0,40}\b(?:evolv(?:ed|ing)|chang(?:ed|ing)|"
+        r"defin(?:ed|ing)|develop(?:ed|ing)|grown?)\b",
+        low,
+    ) or re.search(
+        r"\b(?:evolv(?:ed|ing)|chang(?:ed|ing)|defin(?:ed|ing)|develop(?:ed|ing))\b"
+        r".{0,40}\b(?:persona|identity)\b",
+        low,
+    ):
+        return "SELF_REPORT"
+
     # Questions about identity/persona change over time are conversational —
     # let them stay as CHAT so the LLM can reflect on them naturally.
     _is_change_query = bool(re.search(
