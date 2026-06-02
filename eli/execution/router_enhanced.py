@@ -960,6 +960,21 @@ def _eli_web_lookup_prepass(raw: str, low: str):
     # "news" has a dedicated NEWS_FETCH path — let core_router handle it.
     if re.search(r"\bnews\b", low):
         return None
+    # Meta / clarification questions ABOUT a previous answer are conversation,
+    # not new lookups. "how do you know X if you don't know Y", "what do you
+    # mean", "why did you say that" must NOT trigger a web search of the literal
+    # sentence (that returned generic 'how to release an album' junk). Let CHAT/
+    # persona address the contradiction. This wins even if a trigger word like
+    # "release date" appears inside the meta-question.
+    if re.match(
+        r"^\s*(?:how (?:do|would|can|could) (?:you|u) know"
+        r"|what do you mean|what'?s that supposed to mean"
+        r"|why (?:did|do|would) you (?:say|think|claim|tell|state)"
+        r"|that(?:'?s| is) (?:not right|wrong|incorrect|nonsense)"
+        r"|you(?:'?re| are) (?:wrong|lying|making|confus))",
+        low,
+    ):
+        return None
 
     explicit_search = re.search(
         r"\b(search\s+(?:the\s+)?(?:web|internet|online)|search\s+for|search\b|"
@@ -996,6 +1011,12 @@ def _eli_web_lookup_prepass(raw: str, low: str):
     )
     if m and m.group(1).strip():
         query = m.group(1).strip()
+    elif realtime_fact and realtime_fact.start() > 0:
+        # No explicit "search for ..." stem, but a real-time fact phrase appears
+        # mid-sentence after a conversational/profanity preamble (e.g. "what the
+        # fuck are you talking about when is X out"). Trim to the factual ask so
+        # the search query is "when is X out", not the whole frustrated sentence.
+        query = raw[realtime_fact.start():].strip()
     query = re.sub(r"\b(for me|please|now|on the internet|online)\b\.?$", "", query, flags=re.I).strip(" .?!")
     if not query:
         query = raw.strip()
