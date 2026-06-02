@@ -2345,6 +2345,38 @@ def _spotify_search(query: str) -> bool:
         return False
 
 
+def _spotify_play() -> bool:
+    """Start/resume Spotify playback (no Web API). After a spotify:search: OpenUri
+    the search results are the active context, so Play starts the top match."""
+    import subprocess as _sp2
+    try:
+        r = _sp2.run(["playerctl", "-p", "spotify", "play"], capture_output=True, timeout=5)
+        if r.returncode == 0:
+            return True
+    except Exception:
+        pass
+    try:
+        r = _sp2.run(
+            ["dbus-send", "--print-reply",
+             "--dest=org.mpris.MediaPlayer2.spotify",
+             "/org/mpris/MediaPlayer2",
+             "org.mpris.MediaPlayer2.Player.Play"],
+            capture_output=True, timeout=5,
+        )
+        return r.returncode == 0
+    except Exception:
+        return False
+
+
+def _spotify_running() -> bool:
+    import subprocess as _sp2
+    try:
+        r = _sp2.run(["pgrep", "-x", "spotify"], capture_output=True, timeout=4)
+        return r.returncode == 0
+    except Exception:
+        return False
+
+
 def play_specific(query: str, target: str | None = None) -> Dict[str, Any]:
     """Play a specific song/artist/genre.
 
@@ -2379,30 +2411,35 @@ def play_specific(query: str, target: str | None = None) -> Dict[str, Any]:
     is_yt_web  = is_youtube and bool(_re.search(r"\bweb(?:site)?\b", t))
 
     if is_spotify and not is_youtube:
+        import time as _time
         search_q = (
             f"{_by_m.group(1).strip()} {_by_m.group(2).strip()}" if _by_m else query
         )
-        # IMPORTANT: the Spotify MPRIS/dbus OpenUri spotify:search: URI only OPENS
-        # the search results — it does NOT play a specific track. Auto-playing a
-        # track from a text query needs the Spotify Web API (OAuth; off by default).
-        # So be honest about what happened and offer the path that actually plays.
-        _sp_note = (
-            f"I've opened the search for \"{search_q}\" in Spotify — but Spotify can't "
-            f"auto-play a specific track from a text query locally (that needs the "
-            f"Spotify Web API). Say \"play {search_q} on youtube\" and I'll play it "
-            f"directly."
-        )
+        # No Web API: open the search (sets the active context to the matches),
+        # let results load, then issue Play so the TOP match starts playing.
         _opened = _spotify_search(search_q)
         if not _opened:
+            # Spotify not running yet — launch with the search URI, wait, retry.
             try:
-                uri = f"spotify:search:{urllib.parse.quote(search_q)}"
-                _open_in_browser(uri)
-                _opened = True
+                _open_in_browser(f"spotify:search:{urllib.parse.quote(search_q)}")
+                for _ in range(8):
+                    _time.sleep(1.0)
+                    if _spotify_running():
+                        break
+                _opened = _spotify_search(search_q)
             except Exception:
                 _opened = False
         if _opened:
+            _time.sleep(1.6)            # let the results view populate
+            if _spotify_play():
+                msg = f"Playing the top match for “{search_q}” on Spotify."
+                return {"ok": True, "action": "PLAY_MEDIA", "played": True,
+                        "content": msg, "response": msg}
+            msg = (f"I opened the Spotify search for “{search_q}” but couldn’t start "
+                   f"playback automatically — hit play, or say “play {search_q} on "
+                   f"youtube” and I’ll play it directly.")
             return {"ok": True, "action": "PLAY_MEDIA", "played": False,
-                    "search_only": True, "content": _sp_note, "response": _sp_note}
+                    "search_only": True, "content": msg, "response": msg}
 
     # ── 2. "youtube web/website" → browser only (never mpv) ──────────────────
     if is_yt_web:
