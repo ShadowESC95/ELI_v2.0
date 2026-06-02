@@ -14,8 +14,9 @@ from typing import Any, Dict, List, Optional
 from eli.gui.panels._qt import (
     QCheckBox, QComboBox, QDialog, QDialogButtonBox, QDockWidget,
     QDoubleSpinBox, QFileDialog, QFormLayout, QLabel, QLineEdit,
-    QMessageBox, QPlainTextEdit, QPushButton, QSpinBox, QTabWidget,
-    QVBoxLayout, QHBoxLayout, QWidget, Qt, now_hms, pyqtSignal,
+    QMessageBox, QPlainTextEdit, QProgressBar, QPushButton, QSpinBox,
+    QTabWidget, QThread, QVBoxLayout, QHBoxLayout, QWidget, Qt,
+    now_hms, pyqtSignal,
 )
 
 from eli.utils.log import get_logger
@@ -371,6 +372,30 @@ class StartupModelSelectionDialog(QDialog):
         super().accept()
 
 
+# ── Model download worker ──────────────────────────────────────────────────────
+
+class _ModelDownloadThread(QThread):
+    """Runs a curated GGUF download off the UI thread. Routed through netguard
+    (offline-by-default preserved; the download opens a scoped allow window)."""
+    progress = pyqtSignal(int, int)        # downloaded_bytes, total_bytes
+    finished_result = pyqtSignal(dict)     # download_model() result dict
+
+    def __init__(self, entry: Dict[str, Any], parent=None):
+        super().__init__(parent)
+        self._entry = entry
+
+    def run(self):
+        try:
+            from eli.core.model_download import download_model
+            res = download_model(
+                self._entry,
+                progress_cb=lambda d, t: self.progress.emit(int(d), int(t)),
+            )
+        except Exception as exc:  # never let a worker crash take down the wizard
+            res = {"ok": False, "error": f"Download crashed: {exc}"}
+        self.finished_result.emit(dict(res))
+
+
 # ── FirstBootWizard ────────────────────────────────────────────────────────────
 
 class FirstBootWizard(QDialog):
@@ -488,6 +513,49 @@ class FirstBootWizard(QDialog):
         )
         hint.setStyleSheet("color:#81a1c1;font-size:11px;")
         gv.addWidget(hint)
+
+        # ── Download a model (curated, offline-by-default respected) ──────────
+        dl_title = QLabel("— or — download one now:")
+        dl_title.setStyleSheet("color:#88c0d0;font-weight:bold;margin-top:8px;")
+        gv.addWidget(dl_title)
+
+        dl_row = QHBoxLayout()
+        self._dl_combo = QComboBox()
+        self._dl_catalog: List[Dict[str, Any]] = []
+        try:
+            from eli.core.model_download import list_catalog
+            self._dl_catalog = list_catalog()
+        except Exception as _cat_err:
+            log.debug(f"[wizard] model catalog unavailable: {_cat_err}")
+        for _e in self._dl_catalog:
+            _label = f"{_e.get('name','?')}  · ~{_e.get('size_gb','?')}GB · VRAM {_e.get('vram_gb',0)}GB+"
+            if _e.get("default"):
+                _label += "  (recommended)"
+            self._dl_combo.addItem(_label, _e.get("key"))
+        # Preselect the recommended default
+        for _i, _e in enumerate(self._dl_catalog):
+            if _e.get("default"):
+                self._dl_combo.setCurrentIndex(_i)
+                break
+        self._dl_btn = QPushButton("Download")
+        self._dl_btn.clicked.connect(self._start_download)
+        dl_row.addWidget(self._dl_combo, stretch=1)
+        dl_row.addWidget(self._dl_btn)
+        gv.addLayout(dl_row)
+
+        self._dl_progress = QProgressBar()
+        self._dl_progress.setVisible(False)
+        gv.addWidget(self._dl_progress)
+        self._dl_status = QLabel("")
+        self._dl_status.setWordWrap(True)
+        self._dl_status.setStyleSheet("color:#a3be8c;font-size:11px;")
+        gv.addWidget(self._dl_status)
+        if not self._dl_catalog:
+            self._dl_combo.setEnabled(False)
+            self._dl_btn.setEnabled(False)
+            self._dl_status.setText("Download catalog unavailable — browse to a .gguf instead.")
+        self._dl_thread: Optional[_ModelDownloadThread] = None
+
         v.addWidget(self._gguf_widget)
 
         # Ollama section
@@ -565,6 +633,61 @@ class FirstBootWizard(QDialog):
         )
         if path:
             self._wiz_path.setText(path)
+
+    # ── Download ──────────────────────────────────────────────────────────────
+
+    def _start_download(self):
+        if getattr(self, "_dl_thread", None) is not None and self._dl_thread.isRunning():
+            return
+        key = self._dl_combo.currentData()
+        entry = next((e for e in self._dl_catalog if e.get("key") == key), None)
+        if not entry:
+            QMessageBox.warning(self, "No model selected", "Pick a model to download first.")
+            return
+        size = entry.get("size_gb", "?")
+        if QMessageBox.question(
+            self, "Download model",
+            f"Download {entry.get('name')} (~{size} GB) into\n{_MODELS_DIR}?\n\n"
+            "This is a one-time, deliberate network download. ELI stays offline "
+            "by default afterwards.",
+        ) != QMessageBox.StandardButton.Yes:
+            return
+        self._dl_btn.setEnabled(False)
+        self._dl_combo.setEnabled(False)
+        self._dl_progress.setVisible(True)
+        self._dl_progress.setRange(0, 0)  # indeterminate until first progress
+        self._dl_status.setText(f"Downloading {entry.get('name')} …")
+        self._dl_thread = _ModelDownloadThread(entry, parent=self)
+        self._dl_thread.progress.connect(self._on_dl_progress)
+        self._dl_thread.finished_result.connect(self._on_dl_done)
+        self._dl_thread.start()
+
+    def _on_dl_progress(self, done: int, total: int):
+        mb = done / (1024 * 1024)
+        if total > 0:
+            self._dl_progress.setRange(0, total)
+            self._dl_progress.setValue(done)
+            self._dl_status.setText(f"Downloading … {mb:.0f} MB / {total/(1024*1024):.0f} MB")
+        else:
+            self._dl_status.setText(f"Downloading … {mb:.0f} MB")
+
+    def _on_dl_done(self, res: Dict[str, Any]):
+        self._dl_btn.setEnabled(True)
+        self._dl_combo.setEnabled(True)
+        if res.get("ok"):
+            path = res.get("path", "")
+            self._wiz_path.setText(path)
+            self._selected_path = path
+            self._dl_progress.setRange(0, 1)
+            self._dl_progress.setValue(1)
+            verb = "Already present" if res.get("already_present") else "Downloaded"
+            self._dl_status.setText(f"✓ {verb}: {path}")
+        else:
+            self._dl_progress.setVisible(False)
+            err = res.get("error", "unknown error")
+            self._dl_status.setText(f"✗ {err}")
+            QMessageBox.warning(self, "Download failed",
+                                f"{err}\n\nYou can retry, or browse to a .gguf you already have.")
 
     def _run_hw_detection(self):
         try:
