@@ -1590,7 +1590,17 @@ class AgentBus:
                 _low_input,
             ))
         )
-        if _is_tiny_chat:
+        # Grounding-escalation local tier asks for a broad fan-out so agents the
+        # quick path skipped (file_code, RAG, knowledge_graph, deep memory) get a
+        # chance to ground a low-confidence factual turn.
+        _force_broad = False
+        try:
+            _force_broad = bool((intent.get("meta") or {}).get("_force_broad_agents"))
+        except Exception:
+            _force_broad = False
+        if _force_broad:
+            selected_names = None  # None → broad fan-out over all enabled agents
+        elif _is_tiny_chat:
             selected_names = {"memory", "orchestrator"}
         else:
             selected_names = _select_agents_for_intent(user_input, action)
