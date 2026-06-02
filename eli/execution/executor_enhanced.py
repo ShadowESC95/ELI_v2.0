@@ -2382,18 +2382,27 @@ def play_specific(query: str, target: str | None = None) -> Dict[str, Any]:
         search_q = (
             f"{_by_m.group(1).strip()} {_by_m.group(2).strip()}" if _by_m else query
         )
-        # Try running Spotify via dbus first
-        if _spotify_search(search_q):
-            msg = f"Searching Spotify for: {search_q}"
-            return {"ok": True, "action": "PLAY_MEDIA", "content": msg, "response": msg}
-        # Spotify not open: launch it with the search URI
-        try:
-            uri = f"spotify:search:{urllib.parse.quote(search_q)}"
-            _open_in_browser(uri)
-            msg = f"Opening Spotify: {search_q}"
-            return {"ok": True, "action": "PLAY_MEDIA", "content": msg, "response": msg}
-        except Exception:
-            pass
+        # IMPORTANT: the Spotify MPRIS/dbus OpenUri spotify:search: URI only OPENS
+        # the search results — it does NOT play a specific track. Auto-playing a
+        # track from a text query needs the Spotify Web API (OAuth; off by default).
+        # So be honest about what happened and offer the path that actually plays.
+        _sp_note = (
+            f"I've opened the search for \"{search_q}\" in Spotify — but Spotify can't "
+            f"auto-play a specific track from a text query locally (that needs the "
+            f"Spotify Web API). Say \"play {search_q} on youtube\" and I'll play it "
+            f"directly."
+        )
+        _opened = _spotify_search(search_q)
+        if not _opened:
+            try:
+                uri = f"spotify:search:{urllib.parse.quote(search_q)}"
+                _open_in_browser(uri)
+                _opened = True
+            except Exception:
+                _opened = False
+        if _opened:
+            return {"ok": True, "action": "PLAY_MEDIA", "played": False,
+                    "search_only": True, "content": _sp_note, "response": _sp_note}
 
     # ── 2. "youtube web/website" → browser only (never mpv) ──────────────────
     if is_yt_web:
