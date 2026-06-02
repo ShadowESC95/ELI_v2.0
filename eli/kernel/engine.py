@@ -79,6 +79,8 @@ _PHASE45_DIRECT_FAST_ACTIONS = {
     'AMBIENT_VISION',  # deterministic toggle — return the executor's confirmation directly
     'ANALYZE_IMAGE',  # executor OCR/metadata is authoritative — never let the model "describe" an image it can't see
     'ASK_CLARIFY',
+    'BACKGROUND_JOBS',  # deterministic job-list read — verbatim, never paraphrase
+    'CHECK_JOB',  # job status/result is authoritative; the model invents elapsed times and drops the actual summary if it re-narrates this
     'CLOSE_APP',
     'DATE',
     'KEYBOARD',
