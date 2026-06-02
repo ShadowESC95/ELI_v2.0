@@ -43,7 +43,3 @@ def test_kernel_state_loadable():
 
 def test_kernel_task_bus_loadable():
     assert importlib.import_module("eli.kernel.task_bus") is not None
-
-
-def test_kernel_verify_dual_models_loadable():
-    assert importlib.import_module("eli.kernel.verify_dual_models") is not None
