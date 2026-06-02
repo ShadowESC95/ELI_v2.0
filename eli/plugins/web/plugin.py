@@ -182,8 +182,44 @@ def _searxng_search(query: str, max_results: int = 5) -> List[Dict[str, Any]]:
     return out
 
 
+def _duckduckgo_html_search(query: str, max_results: int = 5) -> List[Dict[str, Any]]:
+    """Stdlib-only DuckDuckGo HTML scrape — NO pip package required, so web search
+    works on a fresh install without `duckduckgo_search`/`ddgs`. Network-gated via
+    netguard (offline → OfflineError propagates; caller is already gated)."""
+    import re as _re
+    import html as _html
+    import urllib.parse as _up
+    import urllib.request as _ur
+    try:
+        from eli.core.netguard import guarded_urlopen as _open
+    except Exception:
+        _open = lambda req, timeout=10: _ur.urlopen(req, timeout=timeout)
+
+    url = "https://html.duckduckgo.com/html/?q=" + _up.quote(query)
+    req = _ur.Request(url, headers={
+        "User-Agent": "Mozilla/5.0 (X11; Linux x86_64; rv:124.0) Gecko/20100101 Firefox/124.0",
+    })
+    with _open(req, timeout=10) as r:
+        page = r.read().decode("utf-8", errors="replace")
+
+    out: List[Dict[str, Any]] = []
+    for m in _re.finditer(r'<a[^>]+class="result__a"[^>]+href="([^"]+)"[^>]*>(.*?)</a>', page, _re.S):
+        href = _html.unescape(m.group(1))
+        title = _html.unescape(_re.sub(r"<[^>]+>", "", m.group(2))).strip()
+        # DDG wraps real URLs in a redirect: //duckduckgo.com/l/?uddg=<encoded>
+        _mu = _re.search(r"uddg=([^&]+)", href)
+        if _mu:
+            href = _up.unquote(_mu.group(1))
+        if title and href:
+            out.append({"title": title, "href": href, "body": ""})
+        if len(out) >= max_results:
+            break
+    return out
+
+
 def _web_search_results(query: str, max_results: int = 5) -> List[Dict[str, Any]]:
-    """Canonical web-search entry point: SearXNG (if configured) → DuckDuckGo.
+    """Canonical web-search entry point: SearXNG (if configured) → DuckDuckGo
+    package → stdlib DuckDuckGo HTML scrape (no dependency).
 
     SearXNG is preferred (self-hosted, not rate-limited, privacy-aligned).
     DuckDuckGo via the ddgs package is the fallback when SearXNG is absent or
@@ -195,8 +231,16 @@ def _web_search_results(query: str, max_results: int = 5) -> List[Dict[str, Any]
         results = []
     if results:
         return results
+    # Package-based DDG (if installed)
     try:
-        return _duckduckgo_search(query, max_results=max_results)
+        results = _duckduckgo_search(query, max_results=max_results)
+        if results:
+            return results
+    except Exception:
+        pass
+    # Stdlib HTML fallback — no pip dependency, so search works out of the box.
+    try:
+        return _duckduckgo_html_search(query, max_results=max_results)
     except Exception:
         return []
 
