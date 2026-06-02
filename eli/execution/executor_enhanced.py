@@ -6310,6 +6310,15 @@ def _execute_impl(action: str, args: Optional[Dict[str, Any]] = None) -> Dict[st
                        + "\n".join(f"  • {i}" for i in insights))
             else:
                 msg = f"Morning report — {_stamp}: no notable activity in the last 24h."
+            # Personalised news (ELI-derived interests; network-gated → empty when
+            # offline, never fabricated).
+            try:
+                from eli.tools.news.news_synthesis import interest_news_block
+                _news = interest_news_block()
+                if _news:
+                    msg += "\n\n" + _news
+            except Exception:
+                pass
             return {"ok": True, "action": a, "content": msg, "response": msg}
         except Exception as e:
             return {"ok": False, "action": a, "error": str(e), "content": str(e), "response": str(e)}

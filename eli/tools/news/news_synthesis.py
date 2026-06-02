@@ -276,3 +276,110 @@ def build_morning_digest(hours: int = 24) -> Dict[str, Any]:
         "digest": digest,
         "follow_up_prompt": follow_up_prompt,
     }
+
+
+# Self-referential / ELI-development / interaction-style noise — these describe
+# how the user works WITH ELI, not external subjects they'd want news about. They
+# are filtered out so news queries reflect genuine interests (physics, AI, etc.).
+# NOTE: this is noise removal, not a hardcoded interest list — interests are
+# derived per-user from their own profile.
+_INTEREST_NOISE = {
+    "eli", "sqlite", "gguf", "runtime", "memory", "recall", "debugging", "debug",
+    "tuning", "tune", "parameters", "parameter", "system", "systems", "code",
+    "coding", "local", "model", "models", "pipeline", "agent", "agents", "active",
+    "last", "user", "work", "works", "working", "material", "framework",
+    "frameworks", "involving", "references", "focuses", "focus", "backed",
+    "with", "that", "this", "your", "from", "into", "about", "uses", "using",
+    "humor", "banter", "detail", "details", "vague", "wants", "prefers", "prefer",
+    "responds", "welcome", "step", "technical", "explanations", "light", "wit",
+    "actively", "currently", "recently", "recent", "various", "different",
+}
+
+
+def _derive_interest_terms(user_id=None, limit: int = 5) -> list:
+    """Distinctive interest keywords derived from the user's OWN profile
+    (research + active projects). No hardcoded topics — per-user, per-machine.
+    """
+    import re as _re
+    from collections import Counter
+    try:
+        from eli.kernel.state import load_user_profile
+        prof = load_user_profile(user_id) or {}
+    except Exception:
+        prof = {}
+    parts = []
+    for key in ("research", "active_projects"):
+        v = prof.get(key)
+        if isinstance(v, list):
+            parts += [str(x) for x in v]
+        elif v:
+            parts.append(str(v))
+    if not parts:
+        return []
+    blob = " ".join(parts).lower()
+    words = _re.findall(r"[a-z][a-z\-]{3,}", blob)
+    counts = Counter(w for w in words if w not in _INTEREST_NOISE)
+    # Preserve first-seen order among the most common to keep it stable.
+    return [w for w, _ in counts.most_common(limit)]
+
+
+def interest_news_block(user_id=None, max_items: int = 4) -> str:
+    """A short, personalised news section for the morning report.
+
+    Interests are derived from the user's profile (ELI-driven, not hardcoded);
+    fetching is network-gated (offline → empty string, never fabricated). Returns
+    a ready-to-print block or '' when there's nothing to show.
+    """
+    try:
+        from eli.core.config import network_allowed
+        if not network_allowed():
+            return ""
+    except Exception:
+        return ""
+
+    terms = _derive_interest_terms(user_id)
+    if not terms:
+        return ""
+
+    try:
+        from eli.tools.news.news_fetcher import fetch_news, search_stored_news
+    except Exception:
+        return ""
+
+    seen: set = set()
+    articles: list = []
+    for term in terms[:3]:
+        try:
+            fetch_news(topic=term)          # populate store (gated; no-op offline)
+        except Exception:
+            pass
+        try:
+            hits = search_stored_news(term, limit=4) or []
+        except Exception:
+            hits = []
+        for art in hits:
+            title = str(art.get("title") or "").strip()
+            if not title or title.lower() in seen:
+                continue
+            seen.add(title.lower())
+            articles.append(art)
+            if len(articles) >= max_items:
+                break
+        if len(articles) >= max_items:
+            break
+
+    if not articles:
+        return ""
+
+    lines = ["I have found the following news articles that may be of interest to you:"]
+    for art in articles[:max_items]:
+        title = str(art.get("title") or "").strip()
+        src = str(art.get("source") or "").strip()
+        url = str(art.get("url") or "").strip()
+        line = f"  • {title}"
+        if src:
+            line += f" — {src}"
+        if url:
+            line += f"\n    {url}"
+        lines.append(line)
+    return "\n".join(lines)
