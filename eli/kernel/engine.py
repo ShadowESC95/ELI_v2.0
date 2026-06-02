@@ -4587,6 +4587,39 @@ Answer:"""
         except Exception:
             pass
 
+        # Grounded runtime identity. When the user asks what/which model you're
+        # running (or "are you running a 7b/70b"), answer from the LIVE loaded
+        # model — do NOT philosophise from the abstract "model-agnostic" trait.
+        # That trait produced ELI flatly denying it runs a model and treating
+        # "are you on a 7B?" as a hypothetical, while Qwen2.5-7B was loaded in
+        # this very process. Model-agnostic means the inference path hardcodes no
+        # model; a concrete model is ALWAYS mounted and ELI must report it.
+        try:
+            _ui_low = str(user_input or "").lower()
+            if re.search(
+                r"\b(?:what|which|your)\b[^.?!]{0,40}\bmodel\b"
+                r"|\bare you running\b|\bmodel are you\b|\brunning (?:a|on)\b"
+                r"|\b\d{1,3}\s*\+?\s*b\b|\bbillion\b|\bparameters?\b|\bmodel.?agnostic\b",
+                _ui_low,
+            ):
+                from eli.runtime.live_introspection import _runtime_core as _rc_id
+                _core_id = _rc_id()
+                _mname_id = _core_id.get("model_name") or _core_id.get("model_path")
+                if _mname_id and str(_mname_id) not in ("", "unknown") and _core_id.get("loaded"):
+                    from pathlib import Path as _P_id
+                    _rt_line = (
+                        "LIVE RUNTIME FACT (authoritative — if asked about your model, "
+                        f"state this plainly): the model currently loaded in this process is "
+                        f"'{_P_id(str(_mname_id)).name}'. You are model-agnostic — the inference "
+                        "path hardcodes no model and you can run anything from small to 70B+ — but a "
+                        "concrete model is ALWAYS mounted, and right now it is the one named above. "
+                        "Do NOT deny running a model or treat it as hypothetical; report it, then "
+                        "note you're model-agnostic if relevant."
+                    )
+                    situation_brief = (_rt_line + "\n\n" + (situation_brief or "")).strip()
+        except Exception:
+            pass
+
         # Load user profile from user_profile.json — separate from ELI's persona.
         # Injected prominently so quantized models see it near the top.
         _user_profile_block = ""
