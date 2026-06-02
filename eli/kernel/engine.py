@@ -9149,6 +9149,30 @@ Answer:"""
             except Exception:
                 pass
 
+            # ── Grounding escalation ──────────────────────────────────────────
+            # A checkable factual turn that the bus grounded poorly must NOT be
+            # answered from the model's weights (that confabulates, e.g. inventing
+            # a celebrity's "real name"). Escalate in tiers — local agents for
+            # self/project facts, the web agent for external facts — and HEDGE if
+            # nothing can ground it, instead of guessing. Gated on grounding (not
+            # the fluent response score, which stays high while confabulating).
+            if _eli_is_chat_action:
+                try:
+                    from eli.runtime.grounding_escalation import escalate as _grounding_escalate
+                    _esc = _grounding_escalate(
+                        self, user_input, intent, bus_result,
+                        reasoning_mode=reasoning_mode, trace=trace,
+                    )
+                    if _esc is not None:
+                        try:
+                            self._store_assistant_turn(
+                                str(_esc.get("response") or _esc.get("content") or ""))
+                        except Exception:
+                            pass
+                        return _esc
+                except Exception as _esc_err:
+                    log.debug(f"[COGNITIVE] grounding escalation skipped: {_esc_err}")
+
             trace["orchestrator_plan"] = (
                 bus_result.orchestrator_plan
                 or self._build_runtime_orchestrator_plan(
