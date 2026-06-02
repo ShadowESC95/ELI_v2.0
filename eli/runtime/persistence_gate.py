@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 from typing import Any, Iterable
 
 from eli.runtime.identity_validation import extract_explicit_identity_facts, normalize_identity_candidate
@@ -86,6 +87,24 @@ def is_internal_report_dump(text: Any) -> bool:
     return any(m in low for m in _REPORT_DUMP_MARKERS)
 
 
+# ELI narrating its OWN cross-session recall ("From a previous session, we were
+# troubleshooting…"). Such self-talk gets stored, keyword-recalled on any
+# "previous/memory/session" query, re-synthesised and re-stored — a
+# self-amplifying echo that drowns the live conversation (observed: ELI looping
+# on "physics time / troubleshooting your memory" while the user said nothing was
+# wrong). The signature is the opener phrase, which a genuine answer almost never
+# leads with. Never store these as assistant turns (the user still sees the
+# reply; it just doesn't get persisted to be recalled later).
+_RECALL_NARRATION_RE = re.compile(
+    r"\bfrom\s+(?:a|the|our|your|my)\s+previous\s+(?:session|conversation|chat|exchange)s?\b",
+    re.I,
+)
+
+
+def is_recall_narration(text: Any) -> bool:
+    return bool(_RECALL_NARRATION_RE.search(_norm(text)))
+
+
 def should_store_conversation_turn(role: str, text: Any) -> bool:
     t = _norm(text)
     if not t:
@@ -99,6 +118,9 @@ def should_store_conversation_turn(role: str, text: Any) -> bool:
         if any(p in low for p in _ERR_PATTERNS):
             return False
         if low in _ASSISTANT_TRIVIAL:
+            return False
+        # Block self-referential recall-narration (breaks the echo-chamber).
+        if is_recall_narration(t):
             return False
     return True
 
