@@ -235,15 +235,43 @@ def _fetch_rss(feed_url: str, source_name: str, category: str = "news",
 
 # Free RSS feeds — no API key, no login
 _RSS_FEEDS = [
+    # General / world news — reputable, broad (not region-specific, so it works
+    # for any user). Location queries are filtered against these by topic match.
     ("https://feeds.bbci.co.uk/news/rss.xml",              "BBC News",       "world"),
-    ("https://feeds.bbci.co.uk/news/science_and_environment/rss.xml", "BBC Science", "science"),
+    ("https://feeds.bbci.co.uk/news/world/rss.xml",        "BBC World",      "world"),
+    ("https://www.theguardian.com/world/rss",              "The Guardian",   "world"),
+    ("https://feeds.npr.org/1001/rss.xml",                 "NPR",            "world"),
+    ("https://www.aljazeera.com/xml/rss/all.xml",          "Al Jazeera",     "world"),
+    # Tech
     ("https://feeds.arstechnica.com/arstechnica/index",    "Ars Technica",   "tech"),
     ("https://feeds.feedburner.com/TechCrunch",            "TechCrunch",     "tech"),
+    # Science / physics
+    ("https://feeds.bbci.co.uk/news/science_and_environment/rss.xml", "BBC Science", "science"),
     ("https://www.nasa.gov/rss/dyn/breaking_news.rss",     "NASA News",      "science"),
     ("https://phys.org/rss-feed/",                         "Phys.org",       "science"),
     ("https://physicsworld.com/feed/",                     "Physics World",  "physics"),
     ("https://www.sciencedaily.com/rss/matter_energy/physics.xml", "ScienceDaily Physics", "physics"),
 ]
+
+
+def _is_science_topic(topic: str) -> bool:
+    """arXiv is academic — only appropriate for science/physics/AI/CS topics, never
+    for general or location news (where it surfaces papers instead of headlines)."""
+    t = (topic or "").strip().lower()
+    if not t:
+        return False
+    _sci_exact = {
+        "physics", "science", "space", "astronomy", "cosmology", "quantum",
+        "ai", "artificial intelligence", "machine learning", "llm", "ml",
+        "math", "mathematics", "biology", "chemistry", "computer science",
+        "cs", "neuroscience", "arxiv", "research",
+    }
+    if t in _sci_exact:
+        return True
+    return any(k in t for k in (
+        "physic", "quantum", "cosmolog", "astro", "arxiv", "neural network",
+        "machine learning", "particle", "relativ", "supernova", "black hole",
+    ))
 
 
 _TOPIC_TERMS = {
@@ -380,7 +408,12 @@ class NewsFetcher:
             return {"skipped": "offline_mode", "fetched": 0, "stored_new": 0, "errors": []}
         sources = _topic_default_sources(topic, sources)
         if sources is None or "all" in sources:
-            sources = ["hn", "reddit", "arxiv", "rss"]
+            # arXiv only for science/physics/AI topics; general & location news
+            # uses real news feeds (RSS + HN + reddit), never academic papers.
+            if _is_science_topic(topic):
+                sources = ["hn", "reddit", "arxiv", "rss"]
+            else:
+                sources = ["rss", "hn", "reddit"]
 
         all_articles: List[Dict] = []
         errors: List[str] = []
