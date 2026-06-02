@@ -204,18 +204,42 @@ def coerce_user_visible(result: Any, user_input: Any = "", mode: Any = "") -> st
                 _blob = json.loads(_s)
                 _surface = _blob.get("surface", "")
                 if _surface == "runtime_truth_evidence":
-                    _eff = _blob.get("effective", {})
-                    _cfg = _blob.get("configured", {})
+                    _eff = _blob.get("effective", {}) or {}
+                    _cfg = _blob.get("configured", {}) or {}
+                    _gpu = _blob.get("gpu", {}) or {}
+                    _live = (_blob.get("gguf", {}) or {}).get("live_override", {}) or {}
+                    # provider/model/gpu are NOT top-level here — they live under
+                    # configured / gguf.live_override / gpu. Reading _blob['provider']
+                    # etc. returned 'unknown' while a model was clearly loaded, so this
+                    # compact surface contradicted the full RUNTIME_STATUS dump seconds
+                    # apart. Resolve from the correct places, preferring the LIVE model,
+                    # and fall back to the same resolver the full dump uses so the two
+                    # surfaces can never disagree again.
+                    _provider = _live.get("provider") or _cfg.get("provider")
+                    _model = (_live.get("model_path") or _live.get("model_name")
+                              or _cfg.get("model_path"))
+                    _gpu_name = _gpu.get("name") or _eff.get("gpu")
+                    try:
+                        from eli.runtime.live_introspection import _runtime_core as _rc
+                        _core = _rc()
+                        if (not _provider) or _provider == "unknown":
+                            _provider = _core.get("provider")
+                        if (not _model) or _model == "unknown":
+                            _model = _core.get("model_path") or _core.get("model_name")
+                    except Exception:
+                        pass
+                    _mb = str(_model or "").strip()
+                    _model_disp = (Path(_mb).name if _mb and _mb != "unknown" else "unknown")
                     _lines = [
-                        f"Provider: {_blob.get('provider', 'unknown')}",
-                        f"Model: {_blob.get('model_path', 'unknown')}",
+                        f"Provider: {_provider or 'unknown'}",
+                        f"Model: {_model_disp}",
                         (
                             f"Effective — ctx: {_eff.get('n_ctx', '?')}, "
                             f"gpu_layers: {_eff.get('n_gpu_layers', '?')}, "
                             f"threads: {_eff.get('n_threads', '?')}, "
                             f"batch: {_eff.get('n_batch', '?')}"
                         ),
-                        f"GPU: {_eff.get('gpu', 'unavailable')}",
+                        f"GPU: {_gpu_name or 'unavailable'}",
                     ]
                     return "\n".join(_lines)
                 if _surface == "identity_evidence":
