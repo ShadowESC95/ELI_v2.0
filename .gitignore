@@ -123,3 +123,6 @@ eli_notebook/
 
 # ── Per-user runtime config (never ship personal settings) ───────────────────
 config/settings.json
+config/plugins_state.json
+config/pomodoro.json
+config/quick_actions.json

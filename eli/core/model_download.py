@@ -222,6 +222,17 @@ def download_model(
         return {"ok": False, "error": f"Download failed: {e}",
                 "resumable": bool(part_path.exists()), "part": str(part_path)}
 
+    # Truncation guard: the stream can end "cleanly" yet short (e.g. a silently
+    # half-closed connection). If the server told us the size, the bytes on disk
+    # must match it — otherwise keep the .part for resume rather than renaming a
+    # truncated file into place and calling it done.
+    if total > 0:
+        actual = part_path.stat().st_size if part_path.exists() else 0
+        if actual < total:
+            return {"ok": False,
+                    "error": f"Download incomplete: got {actual} of {total} bytes.",
+                    "resumable": True, "part": str(part_path)}
+
     if not is_valid_gguf(part_path):
         return {"ok": False, "error": "Downloaded file is not a valid GGUF (corrupt or wrong URL).",
                 "part": str(part_path)}
