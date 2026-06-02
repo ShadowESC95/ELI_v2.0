@@ -24,17 +24,11 @@ class TestPersistDispatchResult:
         """_persist_dispatch_result creates the table and inserts a row."""
         db_path = tmp_path / "agent.sqlite3"
 
-        with patch("eli.cognition.agent_bus._persist_dispatch_result") as _mock:
-            # Import the real function directly
-            pass
-
         from eli.cognition.agent_bus import _persist_dispatch_result
 
-        with patch("eli.core.paths.get_paths") as gp_mock:
-            paths_mock = MagicMock()
-            paths_mock.artifacts_dir = tmp_path
-            gp_mock.return_value = paths_mock
-
+        # _persist_dispatch_result resolves the DB via eli.core.paths.agent_db_path()
+        # (imported at call time inside the writer thread) — patch that target.
+        with patch("eli.core.paths.agent_db_path", return_value=db_path):
             _persist_dispatch_result(
                 action="CHAT",
                 agents_used=["ReasoningAgent"],
