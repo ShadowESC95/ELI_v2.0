@@ -16,12 +16,12 @@ def test_runtime_package_init():
 
 
 def test_runtime_eli_agent_has_class():
-    mod = _load("eli.runtime.eli_agent")
-    syms = dir(mod)
-    # Module is function-based: dispatch, main, quick_route are the public API
-    matches = [s for s in syms if "Agent" in s or "Eli" in s
-               or s in ("dispatch", "main", "quick_route", "run")]
-    assert matches, f"No Agent class/function in eli_agent.py: {syms}"
+    # The standalone eli.runtime.eli_agent module was removed; its runtime
+    # dispatch role is now CognitiveEngine.process, reached via the headless
+    # runtime entry point. Verify that entry exists.
+    mod = _load("eli.cli.headless")
+    assert callable(getattr(mod, "run_headless", None)), \
+        f"no runtime dispatch entry (run_headless) in eli.cli.headless: {dir(mod)}"
 
 
 def test_runtime_grounded_remediation_has_class():
