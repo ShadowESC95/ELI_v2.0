@@ -3142,13 +3142,14 @@ class CognitiveEngine:
 
     def _compact_persona(self) -> str:
         persona = _load_persona_text().strip()
-        # 3800-char limit captures all critical voice directives including the
-        # wit/sarcasm/chemistry contract sections that appear after the first
-        # 2200 chars.  The previous 2200 limit silently dropped "Do not become
-        # bland, HR-coded" and the full smalltalk contract, causing flat robotic
-        # responses on any short casual input that triggered compact mode.
-        if len(persona) > 3800:
-            persona = persona[:3800].rstrip() + "\n[persona trimmed]"
+        # Carry the full persona voice into compact/quick mode too. The earlier
+        # 3800-char cap silently dropped the personality-ownership / EliWorld /
+        # banned-disclaimer sections, flattening the voice on casual input. The
+        # 12000 cap is a pure safety valve against runaway growth — at the current
+        # persona size (~11k) nothing is trimmed, and the prompt still fits the
+        # context window comfortably (persona + memory + recent turns « n_ctx).
+        if len(persona) > 12000:
+            persona = persona[:12000].rstrip() + "\n[persona trimmed]"
         return persona
 
     def _quick_smalltalk_response(self, user_input: str) -> Optional[str]:

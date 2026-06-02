@@ -45,10 +45,10 @@
   },
   {
     "input": "hello",
-    "expected_action": "NOOP"
+    "expected_action": "CHAT"
   },
   {
     "input": "xyzzy plugh",
-    "expected_action": "NOOP"
+    "expected_action": "CHAT"
   }
 ]
