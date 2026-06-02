@@ -60,6 +60,32 @@ def _tag_list(tags: Any) -> list[str]:
     return [s] if s else []
 
 
+# Deterministic-grounding / status report outputs (SELF_REPORT, MEMORY_STATUS,
+# FRONTIER_STATUS, etc.). They are real answers to specific questions, but they
+# are internal evidence dumps — never natural conversation. If they leak into
+# recent-conversation context the model parrots them for unrelated turns (e.g.
+# answering "good morning" with a stale "long-term memory rows: 737, FAISS: 1"
+# report). Excluded from context injection (not necessarily from storage).
+_REPORT_DUMP_MARKERS = (
+    "grounded eli self-report",
+    "grounded recent memory-processing answer",
+    "grounded recent update",
+    "grounded memory-truth",
+    "self-report / recent update evidence",
+    "frontier system status",
+    "(grounded local matrix)",
+    "long-term memory rows:",
+    "fts memory rows:",
+)
+
+
+def is_internal_report_dump(text: Any) -> bool:
+    """True if text is an internal grounded-report/status dump that must not be
+    injected into conversational context as if it were a natural reply."""
+    low = _low(text)
+    return any(m in low for m in _REPORT_DUMP_MARKERS)
+
+
 def should_store_conversation_turn(role: str, text: Any) -> bool:
     t = _norm(text)
     if not t:
