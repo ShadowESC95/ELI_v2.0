@@ -89,7 +89,7 @@ def reflect_on_period(hours: int = 24) -> Dict[str, Any]:
 
     # Runtime evidence ledger: repeated actions, challenges, artifacts.
     try:
-        from eli.runtime.evidence_ledger import artifact_snapshot, recent_events, repeated_event_signals
+        from eli.runtime.evidence_ledger import recent_generated_artifacts, recent_events, repeated_event_signals
 
         repeated = repeated_event_signals(limit=12, days=max(1, int((hours + 23) // 24)))
         if repeated:
@@ -123,13 +123,14 @@ def reflect_on_period(hours: int = 24) -> Dict[str, Any]:
         if challenges:
             insights.append(f"User correction/challenge signals: {len(challenges)} recent events")
 
-        generated = artifact_snapshot("all", limit=6)
+        # Source from real generation EVENTS, not filesystem mtime — a touched/
+        # copied old file must never be reported as "just generated".
+        generated = recent_generated_artifacts(hours=hours, limit=5)
         if generated:
-            newest = generated[0]
+            names = ", ".join(g.get("name", "") for g in generated if g.get("name"))
             insights.append(
-                "Recent generated artifacts: "
-                + ", ".join(item.get("name", "") for item in generated[:4] if item.get("name"))
-                + f"; latest={newest.get('name')}"
+                f"Generated artifacts ({len(generated)} in last {int(hours)}h): {names}"
+                f"; latest={generated[0].get('name')}"
             )
     except Exception:
         pass
