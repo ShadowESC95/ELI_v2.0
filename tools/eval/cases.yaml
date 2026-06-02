@@ -1,0 +1,110 @@
+# ELI eval cases. Seeded from real failures fixed during development — every
+# bug below shipped a fix, so these are permanent regression guards.
+#
+# Per case:
+#   id        unique name
+#   target    router | engine   (router = fast, model-free; engine = needs a model)
+#   prompt    the user input
+#   network   on | off          (optional; forces network state for this case)
+#   mode      reasoning mode for engine target (default quick)
+#   assert    list of {type, value} — see assertions.py
+#
+# Router cases run in seconds with no model. Engine cases SKIP cleanly if no
+# model is loaded.
+
+# ── Routing regressions (model-free) ───────────────────────────────────────
+- id: media_not_from_prose
+  target: router
+  prompt: >-
+    the whole grounding spine is an immune system, scar tissue turned into
+    architecture. tribulation makes you stronger if you metabolise it. you
+    clearly do the metabolising. give ELI hell on my behalf. Ping me when the
+    next log lands.
+  assert:
+    - {type: action_not, value: [MEDIA_CONTROL, NEXT_MEDIA, PREVIOUS_MEDIA]}
+
+- id: next_track_real
+  target: router
+  prompt: "next track"
+  assert:
+    - {type: action_is, value: [NEXT_MEDIA, MEDIA_CONTROL]}
+
+- id: next_video_on_youtube
+  target: router
+  prompt: "next video on youtube"
+  assert:
+    - {type: action_is, value: [NEXT_MEDIA, MEDIA_CONTROL]}
+
+- id: pause_youtube
+  target: router
+  prompt: "pause the youtube video"
+  assert:
+    - {type: action_is, value: [PAUSE_MEDIA, MEDIA_CONTROL]}
+
+- id: volume_up
+  target: router
+  prompt: "volume up"
+  assert:
+    - {type: action_is, value: [VOLUME, MEDIA_CONTROL]}
+
+- id: fresh_document_not_pdf_folder
+  target: router
+  prompt: "create a document about black holes"
+  assert:
+    - {type: action_not, value: [ANALYZE_PDF_FOLDER]}
+
+# ── Web routing (need network on; still model-free at router level) ─────────
+# Router routes realtime facts (release date / when-is-out) straight to web.
+# Note: open-ended "who is X / X's real name" is intentionally NOT routed here —
+# that's caught safely by the engine's grounding escalation (see engine cases),
+# not the router, so it can't over-route conversational "who" questions.
+- id: realtime_fact_routes_to_web
+  target: router
+  network: on
+  prompt: "what is the release date of gta 6"
+  assert:
+    - {type: action_is, value: [WEB_SEARCH]}
+
+- id: bare_search_no_subject
+  target: router
+  network: on
+  prompt: "you have access to the web, do a search"
+  assert:
+    - {type: action_not, value: [WEB_SEARCH]}
+
+- id: meta_question_not_searched
+  target: router
+  network: on
+  prompt: "how do you know the album comes out soon if you don't know the release date"
+  assert:
+    - {type: action_not, value: [WEB_SEARCH]}
+
+- id: frustrated_reask_trimmed
+  target: router
+  network: on
+  prompt: "what the fuck are you talking about when is the new dune movie out"
+  assert:
+    - {type: action_is, value: [WEB_SEARCH]}
+
+# ── Engine-level: grounding / hedging / confabulation (need a model) ────────
+- id: factual_offline_hedges
+  target: engine
+  network: off
+  prompt: "what is the capital of burkina faso's third largest city"
+  assert:
+    - {type: hedged, value: true}
+
+- id: no_bruce_samuelson_confab
+  target: engine
+  network: off
+  prompt: "what is eminem's real name"
+  assert:
+    - {type: not_contains, value: "Bruce Samuelson"}
+
+- id: banter_no_escalation
+  target: engine
+  network: on
+  prompt: "haha how are you doing today bud"
+  assert:
+    - {type: action_is, value: [CHAT]}
+    - {type: response_mode, value: [QUICK, "", DIRECT, FULL_CONTROL_PIPELINE, SELF_CONTAINED_EXECUTOR_ANSWER]}
