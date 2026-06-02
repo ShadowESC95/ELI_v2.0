@@ -2080,13 +2080,15 @@ class Memory(metaclass=_MemoryMeta):
         finally:
             conn.close()
 
-    def search_memory(self, query, limit=10, include_conversations=True, user_id=None):
+    def search_memory(self, query, limit=10, include_conversations=True, user_id=None, session_id=None):
         _q_lower = query.lower() if query else ""
         _q_lower = str(query or "").lower()
         out = list(self.recall_memory(query, limit=limit))
         if include_conversations and len(out) < int(limit):
             try:
-                conv_hits = self.search_conversations(query, user_id=user_id, limit=max(1, int(limit) - len(out)))
+                conv_hits = self.search_conversations(
+                    query, user_id=user_id, limit=max(1, int(limit) - len(out)),
+                    session_id=session_id)
             except Exception:
                 conv_hits = []
             for row in conv_hits:
@@ -2148,11 +2150,19 @@ class Memory(metaclass=_MemoryMeta):
                 "memory about me",
             ))
 
+        try:
+            from eli.runtime.persistence_gate import is_recall_narration as _is_narr
+        except Exception:
+            _is_narr = lambda _t: False
+
         _filtered = []
         for _hit in out:
             _txt = _hardening_text_of(_hit)
             _src = _hardening_source_of(_hit)
             if not _txt:
+                continue
+            # B2: never surface ELI's own recall-narration from any source.
+            if _is_narr(_txt):
                 continue
             if _src == "vector":
                 _hit_terms = set(re.findall(r"[a-z0-9]+", _txt.lower()))
@@ -2530,7 +2540,7 @@ class Memory(metaclass=_MemoryMeta):
         finally:
             conn.close()
 
-    def search_conversations(self, query, user_id=None, limit=10):
+    def search_conversations(self, query, user_id=None, limit=10, session_id=None):
         q = str(query or "").strip()
         if not q:
             return []
@@ -2575,7 +2585,7 @@ class Memory(metaclass=_MemoryMeta):
             params.append(int(limit))
             rows = conn.execute(sql, params).fetchall()
             rows = list(reversed(rows))  # chronological order
-            return [
+            result = [
                 {
                     "timestamp": r[0] or r[5] or 0,
                     "session_id": r[1],
@@ -2585,6 +2595,23 @@ class Memory(metaclass=_MemoryMeta):
                 }
                 for r in rows
             ]
+            # B2: drop ELI's own cross-session recall-narration ("from a previous
+            # session, we were…") — even rows stored before the B1 store-gate
+            # landed — so the self-amplifying echo can't surface in recall.
+            try:
+                from eli.runtime.persistence_gate import is_recall_narration as _is_narr
+                result = [h for h in result if not _is_narr(h.get("content"))]
+            except Exception:
+                pass
+            # B2: bias to the ACTIVE session — current-session turns first, so the
+            # live conversation outranks days-old matches (stable; recency order
+            # preserved within each group).
+            if session_id:
+                _sid = str(session_id)
+                _cur = [h for h in result if str(h.get("session_id")) == _sid]
+                _oth = [h for h in result if str(h.get("session_id")) != _sid]
+                result = _cur + _oth
+            return result
         finally:
             conn.close()
 

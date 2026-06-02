@@ -339,7 +339,8 @@ class OrchestratorMemoryAgent:
         # ── Secondary: conversation history search ────────────────────────
         try:
             conv = self.engine.memory.search_conversations(
-                query, user_id=self.engine.user_id, limit=max(4, limit // 3)) or []
+                query, user_id=self.engine.user_id, limit=max(4, limit // 3),
+                session_id=getattr(self.engine, "session_id", None)) or []
             for h in conv:
                 text = (h.get("content") or h.get("text") or "").strip()
                 if text:
