@@ -6738,8 +6738,9 @@ def _execute_impl(action: str, args: Optional[Dict[str, Any]] = None) -> Dict[st
     # ---- ANALYZE_PDF_FOLDER ----
     if a == "ANALYZE_PDF_FOLDER":
         try:
-            from eli.perception.analyze_pdfs import analyze_folder, store_analysis_to_memory, PDFAnalysis, analyze
-            from pathlib import Path as _PP
+            import os as _ospdf
+            from eli.perception.analyze_pdfs import (
+                analyze_folder, store_analysis_to_memory, PDFAnalysis, PDFDoc)
             folder = str(args.get("folder") or args.get("path") or "").strip()
             if not folder:
                 return {"ok": False, "action": a, "error": "Missing folder path",
@@ -6747,31 +6748,79 @@ def _execute_impl(action: str, args: Optional[Dict[str, Any]] = None) -> Dict[st
             recursive = bool(args.get("recursive", True))
             limit = args.get("limit")
             result = analyze_folder(folder, recursive=recursive, limit=int(limit) if limit else None)
-            # Store each analyzed document into ELI memory
-            stored = 0
-            db_paths = resolve_db_paths() if callable(globals().get("resolve_db_paths")) else None
-            _db = None
+            results = result.get("results", []) or []
+            count = result.get("count", 0)
+            errors = result.get("errors", []) or []
+            _fname = _ospdf.path.basename(folder.rstrip("/")) or folder
+            if count == 0:
+                msg = (f"No readable PDF text found in “{_fname}” ({len(errors)} unreadable). "
+                       f"The PDFs may be image-only/scanned (need OCR) or the folder has none.")
+                return {"ok": True, "action": a, "content": msg, "response": msg,
+                        "count": 0, "stored": 0, "errors": errors}
+
+            # Per-document index + aggregated opening-pages text for a REAL summary.
+            index_lines: list = []
+            preview_parts: list = []
+            for r in results:
+                _doc = r.get("doc", {}) or {}
+                _name = _ospdf.path.basename(str(_doc.get("path", "")))
+                _pages = _doc.get("pages", "?")
+                _chars = int(_doc.get("chars", 0) or 0)
+                _prev = (r.get("preview") or "").strip().replace("\n", " ")
+                index_lines.append(f"  {len(index_lines) + 1}. {_name} ({_pages}p, {_chars} chars)")
+                if _prev:
+                    preview_parts.append(f"### {_name}\n{_prev[:1400]}")
+
+            # Synthesize an actual content summary from the extracted text — not a
+            # bare count. Capped so the prompt fits n_ctx.
+            summary = ""
+            try:
+                from eli.cognition import gguf_inference as _gi
+                if preview_parts and _gi.load_model() is not None:
+                    _blob = "\n\n".join(preview_parts)[:14000]
+                    summary = (_gi.chat_completion(
+                        f"Below are the opening pages of {count} PDF documents from the folder "
+                        f"“{_fname}”. Write a concise, technical summary of what this body of work "
+                        f"covers: the central topics, methods/formalism, and how the documents relate. "
+                        f"Be specific and grounded ONLY in the text shown — do not invent results.\n\n{_blob}",
+                        system="You are a precise technical analyst summarising a collection of research PDFs.",
+                        max_tokens=700, temperature=0.3) or "").strip()
+            except Exception as _sum_err:
+                log.debug(f"[ANALYZE_PDF_FOLDER] summary synthesis failed: {_sum_err}")
+                summary = ""
+
+            # Persist each doc to memory (proper dataclass reconstruction; report honestly).
+            stored, store_failed = 0, 0
             try:
                 from eli.memory import resolve_db_paths as _rdb
                 _db = _rdb().user_db
             except Exception:
-                pass
+                _db = None
             if _db:
-                for r in result.get("results", []):
+                for r in results:
                     try:
-                        doc_obj = type("D", (), r["doc"])()
-                        preview = r.get("preview", "")
-                        chunks = r.get("chunks", [])
-                        pa = type("PA", (), {"doc": doc_obj, "preview": preview, "chunks": chunks, "warnings": r.get("warnings", [])})()
+                        pa = PDFAnalysis(
+                            doc=PDFDoc(**(r.get("doc") or {})),
+                            preview=r.get("preview", ""),
+                            chunks=r.get("chunks", []) or [],
+                            warnings=r.get("warnings", []) or [],
+                        )
                         store_analysis_to_memory(_db, pa)
                         stored += 1
                     except Exception:
-                        pass
-            count = result.get("count", 0)
-            errors = result.get("errors", [])
-            msg = f"Analyzed {count} PDF(s) in {folder}. {stored} stored to memory. {len(errors)} error(s)."
+                        store_failed += 1
+
+            parts = [f"Analysed {count} PDF(s) in “{_fname}”:", ""]
+            if summary:
+                parts += [summary, ""]
+            parts.append("Documents:")
+            parts += index_lines
+            if errors:
+                parts.append(f"\n({len(errors)} file(s) could not be read.)")
+            msg = "\n".join(parts)
             return {"ok": True, "action": a, "content": msg, "response": msg,
-                    "count": count, "stored": stored, "errors": errors}
+                    "count": count, "stored": stored, "store_failed": store_failed,
+                    "errors": errors, "summary": summary}
         except Exception as e:
             return {"ok": False, "action": a, "error": str(e), "content": str(e), "response": str(e)}
 
