@@ -21,10 +21,12 @@ def test_wire_cognition_to_memory():
 
 
 def test_wire_runtime_to_cognition():
-    """Runtime agent and cognition orchestrator importable together."""
-    agent = importlib.import_module("eli.runtime.eli_agent")
+    """Runtime entry and cognition orchestrator importable together."""
+    # eli.runtime.eli_agent was removed; the runtime entry is now eli.cli.headless
+    # (which drives CognitiveEngine). Verify it loads alongside the orchestrator.
+    runtime = importlib.import_module("eli.cli.headless")
     orch  = importlib.import_module("eli.cognition.orchestrator")
-    assert agent and orch
+    assert runtime and orch
 
 
 def test_wire_planning_to_memory():
