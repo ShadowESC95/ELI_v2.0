@@ -1024,6 +1024,21 @@ def _eli_web_lookup_prepass(raw: str, low: str):
     query = re.sub(r"\b(for me|please|now|on the internet|online)\b\.?$", "", query, flags=re.I).strip(" .?!")
     if not query:
         query = raw.strip()
+    # Bare search instruction with NO subject ("do a search", "you have access
+    # to the web, do a search", "look it up"): the query is pure meta-instruction
+    # about searching. Searching the literal sentence returns "how to browse the
+    # dark web" garbage. Strip search/meta/stop words; if nothing of substance
+    # remains, there is no subject — don't web-search, fall back to CHAT so ELI
+    # asks what to look up instead of searching its own instruction.
+    _subject = re.sub(
+        r"\b(?:you|i|we|can|could|would|please|do|go|run|just|a|an|the|to|for|me|my|now|"
+        r"have|has|access|use|using|web|internet|online|search|searching|searches|google|"
+        r"googling|look|looking|looks|up|it|this|that|these|those|check|checking|confirm|"
+        r"verify|find|finding|out|on|and|or|so|then|actual|actually|real|really)\b",
+        " ", query, flags=re.I)
+    _subject = re.sub(r"[^a-z0-9]+", " ", _subject, flags=re.I).strip()
+    if len(_subject) < 3:
+        return None  # no subject → stay CHAT; don't search the meta-instruction
     return _mk("WEB_SEARCH", {"query": query}, 0.92,
                matched_by="web.realtime_lookup", entities={"query": query})
 
