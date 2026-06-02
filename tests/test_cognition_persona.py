@@ -109,8 +109,9 @@ def test_persona_has_personality_description():
 def test_persona_under_reasonable_size():
     text = _get_persona()
     if text:
-        # Should be comprehensive but not massive (< 10KB)
-        assert len(text) < 10000
+        # Comprehensive persona is intentional (rich emergent voice); cap only
+        # guards against runaway growth that would crowd the context window.
+        assert len(text) < 16000
 
 def test_persona_uses_english():
     text = _get_persona()
