@@ -306,6 +306,75 @@ def artifact_snapshot(kind: str = "all", limit: int = 12) -> List[Dict[str, Any]
     return rows[: int(limit or 12)]
 
 
+# Actions that genuinely produce a user-facing artifact.
+_GENERATION_ACTIONS = (
+    "GENERATE_SCRIPT", "CODE_SOLVE", "GENERATE_DOCUMENT", "DOC_GENERATE",
+    "CREATE_DOCUMENT", "CONVERT_DOCUMENT", "CREATE_FILE", "GENERATE_PROJECT",
+)
+
+
+def recent_generated_artifacts(*, hours: float = 24, limit: int = 6,
+                               db_path: Optional[str | Path] = None) -> List[Dict[str, Any]]:
+    """Artifacts ELI ACTUALLY generated, from recorded generation events within
+    the window — NOT filesystem mtime (which any touch/copy/regen bumps, so a
+    week-old script can look 'just generated'). Returns newest-first, deduped by
+    name: [{"name", "action", "ts"}].
+    """
+    since = time.time() - float(hours or 24) * 3600.0
+    placeholders = ",".join("?" * len(_GENERATION_ACTIONS))
+    conn = _connect(db_path)
+    try:
+        rows = conn.execute(
+            f"""
+            SELECT ts, action, subject, content
+            FROM runtime_events
+            WHERE event_type = 'executor_action'
+              AND action IN ({placeholders})
+              AND COALESCE(ts, timestamp, 0) >= ?
+            ORDER BY COALESCE(ts, timestamp, 0) DESC
+            LIMIT 200
+            """,
+            (*_GENERATION_ACTIONS, since),
+        ).fetchall()
+    except Exception:
+        return []
+    finally:
+        try:
+            conn.close()
+        except Exception:
+            pass
+
+    out: List[Dict[str, Any]] = []
+    seen: set = set()
+    for ts, action, subject, content in rows:
+        name = ""
+        c = str(content or "")
+        # Preferred: the artifact_generated marker carries the real written path.
+        if '"artifact_generated"' in c and '"path"' in c:
+            try:
+                i, j = c.find("{"), c.rfind("}")
+                obj = json.loads(c[i:j + 1])
+                p = obj.get("path")
+                if p:
+                    name = os.path.basename(str(p))
+            except Exception:
+                name = ""
+        if not name:
+            s = str(subject or "").strip()
+            if s and s not in ("command_result",):
+                name = os.path.basename(s) if ("/" in s or "." in s) else s
+        if not name:
+            continue
+        key = name.lower()
+        if key in seen:
+            continue
+        seen.add(key)
+        out.append({"name": name, "action": action, "ts": ts})
+        if len(out) >= int(limit or 6):
+            break
+    return out
+
+
 def status_evidence(question: str = "", *, db_path: Optional[str | Path] = None) -> Dict[str, Any]:
     text = str(question or "").lower()
     artifact_kind = "all"
