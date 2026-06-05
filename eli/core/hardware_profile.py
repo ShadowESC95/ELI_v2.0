@@ -360,6 +360,79 @@ def _gpu_layers_for_model(size_gb: float, free_vram_mb: int, n_ctx: int,
     return max(0, n)
 
 
+def smart_fit_config(
+    model_size_gb: float,
+    free_vram_mb: int,
+    *,
+    user_ctx: int,
+    user_batch: int,
+    reserve_mb: int = 700,
+    kv_quantized: bool = False,
+    total_layers: Optional[int] = None,
+    ctx_grain: int = 2048,
+    min_ctx: int = 2048,
+    min_batch: int = 64,
+    min_gpu_fraction: float = 0.25,
+) -> tuple[int, int, int]:
+    """Smart loader fit.
+
+    Starts from the user's preferred ctx/batch with FULL GPU offload, then — if
+    that won't fit in the VRAM left after the required models (vision + nomic)
+    are resident — reduces to fit in this order:
+
+        1. GPU layers — first, in ~10% increments, down to a floor
+           (min_gpu_fraction of total); we don't strip the GPU entirely just to
+           keep a big ctx.
+        2. batch — halved toward min_batch.
+        3. ctx — last, in ctx_grain steps toward min_ctx, so context (quality)
+           is preserved as long as possible. ("Quality over speed".)
+        4. Only if it STILL won't fit: shed the remaining GPU layers to 0
+           (CPU offload) as a last resort.
+
+    KV cache for ALL layers lives on GPU in llama.cpp, so it scales with ctx
+    regardless of offload — only ctx reduction frees it. Compute/graph buffer
+    (the lazy first-decode allocation that OOMs) scales with ctx and batch.
+
+    Returns (n_ctx, n_gpu_layers, n_batch). n_gpu_layers is the 99 sentinel when
+    all layers fit, 0 for CPU-only. Pure/deterministic — no hardware calls.
+    """
+    total = int(total_layers or _layers_for_size(model_size_gb))
+    budget = max(0, int(free_vram_mb) - int(reserve_mb))
+    mb_per_layer = (model_size_gb * 1024.0) / max(1, total + 2)
+
+    def _needed(ctx: int, layers: int, batch: int) -> float:
+        gpu_model = mb_per_layer * layers
+        kv = _kv_cache_mb(ctx, total, quant=kv_quantized)
+        compute = _compute_graph_reserve_mb(ctx, batch)
+        return gpu_model + kv + compute + _CUDA_OVERHEAD_MB
+
+    ctx = max(min_ctx, int(user_ctx))
+    batch = max(min_batch, int(user_batch))
+    layers = total  # start fully offloaded
+
+    if budget <= 0:
+        return ctx, 0, batch  # no GPU budget → CPU-only
+
+    floor = max(0, int(total * min_gpu_fraction))
+    step = max(1, total // 10)
+
+    # 1) GPU layers, in increments, down to the floor.
+    while layers > floor and _needed(ctx, layers, batch) > budget:
+        layers = max(floor, layers - step)
+    # 2) batch.
+    while batch > min_batch and _needed(ctx, layers, batch) > budget:
+        batch = max(min_batch, batch // 2)
+    # 3) ctx — last, preserve context.
+    while ctx > min_ctx and _needed(ctx, layers, batch) > budget:
+        ctx = max(min_ctx, ctx - ctx_grain)
+    # 4) last resort: shed remaining GPU layers to 0.
+    while layers > 0 and _needed(ctx, layers, batch) > budget:
+        layers = max(0, layers - step)
+
+    n_layers = 99 if layers >= total else layers
+    return ctx, n_layers, batch
+
+
 def recommend(hw: Optional[HardwareProfile] = None,
               models: Optional[List[Dict[str, Any]]] = None) -> ModelRecommendation:
     """Generate optimal model + parameter recommendation for this hardware.

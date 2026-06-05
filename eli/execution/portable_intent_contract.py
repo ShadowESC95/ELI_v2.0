@@ -229,7 +229,15 @@ def try_route(text: str) -> Optional[dict]:
     m = re.fullmatch(r"(?:open|opens|launch|start|run)\s+(.+)", norm)
     if m:
         target = _clean_target(m.group(1))
-        if _looks_like_app_target(target):
+        # Deictic targets ("open it / that / this / here / there") mean "open
+        # what I'm looking at" — a gaze-cursor double-click, not an app launch.
+        # Let them fall through to the gaze router instead of opening an app
+        # literally named "it".
+        if target.lower().strip() in {
+            "it", "that", "this", "these", "those", "here", "there", "them",
+        }:
+            pass
+        elif _looks_like_app_target(target):
             return {
                 "action": "OPEN_APP",
                 "args": {"name": target, "target": target},
@@ -323,7 +331,13 @@ def try_route(text: str) -> Optional[dict]:
             "your", "our", "their", "its", "first", "now", "then", "also",
             "just", "not", "never", "always", "but", "and", "or", "so",
         }
-        if _before_words & _sentence_signals:
+        # A genuine "song by artist" query is short and single-clause. Long
+        # utterances, or anything spanning multiple sentences/clauses (interior
+        # . ! ? punctuation), are conversation with a stray "by" preposition —
+        # e.g. "Still being held up by my shoulders! haha. Nah, ...".
+        _too_long = len(norm.split()) > 9
+        _multi_sentence = bool(re.search(r"[.!?]", raw.strip().rstrip(".!? ")))
+        if (_before_words & _sentence_signals) or _too_long or _multi_sentence:
             pass  # "by" is a preposition in a sentence — not a media query
         else:
             query = _clean_target(raw)
