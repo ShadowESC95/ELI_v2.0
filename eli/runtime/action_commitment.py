@@ -78,6 +78,64 @@ def is_redo_directive(text: str) -> bool:
     return True
 
 
+# "Go deeper on <topic>" phrasings. When the previous turn was a news briefing,
+# the captured topic is what the user wants re-fetched specifically — not the
+# whole briefing again. Pure/deterministic so the engine can gate on it.
+_DEEPEN_RE = re.compile(
+    r"\b(?:"
+    r"look(?:ing)?\s+(?:closer|deeper)?\s*(?:in)?to|"
+    r"dig\s+(?:in)?to|delve\s+(?:in)?to|"
+    r"go\s+deeper\s+(?:on|into)|"
+    r"more\s+(?:on|about)|"
+    r"tell\s+me\s+more\s+(?:on|about)|"
+    r"expand\s+(?:on|about)|elaborate\s+on|"
+    r"(?:read|look)\s+(?:closer|more)\s+(?:on|about|into)"
+    r")\s+(.+)$",
+    re.I,
+)
+
+# Trailing nouns that are framing, not part of the topic ("the Hubble story").
+_DEEPEN_TAIL = re.compile(
+    r"\s+(?:story|stories|article|articles|news|headline|headlines|situation|"
+    r"thing|topic|piece|report|please|for\s+(?:me|us))\s*$",
+    re.I,
+)
+_DEEPEN_STOP = {"the", "a", "an", "that", "this", "it", "them", "those", "these"}
+
+
+def extract_deepen_topic(text: str) -> str:
+    """Return the topic the user wants to go deeper on, or "".
+
+    "look closer into Hubble" -> "Hubble"; "tell me more about the JWST story"
+    -> "JWST". The caller gates use of this on context (e.g. the previous turn
+    was a news briefing) so it never hijacks an unrelated "look into the bug".
+    """
+    s = str(text or "").strip()
+    if not s:
+        return ""
+    m = _DEEPEN_RE.search(s)
+    if not m:
+        return ""
+    topic = m.group(1).strip().strip("?.!,;:\"' ")
+    # Strip a trailing framing noun, possibly more than one ("the Hubble news
+    # story" -> "Hubble").
+    prev = None
+    while prev != topic:
+        prev = topic
+        topic = _DEEPEN_TAIL.sub("", topic).strip()
+    toks = [w for w in re.split(r"\s+", topic) if w]
+    while toks and toks[0].lower() in _DEEPEN_STOP:
+        toks.pop(0)
+    while toks and toks[-1].lower() in _DEEPEN_STOP:
+        toks.pop()
+    topic = " ".join(toks).strip()
+    # Reject runaway captures (a whole sentence) — a deepen topic is a short
+    # subject, not a clause.
+    if not topic or len(toks) > 6:
+        return ""
+    return topic
+
+
 def detect_action_commitment(text: str) -> Optional[Dict[str, str]]:
     """Return {clause, matched} if `text` promises/fakes an action, else None.
 

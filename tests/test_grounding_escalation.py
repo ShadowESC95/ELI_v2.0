@@ -71,3 +71,39 @@ def test_disabled_via_env(monkeypatch):
     monkeypatch.setenv("ELI_GROUNDING_ESCALATION", "0")
     assert G.escalate(_FakeEngine(), "what is eminems real name",
                       {"action": "CHAT"}, _FakeBus(0.10)) is None
+
+
+def test_self_meta_questions_never_escalate(monkeypatch):
+    # Regression: self-referential "what are you doing / how do you not know"
+    # questions were classified external → web-searched → produced a degenerate
+    # "-" answer. They must be non-factual (answered as conversational CHAT).
+    monkeypatch.setattr(C, "network_allowed", lambda: True)
+    for t in [
+        "what are you busy fixing",
+        "you just mentioned above that you are fixing things how do you not know what you were doing",
+        "what are you working on",
+        "what do you mean",
+        "why did you say that",
+    ]:
+        assert G.classify_factual(t) == (False, "none"), t
+        assert G.escalate(_FakeEngine(), t, {"action": "CHAT"}, _FakeBus(0.20)) is None, t
+
+
+def test_degenerate_answer_falls_through_to_hedge(monkeypatch):
+    # A model that synthesises a degenerate "-" must NOT surface it; the external
+    # ladder falls through to the honest hedge instead.
+    monkeypatch.setattr(C, "network_allowed", lambda: True)
+    import eli.execution.executor_enhanced as E
+    monkeypatch.setattr(
+        E, "execute",
+        lambda a, args=None: ({"web_grounded": True, "results": [1], "content": "x"}
+                              if a == "WEB_SEARCH" else {}))
+
+    class _DashEngine(_FakeEngine):
+        def _synthesize_answer(self, evidence, q, reasoning_mode=None, action=None):
+            return "-"
+
+    r = G.escalate(_DashEngine(), "what is eminems real name",
+                   {"action": "CHAT"}, _FakeBus(0.30))
+    assert r is not None and r["meta"]["response_mode"] == "ungrounded_hedge"
+    assert G._is_degenerate("-") and G._is_degenerate(". . .") and not G._is_degenerate("Detroit")
