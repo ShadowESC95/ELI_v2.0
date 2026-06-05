@@ -60,6 +60,51 @@ def test_show_me_topic_news_does_not_route_as_file_read():
     assert result["args"].get("topic") == "physics"
 
 
+def test_news_topic_strips_politeness_tail():
+    # "...for you" must not leak into the topic (was topic="you" / "hubble for you").
+    r = route("get news about Hubble for me")
+    assert r["action"] == "NEWS_FETCH"
+    assert r["args"].get("topic") == "hubble"
+
+    r2 = route("fetch me the news for you")
+    assert r2["action"] == "NEWS_FETCH"
+    assert not (r2["args"].get("topic") or "")   # general briefing, no junk topic
+
+
+def test_deepen_query_routes_to_topic_news():
+    # The follow-through rewrites a news deepen to this canonical form; it must
+    # resolve to a topic-scoped NEWS_FETCH, not a general dump.
+    r = route("fetch the latest news about Hubble")
+    assert r["action"] == "NEWS_FETCH"
+    assert r["args"].get("topic") == "hubble"
+
+
+def test_relational_going_on_is_not_news():
+    # Regression: "what's going on" aimed at ELI/the user must NOT detonate a
+    # news fetch mid-conversation. (Live bug: "are you blaming that on me or
+    # what's going on" → 55s NEWS_FETCH dump.)
+    for t in [
+        "are you blaming that on me or what's going on",
+        "what's going on with you",
+        "what's going on",
+        "what's going on eli",
+        "what's happening with the project",
+    ]:
+        assert route(t)["action"] != "NEWS_FETCH", f"false news on {t!r}"
+
+
+def test_world_scoped_and_explicit_news_still_route():
+    for t in [
+        "what's happening in the world",
+        "what's happening today",
+        "what's the news",
+        "latest news",
+        "any news",
+        "give me the headlines",
+    ]:
+        assert route(t)["action"] == "NEWS_FETCH", f"missed news on {t!r}"
+
+
 def test_date_and_time_route_to_deterministic_tools():
     assert route("what's the date")["action"] == "DATE"
     assert route("what day is it")["action"] == "DATE"
