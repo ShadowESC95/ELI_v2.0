@@ -1043,6 +1043,44 @@ def _eli_web_lookup_prepass(raw: str, low: str):
                matched_by="web.realtime_lookup", entities={"query": query})
 
 
+# Words that are never a real news topic on their own — question fragments,
+# politeness tails, and generic news adjectives. A topic that reduces to one of
+# these (or to nothing) means "no specific topic → general briefing".
+_NEWS_TOPIC_NOISE = frozenset({
+    "the", "a", "an", "any", "some", "today", "todays", "world", "current",
+    "latest", "recent", "news", "what", "whats", "is", "are", "was", "were",
+    "it", "me", "you", "us", "them", "that", "this", "please", "now", "thanks",
+    "thank", "for", "about", "on", "in", "of", "more", "story", "stories",
+})
+
+
+def _sanitise_news_topic(topic: str) -> str:
+    """Normalise a raw regex-captured news topic into a clean subject, or "".
+
+    Strips politeness/filler tails ("for you", "please", "right now"), leading
+    and trailing stop-words, and rejects topics that reduce to pure noise. This
+    is what stops "...the latest news for you" extracting topic="you" and
+    "...on Hubble for you" extracting topic="hubble for you".
+    """
+    t = (topic or "").strip().lower()
+    t = re.sub(r"[?.!,;:]+$", "", t).strip()
+    # Drop trailing politeness / deictic filler.
+    t = re.sub(r"\s+(?:for\s+(?:you|me|us)|right\s+now|please|thanks?|"
+               r"today|now|for\s+a\s+\w+)\s*$", "", t).strip()
+    # Trim leading/trailing stop-words token by token.
+    toks = [w for w in re.split(r"\s+", t) if w]
+    while toks and toks[0] in _NEWS_TOPIC_NOISE:
+        toks.pop(0)
+    while toks and toks[-1] in _NEWS_TOPIC_NOISE:
+        toks.pop()
+    cleaned = " ".join(toks).strip()
+    if not cleaned or all(w in _NEWS_TOPIC_NOISE for w in toks):
+        return ""
+    if len(cleaned) < 2:
+        return ""
+    return cleaned
+
+
 def route(text: str) -> Dict[str, Any]:
 
     raw, low = _normalize_text(text)
@@ -1497,15 +1535,33 @@ def route(text: str) -> Dict[str, Any]:
     if re.search(r"\b(fetch|get|pull|download|update)\b.{0,25}\bnews\b"
                  r"|\bnews\b.{0,20}(fetch|get|update|refresh)\b", low):
         _tm = re.search(r"(?:about|on|for|topic[:\s]+)\s*([a-z][a-z ]{2,30})", low)
+        _topic = _sanitise_news_topic(_tm.group(1)) if _tm else ""
         return _mk("NEWS_FETCH",
-                   {"mode": "fetch_and_show", "topic": _tm.group(1).strip() if _tm else "", "sources": ["all"]},
+                   {"mode": "fetch_and_show", "topic": _topic, "sources": ["all"]},
                    0.96, matched_by="news.fetch")
 
-    if re.search(r"\bwhat(?:'?s?|\s+is)\s+(happening|going\s+on|the\s+news)\b"
-                 r"|\bcurrent\s+events?\b|\blatest\s+news\b"
-                 r"|\btoday'?s?\s+news\b|\bworld\s+news\b|\bnews\s+today\b"
-                 r"|\bany\s+news\b|\bwhat'?s?\s+new\b"
-                 r"|\bthe\s+news\b|\bheadlines?\b|\bnews[,\s]*eli\b|\beli[,\s]*news\b", low) \
+    # Unambiguous news asks — always news (minus chatty interjections).
+    _news_explicit = re.search(
+        r"\bwhat(?:'?s?|\s+is)\s+the\s+news\b"
+        r"|\bcurrent\s+events?\b|\blatest\s+news\b"
+        r"|\btoday'?s?\s+news\b|\bworld\s+news\b|\bnews\s+today\b"
+        r"|\bany\s+news\b|\bwhat'?s?\s+new\b"
+        r"|\bthe\s+news\b|\bheadlines?\b|\bnews[,\s]*eli\b|\beli[,\s]*news\b", low)
+    # "what's happening / what's going on" is AMBIGUOUS: relational ("what's
+    # going on WITH YOU") far more often than news in a companion assistant.
+    # Only treat it as news when it's explicitly world/time-scoped, and never
+    # when it's aimed at ELI or the user (you/your/me/here/this/that/blaming…).
+    # Otherwise a casual "what's going on" detonates a 55s news dump mid-chat.
+    _amb = re.search(r"\bwhat(?:'?s?|\s+is)\s+(?:happening|going\s+on)\b", low)
+    _world_scope = re.search(
+        r"\b(?:in|around|out)\s+(?:the\s+)?world\b|\bout\s+there\b|\bin\s+the\s+news\b"
+        r"|\btoday\b|\blately\b|\brecently\b|\bglobally\b|\bworldwide\b|\banywhere\b"
+        r"|\baround\s+the\s+globe\b", low)
+    _relational = re.search(
+        r"\b(?:you|your|yourself|me|my|here|us|this|that|blaming|wrong|"
+        r"with\s+you)\b", low)
+    _news_ambiguous = bool(_amb and _world_scope and not _relational)
+    if (_news_explicit or _news_ambiguous) \
             and not re.search(r"\b(dude|bro|man|wtf|omg|lol|hey|seriously|really)\b", low):
         # Extract topic from "news in/about/on/for X" or "X news" phrasing.
         _topic = ""
@@ -1515,24 +1571,11 @@ def route(text: str) -> Dict[str, Any]:
         if not _tm:
             _tm = re.search(r"\b([a-z][a-z0-9 \-]{2,40})\s+news\b", low)
         if _tm:
-            _topic = _tm.group(1).strip().rstrip("?.!,;:")
-            # Reject non-topic matches: contraction artifacts ("s the latest"),
-            # question fragments ("what is the latest"), and stop words.
-            _TOPIC_NOISE = {
-                "the", "any", "today", "world", "current", "latest",
-                "what", "is", "are", "some", "news", "it", "me",
-                "what is the latest", "is the latest", "the latest",
-                "what are the", "what is",
-            }
-            _first_word = _topic.split()[0] if _topic else ""
-            if (not _topic
-                    or len(_first_word) < 2
-                    or _topic in _TOPIC_NOISE
-                    or _first_word in {"what", "how", "why", "when", "where", "who",
-                                       "is", "are", "was", "were", "the", "a", "an"}):
-                _topic = ""
+            # Sanitise: strips "for you", trailing/leading stop-words, and
+            # rejects question fragments / pure-noise captures.
+            _topic = _sanitise_news_topic(_tm.group(1))
         args_news = {"mode": "fetch_and_show", "sources": ["all"]}
-        if _topic and _topic not in {"the", "any", "today", "world", "current", "latest"}:
+        if _topic:
             args_news["topic"] = _topic
         return _mk("NEWS_FETCH", args_news, 0.95, matched_by="news.current_events")
 

@@ -70,6 +70,19 @@ _LOCAL_RE = re.compile(
     r"|persona|capabilit|database|sqlite|faiss|memory stack"
     r"|are you|who are you|what are you|you running|about yourself|yourself)\b", re.I)
 _LOCAL_PATH_RE = re.compile(r"[~/]\w|\.\w{1,4}\b")
+# Self-referential / conversational META — questions about ELI's OWN current
+# activity, its just-made statements, or this conversation. These are answered
+# from persona + conversation context (normal CHAT); escalating them to the
+# web/memory grounding ladder is what produced robotic hedges and a degenerate
+# "-" answer (Jason, 2026-06-05). Treated as NOT a checkable fact.
+_META_SELF_RE = re.compile(
+    r"\bwhat\s+(?:are|were)\s+you\s+(?:doing|busy|working\s+on|up\s+to|fixing|"
+    r"talking\s+about|saying|on\s+about|getting\s+at)\b"
+    r"|\bwhat'?s?\s+(?:up\s+with|going\s+on\s+with)\s+you\b"
+    r"|\bhow\s+(?:do|did|can|could)\s+you\s+not\s+(?:know|remember)\b"
+    r"|\bwhat\s+do\s+you\s+mean\b"
+    r"|\bwhy\s+(?:did|are|would|do)\s+you\s+(?:say|said|saying|do|doing|think)\b",
+    re.I)
 # Factual signal: third-party "who/what/when … is/was/real name", or a factual
 # claim/correction the user is asserting.
 _FACT_Q_RE = re.compile(
@@ -85,13 +98,26 @@ _FACT_CLAIM_RE = re.compile(
     re.I)
 
 
+def _is_degenerate(text: str) -> bool:
+    """True for model output that must never be surfaced as an answer: empty,
+    too short, or punctuation/symbol-only (e.g. a lone '-'). Such a generation
+    falls through to the honest hedge instead of being shown to the user."""
+    t = str(text or "").strip()
+    if len(t) < 3:
+        return True
+    if not re.search(r"[A-Za-z0-9]", t):  # nothing alphanumeric at all
+        return True
+    return False
+
+
 def classify_factual(text: str) -> Tuple[bool, str]:
     """Return (is_checkable_fact, domain) where domain ∈ {"external","local","none"}."""
     raw = (text or "").strip()
     low = raw.lower()
     if len(low.split()) < 2:
         return (False, "none")
-    if _BANTER_RE.search(low) or _OPINION_RE.search(low) or _COMMAND_RE.search(low):
+    if (_BANTER_RE.search(low) or _OPINION_RE.search(low)
+            or _COMMAND_RE.search(low) or _META_SELF_RE.search(low)):
         return (False, "none")
 
     is_fact = bool(
@@ -184,7 +210,7 @@ def escalate(
                     answer = engine._synthesize_answer(
                         evidence, user_input, reasoning_mode=reasoning_mode,
                         action="WEB_SEARCH")
-                    if answer and answer.strip():
+                    if answer and not _is_degenerate(answer):
                         return _result(answer, grounded=True, mode="escalation_web", trace=trace)
                 # web reachable but no usable results → hedge
                 continue
@@ -200,7 +226,7 @@ def escalate(
                             answer = engine._synthesize_answer(
                                 evidence, user_input, reasoning_mode=reasoning_mode,
                                 action="SELF_REPORT")
-                            if answer and answer.strip():
+                            if answer and not _is_degenerate(answer):
                                 return _result(answer, grounded=True,
                                                mode="escalation_local", trace=trace)
                 continue

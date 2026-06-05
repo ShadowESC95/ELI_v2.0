@@ -68,3 +68,28 @@ def test_not_redo():
         "thanks, that's great",
     ]:
         assert not redo(t), f"false redo: {t!r}"
+
+
+from eli.runtime.action_commitment import extract_deepen_topic as deepen
+
+
+def test_extract_deepen_topic():
+    # "look closer into Hubble" must yield the topic, not the whole briefing,
+    # so a news deepen re-fetches that subject (Jason: topic-deepen bug).
+    cases = {
+        "look closer into Hubble": "Hubble",
+        "look into Hubble": "Hubble",
+        "tell me more about Hubble": "Hubble",
+        "look closer into the Hubble story": "Hubble",
+        "can you look deeper into the Hubble news": "Hubble",
+        "more on Hubble": "Hubble",
+        "dig into Hubble": "Hubble",
+        "go deeper on the Gaza ceasefire": "Gaza ceasefire",
+    }
+    for text, want in cases.items():
+        assert deepen(text) == want, f"{text!r} -> {deepen(text)!r}, want {want!r}"
+
+
+def test_deepen_topic_ignores_non_deepen():
+    for t in ["what is the latest news", "play hubble by someone", "hello there", ""]:
+        assert deepen(t) == "", f"false deepen topic on {t!r}: {deepen(t)!r}"
