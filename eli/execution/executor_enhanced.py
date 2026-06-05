@@ -2392,25 +2392,41 @@ def _spotify_search(query: str) -> bool:
 
 def _spotify_play() -> bool:
     """Start/resume Spotify playback (no Web API). After a spotify:search: OpenUri
-    the search results are the active context, so Play starts the top match."""
+    the search results are the active context, so Play starts the top match.
+
+    Returns True only if playback actually reaches the 'Playing' state — a Play
+    call that returns 0 but leaves Spotify paused/stopped is reported as False so
+    callers can be honest about search-only outcomes.
+    """
     import subprocess as _sp2
     try:
-        r = _sp2.run(["playerctl", "-p", "spotify", "play"], capture_output=True, timeout=5)
-        if r.returncode == 0:
-            return True
+        _sp2.run(["playerctl", "-p", "spotify", "play"], capture_output=True, timeout=5)
     except Exception:
         pass
     try:
-        r = _sp2.run(
+        _sp2.run(
             ["dbus-send", "--print-reply",
              "--dest=org.mpris.MediaPlayer2.spotify",
              "/org/mpris/MediaPlayer2",
              "org.mpris.MediaPlayer2.Player.Play"],
             capture_output=True, timeout=5,
         )
-        return r.returncode == 0
     except Exception:
-        return False
+        pass
+    return _spotify_is_playing()
+
+
+def _spotify_is_playing() -> bool:
+    """True iff Spotify's MPRIS PlaybackStatus is 'Playing'."""
+    import subprocess as _sp2
+    try:
+        r = _sp2.run(["playerctl", "-p", "spotify", "status"],
+                     capture_output=True, timeout=5, text=True)
+        if r.returncode == 0 and "playing" in (r.stdout or "").strip().lower():
+            return True
+    except Exception:
+        pass
+    return False
 
 
 def _spotify_running() -> bool:
@@ -2485,6 +2501,14 @@ def play_specific(query: str, target: str | None = None) -> Dict[str, Any]:
                    f"youtube” and I’ll play it directly.")
             return {"ok": True, "action": "PLAY_MEDIA", "played": False,
                     "search_only": True, "content": msg, "response": msg}
+        # Spotify was the EXPLICITLY requested target. Even if we couldn't reach it
+        # (not installed / not running / dbus refused), do NOT silently fall through
+        # to YouTube — that opens a second platform the user never asked for.
+        msg = (f"I couldn’t reach Spotify to play “{search_q}” — is it installed and "
+               f"running? Open it and try again, or say “play {search_q} on youtube”.")
+        return {"ok": False, "action": "PLAY_MEDIA", "played": False,
+                "search_only": True, "target": "spotify",
+                "content": msg, "response": msg}
 
     # ── 2. "youtube web/website" → browser only (never mpv) ──────────────────
     if is_yt_web:
