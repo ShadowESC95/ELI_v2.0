@@ -1907,7 +1907,14 @@ class Memory(metaclass=_MemoryMeta):
                         out.append(r)
                     elif not txt:
                         out.append(r)
-            # Sort merged results by composite score: importance × 0.5 + weight × 0.3 + recency × 0.2
+            # Sort merged results by composite score:
+            #   importance × 0.5 + weight × 0.3 + recency × 0.2 + preference boost
+            # importance already encodes preference/identity/user-authored salience
+            # (_score_importance) and is reinforced on every recall (+0.02), so
+            # repetition is built in. The bounded preference boost below makes
+            # durable user-context facts (preferences, identity, active projects/
+            # interests) surface higher even when their stored importance is mid —
+            # i.e. recall weighted by user preference / current work / interests.
             sort_now = time.time()
             def _ts_float(x):
                 raw = x.get("ts") or x.get("timestamp") or 0
@@ -1915,11 +1922,22 @@ class Memory(metaclass=_MemoryMeta):
                     return float(raw)
                 except (ValueError, TypeError):
                     return 0.0
+            def _pref_boost(x) -> float:
+                _t = str(x.get("tags", "") or "").lower()
+                _k = str(x.get("kind", "") or "").lower()
+                if _k in ("preference", "identity", "fact"):
+                    return 0.15
+                if any(_w in _t for _w in (
+                        "preference", "identity", "project", "interest",
+                        "current_work", "active_project")):
+                    return 0.15
+                return 0.0
             out.sort(
                 key=lambda x: (
                     float(x.get("importance", 0.5) or 0.5) * 0.5
                     + float(x.get("weight", 1.0) or 1.0) * 0.3
                     + max(0.0, 1.0 - (sort_now - _ts_float(x)) / (86400 * 30)) * 0.2
+                    + _pref_boost(x)
                 ),
                 reverse=True,
             )
