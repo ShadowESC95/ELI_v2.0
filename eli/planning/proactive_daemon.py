@@ -673,9 +673,11 @@ class ProactiveDaemon:
         followup_directive = (
             "After your briefing, expand on the most consequential news "
             "item from the 24h digest above (with the depth a researcher would "
-            "expect), then ask the user three pointed follow-up questions tied "
-            "to specific reflection windows or items. Cite reflection windows "
-            "as [HH:MM-HH:MM] and never invent stories.\n"
+            "expect), then ask the user one or two pointed follow-up questions "
+            "(just one unless there are genuinely distinct threads worth "
+            "pursuing) tied to specific reflection windows or items, and offer "
+            "to go deeper if they want to discuss something at length. Cite "
+            "reflection windows as [HH:MM-HH:MM] and never invent stories.\n"
             if news_meta.get("digest") else ""
         )
 
@@ -689,7 +691,7 @@ Date: {datetime.now().strftime("%A %B %d %H:%M")} | Interactions last 24h: {inte
 {followup_directive}3-5 specific actionable points. No fluff."""
 
         try:
-            from eli.cognition.inference_broker import get_broker as _pro_broker; chat_completion = lambda prompt, system=None, max_tokens=512, temperature=0.7, **kw: _pro_broker().infer(prompt, system=system, max_tokens=max_tokens, temperature=temperature, priority=20)
+            from eli.cognition.inference_broker import get_broker as _pro_broker; chat_completion = lambda prompt, system=None, max_tokens=512, temperature=0.7, **kw: _pro_broker().infer(prompt, system=system, max_tokens=max_tokens, temperature=temperature)
             import concurrent.futures as _cf
 
             with _cf.ThreadPoolExecutor(max_workers=1) as _ex:

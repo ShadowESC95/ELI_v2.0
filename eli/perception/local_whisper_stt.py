@@ -22,10 +22,13 @@ def _env(name, default):
 def _model_settings():
     model = _env("ELI_WHISPER_MODEL", "small.en")
     model_dir = _env("ELI_WHISPER_MODEL_DIR", "models/whisper")
-    # Default to CPU so Whisper doesn't compete with the GGUF model for VRAM.
-    # Set ELI_WHISPER_DEVICE=cuda to override (only useful when no GGUF is loaded).
-    device = _env("ELI_WHISPER_DEVICE", "cpu")
-    compute_type = _env("ELI_WHISPER_COMPUTE_TYPE", "int8")
+    # Prefer GPU for speed (CPU int8 is too slow); get_model() falls back to CPU
+    # automatically if the CUDA load fails / OOMs. Force CPU with
+    # ELI_WHISPER_DEVICE=cpu. NOTE: on GPU, Whisper claims ~1GB VRAM, which the
+    # dynamic main-model loader accounts for (preloaded before the budget).
+    device = _env("ELI_WHISPER_DEVICE", "cuda")
+    compute_type = _env(
+        "ELI_WHISPER_COMPUTE_TYPE", "float16" if device == "cuda" else "int8")
     local_only = _env("ELI_WHISPER_LOCAL_ONLY", "0").lower() in {"1", "true", "yes", "on"}
 
     # Offline-by-default: when the Net toggle is off, force local-only so
@@ -53,7 +56,7 @@ def _model_settings():
 
 
 def get_model():
-    global _MODEL, _MODEL_KEY, _MODEL_LOADING
+    global _MODEL, _MODEL_KEY, _MODEL_LOADING, _CUDA_FAILED
 
     model, model_dir, device, compute_type, local_only = _model_settings()
     key = (model, model_dir, device, compute_type, local_only)
@@ -84,15 +87,34 @@ def get_model():
             )
 
             try:
-                _MODEL = WhisperModel(
-                    model,
-                    device=device,
-                    compute_type=compute_type,
-                    download_root=model_dir,
-                    local_files_only=local_only,
-                )
+                try:
+                    _MODEL = WhisperModel(
+                        model,
+                        device=device,
+                        compute_type=compute_type,
+                        download_root=model_dir,
+                        local_files_only=local_only,
+                    )
+                    log.debug(f"[LOCAL_STT] faster-whisper ready on {device}")
+                except Exception as _stt_dev_err:
+                    # GPU load failed/OOM'd — fall back to CPU and remember, so
+                    # the rest of the session stays on CPU (no repeated OOMs).
+                    if str(device).lower() == "cuda":
+                        _CUDA_FAILED = True
+                        log.debug(
+                            f"[LOCAL_STT] CUDA load failed "
+                            f"({type(_stt_dev_err).__name__}: {_stt_dev_err}); "
+                            f"falling back to CPU")
+                        device, compute_type = "cpu", "int8"
+                        key = (model, model_dir, device, compute_type, local_only)
+                        _MODEL = WhisperModel(
+                            model, device="cpu", compute_type="int8",
+                            download_root=model_dir, local_files_only=local_only,
+                        )
+                        log.debug("[LOCAL_STT] faster-whisper ready on cpu (fallback)")
+                    else:
+                        raise
                 _MODEL_KEY = key
-                log.debug("[LOCAL_STT] faster-whisper ready")
             finally:
                 _MODEL_LOADING = False
                 _MODEL_READY.set()  # unblock any waiters even on failure
@@ -125,12 +147,17 @@ def _do_transcribe(model, wav_path: str, language: str | None) -> str:
     segments, _info = model.transcribe(
         wav_path,
         language=language,
-        beam_size=1,
+        # beam_size=5 (faster-whisper's default) restores sentence punctuation
+        # (. , ? !) that greedy beam_size=1 suppresses, and improves accuracy.
+        # condition_on_previous_text stays False to avoid Whisper repetition loops.
+        beam_size=5,
         vad_filter=True,
         condition_on_previous_text=False,
         without_timestamps=True,
     )
     text = " ".join((seg.text or "").strip() for seg in segments).strip()
+    # Preserve punctuation; collapse whitespace only. Case is normalised by the
+    # consuming wake/command layer (audio_stt), not here.
     return " ".join(text.lower().split())
 
 
