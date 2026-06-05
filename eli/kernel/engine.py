@@ -2530,25 +2530,77 @@ def _eli_phase13c_bus_action_result(bus_result, action):
     if not action_u or bus_result is None:
         return None
 
+    # Collect EVERY result this turn produced for the action — both the bus's
+    # action_result and each system/plugin agent_result — then prefer a
+    # successful, content-bearing one. Previously action_result was returned
+    # first even when ok=False, orphaning a system agent's ok result (e.g.
+    # NEWS_FETCH synthesised fine in the system agent but a failed action_result
+    # was returned, triggering a pointless replan into an unsupported action).
+    candidates: list[dict] = []
     try:
         ar = getattr(bus_result, "action_result", None)
-        if isinstance(ar, dict) and ar:
-            data_action = str(ar.get("action") or action_u).upper().strip()
-            if data_action == action_u:
-                return dict(ar)
+        if isinstance(ar, dict) and ar and \
+                str(ar.get("action") or action_u).upper().strip() == action_u:
+            candidates.append(dict(ar))
+    except Exception:
+        pass
+    try:
+        for r in list(getattr(bus_result, "agent_results", []) or []):
+            if str(getattr(r, "agent", "") or "") not in {"system", "plugin"}:
+                continue
+            data = getattr(r, "data", None)
+            if not isinstance(data, dict) or data.get("skipped"):
+                continue
+            if str(data.get("action") or action_u).upper().strip() == action_u:
+                candidates.append(dict(data))
+    except Exception:
+        pass
+
+    if not candidates:
+        return None
+    for c in candidates:                       # 1st choice: ok + real content
+        if c.get("ok") and str(c.get("content") or c.get("response") or "").strip():
+            return c
+    for c in candidates:                       # 2nd: any ok result
+        if c.get("ok"):
+            return c
+    return candidates[0]                        # else: the failure (authoritative)
+
+
+def _eli_bus_first_ok_result(bus_result, action):
+    """Return the bus's *successful* authoritative result for action, if any.
+
+    Used as a "don't replan a success" guard: when the AgentBus already ran a
+    deterministic action ok (e.g. MORNING_REPORT with the full report in
+    content) but a redundant re-execution downstream failed, we trust the
+    earlier success instead of replanning into an invented/unsupported action.
+    """
+    action_u = str(action or "").upper().strip()
+    if not action_u or bus_result is None:
+        return None
+
+    def _ok_with_content(d):
+        if not isinstance(d, dict) or d.get("skipped"):
+            return False
+        if not d.get("ok"):
+            return False
+        if str(d.get("action") or action_u).upper().strip() != action_u:
+            return False
+        return bool(str(d.get("content") or d.get("response") or "").strip())
+
+    try:
+        ar = getattr(bus_result, "action_result", None)
+        if _ok_with_content(ar):
+            return dict(ar)
     except Exception:
         pass
 
     try:
         for r in list(getattr(bus_result, "agent_results", []) or []):
-            agent = str(getattr(r, "agent", "") or "")
-            if agent not in {"system", "plugin"}:
+            if str(getattr(r, "agent", "") or "") not in {"system", "plugin"}:
                 continue
             data = getattr(r, "data", None)
-            if not isinstance(data, dict) or data.get("skipped"):
-                continue
-            data_action = str(data.get("action") or action_u).upper().strip()
-            if data_action == action_u:
+            if _ok_with_content(data):
                 return dict(data)
     except Exception:
         pass
@@ -3164,7 +3216,9 @@ class CognitiveEngine:
                     return _c
         except Exception:
             pass
-        return 18432
+        # Conservative last-resort only (no runtime ctx published yet) — never a
+        # tuned ceiling; the real ctx comes from the live runtime snapshot above.
+        return 4096
 
     def _compact_persona(self) -> str:
         persona = _load_persona_text().strip()
@@ -6747,6 +6801,15 @@ Answer:"""
 
 
 
+    def _prepend_crisis_steering(self, brief: str) -> str:
+        """Prepend the per-turn safety directive (set by the crisis guard) so it
+        rides above everything else in the persona brief. Applied after the brief
+        cap so the directive itself is never truncated."""
+        steer = getattr(self, "_crisis_steering", None)
+        if steer:
+            return f"{steer}\n\n{brief or ''}".strip()
+        return brief
+
     def _build_persona_handoff_once(self, user_input: str, memory_context: str = "",
                                     bus_result=None, recent_turns=None, working_memory=None) -> str:
         try:
@@ -7057,6 +7120,8 @@ Answer:"""
             brief = "\n\n".join(filter(None, [brief] + _extra_blocks))
         # Phase 6: single 8 KB ceiling for the full assembled handoff.
         brief = self._cap_text(brief, 8192, "persona_handoff")
+        # Safety steering rides above the cap so it is never truncated.
+        brief = self._prepend_crisis_steering(brief)
 
         try:
             if working_memory is not None:
@@ -7692,6 +7757,14 @@ Answer:"""
             "CPU_USAGE", "RAM_USAGE", "SYSTEM_STATS", "GPU_STATUS",
             "CHAT",  # LLM failure is handled upstream
         }
+        # Never replan a SUCCESS — an ok result IS the answer. This is the real
+        # bug behind NEWS_FETCH/MORNING_REPORT being replanned away: they
+        # returned ok, but a stale failed action_result was read instead of the
+        # successful agent result (now fixed in _eli_phase13c_bus_action_result).
+        # A genuinely failed news fetch can still legitimately fall back via the
+        # replan to WEB_SEARCH, so NEWS_FETCH is intentionally NOT skip-listed.
+        if failed_result.get("ok"):
+            return failed_result
         if _retry_count >= 2 or failed_action.upper() in _SKIP_REPLAN_ACTIONS:
             return failed_result
 
@@ -7727,6 +7800,19 @@ Answer:"""
 
             if alt_action == failed_action.upper():
                 return failed_result  # Same action would fail again
+
+            # Only run an action the executor actually supports. The replan LLM
+            # sometimes emits a malformed/nonexistent name (e.g. "WEBSITE_SEARCH"
+            # for the real WEB_SEARCH); running that just yields an "unsupported
+            # executor action" error in the user's face, so keep the original
+            # result instead. Real actions like WEB_SEARCH pass through fine.
+            try:
+                from eli.execution.executor_enhanced import SUPPORTED_ACTIONS as _SUP
+                if alt_action not in {str(a).upper() for a in _SUP}:
+                    log.debug(f"[REPLAN] proposed {alt_action} not in SUPPORTED_ACTIONS — keeping original result")
+                    return failed_result
+            except Exception:
+                pass
 
             log.debug(f"[REPLAN] Retrying {failed_action} → {alt_action} (attempt {_retry_count + 1})")
             from eli.execution.executor_enhanced import execute as _exec
@@ -8806,6 +8892,67 @@ Answer:"""
         action = intent.get("action", "CHAT")
         args = intent.get("args", {})
 
+        # ELI_REDO_DIRECTIVE_V1 — the user telling ELI to actually (re-)do the
+        # task ("do it again", "are you actually fetching?"). If it routed to
+        # CHAT but a real action ran recently, re-run THAT instead of chatting
+        # about it. No fake — the real task executes. (Crisis guard below still
+        # wins, since it runs after and forces CHAT.)
+        try:
+            if str(action).upper() == "CHAT":
+                from eli.runtime.action_commitment import is_redo_directive as _is_redo
+                _last_cmd = getattr(self, "_last_command_action", None)
+                if _last_cmd and _is_redo(user_input):
+                    action = str(_last_cmd.get("action") or "CHAT")
+                    args = dict(_last_cmd.get("args") or {})
+                    intent = dict(intent or {})
+                    intent["action"] = action
+                    intent["args"] = args
+                    _rmeta = dict(intent.get("meta") or {})
+                    _rmeta["redo_of_last_action"] = action
+                    intent["meta"] = _rmeta
+                    log.debug(f"[REDO] user directive → re-running last action {action}")
+        except Exception as _redo_err:
+            log.debug(f"[REDO] skipped: {_redo_err}")
+
+        # ELI_CRISIS_GUARD_V1 — first-person self-harm / suicidal language is a
+        # hard safety override. STT delivers flat unpunctuated text, so the guard
+        # matches normalised phrase patterns (see eli.core.crisis_guard). When it
+        # fires we force CHAT (never PLAY_MEDIA / WEB_SEARCH / NEWS_FETCH), flag
+        # the turn so grounding escalation/hedge is skipped, and inject a steering
+        # directive into the persona brief — steered, not scripted.
+        try:
+            from eli.core.crisis_guard import detect_crisis, crisis_steering_directive
+            _crisis = detect_crisis(user_input)
+        except Exception:
+            _crisis = None
+        if _crisis:
+            self._crisis_steering = crisis_steering_directive(_crisis.get("signal", ""))
+            if str(action).upper() != "CHAT":
+                log.debug(
+                    f"[CRISIS_GUARD] self-harm signal {_crisis.get('signal')!r} — "
+                    f"forcing {action} -> CHAT")
+            action = "CHAT"
+            args = {"message": user_input}
+            intent = dict(intent or {})
+            intent["action"] = "CHAT"
+            intent["args"] = args
+            _cmeta = dict(intent.get("meta") or {})
+            _cmeta["safety_override"] = "self_harm"
+            _cmeta["allow_chat_without_evidence"] = True
+            intent["meta"] = _cmeta
+        else:
+            self._crisis_steering = None
+
+        # Remember the last REAL action so a later "do it again" / "are you
+        # actually doing X" directive can re-run it (ELI_REDO_DIRECTIVE_V1).
+        try:
+            if str(action).upper() not in ("CHAT", "NOOP", "UNKNOWN", ""):
+                self._last_command_action = {
+                    "action": action, "args": dict(args or {}), "input": user_input,
+                }
+        except Exception:
+            pass
+
         def _eli_phase13_explicit_meta_diagnostic_request(probe: str) -> bool:
             """Return True only when the user is explicitly requesting a meta/diagnostic
             investigation — e.g. expressing frustration about ELI's behaviour, asking
@@ -9156,7 +9303,7 @@ Answer:"""
             # self/project facts, the web agent for external facts — and HEDGE if
             # nothing can ground it, instead of guessing. Gated on grounding (not
             # the fluent response score, which stays high while confabulating).
-            if _eli_is_chat_action:
+            if _eli_is_chat_action and not getattr(self, "_crisis_steering", None):
                 try:
                     from eli.runtime.grounding_escalation import escalate as _grounding_escalate
                     _esc = _grounding_escalate(
@@ -9262,6 +9409,15 @@ Answer:"""
                         # grounded factual control actions: the structured
                         # evidence IS the answer; no paraphrase improves it.
                         _deterministic_direct_payload_actions = {
+                            # News/report briefings are ALREADY a complete,
+                            # persona-voiced synthesis built in the executor
+                            # (50/50 stories + interest + follow-ups). Re-running
+                            # them through GGUF collapses the finished answer into
+                            # a useless 2-line summary (and doubles latency).
+                            # Return verbatim — the structured answer IS the answer.
+                            "NEWS_FETCH",
+                            "MORNING_REPORT",
+                            "DAILY_REPORT",
                             "RUNTIME_AUDIT",
                             "IMPORT_AUDIT",
                             "GUI_RUNTIME_AUDIT",
@@ -10166,10 +10322,12 @@ Answer:"""
                 # Pass the bus memory context and bus_result already built above
                 # so _stream_chat does NOT fire a second agent bus dispatch, and
                 # the synthesiser has the full bus_result to work with.
-                return self._stream_chat(
-                    user_input, args, context, reasoning_mode=reasoning_mode,
-                    pre_built_memory_context=bus_memory_context or "",
-                    pre_built_bus_result=bus_result)
+                return self._stream_with_followthrough(
+                    self._stream_chat(
+                        user_input, args, context, reasoning_mode=reasoning_mode,
+                        pre_built_memory_context=bus_memory_context or "",
+                        pre_built_bus_result=bus_result),
+                    user_input, reasoning_mode)
 
             try:
                 t_mem = time.perf_counter()
@@ -10476,6 +10634,15 @@ Answer:"""
         result = _eli_phase13c_bus_action_result(locals().get("bus_result"), action)
         if result is None:
             result = execute_action(action, args)
+            # Don't replan a success: if a redundant re-execution failed but the
+            # bus already produced an ok, authoritative result for this action,
+            # trust the earlier success rather than entering the failure/replan
+            # path (which can invent unsupported actions like WEEKLY_REPORT).
+            if not result.get("ok", False):
+                _bus_ok = _eli_bus_first_ok_result(locals().get("bus_result"), action)
+                if _bus_ok is not None:
+                    log.debug(f"[REPLAN] reusing bus success for {action}; skipping replan")
+                    result = _bus_ok
         if action in ("SELF_IMPROVE", "SELF_PATCH", "SELF_ANALYZE", "CODE_CHANGES") and hasattr(
             self, '_awareness') and self._awareness:
             try:
@@ -10581,6 +10748,46 @@ Answer:"""
             pass
 
         return {"action": "CHAT", "args": {"message": text}, "confidence": 0.5}
+
+    def _stream_with_followthrough(self, inner, user_input: str,
+                                   reasoning_mode: Optional[str] = None) -> Generator[str, None, None]:
+        """Wrap the CHAT token stream so NO action is faked (engine-level, every
+        consumer). Streams the reply, then — if ELI committed to or faked a task
+        ("let me check the news", "fetching…", "[Story 1]") — actually re-runs
+        the pipeline and yields the REAL result. If it says it, it does it.
+        Recursion-guarded; only yields when a genuine non-chat task executes."""
+        parts: list = []
+        for tok in inner:
+            try:
+                parts.append(str(tok or ""))
+            except Exception:
+                pass
+            yield tok
+        full = "".join(parts).strip()
+        if not full or getattr(self, "_in_followthrough", False):
+            return
+        try:
+            from eli.runtime.action_commitment import detect_action_commitment as _dc
+            commit = _dc(full)
+        except Exception:
+            commit = None
+        if not commit:
+            return
+        self._in_followthrough = True
+        try:
+            real = self.process(commit["clause"], stream=False, reasoning_mode=reasoning_mode)
+            if isinstance(real, dict):
+                real_act = str(real.get("action") or "").upper()
+                real_txt = str(real.get("content") or real.get("response") or "").strip()
+            else:
+                real_act, real_txt = "", str(real or "").strip()
+            if real_txt and real_act not in ("", "CHAT", "UNKNOWN", "NOOP"):
+                log.debug(f"[FOLLOWTHROUGH] '{commit.get('matched')}' → executed {real_act}")
+                yield "\n\n" + real_txt
+        except Exception as _ft_err:
+            log.debug(f"[FOLLOWTHROUGH] engine-stream skipped: {_ft_err}")
+        finally:
+            self._in_followthrough = False
 
     def _stream_chat(self, user_input: str, args: dict, context: list,
                      reasoning_mode: Optional[str] = None,

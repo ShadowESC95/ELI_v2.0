@@ -1689,6 +1689,7 @@ SUPPORTED_ACTIONS = [
     'GET_TIME',
     'GET_WEATHER',
     'GAZE_CALIBRATE',
+    'GAZE_CLICK',
     'GAZE_DISABLE',
     'GAZE_ENABLE',
     'GAZE_STATUS',
@@ -7071,6 +7072,18 @@ def _execute_impl(action: str, args: Optional[Dict[str, Any]] = None) -> Dict[st
                     "calibration_path": str(cal_path), "needs_calibration": needs_calibration()}
         except Exception as e:
             return {"ok": False, "action": a, "error": str(e), "content": str(e), "response": str(e)}
+
+    # ---- GAZE_CLICK: click where the user is looking (gaze point → cursor → click) ----
+    if a == "GAZE_CLICK":
+        try:
+            from eli.perception.os_controller import gaze_click as _gaze_click
+            _btn = str(args.get("button") or "left").lower()
+            _dbl = bool(args.get("double", False))
+            _res = _gaze_click(button=_btn, double=_dbl)
+            _res.setdefault("action", a)
+            return _res
+        except Exception as e:
+            return {"ok": False, "action": a, "error": str(e), "content": str(e), "response": str(e)}
     # ---- end GAZE ENGINE ----
 
     # ---- ANALYZE_CSV ----
@@ -8582,6 +8595,20 @@ def _execute_impl(action: str, args: Optional[Dict[str, Any]] = None) -> Dict[st
                 if _fetched == 0 and errs:
                     msg = f"News fetch failed. Errors: {'; '.join(errs[:3])[:300]}"
                     return {'ok': False, 'action': a, 'content': msg, 'response': msg}
+                # Conversational news read: ELI synthesises a bounded briefing
+                # (a sentence of context each, 1-2 follow-ups, no timestamps)
+                # rather than dumping raw headlines. General ask = 50/50 top
+                # stories + interest matches; a topic ask = that topic's stories.
+                # Falls back to the raw list if synthesis is empty (offline/none).
+                try:
+                    from eli.tools.news.news_synthesis import synthesise_news_briefing
+                    _read = synthesise_news_briefing(topic=topic, refresh=False)
+                except Exception:
+                    _read = ""
+                if _read:
+                    return {'ok': True, 'action': a, 'content': _read,
+                            'response': _read,
+                            'meta': {'response_mode': 'news_briefing'}}
                 recent = fetcher.get_recent(limit=10, category=topic)
                 msg = _format_articles(recent, header)
                 if not msg and _fetched > 0:

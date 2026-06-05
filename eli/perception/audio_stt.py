@@ -252,6 +252,17 @@ REQUIRE_WAKE_FOR_SAFE_DIRECT = os.environ.get(
     "ELI_STT_REQUIRE_WAKE_FOR_SAFE_DIRECT", "0"
 ).lower() in ("1", "true", "yes", "on")
 
+# Per-cycle ambient chatter ("Listening…", "Heard …", "ignored — no wake word",
+# echo/music drops) floods the CLI and buries real logs, making debugging hard.
+# Hidden unless ELI_STT_VERBOSE=1. Real command-lifecycle events (wake word
+# detected, Command, armed) stay visible regardless.
+_STT_VERBOSE = os.environ.get("ELI_STT_VERBOSE", "0").lower() in ("1", "true", "yes", "on")
+
+
+def _vprint(*a, **k):
+    if _STT_VERBOSE:
+        print(*a, **k)
+
 
 
 def _cleanup(text: str) -> str:
@@ -1132,7 +1143,7 @@ class ELIAudioSTT:
 
                         self._listen_count = getattr(self, '_listen_count', 0) + 1
                         if self._listen_count <= 1 or self._listen_count % 20 == 0:
-                            print(f"👂 [AUDIO] Listening... (cycle {self._listen_count})")
+                            _vprint(f"👂 [AUDIO] Listening... (cycle {self._listen_count})")
                         # Wider pause window during armed (multi-word command) state.
                         # Default pause_threshold (1.20s) was set in __init__; only
                         # adjust it when the gate is armed so natural pauses don't
@@ -1234,7 +1245,7 @@ class ELIAudioSTT:
                     # call only fires after fresh frames fill the buffer.
                     if _tts_mon_last[0] >= _listen_start - 0.2:
                         _tts_mon_last[0] = time.monotonic()   # restart drain timer
-                        print(
+                        _vprint(
                             f"🔇 [AUDIO_ECHO_GATE] TTS active during listen window — dropped: "
                             f"{transcript!r}",
                             flush=True,
@@ -1245,7 +1256,7 @@ class ELIAudioSTT:
                     # started while we were still capturing), drop the
                     # transcript — it is almost certainly ELI's own voice.
                     if _eli_is_speaking():
-                        print(
+                        _vprint(
                             f"🔇 [AUDIO_ECHO_GATE] dropped transcript captured during TTS: {transcript!r}",
                             flush=True,
                         )
@@ -1264,7 +1275,7 @@ class ELIAudioSTT:
                             _unique = len(set(_words))
                             _rep_ratio = 1.0 - (_unique / len(_words))
                             if _rep_ratio >= 0.5:
-                                print(
+                                _vprint(
                                     f"🎵 [AUDIO_BLEED_FILTER] dropped likely-music transcript "
                                     f"(rep_ratio={_rep_ratio:.2f}): {transcript!r}",
                                     flush=True,
@@ -1273,14 +1284,14 @@ class ELIAudioSTT:
                     except Exception:
                         pass
                     _heard_preview = transcript if len(transcript) <= 80 else (transcript[:77] + "...")
-                    print(f"👂 [AUDIO] Heard ({len(transcript)} chars): '{_heard_preview}'", flush=True)
+                    _vprint(f"👂 [AUDIO] Heard ({len(transcript)} chars): '{_heard_preview}'", flush=True)
 
                     # Drop mic input during short post-command cooldown.
                     try:
                         now_mono = __import__("time").monotonic()
                         if now_mono < getattr(self, "_eli_ignore_until", 0.0):
                             left = getattr(self, "_eli_ignore_until", 0.0) - now_mono
-                            print(
+                            _vprint(
                                 f"🛡️ [AUDIO_ECHO_GATE] ignored during cooldown "
                                 f"({left:.1f}s left): {transcript!r}",
                                 flush=True,
@@ -1292,7 +1303,7 @@ class ELIAudioSTT:
                     # Drop obvious assistant/TTS echo.
                     try:
                         if _eli_echo_like_assistant_output(transcript):
-                            print(f"🛡️ [AUDIO_ECHO_GATE] ignored assistant echo: {transcript!r}", flush=True)
+                            _vprint(f"🛡️ [AUDIO_ECHO_GATE] ignored assistant echo: {transcript!r}", flush=True)
                             continue
                     except Exception:
                         pass
@@ -1337,11 +1348,11 @@ class ELIAudioSTT:
                         continue
 
                     if action == "ignore_unarmed":
-                        print("🫥 [AUDIO] ignored — no wake word", flush=True)
+                        _vprint("🫥 [AUDIO] ignored — no wake word", flush=True)
                         continue
 
                     if action == "ignore_too_short":
-                        print(
+                        _vprint(
                             f"🫥 [AUDIO] ignored — too short "
                             f"({_word_count(transcript)} words, need {MIN_DIRECT_CHAT_WORDS})",
                             flush=True,
