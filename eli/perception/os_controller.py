@@ -370,6 +370,95 @@ def press_key(key: str) -> Dict[str, Any]:
             pass
     return {"ok": False, "error": "No keyboard simulation tool found (install ydotool or xdotool)", "content": f"Failed to press {key}", "response": f"Failed to press {key}"}
 
+def move_mouse(x: int, y: int) -> Dict[str, Any]:
+    """Move the cursor to absolute screen coordinates (pyautogui → xdotool/ydotool)."""
+    x, y = int(x), int(y)
+    try:
+        import pyautogui  # type: ignore
+        pyautogui.moveTo(x, y)
+        return {"ok": True, "content": f"Moved cursor to ({x},{y})", "response": f"Moved cursor to ({x},{y})"}
+    except Exception:
+        pass
+    if IS_WAYLAND and _check_tool("ydotool"):
+        try:
+            subprocess.run(["ydotool", "mousemove", "--absolute", "-x", str(x), "-y", str(y)],
+                           check=True, capture_output=True)
+            return {"ok": True, "content": f"Moved cursor to ({x},{y})", "response": f"Moved cursor to ({x},{y})"}
+        except Exception:
+            pass
+    if _check_tool("xdotool"):
+        try:
+            subprocess.run(["xdotool", "mousemove", str(x), str(y)], check=True, capture_output=True)
+            return {"ok": True, "content": f"Moved cursor to ({x},{y})", "response": f"Moved cursor to ({x},{y})"}
+        except Exception:
+            pass
+    return {"ok": False, "error": "No mouse tool (install xdotool or ydotool, or pyautogui).",
+            "content": "Couldn't move the cursor.", "response": "Couldn't move the cursor."}
+
+
+def mouse_click(button: str = "left", x: Optional[int] = None, y: Optional[int] = None,
+                double: bool = False) -> Dict[str, Any]:
+    """Click (optionally at x,y first). button: left|right|middle."""
+    btn = str(button or "left").lower().strip()
+    if x is not None and y is not None:
+        move_mouse(x, y)
+    _label = f"{'double-' if double else ''}{btn} click"
+    try:
+        import pyautogui  # type: ignore
+        pyautogui.click(button=("right" if btn == "right" else "middle" if btn == "middle" else "left"),
+                        clicks=2 if double else 1)
+        return {"ok": True, "content": f"Performed {_label}", "response": f"Performed {_label}"}
+    except Exception:
+        pass
+    _xbtn = {"left": "1", "middle": "2", "right": "3"}.get(btn, "1")
+    if _check_tool("xdotool"):
+        try:
+            subprocess.run(["xdotool", "click", "--repeat", "2" if double else "1", _xbtn],
+                           check=True, capture_output=True)
+            return {"ok": True, "content": f"Performed {_label}", "response": f"Performed {_label}"}
+        except Exception:
+            pass
+    if IS_WAYLAND and _check_tool("ydotool"):
+        _ybtn = {"left": "0xC0", "right": "0xC1", "middle": "0xC2"}.get(btn, "0xC0")
+        try:
+            args = ["ydotool", "click", _ybtn] + (["0xC0"] if double else [])
+            subprocess.run(args, check=True, capture_output=True)
+            return {"ok": True, "content": f"Performed {_label}", "response": f"Performed {_label}"}
+        except Exception:
+            pass
+    return {"ok": False, "error": "No mouse tool (install xdotool or ydotool, or pyautogui).",
+            "content": f"Couldn't {_label}.", "response": f"Couldn't {_label}."}
+
+
+def gaze_click(button: str = "left", double: bool = False) -> Dict[str, Any]:
+    """Click where the user is LOOKING — move the cursor to the live gaze point
+    (from the gaze engine) and click. Requires gaze tracking to be running."""
+    try:
+        from eli.perception.gaze_engine import get_last_gaze, is_gaze_running
+    except Exception as e:
+        return {"ok": False, "error": f"gaze engine unavailable: {e}",
+                "content": "Gaze tracking isn't available.", "response": "Gaze tracking isn't available."}
+    try:
+        if not is_gaze_running():
+            return {"ok": False, "error": "gaze engine not running",
+                    "content": "Gaze tracking isn't on — turn it on first.",
+                    "response": "Gaze tracking isn't on — turn it on first."}
+        g = get_last_gaze() or {}
+        if "screen_x" not in g or "screen_y" not in g:
+            return {"ok": False, "error": "no gaze fix",
+                    "content": "I can't tell where you're looking right now.",
+                    "response": "I can't tell where you're looking right now."}
+        x, y = int(float(g["screen_x"])), int(float(g["screen_y"]))
+        res = mouse_click(button=button, x=x, y=y, double=double)
+        if res.get("ok"):
+            _what = "opened" if double else f"{button}-clicked"
+            res["content"] = res["response"] = f"{_what} where you're looking ({x},{y})"
+        return res
+    except Exception as e:
+        return {"ok": False, "error": str(e),
+                "content": "Gaze click failed.", "response": "Gaze click failed."}
+
+
 def type_text(text: str) -> Dict[str, Any]:
     """Type a string."""
     if platform.type_text(text):

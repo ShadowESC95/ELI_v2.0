@@ -377,19 +377,17 @@ def load_model(force_reload: bool = False):
     if n_ctx is None:
         n_ctx = _as_int(_runtime_value(settings, "n_ctx", "context_size"), config.get_gguf_n_ctx())
 
-    # Co-resident vision: load the small fast model FIRST (reserving its VRAM)
-    # and cap this text model's context so both fit in 8GB. Best-effort — if the
-    # fast model can't load, we fall through to full context (no harm to boot).
+    # Co-resident vision: load the small fast model FIRST (reserving its VRAM).
+    # The text model is then sized DYNAMICALLY to the VRAM left (see smart-fit
+    # below) — no static ctx cap. Best-effort — if the fast model can't load,
+    # we fall through to full context (no harm to boot).
+    _co_resident_active = False
     if bool(_runtime_value(settings, "vision_coresident", default=False)):
         try:
             from eli.perception import vision as _eli_vision
             _rok, _rreason = _eli_vision.load_resident_fast_model()
-            if _rok:
-                _co_ctx = _as_int(_runtime_value(settings, "vision_coresident_text_ctx"), 18432)
-                if _co_ctx and int(n_ctx) > _co_ctx:
-                    log.debug(f"[GGUF] co-resident vision: capping text ctx {n_ctx} -> {_co_ctx}")
-                    n_ctx = _co_ctx
-            else:
+            _co_resident_active = bool(_rok)
+            if not _rok:
                 log.debug(f"[GGUF] co-resident vision: fast model not loaded ({_rreason}); full ctx kept")
         except Exception as _co_err:
             log.debug(f"[GGUF] co-resident vision setup skipped: {_co_err}")
@@ -405,6 +403,36 @@ def load_model(force_reload: bool = False):
     n_threads = _env_int("ELI_GGUF_THREADS", None)
     if n_threads is None:
         n_threads = _as_int(_runtime_value(settings, "cpu_threads", "n_threads"), os.cpu_count() or 4)
+
+    # Co-resident vision → size the text model DYNAMICALLY to the VRAM left,
+    # reducing GPU layers → batch → ctx (ctx last). No hardcoded cap; ctx ceiling
+    # is the model's native train length × the user's fraction. Per-model,
+    # per-machine. Skips cleanly if no GPU / no model path.
+    if _co_resident_active:
+        try:
+            from eli.core.startup_hardware_optimizer import (
+                detect_nvidia_gpus as _sf_dng, select_gpu as _sf_sg,
+                train_ctx_for_model as _sf_tc,
+            )
+            from eli.core.hardware_profile import smart_fit_config as _sf_fit
+            _sf_gpu = _sf_sg(_sf_dng())
+            _mp = _runtime_value(settings, "model_path", "model") or ""
+            if _sf_gpu and _sf_gpu.free_mb > 0 and _mp and os.path.exists(str(_mp)):
+                _mgb = os.path.getsize(str(_mp)) / (1024 ** 3)
+                _frac = float(os.environ.get("ELI_CTX_FRACTION", "0.9") or "0.9")
+                _res = int(os.environ.get("ELI_VRAM_RESERVE_MB", "700") or "700")
+                _kvq = bool(_sf_gpu.total_mb and _sf_gpu.total_mb < 12000)
+                _want = max(2048, (int(int(_sf_tc(str(_mp))) * _frac) // 2048) * 2048)
+                _fc, _fl, _fb = _sf_fit(
+                    _mgb, _sf_gpu.free_mb, user_ctx=min(int(n_ctx), _want),
+                    user_batch=int(n_batch), reserve_mb=_res, kv_quantized=_kvq,
+                )
+                log.debug(f"[GGUF] co-resident smart-fit: ctx {n_ctx}->{_fc} "
+                          f"layers {n_gpu_layers}->{_fl} batch {n_batch}->{_fb} "
+                          f"(free={_sf_gpu.free_mb}MB reserve={_res})")
+                n_ctx, n_gpu_layers, n_batch = _fc, _fl, _fb
+        except Exception as _sf_err:
+            log.debug(f"[GGUF] co-resident smart-fit skipped: {_sf_err}")
 
     def _boolish(v, default=False):
         if v is None or v == "":

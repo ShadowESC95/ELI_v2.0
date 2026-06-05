@@ -747,6 +747,23 @@ def validate_against_evidence(
             catastrophic = True
             break
 
+    # 7b. Fabricated TEMPLATE PLACEHOLDERS — e.g. "[Story 1]", "[insert headline]",
+    # "[TBD]". The model emitting fill-in-the-blank tokens instead of real content
+    # is a fake answer (it pretended to have data it didn't). Never let it reach
+    # the user. (Real source tags like "[BBC — 14:23]" are not matched.)
+    _placeholder_rx = re.compile(
+        r"\[\s*(?:story|item|headline|insert[^\]]*|placeholder|details?|tbd|todo|xxx)\s*\d*\s*\]",
+        re.I,
+    )
+    _ph_match = _placeholder_rx.search(out)
+    if _ph_match:
+        violations.append({
+            "kind": "fabricated_placeholder",
+            "value": _ph_match.group(0),
+            "reason": "template placeholder stands in for real content (fake/fabricated output)",
+        })
+        catastrophic = True
+
     # Apply sanitization mode
     if mode == "strip_silent":
         for v in violations:

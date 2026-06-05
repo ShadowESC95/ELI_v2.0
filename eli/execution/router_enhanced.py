@@ -1324,6 +1324,17 @@ def route(text: str) -> Dict[str, Any]:
         low,
     ):
         return _mk("GAZE_CALIBRATE", {}, 0.95, matched_by="gaze.calibrate.preempt")
+
+    # Gaze-cursor click: act on whatever the user is LOOKING at. The gaze engine
+    # supplies the live screen point; GAZE_CLICK moves the cursor there and
+    # clicks. Only meaningful while gaze tracking is on (the executor returns a
+    # helpful note otherwise). "open that/it" = double-click to open.
+    if re.search(r"\bright[\s-]?click\b", low):
+        return _mk("GAZE_CLICK", {"button": "right"}, 0.95, matched_by="gaze.click.right")
+    if re.search(r"\bdouble[\s-]?click\b|\bopen\s+(?:that|it|this|here|there)\b", low):
+        return _mk("GAZE_CLICK", {"button": "left", "double": True}, 0.95, matched_by="gaze.click.double")
+    if re.search(r"\bleft[\s-]?click\b|\bclick\s+(?:it|that|this|here|there)\b|^\s*click\s*$", low):
+        return _mk("GAZE_CLICK", {"button": "left"}, 0.94, matched_by="gaze.click.left")
     # ── end gaze engine control ───────────────────────────────────────────────
 
     # ── File Audit (must precede RUNTIME_AUDIT — "do a file audit" would

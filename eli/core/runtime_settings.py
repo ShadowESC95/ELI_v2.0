@@ -154,12 +154,11 @@ DEFAULTS: Dict[str, Any] = {
     # is confirmed with both models loaded.
     "vision_fast_no_swap": False,
     # Co-resident vision: load the fast (Moondream) model BEFORE the text model
-    # and keep it resident, so glances need no swap (~3.5s). The text model is
-    # capped to vision_coresident_text_ctx so both fit in 8GB (validated: 7B at
-    # ctx 18432, gpu_layers unchanged, + Q4 Moondream). Default OFF — flip on to
-    # enable; a bad fit can never strand boot because it degrades to full ctx.
+    # and keep it resident, so glances need no swap (~3.5s). The text model's
+    # ctx / gpu_layers / batch are then sized DYNAMICALLY to the VRAM left
+    # (smart loader — hardware_profile.smart_fit_config; reduces layers→batch→
+    # ctx). No static ctx cap. Default OFF — a bad fit degrades, never strands.
     "vision_coresident": False,
-    "vision_coresident_text_ctx": 18432,
     # Fuse OCR (exact text) + Moondream (visual gist) with the text model into an
     # accurate, grounded screen description — compensates for Moondream's
     # inability to read dense UI text. Evidence-only; never invents.

@@ -1740,11 +1740,26 @@ class AgentBus:
                        intent: Dict[str, Any], session_id: str, user_id: str) -> List[AgentResult]:
         """Run one layer in parallel with per-agent hard timeouts; robust to the
         outer as_completed timeout (stragglers recorded as timeouts)."""
+        # Some system-agent actions run a FULL local LLM synthesis in the
+        # executor (their result IS the answer, e.g. the news briefing). On
+        # CPU-offloaded loads that legitimately takes 30-60s+, far beyond the
+        # short evidence-agent timeout — and they run essentially alone in their
+        # layer (memory etc. skip), so a generous ceiling here can't stall fast
+        # agents. Don't drop the answer on the evidence timeout.
+        _SLOW_SYNTH_ACTIONS = {"NEWS_FETCH", "MORNING_REPORT", "DAILY_REPORT"}
+        _intent_action = str((intent or {}).get("action") or "").upper()
+
+        def _eff_to(a) -> float:
+            base = float(getattr(a, "timeout_s", 4.0) or 4.0)
+            if getattr(a, "name", "") == "system" and _intent_action in _SLOW_SYNTH_ACTIONS:
+                return max(base, 180.0)
+            return base
+
         futures = {
             self._pool.submit(a.run, user_input, intent, session_id, user_id): a
             for a in layer_agents
         }
-        max_timeout = max((a.timeout_s for a in layer_agents), default=5.0)
+        max_timeout = max((_eff_to(a) for a in layer_agents), default=5.0)
         results: List[AgentResult] = []
         done: set = set()
         try:
@@ -1752,7 +1767,7 @@ class AgentBus:
                 agent = futures[future]
                 done.add(agent.name)
                 try:
-                    results.append(future.result(timeout=agent.timeout_s))
+                    results.append(future.result(timeout=_eff_to(agent)))
                 except FuturesTimeout:
                     log.debug(f"[AGENTBUS] {agent.name} timed out after {agent.timeout_s}s")
                     results.append(AgentResult(agent=agent.name, ok=False, confidence=0.0, data={}, error="timeout"))
