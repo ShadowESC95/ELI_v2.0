@@ -405,6 +405,173 @@ def write_session_summary_from_recent(
     }
 
 
+def _build_transcript(rows: list[Any], max_chars: int = 6000) -> str:
+    """Render conversation_turns rows (chronological) into a compact transcript.
+    Keeps the most recent tail when over budget — the end of a session carries
+    the most continuity value."""
+    lines: list[str] = []
+    for r in rows:
+        role = "User" if str(r["role"]).lower() == "user" else "ELI"
+        txt = _clean(r["content"], 400)
+        if txt:
+            lines.append(f"{role}: {txt}")
+    transcript = "\n".join(lines)
+    if len(transcript) > max_chars:
+        transcript = "…\n" + transcript[-max_chars:]
+    return transcript
+
+
+def _llm_summarise_session(transcript: str, broker: Any = None) -> str:
+    """In-depth, 100%-local session summary via the already-loaded GGUF (no
+    network). Returns "" on ANY failure so the caller falls back to the
+    heuristic topic summary — this must never block or break shutdown."""
+    if not transcript.strip():
+        return ""
+    try:
+        # Never COLD-LOAD a model just to summarise (e.g. closing the GUI without
+        # ever loading one) — only summarise with an already-resident model.
+        if broker is None:
+            try:
+                import eli.cognition.gguf_inference as _gi
+                if not getattr(_gi, "is_loaded", lambda: False)():
+                    return ""
+            except Exception:
+                return ""
+            from eli.cognition.inference_broker import get_inference_broker
+            broker = get_inference_broker()
+        if broker is None or not broker.gguf_ready:
+            return ""
+        system = (
+            "You are writing a concise hand-off note about a FINISHED conversation "
+            "between the user and ELI, for ELI to read at the start of the next "
+            "session. Be concrete and factual. Do NOT invent anything that is not "
+            "in the transcript. No preamble, no sign-off."
+        )
+        prompt = (
+            "Summarise this conversation for continuity. Use exactly these "
+            "sections; omit a section if it is empty. Keep each to 1-4 short "
+            "bullets:\n"
+            "SUMMARY: 2-3 sentences on what happened and what matters next.\n"
+            "DECISIONS: concrete decisions that were made.\n"
+            "OPEN THREADS: unfinished work or agreed next steps.\n"
+            "USER PREFERENCES: how the user wants things done.\n"
+            "CURRENT WORK: what the user is actively working on.\n\n"
+            f"TRANSCRIPT:\n{transcript}"
+        )
+        out = (broker.infer(prompt, system=system, max_tokens=420,
+                            temperature=0.3) or "").strip()
+        # Reject degenerate output (a lone '-', whitespace, no letters).
+        if len(out) < 20 or not re.search(r"[A-Za-z]", out):
+            return ""
+        return out
+    except Exception:
+        return ""
+
+
+def write_llm_session_summary(
+    db_path: Path | None = None,
+    session_id: str | None = None,
+    user_id: str | None = None,
+    max_turns: int = 60,
+    broker: Any = None,
+) -> dict[str, Any]:
+    """SESSION-END hand-off: generate an in-depth summary of the FULL session and
+    UPSERT it into session_summaries (source='session_end'). 100% local — uses
+    the loaded GGUF via the broker. Falls back to a heuristic topic summary when
+    the broker isn't ready/offline or returns nothing usable. Idempotent: a
+    second call for the same session replaces the prior end-of-session row.
+
+    Unlike write_session_summary_from_recent (which writes once, early, from the
+    first turn), this is called at shutdown so it sees the whole conversation."""
+    ensure_profile_tables(db_path)
+    db = db_path or _user_db()
+    con = sqlite3.connect(str(db))
+    con.row_factory = sqlite3.Row
+    cur = con.cursor()
+    try:
+        if not _table_exists(cur, "conversation_turns"):
+            return {"inserted": False, "reason": "conversation_turns missing"}
+
+        where, params = "", []
+        if session_id:
+            where = "WHERE session_id = ?"
+            params.append(session_id)
+        rows = cur.execute(
+            f"""
+            SELECT session_id, user_id, role, content, ts, timestamp
+            FROM conversation_turns
+            {where}
+            ORDER BY COALESCE(ts, timestamp, 0) DESC
+            LIMIT ?
+            """,
+            (*params, int(max_turns)),
+        ).fetchall()
+        if not rows:
+            return {"inserted": False, "reason": "no turns"}
+
+        rows = list(reversed(rows))
+        sid = str(session_id or rows[-1]["session_id"] or "unknown")
+        uid = str(user_id or rows[-1]["user_id"] or "unknown")
+        started = min(float(r["ts"] or r["timestamp"] or time.time()) for r in rows)
+        ended = max(float(r["ts"] or r["timestamp"] or time.time()) for r in rows)
+        now = time.time()
+
+        transcript = _build_transcript(rows)
+        llm_summary = _llm_summarise_session(transcript, broker)
+        if llm_summary:
+            # First line (the SUMMARY:) is the short headline; full sectioned
+            # text goes in `content` for deep recall.
+            _head = llm_summary.splitlines()[0]
+            _head = re.sub(r"^\s*SUMMARY:\s*", "", _head, flags=re.I).strip()
+            summary = _clean(_head or llm_summary, 600)
+            content = llm_summary
+            source = "session_end"
+        else:
+            user_msgs = [_clean(r["content"], 220) for r in rows
+                         if str(r["role"]).lower() == "user"]
+            pattern_counts: dict[str, int] = {}
+            for msg in user_msgs:
+                for ptype, _pd in extract_patterns_from_text(msg):
+                    pattern_counts[ptype] = pattern_counts.get(ptype, 0) + 1
+            topics = sorted(pattern_counts, key=pattern_counts.get, reverse=True)[:8]
+            if topics:
+                summary = f"Session {sid}: {len(rows)} turns. Topics: {', '.join(topics)}."
+            else:
+                summary = (f"Session {sid}: {len(rows)} turns. "
+                           f"Recent: {'; '.join(user_msgs[:4])}")
+            content = summary
+            source = "session_end_heuristic"
+
+        # UPSERT — replace any prior end-of-session summary for this session so
+        # re-running shutdown doesn't accumulate duplicates.
+        cur.execute(
+            "DELETE FROM session_summaries WHERE session_id = ? "
+            "AND source IN ('session_end', 'session_end_heuristic')",
+            (sid,),
+        )
+        cur.execute(
+            """
+            INSERT INTO session_summaries(
+                session_id, user_id, summary, content, turns_count,
+                started_at, ended_at, source, timestamp, ts
+            )
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (sid, uid, summary, content, len(rows), started, ended, source, now, now),
+        )
+        con.commit()
+        return {
+            "inserted": True,
+            "session_id": sid,
+            "source": source,
+            "turns_count": len(rows),
+            "llm": bool(llm_summary),
+            "summary": summary,
+        }
+    finally:
+        con.close()
+
+
 def after_process_hook(engine: Any, user_input: Any, output: Any = None) -> dict[str, Any]:
     db = _user_db()
     ensure_profile_tables(db)
