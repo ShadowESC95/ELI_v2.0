@@ -231,12 +231,16 @@ def _get_reflection_themes(memory: Any, limit: int = 6) -> List[str]:
 
 
 def _get_session_narrative(memory: Any, limit: int = 3) -> List[str]:
-    """Pull recent session summaries.
+    """Pull the last `limit` session summaries for continuity context, newest
+    first.
 
-    The engine writes session narratives to the `memories` table (tagged
-    'session_summary') at shutdown via store_memory().  The old path queried
-    `session_summaries` which is always empty.  Read from `memories` so the
-    persona overlay actually sees continuity context.
+    Prefers the in-depth, LLM-generated end-of-session summaries in the
+    `session_summaries` table (written at shutdown by
+    profile_extractor.write_llm_session_summary). Falls back to the older, short
+    `memories` rows tagged 'session_summary' when the rich table is empty (e.g.
+    before the first clean shutdown). These are surfaced as PAST-SESSION
+    continuity context (labelled "previous sessions — not current request" by
+    kernel/state.py), never as current truth.
     """
     try:
         import sqlite3 as _sqlite3
@@ -249,6 +253,31 @@ def _get_session_narrative(memory: Any, limit: int = 3) -> List[str]:
                 return []
         con = _sqlite3.connect(str(db_path))
         try:
+            # 1) In-depth LLM session summaries (richer — allow more chars each).
+            out: List[str] = []
+            try:
+                _has = con.execute(
+                    "SELECT 1 FROM sqlite_master WHERE type='table' "
+                    "AND name='session_summaries'"
+                ).fetchone()
+                if _has:
+                    rows = con.execute(
+                        """
+                        SELECT COALESCE(summary, content, '')
+                        FROM session_summaries
+                        WHERE source IN ('session_end', 'session_end_heuristic')
+                          AND length(COALESCE(summary, content, '')) > 20
+                        ORDER BY COALESCE(ended_at, timestamp, ts, id) DESC
+                        LIMIT ?
+                        """,
+                        (limit,),
+                    ).fetchall()
+                    out = [(r[0] or "").strip()[:480] for r in rows if r[0]]
+            except Exception:
+                out = []
+            if out:
+                return out
+            # 2) Fallback: short narratives in `memories`.
             rows = con.execute(
                 """
                 SELECT text FROM memories
