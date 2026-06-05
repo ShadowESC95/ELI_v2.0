@@ -20,15 +20,23 @@ def _env(name, default):
 
 
 def _model_settings():
+    # small.en (not base.en): base.en mis-transcribes too much on real speech
+    # ("hair with stings") — accuracy is driven by model size, so small.en stays
+    # the floor. To still claw back VRAM for the 7B's GPU layers we keep STT on
+    # GPU but in int8_float16 (below) rather than dropping to a smaller model.
+    # Override with ELI_WHISPER_MODEL=base.en/tiny.en (faster, less accurate) or
+    # medium.en (more accurate, larger footprint).
     model = _env("ELI_WHISPER_MODEL", "small.en")
     model_dir = _env("ELI_WHISPER_MODEL_DIR", "models/whisper")
     # Prefer GPU for speed (CPU int8 is too slow); get_model() falls back to CPU
     # automatically if the CUDA load fails / OOMs. Force CPU with
-    # ELI_WHISPER_DEVICE=cpu. NOTE: on GPU, Whisper claims ~1GB VRAM, which the
-    # dynamic main-model loader accounts for (preloaded before the budget).
+    # ELI_WHISPER_DEVICE=cpu. On GPU we use int8_float16 (int8 weights, float16
+    # compute): ~half the weight VRAM of plain float16 with WER essentially equal
+    # to float16, so the main-model VRAM budget (preloaded before the GGUF) is
+    # larger without costing transcription accuracy.
     device = _env("ELI_WHISPER_DEVICE", "cuda")
     compute_type = _env(
-        "ELI_WHISPER_COMPUTE_TYPE", "float16" if device == "cuda" else "int8")
+        "ELI_WHISPER_COMPUTE_TYPE", "int8_float16" if device == "cuda" else "int8")
     local_only = _env("ELI_WHISPER_LOCAL_ONLY", "0").lower() in {"1", "true", "yes", "on"}
 
     # Offline-by-default: when the Net toggle is off, force local-only so
