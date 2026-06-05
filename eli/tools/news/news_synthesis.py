@@ -125,7 +125,6 @@ def _llm_summarise(articles: List[Dict[str, Any]], window_label: str) -> str:
             system="You are ELI. Produce grounded, themed news digests; no filler.",
             max_tokens=900,
             temperature=0.35,
-            priority=20,
         )
         return (text or "").strip()
     except Exception as ex:
@@ -260,8 +259,10 @@ def build_morning_digest(hours: int = 24) -> Dict[str, Any]:
         "Synthesise across them: identify the dominant threads, contradictions "
         "between sources, and signals worth tracking. THEN expand on the most "
         "load-bearing item with the depth a researcher would expect. THEN ask "
-        "the user three pointed follow-up questions that would be worth their "
-        "attention today — questions tied to the actual content, not generic. "
+        "the user one or two pointed follow-up questions worth their attention "
+        "today (just one unless there are genuinely distinct threads worth "
+        "pursuing) — tied to the actual content, not generic — and offer to go "
+        "deeper if they want to discuss something at length. "
         "Cite the reflection windows (e.g. [09:00-12:00]) when you reference "
         "them. Stay grounded; do not invent stories.\n\n"
         f"=== 24H NEWS REFLECTIONS ({len(reflections)} windows, "
@@ -383,3 +384,263 @@ def interest_news_block(user_id=None, max_items: int = 4) -> str:
             line += f"\n    {url}"
         lines.append(line)
     return "\n".join(lines)
+
+
+# ── Ad-hoc conversational news briefing ──────────────────────────────────────
+# "What's the news?" should NOT raw-dump headlines. ELI reads a bounded set —
+# ~half top stories spread across domains, ~half matched to the user's own
+# interests — and synthesises a spoken read with a sentence of context each and
+# one or two content-tied follow-ups. Bounded input ⇒ no 10k-token OOM. No
+# timestamps in the output.
+
+def _one_sentence_gist(summary: str, max_sentences: int = 1, cap: int = 240) -> str:
+    """First sentence(s) of an article summary, whitespace-collapsed and capped."""
+    import re as _re
+    s = " ".join(str(summary or "").strip().split())
+    if not s:
+        return ""
+    parts = _re.split(r"(?<=[.!?])\s+", s)
+    gist = " ".join(parts[:max_sentences]).strip()
+    return gist[:cap].rstrip()
+
+
+def _spread_across_domains(articles: List[Dict[str, Any]], n: int) -> List[Dict[str, Any]]:
+    """Pick up to n articles maximising category/source diversity, newest first.
+
+    Round-robins one article per domain before taking a second from any domain,
+    so a single busy category can't dominate the top stories.
+    """
+    buckets: Dict[str, List[Dict[str, Any]]] = {}
+    order: List[str] = []
+    for a in articles:
+        key = str(a.get("category") or a.get("source") or "").strip().lower() or "_"
+        if key not in buckets:
+            buckets[key] = []
+            order.append(key)
+        buckets[key].append(a)
+
+    picked: List[Dict[str, Any]] = []
+    seen: set = set()
+    while len(picked) < n:
+        progressed = False
+        for key in order:
+            bucket = buckets.get(key) or []
+            while bucket:
+                a = bucket.pop(0)
+                t = str(a.get("title") or "").strip().lower()
+                if not t or t in seen:
+                    continue
+                seen.add(t)
+                picked.append(a)
+                progressed = True
+                break
+            if len(picked) >= n:
+                break
+        if not progressed:
+            break
+    return picked
+
+
+def build_news_briefing(user_id=None, topic: str = "", top_n: int = 5,
+                        interest_n: int = 3, refresh: bool = True) -> Dict[str, Any]:
+    """Assemble a bounded, synthesisable briefing + the prompt ELI reads from.
+
+    General ask (no topic): ~half top stories spread across domains, ~half
+    matched to the user's OWN profile-derived interests.
+    Topic ask (e.g. "news about physics"): just that topic's stories, no
+    interest half.
+    Each article carries a one-sentence gist; bounded so it never bloats the
+    prompt. Does NOT call the LLM — see synthesise_news_briefing.
+    """
+    try:
+        from eli.tools.news.news_fetcher import NewsFetcher, search_stored_news
+    except Exception:
+        return {"ok": False, "top": [], "interest": [], "synthesis_prompt": ""}
+
+    topic = str(topic or "").strip()
+    fetcher = NewsFetcher()
+    if refresh:
+        try:
+            fetcher.fetch(sources=None, topic=topic)
+        except Exception:
+            pass
+
+    import datetime as _dt
+    _today = _dt.date.today()
+
+    def _block(items: List[Dict[str, Any]]) -> str:
+        out = []
+        for a in items:
+            title = str(a.get("title") or "").strip()
+            src = str(a.get("source") or "").strip()
+            gist = _one_sentence_gist(a.get("summary"))
+            # Keep the fetch time/date IN the text so the reader can judge
+            # freshness. (TTS has its own clause that omits times/dates from
+            # speech, so this never gets read aloud.)
+            ts = ""
+            try:
+                _f = a.get("fetched_at")
+                if _f:
+                    _d = _dt.datetime.fromtimestamp(float(_f))
+                    ts = _d.strftime("%H:%M") if _d.date() == _today else _d.strftime("%d %b %H:%M")
+            except Exception:
+                ts = ""
+            if not ts:
+                ts = str(a.get("published") or "")[:16]
+            _tag = f"{src} — {ts}" if (src and ts) else (src or ts)
+            line = f"- {title} [{_tag}]" if _tag else f"- {title}"
+            if gist:
+                line += f" :: {gist}"
+            out.append(line)
+        return "\n".join(out)
+
+    def _dedupe(items: List[Dict[str, Any]], n: int) -> List[Dict[str, Any]]:
+        out, seen = [], set()
+        for a in items:
+            t = str(a.get("title") or "").strip().lower()
+            if not t or t in seen:
+                continue
+            seen.add(t)
+            out.append(a)
+            if len(out) >= n:
+                break
+        return out
+
+    if topic:
+        # Topic-focused read — the topic's stories only, no interest half.
+        try:
+            arts = search_stored_news(topic, limit=top_n + interest_n + 4) or []
+        except Exception:
+            arts = []
+        if not arts:
+            arts = fetcher.get_recent(limit=top_n + interest_n + 4, category=topic) or []
+        top = _dedupe(arts, top_n + interest_n)
+        interest: List[Dict[str, Any]] = []
+        interest_terms: List[str] = []
+        prompt = (
+            f"You are ELI giving the user a focused news read on \"{topic}\". "
+            "Use ONLY the articles below — never invent. For EACH story, include "
+            "its source AND its fetch time/date exactly as shown in the "
+            "[source — time] bracket (e.g. \"[BBC — 14:23]\") so the reader can "
+            "see how fresh each item is. Cover the stories conversationally, "
+            "giving each roughly a sentence of real context (not just the "
+            "headline). Close with one or two pointed follow-up questions tied "
+            "to the actual stories (just one unless there are genuinely distinct "
+            "threads worth pursuing), and offer to go deeper if they want to "
+            "discuss something at length.\n\n"
+            f"STORIES ON \"{topic}\":\n{_block(top) or '(none found)'}\n\n"
+            "ELI'S NEWS READ:"
+        )
+    else:
+        recent = fetcher.get_recent(limit=60) or []
+        top = _spread_across_domains(recent, top_n)
+        seen = {str(a.get("title") or "").strip().lower() for a in top}
+        interest_terms = _derive_interest_terms(user_id)
+        interest = []
+        for term in interest_terms[:3]:
+            # Pull FRESH, term-specific news, then take the most RECENT matches
+            # (NOT relevance-ranked). Fixes stale interest items: search() orders
+            # by FTS rank so it returned the same old articles every time —
+            # get_recent(topic=…) is fetched_at-DESC, so items are current and
+            # rotate as new articles arrive. Fetch is network-gated (no-op offline).
+            try:
+                if refresh:
+                    fetcher.fetch(sources=None, topic=term)
+            except Exception:
+                pass
+            try:
+                hits = fetcher.get_recent(limit=8, topic=term) or []
+            except Exception:
+                hits = []
+            if not hits:
+                try:
+                    hits = search_stored_news(term, limit=6) or []
+                except Exception:
+                    hits = []
+            for art in hits:
+                t = str(art.get("title") or "").strip().lower()
+                if not t or t in seen:
+                    continue
+                seen.add(t)
+                interest.append(art)
+                if len(interest) >= interest_n:
+                    break
+            if len(interest) >= interest_n:
+                break
+        prompt = (
+            "You are ELI giving the user a quick, natural news read. Use ONLY the "
+            "articles below — never invent. For EACH story, include its source "
+            "AND its fetch time/date exactly as shown in the [source — time] "
+            "bracket (e.g. \"[BBC — 14:23]\") so the reader can see how fresh "
+            "each item is. Present "
+            "the TOP STORIES conversationally across the "
+            "different domains, giving each roughly a sentence of real context "
+            "(not just the headline). THEN, if there are interest matches, say "
+            "something like \"I also found these articles that might interest you\" "
+            "and cover them the same way. Close with one or two pointed follow-up "
+            "questions tied to the actual stories (just one unless there are "
+            "genuinely distinct threads worth pursuing), and offer to go deeper if "
+            "they want to discuss something at length.\n\n"
+            f"TOP STORIES (across domains):\n{_block(top) or '(none available)'}\n\n"
+            f"MATCHED TO THEIR INTERESTS ({', '.join(interest_terms[:3]) or 'n/a'}):\n"
+            f"{_block(interest) or '(none found)'}\n\n"
+            "ELI'S NEWS READ:"
+        )
+
+    return {
+        "ok": True,
+        "topic": topic,
+        "top": top,
+        "interest": interest,
+        "interest_terms": interest_terms[:3] if interest_terms else [],
+        "synthesis_prompt": prompt,
+        "article_count": len(top) + len(interest),
+    }
+
+
+def synthesise_news_briefing(user_id=None, topic: str = "", top_n: int = 5,
+                             interest_n: int = 3, refresh: bool = True) -> str:
+    """ELI's spoken read of the news: bounded selection → LLM synthesis.
+
+    General ask = 50/50 top + interests; topic ask = that topic's stories.
+    Returns the synthesised text, or '' when there's nothing to read (offline /
+    no articles) so the caller can fall back. Never raw-dumps.
+    """
+    import logging as _log
+    _logger = _log.getLogger(__name__)
+    brief = build_news_briefing(user_id, topic=topic, top_n=top_n,
+                                interest_n=interest_n, refresh=refresh)
+    if not brief.get("ok") or brief.get("article_count", 0) == 0:
+        _logger.warning(
+            "[NEWS_BRIEFING] no briefing built (ok=%s articles=%s) — caller falls back to raw",
+            brief.get("ok"), brief.get("article_count", 0))
+        return ""
+    try:
+        from eli.cognition.inference_broker import get_broker
+        broker = get_broker()
+        # If the model isn't lazy-loaded yet (e.g. news is the FIRST query of the
+        # session), broker.infer would raise before triggering the load → we'd
+        # fall back to a raw dump. Trigger the canonical load first (idempotent /
+        # cached — the same loader the chat path uses, so no double-load).
+        if not broker.gguf_ready:
+            try:
+                from eli.cognition import gguf_inference as _gi
+                _gi.load_model()
+                _logger.debug("[NEWS_BRIEFING] triggered model load (broker was not ready)")
+            except Exception as _le:
+                _logger.warning("[NEWS_BRIEFING] model load attempt failed: %r", _le)
+        text = broker.infer(
+            brief["synthesis_prompt"],
+            system="You are ELI. Give a grounded, natural news read — no filler, "
+                   "no timestamps, no inventing.",
+            max_tokens=700,
+            temperature=0.4,
+        )
+        return (text or "").strip()
+    except Exception as exc:
+        import logging
+        logging.getLogger(__name__).warning(
+            "[NEWS_BRIEFING] synthesis failed (%r) — caller will fall back to raw list",
+            exc,
+        )
+        return ""

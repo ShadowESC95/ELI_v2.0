@@ -780,14 +780,23 @@ class LocalModelManager:
                     from eli.perception import vision as _co_vision
                     _rok, _rreason = _co_vision.load_resident_fast_model()
                     if _rok:
-                        _co_ctx = int(_co_cfg.get("vision_coresident_text_ctx", 18432) or 18432)
-                        if _co_ctx and int(n_ctx) > _co_ctx:
-                            print(f"   [CO-RESIDENT] vision model resident; capping ctx {n_ctx} -> {_co_ctx}")
-                            n_ctx = _co_ctx
+                        # Vision is resident. NO static ctx cap — the smart
+                        # loader below sizes the text model dynamically to the
+                        # VRAM actually left (ctx = model train length × the
+                        # user's fraction, fitted by reducing layers→batch→ctx).
+                        print("   [CO-RESIDENT] vision model resident (text ctx sized dynamically)")
                     else:
-                        print(f"   [CO-RESIDENT] fast model not loaded ({_rreason}); full ctx kept")
+                        print(f"   [CO-RESIDENT] fast model not loaded ({_rreason})")
             except Exception as _co_err:
                 print(f"   [CO-RESIDENT] setup skipped: {_co_err}")
+            # Preload the nomic embedder too, before the main model's VRAM
+            # budget is taken — required model, resident first. (Currently CPU /
+            # ~0 VRAM, but if it ever moves to GPU the budget will see it.)
+            try:
+                from eli.memory.vector_store import get_vector_store as _pre_vs
+                _pre_vs()
+            except Exception as _vs_err:
+                print(f"   [PRELOAD] nomic embedder preload skipped: {_vs_err}")
             path_obj = resolve_model_path(model_path)
             self.model_path = str(path_obj)
             if not path_obj.exists():
@@ -883,12 +892,48 @@ class LocalModelManager:
             _base_ctx = _user_ctx
             _base_layers = int(effective_n_gpu_layers)
             _base_batch = int(effective_n_batch)
-            # Attempt 1: user's exact settings
+            # ── Smart loader (PRIMARY attempt) ────────────────────────────
+            # Anchor on the user's preferred ctx/batch, then fit into the VRAM
+            # actually free NOW (vision + nomic already resident), reducing GPU
+            # LAYERS first (in increments), then batch, then ctx — quality over
+            # speed. Fully dynamic from live free VRAM; no static profile.
+            # Guarded — if it fails, the user/profile/fallback attempts run.
+            import os as _sf_os
+            try:
+                from eli.core.startup_hardware_optimizer import (
+                    detect_nvidia_gpus as _sf_dng, select_gpu as _sf_sg,
+                )
+                from eli.core.hardware_profile import smart_fit_config as _sf_fit
+                from eli.core.startup_hardware_optimizer import train_ctx_for_model as _sf_train_ctx
+                _sf_gpu = _sf_sg(_sf_dng())
+                if _sf_gpu and _sf_gpu.free_mb > 0:
+                    _sf_model_gb = path_obj.stat().st_size / (1024 ** 3)
+                    _sf_reserve = int(_sf_os.environ.get("ELI_VRAM_RESERVE_MB", "700") or "700")
+                    _sf_kvq = bool(_sf_gpu.total_mb and _sf_gpu.total_mb < 12000)
+                    # User's preferred ctx = this model's native train length ×
+                    # the user's fraction (ELI_CTX_FRACTION spinbox). Purely
+                    # dynamic — per model, per user, per machine. No hardcode.
+                    _sf_fraction = float(_sf_os.environ.get("ELI_CTX_FRACTION", "0.9") or "0.9")
+                    _sf_train = int(_sf_train_ctx(str(path_obj)))
+                    _sf_user_ctx = max(2048, (int(_sf_train * _sf_fraction) // 2048) * 2048)
+                    _sf_ctx, _sf_layers, _sf_batch = _sf_fit(
+                        _sf_model_gb, _sf_gpu.free_mb,
+                        user_ctx=_sf_user_ctx, user_batch=_user_batch,
+                        reserve_mb=_sf_reserve, kv_quantized=_sf_kvq,
+                    )
+                    log.debug(
+                        f"[GUI][LOAD] smart-fit (post-init free={_sf_gpu.free_mb}MB "
+                        f"reserve={_sf_reserve}MB kvq={_sf_kvq}): "
+                        f"ctx={_sf_ctx} gpu_layers={_sf_layers} batch={_sf_batch}")
+                    _add_attempt("smart-fit", _sf_ctx, _sf_layers, _sf_batch)
+            except Exception as _sf_err:
+                log.debug(f"[GUI][LOAD] smart-fit attempt skipped: {_sf_err}")
+
+            # User's exact settings — in case smart-fit was skipped (no GPU
+            # detected) or the user's request already fits unchanged.
             _add_attempt("requested", _base_ctx, _base_layers, _base_batch)
 
-            # Attempt 2 (if it differs): hardware profile recommendation.
-            # Gives the auto-detected safe ceiling a chance right after the user's
-            # request without ever displacing it as the first try.
+            # Hardware profile recommendation (legacy static fallback).
             if _hw_profile_ctx is not None:
                 _hw_eff_layers = int(_hw_profile_gpu_layers)
                 if gpu_offload_supported is False:
@@ -2786,6 +2831,50 @@ class EliMainWindow(QMainWindow):
         except Exception as e:
             log.debug(f"[GUI] ambient vision toggle failed: {e}")
 
+    def _on_gaze_toggled(self, checked: bool):
+        """Start/stop the webcam gaze engine. When on, voice clicks act where
+        the user is looking (see GAZE_CLICK)."""
+        try:
+            if checked:
+                from eli.perception.gaze_engine import start_gaze_engine, needs_calibration
+                res = start_gaze_engine() or {}
+                if not res.get("ok"):
+                    # Failed to start (no camera / cv2 / gaze core) — revert the toggle.
+                    self.gaze_btn.blockSignals(True)
+                    self.gaze_btn.setChecked(False)
+                    self.gaze_btn.blockSignals(False)
+                    self.gaze_btn.setText("🎯 Gaze: OFF")
+                    _err = res.get("error") or res.get("message") or "Gaze engine failed to start"
+                    self.status_signal.emit(f"🎯 Gaze unavailable: {_err}")
+                    self.gaze_btn.setToolTip(f"Gaze cursor — unavailable: {_err}")
+                    log.debug(f"[GUI] gaze start failed: {_err}")
+                    return
+                self.gaze_btn.setText("🎯 Gaze: ON")
+                try:
+                    if needs_calibration():
+                        self.status_signal.emit(
+                            "🎯 Gaze ON — not calibrated yet; say 'calibrate gaze' for steps.")
+                    else:
+                        self.status_signal.emit(
+                            "🎯 Gaze ON — look at something and say 'left click' / 'open it'.")
+                except Exception:
+                    pass
+            else:
+                from eli.perception.gaze_engine import stop_gaze_engine
+                stop_gaze_engine()
+                self.gaze_btn.setText("🎯 Gaze: OFF")
+                self.status_signal.emit("🎯 Gaze tracking off.")
+            log.debug(f"[GUI] gaze toggled -> {checked}")
+        except Exception as e:
+            log.debug(f"[GUI] gaze toggle failed: {e}")
+            try:
+                self.gaze_btn.blockSignals(True)
+                self.gaze_btn.setChecked(False)
+                self.gaze_btn.blockSignals(False)
+                self.gaze_btn.setText("🎯 Gaze: OFF")
+            except Exception:
+                pass
+
     def _on_voice_changed(self, name: str):
         if not name or name == "(no voices)":
             return
@@ -2972,23 +3061,34 @@ class EliMainWindow(QMainWindow):
                 # NOOP: never speak
                 if _is_noop:
                     _speak_text = ""
-                # NEWS_FETCH: speak all headlines as "Source: Title" matching what GUI shows
+                # NEWS_FETCH: a synthesised briefing (prose) is spoken IN FULL.
+                # Only the legacy raw bullet list ("• [Source] Title") is
+                # condensed to "Source: Title" lines for speech.
                 elif _action == "NEWS_FETCH" and _speak_text:
+                    _is_briefing = False
                     try:
-                        import re as _re_n
-                        # Extract header count line
-                        _hdr_m = _re_n.search(r"\((\d+\s+fetched[^)]*)\)", _speak_text, _re_n.I)
-                        _hdr = _hdr_m.group(1) if _hdr_m else ""
-                        # Extract all headlines: • [Source] (optional-date) Title
-                        _hl = _re_n.findall(r"•\s+\[([^\]]+)\](?:\s+\([^)]+\))?\s+(.+)", _speak_text)
-                        _parts = []
-                        if _hdr:
-                            _parts.append(_hdr.replace(",", ","))
-                        for src, title in _hl:
-                            _parts.append(f"{src}: {title.strip().rstrip('…')}")
-                        _speak_text = ". ".join(_parts) if _parts else _speak_text.split("\n")[0][:200]
+                        _is_briefing = (
+                            isinstance(_res, dict)
+                            and (_res.get("meta") or {}).get("response_mode") == "news_briefing"
+                        )
                     except Exception:
-                        _speak_text = _speak_text.split("\n")[0][:200]
+                        _is_briefing = False
+                    if not _is_briefing and "• [" in _speak_text:
+                        try:
+                            import re as _re_n
+                            _hdr_m = _re_n.search(r"\((\d+\s+fetched[^)]*)\)", _speak_text, _re_n.I)
+                            _hdr = _hdr_m.group(1) if _hdr_m else ""
+                            _hl = _re_n.findall(r"•\s+\[([^\]]+)\](?:\s+\([^)]+\))?\s+(.+)", _speak_text)
+                            _parts = []
+                            if _hdr:
+                                _parts.append(_hdr.replace(",", ","))
+                            for src, title in _hl:
+                                _parts.append(f"{src}: {title.strip().rstrip('…')}")
+                            if _parts:
+                                _speak_text = ". ".join(_parts)
+                        except Exception:
+                            pass
+                    # else: synthesised briefing — leave _speak_text full
                 # For remediation previews, drop the bash script body before TTS
                 # so the mic doesn't pick up hundreds of chars of shell code.
                 elif _action == "CONFIRM_PENDING_REMEDIATION" and _speak_text:
@@ -3900,6 +4000,35 @@ class EliMainWindow(QMainWindow):
         )
         self.ambient_vision_btn.toggled.connect(self._on_ambient_vision_toggled)
         btn_layout.addWidget(self.ambient_vision_btn)
+
+        # Gaze-cursor toggle — webcam eye-tracking. When ON, ELI moves the cursor
+        # to where you're looking so voice phrases act there ("left click",
+        # "right click", "double click"/"open it", "hit enter").
+        _gaze_on = False
+        try:
+            from eli.perception.gaze_engine import is_gaze_running as _igr
+            _gaze_on = bool(_igr())
+        except Exception:
+            pass
+        self.gaze_btn = QPushButton("🎯 Gaze: ON" if _gaze_on else "🎯 Gaze: OFF")
+        self.gaze_btn.setCheckable(True)
+        self.gaze_btn.setChecked(_gaze_on)
+        self.gaze_btn.setToolTip(
+            "Gaze cursor — webcam eye-tracking.\n"
+            "ON  — the cursor follows where you look; say \"left click\",\n"
+            "      \"right click\", \"double click\" / \"open it\", \"hit enter\".\n"
+            "OFF — no eye tracking.\n"
+            "Needs a calibrated profile (say \"calibrate gaze\" for steps)."
+        )
+        self.gaze_btn.setStyleSheet(
+            _BTN_BASE
+            + "QPushButton:checked { background-color:#4CAF50; }"
+            "QPushButton:!checked { background-color:#607D8B; }"
+            "QPushButton:checked:hover { background-color:#388E3C; }"
+            "QPushButton:!checked:hover { background-color:#455A64; }"
+        )
+        self.gaze_btn.toggled.connect(self._on_gaze_toggled)
+        btn_layout.addWidget(self.gaze_btn)
 
         # Voice selector — visible in chat row so the user doesn't dig into Settings.
         self.voice_combo = QComboBox()
@@ -5673,11 +5802,13 @@ class EliMainWindow(QMainWindow):
         layout = QVBoxLayout(widget)
         layout.setSpacing(8)
 
-        header = QLabel("🖥️  Screen Control & OCR")
+        header = QLabel("🖥️  Screen Vision & OCR")
         header.setStyleSheet("font-size:16px; font-weight:bold; padding:8px 4px 4px 4px;")
         layout.addWidget(header)
 
-        sub = QLabel("Capture the screen, run OCR to extract text, then ask ELI to analyse it.")
+        sub = QLabel("Capture the screen, then “Ask ELI” to look at it with local vision "
+                     "(Moondream/Qwen-VL) + OCR. OCR is optional — it adds exact text as "
+                     "ground truth.")
         sub.setStyleSheet("font-size:11px; color:#8899aa; padding-bottom:6px;")
         layout.addWidget(sub)
 
@@ -5815,6 +5946,8 @@ class EliMainWindow(QMainWindow):
         else:
             self._sc_preview.setText(f"Screenshot saved: {path}")
         self._sc_ocr_btn.setEnabled(True)
+        # A screenshot alone is enough for vision analysis (no OCR needed first).
+        self._sc_analyse_btn.setEnabled(True)
 
     def _sc_run_ocr(self):
         if not self._sc_screenshot_path:
@@ -5884,25 +6017,54 @@ class EliMainWindow(QMainWindow):
             self._sc_response.setPlainText("⚠️ Load a model first.")
             return
         ocr_text = self._sc_ocr_text.toPlainText().strip()
-        if not ocr_text:
-            self._sc_response.setPlainText("⚠️ No OCR text to analyse. Run OCR first or paste text.")
+        ss_path = getattr(self, "_sc_screenshot_path", "") or ""
+        import os as _os_sc
+        _has_shot = bool(ss_path and _os_sc.path.exists(ss_path))
+        if not _has_shot and not ocr_text:
+            self._sc_response.setPlainText("⚠️ Capture the screen first (or paste text to analyse).")
             return
         self._sc_analyse_btn.setEnabled(False)
         self._sc_analyse_btn.setText("Analysing…")
-        self._sc_response.setPlainText("🤖 ELI is analysing the screen content…")
+        self._sc_response.setPlainText(
+            "🤖 ELI is looking at the screen…" if _has_shot
+            else "🤖 ELI is analysing the text…")
 
         def worker():
             try:
-                prompt = (
-                    "You are ELI, a helpful AI assistant. The following text was extracted from "
-                    "a screenshot of the user's screen via OCR. Analyse it and provide a helpful "
-                    "summary, identify any important information, errors, or actions the user "
-                    "might need to take.\n\n"
-                    f"SCREEN TEXT:\n{ocr_text[:3000]}\n\n"
-                    "Analysis:"
-                )
-                with self.__class__._inference_lock:
-                    resp = backend.generate(prompt=prompt, max_tokens=512, temperature=0.6)
+                # Treat OCR text as ground truth, drop the "no OCR engine" notice.
+                _ocr = ocr_text
+                if _ocr.startswith("⚠") or "No OCR engine" in _ocr:
+                    _ocr = ""
+                if _has_shot:
+                    # Use the VISION model (Moondream/Qwen-VL) to actually SEE the
+                    # screenshot — hot-swap + OCR fusion via ANALYZE_IMAGE. This
+                    # is the grounded screen pipeline; OCR-only text-model analysis
+                    # could not read images, charts, or UI layout.
+                    from eli.execution.executor_enhanced import execute as _vexec
+                    _prompt = (
+                        "You are ELI looking at the user's screen. Describe what's on screen — "
+                        "the focused app, what the user is doing, and any important text, code, "
+                        "errors, or UI state — then give a short, helpful summary and flag "
+                        "anything that needs attention. Be specific; never invent."
+                    )
+                    if _ocr:
+                        _prompt += f"\n\nOCR text already extracted (use as ground truth):\n{_ocr[:2500]}"
+                    res = _vexec("ANALYZE_IMAGE",
+                                 {"path": ss_path, "prompt": _prompt, "prefer_fast": True}) or {}
+                    resp = str(res.get("content") or res.get("response") or "").strip()
+                    if not resp:
+                        resp = "I captured the screen but couldn't produce a description."
+                else:
+                    # No screenshot — analyse the pasted/typed text with the text model.
+                    prompt = (
+                        "You are ELI, a helpful AI assistant. The following text was extracted "
+                        "from the user's screen. Analyse it and give a helpful summary, "
+                        "identifying any important information, errors, or actions to take.\n\n"
+                        f"SCREEN TEXT:\n{_ocr[:3000]}\n\n"
+                        "Analysis:"
+                    )
+                    with self.__class__._inference_lock:
+                        resp = backend.generate(prompt=prompt, max_tokens=512, temperature=0.6)
                 QTimer.singleShot(0, lambda: self._sc_eli_done(resp))
             except Exception as exc:
                 QTimer.singleShot(0, lambda: self._sc_eli_done(f"❌ Error: {exc}"))
@@ -7848,6 +8010,13 @@ _register()
                 "Open Upgrade Tools",
                 "#a3be8c",
             ),
+            (
+                "🧹  Clear Memory / Factory Reset",
+                "Wipe all learned memory + identity (databases, vector index, profile,\nconversations). Table schema is kept and everything is backed up first.\nELI restarts as a blank slate and asks your name again.",
+                self.clear_memory_dialog,
+                "Clear Memory",
+                "#bf616a",
+            ),
         ]
 
         for icon_title, desc, callback, btn_label, color in _ADVANCED_CARDS:
@@ -7885,6 +8054,53 @@ _register()
 
         vbox.addStretch()
         return page
+
+    # ── Clear Memory / Factory Reset ──────────────────────────────────────────
+    def clear_memory_dialog(self):
+        """Confirm + run a full memory/identity reset via eli.core.memory_reset.
+        Backed up first; schema preserved; requires a restart to fully take effect."""
+        box = QMessageBox(self)
+        box.setIcon(QMessageBox.Icon.Warning)
+        box.setWindowTitle("Clear Memory / Factory Reset")
+        box.setText("Wipe ALL of ELI's learned memory and identity?")
+        box.setInformativeText(
+            "This clears the databases (rows only — table schema is kept), the "
+            "semantic vector index, the learned user profile, conversation logs, "
+            "and the stored name. Everything is backed up first and is reversible.\n\n"
+            "ELI must be RESTARTED afterwards for the reset to fully take effect."
+        )
+        keep_profile = QCheckBox("Keep my name && profile (clear history only)")
+        box.setCheckBox(keep_profile)
+        box.setStandardButtons(QMessageBox.StandardButton.Cancel | QMessageBox.StandardButton.Yes)
+        box.button(QMessageBox.StandardButton.Yes).setText("Clear Memory")
+        box.setDefaultButton(QMessageBox.StandardButton.Cancel)
+        if box.exec() != QMessageBox.StandardButton.Yes:
+            return
+
+        try:
+            from eli.core.memory_reset import run_reset
+            s = run_reset(keep_profile=keep_profile.isChecked(),
+                          keep_conversations=False, do_backup=True)
+        except Exception as e:
+            QMessageBox.critical(self, "Reset failed", f"Could not clear memory:\n{e}")
+            return
+
+        msg = (
+            f"Wiped {s.get('db_rows', 0)} memory rows.\n"
+            f"Reset {s.get('faiss_reset', 0)} vector-index file(s).\n"
+            f"Removed {s.get('profiles_removed', 0)} profile file(s), "
+            f"{s.get('conversations_removed', 0)} conversation log(s).\n"
+            f"Name {'kept' if keep_profile.isChecked() else 'cleared'}.\n\n"
+            f"Backup: {s.get('backup') or '(none)'}\n\n"
+            "Schema preserved. Please restart ELI now for a clean slate."
+        )
+        if s.get("errors"):
+            msg += f"\n\nNote: {s['errors']}"
+        QMessageBox.information(self, "Memory cleared", msg)
+        try:
+            self.status_label.setText("🧹 Memory cleared — restart ELI for a clean slate")
+        except Exception:
+            pass
 
     # ---------- Settings helpers ----------
     def current_provider(self) -> str:
@@ -8629,6 +8845,10 @@ _register()
 
                 if not _response_streamed:
                     self.chat_response_signal.emit(response)
+
+                # Note: "no fake actions" follow-through now lives in the engine
+                # (_stream_with_followthrough), so it covers every consumer and
+                # the appended real result already arrives via the token stream.
 
                 if getattr(self, '_tts_auto', False):
                     self._speak_response(response)

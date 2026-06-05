@@ -363,6 +363,11 @@ def _find_piper_config(model_path):
 # Final authoritative TTS path: Piper CLI only, aplay first, blocking playback,
 # explicit rc logging, and lock held through playback tail.
 
+# Set once if the piper binary can't use CUDA (build without GPU / CUDA
+# unavailable). Keeps the session on CPU after a single failed --cuda attempt.
+_PIPER_CUDA_FAILED = False
+
+
 def _speak_piper_cli(text, voice_name=None):
     import os as _os
     import time as _time
@@ -414,9 +419,21 @@ def _speak_piper_cli(text, voice_name=None):
     with _tempfile.NamedTemporaryFile(prefix="eli_piper_final_", suffix=".wav", delete=False) as tmp:
         wav = _Path(tmp.name)
 
-    cmd = [piper_bin, "--model", str(model), "--output_file", str(wav)]
+    global _PIPER_CUDA_FAILED
+    _want_cuda = (
+        _os.environ.get("ELI_PIPER_CUDA", "1").strip().lower() in {"1", "true", "yes", "on"}
+        and not _PIPER_CUDA_FAILED
+    )
+    _base_cmd = [piper_bin, "--model", str(model), "--output_file", str(wav)]
     if cfg:
-        cmd.extend(["--config", str(cfg)])
+        _base_cmd.extend(["--config", str(cfg)])
+
+    def _run_piper(use_cuda):
+        _cmd = list(_base_cmd) + (["--cuda"] if use_cuda else [])
+        return _subprocess.run(
+            _cmd, input=str(text or ""), text=True,
+            stdout=_subprocess.PIPE, stderr=_subprocess.PIPE, timeout=45,
+        )
 
     try:
         try:
@@ -424,14 +441,15 @@ def _speak_piper_cli(text, voice_name=None):
         except Exception:
             pass
 
-        proc = _subprocess.run(
-            cmd,
-            input=str(text or ""),
-            text=True,
-            stdout=_subprocess.PIPE,
-            stderr=_subprocess.PIPE,
-            timeout=45,
-        )
+        proc = _run_piper(_want_cuda)
+        # GPU not supported by this piper build / CUDA unavailable → remember and
+        # use CPU for the rest of the session (piper is fast on CPU anyway).
+        if proc.returncode != 0 and _want_cuda:
+            _PIPER_CUDA_FAILED = True
+            log.debug(
+                f"[TTS_FINAL_PIPER_ONLY] --cuda failed rc={proc.returncode}; "
+                f"falling back to CPU: {proc.stderr[-300:]}")
+            proc = _run_piper(False)
 
         if proc.returncode != 0:
             log.debug(f"[TTS_FINAL_PIPER_ONLY] piper failed rc={proc.returncode}: {proc.stderr[-800:]}")
