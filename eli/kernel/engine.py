@@ -3015,6 +3015,22 @@ class CognitiveEngine:
         except Exception as _eng_err:
             log.debug(f"[COGNITIVE] Shutdown: engagement flush failed (non-fatal): {_eng_err}")
 
+        # 3.5 In-depth, LLM-generated end-of-session summary → session_summaries.
+        # Runs while the GGUF is still loaded (unload is step 8). 100% local; on
+        # any failure it falls back to a heuristic summary internally, and the
+        # whole step is guarded so it can never block or break shutdown.
+        try:
+            from eli.runtime.profile_extractor import write_llm_session_summary
+            _ss = write_llm_session_summary(
+                session_id=str(getattr(self, "session_id", "") or "") or None,
+                user_id=str(getattr(self, "user_id", "") or "") or None,
+            )
+            if _ss.get("inserted"):
+                log.debug(f"[COGNITIVE] Shutdown: session summary written "
+                          f"(llm={_ss.get('llm')}, turns={_ss.get('turns_count')})")
+        except Exception as _ss_err:
+            log.debug(f"[COGNITIVE] Shutdown: session summary failed (non-fatal): {_ss_err}")
+
         # Steps 4-8 touch process-global singletons (memory store, vector
         # embedder, GGUF model). Run them AT MOST ONCE per process — a second
         # engine instance re-closing the already-freed CUDA handles segfaults.
@@ -10775,7 +10791,26 @@ Answer:"""
             return
         self._in_followthrough = True
         try:
-            real = self.process(commit["clause"], stream=False, reasoning_mode=reasoning_mode)
+            # Topic-deepen guard: if the previous real action was a news briefing
+            # and the user asked to go deeper on a specific topic ("look closer
+            # into Hubble"), re-fetch THAT topic — not ELI's lossy paraphrase,
+            # which drops the topic and dumps the whole briefing again.
+            _query = commit["clause"]
+            try:
+                import re as _ft_re
+                from eli.runtime.action_commitment import extract_deepen_topic as _edt
+                _deepen = _edt(user_input)
+                _lca = getattr(self, "_last_command_action", None) or {}
+                _was_news = str(_lca.get("action") or "").upper() in (
+                    "NEWS_FETCH", "MORNING_REPORT", "DAILY_REPORT")
+                _clause_newsish = bool(_ft_re.search(
+                    r"\bnews|headline|stor(?:y|ies)|latest|update\b",
+                    commit["clause"], _ft_re.I))
+                if _deepen and (_was_news or _clause_newsish):
+                    _query = f"fetch the latest news about {_deepen}"
+            except Exception:
+                _query = commit["clause"]
+            real = self.process(_query, stream=False, reasoning_mode=reasoning_mode)
             if isinstance(real, dict):
                 real_act = str(real.get("action") or "").upper()
                 real_txt = str(real.get("content") or real.get("response") or "").strip()
