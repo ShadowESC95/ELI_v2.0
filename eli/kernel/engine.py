@@ -10858,6 +10858,8 @@ Answer:"""
             "KEYBOARD", "MOUSE_CONTROL", "SCREENSHOT",
             "NEWS_FETCH", "WEB_SEARCH", "GET_WEATHER",
             "GET_TIME", "GET_DATE", "TIME", "DATE",
+            # Grounded conversation-log timestamp — a fact, return verbatim.
+            "MESSAGE_TIME_QUERY",
             "CPU_USAGE", "RAM_USAGE", "SYSTEM_STATS", "GPU_STATUS",
             "SPEAK", "DICTATE", "TRANSCRIBE",
             # Script/code generation: artifact is the script file on disk and
