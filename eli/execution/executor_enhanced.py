@@ -1017,6 +1017,29 @@ def _explain_memory_runtime_report() -> Dict[str, Any]:
     }
     identity_hits = _identity_hits_from_sqlite(_eli_path_get(paths, "memory_db"), paths.user_db)
 
+    # Enumerate ALL physical sqlite3 files actually on disk in the db directory —
+    # not just the logical roles. The role resolver aliases active_db/user_db/
+    # memory_db to the SAME user.sqlite3 and never sees siblings like
+    # coding_memory.sqlite3 or system_index.sqlite3, so the report claimed "2
+    # databases" when there are 4 on disk (Jason, 2026-06-06: "you have at least
+    # 4 sqlite databases"). Ground the count in the filesystem.
+    db_files: List[Dict[str, Any]] = []
+    try:
+        _db_dir = Path(paths.user_db).parent
+        for _f in sorted(_db_dir.glob("*.sqlite3")):
+            try:
+                _tc = _table_counts(_f)
+                db_files.append({
+                    "name": _f.name,
+                    "path": str(_f),
+                    "size_mb": round(_f.stat().st_size / (1024 * 1024), 3),
+                    "tables": len(_tc),
+                })
+            except Exception:
+                continue
+    except Exception:
+        pass
+
     return {
         'ok': True,
         'paths': {
@@ -1025,6 +1048,7 @@ def _explain_memory_runtime_report() -> Dict[str, Any]:
             'agent_db': str(paths.agent_db),
             'memory_db': str(_eli_path_get(paths, "memory_db")),
         },
+        'db_files': db_files,
         'status': status,
         'schema': schema,
         'vector_status': vector_status,
@@ -1069,6 +1093,19 @@ def _format_memory_runtime(report: Dict[str, Any]) -> str:
     lines.append(f"- user_db: {paths.get('user_db', 'unknown')}")
     lines.append(f"- agent_db: {paths.get('agent_db', 'unknown')}")
     lines.append(f"- memory_db: {paths.get('memory_db', 'unknown')}")
+    # Physical DB files on disk (the logical roles above can alias the same
+    # file; this is the true count and is what "how many databases" should use).
+    db_files = report.get("db_files") or []
+    if db_files:
+        lines.append(
+            f"- physical_db_files: {len(db_files)} "
+            f"(active/user/memory roles may alias the same file)"
+        )
+        for _f in db_files:
+            lines.append(
+                f"  - {_f.get('name')} "
+                f"({_f.get('size_mb')} MB, {_f.get('tables')} tables)"
+            )
     lines.append(f"- memory_entries: {int(status.get('memory_entries', 0) or 0)}")
     lines.append(f"- conversation_turns: {int(status.get('conversation_turns', 0) or 0)}")
     lines.append(f"- distinct_sessions: {int(status.get('distinct_sessions', 0) or 0)}")
