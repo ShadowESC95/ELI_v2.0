@@ -247,7 +247,7 @@ def _collect_facts() -> tuple[list[str], dict[str, int]]:
 
         con.close()
 
-    return facts[:20], counts
+    return facts[:40], counts
 
 
 def build_clean_personal_memory_response(user_input: str = "", mode_label: str = "") -> str:
