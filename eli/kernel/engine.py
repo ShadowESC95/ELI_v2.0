@@ -9517,6 +9517,15 @@ Answer:"""
                             "EXAMINE_CODE",
                             "CONFIRM_CODE_FIX",
                             "CANCEL_CODE_FIX",
+                            "CONFIRM_HABIT",
+                            "DECLINE_HABIT",
+                            # Grounded self-report families: the executor already
+                            # builds the complete report. Re-narrating their large
+                            # evidence on the small model returned a lone "-"
+                            # (Jason, 2026-06-06). Return verbatim in every mode.
+                            "SELF_ANALYZE",
+                            "SELF_IMPROVE",
+                            "SELF_IMPROVEMENT_LOG",
                         }
                         # Quick mode bypasses synthesis for grounded control actions
                         # (returns deterministic evidence directly — fast, no GGUF).
