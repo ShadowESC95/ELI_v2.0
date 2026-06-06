@@ -131,6 +131,22 @@
   assert:
     - {type: action_is, value: [SELF_IMPROVE]}
 
+# "run upgrade" must reach SELF_UPGRADE, not OPEN_APP (a phantom app "upgrade").
+# The self-upgrade guard runs before the portable open-app contract.
+- id: run_upgrade_not_open_app
+  target: router
+  prompt: "run upgrade"
+  assert:
+    - {type: action_is, value: [SELF_UPGRADE]}
+    - {type: action_not, value: [OPEN_APP]}
+
+# A genuine shell command with an interposed binary must NOT be stolen.
+- id: run_bash_upgrade_sh_stays_shell
+  target: router
+  prompt: "run bash upgrade.sh"
+  assert:
+    - {type: action_not, value: [SELF_UPGRADE, OPEN_APP]}
+
 # ── Engine-level: grounding / hedging / confabulation (need a model) ────────
 - id: factual_offline_hedges
   target: engine
