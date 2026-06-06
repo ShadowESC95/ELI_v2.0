@@ -36,6 +36,7 @@ _POISON_PATTERNS = [
 
 _FACT_PATTERNS = [
     r"\bUser prefers\b.{3,220}",
+    r"\bUser prefers to be called\b.{1,80}",
     r"\bUser wants\b.{3,220}",
     r"\bUser dislikes\b.{3,220}",
     r"\bUser values\b.{3,220}",
@@ -44,6 +45,29 @@ _FACT_PATTERNS = [
     r"\bUser is developing\b.{3,220}",
     r"\bUser uses\b.{3,220}",
     r"\bUser is using\b.{3,220}",
+    # Biographical / interest / project / research facts were being DROPPED:
+    # the extractor emits "User focuses on…", "is actively debugging…",
+    # "references a Ξ–χ–φ field framework…", but none matched the narrow set
+    # above, so recall only ever surfaced response-preferences. Surface the
+    # full curated fact set from user_patterns (a reset-aware SQLite table).
+    r"\bUser focuses on\b.{3,220}",
+    r"\bUser is focused on\b.{3,220}",
+    r"\bUser is actively\b.{3,220}",
+    r"\bUser actively\b.{3,220}",
+    r"\bUser references\b.{3,220}",
+    r"\bUser is interested in\b.{3,220}",
+    r"\bUser is into\b.{3,220}",
+    r"\bUser studies\b.{3,220}",
+    r"\bUser researches\b.{3,220}",
+    r"\bUser is researching\b.{3,220}",
+    r"\bUser is building\b.{3,220}",
+    r"\bUser is tuning\b.{3,220}",
+    r"\bUser rejects\b.{3,220}",
+    r"\bUser does not want\b.{3,220}",
+    r"\bUser is a\b.{3,220}",
+    r"\bUser is an\b.{3,220}",
+    r"\bUser has\b.{3,220}",
+    r"\bUser asked to remember\b.{3,220}",
 ]
 
 

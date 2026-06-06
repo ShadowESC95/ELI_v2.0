@@ -200,6 +200,41 @@ def extract_patterns_from_text(text: Any) -> list[tuple[str, str]]:
     if re.search(r"\bΞ\b|\bχ\b|\bφ\b|xi|chi|phi", raw, re.IGNORECASE):
         out.append(("research.xi_chi_phi", "User references a Ξ–χ–φ field framework in research/simulation work."))
 
+    # Biographical facts from explicit first-person statements (high precision —
+    # anchored to "I am/I'm/I study/I work as" so casual chat isn't mis-extracted).
+    # These enrich recall beyond response-preferences (identity, role, interests).
+    _m = re.search(
+        r"\bi(?:'m| am)\s+(?:a|an)\s+("
+        r"physicist|engineer|inventor|researcher|scientist|developer|programmer|"
+        r"mathematician|academic|professor|lecturer|phd\s*(?:student|candidate)?|"
+        r"postdoc|student|founder|author|writer|designer|analyst)\b",
+        low,
+    )
+    if _m:
+        _role = _m.group(1).strip()
+        _art = "an" if _role[:1].lower() in "aeiou" else "a"
+        out.append(("identity.role", f"User is {_art} {_role}."))
+
+    _m = re.search(r"\bi(?:'m| am)\s+(?:really |very |quite |particularly )?interested in\s+([a-z0-9][\w ,/&+'-]{2,70})", low)
+    if _m:
+        _v = _m.group(1).strip().rstrip(".,;")
+        out.append(("interest.explicit", f"User is interested in {_v}."))
+
+    _m = re.search(
+        r"\b(?:i study|i'?m studying|i am studying|i research|i'?m researching|"
+        r"i am researching|my field is|my research is in|i speciali[sz]e in|"
+        r"i work in)\s+([a-z0-9][\w ,/&+'-]{2,70})",
+        low,
+    )
+    if _m:
+        _v = _m.group(1).strip().rstrip(".,;")
+        out.append(("research.field", f"User studies/researches {_v}."))
+
+    _m = re.search(r"\b(?:remember that|remember,? |please remember)\s+(i\b.{4,180}|my\b.{4,180})", low)
+    if _m:
+        _v = _m.group(1).strip().rstrip(".,;")
+        out.append(("user.explicit_note", f"User asked to remember: {_v}."))
+
     # De-duplicate while preserving order.
     seen: set[tuple[str, str]] = set()
     deduped: list[tuple[str, str]] = []
