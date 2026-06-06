@@ -394,6 +394,37 @@ def test_explain_memory_runtime_is_verbatim_even_in_nonquick_mode():
     assert "memory.sqlite3" not in result.get("content", "")
 
 
+def test_examine_code_is_verbatim_even_in_nonquick_mode():
+    # The code-examiner tiered report is grounded fact (real syntax/import/lint
+    # findings). Like EXPLAIN_MEMORY_RUNTIME it must surface verbatim in every
+    # reasoning mode — a weak model re-narrating it would drop/invent findings.
+    report = (
+        "Examined 1 file(s): eli/foo.py\n\n"
+        "Tier 1 — high confidence (syntax / import) — these are real:\n"
+        "  - [eli/foo.py (line 3)] SyntaxError: invalid syntax  (conf 0.95)"
+    )
+    with ExitStack() as stack:
+        eng = _prepare_engine_for_synthesis_test(
+            stack,
+            "EXAMINE_CODE",
+            {"ok": True, "action": "EXAMINE_CODE", "content": report,
+             "response": report, "evidence_source": "code_examiner"},
+        )
+
+        def _no_synth(*_a, **_k):
+            raise AssertionError("EXAMINE_CODE must not be synthesized")
+
+        eng._synthesize_answer = _no_synth
+        eng._compact_grounded_synthesis = _no_synth
+        eng._run_chat_reasoning_loop = _no_synth
+
+        result = eng.process("examine eli/foo.py for errors",
+                             reasoning_mode="chain_of_thought")
+
+    assert isinstance(result, dict)
+    assert result.get("content") == report
+
+
 def test_runtime_status_quick_is_direct_nonquick_uses_full_pipeline():
     """Spec: Quick mode may return deterministic live runtime evidence directly.
     Non-Quick modes must run the full cognition pipeline and synthesize via the
