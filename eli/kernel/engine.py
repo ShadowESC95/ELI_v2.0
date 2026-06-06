@@ -5224,7 +5224,12 @@ Answer:"""
                     # of n_ctx so the model gets a prompt it can actually answer.
                     # Tunable: ELI_SYNTH_MAX_PROMPT_CHARS (set 0 to disable).
                     try:
-                        _qcap = int(os.environ.get("ELI_SYNTH_MAX_PROMPT_CHARS", "28000") or "0")
+                        _qenv = os.environ.get("ELI_SYNTH_MAX_PROMPT_CHARS")
+                        if _qenv is not None:
+                            _qcap = int(_qenv or "0")  # explicit env override wins
+                        else:
+                            from eli.core.cognition_tunables import get_tunable as _cog_get
+                            _qcap = _cog_get("cog.synth_max_prompt_chars")  # GUI: Settings → Cognition
                     except Exception:
                         _qcap = 20000
                     if _qcap > 0:
