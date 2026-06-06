@@ -74,7 +74,7 @@ _LOCAL_PATH_RE = re.compile(r"[~/]\w|\.\w{1,4}\b")
 # activity, its just-made statements, or this conversation. These are answered
 # from persona + conversation context (normal CHAT); escalating them to the
 # web/memory grounding ladder is what produced robotic hedges and a degenerate
-# "-" answer (Jason, 2026-06-05). Treated as NOT a checkable fact.
+# "-" answer (user-reported, 2026-06-05). Treated as NOT a checkable fact.
 _META_SELF_RE = re.compile(
     r"\bwhat\s+(?:are|were)\s+you\s+(?:doing|busy|working\s+on|up\s+to|fixing|"
     r"talking\s+about|saying|on\s+about|getting\s+at)\b"
@@ -88,7 +88,7 @@ _META_SELF_RE = re.compile(
 # "what's wrong/up with you?", "what is your problem?". Anchored so it does NOT
 # swallow a genuine current-events query ("what is going on in Ukraine"), which
 # routes elsewhere anyway. Reached here only on a low-grounding CHAT turn — the
-# right move is persona CHAT, never the web/hedge ladder. (Jason, 2026-06-06:
+# right move is persona CHAT, never the web/hedge ladder. (user-reported, 2026-06-06:
 # frustrated "what the fuck is going on?!" was hedging instead of responding.)
 _RELATIONAL_VENT_RE = re.compile(
     r"\bwhat(?:'?s|\s+is|\s+are)?\s+(?:going\s+on|happening|the\s+matter)\b"
