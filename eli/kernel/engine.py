@@ -5581,6 +5581,12 @@ Answer:"""
         # acts as a confidence safety net if the algorithmic output scores
         # too low.
         _mode_str = str(profile.get('mode') or reasoning_mode or '').strip().lower()
+        # Expose this turn's grounding confidence to the per-mode algorithms
+        # (read by the constitutional grounded-trust override, #3b/Option C).
+        try:
+            self._current_grounding_confidence = float((trace or {}).get('grounding_confidence') or 0.0)
+        except Exception:
+            self._current_grounding_confidence = 0.0
         if self._supports_mode_algorithm(_mode_str) and not _eli_test_mode():
             try:
                 algo_resp = self._run_mode_algorithm(
@@ -5933,6 +5939,28 @@ Answer:"""
             state = match.group(2).upper()
             if state == "FAIL" or idx not in principle_states:
                 principle_states[idx] = state
+        # Grounded-trust override (#3b/Option C): when the engine already
+        # considers this turn well-grounded, the weak local critique model must
+        # not be allowed to FAIL the grounding principles — P1 (factual accuracy)
+        # and P2 (no unsupported claims) — and delete a correct answer. In the
+        # session log a correct grounded "Jason." draft was nuked to
+        # "[no memories found]" by a P1 FAIL. Force P1/P2 to PASS above a
+        # confidence floor; other principles (completeness/honesty/harm) still
+        # apply. Floor is conservative: when grounding is unknown (0.0) this is
+        # a no-op and behaviour is unchanged.
+        try:
+            _grounding_conf = float(getattr(self, "_current_grounding_confidence", 0.0) or 0.0)
+        except Exception:
+            _grounding_conf = 0.0
+        _GROUNDED_TRUST_FLOOR = 0.6
+        if _grounding_conf >= _GROUNDED_TRUST_FLOOR:
+            for _gp in ("1", "2"):
+                if principle_states.get(_gp) == "FAIL":
+                    log.debug(
+                        f"[REASONING][Constitutional] grounding={_grounding_conf:.2f} "
+                        f">= {_GROUNDED_TRUST_FLOOR} → forcing P{_gp} PASS (grounded-trust)"
+                    )
+                    principle_states[_gp] = "PASS"
         crit_upper = critique.upper()
         if principle_states:
             all_pass = (
@@ -5953,6 +5981,12 @@ Answer:"""
             _crit_line = _crit_line.strip()
             if re.match(r"P[1-5]:\s*FAIL\b", _crit_line, re.I):
                 _fail_lines.append(_crit_line)
+        # Grounded-trust (#3b/Option C): if the engine trusts this turn's
+        # grounding, never instruct the revision to "fix" a grounding FAIL —
+        # drop P1/P2 mandatory corrections so the revision can't hedge/delete a
+        # claim the engine already considers grounded.
+        if _grounding_conf >= _GROUNDED_TRUST_FLOOR:
+            _fail_lines = [l for l in _fail_lines if not re.match(r"P[12]:\s*FAIL\b", l, re.I)]
         _mandatory_block = ""
         if _fail_lines:
             _mandatory_block = (
@@ -7963,6 +7997,14 @@ Answer:"""
                     )
                 except Exception:
                     situation_brief_rm = ""
+                # Expose grounding confidence to the per-mode algorithms
+                # (constitutional grounded-trust override, #3b/Option C).
+                try:
+                    self._current_grounding_confidence = float(
+                        getattr(_bus_rm, "grounding_confidence", 0.0) or 0.0
+                    )
+                except Exception:
+                    self._current_grounding_confidence = 0.0
                 # Route to the real per-mode algorithm; falls back to a single
                 # _get_chat_response call if _run_mode_algorithm returns None.
                 final = None
