@@ -2730,7 +2730,7 @@ def _live_memory_audit() -> dict:
     from datetime import datetime, timezone
     now = datetime.now(timezone.utc).isoformat()
 
-    root = Path(__file__).resolve().parents[3]  # .../eli
+    root = Path(__file__).resolve().parents[2]  # project root (contains artifacts/, src/)
     candidates = {
         "root_artifacts_db": root / "artifacts" / "user.sqlite3",
         "src_artifacts_db": root / "src" / "eli" / "artifacts" / "user.sqlite3",
@@ -5906,7 +5906,7 @@ def _execute_impl(action: str, args: Optional[Dict[str, Any]] = None) -> Dict[st
     if a == "LIST_DIR":
         path = str((args or {}).get("path") or "~")
         try:
-            repo_root = Path(__file__).resolve().parents[3]
+            repo_root = Path(__file__).resolve().parents[2]  # project root
             package_root = repo_root / "eli"
             legacy_root = Path.home() / "eli"
             raw = Path(path).expanduser()
@@ -9849,7 +9849,7 @@ def _resolve_legacy_eli_fs_path(path: str) -> Path:
         return Path(".").resolve()
 
     expanded = Path(raw).expanduser()
-    repo_root = Path(__file__).resolve().parents[3]
+    repo_root = Path(__file__).resolve().parents[2]  # project root
     legacy_root = Path.home() / "eli"
 
     if expanded == legacy_root:

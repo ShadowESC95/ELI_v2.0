@@ -5120,6 +5120,25 @@ def _eli_phase38_identity_contract(raw):
             allow_chat_without_evidence=False,
         )
 
+    # Elliptical name follow-up: "and my name?", "my name?", "what about my
+    # name". A bare name-only question after the topic was already raised used
+    # to fall through to CHAT, where the constitutional critique then nuked the
+    # correct "Jason" answer to "[no memories found]". Route it to the grounded
+    # USER_IDENTITY_SUMMARY (returns the name verbatim). The pattern must END at
+    # "my name" so the statement "my name is jason" is NOT captured here.
+    if _re.fullmatch(
+        r"\s*(and|but|so|ok|okay|well|hmm?)?[,\s]*"
+        r"(what(?:'s| is| about)?\s+)?my name\s*\??\s*",
+        low,
+    ):
+        return _mk(
+            "USER_IDENTITY_SUMMARY",
+            {},
+            0.99,
+            matched_by="identity.final_user_summary_elliptical",
+            allow_chat_without_evidence=False,
+        )
+
     return None
 
 
