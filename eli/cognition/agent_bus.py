@@ -1847,6 +1847,113 @@ except NameError:
     from pathlib import Path as Path
 # === ELI FILECODE PATH GLOBAL GUARD END ===
 
+_FILECODE_STOP = {
+    "file", "files", "code", "which", "where", "what", "your", "about",
+    "does", "the", "this", "that", "function", "functions", "memory",
+    "agent", "agents", "have", "with", "from", "into", "show", "tell",
+    "explain", "find", "look", "class", "method", "methods", "module",
+}
+
+
+def _filecode_extract_terms(text: str) -> set:
+    """Pull file/symbol search terms from a question so the agent can find ANY
+    file in the repo, not just the ~14 curated ones. Captures *.py filenames,
+    dotted modules (eli.x.y), snake_case/CamelCase identifiers, and quoted
+    phrases. Stopwords and <4-char tokens are dropped to limit noise."""
+    terms: set = set()
+    low = str(text or "")
+    for m in re.findall(r"\b([a-zA-Z_][\w/]*\.py)\b", low):
+        terms.add(m.lower())
+    for m in re.findall(r"\b(eli(?:\.\w+)+)\b", low):
+        terms.add(m.lower())
+    for m in re.findall(r"\b([a-z][a-z0-9]*(?:_[a-z0-9]+)+|[A-Z][a-zA-Z0-9]{3,})\b", text):
+        terms.add(m.lower())
+    for m in re.findall(r"[\"'`]([^\"'`]{3,40})[\"'`]", low):
+        terms.add(m.strip().lower())
+    return {t for t in terms if len(t) >= 4 and t not in _FILECODE_STOP}
+
+
+_ELI_PY_STEMS_CACHE: set | None = None
+
+
+def _eli_py_stems(eli_root: Path) -> set:
+    """Cached set of every eli/**/*.py module stem (lowercased). Lets a bare
+    word like 'netguard' be recognised as a real module without grepping noise."""
+    global _ELI_PY_STEMS_CACHE
+    if _ELI_PY_STEMS_CACHE is None:
+        s: set = set()
+        try:
+            for p in eli_root.rglob("*.py"):
+                ps = str(p)
+                if "__pycache__" in ps or "/build/" in ps or "/.venv/" in ps:
+                    continue
+                s.add(p.stem.lower())
+        except Exception:
+            pass
+        _ELI_PY_STEMS_CACHE = s
+    return _ELI_PY_STEMS_CACHE
+
+
+def _filecode_repo_search(eli_root: Path, terms: set, want: int,
+                          name_terms: set | None = None) -> tuple:
+    """Repo-wide search across every eli/**/*.py. Resolves filenames first (so
+    'persona_updater'/'netguard' find their files) then greps `terms`. Bounded:
+    skips pycache/build, caps files scanned and snippets. Returns (snippets,
+    files_hit). `name_terms` are filename-only matches (real module stems)."""
+    if (not terms and not name_terms) or want <= 0:
+        return [], 0
+    file_terms = {t.split("/")[-1].replace(".py", "") for t in (terms or set())}
+    file_terms |= set(name_terms or set())
+    file_terms = {t for t in file_terms if len(t) >= 4}
+
+    def _fname_match(p: Path) -> bool:
+        st = p.stem.lower()
+        return any(ft in st for ft in file_terms) if file_terms else False
+
+    candidates = []
+    for p in eli_root.rglob("*.py"):
+        ps = str(p)
+        if "__pycache__" in ps or "/build/" in ps or "/.venv/" in ps:
+            continue
+        candidates.append(p)
+    # Filename matches first so a named file surfaces even on a huge repo.
+    candidates.sort(key=lambda p: (not _fname_match(p), str(p)))
+
+    grep_set = set(terms or set()) | set(name_terms or set())
+    out: list = []
+    files_hit = 0
+    scanned = 0
+    for p in candidates:
+        if len(out) >= want or scanned >= 400:
+            break
+        scanned += 1
+        try:
+            if p.stat().st_size > 600_000:
+                continue
+            content = p.read_text(encoding="utf-8", errors="replace")
+        except Exception:
+            continue
+        try:
+            rel = str(p.relative_to(eli_root.parent))  # 'eli/...'
+        except Exception:
+            rel = p.name
+        fhit = _fname_match(p)
+        matched_here = 0
+        if fhit:
+            out.append(f"{rel}:1: (filename matches the query)")
+            matched_here += 1
+        for i, line in enumerate(content.splitlines(), 1):
+            ll = line.lower()
+            if any(t in ll for t in grep_set):
+                out.append(f"{rel}:{i}: {line.strip()[:220]}")
+                matched_here += 1
+                if matched_here >= 5 or len(out) >= want:
+                    break
+        if matched_here:
+            files_hit += 1
+    return out[:want], files_hit
+
+
 class FileCodeAgent(_BaseAgent):
     name = "file_code"
     timeout_s = 4.0
@@ -1857,8 +1964,23 @@ class FileCodeAgent(_BaseAgent):
             action = str((intent or {}).get("action", "") or "").upper().strip()
             low = (user_input or "").strip().lower()
 
+            _eli_root_fc = Path(__file__).resolve().parents[1]  # eli/
+            _code_terms = _filecode_extract_terms(user_input)
+            # Plain words that match a REAL eli module stem (e.g. "netguard",
+            # "executor") become filename search terms — without grepping noise.
+            _name_words = {
+                w for w in re.findall(r"[a-z][a-z0-9_]{4,}", low)
+                if w not in _FILECODE_STOP
+            }
+            # Adjacent words joined with "_" catch multi-word module names like
+            # "crisis guard" → crisis_guard.py, "knowledge graph" → knowledge_graph.py.
+            _seq = re.findall(r"[a-z][a-z0-9]+", low)
+            _bigrams = {f"{_seq[i]}_{_seq[i + 1]}" for i in range(len(_seq) - 1)}
+            _named_files = (_name_words | _bigrams) & _eli_py_stems(_eli_root_fc)
             relevant = (
                 _query_is_grounded(user_input, action)
+                or bool(_code_terms)  # any file/symbol/identifier → search the repo
+                or bool(_named_files)  # a bare word that is a real module name
                 or any(x in low for x in (
                     "file", "code", "which file", "which files", "where is",
                     "memory", "prompt", "response", "loop", "pipeline",
@@ -2083,6 +2205,20 @@ class FileCodeAgent(_BaseAgent):
             snippets = []
             files_scanned = 0
 
+            # Repo-FIRST for specific file/symbol queries: a named file/symbol is
+            # more relevant than the curated map's generic matches (which would
+            # otherwise greedily fill the budget and bury the real target). Seed
+            # up to 14 so the curated architecture context can still top up.
+            if _code_terms or _named_files:
+                try:
+                    _seed, _seed_files = _filecode_repo_search(
+                        root, _code_terms, 14, name_terms=_named_files
+                    )
+                    snippets.extend(_seed)
+                    files_scanned += _seed_files
+                except Exception as _rs_err:
+                    log.debug(f"[AGENT:file_code] repo search failed: {_rs_err}")
+
             for rel in ordered_rels[:20]:
                 path = root / rel
                 if not path.exists():
@@ -2109,6 +2245,16 @@ class FileCodeAgent(_BaseAgent):
                 files_scanned += 1
                 if len(snippets) >= 20:
                     break
+
+            # De-dup (repo seed + curated map can overlap) while preserving order.
+            if snippets:
+                _seen_s: set = set()
+                _dedup: list = []
+                for _s in snippets:
+                    if _s not in _seen_s:
+                        _seen_s.add(_s)
+                        _dedup.append(_s)
+                snippets = _dedup[:20]
 
             local_conf = 0.78 if snippets else 0.20
             elapsed = (time.perf_counter() - t0) * 1000
