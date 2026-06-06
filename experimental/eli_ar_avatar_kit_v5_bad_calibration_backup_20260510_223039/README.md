@@ -13,7 +13,7 @@ This version fixes the compressed-corner movement problem by replacing simple ey
 - JSON gaze/event bridge for later ELI integration
 - a cleaner modern ELI avatar asset
 
-No `/home/jay` path is hard-coded. User files are written through XDG paths:
+No `/home/<user>` path is hard-coded. User files are written through XDG paths:
 
 ```text
 ~/.config/eli_ar_avatar/gaze_calibration_v2.json

@@ -230,8 +230,8 @@ def test_fragment_detector_flags_garbage(frag):
     "Alex.",
     "Your name is Alex.",
     "There are no broken components.",
-    "Path not found: /home/jay/Desktop/eli/brain",
-    "34G\t/home/jay/eli/models/",
+    "Path not found: /home/user/Desktop/eli/brain",
+    "34G\t/home/user/eli/models/",
 ])
 def test_fragment_detector_passes_real_answers(ok):
     from eli.kernel.engine import _eli_is_fragment_output
