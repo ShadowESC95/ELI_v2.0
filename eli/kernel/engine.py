@@ -9369,6 +9369,7 @@ Answer:"""
                     "SELF_REPORT", "USER_IDENTITY_SUMMARY", "PERSONAL_MEMORY_SUMMARY",
                     "PERSONAL_MEMORY_DEEP_EXPLAIN", "ROUTING_FAULT_EXPLAIN", "NAME_SOURCE_AUDIT",
                     "SELF_ANALYZE", "SELF_IMPROVE", "SELF_IMPROVEMENT_LOG", "SELF_UPDATE",
+                    "SELF_UPGRADE", "SELF_PATCH",
                     "MORNING_REPORT", "PROACTIVE_STATUS", "HABIT_STATUS", "LIST_CAPABILITIES",
                     "LIST_DIR", "READ_FILE", "SET_TIMER", "SET_ALARM", "WRITE_NOTE",
                     "CREATE_FOLDER", "SET_CLIPBOARD", "GET_CLIPBOARD", "GPU_STATUS",
@@ -9447,6 +9448,18 @@ Answer:"""
                             "EXPLAIN_LAST_RESPONSE",
                             "EXPLAIN_ALL_REASONING_MODES",
                             "SELF_UPDATE",
+                            # Self-maintenance actions (upgrade/improve/patch)
+                            # produce a complete, authoritative step-by-step
+                            # report in the executor ("Upgrade complete. 6/6
+                            # steps succeeded.", "Improvement cycle complete…").
+                            # Returning that verbatim is correct; passing it
+                            # through GGUF synthesis instead either confabulated
+                            # progress ("running now, check back later" when the
+                            # cycle had already finished) or degenerated to a
+                            # lone "-Auto". The structured report IS the answer.
+                            "SELF_UPGRADE",
+                            "SELF_IMPROVE",
+                            "SELF_PATCH",
                             "DIAGNOSE_WRAPPERS",
                             "SELF_REPORT",
                             # Identity/profile actions: executor evidence is the
@@ -10719,6 +10732,13 @@ Answer:"""
             "GENERATE_PROJECT", "FIX_FILE",
             "GENERATE_DOCUMENT", "CREATE_DOCUMENT", "CREATE_DOC", "WRITE_DOCUMENT",
             "SELF_IMPROVEMENT_LOG",
+            # Self-maintenance actions return a complete step-by-step report
+            # from the executor ("Upgrade complete. 6/6 steps succeeded.",
+            # "Improvement cycle complete…"). Re-synthesising it through GGUF
+            # confabulated false progress ("running now, check back later" after
+            # it had already finished) or degenerated to a lone "-Auto". The
+            # structured report IS the answer — return it verbatim.
+            "SELF_UPGRADE", "SELF_IMPROVE", "SELF_PATCH",
         }
 
         if (

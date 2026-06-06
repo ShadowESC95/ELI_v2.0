@@ -108,6 +108,29 @@
   assert:
     - {type: action_not, value: [MEMORY_RECALL]}
 
+# ── Self-maintenance commands must route to a real action, not CHAT ─────────
+# "do a self update" used to miss the fullmatch SELF_UPDATE route (the "do a"
+# prefix) and fall through to CHAT, which confabulated "I'm updating myself
+# now" — a fake action. Loose phrasing must reach SELF_UPDATE.
+- id: do_a_self_update_not_chat
+  target: router
+  prompt: "do a self update"
+  assert:
+    - {type: action_is, value: [SELF_UPDATE]}
+    - {type: action_not, value: [CHAT]}
+
+- id: self_upgrade_stays_upgrade
+  target: router
+  prompt: "do a self upgrade"
+  assert:
+    - {type: action_is, value: [SELF_UPGRADE]}
+
+- id: self_improvement_stays_improve
+  target: router
+  prompt: "run a self improvement"
+  assert:
+    - {type: action_is, value: [SELF_IMPROVE]}
+
 # ── Engine-level: grounding / hedging / confabulation (need a model) ────────
 - id: factual_offline_hedges
   target: engine
