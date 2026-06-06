@@ -31,6 +31,14 @@ from typing import Any, Callable, Dict, List, Optional
 
 from eli.core.legacy_paths import legacy_named_paths, migrate_text_file
 from eli.core.paths import get_paths
+from eli.utils.log import get_logger
+
+# Module logger. The manager's methods (auto-load, install, …) reference `log`;
+# the only other `log = get_logger(...)` in this file lives INSIDE the
+# generated-stub f-string template, so without this real definition any method
+# that logged raised "name 'log' is not defined" — surfacing in the GUI as
+# "Plugin manager unavailable: name 'log' is not defined".
+log = get_logger(__name__)
 
 # ---------------------------------------------------------------------------
 # Paths
