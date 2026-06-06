@@ -236,3 +236,38 @@ def test_fragment_detector_flags_garbage(frag):
 def test_fragment_detector_passes_real_answers(ok):
     from eli.kernel.engine import _eli_is_fragment_output
     assert _eli_is_fragment_output(ok) is False
+
+
+# ── Constitutional grounded-trust override (#3b/Option C) ─────────────────
+def _cai_seq(draft, critique, revised):
+    from unittest.mock import MagicMock
+    it = iter([draft, critique, revised])
+    return lambda *a, **k: next(it)
+
+
+def test_cai_high_grounding_forces_p1_pass_keeps_draft():
+    """When grounding is high, a P1 'not grounded' FAIL is overridden to PASS and
+    the correct draft is kept (no revision deleting it)."""
+    from unittest.mock import patch
+    eng = CognitiveEngine(auto_init_gguf=False)
+    draft = "Your name is Alex."
+    critique = "P1: FAIL — not grounded\nP2: PASS\nP3: PASS\nP4: PASS\nP5: PASS\nFix: ground it."
+    revised = "[MEMORY SEARCH RESULT: No memories found]"
+    eng._current_grounding_confidence = 0.9
+    with patch.object(eng, "_get_chat_response", side_effect=_cai_seq(draft, critique, revised)):
+        out = eng._run_constitutional_ai("and my name?", "", {}, "")
+    assert "Alex" in out and "No memories found" not in out
+
+
+def test_cai_low_grounding_p1_fail_still_revises():
+    """When grounding is NOT established, the P1 FAIL stands and the revision runs
+    as before — the override is conservative (no behaviour change at low grounding)."""
+    from unittest.mock import patch
+    eng = CognitiveEngine(auto_init_gguf=False)
+    draft = "Your name is Alex."
+    critique = "P1: FAIL — not grounded\nP2: PASS\nP3: PASS\nP4: PASS\nP5: PASS\nFix: ground it."
+    revised = "Revised grounded answer."
+    eng._current_grounding_confidence = 0.0
+    with patch.object(eng, "_get_chat_response", side_effect=_cai_seq(draft, critique, revised)):
+        out = eng._run_constitutional_ai("and my name?", "", {}, "")
+    assert "Revised grounded answer" in out
