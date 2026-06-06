@@ -1364,24 +1364,26 @@ def _format_cognition_runtime(report: Dict[str, Any]) -> str:
 
     try:
         memory_text = _format_memory_runtime(_explain_memory_runtime_report())
+        # Prefixes track the LIVE _format_memory_runtime output (#5/Option 4).
+        # Keep in sync with that formatter — stale prefixes silently drop lines.
         keep_prefixes = (
             "Memory runtime:",
             "- active_db:",
             "- user_db:",
             "- agent_db:",
             "- memory_db:",
+            "- physical_db_files:",
             "- memory_entries:",
             "- conversation_turns:",
-            "Retrieval / indexing mechanisms:",
-            "- Long-term store:",
-            "- Semantic records:",
-            "- FTS5:",
+            "- distinct_sessions:",
+            "Stores —",
+            "Index/runtime detail (live):",
+            "- FTS5 mirror tables detected:",
+            "- FAISS:",
             "- Knowledge graph:",
-            "- FAISS vectors:",
             "- Embedder:",
-            "- HyDE:",
-            "- RAG/hybrid merge:",
             "- Short-term memory:",
+            "- Mechanism modules re-probed",
             "- Main functions/classes:",
         )
         memory_lines = [

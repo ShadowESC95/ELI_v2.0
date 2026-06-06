@@ -206,9 +206,26 @@
 # A name STATEMENT must still set the name, not query it.
 - id: my_name_is_statement_sets_name
   target: router
-  prompt: "my name is jason"
+  prompt: "my name is alex"
   assert:
     - {type: action_not, value: [USER_IDENTITY_SUMMARY]}
+
+# ── "What habits have you detected?" must gather real habit data ────────────
+# Used to fall to CHAT, where the model emitted a literal template placeholder
+# "[list up to 3 habits from memory or analysis]". Must reach grounded
+# HABIT_STATUS (reads real habit_rules/events).
+- id: habits_detected_query_is_grounded
+  target: router
+  prompt: "what habits have you detected in my behaviour?"
+  assert:
+    - {type: action_is, value: [HABIT_STATUS]}
+    - {type: action_not, value: [CHAT]}
+
+- id: habits_noticed_query_is_grounded
+  target: router
+  prompt: "which habits have you noticed for me?"
+  assert:
+    - {type: action_is, value: [HABIT_STATUS]}
 
 # ── Engine-level: grounding / hedging / confabulation (need a model) ────────
 - id: factual_offline_hedges
