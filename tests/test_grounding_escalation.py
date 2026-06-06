@@ -89,6 +89,29 @@ def test_self_meta_questions_never_escalate(monkeypatch):
         assert G.escalate(_FakeEngine(), t, {"action": "CHAT"}, _FakeBus(0.20)) is None, t
 
 
+def test_frustration_and_relational_vent_never_escalate(monkeypatch):
+    # Regression (Jason, 2026-06-06): a frustrated user got robotic grounding
+    # hedges. Profanity injected mid-question ("what THE FUCK are you talking
+    # about") broke the meta gate, and "what is going on with you" (vs the
+    # contraction "what's") slipped through — both were classified factual and
+    # routed to the web/hedge ladder. They must be non-factual conversational.
+    monkeypatch.setattr(C, "network_allowed", lambda: True)
+    for t in [
+        "What the fuck are you talking about?!",
+        "Eli, what is going on with you?",
+        "What the fuck is going on?!",
+        "what is going on?!",
+        "what's wrong with you",
+        "what the hell is your problem",
+        "what the fuck do you mean",
+    ]:
+        assert G.classify_factual(t) == (False, "none"), t
+        assert G.escalate(_FakeEngine(), t, {"action": "CHAT"}, _FakeBus(0.20)) is None, t
+    # Guard: a genuine current-events question must still escalate (not be eaten
+    # by the relational-vent pattern).
+    assert G.classify_factual("what is going on in ukraine") == (True, "external")
+
+
 def test_degenerate_answer_falls_through_to_hedge(monkeypatch):
     # A model that synthesises a degenerate "-" must NOT surface it; the external
     # ladder falls through to the honest hedge instead.
