@@ -24,9 +24,8 @@ import json
 import os
 import re
 import subprocess
-import sys
 import time
-from dataclasses import dataclass, asdict, field
+from dataclasses import dataclass, asdict
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
@@ -169,7 +168,6 @@ def _git_recent_py(days: int = 7, max_files: int = MAX_SWEEP_FILES) -> List[Path
             found.append(p)
 
     _collect(["ls-files", "-m"])                          # locally modified
-    _collect([f"--no-pager", "diff", "--name-only", f"--since={days}.days", "HEAD"])
     _collect(["log", f"--since={days} days ago", "--name-only", "--pretty=format:"])
     return found[:max_files]
 
