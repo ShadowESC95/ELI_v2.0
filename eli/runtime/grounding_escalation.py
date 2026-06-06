@@ -83,6 +83,26 @@ _META_SELF_RE = re.compile(
     r"|\bwhat\s+do\s+you\s+mean\b"
     r"|\bwhy\s+(?:did|are|would|do)\s+you\s+(?:say|said|saying|do|doing|think)\b",
     re.I)
+# Relational / frustration venting directed at ELI or the situation — NOT a
+# checkable fact. "what's/what is going on (with you)?", "what is happening?",
+# "what's wrong/up with you?", "what is your problem?". Anchored so it does NOT
+# swallow a genuine current-events query ("what is going on in Ukraine"), which
+# routes elsewhere anyway. Reached here only on a low-grounding CHAT turn — the
+# right move is persona CHAT, never the web/hedge ladder. (Jason, 2026-06-06:
+# frustrated "what the fuck is going on?!" was hedging instead of responding.)
+_RELATIONAL_VENT_RE = re.compile(
+    r"\bwhat(?:'?s|\s+is|\s+are)?\s+(?:going\s+on|happening|the\s+matter)\b"
+    r"(?!\s+(?:in|at|to|on|about|across|around|over)\b)"
+    r"|\bwhat(?:'?s|\s+is)?\s+(?:wrong|up)\s+with\s+(?:you|u|this|it|that)\b"
+    r"|\bwhat(?:'?s|\s+is)?\s+(?:your|the)\s+(?:problem|deal|issue)\b",
+    re.I)
+# Leading intensifier / profanity that frustrated users inject mid-phrase
+# ("what THE FUCK are you talking about"), which otherwise breaks the meta/banter
+# patterns and lets pure venting fall through to the factual classifier.
+_INTENSIFIER_STRIP_RE = re.compile(
+    r"\b(?:the\s+)?(?:fuck(?:ing)?|fuckin|hell|heck|bloody|goddamn(?:it)?|damn(?:ed)?"
+    r"|frigging|friggin|freaking|freakin|fricking|frickin|bleeding|sodding)\b",
+    re.I)
 # Factual signal: third-party "who/what/when … is/was/real name", or a factual
 # claim/correction the user is asserting.
 _FACT_Q_RE = re.compile(
@@ -116,12 +136,20 @@ def classify_factual(text: str) -> Tuple[bool, str]:
     low = raw.lower()
     if len(low.split()) < 2:
         return (False, "none")
-    if (_BANTER_RE.search(low) or _OPINION_RE.search(low)
-            or _COMMAND_RE.search(low) or _META_SELF_RE.search(low)):
+    # Strip injected intensifiers/profanity so frustration phrased as a question
+    # ("what the fuck are you talking about") still matches the meta/banter gates
+    # instead of leaking into the factual classifier. Run the gates on the
+    # cleaned text; keep `low` for the fact patterns (which are profanity-neutral).
+    low_clean = _INTENSIFIER_STRIP_RE.sub(" ", low)
+    low_clean = re.sub(r"\s+", " ", low_clean).strip()
+    if (_BANTER_RE.search(low_clean) or _OPINION_RE.search(low_clean)
+            or _COMMAND_RE.search(low_clean) or _META_SELF_RE.search(low_clean)
+            or _RELATIONAL_VENT_RE.search(low_clean)):
         return (False, "none")
 
     is_fact = bool(
-        _FACT_Q_RE.search(low) or _FACT_KW_RE.search(low) or _FACT_CLAIM_RE.search(raw)
+        _FACT_Q_RE.search(low_clean) or _FACT_KW_RE.search(low_clean)
+        or _FACT_CLAIM_RE.search(raw)
     )
     if not is_fact:
         return (False, "none")
