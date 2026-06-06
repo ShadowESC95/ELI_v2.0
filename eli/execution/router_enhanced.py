@@ -4132,6 +4132,30 @@ def _eli_self_improvement_phrase_guard(text):
             },
         }
 
+    # SELF_UPGRADE must be claimed here, before the portable open-app contract,
+    # or "run upgrade" / "run the upgrade" gets misrouted to OPEN_APP (opening a
+    # phantom app named "upgrade"). "run bash upgrade.sh" is NOT caught — the
+    # regex requires 'upgrade' to follow run/the/a/self directly, so an
+    # interposed binary keeps it on the shell path.
+    if re.search(
+        r"\b(?:run|start|perform|execute|do|go)\s+(?:an?\s+|the\s+)?(?:self[- ]?)?upgrade\b"
+        r"|\bself[- ]?upgrade\b"
+        r"|\bupgrade\s+(?:yourself|eli|the\s+system)\b"
+        r"|\bupgrade\s+your\s+(?:own\s+)?(?:code|self)\b",
+        low,
+    ):
+        return {
+            "action": "SELF_UPGRADE",
+            "args": {"request": raw},
+            "confidence": 0.99,
+            "meta": {
+                "matched_by": "eli.self_upgrade_guard",
+                "need_grounding": True,
+                "allow_chat_without_evidence": False,
+                "task_family": "self_improvement",
+            },
+        }
+
     return None
 
 # --- end ELI high-priority self-improvement route guard ---
