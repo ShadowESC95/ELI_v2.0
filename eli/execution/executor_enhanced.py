@@ -4406,6 +4406,22 @@ def _execute_impl(action: str, args: Optional[Dict[str, Any]] = None) -> Dict[st
     a = re.sub(r"[\s\-]+", "_", a)
     a = a.upper()
 
+    # Action synonyms: the model sometimes emits an action name that means an
+    # existing handler but isn't its canonical key (NEWS_SEARCH, daily/weekly
+    # report, etc.). Normalise to the real action so these don't fall through to
+    # "Unsupported executor action: …".
+    _ACTION_ALIASES = {
+        "NEWS_SEARCH": "NEWS_FETCH",
+        "FETCH_NEWS": "NEWS_FETCH",
+        "GET_NEWS": "NEWS_FETCH",
+        "WEBSITE_SEARCH": "WEB_SEARCH",
+        "WEBSITES_SEARCH": "WEB_SEARCH",
+        "SEARCH_WEB": "WEB_SEARCH",
+        "DAILY_REPORT": "MORNING_REPORT",
+        "WEEKLY_REPORT": "MORNING_REPORT",
+    }
+    a = _ACTION_ALIASES.get(a, a)
+
     if a == "CHAT":
         msg = args.get("message") or args.get("prompt") or args.get("text") or ""
         model = args.get("model") or None
