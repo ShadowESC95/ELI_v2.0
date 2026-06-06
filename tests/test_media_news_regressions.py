@@ -350,6 +350,50 @@ def test_control_action_result_uses_full_pipeline_in_nonquick_mode():
     assert content == "I checked the runtime audit evidence: imports were checked."
 
 
+def test_explain_memory_runtime_is_verbatim_even_in_nonquick_mode():
+    # Regression (Jason, 2026-06-06): in CoT mode, EXPLAIN_MEMORY_RUNTIME's
+    # correct live DB audit was run through compact synthesis, which on the small
+    # local model hallucinated a phantom "memory.sqlite3 for temporary storage"
+    # and miscounted the databases. Deep technical introspection ("exactly how
+    # the memory pipeline works") must return the grounded report VERBATIM in
+    # every reasoning mode — synthesis can only corrupt grounded facts here.
+    grounded = (
+        "Memory runtime:\n- user_db: .../user.sqlite3\n- agent_db: .../agent.sqlite3\n"
+        "SQLite tables observed live: conversation_turns(374), memories(156)..."
+    )
+    with ExitStack() as stack:
+        eng = _prepare_engine_for_synthesis_test(
+            stack,
+            "EXPLAIN_MEMORY_RUNTIME",
+            {
+                "ok": True,
+                "action": "EXPLAIN_MEMORY_RUNTIME",
+                "content": grounded,
+                "response": grounded,
+                "evidence_source": "memory_runtime_sanitized",
+            },
+        )
+
+        # If either synthesis surface is invoked for this action, fail loudly —
+        # it must be bypassed.
+        def _no_synth(*_a, **_k):
+            raise AssertionError("EXPLAIN_MEMORY_RUNTIME must not be synthesized")
+
+        eng._synthesize_answer = _no_synth
+        eng._compact_grounded_synthesis = _no_synth
+        eng._run_chat_reasoning_loop = _no_synth
+
+        result = eng.process(
+            "tell me exactly how your memory works — files, folders, processes",
+            reasoning_mode="chain_of_thought",
+        )
+
+    assert isinstance(result, dict)
+    assert result.get("content") == grounded
+    # Must not invent a phantom database.
+    assert "memory.sqlite3" not in result.get("content", "")
+
+
 def test_runtime_status_quick_is_direct_nonquick_uses_full_pipeline():
     """Spec: Quick mode may return deterministic live runtime evidence directly.
     Non-Quick modes must run the full cognition pipeline and synthesize via the
