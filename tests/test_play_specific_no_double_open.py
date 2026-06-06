@@ -1,6 +1,6 @@
 """Regression: 'play X by Y on spotify' must open ONLY Spotify — never YouTube.
 
-Jason's report: requesting a Spotify song opened the search in BOTH YouTube and
+User report: requesting a Spotify song opened the search in BOTH YouTube and
 Spotify and never actually played. Root cause was play_specific()'s Spotify
 branch only returning when the dbus search reported success; on any failure it
 fell through into the YouTube sections and opened a second platform.
