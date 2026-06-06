@@ -147,6 +147,28 @@
   assert:
     - {type: action_not, value: [SELF_UPGRADE, OPEN_APP]}
 
+# ── EXAMINE_CODE: examine/review files for errors → grounded audit ──────────
+# Must be claimed before the portable open-app contract (don't open a phantom
+# "code" app), and must be code-specific (not steal "examine this image").
+- id: examine_named_file_for_errors
+  target: router
+  prompt: "examine eli/memory/memory.py for errors"
+  assert:
+    - {type: action_is, value: [EXAMINE_CODE]}
+    - {type: action_not, value: [OPEN_APP, CHAT]}
+
+- id: review_codebase_for_bugs
+  target: router
+  prompt: "review the codebase for bugs"
+  assert:
+    - {type: action_is, value: [EXAMINE_CODE]}
+
+- id: examine_image_not_code
+  target: router
+  prompt: "examine this image"
+  assert:
+    - {type: action_not, value: [EXAMINE_CODE]}
+
 # ── Engine-level: grounding / hedging / confabulation (need a model) ────────
 - id: factual_offline_hedges
   target: engine

@@ -4156,6 +4156,34 @@ def _eli_self_improvement_phrase_guard(text):
             },
         }
 
+    # EXAMINE_CODE — "examine/review/scan <file|module|the codebase> for errors/bugs".
+    # Must be claimed here (before portable_route) so it isn't read as OPEN_APP.
+    # Code-specific: requires a code/file/module context word, a .py path, or an
+    # eli.* dotted module — so "examine this image" / "review my document" do NOT
+    # match. The fix offer + confirmation is handled by the pending_code_fix flow.
+    if (
+        re.search(
+            r"\b(examine|review|inspect|scan|audit)\b[^.?!]*"
+            r"\b(code|codebase|repo|repository|file|files|module|modules|script|scripts|"
+            r"function|functions|class|classes|for\s+errors|for\s+bugs|for\s+issues|"
+            r"for\s+mistakes)\b",
+            low,
+        )
+        or re.search(r"\b(examine|review|inspect|scan|audit|check)\b[^.?!]*\.py\b", low)
+        or re.search(r"\b(examine|review|inspect|scan|audit|check)\b[^.?!]*\beli(?:\.\w+)+\b", low)
+    ):
+        return {
+            "action": "EXAMINE_CODE",
+            "args": {"request": raw},
+            "confidence": 0.96,
+            "meta": {
+                "matched_by": "eli.examine_code_guard",
+                "need_grounding": True,
+                "allow_chat_without_evidence": False,
+                "task_family": "grounded_audit",
+            },
+        }
+
     return None
 
 # --- end ELI high-priority self-improvement route guard ---
@@ -6027,6 +6055,36 @@ try:
             def _stage_core_router(text, *a, **k):
                 return _eli_phase38_open_typo_or_core_route(text, *a, **k)
 
+            def _stage_pending_code_fix_confirm(text, *_a, **_k):
+                """Pre-pass: when an EXAMINE_CODE fix offer is pending, intercept
+                YES/NO (and 'fix it' / 'fix the logic ones too') before anything
+                else swallows them. Separate pending-state from package repairs."""
+                try:
+                    import re as _re
+                    from eli.runtime import code_examiner as _ce
+                    from eli.runtime import grounded_remediation as _gr
+                    if not _ce.get_pending_fix():
+                        return None
+                    low = _re.sub(r"\s+", " ", str(text or "").strip().lower())
+                    if _gr.NO_RE.match(low) or _re.search(r"\b(don'?t|do not|leave it|cancel)\b", low):
+                        return {
+                            "action": "CANCEL_CODE_FIX",
+                            "args": {"message": low},
+                            "confidence": 0.98,
+                            "meta": {"matched_by": "pending_code_fix.no_intercept"},
+                        }
+                    if _gr.YES_RE.match(low) or _re.search(
+                            r"\b(fix|apply|patch|repair|go ahead|proceed)\b", low):
+                        return {
+                            "action": "CONFIRM_CODE_FIX",
+                            "args": {"message": low},
+                            "confidence": 0.98,
+                            "meta": {"matched_by": "pending_code_fix.yes_intercept"},
+                        }
+                except Exception:
+                    pass
+                return None
+
             def _stage_pending_remediation_confirm(text, *_a, **_k):
                 """
                 Pre-pass: if a remediation offer is pending (e.g. 'install netflix?'),
@@ -6114,6 +6172,7 @@ try:
                     return None
 
             return (
+                ("pending_code_fix_confirm", _stage_pending_code_fix_confirm),
                 ("pending_remediation_confirm", _stage_pending_remediation_confirm),
                 ("pending_proposal_confirm", _stage_pending_proposal_confirm),
                 ("react_to_pasted_content", _stage_react_to_pasted_content),
