@@ -1690,10 +1690,12 @@ SUPPORTED_ACTIONS = [
     'ANALYZE_IMAGE',
     'ANALYZE_PDF',
     'AWARENESS_STATUS',
+    'CANCEL_CODE_FIX',
     'CHAT',
     'CHECK_CHRONAL_ALIGNMENT',
     'CLEAR_CHAT_HISTORY',
     'CLOSE_APP',
+    'CONFIRM_CODE_FIX',
     'CHECK_JOB',
     'CODE_CHANGES',
     'CODE_SOLVE',
@@ -1708,6 +1710,7 @@ SUPPORTED_ACTIONS = [
     'DIAGNOSE_WRAPPERS',
     'DICTATE',
     'ELI_IDENTITY_AUDIT',
+    'EXAMINE_CODE',
     'EXECUTE_GOAL',
     'EXPLAIN_ALL_REASONING_MODES',
     'EXPLAIN_COGNITION_RUNTIME',
@@ -8559,9 +8562,111 @@ def _execute_impl(action: str, args: Optional[Dict[str, Any]] = None) -> Dict[st
             from eli.kernel.self_upgrade import SelfUpgrader
             inst = SelfUpgrader()
             result = inst.upgrade(request)
+            # If the upgrade request also named files / asked to check/examine/
+            # review, run the code examiner and append a tiered report + fix offer.
+            try:
+                from eli.runtime import code_examiner as _ce
+                _low = str(request or "").lower()
+                _wants_examine = bool(
+                    _ce._extract_named_paths(request)
+                    or re.search(r"\b(examine|review|inspect|check|scan|audit)\b", _low)
+                )
+                if _wants_examine:
+                    _paths = _ce.resolve_targets(request)
+                    if _paths:
+                        _findings = _ce.examine(_paths)
+                        _ce.set_pending_fix(_findings, _paths)
+                        result = result + "\n\n— Code examination —\n" + \
+                            _ce.format_report(_paths, _findings)
+            except Exception as _ex_exc:
+                log.debug(f"[SELF_UPGRADE] examine stage skipped: {_ex_exc}")
             return {'ok': True, 'action': a, 'content': result, 'response': result}
         except Exception as _exc:
             return {'ok': False, 'action': a, 'error': str(_exc), 'content': str(_exc), 'response': str(_exc)}
+
+    # ---- EXAMINE_CODE / CONFIRM_CODE_FIX / CANCEL_CODE_FIX ----
+    if a == 'EXAMINE_CODE':
+        request = (args or {}).get('request') or (args or {}).get('query') or ''
+        try:
+            from eli.runtime import code_examiner as _ce
+            paths = _ce.resolve_targets(request)
+            if not paths:
+                msg = ("I couldn't resolve any Python files to examine. Name a file "
+                       "(e.g. 'examine eli/memory/memory.py') or a module.")
+                return {'ok': True, 'action': a, 'content': msg, 'response': msg,
+                        'evidence_source': 'code_examiner_no_targets'}
+            findings = _ce.examine(paths)
+            _ce.set_pending_fix(findings, paths)
+            report = _ce.format_report(paths, findings)
+            return {'ok': True, 'action': a, 'content': report, 'response': report,
+                    'evidence_source': 'code_examiner'}
+        except Exception as _exc:
+            msg = f"Code examination failed: {_exc}"
+            return {'ok': False, 'action': a, 'error': str(_exc), 'content': msg, 'response': msg}
+
+    if a == 'CANCEL_CODE_FIX':
+        try:
+            from eli.runtime import code_examiner as _ce
+            _ce.clear_pending_fix()
+        except Exception:
+            pass
+        msg = "Okay — I won't change any code. The examination findings are cleared."
+        return {'ok': True, 'action': a, 'content': msg, 'response': msg}
+
+    if a == 'CONFIRM_CODE_FIX':
+        try:
+            from eli.runtime import code_examiner as _ce
+            from eli.runtime.self_improvement import get_self_improvement
+        except Exception as _imp_exc:
+            msg = f"Fix engine unavailable: {_imp_exc}"
+            return {'ok': False, 'action': a, 'error': str(_imp_exc), 'content': msg, 'response': msg}
+
+        pending = _ce.get_pending_fix()
+        if not pending:
+            msg = ("There's no pending examination to fix. Run 'examine <file> for "
+                   "errors' first.")
+            return {'ok': True, 'action': a, 'content': msg, 'response': msg}
+
+        # Tier-3 (logic) findings only get patched if the user explicitly opted in.
+        _msg_low = str((args or {}).get('message') or '').lower()
+        include_tier3 = bool(re.search(r"\b(logic|tier ?3|all|everything|including)\b", _msg_low))
+
+        findings = pending.get('findings') or []
+        confirmed = [f for f in findings
+                     if (not f.get('needs_confirmation')) or include_tier3]
+        skipped_tier3 = [f for f in findings if f.get('needs_confirmation') and not include_tier3]
+
+        engine = get_self_improvement()
+        steps = []
+        for f in confirmed:
+            target = f.get('file')
+            patch = _ce.generate_fix_patch(f)
+            if not patch.get('ok'):
+                steps.append({'file': target, 'status': 'skipped',
+                              'message': patch.get('error', 'no safe patch generated')})
+                continue
+            applied = engine.apply_code_patch(patch, verify=True)
+            status = 'applied' if applied.get('applied') else (
+                'reverted' if 'revert' in str(applied.get('message', '')).lower() else 'skipped')
+            steps.append({'file': target, 'status': status,
+                          'message': applied.get('message', '')})
+
+        _ce.clear_pending_fix()
+
+        lines = ["Code-fix cycle complete."]
+        n_applied = len([s for s in steps if s['status'] == 'applied'])
+        lines.append(f"- patches_applied: {n_applied}/{len(confirmed)}")
+        for s in steps:
+            lines.append(f"  - [{s['status']}] {s['file']}: {s['message'][:160]}")
+        if skipped_tier3:
+            lines.append(f"- left {len(skipped_tier3)} low-confidence (Tier-3) finding(s) "
+                         "untouched (say 'fix the logic ones too' to include them).")
+        if n_applied:
+            lines.append("Each applied patch was syntax-checked and import-verified; "
+                         "any that broke its module was auto-reverted.")
+        msg = "\n".join(lines)
+        return {'ok': True, 'action': a, 'content': msg, 'response': msg,
+                'evidence_source': 'code_examiner_fix'}
 
     # ---- NEWS_FETCH ----
     if a == 'NEWS_FETCH':

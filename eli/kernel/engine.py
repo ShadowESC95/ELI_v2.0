@@ -9370,6 +9370,7 @@ Answer:"""
                     "PERSONAL_MEMORY_DEEP_EXPLAIN", "ROUTING_FAULT_EXPLAIN", "NAME_SOURCE_AUDIT",
                     "SELF_ANALYZE", "SELF_IMPROVE", "SELF_IMPROVEMENT_LOG", "SELF_UPDATE",
                     "SELF_UPGRADE", "SELF_PATCH",
+                    "EXAMINE_CODE", "CONFIRM_CODE_FIX", "CANCEL_CODE_FIX",
                     "MORNING_REPORT", "PROACTIVE_STATUS", "HABIT_STATUS", "LIST_CAPABILITIES",
                     "LIST_DIR", "READ_FILE", "SET_TIMER", "SET_ALARM", "WRITE_NOTE",
                     "CREATE_FOLDER", "SET_CLIPBOARD", "GET_CLIPBOARD", "GPU_STATUS",
@@ -9460,6 +9461,12 @@ Answer:"""
                             "SELF_UPGRADE",
                             "SELF_IMPROVE",
                             "SELF_PATCH",
+                            # Code examiner: tiered error report + per-step patch
+                            # outcomes are grounded fact — surface verbatim, never
+                            # re-narrated (a weak model would corrupt the findings).
+                            "EXAMINE_CODE",
+                            "CONFIRM_CODE_FIX",
+                            "CANCEL_CODE_FIX",
                             "DIAGNOSE_WRAPPERS",
                             "SELF_REPORT",
                             # Identity/profile actions: executor evidence is the
@@ -9502,6 +9509,11 @@ Answer:"""
                             "EXPLAIN_MEMORY_RUNTIME",
                             "EXPLAIN_COGNITION_RUNTIME",
                             "RESOLVE_RUNTIME_PATHS",
+                            # Code-examiner tiered report + patch-outcome reports are
+                            # grounded fact; never let a reasoning mode re-narrate them.
+                            "EXAMINE_CODE",
+                            "CONFIRM_CODE_FIX",
+                            "CANCEL_CODE_FIX",
                         }
                         # Quick mode bypasses synthesis for grounded control actions
                         # (returns deterministic evidence directly — fast, no GGUF).
@@ -10764,6 +10776,8 @@ Answer:"""
             # it had already finished) or degenerated to a lone "-Auto". The
             # structured report IS the answer — return it verbatim.
             "SELF_UPGRADE", "SELF_IMPROVE", "SELF_PATCH",
+            # Code-examiner reports are grounded fact — return verbatim.
+            "EXAMINE_CODE", "CONFIRM_CODE_FIX", "CANCEL_CODE_FIX",
         }
 
         if (
