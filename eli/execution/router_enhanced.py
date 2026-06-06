@@ -6055,6 +6055,35 @@ try:
             def _stage_core_router(text, *a, **k):
                 return _eli_phase38_open_typo_or_core_route(text, *a, **k)
 
+            def _stage_pending_habit_confirm(text, *_a, **_k):
+                """Pre-pass: when ELI has offered to add a detected habit, intercept
+                YES/NO so a plain 'yes' approves it (enables the rule) and 'no'
+                dismisses it — before anything else swallows the reply."""
+                try:
+                    import re as _re
+                    from eli.planning.habits import get_pending_habit
+                    from eli.runtime import grounded_remediation as _gr
+                    if not get_pending_habit():
+                        return None
+                    low = _re.sub(r"\s+", " ", str(text or "").strip().lower())
+                    if _gr.NO_RE.match(low) or _re.search(r"\b(no thanks|don'?t|do not|dismiss|skip it)\b", low):
+                        return {
+                            "action": "DECLINE_HABIT",
+                            "args": {"message": low},
+                            "confidence": 0.98,
+                            "meta": {"matched_by": "pending_habit.no_intercept"},
+                        }
+                    if _gr.YES_RE.match(low) or _re.search(r"\b(add it|do it|sure|please do|go ahead|sounds good)\b", low):
+                        return {
+                            "action": "CONFIRM_HABIT",
+                            "args": {"message": low},
+                            "confidence": 0.98,
+                            "meta": {"matched_by": "pending_habit.yes_intercept"},
+                        }
+                except Exception:
+                    pass
+                return None
+
             def _stage_pending_code_fix_confirm(text, *_a, **_k):
                 """Pre-pass: when an EXAMINE_CODE fix offer is pending, intercept
                 YES/NO (and 'fix it' / 'fix the logic ones too') before anything
@@ -6172,6 +6201,7 @@ try:
                     return None
 
             return (
+                ("pending_habit_confirm", _stage_pending_habit_confirm),
                 ("pending_code_fix_confirm", _stage_pending_code_fix_confirm),
                 ("pending_remediation_confirm", _stage_pending_remediation_confirm),
                 ("pending_proposal_confirm", _stage_pending_proposal_confirm),

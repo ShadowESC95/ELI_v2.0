@@ -750,6 +750,44 @@ Date: {datetime.now().strftime("%A %B %d %H:%M")} | Interactions last 24h: {inte
                         from eli.planning.habits import detect_habits
                         detect_habits(days=14, min_occurrences=3)
 
+                        # ── Proactively OFFER newly-detected habits ──────────
+                        # detect_habits creates suggestions DISABLED. Pitch one
+                        # per cycle (specific app at a specific hour) and let the
+                        # user say yes/no — never silently activate. One offer at a
+                        # time; don't re-pitch the same rule.
+                        try:
+                            from eli.planning.habits import (
+                                get_pending_habit, set_pending_habit,
+                                was_offered, mark_offered,
+                            )
+                            _hmem = self.user_mem or self.agent_mem
+                            if _hmem and hasattr(_hmem, "get_habit_rules") and not get_pending_habit():
+                                for _r in (_hmem.get_habit_rules(enabled_only=False) or []):
+                                    if not isinstance(_r, dict):
+                                        try:
+                                            _r = dict(_r)
+                                        except Exception:
+                                            continue
+                                    if _r.get("enabled"):
+                                        continue  # already active
+                                    _rid = int(_r.get("id", -1))
+                                    if _rid < 0 or was_offered(_rid):
+                                        continue
+                                    _hh = int(_r.get("hour", 0))
+                                    _mm = int(_r.get("minute", 0))
+                                    _nm = _r.get("name", "a recurring action")
+                                    offer = (f"I've noticed a pattern — “{_nm}”. Want me to add it "
+                                             f"as a habit and run it around {_hh:02d}:{_mm:02d}? (yes/no)")
+                                    set_pending_habit(_rid, _nm, _hh, _mm, _r.get("command", ""))
+                                    mark_offered(_rid)
+                                    self.suggestion_queue.put(("habit_suggestion", {
+                                        "rule_id": _rid, "name": _nm,
+                                        "hour": _hh, "minute": _mm, "suggestion": offer,
+                                    }))
+                                    break  # one offer per cycle
+                        except Exception as _ho:
+                            log.debug(f"[PROACTIVE] habit offer skipped: {_ho}")
+
                         from datetime import datetime as _dt
                         _now = _dt.now()
                         _cur_h, _cur_m = _now.hour, _now.minute
