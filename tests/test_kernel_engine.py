@@ -214,3 +214,25 @@ def test_engine_build_system_multiple_times(engine):
         result = engine._build_enhanced_system(reasoning_mode=mode)
         assert isinstance(result, str)
         assert len(result) > 100
+
+
+# ── Degenerate-output guard (fragment never surfaced) ─────────────────────
+import pytest as _pytest
+
+
+@_pytest.mark.parametrize("frag", ["-", "-G", "-Auto", "-Auto/G 5/", "-PAS", "", "  ", "/G 5/"])
+def test_fragment_detector_flags_garbage(frag):
+    from eli.kernel.engine import _eli_is_fragment_output
+    assert _eli_is_fragment_output(frag) is True
+
+
+@_pytest.mark.parametrize("ok", [
+    "Jason.",
+    "Your name is Jason.",
+    "There are no broken components.",
+    "Path not found: /home/jay/Desktop/eli/brain",
+    "34G\t/home/jay/eli/models/",
+])
+def test_fragment_detector_passes_real_answers(ok):
+    from eli.kernel.engine import _eli_is_fragment_output
+    assert _eli_is_fragment_output(ok) is False
