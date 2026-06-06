@@ -168,6 +168,41 @@ def _iter_table_texts(con: sqlite3.Connection, table: str, limit: int = 80) -> I
     return out
 
 
+# Volatile fact types age out of recall once not reaffirmed within this window
+# (projects/interests change). Stable types (preferences, name, research
+# framework, role) are never aged out.
+_VOLATILE_PREFIXES = ("project.", "interest.", "app_cmd")
+_VOLATILE_STALE_SECONDS = 30 * 86400
+
+
+def _iter_user_patterns_fresh(con: sqlite3.Connection, limit: int = 200) -> list[str]:
+    """user_patterns rows as clean facts, MOST RECENT first, with stale volatile
+    facts (projects/interests not reaffirmed within the window) dropped so recall
+    reflects current focus rather than everything ever mentioned."""
+    if not _table_exists(con, "user_patterns"):
+        return []
+    import time as _t
+    cutoff = _t.time() - _VOLATILE_STALE_SECONDS
+    try:
+        rows = con.execute(
+            "SELECT pattern_type, pattern_data, COALESCE(ts, timestamp, 0) "
+            "FROM user_patterns ORDER BY COALESCE(ts, timestamp, id) DESC LIMIT ?",
+            (limit,),
+        ).fetchall()
+    except Exception:
+        return []
+    out: list[str] = []
+    for ptype, pdata, pts in rows:
+        ptype = str(ptype or "")
+        text = _clean_text(pdata)
+        if not text:
+            continue
+        if any(ptype.startswith(p) for p in _VOLATILE_PREFIXES) and float(pts or 0) < cutoff:
+            continue  # stale volatile fact — project/interest no longer current
+        out.append(text)
+    return out
+
+
 def _collect_facts() -> tuple[list[str], dict[str, int]]:
     facts: list[str] = []
     counts: dict[str, int] = {}
@@ -197,7 +232,15 @@ def _collect_facts() -> tuple[list[str], dict[str, int]]:
 
             counts[f"{db_label}.{table}"] = int(n)
 
-            for text in _iter_table_texts(con, table):
+            # user_patterns rows are curated facts already; iterate them
+            # MOST-RECENT-first with stale volatile facts dropped (dynamic
+            # projects/interests). Other tables use the generic iterator.
+            texts = (
+                _iter_user_patterns_fresh(con)
+                if table == "user_patterns"
+                else _iter_table_texts(con, table)
+            )
+            for text in texts:
                 fact = _extract_fact(text)
                 if fact and fact not in facts:
                     facts.append(fact)

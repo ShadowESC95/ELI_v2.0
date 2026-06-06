@@ -19,6 +19,12 @@ from typing import Any, Dict, List, Optional
 
 log = logging.getLogger(__name__)
 
+# Volatile personal facts (projects, interests) are dropped from the live persona
+# once they go this long without being reaffirmed — they change over time, so the
+# persona should reflect CURRENT focus. Reaffirming a fact refreshes its recency
+# (see profile_extractor._insert_user_pattern). Stable facts are never aged out.
+_VOLATILE_STALE_DAYS: float = 30.0
+
 # Module-level debounce: skip update_persona_overlay() calls that occur within
 # 120 seconds of the previous run. The Lock prevents the race condition where
 # multiple threads (reflection, proactive daemon, self-improvement) all read
@@ -462,7 +468,14 @@ def _read_user_patterns(memory: Any) -> Dict[str, List[str]]:
                 continue
             seen.add(key)
             prefix = (ptype or "other").split(".")[0]
-            if prefix == "project" and pts:
+            # Projects and interests are VOLATILE — they change over time. Drop
+            # ones not reaffirmed within the staleness window so the live persona
+            # reflects CURRENT focus, not everything ever mentioned. Stable facts
+            # (name, preferences, research framework, role) are not aged out.
+            if prefix in ("project", "interest") and pts:
+                age_days = (now - float(pts)) / 86400.0
+                if age_days > _VOLATILE_STALE_DAYS:
+                    continue
                 age_h = (now - float(pts)) / 3600
                 if age_h >= 4:
                     age_label = f"{age_h/24:.0f}d ago" if age_h >= 48 else f"{age_h:.0f}h ago"
