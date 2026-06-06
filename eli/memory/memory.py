@@ -2812,17 +2812,49 @@ class Memory(metaclass=_MemoryMeta):
         finally:
             conn.close()
 
-    def add_habit_rule(self, name: str, command: str, hour: int, minute: int, days: list = None) -> int:
+    def add_habit_rule(self, name: str, command: str, hour: int, minute: int,
+                       days: list = None, enabled: bool = True) -> int:
+        # enabled defaults True for explicit/manual adds; ELI's auto-detection
+        # passes enabled=False so a suggested habit never activates until the
+        # user approves it (enables it) in the Habits tab.
         now = time.time()
         days_json = json.dumps(days) if days else None
         conn = self._get_connection()
         try:
             cur = conn.execute(
-                "INSERT INTO habit_rules (name, command, hour, minute, days, enabled, timestamp, ts) VALUES (?, ?, ?, ?, ?, 1, ?, ?)",
-                (name, command, int(hour), int(minute), days_json, now, now),
+                "INSERT INTO habit_rules (name, command, hour, minute, days, enabled, timestamp, ts) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+                (name, command, int(hour), int(minute), days_json,
+                 1 if enabled else 0, now, now),
             )
             conn.commit()
             return int(cur.lastrowid)
+        finally:
+            conn.close()
+
+    def update_habit_rule(self, rule_id: int, *, name: str = None, command: str = None,
+                          hour: int = None, minute: int = None, days: list = None) -> bool:
+        """Update fields of an existing habit rule (manual edit from the GUI).
+        Only provided fields are changed. Returns True if a row was updated."""
+        sets, params = [], []
+        if name is not None:
+            sets.append("name = ?"); params.append(str(name))
+        if command is not None:
+            sets.append("command = ?"); params.append(str(command))
+        if hour is not None:
+            sets.append("hour = ?"); params.append(int(hour))
+        if minute is not None:
+            sets.append("minute = ?"); params.append(int(minute))
+        if days is not None:
+            sets.append("days = ?"); params.append(json.dumps(days) if days else None)
+        if not sets:
+            return False
+        params.append(int(rule_id))
+        conn = self._get_connection()
+        try:
+            cur = conn.execute(
+                f"UPDATE habit_rules SET {', '.join(sets)} WHERE id = ?", params)
+            conn.commit()
+            return cur.rowcount > 0
         finally:
             conn.close()
 

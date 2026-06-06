@@ -21,24 +21,33 @@ def log_event(event_type: str, data: dict):
     mem.log_habit_event(event_type, data)
 
 
-def _extract_hour_minute(ts) -> tuple[int, int]:
+def _extract_hour_minute(ts):
+    """Return (hour, minute), or None when the timestamp is missing/degenerate.
+
+    Supports real unix timestamps and synthetic HHMM-style test timestamps
+    (1000, 1001, …). Returns None for None / unparseable / epoch-0 sentinels so
+    callers SKIP the event instead of fabricating a bogus 00:00 habit from a
+    timestamp-less app-launch row (Jason, 2026-06-06: habits kept appearing at
+    00:00).
     """
-    Supports both:
-    - real unix timestamps
-    - synthetic HHMM-style test timestamps like 1000, 1001, 1002
-    """
+    if ts is None or ts == "":
+        return None
     try:
-        iv = int(ts)
-    except Exception:
-        iv = None
+        iv = int(float(ts))
+    except (TypeError, ValueError):
+        return None
 
-    if iv is not None and 0 <= iv <= 2359:
-        hour = iv // 100
-        minute = iv % 100
-        if 0 <= hour <= 23 and 0 <= minute <= 59:
-            return hour, minute
+    if iv <= 0:
+        return None  # epoch-0 / missing sentinel — not a real time of day
 
-    dt = datetime.fromtimestamp(float(ts))
+    if iv <= 2359:  # synthetic HHMM test timestamp
+        hour, minute = iv // 100, iv % 100
+        return (hour, minute) if (0 <= hour <= 23 and 0 <= minute <= 59) else None
+
+    try:
+        dt = datetime.fromtimestamp(float(ts))
+    except (OverflowError, OSError, ValueError):
+        return None
     return dt.hour, dt.minute
 
 
@@ -124,7 +133,11 @@ def detect_habits(days: int = 14, min_occurrences: int = 3):
         else:
             command = str(cmd)
 
-        hour, minute = _extract_hour_minute(ts)
+        hm = _extract_hour_minute(ts)
+        if hm is None:
+            # Timestamp-less / degenerate event — don't fabricate a 00:00 habit.
+            continue
+        hour, minute = hm
         clusters[(str(app), command, int(hour))].append(int(minute))
 
     existing_rules = mem.get_habit_rules(enabled_only=False)
@@ -158,9 +171,12 @@ def detect_habits(days: int = 14, min_occurrences: int = 3):
                 break
 
         if not exists:
-            # positional args on purpose: tests inspect args[0], args[1], args[2], args[3]
-            mem.add_habit_rule(name, command, hour, minute, None)
-            log.debug(f"[HABIT] New rule created: {name}")
+            # Create DISABLED (suggested) — ELI proposes habits but never activates
+            # one without the user's say-so. The user approves by enabling it in the
+            # Habits tab (Jason, 2026-06-06: "confirm with me before adding a habit").
+            # positional args[0..3] preserved; enabled is an explicit keyword.
+            mem.add_habit_rule(name, command, hour, minute, None, enabled=False)
+            log.debug(f"[HABIT] Suggested (disabled) rule created — awaiting approval: {name}")
 
     _write_behavior_observations(mem, behavior_counts, behavior_examples, min_occurrences)
 

@@ -208,8 +208,12 @@ class CentralMemoryAdapter:
     def get_habit_rules(self, enabled_only: bool = True) -> List[Dict[str, Any]]:
         return self._mem.get_habit_rules(enabled_only)
 
-    def add_habit_rule(self, name: str, command: str, hour: int, minute: int, days: list = None) -> int:
-        return self._mem.add_habit_rule(name, command, hour, minute, days)
+    def add_habit_rule(self, name: str, command: str, hour: int, minute: int,
+                       days: list = None, enabled: bool = True) -> int:
+        return self._mem.add_habit_rule(name, command, hour, minute, days, enabled=enabled)
+
+    def update_habit_rule(self, rule_id: int, **fields) -> bool:
+        return self._mem.update_habit_rule(rule_id, **fields)
 
     def delete_habit_rule(self, rule_id: int) -> None:
         conn = self._mem._get_connection()
@@ -428,8 +432,11 @@ else:
         # Minimal habit methods for fallback
         def get_habit_rules(self, enabled_only: bool = True) -> List[Dict[str, Any]]:
             return []
-        def add_habit_rule(self, name: str, command: str, hour: int, minute: int, days: list = None) -> int:
+        def add_habit_rule(self, name: str, command: str, hour: int, minute: int,
+                           days: list = None, enabled: bool = True) -> int:
             return -1
+        def update_habit_rule(self, rule_id: int, **fields) -> bool:
+            return False
         def delete_habit_rule(self, rule_id: int):
             pass
         def toggle_habit_rule(self, rule_id: int, enabled: bool):
@@ -3429,7 +3436,7 @@ class EliMainWindow(QMainWindow):
         self.create_files_tab()
         self.create_labs_tab()
         self.create_coding_tab()
-        self.create_experimental_tab()
+        # Experimental tab removed — gaze control is wired as a toggle in Settings.
         self.create_eli_world_tab()
         self.create_settings_tab()
         self.create_top_toolbar()
@@ -4124,6 +4131,10 @@ class EliMainWindow(QMainWindow):
         add_btn.clicked.connect(self.add_habit_rule)
         toolbar.addWidget(add_btn)
 
+        edit_btn = QPushButton("✏️ Edit Selected")
+        edit_btn.clicked.connect(self.edit_habit_rule)
+        toolbar.addWidget(edit_btn)
+
         delete_btn = QPushButton("🗑️ Delete Selected")
         delete_btn.clicked.connect(self.delete_habit_rule)
         toolbar.addWidget(delete_btn)
@@ -4131,10 +4142,20 @@ class EliMainWindow(QMainWindow):
         toolbar.addStretch()
         layout.addLayout(toolbar)
 
+        # Explain the approval model: ELI proposes habits switched OFF; the user
+        # approves one by ticking Enabled. Manual adds are on immediately.
+        hint = QLabel("💡 Habits ELI suggests start OFF (Status: Suggested). Tick "
+                      "“Enabled” to approve & activate one. Use Add/Edit to manage "
+                      "them yourself.")
+        hint.setWordWrap(True)
+        hint.setStyleSheet("color:#88909c;font-size:10px;padding:2px 6px;")
+        layout.addWidget(hint)
+
         # Table of habits
         self.habit_table = QTableWidget()
-        self.habit_table.setColumnCount(6)
-        self.habit_table.setHorizontalHeaderLabels(["ID", "Name", "Command", "Time", "Days", "Enabled"])
+        self.habit_table.setColumnCount(7)
+        self.habit_table.setHorizontalHeaderLabels(
+            ["ID", "Name", "Command", "Time", "Days", "Status", "Enabled"])
         self.habit_table.horizontalHeader().setStretchLastSection(True)
         # Set selection behavior (Qt version safe)
         select_rows = getattr(
@@ -4184,34 +4205,41 @@ class EliMainWindow(QMainWindow):
                     days_str = ", ".join(day_names[d] for d in days if 0 <= d < 7)
                 days_item = QTableWidgetItem(days_str)
                 self.habit_table.setItem(i, 4, days_item)
-                # Enabled (checkbox)
+                # Status — Active when enabled, otherwise an ELI suggestion awaiting
+                # the user's approval (or a habit the user switched off).
                 enabled = rule.get("enabled", False)
+                status_item = QTableWidgetItem("✅ Active" if enabled else "💡 Suggested (off)")
+                self.habit_table.setItem(i, 5, status_item)
+                # Enabled (checkbox) = approve/activate
                 chk = QCheckBox()
                 chk.setChecked(enabled)
                 chk.stateChanged.connect(lambda state, rid=rule["id"]: self.toggle_habit_rule(rid, state == Qt.Checked))
-                self.habit_table.setCellWidget(i, 5, chk)
+                self.habit_table.setCellWidget(i, 6, chk)
             self.habit_info.setText(f"Total habits: {len(rules)}")
         except Exception as e:
             self.habit_info.setText(f"Error loading habits: {e}")
 
-    def add_habit_rule(self):
-        """Open a dialog to add a new habit rule."""
+    def _habit_rule_dialog(self, title: str, prefill: dict = None):
+        """Shared add/edit dialog. Returns (name, command, hour, minute, days) or None."""
+        prefill = prefill or {}
         dialog = QDialog(self)
-        dialog.setWindowTitle("Add Habit Rule")
+        dialog.setWindowTitle(title)
         layout = QFormLayout(dialog)
 
-        name_edit = QLineEdit()
+        name_edit = QLineEdit(str(prefill.get("name", "")))
         layout.addRow("Name:", name_edit)
 
-        command_edit = QLineEdit()
+        command_edit = QLineEdit(str(prefill.get("command", "")))
         layout.addRow("Command:", command_edit)
 
         hour_spin = QSpinBox()
         hour_spin.setRange(0, 23)
+        hour_spin.setValue(int(prefill.get("hour", 0) or 0))
         layout.addRow("Hour (0-23):", hour_spin)
 
         minute_spin = QSpinBox()
         minute_spin.setRange(0, 59)
+        minute_spin.setValue(int(prefill.get("minute", 0) or 0))
         layout.addRow("Minute (0-59):", minute_spin)
 
         # Days of week (multi-select)
@@ -4219,8 +4247,10 @@ class EliMainWindow(QMainWindow):
         days_layout = QHBoxLayout()
         day_checkboxes = []
         day_names = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
-        for i, name in enumerate(day_names):
-            cb = QCheckBox(name)
+        _pre_days = set(prefill.get("days") or [])
+        for i, dname in enumerate(day_names):
+            cb = QCheckBox(dname)
+            cb.setChecked(i in _pre_days)
             days_layout.addWidget(cb)
             day_checkboxes.append(cb)
         days_group.setLayout(days_layout)
@@ -4231,22 +4261,69 @@ class EliMainWindow(QMainWindow):
         buttons.rejected.connect(dialog.reject)
         layout.addRow(buttons)
 
-        if dialog.exec() == QDialog.DialogCode.Accepted:
-            name = name_edit.text().strip()
-            command = command_edit.text().strip()
-            hour = hour_spin.value()
-            minute = minute_spin.value()
-            days = [i for i, cb in enumerate(day_checkboxes) if cb.isChecked()] or None
-            if name and command:
-                try:
-                    rule_id = memory_system.add_habit_rule(name, command, hour, minute, days)
-                    if rule_id > 0:
-                        self.refresh_habit_list()
-                        self.status_signal.emit(f"Habit '{name}' added.")
-                    else:
-                        QMessageBox.warning(self, "Error", "Failed to add habit rule.")
-                except Exception as e:
-                    QMessageBox.warning(self, "Error", f"Failed to add habit: {e}")
+        if dialog.exec() != QDialog.DialogCode.Accepted:
+            return None
+        name = name_edit.text().strip()
+        command = command_edit.text().strip()
+        if not (name and command):
+            QMessageBox.warning(self, "Error", "Name and command are both required.")
+            return None
+        days = [i for i, cb in enumerate(day_checkboxes) if cb.isChecked()] or None
+        return name, command, hour_spin.value(), minute_spin.value(), days
+
+    def add_habit_rule(self):
+        """Open a dialog to add a new (active) habit rule. Manual adds are enabled
+        immediately — the user is explicitly creating it."""
+        vals = self._habit_rule_dialog("Add Habit Rule")
+        if not vals:
+            return
+        name, command, hour, minute, days = vals
+        try:
+            rule_id = memory_system.add_habit_rule(name, command, hour, minute, days, enabled=True)
+            if rule_id and rule_id > 0:
+                self.refresh_habit_list()
+                self.status_signal.emit(f"Habit '{name}' added.")
+            else:
+                QMessageBox.warning(self, "Error", "Failed to add habit rule.")
+        except Exception as e:
+            QMessageBox.warning(self, "Error", f"Failed to add habit: {e}")
+
+    def edit_habit_rule(self):
+        """Edit the selected habit rule via a prefilled dialog."""
+        selected = self.habit_table.currentRow()
+        if selected < 0:
+            QMessageBox.information(self, "No Selection", "Please select a habit to edit.")
+            return
+        try:
+            rule_id = int(self.habit_table.item(selected, 0).text())
+        except Exception:
+            return
+        prefill = {}
+        try:
+            for rule in memory_system.get_habit_rules(enabled_only=False):
+                if int(rule.get("id", -1)) == rule_id:
+                    prefill = {
+                        "name": rule.get("name", ""), "command": rule.get("command", ""),
+                        "hour": rule.get("hour", 0), "minute": rule.get("minute", 0),
+                        "days": rule.get("days"),
+                    }
+                    break
+        except Exception:
+            pass
+        vals = self._habit_rule_dialog("Edit Habit Rule", prefill)
+        if not vals:
+            return
+        name, command, hour, minute, days = vals
+        try:
+            ok = memory_system.update_habit_rule(
+                rule_id, name=name, command=command, hour=hour, minute=minute, days=days)
+            if ok:
+                self.refresh_habit_list()
+                self.status_signal.emit(f"Habit '{name}' updated.")
+            else:
+                QMessageBox.warning(self, "Error", "Failed to update habit rule.")
+        except Exception as e:
+            QMessageBox.warning(self, "Error", f"Failed to update habit: {e}")
 
     def delete_habit_rule(self):
         """Delete the selected habit rule."""
