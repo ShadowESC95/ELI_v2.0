@@ -1216,7 +1216,17 @@ def route(text: str) -> Dict[str, Any]:
             "query": text if 'text' in locals() else (_pm_text or ""),
         }
 
-    if re.fullmatch(r"(?:self[- ]?update|update yourself|refresh yourself|refresh all overlays)", low):
+    # Tolerate natural leading filler ("do a", "run a", "please", "now") and
+    # trailing punctuation so "do a self update" still routes to SELF_UPDATE
+    # instead of falling through to CHAT (which then confabulates "I'm updating
+    # myself now" — a fake action). "self upgrade" intentionally does NOT match
+    # here; it routes to SELF_UPGRADE further down.
+    if re.fullmatch(
+        r"(?:(?:please|pls|can you|could you|now)\s+)*"
+        r"(?:(?:do|run|perform|execute|go)\s+(?:a|an|the)?\s*)?"
+        r"(?:self[- ]?update|update yourself|refresh yourself|refresh all overlays)"
+        r"(?:\s+now)?[.!\s]*",
+        low):
         return _mk("SELF_UPDATE", {}, 0.99, matched_by="router.self_update", allow_chat_without_evidence=False)
 
     if re.search(r"\b(confidence in (?:your|my) last response|which agents contributed|what agents contributed|last response trace|previous response trace|last turn trace)\b", low):
