@@ -192,6 +192,24 @@
   assert:
     - {type: action_not, value: [EXPLAIN_MEMORY_RUNTIME]}
 
+# ── Elliptical name follow-up must reach the grounded identity action ───────
+# "and my name?" used to fall to CHAT, where the constitutional critique nuked
+# the correct "Jason" answer to "[no memories found]". Route it to the grounded
+# USER_IDENTITY_SUMMARY (returns the name verbatim, no critique).
+- id: bare_my_name_followup_is_identity
+  target: router
+  prompt: "and my name?"
+  assert:
+    - {type: action_is, value: [USER_IDENTITY_SUMMARY]}
+    - {type: action_not, value: [CHAT]}
+
+# A name STATEMENT must still set the name, not query it.
+- id: my_name_is_statement_sets_name
+  target: router
+  prompt: "my name is jason"
+  assert:
+    - {type: action_not, value: [USER_IDENTITY_SUMMARY]}
+
 # ── Engine-level: grounding / hedging / confabulation (need a model) ────────
 - id: factual_offline_hedges
   target: engine
