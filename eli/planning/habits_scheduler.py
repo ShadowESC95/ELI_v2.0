@@ -18,6 +18,16 @@ log = get_logger(__name__)
 class HabitScheduler:
     def __init__(self):
         self.memory = get_memory()
+        # Self-heal legacy corruption: disable enabled-but-un-schedulable rules
+        # (NULL time, or bare-token command == name) so they stop appearing as
+        # "active habits at 00:00". Non-destructive; idempotent across boots.
+        try:
+            _n = self.memory.disable_invalid_habit_rules()
+            if _n:
+                log.info(f"[SCHEDULER] Disabled {_n} invalid/legacy habit rule(s) "
+                         f"(no valid scheduled time or bare-token command)")
+        except Exception as e:
+            log.debug(f"[SCHEDULER] habit self-heal skipped: {e}")
         self.running = True
         self.thread = threading.Thread(target=self._run_loop, daemon=True)
         self.thread.start()
