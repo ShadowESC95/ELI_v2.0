@@ -9480,15 +9480,40 @@ Answer:"""
                             or intent.get("force_persona_synthesis")
                             or (intent.get("meta") or {}).get("force_persona_synthesis")
                         )
+                        # Deep technical introspection — "explain exactly how your
+                        # memory/cognition pipeline works: files, folders, tables,
+                        # processes". The executor builds a complete, sanitised LIVE
+                        # audit (real table list, real DB paths, real retrieval
+                        # mechanisms) and that structured report IS the literal
+                        # answer to a spec question. Re-narrating it on a small local
+                        # model only drops or invents facts. Jason, 2026-06-06: in
+                        # CoT mode, EXPLAIN_MEMORY_RUNTIME's correct DB audit was run
+                        # through compact synthesis, which hallucinated a phantom
+                        # "memory.sqlite3 for temporary storage" and miscounted the
+                        # databases. These return verbatim in EVERY reasoning mode.
+                        #
+                        # Scope is deliberately TIGHT to the explain-internals pair:
+                        # RUNTIME_STATUS / RUNTIME_AUDIT / MEMORY_STATUS / NEWS_FETCH
+                        # have an explicit V19 "synthesise in non-Quick" contract
+                        # (tested) and a conversational synthesis genuinely reads
+                        # better for them — they are NOT here. Persona-narrative
+                        # actions (PERSONAL_MEMORY_DEEP_EXPLAIN) also synthesise.
+                        _verbatim_always_actions = {
+                            "EXPLAIN_MEMORY_RUNTIME",
+                            "EXPLAIN_COGNITION_RUNTIME",
+                            "RESOLVE_RUNTIME_PATHS",
+                        }
                         # Quick mode bypasses synthesis for grounded control actions
                         # (returns deterministic evidence directly — fast, no GGUF).
-                        # Non-Quick modes MUST synthesize via their mode algorithm,
-                        # but using a compact evidence-only context built below to
-                        # prevent prompt-overflow CUDA crashes and to stop memory
-                        # hits from leaking hallucinated content (e.g. stale names).
+                        # Non-Quick modes MAY synthesise via their mode algorithm,
+                        # using a compact evidence-only context to prevent prompt
+                        # overflow — EXCEPT the verbatim-always introspection family
+                        # above, which is returned as-is in every mode so a weak
+                        # model can't corrupt grounded facts.
                         _bypass_persona = bool(
                             kwargs.get("bypass_persona")
                             or intent.get("bypass_persona")
+                            or _action_upper in _verbatim_always_actions
                             or (
                                 _direct_mode == "quick"
                                 and _action_upper in _deterministic_direct_payload_actions
