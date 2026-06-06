@@ -250,6 +250,39 @@
   assert:
     - {type: action_not, value: [PROACTIVE_STATUS]}
 
+# ── "What time did I first message?" reads the conversation log, not the clock ─
+# Used to hit the TIME route and return the CURRENT time.
+- id: first_message_time_is_grounded
+  target: router
+  prompt: "what time did i first send a message today?"
+  assert:
+    - {type: action_is, value: [MESSAGE_TIME_QUERY]}
+    - {type: action_not, value: [TIME, CHAT]}
+
+# The current-time question must still route to TIME (no over-capture).
+- id: current_time_still_routes_to_time
+  target: router
+  prompt: "what time is it"
+  assert:
+    - {type: action_is, value: [TIME]}
+
+# ── Known ELI files by name → read the real file, not confabulate ───────────
+# "is your persona.auto.txt up to date? read it…" fell to CHAT→SELF_REPORT and
+# confabulated instead of reading the file.
+- id: known_eli_file_persona_is_read
+  target: router
+  prompt: "is your persona.auto.txt up to date? read it and tell me what's in it"
+  assert:
+    - {type: action_is, value: [SUMMARIZE_FILE]}
+    - {type: action_not, value: [CHAT, SELF_REPORT]}
+
+# A vague persona question (no read/contents intent) must stay conversational.
+- id: persona_like_question_stays_chat
+  target: router
+  prompt: "what's your persona like"
+  assert:
+    - {type: action_not, value: [SUMMARIZE_FILE]}
+
 # ── Engine-level: grounding / hedging / confabulation (need a model) ────────
 - id: factual_offline_hedges
   target: engine
