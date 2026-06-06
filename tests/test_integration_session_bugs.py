@@ -7,7 +7,7 @@ pass AFTER — they are the tests that would have caught the bugs early.
 Bugs covered:
   1. "what are you doing" → SELF_REPORT (router pattern over-triggers)
   2. CAI critique leaks into final response (bad_final guard)
-  3. "My name is Jason" — USER_IDENTITY_SUMMARY second-person confusion
+  3. "My name is <name>" — USER_IDENTITY_SUMMARY second-person confusion
   4. RUNTIME_AUDIT returning PASS×N on file-existence check only
   5. World state context missing non-current rooms
   6. EXPLAIN_COGNITION_RUNTIME hardcoded True booleans
@@ -143,8 +143,8 @@ class TestUserIdentitySummarySecondPerson:
     """The synthesis instruction for USER_IDENTITY_SUMMARY must instruct the
     LLM to answer in second person ("Your name is X") not first person ("My name is X").
 
-    The bug: evidence said "Confirmed active-user name: jason" but the 7B model
-    output "My name is Jason" — confusing ELI's identity with the user's.
+    The bug: evidence said "Confirmed active-user name: <name>" but the local model
+    output "My name is <name>" — confusing ELI's identity with the user's.
     """
 
     def test_user_identity_synthesis_instruction_says_second_person(self):

@@ -75,7 +75,7 @@ from eli.runtime.action_commitment import extract_deepen_topic as deepen
 
 def test_extract_deepen_topic():
     # "look closer into Hubble" must yield the topic, not the whole briefing,
-    # so a news deepen re-fetches that subject (Jason: topic-deepen bug).
+    # so a news deepen re-fetches that subject (user-reported: topic-deepen bug).
     cases = {
         "look closer into Hubble": "Hubble",
         "look into Hubble": "Hubble",

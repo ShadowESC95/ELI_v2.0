@@ -227,8 +227,8 @@ def test_fragment_detector_flags_garbage(frag):
 
 
 @_pytest.mark.parametrize("ok", [
-    "Jason.",
-    "Your name is Jason.",
+    "Alex.",
+    "Your name is Alex.",
     "There are no broken components.",
     "Path not found: /home/jay/Desktop/eli/brain",
     "34G\t/home/jay/eli/models/",

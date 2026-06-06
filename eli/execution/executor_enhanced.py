@@ -1021,7 +1021,7 @@ def _explain_memory_runtime_report() -> Dict[str, Any]:
     # not just the logical roles. The role resolver aliases active_db/user_db/
     # memory_db to the SAME user.sqlite3 and never sees siblings like
     # coding_memory.sqlite3 or system_index.sqlite3, so the report claimed "2
-    # databases" when there are 4 on disk (Jason, 2026-06-06: "you have at least
+    # databases" when there are 4 on disk (user-reported, 2026-06-06: "you have at least
     # 4 sqlite databases"). Ground the count in the filesystem.
     db_files: List[Dict[str, Any]] = []
     try:

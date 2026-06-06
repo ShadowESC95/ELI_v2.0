@@ -708,8 +708,8 @@ def _route_set_user_name(raw: str, low: str) -> Optional[Dict[str, Any]]:
             "api", "gui", "cli", "url", "cpu", "gpu", "ram", "ssd",}
 
     for i, pat in enumerate(_patterns):
-        # Use the LAST occurrence: "my name is speak, my name is jason" must
-        # resolve to the final assertion (jason), not a quoted earlier error.
+        # Use the LAST occurrence: "my name is speak, my name is alex" must
+        # resolve to the final assertion (alex), not a quoted earlier error.
         _matches = list(_re.finditer(pat, raw, _re.IGNORECASE))
         m = _matches[-1] if _matches else None
         if m:
@@ -5123,9 +5123,9 @@ def _eli_phase38_identity_contract(raw):
     # Elliptical name follow-up: "and my name?", "my name?", "what about my
     # name". A bare name-only question after the topic was already raised used
     # to fall through to CHAT, where the constitutional critique then nuked the
-    # correct "Jason" answer to "[no memories found]". Route it to the grounded
+    # correct stored-name answer to "[no memories found]". Route it to the grounded
     # USER_IDENTITY_SUMMARY (returns the name verbatim). The pattern must END at
-    # "my name" so the statement "my name is jason" is NOT captured here.
+    # "my name" so the statement "my name is <name>" is NOT captured here.
     if _re.fullmatch(
         r"\s*(and|but|so|ok|okay|well|hmm?)?[,\s]*"
         r"(what(?:'s| is| about)?\s+)?my name\s*\??\s*",
@@ -6281,7 +6281,7 @@ try:
                 ("personal_memory_pre_route", _stage_personal_memory_pre_route),
                 ("lrf_pre_route", _stage_lrf_pre_route),
                 # set_user_name runs before portable_route so explicit identity
-                # assertions ("call me Jason", "my name is X") are never
+                # assertions ("call me Alex", "my name is X") are never
                 # misclassified as media-play requests by portable_intent_contract.
                 ("set_user_name", _stage_set_user_name),
                 ("portable_route", _stage_portable_route),
