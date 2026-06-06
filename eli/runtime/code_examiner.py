@@ -2,7 +2,7 @@
 Code examiner — examine user-named files (or a default sweep) for errors in
 three confidence tiers, then offer to fix via the existing verified patch engine.
 
-Design (Jason, 2026-06-06):
+Design (user-requested, 2026-06-06):
   * Tier 1 — HIGH confidence, deterministic: syntax (ast.parse) + import smoke-test.
   * Tier 2 — MEDIUM confidence, static lint: unused imports / undefined names
     (pyflakes if importable, else a conservative AST fallback).

@@ -4541,7 +4541,7 @@ class EliMainWindow(QMainWindow):
         self.image_seed_input.setRange(1, 999999)
         self.image_seed_input.setValue(77)
         # Lock OFF by default → each generation uses a fresh random seed, so
-        # repeated prompts don't produce the identical image (Jason, 2026-06-06:
+        # repeated prompts don't produce the identical image (user-reported, 2026-06-06:
         # "just getting repeated images"). Tick to pin the seed and reproduce one.
         self.image_seed_lock = QCheckBox("🔒 Lock seed")
         self.image_seed_lock.setChecked(False)

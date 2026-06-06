@@ -351,7 +351,7 @@ def test_control_action_result_uses_full_pipeline_in_nonquick_mode():
 
 
 def test_explain_memory_runtime_is_verbatim_even_in_nonquick_mode():
-    # Regression (Jason, 2026-06-06): in CoT mode, EXPLAIN_MEMORY_RUNTIME's
+    # Regression (user-reported, 2026-06-06): in CoT mode, EXPLAIN_MEMORY_RUNTIME's
     # correct live DB audit was run through compact synthesis, which on the small
     # local model hallucinated a phantom "memory.sqlite3 for temporary storage"
     # and miscounted the databases. Deep technical introspection ("exactly how

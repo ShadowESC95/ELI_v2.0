@@ -477,9 +477,9 @@ def _read_user_patterns(memory: Any) -> Dict[str, List[str]]:
 def _extract_name_from_identity_item(text: str) -> str:
     """
     Extract a bare personal name from identity pattern strings like:
-      "User's name is jason."
-      "User's preferred name is Jason."
-      "The user's name is jay."
+      "User's name is alex."
+      "User's preferred name is Alex."
+      "The user's name is alex."
     Returns the candidate name, or "" if nothing found.
     """
     import re as _re

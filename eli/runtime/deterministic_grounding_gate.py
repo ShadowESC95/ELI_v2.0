@@ -2432,8 +2432,6 @@ def _eli_v8_extract_fact(text: str) -> str | None:
         r"\buser runs\b",
         r"\buser has\b",
         r"\buser asked to remember\b",
-        r"\bjason prefers\b",
-        r"\bjay prefers\b",
     )
 
     if not any(_eli_v8_re.search(p, low) for p in durable_patterns):

@@ -90,7 +90,7 @@ def test_self_meta_questions_never_escalate(monkeypatch):
 
 
 def test_frustration_and_relational_vent_never_escalate(monkeypatch):
-    # Regression (Jason, 2026-06-06): a frustrated user got robotic grounding
+    # Regression (user-reported, 2026-06-06): a frustrated user got robotic grounding
     # hedges. Profanity injected mid-question ("what THE FUCK are you talking
     # about") broke the meta gate, and "what is going on with you" (vs the
     # contraction "what's") slipped through — both were classified factual and

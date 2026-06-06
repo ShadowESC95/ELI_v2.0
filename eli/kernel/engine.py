@@ -9517,7 +9517,7 @@ Answer:"""
                         # audit (real table list, real DB paths, real retrieval
                         # mechanisms) and that structured report IS the literal
                         # answer to a spec question. Re-narrating it on a small local
-                        # model only drops or invents facts. Jason, 2026-06-06: in
+                        # model only drops or invents facts. the user, 2026-06-06: in
                         # CoT mode, EXPLAIN_MEMORY_RUNTIME's correct DB audit was run
                         # through compact synthesis, which hallucinated a phantom
                         # "memory.sqlite3 for temporary storage" and miscounted the
@@ -9543,7 +9543,7 @@ Answer:"""
                             # Grounded self-report families: the executor already
                             # builds the complete report. Re-narrating their large
                             # evidence on the small model returned a lone "-"
-                            # (Jason, 2026-06-06). Return verbatim in every mode.
+                            # (the user, 2026-06-06). Return verbatim in every mode.
                             "SELF_ANALYZE",
                             "SELF_IMPROVE",
                             "SELF_IMPROVEMENT_LOG",
@@ -10832,7 +10832,7 @@ Answer:"""
             except Exception as _final_syn_err:
                 log.debug(f"[COGNITIVE] Final executor synthesis failed: {_final_syn_err}")
                 final_response = raw_response
-        # Degenerate-output guard (Jason, 2026-06-06): the small local model
+        # Degenerate-output guard (user-reported, 2026-06-06): the small local model
         # sometimes collapses a grounded answer into a fragment ('-', '-Auto',
         # '-Auto/G 5/'). Never surface that. Prefer the grounded executor
         # content; if that is also a stub, give an honest, non-empty reply
