@@ -74,3 +74,15 @@ def test_spotify_unreachable_reports_search_only_not_youtube(monkeypatch):
     assert res.get("search_only") is True
     assert res.get("target") == "spotify"
     assert not _has_youtube(calls), "Unreachable Spotify must not open YouTube"
+
+
+# ── YouTube continuous play: watch URL becomes a Mix/radio so it autoplays ────
+def test_yt_mix_url_adds_radio_playlist():
+    from eli.execution.executor_enhanced import _yt_mix_url
+    assert _yt_mix_url("https://www.youtube.com/watch?v=dQw4w9WgXcQ") == \
+        "https://www.youtube.com/watch?v=dQw4w9WgXcQ&list=RDdQw4w9WgXcQ"
+    # extra params preserved-but-reseeded to the video id
+    assert _yt_mix_url("https://www.youtube.com/watch?v=abc123XYZ_-&t=5").endswith("list=RDabc123XYZ_-")
+    # non-watch URLs and None pass through unchanged
+    assert _yt_mix_url(None) is None
+    assert "list=RD" not in _yt_mix_url("https://www.youtube.com/results?search_query=x")

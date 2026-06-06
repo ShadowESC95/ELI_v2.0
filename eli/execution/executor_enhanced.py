@@ -2506,6 +2506,22 @@ def _yt_resolve_watch_url(query: str) -> str | None:
     return None
 
 
+def _yt_mix_url(watch_url: str | None) -> str | None:
+    """Turn a plain YouTube watch URL into a Mix/radio URL so playback AUTOPLAYS
+    related songs continuously instead of stopping after one video. YouTube's
+    `&list=RD<videoId>` is the auto-generated "Mix" (song radio) seeded from the
+    video — the user's reported "YT doesn't autoplay the next songs" + "play
+    something related" both come from this."""
+    if not watch_url:
+        return watch_url
+    import re as _re3
+    m = _re3.search(r"[?&]v=([A-Za-z0-9_-]{11})", watch_url)
+    if m:
+        vid = m.group(1)
+        return f"https://www.youtube.com/watch?v={vid}&list=RD{vid}"
+    return watch_url
+
+
 def _open_in_browser(url: str) -> None:
     """Open a URL in the default browser via xdg-open."""
     import subprocess as _sp2
@@ -2655,10 +2671,10 @@ def play_specific(query: str, target: str | None = None) -> Dict[str, Any]:
 
     # ── 2. "youtube web/website" → browser only (never mpv) ──────────────────
     if is_yt_web:
-        watch = _yt_resolve_watch_url(query)
+        watch = _yt_mix_url(_yt_resolve_watch_url(query))
         url = watch or f"https://www.youtube.com/results?search_query={urllib.parse.quote_plus(query)}"
         _open_in_browser(url)
-        msg = f"Opening YouTube in browser: {query}"
+        msg = f"Opening YouTube in browser: {query} (continuous mix)"
         return {"ok": True, "action": "PLAY_MEDIA", "content": msg, "response": msg}
 
     # ── 3. YouTube target (plain) or "X by Y" → yt-dlp+mpv ──────────────────
@@ -2686,7 +2702,8 @@ def play_specific(query: str, target: str | None = None) -> Dict[str, Any]:
             pass
 
     # ── 4. No yt-dlp/mpv → resolve watch URL and open in browser ─────────────
-    watch = _yt_resolve_watch_url(yt_search)
+    # Use the Mix/radio URL so it autoplays related songs continuously.
+    watch = _yt_mix_url(_yt_resolve_watch_url(yt_search))
     if watch:
         _open_in_browser(watch)
         if _by_m:
