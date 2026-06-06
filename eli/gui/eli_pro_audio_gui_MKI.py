@@ -6398,23 +6398,80 @@ class EliMainWindow(QMainWindow):
         ),
     ]
 
+    def _structured_agent_dialog(self):
+        """Structured create-agent form (clearer + more accurate than free-text
+        chat Q&A). Returns (name, purpose, triggers, data, persona) or None."""
+        dlg = QDialog(self)
+        dlg.setWindowTitle("Create Custom Agent")
+        form = QFormLayout(dlg)
+
+        name_edit = QLineEdit()
+        name_edit.setPlaceholderText("e.g. WeatherAgent")
+        form.addRow("Name:", name_edit)
+
+        purpose_edit = QLineEdit()
+        purpose_edit.setPlaceholderText("what this agent does / its job")
+        form.addRow("Purpose:", purpose_edit)
+
+        triggers_edit = QLineEdit()
+        triggers_edit.setPlaceholderText("comma-separated keywords, e.g. weather, rain, temperature")
+        form.addRow("Trigger keywords:", triggers_edit)
+
+        data_edit = QLineEdit()
+        data_edit.setPlaceholderText("optional: data sources / when it should fire")
+        form.addRow("Data / behaviour:", data_edit)
+
+        persona_edit = QTextEdit()
+        persona_edit.setPlaceholderText("tone & output style, e.g. brief bullet points, friendly")
+        persona_edit.setFixedHeight(72)
+        form.addRow("Output style:", persona_edit)
+
+        hint = QLabel("Name + at least one trigger keyword are required. You'll see "
+                      "the generated code to review before it's written. Timeout and "
+                      "enable/disable are editable later in Settings → Agents.")
+        hint.setWordWrap(True)
+        hint.setStyleSheet("color:#88909c;font-size:10px;")
+        form.addRow(hint)
+
+        buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel)
+        buttons.button(QDialogButtonBox.StandardButton.Ok).setText("Generate & Review")
+        buttons.accepted.connect(dlg.accept)
+        buttons.rejected.connect(dlg.reject)
+        form.addRow(buttons)
+
+        if dlg.exec() != QDialog.DialogCode.Accepted:
+            return None
+        name = name_edit.text().strip()
+        triggers = triggers_edit.text().strip()
+        if not name or not triggers:
+            QMessageBox.warning(self, "Missing info",
+                                "Name and at least one trigger keyword are required.")
+            return None
+        return (name, purpose_edit.text().strip(), triggers,
+                data_edit.text().strip(), persona_edit.toPlainText().strip())
+
     def open_agent_wizard(self):
-        """Switch to Chat tab and start the 3-question agent-creation wizard."""
-        self.tabs.setCurrentIndex(0)  # Chat tab
+        """Open the structured create-agent dialog, then generate + review the
+        agent. (Replaces the old free-text 3-question chat flow; the structured
+        fields give the generator more accurate input.)"""
+        vals = self._structured_agent_dialog()
+        if not vals:
+            return
+        name, purpose, triggers, data, persona = vals
+        # Assemble the three fields the generator/template consume.
+        name_purpose = f"{name} — {purpose}" if purpose else name
+        triggers_data = "keywords: " + triggers + (f"; data/behaviour: {data}" if data else "")
+        persona_output = persona or "concise, helpful, plain text"
+        answers = [name_purpose, triggers_data, persona_output]
 
-        self._agent_wizard_state = {
-            "step": 0,
-            "answers": [],
-        }
-
-        intro = (
-            "🤖 **Agent Creator Wizard**\n\n"
-            "I'll ask you 3 quick questions, then generate a custom ELI agent "
-            "from your answers and register it immediately.\n\n"
-            "Type 'cancel' at any time to exit the wizard.\n\n"
-            + self._WIZARD_QUESTIONS[0]
+        self.tabs.setCurrentIndex(0)  # Chat tab — generation status streams here
+        self._wizard_display_message(
+            f"🤖 Creating agent “{name}” — generating and validating code, "
+            "you'll get a preview to confirm before it's written."
         )
-        self._wizard_display_message(intro)
+        threading.Thread(
+            target=self._generate_agent_from_answers, args=(answers,), daemon=True,
+        ).start()
 
     def _wizard_display_message(self, text: str):
         """Append a wizard ELI message to the chat display (must run on main thread)."""
