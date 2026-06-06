@@ -1,5 +1,5 @@
 """Session-end continuity: in-depth LLM session summary, recent-sessions digest,
-and preference-weighted recall (Jason's 3-part memory upgrade)."""
+and preference-weighted recall (the user's 3-part memory upgrade)."""
 import sqlite3
 import time
 from pathlib import Path

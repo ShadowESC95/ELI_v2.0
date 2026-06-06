@@ -106,7 +106,7 @@ def _extract_hour_minute(ts):
     Supports real unix timestamps and synthetic HHMM-style test timestamps
     (1000, 1001, …). Returns None for None / unparseable / epoch-0 sentinels so
     callers SKIP the event instead of fabricating a bogus 00:00 habit from a
-    timestamp-less app-launch row (Jason, 2026-06-06: habits kept appearing at
+    timestamp-less app-launch row (user-reported, 2026-06-06: habits kept appearing at
     00:00).
     """
     if ts is None or ts == "":
@@ -252,7 +252,7 @@ def detect_habits(days: int = 14, min_occurrences: int = 3):
         if not exists:
             # Create DISABLED (suggested) — ELI proposes habits but never activates
             # one without the user's say-so. The user approves by enabling it in the
-            # Habits tab (Jason, 2026-06-06: "confirm with me before adding a habit").
+            # Habits tab (user-requested, 2026-06-06: "confirm with me before adding a habit").
             # positional args[0..3] preserved; enabled is an explicit keyword.
             mem.add_habit_rule(name, command, hour, minute, None, enabled=False)
             log.debug(f"[HABIT] Suggested (disabled) rule created — awaiting approval: {name}")

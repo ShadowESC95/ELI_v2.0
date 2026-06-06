@@ -1,6 +1,6 @@
 """Detect when ELI's reply COMMITS to performing an action.
 
-The rule (Jason, 2026-06): no fake actions. If ELI says it will do something
+The rule (user-requested, 2026-06): no fake actions. If ELI says it will do something
 ("let me check the news", "fetching now", "I'll re-run that"), the caller must
 actually re-run the pipeline and DO it — never let the promise stand as theatre,
 and never emit fill-in placeholders ("[Story 1]", "checking…").
