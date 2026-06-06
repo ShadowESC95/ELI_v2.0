@@ -6573,10 +6573,29 @@ class EliMainWindow(QMainWindow):
             if not final_code:
                 return  # user cancelled
 
+            # Reliability: never write a broken agent. Validate syntax first; a
+            # file that won't parse would just be skipped by the boot loader.
+            import ast as _ast
+            try:
+                _ast.parse(final_code)
+            except SyntaxError as _se:
+                self.wizard_say_signal.emit(
+                    f"❌ The generated agent has a syntax error (line {_se.lineno}: "
+                    f"{_se.msg}). Nothing was written — try rephrasing your answers.")
+                return
+
             agent_file.write_text(final_code, encoding="utf-8")
 
-            # Register in the live agent bus
+            # Register in the live agent bus (this session)…
             registered = self._register_agent_live(class_base, agent_file)
+            # …and TRUST it so the boot loader auto-loads it on every restart.
+            # Without this the file is treated as untrusted and silently skipped,
+            # so the agent would vanish after a restart.
+            try:
+                from eli.cognition.agent_bus import _trust_custom_agent
+                _trust_custom_agent(agent_file)
+            except Exception as _te:
+                log.debug(f"[WIZARD] trust registration failed: {_te}")
 
             # Save a record to memory
             try:
@@ -6707,10 +6726,21 @@ _register()
         """Dynamically import the generated agent file and append it to the bus."""
         try:
             import importlib.util as _ilu
+            from eli.cognition.agent_bus import _ALL_AGENTS
+            _before = {id(a) for a in _ALL_AGENTS}
             spec = _ilu.spec_from_file_location(class_name, str(agent_file))
             mod = _ilu.module_from_spec(spec)
             spec.loader.exec_module(mod)
-            # The module's _register() call already appended to _ALL_AGENTS
+            # The module's _register() call already appended to _ALL_AGENTS.
+            # Mark the newly-added agent(s) as custom so dispatch always gives
+            # them a slot to self-gate on their triggers (built-in intent
+            # selection won't name them otherwise → they'd never run).
+            for _a in _ALL_AGENTS:
+                if id(_a) not in _before:
+                    try:
+                        _a._custom = True
+                    except Exception:
+                        pass
             # Expand the thread pool to accommodate
             from eli.cognition.agent_bus import get_bus
             bus = get_bus()

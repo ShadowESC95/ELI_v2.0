@@ -1611,7 +1611,15 @@ class AgentBus:
         if selected_names is None:
             _profile_names = [a.name for a in _ALL_AGENTS if getattr(a, "_enabled", True)]
         else:
-            _profile_names = sorted(selected_names)
+            # Always give enabled CUSTOM agents a dispatch slot — built-in intent
+            # selection never names them, so without this a user-created agent
+            # would never run. They self-gate on their own triggers (returning
+            # confidence 0.0 on no match), so this can't pollute results.
+            _custom_names = {
+                a.name for a in _ALL_AGENTS
+                if getattr(a, "_custom", False) and getattr(a, "_enabled", True)
+            }
+            _profile_names = sorted(set(selected_names) | _custom_names)
 
         execution_plan_dict: Optional[Dict[str, Any]] = None
         plan_names: Set[str] = set(_profile_names)
@@ -1627,6 +1635,13 @@ class AgentBus:
         except Exception as _plan_err:
             log.debug(f"[AGENTBUS] execution_planner unavailable, using raw selection: {_plan_err}")
 
+        # Defence-in-depth: ensure enabled custom agents survive the execution
+        # planner (which builds its profile from known/built-in agents and could
+        # otherwise drop them). They self-gate, so including them is safe.
+        plan_names |= {
+            a.name for a in _ALL_AGENTS
+            if getattr(a, "_custom", False) and getattr(a, "_enabled", True)
+        }
         active_agents = [
             a for a in _ALL_AGENTS
             if getattr(a, "_enabled", True)
@@ -2453,9 +2468,19 @@ def _load_custom_agents() -> None:
                         continue
                 # ── Load ────────────────────────────────────────────────────
                 try:
+                    _before_ids = {id(a) for a in _ALL_AGENTS}
                     spec = _ilu.spec_from_file_location(py_file.stem, str(py_file))
                     mod = _ilu.module_from_spec(spec)
                     spec.loader.exec_module(mod)
+                    # Tag newly-registered agents as custom so dispatch always
+                    # includes them (they self-gate on triggers); built-in intent
+                    # selection won't name them.
+                    for _na in _ALL_AGENTS:
+                        if id(_na) not in _before_ids:
+                            try:
+                                _na._custom = True
+                            except Exception:
+                                pass
                     log.debug(f"[AGENTBUS] Loaded custom agent: {py_file.name} from {custom_dir}")
                 except Exception as _e:
                     log.debug(f"[AGENTBUS] Failed to load custom agent {py_file.name}: {_e}")
