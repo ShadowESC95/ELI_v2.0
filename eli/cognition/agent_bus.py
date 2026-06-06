@@ -709,17 +709,19 @@ class BusMemoryAgent(_BaseAgent):
                     elapsed_ms=elapsed,
                 )
 
-            limit = 24  # semantic hits (cap protects the model; favour MORE facts)
+            from eli.core.cognition_tunables import snapshot as _cog_snapshot
+            _tn = _cog_snapshot()  # user-tunable gather limits (GUI: Settings → Cognition)
+            limit = _tn["cog.mem_semantic_recall"]  # semantic hits
             raw_hits = mem.recall_memory(user_input, limit=limit)
             conv_hits = []
             try:
-                conv_hits = mem.search_conversations(user_input, user_id=user_id, limit=14)
+                conv_hits = mem.search_conversations(user_input, user_id=user_id, limit=_tn["cog.mem_conv_recall"])
             except Exception:
                 pass
-            recent = mem.get_recent_conversation(limit=24, user_id=user_id)  # full history, char-budgeted below
+            recent = mem.get_recent_conversation(limit=_tn["cog.mem_recent_turns"], user_id=user_id)  # full history, char-budgeted below
             summaries = []
             try:
-                summaries = mem.get_session_summaries(user_id=user_id, limit=6)
+                summaries = mem.get_session_summaries(user_id=user_id, limit=_tn["cog.mem_summaries_recall"])
             except Exception:
                 pass
 
@@ -734,7 +736,7 @@ class BusMemoryAgent(_BaseAgent):
                     if _seed_terms:
                         _seen_ids = {h.get("id") for h in raw_hits if h.get("id")}
                         _seen_txt = {(h.get("text") or h.get("content") or "")[:80] for h in raw_hits}
-                        _hop2 = mem.recall_memory(" ".join(_seed_terms), limit=12) or []
+                        _hop2 = mem.recall_memory(" ".join(_seed_terms), limit=_tn["cog.mem_hop2_recall"]) or []
                         _added = 0
                         for _h in _hop2:
                             _hid = _h.get("id")
@@ -745,7 +747,7 @@ class BusMemoryAgent(_BaseAgent):
                             _seen_ids.add(_hid)
                             _seen_txt.add(_ht)
                             _added += 1
-                            if len(raw_hits) >= 28:
+                            if len(raw_hits) >= _tn["cog.mem_merge_cap"]:
                                 break
                         if _added:
                             log.debug(f"[AGENT:memory] hop-2 deepen: +{_added} hits from {_seed_terms}")
@@ -761,7 +763,7 @@ class BusMemoryAgent(_BaseAgent):
                 # — confirmed at memory.py: fetches DESC then list(reversed(rows)).
                 # Take the newest 20, then drop the trailing user+assistant pair
                 # so the model doesn't regurgitate the live prompt or its own last reply.
-                turns_to_show = list(recent[-24:])  # newest 24, still chronological
+                turns_to_show = list(recent[-_tn["cog.mem_recent_turns"]:])  # newest N, still chronological
                 if turns_to_show and turns_to_show[-1].get("role") == "assistant":
                     turns_to_show = turns_to_show[:-1]  # drop model's last reply
                 if turns_to_show and turns_to_show[-1].get("role") == "user":
@@ -777,7 +779,7 @@ class BusMemoryAgent(_BaseAgent):
                     except Exception:
                         pass
                     role = "User" if t.get("role") == "user" else "ELI"
-                    text = (t.get("content") or "")[:140]  # trim each turn
+                    text = (t.get("content") or "")[:_tn["cog.mem_recent_chars"]]  # trim each turn
                     line = f"{role}: {text}"
                     char_count += len(line)
                     if char_count > 3500:
@@ -791,8 +793,8 @@ class BusMemoryAgent(_BaseAgent):
 
             if raw_hits:
                 hits_text = []
-                for h in raw_hits[:24]:
-                    txt = (h.get("text") or h.get("content") or "")[:200]
+                for h in raw_hits[:_tn["cog.mem_semantic_shown"]]:
+                    txt = (h.get("text") or h.get("content") or "")[:_tn["cog.mem_fact_chars"]]
                     raw_ts = h.get("ts") or h.get("timestamp") or 0
                     try:
                         ts_str = time.strftime("%Y-%m-%d %H:%M", time.localtime(float(raw_ts))) if raw_ts else ""
@@ -806,14 +808,14 @@ class BusMemoryAgent(_BaseAgent):
 
             if conv_hits:
                 conv_text = []
-                for h in conv_hits[:12]:
+                for h in conv_hits[:_tn["cog.mem_conv_shown"]]:
                     try:
                         from eli.runtime.diagnostic_patterns import should_exclude_turn_from_prompt
                         if should_exclude_turn_from_prompt(h.get("role"), h.get("content")):
                             continue
                     except Exception:
                         pass
-                    txt = (h.get("content") or "")[:150]
+                    txt = (h.get("content") or "")[:_tn["cog.mem_conv_chars"]]
                     role = h.get("role", "?")
                     if txt:
                         conv_text.append(f"  {role}: {txt}")
@@ -823,8 +825,8 @@ class BusMemoryAgent(_BaseAgent):
 
             if summaries:
                 sum_text = []
-                for s in summaries[:5]:
-                    txt = (s.get("summary") or s.get("content") or "")[:260]
+                for s in summaries[:_tn["cog.mem_summaries_shown"]]:
+                    txt = (s.get("summary") or s.get("content") or "")[:_tn["cog.mem_summary_chars"]]
                     if txt:
                         sum_text.append(f"  - {txt}")
                 if sum_text:
@@ -2520,7 +2522,8 @@ class KnowledgeGraphAgent(_BaseAgent):
             except Exception:
                 _query = user_input
 
-            ctx = kg.context_for_prompt(_query, max_chars=2200)
+            from eli.core.cognition_tunables import get_tunable as _cog_get
+            ctx = kg.context_for_prompt(_query, max_chars=_cog_get("cog.kg_max_chars"))
             elapsed = (time.perf_counter() - t0) * 1000
 
             if not ctx:

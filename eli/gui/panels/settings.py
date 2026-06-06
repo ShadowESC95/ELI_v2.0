@@ -8,8 +8,8 @@ from pathlib import Path
 from eli.gui.panels._qt import (
     QAbstractItemView, QCheckBox, QDialog, QFormLayout, QGridLayout,
     QGroupBox, QHBoxLayout, QHeaderView, QLabel, QMessageBox,
-    QPushButton, QTabWidget, QTableWidget, QTableWidgetItem, QTextEdit,
-    QTimer, QVBoxLayout, QWidget, Qt, pyqtSignal,
+    QPushButton, QScrollArea, QSpinBox, QTabWidget, QTableWidget,
+    QTableWidgetItem, QTextEdit, QTimer, QVBoxLayout, QWidget, Qt, pyqtSignal,
 )
 from eli.gui.panels.agent_wizard import AgentEditDialog
 
@@ -49,12 +49,93 @@ class AdvancedSettingsDialog(QDialog):
 
         self.inner_tabs.addTab(self._build_agents_tab(),  "\U0001f916 Agents")
         self.inner_tabs.addTab(self._build_models_tab(),  "\U0001f9e0 Models")
+        self.inner_tabs.addTab(self._build_cognition_tab(), "\U0001f9e0 Cognition")
         self.inner_tabs.addTab(self._build_plugins_tab(), "\U0001f50c Plugins")
         self.inner_tabs.addTab(self._build_upgrade_tab(), "\U0001f504 Self-Upgrade")
 
         close_btn = QPushButton("Close")
         close_btn.clicked.connect(self.accept)
         root.addWidget(close_btn)
+
+    # ── Cognition tab (knowledge-gathering tunables) ─────────────────────────────
+    def _build_cognition_tab(self) -> QWidget:
+        """Auto-rendered control for every user-tunable cognition parameter, read
+        from the central registry so the GUI and the cognition code never drift."""
+        from eli.core.cognition_tunables import snapshot, groups
+
+        w = QWidget()
+        outer = QVBoxLayout(w)
+
+        intro = QLabel(
+            "Knowledge-gathering & context limits. These control how much ELI "
+            "retrieves and how much it feeds the model per answer. Changes take "
+            "effect on the NEXT message — no restart needed.\n\n"
+            "Bigger = more knowledge, but the local model degenerates into '-' "
+            "fragments if the synthesis prompt grows too large; raise the limits "
+            "AND the prompt cap together, and further still with a large-context "
+            "model. Hover any field for details."
+        )
+        intro.setWordWrap(True)
+        outer.addWidget(intro)
+
+        # Scrollable form (many parameters)
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        body = QWidget()
+        body_layout = QVBoxLayout(body)
+
+        live = snapshot()
+        self._cog_spins: dict = {}
+        for group_name, items in groups().items():
+            box = QGroupBox(group_name)
+            form = QFormLayout(box)
+            for t in items:
+                spin = QSpinBox()
+                spin.setMinimum(t.minimum)
+                spin.setMaximum(t.maximum)
+                spin.setSingleStep(t.step)
+                spin.setValue(int(live.get(t.key, t.default)))
+                spin.setToolTip(t.help)
+                spin.setMinimumWidth(140)
+                lbl = QLabel(t.label)
+                lbl.setToolTip(t.help)
+                form.addRow(lbl, spin)
+                self._cog_spins[t.key] = spin
+            body_layout.addWidget(box)
+        body_layout.addStretch()
+        scroll.setWidget(body)
+        outer.addWidget(scroll, 1)
+
+        btn_row = QHBoxLayout()
+        reset_btn = QPushButton("↺ Reset to defaults")
+        reset_btn.setToolTip("Restore every cognition parameter to its shipped default.")
+        reset_btn.clicked.connect(self._reset_cognition_defaults)
+        btn_row.addWidget(reset_btn)
+        btn_row.addStretch()
+        save_btn = QPushButton("\U0001f4be Apply Changes")
+        save_btn.clicked.connect(self._apply_cognition_changes)
+        btn_row.addWidget(save_btn)
+        outer.addLayout(btn_row)
+        return w
+
+    def _apply_cognition_changes(self):
+        from eli.core.cognition_tunables import set_tunable
+        ok = 0
+        for key, spin in getattr(self, "_cog_spins", {}).items():
+            if set_tunable(key, spin.value()):
+                ok += 1
+        QMessageBox.information(
+            self, "Cognition settings",
+            f"Saved {ok} parameter(s). They apply to your next message.")
+
+    def _reset_cognition_defaults(self):
+        from eli.core.cognition_tunables import reset_defaults, snapshot
+        reset_defaults()
+        live = snapshot()
+        for key, spin in getattr(self, "_cog_spins", {}).items():
+            spin.setValue(int(live.get(key, spin.value())))
+        QMessageBox.information(
+            self, "Cognition settings", "Restored all parameters to defaults.")
 
     # ── Agents tab ─────────────────────────────────────────────────────────────
     def _build_agents_tab(self) -> QWidget:
