@@ -394,6 +394,56 @@ def test_explain_memory_runtime_is_verbatim_even_in_nonquick_mode():
     assert "memory.sqlite3" not in result.get("content", "")
 
 
+def test_memory_runtime_report_is_live_derived_not_hardcoded_prose():
+    # #5/Option 4 (user-requested, 2026-06-06): every claim about ELI's own
+    # internals must be re-derived live each call (it can add/remove its own DBs,
+    # tables and modules), never hardcoded prose. The formatter must render from
+    # the report's live fields (db_files / fts_tables / kg / mechanisms), so a
+    # synthetic report with a NEW db + an unusual FTS table + a MISSING module is
+    # reflected faithfully — proving it is data-driven, not a fixed description.
+    from eli.execution.executor_enhanced import _format_memory_runtime
+    report = {
+        "ok": True,
+        "paths": {"active_db": "/x/user.sqlite3", "user_db": "/x/user.sqlite3",
+                  "agent_db": "/x/agent.sqlite3", "memory_db": "/x/user.sqlite3"},
+        "status": {"memory_entries": 5, "conversation_turns": 9, "db_path": "/x/user.sqlite3"},
+        "schema": {"user_db": {"memories": 5, "memories_fts": 5, "brand_new_table": 1}},
+        "db_files": [
+            {"name": "user.sqlite3", "path": "/x/user.sqlite3", "size_mb": 1.0,
+             "tables": 3, "table_names": ["memories", "memories_fts", "brand_new_table"]},
+            {"name": "future_store.sqlite3", "path": "/x/future_store.sqlite3", "size_mb": 0.1,
+             "tables": 1, "table_names": ["new_thing", "new_thing_fts"]},
+        ],
+        "fts_tables": ["memories_fts", "new_thing_fts"],
+        "kg": {"entities": 42, "relations": 7, "present": True},
+        "mechanisms": {
+            "hyde": {"path": "eli/cognition/hyde.py", "present": True},
+            "orchestrator": {"path": "eli/cognition/orchestrator.py", "present": True},
+            "agent_bus": {"path": "eli/cognition/agent_bus.py", "present": True},
+            "vector_store_faiss": {"path": "eli/memory/vector_store.py", "present": True},
+            "knowledge_graph": {"path": "eli/memory/knowledge_graph.py", "present": True},
+            "plan_graph_dag": {"path": "eli/coding/plan_graph.py", "present": False},
+        },
+        "vector_status": {"faiss_available": True, "ntotal": 5,
+                          "index_path": "/x/index.faiss", "embedding_model": "/x/nomic.gguf"},
+        "name_guess": "", "identity_hits": [], "recent_turn_count": 3,
+    }
+    out = _format_memory_runtime(report)
+    # No hardcoded-prose leftovers.
+    assert "the four physical databases" not in out
+    assert "conversation_turns_fts" not in out  # was a hardcoded hedge; now live-only
+    # Live store count + a brand-new DB that no static description could know.
+    assert "2 physical SQLite file(s)" in out
+    assert "future_store.sqlite3" in out
+    assert "brand_new_table" in out
+    # Live FTS5 set + live KG counts.
+    assert "new_thing_fts" in out
+    assert "42 entities, 7 relations" in out
+    # A MISSING module is reported as missing, not silently claimed present.
+    assert "plan_graph_dag=missing" in out
+    assert "hyde=present" in out
+
+
 def test_examine_code_is_verbatim_even_in_nonquick_mode():
     # The code-examiner tiered report is grounded fact (real syntax/import/lint
     # findings). Like EXPLAIN_MEMORY_RUNTIME it must surface verbatim in every
