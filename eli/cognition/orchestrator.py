@@ -110,9 +110,9 @@ class PlannerAgent:
                 "need_semantic":  True,
                 "need_rag":       doc_query,
                 "need_kg":        True,
-                "keyword_limit":  12,
-                "semantic_limit": 12,
-                "rag_limit":      8,
+                "keyword_limit":  16,
+                "semantic_limit": 16,
+                "rag_limit":      12,
                 "prefer_identity": identity,
                 "prefer_runtime":  runtime,
                 "skip_hyde":       False,
@@ -214,7 +214,7 @@ class OrchestratorMemoryAgent:
             from eli.memory.knowledge_graph import get_knowledge_graph
             _kg = get_knowledge_graph()
             # Scale max_chars roughly with limit (default ~600 at limit=6)
-            _max_chars = max(400, min(1200, limit * 100))
+            _max_chars = max(400, min(2000, limit * 120))
             _ctx = _kg.context_for_prompt(query, max_chars=_max_chars)
             if not _ctx:
                 return []
@@ -415,7 +415,7 @@ class OrchestratorMemoryAgent:
     }
 
     def rerank(self, query: str,
-               hits: List[Dict[str, Any]], top_k: int = 8) -> List[Dict[str, Any]]:
+               hits: List[Dict[str, Any]], top_k: int = 12) -> List[Dict[str, Any]]:
         # Strip placeholder non-answers before scoring so they can never
         # contaminate context for an unrelated query.
         _bl = self._CONTEXT_RESPONSE_BLACKLIST
