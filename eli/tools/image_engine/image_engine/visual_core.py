@@ -1110,6 +1110,25 @@ class ProceduralBackend:
         return renderers.get(spec.scene_type, render_landscape)(ctx)
 
 
+def weights_present(model: str) -> bool:
+    """True if the diffusers model dir actually holds weight files (not just the
+    config/tokenizer scaffold). A partial HF download leaves configs but no
+    *.safetensors/*.bin — we must detect that so 'auto' doesn't silently fall
+    back to the procedural backend and the user gets a clear 'fetch weights' msg."""
+    try:
+        p = Path(model).expanduser()
+    except Exception:
+        return False
+    if not p.exists():
+        return False
+    if p.is_file():
+        return p.suffix in (".safetensors", ".ckpt", ".bin")
+    for pattern in ("*.safetensors", "*.bin", "*.ckpt"):
+        if any(p.rglob(pattern)):
+            return True
+    return False
+
+
 class DiffusionBackend:
     """Optional local model backend.
 
@@ -1120,6 +1139,13 @@ class DiffusionBackend:
     def __init__(self, model: str, device: str = "auto", *, steps: int = 36, guidance: float = 7.2):
         if not model:
             raise ValueError("--model is required when using the diffusion backend")
+        if not weights_present(model):
+            raise RuntimeError(
+                f"Diffusion model at '{model}' has no weight files — only configs/tokenizers "
+                f"are present. Download the weights first (e.g. SSD-1B):\n"
+                f"  python -m eli.tools.image_engine.fetch_model segmind/SSD-1B {model}\n"
+                f"or run `huggingface-cli download segmind/SSD-1B --local-dir {model}`."
+            )
 
         try:
             import torch
@@ -1139,9 +1165,24 @@ class DiffusionBackend:
         dtype = torch.float16 if device == "cuda" else torch.float32
 
         self.pipe = DiffusionPipeline.from_pretrained(model, torch_dtype=dtype, use_safetensors=True)
-        self.pipe.to(device)
-        if hasattr(self.pipe, "enable_attention_slicing"):
-            self.pipe.enable_attention_slicing()
+        # Low-VRAM path: SSD-1B (distilled SDXL) is ~5-6GB in fp16 — too tight to
+        # sit fully resident on an 8GB card. model_cpu_offload streams modules to
+        # GPU on demand (peak VRAM ~3-4GB) and VAE tiling keeps decode bounded.
+        # The caller is expected to have unloaded the chat LLM first (VRAM swap).
+        if device == "cuda":
+            try:
+                self.pipe.enable_model_cpu_offload()
+            except Exception:
+                self.pipe.to(device)
+            for _opt in ("enable_vae_tiling", "enable_vae_slicing", "enable_attention_slicing"):
+                try:
+                    getattr(self.pipe, _opt)()
+                except Exception:
+                    pass
+        else:
+            self.pipe.to(device)
+            if hasattr(self.pipe, "enable_attention_slicing"):
+                self.pipe.enable_attention_slicing()
 
     def generate(self, spec: SceneSpec) -> Image.Image:
         generator = self.torch.Generator(device=self.device).manual_seed(spec.seed)
