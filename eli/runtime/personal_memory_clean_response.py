@@ -247,7 +247,12 @@ def _collect_facts() -> tuple[list[str], dict[str, int]]:
 
         con.close()
 
-    return facts[:40], counts
+    try:
+        from eli.core.cognition_tunables import get_tunable as _cog_get
+        _cap = _cog_get("cog.personal_facts_max")
+    except Exception:
+        _cap = 40
+    return facts[:_cap], counts
 
 
 def build_clean_personal_memory_response(user_input: str = "", mode_label: str = "") -> str:

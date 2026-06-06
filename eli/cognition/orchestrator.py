@@ -105,14 +105,15 @@ class PlannerAgent:
                 "max_react_iter":  3,
             }
         else:  # balanced (default)
+            from eli.core.cognition_tunables import get_tunable as _cog_get
             return {
                 "need_keyword":   True,
                 "need_semantic":  True,
                 "need_rag":       doc_query,
                 "need_kg":        True,
-                "keyword_limit":  24,
-                "semantic_limit": 24,
-                "rag_limit":      16,
+                "keyword_limit":  _cog_get("cog.orch_keyword_limit"),
+                "semantic_limit": _cog_get("cog.orch_semantic_limit"),
+                "rag_limit":      _cog_get("cog.orch_rag_limit"),
                 "prefer_identity": identity,
                 "prefer_runtime":  runtime,
                 "skip_hyde":       False,
@@ -788,8 +789,9 @@ class AgentOrchestrator:
         _eli_pipe_orch("stage_8", merged=len(wm.merged_hits))
 
         wm.trace["stage_9"] = "cross_encoder_rerank"
+        from eli.core.cognition_tunables import get_tunable as _cog_get
         wm.reranked_hits = self.memory_agent.rerank(
-            user_input, wm.merged_hits)
+            user_input, wm.merged_hits, top_k=_cog_get("cog.rerank_top_k"))
         log.debug(f"[ORCHESTRATOR] Stage 9: Rerank → {len(wm.reranked_hits)} items")
         _eli_pipe_orch("stage_9", reranked=len(wm.reranked_hits))
 
