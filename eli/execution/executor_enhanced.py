@@ -1124,22 +1124,43 @@ def _format_memory_runtime(report: Dict[str, Any]) -> str:
             lines.append(f"- {db_name}: {rendered}")
 
     vector_status = report.get("vector_status") or {}
+    _faiss = 'available' if vector_status.get('faiss_available') else 'not available'
+    _nvec = vector_status.get('ntotal', 'unknown')
     lines.append("")
-    lines.append("Retrieval / indexing mechanisms:")
-    lines.append("- Long-term store: SQLite user DB at user.sqlite3; agent/self-improvement state at agent.sqlite3.")
-    lines.append("- Semantic records: SQLite semantic table when present; conversation_turns and memories are also queried.")
-    lines.append("- FTS5: used by cognition/orchestrator.py through conversation_turns_fts when that table exists.")
-    lines.append("- Knowledge graph: kg_entities / kg_relations live in user.sqlite3; kg_entities_fts is FTS5-backed.")
-    lines.append(
-        "- FAISS vectors: "
-        f"{'available' if vector_status.get('faiss_available') else 'not available'}; "
-        f"index={vector_status.get('index_path', 'unknown')}; "
-        f"vectors={vector_status.get('ntotal', 'unknown')}"
-    )
+    lines.append("Stores (the four physical databases):")
+    lines.append("- user.sqlite3   — long-term memory: memories(+memories_fts FTS5 mirror), "
+                 "conversation_turns/conversations, observations, recall_log, learning_replay, "
+                 "habits/habit_rules/habit_events, kg_entities/kg_relations(+FTS5), news_articles, "
+                 "session_summaries, working_memory_pins, runtime_events. (active/user/memory roles alias this file.)")
+    lines.append("- agent.sqlite3  — agent/self-improvement state: agent_dispatches, agent_metrics, "
+                 "improvements, failures, code_patches, a small agent-side memories table.")
+    lines.append("- coding_memory.sqlite3 — the coding agent's bug-memory / fix recall.")
+    lines.append("- system_index.sqlite3  — the system/file capability index used for code & path lookups.")
+
+    lines.append("")
+    lines.append("STORAGE path (write — input → durable + indexed):")
+    lines.append("1. A turn/fact enters via Memory.store_memory()/log_* (persistence_gate decides what's worth keeping).")
+    lines.append("2. Row written to SQLite (memories / conversation_turns) and mirrored into the FTS5 table for keyword search.")
+    lines.append("3. The text is embedded with the local nomic embedder and the vector is added to the FAISS index.")
+    lines.append("4. Entities/relations are extracted into the knowledge graph (kg_entities / kg_relations, FTS5-backed).")
+    lines.append(f"   Live now: memories={int(status.get('memory_entries', 0) or 0)}, FAISS vectors={_nvec}, "
+                 "KG entities/relations as listed above.")
+
+    lines.append("")
+    lines.append("RECALL path (read — query → ranked context → answer):")
+    lines.append("1. HyDE (eli/cognition/hyde.py + orchestrator Stage 3) optionally expands a vague query before search.")
+    lines.append("2. Parallel retrieval: keyword (SQLite LIKE) + FTS5 full-text + FAISS vector similarity + knowledge-graph lookup.")
+    lines.append("3. RAG hybrid merge: the orchestrator fuses keyword/FTS5/vector/RAG/KG hits, then reranks by relevance+recency.")
+    lines.append("4. Context assembly → persona handoff → LLM synthesis (recency-/session-biased; recall-narration filtered).")
+    lines.append("- DAG: the orchestrator runs retrieval + agents on a dependency DAG (topological layers, upstream→downstream); "
+                 "the coding agent decomposes tasks via a separate subtask DAG (eli/coding/plan_graph.py).")
+
+    lines.append("")
+    lines.append("Index/runtime detail:")
+    lines.append("- FTS5: full-text mirror tables (memories_fts, conversation_turns_fts when present, kg_entities_fts).")
+    lines.append(f"- FAISS: {_faiss}; index={vector_status.get('index_path', 'unknown')}; vectors={_nvec}.")
     lines.append(f"- Embedder: {vector_status.get('embedding_model', 'unknown')}")
-    lines.append("- HyDE: eli/cognition/hyde.py and orchestrator Stage 3 can expand vague queries before vector search.")
-    lines.append("- RAG/hybrid merge: orchestrator combines keyword, FTS5, vector, RAG, and KG hits before synthesis.")
-    lines.append("- Short-term memory: in-process working memory plus recent conversation_turns; no separate short-term SQLite DB.")
+    lines.append("- Short-term memory: in-process working memory + recent conversation_turns (no separate short-term DB).")
 
     if identity_hits:
         lines.append("- identity_evidence:")
