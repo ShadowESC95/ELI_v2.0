@@ -63,6 +63,12 @@ def discover(base: Path, config: Path,
                 t["profile"].append(p)
     t["conversations"] = ([] if keep_conversations
                           else [p for p in (base / "conversations").rglob("*.json") if not _skip(p)])
+    # Transient runtime state — pending offers ELI may have left mid-conversation
+    # (code-fix suggestions, app/package repair offers). Not "learned" memory but
+    # a true factory reset should not leave a stale pending action behind.
+    t["transient"] = [p for p in (base / "pending_code_fix.json",
+                                  base / "pending_remediation.json")
+                      if p.exists()]
     return t
 
 
@@ -180,7 +186,7 @@ def run_reset(keep_profile: bool = False, keep_conversations: bool = False,
             summary["db_rows"] += clear_db(p)
         except Exception as e:
             summary["errors"].append(f"{p.name}: {e}")
-    for p in t["faiss"] + t["profile"] + t["conversations"]:
+    for p in t["faiss"] + t["profile"] + t["conversations"] + t.get("transient", []):
         try:
             p.unlink()
         except Exception:
@@ -190,5 +196,6 @@ def run_reset(keep_profile: bool = False, keep_conversations: bool = False,
     summary["faiss_reset"] = len(t["faiss"])
     summary["profiles_removed"] = len(t["profile"])
     summary["conversations_removed"] = len(t["conversations"])
+    summary["transient_removed"] = len(t.get("transient", []))
     summary["ok"] = not summary["errors"]
     return summary
