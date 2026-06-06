@@ -5217,16 +5217,39 @@ Answer:"""
                     # it before sending — an oversized prompt crashes llama.cpp.
                     # Use 3.0 chars/token here (conservative) so we under-budget.
                     _max_prompt_chars = max(400, int((_n_ctx_pf1 - _safe_max_pf1 - 128) * 3.0))
+                    # Quality ceiling (context-bloat cap): the small local model
+                    # degenerates into a lone "-"/"-G" on very large prompts long
+                    # BEFORE n_ctx fills — a 39k-char WEB_SEARCH synthesis produced
+                    # "-G" even though it fit n_ctx. Cap to a sane size independent
+                    # of n_ctx so the model gets a prompt it can actually answer.
+                    # Tunable: ELI_SYNTH_MAX_PROMPT_CHARS (set 0 to disable).
+                    try:
+                        _qcap = int(os.environ.get("ELI_SYNTH_MAX_PROMPT_CHARS", "20000") or "0")
+                    except Exception:
+                        _qcap = 20000
+                    if _qcap > 0:
+                        _max_prompt_chars = min(_max_prompt_chars, _qcap)
                     if len(enhanced_system) + len(prompt) > _max_prompt_chars:
                         # Give the user prompt at least 25% of the budget so the
                         # actual question is never fully clipped.
-                        _prompt_budget = max(200, _max_prompt_chars // 4)
+                        _prompt_budget = max(200, min(len(prompt), _max_prompt_chars // 4))
                         _sys_budget = max(200, _max_prompt_chars - _prompt_budget)
-                        enhanced_system = enhanced_system[-_sys_budget:]
+                        if len(enhanced_system) > _sys_budget:
+                            # Keep persona HEAD (voice + hard constraints) AND the
+                            # grounded evidence TAIL (appended last); drop the bulky
+                            # middle (profile/scaffolding/memory dump) — that is what
+                            # bloats the prompt without being the answer's substance.
+                            _head = max(200, int(_sys_budget * 0.5))
+                            _tail = max(200, _sys_budget - _head)
+                            enhanced_system = (
+                                enhanced_system[:_head].rstrip()
+                                + "\n\n…[context trimmed to fit the model]…\n\n"
+                                + enhanced_system[-_tail:].lstrip()
+                            )
                         prompt = prompt[-_prompt_budget:]
                         log.debug(
-    f"[COGNITIVE] Prompt overflow: truncated system→{_sys_budget}chars "
-    f"prompt→{_prompt_budget}chars to fit n_ctx={_n_ctx_pf1}")
+    f"[COGNITIVE] Prompt capped to {_max_prompt_chars}chars "
+    f"(head+tail; n_ctx={_n_ctx_pf1}, qcap={_qcap})")
                     response = broker.infer(
                         prompt,
                         system=enhanced_system,
