@@ -395,23 +395,23 @@ class DispatchResult:
                 continue
             d = r.data or {}
             if r.agent == "file_code" and d.get("snippets"):
-                snippets = d["snippets"][:8]
+                snippets = d["snippets"][:12]
                 parts.append("Source code evidence (file:line: content):\n" + "\n".join(snippets))
             elif r.agent == "reflection" and d.get("insights"):
-                insights = d["insights"][:4]
+                insights = d["insights"][:6]
                 lines = [f"  - {i}" for i in insights]
                 parts.append("Recent ELI reflections/observations:\n" + "\n".join(lines))
             elif r.agent == "system" and d.get("content"):
-                parts.append(f"Runtime/system evidence:\n{str(d['content'])[:800]}")
+                parts.append(f"Runtime/system evidence:\n{str(d['content'])[:1200]}")
             elif r.agent == "capability" and d.get("content"):
-                parts.append(f"Capability evidence:\n{str(d['content'])[:400]}")
+                parts.append(f"Capability evidence:\n{str(d['content'])[:600]}")
             elif r.agent == "habit" and d.get("rules"):
-                rules = d["rules"][:3]
+                rules = d["rules"][:5]
                 lines = [f"  - {rule.get('name', '')} @ {rule.get('hour', 0):02d}:{rule.get('minute', 0):02d}"
                          for rule in rules]
                 parts.append("Habit automation rules:\n" + "\n".join(lines))
             elif r.agent == "self_improvement" and d.get("failures"):
-                fails = d["failures"][:3]
+                fails = d["failures"][:5]
                 lines = [f"  - {f.get('user_input', '')[:80]}" for f in fails]
                 parts.append("Recent ELI failure log:\n" + "\n".join(lines))
             elif r.agent == "proactive" and d.get("insights"):
@@ -419,13 +419,13 @@ class DispatchResult:
                 lines = [f"  - {i}" for i in insights]
                 parts.append("Proactive insights:\n" + "\n".join(lines))
             elif r.agent == "frontier" and d.get("content"):
-                parts.append(f"Frontier system matrix:\n{str(d['content'])[:900]}")
+                parts.append(f"Frontier system matrix:\n{str(d['content'])[:1200]}")
             elif r.agent == "plugin" and d.get("content"):
-                parts.append(f"Plugin result:\n{str(d['content'])[:400]}")
+                parts.append(f"Plugin result:\n{str(d['content'])[:600]}")
             elif r.agent == "introspection" and d.get("content"):
-                parts.append(f"ELI architecture/pipeline (grounded):\n{str(d['content'])[:700]}")
+                parts.append(f"ELI architecture/pipeline (grounded):\n{str(d['content'])[:1000]}")
             elif r.agent == "voice" and d.get("content"):
-                parts.append(f"Voice/TTS status:\n{str(d['content'])[:200]}")
+                parts.append(f"Voice/TTS status:\n{str(d['content'])[:300]}")
         return "\n\n".join(p for p in parts if p.strip())
 
 
@@ -709,14 +709,14 @@ class BusMemoryAgent(_BaseAgent):
                     elapsed_ms=elapsed,
                 )
 
-            limit = 8  # semantic hits
+            limit = 12  # semantic hits (raised — context-bloat cap protects the model)
             raw_hits = mem.recall_memory(user_input, limit=limit)
             conv_hits = []
             try:
-                conv_hits = mem.search_conversations(user_input, user_id=user_id, limit=5)
+                conv_hits = mem.search_conversations(user_input, user_id=user_id, limit=8)
             except Exception:
                 pass
-            recent = mem.get_recent_conversation(limit=6, user_id=user_id)  # full history, char-budgeted below
+            recent = mem.get_recent_conversation(limit=12, user_id=user_id)  # full history, char-budgeted below
             summaries = []
             try:
                 summaries = mem.get_session_summaries(user_id=user_id, limit=3)
@@ -734,7 +734,7 @@ class BusMemoryAgent(_BaseAgent):
                     if _seed_terms:
                         _seen_ids = {h.get("id") for h in raw_hits if h.get("id")}
                         _seen_txt = {(h.get("text") or h.get("content") or "")[:80] for h in raw_hits}
-                        _hop2 = mem.recall_memory(" ".join(_seed_terms), limit=6) or []
+                        _hop2 = mem.recall_memory(" ".join(_seed_terms), limit=8) or []
                         _added = 0
                         for _h in _hop2:
                             _hid = _h.get("id")
@@ -745,7 +745,7 @@ class BusMemoryAgent(_BaseAgent):
                             _seen_ids.add(_hid)
                             _seen_txt.add(_ht)
                             _added += 1
-                            if len(raw_hits) >= 10:
+                            if len(raw_hits) >= 14:
                                 break
                         if _added:
                             log.debug(f"[AGENT:memory] hop-2 deepen: +{_added} hits from {_seed_terms}")
@@ -777,7 +777,7 @@ class BusMemoryAgent(_BaseAgent):
                     except Exception:
                         pass
                     role = "User" if t.get("role") == "user" else "ELI"
-                    text = (t.get("content") or "")[:120]  # trim each turn
+                    text = (t.get("content") or "")[:160]  # trim each turn
                     line = f"{role}: {text}"
                     char_count += len(line)
                     if char_count > 3500:
@@ -791,8 +791,8 @@ class BusMemoryAgent(_BaseAgent):
 
             if raw_hits:
                 hits_text = []
-                for h in raw_hits[:6]:  # reduced from 12
-                    txt = (h.get("text") or h.get("content") or "")[:160]
+                for h in raw_hits[:10]:
+                    txt = (h.get("text") or h.get("content") or "")[:240]
                     raw_ts = h.get("ts") or h.get("timestamp") or 0
                     try:
                         ts_str = time.strftime("%Y-%m-%d %H:%M", time.localtime(float(raw_ts))) if raw_ts else ""
@@ -806,14 +806,14 @@ class BusMemoryAgent(_BaseAgent):
 
             if conv_hits:
                 conv_text = []
-                for h in conv_hits[:4]:
+                for h in conv_hits[:6]:
                     try:
                         from eli.runtime.diagnostic_patterns import should_exclude_turn_from_prompt
                         if should_exclude_turn_from_prompt(h.get("role"), h.get("content")):
                             continue
                     except Exception:
                         pass
-                    txt = (h.get("content") or "")[:120]
+                    txt = (h.get("content") or "")[:180]
                     role = h.get("role", "?")
                     if txt:
                         conv_text.append(f"  {role}: {txt}")
@@ -823,8 +823,8 @@ class BusMemoryAgent(_BaseAgent):
 
             if summaries:
                 sum_text = []
-                for s in summaries[:2]:
-                    txt = (s.get("summary") or s.get("content") or "")[:200]
+                for s in summaries[:3]:
+                    txt = (s.get("summary") or s.get("content") or "")[:300]
                     if txt:
                         sum_text.append(f"  - {txt}")
                 if sum_text:
@@ -2520,7 +2520,7 @@ class KnowledgeGraphAgent(_BaseAgent):
             except Exception:
                 _query = user_input
 
-            ctx = kg.context_for_prompt(_query, max_chars=700)
+            ctx = kg.context_for_prompt(_query, max_chars=1400)
             elapsed = (time.perf_counter() - t0) * 1000
 
             if not ctx:
