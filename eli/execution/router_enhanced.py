@@ -371,6 +371,16 @@ def _normalize_text(text: str) -> Tuple[str, str]:
     return raw, raw.lower()
 
 
+# Person-attribute nouns for personal-knowledge routing ("what do you know about
+# my <attr>" → PERSONAL_MEMORY_SUMMARY). Kept as one shared group so the two
+# question frames stay in sync.
+_PM_PERSON_ATTR = (
+    r"(?:interest|interests|habit|habits|personality|character|background|"
+    r"academ\w+|research|work|studies|field|life|preference|preferences|"
+    r"trait|traits|history|project|projects)"
+)
+
+
 def _eli_resolve_known_eli_file(low: str):
     """Map a reference to a well-known ELI file (by name, no full path) to its
     real absolute path, or None. Only returns files that actually exist, so a
@@ -5009,6 +5019,24 @@ def _eli_phase38_final_memory_question_contract(raw):
         or ("most recent things" in low and "stored" in low and "me" in low)
         or "patterns have you detected" in low
         or "how i interact with you" in low
+        # "what do you know about my interests/habits/personality/academia…",
+        # "do you know anything about my background", "tell me about my research".
+        # These are personal-knowledge questions and must reach the clean
+        # PERSONAL_MEMORY_SUMMARY (which excludes news cache / dumps). Without
+        # this they fell to MEMORY_RECALL, which surfaced NEWS digests and then
+        # synthesised a 39k-char prompt into a lone "-" (spoken aloud).
+        or bool(_re.search(
+            r"\b(?:what (?:do|can) you know|what do you (?:remember|recall)|"
+            r"do you (?:know|remember) (?:anything|much|something)|"
+            r"what have you (?:learned|gathered|got))\b"
+            r".{0,40}\babout (?:me\b|my " + _PM_PERSON_ATTR + r")",
+            low,
+        ))
+        or bool(_re.search(
+            r"\btell me (?:more )?(?:about|what you know about)\s+(?:me\b|my "
+            + _PM_PERSON_ATTR + r")",
+            low,
+        ))
     )
 
     if asks_memory_internals and asks_personal_memory:
