@@ -1696,6 +1696,8 @@ SUPPORTED_ACTIONS = [
     'CLEAR_CHAT_HISTORY',
     'CLOSE_APP',
     'CONFIRM_CODE_FIX',
+    'CONFIRM_HABIT',
+    'DECLINE_HABIT',
     'CHECK_JOB',
     'CODE_CHANGES',
     'CODE_SOLVE',
@@ -8603,6 +8605,46 @@ def _execute_impl(action: str, args: Optional[Dict[str, Any]] = None) -> Dict[st
         except Exception as _exc:
             msg = f"Code examination failed: {_exc}"
             return {'ok': False, 'action': a, 'error': str(_exc), 'content': msg, 'response': msg}
+
+    if a in ('CONFIRM_HABIT', 'DECLINE_HABIT'):
+        try:
+            from eli.planning.habits import get_pending_habit, clear_pending_habit
+            from eli.memory import get_memory as _get_mem
+        except Exception as _imp_exc:
+            msg = f"Habit confirm unavailable: {_imp_exc}"
+            return {'ok': False, 'action': a, 'error': str(_imp_exc), 'content': msg, 'response': msg}
+        pending = get_pending_habit()
+        if not pending:
+            msg = "There's no habit offer waiting for a yes/no right now."
+            return {'ok': True, 'action': a, 'content': msg, 'response': msg}
+        rid = int(pending.get('rule_id', -1))
+        name = pending.get('name', 'that habit')
+        hh, mm = int(pending.get('hour', 0)), int(pending.get('minute', 0))
+        mem = _get_mem()
+        try:
+            if a == 'CONFIRM_HABIT':
+                ok = mem.set_habit_rule_enabled(rid, True) if hasattr(mem, 'set_habit_rule_enabled') else False
+                clear_pending_habit()
+                msg = (f"Done — “{name}” is now an active habit; I'll run it around "
+                       f"{hh:02d}:{mm:02d}. You can edit or disable it any time in the "
+                       f"Habits tab.") if ok else \
+                      f"I couldn't enable that habit (it may have been removed). Nothing activated."
+                return {'ok': bool(ok), 'action': a, 'content': msg, 'response': msg,
+                        'evidence_source': 'habit_confirm'}
+            else:  # DECLINE_HABIT — remove the suggestion so it doesn't linger
+                if hasattr(mem, 'delete_habit_rule'):
+                    try:
+                        mem.delete_habit_rule(rid)
+                    except Exception:
+                        pass
+                clear_pending_habit()
+                msg = f"No problem — I won't add “{name}”. I'll stop suggesting it."
+                return {'ok': True, 'action': a, 'content': msg, 'response': msg,
+                        'evidence_source': 'habit_decline'}
+        except Exception as _hx:
+            clear_pending_habit()
+            msg = f"Habit update failed: {_hx}"
+            return {'ok': False, 'action': a, 'error': str(_hx), 'content': msg, 'response': msg}
 
     if a == 'CANCEL_CODE_FIX':
         try:
