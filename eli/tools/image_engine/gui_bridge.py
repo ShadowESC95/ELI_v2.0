@@ -377,8 +377,40 @@ def generate_images(
     args.verbose = False
     args = validate_args(args)
 
-    saved_paths = [str(p) for p in generate_batch(args)]
     out_dir = str((Path(args.out).expanduser().resolve() if args.out else output_dir().resolve()))
+
+    # ── Diffusion VRAM swap ──────────────────────────────────────────────────
+    # A diffusion model (e.g. SSD-1B) and the chat LLM cannot co-reside on an
+    # 8GB GPU, so unload the LLM around a diffusion job and reload it after. If
+    # diffusion is requested but the weights aren't downloaded, say so plainly
+    # instead of silently producing a basic procedural image.
+    from eli.tools.image_engine.image_engine import visual_core as _vc
+    _use_diffusion = (args.backend == "diffusion") or (args.backend == "auto" and bool(args.model))
+    if _use_diffusion and args.model and not _vc.weights_present(args.model):
+        note = (f"⚠️ The diffusion model at '{args.model}' has no weights downloaded yet, "
+                f"so I can't render a high-quality image. Fetch them with:\n"
+                f"  python -m eli.tools.image_engine.fetch_model segmind/SSD-1B {args.model}")
+        return ImageGenerationResult(
+            saved_paths=[], contact_sheet=None, manifest_path=None, out_dir=out_dir,
+            applied_prompt=applied_prompt, personalization_notes=(notes or []) + [note])
+
+    _swapped = False
+    if _use_diffusion and args.model and _vc.weights_present(args.model):
+        try:
+            from eli.cognition import gguf_inference as _gguf
+            _gguf.unload_model()
+            _swapped = True
+        except Exception:
+            pass
+    try:
+        saved_paths = [str(p) for p in generate_batch(args)]
+    finally:
+        if _swapped:
+            try:
+                from eli.cognition import gguf_inference as _gguf
+                _gguf.reload_model(await_completion=False)  # restore chat LLM in background
+            except Exception:
+                pass
 
     sheet_path = Path(out_dir) / f"{args.prefix}_contact_sheet.jpg"
     manifest_path = Path(out_dir) / f"{args.prefix}_manifest.json"
