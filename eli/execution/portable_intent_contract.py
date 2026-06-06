@@ -212,7 +212,7 @@ def try_route(text: str) -> Optional[dict]:
         if parts and parts[0].lower() in _PORTABLE_SHELL_CMDS:
             # Extract the command from the ORIGINAL text, not the lowercased
             # norm — shell commands are case-sensitive (paths like
-            # /home/jay/Desktop, flags like -R vs -r). norm is only used to
+            # /home/<user>/Desktop, flags like -R vs -r). norm is only used to
             # detect that this IS a shell command; the cmd itself must keep
             # the user's original case.
             _raw_collapsed = re.sub(r"\s+", " ", raw).strip()

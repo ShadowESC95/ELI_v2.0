@@ -81,7 +81,7 @@ def test_dataset_builder_redacts_private_paths(tmp_path):
         [
             (
                 "Where was the script saved?",
-                "The script was saved at /home/jay/Desktop/ELI_MKXI/artifacts/scripts/example.py.",
+                "The script was saved at /home/user/Desktop/ELI_MKXI/artifacts/scripts/example.py.",
             )
         ],
     )
@@ -92,7 +92,7 @@ def test_dataset_builder_redacts_private_paths(tmp_path):
     assert result["count"] == 1
 
     rows = read_jsonl(out)
-    assert "/home/jay" not in rows[0]["response"]
+    assert "/home/user" not in rows[0]["response"]
     assert "<PROJECT_ROOT>" in rows[0]["response"]
 
 
