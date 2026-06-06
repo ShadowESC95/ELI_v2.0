@@ -169,6 +169,29 @@
   assert:
     - {type: action_not, value: [EXAMINE_CODE]}
 
+# ── Memory-pipeline questions must reach the grounded runtime audit ─────────
+# These were mis-routing to PERSONAL_MEMORY_SUMMARY (preferences) or CHAT (which
+# confabulated about human brains). They must hit EXPLAIN_MEMORY_RUNTIME, whose
+# report lists all 4 DBs + the full storage/recall mechanism stack.
+- id: memory_pipeline_routes_to_runtime
+  target: router
+  prompt: "How exactly does your full memory pipeline work, start to finish?"
+  assert:
+    - {type: action_is, value: [EXPLAIN_MEMORY_RUNTIME]}
+
+- id: memory_mechanism_followup_routes_to_runtime
+  target: router
+  prompt: "i want the full information, all paths, databases, mechanism of recall and storage, everything"
+  assert:
+    - {type: action_is, value: [EXPLAIN_MEMORY_RUNTIME]}
+    - {type: action_not, value: [CHAT]}
+
+- id: what_you_know_about_me_stays_personal
+  target: router
+  prompt: "what do you know about me"
+  assert:
+    - {type: action_not, value: [EXPLAIN_MEMORY_RUNTIME]}
+
 # ── Engine-level: grounding / hedging / confabulation (need a model) ────────
 - id: factual_offline_hedges
   target: engine

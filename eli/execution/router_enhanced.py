@@ -4898,13 +4898,35 @@ def _eli_phase38_final_memory_question_contract(raw):
 
     low = _re.sub(r"\s+", " ", str(raw or "").lower()).strip()
 
+    _mem_kw = ("memory" in low or "memori" in low)
     asks_memory_internals = (
         "memory system" in low
         or "memory internals" in low
-        or ("which files" in low and "db tables" in low)
+        or "memory pipeline" in low
+        or "memory architecture" in low
+        or ("which files" in low and ("db tables" in low or "database" in low or "tables" in low))
         or ("which db tables" in low)
-        or ("which functions" in low and "memory" in low)
-        or ("how" in low and "memory" in low and ("works" in low or "internally" in low))
+        or ("which functions" in low and _mem_kw)
+        # "how/explain/describe/walk me through … your memory … work/store/recall/pipeline …"
+        or (
+            _mem_kw
+            and _re.search(r"\b(how|explain|describe|walk me through|break ?down|outline|detail)\b", low)
+            and _re.search(
+                r"\b(work|works|working|function|functions|operate|store|storage|stored|"
+                r"recall|retriev|pipeline|architecture|internal|internally|flow|mechanism|"
+                r"start to finish|end to end)\b", low)
+        )
+        # Mechanism / recall+storage phrasing — common as a follow-up that omits
+        # the word "memory" entirely ("the full info, all paths, databases,
+        # mechanism of recall and storage, everything").
+        or _re.search(r"\bmechanism(s)?\s+of\s+(recall|storage|retrieval|memory)", low)
+        or _re.search(r"\b(recall and storage|storage and recall|store and recall|recall and store)\b", low)
+        or ("all paths" in low and ("database" in low or "db" in low or "sqlite" in low))
+        or "all the databases" in low
+        or "all databases" in low
+        # Explicit mechanism names → unmistakably about the retrieval/storage stack.
+        or _re.search(r"\b(faiss|fts5?|knowledge graph|kg|hyde|rag|vector store|embedder|"
+                      r"vector index|dag pipeline)\b", low)
     )
 
     asks_personal_memory = (
