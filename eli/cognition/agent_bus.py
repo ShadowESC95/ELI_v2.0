@@ -709,17 +709,17 @@ class BusMemoryAgent(_BaseAgent):
                     elapsed_ms=elapsed,
                 )
 
-            limit = 12  # semantic hits (raised — context-bloat cap protects the model)
+            limit = 24  # semantic hits (cap protects the model; favour MORE facts)
             raw_hits = mem.recall_memory(user_input, limit=limit)
             conv_hits = []
             try:
-                conv_hits = mem.search_conversations(user_input, user_id=user_id, limit=8)
+                conv_hits = mem.search_conversations(user_input, user_id=user_id, limit=14)
             except Exception:
                 pass
-            recent = mem.get_recent_conversation(limit=12, user_id=user_id)  # full history, char-budgeted below
+            recent = mem.get_recent_conversation(limit=24, user_id=user_id)  # full history, char-budgeted below
             summaries = []
             try:
-                summaries = mem.get_session_summaries(user_id=user_id, limit=3)
+                summaries = mem.get_session_summaries(user_id=user_id, limit=6)
             except Exception:
                 pass
 
@@ -734,7 +734,7 @@ class BusMemoryAgent(_BaseAgent):
                     if _seed_terms:
                         _seen_ids = {h.get("id") for h in raw_hits if h.get("id")}
                         _seen_txt = {(h.get("text") or h.get("content") or "")[:80] for h in raw_hits}
-                        _hop2 = mem.recall_memory(" ".join(_seed_terms), limit=8) or []
+                        _hop2 = mem.recall_memory(" ".join(_seed_terms), limit=12) or []
                         _added = 0
                         for _h in _hop2:
                             _hid = _h.get("id")
@@ -745,7 +745,7 @@ class BusMemoryAgent(_BaseAgent):
                             _seen_ids.add(_hid)
                             _seen_txt.add(_ht)
                             _added += 1
-                            if len(raw_hits) >= 14:
+                            if len(raw_hits) >= 28:
                                 break
                         if _added:
                             log.debug(f"[AGENT:memory] hop-2 deepen: +{_added} hits from {_seed_terms}")
@@ -761,7 +761,7 @@ class BusMemoryAgent(_BaseAgent):
                 # — confirmed at memory.py: fetches DESC then list(reversed(rows)).
                 # Take the newest 20, then drop the trailing user+assistant pair
                 # so the model doesn't regurgitate the live prompt or its own last reply.
-                turns_to_show = list(recent[-20:])  # newest 20, still chronological
+                turns_to_show = list(recent[-24:])  # newest 24, still chronological
                 if turns_to_show and turns_to_show[-1].get("role") == "assistant":
                     turns_to_show = turns_to_show[:-1]  # drop model's last reply
                 if turns_to_show and turns_to_show[-1].get("role") == "user":
@@ -777,7 +777,7 @@ class BusMemoryAgent(_BaseAgent):
                     except Exception:
                         pass
                     role = "User" if t.get("role") == "user" else "ELI"
-                    text = (t.get("content") or "")[:160]  # trim each turn
+                    text = (t.get("content") or "")[:140]  # trim each turn
                     line = f"{role}: {text}"
                     char_count += len(line)
                     if char_count > 3500:
@@ -791,8 +791,8 @@ class BusMemoryAgent(_BaseAgent):
 
             if raw_hits:
                 hits_text = []
-                for h in raw_hits[:10]:
-                    txt = (h.get("text") or h.get("content") or "")[:240]
+                for h in raw_hits[:24]:
+                    txt = (h.get("text") or h.get("content") or "")[:200]
                     raw_ts = h.get("ts") or h.get("timestamp") or 0
                     try:
                         ts_str = time.strftime("%Y-%m-%d %H:%M", time.localtime(float(raw_ts))) if raw_ts else ""
@@ -806,14 +806,14 @@ class BusMemoryAgent(_BaseAgent):
 
             if conv_hits:
                 conv_text = []
-                for h in conv_hits[:6]:
+                for h in conv_hits[:12]:
                     try:
                         from eli.runtime.diagnostic_patterns import should_exclude_turn_from_prompt
                         if should_exclude_turn_from_prompt(h.get("role"), h.get("content")):
                             continue
                     except Exception:
                         pass
-                    txt = (h.get("content") or "")[:180]
+                    txt = (h.get("content") or "")[:150]
                     role = h.get("role", "?")
                     if txt:
                         conv_text.append(f"  {role}: {txt}")
@@ -823,8 +823,8 @@ class BusMemoryAgent(_BaseAgent):
 
             if summaries:
                 sum_text = []
-                for s in summaries[:3]:
-                    txt = (s.get("summary") or s.get("content") or "")[:300]
+                for s in summaries[:5]:
+                    txt = (s.get("summary") or s.get("content") or "")[:260]
                     if txt:
                         sum_text.append(f"  - {txt}")
                 if sum_text:
@@ -2520,7 +2520,7 @@ class KnowledgeGraphAgent(_BaseAgent):
             except Exception:
                 _query = user_input
 
-            ctx = kg.context_for_prompt(_query, max_chars=1400)
+            ctx = kg.context_for_prompt(_query, max_chars=2200)
             elapsed = (time.perf_counter() - t0) * 1000
 
             if not ctx:

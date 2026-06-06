@@ -110,9 +110,9 @@ class PlannerAgent:
                 "need_semantic":  True,
                 "need_rag":       doc_query,
                 "need_kg":        True,
-                "keyword_limit":  16,
-                "semantic_limit": 16,
-                "rag_limit":      12,
+                "keyword_limit":  24,
+                "semantic_limit": 24,
+                "rag_limit":      16,
                 "prefer_identity": identity,
                 "prefer_runtime":  runtime,
                 "skip_hyde":       False,
@@ -415,7 +415,7 @@ class OrchestratorMemoryAgent:
     }
 
     def rerank(self, query: str,
-               hits: List[Dict[str, Any]], top_k: int = 12) -> List[Dict[str, Any]]:
+               hits: List[Dict[str, Any]], top_k: int = 20) -> List[Dict[str, Any]]:
         # Strip placeholder non-answers before scoring so they can never
         # contaminate context for an unrelated query.
         _bl = self._CONTEXT_RESPONSE_BLACKLIST
