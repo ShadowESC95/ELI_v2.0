@@ -904,6 +904,27 @@ def _is_brief_phatic_prompt(text: str) -> bool:
 
 
 
+def _eli_is_fragment_output(text) -> bool:
+    """True for a degenerate model fragment that must never be surfaced as an
+    answer — e.g. '-', '-G', '-Auto', '-Auto/G 5/', '-PAS'. The small local
+    model occasionally collapses a grounded answer into a list-marker stub like
+    these. A real reply either starts with an alphanumeric character or contains
+    a normal multi-word sentence; a leading-symbol stub under ~12 chars does not.
+    """
+    t = str(text or "").strip()
+    if len(t) < 3:
+        return True
+    if not re.search(r"[A-Za-z]", t):            # only symbols/digits
+        return True
+    words = re.findall(r"[A-Za-z]{2,}", t)
+    if not words:                                # e.g. '-G' (no 2+ letter run)
+        return True
+    # Short and opens on a stray symbol/dash → a stub like '-Auto', '-Auto/G 5/'.
+    if len(t) < 12 and not t[0].isalnum():
+        return True
+    return False
+
+
 # === ELI_PHASE19_GROUNDED_FOLLOWUP_REBIND_V1 ===
 # Contextual detail/challenge turns after an authoritative grounded action
 # must remain attached to that action. Without this, prompts such as
@@ -10811,6 +10832,20 @@ Answer:"""
             except Exception as _final_syn_err:
                 log.debug(f"[COGNITIVE] Final executor synthesis failed: {_final_syn_err}")
                 final_response = raw_response
+        # Degenerate-output guard (Jason, 2026-06-06): the small local model
+        # sometimes collapses a grounded answer into a fragment ('-', '-Auto',
+        # '-Auto/G 5/'). Never surface that. Prefer the grounded executor
+        # content; if that is also a stub, give an honest, non-empty reply
+        # rather than a lone dash.
+        if _eli_is_fragment_output(final_response):
+            if raw_response and not _eli_is_fragment_output(raw_response):
+                log.debug("[COGNITIVE] Fragment synthesis discarded; using grounded executor content")
+                final_response = raw_response
+            else:
+                log.debug("[COGNITIVE] Fragment output with no grounded fallback; honest reply")
+                final_response = (
+                    "Sorry — my reply came out garbled there. Could you ask me that again?"
+                )
         self._store_assistant_turn(final_response)
         self._learn_from_result(intent, result)
         result["content"] = final_response
