@@ -2682,6 +2682,14 @@ class EliMainWindow(QMainWindow):
                     log.debug(f"[PROACTIVE] code insight [{cat}]: {det[:120]}")
                     self.proactive_insights_signal.emit(
                         f"<b>[{cat}]</b> {det[:200]}")
+                elif kind == "habit_suggestion":
+                    # ELI proactively offers a detected habit and asks first.
+                    # Pending state is already set by the daemon; a "yes" reply is
+                    # intercepted by the router's pending_habit_confirm stage.
+                    offer = data.get("suggestion", "")
+                    log.debug(f"[PROACTIVE] habit suggestion: {offer}")
+                    self.chat_response_signal.emit(f"💡 {offer}")
+                    self.proactive_suggestions_signal.emit(f"<b>[habit?]</b> {offer}")
                 elif kind in ("habit", "habit_result"):
                     name = data.get("name", "")
                     sugg = data.get("suggestion", "")
@@ -3557,6 +3565,15 @@ class EliMainWindow(QMainWindow):
         except Exception:
             pass
 
+    def _resolve_image_seed(self) -> int:
+        """Seed for the next generation. Random each time unless the user locked
+        the seed — otherwise identical prompts produce the identical image."""
+        import random as _rnd
+        lock = getattr(self, "image_seed_lock", None)
+        if lock is not None and lock.isChecked() and hasattr(self, "image_seed_input"):
+            return int(self.image_seed_input.value())
+        return _rnd.randint(1, 999999)
+
     def open_image_studio_tab(self):
         try:
             idx = self.tabs.indexOf(self.image_tab_widget)
@@ -3726,7 +3743,7 @@ class EliMainWindow(QMainWindow):
                     count=1,
                     width=width,
                     height=height,
-                    seed=int(self.image_seed_input.value()) if hasattr(self, "image_seed_input") else 77,
+                    seed=self._resolve_image_seed(),
                     prefix="eli_chat",
                     sheet=False,
                     manifest=False,
@@ -4523,9 +4540,17 @@ class EliMainWindow(QMainWindow):
         self.image_seed_input = QSpinBox()
         self.image_seed_input.setRange(1, 999999)
         self.image_seed_input.setValue(77)
+        # Lock OFF by default → each generation uses a fresh random seed, so
+        # repeated prompts don't produce the identical image (Jason, 2026-06-06:
+        # "just getting repeated images"). Tick to pin the seed and reproduce one.
+        self.image_seed_lock = QCheckBox("🔒 Lock seed")
+        self.image_seed_lock.setChecked(False)
+        self.image_seed_lock.setToolTip("Off = a new random seed each time (varied images).\n"
+                                        "On = reuse the seed below to reproduce the same image.")
         batch_row.addWidget(self.image_count_input)
         batch_row.addWidget(QLabel("Seed"))
         batch_row.addWidget(self.image_seed_input)
+        batch_row.addWidget(self.image_seed_lock)
         options_layout.addRow("Batch", batch_row)
 
         self.image_personalize_checkbox = QCheckBox("Personalise with saved user/image identity")
@@ -5036,7 +5061,7 @@ class EliMainWindow(QMainWindow):
                     count=int(self.image_count_input.value()),
                     width=int(self.image_width_input.value()),
                     height=int(self.image_height_input.value()),
-                    seed=int(self.image_seed_input.value()),
+                    seed=self._resolve_image_seed(),
                     sheet=int(self.image_count_input.value()) > 1,
                     use_chat_context=bool(self.image_chat_context_checkbox.isChecked()),
                     use_proactive_context=bool(self.image_proactive_context_checkbox.isChecked()),
@@ -8166,7 +8191,8 @@ _register()
             f"Wiped {s.get('db_rows', 0)} memory rows.\n"
             f"Reset {s.get('faiss_reset', 0)} vector-index file(s).\n"
             f"Removed {s.get('profiles_removed', 0)} profile file(s), "
-            f"{s.get('conversations_removed', 0)} conversation log(s).\n"
+            f"{s.get('conversations_removed', 0)} conversation log(s), "
+            f"{s.get('transient_removed', 0)} pending-state file(s).\n"
             f"Name {'kept' if keep_profile.isChecked() else 'cleared'}.\n\n"
             f"Backup: {s.get('backup') or '(none)'}\n\n"
             "Schema preserved. Please restart ELI now for a clean slate."

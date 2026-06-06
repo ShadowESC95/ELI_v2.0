@@ -2858,6 +2858,27 @@ class Memory(metaclass=_MemoryMeta):
         finally:
             conn.close()
 
+    def set_habit_rule_enabled(self, rule_id: int, enabled: bool) -> bool:
+        """Enable/disable a habit rule. Enabling a detected suggestion = the user
+        approving it (ELI's proactive 'add this habit?' offer)."""
+        conn = self._get_connection()
+        try:
+            cur = conn.execute("UPDATE habit_rules SET enabled = ? WHERE id = ?",
+                               (1 if enabled else 0, int(rule_id)))
+            conn.commit()
+            return cur.rowcount > 0
+        finally:
+            conn.close()
+
+    def delete_habit_rule(self, rule_id: int) -> bool:
+        conn = self._get_connection()
+        try:
+            cur = conn.execute("DELETE FROM habit_rules WHERE id = ?", (int(rule_id),))
+            conn.commit()
+            return cur.rowcount > 0
+        finally:
+            conn.close()
+
     # ... (remaining methods unchanged) ...
 
     # Note: The rest of the class (get_dashboard_counts, get_recent_improvements, etc.)

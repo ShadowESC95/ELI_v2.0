@@ -3,9 +3,11 @@ Habit learning – monitors user actions, detects patterns, and manages automati
 Uses unified user memory.
 """
 
+import json
 import time
 from collections import Counter, defaultdict
 from datetime import datetime
+from pathlib import Path
 import hashlib
 
 from eli.memory import get_memory
@@ -14,6 +16,83 @@ from eli.memory import get_memory
 
 from eli.utils.log import get_logger
 log = get_logger(__name__)
+
+# --------------------------------------------------------------------------- #
+# Proactive habit-offer state                                                 #
+# ELI proposes a detected habit (specific app at a specific hour) and asks the #
+# user before activating it. The offer awaiting yes/no lives in pending_habit; #
+# offered rule ids are remembered so the same suggestion isn't re-pitched.     #
+# --------------------------------------------------------------------------- #
+def _artifacts_dir() -> Path:
+    try:
+        from eli.core.paths import get_paths
+        d = Path(get_paths().artifacts_dir)
+    except Exception:
+        d = Path(__file__).resolve().parents[2] / "artifacts"
+    d.mkdir(parents=True, exist_ok=True)
+    return d
+
+
+_PENDING_HABIT_TTL = 1800  # 30 min — a habit offer auto-expires
+
+
+def _pending_habit_file() -> Path:
+    return _artifacts_dir() / "pending_habit.json"
+
+
+def _offered_file() -> Path:
+    return _artifacts_dir() / "offered_habits.json"
+
+
+def set_pending_habit(rule_id: int, name: str, hour: int, minute: int, command: str = "") -> None:
+    _pending_habit_file().write_text(json.dumps({
+        "created_at": time.time(), "rule_id": int(rule_id), "name": name,
+        "hour": int(hour), "minute": int(minute), "command": command or "",
+    }, ensure_ascii=False, indent=2), encoding="utf-8")
+
+
+def get_pending_habit():
+    p = _pending_habit_file()
+    if not p.exists():
+        return None
+    try:
+        d = json.loads(p.read_text(encoding="utf-8"))
+    except Exception:
+        return None
+    if time.time() - float(d.get("created_at", 0)) > _PENDING_HABIT_TTL:
+        clear_pending_habit()
+        return None
+    return d
+
+
+def clear_pending_habit() -> None:
+    try:
+        _pending_habit_file().unlink()
+    except FileNotFoundError:
+        pass
+
+
+def _offered_ids() -> set:
+    p = _offered_file()
+    if not p.exists():
+        return set()
+    try:
+        return set(int(x) for x in json.loads(p.read_text(encoding="utf-8")))
+    except Exception:
+        return set()
+
+
+def was_offered(rule_id: int) -> bool:
+    return int(rule_id) in _offered_ids()
+
+
+def mark_offered(rule_id: int) -> None:
+    ids = _offered_ids()
+    ids.add(int(rule_id))
+    try:
+        _offered_file().write_text(json.dumps(sorted(ids)), encoding="utf-8")
+    except Exception:
+        pass
 
 def log_event(event_type: str, data: dict):
     """Log an event for habit analysis."""
