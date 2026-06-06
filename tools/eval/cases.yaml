@@ -227,6 +227,29 @@
   assert:
     - {type: action_is, value: [HABIT_STATUS]}
 
+# ── "What is the proactive daemon doing?" must report real daemon state ─────
+# Fell to CHAT and confabulated "performing its normal background tasks" instead
+# of the grounded PROACTIVE_STATUS (real pid/running/log).
+- id: proactive_daemon_doing_is_grounded
+  target: router
+  prompt: "what is the proactive daemon doing right now?"
+  assert:
+    - {type: action_is, value: [PROACTIVE_STATUS]}
+    - {type: action_not, value: [CHAT]}
+
+- id: stop_the_proactive_daemon_routes
+  target: router
+  prompt: "stop the proactive daemon"
+  assert:
+    - {type: action_is, value: [PROACTIVE_STOP]}
+
+# Generic "what are you doing" must NOT be captured as a daemon-status query.
+- id: what_are_you_doing_not_proactive
+  target: router
+  prompt: "what are you doing"
+  assert:
+    - {type: action_not, value: [PROACTIVE_STATUS]}
+
 # ── Engine-level: grounding / hedging / confabulation (need a model) ────────
 - id: factual_offline_hedges
   target: engine
