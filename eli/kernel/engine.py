@@ -5224,7 +5224,7 @@ Answer:"""
                     # of n_ctx so the model gets a prompt it can actually answer.
                     # Tunable: ELI_SYNTH_MAX_PROMPT_CHARS (set 0 to disable).
                     try:
-                        _qcap = int(os.environ.get("ELI_SYNTH_MAX_PROMPT_CHARS", "20000") or "0")
+                        _qcap = int(os.environ.get("ELI_SYNTH_MAX_PROMPT_CHARS", "28000") or "0")
                     except Exception:
                         _qcap = 20000
                     if _qcap > 0:
