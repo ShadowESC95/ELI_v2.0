@@ -1034,11 +1034,64 @@ def _explain_memory_runtime_report() -> Dict[str, Any]:
                     "path": str(_f),
                     "size_mb": round(_f.stat().st_size / (1024 * 1024), 3),
                     "tables": len(_tc),
+                    "table_names": sorted(_tc.keys()),
                 })
             except Exception:
                 continue
     except Exception:
         pass
+
+    # ── Live mechanism probes (#5/Option 4) ───────────────────────────────
+    # Re-derive every claim about ELI's own internals each call rather than
+    # hardcoding prose: ELI can add/remove its own modules and tables, so a
+    # static description would lie. Probe the filesystem for each mechanism
+    # module and the live schema for FTS5 mirrors + knowledge-graph counts.
+    def _all_live_tables() -> set:
+        names: set = set()
+        for _f in db_files:
+            for _n in (_f.get("table_names") or []):
+                names.add(str(_n))
+        for _tbls in (schema or {}).values():
+            for _n in (_tbls or {}):
+                names.add(str(_n))
+        return names
+
+    _live_tables = _all_live_tables()
+    # FTS5 virtual tables are named "<x>_fts"; sqlite also creates shadow tables
+    # (_fts_config/_data/_docsize/_idx) — exclude those, keep the real mirrors.
+    fts_tables = sorted(
+        t for t in _live_tables
+        if t.endswith("_fts") and not re.search(r"_fts_(config|data|docsize|idx)$", t)
+    )
+
+    def _live_count(table: str) -> int:
+        best = -1
+        for src in (schema or {}).values():
+            if src and table in src:
+                best = max(best, int(src.get(table) or 0))
+        return best
+
+    kg = {
+        "entities": _live_count("kg_entities"),
+        "relations": _live_count("kg_relations"),
+        "present": ("kg_entities" in _live_tables or "kg_relations" in _live_tables),
+    }
+
+    _proj_root = get_paths().project_root
+    def _probe_module(relpath: str) -> Dict[str, Any]:
+        try:
+            return {"path": relpath, "present": (Path(_proj_root) / relpath).exists()}
+        except Exception:
+            return {"path": relpath, "present": False}
+
+    mechanisms = {
+        "hyde": _probe_module("eli/cognition/hyde.py"),
+        "orchestrator": _probe_module("eli/cognition/orchestrator.py"),
+        "agent_bus": _probe_module("eli/cognition/agent_bus.py"),
+        "vector_store_faiss": _probe_module("eli/memory/vector_store.py"),
+        "knowledge_graph": _probe_module("eli/memory/knowledge_graph.py"),
+        "plan_graph_dag": _probe_module("eli/coding/plan_graph.py"),
+    }
 
     return {
         'ok': True,
@@ -1052,6 +1105,9 @@ def _explain_memory_runtime_report() -> Dict[str, Any]:
         'status': status,
         'schema': schema,
         'vector_status': vector_status,
+        'fts_tables': fts_tables,
+        'kg': kg,
+        'mechanisms': mechanisms,
         'name_guess': name_guess,
         'identity_hits': [
             str((h.get('text') or h.get('content') or '') if isinstance(h, dict) else h).strip()[:160]
@@ -1126,41 +1182,62 @@ def _format_memory_runtime(report: Dict[str, Any]) -> str:
     vector_status = report.get("vector_status") or {}
     _faiss = 'available' if vector_status.get('faiss_available') else 'not available'
     _nvec = vector_status.get('ntotal', 'unknown')
+    db_files = report.get("db_files") or []
+    fts_tables = report.get("fts_tables") or []
+    kg = report.get("kg") or {}
+    mechanisms = report.get("mechanisms") or {}
+
+    def _present(key: str) -> str:
+        m = mechanisms.get(key) or {}
+        return f"detected at {m.get('path')}" if m.get("present") else f"NOT FOUND ({m.get('path')})"
+
+    # Stores — derived live from the physical *.sqlite3 files on disk, with the
+    # actual tables each one currently holds. No hardcoded per-DB description:
+    # ELI can add/remove DBs and tables, so this is re-read every call.
     lines.append("")
-    lines.append("Stores (the four physical databases):")
-    lines.append("- user.sqlite3   — long-term memory: memories(+memories_fts FTS5 mirror), "
-                 "conversation_turns/conversations, observations, recall_log, learning_replay, "
-                 "habits/habit_rules/habit_events, kg_entities/kg_relations(+FTS5), news_articles, "
-                 "session_summaries, working_memory_pins, runtime_events. (active/user/memory roles alias this file.)")
-    lines.append("- agent.sqlite3  — agent/self-improvement state: agent_dispatches, agent_metrics, "
-                 "improvements, failures, code_patches, a small agent-side memories table.")
-    lines.append("- coding_memory.sqlite3 — the coding agent's bug-memory / fix recall.")
-    lines.append("- system_index.sqlite3  — the system/file capability index used for code & path lookups.")
+    lines.append(f"Stores — {len(db_files)} physical SQLite file(s) on disk (live):")
+    for _f in db_files:
+        _names = _f.get("table_names") or []
+        _shown = ", ".join(_names[:14]) + (" …" if len(_names) > 14 else "")
+        lines.append(f"- {_f.get('name')} ({_f.get('size_mb')} MB, {_f.get('tables')} tables)")
+        if _shown:
+            lines.append(f"    tables: {_shown}")
 
     lines.append("")
-    lines.append("STORAGE path (write — input → durable + indexed):")
-    lines.append("1. A turn/fact enters via Memory.store_memory()/log_* (persistence_gate decides what's worth keeping).")
-    lines.append("2. Row written to SQLite (memories / conversation_turns) and mirrored into the FTS5 table for keyword search.")
-    lines.append("3. The text is embedded with the local nomic embedder and the vector is added to the FAISS index.")
-    lines.append("4. Entities/relations are extracted into the knowledge graph (kg_entities / kg_relations, FTS5-backed).")
-    lines.append(f"   Live now: memories={int(status.get('memory_entries', 0) or 0)}, FAISS vectors={_nvec}, "
-                 "KG entities/relations as listed above.")
+    lines.append("STORAGE path (write — input → durable + indexed), live-annotated:")
+    lines.append("1. A turn/fact enters via Memory.store_memory()/log_* (a persistence gate decides what to keep).")
+    lines.append(f"2. Row written to SQLite and mirrored into FTS5 for keyword search "
+                 f"— live FTS5 mirrors: {', '.join(fts_tables) if fts_tables else 'none detected'}.")
+    lines.append(f"3. Text embedded with the local nomic embedder; vector added to FAISS "
+                 f"— live: FAISS {_faiss}, {_nvec} vectors; embedder module {_present('vector_store_faiss')}.")
+    lines.append(f"4. Entities/relations extracted into the knowledge graph "
+                 f"— live: kg_entities={kg.get('entities', 'n/a')}, kg_relations={kg.get('relations', 'n/a')}; "
+                 f"module {_present('knowledge_graph')}.")
+    lines.append(f"   Live totals now: memories={int(status.get('memory_entries', 0) or 0)}, FAISS vectors={_nvec}.")
 
     lines.append("")
-    lines.append("RECALL path (read — query → ranked context → answer):")
-    lines.append("1. HyDE (eli/cognition/hyde.py + orchestrator Stage 3) optionally expands a vague query before search.")
-    lines.append("2. Parallel retrieval: keyword (SQLite LIKE) + FTS5 full-text + FAISS vector similarity + knowledge-graph lookup.")
-    lines.append("3. RAG hybrid merge: the orchestrator fuses keyword/FTS5/vector/RAG/KG hits, then reranks by relevance+recency.")
-    lines.append("4. Context assembly → persona handoff → LLM synthesis (recency-/session-biased; recall-narration filtered).")
-    lines.append("- DAG: the orchestrator runs retrieval + agents on a dependency DAG (topological layers, upstream→downstream); "
-                 "the coding agent decomposes tasks via a separate subtask DAG (eli/coding/plan_graph.py).")
+    lines.append("RECALL path (read — query → ranked context → answer), live-annotated:")
+    lines.append(f"1. HyDE optionally expands a vague query before search — module {_present('hyde')}.")
+    lines.append("2. Parallel retrieval: keyword (SQLite LIKE) + FTS5 full-text + FAISS vectors + knowledge-graph lookup.")
+    lines.append(f"3. RAG hybrid merge + rerank by relevance/recency — orchestrator module {_present('orchestrator')}; "
+                 f"parallel agent dispatch {_present('agent_bus')}.")
+    lines.append("4. Context assembly → persona handoff → LLM synthesis (recency/session-biased; recall-narration filtered).")
+    lines.append(f"- DAG: agents/retrieval run on a dependency DAG; the coding agent decomposes tasks via a subtask DAG "
+                 f"— module {_present('plan_graph_dag')}.")
 
     lines.append("")
-    lines.append("Index/runtime detail:")
-    lines.append("- FTS5: full-text mirror tables (memories_fts, conversation_turns_fts when present, kg_entities_fts).")
+    lines.append("Index/runtime detail (live):")
+    lines.append(f"- FTS5 mirror tables detected: {', '.join(fts_tables) if fts_tables else 'none'}.")
     lines.append(f"- FAISS: {_faiss}; index={vector_status.get('index_path', 'unknown')}; vectors={_nvec}.")
     lines.append(f"- Embedder: {vector_status.get('embedding_model', 'unknown')}")
+    lines.append(f"- Knowledge graph: {kg.get('entities', 'n/a')} entities, {kg.get('relations', 'n/a')} relations "
+                 f"({'present' if kg.get('present') else 'not present'}).")
     lines.append("- Short-term memory: in-process working memory + recent conversation_turns (no separate short-term DB).")
+    lines.append("- Mechanism modules re-probed on the filesystem this call (no hardcoded claims): "
+                 + "; ".join(
+                       f"{k}={'present' if (mechanisms.get(k) or {}).get('present') else 'missing'}"
+                       for k in ("hyde", "orchestrator", "agent_bus", "vector_store_faiss", "knowledge_graph", "plan_graph_dag")
+                   ) + ".")
 
     if identity_hits:
         lines.append("- identity_evidence:")
