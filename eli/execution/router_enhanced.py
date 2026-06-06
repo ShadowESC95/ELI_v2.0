@@ -3108,18 +3108,23 @@ def route(text: str) -> Dict[str, Any]:
     # 12b) PROACTIVE DAEMON — must be before section 13 open/launch/start catch-all
     # ------------------------------------------------------------
     if (
-        re.search(r"\bproactive\s+(?:daemon\s+)?(?:status|state|running)\b", low)
+        re.search(r"\bproactive\s+(?:daemon\s+)?(?:status|state|running|doing|up\s+to|activity|active|alive)\b", low)
         or re.search(r"\b(?:status|state)\s+of\s+(?:the\s+)?proactive\s+daemon\b", low)
         or re.search(r"\bwhat(?:'s| is)\s+(?:the\s+)?status\s+of\s+(?:the\s+)?proactive\s+daemon\b", low)
+        # "what is the proactive daemon doing (right now)", "what's the proactive
+        # daemon up to" — fell to CHAT and confabulated "performing its normal
+        # background tasks" instead of reporting real pid/running/log state.
+        or re.search(r"\bwhat(?:'s| is)\s+(?:the\s+)?proactive\s+daemon\b", low)
+        or re.search(r"\b(?:is|are)\s+(?:the\s+)?proactive\s+(?:daemon|loop)\b.*\b(running|active|on|working|alive)\b", low)
     ):
         return _mk("PROACTIVE_STATUS", {}, 0.95,
                    matched_by="system.proactive_status")
     if re.search(
-            r"\b(?:start|launch|run)\s+(?:proactive\s+(?:daemon|mode)|proactive)\b", low):
+            r"\b(?:start|launch|run)\s+(?:the\s+)?(?:proactive\s+(?:daemon|mode)|proactive)\b", low):
         return _mk("PROACTIVE_START", {}, 0.95,
                    matched_by="system.proactive_start")
     if re.search(
-            r"\b(?:stop|kill|shut\s+down)\s+(?:proactive\s+(?:daemon|mode)|proactive)\b", low):
+            r"\b(?:stop|kill|shut\s+down)\s+(?:the\s+)?(?:proactive\s+(?:daemon|mode)|proactive)\b", low):
         return _mk("PROACTIVE_STOP", {}, 0.95,
                    matched_by="system.proactive_stop")
 
