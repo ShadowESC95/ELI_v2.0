@@ -650,6 +650,32 @@ def _eli_memory_should_run(user_input: str, action: str) -> bool:
     return True
 
 
+_MEM_HOP_STOP = {
+    "about", "would", "could", "should", "there", "their", "these", "those",
+    "which", "where", "what", "your", "yours", "really", "thing", "things",
+    "stuff", "something", "anything", "everything", "currently", "actually",
+    "prefers", "prefer", "wants", "user", "uses", "using", "works", "working",
+}
+
+
+def _memory_seed_terms(text: str, k: int = 5) -> list:
+    """Pull the salient content terms from a memory hit so a second recall hop
+    can deepen toward the topic the first hit revealed (multi-hop: find X →
+    fetch what X is connected to). Keeps distinct words ≥5 chars (plus Ξ/χ/φ),
+    drops generic stopwords. Order-preserving, capped at k."""
+    out: list = []
+    seen: set = set()
+    for w in re.findall(r"[A-Za-zΞχφ][\wΞχφ–-]{4,}", str(text or "")):
+        lw = w.lower()
+        if lw in _MEM_HOP_STOP or lw in seen:
+            continue
+        seen.add(lw)
+        out.append(w)
+        if len(out) >= k:
+            break
+    return out
+
+
 class BusMemoryAgent(_BaseAgent):
     """
     Retrieves semantic memories, conversation history, session summaries,
@@ -696,6 +722,35 @@ class BusMemoryAgent(_BaseAgent):
                 summaries = mem.get_session_summaries(user_id=user_id, limit=3)
             except Exception:
                 pass
+
+            # Multi-hop deepen (#2): when hop-1 recall is THIN, take the strongest
+            # hit's salient terms and re-query — surfaces facts connected to the
+            # first result that the bare user query missed. Gated on a thin first
+            # hop so rich queries don't pay the extra recall cost.
+            if 0 < len(raw_hits) < 5:
+                try:
+                    _seed = (raw_hits[0].get("text") or raw_hits[0].get("content") or "")
+                    _seed_terms = _memory_seed_terms(_seed, k=5)
+                    if _seed_terms:
+                        _seen_ids = {h.get("id") for h in raw_hits if h.get("id")}
+                        _seen_txt = {(h.get("text") or h.get("content") or "")[:80] for h in raw_hits}
+                        _hop2 = mem.recall_memory(" ".join(_seed_terms), limit=6) or []
+                        _added = 0
+                        for _h in _hop2:
+                            _hid = _h.get("id")
+                            _ht = (_h.get("text") or _h.get("content") or "")[:80]
+                            if (_hid and _hid in _seen_ids) or _ht in _seen_txt:
+                                continue
+                            raw_hits.append(_h)
+                            _seen_ids.add(_hid)
+                            _seen_txt.add(_ht)
+                            _added += 1
+                            if len(raw_hits) >= 10:
+                                break
+                        if _added:
+                            log.debug(f"[AGENT:memory] hop-2 deepen: +{_added} hits from {_seed_terms}")
+                except Exception:
+                    pass
 
             total_hits = len(raw_hits) + len(conv_hits)
             local_conf = min(0.9, 0.3 + total_hits * 0.04)
@@ -1197,7 +1252,15 @@ class CapabilityAgent(_BaseAgent):
         action = (intent.get("action") or "").upper()
         low = (user_input or "").lower()
         relevant = action in {"LIST_CAPABILITIES", "AWARENESS_STATUS", "CODE_CHANGES"} or any(
-            x in low for x in ("capability", "capabilities", "what can you do", "actions", "awareness", "what changed")
+            x in low for x in (
+                "capability", "capabilities", "what can you do", "what can you",
+                "actions", "awareness", "what changed",
+                # broadened (#3): capability QUESTIONS that were being missed.
+                "are you able to", "what are you able", "what are you capable",
+                "capable of", "do you support", "what do you do", "your features",
+                "what features", "everything you can", "list of commands",
+                "list your", "what commands",
+            )
         )
         if not relevant:
             return AgentResult(agent=self.name, ok=True, confidence=0.0, data={"skipped": True})
@@ -1233,7 +1296,10 @@ class VoiceAgent(_BaseAgent):
             session_id: str, user_id: str) -> AgentResult:
         low = (user_input or "").lower()
         if not any(x in low for x in ("voice", "speak", "tts", "speech", "mic",
-                                       "listen", "stt", "hear", "whisper", "piper")):
+                                       "listen", "stt", "hear", "whisper", "piper",
+                                       # broadened (#3): voice/audio status Qs.
+                                       "microphone", "wake word", "voice mode",
+                                       "are you listening", "talk to you")):
             return AgentResult(agent=self.name, ok=True, confidence=0.0,
                                data={"skipped": True})
         t0 = time.perf_counter()
