@@ -2530,11 +2530,10 @@ def _open_in_browser(url: str) -> None:
                    start_new_session=True)
 
 
-def _spotify_search(query: str) -> bool:
-    """Send a search URI to a running Spotify via dbus. Returns True on success."""
+def _spotify_open_uri(uri: str) -> bool:
+    """OpenUri on a running Spotify via MPRIS dbus. Accepts both spotify: URIs
+    and https://open.spotify.com/... URLs (Spotify opens the latter in-app)."""
     import subprocess as _sp2
-    import urllib.parse as _up2
-    uri = f"spotify:search:{_up2.quote(query)}"
     try:
         r = _sp2.run(
             ["dbus-send", "--print-reply",
@@ -2547,6 +2546,25 @@ def _spotify_search(query: str) -> bool:
         return r.returncode == 0
     except Exception:
         return False
+
+
+def _spotify_search(query: str, prefer: str | None = None) -> bool:
+    """Open a Spotify search via dbus.
+
+    prefer='playlists' targets the **Playlists** filter tab
+    (open.spotify.com/search/<q>/playlists), so the top result is a PLAYLIST that
+    contains the requested song — playing it keeps continuation thematic, instead
+    of the 'All' tab which plays one track then drifts to unrelated songs
+    (user-reported). Falls back to the classic spotify:search: URI if the
+    filtered URL is rejected.
+    """
+    import urllib.parse as _up2
+    if prefer in ("playlist", "playlists"):
+        if _spotify_open_uri(f"https://open.spotify.com/search/{_up2.quote(query)}/playlists"):
+            return True
+        # Fall back to the unfiltered search URI.
+        return _spotify_open_uri(f"spotify:search:{_up2.quote(query)}")
+    return _spotify_open_uri(f"spotify:search:{_up2.quote(query)}")
 
 
 def _spotify_play() -> bool:
@@ -2635,9 +2653,11 @@ def play_specific(query: str, target: str | None = None) -> Dict[str, Any]:
         search_q = (
             f"{_by_m.group(1).strip()} {_by_m.group(2).strip()}" if _by_m else query
         )
-        # No Web API: open the search (sets the active context to the matches),
-        # let results load, then issue Play so the TOP match starts playing.
-        _opened = _spotify_search(search_q)
+        # No Web API: open the PLAYLISTS search tab (sets the active context to
+        # matching playlists), let results load, then issue Play so the top
+        # PLAYLIST starts — its tracks keep continuation on-theme rather than
+        # the 'All' tab playing one song then drifting (user-reported).
+        _opened = _spotify_search(search_q, prefer="playlists")
         if not _opened:
             # Spotify not running yet — launch with the search URI, wait, retry.
             try:
@@ -2646,13 +2666,13 @@ def play_specific(query: str, target: str | None = None) -> Dict[str, Any]:
                     _time.sleep(1.0)
                     if _spotify_running():
                         break
-                _opened = _spotify_search(search_q)
+                _opened = _spotify_search(search_q, prefer="playlists")
             except Exception:
                 _opened = False
         if _opened:
             _time.sleep(1.6)            # let the results view populate
             if _spotify_play():
-                msg = f"Playing the top match for “{search_q}” on Spotify."
+                msg = f"Playing a “{search_q}” playlist on Spotify."
                 return {"ok": True, "action": "PLAY_MEDIA", "played": True,
                         "content": msg, "response": msg}
             msg = (f"I opened the Spotify search for “{search_q}” but couldn’t start "
