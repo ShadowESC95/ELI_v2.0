@@ -371,6 +371,32 @@ def _normalize_text(text: str) -> Tuple[str, str]:
     return raw, raw.lower()
 
 
+def _eli_resolve_known_eli_file(low: str):
+    """Map a reference to a well-known ELI file (by name, no full path) to its
+    real absolute path, or None. Only returns files that actually exist, so a
+    rename/removal is reflected immediately (no stale hardcoded claim). Lets
+    "read your persona.auto.txt" / "is your settings file up to date" resolve to
+    the real file instead of confabulating."""
+    try:
+        from pathlib import Path as _P
+        root = _P(__file__).resolve().parents[2]  # project root
+        candidates = []
+        if re.search(r"persona\.?\s*auto|auto\.txt|persona overlay|auto[- ]persona", low):
+            candidates.append(root / "eli" / "cognition" / "persona.auto.txt")
+        if "persona" in low and "auto" not in low:
+            candidates.append(root / "eli" / "cognition" / "persona.txt")
+        if "settings.json" in low or re.search(r"\bsettings\s+(file|json)\b", low):
+            candidates.append(root / "config" / "settings.json")
+        if re.search(r"capability[\s_]manifest", low):
+            candidates.append(root / "capability_manifest.json")
+        for p in candidates:
+            if p.exists():
+                return str(p)
+    except Exception:
+        return None
+    return None
+
+
 def _clean_app_name(s: str) -> str:
     s = s.strip()
     s = re.sub(r'^(?:the|my|a|an)\s+', '', s, flags=re.I)
@@ -1533,6 +1559,20 @@ def route(text: str) -> Dict[str, Any]:
     if grounded is not None:
         return grounded
 
+    # Known ELI files referenced by name ("is your persona.auto.txt up to date?
+    # read it…", "what's in your settings file") → resolve real path and
+    # SUMMARIZE_FILE. Placed BEFORE the long-question guard so the long phrasing
+    # isn't swallowed as CHAT (which then confabulated instead of reading it).
+    _known_file = _eli_resolve_known_eli_file(low)
+    if _known_file and re.search(
+        r"\b(read|summari[sz]e|summarise|what'?s?\s+(?:in|inside)|what\s+is\s+in|"
+        r"contents?\s+of|show\s+me|tell\s+me\s+what|up[\s-]?to[\s-]?date|"
+        r"look\s+at|inspect|check|open)\b",
+        low,
+    ):
+        return _mk("SUMMARIZE_FILE", {"path": _known_file},
+                   0.9, matched_by="analyze.known_eli_file")
+
     if (("?" in raw or "!" in raw) and len(low.split()) >= 12 and not re.match(
             r"^(open|access|initiate|fabricate|check|run|execute|type|press|pause|resume|play|next|previous|stop|mute|unmute|read|list|show|write|add|analyse|analyze|improve)\b", low)):
         return _mk("CHAT", {"message": raw}, 0.85,
@@ -2254,6 +2294,21 @@ def route(text: str) -> Dict[str, Any]:
     # ------------------------------------------------------------
     # 5) TIME / DATE / CAPABILITIES
     # ------------------------------------------------------------
+    # BEFORE the current-time route: "what time did I first/last send a message
+    # today", "when did I first message you", "when did we start talking today"
+    # ask about the conversation log, NOT the wall clock. These used to hit the
+    # TIME route and return the CURRENT time. Route to a grounded query over
+    # conversation_turns.
+    if (
+        re.search(r"\b(what time|when)\b", low)
+        and re.search(r"\b(i|we|my)\b", low)
+        and re.search(r"\b(first|last|latest|most recent|start|started|began|begin)\b", low)
+        and re.search(r"\b(messag\w+|sent|send|talk\w*|spoke|speak|chat\w*|contact\w*|said|say)\b", low)
+    ):
+        _mt_which = "last" if re.search(r"\b(last|latest|most recent|recently)\b", low) else "first"
+        _mt_scope = "today" if re.search(r"\btoday\b", low) else "all"
+        return _mk("MESSAGE_TIME_QUERY", {"which": _mt_which, "scope": _mt_scope},
+                   0.96, matched_by="memory.message_time", allow_chat_without_evidence=False)
     if any(re.search(p, low) for p in [
         r"\bwhat(?:'?s|\s+is)?\s+(?:the\s+)?time\b",
         r'\bcurrent time\b', r'\bclock\b', r'^time[?!.\s]*$', r'\btell me the time\b',

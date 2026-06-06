@@ -1849,6 +1849,7 @@ SUPPORTED_ACTIONS = [
     'MAXIMISE_WINDOW',
     'MEDIA_CONTROL',
     'MEMORY_RECALL',
+    'MESSAGE_TIME_QUERY',
     'MEMORY_STATS',
     'MEMORY_STATUS',
     'MEMORY_STORE',
@@ -5020,6 +5021,51 @@ def _execute_impl(action: str, args: Optional[Dict[str, Any]] = None) -> Dict[st
             return {"ok": True, "action": a, **st, "content": "proactive stopped", "response": "proactive stopped"}
         except Exception as e:
             return {"ok": False, "action": a, "error": str(e), "content": str(e), "response": str(e)}
+
+    # ---- MESSAGE_TIME_QUERY ----
+    # Grounded answer to "what time did I first/last send a message (today)" —
+    # read from the conversation_turns log, never the wall clock.
+    if a == "MESSAGE_TIME_QUERY":
+        import sqlite3 as _sq3
+        from datetime import datetime as _dt
+        from eli.memory import get_memory as _mt_get_memory
+        which = str((args or {}).get("which", "first")).lower()
+        scope = str((args or {}).get("scope", "all")).lower()
+        try:
+            mem = _mt_get_memory()
+            dbp = getattr(mem, "db_path", None)
+            if not dbp or not Path(dbp).exists():
+                msg = "I don't have a conversation-history database to read that from yet."
+                return {"ok": False, "action": a, "content": msg, "response": msg}
+            where = "role='user'"
+            params: List[Any] = []
+            if scope == "today":
+                midnight = _dt.now().replace(hour=0, minute=0, second=0, microsecond=0).timestamp()
+                where += " AND timestamp >= ?"
+                params.append(midnight)
+            agg = "MAX" if which in ("last", "latest") else "MIN"
+            conn = _sq3.connect(str(dbp))
+            try:
+                row = conn.execute(
+                    f"SELECT {agg}(timestamp) FROM conversation_turns WHERE {where}",
+                    params,
+                ).fetchone()
+            finally:
+                conn.close()
+            ts = (row or [None])[0]
+            scope_txt = " today" if scope == "today" else ""
+            if not ts:
+                msg = f"I have no record of a message from you{scope_txt or ' on file'}."
+                return {"ok": True, "action": a, "content": msg, "response": msg,
+                        "evidence_source": "conversation_turns"}
+            stamp = _dt.fromtimestamp(float(ts)).strftime("%H:%M:%S on %Y-%m-%d")
+            label = "most recent" if agg == "MAX" else "first"
+            msg = f"Your {label} message{scope_txt} was at {stamp}."
+            return {"ok": True, "action": a, "content": msg, "response": msg,
+                    "evidence_source": "conversation_turns"}
+        except Exception as e:
+            return {"ok": False, "action": a, "error": str(e),
+                    "content": str(e), "response": str(e)}
 
     # ---- MEMORY_RECALL ----
     if a == "MEMORY_RECALL":
