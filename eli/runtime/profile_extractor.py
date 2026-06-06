@@ -116,6 +116,21 @@ def _insert_user_pattern(
     ).fetchone()
 
     if exists:
+        # Reaffirmation: refresh recency so "last active" / staleness reflect the
+        # MOST RECENT mention, not the first. Projects and interests are dynamic —
+        # an active one stays fresh, an abandoned one ages out (see staleness
+        # filters in persona_updater + personal_memory_clean_response).
+        try:
+            cur.execute(
+                """
+                UPDATE user_patterns SET timestamp = ?, ts = ?
+                WHERE lower(COALESCE(pattern_type, '')) = lower(?)
+                  AND lower(COALESCE(pattern_data, '')) = lower(?)
+                """,
+                (now, now, pattern_type, pattern_data),
+            )
+        except Exception:
+            pass
         return False
 
     cur.execute(
