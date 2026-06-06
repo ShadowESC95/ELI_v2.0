@@ -2817,6 +2817,11 @@ class Memory(metaclass=_MemoryMeta):
         # enabled defaults True for explicit/manual adds; ELI's auto-detection
         # passes enabled=False so a suggested habit never activates until the
         # user approves it (enables it) in the Habits tab.
+        # A habit MUST have a concrete scheduled time — refuse None/blank so we
+        # never write the un-schedulable rows that legacy paths produced (those
+        # surfaced as bogus "active habits at 00:00").
+        if hour is None or minute is None or str(hour) == "" or str(minute) == "":
+            raise ValueError("habit rule needs a scheduled hour and minute")
         now = time.time()
         days_json = json.dumps(days) if days else None
         conn = self._get_connection()
@@ -2828,6 +2833,27 @@ class Memory(metaclass=_MemoryMeta):
             )
             conn.commit()
             return int(cur.lastrowid)
+        finally:
+            conn.close()
+
+    def disable_invalid_habit_rules(self) -> int:
+        """Self-heal: disable ENABLED habit rules that can never validly fire —
+        a NULL hour/minute (un-schedulable) or command == name (a bare app/action
+        token, not a learned "Open X at HH:MM" routine). These are legacy
+        corruption that otherwise shows as "active habits at 00:00". Disabled
+        (not deleted) so the user can fix or remove them in the Habits tab.
+        Returns the number of rules disabled."""
+        conn = self._get_connection()
+        try:
+            cur = conn.execute(
+                "UPDATE habit_rules SET enabled=0 WHERE enabled=1 AND ("
+                "hour IS NULL OR minute IS NULL OR "
+                "TRIM(LOWER(command)) = TRIM(LOWER(name)))"
+            )
+            conn.commit()
+            return int(cur.rowcount or 0)
+        except Exception:
+            return 0
         finally:
             conn.close()
 
