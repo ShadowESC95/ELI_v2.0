@@ -72,6 +72,14 @@ def test_router_intercepts_yes_no_only_when_pending(tmp_artifacts):
     assert route("yes")["action"] == "CONFIRM_HABIT"
     assert route("sure, add it")["action"] == "CONFIRM_HABIT"
     assert route("no thanks")["action"] == "DECLINE_HABIT"
+    # A real sentence that merely contains a confirm/decline word must NOT be
+    # hijacked while an offer is pending — only short, unambiguous replies are.
+    for sentence in (
+        "you do not know my name?",
+        "what do you do with the data you collect?",
+        "sure but first tell me what habits you have detected so far",
+    ):
+        assert route(sentence)["action"] not in ("CONFIRM_HABIT", "DECLINE_HABIT")
 
 
 # ── confirm / decline executor ───────────────────────────────────────────────

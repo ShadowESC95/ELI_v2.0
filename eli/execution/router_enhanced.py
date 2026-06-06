@@ -6087,15 +6087,22 @@ try:
                     from eli.runtime import grounded_remediation as _gr
                     if not get_pending_habit():
                         return None
-                    low = _re.sub(r"\s+", " ", str(text or "").strip().lower())
-                    if _gr.NO_RE.match(low) or _re.search(r"\b(no thanks|don'?t|do not|dismiss|skip it)\b", low):
+                    low = _re.sub(r"\s+", " ", str(text or "").strip().lower()).strip(" .!")
+                    # Only intercept a SHORT, unambiguous reply — never a real
+                    # sentence that merely contains "do it"/"don't" (that is
+                    # normal conversation and must route normally).
+                    if len(low.split()) > 6:
+                        return None
+                    if _gr.NO_RE.match(low) or _re.fullmatch(
+                            r"(no thanks|not now|dismiss|skip( it)?|nope)", low):
                         return {
                             "action": "DECLINE_HABIT",
                             "args": {"message": low},
                             "confidence": 0.98,
                             "meta": {"matched_by": "pending_habit.no_intercept"},
                         }
-                    if _gr.YES_RE.match(low) or _re.search(r"\b(add it|do it|sure|please do|go ahead|sounds good)\b", low):
+                    if _gr.YES_RE.match(low) or _re.fullmatch(
+                            r"(add it|add the habit|sure(,? add it)?|please do|sounds good|yes please)", low):
                         return {
                             "action": "CONFIRM_HABIT",
                             "args": {"message": low},
@@ -6116,16 +6123,25 @@ try:
                     from eli.runtime import grounded_remediation as _gr
                     if not _ce.get_pending_fix():
                         return None
-                    low = _re.sub(r"\s+", " ", str(text or "").strip().lower())
-                    if _gr.NO_RE.match(low) or _re.search(r"\b(don'?t|do not|leave it|cancel)\b", low):
+                    low = _re.sub(r"\s+", " ", str(text or "").strip().lower()).strip(" .!")
+                    # Only intercept a SHORT, unambiguous reply. A real sentence
+                    # that merely contains "fix"/"do not" ("you do not know my
+                    # name?", "few bugs to fix here") must route normally — the
+                    # earlier broad search hijacked those for up to 10 minutes.
+                    if len(low.split()) > 7:
+                        return None
+                    if _gr.NO_RE.match(low) or _re.fullmatch(
+                            r"(leave it|not now|skip( it)?|don'?t|do not|no thanks|nope)", low):
                         return {
                             "action": "CANCEL_CODE_FIX",
                             "args": {"message": low},
                             "confidence": 0.98,
                             "meta": {"matched_by": "pending_code_fix.no_intercept"},
                         }
-                    if _gr.YES_RE.match(low) or _re.search(
-                            r"\b(fix|apply|patch|repair|go ahead|proceed)\b", low):
+                    if _gr.YES_RE.match(low) or _re.fullmatch(
+                            r"(fix it|fix them|fix it please|apply( it| them)?|patch it|"
+                            r"yes please|yes,? fix (it|them)|fix the logic ones( too)?|"
+                            r"yes,? includ(e|ing) the logic ones?)", low):
                         return {
                             "action": "CONFIRM_CODE_FIX",
                             "args": {"message": low},
