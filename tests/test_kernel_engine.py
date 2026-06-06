@@ -271,3 +271,27 @@ def test_cai_low_grounding_p1_fail_still_revises():
     with patch.object(eng, "_get_chat_response", side_effect=_cai_seq(draft, critique, revised)):
         out = eng._run_constitutional_ai("and my name?", "", {}, "")
     assert "Revised grounded answer" in out
+
+
+# ── Placeholder/template-leak guard (#evidence: appropriate answer every time) ─
+@_pytest.mark.parametrize("scaffold", [
+    "Based on my observations: [list up to 3 habits from memory or analysis]",
+    "Your name is [insert name].",
+    "Add the details <your answer here>.",
+    "[TODO] finish this",
+])
+def test_placeholder_detector_flags_template_scaffold(scaffold):
+    from eli.kernel.engine import _eli_is_placeholder_output
+    assert _eli_is_placeholder_output(scaffold) is True
+
+
+@_pytest.mark.parametrize("ok", [
+    "Your name is Alex.",
+    "The orchestrator (e.g. stage 5) fuses hits.",
+    "[MEMORY SEARCH RESULT: No memories found]",
+    "I detected 2 habits: open Spotify at 09:00 and check news at 12:00.",
+    "See the array x[3] and the list of items.",
+])
+def test_placeholder_detector_passes_real_answers(ok):
+    from eli.kernel.engine import _eli_is_placeholder_output
+    assert _eli_is_placeholder_output(ok) is False

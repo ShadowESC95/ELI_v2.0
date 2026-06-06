@@ -3338,6 +3338,17 @@ def route(text: str) -> Dict[str, Any]:
     if re.match(r"^(?:show\s+)?habits?(?:\s+status)?$",
                 low) or re.match(r"^(?:my\s+)?habits?$", low):
         return _mk("HABIT_STATUS", {}, 0.95, matched_by="habits.status")
+    # "what habits have you detected/noticed (in my behaviour)", "which habits do
+    # you have for me", "any habits you've spotted" → grounded HABIT_STATUS (reads
+    # real habit_rules/events) instead of generic CHAT, which confabulated a
+    # literal template placeholder "[list up to 3 habits…]" (user-reported).
+    if re.search(r"\bhabits?\b", low) and re.search(
+        r"\b(detect(?:ed)?|notic(?:e|ed)|spot(?:ted)?|observed|"
+        r"have you (?:found|seen|got|detected|noticed)|do you have|"
+        r"picked up|learned|recogni[sz]ed)\b",
+        low,
+    ):
+        return _mk("HABIT_STATUS", {}, 0.95, matched_by="habits.detected_query")
 
     # ── Coverage patch: additional patterns before fallback ──
 

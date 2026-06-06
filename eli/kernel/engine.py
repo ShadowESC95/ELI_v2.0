@@ -925,6 +925,30 @@ def _eli_is_fragment_output(text) -> bool:
     return False
 
 
+# Unfilled template/scaffold the model sometimes emits verbatim instead of a real
+# answer — e.g. "[list up to 3 habits from memory or analysis]", "[insert name]",
+# "[your X here]", "[e.g. ...]", "[TODO]". A template is never an appropriate
+# answer; treat it like a fragment (fall back to grounded content / honest reply).
+_ELI_PLACEHOLDER_RX = re.compile(
+    r"[\[\<]\s*(?:"
+    r"list(?:\s+up\s+to)?\s*\d*\b|insert\b|fill(?:\s+in)?\b|describe\b|specify\b|"
+    r"provide\b|your\b|placeholder\b|to\s*do\b|todo\b|tbd\b|x{3,}\b|"
+    r"name\s+here\b|details?\s+here\b|examples?\s+here\b|enter\b)"
+    r"[^\]\>]*[\]\>]",
+    re.IGNORECASE,
+)
+
+
+def _eli_is_placeholder_output(text) -> bool:
+    """True when the answer contains an unfilled template/scaffold span the model
+    failed to fill from real evidence (e.g. '[list up to 3 habits ...]'). Such an
+    answer means evidence wasn't gathered/used — it must not be surfaced."""
+    t = str(text or "")
+    if not t:
+        return False
+    return bool(_ELI_PLACEHOLDER_RX.search(t))
+
+
 # === ELI_PHASE19_GROUNDED_FOLLOWUP_REBIND_V1 ===
 # Contextual detail/challenge turns after an authoritative grounded action
 # must remain attached to that action. Without this, prompts such as
@@ -10887,6 +10911,21 @@ Answer:"""
                 log.debug("[COGNITIVE] Fragment output with no grounded fallback; honest reply")
                 final_response = (
                     "Sorry — my reply came out garbled there. Could you ask me that again?"
+                )
+        # Placeholder/template-leak guard (user directive, 2026-06-06: "I expect
+        # the appropriate answer"): the model sometimes emits an unfilled scaffold
+        # like "[list up to 3 habits from memory or analysis]" when evidence
+        # wasn't gathered/used. A template is never an answer — prefer grounded
+        # executor content, else admit the gap honestly rather than show scaffold.
+        if _eli_is_placeholder_output(final_response):
+            if raw_response and not _eli_is_placeholder_output(raw_response):
+                log.debug("[COGNITIVE] Template-placeholder answer discarded; using grounded executor content")
+                final_response = raw_response
+            else:
+                log.debug("[COGNITIVE] Template-placeholder answer with no grounded fallback; honest reply")
+                final_response = (
+                    "I don't have solid evidence gathered to answer that accurately yet — "
+                    "ask me to check the specific source (e.g. your habits, memory, or runtime state) and I'll pull the real data."
                 )
         self._store_assistant_turn(final_response)
         self._learn_from_result(intent, result)
