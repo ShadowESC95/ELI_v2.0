@@ -283,6 +283,31 @@
   assert:
     - {type: action_not, value: [SUMMARIZE_FILE]}
 
+# ── "What do you know about my X" → clean PERSONAL_MEMORY_SUMMARY, not news ──
+# "do you know anything about my interests in academia" routed to MEMORY_RECALL,
+# which surfaced NEWS digests and then synthesised a 39k-char prompt into a lone
+# "-" that was spoken aloud. All personal-knowledge questions must reach the
+# news-excluding PERSONAL_MEMORY_SUMMARY.
+- id: academia_interests_is_personal_memory
+  target: router
+  prompt: "do you know anything about my interests in terms of academia"
+  assert:
+    - {type: action_is, value: [PERSONAL_MEMORY_SUMMARY]}
+    - {type: action_not, value: [MEMORY_RECALL, CHAT]}
+
+- id: my_habits_and_personality_is_personal_memory
+  target: router
+  prompt: "what do you know about my habits and personality"
+  assert:
+    - {type: action_is, value: [PERSONAL_MEMORY_SUMMARY]}
+
+# General-knowledge "what do you know about X" must NOT become personal memory.
+- id: general_knowledge_not_personal_memory
+  target: router
+  prompt: "what do you know about quantum physics"
+  assert:
+    - {type: action_not, value: [PERSONAL_MEMORY_SUMMARY, PERSONAL_MEMORY_DEEP_EXPLAIN]}
+
 # ── Engine-level: grounding / hedging / confabulation (need a model) ────────
 - id: factual_offline_hedges
   target: engine

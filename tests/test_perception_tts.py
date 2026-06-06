@@ -265,3 +265,20 @@ def test_list_voices_sorted():
     voices = list_voices()
     # Check voices list is consistent (same order each call)
     assert list_voices() == voices
+
+
+# ── Never speak a degenerate fragment (also avoids piper wave crash) ──────────
+import pytest as _pytest
+
+
+@_pytest.mark.parametrize("frag", ["-", "-G", "-Auto", "-Auto/G 5/", "", "   ", "/ "])
+def test_tts_refuses_unspeakable_fragment(frag):
+    from eli.perception.tts_router import _eli_tts_is_unspeakable
+    assert _eli_tts_is_unspeakable(frag) is True
+
+
+@_pytest.mark.parametrize("ok", ["No.", "34G", "Volume down", "I'm ELI.",
+                                 "Your first message was at 00:03:44 on 2026-06-06."])
+def test_tts_speaks_real_short_text(ok):
+    from eli.perception.tts_router import _eli_tts_is_unspeakable
+    assert _eli_tts_is_unspeakable(ok) is False

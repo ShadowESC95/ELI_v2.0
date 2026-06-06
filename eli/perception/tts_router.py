@@ -520,10 +520,33 @@ def _eli_tts_visible_text(text) -> str:
     return clean if clean else "..."
 
 
+def _eli_tts_is_unspeakable(text) -> bool:
+    """True for degenerate output that must never be spoken — empty, too short,
+    punctuation-only, or a leading-symbol stub ('-', '-Auto', '-Auto/G 5/').
+    Speaking these is meaningless and crashed piper ('# channels not specified')
+    on a lone '-'. Mirrors the engine fragment guard so '34G', 'No.', 'Volume
+    down' remain speakable."""
+    s = str(text or "").strip()
+    if len(s) < 2:
+        return True
+    if not re.search(r"[A-Za-z0-9]", s):          # only symbols/whitespace
+        return True
+    words = re.findall(r"[A-Za-z]{2,}", s)
+    if not words and not re.search(r"\d", s):      # e.g. '-G' (no word, no digit)
+        return True
+    if len(s) < 12 and not s[0].isalnum():         # short leading-symbol stub
+        return True
+    return False
+
+
 def _run_tts(text: str, voice_name: str | None = None) -> bool:
     import os as _os
 
     active = voice_name or get_active_voice()
+    # Never voice a degenerate fragment (also avoids the piper wave crash on '-').
+    if _eli_tts_is_unspeakable(text):
+        log.debug(f"[TTS_FINAL_PIPER_ONLY] skipped unspeakable text: {str(text)[:24]!r}")
+        return False
     chunks = _tts_chunks(text)
 
     if not chunks:
