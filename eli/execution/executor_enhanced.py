@@ -4506,9 +4506,11 @@ def _eli_self_description_block(limit: int = 2600) -> str:
 # (the evidence-routing hook at the top of _execute_impl). Status/grounded-audit
 # actions already gather via the bus's specialist agent sets, so they are not here.
 _GENERATIVE_EVIDENCE_ACTIONS = {
-    "GENERATE_DOCUMENT", "CREATE_DOCUMENT", "DOC_GENERATE", "DATA_FABRICATOR",
+    "GENERATE_DOCUMENT", "CREATE_DOCUMENT", "DOC_GENERATE",
     "GENERATE_SCRIPT", "CREATE_SCRIPT", "WRITE_SCRIPT", "GENERATE_PROJECT",
 }
+# DATA_FABRICATOR is intentionally NOT here: it delegates to CREATE_DOCUMENT, which
+# gathers evidence itself — listing it too would double-gather.
 
 
 # ----------------------------
@@ -8237,7 +8239,12 @@ def _execute_impl(action: str, args: Optional[Dict[str, Any]] = None) -> Dict[st
         if not desc:
             msg = "Missing description for GENERATE_PROJECT"
             return {"ok": False, "action": a, "error": msg, "content": msg, "response": msg}
-        prompt = f"Generate a complete project plan and starter files for: {desc}"
+        # Ground in evidence gathered by the central evidence-routing hook.
+        _proj_ev = str(args.get("_evidence") or "")
+        _proj_ev_block = ("\n\nGrounding evidence gathered by ELI's agents — build on "
+                          "these real specifics; do not invent APIs, files, or behaviour:\n"
+                          + _proj_ev) if _proj_ev else ""
+        prompt = f"Generate a complete project plan and starter files for: {desc}{_proj_ev_block}"
         return chat(prompt, skip_router=True)
 
     # ---- FIX_FILE ----
