@@ -3125,58 +3125,13 @@ def _eli_v10_personal_memory_answer(mode_label: str = "") -> str:
     return "\n".join(lines).strip()
 
 
-_ELI_V10_PREVIOUS_RENDER_ACTION = globals().get("render_action")
-
-
-def _eli_v14_render_action_legacy(action, args=None, user_input="", mode_label=""):
-    a = str(action or "").upper()
-    args = args or {}
-
-    if a == "SELF_REPORT" and not _eli_v9_is_runtime_status_question(user_input):  # type: ignore[name-defined]
-        identity, source = _eli_v10_identity_label()
-        return json.dumps(
-            {
-                "surface": "identity_evidence",
-                "identity": {
-                    "name": "ELI",
-                    "grounding_sources": ["persona", "runtime", "memory", "agents", "tools"],
-                },
-                "user_identity_source": source,
-                "user_identity_value_present": bool(identity),
-                "mode": str(mode_label or ""),
-            },
-            ensure_ascii=False,
-            default=str,
-            indent=2,
-        )
-
-    if a == "PERSONAL_MEMORY_DEEP_EXPLAIN":
-        q = str((args or {}).get("question") or user_input or "")
-        low = q.lower()
-
-        if (
-            "internally" in low
-            or "which files" in low
-            or "db tables" in low
-            or "which functions" in low
-            or "memory system works" in low
-        ):
-            if callable(_ELI_V10_PREVIOUS_RENDER_ACTION):
-                try:
-                    return _ELI_V10_PREVIOUS_RENDER_ACTION(a, args, user_input, mode_label=mode_label)
-                except TypeError:
-                    return _ELI_V10_PREVIOUS_RENDER_ACTION(a, args, user_input)
-            return "Memory internals renderer unavailable."
-
-        return _eli_v10_personal_memory_answer(mode_label=mode_label)
-
-    if callable(_ELI_V10_PREVIOUS_RENDER_ACTION):
-        try:
-            return _ELI_V10_PREVIOUS_RENDER_ACTION(a, args, user_input, mode_label=mode_label)
-        except TypeError:
-            return _ELI_V10_PREVIOUS_RENDER_ACTION(a, args, user_input)
-
-    return ""
+# [DEAD CODE REMOVED — A1] The v10 layer captured _ELI_V10_PREVIOUS_RENDER_ACTION
+# and defined _eli_v14_render_action_legacy, but it never rebound `render_action`
+# to that function (the next layer, v11, captured v9's render_action). So the
+# function was orphaned: defined, never installed, never called — and its capture
+# was used only inside it. Removed after verifying render_action output is
+# byte-identical across all actions/modes (oracle). The live delegation chain is
+# unchanged.
 
 # =============================================================================
 # ELI NO-NAME + QUICK-ONLY RESPONSE SURFACE V11
