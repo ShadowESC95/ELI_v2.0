@@ -117,6 +117,13 @@ TUNABLES: List[Tunable] = [
     Tunable("cog.mode_budget_expert", "Mode budget · Expert (%)",
             "Agent time-budget for Expert mode (% of base) — maximum rigor.",
             250, 25, 600, 5, "Reasoning-mode budgets"),
+
+    # ── Background deepening (Stage 3b) ──────────────────────────────────────
+    Tunable("cog.background_deepen", "Background deepening (0=off, 1=on)",
+            "When a Quick answer is poorly grounded on a checkable factual turn, "
+            "keep gathering on a background thread and surface a better answer in "
+            "the Proactive panel. 0 disables. (env ELI_BACKGROUND_DEEPEN=0 also off.)",
+            1, 0, 1, 1, "Reasoning-mode budgets"),
 ]
 
 _BY_KEY: Dict[str, Tunable] = {t.key: t for t in TUNABLES}

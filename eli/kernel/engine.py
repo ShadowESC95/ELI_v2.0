@@ -9454,6 +9454,17 @@ Answer:"""
                 except Exception as _esc_err:
                     log.debug(f"[COGNITIVE] grounding escalation skipped: {_esc_err}")
 
+                # Stage 3b — background deepening: quick mode returns its fast
+                # answer now (no synchronous deepen), but if it's a poorly-grounded
+                # checkable factual turn, keep gathering on a background thread and
+                # surface a better answer in the Proactive panel. Non-blocking;
+                # tightly gated + deduped. (cog.background_deepen / ELI_BACKGROUND_DEEPEN)
+                try:
+                    from eli.runtime.background_deepening import schedule as _bg_deepen
+                    _bg_deepen(self, user_input, intent, bus_result, reasoning_mode)
+                except Exception as _bgd_err:
+                    log.debug(f"[COGNITIVE] background deepen skipped: {_bgd_err}")
+
             trace["orchestrator_plan"] = (
                 bus_result.orchestrator_plan
                 or self._build_runtime_orchestrator_plan(
