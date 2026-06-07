@@ -2908,6 +2908,27 @@ class Memory(metaclass=_MemoryMeta):
         finally:
             conn.close()
 
+    def purge_invalid_habit_rules(self) -> int:
+        """Delete un-schedulable legacy habit rows — a NULL hour/minute AND a
+        command equal to the bare name (e.g. name='firefox', command='firefox',
+        no time). These were written by an old path, can never validly fire, and
+        otherwise clutter the Habits tab and surface as a bogus 00:00 offer. A
+        user-authored or detected rule always carries a concrete time, so it is
+        never matched here. Returns the number of rows deleted."""
+        conn = self._get_connection()
+        try:
+            cur = conn.execute(
+                "DELETE FROM habit_rules WHERE "
+                "(hour IS NULL OR minute IS NULL) AND "
+                "TRIM(LOWER(command)) = TRIM(LOWER(name))"
+            )
+            conn.commit()
+            return int(cur.rowcount or 0)
+        except Exception:
+            return 0
+        finally:
+            conn.close()
+
     def update_habit_rule(self, rule_id: int, *, name: str = None, command: str = None,
                           hour: int = None, minute: int = None, days: list = None) -> bool:
         """Update fields of an existing habit rule (manual edit from the GUI).

@@ -247,3 +247,38 @@ def test_no_crash_weird_inputs(text):
         assert isinstance(result, dict)
     except Exception as e:
         pytest.fail(f"route crashed with '{text}': {e}")
+
+
+# ── Visual content-questions gather a real glance (not CHAT guessing) ────────
+# Regression: a question about what's ON the screen must route to a real vision
+# pass, never fall through to CHAT where the model fabricates an answer
+# (user-reported: ELI invented a Star Trek season/episode it never looked at).
+@pytest.mark.parametrize("text", [
+    "what season, or episode is currently on the screen ?",
+    "can you see star trek on the screen?",
+    "which app is on my display?",
+    "who is on screen right now",
+    "what is on the screen",
+    "tell me what's on my monitor",
+])
+def test_screen_content_questions_route_to_vision(text):
+    assert action(text) == "SCREEN_READ_ANALYZE"
+
+
+def test_screen_content_question_passes_user_question_to_vision():
+    # The user's own question is handed to the VL model with an anti-fabrication
+    # instruction so it answers from pixels (or admits it can't tell).
+    r = route("what season or episode is on the screen?")
+    assert r.get("action") == "SCREEN_READ_ANALYZE"
+    prompt = (r.get("args") or {}).get("prompt", "")
+    assert "season or episode" in prompt.lower()
+    assert "never guess" in prompt.lower() or "cannot tell" in prompt.lower()
+
+
+@pytest.mark.parametrize("text", [
+    "turn on the screen",
+    "i saw it on the screen earlier",
+    "what is going on",
+])
+def test_non_visual_screen_phrases_do_not_route_to_vision(text):
+    assert action(text) != "SCREEN_READ_ANALYZE"

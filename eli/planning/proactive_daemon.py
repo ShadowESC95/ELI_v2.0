@@ -773,12 +773,27 @@ Date: {datetime.now().strftime("%A %B %d %H:%M")} | Interactions last 24h: {inte
                                     _rid = int(_r.get("id", -1))
                                     if _rid < 0 or was_offered(_rid):
                                         continue
-                                    _hh = int(_r.get("hour", 0))
-                                    _mm = int(_r.get("minute", 0))
-                                    _nm = _r.get("name", "a recurring action")
+                                    # Skip legacy/corrupt suggestions: a real learned
+                                    # habit has a concrete time AND a command distinct
+                                    # from its bare name. NULL-time / command==name rows
+                                    # are legacy corruption that otherwise surfaced as a
+                                    # bogus "run it around 00:00" offer (user-reported).
+                                    _hraw, _mraw = _r.get("hour"), _r.get("minute")
+                                    _cmd = str(_r.get("command") or "").strip()
+                                    _nm = str(_r.get("name") or "a recurring action").strip()
+                                    if _hraw is None or _mraw is None or str(_hraw) == "" or str(_mraw) == "":
+                                        continue
+                                    if _cmd and _cmd.lower() == _nm.lower():
+                                        continue
+                                    try:
+                                        _hh, _mm = int(_hraw), int(_mraw)
+                                    except (TypeError, ValueError):
+                                        continue
+                                    if not (0 <= _hh <= 23 and 0 <= _mm <= 59):
+                                        continue
                                     offer = (f"I've noticed a pattern — “{_nm}”. Want me to add it "
                                              f"as a habit and run it around {_hh:02d}:{_mm:02d}? (yes/no)")
-                                    set_pending_habit(_rid, _nm, _hh, _mm, _r.get("command", ""))
+                                    set_pending_habit(_rid, _nm, _hh, _mm, _cmd)
                                     mark_offered(_rid)
                                     self.suggestion_queue.put(("habit_suggestion", {
                                         "rule_id": _rid, "name": _nm,

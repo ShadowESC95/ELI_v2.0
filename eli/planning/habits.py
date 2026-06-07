@@ -157,6 +157,13 @@ def detect_habits(days: int = 14, min_occurrences: int = 3):
     without pretending every habit should become an executable schedule.
     """
     mem = get_memory()
+    # Self-heal: drop legacy un-schedulable rows (NULL time + command==name) that
+    # otherwise surface as a bogus "run around 00:00" offer (user-reported).
+    try:
+        if hasattr(mem, "purge_invalid_habit_rules"):
+            mem.purge_invalid_habit_rules()
+    except Exception:
+        pass
     events = mem.get_habit_events(event_type=None, days=days)
 
     clusters = defaultdict(list)
