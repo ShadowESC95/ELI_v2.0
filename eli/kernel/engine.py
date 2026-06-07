@@ -2943,6 +2943,13 @@ class CognitiveEngine:
             self._start_habit_loop()
             self._start_habit_scheduler()
             self._start_self_improvement_loop()
+            # Re-arm any persisted scheduled/overnight tasks (durable across
+            # restarts); missed-while-off tasks run as catch-up shortly after boot.
+            try:
+                from eli.runtime.scheduled_tasks import restore_scheduled_tasks
+                restore_scheduled_tasks()
+            except Exception as _rst_err:
+                log.debug(f"[COGNITIVE] scheduled-task restore skipped: {_rst_err}")
         log.debug("[COGNITIVE] active == canonical ✓")  # Fix 6b: startup path log
         if not self._test_mode:
             self._start_proactive_listener()
