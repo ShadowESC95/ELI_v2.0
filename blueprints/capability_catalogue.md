@@ -162,8 +162,8 @@ families are grouped below so the real surface is visible.
 |---|---|
 | `TIME` = `GET_TIME`, `DATE` = `GET_DATE` | Current time / date. |
 | `SET_TIMER`, `SET_ALARM` | Timers/alarms. *(inferred)* |
-| `CHECK_CHRONAL_ALIGNMENT` | An easter-egg / curiosity action. |
-| `DATA_FABRICATOR` | Generate synthetic/sample data. *(inferred)* |
+| `CHECK_CHRONAL_ALIGNMENT` | Easter-egg: "Chronal alignment nominal. Local time: …" (a playful time report). |
+| `DATA_FABRICATOR` | Generate a document from a topic (via CREATE_DOCUMENT) **and open it in an editor** (code/gedit/kate/nano). |
 | `RUN_CMD`, `SHELL_EXEC` | Run a shell command — **fail-closed** (blocked unless `ELI_ALLOWED_CMDS`/`ELI_FULL_CONTROL`). |
 
 ## 16. Plugins (management)
@@ -464,6 +464,28 @@ The thinking layer: agents, orchestration, inference, persona, reasoning, govern
 | `manager.py` (553L) | Discover/install/enable/disable/execute; auto-load; builtin-stub gen; registry. |
 | `web`, `web_automation`, `weather`, `calendar`, `notes`, `pomodoro`, `smart_home`, `system_stats`, `media`, `tts`, `document_reader` | The 11 built-in plugins (see Part 1 §17). |
 | `base/base.py` | Plugin base class + action validation + loader. |
+
+---
+
+# Part 5 — verified engine request lifecycle (`engine.process`, line 8219)
+
+Read end-to-end this session. The real entry flow, in order:
+
+1. **Pipeline trace id** assigned (`ELI_PIPELINE_TRACE` for observability).
+2. **Prompt-injection guard FIRST** — `_eli_sanitize_user_input` runs before the
+   router or LLM ever sees the raw text, so injected instructions can't reach
+   them unsanitised. (A security control that sits at the very top of the pipe.)
+3. **Multi-question splitter** (`ELI_MULTI_QUESTION_SPLITTER_V2`) — if a message
+   has >1 `?` **and** >25 words, it splits into standalone sub-questions (cap 4)
+   and answers each; a second pass splits single-`?` compounds like "who are you,
+   and who am I". So genuinely multi-part asks get multiple grounded answers.
+4. Router → agent bus / orchestrator gate → reasoning mode → executor → governed
+   output (Parts 1–4).
+
+Note: `engine.py` carries **51 `PHASE…` markers** — the same "added beside, not
+folded in" accretion as the grounding gate. It works and is well-guarded, but the
+interior is layered patches; that residue (engine 12.5k / executor 13.3k / GUI
+10.7k) is documented here at behavioural level, not line-by-line.
 
 ---
 
