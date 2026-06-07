@@ -2006,6 +2006,7 @@ SUPPORTED_ACTIONS = [
     'LORA_TRAIN',
     'ORCHESTRATION_STATUS',
     'TEST_REVIEW',
+    'MULTI_COMMAND',
     'SELF_UPDATE',
     'SELF_UPGRADE',
     'SEQUENCE',
@@ -6036,6 +6037,37 @@ def _execute_impl(action: str, args: Optional[Dict[str, Any]] = None) -> Dict[st
         except Exception as e:
             msg = f"ORCHESTRATION_STATUS failed: {e}"
             return {"ok": False, "action": a, "error": str(e), "content": msg, "response": msg}
+
+    # ---- MULTI_COMMAND — run several chained commands in order, combine results ----
+    # 'close steam and set an alarm for 7am' → route + execute each segment. Sequential
+    # (actions have side effects/order). Each segment is a single command, so no re-entry.
+    if a == "MULTI_COMMAND":
+        cmds = list((args or {}).get("commands") or [])
+        if not cmds:
+            msg = "No commands to run."
+            return {"ok": False, "action": a, "content": msg, "response": msg}
+        from eli.execution.router_enhanced import route as _mc_route
+        parts = []
+        all_ok = True
+        for c in cmds:
+            try:
+                sub = _mc_route(c)
+                sa = (sub.get("action") or "CHAT")
+                sargs = dict(sub.get("args") or {})
+                sargs.setdefault("_raw_user_text", c)
+                if sa == "MULTI_COMMAND":          # guard against re-entry
+                    sa, sargs = "CHAT", {"message": c}
+                r = execute(sa, sargs)
+                txt = (r.get("response") or r.get("content") or "") if isinstance(r, dict) else str(r)
+                if isinstance(r, dict) and r.get("ok") is False:
+                    all_ok = False
+            except Exception as e:
+                txt = f"failed: {e}"
+                all_ok = False
+            parts.append(f"• {c.strip()} →\n{(txt or '(done)').strip()}")
+        msg = "\n\n".join(parts)
+        return {"ok": all_ok, "action": a, "content": msg, "response": msg,
+                "meta": {"commands": cmds}}
 
     # ---- TEST_REVIEW — run the suite, back up + write errors, then summarise + offer options ----
     # The grounded report below is summarised by the persona; the options route to
