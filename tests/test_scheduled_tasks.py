@@ -1,7 +1,20 @@
 """Scheduled/timed background tasks (overnight jobs)."""
 from __future__ import annotations
 import time
+import pytest
 from eli.runtime.background_tasks import BackgroundTasks
+
+
+@pytest.fixture(autouse=True)
+def _isolate_schedule_store(tmp_path, monkeypatch):
+    """Redirect the durable schedule store to a per-test tmp file so these tests
+    NEVER touch the real artifacts/runtime/scheduled_tasks.json (which holds the
+    user's standing overnight jobs — they must survive a test run)."""
+    from eli.runtime import scheduled_tasks as _ST
+    store = tmp_path / "scheduled_tasks.json"
+    monkeypatch.setattr(_ST, "_store_path", lambda: store)
+    monkeypatch.setattr(_ST, "_RESTORED", False, raising=False)
+    yield
 
 
 def test_immediate_submit_still_works():
