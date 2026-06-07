@@ -209,7 +209,9 @@ stubs); custom agents (AST-validated → hash-trusted → live-registered);
 | GUI | Folder drag-drop inserts a **bare path** (not a `[File:]` wrapper) |
 | Eval | Runs under `pytest` (`tests/test_eval_cases.py`) — auto with the suite |
 | Grounding gate | Removed one provably-dead v10 fragment, **oracle-verified** byte-identical |
-| Docs | Refreshed all 21 blueprints; added `what_eli_is.md`, `capability_catalogue.md`, this doc |
+| Reasoning modes | Renamed **Quick/Normal/Advanced/Research/Expert** (public layer; internal keys kept) + per-mode agent time budgets (1.0×→2.5×) |
+| Autonomous deepening | Confidence-driven iterative deepening that escalates the mode + raises gather per iteration until a per-mode target is met (quick never deepens); **background deepening** surfaces a better answer async for weak Quick factual turns |
+| Docs | Refreshed all 21 blueprints; added `what_eli_is.md`, `what_eli_can_do.md`, `capability_catalogue.md` (+Part 6 reasoning/deepening), this doc |
 
 ---
 
