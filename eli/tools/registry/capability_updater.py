@@ -80,6 +80,17 @@ def update_capability_manifest():
 
     manifest_path.write_text(json.dumps(manifest, indent=2), encoding="utf-8")
 
+    # Keep the human-readable reference table in sync with the manifest. Best-effort:
+    # any newly-discovered routable action without a curated activation phrase is
+    # still emitted (flagged) so the doc never goes stale.
+    doc_needs_phrase = []
+    try:
+        from eli.tools.registry.capabilities_doc import generate_capabilities_doc
+        _doc = generate_capabilities_doc()
+        doc_needs_phrase = _doc.get("needs_phrase", [])
+    except Exception:
+        pass
+
     return {
         "ok": True,
         "total": len(capabilities),
@@ -88,6 +99,7 @@ def update_capability_manifest():
         "routable_actions": sum(1 for c in capabilities if c["routable"]),
         "changed": delta.has_changes,
         "summary": delta.summary(),
+        "doc_needs_phrase": doc_needs_phrase,
     }
 
 
