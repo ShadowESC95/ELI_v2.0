@@ -132,16 +132,26 @@ news** (a rolling 3-hourly digest matched to your interests — not raw headline
 Switch it off and it's sealed at the network socket.
 
 ### 📁 Files & documents
-Create / read / list files and folders; summarise any file; convert documents;
-analyse CSVs, PDFs (single or whole folders), and images. Two standout tools:
+Create / read / list files and folders; summarise any file; analyse CSVs, PDFs
+(single or whole folders), and images. **Convert any document** to PDF, PDF via
+LuaLaTeX, .docx, .doc, .odt, .rtf, HTML, Markdown, .tex, EPUB or .txt — from the
+Files tab (pick a file → format → Convert) or by asking ("convert report.md to
+pdf"); backed by pandoc + a LibreOffice fallback. Two standout tools:
 
-- **📊 Report Builder** — drop in your sources (PDFs, data, code, notebooks,
-  projects) and ELI writes a full document (report, paper, proposal, audit,
-  simulation write-up) **grounded in your evidence**, with per-genre standards and
-  strict discipline: every claim is tied to a source or marked `[source needed]` —
-  no fabricated citations or numbers.
+- **📊 Report Builder** *(now its own main tab)* — drop in your sources (PDFs,
+  data, code, notebooks, projects) and ELI writes a full document (report, paper,
+  proposal, audit, simulation write-up) **grounded in your evidence**, with
+  per-genre standards and strict discipline: every claim is tied to a source or
+  marked `[source needed]` — no fabricated citations or numbers.
 - **💬 File Chat** — open a file or folder and have a conversation *about it* —
   ask questions, get explanations, all from the actual contents.
+
+Even a quick *"generate a document about X"* in chat now runs a **multi-stage
+grounded pipeline** — it first gathers evidence with the right agents (code, web,
+memory, runtime), plans an outline, drafts section-by-section against that
+evidence, then does a review→revise pass — instead of one shallow pass. If the
+evidence comes back thin, low confidence triggers a deeper re-gather across more
+agent tiers before it commits to writing.
 
 ### 💻 Code
 A frontier-grade coding agent: describe a task and it plans it, decomposes it into
@@ -161,29 +171,35 @@ auto-revert); runs maintenance (update, rebuild indexes, refresh capabilities);
 audits its own runtime honestly with live health probes; and can **train a LoRA
 adapter on your own conversations**, locally.
 
-### 🎯 Be proactive
+### 🎯 Be proactive & self-aware
 A background daemon notices your patterns, **offers** to automate routines (never
 silently), builds your morning report, and surfaces things worth your attention —
-through a governed, approval-gated mission layer.
+through a governed, approval-gated mission layer. On a 30-minute beat it also runs
+a **self-awareness/autonomy tick**: it watches its own code for changes, refreshes
+its self-model, and advances goals into proposals for your approval (observe-only /
+memory-write — nothing destructive runs unattended). Ask it about itself — *"what
+are you aware of"*, *"audit your identity"*, *"how does your cognition work"* — and
+the agents run the real audits and ELI **summarises** the grounded results, rather
+than dumping a report or guessing.
 
 ---
 
-## The workspace — your 12 tabs
+## The workspace — your 12 main tabs
 
 | Tab | What it's for |
 |---|---|
 | 💬 **Chat** | The main conversation + voice, with reasoning-mode and Net toggles. |
-| ⏰ **Habits** | View / add / edit / approve automated routines. |
+| 🎯 **Proactive** | 6 sub-tabs: Suggestions, Summaries, Insights, Habits, Self-Improve, Memory. |
 | 🖼️ **Images** | Generate images (procedural or diffusion). |
-| 🔧 **Self-Improve** | Improvement proposals, failure log, self-patch cycle. |
-| 🎯 **Proactive** | Suggestions, summaries, insights, habits, memory, self-improve panels. |
 | ⚡ **Quick Actions** | A drag-and-drop board of one-click actions. |
 | 🖥️ **Screen** | Screen control, capture, and analysis. |
-| 🧩 **IDE / Coding** | Write, run, and have ELI fix/explain code. |
+| 📂 **Files** | Browse, act on, and **convert** files (any format). |
+| 🔬 **Labs** | Scientific workspace — 8 sub-tabs: Notebook, Memory & Conversations, Jupyter, Calculator, Physics, File Chat, Workspaces, Sim/IDE. |
+| 🧩 **Coding** | Write, run, and have ELI fix/explain code. |
+| 🗓️ **Tasks** | Scheduled / overnight / background jobs (add, edit, cancel). |
+| 📄 **Report Builder** | Evidence-grounded, multi-stage document generation (promoted from Labs). |
 | 🌍 **Eli's World** | The live embodied self-model — ELI's avatar moving through cognitive "rooms" as it reasons. |
-| 🔬 **Labs** | A scientific workspace: notebooks, Jupyter launcher, calculator with constants, physics tables, **Report Builder**, **File Chat**, workspaces, Sim-IDE. |
-| 📂 **Files** | Browse and act on files. |
-| ⚙️ **Settings** | Models, agents, plugins, self-upgrade, and the **🧠 Cognition** tuning panel. |
+| ⚙️ **Settings** | 5 sub-tabs: Agents, Models, Cognition, Plugins, Self-Upgrade. |
 
 ---
 
@@ -245,3 +261,11 @@ separate from this capability showcase): `complete_findings.md`,
   only, no shortcomings — those live in `complete_findings.md`). Every capability
   is verified present in the code; no embellishment. Cross-checked against
   `capability_catalogue.md`.
+- **Revised (same day):** Report Builder promoted to a main tab (12 main tabs;
+  Labs now 8 sub-tabs); Files tab gained a Convert-document control (lualatex/pdf/
+  doc/docx/odt/rtf/html/md/tex/epub/txt). Chat "generate a document" now runs the
+  multi-stage grounded pipeline (`runtime/report_pipeline.py`: evidence → plan →
+  sections → review→revise) with a confidence-driven deeper-tier re-gather. The
+  autonomy/self-awareness tick now actually runs (proactive daemon, governed).
+  Self-awareness queries gather-then-summarise (no data dumps). Tab table corrected
+  to the real main tabs.
