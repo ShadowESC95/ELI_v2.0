@@ -471,12 +471,95 @@ def _audit_python_file(path: Path) -> Dict[str, Any]:
         entry['status'] = 'FAIL'
     return entry
 
+def _runtime_health_probes() -> List[Dict[str, Any]]:
+    """LIVE health checks a static source audit cannot catch: actually EXERCISE
+    key subsystems and check DATA INTEGRITY, so real runtime faults surface in an
+    audit (a method-level NameError, malformed data, recurring logged failures)
+    instead of only appearing once at use time. Each probe: {name, ok, detail}."""
+    probes: List[Dict[str, Any]] = []
+
+    def _probe(name, fn):
+        try:
+            ok, detail = fn()
+            probes.append({"name": name, "ok": bool(ok), "detail": str(detail)})
+        except Exception as e:
+            probes.append({"name": name, "ok": False, "detail": f"{type(e).__name__}: {e}"})
+
+    def _db_path():
+        from eli.memory import get_memory
+        return getattr(get_memory(), "db_path", None)
+
+    # Plugin manager — instantiate + list (catches the method-level NameError class
+    # that import/syntax audits miss: the module imports fine, the fault is at call).
+    def _plugins():
+        from eli.plugins.manager import get_manager
+        return True, f"OK — {len(get_manager().list_installed())} plugin(s) installed"
+    _probe("plugin_manager", _plugins)
+
+    # Memory — singleton resolves + db file present.
+    def _mem():
+        from pathlib import Path as _P
+        dbp = _db_path()
+        return (bool(dbp and _P(dbp).exists()),
+                f"db={_P(dbp).name}" if dbp else "no db path")
+    _probe("memory", _mem)
+
+    # Agent bus — registry imports + has agents.
+    def _bus():
+        from eli.cognition.agent_bus import _ALL_AGENTS
+        return bool(_ALL_AGENTS), f"{len(_ALL_AGENTS)} agents registered"
+    _probe("agent_bus", _bus)
+
+    # Habit-rule integrity — flag the un-schedulable corruption class.
+    def _habits():
+        import sqlite3 as _s
+        dbp = _db_path()
+        if not dbp:
+            return True, "no db"
+        c = _s.connect(str(dbp))
+        try:
+            bad = c.execute(
+                "SELECT COUNT(*) FROM habit_rules WHERE enabled=1 AND (hour IS NULL "
+                "OR minute IS NULL OR TRIM(LOWER(command))=TRIM(LOWER(name)))").fetchone()[0]
+            tot = c.execute("SELECT COUNT(*) FROM habit_rules WHERE enabled=1").fetchone()[0]
+        finally:
+            c.close()
+        if bad:
+            return False, f"{bad} of {tot} enabled habit rule(s) un-schedulable (NULL time / bare-token command)"
+        return True, f"{tot} enabled habit rule(s), all schedulable"
+    _probe("habit_integrity", _habits)
+
+    # Recent OPEN failures — surface what the failure log already recorded so the
+    # audit reflects live problems, not just static source state.
+    def _failures():
+        import sqlite3 as _s
+        dbp = _db_path()
+        if not dbp:
+            return True, "no db"
+        c = _s.connect(str(dbp))
+        try:
+            rows = c.execute(
+                "SELECT COALESCE(error, user_input, ''), COALESCE(occurrence_count, 1) "
+                "FROM failures WHERE COALESCE(status,'open')='open' "
+                "ORDER BY COALESCE(last_seen, ts, rowid) DESC LIMIT 5").fetchall()
+        finally:
+            c.close()
+        if not rows:
+            return True, "no open failures logged"
+        summary = "; ".join(f"{(r[0] or '')[:70]} (×{r[1]})" for r in rows)
+        return False, f"{len(rows)} recent open failure(s): {summary}"
+    _probe("recent_failures", _failures)
+
+    return probes
+
+
 def _runtime_audit_report() -> Dict[str, Any]:
     files = _canonical_runtime_file_map()
     entries = []
     for key in ['cognitive_engine', 'gguf_inference', 'memory', 'memory_init', 'router', 'executor', 'gui', 'runtime_settings', 'paths', 'proactive_daemon']:
         entries.append(_audit_python_file(files[key]))
-    return {'ok': True, 'entries': entries}
+    probes = _runtime_health_probes()
+    return {'ok': True, 'entries': entries, 'health_probes': probes}
 
 def _format_runtime_audit(report: Dict[str, Any]) -> str:
     lines = []
@@ -486,6 +569,13 @@ def _format_runtime_audit(report: Dict[str, Any]) -> str:
             line_no = int(issue.get('line', 0) or 0)
             prefix = f"  - line {line_no}" if line_no else '  - line ?'
             lines.append(f"{prefix} [{issue.get('type')}] {issue.get('message')}")
+    probes = report.get('health_probes') or []
+    if probes:
+        lines.append("")
+        lines.append("Live health probes:")
+        for p in probes:
+            mark = "✅" if p.get("ok") else "❌"
+            lines.append(f"  {mark} {p.get('name')}: {p.get('detail')}")
     return '\n'.join(lines) if lines else 'No runtime files audited.'
 
 def _gpu_status_report() -> Dict[str, Any]:

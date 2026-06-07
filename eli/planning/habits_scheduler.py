@@ -5,6 +5,7 @@ Habit scheduler – runs in background and executes habit rules at the correct t
 import time
 import threading
 import json
+import re
 import sqlite3  # added to catch OperationalError
 from datetime import datetime, timedelta
 from typing import List, Dict
@@ -29,6 +30,7 @@ class HabitScheduler:
         except Exception as e:
             log.debug(f"[SCHEDULER] habit self-heal skipped: {e}")
         self.running = True
+        self._fired_keys: set = set()  # (rule_id, YYYYMMDDHHMM) — fire once per minute
         self.thread = threading.Thread(target=self._run_loop, daemon=True)
         self.thread.start()
 
@@ -60,8 +62,19 @@ class HabitScheduler:
                     if days is not None:
                         if now.weekday() not in days:
                             continue
+                    # Fire ONCE per scheduled minute — the loop ticks every 30s,
+                    # so without this an active habit would launch twice.
+                    _key = (rule.get('id'), now.strftime("%Y%m%d%H%M"))
+                    if _key in self._fired_keys:
+                        continue
+                    self._fired_keys.add(_key)
                     # Execute the command
                     self._execute_rule(rule)
+
+            # Keep the dedupe set small (drop entries older than this minute).
+            if len(self._fired_keys) > 256:
+                _stamp = now.strftime("%Y%m%d%H%M")
+                self._fired_keys = {k for k in self._fired_keys if k[1] == _stamp}
 
             time.sleep(30)  # check every 30 seconds
 
@@ -73,16 +86,18 @@ class HabitScheduler:
             log.debug(f"[SCHEDULER] Skipping malformed rule (missing command): {rule!r}")
             return
 
-        # Defense-in-depth: refuse to fire auto-corrupt rules whose command is a
-        # bare action/capability token equal to the rule name (e.g. GET_WEATHER,
-        # NEWS_FETCH, GENERATE_SCRIPT). Those are NOT learned time-routines — feeding
-        # the token to engine.process() makes the router fall to fallback.chat and the
-        # model role-plays/fabricates the action. Genuine learned rules are named
-        # "Open <app> at HH:MM" (name != command). See memory.log_habit_event note.
-        _name = str(rule.get("name") or "").strip()
-        if command is not None and str(command).strip() == _name and _name:
-            log.debug(f"[SCHEDULER] Skipping non-schedulable token rule '{_name}' "
-                      f"(command == name; not a learned routine)")
+        # Defense-in-depth: refuse to fire corrupt rules whose command is a bare
+        # ACTION/CAPABILITY token (e.g. GET_WEATHER, NEWS_FETCH, GENERATE_SCRIPT).
+        # Feeding such a token to engine.process() makes the router fall to
+        # fallback.chat and the model role-plays/fabricates the action.
+        # IMPORTANT: this must NOT block a legitimate "launch app" habit where the
+        # user named it after the app (name "firefox", command "firefox"). So only
+        # skip when the command is an ALL-CAPS action token — a plain app name or
+        # natural phrase is a real routine and must run.
+        _cmd = str(command).strip()
+        if _cmd and re.fullmatch(r"[A-Z][A-Z0-9_]{2,}", _cmd):
+            log.debug(f"[SCHEDULER] Skipping bare ACTION-token rule "
+                      f"'{rule.get('name','?')}' (command={_cmd!r} is not a routine)")
             return
 
         log.debug(f"[SCHEDULER] Executing habit '{rule.get('name', '?')}': {command}")
