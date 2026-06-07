@@ -4500,127 +4500,15 @@ def _eli_self_description_block(limit: int = 2600) -> str:
     return ""
 
 
-def _gather_generation_evidence(topic: str, raw: str = "",
-                                session_id: str = "", user_id: str = "") -> "tuple[str, list]":
-    """Evidence-routing for a generation task (document/script): run the agents
-    that actually gather the RIGHT evidence for the subject, and return
-    (evidence_text, sources). This is the DAG/plan principle applied to
-    generation — the output is grounded in real findings, never the model's
-    generic priors:
 
-      • code / self / "upgrades"  → the self-improvement engine (real failures +
-        pending proposals), a file_code repo scan, and the architecture blueprint.
-      • external factual topic     → a net-gated WEB_SEARCH.
-      • personal / "my …" topic    → targeted memory recall.
 
-    General across all topics; channels combine; every channel is best-effort,
-    bounded, and exception-isolated. Returns ("", []) when nothing is available
-    (the caller then tells the model to stay honest rather than invent).
-    """
-    import re as _re
-    text = f"{topic} {raw}".strip()
-    low = text.lower()
-    blocks: list = []
-    sources: list = []
-
-    self_code = bool(_re.search(
-        r"\b(yourself|your own|your self|\beli\b|upgrade|improve|refactor|optimi[sz]e|"
-        r"your (?:code|architecture|capabilit\w*|design|system|runtime|brain|agents?|memory))\b",
-        low))
-    code_topic = self_code or bool(_re.search(
-        r"\b(code|codebase|module|function|class|repo|repository|pipeline|agent|"
-        r"router|executor|gguf|inference|architecture|subsystem)\b", low))
-    try:
-        from eli.runtime.grounding_escalation import classify_factual
-        _is_fact, _domain = classify_factual(text)
-    except Exception:
-        _is_fact, _domain = False, "none"
-    personal = bool(_re.search(r"\b(my|mine|our|i|me|we)\b", low)) or _domain == "local"
-    # A document/script topic that is neither about ELI's own code nor personal is
-    # an external-world subject → attempt a web lookup. WEB_SEARCH self-gates on the
-    # Net toggle (no-ops offline), so this is safe to always try for such topics.
-    external = (not self_code) and (not code_topic) and (not personal)
-
-    # 1) CODE / SELF — analyse ELI's ACTUAL code + improvement signals + blueprint.
-    if code_topic:
-        try:
-            from eli.runtime.self_improvement import get_self_improvement
-            fails = get_self_improvement().analyze_failures(limit=8, days=21, min_cluster_size=1) or []
-            fl = []
-            for f in fails[:8]:
-                if isinstance(f, dict):
-                    s = str(f.get("summary") or f.get("pattern") or f.get("user_input")
-                            or f.get("error") or "").strip()
-                    if s:
-                        fl.append("  - " + s[:200])
-            if fl:
-                blocks.append("ELI's recent failure / improvement signals (self-improvement engine):\n"
-                              + "\n".join(fl))
-                sources.append("self_improvement.analyze_failures")
-        except Exception:
-            pass
-        try:
-            from eli.memory import get_memory as _gm
-            props = _gm().get_pending_proposals(limit=6) or []
-            pl = [f"  - {str((p or {}).get('title') or (p or {}).get('description') or p)[:180]}"
-                  for p in props]
-            if pl:
-                blocks.append("Pending self-improvement proposals on record:\n" + "\n".join(pl))
-                sources.append("memory.pending_proposals")
-        except Exception:
-            pass
-        try:
-            from eli.cognition.agent_bus import FileCodeAgent
-            # Ensure the repo scanner actually engages: a bare "upgrades for ELI"
-            # topic has no code terms, so its relevance gate would skip. Augment
-            # the scan query with ELI's core subsystem names so it returns real
-            # source from the live codebase (the "actually analyse files" step).
-            _fc_query = text
-            if not _re.search(r"\b(code|module|function|class|agent|router|executor|"
-                              r"memory|pipeline|gguf|inference|orchestrator)\b", low):
-                _fc_query = (text + " agent_bus router executor memory orchestrator "
-                             "reasoning modes gguf inference pipeline")
-            r = FileCodeAgent().run(_fc_query, {"action": "CHAT"}, session_id, user_id)
-            snips = ((getattr(r, "data", None) or {}).get("snippets")) or []
-            if snips:
-                blocks.append("Source-code evidence from a live repo scan (file:line: content):\n"
-                              + "\n".join(str(s) for s in snips[:12]))
-                sources.append("file_code.repo_scan")
-        except Exception:
-            pass
-        _arch = _eli_self_description_block(1800)
-        if _arch:
-            blocks.append("ELI architecture (blueprints/what_eli_is.md):\n" + _arch)
-            sources.append("blueprints/what_eli_is.md")
-
-    # 2) WEB — external factual topic (net-gated inside WEB_SEARCH).
-    if external:
-        try:
-            res = _execute_impl("WEB_SEARCH", {"query": topic})
-            if isinstance(res, dict) and res.get("web_grounded") and res.get("results"):
-                blocks.append(str(res.get("content") or "").strip())
-                sources.append("web_search")
-        except Exception:
-            pass
-
-    # 3) MEMORY — personal / user-history topic.
-    if personal:
-        try:
-            from eli.memory import get_memory as _gm
-            hits = _gm().recall_memory(topic, limit=8) or []
-            ml = []
-            for h in hits[:8]:
-                t = h.get("text") if isinstance(h, dict) else str(h)
-                if t and str(t).strip():
-                    ml.append("  - " + str(t).strip()[:200])
-            if ml:
-                blocks.append("Relevant stored memories:\n" + "\n".join(ml))
-                sources.append("memory.recall")
-        except Exception:
-            pass
-
-    evidence = "\n\n".join(b for b in blocks if b and b.strip()).strip()[:4500]
-    return evidence, sources
+# Generative actions that must be grounded in gathered evidence before synthesis
+# (the evidence-routing hook at the top of _execute_impl). Status/grounded-audit
+# actions already gather via the bus's specialist agent sets, so they are not here.
+_GENERATIVE_EVIDENCE_ACTIONS = {
+    "GENERATE_DOCUMENT", "CREATE_DOCUMENT", "DOC_GENERATE", "DATA_FABRICATOR",
+    "GENERATE_SCRIPT", "CREATE_SCRIPT", "WRITE_SCRIPT", "GENERATE_PROJECT",
+}
 
 
 # ----------------------------
@@ -4649,6 +4537,41 @@ def _execute_impl(action: str, args: Optional[Dict[str, Any]] = None) -> Dict[st
         "WEEKLY_REPORT": "MORNING_REPORT",
     }
     a = _ACTION_ALIASES.get(a, a)
+
+    # ── Evidence-routing for generative tasks (the DAG/plan principle) ─────────
+    # Before ELI generates a document/script/project, INTUIT and gather the right
+    # evidence (real code analysis, web, memory, runtime — the same agents the bus
+    # uses) and attach it so the generator synthesises from real findings, not
+    # generic priors. One uniform mechanism for every generative action and every
+    # reasoning mode. Idempotent (gated on _evidence absent) so the GENERATE_*→
+    # CREATE_* recursion and bus/direct double-dispatch each gather only once; the
+    # gatherer's own WEB_SEARCH/RUNTIME_STATUS sub-calls aren't in this set, so
+    # there is no recursion. See eli/runtime/evidence_planner.py.
+    if a in _GENERATIVE_EVIDENCE_ACTIONS and args.get("_evidence") is None:
+        try:
+            from eli.runtime.evidence_planner import plan_and_gather as _pag
+            _ev_q = str(args.get("topic") or args.get("description") or args.get("query")
+                        or args.get("text") or args.get("prompt")
+                        or args.get("_raw_user_text") or "").strip()
+            _ev_mode = "quick"
+            try:
+                import eli.kernel.engine as _eng_mod
+                _eng = getattr(_eng_mod, "_engine", None)  # read singleton; never construct
+                if _eng is not None:
+                    _ev_mode = str(getattr(_eng, "_reasoning_mode", "quick") or "quick")
+                else:
+                    from eli.core.runtime_settings import load_settings as _ls
+                    _ev_mode = str((_ls() or {}).get("reasoning_mode", "quick") or "quick")
+            except Exception:
+                _ev_mode = "quick"
+            args["_evidence"], args["_evidence_sources"] = _pag(
+                a, _ev_q, _ev_mode,
+                session_id=str(args.get("session_id") or ""),
+                user_id=str(args.get("user_id") or ""))
+        except Exception as _ev_err:
+            log.debug(f"[EVIDENCE] injection failed for {a}: {_ev_err}")
+            args.setdefault("_evidence", "")
+            args.setdefault("_evidence_sources", [])
 
     if a == "CHAT":
         msg = args.get("message") or args.get("prompt") or args.get("text") or ""
@@ -5711,19 +5634,21 @@ def _execute_impl(action: str, args: Optional[Dict[str, Any]] = None) -> Dict[st
             msg = "Missing topic for document generation"
             return {"ok": False, "action": a, "error": msg, "content": msg, "response": msg}
 
-        # Generation must be GROUNDED in real evidence appropriate to the subject,
-        # not the model's generic priors (user-reported: a doc "with proposals for
-        # upgrades for yourself" came back as human productivity advice because no
-        # agents ran to gather evidence). Run the evidence-routing step — code/file
-        # analysis for a code/self topic, a web lookup for an external fact, memory
-        # recall for a personal one. General across all topics; see
-        # _gather_generation_evidence.
-        _raw_doc_text = str(args.get("_raw_user_text") or args.get("raw") or "")
-        _doc_evidence, _doc_sources = _gather_generation_evidence(
-            topic, _raw_doc_text,
-            session_id=str(args.get("session_id") or ""),
-            user_id=str(args.get("user_id") or ""),
-        )
+        # Consume the evidence gathered by the central evidence-routing hook
+        # (evidence_planner). If this handler was called directly without it (a
+        # non-engine caller / test), gather on the fly as a fallback.
+        _doc_evidence = str(args.get("_evidence") or "")
+        _doc_sources = list(args.get("_evidence_sources") or [])
+        if args.get("_evidence") is None:
+            try:
+                from eli.runtime.evidence_planner import plan_and_gather as _pag
+                _doc_evidence, _doc_sources = _pag(
+                    "CREATE_DOCUMENT",
+                    str(args.get("_raw_user_text") or args.get("raw") or topic),
+                    session_id=str(args.get("session_id") or ""),
+                    user_id=str(args.get("user_id") or ""))
+            except Exception:
+                _doc_evidence, _doc_sources = "", []
 
         fmt = (args.get("format") or "md").lower().strip()
         import os as _os
@@ -7671,6 +7596,15 @@ def _execute_impl(action: str, args: Optional[Dict[str, Any]] = None) -> Dict[st
         if not desc:
             msg = "Missing description for GENERATE_SCRIPT"
             return {"ok": False, "action": a, "error": msg, "content": msg, "response": msg}
+        # Ground the script in evidence gathered by the central evidence-routing
+        # hook (e.g. real ELI source for a "script to test ELI's memory", web docs
+        # for an external API). Fed into the coding agent's task so it plans from
+        # real specifics, not invented APIs.
+        _scr_evidence = str(args.get("_evidence") or "")
+        if _scr_evidence:
+            desc = (desc + "\n\n[Grounding evidence gathered by ELI's agents — build on "
+                    "these real specifics; do not invent APIs, files, or behaviour:]\n"
+                    + _scr_evidence)
         _bg = _maybe_background_codegen(a, args)
         if _bg is not None:
             return _bg
