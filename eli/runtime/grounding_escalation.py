@@ -47,6 +47,48 @@ def _grounding_threshold() -> float:
 
 
 # --------------------------------------------------------------------------- #
+# Stage 2: per-mode confidence targets + iterative deepening budget.           #
+# Quick stays fast (0 deepen iters); deeper modes try harder and escalate the  #
+# reasoning mode one tier per iteration to gather more before answering.       #
+# --------------------------------------------------------------------------- #
+_MODE_TARGET = {
+    "quick": 0.45, "chain_of_thought": 0.55, "self_consistency": 0.65,
+    "tree_of_thoughts": 0.75, "constitutional_ai": 0.80,
+}
+_MODE_MAX_ITERS = {
+    "quick": 0, "chain_of_thought": 1, "self_consistency": 2,
+    "tree_of_thoughts": 3, "constitutional_ai": 4,
+}
+_MODE_ORDER = ["quick", "chain_of_thought", "self_consistency",
+               "tree_of_thoughts", "constitutional_ai"]
+
+
+def _canon_mode(mode) -> str:
+    try:
+        from eli.cognition.reasoning_modes import canonical_mode
+        return canonical_mode(mode)
+    except Exception:
+        return str(mode or "quick").strip().lower() or "quick"
+
+
+def _mode_target(mode) -> float:
+    return float(_MODE_TARGET.get(_canon_mode(mode), _grounding_threshold()))
+
+
+def _mode_max_iters(mode) -> int:
+    return int(_MODE_MAX_ITERS.get(_canon_mode(mode), 1))
+
+
+def _next_mode(mode) -> str:
+    key = _canon_mode(mode)
+    try:
+        i = _MODE_ORDER.index(key)
+        return _MODE_ORDER[min(i + 1, len(_MODE_ORDER) - 1)]
+    except ValueError:
+        return key
+
+
+# --------------------------------------------------------------------------- #
 # Is this a checkable fact, and what domain?                                  #
 # --------------------------------------------------------------------------- #
 _BANTER_RE = re.compile(
@@ -208,12 +250,19 @@ def escalate(
         grounding = float(getattr(bus_result, "grounding_confidence", 0.0) or 0.0)
     except Exception:
         grounding = 0.0
-    if grounding >= _grounding_threshold():
-        return None  # already grounded enough — trust it
+    target = _mode_target(reasoning_mode)
+    if grounding >= target:
+        return None  # already grounded enough for this mode — trust it
 
     is_fact, domain = classify_factual(user_input)
     if not is_fact:
         return None  # banter/opinion/command/chitchat — never escalate
+
+    # Quick mode stays fast — no iterative deepening (0 iters). Deeper modes try
+    # harder. (The web/hedge tiers below still apply to non-quick modes.)
+    max_iters = _mode_max_iters(reasoning_mode)
+    if max_iters <= 0:
+        return None
 
     try:
         from eli.core.config import network_allowed
@@ -244,19 +293,40 @@ def escalate(
                 continue
 
             if tier == "local_deepen":
-                deep = _redispatch_broad(engine, user_input, intent)
-                if deep is not None:
+                # Iterative deepening: re-dispatch the bus broadly, escalating the
+                # reasoning mode one tier per iteration (so each pass gets a bigger
+                # agent time budget — Stage 1b), until grounding crosses this mode's
+                # target or the per-mode iteration budget is spent. Stop early on
+                # no improvement. Quick is already excluded (max_iters=0).
+                best_deep = None
+                best_dg = grounding
+                cur_mode = _canon_mode(reasoning_mode)
+                for _i in range(max_iters):
+                    cur_mode = _next_mode(cur_mode)  # quick→normal→advanced→research→expert
+                    deep = _redispatch_broad(engine, user_input, intent,
+                                             reasoning_mode=cur_mode)
+                    if deep is None:
+                        break
                     dg = float(getattr(deep, "grounding_confidence", 0.0) or 0.0)
-                    if dg >= _grounding_threshold():
-                        evidence = (deep.to_context_block()
-                                    if hasattr(deep, "to_context_block") else "")
-                        if evidence.strip():
-                            answer = engine._synthesize_answer(
-                                evidence, user_input, reasoning_mode=reasoning_mode,
-                                action="SELF_REPORT")
-                            if answer and not _is_degenerate(answer):
-                                return _result(answer, grounded=True,
-                                               mode="escalation_local", trace=trace)
+                    log.debug(f"[ESCALATION] deepen iter={_i + 1}/{max_iters} "
+                              f"mode={cur_mode} grounding={dg:.2f} target={target:.2f}")
+                    if dg > best_dg:
+                        best_dg, best_deep = dg, deep
+                    if dg >= target:
+                        break
+                    # no-improvement break: another pass won't help
+                    if dg <= grounding:
+                        break
+                if best_deep is not None and best_dg >= target:
+                    evidence = (best_deep.to_context_block()
+                                if hasattr(best_deep, "to_context_block") else "")
+                    if evidence.strip():
+                        answer = engine._synthesize_answer(
+                            evidence, user_input, reasoning_mode=cur_mode,
+                            action="SELF_REPORT")
+                        if answer and not _is_degenerate(answer):
+                            return _result(answer, grounded=True,
+                                           mode="escalation_local", trace=trace)
                 continue
 
             if tier == "hedge":
@@ -268,8 +338,10 @@ def escalate(
     return None
 
 
-def _redispatch_broad(engine: Any, user_input: str, intent: Dict[str, Any]):
-    """Re-run the AgentBus forcing a broad fan-out (local tier)."""
+def _redispatch_broad(engine: Any, user_input: str, intent: Dict[str, Any],
+                      reasoning_mode: Optional[str] = None):
+    """Re-run the AgentBus forcing a broad fan-out (local tier), at the given
+    reasoning mode so the deeper pass gets that mode's larger agent time budget."""
     try:
         from eli.cognition.agent_bus import get_bus
         _intent = dict(intent or {})
@@ -280,6 +352,7 @@ def _redispatch_broad(engine: Any, user_input: str, intent: Dict[str, Any]):
             user_input, _intent,
             session_id=getattr(engine, "session_id", ""),
             user_id=getattr(engine, "user_id", ""),
+            reasoning_mode=reasoning_mode,
         )
     except Exception as e:
         log.debug(f"[ESCALATION] broad re-dispatch failed: {e}")
