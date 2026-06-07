@@ -4588,6 +4588,22 @@ class _WorkspacesTab(QWidget):
         active_row.addWidget(clear_active_btn)
         rv.addLayout(active_row)
 
+        self._ws_state_label = QLabel("Last state: —")
+        self._ws_state_label.setStyleSheet("color:#81a1c1;")
+        rv.addWidget(self._ws_state_label)
+        resume_row = QHBoxLayout()
+        save_state_btn = QPushButton("📸 Save State")
+        save_state_btn.setToolTip("Snapshot the current view (active tab) so Resume can restore it.")
+        save_state_btn.clicked.connect(self._save_state)
+        resume_row.addWidget(save_state_btn)
+        resume_btn = QPushButton("▶ Resume Project")
+        resume_btn.setStyleSheet("background:#5e81ac;color:white;font-weight:bold;padding:6px;")
+        resume_btn.setToolTip("Re-open the project's files/folders, restore the saved tab, "
+                              "set it active, and relaunch its apps.")
+        resume_btn.clicked.connect(self._resume)
+        resume_row.addWidget(resume_btn)
+        rv.addLayout(resume_row)
+
         self._activate_log = QTextEdit()
         self._activate_log.setReadOnly(True)
         self._activate_log.setMaximumHeight(100)
@@ -4621,6 +4637,7 @@ class _WorkspacesTab(QWidget):
         tag = self._ws_memtag.text().strip() or f"project.{name.lower().replace(' ', '_')}"
         self._ws_mem_label.setText(f"Project memories: {len(self._project_memories(tag))}")
         self._refresh_active_label(name)
+        self._show_state(ws)
 
     def _project_memories(self, tag: str):
         try:
@@ -4663,6 +4680,68 @@ class _WorkspacesTab(QWidget):
             pass
         item = self._ws_list.currentItem()
         self._refresh_active_label(item.text() if item else "")
+
+    # ── Phase 4: last-state save / resume ────────────────────────────────────
+    def _main_tabs(self):
+        """The main window's QTabWidget (for capturing/restoring the active tab)."""
+        try:
+            return getattr(self.window(), "tabs", None)
+        except Exception:
+            return None
+
+    def _save_state(self):
+        item = self._ws_list.currentItem()
+        if not item:
+            return
+        name = item.text()
+        tabs = self._main_tabs()
+        active_tab = ""
+        try:
+            if tabs is not None:
+                active_tab = tabs.tabText(tabs.currentIndex())
+        except Exception:
+            active_tab = ""
+        rec = self._workspaces.get(name, {})
+        rec["last_state"] = {"active_tab": active_tab, "saved_at": datetime.now().isoformat()}
+        self._workspaces[name] = rec
+        self._save()
+        self._show_state(rec)
+        self._activate_log.append(f"Saved state for '{name}' (tab: {active_tab or '—'}).")
+
+    def _show_state(self, rec: Dict):
+        ls = (rec or {}).get("last_state") or {}
+        if ls:
+            when = str(ls.get("saved_at", ""))[:16].replace("T", " ")
+            self._ws_state_label.setText(f"Last state: tab={ls.get('active_tab') or '—'}  ·  saved {when}")
+        else:
+            self._ws_state_label.setText("Last state: — (none saved)")
+
+    def _resume(self):
+        item = self._ws_list.currentItem()
+        if not item:
+            return
+        name = item.text()
+        self._activate_log.clear()
+        self._activate_log.append(f"Resuming project '{name}'…\n")
+        # 1) re-open files/folders
+        self._open_project()
+        # 2) make it the active project (resuming = working in it)
+        self._set_active()
+        # 3) restore the saved GUI tab
+        rec = self._workspaces.get(name, {})
+        tabname = ((rec.get("last_state") or {}).get("active_tab") or "").strip()
+        tabs = self._main_tabs()
+        if tabs is not None and tabname:
+            for i in range(tabs.count()):
+                try:
+                    if tabs.tabText(i) == tabname:
+                        tabs.setCurrentIndex(i)
+                        self._activate_log.append(f"  ✓ restored tab: {tabname}")
+                        break
+                except Exception:
+                    pass
+        # 4) relaunch its apps (commands) — _activate has its own confirm gate
+        self._activate()
 
     def _owned_tasks(self, name: str):
         try:
@@ -4735,6 +4814,7 @@ class _WorkspacesTab(QWidget):
         if not item:
             return
         name = item.text()
+        prev = self._workspaces.get(name, {})
         self._workspaces[name] = {
             "description": self._ws_desc.text(),
             "paths": [p for p in self._ws_paths.toPlainText().splitlines() if p.strip()],
@@ -4743,6 +4823,8 @@ class _WorkspacesTab(QWidget):
             "notes": self._ws_notes.toPlainText(),
             "last_saved": datetime.now().isoformat(),
         }
+        if prev.get("last_state"):  # Phase 4: don't lose a saved resume-state on edit
+            self._workspaces[name]["last_state"] = prev["last_state"]
         self._save()
 
     def _activate(self):
