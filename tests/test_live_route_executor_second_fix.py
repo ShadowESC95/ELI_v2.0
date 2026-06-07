@@ -25,6 +25,9 @@ def test_memory_internals_do_not_become_search_chat():
     assert r["action"] in {"EXPLAIN_MEMORY_RUNTIME", "PERSONAL_MEMORY_DEEP_EXPLAIN"}
 
 def test_reasoning_status_override_label():
+    # The internal key 'tree_of_thoughts' surfaces under its user-facing name
+    # 'Research' after the reasoning-mode rename (quick/normal/advanced/research/
+    # expert). Assert the displayed label, not the internal key.
     from eli.runtime.reasoning_status import current_reasoning_mode_text
     s = current_reasoning_mode_text(override="tree_of_thoughts")
-    assert "Tree of Thoughts" in s
+    assert "Research" in s
