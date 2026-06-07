@@ -4234,6 +4234,13 @@ def _eli_self_improvement_phrase_guard(text):
         return _mk("RUN_TESTS", {}, 0.96, matched_by="tests.run.guard")
     if re.search(r"\bself[\s_-]?test\b|\brun\s+(a\s+)?self[\s_-]?test\b", low):
         return _mk("SELF_TEST", {}, 0.96, matched_by="self.test.guard")
+    if re.search(r"\blora\s+status\b|\b(lora|training)\s+(status|readiness|ready)\b|"
+                 r"\bis\s+lora\s+ready\b|\bcheck\s+(the\s+)?lora\b|"
+                 r"\bcan\s+you\s+(fine[- ]?tune|train)\b", low):
+        return _mk("LORA_STATUS", {}, 0.95, matched_by="lora.status.guard")
+    if re.search(r"\b(train|run|start)\s+(a\s+|the\s+)?lora\b|\blora\s+train(ing)?\b|"
+                 r"\bfine[- ]?tune\b|\btrain\s+(an?\s+)?adapter\b", low):
+        return _mk("LORA_TRAIN", {}, 0.95, matched_by="lora.train.guard")
     if re.search(r"\banaly[sz]e\s+(your(self)?|its?\s+own)\s+"
                  r"(failures?|errors?|mistakes|performance|metrics)\b", low):
         return _mk("SELF_ANALYZE", {}, 0.96, matched_by="self.analyze.guard")

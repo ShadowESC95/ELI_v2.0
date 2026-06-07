@@ -2002,6 +2002,8 @@ SUPPORTED_ACTIONS = [
     'SELF_TEST',
     'RUN_TESTS',
     'GENERATE_TESTS',
+    'LORA_STATUS',
+    'LORA_TRAIN',
     'SELF_UPDATE',
     'SELF_UPGRADE',
     'SEQUENCE',
@@ -5959,6 +5961,44 @@ def _execute_impl(action: str, args: Optional[Dict[str, Any]] = None) -> Dict[st
             return {"ok": True, "action": a, "content": msg, "response": msg, "result": res}
         except Exception as e:
             msg = f"GENERATE_TESTS failed: {e}"
+            return {"ok": False, "action": a, "error": str(e), "content": msg, "response": msg}
+
+    # ---- LORA_STATUS — read-only LoRA training readiness (preflight) ----
+    if a == "LORA_STATUS":
+        try:
+            from eli.learning.training_preflight import preflight_all
+            pf = preflight_all()
+            lines = ["LoRA training readiness:"]
+            for rep in pf.get("reports", []):
+                probs = rep.get("problems") or []
+                lines.append(f"- {rep.get('target')}: "
+                             f"{'READY' if rep.get('can_train') else 'NOT READY'}"
+                             + (f" — {'; '.join(probs)}" if probs else ""))
+            msg = "\n".join(lines)
+            return {"ok": True, "action": a, "content": msg, "response": msg,
+                    "evidence_source": "lora_preflight", "result": pf}
+        except Exception as e:
+            msg = f"LORA_STATUS failed: {e}"
+            return {"ok": False, "action": a, "error": str(e), "content": msg, "response": msg}
+
+    # ---- LORA_TRAIN — run the LoRA pipeline DAG (DRY-RUN by default) ----
+    # From chat this is always a dry-run readiness pass (preflight→build→eval); real
+    # training (execute=True) only via the scheduled `lora` task / explicit GUI.
+    if a == "LORA_TRAIN":
+        try:
+            from eli.learning.lora_pipeline import run_pipeline
+            target = str(args.get("target") or "eli_phi")
+            execute = bool(args.get("execute", False))
+            res = run_pipeline(target, execute=execute,
+                               max_steps=int(args.get("max_steps", 1) or 1))
+            detail = "\n".join(
+                f"- {s['stage']}: {'ok' if s['ok'] else 'FAILED'} — {s.get('detail')}"
+                for s in res.get("stages", []))
+            msg = (res.get("summary", "") + "\n" + detail).strip()
+            return {"ok": bool(res.get("ok")), "action": a, "content": msg,
+                    "response": msg, "evidence_source": "lora_pipeline", "result": res}
+        except Exception as e:
+            msg = f"LORA_TRAIN failed: {e}"
             return {"ok": False, "action": a, "error": str(e), "content": msg, "response": msg}
 
     if a == "SET_USER_NAME":
