@@ -123,7 +123,9 @@ def pytest_sessionfinish(session, exitstatus):
         if failures:
             out.append("\n## Failures\n")
             out += [f"- `{x}`" for x in failures[:200]]
-        rep_path = ROOT / "artifacts" / "test_report.md"
+        _adir = os.environ.get("ELI_ARTIFACTS_DIR")
+        _base = Path(_adir).expanduser() if _adir else (ROOT / "artifacts")
+        rep_path = _base / "test_report.md"
         rep_path.parent.mkdir(parents=True, exist_ok=True)
         rep_path.write_text("\n".join(out) + "\n", encoding="utf-8")
     except Exception:
