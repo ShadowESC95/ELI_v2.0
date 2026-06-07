@@ -346,7 +346,128 @@ The thinking layer: agents, orchestration, inference, persona, reasoning, govern
 
 ---
 
+# Part 4 — remaining packages (module catalogue)
+
+## `kernel/` (the engine + boot) — 13.5k LOC
+| Module | LOC | Role |
+|---|---|---|
+| `engine.py` | 12477 | `CognitiveEngine` — the conductor: persona, generation settings, the 5 `_run_*` reasoning passes, grounding overrides, synthesis prompt build + the context-bloat cap, fragment/placeholder guards, dispatch gate to bus vs orchestrator, startup loops (reflection/habit/scheduler/self-improve/proactive). |
+| `world_model.py` | 252 | Symbolic self-model: Identity/Runtime/Memory/Goal/Capability states + snapshot/merge. |
+| `state.py` | 330 | User/runtime state + profile (active user id, name, profile text). |
+| `self_upgrade.py` | 233 | Self-upgrade orchestrator (git pull, pip, rebuild FAISS/KG, manifest, system index). |
+| `scheduler.py` | 74 | Kernel thread-pool/timer scheduler (generic). |
+| `pipeline.py`, `task_bus.py` | ~180 | Pipeline step description; task bus. |
+
+## `core/` (paths, settings, hardware, safety) — 5.5k LOC
+| Module | LOC | Role |
+|---|---|---|
+| `runtime_settings.py` | 1024 | Canonical settings.json load/save, legacy-key migration, portable-path healing/sanitising. |
+| `hardware_profile.py` | 1002 | Auto-detect GPU/VRAM/RAM → fit ctx/gpu_layers/batch (KV-cache + compute-buffer reserve); model discovery; hardware authority enforcement. |
+| `paths.py` | 551 | Single-source-of-truth path resolution (data/config/cache/db/models/voices…). |
+| `startup_hardware_optimizer.py` | 518 | Boot-time hardware optimiser (GPU select, layer/ctx allocation, mode presets). |
+| `config.py` | 343 | Thin config shim over runtime_settings (canonical key mapping). |
+| `model_download.py` | 316 | Curated GGUF catalogue + VRAM-based recommend + download. |
+| `dag.py` | 223 | **Generic DAG engine** (Kahn topo-order, parallel layers, critical path) — shared by the agent bus + coding engine. |
+| `dynamic_runtime_budget.py` | 208 | Per-boot runtime budget derivation. |
+| `netguard.py` | 197 | **Offline-by-default** socket-level network gate (fail-closed) + `guarded_urlopen`/`http_get_json`. |
+| `memory_reset.py` | 201 | Factory-reset of memory/identity (scrub names, clear DBs, backup). |
+| `cognition_tunables.py` | 170 | User-tunable knowledge-gathering limits + synthesis cap registry (GUI-surfaced). |
+| `grounding.py` | 147 | `is_grounded_query` classifier. |
+| `crisis_guard.py` | 111 | STT-robust self-harm detector + persona steering directive. |
+| `portable_paths.py`, `db_paths.py`, `legacy_paths.py`, `first_run*.py`, `compatibility.py`, `architecture_contracts.py` | small | path helpers, first-run, compat, ownership map. |
+
+## `memory/` — 6.8k LOC
+| Module | LOC | Role |
+|---|---|---|
+| `memory.py` | 4286 | The `Memory` god-class (~50 methods): semantic store/recall, conversations, habits, failures/improvements, weight decay, KG bridge, `mark_failure_resolved`, `disable_invalid_habit_rules`. |
+| `knowledge_graph.py` | 564 | Entity/relation graph + multi-hop BFS (`related`) + `context_for_prompt` + extract-from-memory. |
+| `habits_memory_db.py` | 454 | Habit rules/events store + cheap embed/recall. |
+| `vector_store.py` | 411 | FAISS index (L2, 1/(1+dist) sim) + nomic embedder + keyword fallback + auto-rebuild. |
+| `system_index.py` | 238 | OS app/exe/dir index (the 7,843-executable launcher backing). |
+| `memory_truth.py`, `memory_adapter.py`, `memory_service.py`, `stores.py`, `sqlite_memory.py`, `populate_memories.py` | small | inspection/compat/session helpers. |
+
+## `perception/` — 5.5k LOC
+| Module | LOC | Role |
+|---|---|---|
+| `audio_stt.py` | 1492 | faster-whisper STT + VoiceGate (wake-word, debounce, incomplete-command wait), self-echo suppression, output ducking, per-user voice profile bias. |
+| `vision.py` | 692 | Local GGUF VL (Moondream fast / primary), hot-swap with text model, CPU-pinned CLIP, OCR. |
+| `tts_router.py` | 644 | Piper/espeak TTS, voice selection, unspeakable-fragment guard. |
+| `os_controller.py` | 573 | Screenshot/volume/keys/mouse/clipboard + `gaze_click`. |
+| `screen_locator.py` | 389 | OCR (tesseract) → locate a named UI element on screen. |
+| `gaze_engine.py` | 290 | MediaPipe face-gaze + calibration mapper + One-Euro smoothing → `latest_gaze.json` @10Hz. |
+| `local_whisper_stt.py`, `ambient_vision.py`, `analyze_{pdfs,image,mesh,csv}.py`, `log_rotation.py`, `voice_worker*.py` | ~1.2k | Whisper backend; ambient glances; file analysers; log rotation; voice workers. |
+
+## `planning/` (autonomy, habits, proactive) — 3.2k LOC
+| Module | LOC | Role |
+|---|---|---|
+| `proactive_daemon.py` | 1112 | Background 10-min loop: pattern/code analysis, habit detect+offer, morning report, error tracking. |
+| `autonomy_scheduler.py` | 212 | Policy-gated (observe/proposal/goal-driven) goal scheduler w/ cooldown + attention queue. |
+| `habits.py` | 300 | Habit detection (timestamp→HH:MM clustering), offer/pending state, disabled-by-default. |
+| `habits_scheduler.py` | 143 | Fires active habits at their time (self-heals legacy rows, once-per-minute dedupe). |
+| `goal_store.py`, `goal_models.py`, `goal_tick.py`, `operator_goal_actions.py` | ~400 | Mission goals (priority/cadence/risk/constraints/success-criteria) → governed proposals. |
+| `attention_queue.py`, `proposal_queue.py`, `proposal_*.py`, `jobqueue*.py`, `autonomy_controller.py`, `task_planner.py` | ~900 | Attention ranking; proposal queue/archive; job queue; safe autonomy ticks. |
+
+## `coding/` (the frontier coder) — 1.5k LOC
+| Module | LOC | Role |
+|---|---|---|
+| `agent.py` | 183 | `CodeAgent.solve` — composes the loop; broker-backed generator; full provenance. |
+| `bug_memory.py` | 340 | Bug classification + (signature→fix) long-term SQLite memory w/ fuzzy recall. |
+| `verification.py` | 228 | Gate ladder (syntax→exec→tests) + weighted scoring + test synthesis. |
+| `sandbox.py` | 204 | Bounded isolated execution (scrubbed env, CPU limit, timeout). |
+| `search.py` | 175 | UCB1 tree search over a temperature-ladder beam. |
+| `plan_graph.py` | 164 | Subtask DAG decompose + topological solve + compose. |
+| `planner.py`, `cost.py` | ~210 | Planner/implementer split; cost → foreground/background decision. |
+
+## `learning/` (real LoRA self-training) — 3.1k LOC
+| Module | LOC | Role |
+|---|---|---|
+| `lora_trainer.py` | 590 | Real torch/PEFT/transformers `Trainer` LoRA run. |
+| `lora_trainer_guard.py` | 561 | `TrainerTarget` plans + safety validation. |
+| `dataset_builder.py` | 528 | Build supervised dataset from logged turns/corrections (PII-redacted, deduped). |
+| `lora_eval.py` | 481 | Adapter eval suite. |
+| `bootstrap_phi3_base.py`, `base_model_resolver.py`, `dataset_filters.py`, `export_trainable_dataset.py`, `merge_reviewed_datasets.py`, `training_preflight.py` | ~1.4k | Trainable base download/resolve, quality gates, export/merge, preflight. |
+
+## `contracts/`, `integrations/`, `system/`, `utils/`, `cli/`
+| Module | LOC | Role |
+|---|---|---|
+| `contracts/runtime_status.py` | 471 | Canonical runtime-status evidence contract (detect question, build live evidence, validate/repair). |
+| `contracts/grounded_control.py` | 210 | Grounded-control synthesis guard (evidence-complete? suppress bad clarifications). |
+| `integrations/mpris/playerctl_backend.py` | 635 | MPRIS2/playerctl media backend (player resolve, transport, status). |
+| `integrations/ollama/client.py` | 334 | Optional Ollama backend client. |
+| `system/portable_app_control.py` | 338 | Cross-platform installed-app discovery + open/close/minimise. |
+| `utils/platform_compat.py` | 804 | Cross-platform layer (open url/file/app, volume, clipboard, notify, executables). |
+| `utils/log.py`, `cli/headless.py` | ~200 | Central logger; headless terminal REPL. |
+
+## `world/` (embodied self-model) — ~1.2k LOC
+| Module | LOC | Role |
+|---|---|---|
+| `agency/autonomy_engine.py` | 258 | Awareness vector (easing/decay) → avatar-room routing + symbolic-object creation during reasoning; provenance/snapshots/journal. |
+| `agency/{policy,goal_ecology,habit_engine,reflection_bridge,world_constitution}.py` | small | Permission classes; goal decay; default habits; reflection→world; world identity. |
+| `core/schemas.py`, `core/ontology.py` | ~160 | World state schemas (rooms/objects/events/actions/awareness); object templates. |
+| `renderers/pyside6/{world_scene,world_panel}.py` | ~495 | The PySide6 "Eli's World" tab (house/rooms/avatar/objects, live state). |
+| `avatar/*`, `persistence/*`, `world_event_bus.py`, `local_world_bridge.py` | ~700 | Avatar behaviour/locomotion/persona-map; journal/provenance/snapshots/storage; event bus + bridge. |
+
+## `gui/` (PySide6 desktop) — ~19k LOC
+| Module | LOC | Role |
+|---|---|---|
+| `eli_pro_audio_gui_MKI.py` | 10725 | Main window: 12 tabs + adapters (CentralMemory/LocalModel/Ollama/Executor bridges, the `_GUIEngineAdapter`), chat, drag-drop, reasoning-mode auto-select, all toggles. |
+| `labs_tab.py` | 5108 | Labs workspace: Notebook, Memory browser, Jupyter launcher, Calculator(+constants), Physics tables, **Report Builder** (evidence-grounded docs), File-Chat, Workspaces, Sim-IDE. |
+| `app.py` | 742 | Launcher / first-boot auto-tune / `main()`. |
+| `panels/startup.py` | 732 | First-boot wizard + model setup + hardware tuning dock. |
+| `panels/settings.py` | 672 | Advanced Settings (Agents/Models/**Cognition**/Plugins/Self-Upgrade). |
+| `docks/operator_console_dock.py` | 303 | Governed operator console (proposals/goals/policy/attention). |
+| `widgets/`, `tabs/`, `panels/agent_wizard.py`, `docks/proactive_dock.py`, `qt_compat.py` | ~1k | Ollama selector, experimental/world tabs, agent wizard, proactive dock, Qt shim. |
+
+## `plugins/` — 11 built-ins + manager
+| Module | Role |
+|---|---|
+| `manager.py` (553L) | Discover/install/enable/disable/execute; auto-load; builtin-stub gen; registry. |
+| `web`, `web_automation`, `weather`, `calendar`, `notes`, `pomodoro`, `smart_home`, `system_stats`, `media`, `tts`, `document_reader` | The 11 built-in plugins (see Part 1 §17). |
+| `base/base.py` | Plugin base class + action validation + loader. |
+
+---
+
 ## Update Advisory — 2026-06-07
-- Batches 1–3 done (action catalogue + `runtime/` (70) + `cognition/` (24) module catalogues). Next: remaining unread bodies, then the remaining
+- Batches 1–4 done — COMPLETE module-level catalogue of all packages (actions + runtime + cognition + kernel/core/memory/perception/planning/coding/learning/contracts/integrations/world/gui/plugins). Honest limit: the three giant single files (engine 12.5k, executor 13.3k, GUI 10.7k) are documented at structural + behavioural level, not literally line-by-line — that residue is the only part not fully internalised, then the remaining
   unread bodies (GUI, full `gguf_inference`, `persona_updater`, `profile_extractor`,
   the learning trainer internals, the world renderers, every plugin's logic).
