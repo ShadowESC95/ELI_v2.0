@@ -22,30 +22,42 @@ installs PyTorch + a **CUDA** llama-cpp-python, all packages from the **frozen l
 for a reproducible set, initialises the data dirs + SQLite databases, seeds an
 offline-by-default config, and **verifies the GPU build actually compiled in**):
 
+**Linux / macOS:**
 ```bash
 git clone https://github.com/ShadowESC95/ELI_MKXI_v2.0_PRO.git
 cd ELI_MKXI_v2.0_PRO
-bash install.sh           # one command; add --cpu-only or --latest if needed
-./eli.sh                  # launch (first run shows the setup wizard)
+bash install.sh                 # CUDA + frozen lock + GPU verify + DB init
+bash install.sh --install-cuda  # ALSO auto-installs the CUDA toolkit if missing
+./eli.sh                        # launch (first run shows the setup wizard)
+```
+
+**Windows** (double-click `install.bat`, or in PowerShell):
+```powershell
+.\install.bat                                  # CUDA + frozen lock + GPU verify
+.\install.bat /cuda                            # also auto-install CUDA toolkit (winget)
+powershell -ExecutionPolicy Bypass -File install.ps1 -InstallCuda
+.\eli.bat
+```
+
+**Android / Termux** (headless, CPU-only — no GUI/CUDA):
+```bash
+bash scripts/install_android.sh
+.venv/bin/python -m eli.core.model_download qwen2.5-3b   # small, CPU-friendly
+.venv/bin/python -m eli.cli.headless
 ```
 
 Then download a model when prompted, or:
-
 ```bash
-source .venv/bin/activate
 python -m eli.core.model_download --auto      # pick by detected VRAM
 python -m eli.core.model_download qwen2.5-7b  # ~4.7 GB (recommended, 8GB+ GPU)
 ```
 
-Flags: `--cpu-only` (no CUDA), `--latest` (version ranges instead of the frozen
-`requirements.lock.txt`), `--skip-torch`. If llama-cpp installs as CPU-only the
-installer prints the exact CUDA-rebuild command. The legacy
-`scripts/eli_one_click_setup.sh` (installs `~/.local/bin/eli`) still works:
-
-```bash
-bash scripts/eli_one_click_setup.sh
-eli
-```
+**Flags (Linux `--flag` / Windows `/flag`):** `--install-cuda` / `/cuda` (auto-install
+the CUDA toolkit + rebuild llama-cpp for users without it), `--cpu-only` / `/cpu`,
+`--latest` / `/latest` (version ranges instead of the frozen `requirements.lock.txt`),
+`--skip-torch`. **macOS uses Metal** (no CUDA). If a CPU-only llama-cpp slips in, the
+installer says so and (with the CUDA flag) fixes it automatically. Legacy
+`scripts/eli_one_click_setup.sh` (installs `~/.local/bin/eli`) still works.
 
 Equivalent startup entrypoint with optional logging, trace, setup, and asset
 restore flags:
