@@ -3744,12 +3744,37 @@ class Memory(metaclass=_MemoryMeta):
                     COALESCE(occurrence_count, 1) AS occurrence_count,
                     COALESCE(timestamp, ts, id) AS sort_ts
                 FROM failures
+                WHERE COALESCE(status, 'open') NOT IN ('resolved', 'closed')
                 ORDER BY sort_ts DESC
                 LIMIT ?
                 """,
                 (int(limit),),
             ).fetchall()
             return [{"user_input": r[0], "error": r[1], "command": r[2], "occurrence_count": r[3], "timestamp": r[4]} for r in rows]
+        finally:
+            conn.close()
+
+    def mark_failure_resolved(self, *, error_like: str = None, id: int = None) -> int:
+        """Mark logged failures resolved (preserved for history, hidden from the
+        live Self-Improve panel). Match by exact id or by an error LIKE pattern.
+        Returns the number of rows updated."""
+        conn = self._get_connection()
+        try:
+            if not _eli_table_exists(conn, "failures"):
+                return 0
+            if id is not None:
+                cur = conn.execute("UPDATE failures SET status='resolved' WHERE id=?", (int(id),))
+            elif error_like:
+                cur = conn.execute(
+                    "UPDATE failures SET status='resolved' "
+                    "WHERE COALESCE(status,'open') NOT IN ('resolved','closed') "
+                    "AND (error LIKE ? OR user_input LIKE ? OR command LIKE ?)",
+                    (error_like, error_like, error_like),
+                )
+            else:
+                return 0
+            conn.commit()
+            return int(cur.rowcount or 0)
         finally:
             conn.close()
 

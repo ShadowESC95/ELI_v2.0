@@ -529,25 +529,19 @@ def _runtime_health_probes() -> List[Dict[str, Any]]:
         return True, f"{tot} enabled habit rule(s), all schedulable"
     _probe("habit_integrity", _habits)
 
-    # Recent OPEN failures — surface what the failure log already recorded so the
-    # audit reflects live problems, not just static source state.
+    # Recent LIVE failures — surface what the failure log recorded so the audit
+    # reflects live problems, not just static source state. Reads the same
+    # canonical store the Self-Improve panel uses; resolved entries are filtered
+    # out by get_recent_failures, so the audit and the panel agree.
     def _failures():
-        import sqlite3 as _s
-        dbp = _db_path()
-        if not dbp:
-            return True, "no db"
-        c = _s.connect(str(dbp))
-        try:
-            rows = c.execute(
-                "SELECT COALESCE(error, user_input, ''), COALESCE(occurrence_count, 1) "
-                "FROM failures WHERE COALESCE(status,'open')='open' "
-                "ORDER BY COALESCE(last_seen, ts, rowid) DESC LIMIT 5").fetchall()
-        finally:
-            c.close()
+        from eli.runtime.self_improvement import get_self_improvement
+        rows = get_self_improvement().memory.get_recent_failures(limit=5)
         if not rows:
-            return True, "no open failures logged"
-        summary = "; ".join(f"{(r[0] or '')[:70]} (×{r[1]})" for r in rows)
-        return False, f"{len(rows)} recent open failure(s): {summary}"
+            return True, "no live failures logged"
+        summary = "; ".join(
+            f"{(r.get('error') or r.get('user_input') or '')[:70]} (×{r.get('occurrence_count', 1)})"
+            for r in rows)
+        return False, f"{len(rows)} recent live failure(s): {summary}"
     _probe("recent_failures", _failures)
 
     return probes
