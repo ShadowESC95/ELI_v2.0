@@ -5815,13 +5815,42 @@ def _execute_impl(action: str, args: Optional[Dict[str, Any]] = None) -> Dict[st
             from eli.cognition import gguf_inference as _gguf
             _model = _gguf.load_model()
             if _model is not None:
-                content = _gguf.chat_completion(
-                    user_prompt,
-                    system=system_prompt,
-                    max_tokens=target_tokens,
-                    temperature=0.4,
-                    top_p=0.85,
-                )
+                content = ""
+                # Multi-stage grounded pipeline (plan/outline → grounded sections →
+                # review→revise → polish), grounded in the evidence the central hook
+                # gathered, with a deepen-retry that escalates agent tiers when the
+                # evidence is thin. Falls back to a single pass on any miss / kill switch.
+                try:
+                    from eli.runtime import report_pipeline as _rp
+                    if _rp.enabled():
+                        def _doc_ask(prompt, system=None, max_tokens=1500, temperature=0.4):
+                            return _gguf.chat_completion(prompt, system=system,
+                                max_tokens=max_tokens, temperature=temperature, top_p=0.85)
+                        def _doc_deepen():
+                            from eli.runtime.evidence_planner import plan_and_gather as _pag
+                            return _pag(a, str(args.get("_raw_user_text") or topic),
+                                        "tree_of_thoughts",
+                                        session_id=str(args.get("session_id") or ""),
+                                        user_id=str(args.get("user_id") or ""))
+                        _pi = _rp.generate_document(
+                            topic, ask=_doc_ask, evidence=_doc_evidence,
+                            sources=_doc_sources, doc_type=doc_type,
+                            target_words=max(700, int(target_tokens * 0.6)),
+                            deepen_cb=_doc_deepen)
+                        if _pi.get("ok") and _pi.get("text"):
+                            content = _pi["text"]
+                            log.debug(f"[CREATE_DOCUMENT] multi-stage pipeline produced "
+                                      f"{len(content)} chars across {len(_pi.get('sections') or [])} sections")
+                except Exception as _rp_err:
+                    log.debug(f"[CREATE_DOCUMENT] pipeline failed, single-pass fallback: {_rp_err}")
+                if not content:
+                    content = _gguf.chat_completion(
+                        user_prompt,
+                        system=system_prompt,
+                        max_tokens=target_tokens,
+                        temperature=0.4,
+                        top_p=0.85,
+                    )
                 _min_doc_chars = int(_os.environ.get("ELI_DOCUMENT_MIN_CHARS", "800") or "800")
                 if content:
                     import re as _re
