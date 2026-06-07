@@ -4289,7 +4289,18 @@ def _eli_self_improvement_phrase_guard(text):
     # Code-specific: requires a code/file/module context word, a .py path, or an
     # eli.* dotted module — so "examine this image" / "review my document" do NOT
     # match. The fix offer + confirmation is handled by the pending_code_fix flow.
+    # A GUI/runtime AUDIT-with-proof request ("scan the gui runtime wiring and
+    # prove every hook with file-read evidence") is a grounded runtime audit
+    # (GUI_RUNTIME_AUDIT) — part of ELI's self-inspection surface, NOT a code-
+    # error examination. Defer it to the core router's gui_audit_proof contract
+    # so EXAMINE_CODE doesn't steal it (regression: it ran in an earlier stage).
+    _runtime_audit_proof = bool(
+        re.search(r"\b(prove|proof|evidence|timestamps?|wiring|hooks?)\b", low)
+        and re.search(r"\b(gui|runtime|wiring|pipeline|hooks?)\b", low)
+    )
     if (
+        not _runtime_audit_proof
+        and (
         re.search(
             r"\b(examine|review|inspect|scan|audit)\b[^.?!]*"
             r"\b(code|codebase|repo|repository|file|files|module|modules|script|scripts|"
@@ -4299,6 +4310,7 @@ def _eli_self_improvement_phrase_guard(text):
         )
         or re.search(r"\b(examine|review|inspect|scan|audit|check)\b[^.?!]*\.py\b", low)
         or re.search(r"\b(examine|review|inspect|scan|audit|check)\b[^.?!]*\beli(?:\.\w+)+\b", low)
+        )
     ):
         return {
             "action": "EXAMINE_CODE",
