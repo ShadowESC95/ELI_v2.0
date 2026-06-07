@@ -5254,6 +5254,59 @@ class _SimIDETab(QWidget):
 
 
 # ═══════════════════════════════════════════════════════════════════════════
+# Orchestration sub-tab — read-only view of the agent DAG + last RunReport
+# ═══════════════════════════════════════════════════════════════════════════
+class _OrchestrationTab(QWidget):
+    """Live wiring of the agent DAG orchestrator: execution layers, dependencies,
+    critical path, and the last dispatch's per-node RunReport. Refresh to re-read."""
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        from PySide6.QtWidgets import QVBoxLayout, QPushButton, QTextEdit, QLabel
+        lay = QVBoxLayout(self)
+        lay.addWidget(QLabel("Agent DAG orchestrator — live wiring + last run"))
+        self._view = QTextEdit()
+        self._view.setReadOnly(True)
+        self._view.setStyleSheet("font-family: monospace;")
+        lay.addWidget(self._view)
+        btn = QPushButton("↻ Refresh")
+        btn.clicked.connect(self.refresh)
+        lay.addWidget(btn)
+        self.refresh()
+
+    def refresh(self):
+        try:
+            from eli.cognition.agent_bus import orchestration_snapshot
+            snap = orchestration_snapshot()
+            lines = [
+                f"Engine: {snap.get('engine')}",
+                f"Agents: {snap.get('count')}   |   Critical path: {snap.get('critical_path')} layer(s)",
+                "", "Execution layers (parallel within each):",
+            ]
+            for i, layer in enumerate(snap.get("execution_layers") or []):
+                lines.append(f"  layer {i}: " + ", ".join(layer))
+            if snap.get("dependencies"):
+                lines += ["", "Dependencies:"] + [
+                    f"  {k} ← {', '.join(v)}" for k, v in snap["dependencies"].items()]
+            last = snap.get("last_run")
+            if last:
+                lines += [
+                    "", "Last dispatch:",
+                    f"  ok={last.get('ok')}   {last.get('seconds')}s   "
+                    f"critical_path={last.get('critical_path')}",
+                    f"  failed={last.get('failed')}   skipped={last.get('skipped')}",
+                ]
+                for nid, nd in sorted((last.get("nodes") or {}).items()):
+                    lines.append(f"    {nid}: {nd.get('status')} "
+                                 f"({nd.get('seconds')}s, {nd.get('attempts')} attempt(s))")
+            else:
+                lines += ["", "(no dispatch recorded yet — talk to ELI first)"]
+            self._view.setPlainText("\n".join(lines))
+        except Exception as e:
+            self._view.setPlainText(f"orchestration unavailable: {e}")
+
+
+# ═══════════════════════════════════════════════════════════════════════════
 # Top-level Labs tab
 # ═══════════════════════════════════════════════════════════════════════════
 
@@ -5351,3 +5404,6 @@ class LabsTab(QWidget):
 
         self._sim_ide_tab = _SimIDETab(eli_callback=self._eli_ask)
         self._inner_tabs.addTab(self._sim_ide_tab, "🔬 Sim / IDE")
+
+        self._orchestration_tab = _OrchestrationTab()
+        self._inner_tabs.addTab(self._orchestration_tab, "🧭 Orchestration")
