@@ -3304,12 +3304,17 @@ class EliMainWindow(QMainWindow):
 
     # Map both the long and the slim bottom-row labels to canonical mode ids.
     _REASONING_MODE_LABELS = {
+        # New public names (Stage 1 rename) → stable internal keys.
         "⚡ Quick": "quick",
+        "🧠 Normal": "chain_of_thought",
+        "🔬 Advanced": "self_consistency",
+        "📚 Research": "tree_of_thoughts",
+        "🎓 Expert": "constitutional_ai",
+        # legacy labels kept accepted for back-compat (not shown in the combobox)
         "🔗 Chain of Thought": "chain_of_thought",
         "🔄 Self-Consistency": "self_consistency",
         "🌳 Tree of Thoughts": "tree_of_thoughts",
         "⚖️ Constitutional AI": "constitutional_ai",
-        # slim labels used in the new compact bottom-row combobox
         "🔗 CoT": "chain_of_thought",
         "🔄 Self-C": "self_consistency",
         "🌳 ToT": "tree_of_thoughts",
@@ -4095,7 +4100,7 @@ class EliMainWindow(QMainWindow):
         btn_layout.addWidget(self.stt_btn)
 
         self.reasoning_mode_combo = QComboBox()
-        self.reasoning_mode_combo.addItems(['⚡ Quick','🔗 CoT','🔄 Self-C','🌳 ToT','⚖️ Const AI'])
+        self.reasoning_mode_combo.addItems(['⚡ Quick','🧠 Normal','🔬 Advanced','📚 Research','🎓 Expert'])
         self.reasoning_mode_combo.setMinimumWidth(110)
         self.reasoning_mode_combo.setMaximumWidth(140)
         self.reasoning_mode_combo.setToolTip('Reasoning mode')

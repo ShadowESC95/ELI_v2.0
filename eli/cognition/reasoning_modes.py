@@ -33,14 +33,21 @@ _MODE_ALIASES = {
     "constitutional ai": "constitutional_ai",
     "constitutional-ai": "constitutional_ai",
     "constitutional_ai": "constitutional_ai",
+    # New public mode names (Stage 1 rename). Internal keys are kept stable;
+    # these are the user-facing names that map onto them.
+    "normal": "chain_of_thought",
+    "advanced": "self_consistency",
+    "research": "tree_of_thoughts",
+    "expert": "constitutional_ai",
 }
 
+# Public display names (Stage 1 rename: quick/normal/advanced/research/expert).
 _DISPLAY = {
     "quick": "Quick",
-    "chain_of_thought": "Chain of Thought",
-    "self_consistency": "Self-Consistency",
-    "tree_of_thoughts": "Tree of Thoughts",
-    "constitutional_ai": "Constitutional AI",
+    "chain_of_thought": "Normal",
+    "self_consistency": "Advanced",
+    "tree_of_thoughts": "Research",
+    "constitutional_ai": "Expert",
 }
 
 _MODE_INSTRUCTION_STACK = {
