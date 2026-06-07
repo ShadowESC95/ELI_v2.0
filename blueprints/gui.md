@@ -97,13 +97,18 @@ author's physics/engineering work — see memories on QMSH / Ξ-χ physics).
 ---
 
 ## Update Advisory — 2026-06-07 (tabs + convert)
-- **12 main tabs** now (was 11): Chat, Proactive, Images, Quick Actions, Screen,
-  Files, Labs, Coding, Tasks, **Report Builder**, Eli's World, Settings. Built in
+- **14 main tabs** now (was 12): Chat, Proactive, Images, Quick Actions, Screen,
+  Files, Labs, Coding, Tasks, **Report Builder**, **Test & Review**,
+  **Orchestration**, Eli's World, Settings. Built in
   `eli_pro_audio_gui_MKI.py` init (~L3444). (`create_*_tab` method names over-count:
   Habits/Self-Improve/IDE are folded in; Experimental removed → gaze is a Settings toggle.)
-- **Report Builder promoted** from a Labs sub-tab to a top-level main tab
-  (`create_report_builder_tab()` instantiates `_ReportTab` from `labs_tab.py`,
-  `eli_callback=_engine_ask`). Labs: 9 → **8** sub-tabs.
+- **Report Builder, Test & Review, Orchestration promoted** from Labs sub-tabs to
+  top-level main tabs (`create_report_builder_tab` / `create_test_review_tab` /
+  `create_orchestration_tab` instantiate `_ReportTab` / `_TestReviewTab` /
+  `_OrchestrationTab` from `labs_tab.py`). Labs stays at **8** sub-tabs.
+  - **Test & Review:** runs the suite in the background → ELI summary → backups +
+    errors file → result-driven option buttons (examine/propose/generate/eval).
+  - **Orchestration:** live agent-DAG layers, dependencies, critical path, last RunReport.
 - **Sub-tabs:** Proactive → 6 (Suggestions, Summaries, Insights, Habits, Self-Improve,
   Memory); Labs → 8 (above); Settings → 5 (Agents, Models, Cognition, Plugins, Self-Upgrade).
 - **Files tab** gained a **Convert Document** control (`_convert_selected_file`):

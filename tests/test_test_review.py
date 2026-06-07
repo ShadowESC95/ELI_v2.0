@@ -44,6 +44,23 @@ def test_build_options_clean_run_offers_growth():
     assert all("command" in o and "label" in o for o in opts)
 
 
+def test_propose_fixes_orchestrates_examiner_over_modules():
+    # delegates to the existing code examiner via the DAG orchestrator (parallel),
+    # returning per-module findings + the orchestration report. A clean module → 0
+    # findings (correct), but the structure + orchestration must be present.
+    res = TR.propose_fixes(
+        [{"node": "tests.t::x", "module": "eli.core.model_tier", "message": "boom"}],
+        run_tier3=False)
+    assert res["ok"] is True
+    assert res["examined"] == ["eli/core/model_tier.py"]
+    assert "orchestration" in res and res["orchestration"]["layers"]
+
+
+def test_propose_fixes_no_resolvable_modules():
+    res = TR.propose_fixes([{"node": "x::y", "module": "does.not.exist", "message": "m"}])
+    assert res["ok"] is False and res["proposals"] == []
+
+
 def test_run_and_review_integration():
     # light: run a small real target; the subprocess + parent both resolve the same
     # ELI_ARTIFACTS_DIR (the in-project test dir from conftest), so totals are parsed.
