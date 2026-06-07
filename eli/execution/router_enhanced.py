@@ -356,21 +356,40 @@ def _strip_schedule_time(t: str) -> str:
     return s or t
 
 
-def _eli_schedule_prepass(user_text: str):
-    """Detect 'schedule <task/action> at <future time>' → SCHEDULE_TASK.
+# Imperative command verbs — "open spotify at 8pm", "get the news at 7am", "play X
+# at 9", "close steam in 2 hours". With a future-time marker these mean DEFER the
+# command to the background workers.
+_IMPERATIVE_RX = re.compile(
+    r"\b(open|launch|start|play|pause|stop|close|quit|kill|get|fetch|show|check"
+    r"|run|remind|turn|mute|unmute|screenshot|take|send|search|find|read|enable"
+    r"|disable|update|download|email|message|post)\b", re.I)
+# Don't treat genuine questions as scheduling ("what's on tonight?").
+_QUESTION_RX = re.compile(r"^\s*(what|whats|what's|how|why|who|where|which|whose|tell me|show me what)\b", re.I)
+# These have their own dedicated time-aware handlers — never hijack them.
+_DEDICATED_TIME_RX = re.compile(r"\b(alarm|timer|stopwatch|pomodoro)\b", re.I)
 
-    Fires when a future-time marker is present AND (a heavy task verb OR a known
-    schedulable action) is named — so 'get a morning report ready for tomorrow'
-    SCHEDULES it instead of running it now, while 'what's on tonight?' / 'set an
-    alarm for 7am' / 'weather for tomorrow' are NOT captured. The re-run `request`
-    is the clean inner action (time stripped) so the scheduled job runs once."""
+
+def _eli_schedule_prepass(user_text: str):
+    """Detect 'do <any command> at <future time>' → SCHEDULE_TASK (background workers).
+
+    Fires when a future-time marker is present AND the utterance is an IMPERATIVE
+    command — a heavy task verb, a known schedulable action, OR an app/media/system
+    verb (open/play/get/close…). So 'get a morning report ready for tomorrow',
+    'open spotify at 8pm', and 'get the news at 7am' all SCHEDULE, while questions
+    ('what's on tonight?'), alarms/timers (own handlers), and bare 'morning report'
+    are NOT captured. The re-run `request` is the clean command (time stripped) so the
+    background worker (eng.process) executes the action once and never re-schedules."""
     t = (user_text or "").strip()
     if len(t.split()) < 3:
         return None
     if not _SCHEDULE_TIME_RX.search(t):
         return None
+    if _DEDICATED_TIME_RX.search(t):
+        return None
+    if _QUESTION_RX.search(t):
+        return None
     m_action = _SCHEDULE_ACTION_RX.search(t)
-    if not (_SCHEDULE_VERB_RX.search(t) or m_action):
+    if not (_SCHEDULE_VERB_RX.search(t) or m_action or _IMPERATIVE_RX.search(t)):
         return None
     inner = m_action.group(0) if m_action else _strip_schedule_time(t)
     return {
@@ -378,6 +397,28 @@ def _eli_schedule_prepass(user_text: str):
         "args": {"request": inner, "when": t},
         "confidence": 0.9,
         "meta": {"matched_by": "schedule.prepass"},
+    }
+
+
+def _eli_multi_command_prepass(user_text: str):
+    """Detect one utterance chaining MULTIPLE imperative commands → MULTI_COMMAND.
+
+    'close steam and set an alarm for 7am' → MULTI_COMMAND{commands:[...]} which the
+    executor runs in order. Strongly guarded (see command_splitter) so single commands
+    and chatter are never split. Runs before schedule_prepass/portable_route so each
+    segment is routed individually (a chained 'morning report for 7am' still schedules)."""
+    try:
+        from eli.runtime.command_splitter import split_commands
+        segs = split_commands(user_text or "")
+    except Exception:
+        segs = None
+    if not segs:
+        return None
+    return {
+        "action": "MULTI_COMMAND",
+        "args": {"commands": segs, "raw": str(user_text or "")},
+        "confidence": 0.92,
+        "meta": {"matched_by": "multi_command.prepass"},
     }
 
 
@@ -6524,11 +6565,17 @@ try:
                 # set_user_name runs before portable_route so explicit identity
                 # assertions ("call me Alex", "my name is X") are never
                 # misclassified as media-play requests by portable_intent_contract.
+                # multi_command_prepass runs first so a chained utterance is split into
+                # its commands (each then routed individually below).
+                ("multi_command_prepass", lambda t, *a, **k: _eli_multi_command_prepass(t)),
+                # schedule_prepass runs BEFORE portable_route so "open spotify at 8pm"
+                # / "close steam in 2 hours" defer to the background workers instead of
+                # being executed now by the app router (no-time commands fall through).
+                ("schedule_prepass", lambda t, *a, **k: _eli_schedule_prepass(t)),
                 ("set_user_name", _stage_set_user_name),
                 ("portable_route", _stage_portable_route),
                 ("weather_prepass", lambda t, *a, **k: _eli_weather_prepass(t)),
                 ("shell_prepass",   lambda t, *a, **k: _eli_shell_prepass(t)),
-                ("schedule_prepass", lambda t, *a, **k: _eli_schedule_prepass(t)),
                 ("voice_contract", _stage_voice_contract),
                 ("persona_override", _stage_persona_override),
                 ("followup_passthrough", _stage_followup_passthrough),
