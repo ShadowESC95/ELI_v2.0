@@ -17,11 +17,32 @@ own hardware — no cloud APIs, no telemetry. Features include:
 
 ## One-Click Setup
 
-Fresh Linux/source checkout:
+Fresh Linux/source checkout — `install.sh` does everything (creates the `.venv`,
+installs PyTorch + a **CUDA** llama-cpp-python, all packages from the **frozen lock**
+for a reproducible set, initialises the data dirs + SQLite databases, seeds an
+offline-by-default config, and **verifies the GPU build actually compiled in**):
 
 ```bash
 git clone https://github.com/ShadowESC95/ELI_MKXI_v2.0_PRO.git
 cd ELI_MKXI_v2.0_PRO
+bash install.sh           # one command; add --cpu-only or --latest if needed
+./eli.sh                  # launch (first run shows the setup wizard)
+```
+
+Then download a model when prompted, or:
+
+```bash
+source .venv/bin/activate
+python -m eli.core.model_download --auto      # pick by detected VRAM
+python -m eli.core.model_download qwen2.5-7b  # ~4.7 GB (recommended, 8GB+ GPU)
+```
+
+Flags: `--cpu-only` (no CUDA), `--latest` (version ranges instead of the frozen
+`requirements.lock.txt`), `--skip-torch`. If llama-cpp installs as CPU-only the
+installer prints the exact CUDA-rebuild command. The legacy
+`scripts/eli_one_click_setup.sh` (installs `~/.local/bin/eli`) still works:
+
+```bash
 bash scripts/eli_one_click_setup.sh
 eli
 ```
@@ -197,7 +218,10 @@ project root from the installed package or source tree.
 
 ## Requirements
 
-- `requirements.txt`: Linux x86_64 profile
+- `requirements.lock.txt`: **frozen, exact known-good versions** (used by `install.sh`
+  by default for reproducible installs; excludes torch/llama-cpp, which are installed
+  via their CUDA indices)
+- `requirements.txt`: Linux x86_64 profile (version ranges)
 - `requirements-windows.txt`: Windows profile
 - `requirements-macos.txt`: macOS profile
 - `requirements-android.txt`: Android/Termux headless profile
