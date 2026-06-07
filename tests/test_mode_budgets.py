@@ -42,17 +42,20 @@ def test_mode_budget_is_tunable():
 
 
 def test_dispatch_threads_multiplier_to_layer():
+    # The default execution path is the DAG orchestrator, which consumes the mode
+    # budget multiplier in _agent_timeout (per-agent). Spy there so the assertion
+    # tracks the live path (the layered fallback threads the same multiplier).
     from eli.cognition import agent_bus as AB
     seen = {}
-    orig = AB.AgentBus._collect_layer
-    def spy(self, agents, ui, intent, sid, uid):
+    orig = AB.AgentBus._agent_timeout
+    def spy(self, agent, intent):
         seen['mult'] = (intent or {}).get('_mode_budget_mult', 1.0)
-        return orig(self, agents, ui, intent, sid, uid)
-    with patch.object(AB.AgentBus, '_collect_layer', spy):
+        return orig(self, agent, intent)
+    with patch.object(AB.AgentBus, '_agent_timeout', spy):
         bus = AB.get_bus()
         bus.dispatch("tell me about my research in depth", {"action": "CHAT"}, "s", "u", reasoning_mode="expert")
     assert seen.get('mult') == 2.5
-    with patch.object(AB.AgentBus, '_collect_layer', spy):
+    with patch.object(AB.AgentBus, '_agent_timeout', spy):
         AB.get_bus().dispatch("tell me about my research in depth", {"action": "CHAT"}, "s", "u", reasoning_mode="quick")
     assert seen.get('mult') == 1.0  # quick unchanged
 

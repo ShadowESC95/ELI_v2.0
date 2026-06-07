@@ -200,6 +200,7 @@ _add("Self-maintenance", "RUN_TESTS", "Run the pytest suite and summarise the re
 _add("Self-maintenance", "GENERATE_TESTS", "ELI writes + sandbox-verifies behavioural tests for its own functions (Phase 4)", "“generate tests for your code”", "“grow your test coverage”")
 _add("Self-maintenance", "LORA_STATUS", "Report LoRA fine-tune readiness (preflight: modules, base model, reviewed data)", "“lora status”", "“is lora ready”")
 _add("Self-maintenance", "LORA_TRAIN", "Run the LoRA training pipeline DAG (preflight→build→train→eval); dry-run from chat, real training via the overnight task", "“train a lora”", "“fine-tune yourself”")
+_add("Self-maintenance", "ORCHESTRATION_STATUS", "Explain the agent DAG orchestrator: execution layers, dependencies, critical path, and last run", "“orchestration status”", "“show your agent dag”")
 
 # ── Tasks, time & planning ──────────────────────────────────────────────────
 _add("Tasks, time & planning", "SCHEDULE_TASK", "Schedule overnight/timed work (code/research/etc.)", "“research X overnight”", "“build Y at 2am”")
