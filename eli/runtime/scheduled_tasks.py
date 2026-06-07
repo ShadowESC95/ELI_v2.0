@@ -36,11 +36,16 @@ _RESTORED = False
 
 # ── Durable store (survives restarts) ────────────────────────────────────────
 def _store_path() -> Path:
-    try:
-        from eli.core.paths import get_paths
-        base = get_paths().artifacts_dir / "runtime"
-    except Exception:
-        base = Path(__file__).resolve().parents[2] / "artifacts" / "runtime"
+    import os as _o
+    _env = _o.environ.get("ELI_ARTIFACTS_DIR")
+    if _env:
+        base = Path(_env).expanduser() / "runtime"
+    else:
+        try:
+            from eli.core.paths import get_paths
+            base = get_paths().artifacts_dir / "runtime"
+        except Exception:
+            base = Path(__file__).resolve().parents[2] / "artifacts" / "runtime"
     base.mkdir(parents=True, exist_ok=True)
     return base / "scheduled_tasks.json"
 

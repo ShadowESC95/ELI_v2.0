@@ -9,6 +9,13 @@ os.environ["ELI_FORCE_CPU"] = "1"
 ROOT = Path(__file__).parent.parent
 sys.path.insert(0, str(ROOT))
 
+# Redirect ALL artifact writes (documents, runtime snapshots, the scheduled-task
+# store) to a throwaway IN-PROJECT dir for the whole test session, so a test run can
+# never pollute the real artifacts/ or wipe the user's standing scheduled jobs. This
+# is plain config (an in-project path runtime_settings won't strip) — NOT a
+# monkeypatch. _artifacts_dir() and _store_path() both honour ELI_ARTIFACTS_DIR.
+os.environ["ELI_ARTIFACTS_DIR"] = str(ROOT / "artifacts" / "_pytest")
+
 @pytest.fixture(autouse=True, scope="session")
 def mock_heavy_imports():
     with patch.dict(sys.modules, {
@@ -121,19 +128,3 @@ def pytest_sessionfinish(session, exitstatus):
         rep_path.write_text("\n".join(out) + "\n", encoding="utf-8")
     except Exception:
         pass
-
-
-# ── No test may pollute the real artifacts/ (docs, eval, runtime snapshots) ───
-# Redirect the executor's canonical artifacts root to a per-test tmp dir. This is
-# the safety net behind the doc-gen / runtime-audit / report writers — a test run
-# must never leave files in the real artifacts/ folder.
-@pytest.fixture(autouse=True)
-def _isolate_artifacts_dir(tmp_path, monkeypatch):
-    try:
-        import eli.execution.executor_enhanced as _EX
-        adir = tmp_path / "artifacts"
-        adir.mkdir(parents=True, exist_ok=True)
-        monkeypatch.setattr(_EX, "_artifacts_dir", lambda: adir, raising=False)
-    except Exception:
-        pass
-    yield
