@@ -5340,8 +5340,8 @@ class LabsTab(QWidget):
         self._physics_tab = _PhysicsTab()
         self._inner_tabs.addTab(self._physics_tab, "⚛️  Physics")
 
-        self._report_tab = _ReportTab(eli_callback=self._eli_ask)
-        self._inner_tabs.addTab(self._report_tab, "📄 Report Builder")
+        # Report Builder was promoted to a top-level main tab
+        # (create_report_builder_tab in the main window) — no longer a Labs sub-tab.
 
         self._file_chat_tab = _FileChatTab(eli_callback=self._eli_ask)
         self._inner_tabs.addTab(self._file_chat_tab, "📂 File Chat")

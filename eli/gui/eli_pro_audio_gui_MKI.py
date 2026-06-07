@@ -3450,6 +3450,7 @@ class EliMainWindow(QMainWindow):
         self.create_labs_tab()
         self.create_coding_tab()
         self.create_tasks_tab()
+        self.create_report_builder_tab()
         # Experimental tab removed — gaze control is wired as a toggle in Settings.
         self.create_eli_world_tab()
         self.create_settings_tab()
@@ -6371,6 +6372,18 @@ class EliMainWindow(QMainWindow):
             except Exception as _fallback_err:
                 log.debug(f"[Experimental] fallback tab failed: {_fallback_err}")
 
+    def create_report_builder_tab(self):
+        """Report Builder as a top-level main tab (promoted out of Labs). Grounded,
+        evidence-first document generation with export to pdf/docx/lualatex/etc."""
+        try:
+            from eli.gui.labs_tab import _ReportTab
+            self._report_builder_widget = _ReportTab(eli_callback=self._engine_ask)
+            self.tabs.addTab(self._report_builder_widget, "📄 Report Builder")
+        except Exception as e:
+            fallback = QLabel(f"Report Builder unavailable: {e}")
+            fallback.setWordWrap(True)
+            self.tabs.addTab(fallback, "📄 Report Builder")
+
     def create_files_tab(self):
         files_widget = QWidget()
         layout = QVBoxLayout(files_widget)
@@ -6397,7 +6410,59 @@ class EliMainWindow(QMainWindow):
         for i in range(1, 4):
             self.file_tree.hideColumn(i)
         layout.addWidget(self.file_tree)
+
+        # ── Convert document (any selected file → chosen format) ──────────────
+        # Backed by CONVERT_DOCUMENT (pandoc + lualatex engine, LibreOffice
+        # fallback). Select a file in the tree, pick a format, click Convert.
+        conv_row = QHBoxLayout()
+        conv_row.addWidget(QLabel("Convert selected →"))
+        self.convert_format_combo = QComboBox()
+        # label → CONVERT_DOCUMENT format token
+        self._convert_formats = [
+            ("PDF", "pdf"),
+            ("PDF (LuaLaTeX)", "lualatex"),
+            ("Word (.docx)", "docx"),
+            ("Word 97 (.doc)", "doc"),
+            ("OpenDocument (.odt)", "odt"),
+            ("Rich Text (.rtf)", "rtf"),
+            ("HTML", "html"),
+            ("Markdown", "md"),
+            ("LaTeX (.tex)", "tex"),
+            ("EPUB", "epub"),
+            ("Plain text (.txt)", "txt"),
+        ]
+        for label, _tok in self._convert_formats:
+            self.convert_format_combo.addItem(label)
+        conv_row.addWidget(self.convert_format_combo)
+        convert_btn = QPushButton("🔄 Convert")
+        convert_btn.setToolTip("Convert the file selected above to the chosen format "
+                               "(any document type — lualatex, pdf, doc, docx, …).")
+        convert_btn.clicked.connect(self._convert_selected_file)
+        conv_row.addWidget(convert_btn)
+        conv_row.addStretch()
+        layout.addLayout(conv_row)
+        self.convert_status_label = QLabel("")
+        self.convert_status_label.setWordWrap(True)
+        self.convert_status_label.setStyleSheet("color:#7a9cbf;font-size:11px;")
+        layout.addWidget(self.convert_status_label)
+
         self.tabs.addTab(files_widget, "📁 Files")
+
+    def _convert_selected_file(self):
+        """Convert the file currently selected in the Files tree to the chosen
+        format via the CONVERT_DOCUMENT action."""
+        try:
+            idx = self.file_tree.currentIndex()
+            path = self.file_model.filePath(idx) if idx.isValid() else ""
+            if not path or Path(path).is_dir():
+                self.convert_status_label.setText("Select a file (not a folder) in the tree first.")
+                return
+            fmt = self._convert_formats[self.convert_format_combo.currentIndex()][1]
+            self.convert_status_label.setText(f"Converting {Path(path).name} → {fmt}…")
+            res = self.execute_action("CONVERT_DOCUMENT", {"source": path, "format": fmt})
+            self.convert_status_label.setText(str(res))
+        except Exception as e:
+            self.convert_status_label.setText(f"Convert failed: {e}")
 
     # ══════════════════════════════════════════════════════════════════════════
     # AGENT CREATOR WIZARD
