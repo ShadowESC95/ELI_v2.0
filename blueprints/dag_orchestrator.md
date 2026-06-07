@@ -37,9 +37,19 @@ Pure stdlib; the orchestrator does no LLM/IO — the node callables do.
   ("orchestration status" / "show your agent dag") returns the live engine, execution
   layers, dependencies, critical path, and last-run telemetry — so ELI can explain its
   own orchestration honestly.
-- **Other pipelines** already express DAG-shaped stages and can adopt `run_graph`:
-  the coding planner (`coding/plan_graph.py`) and LoRA pipeline use the DAG;
-  evidence_planner / report_pipeline are sequential stages that can move onto it next.
+- **Evidence gathering:** `evidence_planner.gather()` now runs its channels
+  (code / web / memory / runtime) **in parallel on the orchestrator** — each channel
+  isolated (non-critical: one failing yields no evidence, never blocks others),
+  results merged in deterministic `KNOWN_CHANNELS` order, with a sequential fallback.
+  `memory`/`runtime` (no model calls) genuinely overlap; model-using channels
+  serialise safely on the global `_LLM_CALL_LOCK`.
+- **report_pipeline — deliberately NOT parallelised.** All model calls serialise on
+  `_LLM_CALL_LOCK`, so parallel section drafting gives zero speedup (model-bound +
+  globally locked) while adding risk. It stays sequential with its own retries.
+- **GUI:** a read-only **Orchestration** sub-tab in Labs (and the
+  `ORCHESTRATION_STATUS` chat action) surface the live layers/deps/critical-path +
+  the last dispatch's per-node RunReport.
+- Also on the DAG: the coding planner (`coding/plan_graph.py`) and the LoRA pipeline.
 
 ## Tests
 `tests/test_dag_orchestrator.py` (14) cover every feature; existing dag/coding/agent
