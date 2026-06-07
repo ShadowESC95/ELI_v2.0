@@ -214,6 +214,64 @@ def _is_llama_model(model_path: Optional[Path]) -> bool:
         "llama-3" in name or "llama3" in name
         or "meta-llama-3" in name or "llama_3" in name
     )
+
+
+# ── Future-proof template detection: read the model's OWN embedded template ───
+# A GGUF carries its chat template in metadata (`tokenizer.chat_template`). Using
+# it means ANY model — current or future — routes to the right prompt format
+# regardless of its filename. We content-sniff the template for the major
+# families (chatml/llama3/mistral/gemma/phi); a genuinely novel template falls
+# back to the filename heuristics, then the generic format.
+_TEMPLATE_FAMILY_CACHE: dict = {}
+
+
+def _gguf_model_metadata() -> dict:
+    """Embedded metadata of the loaded model (`_llm.metadata`); {} if unavailable."""
+    try:
+        llm = globals().get("_llm")
+        md = getattr(llm, "metadata", None) if llm is not None else None
+        return md if isinstance(md, dict) else {}
+    except Exception:
+        return {}
+
+
+def _gguf_template_family() -> Optional[str]:
+    """Family from the model's EMBEDDED chat template, or None to fall back."""
+    md = _gguf_model_metadata()
+    tmpl = str(md.get("tokenizer.chat_template") or "")
+    if not tmpl:
+        return None
+    key = tmpl[:64]
+    cached = _TEMPLATE_FAMILY_CACHE.get(key)
+    if cached is not None:
+        return cached or None
+    if "<|im_start|>" in tmpl:
+        fam = "chatml"
+    elif "<|start_header_id|>" in tmpl or "<|eot_id|>" in tmpl:
+        fam = "llama"
+    elif "<start_of_turn>" in tmpl:
+        fam = "gemma"
+    elif "[INST]" in tmpl:
+        fam = "mistral"
+    elif "<|assistant|>" in tmpl or "<|user|>" in tmpl:
+        fam = "phi"
+    else:
+        fam = ""  # unknown embedded template → fall back
+    _TEMPLATE_FAMILY_CACHE[key] = fam
+    return fam or None
+
+
+def _gguf_param_count() -> int:
+    """Parameter count from embedded metadata, else 0."""
+    md = _gguf_model_metadata()
+    for k in ("general.parameter_count", "general.size_label"):
+        v = md.get(k)
+        if v:
+            try:
+                return int(str(v).split()[0].replace(",", ""))
+            except Exception:
+                continue
+    return 0
 def _canonical_eli_persona() -> str:
     try:
         from eli.cognition.persona import get_persona as _get_persona
@@ -528,8 +586,19 @@ def _format_prompt(system: Optional[str], user: str) -> str:
     user = (user or "").strip()
     model_path = get_model_path()
 
+    # Prefer the model's OWN embedded chat template (future-proof for any model);
+    # fall back to filename heuristics, then the generic format.
+    fam = _gguf_template_family()
+    if fam is None:
+        if _is_chatml_model(model_path):
+            fam = "chatml"
+        elif _is_llama_model(model_path):
+            fam = "llama"
+        elif _is_mistral_model(model_path):
+            fam = "mistral"
+
     # Qwen / ChatML format (OpenHermes, Hermes, Dolphin, Zephyr, DeepSeek, Qwen…)
-    if _is_chatml_model(model_path):
+    if fam == "chatml":
         parts = []
         if system:
             parts.append(f"<|im_start|>system\n{system}<|im_end|>")
@@ -539,7 +608,7 @@ def _format_prompt(system: Optional[str], user: str) -> str:
         return "\n".join(parts)
 
     # Llama-3 instruct format
-    if _is_llama_model(model_path):
+    if fam == "llama":
         parts = ["<|begin_of_text|>"]
         if system:
             parts.append(f"<|start_header_id|>system<|end_header_id|>\n\n{system}<|eot_id|>")
@@ -547,10 +616,24 @@ def _format_prompt(system: Optional[str], user: str) -> str:
         parts.append("<|start_header_id|>assistant<|end_header_id|>\n\n")
         return "\n".join(parts)
 
+    # Gemma format (no system role — fold system into the user turn)
+    if fam == "gemma":
+        _u = f"{system}\n\n{user}" if system else user
+        return f"<start_of_turn>user\n{_u}<end_of_turn>\n<start_of_turn>model\n"
+
+    # Phi-3 format
+    if fam == "phi":
+        parts = []
+        if system:
+            parts.append(f"<|system|>\n{system}<|end|>")
+        parts.append(f"<|user|>\n{user}<|end|>")
+        parts.append("<|assistant|>\n")
+        return "\n".join(parts)
+
     # Mistral / Llama-2 [INST] format
     # NOTE: do NOT add <s> here — llama.cpp prepends BOS automatically.
     # Adding it manually causes a duplicate-leading-<s> warning and hurts quality.
-    if _is_mistral_model(model_path):
+    if fam == "mistral":
         if system:
             return f"[INST] <<SYS>>\n{system}\n<</SYS>>\n\n{user} [/INST]"
         return f"[INST] {user} [/INST]"
