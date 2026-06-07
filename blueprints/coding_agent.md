@@ -81,3 +81,9 @@ plan_task ──► seed implement ──► synthesize_tests ──► tree_sea
 ## Update Advisory — 2026-06-01
 - Now reachable three ways: the `CODE_SOLVE` action, the router (verified-coding phrasings), and the new GUI **Coding tab** (`eli/gui/coding_tab.py`).
 - `GENERATE_SCRIPT` + self-upgrade route through this engine; heavy tasks auto-background. See `dag.md` (subtask DAG) and `background_tasks.md`.
+
+
+---
+
+## Update Advisory — 2026-06-07
+- Unchanged this cycle. Confirmed against source: UCB1 tree search, syntax→execution→tests gate ladder, weighted scoring (broken syntax hard-capped 0.05), DAG subtask decomposition, and (bug→fix) long-term memory are all live as documented.

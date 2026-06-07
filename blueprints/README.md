@@ -2,13 +2,12 @@
 
 Grounded architecture documentation for ELI MKXI. Each doc reads the real code,
 states what's there, and gives an honest strength/weakness assessment. Written
-from deep reads of the core + a full structural/code-health sweep — not a
-line-by-line read of all 315 files; claims are grounded in what was inspected.
+from deep reads of the core + a full structural/code-health sweep — a deep read this session covering every package's structure + the algorithm-bearing bodies; claims are grounded in what was inspected.
 
 ## Index
 
 - **[project_overview.md](project_overview.md)** — start here. What ELI is,
-  scale (116,958 LOC / 315 files), architecture by layer, the honest verdict on
+  scale (126,619 LOC / 336 files), architecture by layer, the honest verdict on
   "frontier", and the highest-leverage work.
 - **[orchestration_and_agents.md](orchestration_and_agents.md)** — the real
   topology: `AgentOrchestrator` (12-stage pipeline) vs the 14-agent `AgentBus`,
@@ -58,7 +57,7 @@ line-by-line read of all 315 files; claims are grounded in what was inspected.
      `runtime/` response surfaces, two image engines, seven stacked
      `render_action` overrides in the grounding gate, multiple plan/queue
      representations.
-   - **~2,322 `except Exception:`** swallowing failures into silent fallbacks —
+   - **~2,565 `except Exception:`** swallowing failures into silent fallbacks —
      the reason bugs only surface via runtime logs.
    - **Repo hygiene** — root junk, committed binaries/diag outputs, a non-green
      test suite.
@@ -72,3 +71,11 @@ line-by-line read of all 315 files; claims are grounded in what was inspected.
 ## Update Advisory — 2026-06-01
 - Index extended this session: added `agent_algorithms.md`, `dag.md`, `background_tasks.md`, `coding_agent.md`, `coding_agent_test_prompts.md`. Cross-cutting verdict still holds; the DAG engine + coding agent + background workers are net-new components layered on top.
 - TODO next pass: keep this index in sync as files grow; re-run the LOC sweep (project_overview table predates `eli/coding/`, `eli/core/dag.py`, `eli/runtime/background_tasks.py`, `eli/gui/coding_tab.py`).
+
+
+---
+
+## Update Advisory — 2026-06-07
+- **Stats refreshed:** 126,619 LOC / 336 Python files / 128 test files / 193 capabilities / 14 bus agents / ~2,565 `except Exception` / 231 commits.
+- **Landed since last advisory (all on `main`, tested):** governance consolidation (3 overlapping normalizer modules → canonical `output_governor` + shims; `normalize_response` signature collision fixed → `clean_gguf_artifacts`); failure logging consolidated into ONE store (`agent.sqlite3`; executor dual-write removed; `mark_failure_resolved` + status-filtered reads); context-bloat **quality cap** on the synthesis prompt (`ELI_SYNTH_MAX_PROMPT_CHARS`) that fixed the `-`/`-G` degeneration; **user-tunable cognition** (new `eli/core/cognition_tunables.py` + a GUI ‘🧠 Cognition’ tab exposing every gather limit); agent gathering deepened (file_code searches the whole repo; memory multi-hop; capability/voice triggers broadened); habit scheduler now actually runs active app-launch habits + self-heals legacy `00:00` rows; action-synonym normalisation (NEWS_SEARCH→NEWS_FETCH, DAILY/WEEKLY_REPORT→MORNING_REPORT, …); plugin-manager NameError fixed; folder drag-drop inserts a bare path; runtime-audit gained **live health probes**; the grounding gate's one provably-dead v10 fragment was removed (oracle-verified).
+- **Cross-cutting verdict update:** the eval suite is now **green and runs under `pytest`** (`tests/test_eval_cases.py`); two of the listed debts are materially reduced (governance over-fragmentation; the dual-DB failure split). The god-files and the `except Exception` count remain the top open items.

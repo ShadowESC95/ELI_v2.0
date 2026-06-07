@@ -1,6 +1,6 @@
 # ELI Perception — Vision, Voice, OS Control
 
-`eli/perception/` — 5.1k LOC, 18 files. ELI's senses and hands: local vision,
+`eli/perception/` — 5.5k LOC, 18 files. ELI's senses and hands: local vision,
 speech-to-text, text-to-speech, and OS control. All local, no APIs.
 
 ## Files
@@ -99,3 +99,9 @@ extracted content (text/OCR/structure) into the grounded pipeline.
 
 ## Update Advisory — 2026-06-01
 - Unchanged this session. Still-open: the residual "7B" comment in `ambient_vision.py` should be scrubbed for model-agnostic consistency (see memory `eli-model-agnostic`).
+
+
+---
+
+## Update Advisory — 2026-06-07
+- Unchanged this cycle (LOC drift only). TTS unspeakable-fragment guard and CPU-pinned vision CLIP remain in place.

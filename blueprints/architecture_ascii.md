@@ -12,7 +12,7 @@ pipeline/memory/gating close-ups). Every layer and box maps to a real path.
 ╔══════════════════════════════════════════════════════════════════════════════════╗
 ║                            ELI MKXI — FULL ARCHITECTURE                            ║
 ║                100% local  ·  offline-by-default  ·  model-agnostic                ║
-║                       ~122k LOC · 330 files · single process                       ║
+║                       ~127k LOC · 336 files · single process                       ║
 ╚══════════════════════════════════════════════════════════════════════════════════╝
 
 ┌─ PRESENTATION ────────────────────────────────────────────────────────────────────┐
@@ -125,7 +125,7 @@ pipeline/memory/gating close-ups). Every layer and box maps to a real path.
 ## C. Module tree (LOC · key files · role)
 
 ```
-eli/  (~122k LOC, 330 files)
+eli/  (~127k LOC, 336 files)
 │
 ├── __main__.py ················ entry dispatch (GUI | --headless)
 │
@@ -245,3 +245,9 @@ INPUT → ROUTER → ENGINE ─┬─ FAST-PATH ──────────�
 > `diagrams.md` (pipeline / memory / gating close-ups) ·
 > `eval_harness.md` (the measurement layer).
 ```
+
+
+---
+
+## Update Advisory — 2026-06-07
+- Module tree/LOC refreshed conceptually to 126,619 / 336. `runtime/` failure store unified; governance modules consolidated; `core/cognition_tunables.py` added.

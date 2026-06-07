@@ -82,3 +82,9 @@ Kill switch: `ELI_CODEGEN_BACKGROUND=0`.
 ## Update Advisory — 2026-06-01
 - The new GUI **Coding tab** (`eli/gui/coding_tab.py`) surfaces the background task list and auto-shows a job result on completion — the visual front-end for this subsystem.
 - Hook still open: feed the planner`s decomposed step count into `should_background` for an LLM-informed (not just heuristic) backgrounding decision.
+
+
+---
+
+## Update Advisory — 2026-06-07
+- Unchanged this cycle. (GENERATE_SCRIPT still routes through `eli.coding.solve`; self-upgrade still consults the coding engine's bug memory.)

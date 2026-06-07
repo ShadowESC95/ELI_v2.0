@@ -116,3 +116,11 @@ recoverable instead of dead ends.
 ## Update Advisory — 2026-06-01
 - A parallel verification layer now exists in `eli/coding/` (sandbox execution + synthesized tests + bug classification). Grounded code generation (GENERATE_SCRIPT) routes through it. Consider exposing the coding sandbox as another evidence source for the grounding gate.
 - The 7 stacked `render_action` overrides remain the top consolidation target here (unchanged).
+
+
+---
+
+## Update Advisory — 2026-06-07
+- **Governance consolidated:** `output_governor.py` is now canonical; `response_governance.py` + `response_sanitizer.py` are shims. The `normalize_response` signature collision (two modules, swapped args) is fixed — the GGUF-artifact cleaner is now `clean_gguf_artifacts(response, user_input)`, distinct from the governor's `normalize_response(user_input, text)`; the engine's defensive try/except-TypeError was removed.
+- **Gate cleanup (verified):** the v9–v14 `render_action` layers are an ACTIVE delegation chain (the policy engine delegates through them), NOT dead code. One genuinely-orphaned fragment (`_eli_v14_render_action_legacy`, never installed) was removed (−45 lines), proven safe with a regression oracle (78 action×mode×input cells byte-identical; only RUNTIME_AUDIT differed — and it differs without the edit too, being live GPU/timestamp data). The full 7-layer flatten is deliberately NOT done (risky, readability-only).
+- **Runtime audit** now includes LIVE health probes (plugin_manager, memory, agent_bus, habit_integrity, recent_failures) so RUNTIME_AUDIT catches method-level faults + data corruption + logged failures, not just static source issues.
