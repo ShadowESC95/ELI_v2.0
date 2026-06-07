@@ -178,3 +178,30 @@ def test_memory_tagging_only_facts_when_active(monkeypatch, tmp_path):
     assert any("concrete project fact" in h["text"] for h in hits)
     assert not any("reflection note" in h["text"] for h in hits)  # reflections stay global
     AP.clear_active()
+
+
+# ── Finish-up: state providers (Phase 4 sim/component resume hook) ────────────
+def test_state_providers_capture_restore():
+    import eli.runtime.state_providers as SP
+    box = {"v": "original"}
+    SP.register("unit_test_prov", lambda: box["v"], lambda x: box.__setitem__("v", x))
+    try:
+        snap = SP.capture_all()
+        assert snap.get("unit_test_prov") == "original"
+        box["v"] = "mutated"
+        assert SP.restore_all(snap) >= 1
+        assert box["v"] == "original"
+    finally:
+        SP.unregister("unit_test_prov")
+
+
+def test_state_providers_isolate_failures():
+    import eli.runtime.state_providers as SP
+    def _boom():
+        raise RuntimeError("nope")
+    SP.register("bad", _boom, lambda x: None)
+    try:
+        snap = SP.capture_all()          # must not raise
+        assert "bad" not in snap          # failed capture is skipped
+    finally:
+        SP.unregister("bad")

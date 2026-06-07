@@ -53,6 +53,15 @@ class TasksTab(QWidget):
         hdr.setWordWrap(True)
         layout.addWidget(hdr)
 
+        filt_row = QHBoxLayout()
+        filt_row.addWidget(QLabel("Project:"))
+        self.project_filter = QComboBox()
+        self.project_filter.addItem("All projects")
+        self.project_filter.currentTextChanged.connect(lambda *_: self._refresh())
+        filt_row.addWidget(self.project_filter)
+        filt_row.addStretch()
+        layout.addLayout(filt_row)
+
         self.table = QTableWidget(0, 5)
         self.table.setHorizontalHeaderLabels(["#", "Kind", "Status", "When / Elapsed", "Note"])
         self.table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
@@ -109,6 +118,20 @@ class TasksTab(QWidget):
         except Exception as e:
             log.debug(f"[TASKS] list failed: {e}")
             return
+        # Project filter: repopulate the dropdown from distinct project owners,
+        # then filter the displayed rows. Signals blocked to avoid re-entrancy.
+        projects = sorted({(t.get("meta") or {}).get("project") for t in tasks
+                           if (t.get("meta") or {}).get("project")})
+        sel = self.project_filter.currentText()
+        self.project_filter.blockSignals(True)
+        self.project_filter.clear()
+        self.project_filter.addItems(["All projects"] + projects)
+        idx = self.project_filter.findText(sel)
+        self.project_filter.setCurrentIndex(idx if idx >= 0 else 0)
+        self.project_filter.blockSignals(False)
+        chosen = self.project_filter.currentText()
+        if chosen and chosen != "All projects":
+            tasks = [t for t in tasks if (t.get("meta") or {}).get("project") == chosen]
         keep = self._selected_jid()
         self.table.setRowCount(len(tasks))
         self._rows = []
