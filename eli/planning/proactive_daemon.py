@@ -728,12 +728,38 @@ Date: {datetime.now().strftime("%A %B %d %H:%M")} | Interactions last 24h: {inte
         last_analysis = time.time()
         last_report = datetime.now().date()
         last_news_fetch = 0.0
+        last_autonomy = 0.0
 
         while self.running:
             try:
                 if self.paused:
                     time.sleep(5)
                     continue
+
+                # ── Autonomy / self-awareness tick (every 30 min) ─────────────────
+                # ELI's self-directed loop, finally wired to actually RUN (it was
+                # previously only fired by the Operator Console button): monitor own
+                # code changes, refresh the self-model overlays (self-awareness), and
+                # advance goals → proposals. All governed — approval_engine caps the
+                # controller to observe-only / memory-write, and goal/scheduler ticks
+                # produce PROPOSALS that still need user approval, so nothing
+                # destructive runs unattended. Kill switch: ELI_AUTONOMY_TICK=0.
+                if (time.time() - last_autonomy > 1800
+                        and os.environ.get("ELI_AUTONOMY_TICK", "1").strip().lower()
+                        not in ("0", "false", "no", "off")):
+                    last_autonomy = time.time()
+                    try:
+                        from eli.planning.autonomy_controller import (
+                            safe_tick, safe_goal_tick, safe_scheduler_tick)
+                        _at = safe_tick(reason="proactive_daemon")
+                        _gt = safe_goal_tick(limit=3)
+                        _st = safe_scheduler_tick(limit=3, cooldown_sec=60)
+                        log.debug(
+                            "[PROACTIVE] autonomy tick: code_changed=%s goal_ok=%s sched_ok=%s",
+                            (_at.get("code_monitor") or {}).get("has_changes"),
+                            _gt.get("ok"), _st.get("ok"))
+                    except Exception as _auto_err:
+                        log.debug(f"[PROACTIVE] autonomy tick skipped: {_auto_err}")
 
                 # Run analysis every 10 minutes
                 if time.time() - last_analysis > 600:
