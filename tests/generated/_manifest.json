@@ -1,0 +1,24 @@
+{
+  "updated": "2026-06-07T19:14:29",
+  "entries": [
+    {
+      "qual": "eli.core.model_tier:clear_cache",
+      "file": "tests/generated/test_gen_eli_core_model_tier__clear_cache.py",
+      "passed": 1,
+      "accepted": true,
+      "ts": "2026-06-07T19:14:29"
+    },
+    {
+      "qual": "eli.core.dag:build_dag",
+      "reason": "no tests collected",
+      "accepted": false,
+      "ts": "2026-06-07T19:14:29"
+    },
+    {
+      "qual": "eli.core.model_tier:detect_tier",
+      "reason": "syntax error: invalid syntax (<unknown>, line 16)",
+      "accepted": false,
+      "ts": "2026-06-07T19:14:29"
+    }
+  ]
+}
