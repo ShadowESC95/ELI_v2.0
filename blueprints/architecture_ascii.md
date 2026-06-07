@@ -12,7 +12,7 @@ pipeline/memory/gating close-ups). Every layer and box maps to a real path.
 ╔══════════════════════════════════════════════════════════════════════════════════╗
 ║                            ELI MKXI — FULL ARCHITECTURE                            ║
 ║                100% local  ·  offline-by-default  ·  model-agnostic                ║
-║                       ~127k LOC · 336 files · single process                       ║
+║                      ~128.8k LOC · 343 files · single process                      ║
 ╚══════════════════════════════════════════════════════════════════════════════════╝
 
 ┌─ PRESENTATION ────────────────────────────────────────────────────────────────────┐
@@ -131,7 +131,7 @@ pipeline/memory/gating close-ups). Every layer and box maps to a real path.
 ## C. Module tree (LOC · key files · role)
 
 ```
-eli/  (~127k LOC, 336 files)
+eli/  (~128.8k LOC, 343 files)
 │
 ├── __main__.py ················ entry dispatch (GUI | --headless)
 │
