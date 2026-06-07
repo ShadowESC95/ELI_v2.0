@@ -4500,6 +4500,129 @@ def _eli_self_description_block(limit: int = 2600) -> str:
     return ""
 
 
+def _gather_generation_evidence(topic: str, raw: str = "",
+                                session_id: str = "", user_id: str = "") -> "tuple[str, list]":
+    """Evidence-routing for a generation task (document/script): run the agents
+    that actually gather the RIGHT evidence for the subject, and return
+    (evidence_text, sources). This is the DAG/plan principle applied to
+    generation — the output is grounded in real findings, never the model's
+    generic priors:
+
+      • code / self / "upgrades"  → the self-improvement engine (real failures +
+        pending proposals), a file_code repo scan, and the architecture blueprint.
+      • external factual topic     → a net-gated WEB_SEARCH.
+      • personal / "my …" topic    → targeted memory recall.
+
+    General across all topics; channels combine; every channel is best-effort,
+    bounded, and exception-isolated. Returns ("", []) when nothing is available
+    (the caller then tells the model to stay honest rather than invent).
+    """
+    import re as _re
+    text = f"{topic} {raw}".strip()
+    low = text.lower()
+    blocks: list = []
+    sources: list = []
+
+    self_code = bool(_re.search(
+        r"\b(yourself|your own|your self|\beli\b|upgrade|improve|refactor|optimi[sz]e|"
+        r"your (?:code|architecture|capabilit\w*|design|system|runtime|brain|agents?|memory))\b",
+        low))
+    code_topic = self_code or bool(_re.search(
+        r"\b(code|codebase|module|function|class|repo|repository|pipeline|agent|"
+        r"router|executor|gguf|inference|architecture|subsystem)\b", low))
+    try:
+        from eli.runtime.grounding_escalation import classify_factual
+        _is_fact, _domain = classify_factual(text)
+    except Exception:
+        _is_fact, _domain = False, "none"
+    personal = bool(_re.search(r"\b(my|mine|our|i|me|we)\b", low)) or _domain == "local"
+    # A document/script topic that is neither about ELI's own code nor personal is
+    # an external-world subject → attempt a web lookup. WEB_SEARCH self-gates on the
+    # Net toggle (no-ops offline), so this is safe to always try for such topics.
+    external = (not self_code) and (not code_topic) and (not personal)
+
+    # 1) CODE / SELF — analyse ELI's ACTUAL code + improvement signals + blueprint.
+    if code_topic:
+        try:
+            from eli.runtime.self_improvement import get_self_improvement
+            fails = get_self_improvement().analyze_failures(limit=8, days=21, min_cluster_size=1) or []
+            fl = []
+            for f in fails[:8]:
+                if isinstance(f, dict):
+                    s = str(f.get("summary") or f.get("pattern") or f.get("user_input")
+                            or f.get("error") or "").strip()
+                    if s:
+                        fl.append("  - " + s[:200])
+            if fl:
+                blocks.append("ELI's recent failure / improvement signals (self-improvement engine):\n"
+                              + "\n".join(fl))
+                sources.append("self_improvement.analyze_failures")
+        except Exception:
+            pass
+        try:
+            from eli.memory import get_memory as _gm
+            props = _gm().get_pending_proposals(limit=6) or []
+            pl = [f"  - {str((p or {}).get('title') or (p or {}).get('description') or p)[:180]}"
+                  for p in props]
+            if pl:
+                blocks.append("Pending self-improvement proposals on record:\n" + "\n".join(pl))
+                sources.append("memory.pending_proposals")
+        except Exception:
+            pass
+        try:
+            from eli.cognition.agent_bus import FileCodeAgent
+            # Ensure the repo scanner actually engages: a bare "upgrades for ELI"
+            # topic has no code terms, so its relevance gate would skip. Augment
+            # the scan query with ELI's core subsystem names so it returns real
+            # source from the live codebase (the "actually analyse files" step).
+            _fc_query = text
+            if not _re.search(r"\b(code|module|function|class|agent|router|executor|"
+                              r"memory|pipeline|gguf|inference|orchestrator)\b", low):
+                _fc_query = (text + " agent_bus router executor memory orchestrator "
+                             "reasoning modes gguf inference pipeline")
+            r = FileCodeAgent().run(_fc_query, {"action": "CHAT"}, session_id, user_id)
+            snips = ((getattr(r, "data", None) or {}).get("snippets")) or []
+            if snips:
+                blocks.append("Source-code evidence from a live repo scan (file:line: content):\n"
+                              + "\n".join(str(s) for s in snips[:12]))
+                sources.append("file_code.repo_scan")
+        except Exception:
+            pass
+        _arch = _eli_self_description_block(1800)
+        if _arch:
+            blocks.append("ELI architecture (blueprints/what_eli_is.md):\n" + _arch)
+            sources.append("blueprints/what_eli_is.md")
+
+    # 2) WEB — external factual topic (net-gated inside WEB_SEARCH).
+    if external:
+        try:
+            res = _execute_impl("WEB_SEARCH", {"query": topic})
+            if isinstance(res, dict) and res.get("web_grounded") and res.get("results"):
+                blocks.append(str(res.get("content") or "").strip())
+                sources.append("web_search")
+        except Exception:
+            pass
+
+    # 3) MEMORY — personal / user-history topic.
+    if personal:
+        try:
+            from eli.memory import get_memory as _gm
+            hits = _gm().recall_memory(topic, limit=8) or []
+            ml = []
+            for h in hits[:8]:
+                t = h.get("text") if isinstance(h, dict) else str(h)
+                if t and str(t).strip():
+                    ml.append("  - " + str(t).strip()[:200])
+            if ml:
+                blocks.append("Relevant stored memories:\n" + "\n".join(ml))
+                sources.append("memory.recall")
+        except Exception:
+            pass
+
+    evidence = "\n\n".join(b for b in blocks if b and b.strip()).strip()[:4500]
+    return evidence, sources
+
+
 # ----------------------------
 # Dispatcher
 # ----------------------------
@@ -5588,28 +5711,19 @@ def _execute_impl(action: str, args: Optional[Dict[str, Any]] = None) -> Dict[st
             msg = "Missing topic for document generation"
             return {"ok": False, "action": a, "error": msg, "content": msg, "response": msg}
 
-        # Self-referential documents ("proposals for upgrades for yourself", "your
-        # own architecture") must be grounded in ELI's ACTUAL systems, not written
-        # as generic human advice (user-reported: "upgrades for yourself" produced
-        # a personal-productivity plan — buy a tablet, exercise, work-life balance).
-        # Detect the self-reference, reframe the pronouns so the model writes ABOUT
-        # ELI, and inject a factual self-description as grounding.
-        import re as _selfre
+        # Generation must be GROUNDED in real evidence appropriate to the subject,
+        # not the model's generic priors (user-reported: a doc "with proposals for
+        # upgrades for yourself" came back as human productivity advice because no
+        # agents ran to gather evidence). Run the evidence-routing step — code/file
+        # analysis for a code/self topic, a web lookup for an external fact, memory
+        # recall for a personal one. General across all topics; see
+        # _gather_generation_evidence.
         _raw_doc_text = str(args.get("_raw_user_text") or args.get("raw") or "")
-        _doc_self_ref = bool(_selfre.search(
-            r"\b(yourself|your\s+own|your\s+self|for\s+you|your\s+upgrades|"
-            r"your\s+(?:architecture|code|system|capabilit\w*|design|brain)|\beli'?s?\b)\b",
-            f"{topic} {_raw_doc_text}", _selfre.I))
-        _doc_self_grounding = ""
-        if _doc_self_ref:
-            _doc_self_grounding = _eli_self_description_block()
-            topic = _selfre.sub(r"\byour\s+(?:own\s+)?self\b|\byourself\b", "ELI itself", topic, flags=_selfre.I)
-            topic = _selfre.sub(r"\byour\s+own\b", "ELI's own", topic, flags=_selfre.I)
-            topic = _selfre.sub(r"\bfor\s+you\b", "for ELI", topic, flags=_selfre.I)
-            topic = _selfre.sub(r"\byour\b", "ELI's", topic, flags=_selfre.I)
-            topic = _selfre.sub(r"\s+", " ", topic).strip()
-            if "eli" not in topic.lower():
-                topic = f"ELI (this local AI assistant): {topic}"
+        _doc_evidence, _doc_sources = _gather_generation_evidence(
+            topic, _raw_doc_text,
+            session_id=str(args.get("session_id") or ""),
+            user_id=str(args.get("user_id") or ""),
+        )
 
         fmt = (args.get("format") or "md").lower().strip()
         import os as _os
@@ -5742,18 +5856,26 @@ def _execute_impl(action: str, args: Optional[Dict[str, Any]] = None) -> Dict[st
             "Do not output blank sections, TODOs, placeholders, invented citations, fake file paths, "
             "or promises to expand later. If evidence is missing for a factual claim, mark it [source needed] "
             "or state the assumption explicitly. Every section must carry real content, concrete reasoning, "
-            "and a defensible conclusion."
+            "and a defensible conclusion. "
+            "When EVIDENCE is provided below, tie every section to specific items in it — name the real "
+            "components, findings, files, or results it contains — and do NOT substitute generic domain "
+            "or business-plan filler for what the evidence actually says."
         )
         
         user_prompt = (
             f"Write a complete {doc_type} about: {topic}\n\n"
-            + (f"GROUNDING — this document is about ELI itself. Base every claim and "
-               f"proposal on ELI's ACTUAL architecture described below; name real "
-               f"subsystems (agent bus, reasoning modes, memory stores, vision, "
-               f"netguard, self-improvement, etc.). Do NOT give generic human or "
-               f"personal-productivity advice (no hardware shopping, diet, sleep, "
-               f"work-life balance):\n\n{_doc_self_grounding}\n\n"
-               if _doc_self_grounding else "")
+            + (("EVIDENCE — gathered by ELI's own agents for THIS task"
+                + (f" (sources: {', '.join(_doc_sources)})" if _doc_sources else "")
+                + ". Ground every claim and proposal in the specifics below; refer to "
+                "them directly (real subsystems, real findings, real results). Do NOT "
+                "pad with generic advice. Where the evidence is thin for a point, say so "
+                "honestly rather than inventing:\n\n"
+                f"{_doc_evidence}\n\n")
+               if _doc_evidence else
+               ("No external evidence could be gathered for this topic (e.g. the network "
+                "is off, or nothing relevant is on file). Rely only on well-established "
+                "knowledge, state assumptions explicitly, and do not fabricate specifics, "
+                "citations, or file paths.\n\n"))
             + "Acceptance criteria:\n"
             "- The result is a usable document, not a template.\n"
             "- The opening states the purpose and scope.\n"
