@@ -6049,6 +6049,13 @@ def _execute_impl(action: str, args: Optional[Dict[str, Any]] = None) -> Dict[st
                 lines.append("Failing tests (possible errors):")
                 for f in res["failures"][:10]:
                     lines.append(f"  - {f['node']}: {(f.get('message') or '')[:120]}")
+            fa = res.get("fix_analysis") or {}
+            if fa.get("proposals"):
+                lines.append("Concrete issues found in failing modules (code examiner):")
+                for p in fa["proposals"][:5]:
+                    for fn in (p.get("findings") or [])[:3]:
+                        loc = f":{fn.get('line')}" if fn.get("line") else ""
+                        lines.append(f"  - {p['module']}{loc} [{fn.get('kind')}] {fn.get('message')}")
             if res.get("error_file"):
                 lines.append(f"Errors written to: {res['error_file']}")
             if res.get("backup_path"):
