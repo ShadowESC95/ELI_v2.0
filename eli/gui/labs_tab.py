@@ -4554,6 +4554,12 @@ class _WorkspacesTab(QWidget):
         self._ws_tasks_label = QLabel("Background tasks: —")
         self._ws_tasks_label.setStyleSheet("color:#88c0d0;")
         rv.addWidget(self._ws_tasks_label)
+        self._ws_mem_label = QLabel("Project memories: —")
+        self._ws_mem_label.setStyleSheet("color:#a3be8c;")
+        rv.addWidget(self._ws_mem_label)
+        self._ws_active_label = QLabel("")
+        self._ws_active_label.setStyleSheet("color:#ebcb8b;font-weight:bold;")
+        rv.addWidget(self._ws_active_label)
 
         rv.addWidget(QLabel("Notes / context:"))
         self._ws_notes = QTextEdit()
@@ -4569,6 +4575,18 @@ class _WorkspacesTab(QWidget):
         open_btn.clicked.connect(self._open_project)
         save_row.addWidget(open_btn)
         rv.addLayout(save_row)
+
+        active_row = QHBoxLayout()
+        self._set_active_btn = QPushButton("🎯 Set Active")
+        self._set_active_btn.setToolTip(
+            "Make this the active project: new overnight tasks and new memories are "
+            "owned/tagged by it until you clear it.")
+        self._set_active_btn.clicked.connect(self._set_active)
+        active_row.addWidget(self._set_active_btn)
+        clear_active_btn = QPushButton("Clear active")
+        clear_active_btn.clicked.connect(self._clear_active)
+        active_row.addWidget(clear_active_btn)
+        rv.addLayout(active_row)
 
         self._activate_log = QTextEdit()
         self._activate_log.setReadOnly(True)
@@ -4599,6 +4617,52 @@ class _WorkspacesTab(QWidget):
         self._ws_tasks_label.setText(
             f"Background tasks: {len(owned)}" + (
                 "  (" + ", ".join(f"#{t['id']}:{t['status']}" for t in owned[:5]) + ")" if owned else " (none)"))
+        # project memories (by tag) + active state
+        tag = self._ws_memtag.text().strip() or f"project.{name.lower().replace(' ', '_')}"
+        self._ws_mem_label.setText(f"Project memories: {len(self._project_memories(tag))}")
+        self._refresh_active_label(name)
+
+    def _project_memories(self, tag: str):
+        try:
+            from eli.memory import get_memory
+            return get_memory().get_memories_by_tag(tag, limit=200)
+        except Exception:
+            return []
+
+    def _refresh_active_label(self, name: str):
+        try:
+            from eli.runtime.active_project import active_name
+            cur = active_name()
+        except Exception:
+            cur = ""
+        if cur and cur == name:
+            self._ws_active_label.setText("● ACTIVE — new tasks & memories belong to this project")
+            self._set_active_btn.setText("✓ Active")
+        else:
+            self._ws_active_label.setText(f"Active project: {cur}" if cur else "No active project")
+            self._set_active_btn.setText("🎯 Set Active")
+
+    def _set_active(self):
+        item = self._ws_list.currentItem()
+        if not item:
+            return
+        name = item.text()
+        tag = self._ws_memtag.text().strip() or f"project.{name.lower().replace(' ', '_')}"
+        try:
+            from eli.runtime.active_project import set_active
+            set_active(name, tag)
+        except Exception as ex:
+            log.debug(f"[Projects] set_active failed: {ex}")
+        self._refresh_active_label(name)
+
+    def _clear_active(self):
+        try:
+            from eli.runtime.active_project import clear_active
+            clear_active()
+        except Exception:
+            pass
+        item = self._ws_list.currentItem()
+        self._refresh_active_label(item.text() if item else "")
 
     def _owned_tasks(self, name: str):
         try:
