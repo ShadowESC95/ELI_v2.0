@@ -84,3 +84,14 @@ def test_schedule_task_action_schedules(monkeypatch):
     job = get_background_tasks().get(r["job_id"])
     assert job["status"] == "scheduled"
     get_background_tasks().cancel(r["job_id"])  # cleanup
+
+
+def test_schedule_request_stores_meta_for_edit():
+    from eli.runtime.scheduled_tasks import schedule_request
+    from eli.runtime.background_tasks import get_background_tasks
+    r = schedule_request("research batteries in 999 minutes", when_spec="in 999 minutes", kind="research")
+    d = get_background_tasks().get(r["job_id"])
+    assert d["meta"]["request"] == "research batteries in 999 minutes"
+    assert d["meta"]["when_spec"] == "in 999 minutes"
+    assert d["meta"]["kind"] == "research"
+    get_background_tasks().cancel(r["job_id"])

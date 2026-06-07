@@ -40,6 +40,7 @@ class Task:
     note: str = ""                  # short human summary set by the task or on completion
     kind: str = "task"              # task | code | research | self_upgrade | reflection | action
     scheduled_for: Optional[float] = None  # unix ts when a scheduled task fires
+    meta: Dict[str, Any] = field(default_factory=dict)  # display/edit metadata (request, when_spec…)
 
     def elapsed(self) -> float:
         end = self.finished or time.time()
@@ -49,7 +50,7 @@ class Task:
     def to_dict(self, *, include_result: bool = False) -> Dict[str, Any]:
         d = {
             "id": self.id, "name": self.name, "status": self.status,
-            "kind": self.kind, "created": self.created,
+            "kind": self.kind, "created": self.created, "meta": dict(self.meta or {}),
             "elapsed_s": round(self.elapsed(), 2),
             "scheduled_for": self.scheduled_for,
             "note": self.note, "error": self.error[:500],
@@ -102,12 +103,12 @@ class BackgroundTasks:
 
     def submit(self, name: str, fn: Callable[..., Any], *args,
                on_done: Optional[Callable[[Task], None]] = None,
-               kind: str = "task", **kwargs) -> int:
+               kind: str = "task", meta: Optional[Dict[str, Any]] = None, **kwargs) -> int:
         """Schedule `fn(*args, **kwargs)` on a background thread NOW. Returns a job id."""
         with self._lock:
             self._counter += 1
             jid = self._counter
-            self._tasks[jid] = Task(id=jid, name=str(name)[:120], kind=kind)
+            self._tasks[jid] = Task(id=jid, name=str(name)[:120], kind=kind, meta=dict(meta or {}))
         fut = self._pool.submit(self._execute, jid, name, fn, args, kwargs, on_done)
         with self._lock:
             self._futures[jid] = fut
@@ -116,7 +117,7 @@ class BackgroundTasks:
     def schedule(self, name: str, fn: Callable[..., Any], *args,
                  when: Optional[float] = None, delay: Optional[float] = None,
                  kind: str = "task", on_done: Optional[Callable[[Task], None]] = None,
-                 **kwargs) -> int:
+                 meta: Optional[Dict[str, Any]] = None, **kwargs) -> int:
         """Schedule `fn` to run at unix time `when` (or after `delay` seconds) — e.g.
         an overnight job. Shows as 'scheduled' until its time, then runs like submit().
         Returns a job id. (In-process: requires ELI to be running at the fire time;
@@ -127,7 +128,8 @@ class BackgroundTasks:
             self._counter += 1
             jid = self._counter
             self._tasks[jid] = Task(id=jid, name=str(name)[:120], kind=kind,
-                                    status="scheduled", scheduled_for=fire_at)
+                                    status="scheduled", scheduled_for=fire_at,
+                                    meta=dict(meta or {}))
 
         def _fire():
             with self._lock:

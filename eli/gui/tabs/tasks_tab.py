@@ -17,6 +17,7 @@ from datetime import datetime
 from eli.gui.panels._qt import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton, QTableWidget,
     QTableWidgetItem, QTextEdit, QAbstractItemView, QHeaderView, QTimer, Qt,
+    QDialog, QFormLayout, QLineEdit, QComboBox, QMessageBox,
 )
 from eli.utils.log import get_logger
 
@@ -66,6 +67,14 @@ class TasksTab(QWidget):
         layout.addWidget(self.result, stretch=2)
 
         btn_row = QHBoxLayout()
+        add_btn = QPushButton("➕ Add task")
+        add_btn.setToolTip("Schedule an overnight/timed task (same as saying it in chat).")
+        add_btn.clicked.connect(self._add_task)
+        btn_row.addWidget(add_btn)
+        self.edit_btn = QPushButton("✏️ Edit / reschedule")
+        self.edit_btn.setToolTip("Change the request or time of a selected SCHEDULED task.")
+        self.edit_btn.clicked.connect(self._edit_task)
+        btn_row.addWidget(self.edit_btn)
         refresh_btn = QPushButton("🔄 Refresh")
         refresh_btn.clicked.connect(self._refresh)
         btn_row.addWidget(refresh_btn)
@@ -153,6 +162,75 @@ class TasksTab(QWidget):
             return
         ok = bt.cancel(jid)
         self.result.setPlainText(f"Cancel job #{jid}: {'cancelled' if ok else 'could not cancel (already running/finished)'}")
+        self._refresh()
+
+    # ── add / edit (Habits-style CRUD) ───────────────────────────────────────
+    def _task_dialog(self, title: str, request: str = "", when: str = "overnight",
+                     kind: str = "auto"):
+        """Modal for a scheduled task. Returns (request, when, kind) or None."""
+        dlg = QDialog(self)
+        dlg.setWindowTitle(title)
+        form = QFormLayout(dlg)
+        req_edit = QLineEdit(request)
+        req_edit.setPlaceholderText("e.g. research a new battery chemistry")
+        when_edit = QLineEdit(when)
+        when_edit.setPlaceholderText("overnight · tonight · at 2am · in 3 hours · tomorrow")
+        kind_combo = QComboBox()
+        kind_combo.addItems(["auto", "research", "code", "self_upgrade", "reflection"])
+        kind_combo.setCurrentText(kind if kind in ("auto", "research", "code", "self_upgrade", "reflection") else "auto")
+        form.addRow("Task:", req_edit)
+        form.addRow("When:", when_edit)
+        form.addRow("Kind:", kind_combo)
+        btns = QHBoxLayout()
+        ok = QPushButton("Schedule"); cancel = QPushButton("Cancel")
+        ok.clicked.connect(dlg.accept); cancel.clicked.connect(dlg.reject)
+        btns.addStretch(); btns.addWidget(cancel); btns.addWidget(ok)
+        form.addRow(btns)
+        if dlg.exec() != QDialog.DialogCode.Accepted:
+            return None
+        r = req_edit.text().strip()
+        if not r:
+            QMessageBox.warning(self, "Task", "A task description is required.")
+            return None
+        return r, when_edit.text().strip() or "overnight", kind_combo.currentText()
+
+    def _schedule(self, request: str, when: str, kind: str):
+        from eli.runtime.scheduled_tasks import schedule_request
+        return schedule_request(request, when_spec=when, kind=(None if kind == "auto" else kind))
+
+    def _add_task(self):
+        vals = self._task_dialog("Add scheduled task")
+        if not vals:
+            return
+        r = self._schedule(*vals)
+        if r.get("ok"):
+            self.result.setPlainText(f"Scheduled job #{r['job_id']} ({r['kind']}) for {r['when_human']}.")
+        else:
+            QMessageBox.warning(self, "Task", f"Couldn't schedule: {r.get('error')}")
+        self._refresh()
+
+    def _edit_task(self):
+        jid = self._selected_jid()
+        bt = self._bt()
+        if jid is None or bt is None:
+            return
+        d = bt.get(jid) or {}
+        if d.get("status") != "scheduled":
+            QMessageBox.information(self, "Edit", "Only a SCHEDULED task can be edited/rescheduled.")
+            return
+        meta = d.get("meta") or {}
+        vals = self._task_dialog("Edit / reschedule task",
+                                 request=str(meta.get("request") or ""),
+                                 when=str(meta.get("when_spec") or "overnight"),
+                                 kind=str(meta.get("kind") or "auto"))
+        if not vals:
+            return
+        bt.cancel(jid)                  # un-arm the old timer
+        r = self._schedule(*vals)       # re-create at the new time
+        if r.get("ok"):
+            self.result.setPlainText(f"Rescheduled → job #{r['job_id']} ({r['kind']}) for {r['when_human']}.")
+        else:
+            QMessageBox.warning(self, "Task", f"Couldn't reschedule: {r.get('error')}")
         self._refresh()
 
 
