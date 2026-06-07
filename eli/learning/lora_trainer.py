@@ -370,6 +370,38 @@ def _load_model_config(base_model_path: Path):
 
 
 
+# LoRA target-module names across common causal-LM architectures (phi/llama/qwen/
+# mistral/gptneox/falcon/gpt2). Used to derive target_modules from whatever base is
+# loaded — NEVER hardcode one architecture (model-agnostic).
+_LORA_PROJ_LEAVES = {
+    "qkv_proj", "q_proj", "k_proj", "v_proj", "o_proj", "out_proj",
+    "gate_proj", "up_proj", "down_proj", "wqkv", "w1", "w2", "w3",
+    "c_attn", "c_proj", "c_fc", "query_key_value", "dense_h_to_4h",
+    "dense_4h_to_h", "fc_in", "fc_out", "Wqkv",
+}
+
+
+def _resolve_target_modules(model: Any, adapter_cfg: dict[str, Any]) -> Any:
+    """Derive LoRA target modules from the LOADED model's architecture instead of
+    hardcoding phi-3's ``qkv_proj``. Honours an explicit adapter_config override;
+    otherwise scans the model for known projection Linear leaves; falls back to
+    PEFT's architecture-agnostic ``"all-linear"``."""
+    explicit = adapter_cfg.get("target_modules")
+    if explicit:
+        return list(explicit)
+    found: set[str] = set()
+    try:
+        import torch.nn as nn
+        for name, mod in model.named_modules():
+            if isinstance(mod, nn.Linear):
+                leaf = name.split(".")[-1]
+                if leaf in _LORA_PROJ_LEAVES:
+                    found.add(leaf)
+    except Exception:
+        pass
+    return sorted(found) if found else "all-linear"
+
+
 def _peft_trainable_parameter_report(model: Any) -> dict[str, Any]:
     """
     Return PEFT trainable parameter counts without relying on
@@ -483,7 +515,9 @@ def run_training(job: dict[str, Any]) -> dict[str, Any]:
         model.gradient_checkpointing_enable()
 
     adapter_cfg = job.get("adapter_config") or {}
-    target_modules = adapter_cfg.get("target_modules") or ["qkv_proj"]
+    # Model-agnostic: derive target modules from the loaded architecture instead of
+    # the previous phi-3-only hardcoded default.
+    target_modules = _resolve_target_modules(model, adapter_cfg)
 
     lora_config = LoraConfig(
         r=int(adapter_cfg.get("r", 4)),
@@ -491,7 +525,7 @@ def run_training(job: dict[str, Any]) -> dict[str, Any]:
         lora_dropout=float(adapter_cfg.get("lora_dropout", 0.0)),
         bias=str(adapter_cfg.get("bias", "none")),
         task_type="CAUSAL_LM",
-        target_modules=list(target_modules),
+        target_modules=target_modules if isinstance(target_modules, str) else list(target_modules),
     )
 
     model = get_peft_model(model, lora_config)
