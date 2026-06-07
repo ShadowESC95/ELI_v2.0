@@ -85,14 +85,12 @@ _ACCEPTABLE = {
     "LIST_NOTES": {"LIST_DIR"},
 }
 
-# genuine routing gaps surfaced by this examination (keyword captured as app/recall);
-# recorded as known, non-blocking — fixing them would flip these to xpass.
+# genuine routing gaps surfaced by this examination (keyword captured elsewhere);
+# recorded as known, non-blocking. SELF_TEST / SELF_ANALYZE / PROACTIVE_* /
+# EXECUTE_GOAL were fixed (self_improvement guard matchers); MOUSE_CONTROL stays a
+# gap on purpose — bare "left click" is wired to GAZE_CLICK (gaze-cursor design).
 _KNOWN_GAPS = {
-    "SELF_TEST": "routes to OPEN_APP ('self test' captured as an app name)",
-    "SELF_ANALYZE": "routes to MEMORY_RECALL instead of self-analysis",
-    "PROACTIVE_START": "routes to OPEN_APP ('proactive mode' captured as an app name)",
-    "EXECUTE_GOAL": "routes to SHELL_EXEC ('execute …' captured as shell)",
-    "MOUSE_CONTROL": "bare 'left click' → GAZE_CLICK/CHAT without explicit mouse verb",
+    "MOUSE_CONTROL": "bare 'left click' → GAZE_CLICK by design (gaze cursor)",
 }
 
 _SMART = str.maketrans({"“": "", "”": "", "‘": "", "’": "'"})

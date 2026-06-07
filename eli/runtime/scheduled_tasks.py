@@ -121,6 +121,9 @@ def parse_when(text: str) -> float:
 # ── Kind inference ───────────────────────────────────────────────────────────
 def infer_kind(request: str) -> str:
     r = (request or "").lower()
+    if re.search(r"\b(engine[- ]?eval|run (?:the )?eval|evaluate yourself|eval (?:harness|board)|"
+                 r"run (?:the )?test suite|run (?:your|the) tests|self[- ]?test report)\b", r):
+        return "eval"
     if re.search(r"\b(self[- ]?upgrade|update yourself|upgrade yourself)\b", r):
         return "self_upgrade"
     if re.search(r"\b(reflect|reflection|review (?:my|the) (?:day|session))\b", r):
@@ -169,11 +172,47 @@ def _worker_reflection(request: str):
         return {"ok": False, "error": f"reflection failed: {e}"}
 
 
+def _worker_eval(request: str):
+    """Overnight engine eval + full test report → populate the boards.
+    Runs the model-backed engine eval cases and the test-report generator, writing
+    artifacts/eval/engine_eval_results.json and artifacts/test_report.md."""
+    import subprocess
+    import sys as _sys
+    from pathlib import Path as _P
+    repo = _P(__file__).resolve().parents[2]
+    out = {"ok": True}
+    try:
+        evdir = repo / "artifacts" / "eval"
+        evdir.mkdir(parents=True, exist_ok=True)
+        res_json = evdir / "engine_eval_results.json"
+        r = subprocess.run(
+            [_sys.executable, "tools/eval/run_eval.py", "--target", "engine",
+             "--json", str(res_json)],
+            cwd=str(repo), capture_output=True, text=True, timeout=3600)
+        out["engine_eval"] = (r.stdout or r.stderr or "")[-1200:]
+        out["engine_results_path"] = str(res_json)
+        out["engine_ok"] = (r.returncode == 0)
+    except Exception as e:
+        out["ok"] = False
+        out["engine_error"] = str(e)
+    try:
+        # full test report (writes artifacts/test_report.md via the conftest hook)
+        tr = subprocess.run(
+            [_sys.executable, "tools/run_test_report.py", "tests/"],
+            cwd=str(repo), capture_output=True, text=True, timeout=3600)
+        out["test_report"] = (tr.stdout or "")[-600:]
+        out["test_report_path"] = str(repo / "artifacts" / "test_report.md")
+    except Exception as e:
+        out["test_report_error"] = str(e)
+    return out
+
+
 _WORKERS = {
     "code": _worker_code,
     "research": _worker_research,
     "self_upgrade": _worker_self_upgrade,
     "reflection": _worker_reflection,
+    "eval": _worker_eval,
 }
 
 
@@ -190,6 +229,9 @@ def _result_preview(kind: str, res: Any) -> str:
         return str(res.get("report") or "")[:600]
     if kind == "reflection":
         return str(res.get("reflection") or "")[:600]
+    if kind == "eval":
+        return (f"engine eval {'ok' if res.get('engine_ok') else 'ran'}; "
+                f"{str(res.get('test_report') or '').strip()[:300]}")
     return str(res)[:300]
 
 
