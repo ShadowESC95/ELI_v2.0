@@ -4480,6 +4480,26 @@ def _save_artifact(content: str, subdir: str, filename: str, fmt: str = "md") ->
     return str(out_path)
 
 
+def _eli_self_description_block(limit: int = 2600) -> str:
+    """Return a bounded, factual self-description of ELI for grounding documents
+    that are ABOUT ELI itself ("propose upgrades for yourself"). Sourced from the
+    repo's own blueprints (real, code-traceable) so a self-referential document is
+    grounded in ELI's ACTUAL architecture instead of a hallucinated generic plan.
+    Best-effort: returns "" if no blueprint is available (caller degrades)."""
+    try:
+        from pathlib import Path as _P
+        root = _P(__file__).resolve().parents[2]
+        for rel in ("blueprints/what_eli_is.md", "blueprints/capability_catalogue.md"):
+            fp = root / rel
+            if fp.is_file():
+                txt = fp.read_text(encoding="utf-8", errors="ignore").strip()
+                if txt:
+                    return txt[:limit].rstrip() + ("\n…" if len(txt) > limit else "")
+    except Exception:
+        pass
+    return ""
+
+
 # ----------------------------
 # Dispatcher
 # ----------------------------
@@ -5567,7 +5587,30 @@ def _execute_impl(action: str, args: Optional[Dict[str, Any]] = None) -> Dict[st
         if not topic:
             msg = "Missing topic for document generation"
             return {"ok": False, "action": a, "error": msg, "content": msg, "response": msg}
-        
+
+        # Self-referential documents ("proposals for upgrades for yourself", "your
+        # own architecture") must be grounded in ELI's ACTUAL systems, not written
+        # as generic human advice (user-reported: "upgrades for yourself" produced
+        # a personal-productivity plan — buy a tablet, exercise, work-life balance).
+        # Detect the self-reference, reframe the pronouns so the model writes ABOUT
+        # ELI, and inject a factual self-description as grounding.
+        import re as _selfre
+        _raw_doc_text = str(args.get("_raw_user_text") or args.get("raw") or "")
+        _doc_self_ref = bool(_selfre.search(
+            r"\b(yourself|your\s+own|your\s+self|for\s+you|your\s+upgrades|"
+            r"your\s+(?:architecture|code|system|capabilit\w*|design|brain)|\beli'?s?\b)\b",
+            f"{topic} {_raw_doc_text}", _selfre.I))
+        _doc_self_grounding = ""
+        if _doc_self_ref:
+            _doc_self_grounding = _eli_self_description_block()
+            topic = _selfre.sub(r"\byour\s+(?:own\s+)?self\b|\byourself\b", "ELI itself", topic, flags=_selfre.I)
+            topic = _selfre.sub(r"\byour\s+own\b", "ELI's own", topic, flags=_selfre.I)
+            topic = _selfre.sub(r"\bfor\s+you\b", "for ELI", topic, flags=_selfre.I)
+            topic = _selfre.sub(r"\byour\b", "ELI's", topic, flags=_selfre.I)
+            topic = _selfre.sub(r"\s+", " ", topic).strip()
+            if "eli" not in topic.lower():
+                topic = f"ELI (this local AI assistant): {topic}"
+
         fmt = (args.get("format") or "md").lower().strip()
         import os as _os
         if _os.environ.get("ELI_TEST_MODE", "").strip().lower() in {"1", "true", "yes", "on"}:
@@ -5704,7 +5747,14 @@ def _execute_impl(action: str, args: Optional[Dict[str, Any]] = None) -> Dict[st
         
         user_prompt = (
             f"Write a complete {doc_type} about: {topic}\n\n"
-            "Acceptance criteria:\n"
+            + (f"GROUNDING — this document is about ELI itself. Base every claim and "
+               f"proposal on ELI's ACTUAL architecture described below; name real "
+               f"subsystems (agent bus, reasoning modes, memory stores, vision, "
+               f"netguard, self-improvement, etc.). Do NOT give generic human or "
+               f"personal-productivity advice (no hardware shopping, diet, sleep, "
+               f"work-life balance):\n\n{_doc_self_grounding}\n\n"
+               if _doc_self_grounding else "")
+            + "Acceptance criteria:\n"
             "- The result is a usable document, not a template.\n"
             "- The opening states the purpose and scope.\n"
             "- The body develops the topic with specific claims, caveats, and implications.\n"

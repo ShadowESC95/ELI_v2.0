@@ -3103,11 +3103,20 @@ def route(text: str) -> Dict[str, Any]:
                    matched_by="notes.add", entities={"text": note_text})
 
     if "generate" in low and "document" in low and not _GENERATION_COMPLAINT:
+        # Strip the command framing, then peel any stacked leading connectives
+        # ("a document with proposals…" → "proposals…"). Collapse whitespace so a
+        # removed mid-word doesn't leave gaps or a leaked "with"/"for" in the topic
+        # (user-reported: filename "with_proposals_for_upgrades_for_yourself.md").
+        topic = re.sub(r'\b(generate|create|write|make|draft|produce|prepare)\b', ' ', low)
+        topic = re.sub(r'\bdocuments?\b', ' ', topic)
+        topic = re.sub(r'\s+', ' ', topic).strip()
         topic = re.sub(
-            r'\b(generate|create|write|document|about|on|a|the)\b',
-            '',
-            low).strip()
-        return _mk("GENERATE_DOCUMENT", {"topic": topic or raw, "use_advanced_generator": True, "use_gguf_only": True,
+            r'^(?:(?:a|an|the|with|about|on|of|for|regarding|covering|containing|'
+            r'detailing|outlining|me|please)\s+)+', '', topic).strip()
+        # keep the user's own pronouns ("yourself") so the executor can detect a
+        # self-referential document and ground it in ELI's real architecture.
+        return _mk("GENERATE_DOCUMENT", {"topic": topic or raw, "_raw_user_text": raw,
+                   "use_advanced_generator": True, "use_gguf_only": True,
                    "forbid_ollama": True}, 0.95, matched_by="doc.generate_generic", entities={"topic": topic or raw})
 
     m = re.search(
