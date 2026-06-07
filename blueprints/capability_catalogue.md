@@ -532,3 +532,15 @@ deduped, 1 in-flight, 10-min cooldown). Toggle: `cog.background_deepen` /
 - Batches 1–4 done — COMPLETE module-level catalogue of all packages (actions + runtime + cognition + kernel/core/memory/perception/planning/coding/learning/contracts/integrations/world/gui/plugins). Honest limit: the three giant single files (engine 12.5k, executor 13.3k, GUI 10.7k) are documented at structural + behavioural level, not literally line-by-line — that residue is the only part not fully internalised, then the remaining
   unread bodies (GUI, full `gguf_inference`, `persona_updater`, `profile_extractor`,
   the learning trainer internals, the world renderers, every plugin's logic).
+
+---
+
+## Update Advisory — 2026-06-07 (continued)
+- **New generation/grounding modules:** `runtime/evidence_planner.py` (hybrid
+  plan→gather→consume: code/web/memory/runtime channels), `runtime/report_pipeline.py`
+  (multi-stage grounded documents). Wired into GENERATE_DOCUMENT/SCRIPT/PROJECT.
+- **Autonomy:** `autonomy_controller` ticks (safe_tick/safe_goal_tick/safe_scheduler_tick)
+  now run on a governed 30-min beat inside the proactive daemon (were manual-only).
+- **IntrospectionBusAgent** gathers identity/awareness audits as evidence (summarised, not dumped).
+- **GUI:** 12 main tabs (Report Builder promoted); Files-tab converter.
+- Full per-action reference (with activation phrases): `capabilities_and_actions.md`.

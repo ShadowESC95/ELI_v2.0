@@ -6,7 +6,7 @@ is observed-at-runtime rather than read-from-code it is marked *(runtime)*.
 
 > ELI is a **100% local, offline-by-default, model-agnostic** cognitive runtime
 > + assistant GUI. No cloud, no APIs on the inference path, no hardcoded model.
-> ~127k LOC across 336 Python files.
+> ~128.8k LOC across 343 Python files.
 
 ---
 
@@ -46,7 +46,7 @@ is observed-at-runtime rather than read-from-code it is marked *(runtime)*.
 | `eli/contracts` | 0.7k | typed pipeline contracts |
 | `eli/system` | 0.3k | system-level helpers |
 | `eli/cli` | 0.1k | headless REPL |
-| **total** | **~127k** | **336 files** |
+| **total** | **~128.8k** | **343 files** |
 
 ### The four god-files (refactor targets — see §20)
 | File | LOC |
@@ -446,3 +446,14 @@ voices/  Piper ONNX
 - Governance: `cognition/output_governor.py` is now the single canonical text-governance home (`response_governance.py`, `response_sanitizer.py` are re-export shims).
 - Memory: `failures` now live in ONE store (`agent.sqlite3`) — the executor's user-DB dual-write was removed.
 - New: `core/cognition_tunables.py` (user-tunable knowledge-gathering limits + synthesis prompt cap), surfaced in the GUI.
+
+## Update Advisory — 2026-06-07 (continued)
+- LOC/file map refreshed to **~128.8k / 343**. Capability surface: **194 manifest**
+  (155 SUPPORTED_ACTIONS, 164 routable, 13 plugin-backed).
+- **Generation is now grounded + multi-stage:** `runtime/evidence_planner.py`
+  (plan→gather→consume via code/web/memory/runtime agents) + `runtime/report_pipeline.py`
+  (outline→sections→review→revise), wired into doc/script/project generation with a
+  confidence-driven deeper-tier re-gather. See `grounding_and_evidence.md`.
+- **Autonomy/self-awareness tick** wired into the proactive daemon (governed, 30-min).
+- **GUI:** 12 main tabs (Report Builder promoted out of Labs); Files-tab document converter.
+- **Tests green** (2356 passed).

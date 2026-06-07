@@ -43,9 +43,10 @@ are really application logic, not just UI:
 
 ## Labs workspace (`labs_tab.py`)
 
-A 5.1k-line "scientific workspace" tab: Notebook, Conversations viewer, ELI
-Memory viewer, Jupyter, Calculator, Physics constants, Report generator, File
-Chat, Workspaces, Sim/IDE. This is the research-bench surface (reflects the
+A 5.1k-line "scientific workspace" tab with **8 sub-tabs**: Notebook, Memory &
+Conversations, Jupyter, Calculator, Physics constants, File Chat, Workspaces,
+Sim/IDE. (The Report Builder was promoted out of Labs to its own main tab — see
+the 2026-06-07 advisory.) This is the research-bench surface (reflects the
 author's physics/engineering work — see memories on QMSH / Ξ-χ physics).
 
 ## Other surfaces
@@ -92,3 +93,20 @@ author's physics/engineering work — see memories on QMSH / Ξ-χ physics).
 ## Update Advisory — 2026-06-07
 - **New ‘🧠 Cognition’ tab** in Advanced Settings (`panels/settings.py`): auto-rendered from `core/cognition_tunables.py`, exposes every knowledge-gathering limit + the synthesis prompt cap as spinboxes with tooltips, Apply + Reset; changes take effect next message.
 - **Folder drag-drop fix:** dropping a directory into chat now inserts the BARE path (so the router can list/analyse it) instead of a `[File: …]` wrapper it then failed to read; files keep inline-content behaviour.
+
+---
+
+## Update Advisory — 2026-06-07 (tabs + convert)
+- **12 main tabs** now (was 11): Chat, Proactive, Images, Quick Actions, Screen,
+  Files, Labs, Coding, Tasks, **Report Builder**, Eli's World, Settings. Built in
+  `eli_pro_audio_gui_MKI.py` init (~L3444). (`create_*_tab` method names over-count:
+  Habits/Self-Improve/IDE are folded in; Experimental removed → gaze is a Settings toggle.)
+- **Report Builder promoted** from a Labs sub-tab to a top-level main tab
+  (`create_report_builder_tab()` instantiates `_ReportTab` from `labs_tab.py`,
+  `eli_callback=_engine_ask`). Labs: 9 → **8** sub-tabs.
+- **Sub-tabs:** Proactive → 6 (Suggestions, Summaries, Insights, Habits, Self-Improve,
+  Memory); Labs → 8 (above); Settings → 5 (Agents, Models, Cognition, Plugins, Self-Upgrade).
+- **Files tab** gained a **Convert Document** control (`_convert_selected_file`):
+  select a file → format (PDF, PDF-LuaLaTeX, .docx, .doc, .odt, .rtf, HTML, .md,
+  .tex, EPUB, .txt) → `CONVERT_DOCUMENT` (pandoc + LibreOffice fallback).
+- **Tasks tab** (`gui/tabs/tasks_tab.py`) lists scheduled/overnight/background jobs.

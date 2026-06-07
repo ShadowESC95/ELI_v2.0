@@ -124,3 +124,30 @@ recoverable instead of dead ends.
 - **Governance consolidated:** `output_governor.py` is now canonical; `response_governance.py` + `response_sanitizer.py` are shims. The `normalize_response` signature collision (two modules, swapped args) is fixed — the GGUF-artifact cleaner is now `clean_gguf_artifacts(response, user_input)`, distinct from the governor's `normalize_response(user_input, text)`; the engine's defensive try/except-TypeError was removed.
 - **Gate cleanup (verified):** the v9–v14 `render_action` layers are an ACTIVE delegation chain (the policy engine delegates through them), NOT dead code. One genuinely-orphaned fragment (`_eli_v14_render_action_legacy`, never installed) was removed (−45 lines), proven safe with a regression oracle (78 action×mode×input cells byte-identical; only RUNTIME_AUDIT differed — and it differs without the edit too, being live GPU/timestamp data). The full 7-layer flatten is deliberately NOT done (risky, readability-only).
 - **Runtime audit** now includes LIVE health probes (plugin_manager, memory, agent_bus, habit_integrity, recent_failures) so RUNTIME_AUDIT catches method-level faults + data corruption + logged failures, not just static source issues.
+
+---
+
+## Update Advisory — 2026-06-07 (evidence-routing + generation grounding)
+- **Evidence planner** (`runtime/evidence_planner.py`) — the gather-before-generate
+  step for generative tasks. `plan_channels()` is hybrid: a deterministic signal
+  floor ∪ a model proposal (model only in non-quick modes) over a fixed set of REAL
+  sources — `code` (code_examiner tier-1/2 always, tier-3 LLM review in deep modes
+  + file_code scan + self_improvement signals + blueprint), `web` (net-gated
+  WEB_SEARCH), `memory` (recall), `runtime` (RUNTIME_STATUS). `gather()` runs the
+  real tool per channel; bounded, exception-isolated; kill switch
+  `ELI_EVIDENCE_PLANNER=0`. A central hook at the top of `_execute_impl` attaches
+  the evidence to every `_GENERATIVE_EVIDENCE_ACTIONS` call (docs/scripts/projects).
+- **Multi-stage document pipeline** (`runtime/report_pipeline.py`) — chat
+  "generate a document" runs PLAN (gather→outline) → DRAFT sections → REVIEW→REVISE,
+  grounded in the gathered evidence. Confidence retries: a degenerate/short stage
+  retries once; THIN evidence triggers a deeper re-gather across more agent tiers
+  (`tree_of_thoughts`) before drafting. Single-pass is the fallback; kill switch
+  `ELI_DOC_PIPELINE=0`.
+- **Confidence → tiers (existing, reaffirmed):** `grounding_escalation.py` already
+  escalates the reasoning-mode tier one step per iteration and scales the gather for
+  low-grounding CHAT turns; EXTERNAL facts hit web→hedge in every mode, LOCAL facts
+  in quick defer to async background-deepening.
+- **Introspection gather-then-summarise:** identity/awareness queries
+  ("audit your identity", "what are you aware of") now have the IntrospectionBusAgent
+  RUN the grounded action (ELI_IDENTITY_AUDIT / AWARENESS_STATUS) and return it as
+  EVIDENCE — the persona summarises it, never a verbatim data dump, never from weights.
