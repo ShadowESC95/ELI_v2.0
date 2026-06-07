@@ -173,6 +173,7 @@ def schedule_request(request: str, when_spec: str = "", kind: Optional[str] = No
         jid = get_background_tasks().schedule(
             f"{kind}: {request[:50]}", worker, request,
             when=fire_at, kind=kind, on_done=_surface(request, kind),
+            meta={"request": request, "when_spec": when_spec or request, "kind": kind},
         )
     except Exception as e:
         return {"ok": False, "error": f"schedule failed: {e}"}
