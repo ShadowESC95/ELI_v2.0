@@ -711,6 +711,23 @@ class BusMemoryAgent(_BaseAgent):
 
             from eli.core.cognition_tunables import snapshot as _cog_snapshot
             _tn = _cog_snapshot()  # user-tunable gather limits (GUI: Settings → Cognition)
+            # Stage 3a: per-turn gather multiplier — the confidence-deepening loop
+            # raises this each iteration so a deeper pass gathers MORE evidence
+            # (counts), not just gets more time. 1.0 = unchanged (the common path).
+            try:
+                _gm = float((intent or {}).get("_gather_mult", 1.0) or 1.0)
+            except Exception:
+                _gm = 1.0
+            if _gm and _gm != 1.0:
+                for _gk in ("cog.mem_semantic_recall", "cog.mem_semantic_shown",
+                            "cog.mem_conv_recall", "cog.mem_conv_shown",
+                            "cog.mem_recent_turns", "cog.mem_summaries_recall",
+                            "cog.mem_summaries_shown", "cog.mem_hop2_recall",
+                            "cog.mem_merge_cap"):
+                    try:
+                        _tn[_gk] = min(200, int(round(_tn[_gk] * _gm)))
+                    except Exception:
+                        pass
             limit = _tn["cog.mem_semantic_recall"]  # semantic hits
             raw_hits = mem.recall_memory(user_input, limit=limit)
             conv_hits = []

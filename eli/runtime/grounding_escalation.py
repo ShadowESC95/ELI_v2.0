@@ -303,8 +303,12 @@ def escalate(
                 cur_mode = _canon_mode(reasoning_mode)
                 for _i in range(max_iters):
                     cur_mode = _next_mode(cur_mode)  # quick→normal→advanced→research→expert
+                    # Stage 3a: each iteration also gathers MORE evidence (counts),
+                    # not just more time — 1.5×, 2.0×, 2.5×, … (capped).
+                    _gather_mult = min(3.0, 1.0 + 0.5 * (_i + 1))
                     deep = _redispatch_broad(engine, user_input, intent,
-                                             reasoning_mode=cur_mode)
+                                             reasoning_mode=cur_mode,
+                                             gather_mult=_gather_mult)
                     if deep is None:
                         break
                     dg = float(getattr(deep, "grounding_confidence", 0.0) or 0.0)
@@ -339,15 +343,19 @@ def escalate(
 
 
 def _redispatch_broad(engine: Any, user_input: str, intent: Dict[str, Any],
-                      reasoning_mode: Optional[str] = None):
+                      reasoning_mode: Optional[str] = None,
+                      gather_mult: float = 1.0):
     """Re-run the AgentBus forcing a broad fan-out (local tier), at the given
-    reasoning mode so the deeper pass gets that mode's larger agent time budget."""
+    reasoning mode (→ larger agent time budget) and gather multiplier (→ more
+    evidence gathered per pass)."""
     try:
         from eli.cognition.agent_bus import get_bus
         _intent = dict(intent or {})
         _meta = dict(_intent.get("meta") or {})
         _meta["_force_broad_agents"] = True
         _intent["meta"] = _meta
+        if gather_mult and gather_mult != 1.0:
+            _intent["_gather_mult"] = float(gather_mult)
         return get_bus().dispatch(
             user_input, _intent,
             session_id=getattr(engine, "session_id", ""),
