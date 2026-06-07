@@ -4701,12 +4701,20 @@ class _WorkspacesTab(QWidget):
                 active_tab = tabs.tabText(tabs.currentIndex())
         except Exception:
             active_tab = ""
+        providers = {}
+        try:
+            from eli.runtime.state_providers import capture_all
+            providers = capture_all()
+        except Exception:
+            providers = {}
         rec = self._workspaces.get(name, {})
-        rec["last_state"] = {"active_tab": active_tab, "saved_at": datetime.now().isoformat()}
+        rec["last_state"] = {"active_tab": active_tab, "saved_at": datetime.now().isoformat(),
+                             "providers": providers}
         self._workspaces[name] = rec
         self._save()
         self._show_state(rec)
-        self._activate_log.append(f"Saved state for '{name}' (tab: {active_tab or '—'}).")
+        extra = f", {len(providers)} component state(s)" if providers else ""
+        self._activate_log.append(f"Saved state for '{name}' (tab: {active_tab or '—'}{extra}).")
 
     def _show_state(self, rec: Dict):
         ls = (rec or {}).get("last_state") or {}
@@ -4729,7 +4737,8 @@ class _WorkspacesTab(QWidget):
         self._set_active()
         # 3) restore the saved GUI tab
         rec = self._workspaces.get(name, {})
-        tabname = ((rec.get("last_state") or {}).get("active_tab") or "").strip()
+        ls = rec.get("last_state") or {}
+        tabname = (ls.get("active_tab") or "").strip()
         tabs = self._main_tabs()
         if tabs is not None and tabname:
             for i in range(tabs.count()):
@@ -4740,7 +4749,15 @@ class _WorkspacesTab(QWidget):
                         break
                 except Exception:
                     pass
-        # 4) relaunch its apps (commands) — _activate has its own confirm gate
+        # 4) restore component state (Sim-IDE code buffer, etc.)
+        try:
+            from eli.runtime.state_providers import restore_all
+            n = restore_all(ls.get("providers") or {})
+            if n:
+                self._activate_log.append(f"  ✓ restored {n} component state(s)")
+        except Exception:
+            pass
+        # 5) relaunch its apps (commands) — _activate has its own confirm gate
         self._activate()
 
     def _owned_tasks(self, name: str):
@@ -4967,6 +4984,13 @@ class _SimIDETab(QWidget):
         self._current_file: Optional[Path] = None
         self._runner: Optional[_CodeRunnerThread] = None
         self._build_ui()
+        # Phase 4 hook: expose the editor buffer so a project's Save/Resume can
+        # capture and restore the Sim-IDE's working code.
+        try:
+            from eli.runtime.state_providers import register as _reg_state
+            _reg_state("sim_ide_code", self._get_code, self._set_code)
+        except Exception:
+            pass
 
     def _build_ui(self):
         layout = QVBoxLayout(self)
