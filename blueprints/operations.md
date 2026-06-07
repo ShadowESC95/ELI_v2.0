@@ -127,7 +127,7 @@ latency) + text. Cases seeded from fixed bug-logs as permanent regression guards
 | Fix | Why | Where |
 |---|---|---|
 | **Lazy vision load** | cuts cold start + frees VRAM + restores ctx (28672 vs 18432) | `perception/vision.py`, boot in `gui/…MKI.py` |
-| **Verify every model-calling daemon uses the non-blocking defer** | stops a background job stalling an interactive reply (minutes on 24B) | `runtime/self_improvement.py`, `planning/proactive_daemon.py`, `tools/news/news_synthesis.py` vs `engine.py::_gguf_lock` |
+| **Verify every model-calling daemon uses the non-blocking defer** | stops a background job stalling an interactive reply (minutes on 24B) | `runtime/self_improvement.py`, `planning/proactive_daemon.py`, `eli/tools/news/news_synthesis.py` vs `engine.py::_gguf_lock` |
 | **Boot-timing instrumentation** | turns "cold start" from estimate → measured | `gui/…MKI.py` `_debug_boot_ts` |
 | **Coverage profiler over stored conversations** | exact dead/dormant-code map | new `tools/eval/` profiler |
 
