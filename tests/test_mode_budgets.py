@@ -55,3 +55,45 @@ def test_dispatch_threads_multiplier_to_layer():
     with patch.object(AB.AgentBus, '_collect_layer', spy):
         AB.get_bus().dispatch("tell me about my research in depth", {"action": "CHAT"}, "s", "u", reasoning_mode="quick")
     assert seen.get('mult') == 1.0  # quick unchanged
+
+
+# ── Stage 2: confidence-driven iterative deepening + mode escalation ─────────
+def test_quick_mode_never_deepens():
+    """Quick stays fast — escalate() returns None even on a low-grounding factual turn."""
+    from unittest.mock import MagicMock
+    import eli.runtime.grounding_escalation as GE
+    class _B:
+        grounding_confidence = 0.2
+        def to_context_block(self): return "x"
+    eng = MagicMock(); eng.session_id = "s"; eng.user_id = "u"
+    assert GE.escalate(eng, "what is my research framework called",
+                       {"action": "CHAT"}, _B(), reasoning_mode="quick") is None
+
+
+def test_deeper_mode_iterates_and_escalates():
+    from unittest.mock import MagicMock, patch
+    import eli.runtime.grounding_escalation as GE
+    class _B:
+        def __init__(self, g): self.grounding_confidence = g
+        def to_context_block(self): return "EVIDENCE"
+    calls = []
+    def fake_redispatch(engine, ui, intent, reasoning_mode=None):
+        calls.append(reasoning_mode)
+        return _B(0.6 if len(calls) == 1 else 0.9)  # crosses 0.75 on 2nd pass
+    eng = MagicMock(); eng.session_id = "s"; eng.user_id = "u"
+    eng._synthesize_answer = lambda *a, **k: "Grounded answer."
+    with patch.object(GE, "_redispatch_broad", fake_redispatch):
+        r = GE.escalate(eng, "what is my research framework called",
+                        {"action": "CHAT"}, _B(0.2), reasoning_mode="research")
+    assert r is not None and r.get("ok")
+    assert calls and all(m == "constitutional_ai" for m in calls)  # research → expert budget
+
+
+def test_mode_targets_and_iters_table():
+    import eli.runtime.grounding_escalation as GE
+    assert GE._mode_max_iters("quick") == 0
+    assert GE._mode_max_iters("expert") == 4
+    assert GE._mode_target("quick") == 0.45
+    assert GE._mode_target("research") == 0.75
+    assert GE._next_mode("normal") == "self_consistency"  # one tier up
+    assert GE._next_mode("expert") == "constitutional_ai"  # caps at top
