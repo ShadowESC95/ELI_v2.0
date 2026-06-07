@@ -1616,6 +1616,21 @@ class Memory(metaclass=_MemoryMeta):
         if isinstance(tags, str):
             tags = [t.strip() for t in tags.split(",") if t.strip()]
 
+        # Phase 2 — project namespacing: scope durable FACTS to the active project
+        # (if one is set), so a project accumulates its relevant memories. Only
+        # plain "memory" facts are tagged — never reflections / session summaries /
+        # continuity (those are global). Default (no active project) = no change.
+        if kind == "memory":
+            try:
+                from eli.runtime.active_project import active_memory_tag
+                _ptag = active_memory_tag()
+                if _ptag:
+                    tags = list(tags or [])
+                    if _ptag not in tags:
+                        tags.append(_ptag)
+            except Exception:
+                pass
+
         # Auto-score importance when not explicitly provided
         if importance is None:
             importance = self._score_importance(t, tags, source, kind)
@@ -1685,6 +1700,42 @@ class Memory(metaclass=_MemoryMeta):
         else:
             tags_list = tags
         return self.store_memory(text, tags=tags_list or [])
+
+    def get_memories_by_tag(self, tag: str, limit: int = 50) -> List[Dict[str, Any]]:
+        """Project-scoped recall (Phase 2): durable facts carrying a given tag,
+        most-recent first. Returns [{id, text, tags, ts}]."""
+        tag = (tag or "").strip()
+        if not tag:
+            return []
+        conn = self._get_connection()
+        try:
+            if not _eli_table_exists(conn, "memories"):
+                return []
+            rows = conn.execute("""
+                SELECT id, COALESCE(text,''), COALESCE(tags,''), COALESCE(timestamp, ts, id)
+                FROM memories
+                WHERE tags LIKE ?
+                ORDER BY COALESCE(timestamp, ts, id) DESC
+                LIMIT ?
+            """, (f"%{tag}%", max(1, int(limit)))).fetchall()
+            out = []
+            for r in rows:
+                tags_s = str(r[2] or "")
+                # guard against substring false-positives (e.g. project.qm vs project.qmsh)
+                if tag not in [x.strip() for x in tags_s.replace(",", " ").split()]:
+                    if tag not in tags_s:
+                        continue
+                txt = str(r[1] or "").strip()
+                if txt:
+                    out.append({"id": r[0], "text": txt, "tags": tags_s, "ts": r[3]})
+            return out
+        except Exception:
+            return []
+        finally:
+            try:
+                conn.close()
+            except Exception:
+                pass
 
 
     def get_recent_semantic_memories(self, limit=20):
