@@ -4229,6 +4229,11 @@ def _eli_self_improvement_phrase_guard(text):
                  r"\btest\s+generation\b|\bgrow\s+(your\s+)?(test\s+)?coverage\b|"
                  r"\bwrite\s+tests?\s+for\s+(your|the)\b", low) and "report" not in low:
         return _mk("GENERATE_TESTS", {}, 0.95, matched_by="tests.generate.guard")
+    if re.search(r"\btest\s+review\b|\breview\s+(the\s+)?test(s| results| suite)\b|"
+                 r"\brun\s+(the\s+)?(full\s+)?(tests?|test\s+suite|project)\b.*\b(review|summari[sz]e|"
+                 r"what('?s| is)?\s+(wrong|to\s+fix)|options|tell\s+me)\b|"
+                 r"\b(run|do)\s+(a\s+)?(full\s+)?(test|project)\s+(run\s+and\s+)?(review|summary)\b", low):
+        return _mk("TEST_REVIEW", {}, 0.96, matched_by="tests.review.guard")
     if re.search(r"\b(run\s+(the\s+|your\s+)?(test\s+suite|tests|pytest|claims\s+suite)|"
                  r"test\s+report|generate\s+(a\s+)?test\s+report|how('?s| is)\s+the\s+test\s+suite)\b", low):
         return _mk("RUN_TESTS", {}, 0.96, matched_by="tests.run.guard")

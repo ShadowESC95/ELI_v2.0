@@ -54,3 +54,17 @@ Pure stdlib; the orchestrator does no LLM/IO — the node callables do.
 ## Tests
 `tests/test_dag_orchestrator.py` (14) cover every feature; existing dag/coding/agent
 tests + the full suite stay green. Flags: `ELI_AGENT_ORCHESTRATOR`, `ELI_AGENT_DAG`.
+
+## Test/project run → review (GUI + chat)
+`eli/runtime/test_review.py::run_and_review()` runs the suite (or a subset), **backs
+up the prior report**, **writes a timestamped errors file** capturing failing tests
+(possible errors) under `artifacts/test_reports/`, and returns a **results-driven
+options menu** (each option carries a chat `command` routing to examine/propose/
+generate/eval). Surfaced two ways:
+- **GUI:** a "🧪 Test & Review" Labs sub-tab — run the full suite in the background,
+  see totals + failures + backup/error paths, get **ELI's natural-language summary**,
+  and click result-driven option buttons that hand off to ELI in chat.
+- **Chat:** the `TEST_REVIEW` action ("test review" / "run the tests and tell me what
+  to fix") returns the grounded report (LLM-summarised) + the options menu.
+Artifact-dir resolution is now consistent — `run_test_report.py` and the conftest
+report hook both honour `ELI_ARTIFACTS_DIR` (no real-folder pollution in tests).
