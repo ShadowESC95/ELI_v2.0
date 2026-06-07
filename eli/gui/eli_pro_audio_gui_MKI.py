@@ -3449,6 +3449,7 @@ class EliMainWindow(QMainWindow):
         self.create_files_tab()
         self.create_labs_tab()
         self.create_coding_tab()
+        self.create_tasks_tab()
         # Experimental tab removed — gaze control is wired as a toggle in Settings.
         self.create_eli_world_tab()
         self.create_settings_tab()
@@ -6341,6 +6342,18 @@ class EliMainWindow(QMainWindow):
             fallback = QWidget()
             QVBoxLayout(fallback).addWidget(QLabel(f"Coding tab unavailable: {_coding_err}"))
             self.tabs.addTab(fallback, "🧩  Coding")
+
+    def create_tasks_tab(self):
+        """Advanced / scheduled / overnight background tasks (shared BackgroundTasks)."""
+        try:
+            from eli.gui.tabs.tasks_tab import TasksTab
+            self._tasks_widget = TasksTab(parent_window=self)
+            self.tabs.addTab(self._tasks_widget, "🗓️  Tasks")
+        except Exception as _tasks_err:
+            log.debug(f"[Tasks] failed to load: {_tasks_err}")
+            fallback = QWidget()
+            QVBoxLayout(fallback).addWidget(QLabel(f"Tasks tab unavailable: {_tasks_err}"))
+            self.tabs.addTab(fallback, "🗓️  Tasks")
 
     def create_experimental_tab(self):
         """Create safe experimental prototype inventory tab."""
