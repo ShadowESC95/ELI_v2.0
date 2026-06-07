@@ -10,6 +10,12 @@ from deep reads of the core + a full structural/code-health sweep — a deep rea
   what it does for your actual day (layman + tech head), with the genuine selling
   points foregrounded — ownership, model-agnosticism, self-honesty,
   self-improvement, embodiment. Read this for the "why it matters."
+- **[complete_findings.md](complete_findings.md)** — the definitive deep-read
+  record (2026-06-07): corrected numbers, every correction to earlier statements,
+  verified subsystem facts, the fixes shipped this session, and the honest limits.
+  Unbiased, just facts.
+- **[capability_catalogue.md](capability_catalogue.md)** — exhaustive, ground-truth
+  catalogue of all 193 actions + every package's modules (5 parts).
 - **[project_overview.md](project_overview.md)** — start here for the engineering
   view. What ELI is, scale (126,619 LOC / 336 files), architecture by layer, the
   honest verdict on "frontier", and the highest-leverage work.
