@@ -1448,9 +1448,8 @@ def _wrap_generate(fn):
     return wrapped
 
 
-# Only `generate` is defined in this module's globals at this point.
-# The other names (chat_completion, generate_json) are wrapped at their
-# own definitions if needed; keep this loop tight.
+# `generate` self-recurses for auto-reload retry, so it must wrap in place (a plain
+# rebind double-wraps each retry → RecursionError). Idempotent stream/text-normalise.
 if callable(globals().get("generate")):
     globals()["generate"] = _wrap_generate(globals()["generate"])
 
