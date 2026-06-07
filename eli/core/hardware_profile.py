@@ -70,12 +70,17 @@ def _compute_graph_reserve_mb(n_ctx: int, batch: int = 256) -> float:
 
 
 def _layers_for_size(size_gb: float) -> int:
-    """Total transformer layers heuristic by model size (GB)."""
+    """Total transformer layers heuristic by model size (GB). Extended for big
+    models (readiness #5): a 70B has ~80 layers, a 100B+ ~96+ — capping at 48
+    under-offloaded large models."""
     if size_gb < 1.5:   return 22
     if size_gb < 3.0:   return 28
     if size_gb < 6.0:   return 32
     if size_gb < 12.0:  return 40
-    return 48
+    if size_gb < 30.0:  return 48   # ~13–32B
+    if size_gb < 55.0:  return 64   # ~34–70B
+    if size_gb < 90.0:  return 80   # ~70–100B
+    return 96                       # 100B+
 
 
 @dataclass
@@ -267,10 +272,25 @@ def detect_hardware() -> HardwareProfile:
             stderr=subprocess.DEVNULL, timeout=5
         ).decode().strip().splitlines()
         if out:
-            parts = [p.strip() for p in out[0].split(",")]
-            hw.free_vram_mb = int(parts[0])
-            hw.total_vram_mb = int(parts[1])
-            hw.gpu_name = parts[2] if len(parts) > 2 else "NVIDIA GPU"
+            # Sum across ALL GPUs (readiness #5: multi-GPU was under-counted by
+            # reading only the first card). llama.cpp splits across visible CUDA
+            # devices, and the adaptive-load fallback reduces layers on any OOM —
+            # so provisioning against total capacity is safe.
+            free_sum = total_sum = 0
+            names: list = []
+            for line in out:
+                p = [x.strip() for x in line.split(",")]
+                try:
+                    free_sum += int(p[0])
+                    total_sum += int(p[1])
+                    if len(p) > 2:
+                        names.append(p[2])
+                except Exception:
+                    continue
+            n = max(1, len(names) or len(out))
+            hw.free_vram_mb = free_sum
+            hw.total_vram_mb = total_sum
+            hw.gpu_name = (names[0] if names else "NVIDIA GPU") + (f" ×{n}" if n > 1 else "")
             hw.vram_gb = hw.free_vram_mb / 1024.0
             hw.has_gpu = True
     except Exception:

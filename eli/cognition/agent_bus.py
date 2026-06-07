@@ -1866,11 +1866,19 @@ class AgentBus:
         # Per-mode budget multiplier (Stage 1b): scales every agent's timeout by
         # the reasoning mode's budget (1.0 for quick/normal; >1 for deeper modes).
         _mode_mult = float((intent or {}).get("_mode_budget_mult", 1.0) or 1.0)
+        # Model-tier multiplier (readiness #4): a bigger/slower model needs a
+        # proportionally larger ceiling for synthesis-heavy actions. 1.0 for the
+        # current small model → unchanged.
+        try:
+            from eli.core.model_tier import tier_scale as _ts
+            _tier_mult = float(_ts())
+        except Exception:
+            _tier_mult = 1.0
 
         def _eff_to(a) -> float:
             base = float(getattr(a, "timeout_s", 4.0) or 4.0) * _mode_mult
             if getattr(a, "name", "") == "system" and _intent_action in _SLOW_SYNTH_ACTIONS:
-                return max(base, 180.0)
+                return max(base, 180.0 * _tier_mult)
             return base
 
         futures = {
