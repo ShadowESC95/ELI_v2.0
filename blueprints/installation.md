@@ -1,7 +1,24 @@
-# Installation — one-click setup (2026-06-07)
+# Installation — one-click setup, cross-platform (2026-06-07)
 
-`install.sh` is the single entry point for a non-technical user. One command sets up
-everything except the (deliberate, guided) model download.
+One command per platform sets up everything except the (deliberate, guided) model
+download. CUDA toolkit install is an attempted option for users who don't have it.
+
+| Platform | Command | GPU |
+|---|---|---|
+| Linux | `bash install.sh` (`--install-cuda` to also fetch the toolkit) | CUDA |
+| macOS | `bash install.sh` | Metal (no CUDA) |
+| Windows | `install.bat` / `install.bat /cuda` (→ `install.ps1`) | CUDA (winget toolkit) |
+| Android | `bash scripts/install_android.sh` | CPU only (headless) |
+
+## CUDA toolkit option (`--install-cuda` / `/cuda`)
+For non-technical users with an NVIDIA GPU but no toolkit. Best-effort, never fatal:
+- **Linux:** tries no-sudo `pip nvidia-cuda-nvcc-cu12` (exposes nvcc via `CUDACXX`),
+  then the system package manager (`apt`/`dnf`/`pacman`, if sudo is available), then
+  prints the manual step — then source-rebuilds llama-cpp with `-DGGML_CUDA=on`.
+- **Windows:** `winget install Nvidia.CUDA`, then rebuilds llama-cpp.
+- **macOS/Android:** N/A (Metal / CPU).
+The default install already uses prebuilt CUDA wheels (no toolkit needed); the option
+only matters when those don't match the user's CUDA or a source build is required.
 
 ## What `bash install.sh` does
 1. Detects Python (3.10+) and OS; creates `.venv`; upgrades pip/setuptools/wheel.
