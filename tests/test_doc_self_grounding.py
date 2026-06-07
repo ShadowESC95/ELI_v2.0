@@ -111,6 +111,9 @@ def _capture_doc_prompt(monkeypatch, evidence, sources):
     monkeypatch.setattr(EP, "plan_and_gather", lambda *a, **k: (evidence, sources))
     monkeypatch.setenv("ELI_ARTIFACTS_DIR", tempfile.mkdtemp())
     monkeypatch.setenv("ELI_TEST_MODE", "0")
+    # These tests assert the single-pass evidence-injection (the fallback prompt);
+    # disable the multi-stage pipeline so chat_completion gets that exact prompt.
+    monkeypatch.setenv("ELI_DOC_PIPELINE", "0")
     E.execute("GENERATE_DOCUMENT", {"topic": "proposals for upgrades for yourself",
                                     "_raw_user_text": "x", "format": "md"})
     return captured.get("user", "")
