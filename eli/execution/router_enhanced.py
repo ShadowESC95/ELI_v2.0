@@ -3662,6 +3662,24 @@ def route(text: str) -> Dict[str, Any]:
             r"(?:this|what\s+i'?m\s+doing)|see\s+my\s+screen)\b", raw, re.I):
         return _mk("SCREEN_READ_ANALYZE", {}, 0.9, matched_by="screen.vision_conversational")
 
+    # Content questions ABOUT what's on the screen — "what season is on the
+    # screen?", "can you see star trek on the screen?", "which app is on my
+    # display?". These are VISUAL questions: gather a real glance and answer from
+    # pixels. Without this they fall through to CHAT and the model GUESSES
+    # (user-reported: ELI invented a TV season/episode it never looked at). The
+    # user's own question is handed to the vision model with a hard "answer only
+    # from what's visible; if you can't tell, say so" instruction.
+    if re.search(r"\bon\s+(?:the\s+|my\s+)?(?:screen|display|monitor)\b", raw, re.I) and \
+       re.search(r"\b(?:what|which|who|where|when|is|are|how\s+many|name|"
+                 r"see|show|can\s+you|do\s+you|tell\s+me)\b", raw, re.I):
+        _vq = raw.strip()
+        _vp = (f'You are ELI looking at the user\'s screen right now. Answer this '
+               f'question using ONLY what is actually visible on screen: "{_vq}". '
+               f'Be specific about what you can see. If the answer is not visible, '
+               f'say you cannot tell from the screen — never guess or invent.')
+        return _mk("SCREEN_READ_ANALYZE", {"prompt": _vp}, 0.87,
+                   matched_by="screen.content_question")
+
     # ------------------------------------------------------------
     # CONVERT_DOCUMENT — convert between document formats
     # ------------------------------------------------------------
