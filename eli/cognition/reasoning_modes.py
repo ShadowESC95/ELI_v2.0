@@ -598,3 +598,34 @@ __all__ = [
     "strip_reasoning_leaks",
     "apply_final_reasoning_contract",
 ]
+
+
+# ── Per-mode agent time-budget multiplier (Stage 1b) ─────────────────────────
+# Quick/Normal default to 1.0 (no change to the common path); deeper modes get
+# proportionally more agent time. Tunable via cognition_tunables (percent).
+_MODE_BUDGET_KEY = {
+    "quick": "cog.mode_budget_quick",
+    "chain_of_thought": "cog.mode_budget_normal",
+    "self_consistency": "cog.mode_budget_advanced",
+    "tree_of_thoughts": "cog.mode_budget_research",
+    "constitutional_ai": "cog.mode_budget_expert",
+}
+_MODE_BUDGET_DEFAULT_PCT = {
+    "quick": 100, "chain_of_thought": 100, "self_consistency": 150,
+    "tree_of_thoughts": 200, "constitutional_ai": 250,
+}
+
+
+def mode_budget_multiplier(mode: object) -> float:
+    """Agent time-budget multiplier for a reasoning mode (1.0 = base agent timeouts)."""
+    key = canonical_mode(mode)
+    default_pct = _MODE_BUDGET_DEFAULT_PCT.get(key, 100)
+    try:
+        from eli.core.cognition_tunables import get_tunable
+        pct = get_tunable(_MODE_BUDGET_KEY.get(key, "cog.mode_budget_quick"))
+    except Exception:
+        pct = default_pct
+    try:
+        return max(0.25, float(pct) / 100.0)
+    except Exception:
+        return 1.0
