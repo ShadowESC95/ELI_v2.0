@@ -2,10 +2,20 @@ import importlib
 import pytest
 from eli.learning.training_preflight import preflight_target
 
+def _spec_present(mod: str) -> bool:
+    # find_spec raises ValueError if a partially-initialised module has __spec__=None
+    # (seen with `accelerate` in the venv) — treat that as "present but quirky".
+    try:
+        return importlib.util.find_spec(mod) is not None
+    except (ValueError, ImportError, AttributeError):
+        try:
+            return importlib.import_module(mod) is not None
+        except Exception:
+            return False
+
+
 _TRAINING_MODULES = ("peft", "accelerate", "datasets")
-_training_deps_available = all(
-    importlib.util.find_spec(m) is not None for m in _TRAINING_MODULES
-)
+_training_deps_available = all(_spec_present(m) for m in _TRAINING_MODULES)
 
 
 def test_preflight_blocks_missing_phi_base_when_isolated(tmp_path):
