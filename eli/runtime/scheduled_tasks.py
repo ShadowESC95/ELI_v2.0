@@ -15,16 +15,69 @@ fire time (it runs overnight); a cancelled job never fires.
 """
 from __future__ import annotations
 
+import json
 import re
+import threading
 import time
+import uuid
 from datetime import datetime, timedelta
-from typing import Any, Dict, Optional
+from pathlib import Path
+from typing import Any, Dict, List, Optional
 
 from eli.utils.log import get_logger
 
 log = get_logger(__name__)
 
 _OVERNIGHT_HOUR = 2  # "overnight"/"tonight" → next 02:00
+_CATCHUP_DELAY = 30.0  # missed-while-off tasks run this many seconds after boot
+_STORE_LOCK = threading.RLock()
+_RESTORED = False
+
+
+# ── Durable store (survives restarts) ────────────────────────────────────────
+def _store_path() -> Path:
+    try:
+        from eli.core.paths import get_paths
+        base = get_paths().artifacts_dir / "runtime"
+    except Exception:
+        base = Path(__file__).resolve().parents[2] / "artifacts" / "runtime"
+    base.mkdir(parents=True, exist_ok=True)
+    return base / "scheduled_tasks.json"
+
+
+def _load_store() -> List[Dict[str, Any]]:
+    p = _store_path()
+    if not p.exists():
+        return []
+    try:
+        data = json.loads(p.read_text(encoding="utf-8"))
+        return [e for e in data if isinstance(e, dict)] if isinstance(data, list) else []
+    except Exception:
+        return []
+
+
+def _save_store(entries: List[Dict[str, Any]]) -> None:
+    try:
+        _store_path().write_text(json.dumps(entries, indent=2), encoding="utf-8")
+    except Exception as e:
+        log.debug(f"[SCHEDULED] store save failed: {e}")
+
+
+def _persist_add(entry: Dict[str, Any]) -> None:
+    with _STORE_LOCK:
+        entries = _load_store()
+        entries.append(entry)
+        _save_store(entries)
+
+
+def forget(pid: str) -> None:
+    """Drop a persisted scheduled task (on completion or cancel) so it doesn't
+    re-arm on the next boot."""
+    if not pid:
+        return
+    with _STORE_LOCK:
+        entries = [e for e in _load_store() if e.get("pid") != pid]
+        _save_store(entries)
 
 
 # ── Time parsing ─────────────────────────────────────────────────────────────
@@ -157,30 +210,82 @@ def _surface(request: str, kind: str):
     return _cb
 
 
+# ── Arming (shared by new schedules + boot restore) ──────────────────────────
+def _arm(pid: str, request: str, when_ts: float, when_spec: str, kind: str,
+         catchup: bool = False) -> int:
+    """Create the in-process timed job. on_done both removes the persisted entry
+    (no longer pending) and surfaces the result."""
+    from eli.runtime.background_tasks import get_background_tasks
+    worker = _WORKERS.get(kind, _worker_research)
+    surface = _surface(request + (" (catch-up: missed while offline)" if catchup else ""), kind)
+
+    def _on_done(task) -> None:
+        forget(pid)
+        try:
+            surface(task)
+        except Exception:
+            pass
+
+    return get_background_tasks().schedule(
+        f"{kind}: {request[:50]}", worker, request,
+        when=when_ts, kind=kind, on_done=_on_done,
+        meta={"request": request, "when_spec": when_spec, "kind": kind, "pid": pid},
+    )
+
+
 # ── Public API ───────────────────────────────────────────────────────────────
 def schedule_request(request: str, when_spec: str = "", kind: Optional[str] = None) -> Dict[str, Any]:
-    """Schedule a heavy task to run at a parsed time. Returns {ok, job_id, kind,
-    when_ts, when_human}."""
+    """Schedule a heavy task to run at a parsed time. Persisted so it survives a
+    restart. Returns {ok, job_id, kind, when_ts, when_human, pid}."""
     request = (request or "").strip()
     if not request:
         return {"ok": False, "error": "no task description"}
     kind = (kind or infer_kind(request)).strip().lower()
-    worker = _WORKERS.get(kind, _worker_research)
-    fire_at = parse_when(when_spec or request)
+    when_spec = when_spec or request
+    fire_at = parse_when(when_spec)
+    pid = uuid.uuid4().hex[:12]
 
     try:
-        from eli.runtime.background_tasks import get_background_tasks
-        jid = get_background_tasks().schedule(
-            f"{kind}: {request[:50]}", worker, request,
-            when=fire_at, kind=kind, on_done=_surface(request, kind),
-            meta={"request": request, "when_spec": when_spec or request, "kind": kind},
-        )
+        _persist_add({"pid": pid, "request": request, "when_spec": when_spec,
+                      "kind": kind, "when_ts": fire_at, "created": time.time()})
+        jid = _arm(pid, request, fire_at, when_spec, kind)
     except Exception as e:
+        forget(pid)
         return {"ok": False, "error": f"schedule failed: {e}"}
 
     when_human = datetime.fromtimestamp(fire_at).strftime("%H:%M on %a %d %b")
     return {"ok": True, "job_id": jid, "kind": kind, "when_ts": fire_at,
-            "when_human": when_human}
+            "when_human": when_human, "pid": pid}
 
 
-__all__ = ["schedule_request", "parse_when", "infer_kind"]
+def restore_scheduled_tasks() -> int:
+    """Re-arm persisted scheduled tasks on boot. Future ones fire at their time;
+    tasks missed while ELI was off run shortly after boot (catch-up). Idempotent."""
+    global _RESTORED
+    with _STORE_LOCK:
+        if _RESTORED:
+            return 0
+        _RESTORED = True
+        entries = _load_store()
+    now = time.time()
+    restored = 0
+    for e in entries:
+        try:
+            wt = float(e.get("when_ts") or 0)
+            catchup = wt <= now
+            if catchup:
+                wt = now + _CATCHUP_DELAY
+            _arm(str(e.get("pid") or uuid.uuid4().hex[:12]),
+                 str(e.get("request") or ""), wt,
+                 str(e.get("when_spec") or ""), str(e.get("kind") or "research"),
+                 catchup=catchup)
+            restored += 1
+        except Exception as ex:
+            log.debug(f"[SCHEDULED] restore of {e.get('pid')} failed: {ex}")
+    if restored:
+        log.info(f"[SCHEDULED] restored {restored} scheduled task(s) from disk")
+    return restored
+
+
+__all__ = ["schedule_request", "parse_when", "infer_kind",
+           "restore_scheduled_tasks", "forget"]
