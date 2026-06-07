@@ -2004,6 +2004,7 @@ SUPPORTED_ACTIONS = [
     'GENERATE_TESTS',
     'LORA_STATUS',
     'LORA_TRAIN',
+    'ORCHESTRATION_STATUS',
     'SELF_UPDATE',
     'SELF_UPGRADE',
     'SEQUENCE',
@@ -5999,6 +6000,33 @@ def _execute_impl(action: str, args: Optional[Dict[str, Any]] = None) -> Dict[st
                     "response": msg, "evidence_source": "lora_pipeline", "result": res}
         except Exception as e:
             msg = f"LORA_TRAIN failed: {e}"
+            return {"ok": False, "action": a, "error": str(e), "content": msg, "response": msg}
+
+    # ---- ORCHESTRATION_STATUS — explain the agent DAG + last orchestrated run ----
+    if a == "ORCHESTRATION_STATUS":
+        try:
+            from eli.cognition.agent_bus import orchestration_snapshot
+            snap = orchestration_snapshot()
+            lines = [
+                f"Agent orchestration ({snap.get('engine')}): "
+                f"{snap.get('count')} agents, critical path {snap.get('critical_path')} layer(s).",
+                "Execution layers (each runs in parallel):",
+            ]
+            for i, layer in enumerate(snap.get("execution_layers") or []):
+                lines.append(f"  layer {i}: {', '.join(layer)}")
+            if snap.get("dependencies"):
+                lines.append("Dependencies: " + "; ".join(
+                    f"{k}←{','.join(v)}" for k, v in snap["dependencies"].items()))
+            last = snap.get("last_run")
+            if last:
+                lines.append(f"Last run: ok={last.get('ok')} "
+                             f"{last.get('seconds')}s, failed={last.get('failed')}, "
+                             f"skipped={last.get('skipped')}")
+            msg = "\n".join(lines)
+            return {"ok": True, "action": a, "content": msg, "response": msg,
+                    "evidence_source": "agent_orchestrator", "result": snap}
+        except Exception as e:
+            msg = f"ORCHESTRATION_STATUS failed: {e}"
             return {"ok": False, "action": a, "error": str(e), "content": msg, "response": msg}
 
     if a == "SET_USER_NAME":
