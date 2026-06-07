@@ -1869,6 +1869,7 @@ def _maybe_background_file_analysis(action, args):
 SUPPORTED_ACTIONS = [
     'ADD_EVENT',
     'BACKGROUND_JOBS',
+    'SCHEDULE_TASK',
     'AMBIENT_VISION',
     'ANALYZE_CSV',
     'ANALYZE_IMAGE',
@@ -5309,6 +5310,30 @@ def _execute_impl(action: str, args: Optional[Dict[str, Any]] = None) -> Dict[st
         msg = (f"Chronal alignment nominal. Local time: "
                f"{_t_mod.strftime('%Y-%m-%d %H:%M:%S', _now)}.")
         return {"ok": True, "action": a, "content": msg, "response": msg}
+
+    if a == "SCHEDULE_TASK":
+        # Schedule a heavy/overnight task (code/research/self-upgrade/reflection)
+        # to run at a parsed time and surface the result. See runtime.scheduled_tasks.
+        req = str((args or {}).get("request") or (args or {}).get("text")
+                  or (args or {}).get("message") or "").strip()
+        when = str((args or {}).get("when") or req)
+        kind = (args or {}).get("kind")
+        if not req:
+            msg = "What should I work on, and when? (e.g. 'research X overnight')."
+            return {"ok": False, "action": a, "content": msg, "response": msg}
+        try:
+            from eli.runtime.scheduled_tasks import schedule_request
+            r = schedule_request(req, when_spec=when, kind=kind)
+        except Exception as e:
+            msg = f"Couldn't schedule that: {e}"
+            return {"ok": False, "action": a, "error": str(e), "content": msg, "response": msg}
+        if not r.get("ok"):
+            msg = f"Couldn't schedule that: {r.get('error')}"
+            return {"ok": False, "action": a, "content": msg, "response": msg}
+        msg = (f"Scheduled (job #{r['job_id']}, {r['kind']}): I'll work on this at "
+               f"{r['when_human']} and surface the result in the Tasks/Proactive panel.")
+        return {"ok": True, "action": a, "content": msg, "response": msg,
+                "job_id": r["job_id"], "kind": r["kind"], "when_ts": r["when_ts"]}
 
     if a == "OPEN_FILE_SYSTEM":
         path = str(args.get("path") or "~")
