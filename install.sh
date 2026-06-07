@@ -8,11 +8,13 @@ VENV="$SCRIPT_DIR/.venv"
 PYTHON="${PYTHON:-python3}"
 CPU_ONLY=0
 SKIP_TORCH=0
+USE_LATEST=0   # default: install the frozen lock (reproducible). --latest = version ranges.
 
 for arg in "$@"; do
     case "$arg" in
         --cpu-only)   CPU_ONLY=1 ;;
         --skip-torch) SKIP_TORCH=1 ;;
+        --latest)     USE_LATEST=1 ;;
     esac
 done
 
@@ -74,6 +76,19 @@ else
         --extra-index-url https://abetlen.github.io/llama-cpp-python/whl/cu121 --quiet
 fi
 
+# Verify GPU offload actually compiled into llama-cpp (catch a silent CPU-only wheel —
+# this is exactly the trap where ELI runs 30-50x slower without anyone noticing).
+if [ "$SKIP_TORCH" -eq 0 ] && [ "$CPU_ONLY" -eq 0 ] && [ "$OS" != "Darwin" ]; then
+    if "$PYTHON_VENV" -c "import llama_cpp,sys; sys.exit(0 if llama_cpp.llama_supports_gpu_offload() else 1)" 2>/dev/null; then
+        echo "[OK] llama-cpp-python has CUDA GPU offload."
+    else
+        echo "[WARN] llama-cpp-python installed as CPU-ONLY (no CUDA offload) — ELI will be slow."
+        echo "       Enable GPU with the system CUDA toolkit:"
+        echo "         CUDACXX=\"\$(command -v nvcc || echo /usr/local/cuda/bin/nvcc)\" \\"
+        echo "         CMAKE_ARGS=\"-DGGML_CUDA=on\" \"$PIP\" install --force-reinstall --no-cache-dir llama-cpp-python"
+    fi
+fi
+
 # Install ELI MKXI wheel
 echo "[..] Installing ELI MKXI..."
 WHEEL=$(ls "$SCRIPT_DIR"/dist/eli_mkxi-*.whl 2>/dev/null | head -1)
@@ -83,14 +98,17 @@ else
     "$PIP" install -e "$SCRIPT_DIR"[full] --quiet
 fi
 
-# Install remaining runtime requirements
+# Install remaining runtime requirements. Default = the FROZEN LOCK (exact known-good
+# versions captured from a working venv) for reproducible installs; --latest uses ranges.
 if [ "$OS" = "Darwin" ]; then
     REQ="$SCRIPT_DIR/requirements-macos.txt"
+elif [ "$USE_LATEST" -eq 0 ] && [ -f "$SCRIPT_DIR/requirements.lock.txt" ]; then
+    REQ="$SCRIPT_DIR/requirements.lock.txt"
 else
     REQ="$SCRIPT_DIR/requirements.txt"
 fi
 
-echo "[..] Installing remaining dependencies..."
+echo "[..] Installing dependencies from $(basename "$REQ")$([ "$REQ" = "$SCRIPT_DIR/requirements.lock.txt" ] && echo ' (frozen, reproducible)')..."
 "$PIP" install -r "$REQ" --quiet --ignore-installed
 
 # Make launchers executable
@@ -112,6 +130,27 @@ fi
 
 # Models dir exists so first-boot can drop/download a model into it.
 mkdir -p "$SCRIPT_DIR/models"
+
+# ── Initialise data directories + databases (idempotent) ─────────────────────
+# Create artifacts dirs and the SQLite stores so first launch is instant and the
+# install is verifiably complete (not deferred to a possibly-failing first boot).
+echo "[..] Initialising data directories and databases..."
+if "$PYTHON_VENV" - <<'PYEOF'
+from eli.core.paths import get_paths
+get_paths()
+try:
+    import eli.memory as M
+    if hasattr(M, "get_memory"):
+        M.get_memory()
+except Exception as e:
+    print(f"   (memory init deferred: {e})")
+print("   data dirs + databases ready")
+PYEOF
+then
+    echo "[OK] Data directories and databases initialised."
+else
+    echo "[WARN] DB init deferred to first launch."
+fi
 
 # ── Verify the install actually imports and the entry point resolves ─────────
 echo "[..] Verifying installation..."
