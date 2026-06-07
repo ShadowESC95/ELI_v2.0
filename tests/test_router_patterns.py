@@ -282,3 +282,25 @@ def test_screen_content_question_passes_user_question_to_vision():
 ])
 def test_non_visual_screen_phrases_do_not_route_to_vision(text):
     assert action(text) != "SCREEN_READ_ANALYZE"
+
+
+# ── EXAMINE_CODE vs GUI_RUNTIME_AUDIT disambiguation (regression) ────────────
+# A GUI/runtime audit-with-proof request must NOT be stolen by the EXAMINE_CODE
+# guard (which runs in an earlier stage). Both are part of ELI's self-inspection
+# / self-upgrade surface and must keep their own routes.
+@pytest.mark.parametrize("text", [
+    "scan the gui runtime wiring and prove every hook with actual file-read evidence",
+    "audit your gui file in full and prove you read it",
+])
+def test_runtime_audit_proof_not_stolen_by_examine_code(text):
+    assert action(text) == "GUI_RUNTIME_AUDIT"
+
+
+@pytest.mark.parametrize("text", [
+    "examine eli/memory/memory.py for errors",
+    "review the codebase for bugs",
+    "scan eli/runtime/scheduled_tasks.py for issues",
+    "inspect eli.kernel.engine for mistakes",
+])
+def test_code_examination_still_routes_to_examine_code(text):
+    assert action(text) == "EXAMINE_CODE"
