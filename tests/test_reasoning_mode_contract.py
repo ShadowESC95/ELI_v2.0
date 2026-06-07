@@ -31,10 +31,10 @@ def test_gui_prefix_does_not_request_visible_reasoning(mode):
     assert "generate 3 independent" not in prefix.lower()
 
 @pytest.mark.parametrize("alias, canonical, display", [
-    ("CoT", "chain_of_thought", "Chain of Thought"),
-    ("self consistency", "self_consistency", "Self-Consistency"),
-    ("ToT", "tree_of_thoughts", "Tree of Thoughts"),
-    ("constitutional ai", "constitutional_ai", "Constitutional AI"),
+    ("CoT", "chain_of_thought", "Normal"),
+    ("self consistency", "self_consistency", "Advanced"),
+    ("ToT", "tree_of_thoughts", "Research"),
+    ("constitutional ai", "constitutional_ai", "Expert"),
 ])
 def test_reasoning_mode_aliases(alias, canonical, display):
     assert canonical_mode(alias) == canonical
