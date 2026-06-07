@@ -35,11 +35,7 @@ def test_memory_knowledge_graph_has_class():
     assert kg_syms, f"eli.memory.knowledge_graph: no graph symbols: {symbols}"
 
 
-@pytest.mark.skip(reason="eli.memory.working_memory was deleted — module no longer exists")
-def test_memory_working_memory_loadable():
-    mod = importlib.import_module("eli.memory.working_memory")
-    assert mod is not None
-
+# (removed test_memory_working_memory_loadable — eli.memory.working_memory was deleted)
 
 def test_memory_sqlite_memory_loadable():
     mod = importlib.import_module("eli.memory.sqlite_memory")
