@@ -69,6 +69,13 @@ generate/eval). Surfaced two ways:
 - **Option buttons stream into the main chat** (`MainWindow.send_to_chat`) — clicking
   an option continues the conversation in the Chat tab, not the panel.
 
+## Generative actions on the coding agent / planner DAG
+- **GENERATE_PROJECT** → `CodeAgent.solve(use_dag=True)`: decompose into a subtask DAG
+  (`plan_graph` over `eli/core/dag`), solve nodes in order, VERIFY the composed module;
+  saves to `artifacts/projects/`. Single-pass `chat` fallback (`ELI_PROJECT_DAG=0`).
+- **GENERATE_SCRIPT / CREATE_SCRIPT / WRITE_SCRIPT** → already routed through the
+  verified coding agent (plan → DAG/tree-search → execute → repair → bug-memory).
+
 ## SELF_IMPROVE routed through the coding agent
 `SelfImprovementEngine.propose_via_agent()` (mode `propose`, or auto-detected from
 "propose/verified fix/fix the failing") turns each recent failure into a coding task
