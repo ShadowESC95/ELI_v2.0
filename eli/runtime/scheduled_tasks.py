@@ -212,7 +212,7 @@ def _surface(request: str, kind: str):
 
 # ── Arming (shared by new schedules + boot restore) ──────────────────────────
 def _arm(pid: str, request: str, when_ts: float, when_spec: str, kind: str,
-         catchup: bool = False) -> int:
+         catchup: bool = False, project: str = "") -> int:
     """Create the in-process timed job. on_done both removes the persisted entry
     (no longer pending) and surfaces the result."""
     from eli.runtime.background_tasks import get_background_tasks
@@ -226,10 +226,12 @@ def _arm(pid: str, request: str, when_ts: float, when_spec: str, kind: str,
         except Exception:
             pass
 
+    meta = {"request": request, "when_spec": when_spec, "kind": kind, "pid": pid}
+    if project:
+        meta["project"] = project  # Phase 3: the project that owns this task
     return get_background_tasks().schedule(
         f"{kind}: {request[:50]}", worker, request,
-        when=when_ts, kind=kind, on_done=_on_done,
-        meta={"request": request, "when_spec": when_spec, "kind": kind, "pid": pid},
+        when=when_ts, kind=kind, on_done=_on_done, meta=meta,
     )
 
 
@@ -245,17 +247,26 @@ def schedule_request(request: str, when_spec: str = "", kind: Optional[str] = No
     fire_at = parse_when(when_spec)
     pid = uuid.uuid4().hex[:12]
 
+    # Phase 3: if a project is active, it owns this task.
+    project = ""
+    try:
+        from eli.runtime.active_project import active_name
+        project = active_name()
+    except Exception:
+        project = ""
+
     try:
         _persist_add({"pid": pid, "request": request, "when_spec": when_spec,
-                      "kind": kind, "when_ts": fire_at, "created": time.time()})
-        jid = _arm(pid, request, fire_at, when_spec, kind)
+                      "kind": kind, "when_ts": fire_at, "created": time.time(),
+                      "project": project})
+        jid = _arm(pid, request, fire_at, when_spec, kind, project=project)
     except Exception as e:
         forget(pid)
         return {"ok": False, "error": f"schedule failed: {e}"}
 
     when_human = datetime.fromtimestamp(fire_at).strftime("%H:%M on %a %d %b")
     return {"ok": True, "job_id": jid, "kind": kind, "when_ts": fire_at,
-            "when_human": when_human, "pid": pid}
+            "when_human": when_human, "pid": pid, "project": project}
 
 
 def restore_scheduled_tasks() -> int:
@@ -278,7 +289,7 @@ def restore_scheduled_tasks() -> int:
             _arm(str(e.get("pid") or uuid.uuid4().hex[:12]),
                  str(e.get("request") or ""), wt,
                  str(e.get("when_spec") or ""), str(e.get("kind") or "research"),
-                 catchup=catchup)
+                 catchup=catchup, project=str(e.get("project") or ""))
             restored += 1
         except Exception as ex:
             log.debug(f"[SCHEDULED] restore of {e.get('pid')} failed: {ex}")

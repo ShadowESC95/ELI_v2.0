@@ -137,3 +137,44 @@ def test_restore_catches_up_missed_task():
     jobs = [t for t in get_background_tasks().list(limit=50) if (t.get("meta") or {}).get("pid") == pid]
     assert jobs and float(jobs[0]["scheduled_for"]) > time.time()  # rescheduled to the future, not the past
     ST.forget(pid); _clear_store()
+
+
+# ── Phase 2/3: active project (memory namespacing + task ownership) ───────────
+def test_active_project_set_get_clear(tmp_path, monkeypatch):
+    import eli.runtime.active_project as AP
+    AP.clear_active()
+    assert AP.get_active() is None and AP.active_name() == ""
+    AP.set_active("QMSH", "project.qmsh")
+    assert AP.active_name() == "QMSH" and AP.active_memory_tag() == "project.qmsh"
+    AP.clear_active()
+    assert AP.get_active() is None
+
+
+def test_task_ownership_follows_active_project():
+    import eli.runtime.active_project as AP
+    import eli.runtime.scheduled_tasks as ST
+    AP.clear_active()
+    r0 = ST.schedule_request("research A in 999 minutes", when_spec="in 999 minutes")
+    assert r0.get("project") == ""
+    ST.forget(r0["pid"])
+    AP.set_active("QMSH", "project.qmsh")
+    r1 = ST.schedule_request("research B in 999 minutes", when_spec="in 999 minutes")
+    assert r1.get("project") == "QMSH"
+    from eli.runtime.background_tasks import get_background_tasks
+    assert (get_background_tasks().get(r1["job_id"])["meta"] or {}).get("project") == "QMSH"
+    ST.forget(r1["pid"]); AP.clear_active()
+
+
+def test_memory_tagging_only_facts_when_active(monkeypatch, tmp_path):
+    monkeypatch.setenv("ELI_TEST_MODE", "1")
+    monkeypatch.setenv("HOME", str(tmp_path))
+    import importlib, eli.memory as MEM
+    import eli.runtime.active_project as AP
+    AP.set_active("PT", "project.pt_unique_tag")
+    m = MEM.get_memory()
+    m.store_memory("a concrete project fact", kind="memory")
+    m.store_memory("a reflection note", kind="reflection")
+    hits = m.get_memories_by_tag("project.pt_unique_tag", limit=20)
+    assert any("concrete project fact" in h["text"] for h in hits)
+    assert not any("reflection note" in h["text"] for h in hits)  # reflections stay global
+    AP.clear_active()
