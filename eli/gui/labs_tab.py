@@ -5395,6 +5395,14 @@ class _TestReviewTab(QWidget):
             for f in res["failures"][:15]:
                 lines.append(f"  - {f['node']}")
             lines.append("")
+        fa = res.get("fix_analysis") or {}
+        if fa.get("proposals"):
+            lines.append("Code-examiner findings in failing modules:")
+            for p in fa["proposals"][:5]:
+                for fn in (p.get("findings") or [])[:3]:
+                    loc = f":{fn.get('line')}" if fn.get("line") else ""
+                    lines.append(f"  - {p['module']}{loc} [{fn.get('kind')}] {fn.get('message')}")
+            lines.append("")
         if res.get("backup_path"):
             lines.append(f"Prior report backed up → {res['backup_path']}")
         if res.get("error_file"):
@@ -5536,8 +5544,7 @@ class LabsTab(QWidget):
         self._sim_ide_tab = _SimIDETab(eli_callback=self._eli_ask)
         self._inner_tabs.addTab(self._sim_ide_tab, "🔬 Sim / IDE")
 
-        self._orchestration_tab = _OrchestrationTab()
-        self._inner_tabs.addTab(self._orchestration_tab, "🧭 Orchestration")
-
-        self._test_review_tab = _TestReviewTab(eli_callback=self._eli_ask)
-        self._inner_tabs.addTab(self._test_review_tab, "🧪 Test & Review")
+        # Orchestration + Test & Review were promoted to top-level main tabs
+        # (create_orchestration_tab / create_test_review_tab in the main window).
+        # The widget classes (_OrchestrationTab / _TestReviewTab) live here and are
+        # imported by the main window.

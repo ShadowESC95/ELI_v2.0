@@ -104,6 +104,48 @@ def build_options(totals: Dict[str, int], failures: List[Dict[str, str]]) -> Lis
     return opts
 
 
+def propose_fixes(failures: List[Dict[str, str]], *, run_tier3: bool = False,
+                  max_modules: int = 5) -> Dict[str, Any]:
+    """Delegate failure analysis to the EXISTING code examiner, orchestrated over the
+    failing modules IN PARALLEL via the DAG (run_graph). This reuses the coding/
+    analysis algorithms already in place rather than reinventing them — the same
+    pattern many actions should use: compose existing functions/agents, don't rebuild.
+    Returns concrete per-module findings (propose-only; nothing is applied)."""
+    mods: List[str] = []
+    seen = set()
+    for f in failures:
+        p = _module_to_path(f.get("module", ""))
+        if p and p not in seen and (REPO / p).exists():
+            seen.add(p)
+            mods.append(p)
+        if len(mods) >= max_modules:
+            break
+    if not mods:
+        return {"ok": False, "reason": "no resolvable failing modules", "proposals": []}
+    try:
+        from eli.core.dag import Task, run_graph
+        from eli.runtime.code_examiner import examine
+
+        def _mk(path: str):
+            def _run(ctx):
+                findings = examine([REPO / path], run_tier3=run_tier3)
+                return [fn.to_dict() for fn in findings]
+            return _run
+
+        tasks = [Task(id=m, run=_mk(m), critical=False) for m in mods]
+        report = run_graph(tasks, max_workers=max(2, len(mods)))
+        proposals = []
+        for m in mods:
+            o = report.outcomes.get(m)
+            if o is not None and o.ok and o.result:
+                proposals.append({"module": m, "findings": o.result})
+        return {"ok": True, "proposals": proposals, "examined": mods,
+                "orchestration": report.to_dict()}
+    except Exception as e:
+        log.debug(f"[TEST_REVIEW] propose_fixes failed: {e}")
+        return {"ok": False, "reason": str(e), "proposals": []}
+
+
 def _render_errors(ts: str, totals: Dict[str, int], failures: List[Dict[str, str]],
                    target: str) -> str:
     lines = [f"# ELI — Test errors backup ({ts})",
@@ -163,6 +205,10 @@ def run_and_review(target: str = "tests/", *, timeout: int = 3600,
         except Exception:
             error_file = None
 
+    # On failure, delegate concrete analysis to the code examiner (orchestrated,
+    # parallel) so the review already points at real issues — propose-only.
+    fix_analysis = propose_fixes(failures) if failures else {"ok": True, "proposals": []}
+
     options = build_options(totals, failures)
     report_text = ""
     try:
@@ -180,8 +226,9 @@ def run_and_review(target: str = "tests/", *, timeout: int = 3600,
         "backup_path": str(backup_path) if backup_path else None,
         "error_file": str(error_file) if error_file else None,
         "options": options,
+        "fix_analysis": fix_analysis,
         "stdout": stdout[-1500:],
     }
 
 
-__all__ = ["run_and_review", "build_options"]
+__all__ = ["run_and_review", "build_options", "propose_fixes"]

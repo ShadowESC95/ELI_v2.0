@@ -88,6 +88,23 @@ the venv ELI uses. No rebuild needed.)
   venv + model/DB/repo provisioning) and elevating the DAG to a project-wide
   frontier orchestrator.
 
+## Addendum (2026-06-07, DAG + delegation)
+- **DAG orchestrator** (`eli/core/dag.py`): pure scheduler → full execution engine
+  (parallel layers, retries, fallback, cache, conditional, timeout, priority,
+  fail-fast, budget, telemetry). Wired: the 14 agents run on it; evidence `gather`
+  runs its channels in parallel on it; coding planner + LoRA pipeline already use it.
+  See `dag_orchestrator.md`.
+- **Capabilities: 200** (added RUN_TESTS, GENERATE_TESTS, LORA_STATUS/LORA_TRAIN,
+  ORCHESTRATION_STATUS, TEST_REVIEW).
+- **GUI: 14 main tabs** (added **Test & Review** + **Orchestration**, promoted from
+  Labs; Labs stays 8 sub-tabs). See `gui.md`.
+- **Test & Review** (`runtime/test_review.py` + `TEST_REVIEW`): full suite run → LLM
+  summary → prior report backed up + errors file written → result-driven options. On
+  failure it **delegates analysis to the existing code examiner, orchestrated over the
+  failing modules in parallel via `run_graph`** — the intended pattern: *compose
+  existing functions/agents, don't rebuild*. Many other actions can adopt the same
+  delegation (candidates: SELF_IMPROVE→coding agent, GENERATE_PROJECT→planner DAG).
+
 ## Verdict
 The architecture is genuinely frontier for a local, model-agnostic, self-honest
 personal AI — and it now **tests itself, evals itself nightly, writes its own tests,
