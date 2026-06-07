@@ -9403,6 +9403,7 @@ Answer:"""
                 user_input, intent,
                 session_id=self.session_id,
                 user_id=self.user_id,
+                reasoning_mode=reasoning_mode,
             )
             bus_memory_context = bus_result.memory_context or ""
             trace["agent_confidence"] = bus_result.aggregated_confidence
