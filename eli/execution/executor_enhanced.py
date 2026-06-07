@@ -2005,6 +2005,7 @@ SUPPORTED_ACTIONS = [
     'LORA_STATUS',
     'LORA_TRAIN',
     'ORCHESTRATION_STATUS',
+    'TEST_REVIEW',
     'SELF_UPDATE',
     'SELF_UPGRADE',
     'SEQUENCE',
@@ -6027,6 +6028,40 @@ def _execute_impl(action: str, args: Optional[Dict[str, Any]] = None) -> Dict[st
                     "evidence_source": "agent_orchestrator", "result": snap}
         except Exception as e:
             msg = f"ORCHESTRATION_STATUS failed: {e}"
+            return {"ok": False, "action": a, "error": str(e), "content": msg, "response": msg}
+
+    # ---- TEST_REVIEW — run the suite, back up + write errors, then summarise + offer options ----
+    # The grounded report below is summarised by the persona; the options route to
+    # existing actions (examine/propose/generate/eval) so the user can work through them.
+    if a == "TEST_REVIEW":
+        try:
+            from eli.runtime.test_review import run_and_review
+            target = str(args.get("target") or "tests/claims/test_structural_claims.py")
+            res = run_and_review(target)
+            if res.get("error"):
+                msg = f"Test review could not run: {res['error']}"
+                return {"ok": False, "action": a, "content": msg, "response": msg}
+            t = res.get("totals", {})
+            lines = [f"Test review of `{target}`: {t.get('passed', 0)} passed, "
+                     f"{t.get('failed', 0)} failed, {t.get('errored', 0)} errored, "
+                     f"{t.get('xfailed', 0)} known-gap (xfail) of {t.get('total', 0)}."]
+            if res.get("failures"):
+                lines.append("Failing tests (possible errors):")
+                for f in res["failures"][:10]:
+                    lines.append(f"  - {f['node']}: {(f.get('message') or '')[:120]}")
+            if res.get("error_file"):
+                lines.append(f"Errors written to: {res['error_file']}")
+            if res.get("backup_path"):
+                lines.append(f"Previous report backed up to: {res['backup_path']}")
+            if res.get("options"):
+                lines.append("What would you like to do next?")
+                for i, o in enumerate(res["options"], 1):
+                    lines.append(f"  {i}. {o['label']}  — say: \"{o['command']}\"")
+            msg = "\n".join(lines)
+            return {"ok": True, "action": a, "content": msg, "response": msg,
+                    "evidence_source": "test_review", "result": res}
+        except Exception as e:
+            msg = f"TEST_REVIEW failed: {e}"
             return {"ok": False, "action": a, "error": str(e), "content": msg, "response": msg}
 
     if a == "SET_USER_NAME":

@@ -13,6 +13,7 @@ Usage:
 from __future__ import annotations
 
 import datetime
+import os
 import subprocess
 import sys
 import xml.etree.ElementTree as ET
@@ -20,8 +21,12 @@ from collections import defaultdict
 from pathlib import Path
 
 REPO = Path(__file__).resolve().parents[1]
-OUT = REPO / "artifacts" / "test_report.md"
-JUNIT = REPO / "artifacts" / "test_report.junit.xml"
+# Honour ELI_ARTIFACTS_DIR so tests/users can redirect (consistent with the rest of
+# the runtime); defaults to artifacts/ under the project root.
+_ENV_ART = os.environ.get("ELI_ARTIFACTS_DIR")
+_ART = (Path(_ENV_ART).expanduser() if _ENV_ART else (REPO / "artifacts"))
+OUT = _ART / "test_report.md"
+JUNIT = _ART / "test_report.junit.xml"
 
 
 def run(target: str) -> int:

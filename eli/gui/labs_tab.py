@@ -5307,6 +5307,137 @@ class _OrchestrationTab(QWidget):
 
 
 # ═══════════════════════════════════════════════════════════════════════════
+# Test & Review sub-tab — full suite run → LLM summary → backups → option chat
+# ═══════════════════════════════════════════════════════════════════════════
+class _BgWorker(QThread):
+    """Run any callable off the UI thread; emit its result."""
+    done = pyqtSignal(object)
+
+    def __init__(self, fn):
+        super().__init__()
+        self._fn = fn
+
+    def run(self):
+        try:
+            self.done.emit(self._fn())
+        except Exception as e:  # surfaced to the slot
+            self.done.emit({"__error__": str(e)})
+
+
+class _TestReviewTab(QWidget):
+    """Run the full test/project suite, then: ELI summarises the results, the prior
+    report is backed up + an errors file is written, and result-driven options are
+    offered as buttons that hand off to ELI in chat."""
+
+    def __init__(self, eli_callback=None, parent=None):
+        super().__init__(parent)
+        self._eli = eli_callback
+        self._workers = []        # keep QThread refs alive
+        self._last = None
+        from PySide6.QtWidgets import (QVBoxLayout, QHBoxLayout, QPushButton,
+                                       QTextEdit, QLabel)
+        lay = QVBoxLayout(self)
+        lay.addWidget(QLabel("Full test/project run → summary, backups, and next-step options"))
+        row = QHBoxLayout()
+        self._run_btn = QPushButton("▶ Run full suite & review")
+        self._run_btn.clicked.connect(lambda: self._start("tests/"))
+        row.addWidget(self._run_btn)
+        self._quick_btn = QPushButton("⚡ Quick review")
+        self._quick_btn.clicked.connect(lambda: self._start("tests/claims/test_structural_claims.py"))
+        row.addWidget(self._quick_btn)
+        lay.addLayout(row)
+        self._view = QTextEdit()
+        self._view.setReadOnly(True)
+        self._view.setStyleSheet("font-family: monospace;")
+        lay.addWidget(self._view)
+        from PySide6.QtWidgets import QWidget as _QW
+        self._opts_host = _QW()
+        self._opts_layout = QVBoxLayout(self._opts_host)
+        lay.addWidget(self._opts_host)
+
+    def _set_busy(self, busy: bool):
+        self._run_btn.setEnabled(not busy)
+        self._quick_btn.setEnabled(not busy)
+
+    def _clear_options(self):
+        while self._opts_layout.count():
+            it = self._opts_layout.takeAt(0)
+            w = it.widget()
+            if w:
+                w.deleteLater()
+
+    def _start(self, target: str):
+        self._set_busy(True)
+        self._clear_options()
+        self._view.setPlainText(
+            f"Running {target} …\n(full suite can take a few minutes — runs in the background)")
+        from eli.runtime.test_review import run_and_review
+        w = _BgWorker(lambda: run_and_review(target))
+        w.done.connect(self._on_run_done)
+        self._workers.append(w)
+        w.start()
+
+    def _on_run_done(self, res):
+        self._set_busy(False)
+        if not isinstance(res, dict) or res.get("__error__"):
+            self._view.setPlainText(f"Test run failed: {res.get('__error__') if isinstance(res, dict) else res}")
+            return
+        if res.get("error"):
+            self._view.setPlainText(f"Test run failed: {res['error']}")
+            return
+        self._last = res
+        t = res.get("totals", {})
+        lines = [f"{t.get('passed', 0)} passed · {t.get('failed', 0)} failed · "
+                 f"{t.get('errored', 0)} errored · {t.get('xfailed', 0)} known-gap "
+                 f"of {t.get('total', 0)}", ""]
+        if res.get("failures"):
+            lines.append("Failing tests (possible errors):")
+            for f in res["failures"][:15]:
+                lines.append(f"  - {f['node']}")
+            lines.append("")
+        if res.get("backup_path"):
+            lines.append(f"Prior report backed up → {res['backup_path']}")
+        if res.get("error_file"):
+            lines.append(f"Errors written → {res['error_file']}")
+        self._view.setPlainText("\n".join(lines))
+        # option buttons → hand off to ELI in chat
+        self._clear_options()
+        from PySide6.QtWidgets import QPushButton
+        for opt in res.get("options", []):
+            b = QPushButton(opt.get("label", opt.get("id", "option")))
+            b.clicked.connect(lambda _=False, cmd=opt.get("command", ""): self._send(cmd))
+            self._opts_layout.addWidget(b)
+        # ask ELI for a natural-language summary of the results
+        self._summarise(res)
+
+    def _summarise(self, res):
+        if not callable(self._eli):
+            return
+        t = res.get("totals", {})
+        fails = "\n".join(f"- {f['node']}: {(f.get('message') or '')[:120]}"
+                          for f in res.get("failures", [])[:15]) or "(none)"
+        prompt = ("Summarise these test results for me in a few sentences and say what's "
+                  f"most worth doing next.\nTotals: {t}\nFailing:\n{fails}")
+        w = _BgWorker(lambda: (self._eli(prompt) or ""))
+        w.done.connect(self._on_summary)
+        self._workers.append(w)
+        w.start()
+
+    def _on_summary(self, text):
+        if isinstance(text, dict):
+            return
+        cur = self._view.toPlainText()
+        self._view.setPlainText(cur + "\n\n── ELI's summary ──\n" + str(text))
+
+    def _send(self, cmd: str):
+        if cmd and callable(self._eli):
+            w = _BgWorker(lambda: (self._eli(cmd) or ""))
+            w.done.connect(self._on_summary)
+            self._workers.append(w)
+            w.start()
+
+
+# ═══════════════════════════════════════════════════════════════════════════
 # Top-level Labs tab
 # ═══════════════════════════════════════════════════════════════════════════
 
@@ -5407,3 +5538,6 @@ class LabsTab(QWidget):
 
         self._orchestration_tab = _OrchestrationTab()
         self._inner_tabs.addTab(self._orchestration_tab, "🧭 Orchestration")
+
+        self._test_review_tab = _TestReviewTab(eli_callback=self._eli_ask)
+        self._inner_tabs.addTab(self._test_review_tab, "🧪 Test & Review")
