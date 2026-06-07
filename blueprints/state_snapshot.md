@@ -66,6 +66,28 @@ the venv ELI uses. No rebuild needed.)
 - **The real ceiling is the local model** — the body/memory/grounding/awareness are
   frontier; the *mind* is whatever local GGUF is loaded (model-agnostic → a swap).
 
+## Addendum (2026-06-07, later)
+- **LoRA wired** (was orphaned): model-agnostic target modules + `lora_pipeline`
+  DAG (preflight→build→train→eval) + `LORA_STATUS`/`LORA_TRAIN` actions + scheduled
+  `lora` kind. See `lora_pipeline.md`.
+- **Doc "regression" was test pollution, not quality:** a doc-gen test leaked its
+  stub into the real `artifacts/documents/`. Root cause: `runtime_settings` strips
+  out-of-project `ELI_ARTIFACTS_DIR`. Fixed: `_artifacts_dir()`/`_store_path()` honour
+  it for in-project paths; conftest redirects all test artifact writes to an
+  in-project throwaway dir (one config line, **no monkeypatch**).
+- **Monkeypatches:** removed the test fixtures previously added; the only remaining
+  runtime self-wrappers are 2 in `gguf_inference` (the `generate` auto-reload wrap and
+  the effective-runtime `load_model` contract) — verified **load-bearing** (a plain
+  rebind of `generate` recurses infinitely), so they are module-init wiring, not
+  removable hacks.
+- **Stale-folder audit (`eli/`):** `guards/` is dead (empty, 0 importers — removable);
+  `brain/agents/` is the runtime custom-agent store; `scripts/` is CLI-only;
+  `integrations/cli/contracts/system/utils/world/kernel` all import cleanly and are
+  wired (`utils` 59 importers, `kernel` 24) — "stale" = unchanged stable code.
+- **Open (large, dedicated efforts):** a one-click professional installer (frozen
+  venv + model/DB/repo provisioning) and elevating the DAG to a project-wide
+  frontier orchestrator.
+
 ## Verdict
 The architecture is genuinely frontier for a local, model-agnostic, self-honest
 personal AI — and it now **tests itself, evals itself nightly, writes its own tests,
