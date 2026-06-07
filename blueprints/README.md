@@ -6,9 +6,13 @@ from deep reads of the core + a full structural/code-health sweep — a deep rea
 
 ## Index
 
-- **[project_overview.md](project_overview.md)** — start here. What ELI is,
-  scale (126,619 LOC / 336 files), architecture by layer, the honest verdict on
-  "frontier", and the highest-leverage work.
+- **[what_eli_is.md](what_eli_is.md)** — the human-first portrait: what ELI is and
+  what it does for your actual day (layman + tech head), with the genuine selling
+  points foregrounded — ownership, model-agnosticism, self-honesty,
+  self-improvement, embodiment. Read this for the "why it matters."
+- **[project_overview.md](project_overview.md)** — start here for the engineering
+  view. What ELI is, scale (126,619 LOC / 336 files), architecture by layer, the
+  honest verdict on "frontier", and the highest-leverage work.
 - **[orchestration_and_agents.md](orchestration_and_agents.md)** — the real
   topology: `AgentOrchestrator` (12-stage pipeline) vs the 14-agent `AgentBus`,
   the ReAct loop, the typed `ExecutionPlan`, selection, timeouts, trust.
