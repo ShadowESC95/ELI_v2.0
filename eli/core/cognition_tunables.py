@@ -124,6 +124,18 @@ TUNABLES: List[Tunable] = [
             "keep gathering on a background thread and surface a better answer in "
             "the Proactive panel. 0 disables. (env ELI_BACKGROUND_DEEPEN=0 also off.)",
             1, 0, 1, 1, "Reasoning-mode budgets"),
+
+    # ── Auto-scaling for bigger models (model-tier aware) ────────────────────
+    Tunable("cog.synth_cap_auto", "Synthesis cap: auto-scale to model (0/1)",
+            "When on, the synthesis prompt cap is derived from the loaded model's "
+            "context window × its capability tier (never below the fixed cap), so "
+            "a larger/longer-context model is fed more automatically. 0 = use the "
+            "fixed cap above.", 1, 0, 1, 1, "Auto-scaling (model tier)"),
+    Tunable("cog.gather_auto_scale", "Gather limits: auto-scale to model (0/1)",
+            "When on, the count-based gather limits scale with the loaded model's "
+            "capability tier (small=1.0× → unchanged; bigger models gather more, "
+            "clamped to each limit's max). 0 = use the fixed limits.",
+            1, 0, 1, 1, "Auto-scaling (model tier)"),
 ]
 
 _BY_KEY: Dict[str, Tunable] = {t.key: t for t in TUNABLES}
@@ -149,8 +161,26 @@ def get_tunable(key: str) -> int:
         return t.default
 
 
+# Count-based gather keys that scale with the model-capability tier when
+# auto-scaling is on (a bigger model gathers proportionally more evidence).
+_GATHER_COUNT_KEYS = (
+    "cog.mem_semantic_recall", "cog.mem_semantic_shown",
+    "cog.mem_conv_recall", "cog.mem_conv_shown",
+    "cog.mem_recent_turns", "cog.mem_summaries_recall",
+    "cog.mem_summaries_shown", "cog.mem_hop2_recall", "cog.mem_merge_cap",
+    "cog.kg_max_chars", "cog.orch_keyword_limit", "cog.orch_semantic_limit",
+    "cog.orch_rag_limit", "cog.rerank_top_k", "cog.personal_facts_max",
+)
+
+
 def snapshot() -> Dict[str, int]:
-    """All tunables in ONE settings read — use on the hot path (per request)."""
+    """All tunables in ONE settings read — use on the hot path (per request).
+
+    When `cog.gather_auto_scale` is on (default) and the loaded model is a larger
+    tier, the count-based gather limits are scaled by the tier factor (clamped to
+    each tunable's max), so a bigger brain automatically gathers more. For the
+    current small model the factor is 1.0 → values are unchanged.
+    """
     out: Dict[str, int] = {}
     try:
         from eli.core.runtime_settings import load_settings as _ls
@@ -159,6 +189,19 @@ def snapshot() -> Dict[str, int]:
         s = {}
     for t in TUNABLES:
         out[t.key] = _clamp(t, s.get(t.key, t.default))
+
+    if out.get("cog.gather_auto_scale", 1):
+        try:
+            from eli.core.model_tier import tier_scale
+            _mult = tier_scale()
+        except Exception:
+            _mult = 1.0
+        if _mult and _mult != 1.0:
+            for _k in _GATHER_COUNT_KEYS:
+                t = _BY_KEY.get(_k)
+                if t is None:
+                    continue
+                out[_k] = max(t.minimum, min(t.maximum, int(round(out[_k] * _mult))))
     return out
 
 

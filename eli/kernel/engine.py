@@ -5224,12 +5224,24 @@ Answer:"""
                     # of n_ctx so the model gets a prompt it can actually answer.
                     # Tunable: ELI_SYNTH_MAX_PROMPT_CHARS (set 0 to disable).
                     try:
+                        from eli.core.cognition_tunables import get_tunable as _cog_get
                         _qenv = os.environ.get("ELI_SYNTH_MAX_PROMPT_CHARS")
+                        _fixed_cap = _cog_get("cog.synth_max_prompt_chars")
                         if _qenv is not None:
                             _qcap = int(_qenv or "0")  # explicit env override wins
+                        elif _cog_get("cog.synth_cap_auto"):
+                            # Auto-scale to the loaded model: ~45% of the context
+                            # window (chars≈3×tokens) × capability tier, never
+                            # below the fixed cap. For the current small model this
+                            # stays at the fixed cap (floor dominates).
+                            try:
+                                from eli.core.model_tier import tier_scale as _ts
+                                _derived = int(_n_ctx_pf1 * 3.0 * 0.45 * _ts())
+                            except Exception:
+                                _derived = 0
+                            _qcap = max(_fixed_cap, _derived)
                         else:
-                            from eli.core.cognition_tunables import get_tunable as _cog_get
-                            _qcap = _cog_get("cog.synth_max_prompt_chars")  # GUI: Settings → Cognition
+                            _qcap = _fixed_cap
                     except Exception:
                         _qcap = 20000
                     if _qcap > 0:
