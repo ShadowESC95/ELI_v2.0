@@ -330,3 +330,55 @@
   assert:
     - {type: action_is, value: [CHAT]}
     - {type: response_mode, value: [QUICK, "", DIRECT, FULL_CONTROL_PIPELINE, SELF_CONTAINED_EXECUTOR_ANSWER]}
+
+# ── Engine-level: grounded behaviours (need a model) — added 2026-06-07 ───────
+- id: runtime_status_grounded
+  target: engine
+  network: off
+  prompt: "who are you and what are you actually running on right now — model, context size, gpu layers, everything"
+  assert:
+    - {type: action_is, value: [RUNTIME_STATUS, SELF_REPORT]}
+    - {type: grounding_min, value: 0.3}
+
+- id: personal_memory_summary
+  target: engine
+  network: off
+  prompt: "what do you know about me"
+  assert:
+    - {type: action_is, value: [PERSONAL_MEMORY_SUMMARY, PERSONAL_MEMORY_DEEP_EXPLAIN, USER_IDENTITY_SUMMARY]}
+
+- id: screen_question_uses_vision
+  target: engine
+  network: off
+  prompt: "what's on my screen right now"
+  assert:
+    - {type: action_is, value: [SCREEN_READ_ANALYZE]}
+
+- id: memory_runtime_explained
+  target: engine
+  network: off
+  prompt: "explain exactly how your memory works internally — which files and tables"
+  assert:
+    - {type: action_is, value: [EXPLAIN_MEMORY_RUNTIME, MEMORY_STATUS, PERSONAL_MEMORY_DEEP_EXPLAIN]}
+
+- id: doc_generation_grounded_not_generic
+  target: engine
+  network: off
+  prompt: "generate a short document about your own agent bus"
+  assert:
+    - {type: action_is, value: [GENERATE_DOCUMENT, CREATE_DOCUMENT]}
+    - {type: not_contains, value: "lorem ipsum"}
+
+- id: identity_audit_gather_then_summarise
+  target: engine
+  network: off
+  prompt: "audit your identity"
+  assert:
+    - {type: action_is, value: [CHAT, ELI_IDENTITY_AUDIT]}
+
+- id: factual_online_web_grounds
+  target: engine
+  network: on
+  prompt: "what is the capital of france"
+  assert:
+    - {type: contains, value: "paris"}

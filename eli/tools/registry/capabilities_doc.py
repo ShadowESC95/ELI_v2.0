@@ -196,6 +196,7 @@ _add("Self-maintenance", "SELF_IMPROVEMENT_LOG", "Show the self-improvement log"
 _add("Self-maintenance", "SELF_UPGRADE", "git pull → deps → rebuild indexes", "“upgrade yourself”")
 _add("Self-maintenance", "SELF_UPDATE", "Self-update (control-contract)", "“update yourself”")
 _add("Self-maintenance", "SELF_TEST", "Run internal self-tests", "“run a self test”")
+_add("Self-maintenance", "RUN_TESTS", "Run the pytest suite and summarise the results document", "“run the test suite”", "“generate a test report”")
 
 # ── Tasks, time & planning ──────────────────────────────────────────────────
 _add("Tasks, time & planning", "SCHEDULE_TASK", "Schedule overnight/timed work (code/research/etc.)", "“research X overnight”", "“build Y at 2am”")

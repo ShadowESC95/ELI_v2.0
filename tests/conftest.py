@@ -66,3 +66,58 @@ def force_persistence_gate():
     with patch("eli.memory.memory._eli_should_store_memory_text", None), \
          patch("eli.memory.memory._eli_should_store_conversation_turn", None):
         yield
+
+
+# ── Auto-updating test-results document ──────────────────────────────────────
+# Every pytest run (re)writes artifacts/test_report.md with the live results, so
+# the report is dynamic — never stale. ELI's RUN_TESTS action reads/summarises it.
+def pytest_sessionfinish(session, exitstatus):
+    try:
+        import datetime
+        from collections import defaultdict
+        tr = session.config.pluginmanager.get_plugin("terminalreporter")
+        if tr is None:
+            return
+        stats = tr.stats
+        order = ("passed", "failed", "error", "xfailed", "xpassed", "skipped")
+        totals = {k: len(stats.get(k, [])) for k in order}
+        total = sum(totals.values())
+        per_file = defaultdict(lambda: defaultdict(int))
+        failures = []
+        for outcome in order:
+            for rep in stats.get(outcome, []):
+                nid = getattr(rep, "nodeid", "?")
+                f = nid.split("::", 1)[0]
+                per_file[f][outcome] += 1
+                per_file[f]["total"] += 1
+                if outcome in ("failed", "error"):
+                    failures.append(nid)
+        out = [
+            "# ELI — Test Suite Report (auto-generated)",
+            f"\n*Updated {datetime.datetime.now().isoformat(timespec='seconds')} "
+            f"on every `pytest` run.*\n",
+            "## Totals\n",
+            f"- **Total:** {total}",
+            f"- **Passed:** {totals['passed']}",
+            f"- **Failed:** {totals['failed'] + totals['error']}",
+            f"- **xfailed (known gaps):** {totals['xfailed']}",
+            f"- **xpassed (gap fixed?):** {totals['xpassed']}",
+            f"- **Skipped:** {totals['skipped']}",
+            f"\n**Verdict:** {'✅ GREEN' if (totals['failed'] + totals['error']) == 0 else '❌ FAILURES'}\n",
+            "## Per-file\n",
+            "| Test file | Total | Pass | Fail | xfail | skip |",
+            "|---|---|---|---|---|---|",
+        ]
+        for f in sorted(per_file):
+            c = per_file[f]
+            out.append(f"| `{f}` | {c['total']} | {c.get('passed',0)} | "
+                       f"{c.get('failed',0)+c.get('error',0)} | {c.get('xfailed',0)} | "
+                       f"{c.get('skipped',0)} |")
+        if failures:
+            out.append("\n## Failures\n")
+            out += [f"- `{x}`" for x in failures[:200]]
+        rep_path = ROOT / "artifacts" / "test_report.md"
+        rep_path.parent.mkdir(parents=True, exist_ok=True)
+        rep_path.write_text("\n".join(out) + "\n", encoding="utf-8")
+    except Exception:
+        pass
