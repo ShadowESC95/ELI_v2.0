@@ -9669,18 +9669,13 @@ def _action_post_dispatch(
                 return result
 
             signature_input = f"{str(action or '').upper()} {_json.dumps(args or {}, sort_keys=True, default=str)}"
-            mem = _get_memory()
-            mem.log_failure(
-                signature_input,
-                error=err_text,
-                confidence=0.0,
-                context={"action": action, "args": args or {}, "result": result},
-                source="executor_post_dispatch",
-            )
+            # Failures live in ONE canonical store — the agent/self-improvement DB
+            # (agent.sqlite3), alongside improvements + code_patches. Previously this
+            # dual-wrote to the user DB too, splitting the failure log across two
+            # databases (the Self-Improve panel reads only the agent store).
             try:
                 from eli.memory import get_agent_memory as _get_agent_memory
-                agent_mem = _get_agent_memory()
-                agent_mem.log_failure(
+                _get_agent_memory().log_failure(
                     signature_input,
                     error=err_text,
                     confidence=0.0,
