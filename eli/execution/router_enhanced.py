@@ -4222,6 +4222,27 @@ def _eli_self_improvement_phrase_guard(text):
     raw = str(text or "")
     low = raw.lower().strip()
 
+    # Self/system routes that the generic portable open_app / shell / memory
+    # matchers would otherwise steal (claims-suite findings: "run a self test" →
+    # OPEN_APP, etc.). Tight patterns, matched here BEFORE portable_route.
+    if re.search(r"\b(run\s+(the\s+|your\s+)?(test\s+suite|tests|pytest|claims\s+suite)|"
+                 r"test\s+report|generate\s+(a\s+)?test\s+report|how('?s| is)\s+the\s+test\s+suite)\b", low):
+        return _mk("RUN_TESTS", {}, 0.96, matched_by="tests.run.guard")
+    if re.search(r"\bself[\s_-]?test\b|\brun\s+(a\s+)?self[\s_-]?test\b", low):
+        return _mk("SELF_TEST", {}, 0.96, matched_by="self.test.guard")
+    if re.search(r"\banaly[sz]e\s+(your(self)?|its?\s+own)\s+"
+                 r"(failures?|errors?|mistakes|performance|metrics)\b", low):
+        return _mk("SELF_ANALYZE", {}, 0.96, matched_by="self.analyze.guard")
+    if re.search(r"\bproactive\s+status\b|\bstatus\s+of\s+(the\s+)?proactive\b", low):
+        return _mk("PROACTIVE_STATUS", {}, 0.96, matched_by="proactive.status.guard")
+    if re.search(r"\b(start|launch|enable|turn\s+on)\s+(the\s+)?proactive(\s+(mode|daemon))?\b", low):
+        return _mk("PROACTIVE_START", {}, 0.96, matched_by="proactive.start.guard")
+    if re.search(r"\b(stop|kill|disable|turn\s+off|shut\s+down)\s+(the\s+)?proactive(\s+(mode|daemon))?\b", low):
+        return _mk("PROACTIVE_STOP", {}, 0.96, matched_by="proactive.stop.guard")
+    if re.search(r"\b(execute|run)\s+(the\s+)?goal\b", low):
+        _g = re.sub(r"\b(execute|run)\s+(the\s+)?goal\b", "", low).strip()
+        return _mk("EXECUTE_GOAL", {"goal": _g or raw}, 0.95, matched_by="goal.execute.guard")
+
     if re.search(r"\b(self[- ]?improvement|improvement)\s+log\b", low) or (
         re.search(r"\bexact\s+error\s+message\b", low)
         and re.search(r"\blast\s+failure\b", low)

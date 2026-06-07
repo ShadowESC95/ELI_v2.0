@@ -2000,6 +2000,7 @@ SUPPORTED_ACTIONS = [
     'SELF_PATCH',
     'SELF_REPORT',
     'SELF_TEST',
+    'RUN_TESTS',
     'SELF_UPDATE',
     'SELF_UPGRADE',
     'SEQUENCE',
@@ -5917,6 +5918,28 @@ def _execute_impl(action: str, args: Optional[Dict[str, Any]] = None) -> Dict[st
 
     if a == "SELF_TEST":
         return self_test()
+
+    # ---- RUN_TESTS — run the pytest suite and return the results document ----
+    # ELI can run this and SUMMARISE it in chat. Defaults to a fast, high-signal
+    # subset (structural claims); pass args["target"] for more, or schedule the
+    # full suite + engine eval overnight (SCHEDULE_TASK kind=eval). The report is
+    # always at artifacts/test_report.md (auto-written by the pytest hook).
+    if a == "RUN_TESTS":
+        try:
+            import subprocess as _ts_sp, sys as _ts_sys
+            from pathlib import Path as _TP
+            repo = _TP(__file__).resolve().parents[2]
+            target = str(args.get("target") or "tests/claims/test_structural_claims.py")
+            r = _ts_sp.run([_ts_sys.executable, "tools/run_test_report.py", target],
+                           cwd=str(repo), capture_output=True, text=True, timeout=900)
+            rep = repo / "artifacts" / "test_report.md"
+            body = rep.read_text(encoding="utf-8")[:4000] if rep.exists() else \
+                (r.stdout or r.stderr or "")[-2000:]
+            return {"ok": True, "action": a, "content": body, "response": body,
+                    "report_path": str(rep), "evidence_source": "pytest_test_report"}
+        except Exception as e:
+            msg = f"RUN_TESTS failed: {e}"
+            return {"ok": False, "action": a, "error": str(e), "content": msg, "response": msg}
 
     if a == "SET_USER_NAME":
         return set_user_name(str(args.get("name", "")))
