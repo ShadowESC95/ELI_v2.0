@@ -89,8 +89,8 @@ def build_options(totals: Dict[str, int], failures: List[Dict[str, str]]) -> Lis
         paths = " ".join(_module_to_path(m) for m in mods)
         opts.append({"id": "examine", "label": f"Examine the {len(mods)} failing module(s) for errors",
                      "command": f"examine {paths} for errors"})
-        opts.append({"id": "propose", "label": "Propose fixes for the failing tests",
-                     "command": "suggest improvements to fix the failing tests"})
+        opts.append({"id": "propose", "label": "Propose verified fixes (coding agent)",
+                     "command": "improve your code: propose verified fixes for the failing tests"})
         opts.append({"id": "rerun", "label": "Re-run just the failing tests",
                      "command": "run the test suite"})
     if totals.get("xfailed"):
