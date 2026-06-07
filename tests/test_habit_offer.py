@@ -109,3 +109,30 @@ def test_confirm_with_no_pending_is_graceful(tmp_artifacts, tmp_memory):
     res = EX.execute("CONFIRM_HABIT", {"message": "yes"})
     assert res["ok"]
     assert "no habit offer" in res["content"].lower()
+
+
+# ── purge of legacy un-schedulable rows (the 00:00 leak source) ──────────────
+def test_purge_invalid_habit_rules_drops_legacy_rows(tmp_memory):
+    # Legacy corruption: NULL time + command == bare name (e.g. 'firefox').
+    conn = tmp_memory._get_connection()
+    conn.execute(
+        "INSERT INTO habit_rules (name, command, hour, minute, enabled) "
+        "VALUES (?, ?, NULL, NULL, 0)", ("firefox", "firefox"))
+    conn.execute(
+        "INSERT INTO habit_rules (name, command, hour, minute, enabled) "
+        "VALUES (?, ?, NULL, NULL, 0)", ("spotify", "spotify"))
+    conn.commit(); conn.close()
+    # A legitimate detected rule must survive (distinct command + real time).
+    tmp_memory.add_habit_rule("Open firefox at 13:05", "firefox", 13, 5, None, enabled=False)
+
+    deleted = tmp_memory.purge_invalid_habit_rules()
+    assert deleted == 2
+    names = {r["name"] for r in tmp_memory.get_habit_rules(enabled_only=False)}
+    assert names == {"Open firefox at 13:05"}
+
+
+def test_purge_keeps_user_authored_rule_with_real_time(tmp_memory):
+    # command == name but a real time → user-authored, must NOT be purged.
+    tmp_memory.add_habit_rule("firefox", "firefox", 9, 30, None, enabled=True)
+    assert tmp_memory.purge_invalid_habit_rules() == 0
+    assert len(tmp_memory.get_habit_rules(enabled_only=False)) == 1
