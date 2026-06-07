@@ -489,6 +489,45 @@ interior is layered patches; that residue (engine 12.5k / executor 13.3k / GUI
 
 ---
 
+# Part 6 — reasoning modes & autonomous deepening
+
+The 5 reasoning modes were renamed (public layer; internal keys unchanged) and
+made adaptive + self-deepening.
+
+| Public mode | Internal key | Multi-pass algorithm | Agent time budget | Deepen iters | Confidence target |
+|---|---|---|---|---|---|
+| **Quick** | quick | single pass | 1.0× | 0 (never) | 0.45 |
+| **Normal** | chain_of_thought | one reasoned pass | 1.0× | 1 | 0.55 |
+| **Advanced** | self_consistency | N samples + consensus | 1.5× | 2 | 0.65 |
+| **Research** | tree_of_thoughts | branch + prune | 2.0× | 3 | 0.75 |
+| **Expert** | constitutional_ai | draft → critique → revise | 2.5× | 4 | 0.80 |
+
+**Auto-selection** (`cognition/engagement_tracker.py`): the mode is escalated
+automatically as a conversation deepens (quick→…→tree-of-thoughts) without the
+user asking.
+
+**Per-mode agent time budgets** (`reasoning_modes.mode_budget_multiplier`,
+Stage 1b): each mode scales every agent's timeout — quick/normal unchanged,
+deeper modes get proportionally more time. Threaded via `intent["_mode_budget_mult"]`
+→ `agent_bus._collect_layer`. Tunable in the Cognition tab (`cog.mode_budget_*`).
+
+**Confidence-driven iterative deepening** (`runtime/grounding_escalation.escalate`,
+Stage 2): on a poorly-grounded *checkable-factual* turn, ELI re-dispatches the
+agent bus broadly, **escalating the reasoning mode one tier per iteration** and
+(Stage 3a) **raising the gather budget** each pass (1.5×→2.0×→2.5×), until grounding
+crosses the per-mode target or the per-mode iteration budget is spent (early
+no-improvement break). Banter/opinion/command/meta never deepen.
+
+**Background deepening** (`runtime/background_deepening.py`, Stage 3b): a Quick
+answer returns instantly; if it was a poorly-grounded factual turn, a background
+thread keeps gathering (broad re-dispatch at Advanced + 2× gather) and surfaces a
+better answer in the Proactive panel **only if** it crosses grounding 0.55 and
+isn't degenerate. Tightly gated (quick-only, grounding<0.40, factual-only,
+deduped, 1 in-flight, 10-min cooldown). Toggle: `cog.background_deepen` /
+`ELI_BACKGROUND_DEEPEN`.
+
+---
+
 ## Update Advisory — 2026-06-07
 - Batches 1–4 done — COMPLETE module-level catalogue of all packages (actions + runtime + cognition + kernel/core/memory/perception/planning/coding/learning/contracts/integrations/world/gui/plugins). Honest limit: the three giant single files (engine 12.5k, executor 13.3k, GUI 10.7k) are documented at structural + behavioural level, not literally line-by-line — that residue is the only part not fully internalised, then the remaining
   unread bodies (GUI, full `gguf_inference`, `persona_updater`, `profile_extractor`,
