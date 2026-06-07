@@ -95,3 +95,45 @@ def test_schedule_request_stores_meta_for_edit():
     assert d["meta"]["when_spec"] == "in 999 minutes"
     assert d["meta"]["kind"] == "research"
     get_background_tasks().cancel(r["job_id"])
+
+
+# ── Increment 5: durability across restarts ──────────────────────────────────
+def _clear_store():
+    import eli.runtime.scheduled_tasks as ST
+    for e in ST._load_store():
+        ST.forget(e["pid"])
+
+
+def test_schedule_persists_and_forget_removes():
+    import eli.runtime.scheduled_tasks as ST
+    _clear_store()
+    r = ST.schedule_request("research X in 999 minutes", when_spec="in 999 minutes")
+    assert any(e["pid"] == r["pid"] for e in ST._load_store())
+    ST.forget(r["pid"])
+    assert not any(e["pid"] == r["pid"] for e in ST._load_store())
+    _clear_store()
+
+
+def test_restore_rearms_future_task():
+    import eli.runtime.scheduled_tasks as ST
+    _clear_store()
+    r = ST.schedule_request("research Y in 999 minutes", when_spec="in 999 minutes")
+    ST._RESTORED = False
+    n = ST.restore_scheduled_tasks()
+    assert n >= 1
+    ST.forget(r["pid"]); _clear_store()
+
+
+def test_restore_catches_up_missed_task():
+    import time, uuid
+    import eli.runtime.scheduled_tasks as ST
+    from eli.runtime.background_tasks import get_background_tasks
+    _clear_store()
+    pid = uuid.uuid4().hex[:12]
+    ST._persist_add({"pid": pid, "request": "missed job", "when_spec": "overnight",
+                     "kind": "research", "when_ts": time.time() - 3600, "created": time.time()})
+    ST._RESTORED = False
+    ST.restore_scheduled_tasks()
+    jobs = [t for t in get_background_tasks().list(limit=50) if (t.get("meta") or {}).get("pid") == pid]
+    assert jobs and float(jobs[0]["scheduled_for"]) > time.time()  # rescheduled to the future, not the past
+    ST.forget(pid); _clear_store()
