@@ -26,7 +26,13 @@ def test_report_builder_exposes_quality_citation_depth_controls():
     assert "Citation policy:" in source
     assert "Run internal review pass" in source
     assert "Auto-save finished draft" in source
-    assert "📄 Report Builder" in source
+    # Report Builder was promoted from a Labs sub-tab to a top-level MAIN tab:
+    # the _ReportTab class still lives in labs_tab.py, but the tab is now added by
+    # the main window, not the Labs inner tabs.
+    main_gui = Path("eli/gui/eli_pro_audio_gui_MKI.py").read_text(encoding="utf-8")
+    assert "create_report_builder_tab" in main_gui
+    assert "📄 Report Builder" in main_gui
+    assert "📄 Report Builder" not in source  # no longer a Labs sub-tab
 
 
 def test_report_builder_keeps_document_type_generation_profiles():
