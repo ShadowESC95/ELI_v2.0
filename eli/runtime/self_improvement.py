@@ -272,6 +272,7 @@ class SelfImprovementEngine:
                 """SELECT user_input, command, error, context, occurrence_count, timestamp, id
                    FROM failures
                    WHERE timestamp >= ?
+                     AND COALESCE(status, 'open') NOT IN ('resolved', 'closed')
                    ORDER BY occurrence_count DESC, timestamp DESC LIMIT ?""",
                 (since, int(limit)),
             )
