@@ -109,7 +109,11 @@ def _capture_doc_prompt(monkeypatch, evidence, sources):
     monkeypatch.setattr(g, "chat_completion", fake_chat)
     # central hook calls plan_and_gather → stub it deterministically
     monkeypatch.setattr(EP, "plan_and_gather", lambda *a, **k: (evidence, sources))
-    monkeypatch.setenv("ELI_ARTIFACTS_DIR", tempfile.mkdtemp())
+    # Redirect the artifacts dir reliably (ELI_ARTIFACTS_DIR alone is stripped by
+    # runtime_settings when out-of-project → would pollute the real artifacts/).
+    from pathlib import Path as _P
+    _td = tempfile.mkdtemp()
+    monkeypatch.setattr(E, "_artifacts_dir", lambda: _P(_td))
     monkeypatch.setenv("ELI_TEST_MODE", "0")
     # These tests assert the single-pass evidence-injection (the fallback prompt);
     # disable the multi-stage pipeline so chat_completion gets that exact prompt.
