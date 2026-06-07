@@ -74,7 +74,9 @@ def test_parse_when_future():
     now = time.time()
     assert parse_when("do X in 3 hours") - now > 2.5 * 3600
     assert parse_when("do X overnight") - now > 0      # next 2am, always future
-    assert parse_when("do X tomorrow") - now > 12 * 3600
+    # "tomorrow" → a near-future day. NOT >12h (tomorrow-morning is <12h away when
+    # it's already late evening — that assertion was wall-clock-flaky).
+    assert 0 < parse_when("do X tomorrow") - now < 48 * 3600
 
 
 def test_schedule_task_action_schedules(monkeypatch):

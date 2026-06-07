@@ -1843,12 +1843,80 @@ class AgentBus:
     def _run_agents(self, active_agents: List["_BaseAgent"], user_input: str,
                     intent: Dict[str, Any], session_id: str, user_id: str) -> List[AgentResult]:
         use_dag = os.environ.get("ELI_AGENT_DAG", "1").strip().lower() not in ("0", "false", "no", "off")
+        use_orch = os.environ.get("ELI_AGENT_ORCHESTRATOR", "1").strip().lower() not in ("0", "false", "no", "off")
+        if use_dag and use_orch:
+            try:
+                return self._run_agents_orchestrated(active_agents, user_input, intent, session_id, user_id)
+            except Exception as exc:
+                log.debug(f"[AGENTBUS] orchestrator dispatch failed ({exc}); falling back to layered")
         if use_dag:
             try:
                 return self._run_agents_layered(active_agents, user_input, intent, session_id, user_id)
             except Exception as exc:
                 log.debug(f"[AGENTBUS] DAG dispatch failed ({exc}); falling back to flat")
         return self._run_agents_flat(active_agents, user_input, intent, session_id, user_id)
+
+    def _agent_timeout(self, agent: "_BaseAgent", intent: Dict[str, Any]) -> float:
+        """Effective per-agent timeout (mode + model-tier scaled; generous ceiling for
+        synthesis-heavy system actions). Mirrors _collect_layer so both paths agree."""
+        _SLOW = {"NEWS_FETCH", "MORNING_REPORT", "DAILY_REPORT"}
+        _ia = str((intent or {}).get("action") or "").upper()
+        _mm = float((intent or {}).get("_mode_budget_mult", 1.0) or 1.0)
+        try:
+            from eli.core.model_tier import tier_scale as _ts
+            _tm = float(_ts())
+        except Exception:
+            _tm = 1.0
+        base = float(getattr(agent, "timeout_s", 4.0) or 4.0) * _mm
+        if getattr(agent, "name", "") == "system" and _ia in _SLOW:
+            return max(base, 180.0 * _tm)
+        return base
+
+    def _run_agents_orchestrated(self, active_agents: List["_BaseAgent"], user_input: str,
+                                 intent: Dict[str, Any], session_id: str, user_id: str) -> List[AgentResult]:
+        """Run the agents on the frontier DAG orchestrator: dependency-ordered,
+        intra-layer parallel, per-agent timeouts, upstream results passed downstream,
+        with a full RunReport captured for observability. Behaviour-preserving vs the
+        layered path — agent fns never raise out (errors → ok=False), so dependency
+        edges only order + pass upstream, never gate."""
+        from eli.core.dag import Task, Orchestrator
+        by_name = {a.name: a for a in active_agents}
+        active = set(by_name)
+
+        def _make(agent: "_BaseAgent"):
+            def _run(ctx):
+                li = intent
+                up = {aid: (r.data or {}) for aid, r in ctx.results.items()
+                      if getattr(r, "ok", False) and not (getattr(r, "data", {}) or {}).get("skipped")}
+                if up and isinstance(intent, dict):
+                    li = dict(intent)
+                    li["_upstream"] = up
+                try:
+                    return agent.run(user_input, li, session_id, user_id)
+                except Exception as e:  # never raise out → matches layered (downstream still runs)
+                    return AgentResult(agent=agent.name, ok=False, confidence=0.0, data={}, error=str(e))
+            return _run
+
+        tasks = [
+            Task(id=a.name, run=_make(a),
+                 depends_on=set(_AGENT_DEPENDENCIES.get(a.name, set())) & active,
+                 timeout=self._agent_timeout(a, intent))
+            for a in active_agents
+        ]
+        report = Orchestrator(max_workers=max(2, len(active_agents))).run(tasks, context={})
+        try:
+            self._last_orchestration = report.to_dict()
+        except Exception:
+            pass
+        results: List[AgentResult] = []
+        for a in active_agents:
+            o = report.outcomes.get(a.name)
+            if o is not None and isinstance(o.result, AgentResult):
+                results.append(o.result)
+            else:
+                err = (o.error if o else "not run") or (o.status if o else "missing")
+                results.append(AgentResult(agent=a.name, ok=False, confidence=0.0, data={}, error=str(err)))
+        return results
 
     def _collect_layer(self, layer_agents: List["_BaseAgent"], user_input: str,
                        intent: Dict[str, Any], session_id: str, user_id: str) -> List[AgentResult]:
@@ -1949,6 +2017,30 @@ def get_bus() -> AgentBus:
             if _bus is None:
                 _bus = AgentBus()
     return _bus
+
+
+def orchestration_snapshot() -> Dict[str, Any]:
+    """Grounded view of the agent DAG + the last orchestrated run — for the
+    ORCHESTRATION_STATUS action so ELI can explain its own wiring honestly."""
+    names = [a.name for a in _ALL_AGENTS if getattr(a, "_enabled", True)]
+    try:
+        layers = _agent_execution_layers(names)
+    except Exception:
+        layers = [sorted(names)]
+    deps = {n: sorted(_AGENT_DEPENDENCIES.get(n, set()) & set(names))
+            for n in names if (_AGENT_DEPENDENCIES.get(n, set()) & set(names))}
+    bus = get_bus()
+    last = getattr(bus, "_last_orchestration", None)
+    return {
+        "engine": "dag.Orchestrator" if os.environ.get(
+            "ELI_AGENT_ORCHESTRATOR", "1").lower() not in ("0", "false", "no", "off") else "layered",
+        "agents": sorted(names),
+        "count": len(names),
+        "execution_layers": layers,
+        "critical_path": len(layers),
+        "dependencies": deps,
+        "last_run": last,
+    }
 
 
 # === ELI FILECODE PATH GLOBAL GUARD START ===
