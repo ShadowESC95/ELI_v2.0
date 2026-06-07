@@ -229,25 +229,58 @@ def _join(blocks: List[str]) -> str:
     return "\n\n".join(b for b in blocks if b and b.strip()).strip()
 
 
+def _channel_fn(ch: str, query: str, mode: str, session_id: str, user_id: str):
+    if ch == "code":
+        return _gather_code(query, mode, session_id, user_id)
+    if ch == "web":
+        return _gather_web(query)
+    if ch == "memory":
+        return _gather_memory(query)
+    if ch == "runtime":
+        return _gather_runtime(query)
+    return "", []
+
+
 def gather(channels: List[str], query: str, mode: str = "quick",
            session_id: str = "", user_id: str = "") -> Tuple[str, List[str]]:
-    """Run the real agent/tool for each planned channel; return (evidence, sources)."""
+    """Run the real agent/tool for each planned channel and merge. The channels are
+    independent, so they run in PARALLEL on the DAG orchestrator (per-channel isolated
+    — one failing yields no evidence, never blocks the others). Results are merged in
+    deterministic KNOWN_CHANNELS order regardless of completion order. Falls back to a
+    sequential sweep if the orchestrator is unavailable."""
+    sel = [c for c in channels if c in KNOWN_CHANNELS]
+    if not sel:
+        return "", []
+    outcomes: Dict[str, Tuple[str, List[str]]] = {}
+    try:
+        from eli.core.dag import Task, Orchestrator
+        tasks = [
+            Task(id=ch, critical=False,
+                 run=(lambda c, _ch=ch: _channel_fn(_ch, query, mode, session_id, user_id)))
+            for ch in sel
+        ]
+        report = Orchestrator(max_workers=max(2, len(sel))).run(tasks)
+        for ch in sel:
+            o = report.outcomes.get(ch)
+            if o is not None and o.ok and o.result:
+                outcomes[ch] = o.result
+    except Exception as e:
+        log.debug(f"[EVIDENCE] parallel gather failed ({e}); sequential fallback")
+        for ch in sel:
+            try:
+                outcomes[ch] = _channel_fn(ch, query, mode, session_id, user_id)
+            except Exception:
+                outcomes[ch] = ("", [])
+
     parts: List[str] = []
     sources: List[str] = []
-    for ch in channels:
-        if ch == "code":
-            ev, s = _gather_code(query, mode, session_id, user_id)
-        elif ch == "web":
-            ev, s = _gather_web(query)
-        elif ch == "memory":
-            ev, s = _gather_memory(query)
-        elif ch == "runtime":
-            ev, s = _gather_runtime(query)
-        else:
-            ev, s = "", []
+    for ch in KNOWN_CHANNELS:                       # deterministic merge order
+        if ch not in outcomes:
+            continue
+        ev, s = outcomes[ch]
         if ev:
             parts.append(ev[:_PER_CHANNEL_CAP])
-            sources.extend(s)
+            sources.extend(s or [])
     return _join(parts)[:_TOTAL_CAP], list(dict.fromkeys(sources))
 
 
