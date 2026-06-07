@@ -66,5 +66,17 @@ generate/eval). Surfaced two ways:
   and click result-driven option buttons that hand off to ELI in chat.
 - **Chat:** the `TEST_REVIEW` action ("test review" / "run the tests and tell me what
   to fix") returns the grounded report (LLM-summarised) + the options menu.
+- **Option buttons stream into the main chat** (`MainWindow.send_to_chat`) — clicking
+  an option continues the conversation in the Chat tab, not the panel.
+
+## SELF_IMPROVE routed through the coding agent
+`SelfImprovementEngine.propose_via_agent()` (mode `propose`, or auto-detected from
+"propose/verified fix/fix the failing") turns each recent failure into a coding task
+and runs the **CodeAgent** (decompose→solve→**verify** via tree-search + execution
+gate) over them **in parallel on `run_graph`**, returning **verified, propose-only**
+fixes (gated; nothing applied until "apply self-improvement patch"). This is the
+delegation pattern realised: SELF_IMPROVE composes the existing coding agent +
+orchestrator rather than reinventing repair. The Test & Review "Propose verified
+fixes" option routes here.
 Artifact-dir resolution is now consistent — `run_test_report.py` and the conftest
 report hook both honour `ELI_ARTIFACTS_DIR` (no real-folder pollution in tests).
