@@ -1635,10 +1635,24 @@ class AgentBus:
         intent: Dict[str, Any],
         session_id: str = "",
         user_id: str = "",
+        reasoning_mode: Optional[str] = None,
     ) -> DispatchResult:
         t0 = time.perf_counter()
         action = (intent.get("action") or "CHAT").upper()
         intent_conf = float(intent.get("confidence") or 0.5)
+
+        # Per-mode agent time budget (Stage 1b): deeper reasoning modes give
+        # agents proportionally more time to gather. Quick/Normal default to 1.0
+        # (no change to the common path). Threaded via the intent so _collect_layer
+        # scales per-agent timeouts without method-signature changes.
+        try:
+            from eli.cognition.reasoning_modes import mode_budget_multiplier as _mbm
+            _mode_mult = _mbm(reasoning_mode if reasoning_mode is not None
+                              else (intent or {}).get("reasoning_mode"))
+        except Exception:
+            _mode_mult = 1.0
+        if _mode_mult and _mode_mult != 1.0:
+            intent = {**(intent or {}), "_mode_budget_mult": _mode_mult}
 
         # ── Tiny-query gate ────────────────────────────────────────────────
         # Short filler inputs ("ok", "yes", "sure", "thanks") routed to CHAT
@@ -1832,8 +1846,12 @@ class AgentBus:
         _SLOW_SYNTH_ACTIONS = {"NEWS_FETCH", "MORNING_REPORT", "DAILY_REPORT"}
         _intent_action = str((intent or {}).get("action") or "").upper()
 
+        # Per-mode budget multiplier (Stage 1b): scales every agent's timeout by
+        # the reasoning mode's budget (1.0 for quick/normal; >1 for deeper modes).
+        _mode_mult = float((intent or {}).get("_mode_budget_mult", 1.0) or 1.0)
+
         def _eff_to(a) -> float:
-            base = float(getattr(a, "timeout_s", 4.0) or 4.0)
+            base = float(getattr(a, "timeout_s", 4.0) or 4.0) * _mode_mult
             if getattr(a, "name", "") == "system" and _intent_action in _SLOW_SYNTH_ACTIONS:
                 return max(base, 180.0)
             return base
