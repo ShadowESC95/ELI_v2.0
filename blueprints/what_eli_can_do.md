@@ -81,9 +81,15 @@ local assistants:
 ## The full capability map
 
 ### 🗣️ Talk & think
-Natural conversation with persistent memory of you; 5 multi-pass reasoning modes
-with automatic depth-escalation; an emergent, consistent persona; multi-part
-questions answered as multiple answers; tone that adapts to you over time.
+Natural conversation with persistent memory of you. **Five reasoning modes —
+Quick · Normal · Advanced · Research · Expert** — each genuinely multi-pass
+(self-consistency samples, tree-of-thoughts branches, draft→critique), with the
+mode **auto-selected by how deep the conversation gets**. When evidence is weak,
+ELI **autonomously deepens**: it re-gathers harder and escalates the mode one
+tier at a time to raise its confidence *before* answering — and for a Quick reply
+it can keep working in the **background** and surface a better, more-grounded
+answer afterwards in the Proactive panel. Plus an emergent, consistent persona;
+multi-part questions answered as multiple answers; tone that adapts over time.
 
 ### 🖥️ Run your computer
 Open / close / focus / hide / minimise / maximise apps and windows; tile windows;
@@ -189,8 +195,10 @@ ELI is built to be shaped by *you*:
   how to talk to it and auto-tunes to your hardware. No vendor lock-in; it
   improves as local models do.
 - **Tune the mind.** A dedicated **🧠 Cognition** settings panel exposes every
-  knowledge-gathering limit (how many memories, KG facts, rerank depth, the
-  synthesis budget) as live sliders — make ELI deeper or leaner to taste.
+  knowledge-gathering limit (memories, KG facts, rerank depth, the synthesis
+  budget), the **per-mode time budgets** (how hard each of Quick→Expert works),
+  and the **background-deepening** toggle — all live sliders, deeper or leaner to
+  taste.
 - **Extend it.** A real plugin system (weather, web, calendar, notes, pomodoro,
   smart-home, document-reader, web-automation, system-stats, media, TTS) with
   install/enable/disable — and you can **create your own custom agents** through a
