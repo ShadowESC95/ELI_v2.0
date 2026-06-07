@@ -435,13 +435,17 @@ class Orchestrator:
             runnable.sort(key=lambda t: (-t.priority, t.id))   # priority within layer
             snapshot = dict(results)
             workers = self.max_workers or min(len(runnable), 8)
-            if workers <= 1 or len(runnable) == 1:
+            # Use the pool whenever we parallelise OR any node sets a timeout (a
+            # per-node timeout can only be enforced by running it in a thread).
+            use_pool = (workers > 1 and len(runnable) > 1) or \
+                any(t.timeout is not None for t in runnable)
+            if not use_pool:
                 for task in runnable:
                     o = self._run_one(task, snapshot, shared)
                     _emit(o)
                     had_failure = had_failure or (o.status in ("failed", "timeout") and task.critical)
             else:
-                with ThreadPoolExecutor(max_workers=workers) as ex:
+                with ThreadPoolExecutor(max_workers=max(workers, 1)) as ex:
                     futs = {ex.submit(self._run_one, t, snapshot, shared): t for t in runnable}
                     for fut, task in futs.items():
                         try:
