@@ -6,7 +6,21 @@ committed). Everything in §4–§6 is proposed, not done.*
 
 ---
 
-## 0. The urgent finding first — ELI is running on CPU, not GPU
+## 0. ERRATUM (2026-06-07) — CUDA IS active; ELI runs on GPU
+
+**The "running on CPU" finding below was WRONG.** It came from a sandbox mistake:
+the agent's bare `python` resolves to `/usr/bin/python` (the SYSTEM interpreter,
+CPU-only `llama-cpp-python`), not `.venv/bin/python` that ELI runs on. Verified:
+`.venv/bin/python` → `llama_supports_gpu_offload()` **True**; the model loads on the
+GPU (`ggml_cuda_init: found 1 CUDA device`, `gpu_offload_supported=True`, layers
+offloaded) and a short generation takes **~1.2 s** (vs ~190 s on the system CPU
+build). So the doc generator, eval, and testgen **already run on GPU** when invoked
+via the venv (how ELI runs). No rebuild needed. The 52-min A/B doc was the agent
+using the wrong interpreter. The original section is kept below only as a record.
+
+---
+
+## 0 (ORIGINAL — INCORRECT diagnosis). "ELI is running on CPU, not GPU"
 
 You asked why the document generator runs on CPU. It isn't doc-specific: **all LLM
 inference is on CPU right now.** In the active `.venv`,
