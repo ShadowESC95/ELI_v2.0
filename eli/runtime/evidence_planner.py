@@ -163,7 +163,18 @@ def _gather_code(query: str, mode: str, session_id: str, user_id: str) -> Tuple[
             src.append("file_code")
     except Exception:
         pass
-    # (d) architecture grounding (concise; last).
+    # (d) latest test-suite report — so upgrade proposals cite real correctness state.
+    try:
+        from pathlib import Path as _P
+        rep = _P(__file__).resolve().parents[2] / "artifacts" / "test_report.md"
+        if rep.is_file():
+            txt = rep.read_text(encoding="utf-8", errors="ignore").strip()
+            if txt:
+                blocks.append("Latest test-suite report (artifacts/test_report.md):\n" + txt[:1200])
+                src.append("test_report")
+    except Exception:
+        pass
+    # (e) architecture grounding (concise; last).
     try:
         from eli.execution.executor_enhanced import _eli_self_description_block
         arch = _eli_self_description_block(1400)
