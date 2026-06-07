@@ -25,10 +25,14 @@ def test_weights_present(tmp_path):
     assert weights_present(str(tmp_path / "missing")) is False
 
 
-def test_missing_weights_returns_fetch_message():
-    # Real incomplete ssd-1b scaffold in the repo → clear note, no images, no crash.
+def test_missing_weights_returns_fetch_message(tmp_path):
+    # A diffusion model dir with configs but NO weight files → clear fetch note,
+    # no images, no crash. Use a temp scaffold (not the real models/image/ssd-1b,
+    # whose weights may now be downloaded locally) so the missing-weights path is
+    # exercised deterministically regardless of the machine.
+    (tmp_path / "model_index.json").write_text("{}", encoding="utf-8")
     req = ImageGenerationRequest(prompt="a lake", backend="diffusion",
-                                 model="models/image/ssd-1b", count=1,
+                                 model=str(tmp_path), count=1,
                                  width=512, height=512, seed=1)
     res = generate_images(req, settings={"image_auto_personalize": False})
     assert res.saved_paths == []

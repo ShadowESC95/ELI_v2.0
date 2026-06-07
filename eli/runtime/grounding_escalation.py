@@ -258,10 +258,15 @@ def escalate(
     if not is_fact:
         return None  # banter/opinion/command/chitchat — never escalate
 
-    # Quick mode stays fast — no iterative deepening (0 iters). Deeper modes try
-    # harder. (The web/hedge tiers below still apply to non-quick modes.)
+    # Per-mode iterative-deepening budget. Quick = 0 (stays fast).
     max_iters = _mode_max_iters(reasoning_mode)
-    if max_iters <= 0:
+    # Quick mode skips SYNCHRONOUS *local* deepening — a low-grounding LOCAL fact
+    # is handed to the async background-deepening path instead, keeping the turn
+    # fast. But EXTERNAL facts still run the web/hedge tiers below in EVERY mode:
+    # the honest HEDGE floor must never be skipped just because the turn ran in
+    # quick mode, or the model silently confabulates (the bug this module exists
+    # to prevent). The local-deepen loop itself also no-ops at 0 iters.
+    if domain == "local" and max_iters <= 0:
         return None
 
     try:
