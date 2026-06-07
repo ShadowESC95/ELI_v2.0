@@ -6255,6 +6255,20 @@ class EliMainWindow(QMainWindow):
         self.tabs.addTab(ide_widget, "⌨️  IDE")
         self.current_file_path = None
 
+    def send_to_chat(self, text: str) -> None:
+        """Submit `text` to the main chat programmatically so a panel's reply streams
+        into the conversation (not the panel). Switches to the Chat tab and runs the
+        normal send flow. Used by the Test & Review option buttons."""
+        try:
+            text = str(text or "").strip()
+            if not text or getattr(self, "is_generating", False):
+                return
+            self.tabs.setCurrentIndex(0)            # Chat is the first/main tab
+            self.chat_input.setPlainText(text)
+            self.send_message()
+        except Exception as e:
+            log.debug(f"[GUI] send_to_chat failed: {e}")
+
     def _engine_ask(self, prompt: str, max_tokens: int = 512) -> str:
         """Synchronous ELI inference adapter for Labs generation."""
         prompt = str(prompt or "").strip()
@@ -6391,7 +6405,8 @@ class EliMainWindow(QMainWindow):
         suite, ELI summarises, backups + errors file written, result-driven options."""
         try:
             from eli.gui.labs_tab import _TestReviewTab
-            self._test_review_widget = _TestReviewTab(eli_callback=self._engine_ask)
+            self._test_review_widget = _TestReviewTab(
+                eli_callback=self._engine_ask, chat_callback=self.send_to_chat)
             self.tabs.addTab(self._test_review_widget, "🧪 Test & Review")
         except Exception as e:
             fallback = QLabel(f"Test & Review unavailable: {e}")
