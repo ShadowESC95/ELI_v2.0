@@ -85,3 +85,10 @@ author's physics/engineering work — see memories on QMSH / Ξ-χ physics).
 ## Update Advisory — 2026-06-01
 - NEW tab added this session: `eli/gui/coding_tab.py` (`CodingTab`), wired via `create_coding_tab()` (called next to `create_labs_tab`). It is an EXTERNAL module (good pattern — keeps logic out of the 10k god-file) that drives `CODE_SOLVE` on the background task pool and shows a live jobs list.
 - The god-file split for `eli_pro_audio_gui_MKI.py` remains the open item; new tabs should follow the external-module pattern coding_tab uses.
+
+
+---
+
+## Update Advisory — 2026-06-07
+- **New ‘🧠 Cognition’ tab** in Advanced Settings (`panels/settings.py`): auto-rendered from `core/cognition_tunables.py`, exposes every knowledge-gathering limit + the synthesis prompt cap as spinboxes with tooltips, Apply + Reset; changes take effect next message.
+- **Folder drag-drop fix:** dropping a directory into chat now inserts the BARE path (so the router can list/analyse it) instead of a `[File: …]` wrapper it then failed to read; files keep inline-content behaviour.

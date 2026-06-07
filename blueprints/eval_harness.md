@@ -216,3 +216,9 @@ Import error ⇒ not at repo root or venv not active.
 6. **Cases are data.** New coverage = new YAML, not new code (unless it's a new
    assertion type or signal).
 ```
+
+
+---
+
+## Update Advisory — 2026-06-07
+- **Eval now also runs under `pytest`:** `tests/test_eval_cases.py` parametrizes every model-free router case from `cases.yaml`, so the green/red board runs automatically with the normal test suite (and any pre-commit/CI hook) — no separate `run_eval.py` invocation needed. 39 router cases currently green. Engine cases still run via the standalone harness.

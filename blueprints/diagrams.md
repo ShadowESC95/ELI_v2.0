@@ -183,3 +183,9 @@ the memory subsystem, and the gating stack. All grounded in the real modules
                                       learning(LoRA) · world · scheduler
 ```
 ```
+
+
+---
+
+## Update Advisory — 2026-06-07
+- Pipeline shape unchanged; numbers refreshed elsewhere (126,619 LOC / 336 files). Governance box: 3 modules → canonical `output_governor` + shims.

@@ -109,3 +109,9 @@ downloads; runtime stays local.)
 
 ## Update Advisory — 2026-06-01
 - New: `eli/runtime/background_tasks.py` — in-process thread task manager, deliberately DISTINCT from the durable subprocess `eli/planning/jobqueue.py` (different purpose, documented in `background_tasks.md`). The planning work-queue overlap (goal/proposal/attention/jobqueue) is still worth unifying.
+
+
+---
+
+## Update Advisory — 2026-06-07
+- Failure store unified to `agent.sqlite3`; runtime-audit gained live health probes. Action-synonym normalisation added in the executor (NEWS_SEARCH→NEWS_FETCH, DAILY/WEEKLY_REPORT→MORNING_REPORT, WEBSITE_SEARCH→WEB_SEARCH). Habit scheduler self-heal + active-habit-run fixes (see operations.md).

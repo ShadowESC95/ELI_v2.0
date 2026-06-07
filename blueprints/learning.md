@@ -86,3 +86,9 @@ though Phi-3 is the default trainable base.
 ## Update Advisory — 2026-06-01
 - Self-upgrade now consults the coding engine`s long-term bug memory (`eli/coding/bug_memory.py`): `generate_code_patch` classifies the failure and injects prior fixes for that bug class. See `background_tasks.md`.
 - The base/inference disconnect (trains Phi-3, serves another GGUF) is STILL OPEN — the loop only closes if the trained model is actually served.
+
+
+---
+
+## Update Advisory — 2026-06-07
+- Unchanged this cycle. (Confirmed real: `lora_trainer.run_training` genuinely fine-tunes via torch/peft `get_peft_model` + transformers `Trainer`; human-gated, operator-invoked, separate Phi-3 base.)
