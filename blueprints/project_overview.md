@@ -119,7 +119,7 @@ a chat wrapper.
    a 10k GUI. The executor is a giant if/elif action ladder. High regression
    surface, hard to hold in the head, painful to unit-test.
 3. **Duplication & overlap.** Two separate image-engine implementations
-   (`tools/image_engine.py` 1.75k LOC *and* the `tools/image_engine/image_engine/`
+   (`eli/tools/image_engine.py` 1.75k LOC *and* the `eli/tools/image_engine/image_engine/`
    package). `runtime/` (66 files) has many near-duplicate `personal_memory_*` /
    `*_surface` / `*_response` modules doing overlapping grounding work. Several
    plan representations coexisted (partly consolidated). Fingerprint of fast solo
