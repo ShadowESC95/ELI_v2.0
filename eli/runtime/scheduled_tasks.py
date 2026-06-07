@@ -121,6 +121,9 @@ def parse_when(text: str) -> float:
 # ── Kind inference ───────────────────────────────────────────────────────────
 def infer_kind(request: str) -> str:
     r = (request or "").lower()
+    if re.search(r"\b(train|run)\s+(a\s+|the\s+)?lora\b|\blora\s+train(ing)?\b|"
+                 r"\bfine[- ]?tune\b|\btrain\s+(an?\s+)?adapter\b", r):
+        return "lora"
     if re.search(r"\b(generate|write|create)\s+(behaviou?ral\s+|unit\s+)?tests?\b|"
                  r"\btest\s+generation\b|\bgrow\s+(test\s+)?coverage\b", r):
         return "testgen"
@@ -222,6 +225,19 @@ def _worker_testgen(request: str):
         return {"ok": False, "error": f"test generation failed: {e}"}
 
 
+def _worker_lora(request: str):
+    """Overnight LoRA fine-tune via the pipeline DAG (preflight→build→train→eval),
+    execute=True. Still bound by the trainer's safety contract (reviewed rows only,
+    GGUF never trained, adapter never overwritten)."""
+    try:
+        from eli.learning.lora_pipeline import run_pipeline
+        m = re.search(r"(\d+)\s*steps?", request or "")
+        steps = min(int(m.group(1)), 2000) if m else 50
+        return {"ok": True, "lora": run_pipeline("eli_phi", execute=True, max_steps=steps)}
+    except Exception as e:
+        return {"ok": False, "error": f"lora training failed: {e}"}
+
+
 _WORKERS = {
     "code": _worker_code,
     "research": _worker_research,
@@ -229,6 +245,7 @@ _WORKERS = {
     "reflection": _worker_reflection,
     "eval": _worker_eval,
     "testgen": _worker_testgen,
+    "lora": _worker_lora,
 }
 
 
@@ -252,6 +269,9 @@ def _result_preview(kind: str, res: Any) -> str:
         tg = res.get("testgen") or {}
         return (f"generated {tg.get('accepted', 0)} test(s), rejected "
                 f"{tg.get('rejected', 0)} of {tg.get('targets', 0)} targets")
+    if kind == "lora":
+        lr = res.get("lora") or {}
+        return str(lr.get("summary") or lr)[:400]
     return str(res)[:300]
 
 
