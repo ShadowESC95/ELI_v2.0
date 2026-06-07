@@ -2404,8 +2404,19 @@ class IntrospectionBusAgent(_BaseAgent):
         low = (user_input or "").lower()
         action = (intent.get("action") or "").upper()
 
-        relevant = action in {"EXPLAIN_COGNITION_RUNTIME", "EXPLAIN_MEMORY_RUNTIME",
-                              "RUNTIME_STATUS", "COGNITION_STATUS", "SELF_REPORT"} or any(
+        # Identity / awareness introspection: gather the grounded audit as EVIDENCE
+        # so the persona SUMMARISES it conversationally (never a verbatim data dump,
+        # never answered from the model's weights). These are cheap, deterministic
+        # local reports.
+        _identity = action == "ELI_IDENTITY_AUDIT" or any(x in low for x in (
+            "audit your identity", "your identity", "identity audit",
+            "who are you really", "are you really", "prove who you are"))
+        _awareness = action == "AWARENESS_STATUS" or any(x in low for x in (
+            "what are you aware of", "aware of", "awareness", "self aware", "self-aware",
+            "what do you know right now", "what's on your mind", "what are you thinking about"))
+        relevant = _identity or _awareness or action in {
+            "EXPLAIN_COGNITION_RUNTIME", "EXPLAIN_MEMORY_RUNTIME",
+            "RUNTIME_STATUS", "COGNITION_STATUS", "SELF_REPORT"} or any(
             x in low for x in (
                 "how many agents", "agent bus", "agent roster", "what agents", "which agents",
                 "how many stages", "pipeline stages", "prompt to response", "prompt->response",
@@ -2420,12 +2431,31 @@ class IntrospectionBusAgent(_BaseAgent):
                                data={"skipped": True}, elapsed_ms=elapsed)
 
         try:
-            from eli.cognition.introspection_agent import IntrospectionAgent
-            ia = IntrospectionAgent()
-            pipeline = ia.get_pipeline()
-            memory_stats = ia.get_memory_stats()
-            runtime = ia.get_runtime()
-            content = f"Pipeline:\n{pipeline}\n\nMemory stats:\n{memory_stats}\n\nRuntime:\n{runtime}"
+            parts: List[str] = []
+            if _identity or _awareness:
+                # Run the necessary grounded action(s) to gather evidence to summarise.
+                from eli.execution.executor_enhanced import _execute_impl as _ex
+                if _identity:
+                    try:
+                        _r = _ex("ELI_IDENTITY_AUDIT", {"question": user_input})
+                        if _r.get("content"):
+                            parts.append("Grounded identity audit:\n" + str(_r["content"])[:1600])
+                    except Exception as _ie:
+                        log.debug(f"[AGENT:introspection] identity audit failed: {_ie}")
+                if _awareness:
+                    try:
+                        _r = _ex("AWARENESS_STATUS", {})
+                        if _r.get("content"):
+                            parts.append("Grounded current awareness:\n" + str(_r["content"])[:1600])
+                    except Exception as _ae:
+                        log.debug(f"[AGENT:introspection] awareness status failed: {_ae}")
+            if not parts:
+                from eli.cognition.introspection_agent import IntrospectionAgent
+                ia = IntrospectionAgent()
+                parts.append(
+                    f"Pipeline:\n{ia.get_pipeline()}\n\nMemory stats:\n{ia.get_memory_stats()}"
+                    f"\n\nRuntime:\n{ia.get_runtime()}")
+            content = "\n\n".join(parts)
             elapsed = (time.perf_counter() - t0) * 1000
             log.debug(f"[AGENT:introspection] content_chars={len(content)} elapsed={elapsed:.0f}ms")
             return AgentResult(
