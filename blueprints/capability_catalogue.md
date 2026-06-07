@@ -289,7 +289,64 @@ layer that wraps the probabilistic model. Grouped by function:
 
 ---
 
+# Part 3 — `cognition/` module catalogue (24 files, ~12.6k LOC)
+
+The thinking layer: agents, orchestration, inference, persona, reasoning, governance.
+
+## Orchestration & agents
+| Module | LOC | Role |
+|---|---|---|
+| `agent_bus.py` | 2708 | 14 specialist agents on a dependency DAG (topological layers) + calibrated weight-free confidence aggregation + per-action agent selection. |
+| `orchestrator.py` | 915 | The 12-stage retrieval pipeline: HyDE → FAISS + FTS5 + KG-BFS + RAG → hybrid merge → cross-encoder rerank → context assembly. |
+| `hyde.py` | 69 | Hypothetical-document-embedding query expansion. |
+| `reranker.py` | 88 | Candidate reranking (token overlap + source priority). |
+| `introspection_agent.py` | 173 | Wraps introspection for the bus (pipeline/memory/runtime/audit). |
+| `llm_intent.py` | 58 | LLM intent parsing fallback (GGUF, cached). |
+
+## Inference
+| Module | LOC | Role |
+|---|---|---|
+| `gguf_inference.py` | 2135 | Model-agnostic GGUF inference: model resolution (no baked model), family-aware chat templating, graceful GPU-layer fallback, streaming, output cleaning, token budgeting. |
+| `inference_broker.py` | 96 | Thin GGUF broker (`infer`) used by agents/coding/patching. |
+| `chat_model.py` | 292 | Chat response + streaming helpers, turn persistence. |
+
+## Reasoning & engagement
+| Module | LOC | Role |
+|---|---|---|
+| `reasoning_modes.py` | 593 | The 5 modes — canonicalisation, per-mode private system instruction, execution contract (samples/branches/stages + dynamic token budget), reasoning-leak stripping. |
+| `engagement_tracker.py` | 249 | Command-console-style session depth tracking → **auto-escalates reasoning mode** (quick→CoT→self-consistency→ToT) as a conversation deepens; session narrative. |
+| `working_memory.py` | 325 | Turn-scoped pinned facts (pin/absorb/evict/persist/restore). |
+
+## Context & grounding
+| Module | LOC | Role |
+|---|---|---|
+| `context_synthesiser.py` | 570 | Builds the precise prompt context: persona handoff, turns block, vector block, live-runtime brief, budgeting. |
+| `context_builder.py` | 118 | Lighter persona+memory context builder + fallback guard. |
+| `grounded_status.py` | 644 | Identity + memory-inventory rendered directly from profile/DBs (direct grounded answers). |
+
+## Persona (the living voice)
+| Module | LOC | Role |
+|---|---|---|
+| `persona.py` | 364 | Canonical persona authority — base + auto sections, preferences, compose/refresh. |
+| `persona_updater.py` | 642 | Re-derives the persona overlay from memory/reflection/habits/runtime patterns; KG population; stale-fact aging. |
+| `persona_hygiene.py` | 131 | Cleans/dedups/prunes the auto-persona. |
+| `persona_status.py`, `persona_values.py` | ~108 | Persona status report; values store. |
+
+## Output governance (consolidated this session)
+| Module | LOC | Role |
+|---|---|---|
+| `output_governor.py` | 1200 | **Canonical** governance: sanitize, role-prefix/identity-drift repair, self↔user confusion repair, style cleanup, confabulation detection, quality scoring, memory-worthiness, GGUF-artifact cleaning (`clean_gguf_artifacts`), evidence validation. |
+| `response_governance.py`, `response_sanitizer.py` | 28+14 | **Re-export shims** → output_governor (kept for back-compat). |
+| `tone_analyzer.py` | 367 | Analyses recent user turns → tone preferences ELI adapts to over time. |
+
+## Profile
+| Module | LOC | Role |
+|---|---|---|
+| `user_info_builder.py` | 746 | The living, versioned user profile: multi-source gather, noise filter, categorise, hash, diff-on-change. |
+
+---
+
 ## Update Advisory — 2026-06-07
-- Batches 1–2 done (action catalogue + the 70-file `runtime/` module catalogue). Next: the `cognition/` (26 files) module catalogue, then the remaining
+- Batches 1–3 done (action catalogue + `runtime/` (70) + `cognition/` (24) module catalogues). Next: remaining unread bodies, then the remaining
   unread bodies (GUI, full `gguf_inference`, `persona_updater`, `profile_extractor`,
   the learning trainer internals, the world renderers, every plugin's logic).
