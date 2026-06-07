@@ -234,7 +234,7 @@ stubs); custom agents (AST-validated → hash-trusted → live-registered);
 
 ## F. The accurate one-line summary
 
-ELI is a **126,619-line, 336-file, 100%-local, model-agnostic personal cognitive
+ELI is a **~128,800-line, 343-file, 100%-local, model-agnostic personal cognitive
 runtime**: a 14-agent calibrated bus on a 12-stage retrieval pipeline with 5 real
 multi-pass reasoning modes; a four-store adaptive memory; a deterministic
 self-honesty layer; a frontier-grade self-verifying coding agent; safe
@@ -252,3 +252,23 @@ it; everything around that brain is already built.
   drafts earlier in the session (which undercounted agents, under-stated
   autonomy/world/voice/remediation/news, and mis-stated LOC/action/agent counts).
   Cross-checked against `capability_catalogue.md`.
+
+---
+
+## Update Advisory — 2026-06-07 (continued — shipped fixes)
+Verified, committed fixes since the findings record above:
+- **Test suite is now GREEN** — `pytest tests/` = 2356 passed / 45 skipped / 1 xfailed,
+  0 failed (was the "tests not green" finding). All 10 prior failures fixed
+  (gui_runtime_audit route collision, grounding quick-mode hedge regression, 2 stale tests).
+- **Grounded generation:** evidence_planner (plan→gather→consume across code/web/
+  memory/runtime agents) + multi-stage report_pipeline (outline→sections→review) wired
+  into doc/script/project generation; confidence-driven deeper-tier re-gather.
+- **Grounded perception/introspection:** "what's on screen" → real vision glance;
+  identity/awareness queries gather-then-summarise (no data dumps / no weights-only).
+- **Autonomy now runs** (proactive-daemon 30-min governed tick: code-monitor +
+  self-model refresh + goal/scheduler proposals).
+- **GUI:** Report Builder promoted to a main tab (12 main tabs); Files-tab document
+  converter (pandoc + lualatex + LibreOffice).
+- **Habit fix:** legacy NULL-time rows purged; the proactive offer no longer surfaces 00:00.
+- Counts refreshed: ~128.8k LOC / 343 files (`eli/`); 194 manifest capabilities
+  (155 SUPPORTED_ACTIONS, 164 routable, 13 plugin-backed); 14 bus agents + CodeAgent.
