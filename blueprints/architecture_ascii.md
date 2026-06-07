@@ -52,7 +52,10 @@ pipeline/memory/gating close-ups). Every layer and box maps to a real path.
         │                                           ▼
         │              ┌─ GROUNDING SPINE (runtime/) ── the anti-confabulation core ──────┐
         │              │  netguard ░ persistence_gate ░ deterministic_grounding_gate(4.3k) │
-        │              │  ░ grounding_escalation ░ evidence_ledger/store/arbitration       │
+        │              │  ░ grounding_escalation (low-conf → deeper agent tiers + retry)    │
+        │              │  ░ evidence_planner (plan→gather→consume: code/web/memory/runtime) │
+        │              │  ░ report_pipeline (multi-stage docs: outline→sections→review)     │
+        │              │  ░ evidence_ledger/store/arbitration                               │
         │              │  ░ response_contracts/packets/policy ░ final_response_assembly     │
         │              │  ░ user_visible_response_surface ░ truth_report ░ output_governor  │
         │              └────────────────────────────┬─────────────────────────────────────┘
@@ -82,9 +85,11 @@ pipeline/memory/gating close-ups). Every layer and box maps to a real path.
 
 ┌─ BACKGROUND DAEMONS (continuous, started at boot) ────────────────────────────────┐
 │  proactive_daemon ─ pattern signals      self_improvement ─ learns from failures   │
+│   └─ autonomy tick (30-min, governed): code_monitor + self-model overlay refresh   │
+│      + goal/scheduler ticks → proposals (observe-only / memory-write; need approval)│
 │  habits_scheduler/habits ─ routines      scheduler · task_bus ─ jobs               │
-│  background_tasks ─ async heavy work     code_monitor   ambient_vision loop        │
-│  world_event_bus ◄─ confidence/agent events                                        │
+│  background_tasks ─ async heavy work     reflection loop   ambient_vision loop      │
+│  scheduled_tasks (durable overnight/timed)   world_event_bus ◄─ confidence events   │
 └────────────────────────────────────────────────────────────────────────────────────┘
 
            OUTPUT  ◄── output_governor / sanitiser ◄── inference ◄── (any path)
@@ -105,7 +110,8 @@ pipeline/memory/gating close-ups). Every layer and box maps to a real path.
  │ SystemAgent         │ runs executor actions (WEB_SEARCH, RUNTIME_AUDIT, …)  │
  │ OrchestratorAgent   │ plan / coordinate grounded synthesis                  │
  │ FileCodeAgent       │ searches the codebase for code-grounded answers       │
- │ IntrospectionBus…   │ live runtime / self introspection                     │
+ │ IntrospectionBus…   │ live runtime + gathers identity/awareness audits as    │
+ │                     │ evidence (persona summarises — never a data dump)      │
  │ CapabilityAgent     │ capability manifest (what ELI can do)                 │
  │ ReflectionAgent     │ session reflection / insights                         │
  │ ProactiveAgent      │ proactive patterns / signals                          │
