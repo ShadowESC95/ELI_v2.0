@@ -3883,19 +3883,26 @@ class EliMainWindow(QMainWindow):
                     p = _P(path)
                     if not p.exists():
                         continue
-                    suffix = p.suffix.lower()
-                    if suffix in _IMAGE_EXTS:
-                        tag = f"[Image: {path}]"
-                        self._dropped_paths.append(("image", path))
-                    elif suffix in _TEXT_EXTS:
-                        tag = f"[File: {path}]"
-                        self._dropped_paths.append(("text", path))
-                    elif suffix == ".pdf":
-                        tag = f"[PDF: {path}]"
-                        self._dropped_paths.append(("pdf", path))
+                    if p.is_dir():
+                        # Folders can't be inlined as content — drop the BARE path
+                        # so ELI's router acts on the actual location (list/analyse
+                        # the directory) instead of getting a "[File: …]" wrapper it
+                        # then tries (and fails) to read as a file.
+                        tag = path
                     else:
-                        tag = f"[File: {path}]"
-                        self._dropped_paths.append(("file", path))
+                        suffix = p.suffix.lower()
+                        if suffix in _IMAGE_EXTS:
+                            tag = f"[Image: {path}]"
+                            self._dropped_paths.append(("image", path))
+                        elif suffix in _TEXT_EXTS:
+                            tag = f"[File: {path}]"
+                            self._dropped_paths.append(("text", path))
+                        elif suffix == ".pdf":
+                            tag = f"[PDF: {path}]"
+                            self._dropped_paths.append(("pdf", path))
+                        else:
+                            tag = f"[File: {path}]"
+                            self._dropped_paths.append(("file", path))
                     cur = self.toPlainText().rstrip()
                     self.setPlainText((cur + "\n" + tag).strip())
 
