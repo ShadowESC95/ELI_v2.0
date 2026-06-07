@@ -5329,9 +5329,10 @@ class _TestReviewTab(QWidget):
     report is backed up + an errors file is written, and result-driven options are
     offered as buttons that hand off to ELI in chat."""
 
-    def __init__(self, eli_callback=None, parent=None):
+    def __init__(self, eli_callback=None, chat_callback=None, parent=None):
         super().__init__(parent)
-        self._eli = eli_callback
+        self._eli = eli_callback          # synchronous ask → returns text (in-panel)
+        self._chat = chat_callback        # submit to the MAIN chat panel (streams there)
         self._workers = []        # keep QThread refs alive
         self._last = None
         from PySide6.QtWidgets import (QVBoxLayout, QHBoxLayout, QPushButton,
@@ -5438,7 +5439,18 @@ class _TestReviewTab(QWidget):
         self._view.setPlainText(cur + "\n\n── ELI's summary ──\n" + str(text))
 
     def _send(self, cmd: str):
-        if cmd and callable(self._eli):
+        """Hand the chosen option off to ELI. Prefer the MAIN chat panel (streams the
+        response into the conversation + switches to the Chat tab); fall back to an
+        in-panel reply if no chat hook is wired."""
+        if not cmd:
+            return
+        if callable(self._chat):
+            try:
+                self._chat(cmd)
+                return
+            except Exception:
+                pass
+        if callable(self._eli):
             w = _BgWorker(lambda: (self._eli(cmd) or ""))
             w.done.connect(self._on_summary)
             self._workers.append(w)
