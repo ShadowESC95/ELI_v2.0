@@ -221,3 +221,250 @@ def build_dag(dependencies: Dict[str, Iterable[str]]) -> DAG:
             if d in keys:
                 g.add_edge(d, nid)
     return g
+
+
+# ════════════════════════════════════════════════════════════════════════════
+# Execution orchestrator — turns the scheduling DAG above into a runnable graph.
+#
+# Frontier features, all opt-in per task and behaviour-preserving by default:
+#   • parallel execution of independent nodes per topological layer (threads)
+#   • dependency result-passing (each node sees its upstream outputs + a shared bag)
+#   • conditional nodes (`when` predicate) — skip a branch dynamically
+#   • per-node retries with exponential backoff, and a fallback function
+#   • per-node total timeout (best-effort; threads can't be force-killed)
+#   • memoisation via a pluggable cache keyed by `cache_key`
+#   • priority scheduling within a ready layer
+#   • fail-fast and a global time budget; automatic skip of nodes whose upstream
+#     did not produce a result
+#   • a full, deterministic RunReport (per-node status/timing + critical path) for
+#     observability — this is what makes the orchestration explainable to ELI.
+#
+# Pure-Python, stdlib only; the orchestrator itself does no LLM/IO — the node
+# callables do. Deterministic report regardless of worker count.
+# ════════════════════════════════════════════════════════════════════════════
+import time as _time
+from concurrent.futures import ThreadPoolExecutor, TimeoutError as _FTimeout
+from dataclasses import dataclass as _dc, field as _fld
+from typing import Callable as _Callable
+
+NodeFn = _Callable[["NodeContext"], Any]
+Predicate = _Callable[["NodeContext"], bool]
+
+
+@_dc
+class NodeContext:
+    """Passed to every node fn. `results` holds completed upstream outputs;
+    `shared` is a mutable bag visible to all nodes; `attempt` is 0-based."""
+    task_id: str
+    results: Dict[str, Any] = _fld(default_factory=dict)
+    shared: Dict[str, Any] = _fld(default_factory=dict)
+    attempt: int = 0
+
+
+@_dc
+class Task:
+    """A runnable DAG node. `run(ctx)->result`; everything else is optional policy."""
+    id: str
+    run: Optional[NodeFn] = None
+    depends_on: Set[str] = _fld(default_factory=set)
+    priority: int = 0                      # higher runs first within a ready layer
+    retries: int = 0                       # extra attempts after the first
+    retry_backoff: float = 0.0             # base seconds for exponential backoff
+    timeout: Optional[float] = None        # total per-node budget (seconds)
+    fallback: Optional[NodeFn] = None      # run if all attempts fail
+    when: Optional[Predicate] = None       # conditional skip if it returns False
+    cache_key: Optional[str] = None        # memoisation key (with a cache supplied)
+    critical: bool = True                  # if it fails, the overall run is not ok
+
+
+@_dc
+class NodeOutcome:
+    id: str
+    status: str                            # ok | cached | skipped | failed | timeout
+    result: Any = None
+    error: Optional[str] = None
+    attempts: int = 0
+    seconds: float = 0.0
+
+    @property
+    def ok(self) -> bool:
+        return self.status in ("ok", "cached")
+
+
+@_dc
+class RunReport:
+    outcomes: Dict[str, "NodeOutcome"]
+    order: List[str]
+    layers: List[List[str]]
+    seconds: float
+    ok: bool
+
+    def result(self, node_id: str) -> Any:
+        o = self.outcomes.get(str(node_id))
+        return o.result if o else None
+
+    @property
+    def failed(self) -> List[str]:
+        return [i for i, o in self.outcomes.items() if o.status in ("failed", "timeout")]
+
+    @property
+    def skipped(self) -> List[str]:
+        return [i for i, o in self.outcomes.items() if o.status == "skipped"]
+
+    @property
+    def critical_path(self) -> int:
+        return len(self.layers)
+
+    def to_dict(self) -> Dict[str, Any]:
+        return {
+            "ok": self.ok,
+            "seconds": round(self.seconds, 4),
+            "order": self.order,
+            "layers": self.layers,
+            "critical_path": self.critical_path,
+            "failed": self.failed,
+            "skipped": self.skipped,
+            "nodes": {i: {"status": o.status, "attempts": o.attempts,
+                          "seconds": round(o.seconds, 4),
+                          "error": o.error} for i, o in self.outcomes.items()},
+        }
+
+
+class Orchestrator:
+    """Executes a set of Tasks on their dependency DAG with the frontier policies
+    above. `max_workers=1` ⇒ fully sequential + deterministic (used in tests);
+    higher ⇒ true intra-layer parallelism."""
+
+    def __init__(self, *, max_workers: Optional[int] = None,
+                 cache: Optional[Dict[str, Any]] = None,
+                 on_event: Optional[_Callable[[str, "NodeOutcome"], None]] = None,
+                 fail_fast: bool = False,
+                 time_budget: Optional[float] = None) -> None:
+        self.max_workers = max_workers
+        self.cache = cache
+        self.on_event = on_event
+        self.fail_fast = fail_fast
+        self.time_budget = time_budget
+
+    # ── per-node execution (retries → fallback → cache), run inside a worker ──
+    def _run_one(self, task: "Task", results_snapshot: Dict[str, Any],
+                 shared: Dict[str, Any]) -> "NodeOutcome":
+        t0 = _time.perf_counter()
+        if task.cache_key and self.cache is not None and task.cache_key in self.cache:
+            return NodeOutcome(task.id, "cached", self.cache[task.cache_key],
+                               attempts=0, seconds=_time.perf_counter() - t0)
+        if task.run is None:  # pass-through / join node
+            return NodeOutcome(task.id, "ok", None, attempts=0,
+                               seconds=_time.perf_counter() - t0)
+        last_err: Optional[BaseException] = None
+        attempts = 0
+        for attempt in range(task.retries + 1):
+            attempts = attempt + 1
+            ctx = NodeContext(task.id, dict(results_snapshot), shared, attempt)
+            try:
+                res = task.run(ctx)
+                if task.cache_key and self.cache is not None:
+                    self.cache[task.cache_key] = res
+                return NodeOutcome(task.id, "ok", res, attempts=attempts,
+                                   seconds=_time.perf_counter() - t0)
+            except Exception as e:  # noqa: BLE001 — policy boundary
+                last_err = e
+                if attempt < task.retries and task.retry_backoff > 0:
+                    _time.sleep(task.retry_backoff * (2 ** attempt))
+        if task.fallback is not None:
+            try:
+                ctx = NodeContext(task.id, dict(results_snapshot), shared, attempts)
+                res = task.fallback(ctx)
+                return NodeOutcome(task.id, "ok", res, attempts=attempts,
+                                   seconds=_time.perf_counter() - t0)
+            except Exception as e:  # noqa: BLE001
+                last_err = e
+        return NodeOutcome(task.id, "failed", None, error=str(last_err),
+                           attempts=attempts, seconds=_time.perf_counter() - t0)
+
+    def run(self, tasks: Iterable["Task"],
+            context: Optional[Dict[str, Any]] = None) -> "RunReport":
+        task_map: Dict[str, Task] = {str(t.id): t for t in tasks}
+        dag = build_dag({tid: ({str(d) for d in t.depends_on} & set(task_map))
+                         for tid, t in task_map.items()})
+        order = dag.topological_order()           # raises DAGCycleError on a cycle
+        layers = dag.topological_layers()
+        shared: Dict[str, Any] = dict(context or {})
+        results: Dict[str, Any] = {}
+        outcomes: Dict[str, NodeOutcome] = {}
+        run_start = _time.perf_counter()
+        had_failure = False
+
+        def _emit(o: NodeOutcome) -> None:
+            outcomes[o.id] = o
+            if o.ok:
+                results[o.id] = o.result
+            if self.on_event:
+                try:
+                    self.on_event(o.id, o)
+                except Exception:
+                    pass
+
+        def _skip(tid: str, reason: str) -> None:
+            _emit(NodeOutcome(tid, "skipped", error=reason, attempts=0, seconds=0.0))
+
+        for layer in layers:
+            runnable: List[Task] = []
+            for tid in layer:
+                task = task_map[tid]
+                if self.fail_fast and had_failure:
+                    _skip(tid, "fail-fast: an earlier node failed"); continue
+                if self.time_budget is not None and \
+                        (_time.perf_counter() - run_start) > self.time_budget:
+                    _skip(tid, "time budget exceeded"); continue
+                bad_dep = next((d for d in task.depends_on
+                                if str(d) in task_map and not outcomes.get(str(d), NodeOutcome(str(d), "skipped")).ok),
+                               None)
+                if bad_dep is not None:
+                    _skip(tid, f"upstream '{bad_dep}' did not complete"); continue
+                if task.when is not None:
+                    try:
+                        if not task.when(NodeContext(tid, dict(results), shared)):
+                            _skip(tid, "condition (when) was false"); continue
+                    except Exception as e:  # noqa: BLE001
+                        _skip(tid, f"when() error: {e}"); continue
+                runnable.append(task)
+
+            if not runnable:
+                continue
+            runnable.sort(key=lambda t: (-t.priority, t.id))   # priority within layer
+            snapshot = dict(results)
+            workers = self.max_workers or min(len(runnable), 8)
+            if workers <= 1 or len(runnable) == 1:
+                for task in runnable:
+                    o = self._run_one(task, snapshot, shared)
+                    _emit(o)
+                    had_failure = had_failure or (o.status in ("failed", "timeout") and task.critical)
+            else:
+                with ThreadPoolExecutor(max_workers=workers) as ex:
+                    futs = {ex.submit(self._run_one, t, snapshot, shared): t for t in runnable}
+                    for fut, task in futs.items():
+                        try:
+                            o = fut.result(timeout=task.timeout)
+                        except _FTimeout:
+                            o = NodeOutcome(task.id, "timeout",
+                                            error=f"exceeded {task.timeout}s", attempts=1)
+                        _emit(o)
+                        had_failure = had_failure or (o.status in ("failed", "timeout") and task.critical)
+
+        ok = not any(o.status in ("failed", "timeout") and task_map[i].critical
+                     for i, o in outcomes.items())
+        return RunReport(outcomes=outcomes, order=order, layers=layers,
+                         seconds=_time.perf_counter() - run_start, ok=ok)
+
+
+def run_graph(tasks: Iterable["Task"], *, max_workers: Optional[int] = None,
+              context: Optional[Dict[str, Any]] = None, **kw: Any) -> "RunReport":
+    """One-shot convenience: build an Orchestrator and run `tasks`."""
+    return Orchestrator(max_workers=max_workers, **kw).run(tasks, context=context)
+
+
+__all__ = [
+    "DAG", "DAGNode", "DAGError", "DAGCycleError", "build_dag",
+    "Task", "NodeContext", "NodeOutcome", "RunReport", "Orchestrator", "run_graph",
+]
