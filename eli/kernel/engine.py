@@ -7965,10 +7965,12 @@ Answer:"""
         response = _normalize_assistant_text(user_input, str(text or "").strip())
         response = _output_governor_normalize(user_input, response)
         if _HAS_GOVERNANCE:
+            # normalize_response = the GGUF-artifact cleaner
+            # clean_gguf_artifacts(response, user_input). The old swapped-arg
+            # TypeError fallback is gone now the signature collision with
+            # output_governor.normalize_response(user_input, text) is resolved.
             try:
                 response = normalize_response(response, user_input)
-            except TypeError:
-                response = normalize_response(user_input, response)
             except Exception:
                 pass
         response = govern_output(response, is_grounded=is_grounded, evidence=memory_context)
