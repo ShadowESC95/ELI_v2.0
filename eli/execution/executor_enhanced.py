@@ -8446,6 +8446,38 @@ def _execute_impl(action: str, args: Optional[Dict[str, Any]] = None) -> Dict[st
         _proj_ev_block = ("\n\nGrounding evidence gathered by ELI's agents — build on "
                           "these real specifics; do not invent APIs, files, or behaviour:\n"
                           + _proj_ev) if _proj_ev else ""
+        # Route through the coding PLANNER DAG: decompose into a subtask graph, solve
+        # nodes in dependency order, and VERIFY the composed module (CodeAgent →
+        # eli/coding/plan_graph + eli/core/dag). Falls back to a single-pass plan.
+        import os as _os_gp
+        if str(_os_gp.environ.get("ELI_PROJECT_DAG", "1")).lower() not in ("0", "false", "no", "off"):
+            try:
+                from eli.coding.agent import CodeAgent
+                cr = CodeAgent().solve(f"{desc}{_proj_ev_block}", use_dag=True)
+                if cr is not None and (getattr(cr, "code", "") or "").strip():
+                    plan = getattr(cr, "plan", {}) or {}
+                    steps = plan.get("steps") or (getattr(cr, "search", {}) or {}).get("order") or []
+                    import re as _re_gp
+                    safe = _re_gp.sub(r"[^a-z0-9]+", "_", desc.lower())[:50].strip("_") or "project"
+                    saved = _save_artifact(cr.code, "projects", safe, "py")
+                    lines = [
+                        f"Project built via the planner DAG "
+                        f"({plan.get('approach', 'subtask DAG')}): {len(steps)} step(s), "
+                        f"score {getattr(cr, 'score', 0.0):.2f}"
+                        f"{' (verified)' if getattr(cr, 'solved', False) else ' (best-effort)'}.",
+                    ]
+                    if steps:
+                        lines.append("Steps: " + " → ".join(str(s) for s in steps[:12]))
+                    lines.append(f"Saved → {saved}")
+                    lines.append("\n```python\n" + (cr.code or "")[:6000] + "\n```")
+                    msg = "\n".join(lines)
+                    return {"ok": True, "action": a, "content": msg, "response": msg,
+                            "doc_path": saved, "evidence_source": "planner_dag",
+                            "result": {"score": getattr(cr, "score", 0.0),
+                                       "solved": getattr(cr, "solved", False),
+                                       "steps": steps, "plan": plan}}
+            except Exception as _gp_e:
+                log.debug(f"[GENERATE_PROJECT] planner DAG failed, single-pass fallback: {_gp_e}")
         prompt = f"Generate a complete project plan and starter files for: {desc}{_proj_ev_block}"
         return chat(prompt, skip_router=True)
 
