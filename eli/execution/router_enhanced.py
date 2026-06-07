@@ -323,6 +323,35 @@ def _eli_shell_prepass(user_text: str):
     return None
 
 
+_SCHEDULE_TIME_RX = re.compile(
+    r"\b(overnight|tonight|tomorrow|later tonight"
+    r"|at\s+\d{1,2}(?::\d{2})?\s*(?:am|pm)?"
+    r"|in\s+\d+\s*(?:hours?|hrs?|minutes?|mins?))\b", re.I)
+_SCHEDULE_VERB_RX = re.compile(
+    r"\b(build|make|write|code|create|generate|implement|develop|design"
+    r"|research|analyse|analyze|investigate|study|work on|put together"
+    r"|run|upgrade|update yourself|reflect|schedule)\b", re.I)
+
+
+def _eli_schedule_prepass(user_text: str):
+    """Detect 'do <heavy task> at <future time>/overnight' → SCHEDULE_TASK.
+
+    Fires only when BOTH a task verb AND a future-time marker are present, so
+    normal chat ('what's on tonight?') isn't captured. The whole utterance is
+    passed through — scheduled_tasks parses the time + infers the kind."""
+    t = (user_text or "").strip()
+    if len(t.split()) < 3:
+        return None
+    if not (_SCHEDULE_TIME_RX.search(t) and _SCHEDULE_VERB_RX.search(t)):
+        return None
+    return {
+        "action": "SCHEDULE_TASK",
+        "args": {"request": t, "when": t},
+        "confidence": 0.9,
+        "meta": {"matched_by": "schedule.prepass"},
+    }
+
+
 def _mk(
     action: str,
     args: Optional[Dict[str, Any]] = None,
@@ -6386,6 +6415,7 @@ try:
                 ("portable_route", _stage_portable_route),
                 ("weather_prepass", lambda t, *a, **k: _eli_weather_prepass(t)),
                 ("shell_prepass",   lambda t, *a, **k: _eli_shell_prepass(t)),
+                ("schedule_prepass", lambda t, *a, **k: _eli_schedule_prepass(t)),
                 ("voice_contract", _stage_voice_contract),
                 ("persona_override", _stage_persona_override),
                 ("followup_passthrough", _stage_followup_passthrough),
