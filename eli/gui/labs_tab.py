@@ -4528,23 +4528,47 @@ class _WorkspacesTab(QWidget):
         form.addRow("Description:", self._ws_desc)
         rv.addLayout(form)
 
+        rv.addWidget(QLabel("Files & folders (one path per line):"))
+        self._ws_paths = QTextEdit()
+        self._ws_paths.setMaximumHeight(90)
+        self._ws_paths.setFont(QFont("Courier New", 9))
+        self._ws_paths.setPlaceholderText(
+            "e.g.\n~/Desktop/qmsh\nmodel06.py\n~/notes/qmsh.md\n"
+        )
+        rv.addWidget(self._ws_paths)
+
         rv.addWidget(QLabel("Launch on activation (one command per line):"))
         self._ws_cmds = QTextEdit()
-        self._ws_cmds.setMaximumHeight(120)
+        self._ws_cmds.setMaximumHeight(100)
         self._ws_cmds.setFont(QFont("Courier New", 9))
         self._ws_cmds.setPlaceholderText(
             "e.g.\nparaview\njupyter lab\ncode /path/to/project\n"
         )
         rv.addWidget(self._ws_cmds)
 
+        tag_form = QFormLayout()
+        self._ws_memtag = QLineEdit()
+        self._ws_memtag.setPlaceholderText("project.<name> — scopes this project's memories")
+        tag_form.addRow("Memory tag:", self._ws_memtag)
+        rv.addLayout(tag_form)
+        self._ws_tasks_label = QLabel("Background tasks: —")
+        self._ws_tasks_label.setStyleSheet("color:#88c0d0;")
+        rv.addWidget(self._ws_tasks_label)
+
         rv.addWidget(QLabel("Notes / context:"))
         self._ws_notes = QTextEdit()
-        self._ws_notes.setPlaceholderText("Notes about this workspace…")
+        self._ws_notes.setPlaceholderText("Notes about this project…")
         rv.addWidget(self._ws_notes)
 
-        save_btn = QPushButton("Save Workspace")
+        save_row = QHBoxLayout()
+        save_btn = QPushButton("Save Project")
         save_btn.clicked.connect(self._save_current)
-        rv.addWidget(save_btn)
+        save_row.addWidget(save_btn)
+        open_btn = QPushButton("📂 Open Project")
+        open_btn.setToolTip("Open the project's files & folders in the OS.")
+        open_btn.clicked.connect(self._open_project)
+        save_row.addWidget(open_btn)
+        rv.addLayout(save_row)
 
         self._activate_log = QTextEdit()
         self._activate_log.setReadOnly(True)
@@ -4567,14 +4591,63 @@ class _WorkspacesTab(QWidget):
         ws = self._workspaces[name]
         self._ws_name_label.setText(name)
         self._ws_desc.setText(ws.get("description", ""))
+        self._ws_paths.setPlainText("\n".join(ws.get("paths", [])))
         self._ws_cmds.setPlainText("\n".join(ws.get("commands", [])))
+        self._ws_memtag.setText(ws.get("memory_tag", "") or f"project.{name.lower().replace(' ', '_')}")
         self._ws_notes.setPlainText(ws.get("notes", ""))
+        owned = self._owned_tasks(name)
+        self._ws_tasks_label.setText(
+            f"Background tasks: {len(owned)}" + (
+                "  (" + ", ".join(f"#{t['id']}:{t['status']}" for t in owned[:5]) + ")" if owned else " (none)"))
+
+    def _owned_tasks(self, name: str):
+        try:
+            from eli.runtime.background_tasks import get_background_tasks
+            return [t for t in get_background_tasks().list(limit=100)
+                    if (t.get("meta") or {}).get("project") == name]
+        except Exception:
+            return []
+
+    def _open_project(self):
+        item = self._ws_list.currentItem()
+        if not item:
+            return
+        name = item.text()
+        paths = [p.strip() for p in self._ws_paths.toPlainText().splitlines() if p.strip()]
+        self._activate_log.clear()
+        self._activate_log.append(f"Opening project '{name}' — {len(paths)} path(s)\n")
+        if not paths:
+            self._activate_log.append("(no files/folders configured)")
+            return
+        from pathlib import Path as _P
+        for raw in paths:
+            p = _P(raw).expanduser()
+            if not p.exists():
+                self._activate_log.append(f"  ✗ not found: {p}")
+                continue
+            ok = False
+            try:
+                from eli.utils.platform_compat import open_file as _of
+                ok = bool(_of(str(p)))
+            except Exception:
+                ok = False
+            if not ok:
+                try:
+                    subprocess.Popen(["xdg-open", str(p)])
+                    ok = True
+                except Exception as ex:
+                    self._activate_log.append(f"  ✗ {p}: {ex}")
+                    continue
+            self._activate_log.append(f"  ✓ opened {p}")
 
     def _new_ws(self):
         name, ok = QInputDialog.getText(self, "New Workspace", "Workspace name:")
         if ok and name.strip():
             name = name.strip()
-            self._workspaces[name] = {"description": "", "commands": [], "notes": ""}
+            self._workspaces[name] = {
+                "description": "", "paths": [], "commands": [], "notes": "",
+                "memory_tag": f"project.{name.lower().replace(' ', '_')}",
+            }
             self._refresh_list()
             items = self._ws_list.findItems(name, Qt.MatchFlag.MatchExactly)
             if items:
@@ -4600,7 +4673,9 @@ class _WorkspacesTab(QWidget):
         name = item.text()
         self._workspaces[name] = {
             "description": self._ws_desc.text(),
+            "paths": [p for p in self._ws_paths.toPlainText().splitlines() if p.strip()],
             "commands": [c for c in self._ws_cmds.toPlainText().splitlines() if c.strip()],
+            "memory_tag": self._ws_memtag.text().strip() or f"project.{name.lower().replace(' ', '_')}",
             "notes": self._ws_notes.toPlainText(),
             "last_saved": datetime.now().isoformat(),
         }
