@@ -12,12 +12,7 @@ import pytest
 
 # ── Cross-layer connectivity checks ───────────────────────────────────────────
 
-@pytest.mark.skip(reason="eli.memory.working_memory and eli.cognition.working_memory deleted")
-def test_wire_cognition_to_memory():
-    """Cognition working_memory should share the same abstraction as memory."""
-    cog_wm  = importlib.import_module("eli.cognition.working_memory")
-    mem_wm  = importlib.import_module("eli.memory.working_memory")
-    assert cog_wm is not None and mem_wm is not None
+# (removed test_wire_cognition_to_memory — tested the deleted eli.memory.working_memory)
 
 
 def test_wire_runtime_to_cognition():
