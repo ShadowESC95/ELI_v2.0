@@ -6,6 +6,11 @@ from deep reads of the core + a full structural/code-health sweep — a deep rea
 
 ## Index
 
+- **[what_eli_can_do.md](what_eli_can_do.md)** — the capability showcase: every
+  thing ELI can actually do (conversation, OS/window control, gaze, voice, vision,
+  image generation, media, web/news, files, Report Builder, File Chat, coding,
+  memory, self-improvement, proactivity), the 12 tabs, and full customisability.
+  Strengths only, grounded, no embellishment. The "what you get" doc.
 - **[what_eli_is.md](what_eli_is.md)** — the human-first portrait: what ELI is and
   what it does for your actual day (layman + tech head), with the genuine selling
   points foregrounded — ownership, model-agnosticism, self-honesty,
