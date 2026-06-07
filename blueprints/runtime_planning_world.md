@@ -95,7 +95,7 @@ downloads; runtime stays local.)
 - **Weak / watch:**
   1. **`runtime/` over-fragmentation** — ~15 overlapping response/introspection
      modules. Highest-value consolidation in the project after the god-files.
-  2. **Two image engines** — `tools/image_engine.py` vs the
+  2. **Two image engines** — `eli/tools/image_engine.py` vs the
      `tools/image_engine/` package. Pick one.
   3. The planning queues (`goal_store`/`proposal_queue`/`attention_queue`/
      `jobqueue`) overlap conceptually and could likely unify into one
