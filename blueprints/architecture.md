@@ -6,7 +6,7 @@ is observed-at-runtime rather than read-from-code it is marked *(runtime)*.
 
 > ELI is a **100% local, offline-by-default, model-agnostic** cognitive runtime
 > + assistant GUI. No cloud, no APIs on the inference path, no hardcoded model.
-> ~122k LOC across 330 Python files.
+> ~127k LOC across 336 Python files.
 
 ---
 
@@ -46,7 +46,7 @@ is observed-at-runtime rather than read-from-code it is marked *(runtime)*.
 | `eli/contracts` | 0.7k | typed pipeline contracts |
 | `eli/system` | 0.3k | system-level helpers |
 | `eli/cli` | 0.1k | headless REPL |
-| **total** | **~122k** | **330 files** |
+| **total** | **~127k** | **336 files** |
 
 ### The four god-files (refactor targets — see §20)
 | File | LOC |
@@ -437,3 +437,12 @@ voices/  Piper ONNX
 | the GUI | `eli/gui/eli_pro_audio_gui_MKI.py`, `gui/panels/` |
 | eval / regression board | `tools/eval/` (+ `blueprints/eval_harness.md`) |
 ```
+
+
+---
+
+## Update Advisory — 2026-06-07
+- LOC/file map refreshed to 126,619 / 336.
+- Governance: `cognition/output_governor.py` is now the single canonical text-governance home (`response_governance.py`, `response_sanitizer.py` are re-export shims).
+- Memory: `failures` now live in ONE store (`agent.sqlite3`) — the executor's user-DB dual-write was removed.
+- New: `core/cognition_tunables.py` (user-tunable knowledge-gathering limits + synthesis prompt cap), surfaced in the GUI.

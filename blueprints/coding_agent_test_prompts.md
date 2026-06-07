@@ -116,3 +116,9 @@ Plain "write a python function/script to <…>" routes to the lighter `GENERATE_
 ## Update Advisory — 2026-06-01
 - GUI: the prompts can now be run from the **Coding tab** (type → Solve → watch the Jobs list) in addition to the action/Python paths.
 - Background: prefix any heavy prompt with "in the background" (or use a §4/§8 heavy prompt) and then test `check job N` / `background jobs`.
+
+
+---
+
+## Update Advisory — 2026-06-07
+- Unchanged this cycle.

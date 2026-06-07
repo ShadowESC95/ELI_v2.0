@@ -167,3 +167,9 @@ step away from:
 5. **Orchestrator stage-dict → typed `ExecutionPlan` DAG.** Fold the engine's rich
    stage plan into `ExecutionPlan.steps` as a true DAG so one plan type drives the
    whole pipeline end-to-end.
+
+
+---
+
+## Update Advisory — 2026-06-07
+- file_code: whole-repo search (filename-resolve → grep), not the old curated set. memory: multi-hop deepen + all gather limits now read from `cognition_tunables` (live, GUI-tunable). capability/voice triggers broadened. Aggregation algorithm unchanged.

@@ -100,3 +100,9 @@ platformdirs. One import surface (`get_paths`) so nothing hardcodes locations.
 ## Update Advisory — 2026-06-01
 - The coding agent reaches the model only via `inference_broker` (model-agnostic, injected generator) — consistent with this doc.
 - New background workers and the coding sandbox both run model/inference work off the main thread; they coordinate on the same `_LLM_CALL_LOCK`. Watch for lock contention when many background codegen jobs run concurrently (consider a small dedicated codegen worker cap).
+
+
+---
+
+## Update Advisory — 2026-06-07
+- **Synthesis prompt cap:** a quality ceiling (`ELI_SYNTH_MAX_PROMPT_CHARS`, default 28000) now caps the assembled prompt independent of `n_ctx`, because the small local model degenerates into `-`/`-G` on very large prompts well before `n_ctx` fills. Head+tail preserving (keeps persona head + grounded-evidence tail). Tunable in the GUI ‘Cognition’ tab.

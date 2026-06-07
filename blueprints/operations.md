@@ -134,3 +134,11 @@ latency) + text. Cases seeded from fixed bug-logs as permanent regression guards
 > Companion docs: `architecture.md` · `architecture_ascii.md` · `diagrams.md` ·
 > `eval_harness.md`.
 ```
+
+
+---
+
+## Update Advisory — 2026-06-07
+- **Context-bloat quality cap** added to the synthesis prompt (`ELI_SYNTH_MAX_PROMPT_CHARS`, default 28000, head+tail preserving) — fixes the small-model `-`/`-G` degeneration on oversized prompts. All knowledge-gathering limits are now user-tunable (`cognition_tunables` + GUI ‘Cognition’ tab).
+- **Habits:** the scheduler now actually runs active app-launch habits (the old `command==name` guard over-blocked them; narrowed to bare ALL-CAPS action tokens) and fires once per scheduled minute; legacy un-schedulable `00:00`/bare-token rules are self-healed (disabled) at boot.
+- **Failures:** single store (`agent.sqlite3`); resolved-but-stale entries can be marked resolved and are filtered from the Self-Improve panel.
