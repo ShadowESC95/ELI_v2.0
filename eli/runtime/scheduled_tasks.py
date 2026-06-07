@@ -274,9 +274,10 @@ def _surface(request: str, kind: str):
 
 # ── Arming (shared by new schedules + boot restore) ──────────────────────────
 def _arm(pid: str, request: str, when_ts: float, when_spec: str, kind: str,
-         catchup: bool = False, project: str = "") -> int:
-    """Create the in-process timed job. on_done both removes the persisted entry
-    (no longer pending) and surfaces the result."""
+         catchup: bool = False, project: str = "", recurring: bool = False) -> int:
+    """Create the in-process timed job. on_done removes the persisted entry, surfaces
+    the result, and (when recurring) re-schedules for the next occurrence — so a
+    'overnight' task repeats nightly (when_spec re-resolves to the next 02:00)."""
     from eli.runtime.background_tasks import get_background_tasks
     worker = _WORKERS.get(kind, _worker_research)
     surface = _surface(request + (" (catch-up: missed while offline)" if catchup else ""), kind)
@@ -287,8 +288,14 @@ def _arm(pid: str, request: str, when_ts: float, when_spec: str, kind: str,
             surface(task)
         except Exception:
             pass
+        if recurring:
+            try:
+                schedule_request(request, when_spec=when_spec, kind=kind, recurring=True)
+            except Exception as _rec_err:
+                log.debug(f"[SCHEDULED] recurring re-arm failed: {_rec_err}")
 
-    meta = {"request": request, "when_spec": when_spec, "kind": kind, "pid": pid}
+    meta = {"request": request, "when_spec": when_spec, "kind": kind, "pid": pid,
+            "recurring": bool(recurring)}
     if project:
         meta["project"] = project  # Phase 3: the project that owns this task
     return get_background_tasks().schedule(
@@ -298,9 +305,11 @@ def _arm(pid: str, request: str, when_ts: float, when_spec: str, kind: str,
 
 
 # ── Public API ───────────────────────────────────────────────────────────────
-def schedule_request(request: str, when_spec: str = "", kind: Optional[str] = None) -> Dict[str, Any]:
+def schedule_request(request: str, when_spec: str = "", kind: Optional[str] = None,
+                     recurring: bool = False) -> Dict[str, Any]:
     """Schedule a heavy task to run at a parsed time. Persisted so it survives a
-    restart. Returns {ok, job_id, kind, when_ts, when_human, pid}."""
+    restart. recurring=True re-arms for the next occurrence after each run (nightly
+    for an 'overnight' when_spec). Returns {ok, job_id, kind, when_ts, when_human, pid}."""
     request = (request or "").strip()
     if not request:
         return {"ok": False, "error": "no task description"}
@@ -320,8 +329,9 @@ def schedule_request(request: str, when_spec: str = "", kind: Optional[str] = No
     try:
         _persist_add({"pid": pid, "request": request, "when_spec": when_spec,
                       "kind": kind, "when_ts": fire_at, "created": time.time(),
-                      "project": project})
-        jid = _arm(pid, request, fire_at, when_spec, kind, project=project)
+                      "project": project, "recurring": bool(recurring)})
+        jid = _arm(pid, request, fire_at, when_spec, kind, project=project,
+                   recurring=bool(recurring))
     except Exception as e:
         forget(pid)
         return {"ok": False, "error": f"schedule failed: {e}"}
@@ -351,7 +361,8 @@ def restore_scheduled_tasks() -> int:
             _arm(str(e.get("pid") or uuid.uuid4().hex[:12]),
                  str(e.get("request") or ""), wt,
                  str(e.get("when_spec") or ""), str(e.get("kind") or "research"),
-                 catchup=catchup, project=str(e.get("project") or ""))
+                 catchup=catchup, project=str(e.get("project") or ""),
+                 recurring=bool(e.get("recurring")))
             restored += 1
         except Exception as ex:
             log.debug(f"[SCHEDULED] restore of {e.get('pid')} failed: {ex}")
