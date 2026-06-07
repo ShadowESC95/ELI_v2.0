@@ -184,3 +184,26 @@ confidence math and timeout enforcement are already good and don't need work.
 - **Agent gathering deepened:** the `file_code` agent now searches the WHOLE `eli/` tree (was a ~14-file curated map); the `memory` agent does a gated **multi-hop** second recall when hop-1 is thin; `capability`/`voice` relevance triggers broadened (still skip commands/chit-chat).
 - **Gather limits are now user-tunable** via `eli/core/cognition_tunables.py` (recall counts, chars-per-item, KG chars, rerank top-k, orchestrator keyword/semantic/rag limits) — read live per request; defaults match the previously-hardcoded values.
 - Confidence aggregation unchanged (calibrated, weight-free).
+
+---
+
+## Update Advisory — 2026-06-07 (evidence routing + autonomy + introspection)
+- **Plan → gather → consume for generation.** Generative actions
+  (docs/scripts/projects) now run `runtime/evidence_planner.py` before synthesis: a
+  hybrid planner (deterministic floor ∪ model proposal in non-quick modes) picks
+  evidence channels (code / web / memory / runtime) and the real agents/tools gather
+  them, then the generator consumes the evidence. This is the "plan prior to agent
+  dispatch" + "agents compile the evidence" path for generation. Docs additionally
+  run the multi-stage `report_pipeline` (outline → sections → review→revise).
+- **Low confidence → additional tiers + retries.** `grounding_escalation` escalates
+  the reasoning-mode tier per iteration for low-grounding CHAT; the doc pipeline adds
+  a deepen-retry — THIN evidence re-gathers across deeper agent tiers
+  (`tree_of_thoughts`) before drafting, and degenerate stage outputs retry once.
+- **IntrospectionBusAgent** now also engages on identity/awareness queries and
+  GATHERS the grounded audit (ELI_IDENTITY_AUDIT / AWARENESS_STATUS) as evidence so
+  the persona summarises it (no data dumps, no weights-only answers).
+- **Autonomy tick wired live.** The proactive daemon now runs a 30-min governed
+  autonomy tick (`autonomy_controller.safe_tick`/`safe_goal_tick`/
+  `safe_scheduler_tick`): code-monitor + self-model overlay refresh + goal/scheduler
+  → proposals (observe-only / memory-write; user-approval-gated). Previously only the
+  Operator Console button fired it. Kill switch `ELI_AUTONOMY_TICK=0`.

@@ -189,3 +189,13 @@ the memory subsystem, and the gating stack. All grounded in the real modules
 
 ## Update Advisory — 2026-06-07
 - Pipeline shape unchanged; numbers refreshed elsewhere (126,619 LOC / 336 files). Governance box: 3 modules → canonical `output_governor` + shims.
+
+---
+
+## Update Advisory — 2026-06-07 (continued)
+- Numbers current: **~128.8k LOC / 343 files**; 12 main GUI tabs; 194 manifest
+  capabilities (155 SUPPORTED_ACTIONS / 164 routable).
+- Pipeline gained a grounded-generation path: **evidence_planner** (plan→gather→
+  consume) → **report_pipeline** (outline→sections→review) for documents, with a
+  confidence-driven deeper-tier re-gather. The grounding/escalation box now also
+  covers low-confidence tier escalation + the doc deepen-retry.
