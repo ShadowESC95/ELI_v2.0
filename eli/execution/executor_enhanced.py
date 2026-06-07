@@ -6968,9 +6968,29 @@ def _execute_impl(action: str, args: Optional[Dict[str, Any]] = None) -> Dict[st
     if a == "SELF_IMPROVE":
         mode = (args or {}).get("mode", "analyze")
         dry_run = (args or {}).get("dry_run", False)
+        _raw_si = str((args or {}).get("_raw_user_text") or "").lower()
+        if mode == "analyze" and any(k in _raw_si for k in (
+                "propose", "verified fix", "fix the fail", "coding agent", "fix the failing")):
+            mode = "propose"
         try:
             from eli.runtime.self_improvement import get_self_improvement
             engine = get_self_improvement()
+            if mode == "propose":
+                # Route through the coding agent (decompose→solve→verify), propose-only.
+                res = engine.propose_via_agent(max_items=int((args or {}).get("max_items", 3) or 3))
+                props = res.get("proposals", [])
+                msg_lines = [f"Coding-agent fix proposals (verified, not applied): {len(props)}"]
+                for p in props:
+                    msg_lines.append(
+                        f"  - {p.get('failure')}: "
+                        f"{'VERIFIED' if p.get('verified') else 'best-effort'} "
+                        f"(score {p.get('score')}) — {p.get('approach') or p.get('message')}")
+                if not props:
+                    msg_lines.append(f"  ({res.get('reason') or res.get('error') or 'nothing to propose'})")
+                msg_lines.append("Say \"apply self-improvement patch\" to apply fixes (gated).")
+                msg = "\n".join(msg_lines)
+                return {"ok": True, "action": a, "content": msg, "response": msg,
+                        "evidence_source": "coding_agent", "result": res}
             if mode == "patch":
                 result = engine.run_patch_cycle(max_patches=3, dry_run=bool(dry_run))
                 details = result.get("details", [])
