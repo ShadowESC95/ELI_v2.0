@@ -100,6 +100,23 @@ TUNABLES: List[Tunable] = [
     Tunable("cog.personal_facts_max", "“What do you know about me” · max facts",
             "Maximum facts listed in the personal-memory report (verbatim, not "
             "synthesised).", 40, 1, 200, 1, "Personal memory report"),
+
+    # ── Per-reasoning-mode agent time budgets (% of base agent timeouts) ──────
+    Tunable("cog.mode_budget_quick", "Mode budget · Quick (%)",
+            "Agent time-budget for Quick mode as a % of base. Lower = faster/cheaper.",
+            100, 25, 300, 5, "Reasoning-mode budgets"),
+    Tunable("cog.mode_budget_normal", "Mode budget · Normal (%)",
+            "Agent time-budget for Normal mode (% of base).",
+            100, 25, 400, 5, "Reasoning-mode budgets"),
+    Tunable("cog.mode_budget_advanced", "Mode budget · Advanced (%)",
+            "Agent time-budget for Advanced mode (% of base) — more time to gather.",
+            150, 25, 400, 5, "Reasoning-mode budgets"),
+    Tunable("cog.mode_budget_research", "Mode budget · Research (%)",
+            "Agent time-budget for Research mode (% of base) — deep gathering.",
+            200, 25, 600, 5, "Reasoning-mode budgets"),
+    Tunable("cog.mode_budget_expert", "Mode budget · Expert (%)",
+            "Agent time-budget for Expert mode (% of base) — maximum rigor.",
+            250, 25, 600, 5, "Reasoning-mode budgets"),
 ]
 
 _BY_KEY: Dict[str, Tunable] = {t.key: t for t in TUNABLES}
