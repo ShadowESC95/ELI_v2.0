@@ -9,7 +9,7 @@ honest verdict, and the highest-leverage work. Companion to
 > executor, router, agent_bus, orchestrator, planners, memory, grounding gate,
 > vision, identity, security, reasoning modes) plus a complete structural and
 > code-health sweep (LOC distribution, debt markers, duplication, repo
-> hygiene). It is not a line-by-line read of all 315 files — claims are grounded
+> hygiene). It is grounded in a deep read of every package this session — claims are grounded
 > in what was actually inspected.
 
 ---
@@ -28,7 +28,7 @@ a chat wrapper.
 
 ## 2. Scale & shape
 
-**116,958 LOC across 315 Python files** (`eli/`), plus ~103 test files.
+**126,619 LOC across 336 Python files** (`eli/`), plus ~103 test files.
 
 | Subsystem | LOC | Files | Role |
 |---|---|---|---|
@@ -58,7 +58,7 @@ a chat wrapper.
   adapt n_ctx / gpu_layers / batch to whatever model + GPU are present
   (filename→ctx table; VRAM compute-buffer reservation). Model-agnostic.
 - **Routing** — `execution/router_enhanced.py`: regex-first with LLM-intent
-  fallback + an explicit priority pipeline → one of ~143 `SUPPORTED_ACTIONS`.
+  fallback + an explicit priority pipeline → one of 193 capabilities (~157 executor `SUPPORTED_ACTIONS`).
 - **Orchestration** — `kernel/engine.py` gates between the 12-stage
   `cognition/orchestrator.py` `AgentOrchestrator` (non-quick modes) and the
   parallel 14-agent `cognition/agent_bus.py` `AgentBus` (quick / fallback). ReAct
@@ -106,7 +106,7 @@ a chat wrapper.
 
 ## 5. Where it's weak (grounded in the sweep)
 
-1. **2,322 `except Exception:` blocks (+7 bare `except:`).** The dominant
+1. **2,565 `except Exception:` blocks (+7 bare `except:`).** The dominant
    structural problem. Errors are swallowed into "skipped"/fallback/empty
    everywhere — which is precisely why bugs surface only via runtime logs.
    Failures are invisible by design. Frontier software makes failures **loud in
@@ -140,7 +140,7 @@ local model-agnostic design, and the integrated multi-modal local agent are
 genuinely ahead of most open local-assistant projects. The ideas are
 frontier-grade.
 
-**In engineering discipline — not yet.** The 2,322 swallowed exceptions, the
+**In engineering discipline — not yet.** The 2,565 swallowed exceptions, the
 god-files, the duplication, and the clutter separate "an extraordinarily
 ambitious solo project" from "software others can build on." None of that is a
 vision problem — it is consolidation and observability. The gap to
@@ -175,3 +175,11 @@ can rely on."
 ## Update Advisory — 2026-06-01
 - New since the LOC table was captured: `eli/coding/` (coding agent), `eli/core/dag.py` (DAG engine), `eli/runtime/background_tasks.py`, `eli/gui/coding_tab.py`. Re-run the LOC/file sweep to refresh §2.
 - Highest-leverage item #1 (tame the ~2,322 `except Exception`) is STILL OPEN and remains the top priority — the new subsystems add surface that also deserves a structured error log. Items: god-file split + duplication cleanup unchanged.
+
+
+---
+
+## Update Advisory — 2026-06-07
+- **§2 numbers refreshed:** 126,619 LOC / 336 files; biggest files now `executor_enhanced.py` (13.3k), `engine.py` (12.5k), GUI (10.7k), `router_enhanced.py` (6.5k), `labs_tab.py` (5.1k), `deterministic_grounding_gate.py` (4.29k after dead-fragment removal), `memory.py` (4.3k).
+- **§5 weaknesses — progress:** ‘tests not green’ is RESOLVED (eval green + now run under pytest). Duplication is reduced: the 3 governance/normalizer modules are consolidated to `output_governor` (+shims); the dual-DB failure split is unified to `agent.sqlite3`. Still open: the `except Exception` swallowing (now ~2,565) and the god-files.
+- **§3 capability surface:** 193 capabilities in the manifest (`capability_sync` keeps it measured, not asserted); ~157 executor actions.

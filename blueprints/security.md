@@ -126,3 +126,9 @@ matching safeguards:
 ## Update Advisory — 2026-06-01
 - Code generation (GENERATE_SCRIPT/CODE_SOLVE) and self-upgrade now route through the coding agent, whose sandbox (`eli/coding/sandbox.py`) bounds execution (temp cwd, scrubbed env, timeout, RLIMIT_CPU, Agg). §6 (three codegen paths) reflects this.
 - New: in-process background task threads (`eli/runtime/background_tasks.py`) — threads share the process (no OS isolation); a running thread cannot be force-killed. For untrusted heavy work prefer the subprocess `jobqueue`.
+
+
+---
+
+## Update Advisory — 2026-06-07
+- Posture unchanged (fail-closed). Clarification: web is a **toggle-gated first-class capability** — when the Net toggle (`network_enabled`) is on, web search / news / weather all work; when off, `netguard`'s process-wide socket guard fail-closes. ‘No external APIs’ means no paid third-party SDKs/OAuth, not ‘no network’.

@@ -1,6 +1,6 @@
 # ELI Memory Subsystem
 
-`eli/memory/` — 6.6k LOC, 13 files. The persistent substrate: relational +
+`eli/memory/` — 6.8k LOC, 13 files. The persistent substrate: relational +
 full-text + vector + graph, all local SQLite/FAISS. Companion to
 `project_overview.md`.
 
@@ -129,3 +129,11 @@ gap ELI's own grounding admits.
 ## Update Advisory — 2026-06-01
 - `recall_memory` output now also feeds the `knowledge_graph` agent via the bus DAG upstream edge (memory → KG). No change to memory internals; just a new consumer.
 - The coding engine added a separate experiential store, `coding_memory.sqlite3` (`eli/coding/bug_memory.py`: bug→fix). Consider unifying it with the `failures`/`improvements`/`corrections` tables here into one experiential memory (flagged in `agent_algorithms.md` aspirational #4).
+
+
+---
+
+## Update Advisory — 2026-06-07
+- **DB roles (4 stores):** `user.sqlite3` (conversations/memories/KG/news/habits/patterns), `agent.sqlite3` (agent/self-improvement: dispatches, metrics, code_patches, **failures**, improvements), `system_index.sqlite3` (OS app/exe index), `coding_memory.sqlite3` (coding bug-fixes; live but empty until fixes recorded).
+- **Failures consolidated:** previously dual-written to both user+agent DBs; now logged ONCE to `agent.sqlite3`. New `Memory.mark_failure_resolved(error_like=/id=)`; `analyze_failures`/`get_recent_failures` exclude `resolved`/`closed`.
+- **Gather limits user-tunable:** the `BusMemoryAgent` recall/show counts, chars-per-item, summaries, multi-hop pool and merge cap now come from `cognition_tunables` (GUI ‘Cognition’ tab); defaults unchanged. Personal-memory report cap raised 20→40.

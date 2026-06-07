@@ -88,3 +88,9 @@ For decomposable coding tasks:
 ## Update Advisory — 2026-06-01
 - Both consumers are live and tested: the agent bus (topological layers + upstream) and the coding subtask DAG. Per-agent roles/algorithms are in `agent_algorithms.md`.
 - Aspirational next (see agent_algorithms.md): a `verify`/`critic` DAG layer depending on the retrievers, and folding the engine stage-dict into a typed `ExecutionPlan` DAG so one plan type spans the whole pipeline.
+
+
+---
+
+## Update Advisory — 2026-06-07
+- Unchanged this cycle. The agent bus + coding engine still both run on `eli/core/dag.py` (`topological_layers`).

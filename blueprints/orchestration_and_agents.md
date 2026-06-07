@@ -176,3 +176,11 @@ confidence math and timeout enforcement are already good and don't need work.
 - The bus now executes on the project-wide DAG (`eli/core/dag.py`): topological layers + upstream→downstream (`_AGENT_DEPENDENCIES`, default `knowledge_graph←memory`). See `dag.md`. Weakness #2 ("single isolated round") is now PARTIALLY addressed — agents can consume upstream results across layers.
 - Per-agent internal algorithms are now documented in `agent_algorithms.md` (this was the missing detail this doc deferred).
 - TODO: add a `verify`/`critic` layer agent (depends on the retrievers) and a first-class `web` retriever — the DAG already supports it.
+
+
+---
+
+## Update Advisory — 2026-06-07
+- **Agent gathering deepened:** the `file_code` agent now searches the WHOLE `eli/` tree (was a ~14-file curated map); the `memory` agent does a gated **multi-hop** second recall when hop-1 is thin; `capability`/`voice` relevance triggers broadened (still skip commands/chit-chat).
+- **Gather limits are now user-tunable** via `eli/core/cognition_tunables.py` (recall counts, chars-per-item, KG chars, rerank top-k, orchestrator keyword/semantic/rag limits) — read live per request; defaults match the previously-hardcoded values.
+- Confidence aggregation unchanged (calibrated, weight-free).
