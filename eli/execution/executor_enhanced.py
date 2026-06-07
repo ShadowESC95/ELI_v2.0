@@ -2001,6 +2001,7 @@ SUPPORTED_ACTIONS = [
     'SELF_REPORT',
     'SELF_TEST',
     'RUN_TESTS',
+    'GENERATE_TESTS',
     'SELF_UPDATE',
     'SELF_UPGRADE',
     'SEQUENCE',
@@ -5939,6 +5940,29 @@ def _execute_impl(action: str, args: Optional[Dict[str, Any]] = None) -> Dict[st
                     "report_path": str(rep), "evidence_source": "pytest_test_report"}
         except Exception as e:
             msg = f"RUN_TESTS failed: {e}"
+            return {"ok": False, "action": a, "error": str(e), "content": msg, "response": msg}
+
+    # ---- GENERATE_TESTS — ELI writes + sandbox-verifies behavioural tests ----
+    # Phase 4: per-function test generation (only passing candidates kept). Heavy
+    # (one model call per target); keep the chat limit small — schedule larger runs
+    # ("generate tests overnight" → SCHEDULE_TASK kind=testgen).
+    if a == "GENERATE_TESTS":
+        try:
+            from eli.runtime.test_generator import run_testgen
+            limit = int(args.get("limit") or 3)
+            res = run_testgen(limit=max(1, min(limit, 10)))
+            if not res.get("ok"):
+                msg = f"Test generation unavailable: {res.get('reason')}"
+                return {"ok": False, "action": a, "content": msg, "response": msg}
+            files = res.get("accepted_files") or []
+            msg = (f"Generated and sandbox-verified {res.get('accepted', 0)} behavioural "
+                   f"test(s) (rejected {res.get('rejected', 0)} of {res.get('targets', 0)} "
+                   f"targets — those failed verification). "
+                   + ("Accepted: " + ", ".join(files) if files else "Nothing accepted this run.")
+                   + " Review them in tests/generated/ (manifest: _manifest.json).")
+            return {"ok": True, "action": a, "content": msg, "response": msg, "result": res}
+        except Exception as e:
+            msg = f"GENERATE_TESTS failed: {e}"
             return {"ok": False, "action": a, "error": str(e), "content": msg, "response": msg}
 
     if a == "SET_USER_NAME":

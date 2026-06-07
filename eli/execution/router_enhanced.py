@@ -4225,6 +4225,10 @@ def _eli_self_improvement_phrase_guard(text):
     # Self/system routes that the generic portable open_app / shell / memory
     # matchers would otherwise steal (claims-suite findings: "run a self test" →
     # OPEN_APP, etc.). Tight patterns, matched here BEFORE portable_route.
+    if re.search(r"\b(generate|write|create)\s+(behaviou?ral\s+|unit\s+)?tests?\b|"
+                 r"\btest\s+generation\b|\bgrow\s+(your\s+)?(test\s+)?coverage\b|"
+                 r"\bwrite\s+tests?\s+for\s+(your|the)\b", low) and "report" not in low:
+        return _mk("GENERATE_TESTS", {}, 0.95, matched_by="tests.generate.guard")
     if re.search(r"\b(run\s+(the\s+|your\s+)?(test\s+suite|tests|pytest|claims\s+suite)|"
                  r"test\s+report|generate\s+(a\s+)?test\s+report|how('?s| is)\s+the\s+test\s+suite)\b", low):
         return _mk("RUN_TESTS", {}, 0.96, matched_by="tests.run.guard")
@@ -6143,6 +6147,10 @@ try:
                     "no ide opened", "did not open", "didn't open",
                 )
                 if low2.startswith(_complaint_starts) or any(f in low2 for f in _complaint_frags):
+                    return None
+                # Defer test-generation requests to GENERATE_TESTS (self-improvement guard).
+                if _rgs.search(r"\b(generate|write|create)\b", low2) and \
+                   _rgs.search(r"\b(behaviou?ral\s+|unit\s+)?tests?\b", low2):
                     return None
                 # Skip questions
                 if raw2.rstrip().endswith("?"):
