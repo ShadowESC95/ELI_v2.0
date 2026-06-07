@@ -200,8 +200,96 @@ voice, coding, memory, introspection, autonomy, remediation, and plugins.
 
 ---
 
+# Part 2 — `runtime/` module catalogue (70 files, ~19k LOC)
+
+The largest package. It's the **grounding/governance + introspection + plumbing**
+layer that wraps the probabilistic model. Grouped by function:
+
+## Grounding & anti-confabulation
+| Module | LOC | Role |
+|---|---|---|
+| `deterministic_grounding_gate.py` | 4292 | Renders control/status answers directly from live runtime (bypasses the model). 7 stacked `render_action` layers + an immutable policy engine (the active chain; one dead v10 fragment removed this session). |
+| `grounding_escalation.py` | 301 | When a **checkable factual** question is poorly grounded by the bus, escalates through agent tiers instead of letting the model confabulate (the "Eminem's real name" failure class). |
+| `diagnostic_patterns.py` | 112 | Regexes that catch vague/dynamic status confabulation ("currently processing updates…") and image-status fabrication. |
+| `control_contracts.py` | 943 | Control-action evidence contract: build evidence → validate the model's output doesn't violate it → finalise. |
+| `contracts/grounded_control.py`, `contracts/runtime_status.py` | (in `contracts/`) | Runtime-status question detection, live-evidence build, repair/validate. |
+| `memory_evidence.py` | 221 | Collects memory evidence for grounding a turn. |
+| `persistence_gate.py` | 188 | Gates what gets stored — refuses to persist internal dumps / error-pattern noise as memory. |
+
+## Self-honesty / introspection / self-reporting
+| Module | LOC | Role |
+|---|---|---|
+| `live_introspection.py` | 730 | Live runtime snapshot, last trace, stored user name, mines user-fact candidates, agents-for-action, build_report. |
+| `deterministic_introspection.py` | 563 | The engine's live diagnostic dispatcher (`handle_diagnostic_action`) — deterministic answers for RUNTIME_STATUS / EXPLAIN_* / IMPORT_AUDIT. |
+| `truth_report.py` | 301 | Runtime truth report (git, nvidia, GGUF runtime, import health). |
+| `frontier_status.py` | 417 | Full cross-system status matrix (runtime/memory/awareness/proactive/image/world/chatflow). |
+| `eli_identity_audit.py` | 416 | Identity-classification audit (source inventory, contract counts, capability matrix). |
+| `reasoning_status.py` | 198 | Current reasoning-mode reporting. |
+| `experimental_inventory.py` | 146 | Inventory of experimental projects. |
+
+## Self-improvement & code-awareness
+| Module | LOC | Role |
+|---|---|---|
+| `self_improvement.py` | 788 | Failure logging/clustering, patch generate→verify→apply→**auto-revert**, full patch cycle, plugin-stub gen. |
+| `code_examiner.py` | 523 | Tiered file error scan (syntax/import → lint → gated LLM) → offer → verified fix. |
+| `code_monitor.py` | 262 | Detects source changes via git diff, classifies by subsystem, summarises for memory/context (ELI is aware of its own code changes). |
+| `capability_sync.py` | 387 | **AST-discovers** the live capability surface, diffs, writes `capability_manifest.json` — this is why 193 is *measured*, not asserted. |
+| `generated_script_guard.py` | 1024 | Validates LLM-generated scripts, **quarantines invalid ones**, and ships vetted canned scripts for known patterns (GPU-watch, redshift, etc.). |
+| `repair_policy.py` | 23 | Policy line: proposal layers vs source-mutation layers. |
+
+## Self-healing remediation
+| Module | LOC | Role |
+|---|---|---|
+| `grounded_remediation.py` | 1302 | Diagnoses failures (missing app/path/browser) → builds an apt/snap/flatpak repair plan → offers → **executes** (sudo terminal, lock-handling, verify). |
+| `incident_log.py` | 21 | Writes incident records. |
+
+## Awareness & boot
+| Module | LOC | Role |
+|---|---|---|
+| `awareness_boot.py` | 246 | Boots all awareness subsystems at startup, returns an `AwarenessState` the engine queries. |
+| `action_commitment.py` | 158 | Detects when ELI's reply COMMITS to an action (so the pipeline re-runs and actually does it — no fake actions). |
+
+## Autonomy / operator (governed)
+| Module | LOC | Role |
+|---|---|---|
+| `operator_state.py`, `operator_feed.py`, `operator_feed_normalized.py` | ~220 | Operator console state: proposals, goals, self-model status, event feed. |
+| `pending_proposal.py` | 115 | Pending-proposal state (extract/set/clear). |
+| `approval_engine.py` | 91 | Who may propose / evaluate a proposal record (governance). |
+
+## Response surfaces & governance
+| Module | LOC | Role |
+|---|---|---|
+| `user_visible_response_surface.py` | 326 | Installs the engine's user-visible response surface (runtime/identity/name-source formatting + streaming coercion). |
+| `visible_output.py`, `visible_text.py`, `output_sanitizer.py` | ~200 | Central visible-output contract; stringify/sanitise streamed output. |
+| `response_policy.py`, `response_contracts.py`, `response_packets.py` | ~205 | Classify response mode; per-action contracts; final-answer request packets. |
+| `final_response_assembly.py`, `final_response_provider.py`, `fastpath_responder.py` | ~175 | Assemble the final prompt; per-action generation decoration; fastpath context. |
+
+## Personal-memory surfaces
+| Module | LOC | Role |
+|---|---|---|
+| `personal_memory_surface.py` | 431 | "Is this a personal-memory query" + surface builder. |
+| `personal_memory_clean_response.py` | 294 | Clean "what do you know about me" report (reset-aware, poison-filtered, dynamic-fact aging). |
+| `personal_memory_deep_response.py` | 343 | Deep memory-internals explain (schema/tables/functions) + routing-fault explain. |
+| `profile_extractor.py` | 652 | Extracts user facts from turns (role/interests/field/"remember that I…"), writes user_patterns + LLM session summaries; recency refresh. |
+| `identity_validation.py`, `identity_guard.py` | ~240 | Validate identity candidates; persona/identity lock state. |
+
+## Typed pipeline plumbing (evidence/packets)
+| Module | LOC | Role |
+|---|---|---|
+| `evidence_ledger.py` | 394 | Records artifacts/events with signatures; recent generated artifacts; status evidence. |
+| `evidence_arbitration.py` | 195 | Scores competing evidence (stage packets + tool results + goals), dedup-by-fingerprint, keep-max. |
+| `evidence_store.py`, `stage_packet_store.py`, `stage_packets.py`, `pipeline_models.py`, `retrieval_packets.py`, `typed_stage_bridge.py`, `packet_native_downstream.py`, `single_pass_authority.py`, `tool_result_*` | ~700 | The typed packet substrate: route/plan/evidence/generation/output packets flow between stages; this is the plumbing behind "no fake actions". |
+| `background_tasks.py` | 190 | In-process multi-threaded task manager (heavy work → job id → `CHECK_JOB`). |
+| `runtime_policy.py` | 76 | Per-turn budgets/timeouts/context size from runtime snapshot. |
+
+## Security
+| Module | LOC | Role |
+|---|---|---|
+| `security.py` | 184 | `SecurityManager` — fail-closed command/path/app allowlist sandbox. |
+
+---
+
 ## Update Advisory — 2026-06-07
-- Created this session (Batch 1: action catalogue). Next batches: the `runtime/`
-  (70 files) and `cognition/` (26 files) module catalogues, then the remaining
+- Batches 1–2 done (action catalogue + the 70-file `runtime/` module catalogue). Next: the `cognition/` (26 files) module catalogue, then the remaining
   unread bodies (GUI, full `gguf_inference`, `persona_updater`, `profile_extractor`,
   the learning trainer internals, the world renderers, every plugin's logic).
