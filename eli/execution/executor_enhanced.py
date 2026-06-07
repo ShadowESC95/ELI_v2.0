@@ -5402,17 +5402,24 @@ def _execute_impl(action: str, args: Optional[Dict[str, Any]] = None) -> Dict[st
         if not req:
             msg = "What should I work on, and when? (e.g. 'research X overnight')."
             return {"ok": False, "action": a, "content": msg, "response": msg}
+        # Recurring if the user said "every/each/daily/nightly" (so 'every morning'
+        # repeats; a bare 'tomorrow' is one-shot).
+        import re as _re_sched
+        recurring = bool(_re_sched.search(r"\b(every|each|daily|nightly|recurring|each day)\b",
+                                          f"{when} {req}", _re_sched.I))
         try:
             from eli.runtime.scheduled_tasks import schedule_request
-            r = schedule_request(req, when_spec=when, kind=kind)
+            r = schedule_request(req, when_spec=when, kind=kind, recurring=recurring)
         except Exception as e:
             msg = f"Couldn't schedule that: {e}"
             return {"ok": False, "action": a, "error": str(e), "content": msg, "response": msg}
         if not r.get("ok"):
             msg = f"Couldn't schedule that: {r.get('error')}"
             return {"ok": False, "action": a, "content": msg, "response": msg}
-        msg = (f"Scheduled (job #{r['job_id']}, {r['kind']}): I'll work on this at "
-               f"{r['when_human']} and surface the result in the Tasks/Proactive panel.")
+        msg = (f"Scheduled (job #{r['job_id']}, {r['kind']}{', recurring' if recurring else ''}): "
+               f"I'll run this at {r['when_human']}"
+               f"{' and each time after' if recurring else ''} and surface the result "
+               f"in the Tasks/Proactive panel.")
         return {"ok": True, "action": a, "content": msg, "response": msg,
                 "job_id": r["job_id"], "kind": r["kind"], "when_ts": r["when_ts"]}
 
