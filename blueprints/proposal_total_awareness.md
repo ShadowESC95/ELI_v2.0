@@ -144,3 +144,51 @@ smarter brain the day one fits — that, plus GPU, is 90% of the perceived gap.
 5. Repo hygiene + god-file/`except` debt (from `complete_findings.md`) — when ready.
 
 No code beyond §1 has been changed. Awaiting your direction on §4–§6.
+
+---
+
+## 7. Update (2026-06-07, later) — what got done + answers
+
+**Done this turn (committed, green — 6,339 tests / 0 failed):**
+- **Auto, dynamic test report:** a `pytest_sessionfinish` hook rewrites
+  `artifacts/test_report.md` on EVERY run. **`RUN_TESTS` action** lets ELI run the
+  suite and summarise it in chat ("run the test suite" / "generate a test report").
+  The report is now an **evidence channel** the planner pulls when discussing upgrades.
+- **Scheduled overnight engine eval:** `scheduled_tasks` gained an `eval` kind +
+  `_worker_eval` (runs the model-backed engine eval + the full report); "run the
+  engine eval overnight" schedules it. Engine eval set grown 3 → **10** cases.
+- **Router gaps fixed** (4 of the 5 claims findings): SELF_TEST / PROACTIVE_* /
+  SELF_ANALYZE / EXECUTE_GOAL now route correctly. MOUSE_CONTROL stays xfail by design.
+- **Test suite expanded** to ~6,300 (symbol inventory + agent contracts); 2 stale
+  skipped tests deleted.
+
+**On "eliminate the monkeypatches" (your #2):**
+- The deleted stale tests were **skipped, not green-via-patch** — nothing was masking them.
+- The unit suite **mocks heavy deps** (`llama_cpp`, `torch`, `faiss`, …) in
+  `conftest.py` — this is *necessary* (can't load a 3 GB model per test), **not** a
+  hack hiding bugs. The real-inference check is the **engine eval** (now scheduled).
+- The codebase's ~15 `globals()`/install-time wrappers are **load-bearing
+  architecture** (netguard socket failsafe, the adaptive GGUF loader's cold-load
+  fallback + live-runtime override, the executor middleware table, the router voice
+  wrap), **not** test-maskers. Ripping them out now would break ELI. They belong to
+  the **god-file fold-in** (a phased refactor in `complete_findings.md`), not a
+  quick deletion. Recommend: fold them into direct definitions module-by-module,
+  each behind the existing test suite — a deliberate effort, not this turn.
+
+**On the GPU build (item 1) — feasible here, your call to run it:**
+The CUDA toolkits are installed (`/usr/local/cuda-12.8`, `cuda-13.2`) and
+`torch.cuda.is_available()` is **True** — only the `llama-cpp-python` wheel is
+CPU-only. It IS a network + ~10-min build with a small risk of leaving the venv
+without llama-cpp if it fails, so it's a **deliberate user-run step** (offline-by-
+default). Run it in-session:
+```
+! CUDACXX=/usr/local/cuda/bin/nvcc CMAKE_ARGS="-DGGML_CUDA=on" pip install --force-reinstall --no-cache-dir llama-cpp-python
+```
+Then `python -c "import llama_cpp; print(llama_cpp.llama_supports_gpu_offload())"`
+should print True, and ELI runs on the GPU (≈30–50× faster than the CPU build).
+
+**Item 4 (ELI-assisted behavioural test generation) — proposed, not started:** a
+background task where ELI reads a function + its call sites and writes a
+sandbox-verified behavioural test (via the coding agent), growing coverage toward
+the ~6,000 functions over time. This is the only realistic path to "test every
+function" *behaviourally*; it should be gated + reviewed. Awaiting your go-ahead.
