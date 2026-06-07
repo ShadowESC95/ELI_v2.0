@@ -197,6 +197,7 @@ _add("Self-maintenance", "SELF_UPGRADE", "git pull → deps → rebuild indexes"
 _add("Self-maintenance", "SELF_UPDATE", "Self-update (control-contract)", "“update yourself”")
 _add("Self-maintenance", "SELF_TEST", "Run internal self-tests", "“run a self test”")
 _add("Self-maintenance", "RUN_TESTS", "Run the pytest suite and summarise the results document", "“run the test suite”", "“generate a test report”")
+_add("Self-maintenance", "GENERATE_TESTS", "ELI writes + sandbox-verifies behavioural tests for its own functions (Phase 4)", "“generate tests for your code”", "“grow your test coverage”")
 
 # ── Tasks, time & planning ──────────────────────────────────────────────────
 _add("Tasks, time & planning", "SCHEDULE_TASK", "Schedule overnight/timed work (code/research/etc.)", "“research X overnight”", "“build Y at 2am”")

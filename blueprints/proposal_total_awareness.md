@@ -192,3 +192,34 @@ background task where ELI reads a function + its call sites and writes a
 sandbox-verified behavioural test (via the coding agent), growing coverage toward
 the ~6,000 functions over time. This is the only realistic path to "test every
 function" *behaviourally*; it should be gated + reviewed. Awaiting your go-ahead.
+
+---
+
+## 8. Phase 4 STARTED (2026-06-07) — ELI-assisted behavioural test generation
+
+Built `eli/runtime/test_generator.py`: ELI reads a target function (source +
+signature + docstring + real call sites), the local model writes a pytest test, and
+the candidate is **sandbox-verified** — run under pytest in isolation; **only tests
+that collect ≥1 case AND pass are accepted** into `tests/generated/` (a reviewable
+area with `_manifest.json` recording every accepted/rejected target). A failing
+candidate = the test guessed wrong → rejected, never merged. That gate keeps the
+suite honest and green.
+
+Wiring:
+- **`GENERATE_TESTS` action** (chat): "generate tests for your code" / "grow your
+  test coverage" → ELI generates + verifies (small limit for chat; heavy = 1 model
+  call/target).
+- **Scheduled `testgen` kind** (`_worker_testgen`): "generate tests overnight" →
+  `SCHEDULE_TASK` runs a larger batch unattended.
+- Starts on a curated SAFE set of pure/deterministic modules (dag, reasoning_modes,
+  grounding_escalation, report_pipeline, habits, model_tier, scheduled_tasks);
+  expands as confidence grows. Kill switch `ELI_TESTGEN=0`.
+
+Meta-tested (`tests/test_test_generator.py`, 9): the GATE (passing accepted, failing/
+syntax/no-test rejected), target selection, fence-stripping, and the full
+gen→verify→write→manifest pipeline (mocked model). Real model runs produce the
+actual `tests/generated/test_gen_*.py` files (slow on the CPU build — another reason
+for §0).
+
+This is the realistic path to "test every function behaviourally": ELI grows its own
+coverage over time, gated + reviewed, instead of a human hand-writing thousands.

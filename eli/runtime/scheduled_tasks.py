@@ -121,6 +121,9 @@ def parse_when(text: str) -> float:
 # ── Kind inference ───────────────────────────────────────────────────────────
 def infer_kind(request: str) -> str:
     r = (request or "").lower()
+    if re.search(r"\b(generate|write|create)\s+(behaviou?ral\s+|unit\s+)?tests?\b|"
+                 r"\btest\s+generation\b|\bgrow\s+(test\s+)?coverage\b", r):
+        return "testgen"
     if re.search(r"\b(engine[- ]?eval|run (?:the )?eval|evaluate yourself|eval (?:harness|board)|"
                  r"run (?:the )?test suite|run (?:your|the) tests|self[- ]?test report)\b", r):
         return "eval"
@@ -207,12 +210,25 @@ def _worker_eval(request: str):
     return out
 
 
+def _worker_testgen(request: str):
+    """Overnight ELI-assisted test generation: write + sandbox-verify behavioural
+    tests for untested functions; only passing ones land in tests/generated/."""
+    try:
+        from eli.runtime.test_generator import run_testgen
+        m = re.search(r"(\d+)", request or "")
+        limit = min(int(m.group(1)), 25) if m else 8
+        return {"ok": True, "testgen": run_testgen(limit=limit)}
+    except Exception as e:
+        return {"ok": False, "error": f"test generation failed: {e}"}
+
+
 _WORKERS = {
     "code": _worker_code,
     "research": _worker_research,
     "self_upgrade": _worker_self_upgrade,
     "reflection": _worker_reflection,
     "eval": _worker_eval,
+    "testgen": _worker_testgen,
 }
 
 
@@ -232,6 +248,10 @@ def _result_preview(kind: str, res: Any) -> str:
     if kind == "eval":
         return (f"engine eval {'ok' if res.get('engine_ok') else 'ran'}; "
                 f"{str(res.get('test_report') or '').strip()[:300]}")
+    if kind == "testgen":
+        tg = res.get("testgen") or {}
+        return (f"generated {tg.get('accepted', 0)} test(s), rejected "
+                f"{tg.get('rejected', 0)} of {tg.get('targets', 0)} targets")
     return str(res)[:300]
 
 
