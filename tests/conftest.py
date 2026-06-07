@@ -121,3 +121,19 @@ def pytest_sessionfinish(session, exitstatus):
         rep_path.write_text("\n".join(out) + "\n", encoding="utf-8")
     except Exception:
         pass
+
+
+# ── No test may pollute the real artifacts/ (docs, eval, runtime snapshots) ───
+# Redirect the executor's canonical artifacts root to a per-test tmp dir. This is
+# the safety net behind the doc-gen / runtime-audit / report writers — a test run
+# must never leave files in the real artifacts/ folder.
+@pytest.fixture(autouse=True)
+def _isolate_artifacts_dir(tmp_path, monkeypatch):
+    try:
+        import eli.execution.executor_enhanced as _EX
+        adir = tmp_path / "artifacts"
+        adir.mkdir(parents=True, exist_ok=True)
+        monkeypatch.setattr(_EX, "_artifacts_dir", lambda: adir, raising=False)
+    except Exception:
+        pass
+    yield

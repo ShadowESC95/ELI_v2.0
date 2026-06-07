@@ -4423,8 +4423,15 @@ def _notify(title: str, msg: str):
 # ----------------------------
 
 def _artifacts_dir() -> "Path":
-    """Return the canonical artifacts root — always artifacts/ under project root."""
+    """Return the canonical artifacts root. Honours ELI_ARTIFACTS_DIR (so tests can
+    redirect to a tmp dir and never pollute the real artifacts/) — defaults to
+    artifacts/ under the project root."""
     from pathlib import Path
+    import os as _o
+    _env = _o.environ.get("ELI_ARTIFACTS_DIR")
+    if _env:
+        _p = Path(_env).expanduser()
+        return _p if _p.is_absolute() else (Path(__file__).resolve().parents[2] / _p)
     return Path(__file__).resolve().parents[2] / "artifacts"
 
 
@@ -5664,14 +5671,7 @@ def _execute_impl(action: str, args: Optional[Dict[str, Any]] = None) -> Dict[st
             ext = ".md" if fmt == "md" else f".{fmt}"
             fname = f"{safe_name}{ext}" if safe_name else f"document{ext}"
 
-            _artifacts_root = _os.environ.get("ELI_ARTIFACTS_DIR")
-            if _artifacts_root:
-                _base = _DPath(_artifacts_root).expanduser()
-                if not _base.is_absolute():
-                    _base = _DPath(__file__).resolve().parents[2] / _base
-            else:
-                _base = _DPath(__file__).resolve().parents[2] / "artifacts"
-            doc_dir = _base / "documents"
+            doc_dir = _artifacts_dir() / "documents"
             doc_dir.mkdir(parents=True, exist_ok=True)
             doc_path = doc_dir / fname
 
@@ -5870,15 +5870,11 @@ def _execute_impl(action: str, args: Optional[Dict[str, Any]] = None) -> Dict[st
                         ext = ".md" if fmt == "md" else f".{fmt}"
                         fname = f"{safe_name}{ext}" if safe_name else f"document{ext}"
                         
-                        from pathlib import Path as _DPath
-                        _artifacts_root = _os.environ.get("ELI_ARTIFACTS_DIR")
-                        if _artifacts_root:
-                            _base = _DPath(_artifacts_root).expanduser()
-                            if not _base.is_absolute():
-                                _base = _DPath(__file__).resolve().parents[2] / _base
-                        else:
-                            _base = _DPath(__file__).resolve().parents[2] / "artifacts"
-                        doc_dir = _base / "documents"
+                        # Use the canonical artifacts root (honours ELI_ARTIFACTS_DIR;
+                        # monkeypatchable in tests). NB the env var alone is unreliable —
+                        # runtime_settings strips out-of-project ELI_ARTIFACTS_DIR on
+                        # load_settings(), so tests must patch _artifacts_dir, not setenv.
+                        doc_dir = _artifacts_dir() / "documents"
                         doc_dir.mkdir(parents=True, exist_ok=True)
                         doc_path = doc_dir / fname
                         doc_path.write_text(content, encoding="utf-8")
