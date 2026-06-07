@@ -94,3 +94,16 @@ from deep reads of the core + a full structural/code-health sweep — a deep rea
 - **Stats refreshed:** 126,619 LOC / 336 Python files / 128 test files / 193 capabilities / 14 bus agents / ~2,565 `except Exception` / 231 commits.
 - **Landed since last advisory (all on `main`, tested):** governance consolidation (3 overlapping normalizer modules → canonical `output_governor` + shims; `normalize_response` signature collision fixed → `clean_gguf_artifacts`); failure logging consolidated into ONE store (`agent.sqlite3`; executor dual-write removed; `mark_failure_resolved` + status-filtered reads); context-bloat **quality cap** on the synthesis prompt (`ELI_SYNTH_MAX_PROMPT_CHARS`) that fixed the `-`/`-G` degeneration; **user-tunable cognition** (new `eli/core/cognition_tunables.py` + a GUI ‘🧠 Cognition’ tab exposing every gather limit); agent gathering deepened (file_code searches the whole repo; memory multi-hop; capability/voice triggers broadened); habit scheduler now actually runs active app-launch habits + self-heals legacy `00:00` rows; action-synonym normalisation (NEWS_SEARCH→NEWS_FETCH, DAILY/WEEKLY_REPORT→MORNING_REPORT, …); plugin-manager NameError fixed; folder drag-drop inserts a bare path; runtime-audit gained **live health probes**; the grounding gate's one provably-dead v10 fragment was removed (oracle-verified).
 - **Cross-cutting verdict update:** the eval suite is now **green and runs under `pytest`** (`tests/test_eval_cases.py`); two of the listed debts are materially reduced (governance over-fragmentation; the dual-DB failure split). The god-files and the `except Exception` count remain the top open items.
+
+## Update Advisory — 2026-06-07 (continued)
+- **Stats refreshed:** ~128.8k LOC / 343 files / ~110 test files / **194 capabilities**
+  (155 SUPPORTED_ACTIONS, 164 routable) / 14 bus agents + CodeAgent / **12 main GUI tabs**.
+- **Test suite GREEN:** `pytest tests/` = 2356 passed / 45 skipped / 1 xfailed / 0 failed.
+- **Landed (all on `main`, tested):** evidence-planner + multi-stage `report_pipeline`
+  for grounded doc/script/project generation (confidence→deeper-tier re-gather);
+  Report Builder promoted to a main tab; Files-tab document converter (pandoc+lualatex+
+  LibreOffice: pdf/docx/doc/odt/rtf/html/md/tex/epub/txt); autonomy/self-awareness tick
+  wired into the proactive daemon (governed); introspection gather-then-summarise for
+  identity/awareness; grounded vision for "what's on screen"; habit 00:00 fix;
+  EXAMINE_CODE/GUI_RUNTIME_AUDIT route disambiguation; new reference
+  `capabilities_and_actions.md` (auto-generated, in sync with the manifest).

@@ -88,3 +88,12 @@ Kill switch: `ELI_CODEGEN_BACKGROUND=0`.
 
 ## Update Advisory — 2026-06-07
 - Unchanged this cycle. (GENERATE_SCRIPT still routes through `eli.coding.solve`; self-upgrade still consults the coding engine's bug memory.)
+
+---
+
+## Update Advisory — 2026-06-07 (continued)
+- The proactive daemon now also runs a governed **autonomy tick** (30-min:
+  code-monitor + self-model refresh + goal/scheduler → proposals). See
+  `runtime_planning_world.md`.
+- Durable scheduled/overnight tasks: `runtime/scheduled_tasks.py` (re-armed at boot,
+  catch-up for missed jobs); quick-mode async deepen: `runtime/background_deepening.py`.

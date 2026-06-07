@@ -17,7 +17,7 @@ your own evidence, and — uniquely — **improves its own source code and can e
 re-train its own brain on your conversations.** Unlike Siri, Alexa, or
 ChatGPT, nothing you say to ELI has to leave your house: it is **offline by
 default, enforced at the network socket itself**, with a switch *you* control.
-It is not a chatbot bolted onto a cloud API. It is ~126,600 lines of Python that
+It is not a chatbot bolted onto a cloud API. It is ~128,800 lines of Python that
 form a complete **cognitive operating system for one person and one machine.**
 
 ---
@@ -125,10 +125,10 @@ and gets out of your way.**
 
 ## For the tech head: the architecture, accurately
 
-~126,600 lines of Python across 336 files. A real cognitive runtime — not an API
+~128,800 lines of Python across 343 files. A real cognitive runtime — not an API
 wrapper:
 
-- **Request pipeline.** A deterministic **router** (~157 executor actions, 193
+- **Request pipeline.** A deterministic **router** (155 executor actions, 194
   declared capabilities) → a **14-agent bus** that runs on a *dependency DAG*
   (topological layers, parallel where independent) with a **calibrated,
   weight-free confidence aggregator** (each agent's contribution = evidence
@@ -266,3 +266,17 @@ frontier coder), `memory.md`, `security.md`, `inference_and_hardware.md`,
   foreground the genuine differentiators (ownership, model-agnosticism, self-
   honesty, self-improvement, embodiment) while keeping the honest model-ceiling
   caveat intact.
+
+---
+
+## Update Advisory — 2026-06-07 (continued)
+- Counts: **~128.8k LOC / 343 files**; **194 declared capabilities** (155 executor
+  `SUPPORTED_ACTIONS`, 164 routable). **12 main GUI tabs**.
+- ELI now **gathers evidence before it generates** (evidence-planner: code/web/
+  memory/runtime agents) and writes documents through a **multi-stage pipeline**
+  (plan → sections → review→revise) with confidence-driven deeper-tier re-gather —
+  not one shallow pass. Asked about *itself*, it runs the real audits and
+  **summarises** the grounded result (no data dumps, no answering from weights).
+- Its **autonomy loop runs** (governed proactive-daemon tick: watches its own code,
+  refreshes its self-model, advances goals into approval-gated proposals).
+- Test suite is **green** (2356 passed).

@@ -115,3 +115,23 @@ downloads; runtime stays local.)
 
 ## Update Advisory — 2026-06-07
 - Failure store unified to `agent.sqlite3`; runtime-audit gained live health probes. Action-synonym normalisation added in the executor (NEWS_SEARCH→NEWS_FETCH, DAILY/WEEKLY_REPORT→MORNING_REPORT, WEBSITE_SEARCH→WEB_SEARCH). Habit scheduler self-heal + active-habit-run fixes (see operations.md).
+
+---
+
+## Update Advisory — 2026-06-07 (autonomy + scheduled tasks + generation runtime)
+- **Autonomy loop now RUNS.** `autonomy_controller` (safe_tick / safe_goal_tick /
+  safe_scheduler_tick) and `autonomy_scheduler.scheduler_tick` were previously only
+  fired by the Operator Console button. A 30-min governed autonomy tick is now wired
+  into `proactive_daemon.run()`: code_monitor + self-model overlay refresh +
+  goal/scheduler → proposals (approval-gated; approval_engine caps the controller to
+  observe-only / memory-write). Kill switch `ELI_AUTONOMY_TICK=0`.
+- **Scheduled / overnight tasks** (`runtime/scheduled_tasks.py`): "do X overnight /
+  at 2am" → code/research/self_upgrade/reflection; durable across restarts
+  (`artifacts/runtime/scheduled_tasks.json`) with catch-up for missed jobs;
+  re-armed at boot via `restore_scheduled_tasks()`. GUI: Tasks main tab.
+- **Project workspaces** (Labs): bundle files/folders + memory namespace
+  (`runtime/active_project.py`) + commands + owned background tasks; Save State /
+  Resume (`runtime/state_providers.py`).
+- **New generation runtime:** `runtime/evidence_planner.py` (plan→gather→consume),
+  `runtime/report_pipeline.py` (multi-stage grounded docs), `runtime/background_deepening.py`
+  (quick-mode async deepen). See `grounding_and_evidence.md`.
