@@ -337,6 +337,74 @@ class SelfImprovementEngine:
         return {"improvements": improvements}
 
     # ─────────────────────────────────────────────────────────────────────────
+    # Coding-agent route — decompose → solve → VERIFY (propose-only)
+    # ─────────────────────────────────────────────────────────────────────────
+    def _build_fix_task(self, failure: dict, max_file_chars: int = 4000) -> str:
+        """Turn a recorded failure into a coding task for the agent, with the offending
+        file inlined as context when the traceback names one in-project."""
+        err = _safe_str(failure.get("error", ""))
+        ui = _safe_str(failure.get("user_input", ""))
+        cmd = _safe_str(failure.get("command", ""))
+        file_ref, file_content = "", ""
+        m = re.search(r'File "([^"]+\.py)"', err)
+        if m:
+            cand = Path(m.group(1))
+            try:
+                cand.relative_to(PROJECT_ROOT)
+                if cand.exists() and cand.stat().st_size < max_file_chars * 3:
+                    file_content = cand.read_text(encoding="utf-8")[:max_file_chars]
+                    file_ref = str(cand.relative_to(PROJECT_ROOT))
+            except Exception:
+                pass
+        parts = [f"Fix the bug that causes this failure: {err[:500]}"]
+        if cmd:
+            parts.append(f"Triggered by command: {cmd[:150]}")
+        if ui:
+            parts.append(f"User input: {ui[:150]}")
+        if file_content:
+            parts.append(f"Correct this file ({file_ref}) and return the fixed version:\n"
+                         f"```python\n{file_content}\n```")
+        else:
+            parts.append("Propose a minimal corrected implementation.")
+        return "\n".join(parts)
+
+    def propose_via_agent(self, max_items: int = 3, run_timeout: float = 20.0) -> Dict[str, Any]:
+        """Route self-improvement through the CODING AGENT: per recent failure, the
+        agent decomposes → solves → VERIFIES a fix (its tree-search + execution gate),
+        orchestrated in parallel on the DAG. Propose-only — nothing is applied."""
+        failures = [f for f in self.analyze_failures(limit=10, min_cluster_size=1)
+                    if _safe_str(f.get("error")) or _safe_str(f.get("user_input"))][:max_items]
+        if not failures:
+            return {"ok": True, "proposals": [], "reason": "no recent failures to fix"}
+        try:
+            from eli.core.dag import Task, run_graph
+            from eli.coding.agent import CodeAgent
+            agent = CodeAgent()
+
+            def _mk(failure):
+                def _run(ctx):
+                    cr = agent.solve(self._build_fix_task(failure), run_timeout=run_timeout)
+                    return {
+                        "failure": (_safe_str(failure.get("user_input"))
+                                    or _safe_str(failure.get("error")))[:140],
+                        "verified": bool(getattr(cr, "solved", False)),
+                        "score": round(float(getattr(cr, "score", 0.0) or 0.0), 2),
+                        "approach": (getattr(cr, "plan", {}) or {}).get("approach"),
+                        "message": getattr(cr, "message", ""),
+                        "code": (getattr(cr, "code", "") or "")[:1500],
+                    }
+                return _run
+
+            tasks = [Task(id=f"fix_{i}", run=_mk(f), critical=False)
+                     for i, f in enumerate(failures)]
+            report = run_graph(tasks, max_workers=max(2, len(tasks)))
+            proposals = [o.result for _tid, o in report.outcomes.items() if o.ok and o.result]
+            return {"ok": True, "proposals": proposals, "count": len(proposals),
+                    "orchestration": report.to_dict()}
+        except Exception as e:
+            return {"ok": False, "error": str(e), "proposals": []}
+
+    # ─────────────────────────────────────────────────────────────────────────
     # Code Patching — generate → validate → apply
     # ─────────────────────────────────────────────────────────────────────────
 
