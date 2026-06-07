@@ -145,3 +145,13 @@ python tools/eval/run_eval.py --target all --json mistral24b.json
 See also: `blueprints/eval_harness.md` (harness internals) and
 `blueprints/operations.md` (why this exists).
 ```
+
+## Model-swap smoke test
+
+After swapping the GGUF model, run a one-command "did anything break" check
+(loads the real engine; catches crashes, empty replies, and degenerate output
+from a wrong chat template):
+
+    python tools/eval/model_swap_smoke.py
+
+Exit code is non-zero on any failure; skips cleanly (exit 0) if no model loads.
