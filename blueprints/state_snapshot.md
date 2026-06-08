@@ -241,6 +241,45 @@ Per-package LOC/file table refreshed in `architecture.md`.
   shows Quick/Normal/Advanced/Research/Expert. **Command-console / AGI framing removed** from all code
   + blueprints.
 
+## Update Advisory — 2026-06-08 (autonomy, persona voice, full-brain audit)
+Full cognition audit + the gaps it closed (all on `main`, tested):
+- **Goal autogenesis** (`eli/planning/goal_autogenesis.py`, NEW) — the autonomy stack
+  (goal_store → due_goals → governed_goal_tick → proposal_queue) was fully wired but the
+  goal store was always EMPTY (`create_goal` was operator-only), so ELI only reacted, never
+  set his own agenda. Now `propose_goals_from_signals` turns the signals he already computes
+  each proactive tick — world-model awareness suggestions (≥0.6), recurring failures (≥5×),
+  and code-health improvements (oversized fns / dup blocks in his own god-files) — into
+  **`proposal_only` goals** (surface for approval via the existing path; never silent
+  execution), deduped by stable id, capped at 6, logged as `self_goal` observations. Wired
+  into `proactive_daemon`. His agenda now spans failure-repair, world-driven, AND
+  self-improvement.
+- **Persona reaches factual answers** — the compact grounded-synthesis path
+  (`_compact_grounded_synthesis`) ran a persona-less prompt, so grounded/introspection
+  answers were a flat data terminal. Now carries a VOICE primer pulled live from the
+  canonical persona (stays in sync), character delivery-only; the EXACT-FACTS contract still
+  binds every number/path/table to the evidence. Persona base itself de-bloated (6 redundant
+  rapport blocks → 2; net smaller than before, with the new ADAPTIVE PRESENCE character +
+  tone-adaptation). Live self-model now injected into the per-turn prompt (auto-tracks agents/
+  caps/model/world-room).
+- **Introspection is mode-gated** — `EXPLAIN_MEMORY/COGNITION_RUNTIME` were verbatim-in-all-
+  modes (two different questions → same raw dump). Now: verbatim dump in quick, SYNTHESISED
+  (persona-bound, hardened exact-facts contract) in non-quick — the blueprint's
+  gather-then-summarise intent.
+- **Habits bridged** — `detect_habits()` filled the `habits` table but HABIT_STATUS/overlay
+  read the empty `habit_rules` → "no habits detected" despite 1059 events. New
+  `Memory.get_detected_habits()` surfaces real behaviour (meta/introspection noise filtered).
+- **Self-repair hardened** — self-patch no longer hallucinates a file target for non-file
+  failures (returns `no_groundable_file`); FAISS index-corruption bug fixed (pickle→JSON meta);
+  name surfaced in the personal-memory path; KG populator enriched. All recurring-failure
+  tallies (11434 / No-commands / Missing-desc / LoRA / UnboundLocal) fixed at source + cleared.
+- **LoRA pipeline confirmed green** end-to-end (preflight→build_job→train→eval ok); `will_train`
+  is False only because the 615-row dataset awaits human review — the correct human-gated
+  resting state, not a failure.
+- **Audit verdict:** the cognition pipeline is genuinely wired, not stubbed — 14 real agents,
+  4 distinct reasoning modes, engagement→mode-escalation live, world-model acts at ≥0.70, DAG
+  topological layers, real self-improvement loop. No `NotImplementedError`/stub bodies in
+  cognition/kernel/planning/runtime. The intelligence ceiling is the loaded model.
+
 ## Verdict
 The architecture is genuinely frontier for a local, model-agnostic, self-honest
 personal AI — it tests itself, evals itself nightly, writes its own tests, grounds its
