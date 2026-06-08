@@ -77,6 +77,13 @@ def _net_allowed() -> bool:
     # A scoped allow_network() window wins — it is an explicit user action.
     if _allow_depth > 0:
         return True
+    # ELI Full Control lifts the offline-by-default barrier (user opt-in).
+    try:
+        from eli.core.full_control import is_full_control
+        if is_full_control():
+            return True
+    except Exception:
+        pass
     try:
         from eli.core.config import network_allowed
         return bool(network_allowed())

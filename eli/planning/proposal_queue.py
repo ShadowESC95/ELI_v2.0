@@ -15,8 +15,8 @@ def queue_path() -> Path:
         p = Path(override).expanduser().resolve()
         p.parent.mkdir(parents=True, exist_ok=True)
         return p
-    root = Path(__file__).resolve().parents[3]
-    p = root / "artifacts" / "proactive" / "proposal_queue.jsonl"
+    from eli.core.paths import proactive_dir
+    p = proactive_dir() / "proposal_queue.jsonl"
     p.parent.mkdir(parents=True, exist_ok=True)
     return p
 
@@ -27,8 +27,8 @@ def archive_path() -> Path:
         p = Path(override).expanduser().resolve()
         p.parent.mkdir(parents=True, exist_ok=True)
         return p
-    root = Path(__file__).resolve().parents[3]
-    p = root / "artifacts" / "proactive" / "proposal_queue.archive.jsonl"
+    from eli.core.paths import proactive_dir
+    p = proactive_dir() / "proposal_queue.archive.jsonl"
     p.parent.mkdir(parents=True, exist_ok=True)
     return p
 

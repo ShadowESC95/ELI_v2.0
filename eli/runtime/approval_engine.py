@@ -52,6 +52,18 @@ def evaluate_record(record: ProposalRecord, user_confirmed: bool = False, approv
     record.action_class = normalize_action_class(record.action_class)
     record.emitter = normalize_emitter(record.emitter)
 
+    # ELI Full Control lifts the approval barrier — every proposal is auto-approved.
+    try:
+        from eli.core.full_control import is_full_control
+        if is_full_control():
+            record.approval_state = "approved"
+            record.requires_confirmation = False
+            record.approved_by = "policy:full_control"
+            record.policy_reason = "ELI Full Control enabled — approval barriers lifted"
+            return record
+    except Exception:
+        pass
+
     ok, reason = can_emitter_propose(record.emitter, record.action_class)
     if not ok:
         record.approval_state = "blocked"

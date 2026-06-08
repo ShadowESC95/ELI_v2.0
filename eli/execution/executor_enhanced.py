@@ -5243,7 +5243,15 @@ def _execute_impl(action: str, args: Optional[Dict[str, Any]] = None) -> Dict[st
             else:
                 _cmd_str = str(cmd)
             _cmd_low = _cmd_str.lower().strip()
-            
+
+            # ELI Full Control lifts even the hard command-safety floor (user opt-in,
+            # default off). When on, the destructive-pattern block + denylist step aside.
+            try:
+                from eli.core.full_control import is_full_control as _ifc_cmd
+                _cmd_full_control = bool(_ifc_cmd())
+            except Exception:
+                _cmd_full_control = False
+
             # ── Destructive / dangerous command patterns — block outright ──
             _BLOCKED_PATTERNS = [
                 r"\brm\s+(-[rf]+\s+)?/(?!tmp)",           # rm -rf / (except /tmp)
@@ -5270,7 +5278,7 @@ def _execute_impl(action: str, args: Optional[Dict[str, Any]] = None) -> Dict[st
                 r"\bcrontab\s+-[re]\b",                     # crontab modification
             ]
 
-            for pat in _BLOCKED_PATTERNS:
+            for pat in ([] if _cmd_full_control else _BLOCKED_PATTERNS):
                 if re.search(pat, _cmd_low):
                     msg = f"Blocked dangerous command: {_cmd_str[:60]}"
                     return {"ok": False, "action": a, "error": "security_blocked",
@@ -5295,7 +5303,7 @@ def _execute_impl(action: str, args: Optional[Dict[str, Any]] = None) -> Dict[st
                 "rm", "shred", "wipe",                         # destructive file ops
                 "iptables", "ip6tables", "nftables",           # firewall manipulation
             }
-            if _argv0_base in _DENIED_EXECUTABLES:
+            if _argv0_base in _DENIED_EXECUTABLES and not _cmd_full_control:
                 msg = f"Execution of '{_argv0_base}' is not permitted via RUN_CMD for security reasons."
                 return {"ok": False, "action": a, "error": "security_blocked",
                         "content": msg, "response": msg, "blocked": True}
