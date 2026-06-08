@@ -124,6 +124,29 @@ from deep reads of the core + a full structural/code-health sweep — a deep rea
   EXAMINE_CODE/GUI_RUNTIME_AUDIT route disambiguation; new reference
   `capabilities_and_actions.md` (auto-generated, in sync with the manifest).
 
+## Update Advisory — 2026-06-09
+- **Stats:** ~134,000 LOC / **353** files / **206** capabilities / **152** test files / 14 bus
+  agents (+`planning/goal_autogenesis.py` + test). Full per-area detail in `state_snapshot.md`
+  (2026-06-09 advisory).
+- **Autonomy closed the loop:** `goal_autogenesis.py` — ELI now turns his own signals
+  (world-model suggestions, recurring failures, code-health) into **governed, proposal-only
+  goals**, so the previously-empty goal store finally drives the scheduler. See
+  `runtime_planning_world.md`.
+- **Proactive-habits ↔ chat disconnect fixed:** the bus HabitAgent read the empty `habit_rules`
+  table; it now reads the real detected `habits` and surfaces them into chat context. Habit
+  wiring is consistent across HABIT_STATUS, the persona overlay, and the chat agent.
+- **Live-session bug fixes:** open-home-folder routing + `~` expansion, multi-command split for
+  chained media, banter→CHAT (no more mis-routed GENERATE_SCRIPT), alarm NL time-parse,
+  room-question routing (ELI states his real symbolic-world room), self-patch
+  `no_groundable_file`, and the self-model dump leak. See `state_snapshot.md`.
+- **Terminal verified + fenced:** RUN_CMD uses a real `subprocess.run` behind the security gate
+  (no production mock); the `<MagicMock>` failures were a test-isolation leak, now guarded at
+  the failure-write source. See `security.md`.
+- **Doc accuracy:** the reranker is a **heuristic** rerank (cross-encoder is the designed
+  upgrade — `reranker.py` says so), not a neural cross-encoder; capability count is read live
+  (206); machine-specific numbers (executables) reworded as per-machine; tab count reconciled
+  to **14**.
+
 ## Update Advisory — 2026-06-08
 - **Stats:** 133,430 LOC / **352** files / **205** capabilities (166 SUPPORTED_ACTIONS) /
   151 test files. New actions: `WAKE_TRAIN`/`WAKE_ENROLL`/`WAKE_SET`/`TRAIN_VOICE`.
