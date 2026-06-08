@@ -206,13 +206,29 @@ def _cheap_embed(text: str, dim: int = 256) -> "np.ndarray":
     n = float(np.linalg.norm(v)) or 1.0
     return v / n
 
+def _ollama_is_provider() -> bool:
+    """True only when Ollama is the configured inference provider. ELI's default is
+    local GGUF + offline, so we must NOT make an Ollama HTTP call otherwise — doing so
+    just spams 'HTTPConnectionPool(... port=11434) Max retries exceeded' from the
+    background habits loop (the recurring error seen in the health probe)."""
+    try:
+        from eli.core.runtime_settings import load_settings
+        return str((load_settings() or {}).get("provider") or "").strip().lower() == "ollama"
+    except Exception:
+        return False
+
+
 def embed(text: str) -> Tuple[str, Optional["np.ndarray"]]:
     # If numpy missing, we still store text+tags; vector search will be disabled.
     if np is None:
         return ("none", None)
-    v = _ollama_embed(text)
-    if v is not None:
-        return (EMBED_MODEL, v)
+    # Only reach for Ollama embeddings when Ollama is actually the provider; otherwise
+    # use the offline hashed embedding (what this path already fell back to anyway) so
+    # the background habits loop never attempts a network call to a dead Ollama port.
+    if _ollama_is_provider():
+        v = _ollama_embed(text)
+        if v is not None:
+            return (EMBED_MODEL, v)
     return ("cheap_hash", _cheap_embed(text))
 
 def add_memory(text: str, tags: str = "") -> Dict[str, Any]:
