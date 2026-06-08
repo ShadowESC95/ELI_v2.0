@@ -80,6 +80,7 @@ _add("Input control", "MOUSE_CONTROL", "Move/click the mouse", "“left click”
 _add("Media", "PLAY_MEDIA", "Play a track on the named platform", "“play Juicy by Notorious B.I.G. on Spotify”", "“play lo-fi on YouTube”")
 _add("Media", "PAUSE_MEDIA", "Pause playback", "“pause”", "“pause the music”")
 _add("Media", "STOP_MEDIA", "Stop playback", "“stop the music”")
+_add("Media", "NOW_PLAYING", "Report the current track and where it's playing (Spotify or headless-mpv YouTube audio)", "“what's playing”", "“what song is this”")
 _add("Media", "NEXT_MEDIA", "Next track", "“next song”", "“skip”")
 _add("Media", "PREVIOUS_MEDIA", "Previous track", "“previous track”", "“go back a song”")
 _add("Media", "REPEAT_MEDIA", "Repeat current track", "“repeat this song”")
