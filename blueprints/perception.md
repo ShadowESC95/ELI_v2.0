@@ -180,3 +180,13 @@ extracted content (text/OCR/structure) into the grounded pipeline.
   into cognition via a per-turn side-channel the engine reads to adapt its delivery.
 - `audio_stt.py` grew (~1.6k) with the adaptive pause + capture script — still the prime
   split candidate in this package.
+
+## Update Advisory — 2026-06-08 (media control + now-playing)
+- **Headless-YouTube control:** "play on YouTube" runs a headless `mpv` (audio only) that
+  `playerctl` can't see; pause/stop/resume now route to mpv's IPC socket
+  (`executor_enhanced._mpv_ipc/_mpv_alive/_mpv_quit`) when YouTube is the active source, else
+  playerctl. A media-state tracker (source/title) stops the old mpv when switching sources.
+- **`NOW_PLAYING` action** ("what's playing" / "what song is this") reports the current track
+  + source (reads mpv's `media-title`, or Spotify/MPRIS state).
+- **Spotify** restored to playing the specific requested SONG (a prior change had switched it
+  to playlists, which didn't start playback).

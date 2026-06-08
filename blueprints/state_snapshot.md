@@ -7,8 +7,8 @@ agent's system python. Deeper detail lives in the companion blueprints
 `grounding_and_evidence.md`, `capabilities_and_actions.md`, `complete_findings.md`).
 
 ## Scale (measured 2026-06-08)
-- **132,969 LOC** across **351** `.py` files under `eli/`.
-- **205** manifest capabilities (`capability_manifest.json`): **166** in the
+- **133,430 LOC** across **352** `.py` files under `eli/`.
+- **206** manifest capabilities (`capability_manifest.json`): **166** in the
   executor `SUPPORTED_ACTIONS`, plugin-backed remainder.
 - **14 main GUI tabs** (Chat, Proactive, Images, Quick Actions, Screen, Files, Labs,
   Coding, Tasks, Report Builder, Test & Review, Orchestration, Eli's World, Settings);
@@ -125,7 +125,7 @@ the venv ELI uses. No rebuild needed.)
   Details in `runtime_planning_world.md` + `dag_orchestrator.md`.
 
 ## Addendum (2026-06-08, later — reliability pass + voice/wake/tone + cognition correctness)
-**Scale now:** 132,969 LOC / **351** files / **205** capabilities (166 SUPPORTED_ACTIONS) /
+**Scale now:** 133,430 LOC / **352** files / **205** capabilities (166 SUPPORTED_ACTIONS) /
 151 test files. New actions: `WAKE_TRAIN`, `WAKE_ENROLL`, `WAKE_SET`, `TRAIN_VOICE`.
 New subsystems: `eli/perception/wakeword.py`, `eli/perception/voice_profile.py`; rewritten
 `eli/cognition/llm_intent.py`.
@@ -198,6 +198,48 @@ reuses whatever the hardware profiler computed for *this* machine. See
   API limit.)
 - **Installer runtime tools** — `install.sh` now best-effort installs mpv/yt-dlp/
   playerctl/wmctrl/xdotool/ffmpeg + xclip/wl-clipboard. See `installation.md`.
+
+## Addendum (2026-06-08, latest — media control, self-heal escalation, Full Control)
+**Scale now:** 133,430 LOC / **352** files / **206** capabilities (167 SUPPORTED_ACTIONS) /
+151 test files. New file: `eli/core/full_control.py`. New action: `NOW_PLAYING`.
+Per-package LOC/file table refreshed in `architecture.md`.
+
+- **Spotify play regression fixed.** A 2026-06-06 change had switched the Spotify path from
+  "play the requested SONG" to "play a playlist" (which never started playback). Reverted to
+  the song-match approach (`spotify:search:<q>` → Play top song). "play X by Y on spotify"
+  plays the song again.
+- **Headless-YouTube (mpv) control + now-playing.** "Play on YouTube" runs a HEADLESS mpv
+  (`bestaudio`, no window) that `playerctl` can't see, so pause/stop/resume couldn't reach
+  it. Added mpv-IPC control (`_mpv_ipc`/`_mpv_alive`/`_mpv_quit`) + a media-state tracker
+  (source/title); pause/stop/resume now route to mpv when YouTube is active, else playerctl;
+  switching sources stops the old mpv. New **`NOW_PLAYING`** action ("what's playing") reports
+  the track + source. See `perception.md` / `capabilities_and_actions.md`.
+- **Self-heal escalation (recurring-error → proactive conversation).** Built on the existing
+  `self_improvement.log_failure` 5× clause (which only logged to debug): ≥5× queues a
+  user-facing notice; ≥10× also runs analyze/patch and records the OUTCOME. The engine
+  (`_build_enhanced_system`) pops the top notice once per conversational turn and has ELI
+  raise it with the user, then answer — recurring problems are surfaced IN conversation.
+  Applying code patches stays gated behind `auto_patch_enabled` OR Full Control.
+- **Two recurring health-probe errors root-caused** (not silenced): "No commands to run." and
+  "Missing description for GENERATE_PROJECT" were incomplete-INPUT cases wrongly returned as
+  hard faults (polluting the failure table, raising repair_pressure). Now graceful
+  clarifications (`ok=True, fault=False, needs_input=True`).
+- **Ollama embed call killed.** `memory/habits_memory_db.embed()` POSTed to Ollama (:11434)
+  for embeddings on every habit write — the recurring `HTTPConnectionPool(... 11434)` error,
+  and a violation of offline-by-default. Now gated behind `provider=='ollama'`; otherwise the
+  offline hashed embedding (which it already fell back to). No network call.
+- **Stray `~/Desktop/artifacts/proactive`** — `proposal_queue.py`/`proposal_adapters.py` used
+  `parents[3]` (one level too high → the project's *parent*). Fixed to `paths.proactive_dir()`.
+- **ELI Full Control** (`eli/core/full_control.py`) — a master override, **default OFF**,
+  **single source of truth = the `full_control` setting / GUI toggle (no env var)**. When ON
+  it lifts every barrier that consults `is_full_control()`: netguard (network), approval_engine
+  (autonomy), self-patch gate, and the executor/security command-safety floor (destructive
+  block + denylist). Red GUI toggle by the Net toggle with a confirmation dialog. See
+  `security.md` / `gui.md`.
+- **Reasoning-mode names**: the old internal labels (Chain of Thought / Tree of Thoughts /
+  Constitutional AI / Self-Consistency) no longer leak to the user — every user-facing surface
+  shows Quick/Normal/Advanced/Research/Expert. **JARVIS / AGI framing removed** from all code
+  + blueprints.
 
 ## Verdict
 The architecture is genuinely frontier for a local, model-agnostic, self-honest

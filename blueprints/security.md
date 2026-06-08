@@ -132,3 +132,17 @@ matching safeguards:
 
 ## Update Advisory — 2026-06-07
 - Posture unchanged (fail-closed). Clarification: web is a **toggle-gated first-class capability** — when the Net toggle (`network_enabled`) is on, web search / news / weather all work; when off, `netguard`'s process-wide socket guard fail-closes. ‘No external APIs’ means no paid third-party SDKs/OAuth, not ‘no network’.
+
+---
+
+## Update Advisory — 2026-06-08 (ELI Full Control master override)
+- New `eli/core/full_control.py` — a single master override, **default OFF**, whose **sole
+  source of truth is the `full_control` setting** (the GUI toggle; **no environment
+  variable**, so nothing can conflict). When ON, every gate that calls `is_full_control()`
+  steps aside: netguard network gating, `approval_engine` autonomy approval, the
+  self-improvement auto-patch gate, and the executor/`security.py` command-safety floor (the
+  destructive-pattern block + `_DENIED_EXECUTABLES` denylist + the `is_command_allowed` /
+  `is_app_allowed` allowlists). OFF = the documented fail-closed behaviour, unchanged. The
+  pre-existing `ELI_FULL_CONTROL` env reads were all converted to the setting. Each gate
+  checks at its own point — no hidden global state — so toggling OFF restores everything at
+  once. GUI: a red "Full Control" toggle by the Net toggle, behind a confirmation dialog.
