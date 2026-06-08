@@ -547,43 +547,71 @@ def _populate_kg_from_user_patterns(memory: Any) -> None:
     except Exception:
         pass
 
-    # Projects → works_on
-    for proj in patterns.get("project", [])[:4]:
-        m = re.search(
-            r"(?:developing|building|working\s+on|debugging|tuning)\s+([A-Za-z][A-Za-z0-9_\- ]{1,30})",
-            proj, re.I,
-        )
-        if m:
-            project_name = m.group(1).strip().rstrip("'s").strip()
-            if len(project_name) > 2:
-                kg.upsert_entity(project_name, "project")
-                kg.add_relation("User", "works_on", project_name, source="user_patterns")
-
-    # Research → researches
-    for res in patterns.get("research", [])[:3]:
-        for topic_match in re.finditer(
-            r"\b(physics|simulation|hydrogen|solar|field\s+framework|"
-            r"theoretical\s+physics|astrophysics|quantum|cosmology|"
-            r"ELI|machine\s+learning|AI|cognition)\b",
-            res, re.I,
-        ):
-            topic = topic_match.group(0).strip()
-            kg.upsert_entity(topic, "research_area")
-            kg.add_relation("User", "researches", topic, source="user_patterns")
-
-    # Preferences → key terms only (avoid polluting with long strings)
-    for pref in patterns.get("preference", [])[:4]:
-        m = re.search(
-            r"prefers?\s+(in[- ]depth|brief|executable|thorough|detailed|direct)\b",
-            pref, re.I,
-        )
-        if m:
-            pref_val = m.group(1).lower()
-            kg.upsert_entity(pref_val, "preference")
-            kg.add_relation("User", "prefers", pref_val, source="user_patterns")
+    # Broad, clean extraction: every structured pattern type becomes a node + a typed
+    # relation off the User, so the graph actually grows from what the user tells ELI
+    # (was: only the few that matched narrow regexes → a near-empty KG).
+    _REL = {  # pattern_type prefix → (relation, entity_type)
+        "project":    ("works_on",     "project"),
+        "research":   ("researches",   "research_area"),
+        "interest":   ("interested_in", "topic"),
+        "preference": ("prefers",      "preference"),
+        "identity":   ("has_attribute", "attribute"),
+        "goal":       ("pursues",      "goal"),
+    }
+    seen_pairs: set = set()
+    for ptype, (rel, etype) in _REL.items():
+        for item in patterns.get(ptype, [])[:8]:
+            ent = _kg_entity_from_pattern(item, ptype)
+            if not ent:
+                continue
+            pair = (rel, ent.lower())
+            if pair in seen_pairs:
+                continue
+            seen_pairs.add(pair)
+            kg.upsert_entity(ent, etype)
+            kg.add_relation("User", rel, ent, source="user_patterns")
 
     log.debug("persona_updater: kg sync complete — %d entities, %d relations",
               kg.stats().get("entities", 0), kg.stats().get("relations", 0))
+
+
+def _kg_entity_from_pattern(text: str, ptype: str) -> str:
+    """Extract a clean, bounded KG entity name from a free-text user_pattern. Returns ""
+    when nothing clean can be pulled (so the graph isn't polluted with sentences)."""
+    raw = _clean(text)
+    if not raw:
+        return ""
+    # Drop the "(last active: …)" recency suffix the reader appends.
+    raw = re.sub(r"\s*\(last active:.*?\)\s*$", "", raw).strip()
+    # For projects, prefer the named thing after a working verb.
+    if ptype == "project":
+        m = re.search(r"(?:developing|building|working\s+on|debugging|tuning|making|"
+                      r"creating)\s+(?:the\s+|a\s+|an\s+)?([A-Za-z][\w\-+ ]{1,34})", raw, re.I)
+        if m:
+            raw = m.group(1)
+    # For preferences, grab the preference token.
+    elif ptype == "preference":
+        m = re.search(r"prefers?\s+(in[- ]depth|brief|executable|thorough|detailed|"
+                      r"direct|concise|blunt|technical|honest|verbose)\b", raw, re.I)
+        if m:
+            return m.group(1).lower()
+    # Strip leading "User('s)/the user is currently interested in/researches …" framing
+    # (the optional 'is/are/was' may precede the verb-phrase, so both come off in one pass).
+    raw = re.sub(r"(?i)^(?:the\s+)?user(?:'s|s)?\s+"
+                 r"(?:is\s+|are\s+|was\s+)?(?:currently\s+|actively\s+|now\s+)?"
+                 r"(?:likes?\s+|loves?\s+|enjoys?\s+|wants?\s+|prefers?\s+|"
+                 r"researches?\s+|researching\s+|studies\s+|studying\s+|works?\s+on\s+|"
+                 r"working\s+on\s+|developing\s+|building\s+|interested\s+in\s+|"
+                 r"focused\s+on\s+|exploring\s+|pursuing\s+|name\s+is\s+)?", "", raw).strip()
+    raw = raw.strip(" .,;:\"'()[]")
+    raw = re.sub(r"['’]s$", "", raw).strip()   # drop a possessive 's (not the s in 'physics')
+    raw = raw[:48].strip()
+    # Reject sentence-like / junk entities.
+    if len(raw) < 2 or len(raw.split()) > 8:
+        return ""
+    if raw.lower() in {"unknown", "none", "the user", "user", "various", "stuff", "things"}:
+        return ""
+    return raw
 
 
 def update_user_profile_overlay(memory: Any = None) -> Dict[str, Any]:
