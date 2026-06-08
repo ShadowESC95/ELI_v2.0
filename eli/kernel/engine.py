@@ -9627,6 +9627,36 @@ Answer:"""
                             "USER_IDENTITY_SUMMARY",
                             "PERSONAL_MEMORY_SUMMARY",
                             "PERSONAL_MEMORY_DEEP_EXPLAIN",
+                            # Deterministic OS-command + system-read actions whose
+                            # executor result IS the complete answer ("Wrote note
+                            # to X", "Volume set to 40%", "Tiled 5 windows",
+                            # "Monday, 2026-06-08"). Reasoning-mode contract: router
+                            # fast actions are DETERMINISTIC in quick mode (returned
+                            # verbatim, no GGUF) and SYNTHESISED in non-quick modes.
+                            # They were only in _direct_final_actions, so quick mode
+                            # still ran them through full broker synthesis — which
+                            # corrupted the result ("Wrote note"->"Bought note") and
+                            # added 6-10s of latency. Web/weather/vision are NOT here
+                            # (their result is evidence the model should phrase).
+                            "OPEN_APP", "CLOSE_APP", "OPEN_URL", "OPEN_BROWSER",
+                            "OPEN_FILE_SYSTEM", "OPEN_IN_IDE", "OPEN_IDE",
+                            "OPEN_SYSTEM_SETTINGS", "OPEN_AUDIO_SETTINGS",
+                            "OPEN_POWER_SETTINGS", "OPEN_NETWORK_BROWSER",
+                            "OPEN_COMMUNICATION_HUB", "OPEN_MEDIA_HUB",
+                            "FOCUS_APP", "MINIMIZE_APP", "MINIMISE_APP",
+                            "MINIMISE_ALL", "MINIMIZE_WINDOW", "MINIMISE_WINDOW",
+                            "MAXIMISE_WINDOW", "NEXT_WINDOW", "PREVIOUS_WINDOW",
+                            "RESTORE_WINDOWS", "SWITCH_WORKSPACE", "TILE_WINDOWS",
+                            "MEDIA_CONTROL", "PLAY_MEDIA", "PAUSE_MEDIA",
+                            "STOP_MEDIA", "NEXT_MEDIA", "PREVIOUS_MEDIA",
+                            "SHUFFLE_MEDIA", "REPEAT_MEDIA", "VOLUME",
+                            "KEYBOARD", "MOUSE_CONTROL", "SCREENSHOT",
+                            "SET_CLIPBOARD", "GET_CLIPBOARD",
+                            "TIME", "DATE", "GET_TIME", "GET_DATE",
+                            "CPU_USAGE", "RAM_USAGE", "SYSTEM_STATS", "GPU_STATUS",
+                            "CREATE_FILE", "CREATE_FOLDER", "WRITE_NOTE",
+                            "NEW_NOTE", "LIST_NOTES", "SET_TIMER", "SET_ALARM",
+                            "LIST_DIR", "SPEAK",
                         }
                         try:
                             from eli.cognition.reasoning_modes import canonical_mode as _eli_direct_canon_mode
