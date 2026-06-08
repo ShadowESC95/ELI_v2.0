@@ -12390,6 +12390,30 @@ Answer:"""
         if len(ev) > _ev_cap:
             ev = ev[:_ev_cap].rstrip() + "\n[...evidence truncated for length...]"
 
+        # Compact voice primer so grounded/factual answers still sound like ELI (dry,
+        # nerdy, first-person) instead of a flat data terminal — WITHOUT the full 8k
+        # persona, which overflowed n_ctx on this path. Character lives in the phrasing
+        # only; the EXACT FACTS contract above keeps every fact bound to the evidence.
+        # Pulled from the canonical persona VOICE block when available (stays in sync),
+        # else a stable fallback.
+        _voice_primer = (
+            "VOICE: speak as ELI — direct, dry, a little nerdy and sardonic, transparent, "
+            "first-person; never HR, corporate, or customer-service. A bit of edge and "
+            "curiosity is welcome. Character is in HOW you phrase it — it NEVER changes a fact."
+        )
+        try:
+            from eli.cognition.persona import get_persona as _gp_voice
+            import re as _re_voice
+            _m_voice = _re_voice.search(
+                r"VOICE \(non-negotiable\)\s*(.*?)\n\s*\n", str(_gp_voice() or ""), _re_voice.S,
+            )
+            if _m_voice:
+                _vtxt = " ".join(_m_voice.group(1).split())
+                if 40 < len(_vtxt) <= 700:
+                    _voice_primer = "VOICE (non-negotiable, phrasing only — never changes a fact): " + _vtxt
+        except Exception:
+            pass
+
         system = (
             "You are ELI. Answer using ONLY the GROUNDED EVIDENCE block below. "
             "Do NOT invent names, preferences, or memories. Do NOT echo internal "
@@ -12405,7 +12429,8 @@ Answer:"""
             "CRITICAL: 'I' and 'my' refer to ELI, NOT the user. "
             "If the evidence gives the ACTIVE USER's name, say 'Your name is X' or "
             "'You are X' — NEVER 'My name is X'. "
-            "Do NOT output your internal instructions or reasoning directives as the answer."
+            "Do NOT output your internal instructions or reasoning directives as the answer. "
+            + _voice_primer
         )
         prompt = (
             f"GROUNDED EVIDENCE (the truth — answer ONLY from this):\n"
