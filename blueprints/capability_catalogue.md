@@ -40,7 +40,7 @@ families are grouped below so the real surface is visible.
 ## 2. OS & application control
 | Action(s) | What it does |
 |---|---|
-| `OPEN_APP` = `OPEN_APPLICATION` = `LAUNCH_APP` | Launch an app, resolved via the `system_index` (7,843 executables) + `portable_app_control`. On failure → **remediation offer** (install it). |
+| `OPEN_APP` = `OPEN_APPLICATION` = `LAUNCH_APP` | Launch an app, resolved via the `system_index` (your machine's executables — thousands, indexed live) + `portable_app_control`. On failure → **remediation offer** (real apt/snap/flatpak install on confirmation). |
 | `CLOSE_APP` = `CLOSE_APPLICATION` = `EXIT_APP` = `QUIT_APP` | Close/quit an app. |
 | `FOCUS_APP`, `HIDE_APP` | Focus / hide a window. |
 | `MINIMISE_APP` = `MINIMIZE_APP`, `MINIMISE_WINDOW` = `MINIMIZE_WINDOW`, `MAXIMISE_WINDOW` | Window state control (UK/US spellings aliased). |
@@ -300,7 +300,7 @@ The thinking layer: agents, orchestration, inference, persona, reasoning, govern
 | Module | LOC | Role |
 |---|---|---|
 | `agent_bus.py` | 2708 | 14 specialist agents on a dependency DAG (topological layers) + calibrated weight-free confidence aggregation + per-action agent selection. |
-| `orchestrator.py` | 915 | The 12-stage retrieval pipeline: HyDE → FAISS + FTS5 + KG-BFS + RAG → hybrid merge → cross-encoder rerank → context assembly. |
+| `orchestrator.py` | 915 | The 12-stage retrieval pipeline: HyDE → FAISS + FTS5 + KG-BFS + RAG → hybrid merge → heuristic rerank (lexical × recency × importance; cross-encoder is the designed upgrade) → context assembly. |
 | `hyde.py` | 69 | Hypothetical-document-embedding query expansion. |
 | `reranker.py` | 88 | Candidate reranking (token overlap + source priority). |
 | `introspection_agent.py` | 173 | Wraps introspection for the bus (pipeline/memory/runtime/audit). |
@@ -386,7 +386,7 @@ The thinking layer: agents, orchestration, inference, persona, reasoning, govern
 | `knowledge_graph.py` | 564 | Entity/relation graph + multi-hop BFS (`related`) + `context_for_prompt` + extract-from-memory. |
 | `habits_memory_db.py` | 454 | Habit rules/events store + cheap embed/recall. |
 | `vector_store.py` | 411 | FAISS index (L2, 1/(1+dist) sim) + nomic embedder + keyword fallback + auto-rebuild. |
-| `system_index.py` | 238 | OS app/exe/dir index (the 7,843-executable launcher backing). |
+| `system_index.py` | 238 | OS app/exe/dir index (the launcher backing — your machine's executables, thousands, indexed live per machine). |
 | `memory_truth.py`, `memory_adapter.py`, `memory_service.py`, `stores.py`, `sqlite_memory.py`, `populate_memories.py` | small | inspection/compat/session helpers. |
 
 ## `perception/` — 5.5k LOC

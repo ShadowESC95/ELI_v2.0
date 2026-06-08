@@ -14,10 +14,11 @@ computer. It talks, remembers, sees, listens, acts on your machine, writes and
 fixes code, builds documents, creates images, looks after itself, and adapts to
 you over time — with nothing leaving your device unless you explicitly allow it.
 
-A fully local, embodied desktop AI you actually own: an operator with **205
+A fully local, embodied desktop AI you actually own: an operator with **206
 capabilities** (166 first-class actions), a 14-agent reasoning bus, persistent
 memory, and full voice/vision/gaze control — ~133,000 lines of Python, one
-machine, your data.
+machine, your data. (Capability count is read live from the manifest each boot,
+so it grows as ELI gains actions.)
 
 ---
 
@@ -43,7 +44,9 @@ local assistants:
   confidence fusion — each agent's contribution is weighted by evidence quality ×
   payload density × a calibration value *learned from its own track record*.
 - **A 12-stage retrieval pipeline** — HyDE query expansion → vector (FAISS) +
-  keyword (FTS5) + knowledge-graph multi-hop + RAG → cross-encoder rerank.
+  keyword (FTS5) + knowledge-graph multi-hop + RAG → hybrid merge → a heuristic
+  rerank (lexical-overlap × recency × importance; a neural cross-encoder is the
+  designed upgrade point) → context assembly.
 - **5 genuinely multi-pass reasoning modes** — chain-of-thought, self-consistency
   (N samples + consensus), tree-of-thoughts (branch/prune), constitutional
   (draft→critique→revise), and quick — and it **auto-escalates** through them as a
@@ -96,8 +99,10 @@ multi-part questions answered as multiple answers; tone that adapts over time.
 Open / close / focus / hide / minimise / maximise apps and windows; tile windows;
 switch workspaces; next/previous window; open system / audio / power / file /
 communication / media / network settings hubs; open your IDE (optionally at a
-file); open URLs and the browser. App-launch is backed by an index of **7,843
-executables** — and if an app isn't installed, ELI **offers to install it for you**.
+file); open URLs and the browser. App-launch is backed by a live index of **your
+machine's executables** (thousands — indexed from your own system, so the exact
+count varies per machine) — and if an app isn't installed, ELI **offers to
+install it for you** (real `apt`/`snap`/`flatpak` install on your confirmation).
 
 ### 🎯 Gaze control (webcam)
 Eye-tracking via MediaPipe with calibration and smoothing — *"open/click that"*
@@ -273,7 +278,8 @@ separate from this capability showcase): `complete_findings.md`,
   only, no shortcomings — those live in `complete_findings.md`). Every capability
   is verified present in the code; no embellishment. Cross-checked against
   `capability_catalogue.md`.
-- **Revised (same day):** Report Builder promoted to a main tab (12 main tabs;
+- **Revised (same day):** Report Builder promoted to a main tab (12 main tabs at the
+  time — now **14** after Test & Review + Orchestration were also promoted from Labs;
   Labs now 8 sub-tabs); Files tab gained a Convert-document control (lualatex/pdf/
   doc/docx/odt/rtf/html/md/tex/epub/txt). Chat "generate a document" now runs the
   multi-stage grounded pipeline (`runtime/report_pipeline.py`: evidence → plan →
