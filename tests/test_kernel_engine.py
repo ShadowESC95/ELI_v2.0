@@ -70,12 +70,16 @@ def test_build_enhanced_system_reasoning_mode_quick(engine):
     assert "Quick" in result
 
 def test_build_enhanced_system_reasoning_mode_tree(engine):
+    # Public mode name (Research) is shown; the internal key (tree_of_thoughts) is not.
     result = engine._build_enhanced_system(reasoning_mode="tree_of_thoughts")
-    assert "Tree of Thoughts" in result
+    assert "Research" in result
+    assert "Tree of Thoughts" not in result
 
 def test_build_enhanced_system_reasoning_mode_cot(engine):
+    # Public mode name (Normal) is shown; the internal key (chain_of_thought) is not.
     result = engine._build_enhanced_system(reasoning_mode="chain_of_thought")
-    assert "Chain of Thought" in result
+    assert "Normal" in result
+    assert "Chain of Thought" not in result
 
 def test_build_enhanced_system_voice_enforcement(engine):
     result = engine._build_enhanced_system()
@@ -89,10 +93,12 @@ def test_build_enhanced_system_memory_grounding(engine):
 
 def test_build_enhanced_system_valid_modes_list(engine):
     result = engine._build_enhanced_system()
-    valid_modes = ["Quick", "Chain of Thought", "Self-Consistency",
-                   "Tree of Thoughts", "Constitutional AI"]
+    # Public mode names (Stage rename) — the old internal/display names must not appear.
+    valid_modes = ["Quick", "Normal", "Advanced", "Research", "Expert"]
     for mode in valid_modes:
         assert mode in result, f"Missing mode: {mode}"
+    for legacy in ["Chain of Thought", "Self-Consistency", "Tree of Thoughts", "Constitutional AI"]:
+        assert legacy not in result, f"Leaked legacy mode name: {legacy}"
 
 
 # ── _compact_persona ──────────────────────────────────────────────────────

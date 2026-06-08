@@ -33,7 +33,7 @@ families are grouped below so the real surface is visible.
 |---|---|
 | `CHAT` | The default — full cognitive pipeline (router→agents→orchestrator→reasoning mode→governed output). |
 | `ANSWER`, `DIRECT_RESPONSE`, `SAY` | Direct/short response surfaces (lighter than CHAT). *(inferred for some)* |
-| `SET_AI_MODE` | Set the reasoning mode (quick / chain_of_thought / self_consistency / tree_of_thoughts / constitutional_ai). |
+| `SET_AI_MODE` | Set the reasoning mode (Quick / Normal / Advanced / Research / Expert). Legacy names still accepted as input. |
 | `SEQUENCE`, `SEQUENCE_STEP` | Multi-step action chaining (run a sequence of actions). *(inferred)* |
 | `TEMPLATE`, `NOOP` | Internal scaffolding / no-op. |
 
@@ -317,7 +317,7 @@ The thinking layer: agents, orchestration, inference, persona, reasoning, govern
 | Module | LOC | Role |
 |---|---|---|
 | `reasoning_modes.py` | 593 | The 5 modes — canonicalisation, per-mode private system instruction, execution contract (samples/branches/stages + dynamic token budget), reasoning-leak stripping. |
-| `engagement_tracker.py` | 249 | JARVIS-style session depth tracking → **auto-escalates reasoning mode** (quick→CoT→self-consistency→ToT) as a conversation deepens; session narrative. |
+| `engagement_tracker.py` | 249 | JARVIS-style session depth tracking → **auto-escalates reasoning mode** (Quick→Normal→Advanced→Research) as a conversation deepens; session narrative. |
 | `working_memory.py` | 325 | Turn-scoped pinned facts (pin/absorb/evict/persist/restore). |
 
 ## Context & grounding
@@ -506,8 +506,8 @@ made adaptive + self-deepening.
 | **Expert** | constitutional_ai | draft → critique → revise | 2.5× | 4 | 0.80 |
 
 **Auto-selection** (`cognition/engagement_tracker.py`): the mode is escalated
-automatically as a conversation deepens (quick→…→tree-of-thoughts) without the
-user asking.
+automatically as a conversation deepens (Quick→Normal→Advanced→Research) without the
+user asking. (Internal strategy keys are stable; users only ever see the public names.)
 
 **Per-mode agent time budgets** (`reasoning_modes.mode_budget_multiplier`,
 Stage 1b): each mode scales every agent's timeout — quick/normal unchanged,

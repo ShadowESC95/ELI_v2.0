@@ -9965,15 +9965,13 @@ def _execute_impl(action: str, args: Optional[Dict[str, Any]] = None) -> Dict[st
     # ── SET_AI_MODE ──────────────────────────────────────────────────────────
     if a == "SET_AI_MODE":
         try:
-            mode = str(args.get("mode") or args.get("reasoning_mode") or args.get("value") or "quick").lower().strip()
-            _mode_map = {
-                "quick": "quick", "fast": "quick",
-                "chain_of_thought": "chain_of_thought", "cot": "chain_of_thought", "chain": "chain_of_thought",
-                "self_consistency": "self_consistency", "sc": "self_consistency",
-                "tree_of_thoughts": "tree_of_thoughts", "tot": "tree_of_thoughts", "tree": "tree_of_thoughts",
-                "constitutional_ai": "constitutional_ai", "cai": "constitutional_ai", "constitutional": "constitutional_ai",
-            }
-            canonical = _mode_map.get(mode, mode)
+            # Public mode names are Quick / Normal / Advanced / Research / Expert.
+            # canonical_mode() accepts those AND every legacy alias (cot/tot/…) and
+            # maps to the stable internal strategy key; mode_display() gives the public
+            # label so the user never sees the internal name.
+            from eli.cognition.reasoning_modes import canonical_mode as _cm, mode_display as _md
+            raw = str(args.get("mode") or args.get("reasoning_mode") or args.get("value") or "quick")
+            canonical = _cm(raw)
             from eli.core.runtime_settings import save_settings as _ss
             _ss({"reasoning_mode": canonical})
             try:
@@ -9981,8 +9979,9 @@ def _execute_impl(action: str, args: Optional[Dict[str, Any]] = None) -> Dict[st
                 _ge()._reasoning_mode = canonical
             except Exception:
                 pass
-            msg = f"Reasoning mode set to `{canonical}`."
-            return {"ok": True, "action": a, "content": msg, "response": msg, "mode": canonical}
+            msg = f"Reasoning mode set to {_md(canonical)}."
+            return {"ok": True, "action": a, "content": msg, "response": msg,
+                    "mode": canonical, "mode_display": _md(canonical)}
         except Exception as _sme:
             return {"ok": False, "action": a, "error": str(_sme), "content": str(_sme), "response": str(_sme)}
 

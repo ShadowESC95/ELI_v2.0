@@ -4958,12 +4958,14 @@ Answer:"""
                 "full list", "complete list", "full answer", "all of it", "full details",
                 "every detail", "nothing left out", "be thorough",
             ))
+            # Public mode names (Quick/Normal/Advanced/Research/Expert); keys are the
+            # stable internal strategy ids. The internal id is never shown to the user.
             _VALID_MODES_C = {
                 "quick":           "Quick",
-                "chain_of_thought":"Chain of Thought",
-                "self_consistency":"Self-Consistency",
-                "tree_of_thoughts":"Tree of Thoughts",
-                "constitutional_ai":"Constitutional AI",
+                "chain_of_thought":"Normal",
+                "self_consistency":"Advanced",
+                "tree_of_thoughts":"Research",
+                "constitutional_ai":"Expert",
             }
             _c_mode_key = str(reasoning_mode or "quick").lower()
             _c_mode_display = _VALID_MODES_C.get(_c_mode_key, "Quick")
@@ -5085,10 +5087,10 @@ Answer:"""
         # Always inject — including quick — so ELI knows all valid names.
         _VALID_MODES = {
             "quick":           "Quick",
-            "chain_of_thought":"Chain of Thought",
-            "self_consistency":"Self-Consistency",
-            "tree_of_thoughts":"Tree of Thoughts",
-            "constitutional_ai":"Constitutional AI",
+            "chain_of_thought":"Normal",
+            "self_consistency":"Advanced",
+            "tree_of_thoughts":"Research",
+            "constitutional_ai":"Expert",
         }
         _mode_tail = str(reasoning_mode or "quick").lower()
         _mode_tail_display = _VALID_MODES.get(_mode_tail, "Quick")
