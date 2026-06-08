@@ -172,7 +172,7 @@ DAG orchestrator + agent-bus-on-DAG; evidence planner (parallel gather); report
 pipeline; grounding gates + anti-confabulation; self-improve→coding-agent; LoRA
 pipeline (model-agnostic); scheduled/overnight tasks; autonomy tick; Test & Review +
 Orchestration tabs; vision/gaze/voice/OS-control; netguard offline-by-default; all
-**200 capabilities**; the claims suite; and **every patch in §1 (kept)**.
+**205 capabilities**; the claims suite; and **every patch in §1 (kept)**.
 
 ## 7. Risks & definition of done
 | Risk | Mitigation |

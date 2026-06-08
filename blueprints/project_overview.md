@@ -58,7 +58,7 @@ a chat wrapper.
   adapt n_ctx / gpu_layers / batch to whatever model + GPU are present
   (filename→ctx table; VRAM compute-buffer reservation). Model-agnostic.
 - **Routing** — `execution/router_enhanced.py`: regex-first with LLM-intent
-  fallback + an explicit priority pipeline → one of **201 manifest capabilities**
+  fallback + an explicit priority pipeline → one of **205 manifest capabilities**
   (~163 executor `SUPPORTED_ACTIONS`). Full reference with activation
   phrases: `capabilities_and_actions.md`.
 - **Orchestration** — `kernel/engine.py` gates between the 12-stage
@@ -212,3 +212,28 @@ can rely on."
   on "every/daily". **Multi-command chaining** (`MULTI_COMMAND`): one utterance chaining
   imperative commands runs each in order (router+executor level → voice + typed). See
   `runtime_planning_world.md`, `dag_orchestrator.md`, `state_snapshot.md`.
+
+## Update Advisory — 2026-06-08 (reliability + voice/wake/tone + cognition correctness)
+- **Scale now:** 132,969 LOC / **351** files / **205** capabilities (166 SUPPORTED_ACTIONS)
+  / 151 test files. New actions: `WAKE_TRAIN` / `WAKE_ENROLL` / `WAKE_SET` / `TRAIN_VOICE`.
+  New subsystems: `perception/wakeword.py`, `perception/voice_profile.py`; rewritten
+  `cognition/llm_intent.py`.
+- **Reliability fixes (all tested):** MULTI_COMMAND `UnboundLocalError` (a shadowed
+  `execute` local); FIX_FILE backup crash (shadowed `datetime`); LoRA `build_job` now
+  **builds** the dataset (615 rows, was the recurring ×30 "does not exist") and treats
+  "no curated data yet" as benign; the **vision VRAM cliff** (reload restores the last
+  known-good full-GPU config instead of collapsing to `gpu_layers=16`).
+- **Intelligence over hardcodes:** the model-grounded intent resolver now actually runs on
+  unmatched phrasings (the engine gate was dead), pulling factual near-misses into
+  grounded actions — date→DATE, "set the volume to 40%"→VOLUME — with no phrasing regexes.
+- **Correctness:** mode-gated determinism fixed (command actions verbatim in quick,
+  synthesised in non-quick — was corrupting "Wrote"→"Bought"); the "LLM bypass" claim
+  corrected to "partial + mode-gated" (see `grounding_and_evidence.md`).
+- **Voice/wake/tone:** a **self-trained, music-robust wake word** (Piper-synth +
+  augmentation + openWakeWord features + a custom head), **user-settable phrase**, and a
+  **voice-profile/tone** subsystem (pitch/energy/rate, question-vs-statement, labelled
+  emotion) **wired into cognition** (the engine adapts its delivery to the user's vocal
+  tone). Duration-adaptive STT pause (0.5s / 2s-after-12s). See `perception.md`.
+- **Standing debt (unchanged):** god-files; ~798 silent `except: pass`; routing/verbatim
+  logic duplicated across router/engine/GUI (the source of by-path inconsistencies);
+  the model ceiling. See `decomposition_plan.md`.

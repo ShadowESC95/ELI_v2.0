@@ -13,6 +13,25 @@ all, and (3) when the LLM does generate, validates the output against the
 evidence and rejects/repairs contradictions. The LLM becomes a phraser, not a
 source.
 
+> **Correction (2026-06-08): the "bypass" is PARTIAL and MODE-GATED — not a blanket
+> bypass.** Earlier wording here and in `what_eli_is.md` ("bypasses the language model
+> entirely", "without the LLM at all") overstated it. The running reality, verified
+> against the engine: the deterministic verbatim return fires for a **subset** of
+> actions and is **mode-gated** —
+> - a small **`_verbatim_always_actions`** set (deep introspection like
+>   `EXPLAIN_MEMORY_RUNTIME`) returns verbatim in **every** reasoning mode;
+> - **`_deterministic_direct_payload_actions`** (status/reports + router-fast/command
+>   actions: DATE/TIME, VOLUME, WRITE_NOTE, window/media/file ops, NEWS/MORNING_REPORT,
+>   self-report …) return **verbatim in *quick* mode** and **synthesise in non-quick**
+>   modes (`engine._bypass_persona` + `_is_grounded_control_nonquick`);
+> - everything else is the model's to phrase.
+>
+> So the model IS in the loop for most conversational turns; the "phraser, not a source"
+> principle holds where the deterministic path actually fires, not universally. A
+> 2026-06-08 fix corrected the membership: the command actions were in the wrong set, so
+> quick mode re-synthesised them, corrupting results ("Wrote note"→"Bought note") and
+> adding latency. They are now verbatim in quick mode, synthesised in others.
+
 ## Components
 
 ### `runtime/deterministic_grounding_gate.py` (4.3k LOC)
@@ -151,3 +170,19 @@ recoverable instead of dead ends.
   ("audit your identity", "what are you aware of") now have the IntrospectionBusAgent
   RUN the grounded action (ELI_IDENTITY_AUDIT / AWARENESS_STATUS) and return it as
   EVIDENCE — the persona summarises it, never a verbatim data dump, never from weights.
+
+---
+
+## Update Advisory — 2026-06-08
+- **Bypass claim corrected** (see the box under "The core idea"): the deterministic
+  verbatim return is **mode-gated and partial** (verbatim-always set; quick-mode-only
+  for the payload/command set; synthesis in deeper modes), not a blanket "no LLM". A
+  set-membership fix put the command actions (WRITE_NOTE/VOLUME/window/media/file) into
+  the quick-verbatim set — they were being re-synthesised in quick mode, which corrupted
+  results ("Wrote"→"Bought") and added latency.
+- **Anti-confabulation via routing** — the new model-grounded intent resolver
+  (`cognition/llm_intent.py`, wired in `engine._parse_intent`) pulls near-miss factual
+  phrasings INTO the grounded path instead of a blind CHAT: e.g. "what day is it" now
+  resolves to the deterministic `DATE` action rather than falling to a chat/web turn that
+  hallucinated the date. It resolves against ELI's real `SUPPORTED_ACTIONS` catalogue and
+  defaults to CHAT — intelligence, not phrasing regexes.

@@ -60,7 +60,7 @@ from deep reads of the core + a full structural/code-health sweep — a deep rea
   + self-upgrade route through the coding agent) and the in-process background task
   manager (heavy work runs on threads; `CHECK_JOB`/`BACKGROUND_JOBS`).
 - **[state_snapshot.md](state_snapshot.md)** — **authoritative current-state snapshot**
-  (measured): scale, capabilities (201), tests, GPU, and every recent change. Start here
+  (measured): scale, capabilities (205), tests, GPU, and every recent change. Start here
   for "what is true right now".
 - **[dag_orchestrator.md](dag_orchestrator.md)** — the DAG elevated to a full execution
   orchestrator (parallel/retries/fallback/cache/telemetry), wired through agents +
@@ -122,3 +122,23 @@ from deep reads of the core + a full structural/code-health sweep — a deep rea
   identity/awareness; grounded vision for "what's on screen"; habit 00:00 fix;
   EXAMINE_CODE/GUI_RUNTIME_AUDIT route disambiguation; new reference
   `capabilities_and_actions.md` (auto-generated, in sync with the manifest).
+
+## Update Advisory — 2026-06-08
+- **Stats:** 132,969 LOC / **351** files / **205** capabilities (166 SUPPORTED_ACTIONS) /
+  151 test files. New actions: `WAKE_TRAIN`/`WAKE_ENROLL`/`WAKE_SET`/`TRAIN_VOICE`.
+- **Reliability:** MULTI_COMMAND + FIX_FILE crash fixes; LoRA `build_job` builds the
+  dataset (no more ×30 error); vision **VRAM cliff** fixed (reload restores full-GPU).
+- **Routing by intelligence, not hardcodes:** the model-grounded intent resolver
+  (`cognition/llm_intent.py`) now actually runs on unmatched phrasings (the engine gate
+  was dead), pulling factual near-misses into grounded actions (date→DATE). See
+  `grounding_and_evidence.md`, `runtime_planning_world.md`.
+- **Bypass claim corrected:** the deterministic verbatim return is **mode-gated/partial**,
+  not a blanket "no LLM" — see the correction box in `grounding_and_evidence.md` and
+  `what_eli_is.md`.
+- **Voice (new subsystems, see `perception.md`):** self-trained **wake word robust over
+  music** (`perception/wakeword.py`) with a user-settable phrase; **voice-profile/tone**
+  (`perception/voice_profile.py`) — pitch/energy/rate, question-vs-statement, and a
+  labelled-emotion classifier; the per-turn tone is **wired into cognition** (the engine
+  adapts its delivery). Duration-adaptive STT pause (0.5s commands / 2s after 12s).
+- **Media/installer:** honest "install mpv+yt-dlp" on the play fallback; `install.sh`
+  now bundles the runtime/OS-control tools.

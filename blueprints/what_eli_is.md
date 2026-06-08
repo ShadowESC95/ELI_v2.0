@@ -17,7 +17,7 @@ your own evidence, and — uniquely — **improves its own source code and can e
 re-train its own brain on your conversations.** Unlike Siri, Alexa, or
 ChatGPT, nothing you say to ELI has to leave your house: it is **offline by
 default, enforced at the network socket itself**, with a switch *you* control.
-It is not a chatbot bolted onto a cloud API. It is ~128,800 lines of Python that
+It is not a chatbot bolted onto a cloud API. It is ~133,000 lines of Python that
 form a complete **cognitive operating system for one person and one machine.**
 
 ---
@@ -45,10 +45,14 @@ inverts every one of those assumptions, and that inversion is the whole point.
 3. **It is honest about itself — because it measures itself.** Ask most AIs "how
    does your memory work?" and they *invent* a plausible answer. Ask ELI and it
    reads its own live runtime — actual database row counts, the actual loaded
-   model, the actual pipeline — and reports the truth, **bypassing the language
-   model entirely** for self-reporting. This deterministic-grounding layer is
-   rare even among serious projects and is the reason ELI can be trusted to
-   describe what it's doing.
+   model, the actual pipeline — and reports the truth from **deterministic
+   evidence** rather than inventing it. (Precisely: for self-report/status and
+   router-fast actions the executor's measured result is returned **verbatim in
+   quick mode** and the model only *phrases* it in deeper reasoning modes — it is
+   a mode-gated, partial bypass, not a blanket one; see
+   `grounding_and_evidence.md`.) This deterministic-grounding layer is rare even
+   among serious projects and is the reason ELI can be trusted to describe what
+   it's doing.
 
 4. **It improves itself.** This is the part almost nothing else does locally:
    ELI logs its own failures, and can **write, syntax-check, import-test, apply,
@@ -125,11 +129,13 @@ and gets out of your way.**
 
 ## For the tech head: the architecture, accurately
 
-~128,800 lines of Python across 343 files. A real cognitive runtime — not an API
+~133,000 lines of Python across 351 files. A real cognitive runtime — not an API
 wrapper:
 
-- **Request pipeline.** A deterministic **router** (155 executor actions, 194
-  declared capabilities) → a **14-agent bus** that runs on a *dependency DAG*
+- **Request pipeline.** A deterministic **router** (166 executor actions, 205
+  declared capabilities) backed by a **model-grounded intent resolver** that
+  resolves anything the rules miss against that same catalogue (so near-miss
+  phrasings reach real actions instead of a blind chat) → a **14-agent bus** that runs on a *dependency DAG*
   (topological layers, parallel where independent) with a **calibrated,
   weight-free confidence aggregator** (each agent's contribution = evidence
   quality × payload density × a *learned* per-agent calibration) → a **12-stage
