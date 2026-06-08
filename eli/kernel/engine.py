@@ -313,6 +313,24 @@ def _load_persona_text() -> str:
     files are missing. The old lookup paths caused ELI to ignore its real
     persona and drift into base-model AI-disclaimer behaviour.
     """
+    # Single source of truth: delegate the base+overlay read to the canonical
+    # eli.cognition.persona module (one `_clean_persona`, env-override aware). Compose
+    # exactly as before (base + "\n\n" + overlay) so the persona text is unchanged.
+    # The legacy candidate/config chain below stays only as a fallback for non-default
+    # layouts or when the canonical files are absent.
+    try:
+        from eli.cognition.persona import read_base_persona as _canon_base, read_auto_persona as _canon_auto
+        _cb = (_canon_base() or "").strip()
+        _ca = (_canon_auto() or "").strip()
+        if _cb and _ca:
+            return _cb + "\n\n" + _ca
+        if _cb:
+            return _cb
+        if _ca:
+            return _ca
+    except Exception:
+        pass
+
     root = Path(__file__).resolve().parents[2]
 
     # Base identity candidates — stop at first found
