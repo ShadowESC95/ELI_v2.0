@@ -60,6 +60,36 @@ attempt_cuda_toolkit() {
     return 1
 }
 
+attempt_runtime_tools() {
+    # Desktop-control + media-playback tools ELI uses at runtime. Best-effort: uses
+    # the system package manager when sudo is available, else prints the command.
+    # yt-dlp goes in the venv (cross-distro) so "play X" can actually play audio
+    # (mpv finds the venv's yt-dlp on PATH at runtime). Also installs the clipboard
+    # backends (xclip / wl-clipboard) so GET_CLIPBOARD has a working fallback.
+    echo "[..] Installing runtime tools (media playback + desktop control)..."
+    "$PIP" install --quiet yt-dlp 2>/dev/null && echo "[OK] yt-dlp (venv)" \
+        || echo "     pip install yt-dlp   (direct media playback)"
+    local PKGS="mpv playerctl wmctrl xdotool ffmpeg xclip wl-clipboard"
+    if [ "$OS" = "Darwin" ]; then
+        if command -v brew &>/dev/null; then brew install mpv playerctl 2>/dev/null || true
+        else echo "     brew install mpv playerctl   (media playback)"; fi
+        return 0
+    fi
+    if command -v apt-get &>/dev/null; then
+        if sudo -n true 2>/dev/null; then sudo apt-get install -y $PKGS 2>/dev/null && echo "[OK] runtime tools (apt)"
+        else echo "     Run: sudo apt-get install -y $PKGS"; fi
+    elif command -v dnf &>/dev/null; then
+        if sudo -n true 2>/dev/null; then sudo dnf install -y $PKGS 2>/dev/null && echo "[OK] runtime tools (dnf)"
+        else echo "     Run: sudo dnf install -y $PKGS"; fi
+    elif command -v pacman &>/dev/null; then
+        if sudo -n true 2>/dev/null; then sudo pacman -S --noconfirm $PKGS 2>/dev/null && echo "[OK] runtime tools (pacman)"
+        else echo "     Run: sudo pacman -S $PKGS"; fi
+    else
+        echo "     Install (for media + desktop control): $PKGS"
+    fi
+    return 0
+}
+
 echo "=============================="
 echo "  ELI MKXI Installer"
 echo "=============================="
@@ -183,6 +213,9 @@ fi
 
 # Models dir exists so first-boot can drop/download a model into it.
 mkdir -p "$SCRIPT_DIR/models"
+
+# ── Runtime tools (media playback + desktop control) ─────────────────────────
+attempt_runtime_tools || true
 
 # ── Initialise data directories + databases (idempotent) ─────────────────────
 # Create artifacts dirs and the SQLite stores so first launch is instant and the
