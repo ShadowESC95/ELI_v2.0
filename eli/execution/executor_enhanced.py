@@ -5998,8 +5998,8 @@ def _execute_impl(action: str, args: Optional[Dict[str, Any]] = None) -> Dict[st
         try:
             from eli.learning.lora_pipeline import run_pipeline
             target = str(args.get("target") or "eli_phi")
-            execute = bool(args.get("execute", False))
-            res = run_pipeline(target, execute=execute,
+            do_execute = bool(args.get("execute", False))
+            res = run_pipeline(target, execute=do_execute,
                                max_steps=int(args.get("max_steps", 1) or 1))
             detail = "\n".join(
                 f"- {s['stage']}: {'ok' if s['ok'] else 'FAILED'} — {s.get('detail')}"
