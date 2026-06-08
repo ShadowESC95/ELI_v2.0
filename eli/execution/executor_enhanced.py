@@ -2027,6 +2027,8 @@ SUPPORTED_ACTIONS = [
     'TRANSCRIBE',
     'WAKE_TRAIN',
     'WAKE_ENROLL',
+    'WAKE_SET',
+    'TRAIN_VOICE',
     'USER_IDENTITY_SUMMARY',
     'VOLUME',
     'WEB_SEARCH',
@@ -6059,6 +6061,63 @@ def _execute_impl(action: str, args: Optional[Dict[str, Any]] = None) -> Dict[st
                     "evidence_source": "wakeword_enroll", "result": res}
         except Exception as e:
             msg = f"WAKE_ENROLL failed: {e}"
+            return {"ok": False, "action": a, "error": str(e), "content": msg, "response": msg}
+
+    # ---- WAKE_SET — let the user choose their OWN wake word, then train it ----
+    # "change the wake word to athena" / "set my wake word to jarvis". Persists the
+    # phrase (used by both the acoustic model and the transcription matcher) and
+    # trains the detector on it in the background (Piper can synthesise any phrase).
+    if a == "WAKE_SET":
+        try:
+            import re as _re_ws
+            phrase = str((args or {}).get("phrase") or (args or {}).get("word")
+                         or (args or {}).get("wake_word") or "").strip().strip('."\'')
+            if not phrase:
+                _raw = str((args or {}).get("_raw_user_text") or (args or {}).get("raw")
+                           or (args or {}).get("message") or "")
+                m = _re_ws.search(r"(?:wake[\s-]*word|wakeword)\s+(?:to|is|as|=)\s+(.+)$", _raw, _re_ws.I)
+                if m:
+                    phrase = m.group(1).strip().strip('."\'')
+            if not phrase:
+                msg = ("What would you like your wake word to be? Say: "
+                       "\"change the wake word to <your phrase>\".")
+                return {"ok": False, "action": a, "content": msg, "response": msg}
+            from eli.perception import wakeword as _ww
+            phrases = _ww.set_wake_phrases([phrase])
+            try:
+                from eli.perception import audio_stt as _ast
+                _ast._merge_custom_wake_words()
+            except Exception:
+                pass
+            import threading as _th_ws
+            _th_ws.Thread(target=lambda: _ww.train_model(phrases=phrases),
+                          daemon=True, name="eli-wake-set-train").start()
+            msg = (f"Wake word set to \"{phrase}\". I'm training the detector on it now "
+                   f"(about a minute) — it'll work the moment that finishes. Say "
+                   f"\"enroll my wake word\" afterwards to tune it to your voice over music.")
+            return {"ok": True, "action": a, "content": msg, "response": msg,
+                    "evidence_source": "wakeword_set", "result": {"phrases": phrases}}
+        except Exception as e:
+            msg = f"WAKE_SET failed: {e}"
+            return {"ok": False, "action": a, "error": str(e), "content": msg, "response": msg}
+
+    # ---- TRAIN_VOICE — learn the user's voice baseline (prosody/tone foundation) ----
+    # SEPARATE from the wake word: this captures natural speech to build a voice
+    # profile (pitch/energy/rate) that later powers tone detection (happy/angry/
+    # excited) and question-vs-statement. See eli/perception/voice_profile.py.
+    if a == "TRAIN_VOICE":
+        try:
+            from eli.perception.audio_stt import begin_voice_training
+            n = int((args or {}).get("samples") or (args or {}).get("count") or 8)
+            res = begin_voice_training(n)
+            if not res.get("ok"):
+                msg = f"Voice training can't start: {res.get('error')}"
+                return {"ok": False, "action": a, "content": msg, "response": msg}
+            msg = res.get("message") or "Listening for your voice samples."
+            return {"ok": True, "action": a, "content": msg, "response": msg,
+                    "evidence_source": "voice_training", "result": res}
+        except Exception as e:
+            msg = f"TRAIN_VOICE failed: {e}"
             return {"ok": False, "action": a, "error": str(e), "content": msg, "response": msg}
 
     # ---- ORCHESTRATION_STATUS — explain the agent DAG + last orchestrated run ----
