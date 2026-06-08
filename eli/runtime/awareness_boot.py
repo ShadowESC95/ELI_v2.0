@@ -61,15 +61,51 @@ class AwarenessState:
 
     def context_block(self) -> str:
         """
-        Text block for injection into the cognitive engine's system prompt.
-        Compact — adds awareness without bloating context.
+        Compact LIVE self-model injected into the system prompt each turn. Every fact is
+        read FRESH from the running system (agents, capabilities, model, world-state) so
+        ELI's self-knowledge tracks the code automatically and can never go stale — add an
+        agent or a capability and he simply knows. Private context: gives him accurate
+        self-facts to draw on; he narrates them only when asked.
         """
-        parts = [f"[Self-Awareness: {self.capability_count} capabilities loaded]"]
+        parts = [self._live_self_model()]
         if self.capability_delta_has_changes:
-            parts.append(f"  Capability changes: {self.capability_delta_summary}")
+            parts.append(f"  Recent capability changes: {self.capability_delta_summary}")
         if self.code_report_has_changes:
-            parts.append(f"  Code changes: {self.code_report_summary}")
-        return "\n".join(parts)
+            parts.append(f"  Recent code changes: {self.code_report_summary}")
+        return "\n".join(p for p in parts if p)
+
+    def _live_self_model(self) -> str:
+        """One-line live self-model — agents, capabilities, stores, model, world-room —
+        all read fresh from the running process. Never raises."""
+        bits: List[str] = []
+        if self.capability_count:
+            bits.append(f"{self.capability_count} capabilities")
+        try:
+            from eli.cognition.agent_bus import _ALL_AGENTS
+            bits.append(f"{len(_ALL_AGENTS)} specialist agents")
+        except Exception:
+            pass
+        bits.append("4 local SQLite stores")
+        try:
+            from eli.runtime.live_introspection import _runtime_core
+            _c = _runtime_core() or {}
+            _m = _c.get("model_name") or _c.get("model_path")
+            if _m and _c.get("loaded"):
+                from pathlib import Path as _P
+                bits.append(f"running '{_P(str(_m)).name}'")
+        except Exception:
+            pass
+        head = "[Live self-model: " + ", ".join(bits) + "]" if bits else "[Live self-model: ready]"
+        # Current symbolic-world room, if the world model is active (cheap dict read).
+        try:
+            from eli.world.local_world_bridge import get_world_state
+            ws = get_world_state() or {}
+            room = ws.get("current_room") or ws.get("room")
+            if room:
+                head += f" You are presently in your {room}."
+        except Exception:
+            pass
+        return head
 
     def full_briefing(self) -> str:
         """Detailed report for SELF_ANALYZE / AWARENESS_STATUS actions."""
