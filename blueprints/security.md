@@ -146,3 +146,15 @@ matching safeguards:
   pre-existing `ELI_FULL_CONTROL` env reads were all converted to the setting. Each gate
   checks at its own point — no hidden global state — so toggling OFF restores everything at
   once. GUI: a red "Full Control" toggle by the Net toggle, behind a confirmation dialog.
+
+## Update — 2026-06-09 (RUN_CMD terminal is real; mock leak fenced)
+- **RUN_CMD uses a real `subprocess.run`** (`executor_enhanced.py:5350` — no shell,
+  capture_output, timeout) behind the destructive-command security gate (`_BLOCKED_PATTERNS`:
+  `rm -rf /`, `mkfs`, `dd of=/dev/`, `chmod 777 /`, fork bomb, shutdown/reboot). The gate is
+  lifted only when **Full Control** is on. There is **no production mock path**.
+- **The `<MagicMock …>` failure rows were test leakage, not runtime.** They came from
+  `tests/test_shell_security_gate.py` patching `subprocess.run`; the executor's
+  `(p.stdout or "") + (p.stderr or "")` concat then yields a MagicMock repr, which slipped into
+  the live `agent.sqlite3` via a test-isolation gap. A guard in
+  `SelfImprovementEngine.log_failure` now **drops any error/input carrying a Mock/MagicMock
+  repr** at the write source, so a test isolation slip can no longer pollute real failures.

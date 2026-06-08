@@ -207,3 +207,14 @@ confidence math and timeout enforcement are already good and don't need work.
   `safe_scheduler_tick`): code-monitor + self-model overlay refresh + goal/scheduler
   → proposals (observe-only / memory-write; user-approval-gated). Previously only the
   Operator Console button fired it. Kill switch `ELI_AUTONOMY_TICK=0`.
+
+## Update — 2026-06-09
+- **HabitAgent ↔ proactive disconnect fixed.** The bus `HabitAgent` used to read only
+  `get_habit_rules()` (the usually-empty `habit_rules` table), so the chat path was blind to
+  the behaviour the proactive daemon detects into the `habits` table. It now also reads
+  `get_detected_habits()` and emits a `summary` + `detected_habits`; `AgentResult.has_evidence`
+  recognises the new keys (it was judging the agent "no evidence" → dropped), and
+  `DispatchResult.to_context_block` renders the habit summary into the chat context. Habit data
+  is now consistent across the chat agent, `HABIT_STATUS`, and the persona overlay.
+- **Goal autogenesis** (`planning/goal_autogenesis.py`) feeds the autonomy/goal-tick stack from
+  ELI's own signals — see `runtime_planning_world.md`.
