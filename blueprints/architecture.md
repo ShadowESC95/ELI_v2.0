@@ -6,7 +6,7 @@ is observed-at-runtime rather than read-from-code it is marked *(runtime)*.
 
 > ELI is a **100% local, offline-by-default, model-agnostic** cognitive runtime
 > + assistant GUI. No cloud, no APIs on the inference path, no hardcoded model.
-> ~133.4k LOC across 352 Python files; 206 capabilities (2026-06-08).
+> ~134k LOC across 353 Python files; 206 capabilities (2026-06-09).
 
 ---
 
