@@ -66,6 +66,7 @@ def run_pipeline(
         stages.append(_stage("build_job", job_ok, {
             "will_train": job.get("will_train"),
             "problems": job.get("problems", []),
+            "not_ready": job.get("data_not_ready", []),
             "dataset_rows": (job.get("dataset") or {}).get("rows"),
             "base_model_path": job.get("base_model_path"),
             "output_dir": job.get("output_dir"),
