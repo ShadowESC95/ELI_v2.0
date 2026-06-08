@@ -129,9 +129,10 @@ a chat wrapper.
    `verify_eli_claims*.sh` versions, diag outputs, `.coverage`, and
    `experimental/*.zip` binaries. Makes the repo look less serious than the code
    is.
-5. **Tests are now GREEN (2026-06-07).** ~110 test files; `pytest tests/` =
-   **2356 passed / 45 skipped / 1 xfailed, 0 failed**. (Earlier this was ~24
-   pre-existing failures — all fixed; the suite is a real safety net again.)
+5. **Tests are GREEN (measured 2026-06-08).** 151 test files; `pytest tests/` =
+   **6,586 passed / 42 skipped / 2 xfailed / 0 failed** (6,630 collected, ~6m47s on
+   the `.venv`/GPU). (Earlier baselines: 2,356 then 6,371 passing — the suite has
+   grown ~3× with the `tests/claims/` contract layer and is a real safety net.)
 6. **13 monkeypatch/`globals()` hacks** — mostly load-bearing (e.g. the CPU-clip
    vision fix), but they're fragile seams worth tracking.
 

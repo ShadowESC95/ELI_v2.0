@@ -277,7 +277,8 @@ Verified, committed fixes since the findings record above:
 
 ## Update Advisory — 2026-06-08
 - **Counts now:** **132,969 LOC / 351 files / 205 capabilities (166 SUPPORTED_ACTIONS) /
-  151 test files.** New actions: `WAKE_TRAIN` / `WAKE_ENROLL` / `WAKE_SET` / `TRAIN_VOICE`.
+  151 test files / 14 main GUI tabs.** Suite: **6,586 passed / 0 failed / 2 xfailed / 42
+  skipped** (6,630 collected). New actions: `WAKE_TRAIN`/`WAKE_ENROLL`/`WAKE_SET`/`TRAIN_VOICE`.
 - **Verified facts changed this session** (all tested; see `state_snapshot.md` for the
   full list):
   - Routing now uses a **model-grounded intent resolver** for unmatched phrasings (the
