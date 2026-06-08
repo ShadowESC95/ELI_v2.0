@@ -50,6 +50,24 @@ def test_autogenesis_is_idempotent(monkeypatch, tmp_path):
     assert len(gs.load_goals()) == 1
 
 
+def test_autogenesis_generates_self_improvement_goals(monkeypatch, tmp_path):
+    # Generative (not just failure-reactive): code-health signals about ELI's own
+    # code become self-betterment goals, thresholded so noise (small fns, TODOs) is out.
+    ga, gs = _fresh(monkeypatch, tmp_path)
+    improvements = [
+        {"file": "engine.py", "type": "long_function", "function": "process",
+         "lines": 450, "suggestion": "split it"},
+        {"file": "executor.py", "type": "duplicate_code", "count": 12, "suggestion": "dedup"},
+        {"file": "r.py", "type": "long_function", "function": "tiny", "lines": 80},  # < 150 → out
+        {"file": "x.py", "type": "todos", "count": 9},                               # noise → out
+    ]
+    created = ga.propose_goals_from_signals(improvements=improvements)
+    assert len(created) == 2
+    goals = gs.load_goals()
+    assert all("self_improve" in g.tags for g in goals)
+    assert all(g.autonomy_mode == "proposal_only" for g in goals)
+
+
 def test_autogenesis_respects_cap(monkeypatch, tmp_path):
     ga, gs = _fresh(monkeypatch, tmp_path)
     # Many distinct high-priority signals, but the cap bounds active auto goals.
