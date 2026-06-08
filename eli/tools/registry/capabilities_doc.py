@@ -202,6 +202,11 @@ _add("Self-maintenance", "LORA_STATUS", "Report LoRA fine-tune readiness (prefli
 _add("Self-maintenance", "LORA_TRAIN", "Run the LoRA training pipeline DAG (preflight→build→train→eval); dry-run from chat, real training via the overnight task", "“train a lora”", "“fine-tune yourself”")
 _add("Self-maintenance", "ORCHESTRATION_STATUS", "Explain the agent DAG orchestrator: execution layers, dependencies, critical path, and last run", "“orchestration status”", "“show your agent dag”")
 _add("Self-maintenance", "TEST_REVIEW", "Run the suite, back up the report + write an errors file, summarise results, and offer result-driven fix options", "“test review”", "“run the tests and tell me what to fix”")
+_add("Voice", "WAKE_SET", "Set your own wake word (any phrase); ELI persists it and trains the detector on it", "“change the wake word to athena”", "“set my wake word to jarvis”")
+_add("Voice", "WAKE_TRAIN", "Train the local, self-supervised wake-word model (Piper-synth + noise/music augmentation; robust over background music)", "“train the wake word”")
+_add("Voice", "WAKE_ENROLL", "Record your voice saying the wake word and retrain (personalisation, over music)", "“enroll my wake word”")
+_add("Voice", "TRAIN_VOICE", "Learn your voice + tone — pitch/energy/rate, happy/angry/excited, and question-vs-statement; ELI then adapts its delivery to how you sound", "“train my voice”", "“learn how I speak”")
+_add("Conversation & persona", "MULTI_COMMAND", "Run several chained commands from one utterance, in order", "“close steam and set an alarm for 7am”", "“open spotify then play X”")
 
 # ── Tasks, time & planning ──────────────────────────────────────────────────
 _add("Tasks, time & planning", "SCHEDULE_TASK", "Schedule overnight/timed work (code/research/etc.)", "“research X overnight”", "“build Y at 2am”")

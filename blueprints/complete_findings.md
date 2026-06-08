@@ -234,7 +234,7 @@ stubs); custom agents (AST-validated → hash-trusted → live-registered);
 
 ## F. The accurate one-line summary
 
-ELI is a **~128,800-line, 343-file, 100%-local, model-agnostic personal cognitive
+ELI is a **~133,000-line, 351-file, 100%-local, model-agnostic personal cognitive
 runtime**: a 14-agent calibrated bus on a 12-stage retrieval pipeline with 5 real
 multi-pass reasoning modes; a four-store adaptive memory; a deterministic
 self-honesty layer; a frontier-grade self-verifying coding agent; safe
@@ -272,3 +272,25 @@ Verified, committed fixes since the findings record above:
 - **Habit fix:** legacy NULL-time rows purged; the proactive offer no longer surfaces 00:00.
 - Counts refreshed: ~128.8k LOC / 343 files (`eli/`); 194 manifest capabilities
   (155 SUPPORTED_ACTIONS, 164 routable, 13 plugin-backed); 14 bus agents + CodeAgent.
+
+---
+
+## Update Advisory — 2026-06-08
+- **Counts now:** **132,969 LOC / 351 files / 205 capabilities (166 SUPPORTED_ACTIONS) /
+  151 test files.** New actions: `WAKE_TRAIN` / `WAKE_ENROLL` / `WAKE_SET` / `TRAIN_VOICE`.
+- **Verified facts changed this session** (all tested; see `state_snapshot.md` for the
+  full list):
+  - Routing now uses a **model-grounded intent resolver** for unmatched phrasings (the
+    engine's `>0.5` gate had made the existing fallback dead code) — factual near-misses
+    reach grounded actions (date→DATE) instead of a hallucinating chat.
+  - The "deterministic LLM bypass" is **partial + mode-gated**, corrected here and in
+    `grounding_and_evidence.md` (it read as a blanket bypass; it is not).
+  - Crash fixes: MULTI_COMMAND (`execute` shadow), FIX_FILE (`datetime` shadow).
+  - LoRA `build_job` now **builds** the dataset (615 rows) and treats "no curated data"
+    as benign; the vision **VRAM cliff** is fixed (reload restores full-GPU config).
+  - New local, no-account **wake word robust over music** + a **voice-profile/tone**
+    subsystem (pitch/energy/rate, question-vs-statement, labelled emotion) **wired into
+    cognition** so ELI adapts to the user's vocal tone. STT pause is duration-adaptive.
+- **Honest limits / debt unchanged:** god-files; ~798 silent `except: pass`; the
+  routing+verbatim logic duplicated across router/engine/GUI (by-path inconsistencies);
+  the local-model ceiling.

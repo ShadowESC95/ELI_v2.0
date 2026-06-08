@@ -23,6 +23,7 @@ evidence-planner first (real code/web/memory analysis) before synthesising.
 | `PERSONA_LOCK_STATUS` | Show the current persona lock | “what persona are you locked to” | Core |
 | `HELP` | List what ELI can do | “help” · “what commands do you have” | Core |
 | `LIST_CAPABILITIES` | Enumerate ELI's capabilities | “what can you do” · “list your capabilities” | Core |
+| `MULTI_COMMAND` | Run several chained commands from one utterance, in order | “close steam and set an alarm for 7am” · “open spotify then play X” | Core |
 
 ## App & window control
 
@@ -107,6 +108,10 @@ evidence-planner first (real code/web/memory analysis) before synthesising.
 | `SPEAK` | Speak text aloud (TTS) | “say good morning” | Plugin |
 | `LISTEN_FOR_COMMAND` | Start listening for a voice command | “listen” / the wake word “computer” | Core |
 | `VOICE_DIAGNOSTICS` | Run voice/STT diagnostics | “run voice diagnostics” · “stt diagnostics” | Core |
+| `WAKE_SET` | Set your own wake word (any phrase); ELI persists it and trains the detector on it | “change the wake word to athena” · “set my wake word to jarvis” | Core |
+| `WAKE_TRAIN` | Train the local, self-supervised wake-word model (Piper-synth + noise/music augmentation; robust over background music) | “train the wake word” | Core |
+| `WAKE_ENROLL` | Record your voice saying the wake word and retrain (personalisation, over music) | “enroll my wake word” | Core |
+| `TRAIN_VOICE` | Learn your voice + tone — pitch/energy/rate, happy/angry/excited, and question-vs-statement; ELI then adapts its delivery to how you sound | “train my voice” · “learn how I speak” | Core |
 
 ## Files & notes
 
@@ -266,16 +271,6 @@ evidence-planner first (real code/web/memory analysis) before synthesising.
 | `ROUTING_FAULT_EXPLAIN` | Explain why an input failed to route | “why did that fail to route” | Core |
 | `NOOP` | Internal no-op (ignored fragment guard) | (internal — fragmentary input is dropped) | Core |
 
-## New / undocumented (add a phrase above)
-
-| Action | What it does | Example activation phrase(s) | Source |
-|---|---|---|---|
-| `MULTI_COMMAND` | — | (needs activation phrase) | Core |
-| `TRAIN_VOICE` | — | (needs activation phrase) | Core |
-| `WAKE_ENROLL` | — | (needs activation phrase) | Core |
-| `WAKE_SET` | — | (needs activation phrase) | Core |
-| `WAKE_TRAIN` | — | (needs activation phrase) | Core |
-
 ## Aliases & internal actions (not directly user-triggered)
 
 Synonyms normalised to a routable action, post-actions, or internal pipeline steps:
@@ -285,5 +280,4 @@ Synonyms normalised to a routable action, post-actions, or internal pipeline ste
 
 ## Coverage
 
-- Routable actions documented: **170/175**
-- ⚠️ New/undocumented (need a curated phrase): MULTI_COMMAND, TRAIN_VOICE, WAKE_ENROLL, WAKE_SET, WAKE_TRAIN
+- Routable actions documented: **175/175**
