@@ -105,6 +105,21 @@ the venv ELI uses. No rebuild needed.)
   existing functions/agents, don't rebuild*. Many other actions can adopt the same
   delegation (candidates: SELF_IMPROVE→coding agent, GENERATE_PROJECT→planner DAG).
 
+## Addendum (2026-06-08, routing/scheduling/multi-command)
+- **Scale now:** ~131k LOC / **349** `.py` files; **201** manifest capabilities;
+  **~6,508** tests passing (6,552 collected).
+- **Compound "schedule + action" fixed:** "get/set a morning report for 7:15 tomorrow"
+  now SCHEDULES (was running now). Generalised: **any imperative command + a future
+  time** → background workers ("open spotify at 8pm", "get the news at 7am", "close
+  steam in 2 hours"). `schedule_prepass` runs before the app router; excludes
+  alarms/timers (own handlers) and questions; the re-run request is the clean,
+  time-stripped command (runs once, never re-schedules). Recurring on "every/daily".
+- **Multi-command chaining:** `command_splitter.split_commands` + router
+  `multi_command_prepass` → `MULTI_COMMAND` action + executor handler routes &
+  executes each segment in order ("close steam and set an alarm for 7am"). Works for
+  voice (GUI_DIRECT_EXEC) and typed (process). Strongly guarded against over-splitting.
+  Details in `runtime_planning_world.md` + `dag_orchestrator.md`.
+
 ## Verdict
 The architecture is genuinely frontier for a local, model-agnostic, self-honest
 personal AI — and it now **tests itself, evals itself nightly, writes its own tests,

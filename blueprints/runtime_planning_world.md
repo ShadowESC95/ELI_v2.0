@@ -135,3 +135,25 @@ downloads; runtime stays local.)
 - **New generation runtime:** `runtime/evidence_planner.py` (plan→gather→consume),
   `runtime/report_pipeline.py` (multi-stage grounded docs), `runtime/background_deepening.py`
   (quick-mode async deepen). See `grounding_and_evidence.md`.
+
+## Update Advisory — 2026-06-08 (timed commands + multi-command)
+- **"Do <any command> at <time>" → background workers.** The router `schedule_prepass`
+  (`execution/router_enhanced.py`) now fires on a future-time marker + ANY imperative
+  (open/play/get/close/run + heavy verbs + known schedulable actions), not just the old
+  fixed verb list. It runs BEFORE `portable_route`, so "open spotify at 8pm" / "get the
+  news at 7am" / "close steam in 2 hours" / "get a morning report for 7:15 tomorrow"
+  SCHEDULE instead of running now. Excludes alarms/timers (their own handlers) and
+  questions. The scheduled `request` is the **clean, time-stripped command** so the
+  worker (`_worker_research` → `eng.process`) executes the action once and never
+  re-schedules. `SCHEDULE_TASK` now sets `recurring=True` on "every/each/daily/nightly".
+- **Multi-command chaining.** `eli/runtime/command_splitter.py::split_commands` +
+  router `multi_command_prepass` → a `MULTI_COMMAND` action; the executor handler routes
+  & executes each segment in order and combines results ("close steam and set an alarm
+  for 7am", "open spotify then play X"). Router+executor level → works for voice
+  (GUI_DIRECT_EXEC) and typed (process). Strong guard: every segment must start with an
+  imperative verb (so "play tom and jerry" / "open the file and folder manager" stay
+  whole; questions go to the question-splitter). Sequential today; the DAG orchestrator
+  is ready for parallel fan-out of independent ("and"-joined) commands.
+- **Standing nightly jobs** (durable, recurring, re-armed at boot): engine-eval +
+  full test report; ELI-assisted test generation. Kinds now:
+  code/research/self_upgrade/reflection/eval/testgen/lora.
