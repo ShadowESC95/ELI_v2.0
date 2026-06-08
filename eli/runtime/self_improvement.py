@@ -157,6 +157,15 @@ class SelfImprovementEngine:
     # ─────────────────────────────────────────────────────────────────────────
 
     def log_failure(self, input_text: str, error: str = "", confidence: float = 0.0, context: dict = None):
+        # Guard: never persist a unit-test mock as a real failure. When a test patches
+        # subprocess.run, the executor's stdout concat yields a MagicMock repr
+        # ("<MagicMock name='run().stdout.__add__()' …>") that previously leaked into the
+        # live failures DB and polluted SELF_ANALYZE. Drop mock reprs at the write source,
+        # so a test-isolation slip can't pollute real runtime failures.
+        import re as _re_mock
+        if _re_mock.search(r"<\s*(?:Magic)?Mock\b|(?:Magic)?Mock\s+name=|\bMock\s+id=0x",
+                           f"{error} {input_text}"):
+            return
         ctx = context or {}
         now = time.time()
         try:
