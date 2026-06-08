@@ -290,13 +290,14 @@ def _require_running_stt():
 
 def begin_wake_enrollment(n: int = 5) -> dict:
     """Capture `n` real-mic samples of the user saying the WAKE WORD, then retrain the
-    wake model on their voice. (Distinct from voice-profile training below.)"""
+    wake model on their voice. (Standalone re-tune; the full 'train my voice' flow
+    below also does this.)"""
     stt = _require_running_stt()
     if stt is None:
         return {"ok": False, "error": "the microphone is not running — enable voice first, then try again"}
     from eli.perception import wakeword as _ww
-    phrases = _ww.get_wake_phrases()
-    ph = phrases[0] if phrases else "computer"
+    ph = (_ww.get_wake_phrases() or ["computer"])[0]
+    _sink = lambda pcm, sr: _ww.save_enrollment_clip(pcm, sr=sr)
 
     def _done():
         try:
@@ -307,40 +308,73 @@ def begin_wake_enrollment(n: int = 5) -> dict:
             pass
 
     n = max(1, min(20, int(n)))
-    stt.begin_capture(n, lambda pcm, sr: _ww.save_enrollment_clip(pcm, sr=sr), _done,
-                      prompt_start=(f"Say your wake word, {ph}, {n} times, pausing briefly "
-                                    f"between each. Go ahead now."),
-                      prompt_each="Got it. {n} more.")
+    steps = [{"prompt": (f"Say your wake word, {ph}." if i == 0 else f"{ph}, again."),
+              "sink": _sink} for i in range(n)]
+    stt.begin_capture_script(steps, _done,
+                             prompt_start=f"Let's tune your wake word to your voice — {n} times, pausing between each.")
     return {"ok": True, "samples": n,
-            "message": (f"Listening — say \"{ph}\" {n} times (pause between each). "
-                        f"I'll retrain the wake word on your voice automatically.")}
+            "message": f"Listening — say \"{ph}\" {n} times (pause between each); I'll retrain automatically."}
 
 
-def begin_voice_training(n: int = 8) -> dict:
-    """Capture `n` natural-speech samples of the user to build a VOICE PROFILE — the
-    foundation for prosody/tone detection (happy/angry/excited, question vs statement).
-    Separate from wake-word enrollment: this is about HOW you speak, not the wake word."""
+# Emotion prompts: the user says the SAME neutral line in each feeling, so the
+# classifier learns prosody (not words). Extend by adding to voice_profile.EMOTIONS
+# + a line here. The first rep of each gives the full cue; reps say "again".
+_EMOTION_CUES = {
+    "neutral": "In your normal voice, say: the meeting is at noon.",
+    "happy":   "Now happily, like good news: the meeting is at noon!",
+    "angry":   "Now annoyed, irritated: the meeting is at noon.",
+    "excited": "Now excited and energetic: the meeting is at noon!",
+    "sad":     "Now sadly, low and flat: the meeting is at noon.",
+}
+
+
+def begin_voice_training(per_emotion: int = 2, wake_reps: int = 3) -> dict:
+    """Unified setup: capture wake-word reps (→ wake model) AND labelled-emotion samples
+    (→ the tone/emotion classifier + voice baseline), in one guided session. This is
+    what 'train my voice' runs. Modules stay separate; the user does one flow."""
     stt = _require_running_stt()
     if stt is None:
         return {"ok": False, "error": "the microphone is not running — enable voice first, then try again"}
+    from eli.perception import wakeword as _ww
     from eli.perception import voice_profile as _vp
+    ph = (_ww.get_wake_phrases() or ["computer"])[0]
+
+    steps = []
+    _wake_sink = lambda pcm, sr: _ww.save_enrollment_clip(pcm, sr=sr)
+    for i in range(max(0, int(wake_reps))):
+        steps.append({"prompt": (f"First, your wake word — say {ph}." if i == 0 else f"{ph}, again."),
+                      "sink": _wake_sink})
+
+    def _emo_sink(emo):
+        def _s(pcm, sr):
+            _vp.add_labelled_sample(pcm, sr, emo)
+            if emo == "neutral":
+                _vp.add_sample(pcm, sr)          # neutral also seeds the voice baseline
+        return _s
+
+    for emo in _vp.EMOTIONS:
+        for j in range(max(1, int(per_emotion))):
+            steps.append({"prompt": (_EMOTION_CUES.get(emo, f"Say it {emo}.") if j == 0
+                                     else "Again, same feeling."),
+                          "sink": _emo_sink(emo)})
 
     def _done():
         try:
-            r = _vp.build_profile()
-            stt._speak_prompt("I've learned your voice baseline."
-                              if r.get("ok") else "Voice profiling could not finish.")
+            _ww.train_model()
+            r = _vp.build_profile()              # baseline + emotion classifier
+            ok = bool(r.get("ok")) and bool((r.get("emotion_model") or {}).get("ok"))
+            stt._speak_prompt("Done — I've learned your wake word, your voice, and your tone."
+                              if ok else "Voice setup finished — wake word and baseline are set.")
         except Exception:
             pass
 
-    n = max(3, min(30, int(n)))
-    stt.begin_capture(n, lambda pcm, sr: _vp.add_sample(pcm, sr=sr), _done,
-                      prompt_start=(f"Let's learn your voice. Speak {n} short, natural sentences — "
-                                    f"one at a time, pausing between each. Begin when ready."),
-                      prompt_each="Good. {n} more.")
-    return {"ok": True, "samples": n,
-            "message": (f"Listening — say {n} natural sentences (pause between each). "
-                        f"I'll build your voice baseline for tone detection.")}
+    stt.begin_capture_script(steps, _done,
+                             prompt_start=("Let's set up your voice. I'll cue you each time — "
+                                           "speak right after each prompt."))
+    return {"ok": True, "samples": len(steps), "emotions": list(_vp.EMOTIONS),
+            "message": (f"Voice setup started ({len(steps)} short prompts): your wake word, then "
+                        f"the same line said neutral / happy / angry / excited / sad so I learn "
+                        f"your tone. Just follow the cues.")}
 
 # Hard override: require wake word for ALL safe-direct commands regardless of media state.
 # Default off — media-aware gating in classify() handles the speaker-bleed case dynamically.
@@ -905,13 +939,13 @@ class ELIAudioSTT:
         # existing mic loop — no second microphone, no device conflict).
         self._enroll_remaining = 0
         self._enroll_target = 0
-        # Generic mic-capture session (wake-word enrollment OR voice-profile training):
-        # a sink receives each clean clip; a 'done' callback runs after the last one.
-        self._capture_remaining = 0
-        self._capture_total = 0
-        self._capture_sink = None
+        # Generic mic-capture SCRIPT (wake enrollment, voice training, labelled
+        # emotion — one mechanism). Each step = {"prompt": spoken cue, "sink":
+        # callable(int16, sr)}; captured clips advance through the script; a 'done'
+        # callback runs after the last step.
+        self._capture_steps: list = []
+        self._capture_idx = 0
         self._capture_done = None
-        self._capture_prompt_each = ""
         global _ACTIVE_STT
         _ACTIVE_STT = self
         _merge_custom_wake_words()
@@ -1197,20 +1231,21 @@ class ELIAudioSTT:
         except Exception:
             pass
 
-    def begin_capture(self, n, sink, done=None, *, prompt_start: str = "",
-                      prompt_each: str = "") -> dict:
-        """Capture `n` clean user-speech clips through the running mic loop. Each clip
-        goes to sink(int16, sr); done() runs once after the last. Shared by wake-word
-        enrollment and voice-profile training — one mechanism, no second microphone."""
-        n = max(1, min(30, int(n)))
-        self._capture_total = n
-        self._capture_remaining = n
-        self._capture_sink = sink
+    def begin_capture_script(self, steps: list, done=None, *, prompt_start: str = "") -> dict:
+        """Run a capture SCRIPT through the running mic loop: each captured clean clip
+        goes to steps[i]['sink'](int16, sr) and the next cue is spoken; done() runs
+        once after the last step. Shared by wake enrollment, voice training, and
+        labelled-emotion capture — one mechanism, no second microphone."""
+        steps = [s for s in (steps or []) if callable(s.get("sink"))]
+        if not steps:
+            return {"ok": False, "error": "empty capture script"}
+        self._capture_steps = steps
+        self._capture_idx = 0
         self._capture_done = done
-        self._capture_prompt_each = prompt_each
         if prompt_start:
             self._speak_prompt(prompt_start)
-        return {"ok": True, "samples": n}
+        self._speak_prompt(steps[0].get("prompt", "Speak now."))
+        return {"ok": True, "samples": len(steps)}
 
     def listen_once(self, timeout=5) -> str:
         try:
@@ -1531,28 +1566,28 @@ class ELIAudioSTT:
                             flush=True,
                         )
                         continue
-                    # ── Generic mic-capture session (wake enrollment / voice training) ──
-                    # Past the TTS-echo guards = clean user speech. Each clip goes to the
-                    # active sink; after the last, the 'done' callback runs in the
-                    # background (retrain the wake model, or build the voice profile).
-                    # Skips command routing. One mechanism, no second microphone.
-                    if getattr(self, "_capture_remaining", 0) > 0 and self._capture_sink:
+                    # ── Mic-capture SCRIPT (wake enrollment / voice training / emotion) ──
+                    # Past the TTS-echo guards = clean user speech. Each clip feeds the
+                    # current step's sink, then the next cue is spoken; after the last
+                    # step the 'done' callback runs in the background (retrain the wake
+                    # model / build the voice + emotion profile). Skips command routing.
+                    if getattr(self, "_capture_steps", None) and self._capture_idx < len(self._capture_steps):
                         try:
                             _raw = audio.get_raw_data()
                             _asr = int(getattr(audio, "sample_rate", 16000) or 16000)
                             if int(getattr(audio, "sample_width", 2) or 2) == 2 and _raw:
                                 _pcm = np.frombuffer(_raw, dtype=np.int16)
+                                _step = self._capture_steps[self._capture_idx]
                                 try:
-                                    self._capture_sink(_pcm, _asr)
+                                    _step["sink"](_pcm, _asr)
                                 except Exception as _sk:
                                     log.debug(f"[CAPTURE] sink failed: {_sk}")
-                                self._capture_remaining -= 1
-                                if self._capture_remaining > 0:
-                                    _pe = self._capture_prompt_each or "Got it. {n} more."
-                                    self._speak_prompt(_pe.format(n=self._capture_remaining))
+                                self._capture_idx += 1
+                                if self._capture_idx < len(self._capture_steps):
+                                    self._speak_prompt(self._capture_steps[self._capture_idx].get("prompt", "Again."))
                                 else:
                                     _done = self._capture_done
-                                    self._capture_sink = None
+                                    self._capture_steps = []
                                     self._capture_done = None
                                     self._speak_prompt("Thanks. Working on it now.")
                                     if _done:
@@ -1562,6 +1597,22 @@ class ELIAudioSTT:
                         except Exception as _cap_err:
                             log.debug(f"[CAPTURE] capture failed: {_cap_err}")
                         continue
+
+                    # ── Publish the user's vocal tone for cognition (real-time) ──
+                    # On a genuine command, read prosody/emotion from THIS audio and
+                    # publish it on a fresh side-channel the engine reads to adapt its
+                    # response (no callback change). Cheap, numpy; best-effort.
+                    if os.environ.get("ELI_VOICE_TONE", "1").lower() not in {"0", "false", "no", "off"}:
+                        try:
+                            _raw = audio.get_raw_data()
+                            _asr = int(getattr(audio, "sample_rate", 16000) or 16000)
+                            if int(getattr(audio, "sample_width", 2) or 2) == 2 and _raw and len(_raw) > 4000:
+                                from eli.perception import voice_profile as _vp
+                                _tone = _vp.classify_tone(np.frombuffer(_raw, dtype=np.int16), sr=_asr)
+                                if _tone.get("ok"):
+                                    _vp.set_last_tone(_tone)
+                        except Exception:
+                            pass
 
                     # Update user voice profile for next time's threshold bias.
                     self._record_voice_sample(audio)

@@ -127,3 +127,4 @@ config/plugins_state.json
 config/pomodoro.json
 config/quick_actions.json
 models/wakeword/
+models/voice_profile/

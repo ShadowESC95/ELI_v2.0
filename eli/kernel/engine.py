@@ -4677,6 +4677,35 @@ Answer:"""
     def _build_enhanced_system(self, memory_context: str = "", compact: bool = False,
                                user_input: str = "", reasoning_mode: Optional[str] = None,
                                situation_brief: str = "") -> str:
+        # ── Real-time speaker tone (from the user's VOICE this turn) ──
+        # Published by the STT loop (eli/perception/voice_profile). When a fresh,
+        # confident read exists, prepend a concise cue so ELI adapts its delivery to
+        # how the user actually sounds (energy, emotion, question vs statement). This
+        # is the wiring that makes voice tone influence cognition. Off: ELI_VOICE_TONE=0.
+        try:
+            if os.environ.get("ELI_VOICE_TONE", "1").lower() not in {"0", "false", "no", "off"}:
+                from eli.perception import voice_profile as _vp_tone
+                _t = _vp_tone.get_last_tone(max_age_s=12.0)
+                if _t.get("ok"):
+                    _bits = []
+                    _emo = _t.get("emotion")
+                    if _emo and _emo != "neutral" and float(_t.get("emotion_confidence", 0) or 0) >= 0.25:
+                        _bits.append(f"sounds {_emo}")
+                    _ar = float(_t.get("arousal", 0) or 0)
+                    if _ar >= 0.4:
+                        _bits.append("high energy")
+                    elif _ar <= -0.4:
+                        _bits.append("low energy / subdued")
+                    if _t.get("intent") == "question" and float(_t.get("intent_confidence", 0) or 0) >= 0.5:
+                        _bits.append("asking a question (rising intonation)")
+                    if _bits:
+                        _cue = ("[Speaker voice cue — the user " + ", ".join(_bits)
+                                + ". Adapt your tone and pacing to match; be warmer if they're "
+                                "upset, brisk if they're energetic. Do NOT mention this cue.]")
+                        situation_brief = (_cue + "\n\n" + (situation_brief or "")).strip()
+        except Exception:
+            pass
+
         persona = self._compact_persona() if compact else _load_persona_text()
         reasoning_instruction = self._reasoning_mode_instruction(
             reasoning_mode)
