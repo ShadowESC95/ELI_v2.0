@@ -140,8 +140,9 @@ wrapper:
   weight-free confidence aggregator** (each agent's contribution = evidence
   quality × payload density × a *learned* per-agent calibration) → a **12-stage
   retrieval orchestrator** (HyDE query expansion → FAISS vectors + FTS5 keyword +
-  knowledge-graph multi-hop BFS + cross-encoder rerank → precise context
-  assembly) → one of **five genuinely multi-pass reasoning modes** (chain-of-
+  knowledge-graph multi-hop BFS → hybrid merge → a heuristic rerank (lexical ×
+  recency × importance; neural cross-encoder is the designed upgrade) → precise
+  context assembly) → one of **five genuinely multi-pass reasoning modes** (chain-of-
   thought; self-consistency = N samples + a consensus pass; tree-of-thoughts =
   branch/prune; constitutional = draft→critique; quick) → executor → a stacked
   output-governance layer.
