@@ -285,6 +285,16 @@ def build_clean_personal_memory_response(user_input: str = "", mode_label: str =
         return "\n".join(lines)
 
     lines.append("Clean facts found:")
+    # The active user's name lives in the runtime profile (user_profile.json), not the
+    # SQLite memory tables this module reads — so surface it explicitly (clearly sourced)
+    # rather than letting the model say "name not provided" when ELI plainly knows it.
+    try:
+        from eli.kernel.state import get_user_name as _gun
+        _name = (_gun() or "").strip()
+        if _name and _name.lower() not in {"unknown", "user", "none"}:
+            lines.append(f"- The active user's name is {_name.title()} (from your runtime profile).")
+    except Exception:
+        pass
     for fact in facts:
         lines.append(f"- {fact}")
 
