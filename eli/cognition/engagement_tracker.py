@@ -1,11 +1,11 @@
 """
 eli/cognition/engagement_tracker.py
 ==========================================
-Engagement / salience tracker — Command-console-style topic-depth awareness.
+Engagement / salience tracker — topic-depth awareness.
 
 Tracks how intellectually engaged the current session is and provides
 a hint to the reasoning mode selector so ELI automatically escalates
-from quick → chain_of_thought → tree_of_thoughts as the conversation
+from Quick → Normal → Research as the conversation
 deepens, without the user having to request it.
 
 Engagement signals

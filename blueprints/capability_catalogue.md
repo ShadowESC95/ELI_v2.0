@@ -317,7 +317,7 @@ The thinking layer: agents, orchestration, inference, persona, reasoning, govern
 | Module | LOC | Role |
 |---|---|---|
 | `reasoning_modes.py` | 593 | The 5 modes — canonicalisation, per-mode private system instruction, execution contract (samples/branches/stages + dynamic token budget), reasoning-leak stripping. |
-| `engagement_tracker.py` | 249 | Command-console-style session depth tracking → **auto-escalates reasoning mode** (Quick→Normal→Advanced→Research) as a conversation deepens; session narrative. |
+| `engagement_tracker.py` | 249 | Session depth tracking → **auto-escalates reasoning mode** (Quick→Normal→Advanced→Research) as a conversation deepens; session narrative. |
 | `working_memory.py` | 325 | Turn-scoped pinned facts (pin/absorb/evict/persist/restore). |
 
 ## Context & grounding

@@ -3,9 +3,9 @@ eli/cognition/working_memory.py
 ======================================
 Session-level Working Memory for ELI.
 
-Command-console analogy: the "active dossier" J.A.R.V.I.S. maintains for the current
-engagement — facts, decisions, and context that need to survive context-window
-trimming but are too transient to warrant permanent storage.
+An "active dossier" for the current engagement — facts, decisions, and context
+that need to survive context-window trimming but are too transient to warrant
+permanent storage.
 
 Architecture
 -----------
