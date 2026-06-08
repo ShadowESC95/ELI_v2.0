@@ -4219,8 +4219,10 @@ def _eli_persist_loaded_vector_store(rows_for_meta=None):
             meta_obj = rows[:ntotal]
 
         faiss.write_index(index_obj, str(index_path))
-        with meta_path.open("wb") as f:
-            pickle.dump(list(meta_obj), f)
+        # Write meta as JSON via the canonical writer — _load_meta reads JSON, and
+        # pickle was deliberately retired (RCE-on-load). Writing pickle here corrupted
+        # meta.json so the next load failed and silently auto-rebuilt.
+        _vs._dump_meta(str(meta_path), list(meta_obj))
 
         return {"ok": True, "persisted": True, "method": "write_live_faiss_index",
                 "index_attr": index_attr, "meta_attr": meta_attr,
@@ -4247,8 +4249,7 @@ def _eli_persist_loaded_vector_store(rows_for_meta=None):
                 if not isinstance(meta_obj, (list, tuple)) or len(meta_obj) != int(arr.shape[0]):
                     meta_obj = rows[: int(arr.shape[0])]
                 faiss.write_index(idx, str(index_path))
-                with meta_path.open("wb") as f:
-                    pickle.dump(list(meta_obj), f)
+                _vs._dump_meta(str(meta_path), list(meta_obj))   # JSON, not pickle (see above)
                 return {"ok": True, "persisted": True, "method": "build_from_vector_array",
                         "vector_attr": vec_attr,
                         "ntotal": int(idx.ntotal), "dim": int(arr.shape[1]),
