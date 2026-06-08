@@ -3277,6 +3277,52 @@ class Memory(metaclass=_MemoryMeta):
             pass
 
 
+    # Meta/introspection/system actions that land in the `habits` table because the
+    # user repeatedly *tested* ELI — they are NOT user behavioural habits. Excluded
+    # from get_detected_habits() so the surfaced habits are real (media, apps, etc.).
+    _HABIT_NOISE_EXACT = {
+        "MODEL_LOAD", "NOOP", "CHAT", "MEMORY_STORE", "MEMORY_RECALL",
+        "SET_USER_NAME", "TIME", "DATE", "HABIT_STATUS",
+    }
+    _HABIT_NOISE_RE = re.compile(
+        r"(_STATUS$|_AUDIT$|^EXPLAIN_|^SELF_|^RUNTIME_|^COGNITION_|^FRONTIER_|"
+        r"^PERSONAL_MEMORY|^NAME_SOURCE|^USER_IDENTITY|^GUI_|^ORCHESTRATOR|"
+        r"^AGENTBUS|^OUTPUT_GOVERNOR|^DIAGNOSE_|^EXAMINE_CODE$|^MEMORY_|^REASONING_)"
+    )
+
+    def get_detected_habits(self, min_count: int = 3, limit: int = 10):
+        """Meaningful detected *behavioural* habits from the `habits` table (media,
+        app launches, real user actions), excluding ELI's own meta/introspection/
+        system noise. Distinct from get_habit_rules() (scheduled time automations):
+        the `habits` table is populated by detect_habits() but nothing was surfacing
+        it — HABIT_STATUS/overlay only read the empty habit_rules table."""
+        out = []
+        try:
+            conn = self._get_connection()
+            try:
+                rows = conn.execute(
+                    "SELECT COALESCE(name,''), COALESCE(count,0), "
+                    "COALESCE(command, cmd, '') FROM habits "
+                    "WHERE COALESCE(enabled,1)=1 AND COALESCE(count,0) >= ? "
+                    "ORDER BY COALESCE(count,0) DESC",
+                    (int(min_count),),
+                ).fetchall()
+            finally:
+                conn.close()
+            for r in rows:
+                name = str(r[0] or "").strip()
+                if not name:
+                    continue
+                up = name.upper()
+                if up in self._HABIT_NOISE_EXACT or self._HABIT_NOISE_RE.search(up):
+                    continue
+                out.append({"name": name, "count": int(r[1] or 0), "command": str(r[2] or "")})
+                if len(out) >= int(limit):
+                    break
+        except Exception as exc:
+            log.debug("get_detected_habits failed: %s", exc)
+        return out
+
     def get_habit_rules(self, enabled_only=True):
         conn = self._get_connection()
         try:

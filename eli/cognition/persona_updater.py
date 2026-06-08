@@ -108,8 +108,14 @@ def _top_lines(rows: Any, key: str, limit: int = 8) -> List[str]:
 
 
 def _habit_lines(mem: Any) -> List[str]:
-    rules = _safe_call(mem, "get_habit_rules", enabled_only=False) or []
     out: List[str] = []
+    # Behavioural patterns ELI has actually noticed (the `habits` table), so the overlay
+    # reflects real habits — not just the scheduled habit_rules table (usually empty).
+    detected = _safe_call(mem, "get_detected_habits", min_count=3, limit=6) or []
+    for d in detected:
+        if isinstance(d, dict) and d.get("name"):
+            out.append(f"{_clean(d['name']).replace('_', ' ').lower()} — seen {int(d.get('count', 0))}x")
+    rules = _safe_call(mem, "get_habit_rules", enabled_only=False) or []
     for row in rules[:10]:
         if not isinstance(row, dict):
             continue
