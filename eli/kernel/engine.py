@@ -10998,23 +10998,36 @@ Answer:"""
         return result
 
     def _parse_intent(self, text: str, context: list) -> Dict[str, Any]:
+        router_intent = None
         try:
             router_intent = route_intent(text)
-            if router_intent and router_intent.get("confidence", 0) > 0.5:
-                log.debug(f"[COGNITIVE] Router parsed: {router_intent}")
-                return router_intent
         except Exception as e:
             log.debug(f"[COGNITIVE] Router failed: {e}")
-        # Fallback: LLM-based intent parsing with result cache to avoid double inference
+        # A real deterministic match wins (fast path, no model call). But
+        # `fallback.chat` is NOT a match — it just means "no rule fired". Dropping
+        # to it blindly is what made ELI unable to act on near-miss phrasings and
+        # let it hallucinate facts (e.g. the date). Treat it as unmatched and let
+        # the model resolve intent against ELI's real action catalogue instead.
+        _matched_by = ((router_intent or {}).get("meta") or {}).get("matched_by", "")
+        if (router_intent and router_intent.get("confidence", 0) > 0.5
+                and _matched_by != "fallback.chat"):
+            log.debug(f"[COGNITIVE] Router parsed: {router_intent}")
+            return router_intent
+        # Unmatched → grounded LLM intent resolver (real catalogue, cached). Only
+        # adopt a confident, actionable result; otherwise fall through to chat.
         try:
             from eli.cognition.llm_intent import parse_cached
-            llm_intent = parse_cached(text)
-            if llm_intent and llm_intent.get("confidence", 0) > 0.4:
-                log.debug(f"[COGNITIVE] LLM intent parsed (cached): {llm_intent.get('action')}")
-                return llm_intent
+            li = parse_cached(text)
+            if (li and li.get("action") and li.get("action") != "CHAT"
+                    and li.get("confidence", 0) >= 0.6):
+                log.debug(f"[COGNITIVE] LLM intent resolved: {li.get('action')} "
+                          f"(conf {li.get('confidence')})")
+                return li
         except Exception:
             pass
-
+        # Genuine conversation.
+        if router_intent and _matched_by == "fallback.chat":
+            return router_intent
         return {"action": "CHAT", "args": {"message": text}, "confidence": 0.5}
 
     def _stream_with_followthrough(self, inner, user_input: str,
