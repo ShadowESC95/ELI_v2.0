@@ -1646,12 +1646,36 @@ try:
                 if _kv_budget_mb > 0 else 2048
             )
 
-            candidates = [
-                {
-                    "label": "requested/raw-no-override",
-                    "override": False,
-                }
-            ]
+            candidates = []
+
+            # Known-good first: if a previous successful load published its
+            # effective config (the GUI smart-fit, or any prior load), try THAT
+            # before the raw requested config. This is what makes a reload —
+            # notably the text-model restore after a vision hot-swap — return to
+            # the profile that already fit (e.g. ctx=22528/gpu=99) instead of
+            # starting from the raw oversized request (ctx=30720) and adaptively
+            # collapsing to a near-CPU config (gpu_layers=16) for the rest of the
+            # session. Only prepended when present + valid; the ladder below is
+            # the safety net if it no longer fits.
+            try:
+                _ov = globals().get("_live_runtime_override") or {}
+                _ov_ctx = int(_ov.get("n_ctx") or 0)
+                _ov_gpu = _ov.get("n_gpu_layers")
+                if _ov_ctx >= 512 and _ov_gpu is not None:
+                    candidates.append({
+                        "label": "live-override (last known-good)",
+                        "override": True,
+                        "n_ctx": _ov_ctx,
+                        "n_gpu_layers": max(0, int(_ov_gpu)),
+                        "n_batch": max(32, int(_ov.get("n_batch") or req_batch)),
+                    })
+            except Exception:
+                pass
+
+            candidates.append({
+                "label": "requested/raw-no-override",
+                "override": False,
+            })
 
             # VRAM-aware conservative candidate. This is threshold-based, not
             # machine-name based.  ctx cap is derived from the VRAM formula
