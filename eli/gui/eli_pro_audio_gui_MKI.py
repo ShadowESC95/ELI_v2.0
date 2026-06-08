@@ -2818,6 +2818,48 @@ class EliMainWindow(QMainWindow):
         try: self.auto_speak_btn.setText('🔊 Auto-Speak: ON' if checked else '🔇 Auto-Speak: OFF')
         except Exception: pass
 
+    def _on_full_control_toggled(self, checked: bool):
+        """Master override — lifts ALL of ELI's safety barriers. Confirms on enable."""
+        if checked:
+            try:
+                from PySide6.QtWidgets import QMessageBox
+                resp = QMessageBox.warning(
+                    self, "Enable ELI Full Control?",
+                    "This lifts EVERY safety barrier:\n\n"
+                    "• Network is always allowed (offline-by-default is off)\n"
+                    "• ELI may edit its own code automatically\n"
+                    "• ELI auto-approves its own autonomous actions\n"
+                    "• ANY shell command runs — including normally-blocked\n"
+                    "  destructive ones (rm -rf, mkfs, curl | bash, …)\n\n"
+                    "Enable only if you fully trust ELI on this machine. Continue?",
+                    QMessageBox.Yes | QMessageBox.No, QMessageBox.No,
+                )
+                if resp != QMessageBox.Yes:
+                    self.full_control_btn.blockSignals(True)
+                    self.full_control_btn.setChecked(False)
+                    self.full_control_btn.blockSignals(False)
+                    return
+            except Exception:
+                pass
+        try:
+            from eli.core.full_control import set_full_control
+            set_full_control(checked)
+        except Exception:
+            pass
+        try:
+            self.full_control_btn.setText("🔓 Full Control: ON" if checked else "🔒 Full Control: OFF")
+        except Exception:
+            pass
+        try:
+            colour = "#ff5252" if checked else "#88c0d0"
+            note = ("🔓 ELI Full Control ENABLED — all safety barriers lifted."
+                    if checked else "🔒 ELI Full Control disabled — normal safety restored.")
+            self.chat_display.append(
+                f'<span style="color:{colour};font-size:11px;">{note}</span><br>'
+            )
+        except Exception:
+            pass
+
     def _on_network_toggled(self, checked: bool):
         try:
             from eli.core import config as _cfg
@@ -4013,6 +4055,34 @@ class EliMainWindow(QMainWindow):
         )
         self.net_btn.toggled.connect(self._on_network_toggled)
         btn_layout.addWidget(self.net_btn)
+
+        # ── ELI Full Control — master override that lifts ALL safety barriers ──
+        _fc_on = False
+        try:
+            from eli.core.full_control import is_full_control as _ifc
+            _fc_on = bool(_ifc())
+        except Exception:
+            pass
+        self.full_control_btn = QPushButton("🔓 Full Control: ON" if _fc_on else "🔒 Full Control: OFF")
+        self.full_control_btn.setCheckable(True)
+        self.full_control_btn.setChecked(_fc_on)
+        self.full_control_btn.setToolTip(
+            "ELI Full Control — MASTER OVERRIDE that lifts EVERY safety barrier.\n"
+            "ON  — network always allowed; ELI may self-edit code, auto-approve its own\n"
+            "      autonomous actions, and run ANY shell command (even normally-blocked\n"
+            "      destructive ones). Enable only if you fully trust ELI on this machine.\n"
+            "OFF — normal: offline-by-default, gated self-editing, approval-gated autonomy,\n"
+            "      fail-closed command safety."
+        )
+        self.full_control_btn.setStyleSheet(
+            _BTN_BASE
+            + "QPushButton:checked { background-color:#D32F2F; }"
+            "QPushButton:!checked { background-color:#607D8B; }"
+            "QPushButton:checked:hover { background-color:#B71C1C; }"
+            "QPushButton:!checked:hover { background-color:#455A64; }"
+        )
+        self.full_control_btn.toggled.connect(self._on_full_control_toggled)
+        btn_layout.addWidget(self.full_control_btn)
 
         # Ambient screen-watch toggle — periodic local vision glances.
         _watch_on = False

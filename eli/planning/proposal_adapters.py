@@ -92,8 +92,8 @@ def safe_git_completed(args: Sequence[str] | None = None, cwd: str | None = None
 
 def proposal_only_enqueue(args: Sequence[str] | None = None, cwd: str | None = None, env: dict | None = None, **kwargs) -> CompletedLike:
     argv = list(args or [])
-    root = Path(__file__).resolve().parents[3]
-    out_dir = root / "artifacts" / "proactive"
+    from eli.core.paths import proactive_dir
+    out_dir = proactive_dir()
     out_dir.mkdir(parents=True, exist_ok=True)
     queue = out_dir / "proposal_queue.jsonl"
 

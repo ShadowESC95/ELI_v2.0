@@ -6,8 +6,17 @@ Verifies:
 - RUN_CMD allows safe commands like 'ls', 'echo', 'cat'
 - Blocked commands return ok=False with an error message (no subprocess spawned)
 """
+import os
 import pytest
 from unittest.mock import MagicMock, patch
+
+
+@pytest.fixture(autouse=True)
+def _full_control_off(monkeypatch):
+    """These tests verify the safety FLOOR, so they must run with ELI Full Control off
+    regardless of the ambient environment (Full Control deliberately lifts this gate)."""
+    monkeypatch.setenv("ELI_FULL_CONTROL", "0")
+    yield
 
 
 # ---------------------------------------------------------------------------
