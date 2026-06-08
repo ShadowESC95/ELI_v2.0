@@ -5390,6 +5390,27 @@ def _eli_phase38_identity_contract(raw):
 
     low = _re.sub(r"\s+", " ", str(raw or "").lower()).strip(" .,!?:;")
 
+    # Symbolic-world / room questions → CHAT, so the persona handoff's LIVE current
+    # room + 9-room topology is used. These previously fell to the llm_intent fallback,
+    # which guessed GAZE_STATUS — a path with no world context — so the model defaulted
+    # to "Core Room" instead of reading the real room (anomaly_room/workshop/…) from the
+    # world state. Route them here so ELI answers his actual room.
+    if _re.search(
+        r"\b(?:what|which)\s+room\s+(?:are\s+you|you'?re|is\s+eli)\b"
+        r"|\bwhere\s+are\s+you\s+(?:right\s+now|currently|at|in\s+your\s+world)\b"
+        r"|\b(?:are\s+you\s+(?:still\s+)?(?:stuck\s+)?in|been\s+in)\s+(?:the\s+)?\w+(?:\s+\w+)?\s+room\b"
+        r"|\byour\s+(?:favou?rite|other\s+favou?rite|other)\s+room\b"
+        r"|\bwhich\s+room\b",
+        low,
+    ):
+        return _mk(
+            "CHAT",
+            {"message": raw},
+            0.97,
+            matched_by="world.room_query",
+            allow_chat_without_evidence=True,
+        )
+
     if _re.search(
         r"\b(who are you|what are you(?!\s+\w)|what is your name|what's your name|tell me about yourself)\b",
         low,
