@@ -46,6 +46,33 @@ def _model_dir() -> Path:
     return d
 
 
+def _config_path() -> Path:
+    return _model_dir() / "wake_config.json"
+
+
+def get_wake_phrases() -> List[str]:
+    """The user's configured wake phrase(s), or the defaults. Any phrase the user
+    sets ("change the wake word to athena") is persisted here and used by both the
+    acoustic model (trained on it) and the transcription matcher."""
+    try:
+        ph = json.loads(_config_path().read_text()).get("phrases")
+        if ph:
+            return [str(p).strip().lower() for p in ph if str(p).strip()]
+    except Exception:
+        pass
+    return list(_DEFAULT_PHRASES)
+
+
+def set_wake_phrases(phrases: List[str]) -> List[str]:
+    """Persist a custom wake phrase set. Returns the cleaned list. Does NOT train —
+    callers retrain (synth works for any phrase Piper can say)."""
+    cleaned = [str(p).strip().lower() for p in (phrases or []) if str(p).strip()]
+    if not cleaned:
+        cleaned = list(_DEFAULT_PHRASES)
+    _config_path().write_text(json.dumps({"phrases": cleaned}, indent=2))
+    return cleaned
+
+
 def _enroll_dir() -> Path:
     d = _model_dir() / "enroll"
     d.mkdir(parents=True, exist_ok=True)
@@ -278,7 +305,7 @@ def train_model(phrases: Optional[List[str]] = None, *, per_voice_speeds=(0.85, 
     """Synthesise + augment + embed + train the custom head. Local; CPU-fine.
     Returns {ok, positives, negatives, threshold, ...}."""
     import torch
-    phrases = phrases or _DEFAULT_PHRASES
+    phrases = phrases or get_wake_phrases()
     voices = _voice_models()
     if not voices:
         return {"ok": False, "error": "no Piper voices found to synthesise the wake phrase"}
