@@ -126,3 +126,4 @@ config/settings.json
 config/plugins_state.json
 config/pomodoro.json
 config/quick_actions.json
+models/wakeword/

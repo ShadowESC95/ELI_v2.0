@@ -2025,6 +2025,7 @@ SUPPORTED_ACTIONS = [
     'TILE_WINDOWS',
     'TIME',
     'TRANSCRIBE',
+    'WAKE_TRAIN',
     'USER_IDENTITY_SUMMARY',
     'VOLUME',
     'WEB_SEARCH',
@@ -6014,6 +6015,30 @@ def _execute_impl(action: str, args: Optional[Dict[str, Any]] = None) -> Dict[st
                     "response": msg, "evidence_source": "lora_pipeline", "result": res}
         except Exception as e:
             msg = f"LORA_TRAIN failed: {e}"
+            return {"ok": False, "action": a, "error": str(e), "content": msg, "response": msg}
+
+    # ---- WAKE_TRAIN — train the local, self-supervised wake-word model ----
+    # ELI synthesises the wake phrase with its OWN Piper TTS across voices/speeds,
+    # mixes it with noise/music at random SNRs (robustness over music), and trains a
+    # small local classifier head. 100% local, no account, no third-party, no
+    # external pre-trained model. Falls back to transcription until a model exists.
+    if a == "WAKE_TRAIN":
+        try:
+            from eli.perception import wakeword as _ww
+            res = _ww.train_model()
+            if not res.get("ok"):
+                msg = f"Wake-word training could not run: {res.get('error')}"
+                return {"ok": False, "action": a, "content": msg, "response": msg}
+            msg = (f"Wake-word model trained locally: {res.get('positives')} positive + "
+                   f"{res.get('negatives')} negative samples, decision threshold "
+                   f"{float(res.get('threshold', 0)):.2f}. ELI now spots the wake word "
+                   f"acoustically (robust over background music). For best real-world "
+                   f"accuracy, drop a few real music clips into models/wakeword/noise/ "
+                   f"and run this again.")
+            return {"ok": True, "action": a, "content": msg, "response": msg,
+                    "evidence_source": "wakeword_train", "result": res}
+        except Exception as e:
+            msg = f"WAKE_TRAIN failed: {e}"
             return {"ok": False, "action": a, "error": str(e), "content": msg, "response": msg}
 
     # ---- ORCHESTRATION_STATUS — explain the agent DAG + last orchestrated run ----
