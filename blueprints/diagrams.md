@@ -197,7 +197,7 @@ the memory subsystem, and the gating stack. All grounded in the real modules
   capabilities (155 SUPPORTED_ACTIONS / 164 routable).
 
 ## Update Advisory — 2026-06-08
-- Pipeline shape unchanged. Numbers now: **~133k LOC / 351 files**; 12 main GUI tabs;
+- Pipeline shape unchanged. Numbers now: **~133k LOC / 351 files**; **14** main GUI tabs;
   **205** manifest capabilities (**166** SUPPORTED_ACTIONS). The router box now also
   feeds a **model-grounded intent resolver** for unmatched phrasings (`cognition/
   llm_intent.py`); new perception boxes: **wake-word detector** (`perception/wakeword.py`)

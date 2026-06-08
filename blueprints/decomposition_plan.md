@@ -8,7 +8,7 @@ scan of the actual repository.*
 especially load-bearing ones — **stay**. We only act on *genuine* problems (bugs,
 silently-swallowed failures, dead/duplicated code, files too long to reason about). Where
 a god-file is split, good code is **relocated into a clearer home, never rewritten or
-removed.** The 6,520-test suite is the contract for "nothing broke."
+removed.** The ~6,630-test suite is the contract for "nothing broke."
 
 ---
 
@@ -38,7 +38,7 @@ framing was wrong; these are kept. The real issues are elsewhere (§2).
 ## 2. Real issues, prioritized (with proposals)
 
 ### P1 — Silent exception swallowing (observability) ⚠ highest-value
-~**798** bare `except Exception: … pass` across the codebase (of 2,706 total `except
+~**798** bare `except Exception: … pass` across the codebase (of **2,755** total `except
 Exception`). The logged/handled ones are fine; the **silent** ones can hide real
 failures — and that fights ELI's own "honest, no-fake-actions" principle.
 - **Proposal (nuanced — do NOT blanket-remove):** keep best-effort guards, but make
@@ -58,8 +58,8 @@ double-nest `image_engine/image_engine/`.
   effect (it's already not imported). Verify via the suite + a grep for stragglers.
 
 ### P3 — God-files (organization, not bugs) → §4
-7 files hold **~57k LOC (44% of the codebase)**: executor 13.6k, engine 12.5k, GUI
-10.8k, router 6.6k, labs 5.6k, memory 4.4k, grounding-gate 4.3k. They *work and are
+7 files hold **~58k LOC (44% of the codebase)**: executor 13.8k, engine 12.6k, GUI
+10.8k, router 6.7k, labs 5.6k, memory 4.4k, grounding-gate 4.3k. They *work and are
 tested* — the issue is they're hard to reason about and risky to change. Decomposition
 plan in §4 (relocate, don't rewrite).
 
@@ -145,7 +145,7 @@ Every existing import path keeps working via **re-export shims** in the old modu
 ### 4.3 Wiring correctness (100%)
 1. **Façade re-exports** — old module paths re-export new symbols; no external import changes.
 2. **Move, don't rewrite** — pure relocation first; any refactor is a separate later step.
-3. **Suite as contract** — 6,520 tests incl. claims (symbol inventory; all 200
+3. **Suite as contract** — ~6,630 tests incl. claims (symbol inventory; all 205
    capabilities routable + handled; activation phrases; blueprint refs; modules compile)
    run **green after every extraction**.
 4. **Per-module commits**; manifest re-sync after the executor split; an import-cycle
@@ -185,7 +185,7 @@ Orchestration tabs; vision/gaze/voice/OS-control; netguard offline-by-default; a
 **Done when:** dead/duplicated code removed (image_engine.py, guards/, root one-offs);
 silent failures observable + a guard against new ones; no core-path file > ~2,000 LOC;
 all good patches kept and clearly homed; all old import paths re-export; manifest still
-200; **full suite green**; a claims test forbids new god-files (>3,000 LOC) and new
+205; **full suite green**; a claims test forbids new god-files (>3,000 LOC) and new
 *silent* swallows.
 
 *Companion docs: `complete_findings.md`, `dag_orchestrator.md`, `gui.md`,
