@@ -2019,6 +2019,7 @@ SUPPORTED_ACTIONS = [
     'SMART_HOME',
     'SPEAK',
     'STOP_MEDIA',
+    'NOW_PLAYING',
     'SUMMARIZE_FILE',
     'SWITCH_WORKSPACE',
     'SYSTEM_STATS',
@@ -2511,8 +2512,21 @@ def _resolve_media_target(target: str | None) -> str | None:
     return alias   # e.g. "spotify", "vlc"
 
 
+def _targets_mpv(target: str | None) -> bool:
+    """True when controls should go to the headless YouTube mpv: it's the active ELI
+    source and alive, and the user didn't explicitly name a different player."""
+    if target and "youtube" not in str(target).lower():
+        return False
+    return _MEDIA_STATE.get("source") == "mpv" and _mpv_alive()
+
+
 def stop_media(target: str | None = None) -> Dict[str, Any]:
-    """Stop/pause media. Spotify doesn't support MPRIS Stop so uses pause."""
+    """Stop media. Spotify doesn't support MPRIS Stop so uses pause."""
+    if _targets_mpv(target):
+        _mpv_quit()
+        _MEDIA_STATE.update({"source": None, "title": None, "mpv_sock": None})
+        return {"ok": True, "action": "STOP_MEDIA", "content": "⏹ Stopped — YouTube",
+                "response": "⏹ Stopped — YouTube"}
     p = _resolve_media_target(target) or _get_active_player()
     # Spotify ignores Stop — use pause instead
     cmd = "pause" if (p and "spotify" in p.lower()) else "stop"
@@ -2523,6 +2537,10 @@ def stop_media(target: str | None = None) -> Dict[str, Any]:
 
 def pause_media(target: str | None = None) -> Dict[str, Any]:
     """Pause currently playing media."""
+    if _targets_mpv(target):
+        _mpv_ipc(["set_property", "pause", True])
+        return {"ok": True, "action": "PAUSE_MEDIA", "content": "⏸ Paused — YouTube",
+                "response": "⏸ Paused — YouTube"}
     result = _playerctl("pause", _resolve_media_target(target) or _get_active_player())
     result["action"] = "PAUSE_MEDIA"
     return result
@@ -2530,6 +2548,11 @@ def pause_media(target: str | None = None) -> Dict[str, Any]:
 
 def play_media(target: str | None = None) -> Dict[str, Any]:
     """Play/resume media."""
+    if _targets_mpv(target):
+        _mpv_ipc(["set_property", "pause", False])
+        title = _MEDIA_STATE.get("title") or "YouTube"
+        return {"ok": True, "action": "PLAY_MEDIA", "content": f"▶ Resumed — {title}",
+                "response": f"▶ Resumed — {title}"}
     result = _playerctl("play", _resolve_media_target(target) or _get_active_player())
     result["action"] = "PLAY_MEDIA"
     return result
@@ -2711,6 +2734,111 @@ def _spotify_running() -> bool:
         return False
 
 
+# ── Now-playing state + headless-mpv (YouTube) control ───────────────────────
+# "Play on YouTube" launches a HEADLESS mpv (audio only, no window) with a JSON IPC
+# control socket. playerctl can't see that mpv (no MPRIS), so pause/stop/resume must
+# talk to the socket directly. We also remember the last source + title so ELI can
+# answer "what's playing?" and aim controls at the right player.
+_MEDIA_STATE: Dict[str, Any] = {"source": None, "title": None, "mpv_sock": None}
+
+
+def _mpv_socket_path() -> str:
+    return os.environ.get("ELI_YOUTUBE_MPV_IPC", "/tmp/eli_youtube_mpv.sock")
+
+
+def _mpv_alive() -> bool:
+    import socket as _sock
+    p = _MEDIA_STATE.get("mpv_sock") or _mpv_socket_path()
+    if not os.path.exists(p):
+        return False
+    try:
+        s = _sock.socket(_sock.AF_UNIX, _sock.SOCK_STREAM)
+        s.settimeout(1.0)
+        s.connect(p)
+        s.close()
+        return True
+    except Exception:
+        return False
+
+
+def _mpv_ipc(command: list, *, want_response: bool = False):
+    """Send one JSON IPC command to the headless YouTube mpv. Returns True/data, or
+    False/None on failure. Never raises."""
+    import socket as _sock
+    import json as _json
+    p = _MEDIA_STATE.get("mpv_sock") or _mpv_socket_path()
+    if not os.path.exists(p):
+        return None if want_response else False
+    try:
+        s = _sock.socket(_sock.AF_UNIX, _sock.SOCK_STREAM)
+        s.settimeout(2.0)
+        s.connect(p)
+        s.sendall((_json.dumps({"command": command}) + "\n").encode())
+        out = None
+        if want_response:
+            buf = s.recv(8192).decode("utf-8", "ignore")
+            for line in buf.splitlines():
+                try:
+                    j = _json.loads(line)
+                    if isinstance(j, dict) and "data" in j:
+                        out = j["data"]
+                        break
+                except Exception:
+                    pass
+        s.close()
+        return out if want_response else True
+    except Exception:
+        return None if want_response else False
+
+
+def _mpv_quit() -> None:
+    """Stop the headless YouTube mpv if it's running."""
+    if _mpv_alive():
+        _mpv_ipc(["quit"])
+
+
+def _set_now_playing(source: str, title: str | None, *, mpv_sock: str | None = None) -> None:
+    # Switching to a different source: stop the old headless mpv so two things don't
+    # play at once (e.g. YouTube audio + Spotify).
+    if _MEDIA_STATE.get("source") == "mpv" and source != "mpv":
+        _mpv_quit()
+    _MEDIA_STATE.update({"source": source, "title": title, "mpv_sock": mpv_sock})
+
+
+def now_playing() -> Dict[str, Any]:
+    """Report what ELI is currently playing and from where."""
+    src = _MEDIA_STATE.get("source")
+    title = _MEDIA_STATE.get("title") or "a track"
+    if src == "mpv" and _mpv_alive():
+        # prefer mpv's resolved media-title; fall back to the requested query
+        mt = _mpv_ipc(["get_property", "media-title"], want_response=True)
+        if isinstance(mt, str) and mt.strip():
+            title = mt.strip()
+        paused = _mpv_ipc(["get_property", "pause"], want_response=True)
+        head = "⏸ Paused" if paused is True else "▶ Playing"
+        msg = f"{head}: {title} — YouTube audio (headless mpv)."
+        return {"ok": True, "action": "NOW_PLAYING", "content": msg, "response": msg}
+    if src == "spotify":
+        head = "▶ Playing" if _spotify_is_playing() else "⏸ Paused"
+        msg = f"{head}: {title} — Spotify."
+        return {"ok": True, "action": "NOW_PLAYING", "content": msg, "response": msg}
+    # Fall back to whatever MPRIS player is active.
+    try:
+        p = _get_active_player()
+        if p:
+            import subprocess as _sp3
+            r = _sp3.run(["playerctl", "-p", p, "metadata", "--format",
+                          "{{artist}} — {{title}}"], capture_output=True, text=True, timeout=3)
+            meta = (r.stdout or "").strip()
+            if meta and meta != "—":
+                return {"ok": True, "action": "NOW_PLAYING",
+                        "content": f"▶ {meta} — {p}.", "response": f"▶ {meta} — {p}."}
+    except Exception:
+        pass
+    msg = "Nothing is playing right now."
+    return {"ok": True, "action": "NOW_PLAYING", "content": msg, "response": msg}
+
+
 def play_specific(query: str, target: str | None = None) -> Dict[str, Any]:
     """Play a specific song/artist/genre.
 
@@ -2769,6 +2897,7 @@ def play_specific(query: str, target: str | None = None) -> Dict[str, Any]:
         if _opened:
             _time.sleep(1.6)            # let the results view populate
             if _spotify_play():
+                _set_now_playing("spotify", search_q)
                 msg = f"Playing “{search_q}” on Spotify."
                 return {"ok": True, "action": "PLAY_MEDIA", "played": True,
                         "content": msg, "response": msg}
@@ -2802,7 +2931,8 @@ def play_specific(query: str, target: str | None = None) -> Dict[str, Any]:
 
     if shutil.which("yt-dlp") and shutil.which("mpv"):
         try:
-            ipc = os.environ.get("ELI_YOUTUBE_MPV_IPC", "/tmp/eli_youtube_mpv.sock")
+            ipc = _mpv_socket_path()
+            _mpv_quit()                      # stop any previous headless YouTube audio
             _sp.Popen(
                 ["mpv", f"ytdl://ytsearch1:{yt_search}",
                  f"--input-ipc-server={ipc}",
@@ -2810,11 +2940,14 @@ def play_specific(query: str, target: str | None = None) -> Dict[str, Any]:
                  "--title=ELI-YouTube"],
                 stdout=_sp.DEVNULL, stderr=_sp.DEVNULL, start_new_session=True,
             )
-            if _by_m:
-                msg = f"Playing '{_by_m.group(1).strip()}' by {_by_m.group(2).strip()}"
-            else:
-                msg = f"Playing '{query}' on YouTube"
-            return {"ok": True, "action": "PLAY_MEDIA", "content": msg, "response": msg}
+            _title = (f"{_by_m.group(1).strip()} by {_by_m.group(2).strip()}"
+                      if _by_m else query)
+            _set_now_playing("mpv", _title, mpv_sock=ipc)
+            msg = (f"Playing '{_by_m.group(1).strip()}' by {_by_m.group(2).strip()} on "
+                   f"YouTube (audio, in the background)." if _by_m
+                   else f"Playing '{query}' on YouTube (audio, in the background).")
+            return {"ok": True, "action": "PLAY_MEDIA", "played": True,
+                    "content": msg, "response": msg}
         except Exception:
             pass
 
@@ -4661,7 +4794,10 @@ def _execute_impl(action: str, args: Optional[Dict[str, Any]] = None) -> Dict[st
     
     if a == "PAUSE_MEDIA":
         return pause_media()
-    
+
+    if a == "NOW_PLAYING":
+        return now_playing()
+
     if a == "PLAY_MEDIA":
         query = (args.get("query") or args.get("song") or args.get("artist") or "").strip()
         target = (args.get("target") or "").strip() or None
