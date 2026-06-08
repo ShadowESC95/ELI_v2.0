@@ -20,7 +20,7 @@ from deep reads of the core + a full structural/code-health sweep — a deep rea
   verified subsystem facts, the fixes shipped this session, and the honest limits.
   Unbiased, just facts.
 - **[capability_catalogue.md](capability_catalogue.md)** — exhaustive, ground-truth
-  catalogue of all 193 actions + every package's modules (5 parts).
+  catalogue of all actions (205) + every package's modules (5 parts).
 - **[project_overview.md](project_overview.md)** — start here for the engineering
   view. What ELI is, scale (126,619 LOC / 336 files), architecture by layer, the
   honest verdict on "frontier", and the highest-leverage work.
