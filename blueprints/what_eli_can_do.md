@@ -14,9 +14,10 @@ computer. It talks, remembers, sees, listens, acts on your machine, writes and
 fixes code, builds documents, creates images, looks after itself, and adapts to
 you over time — with nothing leaving your device unless you explicitly allow it.
 
-Think **"a Command-console you actually own"**: an embodied desktop operator with ~110
-distinct capabilities, a 14-agent reasoning bus, persistent memory, and full
-voice/vision/gaze control — 126,600 lines of Python, one machine, your data.
+A fully local, embodied desktop AI you actually own: an operator with **205
+capabilities** (166 first-class actions), a 14-agent reasoning bus, persistent
+memory, and full voice/vision/gaze control — ~133,000 lines of Python, one
+machine, your data.
 
 ---
 

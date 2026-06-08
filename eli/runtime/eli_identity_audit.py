@@ -295,9 +295,9 @@ def _classification(matrix: List[Dict[str, str]]) -> Dict[str, Any]:
     total = len(matrix)
     return {
         "current_classification": "local persistent agentic cognitive-runtime and embodied AI workbench prototype",
-        "recommended_classification": "pre-AGI cognitive OS layer for a single local machine, with persona, memory, tools, grounding, world-model, labs, and experimental embodiment surfaces",
+        "recommended_classification": "local cognitive-runtime layer for a single machine, with persona, memory, tools, grounding, world-model, labs, and experimental embodiment surfaces",
         "not_classified_as": [
-            "not verified AGI",
+            "not a general intelligence",
             "not sentient or conscious by evidence",
             "not an unrestricted autonomous operating system",
             "not a pure chatbot wrapper",

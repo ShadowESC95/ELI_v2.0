@@ -196,7 +196,7 @@ def extract_patterns_from_text(text: Any) -> list[tuple[str, str]]:
         out.append(("preference.commands", "User does not want vague drop-in Python snippets; prefers complete command workflows."))
 
     # ELI project facts.
-    if re.search(r"\beli\b|\bmkxi\b|\bmkix\b|\bjarvis\b", low):
+    if re.search(r"\beli\b|\bmkxi\b|\bmkix\b", low):
         out.append(("project.eli", "User is actively developing ELI, a local-first assistant/runtime project."))
 
     if re.search(r"\bcognition pipeline\b|\b12 stage pipeline\b|\borchestrator\b|\bagent bus\b", low):
