@@ -73,7 +73,16 @@ def _top_lines(rows: Any, key: str, limit: int = 8) -> List[str]:
         r"echo\s+\S+\s*>|cat\s+/etc/|ls\s+-la|mkfs|fdisk|kill\s+-9)\b|"
         r"/etc/(?:passwd|shadow|sudoers|hosts)|"
         r"/dev/(?:null|zero|random)|"
-        r"investigate failure:\s*run_cmd)",
+        r"investigate failure:\s*run_cmd|"
+        # Test/mocks, connection-error tracebacks, raw command-list reprs, and probe
+        # flags — these are internal diagnostics, never persona signal, and the model
+        # confabulates around them (or treats stale errors as current state) if shown.
+        r"<MagicMock|MagicMock\s+name=|Mock\s+id=|"
+        r"HTTPConnectionPool|Max\s+retries\s+exceeded|NewConnectionError|"
+        r"ConnectionRefusedError|port=11434|/api/(?:chat|generate|embeddings)|\bollama\b|"
+        r"Traceback\s+\(most\s+recent\s+call\s+last\)|\bErrno\s+\d+|"
+        r"\[\s*['\"](?:nc|ncat|netcat|bash|sh|zsh|dd|rm|mkfs|python\d?|perl|ruby)['\"]|"  # ['nc', ...] list-repr
+        r"['\"]-l?[vp]+['\"]|reverse\s+shell|-e\s+/bin/)",
         _re.I,
     )
     out: List[str] = []
