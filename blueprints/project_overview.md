@@ -28,7 +28,7 @@ a chat wrapper.
 
 ## 2. Scale & shape
 
-**~128,800 LOC across 343 Python files** (`eli/`), plus ~110 test files.
+**~133,000 LOC across 351 Python files** (`eli/`), plus 151 test files. *(2026-06-08.)*
 
 | Subsystem | LOC | Files | Role |
 |---|---|---|---|
