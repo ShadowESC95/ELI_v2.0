@@ -18,8 +18,8 @@ agent's system python. Deeper detail lives in the companion blueprints
 - *(Earlier baseline: 129,955 LOC / 346 files / 196 caps / 12 tabs.)*
 
 ## Tests & eval (measured on `.venv`, 2026-06-08)
-- **6,630 tests collected** (was 6,415). Full-suite pass result: see the 2026-06-08
-  addendum below.
+- **6,630 tests collected; 6,586 passed, 0 failed, 2 xfailed, 42 skipped** (~6m47s on
+  the GPU `.venv`). Was 6,415 collected / 6,371 passed.
 - Composition: original unit/regression/integration (~2,350) + **`tests/claims/`**
   (~3,970 — examines the project vs its claims: every module compiles + core imports;
   every manifest capability well-formed + flags match the live executor; every
