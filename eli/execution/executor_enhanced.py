@@ -295,14 +295,24 @@ def _sha256_file(path: Path) -> str:
     return h.hexdigest()
 
 
+def _full_control() -> bool:
+    """ELI Full Control state — the GUI toggle / `full_control` setting (single source
+    of truth; no environment variable). Never raises."""
+    try:
+        from eli.core.full_control import is_full_control
+        return bool(is_full_control())
+    except Exception:
+        return False
+
+
 def _shell_command_allowed_fallback(cmd: str) -> bool:
     """Fail-closed allowlist check used when the SecurityManager can't load.
 
     Mirrors SecurityManager.is_command_allowed so a degraded manager can never
-    become fail-OPEN: with neither ELI_FULL_CONTROL nor ELI_ALLOWED_CMDS set,
+    become fail-OPEN: with neither ELI Full Control nor ELI_ALLOWED_CMDS set,
     nothing runs.
     """
-    if os.environ.get("ELI_FULL_CONTROL", "0") == "1":
+    if _full_control():
         return True
     raw = (os.environ.get("ELI_ALLOWED_CMDS") or "").strip()
     if not raw:
@@ -3989,7 +3999,7 @@ def _allow_or_block(argv0: str) -> bool:
     import os
     
     # FULL CONTROL MODE: allow everything
-    if os.environ.get("ELI_FULL_CONTROL", "0") == "1":
+    if _full_control():
         return True
     
     allowed = _allowed_cmds_set()
@@ -4200,7 +4210,7 @@ def _allowed_apps_set():
     import os
     
     # FULL CONTROL MODE: no app restrictions
-    if os.environ.get("ELI_FULL_CONTROL", "0") == "1":
+    if _full_control():
         return None
     
     raw = (os.environ.get("ELI_ALLOWED_APPS") or "").strip()
@@ -8701,7 +8711,7 @@ def _execute_impl(action: str, args: Optional[Dict[str, Any]] = None) -> Dict[st
         except Exception:
             pass
         # Security: allow under home / project / ELI_ALLOW_ROOTS (SecurityManager)
-        # or the system temp dir; refuse elsewhere unless ELI_FULL_CONTROL=1.
+        # or the system temp dir; refuse elsewhere unless ELI Full Control is on.
         _allowed = False
         try:
             from eli.runtime.security import SecurityManager as _SM_cf
@@ -8714,9 +8724,9 @@ def _execute_impl(action: str, args: Optional[Dict[str, Any]] = None) -> Dict[st
                 _allowed = True
             except Exception:
                 _allowed = False
-        if not _allowed and _os_cf.environ.get("ELI_FULL_CONTROL", "0") != "1":
+        if not _allowed and not _full_control():
             msg = (f"Refused: {p} is outside allowed roots (home, project, or temp). "
-                   "Set ELI_FULL_CONTROL=1 to override.")
+                   "Enable ELI Full Control to override.")
             return {"ok": False, "action": a, "error": "path_not_allowed", "content": msg, "response": msg}
         try:
             p.parent.mkdir(parents=True, exist_ok=True)

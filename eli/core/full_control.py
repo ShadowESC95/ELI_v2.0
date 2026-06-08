@@ -11,24 +11,19 @@ consults this flag steps aside:
   • autonomy/proposal approval (approval_engine)  → proposals auto-approved
   • command/shell safety gate                      → commands run without the gate
 
-This is a power-user / trust switch. It is read live (env first), so flipping the GUI
-toggle takes effect immediately without a restart, and it is persisted so it survives
-one. Each barrier checks is_full_control() at its own decision point — there is no
-hidden global mutation, so turning the toggle back OFF restores every gate at once.
+This is a power-user / trust switch. The SINGLE source of truth is the `full_control`
+setting, flipped by the GUI toggle — there is no environment variable, so nothing can
+conflict with the toggle. It is read live from the same in-memory settings store the Net
+toggle uses, so flipping it takes effect immediately without a restart, and it persists.
+Each barrier checks is_full_control() at its own decision point — there is no hidden
+global mutation, so turning the toggle back OFF restores every gate at once.
 """
 from __future__ import annotations
-import os
-
-_TRUE = {"1", "true", "yes", "on", "enabled"}
-_FALSE = {"0", "false", "no", "off", "disabled"}
 
 
 def is_full_control() -> bool:
-    """True when the master override is active. Live env wins; else the persisted
-    setting; default False. Never raises."""
-    v = os.environ.get("ELI_FULL_CONTROL")
-    if v is not None:
-        return v.strip().lower() in _TRUE
+    """True when the master override is active. Sole source: the `full_control` setting
+    (the GUI toggle). Default False. Never raises."""
     try:
         from eli.core.config import get
         return bool(get("full_control", False))
@@ -37,13 +32,12 @@ def is_full_control() -> bool:
 
 
 def set_full_control(enabled: bool) -> bool:
-    """Flip the override live (env) and persist it (settings). Returns the new state.
-    Never raises."""
+    """Flip the override via the live settings store (the toggle's single source of
+    truth) and persist it. Returns the new state. Never raises."""
     enabled = bool(enabled)
-    os.environ["ELI_FULL_CONTROL"] = "1" if enabled else "0"
     try:
-        from eli.core.runtime_settings import save_settings
-        save_settings({"full_control": enabled})
+        from eli.core.config import set as _set
+        _set("full_control", enabled)
     except Exception:
         pass
     return enabled
