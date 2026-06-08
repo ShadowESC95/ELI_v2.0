@@ -188,22 +188,60 @@ class SelfImprovementEngine:
         finally:
             conn.close()
 
+        # Escalation clauses (recurring error → ELI proactively raises it with the user):
+        #   ≥5×  → "notice": flag it to the user in the next conversation turn.
+        #   ≥10× → "act":    additionally attempt a self-resolution and report the outcome.
+        # Skip user-input/clarification cases (fault=False) — those aren't real faults.
+        if new_count in (5, 10) or (new_count > 10 and new_count % 5 == 0):
+            if not (isinstance(ctx, dict) and ctx.get("fault") is False):
+                stage = "notice" if new_count < 10 else "act"
+                head = (f"Heads up — I keep hitting an error: “{error_type[:90]}” "
+                        f"({new_count}× now).")
+                tail = ("I'm flagging it and keeping watch." if stage == "notice"
+                        else "I'm going to try to resolve it myself and let you know.")
+                _push_self_heal_notice({
+                    "error_type": error_type[:140], "count": int(new_count),
+                    "stage": stage, "message": f"{head} {tail}",
+                })
         # Auto-trigger improvement analysis when an error pattern recurs 5× (and every 5× after)
         if new_count >= 5 and new_count % 5 == 0:
             log.debug(f"[SELF-IMPROVE] Recurring error pattern detected ({new_count}×) — auto-triggering capability analysis")
-            threading.Thread(target=self._background_analyze, daemon=True).start()
+            threading.Thread(target=self._background_analyze, daemon=True,
+                             args=(error_type, int(new_count))).start()
 
-    def _background_analyze(self) -> None:
-        """Run analyze_and_improve then attempt code patches for high-recurrence failures."""
+    def _background_analyze(self, error_type: str = "", count: int = 0) -> None:
+        """Run analyze_and_improve then attempt code patches for high-recurrence failures.
+        For a ≥10× error this also records a user-facing OUTCOME notice so ELI can report
+        what it actually tried (proposals generated / patch applied / logged for review)."""
+        _proposals = 0
+        _patched: List[str] = []
+        _outcome = "logged it for review — I couldn't auto-resolve it this pass"
+
+        def _report():
+            if count >= 10:
+                if _patched:
+                    out = "applied a fix to " + ", ".join(_patched)
+                elif _proposals:
+                    out = f"worked up {_proposals} fix proposal(s) for it"
+                else:
+                    out = _outcome
+                _push_self_heal_notice({
+                    "error_type": (error_type or "a recurring error")[:140],
+                    "count": int(count), "stage": "resolved",
+                    "message": f"Update on “{(error_type or 'that error')[:80]}”: I {out}.",
+                })
+
         try:
             result = self.analyze_and_improve()
             imps = result.get("improvements", [])
+            _proposals = len(imps)
             if imps:
                 log.debug(f"[SELF-IMPROVE] Auto-analysis complete: {len(imps)} proposal(s) generated")
             else:
                 log.debug("[SELF-IMPROVE] Auto-analysis complete: no new proposals")
         except Exception as _ae:
             log.debug(f"[SELF-IMPROVE] Auto-analysis failed: {_ae}")
+            _report()
             return
 
         # Attempt code patches for failures with file tracebacks and high recurrence.
@@ -213,17 +251,21 @@ class SelfImprovementEngine:
             _settings = json.loads((PROJECT_ROOT / "config" / "settings.json").read_text(encoding="utf-8"))
             if not _settings.get("auto_patch_enabled", False):
                 log.debug("[SELF-IMPROVE] auto_patch_enabled is off — patch proposals logged but not applied")
+                _report()
                 return
         except Exception:
             log.debug("[SELF-IMPROVE] Could not read settings — skipping auto-patch for safety")
+            _report()
             return
 
         # Only runs when an inference broker is available (model loaded).
         try:
             broker = get_broker()
             if broker is None:
+                _report()
                 return
         except Exception:
+            _report()
             return
 
         try:
@@ -233,6 +275,7 @@ class SelfImprovementEngine:
                 if f.get("error") and 'File "' in str(f.get("error", ""))
             ]
             if not patchable:
+                _report()
                 return
             log.debug(f"[SELF-IMPROVE] Attempting code patches for {len(patchable)} high-recurrence failure(s)")
             for failure in patchable[:2]:  # cap at 2 patches per cycle to limit LLM load
@@ -244,12 +287,14 @@ class SelfImprovementEngine:
                     apply_result = self.apply_code_patch(patch)
                     if apply_result.get("ok"):
                         log.debug(f"[SELF-IMPROVE] Patch applied to {patch.get('file')}: {patch.get('description')}")
+                        _patched.append(str(patch.get("file") or "a file"))
                     else:
                         log.debug(f"[SELF-IMPROVE] Patch rejected: {apply_result.get('error', '?')}")
                 except Exception as _patch_err:
                     log.debug(f"[SELF-IMPROVE] Patch attempt failed: {_patch_err}")
         except Exception as _chain_err:
             log.debug(f"[SELF-IMPROVE] Patch chain failed: {_chain_err}")
+        _report()
 
     def log_improvement(self, category: str, description: str, area: str = "runtime",
                         code_before: str = "", code_after: str = ""):
@@ -837,6 +882,56 @@ class SelfImprovementEngine:
 # ─────────────────────────────────────────────────────────────────────────────
 # Module-level singletons
 # ─────────────────────────────────────────────────────────────────────────────
+
+# ── Self-heal notices (recurring-error → proactive conversation surface) ──────
+# When an error recurs ≥5× (flag) or ≥10× (act + report), a user-facing notice is
+# queued here. The engine pops the most pressing one at the start of a conversational
+# turn and mentions it — so ELI raises recurring problems with the user himself and
+# reports what he tried, instead of failing silently.
+def _self_heal_notices_path() -> Path:
+    return PROJECT_ROOT / "artifacts" / "runtime" / "self_heal_notices.json"
+
+
+def _read_notices() -> List[Dict[str, Any]]:
+    try:
+        p = _self_heal_notices_path()
+        if p.exists():
+            d = json.loads(p.read_text(encoding="utf-8"))
+            return d if isinstance(d, list) else []
+    except Exception:
+        pass
+    return []
+
+
+def _push_self_heal_notice(notice: Dict[str, Any]) -> None:
+    """Queue a user-facing self-heal notice (deduped by error_type+stage). Never raises."""
+    try:
+        p = _self_heal_notices_path()
+        p.parent.mkdir(parents=True, exist_ok=True)
+        data = _read_notices()
+        key = (notice.get("error_type"), notice.get("stage"))
+        data = [n for n in data if (n.get("error_type"), n.get("stage")) != key]
+        notice["ts"] = time.time()
+        data.append(notice)
+        p.write_text(json.dumps(data[-12:], indent=2), encoding="utf-8")
+    except Exception:
+        pass
+
+
+def consume_self_heal_notice() -> Optional[Dict[str, Any]]:
+    """Pop the most pressing un-surfaced notice (highest count, then most recent). The
+    engine calls this once per conversational turn. Never raises."""
+    try:
+        data = _read_notices()
+        if not data:
+            return None
+        data.sort(key=lambda n: (int(n.get("count", 0)), float(n.get("ts", 0))), reverse=True)
+        top, rest = data[0], data[1:]
+        _self_heal_notices_path().write_text(json.dumps(rest, indent=2), encoding="utf-8")
+        return top
+    except Exception:
+        return None
+
 
 _self_engine: Optional[SelfImprovementEngine] = None
 
