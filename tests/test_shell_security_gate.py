@@ -14,8 +14,10 @@ from unittest.mock import MagicMock, patch
 @pytest.fixture(autouse=True)
 def _full_control_off(monkeypatch):
     """These tests verify the safety FLOOR, so they must run with ELI Full Control off
-    regardless of the ambient environment (Full Control deliberately lifts this gate)."""
-    monkeypatch.setenv("ELI_FULL_CONTROL", "0")
+    (Full Control deliberately lifts this gate). The toggle is the sole control, so we
+    force its check to False regardless of the persisted setting."""
+    import eli.core.full_control as _fc
+    monkeypatch.setattr(_fc, "is_full_control", lambda: False)
     yield
 
 
