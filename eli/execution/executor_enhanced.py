@@ -2749,11 +2749,12 @@ def play_specific(query: str, target: str | None = None) -> Dict[str, Any]:
         search_q = (
             f"{_by_m.group(1).strip()} {_by_m.group(2).strip()}" if _by_m else query
         )
-        # No Web API: open the PLAYLISTS search tab (sets the active context to
-        # matching playlists), let results load, then issue Play so the top
-        # PLAYLIST starts — its tracks keep continuation on-theme rather than
-        # the 'All' tab playing one song then drifting (user-reported).
-        _opened = _spotify_search(search_q, prefer="playlists")
+        # No Web API: open the search results (this sets the active context to the
+        # matching TRACKS), let results load, then issue Play so the TOP SONG match
+        # starts. Playing the specific requested song is the intended behaviour — the
+        # earlier 'playlists' filter approach opened a LIST of playlists where Play
+        # had nothing to start, which is why playback failed.
+        _opened = _spotify_search(search_q)
         if not _opened:
             # Spotify not running yet — launch with the search URI, wait, retry.
             try:
@@ -2762,18 +2763,18 @@ def play_specific(query: str, target: str | None = None) -> Dict[str, Any]:
                     _time.sleep(1.0)
                     if _spotify_running():
                         break
-                _opened = _spotify_search(search_q, prefer="playlists")
+                _opened = _spotify_search(search_q)
             except Exception:
                 _opened = False
         if _opened:
             _time.sleep(1.6)            # let the results view populate
             if _spotify_play():
-                msg = f"Playing a “{search_q}” playlist on Spotify."
+                msg = f"Playing “{search_q}” on Spotify."
                 return {"ok": True, "action": "PLAY_MEDIA", "played": True,
                         "content": msg, "response": msg}
-            msg = (f"I opened the Spotify search for “{search_q}” but couldn’t start "
-                   f"playback automatically — hit play, or say “play {search_q} on "
-                   f"youtube” and I’ll play it directly.")
+            msg = (f"I opened the Spotify search for “{search_q}” but Spotify didn’t start "
+                   f"playback — press play in Spotify, or check that playerctl/dbus can "
+                   f"reach it.")
             return {"ok": True, "action": "PLAY_MEDIA", "played": False,
                     "search_only": True, "content": msg, "response": msg}
         # Spotify was the EXPLICITLY requested target. Even if we couldn't reach it
