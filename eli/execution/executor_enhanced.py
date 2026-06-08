@@ -2814,21 +2814,26 @@ def play_specific(query: str, target: str | None = None) -> Dict[str, Any]:
             pass
 
     # ── 4. No yt-dlp/mpv → resolve watch URL and open in browser ─────────────
-    # Use the Mix/radio URL so it autoplays related songs continuously.
+    # Direct in-app playback needs yt-dlp + mpv; without them we can only open the
+    # browser. Be HONEST that this is the missing-tools fallback, not real playback
+    # (no-fake-actions) — and tell the user exactly what unlocks "play".
+    _play_hint = (" — for direct playback install mpv + yt-dlp "
+                  "(sudo apt install mpv && pipx install yt-dlp)")
     watch = _yt_mix_url(_yt_resolve_watch_url(yt_search))
     if watch:
         _open_in_browser(watch)
-        if _by_m:
-            msg = f"Opening '{_by_m.group(1).strip()}' by {_by_m.group(2).strip()} in browser"
-        else:
-            msg = f"Opening '{query}' in browser"
-        return {"ok": True, "action": "PLAY_MEDIA", "content": msg, "response": msg}
+        _what = (f"'{_by_m.group(1).strip()}' by {_by_m.group(2).strip()}"
+                 if _by_m else f"'{query}'")
+        msg = f"Opening {_what} in the browser{_play_hint}."
+        return {"ok": True, "action": "PLAY_MEDIA", "played": False,
+                "search_only": True, "content": msg, "response": msg}
 
     # ── 5. Last resort: YouTube search page ──────────────────────────────────
     encoded = urllib.parse.quote_plus(query)
     _open_in_browser(f"https://www.youtube.com/results?search_query={encoded}")
-    msg = f"Opening YouTube: {query}"
-    return {"ok": True, "action": "PLAY_MEDIA", "content": msg, "response": msg}
+    msg = f"Opening a YouTube search for '{query}' in the browser{_play_hint}."
+    return {"ok": True, "action": "PLAY_MEDIA", "played": False,
+            "search_only": True, "content": msg, "response": msg}
 
 # ================== END MEDIA CONTROL ==================
 
