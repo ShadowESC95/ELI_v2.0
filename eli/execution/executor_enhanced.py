@@ -2026,6 +2026,7 @@ SUPPORTED_ACTIONS = [
     'TIME',
     'TRANSCRIBE',
     'WAKE_TRAIN',
+    'WAKE_ENROLL',
     'USER_IDENTITY_SUMMARY',
     'VOLUME',
     'WEB_SEARCH',
@@ -6039,6 +6040,25 @@ def _execute_impl(action: str, args: Optional[Dict[str, Any]] = None) -> Dict[st
                     "evidence_source": "wakeword_train", "result": res}
         except Exception as e:
             msg = f"WAKE_TRAIN failed: {e}"
+            return {"ok": False, "action": a, "error": str(e), "content": msg, "response": msg}
+
+    # ---- WAKE_ENROLL — record the user's own voice + retrain (personalisation) ----
+    # Captures a few real-mic samples of the user saying the wake word through the
+    # running mic loop (no second device), then retrains so the model locks onto how
+    # the user actually says it — the biggest real-mic accuracy win.
+    if a == "WAKE_ENROLL":
+        try:
+            from eli.perception.audio_stt import begin_wake_enrollment
+            n = int((args or {}).get("samples") or (args or {}).get("count") or 5)
+            res = begin_wake_enrollment(n)
+            if not res.get("ok"):
+                msg = f"Wake-word enrollment can't start: {res.get('error')}"
+                return {"ok": False, "action": a, "content": msg, "response": msg}
+            msg = res.get("message") or "Listening for your wake-word samples."
+            return {"ok": True, "action": a, "content": msg, "response": msg,
+                    "evidence_source": "wakeword_enroll", "result": res}
+        except Exception as e:
+            msg = f"WAKE_ENROLL failed: {e}"
             return {"ok": False, "action": a, "error": str(e), "content": msg, "response": msg}
 
     # ---- ORCHESTRATION_STATUS — explain the agent DAG + last orchestrated run ----

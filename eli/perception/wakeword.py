@@ -46,6 +46,56 @@ def _model_dir() -> Path:
     return d
 
 
+def _enroll_dir() -> Path:
+    d = _model_dir() / "enroll"
+    d.mkdir(parents=True, exist_ok=True)
+    return d
+
+
+def save_enrollment_clip(audio_int16: np.ndarray, sr: int = SR) -> Optional[Path]:
+    """Persist one real-mic recording of the user saying the wake word. Resampled
+    to 16k mono and length-fixed. Returns the path, or None on failure."""
+    try:
+        import soundfile as sf
+        x = np.asarray(audio_int16).ravel().astype(np.float32) / 32768.0
+        if sr != SR:
+            x = _resample(x, sr, SR)
+        x = _fix_len(x)
+        d = _enroll_dir()
+        idx = len(list(d.glob("enroll_*.wav")))
+        p = d / f"enroll_{idx:03d}.wav"
+        sf.write(str(p), x, SR)
+        return p
+    except Exception as e:
+        log.debug(f"[WAKE] save enrollment failed: {e}")
+        return None
+
+
+def _load_enrolled() -> List[np.ndarray]:
+    """Real-mic enrollment clips (the user's actual voice/room/mic) as float32 16k."""
+    out: List[np.ndarray] = []
+    try:
+        import soundfile as sf
+        for f in sorted(_enroll_dir().glob("enroll_*.wav")):
+            try:
+                data, sr = sf.read(str(f), dtype="float32")
+                if data.ndim > 1:
+                    data = data.mean(axis=1)
+                out.append(_fix_len(_resample(data, sr, SR)))
+            except Exception:
+                pass
+    except Exception:
+        pass
+    return out
+
+
+def enrollment_count() -> int:
+    try:
+        return len(list(_enroll_dir().glob("enroll_*.wav")))
+    except Exception:
+        return 0
+
+
 def _head_path() -> Path:
     return _model_dir() / "eli_wake_head.pt"
 
@@ -235,19 +285,30 @@ def train_model(phrases: Optional[List[str]] = None, *, per_voice_speeds=(0.85, 
     beds = _noise_beds()
 
     pos: List[np.ndarray] = []
+
+    def _add_positive(base: np.ndarray, n_aug: int):
+        pos.append(base)
+        for _ in range(n_aug):
+            bed = beds[np.random.randint(len(beds))]
+            snr = float(np.random.uniform(0.0, 15.0))
+            pos.append(_fix_len(_mix_snr(base, bed, snr)))
+
+    # Synthetic positives (ELI's own Piper voices) — breadth/generalisation.
     for ph in phrases:
         for vm in voices:
             for ls in per_voice_speeds:
                 clip = _synth(ph, vm, length_scale=ls)
                 if clip is None or len(clip) < SR // 4:
                     continue
-                base = _fix_len(clip)
-                pos.append(base)
-                # augmented copies mixed with noise/music at random SNR
-                for _ in range(augment_per_clip):
-                    bed = beds[np.random.randint(len(beds))]
-                    snr = float(np.random.uniform(0.0, 15.0))
-                    pos.append(_fix_len(_mix_snr(base, bed, snr)))
+                _add_positive(_fix_len(clip), augment_per_clip)
+
+    # Real-mic ENROLLMENT positives (the user's actual voice/room/mic). Weighted
+    # heavily — repeated with extra augmentation — so the model locks onto how the
+    # user actually says the wake word, which is what matters at real-mic time.
+    enrolled = _load_enrolled()
+    for clip in enrolled:
+        for _ in range(3):                       # repeat the clean real sample
+            _add_positive(clip, augment_per_clip + 2)
 
     neg: List[np.ndarray] = []
     for w in _NEG_WORDS:
