@@ -6064,7 +6064,7 @@ def _execute_impl(action: str, args: Optional[Dict[str, Any]] = None) -> Dict[st
             return {"ok": False, "action": a, "error": str(e), "content": msg, "response": msg}
 
     # ---- WAKE_SET — let the user choose their OWN wake word, then train it ----
-    # "change the wake word to athena" / "set my wake word to jarvis". Persists the
+    # "change the wake word to athena" / "set my wake word to atlas". Persists the
     # phrase (used by both the acoustic model and the transcription matcher) and
     # trains the detector on it in the background (Piper can synthesise any phrase).
     if a == "WAKE_SET":
@@ -8931,7 +8931,7 @@ def _execute_impl(action: str, args: Optional[Dict[str, Any]] = None) -> Dict[st
             return {"ok": False, "action": a, "error": str(e), "content": str(e), "response": str(e)}
         
 
-    # ---- Window management (JARVIS-style screen control) ───────────────
+    # ---- Window management (screen control) ────────────────────────────
     # Tile / arrange windows so all are visible side-by-side. Linux-first.
     if a == "TILE_WINDOWS":
         if shutil.which("wmctrl"):

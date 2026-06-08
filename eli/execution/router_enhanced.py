@@ -6,7 +6,7 @@
 # - Backward compatibility for legacy tests (e.g. STOP_MEDIA)
 # - Canonicalized aliases + STT cleanup
 # - Route metadata for debugging / future planner integration
-# - Deterministic first, "AGI-ready" structure second
+# - Deterministic first, extensible structure second
 
 from __future__ import annotations
 
@@ -2264,7 +2264,7 @@ def route(text: str) -> Dict[str, Any]:
         return _mk("KEYBOARD", {"key": "ctrl+t"}, 0.93,
                    matched_by="browser.tab_new.early")
 
-    # ── Window management (JARVIS-style screen control) ────────────────────
+    # ── Window management (screen control) ─────────────────────────────────
     # "optimise screen" / "tile windows" / "minimise all" / "focus X" / etc.
     _window_ops = (
         (r"\boptimi[sz]e\s+(?:my\s+)?screen\b|\btile\s+(?:all\s+)?windows?\b|"

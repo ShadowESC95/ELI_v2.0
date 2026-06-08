@@ -27,7 +27,7 @@ def test_identity_audit_contains_verified_classification_matrix():
     report = build_eli_identity_audit("classify eli")
     cls = report.get("classification") or {}
     assert "local persistent agentic cognitive-runtime" in cls.get("current_classification", "")
-    assert "not verified AGI" in (cls.get("not_classified_as") or [])
+    assert "not a general intelligence" in (cls.get("not_classified_as") or [])
 
     matrix = report.get("capability_matrix") or []
     assert len(matrix) >= 8
