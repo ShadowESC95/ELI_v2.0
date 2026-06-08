@@ -245,6 +245,26 @@ def _allow_direct_chat() -> bool:
 ALLOW_DIRECT_CHAT_WITHOUT_WAKE = _allow_direct_chat()  # kept for backwards compat
 MIN_DIRECT_CHAT_WORDS = int(os.environ.get("ELI_STT_MIN_DIRECT_CHAT_WORDS", "2"))
 
+# Most-recently-created STT instance, so a chat action (WAKE_ENROLL) can drive
+# wake-word enrollment through the already-running mic loop (no second device).
+_ACTIVE_STT = None
+
+
+def get_active_stt():
+    return _ACTIVE_STT
+
+
+def begin_wake_enrollment(n: int = 5) -> dict:
+    """Start capturing `n` real-mic samples of the user saying the wake word via the
+    running STT loop, then auto-retrain. Returns {ok, message} or {ok:False,error}."""
+    stt = _ACTIVE_STT
+    if stt is None or not getattr(stt, "is_listening", False):
+        return {"ok": False, "error": "the microphone is not running — enable voice first, then try again"}
+    try:
+        return stt.begin_enrollment(int(n))
+    except Exception as e:
+        return {"ok": False, "error": str(e)}
+
 # Hard override: require wake word for ALL safe-direct commands regardless of media state.
 # Default off — media-aware gating in classify() handles the speaker-bleed case dynamically.
 # Set ELI_STT_REQUIRE_WAKE_FOR_SAFE_DIRECT=1 to force wake word even in silence.
@@ -804,6 +824,13 @@ class ELIAudioSTT:
 
         self.recognizer = sr.Recognizer()
 
+        # Wake-word enrollment state (capture the user's own voice through the
+        # existing mic loop — no second microphone, no device conflict).
+        self._enroll_remaining = 0
+        self._enroll_target = 0
+        global _ACTIVE_STT
+        _ACTIVE_STT = self
+
         # Local Whisper needs a more sensitive capture front-end than Google STT.
         # These values control when SpeechRecognition decides speech has started/stopped.
         self.recognizer.energy_threshold = int(os.environ.get("ELI_STT_ENERGY_THRESHOLD", "1200"))
@@ -1077,6 +1104,35 @@ class ELIAudioSTT:
             if frames:
                 frames.pop()
         return _sr.AudioData(b"".join(frames), source.SAMPLE_RATE, source.SAMPLE_WIDTH)
+
+    def _speak_prompt(self, text: str):
+        try:
+            from eli.perception import tts_router
+            tts_router.speak(text)
+        except Exception:
+            pass
+
+    def begin_enrollment(self, n: int = 5) -> dict:
+        """Arm capture of `n` real-mic samples of the user saying the wake word,
+        through the running loop. Each captured (non-echo) phrase is saved; after
+        the last one the model retrains in the background."""
+        n = max(1, min(20, int(n)))
+        self._enroll_target = n
+        self._enroll_remaining = n
+        self._speak_prompt(f"Let's teach me your wake word. Say computer, {n} times, "
+                           f"with a short pause between each. Go ahead now.")
+        return {"ok": True, "samples": n,
+                "message": (f"Listening — say \"computer\" {n} times (pause between each). "
+                            f"I'll retrain on your voice automatically when you're done.")}
+
+    def _finish_enrollment(self):
+        try:
+            from eli.perception import wakeword as _ww
+            res = _ww.train_model()
+            self._speak_prompt("Your wake word is trained and ready."
+                               if res.get("ok") else "Wake word training could not finish.")
+        except Exception as e:
+            log.debug(f"[WAKE] enrollment training failed: {e}")
 
     def listen_once(self, timeout=5) -> str:
         try:
@@ -1397,6 +1453,29 @@ class ELIAudioSTT:
                             flush=True,
                         )
                         continue
+                    # ── Wake-word enrollment capture (the user's own voice) ──
+                    # Past the TTS-echo guards, so this is clean user speech. Save each
+                    # captured phrase as an enrollment sample; after the last, retrain
+                    # on the user's voice in the background. Skips command processing.
+                    if getattr(self, "_enroll_remaining", 0) > 0:
+                        try:
+                            _raw = audio.get_raw_data()
+                            _asr = int(getattr(audio, "sample_rate", 16000) or 16000)
+                            if int(getattr(audio, "sample_width", 2) or 2) == 2 and _raw:
+                                from eli.perception import wakeword as _ww
+                                _ww.save_enrollment_clip(np.frombuffer(_raw, dtype=np.int16), sr=_asr)
+                                self._enroll_remaining -= 1
+                                if self._enroll_remaining > 0:
+                                    self._speak_prompt(f"Got it. {self._enroll_remaining} more.")
+                                else:
+                                    self._speak_prompt("Thanks. Training your wake word on your voice now.")
+                                    import threading as _th_en
+                                    _th_en.Thread(target=self._finish_enrollment, daemon=True,
+                                                  name="eli-wake-enroll").start()
+                        except Exception as _en_err:
+                            log.debug(f"[WAKE] enrollment capture failed: {_en_err}")
+                        continue
+
                     # Update user voice profile for next time's threshold bias.
                     self._record_voice_sample(audio)
 
