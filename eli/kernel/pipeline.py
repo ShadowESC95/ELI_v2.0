@@ -46,8 +46,8 @@ STEPS = [
         "fallback_path": "eli/kernel/engine.py"
     },
     {
-        "name": "6. AGENT BUS (13 parallel workers)",
-        "desc": "Memory, System, Capability, File/Code, Habit, Self‑Improvement, Proactive, Reflection, Orchestrator, Voice, Plugin, Introspection, KnowledgeGraph agents — all run concurrently via ThreadPoolExecutor(max_workers=13).",
+        "name": "6. AGENT BUS (parallel specialist agents)",
+        "desc": "Memory, System, Habit, Self‑Improvement, Proactive, Frontier, Plugin, Capability, Voice, Orchestrator, File/Code, Introspection, Reflection, KnowledgeGraph agents — run concurrently via a ThreadPoolExecutor sized to the live agent count (read your runtime for the exact number).",
         "module": "eli.cognition.agent_bus",
         "function": None,
         "fallback_path": "eli/cognition/agent_bus.py"
@@ -61,7 +61,7 @@ STEPS = [
     },
     {
         "name": "8. SINGLE INFERENCE BROKER",
-        "desc": "Serialises all LLM calls (GGUF or Ollama).",
+        "desc": "Serialises all LLM calls — local GGUF only (model-agnostic; no cloud, no Ollama on the default path).",
         "module": "eli.cognition.inference_broker",
         "function": None,
         "fallback_path": "eli/cognition/inference_broker.py"
