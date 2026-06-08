@@ -7,6 +7,16 @@ import logging
 
 logger = logging.getLogger(__name__)
 
+
+def _sec_full_control() -> bool:
+    """ELI Full Control (the GUI toggle / `full_control` setting) — single source
+    of truth, no environment variable. Never raises."""
+    try:
+        from eli.core.full_control import is_full_control
+        return bool(is_full_control())
+    except Exception:
+        return False
+
 class SecurityManager:
     """Centralized security and sandboxing"""
     
@@ -15,10 +25,10 @@ class SecurityManager:
         self.allowed_roots = self._get_allowed_roots()
         self.allowed_commands = self._get_allowed_commands()
         self.allowed_apps = self._get_allowed_apps()
-        if not self.allowed_commands and os.environ.get("ELI_FULL_CONTROL", "0") != "1":
+        if not self.allowed_commands and not _sec_full_control():
             logger.warning(
                 "SecurityManager: ELI_ALLOWED_CMDS is unset — shell commands are BLOCKED (fail-closed). "
-                "Set ELI_FULL_CONTROL=1 to allow all commands, or ELI_ALLOWED_CMDS=cmd1,cmd2 to whitelist specific ones."
+                "Enable the ELI Full Control toggle to allow all commands, or set ELI_ALLOWED_CMDS=cmd1,cmd2 to whitelist specific ones."
             )
         
     def _get_project_root(self) -> Path:
@@ -106,16 +116,21 @@ class SecurityManager:
     
     def is_command_allowed(self, command: str) -> bool:
         """Check if command is allowed to execute"""
-        # Full control mode bypasses all restrictions
-        if os.environ.get("ELI_FULL_CONTROL", "0") == "1":
-            return True
-        
+        # ELI Full Control (the GUI toggle / `full_control` setting) bypasses all
+        # restrictions. Single source of truth — no environment variable.
+        try:
+            from eli.core.full_control import is_full_control
+            if is_full_control():
+                return True
+        except Exception:
+            pass
+
         # Wildcard allows everything
         if "*" in self.allowed_commands:
             return True
-        
-        # ELI_ALLOWED_CMDS is unset and ELI_FULL_CONTROL is not set — fail-closed.
-        # To allow all commands: set ELI_FULL_CONTROL=1 at launch.
+
+        # ELI_ALLOWED_CMDS is unset and Full Control is off — fail-closed.
+        # To allow all commands: enable the ELI Full Control toggle.
         # To allow specific commands: set ELI_ALLOWED_CMDS=cmd1,cmd2,...
         if not self.allowed_commands:
             return False
@@ -126,8 +141,8 @@ class SecurityManager:
     
     def is_app_allowed(self, app_name: str) -> bool:
         """Check if application is allowed to open"""
-        # Full control mode
-        if os.environ.get("ELI_FULL_CONTROL", "0") == "1":
+        # ELI Full Control (toggle / setting) — single source of truth.
+        if _sec_full_control():
             return True
         
         # Empty allowed list means use default safe apps
