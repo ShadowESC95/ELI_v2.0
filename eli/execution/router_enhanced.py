@@ -1977,7 +1977,13 @@ def route(text: str) -> Dict[str, Any]:
     # LEGACY-COMPAT MEDIA INTENTS (must be before generic MEDIA_CONTROL)
     # Keeps test compatibility and deterministic semantics.
     # ============================================================
-    if re.search(r"\bstop\s+(?:the\s+)?(?:media|music|spotify)\b", low):
+    # "what's playing?" — report the current track/source (before the play matchers
+    # so it's never mistaken for a play command).
+    if re.search(r"\bwhat(?:'?s| is| are you)\s+playing\b|\bwhat\s+(?:song|track|music)\s+is\s+"
+                 r"(?:this|playing|that)\b|\bnow\s+playing\b|\bwhat\s+am\s+i\s+listening\s+to\b", low):
+        return _mk("NOW_PLAYING", {}, 0.96, matched_by="media.now_playing")
+
+    if re.search(r"\bstop\s+(?:the\s+)?(?:media|music|spotify|youtube)\b", low):
         return {"action": "STOP_MEDIA", "args": {}, "confidence": 0.96}
 
     if re.search(r"\bpause\s+(?:the\s+)?(?:media|music|spotify)\b", low):
