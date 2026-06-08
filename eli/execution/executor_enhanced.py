@@ -7177,15 +7177,10 @@ def _execute_impl(action: str, args: Optional[Dict[str, Any]] = None) -> Dict[st
                     lines.append(f"\nSuggested improvements ({len(imps)}):")
                     for imp in imps[:5]:
                         lines.append(f"  - {imp.get('description', '')}")
-            # --- Awareness integration ---
-            try:
-                from eli.runtime.awareness_boot import get_awareness
-                awareness = get_awareness()
-                if awareness:
-                    lines.append("")
-                    lines.append(awareness.context_block())
-            except Exception:
-                pass
+            # NOTE (2026-06-09): the live self-model block (awareness.context_block())
+            # is PRIVATE prompt context — it was leaking into this user-facing report as a
+            # raw "[Live self-model: …]" data dump (user called it out). Do not append it
+            # here; the report stays a clean human-readable list.
 
             msg = "\n".join(lines)
             # Fire repair_completed so the world engine decreases repair_pressure.
@@ -7515,15 +7510,40 @@ def _execute_impl(action: str, args: Optional[Dict[str, Any]] = None) -> Dict[st
                 return {"ok": True, "action": a, "content": msg, "response": msg}
 
             elif alarm_time:
-                # Parse HH:MM and compute seconds until that time
-                from datetime import datetime as _dt
+                # Parse a natural-language time and compute seconds until it. Handles
+                # "7am", "7 am", "7:30pm", "07:00", "07:00 hours", "19:00", "noon",
+                # "midnight", "tomorrow at 7am", "7am tomorrow", bare "7" (was: int()
+                # on the raw string → "Bad time format" for everything but "HH:MM").
+                from datetime import datetime as _dt, timedelta as _td
+                import re as _re_alarm
                 now = _dt.now()
                 try:
-                    parts = str(alarm_time).replace(".", ":").split(":")
-                    target_h, target_m = int(parts[0]), int(parts[1]) if len(parts) > 1 else 0
+                    _s = str(alarm_time).strip().lower()
+                    _force_tomorrow = "tomorrow" in _s
+                    _s = _re_alarm.sub(r"\b(tomorrow|at|hours|hrs|o'?clock)\b", " ", _s)
+                    if "noon" in _s:
+                        target_h, target_m = 12, 0
+                    elif "midnight" in _s:
+                        target_h, target_m = 0, 0
+                    else:
+                        _ampm = "pm" if _re_alarm.search(r"\bpm\b|pm$", _s) else (
+                            "am" if _re_alarm.search(r"\bam\b|am$", _s) else None)
+                        _s2 = _s.replace("am", " ").replace("pm", " ").replace(".", ":")
+                        _m = _re_alarm.search(r"(\d{1,2})(?::(\d{1,2}))?", _s2)
+                        if not _m:
+                            raise ValueError(f"no recognisable time in {alarm_time!r}")
+                        target_h = int(_m.group(1))
+                        target_m = int(_m.group(2) or 0)
+                        if _ampm == "pm" and target_h < 12:
+                            target_h += 12
+                        elif _ampm == "am" and target_h == 12:
+                            target_h = 0
+                    if not (0 <= target_h <= 23 and 0 <= target_m <= 59):
+                        raise ValueError(f"time out of range: {target_h:02d}:{target_m:02d}")
                     target = now.replace(hour=target_h, minute=target_m, second=0, microsecond=0)
-                    if target <= now:
-                        target = target.replace(day=target.day + 1)
+                    if _force_tomorrow or target <= now:
+                        target = target + _td(days=1)   # timedelta (safe across month/year ends)
+                    alarm_time = f"{target_h:02d}:{target_m:02d}"
                     secs = int((target - now).total_seconds())
                     def _alarm_fire():
                         time.sleep(secs)
