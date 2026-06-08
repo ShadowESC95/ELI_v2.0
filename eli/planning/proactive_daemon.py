@@ -283,7 +283,9 @@ class ProactiveDaemon:
             cur = con.cursor()
             cur.execute(
                 "SELECT error, occurrence_count FROM failures "
-                "WHERE occurrence_count >= 2 ORDER BY timestamp DESC LIMIT 10"
+                "WHERE occurrence_count >= 2 "
+                "AND COALESCE(status, 'open') NOT IN ('resolved', 'closed') "
+                "ORDER BY timestamp DESC LIMIT 10"
             )
             _added = 0
             for err, cnt in (cur.fetchall() or []):
