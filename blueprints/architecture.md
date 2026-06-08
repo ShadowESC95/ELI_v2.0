@@ -248,7 +248,7 @@ frontier (see §20).
 ## 10. Execution layer  (`eli/execution/executor_enhanced.py`)
 
 - `execute(action, args) -> dict` — ~**160 action branches**; runtime capability
-  manifest reports **186 capabilities** *(runtime)*.
+  manifest reports **206 capabilities** *(live, read from the manifest each boot)*.
 - **PHASE45 fast-path** (`engine.py`) — deterministic OS/media/status/job actions
   (`VOLUME`, `MEDIA_CONTROL`, `NEXT_MEDIA`, `OPEN_APP`, `DATE`, `SHELL_EXEC`,
   `ANALYZE_IMAGE`, `CHECK_JOB`, `BACKGROUND_JOBS`, …) bypass the LLM and return
