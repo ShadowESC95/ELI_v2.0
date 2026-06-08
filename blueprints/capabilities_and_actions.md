@@ -108,7 +108,7 @@ evidence-planner first (real code/web/memory analysis) before synthesising.
 | `SPEAK` | Speak text aloud (TTS) | “say good morning” | Plugin |
 | `LISTEN_FOR_COMMAND` | Start listening for a voice command | “listen” / the wake word “computer” | Core |
 | `VOICE_DIAGNOSTICS` | Run voice/STT diagnostics | “run voice diagnostics” · “stt diagnostics” | Core |
-| `WAKE_SET` | Set your own wake word (any phrase); ELI persists it and trains the detector on it | “change the wake word to athena” · “set my wake word to jarvis” | Core |
+| `WAKE_SET` | Set your own wake word (any phrase); ELI persists it and trains the detector on it | “change the wake word to athena” · “set my wake word to atlas” | Core |
 | `WAKE_TRAIN` | Train the local, self-supervised wake-word model (Piper-synth + noise/music augmentation; robust over background music) | “train the wake word” | Core |
 | `WAKE_ENROLL` | Record your voice saying the wake word and retrain (personalisation, over music) | “enroll my wake word” | Core |
 | `TRAIN_VOICE` | Learn your voice + tone — pitch/energy/rate, happy/angry/excited, and question-vs-statement; ELI then adapts its delivery to how you sound | “train my voice” · “learn how I speak” | Core |
