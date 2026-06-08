@@ -5365,10 +5365,20 @@ def _execute_impl(action: str, args: Optional[Dict[str, Any]] = None) -> Dict[st
             from eli.memory.memory import get_memory as _hm
             _mem = _hm()
             rules = _mem.get_habit_rules(enabled_only=False) if hasattr(_mem, 'get_habit_rules') else []
-            if not rules:
+            detected = _mem.get_detected_habits(min_count=3, limit=8) if hasattr(_mem, 'get_detected_habits') else []
+            if not rules and not detected:
                 msg = "No habits detected yet. Use ELI regularly and habits will emerge from your patterns."
                 return {"ok": True, "action": a, "content": msg, "response": msg}
-            lines = [f"Detected habits ({len(rules)}):"]
+            lines = []
+            # Behavioural patterns ELI has actually noticed (the `habits` table). This was
+            # previously dark — only the scheduled habit_rules table (empty) was read.
+            if detected:
+                lines.append(f"Behavioural patterns I've picked up on ({len(detected)}):")
+                for d in detected:
+                    _nm = str(d.get("name", "?")).replace("_", " ").lower()
+                    lines.append(f"  • {_nm} — seen {int(d.get('count', 0))}×")
+            if rules:
+                lines.append(f"Scheduled habit rules ({len(rules)}):")
             for r in rules:
                 if not isinstance(r, dict):
                     try: r = dict(r)
@@ -5381,7 +5391,7 @@ def _execute_impl(action: str, args: Optional[Dict[str, Any]] = None) -> Dict[st
                 status = "enabled" if enabled else "disabled"
                 lines.append(f"  [{status}] {name} — runs '{cmd}' at {hour:02d}:{minute:02d}")
             msg = "\n".join(lines)
-            return {"ok": True, "action": a, "content": msg, "response": msg, "rules": rules}
+            return {"ok": True, "action": a, "content": msg, "response": msg, "rules": rules, "detected": detected}
         except Exception as e:
             return {"ok": False, "action": a, "error": str(e), "content": str(e), "response": str(e)}
 
