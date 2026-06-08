@@ -84,9 +84,45 @@ def _candidates_from_patterns(patterns: Optional[List[Dict[str, Any]]]) -> List[
     return out
 
 
+def _candidates_from_improvements(improvements: Optional[List[Dict[str, Any]]]) -> List[Dict[str, Any]]:
+    """Code-health signals ELI computes about its OWN code → self-betterment goals.
+    Generative (not just failure-reactive): proposes refactors of its own god-files.
+    Thresholded so only significant issues become goals (TODO noise is excluded)."""
+    out: List[Dict[str, Any]] = []
+    for im in (improvements or []):
+        if not isinstance(im, dict):
+            continue
+        itype = str(im.get("type") or "")
+        f = str(im.get("file") or "?")
+        sugg = str(im.get("suggestion") or "")
+        if itype == "long_function" and int(im.get("lines", 0) or 0) >= 150:
+            fn = str(im.get("function") or "?")
+            out.append({
+                "kind": "improve",
+                "key": f"long_function:{f}:{fn}",
+                "title": f"Refactor my oversized function {fn}() in {f}",
+                "objective": sugg or f"Split the {im.get('lines')}-line function {fn} in {f}.",
+                "priority": 0.5,
+                "cadence_sec": 86400,
+                "tags": [AUTO_TAG, "self_improve", "code_health"],
+            })
+        elif itype == "duplicate_code" and int(im.get("count", 0) or 0) >= 5:
+            out.append({
+                "kind": "improve",
+                "key": f"duplicate_code:{f}",
+                "title": f"De-duplicate repeated blocks in my {f}",
+                "objective": sugg or f"Refactor {im.get('count')} duplicate blocks in {f}.",
+                "priority": 0.55,
+                "cadence_sec": 86400,
+                "tags": [AUTO_TAG, "self_improve", "code_health"],
+            })
+    return out
+
+
 def propose_goals_from_signals(
     world_suggestions: Optional[List[Dict[str, Any]]] = None,
     patterns: Optional[List[Dict[str, Any]]] = None,
+    improvements: Optional[List[Dict[str, Any]]] = None,
     max_new: int = 3,
     memory: Any = None,
 ) -> List[str]:
@@ -112,7 +148,11 @@ def propose_goals_from_signals(
         if room <= 0:
             return created
 
-        candidates = _candidates_from_world(world_suggestions) + _candidates_from_patterns(patterns)
+        candidates = (
+            _candidates_from_world(world_suggestions)
+            + _candidates_from_patterns(patterns)
+            + _candidates_from_improvements(improvements)
+        )
         # Highest-priority signals first.
         candidates.sort(key=lambda c: c["priority"], reverse=True)
 
