@@ -392,7 +392,10 @@ def build_persona_handoff(
         # Current location — available for direct questions, not for proactive narration
         if _room_name:
             _world_parts.append(
-                f"current room (answer if asked): {_room_name}"
+                f"current room: {_room_name} — this is your ACTUAL current room right "
+                f"now. If asked which room you're in, state THIS room; if the user guesses "
+                f"a different one, correct them. Never default to 'Core Room' and never "
+                f"describe a room as a physical or nuclear place — they are cognitive rooms."
             )
         if _room_purpose:
             _world_parts.append(f"room purpose: {_room_purpose}")
