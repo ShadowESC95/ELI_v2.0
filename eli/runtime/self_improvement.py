@@ -484,6 +484,21 @@ class SelfImprovementEngine:
             except (ValueError, Exception):
                 pass
 
+        # Only patch failures we can ground to a REAL in-project file. Without a file
+        # from the traceback the model invents a path (observed: phantom api_client.py /
+        # command_handler.py for the 11434 / "No commands" errors) and apply_code_patch
+        # then fails "File not found". Skip honestly — these are surfaced for goal-based
+        # / self-heal handling instead of a hallucinated patch.
+        if not file_ref or not file_content:
+            return {
+                "ok": False,
+                "error": "no_groundable_file",
+                "reason": ("This failure has no in-project file traceback, so it is not "
+                           "code-patchable from its error text — routed to goal/self-heal "
+                           "surfacing instead of guessing a file."),
+                "failure_ref": f"{ui[:60]} → {err[:60]}",
+            }
+
         prompt_parts = [
             "You are ELI's self-improvement code-patch engine.",
             f"A recurring error has been detected (occurred {failure.get('occurrence_count', 1)}× time(s)).",
@@ -498,9 +513,10 @@ class SelfImprovementEngine:
 
         prompt_parts += [
             "\nGenerate a minimal, targeted fix. Respond with ONLY valid JSON in this exact format:",
-            '{"file": "relative/path/to/file.py", "old": "exact original code (verbatim)", "new": "corrected replacement", "description": "what this fixes"}',
+            f'{{"file": "{file_ref}", "old": "exact original code (verbatim)", "new": "corrected replacement", "description": "what this fixes"}}',
             "Rules:",
-            "- 'old' must be character-for-character identical to text in the file",
+            f"- 'file' MUST be exactly \"{file_ref}\" — the file shown above; never invent or change the path",
+            "- 'old' must be character-for-character identical to text in the file shown above",
             "- 'new' must fix only this specific error",
             "- Make the smallest possible change",
             "- If no safe patch can be generated, return: {\"ok\": false, \"reason\": \"explanation\"}",
