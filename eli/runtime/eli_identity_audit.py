@@ -250,7 +250,7 @@ def _capability_matrix(frontier: Dict[str, Any], contracts: Dict[str, Any], worl
         (
             "Reasoning modes",
             _module_exists("eli.cognition.reasoning_modes"),
-            "quick, chain-of-thought, self-consistency, tree-of-thoughts, constitutional-ai contracts exist",
+            "Quick, Normal, Advanced, Research, Expert mode contracts exist",
             "selects private synthesis topology and dynamic token/runtime plans",
         ),
         (
