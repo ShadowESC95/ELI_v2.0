@@ -10,13 +10,16 @@ agent's system python. Deeper detail lives in the companion blueprints
 - **132,969 LOC** across **351** `.py` files under `eli/`.
 - **205** manifest capabilities (`capability_manifest.json`): **166** in the
   executor `SUPPORTED_ACTIONS`, plugin-backed remainder.
-- **12 main GUI tabs**; **14** bus agents + the CodeAgent; **4** SQLite stores
-  (user / agent / system_index / coding_memory).
+- **14 main GUI tabs** (Chat, Proactive, Images, Quick Actions, Screen, Files, Labs,
+  Coding, Tasks, Report Builder, Test & Review, Orchestration, Eli's World, Settings);
+  **14** bus agents + the CodeAgent; **4** SQLite stores (user / agent / system_index /
+  coding_memory).
 - **151** test files.
-- *(Earlier baseline: 129,955 LOC / 346 files / 196 caps.)*
+- *(Earlier baseline: 129,955 LOC / 346 files / 196 caps / 12 tabs.)*
 
-## Tests & eval (measured on `.venv`)
-- **6,415 tests collected; 6,371 passed, 0 failed, 2 xfailed, 42 skipped.**
+## Tests & eval (measured on `.venv`, 2026-06-08)
+- **6,630 tests collected** (was 6,415). Full-suite pass result: see the 2026-06-08
+  addendum below.
 - Composition: original unit/regression/integration (~2,350) + **`tests/claims/`**
   (~3,970 — examines the project vs its claims: every module compiles + core imports;
   every manifest capability well-formed + flags match the live executor; every

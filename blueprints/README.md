@@ -9,7 +9,7 @@ from deep reads of the core + a full structural/code-health sweep — a deep rea
 - **[what_eli_can_do.md](what_eli_can_do.md)** — the capability showcase: every
   thing ELI can actually do (conversation, OS/window control, gaze, voice, vision,
   image generation, media, web/news, files, Report Builder, File Chat, coding,
-  memory, self-improvement, proactivity), the 12 tabs, and full customisability.
+  memory, self-improvement, proactivity), the 14 tabs, and full customisability.
   Strengths only, grounded, no embellishment. The "what you get" doc.
 - **[what_eli_is.md](what_eli_is.md)** — the human-first portrait: what ELI is and
   what it does for your actual day (layman + tech head), with the genuine selling
@@ -22,7 +22,7 @@ from deep reads of the core + a full structural/code-health sweep — a deep rea
 - **[capability_catalogue.md](capability_catalogue.md)** — exhaustive, ground-truth
   catalogue of all actions (205) + every package's modules (5 parts).
 - **[project_overview.md](project_overview.md)** — start here for the engineering
-  view. What ELI is, scale (126,619 LOC / 336 files), architecture by layer, the
+  view. What ELI is, scale (~133k LOC / 351 files), architecture by layer, the
   honest verdict on "frontier", and the highest-leverage work.
 - **[orchestration_and_agents.md](orchestration_and_agents.md)** — the real
   topology: `AgentOrchestrator` (12-stage pipeline) vs the 14-agent `AgentBus`,
@@ -81,19 +81,20 @@ from deep reads of the core + a full structural/code-health sweep — a deep rea
    evidence layer, fully-local model-agnostic inference, fail-closed security,
    integrated multimodality.
 2. **The dominant weakness is engineering discipline, not vision:**
-   - **God-files** — `executor_enhanced.py` (12k), `engine.py` (12k), the GUI
-     (10k), and large files in grounding/STT/labs.
+   - **God-files** — `executor_enhanced.py` (13.8k), `engine.py` (12.6k), the GUI
+     (10.8k), `router_enhanced.py` (6.7k), and large files in labs/grounding/memory.
    - **Over-fragmentation / "added beside, not folded in"** — ~15 overlapping
      `runtime/` response surfaces, two image engines, seven stacked
      `render_action` overrides in the grounding gate, multiple plan/queue
-     representations.
-   - **~2,565 `except Exception:`** swallowing failures into silent fallbacks —
-     the reason bugs only surface via runtime logs.
-   - **Repo hygiene** — root junk, committed binaries/diag outputs, a non-green
-     test suite.
+     representations; and the routing+verbatim logic decided across
+     router/engine/GUI (the source of by-path inconsistencies).
+   - **~2,755 `except Exception:`** (~798 of them *silent* `pass`) swallowing
+     failures into silent fallbacks — the reason bugs only surface via runtime logs.
+   - **Repo hygiene** — root junk, committed binaries/diag outputs.
 3. **The gap to "ground-breaking" is subtraction + observability**, in order:
-   tame error-swallowing → split god-files → delete duplication/clutter + green
-   the tests → consolidate the `runtime/` surfaces.
+   tame error-swallowing → split god-files → delete duplication/clutter →
+   consolidate the `runtime/` surfaces. *(The test suite is now green — 6,630
+   collected; see `state_snapshot.md`.)*
 
 
 ---
