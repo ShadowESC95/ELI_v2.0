@@ -361,7 +361,7 @@ class AgentResult:
         if not self.ok:
             return False
         d = self.data or {}
-        for key in ("snippets", "results", "hits", "items", "content", "entries", "rules", "insights", "memory_context", "failures", "proposals"):
+        for key in ("snippets", "results", "hits", "items", "content", "entries", "rules", "insights", "memory_context", "failures", "proposals", "detected_habits", "summary"):
             v = d.get(key)
             if isinstance(v, (list, tuple)) and len(v) > 0:
                 return True
@@ -397,6 +397,19 @@ class DispatchResult:
             if r.agent == "file_code" and d.get("snippets"):
                 snippets = d["snippets"][:12]
                 parts.append("Source code evidence (file:line: content):\n" + "\n".join(snippets))
+                continue
+            if r.agent == "habit" and (d.get("summary") or d.get("detected_habits")):
+                # Surface ELI's real detected behaviour (from the proactive `habits`
+                # table) into the chat context, so habit/routine questions are grounded.
+                _hb = d.get("summary") or ""
+                if not _hb and d.get("detected_habits"):
+                    _hb = "Behavioural patterns noticed: " + ", ".join(
+                        f"{str(h.get('name','?')).replace('_',' ').lower()} ({int(h.get('count',0))}x)"
+                        for h in d["detected_habits"][:6]
+                    )
+                if _hb:
+                    parts.append(_hb)
+                continue
             elif r.agent == "reflection" and d.get("insights"):
                 insights = d["insights"][:6]
                 lines = [f"  - {i}" for i in insights]
@@ -1016,14 +1029,28 @@ class HabitAgent(_BaseAgent):
             from eli.memory import get_memory
             mem = get_memory()
             rules = mem.get_habit_rules(enabled_only=False)
+            # The proactive daemon fills the `habits` table via detect_habits(), but this
+            # agent used to read ONLY the (usually empty) habit_rules table — so the chat
+            # path was disconnected from ELI's actual detected behaviour. Read the real
+            # detected habits too, so a chat about routines/habits is grounded in them.
+            detected = (mem.get_detected_habits(min_count=3, limit=8)
+                        if hasattr(mem, "get_detected_habits") else [])
             events = mem.get_habit_events(event_type="app_launch", days=14)
             elapsed = (time.perf_counter() - t0) * 1000
-            local_conf = 0.70 if rules else 0.30
-            log.debug(f"[AGENT:habit] rules={len(rules)} events={len(events)} "
-                  f"conf={local_conf:.2f} elapsed={elapsed:.0f}ms")
+            # Confident when there are scheduled rules OR real detected behaviour.
+            local_conf = 0.70 if (rules or detected) else 0.30
+            summary = ""
+            if detected:
+                summary = "Behavioural patterns noticed: " + ", ".join(
+                    f"{str(d.get('name','?')).replace('_',' ').lower()} ({int(d.get('count',0))}x)"
+                    for d in detected[:6]
+                )
+            log.debug(f"[AGENT:habit] rules={len(rules)} detected={len(detected)} "
+                  f"events={len(events)} conf={local_conf:.2f} elapsed={elapsed:.0f}ms")
             return AgentResult(
                 agent=self.name, ok=True, confidence=local_conf,
-                data={"rules": rules, "event_count": len(events)},
+                data={"rules": rules, "detected_habits": detected,
+                      "event_count": len(events), "summary": summary},
                 elapsed_ms=elapsed,
             )
         except Exception as e:
