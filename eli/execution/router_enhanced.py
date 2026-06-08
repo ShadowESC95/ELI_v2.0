@@ -5484,6 +5484,13 @@ def _eli_phase38_open_typo_or_core_route(raw, *args, **kwargs):
 def _eli_media_contract_post(raw, result):
     """Final media-routing contract for legacy GUI/STT command shapes."""
     try:
+        # A chained utterance was already split into MULTI_COMMAND by the prepass
+        # (e.g. "play X on youtube AND close spotify" → [play X on youtube, close
+        # spotify]). Do NOT collapse it back into one PLAY_MEDIA whose query swallows
+        # "and close spotify" and plays on the wrong platform — let the executor run
+        # each segment in order.
+        if isinstance(result, dict) and str(result.get("action") or "").upper() == "MULTI_COMMAND":
+            return result
         original = str(raw or "")
         low = re.sub(r"\s+", " ", original.lower()).strip(" .,!?:;")
         if not low:

@@ -237,6 +237,19 @@ def try_route(text: str) -> Optional[dict]:
             "it", "that", "this", "these", "those", "here", "there", "them",
         }:
             pass
+        elif (
+            target.lower().strip() in {
+                "home", "home folder", "home directory", "home dir", "my home",
+                "my files", "files", "file manager", "file explorer", "explorer",
+                "the home folder", "the home directory", "trash", "downloads",
+            }
+            or re.search(r"\b(folder|directory)$", target.strip(), re.I)
+        ):
+            # File-manager / "<x> folder" requests are NOT app launches — let them
+            # fall through to fs.open_home (OPEN_FILE_SYSTEM), so "open home folder"
+            # opens the file browser instead of trying to install an app called
+            # "home folder".
+            pass
         elif _looks_like_app_target(target):
             return {
                 "action": "OPEN_APP",

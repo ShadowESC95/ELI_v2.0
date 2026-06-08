@@ -4997,7 +4997,9 @@ def _execute_impl(action: str, args: Optional[Dict[str, Any]] = None) -> Dict[st
                 return {"ok": False, "action": a, "error": probe.get("stderr") or probe.get("error") or "trash_open_failed",
                         "content": "Could not open trash.", "response": "Could not open trash."}
 
-            if low_target in {"home", "/home", "home directory"}:
+            if low_target in {"home", "/home", "home directory", "home folder",
+                              "home dir", "my home", "my files", "files", "~", "~/",
+                              "file manager", "file explorer", ""}:
                 resolved = str(Path.home())
             else:
                 cleaned = re.sub(r"\b(folder|directory|path)\b", "", raw_target, flags=re.I).strip()
