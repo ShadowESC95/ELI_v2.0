@@ -106,3 +106,19 @@ platformdirs. One import surface (`get_paths`) so nothing hardcodes locations.
 
 ## Update Advisory — 2026-06-07
 - **Synthesis prompt cap:** a quality ceiling (`ELI_SYNTH_MAX_PROMPT_CHARS`, default 28000) now caps the assembled prompt independent of `n_ctx`, because the small local model degenerates into `-`/`-G` on very large prompts well before `n_ctx` fills. Head+tail preserving (keeps persona head + grounded-evidence tail). Tunable in the GUI ‘Cognition’ tab.
+
+## Update Advisory — 2026-06-08 (vision VRAM cliff fixed)
+- **Reload now tries the last known-good config first.** The adaptive cold-loader's
+  candidate ladder began at `requested/raw-no-override` (the raw settings ctx, e.g.
+  30720) and degraded from there. After a **vision hot-swap**, the text-model restore
+  (`vision.py` → `load_model(force_reload=True)`) therefore started from the oversized
+  request, failed, and collapsed all the way to `gpu_layers=16` — leaving the WHOLE
+  session near-CPU (20–50s replies) until restart.
+- **Fix:** the ladder now **prepends `_live_runtime_override`** (the effective config the
+  GUI smart-fit / last successful load published, e.g. `22528/99/128`) as the first
+  candidate. It fit before, so it fits again once vision unloads; the existing ladder is
+  the safety net. This is portable — it reuses whatever **the hardware profiler computed
+  for THIS machine/model after its priority allocations**, not a hardcoded value, so it
+  adapts on a 24 GB card, a different model, or CPU-only. Verified: a `force_reload` after
+  the override is published selects `live-override` on attempt 1 (22528/99) instead of
+  walking down to 16.
