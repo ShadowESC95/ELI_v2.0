@@ -11131,6 +11131,21 @@ Answer:"""
         try:
             from eli.cognition.llm_intent import parse_cached
             li = parse_cached(text)
+            # Banter guard: the resolver sometimes maps playful conversational input
+            # ("use your imagination!", "have a bit of fun") to a generative action like
+            # GENERATE_SCRIPT, which then dead-ends on "no description supplied". If the
+            # text carries NO create-intent, it's conversation — route it to CHAT.
+            _gen_actions = {"GENERATE_SCRIPT", "CREATE_SCRIPT", "WRITE_SCRIPT",
+                            "GENERATE_PROJECT", "GENERATE_DOCUMENT", "CREATE_DOCUMENT",
+                            "WRITE_DOCUMENT", "CODE_SOLVE"}
+            if li and str(li.get("action") or "").upper() in _gen_actions:
+                import re as _re_gi
+                if not _re_gi.search(
+                    r"\b(write|make|create|generat|build|draft|cod(?:e|ing)|script|"
+                    r"program(?:me)?|document|report|essay|story|app|function|class|"
+                    r"tool|file|project|implement|design|fix|refactor)\b", text, _re_gi.I,
+                ):
+                    li = {"action": "CHAT", "args": {"message": text}, "confidence": 0.55}
             if (li and li.get("action") and li.get("action") != "CHAT"
                     and li.get("confidence", 0) >= 0.6):
                 log.debug(f"[COGNITIVE] LLM intent resolved: {li.get('action')} "
