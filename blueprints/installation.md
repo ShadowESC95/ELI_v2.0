@@ -52,3 +52,16 @@ only matters when those don't match the user's CUDA or a source build is require
 `./eli.sh` or `source .venv/bin/activate && eli`. First run shows the setup wizard.
 Model: `python -m eli.core.model_download --auto` (or `--list`, or a named model).
 ELI stays offline by default; the model download is a deliberate one-time action.
+
+---
+
+## Update Advisory — 2026-06-08 (runtime tools bundled)
+- `install.sh` now best-effort installs the **runtime / OS-control tools** ELI uses at
+  runtime, which were previously assumed present: `attempt_runtime_tools()` puts
+  **`yt-dlp` in the venv** (cross-distro, so `mpv` finds it on PATH and "play X" plays
+  audio) and installs **mpv / playerctl / wmctrl / xdotool / ffmpeg / xclip /
+  wl-clipboard** via apt/dnf/pacman/brew (prints the command when sudo is unavailable;
+  non-fatal). This fixes "play X only opens a search" (yt-dlp+mpv were missing) and gives
+  `GET_CLIPBOARD` a working fallback. The wake-word feature also adds an `openwakeword`
+  pip dependency (pinned in `requirements*.txt` + the lock); its feature models are
+  bundled with the package (no account, no separate download).

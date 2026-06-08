@@ -6,13 +6,14 @@ agent's system python. Deeper detail lives in the companion blueprints
 (`project_overview.md`, `architecture.md`, `orchestration_and_agents.md`,
 `grounding_and_evidence.md`, `capabilities_and_actions.md`, `complete_findings.md`).
 
-## Scale (measured)
-- **129,955 LOC** across **346** `.py` files under `eli/`.
-- **196** manifest capabilities (`capability_manifest.json`): **157** in the
-  executor `SUPPORTED_ACTIONS`, **151** routable, **13** plugin-backed.
+## Scale (measured 2026-06-08)
+- **132,969 LOC** across **351** `.py` files under `eli/`.
+- **205** manifest capabilities (`capability_manifest.json`): **166** in the
+  executor `SUPPORTED_ACTIONS`, plugin-backed remainder.
 - **12 main GUI tabs**; **14** bus agents + the CodeAgent; **4** SQLite stores
   (user / agent / system_index / coding_memory).
-- ~277 commits.
+- **151** test files.
+- *(Earlier baseline: 129,955 LOC / 346 files / 196 caps.)*
 
 ## Tests & eval (measured on `.venv`)
 - **6,415 tests collected; 6,371 passed, 0 failed, 2 xfailed, 42 skipped.**
@@ -120,9 +121,86 @@ the venv ELI uses. No rebuild needed.)
   voice (GUI_DIRECT_EXEC) and typed (process). Strongly guarded against over-splitting.
   Details in `runtime_planning_world.md` + `dag_orchestrator.md`.
 
+## Addendum (2026-06-08, later — reliability pass + voice/wake/tone + cognition correctness)
+**Scale now:** 132,969 LOC / **351** files / **205** capabilities (166 SUPPORTED_ACTIONS) /
+151 test files. New actions: `WAKE_TRAIN`, `WAKE_ENROLL`, `WAKE_SET`, `TRAIN_VOICE`.
+New subsystems: `eli/perception/wakeword.py`, `eli/perception/voice_profile.py`; rewritten
+`eli/cognition/llm_intent.py`.
+
+**Crash/correctness fixes (all tested):**
+- **MULTI_COMMAND `UnboundLocalError`** — a `LORA_TRAIN` local `execute=` shadowed the
+  module dispatch in `_execute_impl`, so MULTI_COMMAND (and any in-function re-dispatch,
+  e.g. "what time is it") hit an unbound local. Renamed the local. (`executor_enhanced`.)
+- **FIX_FILE backup crash** — a bare `from datetime import datetime` in the TIME branch
+  shadowed `datetime` function-wide; FIX_FILE's backup builder hit an unbound local.
+  Aliased it. (`executor_enhanced`.)
+- **LoRA `build_job` ×30 error** — the trainer only *validated* the dataset, never built
+  it. `build_training_job` now calls `dataset_builder.build_dataset` when missing (615
+  rows here, was 0), and "no curated/reviewed data yet" is reclassified as a benign
+  not-ready state (blocks `will_train`, no longer a logged error). (`lora_trainer`,
+  `lora_pipeline`.) See `lora_pipeline.md`.
+
+**Routing by intelligence, not hardcodes** — the regex router returns `fallback.chat`
+at conf 0.6, which cleared the engine's `>0.5` gate, so the existing LLM-intent fallback
+was dead and unmatched phrasings dropped to a blind CHAT that couldn't act (and
+hallucinated facts like the date). `engine._parse_intent` now treats `fallback.chat` as
+*unmatched*; `llm_intent` was rewritten to resolve against ELI's **real
+`SUPPORTED_ACTIONS` catalogue** (validated, args extracted, CHAT default). Live 13/13 on
+the near-miss class (date→DATE, "set the volume to 40%"→VOLUME, hub/dictation/gaze/
+workspace/code_solve/data_fabricator). No phrasing regexes added.
+
+**Mode-gated determinism (corrects the "LLM bypass" overstatement)** — the deterministic
+direct-return is **partial and mode-gated**, NOT a blanket bypass: router-fast/command
+actions return the executor result **verbatim in quick mode** and **synthesise in
+non-quick modes** (`engine._deterministic_direct_payload_actions` + `_bypass_persona`).
+The command actions (WRITE_NOTE, VOLUME, window/media/file/time) were in the wrong set,
+so quick mode re-synthesised them — corrupting results ("Wrote note"→"Bought note") and
+adding latency. Fixed by set membership. (See the correction note in
+`grounding_and_evidence.md`.)
+
+**Vision VRAM cliff (A3)** — after a vision hot-swap the text-model restore started from
+the raw oversized request (ctx=30720) and adaptively collapsed to `gpu_layers=16` for the
+rest of the session. The adaptive loader now tries the **last known-good published config
+first** (`_live_runtime_override`, e.g. 22528/99), restoring full-GPU speed. Portable —
+reuses whatever the hardware profiler computed for *this* machine. See
+`inference_and_hardware.md`.
+
+**Voice / STT / wake word / tone (new):**
+- **Duration-adaptive STT pause** — short commands finalise after 0.5s of silence (was
+  ~1.4s); a prompt past 12s needs 2s of silence so long dictation isn't cut. Faithful
+  copy of sr's capture with one dynamic condition; flag-gated fallback. (`audio_stt`.)
+- **Self-trained, fully-local wake word robust over music** (`wakeword.py`) — ELI
+  synthesises the wake phrase with its OWN Piper TTS across voices/speeds, mixes it with
+  noise/music at random SNRs (the augmentation = robustness over music), embeds via
+  openWakeWord's open extractor, and trains a small classifier head it owns. No account,
+  no third-party, no unavailable pre-trained model. Used in the unarmed loop to catch the
+  wake word even when whisper transcribed the music; fallback-safe.
+- **User-settable wake word** — "change the wake word to <X>" (`WAKE_SET`) persists any
+  phrase, feeds both the acoustic model and the transcription matcher.
+- **Voice enrollment** — "enroll my wake word" folds the user's real voice into the wake
+  model.
+- **Voice-profile subsystem** (`voice_profile.py`, SEPARATE from wake) — the foundation
+  for tone/emotion. Real today (numpy): autocorrelation pitch track, energy, rate, and
+  **question-vs-statement** from terminal-pitch slope; a **labelled-emotion** nearest-
+  centroid classifier (neutral/happy/angry/excited/sad) trained from "train my voice"
+  prompts. `TRAIN_VOICE` runs one unified guided session (wake reps + emotion-labelled
+  lines). **Wired into cognition:** STT publishes the per-turn tone on a fresh side-
+  channel; `engine._build_enhanced_system` injects a speaker-voice cue so ELI adapts its
+  delivery to how the user sounds. See `perception.md`.
+
+**Media + installer:**
+- **"play X" honesty** — when `yt-dlp`+`mpv` are absent (so it can only open a browser
+  search), the result is marked `played=False`/`search_only` and says what to install,
+  rather than claiming it played. (Spotify specific-track auto-play is a genuine no-Web-
+  API limit.)
+- **Installer runtime tools** — `install.sh` now best-effort installs mpv/yt-dlp/
+  playerctl/wmctrl/xdotool/ffmpeg + xclip/wl-clipboard. See `installation.md`.
+
 ## Verdict
 The architecture is genuinely frontier for a local, model-agnostic, self-honest
-personal AI — and it now **tests itself, evals itself nightly, writes its own tests,
-and grounds its generation in real evidence**, on the GPU. The open work is
-engineering debt (god-files, swallowed exceptions, dup/hygiene) and the model
-ceiling — both known, both phased, neither blocking.
+personal AI — it tests itself, evals itself nightly, writes its own tests, grounds its
+generation in real evidence, resolves intent with the model against its own catalogue,
+hears its wake word over music with a model it trained itself, and reads the user's vocal
+tone into its responses — all on the GPU, all local. The open work is engineering debt
+(god-files, swallowed exceptions, the verbatim/routing logic duplicated across GUI/engine/
+router) and the model ceiling — both known, both phased, neither blocking.

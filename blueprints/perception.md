@@ -1,13 +1,16 @@
-# ELI Perception — Vision, Voice, OS Control
+# ELI Perception — Vision, Voice, Wake Word, Tone, OS Control
 
-`eli/perception/` — 5.5k LOC, 18 files. ELI's senses and hands: local vision,
-speech-to-text, text-to-speech, and OS control. All local, no APIs.
+`eli/perception/` (~20 files). ELI's senses and hands: local vision, speech-to-text,
+text-to-speech, a **self-trained wake-word detector**, a **voice-profile/tone**
+subsystem, and OS control. All local, no APIs, no third-party accounts.
 
 ## Files
 
 | File | LOC | Role |
 |---|---|---|
-| `audio_stt.py` | 1481 | speech-to-text + mic capture + output ducking |
+| `audio_stt.py` | ~1.6k | STT + mic capture + ducking + adaptive pause + wake/voice capture |
+| `wakeword.py` | ~400 | **self-trained, music-robust wake-word detector** (openWakeWord features + custom head) |
+| `voice_profile.py` | ~380 | **prosody + labelled-emotion** (tone/question detection) |
 | `tts_router.py` | 603 | multi-backend text-to-speech |
 | `vision.py` | 491 | local VL inference (hot-swap + co-resident) |
 | `os_controller.py` | 484 | screenshot / volume / keyboard / clipboard |
@@ -51,6 +54,66 @@ A large, feature-dense STT module:
   `_eli_fast_command_alias` (maps spoken phrases to commands),
   `_is_safe_direct`/`_allow_direct_chat` (gates which utterances bypass to chat).
 - ALSA stderr suppression to keep the console clean.
+- **Duration-adaptive end-of-phrase pause** (`_listen_adaptive_pause`, 2026-06-08) —
+  stock `sr.listen()` reads `pause_threshold` once per phrase, so one value can't be
+  both snappy for commands and tolerant of long dictation. A faithful copy of sr's
+  capture with a single dynamic condition: short commands finalise after
+  `ELI_STT_SHORT_PAUSE` (0.5s) of silence; a prompt speaking past `ELI_STT_LONG_AFTER`
+  (12s) needs `ELI_STT_LONG_PAUSE` (2s), so a mid-sentence pause no longer cuts it.
+  Flag-gated (`ELI_STT_ADAPTIVE_PAUSE`) with fallback to stock `listen()`.
+- **Generic mic-capture script** — one mechanism (no second microphone) drives both
+  wake-word enrollment and voice/emotion training: a list of `{prompt, sink}` steps,
+  each captured (past the TTS-echo guards) clip routed to its sink, the next cue
+  spoken, a `done` callback after the last. `begin_capture_script` /
+  `begin_wake_enrollment` / `begin_voice_training`.
+- **Acoustic wake hook** — when unarmed and a wake model is trained, the captured
+  audio is scored by `wakeword` and, if it fires, the wake word is injected so the
+  existing `VoiceGate` arms — catching the wake word even when whisper transcribed the
+  music. **Per-turn tone hook** — on a real command, `voice_profile.classify_tone` is
+  run and published on a side-channel for cognition (below).
+
+## Wake word (`wakeword.py`, 2026-06-08) — self-trained, robust over music
+
+Transcription-based wake matching can't hear "computer" over loud music (whisper
+transcribes the music). Instead ELI **trains its own** detector, 100% locally:
+- **Positives**: the wake phrase synthesised by ELI's OWN **Piper TTS** across several
+  voices and speeds.
+- **Augmentation (the robustness)**: each positive is mixed with noise/music at random
+  SNRs, so the classifier learns to spot the wake word *through* a music bed.
+- **Features**: openWakeWord's open, bundled melspectrogram→embedding extractor (no
+  account, no download barrier).
+- **Custom head**: a small torch classifier ELI owns; `train_model()` →
+  `models/wakeword/eli_wake_head.pt` (gitignored). `WakeDetector.score_audio/is_wake`
+  slide a 1.5s window. Validated: clean wake = 1.00, wake+loud music (3 dB) = 1.00,
+  hard-negative/music-only = 0.00.
+- **User-settable phrase** — `get/set_wake_phrases` persists any phrase ("change the
+  wake word to athena"); it feeds both this model and the transcription matcher.
+- **Personalisation** — enrolled real-mic clips of the user are folded in as heavily-
+  weighted positives.
+- Actions: `WAKE_SET` / `WAKE_TRAIN` / `WAKE_ENROLL`. Fully fallback-safe
+  (`ELI_WAKE_ACOUSTIC=0`; no model → the transcription matcher).
+
+## Voice profile + tone (`voice_profile.py`, 2026-06-08) — foundation for emotion
+
+Deliberately SEPARATE from the wake word — this is *how* the user speaks, the basis for
+tone/emotion and question-vs-statement:
+- **Prosody (real, numpy only)**: per-clip autocorrelation **F0/pitch** track, energy,
+  voiced ratio, speaking rate, and a **terminal-pitch slope** (`analyze_prosody`).
+- **Question vs statement** (working): rising terminal pitch ⇒ question
+  (`question_or_statement`).
+- **Labelled emotion**: `add_labelled_sample` + a nearest-centroid classifier
+  (`train_emotion_classifier`) over neutral/happy/angry/excited/sad — robust for the
+  small data a quick enrollment yields, upgradeable to a NN without touching callers.
+- **`classify_tone`** returns emotion + confidence, arousal, and the question/statement
+  cue. `build_profile` learns the user's baseline so tone is scored *relative* to how
+  they normally sound.
+- **`TRAIN_VOICE`** runs one unified guided session (wake reps + the same line said in
+  each emotion); modules stay separate, the user does one flow.
+- **Wired into cognition**: STT publishes the per-turn read on a fresh, timestamped
+  side-channel (`set_last_tone`); `engine._build_enhanced_system` reads `get_last_tone`
+  and prepends a speaker-voice cue so ELI adapts its delivery (warmer if upset, brisk
+  if energetic). `ELI_VOICE_TONE=0` disables. Complementary to the text-based
+  `cognition/tone_analyzer` (persona preferences), not a duplicate.
 
 ## Text-to-speech (`tts_router.py`)
 
@@ -105,3 +168,15 @@ extracted content (text/OCR/structure) into the grounded pipeline.
 
 ## Update Advisory — 2026-06-07
 - Unchanged this cycle (LOC drift only). TTS unspeakable-fragment guard and CPU-pinned vision CLIP remain in place.
+
+## Update Advisory — 2026-06-08
+- **STT:** duration-adaptive end-of-phrase pause (0.5s commands / 2s after 12s);
+  generic mic-capture script shared by wake enrollment + voice training.
+- **Wake word:** new `wakeword.py` — self-trained, music-robust (Piper-synth +
+  augmentation + openWakeWord features + a custom head); user-settable phrase
+  (`WAKE_SET`); enrollment personalisation. Fully local, no account.
+- **Voice/tone:** new `voice_profile.py` — prosody (pitch/energy/rate), question-vs-
+  statement, and a labelled-emotion classifier (neutral/happy/angry/excited/sad). Wired
+  into cognition via a per-turn side-channel the engine reads to adapt its delivery.
+- `audio_stt.py` grew (~1.6k) with the adaptive pause + capture script — still the prime
+  split candidate in this package.

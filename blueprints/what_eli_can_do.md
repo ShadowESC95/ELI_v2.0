@@ -278,3 +278,23 @@ separate from this capability showcase): `complete_findings.md`,
   autonomy/self-awareness tick now actually runs (proactive daemon, governed).
   Self-awareness queries gather-then-summarise (no data dumps). Tab table corrected
   to the real main tabs.
+
+## Update Advisory — 2026-06-08 (new: your own wake word + voice/tone awareness)
+- **🎙️ A wake word you train — that hears you over music.** ELI trains its OWN wake-word
+  detector entirely on your machine (no account, no third-party): it synthesises the wake
+  phrase in many voices with its own Piper TTS and mixes it with music/noise so it learns
+  to catch the word *through* a music bed. Say **"change the wake word to <anything>"** to
+  pick your own; **"enroll my wake word"** to tune it to your voice.
+- **🗣️ "Train my voice" → tone awareness.** A separate one-time guided session learns how
+  *you* speak — pitch, energy, pace — and collects the same line said happy / angry /
+  excited / sad / neutral. ELI then reads your **vocal tone and whether you're asking a
+  question** on each turn and **adapts its reply** (warmer if you're upset, brisk if
+  you're energetic). Foundation for richer emotion features. All local.
+- **🗣️ Snappier, smarter listening.** Short commands now end after ~0.5s of silence (was
+  ~1.4s); long dictation gets 2s of tolerance so it isn't cut mid-sentence. And ELI now
+  *understands* near-miss phrasings with the model against its own command catalogue
+  instead of failing — e.g. it answers "what day is it" from its real clock, never a
+  guess.
+- **▶️ Honest media.** "Play X" plays directly via mpv/yt-dlp (now bundled by the
+  installer); if those are missing it opens a search and **says so** rather than
+  pretending it played.

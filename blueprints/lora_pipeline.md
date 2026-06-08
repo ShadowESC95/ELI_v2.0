@@ -49,3 +49,19 @@ The training **target profiles** are still `eli_phi` / `eli_phi_ultra` (and
 causal-LM dir, not just Phi-3) is a larger, separate change — deferred to your go-ahead.
 LoRA needs a Hugging Face model directory, not the GGUF ELI runs for inference, so
 training a new brain → adapter → merge → convert-to-GGUF is the intended flow.
+
+---
+
+## Update Advisory — 2026-06-08 (build_job fixed: builds the dataset; "no data yet" is benign)
+- **Root cause of the recurring `build_job✗` (seen ×30 in the proactive log):** the
+  trainer only **validated** the dataset (`_dataset_report` → "dataset path does not
+  exist"), it never **built** it — even though `preflight` confirmed reviewed rows.
+- **Fix 1 — build it.** `build_training_job` now calls
+  `dataset_builder.build_dataset(out_path=…)` when the file is missing, so the dataset is
+  produced from the conversation DBs (615 rows on this machine, was 0).
+- **Fix 2 — "not ready" ≠ "error".** Data-readiness blockers (no/unreviewed/wrong-target/
+  bad rows — the NORMAL resting state of a human-gated LoRA) are tracked in a separate
+  `data_not_ready` list: they still **block `will_train`** (training stays correctly gated
+  on reviewed data) but no longer populate `problems`, so the dry-run `build_job` is green
+  with a clear `not_ready` reason instead of logging a recurring failure. Pipeline now
+  reads `preflight✓ → build_job✓ → train✓ → eval✓`. 45 LoRA tests pass.

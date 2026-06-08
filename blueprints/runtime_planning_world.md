@@ -157,3 +157,23 @@ downloads; runtime stays local.)
 - **Standing nightly jobs** (durable, recurring, re-armed at boot): engine-eval +
   full test report; ELI-assisted test generation. Kinds now:
   code/research/self_upgrade/reflection/eval/testgen/lora.
+
+## Update Advisory — 2026-06-08 (model-grounded intent resolution)
+- **Unmatched phrasings now resolve with the model, not a blind chat.** The deterministic
+  regex router returns `fallback.chat` at confidence 0.6, which cleared the engine's
+  `>0.5` trust gate — so the *existing* LLM-intent fallback was dead code and every
+  near-miss dropped to a CHAT that couldn't act (and hallucinated facts like the date).
+  `engine._parse_intent` now treats `fallback.chat` as **unmatched** (a real rule match
+  still wins the fast path, no model call) and routes it through a rewritten resolver
+  (`cognition/llm_intent.py`) that is **grounded in ELI's real `SUPPORTED_ACTIONS`
+  catalogue** (validated, args extracted, CHAT default). Live 13/13 on the near-miss
+  class — date→DATE (grounded, no web hallucination), "set the volume to 40%"→VOLUME,
+  hub/dictation/gaze/workspace/code_solve/data_fabricator — with **no phrasing regexes
+  added**. This is the "decide" layer using intelligence; the deterministic fast-paths
+  remain for matched commands.
+- **Note on routing fragmentation (debt):** the action is currently decided in four
+  places — `router_enhanced` (regex), `portable_intent_contract`, `engine._parse_intent`
+  (the resolver), and the GUI's direct-exec — and the verbatim/direct return in two (GUI
+  + engine). This duplication is what caused by-path inconsistencies (e.g. a command
+  returning verbatim via the GUI fast-path but synthesised via `process()`); consolidation
+  is the standing cleanup (see `decomposition_plan.md`).
