@@ -6,15 +6,18 @@ import re
 from pathlib import Path
 from typing import Any
 
+# Public labels (Quick/Normal/Advanced/Research/Expert). This is only a fallback —
+# the canonical source is reasoning_modes.mode_display(); kept in sync so even the
+# fallback never shows an internal strategy name.
 _MODE_LABELS = {
     "quick": "Quick",
-    "chain_of_thought": "Chain of Thought",
-    "cot": "Chain of Thought",
-    "self_consistency": "Self-Consistency",
-    "tree_of_thoughts": "Tree of Thoughts",
-    "tot": "Tree of Thoughts",
-    "constitutional_ai": "Constitutional AI",
-    "const_ai": "Constitutional AI",
+    "chain_of_thought": "Normal",
+    "cot": "Normal",
+    "self_consistency": "Advanced",
+    "tree_of_thoughts": "Research",
+    "tot": "Research",
+    "constitutional_ai": "Expert",
+    "const_ai": "Expert",
 }
 
 _ATTRS = (
