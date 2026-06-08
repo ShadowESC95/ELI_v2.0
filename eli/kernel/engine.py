@@ -9763,8 +9763,15 @@ Answer:"""
                         # better for them — they are NOT here. Persona-narrative
                         # actions (PERSONAL_MEMORY_DEEP_EXPLAIN) also synthesise.
                         _verbatim_always_actions = {
-                            "EXPLAIN_MEMORY_RUNTIME",
-                            "EXPLAIN_COGNITION_RUNTIME",
+                            # NOTE (2026-06-08): EXPLAIN_MEMORY_RUNTIME and
+                            # EXPLAIN_COGNITION_RUNTIME were moved OUT of this set at the
+                            # user's request — in non-quick modes they now SYNTHESISE the
+                            # grounded evidence into a persona-bound answer (the blueprint
+                            # intent: "gather-then-summarise, never a raw dump"), while quick
+                            # mode still returns the deterministic dump verbatim. The earlier
+                            # phantom-DB/miscount corruption is guarded by the hardened
+                            # evidence-only contract in _compact_grounded_synthesis (every
+                            # number/path/table/DB must be quoted exactly from the evidence).
                             "RESOLVE_RUNTIME_PATHS",
                             # Code-examiner tiered report + patch-outcome reports are
                             # grounded fact; never let a reasoning mode re-narrate them.
@@ -12387,7 +12394,12 @@ Answer:"""
             "You are ELI. Answer using ONLY the GROUNDED EVIDENCE block below. "
             "Do NOT invent names, preferences, or memories. Do NOT echo internal "
             "labels (no 'As ELI:', no mode prefixes, no JSON dumps). "
-            "Write a clear natural-language answer in your own voice. "
+            "EXACT FACTS: every number, count, file path, table name, database, model "
+            "name, and capability in your answer MUST be quoted exactly from the evidence "
+            "— never invent, alter, round, add, or drop one (no phantom files, no "
+            "miscounts). If a fact isn't in the evidence, don't state it. "
+            "Write a clear natural-language answer in your own voice — synthesise the "
+            "evidence into a real explanation, do NOT paste the raw report back. "
             "When describing your own pipeline, architecture, agents, or behavior, "
             "speak in first person (I, my, I use, I run — not 'ELI does' or 'ELI uses'). "
             "CRITICAL: 'I' and 'my' refer to ELI, NOT the user. "

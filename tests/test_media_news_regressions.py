@@ -350,48 +350,59 @@ def test_control_action_result_uses_full_pipeline_in_nonquick_mode():
     assert content == "I checked the runtime audit evidence: imports were checked."
 
 
-def test_explain_memory_runtime_is_verbatim_even_in_nonquick_mode():
-    # Regression (user-reported, 2026-06-06): in CoT mode, EXPLAIN_MEMORY_RUNTIME's
-    # correct live DB audit was run through compact synthesis, which on the small
-    # local model hallucinated a phantom "memory.sqlite3 for temporary storage"
-    # and miscounted the databases. Deep technical introspection ("exactly how
-    # the memory pipeline works") must return the grounded report VERBATIM in
-    # every reasoning mode — synthesis can only corrupt grounded facts here.
+def test_explain_memory_runtime_verbatim_in_quick_synthesised_in_nonquick():
+    # 2026-06-08 (user-requested): EXPLAIN_MEMORY_RUNTIME returns the grounded report
+    # VERBATIM in quick mode (fast deterministic dump) but SYNTHESISES it into a
+    # persona-bound answer in non-quick modes (blueprint intent: gather-then-summarise,
+    # never a raw dump — and never the same raw dump for two different questions). The
+    # 2026-06-06 phantom-DB/miscount corruption is now guarded by the hardened
+    # evidence-only contract in _compact_grounded_synthesis (every number/path/table/DB
+    # quoted exactly from evidence), not by a blanket verbatim-in-all-modes rule.
     grounded = (
         "Memory runtime:\n- user_db: .../user.sqlite3\n- agent_db: .../agent.sqlite3\n"
         "SQLite tables observed live: conversation_turns(374), memories(156)..."
     )
-    with ExitStack() as stack:
-        eng = _prepare_engine_for_synthesis_test(
-            stack,
-            "EXPLAIN_MEMORY_RUNTIME",
-            {
-                "ok": True,
-                "action": "EXPLAIN_MEMORY_RUNTIME",
-                "content": grounded,
-                "response": grounded,
-                "evidence_source": "memory_runtime_sanitized",
-            },
-        )
+    _payload = {
+        "ok": True, "action": "EXPLAIN_MEMORY_RUNTIME",
+        "content": grounded, "response": grounded,
+        "evidence_source": "memory_runtime_sanitized",
+    }
 
-        # If either synthesis surface is invoked for this action, fail loudly —
-        # it must be bypassed.
+    # Quick mode → verbatim dump; synthesis must NOT be invoked.
+    with ExitStack() as stack:
+        eng = _prepare_engine_for_synthesis_test(stack, "EXPLAIN_MEMORY_RUNTIME", dict(_payload))
+
         def _no_synth(*_a, **_k):
-            raise AssertionError("EXPLAIN_MEMORY_RUNTIME must not be synthesized")
+            raise AssertionError("quick mode must not synthesise EXPLAIN_MEMORY_RUNTIME")
 
         eng._synthesize_answer = _no_synth
         eng._compact_grounded_synthesis = _no_synth
-        eng._run_chat_reasoning_loop = _no_synth
+        result_q = eng.process(
+            "tell me exactly how your memory works — files, folders, processes",
+            reasoning_mode="quick",
+        )
+    # Quick returns the deterministic dump directly (str or dict) and never
+    # reaches synthesis (the _no_synth mocks would have raised). Grounded, no phantom.
+    _content_q = result_q if isinstance(result_q, str) else result_q.get("content", "")
+    assert _content_q and "memory.sqlite3" not in _content_q
 
-        result = eng.process(
+    # Non-quick mode → the grounded evidence IS synthesised (not dumped raw).
+    with ExitStack() as stack:
+        eng = _prepare_engine_for_synthesis_test(stack, "EXPLAIN_MEMORY_RUNTIME", dict(_payload))
+        _called = {"synth": False}
+
+        def _synth(*_a, **_k):
+            _called["synth"] = True
+            return "I run on two SQLite stores: user.sqlite3 and agent.sqlite3."
+
+        eng._compact_grounded_synthesis = _synth
+        result_n = eng.process(
             "tell me exactly how your memory works — files, folders, processes",
             reasoning_mode="chain_of_thought",
         )
-
-    assert isinstance(result, dict)
-    assert result.get("content") == grounded
-    # Must not invent a phantom database.
-    assert "memory.sqlite3" not in result.get("content", "")
+    assert _called["synth"], "non-quick must synthesise the introspection evidence, not dump it verbatim"
+    _content_n = result_n if isinstance(result_n, str) else result_n.get("content", "")
+    assert "memory.sqlite3" not in _content_n  # no phantom DB
 
 
 def test_memory_runtime_report_is_live_derived_not_hardcoded_prose():
