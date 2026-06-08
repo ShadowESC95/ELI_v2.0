@@ -29,5 +29,9 @@ def test_generate_project_falls_back_when_agent_empty(monkeypatch):
 
 
 def test_generate_project_missing_description():
+    # Missing description is incomplete INPUT, not a system fault: ELI asks for the
+    # detail (ok=True) and flags fault=False so it isn't logged as a recurring error.
     r = execute("GENERATE_PROJECT", {"_evidence": ""})
-    assert r["ok"] is False
+    assert r.get("fault") is False
+    assert r.get("needs_input") is True
+    assert "project" in (r.get("content") or "").lower()

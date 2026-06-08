@@ -58,5 +58,8 @@ def test_executor_runs_each_command():
 
 def test_executor_empty_commands():
     from eli.execution.executor_enhanced import execute
+    # No commands = incomplete input, not a system fault: ELI asks what to run
+    # (ok=True) and marks fault=False so it isn't logged as a recurring error.
     r = execute("MULTI_COMMAND", {"commands": []})
-    assert r["ok"] is False
+    assert r.get("fault") is False
+    assert r.get("needs_input") is True
