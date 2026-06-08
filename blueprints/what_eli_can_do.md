@@ -193,7 +193,7 @@ than dumping a report or guessing.
 
 ---
 
-## The workspace — your 12 main tabs
+## The workspace — your 14 main tabs
 
 | Tab | What it's for |
 |---|---|
@@ -207,6 +207,8 @@ than dumping a report or guessing.
 | 🧩 **Coding** | Write, run, and have ELI fix/explain code. |
 | 🗓️ **Tasks** | Scheduled / overnight / background jobs (add, edit, cancel). |
 | 📄 **Report Builder** | Evidence-grounded, multi-stage document generation (promoted from Labs). |
+| ✅ **Test & Review** | Run the suite, review results, and get result-driven fix options (promoted from Labs). |
+| 🧬 **Orchestration** | Inspect the agent DAG — execution layers, dependencies, critical path, last run (promoted from Labs). |
 | 🌍 **Eli's World** | The live embodied self-model — ELI's avatar moving through cognitive "rooms" as it reasons. |
 | ⚙️ **Settings** | 5 sub-tabs: Agents, Models, Cognition, Plugins, Self-Upgrade. |
 

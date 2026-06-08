@@ -453,7 +453,7 @@ The thinking layer: agents, orchestration, inference, persona, reasoning, govern
 ## `gui/` (PySide6 desktop) — ~19k LOC
 | Module | LOC | Role |
 |---|---|---|
-| `eli_pro_audio_gui_MKI.py` | 10725 | Main window: 12 tabs + adapters (CentralMemory/LocalModel/Ollama/Executor bridges, the `_GUIEngineAdapter`), chat, drag-drop, reasoning-mode auto-select, all toggles. |
+| `eli_pro_audio_gui_MKI.py` | 10849 | Main window: 14 tabs + adapters (CentralMemory/LocalModel/Ollama/Executor bridges, the `_GUIEngineAdapter`), chat, drag-drop, reasoning-mode auto-select, all toggles. |
 | `labs_tab.py` | 5108 | Labs workspace: Notebook, Memory browser, Jupyter launcher, Calculator(+constants), Physics tables, **Report Builder** (evidence-grounded docs), File-Chat, Workspaces, Sim-IDE. |
 | `app.py` | 742 | Launcher / first-boot auto-tune / `main()`. |
 | `panels/startup.py` | 732 | First-boot wizard + model setup + hardware tuning dock. |
@@ -545,5 +545,6 @@ deduped, 1 in-flight, 10-min cooldown). Toggle: `cog.background_deepen` /
 - **Autonomy:** `autonomy_controller` ticks (safe_tick/safe_goal_tick/safe_scheduler_tick)
   now run on a governed 30-min beat inside the proactive daemon (were manual-only).
 - **IntrospectionBusAgent** gathers identity/awareness audits as evidence (summarised, not dumped).
-- **GUI:** 12 main tabs (Report Builder promoted); Files-tab converter.
+- **GUI:** **14 main tabs** (Report Builder + Test & Review + Orchestration promoted from
+  Labs); Files-tab converter.
 - Full per-action reference (with activation phrases): `capabilities_and_actions.md`.
