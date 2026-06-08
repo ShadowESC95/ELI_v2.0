@@ -28,7 +28,7 @@ a chat wrapper.
 
 ## 2. Scale & shape
 
-**~133,000 LOC across 351 Python files** (`eli/`), plus 151 test files. *(2026-06-08.)*
+**~133,400 LOC across 352 Python files** (`eli/`), plus 151 test files. *(2026-06-08.)*
 
 | Subsystem | LOC | Files | Role |
 |---|---|---|---|
@@ -58,7 +58,7 @@ a chat wrapper.
   adapt n_ctx / gpu_layers / batch to whatever model + GPU are present
   (filename→ctx table; VRAM compute-buffer reservation). Model-agnostic.
 - **Routing** — `execution/router_enhanced.py`: regex-first with LLM-intent
-  fallback + an explicit priority pipeline → one of **205 manifest capabilities**
+  fallback + an explicit priority pipeline → one of **206 manifest capabilities**
   (~163 executor `SUPPORTED_ACTIONS`). Full reference with activation
   phrases: `capabilities_and_actions.md`.
 - **Orchestration** — `kernel/engine.py` gates between the 12-stage
@@ -215,7 +215,7 @@ can rely on."
   `runtime_planning_world.md`, `dag_orchestrator.md`, `state_snapshot.md`.
 
 ## Update Advisory — 2026-06-08 (reliability + voice/wake/tone + cognition correctness)
-- **Scale now:** 132,969 LOC / **351** files / **205** capabilities (166 SUPPORTED_ACTIONS)
+- **Scale now:** 133,430 LOC / **352** files / **205** capabilities (166 SUPPORTED_ACTIONS)
   / 151 test files. New actions: `WAKE_TRAIN` / `WAKE_ENROLL` / `WAKE_SET` / `TRAIN_VOICE`.
   New subsystems: `perception/wakeword.py`, `perception/voice_profile.py`; rewritten
   `cognition/llm_intent.py`.

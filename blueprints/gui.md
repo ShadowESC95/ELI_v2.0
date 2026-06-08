@@ -115,3 +115,11 @@ author's physics/engineering work — see memories on QMSH / Ξ-χ physics).
   select a file → format (PDF, PDF-LuaLaTeX, .docx, .doc, .odt, .rtf, HTML, .md,
   .tex, EPUB, .txt) → `CONVERT_DOCUMENT` (pandoc + LibreOffice fallback).
 - **Tasks tab** (`gui/tabs/tasks_tab.py`) lists scheduled/overnight/background jobs.
+
+## Update Advisory — 2026-06-08 (Full Control toggle)
+- A red **🔓 Full Control** toggle sits in the top button row next to the Net toggle
+  (`_on_full_control_toggled`). Enabling it pops a confirmation spelling out exactly what it
+  lifts (network always on; ELI may self-edit code; auto-approves its own autonomous actions;
+  ANY shell command incl. normally-blocked destructive ones). It writes the `full_control`
+  setting via `eli.core.full_control.set_full_control` (single source of truth — see
+  `security.md`). Default OFF.

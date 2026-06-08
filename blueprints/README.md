@@ -20,9 +20,9 @@ from deep reads of the core + a full structural/code-health sweep — a deep rea
   verified subsystem facts, the fixes shipped this session, and the honest limits.
   Unbiased, just facts.
 - **[capability_catalogue.md](capability_catalogue.md)** — exhaustive, ground-truth
-  catalogue of all actions (205) + every package's modules (5 parts).
+  catalogue of all actions (206) + every package's modules (5 parts).
 - **[project_overview.md](project_overview.md)** — start here for the engineering
-  view. What ELI is, scale (~133k LOC / 351 files), architecture by layer, the
+  view. What ELI is, scale (~133.4k LOC / 352 files), architecture by layer, the
   honest verdict on "frontier", and the highest-leverage work.
 - **[orchestration_and_agents.md](orchestration_and_agents.md)** — the real
   topology: `AgentOrchestrator` (12-stage pipeline) vs the 14-agent `AgentBus`,
@@ -60,7 +60,7 @@ from deep reads of the core + a full structural/code-health sweep — a deep rea
   + self-upgrade route through the coding agent) and the in-process background task
   manager (heavy work runs on threads; `CHECK_JOB`/`BACKGROUND_JOBS`).
 - **[state_snapshot.md](state_snapshot.md)** — **authoritative current-state snapshot**
-  (measured): scale, capabilities (205), tests, GPU, and every recent change. Start here
+  (measured): scale, capabilities (206), tests, GPU, and every recent change. Start here
   for "what is true right now".
 - **[dag_orchestrator.md](dag_orchestrator.md)** — the DAG elevated to a full execution
   orchestrator (parallel/retries/fallback/cache/telemetry), wired through agents +
@@ -125,7 +125,7 @@ from deep reads of the core + a full structural/code-health sweep — a deep rea
   `capabilities_and_actions.md` (auto-generated, in sync with the manifest).
 
 ## Update Advisory — 2026-06-08
-- **Stats:** 132,969 LOC / **351** files / **205** capabilities (166 SUPPORTED_ACTIONS) /
+- **Stats:** 133,430 LOC / **352** files / **205** capabilities (166 SUPPORTED_ACTIONS) /
   151 test files. New actions: `WAKE_TRAIN`/`WAKE_ENROLL`/`WAKE_SET`/`TRAIN_VOICE`.
 - **Reliability:** MULTI_COMMAND + FIX_FILE crash fixes; LoRA `build_job` builds the
   dataset (no more ×30 error); vision **VRAM cliff** fixed (reload restores full-GPU).
