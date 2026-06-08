@@ -971,6 +971,7 @@ Date: {datetime.now().strftime("%A %B %d %H:%M")} | Interactions last 24h: {inte
                         _new_goals = propose_goals_from_signals(
                             world_suggestions=_world_suggs,
                             patterns=patterns,
+                            improvements=improvements,
                             memory=self.agent_mem or self.user_mem,
                         )
                         if _new_goals:
