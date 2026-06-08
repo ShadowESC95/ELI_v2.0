@@ -137,3 +137,17 @@ gap ELI's own grounding admits.
 - **DB roles (4 stores):** `user.sqlite3` (conversations/memories/KG/news/habits/patterns), `agent.sqlite3` (agent/self-improvement: dispatches, metrics, code_patches, **failures**, improvements), `system_index.sqlite3` (OS app/exe index), `coding_memory.sqlite3` (coding bug-fixes; live but empty until fixes recorded).
 - **Failures consolidated:** previously dual-written to both user+agent DBs; now logged ONCE to `agent.sqlite3`. New `Memory.mark_failure_resolved(error_like=/id=)`; `analyze_failures`/`get_recent_failures` exclude `resolved`/`closed`.
 - **Gather limits user-tunable:** the `BusMemoryAgent` recall/show counts, chars-per-item, summaries, multi-hop pool and merge cap now come from `cognition_tunables` (GUI ‘Cognition’ tab); defaults unchanged. Personal-memory report cap raised 20→40.
+
+## Update — 2026-06-09
+- **Detected habits readable** (`Memory.get_detected_habits(min_count, limit)`): the
+  proactive daemon fills the `habits` table via `detect_habits()`, but HABIT_STATUS, the
+  persona overlay, and the bus `HabitAgent` all previously read only the (usually empty)
+  `habit_rules` table → "no habits detected". `get_detected_habits` reads the real `habits`
+  table with a meta/introspection denylist (filters SELF_REPORT/MEMORY_STATUS/EXPLAIN_* noise
+  from the user testing ELI), so genuine behaviour (media, app launches, screenshots) surfaces.
+- **FAISS persistence bug fixed:** `_eli_persist_loaded_vector_store` was writing vector
+  metadata with `pickle.dump` to `meta.json` while `_load_meta` reads JSON — so a rebuild
+  corrupted the index and the next load silently auto-rebuilt (accumulating phantom vectors).
+  Both write sites now use the canonical `_dump_meta` (JSON); the index re-syncs cleanly to the
+  memory count. (This also closes a pickle-RCE-on-load vector the codebase had deliberately
+  retired.) KG populator enriched (broader, clean entity extraction from `user_patterns`).
