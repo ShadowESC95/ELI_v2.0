@@ -61,7 +61,7 @@ pipeline/memory/gating close-ups). Every layer and box maps to a real path.
         │              └────────────────────────────┬─────────────────────────────────────┘
         ▼                                           ▼
 ┌─ EXECUTION ───────────────────────────────────────────────────────────────────────┐
-│  execution/executor_enhanced.py  ~160 action branches / 186 capabilities (runtime) │
+│  execution/executor_enhanced.py  ~166 action branches / 206 capabilities (live)    │
 │  media_runtime · operator_actions · tool_execution_authority · background_tasks     │
 │  PLUGINS(10): calendar document_reader media notes pomodoro smart_home              │
 │              system_stats tts web web_automation        eli/coding :: CodeAgent     │

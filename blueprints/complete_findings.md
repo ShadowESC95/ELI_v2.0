@@ -132,12 +132,15 @@ contributions capped. Per-action agent selection narrows the set.
 
 **Orchestrator.** 12 stages: HyDE expansion → parallel FAISS (vector) + FTS5
 (keyword) + KG multi-hop BFS + conversation + document RAG → hybrid merge →
-cross-encoder rerank → precise context assembly. Mode-aware retrieval budgets.
+heuristic rerank (lexical × recency × importance — `reranker.py` is explicitly a
+dependency-free reranker, NOT yet a neural cross-encoder; that's the designed
+upgrade point) → precise context assembly. Mode-aware retrieval budgets.
 
 **Memory.** Four SQLite stores — **user.sqlite3** (conversations, memories, KG,
 news, habits, user_patterns), **agent.sqlite3** (agent/self-improvement:
 dispatches, metrics, code_patches, failures, improvements — now the *single*
-failure store), **system_index.sqlite3** (7,843 executables for app launch),
+failure store), **system_index.sqlite3** (your machine's executables for app launch —
+thousands, indexed live per machine),
 **coding_memory.sqlite3** (bug→fix memory). Plus FAISS (L2, 1/(1+dist) similarity,
 nomic embedder, keyword fallback), a knowledge graph (multi-hop BFS), working
 memory (turn-scoped pins), and **dynamic facts** (volatile project/interest facts
