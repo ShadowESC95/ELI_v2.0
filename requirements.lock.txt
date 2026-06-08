@@ -61,6 +61,7 @@ networkx==3.6.1
 ninja==1.13.0
 numpy==2.4.4
 onnxruntime==1.26.0
+openwakeword==0.4.0
 opencv-contrib-python==4.13.0.92
 opencv-python==4.13.0.92
 packaging==26.2
