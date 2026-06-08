@@ -246,6 +246,16 @@ def build_training_job(
     else:
         out_path = _resolve_project_path(config.get("output_dir"))
 
+    # Build the dataset from reviewed conversation rows if it hasn't been built yet.
+    # The LoRA is human-gated, so an unbuilt/empty dataset just means "no curated
+    # training data yet", not an error — but without building it the build_job stage
+    # reported "dataset path does not exist" forever (a recurring proactive-log error).
+    if dataset_path and not dataset_path.exists():
+        try:
+            from eli.learning.dataset_builder import build_dataset
+            build_dataset(out_path=dataset_path)
+        except Exception:
+            pass
     dataset = _dataset_report(dataset_path, target) if dataset_path else {
         "ok": False,
         "problems": ["dataset path missing from guard plan"],
@@ -264,8 +274,18 @@ def build_training_job(
     elif base_model_path.suffix.lower() == ".gguf":
         problems.append("base model is GGUF; training requires Hugging Face model directory")
 
+    # Data-readiness (no reviewed rows yet / unreviewed / wrong-target / bad rows) is
+    # the NORMAL resting state of a human-gated LoRA: it must BLOCK training, but it is
+    # NOT a pipeline failure. Track it separately from structural problems so a dry-run
+    # build_job stays green (will_train=False) when there's simply nothing curated yet,
+    # instead of logging a recurring error every proactive tick. (A completely missing
+    # dataset_path is still a config/structural problem and stays below.)
+    data_not_ready: list[str] = []
     if not dataset.get("ok"):
-        problems.extend(dataset.get("problems") or ["dataset failed validation"])
+        if not dataset_path:
+            problems.extend(dataset.get("problems") or ["dataset path missing from guard plan"])
+        else:
+            data_not_ready.extend(dataset.get("problems") or ["dataset not ready"])
 
     if not out_path:
         problems.append("output_dir missing")
@@ -283,7 +303,8 @@ def build_training_job(
     if grad_accum < 1:
         problems.append("grad_accum must be >= 1")
 
-    will_train = bool(execute and not problems)
+    # Training requires BOTH no structural problems AND curated/ready data.
+    will_train = bool(execute and not problems and not data_not_ready)
 
     job = {
         "ok": True,
@@ -310,6 +331,7 @@ def build_training_job(
         },
         "adapter_config": guard_plan.get("adapter_config", {}),
         "problems": problems,
+        "data_not_ready": data_not_ready,
         "warnings": warnings,
         "safety_contract": [
             "Default mode is dry-run only.",
