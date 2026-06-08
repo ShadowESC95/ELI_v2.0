@@ -995,6 +995,89 @@ class ELIAudioSTT:
                 self._thread = None
         log.debug("[AUDIO] Stopped listening")
 
+    def _listen_adaptive_pause(self, source, timeout, phrase_time_limit,
+                               short_pause, long_pause, long_after):
+        """speech_recognition's listen() with a DURATION-ADAPTIVE end-of-phrase pause.
+
+        Faithful copy of sr.Recognizer._listen (sr 3.16) — same energy detection,
+        non-speaking trimming, phrase cap, and WaitTimeoutError — with ONE change:
+        the silence required to END a phrase grows once the utterance gets long.
+          • a short command finalises after `short_pause`s of silence (snappy — no
+            more 1.4 s wait between commands);
+          • a long dictated prompt that has been speaking for `long_after`s needs
+            `long_pause`s of silence before it ends, so a natural mid-sentence pause
+            no longer cuts it off.
+        Stock listen() can't do this because it reads pause_threshold once per phrase.
+        """
+        import audioop as _audioop, collections as _collections, math as _math
+        import speech_recognition as _sr
+        rec = self.recognizer
+        seconds_per_buffer = float(source.CHUNK) / source.SAMPLE_RATE
+        phrase_buffer_count = int(_math.ceil(rec.phrase_threshold / seconds_per_buffer))
+        non_speaking_buffer_count = int(_math.ceil(rec.non_speaking_duration / seconds_per_buffer))
+        short_count = int(_math.ceil(max(0.05, short_pause) / seconds_per_buffer))
+        long_count = int(_math.ceil(max(short_pause, long_pause) / seconds_per_buffer))
+
+        elapsed_time = 0
+        buffer = b""
+        while True:
+            frames = _collections.deque()
+            # store audio input until the phrase starts
+            while True:
+                elapsed_time += seconds_per_buffer
+                if timeout and elapsed_time > timeout:
+                    raise _sr.WaitTimeoutError("listening timed out while waiting for phrase to start")
+                buffer = source.stream.read(source.CHUNK)
+                if len(buffer) == 0:
+                    break
+                frames.append(buffer)
+                if len(frames) > non_speaking_buffer_count:
+                    frames.popleft()
+                energy = _audioop.rms(buffer, source.SAMPLE_WIDTH)
+                if energy > rec.energy_threshold:
+                    break
+                if rec.dynamic_energy_threshold:
+                    damping = rec.dynamic_energy_adjustment_damping ** seconds_per_buffer
+                    target_energy = energy * rec.dynamic_energy_ratio
+                    rec.energy_threshold = rec.energy_threshold * damping + target_energy * (1 - damping)
+
+            # read audio input until the phrase ends
+            pause_count, phrase_count = 0, 0
+            phrase_start_time = elapsed_time
+            while True:
+                elapsed_time += seconds_per_buffer
+                if phrase_time_limit and elapsed_time - phrase_start_time > phrase_time_limit:
+                    break
+                buffer = source.stream.read(source.CHUNK)
+                if len(buffer) == 0:
+                    break
+                frames.append(buffer)
+                phrase_count += 1
+                energy = _audioop.rms(buffer, source.SAMPLE_WIDTH)
+                if energy > rec.energy_threshold:
+                    pause_count = 0
+                else:
+                    pause_count += 1
+                # ── the only behavioural change vs sr: the pause needed to END the
+                # phrase depends on how long the user has been speaking.
+                speech_elapsed = elapsed_time - phrase_start_time
+                cur_pause_count = long_count if speech_elapsed >= long_after else short_count
+                if pause_count > cur_pause_count:
+                    break
+                if rec.dynamic_energy_threshold:
+                    damping = rec.dynamic_energy_adjustment_damping ** seconds_per_buffer
+                    target_energy = energy * rec.dynamic_energy_ratio
+                    rec.energy_threshold = rec.energy_threshold * damping + target_energy * (1 - damping)
+
+            phrase_count -= pause_count
+            if phrase_count >= phrase_buffer_count or len(buffer) == 0:
+                break
+
+        for _ in range(max(0, pause_count - non_speaking_buffer_count)):
+            if frames:
+                frames.pop()
+        return _sr.AudioData(b"".join(frames), source.SAMPLE_RATE, source.SAMPLE_WIDTH)
+
     def listen_once(self, timeout=5) -> str:
         try:
             with self.microphone as source:
@@ -1211,7 +1294,31 @@ class ELIAudioSTT:
                             _silent_streak = 0  # reset counter even when calibration is off
 
                         _listen_start = time.monotonic()
-                        audio = self.recognizer.listen(source, timeout=MAIN_TIMEOUT, phrase_time_limit=_active_phrase_limit)
+                        # Duration-adaptive end-of-phrase pause for command/dictation
+                        # states (NOT the unarmed wake-word window, which stays tight
+                        # for fast wake detection): short commands finalise after
+                        # ELI_STT_SHORT_PAUSE (0.5s) of silence; a prompt that's been
+                        # going past ELI_STT_LONG_AFTER (12s) needs ELI_STT_LONG_PAUSE
+                        # (2s) of silence so a mid-sentence pause doesn't cut it off.
+                        # Flag-gated; falls back to stock listen() on any error.
+                        _adaptive = os.environ.get("ELI_STT_ADAPTIVE_PAUSE", "1").lower() not in {"0", "false", "no", "off"}
+                        _adaptive_state = self._voice_gate.armed() or _allow_direct_chat()
+                        if _adaptive and _adaptive_state:
+                            _ad_limit = max(_active_phrase_limit, float(os.environ.get("ELI_STT_ADAPTIVE_PHRASE_LIMIT", "45.0")))
+                            try:
+                                audio = self._listen_adaptive_pause(
+                                    source, timeout=MAIN_TIMEOUT, phrase_time_limit=_ad_limit,
+                                    short_pause=float(os.environ.get("ELI_STT_SHORT_PAUSE", "0.5")),
+                                    long_pause=float(os.environ.get("ELI_STT_LONG_PAUSE", "2.0")),
+                                    long_after=float(os.environ.get("ELI_STT_LONG_AFTER", "12.0")),
+                                )
+                            except sr.WaitTimeoutError:
+                                raise
+                            except Exception as _ad_err:
+                                log.debug(f"[AUDIO] adaptive listen failed, using stock listen(): {_ad_err}")
+                                audio = self.recognizer.listen(source, timeout=MAIN_TIMEOUT, phrase_time_limit=_active_phrase_limit)
+                        else:
+                            audio = self.recognizer.listen(source, timeout=MAIN_TIMEOUT, phrase_time_limit=_active_phrase_limit)
                     except sr.WaitTimeoutError:
                         # Restore duck if the gate expired while we were waiting
                         # for the user to speak (covers arm_incomplete → silence → timeout).
