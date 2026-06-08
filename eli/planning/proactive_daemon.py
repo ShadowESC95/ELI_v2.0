@@ -959,6 +959,28 @@ Date: {datetime.now().strftime("%A %B %d %H:%M")} | Interactions last 24h: {inte
                     except Exception as _world_loop_err:
                         log.debug(f"[PROACTIVE] World→runtime feedback failed: {_world_loop_err}")
 
+                    # ── Goal autogenesis: turn ELI's own signals into goals ──────
+                    # The autonomy/goal-tick stack was fully wired but the goal store
+                    # was always empty (create_goal was operator-only). Convert the
+                    # high-value world-suggestions + recurring-failure patterns this
+                    # tick produced into GOVERNED goals (proposal_only — they surface
+                    # for approval via governed_goal_tick, never silent execution).
+                    # Deduped + capped, so this is safe every tick.
+                    try:
+                        from eli.planning.goal_autogenesis import propose_goals_from_signals
+                        _new_goals = propose_goals_from_signals(
+                            world_suggestions=_world_suggs,
+                            patterns=patterns,
+                            memory=self.agent_mem or self.user_mem,
+                        )
+                        if _new_goals:
+                            log.info(
+                                "[PROACTIVE] goal autogenesis: %d new goal(s) — %s",
+                                len(_new_goals), ", ".join(_new_goals),
+                            )
+                    except Exception as _goal_gen_err:
+                        log.debug(f"[PROACTIVE] goal autogenesis failed: {_goal_gen_err}")
+
                     last_analysis = time.time()
 
                     # ── 3-hour news fetch + synthesis cycle ───────────────
