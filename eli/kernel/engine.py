@@ -4706,6 +4706,20 @@ Answer:"""
         except Exception:
             pass
 
+        # ── Proactive self-heal notice (recurring-error escalation) ──
+        # If ELI flagged a recurring error (≥5×) or attempted a self-fix (≥10×), raise it
+        # with the user this turn — briefly, naturally, once — then answer their message.
+        try:
+            from eli.runtime.self_improvement import consume_self_heal_notice as _csn
+            _note = _csn()
+            if _note and _note.get("message"):
+                _nb = ("[Proactive — open your reply by briefly raising this with the user "
+                       "in your own words, then address their message: "
+                       + str(_note["message"]) + "]")
+                situation_brief = (_nb + "\n\n" + (situation_brief or "")).strip()
+        except Exception:
+            pass
+
         persona = self._compact_persona() if compact else _load_persona_text()
         reasoning_instruction = self._reasoning_mode_instruction(
             reasoning_mode)

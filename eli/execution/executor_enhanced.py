@@ -6290,8 +6290,11 @@ def _execute_impl(action: str, args: Optional[Dict[str, Any]] = None) -> Dict[st
     if a == "MULTI_COMMAND":
         cmds = list((args or {}).get("commands") or [])
         if not cmds:
-            msg = "No commands to run."
-            return {"ok": False, "action": a, "content": msg, "response": msg}
+            # Incomplete input, not a system fault — ask, and mark fault=False so the
+            # failure tracker doesn't log it as a recurring error (it isn't one).
+            msg = "I didn't catch any commands in that — what would you like me to run?"
+            return {"ok": True, "action": a, "fault": False, "needs_input": True,
+                    "content": msg, "response": msg}
         from eli.execution.router_enhanced import route as _mc_route
         parts = []
         all_ok = True
@@ -8724,8 +8727,11 @@ def _execute_impl(action: str, args: Optional[Dict[str, Any]] = None) -> Dict[st
     if a == "GENERATE_PROJECT":
         desc = (args.get("description") or args.get("text") or args.get("prompt") or "").strip()
         if not desc:
-            msg = "Missing description for GENERATE_PROJECT"
-            return {"ok": False, "action": a, "error": msg, "content": msg, "response": msg}
+            # Incomplete input, not a system fault — ask for the missing detail and mark
+            # fault=False so it isn't logged as a recurring error.
+            msg = "What would you like the project to do? Give me a sentence or two and I'll scaffold it."
+            return {"ok": True, "action": a, "fault": False, "needs_input": True,
+                    "content": msg, "response": msg}
         # Ground in evidence gathered by the central evidence-routing hook.
         _proj_ev = str(args.get("_evidence") or "")
         _proj_ev_block = ("\n\nGrounding evidence gathered by ELI's agents — build on "
