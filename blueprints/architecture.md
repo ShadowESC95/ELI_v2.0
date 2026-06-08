@@ -6,7 +6,7 @@ is observed-at-runtime rather than read-from-code it is marked *(runtime)*.
 
 > ELI is a **100% local, offline-by-default, model-agnostic** cognitive runtime
 > + assistant GUI. No cloud, no APIs on the inference path, no hardcoded model.
-> ~133k LOC across 351 Python files (2026-06-08).
+> ~133.4k LOC across 352 Python files; 206 capabilities (2026-06-08).
 
 ---
 
@@ -26,27 +26,30 @@ is observed-at-runtime rather than read-from-code it is marked *(runtime)*.
 
 ## 1. Repository map (recursive LOC, role)
 
-| Package | LOC | Role |
-|---|---:|---|
-| `eli/execution` | 20.5k | Router + executor: intent → action → side effects |
-| `eli/gui` | 18.7k | PySide6 desktop app, panels, startup/first-boot wizard |
-| `eli/runtime` | 18.0k | Grounding spine, evidence, response contracts, daemons (68 files) |
-| `eli/kernel` | 13.1k | `CognitiveEngine` (the orchestrating core), scheduler, task bus |
-| `eli/cognition` | 12.3k | Agent bus, 12-stage orchestrator, inference, persona, reasoning |
-| `eli/tools` | 8.1k | Image engine, news, document tools |
-| `eli/memory` | 6.6k | SQLite + FTS5 + FAISS + knowledge graph + working memory |
-| `eli/perception` | 5.4k | Vision (VL), STT (whisper), TTS, OS control, screen, gaze |
-| `eli/core` | 4.9k | netguard, paths, settings, hardware profile, model download |
-| `eli/learning` | 3.1k | LoRA self-training pipeline (Phi-3 base), dataset build/eval |
-| `eli/planning` | 3.1k | Proactive daemon, habit scheduler, job queue (21 files) |
-| `eli/plugins` | 1.9k | Plugin manager + bundled plugins |
-| `eli/world` | 1.5k | EliWorld event bus + local world bridge |
-| `eli/coding` | 1.5k | `CodeAgent` — plan→search→verify→repair coding pipeline |
-| `eli/utils` | 0.9k | logging, shared helpers |
-| `eli/contracts` | 0.7k | typed pipeline contracts |
-| `eli/system` | 0.3k | system-level helpers |
-| `eli/cli` | 0.1k | headless REPL |
-| **total** | **~133k** | **351 files** |
+*Per-package files / LOC measured 2026-06-08.*
+
+| Package | LOC | Files | Role |
+|---|---:|---:|---|
+| `eli/execution` | 22.3k | 14 | Router + executor: intent → action → side effects (executor god-file) |
+| `eli/runtime` | 21.1k | 79 | Grounding spine, evidence, response/introspection surfaces, daemons, self-improvement |
+| `eli/gui` | 20.1k | 20 | PySide6 desktop app, panels, startup/first-boot wizard |
+| `eli/kernel` | 13.7k | 8 | `CognitiveEngine` (the orchestrating core), scheduler, task bus |
+| `eli/cognition` | 13.0k | 26 | Agent bus, 12-stage orchestrator, inference, persona, reasoning |
+| `eli/tools` | 8.8k | 29 | Image engine, news, registry/capabilities, document tools |
+| `eli/memory` | 6.9k | 13 | SQLite + FTS5 + FAISS + knowledge graph + working memory |
+| `eli/perception` | 6.8k | 20 | Vision (VL), STT (whisper), TTS, **wake word**, **voice/tone**, OS control, gaze |
+| `eli/core` | 5.9k | 23 | netguard, paths, settings, hardware profile, model download, **full_control** |
+| `eli/learning` | 3.3k | 12 | LoRA self-training pipeline (Phi-3 base), dataset build/eval |
+| `eli/planning` | 3.3k | 21 | Proactive daemon, habit scheduler, job/proposal/attention queues |
+| `eli/plugins` | 2.0k | 28 | Plugin manager + bundled plugins |
+| `eli/coding` | 1.5k | 9 | `CodeAgent` — plan→search→verify→repair coding pipeline |
+| `eli/world` | 1.5k | 26 | EliWorld event bus, local world bridge, avatar/ontology |
+| `eli/integrations` | 1.0k | 9 | Optional Ollama client + integration adapters (not on the default path) |
+| `eli/utils` | 0.9k | 3 | logging, shared helpers |
+| `eli/contracts` | 0.7k | 3 | typed pipeline contracts |
+| `eli/system` | 0.3k | 2 | system-level helpers |
+| `eli/cli` | 0.1k | 2 | headless REPL |
+| **total** | **~133.4k** | **352** | |
 
 ### The four god-files (refactor targets — see §20)
 | File | LOC |
