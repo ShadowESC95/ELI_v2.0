@@ -59,6 +59,21 @@ from deep reads of the core + a full structural/code-health sweep — a deep rea
 - **[background_tasks.md](background_tasks.md)** — unified code generation (GENERATE_SCRIPT
   + self-upgrade route through the coding agent) and the in-process background task
   manager (heavy work runs on threads; `CHECK_JOB`/`BACKGROUND_JOBS`).
+- **[state_snapshot.md](state_snapshot.md)** — **authoritative current-state snapshot**
+  (measured): scale, capabilities (201), tests, GPU, and every recent change. Start here
+  for "what is true right now".
+- **[dag_orchestrator.md](dag_orchestrator.md)** — the DAG elevated to a full execution
+  orchestrator (parallel/retries/fallback/cache/telemetry), wired through agents +
+  evidence gather; Test & Review; SELF_IMPROVE/GENERATE_PROJECT on the coding/planner DAG;
+  multi-command + timed commands.
+- **[lora_pipeline.md](lora_pipeline.md)** — LoRA audit + the wired, model-agnostic
+  training pipeline (preflight→build→train→eval) + `LORA_STATUS`/`LORA_TRAIN`.
+- **[installation.md](installation.md)** — one-click cross-platform installers
+  (Linux/macOS/Windows/Android), frozen lock, GPU verify, DB init, CUDA-toolkit option.
+- **[decomposition_plan.md](decomposition_plan.md)** — full code-review + god-file
+  decomposition plan (keep good code; fix real problems) — **plan only**.
+- **[proposal_total_awareness.md](proposal_total_awareness.md)** — dated proposal
+  (test→report→ELI loop, total-awareness roadmap, GPU erratum).
 
 ## Cross-cutting themes (recurring across docs)
 
