@@ -87,3 +87,13 @@ orchestrator rather than reinventing repair. The Test & Review "Propose verified
 fixes" option routes here.
 Artifact-dir resolution is now consistent — `run_test_report.py` and the conftest
 report hook both honour `ELI_ARTIFACTS_DIR` (no real-folder pollution in tests).
+
+## Multi-command + timed commands (2026-06-08)
+- **Multi-command chaining** (`eli/runtime/command_splitter.py` + router
+  `multi_command_prepass` → `MULTI_COMMAND`): one utterance chaining imperative commands
+  is split (the "plan"), then the executor routes & runs each segment in order and
+  combines results — the planning step that lets the agents/executor handle several
+  actions from one sentence. Sequential today; `run_graph` is ready for parallel fan-out
+  of independent ("and"-joined) commands.
+- **Timed commands** → background workers: any imperative + a future time defers to the
+  durable scheduler (see `runtime_planning_world.md`).

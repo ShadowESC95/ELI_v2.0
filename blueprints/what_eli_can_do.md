@@ -171,6 +171,15 @@ auto-revert); runs maintenance (update, rebuild indexes, refresh capabilities);
 audits its own runtime honestly with live health probes; and can **train a LoRA
 adapter on your own conversations**, locally.
 
+### 🗓️ Schedule & chain commands
+Ask for **any command at a time** — *"open Spotify at 8pm"*, *"get the news at 7am"*,
+*"close Steam in 2 hours"*, *"get a morning report ready for 7:15 tomorrow"* — and ELI
+defers it to its **durable background workers** (survives restarts; *"every morning"*
+makes it recurring) instead of doing it now. Alarms, timers, and questions still behave
+normally. You can also **chain several commands in one breath** — *"close Steam and set
+an alarm for 7am"*, *"open Spotify then play Vincent's Tale"* — and ELI runs each in
+order. Works by voice or text.
+
 ### 🎯 Be proactive & self-aware
 A background daemon notices your patterns, **offers** to automate routines (never
 silently), builds your morning report, and surfaces things worth your attention —
