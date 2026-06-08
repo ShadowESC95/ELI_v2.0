@@ -234,7 +234,7 @@ stubs); custom agents (AST-validated → hash-trusted → live-registered);
 
 ## F. The accurate one-line summary
 
-ELI is a **~133,000-line, 351-file, 100%-local, model-agnostic personal cognitive
+ELI is a **~133,400-line, 352-file, 100%-local, model-agnostic personal cognitive
 runtime**: a 14-agent calibrated bus on a 12-stage retrieval pipeline with 5 real
 multi-pass reasoning modes; a four-store adaptive memory; a deterministic
 self-honesty layer; a frontier-grade self-verifying coding agent; safe
@@ -276,7 +276,7 @@ Verified, committed fixes since the findings record above:
 ---
 
 ## Update Advisory — 2026-06-08
-- **Counts now:** **132,969 LOC / 351 files / 205 capabilities (166 SUPPORTED_ACTIONS) /
+- **Counts now:** **133,430 LOC / 351 files / 206 capabilities (167 SUPPORTED_ACTIONS) /
   151 test files / 14 main GUI tabs.** Suite: **6,586 passed / 0 failed / 2 xfailed / 42
   skipped** (6,630 collected). New actions: `WAKE_TRAIN`/`WAKE_ENROLL`/`WAKE_SET`/`TRAIN_VOICE`.
 - **Verified facts changed this session** (all tested; see `state_snapshot.md` for the
