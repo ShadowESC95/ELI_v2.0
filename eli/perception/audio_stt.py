@@ -1338,6 +1338,35 @@ class ELIAudioSTT:
                         continue
 
                     transcript = self._recognize(audio)
+
+                    # ── Acoustic wake-word detector (self-trained, robust over music) ──
+                    # When UNARMED and a local model is trained, score the captured audio
+                    # directly. This catches "computer" even when whisper transcribed the
+                    # background music instead of the wake word — the whole reason it exists.
+                    # We inject the wake word so the existing VoiceGate arms naturally.
+                    # Fully fallback-safe: no model → no-op; any error → ignored. Disable
+                    # with ELI_WAKE_ACOUSTIC=0.
+                    if (os.environ.get("ELI_WAKE_ACOUSTIC", "1").lower() not in {"0", "false", "no", "off"}
+                            and not self._voice_gate.armed()):
+                        try:
+                            from eli.perception import wakeword as _ww
+                            _wd = _ww.get_detector()
+                            if _wd is not None:
+                                _raw = audio.get_raw_data()
+                                _sw = int(getattr(audio, "sample_width", 2) or 2)
+                                _asr = int(getattr(audio, "sample_rate", 16000) or 16000)
+                                if _sw == 2 and _raw:
+                                    _pcm = np.frombuffer(_raw, dtype=np.int16)
+                                    if _asr != 16000 and len(_pcm) > 1:
+                                        _pcm = (_ww._resample(_pcm.astype("float32") / 32768.0, _asr, 16000) * 32767).astype("int16")
+                                    if _wd.is_wake(_pcm):
+                                        _low = (transcript or "").lower()
+                                        if not any(_low.startswith(_w) for _w in WAKE_WORDS):
+                                            transcript = ("computer " + (transcript or "")).strip()
+                                            _vprint("🔊 [AUDIO] acoustic wake-word detected (over noise/music)", flush=True)
+                        except Exception:
+                            pass
+
                     if not transcript:
                         _silent_streak += 1
                         continue
