@@ -241,6 +241,36 @@ Per-package LOC/file table refreshed in `architecture.md`.
   shows Quick/Normal/Advanced/Research/Expert. **Command-console / AGI framing removed** from all code
   + blueprints.
 
+## Update Advisory — 2026-06-09 (live-session bug-fix pass: routing, habits, terminal)
+Scale now **~134.0k LOC / 353 files / 152 test files / 206 capabilities / 14 bus agents**
+(+`eli/planning/goal_autogenesis.py` and its test since the 2026-06-08 line). Fixes landed
+from a real chat session on a GPU-fitting 7B model (all on `main`, tested):
+- **Proactive-habits ↔ chat-agent disconnect (the headline).** The proactive daemon fills the
+  `habits` table (detect_habits), but the bus **HabitAgent** read only the empty `habit_rules`
+  table — so the chat path was blind to ELI's real behaviour. Now HabitAgent reads
+  `get_detected_habits()`, `AgentResult.has_evidence` recognises it, and
+  `DispatchResult.to_context_block` renders it — so a chat about routines is grounded in real
+  patterns ("screenshot 41×, play media 38×…"). Completes the habit wiring across all three
+  readers (HABIT_STATUS, overlay, chat agent).
+- **Routing/parsing cluster:** "open home folder" no longer tries to *install* an app and `~`
+  now expands (OPEN_FILE_SYSTEM); "play X on youtube **and** close spotify" splits into
+  MULTI_COMMAND (media post-contract no longer collapses an already-split chain); banter
+  ("use your imagination!") downgrades from a mis-guessed GENERATE_SCRIPT to CHAT; alarm
+  parsing handles "7am tomorrow"/"07:00 hours"/"noon"/24h (was `int()` on the raw string).
+- **Symbolic world:** "which room are you in?" routes to CHAT (so the handoff's LIVE current
+  room is used) instead of mis-routing to GAZE_STATUS where the model defaulted to "Core Room";
+  the room directive now asserts the real room and forbids the "nuclear reactor" misread. The
+  world model itself was always correct — the question was reaching a context-free path.
+- **Terminal is real; mock leak fenced.** Confirmed RUN_CMD uses a real `subprocess.run`
+  (executor_enhanced.py:5350) behind the destructive-command security gate — no production mock
+  path. The `<MagicMock …>` rows in the live failures DB came from
+  `tests/test_shell_security_gate.py` patching `subprocess.run` (a test-isolation slip); a guard
+  in `SelfImprovementEngine.log_failure` now drops any Mock/MagicMock repr at the write source.
+- **Self-repair:** self-patch no longer hallucinates a file target for non-file failures
+  (returns `no_groundable_file`); the live self-model block no longer leaks into user-facing
+  SELF_ANALYZE; stale/test-leak failure tallies purged. LoRA pipeline confirmed green end-to-end
+  (blocked only on human dataset review, by design).
+
 ## Update Advisory — 2026-06-08 (autonomy, persona voice, full-brain audit)
 Full cognition audit + the gaps it closed (all on `main`, tested):
 - **Goal autogenesis** (`eli/planning/goal_autogenesis.py`, NEW) — the autonomy stack

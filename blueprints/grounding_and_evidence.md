@@ -186,3 +186,17 @@ recoverable instead of dead ends.
   resolves to the deterministic `DATE` action rather than falling to a chat/web turn that
   hallucinated the date. It resolves against ELI's real `SUPPORTED_ACTIONS` catalogue and
   defaults to CHAT — intelligence, not phrasing regexes.
+
+## Update — 2026-06-09
+- **Self-patch only patches what it can ground.** `generate_code_patch` extracts the target
+  file from the error traceback; when a failure has no in-project file (e.g. an HTTP/connection
+  error, "No commands to run"), it used to ask the model anyway, which **invented** a path
+  (phantom `api_client.py`) that then failed to apply. It now returns `no_groundable_file` and
+  routes the failure to goal-autogenesis / self-heal instead; when a file IS grounded it is
+  **pinned** in the prompt so the model can't drift to a different path.
+- **Banter guard:** the `llm_intent` resolver occasionally maps playful input to a generative
+  action; the engine now downgrades GENERATE_SCRIPT/PROJECT/DOCUMENT/CODE_SOLVE to CHAT when the
+  text carries no create-intent keyword (real "write me a script" is preserved).
+- **Compact grounded synthesis carries a VOICE primer** (pulled live from the canonical persona)
+  so factual/introspection answers sound like ELI without losing the EXACT-FACTS contract that
+  pins every number/path/table/DB to the evidence.
