@@ -5,9 +5,12 @@
 > conversational summaries of a 126k-LOC project keep undershooting; this is the
 > persisted, exhaustive map. Built in committed batches.
 >
-> **Method.** Action list comes from the live `capability_manifest.json` (193
-> entries: 180 executor/router + 13 plugin-backed), verified against the
-> `executor_enhanced.py` dispatch. Behaviour grounded in the handlers and the
+> **Method.** Action list comes from the live `capability_manifest.json` (**205**
+> entries as of 2026-06-08; 166 executor `SUPPORTED_ACTIONS` + plugin-backed),
+> verified against the `executor_enhanced.py` dispatch. **The always-current,
+> auto-generated action list with activation phrases is
+> `capabilities_and_actions.md`** — this catalogue is the deeper module-level read.
+> Behaviour grounded in the handlers and the
 > subsystem blueprints. Where a description is inferred from name+structure
 > rather than a line-by-line handler read, it is marked *(inferred)*.
 >
