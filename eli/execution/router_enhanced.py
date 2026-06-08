@@ -1476,6 +1476,30 @@ def route(text: str) -> Dict[str, Any]:
                  low):
         return _mk("VOICE_DIAGNOSTICS", {}, 0.93, matched_by="voice.diagnostics.preempt")
 
+    # ── Wake-word + voice-profile management ───────────────────────────────────
+    # Deterministic because these are explicitly-named commands the LLM resolver
+    # mis-routes ("set my wake word" → SET_CLIPBOARD). Distinct flows:
+    #   change/set wake word [to X]  → WAKE_SET (user picks their own wake word)
+    #   train/build wake word        → WAKE_TRAIN (synthetic model)
+    #   enroll/personalise wake word → WAKE_ENROLL (record me saying it)
+    #   train/learn my voice         → TRAIN_VOICE (prosody/tone foundation — separate)
+    if re.search(r"\b(wake[\s-]*word|wakeword)\b", low):
+        m = re.search(r"\b(?:change|set|update|make|rename)\b.*\bwake[\s-]*word\b\s*(?:to|is|as|=)?\s*(.*)$",
+                      raw, re.I)
+        if re.search(r"\b(?:change|set|update|make|rename|pick|choose|customi[sz]e)\b", low) and \
+           not re.search(r"\b(train|enroll|enrol|teach|record|personali[sz]e|tune)\b", low):
+            phrase = (m.group(1).strip().strip('."\'') if m and m.group(1) else "")
+            return _mk("WAKE_SET", {"phrase": phrase, "_raw_user_text": raw}, 0.95,
+                       matched_by="wake.set", entities={"phrase": phrase})
+        if re.search(r"\b(enroll|enrol|personali[sz]e|tune|record)\b", low):
+            return _mk("WAKE_ENROLL", {}, 0.95, matched_by="wake.enroll")
+        if re.search(r"\b(train|build|retrain|rebuild|create)\b", low):
+            return _mk("WAKE_TRAIN", {}, 0.95, matched_by="wake.train")
+    if re.search(r"\b(train|learn|teach|profile|study|analyse|analyze)\b.*\b(my\s+)?voice\b", low) or \
+       re.search(r"\b(my\s+)?voice\b.*\b(train|profile|baseline|tone|emotion)\b", low):
+        if "wake" not in low:
+            return _mk("TRAIN_VOICE", {}, 0.93, matched_by="voice.train_profile")
+
     # ── Gaze engine control ────────────────────────────────────────────────────
     # Must sit before RUNTIME_AUDIT so "gaze status" / "gaze diagnostics" don't
     # get absorbed by the generic audit preempt.
