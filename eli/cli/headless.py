@@ -29,7 +29,7 @@ Headless commands:
   /quit, /exit, /q   — exit the session
   /reset             — clear the current session and start fresh
   /status            — show engine and hardware status
-  /mode <name>       — switch reasoning mode (quick | standard | cot)
+  /mode <name>       — switch reasoning mode (Quick | Normal | Advanced | Research | Expert)
   /help              — show this help
 """
 
@@ -115,12 +115,16 @@ def run_headless() -> int:
                 continue
             if low.startswith("/mode "):
                 mode_name = raw[6:].strip().lower()
-                valid_modes = {"quick", "standard", "cot", "self_consistency", "tree_of_thoughts"}
-                if mode_name in valid_modes:
-                    reasoning_mode = mode_name
-                    print(f"[HEADLESS] Reasoning mode set to: {reasoning_mode}\n")
+                from eli.cognition.reasoning_modes import canonical_mode as _cm, mode_display as _md
+                public = {"quick", "normal", "advanced", "research", "expert"}
+                canonical = _cm(mode_name)
+                # canonical_mode falls back to "quick" for anything unknown; only treat
+                # it as set when the input was a real public/legacy name.
+                if mode_name in public or _cm(mode_name) != "quick" or mode_name in {"quick", "fast"}:
+                    reasoning_mode = canonical
+                    print(f"[HEADLESS] Reasoning mode set to: {_md(canonical)}\n")
                 else:
-                    print(f"[HEADLESS] Unknown mode '{mode_name}'. Valid: {', '.join(sorted(valid_modes))}\n")
+                    print("[HEADLESS] Unknown mode. Valid: Quick, Normal, Advanced, Research, Expert\n")
                 continue
 
             # Normal message
