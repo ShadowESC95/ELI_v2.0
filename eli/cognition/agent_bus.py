@@ -1148,6 +1148,15 @@ class ProactiveAgent(_BaseAgent):
             paths = get_paths()
             pro_dir = Path(paths.artifacts_dir) / "proactive"
             insights: List[str] = []
+            # Lead with the SYNTHESISED insight (background-cached, no per-turn LLM) before
+            # the raw signal files — real reflection, not just raw context dumps.
+            try:
+                from eli.planning.insight_synthesis import get_cached_insight
+                _syn = get_cached_insight()
+                if _syn:
+                    insights.append(f"[synthesis] {_syn[:400]}")
+            except Exception:
+                pass
             for fname in ("latest_context.txt", "latest_summary.txt", "latest_action.txt"):
                 fp = pro_dir / fname
                 if fp.exists():
@@ -2635,6 +2644,18 @@ class ReflectionAgent(_BaseAgent):
 
             insights = []
 
+            # Lead with the SYNTHESISED insight (LLM, computed in the background + cached —
+            # no per-turn latency). This is the real reflection; the raw observations below
+            # are kept as supporting evidence.
+            _synth = ""
+            try:
+                from eli.planning.insight_synthesis import get_cached_insight
+                _synth = get_cached_insight()
+                if _synth:
+                    insights.append(f"[synthesis] {_synth[:400]}")
+            except Exception:
+                pass
+
             try:
                 obs = list(mem.get_recent_observations(limit=8) or [])
             except Exception:
@@ -2660,9 +2681,10 @@ class ReflectionAgent(_BaseAgent):
                 if text:
                     insights.append(text[:220])
 
-            local_conf = 0.68 if insights else 0.20
+            local_conf = 0.78 if _synth else (0.68 if insights else 0.20)
             elapsed = (time.perf_counter() - t0) * 1000
-            log.debug(f"[AGENT:reflection] insights={len(insights)} conf={local_conf:.2f} elapsed={elapsed:.0f}ms")
+            log.debug(f"[AGENT:reflection] insights={len(insights)} synth={bool(_synth)} "
+                      f"conf={local_conf:.2f} elapsed={elapsed:.0f}ms")
             return AgentResult(
                 agent=self.name,
                 ok=True,
