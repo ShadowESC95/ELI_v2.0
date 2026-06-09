@@ -1367,6 +1367,17 @@ def _eli_is_rapport_prompt(text: str) -> bool:
         r"\bstill (?:broken|buggy|glitch(?:y|ing)?|messed up|off|borked|scrambled)\b",
         r"\b(?:lost the plot|gone (?:mad|crazy|insane)|losing it|out of your mind)\b",
         r"\byou (?:fixed|sorted|better) now\b",
+        # Canonical rapport check-ins — the most common "how are you" forms were missing,
+        # so "how are you feeling" fell through to full memory recall and the model recited
+        # stored facts ("you mentioned liking coffee") instead of just answering.
+        r"\bhow (?:are|r|'?re) (?:you|ya|u)(?: doing| feeling| going| holding up| keeping)?\b",
+        r"\bhow (?:you|ya) (?:doing|feeling|going|holding up)\b",
+        r"\bhow(?:'?s| is| are things| are we)? it (?:going|hanging)\b",
+        r"\bhow'?s (?:it|things) (?:going|hanging)\b",
+        r"\bhow have you been\b",
+        r"\byou feeling\b",
+        r"\bhow do you feel\b",
+        r"\bhow goes it\b",
     ]
 
     return any(re.search(pat, q) for pat in rapport_patterns)
@@ -1422,6 +1433,11 @@ def _eli_rapport_prompt_instruction(text: str) -> str:
         "clean now, and own recent glitches with dry humour if relevant. NEVER claim it 'doesn't "
         "make sense', NEVER ask them to clarify a clear question, NEVER deflect to 'let's focus on "
         "the task' or lecture about 'unnecessary banter / rhetorical questions'.\\n"
+        "- A plain feeling/check-in ('how are you feeling?', 'how's it going?') wants a SHORT, "
+        "in-character answer about how you're doing — nothing else. Do NOT recite stored facts "
+        "about the user ('you mentioned liking coffee'), do NOT dump memories, runtime, or your "
+        "internal state unprompted, and do NOT bolt on unrelated info. Answer the question, then "
+        "optionally ask what they want to do.\\n"
         "- Acknowledge the mood, show some wit, then ask what the user wants to work on or notice.\\n"
     )
 
@@ -9830,6 +9846,11 @@ Answer:"""
                             "REASONING_MODE_STATUS",
                             "MEMORY_STATUS",
                             "COGNITION_STATUS",
+                            # GET_PROPOSALS is a data action — its content (the live agenda or a
+                            # functional "no active proposals" line) must surface as-is. Passing
+                            # it through GGUF synthesis made the model INVENT suggestions on the
+                            # empty state ("focus on improving your memory recall…").
+                            "GET_PROPOSALS",
                             "EXPLAIN_LAST_RESPONSE",
                             "EXPLAIN_ALL_REASONING_MODES",
                             "SELF_UPDATE",
