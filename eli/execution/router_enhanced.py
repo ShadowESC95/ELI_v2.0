@@ -2643,6 +2643,20 @@ def route(text: str) -> Dict[str, Any]:
         return _mk("LIST_DIR", {
                    "path": path}, 0.95, matched_by="fs.list_dir_explicit", entities={"path": path})
 
+    # Bare "list/show <path>" WITHOUT a files/contents/directory keyword — e.g.
+    # "list /home/jay/.../artifacts/db", "show ~/Downloads", "list or read ./eli".
+    # Without this the LLM resolver emits the UNSUPPORTED 'LIST_FILE', which falls to
+    # CHAT and the model CONFABULATES the directory contents (observed: invented db paths).
+    # Require an explicit path token (/, ~, ./, ../) so it never false-matches prose.
+    m_bare = re.search(
+        r"\b(?:list|ls|show|read)\b(?:\s+(?:or|and)\s+\w+)?\s+(?:me\s+|out\s+)?(?:the\s+)?"
+        r"((?:/|~/|\./|\.\./)[^\s,?!]+)",
+        raw, re.I)
+    if m_bare:
+        path = _expand_common_dir(m_bare.group(1).strip())
+        return _mk("LIST_DIR", {"path": path}, 0.93,
+                   matched_by="fs.list_bare_path", entities={"path": path})
+
     if re.search(
             r"\b(?:list|show)\s+(?:my\s+|the\s+)?project\s+files?\b", raw, re.I):
         return _mk("LIST_DIR", {"path": "."}, 0.9,
