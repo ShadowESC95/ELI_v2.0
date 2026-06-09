@@ -229,6 +229,7 @@ _add("Tasks, time & planning", "EXECUTE_GOAL", "Execute a stored goal", "“exec
 _add("Proactive", "PROACTIVE_START", "Start the proactive daemon", "“start proactive mode”")
 _add("Proactive", "PROACTIVE_STOP", "Stop the proactive daemon", "“stop proactive mode”")
 _add("Proactive", "PROACTIVE_STATUS", "Proactive daemon status", "“proactive status”")
+_add("Proactive", "GET_PROPOSALS", "ELI's self-generated proposals/goals from observed signals", "“do you have any proposals for me”", "“what's on your agenda”")
 _add("Proactive", "MORNING_REPORT", "Daily briefing (news/weather/agenda)", "“morning report”", "“give me my briefing”")
 
 # ── Plugins ─────────────────────────────────────────────────────────────────
