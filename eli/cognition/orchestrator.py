@@ -530,6 +530,19 @@ class AgentOrchestrator:
 
         wm.trace["stage_1"] = "intent_routing"
         intent = self.engine.parse_intent(user_input, stm.recent_turns)
+        # Honour the engine's Phase-13 META_DIAGNOSTIC→CHAT veto: a status/diagnostic action
+        # the user didn't explicitly ask for was already downgraded to CHAT in process(); the
+        # orchestrator re-resolves intent fresh, so without this it would run the original
+        # status action anyway (observed: AWARENESS_STATUS ran after the veto).
+        if getattr(self.engine, "_eli_phase13_chat_override", False):
+            try:
+                self.engine._eli_phase13_chat_override = False
+            except Exception:
+                pass
+            if str(intent.get("action", "")).upper() != "CHAT":
+                log.debug(f"[ORCHESTRATOR] Phase-13 veto honoured → CHAT (was {intent.get('action')})")
+                intent = {"action": "CHAT", "args": {"message": user_input},
+                          "confidence": 0.9, "meta": {"matched_by": "phase13_chat_veto"}}
         wm.intent = intent
         log.debug(f"[ORCHESTRATOR] Stage 1: Intent Routing → {intent.get('action')}")
         _eli_pipe_orch("stage_1", action=intent.get("action"), confidence=float(intent.get("confidence") or 0.0))
