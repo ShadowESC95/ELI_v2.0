@@ -1622,6 +1622,10 @@ def route(text: str) -> Dict[str, Any]:
         r"|\b(perform|do|run|wanna run|want to run|let'?s run)\b.{0,30}\b(full.?time\s+audit|full\s+audit|runtime audit|system audit|audit)\b"
         r"|\b(fulltime|full.time)\s+audit\b"
         r"|\bdo an? audit\b"
+        # "run a full runtime <X>" / "do a full system <X>": the "full runtime|system" phrase IS
+        # the audit intent — the trailing word is often STT noise ("audit" mis-heard as "artist",
+        # which otherwise got launched as an app via the greedy OPEN_APP contract).
+        r"|\b(?:run|do|perform|start|execute)\s+(?:a\s+)?full\s+(?:runtime|system)\b"
         r"|\bcheck (the\s+)?(runtime|system|modules?|pipeline)\b",
         low,
     ):
