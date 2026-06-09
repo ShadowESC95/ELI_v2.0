@@ -1497,6 +1497,42 @@ def _aggregate_confidence(
 # Orchestrator agent — decides which capabilities to invoke for a task
 # ---------------------------------------------------------------------------
 
+_SEQ_SPLIT_RE = re.compile(
+    r"\s*(?:,?\s*(?:and\s+then|then|after\s+that|afterwards?|next|followed\s+by)\s+"
+    r"|\s*;\s*|\s*,\s*and\s+|\s*,\s+)\s*",
+    re.I,
+)
+
+
+def _decompose_multistep(text: str) -> List[Dict[str, Any]]:
+    """Decompose a CHAINED request ("search X, summarise it, then save a note and open it")
+    into an ORDERED plan: per-step description, a routed action hint, and a linear dependency
+    on the previous step. Deterministic — clause split + the real router per clause, no LLM.
+    Returns [] for single-step requests so the orchestrator keeps its action templates."""
+    s = (text or "").strip()
+    if not s:
+        return []
+    parts = [p.strip(" ,.;:") for p in _SEQ_SPLIT_RE.split(s)]
+    parts = [p for p in parts if len(p) > 3]
+    if len(parts) < 2:
+        return []
+    steps: List[Dict[str, Any]] = []
+    for i, clause in enumerate(parts[:6]):
+        hint = None
+        try:
+            from eli.execution.router_enhanced import route as _route
+            hint = (_route(clause) or {}).get("action")
+        except Exception:
+            hint = None
+        steps.append({
+            "id": f"step_{i + 1}",
+            "description": clause[:120],
+            "action_hint": hint,
+            "depends_on": [f"step_{i}"] if i > 0 else [],
+        })
+    return steps
+
+
 class OrchestratorAgent(_BaseAgent):
     """
     Plans which agents and capabilities are needed to complete a complex task.
@@ -1581,6 +1617,13 @@ class OrchestratorAgent(_BaseAgent):
             if expressive and introspection:
                 needs_planning = True
 
+            # Genuine multi-step decomposition (computed once): a chained request also TRIGGERS
+            # planning even when it matches no keyword group. Cheap for single-clause input
+            # (returns [] before routing). Grounded single-query actions keep their templates.
+            _steps = [] if action in self.GROUNDED_SYNTHESIS_ACTIONS else _decompose_multistep(user_input)
+            if len(_steps) >= 2:
+                needs_planning = True
+
             if not needs_planning:
                 return AgentResult(agent=self.name, ok=True, confidence=0.0,
                                    data={"skipped": True})
@@ -1588,7 +1631,18 @@ class OrchestratorAgent(_BaseAgent):
             elapsed = (time.perf_counter() - t0) * 1000
             plan: Dict[str, Any] = {}
 
-            if action == "GENERATE_SCRIPT":
+            # Multi-step plan FIRST: a real ORDERED plan with per-step action hints +
+            # dependencies, not a static template.
+            if len(_steps) >= 2:
+                plan = {
+                    "type": "multi_step_sequence",
+                    "primary_action": (_steps[0].get("action_hint") or action or "CHAT"),
+                    "steps": _steps,
+                    "step_count": len(_steps),
+                    "description": (f"{len(_steps)}-step plan: "
+                                    + " → ".join(s["description"][:40] for s in _steps)),
+                }
+            elif action == "GENERATE_SCRIPT":
                 plan = {
                     "type": "generate_and_open",
                     "primary_action": "GENERATE_SCRIPT",
