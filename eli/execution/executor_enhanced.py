@@ -1991,6 +1991,7 @@ SUPPORTED_ACTIONS = [
     'POMODORO_STATUS',
     'POMODORO_STOP',
     'PREVIOUS_MEDIA',
+    'GET_PROPOSALS',
     'PREVIOUS_WINDOW',
     'PROACTIVE_START',
     'PROACTIVE_STATUS',
@@ -5406,6 +5407,48 @@ def _execute_impl(action: str, args: Optional[Dict[str, Any]] = None) -> Dict[st
                 lines.append(f"  [{status}] {name} — runs '{cmd}' at {hour:02d}:{minute:02d}")
             msg = "\n".join(lines)
             return {"ok": True, "action": a, "content": msg, "response": msg, "rules": rules, "detected": detected}
+        except Exception as e:
+            return {"ok": False, "action": a, "error": str(e), "content": str(e), "response": str(e)}
+
+    if a == "GET_PROPOSALS":
+        # Surface ELI's OWN self-generated agenda: the proposal-only goals that goal
+        # autogenesis forms from real signals (recurring errors, frequent behaviours,
+        # code-health) plus any pending capability proposals. This is what "do you have
+        # any proposals for me?" should answer — live, not canned.
+        try:
+            lines: list[str] = []
+            try:
+                from eli.planning.goal_store import load_goals
+                goals = [
+                    g for g in (load_goals() or [])
+                    if getattr(g, "enabled", True)
+                    and str(getattr(g, "status", "")).lower() in ("active", "proposed", "queued")
+                    and str(getattr(g, "autonomy_mode", "")).lower() == "proposal_only"
+                ]
+                goals.sort(key=lambda g: float(getattr(g, "priority", 0.5) or 0.5), reverse=True)
+                for g in goals[:8]:
+                    _obj = str(getattr(g, "objective", "") or "").strip()
+                    lines.append(f"• {getattr(g, 'title', '(goal)')}" + (f" — {_obj}" if _obj else ""))
+            except Exception:
+                pass
+            try:
+                from eli.memory import get_memory as _gm
+                for p in (_gm().get_pending_proposals(limit=5) or []):
+                    if not isinstance(p, dict):
+                        continue
+                    _cap = str(p.get("capability") or p.get("name") or "").strip()
+                    _rsn = str(p.get("reasoning") or p.get("description") or "").strip()
+                    if _cap:
+                        lines.append(f"• [capability] {_cap}" + (f" — {_rsn}" if _rsn else ""))
+            except Exception:
+                pass
+            if lines:
+                msg = "Proposals I've formed from what I've observed:\n" + "\n".join(lines)
+            else:
+                msg = ("No active proposals right now — I form them from your recurring "
+                       "behaviour, recurring errors, and my own code health as signals build up.")
+            return {"ok": True, "action": a, "content": msg, "response": msg,
+                    "proposal_count": len(lines), "evidence_source": "proposals_runtime"}
         except Exception as e:
             return {"ok": False, "action": a, "error": str(e), "content": str(e), "response": str(e)}
 
