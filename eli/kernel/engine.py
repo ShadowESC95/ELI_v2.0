@@ -11287,9 +11287,24 @@ Answer:"""
                 real_txt = str(real.get("content") or real.get("response") or "").strip()
             else:
                 real_act, real_txt = "", str(real or "").strip()
-            if real_txt and real_act not in ("", "CHAT", "UNKNOWN", "NOOP"):
+            # Followthrough is for ACTIONS ELI promised to perform FOR the user (fetch news,
+            # play media, search, open) — never for internal status/introspection DUMPS. A
+            # casual narration ("I've been checking my memory") must not auto-run MEMORY_STATUS
+            # and carpet-bomb the user with evidence they didn't ask for (the "why did you send
+            # me that data dump" complaint).
+            _ft_dump_actions = {
+                "MEMORY_STATUS", "PERSONAL_MEMORY_SUMMARY", "USER_IDENTITY_SUMMARY",
+                "EXPLAIN_MEMORY_RUNTIME", "EXPLAIN_COGNITION_RUNTIME", "AWARENESS_STATUS",
+                "META_DIAGNOSTIC", "SELF_ANALYZE", "RUNTIME_AUDIT", "REASONING_MODE_STATUS",
+                "EXPLAIN_ALL_REASONING_MODES", "CAPABILITY", "CAPABILITY_STATUS",
+                "HABIT_STATUS", "ORCHESTRATION_STATUS", "EXAMINE_CODE", "FILE_AUDIT",
+            }
+            if (real_txt and real_act not in ("", "CHAT", "UNKNOWN", "NOOP")
+                    and real_act not in _ft_dump_actions):
                 log.debug(f"[FOLLOWTHROUGH] '{commit.get('matched')}' → executed {real_act}")
                 yield "\n\n" + real_txt
+            elif real_act in _ft_dump_actions:
+                log.debug(f"[FOLLOWTHROUGH] suppressed status/dump action {real_act} (not a user-requested task)")
         except Exception as _ft_err:
             log.debug(f"[FOLLOWTHROUGH] engine-stream skipped: {_ft_err}")
         finally:
