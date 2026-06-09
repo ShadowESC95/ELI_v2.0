@@ -129,9 +129,11 @@ def extract_deepen_topic(text: str) -> str:
     while toks and toks[-1].lower() in _DEEPEN_STOP:
         toks.pop()
     topic = " ".join(toks).strip()
-    # Reject runaway captures (a whole sentence) — a deepen topic is a short
-    # subject, not a clause.
-    if not topic or len(toks) > 6:
+    # Reject runaway captures (a whole frustrated sentence). A deepen topic can be a
+    # descriptive phrase ("magnetic fields that help binary star systems form" = 8 words),
+    # so allow up to 12 words — the old 6-word cap silently dropped real news-article topics
+    # and made the topic-deepen path never fire for anything beyond a one/two-word subject.
+    if not topic or len(toks) > 12:
         return ""
     return topic
 

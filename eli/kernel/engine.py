@@ -9494,6 +9494,32 @@ Answer:"""
             log.debug(f"[COGNITIVE] Authority gate check failed (non-fatal): {_gate_err}")
 
 
+        # News topic-deepen (USER's own follow-up): the deepen detector + last-action-news
+        # check that the followthrough path already uses (extract_deepen_topic) was never
+        # applied to the user's DIRECT request, so "look into the magnetic fields" right after
+        # a news briefing hit the LLM resolver and was mis-routed (BACKGROUND_JOBS dump, fake
+        # DISCUSS_ARTICLE). Reuse that SAME detector here: if the user is going deeper on a
+        # topic just after news, answer it as a substantive grounded discussion (CHAT), not a
+        # mis-guessed command. CHAT/NEWS_FETCH left alone (already conversational / re-fetch).
+        try:
+            if str(action or "").upper() not in ("CHAT", "NEWS_FETCH"):
+                from eli.runtime.action_commitment import extract_deepen_topic as _edt_direct
+                _deepen_topic = _edt_direct(user_input)
+                _lca_direct = getattr(self, "_last_command_action", None) or {}
+                _was_news_direct = str(_lca_direct.get("action") or "").upper() in (
+                    "NEWS_FETCH", "MORNING_REPORT", "DAILY_REPORT")
+                if _deepen_topic and _was_news_direct:
+                    log.debug(f"[COGNITIVE] news topic-deepen: {action}→CHAT "
+                              f"(topic='{_deepen_topic}')")
+                    action = "CHAT"
+                    args = {"message": user_input}
+                    if isinstance(intent, dict):
+                        intent["action"] = "CHAT"
+                        intent["allow_chat_without_evidence"] = True
+                        intent["_deepen_topic"] = _deepen_topic
+        except Exception:
+            pass
+
         # === PHASE45_PROCESS_COMMAND_FASTPATH ===
         # Route deterministic controls straight to executor. No AgentBus, no memory,
         # no GGUF, no persona synthesis. This is what OS-layer commands need.
