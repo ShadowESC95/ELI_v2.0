@@ -420,7 +420,30 @@ def examine(paths: List[Path], *, run_tier3: bool = True) -> List[Finding]:
     return findings
 
 
-def format_report(paths: List[Path], findings: List[Finding]) -> str:
+# Only GENUINE BREAKAGE is auto-fixable: a syntax error, a failed import, or a truly-undefined
+# name (a real NameError at runtime). Cosmetic lint — unused imports/variables, f-string style,
+# redefinition warnings — is REPORT-ONLY. It doesn't break anything, and the local model botches
+# such "fixes" (it once turned `import tempfile` into `import tempfile as t`, breaking every use,
+# and rewrote working consensus logic). Those are never handed to the patch engine. (2026-06-09:
+# a vague "run full time audit" swept the whole tree and applied 19 such botched lint patches to
+# ELI's own core files.)
+_REAL_BREAKAGE_KINDS = frozenset({"syntax", "import", "read-error"})
+
+
+def is_real_breakage(f: "Finding") -> bool:
+    """True only for findings that actually break the module (auto-fixable). Cosmetic lint and
+    Tier-3 logic guesses are report-only."""
+    kind = str(getattr(f, "kind", "") or "")
+    if kind in _REAL_BREAKAGE_KINDS:
+        return True
+    if kind == "lint":  # pyflakes mixes real "undefined name" with cosmetic warnings
+        return "undefined name" in str(getattr(f, "message", "") or "").lower()
+    return False
+
+
+def format_report(paths: List[Path], findings: List[Finding], *, allow_fix: bool = False) -> str:
+    """Render the tiered report. `allow_fix` is True only when the user named specific files —
+    a broad/sweep audit is REPORT-ONLY and never offers to patch."""
     examined = ", ".join(_rel(p) for p in paths[:8]) + (
         f" (+{len(paths) - 8} more)" if len(paths) > 8 else "")
     lines = [f"Examined {len(paths)} file(s): {examined or '(none)'}"]
@@ -448,17 +471,24 @@ def format_report(paths: List[Path], findings: List[Finding]) -> str:
             loc = f" (line {f.line})" if f.line else ""
             lines.append(f"  - [{f.file}{loc}] {f.message}  (conf {f.confidence:.2f})")
 
-    n_fixable = len([f for f in findings if not f.needs_confirmation])
-    n_confirm = len([f for f in findings if f.needs_confirmation])
+    # Only genuine breakage is offered for fixing, and only when specific files were named.
+    fixable = [f for f in findings if is_real_breakage(f)]
+    cosmetic = [f for f in findings
+                if f.tier in (1, 2) and not is_real_breakage(f)]
     lines.append("")
-    if n_fixable:
-        lines.append(f"I can attempt to fix the {n_fixable} high/medium-confidence "
-                     "finding(s) — each patch is syntax-checked, import-verified, and "
-                     "auto-reverted if it breaks the module. Say 'yes' to proceed.")
-    if n_confirm:
-        lines.append(f"The {n_confirm} Tier-3 item(s) are low-confidence guesses — "
-                     "I will only touch them if you explicitly confirm those too "
-                     "('yes, including the logic ones').")
+    if cosmetic:
+        lines.append(f"{len(cosmetic)} cosmetic lint finding(s) (unused imports/variables, "
+                     "style) are REPORT-ONLY — I won't auto-edit working code for those.")
+    if fixable:
+        if allow_fix:
+            lines.append(f"I found {len(fixable)} genuine breakage finding(s) (syntax / failed "
+                         "import / undefined name). I can attempt to fix those — each patch is "
+                         "syntax-checked, import-verified, and auto-reverted if it breaks the "
+                         "module. Say 'yes' to proceed.")
+        else:
+            lines.append(f"I found {len(fixable)} genuine breakage finding(s). This was a broad "
+                         "audit, so I won't patch from it — ask me to examine the specific "
+                         "file(s) by name and I'll offer to fix those.")
     return "\n".join(lines)
 
 

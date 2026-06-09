@@ -84,12 +84,25 @@ def test_clean_file_reports_no_errors(tmp_module):
     assert "No errors found" in report
 
 
-def test_format_report_groups_and_offers(tmp_module):
+def test_format_report_cosmetic_is_report_only(tmp_module):
+    # An unused import is COSMETIC — it must be shown but NEVER offered for fixing, even with
+    # allow_fix=True. Only genuine breakage (syntax/import/undefined-name) is auto-fixable.
     p = tmp_module("_ce_report.py", "import os\n\nVALUE = 1\n")
     findings = CE.examine([p], run_tier3=False)
-    report = CE.format_report([p], findings)
+    report = CE.format_report([p], findings, allow_fix=True)
     assert "Tier 2" in report
-    assert "Say 'yes'" in report
+    assert "Say 'yes'" not in report
+    assert "REPORT-ONLY" in report
+
+
+def test_format_report_offers_real_breakage_when_named(tmp_module):
+    # A genuine undefined name IS offered for fixing when files were explicitly named.
+    p = tmp_module("_ce_break.py", "def g():\n    return undefined_xyz\n")
+    findings = CE.examine([p], run_tier3=False)
+    assert any(CE.is_real_breakage(f) for f in findings)
+    assert "Say 'yes'" in CE.format_report([p], findings, allow_fix=True)
+    # ...but a broad audit (allow_fix=False) never offers, even for real breakage.
+    assert "Say 'yes'" not in CE.format_report([p], findings, allow_fix=False)
 
 
 def test_pending_state_roundtrip(tmp_module):
@@ -109,7 +122,8 @@ def test_examine_confirm_patch_roundtrip(tmp_module, monkeypatch):
     from eli.execution import executor_enhanced as EX
     import eli.cognition.inference_broker as IB
 
-    p = tmp_module("_ce_e2e.py", "import os\nimport sys\n\nVALUE = 42\n")
+    # REAL breakage (undefined name) on an explicitly-named file → fix is offered.
+    p = tmp_module("_ce_e2e.py", "def g():\n    return undefined_xyz\n")
 
     res = EX.execute("EXAMINE_CODE", {"request": f"examine eli/_ce_e2e.py for errors"})
     assert res["ok"]
@@ -118,20 +132,33 @@ def test_examine_confirm_patch_roundtrip(tmp_module, monkeypatch):
     class _FakeBroker:
         def infer(self, prompt, system="", max_tokens=600, temperature=0.0):
             return json.dumps({
-                "old": "import os\nimport sys\n",
-                "new": "import os\n",
-                "description": "drop unused sys import",
+                "old": "    return undefined_xyz\n",
+                "new": "    return 0\n",
+                "description": "replace the undefined name",
             })
 
     monkeypatch.setattr(IB, "get_broker", lambda: _FakeBroker())
     res2 = EX.execute("CONFIRM_CODE_FIX", {"message": "yes"})
     assert res2["ok"]
     assert "Code-fix cycle complete" in res2["content"]
-    # File is syntactically valid and the unused import is gone.
+    # File is syntactically valid and the undefined name is gone.
     after = p.read_text(encoding="utf-8")
-    assert "import sys" not in after
+    assert "undefined_xyz" not in after
     import ast
     ast.parse(after)
+
+
+def test_sweep_audit_is_report_only(tmp_module, monkeypatch):
+    """A broad audit (no file named) must NOT create a pending fix, even with real breakage."""
+    from eli.execution import executor_enhanced as EX
+    CE.clear_pending_fix()
+    p = tmp_module("_ce_sweep.py", "def g():\n    return undefined_xyz\n")
+    # Force the sweep to target our file (no named path in the request).
+    monkeypatch.setattr(CE, "resolve_targets", lambda _req: [p])
+    res = EX.execute("EXAMINE_CODE", {"request": "run a full audit of your files"})
+    assert res["ok"]
+    assert CE.get_pending_fix() is None       # report-only: nothing pending to patch
+    assert "Say 'yes'" not in res["content"]
     # Pending cleared after a confirm.
     assert CE.get_pending_fix() is None
 
