@@ -10913,7 +10913,22 @@ def main():
     window.model_info_label.setText('🔴 Model: Not loaded')
     window.send_btn.setEnabled(False)
 
-    sys.exit(app.exec())
+    _rc = app.exec()
+    # The Qt event loop has ended (window closed). All ELI state is flushed by the
+    # registered shutdown/atexit handlers; run them now, then HARD-exit. llama.cpp + FAISS
+    # segfault during CPython's C++ destructor pass at normal interpreter exit (observed:
+    # "Segmentation fault (core dumped)" AFTER the session summary is already written —
+    # nothing is lost, but it's an ugly crash). os._exit bypasses that destructor pass.
+    try:
+        import atexit as _atexit
+        _atexit._run_exitfuncs()   # flush memory + session summary + unload model first
+    except Exception:
+        pass
+    try:
+        sys.stdout.flush(); sys.stderr.flush()
+    except Exception:
+        pass
+    os._exit(_rc if isinstance(_rc, int) else 0)
 
 if __name__ == "__main__":
     main()
