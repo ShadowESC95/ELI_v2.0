@@ -6075,6 +6075,9 @@ Answer:"""
         """
         preset = self._mode_profile("tree_of_thoughts")
         k = int(k if k is not None else preset.get("branches", 3))
+        # Tree DEPTH (tier-mapped: small=1 single-level, frontier=4). >1 deepens the tree by
+        # refining the strongest path each level (beam-width-1) before the final develop.
+        depth = max(1, int(preset.get("depth", 1) or 1))
         max_tok_propose = int(preset.get("max_tokens_propose", 600))
         max_tok_develop = int(preset.get("max_tokens_develop", 1500))
         temp_propose = float(preset.get("temperature_propose", 0.6))
@@ -6108,9 +6111,36 @@ Answer:"""
         log.debug(f"[REASONING][ToT] proposed {k} candidates ({len(candidates)} chars, "
               f"max_tok={max_tok_propose}, temp={temp_propose})")
 
+        # Multi-level tree deepening (depth > 1 — capable models only). Beam-width-1: keep the
+        # SINGLE strongest path and expand it into deeper, more specific sub-angles one level at
+        # a time. Cost is k proposals per extra level (not k**depth). For the small model
+        # depth == 1, so this loop never runs and ToT stays single-level (behaviour-preserving).
+        for _level in range(2, depth + 1):
+            try:
+                from eli.world.world_event_bus import fire_reasoning_stage_event as _frs
+                _frs("tree_of_thoughts", _level, depth + 1, "branch_refinement")
+            except Exception:
+                pass
+            refine_prompt = (
+                f"Candidate angles for the request (internal — NOT shown to the user):\n\n"
+                f"{candidates}\n\n"
+                f"Silently pick the STRONGEST angle, then propose {k} DEEPER, more specific "
+                f"sub-angles that REFINE it — each a concrete facet, mechanism, or sub-question "
+                f"to develop in the final answer. Same rule: real angles OF THE ANSWER, never "
+                f"research methods. Numbered list; do NOT write the full answer yet.\n\n"
+                f"REQUEST: {user_input}"
+            )
+            candidates = self._get_chat_response(
+                refine_prompt, working_context,
+                reasoning_mode="tree_of_thoughts", gen_overrides=propose_overrides,
+                situation_brief=situation_brief,
+            )
+            log.debug(f"[REASONING][ToT] depth {_level}/{depth} refined "
+                      f"({len(candidates)} chars)")
+
         try:
             from eli.world.world_event_bus import fire_reasoning_stage_event as _frs
-            _frs("tree_of_thoughts", 2, 2, "highest_branch_development")
+            _frs("tree_of_thoughts", depth + 1, depth + 1, "highest_branch_development")
         except Exception:
             pass
         develop_prompt = (
