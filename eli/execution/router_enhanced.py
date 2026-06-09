@@ -1609,7 +1609,16 @@ def route(text: str) -> Dict[str, Any]:
     # Route broad "explain / describe / breakdown / list all reasoning modes" queries to
     # EXPLAIN_ALL_REASONING_MODES so the executor reads directly from reasoning_modes.py
     # and the GGUF synthesises from real file evidence, not training knowledge.
-    if _asking_about_all_modes and re.search(r"\b(reasoning mode|modes?)\b", low):
+    # A frustrated correction that merely MENTIONS a mode ("you are not in quick mode",
+    # "what are you talking about") is a relational CHAT turn, not a request to list the
+    # modes. Require an actual modes TOPIC ("reasoning mode(s)" / plural "modes"), not a
+    # bare singular "<x> mode" mention.
+    _is_mode_correction = bool(re.search(
+        r"\byou('?re| are| were)\s+not\b|\bnot\s+in\b|\bwhat\s+are\s+you\s+talking\s+about\b"
+        r"|\bthat('?s| is| was)\s+not\b|\byou\s+said\b|\bnot\s+(?:quick|normal|advanced|research|expert)\b",
+        low))
+    if (_asking_about_all_modes and not _is_mode_correction
+            and re.search(r"\b(reasoning modes?|modes)\b", low)):
         return _mk(
             "EXPLAIN_ALL_REASONING_MODES", {},
             0.99,
@@ -1705,6 +1714,22 @@ def route(text: str) -> Dict[str, Any]:
     ):
         return _mk("SUMMARIZE_FILE", {"path": _known_file},
                    0.9, matched_by="analyze.known_eli_file")
+
+    # Relational / wellbeing / concern questions aimed at ELI → CHAT (never a status dump
+    # like AWARENESS_STATUS / REASONING_MODE_STATUS / META_DIAGNOSTIC). These are
+    # conversational — the user checking in on ELI — and the LLM intent resolver otherwise
+    # mis-maps them to status actions ("what is happening with you" → AWARENESS_STATUS).
+    if re.search(
+        r"\bare\s+you\s+(?:ok|okay|alright|all\s+right|good|fine|well)\b"
+        r"|\bis\s+everything\s+(?:ok|okay|alright|all\s+right|fine)\b"
+        r"|\beverything\s+(?:ok|okay|alright|all\s+right)\s*\??$"
+        r"|\bwhat'?s?\s+wrong(?:\s+with\s+you)?\b"
+        r"|\bwhat(?:'?s?|\s+is)\s+(?:happening|going\s+on|up)\s+with\s+you\b"
+        r"|\beli[,\s]+what(?:'?s?|\s+is)\s+(?:happening|going\s+on|wrong)\b"
+        r"|\bwhat(?:'?s?|\s+is)\s+(?:happening|going\s+on)\b(?=.*\byou\b)",
+        low,
+    ):
+        return _mk("CHAT", {"message": raw}, 0.9, matched_by="chat.relational_concern")
 
     if (("?" in raw or "!" in raw) and len(low.split()) >= 12 and not re.match(
             r"^(open|access|initiate|fabricate|check|run|execute|type|press|pause|resume|play|next|previous|stop|mute|unmute|read|list|show|write|add|analyse|analyze|improve)\b", low)):
@@ -4200,7 +4225,17 @@ def _eli_lrf_pre_route(text):
         r"\b(all|every|each|how many|list|explain|full|describe|detail|difference|differ|compare|what are|tell me about|tell me all|tell me everything|what do|how do|modes?\s+you\s+have|modes?\s+does)\b",
         low,
     )
-    if _lrf_asking_all_modes and _eli_lrf_re.search(r"\b(reasoning mode|modes?)\b", low):
+    # A frustrated correction that merely MENTIONS a mode ("you are not in quick mode",
+    # "what are you talking about", "that's not right") must NOT trigger the all-modes
+    # explainer — that's a relational CHAT turn, not a request to list the modes.
+    _is_mode_correction = bool(_eli_lrf_re.search(
+        r"\byou('?re| are| were)\s+not\b|\bnot\s+in\b|\bwhat\s+are\s+you\s+talking\s+about\b"
+        r"|\bthat('?s| is| was)\s+not\b|\byou\s+said\b|\bnot\s+(?:quick|normal|advanced|research|expert)\b",
+        low))
+    # Require an actual modes TOPIC ("reasoning mode(s)" or plural "modes"), not a bare
+    # singular "<x> mode" mention, so "quick mode" in passing doesn't match.
+    if (_lrf_asking_all_modes and not _is_mode_correction
+            and _eli_lrf_re.search(r"\b(reasoning modes?|modes)\b", low)):
         return _eli_lrf_mk(
             "EXPLAIN_ALL_REASONING_MODES", {},
             0.99,
