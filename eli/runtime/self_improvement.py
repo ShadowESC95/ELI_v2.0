@@ -387,13 +387,71 @@ class SelfImprovementEngine:
             except Exception:
                 pass
 
+        # Frontier self-repair: when there are NEW (un-investigated) failures and the model
+        # is resident, route them through the coding agent (decompose→solve→VERIFY) and
+        # PERSIST the verified/candidate fixes as proposal-only goals — so they survive and
+        # surface via GET_PROPOSALS. Previously analyze_and_improve only logged 'investigate'
+        # stubs that never became anything (the proposals=0 root cause). Propose-only:
+        # nothing is auto-applied. Gated so the daemon never thrashes the GGUF/coding agent.
+        proposals_made = 0
+        if improvements:
+            try:
+                from eli.cognition import gguf_inference as _gi
+                _model_ready = bool(getattr(_gi, "is_loaded", lambda: False)())
+            except Exception:
+                _model_ready = False
+            if _model_ready:
+                proposals_made = self._generate_and_persist_fix_proposals(max_items=2)
+
         try:
             from eli.cognition.persona_updater import update_persona_overlay
             update_persona_overlay(memory=self.memory)
         except Exception:
             pass
 
-        return {"improvements": improvements}
+        return {"improvements": improvements, "proposals_made": proposals_made}
+
+    def _generate_and_persist_fix_proposals(self, max_items: int = 2) -> int:
+        """Run the coding-agent self-repair proposer and persist each result as a
+        proposal-only goal (visible via GET_PROPOSALS). Returns the count persisted.
+        Best-effort; never raises into the caller."""
+        made = 0
+        try:
+            gen = self.propose_via_agent(max_items=max_items)
+            for pr in (gen.get("proposals") or []):
+                if not isinstance(pr, dict):
+                    continue
+                fail = _safe_str(pr.get("failure")).strip()
+                if not fail:
+                    continue
+                verified = bool(pr.get("verified"))
+                approach = _safe_str(pr.get("approach")).strip()
+                vtag = "verified fix" if verified else "candidate fix"
+                try:
+                    import hashlib as _hl
+                    from eli.planning.goal_store import upsert_goal
+                    from eli.planning.goal_models import GoalSpec
+                    gid = "selfrepair_" + _hl.sha1(fail.encode("utf-8", "ignore")).hexdigest()[:12]
+                    upsert_goal(GoalSpec.from_any({
+                        "goal_id": gid,
+                        "title": f"Self-repair ({vtag}): {fail[:70]}",
+                        "objective": (
+                            f"A {vtag} for the recurring failure '{fail[:120]}' is ready"
+                            + (f" — approach: {approach[:120]}" if approach else "")
+                            + ". Review and apply if sound."
+                        ),
+                        "priority": 0.6 if verified else 0.45,
+                        "autonomy_mode": "proposal_only",
+                        "tags": ["self_improve", "verified_fix" if verified else "candidate_fix"],
+                        "enabled": True,
+                        "status": "active",
+                    }))
+                    made += 1
+                except Exception:
+                    continue
+        except Exception as exc:
+            log.debug("[SELF_IMPROVEMENT] generate/persist proposals failed: %s", exc)
+        return made
 
     # ─────────────────────────────────────────────────────────────────────────
     # Coding-agent route — decompose → solve → VERIFY (propose-only)
