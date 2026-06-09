@@ -892,6 +892,13 @@ def _route_grounded_runtime_intent(
     # Pure persona/character questions go to CHAT so ELI answers from its own
     # voice and memory. SELF_REPORT is reserved for *technical* runtime queries
     # (model path, gpu layers, provider, context size) — not "who are you".
+    # "do you know who I am AND who you are" — a rhetorical/relational identity check that
+    # wants a natural answer addressing BOTH (you're Jason / I'm ELI), not a profile dump.
+    if (re.search(r"\bwho\s+(?:i\s+am|am\s+i)\b", raw, re.I)
+            and re.search(r"\bwho\s+(?:you\s+are|are\s+you)\b", raw, re.I)):
+        return _mk("CHAT", {"message": raw}, 0.96,
+                   matched_by="identity.relational_both", allow_chat_without_evidence=True)
+
     if re.search(r"\b(who are you|what are you(?!\s+\w)|what is your name|what's your name|tell me about yourself)\b", raw, re.I):
         return _mk("CHAT", {"message": raw}, 0.99, matched_by="identity.persona_chat", allow_chat_without_evidence=True)
 
@@ -1726,7 +1733,15 @@ def route(text: str) -> Dict[str, Any]:
         r"|\bwhat'?s?\s+wrong(?:\s+with\s+you)?\b"
         r"|\bwhat(?:'?s?|\s+is)\s+(?:happening|going\s+on|up)\s+with\s+you\b"
         r"|\beli[,\s]+what(?:'?s?|\s+is)\s+(?:happening|going\s+on|wrong)\b"
-        r"|\bwhat(?:'?s?|\s+is)\s+(?:happening|going\s+on)\b(?=.*\byou\b)",
+        r"|\bwhat(?:'?s?|\s+is)\s+(?:happening|going\s+on)\b(?=.*\byou\b)"
+        # "what's going on/happening, eli" — vocative anywhere (incl. trailing).
+        r"|\bwhat(?:'?s?|\s+is)\s+(?:happening|going\s+on)\b(?=.*\beli\b)"
+        # Meta-provenance about a PRIOR reply ("is that hardcoded / deterministic / canned /
+        # scripted / pre-written / did you generate that") → conversational, NOT a full
+        # EXPLAIN_COGNITION_RUNTIME pipeline dump. ('explain how you work' is unaffected.)
+        r"|\b(?:is|was|are|were)\s+(?:that|this|it|those|the\s+(?:answer|response|reply)|you)\b"
+        r"[^?.!]*\b(?:hard[\s-]?coded|deterministic|scripted|canned|pre[\s-]?written|"
+        r"a\s+canned\s+response|templated|generated\s+(?:live|on\s+the\s+fly))\b",
         low,
     ):
         return _mk("CHAT", {"message": raw}, 0.9, matched_by="chat.relational_concern")
@@ -5482,6 +5497,16 @@ def _eli_phase38_identity_contract(raw):
             0.99,
             matched_by="identity.final_self_report",
             allow_chat_without_evidence=False,
+        )
+
+    # "do you know who I am AND who you are" — a rhetorical/relational identity check that
+    # wants a natural answer covering BOTH (you're Jason / I'm ELI), not a one-sided
+    # user-identity summary dump.
+    if (_re.search(r"\bwho\s+(?:i\s+am|am\s+i)\b", low)
+            and _re.search(r"\bwho\s+(?:you\s+are|are\s+you)\b", low)):
+        return _mk(
+            "CHAT", {"message": raw}, 0.96,
+            matched_by="identity.relational_both", allow_chat_without_evidence=True,
         )
 
     if _re.search(
