@@ -1305,7 +1305,24 @@ def route(text: str) -> Dict[str, Any]:
     # Questions about what checks/updates ELI performed are not casual chat.
     # They must route to grounded self-report evidence, otherwise GGUF invents
     # plausible maintenance activity.
-    if re.search(
+    # EXCLUDE introspective/experiential questions — "have you noticed changes in your
+    # memory continuity / how you feel / your awareness" is about ELI's subjective/cognitive
+    # state, NOT a code/git-update report. Those got a raw git-commit dump (user-reported);
+    # they belong in reflective CHAT/introspection, not the recent-updates contract.
+    _introspective_subject = re.search(
+        r"\b(memory continuity|how you feel|how you'?re feeling|your feelings?|your mood|"
+        r"your awareness|your (?:consciousness|experience|thoughts|continuity|wellbeing|"
+        r"head|mind|state of mind))\b",
+        low,
+    )
+    _dev_update_subject = re.search(
+        r"\b(code|git|commit|version|build|patch|capabilit|module|test|upgrade|"
+        r"checks?|updates?|maintenance|deploy)\b",
+        low,
+    )
+    if _introspective_subject and not _dev_update_subject:
+        pass  # fall through to reflective CHAT / introspection routing
+    elif re.search(
         r"\b(what|which|any|show|tell|list)\b.{0,80}\b(updates?|checks?|repairs?|changes?|maintenance|work)\b.{0,80}\b(as of late|recently|lately|performed|done|happened|made)\b",
         low,
     ) or re.search(
