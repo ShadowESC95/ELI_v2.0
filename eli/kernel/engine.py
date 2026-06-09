@@ -6162,6 +6162,13 @@ Answer:"""
         # Tree DEPTH (tier-mapped: small=1 single-level, frontier=4). >1 deepens the tree by
         # refining the strongest path each level (beam-width-1) before the final develop.
         depth = max(1, int(preset.get("depth", 1) or 1))
+        # Speed-aware cap: a big-but-slow (CPU-offloaded) model gets the size-tier's wider/deeper
+        # tree dialled back toward single-pass so it doesn't spend minutes per extra branch/level.
+        try:
+            from eli.core.model_tier import speed_passes as _spass
+            k, depth = _spass(k), _spass(depth)
+        except Exception:
+            pass
         max_tok_propose = int(preset.get("max_tokens_propose", 600))
         max_tok_develop = int(preset.get("max_tokens_develop", 1500))
         temp_propose = float(preset.get("temperature_propose", 0.6))
@@ -6433,6 +6440,14 @@ Answer:"""
         """
         preset = self._mode_profile("self_consistency")
         n = int(n if n is not None else preset.get("samples", 3))
+        # Speed-aware cap: on a big-but-slow (CPU-offloaded) model, dial the size-tier's sample
+        # count back toward 1 so a casual turn doesn't run four 3-minute generations. Never caps
+        # the per-sample LENGTH — only how many samples.
+        try:
+            from eli.core.model_tier import speed_passes as _spass
+            n = _spass(n)
+        except Exception:
+            pass
         sample_max_tok = int(preset.get("max_tokens_per_sample", preset.get("max_tokens", 1100)))
         final_max_tok = int(
             preset.get(
@@ -6461,6 +6476,11 @@ Answer:"""
             samples.append(s)
             log.debug(f"[REASONING][SelfConsistency] sample {i+1}/{n} ({len(s)} chars, "
                   f"max_tok={sample_max_tok}, temp={sample_temp:.2f})")
+
+        # One sample (e.g. speed-capped on a slow model) → no consensus to take; return it
+        # directly rather than spending a wasted extra "select" generation on a single answer.
+        if len(samples) <= 1:
+            return _strip_reasoning_scaffold(samples[0]) if samples else ""
 
         # TRUE CONSENSUS FIRST: if a strict majority of the independent samples converge on
         # the same answer, return it — self-consistency means agreement across samples, not
