@@ -831,6 +831,12 @@ def _is_brief_phatic_prompt(text: str) -> bool:
     normalized = re.sub(r"\s+", " ", normalized).strip()
     if not normalized:
         return False
+    # Strip a trailing direct-address of the assistant's name ("good afternoon eli" ->
+    # "good afternoon", "hello there eli" -> "hello there") so greetings that tack the wake
+    # name on the end still match the phatic phrase set below. "good afternoon eli" used to
+    # fall through as non-phatic, which let the past-session project topics get injected and
+    # the model resumed them off a plain hello.
+    normalized = re.sub(r"\s+eli$", "", normalized).strip() or normalized
     words = normalized.split()
     n = len(words)
 
@@ -7522,19 +7528,34 @@ Answer:"""
                 # name from a verified profile") is satisfied — the model must
                 # never answer "I don't know your name" when this is present.
                 _pf_lines.append(f"  verified name (this IS the user's name — use it; never say you don't know it): {_pn}")
-            for _label, _key in (("project", "active_projects"),
-                                  ("research", "research"),
-                                  ("preference", "preferences")):
-                _vals = _prof.get(_key)
-                if isinstance(_vals, list):
-                    for _v in [str(x).strip() for x in _vals if str(x).strip()][:4]:
-                        _pf_lines.append(f"  {_label}: {_v}")
-                elif isinstance(_vals, str) and _vals.strip():
-                    _pf_lines.append(f"  {_label}: {_vals.strip()}")
+            # Project/research/preference are PAST-session continuity. On a PHATIC greeting
+            # ("good afternoon") they must NOT be injected: the weak model reads them as
+            # something to act on and launches an unsolicited monologue resuming the user's
+            # last project (e.g. "Let's examine the wiring matrix for…" off a plain hello).
+            # A greeting gets a greeting; the name alone is enough. Substantive turns still
+            # get the full recall.
+            _phatic_turn = False
+            try:
+                _phatic_turn = _is_brief_phatic_prompt(str(user_input or "").strip().lower())
+            except Exception:
+                _phatic_turn = False
+            if not _phatic_turn:
+                for _label, _key in (("project", "active_projects"),
+                                      ("research", "research"),
+                                      ("preference", "preferences")):
+                    _vals = _prof.get(_key)
+                    if isinstance(_vals, list):
+                        for _v in [str(x).strip() for x in _vals if str(x).strip()][:4]:
+                            _pf_lines.append(f"  {_label}: {_v}")
+                    elif isinstance(_vals, str) and _vals.strip():
+                        _pf_lines.append(f"  {_label}: {_vals.strip()}")
             if _pf_lines:
                 _extra_blocks.append(
-                    "[WHAT YOU KNOW ABOUT THE USER — from their stored profile; "
-                    "recall and use this, don't claim you know nothing about them]\n"
+                    "[WHAT YOU KNOW ABOUT THE USER — background facts from their stored "
+                    "profile. Use the name freely. The project/research/preference items are "
+                    "RECALLED CONTEXT from past sessions, NOT the current request — reference "
+                    "them only if directly relevant to what the user actually just said, and "
+                    "never bring them up unprompted or treat them as a task to resume]\n"
                     + "\n".join(_pf_lines))
         except Exception:
             pass
