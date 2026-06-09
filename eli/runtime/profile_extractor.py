@@ -195,18 +195,12 @@ def extract_patterns_from_text(text: Any) -> list[tuple[str, str]]:
     if re.search(r"\bdrop[- ]?in python\b", low):
         out.append(("preference.commands", "User does not want vague drop-in Python snippets; prefers complete command workflows."))
 
-    # ELI project facts.
-    if re.search(r"\beli\b|\bmkxi\b|\bmkix\b", low):
-        out.append(("project.eli", "User is actively developing ELI, a local-first assistant/runtime project."))
-
-    if re.search(r"\bcognition pipeline\b|\b12 stage pipeline\b|\borchestrator\b|\bagent bus\b", low):
-        out.append(("project.eli.cognition", "User focuses on ELI cognition pipeline/orchestrator correctness."))
-
-    if re.search(r"\bmemory\b.*\bsqlite\b|\buser_patterns\b|\bsession_summaries\b|\brecall\b", low):
-        out.append(("project.eli.memory", "User is actively debugging ELI's SQLite-backed memory and recall system."))
-
-    if re.search(r"\bgguf\b|\bmistral\b|\bqwen\b|\bllama[-_ ]?cpp\b|\bn_ctx\b|\bgpu_layers\b", low):
-        out.append(("project.eli.runtime", "User is tuning ELI's local GGUF runtime parameters."))
+    # NOTE (2026-06-09 refactor): the hard-coded keyword→canned-phrase "project facts"
+    # were REMOVED. They emitted frozen sentences ("User is actively developing ELI…")
+    # every session, so the proactive 'active_project' signal never changed — the
+    # opposite of a self-aware, dynamic system. ELI's *current work* is now inferred
+    # live from the actual conversation (see _route_summary_to_profile, which writes a
+    # fresh 'project.current' user_pattern from each session's LLM hand-off summary).
 
     # Research / physics.
     if re.search(r"\bphysics\b|\bsimulation\b|\blagrangian\b|\bfield\b|\bscalar\b|[Ξχφ]", raw, re.IGNORECASE):
@@ -455,6 +449,52 @@ def write_session_summary_from_recent(
     }
 
 
+_SUMMARY_SECTION_RE = re.compile(
+    r"^\s*(SUMMARY|DECISIONS|OPEN\s+THREADS|USER\s+PREFERENCES|CURRENT\s+WORK)\s*:\s*"
+    r"([\s\S]*?)(?=^\s*(?:SUMMARY|DECISIONS|OPEN\s+THREADS|USER\s+PREFERENCES|CURRENT\s+WORK)\s*:|\Z)",
+    re.I | re.M,
+)
+
+
+def _summary_section_meaningful(s: str) -> bool:
+    t = (s or "").strip().lower().strip(" .-•*")
+    return bool(t) and t not in (
+        "none", "n/a", "na", "none identified", "no current work", "nothing",
+        "no preferences", "none made", "no decisions", "no significant decisions",
+        "no open threads", "none expressed", "not specified",
+    )
+
+
+def _route_summary_to_profile(cur: "sqlite3.Cursor", llm_summary: str) -> None:
+    """Route the DYNAMIC 'CURRENT WORK' / 'USER PREFERENCES' the model inferred from the
+    REAL conversation into fresh user_patterns — the replacement for the removed hard-coded
+    project facts. Re-derived every session, so the proactive 'active_project' signal tracks
+    what the user is ACTUALLY working on now (not a frozen 'developing ELI' literal)."""
+    if not llm_summary:
+        return
+    sections = {m.group(1).upper().replace(" ", "_"): m.group(2).strip()
+                for m in _SUMMARY_SECTION_RE.finditer(llm_summary)}
+    work = _clean(sections.get("CURRENT_WORK", ""), 300)
+    prefs = _clean(sections.get("USER_PREFERENCES", ""), 300)
+    if _summary_section_meaningful(work):
+        # Keep only the LATEST dynamic project signal — purge the frozen canned ones
+        # (incl. legacy 'project.eli*' rows) so the daemon never reads a stale fact.
+        try:
+            cur.execute(
+                "DELETE FROM user_patterns "
+                "WHERE pattern_type = 'project.current' OR pattern_type LIKE 'project.eli%'"
+            )
+        except Exception:
+            pass
+        _insert_user_pattern(cur, "project.current", work)
+    if _summary_section_meaningful(prefs):
+        try:
+            cur.execute("DELETE FROM user_patterns WHERE pattern_type = 'preference.session'")
+        except Exception:
+            pass
+        _insert_user_pattern(cur, "preference.session", prefs)
+
+
 def _build_transcript(rows: list[Any], max_chars: int = 6000) -> str:
     """Render conversation_turns rows (chronological) into a compact transcript.
     Keeps the most recent tail when over budget — the end of a session carries
@@ -576,6 +616,12 @@ def write_llm_session_summary(
             summary = _clean(_head or llm_summary, 600)
             content = llm_summary
             source = "session_end"
+            # Route the dynamically-inferred CURRENT WORK / USER PREFERENCES into fresh
+            # user_patterns so the proactive 'active_project' signal is live, not canned.
+            try:
+                _route_summary_to_profile(cur, llm_summary)
+            except Exception:
+                pass
         else:
             user_msgs = [_clean(r["content"], 220) for r in rows
                          if str(r["role"]).lower() == "user"]
