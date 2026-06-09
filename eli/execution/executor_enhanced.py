@@ -4709,6 +4709,13 @@ def _execute_impl(action: str, args: Optional[Dict[str, Any]] = None) -> Dict[st
         "SEARCH_WEB": "WEB_SEARCH",
         "DAILY_REPORT": "MORNING_REPORT",
         "WEEKLY_REPORT": "MORNING_REPORT",
+        # The LLM resolver often emits these for "list <dir>"; none are registered, so
+        # without aliasing they fall to CHAT and the model CONFABULATES the listing.
+        "LIST_FILE": "LIST_DIR",
+        "LIST_FILES": "LIST_DIR",
+        "LIST_DIRECTORY": "LIST_DIR",
+        "LIST_CONTENTS": "LIST_DIR",
+        "LS": "LIST_DIR",
     }
     a = _ACTION_ALIASES.get(a, a)
 
@@ -11004,7 +11011,18 @@ def _eli_safe_read_file(args=None):
     if not p.exists():
         return {"ok": False, "action": "READ_FILE", "content": f"File not found: {p}"}
     if p.is_dir():
-        return {"ok": False, "action": "READ_FILE", "content": f"Path is a directory, not a file: {p}"}
+        # A directory was passed to READ_FILE — LIST it instead of refusing. The user asked
+        # to read/list the path; refusing (or letting the model confabulate) is worse than
+        # just showing the real contents.
+        try:
+            _entries = sorted(
+                (f"{x.name}/" if x.is_dir() else x.name) for x in p.iterdir())
+            _listing = (f"Contents of {p} ({len(_entries)} items):\n" + "\n".join(_entries))
+            return {"ok": True, "action": "LIST_DIR", "path": str(p),
+                    "content": _listing, "response": _listing}
+        except Exception as _ld_err:
+            return {"ok": False, "action": "READ_FILE",
+                    "content": f"Could not read directory {p}: {_ld_err}"}
     data = None
     for enc in ("utf-8", "utf-8-sig", "latin-1"):
         try:
