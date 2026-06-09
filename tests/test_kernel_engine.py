@@ -265,13 +265,15 @@ def test_cai_high_grounding_forces_p1_pass_keeps_draft():
     assert "Alex" in out and "No memories found" not in out
 
 
-def test_cai_low_grounding_p1_fail_still_revises():
-    """When grounding is NOT established, the P1 FAIL stands and the revision runs
-    as before — the override is conservative (no behaviour change at low grounding)."""
+def test_cai_low_grounding_accuracy_issue_still_revises():
+    """When grounding is NOT established, an accuracy issue in the critique stands and the
+    revision runs — the grounded-trust post-filter only drops accuracy/unsupported issues at
+    HIGH grounding, so at low grounding it's a no-op and behaviour is unchanged."""
     from unittest.mock import patch
     eng = CognitiveEngine(auto_init_gguf=False)
     draft = "Your name is Alex."
-    critique = "P1: FAIL — not grounded\nP2: PASS\nP3: PASS\nP4: PASS\nP5: PASS\nFix: ground it."
+    critique = ("1. P1: the name 'Alex' is not grounded in any provided context — "
+                "remove it or verify it before stating it.")
     revised = "Revised grounded answer."
     eng._current_grounding_confidence = 0.0
     with patch.object(eng, "_get_chat_response", side_effect=_cai_seq(draft, critique, revised)):
