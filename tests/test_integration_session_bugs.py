@@ -92,7 +92,7 @@ class TestCAICritiqueLeak:
         initial = "ELI is an autonomous AI assistant with 171 capabilities."
         engine._get_chat_response = MagicMock(side_effect=[
             initial,
-            "P1: FAIL — some issue\nP2: PASS\nP3: PASS\nP4: PASS\nP5: PASS\nFix: clarify capability count.",
+            "1. P1: the capability count needs clarifying — verify it before stating it.",
             # Revision that leaks critique markers
             "P1: FAIL — still present\nP2: PASS\nP3: PASS\nP4: PASS\nP5: PASS",
         ])
@@ -112,7 +112,7 @@ class TestCAICritiqueLeak:
         )
         engine._get_chat_response = MagicMock(side_effect=[
             initial,
-            "P1: FAIL — check count\nP2: PASS\nP3: PASS\nP4: PASS\nP5: PASS",
+            "1. P1: the capability count may be inaccurate — check it.",
             leaked_revision,
         ])
         result = engine._run_constitutional_ai("How many capabilities does ELI have?", "", {}, "")
@@ -126,7 +126,7 @@ class TestCAICritiqueLeak:
         clean_revision = "ELI is an embodied language intelligence system with 171 capabilities."
         engine._get_chat_response = MagicMock(side_effect=[
             "Initial rough answer.",
-            "P1: FAIL — needs more detail\nP2: PASS\nP3: PASS\nP4: PASS\nP5: PASS",
+            "1. P3: the answer needs more detail — expand it.",
             clean_revision,
         ])
         result = engine._run_constitutional_ai("Describe ELI.", "", {}, "")

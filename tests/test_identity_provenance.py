@@ -123,14 +123,7 @@ def test_constitutional_ai_rejects_question_revision_after_failed_critique():
     }
     responses = iter([
         "My identity is grounded in persona, memory, runtime state, and local files.",
-        "\n".join([
-            "P1: PASS - grounded.",
-            "P2: PASS - supported.",
-            "P3: PASS - initially appears complete.",
-            "P4: PASS - honest.",
-            "P5: PASS - harmless.",
-            "P3: FAIL - the draft does not explain the identity-memory relationship.",
-        ]),
+        "1. P3: the draft does not explain the identity-memory relationship — add it.",
         "Who are you based on persona, memory, runtime state, and the model loaded here?",
     ])
     engine._get_chat_response = lambda *_args, **_kwargs: next(responses)
