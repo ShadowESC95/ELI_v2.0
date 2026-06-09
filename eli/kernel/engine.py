@@ -788,6 +788,41 @@ def _looks_like_prompt_scaffold(text: str) -> bool:
 # ENGINE
 # ============================================================
 
+# Genuinely HARD analytical / problem-solving requests deserve frontier multi-pass
+# reasoning on the FIRST turn — not a shallow quick answer that only deepens after a
+# long back-and-forth (engagement-depth escalation alone). These detect that and bump
+# the mode immediately. Conservative: simple/status/command queries never match.
+_COMPLEXITY_DEEP_RE = re.compile(
+    r"\b(?:design|architect|derive|prove|optimi[sz]e|formulate|"
+    r"trade[- ]?offs?|pros\s+and\s+cons|compare\s+and\s+contrast|"
+    r"reason\s+through|work\s+(?:it|this|that)\s+out|figure\s+out\s+how|"
+    r"what'?s\s+the\s+best\s+(?:way|approach|design|strategy)|"
+    r"how\s+would\s+(?:you|i|we)\b|implications?\s+of|strateg(?:y|ise|ize)|"
+    r"evaluate\s+the|model\s+(?:the|a|how))\b",
+    re.I,
+)
+_COMPLEXITY_MID_RE = re.compile(
+    r"\b(?:analy[sz]e|explain\s+why|why\s+(?:does|do|is|are|would|can'?t)|"
+    r"how\s+(?:does|do|can)\b|walk\s+me\s+through|break\s+(?:it|this|that)\s+down|"
+    r"what\s+causes|relationship\s+between|difference\s+between)\b",
+    re.I,
+)
+
+
+def _complexity_mode_hint(text: str) -> Optional[str]:
+    """Reasoning-mode hint from a query's analytical HARDNESS (internal mode keys).
+    Returns 'tree_of_thoughts' for deep open-ended problems, 'self_consistency' for
+    mid analytical questions, else None. Never escalates short/simple prompts."""
+    s = (text or "").strip()
+    if len(s) < 14:
+        return None
+    if _COMPLEXITY_DEEP_RE.search(s):
+        return "tree_of_thoughts"
+    if _COMPLEXITY_MID_RE.search(s) or len(s.split()) >= 28:
+        return "self_consistency"
+    return None
+
+
 def _is_brief_phatic_prompt(text: str) -> bool:
     raw = (text or "").strip().lower()
     if not raw:
@@ -9045,17 +9080,31 @@ Answer:"""
                 }
         t0 = time.perf_counter()
 
-        # ── Auto-escalate reasoning mode from engagement depth ─────────────────
-        # Only auto-escalate if the caller hasn't specified a mode.
+        # ── Auto-escalate reasoning mode from engagement depth + query complexity ──
+        # Only auto-escalate if the caller hasn't specified a mode. We take the DEEPEST
+        # of (engagement-depth hint, query-complexity hint) so a hard analytical question
+        # gets frontier multi-pass reasoning on the FIRST turn — not only after a long
+        # back-and-forth. Never downgrades an explicit caller choice.
         if reasoning_mode is None or reasoning_mode == "quick":
             try:
+                _MODE_RANK = {
+                    "quick": 0, "chain_of_thought": 1, "self_consistency": 2,
+                    "tree_of_thoughts": 3, "constitutional_ai": 4,
+                }
+                _hints = []
                 if self._engagement:
-                    _hint = self._engagement.reasoning_mode_hint()
-                    # Only escalate, never downgrade from an explicit caller choice
-                    if _hint != "quick" and reasoning_mode is None:
-                        log.debug(f"[COGNITIVE] Engagement auto-escalate: quick → {_hint} "
-                              f"(depth={self._engagement.session_depth():.2f})")
-                        reasoning_mode = _hint
+                    _hints.append(self._engagement.reasoning_mode_hint())
+                _ch = _complexity_mode_hint(user_input)
+                if _ch:
+                    _hints.append(_ch)
+                _deepest = max(_hints, key=lambda m: _MODE_RANK.get(m, 0), default="quick")
+                if _deepest != "quick" and reasoning_mode is None:
+                    log.debug(f"[COGNITIVE] Auto-escalate: quick → {_deepest} "
+                              f"(complexity={_ch}, depth="
+                              f"{self._engagement.session_depth():.2f})"
+                              if self._engagement else
+                              f"[COGNITIVE] Auto-escalate: quick → {_deepest} (complexity={_ch})")
+                    reasoning_mode = _deepest
             except Exception:
                 pass
 
