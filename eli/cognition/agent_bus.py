@@ -689,6 +689,72 @@ def _memory_seed_terms(text: str, k: int = 5) -> list:
     return out
 
 
+def _rerank_hits(hits: List[Dict[str, Any]], query: str,
+                 now: Optional[float] = None) -> List[Dict[str, Any]]:
+    """Fuse relevance + recency + source into one score and reorder, so the strongest,
+    freshest evidence leads the context instead of raw semantic order. Robust to missing
+    fields; never raises."""
+    import time as _t
+    now = now or _t.time()
+    q_terms = {w for w in re.split(r"[^a-z0-9]+", (query or "").lower()) if len(w) > 2}
+    tss = [float(h.get("ts") or h.get("timestamp") or 0)
+           for h in hits if isinstance(h, dict)]
+    pos_ts = [t for t in tss if t > 0]
+    t_min, t_max = (min(pos_ts), max(pos_ts)) if pos_ts else (0.0, 0.0)
+    span = max(1.0, t_max - t_min)
+    scored: List[tuple] = []
+    n = max(1, len(hits))
+    for i, h in enumerate(hits):
+        if not isinstance(h, dict):
+            continue
+        text = (h.get("text") or h.get("content") or "").lower()
+        rel = h.get("score", h.get("similarity"))
+        if rel is None:
+            overlap = (len(q_terms & set(re.split(r"[^a-z0-9]+", text))) / (len(q_terms) or 1))
+            rel = 0.6 * overlap + 0.4 * (1.0 - i / n)
+        try:
+            rel = float(rel)
+        except Exception:
+            rel = 0.5
+        ts = float(h.get("ts") or h.get("timestamp") or 0)
+        rec = ((ts - t_min) / span) if ts > 0 else 0.3
+        src = str(h.get("source") or "").lower()
+        src_w = 1.0 if "memor" in src else (0.85 if "conv" in src else 0.9)
+        fused = 0.55 * rel + 0.30 * rec + 0.15 * src_w
+        h2 = dict(h)
+        h2["_rerank_score"] = round(fused, 4)
+        scored.append((fused, h2))
+    scored.sort(key=lambda x: x[0], reverse=True)
+    return [h for _, h in scored]
+
+
+_CONTRADICTION_RE = re.compile(
+    r"\b(?:user'?s?\s+)?(name|preferred\s+name|favou?rite\s+\w+|home\s*town|"
+    r"location|occupation|job)\s+(?:is|=|:)\s+([a-z0-9][\w '\-]{1,40})",
+    re.I,
+)
+
+
+def _detect_contradictions(hits: List[Dict[str, Any]], max_check: int = 14) -> List[Dict[str, Any]]:
+    """Flag mutually-conflicting FACTS among the top hits (same attribute, different value)
+    so synthesis RESOLVES the conflict (prefer the freshest/highest-ranked) instead of
+    asserting both. Heuristic + bounded; never raises."""
+    claims: Dict[str, set] = {}
+    for h in hits[:max_check]:
+        if not isinstance(h, dict):
+            continue
+        text = (h.get("text") or h.get("content") or "").strip()
+        if not text or len(text) > 180:
+            continue
+        m = _CONTRADICTION_RE.search(text)
+        if m:
+            key = re.sub(r"\s+", " ", m.group(1).lower()).strip()
+            val = m.group(2).lower().strip(" .'\"")
+            if val and val not in ("the", "a", "an", "not", "unknown"):
+                claims.setdefault(key, set()).add(val)
+    return [{"attribute": k, "values": sorted(v)} for k, v in claims.items() if len(v) >= 2]
+
+
 class BusMemoryAgent(_BaseAgent):
     """
     Retrieves semantic memories, conversation history, session summaries,
@@ -784,10 +850,29 @@ class BusMemoryAgent(_BaseAgent):
                 except Exception:
                     pass
 
+            # Rerank fused (relevance + recency + source) so the strongest, freshest evidence
+            # leads — not raw semantic order. Then flag contradictions among the top facts so
+            # synthesis resolves them (prefer freshest) instead of asserting both.
+            try:
+                raw_hits = _rerank_hits(raw_hits, user_input)
+            except Exception:
+                pass
+            contradictions: List[Dict[str, Any]] = []
+            try:
+                contradictions = _detect_contradictions(raw_hits)
+            except Exception:
+                contradictions = []
+
             total_hits = len(raw_hits) + len(conv_hits)
             local_conf = min(0.9, 0.3 + total_hits * 0.04)
 
             context_parts: List[str] = []
+            if contradictions:
+                _cl = "; ".join(f"{c['attribute']} = {{{', '.join(c['values'])}}}"
+                                for c in contradictions[:3])
+                context_parts.append(
+                    "⚠ Conflicting memory (prefer the most recent/strongest, do not assert "
+                    f"both): {_cl}")
             if recent:
                 # get_recent_conversation returns CHRONOLOGICAL order (oldest first)
                 # — confirmed at memory.py: fetches DESC then list(reversed(rows)).
@@ -875,7 +960,8 @@ class BusMemoryAgent(_BaseAgent):
                 data={"memory_context": memory_context,
                       "results": raw_hits,
                       "conv_hits": conv_hits,
-                      "hit_count": total_hits},
+                      "hit_count": total_hits,
+                      "contradictions": contradictions},
                 elapsed_ms=elapsed,
             )
         except Exception as e:
