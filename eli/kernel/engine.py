@@ -5172,6 +5172,23 @@ Answer:"""
                 prompt, _failed_executor_query_from_prompt(prompt)
             )
 
+        # ── Verbatim guard for the code examiner (EXAMINE_CODE) ──
+        # The examiner report is DETERMINISTIC grounded output (tiered findings + the fix
+        # offer). Re-narrating it through this chat path makes the model confabulate: it
+        # paraphrases the file_code agent's nearby code snippets/comments as "bugs"
+        # (observed live — 5 invented findings that were actually existing comments, none
+        # matching the real tier-3 analysis). If the report is present in the evidence,
+        # return it VERBATIM so the user sees the real grounded findings.
+        for _exam_src in (situation_brief, memory_context, prompt):
+            _em = re.search(r"(Examined\s+\d+\s+file\(s\)\s*:[\s\S]+)", str(_exam_src or ""))
+            if _em and ("Tier 1" in _em.group(1) or "No errors found" in _em.group(1)
+                        or "PLEASE CONFIRM" in _em.group(1)):
+                _rep = re.split(
+                    r"\n\s*(?:USER QUESTION:|GROUNDED EVIDENCE \(|Recent ELI reflections|"
+                    r"Knowledge graph|Live agents \()", _em.group(1))[0].strip()
+                if _rep:
+                    return _rep
+
         if _eli_test_mode():
             gen_overrides = dict(gen_overrides or {})
             gen_overrides["max_tokens"] = min(
