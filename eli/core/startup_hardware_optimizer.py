@@ -257,6 +257,10 @@ def mode_presets(n_ctx: int, max_tokens: int) -> Dict[str, Dict[str, Any]]:
     def _tok(base: int) -> int:
         return min(max_tokens, int(round(base * _scale)))
 
+    # Tree depth is tier-mapped so the SMALL model stays single-level (depth 1 = current
+    # behaviour) and only capable models deepen the tree: small 1, medium 2, large 3, frontier 4.
+    _depth = 1 if _scale < 1.5 else (2 if _scale < 2.5 else (3 if _scale < 4.0 else 4))
+
     return {
         "quick": {
             "max_tokens": min(max_tokens, 1024),
@@ -280,7 +284,7 @@ def mode_presets(n_ctx: int, max_tokens: int) -> Dict[str, Dict[str, Any]]:
         },
         "tree_of_thoughts": {
             "branches": _cnt(3 if n_ctx >= 8192 else 2, 2, 6),
-            "depth": _cnt(3 if n_ctx >= 16384 else 2, 1, 4),
+            "depth": _depth,
             "max_tokens_propose": _tok(1024),
             "max_tokens_develop": _tok(3072),
             "max_tokens_critique": _tok(1024),
