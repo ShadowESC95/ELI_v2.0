@@ -149,6 +149,14 @@ def detect_action_commitment(text: str) -> Optional[Dict[str, str]]:
     m = _COMMIT_RE.search(s) or _DOING_RE.search(s) or _FAKE_THEATRE_RE.search(s)
     if not m:
         return None
+    # Past / perfect-continuous NARRATION ("I've been checking", "I was searching", "I have
+    # been looking", "I checked earlier") is not a commitment to act NOW — re-running it
+    # carpet-bombs the user with an action they never asked for. Only a forward commitment
+    # ("let me check", "I'll fetch", "checking now") should trigger followthrough.
+    _pre = s[max(0, m.start() - 30):m.start()].lower()
+    if re.search(r"\b(?:been|was|were|have\s+been|had\s+been|i'?ve\s+been|"
+                 r"earlier|already|recently|just\s+(?:checked|finished))\b", _pre):
+        return None
     start = max(s.rfind(". ", 0, m.start()), s.rfind("\n", 0, m.start())) + 1
     end_dot = s.find(". ", m.end())
     end_nl = s.find("\n", m.end())
