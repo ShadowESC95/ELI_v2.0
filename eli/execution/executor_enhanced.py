@@ -9643,9 +9643,17 @@ def _execute_impl(action: str, args: Optional[Dict[str, Any]] = None) -> Dict[st
                     _paths = _ce.resolve_targets(request)
                     if _paths:
                         _findings = _ce.examine(_paths)
-                        _ce.set_pending_fix(_findings, _paths)
+                        # Same report-only policy: only offer/pend a fix for genuine breakage on
+                        # explicitly-named files; a broad upgrade-audit is report-only.
+                        _named = bool(_ce._extract_named_paths(request))
+                        _fixable = [f for f in _findings if _ce.is_real_breakage(f)]
+                        if _named and _fixable:
+                            _ce.set_pending_fix(_fixable, _paths)
+                        else:
+                            _ce.clear_pending_fix()
                         result = result + "\n\n— Code examination —\n" + \
-                            _ce.format_report(_paths, _findings)
+                            _ce.format_report(_paths, _findings,
+                                              allow_fix=(_named and bool(_fixable)))
             except Exception as _ex_exc:
                 log.debug(f"[SELF_UPGRADE] examine stage skipped: {_ex_exc}")
             return {'ok': True, 'action': a, 'content': result, 'response': result}
@@ -9664,8 +9672,18 @@ def _execute_impl(action: str, args: Optional[Dict[str, Any]] = None) -> Dict[st
                 return {'ok': True, 'action': a, 'content': msg, 'response': msg,
                         'evidence_source': 'code_examiner_no_targets'}
             findings = _ce.examine(paths)
-            _ce.set_pending_fix(findings, paths)
-            report = _ce.format_report(paths, findings)
+            # Report-only policy (2026-06-09): a broad/sweep audit NEVER offers to patch, and
+            # cosmetic lint is never auto-fixed. Fixing is offered only when the user named
+            # specific files AND there's genuine breakage (syntax / failed import / undefined
+            # name). This stops a vague "run full audit" from applying botched 7B lint patches
+            # to ELI's own core files.
+            _named = bool(_ce._extract_named_paths(request))
+            _fixable = [f for f in findings if _ce.is_real_breakage(f)]
+            if _named and _fixable:
+                _ce.set_pending_fix(_fixable, paths)
+            else:
+                _ce.clear_pending_fix()
+            report = _ce.format_report(paths, findings, allow_fix=(_named and bool(_fixable)))
             return {'ok': True, 'action': a, 'content': report, 'response': report,
                     'evidence_source': 'code_examiner'}
         except Exception as _exc:
