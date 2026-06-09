@@ -6308,15 +6308,19 @@ Answer:"""
         # non-trivial sample as a deterministic fallback. Also strip any
         # stray "=== SAMPLE N ===" markers if the model included one as a header.
         import re as _re_sc
-        _has_leak = bool(_re_sc.search(r"===\s*SAMPLE\s+\d+\s*===", chosen or ""))
+        # Catch BOTH leaked forms the 7B produces: "=== SAMPLE 2 ===" and a bare
+        # "SAMPLE 2:" header prefix.
+        _leak_re = r"(?:===\s*)?\bSAMPLE\s+\d+\s*(?:===|:)"
+        _has_leak = bool(_re_sc.search(_leak_re, chosen or ""))
         if _has_leak:
-            log.debug(f"[REASONING][SelfConsistency] selector leaked sample markers — using longest-sample fallback")
+            log.debug("[REASONING][SelfConsistency] selector leaked sample markers — using longest-sample fallback")
             _candidates = [s for s in samples if s and len(s.strip()) > 20]
             if _candidates:
                 chosen = max(_candidates, key=lambda s: len(s.strip()))
             else:
                 chosen = samples[0] if samples else chosen
-        chosen = _re_sc.sub(r"===\s*SAMPLE\s+\d+\s*===\s*\n?", "", chosen or "").strip()
+        # Strip any residual marker (either form), anchored at line start.
+        chosen = _re_sc.sub(r"(?m)^\s*(?:===\s*)?SAMPLE\s+\d+\s*(?:===|:)?\s*", "", chosen or "").strip()
         chosen = _strip_reasoning_scaffold(chosen)
 
         log.debug(f"[REASONING][SelfConsistency] selected ({len(chosen)} chars)")
