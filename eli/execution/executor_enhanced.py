@@ -13213,24 +13213,36 @@ try:
         observations = list(recent.get("observations") or [])
         replay = list(recent.get("learning_replay") or [])
 
+        def _fmt_ev_ts(v):
+            # Render the stored epoch as a human-readable local time (the raw float
+            # '1781004767.88' is meaningless to a user — they asked for hours/minutes).
+            try:
+                import datetime as _dt
+                f = float(v)
+                if f > 1e11:   # accidentally stored in ms
+                    f /= 1000.0
+                return _dt.datetime.fromtimestamp(f).strftime("%Y-%m-%d %H:%M")
+            except Exception:
+                return str(v)
+
         if durable:
             lines.append("Clean recent durable memory evidence:")
             for row in durable[:3]:
-                stamp = f"[{row.get('time')}] " if row.get("time") else ""
+                stamp = f"[{_fmt_ev_ts(row.get('time'))}] " if row.get("time") else ""
                 lines.append(f"- {stamp}{row.get('text')}")
             lines.append("")
 
         if observations:
             lines.append("Clean recent observation evidence:")
             for row in observations[:3]:
-                stamp = f"[{row.get('time')}] " if row.get("time") else ""
+                stamp = f"[{_fmt_ev_ts(row.get('time'))}] " if row.get("time") else ""
                 lines.append(f"- {stamp}{row.get('text')}")
             lines.append("")
 
         if replay:
             lines.append("Clean recent learning-replay evidence:")
             for row in replay[:3]:
-                stamp = f"[{row.get('time')}] " if row.get("time") else ""
+                stamp = f"[{_fmt_ev_ts(row.get('time'))}] " if row.get("time") else ""
                 lines.append(f"- {stamp}{row.get('text')}")
             lines.append("")
 
