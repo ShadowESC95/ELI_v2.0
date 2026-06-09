@@ -163,6 +163,19 @@ def _derive_mode_presets(_base_n_ctx: int, base_max_tokens: int,
     """
     base_max = max(512, int(base_max_tokens) if base_max_tokens > 0 else 2048)
 
+    # MODEL-AGNOSTIC capability scaling for the sample/branch COUNTS (the per-stage token
+    # budgets already follow base_max). tier_scale() is 1.0 for the current small model
+    # (behaviour-preserving) and rises for medium/large/frontier models, so a stronger model
+    # gets more samples / wider search instead of staying at the small-model default of 3.
+    try:
+        from eli.core.model_tier import tier_scale as _ts
+        _scale = float(_ts())
+    except Exception:
+        _scale = 1.0
+
+    def _cnt(base: int, lo: int, hi: int) -> int:
+        return max(lo, min(hi, int(round(base * _scale))))
+
     return {
         "quick": {
             "passes": 1,
@@ -191,7 +204,7 @@ def _derive_mode_presets(_base_n_ctx: int, base_max_tokens: int,
         },
         "self_consistency": {
             "passes": 1,                       # algorithm runs samples internally
-            "samples": 3,
+            "samples": _cnt(3, 2, 7),
             "max_tokens": int(base_max * 0.55),  # per-sample budget
             "temperature": max(0.6, float(base_temperature)),
             "top_p": 0.85,
@@ -205,7 +218,7 @@ def _derive_mode_presets(_base_n_ctx: int, base_max_tokens: int,
         },
         "tree_of_thoughts": {
             "passes": 1,                       # algorithm runs branch+develop
-            "branches": 3,
+            "branches": _cnt(3, 2, 6),
             "max_tokens_propose": int(base_max * 0.30),
             "max_tokens_develop": int(base_max * 0.85),
             "temperature_propose": 0.6,
