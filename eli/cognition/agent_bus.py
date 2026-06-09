@@ -2728,22 +2728,53 @@ class KnowledgeGraphAgent(_BaseAgent):
 
             from eli.core.cognition_tunables import get_tunable as _cog_get
             ctx = kg.context_for_prompt(_query, max_chars=_cog_get("cog.kg_max_chars"))
+
+            # Multi-hop reasoning: context_for_prompt is only 1-hop. Traverse the graph
+            # 2 hops out from the top matched entities (kg.related BFS) to surface CONNECTED
+            # relation chains — genuine relational inference, not a flat 1-hop entity dump.
+            multihop: List[str] = []
+            try:
+                _seen_chain: set = set()
+                for _s in (kg.search_entities(_query, limit=3) or []):
+                    _nm = (_s.get("name") if isinstance(_s, dict) else "") or ""
+                    if not _nm:
+                        continue
+                    for _rel in (kg.related(_nm, hops=2) or [])[:6]:
+                        if not isinstance(_rel, dict):
+                            continue
+                        _subj = str(_rel.get("subject") or "").strip()
+                        _pred = str(_rel.get("predicate") or "related to").strip()
+                        _obj = str(_rel.get("object") or "").strip()
+                        if _subj and _obj and _subj != _obj:
+                            _chain = f"{_subj} —{_pred}→ {_obj}"
+                            if _chain not in _seen_chain:
+                                _seen_chain.add(_chain)
+                                multihop.append(_chain)
+            except Exception:
+                pass
+
             elapsed = (time.perf_counter() - t0) * 1000
 
-            if not ctx:
+            if not ctx and not multihop:
                 return AgentResult(agent=self.name, ok=True, confidence=0.0,
                                    data={"skipped": True}, elapsed_ms=elapsed)
 
-            confidence = min(0.85, 0.4 + stats["relations"] * 0.02)
-            kg_block = f"Knowledge graph context:\n{ctx}"
+            kg_block = f"Knowledge graph context:\n{ctx}" if ctx else ""
+            if multihop:
+                kg_block += (("\n" if kg_block else "")
+                             + "Connected facts (multi-hop):\n"
+                             + "\n".join(f"- {c}" for c in multihop[:8]))
+            # Multi-hop chains are higher-value evidence — reward them in the confidence.
+            confidence = min(0.90, 0.4 + stats["relations"] * 0.02 + (0.06 if multihop else 0.0))
             log.debug(f"[AGENT:knowledge_graph] {stats['entities']} entities, "
-                  f"{stats['relations']} relations, ctx_chars={len(ctx)} "
-                  f"elapsed={elapsed:.0f}ms")
+                  f"{stats['relations']} relations, multihop={len(multihop)} "
+                  f"ctx_chars={len(kg_block)} elapsed={elapsed:.0f}ms")
             return AgentResult(
                 agent=self.name,
                 ok=True,
                 confidence=confidence,
-                data={"memory_context": kg_block, "kg_stats": stats},
+                data={"memory_context": kg_block, "kg_stats": stats,
+                      "multihop_chains": multihop[:8]},
                 elapsed_ms=elapsed,
             )
         except Exception as e:
