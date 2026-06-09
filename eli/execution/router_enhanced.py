@@ -4460,6 +4460,19 @@ def _eli_self_improvement_phrase_guard(text):
         )
         or re.search(r"\b(examine|review|inspect|scan|audit|check)\b[^.?!]*\.py\b", low)
         or re.search(r"\b(examine|review|inspect|scan|audit|check)\b[^.?!]*\beli(?:\.\w+)+\b", low)
+        # "check/look at <files|the code> for errors/issues" and the bare follow-up
+        # "is there any issues with the files/code?" — these must run the real examiner,
+        # NOT FILE_AUDIT (a directory file-counter whose output, when synthesised, gets
+        # confabulated into invented files-with-bugs that don't exist). Requires an
+        # error/issue word AND a code/file context word so casual "issues" don't match.
+        or (
+            re.search(r"\b(issues?|errors?|bugs?|problems?|mistakes?|wrong|broken|faults?)\b", low)
+            and re.search(r"\b(file|files|code|codebase|module|modules|script|scripts|"
+                          r"function|functions|class|classes|\.py)\b", low)
+        )
+        or re.search(r"\b(check|look\s+(?:at|over|through)|go\s+through)\b[^.?!]*"
+                     r"\b(file|files|code|codebase|module|modules|script|scripts)\b[^.?!]*"
+                     r"\b(error|errors|bug|bugs|issue|issues|problem|problems|wrong|broken)\b", low)
         )
     ):
         return {
