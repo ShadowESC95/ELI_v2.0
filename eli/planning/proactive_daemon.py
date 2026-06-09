@@ -324,9 +324,15 @@ class ProactiveDaemon:
         try:
             con = sqlite3.connect(str(user_db))
             cur = con.cursor()
+            # Read ONLY the dynamic project signal (project.current, written from the LLM
+            # session summary's CURRENT WORK) and any genuinely dynamic project rows — NEVER
+            # the legacy hard-coded 'project.eli*' rows, which are the frozen "developing ELI"
+            # canned facts that must not resurface (they're no longer written; this also
+            # neutralises any that linger in an existing DB).
             cur.execute(
                 "SELECT pattern_data, COALESCE(timestamp, ts) FROM user_patterns "
                 "WHERE pattern_type LIKE 'project%' "
+                "AND pattern_type NOT LIKE 'project.eli%' "
                 "ORDER BY COALESCE(timestamp, ts, id) DESC LIMIT 3"
             )
             proj_rows = cur.fetchall()
