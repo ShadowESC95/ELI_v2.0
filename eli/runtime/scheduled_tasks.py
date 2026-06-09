@@ -29,7 +29,10 @@ from eli.utils.log import get_logger
 log = get_logger(__name__)
 
 _OVERNIGHT_HOUR = 2  # "overnight"/"tonight" → next 02:00
-_CATCHUP_DELAY = 30.0  # missed-while-off tasks run this many seconds after boot
+_CATCHUP_DELAY = 180.0  # missed one-shot tasks run this many seconds after boot — long
+                        # enough for the main model + Whisper to finish loading first, so a
+                        # catch-up never races the boot load for VRAM (recurring jobs reschedule
+                        # to their next window instead; see restore_scheduled_tasks)
 _STORE_LOCK = threading.RLock()
 _RESTORED = False
 
@@ -380,14 +383,30 @@ def restore_scheduled_tasks() -> int:
     for e in entries:
         try:
             wt = float(e.get("when_ts") or 0)
+            _recurring = bool(e.get("recurring"))
+            _when_spec = str(e.get("when_spec") or "")
             catchup = wt <= now
             if catchup:
-                wt = now + _CATCHUP_DELAY
+                if _recurring:
+                    # A missed RECURRING job (the nightly testgen/eval/report jobs) must
+                    # NOT catch up on boot: it loads the GGUF model and runs minutes-long
+                    # inference while the GUI's own model is still loading, starving VRAM
+                    # and forcing the main model onto CPU. Reschedule to its next future
+                    # occurrence (parse_when defaults to the next 02:00 overnight slot).
+                    try:
+                        wt = parse_when(_when_spec)
+                    except Exception:
+                        wt = now + _CATCHUP_DELAY
+                    catchup = False
+                else:
+                    # One-shot user task missed while off → catch up, but after the model
+                    # and Whisper have settled (not racing the boot load).
+                    wt = now + _CATCHUP_DELAY
             _arm(str(e.get("pid") or uuid.uuid4().hex[:12]),
                  str(e.get("request") or ""), wt,
-                 str(e.get("when_spec") or ""), str(e.get("kind") or "research"),
+                 _when_spec, str(e.get("kind") or "research"),
                  catchup=catchup, project=str(e.get("project") or ""),
-                 recurring=bool(e.get("recurring")))
+                 recurring=_recurring)
             restored += 1
         except Exception as ex:
             log.debug(f"[SCHEDULED] restore of {e.get('pid')} failed: {ex}")
