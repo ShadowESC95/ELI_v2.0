@@ -991,15 +991,24 @@ _ELI_PLACEHOLDER_RX = re.compile(
     re.IGNORECASE,
 )
 
+# Generic single-token fills the model left unreplaced — "<URL 1>", "[date]", "<link>",
+# "[headline 2]". Anchored to a known placeholder token (+ optional number) so it never
+# matches real bracketed citations like "[BBC News — 13:54]" or "[arXiv — 14:00]".
+_ELI_PLACEHOLDER_TOKEN_RX = re.compile(
+    r"[\[\<]\s*(?:url|link|date|time|name|title|author|source|topic|headline|story|"
+    r"item|value|number|placeholder|xx+)\s*\d*\s*[\]\>]",
+    re.IGNORECASE,
+)
+
 
 def _eli_is_placeholder_output(text) -> bool:
-    """True when the answer contains an unfilled template/scaffold span the model
-    failed to fill from real evidence (e.g. '[list up to 3 habits ...]'). Such an
-    answer means evidence wasn't gathered/used — it must not be surfaced."""
+    """True when the answer contains an unfilled template/scaffold span the model failed to
+    fill from real evidence (e.g. '[list up to 3 habits ...]', '<URL 1> released on [date]').
+    Such an answer means evidence wasn't gathered/used — it must not be surfaced."""
     t = str(text or "")
     if not t:
         return False
-    return bool(_ELI_PLACEHOLDER_RX.search(t))
+    return bool(_ELI_PLACEHOLDER_RX.search(t) or _ELI_PLACEHOLDER_TOKEN_RX.search(t))
 
 
 # === ELI_PHASE19_GROUNDED_FOLLOWUP_REBIND_V1 ===
@@ -7392,11 +7401,21 @@ Answer:"""
             _room_relevant = bool(re.search(
                 r"\b(room|world|avatar|where are you|your location|"
                 r"what are you (?:doing|working on|up to)|in there)\b", _ui_low))
+            # Gate the symbolic self-metrics to EXPLICIT internal-state / diagnostics queries.
+            # On casual/phatic turns ("how are you feeling") the metrics (memory_confidence,
+            # repair_pressure …) prime the 7B to confabulate literal maintenance work —
+            # "I'm in the Memory Archive, inspecting memory continuity" — which makes ELI sound
+            # delusional. If the user isn't asking about internal state, don't inject it.
+            _state_relevant = bool(re.search(
+                r"\b(internal state|self[- ]?metrics?|your (?:metrics|internal state)|"
+                r"memory (?:confidence|continuity)|repair pressure|autonomy pressure|"
+                r"reflection depth|evidence confidence|cognitive load|diagnostics?)\b",
+                _ui_low))
             if _av_room and _room_relevant:
                 _world_lines.insert(
                     0, f"  avatar_location (symbolic world-view only, NOT a literal task): "
                        f"{_av_room.replace('_', ' ').title()}")
-            if _world_lines:
+            if _world_lines and (_state_relevant or _room_relevant):
                 _extra_blocks.append(
                     "[ELI INTERNAL STATE] (symbolic self-metrics — describe them honestly if "
                     "asked; do NOT invent tasks, contradictions, inconsistencies, or maintenance "

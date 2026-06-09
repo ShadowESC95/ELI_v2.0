@@ -1754,6 +1754,17 @@ def route(text: str) -> Dict[str, Any]:
     if not raw:
         return _mk("CHAT", {"message": ""}, 0.2, matched_by="empty_input")
 
+    # "timestamps / dates / when for those articles/stories/news" is a FOLLOWUP on the news
+    # just shown — NOT a calendar query. The LLM resolver used to mis-route it to a calendar/
+    # events action ("Calendar integration is not configured"). Keep it on the conversational
+    # news context (grounded followup) and away from calendar.
+    if (re.search(r"\b(time-?stamps?|dates?|times?|when)\b", low)
+            and re.search(r"\b(articles?|stories|story|headlines?|news)\b", low)
+            and not re.search(r"\b(calendar|event|appointment|meeting|schedule|"
+                              r"alarm|reminder|timer|set\s+a)\b", low)):
+        return _mk("CHAT", {"message": raw}, 0.9, matched_by="news.timestamps_followup",
+                   allow_chat_without_evidence=True)
+
     # ── NEWS / WEB LEARNING (before generic web/search routes) ───────────────
     if re.search(r"\b(fetch|get|pull|download|update)\b.{0,25}\bnews\b"
                  r"|\bnews\b.{0,20}(fetch|get|update|refresh)\b", low):
