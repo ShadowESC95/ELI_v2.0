@@ -544,7 +544,7 @@ def build_news_briefing(user_id=None, topic: str = "", top_n: int = 5,
         interest: List[Dict[str, Any]] = []
         interest_terms: List[str] = []
         prompt = (
-            f"You are ELI giving the user a focused news read on \"{topic}\". "
+            f"You are ELI giving the user a focused news read on \"{topic}\". Do NOT open with a greeting (no 'Good day'/'Hello') — this is mid-conversation. "
             "Use ONLY the articles below — never invent. For EACH story, include "
             "its source AND its publication date exactly as shown in the "
             "[source — time] bracket (e.g. \"[BBC — 14:23]\") so the reader can "
@@ -594,7 +594,8 @@ def build_news_briefing(user_id=None, topic: str = "", top_n: int = 5,
             if len(interest) >= interest_n:
                 break
         prompt = (
-            "You are ELI giving the user a quick, natural news read. Use ONLY the "
+            "You are ELI giving the user a quick, natural news read. Do NOT open with a "
+            "greeting (no 'Good day'/'Hello') — this is mid-conversation. Use ONLY the "
             "articles below — never invent. For EACH story, include its source "
             "AND its publication date exactly as shown in the [source — time] "
             "bracket (e.g. \"[BBC — 14:23]\") so the reader can see how fresh "
@@ -657,7 +658,7 @@ def synthesise_news_briefing(user_id=None, topic: str = "", top_n: int = 5,
                 _logger.warning("[NEWS_BRIEFING] model load attempt failed: %r", _le)
         text = broker.infer(
             brief["synthesis_prompt"],
-            system="You are ELI. Give a grounded, natural news read — no filler, "
+            system="You are ELI. Give a grounded, natural news read — no filler, do NOT open with a greeting (no 'Good day', 'Hello', 'Hi there') — this is mid-conversation, not a fresh start; "
                    "no timestamps, no inventing.",
             max_tokens=700,
             temperature=0.4,
