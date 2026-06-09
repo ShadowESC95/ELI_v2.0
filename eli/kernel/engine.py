@@ -8371,6 +8371,21 @@ Answer:"""
     def process(self, user_input: str, source: str = "user", stream: bool = False,
 
                 reasoning_mode: Optional[str] = None, **kwargs) -> Any:
+        # Record the LIVE per-request reasoning mode so REASONING_MODE_STATUS reports the
+        # mode actually in use — not a stale snapshot. last_trace.json is written at request
+        # END, so a mid-request status read otherwise returns the PREVIOUS request's mode
+        # (observed: status said "Quick" while running Normal). The env var is checked ahead
+        # of the trace/settings files in current_reasoning_mode(), and engine+executor share
+        # one process. Also mirror it onto the engine attr (_from_engine reads it).
+        try:
+            _eli_live_mode = str(reasoning_mode or "quick").strip().lower() or "quick"
+            __import__("os").environ["ELI_CURRENT_REASONING_MODE"] = _eli_live_mode
+            self._reasoning_mode = _eli_live_mode
+        except Exception:
+            pass
+        # Request-scoped: the Phase-13 META_DIAGNOSTIC→CHAT veto sets this so the orchestrator
+        # path honours it too; reset per request.
+        self._eli_phase13_chat_override = False
         _eli_pipeline_trace = str(__import__("os").environ.get("ELI_PIPELINE_TRACE", "")).strip().lower() in {"1", "true", "yes", "on"}
         _eli_pipeline_req = ""
 
@@ -9283,6 +9298,12 @@ Answer:"""
                     if not _eli_phase13_explicit_meta_diagnostic_request(_eli_phase13_diag_probe):
                         log.debug("[COGNITIVE] Phase 13 implicit META_DIAGNOSTIC veto -> CHAT")
                         action = "CHAT"
+                        # Request-scoped flag so the orchestrator path honours the veto too.
+                        # The orchestrator re-resolves intent from user_input (it does not see
+                        # this local `action`), so without this it would run the original
+                        # status/diagnostic action anyway (observed: AWARENESS_STATUS ran after
+                        # the veto). Cleared at process() entry; read+cleared in the orchestrator.
+                        self._eli_phase13_chat_override = True
                         for _eli_phase13_route_obj in (
                             locals().get("parsed"),
                             locals().get("route_result"),
