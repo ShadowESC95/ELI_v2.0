@@ -1403,7 +1403,12 @@ def _format_all_reasoning_modes(report: Dict[str, Any]) -> str:
     lines.append("")
     for key in report.get("modes", []):
         d = report["mode_data"][key]
-        lines.append(f"## {d['display']} (key={key})")
+        # Show the PUBLIC mode name (quick/normal/advanced/research/expert), never the
+        # internal key (chain_of_thought/self_consistency/...). The internal keys were kept
+        # stable under the hood, but they must not surface to the user — the public scheme
+        # is quick/normal/advanced/research/expert.
+        _public = str(d['display']).lower()
+        lines.append(f"## {d['display']} (key={_public})")
         lines.append(f"  private: {d['private']}")
         lines.append(f"  temperature_ceil: {d['temperature_ceil']}")
         lines.append(f"  token_floor: {d['min_tokens']}  token_cap: {d['max_tokens_cap']}")
