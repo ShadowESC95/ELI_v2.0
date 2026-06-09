@@ -540,14 +540,27 @@ class SelfImprovementEngine:
         # Extract Python file reference from the error traceback
         file_ref = ""
         file_content = ""
+        full_src = ""        # complete file text — used to VALIDATE the patch (verbatim + parse)
         file_match = re.search(r'File "([^"]+\.py)"', err)
         if file_match:
             candidate = Path(file_match.group(1))
             try:
                 candidate.relative_to(PROJECT_ROOT)
                 if candidate.exists() and candidate.stat().st_size < max_file_chars * 3:
-                    file_content = candidate.read_text(encoding="utf-8")[:max_file_chars]
+                    full_src = candidate.read_text(encoding="utf-8")
                     file_ref = str(candidate.relative_to(PROJECT_ROOT))
+                    # Give the model the ENCLOSING SCOPE around the failing line (+ the file's
+                    # imports) instead of just the head — the same scope-aware context the code
+                    # examiner uses, so it can produce a verbatim, in-scope fix. The deepest
+                    # traceback frame for THIS file is the actual error site.
+                    _frames = re.findall(
+                        rf'File "[^"]*{re.escape(candidate.name)}", line (\d+)', err)
+                    _err_line = int(_frames[-1]) if _frames else None
+                    try:
+                        from eli.runtime.code_examiner import _build_fix_context as _bfc
+                        file_content = _bfc(full_src, _err_line)
+                    except Exception:
+                        file_content = full_src[:max_file_chars]
             except (ValueError, Exception):
                 pass
 
@@ -604,26 +617,58 @@ class SelfImprovementEngine:
         except Exception as _bm_e:
             log.debug(f"[SELF-IMPROVE] bug-memory recall skipped: {_bm_e}")
 
+        # Validate-and-retry: a patch is only returned once 'old' is a verbatim substring of the
+        # real file AND applying it still parses — the SAME pre-flight the code examiner uses, so
+        # the autonomous loop stops handing apply_code_patch syntax-broken patches ("Fix failed
+        # after retries: corrected code has SyntaxError"). On rejection the specific error is fed
+        # back and the model retries. apply_code_patch still import-verifies + auto-reverts after.
+        try:
+            from eli.runtime.code_examiner import _validate_patch as _vp
+        except Exception:
+            _vp = None
+        _base = "\n".join(prompt_parts)
+        _attempts = 3
+        _last = "no attempt made"
         try:
             broker = get_broker()
-            raw = broker.infer("\n".join(prompt_parts), max_tokens=600, temperature=0.05)
-            # Extract JSON from response (model may wrap it in markdown)
-            json_match = re.search(r'\{[\s\S]+\}', raw)
+        except Exception as exc:
+            return {"ok": False, "error": f"LLM inference unavailable: {exc}"}
+        for _i in range(1, _attempts + 1):
+            _p = _base if _i == 1 else (
+                _base + f"\n\nYour previous attempt FAILED: {_last}. Return corrected JSON — "
+                "'old' must be copied EXACTLY (character-for-character) from the code shown.")
+            try:
+                raw = broker.infer(_p, max_tokens=700, temperature=0.05)
+            except Exception as exc:
+                _last = f"inference failed: {exc}"
+                continue
+            json_match = re.search(r'\{[\s\S]+\}', raw or "")
             if not json_match:
-                return {"ok": False, "error": "LLM did not return valid JSON"}
-            patch = json.loads(json_match.group(0))
-            if not patch.get("ok", True) is False and patch.get("reason"):
-                return {"ok": False, "error": patch["reason"]}
+                _last = "LLM did not return valid JSON"
+                continue
+            try:
+                patch = json.loads(json_match.group(0))
+            except json.JSONDecodeError as exc:
+                _last = f"JSON parse failed: {exc}"
+                continue
+            if patch.get("ok", True) is False and patch.get("reason"):
+                return {"ok": False, "error": patch["reason"]}   # explicit decline = terminal
             if not all(k in patch for k in ("file", "old", "new")):
-                return {"ok": False, "error": "Patch JSON missing required fields (file/old/new)"}
+                _last = "Patch JSON missing required fields (file/old/new)"
+                continue
+            if _vp is not None and full_src:
+                _verr = _vp(full_src, patch)
+                if _verr:
+                    _last = _verr
+                    log.debug(f"[SELF-IMPROVE] {file_ref}: attempt {_i}/{_attempts} rejected — {_verr}")
+                    continue
             patch["ok"] = True
             patch.setdefault("description", "self-improvement patch")
             patch["failure_ref"] = f"{ui[:60]} → {err[:60]}"
+            if _i > 1:
+                log.debug(f"[SELF-IMPROVE] {file_ref}: valid patch on attempt {_i}/{_attempts}")
             return patch
-        except json.JSONDecodeError as exc:
-            return {"ok": False, "error": f"JSON parse failed: {exc}"}
-        except Exception as exc:
-            return {"ok": False, "error": f"LLM inference failed: {exc}"}
+        return {"ok": False, "error": f"no valid patch after {_attempts} attempts: {_last}"}
 
     def apply_code_patch(self, patch: dict, verify: bool = True) -> dict:
         """
