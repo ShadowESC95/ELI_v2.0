@@ -540,6 +540,21 @@ def _pending_file() -> Path:
     return path
 
 
+# Last concrete file path the user referred to this session — so a bare follow-up
+# ("please fix the file") can recover the file named a turn earlier instead of failing
+# with "Path not found: missing path".
+_LAST_FILE: Optional[str] = None
+
+
+def set_last_file(path: Any) -> None:
+    global _LAST_FILE
+    _LAST_FILE = str(path or "").strip() or None
+
+
+def get_last_file() -> Optional[str]:
+    return _LAST_FILE
+
+
 def set_pending_fix(findings: List[Finding], paths: List[Path]) -> None:
     payload = {
         "created_at": time.time(),
