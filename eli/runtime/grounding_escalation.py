@@ -138,6 +138,21 @@ _RELATIONAL_VENT_RE = re.compile(
     r"|\bwhat(?:'?s|\s+is)?\s+(?:wrong|up)\s+with\s+(?:you|u|this|it|that)\b"
     r"|\bwhat(?:'?s|\s+is)?\s+(?:your|the)\s+(?:problem|deal|issue)\b",
     re.I)
+# Conversational meta — questions ABOUT this conversation itself or the user's/ELI's own past
+# utterances in it ("when did I ask for that", "what did I say", "I never asked for that",
+# "did you mention X earlier"). These are answered from the dialogue transcript (normal CHAT),
+# NEVER web-searched or memory-graded: a low grounding score here means "look at what was said",
+# not "I can't verify a fact". (user-reported 2026-06-09: "when exactly did i ask for that" was
+# mis-routed to REFRESH_USER_INFO and deflected with "I can't check the history".)
+_CONV_META_RE = re.compile(
+    r"\b(?:when|where|what|how|why|did|do|have|has)\s+(?:exactly\s+)?(?:i|you|we)\s+"
+    r"(?:ever\s+|even\s+|actually\s+)?"
+    r"(?:ask(?:ed)?|say|said|request(?:ed)?|mention(?:ed)?|tell|told|claim(?:ed)?|"
+    r"state[d]?|bring\s+up|brought\s+up|put\s+in|type[d]?|write|wrote)\b"
+    r"|\bi\s+(?:never|didn'?t|did\s+not)\s+(?:ask(?:ed)?|say|said|request(?:ed)?|"
+    r"mention(?:ed)?|tell|told)\b"
+    r"|\bwhen\s+did\s+i\b",
+    re.I)
 # Leading intensifier / profanity that frustrated users inject mid-phrase
 # ("what THE FUCK are you talking about"), which otherwise breaks the meta/banter
 # patterns and lets pure venting fall through to the factual classifier.
@@ -186,7 +201,8 @@ def classify_factual(text: str) -> Tuple[bool, str]:
     low_clean = re.sub(r"\s+", " ", low_clean).strip()
     if (_BANTER_RE.search(low_clean) or _OPINION_RE.search(low_clean)
             or _COMMAND_RE.search(low_clean) or _META_SELF_RE.search(low_clean)
-            or _RELATIONAL_VENT_RE.search(low_clean)):
+            or _RELATIONAL_VENT_RE.search(low_clean)
+            or _CONV_META_RE.search(low_clean)):
         return (False, "none")
 
     is_fact = bool(
