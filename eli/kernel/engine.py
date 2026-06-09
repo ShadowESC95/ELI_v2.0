@@ -7863,16 +7863,12 @@ Answer:"""
         try:
             from eli.runtime.diagnostic_patterns import should_exclude_turn_from_prompt
             if should_exclude_turn_from_prompt("assistant", text):
-                try:
-                    si = get_self_improvement()
-                    si.memory.log_failure(
-                        "assistant_dynamic_status_claim",
-                        error="Skipped storing unsupported assistant image/status loop in conversation context",
-                        confidence=0.0,
-                        context={"assistant_text": str(text)[:500]},
-                    )
-                except Exception:
-                    pass
+                # Benign and BY DESIGN: an image/status-loop frame is deliberately not stored in
+                # conversation context. This is NOT a failure — logging it as one polluted the
+                # failure log, made it a "recurring error", and drove the self-heal loop to "fix"
+                # a non-bug (it generated bogus 'assistant_dynamic_status_claim' web-API code at
+                # shutdown). Debug-log only.
+                log.debug("[COGNITIVE] skipped storing unsupported assistant image/status frame")
                 return
         except Exception:
             pass
@@ -11938,18 +11934,14 @@ Answer:"""
                             f"response={_s12_score:.2f} agent={_s12_agent_conf:.2f} "
                             f"({_s12_label}) threshold={_s12_threshold:.2f} [{_s12_pass}]"
                         )
-                        # Adaptation: log low-confidence responses for self-improvement
+                        # A low confidence SCORE is a quality signal, not a code bug — there is no
+                        # traceback/file for the self-heal patcher to act on, so logging it as a
+                        # code-failure only polluted the failure log + recent-failures probe and
+                        # made low-confidence casual turns look like recurring bugs. Debug-log the
+                        # signal for observability; do not file it as a failure.
                         if _s12_score < _s12_threshold:
-                            try:
-                                _si = get_self_improvement()
-                                _si.memory.log_failure(
-                                    prompt,
-                                    error=f"Low stream confidence score={_s12_score:.2f}",
-                                    confidence=_s12_score,
-                                    context={"agent_conf": _s12_agent_conf, "mode": reasoning_mode or "quick"},
-                                )
-                            except Exception:
-                                pass
+                            log.debug(f"[COGNITIVE] low stream confidence score={_s12_score:.2f} "
+                                      f"(agent={_s12_agent_conf:.2f}, mode={reasoning_mode or 'quick'})")
                     except Exception as _s12_err:
                         log.debug(f"[PIPELINE] Stage 12: Confidence scoring failed: {_s12_err}")
                 # ── Stream meta publish ───────────────────────────────────────
