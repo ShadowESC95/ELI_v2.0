@@ -1166,6 +1166,12 @@ def _eli_web_lookup_prepass(raw: str, low: str):
     query = re.sub(r"\b(for me|please|now|on the internet|online)\b\.?$", "", query, flags=re.I).strip(" .?!")
     if not query:
         query = raw.strip()
+    # Self-referential internals — "search your code and tell me how your agents work",
+    # "search your codebase for how cognition works" — are about ELI's OWN system, NEVER the
+    # web. Fall through (return None) so the grounded cognition/agents/memory guards answer.
+    if re.search(r"\byour\s+(?:own\s+)?(?:code|codebase|agents?|cognition|"
+                 r"pipeline|architecture|internals?|memory\s+system)\b", raw, re.I):
+        return None
     # Bare search instruction with NO subject ("do a search", "you have access
     # to the web, do a search", "look it up"): the query is pure meta-instruction
     # about searching. Searching the literal sentence returns "how to browse the
@@ -1428,6 +1434,24 @@ def route(text: str) -> Dict[str, Any]:
 
     if re.search(r"\b(explain your cognition pipeline|cognition pipeline from input to output|input to output.*every step|cognitive pipeline)\b", low):
         return _mk("EXPLAIN_COGNITION_RUNTIME", {}, 0.99, matched_by="router.cognition_runtime", allow_chat_without_evidence=False)
+
+    # Self-referential: "how do your AGENTS work/function/operate", "explain your agents",
+    # "how does your agent bus work", "search your code and tell me how your agents work".
+    # This is a question about ELI's OWN agent architecture — answered by the grounded cognition
+    # report (the agent bus, the 14 agents + roles, the ThreadPoolExecutor). MUST fire here,
+    # before: (a) web_search — 'search your code…' was web-searched and returned external VS Code
+    # articles; (b) system.capabilities — 'your agents' dumped the raw 207-ACTION list (agents ≠
+    # capabilities). Routes to EXPLAIN_COGNITION_RUNTIME.
+    if (
+        re.search(r"\b(?:how|what|explain|describe|tell me|show me)\b.{0,40}\b(?:your|the|eli'?s)\s+agents?\b", low)
+        or re.search(r"\b(?:your|the|eli'?s)\s+agents?\b.{0,40}\b(work|works|function|functions|operate|operates|run|runs|behave|coordinate|interact|process)\b", low)
+        or re.search(r"\bagent\s+bus\b", low)
+        or re.search(r"\bhow\s+(?:do|does|the\s+(?:fuck|hell|heck)\s+do)\b.{0,30}\bagents?\b", low)
+        or (re.search(r"\bsearch\s+(?:your|the|my)\s+(?:own\s+)?code", low)
+            and re.search(r"\b(agents?|cognition|memory|pipeline|reasoning)\b", low))
+    ):
+        return _mk("EXPLAIN_COGNITION_RUNTIME", {"question": raw}, 0.99,
+                   matched_by="router.agents_architecture", allow_chat_without_evidence=False)
 
     if re.search(r"\b(what do you know about me from memory|what do you know about me|what do you remember of me|who am i|what is my name|do you remember me|do you know me|my preferences|my persona|my ethos)\b", low):
         return _mk("USER_IDENTITY_SUMMARY", {}, 0.99, matched_by="router.user_identity_summary", allow_chat_without_evidence=False)
@@ -2586,8 +2610,10 @@ def route(text: str) -> Dict[str, Any]:
         re.search(r"\b(?:list|show)\s+(?:me\s+)?(?:all\s+(?:of\s+)?)?(?:your\s+)?capabilities\b", low)
         or re.search(r"\bfull\s+list\s+of\s+(?:your\s+)?capabilities\b", low)
         or low in ("capabilities", "what can you do", "what can you do?")
-        or re.search(r"\b(what|which|list|show)\b.{0,25}\b(agents?|capabilities|skills|actions|tools)\b", low)
-        or re.search(r"\bwhat agents\b|\bwhat can you do\b|\bwhat are you capable\b|\byour agents\b|\byour capabilities\b|\byour skills\b", low)
+        # NOTE: 'agents' REMOVED — agents (the 14 specialists) are NOT the 207-action
+        # capability list. Questions about agents route to EXPLAIN_COGNITION_RUNTIME above.
+        or re.search(r"\b(what|which|list|show)\b.{0,25}\b(capabilities|skills|actions|tools)\b", low)
+        or re.search(r"\bwhat can you do\b|\bwhat are you capable\b|\byour capabilities\b|\byour skills\b", low)
     ):
         return _mk("LIST_CAPABILITIES", {}, 1.0,
                    matched_by="system.capabilities")
