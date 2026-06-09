@@ -1,7 +1,7 @@
 # ELI MKXI v2.0 PRO
 
 ELI MKXI is a 100% local, privacy-first AI assistant. It runs entirely on your
-own hardware — no cloud APIs, no telemetry. ~134k lines of Python across 152
+own hardware — no cloud APIs, no telemetry. ~134k lines of Python across 353
 modules, **206 capabilities**, and **14 specialist agents**. Features include:
 
 - **GGUF inference** via llama-cpp-python (CPU and GPU, auto-tuned at boot;

@@ -200,3 +200,21 @@ recoverable instead of dead ends.
 - **Compact grounded synthesis carries a VOICE primer** (pulled live from the canonical persona)
   so factual/introspection answers sound like ELI without losing the EXACT-FACTS contract that
   pins every number/path/table/DB to the evidence.
+
+## Update — 2026-06-09 (deterministic reports surfaced verbatim; examiner correctness)
+- **Verbatim guard for deterministic grounded reports.** `_get_chat_response` now returns the
+  EXAMINE_CODE tiered report and the FILE_AUDIT file-count VERBATIM when they appear in the
+  evidence, and surfaces the FIX_FILE success event as a real outcome — instead of letting the
+  quick chat path re-narrate them. This killed three live confabulation classes: EXAMINE_CODE
+  inventing "findings" that were actually existing code comments; FILE_AUDIT inventing
+  files-with-bugs that don't exist; FIX_FILE narrating "I cannot fix" after it had already
+  written the file.
+- **Examiner correctness (`code_examiner.py`).** Tier-2 now drops pyflakes star-import noise
+  ("may be undefined, or defined from star imports" — ~800 false positives on the GUI → 0).
+  Tier-3 reviews the WHOLE file in line-correct windows (was only the first ~MAX_FILE_CHARS, so
+  god-files were ~90% unreviewed), each source line prefixed with its REAL number, and rejects any
+  finding citing a line outside the shown window (kills the "engine.py:132 undefined 'ov'"
+  hallucination class — line 132 is `or result.get("error")`).
+- **Routing:** "is there any issues with the files?" / "check the code for bugs" now route to
+  EXAMINE_CODE (the real examiner), not FILE_AUDIT; fix-intent ("fix the bugs in foo.py") stays
+  FIX_FILE.
