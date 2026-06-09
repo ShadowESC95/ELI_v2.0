@@ -939,7 +939,7 @@ class SystemAgent(_BaseAgent):
         "PLUGIN_LIST", "PLUGIN_ENABLE", "PLUGIN_DISABLE",
         "PLUGIN_INSTALL", "PLUGIN_UNINSTALL", "PLUGIN_SEARCH", "PLUGIN_STATUS",
         # ── Proactive daemon ──────────────────────────────────────────────────
-        "PROACTIVE_START", "PROACTIVE_STOP", "PROACTIVE_STATUS",
+        "PROACTIVE_START", "PROACTIVE_STOP", "PROACTIVE_STATUS", "GET_PROPOSALS",
         # ── Runtime / cognition status (grounded, no LLM) ─────────────────────
         "RUNTIME_STATUS", "REASONING_MODE_STATUS", "MEMORY_STATUS", "COGNITION_STATUS",
         "USER_IDENTITY_SUMMARY", "SELF_REPORT", "EXPLAIN_LAST_RESPONSE",
