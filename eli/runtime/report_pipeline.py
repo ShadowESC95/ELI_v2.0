@@ -169,31 +169,8 @@ def generate_document(
         outline = _outline(ask, topic, doc_type, evidence, n_sections)
         log.debug(f"[DOC_PIPELINE] outline={outline}")
 
-        import time as _dt
-        _doc_t0 = _dt.monotonic()
-        # Wall-clock budget for the whole draft so a slow (heavily CPU-offloaded) model can't
-        # wedge the pipeline for 40+ minutes on a 6-section document — it finalises with the
-        # sections completed so far. After the first sections, if their pace implies the full
-        # outline would blow the budget, the rest is trimmed. Tunable via ELI_DOC_BUDGET_S
-        # (0 = unbounded / old behaviour).
-        try:
-            _doc_budget = float(os.environ.get("ELI_DOC_BUDGET_S", "420") or 0)
-        except Exception:
-            _doc_budget = 420.0
         blocks: List[str] = []
         for i, title in enumerate(outline, 1):
-            _elapsed = _dt.monotonic() - _doc_t0
-            if _doc_budget and i > 1 and _elapsed > _doc_budget:
-                _p(f"time budget reached after {i - 1}/{len(outline)} section(s) — finalising early")
-                log.debug(f"[DOC_PIPELINE] wall-clock budget {_doc_budget:.0f}s hit at "
-                          f"{_elapsed:.0f}s; stopping at {i - 1}/{len(outline)} sections")
-                break
-            # Project remaining cost from the pace so far; stop rather than start a section the
-            # user would wait many minutes for on a slow model.
-            if _doc_budget and i > 2 and (_elapsed / (i - 1)) * len(outline) > _doc_budget * 1.5:
-                _p(f"model too slow for the full outline — finalising with {i - 1} section(s)")
-                log.debug(f"[DOC_PIPELINE] projected cost exceeds budget; stopping at {i - 1}")
-                break
             _p(f"drafting section {i}/{len(outline)}: {title}")
             blocks.append(_section(ask, topic, doc_type, title, outline, evidence, per_section))
         draft = "\n\n".join(b for b in blocks if b).strip()
