@@ -142,3 +142,19 @@ latency) + text. Cases seeded from fixed bug-logs as permanent regression guards
 - **Context-bloat quality cap** added to the synthesis prompt (`ELI_SYNTH_MAX_PROMPT_CHARS`, default 28000, head+tail preserving) — fixes the small-model `-`/`-G` degeneration on oversized prompts. All knowledge-gathering limits are now user-tunable (`cognition_tunables` + GUI ‘Cognition’ tab).
 - **Habits:** the scheduler now actually runs active app-launch habits (the old `command==name` guard over-blocked them; narrowed to bare ALL-CAPS action tokens) and fires once per scheduled minute; legacy un-schedulable `00:00`/bare-token rules are self-healed (disabled) at boot.
 - **Failures:** single store (`agent.sqlite3`); resolved-but-stale entries can be marked resolved and are filtered from the Self-Improve panel.
+
+## Update — 2026-06-09 (scheduled-task dedup; clean shutdown; STT VRAM)
+- **Scheduled-task dedup.** Standing nightly jobs (testgen/eval/report) were re-armed on every boot
+  AND on completion with no dedup, accumulating copies (observed: 4× testgen / 3× eval).
+  `schedule_request` now keeps ONE entry per (kind, request) for recurring jobs, and
+  `restore_scheduled_tasks` collapses existing duplicates on boot. With the model-load VRAM
+  interlock (a background worker waits for `gguf_inference.is_loaded()` and skips rather than
+  cold-loading a second model), background jobs can no longer pile up or starve the main model at
+  boot.
+- **Clean shutdown (no segfault).** The GUI exited via `sys.exit(app.exec())`, so CPython ran
+  llama.cpp + FAISS C++ destructors at interpreter teardown and segfaulted — AFTER state was
+  already flushed (session summary written), so nothing was lost, but it dumped core. `main()` now
+  runs the shutdown/atexit flush (memory + session summary + explicit model unload) then
+  `os._exit(rc)`, bypassing the destructor pass.
+- **STT no longer starves the main model:** faster-whisper is VRAM-aware (CPU on ≤8 GB cards), so
+  the main model reclaims its GPU layers (gpu_layers 11→99). See `perception.md`.

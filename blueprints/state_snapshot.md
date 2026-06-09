@@ -318,3 +318,19 @@ hears its wake word over music with a model it trained itself, and reads the use
 tone into its responses — all on the GPU, all local. The open work is engineering debt
 (god-files, swallowed exceptions, the verbatim/routing logic duplicated across GUI/engine/
 router) and the model ceiling — both known, both phased, neither blocking.
+
+## Update — 2026-06-09 (examiner/grounding correctness; VRAM; clean shutdown)
+Stats verified: **~134k LOC / 353 files / 206 capabilities / 14 bus agents / 6,659 tests
+collected (152 test files)**. This session's fixes (all on `main`, tested):
+- **Deterministic reports verbatim:** EXAMINE_CODE / FILE_AUDIT / FIX_FILE are no longer
+  re-narrated by the quick chat path — killed three live confabulation classes (FILE_AUDIT
+  inventing 5 nonexistent files; EXAMINE_CODE inventing findings that were existing comments;
+  FIX_FILE narrating "I cannot fix" after it had written the file).
+- **Examiner correctness:** star-import false positives filtered (~800→0); tier-3 reviews the
+  whole file in line-correct windows (was first ~300 lines) and rejects out-of-window line guesses.
+- **Routing:** "issues with the files" → EXAMINE_CODE (was FILE_AUDIT); "fix the bugs in X" stays
+  FIX_FILE. FIX_FILE recovers the last-referenced file for a bare "fix it".
+- **VRAM:** STT VRAM-aware (CPU on ≤8 GB) → main model `gpu_layers` 11→99; scheduled nightly jobs
+  deduped (4× testgen/3× eval → 1 each).
+- **Clean shutdown:** `os._exit`-after-flush bypasses the llama.cpp/FAISS teardown segfault.
+- **GUI drag-drop** preserves the full file path so file actions resolve on disk.
