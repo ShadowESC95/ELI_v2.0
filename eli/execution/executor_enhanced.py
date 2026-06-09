@@ -10906,6 +10906,21 @@ def proactive_status() -> Dict[str, Any]:
             alive = True
         except Exception:
             alive = False
+    # In-process daemon: the GUI runs it as a THREAD (no separate PID), so the PID check
+    # above misses it and falsely reports STOPPED (observed: agent_bus daemon_running=False
+    # while '[PROACTIVE] Daemon started'). Also honour the live in-process signals — the
+    # module singleton's running flag and the named daemon thread.
+    if not alive:
+        try:
+            import threading as _th
+            from eli.planning import proactive_daemon as _pd
+            if getattr(getattr(_pd, "_daemon", None), "running", False):
+                alive = True
+            elif any(t.name == "eli-proactive-daemon" and t.is_alive()
+                     for t in _th.enumerate()):
+                alive = True
+        except Exception:
+            pass
     msg = f"Proactive daemon is {'RUNNING' if alive else 'STOPPED'}."
     return {"ok": True, "action": "PROACTIVE_STATUS", "pid": pid, "running": alive, "log": str(logf), "content": msg, "response": msg}
 
