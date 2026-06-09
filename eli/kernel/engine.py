@@ -1306,7 +1306,7 @@ def _eli_is_rapport_prompt(text: str) -> bool:
     rapport_patterns = [
         r"\bwhat'?s up\b",
         r"\byou alive\b",
-        r"\bstill fucked in the head\b",
+        r"\bfucked in the head\b",            # any form: still/so/just fucked in the head
         r"\bhow'?s the head\b",
         r"\bhow is the head\b",
         r"\bwe back\b",
@@ -1316,6 +1316,13 @@ def _eli_is_rapport_prompt(text: str) -> bool:
         r"\bare we good\b",
         r"\byou good\b",
         r"\bback to normal\b",
+        # Rough "is your STATE okay / are you still broken" check-ins — these are rapport
+        # about ELI's wellbeing, not insults to deflect or lecture about.
+        r"\bare you (?:still |so |even |actually )?(?:ok|okay|broken|buggy|glitch(?:y|ing)?|"
+        r"malfunction(?:ing)?|fixed|sane|insane|mad|crazy|working|messed up|off|right)\b",
+        r"\bstill (?:broken|buggy|glitch(?:y|ing)?|messed up|off|borked|scrambled)\b",
+        r"\b(?:lost the plot|gone (?:mad|crazy|insane)|losing it|out of your mind)\b",
+        r"\byou (?:fixed|sorted|better) now\b",
     ]
 
     return any(re.search(pat, q) for pat in rapport_patterns)
@@ -1365,6 +1372,12 @@ def _eli_rapport_prompt_instruction(text: str) -> str:
         "- Treat rough language from the user as familiar banter unless there is a real safety issue.\\n"
         "- Do not moralise about the wording. Do not say the user is being inappropriate.\\n"
         "- Do not answer with only 'yes' or 'functioning as intended'.\\n"
+        "- A rough state-check ('are you fucked in the head?', 'are you still broken/buggy?', "
+        "'you sorted now?') is the user asking, bluntly, whether you are still MALFUNCTIONING. "
+        "It is a real, understandable question — answer it. Say plainly whether you're running "
+        "clean now, and own recent glitches with dry humour if relevant. NEVER claim it 'doesn't "
+        "make sense', NEVER ask them to clarify a clear question, NEVER deflect to 'let's focus on "
+        "the task' or lecture about 'unnecessary banter / rhetorical questions'.\\n"
         "- Acknowledge the mood, show some wit, then ask what the user wants to work on or notice.\\n"
     )
 
