@@ -5172,22 +5172,27 @@ Answer:"""
                 prompt, _failed_executor_query_from_prompt(prompt)
             )
 
-        # ── Verbatim guard for the code examiner (EXAMINE_CODE) ──
-        # The examiner report is DETERMINISTIC grounded output (tiered findings + the fix
-        # offer). Re-narrating it through this chat path makes the model confabulate: it
-        # paraphrases the file_code agent's nearby code snippets/comments as "bugs"
-        # (observed live — 5 invented findings that were actually existing comments, none
-        # matching the real tier-3 analysis). If the report is present in the evidence,
-        # return it VERBATIM so the user sees the real grounded findings.
-        for _exam_src in (situation_brief, memory_context, prompt):
-            _em = re.search(r"(Examined\s+\d+\s+file\(s\)\s*:[\s\S]+)", str(_exam_src or ""))
-            if _em and ("Tier 1" in _em.group(1) or "No errors found" in _em.group(1)
-                        or "PLEASE CONFIRM" in _em.group(1)):
-                _rep = re.split(
-                    r"\n\s*(?:USER QUESTION:|GROUNDED EVIDENCE \(|Recent ELI reflections|"
-                    r"Knowledge graph|Live agents \()", _em.group(1))[0].strip()
-                if _rep:
-                    return _rep
+        # ── Verbatim guard for deterministic grounded reports (EXAMINE_CODE / FILE_AUDIT) ──
+        # These are deterministic grounded output (tiered findings / a directory file-count).
+        # Re-narrating them through this chat path makes the model confabulate: EXAMINE_CODE
+        # gets the file_code agent's snippets/comments paraphrased as "bugs" (observed: 5
+        # invented findings that were existing comments); FILE_AUDIT (a plain file-counter)
+        # gets synthesised into files-with-bugs that DON'T EXIST (observed: 5 fabricated
+        # files). If the report is present in the evidence, return it VERBATIM.
+        _verbatim_evidence_patterns = (
+            (r"(Examined\s+\d+\s+file\(s\)\s*:[\s\S]+)",
+             ("Tier 1", "No errors found", "PLEASE CONFIRM")),
+            (r"(File Audit:[\s\S]+)", ("Directories scanned:", "Total files:")),
+        )
+        for _pat, _markers in _verbatim_evidence_patterns:
+            for _exam_src in (situation_brief, memory_context, prompt):
+                _em = re.search(_pat, str(_exam_src or ""))
+                if _em and any(_mk in _em.group(1) for _mk in _markers):
+                    _rep = re.split(
+                        r"\n\s*(?:USER QUESTION:|GROUNDED EVIDENCE \(|Recent ELI reflections|"
+                        r"Knowledge graph|Live agents \()", _em.group(1))[0].strip()
+                    if _rep:
+                        return _rep
 
         if _eli_test_mode():
             gen_overrides = dict(gen_overrides or {})
