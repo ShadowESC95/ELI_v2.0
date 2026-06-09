@@ -496,18 +496,105 @@ def format_report(paths: List[Path], findings: List[Finding], *, allow_fix: bool
 # Fix generation — finding → targeted {file, old, new} patch (broker)         #
 # --------------------------------------------------------------------------- #
 _FIX_SYS = (
-    "You are ELI's code-patch engine. Produce the smallest correct fix for the "
-    "stated issue. 'old' MUST be copied character-for-character from the provided "
-    "code window. Change only what's needed. If you cannot produce a safe fix, "
-    'return {"ok": false, "reason": "..."}.'
+    "You are ELI's code-patch engine. You fix ONE specific issue in a real source file. "
+    "'old' MUST be copied CHARACTER-FOR-CHARACTER from the provided code (exact text, exact "
+    "whitespace/indentation) — if it is not an exact substring, the patch is rejected. Make the "
+    "SMALLEST change that fixes the stated issue and nothing else; preserve all surrounding "
+    "behaviour, indentation, and names. Reference ONLY names that already appear in the shown "
+    "imports/scope — never invent a module, import, or alias that isn't already available. If you "
+    'cannot produce a safe, exact fix, return {"ok": false, "reason": "..."}.'
 )
 
 
+def _enclosing_scope(src: str, line: int) -> Optional[tuple]:
+    """1-based (lo, hi) of the SMALLEST function/class enclosing `line` — gives the model the
+    complete definition rather than an arbitrary window that may slice it in half. None if the
+    file won't parse or the line is top-level."""
+    try:
+        tree = ast.parse(src)
+    except SyntaxError:
+        return None
+    best = None
+    for node in ast.walk(tree):
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+            lo = node.lineno
+            hi = getattr(node, "end_lineno", None) or lo
+            if lo <= line <= hi and (best is None or (hi - lo) < (best[1] - best[0])):
+                best = (lo, hi)
+    return best
+
+
+def _file_import_block(src: str) -> str:
+    """The file's top-level import lines — the names a fix is allowed to reference."""
+    try:
+        tree = ast.parse(src)
+    except SyntaxError:
+        return ""
+    segs = []
+    for node in getattr(tree, "body", []):
+        if isinstance(node, (ast.Import, ast.ImportFrom)):
+            seg = ast.get_source_segment(src, node)
+            if seg:
+                segs.append(seg)
+    return "\n".join(segs[:50])
+
+
+def _build_fix_context(src: str, line) -> str:
+    """Imports (so the model uses only existing names) + the FULL enclosing scope; falls back to a
+    ±30-line window, then the file head."""
+    lines = src.splitlines()
+    if isinstance(line, int) and 1 <= line <= len(lines):
+        scope = _enclosing_scope(src, line)
+        if scope:
+            lo, hi = scope
+            body = "\n".join(lines[lo - 1:hi])
+            note = f"enclosing scope, lines {lo}-{hi}; issue at line {line}"
+        else:
+            lo, hi = max(0, line - 30), min(len(lines), line + 30)
+            body = "\n".join(lines[lo:hi])
+            note = f"lines {lo + 1}-{hi}; issue near line {line}"
+    else:
+        body = src[:MAX_FILE_CHARS]
+        note = "file head"
+    body = body[:MAX_FILE_CHARS]
+    imports = _file_import_block(src)
+    head = (f"# file imports (use ONLY these existing names):\n{imports}\n\n" if imports else "")
+    return f"{head}# code ({note}):\n{body}"
+
+
+def _validate_patch(src: str, patch: Dict[str, Any]) -> Optional[str]:
+    """Local pre-flight before the heavier apply engine: 'old' must be a verbatim substring and
+    applying it must keep the file parseable. Returns an error string, or None when valid."""
+    old, new = patch.get("old"), patch.get("new")
+    if not isinstance(old, str) or not old:
+        return "patch has an empty 'old'"
+    if not isinstance(new, str):
+        return "patch 'new' is not a string"
+    if old not in src:
+        return "old_code not found verbatim in file"
+    try:
+        ast.parse(src.replace(old, new, 1))
+    except SyntaxError as e:
+        return f"applying the patch breaks syntax ({e.msg} near line {e.lineno})"
+    return None
+
+
+def _fix_attempt_budget() -> int:
+    """Model-agnostic retry budget: a weaker model botches more and needs more attempts, a
+    stronger one usually lands attempt 1. Derived from the capability tier (no model identity)."""
+    try:
+        from eli.core.model_tier import tier_scale
+        return max(2, min(4, int(round(5 - tier_scale()))))  # small 1.0→4 … frontier 4.0→2
+    except Exception:
+        return 3
+
+
 def generate_fix_patch(finding: Dict[str, Any]) -> Dict[str, Any]:
-    """Build a targeted {file, old, new, description} patch for one finding using
-    a code window around the reported line. Returns {"ok": False, ...} when no safe
-    patch is produced. The patch is applied by SelfImprovementEngine.apply_code_patch
-    (which re-validates syntax, smoke-imports, and auto-reverts)."""
+    """Build a VERIFIED {file, old, new, description} patch for one finding. Gathers the full
+    enclosing scope + the file's imports as context, then generates → validates the patch is a
+    verbatim, syntax-preserving change → retries with the specific error fed back, up to a
+    tier-derived attempt budget. Model-agnostic (broker only). The returned patch is still
+    re-validated by SelfImprovementEngine.apply_code_patch (import-verify + auto-revert)."""
     rel = str(finding.get("file") or "").strip()
     if not rel:
         return {"ok": False, "error": "finding has no file"}
@@ -519,43 +606,57 @@ def generate_fix_patch(finding: Dict[str, Any]) -> Dict[str, Any]:
     except Exception as e:
         return {"ok": False, "error": f"read error: {e}"}
 
-    lines = src.splitlines()
-    line = finding.get("line")
-    if isinstance(line, int) and 1 <= line <= len(lines):
-        lo, hi = max(0, line - 25), min(len(lines), line + 25)
-        window = "\n".join(lines[lo:hi])
-        window_note = f"(lines {lo + 1}-{hi}, issue near line {line})"
-    else:
-        window = src[:MAX_FILE_CHARS]
-        window_note = "(file head)"
-
-    prompt = (
+    context = _build_fix_context(src, finding.get("line"))
+    base_prompt = (
         f"File: {rel}\nIssue ({finding.get('kind')}): {finding.get('message')}\n\n"
-        f"Code window {window_note}:\n```python\n{window}\n```\n\n"
+        f"```python\n{context}\n```\n\n"
         'Respond with ONLY JSON: {"old": "<verbatim snippet to replace>", '
         '"new": "<replacement>", "description": "<what this fixes>"}'
     )
     try:
         from eli.cognition.inference_broker import get_broker
-        raw = get_broker().infer(prompt, system=_FIX_SYS, max_tokens=600, temperature=0.05)
+        _broker = get_broker()
     except Exception as e:
-        return {"ok": False, "error": f"inference failed: {e}"}
+        return {"ok": False, "error": f"inference unavailable: {e}"}
 
-    m = re.search(r"\{[\s\S]+\}", raw or "")
-    if not m:
-        return {"ok": False, "error": "model returned no JSON patch"}
-    try:
-        patch = json.loads(m.group(0))
-    except Exception as e:
-        return {"ok": False, "error": f"patch JSON parse failed: {e}"}
-    if patch.get("ok") is False or patch.get("reason"):
-        return {"ok": False, "error": patch.get("reason") or "model declined to patch"}
-    if not all(k in patch for k in ("old", "new")):
-        return {"ok": False, "error": "patch missing old/new"}
-    patch["ok"] = True
-    patch["file"] = rel
-    patch.setdefault("description", f"examine fix: {finding.get('kind')}")
-    return patch
+    attempts = _fix_attempt_budget()
+    last_err = "no attempt made"
+    for _i in range(1, attempts + 1):
+        prompt = base_prompt if _i == 1 else (
+            base_prompt + f"\n\nYour previous attempt FAILED: {last_err}. Return corrected JSON — "
+            "'old' must be copied EXACTLY (character-for-character) from the code above.")
+        try:
+            raw = _broker.infer(prompt, system=_FIX_SYS, max_tokens=700, temperature=0.05)
+        except Exception as e:
+            last_err = f"inference failed: {e}"
+            continue
+        m = re.search(r"\{[\s\S]+\}", raw or "")
+        if not m:
+            last_err = "model returned no JSON object"
+            continue
+        try:
+            patch = json.loads(m.group(0))
+        except Exception as e:
+            last_err = f"patch JSON parse failed: {e}"
+            continue
+        if patch.get("ok") is False or patch.get("reason"):
+            # The model explicitly declined — that's a terminal answer, not a retry.
+            return {"ok": False, "error": patch.get("reason") or "model declined to patch"}
+        if not all(k in patch for k in ("old", "new")):
+            last_err = "patch missing old/new"
+            continue
+        _verr = _validate_patch(src, patch)
+        if _verr:
+            last_err = _verr
+            log.debug(f"[EXAMINE-FIX] {rel}: attempt {_i}/{attempts} rejected — {_verr}")
+            continue
+        patch["ok"] = True
+        patch["file"] = rel
+        patch.setdefault("description", f"examine fix: {finding.get('kind')}")
+        if _i > 1:
+            log.debug(f"[EXAMINE-FIX] {rel}: valid patch on attempt {_i}/{attempts}")
+        return patch
+    return {"ok": False, "error": f"no valid patch after {attempts} attempts: {last_err}"}
 
 
 # --------------------------------------------------------------------------- #
