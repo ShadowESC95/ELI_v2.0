@@ -122,3 +122,11 @@ platformdirs. One import surface (`get_paths`) so nothing hardcodes locations.
   adapts on a 24 GB card, a different model, or CPU-only. Verified: a `force_reload` after
   the override is published selects `live-override` on attempt 1 (22528/99) instead of
   walking down to 16.
+
+## Update — 2026-06-09 (STT no longer starves the main model)
+- faster-whisper preloaded on CUDA **before** the main GGUF autotuned, claiming ~2 GB so on an
+  8 GB card the main model only got `gpu_layers=11` (free_vram=4083 MB) → 23–59 s turns. STT is
+  now VRAM-aware (`local_whisper_stt`: GPU only on ≥12 GB cards, else CPU), so the main model
+  reclaims the GPU — `gpu_layers=99 / ctx=20480` with free_vram ~7 GB, turns back to 1–12 s.
+  `ELI_WHISPER_DEVICE` overrides; `ELI_WHISPER_GPU_MIN_MB` tunes the threshold. See
+  `perception.md`.

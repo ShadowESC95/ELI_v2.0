@@ -65,3 +65,11 @@ ELI stays offline by default; the model download is a deliberate one-time action
   `GET_CLIPBOARD` a working fallback. The wake-word feature also adds an `openwakeword`
   pip dependency (pinned in `requirements*.txt` + the lock); its feature models are
   bundled with the package (no account, no separate download).
+
+## Update — 2026-06-09
+- **`eli/models/` is now gitignored.** faster-whisper auto-downloads its `small.en` model to
+  `eli/models/whisper/` on first STT use (~464 MB); that cache is a downloadable binary and must
+  never be committed. (`models/` at the repo root was already ignored; this closes the
+  package-local cache too.) Installer flow is unchanged and verified: all installers pass
+  `bash -n`, `requirements.lock.txt` parses clean, `pip check` reports no broken requirements, and
+  the `model_download` catalog (qwen2.5-3b / 7b / 1.5b) is valid.
