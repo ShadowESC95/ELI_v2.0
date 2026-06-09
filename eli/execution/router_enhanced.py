@@ -4419,6 +4419,18 @@ def _eli_self_improvement_phrase_guard(text):
         return _mk("SELF_ANALYZE", {}, 0.96, matched_by="self.analyze.guard")
     if re.search(r"\bproactive\s+status\b|\bstatus\s+of\s+(the\s+)?proactive\b", low):
         return _mk("PROACTIVE_STATUS", {}, 0.96, matched_by="proactive.status.guard")
+    # ELI's self-generated agenda: "do you have any proposals/suggestions/ideas for me",
+    # "what are you proposing", "what's on your agenda". Surfaces proposal_only goals +
+    # capability proposals (GET_PROPOSALS) — was mis-routing to unrelated status dumps.
+    if re.search(
+        r"\b(?:do you have|got|any|you have)\b[^?]*\b(?:proposals?|suggestions?|ideas?|"
+        r"recommendations?)\b[^?]*\b(?:for me|to make)\b"
+        r"|\bwhat\s+(?:are\s+you|do\s+you)\s+propos"
+        r"|\b(?:any|some)\s+(?:proposals?|suggestions?|recommendations?)\s*\??$"
+        r"|\bwhat'?s?\s+on\s+your\s+agenda\b",
+        low,
+    ):
+        return _mk("GET_PROPOSALS", {}, 0.95, matched_by="proactive.get_proposals")
     if re.search(r"\b(start|launch|enable|turn\s+on)\s+(the\s+)?proactive(\s+(mode|daemon))?\b", low):
         return _mk("PROACTIVE_START", {}, 0.96, matched_by="proactive.start.guard")
     if re.search(r"\b(stop|kill|disable|turn\s+off|shut\s+down)\s+(the\s+)?proactive(\s+(mode|daemon))?\b", low):
