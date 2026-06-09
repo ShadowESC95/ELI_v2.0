@@ -111,6 +111,60 @@ _PHASE45_DIRECT_FAST_ACTIONS = {
 # NOOP = fragment rejected or truly empty input; return silence, store nothing
 _PHASE45_SILENT_FAST_ACTIONS = {'NOOP'}
 
+# Actions whose executor/system payload IS the grounded answer — control, OS, and
+# status/report/self-introspection actions that return directly (PHASE33) instead of going
+# through GGUF synthesis. Single source of truth: the inline PHASE33 block builds from this,
+# and _is_soft_informational_action() uses it to decide what may be re-routed on low grounding.
+_DIRECT_FINAL_ACTIONS = frozenset({
+    "OPEN_APP", "OPEN_URL", "OPEN_BROWSER", "OPEN_FILE_SYSTEM",
+    "OPEN_IN_IDE", "OPEN_SYSTEM_SETTINGS", "OPEN_AUDIO_SETTINGS",
+    "OPEN_POWER_SETTINGS", "OPEN_NETWORK_BROWSER",
+    "MEDIA_CONTROL", "PLAY_MEDIA", "PAUSE_MEDIA", "STOP_MEDIA",
+    "NEXT_MEDIA", "PREVIOUS_MEDIA", "VOLUME", "TILE_WINDOWS",
+    "KEYBOARD", "MOUSE_CONTROL", "SCREENSHOT",
+    "SPEAK", "DICTATE", "TRANSCRIBE",
+    "NEWS_FETCH", "WEB_SEARCH", "GET_WEATHER",
+    "GET_TIME", "GET_DATE", "TIME", "DATE",
+    "CPU_USAGE", "RAM_USAGE", "SYSTEM_STATS",
+    "RUNTIME_STATUS", "REASONING_MODE_STATUS", "MEMORY_STATUS", "COGNITION_STATUS",
+    "GUI_RUNTIME_AUDIT", "RUNTIME_AUDIT", "IMPORT_AUDIT",
+    "RESOLVE_RUNTIME_PATHS", "EXPLAIN_LAST_RESPONSE",
+    "EXPLAIN_LAST_FAILURE", "EXPLAIN_MEMORY_RUNTIME", "EXPLAIN_COGNITION_RUNTIME",
+    "SELF_REPORT", "USER_IDENTITY_SUMMARY", "PERSONAL_MEMORY_SUMMARY",
+    "PERSONAL_MEMORY_DEEP_EXPLAIN", "ROUTING_FAULT_EXPLAIN", "NAME_SOURCE_AUDIT",
+    "SELF_ANALYZE", "SELF_IMPROVE", "SELF_IMPROVEMENT_LOG", "SELF_UPDATE",
+    "SELF_UPGRADE", "SELF_PATCH",
+    "EXAMINE_CODE", "CONFIRM_CODE_FIX", "CANCEL_CODE_FIX",
+    "CONFIRM_HABIT", "DECLINE_HABIT",
+    "MORNING_REPORT", "PROACTIVE_STATUS", "HABIT_STATUS", "LIST_CAPABILITIES",
+    "LIST_DIR", "READ_FILE", "SET_TIMER", "SET_ALARM", "WRITE_NOTE",
+    "CREATE_FOLDER", "SET_CLIPBOARD", "GET_CLIPBOARD", "GPU_STATUS",
+    "OPEN_IDE",
+    "OPEN_COMMUNICATION_HUB",
+    "OPEN_MEDIA_HUB",
+    "SCREEN_LOCATE",
+    "SCREEN_READ_ANALYZE",
+})
+
+
+def _is_soft_informational_action(action) -> bool:
+    """True when `action` is a synthesised informational action (the only kind safe to silently
+    re-route to CHAT on low grounding). False for CHAT itself and for every control / OS / media /
+    status / report / deterministic action — those carry their own grounded payload and must never
+    be downgraded. Reuses the module-level direct-final + phase45 + control-contract sets."""
+    a = str(action or "").upper().strip()
+    if not a or a == "CHAT":
+        return False
+    if a in _DIRECT_FINAL_ACTIONS or a in _PHASE45_DIRECT_FAST_ACTIONS:
+        return False
+    try:
+        from eli.runtime.control_contracts import CONTROL_ACTIONS as _CC
+        if a in {str(x).upper() for x in (_CC or set())}:
+            return False
+    except Exception:
+        pass
+    return True
+
 # Process-global guard: the destructive shutdown steps (memory close, vector
 # embedder close, GGUF unload) act on MODULE-LEVEL singletons shared by every
 # CognitiveEngine instance. If a second instance runs shutdown after the first
@@ -9814,6 +9868,37 @@ Answer:"""
             except Exception:
                 pass
 
+            # ── Low-grounding re-selection (LLM-resolver soft-action mis-guess) ───
+            # When the LLM intent resolver CONFIDENTLY picked a soft informational action but the
+            # bus grounded it poorly, the action is almost certainly a mis-guess (transcript:
+            # "when did i ask for that" → REFRESH_USER_INFO, grounding 0.19 → it deflected). Don't
+            # run that action's synthesis — downgrade to CHAT so the conversational + grounding-
+            # escalation path below answers honestly from the dialogue/persona, or hedges if it's a
+            # checkable fact. Reuses the EXISTING grounding_confidence + per-mode escalation target;
+            # scoped to llm_intent.resolver guesses of soft actions only — deterministic router
+            # contracts and control/status/verbatim actions are never touched. Kill-switch:
+            # ELI_LOWGROUND_DOWNGRADE=0.
+            if (not _eli_is_chat_action
+                    and os.environ.get("ELI_LOWGROUND_DOWNGRADE", "1").strip().lower()
+                        not in ("0", "false", "no", "off")
+                    and str((intent.get("meta") or {}).get("matched_by") or "") == "llm_intent.resolver"
+                    and _is_soft_informational_action(action)):
+                try:
+                    from eli.runtime.grounding_escalation import _mode_target as _gt
+                    _gconf = float((trace or {}).get("grounding_confidence") or 0.0)
+                    if _gconf < _gt(reasoning_mode):
+                        log.debug(f"[COGNITIVE] low-grounding downgrade: {action}→CHAT "
+                                  f"(grounding={_gconf:.2f} < target, via=llm_intent.resolver)")
+                        _meta = dict(intent.get("meta") or {})
+                        _meta["downgraded_from"] = action
+                        intent["meta"] = _meta
+                        intent["action"] = "CHAT"
+                        intent["args"] = {"message": user_input}
+                        action = "CHAT"
+                        _eli_is_chat_action = True
+                except Exception as _dg_err:
+                    log.debug(f"[COGNITIVE] low-grounding downgrade skipped: {_dg_err}")
+
             # ── Grounding escalation ──────────────────────────────────────────
             # A checkable factual turn that the bus grounded poorly must NOT be
             # answered from the model's weights (that confabulates, e.g. inventing
@@ -9864,36 +9949,7 @@ Answer:"""
             # Executor/system actions already contain the grounded answer. Return them
             # immediately instead of feeding them into GGUF.
             try:
-                _direct_final_actions = {
-                    "OPEN_APP", "OPEN_URL", "OPEN_BROWSER", "OPEN_FILE_SYSTEM",
-                    "OPEN_IN_IDE", "OPEN_SYSTEM_SETTINGS", "OPEN_AUDIO_SETTINGS",
-                    "OPEN_POWER_SETTINGS", "OPEN_NETWORK_BROWSER",
-                    "MEDIA_CONTROL", "PLAY_MEDIA", "PAUSE_MEDIA", "STOP_MEDIA",
-                    "NEXT_MEDIA", "PREVIOUS_MEDIA", "VOLUME", "TILE_WINDOWS",
-                    "KEYBOARD", "MOUSE_CONTROL", "SCREENSHOT",
-                    "SPEAK", "DICTATE", "TRANSCRIBE",
-                    "NEWS_FETCH", "WEB_SEARCH", "GET_WEATHER",
-                    "GET_TIME", "GET_DATE", "TIME", "DATE",
-                    "CPU_USAGE", "RAM_USAGE", "SYSTEM_STATS",
-                    "RUNTIME_STATUS", "REASONING_MODE_STATUS", "MEMORY_STATUS", "COGNITION_STATUS",
-                    "GUI_RUNTIME_AUDIT", "RUNTIME_AUDIT", "IMPORT_AUDIT",
-                    "RESOLVE_RUNTIME_PATHS", "EXPLAIN_LAST_RESPONSE",
-                    "EXPLAIN_LAST_FAILURE", "EXPLAIN_MEMORY_RUNTIME", "EXPLAIN_COGNITION_RUNTIME",
-                    "SELF_REPORT", "USER_IDENTITY_SUMMARY", "PERSONAL_MEMORY_SUMMARY",
-                    "PERSONAL_MEMORY_DEEP_EXPLAIN", "ROUTING_FAULT_EXPLAIN", "NAME_SOURCE_AUDIT",
-                    "SELF_ANALYZE", "SELF_IMPROVE", "SELF_IMPROVEMENT_LOG", "SELF_UPDATE",
-                    "SELF_UPGRADE", "SELF_PATCH",
-                    "EXAMINE_CODE", "CONFIRM_CODE_FIX", "CANCEL_CODE_FIX",
-                    "CONFIRM_HABIT", "DECLINE_HABIT",
-                    "MORNING_REPORT", "PROACTIVE_STATUS", "HABIT_STATUS", "LIST_CAPABILITIES",
-                    "LIST_DIR", "READ_FILE", "SET_TIMER", "SET_ALARM", "WRITE_NOTE",
-                    "CREATE_FOLDER", "SET_CLIPBOARD", "GET_CLIPBOARD", "GPU_STATUS",
-                    "OPEN_IDE",
-                    "OPEN_COMMUNICATION_HUB",
-                    "OPEN_MEDIA_HUB",
-                    "SCREEN_LOCATE",
-                    "SCREEN_READ_ANALYZE",
-                }
+                _direct_final_actions = set(_DIRECT_FINAL_ACTIONS)
                 try:
                     from eli.runtime.control_contracts import CONTROL_ACTIONS as _ELI_CONTROL_ACTIONS
                     _direct_final_actions.update(_ELI_CONTROL_ACTIONS)
