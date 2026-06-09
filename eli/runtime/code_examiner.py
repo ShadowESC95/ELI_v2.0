@@ -233,9 +233,18 @@ def _tier2_pyflakes(path: Path, src: str) -> Optional[List[Finding]]:
     for line in (out.getvalue() or "").splitlines():
         # format: path:line:col message
         m = re.match(rf"{re.escape(rel)}:(\d+):(?:\d+:)?\s*(.+)", line)
-        if m:
-            findings.append(Finding(rel, 2, TIER_CONF[2], "lint",
-                                    m.group(2).strip(), line=int(m.group(1))))
+        if not m:
+            continue
+        msg = m.group(2).strip()
+        # Drop star-import noise: a file using `from X import *` makes pyflakes flag
+        # EVERY name it can't resolve as "may be undefined, or defined from star
+        # imports" — hundreds of false positives (a GUI scan produced ~800). These are
+        # not real bugs (the file imports/runs clean); surfacing them as fixable findings
+        # is what made an examine return 853 mostly-bogus results.
+        if ("may be undefined, or defined from star imports" in msg
+                or "unable to detect undefined names" in msg):
+            continue
+        findings.append(Finding(rel, 2, TIER_CONF[2], "lint", msg, line=int(m.group(1))))
     return findings
 
 
@@ -313,13 +322,32 @@ def _tier3(path: Path) -> List[Finding]:
         return []
     if not src.strip():
         return []
-    snippet = src[:MAX_FILE_CHARS]
+    # Number every source line with its REAL line number so the model cites real lines
+    # (previously the file was sliced at MAX_FILE_CHARS mid-line, so cited line numbers
+    # mapped to the truncated window — pure hallucination, e.g. "engine.py:132 undefined
+    # 'ov'" when line 132 is `or result.get("error")`). Never cut mid-line.
+    _lines = src.splitlines()
+    _numbered = [f"{i + 1}\t{ln}" for i, ln in enumerate(_lines)]
+    body_parts: List[str] = []
+    total = 0
+    for nl in _numbered:
+        if total + len(nl) + 1 > MAX_FILE_CHARS:
+            break
+        body_parts.append(nl)
+        total += len(nl) + 1
+    shown_to = len(body_parts)            # last real line number the model can see
+    truncated = shown_to < len(_lines)
+    body = "\n".join(body_parts)
     prompt = (
         f"Review this Python file ({rel}) for concrete bugs.\n"
-        "Respond with ONLY a JSON array; each item: "
+        "Each source line is prefixed with its REAL line number and a tab — cite that "
+        "exact number in 'line'; never guess a line you cannot see.\n"
+        + (f"NOTE: only lines 1-{shown_to} are shown (rest truncated); do NOT report "
+           "anything about code you cannot see.\n" if truncated else "")
+        + "Respond with ONLY a JSON array; each item: "
         '{"line": <int>, "issue": "<specific bug>"}. '
         "Empty array [] if nothing concrete is wrong.\n\n"
-        f"```python\n{snippet}\n```"
+        f"```python\n{body}\n```"
     )
     try:
         from eli.cognition.inference_broker import get_broker
@@ -347,6 +375,10 @@ def _tier3(path: Path) -> List[Finding]:
             line = int(line) if line is not None else None
         except Exception:
             line = None
+        # Reject a finding that cites a line the model never saw (1..shown_to). The 7B
+        # otherwise invents line numbers/issues for code outside the shown window.
+        if line is not None and not (1 <= line <= shown_to):
+            continue
         findings.append(Finding(rel, 3, TIER_CONF[3], "logic", issue,
                                 line=line, needs_confirmation=True))
     return findings
