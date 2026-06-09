@@ -2,6 +2,7 @@ import os
 import tempfile
 import threading
 from pathlib import Path
+from typing import Optional
 
 
 from eli.utils.log import get_logger
@@ -13,10 +14,33 @@ _MODEL_LOCK = threading.Lock()
 _MODEL_LOADING = False   # True while a download/load is in progress
 _MODEL_READY = threading.Event()  # set once the model is loaded successfully
 _CUDA_FAILED = False  # set permanently once CUDA OOM occurs; prevents re-escalation
+_GPU_TOTAL_MB: Optional[int] = None  # cached total VRAM of GPU 0
+# Below this total VRAM, STT stays on CPU so the main GGUF model keeps the GPU.
+_WHISPER_GPU_MIN_MB = int(os.environ.get("ELI_WHISPER_GPU_MIN_MB", "12000"))
 
 
 def _env(name, default):
     return (os.environ.get(name, default) or default).strip()
+
+
+def _gpu_total_mb() -> int:
+    """Total VRAM of GPU 0 in MB (0 if no GPU / can't tell). Cheap, cached."""
+    global _GPU_TOTAL_MB
+    if _GPU_TOTAL_MB is not None:
+        return _GPU_TOTAL_MB
+    mb = 0
+    try:
+        import subprocess
+        out = subprocess.run(
+            ["nvidia-smi", "--query-gpu=memory.total", "--format=csv,noheader,nounits"],
+            capture_output=True, text=True, timeout=3,
+        )
+        if out.returncode == 0 and out.stdout.strip():
+            mb = int(out.stdout.splitlines()[0].strip())
+    except Exception:
+        mb = 0
+    _GPU_TOTAL_MB = mb
+    return mb
 
 
 def _model_settings():
@@ -34,7 +58,17 @@ def _model_settings():
     # compute): ~half the weight VRAM of plain float16 with WER essentially equal
     # to float16, so the main-model VRAM budget (preloaded before the GGUF) is
     # larger without costing transcription accuracy.
-    device = _env("ELI_WHISPER_DEVICE", "cuda")
+    # VRAM-aware default: GPU whisper claims ~2GB that the larger, more important main
+    # GGUF model needs. On a small card it preloads first and starves the main model
+    # onto few-GPU-layers / CPU (the observed slowdown: free_vram=4083MB → gpu_layers=11).
+    # So default to GPU only when the card is big enough to hold whisper AND a typical
+    # main model; otherwise CPU (small.en int8 on CPU is ~1-2s for a short command).
+    # An explicit ELI_WHISPER_DEVICE always wins.
+    _explicit_device = (os.environ.get("ELI_WHISPER_DEVICE", "") or "").strip().lower()
+    if _explicit_device:
+        device = _explicit_device
+    else:
+        device = "cuda" if _gpu_total_mb() >= _WHISPER_GPU_MIN_MB else "cpu"
     compute_type = _env(
         "ELI_WHISPER_COMPUTE_TYPE", "int8_float16" if device == "cuda" else "int8")
     local_only = _env("ELI_WHISPER_LOCAL_ONLY", "0").lower() in {"1", "true", "yes", "on"}

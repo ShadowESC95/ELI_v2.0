@@ -391,6 +391,23 @@ def schedule_request(request: str, when_spec: str = "", kind: Optional[str] = No
     except Exception:
         project = ""
 
+    # Dedup recurring jobs: a standing nightly job (testgen/eval/report) gets re-armed
+    # on every boot AND when it completes — without this it accumulates duplicate copies
+    # in the store (observed: 4× testgen / 3× eval), so several heavy jobs would pile up
+    # at 02:00. Keep exactly ONE entry per (kind, request) for recurring tasks.
+    if recurring:
+        try:
+            with _STORE_LOCK:
+                _existing = _load_store()
+                _kept = [e for e in _existing
+                         if not (bool(e.get("recurring"))
+                                 and str(e.get("kind") or "").strip().lower() == kind
+                                 and str(e.get("request") or "").strip() == request)]
+                if len(_kept) != len(_existing):
+                    _save_store(_kept)
+        except Exception:
+            pass
+
     try:
         _persist_add({"pid": pid, "request": request, "when_spec": when_spec,
                       "kind": kind, "when_ts": fire_at, "created": time.time(),
@@ -415,6 +432,22 @@ def restore_scheduled_tasks() -> int:
             return 0
         _RESTORED = True
         entries = _load_store()
+        # Collapse any duplicate recurring entries that accumulated in an older store
+        # (one per (kind, request)); keep the first. Persist the cleaned store so the
+        # duplicates don't keep getting re-armed every boot.
+        _seen: set = set()
+        _deduped: List[Dict[str, Any]] = []
+        for _e in entries:
+            if bool(_e.get("recurring")):
+                _key = (str(_e.get("kind") or "").strip().lower(),
+                        str(_e.get("request") or "").strip())
+                if _key in _seen:
+                    continue
+                _seen.add(_key)
+            _deduped.append(_e)
+        if len(_deduped) != len(entries):
+            _save_store(_deduped)
+        entries = _deduped
     now = time.time()
     restored = 0
     for e in entries:
