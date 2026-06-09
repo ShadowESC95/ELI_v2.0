@@ -47,6 +47,16 @@ def refresh_insight(memory: Any = None, force: bool = False) -> str:
                     return str(d.get("insight") or "")
             except Exception:
                 pass
+        # Yield to the user: never run a background synthesis while a foreground request is (or
+        # was just) generating — on a slow/CPU-offloaded model this insight call otherwise wedges
+        # itself between the user's turns / a document's sections.
+        if not force:
+            try:
+                from eli.cognition.inference_broker import foreground_recently_active
+                if foreground_recently_active():
+                    return get_cached_insight()
+            except Exception:
+                pass
         # Gate: only synthesise with an already-resident model (never cold-load).
         try:
             import eli.cognition.gguf_inference as _gi
@@ -87,7 +97,7 @@ def refresh_insight(memory: Any = None, force: bool = False) -> str:
         )
         out = (broker.infer(
             "From the material below, give your synthesised reflection.\n\n" + material,
-            system=system, max_tokens=160, temperature=0.4) or "").strip()
+            system=system, max_tokens=160, temperature=0.4, background=True) or "").strip()
         if len(out) < 15:
             return get_cached_insight()
         try:

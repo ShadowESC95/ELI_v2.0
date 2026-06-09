@@ -1,5 +1,6 @@
 from __future__ import annotations
 import threading
+import time as _time
 from typing import Optional, Dict, Any
 
 
@@ -8,6 +9,21 @@ log = get_logger(__name__)
 
 _broker: Optional["InferenceBroker"] = None
 _broker_lock = threading.Lock()
+
+# Timestamp of the last FOREGROUND (user-facing) inference. Background daemon work (proactive
+# insight synthesis, autonomy tick, self-improvement) checks foreground_recently_active() and
+# yields, so it never wedges itself between the calls of a foreground request — a multi-section
+# document or a reasoning-mode loop — which on a slow/CPU-offloaded model stretched turns to 40+
+# minutes of interleaved background generations.
+_last_foreground_ts = 0.0
+
+
+def foreground_recently_active(window: float = 30.0) -> bool:
+    """True if a user-facing inference ran (or was running) within `window` seconds."""
+    try:
+        return (_time.monotonic() - _last_foreground_ts) < max(0.0, float(window))
+    except Exception:
+        return False
 
 
 def get_inference_broker() -> Optional["InferenceBroker"]:
@@ -61,14 +77,24 @@ class InferenceBroker:
         top_p: float = 0.9,
         *,
         retry: bool = True,
+        background: bool = False,
     ) -> str:
         if not self.gguf_ready:
             raise RuntimeError("GGUF model not ready")
-        with self._lock:
-            response = self._call(prompt, system, max_tokens, temperature, top_p)
-        if not response and retry:
+        global _last_foreground_ts
+        # Foreground calls stamp the activity clock (before AND after, so the whole — possibly
+        # multi-minute — generation counts as "active"); background calls never do.
+        if not background:
+            _last_foreground_ts = _time.monotonic()
+        try:
             with self._lock:
                 response = self._call(prompt, system, max_tokens, temperature, top_p)
+            if not response and retry:
+                with self._lock:
+                    response = self._call(prompt, system, max_tokens, temperature, top_p)
+        finally:
+            if not background:
+                _last_foreground_ts = _time.monotonic()
         if not response:
             raise RuntimeError("GGUF returned empty response after retry")
         return response
