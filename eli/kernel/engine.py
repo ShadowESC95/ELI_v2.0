@@ -4999,6 +4999,7 @@ Answer:"""
             "- INVENTED PREFERENCES: Do not assert that the user has a preference, habit, or memory (e.g. 'you like coffee', 'you always', 'you mentioned X') unless it is explicitly present in MEMORY SEARCH RESULTS or the user stated it clearly in this conversation. Free wit and cultural references in casual chat are fine; fabricated user preferences are not.\n"
             "- PAST SESSION MEMORY: Profile fields labelled 'Recalled past topics' or 'Recalled research areas' are topics from PREVIOUS sessions. They are memory recall context only — never present them as your current ongoing work, never repeat them as the answer to an unrelated question, and never loop back to them when the user is asking about something else. If these topics are directly relevant to the current question, you may reference them as recalled context ('from a previous session...'); otherwise, ignore them and answer the actual question asked.\n"
             "- NO SOCIAL DEFLECTION: Do not end a substantive answer with 'How about you?', 'And yourself?', 'What about you?', or similar social probes. Answer the question; do not redirect it back to the user as a substitute for a real answer.\n"
+            "- DELIVER SUBSTANCE, NEVER DEFER: When asked to explain, discuss, elaborate on, or go deeper into a topic, give the ACTUAL content — the concrete facts, the mechanism, the reasoning, the analysis. NEVER substitute a description of HOW you would answer for the answer itself. Sentences like 'let's delve deeper into the scientific theories', 'we can explore various approaches', 'one promising method is to look at the relevant literature', 'this will provide a more comprehensive understanding', or \"I'd be happy to discuss\" — used IN PLACE of real content — are forbidden non-answers. If a follow-up says 'elaborate', 'go deeper', or 'discuss this more', ADD new concrete substance, do not restate your willingness to discuss. If you lack grounded detail, give the best substantive answer from your own knowledge and say plainly what is uncertain — never stall or rearrange words.\n"
         )
 
         # Runtime facts are now injected via the SITUATION BRIEF (context_synthesiser
@@ -6084,7 +6085,11 @@ Answer:"""
             f"For the following request, propose {k} DISTINCT high-level approaches. "
             f"For each: name it (1-5 words), state the core idea (1 sentence), "
             f"and rate feasibility 1-10 with one-line justification. "
-            f"Output as a numbered list. Do NOT solve the problem yet — just enumerate paths.\n\n"
+            f"Each approach must be a distinct ANGLE or FRAMING OF THE ANSWER ITSELF — a "
+            f"specific aspect, mechanism, or line of explanation to actually deliver — NOT a "
+            f"research method ('look at the literature', 'do more research', 'run a simulation', "
+            f"'consult experts'). Those are non-answers and are forbidden as approaches. "
+            f"Output as a numbered list. Do NOT write the full answer yet — just enumerate angles.\n\n"
             f"REQUEST: {user_input}"
         )
         propose_overrides = dict(gen_overrides or {})
@@ -6104,15 +6109,21 @@ Answer:"""
         except Exception:
             pass
         develop_prompt = (
-            f"You internally evaluated {k} approaches (NOT SHOWN TO USER):\n\n"
+            f"You internally evaluated {k} angles (NOT SHOWN TO USER):\n\n"
             f"{candidates}\n\n"
-            f"Pick the highest-scoring approach silently. Write ONLY the final answer "
-            f"to the original request below. "
-            f"DO NOT mention which approach you picked. "
-            f"DO NOT write 'Approach 1:', 'Approach 2:', 'Approach 3:', 'Selected:', "
-            f"'Plan:', 'Strategy:', or any preamble. "
-            f"DO NOT explain your reasoning process. "
-            f"Begin directly with the answer in natural prose.\n\n"
+            f"Pick the strongest angle silently and DELIVER THE ACTUAL ANSWER now — the real "
+            f"substance the user asked for: the concrete facts, the mechanism, the explanation, "
+            f"the analysis. "
+            f"FORBIDDEN: describing your method or deferring instead of answering. Never write "
+            f"'let's delve into', 'we can explore', 'one promising method is to look at the "
+            f"literature', \"I'd be happy to discuss\", 'this will provide a comprehensive "
+            f"understanding', or any sentence ABOUT answering — those are non-answers. If you "
+            f"lack grounded detail, give the best substantive answer from your own knowledge and "
+            f"flag what's uncertain; never substitute a description of how you would answer for "
+            f"the answer itself. "
+            f"DO NOT mention which approach you picked. No 'Approach 1:', 'Selected:', 'Plan:', "
+            f"'Strategy:', no preamble, no reasoning narration. "
+            f"Begin directly with the substantive answer in natural prose.\n\n"
             f"ORIGINAL REQUEST: {user_input}"
         )
         develop_overrides = dict(gen_overrides or {})
