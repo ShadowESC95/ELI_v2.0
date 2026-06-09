@@ -4466,7 +4466,10 @@ def _eli_self_improvement_phrase_guard(text):
         # confabulated into invented files-with-bugs that don't exist). Requires an
         # error/issue word AND a code/file context word so casual "issues" don't match.
         or (
-            re.search(r"\b(issues?|errors?|bugs?|problems?|mistakes?|wrong|broken|faults?)\b", low)
+            # NOT a fix request — "fix the bugs in foo.py" is FIX_FILE's job; this is the
+            # diagnose-only "is there any issues with the files?" form.
+            not re.search(r"\b(fix|repair|correct|patch|solve|resolve|debug|rewrite)\b", low)
+            and re.search(r"\b(issues?|errors?|bugs?|problems?|mistakes?|wrong|broken|faults?)\b", low)
             and re.search(r"\b(file|files|code|codebase|module|modules|script|scripts|"
                           r"function|functions|class|classes|\.py)\b", low)
         )
