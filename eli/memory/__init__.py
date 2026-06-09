@@ -180,14 +180,25 @@ def get_memory_status(db_path: Optional[str | Path] = None) -> Dict[str, Any]:
             if tbl in tables:
                 cur.execute(f"SELECT COUNT(*) FROM {tbl}")
                 out["conversation_turns"] = int(cur.fetchone()[0] or 0)
-                if tbl == "conversations":
+                # distinct_sessions ALWAYS computed here (was gated on tbl=='conversations',
+                # which never ran because 'conversation_turns' matched first and broke the
+                # loop → a permanent false 0 the user saw). Sessions live on
+                # conversation_turns.session_id; take the MAX distinct across the candidates.
+                _ds = 0
+                for _src in ("conversation_turns", tbl, "conversations"):
+                    if _src not in tables:
+                        continue
                     try:
                         cur.execute(
-                            "SELECT COUNT(DISTINCT session_id) FROM conversations WHERE COALESCE(session_id, '') <> ''"
+                            f"SELECT COUNT(DISTINCT session_id) FROM {_src} "
+                            "WHERE COALESCE(session_id, '') <> ''"
                         )
-                        out["distinct_sessions"] = int(cur.fetchone()[0] or 0)
+                        _v = int(cur.fetchone()[0] or 0)
+                        if _v > _ds:
+                            _ds = _v
                     except Exception:
-                        out["distinct_sessions"] = 0
+                        pass
+                out["distinct_sessions"] = _ds
                 break
     finally:
         con.close()

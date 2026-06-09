@@ -42,7 +42,7 @@ STEPS = [
         "name": "5. EXECUTIVE CONTROLLER / PLANNER",
         "desc": "Build plan: which agents to call, order, requirements.",
         "module": "eli.kernel.engine",
-        "function": "_plan_for_action",
+        "function": "_build_runtime_orchestrator_plan",
         "fallback_path": "eli/kernel/engine.py"
     },
     {
@@ -56,7 +56,7 @@ STEPS = [
         "name": "7. WORKING MEMORY / CONTEXT ASSEMBLER",
         "desc": "Combine evidence from agents into structured packet.",
         "module": "eli.kernel.engine",
-        "function": "_assemble_evidence",
+        "function": "assemble_precise_context",
         "fallback_path": "eli/kernel/engine.py"
     },
     {
@@ -102,7 +102,18 @@ def _get_source_location(module_name: str, func_name: str = None) -> str:
         if func_name:
             # Get the function object
             mod = __import__(module_name, fromlist=[func_name])
-            func = getattr(mod, func_name)
+            func = getattr(mod, func_name, None)
+            # Many engine "functions" are actually CognitiveEngine METHODS, invisible to a
+            # module-level getattr — resolve them on the class so the stage reports a real
+            # line (else it falls back to a path with no line, implying false vagueness).
+            if not callable(func):
+                for _cls_name in ("CognitiveEngine",):
+                    _cls = getattr(mod, _cls_name, None)
+                    if _cls is not None and callable(getattr(_cls, func_name, None)):
+                        func = getattr(_cls, func_name)
+                        break
+            if not callable(func):
+                raise AttributeError(func_name)
             file_path = inspect.getfile(func)
             line_no = inspect.getsourcelines(func)[1]
             return f"{file_path} (line {line_no})"
