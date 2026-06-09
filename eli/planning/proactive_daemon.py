@@ -806,6 +806,15 @@ Date: {datetime.now().strftime("%A %B %d %H:%M")} | Interactions last 24h: {inte
                     patterns = self.analyze_user_patterns()
                     improvements = self.analyze_code_quality()
 
+                    # Background-synthesise the reflection insight (gated on a resident
+                    # model + throttled to 30 min inside refresh_insight) so the reflection
+                    # + proactive agents surface real synthesis with zero per-turn latency.
+                    try:
+                        from eli.planning.insight_synthesis import refresh_insight
+                        refresh_insight(self.user_mem)
+                    except Exception:
+                        pass
+
                     for pattern in patterns:
                         self.suggestion_queue.put(("pattern", pattern))
                     for improvement in improvements:
