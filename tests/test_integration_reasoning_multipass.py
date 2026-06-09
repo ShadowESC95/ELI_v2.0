@@ -128,32 +128,33 @@ class TestTreeOfThoughtsMultipass:
 class TestConstitutionalAIMultipass:
 
     def test_cai_calls_get_chat_response_three_times_when_fail(self):
-        """CAI must call _get_chat_response 3x when critique has a FAIL."""
+        """CAI must call _get_chat_response 3x when the critique lists concrete issues."""
         engine = _make_engine()
         mock = _patch_get_chat(engine, [
             "Initial draft answer.",
-            "P1: PASS — factual\nP2: FAIL — unsupported claim\nP3: PASS — complete\nP4: PASS — honest\nP5: PASS — no harm\nRevision needed: remove unsupported claim.",
-            "Revised answer without the unsupported claim.",
+            "1. P2: the claim 'fully autonomous' is unsupported by the context — remove or qualify it.\n"
+            "2. P3: the answer omits the architecture detail that was asked for — add it.",
+            "Revised answer addressing both issues.",
         ])
         result = engine._run_constitutional_ai(
             "Describe ELI's architecture.", "", {}, "",
         )
         assert mock.call_count == 3, (
-            f"CAI must make 3 GGUF calls when a principle FAILs, got {mock.call_count}"
+            f"CAI must make 3 GGUF calls when the critique lists issues, got {mock.call_count}"
         )
 
-    def test_cai_skips_revision_when_all_pass(self):
-        """CAI skips the revision pass when all 5 principles PASS — only 2 calls."""
+    def test_cai_skips_revision_when_no_issues(self):
+        """CAI skips the revision pass when the critique reports NO ISSUES — only 2 calls."""
         engine = _make_engine()
         mock = _patch_get_chat(engine, [
             "Initial draft answer.",
-            "P1: PASS — accurate\nP2: PASS — supported\nP3: PASS — complete\nP4: PASS — honest\nP5: PASS — safe",
+            "NO ISSUES",
         ])
         result = engine._run_constitutional_ai(
             "What time is it?", "", {}, "",
         )
         assert mock.call_count == 2, (
-            f"CAI must skip revision (only 2 calls) when all principles PASS, got {mock.call_count}"
+            f"CAI must skip revision (only 2 calls) when the critique reports NO ISSUES, got {mock.call_count}"
         )
 
     def test_cai_rejects_revision_that_leaks_critique(self):

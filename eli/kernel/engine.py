@@ -6179,20 +6179,32 @@ Answer:"""
             _frs("constitutional_ai", 2, 3, "principle_critique")
         except Exception:
             pass
+        # Grounded-trust: when the engine already considers this turn well-grounded, the weak
+        # local critic must not invent factual problems and delete a correct answer (a grounded
+        # "Jason." was once nuked to "[no memories found]"). Applied as a PROMPT instruction here
+        # AND as a post-filter on the issue list below.
+        try:
+            _grounding_conf = float(getattr(self, "_current_grounding_confidence", 0.0) or 0.0)
+        except Exception:
+            _grounding_conf = 0.0
+        _GROUNDED_TRUST_FLOOR = 0.6
+        _grounded_clause = (
+            "ELI's own grounded facts (capability count, local model name, architecture, runtime "
+            "config, and the memory/session counts shown in context) are TRUE — do NOT raise "
+            "accuracy or unsupported-claim problems about them.\n"
+            if _grounding_conf >= _GROUNDED_TRUST_FLOOR else ""
+        )
         critique_prompt = (
-            "Critique the following draft response against these principles. "
-            "NOTE: ELI's own identity facts (capability count, local model name, "
-            "architecture, design goals, runtime configuration) are considered grounded "
-            "— do not fail P1 or P2 for those.\n"
-            "For each principle, output PASS or FAIL with one-sentence justification:\n"
-            "  P1. Factual accuracy: every claim is grounded in supplied context or general knowledge known to be reliable.\n"
-            "  P2. No unsupported claims: nothing asserted that the draft cannot defend.\n"
-            "  P3. Completeness: the draft answers what was actually asked, not a related question.\n"
-            "  P4. Honesty about uncertainty: if something is unknown, the draft says so.\n"
-            "  P5. No harm: the draft does not recommend actions that would cause harm if followed.\n\n"
-            f"REQUEST: {user_input}\n\nDRAFT:\n{initial}\n\n"
-            f"Output exactly:\nP1: PASS|FAIL — reason\nP2: PASS|FAIL — reason\n... etc.\n"
-            f"After the five lines, list the single most important specific revision needed (one line only)."
+            "You are reviewing a DRAFT answer. Find the CONCRETE problems that must be fixed, "
+            "judged against these principles:\n"
+            "  P1 Factual accuracy · P2 No unsupported claims · P3 Completeness (it answers what "
+            "was actually asked) · P4 Honesty about uncertainty · P5 No harm.\n"
+            + _grounded_clause +
+            "Output a NUMBERED list of specific, actionable problems. For EACH: name the exact "
+            "offending part of the draft, which principle it breaks, and the concrete fix to make. "
+            "Be specific — no vague 'could be clearer'. Do NOT rewrite the draft here. "
+            "If the draft already satisfies every principle, output EXACTLY: NO ISSUES\n\n"
+            f"REQUEST: {user_input}\n\nDRAFT:\n{initial}"
         )
         critique_overrides = dict(gen_overrides or {})
         critique_overrides["temperature"] = max(0.1, gen_temp - 0.1)
@@ -6204,71 +6216,35 @@ Answer:"""
         )
         log.debug(f"[REASONING][Constitutional] critique ({len(critique)} chars, max_tok={max_tok_crit})")
 
-        # Stage 3: revise. Skip if all five principles passed (fast path).
-        # The model sometimes emits duplicate P-lines, e.g. an early PASS and a
-        # later FAIL. Treat any parsed FAIL as authoritative for that principle.
-        principle_states: Dict[str, str] = {}
-        for match in re.finditer(r"(?im)^\s*P\s*([1-5])\s*:\s*(PASS|FAIL)\b", critique):
-            idx = match.group(1)
-            state = match.group(2).upper()
-            if state == "FAIL" or idx not in principle_states:
-                principle_states[idx] = state
-        # Grounded-trust override (#3b/Option C): when the engine already
-        # considers this turn well-grounded, the weak local critique model must
-        # not be allowed to FAIL the grounding principles — P1 (factual accuracy)
-        # and P2 (no unsupported claims) — and delete a correct answer. In the
-        # session log a correct grounded "Jason." draft was nuked to
-        # "[no memories found]" by a P1 FAIL. Force P1/P2 to PASS above a
-        # confidence floor; other principles (completeness/honesty/harm) still
-        # apply. Floor is conservative: when grounding is unknown (0.0) this is
-        # a no-op and behaviour is unchanged.
-        try:
-            _grounding_conf = float(getattr(self, "_current_grounding_confidence", 0.0) or 0.0)
-        except Exception:
-            _grounding_conf = 0.0
-        _GROUNDED_TRUST_FLOOR = 0.6
-        if _grounding_conf >= _GROUNDED_TRUST_FLOOR:
-            for _gp in ("1", "2"):
-                if principle_states.get(_gp) == "FAIL":
-                    log.debug(
-                        f"[REASONING][Constitutional] grounding={_grounding_conf:.2f} "
-                        f">= {_GROUNDED_TRUST_FLOOR} → forcing P{_gp} PASS (grounded-trust)"
-                    )
-                    principle_states[_gp] = "PASS"
-        crit_upper = critique.upper()
-        if principle_states:
-            all_pass = (
-                len(principle_states) == 5
-                and all(state == "PASS" for state in principle_states.values())
-            )
-        else:
-            all_pass = "FAIL" not in crit_upper and all(f"P{i}: PASS" in crit_upper for i in range(1, 6))
-        if all_pass:
-            log.debug("[REASONING][Constitutional] all principles PASS → returning initial draft")
-            return initial
-
-        # Extract FAIL lines from the critique and inject as hard constraints so
-        # the 7B model cannot simply regenerate the same failing answer. Without this,
-        # the model treats the critique as background and ignores specific failures.
-        _fail_lines = []
-        for _crit_line in critique.splitlines():
-            _crit_line = _crit_line.strip()
-            if re.match(r"P[1-5]:\s*FAIL\b", _crit_line, re.I):
-                _fail_lines.append(_crit_line)
-        # Grounded-trust (#3b/Option C): if the engine trusts this turn's
-        # grounding, never instruct the revision to "fix" a grounding FAIL —
-        # drop P1/P2 mandatory corrections so the revision can't hedge/delete a
-        # claim the engine already considers grounded.
-        if _grounding_conf >= _GROUNDED_TRUST_FLOOR:
-            _fail_lines = [l for l in _fail_lines if not re.match(r"P[12]:\s*FAIL\b", l, re.I)]
-        _mandatory_block = ""
-        if _fail_lines:
-            _mandatory_block = (
-                "\n\nMANDATORY CORRECTIONS — these principles FAILED and MUST be fixed:\n"
-                + "\n".join(f"  {l}" for l in _fail_lines)
-                + "\n  You MUST correct every FAIL above. Hedge unsupported claims with "
-                "'typically', 'as configured', or 'by design'. Do not repeat the failing claim verbatim."
-            )
+        # Stage 3: revise — but only if the critique found CONCRETE issues. This replaces the
+        # gamed P1-P5 PASS/FAIL parse: the 7B is far more reliable producing specific problems
+        # than emitting consistent PASS/FAIL tokens (it used to dupe/contradict them).
+        crit_text = str(critique or "").strip()
+        # Extract numbered / bulleted concrete issues.
+        _issues = [l.strip() for l in crit_text.splitlines()
+                   if re.match(r"^\s*(?:\d+[\.\)]|[-•*])\s+\S", l)]
+        # Explicit "NO ISSUES" sentinel (and no numbered issues) = the draft is sound.
+        _no_issues = bool(re.search(r"\bno\s+issues?\b", crit_text, re.I)) and not _issues
+        # Grounded-trust post-filter: when the turn is well-grounded, drop any issue that is
+        # about factual accuracy / unsupported claims, so the weak critic cannot delete a
+        # grounded answer (belt-and-braces with the prompt clause above).
+        if _grounding_conf >= _GROUNDED_TRUST_FLOOR and _issues:
+            _kept = [l for l in _issues if not re.search(
+                r"\b(p1|p2|factual|inaccurat|unsupported|not\s+(?:in|supported)|no\s+evidence|"
+                r"fabricat|hallucinat|made\s+up|cannot\s+verify)\b", l, re.I)]
+            if len(_kept) != len(_issues):
+                log.debug(f"[REASONING][Constitutional] grounding={_grounding_conf:.2f} → "
+                          f"dropped {len(_issues) - len(_kept)} grounding-accuracy issue(s)")
+            _issues = _kept
+        if _no_issues or not _issues:
+            log.debug("[REASONING][Constitutional] no actionable issues → returning draft")
+            return _strip_reasoning_scaffold(initial)
+        _mandatory_block = (
+            "\n\nISSUES TO FIX (address every one — keep all correct content):\n"
+            + "\n".join(f"  {l}" for l in _issues[:8])
+            + "\n  Fix each issue concretely. Do NOT delete a claim the draft can defend — "
+            "qualify it ('typically', 'as configured', 'by design') instead of removing it."
+        )
         try:
             from eli.world.world_event_bus import fire_reasoning_stage_event as _frs
             _frs("constitutional_ai", 3, 3, "revision_and_finalize")
@@ -6372,7 +6348,17 @@ Answer:"""
             log.debug(f"[REASONING][SelfConsistency] sample {i+1}/{n} ({len(s)} chars, "
                   f"max_tok={sample_max_tok}, temp={sample_temp:.2f})")
 
-        # Selection: which sample is most defensible / consistent?
+        # TRUE CONSENSUS FIRST: if a strict majority of the independent samples converge on
+        # the same answer, return it — self-consistency means agreement across samples, not
+        # "pick the most eloquent one". This is the meaningful case for facts/values/short
+        # answers; long divergent prose falls through to consensus-synthesis below.
+        _maj = self._self_consistency_majority(samples)
+        if _maj is not None:
+            log.debug(f"[REASONING][SelfConsistency] majority consensus ({len(_maj)} chars, "
+                      f"of {len(samples)} samples)")
+            return _strip_reasoning_scaffold(_maj)
+
+        # Selection: synthesise the CONSENSUS across samples (keep what most agree on).
         try:
             from eli.world.world_event_bus import fire_reasoning_stage_event as _frs
             _frs("self_consistency", _sc_total_stages, _sc_total_stages, "consensus_selection")
@@ -6380,10 +6366,13 @@ Answer:"""
             pass
         labelled = "\n\n".join(f"=== SAMPLE {i+1} ===\n{s}" for i, s in enumerate(samples))
         select_prompt = (
-            f"{n} independent attempts to answer the same request are below. "
-            f"Identify which is most consistent across factual claims and most defensible. "
-            f"If two largely agree on facts but differ in framing, prefer the clearer one. "
-            f"Output ONLY the chosen full answer text, with no preamble or sample number.\n\n"
+            f"{n} independent attempts to answer the same request are below. They may differ. "
+            f"Write the CONSENSUS answer: KEEP every claim that MOST attempts agree on, DISCARD "
+            f"any claim that only one attempt makes (likely a hallucination), and where attempts "
+            f"conflict, resolve toward the majority. The result must be a complete, substantive "
+            f"answer in its own right — not a note about the attempts. "
+            f"Output ONLY the final consensus answer, no preamble, no 'Sample N', no mention of "
+            f"the attempts.\n\n"
             f"REQUEST: {user_input}\n\n{labelled}"
         )
         select_overrides = dict(gen_overrides or {})
@@ -6418,6 +6407,34 @@ Answer:"""
 
         log.debug(f"[REASONING][SelfConsistency] selected ({len(chosen)} chars)")
         return chosen
+
+    def _self_consistency_majority(self, samples: list) -> Optional[str]:
+        """True self-consistency vote: if a STRICT majority of the independent samples
+        normalise to the same answer, return the fullest original sample in that group;
+        else None (caller falls back to LLM consensus-synthesis). Meaningful for short
+        factual/value answers — long divergent prose rarely exact-matches and returns None."""
+        import re as _re
+        from collections import Counter
+
+        def _norm(s: str) -> str:
+            t = _strip_reasoning_scaffold(str(s or "")).strip().lower()
+            t = _re.sub(r"[^a-z0-9 ]+", " ", t)
+            return _re.sub(r"\s+", " ", t).strip()
+
+        valid = [s for s in samples if s and len(str(s).strip()) >= 2]
+        if len(valid) < 3:
+            return None
+        norms = [_norm(s) for s in valid]
+        counts = Counter(n for n in norms if n)
+        if not counts:
+            return None
+        top_norm, top_count = counts.most_common(1)[0]
+        # Strict majority, and the agreed answer is short enough that exact-match is a real
+        # signal (a fact/value), not coincidental overlap of long prose.
+        if top_count > len(valid) / 2 and len(top_norm) <= 400:
+            winners = [s for s, nm in zip(valid, norms) if nm == top_norm]
+            return max(winners, key=lambda s: len(str(s).strip()))
+        return None
 
     def _supports_mode_algorithm(self, mode: str) -> bool:
         """All four private modes run multi-stage GGUF pipelines."""
