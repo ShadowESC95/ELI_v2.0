@@ -44,6 +44,9 @@ log = get_logger(__name__)
 # the "hallucinate at scale" risk on a large tree.
 MAX_SWEEP_FILES = int(os.environ.get("ELI_EXAMINE_MAX_FILES", "25"))
 TIER3_MAX_FILES = int(os.environ.get("ELI_EXAMINE_TIER3_MAX_FILES", "8"))
+# Max line-windows to deep-review per file (a big god-file is split into windows so the
+# deep tier covers more than its first ~MAX_FILE_CHARS). Bounds the LLM cost per file.
+TIER3_MAX_CHUNKS = int(os.environ.get("ELI_EXAMINE_TIER3_MAX_CHUNKS", "3"))
 MAX_FILE_CHARS = 12000
 
 TIER_CONF = {1: 0.95, 2: 0.70, 3: 0.40}
@@ -314,36 +317,32 @@ _TIER3_SYS = (
 )
 
 
-def _tier3(path: Path) -> List[Finding]:
-    rel = _rel(path)
-    try:
-        src = path.read_text(encoding="utf-8")
-    except Exception:
-        return []
-    if not src.strip():
-        return []
-    # Number every source line with its REAL line number so the model cites real lines
-    # (previously the file was sliced at MAX_FILE_CHARS mid-line, so cited line numbers
-    # mapped to the truncated window — pure hallucination, e.g. "engine.py:132 undefined
-    # 'ov'" when line 132 is `or result.get("error")`). Never cut mid-line.
-    _lines = src.splitlines()
-    _numbered = [f"{i + 1}\t{ln}" for i, ln in enumerate(_lines)]
-    body_parts: List[str] = []
+def _tier3_windows(numbered: List[str]):
+    """Yield (lo, hi, body) windows of WHOLE numbered lines, each <= MAX_FILE_CHARS.
+    lo/hi are 1-based real line numbers (inclusive) — so a big file is reviewed across
+    several windows instead of only its first ~MAX_FILE_CHARS (which left the deep tier
+    blind to ~90% of the god-files). Never cuts a line mid-way (which would corrupt the
+    line→number mapping)."""
+    cur: List[str] = []
     total = 0
-    for nl in _numbered:
-        if total + len(nl) + 1 > MAX_FILE_CHARS:
-            break
-        body_parts.append(nl)
+    lo = 1
+    for idx, nl in enumerate(numbered, start=1):
+        if cur and total + len(nl) + 1 > MAX_FILE_CHARS:
+            yield (lo, idx - 1, "\n".join(cur))
+            cur, total, lo = [], 0, idx
+        cur.append(nl)
         total += len(nl) + 1
-    shown_to = len(body_parts)            # last real line number the model can see
-    truncated = shown_to < len(_lines)
-    body = "\n".join(body_parts)
+    if cur:
+        yield (lo, len(numbered), "\n".join(cur))
+
+
+def _tier3_review_window(rel: str, lo: int, hi: int, body: str, partial: bool) -> List[Finding]:
     prompt = (
-        f"Review this Python file ({rel}) for concrete bugs.\n"
+        f"Review this section of a Python file ({rel}, lines {lo}-{hi}) for concrete bugs.\n"
         "Each source line is prefixed with its REAL line number and a tab — cite that "
-        "exact number in 'line'; never guess a line you cannot see.\n"
-        + (f"NOTE: only lines 1-{shown_to} are shown (rest truncated); do NOT report "
-           "anything about code you cannot see.\n" if truncated else "")
+        "exact number in 'line'; never guess a line outside this section.\n"
+        + (f"This is one section of a larger file; only lines {lo}-{hi} are shown — do "
+           "NOT report anything about code outside it.\n" if partial else "")
         + "Respond with ONLY a JSON array; each item: "
         '{"line": <int>, "issue": "<specific bug>"}. '
         "Empty array [] if nothing concrete is wrong.\n\n"
@@ -353,9 +352,8 @@ def _tier3(path: Path) -> List[Finding]:
         from eli.cognition.inference_broker import get_broker
         raw = get_broker().infer(prompt, system=_TIER3_SYS, max_tokens=400, temperature=0.1)
     except Exception as e:
-        log.debug(f"[EXAMINE] tier-3 review skipped for {rel}: {e}")
+        log.debug(f"[EXAMINE] tier-3 window {lo}-{hi} skipped for {rel}: {e}")
         return []
-
     m = re.search(r"\[[\s\S]*\]", raw or "")
     if not m:
         return []
@@ -363,7 +361,7 @@ def _tier3(path: Path) -> List[Finding]:
         items = json.loads(m.group(0))
     except Exception:
         return []
-    findings: List[Finding] = []
+    out: List[Finding] = []
     for it in items if isinstance(items, list) else []:
         if not isinstance(it, dict):
             continue
@@ -375,12 +373,30 @@ def _tier3(path: Path) -> List[Finding]:
             line = int(line) if line is not None else None
         except Exception:
             line = None
-        # Reject a finding that cites a line the model never saw (1..shown_to). The 7B
-        # otherwise invents line numbers/issues for code outside the shown window.
-        if line is not None and not (1 <= line <= shown_to):
+        # Reject a finding citing a line outside THIS window (lo..hi) — the 7B otherwise
+        # invents line numbers/issues for code it can't see.
+        if line is not None and not (lo <= line <= hi):
             continue
-        findings.append(Finding(rel, 3, TIER_CONF[3], "logic", issue,
-                                line=line, needs_confirmation=True))
+        out.append(Finding(rel, 3, TIER_CONF[3], "logic", issue,
+                           line=line, needs_confirmation=True))
+    return out
+
+
+def _tier3(path: Path) -> List[Finding]:
+    rel = _rel(path)
+    try:
+        src = path.read_text(encoding="utf-8")
+    except Exception:
+        return []
+    if not src.strip():
+        return []
+    numbered = [f"{i + 1}\t{ln}" for i, ln in enumerate(src.splitlines())]
+    windows = list(_tier3_windows(numbered))
+    capped = windows[:TIER3_MAX_CHUNKS]   # bound the LLM cost per file
+    partial = len(capped) > 1 or len(windows) > len(capped)
+    findings: List[Finding] = []
+    for (lo, hi, body) in capped:
+        findings.extend(_tier3_review_window(rel, lo, hi, body, partial))
     return findings
 
 
