@@ -353,6 +353,31 @@ class ProactiveDaemon:
         except Exception:
             pass
 
+        # ── Pattern 6: Frequent behaviours → proactive proposals ─────────────
+        # High-frequency behaviours that never become time-scheduled rules
+        # (screenshots, media, news) should still make ELI OFFER to streamline
+        # them. Feed them to goal autogenesis as 'frequent_behavior' signals so a
+        # genuine proposal forms instead of the behaviour dying as observation noise.
+        try:
+            _det = []
+            if hasattr(self.user_mem, "get_detected_habits"):
+                _det = self.user_mem.get_detected_habits(min_count=8, limit=5) or []
+            for _hb in _det:
+                if not isinstance(_hb, dict):
+                    continue
+                _bname = str(_hb.get("name") or _hb.get("command") or "").strip()
+                _bcnt = int(_hb.get("count", 0) or 0)
+                if _bname and _bcnt >= 8:
+                    patterns.append({
+                        "type": "frequent_behavior",
+                        "behavior": _bname,
+                        "count": _bcnt,
+                        "suggestion": (f"Frequent behaviour: {_bname.replace('_', ' ').lower()} "
+                                       f"(×{_bcnt}) — offer to streamline"),
+                    })
+        except Exception:
+            pass
+
         # Store a single compact observation (not per-pattern spam)
         if patterns:
             try:

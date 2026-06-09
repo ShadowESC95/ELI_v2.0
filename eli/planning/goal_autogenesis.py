@@ -63,24 +63,52 @@ def _candidates_from_world(world_suggestions: Optional[List[Dict[str, Any]]]) ->
     return out
 
 
+_FREQ_BEHAVIOR_MIN_COUNT = int(__import__("os").environ.get("ELI_FREQ_HABIT_MIN", "8") or 8)
+
+
 def _candidates_from_patterns(patterns: Optional[List[Dict[str, Any]]]) -> List[Dict[str, Any]]:
     out: List[Dict[str, Any]] = []
     for p in (patterns or []):
-        if not isinstance(p, dict) or p.get("type") != "recurring_error":
+        if not isinstance(p, dict):
             continue
-        err = str(p.get("error") or "").strip()
-        cnt = int(p.get("count", 0) or 0)
-        if not err or cnt < _ERROR_MIN_COUNT:
-            continue
-        out.append({
-            "kind": "recurring_error",
-            "key": err[:80],
-            "title": f"Resolve recurring failure ({cnt}x)",
-            "objective": f"Diagnose and fix the recurring failure I keep hitting: {err[:160]}",
-            "priority": min(0.95, 0.5 + cnt * 0.03),
-            "cadence_sec": 7200,
-            "tags": [AUTO_TAG, "self_repair"],
-        })
+        ptype = p.get("type")
+        if ptype == "recurring_error":
+            err = str(p.get("error") or "").strip()
+            cnt = int(p.get("count", 0) or 0)
+            if not err or cnt < _ERROR_MIN_COUNT:
+                continue
+            out.append({
+                "kind": "recurring_error",
+                "key": err[:80],
+                "title": f"Resolve recurring failure ({cnt}x)",
+                "objective": f"Diagnose and fix the recurring failure I keep hitting: {err[:160]}",
+                "priority": min(0.95, 0.5 + cnt * 0.03),
+                "cadence_sec": 7200,
+                "tags": [AUTO_TAG, "self_repair"],
+            })
+        elif ptype == "frequent_behavior":
+            # A high-frequency behaviour the user repeats but that never became a
+            # time-scheduled rule (screenshots, media, news). Make ELI proactively OFFER
+            # to streamline it — so curiosity about the user's routine produces an actual
+            # proposal instead of dying as passive observation noise.
+            beh = str(p.get("behavior") or "").strip()
+            cnt = int(p.get("count", 0) or 0)
+            if not beh or cnt < _FREQ_BEHAVIOR_MIN_COUNT:
+                continue
+            label = beh.replace("_", " ").lower()
+            out.append({
+                "kind": "frequent_behavior",
+                "key": beh[:60],
+                "title": f"Offer to streamline frequent '{label}'",
+                "objective": (
+                    f"The user does '{label}' often ({cnt}x recently). Proactively offer a "
+                    f"faster path — a shortcut, a saved habit, or an automation — and ask "
+                    f"before setting anything up."
+                ),
+                "priority": min(0.7, 0.4 + cnt * 0.01),
+                "cadence_sec": 43200,
+                "tags": [AUTO_TAG, "proactive", "habit"],
+            })
     return out
 
 
