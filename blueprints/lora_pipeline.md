@@ -38,7 +38,7 @@ phi-hardcoded**:
     "fine-tune yourself" / "run lora training" → LORA_TRAIN.
   - Scheduled `lora` kind (`_worker_lora`): "train a lora overnight [N steps]" →
     `SCHEDULE_TASK` runs `run_pipeline(execute=True)` unattended.
-  - Manifest: 198 capabilities (LORA_STATUS + LORA_TRAIN added).
+  - Manifest: 206 capabilities (includes LORA_STATUS + LORA_TRAIN).
 - Tests: `tests/test_lora_pipeline.py` (target-module resolver, DAG order + dry-run
   no-train, both actions, routing, scheduled kind).
 

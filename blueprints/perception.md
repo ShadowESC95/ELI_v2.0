@@ -190,3 +190,16 @@ extracted content (text/OCR/structure) into the grounded pipeline.
   + source (reads mpv's `media-title`, or Spotify/MPRIS state).
 - **Spotify** restored to playing the specific requested SONG (a prior change had switched it
   to playlists, which didn't start playback).
+
+## Update — 2026-06-09 (VRAM-aware STT; drag-drop keeps the full path)
+- **STT is VRAM-aware** (`local_whisper_stt`). faster-whisper defaults to GPU only when the card
+  is big enough for whisper AND a typical main model (≥12 GB total VRAM), else CPU — so on an 8 GB
+  card whisper no longer preloads ~2 GB and starves the main model (observed: free_vram 4083 MB →
+  gpu_layers=11; after the fix free_vram 7092 MB → gpu_layers=99). `small.en` int8 on CPU is
+  ~1–2 s for a short command. Explicit `ELI_WHISPER_DEVICE` still wins; `ELI_WHISPER_GPU_MIN_MB`
+  tunes the threshold.
+- **Drag-and-drop keeps the FULL path.** A file dropped into the chat input now expands to
+  `[File: <full path>]` followed by the inlined content (was content + basename only), so
+  "fix/examine/edit this file" can resolve the file on disk while "summarise this" still has the
+  content. PDFs keep their path too; combined with the FIX_FILE last-file memory, a bare follow-up
+  "fix it" recovers the file named a turn earlier.
