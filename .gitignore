@@ -128,3 +128,6 @@ config/pomodoro.json
 config/quick_actions.json
 models/wakeword/
 models/voice_profile/
+
+# Downloaded model caches (whisper, etc.) — large binaries, never commit
+eli/models/
