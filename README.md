@@ -1,14 +1,23 @@
 # ELI MKXI v2.0 PRO
 
 ELI MKXI is a 100% local, privacy-first AI assistant. It runs entirely on your
-own hardware — no cloud APIs, no telemetry. Features include:
+own hardware — no cloud APIs, no telemetry. ~134k lines of Python across 152
+modules, **206 capabilities**, and **14 specialist agents**. Features include:
 
-- **GGUF inference** via llama-cpp-python (CPU and GPU, auto-tuned at boot)
+- **GGUF inference** via llama-cpp-python (CPU and GPU, auto-tuned at boot;
+  model-agnostic — no hardcoded model name/size on the inference path)
 - **PySide6 GUI** with dockable panels, quick-action board, and live telemetry
-- **Persistent memory** — SQLite + FAISS vector index for semantic recall
-- **Multi-agent bus** — parallel agent dispatch with confidence aggregation
+- **Persistent memory** — SQLite + FAISS vector index + knowledge graph for
+  semantic recall
+- **Multi-agent bus** — parallel agent dispatch with confidence aggregation,
+  on a DAG orchestrator (parallel/retries/fallback/cache/timeout)
+- **Code examiner & self-repair** — examine/audit files for errors (tiered:
+  syntax + import → static lint → LLM logic review), fix files, and drag-and-drop
+  a file into the chat to act on it directly
+- **Local voice** — faster-whisper STT (VRAM-aware: GPU on large cards, else CPU
+  so the main model keeps the GPU), wake-word, and TTS
 - **Security hardening** — prompt injection guard, SQL identifier validation,
-  shell command security gate, custom agent SHA-256 trust registry
+  fail-closed shell command gate, custom agent SHA-256 trust registry
 - **Headless / CLI mode** — `eli --headless` for terminal-only use
 - **First-boot wizard** — guides zero-model setup to HuggingFace download
 - **Proactive daemon** — background goal/habit/insight generation
@@ -179,7 +188,8 @@ Use project-relative paths, `ELI_PROJECT_ROOT`, or the path helpers in
 - `eli/cli` — headless REPL (`eli --headless`)
 - `config` — portable default settings and templates
 - `models` — local model payloads (gitignored, distribute separately)
-- `tests` — pytest suite (40+ integration tests)
+- `tests` — pytest suite (6,600+ tests across 152 files; unit, integration, and
+  claim-verification)
 - `packaging` — Windows, macOS, Linux packaging scripts
 - `dist` — generated release artifacts
 
@@ -358,7 +368,7 @@ ELI applies multiple layers of defence-in-depth:
 |-------|-----------------|
 | Prompt injection guard | Strips `[INST]`, `<\|im_start\|>system`, jailbreak phrases before the LLM sees input |
 | SQL identifier validation | All f-string SQL identifiers pass an allowlist regex — no injection via column/table names |
-| Shell security gate | `RUN_CMD` blocks `bash -c`, `python -c`, `perl -e`, `dd`, `rm`, `iptables`, etc. |
+| Shell security gate | `RUN_CMD` is **fail-closed**: all shell commands are blocked unless allowlisted via `ELI_ALLOWED_CMDS` (or the Full Control toggle is on); a destructive-pattern denylist (`rm -rf /`, `mkfs`, `dd of=/dev/`, fork bombs) blocks even then |
 | Custom agent trust | SHA-256 hash registry — unregistered or tampered agent files are skipped at load |
 | Input length cap | Requests over `ELI_MAX_INPUT_LEN` (default 8192) are truncated |
 
