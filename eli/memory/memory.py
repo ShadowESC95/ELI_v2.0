@@ -1983,11 +1983,12 @@ class Memory(metaclass=_MemoryMeta):
                         "current_work", "active_project")):
                     return 0.15
                 return 0.0
+            from eli.cognition.scoring import recency_score as _rs
             out.sort(
                 key=lambda x: (
                     float(x.get("importance", 0.5) or 0.5) * 0.5
                     + float(x.get("weight", 1.0) or 1.0) * 0.3
-                    + max(0.0, 1.0 - (sort_now - _ts_float(x)) / (86400 * 30)) * 0.2
+                    + _rs(_ts_float(x), now=sort_now, window_days=30) * 0.2
                     + _pref_boost(x)
                 ),
                 reverse=True,
