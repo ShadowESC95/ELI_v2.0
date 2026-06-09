@@ -782,6 +782,18 @@ Date: {datetime.now().strftime("%A %B %d %H:%M")} | Interactions last 24h: {inte
                     time.sleep(5)
                     continue
 
+                # While a user's FOREGROUND request is (or was just) generating, defer ALL of the
+                # daemon's LLM-heavy work — insight synthesis, the 3h news synthesis, the autonomy
+                # tick, the morning report. On a slow/CPU-offloaded model these otherwise wedge
+                # multi-minute background generations BETWEEN the user's turns (a 643s news synth
+                # ran mid-conversation). The blocks below are time-gated, so they simply retry on
+                # the next 5s tick once the foreground goes idle — nothing is dropped.
+                try:
+                    from eli.cognition.inference_broker import foreground_recently_active as _fra
+                    _fg_busy = _fra(45.0)
+                except Exception:
+                    _fg_busy = False
+
                 # ── Autonomy / self-awareness tick (every 30 min) ─────────────────
                 # ELI's self-directed loop, finally wired to actually RUN (it was
                 # previously only fired by the Operator Console button): monitor own
@@ -790,7 +802,8 @@ Date: {datetime.now().strftime("%A %B %d %H:%M")} | Interactions last 24h: {inte
                 # controller to observe-only / memory-write, and goal/scheduler ticks
                 # produce PROPOSALS that still need user approval, so nothing
                 # destructive runs unattended. Kill switch: ELI_AUTONOMY_TICK=0.
-                if (time.time() - last_autonomy > 1800
+                if (not _fg_busy
+                        and time.time() - last_autonomy > 1800
                         and os.environ.get("ELI_AUTONOMY_TICK", "1").strip().lower()
                         not in ("0", "false", "no", "off")):
                     last_autonomy = time.time()
@@ -807,8 +820,9 @@ Date: {datetime.now().strftime("%A %B %d %H:%M")} | Interactions last 24h: {inte
                     except Exception as _auto_err:
                         log.debug(f"[PROACTIVE] autonomy tick skipped: {_auto_err}")
 
-                # Run analysis every 10 minutes
-                if time.time() - last_analysis > 600:
+                # Run analysis every 10 minutes (deferred while the user is mid-request — this
+                # block contains refresh_insight AND the 3h news synthesis, both LLM-heavy).
+                if not _fg_busy and time.time() - last_analysis > 600:
                     patterns = self.analyze_user_patterns()
                     improvements = self.analyze_code_quality()
 
@@ -1088,7 +1102,7 @@ Date: {datetime.now().strftime("%A %B %d %H:%M")} | Interactions last 24h: {inte
                 # Generate morning report once per day between 6-10
                 current_date = datetime.now().date()
                 current_hour = datetime.now().hour
-                if current_date > last_report and 6 <= current_hour <= 10:
+                if not _fg_busy and current_date > last_report and 6 <= current_hour <= 10:
                     report = self.generate_morning_report()
                     if report:
                         # Print to CLI
