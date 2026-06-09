@@ -194,3 +194,49 @@ def test_pending_confirm_routing(tmp_module):
         assert route("no")["action"] == "CANCEL_CODE_FIX"
     finally:
         CE.clear_pending_fix()
+
+
+# --------------------------------------------------------------------------- #
+# Frontier patch generator: scope context + validate-and-retry                #
+# --------------------------------------------------------------------------- #
+def test_enclosing_scope_picks_smallest_def():
+    src = ("import os\n\ndef outer():\n    x = 1\n    def inner():\n"
+           "        return undefined_xyz\n    return inner\n")
+    # line 6 is inside inner() — the smallest enclosing def
+    assert CE._enclosing_scope(src, 6) == (5, 6)
+    # line 4 is in outer() but not inner()
+    assert CE._enclosing_scope(src, 4) == (3, 7)
+    assert CE._file_import_block(src).strip() == "import os"
+
+
+def test_validate_patch_rejects_nonverbatim_and_syntax_break():
+    src = "def f():\n    x = 1\n    return x\n"
+    assert CE._validate_patch(src, {"old": "NOT IN FILE", "new": "y"})  # truthy error string
+    assert CE._validate_patch(src, {"old": "x = 1", "new": "x = ("})    # breaks syntax
+    assert CE._validate_patch(src, {"old": "", "new": "y"})             # empty old
+    assert CE._validate_patch(src, {"old": "return x", "new": "return 0"}) is None  # valid
+
+
+def test_generate_fix_patch_retries_with_feedback(tmp_module, monkeypatch):
+    """A bad first attempt (non-verbatim old) is rejected locally and retried; the corrected
+    second attempt is accepted — without anything touching disk until apply."""
+    import eli.cognition.inference_broker as IB
+    p = tmp_module("_ce_retry.py", "def g():\n    return undefined_xyz\n")
+    calls = {"n": 0}
+
+    class _Broker:
+        def infer(self, prompt, system="", max_tokens=700, temperature=0.05):
+            calls["n"] += 1
+            if calls["n"] == 1:
+                return json.dumps({"old": "this snippet is not in the file", "new": "x"})
+            # The retry prompt must carry the prior error back to the model.
+            assert "previous attempt FAILED" in prompt
+            return json.dumps({"old": "return undefined_xyz", "new": "return 0",
+                               "description": "replace undefined name"})
+
+    monkeypatch.setattr(IB, "get_broker", lambda: _Broker())
+    patch = CE.generate_fix_patch({"file": "eli/_ce_retry.py", "line": 2,
+                                   "kind": "lint", "message": "undefined name 'undefined_xyz'"})
+    assert patch["ok"] is True
+    assert patch["new"] == "return 0"
+    assert calls["n"] == 2   # proves it retried after the local rejection
