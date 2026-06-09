@@ -468,25 +468,51 @@ def build_news_briefing(user_id=None, topic: str = "", top_n: int = 5,
     import datetime as _dt
     _today = _dt.date.today()
 
+    def _parse_pub(s):
+        """Parse the article's stored `published` field (ISO-8601 from arXiv/HN/Reddit, or
+        RFC-822 <pubDate> from RSS) into a naive local-ish datetime, or None."""
+        s = str(s or "").strip()
+        if not s:
+            return None
+        try:
+            return _dt.datetime.fromisoformat(
+                s.replace("Z", "+00:00").replace("z", "+00:00")).replace(tzinfo=None)
+        except Exception:
+            pass
+        try:
+            from email.utils import parsedate_to_datetime as _pdt
+            d = _pdt(s)
+            return d.replace(tzinfo=None) if d else None
+        except Exception:
+            return None
+
     def _block(items: List[Dict[str, Any]]) -> str:
         out = []
         for a in items:
             title = str(a.get("title") or "").strip()
             src = str(a.get("source") or "").strip()
             gist = _one_sentence_gist(a.get("summary"))
-            # Keep the fetch time/date IN the text so the reader can judge
-            # freshness. (TTS has its own clause that omits times/dates from
-            # speech, so this never gets read aloud.)
+            # Prefer the article's actual PUBLICATION date/time (what "when was it released"
+            # means). Fall back to the fetch time ONLY when the source gave no usable pubDate
+            # — and then label it 'fetched' so it is never mistaken for the release time.
             ts = ""
-            try:
-                _f = a.get("fetched_at")
-                if _f:
-                    _d = _dt.datetime.fromtimestamp(float(_f))
-                    ts = _d.strftime("%H:%M") if _d.date() == _today else _d.strftime("%d %b %H:%M")
-            except Exception:
-                ts = ""
-            if not ts:
-                ts = str(a.get("published") or "")[:16]
+            _pub = _parse_pub(a.get("published"))
+            if _pub:
+                if _pub.date() == _today:
+                    ts = _pub.strftime("%H:%M")
+                elif _pub.year == _today.year:
+                    ts = _pub.strftime("%d %b")
+                else:
+                    ts = _pub.strftime("%d %b %Y")
+            else:
+                try:
+                    _f = a.get("fetched_at")
+                    if _f:
+                        _d = _dt.datetime.fromtimestamp(float(_f))
+                        ts = ("fetched " + (_d.strftime("%H:%M") if _d.date() == _today
+                                            else _d.strftime("%d %b")))
+                except Exception:
+                    ts = ""
             _tag = f"{src} — {ts}" if (src and ts) else (src or ts)
             line = f"- {title} [{_tag}]" if _tag else f"- {title}"
             if gist:
@@ -520,7 +546,7 @@ def build_news_briefing(user_id=None, topic: str = "", top_n: int = 5,
         prompt = (
             f"You are ELI giving the user a focused news read on \"{topic}\". "
             "Use ONLY the articles below — never invent. For EACH story, include "
-            "its source AND its fetch time/date exactly as shown in the "
+            "its source AND its publication date exactly as shown in the "
             "[source — time] bracket (e.g. \"[BBC — 14:23]\") so the reader can "
             "see how fresh each item is. Cover the stories conversationally, "
             "giving each roughly a sentence of real context (not just the "
@@ -570,7 +596,7 @@ def build_news_briefing(user_id=None, topic: str = "", top_n: int = 5,
         prompt = (
             "You are ELI giving the user a quick, natural news read. Use ONLY the "
             "articles below — never invent. For EACH story, include its source "
-            "AND its fetch time/date exactly as shown in the [source — time] "
+            "AND its publication date exactly as shown in the [source — time] "
             "bracket (e.g. \"[BBC — 14:23]\") so the reader can see how fresh "
             "each item is. Present "
             "the TOP STORIES conversationally across the "
