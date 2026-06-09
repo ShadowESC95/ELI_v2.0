@@ -185,13 +185,21 @@ class ProactiveDaemon:
         # genuine user conversation turns, de-noised. Auto-generated memories,
         # STT-echo fragments, [filtered]/repeated-char junk, and exact prompt
         # replays (test sessions) must not skew the result.
-        hour_counts: Dict[int, int] = {}
+        hour_counts: Dict[float, float] = {}
         try:
             _pc = sqlite3.connect(str(user_db))
             _seen_norm: set = set()
+            # Window to RECENT activity (default 30 days) and weight the last week 2x, so
+            # the "most active hour" tracks the user's CURRENT routine instead of a frozen
+            # all-time peak (an ancient pile of 08:00 sessions used to dominate forever).
+            _now_ts = time.time()
+            _win_days = float(os.environ.get("ELI_HABIT_WINDOW_DAYS", "30") or 30)
+            _cutoff = _now_ts - _win_days * 24 * 3600
+            _recent_cut = _now_ts - 7 * 24 * 3600
             for _uts, _utext in _pc.execute(
                 "SELECT timestamp, content FROM conversation_turns "
-                "WHERE role='user' ORDER BY timestamp DESC LIMIT 800"
+                "WHERE role='user' AND timestamp > ? ORDER BY timestamp DESC LIMIT 1500",
+                (_cutoff,),
             ).fetchall():
                 _h = _real_hour(_uts)
                 if _h is None:
@@ -206,7 +214,11 @@ class ProactiveDaemon:
                 if _norm in _seen_norm:
                     continue  # dedupe identical prompts (test replays)
                 _seen_norm.add(_norm)
-                hour_counts[_h] = hour_counts.get(_h, 0) + 1
+                # Recency weight: turns in the last 7 days count double, so a shift in the
+                # user's routine surfaces within days rather than being outvoted by weeks of
+                # history.
+                _w = 2.0 if (_uts and float(_uts) >= _recent_cut) else 1.0
+                hour_counts[_h] = hour_counts.get(_h, 0.0) + _w
             _pc.close()
         except Exception:
             pass
@@ -220,7 +232,8 @@ class ProactiveDaemon:
                 patterns.append({
                     "type": "time_habit",
                     "peak_hour": peak,
-                    "suggestion": f"Most active around {peak:02d}:00 ({_peak_n} distinct sessions)",
+                    "suggestion": f"Most active around {peak:02d}:00 "
+                                  f"(recent {int(_win_days)}d, recency-weighted)",
                 })
             else:
                 _top = ", ".join(f"{h:02d}:00" for h, _ in _ranked[:3])
