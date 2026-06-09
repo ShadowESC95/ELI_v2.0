@@ -864,9 +864,21 @@ def _generate_legacy(
             stream=False,
             grammar=grammar,
         )
-        log.debug(f"[GGUF][TIMING] nonstream_call_total={time.perf_counter()-started:.3f}s")
+        _elapsed = time.perf_counter() - started
+        log.debug(f"[GGUF][TIMING] nonstream_call_total={_elapsed:.3f}s")
         _raw_text = response["choices"][0]["text"]
         log.debug(f"[GGUF][RAW_TEXT] {_raw_text[:400]!r}")
+        # Record live decode speed (tokens/sec) so the speed-aware tier can cap multi-pass modes
+        # on a slow/CPU-offloaded model. Prefer the model's own completion-token count; fall back
+        # to a chars/4 estimate.
+        try:
+            _gen = int((response.get("usage") or {}).get("completion_tokens") or 0) \
+                or max(1, len(_raw_text) // 4)
+            if _elapsed > 0.05 and _gen >= 4:
+                from eli.core.model_tier import record_speed as _rec_speed
+                _rec_speed(_gen / _elapsed)
+        except Exception:
+            pass
         yield {"response": _clean_eli_output(_raw_text)}
 
 
