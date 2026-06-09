@@ -63,6 +63,10 @@ import threading
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed, TimeoutError as FuturesTimeout
 from dataclasses import dataclass, field
+
+# Canonical confidence primitives — one owner for the per-agent evidence→confidence policy
+# (was 10 ad-hoc inline formulas).
+from eli.cognition.scoring import conf_from_flag, conf_from_count
 from typing import Any, Dict, List, Optional, Set
 
 
@@ -828,7 +832,7 @@ class BusMemoryAgent(_BaseAgent):
                 contradictions = []
 
             total_hits = len(raw_hits) + len(conv_hits)
-            local_conf = min(0.9, 0.3 + total_hits * 0.04)
+            local_conf = conf_from_count(total_hits, base=0.3, step=0.04, cap=0.9)
 
             context_parts: List[str] = []
             if contradictions:
@@ -1037,7 +1041,7 @@ class SystemAgent(_BaseAgent):
             log.debug(f"[AGENT:system] execute result: {result}")
             elapsed = (time.perf_counter() - t0) * 1000
             ok = bool(result.get("ok", False))
-            local_conf = 0.92 if ok else 0.20
+            local_conf = conf_from_flag(ok, hi=0.92, lo=0.20)
             content = result.get("content") or result.get("response") or ""
             log.debug(f"[AGENT:system] action={action} ok={ok} "
                   f"conf={local_conf:.2f} elapsed={elapsed:.0f}ms")
@@ -1088,7 +1092,7 @@ class HabitAgent(_BaseAgent):
             events = mem.get_habit_events(event_type="app_launch", days=14)
             elapsed = (time.perf_counter() - t0) * 1000
             # Confident when there are scheduled rules OR real detected behaviour.
-            local_conf = 0.70 if (rules or detected) else 0.30
+            local_conf = conf_from_flag(bool(rules or detected), hi=0.70, lo=0.30)
             summary = ""
             if detected:
                 summary = "Behavioural patterns noticed: " + ", ".join(
@@ -1153,7 +1157,7 @@ class SelfImprovementAgent(_BaseAgent):
             except Exception:
                 pass
             elapsed = (time.perf_counter() - t0) * 1000
-            local_conf = 0.65 if failures or proposals else 0.25
+            local_conf = conf_from_flag(bool(failures or proposals), hi=0.65, lo=0.25)
             log.debug(f"[AGENT:self_improvement] failures={len(failures)} "
                   f"proposals={len(proposals)} conf={local_conf:.2f} "
                   f"elapsed={elapsed:.0f}ms")
@@ -1220,7 +1224,7 @@ class ProactiveAgent(_BaseAgent):
             from eli.execution.executor_enhanced import execute
             status = execute("PROACTIVE_STATUS", {})
             elapsed = (time.perf_counter() - t0) * 1000
-            local_conf = 0.70 if insights else 0.35
+            local_conf = conf_from_flag(bool(insights), hi=0.70, lo=0.35)
             log.debug(f"[AGENT:proactive] insights={len(insights)} "
                   f"daemon_running={status.get('running', False)} "
                   f"conf={local_conf:.2f} elapsed={elapsed:.0f}ms")
@@ -1339,7 +1343,7 @@ class PluginAgent(_BaseAgent):
             log.debug(f"[AGENT:plugin] execute result: {result}")
             elapsed = (time.perf_counter() - t0) * 1000
             ok = bool(result.get("ok", False))
-            local_conf = 0.88 if ok else 0.18
+            local_conf = conf_from_flag(ok, hi=0.88, lo=0.18)
             log.debug(f"[AGENT:plugin] action={action} ok={ok} "
                   f"conf={local_conf:.2f} elapsed={elapsed:.0f}ms")
             return AgentResult(
@@ -1387,7 +1391,7 @@ class CapabilityAgent(_BaseAgent):
             result = execute(exec_action, intent.get("args") or {})
             elapsed = (time.perf_counter() - t0) * 1000
             ok = bool(result.get("ok", False))
-            local_conf = 0.90 if ok else 0.20
+            local_conf = conf_from_flag(ok, hi=0.90, lo=0.20)
             log.debug(f"[AGENT:capability] action={exec_action} ok={ok} conf={local_conf:.2f} elapsed={elapsed:.0f}ms")
             return AgentResult(
                 agent=self.name, ok=ok, confidence=local_conf,
@@ -2611,7 +2615,7 @@ class FileCodeAgent(_BaseAgent):
                         _dedup.append(_s)
                 snippets = _dedup[:20]
 
-            local_conf = 0.78 if snippets else 0.20
+            local_conf = conf_from_flag(bool(snippets), hi=0.78, lo=0.20)
             elapsed = (time.perf_counter() - t0) * 1000
             log.debug(f"[AGENT:file_code] snippets={len(snippets)} files_scanned={files_scanned} conf={local_conf:.2f} elapsed={elapsed:.0f}ms")
             return AgentResult(
@@ -2785,7 +2789,7 @@ class ReflectionAgent(_BaseAgent):
                 if text:
                     insights.append(text[:220])
 
-            local_conf = 0.78 if _synth else (0.68 if insights else 0.20)
+            local_conf = conf_from_flag(bool(_synth), hi=0.78, lo=conf_from_flag(bool(insights), hi=0.68, lo=0.20))
             elapsed = (time.perf_counter() - t0) * 1000
             log.debug(f"[AGENT:reflection] insights={len(insights)} synth={bool(_synth)} "
                       f"conf={local_conf:.2f} elapsed={elapsed:.0f}ms")
@@ -2891,7 +2895,7 @@ class KnowledgeGraphAgent(_BaseAgent):
                              + "Connected facts (multi-hop):\n"
                              + "\n".join(f"- {c}" for c in multihop[:8]))
             # Multi-hop chains are higher-value evidence — reward them in the confidence.
-            confidence = min(0.90, 0.4 + stats["relations"] * 0.02 + (0.06 if multihop else 0.0))
+            confidence = min(0.90, conf_from_count(stats["relations"], base=0.4, step=0.02, cap=0.9) + (0.06 if multihop else 0.0))
             log.debug(f"[AGENT:knowledge_graph] {stats['entities']} entities, "
                   f"{stats['relations']} relations, multihop={len(multihop)} "
                   f"ctx_chars={len(kg_block)} elapsed={elapsed:.0f}ms")

@@ -1,21 +1,11 @@
 from __future__ import annotations
 
-import re
 import time
 from typing import Any, Dict, Iterable, List
 
-_STOP = {
-    "the","a","an","and","or","but","if","then","than","to","of","in","on","at",
-    "for","with","from","by","is","are","was","were","be","been","being",
-    "what","which","who","whom","whose","when","where","why","how",
-    "do","does","did","can","could","should","would","will","may","might",
-    "about","into","over","under","again","more","most","some","any","all",
-    "your","you","me","my","i","we","our","they","them","their"
-}
+# Canonical text + recency primitives (one owner — no bespoke stopwords/tokeniser here).
+from eli.cognition.scoring import tokenize as _tok, recency_score as _recency_score
 
-def _tok(text: str) -> list[str]:
-    toks = re.split(r"[^a-zA-Z0-9_]+", (text or "").lower())
-    return [t for t in toks if t and t not in _STOP and len(t) > 1]
 
 def _as_float(v: Any, default: float = 0.0) -> float:
     try:
@@ -53,10 +43,7 @@ def rerank_candidates(query: str, candidates: Iterable[Dict[str, Any]], limit: i
         importance = _as_float(c.get("importance", 0.5), 0.5)
         weight = _as_float(c.get("weight", 0.5), 0.5)
         ts = _as_float(c.get("ts", c.get("timestamp", 0)), 0.0)
-
-        recency = 0.0
-        if ts > 0:
-            recency = max(0.0, 1.0 - ((now - ts) / (86400.0 * 30.0)))
+        recency = _recency_score(ts, now=now, window_days=30.0)
 
         source = str(c.get("source") or c.get("_source") or c.get("kind") or "").lower()
         source_bonus = 0.0
