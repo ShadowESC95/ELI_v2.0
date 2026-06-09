@@ -241,6 +241,22 @@ def max_tokens_from_ctx(n_ctx: int) -> int:
 
 
 def mode_presets(n_ctx: int, max_tokens: int) -> Dict[str, Dict[str, Any]]:
+    # MODEL-AGNOSTIC capability scaling: a bigger/smarter model gets MORE samples, wider and
+    # deeper search, and larger per-stage budgets instead of staying throttled at the small-
+    # model defaults. tier_scale() is 1.0 for the current small model (fully behaviour-
+    # preserving) and rises (medium 1.5 / large 2.5 / frontier 4.0) as a larger GGUF is loaded.
+    try:
+        from eli.core.model_tier import tier_scale as _ts
+        _scale = float(_ts())
+    except Exception:
+        _scale = 1.0
+
+    def _cnt(base: int, lo: int, hi: int) -> int:
+        return max(lo, min(hi, int(round(base * _scale))))
+
+    def _tok(base: int) -> int:
+        return min(max_tokens, int(round(base * _scale)))
+
     return {
         "quick": {
             "max_tokens": min(max_tokens, 1024),
@@ -258,21 +274,21 @@ def mode_presets(n_ctx: int, max_tokens: int) -> Dict[str, Dict[str, Any]]:
             "memory_depth": "normal",
         },
         "self_consistency": {
-            "samples": 3 if n_ctx >= 8192 else 2,
-            "max_tokens_per_sample": min(max_tokens, 2048),
-            "max_tokens_final": min(max_tokens, 3072),
+            "samples": _cnt(3 if n_ctx >= 8192 else 2, 2, 7),
+            "max_tokens_per_sample": _tok(2048),
+            "max_tokens_final": _tok(3072),
         },
         "tree_of_thoughts": {
-            "branches": 3 if n_ctx >= 8192 else 2,
-            "depth": 3 if n_ctx >= 16384 else 2,
-            "max_tokens_propose": min(1024, max_tokens),
-            "max_tokens_develop": min(3072, max_tokens),
-            "max_tokens_critique": min(1024, max_tokens),
+            "branches": _cnt(3 if n_ctx >= 8192 else 2, 2, 6),
+            "depth": _cnt(3 if n_ctx >= 16384 else 2, 1, 4),
+            "max_tokens_propose": _tok(1024),
+            "max_tokens_develop": _tok(3072),
+            "max_tokens_critique": _tok(1024),
             "max_tokens_revise": max_tokens,
         },
         "constitutional_ai": {
-            "max_tokens_generate": min(3072, max_tokens),
-            "max_tokens_critique": min(1024, max_tokens),
+            "max_tokens_generate": _tok(3072),
+            "max_tokens_critique": _tok(1024),
             "max_tokens_revise": max_tokens,
             "max_tokens": max_tokens,
         },
