@@ -689,45 +689,6 @@ def _memory_seed_terms(text: str, k: int = 5) -> list:
     return out
 
 
-def _rerank_hits(hits: List[Dict[str, Any]], query: str,
-                 now: Optional[float] = None) -> List[Dict[str, Any]]:
-    """Fuse relevance + recency + source into one score and reorder, so the strongest,
-    freshest evidence leads the context instead of raw semantic order. Robust to missing
-    fields; never raises."""
-    import time as _t
-    now = now or _t.time()
-    q_terms = {w for w in re.split(r"[^a-z0-9]+", (query or "").lower()) if len(w) > 2}
-    tss = [float(h.get("ts") or h.get("timestamp") or 0)
-           for h in hits if isinstance(h, dict)]
-    pos_ts = [t for t in tss if t > 0]
-    t_min, t_max = (min(pos_ts), max(pos_ts)) if pos_ts else (0.0, 0.0)
-    span = max(1.0, t_max - t_min)
-    scored: List[tuple] = []
-    n = max(1, len(hits))
-    for i, h in enumerate(hits):
-        if not isinstance(h, dict):
-            continue
-        text = (h.get("text") or h.get("content") or "").lower()
-        rel = h.get("score", h.get("similarity"))
-        if rel is None:
-            overlap = (len(q_terms & set(re.split(r"[^a-z0-9]+", text))) / (len(q_terms) or 1))
-            rel = 0.6 * overlap + 0.4 * (1.0 - i / n)
-        try:
-            rel = float(rel)
-        except Exception:
-            rel = 0.5
-        ts = float(h.get("ts") or h.get("timestamp") or 0)
-        rec = ((ts - t_min) / span) if ts > 0 else 0.3
-        src = str(h.get("source") or "").lower()
-        src_w = 1.0 if "memor" in src else (0.85 if "conv" in src else 0.9)
-        fused = 0.55 * rel + 0.30 * rec + 0.15 * src_w
-        h2 = dict(h)
-        h2["_rerank_score"] = round(fused, 4)
-        scored.append((fused, h2))
-    scored.sort(key=lambda x: x[0], reverse=True)
-    return [h for _, h in scored]
-
-
 _CONTRADICTION_RE = re.compile(
     r"\b(?:user'?s?\s+)?(name|preferred\s+name|favou?rite\s+\w+|home\s*town|"
     r"location|occupation|job)\s+(?:is|=|:)\s+([a-z0-9][\w '\-]{1,40})",
@@ -850,11 +811,14 @@ class BusMemoryAgent(_BaseAgent):
                 except Exception:
                     pass
 
-            # Rerank fused (relevance + recency + source) so the strongest, freshest evidence
-            # leads — not raw semantic order. Then flag contradictions among the top facts so
-            # synthesis resolves them (prefer freshest) instead of asserting both.
+            # Rerank via the CANONICAL reranker (eli.cognition.reranker — same owner Stage 9
+            # uses) so the strongest, freshest evidence leads instead of raw semantic order.
+            # Quick mode has no orchestrator Stage 9, so this is where its hits get ranked.
+            # Then flag contradictions so synthesis resolves them, not asserts both.
             try:
-                raw_hits = _rerank_hits(raw_hits, user_input)
+                from eli.cognition.reranker import rerank_candidates
+                if raw_hits:
+                    raw_hits = rerank_candidates(user_input, raw_hits, limit=len(raw_hits))
             except Exception:
                 pass
             contradictions: List[Dict[str, Any]] = []
