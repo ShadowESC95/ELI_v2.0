@@ -1090,6 +1090,18 @@ class SelfImprovementAgent(_BaseAgent):
                 proposals = get_memory().get_pending_proposals(limit=5)
             except Exception:
                 pass
+            # Also surface the self-repair proposals the background proposer persisted as
+            # goals (coding-agent verified/candidate fixes) — so the agent reports ELI's
+            # real self-improvement agenda, not just an empty capability_proposals table.
+            try:
+                from eli.planning.goal_store import load_goals
+                for g in (load_goals() or []):
+                    if "self_improve" in (getattr(g, "tags", None) or []) and getattr(g, "enabled", True):
+                        proposals.append({"capability": getattr(g, "title", ""),
+                                          "reasoning": getattr(g, "objective", ""),
+                                          "source": "self_repair_goal"})
+            except Exception:
+                pass
             elapsed = (time.perf_counter() - t0) * 1000
             local_conf = 0.65 if failures or proposals else 0.25
             log.debug(f"[AGENT:self_improvement] failures={len(failures)} "
