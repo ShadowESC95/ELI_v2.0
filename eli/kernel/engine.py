@@ -7330,10 +7330,25 @@ Answer:"""
                     _world_lines.append(f"  {_fld}: {_val:.2f}")
             _av = _ws.get("avatar", {})
             _av_room = (_av.get("room") or "").strip()
-            if _av_room:
-                _world_lines.insert(0, f"  current_room: {_av_room.replace('_', ' ').title()}")
+            # Only surface the avatar's room when the user is actually asking about ELI's
+            # world / location / current activity. Otherwise the model reads the symbolic
+            # room NAME (Anomaly Room, Memory Archive — themed around contradictions /
+            # continuity) as LITERAL ongoing work and fabricates "contradictions /
+            # inconsistencies that have arisen, which I'm resolving" — a no-fake-actions
+            # violation that made the user think ELI was malfunctioning.
+            _ui_low = str(user_input or "").lower()
+            _room_relevant = bool(re.search(
+                r"\b(room|world|avatar|where are you|your location|"
+                r"what are you (?:doing|working on|up to)|in there)\b", _ui_low))
+            if _av_room and _room_relevant:
+                _world_lines.insert(
+                    0, f"  avatar_location (symbolic world-view only, NOT a literal task): "
+                       f"{_av_room.replace('_', ' ').title()}")
             if _world_lines:
-                _extra_blocks.append("[ELI INTERNAL STATE]\n" + "\n".join(_world_lines))
+                _extra_blocks.append(
+                    "[ELI INTERNAL STATE] (symbolic self-metrics — describe them honestly if "
+                    "asked; do NOT invent tasks, contradictions, inconsistencies, or maintenance "
+                    "work you are not actually running)\n" + "\n".join(_world_lines))
         except Exception:
             pass
 
