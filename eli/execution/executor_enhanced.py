@@ -8829,9 +8829,24 @@ def _execute_impl(action: str, args: Optional[Dict[str, Any]] = None) -> Dict[st
         path = str(args.get("path") or "").strip()
         path = _re_ff.sub(r'^file\s+', '', path, flags=_re_ff.IGNORECASE).strip()
         if not path:
-            msg = "Path not found: missing path"
+            # Bare "please fix the file" — recover the file the user named a turn earlier
+            # (e.g. the FIX_FILE/EXAMINE_CODE target) instead of failing outright.
+            try:
+                from eli.runtime import code_examiner as _ce_lf
+                path = str(_ce_lf.get_last_file() or "").strip()
+            except Exception:
+                path = ""
+        if not path:
+            msg = ("I don't have a file to fix yet — tell me which one "
+                   "(e.g. 'fix eli/memory/memory.py').")
             return {"ok": False, "action": a, "error": msg, "content": msg, "response": msg}
         pp = _resolve_existing_user_or_artifact_path(path)
+        if pp.exists():
+            try:
+                from eli.runtime import code_examiner as _ce_lf
+                _ce_lf.set_last_file(str(pp))
+            except Exception:
+                pass
         if not pp.exists():
             msg = f"Path not found: {pp}"
             return {"ok": False, "action": a, "error": msg, "content": msg, "response": msg}
