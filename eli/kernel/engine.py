@@ -12592,7 +12592,12 @@ Answer:"""
                         _os_paths.path.abspath(__file__)), '..', '..')
                 ))
             if _proj_root and _proj_root != '/':
-                ev = ev.replace(_proj_root + '/', 'eli/').replace(_proj_root, 'eli')
+                # Strip the absolute project root to a REPO-RELATIVE path. The paths inside
+                # are '<proj_root>/eli/...', so abbreviating '<proj_root>/' to '' yields
+                # 'eli/...' correctly. (The old replacement used 'eli/' here, which produced
+                # the bogus 'eli/eli/...' the model then faithfully echoed — it was NOT a
+                # hallucination, it was created right here.)
+                ev = ev.replace(_proj_root + '/', '').replace(_proj_root, '')
         except Exception:
             pass
 
