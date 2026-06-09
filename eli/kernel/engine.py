@@ -756,6 +756,17 @@ def _normalize_assistant_text(user_text: str, text: str) -> str:
     # Strip model meta-commentary: "(Note: This response deviates...)" patterns
     t = re.sub(r'\s*\(Note:[^)]{0,300}\)', '', t, flags=re.I).strip()
     t = re.sub(r'\s*\[Note:[^\]]{0,300}\]', '', t, flags=re.I).strip()
+    # Strip leaked INTERNAL-STATE / context-metadata lines the model echoed verbatim from its
+    # brief — "[Your current activity: …, attention: …]", "[Remembered past topics: …]",
+    # "[ELI INTERNAL STATE]" etc. These are context scaffolding, never user-facing. Anchored to
+    # whole lines with a known internal label, so it never touches legitimate bracketed text
+    # like "[MEMORY SEARCH RESULT: …]" or an array index. (2026-06-09: a casual "back in a
+    # minute" drew a reply that ended in these bracketed metadata lines.)
+    t = re.sub(
+        r'(?im)^[ \t]*\[(?:your\s+)?(?:current\s+activity|attention|remembered\s+past\s+topics'
+        r'|recalled\s+(?:past\s+)?topics|recalled\s+research|eli\s+internal\s+state'
+        r'|internal\s+state|world\s+state)\b[^\]\n]*\]\s*$',
+        '', t).strip()
     # Strip trailing self-critique the model appended to phatic responses
     t = re.sub(
         r'\s*\(Note:.*$', '', t, flags=re.I | re.DOTALL
@@ -891,6 +902,14 @@ def _is_brief_phatic_prompt(text: str) -> bool:
     # fall through as non-phatic, which let the past-session project topics get injected and
     # the model resumed them off a plain hello.
     normalized = re.sub(r"\s+eli$", "", normalized).strip() or normalized
+    # Strip a LEADING greeting so a greeting compounded with a phatic check-in still matches
+    # ("good afternoon what's the story" -> "what's the story"). This only HELPS a phatic
+    # remainder reach the phrase set; a substantive remainder ("good morning fix the bug")
+    # still falls through as non-phatic, so it can't swallow a real request.
+    _lead = re.sub(r"^(?:good\s+)?(?:morning|afternoon|evening)\b[\s,.]*", "", normalized)
+    _lead = re.sub(r"^(?:hi|hey|hello|hiya|howya|yo|sup)\b[\s,.]+", "", _lead).strip()
+    if _lead and _lead != normalized and len(_lead.split()) <= 8:
+        normalized = _lead
     words = normalized.split()
     n = len(words)
 
@@ -915,9 +934,14 @@ def _is_brief_phatic_prompt(text: str) -> bool:
         "hi eli", "hello eli", "hey eli", "howya eli",
         "whats up", "what's up", "you alive", "you there",
         "how are you", "how you doing", "how ya doing", "hows things", "how's things",
+        "how is things", "how are things", "hows everything", "how's everything",
         "hows it going", "how's it going", "hows it", "how's it",
         "all good", "you good", "you ok", "you okay",
         "good morning", "good afternoon", "good evening", "morning eli", "evening eli",
+        # Irish / colloquial check-ins (idiom for "how are things", NOT a request for a story)
+        "whats the story", "what's the story", "what is the story", "story bud", "story pal",
+        "whats the craic", "what's the craic", "hows the craic", "how's the craic", "any craic",
+        "whats new", "what's new", "whats happening", "what's happening",
     }
     if normalized in phrases:
         return True
