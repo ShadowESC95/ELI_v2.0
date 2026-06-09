@@ -12578,10 +12578,44 @@ Answer:"""
                 text = _strip_reasoning_scaffold(text)
             except Exception:
                 pass
+            # Fact-preservation guard: a small model re-narrating grounded evidence often
+            # CORRUPTS file paths — observed "eli/eli/execution/router_enhanced.py" (a doubled
+            # segment that is NOT in the evidence). Deterministically repair doubled path
+            # segments, but ONLY when the evidence confirms the single form (never break a
+            # legitimately repeated directory).
+            try:
+                text = self._repair_synthesis_paths(text, ev)
+            except Exception:
+                pass
             return text
         except Exception as exc:
             log.debug(f"[COGNITIVE] _compact_grounded_synthesis failed: {exc}")
             return ""
+
+    def _repair_synthesis_paths(self, text: str, evidence: str) -> str:
+        """Repair path corruptions a weak model introduces when re-narrating grounded
+        evidence (e.g. 'eli/eli/...'). Collapses a doubled consecutive path segment ONLY
+        when the doubled form is absent from the evidence but the single form is present —
+        so a genuinely repeated directory is never altered."""
+        if not text or "/" not in text:
+            return text
+        import re as _re
+        ev = str(evidence or "")
+
+        def _dedupe(m):
+            seg = m.group(1)
+            doubled, single = f"{seg}/{seg}/", f"{seg}/"
+            if doubled not in ev and single in ev:
+                return single
+            return m.group(0)
+
+        prev = None
+        out = text
+        # Loop to catch triple+ corruptions ('eli/eli/eli/').
+        while prev != out:
+            prev = out
+            out = _re.sub(r"\b([A-Za-z0-9_.\-]+)/\1/", _dedupe, out)
+        return out
 
     def _synthesize_answer(self, evidence: str, query: str,
                            reasoning_mode=None, compact_override: bool = False,
