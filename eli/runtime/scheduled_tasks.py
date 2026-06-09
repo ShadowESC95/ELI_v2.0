@@ -33,6 +33,14 @@ _CATCHUP_DELAY = 180.0  # missed one-shot tasks run this many seconds after boot
                         # enough for the main model + Whisper to finish loading first, so a
                         # catch-up never races the boot load for VRAM (recurring jobs reschedule
                         # to their next window instead; see restore_scheduled_tasks)
+
+# ── VRAM interlock ──────────────────────────────────────────────────────────
+# A background job must never trigger a SEPARATE / early model load while the main
+# (GUI) model hasn't claimed its VRAM yet — that starves VRAM and forces the main
+# model onto CPU (the boot-race bug). Every job waits for the main model to be loaded
+# before doing heavy work, so it shares that model instead of cold-loading another.
+_MODEL_WAIT_TIMEOUT = 900.0  # wait up to 15 min for the main model, then skip (re-arms nightly)
+_MODEL_WAIT_POLL = 15.0      # poll interval while waiting
 _STORE_LOCK = threading.RLock()
 _RESTORED = False
 
@@ -307,8 +315,37 @@ def _arm(pid: str, request: str, when_ts: float, when_spec: str, kind: str,
     the result, and (when recurring) re-schedules for the next occurrence — so a
     'overnight' task repeats nightly (when_spec re-resolves to the next 02:00)."""
     from eli.runtime.background_tasks import get_background_tasks
-    worker = _WORKERS.get(kind, _worker_research)
+    _inner_worker = _WORKERS.get(kind, _worker_research)
     surface = _surface(request + (" (catch-up: missed while offline)" if catchup else ""), kind)
+
+    def worker(req, *a, **k):
+        # ── VRAM interlock ──
+        # Wait for the main (GUI) model to be loaded before running. This prevents a
+        # background job from triggering a separate/early cold model load that starves
+        # VRAM and forces the main model onto CPU. Once the main model is up, this job
+        # shares it (single inference broker). If it never loads within the window, skip
+        # (a recurring job re-arms for its next nightly slot via _on_done).
+        try:
+            from eli.cognition.gguf_inference import is_loaded as _model_loaded
+        except Exception:
+            _model_loaded = None
+        if _model_loaded is not None:
+            _waited = 0.0
+            while _waited < _MODEL_WAIT_TIMEOUT:
+                try:
+                    if _model_loaded():
+                        break
+                except Exception:
+                    break
+                time.sleep(_MODEL_WAIT_POLL)
+                _waited += _MODEL_WAIT_POLL
+            else:
+                log.info(
+                    f"[SCHEDULED] skipped {kind}: main model not loaded within "
+                    f"{int(_MODEL_WAIT_TIMEOUT)}s — VRAM interlock (won't cold-load a second model)"
+                )
+                return {"ok": False, "skipped": True, "reason": "model_not_loaded_vram_interlock"}
+        return _inner_worker(req, *a, **k)
 
     def _on_done(task) -> None:
         forget(pid)
