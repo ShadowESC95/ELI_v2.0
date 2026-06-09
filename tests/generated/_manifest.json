@@ -1,5 +1,5 @@
 {
-  "updated": "2026-06-07T19:14:29",
+  "updated": "2026-06-09T10:26:20",
   "entries": [
     {
       "qual": "eli.core.model_tier:clear_cache",
@@ -12,13 +12,63 @@
       "qual": "eli.core.dag:build_dag",
       "reason": "no tests collected",
       "accepted": false,
-      "ts": "2026-06-07T19:14:29"
+      "ts": "2026-06-09T10:26:20"
     },
     {
       "qual": "eli.core.model_tier:detect_tier",
-      "reason": "syntax error: invalid syntax (<unknown>, line 16)",
+      "reason": "no tests collected",
       "accepted": false,
-      "ts": "2026-06-07T19:14:29"
+      "ts": "2026-06-09T10:26:20"
+    },
+    {
+      "qual": "eli.cognition.reasoning_modes:apply_final_reasoning_contract",
+      "file": "tests/generated/test_gen_eli_cognition_reasoning_modes__apply_final_reasoning_contract.py",
+      "passed": 1,
+      "accepted": true,
+      "ts": "2026-06-08T02:01:00"
+    },
+    {
+      "qual": "eli.cognition.reasoning_modes:build_mode_execution_contract",
+      "file": "tests/generated/test_gen_eli_cognition_reasoning_modes__build_mode_execution_contract.py",
+      "passed": 1,
+      "accepted": true,
+      "ts": "2026-06-08T02:01:00"
+    },
+    {
+      "qual": "eli.core.dag:run_graph",
+      "reason": "no tests collected",
+      "accepted": false,
+      "ts": "2026-06-09T10:26:20"
+    },
+    {
+      "qual": "eli.core.model_tier:tier_scale",
+      "reason": "no tests collected",
+      "accepted": false,
+      "ts": "2026-06-09T10:26:20"
+    },
+    {
+      "qual": "eli.cognition.reasoning_modes:canonical_mode",
+      "reason": "failed/errored",
+      "accepted": false,
+      "ts": "2026-06-09T10:26:20"
+    },
+    {
+      "qual": "eli.cognition.reasoning_modes:gui_prompt_prefix_for_mode",
+      "reason": "failed/errored",
+      "accepted": false,
+      "ts": "2026-06-09T10:26:20"
+    },
+    {
+      "qual": "eli.cognition.reasoning_modes:is_private_reasoning_mode",
+      "reason": "no tests collected",
+      "accepted": false,
+      "ts": "2026-06-09T10:26:20"
+    },
+    {
+      "qual": "eli.cognition.reasoning_modes:mode_budget_multiplier",
+      "reason": "no tests collected",
+      "accepted": false,
+      "ts": "2026-06-09T10:26:20"
     }
   ]
 }
