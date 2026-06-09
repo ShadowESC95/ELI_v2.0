@@ -5194,6 +5194,22 @@ Answer:"""
                     if _rep:
                         return _rep
 
+        # FIX_FILE success event: the executor JSON-encodes {event:artifact_generated,
+        # fixed:true, path, filename, backup}. Synthesising it made the model narrate a FALSE
+        # refusal ("I cannot fix the file from here") even though the file WAS written. Surface
+        # the real outcome instead of letting the model confabulate one.
+        for _ff_src in (situation_brief, memory_context, prompt):
+            _ff_txt = str(_ff_src or "")
+            if re.search(r'"event"\s*:\s*"artifact_generated"', _ff_txt) and \
+               re.search(r'"fixed"\s*:\s*true', _ff_txt):
+                _fn = re.search(r'"filename"\s*:\s*"([^"]+)"', _ff_txt)
+                _pm = re.search(r'"path"\s*:\s*"([^"]+)"', _ff_txt)
+                _name = _fn.group(1) if _fn else (_pm.group(1) if _pm else "the file")
+                _has_bak = bool(re.search(r'"backup"\s*:\s*"[^"]+"', _ff_txt))
+                return (f"✅ Fixed `{_name}`"
+                        + (" — a timestamped backup was saved" if _has_bak else "")
+                        + ". The corrected file is open in the editor.")
+
         if _eli_test_mode():
             gen_overrides = dict(gen_overrides or {})
             gen_overrides["max_tokens"] = min(
