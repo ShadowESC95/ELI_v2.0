@@ -99,7 +99,7 @@ pipeline/memory/gating close-ups). Every layer and box maps to a real path.
 
 ---
 
-## B. The 15 agents
+## B. The 14 agents
 
 ```
  AGENT BUS  (cognition/agent_bus.py :: AgentBus.dispatch → DispatchResult)

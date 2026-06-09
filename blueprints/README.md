@@ -166,3 +166,21 @@ from deep reads of the core + a full structural/code-health sweep — a deep rea
   adapts its delivery). Duration-adaptive STT pause (0.5s commands / 2s after 12s).
 - **Media/installer:** honest "install mpv+yt-dlp" on the play fallback; `install.sh`
   now bundles the runtime/OS-control tools.
+
+## Update — 2026-06-09 (examiner/grounding correctness; VRAM; clean shutdown)
+- **Deterministic reports surfaced verbatim:** EXAMINE_CODE / FILE_AUDIT / FIX_FILE are no longer
+  re-narrated by the chat path — killed three live confabulation classes (invented files, invented
+  findings that were existing comments, false "I cannot fix" after a successful fix). See
+  `grounding_and_evidence.md`.
+- **Examiner correctness:** pyflakes star-import false positives filtered (~800 → 0); tier-3 now
+  reviews the whole file in line-correct windows (was the first ~300 lines only) and rejects
+  out-of-window line guesses; "issues with the files" routes to the real examiner, "fix the bugs in
+  X" stays FIX_FILE.
+- **VRAM:** STT (faster-whisper) is VRAM-aware — CPU on ≤8 GB cards so the main model keeps the GPU
+  (`gpu_layers` 11 → 99). See `inference_and_hardware.md` / `perception.md`.
+- **Scheduled-task dedup + clean shutdown:** recurring nightly jobs kept to one per (kind,request);
+  shutdown `os._exit`-after-flush bypasses the llama.cpp/FAISS teardown segfault. See
+  `operations.md`.
+- **Drag-and-drop keeps the full file path** (+ FIX_FILE last-file memory) so file actions work.
+- **Stats (verified, unchanged this session):** ~134k LOC / **353** files / **206** capabilities /
+  **14** bus agents / **6,659** tests collected (152 test files).
