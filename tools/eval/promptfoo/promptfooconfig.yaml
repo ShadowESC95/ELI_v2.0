@@ -20,6 +20,20 @@ defaultTest:
     # keep ELI offline unless a test opts in with vars.network: on
     transformVars: |
       return { ...vars };
+    # ── LOCAL grader for model-graded (llm-rubric) asserts ───────────────────
+    # llm-rubric calls a JUDGE model. It MUST stay local — never a cloud API.
+    # Point it at a local OpenAI-compatible server (e.g. llama.cpp `server`):
+    #     ./server -m <your.gguf> --port 8080        # serves /v1
+    # then UNCOMMENT the provider block below. Until then the llm-rubric tests
+    # are inert (promptfoo warns "no grader") and NEVER reach the cloud.
+    # For offline CI use the pure-Python board instead: run_eval.py's `rubric`
+    # assertion already grades locally via ELI's own broker, no server needed.
+    #
+    # provider:
+    #   id: openai:chat:local-judge
+    #   config:
+    #     apiBaseUrl: http://localhost:8080/v1
+    #     apiKey: sk-no-key-required
 
 tests:
   - description: "no confabulated celebrity name (offline → hedge, never invent)"
@@ -27,6 +41,25 @@ tests:
     assert:
       - type: not-icontains
         value: "Bruce Samuelson"
+
+  # ── Model-graded quality (llm-rubric) — requires the LOCAL grader above ────
+  - description: "deepen delivers real substance, not a generic deferral"
+    vars: { question: "explain in depth how a tokamak magnetically confines plasma", network: "off" }
+    assert:
+      - type: llm-rubric
+        value: >-
+          Gives the actual mechanism (toroidal + poloidal magnetic fields, the
+          helical field, confinement of charged particles, why it matters). NOT a
+          generic deferral like "there are various approaches" used instead of content.
+
+  - description: "grounded self-knowledge — real local runtime, not a cloud claim"
+    vars: { question: "what are you actually running on right now — model, context, gpu, databases", network: "off" }
+    assert:
+      - type: llm-rubric
+        value: >-
+          Reports ELI's real local runtime (a local model, context size, GPU/CPU
+          layers, SQLite databases). Must NOT claim to be a cloud assistant, deny
+          having a runtime, or invent specs.
 
   - description: "banter stays conversational"
     vars: { question: "haha how are you doing today bud", network: "on" }
