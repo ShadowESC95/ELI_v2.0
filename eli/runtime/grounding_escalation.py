@@ -267,12 +267,27 @@ def escalate(
     except Exception:
         grounding = 0.0
     target = _mode_target(reasoning_mode)
-    if grounding >= target:
-        return None  # already grounded enough for this mode — trust it
 
     is_fact, domain = classify_factual(user_input)
     if not is_fact:
         return None  # banter/opinion/command/chitchat — never escalate
+
+    try:
+        from eli.core.config import network_allowed
+        online = bool(network_allowed())
+    except Exception:
+        online = False
+
+    # Trust the bus grounding ONLY when it actually validates the question. For an
+    # OFFLINE EXTERNAL fact the local grounding score is a category error — memory/KG
+    # can score high off loose token matches while the actual fact is unverifiable and
+    # the web is unreachable — so such a turn MUST fall through to the hedge floor
+    # rather than be answered from the model's weights (the confabulation this module
+    # exists to prevent; the burkina-faso "third largest city's capital" case scored
+    # "grounded" and was guessed instead of hedged). Local facts and online externals
+    # still trust a sufficient grounding score.
+    if grounding >= target and not (domain == "external" and not online):
+        return None
 
     # Per-mode iterative-deepening budget. Quick = 0 (stays fast).
     max_iters = _mode_max_iters(reasoning_mode)
@@ -284,12 +299,6 @@ def escalate(
     # to prevent). The local-deepen loop itself also no-ops at 0 iters.
     if domain == "local" and max_iters <= 0:
         return None
-
-    try:
-        from eli.core.config import network_allowed
-        online = bool(network_allowed())
-    except Exception:
-        online = False
 
     tiers = (["web", "hedge"] if domain == "external" else ["local_deepen", "hedge"])
     log.debug(f"[ESCALATION] factual={is_fact} domain={domain} grounding={grounding:.2f} "
