@@ -1457,7 +1457,15 @@ def route(text: str) -> Dict[str, Any]:
     # before: (a) web_search — 'search your code…' was web-searched and returned external VS Code
     # articles; (b) system.capabilities — 'your agents' dumped the raw 207-ACTION list (agents ≠
     # capabilities). Routes to EXPLAIN_COGNITION_RUNTIME.
-    if (
+    # …UNLESS the user is asking ELI to PRODUCE an artifact about its internals
+    # ("generate/write/create a document/report about your agent bus"). That is a
+    # generative request (GENERATE_DOCUMENT), not a runtime-dump request — the
+    # introspection guard used to swallow it because it merely mentions "agent bus".
+    _doc_gen_intent = bool(re.search(
+        r"\b(generate|create|write|make|draft|produce|compose|prepare|build)\b"
+        r".{0,30}\b(document|doc|report|essay|article|paper|write-?up|brief|memo|"
+        r"guide|overview|summary|story|blog|post|readme)\b", low))
+    if not _doc_gen_intent and (
         re.search(r"\b(?:how|what|explain|describe|tell me|show me)\b.{0,40}\b(?:your|the|eli'?s)\s+agents?\b", low)
         or re.search(r"\b(?:your|the|eli'?s)\s+agents?\b.{0,40}\b(work|works|function|functions|operate|operates|run|runs|behave|coordinate|interact|process)\b", low)
         or re.search(r"\bagent\s+bus\b", low)
