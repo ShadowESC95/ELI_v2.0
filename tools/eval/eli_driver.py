@@ -107,7 +107,11 @@ def run_engine(
     latency = round(time.perf_counter() - t0, 4)
 
     if isinstance(res, str):
-        return {"target": "engine", "text": res.strip(), "action": "", "grounding": None,
+        # Some quick paths intentionally return DIRECT VISIBLE TEXT (a bare string),
+        # which carries no 'action' field — read it from the engine's side channel
+        # (_last_response_action) so routing telemetry stays accurate for those paths.
+        _act = str(getattr(eng, "_last_response_action", "") or "")
+        return {"target": "engine", "text": res.strip(), "action": _act, "grounding": None,
                 "response_mode": "", "latency_s": latency, "raw": res}
     if not isinstance(res, dict):
         # generator → consume
