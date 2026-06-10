@@ -26,6 +26,16 @@ def classify_diagnostic_action(text: str) -> Optional[str]:
     if not low:
         return None
 
+    # A request to PRODUCE an artifact about ELI's internals ("generate/write a
+    # document/report about your agent bus") is a generative task, NOT a diagnostic
+    # status dump — never classify it here, or this gate swallows it before it can
+    # route to GENERATE_DOCUMENT (eval-caught: doc-gen returned the agent-bus status).
+    if re.search(
+        r"\b(generate|create|write|make|draft|produce|compose|prepare|build)\b"
+        r".{0,30}\b(document|doc|report|essay|article|paper|write-?up|brief|memo|"
+        r"guide|overview|summary|story|blog|post|readme)\b", low):
+        return None
+
     # "who are you" is a persona/identity question — let the LLM answer it
     # in ELI's voice.  Only map *technical* runtime queries to RUNTIME_STATUS.
     if re.search(r"\b(what are you running|runtime status|model.*context|gpu layers|context size)\b", low):
