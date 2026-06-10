@@ -207,13 +207,26 @@ def _worker_eval(request: str):
         evdir = repo / "artifacts" / "eval"
         evdir.mkdir(parents=True, exist_ok=True)
         res_json = evdir / "engine_eval_results.json"
+        # --history: append a timestamped record + trend line under artifacts/eval/history/
+        # and write regressions.json — so overnight runs build a trend (P3) and any
+        # failures become an actionable, surfaced list (P5) instead of a silent overwrite.
         r = subprocess.run(
             [_sys.executable, "tools/eval/run_eval.py", "--target", "engine",
-             "--json", str(res_json)],
+             "--json", str(res_json), "--history"],
             cwd=str(repo), capture_output=True, text=True, timeout=3600)
         out["engine_eval"] = (r.stdout or r.stderr or "")[-1200:]
         out["engine_results_path"] = str(res_json)
         out["engine_ok"] = (r.returncode == 0)
+        # Surface overnight regressions so the morning summary names them.
+        try:
+            import json as _json
+            reg_path = evdir / "regressions.json"
+            if reg_path.exists():
+                _reg = _json.loads(reg_path.read_text(encoding="utf-8"))
+                out["regression_count"] = int(_reg.get("count", 0) or 0)
+                out["regressions"] = [x.get("id") for x in (_reg.get("regressions") or [])]
+        except Exception:
+            pass
     except Exception as e:
         out["ok"] = False
         out["engine_error"] = str(e)
@@ -279,8 +292,11 @@ def _result_preview(kind: str, res: Any) -> str:
     if kind == "reflection":
         return str(res.get("reflection") or "")[:600]
     if kind == "eval":
-        return (f"engine eval {'ok' if res.get('engine_ok') else 'ran'}; "
-                f"{str(res.get('test_report') or '').strip()[:300]}")
+        _rc = int(res.get("regression_count", 0) or 0)
+        _reg = (f"⚠ {_rc} eval regression(s): {', '.join((res.get('regressions') or [])[:6])}; "
+                if _rc else "no eval regressions; ")
+        return (f"engine eval {'ok' if res.get('engine_ok') else 'ran'}; {_reg}"
+                f"{str(res.get('test_report') or '').strip()[:240]}")
     if kind == "testgen":
         tg = res.get("testgen") or {}
         return (f"generated {tg.get('accepted', 0)} test(s), rejected "
