@@ -312,6 +312,7 @@
 - id: factual_offline_hedges
   target: engine
   network: off
+  smoke: true
   prompt: "what is the capital of burkina faso's third largest city"
   assert:
     - {type: hedged, value: true}
@@ -319,6 +320,7 @@
 - id: no_bruce_samuelson_confab
   target: engine
   network: off
+  smoke: true
   prompt: "what is eminem's real name"
   assert:
     - {type: not_contains, value: "Bruce Samuelson"}
@@ -416,6 +418,7 @@
 - id: greeting_is_chat
   target: engine
   network: off
+  smoke: true
   prompt: "good morning eli"
   assert:
     - {type: action_is, value: [CHAT]}
