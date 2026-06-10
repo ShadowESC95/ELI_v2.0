@@ -9533,6 +9533,35 @@ Answer:"""
 
         action = intent.get("action", "CHAT")
         args = intent.get("args", {})
+        # Record the routed action on a side channel so callers can recover it even
+        # when a path returns DIRECT VISIBLE TEXT as a bare string (some self-contained
+        # doc/file actions do) — a bare string carries no 'action' field otherwise
+        # (eval-caught: GENERATE_DOCUMENT showed action=∅). Dict-returning paths set
+        # 'action' directly and are unaffected.
+        self._last_response_action = str(action or "").upper()
+
+        # Offline web actions are futile (the net's off) — downgrade to CHAT so the
+        # grounding-escalation HEDGE floor answers a factual query honestly ("net's off,
+        # won't guess") instead of the web executor synthesising a non-hedge "I'm unable
+        # to" answer (eval: factual_offline_hedges, when the resolver routes a fact to
+        # WEB_SEARCH). Online web actions are unchanged.
+        if str(action or "").upper() in ("WEB_SEARCH", "WEB_FETCH", "WEB_LEARN", "SEARCH_WEB"):
+            try:
+                from eli.core.config import network_allowed as _net_ok
+                _web_online = bool(_net_ok())
+            except Exception:
+                _web_online = False
+            if not _web_online:
+                log.debug(f"[COGNITIVE] offline {action} → CHAT (grounding hedge floor handles it)")
+                action = "CHAT"
+                args = {"message": user_input}
+                if isinstance(intent, dict):
+                    intent["action"] = "CHAT"
+                    intent["args"] = args
+                    _wm = dict(intent.get("meta") or {})
+                    _wm["downgraded_from"] = "offline_web"
+                    intent["meta"] = _wm
+                self._last_response_action = "CHAT"
 
         # ELI_REDO_DIRECTIVE_V1 — the user telling ELI to actually (re-)do the
         # task ("do it again", "are you actually fetching?"). If it routed to
