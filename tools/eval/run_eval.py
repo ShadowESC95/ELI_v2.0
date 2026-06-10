@@ -86,6 +86,8 @@ def main(argv=None) -> int:
             records.append({"id": cid, "status": "skip", "reason": res.get("reason")})
             continue
 
+        # Carry the prompt so model-graded (rubric) assertions can judge Q+A.
+        res.setdefault("prompt", str(c.get("prompt") or ""))
         details, ok_all = [], True
         for a in (c.get("assert") or []):
             ok, detail = A.check(a, res)
