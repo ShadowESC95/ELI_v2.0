@@ -2834,6 +2834,27 @@ class EliMainWindow(QMainWindow):
         try: self.auto_speak_btn.setText('🔊 Auto-Speak: ON' if checked else '🔇 Auto-Speak: OFF')
         except Exception: pass
 
+    def _on_thinking_toggled(self, checked: bool):
+        """Deep-thinking toggle for reasoning models (Qwen3 / DeepSeek-R1). ON = the
+        answer call thinks (quality, slower); OFF = no thinking anywhere (faster).
+        Utility calls (routing/JSON/summary) never think regardless. Live: sets
+        ELI_MODEL_THINK now (read per-call by gguf_inference._no_think_prefill) — no
+        model reload — and persists the choice. No effect on non-reasoning models."""
+        try:
+            import os as _os
+            _os.environ["ELI_MODEL_THINK"] = "1" if checked else "0"
+        except Exception:
+            pass
+        try:
+            self.thinking_btn.setText('🧠 Think: ON' if checked else '🧠 Think: OFF')
+        except Exception:
+            pass
+        try:
+            from eli.core.runtime_settings import update_settings as _us
+            _us(model_thinking=bool(checked))
+        except Exception:
+            pass
+
     def _on_full_control_toggled(self, checked: bool):
         """Master override — lifts ALL of ELI's safety barriers. Confirms on enable."""
         if checked:
@@ -4047,6 +4068,34 @@ class EliMainWindow(QMainWindow):
         )
         self.auto_speak_btn.toggled.connect(self._on_auto_speak_toggled)
         btn_layout.addWidget(self.auto_speak_btn)
+
+        # Deep-thinking toggle (reasoning models: Qwen3 / DeepSeek-R1). ON = the answer
+        # call thinks (higher quality, slower); OFF = no thinking (faster). Utility calls
+        # never think regardless; no effect on non-reasoning models. Live — no reload.
+        try:
+            from eli.core.runtime_settings import load_settings as _ls_think
+            _think_on = bool(_ls_think().get("model_thinking", True))
+        except Exception:
+            _think_on = True
+        self.thinking_btn = QPushButton("🧠 Think: ON" if _think_on else "🧠 Think: OFF")
+        self.thinking_btn.setCheckable(True)
+        self.thinking_btn.setChecked(_think_on)
+        self.thinking_btn.setToolTip(
+            "Deep thinking on answers (reasoning models only — Qwen3 / DeepSeek-R1).\n"
+            "ON = higher quality, slower.  OFF = faster.\n"
+            "Routing / summaries never think. No effect on non-reasoning models.")
+        self.thinking_btn.setStyleSheet(
+            _BTN_BASE + "QPushButton { background-color:#607D8B; }"
+            "QPushButton:checked { background-color:#9C27B0; }"
+            "QPushButton:hover { background-color:#455A64; }"
+        )
+        try:
+            import os as _os_think
+            _os_think.environ["ELI_MODEL_THINK"] = "1" if _think_on else "0"
+        except Exception:
+            pass
+        self.thinking_btn.toggled.connect(self._on_thinking_toggled)
+        btn_layout.addWidget(self.thinking_btn)
 
         _net_on = False
         try:
