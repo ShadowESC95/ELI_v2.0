@@ -5086,6 +5086,38 @@ Answer:"""
             "- DELIVER SUBSTANCE, NEVER DEFER: When asked to explain, discuss, elaborate on, or go deeper into a topic, give the ACTUAL content — the concrete facts, the mechanism, the reasoning, the analysis. NEVER substitute a description of HOW you would answer for the answer itself. Sentences like 'let's delve deeper into the scientific theories', 'we can explore various approaches', 'one promising method is to look at the relevant literature', 'this will provide a more comprehensive understanding', or \"I'd be happy to discuss\" — used IN PLACE of real content — are forbidden non-answers. If a follow-up says 'elaborate', 'go deeper', or 'discuss this more', ADD new concrete substance, do not restate your willingness to discuss. If you lack grounded detail, give the best substantive answer from your own knowledge and say plainly what is uncertain — never stall or rearrange words.\n"
         )
 
+        # News-deepen steering: when the user asks to go deeper RIGHT AFTER a news read, anchor
+        # the expansion on the SPECIFIC stories/papers just presented (which are in the
+        # conversation context) instead of free-associating a generic textbook overview — the
+        # logged "dive deeper into these AI models" turn that produced a listicle. Pure steering,
+        # keyed on a deepen cue + the article markers ELI's own briefings carry; the GUI direct
+        # news path bypasses _last_command_action, so context markers are the reliable signal.
+        try:
+            _ui_low = str(user_input or "").lower()
+            _deepen_cue = any(p in _ui_low for p in (
+                "dive deeper", "go deeper", "deeper into", "look deeper", "tell me more",
+                "more about", "expand on", "elaborate", "look closer", "dig into",
+                "more detail", "delve"))
+            if _deepen_cue:
+                _lca = getattr(self, "_last_command_action", None) or {}
+                _was_news = str(_lca.get("action") or "").upper() in (
+                    "NEWS_FETCH", "MORNING_REPORT", "DAILY_REPORT")
+                _ctx_blob = str(memory_context or "")
+                _news_markers = bool(re.search(
+                    r"\(fetched\s+\d{1,2}:\d{2}\)|\[[A-Za-z][^\]]{1,24}\s+[—-]\s*\d{1,2}\s*[:A-Za-z]",
+                    _ctx_blob))
+                if _was_news or _news_markers:
+                    base_rules += (
+                        "- NEWS DEEPEN (this turn): The user is asking you to go deeper on the news "
+                        "you just read them. Expand on the SPECIFIC stories/papers from your previous "
+                        "news turn shown in the conversation above — name each item you are expanding "
+                        "and add concrete, real detail about THAT item (what it found, why it matters, "
+                        "the mechanism/implication). Do NOT produce a generic textbook overview of the "
+                        "broad subject; anchor every point to an actual article you already cited.\n"
+                    )
+        except Exception:
+            pass
+
         # Runtime facts are now injected via the SITUATION BRIEF (context_synthesiser
         # _get_runtime_state), which sits in the middle of the prompt where model
         # attention is strongest.  The old tail-append is removed to avoid competing
