@@ -534,12 +534,19 @@ def build_news_briefing(user_id=None, topic: str = "", top_n: int = 5,
 
     if topic:
         # Topic-focused read — the topic's stories only, no interest half.
+        # Prefer get_recent(topic=…) (fetched_at-DESC = CURRENT) over search_stored_news,
+        # which orders by FTS RANK and kept returning the SAME week-old articles on a
+        # topic ask (the science/physics read came back a week stale). This mirrors the
+        # exact fix already applied to the interest half below.
         try:
-            arts = search_stored_news(topic, limit=top_n + interest_n + 4) or []
+            arts = fetcher.get_recent(limit=top_n + interest_n + 4, topic=topic) or []
         except Exception:
             arts = []
         if not arts:
-            arts = fetcher.get_recent(limit=top_n + interest_n + 4, category=topic) or []
+            try:
+                arts = search_stored_news(topic, limit=top_n + interest_n + 4) or []
+            except Exception:
+                arts = []
         top = _dedupe(arts, top_n + interest_n)
         interest: List[Dict[str, Any]] = []
         interest_terms: List[str] = []
