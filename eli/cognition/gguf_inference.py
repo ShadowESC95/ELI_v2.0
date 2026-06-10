@@ -216,6 +216,42 @@ def _is_llama_model(model_path: Optional[Path]) -> bool:
     )
 
 
+def _is_thinking_model(model_path: Optional[Path] = None) -> bool:
+    """Heuristic: does the loaded model emit a <think>…</think> reasoning block by
+    default? Name-based (Qwen3 family, DeepSeek-R1 / R1-distill, QwQ). Extend as new
+    reasoning families appear. Used to disable thinking on utility calls."""
+    name = str(model_path if model_path is not None else (get_model_path() or "")).lower()
+    return any(k in name for k in ("qwen3", "deepseek-r1", "r1-distill", "qwq", "-r1-"))
+
+
+def _no_think_prefill(*, structured: bool, max_tokens) -> str:
+    """Return an assistant-turn PREFILL that forces a reasoning model to SKIP its
+    <think> block on UTILITY calls, so it doesn't burn a small budget thinking instead
+    of producing the structured/short output ELI needs (the bug where the A3B routed
+    everything to fallback.chat and failed session summaries because <think> ate the
+    90/420-token budget). Prefilling a CLOSED empty think is reliable across reasoning
+    families — the /no_think soft-switch is ignored by some Qwen3 quants.
+
+    Disabled for: structured/JSON calls (always) and small-budget chat (< 1024 tokens →
+    judge / summary / quick utility). The MAIN answer call (large budget) keeps thinking
+    unless ELI_MODEL_THINK=0. '' (no-op) for non-reasoning models or when thinking is
+    wanted."""
+    if not _is_thinking_model():
+        return ""
+    _env = os.environ.get("ELI_MODEL_THINK", "").strip().lower()
+    if _env in ("0", "false", "no", "off"):
+        disable = True
+    elif _env in ("1", "true", "yes", "on"):
+        disable = structured
+    else:
+        try:
+            _small = 0 < int(max_tokens or 0) < 1024
+        except Exception:
+            _small = False
+        disable = structured or _small
+    return "<think>\n\n</think>\n\n" if disable else ""
+
+
 # ── Future-proof template detection: read the model's OWN embedded template ───
 # A GGUF carries its chat template in metadata (`tokenizer.chat_template`). Using
 # it means ANY model — current or future — routes to the right prompt format
@@ -935,7 +971,7 @@ def _generate_legacy(
     if llm is None:
         raise RuntimeError("GGUF model not available")
 
-    full_prompt = _format_prompt(system, prompt)
+    full_prompt = _format_prompt(system, prompt) + _no_think_prefill(structured=False, max_tokens=max_tokens)
 
     available_tokens = _ctx_max_tokens(llm, full_prompt)
     if available_tokens <= 0:
@@ -1096,7 +1132,7 @@ def _generate_json_legacy_1(
     from eli.core import config
     if temperature is None:
         temperature = config.get_temperature()
-    _full_prompt = _format_prompt(system, prompt)
+    _full_prompt = _format_prompt(system, prompt) + _no_think_prefill(structured=True, max_tokens=max_tokens)
     _available_tokens = _ctx_max_tokens(llm, _full_prompt)
     if _available_tokens <= 0:
         # Truncate head+tail to fit rather than fail the call (same as the chat path).
