@@ -8973,9 +8973,17 @@ Answer:"""
 
             _eli_pm_mw_mode = _eli_pm_engine_mode_key(self, (), _eli_pm_mw_kwargs)
 
+            # These quick paths INTENTIONALLY return DIRECT VISIBLE TEXT (a bare string,
+            # not a dict — see test_personal_memory_quick_middleware). That dropped the
+            # routed 'action' from telemetry (callers saw action=∅ for a correct answer).
+            # Record the action on a side channel (self._last_response_action) so consumers
+            # can read it WITHOUT changing the string return contract; reset first so a
+            # stale value can't be mis-read by a later string-returning path.
+            self._last_response_action = ""
             if _eli_pm_engine_wants_routing_fault(_eli_pm_mw_low):
                 if _eli_pm_mw_mode == "quick":
                     _eli_pipe("mw_personal_memory_quick_hit", kind="routing_fault", mode=_eli_pm_mw_mode)
+                    self._last_response_action = "ROUTING_FAULT_EXPLAIN"
                     try:
                         from eli.runtime.personal_memory_deep_response import build_routing_fault_explanation
                         return build_routing_fault_explanation(_eli_pm_mw_raw)
@@ -8985,6 +8993,7 @@ Answer:"""
             if _eli_pm_engine_wants_personal_memory(_eli_pm_mw_low):
                 if _eli_pm_mw_mode == "quick":
                     _eli_pipe("mw_personal_memory_quick_hit", kind="personal_memory", mode=_eli_pm_mw_mode)
+                    self._last_response_action = "PERSONAL_MEMORY_DEEP_EXPLAIN"
                     try:
                         from eli.runtime.personal_memory_deep_response import build_personal_memory_deep_response
                         return build_personal_memory_deep_response(_eli_pm_mw_raw, mode_label=_eli_pm_mw_mode)
