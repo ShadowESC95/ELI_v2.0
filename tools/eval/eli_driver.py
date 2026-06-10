@@ -124,12 +124,17 @@ def run_engine(
     meta = res.get("meta") or {}
     trace = res.get("trace") or {}
     text = str(res.get("response") or res.get("content") or res.get("text") or "").strip()
+    # Grounding usually lives in the trace; deterministic grounded responders
+    # (e.g. RUNTIME_STATUS) declare it at the top level instead — read both.
+    _grounding = _maybe_float(trace.get("grounding_confidence"))
+    if _grounding is None:
+        _grounding = _maybe_float(res.get("grounding"))
     return {
         "target": "engine",
         "text": text,
         "action": str(res.get("action") or ""),
         "matched_by": str(meta.get("matched_by") or ""),
-        "grounding": _maybe_float(trace.get("grounding_confidence")),
+        "grounding": _grounding,
         "confidence": _maybe_float(res.get("confidence")),
         "response_mode": str(meta.get("response_mode") or ""),
         "latency_s": latency,
