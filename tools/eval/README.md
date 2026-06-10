@@ -45,25 +45,37 @@ matched_by, grounding, response_mode, latency) + answer text.
 
 ```bash
 python tools/eval/run_eval.py                    # router cases only (fast, no model)
+python tools/eval/run_eval.py --smoke            # router board + a few quick engine sanity gens
 python tools/eval/run_eval.py --target all       # + engine cases (needs a model)
 python tools/eval/run_eval.py --target engine
 python tools/eval/run_eval.py --filter media     # subset by case id
 python tools/eval/run_eval.py --target all --json out.json
+python tools/eval/run_eval.py --target all --history   # + trend + regressions (below)
 python tools/eval/run_eval.py || echo "EVAL FAILED"   # non-zero exit → CI/pre-push
 ```
 
-**Cases** live in `cases.yaml`. Each:
+`--history` appends `artifacts/eval/history/<ts>.json` (full records) + one line to
+`artifacts/eval/history/trend.jsonl` (ts · **model** · pass_rate · mean_latency ·
+mean_grounding) and writes `artifacts/eval/regressions.json` (failed case ids). The
+trend records the loaded model name, so swapping models and re-running gives a direct
+quality/latency A-B over time. The nightly `eval` job runs with `--history`.
+
+**Cases** live in `cases.yaml`. Each (`smoke: true` opts a case into `--smoke`):
 ```yaml
 - id: next_track_real
   target: router            # router (fast, model-free) | engine (needs a model)
   prompt: "next track"
   network: on               # optional: force net state (non-persisting)
+  smoke: true               # optional: include in the fast --smoke board
   assert:
     - {type: action_is, value: [NEXT_MEDIA, MEDIA_CONTROL]}
 ```
 Assertion types (`assertions.py`): `contains`, `not_contains`, `regex`,
 `action_is`, `action_not`, `matched_by`, `response_mode`, `grounding_min`,
-`grounding_max`, `hedged`, `max_latency_s`.
+`grounding_max`, `hedged`, `max_latency_s`, `arg_equals`/`arg_not_contains`/
+`arg_empty` (router `args[key]`), and `rubric` (a **local** judge — ELI's own
+model — scores the answer 0-1 against `value` criteria; passes `>= min`, default
+0.7; soft-passes when no model is loaded so the model-free board still runs).
 
 > **Add a case for every bug a log reveals.** The seeded set already guards this
 > dev cycle's fixes (prose-not-media, bare-search, meta-question routing,
