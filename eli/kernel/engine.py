@@ -1541,6 +1541,13 @@ def _eli_rapport_prompt_instruction(text: str) -> str:
 
 # -- RUNTIME_STATUS non-Quick full-pipeline (V18+V19 merged) -----------
 
+# Grounding score for the deterministic runtime-status responders. The answer IS
+# live runtime telemetry (model/ctx/gpu read from the snapshot), so it is grounded
+# by construction — but these paths bypass the AgentBus grounding computation, so
+# they declare it explicitly. High (evidence-backed), not 1.0 (light synthesis).
+_RUNTIME_STATUS_GROUNDING = 0.95
+
+
 def _mw_rs_text_from_args(args, kwargs) -> str:
     for key in ("user_input", "message", "text", "prompt"):
         val = kwargs.get(key)
@@ -1797,6 +1804,11 @@ def _mw_rs_synthesize(question, mode, evidence) -> dict:
         "source": "runtime_status_nonquick_full_pipeline_synthesized_v1",
         "evidence_source": "runtime_status_live_runtime_telemetry",
         "grounded": True, "evidence_used": True,
+        # Grounded by construction (the answer IS live runtime telemetry), but this
+        # deterministic path bypasses the AgentBus grounding computation, so declare
+        # the score explicitly — otherwise callers read grounding=None for a fully
+        # grounded answer (eval-caught).
+        "grounding": _RUNTIME_STATUS_GROUNDING,
         "report": {
             "requested_mode": mode,
             "synthesis_validated": True,
@@ -1811,7 +1823,11 @@ def _mw_rs_quick_direct(question, mode) -> dict:
     """Quick mode: deterministic grounded runtime evidence via contract module."""
     try:
         from eli.contracts.runtime_status import quick_result as _quick_result
-        return _quick_result(mode=mode)
+        _qr = dict(_quick_result(mode=mode))
+        # Declare grounding (live telemetry = grounded by construction) so callers
+        # don't read grounding=None for this evidence-backed answer.
+        _qr.setdefault("grounding", _RUNTIME_STATUS_GROUNDING)
+        return _qr
     except Exception as e:
         # Fall back to the same executor evidence used by Non-Quick, returned raw.
         ev = _mw_rs_call_runtime_status(question)
