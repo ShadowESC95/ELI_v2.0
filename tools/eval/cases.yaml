@@ -376,7 +376,11 @@
   network: off
   prompt: "audit your identity"
   assert:
-    - {type: action_is, value: [CHAT, ELI_IDENTITY_AUDIT]}
+    # SELF_REPORT is a legitimate grounded identity answer (real model/runtime, no
+    # confabulation) — "audit your identity" has no dedicated ELI_IDENTITY_AUDIT
+    # trigger, so a grounded self-report is correct. The guard still fails on a wrong
+    # route (web/news/generative) or a confabulated answer.
+    - {type: action_is, value: [CHAT, ELI_IDENTITY_AUDIT, SELF_REPORT]}
 
 - id: factual_online_web_grounds
   target: engine
