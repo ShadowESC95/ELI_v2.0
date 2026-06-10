@@ -942,6 +942,12 @@ def _is_brief_phatic_prompt(text: str) -> bool:
         "whats the story", "what's the story", "what is the story", "story bud", "story pal",
         "whats the craic", "what's the craic", "hows the craic", "how's the craic", "any craic",
         "whats new", "what's new", "whats happening", "what's happening",
+        # Gratitude / closers — purely phatic, never an action (a substantive remainder
+        # like "thanks, now fix X" is caught by the follow-up guard / falls through).
+        "thanks", "thank you", "thanks a lot", "thanks so much", "thank you so much",
+        "cheers", "ta", "much appreciated", "appreciate it", "nice one", "good stuff",
+        "good job", "well done", "great stuff", "lovely", "perfect", "brilliant",
+        "no worries", "no problem", "you're welcome", "youre welcome",
     }
     if normalized in phrases:
         return True
@@ -11548,6 +11554,23 @@ Answer:"""
                 and _matched_by != "fallback.chat"):
             log.debug(f"[COGNITIVE] Router parsed: {router_intent}")
             return router_intent
+        # Phatic fast-path: a brief greeting/thanks/check-in never needs LLM intent
+        # resolution — it is always conversation. When no deterministic rule fired,
+        # short-circuit to CHAT and SKIP the resolver model call entirely. This saves
+        # one full generation per phatic turn on ANY model/hardware (a greeting was
+        # paying for a needless intent-classification pass); it is purely a logic
+        # win, not a latency hack tuned to one device. Off: ELI_PHATIC_FASTPATH=0.
+        try:
+            if (os.environ.get("ELI_PHATIC_FASTPATH", "1").strip().lower()
+                    not in ("0", "false", "no", "off")
+                    and _is_brief_phatic_prompt(text)):
+                log.debug("[COGNITIVE] phatic fast-path → CHAT (skipped LLM intent resolver)")
+                return {"action": "CHAT", "args": {"message": text},
+                        "confidence": 0.6,
+                        "meta": {"matched_by": "phatic.fastpath",
+                                 "allow_chat_without_evidence": True}}
+        except Exception:
+            pass
         # Unmatched → grounded LLM intent resolver (real catalogue, cached). Only
         # adopt a confident, actionable result; otherwise fall through to chat.
         try:

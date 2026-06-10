@@ -1485,10 +1485,25 @@ def _format_cognition_runtime(report: Dict[str, Any]) -> str:
             "- Mechanism modules re-probed",
             "- Main functions/classes:",
         )
-        memory_lines = [
-            line for line in memory_text.splitlines()
-            if any(line.startswith(prefix) for prefix in keep_prefixes)
-        ]
+        # The prefix whitelist kept the count line ("physical_db_files: 4" / "Stores — 4
+        # physical …") but DROPPED the per-file enumeration under "Stores —" (those lines
+        # start with "- <name>.sqlite3" / "    tables: …", matching no prefix), so the report
+        # asserted 4 files yet listed only the 2-distinct-path logical roles. Keep the whole
+        # "Stores —" block so the claimed COUNT is substantiated by the ACTUAL files on disk.
+        memory_lines = []
+        _in_stores = False
+        for line in memory_text.splitlines():
+            if line.startswith("Stores —"):
+                _in_stores = True
+                memory_lines.append(line)
+                continue
+            if _in_stores:
+                if line.startswith("- ") or line.strip().startswith("tables:"):
+                    memory_lines.append(line)
+                    continue
+                _in_stores = False  # a non-store line ends the block
+            if any(line.startswith(prefix) for prefix in keep_prefixes):
+                memory_lines.append(line)
         if memory_lines:
             lines.append("")
             lines.append("Memory and retrieval runtime:")
