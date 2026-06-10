@@ -844,6 +844,32 @@ def _estimate_prompt_tokens(llm, text: str) -> int:
         return max(1, len(text) // 4)
 
 
+def _truncate_prompt_to_tokens(llm, text: str, max_tokens: int) -> str:
+    """Shrink a prompt to <= max_tokens by keeping its HEAD and TAIL and dropping the
+    middle (head = system/persona + instructions; tail = recent context + the actual
+    user turn). Token-accurate when the model tokenizer is available, char-estimate
+    otherwise. Used when the prompt alone overflows the context window."""
+    if max_tokens <= 0:
+        return text
+    try:
+        toks = list(llm.tokenize(text.encode("utf-8", errors="ignore")))
+        if len(toks) <= max_tokens:
+            return text
+        head_n = max_tokens // 2
+        tail_n = max(1, max_tokens - head_n)
+        head = llm.detokenize(toks[:head_n]).decode("utf-8", errors="ignore")
+        tail = llm.detokenize(toks[-tail_n:]).decode("utf-8", errors="ignore")
+        return head + "\n…\n" + tail
+    except Exception:
+        pass
+    # char-based fallback (~4 chars/token)
+    max_chars = max_tokens * 4
+    if len(text) <= max_chars:
+        return text
+    half = max(1, max_chars // 2)
+    return text[:half] + "\n…\n" + text[-half:]
+
+
 def _ctx_max_tokens(llm, full_prompt: str, reserve: int = 128) -> int:
     """
     Return the maximum tokens the model can generate for this prompt:
@@ -913,16 +939,26 @@ def _generate_legacy(
 
     available_tokens = _ctx_max_tokens(llm, full_prompt)
     if available_tokens <= 0:
+        # The prompt ALONE exceeds the context window — common when a big model forced
+        # ctx very small (a 20 GB MoE crushed to ctx=6144 while ELI's persona+memory
+        # prompt runs ~7k tokens). TRUNCATE head+tail to fit and reserve a minimum
+        # generation budget, instead of failing the turn ("Requested tokens exceed
+        # context window"). Model-agnostic; head keeps the system/persona, tail keeps
+        # the most recent context + the actual user turn.
         try:
             _n_ctx = int(llm.n_ctx())
         except Exception:
             _n_ctx = 16384
-        _ptok = _estimate_prompt_tokens(llm, full_prompt)
-        raise RuntimeError(
-            f"Prompt exceeds context window before generation: "
-            f"prompt_tokens={_ptok}, n_ctx={_n_ctx}. "
-            "Reduce prompt size or increase n_ctx."
-        )
+        _min_gen = max(96, min(512, _n_ctx // 8))
+        _budget = max(256, _n_ctx - _min_gen - 96)
+        _ptok_before = _estimate_prompt_tokens(llm, full_prompt)
+        full_prompt = _truncate_prompt_to_tokens(llm, full_prompt, _budget)
+        available_tokens = _ctx_max_tokens(llm, full_prompt)
+        if available_tokens <= 0:
+            available_tokens = _min_gen
+        log.debug(
+            f"[GGUF] prompt {_ptok_before} tok > n_ctx {_n_ctx}; truncated head+tail "
+            f"to fit (gen budget ~{available_tokens} tok)")
 
     # max_tokens=None or -1 means "use all available context" — compute dynamically.
     if max_tokens is None or int(max_tokens) <= 0:
@@ -1063,16 +1099,17 @@ def _generate_json_legacy_1(
     _full_prompt = _format_prompt(system, prompt)
     _available_tokens = _ctx_max_tokens(llm, _full_prompt)
     if _available_tokens <= 0:
+        # Truncate head+tail to fit rather than fail the call (same as the chat path).
         try:
             _n_ctx = int(llm.n_ctx())
         except Exception:
             _n_ctx = 16384
-        _ptok = _estimate_prompt_tokens(llm, _full_prompt)
-        raise RuntimeError(
-            f"Prompt exceeds context window before JSON generation: "
-            f"prompt_tokens={_ptok}, n_ctx={_n_ctx}. "
-            "Reduce prompt size or increase n_ctx."
-        )
+        _min_gen = max(96, min(512, _n_ctx // 8))
+        _full_prompt = _truncate_prompt_to_tokens(llm, _full_prompt, max(256, _n_ctx - _min_gen - 96))
+        _available_tokens = _ctx_max_tokens(llm, _full_prompt)
+        if _available_tokens <= 0:
+            _available_tokens = _min_gen
+        log.debug(f"[GGUF] JSON prompt > n_ctx {_n_ctx}; truncated head+tail to fit")
     if max_tokens is None or int(max_tokens) <= 0:
         max_tokens = _available_tokens
     else:
