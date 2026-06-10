@@ -382,3 +382,90 @@
   prompt: "what is the capital of france"
   assert:
     - {type: contains, value: "paris"}
+
+# ── This dev cycle's fixes (2026-06-10) — regression guards ──────────────────
+# News topic extraction: a carrier/question phrase ("can you tell") must NOT be
+# captured as a topic (it forced a 0-article match → raw-dump fallback). The ask
+# becomes a general (synthesised) briefing with no garbage topic.
+- id: news_topic_carrier_not_captured
+  target: router
+  prompt: "thank you can you tell me the latest news"
+  assert:
+    - {type: action_is, value: [NEWS_FETCH]}
+    - {type: arg_empty, key: topic}
+    - {type: arg_not_contains, key: topic, value: "can you tell"}
+
+# A real subject must still be preserved as the topic.
+- id: news_topic_real_preserved
+  target: router
+  prompt: "what's the latest news on science and physics"
+  assert:
+    - {type: action_is, value: [NEWS_FETCH]}
+    - {type: arg_equals, key: topic, value: "science and physics"}
+
+# "dive deeper into <prior topic>" must stay conversational at the router (the
+# deepen is handled by engine steering), never mis-route to a generative/web action.
+- id: deepen_phrasing_stays_chat
+  target: router
+  prompt: "let's dive deeper into how these new ai models are shaping our understanding of the world"
+  assert:
+    - {type: action_is, value: [CHAT]}
+    - {type: action_not, value: [WEB_SEARCH, NEWS_FETCH, GENERATE_DOCUMENT, GENERATE_SCRIPT]}
+
+# Phatic fast-path: a brief greeting stays CHAT (and skips the LLM intent resolver).
+- id: greeting_is_chat
+  target: engine
+  network: off
+  prompt: "good morning eli"
+  assert:
+    - {type: action_is, value: [CHAT]}
+
+# Stale active_project must NOT be asserted as present-tense fact on a plain greeting.
+- id: stale_audit_not_confabulated
+  target: engine
+  network: off
+  prompt: "good morning"
+  assert:
+    - {type: not_contains, value: "executing a full audit"}
+    - {type: not_contains, value: "currently executing an audit"}
+
+# DB-store report must enumerate the ACTUAL physical files (count was 4 but only the
+# 2 aliased roles were listed; coding_memory + system_index were dropped by the filter).
+- id: cognition_runtime_lists_all_stores
+  target: engine
+  network: off
+  prompt: "explain your memory input to output operation please"
+  assert:
+    - {type: action_is, value: [EXPLAIN_COGNITION_RUNTIME, EXPLAIN_MEMORY_RUNTIME]}
+    - {type: contains, value: "coding_memory.sqlite3"}
+    - {type: contains, value: "system_index.sqlite3"}
+
+# ── Graded answer-QUALITY (P2) — LOCAL judge, not substring ──────────────────
+# These score the answer's substance with ELI's own local model. Slow (engine);
+# run with --filter rubric or --target engine when a model is loaded.
+- id: deepen_delivers_substance
+  target: engine
+  network: off
+  prompt: "explain in depth how a tokamak magnetically confines plasma"
+  assert:
+    - type: rubric
+      min: 0.6
+      value: >-
+        A good answer gives the ACTUAL mechanism with concrete physics —
+        toroidal + poloidal magnetic fields, the resulting helical field,
+        confinement of charged particles, and why it matters. It must NOT be a
+        generic deferral ("there are various methods", "we can explore
+        approaches") used in place of real content.
+
+- id: grounded_self_knowledge
+  target: engine
+  network: off
+  prompt: "what are you actually running on right now — model, context, gpu, databases"
+  assert:
+    - type: rubric
+      min: 0.6
+      value: >-
+        A good answer reports ELI's REAL local runtime (a local model, context
+        size, GPU/CPU layers, and its SQLite databases) from grounded state. It
+        must NOT claim to be a cloud assistant, must NOT say it has no body/
+        runtime, and must NOT invent specs.
