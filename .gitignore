@@ -1,3 +1,7 @@
+# ── Not for the repo (local only) ───────────────────────────────────────────
+WHAT_ELI_IS.md
+blueprints/
+
 # ── Python / build artefacts ────────────────────────────────────────────────
 __pycache__/
 *.pyc
