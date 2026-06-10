@@ -405,6 +405,23 @@
     - {type: action_is, value: [NEWS_FETCH]}
     - {type: arg_equals, key: topic, value: "science and physics"}
 
+# Document-GENERATION about ELI's internals must reach GENERATE_DOCUMENT, not the
+# introspection dump — "...about your own agent bus" used to hijack to
+# EXPLAIN_COGNITION_RUNTIME just because it mentions "agent bus" (eval-caught).
+- id: doc_gen_about_internals_not_introspection
+  target: router
+  prompt: "generate a short document about your own agent bus"
+  assert:
+    - {type: action_is, value: [GENERATE_DOCUMENT, CREATE_DOCUMENT]}
+    - {type: action_not, value: [EXPLAIN_COGNITION_RUNTIME]}
+
+# But a genuine "explain your agent bus" must STILL reach the introspection report.
+- id: explain_agent_bus_still_introspection
+  target: router
+  prompt: "explain your agent bus"
+  assert:
+    - {type: action_is, value: [EXPLAIN_COGNITION_RUNTIME]}
+
 # "dive deeper into <prior topic>" must stay conversational at the router (the
 # deepen is handled by engine steering), never mis-route to a generative/web action.
 - id: deepen_phrasing_stays_chat
