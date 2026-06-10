@@ -111,6 +111,10 @@ DEFAULTS: Dict[str, Any] = {
     "batch_size": 512,
     "use_mmap": True,
     "use_mlock": False,
+    # Deep thinking on the ANSWER call for reasoning models (Qwen3 / DeepSeek-R1):
+    # ON = higher quality, slower; OFF = faster. Utility calls (routing/JSON/summary)
+    # never think regardless. No effect on non-reasoning models. GUI-toggleable.
+    "model_thinking": True,
     "cache_type_k": "",
     "cache_type_v": "",
     "auto_speak": False,
@@ -221,7 +225,8 @@ FLOAT_KEYS = {"temperature", "top_p", "repeat_penalty", "image_guidance"}
 BOOL_KEYS = {"use_mmap", "use_mlock", "auto_speak", "mic_enabled",
              "auto_save", "log_to_file", "auto_load", "first_run_complete",
              "image_auto_personalize", "image_auto_open",
-             "image_use_chat_context", "image_use_proactive_context"}
+             "image_use_chat_context", "image_use_proactive_context",
+             "model_thinking"}
 
 _MIGRATION_LOGGED = False
 _HEAL_LOGGED = False
@@ -579,6 +584,11 @@ def apply_env(settings=None):
 
     os.environ["ELI_GGUF_USE_MMAP"] = "1" if bool(s.get("use_mmap", True)) else "0"
     os.environ["ELI_GGUF_USE_MLOCK"] = "1" if bool(s.get("use_mlock", False)) else "0"
+
+    # Deep-thinking toggle for reasoning models → ELI_MODEL_THINK (read by
+    # gguf_inference._no_think_prefill). Don't clobber an explicit shell override.
+    if "ELI_MODEL_THINK" not in os.environ:
+        os.environ["ELI_MODEL_THINK"] = "1" if bool(s.get("model_thinking", True)) else "0"
 
     model_path = str(
         s.get("model_path", "")
