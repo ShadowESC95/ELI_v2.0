@@ -82,10 +82,37 @@ class InferenceBroker:
         if not self.gguf_ready:
             raise RuntimeError("GGUF model not ready")
         global _last_foreground_ts
+        # A call is background if the caller said so OR it runs on a thread already marked
+        # background (the proactive daemon marks its loop thread, so all its work qualifies).
+        gi = self._gguf
+        try:
+            background = bool(background) or bool(gi.is_background_inference())
+        except Exception:
+            pass
+        # Background generations are hard-capped so they can't hold the shared model lock for
+        # minutes on a slow model, and they carry a cooperative abort (set per-thread below) so a
+        # foreground turn preempts them. Cap is tunable via ELI_BG_MAX_TOKENS (default 256).
+        if background:
+            try:
+                import os as _os
+                _cap = int(_os.environ.get("ELI_BG_MAX_TOKENS", "256"))
+            except Exception:
+                _cap = 256
+            if _cap > 0:
+                max_tokens = min(int(max_tokens), _cap)
         # Foreground calls stamp the activity clock (before AND after, so the whole — possibly
         # multi-minute — generation counts as "active"); background calls never do.
         if not background:
             _last_foreground_ts = _time.monotonic()
+        # Arm the per-thread background flag so gguf_inference installs the abort hook even when
+        # the caller (e.g. insight_synthesis) is on a thread not otherwise marked background.
+        _armed = False
+        try:
+            if background and not gi.is_background_inference():
+                gi.set_background_inference(True)
+                _armed = True
+        except Exception:
+            pass
         try:
             with self._lock:
                 response = self._call(prompt, system, max_tokens, temperature, top_p)
@@ -93,6 +120,11 @@ class InferenceBroker:
                 with self._lock:
                     response = self._call(prompt, system, max_tokens, temperature, top_p)
         finally:
+            if _armed:
+                try:
+                    gi.set_background_inference(False)
+                except Exception:
+                    pass
             if not background:
                 _last_foreground_ts = _time.monotonic()
         if not response:

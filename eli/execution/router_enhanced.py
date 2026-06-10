@@ -1201,6 +1201,17 @@ _NEWS_TOPIC_NOISE = frozenset({
     "thank", "for", "about", "on", "in", "of", "more", "story", "stories",
 })
 
+# Carrier/question tokens that, if they survive trimming ANYWHERE in a capture, prove the
+# regex grabbed an instruction or question fragment ("can you tell me the latest news" →
+# "can you tell") rather than a real subject. A topic containing any of these is rejected,
+# so the ask becomes a general (synthesised) briefing instead of a garbage-topic raw dump.
+_NEWS_TOPIC_CARRIER = frozenset({
+    "can", "could", "would", "should", "will", "shall", "do", "does", "did",
+    "have", "has", "had", "tell", "give", "show", "get", "find", "fetch",
+    "let", "know", "want", "ask", "say", "bring", "pull",
+    "your", "my", "our", "i", "we", "they", "he", "she", "him", "her",
+})
+
 
 def _sanitise_news_topic(topic: str) -> str:
     """Normalise a raw regex-captured news topic into a clean subject, or "".
@@ -1223,6 +1234,10 @@ def _sanitise_news_topic(topic: str) -> str:
         toks.pop()
     cleaned = " ".join(toks).strip()
     if not cleaned or all(w in _NEWS_TOPIC_NOISE for w in toks):
+        return ""
+    # A surviving carrier/question token means the capture is an instruction fragment
+    # ("can you tell"), not a subject — reject so the ask falls through to general news.
+    if any(w in _NEWS_TOPIC_CARRIER for w in toks):
         return ""
     if len(cleaned) < 2:
         return ""

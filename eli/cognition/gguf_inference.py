@@ -403,6 +403,51 @@ try:
 except Exception:
     _LLM_CALL_LOCK = threading.RLock()
 
+# ── Foreground-priority preemption ────────────────────────────────────────────
+# All generation serialises on _LLM_CALL_LOCK. On a slow/CPU-offloaded model a
+# background daemon generation (news synthesis, insight, morning report) can hold
+# that lock for minutes — and a user's foreground turn then queues behind it (the
+# logs showed a memory agent stalled 381s behind a 447s background news synth).
+#
+# Fix: a foreground generation SETS _FG_PRIORITY before it blocks on the lock;
+# any in-flight BACKGROUND generation carries a llama.cpp stopping_criteria that
+# returns True the moment _FG_PRIORITY is set, so it yields the lock at the next
+# token and the foreground turn jumps the queue. Background work is marked per
+# THREAD (set_background_inference) — the proactive daemon marks its loop thread,
+# so every generation it triggers is abortable regardless of the call path.
+# Kill switch: ELI_FG_PREEMPT=0.
+_FG_PRIORITY = threading.Event()
+_bg_tls = threading.local()
+
+
+def set_background_inference(flag: bool) -> None:
+    """Mark the CURRENT thread's generations as background (daemon) work — they
+    install a cooperative abort so a foreground turn can preempt them."""
+    _bg_tls.background = bool(flag)
+
+
+def is_background_inference() -> bool:
+    return bool(getattr(_bg_tls, "background", False))
+
+
+def _fg_preempt_enabled() -> bool:
+    return os.environ.get("ELI_FG_PREEMPT", "1").strip().lower() not in ("0", "false", "no", "off")
+
+
+def _bg_stopping_criteria():
+    """A StoppingCriteriaList that aborts the moment a foreground turn is waiting."""
+    if not _fg_preempt_enabled():
+        return None
+    try:
+        from llama_cpp import StoppingCriteriaList
+    except Exception:
+        return None
+
+    def _crit(input_ids, logits) -> bool:
+        return _FG_PRIORITY.is_set()
+
+    return StoppingCriteriaList([_crit])
+
 
 def load_model(force_reload: bool = False):
     global _llm
@@ -652,10 +697,28 @@ def _safe_invoke_llm(llm, full_prompt: str, *, temperature, max_tokens, top_p, t
     """
     attempt_max = int(max_tokens)
     last_exc = None
+    bg = is_background_inference()
+    # Background generations carry a cooperative abort; foreground ones announce priority
+    # before blocking on the shared lock so an in-flight background gen yields it.
+    extra = {}
+    if bg:
+        _sc = _bg_stopping_criteria()
+        if _sc is not None:
+            extra["stopping_criteria"] = _sc
+
+    def _acquire_lock_fg_priority():
+        if not bg and _fg_preempt_enabled():
+            _FG_PRIORITY.set()
+        try:
+            _LLM_CALL_LOCK.acquire()
+        finally:
+            if not bg and _fg_preempt_enabled():
+                _FG_PRIORITY.clear()
+
     for _ in range(4):
         try:
             if stream:
-                _LLM_CALL_LOCK.acquire()
+                _acquire_lock_fg_priority()
                 try:
                     response = llm(
                         full_prompt,
@@ -667,6 +730,7 @@ def _safe_invoke_llm(llm, full_prompt: str, *, temperature, max_tokens, top_p, t
                         stop=stop,
                         stream=True,
                         grammar=grammar,
+                        **extra,
                     )
                 except Exception:
                     _LLM_CALL_LOCK.release()
@@ -681,7 +745,8 @@ def _safe_invoke_llm(llm, full_prompt: str, *, temperature, max_tokens, top_p, t
 
                 return _locked_stream()
 
-            with _LLM_CALL_LOCK:
+            _acquire_lock_fg_priority()
+            try:
                 return llm(
                     full_prompt,
                     temperature=temperature,
@@ -692,7 +757,10 @@ def _safe_invoke_llm(llm, full_prompt: str, *, temperature, max_tokens, top_p, t
                     stop=stop,
                     stream=False,
                     grammar=grammar,
+                    **extra,
                 )
+            finally:
+                _LLM_CALL_LOCK.release()
         except Exception as e:
             last_exc = e
             msg = str(e).lower()
