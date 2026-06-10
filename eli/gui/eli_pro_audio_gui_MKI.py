@@ -917,12 +917,20 @@ class LocalModelManager:
                     _sf_model_gb = path_obj.stat().st_size / (1024 ** 3)
                     _sf_reserve = int(_sf_os.environ.get("ELI_VRAM_RESERVE_MB", "700") or "700")
                     _sf_kvq = bool(_sf_gpu.total_mb and _sf_gpu.total_mb < 12000)
-                    # User's preferred ctx = this model's native train length ×
-                    # the user's fraction (ELI_CTX_FRACTION spinbox). Purely
-                    # dynamic — per model, per user, per machine. No hardcode.
-                    _sf_fraction = float(_sf_os.environ.get("ELI_CTX_FRACTION", "0.9") or "0.9")
+                    # Anchor the fit on the user's CHOSEN ctx (settings n_ctx), capped to
+                    # the model's trained context — NOT a fixed fraction of train length.
+                    # This is what makes "what you choose" the load anchor: smart-fit reduces
+                    # ctx LAST, so an explicit ctx that fits loads UNCHANGED, and one that
+                    # doesn't is transparently REDUCED to fit (never silently replaced with an
+                    # unrelated train×0.9 number — the source of "what I set isn't what loads").
+                    # Falls back to a fraction of train length only when no usable ctx is set
+                    # (true auto). Per-model, per-user, per-machine. No hardcode.
                     _sf_train = int(_sf_train_ctx(str(path_obj)))
-                    _sf_user_ctx = max(2048, (int(_sf_train * _sf_fraction) // 2048) * 2048)
+                    if _user_ctx and int(_user_ctx) >= 2048:
+                        _sf_user_ctx = min(int(_user_ctx), _sf_train)
+                    else:
+                        _sf_fraction = float(_sf_os.environ.get("ELI_CTX_FRACTION", "0.9") or "0.9")
+                        _sf_user_ctx = max(2048, (int(_sf_train * _sf_fraction) // 2048) * 2048)
                     _sf_ctx, _sf_layers, _sf_batch = _sf_fit(
                         _sf_model_gb, _sf_gpu.free_mb,
                         user_ctx=_sf_user_ctx, user_batch=_user_batch,
@@ -932,6 +940,11 @@ class LocalModelManager:
                         f"[GUI][LOAD] smart-fit (post-init free={_sf_gpu.free_mb}MB "
                         f"reserve={_sf_reserve}MB kvq={_sf_kvq}): "
                         f"ctx={_sf_ctx} gpu_layers={_sf_layers} batch={_sf_batch}")
+                    if _sf_ctx < _sf_user_ctx:
+                        log.debug(
+                            f"[GUI][LOAD] smart-fit reduced ctx {_sf_user_ctx}->{_sf_ctx} to fit "
+                            f"{_sf_gpu.free_mb}MB free VRAM (your setting didn't fit — reduced to "
+                            f"avoid OOM, not replaced)")
                     _add_attempt("smart-fit", _sf_ctx, _sf_layers, _sf_batch)
             except Exception as _sf_err:
                 log.debug(f"[GUI][LOAD] smart-fit attempt skipped: {_sf_err}")
@@ -951,19 +964,11 @@ class LocalModelManager:
                 _add_attempt("hw-profile", _hw_profile_ctx, _hw_eff_layers, _hw_eff_batch)
 
             if _base_layers > 0:
-                # Fallback chain — all sizes are fractions of user's settings; no hardcoded values.
-                _b_half = max(64, _base_batch // 2)
-                _b_qtr  = max(32, _base_batch // 4)
-                _b_min  = max(32, _base_batch // 8)
-                _add_attempt("lower-batch-half",   _base_ctx,                       _base_layers,               _b_half)
-                _add_attempt("lower-batch-qtr",    _base_ctx,                       _base_layers,               _b_qtr)
-                _add_attempt("ctx75pct-batch-qtr", max(2048, _base_ctx * 3 // 4),   _base_layers,               _b_qtr)
-                _add_attempt("ctx50pct-half-gpu",  max(2048, _base_ctx // 2),        max(1, _base_layers // 2),  _b_qtr)
-                _add_attempt("ctx37pct-half-gpu",  max(2048, _base_ctx * 3 // 8),   max(1, _base_layers // 2),  _b_min)
-                _add_attempt("ctx25pct-third-gpu", max(2048, _base_ctx // 4),        max(1, _base_layers // 3),  _b_min)
-                # Live-tuner: re-run allocate() with current GPU free VRAM.
-                # Finds the best ctx/layers/batch the hardware can actually support
-                # right now, without relying on the (possibly stale) startup profile.
+                # Live-tuner FIRST (hardware-measured): re-run allocate() against the GPU's
+                # CURRENT free VRAM, so the second-choice attempt is what THIS machine can
+                # actually support right now — not a blind fraction of the (possibly stale)
+                # profile. Promoted ahead of the generic rungs below so the fallback is
+                # optimised per individual hardware, which it previously was not.
                 try:
                     import os as _os
                     from eli.core.startup_hardware_optimizer import (
@@ -989,6 +994,17 @@ class LocalModelManager:
                             _add_attempt("live-tuner-cpu", _lt_ctx, 0, max(32, _lt_batch // 2))
                 except Exception:
                     pass
+                # Generic fallback rungs (deeper fallback) — fractions of user's settings;
+                # tried only after the live-tuner. No hardcoded values.
+                _b_half = max(64, _base_batch // 2)
+                _b_qtr  = max(32, _base_batch // 4)
+                _b_min  = max(32, _base_batch // 8)
+                _add_attempt("lower-batch-half",   _base_ctx,                       _base_layers,               _b_half)
+                _add_attempt("lower-batch-qtr",    _base_ctx,                       _base_layers,               _b_qtr)
+                _add_attempt("ctx75pct-batch-qtr", max(2048, _base_ctx * 3 // 4),   _base_layers,               _b_qtr)
+                _add_attempt("ctx50pct-half-gpu",  max(2048, _base_ctx // 2),        max(1, _base_layers // 2),  _b_qtr)
+                _add_attempt("ctx37pct-half-gpu",  max(2048, _base_ctx * 3 // 8),   max(1, _base_layers // 2),  _b_min)
+                _add_attempt("ctx25pct-third-gpu", max(2048, _base_ctx // 4),        max(1, _base_layers // 3),  _b_min)
                 # Dynamic CPU ctx floor: derive from RAM capacity, never a hardcoded int.
                 # ELI_MIN_CTX env var overrides if set.
                 try:
