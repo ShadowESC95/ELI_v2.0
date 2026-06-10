@@ -125,7 +125,10 @@ def _judge(question: str, answer: str, rubric: str) -> Tuple[float, str]:
             f"RUBRIC (what a good answer MUST do):\n{rubric}\n\nSCORE (0-10):"
         )
         # background=True so the judge call never stamps the foreground-activity clock.
-        out = broker.infer(prompt, system=system, max_tokens=32, temperature=0.0,
+        # Generous cap so a REASONING judge (Qwen3/DeepSeek-R1) can think AND still
+        # emit the score (a 32-token cap was wholly consumed by <think>, leaving no
+        # number). Non-reasoning judges stop early after the score, so this is free.
+        out = broker.infer(prompt, system=system, max_tokens=320, temperature=0.0,
                            background=True) or ""
         m = re.search(r"\d+(?:\.\d+)?", out)
         if not m:

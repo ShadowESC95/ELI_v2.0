@@ -291,8 +291,24 @@ def _canonical_eli_persona() -> str:
 
     return "You are ELI, a local reasoning and automation assistant. Be direct, accurate, grounded, privacy-preserving, and useful."
 
+def _strip_think_text(t: str) -> str:
+    """Remove a <think>…</think> reasoning block (or an unterminated one) from text.
+    Reasoning models (Qwen3 / Qwen3.x-A3B, DeepSeek-R1, …) emit a PRIVATE
+    chain-of-thought before the answer that must never surface. Keeps whatever
+    follows the last </think>; drops a never-closed think outright. Model-agnostic —
+    a no-op for models that don't think."""
+    if "<think" not in (t or "").lower():
+        return t
+    t = re.sub(r"(?is)<think\s*>.*?</think\s*>", "", t)
+    if "</think>" in t.lower():
+        t = re.split(r"(?i)</think\s*>", t)[-1]
+    elif "<think" in t.lower():
+        t = re.split(r"(?i)<think\s*>", t)[0]
+    return re.sub(r"(?i)</?think\s*>", "", t).strip()
+
+
 def _clean_eli_output(text: str) -> str:
-    t = str(text or "")
+    t = _strip_think_text(str(text or ""))
     # Strip Mistral prompt-echo: model sometimes echoes [INST]...[/INST] before answering
     # Keep only content AFTER the last [/INST] marker if present
     if "[/INST]" in t:
@@ -348,11 +364,55 @@ def _clean_eli_output(text: str) -> str:
 
     if not t.strip():
         log.debug(f"[GGUF][CLEAN] Empty after cleaning, returning raw fallback")
-        raw_fallback = str(text or "").strip()
-        # Strip meta-commentary from fallback too
+        # Strip think + meta-commentary from the fallback too — NEVER surface raw
+        # chain-of-thought just because the cleaned text came out empty (e.g. the
+        # model spent its whole budget thinking).
+        raw_fallback = _strip_think_text(str(text or "")).strip()
         raw_fallback = re.sub(r'\s*\(Note:.*$', '', raw_fallback, flags=re.I | re.DOTALL).strip()
         return raw_fallback if raw_fallback else ''
     return t.strip()
+
+def _strip_think_stream(chunks):
+    """Suppress a leading <think>…</think> reasoning block from a token stream
+    (Qwen3 / DeepSeek-R1 etc.). Engages ONLY when the output begins with <think>,
+    so it adds no latency and is a pure pass-through for non-reasoning models."""
+    buf = ""
+    mode = "detect"  # detect → suppress → pass  (or detect → pass)
+    for chunk in chunks:
+        raw = chunk.get("response", "") if isinstance(chunk, dict) else str(chunk or "")
+        if not raw:
+            continue
+        if mode == "pass":
+            yield {"response": raw}
+            continue
+        buf += raw
+        low = buf.lstrip().lower()
+        if mode == "suppress":
+            if "</think>" in low:
+                after = re.split(r"(?i)</think\s*>", buf, maxsplit=1)[-1]
+                buf, mode = "", "pass"
+                if after.strip():
+                    yield {"response": after}
+            continue
+        # detect: is this a thinking model emitting <think> first?
+        if low.startswith("<think"):
+            mode = "suppress"
+            if "</think>" in low:
+                after = re.split(r"(?i)</think\s*>", buf, maxsplit=1)[-1]
+                buf, mode = "", "pass"
+                if after.strip():
+                    yield {"response": after}
+            continue
+        # still undecided (leading whitespace, or a partial prefix of "<think")?
+        # keep buffering up to a small cap; otherwise it's not a thinker → flush.
+        if (low == "" or "<think".startswith(low)) and len(buf) < 12:
+            continue
+        mode = "pass"
+        yield {"response": buf}
+        buf = ""
+    if buf and mode != "suppress":
+        yield {"response": buf}
+
 
 def _stream_clean_chunks(chunks):
     """True streaming cleaner; hold only obvious role prefixes."""
@@ -911,7 +971,8 @@ def _generate_legacy(
             stream=True,
             grammar=grammar,
         )
-        for chunk in _stream_clean_chunks({"response": c["choices"][0]["text"]} for c in response):
+        for chunk in _stream_clean_chunks(_strip_think_stream(
+                {"response": c["choices"][0]["text"]} for c in response)):
             cleaned = chunk.get("response", "")
             if cleaned:
                 yield {"response": cleaned}
