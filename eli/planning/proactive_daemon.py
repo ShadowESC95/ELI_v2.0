@@ -343,19 +343,35 @@ class ProactiveDaemon:
                 if proj:
                     import time as _time
                     age_hours = (_time.time() - proj_ts) / 3600 if proj_ts else None
-                    if age_hours is not None and age_hours >= 4:
+                    # Staleness ceiling: a project note is a CURRENT-WORK line from a past session
+                    # summary ("ELI is currently executing a full audit"). Once it ages out it is
+                    # NOT current — surfacing it as an "Active project" made ELI assert a 13h-old
+                    # event as present fact. Beyond the ceiling, drop it (genuinely-current work
+                    # re-derives from fresh activity); in the 4h–ceiling band, frame it as a prior,
+                    # possibly-stale note so neither the proactive context nor the persona restate
+                    # it as present-tense. Ceiling tunable via ELI_PROJECT_STALE_H (default 12).
+                    try:
+                        _stale_h = float(os.environ.get("ELI_PROJECT_STALE_H", "12"))
+                    except Exception:
+                        _stale_h = 12.0
+                    _emit = True
+                    if age_hours is None:
+                        suggestion = f"Active project signal: {proj}"
+                    elif age_hours >= _stale_h:
+                        _emit = False  # too old to be "current" — do not surface
+                    elif age_hours >= 4:
                         age_days = age_hours / 24
-                        if age_days >= 2:
-                            age_label = f"{age_days:.0f}d ago"
-                        else:
-                            age_label = f"{age_hours:.0f}h ago"
-                        suggestion = f"Active project signal ({age_label}): {proj}"
+                        age_label = (f"{age_days:.0f}d ago" if age_days >= 2
+                                     else f"{age_hours:.0f}h ago")
+                        suggestion = (f"Earlier project note ({age_label}, may be stale — "
+                                      f"NOT necessarily current activity): {proj}")
                     else:
                         suggestion = f"Active project signal: {proj}"
-                    patterns.append({
-                        "type": "active_project",
-                        "suggestion": suggestion
-                    })
+                    if _emit:
+                        patterns.append({
+                            "type": "active_project",
+                            "suggestion": suggestion
+                        })
         except Exception:
             pass
 
@@ -770,6 +786,15 @@ Date: {datetime.now().strftime("%A %B %d %H:%M")} | Interactions last 24h: {inte
         """
         self.running = True
         log.debug("[PROACTIVE] Daemon started - continuous learning active")
+
+        # Mark THIS daemon thread as background: every generation it triggers (insight, the 3h
+        # news synthesis, the morning report) then installs a cooperative abort, so a foreground
+        # user turn preempts it on the shared model lock instead of queuing behind it for minutes.
+        try:
+            from eli.cognition.gguf_inference import set_background_inference as _set_bg
+            _set_bg(True)
+        except Exception:
+            pass
 
         last_analysis = time.time()
         last_report = datetime.now().date()
