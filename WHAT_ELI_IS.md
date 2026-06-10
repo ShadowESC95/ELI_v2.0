@@ -8,7 +8,7 @@ Where a statement is **verified** it was read in the source; where it is **infer
 
 ## In one sentence
 
-**ELI MKXI is one inventor's years-long, repeatedly-rebuilt attempt to build a private, fully-local,
+**ELI MKXI is one inventor's six-month, eleven-times-rebuilt attempt to build a private, fully-local,
 self-improving JARVIS — voice-driven, grounded, model-agnostic, and self-auditing — that actually
 serves real physics/engineering R&D, by wrapping a single small local language model in ~135,000
 lines of scaffolding that extracts frontier-grade behaviour it could never produce alone.**
@@ -23,7 +23,9 @@ lines of scaffolding that extracts frontier-grade behaviour it could never produ
 - **Model:** a local **GGUF** run through llama.cpp (Mistral-7B-Instruct by default; a 24B has been
   tested). **No cloud on the default path.** A process-wide socket guard fails *closed* — "offline"
   is enforced, not assumed. Ollama exists only as an *optional* selectable backend, not the default.
-- **Version lineage:** "MKXI" — at least eleven rebuilds. This is a long-running project, not a v1.
+- **Timeline & lineage:** built in roughly **six months**. "MKXI" = at least **eleven rebuilds**
+  in that span — a compressed, high-intensity solo effort, not a slow multi-year one. ~135k LOC,
+  356 modules, 207 capabilities, and the full perception/GUI surface in half a year, by one person.
 
 ## The five governing laws (the soul of it)
 
