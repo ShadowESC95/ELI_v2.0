@@ -525,7 +525,27 @@ except Exception:
 # so every generation it triggers is abortable regardless of the call path.
 # Kill switch: ELI_FG_PREEMPT=0.
 _FG_PRIORITY = threading.Event()
+# Set at shutdown to abort EVERY in-flight generation at the next token. A background
+# self-improvement/codegen call can sit in a single native llm() call for 10+ minutes;
+# the OS can't kill a thread mid-native-call, so shutdown's unload_model() (which needs
+# the shared lock) blocked for 20-30 min. This cooperative abort lets any in-flight call
+# yield at the next token so teardown proceeds immediately.
+_SHUTDOWN = threading.Event()
 _bg_tls = threading.local()
+
+
+def signal_shutdown() -> None:
+    """Abort ALL in-flight generations at the next token (foreground and background).
+    Idempotent; called first thing in engine shutdown."""
+    _SHUTDOWN.set()
+
+
+def clear_shutdown() -> None:
+    _SHUTDOWN.clear()
+
+
+def is_shutting_down() -> bool:
+    return _SHUTDOWN.is_set()
 
 
 def set_background_inference(flag: bool) -> None:
@@ -542,17 +562,25 @@ def _fg_preempt_enabled() -> bool:
     return os.environ.get("ELI_FG_PREEMPT", "1").strip().lower() not in ("0", "false", "no", "off")
 
 
-def _bg_stopping_criteria():
-    """A StoppingCriteriaList that aborts the moment a foreground turn is waiting."""
-    if not _fg_preempt_enabled():
-        return None
+def _should_abort_generation(background: bool) -> bool:
+    """True when an in-flight generation should yield at the next token: shutdown is
+    signalled (aborts ANY call) or — for BACKGROUND calls with preemption enabled — a
+    foreground turn is waiting on the shared lock."""
+    if _SHUTDOWN.is_set():
+        return True
+    return bool(background) and _fg_preempt_enabled() and _FG_PRIORITY.is_set()
+
+
+def _make_stopping_criteria(background: bool):
+    """Cooperative abort installed on EVERY generation (see _should_abort_generation).
+    Returns None only when llama_cpp is unavailable."""
     try:
         from llama_cpp import StoppingCriteriaList
     except Exception:
         return None
 
     def _crit(input_ids, logits) -> bool:
-        return _FG_PRIORITY.is_set()
+        return _should_abort_generation(background)
 
     return StoppingCriteriaList([_crit])
 
@@ -806,13 +834,13 @@ def _safe_invoke_llm(llm, full_prompt: str, *, temperature, max_tokens, top_p, t
     attempt_max = int(max_tokens)
     last_exc = None
     bg = is_background_inference()
-    # Background generations carry a cooperative abort; foreground ones announce priority
-    # before blocking on the shared lock so an in-flight background gen yields it.
+    # Every generation carries a cooperative abort: it yields at the next token when
+    # shutdown is signalled (so teardown never blocks on a long native call) and, for
+    # background work, when a foreground turn announces priority on the shared lock.
     extra = {}
-    if bg:
-        _sc = _bg_stopping_criteria()
-        if _sc is not None:
-            extra["stopping_criteria"] = _sc
+    _sc = _make_stopping_criteria(bg)
+    if _sc is not None:
+        extra["stopping_criteria"] = _sc
 
     def _acquire_lock_fg_priority():
         if not bg and _fg_preempt_enabled():

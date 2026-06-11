@@ -3226,6 +3226,18 @@ class CognitiveEngine:
 
         log.debug("[COGNITIVE] Shutdown: flushing session state…")
 
+        # 0. Signal shutdown to the inference layer FIRST. A background self-improvement
+        # /codegen call can be mid-flight in a single 10+ minute native llm() call holding
+        # the shared lock; the OS can't kill it, so step 8 (unload_model) would block for
+        # 20-30 minutes. This makes any in-flight generation yield at the next token and
+        # short-circuits new background calls, so teardown proceeds immediately.
+        try:
+            from eli.cognition import gguf_inference as _ggi_sd
+            _ggi_sd.signal_shutdown()
+            log.debug("[COGNITIVE] Shutdown: inference abort signalled")
+        except Exception as _sd_err:
+            log.debug(f"[COGNITIVE] Shutdown: inference abort signal failed (non-fatal): {_sd_err}")
+
         # 1. Stop the proactive daemon FIRST so no more writes happen
         # during the rest of teardown.
         try:
