@@ -9078,31 +9078,14 @@ _register()
                 continue
             if kind == "Image":
                 extras.append(f"[Attached image: {p.name} — path: {path}]")
-            elif kind == "PDF":
-                try:
-                    import pdfplumber
-                    with pdfplumber.open(str(p)) as _pdf:
-                        text = "\n".join(pg.extract_text() or "" for pg in _pdf.pages[:6])
-                except Exception:
-                    try:
-                        from pypdf import PdfReader
-                        r = PdfReader(str(p))
-                        text = "\n".join(pg.extract_text() or "" for pg in r.pages[:6])
-                    except Exception:
-                        text = "[Could not extract PDF text]"
-                # Keep the FULL path so file-action requests (fix/examine/edit) can
-                # resolve the file on disk — not just the content for summarising.
-                extras.append(f"[File: {path}]\n[PDF content — {p.name}]:\n{text[:4000]}")
             else:
-                # Keep the FULL path FIRST so the router's path extractor (and
-                # FIX_FILE / EXAMINE_CODE) can act on the file on disk; the inlined
-                # content follows for context. Dropping a file then asking "fix/examine
-                # this" previously lost the path (only the filename + content remained).
-                try:
-                    text = p.read_text(encoding="utf-8", errors="replace")[:4000]
-                    extras.append(f"[File: {path}]\n[File content — {p.name}]:\n{text}")
-                except Exception as e:
-                    extras.append(f"[File: {path} — could not read: {e}]")
+                # A dropped file becomes its PATH ONLY — never its inlined content. Every
+                # file action (FIX_FILE / EXAMINE_CODE / SUMMARIZE_FILE / ANALYZE_PDF)
+                # resolves the path on disk itself, so inlining the content was redundant
+                # AND harmful: it bloated the prompt and mis-routed "fix <file>" into the
+                # codebase-audit path on the pasted text (the file's body looked like a
+                # paste to audit, not a path to fix). Drop = the path; the action reads it.
+                extras.append(f"[File: {path}]")
 
         # Strip the tags from the visible message, append content
         clean = tag_pattern.sub("", raw_text).strip()
