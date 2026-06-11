@@ -64,7 +64,7 @@ def test_facade_proxies_to_execute(monkeypatch):
     import eli.execution.executor_enhanced as ex
     monkeypatch.setattr(ex, "execute",
                         lambda action, args=None, **kw: {"ok": True, "action": action, "args": args or {}})
-    from eli.api import api
+    from eli.tools.api import api
     assert api.call("BACKGROUND_JOBS")["action"] == "BACKGROUND_JOBS"
     assert api.summarize_file("/x.pdf")["args"]["path"] == "/x.pdf"
     assert api.check_job(5)["args"]["job_id"] == 5
