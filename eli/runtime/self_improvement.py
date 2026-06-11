@@ -1002,6 +1002,14 @@ class SelfImprovementEngine:
 
     def start_self_improvement_loop(self, interval_hours: int = 24):
         def loop():
+            # Mark this daemon thread's model calls BACKGROUND so they yield to a
+            # foreground turn (cooperative abort) and are token-capped — ambient
+            # self-improvement must never hold the model lock against the user.
+            try:
+                from eli.cognition.gguf_inference import set_background_inference as _set_bg
+                _set_bg(True)
+            except Exception:
+                pass
             while True:
                 try:
                     self.analyze_and_improve()

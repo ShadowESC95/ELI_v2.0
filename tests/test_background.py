@@ -6,6 +6,25 @@ import time
 
 # ── background task manager ─────────────────────────────────────────────────
 
+def test_background_job_marks_inference_background_so_it_yields():
+    # A background job's model calls must be marked background so a foreground turn
+    # preempts them (no more 200-530s memory waits queued behind a PDF/codegen job).
+    import eli.cognition.gguf_inference as gi
+    from eli.runtime.background_tasks import BackgroundTasks
+    gi.set_background_inference(False)  # this (main) thread = foreground
+    bt = BackgroundTasks(max_workers=1)
+    seen = {}
+    try:
+        def _job():
+            seen["bg"] = gi.is_background_inference()
+            return "ok"
+        bt.wait(bt.submit("job", _job), timeout=5)
+        assert seen.get("bg") is True            # job inference is background → yields
+        assert gi.is_background_inference() is False  # foreground thread untouched
+    finally:
+        bt.shutdown()
+
+
 def test_background_runs_and_reports():
     from eli.runtime.background_tasks import BackgroundTasks
     bt = BackgroundTasks(max_workers=2)
