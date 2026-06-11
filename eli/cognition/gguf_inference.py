@@ -217,10 +217,22 @@ def _is_llama_model(model_path: Optional[Path]) -> bool:
 
 
 def _is_thinking_model(model_path: Optional[Path] = None) -> bool:
-    """Heuristic: does the loaded model emit a <think>…</think> reasoning block by
-    default? Name-based (Qwen3 family, DeepSeek-R1 / R1-distill, QwQ). Extend as new
-    reasoning families appear. Used to disable thinking on utility calls."""
-    name = str(model_path if model_path is not None else (get_model_path() or "")).lower()
+    """Heuristic: does the ACTUALLY-LOADED model emit a <think>…</think> reasoning block
+    by default? Name-based (Qwen3 family, DeepSeek-R1 / R1-distill, QwQ). Extend as new
+    reasoning families appear. Used to disable thinking on utility calls.
+
+    Reads the LOADED model identity first — the live runtime override published when a
+    model is loaded — NOT settings/get_model_path(). The GUI can load one model (e.g. a
+    Qwen3 A3B) while settings.json still points at another (the 7B); using settings
+    misdetected the reasoning model as non-reasoning, so the no-think prefill never fired
+    and the A3B thought through every routing/summary/code budget → empty → fallback."""
+    if model_path is not None:
+        name = str(model_path).lower()
+    else:
+        _ov = globals().get("_live_runtime_override") or globals().get("_live_runtime_params") or {}
+        name = str(_ov.get("model_name") or _ov.get("model_path") or "").lower()
+        if not name:
+            name = str(get_model_path() or "").lower()
     return any(k in name for k in ("qwen3", "deepseek-r1", "r1-distill", "qwq", "-r1-"))
 
 
