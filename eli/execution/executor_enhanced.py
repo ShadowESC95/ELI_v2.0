@@ -8962,6 +8962,11 @@ def _execute_impl(action: str, args: Optional[Dict[str, Any]] = None) -> Dict[st
         }
         lang = ext_to_lang.get(pp.suffix.lower(), "the same language")
         err_block = f"\n\nReported error / stderr:\n{extra_error}" if extra_error else ""
+        # IMPROVE mode (router: file.improve_python) vs FIX mode: same machinery, different
+        # intent — make working code better (clarity/correctness/robustness, dedupe, dead
+        # code) vs correct errors. Both go through the verified CodeAgent below.
+        _improve = str(args.get("mode") or "").strip().lower() == "improve"
+        _verb = "Improve" if _improve else "Fix"
         def _verify_python_apis_ff(_code: str) -> str | None:
             """Same as the GENERATE_SCRIPT path verifier — checks <module>.<attr> against installed libs."""
             import importlib as _il
@@ -8999,7 +9004,8 @@ def _execute_impl(action: str, args: Optional[Dict[str, Any]] = None) -> Dict[st
             return None
 
         base_fix_prompt = (
-            f"Fix the following {lang} file. Return ONLY the complete corrected source code — "
+            f"{'Improve' if _improve else 'Fix'} the following {lang} file. Return ONLY the "
+            "complete " + ("improved" if _improve else "corrected") + " source code — "
             "no markdown fences, no prose, no explanation, no diff. The entire output must be "
             "the new file content that can be saved verbatim and run.\n\n"
             "HARD REQUIREMENTS:\n"
@@ -9028,11 +9034,22 @@ def _execute_impl(action: str, args: Optional[Dict[str, Any]] = None) -> Dict[st
         if pp.suffix.lower() == ".py":
             try:
                 from eli.coding import solve as _code_solve
-                _fix_task = (
-                    "Fix this Python file and return the COMPLETE corrected source. Preserve "
-                    "the original intent and structure; make minimal but complete fixes; use "
-                    "only real library APIs that exist."
-                    + (f" Reported error: {extra_error}." if extra_error else "")
+                if _improve:
+                    _fix_task = (
+                        "Improve this Python file and return the COMPLETE improved source. "
+                        "Make it clearer, more correct, more robust, and better-structured "
+                        "WITHOUT changing its external behaviour or purpose; remove duplication "
+                        "and dead code; keep all existing functionality; use only real library "
+                        "APIs that exist."
+                    )
+                else:
+                    _fix_task = (
+                        "Fix this Python file and return the COMPLETE corrected source. Preserve "
+                        "the original intent and structure; make minimal but complete fixes; use "
+                        "only real library APIs that exist."
+                    )
+                _fix_task += (
+                    (f" Reported error: {extra_error}." if extra_error else "")
                     + f"\n\n--- FILE: {pp.name} ---\n{original[:24000]}"
                 )
                 # FULL verified pass — beam search + repair iterations + self-critique.
