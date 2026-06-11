@@ -812,6 +812,120 @@ class SelfImprovementEngine:
             "message": f"Patch applied to {p.name}: {description}",
         }
 
+    def apply_patch_set(self, patches: list, *, verify: bool = True) -> dict:
+        """Apply a SET of single-file patches ATOMICALLY (Advancement E) — enabling safe
+        COORDINATED multi-file edits (e.g. rename a symbol + update its callers).
+
+        Phases, all-or-nothing:
+          1. Validate ALL in memory — resolve each target (project-scope, existing .py),
+             confirm every `old` is present verbatim, apply it, and ast.parse the result.
+             If ANY patch fails, NOTHING is written.
+          2. Back up every target file (timestamped + canonical `.eli_bak`).
+          3. Write all new contents.
+          4. Compile + (when ``verify``) import-verify every touched module. If ANY fails,
+             ROLL BACK ALL files and report — the repo is never left half-patched.
+
+        Reuses apply_code_patch's mechanics (path/scope guard, differential import verify,
+        backups). `patches`: [{"file","old","new"[,"description"]}], 1+ per file.
+        Returns {"ok","applied","files":[...],"message"}.
+        """
+        if not patches or not isinstance(patches, list):
+            return {"ok": False, "applied": False, "message": "no patches supplied"}
+
+        # ── Phase 1: validate ALL in memory (zero writes) ───────────────────────
+        by_path: Dict[Path, str] = {}
+        order: List[Path] = []
+        for i, patch in enumerate(patches):
+            file_str = (patch.get("file") or "").strip()
+            old_code, new_code = patch.get("old", ""), patch.get("new", "")
+            if not file_str or not old_code or not new_code:
+                return {"ok": False, "applied": False, "message": f"patch {i}: missing file/old/new"}
+            p = Path(file_str)
+            p = (PROJECT_ROOT / p if not p.is_absolute() else p).resolve()
+            try:
+                p.relative_to(PROJECT_ROOT)
+            except ValueError:
+                return {"ok": False, "applied": False, "message": f"patch {i}: {p} outside project root"}
+            if not p.exists() or p.suffix != ".py":
+                return {"ok": False, "applied": False, "message": f"patch {i}: {p} is not an existing .py file"}
+            try:
+                content = by_path[p] if p in by_path else p.read_text(encoding="utf-8")
+            except Exception as exc:
+                return {"ok": False, "applied": False, "message": f"patch {i}: read error {exc}"}
+            if old_code not in content:
+                return {"ok": False, "applied": False,
+                        "message": f"patch {i}: old_code not found verbatim in {p.name}"}
+            content = content.replace(old_code, new_code, 1)
+            try:
+                ast.parse(content)
+            except SyntaxError as exc:
+                return {"ok": False, "applied": False,
+                        "message": f"patch {i}: introduces syntax error in {p.name} (line {exc.lineno})"}
+            if p not in by_path:
+                order.append(p)
+            by_path[p] = content
+
+        # Pre-patch import baselines — only blame a broken import on us if it was clean before.
+        dotted: Dict[Path, Optional[str]] = {}
+        pre_ok: Dict[Path, bool] = {}
+        if verify:
+            for p in order:
+                d = _dotted_module_for_path(p)
+                dotted[p] = d
+                pre_ok[p] = _smoke_import_module(d)[0] if d else False
+
+        # ── Phase 2: back up every target ───────────────────────────────────────
+        backups: Dict[Path, Path] = {}
+        ts = int(time.time())
+        try:
+            for p in order:
+                shutil.copy2(str(p), str(p.with_suffix(f".py.eli_bak.{ts}")))
+                canon = p.with_suffix(".py.eli_bak")
+                shutil.copy2(str(p), str(canon))
+                backups[p] = canon
+        except Exception as exc:
+            return {"ok": False, "applied": False, "message": f"backup failed (nothing written): {exc}"}
+
+        def _rollback_all():
+            for _p, _b in backups.items():
+                try:
+                    if Path(_b).exists():
+                        shutil.copy2(str(_b), str(_p))
+                except Exception:
+                    pass
+
+        # ── Phase 3: write all ──────────────────────────────────────────────────
+        try:
+            for p in order:
+                p.write_text(by_path[p], encoding="utf-8")
+        except Exception as exc:
+            _rollback_all()
+            return {"ok": False, "applied": False, "message": f"write failed (all reverted): {exc}"}
+
+        # ── Phase 4: verify all (compile + import); roll back ALL on any failure ─
+        import py_compile
+        for p in order:
+            try:
+                py_compile.compile(str(p), doraise=True)
+            except Exception as exc:
+                _rollback_all()
+                return {"ok": False, "applied": False,
+                        "message": f"compile error in {p.name} (all reverted): {exc}"}
+        if verify:
+            for p in order:
+                d = dotted.get(p)
+                if d and pre_ok.get(p):
+                    ok, detail = _smoke_import_module(d)
+                    if not ok:
+                        _rollback_all()
+                        return {"ok": False, "applied": False,
+                                "message": f"import broke in {p.name} (all reverted): {detail}"}
+
+        files = [str(p.relative_to(PROJECT_ROOT)) for p in order]
+        log.debug(f"[SELF-IMPROVE] Patch set applied atomically across {len(files)} file(s): {files}")
+        return {"ok": True, "applied": True, "files": files,
+                "message": f"Applied {len(patches)} patch(es) across {len(files)} file(s)"}
+
     def revert_patch(self, file_path: str) -> dict:
         """Restore the most recent .eli_bak backup for a file."""
         p = Path(file_path)
