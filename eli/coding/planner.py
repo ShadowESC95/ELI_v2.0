@@ -40,7 +40,10 @@ def _strip_code_fences(text: str) -> str:
 
 
 def plan_task(task: str, generate: Optional[GenerateFn] = None, *,
-              context: str = "", language: str = "python", max_tokens: int = 700) -> Plan:
+              context: str = "", language: str = "python", max_tokens: int = 1536) -> Plan:
+    # NOTE: budget is deliberately > the no-think suppression threshold (1024) so a
+    # reasoning model THINKS through the plan — the planning step is where reasoning
+    # helps most, yet at 700 tokens the no-think prefill was suppressing it. (Advancement A.)
     """Decompose `task` into an approach + ordered steps. Deterministic single-step
     fallback when no model is available or parsing fails."""
     if generate is None:
@@ -79,13 +82,19 @@ _IMPLEMENT_RULES = (
 
 def implement(task: str, plan: Optional[Plan], generate: GenerateFn, *,
               language: str = "python", feedback: str = "", prior_code: str = "",
-              temperature: float = 0.2, max_tokens: int = 4000) -> str:
+              context: str = "", temperature: float = 0.2, max_tokens: int = 4000) -> str:
     """Write (or refine) a solution. When `feedback`+`prior_code` are supplied this
-    is a patch-style refinement: fix the specific problem, keep what works."""
+    is a patch-style refinement: fix the specific problem, keep what works. `context` is
+    relevant EXISTING repo code (imports, surrounding scope, symbol defs) so the model
+    matches real APIs/patterns instead of guessing — (Advancement C)."""
     parts = [
         f"You are a senior {language} engineer writing frontier-quality, runnable code.",
         f"\nTASK:\n{task}",
     ]
+    if context:
+        parts.append(
+            "\nEXISTING CODE FROM THIS PROJECT (match these real names/imports/signatures; "
+            "do NOT invent names that aren't shown here):\n" + context[:6000])
     if plan and (plan.approach or plan.steps):
         parts.append("\n" + plan.as_prompt_block())
     if prior_code and feedback:
