@@ -2168,6 +2168,18 @@ def route(text: str) -> Dict[str, Any]:
                               "patch yourself", "fix your own code", "self-patch"]):
         return _mk("SELF_PATCH", {}, 0.95, matched_by="self.patch")
 
+    # "improve / enhance / refactor / optimise / clean up <a NAMED .py file>" → the verified
+    # CodeAgent on THAT file (same path FIX_FILE uses), in improve mode — NOT ELI's own
+    # self-improvement. A named file wins over the generic self-improve catch below; bare
+    # "improve yourself / your code" (no .py path) still falls through to SELF_IMPROVE.
+    _imp_file = re.search(
+        r"\b(?:improve|enhance|refactor|optimi[sz]e|clean\s*up|tidy(?:\s*up)?|make\s+better)\b"
+        r".{0,40}?([\w./~ -]+\.py)\b", raw, re.I)
+    if _imp_file:
+        _imp_path = _imp_file.group(1).strip()
+        return _mk("FIX_FILE", {"path": _imp_path, "mode": "improve"}, 0.92,
+                   matched_by="file.improve_python", entities={"path": _imp_path})
+
     if "improve" in low and (
             "yourself" in low or "self" in low or "code" in low):
         return _mk("SELF_IMPROVE", {}, 0.9, matched_by="self.improve")
