@@ -455,12 +455,17 @@ def smart_fit_config(
     # 2) batch.
     while batch > min_batch and _needed(ctx, layers, batch) > budget:
         batch = max(min_batch, batch // 2)
-    # 3) ctx — last, preserve context.
-    while ctx > min_ctx and _needed(ctx, layers, batch) > budget:
-        ctx = max(min_ctx, ctx - ctx_grain)
-    # 4) last resort: shed remaining GPU layers to 0.
+    # 3) Shed the REMAINING GPU layers (below the floor, toward CPU-only) to PRESERVE
+    #    the user's requested ctx — context is quality, and a big-model-on-small-VRAM
+    #    KV cache needs the room. This is what "ctx last, quality over speed" means:
+    #    honour the requested context by trading GPU offload, NOT by crushing ctx while
+    #    keeping layers (which forced a 20GB model to ctx=6144 at 12 layers when 8 layers
+    #    would have held ~22k). The fraction spinbox is the user's speed↔context dial.
     while layers > 0 and _needed(ctx, layers, batch) > budget:
         layers = max(0, layers - step)
+    # 4) ctx — true last resort, only when even CPU-only (0 layers) can't hold it.
+    while ctx > min_ctx and _needed(ctx, layers, batch) > budget:
+        ctx = max(min_ctx, ctx - ctx_grain)
 
     n_layers = 99 if layers >= total else layers
     return ctx, n_layers, batch
