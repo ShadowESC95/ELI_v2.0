@@ -37,9 +37,19 @@ def test_tighter_vram_reduces_batch_before_ctx():
     assert batch < USER_BATCH, "batch should have been reduced"
 
 
-def test_very_tight_vram_finally_reduces_ctx():
+def test_tight_vram_preserves_ctx_by_shedding_layers():
+    # "ctx last, quality over speed": when VRAM is tight but the KV cache still fits
+    # CPU-only, ctx is PRESERVED and the GPU layers are shed instead (trade speed,
+    # keep context — the fraction is the user's speed↔context dial).
     ctx, layers, batch = _fit(2600)
-    assert ctx < USER_CTX, "ctx should drop only when layers+batch can't free enough"
+    assert ctx == USER_CTX, "ctx preserved by shedding GPU layers before crushing ctx"
+    assert layers == 0, "tight VRAM sheds to CPU-only to keep ctx"
+
+
+def test_very_tight_vram_finally_reduces_ctx():
+    # Only when even CPU-only (0 layers) can't hold the KV cache does ctx finally drop.
+    ctx, layers, batch = _fit(1500)
+    assert ctx < USER_CTX, "ctx drops only when 0 layers + min batch still overflow"
     assert ctx >= 2048
 
 
