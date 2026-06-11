@@ -1604,15 +1604,30 @@ def route(text: str) -> Dict[str, Any]:
         return _mk("GAZE_CALIBRATE", {}, 0.95, matched_by="gaze.calibrate.preempt")
 
     # Gaze-cursor click: act on whatever the user is LOOKING at. The gaze engine
-    # supplies the live screen point; GAZE_CLICK moves the cursor there and
-    # clicks. Only meaningful while gaze tracking is on (the executor returns a
-    # helpful note otherwise). "open that/it" = double-click to open.
+    # supplies the live screen point; GAZE_CLICK moves the cursor there and clicks.
+    # EXPLICIT click commands ("double/left/right click") are unambiguous and route
+    # always. But NATURAL-LANGUAGE targeting ("open it", "click that") only means a
+    # gaze click when gaze tracking is actually ON — with gaze OFF, "open it" means
+    # open the file/app just referenced, so it must fall through (the transcript's
+    # "open it" mis-fired into a phantom GAZE_CLICK / "gaze enabled" hallucination
+    # while gaze was disabled).
     if re.search(r"\bright[\s-]?click\b", low):
         return _mk("GAZE_CLICK", {"button": "right"}, 0.95, matched_by="gaze.click.right")
-    if re.search(r"\bdouble[\s-]?click\b|\bopen\s+(?:that|it|this|here|there)\b", low):
+    if re.search(r"\bdouble[\s-]?click\b", low):
         return _mk("GAZE_CLICK", {"button": "left", "double": True}, 0.95, matched_by="gaze.click.double")
-    if re.search(r"\bleft[\s-]?click\b|\bclick\s+(?:it|that|this|here|there)\b|^\s*click\s*$", low):
+    if re.search(r"\bleft[\s-]?click\b|^\s*click\s*$", low):
         return _mk("GAZE_CLICK", {"button": "left"}, 0.94, matched_by="gaze.click.left")
+    _gaze_on = False
+    try:
+        from eli.perception.gaze_engine import is_gaze_running as _igr
+        _gaze_on = bool(_igr())
+    except Exception:
+        _gaze_on = False
+    if _gaze_on:
+        if re.search(r"\bopen\s+(?:that|it|this|here|there)\b", low):
+            return _mk("GAZE_CLICK", {"button": "left", "double": True}, 0.95, matched_by="gaze.click.double")
+        if re.search(r"\bclick\s+(?:it|that|this|here|there)\b", low):
+            return _mk("GAZE_CLICK", {"button": "left"}, 0.94, matched_by="gaze.click.left")
     # ── end gaze engine control ───────────────────────────────────────────────
 
     # ── File Audit (must precede RUNTIME_AUDIT — "do a file audit" would
