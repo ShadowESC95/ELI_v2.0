@@ -78,6 +78,16 @@ class BackgroundTasks:
                 return
             t.status = "running"
             t.started = time.time()
+        # Mark every model call this job triggers as BACKGROUND so it carries the
+        # cooperative abort: a foreground conversational turn preempts it at the next
+        # token (the job's chat_completion path is NOT token-capped, so summaries stay
+        # full-length when uninterrupted). Without this, a multi-minute PDF/codegen job
+        # held the shared model lock and foreground turns queued 200-530s behind it.
+        try:
+            from eli.cognition.gguf_inference import set_background_inference as _set_bg
+            _set_bg(True)
+        except Exception:
+            pass
         try:
             res = fn(*args, **kwargs)
             with self._lock:
