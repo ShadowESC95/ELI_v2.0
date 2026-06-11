@@ -64,7 +64,7 @@ def run_code_mode(
     produce a valid/working program within max_attempts.
     """
     if api is None:
-        from eli.api import api as _default_api
+        from eli.tools.api import api as _default_api
         api = _default_api
     try:
         actions = api.actions() if hasattr(api, "actions") else []
