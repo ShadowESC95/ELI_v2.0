@@ -9037,11 +9037,13 @@ def _execute_impl(action: str, args: Optional[Dict[str, Any]] = None) -> Dict[st
                 )
                 # FULL verified pass — beam search + repair iterations + self-critique.
                 # Quality over latency by explicit choice: a thorough, correct fix is worth
-                # the wait on a slow local model. Do NOT cut the beam/iterations to save time
-                # (the live run proved this config produces valid code and the critique caught
-                # a real logical bug). Latency is addressed elsewhere, never by gutting this.
+                # the wait. Do NOT cut beam/iterations to save time.
+                # use_dag=False: a single-file fix is ONE coherent rewrite, NOT a multi-
+                # component build. The DAG path decomposes into components that each
+                # regenerate the whole file and compose() concatenates them (deduping only
+                # imports), which DUPLICATED the file 6× on the live run. Single-solve only.
                 _cr = _code_solve(_fix_task, language="python", use_tests=False,
-                                  beam=2, max_iterations=3)
+                                  beam=2, max_iterations=3, use_dag=False)
                 _cand = str((_cr or {}).get("code") or "").strip()
                 if _cand and len(_cand) >= 20 and _cand != original.strip():
                     import ast as _ast_v
