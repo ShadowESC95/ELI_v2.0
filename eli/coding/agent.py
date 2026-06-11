@@ -19,7 +19,7 @@ from dataclasses import dataclass
 from typing import Any, Callable, Dict, Optional
 
 from eli.coding.planner import Plan, plan_task, implement
-from eli.coding.verification import Candidate, verify_candidate, synthesize_tests
+from eli.coding.verification import Candidate, verify_candidate, synthesize_tests, critique_candidate
 from eli.coding.search import tree_search, SearchResult
 from eli.coding.bug_memory import BugMemory, get_bug_memory
 from eli.utils.log import get_logger
@@ -177,10 +177,32 @@ class CodeAgent:
             run_timeout=run_timeout, bug_memory=self.bug_memory, context=ctx,
         )
         best = result.best
-        msg = (f"solved (score {best.score:.2f})" if result.solved
+        solved = result.solved
+
+        # 5) Self-critique (Advancement D) — even a gate-passing candidate can carry an
+        #    edge-case bug tests miss. One model review; if it names concrete issues, one
+        #    more refinement, kept only if it scores at least as well. Off via ELI_CODING_CRITIQUE=0.
+        if (best.code.strip() and self.generate is not None
+                and _env_int("ELI_CODING_CRITIQUE", 1)):
+            try:
+                issues = critique_candidate(task, best.code, self.generate,
+                                            language=language, context=ctx)
+                if issues:
+                    refined = implement(task, plan, self.generate, language=language,
+                                        context=ctx, prior_code=best.code,
+                                        feedback="self-review found issues — fix these:\n" + issues)
+                    rc = Candidate(code=refined, language=language, origin="critique")
+                    verify_candidate(rc, tests=tests or None, run_timeout=run_timeout)
+                    if rc.code.strip() and rc.score >= best.score:
+                        best = rc
+                        solved = best.score >= target_score
+            except Exception as _crit_e:
+                log.debug(f"[CODE_AGENT] critique pass skipped: {_crit_e}")
+
+        msg = (f"solved (score {best.score:.2f})" if solved
                else f"best effort (score {best.score:.2f}, gate: {best.gate_failed or 'none'})")
         return CodeResult(
-            ok=bool(best.code.strip()), solved=result.solved, code=best.code,
+            ok=bool(best.code.strip()), solved=solved, code=best.code,
             language=language, score=best.score, plan={"approach": plan.approach, "steps": plan.steps},
             tests=tests, search=result.to_dict(),
             bug_class=(best.diagnosis.bug_class.value if best.diagnosis else None),
