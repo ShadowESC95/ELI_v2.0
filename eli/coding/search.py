@@ -97,6 +97,7 @@ def tree_search(
     time_budget_s: float = 240.0,
     no_improve_patience: int = 3,
     bug_memory: Optional[BugMemory] = None,
+    context: str = "",
 ) -> SearchResult:
     t0 = time.time()
     nodes: List[Candidate] = []
@@ -122,7 +123,7 @@ def tree_search(
     # ── Roots: a diverse beam (temperature ladder = U-style exploration) ─────
     for i in range(max(1, beam)):
         temp = round(0.15 + 0.25 * i, 2)
-        code = implement(task, plan, generate, language=language, temperature=temp)
+        code = implement(task, plan, generate, language=language, context=context, temperature=temp)
         cand = Candidate(code=code, language=language, origin="implementer")
         verify_candidate(cand, tests=tests, run_timeout=run_timeout)
         _augment_with_memory(cand, bug_memory)
@@ -149,7 +150,7 @@ def tree_search(
         iterations += 1
         child_code = implement(task, plan, generate, language=language,
                                feedback=parent.feedback, prior_code=parent.code,
-                               temperature=0.25)
+                               context=context, temperature=0.25)
         child = Candidate(code=child_code, language=language, origin="refine", parent_id=parent.id)
         verify_candidate(child, tests=tests, run_timeout=run_timeout)
         _augment_with_memory(child, bug_memory)

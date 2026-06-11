@@ -149,11 +149,21 @@ class CodeAgent:
         max_iterations = (max_iterations if max_iterations is not None
                           else _env_int("ELI_CODING_MAX_ITERS", 6))
 
-        # 1) Plan (structured decomposition)
-        plan = plan_task(task, self.generate, language=language)
+        # 0) Repo context — relevant EXISTING project code (named files' imports + the
+        #    defs of symbols the task names) so the agent writes against real APIs/patterns
+        #    instead of guessing (Advancement C; deterministic, offline, bounded).
+        try:
+            from eli.coding.repo_context import gather_repo_context
+            ctx = gather_repo_context(task)
+        except Exception:
+            ctx = ""
+
+        # 1) Plan (structured decomposition; reasoning-native budget — see plan_task)
+        plan = plan_task(task, self.generate, language=language, context=ctx)
 
         # 2) Seed implementation — used as concrete context for test synthesis
-        seed_code = implement(task, plan, self.generate, language=language, temperature=0.2)
+        seed_code = implement(task, plan, self.generate, language=language,
+                              context=ctx, temperature=0.2)
 
         # 3) Synthesize tests (only meaningful for Python execution gating)
         tests = ""
@@ -164,7 +174,7 @@ class CodeAgent:
         result: SearchResult = tree_search(
             task, self.generate, plan=plan, language=language, tests=tests or None,
             beam=beam, max_iterations=max_iterations, target_score=target_score,
-            run_timeout=run_timeout, bug_memory=self.bug_memory,
+            run_timeout=run_timeout, bug_memory=self.bug_memory, context=ctx,
         )
         best = result.best
         msg = (f"solved (score {best.score:.2f})" if result.solved
