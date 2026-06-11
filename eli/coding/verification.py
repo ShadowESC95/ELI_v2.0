@@ -286,10 +286,16 @@ def critique_candidate(task: str, code: str, generate: Optional[GenerateFn] = No
     if generate is None or not (code or "").strip():
         return ""
     prompt = (
-        f"You are a strict senior {language} reviewer. Find ONLY real defects in the code "
-        "below for the given task: concrete bugs, missing edge cases (empty / None / zero / "
-        "boundary / large input), or incorrect logic. One short line each. Do NOT comment on "
-        "style, naming, or formatting. If the code is correct and robust, reply with exactly: OK\n\n"
+        f"You are a strict senior {language} reviewer. Find ONLY substantive defects in the "
+        "code below for the given task. Report, one short line each:\n"
+        "- TOY/FAKE implementation: hardcoded or faked results, dummy heuristics that only "
+        "pretend to do the work, trivial stand-ins for the real algorithm, or logic that "
+        "MISREPRESENTS the problem rather than solving it (this is the most important check — "
+        "if the code does not GENUINELY do what the task asks, say so explicitly).\n"
+        "- Concrete bugs, missing edge cases (empty / None / zero / boundary / large input), "
+        "or incorrect logic.\n"
+        "Do NOT comment on style, naming, or formatting. If the code is a real, correct, "
+        "robust solution to the task, reply with exactly: OK\n\n"
         f"TASK:\n{task}\n"
         + (f"\nPROJECT CODE FOR REFERENCE:\n{context[:2000]}\n" if context else "")
         + f"\nCODE:\n```{language}\n{code[:6000]}\n```"
