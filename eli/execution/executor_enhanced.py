@@ -9021,7 +9021,37 @@ def _execute_impl(action: str, args: Optional[Dict[str, Any]] = None) -> Dict[st
 
         fixed_code = ""
         ff_reject_reason = None
+        # Python: route the fix through the VERIFIED CodeAgent first — syntax + static-lint
+        # (pyflakes) + execution + repo-context + self-critique (the A–E ladder) — so a fix
+        # can't ship broken code like `def main:`. Falls through to the legacy loop below for
+        # non-Python, or if the agent yields nothing usable.
+        if pp.suffix.lower() == ".py":
+            try:
+                from eli.coding import solve as _code_solve
+                _fix_task = (
+                    "Fix this Python file and return the COMPLETE corrected source. Preserve "
+                    "the original intent and structure; make minimal but complete fixes; use "
+                    "only real library APIs that exist."
+                    + (f" Reported error: {extra_error}." if extra_error else "")
+                    + f"\n\n--- FILE: {pp.name} ---\n{original[:24000]}"
+                )
+                _cr = _code_solve(_fix_task, language="python", use_tests=False,
+                                  beam=2, max_iterations=3)
+                _cand = str((_cr or {}).get("code") or "").strip()
+                if _cand and len(_cand) >= 20 and _cand != original.strip():
+                    import ast as _ast_v
+                    try:
+                        _ast_v.parse(_cand)          # belt-and-suspenders (agent already gated)
+                        fixed_code = _cand
+                        log.debug(f"[FIX_FILE] CodeAgent produced verified fix "
+                                  f"(score {(_cr or {}).get('score')})")
+                    except SyntaxError:
+                        pass
+            except Exception as _ca_e:
+                log.debug(f"[FIX_FILE] CodeAgent path skipped: {_ca_e}")
         for _ff_attempt in range(2):
+            if fixed_code:
+                break
             _ff_prompt = base_fix_prompt
             if _ff_attempt > 0 and ff_reject_reason:
                 _ff_prompt = (
