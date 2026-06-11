@@ -917,20 +917,17 @@ class LocalModelManager:
                     _sf_model_gb = path_obj.stat().st_size / (1024 ** 3)
                     _sf_reserve = int(_sf_os.environ.get("ELI_VRAM_RESERVE_MB", "700") or "700")
                     _sf_kvq = bool(_sf_gpu.total_mb and _sf_gpu.total_mb < 12000)
-                    # Anchor the fit on the user's CHOSEN ctx (settings n_ctx), capped to
-                    # the model's trained context — NOT a fixed fraction of train length.
-                    # This is what makes "what you choose" the load anchor: smart-fit reduces
-                    # ctx LAST, so an explicit ctx that fits loads UNCHANGED, and one that
-                    # doesn't is transparently REDUCED to fit (never silently replaced with an
-                    # unrelated train×0.9 number — the source of "what I set isn't what loads").
-                    # Falls back to a fraction of train length only when no usable ctx is set
-                    # (true auto). Per-model, per-user, per-machine. No hardcode.
+                    # Anchor the fit on the user's CHOSEN ctx. The startup popup's
+                    # "Context target fraction" (ELI_CTX_FRACTION) is the canonical control:
+                    # requested ctx = fraction × the model's trained length. smart_fit_config
+                    # then honours it by SHEDDING GPU LAYERS (ctx preserved — quality over
+                    # speed), so the fraction is a real speed↔context dial. An explicit
+                    # SMALLER settings n_ctx still caps it (user wants less). No hardcode.
                     _sf_train = int(_sf_train_ctx(str(path_obj)))
-                    if _user_ctx and int(_user_ctx) >= 2048:
-                        _sf_user_ctx = min(int(_user_ctx), _sf_train)
-                    else:
-                        _sf_fraction = float(_sf_os.environ.get("ELI_CTX_FRACTION", "0.9") or "0.9")
-                        _sf_user_ctx = max(2048, (int(_sf_train * _sf_fraction) // 2048) * 2048)
+                    _sf_fraction = float(_sf_os.environ.get("ELI_CTX_FRACTION", "0.65") or "0.65")
+                    _sf_user_ctx = max(2048, (int(_sf_train * _sf_fraction) // 2048) * 2048)
+                    if _user_ctx and 2048 <= int(_user_ctx) < _sf_user_ctx:
+                        _sf_user_ctx = int(_user_ctx)  # an explicit smaller ctx still wins
                     _sf_ctx, _sf_layers, _sf_batch = _sf_fit(
                         _sf_model_gb, _sf_gpu.free_mb,
                         user_ctx=_sf_user_ctx, user_batch=_user_batch,
