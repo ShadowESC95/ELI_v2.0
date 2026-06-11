@@ -270,3 +270,35 @@ def synthesize_tests(task: str, code: str, generate: Optional[GenerateFn] = None
     except Exception as exc:
         log.debug(f"[VERIFICATION] test synthesis fell back to smoke harness: {exc}")
         return _deterministic_smoke_harness()
+
+
+def critique_candidate(task: str, code: str, generate: Optional[GenerateFn] = None,
+                       *, language: str = "python", context: str = "",
+                       max_tokens: int = 1200) -> str:
+    """Model self-review (Advancement D): find CONCRETE bugs / missing edge cases / wrong
+    logic that the deterministic gates (syntax/lint/execution/tests) can pass over — code
+    that runs and passes shallow tests but is still wrong (off-by-one, unhandled None/empty/
+    boundary, wrong branch). Returns a short issues string to feed back into one more
+    refinement, or "" when the code looks correct.
+
+    Budget is above the no-think threshold so a reasoning model actually reviews; it does
+    NOT nitpick style. Injectable `generate` → testable without a model."""
+    if generate is None or not (code or "").strip():
+        return ""
+    prompt = (
+        f"You are a strict senior {language} reviewer. Find ONLY real defects in the code "
+        "below for the given task: concrete bugs, missing edge cases (empty / None / zero / "
+        "boundary / large input), or incorrect logic. One short line each. Do NOT comment on "
+        "style, naming, or formatting. If the code is correct and robust, reply with exactly: OK\n\n"
+        f"TASK:\n{task}\n"
+        + (f"\nPROJECT CODE FOR REFERENCE:\n{context[:2000]}\n" if context else "")
+        + f"\nCODE:\n```{language}\n{code[:6000]}\n```"
+    )
+    try:
+        out = (generate(prompt, system="You find real bugs; you never nitpick style.",
+                        max_tokens=max_tokens, temperature=0.1) or "").strip()
+    except Exception:
+        return ""
+    if not out or out.upper().startswith("OK") or len(out) < 8:
+        return ""
+    return out[:1200]
