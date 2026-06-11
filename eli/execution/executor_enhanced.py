@@ -8707,6 +8707,37 @@ def _execute_impl(action: str, args: Optional[Dict[str, Any]] = None) -> Dict[st
         if not desc:
             msg = "Missing description for CODE_SOLVE"
             return {"ok": False, "action": a, "error": msg, "content": msg, "response": msg}
+        # Code-mode redirect: run a short program IN-PROCESS against eli.api to FULFIL the
+        # request (not produce a standalone script). Opt-in via args.code_mode; the
+        # restricted executor refuses unless Full Control is ON, so this is fail-closed.
+        if args.get("code_mode") or args.get("execute_via_eli"):
+            try:
+                from eli.coding.code_mode import run_code_mode
+                from eli.cognition.inference_broker import get_broker
+                _brk = get_broker()
+
+                def _cm_gen(p: str) -> str:
+                    if _brk is None or not getattr(_brk, "gguf_ready", False):
+                        return ""
+                    return _brk.infer(
+                        p, system="You drive ELI by writing short Python programs that call `api`.",
+                        max_tokens=int(args.get("max_tokens") or 700)) or ""
+
+                _cm = run_code_mode(desc, _cm_gen, max_attempts=int(args.get("max_attempts") or 2))
+                if _cm.get("blocked"):
+                    _m = _cm.get("message") or "Code-mode needs Full Control enabled (GUI toggle)."
+                    return {"ok": False, "action": a, "blocked": True, "content": _m, "response": _m}
+                if _cm.get("ok"):
+                    _res = _cm.get("result")
+                    _m = f"Done (code-mode). Result: {_res}"
+                    return {"ok": True, "action": a, "content": _m, "response": _m,
+                            "result": _res, "meta": {"code_mode": True, "code": _cm.get("code"),
+                                                     "attempts": _cm.get("attempts")}}
+                _m = f"Code-mode couldn't complete after {_cm.get('attempts')} attempt(s): {_cm.get('error')}"
+                return {"ok": False, "action": a, "content": _m, "response": _m}
+            except Exception as _cm_e:
+                _m = f"Code-mode error: {_cm_e}"
+                return {"ok": False, "action": a, "error": _m, "content": _m, "response": _m}
         _bg = _maybe_background_codegen(a, args)
         if _bg is not None:
             return _bg
