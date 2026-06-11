@@ -173,6 +173,29 @@ _FACT_CLAIM_RE = re.compile(
     r"\b[\w.''-]+(?:'s)?\s+(?:real\s+)?name\s+is\b"          # "X's real name is Y"
     r"|\bit (?:was|is)\s+[\w.''-]+,?\s+not\s+[\w.''-]+",     # "it was X not Y"
     re.I)
+# ELI's OWN action / artifact / job STATE — "did you save/create/generate X", "is it
+# done", "check job N", "where did you save it", "what's the status/result of the job".
+# Asserting any of these without grounding is the worst confabulation (the transcript
+# invented "saved to ~/Documents/" and a fake "job complete"). Past-tense/completion
+# framing only — bare "do you …" capability questions are deliberately excluded.
+_SELF_ACTION_STATE_RE = re.compile(
+    r"\b(?:did|have|has)\s+you\s+(?:ever\s+|actually\s+|not\s+|already\s+)*"
+    r"(?:save[d]?|creat(?:e|ed)|writ(?:e|ten)|wrote|generat(?:e|ed)|made|stor(?:e|ed)|"
+    r"produc(?:e|ed)|compil(?:e|ed)|export(?:ed)?|complet(?:e|ed)|finish(?:ed)?|ran|done)\b"
+    r"|\b(?:is|was)\s+(?:it|that|the\s+\w+|job\s*#?\d+)\s+"
+    r"(?:saved|done|finished|complete[d]?|ready|created|generated|written|stored|compiled)\b"
+    r"|\bcheck\s+job\b|\bstatus\s+report\b"
+    r"|\bwhere\s+(?:did\s+you\s+(?:save|put|store)|is\s+the\s+(?:file|doc|document|report|output))\b"
+    r"|\bwhat'?s?\s+(?:the\s+)?(?:status|result[s]?|output|outcome)\s+(?:of\s+)?(?:job|the\s+job|it|that)\b",
+    re.I)
+
+
+def _self_claim_floor() -> float:
+    """Grounding below this on a self-action/state question → hedge, don't confabulate."""
+    try:
+        return float(os.environ.get("ELI_SELF_CLAIM_FLOOR", "0.25"))
+    except Exception:
+        return 0.25
 
 
 def _is_degenerate(text: str) -> bool:
@@ -267,6 +290,24 @@ def escalate(
     except Exception:
         grounding = 0.0
     target = _mode_target(reasoning_mode)
+
+    # ── Self-action / artifact-state confabulation floor ──────────────────────
+    # ELI asserting it performed an action or produced an artifact it has NO grounding
+    # for (saved a file, finished a job, generated a doc) is the worst confabulation.
+    # When such a self-state question reaches CHAT with grounding essentially absent,
+    # HEDGE in ANY mode (incl. quick) rather than let synthesis invent a status/path.
+    # Real job/file queries route to CHECK_JOB/SUMMARIZE_FILE (grounded actions, not
+    # CHAT) and never reach here; this only fires when CHAT is about to guess.
+    if _SELF_ACTION_STATE_RE.search((user_input or "").lower()) and grounding < _self_claim_floor():
+        try:
+            from eli.core.config import network_allowed as _na
+            _online = bool(_na())
+        except Exception:
+            _online = False
+        log.debug(f"[ESCALATION] self-action/state claim grounding={grounding:.2f} "
+                  f"< floor → honest hedge (no confabulated status/path)")
+        return _result(_hedge("local", _online), grounded=False,
+                       mode=_canon_mode(reasoning_mode), trace=trace)
 
     is_fact, domain = classify_factual(user_input)
     if not is_fact:
