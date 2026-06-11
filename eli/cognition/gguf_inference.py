@@ -250,17 +250,20 @@ def _no_think_prefill(*, structured: bool, max_tokens) -> str:
     wanted."""
     if not _is_thinking_model():
         return ""
-    _env = os.environ.get("ELI_MODEL_THINK", "").strip().lower()
-    if _env in ("0", "false", "no", "off"):
+    try:
+        _small = 0 < int(max_tokens or 0) < 1024
+    except Exception:
+        _small = False
+    # UTILITY calls (structured/JSON, OR small-budget chat: routing, reflection, insight,
+    # news synthesis, summary, judge) NEVER think — they have no budget for it and need the
+    # short/structured output. This holds REGARDLESS of the Think toggle (the earlier bug:
+    # ELI_MODEL_THINK=1 made these think and empty). The toggle only governs the MAIN
+    # answer call (large budget): think unless explicitly OFF.
+    if structured or _small:
         disable = True
-    elif _env in ("1", "true", "yes", "on"):
-        disable = structured
     else:
-        try:
-            _small = 0 < int(max_tokens or 0) < 1024
-        except Exception:
-            _small = False
-        disable = structured or _small
+        _env = os.environ.get("ELI_MODEL_THINK", "").strip().lower()
+        disable = _env in ("0", "false", "no", "off")
     return "<think>\n\n</think>\n\n" if disable else ""
 
 
