@@ -67,6 +67,33 @@ def test_already_grounded_no_escalation(monkeypatch):
                       {"action": "CHAT"}, _FakeBus(0.80)) is None
 
 
+def test_self_action_state_claim_hedges_when_ungrounded(monkeypatch):
+    # ELI must NOT confabulate a job status / saved-file path it has no grounding for.
+    monkeypatch.setenv("ELI_GROUNDING_ESCALATION", "1")
+    for q in ("did you not save your review/summary as a document?",
+              "check job #4 please",
+              "gone past the hour and a half mark on job #5, status report?",
+              "where did you save it"):
+        r = G.escalate(_FakeEngine(), q, {"action": "CHAT"}, _FakeBus(0.0),
+                       reasoning_mode="quick", trace={})
+        assert r is not None and not r.get("grounded"), q
+        assert "invent" in (r.get("content") or "").lower(), q  # honest hedge, not a status
+
+
+def test_self_action_claim_not_hedged_when_grounded(monkeypatch):
+    # A real grounded answer (job data actually present) must pass through, not hedge.
+    monkeypatch.setenv("ELI_GROUNDING_ESCALATION", "1")
+    assert G.escalate(_FakeEngine(), "did you save the summary?", {"action": "CHAT"},
+                      _FakeBus(0.85), reasoning_mode="quick", trace={}) is None
+
+
+def test_self_action_regex_excludes_chitchat_and_capability():
+    R = G._SELF_ACTION_STATE_RE
+    for q in ("good morning eli", "thanks pal", "do you like coffee",
+              "do you do that often", "play some music", "summarise that folder"):
+        assert not R.search(q.lower()), q
+
+
 def test_disabled_via_env(monkeypatch):
     monkeypatch.setenv("ELI_GROUNDING_ESCALATION", "0")
     assert G.escalate(_FakeEngine(), "what is eminems real name",
