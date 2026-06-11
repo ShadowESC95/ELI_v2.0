@@ -85,6 +85,41 @@ def _quality_signals(code: str) -> float:
     return min(1.0, s)
 
 
+def _static_lint(code: str) -> tuple[list[str], list[str]]:
+    """Run pyflakes on `code` → (errors, warnings). 'errors' are correctness problems
+    (undefined name, redefinition, duplicate arg, bad f-string) that PASS syntax AND run
+    clean in isolation but break callers — the bad-patch class execution alone misses
+    (e.g. `import tempfile as t` then using `tempfile`). Empty if pyflakes unavailable.
+    Same invocation as code_examiner._tier2_pyflakes (Advancement B)."""
+    try:
+        from pyflakes.api import check as _pf_check
+        from pyflakes.reporter import Reporter
+    except Exception:
+        return [], []
+    import io as _io
+    out, err = _io.StringIO(), _io.StringIO()
+    try:
+        _pf_check(code, "<candidate>", Reporter(out, err))
+    except Exception:
+        return [], []
+    errors, warnings = [], []
+    for line in (out.getvalue() or "").splitlines():
+        m = re.match(r"<candidate>:(\d+):(?:\d+:)?\s*(.+)", line)
+        if not m:
+            continue
+        msg = m.group(2).strip()
+        if ("may be undefined, or defined from star imports" in msg
+                or "unable to detect undefined names" in msg):
+            continue  # star-import false-positive noise (per code_examiner)
+        entry = f"line {m.group(1)}: {msg}"
+        if any(k in msg for k in ("undefined name", "redefinition", "duplicate argument",
+                                  "used prior to global", "f-string")):
+            errors.append(entry)
+        else:
+            warnings.append(entry)  # unused imports/vars etc. — informational, non-fatal
+    return errors, warnings
+
+
 def verify_candidate(cand: Candidate, *, tests: Optional[str] = None,
                      run_timeout: float = 20.0, require_run: bool = True) -> Candidate:
     """Run the explicit gate ladder, populating the candidate's verdicts."""
@@ -96,6 +131,15 @@ def verify_candidate(cand: Candidate, *, tests: Optional[str] = None,
             cand.gate_failed = "syntax"
             cand.diagnosis = classify_bug(traceback_text=detail)
             cand.feedback = f"syntax error: {detail}"
+            cand.score = score_candidate(cand)
+            return cand
+        # Gate 1.5 — static lint: reject correctness errors that pass syntax + execution.
+        _lint_errs, _ = _static_lint(cand.code)
+        if _lint_errs:
+            cand.gate_failed = "lint"
+            cand.diagnosis = classify_bug(message="; ".join(_lint_errs[:3]), code=cand.code)
+            cand.feedback = ("static analysis (pyflakes) found correctness errors — "
+                             "fix these exactly:\n- " + "\n- ".join(_lint_errs[:6]))
             cand.score = score_candidate(cand)
             return cand
     else:
