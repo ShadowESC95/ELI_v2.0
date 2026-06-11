@@ -54,7 +54,7 @@ class ELIApi:
             try:
                 import json
                 from pathlib import Path
-                p = Path(__file__).resolve().parent / "capability_inventory.generated.json"
+                p = Path(__file__).resolve().parents[1] / "capability_inventory.generated.json"
                 if p.exists():
                     data = json.loads(p.read_text(encoding="utf-8"))
                     items = data if isinstance(data, list) else (data.get("capabilities") or data.get("actions") or [])
