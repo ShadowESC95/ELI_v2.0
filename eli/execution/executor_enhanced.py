@@ -9035,8 +9035,12 @@ def _execute_impl(action: str, args: Optional[Dict[str, Any]] = None) -> Dict[st
                     + (f" Reported error: {extra_error}." if extra_error else "")
                     + f"\n\n--- FILE: {pp.name} ---\n{original[:24000]}"
                 )
+                # Lean config for a routine file fix: a single verified pass + one repair
+                # iteration. Keeps the quality GATES (syntax + static-lint + repo-context +
+                # self-critique) but drops the expensive beam SEARCH that made one fix take
+                # ~hours on a slow local model (live run: 1h48m at beam=2/iters=3).
                 _cr = _code_solve(_fix_task, language="python", use_tests=False,
-                                  beam=2, max_iterations=3)
+                                  beam=1, max_iterations=1)
                 _cand = str((_cr or {}).get("code") or "").strip()
                 if _cand and len(_cand) >= 20 and _cand != original.strip():
                     import ast as _ast_v
