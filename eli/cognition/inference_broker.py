@@ -81,6 +81,15 @@ class InferenceBroker:
     ) -> str:
         if not self.gguf_ready:
             raise RuntimeError("GGUF model not ready")
+        # During shutdown, don't START a new generation — return empty immediately so a
+        # background self-improvement/codegen loop stops paying prompt-eval cost on each
+        # remaining item and teardown isn't held up. In-flight calls abort via the
+        # gguf stopping-criteria; this just prevents new ones from queueing.
+        try:
+            if self._gguf.is_shutting_down():
+                return ""
+        except Exception:
+            pass
         global _last_foreground_ts
         # A call is background if the caller said so OR it runs on a thread already marked
         # background (the proactive daemon marks its loop thread, so all its work qualifies).
