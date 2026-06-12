@@ -1069,7 +1069,7 @@ def _eli_react_to_content_prepass(original_text: str, raw: str, low: str):
         r"\b(the following|this (?:reply|response|message|paste|text)"
         r"|(?:reply|response|message|text) (?:from|by) \w+"
         r"|i (?:just )?(?:sent|pasted|posted|shared)"
-        r"|above|earlier|claude|chatgpt|gpt|that (?:reply|response|message))\b",
+        r"|above|earlier|chatgpt|gpt|that (?:reply|response|message))\b",
         low,
     ))
     if not (has_paste or points_at_content):
