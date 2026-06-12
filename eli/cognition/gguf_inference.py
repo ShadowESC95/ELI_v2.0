@@ -1047,14 +1047,26 @@ def _generate_legacy(
 
     stop = stop or []
 
-    # Universal turn-boundary stops — prevent model from generating the next turn
-    _universal_stops = [
-        "User:", "USER:", "\nUser:", "\nUSER:", "\n\nUser:", "\n\nUSER:",
-        "Assistant:", "ASSISTANT:", "\nAssistant:", "\nASSISTANT:",
-        "\n\nAssistant:", "\n\nASSISTANT:",
-        "<|im_start|>", "<|im_end|>",
-    ]
-    stop += _universal_stops
+    # Universal turn-boundary stops — prevent the model from running on into the
+    # next turn. Chat-template tokens always apply.
+    stop += ["<|im_start|>", "<|im_end|>"]
+
+    # The natural-language role labels ("User:" / "Assistant:") are a crude guard
+    # for non-templated models — and they are DELIBERATELY withheld from thinking
+    # models (Qwen3 / DeepSeek-R1 / QwQ). Such a model routinely reconstructs the
+    # conversation INSIDE its private <think> block, and the prompt renders history
+    # as "[003] [ts] User: …" (engine.py:4412). A bare "User:" stop then fires
+    # mid-think and kills generation before the model ever closes </think> or
+    # writes its answer → empty reply (observed on a short, ambiguous "yes please":
+    # the model halted exactly at the next "[003] … User:" label). For these models
+    # the real turn terminator is the template token (<|im_end|> / <|eot_id|>),
+    # added above and below — so dropping the label stops is safe.
+    if not _is_thinking_model():
+        stop += [
+            "User:", "USER:", "\nUser:", "\nUSER:", "\n\nUser:", "\n\nUSER:",
+            "Assistant:", "ASSISTANT:", "\nAssistant:", "\nASSISTANT:",
+            "\n\nAssistant:", "\n\nASSISTANT:",
+        ]
 
     _mp = get_model_path()
     if _is_mistral_model(_mp):

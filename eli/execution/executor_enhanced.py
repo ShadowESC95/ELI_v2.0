@@ -2014,6 +2014,7 @@ SUPPORTED_ACTIONS = [
     'RAM_USAGE',
     'READ_FILE',
     'REFRESH_USER_INFO',
+    'PERSONA_REFRESH',
     'REPEAT_MEDIA',
     'RESOLVE_RUNTIME_PATHS',
     'RESTORE_WINDOWS',
@@ -10423,6 +10424,8 @@ def _action_pre_dispatch(
             force=args.get("force", False),
             reason=args.get("reason", "manual"),
         )
+    if a == "PERSONA_REFRESH":
+        return _eli_persona_refresh(reason=args.get("reason", "manual"))
     if a == "USER_INFO_REPORT":
         return _eli_user_info_report(
             force=args.get("force", False),
@@ -11164,6 +11167,45 @@ def _eli_refresh_user_info(force=False, reason="manual"):
         "action": "REFRESH_USER_INFO",
         "content": out.get("summary") or "User info refreshed.",
         "artifacts": out,
+    }
+
+def _eli_persona_refresh(reason="manual"):
+    """Purge the stale persona auto-overlay (dedup + prune noisy/stale entries)
+    and rebuild the active user-info profile. Overlay hygiene only — no
+    conversation or memory rows are deleted. Backs the conversational offer
+    "purge the stale context and update the active profile" so that a user's
+    "yes" actually performs it instead of ELI just talking about it."""
+    hygiene = {"ok": True, "changed": False}
+    try:
+        from eli.cognition.persona_hygiene import clean_auto_persona
+        hygiene = clean_auto_persona() or hygiene
+    except Exception as e:
+        hygiene = {"ok": False, "error": str(e), "changed": False}
+
+    profile = {"ok": True, "summary": ""}
+    try:
+        from eli.cognition.user_info_builder import refresh_user_info
+        profile = refresh_user_info(force=True, reason=str(reason or "manual")) or profile
+    except Exception as e:
+        profile = {"ok": False, "error": str(e), "summary": ""}
+
+    purged = bool(hygiene.get("changed"))
+    sections = hygiene.get("sections")
+    refreshed = bool(profile.get("refreshed", True))
+    parts = []
+    if purged:
+        parts.append(f"purged the stale persona overlay"
+                     + (f" ({sections} sections)" if sections else ""))
+    else:
+        parts.append("persona overlay was already clean")
+    parts.append("rebuilt the active profile" if refreshed
+                 else "profile was already fresh")
+    content = "Done — " + " and ".join(parts) + "."
+    return {
+        "ok": bool(hygiene.get("ok", True) and profile.get("ok", True)),
+        "action": "PERSONA_REFRESH",
+        "content": content,
+        "artifacts": {"hygiene": hygiene, "profile": profile},
     }
 
 def _eli_user_info_report(force=False, reason="query"):
