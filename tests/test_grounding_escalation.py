@@ -28,7 +28,7 @@ def test_classify_factual_domains():
     assert G.classify_factual("what model are you running")[1] == "local"
     # banter / opinion / command / chitchat → not factual
     for t in ("how are you", "fuck off", "i hate kendrick", "play the next song",
-              "what do you think of claude", "love ya bud"):
+              "what do you think of jazz", "love ya bud"):
         assert G.classify_factual(t) == (False, "none"), t
 
 
