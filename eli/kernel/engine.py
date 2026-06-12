@@ -7962,6 +7962,23 @@ Answer:"""
             self._last_response = str(text)
         except Exception:
             pass
+        # Capture any follow-up offer ELI just made ("Want me to update the
+        # profile?") so a later "yes" re-routes and actually executes it. This
+        # lives at the single store chokepoint every reply path funnels through
+        # (quick CHAT, synthesis, fastpath) — previously it was gated to
+        # WEB_SEARCH only, so conversational offers were never captured and the
+        # affirmation was swallowed as chat.
+        try:
+            from eli.runtime.pending_proposal import (
+                extract_proposal, set_pending_proposal, clear_pending_proposal,
+            )
+            _prop = extract_proposal(text)
+            if _prop:
+                set_pending_proposal(_prop)
+            else:
+                clear_pending_proposal()
+        except Exception as _prop_err:
+            log.debug(f"[COGNITIVE] offer-capture skipped: {_prop_err}")
         try:
             self.memory.add_conversation_turn("assistant", text, self.session_id, self.user_id)
         except Exception as e:
@@ -11049,20 +11066,9 @@ Answer:"""
                     ok_flag = True
                     if isinstance(_action_result, dict):
                         ok_flag = bool(_action_result.get("ok", True))
-                    # Capture any follow-up offer ELI made (e.g. "Want me to set a
-                    # reminder?") so a later "yes" re-routes and executes it.
-                    if str(action).upper() == "WEB_SEARCH":
-                        try:
-                            from eli.runtime.pending_proposal import (
-                                extract_proposal, set_pending_proposal, clear_pending_proposal,
-                            )
-                            _prop = extract_proposal(synthesized)
-                            if _prop:
-                                set_pending_proposal(_prop)
-                            else:
-                                clear_pending_proposal()
-                        except Exception:
-                            pass
+                    # Follow-up offer capture now happens centrally in
+                    # _store_assistant_turn (covers every reply path, not just
+                    # WEB_SEARCH), so no special-casing is needed here.
                     self._store_assistant_turn(synthesized)
                     self._learn_from_result(
     intent, bus_result.action_result or {})
