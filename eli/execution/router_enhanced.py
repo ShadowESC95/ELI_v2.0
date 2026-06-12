@@ -1748,6 +1748,28 @@ def route(text: str) -> Dict[str, Any]:
             allow_chat_without_evidence=False,
         )
 
+    # Persona / active-profile refresh + stale-overlay purge. Backs the
+    # conversational offer "purge the stale context and update the active
+    # profile" so an affirmation actually executes it (PERSONA_REFRESH =
+    # clean_auto_persona + refresh_user_info). Placed before the user-info
+    # refresh below so persona/active-profile phrasings reach the richer
+    # action; "user info" / "profile report" still fall through to it.
+    if re.search(
+        r"\b(?:"
+        r"purge\b[\w\s'-]*\b(?:stale|persona|overlay|context)\b|"
+        r"(?:refresh|rebuild|update|clean|prune)\s+(?:the\s+)?(?:my\s+|your\s+)?(?:active\s+|auto[\s-]?)?(?:persona|profile|overlay)(?!\s+report\b)|"
+        r"refresh\s+(?:the\s+)?persona\b"
+        r")",
+        text_l,
+    ):
+        return _mk(
+            "PERSONA_REFRESH",
+            {"reason": "user_request"},
+            0.97,
+            matched_by="identity.persona.refresh",
+            allow_chat_without_evidence=False,
+        )
+
     if re.search(
         r"\b(refresh|rebuild|update)\s+(?:the\s+)?(?:user\s+info|profile\s+report)\b",
         text_l,
@@ -6775,14 +6797,20 @@ try:
                         return None
                     low = re.sub(r"\s+", " ", str(text or "").strip().lower())
                     try:
-                        from eli.runtime.grounded_remediation import YES_RE, NO_RE
+                        from eli.runtime.grounded_remediation import (
+                            is_affirmation, is_negation,
+                        )
                     except Exception:
-                        YES_RE = re.compile(r"^\s*(yes|y|yeah|yep|sure|ok|okay|go ahead|do it|please do|go for it)\s*$", re.I)
-                        NO_RE = re.compile(r"^\s*(no|nope|nah|cancel|don'?t|never mind|leave it)\s*$", re.I)
-                    if NO_RE.match(low):
+                        # Lenient local fallback (tolerates "yes please" etc.).
+                        _yw = re.compile(r"\b(yes|yeah|yep|sure|ok|okay|go ahead|go for it|do it|please do|proceed)\b", re.I)
+                        _nw = re.compile(r"\b(no|nope|nah|cancel|don'?t|never mind|leave it|skip it)\b", re.I)
+                        is_affirmation = lambda t: bool(_yw.search(t or ""))
+                        is_negation = lambda t: bool(_nw.search(t or ""))
+                    # Affirmation wins when both appear ("yes, not no").
+                    if is_negation(low) and not is_affirmation(low):
                         clear_pending_proposal()
                         return None
-                    if YES_RE.match(low):
+                    if is_affirmation(low):
                         cmd = str(prop.get("command") or "").strip()
                         clear_pending_proposal()
                         if cmd:

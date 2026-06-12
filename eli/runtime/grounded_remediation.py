@@ -27,6 +27,33 @@ _LAST_FAILURE = None
 YES_RE = re.compile(r"^\s*(yes|y|yeah|yep|confirm|go ahead|do it|proceed|install it|download it)\s*$", re.I)
 NO_RE = re.compile(r"^\s*(no|n|cancel|stop|abort|never mind|dont|don't)\s*$", re.I)
 
+# Fuzzy word-in-input matchers — tolerate trailing words ("yes please"),
+# leading politeness ("ok sure, go ahead"), and STT noise ("confirmed yes",
+# "namagem1 yes"). The anchored YES_RE/NO_RE above stay strict for the
+# install/download confirm flows that rely on exact single-word answers; these
+# are the lenient variant for free-form conversational affirmations.
+_YES_WORD = re.compile(r"\b(yes|yeah|yep|yup|sure|ok|okay|confirm|confirmed|go ahead|go for it|do it|please do|proceed|sounds good|go|affirmative)\b", re.I)
+_NO_WORD = re.compile(r"\b(no|nope|nah|cancel|stop|abort|never mind|nevermind|dont|don'?t|leave it|skip it)\b", re.I)
+
+
+def is_affirmation(text: str) -> bool:
+    """True if `text` is a yes/affirmation, tolerant of trailing/leading words
+    and STT noise (e.g. "yes please", "ok sure go ahead"). Reusable across the
+    pending-proposal / remediation / habit confirm flows so they agree."""
+    raw = (text or "").strip()
+    if not raw:
+        return False
+    return bool(YES_RE.match(raw) or _YES_WORD.search(raw))
+
+
+def is_negation(text: str) -> bool:
+    """True if `text` is a no/decline, tolerant of extra words. NOTE: callers
+    should test affirmation first — a "yes" beats a "no" when both appear."""
+    raw = (text or "").strip()
+    if not raw:
+        return False
+    return bool(NO_RE.match(raw) or _NO_WORD.search(raw))
+
 
 def _remediation_supported() -> bool:
     """Current repair planner executes Linux package-manager/desktop commands."""
@@ -1207,14 +1234,13 @@ def try_handle_query(text: str) -> str | None:
     # Consume YES/NO answers against any pending repair state before falling
     # through to open/check/install dispatch below.
     # Uses both exact match (YES_RE/NO_RE) and fuzzy word-in-input matching
-    # to tolerate STT noise like "confirmed yes" or "namagem1 yes".
-    _YES_WORD = re.compile(r'\b(yes|y|yeah|yep|confirm|confirmed|go ahead|do it|proceed|install it|download it)\b', re.I)
-    _NO_WORD  = re.compile(r'\b(no|n|cancel|stop|abort|never mind|dont|don\'t)\b', re.I)
+    # (is_affirmation/is_negation) to tolerate STT noise like "confirmed yes"
+    # or "namagem1 yes".
     pending = get_pending()
     if pending:
         stage = str(pending.get("stage") or "").strip().lower()
-        _is_yes = bool(YES_RE.match(raw) or _YES_WORD.search(raw))
-        _is_no  = bool(NO_RE.match(raw) or _NO_WORD.search(raw))
+        _is_yes = is_affirmation(raw)
+        _is_no  = is_negation(raw)
         # YES takes priority over NO when both appear (e.g. "yes no wait")
         if _is_yes and stage in {"offered", "pending", "proposed"}:
             with _LOCK:
