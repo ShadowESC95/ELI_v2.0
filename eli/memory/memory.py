@@ -1467,6 +1467,15 @@ class Memory(metaclass=_MemoryMeta):
             self.db_type = str(dtype)
         else:
             self.db_type = "agent" if self.db_path.name.lower() == "agent.sqlite3" else "user"
+        # Whether this instance is the canonical default store. The process-global
+        # knowledge-graph / vector singletons are bound to the canonical DB and ignore
+        # a custom db_path, so they must only enrich recall for the canonical instance —
+        # otherwise an isolated instance (tests, per-project workspaces) leaks global
+        # content into its own recall and breaks isolation.
+        try:
+            self._is_canonical = (self.db_path == _path_from_args(db_path=None, db_type=dtype))
+        except Exception:
+            self._is_canonical = True
         conn = self._get_connection()
         conn.close()
 
@@ -2058,7 +2067,7 @@ class Memory(metaclass=_MemoryMeta):
             # with dedicated priority ordering. Injecting here would add a KG
             # hit in both the keyword bucket AND the kg bucket, causing the
             # orchestrator's dedup (text[:240]) to silently drop one copy.
-            if not keyword_only:
+            if not keyword_only and getattr(self, "_is_canonical", True):
                 try:
                     from eli.memory.knowledge_graph import get_knowledge_graph
                     _kg = get_knowledge_graph()

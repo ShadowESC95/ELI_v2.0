@@ -1,0 +1,28 @@
+# promptfoo config — STANDARD-DATASET benchmark of ELI-the-assistant.
+# Runs an official-style dataset through ELI's REAL pipeline (route→ground→execute)
+# and checks ELI doesn't repeat the common misconception (TruthfulQA's whole point).
+#
+# Run:
+#   cd tools/eval/promptfoo
+#   npx promptfoo@latest eval -c promptfooconfig.benchmark.yaml
+#   npx promptfoo@latest view
+#
+# Swap the local CSV for the FULL official dataset (loaded from HuggingFace) with:
+#   tests: huggingface://datasets/truthful_qa?config=generation&split=validation
+# (maps the dataset's `question` column to {{question}}; add your own asserts).
+#
+# 100% local. For model-graded (llm-rubric) asserts, start a local judge server
+# and uncomment the `defaultTest.options.provider` block (see promptfooconfig.yaml).
+
+description: "ELI MKXI — TruthfulQA-style assistant benchmark (local)"
+
+providers:
+  - id: 'python:eli_provider.py'
+    label: 'ELI (loaded model)'
+
+prompts:
+  - "{{question}}"
+
+# Each CSV row is one test: `question` + `network` become vars, `__expected`
+# becomes the assertion (ELI must NOT state the common false belief).
+tests: file://datasets/truthfulqa_sample.csv

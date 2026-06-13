@@ -33,6 +33,16 @@ _PERSONA_OVERLAY_LAST_RUN: float = 0.0
 _PERSONA_OVERLAY_MIN_INTERVAL: float = 120.0
 _PERSONA_OVERLAY_LOCK: threading.Lock = threading.Lock()
 
+# Same debounce for the user-profile overlay. refresh_all_overlays_nonfatal()
+# calls this on every autonomy tick / proactive refresh with memory=None — a
+# name-only rewrite that carries no new data — and update_persona_overlay()
+# also calls it once per (already-debounced) run. Without this guard the
+# name-only path re-fires constantly, producing the redundant
+# "user profile updated: ['name']" churn.
+_USER_PROFILE_LAST_RUN: float = 0.0
+_USER_PROFILE_MIN_INTERVAL: float = 120.0
+_USER_PROFILE_LOCK: threading.Lock = threading.Lock()
+
 
 def _safe_call(obj: Any, name: str, *args, **kwargs):
     fn = getattr(obj, name, None)
@@ -626,6 +636,16 @@ def update_user_profile_overlay(memory: Any = None) -> Dict[str, Any]:
     Pulls from user_patterns table (authoritative, data-driven) rather
     than relying on free-text memory search which is fragile.
     """
+    global _USER_PROFILE_LAST_RUN
+    # Only the name-only path (memory is None) is the churn source; debounce it.
+    # Memory-backed calls (from the already-120s-debounced update_persona_overlay)
+    # always proceed so real preference/project/research updates are never starved.
+    now = time.time()
+    with _USER_PROFILE_LOCK:
+        if memory is None and now - _USER_PROFILE_LAST_RUN < _USER_PROFILE_MIN_INTERVAL:
+            return {"ok": True, "skipped": True, "reason": "debounce"}
+        _USER_PROFILE_LAST_RUN = now
+
     try:
         from eli.kernel.state import load_user_profile, update_user_profile, get_user_name, set_user_name
     except Exception as exc:

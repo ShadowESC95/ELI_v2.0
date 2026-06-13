@@ -55,9 +55,22 @@ def is_negation(text: str) -> bool:
     return bool(NO_RE.match(raw) or _NO_WORD.search(raw))
 
 
+def _platform() -> str:
+    """Coarse OS family for remediation: 'linux' | 'macos' | 'windows' | 'other'."""
+    p = sys.platform
+    if p.startswith("linux"):
+        return "linux"
+    if p == "darwin":
+        return "macos"
+    if p.startswith("win") or p == "cygwin":
+        return "windows"
+    return "other"
+
 def _remediation_supported() -> bool:
-    """Current repair planner executes Linux package-manager/desktop commands."""
-    return sys.platform.startswith("linux")
+    """Repair planner drives the native package manager + a visible terminal on
+    Linux (apt/dnf/zypper/pacman + snap/flatpak), macOS (brew), and Windows
+    (winget/choco)."""
+    return _platform() != "other"
 
 def _now() -> str:
     return datetime.now(timezone.utc).isoformat()
@@ -163,22 +176,20 @@ def _run(cmd: str, timeout: int = 30) -> dict:
     }
 
 def _needs_privileged_terminal(cmd: str) -> bool:
-    return bool(re.search(r"(^|\s)sudo(\s|$)", str(cmd or "")))
+    """True when a command must run in a visible, elevated terminal. Unix: any
+    `sudo`. Windows: choco always needs admin and winget machine-scope does too,
+    so both are elevated (UAC) to be safe."""
+    c = str(cmd or "")
+    if _platform() == "windows":
+        return bool(re.search(r"(^|\s)(choco|winget)\b", c, re.I))
+    return bool(re.search(r"(^|\s)sudo(\s|$)", c))
 
 def _sudo_cached() -> bool:
     check = _run("sudo -n true")
     return check["rc"] == 0
 
-def _run_in_terminal(cmd: str) -> dict:
-    run_dir = _root() / "artifacts" / "terminal_runs"
-    run_dir.mkdir(parents=True, exist_ok=True)
-
-    run_id = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S_%f")
-    log_path = run_dir / f"{run_id}.log"
-    rc_path = run_dir / f"{run_id}.rc"
-    meta_path = run_dir / f"{run_id}.json"
-    sh_path = run_dir / f"{run_id}.sh"
-
+def _terminal_script_unix(cmd: str, log_path: Path, rc_path: Path, sh_path: Path):
+    """Write the shared bash runner (Linux + macOS). Returns (sh_path, err|None)."""
     script = f"""#!/usr/bin/env bash
 LOG={_q(str(log_path))}
 RCF={_q(str(rc_path))}
@@ -198,33 +209,94 @@ echo "[ELI] Command exit code: $rc"
 echo "[ELI] Press Enter to close this terminal."
 read -r _
 """
-
     try:
         sh_path.write_text(script, encoding="utf-8")
         os.chmod(sh_path, 0o700)
     except Exception as e:
-        return {
-            "cmd": cmd,
-            "rc": 98,
-            "out": "",
-            "err": f"Failed to write terminal script: {e}",
-            "transport": "script_terminal_spawn",
-        }
+        return None, {"rc": 98, "err": f"Failed to write terminal script: {e}"}
+    return sh_path, None
 
-    argv = None
+def _terminal_argv_linux(sh_path: Path):
+    """Pick the first available Linux terminal emulator."""
     if shutil.which("gnome-terminal"):
-        argv = ["gnome-terminal", "--", "bash", str(sh_path)]
-    elif shutil.which("x-terminal-emulator"):
-        argv = ["x-terminal-emulator", "-e", "bash", str(sh_path)]
-    elif shutil.which("kgx"):
-        argv = ["kgx", "bash", str(sh_path)]
-    elif shutil.which("konsole"):
-        argv = ["konsole", "-e", "bash", str(sh_path)]
-    elif shutil.which("xfce4-terminal"):
-        argv = ["xfce4-terminal", "--command", f"bash {sh_path}"]
-    elif shutil.which("xterm"):
-        argv = ["xterm", "-e", "bash", str(sh_path)]
+        return ["gnome-terminal", "--", "bash", str(sh_path)]
+    if shutil.which("x-terminal-emulator"):
+        return ["x-terminal-emulator", "-e", "bash", str(sh_path)]
+    if shutil.which("kgx"):
+        return ["kgx", "bash", str(sh_path)]
+    if shutil.which("konsole"):
+        return ["konsole", "-e", "bash", str(sh_path)]
+    if shutil.which("xfce4-terminal"):
+        return ["xfce4-terminal", "--command", f"bash {sh_path}"]
+    if shutil.which("xterm"):
+        return ["xterm", "-e", "bash", str(sh_path)]
+    return None
+
+def _terminal_build_windows(cmd: str, log_path: Path, rc_path: Path, ps1_path: Path):
+    """Write a PowerShell runner and build a visible (UAC-elevated when required)
+    launch argv. Structurally verified only — no Windows host available here."""
+    ps_log = str(log_path).replace("'", "''")
+    ps_rcf = str(rc_path).replace("'", "''")
+    ps_cmd = str(cmd).replace('"', '`"')  # neutralise quotes for cmd /c "..."
+    script = (
+        "$ErrorActionPreference = 'Continue'\n"
+        f"$log = '{ps_log}'\n"
+        f"$rcf = '{ps_rcf}'\n"
+        "Remove-Item -Force -ErrorAction SilentlyContinue -Path $log,$rcf\n"
+        "Write-Host '[ELI] Running command...'\n"
+        "Write-Host ('[ELI] Log: ' + $log)\n"
+        "Write-Host ''\n"
+        f"& cmd /c \"{ps_cmd}\" 2>&1 | Tee-Object -FilePath $log\n"
+        "$rc = $LASTEXITCODE; if ($null -eq $rc) { $rc = 0 }\n"
+        "Set-Content -Path $rcf -Value $rc\n"
+        "Write-Host ''\n"
+        "Write-Host ('[ELI] Command exit code: ' + $rc)\n"
+        "Read-Host '[ELI] Press Enter to close this terminal'\n"
+    )
+    try:
+        ps1_path.write_text(script, encoding="utf-8")
+    except Exception as e:
+        return None, None, {"rc": 98, "err": f"Failed to write terminal script: {e}"}
+
+    inner = f"'-NoProfile','-ExecutionPolicy','Bypass','-File','{ps1_path}'"
+    start = f"Start-Process -FilePath 'powershell' -ArgumentList {inner}"
+    if _needs_privileged_terminal(cmd):
+        start += " -Verb RunAs"
+    argv = ["powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", start]
+    return ps1_path, argv, None
+
+def _run_in_terminal(cmd: str) -> dict:
+    run_dir = _root() / "artifacts" / "terminal_runs"
+    run_dir.mkdir(parents=True, exist_ok=True)
+
+    run_id = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S_%f")
+    log_path = run_dir / f"{run_id}.log"
+    rc_path = run_dir / f"{run_id}.rc"
+    meta_path = run_dir / f"{run_id}.json"
+
+    plat = _platform()
+    if plat == "windows":
+        script_path, argv, err = _terminal_build_windows(
+            cmd, log_path, rc_path, run_dir / f"{run_id}.ps1")
+        if err:
+            return {"cmd": cmd, "rc": err["rc"], "out": "", "err": err["err"],
+                    "transport": "script_terminal_spawn"}
     else:
+        script_path, err = _terminal_script_unix(
+            cmd, log_path, rc_path, run_dir / f"{run_id}.sh")
+        if err:
+            return {"cmd": cmd, "rc": err["rc"], "out": "", "err": err["err"],
+                    "transport": "script_terminal_spawn"}
+        if plat == "macos":
+            # Launch in Terminal.app via AppleScript; sudo prompts interactively there.
+            argv = ["osascript", "-e",
+                    f'tell application "Terminal" to activate',
+                    "-e",
+                    f'tell application "Terminal" to do script "bash {_q(str(script_path))}"']
+        else:
+            argv = _terminal_argv_linux(script_path)
+
+    if not argv:
         return {
             "cmd": cmd,
             "rc": 97,
@@ -236,9 +308,10 @@ read -r _
     try:
         meta_path.write_text(json.dumps({
             "transport": "script_terminal_spawn",
+            "platform": plat,
             "cmd": cmd,
             "argv": argv,
-            "script_path": str(sh_path),
+            "script_path": str(script_path),
             "log_path": str(log_path),
             "rc_path": str(rc_path),
             "created_at": _now(),
@@ -257,6 +330,7 @@ read -r _
             "transport": "script_terminal_spawn",
         }
 
+    sh_path = script_path
     timeout_s = 900.0
     waited = 0.0
     while waited < timeout_s:
@@ -315,6 +389,67 @@ def _desktop_hits(name: str) -> list[str]:
         for pat in (f"*{name}*.desktop", f"*{lowered}*.desktop"):
             hits.extend(str(p) for p in root.glob(pat))
     return sorted(set(hits))
+
+def _macos_app_hits(name: str) -> list[str]:
+    hits = []
+    lowered = name.lower()
+    for base in ("/Applications", "~/Applications"):
+        root = Path(base).expanduser()
+        if not root.exists():
+            continue
+        for p in root.glob("*.app"):
+            if lowered in p.stem.lower():
+                hits.append(str(p))
+    if shutil.which("mdfind"):
+        # Spotlight: GUI apps registered anywhere, matched by display name.
+        r = _run(f"mdfind {_q('kMDItemContentType==com.apple.application-bundle && kMDItemDisplayName==*' + name + '*c')} 2>/dev/null")
+        for line in (r["out"] or "").splitlines():
+            line = line.strip()
+            if line:
+                hits.append(line)
+    return sorted(set(hits))
+
+def _windows_app_hits(name: str) -> list[str]:
+    import os as _os
+    hits = []
+    lowered = name.lower()
+    # `where` is PATHEXT-aware (resolves .exe/.cmd/.bat). Plain name — no POSIX
+    # quoting (cmd would take shlex single-quotes literally).
+    if shutil.which("where"):
+        r = _run(f"where {name}")
+        if r["rc"] == 0:
+            for line in (r["out"] or "").splitlines():
+                line = line.strip()
+                if line:
+                    hits.append(line)
+    # Start-Menu shortcuts (all-users + per-user).
+    start_dirs = [
+        _os.path.join(_os.environ.get("ProgramData", r"C:\ProgramData"),
+                      "Microsoft", "Windows", "Start Menu", "Programs"),
+        _os.path.join(_os.environ.get("APPDATA", ""),
+                      "Microsoft", "Windows", "Start Menu", "Programs"),
+    ]
+    for d in start_dirs:
+        if not d:
+            continue
+        root = Path(d)
+        if not root.exists():
+            continue
+        for p in root.rglob("*.lnk"):
+            if lowered in p.stem.lower():
+                hits.append(str(p))
+    return sorted(set(hits))
+
+def _app_presence_hits(name: str) -> list[str]:
+    """Platform-correct 'is this GUI/CLI app installed?' evidence (beyond PATH)."""
+    plat = _platform()
+    if plat == "linux":
+        return _desktop_hits(name)
+    if plat == "macos":
+        return _macos_app_hits(name)
+    if plat == "windows":
+        return _windows_app_hits(name)
+    return []
 
 def _flatpak_installed(name: str) -> bool:
     if not shutil.which("flatpak"):
@@ -376,6 +511,65 @@ def _flatpak_candidate(name: str) -> str:
     app = str(name).strip().lower()
     r = _run(f"flatpak search {_q(name)} 2>/dev/null | awk 'tolower($1)==tolower(app){{print $1; exit}} tolower($2)==tolower(app){{print $1; exit}}' app={_q(app)}")
     return _first_token(r["out"])
+
+def _norm_pkg_name(name: str) -> str:
+    """Whitespace/case-normalise an app name into a package token. Manager-specific
+    aliasing is deliberately avoided (the same nickname maps to different package
+    ids per manager) — the per-manager verification below filters bogus names, so
+    pass-through is safe."""
+    return str(name or "").strip().lower()
+
+def _dnf_candidate(name: str) -> str:
+    """Fedora/RHEL/openSUSE-via-dnf. Verifies the package is known to the repos so
+    we never offer a bogus install."""
+    mgr = "dnf" if shutil.which("dnf") else ("yum" if shutil.which("yum") else "")
+    if not mgr:
+        return ""
+    target = _norm_pkg_name(name)
+    r = _run(f"{mgr} -q list {_q(target)} 2>/dev/null")
+    if r["rc"] == 0 and target in (r["out"] or "").lower():
+        return target
+    return ""
+
+def _pacman_candidate(name: str) -> str:
+    """Arch/Manjaro. `pacman -Si` exits 0 only for a package present in the sync db."""
+    if not shutil.which("pacman"):
+        return ""
+    target = _norm_pkg_name(name)
+    r = _run(f"pacman -Si {_q(target)} >/dev/null 2>&1")
+    return target if r["rc"] == 0 else ""
+
+def _zypper_candidate(name: str) -> str:
+    """openSUSE/SLE."""
+    if not shutil.which("zypper"):
+        return ""
+    target = _norm_pkg_name(name)
+    r = _run(f"zypper -q -n info {_q(target)} 2>/dev/null")
+    if r["rc"] == 0 and "not found" not in (r["out"] or "").lower() and target in (r["out"] or "").lower():
+        return target
+    return ""
+
+def _brew_candidate(name: str) -> str:
+    """macOS Homebrew. `brew info` resolves both formulae and casks."""
+    if not shutil.which("brew"):
+        return ""
+    target = _norm_pkg_name(name)
+    r = _run(f"brew info {_q(target)} >/dev/null 2>&1")
+    return target if r["rc"] == 0 else ""
+
+def _winget_candidate(name: str) -> str:
+    """Windows winget. No pre-verification: _run uses POSIX shell quoting that does
+    not hold on cmd, so we gate on tool presence only and let the visible terminal
+    surface winget's own resolution/failure. Structurally verified only."""
+    if not shutil.which("winget"):
+        return ""
+    return str(name or "").strip()
+
+def _choco_candidate(name: str) -> str:
+    """Windows Chocolatey. Tool-presence gated only (see _winget_candidate)."""
+    if not shutil.which("choco"):
+        return ""
+    return _norm_pkg_name(name)
 
 def _is_pkg_lock_error(run: dict) -> bool:
     text = "\n".join([
@@ -496,33 +690,111 @@ def extract_app_name(text: str) -> str:
     return alias_map.get(raw, raw)
 
 def build_install_candidates(name: str) -> list[dict]:
+    """Assemble install options from the package managers available on THIS host.
+    Linux (apt/dnf/zypper/pacman + snap/flatpak), macOS (brew), Windows
+    (winget/choco). Each builder is gated on the manager being present, so the
+    list only ever contains options that can actually run here."""
     candidates = []
+    plat = _platform()
 
-    snap_name = _snap_candidate(name)
-    if snap_name:
-        candidates.append({
-            "source": "snap",
-            "command": f"sudo snap install {snap_name}",
-            "label": f"Install {name} via snap",
-        })
+    if plat == "linux":
+        apt_pkg = _apt_candidate(name)
+        if apt_pkg:
+            candidates.append({
+                "source": "apt",
+                # DEBIAN_FRONTEND=noninteractive so packages with a debconf prompt
+                # (e.g. wireshark-common's "should non-superusers capture packets?"
+                # dialog) take their default instead of blocking on a TUI the user
+                # cannot navigate in the spawned terminal.
+                "command": (
+                    f"sudo DEBIAN_FRONTEND=noninteractive apt-get update && "
+                    f"sudo DEBIAN_FRONTEND=noninteractive apt-get install -y {apt_pkg}"
+                ),
+                "label": f"Install {name} via apt package {apt_pkg}",
+            })
 
-    apt_pkg = _apt_candidate(name)
-    if apt_pkg:
-        candidates.append({
-            "source": "apt",
-            "command": f"sudo apt-get update && sudo apt-get install -y {apt_pkg}",
-            "label": f"Install {name} via apt package {apt_pkg}",
-        })
+        dnf_pkg = _dnf_candidate(name)
+        if dnf_pkg:
+            mgr = "dnf" if shutil.which("dnf") else "yum"
+            candidates.append({
+                "source": "dnf",
+                "command": f"sudo {mgr} install -y {dnf_pkg}",
+                "label": f"Install {name} via {mgr} package {dnf_pkg}",
+            })
 
-    flatpak_app = _flatpak_candidate(name)
-    if flatpak_app:
-        candidates.append({
-            "source": "flatpak",
-            "command": f"flatpak install -y flathub {flatpak_app}",
-            "label": f"Install {name} via flatpak {flatpak_app}",
-        })
+        zypper_pkg = _zypper_candidate(name)
+        if zypper_pkg:
+            candidates.append({
+                "source": "zypper",
+                "command": f"sudo zypper -n install {zypper_pkg}",
+                "label": f"Install {name} via zypper package {zypper_pkg}",
+            })
 
-    order = {"snap": 0, "apt": 1, "flatpak": 2}
+        pacman_pkg = _pacman_candidate(name)
+        if pacman_pkg:
+            candidates.append({
+                "source": "pacman",
+                "command": f"sudo pacman -S --noconfirm {pacman_pkg}",
+                "label": f"Install {name} via pacman package {pacman_pkg}",
+            })
+
+        snap_name = _snap_candidate(name)
+        if snap_name:
+            candidates.append({
+                "source": "snap",
+                "command": f"sudo snap install {snap_name}",
+                "label": f"Install {name} via snap",
+            })
+
+        flatpak_app = _flatpak_candidate(name)
+        if flatpak_app:
+            candidates.append({
+                "source": "flatpak",
+                "command": f"flatpak install -y flathub {flatpak_app}",
+                "label": f"Install {name} via flatpak {flatpak_app}",
+            })
+
+    elif plat == "macos":
+        brew_pkg = _brew_candidate(name)
+        if brew_pkg:
+            candidates.append({
+                "source": "brew",
+                "command": f"brew install {brew_pkg}",
+                "label": f"Install {name} via Homebrew {brew_pkg}",
+            })
+        # flatpak is unusual on macOS but honour it if the user has it.
+        flatpak_app = _flatpak_candidate(name)
+        if flatpak_app:
+            candidates.append({
+                "source": "flatpak",
+                "command": f"flatpak install -y flathub {flatpak_app}",
+                "label": f"Install {name} via flatpak {flatpak_app}",
+            })
+
+    elif plat == "windows":
+        winget_pkg = _winget_candidate(name)
+        if winget_pkg:
+            candidates.append({
+                "source": "winget",
+                "command": (
+                    f"winget install --silent --accept-package-agreements "
+                    f"--accept-source-agreements --id {winget_pkg}"
+                ),
+                "label": f"Install {name} via winget {winget_pkg}",
+            })
+        choco_pkg = _choco_candidate(name)
+        if choco_pkg:
+            candidates.append({
+                "source": "choco",
+                "command": f"choco install -y {choco_pkg}",
+                "label": f"Install {name} via Chocolatey {choco_pkg}",
+            })
+
+    # Native package managers first; app-store style layers (snap/flatpak) last.
+    order = {
+        "apt": 0, "dnf": 0, "zypper": 0, "pacman": 0, "brew": 0, "winget": 0,
+        "choco": 1, "snap": 2, "flatpak": 3,
+    }
     candidates.sort(key=lambda x: order.get(x["source"], 99))
     return candidates
 
@@ -533,17 +805,17 @@ def diagnose_app(name: str) -> dict:
                           evidence=["No application name was provided."], repairable=False)
 
     which_path = shutil.which(app)
-    desktop_hits = _desktop_hits(app)
+    app_hits = _app_presence_hits(app)
     flatpak_ok = _flatpak_installed(app)
     snap_ok = _snap_installed(app)
 
     evidence = []
     evidence.append(f"command -v {app} -> {which_path if which_path else 'not found'}")
-    evidence.append(f"desktop entry search -> {', '.join(desktop_hits) if desktop_hits else 'none found'}")
+    evidence.append(f"installed-app search -> {', '.join(app_hits) if app_hits else 'none found'}")
     evidence.append(f"flatpak lookup -> {'installed' if flatpak_ok else 'not installed'}")
     evidence.append(f"snap lookup -> {'installed' if snap_ok else 'not installed'}")
 
-    if which_path or desktop_hits or flatpak_ok or snap_ok:
+    if which_path or app_hits or flatpak_ok or snap_ok:
         result = _mk_result(True, "application", app, "status", "INSTALLED",
                             evidence=evidence, repairable=False)
         remember_failure(result)
@@ -908,9 +1180,10 @@ def render_repair_preview(plan: dict) -> str:
         f"Requires privilege: {'yes' if needs_priv else 'no'}",
     ])
     if needs_priv:
+        elevation = "elevated (UAC)" if _platform() == "windows" else "privileged (sudo)"
         lines.extend([
             "",
-            "On confirmation, ELI will open a visible terminal and run the exact privileged command there.",
+            f"On confirmation, ELI will open a visible {elevation} terminal and run the exact command there.",
         ])
     lines.extend([
         "",
@@ -1008,7 +1281,9 @@ def execute_pending_plan() -> str:
                 run_result["handoff"] = "terminal"
                 runs.append(run_result)
             else:
-                run_result = _run(cmd)
+                # Non-privileged installs (flatpak/brew/user-scope) run headless —
+                # give them an install-grade timeout instead of the 30s default.
+                run_result = _run(cmd, timeout=900)
                 run_result["handoff"] = "direct"
                 runs.append(run_result)
     finally:

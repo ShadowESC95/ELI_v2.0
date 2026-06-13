@@ -152,15 +152,23 @@ class SecurityManager:
         return app_name.lower() in self.allowed_apps
     
     def _is_default_safe_app(self, app_name: str) -> bool:
-        """Default safe applications"""
+        """Default safe applications — cross-platform (Linux/macOS/Windows)."""
         safe_apps = {
-            "settings", "gnome-control-center",
-            "nautilus", "files",
-            "gedit", "texteditor",
-            "calculator", "gnome-calculator",
-            "terminal", "gnome-terminal", "xterm",
-            "browser", "firefox", "chrome",
-            "thunderbird", "mail",
+            # generic / cross-platform aliases
+            "settings", "files", "file manager", "filemanager", "explorer",
+            "texteditor", "text editor", "editor", "calculator", "calc",
+            "terminal", "console", "browser", "mail", "email",
+            # Linux
+            "gnome-control-center", "nautilus", "dolphin", "nemo", "thunar",
+            "gedit", "kate", "gnome-calculator", "kcalc", "gnome-terminal",
+            "konsole", "xterm", "firefox", "chrome", "chromium", "thunderbird",
+            # macOS
+            "finder", "safari", "textedit", "terminal.app", "mail.app",
+            "system preferences", "system settings",
+            # Windows
+            "explorer.exe", "notepad", "notepad.exe", "calc.exe", "cmd",
+            "cmd.exe", "powershell", "edge", "msedge", "wordpad", "control",
+            "control panel", "outlook",
         }
         return app_name.lower() in safe_apps
     

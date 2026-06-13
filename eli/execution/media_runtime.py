@@ -109,7 +109,18 @@ def _clean_youtube_query(query: str) -> str:
 
 
 def _mpv_socket() -> str:
-    return os.environ.get("ELI_YOUTUBE_MPV_IPC", "/tmp/eli_youtube_mpv.sock")
+    env = os.environ.get("ELI_YOUTUBE_MPV_IPC")
+    if env:
+        return env
+    try:
+        from eli.utils import platform_compat as _pc
+        if _pc.WINDOWS:
+            # mpv on Windows exposes IPC over a named pipe, not a filesystem socket.
+            return r"\\.\pipe\eli_youtube_mpv"
+    except Exception:
+        pass
+    import tempfile
+    return os.path.join(tempfile.gettempdir(), "eli_youtube_mpv.sock")
 
 
 def _mpv_ipc(command: str) -> bool:
@@ -233,30 +244,46 @@ def youtube_play(query: str) -> str:
 
 
 def open_spotify() -> str:
-    candidates = [
-        ["spotify"],
-        ["flatpak", "run", "com.spotify.Client"],
-        ["snap", "run", "spotify"],
-        ["gtk-launch", "spotify"],
-        ["gtk-launch", "com.spotify.Client"],
-        ["xdg-open", "spotify:"],
-    ]
+    from eli.utils import platform_compat as _pc
 
-    for argv in candidates:
-        if not shutil.which(argv[0]):
-            continue
+    if _pc.LINUX:
+        candidates = [
+            ["spotify"],
+            ["flatpak", "run", "com.spotify.Client"],
+            ["snap", "run", "spotify"],
+            ["gtk-launch", "spotify"],
+            ["gtk-launch", "com.spotify.Client"],
+            ["xdg-open", "spotify:"],
+        ]
+        for argv in candidates:
+            if not shutil.which(argv[0]):
+                continue
+            try:
+                subprocess.Popen(
+                    argv,
+                    stdout=subprocess.DEVNULL,
+                    stderr=subprocess.DEVNULL,
+                    start_new_session=True,
+                )
+                return "Opened app: spotify"
+            except Exception:
+                continue
+        # Last resort on Linux: the spotify: URI scheme via the portable opener.
         try:
-            subprocess.Popen(
-                argv,
-                stdout=subprocess.DEVNULL,
-                stderr=subprocess.DEVNULL,
-                start_new_session=True,
-            )
-            return "Opened app: spotify"
+            if _pc.open_url("spotify:"):
+                return "Opened app: spotify"
         except Exception:
-            continue
+            pass
+        return "Could not open spotify. Tried: spotify, flatpak com.spotify.Client, snap spotify, gtk-launch, xdg-open spotify:"
 
-    return "Could not open spotify. Tried: spotify, flatpak com.spotify.Client, snap spotify, gtk-launch, xdg-open spotify:"
+    # macOS / Windows: reuse the cross-platform app launcher (open -a / Start-Apps),
+    # then fall back to the spotify: URI scheme.
+    try:
+        if _pc.open_app("spotify") or _pc.open_url("spotify:"):
+            return "Opened app: spotify"
+    except Exception:
+        pass
+    return "Could not open spotify."
 
 
 def spotify_query(query: str) -> str:
@@ -267,6 +294,8 @@ def spotify_query(query: str) -> str:
     encoded = urllib.parse.quote(q)
     uri = f"spotify:search:{encoded}"
 
+    from eli.utils import platform_compat as _pc
+
     # Ensure Spotify has at least been asked to launch.
     try:
         open_spotify()
@@ -274,32 +303,53 @@ def spotify_query(query: str) -> str:
     except Exception:
         pass
 
-    if shutil.which("dbus-send"):
+    if _pc.LINUX:
+        # Linux: drive Spotify over MPRIS (D-Bus), then nudge play via playerctl.
+        if shutil.which("dbus-send"):
+            try:
+                subprocess.run(
+                    [
+                        "dbus-send",
+                        "--print-reply",
+                        "--dest=org.mpris.MediaPlayer2.spotify",
+                        "/org/mpris/MediaPlayer2",
+                        "org.mpris.MediaPlayer2.Player.OpenUri",
+                        f"string:{uri}",
+                    ],
+                    capture_output=True,
+                    text=True,
+                    timeout=3,
+                )
+            except Exception:
+                pass
+
+        if shutil.which("playerctl"):
+            try:
+                subprocess.run(
+                    ["playerctl", "-p", "spotify", "play"],
+                    capture_output=True,
+                    text=True,
+                    timeout=2,
+                )
+            except Exception:
+                pass
+
+    elif _pc.MACOS and shutil.which("osascript"):
+        # macOS: open the search URI then ask Spotify (AppleScript) to play.
         try:
+            _pc.open_url(uri)
+            time.sleep(0.35)
             subprocess.run(
-                [
-                    "dbus-send",
-                    "--print-reply",
-                    "--dest=org.mpris.MediaPlayer2.spotify",
-                    "/org/mpris/MediaPlayer2",
-                    "org.mpris.MediaPlayer2.Player.OpenUri",
-                    f"string:{uri}",
-                ],
-                capture_output=True,
-                text=True,
-                timeout=3,
+                ["osascript", "-e", 'tell application "Spotify" to play'],
+                capture_output=True, text=True, timeout=3,
             )
         except Exception:
             pass
 
-    if shutil.which("playerctl"):
+    else:
+        # Windows / other: open the search URI; the client surfaces results.
         try:
-            subprocess.run(
-                ["playerctl", "-p", "spotify", "play"],
-                capture_output=True,
-                text=True,
-                timeout=2,
-            )
+            _pc.open_url(uri)
         except Exception:
             pass
 

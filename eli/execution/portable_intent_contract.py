@@ -98,6 +98,46 @@ def _looks_like_app_target(target: str) -> bool:
     return True
 
 
+# Common TLDs the user might dictate. STT drops the dot, so "open github com"
+# arrives as the two-token target "github com" and "open github dot com" as
+# "github dot com" — both are web addresses, not installable apps.
+_URL_TLDS = frozenset({
+    "com", "org", "net", "io", "gov", "edu", "co", "uk", "ie", "dev",
+    "app", "ai", "me", "info", "xyz", "tv", "fm", "cloud", "online", "site",
+})
+
+
+def _looks_like_url_target(target: str) -> bool:
+    """True when an OPEN target is a web address rather than an app name."""
+    s = str(target or "").strip().lower()
+    if not s:
+        return False
+    if re.match(r"https?://", s):
+        return True
+    collapsed = re.sub(r"\s+dot\s+", ".", s)
+    # Spoken "<name> com" (dot dropped by STT): two tokens, trailing TLD word.
+    toks = collapsed.split()
+    if len(toks) == 2 and toks[1] in _URL_TLDS and re.fullmatch(r"[a-z0-9\-]+", toks[0]):
+        return True
+    # Embedded dotted domain, e.g. "github.com", "docs.python.org".
+    if re.search(r"\b[a-z0-9\-]+\.(?:%s)\b" % "|".join(_URL_TLDS), collapsed):
+        return True
+    return False
+
+
+def _build_url(target: str) -> str:
+    """Normalise a dictated web address into a real https URL."""
+    s = str(target or "").strip().lower()
+    if re.match(r"https?://", s):
+        return s
+    s = re.sub(r"\s+dot\s+", ".", s)
+    toks = s.split()
+    if len(toks) == 2 and toks[1] in _URL_TLDS:
+        s = toks[0] + "." + toks[1]
+    s = re.sub(r"\s+", "", s)
+    return "https://" + s
+
+
 _SCRIPT_LANGUAGE_ALIASES = {
     "py": "python",
     "python3": "python",
@@ -250,6 +290,15 @@ def try_route(text: str) -> Optional[dict]:
             # opens the file browser instead of trying to install an app called
             # "home folder".
             pass
+        elif _looks_like_url_target(target):
+            # "open github com" / "open github.com" is a web address, not an app —
+            # route to the browser instead of the not-installed install dialogue.
+            return {
+                "action": "OPEN_URL",
+                "args": {"url": _build_url(target)},
+                "confidence": 0.97,
+                "meta": {"matched_by": "portable_intent_contract.open_url"},
+            }
         elif _looks_like_app_target(target):
             return {
                 "action": "OPEN_APP",

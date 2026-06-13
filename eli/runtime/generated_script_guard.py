@@ -39,47 +39,95 @@ def _slug(text: str, default: str) -> str:
 
 
 def _write_gpu_memory_watch_script() -> dict[str, Any]:
-    path = _script_dir() / "gpu_memory_watch.sh"
+    code = '''#!/usr/bin/env python3
+"""GPU memory watchdog — cross-platform (Linux/macOS/Windows).
 
-    code = """#!/usr/bin/env bash
-set -euo pipefail
-
-THRESHOLD_MIB="${1:-3072}"
-INTERVAL_SECONDS="${2:-5}"
-
-command -v nvidia-smi >/dev/null 2>&1 || {
-  echo "ERROR: nvidia-smi not found." >&2
-  exit 1
-}
-
-while true; do
-  used_mib="$(nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits | head -n 1 | tr -dc '0-9')"
-  name="$(nvidia-smi --query-gpu=name --format=csv,noheader | head -n 1)"
-  ts="$(date '+%Y-%m-%d %H:%M:%S')"
-
-  if [ -z "$used_mib" ]; then
-    echo "[$ts] ERROR: could not read GPU memory usage." >&2
-  elif [ "$used_mib" -gt "$THRESHOLD_MIB" ]; then
-    echo "[$ts] ALERT: GPU memory on $name is ${used_mib}MiB, above ${THRESHOLD_MIB}MiB."
-    command -v notify-send >/dev/null 2>&1 && notify-send "GPU memory alert" "${used_mib}MiB used on $name"
-  else
-    echo "[$ts] OK: GPU memory on $name is ${used_mib}MiB / threshold ${THRESHOLD_MIB}MiB."
-  fi
-
-  sleep "$INTERVAL_SECONDS"
-done
+Usage: python gpu_memory_watch.py [THRESHOLD_MIB=3072] [INTERVAL_SECONDS=5]
+Requires the NVIDIA driver's `nvidia-smi` on PATH (same tool on every OS).
 """
+from __future__ import annotations
 
+import shutil
+import subprocess
+import sys
+import time
+from datetime import datetime
+
+
+def _notify(title: str, message: str) -> None:
+    """Best-effort native desktop notification; never fatal."""
+    try:
+        if sys.platform.startswith("linux") and shutil.which("notify-send"):
+            subprocess.run(["notify-send", title, message], check=False)
+        elif sys.platform == "darwin" and shutil.which("osascript"):
+            subprocess.run(
+                ["osascript", "-e",
+                 f'display notification "{message}" with title "{title}"'],
+                check=False,
+            )
+        elif sys.platform.startswith("win"):
+            ps = shutil.which("powershell") or shutil.which("pwsh")
+            if ps:
+                subprocess.run(
+                    [ps, "-NoProfile", "-Command",
+                     "[System.Reflection.Assembly]::LoadWithPartialName('System.Windows.Forms')"
+                     f"; [System.Windows.Forms.MessageBox]::Show('{message}','{title}')"],
+                    check=False,
+                )
+    except Exception:
+        pass
+
+
+def _query(field: str) -> str:
+    out = subprocess.check_output(
+        ["nvidia-smi", f"--query-gpu={field}", "--format=csv,noheader,nounits"],
+        text=True,
+    )
+    return out.splitlines()[0].strip()
+
+
+def main() -> int:
+    threshold = int(sys.argv[1]) if len(sys.argv) > 1 else 3072
+    interval = float(sys.argv[2]) if len(sys.argv) > 2 else 5.0
+
+    if not shutil.which("nvidia-smi"):
+        print("ERROR: nvidia-smi not found.", file=sys.stderr)
+        return 1
+
+    while True:
+        ts = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        try:
+            used = int("".join(ch for ch in _query("memory.used") if ch.isdigit()))
+            name = _query("name")
+        except Exception as exc:
+            print(f"[{ts}] ERROR: could not read GPU memory usage: {exc}", file=sys.stderr)
+        else:
+            if used > threshold:
+                print(f"[{ts}] ALERT: GPU memory on {name} is {used}MiB, above {threshold}MiB.")
+                _notify("GPU memory alert", f"{used}MiB used on {name}")
+            else:
+                print(f"[{ts}] OK: GPU memory on {name} is {used}MiB / threshold {threshold}MiB.")
+        time.sleep(interval)
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
+'''
+
+    path = _script_dir() / "gpu_memory_watch.py"
     path.write_text(code, encoding="utf-8")
-    path.chmod(0o755)
+    try:
+        path.chmod(0o755)  # harmless / ignored on Windows
+    except Exception:
+        pass
 
-    msg = _artifact_event("script", path, language="bash")
+    msg = _artifact_event("script", path, language="python")
     return {
         "ok": True,
         "action": "GENERATE_SCRIPT",
         "path": str(path),
         "script_path": str(path),
-        "language": "bash",
+        "language": "python",
         "destination": "labs_sim_ide",
         "open_in_labs": True,
         "open_in_ide": True,

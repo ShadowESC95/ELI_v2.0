@@ -48,12 +48,14 @@ def _run_case(case):
     net = _net(case)
     if target == "router":
         return D.route_only(prompt, network=net)
+    if target == "executor":
+        return D.run_executor(case.get("action"), case.get("args"), network=net)
     return D.run_engine(prompt, network=net, reasoning_mode=str(case.get("mode") or "quick"))
 
 
 def main(argv=None) -> int:
     ap = argparse.ArgumentParser()
-    ap.add_argument("--target", choices=["router", "engine", "all"], default="router")
+    ap.add_argument("--target", choices=["router", "executor", "engine", "all"], default="router")
     ap.add_argument("--cases", default=str(Path(__file__).with_name("cases.yaml")))
     ap.add_argument("--filter", default="")
     ap.add_argument("--json", default="")
@@ -69,15 +71,16 @@ def main(argv=None) -> int:
     if args.filter:
         cases = [c for c in cases if args.filter.lower() in str(c.get("id", "")).lower()]
 
-    want = {"router", "engine"} if args.target == "all" else {args.target}
+    want = {"router", "executor", "engine"} if args.target == "all" else {args.target}
     cases = [c for c in cases if str(c.get("target", "router")).lower() in want]
 
-    # Smoke subset: the full (instant, model-free) router board + only the engine
-    # cases explicitly tagged 'smoke: true' — a per-change board that runs in seconds
+    # Smoke subset: the full (instant, model-free) router + executor boards + only
+    # the engine cases tagged 'smoke: true' — a per-change board that runs in seconds
     # plus a few quick model sanity gens, instead of the full slow engine set.
     if args.smoke:
         cases = [c for c in cases
-                 if str(c.get("target", "router")).lower() == "router" or c.get("smoke") is True]
+                 if str(c.get("target", "router")).lower() in ("router", "executor")
+                 or c.get("smoke") is True]
 
     passed = failed = skipped = 0
     records = []
