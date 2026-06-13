@@ -1,7 +1,7 @@
 [
   {
     "input": "open google.com",
-    "expected_action": "OPEN_APP"
+    "expected_action": "OPEN_URL"
   },
   {
     "input": "play next song",

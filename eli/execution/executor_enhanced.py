@@ -1969,6 +1969,11 @@ SUPPORTED_ACTIONS = [
     'MEMORY_STATUS',
     'MEMORY_STORE',
     'MINIMISE_ALL',
+    'MINIMISE_APP',
+    'MINIMISE_WINDOW',
+    'MINIMIZE_APP',
+    'MINIMIZE_WINDOW',
+    'HIDE_APP',
     'MORNING_REPORT',
     'MOUSE_CONTROL',
     'NAME_SOURCE_AUDIT',
@@ -2775,7 +2780,18 @@ _MEDIA_STATE: Dict[str, Any] = {"source": None, "title": None, "mpv_sock": None}
 
 
 def _mpv_socket_path() -> str:
-    return os.environ.get("ELI_YOUTUBE_MPV_IPC", "/tmp/eli_youtube_mpv.sock")
+    # Mirrors media_runtime._mpv_socket so reader (here) and writer agree.
+    env = os.environ.get("ELI_YOUTUBE_MPV_IPC")
+    if env:
+        return env
+    try:
+        from eli.utils import platform_compat as _pc
+        if _pc.WINDOWS:
+            return r"\\.\pipe\eli_youtube_mpv"
+    except Exception:
+        pass
+    import tempfile
+    return os.path.join(tempfile.gettempdir(), "eli_youtube_mpv.sock")
 
 
 def _mpv_alive() -> bool:
@@ -9358,6 +9374,14 @@ def _execute_impl(action: str, args: Optional[Dict[str, Any]] = None) -> Dict[st
         return {"ok": False, "action": a, "error": "wmctrl/xdotool not installed",
                 "content": "wmctrl or xdotool required to minimise all windows.",
                 "response": "wmctrl or xdotool required to minimise all windows."}
+
+    if a in ("MINIMIZE_APP", "MINIMISE_APP", "HIDE_APP", "MINIMIZE_WINDOW", "MINIMISE_WINDOW"):
+        # Per-app minimise. Delegates to the cross-platform window controller
+        # (Linux wmctrl/xdotool, macOS osascript, Windows ShowWindowAsync,
+        # Android home key). Mirrors the CLOSE_APP branch.
+        from eli.system.portable_app_control import minimize_app
+        name = str(args.get("name") or args.get("target") or args.get("app") or "").strip()
+        return minimize_app(name)
 
     if a == "RESTORE_WINDOWS":
         if shutil.which("wmctrl"):

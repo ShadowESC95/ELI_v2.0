@@ -4,9 +4,13 @@ ONE place that runs a prompt through ELI's real machinery, used by both the
 pure-Python harness (run_eval.py) and the promptfoo custom provider
 (promptfoo/eli_provider.py). No duplication of how-to-call-ELI.
 
-Two targets:
+Three targets:
   • route_only(prompt)      → fast, model-free: just the router's decision
                               (action / matched_by). Covers routing regressions.
+  • run_executor(action,..) → fast, model-free: drives execute_action(action,args)
+                              directly and returns the REAL executor result
+                              (ok / text / error). Covers "routed but not handled
+                              / fabricated result" bugs that the router can't see.
   • run_engine(prompt, ...) → the full CognitiveEngine.process() pipeline
                               (needs a model loaded): text + grounding +
                               response_mode + latency.
@@ -61,6 +65,46 @@ def route_only(prompt: str, network: Optional[bool] = None) -> Dict[str, Any]:
         "latency_s": round(time.perf_counter() - t0, 4),
         "raw": r,
     }
+
+
+def run_executor(action: str, args: Optional[Dict[str, Any]] = None,
+                 network: Optional[bool] = None) -> Dict[str, Any]:
+    """Drive the executor directly and return its REAL result. Model-free and
+    deterministic — catches 'SUPPORTED_ACTION routed but unhandled / fabricated'
+    regressions (e.g. the MINIMIZE_APP fake-"Done." bug) that route_only can't see.
+
+    Eval cases for this target MUST use side-effect-free / read-only actions
+    (status, introspection, time) so the board never disturbs the host."""
+    from eli.execution.executor_enhanced import execute_action
+    a = str(action or "").strip().upper()
+    data = args if isinstance(args, dict) else {}
+    t0 = time.perf_counter()
+    with _network(network):
+        try:
+            res = execute_action(a, data)
+        except Exception as e:  # pragma: no cover
+            return {"target": "executor", "action": a, "args": data, "ok": False,
+                    "text": f"[error] {e}", "error": str(e), "grounding": None,
+                    "response_mode": "", "latency_s": round(time.perf_counter() - t0, 4)}
+    latency = round(time.perf_counter() - t0, 4)
+    if isinstance(res, dict):
+        text = str(res.get("response") or res.get("content")
+                   or res.get("message") or res.get("error") or "").strip()
+        return {
+            "target": "executor",
+            "action": str(res.get("action") or a),
+            "args": data,
+            "ok": bool(res.get("ok", True)),
+            "text": text,
+            "error": str(res.get("error") or ""),
+            "grounding": _maybe_float(res.get("grounding")),
+            "response_mode": "",
+            "latency_s": latency,
+            "raw": res,
+        }
+    return {"target": "executor", "action": a, "args": data, "ok": True,
+            "text": str(res or "").strip(), "error": "", "grounding": None,
+            "response_mode": "", "latency_s": latency, "raw": res}
 
 
 _ENGINE = None

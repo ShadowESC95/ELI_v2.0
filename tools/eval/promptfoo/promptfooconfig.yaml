@@ -22,8 +22,9 @@ defaultTest:
       return { ...vars };
     # ── LOCAL grader for model-graded (llm-rubric) asserts ───────────────────
     # llm-rubric calls a JUDGE model. It MUST stay local — never a cloud API.
-    # Point it at a local OpenAI-compatible server (e.g. llama.cpp `server`):
-    #     ./server -m <your.gguf> --port 8080        # serves /v1
+    # Easiest local server is the bundled llama-cpp-python one (same backend ELI
+    # uses), serving an OpenAI-compatible /v1:
+    #     python -m llama_cpp.server --model <your.gguf> --port 8080
     # then UNCOMMENT the provider block below. Until then the llm-rubric tests
     # are inert (promptfoo warns "no grader") and NEVER reach the cloud.
     # For offline CI use the pure-Python board instead: run_eval.py's `rubric`
