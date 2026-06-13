@@ -493,3 +493,288 @@
         size, GPU/CPU layers, and its SQLite databases) from grounded state. It
         must NOT claim to be a cloud assistant, must NOT say it has no body/
         runtime, and must NOT invent specs.
+
+# ── Router board: cross-platform control + 2026-06-12 regressions ────────────
+# Instant, model-free. Lock in this session's fixes (domains→OPEN_URL,
+# minimize→MINIMIZE_APP) plus the portable open/close/media/volume contracts.
+- id: open_domain_is_url_not_app
+  target: router
+  prompt: "open github.com"
+  assert:
+    - {type: action_is, value: [OPEN_URL]}
+    - {type: arg_contains, key: url, value: "github.com"}
+
+- id: open_spoken_domain_is_url
+  target: router
+  prompt: "open github dot com"
+  assert:
+    - {type: action_is, value: [OPEN_URL]}
+
+- id: open_full_https_url
+  target: router
+  prompt: "open https://news.ycombinator.com"
+  assert:
+    - {type: action_is, value: [OPEN_URL]}
+
+- id: minimize_app_routes_not_fabricated
+  target: router
+  prompt: "minimize firefox"
+  assert:
+    - {type: action_is, value: [MINIMIZE_APP, MINIMISE_APP]}
+
+- id: minimise_everything_routes
+  target: router
+  prompt: "minimise everything"
+  assert:
+    - {type: action_is, value: [MINIMIZE_APP, MINIMISE_APP, MINIMISE_ALL]}
+
+- id: hide_is_minimize
+  target: router
+  prompt: "hide chrome"
+  assert:
+    - {type: action_is, value: [MINIMIZE_APP, MINIMISE_APP, HIDE_APP]}
+
+- id: open_app_not_url
+  target: router
+  prompt: "open spotify"
+  assert:
+    - {type: action_is, value: [OPEN_APP]}
+
+- id: close_app_routes
+  target: router
+  prompt: "close chrome"
+  assert:
+    - {type: action_is, value: [CLOSE_APP]}
+
+- id: open_uninstalled_app_stays_app
+  target: router
+  prompt: "open wireshark"
+  assert:
+    - {type: action_is, value: [OPEN_APP]}
+
+- id: volume_up_routes
+  target: router
+  prompt: "volume up"
+  assert:
+    - {type: action_is, value: [VOLUME]}
+
+- id: now_playing_routes
+  target: router
+  prompt: "what's playing"
+  assert:
+    - {type: action_is, value: [NOW_PLAYING]}
+
+- id: next_media_routes
+  target: router
+  prompt: "next track"
+  assert:
+    - {type: action_is, value: [NEXT_MEDIA]}
+
+- id: screenshot_routes
+  target: router
+  prompt: "take a screenshot"
+  assert:
+    - {type: action_is, value: [SCREENSHOT]}
+
+- id: explicit_web_search_routes
+  target: router
+  prompt: "search the web for tokamak confinement"
+  assert:
+    - {type: action_is, value: [WEB_SEARCH, OPEN_BROWSER]}
+
+- id: capabilities_query_routes
+  target: router
+  prompt: "what can you do"
+  assert:
+    - {type: action_is, value: [LIST_CAPABILITIES, HELP]}
+
+- id: code_request_routes_to_generation
+  target: router
+  prompt: "write a python function to merge two sorted lists"
+  assert:
+    - {type: action_is, value: [GENERATE_SCRIPT, GENERATE_CODE, WRITE_CODE, CODE_SOLVE]}
+
+# ── Engine board: new-judge coverage + 2026-06-12 regression locks ───────────
+- id: minimize_no_fabricated_done
+  target: engine
+  network: off
+  prompt: "minimize firefox"
+  assert:
+    # Regression: MINIMIZE_APP used to skip the executor and let the model
+    # fabricate "Done." It must route to the real action, not invent success.
+    - {type: action_is, value: [MINIMIZE_APP, MINIMISE_APP]}
+    - {type: no_placeholder}
+
+- id: open_domain_engine_is_url
+  target: engine
+  network: off
+  prompt: "open github.com"
+  assert:
+    - {type: action_is, value: [OPEN_URL]}
+
+- id: code_generation_no_toy_no_placeholder
+  target: engine
+  network: off
+  prompt: "write a python function that merges two sorted lists into one sorted list"
+  assert:
+    - {type: action_is, value: [GENERATE_SCRIPT, GENERATE_CODE, WRITE_CODE, CODE_SOLVE]}
+    - {type: no_placeholder}
+    - {type: not_contains, value: "raise NotImplementedError"}
+
+- id: capabilities_grounded_lists_real_actions
+  target: engine
+  network: off
+  prompt: "what can you do — list your real capabilities"
+  assert:
+    - {type: action_is, value: [LIST_CAPABILITIES, HELP]}
+    - {type: contains_any, value: ["SCREENSHOT", "VOLUME", "OPEN_APP", "MEMORY", "media", "screenshot", "volume"]}
+
+- id: factual_semantic_match
+  target: engine
+  network: on
+  prompt: "what is the capital of japan"
+  assert:
+    # Exercises the new local-embedding judge against a reference answer.
+    - {type: semantic_min, value: "Tokyo is the capital of Japan.", min: 0.4}
+    - {type: no_placeholder}
+
+- id: deepen_rubric_self_consistency
+  target: engine
+  network: off
+  prompt: "explain in depth how a solar-to-hydrogen electrolysis system splits water"
+  assert:
+    # Exercises rubric self-consistency: graded 3x, median taken.
+    - type: rubric
+      min: 0.6
+      samples: 3
+      value: >-
+        A good answer gives the ACTUAL mechanism: electricity drives an
+        electrolyser that splits water (H2O) into hydrogen and oxygen at the
+        electrodes, ideally mentioning a real component (PEM/alkaline cell,
+        membrane, catalyst) or efficiency. It must NOT be a generic deferral.
+
+# ── Executor board: drives execute_action() directly (model-free, read-only) ──
+# The third leg: router proves the DECISION, this proves the action actually
+# EXECUTES and returns a real grounded result. All actions here are side-effect
+# free (status/introspection/time) so the board never disturbs the host.
+- id: exec_runtime_status_grounded
+  target: executor
+  network: off
+  action: RUNTIME_STATUS
+  args: {}
+  assert:
+    - {type: result_ok, value: true}
+    - {type: contains_any, value: ["model", "provider", "gguf"]}
+    - {type: no_placeholder}
+
+- id: exec_list_capabilities_real
+  target: executor
+  network: off
+  action: LIST_CAPABILITIES
+  args: {}
+  assert:
+    - {type: result_ok, value: true}
+    - {type: contains, value: "capabilities"}
+    - {type: contains_any, value: ["OPEN_APP", "SCREENSHOT", "VOLUME", "MEMORY"]}
+
+- id: exec_hardware_profile_probes
+  target: executor
+  network: off
+  action: HARDWARE_PROFILE
+  args: {}
+  assert:
+    - {type: result_ok, value: true}
+    - {type: contains_any, value: ["RAM", "threads", "GPU", "CPU"]}
+
+- id: exec_gpu_status
+  target: executor
+  network: off
+  action: GPU_STATUS
+  args: {}
+  assert:
+    - {type: result_ok, value: true}
+    - {type: contains_any, value: ["GPU", "name", "driver", "VRAM"]}
+
+- id: exec_memory_status_ok
+  target: executor
+  network: off
+  action: MEMORY_STATUS
+  args: {}
+  assert:
+    - {type: result_ok, value: true}
+
+- id: exec_reasoning_mode_status
+  target: executor
+  network: off
+  action: REASONING_MODE_STATUS
+  args: {}
+  assert:
+    - {type: result_ok, value: true}
+    - {type: contains, value: "reasoning mode"}
+
+- id: exec_get_time_iso
+  target: executor
+  network: off
+  action: GET_TIME
+  args: {}
+  assert:
+    - {type: result_ok, value: true}
+    - {type: regex, value: '\d{4}-\d{2}-\d{2}'}
+
+- id: exec_get_date_iso
+  target: executor
+  network: off
+  action: GET_DATE
+  args: {}
+  assert:
+    - {type: result_ok, value: true}
+    - {type: regex, value: '\d{4}-\d{2}-\d{2}'}
+
+- id: exec_system_stats
+  target: executor
+  network: off
+  action: SYSTEM_STATS
+  args: {}
+  assert:
+    - {type: result_ok, value: true}
+    - {type: contains_any, value: ["CPU", "RAM", "System"]}
+
+- id: exec_persona_lock_status
+  target: executor
+  network: off
+  action: PERSONA_LOCK_STATUS
+  args: {}
+  assert:
+    - {type: result_ok, value: true}
+    - {type: contains, value: "Persona lock"}
+
+- id: exec_orchestration_status
+  target: executor
+  network: off
+  action: ORCHESTRATION_STATUS
+  args: {}
+  assert:
+    - {type: result_ok, value: true}
+    - {type: contains_any, value: ["orchestration", "agents", "Orchestrator"]}
+
+- id: exec_resolve_runtime_paths
+  target: executor
+  network: off
+  action: RESOLVE_RUNTIME_PATHS
+  args: {}
+  assert:
+    - {type: result_ok, value: true}
+    - {type: contains_any, value: ["runtime", "cognitive_engine", "path"]}
+
+# Regression: MINIMIZE_APP must be HANDLED by the executor (not "Unsupported
+# executor action" and not a fabricated success). Uses a window name that can't
+# match, so it's side-effect free — it asserts the action is dispatched, not that
+# a real window gets minimised.
+- id: exec_minimize_app_is_handled_not_unsupported
+  target: executor
+  network: off
+  action: MINIMIZE_APP
+  args: {name: "no_such_window_zzz_eval_only"}
+  assert:
+    - {type: not_contains, value: "Unsupported executor action"}
+    - {type: not_contains_any, value: ["Done.", "Done!"]}

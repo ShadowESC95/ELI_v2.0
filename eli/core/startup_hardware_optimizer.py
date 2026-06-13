@@ -51,6 +51,13 @@ def run(cmd: List[str]) -> str:
 
 
 def detect_ram_gb() -> float:
+    # psutil is cross-platform (Linux/macOS/Windows) and already a dependency —
+    # prefer it so RAM is detected correctly off-Linux instead of defaulting to 8.
+    try:
+        import psutil
+        return round(psutil.virtual_memory().total / 1e9, 2)
+    except Exception:
+        pass
     try:
         txt = Path("/proc/meminfo").read_text()
         m = re.search(r"MemTotal:\s+(\d+)\s+kB", txt)
