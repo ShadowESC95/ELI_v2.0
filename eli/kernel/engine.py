@@ -86,6 +86,11 @@ _PHASE45_DIRECT_FAST_ACTIONS = {
     'KEYBOARD',
     'LIST_EVENTS',
     'MEDIA_CONTROL',
+    'MINIMISE_APP',  # window control: deterministic executor result is authoritative — never let GGUF fabricate "Done."
+    'MINIMISE_WINDOW',
+    'MINIMIZE_APP',
+    'MINIMIZE_WINDOW',
+    'HIDE_APP',
     'MOUSE_CONTROL',
     'MUTE',
     'NEXT_MEDIA',

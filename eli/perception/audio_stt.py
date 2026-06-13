@@ -1316,8 +1316,11 @@ class ELIAudioSTT:
                 _recal_every = int(os.environ.get("ELI_STT_RECALIBRATE_EVERY", "60"))
                 _silent_streak = 0
 
-                _speaking_lock_path = os.environ.get(
-                    "ELI_TTS_SPEAKING_LOCK", "/tmp/eli_tts_speaking.lock"
+                import tempfile as _tf
+                # Must match tts_router's lock default (same process writes it there,
+                # reads it here) — portable temp dir, never a hardcoded POSIX /tmp.
+                _speaking_lock_path = os.environ.get("ELI_TTS_SPEAKING_LOCK") or os.path.join(
+                    _tf.gettempdir(), "eli_tts_speaking.lock"
                 )
                 _speaking_lock_max_age = float(
                     os.environ.get("ELI_TTS_SPEAKING_LOCK_MAX_AGE_SEC", "30")

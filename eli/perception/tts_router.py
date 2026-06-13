@@ -403,18 +403,33 @@ def _speak_piper_cli(text, voice_name=None):
         log.debug(f"[TTS_FINAL_PIPER_ONLY] missing piper binary: {piper_bin}")
         return False
 
+    # Blocking WAV players, chosen per platform. Linux: ALSA/Pulse. macOS: afplay.
+    # Windows: PowerShell's SoundPlayer.PlaySync (blocking).
+    from eli.utils import platform_compat as _pc
     players = []
-    for cand in ("aplay", "paplay"):
-        found = _shutil.which(cand)
+    if _pc.WINDOWS:
+        ps = _shutil.which("powershell") or _shutil.which("pwsh")
+        if ps:
+            players.append(ps)
+    elif _pc.MACOS:
+        found = _shutil.which("afplay")
         if found:
             players.append(found)
+    else:
+        for cand in ("aplay", "paplay"):
+            found = _shutil.which(cand)
+            if found:
+                players.append(found)
 
     if not players:
-        log.debug("[TTS_FINAL_PIPER_ONLY] missing aplay/paplay")
+        log.debug("[TTS_FINAL_PIPER_ONLY] no blocking WAV player found for this platform")
         return False
 
     cfg = _find_piper_config(model)
-    lock_path = _Path(_os.environ.get("ELI_TTS_SPEAKING_LOCK", "/tmp/eli_tts_speaking.lock"))
+    lock_path = _Path(
+        _os.environ.get("ELI_TTS_SPEAKING_LOCK")
+        or (_Path(_tempfile.gettempdir()) / "eli_tts_speaking.lock")
+    )
 
     with _tempfile.NamedTemporaryFile(prefix="eli_piper_final_", suffix=".wav", delete=False) as tmp:
         wav = _Path(tmp.name)
@@ -464,10 +479,18 @@ def _speak_piper_cli(text, voice_name=None):
         )
 
         for player in players:
-            player_name = _Path(player).name
+            player_name = _Path(player).name.lower()
             if player_name == "aplay":
                 play_cmd = [player, "-q", str(wav)]
+            elif player_name in ("powershell", "pwsh", "powershell.exe", "pwsh.exe"):
+                # Blocking playback on Windows via .NET SoundPlayer.
+                _safe_wav = str(wav).replace("'", "''")
+                play_cmd = [
+                    player, "-NoProfile", "-Command",
+                    f"(New-Object Media.SoundPlayer '{_safe_wav}').PlaySync()",
+                ]
             else:
+                # paplay (Linux) / afplay (macOS) and other simple players.
                 play_cmd = [player, str(wav)]
 
             play_proc = _subprocess.run(
