@@ -2181,10 +2181,29 @@ def route(text: str) -> Dict[str, Any]:
            "self analysis", "check yourself", "diagnostic"]):
         return _mk("SELF_ANALYZE", {}, 0.95, matched_by="self.analyze")
 
+    # Bare greetings / salutations are conversation, never a report command.
+    # Stops "morning" / "good morning" resolving to MORNING_REPORT (both via this
+    # router and the slow LLM intent fallback). Must be a *whole-utterance*
+    # greeting — "morning report" / "good morning, give me the report" fall
+    # through to the report rule below.
+    if re.fullmatch(
+        r"(?:hi+|hey+|hello+|yo|sup|howdy|hiya|heya|hai|gm|gn|greetings|"
+        r"good\s+(?:morning|afternoon|evening|day|night)|morning|afternoon|evening)"
+        r"[\s,.!]*(?:eli|there|everyone|all|mate|buddy|bud|pal|man)?[\s,.!]*",
+        low.strip(),
+    ):
+        return _mk("CHAT", {"message": raw}, 0.9, matched_by="chat.greeting")
+
     if any(p in low for p in ["morning report",
            "daily report", "intelligence report"]):
-        return _mk("MORNING_REPORT", {}, 0.95,
-                   matched_by="self.morning_report")
+        # ...but not when the user is negating or merely referring to it
+        # ("i said good morning, not morning report", "don't give me the report").
+        if not re.search(
+            r"\b(?:not|no|never|stop|cancel|don'?t|didn'?t|isn'?t|wasn'?t|"
+            r"without|skip|instead\s+of|rather\s+than)\b", low
+        ):
+            return _mk("MORNING_REPORT", {}, 0.95,
+                       matched_by="self.morning_report")
 
     if any(p in low for p in ["apply self-improvement patch", "apply patch", "run patch cycle",
                               "patch yourself", "fix your own code", "self-patch"]):
@@ -2221,14 +2240,40 @@ def route(text: str) -> Dict[str, Any]:
         return _mk("GENERATE_PROJECT", {"description": raw, "use_gguf_only": True,
                    "forbid_ollama": True}, 0.95, matched_by="dev.generate_project")
 
-    # "run command X" / "run nvidia-smi" — explicit shell requests
+    # "run command X" / "run nvidia-smi" / "run the rm command on it" — explicit
+    # shell requests.
     _run_cmd_m = re.match(
         r'^run\s+(?:the\s+)?(?:command\s+)?([a-zA-Z][\w\-]+(\s+[^,]+)?)$',
         raw,
         re.I)
     if _run_cmd_m:
         _cmd = _run_cmd_m.group(1).strip()
-        if not re.search(r'\b(script|function|program|code)\b', _cmd, re.I):
+        # "the <bin> command [on/with/...] <tail>" idiom: the literal word
+        # "command" is filler and <bin> is the real binary. Without this,
+        # "run the rm command on it" was captured verbatim and executed as
+        # `rm command on it` — trying to delete files named command/on/it.
+        _idiom = re.match(r'^([a-zA-Z][\w\-]*)\s+command\b\s*(.*)$', _cmd, re.I)
+        if _idiom:
+            _cmd = (_idiom.group(1) + " " + _idiom.group(2)).strip()
+        _parts = _cmd.split()
+        _first = _parts[0].lower() if _parts else ""
+        _rest = _parts[1:]
+        # Destructive binaries need a concrete target. If the only "arguments"
+        # are deictic / natural-language fillers ("on it", "that", ...) there is
+        # no real path to act on — refuse and fall through to a clarifying chat
+        # rather than running rm/mv/dd against garbage.
+        _DESTRUCTIVE = {"rm", "rmdir", "mv", "dd", "kill", "killall",
+                        "shred", "mkfs", "truncate", "unlink"}
+        _DEICTIC = {"it", "that", "this", "them", "these", "those", "here",
+                    "there", "on", "to", "with", "against", "for", "at", "in",
+                    "the", "my", "your"}
+        _vague_destructive = (
+            _first in _DESTRUCTIVE
+            and (not _rest
+                 or all(re.sub(r'[.!?,]', '', w).lower() in _DEICTIC for w in _rest))
+        )
+        if (not re.search(r'\b(script|function|program|code)\b', _cmd, re.I)
+                and not _vague_destructive):
             return _mk("SHELL_EXEC", {"cmd": _cmd}, 0.95, matched_by="shell.run_command",
                        entities={"cmd": _cmd})
 

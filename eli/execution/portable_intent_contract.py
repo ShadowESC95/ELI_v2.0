@@ -414,11 +414,26 @@ def try_route(text: str) -> Optional[dict]:
 
     wants_generation = re.search(r"\b(?:generate|write|create|build|make)\b", norm)
     wants_code = re.search(r"\b(?:script|code|program|module|tool|app)\b", norm)
-    # Reject if a negation word immediately precedes the generation verb —
-    # e.g. "not generate a new python script" must not fire GENERATE_SCRIPT.
+    # A question is conversation, not an imperative generation command — e.g.
+    # "i did not ask you to write a code for that.. you feeling okay?" or
+    # "when did we discuss ... you do have the ability to write your own code?".
+    # Genuine "write a python script" commands are imperatives without a '?';
+    # any real request that slips through still reaches the LLM intent resolver.
+    _is_question = "?" in raw
+    # Reject if a negation word precedes the generation verb anywhere in the
+    # same clause — "not generate a python script", "i did NOT ask you to write
+    # a code" (note the words between the negation and the verb).
     _negated_generation = bool(wants_generation and re.search(
-        r"\b(?:not|don'?t|never|no|stop|without|rather\s+than|instead\s+of)\b\s+\w*\s*"
+        r"\b(?:not|don'?t|didn'?t|doesn'?t|won'?t|never|no|stop|without|"
+        r"cannot|can'?t|rather\s+than|instead\s+of)\b[^.?!]*?\b"
         r"(?:generate|write|create|build|make)\b", norm))
+    # Reject when the generation verb is subordinate to another verb (it is
+    # being talked ABOUT, not commanded) — "the ability to write code",
+    # "i asked you to write", "trying to make a tool".
+    _subordinate_generation = bool(wants_generation and re.search(
+        r"\b(?:ability|able|want|wanted|need|needed|ask|asked|tell|told|"
+        r"trying|try|going|supposed|meant|ought|refuse|refused|capable)\b"
+        r"[^.?!]*?\bto\s+(?:generate|write|create|build|make)\b", norm))
     # "make sure/sense/it/certain/use/note/do" are conversational idioms, not
     # code-generation commands. Only flag as generation if a real imperative
     # verb (generate/write/create/build) is present, or "make" is not in an idiom.
@@ -432,12 +447,14 @@ def try_route(text: str) -> Optional[dict]:
     _code_is_reference = bool(
         wants_code
         and re.search(r"\b(?:script|code|program)\b", norm)
-        and re.search(r"\b(?:noticed|seen|the|your|their|this|that|existing|current|latest)"
-                      r"\s+(?:code|script|program)\b", norm)
+        and re.search(r"\b(?:noticed|seen|the|your|their|my|our|its|this|that|"
+                      r"existing|current|latest)\s+(?:own\s+)?(?:code|script|program)\b", norm)
     )
     if (wants_generation and wants_code
+            and not _is_question
             and not _looks_like_generation_complaint(norm)
             and not _negated_generation
+            and not _subordinate_generation
             and not _make_idiom_only
             and not _code_is_reference):
         language = infer_script_language(raw)
