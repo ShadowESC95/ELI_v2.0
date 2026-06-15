@@ -7385,6 +7385,63 @@ Answer:"""
             return f"{steer}\n\n{brief or ''}".strip()
         return brief
 
+    def _execution_grounding_block(self, bus_result) -> str:
+        """Factual ledger of what the executor ACTUALLY did this turn, plus a hard
+        rule against claiming unexecuted actions.
+
+        Fixes the failure where a conversation-only turn (e.g. the user says
+        "delete it" and it routes to CHAT) makes the model fabricate "Done." or
+        "I deleted it" / "I'll delete it now" — actions that never ran. The model
+        can only describe as done what the executor confirms here."""
+        action = ""
+        try:
+            action = str(getattr(bus_result, "intent_action", "") or "").upper().strip()
+        except Exception:
+            action = ""
+
+        # Actions that actually change the machine, files, or app/media state.
+        _SIDE_EFFECTING = {
+            "RUN_CMD", "SHELL_EXEC", "GENERATE_SCRIPT", "GENERATE_PROJECT",
+            "FIX_FILE", "CODE_SOLVE", "CREATE_FOLDER", "DELETE_FILE",
+            "OPEN_APP", "CLOSE_APP", "MINIMIZE_APP", "OPEN_URL", "OPEN_IDE",
+            "VOLUME", "PLAY_MEDIA", "PAUSE_MEDIA", "NEXT_MEDIA", "SELF_PATCH",
+        }
+        result_text = ""
+        executed = False
+        if bus_result is not None and action in _SIDE_EFFECTING:
+            try:
+                res = _eli_bus_first_ok_result(bus_result, action)
+            except Exception:
+                res = None
+            if isinstance(res, dict):
+                executed = True
+                try:
+                    result_text = str(
+                        res.get("content") or res.get("response") or ""
+                    ).strip().replace("\n", " ")[:400]
+                except Exception:
+                    result_text = ""
+
+        lines = ["[EXECUTION GROUNDING — read before replying]"]
+        if executed:
+            lines.append(f"This turn the executor really ran: {action}.")
+            if result_text:
+                lines.append(f"Its actual result: {result_text}")
+            lines.append("You may refer to this as done; do not embellish beyond this result.")
+        else:
+            lines.append(
+                "This turn NO system action executed — it is conversation only. "
+                "You did NOT run any command and did NOT create, modify, move, or "
+                "delete any file this turn.")
+        lines.append(
+            "Hard rule: you cannot perform actions from inside a reply — only the "
+            "executor can, and only what is stated above actually happened. Never "
+            "claim to have done something (no 'Done.', 'I deleted it', \"it's gone\", "
+            "'I'll delete it now') unless it is confirmed above. If the user asked for "
+            "an action and nothing is confirmed above, tell them plainly it has not run "
+            "yet — do not pretend it did.")
+        return "\n".join(lines)
+
     def _build_persona_handoff_once(self, user_input: str, memory_context: str = "",
                                     bus_result=None, recent_turns=None, working_memory=None) -> str:
         try:
@@ -7737,6 +7794,14 @@ Answer:"""
         brief = self._cap_text(brief, 8192, "persona_handoff")
         # Safety steering rides above the cap so it is never truncated.
         brief = self._prepend_crisis_steering(brief)
+        # Execution grounding rides above the cap too — it must never be dropped,
+        # or the model starts fabricating completed actions ("Done", "it's gone").
+        try:
+            _grounding = self._execution_grounding_block(bus_result)
+            if _grounding:
+                brief = brief + "\n\n" + _grounding
+        except Exception:
+            pass
 
         try:
             if working_memory is not None:

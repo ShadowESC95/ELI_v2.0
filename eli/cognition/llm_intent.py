@@ -65,6 +65,8 @@ _FEW_SHOT = (
     '{"q":"what is in the note you just wrote","action":"LIST_NOTES",'
     '"args":{},"confidence":0.8}\n'
     '{"q":"i am so happy to be alive","action":"CHAT","args":{},"confidence":0.95}\n'
+    '{"q":"good morning","action":"CHAT","args":{},"confidence":0.95}\n'
+    '{"q":"hey eli","action":"CHAT","args":{},"confidence":0.95}\n'
 )
 
 
@@ -88,7 +90,8 @@ def parse_with_llm(text: str) -> Dict[str, Any]:
             "You are ELI's intent resolver. Map the user's message to the single "
             "best matching action from the provided list, extracting any obvious "
             "arguments. If the message is conversation, an opinion, a feeling, a "
-            "complaint, small talk, or does not clearly map to an action, answer "
+            "complaint, small talk, a greeting or salutation (e.g. 'morning', "
+            "'good morning', 'hey'), or does not clearly map to an action, answer "
             "CHAT. Use ONLY action names from the list. Output ONE JSON object: "
             '{"action": <NAME or CHAT>, "args": {...}, "confidence": <0..1>}.'
         )
