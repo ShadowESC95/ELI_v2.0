@@ -69,6 +69,7 @@ import json
 import re
 import threading
 import time
+from contextlib import contextmanager
 from pathlib import Path
 from typing import Optional, Dict, Any, Generator, Union
 
@@ -236,6 +237,31 @@ def _is_thinking_model(model_path: Optional[Path] = None) -> bool:
     return any(k in name for k in ("qwen3", "deepseek-r1", "r1-distill", "qwq", "-r1-"))
 
 
+# Thread-local "force no-think" scope. Some large-budget calls (e.g. grounded-evidence
+# synthesis for EXPLAIN_* control actions) have all the facts already gathered and only
+# need to phrase them — letting the model open a <think> block there just burns the whole
+# budget and returns empty (observed: EXPLAIN_MEMORY/COGNITION_RUNTIME looping through
+# multiple ~530s empty generations). Callers wrap such a call in `with force_no_think():`
+# to force the closed-think prefill regardless of budget, without threading a kwarg through
+# every layer. Thread-local so a concurrent agent's call is unaffected.
+_NO_THINK_TLS = threading.local()
+
+
+def _force_no_think_active() -> bool:
+    return bool(getattr(_NO_THINK_TLS, "force", False))
+
+
+@contextmanager
+def force_no_think():
+    """Within this scope, every GGUF chat call on THIS thread skips its <think> block."""
+    _prev = getattr(_NO_THINK_TLS, "force", False)
+    _NO_THINK_TLS.force = True
+    try:
+        yield
+    finally:
+        _NO_THINK_TLS.force = _prev
+
+
 def _no_think_prefill(*, structured: bool, max_tokens) -> str:
     """Return an assistant-turn PREFILL that forces a reasoning model to SKIP its
     <think> block on UTILITY calls, so it doesn't burn a small budget thinking instead
@@ -244,12 +270,14 @@ def _no_think_prefill(*, structured: bool, max_tokens) -> str:
     90/420-token budget). Prefilling a CLOSED empty think is reliable across reasoning
     families — the /no_think soft-switch is ignored by some Qwen3 quants.
 
-    Disabled for: structured/JSON calls (always) and small-budget chat (< 1024 tokens →
-    judge / summary / quick utility). The MAIN answer call (large budget) keeps thinking
-    unless ELI_MODEL_THINK=0. '' (no-op) for non-reasoning models or when thinking is
-    wanted."""
+    Disabled for: structured/JSON calls (always), small-budget chat (< 1024 tokens →
+    judge / summary / quick utility), and any call inside a `force_no_think()` scope. The
+    MAIN answer call (large budget) keeps thinking unless ELI_MODEL_THINK=0. '' (no-op)
+    for non-reasoning models or when thinking is wanted."""
     if not _is_thinking_model():
         return ""
+    if _force_no_think_active():
+        return "<think>\n\n</think>\n\n"
     try:
         _small = 0 < int(max_tokens or 0) < 1024
     except Exception:

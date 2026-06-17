@@ -34,6 +34,25 @@ _IMP_START = re.compile(
     r"|message|post|analyse|analyze|examine|review|make|give me|tell me to)\b", re.I)
 
 
+def _trim_trailing_chatter(seg: str) -> str:
+    """Drop a conversational sentence fused onto the end of a command segment, e.g.
+    'play evil by eminem. haha no, you already told me of the tokamaks' →
+    'play evil by eminem'. Without this the trailing banter became part of the media
+    title and was searched verbatim.
+
+    Conservative on purpose: only cut at a '. ' / '! ' / '? ' boundary when the tail is
+    ≥3 words and is NOT itself imperative — so short titles with internal punctuation
+    ('play mr. brightside') and any genuinely chained command survive untouched."""
+    for mt in re.finditer(r"[.!?]\s+", seg):
+        head = seg[:mt.start()].strip(" ,.")
+        tail = seg[mt.end():].strip()
+        if not head or _IMP_START.search(tail):
+            continue
+        if len(tail.split()) >= 3:
+            return head
+    return seg
+
+
 def split_commands(text: str, *, max_parts: int = 5) -> Optional[List[str]]:
     """Return the imperative command segments if `text` chains ≥2 of them, else None."""
     t = (text or "").strip()
@@ -46,7 +65,7 @@ def split_commands(text: str, *, max_parts: int = 5) -> Optional[List[str]]:
         return None
     if not all(_IMP_START.search(p) for p in parts):
         return None
-    return parts
+    return [_trim_trailing_chatter(p) for p in parts]
 
 
 __all__ = ["split_commands"]
