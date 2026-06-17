@@ -82,6 +82,7 @@ _PHASE45_DIRECT_FAST_ACTIONS = {
     'BACKGROUND_JOBS',  # deterministic job-list read — verbatim, never paraphrase
     'CHECK_JOB',  # job status/result is authoritative; the model invents elapsed times and drops the actual summary if it re-narrates this
     'CLOSE_APP',
+    'CREATE_FILE',  # fs mutation: executor writes + reads back, result is authoritative — never let the heuristic agent profile drop `system` and punt "run touch yourself"
     'DATE',
     'KEYBOARD',
     'LIST_EVENTS',
@@ -13062,13 +13063,22 @@ Answer:"""
             from eli.cognition import gguf_inference as _gguf
             if _gguf is None:
                 return ""
-            text = _gguf.chat_completion(
-                prompt,
-                system=system,
-                max_tokens=1400,
-                temperature=0.25,
-                top_p=0.85,
-            )
+            # Force no-think: the evidence is already gathered, this call only phrases it.
+            # Letting a reasoning model open a <think> block here burns the whole budget and
+            # returns empty (the EXPLAIN_MEMORY/COGNITION_RUNTIME loop of ~530s empty passes).
+            try:
+                _nt_scope = _gguf.force_no_think()
+            except Exception:
+                from contextlib import nullcontext as _nullcontext
+                _nt_scope = _nullcontext()
+            with _nt_scope:
+                text = _gguf.chat_completion(
+                    prompt,
+                    system=system,
+                    max_tokens=1400,
+                    temperature=0.25,
+                    top_p=0.85,
+                )
             text = (text or "").strip()
             # Strip any leftover scaffolding the model may have leaked.
             try:
