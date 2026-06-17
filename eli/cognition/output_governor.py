@@ -78,6 +78,27 @@ def normalize_assistant_text(user_input: str, text: str) -> str:
     return result
 
 
+# No-Fake-Actions: a real action's outcome is delivered by the executor, never narrated by the
+# model. A bracketed pseudo-tool-confirmation in the prose ("[Pause command executed
+# successfully.]", "[Command executed]", "[Done — command ran]") is therefore always fabrication —
+# the model imitating a tool result it never produced. The pattern is specific to
+# execution/command-completion claims, so legitimate source tags ("[BBC — 14:23]",
+# "[HackerNews/tech]") and ordinary brackets are never touched. Model-agnostic.
+_FAKE_TOOL_CONFIRMATION_RE = re.compile(
+    r"\s*\[[^\]\n]*?(?:"
+    r"\bexecut(?:ed|ing|ion|es)\b"
+    r"|\bcommand\b[^\]\n]*?\b(?:success\w*|complet\w*|done|ran)\b"
+    r"|\b(?:success\w*|complet\w*|done|ran)\b[^\]\n]*?\bcommand\b"
+    r")[^\]\n]*?\]",
+    re.IGNORECASE,
+)
+
+
+def strip_fabricated_action_claims(text: str) -> str:
+    """Remove model-fabricated tool/command confirmations (No-Fake-Actions). Model-agnostic."""
+    return _FAKE_TOOL_CONFIRMATION_RE.sub("", str(text or ""))
+
+
 def govern_output(text: str, is_grounded: bool = False,
                   evidence: Optional[str] = None) -> str:
     result = apply_final_reasoning_contract(text).strip()
@@ -94,6 +115,9 @@ def govern_output(text: str, is_grounded: bool = False,
     result = strip_generic_ai_identity_drift(result).strip()
     result = repair_self_user_confusion(result).strip()
     result = clean_response_style(result).strip()
+    # No-Fake-Actions: drop fabricated "[… command executed …]" tool-confirmations the model
+    # invents when narrating an action that never actually ran (model-agnostic guard).
+    result = strip_fabricated_action_claims(result).strip()
     m = _OUTER_FENCE_RE.match(result)
     if m:
         body = m.group("body")

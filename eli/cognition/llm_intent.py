@@ -102,9 +102,14 @@ def parse_with_llm(text: str) -> Dict[str, Any]:
             + f'\nUSER: "{text}"\nJSON:'
         )
         response = gguf_inference.chat_completion(
-            prompt, system=system, max_tokens=90, temperature=0.1,
+            prompt, system=system, max_tokens=200, temperature=0.1,
         )
-        m = re.search(r"\{.*\}", response or "", re.DOTALL)
+        # Tolerate models that wrap the JSON in markdown code fences (Phi-4 emits ```json … ```;
+        # Qwen emits bare JSON), and give enough budget that long-arg JSON (e.g. file paths) isn't
+        # truncated mid-object. Both caused routing to collapse to CHAT — and the model to then
+        # fabricate that it ran the command. Model-agnostic.
+        _resp = re.sub(r"```(?:json)?|```", " ", response or "")
+        m = re.search(r"\{.*\}", _resp, re.DOTALL)
         if not m:
             return {"action": "CHAT", "args": {"message": text}, "confidence": 0.5}
         parsed = json.loads(m.group())

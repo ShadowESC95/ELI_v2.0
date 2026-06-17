@@ -98,6 +98,19 @@ class InferenceBroker:
             background = bool(background) or bool(gi.is_background_inference())
         except Exception:
             pass
+        # A foreground turn is live or just ran: don't let background work grab the shared model
+        # lock and stall the user (prompt-eval can't be token-preempted once it starts). Skip this
+        # cycle — the daemon re-runs the chore on a later idle tick. Best-effort; model/hardware
+        # agnostic; ELI's depth is unchanged — only the TIMING of background work moves off the
+        # user's turn. Override window via ELI_BG_DEFER_WINDOW (0 disables deferral).
+        if background:
+            try:
+                import os as _os_d
+                _win = float(_os_d.environ.get("ELI_BG_DEFER_WINDOW", "30"))
+            except Exception:
+                _win = 30.0
+            if _win > 0 and foreground_recently_active(_win):
+                return ""
         # Background generations are hard-capped so they can't hold the shared model lock for
         # minutes on a slow model, and they carry a cooperative abort (set per-thread below) so a
         # foreground turn preempts them. Cap is tunable via ELI_BG_MAX_TOKENS (default 256).
@@ -126,7 +139,16 @@ class InferenceBroker:
             with self._lock:
                 response = self._call(prompt, system, max_tokens, temperature, top_p)
             if not response and retry:
-                with self._lock:
+                # A reasoning model can spend its whole budget inside <think> and return nothing
+                # (the empty-string failure). Force the think block closed on the retry so the
+                # budget goes to the answer. Model-agnostic: a no-op for non-thinking models, and
+                # the prompt/context are unchanged — only the model's hidden think is suppressed.
+                try:
+                    _nt_ctx = gi.force_no_think()
+                except Exception:
+                    from contextlib import nullcontext as _nullctx
+                    _nt_ctx = _nullctx()
+                with _nt_ctx, self._lock:
                     response = self._call(prompt, system, max_tokens, temperature, top_p)
         finally:
             if _armed:

@@ -696,7 +696,18 @@ class ProactiveDaemon:
         news_meta = {}
         try:
             from eli.tools.news.news_synthesis import build_morning_digest
-            news_meta = build_morning_digest(hours=24) or {}
+            # Mark THIS call background so its LLM synthesis is token-capped, preemptible, and
+            # deferred while a foreground turn is live (the shared news module is also used by the
+            # user-facing NEWS_FETCH, so we flag the caller's thread, not the module). Save/restore
+            # so we don't clobber a thread already marked background by the daemon loop.
+            from eli.cognition.gguf_inference import (
+                set_background_inference as _setbg, is_background_inference as _isbg)
+            _prev_bg = _isbg()
+            _setbg(True)
+            try:
+                news_meta = build_morning_digest(hours=24) or {}
+            finally:
+                _setbg(_prev_bg)
             if news_meta.get("digest"):
                 ctx_parts.append(
                     f"24h news digest ({news_meta.get('reflection_count',0)} "
@@ -1093,7 +1104,16 @@ Date: {datetime.now().strftime("%A %B %d %H:%M")} | Interactions last 24h: {inte
                             stored_new = int(_nr.get("stored_new", 0) or 0)
 
                             from eli.tools.news.news_synthesis import synthesise_window
-                            _sr = synthesise_window()
+                            # Flag background (save/restore) — capped, preemptible, deferred under
+                            # a live foreground turn; foreground NEWS_FETCH path is unaffected.
+                            from eli.cognition.gguf_inference import (
+                                set_background_inference as _setbg2, is_background_inference as _isbg2)
+                            _prev_bg2 = _isbg2()
+                            _setbg2(True)
+                            try:
+                                _sr = synthesise_window()
+                            finally:
+                                _setbg2(_prev_bg2)
 
                             if not _sr.get("skipped"):
                                 self.suggestion_queue.put(("news", {
