@@ -161,16 +161,56 @@ def size_gb(path: str) -> float:
         return 0.0
 
 
+_TRAIN_CTX_CACHE: dict = {}
+
+
+def _gguf_metadata_ctx(model_path: str) -> int:
+    """Read the model's REAL trained context (`<arch>.context_length`) from the GGUF
+    header via a cheap vocab-only load. Cached per path; returns 0 if unavailable.
+
+    This is the authoritative source — the filename table below is wrong both ways
+    (it missed eli-finetuned-phi3's 4096 and phi-4's 16384, sending ELI's loader to
+    32768 → failed GPU loads → CPU-garbage). Model-agnostic: any GGUF carries this.
+    """
+    key = str(model_path)
+    if key in _TRAIN_CTX_CACHE:
+        return _TRAIN_CTX_CACHE[key]
+    val = 0
+    try:
+        from llama_cpp import Llama
+        _m = Llama(model_path=str(model_path), vocab_only=True, verbose=False)
+        md = getattr(_m, "metadata", None) or {}
+        arch = str(md.get("general.architecture") or "").strip()
+        raw = md.get(f"{arch}.context_length") or md.get("context_length")
+        if raw is not None:
+            val = int(str(raw).strip())
+        try:
+            del _m
+        except Exception:
+            pass
+    except Exception:
+        val = 0
+    _TRAIN_CTX_CACHE[key] = val
+    return val
+
+
 def train_ctx_for_model(model_path: str) -> int:
     """Return the model's native training context length.
 
-    Checked first via ELI_MODEL_TRAIN_CTX env override, then by filename
-    pattern matching. When in doubt, err on the side of the larger value —
-    llama.cpp will clamp at load time anyway.
+    Order: ELI_MODEL_TRAIN_CTX env override → real GGUF metadata (authoritative) →
+    filename-pattern fallback (only when metadata is unreadable).
     """
     forced = os.environ.get("ELI_MODEL_TRAIN_CTX", "").strip()
     if forced:
         return int(forced)
+
+    # Authoritative: the model's own embedded context_length.
+    try:
+        _meta_ctx = _gguf_metadata_ctx(model_path)
+        if _meta_ctx and _meta_ctx > 0:
+            return int(_meta_ctx)
+    except Exception:
+        pass
 
     name = Path(model_path).name.lower()
 
