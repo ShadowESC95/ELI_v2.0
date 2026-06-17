@@ -2322,11 +2322,35 @@ def route(text: str) -> Dict[str, Any]:
             "did not open", "didn't open", "dump it into chat", "not provide any path",
         ))
     )
-    # Background-job inspection
-    if re.search(r"\b(?:check|status\s+of|how'?s|show|view)\s+job\s+\d+|\bjob\s+\d+\b", low):
-        _jm = re.search(r"\bjob\s+(\d+)", low)
-        return _mk("CHECK_JOB", {"job_id": _jm.group(1) if _jm else None, "text": raw},
-                   0.95, matched_by="dev.check_job")
+    # Background-job inspection. Accept 'job 3', 'job #3', 'job no. 3', the common STT
+    # mangle 'ob #3', and status/ping phrasings ("status of job #3", "ping me when job
+    # #3 is done"). The old regex required 'job'+space+digits, so a '#' (or STT dropping
+    # the 'j') sent every status query to SET_ALARM/LIST_DIR/CHAT and the model then
+    # confabulated ("job #3 is a ghost"). CHECK_JOB reads the registry authoritatively.
+    _JOB_REF = r"\bj?ob\s*#?\s*(?:no\.?\s*|number\s*)?(\d+)\b"
+    if re.search(_JOB_REF, low):
+        # Don't hijack a compound utterance whose PRIMARY action is something else
+        # ("list the files in ~/Documents. Also, what is the status of job #3?" leads with
+        # 'list' → that should win; the job mention is secondary). Only claim it when the
+        # utterance is actually about the job: a job-intent word is present (or it's a short
+        # bare "job 3") AND it does not lead with a different command verb.
+        _starts_other = re.match(
+            r"^\s*(?:please\s+|could\s+you\s+|can\s+you\s+|hey[, ]+|eli[, ]+)*"
+            r"(?:list|ls|open|launch|start|play|pause|close|quit|kill|create|make|write|"
+            r"save|read|delete|move|rename|copy|set|search|find|analyse|analyze|"
+            r"summari[sz]e|email|message|screenshot|take)\b", low)
+        _job_intent = bool(re.search(
+            r"\b(?:check|status|how'?s|view|ping|tell|notify|let\s+me\s+know|done|complete|"
+            r"completed|ready|finished|finish|running|result|summary)\b", low))
+        _short = len(low.split()) <= 6
+        if (_job_intent or _short) and not _starts_other:
+            _jm = re.search(_JOB_REF, low)
+            _notify = bool(
+                re.search(r"\b(?:ping|tell|notify|let\s+me\s+know|message|alert)\b", low)
+                or re.search(r"\bwhen\b.*\b(?:done|complete|completed|ready|finished|finish)\b", low))
+            return _mk("CHECK_JOB", {"job_id": _jm.group(1) if _jm else None,
+                                     "notify": _notify, "text": raw},
+                       0.95, matched_by="dev.check_job")
     if re.search(r"\b(?:background\s+jobs|list\s+(?:background\s+|running\s+)?jobs|running\s+jobs|what\s+jobs)\b", low):
         return _mk("BACKGROUND_JOBS", {}, 0.9, matched_by="dev.background_jobs")
 
@@ -2683,6 +2707,20 @@ def route(text: str) -> Dict[str, Any]:
         )
         if _cf_path_m:
             _cf_path = _cf_path_m.group(1)
+            # Honour an explicit target directory ("…notes.txt in the ~/Documents
+            # directory"). The path alternatives above only capture a filename, so
+            # without this the requested directory was silently dropped and the file
+            # landed under artifacts/scratch instead of where the user asked.
+            if "/" not in _cf_path.strip("~/"):
+                _cf_dir_m = (
+                    re.search(r"\b(?:in|inside|into|under)\s+(?:the\s+)?"
+                              r"([~/][\w./\-]+|[A-Za-z][\w \-]*?)\s*(?:dir(?:ectory)?|folder)\b",
+                              raw, re.IGNORECASE)
+                    or re.search(r"\b(?:in|inside|into|under)\s+(?:the\s+)?([~/][\w./\-]+)\b",
+                                 raw, re.IGNORECASE))
+                if _cf_dir_m:
+                    _cf_dir = _expand_common_dir(_cf_dir_m.group(1).strip())
+                    _cf_path = _cf_dir.rstrip("/") + "/" + _cf_path
             _cf_content_m = re.search(
                 r"(?:containing|with\s+(?:the\s+)?(?:content|contents|text)|that\s+says|with)\s+(.+?)"
                 r"(?:,?\s*(?:then|and\s+(?:then\s+)?read|and\s+read\s+it\s+back)\b|[.!?]?\s*$)",
@@ -2814,7 +2852,14 @@ def route(text: str) -> Dict[str, Any]:
         raw,
         re.I)
     if m:
-        path = _expand_common_dir(m.group(1).strip())
+        _raw_path = m.group(1).strip()
+        # Stop at a sentence/clause boundary so a trailing question isn't swallowed into
+        # the path (observed: "…in ~/Documents. Also, what is the status of job #3?"
+        # routed the whole tail as a path). Only split on sentence terminators and clear
+        # clause joiners — never on a bare "and" (so "documents and settings" survives).
+        _raw_path = re.split(r"\s*[.?!]\s+|,?\s+(?:also|and then|then)\b",
+                             _raw_path, maxsplit=1)[0].strip().rstrip(".,;:")
+        path = _expand_common_dir(_raw_path)
         return _mk("LIST_DIR", {
                    "path": path}, 0.95, matched_by="fs.list_dir_explicit", entities={"path": path})
 
@@ -3743,16 +3788,22 @@ def route(text: str) -> Dict[str, Any]:
     m = re.match(r"^(?:list|ls)\s+(.+)$", raw, flags=re.I)
     if m:
         captured = m.group(1).strip()
+        # "list my notes" is about saved notes, not a directory — route to LIST_NOTES
+        # (the old ≤2-word fallback below turned "my notes" into LIST_DIR path='my notes.').
+        if re.fullmatch(r"(?:my\s+|the\s+)?notes?\.?", captured, re.I):
+            return _mk("LIST_NOTES", {}, 0.95, matched_by="notes.list_from_list_verb")
         # Extract only the path-like segment, not natural language
         path_match = re.search(r'([~/.][\w/._~-]+|/[\w/._~-]+)', captured)
         if path_match:
             path_value = path_match.group(1).strip().rstrip(".,;:")
             return _mk("LIST_DIR", {"path": path_value}, 0.98,
                        matched_by="fs.list_dir_bare", entities={"path": path_value})
-        # If no path found but it's a short word, treat as relative path
-        elif len(captured.split()) <= 2 and not any(w in captured.lower() for w in ("every", "all", "each", "the")):
-            return _mk("LIST_DIR", {"path": captured}, 0.90,
-                       matched_by="fs.list_dir_bare", entities={"path": captured})
+        # If no path found but it's a single bare token, treat as relative path. Require
+        # ONE token (no spaces) so multi-word prose ("my notes", "the reports") falls
+        # through to CHAT/LLM-resolver instead of being mistaken for a directory name.
+        elif len(captured.split()) == 1 and not any(w in captured.lower() for w in ("every", "all", "each", "the")):
+            return _mk("LIST_DIR", {"path": captured.rstrip(".,;:")}, 0.90,
+                       matched_by="fs.list_dir_bare", entities={"path": captured.rstrip(".,;:")})
         # Otherwise it's natural language about listing — fall through to CHAT
 
     # ── Disk usage queries → SHELL_EXEC ──────────────────────────────────────
