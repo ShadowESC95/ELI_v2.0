@@ -923,11 +923,25 @@ class LocalModelManager:
                     # then honours it by SHEDDING GPU LAYERS (ctx preserved — quality over
                     # speed), so the fraction is a real speed↔context dial. An explicit
                     # SMALLER settings n_ctx still caps it (user wants less). No hardcode.
-                    _sf_train = int(_sf_train_ctx(str(path_obj)))
-                    _sf_fraction = float(_sf_os.environ.get("ELI_CTX_FRACTION", "0.65") or "0.65")
-                    _sf_user_ctx = max(2048, (int(_sf_train * _sf_fraction) // 2048) * 2048)
-                    if _user_ctx and 2048 <= int(_user_ctx) < _sf_user_ctx:
-                        _sf_user_ctx = int(_user_ctx)  # an explicit smaller ctx still wins
+                    _sf_train = int(_sf_train_ctx(str(path_obj)))  # model's REAL n_ctx_train (metadata)
+                    # Right-size, don't max: request only what ELI's brief + generation needs
+                    # (ELI_CTX_TARGET, ~16k), capped to the model's real trained context. A smaller
+                    # ctx frees VRAM so smart_fit keeps MORE GPU layers on the card — and never
+                    # truncates the persona/memory brief (the target sits well above it).
+                    _sf_target = int(_sf_os.environ.get("ELI_CTX_TARGET", "16384") or "16384")
+                    _sf_user_ctx = max(2048, (min(_sf_target, _sf_train) // 2048) * 2048)
+                    if _user_ctx and 2048 <= int(_user_ctx) <= _sf_train:
+                        _sf_user_ctx = int(_user_ctx)  # explicit user ctx wins (capped to real ctx)
+                    # Incompatibility guard: a model whose ENTIRE trained context is smaller than
+                    # ELI's prompt budget can't run without truncating persona/memory — warn loudly
+                    # instead of silently degrading or limping onto the CPU (the 4k phi-3 case).
+                    _sf_brief_floor = int(_sf_os.environ.get("ELI_CTX_BRIEF_FLOOR", "12288") or "12288")
+                    if _sf_train < _sf_brief_floor:
+                        log.warning(
+                            f"[GUI][LOAD] model trained context {_sf_train} < ELI's prompt budget "
+                            f"~{_sf_brief_floor}: persona/memory will be truncated and output quality "
+                            f"will suffer. Choose a model with >= {_sf_brief_floor} context "
+                            f"(e.g. Qwen3-8B = 40960).")
                     _sf_ctx, _sf_layers, _sf_batch = _sf_fit(
                         _sf_model_gb, _sf_gpu.free_mb,
                         user_ctx=_sf_user_ctx, user_batch=_user_batch,
