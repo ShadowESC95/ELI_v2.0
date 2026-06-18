@@ -509,7 +509,7 @@ _EVASIVE_PHRASES = (
     "i'd be happy to",
     "i'll report back",
     "once the audit is complete",
-    # Templated/canned phrases caught 2026-05-11 in Jay's session — these
+    # Templated/canned phrases caught 2026-05-11 (user-reported) — these
     # are LLM filler that contradicts the persona's "no HR voice / no
     # generic chatbot" rule. The persona instructions list more (delve
     # deeper, wealth of information, readily accessible, etc.) — covered

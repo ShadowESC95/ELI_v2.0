@@ -318,7 +318,7 @@ def detect_hardware() -> HardwareProfile:
 def _is_embedder_path(path: Path) -> bool:
     """Heuristic: paths under `models/embeddings/` or names containing
     embed-only signatures are NOT chat models and must never be selected
-    as the main GGUF by `recommend()`. Detected by Jay 2026-05-11 — the
+    as the main GGUF by `recommend()`. Reported 2026-05-11 — the
     profiler picked `nomic-embed-text-v1.5.Q4_K_M.gguf` as the chat model
     and broke the next launch."""
     name = path.name.lower()
@@ -903,7 +903,7 @@ def enforce_hardware_authority(*, force: bool = False) -> Dict[str, Any]:
     # Phase 11 fix (2026-05-11): if this process already has a GGUF model
     # loaded, the live free_vram_mb is artificially small (the model is
     # eating its own budget). Computing layer recommendations from that
-    # number gives nonsense values (Jay's session showed n_gpu_layers
+    # number gives nonsense values (a real session showed n_gpu_layers
     # → 1, effectively CPU-only). Predict free VRAM AS IF no chat model
     # was loaded: total_vram - (display server estimate, ~500 MB) - kv
     # cache, leaving room for the chat model itself.

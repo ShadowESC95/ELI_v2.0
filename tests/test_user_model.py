@@ -76,11 +76,11 @@ def test_onboarding_flow_seeds_and_finishes(db, monkeypatch):
     # light opener begins it
     assert "call you" in iv.onboarding_intercept("hey", db_path=db).lower()
     assert iv.is_onboarding_active()
-    assert "work on" in iv.onboarding_intercept("Jay", db_path=db).lower()
+    assert "work on" in iv.onboarding_intercept("Alex", db_path=db).lower()
     assert "terse" in iv.onboarding_intercept("physics", db_path=db).lower()
     done = iv.onboarding_intercept("terse and direct", db_path=db)
     assert "baseline" in done.lower() and not iv.is_onboarding_active()
-    assert captured.get("name") == "Jay"
+    assert captured.get("name") == "Alex"
     rows = dict(sqlite3.connect(str(db)).execute(
         "select pattern_type, pattern_data from user_patterns").fetchall())
     assert "identity.role" in rows and "preference.style" in rows

@@ -49,11 +49,11 @@ Write-Host ""
 # Check Python
 try {
     $pyVer = & python -c "import sys; print(f'{sys.version_info.major}.{sys.version_info.minor}.{sys.version_info.micro}')"
-    if ([Version]$pyVer -lt [Version]"3.11") {
-        throw "Python 3.11+ required, found $pyVer"
+    if ([Version]$pyVer -lt [Version]"3.10") {
+        throw "Python 3.10+ required, found $pyVer"
     }
 } catch {
-    Write-Host "[ERROR] Python 3.11+ not found." -ForegroundColor Red
+    Write-Host "[ERROR] Python 3.10+ not found." -ForegroundColor Red
     Write-Host "        Download from https://python.org/downloads/" -ForegroundColor Yellow
     exit 1
 }

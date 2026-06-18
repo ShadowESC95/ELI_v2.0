@@ -74,5 +74,5 @@ class TestShouldStoreMemoryText:
 
     def test_normal_fact_stored(self):
         assert should_store_memory_text(
-            "Jay enjoys working on local AI systems.", role="user"
+            "Alex enjoys working on local AI systems.", role="user"
         )

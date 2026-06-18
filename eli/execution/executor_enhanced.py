@@ -3668,10 +3668,12 @@ def _try_import_faster_whisper():
                                                  f'python{sys.version_info.major}.{sys.version_info.minor}', 
                                                  'site-packages')) or __import__('faster_whisper')),
         
-        # Try common site-packages locations
-        lambda: (sys.path.insert(0, os.path.expanduser('~/.local/lib/') + 
-                                 f'python{sys.version_info.major}.{sys.version_info.minor}/site-packages') 
-                or __import__('faster_whisper')),
+        # Platform-correct site-packages via the site module (Linux/macOS/Windows),
+        # not a hardcoded ~/.local/lib path.
+        lambda: ([sys.path.insert(0, _p) for _p in
+                  (list(__import__('site').getsitepackages()) +
+                   [__import__('site').getusersitepackages()])]
+                 and __import__('faster_whisper')),
     ]
     
     for strategy in strategies:
@@ -4590,16 +4592,22 @@ def _type_text_builtin(text: str) -> dict:
     if not text:
         return {"ok": False, "error": "empty text"}
 
-    sess = (os.environ.get("XDG_SESSION_TYPE") or "").lower().strip()
+    # Linux: prefer the native typing tools (respecting Wayland vs X11) when installed.
+    if sys.platform.startswith("linux"):
+        sess = (os.environ.get("XDG_SESSION_TYPE") or "").lower().strip()
+        if sess == "wayland" and shutil.which("wtype"):
+            return _run_argv(["wtype", "--", text], timeout=30)
+        if shutil.which("xdotool"):
+            return _run_argv(["xdotool", "type", "--clearmodifiers", "--delay", "8", text], timeout=30)
+        # else fall through to the cross-platform backend below
 
-    if sess == "wayland":
-        # wtype types into the focused window on Wayland
-        argv = ["wtype", "--", text]
-        return _run_argv(argv, timeout=30)
-
-    # X11 fallback
-    argv = ["xdotool", "type", "--clearmodifiers", "--delay", "8", text]
-    return _run_argv(argv, timeout=30)
+    # Cross-platform backend (Windows, macOS, or Linux without wtype/xdotool): pyautogui.
+    try:
+        import pyautogui
+        pyautogui.typewrite(text, interval=0.008)
+        return {"ok": True}
+    except Exception as e:
+        return {"ok": False, "error": f"no typing backend available ({e})"}
 
 
 # --- NOTIFICATION FUNCTION ---
