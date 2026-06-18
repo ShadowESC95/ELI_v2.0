@@ -84,7 +84,7 @@ else:
             f = QFont(); f.setBold(True); title.setFont(f)
             root.addWidget(title)
             root.addWidget(QLabel("Verified, runnable code via the local model. Heavy tasks run in the "
-                                  "background automatically — watch the Jobs list."))
+                                  "background automatically — track all jobs in the Tasks tab."))
 
             # Input row
             in_box = QGroupBox("Task")
@@ -106,24 +106,17 @@ else:
             in_l.addLayout(row)
             root.addWidget(in_box)
 
-            # Split: jobs list | result
-            split = QSplitter(Qt.Orientation.Horizontal if hasattr(Qt, "Orientation") else Qt.Horizontal)
-            jobs_box = QGroupBox("Background jobs")
-            jl = QVBoxLayout(jobs_box)
-            self.jobs = QListWidget()
-            self.jobs.itemClicked.connect(self._on_job_clicked)
-            jl.addWidget(self.jobs)
-            split.addWidget(jobs_box)
-
-            res_box = QGroupBox("Result")
+            # Result of the task launched here. The full list of background jobs (coding +
+            # scheduled/overnight) lives in the **Tasks** tab — not all background work is
+            # coding, so the unified list belongs there. This panel just shows the result
+            # of the job you started on this tab, once it finishes.
+            res_box = QGroupBox("Result  ·  (all background jobs are listed in the Tasks tab)")
             rl = QVBoxLayout(res_box)
             self.result = QPlainTextEdit(); self.result.setReadOnly(True)
             mono = QFont("monospace"); mono.setStyleHint(QFont.StyleHint.Monospace if hasattr(QFont, "StyleHint") else QFont.Monospace)
             self.result.setFont(mono)
             rl.addWidget(self.result)
-            split.addWidget(res_box)
-            split.setSizes([260, 600])
-            root.addWidget(split, 1)
+            root.addWidget(res_box, 1)
 
         # ── actions ────────────────────────────────────────────────────────--
         def _on_solve(self):
@@ -149,25 +142,18 @@ else:
                 self.result.setPlainText(f"Could not start job: {exc}")
 
         def _refresh_jobs(self):
+            # The job LIST now lives in the Tasks tab. Here we only watch the job THIS tab
+            # launched, so its result auto-appears in the Result box when it finishes.
             try:
                 from eli.runtime.background_tasks import get_background_tasks
                 jobs = get_background_tasks().list(limit=20)
             except Exception:
                 return
-            self.jobs.clear()
             for j in jobs:
-                item = QListWidgetItem(f"#{j['id']} [{j['status']}] {j['name']} ({j['elapsed_s']}s)")
-                item.setData(Qt.ItemDataRole.UserRole if hasattr(Qt, "ItemDataRole") else Qt.UserRole, j["id"])
-                self.jobs.addItem(item)
-                # auto-show a watched job's result when it finishes
                 prev = self._watched.get(j["id"])
                 if prev is not None and prev not in ("done", "failed") and j["status"] in ("done", "failed"):
                     self._watched[j["id"]] = j["status"]
                     self._show_job(j["id"])
-
-        def _on_job_clicked(self, item):
-            role = Qt.ItemDataRole.UserRole if hasattr(Qt, "ItemDataRole") else Qt.UserRole
-            self._show_job(item.data(role))
 
         def _show_job(self, jid):
             try:
