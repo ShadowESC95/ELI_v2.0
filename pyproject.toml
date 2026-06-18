@@ -98,10 +98,11 @@ web = [
     "duckduckgo-search>=6.0",
     "playwright>=1.40",
 ]
-# Data/CSV analysis + plotting.
+# Data/CSV analysis + plotting + 3D mesh inspection.
 analysis = [
     "pandas>=2.0",
     "matplotlib>=3.7",
+    "meshio>=5.3",
 ]
 # Wake-word listening.
 wakeword = [
