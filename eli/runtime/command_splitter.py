@@ -36,7 +36,7 @@ _IMP_START = re.compile(
 
 def _trim_trailing_chatter(seg: str) -> str:
     """Drop a conversational sentence fused onto the end of a command segment, e.g.
-    'play evil by eminem. haha no, you already told me of the tokamaks' →
+    'play evil by eminem. haha no, you already told me about that' →
     'play evil by eminem'. Without this the trailing banter became part of the media
     title and was searched verbatim.
 

@@ -12,8 +12,8 @@ def _eli_phase10_blocks_media_intent(text: str) -> bool:
     blockers = (
         ".pdf", "[pdf content", "pdf content", "analyse", "analyze",
         "summarise", "summarize", "read and summarise", "read and summarize",
-        "abstract", "lagrangian", "field equation", "equation of motion",
-        "stress-energy", "tensor", "cosmology", "framework", "theory",
+        "abstract", "research", "experiment", "hypothesis", "dataset",
+        "simulation", "scientific", "framework", "theory",
         "audit", "router", "executor", "gguf_inference", "orchestrator",
         "python files", "codebase",
     )
