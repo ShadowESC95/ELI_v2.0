@@ -22,10 +22,10 @@ CATEGORY_PATTERNS = {
         r"flatpak|virtualbox|vm|driver|alma|m1 mac|mac)\b",
         re.I,
     ),
-    "physics / mathematics / research framework": re.compile(
-        r"\b(xi|χ|chi|phi|stueckelberg|scalar|lagrangian|field|entropy|coherence|"
-        r"photon|mass|gauge|feynman|simulation|fenics|dealii|meep|openfoam|paraview|"
-        r"quantum|relativity|thermodynamic|cosmology)\b",
+    "science / mathematics / research": re.compile(
+        r"\b(physics|chemistry|biology|mathematics|engineering|statistics|simulation|"
+        r"research|experiment|hypothesis|theorem|equation|dataset|model|quantum|"
+        r"relativity|thermodynamic|cosmology|algorithm)\b",
         re.I,
     ),
     "writing / publication / documents": re.compile(

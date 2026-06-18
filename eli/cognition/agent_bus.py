@@ -714,11 +714,11 @@ _MEM_HOP_STOP = {
 def _memory_seed_terms(text: str, k: int = 5) -> list:
     """Pull the salient content terms from a memory hit so a second recall hop
     can deepen toward the topic the first hit revealed (multi-hop: find X →
-    fetch what X is connected to). Keeps distinct words ≥5 chars (plus Ξ/χ/φ),
+    fetch what X is connected to). Keeps distinct words ≥5 chars (incl. Greek letters),
     drops generic stopwords. Order-preserving, capped at k."""
     out: list = []
     seen: set = set()
-    for w in re.findall(r"[A-Za-zΞχφ][\wΞχφ–-]{4,}", str(text or "")):
+    for w in re.findall(r"[A-Za-zΑ-Ωα-ω][\wΑ-Ωα-ω–-]{4,}", str(text or "")):
         lw = w.lower()
         if lw in _MEM_HOP_STOP or lw in seen:
             continue

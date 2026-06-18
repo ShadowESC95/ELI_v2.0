@@ -239,8 +239,8 @@ def extract_patterns_from_text(text: Any) -> list[tuple[str, str]]:
     # fresh 'project.current' user_pattern from each session's LLM hand-off summary).
 
     # Research / technical-science interest (generic — no user-specific frameworks).
-    if re.search(r"\bphysics\b|\bsimulation\b|\blagrangian\b|\bfield\b|\bscalar\b|\bresearch\b", raw, re.IGNORECASE):
-        out.append(("research.science", "User works on technical/scientific research and simulation material."))
+    if re.search(r"\bphysics\b|\bchemistry\b|\bbiology\b|\bengineering\b|\bsimulation\b|\bresearch\b|\bexperiment\b", raw, re.IGNORECASE):
+        out.append(("research.science", "User works on technical/scientific research material."))
 
     # Biographical facts from explicit first-person statements (high precision —
     # anchored to "I am/I'm/I study/I work as" so casual chat isn't mis-extracted).
