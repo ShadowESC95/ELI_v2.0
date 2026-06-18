@@ -116,6 +116,27 @@ def _looks_substantive(text: str) -> bool:
     return any(t.startswith(v) or f" {v}" in t for v in _verbs)
 
 
+def _is_not_an_answer(text: str) -> bool:
+    """True when the user typed a question or command instead of answering the interview.
+
+    Guards against the contamination class where a mid-interview question
+    ("what do you know about me?") was captured RAW as the user's role/style. A real
+    answer ("I work on physics sims", "terse") is declarative — it isn't an
+    interrogative and doesn't start with a command verb — so it still stores correctly."""
+    t = (text or "").strip().lower()
+    if not t:
+        return True
+    if t.endswith("?"):
+        return True
+    first = t.split()[0]
+    _q = ("what", "why", "how", "when", "where", "who", "which", "do", "does", "can",
+          "are", "will", "could", "would", "is", "tell", "give", "show", "list")
+    _cmd = ("fix", "open", "run", "write", "search", "play", "create", "explain",
+            "summarise", "summarize", "code", "debug", "install", "download", "make",
+            "build", "find", "read", "delete", "remove", "generate")
+    return first in _q or first in _cmd
+
+
 # --------------------------------------------------------------------------- #
 # Question script                                                             #
 # --------------------------------------------------------------------------- #
@@ -147,7 +168,10 @@ def _apply_answer(step: str, text: str, db_path=None) -> None:
         except Exception:
             pass
         return
-    # role / style → user_patterns (reuse the canonical writer)
+    # role / style → user_patterns. Defensive: never persist a question/command as a
+    # profile fact even if reached directly (the intercept already filters these).
+    if _is_not_an_answer(text):
+        return
     try:
         import sqlite3
         from eli.runtime.profile_extractor import _insert_user_pattern, ensure_profile_tables, _user_db
@@ -191,6 +215,12 @@ def onboarding_intercept(user_input: str, user_id: Optional[str] = None, db_path
         if text.lower() in _SKIP_WORDS:
             clear_onboarding_state()
             return "No problem — I'll pick it up as we go. Ask me anything."
+        # If the user asked a question / issued a command instead of answering, bow out
+        # of the interview and let it process normally — never capture it as a profile
+        # fact. (This is what stored raw questions as the user's role/style before.)
+        if _is_not_an_answer(text):
+            clear_onboarding_state()
+            return None
         # store this answer, advance
         _apply_answer(step, text, db_path=db_path)
         answers[step] = text if step != "name" else text
