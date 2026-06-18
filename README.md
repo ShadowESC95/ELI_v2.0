@@ -3,8 +3,8 @@
 ELI MKXI is a 100% local, privacy-first AI assistant. It runs entirely on your
 own hardware — no cloud APIs, no telemetry. ~139k lines of Python across 363
 modules, **208 capabilities**, and **14 specialist agents**. **Model-, user-, and
-hardware-agnostic** — the same install runs a 3B model on a laptop or a large model
-across multiple datacenter GPUs. Features include:
+hardware-agnostic** — the same install runs a small model on a laptop or a large one
+on a workstation GPU. Features include:
 
 - **GGUF inference** via llama-cpp-python (CPU and GPU, auto-tuned at boot;
   model-agnostic — no hardcoded model name/size on the inference path; context
@@ -104,27 +104,37 @@ bash scripts/install_android.sh
 
 Then download a model when prompted, or:
 ```bash
+python -m eli.core.model_download --list      # see the optional models
 python -m eli.core.model_download --auto      # pick by detected VRAM
-python -m eli.core.model_download qwen2.5-7b  # ~4.7 GB (recommended, 8GB+ GPU)
+python -m eli.core.model_download qwen2.5-7b  # ~4.4 GB (recommended, 8GB+ GPU)
 ```
 
-### Scaling — 3B laptop → trillion-param on 8× datacenter GPUs
-ELI is **model-, user- and hardware-agnostic by design**, and the *same install* spans the
-whole range — **always local, never cloud, at every scale**:
+**Optional model downloads** (pick some, or none — drop your own `.gguf` in `models/` too):
+
+| key | model | size | VRAM |
+|---|---|---|---|
+| `qwen2.5-3b` | Qwen2.5-3B-Instruct | ~1.8 GB | 4 GB+ / CPU |
+| `qwen2.5-7b` | Qwen2.5-7B-Instruct *(default)* | ~4.4 GB | 8 GB+ |
+| `qwen3-8b` | Qwen3-8B (40K ctx, reasoning; LoRA base) | ~4.7 GB | 8 GB+ |
+| `falcon3-10b` | Falcon3-10B-Instruct | ~5.9 GB | 12 GB+ |
+| `qwen3-30b-a3b` | Qwen3-30B-A3B (MoE, 3B active) | ~17.4 GB | 20 GB+ / CPU |
+
+### Scaling — laptop to workstation, one install
+ELI is **model-, user- and hardware-agnostic by design**: the *same install* fits whatever
+hardware it finds — **always local, never cloud**:
 - **Loader** sizes each model from its real `n_ctx_train` (GGUF metadata) and fits it to the
-  hardware actually present — VRAM is summed across **all** detected GPUs, layers/batch/ctx
-  are tuned per machine. A 3B on a 4 GB laptop and a 70B+ on a multi-GPU server use one path.
-- **Models** beyond the three built-in starters (1.5B / 3B / 7B): drop any `.gguf` into
-  `models/`, or point ELI at a catalog of your own — `ELI_MODEL_CATALOG=/path/catalog.json`
-  or `models/catalog.json` (same schema: `key`, `name`, `filename`, `url`, `size_gb`,
-  `vram_gb`). That's the supported path for mid/large/huge models without code changes.
-- **Big hardware** (e.g. 8× datacenter GPUs): detection reports total VRAM and `--auto`
-  selects the largest model that fits. **Multi-GPU split** for a single large model is
-  configured in `config/gpu_profiles.json` (enable a profile, or set `tensor_split` —
-  e.g. `"0.5,0.5"` — in settings); the loader passes it to llama.cpp `tensor_split`.
+  hardware present — layers/batch/ctx are tuned per machine, and VRAM is summed across all
+  detected GPUs. A small model on a 4 GB laptop and a large one on a workstation use one path.
+- **Models:** the optional downloads above are just suggestions — drop any `.gguf` into
+  `models/`, or point ELI at your own catalog (`ELI_MODEL_CATALOG=/path/catalog.json` or
+  `models/catalog.json`; schema `key`, `name`, `filename`, `url`, `size_gb`, `vram_gb`). No
+  code changes needed for any model.
+- **Multiple GPUs:** detection reports total VRAM and `--auto` picks the largest model that
+  fits. To split one large model across cards, enable a profile in `config/gpu_profiles.json`
+  or set `tensor_split` (e.g. `"0.5,0.5"`) in settings — passed straight to llama.cpp.
   Single-GPU is the default and unchanged.
-- **Ethos holds at every tier:** offline-by-default, no telemetry, emergent persona, your
-  data on your hardware — whether that's a Raspberry-Pi-class box or a $250k GPU server.
+- **Ethos holds at every size:** offline-by-default, no telemetry, emergent persona, your
+  data on your hardware.
 
 **Flags (Linux `--flag` / Windows `/flag`):** `--install-cuda` / `/cuda` (auto-install
 the CUDA toolkit + rebuild llama-cpp for users without it), `--cpu-only` / `/cpu`,
