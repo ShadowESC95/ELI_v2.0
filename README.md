@@ -26,7 +26,7 @@ hardware, from a laptop to a multi-GPU workstation.
 - [What is ELI?](#what-is-eli)
 - [What it does](#what-it-does)
 - [Design principles](#design-principles)
-- [Highlights](#highlights)
+- [Features](#features)
 - [Quick Start](#quick-start)
 - [Choose your model](#choose-your-model)
 - [Use it from your phone](#use-it-from-your-phone)
@@ -128,32 +128,105 @@ backed by a concrete mechanism in the codebase:
    proactive, reflection, and memory subsystems, so context persists across sessions and adapts to
    how you work.
 
-## Highlights
+## Features
 
-<table>
-<tr>
-<td valign="top" width="50%">
+### Conversation and reasoning
+Five reasoning modes — Quick, Normal, Advanced, Research, Expert — each genuinely multi-pass
+(self-consistency sampling, tree-of-thoughts branches, draft → critique). The mode is auto-selected
+by how deep the question is, and when the supporting evidence is weak ELI deepens on its own: it
+re-gathers harder and escalates one tier to raise its confidence *before* answering. For a quick
+reply it can keep working in the background and surface a better-grounded answer afterwards. A
+12-stage retrieval pipeline (HyDE query expansion → vector + full-text + knowledge-graph retrieval →
+re-rank → synthesis) sits underneath, run by a 14-agent dependency-DAG orchestrator with
+parallelism, retries, caching, and fallback.
 
-**Intelligence**
-- 12-stage cognition pipeline + **14-agent** DAG orchestrator (parallel, retries, fallback, cache)
-- Persistent memory: **SQLite + FAISS vector index + knowledge graph**
-- Continuous **User Model** wired into cognition/persona/proactive/reflection
-- Code examiner & self-repair (syntax → lint → LLM logic review)
-- Proactive daemon (goals, habits, insights) + self-improvement
+### Memory that persists
+A four-store memory — a FAISS vector index, full-text search, a knowledge graph, and working memory —
+maintains a living, versioned profile of you. It is dynamic: active projects stay current while
+abandoned ones fade, so its picture of you reflects the present. It is read on every turn, so you
+don't repeat yourself across sessions.
 
-</td>
-<td valign="top" width="50%">
+### Operates your computer
+Open, close, focus, tile, minimise, or maximise applications and windows; switch workspaces; open
+system / audio / power / network settings; open URLs and your IDE. Application launch is backed by a
+live index of your machine's own executables — and if an app isn't installed, ELI offers to install
+it for you (real `apt` / `snap` / `flatpak` on your confirmation). It also controls volume, types
+text, and moves and clicks the mouse.
 
-**Runtime & platform**
-- **GGUF inference** auto-tuned at boot (CPU & GPU; ctx sized to each model's real `n_ctx_train`)
-- **Multi-GPU** (VRAM summed; optional `tensor_split`)
-- **Local voice** — faster-whisper STT, wake-word, TTS
-- **Self-hosted web app** — reach ELI from your phone over LAN
-- One-click installers for **Linux · macOS · Windows**; headless/CLI mode
+### Voice, hands-free
+Always-listening with a wake word **you can train** — and that hears you over background music. It
+ducks your media to listen, waits for an unfinished command to complete, ignores its own spoken
+output, and builds a per-user voice profile. Includes dictation, audio transcription, and a Piper
+text-to-speech voice that never voices garbled fragments. A separate "train my voice" session learns
+your pitch, energy, and tone so its delivery adapts to how you sound.
 
-</td>
-</tr>
-</table>
+### Vision and screen understanding
+Local vision-language models describe any image or your live screen; OCR extracts text from
+pictures; "find the button that says X" locates UI elements on screen; optional ambient glances keep
+a rolling awareness. All local — no cloud vision APIs.
+
+### Gaze control (webcam)
+Eye-tracking via MediaPipe with calibration and smoothing — "open / click that" moves the cursor to
+where you're looking and clicks it. A genuine hands-free and accessibility capability.
+
+### Image generation
+A from-scratch procedural renderer with 10+ scene types (landscape, space, city, poster, emblem,
+abstract, product, …) — composition planning, palettes, atmosphere, and post-processing, no model
+required. Plus optional SSD-1B diffusion with VRAM hot-swap, and matplotlib plotting from your data.
+
+### Documents and files
+Create, read, and list files and folders; summarise any file; analyse CSVs, PDFs (single or whole
+folders), and images. **Convert any document** to PDF, PDF-via-LuaLaTeX, `.docx`, `.odt`, `.rtf`,
+HTML, Markdown, `.tex`, EPUB, or `.txt` (pandoc + a LibreOffice fallback). Two standout tools:
+- **Report Builder** — drop in your sources (PDFs, data, code, notebooks) and ELI writes a full
+  document grounded in your evidence: every claim is tied to a source or marked `[source needed]` —
+  no fabricated citations or numbers.
+- **File Chat** — open a file or folder and have a conversation about its actual contents.
+
+Even a quick "generate a document about X" runs a multi-stage grounded pipeline — gather evidence →
+plan an outline → draft section by section against that evidence → review and revise.
+
+### Coding agent
+Describe a task and it plans it, decomposes it into a dependency graph, writes it, runs it in a
+sandbox, tests it, and repairs its own bugs — remembering fixes for next time. Plus examine-and-fix
+on your existing files (tiered scan → offer → verified, auto-reverting patch), project scaffolding,
+diffs, and a built-in Sim-IDE.
+
+### Scheduling and automation
+Defer any command to a time — "open Spotify at 8pm", "get the news at 7am", "morning report ready
+for 7:15" — to durable background workers that survive restarts ("every morning" makes it recurring).
+Chain several commands in one sentence ("close Steam and set an alarm for 7am"). Alarms, timers, and
+pomodoro included.
+
+### Proactive and self-aware
+A background daemon notices your patterns and *offers* (never silently) to automate routines, builds
+your morning briefing, and surfaces things worth your attention through a governed, approval-gated
+layer. On a 30-minute beat it runs a self-awareness tick: it watches its own code for changes,
+refreshes its self-model, and advances goals into proposals for your approval — nothing destructive
+runs unattended.
+
+### Maintains and improves itself
+Logs its own failures and runs a self-repair cycle (generate → verify → apply → auto-revert); runs
+maintenance (update, rebuild indexes, refresh capabilities); audits its own runtime from live health
+probes; detects a missing dependency and heals its environment; and can **train a LoRA adapter on
+your own conversations**, locally.
+
+### Web, news, and weather (network-gated)
+With the Net switch on, ELI fetches web answers, weather, and a **synthesised news digest** — a
+rolling, interest-matched read rather than raw headlines. With it off, networking is sealed at the
+socket and nothing leaves your machine.
+
+### Run it from your phone
+A built-in FastAPI server serves a mobile web UI; reach ELI from a phone or tablet browser over your
+LAN while inference stays on the host. Loopback-only and token-gated by default. There's also a
+desktop GUI (with Labs, Report Builder, Coding, Tasks, and an embodied self-model view) and a
+headless CLI.
+
+### Make it yours
+Swap the model (any local GGUF). Tune the mind via a dedicated Cognition settings panel that exposes
+every knowledge-gathering limit and the synthesis budget. Extend it with a real plugin system
+(weather, web, calendar, notes, pomodoro, and your own). Teach it routines it proposes. And control
+the boundary with a single network toggle.
 
 ## Quick Start
 
