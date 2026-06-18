@@ -12,9 +12,30 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 [ -x "$ROOT/.venv/bin/python" ] || { echo "[eli] .venv not found — run install.sh first."; exit 1; }
 
-if [ "$(uname -s)" != "Linux" ]; then
-    echo "[eli] Desktop .desktop launchers are Linux-only."
-    echo "      macOS/Windows: launch with  ./scripts/eli_launch.sh  (gui|serve --lan|both)."
+OS="$(uname -s)"
+chmod +x "$ROOT/scripts/eli_launch.sh" "$ROOT/scripts/eli_serve.sh" 2>/dev/null || true
+
+if [ "$OS" = "Darwin" ]; then
+    # macOS: double-clickable .command launchers (open in Terminal from Finder).
+    APPS="$HOME/Applications"
+    mkdir -p "$APPS"
+    cat > "$APPS/ELI Pro.command" <<EOF
+#!/bin/bash
+cd "$ROOT" && exec "$ROOT/scripts/eli_launch.sh" gui
+EOF
+    cat > "$APPS/ELI Server (Web App).command" <<EOF
+#!/bin/bash
+cd "$ROOT" && exec "$ROOT/scripts/eli_serve.sh" --lan
+EOF
+    chmod +x "$APPS/ELI Pro.command" "$APPS/ELI Server (Web App).command"
+    echo "[OK] Installed launchers to $APPS :"
+    echo "       • ELI Pro.command            (desktop GUI)"
+    echo "       • ELI Server (Web App).command (prints the phone URL + token)"
+    echo "     Double-click from Finder. Inference stays 100% local."
+    exit 0
+elif [ "$OS" != "Linux" ]; then
+    echo "[eli] Windows: run  powershell -ExecutionPolicy Bypass -File scripts\\install_desktop_apps.ps1"
+    echo "      to add 'ELI Pro' and 'ELI Server (Web App)' Start Menu shortcuts."
     exit 0
 fi
 
