@@ -48,10 +48,23 @@ powershell -ExecutionPolicy Bypass -File install.ps1 -InstallCuda
 .\eli.bat
 ```
 
-**Android / Termux** (headless, CPU-only — no GUI/CUDA):
+**Phone / tablet (Android, iOS) — recommended: self-hosted web app.**
+Don't run inference on the phone (that needs an on-device llama.cpp build). Instead run
+the API server on a machine that *can* do inference (your desktop / a home server) and
+open it from the phone's browser — inference stays on the host:
+```bash
+# on the host (Linux/macOS/Windows), after install.sh:
+.venv/bin/python -m api.server          # serves a chat UI at http://<host-ip>:8081/
+```
+Then browse to `http://<host-ip>:8081/` from any device on the network. Works on Android,
+iOS, and desktop with zero native build. REST API at `/v1/chat`, docs at `/docs`.
+
+**Android / Termux (experimental, expert-only)** — the Python core can run headless in
+Termux, but `llama-cpp-python`, `torch`, `faiss`, and `PySide6` are excluded from
+`requirements-android.txt` and must be hand-built on-device; the GUI is unavailable.
+Prefer the self-hosted web app above.
 ```bash
 bash scripts/install_android.sh
-.venv/bin/python -m eli.core.model_download qwen2.5-3b   # small, CPU-friendly
 .venv/bin/python -m eli.cli.headless
 ```
 

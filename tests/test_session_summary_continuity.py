@@ -18,9 +18,9 @@ def _seed_turns(db: Path):
     )
     now = time.time()
     turns = [
-        ("s1", "u1", "user", "I'm building the QMSH solar-to-hydrogen rig, model 06", now - 100),
-        ("s1", "u1", "assistant", "Model 06 is the approved baseline", now - 90),
-        ("s1", "u1", "user", "I prefer in-depth answers; remind me to file the grant", now - 80),
+        ("s1", "u1", "user", "I'm building the Atlas weather-station rig, build 06", now - 100),
+        ("s1", "u1", "assistant", "Build 06 is the approved baseline", now - 90),
+        ("s1", "u1", "user", "I prefer in-depth answers; remind me to file the report", now - 80),
     ]
     for s, u, r, c, t in turns:
         con.execute(
@@ -46,8 +46,8 @@ def test_llm_session_summary_written(tmp_path):
     db = tmp_path / "user.sqlite3"
     _seed_turns(db)
     broker = _FakeBroker(
-        "SUMMARY: User is building QMSH model 06 and wants the grant filed.\n"
-        "OPEN THREADS: file grant proposal.\nUSER PREFERENCES: in-depth answers.")
+        "SUMMARY: User is building Atlas build 06 and wants the report filed.\n"
+        "OPEN THREADS: file the report.\nUSER PREFERENCES: in-depth answers.")
     r = pe.write_llm_session_summary(db_path=db, session_id="s1", broker=broker)
     assert r["inserted"] and r["llm"] and r["source"] == "session_end"
 
@@ -56,7 +56,7 @@ def test_llm_session_summary_written(tmp_path):
         "SELECT summary, content, source FROM session_summaries WHERE session_id='s1'"
     ).fetchone()
     con.close()
-    assert "QMSH" in row[0]
+    assert "Atlas" in row[0]
     assert "OPEN THREADS" in row[1]      # full sectioned text kept in content
     assert row[2] == "session_end"
 
@@ -91,9 +91,9 @@ def test_digest_prefers_session_summaries(tmp_path):
     con.execute("CREATE TABLE IF NOT EXISTS memories(id INTEGER PRIMARY KEY, text TEXT, tags TEXT)")
     now = time.time()
     con.execute("INSERT INTO session_summaries(session_id,summary,content,source,ended_at,timestamp,ts)"
-                " VALUES('s1','QMSH model 06 progress','full',?,?,?,?)", ("session_end", now - 10, now - 10, now - 10))
+                " VALUES('s1','Atlas build 06 progress','full',?,?,?,?)", ("session_end", now - 10, now - 10, now - 10))
     con.execute("INSERT INTO session_summaries(session_id,summary,content,source,ended_at,timestamp,ts)"
-                " VALUES('s2','Tesla rifle iteration 3','full',?,?,?,?)", ("session_end", now, now, now))
+                " VALUES('s2','Beacon module iteration 3','full',?,?,?,?)", ("session_end", now, now, now))
     con.execute("INSERT INTO memories(text,tags) VALUES('an old short session narrative line','session_summary')")
     con.commit()
     con.close()
@@ -101,8 +101,8 @@ def test_digest_prefers_session_summaries(tmp_path):
     class M:
         db_path = str(db)
     out = pu._get_session_narrative(M(), limit=3)
-    assert any("Tesla rifle" in o for o in out) and any("QMSH" in o for o in out)
-    assert out[0].startswith("Tesla")                      # newest first
+    assert any("Beacon module" in o for o in out) and any("Atlas" in o for o in out)
+    assert out[0].startswith("Beacon")                     # newest first
     assert not any("old short session" in o for o in out)  # not the memories fallback
 
 
