@@ -3522,13 +3522,15 @@ def fabricate_document(args: Dict[str, Any]) -> Dict[str, Any]:
 
 
 def open_browser(url: str = "https://duckduckgo.com", urls: list = None) -> Dict[str, Any]:
-    """Open one or more URLs with xdg-open. If urls list provided, opens each in a new detached spawn."""
+    """Open one or more URLs in the default browser. Cross-platform via platform_compat
+    (webbrowser on Linux/macOS/Windows, termux-open-url on Android)."""
     try:
+        from eli.utils.platform_compat import open_url
         targets = [str(u) for u in (urls or []) if str(u).strip()]
         if not targets:
             targets = [str(url)]
         for target in targets:
-            subprocess.Popen(["xdg-open", target], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, start_new_session=True)
+            open_url(target)
         if len(targets) == 1:
             msg = f"Opened browser: {targets[0]}"
             return {"ok": True, "action": "OPEN_BROWSER", "url": targets[0], "content": msg, "response": msg}
