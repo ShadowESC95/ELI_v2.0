@@ -91,3 +91,4 @@ duckduckgo-search>=6.0
 playwright>=1.40
 plyer>=2.1
 ics>=0.7
+meshio>=5.3

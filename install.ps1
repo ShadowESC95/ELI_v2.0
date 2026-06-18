@@ -205,6 +205,18 @@ Write-Host "[..] Initialising data directories and databases..."
 & $PythonVenv -c "from eli.core.paths import get_paths; get_paths(); import eli.memory as M; (M.get_memory() if hasattr(M,'get_memory') else None)" 2>$null
 if ($LASTEXITCODE -eq 0) { Write-Host "[OK] Data dirs + databases ready." -ForegroundColor Green }
 
+# ── Optional system tools (best-effort via winget): ffmpeg = media/whisper, tesseract = OCR ──
+# Non-fatal. Windows uses native APIs for volume/clipboard/notifications, so only these help.
+if (Get-Command winget -ErrorAction SilentlyContinue) {
+    Write-Host "[..] Installing optional system tools (ffmpeg, tesseract) via winget..."
+    foreach ($id in @("Gyan.FFmpeg", "UB-Mannheim.TesseractOCR")) {
+        winget install --id $id --silent --accept-package-agreements --accept-source-agreements 2>$null
+    }
+    Write-Host "[OK] Optional system tools step done (skips any already present)." -ForegroundColor Green
+} else {
+    Write-Host "[..] winget not found — optional: install FFmpeg + Tesseract OCR for media/OCR features." -ForegroundColor DarkGray
+}
+
 # ── Optional model download — the one online step ──
 $ModelStatus = "none yet"
 $existingModel = Get-ChildItem (Join-Path $ScriptDir "models") -Filter "*.gguf" -ErrorAction SilentlyContinue | Select-Object -First 1

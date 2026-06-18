@@ -88,26 +88,32 @@ attempt_runtime_tools() {
     # yt-dlp goes in the venv (cross-distro) so "play X" can actually play audio
     # (mpv finds the venv's yt-dlp on PATH at runtime). Also installs the clipboard
     # backends (xclip / wl-clipboard) so GET_CLIPBOARD has a working fallback.
-    echo "[..] Installing runtime tools (media playback + desktop control)..."
+    echo "[..] Installing runtime tools (media + desktop control + OCR + audio)..."
     "$PIP" install --quiet yt-dlp 2>/dev/null && echo "[OK] yt-dlp (venv)" \
         || echo "     pip install yt-dlp   (direct media playback)"
-    local PKGS="mpv playerctl wmctrl xdotool ffmpeg xclip wl-clipboard"
+    # Per-manager package names differ. tesseract = OCR (screen reading); portaudio = mic
+    # (voice input); ffmpeg = media + whisper; libnotify = notifications; xclip/wl-clipboard
+    # = clipboard; mpv/playerctl = media; wmctrl/xdotool/scrot = desktop control + screenshot.
+    local APT="mpv playerctl wmctrl xdotool scrot ffmpeg xclip wl-clipboard tesseract-ocr portaudio19-dev libnotify-bin"
+    local DNF="mpv playerctl wmctrl xdotool scrot ffmpeg xclip wl-clipboard tesseract portaudio-devel libnotify"
+    local PAC="mpv playerctl wmctrl xdotool scrot ffmpeg xclip wl-clipboard tesseract portaudio libnotify"
+    local BREW="mpv playerctl ffmpeg tesseract portaudio"
     if [ "$OS" = "Darwin" ]; then
-        if command -v brew &>/dev/null; then brew install mpv playerctl 2>/dev/null || true
-        else echo "     brew install mpv playerctl   (media playback)"; fi
+        if command -v brew &>/dev/null; then brew install $BREW 2>/dev/null || true; echo "[OK] runtime tools (brew)"
+        else echo "     brew install $BREW   (media + OCR + audio)"; fi
         return 0
     fi
     if command -v apt-get &>/dev/null; then
-        if sudo -n true 2>/dev/null; then sudo apt-get install -y $PKGS 2>/dev/null && echo "[OK] runtime tools (apt)"
-        else echo "     Run: sudo apt-get install -y $PKGS"; fi
+        if sudo -n true 2>/dev/null; then sudo apt-get install -y $APT 2>/dev/null && echo "[OK] runtime tools (apt)"
+        else echo "     Run: sudo apt-get install -y $APT"; fi
     elif command -v dnf &>/dev/null; then
-        if sudo -n true 2>/dev/null; then sudo dnf install -y $PKGS 2>/dev/null && echo "[OK] runtime tools (dnf)"
-        else echo "     Run: sudo dnf install -y $PKGS"; fi
+        if sudo -n true 2>/dev/null; then sudo dnf install -y $DNF 2>/dev/null && echo "[OK] runtime tools (dnf)"
+        else echo "     Run: sudo dnf install -y $DNF"; fi
     elif command -v pacman &>/dev/null; then
-        if sudo -n true 2>/dev/null; then sudo pacman -S --noconfirm $PKGS 2>/dev/null && echo "[OK] runtime tools (pacman)"
-        else echo "     Run: sudo pacman -S $PKGS"; fi
+        if sudo -n true 2>/dev/null; then sudo pacman -S --noconfirm $PAC 2>/dev/null && echo "[OK] runtime tools (pacman)"
+        else echo "     Run: sudo pacman -S $PAC"; fi
     else
-        echo "     Install (for media + desktop control): $PKGS"
+        echo "     Install (media + desktop control + OCR + audio): $APT"
     fi
     return 0
 }
