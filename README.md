@@ -28,7 +28,7 @@ to anyone.
 ## Contents
 - [What is ELI?](#-what-is-eli)
 - [What can it do?](#-what-can-it-do)
-- [Why ELI?](#-why-eli)
+- [What makes ELI different](#-what-makes-eli-different)
 - [Highlights](#-highlights)
 - [Quick Start](#-quick-start)
 - [Choose your model](#-choose-your-model)
@@ -43,17 +43,28 @@ to anyone.
 
 ## 🤖 What is ELI?
 
-ELI runs a local AI **model** (the "brain") on your own machine and wraps it in a full assistant:
-memory, voice, vision, a desktop app, and the ability to actually *do things* on your computer.
+**ELI is a private AI that lives entirely on your own computer.** It talks with you, remembers you
+across months, runs your machine, sees your screen, reads your files, writes and fixes code, builds
+documents from your own evidence — and, uniquely, can **improve its own code** and even **re-train
+its own brain on your conversations.** Unlike Siri, Alexa, or ChatGPT, nothing you say has to leave
+your house: it's **offline by default, enforced at the network socket itself**, with a switch *you*
+control.
 
-- **For everyone:** open the app, type or talk, and ask for what you want — "play some lo-fi",
-  "what's on my screen?", "remember my dog's name is Rufus", "set an alarm for 7am". It just works,
-  privately.
-- **For developers:** a ~140k-line Python cognitive runtime — **208 capabilities**, **14 specialist
-  agents** on a DAG orchestrator, GGUF inference (auto-tuned per machine), SQLite + FAISS + knowledge
-  graph memory, a FastAPI server, and a PySide6 GUI. **Model-, user-, and hardware-agnostic.**
+It is not a chatbot bolted onto a cloud API. It's ~140,000 lines of Python that form a complete
+**cognitive runtime for one person and one machine** — a 12-stage reasoning pipeline, **14 specialist
+agents** on a DAG orchestrator, layered memory (SQLite + FAISS vector search + a knowledge graph),
+local voice and vision, a desktop GUI, and a phone-friendly web server. **Model-, user-, and
+hardware-agnostic.**
 
-It's **source-available**: download it, run it, and modify it for yourself (see [License](#-license)).
+> The honest trade: ELI gives up a few IQ points (the price of running on *your* hardware instead of
+> a datacentre) in exchange for **total privacy, total ownership, genuine self-honesty, and the
+> ability to grow.** That trade is the product.
+
+- **For everyone:** open the app, type or talk — *"play some lo-fi"*, *"what's on my screen?"*,
+  *"remember my dog's name is Rufus"*, *"research solar inverters overnight"*. It just works, privately.
+- **For developers:** **~110 distinct capabilities** (193 routable actions), grounded/anti-confabulation
+  introspection, self-patching with auto-rollback, a real LoRA fine-tuning pipeline, and a socket-level
+  offline guard. Source-available — read it, run it, modify it (see [License](#-license)).
 
 ## ✨ What can it do?
 
@@ -70,21 +81,66 @@ Real things you can say (it understands many phrasings — these are examples):
 | 🌐 **Look things up** | "what's the news?" · "weather in Dublin" · "search the web for X" *(the only time it goes online — and it tells you)* |
 | 🎙️ **Hands-free** | wake word "computer", dictation, text-to-speech, and it learns your voice & tone |
 
-Not sure? Just ask it **"what can you do?"** — it lists everything. Full reference:
-[`docs/`](#-documentation).
+Not sure? Just ask it **"what can you do?"** — it lists everything.
 
-## 💡 Why ELI?
+<details>
+<summary><b>The full breadth — ~110 capabilities across 17 areas</b> (click to expand)</summary>
 
-- **It's private.** Everything runs locally. It's **offline by default** and only touches the
-  internet when you ask for something that needs it (news, search) — and it says so.
-- **It's yours.** No account, no subscription, no telemetry. Your conversations, files, and memory
-  live in plain local databases you can delete anytime.
-- **It runs on what you have.** From a 4 GB laptop to a workstation GPU, the *same install*
-  auto-tunes itself to your hardware. CPU-only works too.
-- **It actually knows you.** A continuous, semantic user model is read every turn and feeds the
-  persona, proactivity, reflection, and memory — so you don't repeat yourself.
-- **It's honest.** A built-in guard means ELI **never fakes an action** — if it says it did
-  something, it did; if it couldn't, it tells you plainly.
+| Area | What's in it |
+|---|---|
+| **Conversation & persona** | chat, persona lock, explain-its-last-answer, multi-command chaining |
+| **App & window control** | open/close/focus apps, tile/minimise/maximise, workspaces, smart-home |
+| **Input & screen control** | volume/mute, type text, mouse move/click, key presses |
+| **Gaze (webcam eye-tracking)** | enable/calibrate, click where your eyes rest |
+| **Media** | play/pause/skip/shuffle on Spotify or YouTube, "what's playing?", skip ads |
+| **Files & documents** | create/read/list, notes, clipboard, summarise, **convert between formats** |
+| **Vision & screen** | read your screen, describe images, OCR, analyse PDFs/CSVs, ambient watching |
+| **Coding & repair** | solve tasks (plan→verify→repair), fix bugs, examine a codebase, scaffold projects |
+| **Generation** | grounded documents/reports from your own evidence, scripts, test data |
+| **Memory & identity** | remember facts, recall, a deep sourced profile of what it knows about you |
+| **Grounded introspection** | runtime/memory/cognition status reported from *real* evidence, not guessed |
+| **Self-maintenance** | analyse failures, self-patch (with rollback), run tests, **LoRA fine-tune itself** |
+| **Tasks, time & planning** | alarms, timers, calendar, pomodoro, overnight/scheduled background jobs |
+| **Proactive & goals** | morning briefing, learned habits it offers to automate, self-generated proposals |
+| **Voice** | wake word (set your own), dictation, TTS, learns your voice & tone |
+| **Plugins** | install / enable / disable tools at runtime |
+| **System & web** | CPU/RAM/GPU status, time/date, weather, news synthesis, web search (net-gated) |
+
+Every action is real and traceable to code — full per-action reference with example phrases is
+generated from the live capability manifest.
+</details>
+
+## 💡 What makes ELI different
+
+Most "AI assistants" are a thin app talking to someone else's datacentre. ELI inverts every one of
+those assumptions — and that inversion *is* the point:
+
+1. **🔒 It's truly, provably yours.** 100% local. No account, subscription, telemetry, or call-home.
+   "Offline" isn't marketing: a process-wide network guard **fail-closes at the socket layer** — with
+   the Net switch off, outbound connections physically cannot happen. You hold the switch.
+
+2. **🧠 It owns no brain — so it never goes obsolete.** ELI is **model-agnostic**: no model name or
+   size is hardcoded on the inference path. Swap in any local GGUF model and it auto-detects how to
+   drive it. As open models get smarter, ELI gets smarter *for free* — no vendor can deprecate it,
+   price-hike it, or read over its shoulder.
+
+3. **🔬 It's honest because it measures itself.** Ask most AIs "how does your memory work?" and they
+   *invent* an answer. Ask ELI and it reads its **live runtime** — real database counts, the actual
+   loaded model, the actual pipeline — and reports from deterministic evidence. A built-in guard also
+   means it **never fakes an action**: if it says it did something, it did.
+
+4. **🛠️ It improves itself.** ELI logs its own failures and can **write, syntax-check, apply, and
+   auto-roll-back patches to its own code** — safely, in its own project. It can also **fine-tune its
+   own model on your conversations** (a real LoRA/PyTorch pipeline), becoming more *you-shaped* over
+   time — all on your hardware.
+
+5. **🦾 It has a body, not just a mouth.** It doesn't only answer — it *acts*: opens apps, plays your
+   music, manages windows, screenshots, reads your clipboard, understands images and your live screen,
+   and can even **click where your eyes are looking** via webcam gaze tracking.
+
+6. **🫂 It actually knows you.** A continuous, semantic user model is read every turn and feeds the
+   persona, proactivity, reflection, and memory — so you never repeat yourself, and it adapts to your
+   tone and routines.
 
 ## 🚀 Highlights
 
