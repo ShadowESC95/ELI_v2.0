@@ -228,6 +228,42 @@ def _ensure_agent_metrics_table(conn: "_sqlite3.Connection") -> None:
     )
 
 
+def ensure_agent_tables(conn: "Optional[_sqlite3.Connection]" = None) -> None:
+    """Create the agent store's tables (agent_dispatches + agent_metrics) idempotently.
+
+    Normally these are created lazily on first dispatch/metric write. This public
+    entry point lets first-run init build the FULL architecture up front (so a fresh
+    install has every table present immediately) without writing any data. Safe to
+    call repeatedly; opens agent.sqlite3 when no connection is supplied.
+    """
+    _own = False
+    if conn is None:
+        from eli.core.paths import agent_db_path as _agent_db_path
+        p = _agent_db_path()
+        p.parent.mkdir(parents=True, exist_ok=True)
+        conn = _sqlite3.connect(str(p), timeout=3.0)
+        _own = True
+    try:
+        conn.execute(
+            """CREATE TABLE IF NOT EXISTS agent_dispatches (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                ts REAL NOT NULL,
+                action TEXT,
+                agents_used TEXT,
+                confidence REAL,
+                elapsed_ms REAL,
+                ok INTEGER,
+                summary TEXT
+            )"""
+        )
+        _ensure_agent_metrics_table(conn)
+        if _own:
+            conn.commit()
+    finally:
+        if _own:
+            conn.close()
+
+
 def _load_agent_metrics_cached() -> Dict[tuple, Dict[str, float]]:
     """Return {(agent, action): {runs, rolling_score, ...}} with TTL cache."""
     now = time.time()

@@ -426,7 +426,7 @@ def allocate(
     else:
         vram_basis = gpu.free_mb
 
-    runtime_reserve  = int(os.environ.get("ELI_VRAM_RESERVE_MB",    "1500"))
+    runtime_reserve  = int(os.environ.get("ELI_VRAM_RESERVE_MB",    "250"))
     hard_cap_frac    = float(os.environ.get("ELI_VRAM_HARD_CAP_FRAC", "0.85"))
     usable_vram      = min(max(0, vram_basis - runtime_reserve), int(gpu.total_mb * hard_cap_frac))
 
