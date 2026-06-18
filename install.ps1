@@ -100,8 +100,9 @@ if (-not $Yes) {
     $ans = Read-Host "  Proceed? [Y/n]"
     if ($ans -match '^[Nn]') { Write-Host "Aborted - nothing changed."; exit 0 }
     if ((-not $NoModel) -and (-not $AutoModel) -and (-not $Model)) {
-        $m = Read-Host "  Download a model now, sized to your hardware? [Y/n]"
-        if ($m -match '^[Nn]') { $NoModel = $true } else { $AutoModel = $true }
+        $m = Read-Host "  Choose model(s) to download now? [Y/n]"
+        # --choose opens a multi-select menu (pick any number, or auto/all/none).
+        if ($m -match '^[Nn]') { $NoModel = $true } else { $ChooseModel = $true }
     }
 }
 
@@ -224,9 +225,9 @@ $ModelStatus = "none yet"
 $existingModel = Get-ChildItem (Join-Path $ScriptDir "models") -Filter "*.gguf" -ErrorAction SilentlyContinue | Select-Object -First 1
 if ($existingModel) {
     $ModelStatus = "already present"
-} elseif ((-not $NoModel) -and ($AutoModel -or $Model)) {
-    Write-Host "[..] Downloading a model (sized to your VRAM) - the one online step..."
-    $modelArg = if ($Model) { $Model } else { "--auto" }
+} elseif ((-not $NoModel) -and ($AutoModel -or $Model -or $ChooseModel)) {
+    Write-Host "[..] Model download - the one online step..."
+    $modelArg = if ($Model) { $Model } elseif ($ChooseModel) { "--choose" } else { "--auto" }
     & $PythonVenv -m eli.core.model_download $modelArg
     if ($LASTEXITCODE -eq 0) { $ModelStatus = "downloaded" } else { $ModelStatus = "download failed (fetch later)" }
 }
