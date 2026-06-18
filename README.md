@@ -1,12 +1,23 @@
 # ELI MKXI v2.0 PRO
 
 ELI MKXI is a 100% local, privacy-first AI assistant. It runs entirely on your
-own hardware — no cloud APIs, no telemetry. ~134k lines of Python across 353
-modules, **206 capabilities**, and **14 specialist agents**. Features include:
+own hardware — no cloud APIs, no telemetry. ~139k lines of Python across 363
+modules, **208 capabilities**, and **14 specialist agents**. **Model-, user-, and
+hardware-agnostic** — the same install runs a 3B model on a laptop or a large model
+across multiple datacenter GPUs. Features include:
 
 - **GGUF inference** via llama-cpp-python (CPU and GPU, auto-tuned at boot;
-  model-agnostic — no hardcoded model name/size on the inference path)
+  model-agnostic — no hardcoded model name/size on the inference path; context
+  sized to each model's real `n_ctx_train`)
+- **Multi-GPU** — VRAM summed across all GPUs; optional `tensor_split` to run one
+  large model across several cards (`config/gpu_profiles.json`)
 - **PySide6 GUI** with dockable panels, quick-action board, and live telemetry
+- **Self-hosted web app** — a built-in FastAPI server (`api/server.py`) serves a
+  mobile-first chat UI; reach ELI from a phone/tablet browser over your LAN
+  (loopback-safe by default, token-gated when exposed). Inference stays on the host.
+- **Continuous User Model** — a living, semantic model of the user, read directly
+  each turn and wired into cognition, persona, proactive, reflection, and awareness;
+  seeded by a light, skippable first-run onboarding interview
 - **Persistent memory** — SQLite + FAISS vector index + knowledge graph for
   semantic recall
 - **Multi-agent bus** — parallel agent dispatch with confidence aggregation,
@@ -17,12 +28,16 @@ modules, **206 capabilities**, and **14 specialist agents**. Features include:
 - **Local voice** — faster-whisper STT (VRAM-aware: GPU on large cards, else CPU
   so the main model keeps the GPU), wake-word, and TTS
 - **Security hardening** — prompt injection guard, SQL identifier validation,
-  fail-closed shell command gate, custom agent SHA-256 trust registry
+  fail-closed shell command gate, custom agent SHA-256 trust registry, offline-by-
+  default network guard
 - **Headless / CLI mode** — `eli --headless` for terminal-only use
-- **First-boot wizard** — guides zero-model setup to HuggingFace download
 - **Proactive daemon** — background goal/habit/insight generation
-- **Self-improvement** — failure analysis, capability manifest regeneration
+- **Self-improvement** — failure analysis, learns from mistakes, capability
+  manifest regeneration
 - **Plugin system** — install, enable/disable, and uninstall tools at runtime
+- **Interactive cross-platform install** — Linux/macOS/Windows one-click installers
+  (system report → plan → model offer); app-menu / Start-Menu desktop launchers for
+  both the GUI and the web server
 
 ## One-Click Setup
 
