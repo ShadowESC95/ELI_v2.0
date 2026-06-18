@@ -138,7 +138,7 @@ DEFAULTS: Dict[str, Any] = {
     "vision_n_ctx": 4096,
     "vision_n_gpu_layers": 99,
     "vision_n_batch": 256,
-    # GPU clip segfaults on some cards (RTX 2060 SUPER / compute 7.5); keep the
+    # GPU clip segfaults on some CUDA cards (e.g. compute capability 7.5); keep the
     # vision encoder on CPU. The language decoder still uses the GPU.
     "vision_clip_on_gpu": False,
     "vision_max_image_px": 1280,

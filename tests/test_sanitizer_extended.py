@@ -148,7 +148,7 @@ TECHNICAL_CONTENT = [
     "The model has 7B parameters",
     "llama.cpp enables CPU inference",
     "GGUF format is the standard",
-    "RTX 2060 SUPER has 8GB VRAM",
+    "A consumer GPU has 8GB VRAM",
     "PySide6 is the GUI framework",
     "ONNX runtime enables voice synthesis",
     "piper-tts uses ONNX voice models",
