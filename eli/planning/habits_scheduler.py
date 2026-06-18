@@ -131,6 +131,15 @@ class HabitScheduler:
 
         self.memory.record_habit_run(rule['id'])
 
+    def run_now(self, rule: Dict) -> None:
+        """Fire a rule immediately, off-thread. Used for catch-up when a habit is
+        confirmed AFTER its scheduled time has already passed today — so the user
+        doesn't wait until tomorrow for the habit they just approved. Reuses the
+        same execution + run-record path; runs in a daemon thread so it never blocks
+        the confirming turn (and avoids re-entrancy with the calling engine.process)."""
+        threading.Thread(target=self._execute_rule, args=(rule,),
+                         daemon=True, name="eli-habit-runnow").start()
+
     def stop(self):
         self.running = False
 
