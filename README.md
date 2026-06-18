@@ -96,8 +96,10 @@ whole range — **always local, never cloud, at every scale**:
   or `models/catalog.json` (same schema: `key`, `name`, `filename`, `url`, `size_gb`,
   `vram_gb`). That's the supported path for mid/large/huge models without code changes.
 - **Big hardware** (e.g. 8× datacenter GPUs): detection reports total VRAM and `--auto`
-  selects the largest model that fits. *(Multi-GPU tensor-split for a single trillion-param
-  model is on the roadmap — see `blueprints/`.)*
+  selects the largest model that fits. **Multi-GPU split** for a single large model is
+  configured in `config/gpu_profiles.json` (enable a profile, or set `tensor_split` —
+  e.g. `"0.5,0.5"` — in settings); the loader passes it to llama.cpp `tensor_split`.
+  Single-GPU is the default and unchanged.
 - **Ethos holds at every tier:** offline-by-default, no telemetry, emergent persona, your
   data on your hardware — whether that's a Raspberry-Pi-class box or a $250k GPU server.
 

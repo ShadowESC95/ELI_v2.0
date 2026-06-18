@@ -111,6 +111,14 @@ DEFAULTS: Dict[str, Any] = {
     "batch_size": 512,
     "use_mmap": True,
     "use_mlock": False,
+    # Multi-GPU split (optional; empty = single-GPU). tensor_split is a comma list of
+    # per-GPU weights (e.g. "0.5,0.5"); split_mode is none|layer|row; main_gpu is the
+    # primary device index. Sourced here or from config/gpu_profiles.json. Hardware-
+    # agnostic — only used when set AND more than one GPU is present.
+    "tensor_split": "",
+    "main_gpu": 0,
+    "split_mode": "",
+    "gpu_profiles_file": "",
     # Deep thinking on the ANSWER call for reasoning models (Qwen3 / DeepSeek-R1):
     # ON = higher quality, slower; OFF = faster. Utility calls (routing/JSON/summary)
     # never think regardless. No effect on non-reasoning models. GUI-toggleable.
@@ -202,6 +210,13 @@ ENV_TO_KEY = {
     "ELI_BATCH_SIZE": "batch_size",
     "ELI_USE_MMAP": "use_mmap",
     "ELI_USE_MLOCK": "use_mlock",
+    "ELI_TENSOR_SPLIT": "tensor_split",
+    "ELI_GGUF_TENSOR_SPLIT": "tensor_split",
+    "ELI_MAIN_GPU": "main_gpu",
+    "ELI_GGUF_MAIN_GPU": "main_gpu",
+    "ELI_SPLIT_MODE": "split_mode",
+    "ELI_GGUF_SPLIT_MODE": "split_mode",
+    "ELI_GPU_PROFILES_FILE": "gpu_profiles_file",
     "ELI_AUTO_SPEAK": "auto_speak",
     "ELI_MIC_ENABLED": "mic_enabled",
     "ELI_AUTO_SAVE": "auto_save",
@@ -561,6 +576,40 @@ def save_runtime_settings(settings: Dict[str, Any]) -> None:
     save_settings(settings)
 
 
+def _resolve_gpu_split(s):
+    """Resolve (tensor_split, main_gpu, split_mode) for multi-GPU.
+
+    Precedence: explicit settings/env values win; otherwise the active profile from
+    config/gpu_profiles.json (or ELI_GPU_PROFILES_FILE). Returns ("", None, "") when no
+    split is configured. Mirrors the model-catalog override pattern; fully local.
+    """
+    ts = str(s.get("tensor_split", "") or "").strip()
+    main_gpu = s.get("main_gpu")
+    sm = str(s.get("split_mode", "") or "").strip()
+    if ts:
+        return ts, main_gpu, sm
+    # No explicit split — look for an enabled profile in the gpu_profiles file.
+    try:
+        candidates = []
+        envp = (os.environ.get("ELI_GPU_PROFILES_FILE") or str(s.get("gpu_profiles_file", "") or "")).strip()
+        if envp:
+            candidates.append(Path(envp).expanduser())
+        candidates.append(_eli_runtime_physical_project_root() / "config" / "gpu_profiles.json")
+        for p in candidates:
+            if p.is_file():
+                data = json.loads(p.read_text(encoding="utf-8"))
+                profs = data.get("profiles", data) if isinstance(data, dict) else data
+                for prof in (profs or []):
+                    if isinstance(prof, dict) and prof.get("enabled") and prof.get("tensor_split"):
+                        _ts = prof["tensor_split"]
+                        _ts = ",".join(str(x) for x in _ts) if isinstance(_ts, (list, tuple)) else str(_ts)
+                        return _ts.strip(), prof.get("main_gpu", main_gpu), str(prof.get("split_mode", sm) or "").strip()
+                break
+    except Exception:
+        pass
+    return ts, main_gpu, sm
+
+
 def apply_env(settings=None):
     s = dict(load_settings() if settings is None else settings)
 
@@ -584,6 +633,19 @@ def apply_env(settings=None):
 
     os.environ["ELI_GGUF_USE_MMAP"] = "1" if bool(s.get("use_mmap", True)) else "0"
     os.environ["ELI_GGUF_USE_MLOCK"] = "1" if bool(s.get("use_mlock", False)) else "0"
+
+    # Multi-GPU split (single-GPU users: all empty → no-op). Resolved from settings/env or
+    # config/gpu_profiles.json; published for the loader to apply via tensor_split.
+    _gpu_ts, _gpu_main, _gpu_sm = _resolve_gpu_split(s)
+    if _gpu_ts:
+        os.environ["ELI_GGUF_TENSOR_SPLIT"] = str(_gpu_ts)
+        if _gpu_main not in (None, ""):
+            os.environ["ELI_GGUF_MAIN_GPU"] = str(_gpu_main)
+        if _gpu_sm:
+            os.environ["ELI_GGUF_SPLIT_MODE"] = str(_gpu_sm)
+    else:
+        for _k in ("ELI_GGUF_TENSOR_SPLIT", "ELI_GGUF_MAIN_GPU", "ELI_GGUF_SPLIT_MODE"):
+            os.environ.pop(_k, None)
 
     # Deep-thinking toggle for reasoning models → ELI_MODEL_THINK (read by
     # gguf_inference._no_think_prefill). Don't clobber an explicit shell override.
