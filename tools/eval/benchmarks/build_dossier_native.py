@@ -175,7 +175,7 @@ def _write(rows, out: Path):
         - **Note:** the Qwen2.5-7B non-thinking baseline was removed during a disk cleanup,
           so this is a comparison **among reasoning models** — which is the harder and more
           relevant axis for these candidates anyway.
-        - **Hardware:** a representative 8 GB consumer GPU + CPU offload, ~32 GB RAM.\n"""))
+        - **Hardware:** a representative low-VRAM consumer machine (~8 GB GPU + CPU offload).\n"""))
 
     A("## 4. Results\n### 4.1 Quality & speed\n")
     A("| Model | GSM8K acc | correct | sec/question | est. tok/s | avg answer (chars) |")
@@ -295,7 +295,7 @@ def _analysis(rows) -> str:
 def _reco() -> str:
     return dedent("""\
         **The "best" model is a function of the user's memory hierarchy, not the score.**
-        - **≤ 8 GB VRAM (this box, most prosumer machines):** neither Qwen3 model fits VRAM,
+        - **≤ 8 GB VRAM (most prosumer machines):** neither Qwen3 model fits VRAM,
           so both pay the CPU tax in §5. The **A3B** is the better local pick — near-32B
           quality at a large speed advantage. A small distill (1.5 B) is the only thing that
           is genuinely fast here, at a real quality cost.
