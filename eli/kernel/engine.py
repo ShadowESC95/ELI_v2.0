@@ -3199,8 +3199,7 @@ class CognitiveEngine:
             _cap_result = update_capability_manifest()
             if _cap_result.get('ok'):
                 log.debug(
-    f"[COGNITIVE] Capability manifest updated: {
-        _cap_result['total']} capabilities")
+                    f"[COGNITIVE] Capability manifest updated: {_cap_result['total']} capabilities")
         except Exception as _cap_err:
             log.debug(
     f"[COGNITIVE] Capability manifest update failed (non-fatal): {_cap_err}")
@@ -3724,9 +3723,7 @@ class CognitiveEngine:
         }
         self._last_trace = trace
         log.debug(
-    f"[COGNITIVE][TRACE] request_id={
-        trace['request_id']} mode={
-            trace['reasoning_mode']}")
+            f"[COGNITIVE][TRACE] request_id={trace['request_id']} mode={trace['reasoning_mode']}")
         return trace
 
     def _trace_phase(self, trace: Dict[str, Any],
@@ -4343,9 +4340,9 @@ Answer:"""
     str(_ctx_for_turns) +
      ')')
             fetch_limit = _max_turns
+        _fetch_tier = "greeting" if _is_greeting else "command" if _is_command else "memory" if _is_memory_query else "default"
         log.debug(
-    f"[MEMORY] Fetch strategy: limit={fetch_limit} (tier={
-        "greeting" if _is_greeting else "command" if _is_command else "memory" if _is_memory_query else "default"}), since={since_date}, cross_session={explicit_cross_session}, commandish={commandish}")
+            f"[MEMORY] Fetch strategy: limit={fetch_limit} (tier={_fetch_tier}), since={since_date}, cross_session={explicit_cross_session}, commandish={commandish}")
 
         if profile.get("identity"):
             try:
@@ -4387,8 +4384,7 @@ Answer:"""
                     conversations = self.memory.get_recent_conversation(
                         limit=fetch_limit, user_id=self.user_id)
                 log.debug(
-    f"[MEMORY] Fetched {
-        len(conversations)} conversation turns from active chat DB.")
+                    f"[MEMORY] Fetched {len(conversations)} conversation turns from active chat DB.")
                 if conversations:
                     lines_out = []
                     for i, turn in enumerate(reversed(conversations), 1):
@@ -4597,8 +4593,7 @@ Answer:"""
                             log.debug(
     f"[MEMORY] Canonical memory-db recall failed: {legacy_e}")
                     log.debug(
-    f"[MEMORY] Stored memory search returned: {
-        len(mem_results) if mem_results else 0} results")
+                        f"[MEMORY] Stored memory search returned: {len(mem_results) if mem_results else 0} results")
                     if mem_results:
                         lines_out = []
                         for mem in mem_results[:5]:
@@ -6091,9 +6086,7 @@ Answer:"""
             score = self._score_response_confidence(
     user_input, response, working_context, intent_conf, evidence)
             log.debug(
-    f'[COGNITIVE][FINAL] confidence pass_no={pass_no} score={
-        score:.2f} threshold={
-            threshold:.2f}')
+                f'[COGNITIVE][FINAL] confidence pass_no={pass_no} score={score:.2f} threshold={threshold:.2f}')
             if trace is not None:
                 trace.setdefault('confidence', []).append(
                     {'pass_no': pass_no, 'score': score, 'threshold': threshold})
@@ -6109,8 +6102,7 @@ Answer:"""
     working_context +
      "\n\nRevision directive:\n- Previous candidate was below confidence threshold.\n- Remove hedging.\n- Use only grounded facts from context and executor evidence.\n- If exact file paths or line numbers are required, include them explicitly.\n").strip()
                 log.debug(
-    f'[COGNITIVE][FINAL] retry next_pass={
-        pass_no + 1} reason=below_threshold')
+                    f'[COGNITIVE][FINAL] retry next_pass={pass_no + 1} reason=below_threshold')
         if best_score < threshold and profile.get(
             'clarify', True):
             # ELI_GROUNDED_CONTROL_NO_CLARIFY_CUTPOINT_V2
@@ -7009,12 +7001,10 @@ Answer:"""
             if any(x in low for x in ("what can you do", "capabilities",
                    "list capabilities", "what are your capabilities")):
                 lines.append(
-    f"Live capability count: {
-        self._awareness.capability_count}")
+                    f"Live capability count: {self._awareness.capability_count}")
                 if self._awareness.capability_delta_has_changes:
                     lines.append(
-    f"Recent capability changes: {
-        self._awareness.capability_delta_summary}")
+                        f"Recent capability changes: {self._awareness.capability_delta_summary}")
             if any(x in low for x in ("code change",
                    "what changed", "self analyze", "awareness")):
                 if self._awareness.code_report_has_changes:
