@@ -9850,11 +9850,36 @@ def _execute_impl(action: str, args: Optional[Dict[str, Any]] = None) -> Dict[st
             if a == 'CONFIRM_HABIT':
                 ok = mem.set_habit_rule_enabled(rid, True) if hasattr(mem, 'set_habit_rule_enabled') else False
                 clear_pending_habit()
-                msg = (f"Done — “{name}” is now an active habit; I'll run it around "
-                       f"{hh:02d}:{mm:02d}. You can edit or disable it any time in the "
-                       f"Habits tab.") if ok else \
-                      f"I couldn't enable that habit (it may have been removed). Nothing activated."
-                return {'ok': bool(ok), 'action': a, 'content': msg, 'response': msg,
+                if not ok:
+                    msg = "I couldn't enable that habit (it may have been removed). Nothing activated."
+                    return {'ok': False, 'action': a, 'content': msg, 'response': msg,
+                            'evidence_source': 'habit_confirm'}
+                # Catch-up: if today's scheduled time has already passed, run it NOW so
+                # the user doesn't wait until tomorrow for the habit they just approved.
+                # Otherwise the live scheduler (polling every 30 s) fires it at the time.
+                _cmd = str(pending.get('command') or '').strip()
+                _ran_now = False
+                try:
+                    from datetime import datetime as _dt
+                    _now = _dt.now()
+                    _already_passed = (hh * 60 + mm) < (_now.hour * 60 + _now.minute)
+                    if _cmd and _already_passed:
+                        from eli.planning.habits_scheduler import get_scheduler
+                        get_scheduler().run_now({'id': rid, 'name': name, 'command': _cmd,
+                                                 'hour': hh, 'minute': mm})
+                        _ran_now = True
+                except Exception as _rn:
+                    log.debug(f"[HABIT] catch-up run skipped: {_rn}")
+                if _ran_now:
+                    msg = (f"Done — “{name}” is now an active habit. Today's {hh:02d}:{mm:02d} "
+                           f"slot already passed, so I'm running it now; from tomorrow it runs "
+                           f"automatically at {hh:02d}:{mm:02d}. Edit or disable it any time in "
+                           f"the Habits tab.")
+                else:
+                    msg = (f"Done — “{name}” is now an active habit; I'll run it around "
+                           f"{hh:02d}:{mm:02d}. You can edit or disable it any time in the "
+                           f"Habits tab.")
+                return {'ok': True, 'action': a, 'content': msg, 'response': msg,
                         'evidence_source': 'habit_confirm'}
             else:  # DECLINE_HABIT — remove the suggestion so it doesn't linger
                 if hasattr(mem, 'delete_habit_rule'):

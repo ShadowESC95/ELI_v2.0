@@ -297,25 +297,15 @@ mkdir -p "$SCRIPT_DIR/models"
 # ── Runtime tools (media playback + desktop control) ─────────────────────────
 attempt_runtime_tools || true
 
-# ── Initialise data directories + databases (idempotent) ─────────────────────
-# Create artifacts dirs and the SQLite stores so first launch is instant and the
-# install is verifiably complete (not deferred to a possibly-failing first boot).
-echo "[..] Initialising data directories and databases..."
-if "$PYTHON_VENV" - <<'PYEOF'
-from eli.core.paths import get_paths
-get_paths()
-try:
-    import eli.memory as M
-    if hasattr(M, "get_memory"):
-        M.get_memory()
-except Exception as e:
-    print(f"   (memory init deferred: {e})")
-print("   data dirs + databases ready")
-PYEOF
-then
-    echo "[OK] Data directories and databases initialised."
+# ── Initialise data directories + FULL database architecture (idempotent) ────
+# Build EVERY store + table up front (user/agent/system_index/coding_memory) so a
+# fresh install runs at full efficiency with nothing for the user to fix — yet it
+# stays a true blank slate: schema only, ZERO personal memories/profile/history.
+echo "[..] Initialising data directories and full database architecture..."
+if "$PYTHON_VENV" -m eli.core.init_data; then
+    echo "[OK] Full database architecture ready (blank slate — no personal data)."
 else
-    echo "[WARN] DB init deferred to first launch."
+    echo "[WARN] Some stores deferred to first launch (they self-build on first use)."
 fi
 
 # ── Verify the install actually imports and the entry point resolves ─────────

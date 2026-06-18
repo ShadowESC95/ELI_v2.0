@@ -201,9 +201,11 @@ if ((-not (Test-Path $Settings)) -and (Test-Path $Template)) {
     Write-Host "[OK] Seeded clean config: config\settings.json" -ForegroundColor Green
 }
 New-Item -ItemType Directory -Force -Path (Join-Path $ScriptDir "models") | Out-Null
-Write-Host "[..] Initialising data directories and databases..."
-& $PythonVenv -c "from eli.core.paths import get_paths; get_paths(); import eli.memory as M; (M.get_memory() if hasattr(M,'get_memory') else None)" 2>$null
-if ($LASTEXITCODE -eq 0) { Write-Host "[OK] Data dirs + databases ready." -ForegroundColor Green }
+Write-Host "[..] Initialising data directories and full database architecture..."
+# Build EVERY store + table up front (blank slate — schema only, no personal data).
+& $PythonVenv -m eli.core.init_data
+if ($LASTEXITCODE -eq 0) { Write-Host "[OK] Full database architecture ready (blank slate)." -ForegroundColor Green }
+else { Write-Host "[WARN] Some stores deferred to first launch (self-build on first use)." -ForegroundColor Yellow }
 
 # ── Optional system tools (best-effort via winget): ffmpeg = media/whisper, tesseract = OCR ──
 # Non-fatal. Windows uses native APIs for volume/clipboard/notifications, so only these help.
