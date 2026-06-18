@@ -182,8 +182,9 @@ if [ "$ASSUME_YES" -eq 0 ]; then
     _ans=""; read -r -p "  Proceed? [${B}Y${R}/n]  " _ans || true
     case "${_ans:-Y}" in [Nn]*) echo "Aborted — nothing changed."; exit 0 ;; esac
     if [ "$NO_MODEL" -eq 0 ] && [ -z "$FETCH_MODEL" ]; then
-        _m=""; read -r -p "  Download a model now, sized to your hardware? [${B}Y${R}/n]  " _m || true
-        case "${_m:-Y}" in [Nn]*) NO_MODEL=1 ;; *) FETCH_MODEL="--auto" ;; esac
+        _m=""; read -r -p "  Choose model(s) to download now? [${B}Y${R}/n]  " _m || true
+        # --choose opens a multi-select menu (pick any number, or 'auto'/'all'/'none').
+        case "${_m:-Y}" in [Nn]*) NO_MODEL=1 ;; *) FETCH_MODEL="--choose" ;; esac
     fi
 fi
 
