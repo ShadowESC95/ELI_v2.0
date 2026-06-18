@@ -932,6 +932,23 @@ def _safe_invoke_llm(llm, full_prompt: str, *, temperature, max_tokens, top_p, t
             last_exc = e
             msg = str(e).lower()
             if "exceed context window" in msg or "requested tokens" in msg:
+                # Two distinct overflow shapes:
+                #   (a) max_tokens too large for the remaining window, or
+                #   (b) the PROMPT alone already exceeds the context window.
+                # Halving max_tokens only ever fixes (a). For (b) — which is what a
+                # model whose trained context is smaller than ELI's brief hits — we
+                # MUST shrink the prompt, or the retry loop runs to exhaustion and the
+                # raw exception bubbles up to the user. Truncate head+tail to fit, once.
+                _lim = _effective_ctx_limit(llm)
+                _ptok = _estimate_prompt_tokens(llm, full_prompt)
+                _gen_floor = max(64, min(256, _lim // 8))
+                if _ptok > _lim - _gen_floor:
+                    full_prompt = _truncate_prompt_to_tokens(llm, full_prompt, max(256, _lim - _gen_floor))
+                    _ptok2 = _estimate_prompt_tokens(llm, full_prompt)
+                    attempt_max = max(64, min(attempt_max, _lim - _ptok2 - 16))
+                    log.debug(f"[GGUF] Context-window retry: prompt {_ptok}>{_lim} tok; "
+                              f"truncated head+tail to {_ptok2} tok, max_tokens={attempt_max}")
+                    continue
                 new_attempt = max(64, attempt_max // 2)
                 if new_attempt == attempt_max:
                     break
@@ -977,23 +994,63 @@ def _truncate_prompt_to_tokens(llm, text: str, max_tokens: int) -> str:
     return text[:half] + "\n…\n" + text[-half:]
 
 
-def _ctx_max_tokens(llm, full_prompt: str, reserve: int = 128) -> int:
-    """
-    Return the maximum tokens the model can generate for this prompt:
-        n_ctx - prompt_tokens - reserve
-    Can be 0 when the prompt already exhausts context.
+def _model_train_ctx(model_path=None) -> int:
+    """The model's real trained context (`n_ctx_train`), read from GGUF metadata.
+
+    This is the HARD ceiling for prompt+generation, independent of how large a context
+    the loader actually requested: a 4096-train model loaded at 16384 ("training context
+    overflow") still cannot attend past 4096, so sizing must use 4096. Returns 0 when the
+    model/metadata is unknown. Model-agnostic — driven by metadata, not the filename.
     """
     try:
-        n_ctx = llm.n_ctx()
+        from eli.core.startup_hardware_optimizer import train_ctx_for_model as _tc
+        mp = model_path or get_model_path()
+        if mp:
+            v = int(_tc(str(mp)))
+            return v if v > 0 else 0
+    except Exception:
+        pass
+    return 0
+
+
+def _effective_ctx_limit(llm) -> int:
+    """Usable context ceiling = min(loaded n_ctx, n_ctx_train).
+
+    The loaded n_ctx can exceed the model's trained length (the adaptive fallback loader
+    or a stale config can request more); the model still only attends n_ctx_train. Sizing
+    and truncation must use the SMALLER of the two so an over-ctx load never fools the
+    "does the prompt fit?" math into skipping truncation (which produced
+    'Requested tokens exceed context window' / garbled output on the 4k phi-3).
+    """
+    loaded = 0
+    try:
+        loaded = int(llm.n_ctx())
     except Exception:
         # Prefer the env var set by runtime_settings.apply_runtime_to_env() at
         # model-load time — it reflects what the model actually loaded with,
         # which may differ from the config default if the hardware optimizer clamped it.
         import os as _os
-        n_ctx = int(_os.environ.get("ELI_GGUF_N_CTX") or _os.environ.get("ELI_N_CTX") or 0)
-        if n_ctx <= 0:
-            from eli.core import config as _cfg
-            n_ctx = _cfg.get_gguf_n_ctx()
+        loaded = int(_os.environ.get("ELI_GGUF_N_CTX") or _os.environ.get("ELI_N_CTX") or 0)
+        if loaded <= 0:
+            try:
+                from eli.core import config as _cfg
+                loaded = int(_cfg.get_gguf_n_ctx())
+            except Exception:
+                loaded = 0
+    train = _model_train_ctx()
+    if loaded > 0 and train > 0:
+        return min(loaded, train)
+    return loaded or train or 4096
+
+
+def _ctx_max_tokens(llm, full_prompt: str, reserve: int = 128) -> int:
+    """
+    Return the maximum tokens the model can generate for this prompt:
+        effective_ctx - prompt_tokens - reserve
+    where effective_ctx = min(loaded n_ctx, n_ctx_train). Can be 0 when the prompt
+    already exhausts context.
+    """
+    n_ctx = _effective_ctx_limit(llm)
     prompt_tokens = _estimate_prompt_tokens(llm, full_prompt)
     available = int(n_ctx) - int(prompt_tokens) - int(reserve)
     return max(0, int(available))
@@ -1010,6 +1067,21 @@ def available_generation_tokens(prompt: str, system: Optional[str] = None) -> in
     sys_text = system or ""
     full = _format_prompt(sys_text, prompt)
     return _ctx_max_tokens(llm, full)
+
+
+def current_context_limit() -> int:
+    """Public: usable context ceiling for the loaded model = min(loaded n_ctx,
+    n_ctx_train). Returns 0 when no model is loaded. Callers that pre-size prompts
+    (e.g. the engine's streaming preflight clamp) must use THIS, not the config
+    default — the loaded ctx can exceed the model's trained attention window, and the
+    config default can be stale-large; both fool a naive prompt-fit check."""
+    llm = globals().get("_llm")
+    if llm is None:
+        return 0
+    try:
+        return int(_effective_ctx_limit(llm))
+    except Exception:
+        return 0
 
 
 def _generate_legacy(
@@ -1052,10 +1124,7 @@ def _generate_legacy(
         # generation budget, instead of failing the turn ("Requested tokens exceed
         # context window"). Model-agnostic; head keeps the system/persona, tail keeps
         # the most recent context + the actual user turn.
-        try:
-            _n_ctx = int(llm.n_ctx())
-        except Exception:
-            _n_ctx = 16384
+        _n_ctx = _effective_ctx_limit(llm)
         _min_gen = max(96, min(512, _n_ctx // 8))
         _budget = max(256, _n_ctx - _min_gen - 96)
         _ptok_before = _estimate_prompt_tokens(llm, full_prompt)
@@ -1219,10 +1288,7 @@ def _generate_json_legacy_1(
     _available_tokens = _ctx_max_tokens(llm, _full_prompt)
     if _available_tokens <= 0:
         # Truncate head+tail to fit rather than fail the call (same as the chat path).
-        try:
-            _n_ctx = int(llm.n_ctx())
-        except Exception:
-            _n_ctx = 16384
+        _n_ctx = _effective_ctx_limit(llm)
         _min_gen = max(96, min(512, _n_ctx // 8))
         _full_prompt = _truncate_prompt_to_tokens(llm, _full_prompt, max(256, _n_ctx - _min_gen - 96))
         _available_tokens = _ctx_max_tokens(llm, _full_prompt)
@@ -1926,6 +1992,17 @@ try:
             req_gpu = max(0, int(requested.get("n_gpu_layers") or 0))
             req_batch = max(32, int(requested.get("n_batch") or 512))
 
+            # HARD CEILING: never request more context than the model was trained for.
+            # The requested ctx comes from config/env and can be stale-large (e.g. 32768
+            # for a 4096-train fine-tune). Loading past n_ctx_train yields "possible
+            # training context overflow" and garbled output. Read the real trained length
+            # from GGUF metadata and clamp EVERY candidate to it — model-agnostic, no
+            # hardcoded sizes. (The GUI smart-fit path already does this; this closes the
+            # same gap on the headless/fallback loader.)
+            _train_ctx = _model_train_ctx()
+            if _train_ctx > 0:
+                req_ctx = min(req_ctx, _train_ctx)
+
             total = int(gpu.get("total_mib") or 0)
             free = int(gpu.get("free_mib") or 0)
             basis = free if free > 0 else total
@@ -1962,17 +2039,29 @@ try:
                     candidates.append({
                         "label": "live-override (last known-good)",
                         "override": True,
-                        "n_ctx": _ov_ctx,
+                        "n_ctx": min(_ov_ctx, _train_ctx) if _train_ctx > 0 else _ov_ctx,
                         "n_gpu_layers": max(0, int(_ov_gpu)),
                         "n_batch": max(32, int(_ov.get("n_batch") or req_batch)),
                     })
             except Exception:
                 pass
 
-            candidates.append({
-                "label": "requested/raw-no-override",
-                "override": False,
-            })
+            # First real attempt. When the trained context is known, force an explicit
+            # capped override (never pass the stale-large raw config through, which would
+            # load past n_ctx_train); otherwise fall back to the raw requested config.
+            if _train_ctx > 0:
+                candidates.append({
+                    "label": "requested-ctx-capped-to-train",
+                    "override": True,
+                    "n_ctx": req_ctx,
+                    "n_gpu_layers": req_gpu,
+                    "n_batch": req_batch,
+                })
+            else:
+                candidates.append({
+                    "label": "requested/raw-no-override",
+                    "override": False,
+                })
 
             # VRAM-aware conservative candidate. This is threshold-based, not
             # machine-name based.  ctx cap is derived from the VRAM formula

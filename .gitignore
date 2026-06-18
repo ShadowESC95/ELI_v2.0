@@ -135,3 +135,8 @@ models/voice_profile/
 
 # Downloaded model caches (whisper, etc.) — large binaries, never commit
 eli/models/
+
+# personal launcher with absolute paths — generated per-machine by scripts/eli_one_click_setup.sh
+eli-mkxi.desktop
+dxdiag.txt
+note_*.md

@@ -194,7 +194,7 @@
 
 # ── Elliptical name follow-up must reach the grounded identity action ───────
 # "and my name?" used to fall to CHAT, where the constitutional critique nuked
-# the correct "Jason" answer to "[no memories found]". Route it to the grounded
+# the correct name answer to "[no memories found]". Route it to the grounded
 # USER_IDENTITY_SUMMARY (returns the name verbatim, no critique).
 - id: bare_my_name_followup_is_identity
   target: router
@@ -641,7 +641,7 @@
 - id: deepen_rubric_self_consistency
   target: engine
   network: off
-  prompt: "explain in depth how a solar-to-hydrogen electrolysis system splits water"
+  prompt: "explain in depth how a water electrolysis system splits water into hydrogen and oxygen"
   assert:
     # Exercises rubric self-consistency: graded 3x, median taken.
     - type: rubric

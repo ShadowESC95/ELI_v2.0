@@ -5709,7 +5709,19 @@ Answer:"""
                 except Exception:
                     pass
                 # ── Context size guard (same logic as non-streaming path) ──
-                _n_ctx = int(getattr(self, '_n_ctx', gen.get('n_ctx', 16384)))
+                # Use the model's REAL usable ceiling (min of loaded n_ctx and
+                # n_ctx_train), not the config default — a model whose trained context
+                # is smaller than the requested/loaded ctx must be sized to its trained
+                # length or the prompt overflows ("Requested tokens exceed context
+                # window"). Falls back to the config value only if no model is loaded.
+                _n_ctx = 0
+                try:
+                    if hasattr(gguf_inference, "current_context_limit"):
+                        _n_ctx = int(gguf_inference.current_context_limit() or 0)
+                except Exception:
+                    _n_ctx = 0
+                if _n_ctx <= 0:
+                    _n_ctx = int(getattr(self, '_n_ctx', gen.get('n_ctx', 16384)))
                 _max_tok_s = int(gen.get('max_tokens', 512))
                 _persona_chars_s = len(_load_persona_text())
                 _query_chars_s = len(prompt or '')
@@ -5868,12 +5880,45 @@ Answer:"""
                     return
 
             except Exception as e:
-                import traceback
-                self._gguf_available = False
-                self._gguf_load_error = str(e)
-                log.debug(f"[COGNITIVE] GGUF streaming failed: {e}")
+                _emsg = str(e)
+                _ctx_overflow = ("context window" in _emsg.lower()
+                                 or "requested tokens" in _emsg.lower())
+                log.debug(f"[COGNITIVE] GGUF streaming failed: {_emsg}")
+                # A context-window overflow is RECOVERABLE — it does not mean the GGUF
+                # backend is dead. Don't flip _gguf_available (that poisons every later
+                # turn), and never surface the raw exception text as ELI's reply. Retry
+                # once via the non-streaming path: generate() now truncates an over-ctx
+                # prompt to the model's real n_ctx_train instead of failing.
+                if not _ctx_overflow:
+                    self._gguf_available = False
+                self._gguf_load_error = _emsg
                 if provider != "ollama":
-                    yield f"GGUF streaming failed: {e}"
+                    _fallback = ""
+                    try:
+                        _fallback = self._get_chat_response(
+                            prompt,
+                            memory_context,
+                            reasoning_mode=reasoning_mode,
+                            gen_overrides={
+                                "max_tokens": int(gen.get("max_tokens") or 256),
+                                "temperature": gen.get("temperature", 0.7),
+                            },
+                            situation_brief=situation_brief,
+                        )
+                    except Exception as _e2:
+                        log.debug(f"[COGNITIVE] non-stream fallback after stream failure also failed: {_e2}")
+                    if _fallback and _fallback.strip():
+                        for token in self._yield_text_chunks(_fallback, chunk_size=12):
+                            yield token
+                        return
+                    if _ctx_overflow:
+                        yield ("I couldn't fit my working context into this model — its trained "
+                               "context window is smaller than the prompt I need to reason over. "
+                               "Load a model with a larger context (e.g. Qwen3-8B) and I'll be back "
+                               "to normal.")
+                    else:
+                        yield ("Something went wrong reaching the local model just now. The error "
+                               "was logged — try again, and if it persists, reload the model.")
                     return
 
         if provider != "ollama":
@@ -6374,7 +6419,7 @@ Answer:"""
             pass
         # Grounded-trust: when the engine already considers this turn well-grounded, the weak
         # local critic must not invent factual problems and delete a correct answer (a grounded
-        # "Jason." was once nuked to "[no memories found]"). Applied as a PROMPT instruction here
+        # the user's name was once nuked to "[no memories found]"). Applied as a PROMPT instruction here
         # AND as a post-filter on the issue list below.
         try:
             _grounding_conf = float(getattr(self, "_current_grounding_confidence", 0.0) or 0.0)

@@ -3,7 +3,7 @@
 Before ELI writes a document / script (or any grounded synthesis) it must INTUIT
 what evidence the task needs, run the real agents/tools to gather it, and
 synthesise from THAT — never from generic priors. This is the hybrid mechanism
-Jason asked for:
+the design requires:
 
   1. plan_channels(): the model proposes which evidence channels THIS task needs
      (intuition/awareness), over a fixed set of *real* evidence sources. A
