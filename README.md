@@ -425,6 +425,17 @@ instant:
 - GPU acceleration still depends on local drivers, CUDA/Metal/MPS support, and
   native wheels.
 
+Full per-capability coverage matrix (what's full vs gracefully-degraded vs desktop-only on
+each OS): **[`docs/CROSS_PLATFORM.md`](docs/CROSS_PLATFORM.md)**.
+
+## Documentation
+- **[Server & Web App](docs/SERVER_AND_WEB_APP.md)** — the self-hosted FastAPI server + mobile
+  web UI: reach ELI from a phone/tablet (loopback-safe, LAN + token), endpoints, setup.
+- **[Train your own model](docs/TRAINING_YOUR_OWN_MODEL.md)** — A-to-Z LoRA/QLoRA fine-tuning
+  into an ELI-native GGUF (persona stays dynamic; voice-only training).
+- **[Cross-platform coverage](docs/CROSS_PLATFORM.md)** — capability × platform matrix.
+- **[Model runtime policy](docs/model_runtime_policy.md)** — how ctx/layers/batch are sized.
+
 ## Security
 
 ELI applies multiple layers of defence-in-depth:
