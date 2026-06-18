@@ -139,9 +139,17 @@ fi
 ok "CPU         ${B}${_CPUS}${R} cores      RAM ${B}${_RAMGB:-?} GB${R}"
 ok "Disk free   ${B}$(df -h "$SCRIPT_DIR" 2>/dev/null | awk 'NR==2{print $4}')${R}   ${D}(a model is ~2-5 GB)${R}"
 if command -v nvidia-smi &>/dev/null; then
-    _GPU="$(nvidia-smi --query-gpu=name --format=csv,noheader 2>/dev/null | head -1)"
-    _VRAM="$(nvidia-smi --query-gpu=memory.total --format=csv,noheader 2>/dev/null | head -1)"
-    [ -n "${_GPU:-}" ] && { ok "GPU         ${B}${GRN}${_GPU}${R}  (${_VRAM})"; HAS_NVIDIA=1; }
+    _NGPU="$(nvidia-smi --query-gpu=name --format=csv,noheader 2>/dev/null | grep -c . || echo 0)"
+    if [ "${_NGPU:-0}" -ge 1 ]; then
+        _GPU0="$(nvidia-smi --query-gpu=name --format=csv,noheader 2>/dev/null | head -1)"
+        _VRAMTOT="$(nvidia-smi --query-gpu=memory.total --format=csv,noheader,nounits 2>/dev/null | awk '{s+=$1} END{printf "%d", s}')"
+        if [ "$_NGPU" -gt 1 ]; then
+            ok "GPU         ${B}${GRN}${_NGPU}× ${_GPU0}${R}  (${_VRAMTOT} MiB total VRAM)   ${D}— scales to multi-GPU${R}"
+        else
+            ok "GPU         ${B}${GRN}${_GPU0}${R}  (${_VRAMTOT} MiB)"
+        fi
+        HAS_NVIDIA=1
+    fi
 fi
 if [ "$HAS_NVIDIA" -eq 0 ]; then
     if [ "$OS" = "Darwin" ]; then ok "GPU         ${B}Apple Metal${R} ${D}(unified memory)${R}"

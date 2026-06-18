@@ -85,6 +85,22 @@ python -m eli.core.model_download --auto      # pick by detected VRAM
 python -m eli.core.model_download qwen2.5-7b  # ~4.7 GB (recommended, 8GB+ GPU)
 ```
 
+### Scaling — 3B laptop → trillion-param on 8× datacenter GPUs
+ELI is **model-, user- and hardware-agnostic by design**, and the *same install* spans the
+whole range — **always local, never cloud, at every scale**:
+- **Loader** sizes each model from its real `n_ctx_train` (GGUF metadata) and fits it to the
+  hardware actually present — VRAM is summed across **all** detected GPUs, layers/batch/ctx
+  are tuned per machine. A 3B on a 4 GB laptop and a 70B+ on a multi-GPU server use one path.
+- **Models** beyond the three built-in starters (1.5B / 3B / 7B): drop any `.gguf` into
+  `models/`, or point ELI at a catalog of your own — `ELI_MODEL_CATALOG=/path/catalog.json`
+  or `models/catalog.json` (same schema: `key`, `name`, `filename`, `url`, `size_gb`,
+  `vram_gb`). That's the supported path for mid/large/huge models without code changes.
+- **Big hardware** (e.g. 8× datacenter GPUs): detection reports total VRAM and `--auto`
+  selects the largest model that fits. *(Multi-GPU tensor-split for a single trillion-param
+  model is on the roadmap — see `blueprints/`.)*
+- **Ethos holds at every tier:** offline-by-default, no telemetry, emergent persona, your
+  data on your hardware — whether that's a Raspberry-Pi-class box or a $250k GPU server.
+
 **Flags (Linux `--flag` / Windows `/flag`):** `--install-cuda` / `/cuda` (auto-install
 the CUDA toolkit + rebuild llama-cpp for users without it), `--cpu-only` / `/cpu`,
 `--latest` / `/latest` (version ranges instead of the frozen `requirements.lock.txt`),
