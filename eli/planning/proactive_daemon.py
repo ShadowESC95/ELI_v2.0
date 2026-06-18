@@ -375,6 +375,17 @@ class ProactiveDaemon:
         except Exception:
             pass
 
+        # ── User Model: goal-aligned signal (tailor proposals to stated goals) ──
+        try:
+            from eli.runtime.user_model import read_user_model
+            _um = read_user_model()
+            _goals = _um.get("goals") or []
+            if isinstance(_goals, list) and _goals:
+                patterns.append({"type": "user_goal",
+                                 "suggestion": f"User goal to support: {_goals[0]}"})
+        except Exception:
+            pass
+
         # ── Pattern 6: Frequent behaviours → proactive proposals ─────────────
         # High-frequency behaviours that never become time-scheduled rules
         # (screenshots, media, news) should still make ELI OFFER to streamline
