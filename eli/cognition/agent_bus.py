@@ -1015,8 +1015,11 @@ class SystemAgent(_BaseAgent):
         "TIME", "DATE",
         # ── Screen intelligence ───────────────────────────────────────────────
         "SCREEN_LOCATE", "OCR_IMAGE", "SCREEN_READ_ANALYZE",
-        # ── Analysis ─────────────────────────────────────────────────────────
-        "ANALYZE_PDF", "ANALYZE_CSV",
+        # NOTE: ANALYZE_PDF / ANALYZE_CSV / ANALYZE_PDF_FOLDER are GGUF-heavy (they call
+        # the model to summarise) — they live in LLM_ACTIONS (deferred to the engine), NOT
+        # here. Running them in the parallel bus phase + the engine's self-contained path
+        # caused the same file to be summarised TWICE (e.g. a 26-page PDF processed once at
+        # ~1255s, then re-processed for ~900s). Deferring them = executed exactly once.
         # ── Notes ────────────────────────────────────────────────────────────
         "WRITE_NOTE", "NEW_NOTE", "LIST_NOTES", "SEARCH_NOTES",
         # ── System stats ─────────────────────────────────────────────────────
@@ -1051,12 +1054,15 @@ class SystemAgent(_BaseAgent):
 
     # LLM-heavy actions: executed by CognitiveEngine after bus returns, never dispatched
     # inside the parallel phase (avoids timeout + double-execution).
-    # SUMMARIZE_FILE uses GGUF. CONVERT_DOCUMENT may use GGUF. All GENERATE_* / FIX_FILE
-    # / DATA_FABRICATOR / SHOW_DIFF are multi-second GGUF calls.
+    # SUMMARIZE_FILE / ANALYZE_PDF(_FOLDER) / ANALYZE_CSV read a file and call GGUF to
+    # summarise it; CONVERT_DOCUMENT may use GGUF; all GENERATE_* / FIX_FILE /
+    # DATA_FABRICATOR / SHOW_DIFF are multi-second GGUF calls. The engine's
+    # self-contained path runs each EXACTLY ONCE and returns the result verbatim.
     LLM_ACTIONS: Set[str] = {
         "GENERATE_SCRIPT", "GENERATE_PROJECT", "GENERATE_DOCUMENT",
         "DOC_GENERATE", "CREATE_DOCUMENT", "FIX_FILE", "DATA_FABRICATOR",
         "SHOW_DIFF", "SUMMARIZE_FILE", "CONVERT_DOCUMENT", "CHAT",
+        "ANALYZE_PDF", "ANALYZE_CSV", "ANALYZE_PDF_FOLDER",
     }
 
     def run(self, user_input: str, intent: Dict[str, Any],
