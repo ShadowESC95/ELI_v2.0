@@ -300,7 +300,7 @@ def personal_memory_surface(question: Any = None) -> str:
                 prefs.append(_item("memories", r["id"], text, 170, 3, ts_value))
             elif source_l == "user" and re.search(r"\beli|mkxi|mkix|gguf|cognition|orchestrator|sqlite|memory|runtime\b", low):
                 eli_project.append(_item("memories", r["id"], text, 160, 3, ts_value))
-            elif source_l == "user" and re.search(r"\bphysics|simulation|field|theory\b|[Ξχφ]", text, re.IGNORECASE):
+            elif source_l == "user" and re.search(r"\bphysics\b|\bchemistry\b|\bbiology\b|\bengineering\b|\bsimulation\b|\bresearch\b|\bexperiment\b|\btheory\b", text, re.IGNORECASE):
                 research.append(_item("memories", r["id"], text, 160, 3, ts_value))
 
     # 3. User conversation turns: last-resort evidence, mostly project/preference examples.
@@ -337,7 +337,7 @@ def personal_memory_surface(question: Any = None) -> str:
             if re.search(r"\beli\b|\bmkxi\b|\bcognition pipeline\b|\borchestrator\b|\bmemory\b|\bruntime\b|\bpersona\.auto\b", low):
                 eli_project.append(_item("conversation_turns", r["id"], text, 90, 1, ts_value))
 
-            if re.search(r"\bphysics\b|\btheory\b|\bsimulation\b|[Ξχφ]", text, re.IGNORECASE):
+            if re.search(r"\bphysics\b|\bchemistry\b|\bbiology\b|\bengineering\b|\btheory\b|\bsimulation\b|\bresearch\b|\bexperiment\b", text, re.IGNORECASE):
                 research.append(_item("conversation_turns", r["id"], text, 90, 1, ts_value))
 
     identity = _uniq(identity, 4)
