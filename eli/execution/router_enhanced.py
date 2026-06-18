@@ -893,7 +893,7 @@ def _route_grounded_runtime_intent(
     # voice and memory. SELF_REPORT is reserved for *technical* runtime queries
     # (model path, gpu layers, provider, context size) — not "who are you".
     # "do you know who I am AND who you are" — a rhetorical/relational identity check that
-    # wants a natural answer addressing BOTH (you're Jason / I'm ELI), not a profile dump.
+    # wants a natural answer addressing BOTH (who you are / I'm ELI), not a profile dump.
     if (re.search(r"\bwho\s+(?:i\s+am|am\s+i)\b", raw, re.I)
             and re.search(r"\bwho\s+(?:you\s+are|are\s+you)\b", raw, re.I)):
         return _mk("CHAT", {"message": raw}, 0.96,
@@ -2864,7 +2864,7 @@ def route(text: str) -> Dict[str, Any]:
                    "path": path}, 0.95, matched_by="fs.list_dir_explicit", entities={"path": path})
 
     # Bare "list/show <path>" WITHOUT a files/contents/directory keyword — e.g.
-    # "list /home/jay/.../artifacts/db", "show ~/Downloads", "list or read ./eli".
+    # "list ~/.../artifacts/db", "show ~/Downloads", "list or read ./eli".
     # Without this the LLM resolver emits the UNSUPPORTED 'LIST_FILE', which falls to
     # CHAT and the model CONFABULATES the directory contents (observed: invented db paths).
     # Require an explicit path token (/, ~, ./, ../) so it never false-matches prose.
@@ -3275,7 +3275,7 @@ def route(text: str) -> Dict[str, Any]:
                        "path": guessed}, 0.86, matched_by="file.fix_fallback", entities={"path": guessed})
 
     # Message starts with a file path (dropped file + instruction format)
-    # e.g. "/home/user/Ξ–χ–φ–A.pdf , tell me what this is about"
+    # e.g. "/home/user/research-doc.pdf , tell me what this is about"
     if raw.strip().startswith(("/", "~/")):
         if ".pdf" in raw.lower():
             _pdf_p = _extract_pdf_path(raw)
@@ -5752,7 +5752,7 @@ def _eli_phase38_identity_contract(raw):
         )
 
     # "do you know who I am AND who you are" — a rhetorical/relational identity check that
-    # wants a natural answer covering BOTH (you're Jason / I'm ELI), not a one-sided
+    # wants a natural answer covering BOTH (who you are / I'm ELI), not a one-sided
     # user-identity summary dump.
     if (_re.search(r"\bwho\s+(?:i\s+am|am\s+i)\b", low)
             and _re.search(r"\bwho\s+(?:you\s+are|are\s+you)\b", low)):

@@ -149,8 +149,8 @@ def test_active_project_set_get_clear(tmp_path, monkeypatch):
     import eli.runtime.active_project as AP
     AP.clear_active()
     assert AP.get_active() is None and AP.active_name() == ""
-    AP.set_active("QMSH", "project.qmsh")
-    assert AP.active_name() == "QMSH" and AP.active_memory_tag() == "project.qmsh"
+    AP.set_active("Atlas", "project.atlas")
+    assert AP.active_name() == "Atlas" and AP.active_memory_tag() == "project.atlas"
     AP.clear_active()
     assert AP.get_active() is None
 
@@ -162,11 +162,11 @@ def test_task_ownership_follows_active_project():
     r0 = ST.schedule_request("research A in 999 minutes", when_spec="in 999 minutes")
     assert r0.get("project") == ""
     ST.forget(r0["pid"])
-    AP.set_active("QMSH", "project.qmsh")
+    AP.set_active("Atlas", "project.atlas")
     r1 = ST.schedule_request("research B in 999 minutes", when_spec="in 999 minutes")
-    assert r1.get("project") == "QMSH"
+    assert r1.get("project") == "Atlas"
     from eli.runtime.background_tasks import get_background_tasks
-    assert (get_background_tasks().get(r1["job_id"])["meta"] or {}).get("project") == "QMSH"
+    assert (get_background_tasks().get(r1["job_id"])["meta"] or {}).get("project") == "Atlas"
     ST.forget(r1["pid"]); AP.clear_active()
 
 

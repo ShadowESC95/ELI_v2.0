@@ -4,6 +4,7 @@ Provides REST endpoints for chat and command execution.
 """
 
 from fastapi import FastAPI, HTTPException
+from fastapi.responses import HTMLResponse
 from pydantic import BaseModel
 from typing import Optional
 import time
@@ -17,6 +18,54 @@ app = FastAPI(
     description="Enterprise API for ELI – locally deployed, private, powerful.",
     version="1.0.0"
 )
+
+# Minimal, dependency-free, mobile-first chat UI. Served at "/". Lets any device
+# with a browser (Android/iOS/desktop) talk to a self-hosted ELI over the network —
+# inference stays on the host running this server (no on-device model build needed).
+_WEB_UI = """<!doctype html>
+<html lang="en"><head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1">
+<title>ELI</title>
+<style>
+  :root { color-scheme: dark; }
+  * { box-sizing: border-box; }
+  body { margin:0; font-family: system-ui,-apple-system,Segoe UI,Roboto,sans-serif;
+         background:#0e0f13; color:#e6e6e6; height:100dvh; display:flex; flex-direction:column; }
+  header { padding:12px 16px; border-bottom:1px solid #23252b; font-weight:600; letter-spacing:.5px; }
+  header small { color:#6b7280; font-weight:400; margin-left:8px; }
+  #log { flex:1; overflow-y:auto; padding:16px; display:flex; flex-direction:column; gap:10px; }
+  .msg { max-width:82%; padding:10px 13px; border-radius:14px; white-space:pre-wrap; line-height:1.45; }
+  .user { align-self:flex-end; background:#1a5fb4; color:#fff; border-bottom-right-radius:4px; }
+  .eli  { align-self:flex-start; background:#1b1d23; border:1px solid #2a2d35; border-bottom-left-radius:4px; }
+  .meta { font-size:11px; color:#6b7280; align-self:center; }
+  form { display:flex; gap:8px; padding:12px; border-top:1px solid #23252b; }
+  #box { flex:1; padding:12px; border-radius:10px; border:1px solid #2a2d35; background:#15171c;
+         color:#e6e6e6; font-size:16px; }
+  button { padding:0 18px; border:0; border-radius:10px; background:#1a5fb4; color:#fff; font-size:16px; }
+  button:disabled { opacity:.5; }
+</style></head><body>
+  <header>ELI <small>local &middot; private</small></header>
+  <div id="log"><div class="meta">Connected to your ELI server. Say hello.</div></div>
+  <form id="f"><input id="box" autocomplete="off" placeholder="Message ELI..."><button id="send">Send</button></form>
+<script>
+  const log=document.getElementById('log'),box=document.getElementById('box'),
+        send=document.getElementById('send'),f=document.getElementById('f');
+  let session=null;
+  let uid=localStorage.getItem('eli_uid');
+  if(!uid){uid='web-'+Math.random().toString(36).slice(2,8);localStorage.setItem('eli_uid',uid);}
+  function add(t,who){const d=document.createElement('div');d.className='msg '+who;d.textContent=t;
+    log.appendChild(d);log.scrollTop=log.scrollHeight;return d;}
+  f.addEventListener('submit',async e=>{e.preventDefault();
+    const text=box.value.trim();if(!text)return;
+    add(text,'user');box.value='';send.disabled=true;const p=add('...','eli');
+    try{const r=await fetch('/v1/chat',{method:'POST',headers:{'Content-Type':'application/json'},
+        body:JSON.stringify({message:text,user_id:uid,session_id:session})});
+      const j=await r.json();session=j.session_id||session;
+      p.textContent=j.response||j.detail||'(no response)';
+    }catch(err){p.textContent='Error: '+err;}
+    finally{send.disabled=false;box.focus();}});
+</script></body></html>"""
 
 # ----------------------------------------------------------------------
 # Request/Response Models
@@ -54,12 +103,18 @@ class StatusResponse(BaseModel):
 # ----------------------------------------------------------------------
 # API Endpoints
 # ----------------------------------------------------------------------
-@app.get("/", tags=["Root"])
+@app.get("/", response_class=HTMLResponse, tags=["Root"])
 async def root():
+    """The web chat UI — open this host in any browser (incl. Android/iOS)."""
+    return HTMLResponse(_WEB_UI)
+
+@app.get("/api", tags=["Root"])
+async def api_info():
     return {
         "service": "ELI Cognitive OS Agent",
         "version": "1.0.0",
-        "documentation": "/docs"
+        "ui": "/",
+        "documentation": "/docs",
     }
 
 @app.get("/health", tags=["System"])

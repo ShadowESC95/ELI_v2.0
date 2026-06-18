@@ -12,7 +12,7 @@ from eli.runtime.profile_extractor import extract_patterns_from_text as _extract
 @pytest.mark.parametrize("fact", [
     "User focuses on ELI cognition pipeline/orchestrator correctness.",
     "User is actively debugging ELI's SQLite-backed memory and recall system.",
-    "User references a Ξ–χ–φ field framework in research/simulation work.",
+    "User references a custom field-theory framework in research/simulation work.",
     "User is interested in quantum gravity.",
     "User is a physicist.",
     "User studies/researches theoretical physics.",
@@ -88,7 +88,7 @@ def test_stale_volatile_dropped_stable_kept(tmp_path, monkeypatch):
     PE._insert_user_pattern(cur, "project.old", "User focuses on the image generator.", ts_value=old)
     PE._insert_user_pattern(cur, "project.cur", "User is actively debugging the memory system.", ts_value=now)
     PE._insert_user_pattern(cur, "preference.style", "User dislikes vague descriptions and wants concrete detail.", ts_value=old)
-    PE._insert_user_pattern(cur, "research.xi_chi_phi", "User references a Ξ–χ–φ field framework in research/simulation work.", ts_value=old)
+    PE._insert_user_pattern(cur, "research.science", "User references a custom field-theory framework in research/simulation work.", ts_value=old)
     con.commit(); con.close()
     monkeypatch.setattr(PM, "USER_DB", db)
     monkeypatch.setattr(PM, "AGENT_DB", tmp_path / "a.sqlite3")
@@ -97,4 +97,4 @@ def test_stale_volatile_dropped_stable_kept(tmp_path, monkeypatch):
     assert "image generator" not in blob          # stale volatile project dropped
     assert "debugging the memory" in blob          # current project kept
     assert "dislikes vague" in blob                # stable preference kept regardless of age
-    assert "Ξ" in blob                             # stable research framework kept
+    assert "field-theory" in blob                  # stable research framework kept

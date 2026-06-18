@@ -10,7 +10,7 @@ from eli.cognition.agent_bus import (
 
 # ── #2: seed-term extraction + multi-hop deepen ──────────────────────────────
 def test_seed_terms_salient_only():
-    t = _memory_seed_terms("User references a Ξ–χ–φ field framework in research work")
+    t = _memory_seed_terms("User references a custom field-theory framework in research work")
     assert "framework" in t and "research" in t
     assert "user" not in [x.lower() for x in t]  # stopword dropped
     assert _memory_seed_terms("what do you know") == []
