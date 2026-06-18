@@ -49,15 +49,21 @@ powershell -ExecutionPolicy Bypass -File install.ps1 -InstallCuda
 ```
 
 **Phone / tablet (Android, iOS) — recommended: self-hosted web app.**
-Don't run inference on the phone (that needs an on-device llama.cpp build). Instead run
-the API server on a machine that *can* do inference (your desktop / a home server) and
-open it from the phone's browser — inference stays on the host:
+Don't run inference on the phone (that needs an on-device llama.cpp build). Run the server
+on a machine that *can* do inference (your desktop / a home server); inference stays on the
+host, nothing reaches the cloud. The server is **safe by default** — loopback-only and
+tokenless — until you explicitly expose it:
 ```bash
 # on the host (Linux/macOS/Windows), after install.sh:
-.venv/bin/python -m api.server          # serves a chat UI at http://<host-ip>:8081/
+./scripts/eli_serve.sh             # local-only  -> http://127.0.0.1:8081/
+./scripts/eli_serve.sh --lan       # LAN access for phone/tablet (binds 0.0.0.0 + token)
 ```
-Then browse to `http://<host-ip>:8081/` from any device on the network. Works on Android,
-iOS, and desktop with zero native build. REST API at `/v1/chat`, docs at `/docs`.
+With `--lan` it prints a token-protected URL like `http://<host-ip>:8081/?token=…` — open
+that once on the phone (same WiFi) and the page remembers the token. Works on Android, iOS,
+and desktop with zero native build. REST API at `/v1/chat`, docs at `/docs`.
+
+**One launcher for everything:** `./scripts/eli_launch.sh` (desktop GUI) ·
+`eli_launch.sh serve --lan` (server) · `eli_launch.sh both` (both at once).
 
 **Android / Termux (experimental, expert-only)** — the Python core can run headless in
 Termux, but `llama-cpp-python`, `torch`, `faiss`, and `PySide6` are excluded from
