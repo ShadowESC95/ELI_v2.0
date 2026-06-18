@@ -2,89 +2,78 @@
 
 # ELI MKXI v2.0 PRO
 
-### Your own AI assistant — running entirely on your computer.
+**A fully local, private AI assistant and cognitive runtime.**
 
-No cloud. No accounts. No subscription. No telemetry. Your data never leaves your machine.
+Runs entirely on your own hardware — no cloud, no accounts, no telemetry.
 
 ![License](https://img.shields.io/badge/license-PolyForm%20Internal%20Use-blue)
 ![Platform](https://img.shields.io/badge/platform-Linux%20·%20macOS%20·%20Windows-lightgrey)
 ![Python](https://img.shields.io/badge/python-3.10%2B-blue)
-![Status](https://img.shields.io/badge/100%25-local%20%26%20private-success)
-![Models](https://img.shields.io/badge/models-bring%20your%20own%20GGUF-orange)
+![Offline](https://img.shields.io/badge/network-offline%20by%20default-informational)
+![Models](https://img.shields.io/badge/models-local%20GGUF-orange)
 
 </div>
 
 ---
 
-ELI is a capable AI assistant that you **own and run yourself** — by typing or speaking. It talks
-with you, operates your computer, reads your screen and documents, writes and fixes code, and
-**learns who you are over time** — all on your own hardware. Think of a private, local alternative
-to a cloud assistant: same kind of help, but it's *yours*, it works offline, and nothing is sent
-to anyone.
-
-> **New here?** Jump to [What can it do?](#-what-can-it-do) · **Want to install it?** → [Quick Start](#-quick-start) ·
-> **Developer?** → [Under the hood](#-under-the-hood)
+ELI is an AI assistant you run yourself. It holds a conversation, operates your computer, reads your
+screen and documents, writes and repairs code, and builds a private model of who you are over time —
+all locally, by typing or speaking. It is offline by default and enforces that at the network socket,
+so your data stays on your machine. It loads a local model of your choosing and auto-tunes it to your
+hardware, from a laptop to a multi-GPU workstation.
 
 ## Contents
-- [What is ELI?](#-what-is-eli)
-- [What can it do?](#-what-can-it-do)
-- [What makes ELI different](#-what-makes-eli-different)
-- [Highlights](#-highlights)
-- [Quick Start](#-quick-start)
-- [Choose your model](#-choose-your-model)
-- [Use it from your phone](#-use-it-from-your-phone)
-- [Privacy](#-privacy)
-- [Documentation](#-documentation)
-- [Under the hood](#-under-the-hood)
-- [Security](#-security)
-- [License](#-license) · [Contact](#-contact)
+- [What is ELI?](#what-is-eli)
+- [What it does](#what-it-does)
+- [Design principles](#design-principles)
+- [Highlights](#highlights)
+- [Quick Start](#quick-start)
+- [Choose your model](#choose-your-model)
+- [Use it from your phone](#use-it-from-your-phone)
+- [Privacy](#privacy)
+- [Documentation](#documentation)
+- [Under the hood](#under-the-hood)
+- [Security](#security)
+- [License](#license) · [Contact](#contact)
 
 ---
 
-## 🤖 What is ELI?
+## What is ELI?
 
-**ELI is a private AI that lives entirely on your own computer.** It talks with you, remembers you
-across months, runs your machine, sees your screen, reads your files, writes and fixes code, builds
-documents from your own evidence — and, uniquely, can **improve its own code** and even **re-train
-its own brain on your conversations.** Unlike Siri, Alexa, or ChatGPT, nothing you say has to leave
-your house: it's **offline by default, enforced at the network socket itself**, with a switch *you*
-control.
+ELI is not a chatbot wrapped around a cloud API. It is a complete local cognitive runtime —
+~140,000 lines of Python implementing a 12-stage reasoning pipeline, 14 specialist agents on a DAG
+orchestrator, layered memory (SQLite + a FAISS vector index + a knowledge graph), local voice and
+vision, a desktop GUI, and a phone-accessible web server. It is model-, user-, and
+hardware-agnostic.
 
-It is not a chatbot bolted onto a cloud API. It's ~140,000 lines of Python that form a complete
-**cognitive runtime for one person and one machine** — a 12-stage reasoning pipeline, **14 specialist
-agents** on a DAG orchestrator, layered memory (SQLite + FAISS vector search + a knowledge graph),
-local voice and vision, a desktop GUI, and a phone-friendly web server. **Model-, user-, and
-hardware-agnostic.**
+Beyond answering questions, it acts on your machine, remembers you across sessions, reports its own
+state from real runtime evidence rather than guessing, and can modify its own source code and
+fine-tune its model on your conversation history. Around **110 distinct capabilities** (193 routable
+actions) sit behind a single typed or spoken interface.
 
-> The honest trade: ELI gives up a few IQ points (the price of running on *your* hardware instead of
-> a datacentre) in exchange for **total privacy, total ownership, genuine self-honesty, and the
-> ability to grow.** That trade is the product.
+The trade-off is deliberate and stated plainly: a model running on local hardware is less capable
+than a large cloud model, in exchange for privacy, ownership, offline operation, and the freedom to
+swap in better open models as they appear.
 
-- **For everyone:** open the app, type or talk — *"play some lo-fi"*, *"what's on my screen?"*,
-  *"remember my dog's name is Rufus"*, *"research solar inverters overnight"*. It just works, privately.
-- **For developers:** **~110 distinct capabilities** (193 routable actions), grounded/anti-confabulation
-  introspection, self-patching with auto-rollback, a real LoRA fine-tuning pipeline, and a socket-level
-  offline guard. Source-available — read it, run it, modify it (see [License](#-license)).
+## What it does
 
-## ✨ What can it do?
+You interact by typing or speaking; it understands many phrasings. Representative commands:
 
-Real things you can say (it understands many phrasings — these are examples):
-
-| | |
+| Area | Examples |
 |---|---|
-| 🎵 **Music & media** | "play Juicy by Notorious B.I.G. on Spotify" · "pause" · "skip" · "what's playing?" |
-| 🪟 **Run your computer** | "open firefox" · "close steam and set an alarm for 7am" · "tile windows" · "volume up" |
-| 👁️ **See your screen & files** | "what's on my screen?" · "summarise report.pdf" · "describe this image" · "analyse data.csv" |
-| ✍️ **Write & code** | "write a report on solar power" · "write a bash script to monitor the GPU" · "fix the bugs in foo.py" |
-| 🧠 **Remember you** | "remember that my sister is Anna" · "what do you know about me?" — a private profile that updates as you talk |
-| 🗓️ **Plan & automate** | "set a timer for 10 minutes" · "research the best inverters overnight" · learns your routines and offers to automate them |
-| 🌐 **Look things up** | "what's the news?" · "weather in Dublin" · "search the web for X" *(the only time it goes online — and it tells you)* |
-| 🎙️ **Hands-free** | wake word "computer", dictation, text-to-speech, and it learns your voice & tone |
+| Computer control | open / close / focus applications, tile windows, set volume, type text, click |
+| Media | play / pause / skip on Spotify or YouTube; "what's playing?" |
+| Screen & documents | "what's on my screen?"; summarise a PDF; describe an image; analyse a CSV |
+| Writing & code | draft a grounded report; write a script; fix bugs in a file; examine a codebase |
+| Memory | "remember that…"; "what do you know about me?" — a private profile that updates as you talk |
+| Planning & automation | alarms, timers, calendar, overnight / scheduled jobs; learns routines and offers to automate them |
+| Information | news synthesis, weather, web search — network-gated, and it tells you when it goes online |
+| Voice | configurable wake word, dictation, text-to-speech; adapts to your voice and tone |
 
-Not sure? Just ask it **"what can you do?"** — it lists everything.
+Asking *"what can you do?"* lists the full surface.
 
 <details>
-<summary><b>The full breadth — ~110 capabilities across 17 areas</b> (click to expand)</summary>
+<summary><b>Full capability breadth — ~110 capabilities across 17 areas</b></summary>
 
 | Area | What's in it |
 |---|---|
@@ -110,39 +99,36 @@ Every action is real and traceable to code — full per-action reference with ex
 generated from the live capability manifest.
 </details>
 
-## 💡 What makes ELI different
+## Design principles
 
-Most "AI assistants" are a thin app talking to someone else's datacentre. ELI inverts every one of
-those assumptions — and that inversion *is* the point:
+What distinguishes ELI from a typical assistant is architectural, not cosmetic. Each principle is
+backed by a concrete mechanism in the codebase:
 
-1. **🔒 It's truly, provably yours.** 100% local. No account, subscription, telemetry, or call-home.
-   "Offline" isn't marketing: a process-wide network guard **fail-closes at the socket layer** — with
-   the Net switch off, outbound connections physically cannot happen. You hold the switch.
+1. **Local and offline-first.** Everything runs on your hardware. A process-wide network guard
+   (`eli/core/netguard`) fail-closes at the socket layer: with networking disabled, no outbound
+   connection can be made, even by a component that tries. Online actions (search, news) are explicit
+   and individually gated.
 
-2. **🧠 It owns no brain — so it never goes obsolete.** ELI is **model-agnostic**: no model name or
-   size is hardcoded on the inference path. Swap in any local GGUF model and it auto-detects how to
-   drive it. As open models get smarter, ELI gets smarter *for free* — no vendor can deprecate it,
-   price-hike it, or read over its shoulder.
+2. **Model-agnostic.** No model name or size is hardcoded on the inference path. ELI loads any local
+   GGUF model, detects its chat template, and sizes context to the model's real `n_ctx_train`. Newer
+   open models can be dropped in without code changes.
 
-3. **🔬 It's honest because it measures itself.** Ask most AIs "how does your memory work?" and they
-   *invent* an answer. Ask ELI and it reads its **live runtime** — real database counts, the actual
-   loaded model, the actual pipeline — and reports from deterministic evidence. A built-in guard also
-   means it **never fakes an action**: if it says it did something, it did.
+3. **Grounded introspection.** Asked about its own state, ELI reports from live runtime evidence —
+   actual database row counts, the loaded model, the active pipeline — rather than generating a
+   plausible answer. A no-fake-actions guard prevents it from claiming an action it did not perform.
 
-4. **🛠️ It improves itself.** ELI logs its own failures and can **write, syntax-check, apply, and
-   auto-roll-back patches to its own code** — safely, in its own project. It can also **fine-tune its
-   own model on your conversations** (a real LoRA/PyTorch pipeline), becoming more *you-shaped* over
-   time — all on your hardware.
+4. **Self-maintaining.** It logs its own failures and can generate, syntax-check, apply, and
+   automatically roll back patches to its own source. A LoRA/QLoRA pipeline (PyTorch/PEFT) can
+   fine-tune the model on your own conversation history.
 
-5. **🦾 It has a body, not just a mouth.** It doesn't only answer — it *acts*: opens apps, plays your
-   music, manages windows, screenshots, reads your clipboard, understands images and your live screen,
-   and can even **click where your eyes are looking** via webcam gaze tracking.
+5. **Embodied.** It operates the desktop directly — applications, windows, input, screenshots,
+   clipboard, image and live-screen understanding, and optional webcam gaze control — not just text.
 
-6. **🫂 It actually knows you.** A continuous, semantic user model is read every turn and feeds the
-   persona, proactivity, reflection, and memory — so you never repeat yourself, and it adapts to your
-   tone and routines.
+6. **User-aware.** A continuous, semantic user model is read on every turn and feeds the persona,
+   proactive, reflection, and memory subsystems, so context persists across sessions and adapts to
+   how you work.
 
-## 🚀 Highlights
+## Highlights
 
 <table>
 <tr>
@@ -169,7 +155,7 @@ those assumptions — and that inversion *is* the point:
 </tr>
 </table>
 
-## 📦 Quick Start
+## Quick Start
 
 **Linux / macOS** — `install.sh` gives you a system report → a plan → installs the right CPU/GPU
 build → offers to download a model sized to your hardware:
@@ -192,7 +178,7 @@ Flags: `--yes` (no prompts) · `--install-cuda` (auto-install CUDA toolkit) · `
 That's it — the first run is a **blank slate** (no preloaded data) with a 10-second, skippable
 "what should I call you?" intro.
 
-## 🧠 Choose your model
+## Choose your model
 
 ELI needs one local **model** (the brain). The installer offers to fetch one sized to your
 hardware, or pick your own — you can grab several and switch anytime:
@@ -217,7 +203,7 @@ You can also drop **any `.gguf`** into `models/`, or point ELI at your own catal
 optional extra. Want ELI to *speak in its own voice* out of the box? Fine-tune your own model —
 see **[`docs/TRAINING_YOUR_OWN_MODEL.md`](docs/TRAINING_YOUR_OWN_MODEL.md)**.
 
-## 📱 Use it from your phone
+## Use it from your phone
 
 ELI includes a built-in web app. Run the server on a machine that can do the thinking (your
 desktop), then chat from your phone's browser over your home Wi-Fi — inference stays on the host,
@@ -230,20 +216,20 @@ nothing reaches the cloud. **Safe by default** (loopback-only) until you explici
 Works on Android, iOS, and desktop with zero native build. Details:
 **[`docs/SERVER_AND_WEB_APP.md`](docs/SERVER_AND_WEB_APP.md)**.
 
-## 🔒 Privacy
+## Privacy
 
 Nothing leaves your computer unless you ask for something online (news, search, downloading a
 model) — and ELI tells you when it does. No accounts, no telemetry, no subscription. A fresh
 install knows **nothing** about you until you talk to it, and you can delete your data anytime.
 
-## 📚 Documentation
+## Documentation
 
 - **[Server & Web App](docs/SERVER_AND_WEB_APP.md)** — self-hosted FastAPI server + phone/web UI
 - **[Train your own model](docs/TRAINING_YOUR_OWN_MODEL.md)** — A-to-Z LoRA/QLoRA into an ELI GGUF
 - **[Cross-platform coverage](docs/CROSS_PLATFORM.md)** — capability × platform matrix
 - **[Model runtime policy](docs/model_runtime_policy.md)** — how ctx/layers/batch are sized
 
-## 🛠 Under the hood
+## Under the hood
 
 <details>
 <summary><b>Architecture / project layout</b></summary>
@@ -312,7 +298,7 @@ PulseAudio/PipeWire; Android/Termux is headless-only; GPU acceleration depends o
 drivers/CUDA/Metal. Full matrix: **[`docs/CROSS_PLATFORM.md`](docs/CROSS_PLATFORM.md)**.
 </details>
 
-## 🛡 Security
+## Security
 
 Defence-in-depth, all local:
 
@@ -324,7 +310,7 @@ Defence-in-depth, all local:
 | Custom-agent trust | SHA-256 registry — unregistered/tampered agent files are skipped at load |
 | Offline-by-default | A process-wide network guard fails closed unless a task is explicitly authorised online |
 
-## 📄 License
+## License
 
 ELI MKXI is **source-available, not open-source**, under the
 **[PolyForm Internal Use License 1.0.0](LICENSE)** — © 2026 Jason Fitzgibbon Bridgeman.
@@ -343,12 +329,12 @@ without warranty.
 > to *use and learn from* — while keeping the right to steward the project rather than have it
 > taken closed and resold.
 
-## 📬 Contact
+## Contact
 
 Questions, feedback, or interested in a license/services beyond the terms above?
 
-- 📧 **Email:** [jaybridgeman0095@gmail.com](mailto:jaybridgeman0095@gmail.com)
-- 🐙 **GitHub:** [@ShadowESC95](https://github.com/ShadowESC95) ·
+- **Email:** [jaybridgeman0095@gmail.com](mailto:jaybridgeman0095@gmail.com)
+- **GitHub:** [@ShadowESC95](https://github.com/ShadowESC95) ·
   [open an issue](https://github.com/ShadowESC95/ELI_MKXI_v2.0_PRO/issues)
 
 For commercial licensing, redistribution rights, or hosting beyond the
