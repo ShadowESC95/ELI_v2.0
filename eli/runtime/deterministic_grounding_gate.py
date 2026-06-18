@@ -849,7 +849,7 @@ def _eli_personal_memory_answer_v2(mode_label: str = "") -> str:
             buckets["runtime / hardware / OS"].append(s)
         elif any(k in low for k in ("direct", "truth", "bullshit", "flattery", "tone", "honest", "precise", "jargon")):
             buckets["tone and working style"].append(s)
-        elif any(k in low for k in ("physics", "xi", "χ", "phi", "scalar", "simulation", "latex", "paper", "theory")):
+        elif any(k in low for k in ("physics", "simulation", "latex", "paper", "theory")):
             buckets["research / theory / writing"].append(s)
         else:
             buckets["other recent signals"].append(s)
@@ -1307,7 +1307,7 @@ def _eli_personal_memory_answer_v2(mode_label: str = "") -> str:  # type: ignore
             buckets["runtime / hardware / OS"].append(s)
         elif any(k in low for k in ("direct", "truth", "bullshit", "flattery", "tone", "honest", "precise", "jargon", "no lies")):
             buckets["tone and working style"].append(s)
-        elif any(k in low for k in ("physics", "xi", "χ", "phi", "scalar", "simulation", "latex", "paper", "theory", "fenics", "openfoam", "meep")):
+        elif any(k in low for k in ("physics", "simulation", "latex", "paper", "theory")):
             buckets["research / theory / writing"].append(s)
         else:
             buckets["other stable memory"].append(s)
@@ -1479,7 +1479,7 @@ def _eli_memory_fact_score_v4(s: str, source_table: str = "") -> int:
         score += 6
     if any(k in low for k in ("eli", "mkxi", "local assistant", "gguf", "runtime", "memory", "persona")):
         score += 3
-    if any(k in low for k in ("physics", "simulation", "latex", "paper", "xi", "χ", "scalar")):
+    if any(k in low for k in ("physics", "simulation", "latex", "paper")):
         score += 3
     if any(k in low for k in ("ubuntu", "fedora", "linux", "gpu", "nvidia", "wine", "steam")):
         score += 2
@@ -1583,7 +1583,7 @@ def _eli_personal_memory_answer_v2(mode_label: str = "") -> str:  # type: ignore
             buckets["runtime / hardware / OS"].append(s)
         elif any(k in low for k in ("direct", "truth", "bullshit", "flattery", "tone", "honest", "precise", "jargon", "no lies", "prefers")):
             buckets["tone and working style"].append(s)
-        elif any(k in low for k in ("physics", "xi", "χ", "phi", "scalar", "simulation", "latex", "paper", "theory", "fenics", "openfoam", "meep")):
+        elif any(k in low for k in ("physics", "simulation", "latex", "paper", "theory")):
             buckets["research / theory / writing"].append(s)
         else:
             buckets["other stable memory"].append(s)
@@ -1774,7 +1774,7 @@ def _eli_memory_fact_score_v5(s: str, source_table: str = "") -> int:
         score += 8
     if any(k in low for k in ("eli", "mkxi", "local assistant", "gguf", "memory", "persona", "cognition", "orchestrator")):
         score += 5
-    if any(k in low for k in ("physics", "simulation", "latex", "paper", "xi", "χ", "scalar")):
+    if any(k in low for k in ("physics", "simulation", "latex", "paper")):
         score += 4
     if any(k in low for k in ("ubuntu", "fedora", "linux", "gpu", "nvidia", "wine", "steam")):
         score += 3
@@ -1871,7 +1871,7 @@ def _eli_personal_memory_answer_v2(mode_label: str = "") -> str:  # type: ignore
             buckets["runtime / hardware / OS"].append(s)
         elif any(k in low for k in ("direct", "truth", "bullshit", "flattery", "tone", "honest", "precise", "jargon", "no lies", "prefers", "step-by-step", "diagnostics")):
             buckets["tone and working style"].append(s)
-        elif any(k in low for k in ("physics", "xi", "χ", "phi", "scalar", "simulation", "latex", "paper", "theory", "fenics", "openfoam", "meep")):
+        elif any(k in low for k in ("physics", "simulation", "latex", "paper", "theory")):
             buckets["research / theory / writing"].append(s)
         else:
             buckets["other stable memory"].append(s)
@@ -2097,7 +2097,7 @@ def _eli_v6_score_fact(s: str, source: str = "") -> int:
         score += 10
     if any(k in low for k in ("eli", "mkxi", "local assistant", "gguf", "memory", "persona", "cognition", "orchestrator", "router", "executor")):
         score += 6
-    if any(k in low for k in ("physics", "simulation", "latex", "paper", "xi", "χ", "scalar", "field", "theory")):
+    if any(k in low for k in ("physics", "simulation", "latex", "paper", "field", "theory")):
         score += 5
     if any(k in low for k in ("ubuntu", "fedora", "linux", "gpu", "nvidia", "wine", "steam", "terminal", "bash", "commands")):
         score += 5
@@ -2219,7 +2219,7 @@ def _eli_personal_memory_answer_v2(mode_label: str = "") -> str:  # type: ignore
             buckets["runtime / hardware / OS"].append(s)
         elif any(k in low for k in ("direct", "truth", "bullshit", "flattery", "tone", "honest", "precise", "jargon", "no lies", "prefers", "step-by-step", "diagnostics", "thorough", "meticulous")):
             buckets["tone and working style"].append(s)
-        elif any(k in low for k in ("physics", "xi", "χ", "phi", "scalar", "simulation", "latex", "paper", "theory", "fenics", "openfoam", "meep", "field")):
+        elif any(k in low for k in ("physics", "simulation", "latex", "paper", "theory", "field")):
             buckets["research / theory / writing"].append(s)
         else:
             buckets["other stable memory"].append(s)
@@ -2471,7 +2471,7 @@ def _eli_v8_bucket_for_fact(fact: str) -> str:
 
     if any(k in low for k in (
         "physics", "simulation", "field", "latex", "paper", "theory",
-        "fenics", "openfoam", "meep", "scalar"
+        
     )):
         return "research / theory / writing"
 
@@ -2736,7 +2736,7 @@ def _eli_v9_bucket_for_fact(fact: str) -> str:
 
     if any(k in low for k in (
         "physics", "simulation", "field", "latex", "paper", "theory",
-        "fenics", "openfoam", "meep", "scalar"
+        
     )):
         return "research / theory / writing"
 
@@ -3080,7 +3080,7 @@ def _eli_v10_personal_memory_answer(mode_label: str = "") -> str:
             bucket = "ELI / local assistant engineering"
         elif any(k in low for k in (
             "physics", "simulation", "field", "latex", "paper", "theory",
-            "fenics", "openfoam", "meep", "scalar"
+            
         )):
             bucket = "research / theory / writing"
         elif any(k in low for k in (
