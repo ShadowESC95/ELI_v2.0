@@ -363,7 +363,7 @@ section "Launch"
 echo "  ${B}./scripts/eli_launch.sh${R}              ${D}# desktop app (GUI)${R}"
 echo "  ${B}./scripts/eli_launch.sh serve --lan${R}  ${D}# web app for phone / tablet${R}"
 echo "  ${B}./eli.sh${R}                             ${D}# also launches the desktop app${R}"
-echo "  ${B}./scripts/install_desktop_apps.sh${R}    ${D}# add ELI Pro + ELI Server to your app menu (Linux)${R}"
+echo "  ${B}./scripts/install_desktop_apps.sh${R}    ${D}# add ELI Pro + ELI Server to your app menu (Linux/macOS)${R}"
 echo
 if [ "$MODEL_STATUS" = "none yet" ] || [ "$MODEL_STATUS" = "download failed (fetch later)" ]; then
     echo "  ${D}No model yet — the first-run wizard offers a download, or run:${R}"

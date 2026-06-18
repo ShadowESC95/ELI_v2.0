@@ -253,7 +253,7 @@ Use project-relative paths, `ELI_PROJECT_ROOT`, or the path helpers in
 - `eli/cli` — headless REPL (`eli --headless`)
 - `config` — portable default settings and templates
 - `models` — local model payloads (gitignored, distribute separately)
-- `tests` — pytest suite (6,600+ tests across 152 files; unit, integration, and
+- `tests` — pytest suite (6,800+ tests across 160+ files; unit, integration, and
   claim-verification)
 - `packaging` — Windows, macOS, Linux packaging scripts
 - `dist` — generated release artifacts

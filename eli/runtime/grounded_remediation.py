@@ -189,7 +189,8 @@ def _sudo_cached() -> bool:
     return check["rc"] == 0
 
 def _terminal_script_unix(cmd: str, log_path: Path, rc_path: Path, sh_path: Path):
-    """Write the shared bash runner (Linux + macOS). Returns (sh_path, err|None)."""
+    """Write the POSIX shell runner (Linux + macOS; Windows uses the PowerShell path
+    in _terminal_build_windows). Returns (sh_path, err|None)."""
     script = f"""#!/usr/bin/env bash
 LOG={_q(str(log_path))}
 RCF={_q(str(rc_path))}
