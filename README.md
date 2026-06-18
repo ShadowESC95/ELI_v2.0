@@ -69,6 +69,14 @@ and desktop with zero native build. REST API at `/v1/chat`, docs at `/docs`.
 
 **One launcher for everything:** `./scripts/eli_launch.sh` (desktop GUI) ·
 `eli_launch.sh serve --lan` (server) · `eli_launch.sh both` (both at once).
+Windows: `.\eli.bat` (GUI) · `.\scripts\eli_serve.ps1 -Lan` (server).
+
+**Desktop apps (app-menu / Start-Menu launchers for both ELI Pro and the web server):**
+`./scripts/install_desktop_apps.sh` (Linux `.desktop` / macOS `.command`) ·
+`powershell -ExecutionPolicy Bypass -File scripts\install_desktop_apps.ps1` (Windows Start Menu).
+
+All three installers are now **interactive + identical in what they install** (system report
+→ plan → model offer; `--yes`/`-Yes` for non-interactive/CI) across Linux, macOS, and Windows.
 
 **Android / Termux (experimental, expert-only)** — the Python core can run headless in
 Termux, but `llama-cpp-python`, `torch`, `faiss`, and `PySide6` are excluded from
