@@ -61,6 +61,25 @@ input device works** — chat, memory, search, code, file ops, scheduling, statu
 not available over a remote/headless API — by nature, not by bug. A phone talking to a
 desktop-hosted server gets the full *assistant*; the desktop-control actions run on the host.
 
+## System dependencies (the binaries pip can't install)
+**Core ELI — chat, memory, RAG, GGUF inference, the GUI, and the web server — needs only the
+pip packages** and works right after install with no system tools. Some *optional* features need
+OS-level binaries; the installers handle these best-effort:
+
+| Feature | System dep | Linux (`install.sh`) | macOS (`install.sh`) | Windows (`install.ps1`) |
+|---|---|---|---|---|
+| Screen OCR | `tesseract` | apt/dnf/pacman | brew | winget (UB-Mannheim) |
+| Voice input (mic) | PortAudio | apt/dnf/pacman | brew | bundled in the PyAudio wheel |
+| Media playback / Whisper | `ffmpeg`, `mpv` | apt/dnf/pacman | brew | winget (FFmpeg) |
+| Desktop control | xdotool, wmctrl, scrot, xclip/wl-clipboard, libnotify | apt/dnf/pacman | native APIs | native APIs |
+| GPU offload | CUDA toolkit / Metal | `--install-cuda` (apt/dnf/pacman) | Metal (built in) | `/cuda` (winget) |
+| Web automation | playwright browsers | `playwright install` | `playwright install` | `playwright install` |
+| Volume / clipboard / notifications | — | system tools above | native (osascript/pbcopy) | native (pycaw/clip/plyer) |
+
+The installer installs these **when a package manager + sudo/admin is available**; otherwise it
+**prints the exact command** so you can run it. None are required for ELI to start — missing ones
+only disable that one optional feature (gracefully).
+
 ## Verifying on your platform
 - `python -c "from eli.utils.platform_compat import normalize_platform; print(normalize_platform())"`
   → prints `linux`/`macos`/`windows`/`android`.
