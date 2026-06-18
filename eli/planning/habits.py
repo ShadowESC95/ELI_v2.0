@@ -130,6 +130,24 @@ def _extract_hour_minute(ts):
     return dt.hour, dt.minute
 
 
+def _extract_day_key(ts):
+    """Return a calendar-day key (date ordinal) for a REAL unix timestamp, or None
+    for synthetic/dateless timestamps. Used to count how many *distinct days* a
+    behaviour recurred on — a genuine routine repeats across days, not 3 times in
+    one afternoon. Synthetic HHMM test timestamps (<=2359) carry no date, so they
+    return None and detection falls back to the raw-count gate."""
+    try:
+        iv = int(float(ts))
+    except (TypeError, ValueError):
+        return None
+    if iv <= 2359:  # synthetic HHMM or missing — no real calendar date
+        return None
+    try:
+        return datetime.fromtimestamp(float(ts)).date().toordinal()
+    except (OverflowError, OSError, ValueError):
+        return None
+
+
 def _round_up_to_next_5(minute: int) -> tuple[int, int]:
     """
     Round minute UP to the next 5-minute boundary.
@@ -148,13 +166,19 @@ def _round_up_to_next_5(minute: int) -> tuple[int, int]:
     return 0, rounded
 
 
-def detect_habits(days: int = 14, min_occurrences: int = 3):
+def detect_habits(days: int = 14, min_occurrences: int = 3, min_days: int = 3):
     """
     Analyze habit events to detect repeated behavior.
 
     App launches still create time-based automation rules. Other repeated
     command/failure/correction patterns become observations so ELI can adapt
     without pretending every habit should become an executable schedule.
+
+    Smarter, user-tailored gate: a real routine recurs on *distinct days*, not 3
+    times in one afternoon. When events carry real timestamps, a suggestion is only
+    created when the (app, hour) pattern appears on >= ``min_days`` separate calendar
+    days — so ELI proposes genuine routines instead of nonsense from a single-session
+    burst. Synthetic/dateless events fall back to the raw >= ``min_occurrences`` count.
     """
     mem = get_memory()
     # Self-heal: drop legacy un-schedulable rows (NULL time + command==name) that
@@ -167,6 +191,7 @@ def detect_habits(days: int = 14, min_occurrences: int = 3):
     events = mem.get_habit_events(event_type=None, days=days)
 
     clusters = defaultdict(list)
+    cluster_days = defaultdict(set)  # (app, command, hour) -> {distinct calendar days}
     behavior_counts = Counter()
     behavior_examples = {}
 
@@ -224,12 +249,24 @@ def detect_habits(days: int = 14, min_occurrences: int = 3):
             # Timestamp-less / degenerate event — don't fabricate a 00:00 habit.
             continue
         hour, minute = hm
-        clusters[(str(app), command, int(hour))].append(int(minute))
+        _ckey = (str(app), command, int(hour))
+        clusters[_ckey].append(int(minute))
+        _day = _extract_day_key(ts)
+        if _day is not None:
+            cluster_days[_ckey].add(_day)
 
     existing_rules = mem.get_habit_rules(enabled_only=False)
 
     for (app, command, hour), minutes in clusters.items():
-        if len(minutes) < int(min_occurrences):
+        # Recurrence gate. Prefer distinct-day evidence (a genuine routine repeats
+        # across days); fall back to the raw count only when events are dateless
+        # (synthetic timestamps). This stops single-session bursts — "opened the app
+        # 3× this afternoon" — from being proposed as a daily habit.
+        _days_seen = cluster_days.get((app, command, hour))
+        if _days_seen:
+            if len(_days_seen) < int(min_days):
+                continue
+        elif len(minutes) < int(min_occurrences):
             continue
 
         # Representative minute from the cluster
