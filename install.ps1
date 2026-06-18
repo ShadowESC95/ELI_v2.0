@@ -231,6 +231,15 @@ if ($existingModel) {
     if ($LASTEXITCODE -eq 0) { $ModelStatus = "downloaded" } else { $ModelStatus = "download failed (fetch later)" }
 }
 
+# Required support model: the text embedder (memory/RAG). Tiny (~85 MB), not optional;
+# fetch it whenever online is allowed, even if a chat model was already present/skipped.
+if (-not $NoModel) {
+    Write-Host "[..] Ensuring the text embedder (required for memory/RAG) is present..."
+    & $PythonVenv -m eli.core.model_download --aux
+    if ($LASTEXITCODE -eq 0) { Write-Host "[OK] Embedder ready." -ForegroundColor Green }
+    else { Write-Host "[WARN] Embedder fetch deferred (run: python -m eli.core.model_download --aux)" -ForegroundColor Yellow }
+}
+
 Write-Host ""
 Write-Host "==================================================" -ForegroundColor Green
 Write-Host "  ELI MKXI - installation complete" -ForegroundColor Green

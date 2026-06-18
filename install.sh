@@ -339,6 +339,18 @@ elif [ "$NO_MODEL" -eq 0 ] && [ -n "$FETCH_MODEL" ]; then
     fi
 fi
 
+# Required support model: the text embedder (memory/RAG/knowledge-graph). Tiny
+# (~85 MB) and not optional, so fetch it whenever we're allowed online — even if a
+# chat model was already present or skipped. (download_aux is idempotent.)
+if [ "$NO_MODEL" -eq 0 ]; then
+    info "Ensuring the text embedder (required for memory/RAG) is present..."
+    if "$PYTHON_VENV" -m eli.core.model_download --aux; then
+        ok "Embedder ready."
+    else
+        warn "Embedder fetch deferred — get it later with: python -m eli.core.model_download --aux"
+    fi
+fi
+
 echo
 if [ "$VERIFY_OK" -eq 1 ]; then
     echo "${B}${GRN}╔══════════════════════════════════════════════╗${R}"

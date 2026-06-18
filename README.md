@@ -109,7 +109,7 @@ python -m eli.core.model_download --auto      # pick by detected VRAM
 python -m eli.core.model_download qwen2.5-7b  # ~4.4 GB (recommended, 8GB+ GPU)
 ```
 
-**Optional model downloads** (pick some, or none — drop your own `.gguf` in `models/` too):
+**Optional chat models** (pick some, or none — drop your own `.gguf` in `models/` too):
 
 | key | model | size | VRAM |
 |---|---|---|---|
@@ -117,7 +117,16 @@ python -m eli.core.model_download qwen2.5-7b  # ~4.4 GB (recommended, 8GB+ GPU)
 | `qwen2.5-7b` | Qwen2.5-7B-Instruct *(default)* | ~4.4 GB | 8 GB+ |
 | `qwen3-8b` | Qwen3-8B (40K ctx, reasoning; LoRA base) | ~4.7 GB | 8 GB+ |
 | `falcon3-10b` | Falcon3-10B-Instruct | ~5.9 GB | 12 GB+ |
-| `qwen3-30b-a3b` | Qwen3-30B-A3B (MoE, 3B active) | ~17.4 GB | 20 GB+ / CPU |
+| `phi-4` | Phi-4 (14B dense, MIT) | ~8.4 GB | 12 GB+ |
+| `qwen3.6-35b-a3b` | Qwen3.6-35B-A3B (MoE, 3B active, Apache-2.0) | ~20.6 GB | 24 GB+ / CPU |
+| `falcon-h1-34b` | Falcon-H1-34B-Instruct (hybrid attn+SSM) | ~18.9 GB | 24 GB+ / CPU |
+
+**Support models** — the installer fetches these automatically; you don't pick them:
+- **Embedder** (`nomic-embed-text-v1.5`, ~85 MB) — **required** for memory / RAG / knowledge-graph
+  recall; auto-installed (`python -m eli.core.model_download --aux` to fetch manually).
+- **Vision** (`Qwen2.5-VL-7B` + projector, optional) — for screen/image understanding:
+  `python -m eli.core.model_download --aux-all`. Speech-to-text (faster-whisper) downloads its
+  own model on first use.
 
 ### Scaling — laptop to workstation, one install
 ELI is **model-, user- and hardware-agnostic by design**: the *same install* fits whatever
