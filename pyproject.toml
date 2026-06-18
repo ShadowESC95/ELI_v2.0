@@ -8,7 +8,9 @@ version = "2.0.0"
 description = "ELI MKXI v2.0 PRO — Local cognitive runtime, assistant GUI, memory, tools, and GGUF inference"
 readme = "README.md"
 requires-python = ">=3.10"
-license = "LicenseRef-Proprietary"
+# Source-available (NOT open-source): use + modify for internal/personal use; no
+# redistribution. Full terms in LICENSE. All commercial/distribution rights reserved.
+license = "LicenseRef-PolyForm-Internal-Use-1.0.0"
 authors = [{ name = "ELI Contributors" }]
 keywords = ["ai", "assistant", "llm", "local", "gpu", "gguf"]
 classifiers = [
