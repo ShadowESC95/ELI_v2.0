@@ -150,3 +150,13 @@ pandas==3.0.3
 matplotlib==3.10.9
 huggingface-hub==1.19.0
 pyflakes==3.4.0
+
+# ── FastAPI/uvicorn server transitive stack (reproducibility; pinned 2026-06-18) ──
+starlette==1.3.1
+sse-starlette==3.4.4
+starlette-context==0.5.1
+httptools==0.8.0
+watchfiles==1.2.0
+websockets==16.0
+sniffio==1.3.1
+uvloop==0.22.1 ; sys_platform != "win32"
