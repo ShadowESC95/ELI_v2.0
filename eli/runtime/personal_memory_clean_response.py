@@ -47,7 +47,7 @@ _FACT_PATTERNS = [
     r"\bUser is using\b.{3,220}",
     # Biographical / interest / project / research facts were being DROPPED:
     # the extractor emits "User focuses on…", "is actively debugging…",
-    # "references a Ξ–χ–φ field framework…", but none matched the narrow set
+    # "references a research framework…", but none matched the narrow set
     # above, so recall only ever surfaced response-preferences. Surface the
     # full curated fact set from user_patterns (a reset-aware SQLite table).
     r"\bUser focuses on\b.{3,220}",

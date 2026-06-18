@@ -1730,7 +1730,7 @@ class Memory(metaclass=_MemoryMeta):
             out = []
             for r in rows:
                 tags_s = str(r[2] or "")
-                # guard against substring false-positives (e.g. project.qm vs project.qmsh)
+                # guard against substring false-positives (e.g. project.a vs project.alpha)
                 if tag not in [x.strip() for x in tags_s.replace(",", " ").split()]:
                     if tag not in tags_s:
                         continue

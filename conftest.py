@@ -199,7 +199,7 @@ def tmp_db(tmp_path):
 def populated_db(tmp_db):
     """tmp_db with 10 varied memory rows covering all filter/recall scenarios."""
     rows = [
-        ("My name is Jason",                  "user",         "2024-01-01T00:00:00", 1.0, "user",   "identity"),
+        ("My name is Alex",                    "user",         "2024-01-01T00:00:00", 1.0, "user",   "identity"),
         ("I love jazz music",                  "user",         "2024-01-02T00:00:00", 1.0, "user",   "music"),
         ("My favourite language is Python",    "user",         "2024-01-03T00:00:00", 1.0, "user",   "skills,python"),
         ("I prefer dark mode interfaces",      "user",         "2024-01-04T00:00:00", 0.8, "user",   "preferences"),

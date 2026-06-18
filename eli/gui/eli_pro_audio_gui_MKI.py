@@ -924,18 +924,33 @@ class LocalModelManager:
                     # speed), so the fraction is a real speed↔context dial. An explicit
                     # SMALLER settings n_ctx still caps it (user wants less). No hardcode.
                     _sf_train = int(_sf_train_ctx(str(path_obj)))  # model's REAL n_ctx_train (metadata)
-                    # Right-size, don't max: request only what ELI's brief + generation needs
-                    # (ELI_CTX_TARGET, ~16k), capped to the model's real trained context. A smaller
-                    # ctx frees VRAM so smart_fit keeps MORE GPU layers on the card — and never
-                    # truncates the persona/memory brief (the target sits well above it).
-                    _sf_target = int(_sf_os.environ.get("ELI_CTX_TARGET", "16384") or "16384")
+                    # ELI's NEED, derived (not a magic number): the full persona/memory brief
+                    # budget + a generation reserve. Sizing ctx below this is what forces the
+                    # head/tail chop that mangles the prompt → weak-model garbage. So this is a
+                    # FLOOR, not just a target: any model that CAN hold the brief is never asked
+                    # for less, so the brief is never chopped. Both terms are env-tunable, and an
+                    # explicit user n_ctx still overrides — fully alterable.
+                    _sf_brief_floor = int(_sf_os.environ.get("ELI_CTX_BRIEF_FLOOR", "12288") or "12288")
+                    _sf_gen_reserve = int(_sf_os.environ.get("ELI_CTX_GEN_RESERVE", "4096") or "4096")
+                    _eli_need = _sf_brief_floor + _sf_gen_reserve            # ~16k: brief + generation
+                    # Target defaults to ELI's need; never below it. A bigger ctx just costs VRAM
+                    # (→ fewer GPU layers), so we right-size to the need rather than maxing the
+                    # model's full trained length — keeps layers on the GPU AND fits the brief.
+                    _sf_target = int(_sf_os.environ.get("ELI_CTX_TARGET", str(_eli_need)) or str(_eli_need))
+                    _sf_target = max(_sf_target, _eli_need)
                     _sf_user_ctx = max(2048, (min(_sf_target, _sf_train) // 2048) * 2048)
+                    # No-chop floor: if the model's trained context can hold ELI's brief, request
+                    # at least that — even when VRAM is tight (smart_fit sheds layers→batch→ctx,
+                    # so ctx is preserved). Guarantees the persona/memory brief is never truncated
+                    # on a capable model. (A model below the need — e.g. the 4k phi-3 — can't be
+                    # raised past its trained length, so it's flagged incompatible below instead.)
+                    if _sf_train >= _eli_need:
+                        _sf_user_ctx = max(_sf_user_ctx, (_eli_need // 2048) * 2048)
                     if _user_ctx and 2048 <= int(_user_ctx) <= _sf_train:
                         _sf_user_ctx = int(_user_ctx)  # explicit user ctx wins (capped to real ctx)
                     # Incompatibility guard: a model whose ENTIRE trained context is smaller than
                     # ELI's prompt budget can't run without truncating persona/memory — warn loudly
                     # instead of silently degrading or limping onto the CPU (the 4k phi-3 case).
-                    _sf_brief_floor = int(_sf_os.environ.get("ELI_CTX_BRIEF_FLOOR", "12288") or "12288")
                     if _sf_train < _sf_brief_floor:
                         log.warning(
                             f"[GUI][LOAD] model trained context {_sf_train} < ELI's prompt budget "
