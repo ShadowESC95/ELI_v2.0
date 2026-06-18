@@ -3556,8 +3556,8 @@ class EliMainWindow(QMainWindow):
         self.create_coding_tab()
         self.create_tasks_tab()
         self.create_report_builder_tab()
-        self.create_test_review_tab()
-        self.create_orchestration_tab()
+        # Orchestration + Test & Review are developer/diagnostic tools — they live as
+        # sub-tabs under Labs (LabsTab), not as prominent top-level tabs.
         # Experimental tab removed — gaze control is wired as a toggle in Settings.
         self.create_eli_world_tab()
         self.create_settings_tab()
@@ -6561,30 +6561,8 @@ class EliMainWindow(QMainWindow):
             fallback.setWordWrap(True)
             self.tabs.addTab(fallback, "📄 Report Builder")
 
-    def create_test_review_tab(self):
-        """Test & Review as a top-level main tab (promoted out of Labs): run the full
-        suite, ELI summarises, backups + errors file written, result-driven options."""
-        try:
-            from eli.gui.labs_tab import _TestReviewTab
-            self._test_review_widget = _TestReviewTab(
-                eli_callback=self._engine_ask, chat_callback=self.send_to_chat)
-            self.tabs.addTab(self._test_review_widget, "🧪 Test & Review")
-        except Exception as e:
-            fallback = QLabel(f"Test & Review unavailable: {e}")
-            fallback.setWordWrap(True)
-            self.tabs.addTab(fallback, "🧪 Test & Review")
-
-    def create_orchestration_tab(self):
-        """Orchestration as a top-level main tab (promoted out of Labs): the live agent
-        DAG — execution layers, dependencies, critical path, and last-run telemetry."""
-        try:
-            from eli.gui.labs_tab import _OrchestrationTab
-            self._orchestration_widget = _OrchestrationTab()
-            self.tabs.addTab(self._orchestration_widget, "🧭 Orchestration")
-        except Exception as e:
-            fallback = QLabel(f"Orchestration unavailable: {e}")
-            fallback.setWordWrap(True)
-            self.tabs.addTab(fallback, "🧭 Orchestration")
+    # Orchestration + Test & Review are now Labs sub-tabs (developer/diagnostic tools),
+    # built inside LabsTab — see eli/gui/labs_tab.py. They are no longer top-level tabs.
 
     def create_files_tab(self):
         files_widget = QWidget()

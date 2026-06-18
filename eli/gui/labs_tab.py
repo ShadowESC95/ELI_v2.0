@@ -2848,7 +2848,7 @@ class _ReportTab(QWidget):
         seen = set()
         terms: List[str] = []
         blob = " ".join(str(part or "") for part in parts)
-        for token in re.findall(r"[A-Za-zΑ-Ωα-ωΞχφµμ][A-Za-z0-9Α-Ωα-ωΞχφµμ_-]{2,}", blob):
+        for token in re.findall(r"[A-Za-zΑ-Ωα-ωµμ][A-Za-z0-9Α-Ωα-ωµμ_-]{2,}", blob):
             low = token.lower()
             if low in stop or low in seen:
                 continue
@@ -5257,53 +5257,102 @@ class _SimIDETab(QWidget):
 # Orchestration sub-tab — read-only view of the agent DAG + last RunReport
 # ═══════════════════════════════════════════════════════════════════════════
 class _OrchestrationTab(QWidget):
-    """Live wiring of the agent DAG orchestrator: execution layers, dependencies,
-    critical path, and the last dispatch's per-node RunReport. Refresh to re-read."""
+    """Visual view of the agent DAG: agents laid out by execution layer and colour-coded
+    by the last dispatch's result, a plain-English summary of the last turn, the
+    dependencies, and the per-node trace. Auto-refreshes so the last-turn view stays
+    current; 'Refresh' re-reads immediately. This is an explainability view — it shows
+    WHICH agents ran and how the last answer was grounded, not just static wiring."""
+
+    _OK = "#a3be8c"; _FAIL = "#bf616a"; _SKIP = "#5c6370"; _IDLE = "#4c566a"
+    _STATUS = {"ok": _OK, "success": _OK, "done": _OK, "completed": _OK, "passed": _OK,
+               "failed": _FAIL, "error": _FAIL, "errored": _FAIL,
+               "skipped": _SKIP, "skip": _SKIP}
 
     def __init__(self, parent=None):
         super().__init__(parent)
-        from PySide6.QtWidgets import QVBoxLayout, QPushButton, QTextEdit, QLabel
+        from PySide6.QtWidgets import QVBoxLayout, QHBoxLayout, QPushButton, QTextEdit, QLabel
+        from PySide6.QtCore import QTimer
         lay = QVBoxLayout(self)
-        lay.addWidget(QLabel("Agent DAG orchestrator — live wiring + last run"))
+        hdr = QLabel("🧭 Agent DAG — live wiring + last-turn trace")
+        hdr.setStyleSheet("font-weight:bold;padding:2px;")
+        lay.addWidget(hdr)
+        self._summary = QLabel("(no dispatch recorded yet — talk to ELI first)")
+        self._summary.setWordWrap(True)
+        self._summary.setStyleSheet("padding:4px 2px;color:#d8dee9;")
+        lay.addWidget(self._summary)
         self._view = QTextEdit()
         self._view.setReadOnly(True)
-        self._view.setStyleSheet("font-family: monospace;")
         lay.addWidget(self._view)
+        row = QHBoxLayout()
         btn = QPushButton("↻ Refresh")
         btn.clicked.connect(self.refresh)
-        lay.addWidget(btn)
+        row.addWidget(btn); row.addStretch(1)
+        lay.addLayout(row)
+        try:
+            self._timer = QTimer(self)
+            self._timer.timeout.connect(self.refresh)
+            self._timer.start(3000)
+        except Exception:
+            pass
         self.refresh()
+
+    def _chip(self, label, color):
+        return (f'<span style="background:{color};color:#1a1f2e;padding:2px 9px;'
+                f'border-radius:9px;font-weight:bold;">{label}</span>&nbsp;')
 
     def refresh(self):
         try:
             from eli.cognition.agent_bus import orchestration_snapshot
             snap = orchestration_snapshot()
-            lines = [
-                f"Engine: {snap.get('engine')}",
-                f"Agents: {snap.get('count')}   |   Critical path: {snap.get('critical_path')} layer(s)",
-                "", "Execution layers (parallel within each):",
-            ]
-            for i, layer in enumerate(snap.get("execution_layers") or []):
-                lines.append(f"  layer {i}: " + ", ".join(layer))
-            if snap.get("dependencies"):
-                lines += ["", "Dependencies:"] + [
-                    f"  {k} ← {', '.join(v)}" for k, v in snap["dependencies"].items()]
-            last = snap.get("last_run")
-            if last:
-                lines += [
-                    "", "Last dispatch:",
-                    f"  ok={last.get('ok')}   {last.get('seconds')}s   "
-                    f"critical_path={last.get('critical_path')}",
-                    f"  failed={last.get('failed')}   skipped={last.get('skipped')}",
-                ]
-                for nid, nd in sorted((last.get("nodes") or {}).items()):
-                    lines.append(f"    {nid}: {nd.get('status')} "
-                                 f"({nd.get('seconds')}s, {nd.get('attempts')} attempt(s))")
-            else:
-                lines += ["", "(no dispatch recorded yet — talk to ELI first)"]
-            self._view.setPlainText("\n".join(lines))
         except Exception as e:
-            self._view.setPlainText(f"orchestration unavailable: {e}")
+            self._view.setHtml(f"<p style='color:#bf616a'>orchestration unavailable: {e}</p>")
+            return
+        last = snap.get("last_run") or {}
+        nodes = last.get("nodes") or {}
+
+        if last:
+            self._summary.setText(
+                f"Last turn: {snap.get('count')} agents across {snap.get('critical_path')} "
+                f"layer(s) — {'completed OK' if last.get('ok') else 'completed with issues'} "
+                f"in {last.get('seconds')}s "
+                f"({last.get('failed', 0)} failed, {last.get('skipped', 0)} skipped).")
+        else:
+            self._summary.setText("(no dispatch recorded yet — talk to ELI, then Refresh)")
+
+        h = ["<div style='font-family:sans-serif;font-size:12px;'>",
+             f"<b>Engine:</b> {snap.get('engine')} &nbsp;|&nbsp; "
+             f"<b>Agents:</b> {snap.get('count')} &nbsp;|&nbsp; "
+             f"<b>Critical path:</b> {snap.get('critical_path')} layer(s)<br><br>",
+             "<b>Execution layers</b> (agents in a layer run in parallel; colour = last run):<br>"]
+        for i, layer in enumerate(snap.get("execution_layers") or []):
+            h.append(f"<div style='margin:5px 0;'><span style='color:#81a1c1;'>layer {i} →</span>&nbsp; ")
+            for agent in layer:
+                st = str((nodes.get(agent) or {}).get("status", "")).lower()
+                h.append(self._chip(agent, self._STATUS.get(st, self._IDLE)))
+            h.append("</div>")
+        h.append("<br><span style='font-size:11px;color:#9aa5b1;'>"
+                 + self._chip("ok", self._OK) + "ran ok &nbsp;&nbsp;"
+                 + self._chip("failed", self._FAIL) + "failed &nbsp;&nbsp;"
+                 + self._chip("skipped", self._SKIP) + "skipped &nbsp;&nbsp;"
+                 + self._chip("idle", self._IDLE) + "not run last turn</span>")
+        deps = snap.get("dependencies") or {}
+        if deps:
+            h.append("<br><br><b>Dependencies:</b><br>")
+            for k, v in deps.items():
+                h.append(f"&nbsp;&nbsp;{k} &nbsp;⟵&nbsp; {', '.join(v)}<br>")
+        if nodes:
+            h.append("<br><b>Last dispatch — per agent:</b>"
+                     "<table cellspacing='0' cellpadding='3' style='font-size:11px;'>"
+                     "<tr style='color:#81a1c1;'><td>agent</td><td>status</td>"
+                     "<td>time</td><td>attempts</td></tr>")
+            for nid in sorted(nodes):
+                nd = nodes[nid]; st = str(nd.get("status", "")).lower()
+                h.append(f"<tr><td>{nid}</td>"
+                         f"<td style='color:{self._STATUS.get(st, '#d8dee9')};'>{nd.get('status')}</td>"
+                         f"<td>{nd.get('seconds')}s</td><td>{nd.get('attempts')}</td></tr>")
+            h.append("</table>")
+        h.append("</div>")
+        self._view.setHtml("".join(h))
 
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -5335,25 +5384,57 @@ class _TestReviewTab(QWidget):
         self._chat = chat_callback        # submit to the MAIN chat panel (streams there)
         self._workers = []        # keep QThread refs alive
         self._last = None
-        from PySide6.QtWidgets import (QVBoxLayout, QHBoxLayout, QPushButton,
-                                       QTextEdit, QLabel)
+        self._fail_modules = []   # row index → {node, module, message, findings}
+        from PySide6.QtWidgets import (QVBoxLayout, QHBoxLayout, QPushButton, QTextEdit,
+                                       QLabel, QSplitter, QTableWidget, QHeaderView,
+                                       QWidget as _QW)
+        from PySide6.QtCore import Qt
         lay = QVBoxLayout(self)
-        lay.addWidget(QLabel("Full test/project run → summary, backups, and next-step options"))
+        lay.addWidget(QLabel("Run the suite → pass/fail summary, a table of failing tests, and "
+                             "click-to-fix. Prior report backed up + errors file written."))
         row = QHBoxLayout()
         self._run_btn = QPushButton("▶ Run full suite & review")
         self._run_btn.clicked.connect(lambda: self._start("tests/"))
         row.addWidget(self._run_btn)
         self._quick_btn = QPushButton("⚡ Quick review")
         self._quick_btn.clicked.connect(lambda: self._start("tests/claims/test_structural_claims.py"))
-        row.addWidget(self._quick_btn)
+        row.addWidget(self._quick_btn); row.addStretch(1)
         lay.addLayout(row)
-        self._view = QTextEdit()
-        self._view.setReadOnly(True)
-        self._view.setStyleSheet("font-family: monospace;")
-        lay.addWidget(self._view)
-        from PySide6.QtWidgets import QWidget as _QW
-        self._opts_host = _QW()
-        self._opts_layout = QVBoxLayout(self._opts_host)
+
+        # Coloured pass/fail summary bar.
+        self._summary = QLabel("No run yet.")
+        self._summary.setStyleSheet("padding:5px;font-weight:bold;border-radius:4px;"
+                                    "background:#2e3440;color:#d8dee9;")
+        lay.addWidget(self._summary)
+
+        # Split: failing-test table | detail + Fix button.
+        split = QSplitter(Qt.Orientation.Horizontal if hasattr(Qt, "Orientation") else Qt.Horizontal)
+        self._table = QTableWidget(0, 2)
+        self._table.setHorizontalHeaderLabels(["Failing test", "Finding"])
+        try:
+            self._table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
+        except Exception:
+            pass
+        self._table.itemSelectionChanged.connect(self._on_row_selected)
+        split.addWidget(self._table)
+
+        right = _QW(); rl = QVBoxLayout(right)
+        self._detail = QTextEdit(); self._detail.setReadOnly(True)
+        self._detail.setStyleSheet("font-family:monospace;")
+        self._detail.setPlaceholderText("Select a failing test to see its message + examiner finding.")
+        rl.addWidget(self._detail)
+        self._fix_btn = QPushButton("🔧 Fix this with the coding agent")
+        self._fix_btn.setEnabled(False)
+        self._fix_btn.clicked.connect(self._fix_selected)
+        rl.addWidget(self._fix_btn)
+        split.addWidget(right); split.setSizes([430, 450])
+        lay.addWidget(split, 1)
+
+        # ELI natural-language summary + result-driven option buttons.
+        self._eli_summary = QLabel(""); self._eli_summary.setWordWrap(True)
+        self._eli_summary.setStyleSheet("padding:4px;color:#cdd6f4;")
+        lay.addWidget(self._eli_summary)
+        self._opts_host = _QW(); self._opts_layout = QHBoxLayout(self._opts_host)
         lay.addWidget(self._opts_host)
 
     def _set_busy(self, busy: bool):
@@ -5370,54 +5451,100 @@ class _TestReviewTab(QWidget):
     def _start(self, target: str):
         self._set_busy(True)
         self._clear_options()
-        self._view.setPlainText(
-            f"Running {target} …\n(full suite can take a few minutes — runs in the background)")
+        self._summary.setStyleSheet("padding:5px;font-weight:bold;border-radius:4px;"
+                                    "background:#2e3440;color:#d8dee9;")
+        self._summary.setText(f"Running {target} … (full suite can take a few minutes)")
+        self._table.setRowCount(0); self._detail.clear(); self._fix_btn.setEnabled(False)
+        self._eli_summary.setText("")
         from eli.runtime.test_review import run_and_review
         w = _BgWorker(lambda: run_and_review(target))
         w.done.connect(self._on_run_done)
         self._workers.append(w)
         w.start()
 
+    @staticmethod
+    def _module_of(node: str) -> str:
+        # tests/foo/test_bar.py::test_x  →  tests/foo/test_bar.py
+        return str(node or "").split("::", 1)[0]
+
     def _on_run_done(self, res):
         self._set_busy(False)
-        if not isinstance(res, dict) or res.get("__error__"):
-            self._view.setPlainText(f"Test run failed: {res.get('__error__') if isinstance(res, dict) else res}")
-            return
-        if res.get("error"):
-            self._view.setPlainText(f"Test run failed: {res['error']}")
+        if not isinstance(res, dict) or res.get("__error__") or res.get("error"):
+            msg = (res.get("__error__") or res.get("error")) if isinstance(res, dict) else res
+            self._summary.setStyleSheet("padding:5px;font-weight:bold;border-radius:4px;"
+                                        "background:#bf616a;color:#1a1f2e;")
+            self._summary.setText(f"Test run failed: {msg}")
             return
         self._last = res
         t = res.get("totals", {})
-        lines = [f"{t.get('passed', 0)} passed · {t.get('failed', 0)} failed · "
-                 f"{t.get('errored', 0)} errored · {t.get('xfailed', 0)} known-gap "
-                 f"of {t.get('total', 0)}", ""]
-        if res.get("failures"):
-            lines.append("Failing tests (possible errors):")
-            for f in res["failures"][:15]:
-                lines.append(f"  - {f['node']}")
-            lines.append("")
+        failed = int(t.get("failed", 0)) + int(t.get("errored", 0))
+        bg = "#a3be8c" if failed == 0 else "#bf616a"
+        self._summary.setStyleSheet(f"padding:5px;font-weight:bold;border-radius:4px;"
+                                    f"background:{bg};color:#1a1f2e;")
+        self._summary.setText(
+            f"{t.get('passed',0)} passed · {t.get('failed',0)} failed · "
+            f"{t.get('errored',0)} errored · {t.get('xfailed',0)} known-gap of {t.get('total',0)}"
+            + ("   ✅ all green" if failed == 0 else "   ❌ needs attention"))
+
+        # Map failing module → code-examiner findings.
         fa = res.get("fix_analysis") or {}
-        if fa.get("proposals"):
-            lines.append("Code-examiner findings in failing modules:")
-            for p in fa["proposals"][:5]:
-                for fn in (p.get("findings") or [])[:3]:
-                    loc = f":{fn.get('line')}" if fn.get("line") else ""
-                    lines.append(f"  - {p['module']}{loc} [{fn.get('kind')}] {fn.get('message')}")
-            lines.append("")
-        if res.get("backup_path"):
-            lines.append(f"Prior report backed up → {res['backup_path']}")
-        if res.get("error_file"):
-            lines.append(f"Errors written → {res['error_file']}")
-        self._view.setPlainText("\n".join(lines))
-        # option buttons → hand off to ELI in chat
+        find_by_mod = {p.get("module"): (p.get("findings") or []) for p in fa.get("proposals", [])}
+
+        from PySide6.QtWidgets import QTableWidgetItem
+        fails = res.get("failures", [])
+        self._table.setRowCount(len(fails))
+        self._fail_modules = []
+        for r, f in enumerate(fails):
+            node = f.get("node", "?"); mod = self._module_of(node)
+            finds = find_by_mod.get(mod) or []
+            self._fail_modules.append({"node": node, "module": mod,
+                                       "message": f.get("message") or "", "findings": finds})
+            self._table.setItem(r, 0, QTableWidgetItem(node))
+            tag = (f"{finds[0].get('kind')}: {finds[0].get('message')}" if finds else "—")
+            self._table.setItem(r, 1, QTableWidgetItem(str(tag)[:80]))
+        self._detail.clear(); self._fix_btn.setEnabled(False)
+        if not fails:
+            self._detail.setPlainText("No failing tests. 🎉")
+
+        # Result-driven option buttons (unchanged behaviour) + backups note.
         self._clear_options()
         from PySide6.QtWidgets import QPushButton
         for opt in res.get("options", []):
             b = QPushButton(opt.get("label", opt.get("id", "option")))
             b.clicked.connect(lambda _=False, cmd=opt.get("command", ""): self._send(cmd))
             self._opts_layout.addWidget(b)
-        # ask ELI for a natural-language summary of the results
+        self._opts_layout.addStretch(1)
+        if res.get("backup_path") or res.get("error_file"):
+            self._eli_summary.setText(f"Prior report → {res.get('backup_path','?')}   |   "
+                                      f"Errors → {res.get('error_file','?')}")
         self._summarise(res)
+
+    def _on_row_selected(self):
+        idx = self._table.currentRow()
+        if idx is None or idx < 0 or idx >= len(self._fail_modules):
+            return
+        d = self._fail_modules[idx]
+        lines = [f"Test:   {d['node']}", f"Module: {d['module']}", ""]
+        if d["message"]:
+            lines += ["── failure message ──", d["message"][:2000], ""]
+        if d["findings"]:
+            lines.append("── code-examiner findings ──")
+            for fn in d["findings"][:8]:
+                loc = f":{fn.get('line')}" if fn.get("line") else ""
+                lines.append(f"  {d['module']}{loc} [{fn.get('kind')}] {fn.get('message')}")
+        else:
+            lines.append("(no static examiner findings for this module)")
+        self._detail.setPlainText("\n".join(lines))
+        self._fix_btn.setEnabled(True)
+
+    def _fix_selected(self):
+        idx = self._table.currentRow()
+        if idx is None or idx < 0 or idx >= len(self._fail_modules):
+            return
+        d = self._fail_modules[idx]
+        # Hand the failing module to ELI's coding agent (examine → propose → fix).
+        self._send(f"examine {d['module']} for errors and fix the bug behind the failing "
+                   f"test {d['node']}")
 
     def _summarise(self, res):
         if not callable(self._eli):
@@ -5425,8 +5552,8 @@ class _TestReviewTab(QWidget):
         t = res.get("totals", {})
         fails = "\n".join(f"- {f['node']}: {(f.get('message') or '')[:120]}"
                           for f in res.get("failures", [])[:15]) or "(none)"
-        prompt = ("Summarise these test results for me in a few sentences and say what's "
-                  f"most worth doing next.\nTotals: {t}\nFailing:\n{fails}")
+        prompt = ("Summarise these test results in a few sentences and say what's most worth "
+                  f"doing next.\nTotals: {t}\nFailing:\n{fails}")
         w = _BgWorker(lambda: (self._eli(prompt) or ""))
         w.done.connect(self._on_summary)
         self._workers.append(w)
@@ -5435,13 +5562,11 @@ class _TestReviewTab(QWidget):
     def _on_summary(self, text):
         if isinstance(text, dict):
             return
-        cur = self._view.toPlainText()
-        self._view.setPlainText(cur + "\n\n── ELI's summary ──\n" + str(text))
+        self._eli_summary.setText("ELI: " + str(text))
 
     def _send(self, cmd: str):
-        """Hand the chosen option off to ELI. Prefer the MAIN chat panel (streams the
-        response into the conversation + switches to the Chat tab); fall back to an
-        in-panel reply if no chat hook is wired."""
+        """Hand a command off to ELI — prefer the MAIN chat panel (streams into the
+        conversation + switches to Chat); fall back to an in-panel reply."""
         if not cmd:
             return
         if callable(self._chat):
@@ -5556,7 +5681,16 @@ class LabsTab(QWidget):
         self._sim_ide_tab = _SimIDETab(eli_callback=self._eli_ask)
         self._inner_tabs.addTab(self._sim_ide_tab, "🔬 Sim / IDE")
 
-        # Orchestration + Test & Review were promoted to top-level main tabs
-        # (create_orchestration_tab / create_test_review_tab in the main window).
-        # The widget classes (_OrchestrationTab / _TestReviewTab) live here and are
-        # imported by the main window.
+        # Orchestration + Test & Review are developer/diagnostic tools, so they live
+        # under Labs (with the other dev tools) rather than as prominent top-level tabs.
+        try:
+            self._orchestration_tab = _OrchestrationTab()
+            self._inner_tabs.addTab(self._orchestration_tab, "🧭 Orchestration")
+        except Exception as _orch_err:
+            log.debug(f"[Labs] Orchestration sub-tab unavailable: {_orch_err}")
+        try:
+            _chat_cb = getattr(self._parent, "send_to_chat", None)
+            self._test_review_tab = _TestReviewTab(eli_callback=self._eli_ask, chat_callback=_chat_cb)
+            self._inner_tabs.addTab(self._test_review_tab, "🧪 Test & Review")
+        except Exception as _tr_err:
+            log.debug(f"[Labs] Test & Review sub-tab unavailable: {_tr_err}")
