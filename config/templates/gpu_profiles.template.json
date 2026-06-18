@@ -1,0 +1,41 @@
+{
+  "_comment": "Multi-GPU split profiles for ELI. Set ONE profile's \"enabled\": true to split a single large model across multiple GPUs (e.g. a 70B+ or trillion-param model that doesn't fit one card). All-disabled (default) = single-GPU, no change. Only applied when 2+ GPUs are actually present. tensor_split = per-GPU weights (must sum to ~1.0, one entry per GPU); split_mode = none|layer|row; main_gpu = primary device index. Fully local — this only controls how a model is placed across YOUR GPUs. Copy to config/gpu_profiles.json or point ELI_GPU_PROFILES_FILE at a custom file.",
+  "profiles": [
+    {
+      "name": "single-gpu-default",
+      "description": "One GPU, no split (default).",
+      "enabled": false,
+      "requires_gpu_count": 1,
+      "main_gpu": 0,
+      "tensor_split": null,
+      "split_mode": "none"
+    },
+    {
+      "name": "dual-gpu-equal",
+      "description": "Split a model evenly across 2 GPUs.",
+      "enabled": false,
+      "requires_gpu_count": 2,
+      "main_gpu": 0,
+      "tensor_split": [0.5, 0.5],
+      "split_mode": "layer"
+    },
+    {
+      "name": "dual-gpu-weighted",
+      "description": "Uneven split when one GPU has more VRAM / is faster.",
+      "enabled": false,
+      "requires_gpu_count": 2,
+      "main_gpu": 0,
+      "tensor_split": [0.65, 0.35],
+      "split_mode": "layer"
+    },
+    {
+      "name": "eight-gpu-equal",
+      "description": "Even split across 8 GPUs (datacenter server for very large models).",
+      "enabled": false,
+      "requires_gpu_count": 8,
+      "main_gpu": 0,
+      "tensor_split": [0.125, 0.125, 0.125, 0.125, 0.125, 0.125, 0.125, 0.125],
+      "split_mode": "layer"
+    }
+  ]
+}

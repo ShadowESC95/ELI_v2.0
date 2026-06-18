@@ -716,6 +716,17 @@ def load_model(force_reload: bool = False):
     cache_k = _runtime_value(settings, "cache_type_k", "type_k", default=None)
     cache_v = _runtime_value(settings, "cache_type_v", "type_v", default=None)
 
+    # Multi-GPU split (optional). Lets ONE large model span multiple GPUs via llama.cpp
+    # tensor_split. Only set when configured (env or settings / gpu_profiles.json) — the
+    # single-GPU path is completely unaffected. Hardware-agnostic: no GPU count assumed.
+    _ts_raw = (os.environ.get("ELI_GGUF_TENSOR_SPLIT") or "").strip() or str(
+        _runtime_value(settings, "tensor_split", default="") or "").strip()
+    _main_gpu_raw = os.environ.get("ELI_GGUF_MAIN_GPU")
+    if _main_gpu_raw in (None, ""):
+        _main_gpu_raw = _runtime_value(settings, "main_gpu", default=None)
+    _split_mode_raw = (os.environ.get("ELI_GGUF_SPLIT_MODE") or "").strip() or str(
+        _runtime_value(settings, "split_mode", default="") or "").strip()
+
     requested_n_gpu_layers = int(n_gpu_layers)
     gpu_offload_supported = None
     try:
@@ -750,19 +761,56 @@ def load_model(force_reload: bool = False):
     if cache_v:
         kwargs["cache_type_v"] = cache_v
 
+    # Apply multi-GPU split only when offload is on AND a split is configured.
+    _tensor_split = None
+    if int(effective_n_gpu_layers) > 0 and _ts_raw:
+        try:
+            _tensor_split = [float(x.strip()) for x in str(_ts_raw).replace(";", ",").split(",") if x.strip()]
+        except Exception:
+            log.debug(f"[GGUF][GPU] invalid tensor_split {_ts_raw!r}; ignoring")
+            _tensor_split = None
+    if _tensor_split:
+        kwargs["tensor_split"] = _tensor_split
+        if _main_gpu_raw not in (None, ""):
+            try:
+                kwargs["main_gpu"] = int(_main_gpu_raw)
+            except Exception:
+                pass
+        if _split_mode_raw:
+            _sm = {"none": 0, "layer": 1, "row": 2}.get(str(_split_mode_raw).strip().lower())
+            if _sm is None:
+                try:
+                    _sm = int(_split_mode_raw)
+                except Exception:
+                    _sm = None
+            if _sm is not None:
+                kwargs["split_mode"] = _sm
+
     log.debug(
         "[GGUF] Params: "
         f"ctx={n_ctx}, gpu_layers={effective_n_gpu_layers}, batch={n_batch}, threads={n_threads} "
-        f"(requested_gpu_layers={requested_n_gpu_layers}, gpu_offload_supported={gpu_offload_supported})"
+        f"(requested_gpu_layers={requested_n_gpu_layers}, gpu_offload_supported={gpu_offload_supported}"
+        + (f", tensor_split={_tensor_split} main_gpu={kwargs.get('main_gpu')}" if _tensor_split else "")
+        + ")"
     )
 
     try:
         _llm = Llama(**kwargs)
     except TypeError as e:
         _msg = str(e)
+        _popped = False
         if any(tok in _msg for tok in ("cache_type_k", "cache_type_v", "type_k", "type_v")):
             kwargs.pop("cache_type_k", None)
             kwargs.pop("cache_type_v", None)
+            _popped = True
+        if any(tok in _msg for tok in ("tensor_split", "main_gpu", "split_mode")):
+            # Older llama-cpp without multi-GPU kwargs — drop them and load single-GPU.
+            kwargs.pop("tensor_split", None)
+            kwargs.pop("main_gpu", None)
+            kwargs.pop("split_mode", None)
+            log.debug("[GGUF][GPU] llama-cpp build lacks multi-GPU kwargs; loading single-GPU")
+            _popped = True
+        if _popped:
             _llm = Llama(**kwargs)
         else:
             raise
@@ -777,6 +825,8 @@ def load_model(force_reload: bool = False):
         "n_batch": int(n_batch),
         "requested_n_gpu_layers": int(requested_n_gpu_layers),
         "gpu_offload_supported": gpu_offload_supported,
+        "tensor_split": kwargs.get("tensor_split"),
+        "main_gpu": kwargs.get("main_gpu"),
         "load_mode": "GPU" if int(effective_n_gpu_layers) > 0 else "CPU",
         "loaded": True,
         "pid": os.getpid(),

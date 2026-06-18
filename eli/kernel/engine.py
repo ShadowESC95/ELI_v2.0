@@ -8904,6 +8904,19 @@ Answer:"""
             self._conversation_history = []
         # ── End minimal attr guard ─────────────────────────────────────────────
 
+        # ── Light first-run onboarding (opt-in, non-blocking, skippable) ───────
+        # On a blank-slate user (no User Model) a light opener begins a short baseline
+        # interview (name → role → style); a substantive task passes straight through.
+        # Seeds flow into the continuous User Model / persona / KG automatically.
+        try:
+            from eli.onboarding.interview import onboarding_intercept as _ob_intercept
+            _ob_db = getattr(getattr(self, "memory", None), "db_path", None)
+            _ob_msg = _ob_intercept(user_input, user_id=getattr(self, "user_id", None), db_path=_ob_db)
+            if _ob_msg is not None:
+                return {"ok": True, "action": "CHAT", "content": _ob_msg, "response": _ob_msg}
+        except Exception:
+            pass
+
         # === ELI_MULTI_QUESTION_SPLITTER_V2 ===
         # Handles inputs containing multiple distinct questions, e.g.:
         #   "Story pal? Who are you, and who am I?"  →  3 answers
