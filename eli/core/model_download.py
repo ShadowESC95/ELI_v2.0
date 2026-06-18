@@ -389,12 +389,94 @@ def _cli_progress(done: int, total: int) -> None:
     sys.stdout.flush()
 
 
+def _download_one(entry: Dict[str, Any]) -> bool:
+    """Download a single catalog entry with a progress bar. Returns ok."""
+    sub = str(entry.get("subdir", "") or "")
+    where = models_dir() / sub if sub else models_dir()
+    print(f"\nDownloading {entry['name']}  (~{entry.get('size_gb','?')}GB) → {where}")
+    res = download_model(entry, progress_cb=_cli_progress)
+    sys.stdout.write("\n")
+    if res.get("ok"):
+        print(f"  ✅ {'Already present' if res.get('already_present') else 'Downloaded'}: {res['path']}")
+        return True
+    print(f"  ❌ {res.get('error')}")
+    if res.get("resumable"):
+        print("     Re-run to resume.")
+    return False
+
+
+def interactive_select() -> int:
+    """Multiple-choice picker: show the catalog and let the user choose ANY number of
+    models to download (not just one). The required embedder is always fetched. Used by
+    the installers so the user controls exactly which models land on their machine."""
+    cat = list_catalog()
+    print("\nChoose which model(s) to download — you can pick several.\n")
+    for i, e in enumerate(cat, 1):
+        tag = "  [recommended default]" if e.get("default") else ""
+        print(f"  {i:>2}. {e['key']:<16} {e['name']:<34} ~{e.get('size_gb','?')}GB "
+              f"(VRAM {e.get('vram_gb',0)}GB+){tag}")
+        if e.get("note"):
+            print(f"      {e['note']}")
+    print("\n  Enter numbers and/or names separated by spaces (e.g. '1 3' or 'qwen2.5-7b phi-4').")
+    print("  Other options:  all  ·  auto (best fit for your hardware)  ·  none / Enter to skip")
+    try:
+        raw = input("\n  Your choice: ").strip()
+    except (EOFError, KeyboardInterrupt):
+        print("\n  Skipped."); return 0
+
+    low = raw.lower()
+    if not raw or low in ("none", "skip", "n", "no"):
+        print("  No chat model selected (you can add one later).")
+        chosen: List[Dict[str, Any]] = []
+    elif low == "all":
+        chosen = list(cat)
+    elif low == "auto":
+        free = 0.0
+        try:
+            from eli.core.hardware_profile import detect_hardware
+            free = (getattr(detect_hardware(), "free_vram_mb", 0) or 0) / 1024.0
+        except Exception:
+            pass
+        chosen = [recommend_for_vram(free)]
+        print(f"  Auto-selected '{chosen[0]['key']}' for ~{free:.1f}GB free VRAM.")
+    else:
+        chosen, seen = [], set()
+        for tok in raw.replace(",", " ").split():
+            e = None
+            if tok.isdigit() and 1 <= int(tok) <= len(cat):
+                e = cat[int(tok) - 1]
+            else:
+                e = get_entry(tok)
+            if e and e["key"] not in seen:
+                chosen.append(e); seen.add(e["key"])
+            elif not e:
+                print(f"  (ignored unknown choice: {tok!r})")
+
+    rc = 0
+    for e in chosen:
+        if not _download_one(e):
+            rc = 1
+    # The embedder is required regardless of chat-model choice.
+    print("\nEnsuring the required text embedder (memory/RAG)...")
+    for ar in download_aux(required_only=True, progress_cb=_cli_progress):
+        sys.stdout.write("\n")
+        print(f"  ✅ embedder {'present' if ar.get('already_present') else 'downloaded'}: {ar['path']}"
+              if ar.get("ok") else f"  ⚠️  embedder fetch failed: {ar.get('error')}")
+    return rc
+
+
 def main(argv: Optional[List[str]] = None) -> int:
     argv = list(sys.argv[1:] if argv is None else argv)
     if not argv or argv[0] in ("-h", "--help"):
         print(_fmt_catalog())
-        print("\nUsage: python -m eli.core.model_download <key> | --list | --auto")
+        print("\nUsage: python -m eli.core.model_download <key> | --choose | --list | --auto"
+              "\n         --choose : pick MULTIPLE models interactively (recommended)")
         return 0
+    if argv[0] in ("--list", "-l"):
+        print(_fmt_catalog())
+        return 0
+    if argv[0] in ("--choose", "--select", "-c"):
+        return interactive_select()
     if argv[0] in ("--list", "-l"):
         print(_fmt_catalog())
         return 0
