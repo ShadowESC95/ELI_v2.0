@@ -91,15 +91,15 @@ def main() -> int:
         L.append(f"- **Speed:** A3B is **~{speed:.0f}× faster** (GSM8K wall {w32:.0f}s vs {wA:.0f}s). "
                  f"The MoE activates ~3B params/token vs the dense 32B's full 33B.")
     L.append("- **The 32B engine cell is `n/a` — by hardware necessity, not failure** (see note¹). "
-             "On this 31 GB / 8 GB-VRAM box the dense 32B runs ELI's multi-pass engine pipeline at "
+             "On a representative 8 GB-VRAM machine the dense 32B runs ELI's multi-pass engine pipeline at "
              "~10–25h for 21 cases (and OOM-kills at full ctx). The A3B's 21/21 plus both models' "
              "13/13 executor make the missing cell near-certain and non-decisive.")
     L.append("- **Verdict:** behaviourally equivalent on ELI's eval suite; the A3B wins decisively on "
              "throughput; the 32B's only edge is one extra GSM8K question. On this hardware the A3B is "
              "the rational default.")
     L.append("")
-    L.append("> ¹ The 32B engine eval was attempted twice: once at ctx=32768 (OOM-killed, rc=137 at "
-             "~31 GB) and once at ctx=8192 (ran clean but >2h for <8 of 21 multi-pass cases). Called "
+    L.append("> ¹ The 32B engine eval was attempted twice: once at ctx=32768 (OOM-killed, rc=137 on "
+             "system RAM) and once at ctx=8192 (ran clean but >2h for <8 of 21 multi-pass cases). Called "
              "by decision rather than wait 10–25h for a near-certain 21/21.")
     L.append("")
 

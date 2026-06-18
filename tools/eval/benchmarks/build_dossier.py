@@ -239,7 +239,7 @@ def _write_report(rows: list[dict], out: Path) -> None:
           returns broken prompt-logprobs, so those can't be scored on this backend
           (documented in the benchmark README). Truthfulness is better measured through
           ELI's own pipeline (promptfoo route).
-        - **Hardware:** a representative 8 GB consumer GPU + CPU offload, ~32 GB RAM."""))
+        - **Hardware:** a representative low-VRAM consumer machine (~8 GB GPU + CPU offload)."""))
     A("")
 
     A("## 4. Results\n### 4.1 Quality\n")
@@ -353,14 +353,14 @@ def _recommendation(rows) -> str:
         **There is no single "best" model — the answer is a function of the user's memory
         hierarchy.** From the measured economics:
 
-        - **≤ 8 GB VRAM (this box and most prosumer machines):** ship **Qwen2.5-7B**. It
+        - **≤ 8 GB VRAM (most prosumer machines):** ship **Qwen2.5-7B**. It
           is the only candidate that fits VRAM, so it is ~20–100× faster, and its quality
           (GSM8K in §4.1) is more than adequate. The 32B's quality is *inaccessible* at
           usable latency here.
         - **~16–32 GB RAM, weak GPU:** the **A3B** is the sweet spot — near-32B-class
           quality with MoE keeping CPU decode tolerable. This is the configuration where a
           *big local model* is viable without a datacenter GPU.
-        - **≥ 24 GB VRAM (3090/4090/A6000):** the **32B fully resident in VRAM** removes
+        - **≥ 24 GB VRAM (high-VRAM GPUs):** the **32B fully resident in VRAM** removes
           the cliff (~30–40 tok/s) and its quality edge becomes worth taking.
 
         **For ELI's redistribution:** a **tiered default** — 7B universal default, A3B
