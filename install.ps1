@@ -3,8 +3,13 @@
 
 param(
     [switch]$CpuOnly,
+    [switch]$Gpu,           # force the GPU build even if no NVIDIA GPU is detected
     [switch]$Latest,        # use requirements.txt ranges instead of the frozen lock
     [switch]$InstallCuda,   # best-effort install the CUDA toolkit via winget if missing
+    [switch]$Yes,           # non-interactive: accept the plan + use detected defaults
+    [switch]$AutoModel,     # download a model (sized to VRAM) after install
+    [switch]$NoModel,       # never download a model
+    [string]$Model = "",    # download a specific model key after install
     [string]$CudaVersion = "cu121"
 )
 
@@ -35,9 +40,10 @@ if ($Wheelhouse) {
 }
 
 Write-Host ""
-Write-Host "==============================" -ForegroundColor Cyan
-Write-Host "  ELI MKXI Installer (Windows)" -ForegroundColor Cyan
-Write-Host "==============================" -ForegroundColor Cyan
+Write-Host "==================================================" -ForegroundColor Cyan
+Write-Host "  ELI MKXI - Installer (Windows)" -ForegroundColor Cyan
+Write-Host "  100% local - private - offline-by-default" -ForegroundColor DarkGray
+Write-Host "==================================================" -ForegroundColor Cyan
 Write-Host ""
 
 # Check Python
@@ -46,11 +52,57 @@ try {
     if ([Version]$pyVer -lt [Version]"3.11") {
         throw "Python 3.11+ required, found $pyVer"
     }
-    Write-Host "[OK] Python $pyVer" -ForegroundColor Green
 } catch {
     Write-Host "[ERROR] Python 3.11+ not found." -ForegroundColor Red
     Write-Host "        Download from https://python.org/downloads/" -ForegroundColor Yellow
     exit 1
+}
+
+# ── System report — full info before anything runs ──
+Write-Host "--- Your system ---" -ForegroundColor Magenta
+Write-Host "[OK] Python      $pyVer" -ForegroundColor Green
+Write-Host "[OK] Platform    Windows ($([System.Environment]::OSVersion.Version))" -ForegroundColor Green
+$cpuCores = $env:NUMBER_OF_PROCESSORS
+try { $ramGb = [math]::Round((Get-CimInstance Win32_ComputerSystem -ErrorAction Stop).TotalPhysicalMemory / 1GB) } catch { $ramGb = "?" }
+Write-Host "[OK] CPU         $cpuCores cores      RAM $ramGb GB" -ForegroundColor Green
+try {
+    $drive = Get-PSDrive -Name ($ScriptDir.Substring(0,1)) -ErrorAction Stop
+    $freeGb = [math]::Round($drive.Free / 1GB)
+    Write-Host "[OK] Disk free   $freeGb GB   (a model is ~2-5 GB)" -ForegroundColor Green
+} catch {}
+$HasNvidia = $false
+if (Get-Command nvidia-smi -ErrorAction SilentlyContinue) {
+    $gpuNames = @(& nvidia-smi --query-gpu=name --format=csv,noheader 2>$null | Where-Object { $_ })
+    if ($gpuNames.Count -ge 1) {
+        $vramTot = (& nvidia-smi --query-gpu=memory.total --format=csv,noheader,nounits 2>$null | Measure-Object -Sum).Sum
+        if ($gpuNames.Count -gt 1) {
+            Write-Host "[OK] GPU         $($gpuNames.Count)x $($gpuNames[0])  ($vramTot MiB total VRAM)" -ForegroundColor Green
+        } else {
+            Write-Host "[OK] GPU         $($gpuNames[0])  ($vramTot MiB)" -ForegroundColor Green
+        }
+        $HasNvidia = $true
+    }
+}
+if (-not $HasNvidia) { Write-Host "[WARN] GPU       none detected - ELI will run on CPU (slower)" -ForegroundColor Yellow }
+
+# Default the build to the hardware unless forced.
+if ((-not $CpuOnly) -and (-not $Gpu) -and (-not $HasNvidia)) { $CpuOnly = $true }
+$BuildLabel = if ($CpuOnly) { "CPU-only" } else { "GPU (CUDA $CudaVersion)" }
+
+# ── Plan ──
+Write-Host ""
+Write-Host "--- Plan ---" -ForegroundColor Magenta
+Write-Host "  - llama-cpp build : $BuildLabel"
+Write-Host ("  - dependencies    : " + $(if ($Latest) { "latest ranges" } else { "frozen lock (reproducible)" }))
+Write-Host ("  - a model         : " + $(if ($NoModel) { "skip (add one later)" } else { "offered after install" }))
+Write-Host "  - data            : offline-by-default, fresh local databases"
+if (-not $Yes) {
+    $ans = Read-Host "  Proceed? [Y/n]"
+    if ($ans -match '^[Nn]') { Write-Host "Aborted - nothing changed."; exit 0 }
+    if ((-not $NoModel) -and (-not $AutoModel) -and (-not $Model)) {
+        $m = Read-Host "  Download a model now, sized to your hardware? [Y/n]"
+        if ($m -match '^[Nn]') { $NoModel = $true } else { $AutoModel = $true }
+    }
 }
 
 # Create venv
@@ -153,22 +205,36 @@ Write-Host "[..] Initialising data directories and databases..."
 & $PythonVenv -c "from eli.core.paths import get_paths; get_paths(); import eli.memory as M; (M.get_memory() if hasattr(M,'get_memory') else None)" 2>$null
 if ($LASTEXITCODE -eq 0) { Write-Host "[OK] Data dirs + databases ready." -ForegroundColor Green }
 
-Write-Host ""
-Write-Host "==============================" -ForegroundColor Green
-Write-Host "  Installation complete!" -ForegroundColor Green
-Write-Host "==============================" -ForegroundColor Green
-Write-Host ""
-Write-Host "Launch ELI:" -ForegroundColor Cyan
-Write-Host "  .\eli.bat" -ForegroundColor White
-Write-Host ""
-Write-Host "Download a model (first run also offers this in the wizard):" -ForegroundColor Cyan
-Write-Host "  .venv\Scripts\python -m eli.core.model_download --auto" -ForegroundColor White
-Write-Host ""
-try {
-    $ModelsDir = & $PythonVenv -c "from eli.core.paths import models_dir; print(models_dir())" 2>$null
-    if ($ModelsDir) {
-        Write-Host "Models location: $ModelsDir" -ForegroundColor Cyan
-    }
-} catch {
-    Write-Host "Models location: use the app data models directory or set ELI_MODELS_DIR" -ForegroundColor Cyan
+# ── Optional model download — the one online step ──
+$ModelStatus = "none yet"
+$existingModel = Get-ChildItem (Join-Path $ScriptDir "models") -Filter "*.gguf" -ErrorAction SilentlyContinue | Select-Object -First 1
+if ($existingModel) {
+    $ModelStatus = "already present"
+} elseif ((-not $NoModel) -and ($AutoModel -or $Model)) {
+    Write-Host "[..] Downloading a model (sized to your VRAM) - the one online step..."
+    $modelArg = if ($Model) { $Model } else { "--auto" }
+    & $PythonVenv -m eli.core.model_download $modelArg
+    if ($LASTEXITCODE -eq 0) { $ModelStatus = "downloaded" } else { $ModelStatus = "download failed (fetch later)" }
 }
+
+Write-Host ""
+Write-Host "==================================================" -ForegroundColor Green
+Write-Host "  ELI MKXI - installation complete" -ForegroundColor Green
+Write-Host "==================================================" -ForegroundColor Green
+Write-Host ""
+Write-Host "--- Summary ---" -ForegroundColor Magenta
+Write-Host "[OK] Build       llama-cpp $BuildLabel" -ForegroundColor Green
+Write-Host "[OK] Model       $ModelStatus" -ForegroundColor Green
+Write-Host "[OK] Data        fresh local databases, offline-by-default" -ForegroundColor Green
+Write-Host ""
+Write-Host "--- Launch ---" -ForegroundColor Magenta
+Write-Host "  .\eli.bat                                  # desktop app (GUI)" -ForegroundColor White
+Write-Host "  .\scripts\eli_serve.ps1 -Lan               # web app for phone / tablet" -ForegroundColor White
+Write-Host "  powershell -File scripts\install_desktop_apps.ps1   # add Start Menu shortcuts" -ForegroundColor White
+Write-Host ""
+if (($ModelStatus -eq "none yet") -or ($ModelStatus -like "download failed*")) {
+    Write-Host "  No model yet - the first-run wizard offers a download, or run:" -ForegroundColor DarkGray
+    Write-Host "    .venv\Scripts\python -m eli.core.model_download --auto" -ForegroundColor White
+    Write-Host ""
+}
+Write-Host "ELI stays offline by default; model downloads are a deliberate one-time action." -ForegroundColor DarkGray
