@@ -40,3 +40,7 @@ urllib3>=2.6
 # - Install native/large AI packages manually only if your device supports them.
 # - llama-cpp-python, torch, faiss-cpu, PySide6, PyAudio, sounddevice, and
 #   faster-whisper may need custom Android builds and are intentionally excluded.
+
+# Self-hosted server (pure-python; the recommended way to reach ELI from a phone)
+fastapi>=0.110
+uvicorn>=0.27

@@ -83,8 +83,48 @@ docs = [
     "pypdf>=4.0",
     "python-docx>=1.1",
 ]
+# Self-hosted REST + web chat UI (api/server.py) — the phone/web-app feature.
+server = [
+    "fastapi>=0.110",
+    "uvicorn>=0.27",
+]
+# Gaze cursor + on-screen OCR.
+vision = [
+    "opencv-python>=4.8",
+    "pytesseract>=0.3",
+]
+# Web search + browser automation plugins.
+web = [
+    "duckduckgo-search>=6.0",
+    "playwright>=1.40",
+]
+# Data/CSV analysis + plotting.
+analysis = [
+    "pandas>=2.0",
+    "matplotlib>=3.7",
+]
+# Wake-word listening.
+wakeword = [
+    "openwakeword>=0.4",
+]
+# Misc runtime helpers: HF downloads, desktop notifications, calendar, code lint.
+extras = [
+    "huggingface-hub>=0.20",
+    "plyer>=2.1",
+    "ics>=0.7",
+    "pyflakes>=3.0",
+]
+# Everything ELI uses at runtime — the one-click "complete" install.
 full = [
-    "eli-mkxi[gui,tts,asr,llm,image,docs]",
+    "eli-mkxi[gui,tts,asr,llm,image,docs,server,vision,web,analysis,wakeword,extras]",
+]
+# LoRA fine-tuning (heavy, opt-in — NOT part of full). See training/README.md.
+training = [
+    "torch>=2.0",
+    "transformers>=4.40",
+    "peft>=0.10",
+    "datasets>=2.18",
+    "trl>=0.8",
 ]
 
 [project.urls]
