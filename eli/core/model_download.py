@@ -78,16 +78,102 @@ CATALOG: List[Dict[str, Any]] = [
         "note": "Larger dense model. A capable step up on a 12GB+ GPU.",
     },
     {
-        "key": "qwen3-30b-a3b",
-        "name": "Qwen3-30B-A3B (Q4_K_M, MoE)",
-        "filename": "Qwen_Qwen3-30B-A3B-Q4_K_M.gguf",
-        "url": "https://huggingface.co/bartowski/Qwen_Qwen3-30B-A3B-GGUF/resolve/main/Qwen_Qwen3-30B-A3B-Q4_K_M.gguf",
-        "size_gb": 17.4,
-        "vram_gb": 20,
-        "note": "Mixture-of-experts: 30B total, ~3B active. Most capable here; needs a big GPU "
-                "(or runs slowly on CPU/partial offload).",
+        "key": "phi-4",
+        "name": "Phi-4 (Q4_K_M)",
+        "filename": "phi-4-Q4_K_M.gguf",
+        "url": "https://huggingface.co/bartowski/phi-4-GGUF/resolve/main/phi-4-Q4_K_M.gguf",
+        "size_gb": 8.4,
+        "vram_gb": 12,
+        "note": "Microsoft Phi-4, 14B dense (MIT licensed). Strong reasoning for its size on a 12GB+ GPU.",
+    },
+    {
+        "key": "qwen3.6-35b-a3b",
+        "name": "Qwen3.6-35B-A3B (UD-Q4_K_M, MoE)",
+        "filename": "Qwen3.6-35B-A3B-UD-Q4_K_M.gguf",
+        "url": "https://huggingface.co/unsloth/Qwen3.6-35B-A3B-GGUF/resolve/main/Qwen3.6-35B-A3B-UD-Q4_K_M.gguf",
+        "size_gb": 20.6,
+        "vram_gb": 24,
+        "note": "Mixture-of-experts: 35B total, ~3B active (Unsloth dynamic quant, Apache-2.0). "
+                "Most capable Qwen here; needs a big GPU (or runs slowly on CPU/partial offload).",
+    },
+    {
+        "key": "falcon-h1-34b",
+        "name": "Falcon-H1-34B-Instruct (Q4_K_M)",
+        "filename": "Falcon-H1-34B-Instruct-Q4_K_M.gguf",
+        "url": "https://huggingface.co/tiiuae/Falcon-H1-34B-Instruct-GGUF/resolve/main/Falcon-H1-34B-Instruct-Q4_K_M.gguf",
+        "size_gb": 18.9,
+        "vram_gb": 24,
+        "note": "Largest option — Falcon-H1 hybrid (attention + SSM), 34B dense. Needs a 24GB+ "
+                "GPU (or heavy CPU/partial offload).",
     },
 ]
+
+# --------------------------------------------------------------------------- #
+# Auxiliary models — NOT the chat LLM. The embedder is REQUIRED for memory/RAG #
+# and is tiny, so it is fetched automatically on install; vision is optional.  #
+# `subdir` places the file under models/<subdir>/ where the runtime looks.     #
+# --------------------------------------------------------------------------- #
+AUX_MODELS: List[Dict[str, Any]] = [
+    {
+        "key": "embedder",
+        "name": "nomic-embed-text-v1.5 (Q4_K_M)",
+        "filename": "nomic-embed-text-v1.5.Q4_K_M.gguf",
+        "url": "https://huggingface.co/nomic-ai/nomic-embed-text-v1.5-GGUF/resolve/main/nomic-embed-text-v1.5.Q4_K_M.gguf",
+        "subdir": "embeddings",
+        "size_gb": 0.08,
+        "required": True,
+        "note": "Text embedder for memory / RAG / knowledge-graph recall. Required; auto-installed.",
+    },
+    {
+        "key": "vision",
+        "name": "Qwen2.5-VL-7B-Instruct (Q4_K_M)",
+        "filename": "Qwen2.5-VL-7B-Instruct-Q4_K_M.gguf",
+        "url": "https://huggingface.co/unsloth/Qwen2.5-VL-7B-Instruct-GGUF/resolve/main/Qwen2.5-VL-7B-Instruct-Q4_K_M.gguf",
+        "subdir": "vision",
+        "size_gb": 4.4,
+        "required": False,
+        "note": "Optional vision model (screen/image understanding). Needs its mmproj too "
+                "(key 'vision-mmproj').",
+    },
+    {
+        "key": "vision-mmproj",
+        "name": "Qwen2.5-VL-7B mmproj (vision projector)",
+        "filename": "mmproj-Qwen2.5-VL-7B-Instruct-f16.gguf",
+        "url": "https://huggingface.co/unsloth/Qwen2.5-VL-7B-Instruct-GGUF/resolve/main/mmproj-F16.gguf",
+        "subdir": "vision",
+        "size_gb": 1.3,
+        "required": False,
+        "note": "Multimodal projector that pairs with the 'vision' model.",
+    },
+]
+
+
+def list_aux(required_only: bool = False) -> List[Dict[str, Any]]:
+    """Auxiliary (non-chat) models. required_only → just the ones ELI needs to
+    function fully (the embedder)."""
+    if required_only:
+        return [e for e in AUX_MODELS if e.get("required")]
+    return list(AUX_MODELS)
+
+
+def get_aux(key: str) -> Optional[Dict[str, Any]]:
+    key = str(key or "").strip().lower()
+    for e in AUX_MODELS:
+        if str(e.get("key", "")).lower() == key:
+            return e
+    return None
+
+
+def download_aux(required_only: bool = True,
+                 progress_cb: Optional[Callable[[int, int], None]] = None,
+                 timeout: float = 60.0) -> List[Dict[str, Any]]:
+    """Fetch auxiliary models (embedder, optionally vision). Returns one result
+    dict per model. Idempotent — already-present files are skipped. Used by the
+    installer + `--auto` so a fresh install has the embedder without a manual step."""
+    out: List[Dict[str, Any]] = []
+    for e in list_aux(required_only=required_only):
+        out.append(download_model(e, progress_cb=progress_cb, timeout=timeout))
+    return out
 
 _GGUF_MAGIC = b"GGUF"
 _CHUNK = 1024 * 256  # 256 KiB
@@ -184,7 +270,12 @@ def download_model(
         return {"ok": False, "error": "Catalog entry missing url/filename"}
 
     try:
-        dest_dir = Path(dest_dir) if dest_dir else models_dir()
+        if dest_dir:
+            dest_dir = Path(dest_dir)
+        else:
+            # Auxiliary models (embedder, vision) live in a subdir, e.g. models/embeddings.
+            _sub = str(entry.get("subdir") or "").strip()
+            dest_dir = (models_dir() / _sub) if _sub else models_dir()
         dest_dir.mkdir(parents=True, exist_ok=True)
     except Exception as e:
         return {"ok": False, "error": f"Cannot create models dir: {e}"}
@@ -269,13 +360,20 @@ def download_model(
 # CLI                                                                         #
 # --------------------------------------------------------------------------- #
 def _fmt_catalog() -> str:
-    lines = ["Available models (download into %s):" % models_dir()]
+    lines = ["Chat models (download into %s):" % models_dir()]
     for e in list_catalog():
         tag = "  [default]" if e.get("default") else ""
         lines.append(
             f"  {e['key']:<14} {e['name']:<34} ~{e.get('size_gb','?')}GB"
             f"  (VRAM {e.get('vram_gb',0)}GB+){tag}"
         )
+        if e.get("note"):
+            lines.append(f"      {e['note']}")
+    lines.append("")
+    lines.append("Support models (embedder is required + auto-installed; vision is optional):")
+    for e in list_aux():
+        tag = "  [required]" if e.get("required") else "  [optional]"
+        lines.append(f"  {e['key']:<14} {e['name']:<34} ~{e.get('size_gb','?')}GB{tag}")
         if e.get("note"):
             lines.append(f"      {e['note']}")
     return "\n".join(lines)
@@ -301,6 +399,26 @@ def main(argv: Optional[List[str]] = None) -> int:
         print(_fmt_catalog())
         return 0
 
+    # Support models. `--aux` → all required aux (the embedder); `--aux-all` → every
+    # aux incl. optional vision; `--aux <key>` → a specific one.
+    if argv[0] in ("--aux", "--aux-all"):
+        if len(argv) > 1:
+            e = get_aux(argv[1])
+            if not e:
+                print(f"Unknown support model: {argv[1]!r}\n"); print(_fmt_catalog()); return 2
+            targets = [e]
+        else:
+            targets = list_aux(required_only=(argv[0] == "--aux"))
+        rc = 0
+        for e in targets:
+            print(f"Downloading {e['name']} → {models_dir() / str(e.get('subdir',''))}")
+            res = download_model(e, progress_cb=_cli_progress); sys.stdout.write("\n")
+            if res.get("ok"):
+                print(f"✅ {'Already present' if res.get('already_present') else 'Downloaded'}: {res['path']}")
+            else:
+                print(f"❌ {res.get('error')}"); rc = 1
+        return rc
+
     if argv[0] == "--auto":
         free = None
         try:
@@ -321,14 +439,23 @@ def main(argv: Optional[List[str]] = None) -> int:
     print(f"Downloading {entry['name']} → {models_dir()}")
     res = download_model(entry, progress_cb=_cli_progress)
     sys.stdout.write("\n")
-    if res.get("ok"):
-        where = res["path"]
-        print(f"✅ {'Already present' if res.get('already_present') else 'Downloaded'}: {where}")
-        return 0
-    print(f"❌ {res.get('error')}")
-    if res.get("resumable"):
-        print("   Re-run the same command to resume.")
-    return 1
+    ok = bool(res.get("ok"))
+    if ok:
+        print(f"✅ {'Already present' if res.get('already_present') else 'Downloaded'}: {res['path']}")
+    else:
+        print(f"❌ {res.get('error')}")
+        if res.get("resumable"):
+            print("   Re-run the same command to resume.")
+
+    # Always ensure the REQUIRED support models (the embedder) are present — RAG /
+    # memory don't work without it, so a chat-model download pulls it too.
+    for ar in download_aux(required_only=True, progress_cb=_cli_progress):
+        sys.stdout.write("\n")
+        if ar.get("ok"):
+            print(f"✅ embedder {'present' if ar.get('already_present') else 'downloaded'}: {ar['path']}")
+        else:
+            print(f"⚠️  embedder fetch failed: {ar.get('error')} (memory/RAG will be limited)")
+    return 0 if ok else 1
 
 
 if __name__ == "__main__":
