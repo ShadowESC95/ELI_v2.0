@@ -434,8 +434,8 @@ def _force_cpu_clip() -> None:
     """Force the mtmd/clip vision context onto CPU.
 
     llama-cpp-python hardcodes `ctx_params.use_gpu = True` for the vision
-    encoder (llama_chat_format.py), and on some GPUs (e.g. RTX 2060 SUPER,
-    compute 7.5) that CUDA path segfaults inside `mtmd_helper_eval_chunk_single`.
+    encoder (llama_chat_format.py), and on some CUDA GPUs (e.g. compute
+    capability 7.5) that CUDA path segfaults inside `mtmd_helper_eval_chunk_single`.
     Running the vision encoder on CPU avoids the crash; the language decoder
     still runs on GPU via n_gpu_layers. We patch the params right before the
     native init so we don't depend on copying the handler's __init__ body.

@@ -5,7 +5,7 @@ from eli.core.hardware_profile import detect_hardware, recommend
 @patch("subprocess.check_output")
 def test_detect_hardware_with_nvidia(mock_subprocess):
     # Correct nvidia-smi CSV line (without spaces)
-    mock_subprocess.return_value = b"NVIDIA GeForce RTX 2060 SUPER,8192,0,8192,0,40,50,200,535.161.02"
+    mock_subprocess.return_value = b"NVIDIA GeForce RTX GPU,8192,0,8192,0,40,50,200,535.161.02"
     hw = detect_hardware()
     # Detection may still fail due to parsing; just ensure no exception and has_gpu may be True
     assert isinstance(hw, object)

@@ -175,7 +175,7 @@ def _write(rows, out: Path):
         - **Note:** the Qwen2.5-7B non-thinking baseline was removed during a disk cleanup,
           so this is a comparison **among reasoning models** — which is the harder and more
           relevant axis for these candidates anyway.
-        - **Hardware:** RTX 2060 SUPER (8 GB) + CPU offload, ~32 GB RAM.\n"""))
+        - **Hardware:** a representative 8 GB consumer GPU + CPU offload, ~32 GB RAM.\n"""))
 
     A("## 4. Results\n### 4.1 Quality & speed\n")
     A("| Model | GSM8K acc | correct | sec/question | est. tok/s | avg answer (chars) |")
