@@ -2,8 +2,20 @@
 import json
 import os
 
+import pytest
+
 from eli.core import runtime_settings as rs
 from eli.core.startup_hardware_optimizer import recommend_tensor_split, GPUInfo
+
+
+@pytest.fixture(autouse=True)
+def _restore_env():
+    # apply_env() mutates os.environ (ELI_GGUF_*). Snapshot + restore so these tests
+    # never leak environment into later settings/stress tests (ordering isolation).
+    snap = dict(os.environ)
+    yield
+    os.environ.clear()
+    os.environ.update(snap)
 
 
 def _clear():
