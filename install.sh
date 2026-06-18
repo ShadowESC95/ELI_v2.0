@@ -11,15 +11,37 @@ SKIP_TORCH=0
 USE_LATEST=0     # default: install the frozen lock (reproducible). --latest = version ranges.
 INSTALL_CUDA=0   # --install-cuda: best-effort install the CUDA toolkit (nvcc) for users
                  # who don't have it, then source-build llama-cpp with CUDA if needed.
+ASSUME_YES=0     # --yes/-y: no prompts, use detected defaults (CI / piped installs)
+FETCH_MODEL=""   # --model=KEY or --auto-model: download a model after install
+NO_MODEL=0       # --no-model: never download a model
+HAS_NVIDIA=0     # set by the system report below
 
 for arg in "$@"; do
     case "$arg" in
         --cpu-only)    CPU_ONLY=1 ;;
+        --gpu)         CPU_ONLY=0 ;;
         --skip-torch)  SKIP_TORCH=1 ;;
         --latest)      USE_LATEST=1 ;;
         --install-cuda|--cuda) INSTALL_CUDA=1 ;;
+        --yes|-y)      ASSUME_YES=1 ;;
+        --auto-model)  FETCH_MODEL="--auto" ;;
+        --model=*)     FETCH_MODEL="${arg#*=}" ;;
+        --no-model)    NO_MODEL=1 ;;
     esac
 done
+[ -t 0 ] || ASSUME_YES=1   # not a TTY (piped install) → never block on prompts
+
+# ── colours + log helpers (only when stdout is a terminal) ───────────────────
+if [ -t 1 ]; then
+    B=$'\033[1m'; D=$'\033[2m'; R=$'\033[0m'
+    GRN=$'\033[32m'; YEL=$'\033[33m'; CYN=$'\033[36m'; REDC=$'\033[31m'; MAG=$'\033[35m'
+else
+    B=; D=; R=; GRN=; YEL=; CYN=; REDC=; MAG=
+fi
+ok(){   echo "${GRN}[OK]${R} $*"; }
+info(){ echo "${CYN}[..]${R} $*"; }
+warn(){ echo "${YEL}[WARN]${R} $*"; }
+section(){ echo; echo "${B}${MAG}━━━ $* ━━━${R}"; }
 
 # Best-effort CUDA toolkit (nvcc) install — for non-technical users who have an NVIDIA
 # GPU but no toolkit. Tries the no-sudo pip nvcc first, then the system package
@@ -90,22 +112,66 @@ attempt_runtime_tools() {
     return 0
 }
 
-echo "=============================="
-echo "  ELI MKXI Installer"
-echo "=============================="
-echo ""
+echo "${B}${CYN}╔══════════════════════════════════════════════╗${R}"
+echo "${B}${CYN}║  ELI MKXI · Installer                         ║${R}"
+echo "${B}${CYN}║  ${R}${D}100% local · private · offline-by-default${R}${B}${CYN}    ║${R}"
+echo "${B}${CYN}╚══════════════════════════════════════════════╝${R}"
 
 # Detect Python
 if ! command -v "$PYTHON" &>/dev/null; then
-    echo "[ERROR] Python 3.10+ required. Install from python.org."
+    echo "${REDC}[ERROR]${R} Python 3.10+ required. Install from python.org."
     exit 1
 fi
 PY_VER=$("$PYTHON" -c "import sys; print(sys.version_info[:2])")
-echo "[OK] Python: $("$PYTHON" --version)"
-
-# Detect OS
 OS="$(uname -s)"
-echo "[OK] Platform: $OS"
+
+# ── System report — full info BEFORE we touch anything ───────────────────────
+section "Your system"
+ok "Python      ${B}$("$PYTHON" --version 2>&1)${R}"
+ok "Platform    ${B}${OS}${R} ($(uname -m 2>/dev/null || echo '?'))"
+if [ "$OS" = "Darwin" ]; then
+    _CPUS="$(sysctl -n hw.ncpu 2>/dev/null || echo '?')"
+    _RAMGB="$(( $(sysctl -n hw.memsize 2>/dev/null || echo 0) / 1073741824 ))"
+else
+    _CPUS="$(nproc 2>/dev/null || echo '?')"
+    _RAMGB="$(free -g 2>/dev/null | awk '/^Mem:/{print $2}')"
+fi
+ok "CPU         ${B}${_CPUS}${R} cores      RAM ${B}${_RAMGB:-?} GB${R}"
+ok "Disk free   ${B}$(df -h "$SCRIPT_DIR" 2>/dev/null | awk 'NR==2{print $4}')${R}   ${D}(a model is ~2-5 GB)${R}"
+if command -v nvidia-smi &>/dev/null; then
+    _GPU="$(nvidia-smi --query-gpu=name --format=csv,noheader 2>/dev/null | head -1)"
+    _VRAM="$(nvidia-smi --query-gpu=memory.total --format=csv,noheader 2>/dev/null | head -1)"
+    [ -n "${_GPU:-}" ] && { ok "GPU         ${B}${GRN}${_GPU}${R}  (${_VRAM})"; HAS_NVIDIA=1; }
+fi
+if [ "$HAS_NVIDIA" -eq 0 ]; then
+    if [ "$OS" = "Darwin" ]; then ok "GPU         ${B}Apple Metal${R} ${D}(unified memory)${R}"
+    else warn "GPU         none detected — ELI will run on ${B}CPU${R} (much slower)"; fi
+fi
+
+# Default the build to the hardware unless the user forced it.
+if [ "$CPU_ONLY" -eq 0 ] && [ "$HAS_NVIDIA" -eq 0 ] && [ "$OS" != "Darwin" ]; then
+    CPU_ONLY=1
+fi
+if   [ "$CPU_ONLY" -eq 1 ]; then BUILD_LABEL="CPU-only"
+elif [ "$OS" = "Darwin" ];  then BUILD_LABEL="GPU (Metal)"
+else                             BUILD_LABEL="GPU (CUDA)"; fi
+
+# ── Plan — what is about to happen ───────────────────────────────────────────
+section "Plan"
+echo "  • llama-cpp build : ${B}${BUILD_LABEL}${R}"
+echo "  • dependencies    : ${B}$([ "$USE_LATEST" -eq 1 ] && echo 'latest ranges' || echo 'frozen lock (reproducible)')${R}"
+echo "  • a model         : ${B}$([ "$NO_MODEL" -eq 1 ] && echo 'skip (add one later)' || echo 'offered after install')${R}"
+echo "  • data            : ${B}offline-by-default${R}, fresh local databases"
+
+if [ "$ASSUME_YES" -eq 0 ]; then
+    echo
+    _ans=""; read -r -p "  Proceed? [${B}Y${R}/n]  " _ans || true
+    case "${_ans:-Y}" in [Nn]*) echo "Aborted — nothing changed."; exit 0 ;; esac
+    if [ "$NO_MODEL" -eq 0 ] && [ -z "$FETCH_MODEL" ]; then
+        _m=""; read -r -p "  Download a model now, sized to your hardware? [${B}Y${R}/n]  " _m || true
+        case "${_m:-Y}" in [Nn]*) NO_MODEL=1 ;; *) FETCH_MODEL="--auto" ;; esac
+    fi
+fi
 
 # Create venv
 if [ -d "$VENV" ]; then
@@ -254,31 +320,48 @@ else
     echo "[WARN] 'eli' console script not found on the venv PATH."
 fi
 
-echo ""
-echo "=============================="
-if [ "$VERIFY_OK" -eq 1 ]; then
-    echo "  Installation complete!"
-else
-    echo "  Installation finished WITH ERRORS — see above."
+# ── Optional model download — the single online step (offline by default otherwise) ──
+MODEL_STATUS="none yet"
+if ls "$SCRIPT_DIR"/models/*.gguf >/dev/null 2>&1; then
+    MODEL_STATUS="already present"
+elif [ "$NO_MODEL" -eq 0 ] && [ -n "$FETCH_MODEL" ]; then
+    section "Model download"
+    info "Fetching a model (${FETCH_MODEL}) — the one online step, sized to your VRAM..."
+    if "$PYTHON_VENV" -m eli.core.model_download $FETCH_MODEL; then
+        MODEL_STATUS="downloaded"
+    else
+        warn "Model download failed — fetch later with: python -m eli.core.model_download --auto"
+        MODEL_STATUS="download failed (fetch later)"
+    fi
 fi
-echo "=============================="
-echo ""
-echo "Launch ELI (either works):"
-echo "  ./eli.sh"
-echo "  source .venv/bin/activate && eli"
-echo ""
-echo "NOTE: run ELI via the 'eli' command or ./eli.sh — do NOT run the GUI"
-echo "      .py file directly with system python (that gives"
-echo "      'ModuleNotFoundError: No module named eli' because the package"
-echo "      lives in this project's .venv)."
-echo ""
-echo "First launch shows a setup wizard. With no model yet, you can download"
-echo "one from the wizard, or fetch from the terminal:"
-echo "  source .venv/bin/activate"
-echo "  python -m eli.core.model_download --list      # see options"
-echo "  python -m eli.core.model_download qwen2.5-7b  # ~4.7 GB (recommended)"
-echo "  python -m eli.core.model_download --auto      # pick by detected VRAM"
-echo ""
-echo "Models location: $SCRIPT_DIR/models/"
-echo "ELI stays offline by default; downloads are a deliberate one-time action."
-echo ""
+
+echo
+if [ "$VERIFY_OK" -eq 1 ]; then
+    echo "${B}${GRN}╔══════════════════════════════════════════════╗${R}"
+    echo "${B}${GRN}║  ELI MKXI — installation complete             ║${R}"
+    echo "${B}${GRN}╚══════════════════════════════════════════════╝${R}"
+else
+    echo "${B}${YEL}╔══════════════════════════════════════════════╗${R}"
+    echo "${B}${YEL}║  ELI MKXI — finished WITH ERRORS (see above)  ║${R}"
+    echo "${B}${YEL}╚══════════════════════════════════════════════╝${R}"
+fi
+
+section "Summary"
+ok "Build       ${B}llama-cpp ${BUILD_LABEL}${R}"
+ok "Model       ${B}${MODEL_STATUS}${R}   ${D}(${SCRIPT_DIR}/models/)${R}"
+ok "Data        ${B}fresh local databases${R}, offline-by-default"
+
+section "Launch"
+echo "  ${B}./scripts/eli_launch.sh${R}              ${D}# desktop app (GUI)${R}"
+echo "  ${B}./scripts/eli_launch.sh serve --lan${R}  ${D}# web app for phone / tablet${R}"
+echo "  ${B}./eli.sh${R}                             ${D}# also launches the desktop app${R}"
+echo
+if [ "$MODEL_STATUS" = "none yet" ] || [ "$MODEL_STATUS" = "download failed (fetch later)" ]; then
+    echo "  ${D}No model yet — the first-run wizard offers a download, or run:${R}"
+    echo "    ${B}.venv/bin/python -m eli.core.model_download --list${R}   ${D}# options${R}"
+    echo "    ${B}.venv/bin/python -m eli.core.model_download --auto${R}   ${D}# by detected VRAM${R}"
+    echo
+fi
+echo "${D}Tip: launch via the scripts / 'eli' command — not the GUI .py with system python.${R}"
+echo "${D}ELI stays offline by default; model downloads are a deliberate one-time action.${R}"
+echo

@@ -26,19 +26,24 @@ modules, **206 capabilities**, and **14 specialist agents**. Features include:
 
 ## One-Click Setup
 
-Fresh Linux/source checkout — `install.sh` does everything (creates the `.venv`,
-installs PyTorch + a **CUDA** llama-cpp-python, all packages from the **frozen lock**
-for a reproducible set, initialises the data dirs + SQLite databases, seeds an
-offline-by-default config, and **verifies the GPU build actually compiled in**):
+Fresh Linux/source checkout — `install.sh` does everything. It opens with a **system
+report** (CPU/RAM/GPU/VRAM/disk), shows a **plan** and asks to proceed, picks the right
+build for your hardware, installs PyTorch + a CUDA/Metal llama-cpp-python, all packages
+from the **frozen lock** (reproducible), initialises the local SQLite databases,
+**verifies the GPU build actually compiled in**, and offers to **download a model sized
+to your VRAM**. Piped/CI installs run non-interactively (`--yes`).
 
 **Linux / macOS:**
 ```bash
 git clone https://github.com/ShadowESC95/ELI_MKXI_v2.0_PRO.git
 cd ELI_MKXI_v2.0_PRO
-bash install.sh                 # CUDA + frozen lock + GPU verify + DB init
-bash install.sh --install-cuda  # ALSO auto-installs the CUDA toolkit if missing
-./eli.sh                        # launch (first run shows the setup wizard)
+bash install.sh                 # interactive: report -> plan -> install -> model
+bash install.sh --yes           # non-interactive (use detected defaults)
+bash install.sh --install-cuda  # ALSO auto-install the CUDA toolkit if missing
+./scripts/eli_launch.sh         # launch the desktop app (first run shows the wizard)
 ```
+Install flags: `--yes`/`-y` (no prompts), `--auto-model` / `--model=qwen2.5-7b` /
+`--no-model`, `--cpu-only` / `--gpu`, `--install-cuda`, `--latest`, `--skip-torch`.
 
 **Windows** (double-click `install.bat`, or in PowerShell):
 ```powershell
