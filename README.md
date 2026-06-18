@@ -1,7 +1,11 @@
 # ELI MKXI v2.0 PRO
 
+> **A fully-local, privacy-first AI assistant that runs entirely on your own hardware.**
+> No cloud APIs · no telemetry · no subscription · your data never leaves your machine.
+> **Source-available** ([PolyForm Internal Use](LICENSE)) — download it, run it, modify it.
+
 ELI MKXI is a 100% local, privacy-first AI assistant. It runs entirely on your
-own hardware — no cloud APIs, no telemetry. ~139k lines of Python across 363
+own hardware — no cloud APIs, no telemetry. ~140k lines of Python across 364
 modules, **208 capabilities**, and **14 specialist agents**. **Model-, user-, and
 hardware-agnostic** — the same install runs a small model on a laptop or a large one
 on a workstation GPU. Features include:
@@ -104,8 +108,9 @@ bash scripts/install_android.sh
 
 Then download a model when prompted, or:
 ```bash
+python -m eli.core.model_download --choose    # multi-select menu: pick ANY number of models
 python -m eli.core.model_download --list      # see the optional models
-python -m eli.core.model_download --auto      # pick by detected VRAM
+python -m eli.core.model_download --auto      # one best-fit by detected VRAM
 python -m eli.core.model_download qwen2.5-7b  # ~4.4 GB (recommended, 8GB+ GPU)
 ```
 
@@ -484,6 +489,31 @@ Bypass agent trust for local development only:
 ```bash
 export ELI_TRUST_ALL_AGENTS=1
 ```
+
+## License
+
+ELI MKXI is **source-available, not open-source.** It is licensed under the
+**[PolyForm Internal Use License 1.0.0](LICENSE)** — copyright © 2026 Jason Fitzgibbon Bridgeman.
+
+| You **may** | You **may not** |
+|---|---|
+| Download, read, run, and **modify** the source | **Redistribute**, share, publish, or sublicense it |
+| Use it for your own internal / personal purposes (incl. internal business use) | **Host it as a service** for others |
+| Keep your own private modifications | **Sell** it or any modified version |
+
+All commercial and distribution rights are reserved by the copyright holder. For anything
+beyond the above — redistribution, hosting for others, or a commercial license — please reach
+out (see **Contact** below). The software is provided "as is", without warranty of any kind.
+
+> **Why source-available?** The goal is to put a genuinely capable, fully-local AI assistant in
+> people's hands to *use and learn from* — while keeping the right to steward and sustain the
+> project rather than have it taken closed and resold by someone else.
+
+## Contact
+
+Questions, feedback, or interested in a license/services beyond the terms above? Open a
+GitHub issue on this repository, or reach the author via the GitHub profile
+[**@ShadowESC95**](https://github.com/ShadowESC95).
 
 ## Verification
 
