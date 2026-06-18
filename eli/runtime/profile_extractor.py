@@ -14,7 +14,17 @@ def _root() -> Path:
 
 
 def _user_db() -> Path:
-    return _root() / "artifacts" / "db" / "user.sqlite3"
+    # Canonical user store — the SAME file every other subsystem uses
+    # (eli.core.paths honours ELI_USER_DB/ELI_DB_DIR/ELI_DATA_DIR then platformdirs).
+    # Previously this hardcoded <repo>/artifacts/db/user.sqlite3, which on an installed
+    # package is a DIFFERENT file from paths.user_db_path() — so the User Model + patterns
+    # were WRITTEN here but READ from the canonical store (the brief never surfaced), and
+    # it wrote into the package/CWD dir. Delegate so writer and reader always agree.
+    try:
+        from eli.core.paths import user_db_path
+        return Path(user_db_path())
+    except Exception:
+        return _root() / "artifacts" / "db" / "user.sqlite3"
 
 
 def _clean(value: Any, limit: int = 600) -> str:

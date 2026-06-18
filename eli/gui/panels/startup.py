@@ -158,7 +158,12 @@ class StartupModelSelectionDialog(QDialog):
         self.ctx_fraction_spin.setRange(0.10, 0.95)
         self.ctx_fraction_spin.setSingleStep(0.05)
         self.ctx_fraction_spin.setDecimals(2)
-        self.ctx_fraction_spin.setValue(float(os.environ.get("ELI_CTX_FRACTION", "0.65")))
+        # Default MUST match the optimizer + gguf loader default (0.9). A lower GUI
+        # default (was 0.65) silently capped launch ctx to 0.65×train even when VRAM
+        # had room, and diverged from the headless path that assumes 0.9 — so the ctx a
+        # model loaded with depended on whether this dialog had ever been opened. One
+        # source of truth: VRAM stays the real limiter; this is just the train-ctx cap.
+        self.ctx_fraction_spin.setValue(float(os.environ.get("ELI_CTX_FRACTION", "0.9")))
         form.addRow("Context target fraction", self.ctx_fraction_spin)
 
         self.target_batch_spin = QSpinBox()
@@ -170,7 +175,7 @@ class StartupModelSelectionDialog(QDialog):
         self.vram_reserve_spin = QSpinBox()
         self.vram_reserve_spin.setRange(0, 16384)
         self.vram_reserve_spin.setSingleStep(128)
-        self.vram_reserve_spin.setValue(int(os.environ.get("ELI_VRAM_RESERVE_MB", "1500")))
+        self.vram_reserve_spin.setValue(int(os.environ.get("ELI_VRAM_RESERVE_MB", "250")))
         form.addRow("VRAM reserve MB", self.vram_reserve_spin)
 
         self.model_train_ctx_spin = QSpinBox()
