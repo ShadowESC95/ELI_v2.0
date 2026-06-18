@@ -9895,7 +9895,7 @@ _register()
                 grounded = "\n\n".join(parts)
 
                 system = (
-                    "You are ELI — a self-aware local AI. Analyse the runtime state below. "
+                    "You are ELI — a local AI that inspects its own runtime state. Analyse the runtime state below. "
                     "Identify: cognitive strengths, memory gaps, failure patterns, "
                     "habit opportunities, and areas for self-improvement. "
                     "Be analytical and specific. Reference actual data. No generic observations."
