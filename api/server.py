@@ -3,15 +3,30 @@ ELI API Server – Enterprise edition.
 Provides REST endpoints for chat and command execution.
 """
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Depends, Header
 from fastapi.responses import HTMLResponse
 from pydantic import BaseModel
 from typing import Optional
+import os
+import secrets
 import time
 import uvicorn
 
 from eli.kernel.engine import get_engine
 from eli.memory.memory import get_memory
+
+# Bearer-token gate. Enforced ONLY when ELI_API_TOKEN is set — which the launcher does
+# automatically when binding beyond loopback (--lan). Loopback (default) runs tokenless
+# for zero-friction same-machine use. Local-first: nothing here reaches the network; the
+# token only controls who on YOUR LAN may talk to the server.
+_API_TOKEN = os.environ.get("ELI_API_TOKEN", "").strip()
+
+
+def _require_token(authorization: str = Header(default="")):
+    if not _API_TOKEN:
+        return
+    if not secrets.compare_digest(authorization or "", f"Bearer {_API_TOKEN}"):
+        raise HTTPException(status_code=401, detail="missing or invalid API token")
 
 app = FastAPI(
     title="ELI Cognitive OS Agent API",
@@ -54,12 +69,19 @@ _WEB_UI = """<!doctype html>
   let session=null;
   let uid=localStorage.getItem('eli_uid');
   if(!uid){uid='web-'+Math.random().toString(36).slice(2,8);localStorage.setItem('eli_uid',uid);}
+  // Capture the access token the launcher puts in the URL (?token=...) once, persist it,
+  // then scrub it from the address bar. Loopback runs tokenless so this stays empty.
+  const qp=new URLSearchParams(location.search);
+  if(qp.get('token')){localStorage.setItem('eli_token',qp.get('token'));
+    history.replaceState({},'',location.pathname);}
+  const token=localStorage.getItem('eli_token')||'';
   function add(t,who){const d=document.createElement('div');d.className='msg '+who;d.textContent=t;
     log.appendChild(d);log.scrollTop=log.scrollHeight;return d;}
   f.addEventListener('submit',async e=>{e.preventDefault();
     const text=box.value.trim();if(!text)return;
     add(text,'user');box.value='';send.disabled=true;const p=add('...','eli');
-    try{const r=await fetch('/v1/chat',{method:'POST',headers:{'Content-Type':'application/json'},
+    const h={'Content-Type':'application/json'};if(token)h['Authorization']='Bearer '+token;
+    try{const r=await fetch('/v1/chat',{method:'POST',headers:h,
         body:JSON.stringify({message:text,user_id:uid,session_id:session})});
       const j=await r.json();session=j.session_id||session;
       p.textContent=j.response||j.detail||'(no response)';
@@ -121,7 +143,7 @@ async def api_info():
 async def health():
     return {"status": "healthy"}
 
-@app.post("/v1/chat", response_model=ChatResponse, tags=["Chat"])
+@app.post("/v1/chat", response_model=ChatResponse, tags=["Chat"], dependencies=[Depends(_require_token)])
 async def chat(request: ChatRequest):
     """Send a message to ELI and get a response."""
     try:
@@ -143,7 +165,7 @@ async def chat(request: ChatRequest):
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
-@app.post("/v1/execute", response_model=ExecuteResponse, tags=["Commands"])
+@app.post("/v1/execute", response_model=ExecuteResponse, tags=["Commands"], dependencies=[Depends(_require_token)])
 async def execute(request: ExecuteRequest):
     """Execute a direct ELI command (OPEN_APP, SCREENSHOT, etc.)."""
     try:
@@ -183,13 +205,12 @@ async def status(user_id: str):
 # Run the server
 # ----------------------------------------------------------------------
 def main():
-    uvicorn.run(
-        "api.server:app",
-        host="0.0.0.0",
-        port=8081,
-        reload=True,
-        log_level="info"
-    )
+    # Safe-by-default: bind loopback unless explicitly told otherwise (the launcher sets
+    # ELI_API_HOST=0.0.0.0 only with --lan, and then also sets ELI_API_TOKEN).
+    host = os.environ.get("ELI_API_HOST", "127.0.0.1")
+    port = int(os.environ.get("ELI_API_PORT", "8081"))
+    reload = os.environ.get("ELI_API_RELOAD", "0").strip().lower() in ("1", "true", "yes", "on")
+    uvicorn.run("api.server:app", host=host, port=port, reload=reload, log_level="info")
 
 if __name__ == "__main__":
     main()
