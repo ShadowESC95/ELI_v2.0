@@ -1,266 +1,196 @@
+<div align="center">
+
 # ELI MKXI v2.0 PRO
 
-> **A fully-local, privacy-first AI assistant that runs entirely on your own hardware.**
-> No cloud APIs · no telemetry · no subscription · your data never leaves your machine.
-> **Source-available** ([PolyForm Internal Use](LICENSE)) — download it, run it, modify it.
+### Your own AI assistant — running entirely on your computer.
 
-ELI MKXI is a 100% local, privacy-first AI assistant. It runs entirely on your
-own hardware — no cloud APIs, no telemetry. ~140k lines of Python across 364
-modules, **208 capabilities**, and **14 specialist agents**. **Model-, user-, and
-hardware-agnostic** — the same install runs a small model on a laptop or a large one
-on a workstation GPU. Features include:
+No cloud. No accounts. No subscription. No telemetry. Your data never leaves your machine.
 
-- **GGUF inference** via llama-cpp-python (CPU and GPU, auto-tuned at boot;
-  model-agnostic — no hardcoded model name/size on the inference path; context
-  sized to each model's real `n_ctx_train`)
-- **Multi-GPU** — VRAM summed across all GPUs; optional `tensor_split` to run one
-  large model across several cards (`config/gpu_profiles.json`)
-- **PySide6 GUI** with dockable panels, quick-action board, and live telemetry
-- **Self-hosted web app** — a built-in FastAPI server (`api/server.py`) serves a
-  mobile-first chat UI; reach ELI from a phone/tablet browser over your LAN
-  (loopback-safe by default, token-gated when exposed). Inference stays on the host.
-- **Continuous User Model** — a living, semantic model of the user, read directly
-  each turn and wired into cognition, persona, proactive, reflection, and awareness;
-  seeded by a light, skippable first-run onboarding interview
-- **Persistent memory** — SQLite + FAISS vector index + knowledge graph for
-  semantic recall
-- **Multi-agent bus** — parallel agent dispatch with confidence aggregation,
-  on a DAG orchestrator (parallel/retries/fallback/cache/timeout)
-- **Code examiner & self-repair** — examine/audit files for errors (tiered:
-  syntax + import → static lint → LLM logic review), fix files, and drag-and-drop
-  a file into the chat to act on it directly
-- **Local voice** — faster-whisper STT (VRAM-aware: GPU on large cards, else CPU
-  so the main model keeps the GPU), wake-word, and TTS
-- **Security hardening** — prompt injection guard, SQL identifier validation,
-  fail-closed shell command gate, custom agent SHA-256 trust registry, offline-by-
-  default network guard
-- **Headless / CLI mode** — `eli --headless` for terminal-only use
-- **Proactive daemon** — background goal/habit/insight generation
-- **Self-improvement** — failure analysis, learns from mistakes, capability
-  manifest regeneration
-- **Plugin system** — install, enable/disable, and uninstall tools at runtime
-- **Interactive cross-platform install** — Linux/macOS/Windows one-click installers
-  (system report → plan → model offer); app-menu / Start-Menu desktop launchers for
-  both the GUI and the web server
+![License](https://img.shields.io/badge/license-PolyForm%20Internal%20Use-blue)
+![Platform](https://img.shields.io/badge/platform-Linux%20·%20macOS%20·%20Windows-lightgrey)
+![Python](https://img.shields.io/badge/python-3.10%2B-blue)
+![Status](https://img.shields.io/badge/100%25-local%20%26%20private-success)
+![Models](https://img.shields.io/badge/models-bring%20your%20own%20GGUF-orange)
 
-## One-Click Setup
+</div>
 
-Fresh Linux/source checkout — `install.sh` does everything. It opens with a **system
-report** (CPU/RAM/GPU/VRAM/disk), shows a **plan** and asks to proceed, picks the right
-build for your hardware, installs PyTorch + a CUDA/Metal llama-cpp-python, all packages
-from the **frozen lock** (reproducible), initialises the local SQLite databases,
-**verifies the GPU build actually compiled in**, and offers to **download a model sized
-to your VRAM**. Piped/CI installs run non-interactively (`--yes`).
+---
 
-**Linux / macOS:**
+ELI is a capable AI assistant that you **own and run yourself** — by typing or speaking. It talks
+with you, operates your computer, reads your screen and documents, writes and fixes code, and
+**learns who you are over time** — all on your own hardware. Think of a private, local alternative
+to a cloud assistant: same kind of help, but it's *yours*, it works offline, and nothing is sent
+to anyone.
+
+> **New here?** Jump to [What can it do?](#-what-can-it-do) · **Want to install it?** → [Quick Start](#-quick-start) ·
+> **Developer?** → [Under the hood](#-under-the-hood)
+
+## Contents
+- [What is ELI?](#-what-is-eli)
+- [What can it do?](#-what-can-it-do)
+- [Why ELI?](#-why-eli)
+- [Highlights](#-highlights)
+- [Quick Start](#-quick-start)
+- [Choose your model](#-choose-your-model)
+- [Use it from your phone](#-use-it-from-your-phone)
+- [Privacy](#-privacy)
+- [Documentation](#-documentation)
+- [Under the hood](#-under-the-hood)
+- [Security](#-security)
+- [License](#-license) · [Contact](#-contact)
+
+---
+
+## 🤖 What is ELI?
+
+ELI runs a local AI **model** (the "brain") on your own machine and wraps it in a full assistant:
+memory, voice, vision, a desktop app, and the ability to actually *do things* on your computer.
+
+- **For everyone:** open the app, type or talk, and ask for what you want — "play some lo-fi",
+  "what's on my screen?", "remember my dog's name is Rufus", "set an alarm for 7am". It just works,
+  privately.
+- **For developers:** a ~140k-line Python cognitive runtime — **208 capabilities**, **14 specialist
+  agents** on a DAG orchestrator, GGUF inference (auto-tuned per machine), SQLite + FAISS + knowledge
+  graph memory, a FastAPI server, and a PySide6 GUI. **Model-, user-, and hardware-agnostic.**
+
+It's **source-available**: download it, run it, and modify it for yourself (see [License](#-license)).
+
+## ✨ What can it do?
+
+Real things you can say (it understands many phrasings — these are examples):
+
+| | |
+|---|---|
+| 🎵 **Music & media** | "play Juicy by Notorious B.I.G. on Spotify" · "pause" · "skip" · "what's playing?" |
+| 🪟 **Run your computer** | "open firefox" · "close steam and set an alarm for 7am" · "tile windows" · "volume up" |
+| 👁️ **See your screen & files** | "what's on my screen?" · "summarise report.pdf" · "describe this image" · "analyse data.csv" |
+| ✍️ **Write & code** | "write a report on solar power" · "write a bash script to monitor the GPU" · "fix the bugs in foo.py" |
+| 🧠 **Remember you** | "remember that my sister is Anna" · "what do you know about me?" — a private profile that updates as you talk |
+| 🗓️ **Plan & automate** | "set a timer for 10 minutes" · "research the best inverters overnight" · learns your routines and offers to automate them |
+| 🌐 **Look things up** | "what's the news?" · "weather in Dublin" · "search the web for X" *(the only time it goes online — and it tells you)* |
+| 🎙️ **Hands-free** | wake word "computer", dictation, text-to-speech, and it learns your voice & tone |
+
+Not sure? Just ask it **"what can you do?"** — it lists everything. Full reference:
+[`docs/`](#-documentation).
+
+## 💡 Why ELI?
+
+- **It's private.** Everything runs locally. It's **offline by default** and only touches the
+  internet when you ask for something that needs it (news, search) — and it says so.
+- **It's yours.** No account, no subscription, no telemetry. Your conversations, files, and memory
+  live in plain local databases you can delete anytime.
+- **It runs on what you have.** From a 4 GB laptop to a workstation GPU, the *same install*
+  auto-tunes itself to your hardware. CPU-only works too.
+- **It actually knows you.** A continuous, semantic user model is read every turn and feeds the
+  persona, proactivity, reflection, and memory — so you don't repeat yourself.
+- **It's honest.** A built-in guard means ELI **never fakes an action** — if it says it did
+  something, it did; if it couldn't, it tells you plainly.
+
+## 🚀 Highlights
+
+<table>
+<tr>
+<td valign="top" width="50%">
+
+**Intelligence**
+- 12-stage cognition pipeline + **14-agent** DAG orchestrator (parallel, retries, fallback, cache)
+- Persistent memory: **SQLite + FAISS vector index + knowledge graph**
+- Continuous **User Model** wired into cognition/persona/proactive/reflection
+- Code examiner & self-repair (syntax → lint → LLM logic review)
+- Proactive daemon (goals, habits, insights) + self-improvement
+
+</td>
+<td valign="top" width="50%">
+
+**Runtime & platform**
+- **GGUF inference** auto-tuned at boot (CPU & GPU; ctx sized to each model's real `n_ctx_train`)
+- **Multi-GPU** (VRAM summed; optional `tensor_split`)
+- **Local voice** — faster-whisper STT, wake-word, TTS
+- **Self-hosted web app** — reach ELI from your phone over LAN
+- One-click installers for **Linux · macOS · Windows**; headless/CLI mode
+
+</td>
+</tr>
+</table>
+
+## 📦 Quick Start
+
+**Linux / macOS** — `install.sh` gives you a system report → a plan → installs the right CPU/GPU
+build → offers to download a model sized to your hardware:
+
 ```bash
 git clone https://github.com/ShadowESC95/ELI_MKXI_v2.0_PRO.git
 cd ELI_MKXI_v2.0_PRO
-bash install.sh                 # interactive: report -> plan -> install -> model
-bash install.sh --yes           # non-interactive (use detected defaults)
-bash install.sh --install-cuda  # ALSO auto-install the CUDA toolkit if missing
-./scripts/eli_launch.sh         # launch the desktop app (first run shows the wizard)
+bash install.sh                 # interactive: report → plan → install → pick model(s)
+./scripts/eli_launch.sh         # launch the desktop app (first run shows a quick setup)
 ```
-Install flags: `--yes`/`-y` (no prompts), `--auto-model` / `--model=qwen2.5-7b` /
-`--no-model`, `--cpu-only` / `--gpu`, `--install-cuda`, `--latest`, `--skip-torch`.
+Flags: `--yes` (no prompts) · `--install-cuda` (auto-install CUDA toolkit) · `--cpu-only` ·
+`--model=qwen2.5-7b` / `--no-model`.
 
-**Windows** (double-click `install.bat`, or in PowerShell):
+**Windows** (double-click `install.bat`, or PowerShell):
 ```powershell
-.\install.bat                                  # CUDA + frozen lock + GPU verify
-.\install.bat /cuda                            # also auto-install CUDA toolkit (winget)
-powershell -ExecutionPolicy Bypass -File install.ps1 -InstallCuda
-.\eli.bat
+.\install.bat            # CUDA + frozen lock + GPU verify
+.\eli.bat                # launch
 ```
 
-**Phone / tablet (Android, iOS) — recommended: self-hosted web app.**
-Don't run inference on the phone (that needs an on-device llama.cpp build). Run the server
-on a machine that *can* do inference (your desktop / a home server); inference stays on the
-host, nothing reaches the cloud. The server is **safe by default** — loopback-only and
-tokenless — until you explicitly expose it:
+That's it — the first run is a **blank slate** (no preloaded data) with a 10-second, skippable
+"what should I call you?" intro.
+
+## 🧠 Choose your model
+
+ELI needs one local **model** (the brain). The installer offers to fetch one sized to your
+hardware, or pick your own — you can grab several and switch anytime:
+
 ```bash
-# on the host (Linux/macOS/Windows), after install.sh:
-./scripts/eli_serve.sh             # local-only  -> http://127.0.0.1:8081/
-./scripts/eli_serve.sh --lan       # LAN access for phone/tablet (binds 0.0.0.0 + token)
-```
-With `--lan` it prints a token-protected URL like `http://<host-ip>:8081/?token=…` — open
-that once on the phone (same WiFi) and the page remembers the token. Works on Android, iOS,
-and desktop with zero native build. REST API at `/v1/chat`, docs at `/docs`.
-
-**One launcher for everything:** `./scripts/eli_launch.sh` (desktop GUI) ·
-`eli_launch.sh serve --lan` (server) · `eli_launch.sh both` (both at once).
-Windows: `.\eli.bat` (GUI) · `.\scripts\eli_serve.ps1 -Lan` (server).
-
-**Desktop apps (app-menu / Start-Menu launchers for both ELI Pro and the web server):**
-`./scripts/install_desktop_apps.sh` (Linux `.desktop` / macOS `.command`) ·
-`powershell -ExecutionPolicy Bypass -File scripts\install_desktop_apps.ps1` (Windows Start Menu).
-
-All three installers are now **interactive + identical in what they install** (system report
-→ plan → model offer; `--yes`/`-Yes` for non-interactive/CI) across Linux, macOS, and Windows.
-
-**Android / Termux (experimental, expert-only)** — the Python core can run headless in
-Termux, but `llama-cpp-python`, `torch`, `faiss`, and `PySide6` are excluded from
-`requirements-android.txt` and must be hand-built on-device; the GUI is unavailable.
-Prefer the self-hosted web app above.
-```bash
-bash scripts/install_android.sh
-.venv/bin/python -m eli.cli.headless
+python -m eli.core.model_download --choose   # multi-select menu — pick ANY number
+python -m eli.core.model_download --auto      # one best-fit for your VRAM
 ```
 
-Then download a model when prompted, or:
-```bash
-python -m eli.core.model_download --choose    # multi-select menu: pick ANY number of models
-python -m eli.core.model_download --list      # see the optional models
-python -m eli.core.model_download --auto      # one best-fit by detected VRAM
-python -m eli.core.model_download qwen2.5-7b  # ~4.4 GB (recommended, 8GB+ GPU)
-```
-
-**Optional chat models** (pick some, or none — drop your own `.gguf` in `models/` too):
-
-| key | model | size | VRAM |
+| key | model | size | needs |
 |---|---|---|---|
-| `qwen2.5-3b` | Qwen2.5-3B-Instruct | ~1.8 GB | 4 GB+ / CPU |
-| `qwen2.5-7b` | Qwen2.5-7B-Instruct *(default)* | ~4.4 GB | 8 GB+ |
-| `qwen3-8b` | Qwen3-8B (40K ctx, reasoning; LoRA base) | ~4.7 GB | 8 GB+ |
-| `falcon3-10b` | Falcon3-10B-Instruct | ~5.9 GB | 12 GB+ |
-| `phi-4` | Phi-4 (14B dense, MIT) | ~8.4 GB | 12 GB+ |
-| `qwen3.6-35b-a3b` | Qwen3.6-35B-A3B (MoE, 3B active, Apache-2.0) | ~20.6 GB | 24 GB+ / CPU |
-| `falcon-h1-34b` | Falcon-H1-34B-Instruct (hybrid attn+SSM) | ~18.9 GB | 24 GB+ / CPU |
+| `qwen2.5-3b` | Qwen2.5-3B-Instruct | ~1.8 GB | 4 GB GPU / CPU |
+| `qwen2.5-7b` | Qwen2.5-7B-Instruct *(default)* | ~4.4 GB | 8 GB GPU |
+| `qwen3-8b` | Qwen3-8B (40K ctx, reasoning; LoRA base) | ~4.7 GB | 8 GB GPU |
+| `falcon3-10b` | Falcon3-10B-Instruct | ~5.9 GB | 12 GB GPU |
+| `phi-4` | Phi-4 (14B dense, MIT) | ~8.4 GB | 12 GB GPU |
+| `qwen3.6-35b-a3b` | Qwen3.6-35B-A3B (MoE, Apache-2.0) | ~20.6 GB | 24 GB GPU / CPU |
+| `falcon-h1-34b` | Falcon-H1-34B-Instruct | ~18.9 GB | 24 GB GPU / CPU |
 
-**Support models** — the installer fetches these automatically; you don't pick them:
-- **Embedder** (`nomic-embed-text-v1.5`, ~85 MB) — **required** for memory / RAG / knowledge-graph
-  recall; auto-installed (`python -m eli.core.model_download --aux` to fetch manually).
-- **Vision** (`Qwen2.5-VL-7B` + projector, optional) — for screen/image understanding:
-  `python -m eli.core.model_download --aux-all`. Speech-to-text (faster-whisper) downloads its
-  own model on first use.
+You can also drop **any `.gguf`** into `models/`, or point ELI at your own catalog
+(`ELI_MODEL_CATALOG`). The tiny **embedder** (memory/RAG) installs automatically; vision is an
+optional extra. Want ELI to *speak in its own voice* out of the box? Fine-tune your own model —
+see **[`docs/TRAINING_YOUR_OWN_MODEL.md`](docs/TRAINING_YOUR_OWN_MODEL.md)**.
 
-### Scaling — laptop to workstation, one install
-ELI is **model-, user- and hardware-agnostic by design**: the *same install* fits whatever
-hardware it finds — **always local, never cloud**:
-- **Loader** sizes each model from its real `n_ctx_train` (GGUF metadata) and fits it to the
-  hardware present — layers/batch/ctx are tuned per machine, and VRAM is summed across all
-  detected GPUs. A small model on a 4 GB laptop and a large one on a workstation use one path.
-- **Models:** the optional downloads above are just suggestions — drop any `.gguf` into
-  `models/`, or point ELI at your own catalog (`ELI_MODEL_CATALOG=/path/catalog.json` or
-  `models/catalog.json`; schema `key`, `name`, `filename`, `url`, `size_gb`, `vram_gb`). No
-  code changes needed for any model.
-- **Multiple GPUs:** detection reports total VRAM and `--auto` picks the largest model that
-  fits. To split one large model across cards, enable a profile in `config/gpu_profiles.json`
-  or set `tensor_split` (e.g. `"0.5,0.5"`) in settings — passed straight to llama.cpp.
-  Single-GPU is the default and unchanged.
-- **Ethos holds at every size:** offline-by-default, no telemetry, emergent persona, your
-  data on your hardware.
+## 📱 Use it from your phone
 
-**Flags (Linux `--flag` / Windows `/flag`):** `--install-cuda` / `/cuda` (auto-install
-the CUDA toolkit + rebuild llama-cpp for users without it), `--cpu-only` / `/cpu`,
-`--latest` / `/latest` (version ranges instead of the frozen `requirements.lock.txt`),
-`--skip-torch`. **macOS uses Metal** (no CUDA). If a CPU-only llama-cpp slips in, the
-installer says so and (with the CUDA flag) fixes it automatically. Legacy
-`scripts/eli_one_click_setup.sh` (installs `~/.local/bin/eli`) still works.
-
-Equivalent startup entrypoint with optional logging, trace, setup, and asset
-restore flags:
+ELI includes a built-in web app. Run the server on a machine that can do the thinking (your
+desktop), then chat from your phone's browser over your home Wi-Fi — inference stays on the host,
+nothing reaches the cloud. **Safe by default** (loopback-only) until you explicitly expose it:
 
 ```bash
-bash scripts/eli_startup.sh
-bash scripts/eli_startup.sh --setup --with-github-assets
-bash scripts/eli_startup.sh --trace
+./scripts/eli_serve.sh             # local only  → http://127.0.0.1:8081/
+./scripts/eli_serve.sh --lan       # phone access → prints a token-protected URL
 ```
+Works on Android, iOS, and desktop with zero native build. Details:
+**[`docs/SERVER_AND_WEB_APP.md`](docs/SERVER_AND_WEB_APP.md)**.
 
-`scripts/eli_one_click_setup.sh` installs `~/.local/bin/eli` by default. That
-launcher runs this checkout through its `.venv`, so a normal terminal can start
-ELI with:
+## 🔒 Privacy
 
-```bash
-eli
-```
+Nothing leaves your computer unless you ask for something online (news, search, downloading a
+model) — and ELI tells you when it does. No accounts, no telemetry, no subscription. A fresh
+install knows **nothing** about you until you talk to it, and you can delete your data anytime.
 
-If your shell has cached another `eli` command, run `hash -r` or open a new
-terminal.
+## 📚 Documentation
 
-If the large local model/voice release assets have been uploaded to the private
-GitHub release, restore them during setup:
+- **[Server & Web App](docs/SERVER_AND_WEB_APP.md)** — self-hosted FastAPI server + phone/web UI
+- **[Train your own model](docs/TRAINING_YOUR_OWN_MODEL.md)** — A-to-Z LoRA/QLoRA into an ELI GGUF
+- **[Cross-platform coverage](docs/CROSS_PLATFORM.md)** — capability × platform matrix
+- **[Model runtime policy](docs/model_runtime_policy.md)** — how ctx/layers/batch are sized
 
-```bash
-gh auth login
-bash scripts/eli_one_click_setup.sh --with-github-assets
-```
+## 🛠 Under the hood
 
-CPU-only setup:
-
-```bash
-bash scripts/eli_one_click_setup.sh --cpu-only
-```
-
-Build an installable wheel/sdist:
-
-```bash
-bash scripts/package_eli_release.sh
-python -m pip install "dist/eli_mkxi-*.whl[full]"
-```
-
-Build a portable Linux desktop package:
-
-```bash
-bash scripts/package_desktop_app.sh
-```
-
-The package is written to `dist/app_packages/` and includes `INSTALL_ELI.sh`,
-`RUN_ELI.sh`, a desktop launcher installer, and the built wheel. By default it
-does not embed local GGUF/TTS assets; restore those with:
-
-```bash
-./RUN_ELI.sh --with-github-assets
-```
-
-## GitHub Large Assets
-
-The code repository intentionally excludes machine-specific runtime state,
-virtual environments, and large model/voice binaries from normal Git because
-GitHub rejects normal Git blobs over 100 MB and those files can be tens of GB.
-
-Create a complete local ignored-asset manifest:
-
-```bash
-python scripts/github_asset_manifest.py --output dist/github_assets/asset_manifest.json
-```
-
-Create split GitHub Release upload archives for local model and voice payloads:
-
-```bash
-bash scripts/create_github_asset_archives.sh
-```
-
-Upload those split archives to the private GitHub release:
-
-```bash
-bash scripts/upload_github_assets.sh
-```
-
-Restore release assets after cloning:
-
-```bash
-python scripts/restore_github_asset_files.py
-```
-
-If the machine does not have enough free disk to create one archive set, use the
-direct/chunked uploader. It stages one file at a time and is better for this
-checkout's 70 GB+ model directory:
-
-```bash
-python scripts/upload_github_asset_files.py
-python scripts/restore_github_asset_files.py
-```
-
-`scripts/restore_github_assets.sh` is retained for legacy split-archive
-releases. The current uploaded `local-assets-v2.0` release uses the direct/chunk
-manifest restored by `scripts/restore_github_asset_files.py`.
-
-The repository is designed to be movable. Do not commit user-specific absolute
-paths such as `/home/name/...`, `C:\Users\name\...`, or `/Users/name/...`.
-Use project-relative paths, `ELI_PROJECT_ROOT`, or the path helpers in
-`eli.core.paths` and `eli.core.portable_paths`.
-
-## Project Layout
+<details>
+<summary><b>Architecture / project layout</b></summary>
 
 - `eli/core` — paths, settings, contracts, hardware profile
 - `eli/kernel` — control loop, cognitive engine, state models
@@ -270,262 +200,95 @@ Use project-relative paths, `ELI_PROJECT_ROOT`, or the path helpers in
 - `eli/execution` — router, executor, tool authority, shell security gate
 - `eli/perception` — audio, screenshots, OS controller, TTS/STT
 - `eli/runtime` — arbitration, verification, security policy
-- `eli/integrations` — Ollama, GGUF, media backends, adapters
 - `eli/plugins` — tool plugins (install/enable/disable at runtime)
-- `eli/gui` — GUI launcher and `EliMainWindow`
-- `eli/gui/panels` — extracted panel components (startup, settings, agents)
+- `eli/gui` — PySide6 GUI launcher and `EliMainWindow`
 - `eli/cli` — headless REPL (`eli --headless`)
-- `config` — portable default settings and templates
-- `models` — local model payloads (gitignored, distribute separately)
-- `tests` — pytest suite (6,800+ tests across 160+ files; unit, integration, and
-  claim-verification)
-- `packaging` — Windows, macOS, Linux packaging scripts
-- `dist` — generated release artifacts
+- `config` — portable default settings · `models` — local GGUF payloads (gitignored)
+- `tests` — pytest suite (6,800+ tests across 160+ files)
 
-## Supported OS Names And Aliases
+**Scaling:** the loader reads each model's real `n_ctx_train` from GGUF metadata and fits
+layers/batch/ctx to the hardware present; VRAM is summed across all GPUs. One path runs a 3B on a
+laptop and a 35B on a workstation. Multi-GPU: enable a profile in `config/gpu_profiles.json` or set
+`tensor_split`. Always local, never cloud, at every size.
+</details>
 
-Runtime OS checks go through `eli.utils.platform_compat`.
-
-- Windows: `windows`, `win`, `win32`, `win64`, `nt`, `cygwin`, `msys`, `mingw`
-- macOS: `macos`, `mac`, `darwin`, `osx`, `mac os`, `mac os x`
-- Linux: `linux`, `linux2`, `gnu/linux`, `ubuntu`, `debian`, `fedora`, `arch`
-- Android/Termux: `android`, `termux`, `bionic`
-- BSD: `bsd`, `freebsd`, `openbsd`, `netbsd`
-- Generic Unix: `unix`, `posix`
-
-Android support means Termux/headless integration. It does not mean full desktop
-GUI, global desktop control, CUDA, PyAudio, or AppImage support on Android.
-
-## Dynamic Path Rules
-
-Use these APIs instead of hard-coded machine paths:
-
-```python
-from eli.core.paths import (
-    project_root, data_dir, config_dir, cache_dir, models_dir,
-    db_dir, user_db_path, agent_db_path, memory_db_path,
-)
-
-from eli.core.portable_paths import resolve_path_value, make_portable_path_value
-```
-
-Settings may store:
-
-- `models/gguf/base/model.gguf`
-- `${ELI_PROJECT_ROOT}/models/gguf/base/model.gguf`
-- `%ELI_PROJECT_ROOT%\models\gguf\base\model.gguf`
-
-At runtime those resolve to the current machine. When a path is inside the
-project tree, settings storage converts it back to a project-relative path.
-
-## Environment Files
-
-- `.env.example`: minimal common overrides
-- `.env.full.example`: full environment reference
-- `.env.mkxi`: Bash helper for Linux/macOS source checkouts
-
-Most users should leave `ELI_PROJECT_ROOT` unset. The app auto-detects its
-project root from the installed package or source tree.
-
-## Requirements
-
-- `requirements.lock.txt`: **frozen, exact known-good versions** (used by `install.sh`
-  by default for reproducible installs; excludes torch/llama-cpp, which are installed
-  via their CUDA indices)
-- `requirements.txt`: Linux x86_64 profile (version ranges)
-- `requirements-windows.txt`: Windows profile
-- `requirements-macos.txt`: macOS profile
-- `requirements-android.txt`: Android/Termux headless profile
-- `requirements-full.txt`: broad source-checkout profile
-
-Recommended setup from a source checkout:
+<details>
+<summary><b>Developer setup (from a source checkout)</b></summary>
 
 ```bash
-python3 -m venv .venv
-. .venv/bin/activate
+python3 -m venv .venv && . .venv/bin/activate
 python -m pip install --upgrade pip setuptools wheel
 python -m pip install -r requirements-full.txt
 python -m pip install -e .[full]
+python -m eli            # GUI   ·   python -m eli --headless   # terminal REPL
 ```
+Per-platform requirement profiles: `requirements.lock.txt` (frozen, reproducible),
+`requirements-windows.txt`, `requirements-macos.txt`, `requirements-android.txt`,
+`requirements-full.txt`. Headless slash commands: `/status`, `/mode`, `/reset`, `/help`, `/quit`.
 
-Windows PowerShell:
+Use the path helpers in `eli.core.paths` (`project_root`, `data_dir`, `models_dir`,
+`user_db_path`, …) instead of hard-coded machine paths — the repo is designed to be movable.
+Most users leave `ELI_PROJECT_ROOT` unset (auto-detected). Env reference: `.env.example`,
+`.env.full.example`.
+</details>
 
-```powershell
-py -3.11 -m venv .venv
-.\.venv\Scripts\Activate.ps1
-python -m pip install --upgrade pip setuptools wheel
-python -m pip install -r requirements-windows.txt
-python -m pip install -e .[full]
-```
-
-macOS:
+<details>
+<summary><b>Packaging & releases</b></summary>
 
 ```bash
-python3 -m venv .venv
-. .venv/bin/activate
-python -m pip install --upgrade pip setuptools wheel
-python -m pip install -r requirements-macos.txt
-python -m pip install -e .[full]
+bash scripts/package_eli_release.sh                 # wheel/sdist
+bash scripts/package_desktop_app.sh                 # portable Linux desktop package
+bash build_packages.sh wheel deb appimage macos windows
 ```
+A real Windows `.exe`/`.msi` must be built on Windows; a signed/notarized macOS `.dmg` on macOS.
+Large model/voice binaries are distributed separately (GitHub Release assets) via
+`scripts/upload_github_asset_files.py` / `restore_github_asset_files.py` — they exceed Git's
+100 MB blob limit.
+</details>
 
-Android/Termux:
+<details>
+<summary><b>Cross-platform limits</b></summary>
 
-```bash
-pkg update
-pkg install python termux-api
-python -m venv .venv
-. .venv/bin/activate
-python -m pip install --upgrade pip setuptools wheel
-python -m pip install -r requirements-android.txt
-python -m pip install -e .
-```
+Guards + aliases cover Windows, macOS, Linux, BSD, and Android/Termux, but no package makes every
+OS permission instant: Windows may need SmartScreen approval + audio/COM packages; macOS needs
+Screen-Recording/Accessibility permissions; Linux desktop control depends on Wayland/X11 +
+PulseAudio/PipeWire; Android/Termux is headless-only; GPU acceleration depends on local
+drivers/CUDA/Metal. Full matrix: **[`docs/CROSS_PLATFORM.md`](docs/CROSS_PLATFORM.md)**.
+</details>
 
-## Running
+## 🛡 Security
 
-Source checkout (GUI):
+Defence-in-depth, all local:
 
-```bash
-python -m eli
-```
+| Layer | Protects against |
+|---|---|
+| Prompt-injection guard | Strips `[INST]`, `<\|im_start\|>system`, jailbreak phrases before the model sees input |
+| SQL identifier validation | Allowlist regex on every f-string SQL identifier — no injection via table/column names |
+| Shell security gate | `RUN_CMD` is **fail-closed**: blocked unless allowlisted; destructive patterns (`rm -rf /`, `mkfs`, fork bombs) denied even then |
+| Custom-agent trust | SHA-256 registry — unregistered/tampered agent files are skipped at load |
+| Offline-by-default | A process-wide network guard fails closed unless a task is explicitly authorised online |
 
-Headless / terminal REPL:
+## 📄 License
 
-```bash
-python -m eli --headless
-# or short form:
-python -m eli -H
-```
-
-Headless slash commands: `/status`, `/mode`, `/reset`, `/help`, `/quit`
-
-Linux installed package:
-
-```bash
-eli-mkxi
-```
-
-Windows portable ZIP:
-
-1. Extract the ZIP.
-2. Run `install.bat` or `install.ps1`.
-3. Launch with `eli.bat` or the installed shortcut if present.
-
-macOS tarball:
-
-1. Extract `ELI_MKXI-<version>-macos-app.tar.gz`.
-2. Open `ELI MKXI.app`.
-3. Approve Gatekeeper/accessibility permissions if macOS asks.
-
-## Packaging
-
-Full release build from Linux:
-
-```bash
-bash build_packages.sh wheel wheelhouse deb appimage macos windows
-```
-
-Notes:
-
-- The Linux AppImage target falls back to a portable tarball when
-  `appimagetool` is not installed.
-- A real Windows `.exe` or `.msi` must be built on Windows with
-  `packaging/windows/build-windows.ps1`.
-- A signed/notarized macOS `.dmg` must be built on macOS.
-
-## Cross-Platform Limits
-
-The code now has guards and aliases for Windows, macOS, Linux, BSD, and
-Android/Termux, but no package can make every OS permission and native backend
-instant:
-
-- Windows may require SmartScreen approval, Visual C++ runtime, and audio/COM
-  packages for endpoint volume control.
-- macOS requires Screen Recording and Accessibility permissions for automation,
-  and signing/notarization for a polished installer.
-- Linux desktop control depends on the current desktop, Wayland/X11 tools,
-  PulseAudio/PipeWire, and package availability.
-- Android/Termux supports portable/headless operation and Termux API helpers,
-  not full desktop GUI/control parity.
-- GPU acceleration still depends on local drivers, CUDA/Metal/MPS support, and
-  native wheels.
-
-Full per-capability coverage matrix (what's full vs gracefully-degraded vs desktop-only on
-each OS): **[`docs/CROSS_PLATFORM.md`](docs/CROSS_PLATFORM.md)**.
-
-## Documentation
-- **[Server & Web App](docs/SERVER_AND_WEB_APP.md)** — the self-hosted FastAPI server + mobile
-  web UI: reach ELI from a phone/tablet (loopback-safe, LAN + token), endpoints, setup.
-- **[Train your own model](docs/TRAINING_YOUR_OWN_MODEL.md)** — A-to-Z LoRA/QLoRA fine-tuning
-  into an ELI-native GGUF (persona stays dynamic; voice-only training).
-- **[Cross-platform coverage](docs/CROSS_PLATFORM.md)** — capability × platform matrix.
-- **[Model runtime policy](docs/model_runtime_policy.md)** — how ctx/layers/batch are sized.
-
-## Security
-
-ELI applies multiple layers of defence-in-depth:
-
-| Layer | What it protects |
-|-------|-----------------|
-| Prompt injection guard | Strips `[INST]`, `<\|im_start\|>system`, jailbreak phrases before the LLM sees input |
-| SQL identifier validation | All f-string SQL identifiers pass an allowlist regex — no injection via column/table names |
-| Shell security gate | `RUN_CMD` is **fail-closed**: all shell commands are blocked unless allowlisted via `ELI_ALLOWED_CMDS` (or the Full Control toggle is on); a destructive-pattern denylist (`rm -rf /`, `mkfs`, `dd of=/dev/`, fork bombs) blocks even then |
-| Custom agent trust | SHA-256 hash registry — unregistered or tampered agent files are skipped at load |
-| Input length cap | Requests over `ELI_MAX_INPUT_LEN` (default 8192) are truncated |
-
-Register a new custom agent:
-
-```bash
-python -m eli --trust-agent path/to/my_agent.py
-```
-
-Override max input length:
-
-```bash
-export ELI_MAX_INPUT_LEN=16384
-```
-
-Bypass agent trust for local development only:
-
-```bash
-export ELI_TRUST_ALL_AGENTS=1
-```
-
-## License
-
-ELI MKXI is **source-available, not open-source.** It is licensed under the
-**[PolyForm Internal Use License 1.0.0](LICENSE)** — copyright © 2026 Jason Fitzgibbon Bridgeman.
+ELI MKXI is **source-available, not open-source**, under the
+**[PolyForm Internal Use License 1.0.0](LICENSE)** — © 2026 Jason Fitzgibbon Bridgeman.
 
 | You **may** | You **may not** |
 |---|---|
 | Download, read, run, and **modify** the source | **Redistribute**, share, publish, or sublicense it |
-| Use it for your own internal / personal purposes (incl. internal business use) | **Host it as a service** for others |
+| Use it for your own internal / personal purposes | **Host it as a service** for others |
 | Keep your own private modifications | **Sell** it or any modified version |
 
-All commercial and distribution rights are reserved by the copyright holder. For anything
-beyond the above — redistribution, hosting for others, or a commercial license — please reach
-out (see **Contact** below). The software is provided "as is", without warranty of any kind.
+All commercial and distribution rights are reserved by the copyright holder. For anything beyond
+that — redistribution, hosting, or a commercial license — please get in touch. Provided "as is",
+without warranty.
 
-> **Why source-available?** The goal is to put a genuinely capable, fully-local AI assistant in
-> people's hands to *use and learn from* — while keeping the right to steward and sustain the
-> project rather than have it taken closed and resold by someone else.
+> **Why source-available?** To put a genuinely capable, fully-local AI assistant in people's hands
+> to *use and learn from* — while keeping the right to steward the project rather than have it
+> taken closed and resold.
 
-## Contact
+## 📬 Contact
 
 Questions, feedback, or interested in a license/services beyond the terms above? Open a
-GitHub issue on this repository, or reach the author via the GitHub profile
+[GitHub issue](https://github.com/ShadowESC95/ELI_MKXI_v2.0_PRO/issues), or reach the author via
 [**@ShadowESC95**](https://github.com/ShadowESC95).
-
-## Verification
-
-Run focused checks:
-
-```bash
-python3 -m py_compile eli/utils/platform_compat.py eli/core/runtime_settings.py
-pytest -q tests/test_core_paths.py tests/test_core_settings.py tests/test_integration.py
-```
-
-Run all tests:
-
-```bash
-pytest -q tests/
-```
