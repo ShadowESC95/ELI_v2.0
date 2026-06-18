@@ -289,6 +289,11 @@ without warranty.
 
 ## 📬 Contact
 
-Questions, feedback, or interested in a license/services beyond the terms above? Open a
-[GitHub issue](https://github.com/ShadowESC95/ELI_MKXI_v2.0_PRO/issues), or reach the author via
-[**@ShadowESC95**](https://github.com/ShadowESC95).
+Questions, feedback, or interested in a license/services beyond the terms above?
+
+- 📧 **Email:** [jaybridgeman0095@gmail.com](mailto:jaybridgeman0095@gmail.com)
+- 🐙 **GitHub:** [@ShadowESC95](https://github.com/ShadowESC95) ·
+  [open an issue](https://github.com/ShadowESC95/ELI_MKXI_v2.0_PRO/issues)
+
+For commercial licensing, redistribution rights, or hosting beyond the
+[license](LICENSE), please reach out by email.
