@@ -48,5 +48,11 @@ jobs:
         run: |
           python -c "from eli.core.paths import get_paths; get_paths(); import eli.memory as M; (M.get_memory() if hasattr(M,'get_memory') else None); print('data dirs + DB init OK')"
 
-      - name: Cross-platform unit tests (no GGUF / no display required)
-        run: pytest -q -p no:cacheprovider -k "platform or settings or hardware or dual_gpu or user_model or smart_fit or no_gguf"
+      - name: Cross-platform unit tests (explicit self-contained files — no GGUF / display / generated artifacts)
+        run: >
+          pytest -q -p no:cacheprovider
+          tests/test_dual_gpu_settings.py
+          tests/test_user_model.py
+          tests/test_08_hardware.py
+          tests/test_smart_fit.py
+          tests/test_settings_extended.py
