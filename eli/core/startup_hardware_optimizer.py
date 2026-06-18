@@ -123,6 +123,20 @@ def select_gpu(gpus: List[GPUInfo]) -> Optional[GPUInfo]:
     return gpus[0] if gpus else None
 
 
+def recommend_tensor_split(gpus: Optional[List[GPUInfo]] = None) -> str:
+    """Suggest a default `tensor_split` for a multi-GPU host: VRAM-proportional weights
+    across all measurable GPUs (so a big model splits in proportion to each card's size).
+    Returns "" for 0/1 GPU (single-GPU path — no split). Hardware-agnostic; no model or
+    GPU count assumed. Used only as a suggested default; the gpu_profiles.json wins."""
+    gpus = gpus if gpus is not None else detect_gpus()
+    measurable = [g for g in (gpus or []) if g.total_mb > 0]
+    if len(measurable) < 2:
+        return ""
+    total = float(sum(g.total_mb for g in measurable)) or 1.0
+    weights = [round(g.total_mb / total, 4) for g in measurable]
+    return ",".join(str(w) for w in weights)
+
+
 def load_settings() -> Dict[str, Any]:
     if SETTINGS_PATH.exists():
         try:

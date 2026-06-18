@@ -132,6 +132,19 @@ def reflect_on_period(hours: int = 24) -> Dict[str, Any]:
                 f"Generated artifacts ({len(generated)} in last {int(hours)}h): {names}"
                 f"; latest={generated[0].get('name')}"
             )
+
+        # Continuous User Model — surface the user's current focus so reflections track
+        # how the user (not just the system) is evolving.
+        try:
+            from eli.runtime.user_model import read_user_model
+            _um = read_user_model()
+            if _um.get("is_seeded"):
+                _focus = _um.get("current_focus") or []
+                _focus_s = "; ".join(_focus[:3]) if isinstance(_focus, list) else str(_focus)
+                if _focus_s:
+                    insights.append(f"User model — current focus: {_focus_s}")
+        except Exception:
+            pass
     except Exception:
         pass
 

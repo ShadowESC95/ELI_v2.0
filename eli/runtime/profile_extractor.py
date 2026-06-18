@@ -88,6 +88,32 @@ def ensure_profile_tables(db_path: Path | None = None) -> None:
         """
     )
 
+    # Continuous User Model — one synthesized row per user_id. The structured JSON
+    # columns + free-text dossier are the in-depth/semantic view; `brief` is a
+    # pre-rendered block for a fast per-turn direct read (single SELECT, no joins).
+    # User-scoped by user_id (never a flat file) so one user's model never bleeds
+    # into another's. Evidence stays in user_patterns/memories/KG; this is synthesis.
+    cur.execute(
+        """
+        CREATE TABLE IF NOT EXISTS user_model (
+            user_id       TEXT PRIMARY KEY,
+            identity      TEXT,
+            comms_style   TEXT,
+            current_focus TEXT,
+            interests     TEXT,
+            habits        TEXT,
+            goals         TEXT,
+            relationship  TEXT,
+            dossier       TEXT,
+            brief         TEXT,
+            sources       TEXT,
+            confidence    REAL,
+            updated_at    REAL,
+            ts            REAL
+        )
+        """
+    )
+
     con.commit()
     con.close()
 
@@ -653,6 +679,15 @@ def write_llm_session_summary(
             (sid, uid, summary, content, len(rows), started, ended, source, now, now),
         )
         con.commit()
+        # Consolidate the freshly-routed user_patterns + this session summary into the
+        # continuous User Model (one row per user_id). Reuses the resident GGUF broker and
+        # degrades to a heuristic dossier on any failure — never blocks the summary write.
+        try:
+            from eli.runtime.user_model import synthesize_user_model
+            synthesize_user_model(user_id=uid, session_summary=str(content or ""),
+                                  db_path=db, broker=broker)
+        except Exception:
+            pass
         return {
             "inserted": True,
             "session_id": sid,

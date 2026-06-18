@@ -334,25 +334,19 @@ def build_persona_handoff(
 
     # ── User identity ──────────────────────────────────────────────────────
     try:
+        # Continuous User Model — the per-turn DIRECT read (one canonical door). Returns
+        # the live user brief, or the onboarding nudge on a true blank slate (first turns).
+        from eli.runtime.user_model import get_user_brief as _ugb
+        _ub = _ugb(turn_count=len(list(recent_turns or [])))
+        if _ub:
+            parts.append(_ub)
         from eli.kernel.state import get_user_name as _bph_gun
         _bph_name = (_bph_gun("") or "").strip()
         if _bph_name:
             # Emphatic — LLM must not override this with stale dialogue history.
             parts.append(
-                f"USER NAME: {_bph_name} — the user has confirmed this name. "
                 f"Always address them as {_bph_name}. Never say you do not know their name."
             )
-        else:
-            # First-run onboarding: no name stored yet. Instruct ELI to ask.
-            # Limit to first few turns so it doesn't repeat every message forever.
-            _bph_turn_count = len(list(recent_turns or []))
-            if _bph_turn_count <= 4:
-                parts.append(
-                    "ONBOARDING: You do not know this user's name yet. "
-                    "Naturally work a name request into your response — brief and conversational, "
-                    "not a form. E.g. end with 'By the way, what should I call you?' "
-                    "Do this once per session until the user provides a name."
-                )
     except Exception:
         pass
 

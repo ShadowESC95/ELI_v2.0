@@ -451,6 +451,15 @@ def update_persona_overlay(memory: Any = None) -> Dict[str, Any]:
     except Exception as _kg_err:
         log.debug("persona_updater: kg sync failed (non-fatal): %s", _kg_err)
 
+    # Keep the continuous User Model brief fresh from the latest patterns (cheap, non-LLM)
+    # so the per-turn direct read tracks new extractions between full session-end syntheses.
+    try:
+        from eli.runtime.user_model import refresh_user_model_brief
+        db_path = getattr(memory, "db_path", None) or getattr(memory, "_db_path", None)
+        refresh_user_model_brief(memory, db_path=db_path)
+    except Exception as _um_err:
+        log.debug("persona_updater: user-model refresh failed (non-fatal): %s", _um_err)
+
     # Also update the user profile file from identity signals in memory
     update_user_profile_overlay(memory)
     return {"ok": True, "changed": True, "sections": len(sections)}
