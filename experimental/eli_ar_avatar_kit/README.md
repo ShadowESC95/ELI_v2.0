@@ -163,7 +163,7 @@ If v4 only moved a few centimetres, the gaze feature range was being used direct
 
 ## v5.1 critical gaze fix
 
-Desktop gaze control now refuses to calibrate using the OpenCV Haar fallback unless you explicitly pass `--allow-haar-fallback`. Haar detection can find a face box, but it does not provide stable iris landmarks, so it produced zero usable calibration samples on Jay's run.
+Desktop gaze control now refuses to calibrate using the OpenCV Haar fallback unless you explicitly pass `--allow-haar-fallback`. Haar detection can find a face box, but it does not provide stable iris landmarks, so it produced zero usable calibration samples in testing.
 
 Use this sequence:
 

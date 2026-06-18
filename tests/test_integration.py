@@ -188,7 +188,7 @@ def test_settings_no_home_user_hardcoded(tmp_settings_file, monkeypatch):
     s = load_settings()
     # model_path should be absolute but not hardcoded to one user's home
     resolved = s["model_path"]
-    forbidden_user_home = str(Path("/home") / "jay")
+    forbidden_user_home = str(Path("/home") / "someuser")
     assert forbidden_user_home not in resolved or str(project_root()) in resolved
 
 def test_relative_paths_are_machine_independent():

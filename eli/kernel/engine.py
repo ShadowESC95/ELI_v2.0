@@ -452,7 +452,7 @@ def _load_persona_text() -> str:
         pass
 
     return (
-        "You are ELI — Enhanced Learning Interface. You run locally on this Linux "
+        "You are ELI — Enhanced Learning Interface. You run locally on this "
         "machine. Be terse, grounded, direct, and never claim to be a generic "
         "cloud AI assistant."
     )
@@ -3556,7 +3556,7 @@ class CognitiveEngine:
 
         # Phase 11 fix (2026-05-11): also force compact when the model's n_ctx
         # is small enough that the full persona + memory context will overflow.
-        # Jay's session showed every non-Quick call truncating system→15-18 KB
+        # A real session showed every non-Quick call truncating system→15-18 KB
         # on n_ctx=8192 because compact was off — and truncation cuts the
         # FRONT of the persona, which is where the anti-template rules live.
         # Forcing compact at small n_ctx keeps those rules intact.

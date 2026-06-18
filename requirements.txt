@@ -91,3 +91,11 @@ pandas>=2.0
 matplotlib>=3.7
 huggingface-hub>=0.20
 pyflakes>=3.0
+
+# ── Optional feature deps (web search/automation, calendar, notifications) ──
+# Match pyproject [full] so requirements installs are equivalent. All degrade
+# gracefully if absent; playwright also needs `playwright install` for browsers.
+duckduckgo-search>=6.0
+playwright>=1.40
+plyer>=2.1
+ics>=0.7
