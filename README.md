@@ -2,9 +2,10 @@
 
 # ELI MKXI v2.0 PRO
 
-**A fully local, private AI assistant and cognitive runtime.**
+**A strictly local, private AI assistant and cognitive runtime.**
 
-Runs entirely on your own hardware — no cloud, no accounts, no telemetry.
+Everything runs on your own machine — the model, your data, and all processing. Nothing is ever
+sent to a server. No cloud, no accounts, no telemetry. Offline by default, enforced at the network socket.
 
 ![License](https://img.shields.io/badge/license-PolyForm%20Internal%20Use-blue)
 ![Platform](https://img.shields.io/badge/platform-Linux%20·%20macOS%20·%20Windows-lightgrey)
@@ -16,11 +17,12 @@ Runs entirely on your own hardware — no cloud, no accounts, no telemetry.
 
 ---
 
-ELI is an AI assistant you run yourself. It holds a conversation, operates your computer, reads your
-screen and documents, writes and repairs code, and builds a private model of who you are over time —
-all locally, by typing or speaking. It is offline by default and enforces that at the network socket,
-so your data stays on your machine. It loads a local model of your choosing and auto-tunes it to your
-hardware, from a laptop to a multi-GPU workstation.
+ELI is an AI assistant you run **entirely on your own machine**. It holds a conversation, operates
+your computer, reads your screen and documents, writes and repairs code, and builds a private model
+of who you are over time — by typing or speaking. The model and every byte of your data live and
+stay on your hardware; there is no cloud component and no account. It is offline by default and
+enforces that at the network socket, and it loads a local model of your choosing, auto-tuned to your
+hardware from a laptop to a multi-GPU workstation.
 
 ## Contents
 - [What is ELI?](#what-is-eli)
@@ -29,7 +31,7 @@ hardware, from a laptop to a multi-GPU workstation.
 - [Features](#features)
 - [Quick Start](#quick-start)
 - [Choose your model](#choose-your-model)
-- [Use it from your phone](#use-it-from-your-phone)
+- [Optional: a remote view over your own network](#optional-a-remote-view-over-your-own-network)
 - [Privacy](#privacy)
 - [Documentation](#documentation)
 - [Under the hood](#under-the-hood)
@@ -40,16 +42,16 @@ hardware, from a laptop to a multi-GPU workstation.
 
 ## What is ELI?
 
-ELI is not a chatbot wrapped around a cloud API. It is a complete local cognitive runtime —
-~140,000 lines of Python implementing a 12-stage reasoning pipeline, 14 specialist agents on a DAG
-orchestrator, layered memory (SQLite + a FAISS vector index + a knowledge graph), local voice and
-vision, a desktop GUI, and a phone-accessible web server. It is model-, user-, and
-hardware-agnostic.
+ELI is not a chatbot wrapped around a cloud API. It is a complete, self-contained local cognitive
+runtime — ~140,000 lines of Python implementing a 12-stage reasoning pipeline, 14 specialist agents
+on a DAG orchestrator, layered memory (SQLite + a FAISS vector index + a knowledge graph), local
+voice and vision, and a desktop GUI. It is model-, user-, and hardware-agnostic, and it runs with no
+external service of any kind.
 
 Beyond answering questions, it acts on your machine, remembers you across sessions, reports its own
 state from real runtime evidence rather than guessing, and can modify its own source code and
-fine-tune its model on your conversation history. Around **110 distinct capabilities** (193 routable
-actions) sit behind a single typed or spoken interface.
+fine-tune its model on your conversation history. **208 capabilities** sit behind a single typed or
+spoken interface.
 
 The trade-off is deliberate and stated plainly: a model running on local hardware is less capable
 than a large cloud model, in exchange for privacy, ownership, offline operation, and the freedom to
@@ -73,7 +75,7 @@ You interact by typing or speaking; it understands many phrasings. Representativ
 Asking *"what can you do?"* lists the full surface.
 
 <details>
-<summary><b>Full capability breadth — ~110 capabilities across 17 areas</b></summary>
+<summary><b>Full capability breadth — 208 capabilities across 17 areas</b></summary>
 
 | Area | What's in it |
 |---|---|
@@ -216,11 +218,13 @@ With the Net switch on, ELI fetches web answers, weather, and a **synthesised ne
 rolling, interest-matched read rather than raw headlines. With it off, networking is sealed at the
 socket and nothing leaves your machine.
 
-### Run it from your phone
-A built-in FastAPI server serves a mobile web UI; reach ELI from a phone or tablet browser over your
-LAN while inference stays on the host. Loopback-only and token-gated by default. There's also a
-desktop GUI (with Labs, Report Builder, Coding, Tasks, and an embodied self-model view) and a
-headless CLI.
+### Interfaces — desktop, terminal, and an optional local screen-share
+The primary interface is a desktop GUI (Chat plus Labs, Report Builder, Coding, Tasks, and an
+embodied self-model view); there's also a headless CLI. **ELI itself always runs on your computer
+and only your computer** — the AI never runs on, or sends anything to, another device. Optionally,
+you can open a window onto it from a phone or tablet browser **on your own home network** via a
+built-in local server (loopback-only and token-gated by default). The phone is just a remote screen:
+no AI runs on it, and nothing touches the internet.
 
 ### Make it yours
 Swap the model (any local GGUF). Tune the mind via a dedicated Cognition settings panel that exposes
@@ -276,18 +280,18 @@ You can also drop **any `.gguf`** into `models/`, or point ELI at your own catal
 optional extra. Want ELI to *speak in its own voice* out of the box? Fine-tune your own model —
 see **[`docs/TRAINING_YOUR_OWN_MODEL.md`](docs/TRAINING_YOUR_OWN_MODEL.md)**.
 
-## Use it from your phone
+## Optional: a remote view over your own network
 
-ELI includes a built-in web app. Run the server on a machine that can do the thinking (your
-desktop), then chat from your phone's browser over your home Wi-Fi — inference stays on the host,
-nothing reaches the cloud. **Safe by default** (loopback-only) until you explicitly expose it:
+The desktop app is the primary interface. Optionally, you can open ELI in a phone or tablet browser
+**on your own home network** as a second screen. **The AI still runs entirely on your computer** — the
+phone only displays it, nothing runs on the phone, and nothing reaches the internet. Off by default
+(loopback-only) until you explicitly enable local-network access:
 
 ```bash
-./scripts/eli_serve.sh             # local only  → http://127.0.0.1:8081/
-./scripts/eli_serve.sh --lan       # phone access → prints a token-protected URL
+./scripts/eli_serve.sh             # this computer only  → http://127.0.0.1:8081/
+./scripts/eli_serve.sh --lan       # your local network  → prints a token-protected URL
 ```
-Works on Android, iOS, and desktop with zero native build. Details:
-**[`docs/SERVER_AND_WEB_APP.md`](docs/SERVER_AND_WEB_APP.md)**.
+Details: **[`docs/SERVER_AND_WEB_APP.md`](docs/SERVER_AND_WEB_APP.md)**.
 
 ## Privacy
 
