@@ -239,7 +239,7 @@ def _write_report(rows: list[dict], out: Path) -> None:
           returns broken prompt-logprobs, so those can't be scored on this backend
           (documented in the benchmark README). Truthfulness is better measured through
           ELI's own pipeline (promptfoo route).
-        - **Hardware:** NVIDIA RTX 2060 SUPER (8 GB) + CPU offload, 33 GB RAM."""))
+        - **Hardware:** a representative 8 GB consumer GPU + CPU offload, ~32 GB RAM."""))
     A("")
 
     A("## 4. Results\n### 4.1 Quality\n")
