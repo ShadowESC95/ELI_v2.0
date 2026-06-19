@@ -103,15 +103,22 @@ def _save_state(state: Dict[str, Any]) -> None:
 # ---------------------------------------------------------------------------
 
 def _fetch_registry(timeout: int = 8) -> List[Dict[str, Any]]:
-    """Fetch registry from network, falling back to bundled index.json."""
+    """Fetch registry from network, falling back to bundled index.json.
+
+    The network fetch is routed through `netguard.http_get_json`, so it respects
+    offline-by-default: when network isn't allowed the call fails CLOSED
+    (`OfflineError`, no socket attempt) and we drop straight to the bundled
+    registry — instead of hanging on an N-second timeout every call. Online,
+    it behaves exactly as before.
+    """
     try:
-        req = urllib.request.Request(
+        from eli.core.netguard import http_get_json
+        data = http_get_json(
             _registry_url(),
             headers={"User-Agent": "ELI-plugin-manager/1.0"},
+            timeout=timeout,
         )
-        with urllib.request.urlopen(req, timeout=timeout) as r:
-            data = json.loads(r.read().decode())
-            return data.get("plugins", [])
+        return data.get("plugins", [])
     except Exception:
         pass
 
