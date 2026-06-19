@@ -700,6 +700,29 @@ def _eli_memory_should_run(user_input: str, action: str) -> bool:
     if len(words) < 4:
         return False
 
+    # Self-contained knowledge / logic / math / coding questions don't need the user's
+    # personal memory — pulling old conversation context only bloats the prompt (slower,
+    # noisier, especially on a weak GPU) without helping the answer. Skip memory when the
+    # query is a standalone question/task AND carries NO personal or contextual referent.
+    # (The memory_markers + personal-referent veto keep "what do you know about me",
+    # "remember when…", "as I said earlier", etc. firmly on the memory path.)
+    _personal_referent = re.search(
+        r"\b(i|my|mine|i'?m|i'?ve|me|we|our|us|myself|ourselves)\b"
+        r"|you (remember|told|said|mentioned|recall|know)|last time|earlier|"
+        r"previous|previously|\bbefore\b|we (discussed|talked|spoke)|\bagain\b",
+        low,
+    )
+    if not _personal_referent:
+        _self_contained_cues = (
+            "explain ", "compare ", "define ", "describe ", "calculate ", "compute ",
+            "prove ", "solve ", "summarise ", "summarize ", "translate ", "write a ",
+            "what is the difference", "what's the difference", "find the flaw",
+            "what is a ", "what are the ", "give an example", "how many ", "how much ",
+            "who is ", "who are ", "which of ",
+        )
+        if any(c in low for c in _self_contained_cues):
+            return False
+
     return True
 
 
