@@ -36,6 +36,7 @@ hardware from a laptop to a multi-GPU workstation.
 - [Documentation](#documentation)
 - [Under the hood](#under-the-hood)
 - [Security](#security)
+- [Project status & contributing](#project-status--contributing)
 - [License](#license) · [Contact](#contact)
 
 ---
@@ -387,6 +388,23 @@ Defence-in-depth, all local:
 | Custom-agent trust | SHA-256 registry — unregistered/tampered agent files are skipped at load |
 | Offline-by-default | A process-wide network guard fails closed unless a task is explicitly authorised online |
 
+## Project status & contributing
+
+ELI is **actively developed and solely maintained** by its author — a single-steward project.
+Direction, releases, and what gets merged are decided by the copyright holder. It is provided
+as-is with **no support guarantee**, but bug reports and ideas are genuinely welcome, and it will
+keep moving as long as it stays useful.
+
+- **Found a bug or have an idea?** [Open an issue](https://github.com/ShadowESC95/ELI_MKXI_v2.0_PRO/issues).
+- **Want to contribute code?** Pull requests are welcome — please read
+  **[CONTRIBUTING.md](CONTRIBUTING.md)** first. Because ELI is source-available and may be
+  commercialised, contributions include a short **inbound license grant** so the project can stay
+  singly-stewarded and the author can keep maintaining (and, if chosen, selling) it.
+- **Security issue?** See **[SECURITY.md](SECURITY.md)** — report it privately, not in a public issue.
+
+Forks for **redistribution** are not permitted by the [license](LICENSE) — contribute improvements
+back here instead of publishing your own copy.
+
 ## License
 
 ELI MKXI is **source-available, not open-source**, under the
@@ -401,6 +419,10 @@ ELI MKXI is **source-available, not open-source**, under the
 All commercial and distribution rights are reserved by the copyright holder. For anything beyond
 that — redistribution, hosting, or a commercial license — please get in touch. Provided "as is",
 without warranty.
+
+**Seeing ELI redistributed, hosted, or sold somewhere?** That is not permitted under the license.
+Please report it — with a link — to [jaybridgeman0095@gmail.com](mailto:jaybridgeman0095@gmail.com);
+it helps the author act on violations.
 
 > **Why source-available?** To put a genuinely capable, fully-local AI assistant in people's hands
 > to *use and learn from* — while keeping the right to steward the project rather than have it
