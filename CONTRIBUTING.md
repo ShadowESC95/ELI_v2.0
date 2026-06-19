@@ -15,8 +15,8 @@ work.
 
 ## Contributor terms (please read before opening a PR)
 
-Because the project is source-available and singly-stewarded by one maintainer,
-contributions require a simple inbound grant.
+Because the project is source-available and the author retains the right to
+maintain and commercialise it, contributions require a simple inbound grant.
 
 **By submitting a contribution (a pull request, patch, or code suggestion you
 author), you agree that:**
@@ -25,11 +25,11 @@ author), you agree that:**
    submit it.
 2. You grant **Jason Fitzgibbon Bridgeman** (the copyright holder) a perpetual,
    worldwide, irrevocable, royalty-free license to **use, modify, sublicense, and
-   relicense** your contribution as part of ELI MKXI, under the project's current
-   license and any future license the holder may choose.
+   relicense** your contribution — including for commercial purposes — as part of
+   ELI MKXI, under the project's current license and any future license the
+   holder may choose (including commercial / dual licensing).
 3. You retain your own copyright in your contribution; you are simply granting the
-   license above so the whole project can stay singly-stewarded under one
-   consistent license.
+   license above so the project can stay singly-stewarded and commercially viable.
 4. Contributions are provided "as is", without warranty.
 
 If you can't agree to these terms, please open an issue to discuss rather than
