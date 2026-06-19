@@ -83,6 +83,14 @@ _ACCEPTABLE = {
     "RUN_CMD": {"SHELL_EXEC"},
     "SHELL_EXEC": {"RUN_CMD"},
     "LIST_NOTES": {"LIST_DIR"},
+    # minimise/hide-window family: all five are served by ONE executor branch
+    # (executor_enhanced.py: `if a in ("MINIMIZE_APP","MINIMISE_APP","HIDE_APP",
+    # "MINIMIZE_WINDOW","MINIMISE_WINDOW")`), so they are functional synonyms and the
+    # router correctly collapses their phrases onto the canonical MINIMIZE_APP.
+    "MINIMISE_WINDOW": {"MINIMIZE_APP"},
+    "MINIMIZE_WINDOW": {"MINIMIZE_APP"},
+    "MINIMISE_APP": {"MINIMIZE_APP"},
+    "HIDE_APP": {"MINIMIZE_APP"},
 }
 
 # genuine routing gaps surfaced by this examination (keyword captured elsewhere);
