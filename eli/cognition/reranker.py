@@ -4,7 +4,11 @@ import time
 from typing import Any, Dict, Iterable, List
 
 # Canonical text + recency primitives (one owner — no bespoke stopwords/tokeniser here).
-from eli.cognition.scoring import tokenize as _tok, recency_score as _recency_score
+from eli.cognition.scoring import (
+    tokenize as _tok, recency_score as _recency_score,
+    RERANK_W_OVERLAP as _W_OVERLAP, RERANK_W_IMPORTANCE as _W_IMPORTANCE,
+    RERANK_W_WEIGHT as _W_WEIGHT, RERANK_W_RECENCY as _W_RECENCY,
+)
 
 
 def _as_float(v: Any, default: float = 0.0) -> float:
@@ -53,10 +57,10 @@ def rerank_candidates(query: str, candidates: Iterable[Dict[str, Any]], limit: i
             source_bonus += 0.05
 
         score = (
-            overlap * 0.45
-            + importance * 0.20
-            + min(weight, 2.0) / 2.0 * 0.15
-            + recency * 0.10
+            overlap * _W_OVERLAP
+            + importance * _W_IMPORTANCE
+            + min(weight, 2.0) / 2.0 * _W_WEIGHT
+            + recency * _W_RECENCY
             + source_bonus
         )
 
