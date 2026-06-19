@@ -43,6 +43,13 @@ _USER_PROFILE_LAST_RUN: float = 0.0
 _USER_PROFILE_MIN_INTERVAL: float = 120.0
 _USER_PROFILE_LOCK: threading.Lock = threading.Lock()
 
+# Content dirty-check: fingerprint of the last overlay+patterns we actually wrote.
+# The debounce above is TIME-based; this is CONTENT-based. When the inputs are
+# unchanged we skip the overlay write, KG sync, user-model refresh, and profile
+# rewrite entirely — killing the per-cycle "overlay updated / kg sync / profile
+# updated" churn when nothing has actually changed.
+_LAST_OVERLAY_SIG: Optional[str] = None
+
 
 def _safe_call(obj: Any, name: str, *args, **kwargs):
     fn = getattr(obj, name, None)
@@ -426,17 +433,8 @@ def update_persona_overlay(memory: Any = None) -> Dict[str, Any]:
         "Processed Memory Themes (Auto-Updated)": reflection_themes,
     }
 
-    try:
-        update_auto_sections(sections)
-        log.info("persona_updater: overlay updated (%d sections)", len(sections))
-    except Exception as exc:
-        log.warning("persona_updater: failed: %s", exc)
-        return {"ok": False, "error": str(exc)}
-
-    # Run tone analysis — detects communication style, depth preference,
-    # humor engagement, correction rate, and frustration signals from recent
-    # conversation turns. Results are written to user_patterns as
-    # preference.tone.* entries and flow into user_profile.json below.
+    # Tone analysis first (cheap, non-LLM) — it may add preference.tone.* patterns, so it
+    # must run BEFORE we fingerprint the user_patterns below. It only writes on new signals.
     try:
         from eli.cognition.tone_analyzer import run_tone_analysis
         _tone_result = run_tone_analysis(memory)
@@ -444,6 +442,31 @@ def update_persona_overlay(memory: Any = None) -> Dict[str, Any]:
             log.info("persona_updater: tone signals updated: %s", _tone_result["written"])
     except Exception as _tone_err:
         log.debug("persona_updater: tone analysis failed (non-fatal): %s", _tone_err)
+
+    # Content dirty-check — fingerprint the overlay sections + the user_patterns (which drive
+    # the KG sync + profile). If nothing changed since the last write, skip ALL the writes.
+    global _LAST_OVERLAY_SIG
+    try:
+        import hashlib as _hashlib
+        _sig_parts = [f"{t}={'|'.join(map(str, ls or []))}" for t, ls in sorted(sections.items())]
+        _patterns = _read_user_patterns(memory) or {}
+        _sig_parts += [f"{k}={'|'.join(sorted(map(str, _patterns.get(k) or [])))}"
+                       for k in sorted(_patterns)]
+        _sig = _hashlib.sha1("\x1f".join(_sig_parts).encode("utf-8", "ignore")).hexdigest()
+    except Exception:
+        _sig = None  # on any error, fall through and write (safe default)
+
+    if _sig is not None and _sig == _LAST_OVERLAY_SIG:
+        log.debug("persona_updater: overlay/KG/profile unchanged — skipping writes")
+        return {"ok": True, "changed": False, "skipped": True, "reason": "unchanged"}
+    _LAST_OVERLAY_SIG = _sig
+
+    try:
+        update_auto_sections(sections)
+        log.info("persona_updater: overlay updated (%d sections)", len(sections))
+    except Exception as exc:
+        log.warning("persona_updater: failed: %s", exc)
+        return {"ok": False, "error": str(exc)}
 
     # Sync user_patterns → knowledge graph so it grows from real user data.
     try:
