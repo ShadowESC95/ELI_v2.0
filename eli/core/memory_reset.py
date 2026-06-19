@@ -77,15 +77,23 @@ def counts(t: Dict[str, List[Path]]) -> Dict[str, int]:
 
 
 # ── operations ──────────────────────────────────────────────────────────────
-def clear_db(path: Path) -> int:
-    """Delete all rows (keep schema), reset FTS, best-effort VACUUM. Returns rows cleared."""
+def clear_db(path: Path, keep_tables: "frozenset[str] | set[str] | None" = None) -> int:
+    """Delete all rows (keep schema), reset FTS, best-effort VACUUM. Returns rows cleared.
+
+    `keep_tables` is an opt-in allow-list of table names whose rows are LEFT INTACT
+    (default empty → wipe everything, the factory-reset behaviour). Used by the
+    "fresh slate but keep my usage history" path to preserve the habits/usage tally
+    (`habits`, `habit_events`, `habit_rules`) while clearing memories/KG/profile/etc.
+    Tables not present in this DB are simply ignored."""
+    keep = {str(t) for t in (keep_tables or ())}
     c = sqlite3.connect(str(path)); c.isolation_level = None
     try:
         c.execute("PRAGMA foreign_keys=OFF")
         rows = c.execute("SELECT name, sql FROM sqlite_master WHERE type='table'").fetchall()
-        fts = [n for n, s in rows if "using fts" in (s or "").lower()]
+        fts = [n for n, s in rows if "using fts" in (s or "").lower() and n not in keep]
         shadow = ("_data", "_idx", "_docsize", "_config", "_content")
-        base = [n for n, s in rows if "using fts" not in (s or "").lower() and not n.endswith(shadow)]
+        base = [n for n, s in rows if "using fts" not in (s or "").lower()
+                and not n.endswith(shadow) and n not in keep]
         before = 0
         for n in base + fts:
             try:
@@ -105,7 +113,11 @@ def clear_db(path: Path) -> int:
                 except Exception:
                     pass
         try:
-            c.execute("DELETE FROM sqlite_sequence")
+            if keep:
+                qs = ",".join("?" * len(keep))
+                c.execute(f"DELETE FROM sqlite_sequence WHERE name NOT IN ({qs})", tuple(keep))
+            else:
+                c.execute("DELETE FROM sqlite_sequence")
         except Exception:
             pass
         try:
@@ -169,8 +181,13 @@ def backup(t: Dict[str, List[Path]], base: Path) -> Path:
 
 
 def run_reset(keep_profile: bool = False, keep_conversations: bool = False,
-              do_backup: bool = True) -> Dict[str, Any]:
-    """Perform the reset. Returns a summary dict (safe to show in a UI)."""
+              do_backup: bool = True,
+              keep_tables: "frozenset[str] | set[str] | None" = None) -> Dict[str, Any]:
+    """Perform the reset. Returns a summary dict (safe to show in a UI).
+
+    `keep_tables` (opt-in) preserves the named DB tables' rows across the wipe — e.g.
+    ``{"habits", "habit_events", "habit_rules"}`` to keep the usage/action history on a
+    "fresh slate, but remember what I use" reset. Default None → full factory reset."""
     base, config = bases()
     t = discover(base, config, keep_conversations, keep_profile)
     summary: Dict[str, Any] = {"ok": True, "backup": None, "db_rows": 0, "errors": []}
@@ -183,7 +200,7 @@ def run_reset(keep_profile: bool = False, keep_conversations: bool = False,
 
     for p in t["dbs"]:
         try:
-            summary["db_rows"] += clear_db(p)
+            summary["db_rows"] += clear_db(p, keep_tables=keep_tables)
         except Exception as e:
             summary["errors"].append(f"{p.name}: {e}")
     for p in t["faiss"] + t["profile"] + t["conversations"] + t.get("transient", []):
