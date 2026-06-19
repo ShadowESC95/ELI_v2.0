@@ -401,6 +401,9 @@ keep moving as long as it stays useful.
   contributions include a short **inbound license grant** so the whole project stays under one
   consistent license.
 - **Security issue?** See **[SECURITY.md](SECURITY.md)** — report it privately, not in a public issue.
+- **Want to support development?** ELI is free to use; if it's useful to you, you can chip in at
+  **[ko-fi.com/shadowesc95](https://ko-fi.com/shadowesc95)**. Entirely optional — it just helps keep
+  the project moving.
 
 Forks for **redistribution** are not permitted by the [license](LICENSE) — contribute improvements
 back here instead of publishing your own copy.
