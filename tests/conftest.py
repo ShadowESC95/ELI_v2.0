@@ -27,6 +27,27 @@ _PYTEST_DB.parent.mkdir(parents=True, exist_ok=True)
 os.environ["ELI_USER_DB"]   = str(_PYTEST_DB)
 os.environ["ELI_MEMORY_DB"] = str(_PYTEST_DB)
 os.environ["ELI_DB_DIR"]    = str(ROOT / "artifacts" / "_pytest" / "db")
+# agent.sqlite3 resolves via ELI_AGENT_DB FIRST (paths.agent_db_path); without it,
+# tests that touched the agent bus (dispatch/metrics/observations) were writing into
+# the REAL artifacts/db/agent.sqlite3. Pin it to the throwaway tree too so NO test can
+# change ANY of ELI's stores — the DB must stay a clean slate for a fresh download.
+os.environ["ELI_AGENT_DB"]  = str(ROOT / "artifacts" / "_pytest" / "db" / "agent.sqlite3")
+
+# Hard isolation guard: fail LOUDLY at collection if any canonical store still resolves
+# to the real artifacts/db tree. This makes "no test can change memory" an enforced
+# invariant, not just configuration that a future refactor could silently break.
+def _assert_db_isolated() -> None:
+    from eli.core import paths as _p
+    _safe = (ROOT / "artifacts" / "_pytest").resolve()
+    for _name, _fn in (("user", _p.user_db_path), ("memory", _p.memory_db_path),
+                       ("agent", _p.agent_db_path)):
+        _resolved = Path(_fn()).resolve()
+        if _safe not in _resolved.parents:
+            raise RuntimeError(
+                f"TEST ISOLATION BREACH: {_name} DB resolves to {_resolved}, "
+                f"outside the throwaway {_safe}. A test could pollute the real "
+                f"database. Check eli.core.paths overrides in conftest.")
+_assert_db_isolated()
 
 @pytest.fixture(autouse=True, scope="session")
 def mock_heavy_imports():
