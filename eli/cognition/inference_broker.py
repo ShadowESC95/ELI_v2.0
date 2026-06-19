@@ -16,12 +16,21 @@ _broker_lock = threading.Lock()
 # document or a reasoning-mode loop — which on a slow/CPU-offloaded model stretched turns to 40+
 # minutes of interleaved background generations.
 _last_foreground_ts = 0.0
+_last_foreground_duration = 0.0   # seconds the most recent foreground turn took to generate
+_MAX_ADAPTIVE_DEFER = 900.0       # cap so a pathological 20-min turn can't defer chores forever
 
 
 def foreground_recently_active(window: float = 30.0) -> bool:
-    """True if a user-facing inference ran (or was running) within `window` seconds."""
+    """True if a user-facing inference ran (or was running) recently.
+
+    The effective window scales UP with the last foreground turn's DURATION: on a slow /
+    CPU-offloaded model where one turn takes minutes, background chores then defer for about
+    as long as a turn takes (bounded by _MAX_ADAPTIVE_DEFER), so they don't fire in the brief
+    gap right after a turn and collide with the user's next message. On fast hardware the
+    duration is tiny, so the base `window` dominates and behaviour is unchanged."""
     try:
-        return (_time.monotonic() - _last_foreground_ts) < max(0.0, float(window))
+        eff = min(max(float(window), float(_last_foreground_duration)), _MAX_ADAPTIVE_DEFER)
+        return (_time.monotonic() - _last_foreground_ts) < eff
     except Exception:
         return False
 
@@ -90,7 +99,7 @@ class InferenceBroker:
                 return ""
         except Exception:
             pass
-        global _last_foreground_ts
+        global _last_foreground_ts, _last_foreground_duration
         # A call is background if the caller said so OR it runs on a thread already marked
         # background (the proactive daemon marks its loop thread, so all its work qualifies).
         gi = self._gguf
@@ -124,8 +133,10 @@ class InferenceBroker:
                 max_tokens = min(int(max_tokens), _cap)
         # Foreground calls stamp the activity clock (before AND after, so the whole — possibly
         # multi-minute — generation counts as "active"); background calls never do.
+        _fg_start = 0.0
         if not background:
             _last_foreground_ts = _time.monotonic()
+            _fg_start = _last_foreground_ts
         # Arm the per-thread background flag so gguf_inference installs the abort hook even when
         # the caller (e.g. insight_synthesis) is on a thread not otherwise marked background.
         _armed = False
@@ -157,7 +168,11 @@ class InferenceBroker:
                 except Exception:
                     pass
             if not background:
-                _last_foreground_ts = _time.monotonic()
+                _now = _time.monotonic()
+                if _fg_start:
+                    # Remember how long this turn took, so the deferral window adapts to it.
+                    _last_foreground_duration = max(0.0, _now - _fg_start)
+                _last_foreground_ts = _now
         if not response:
             raise RuntimeError("GGUF returned empty response after retry")
         return response
