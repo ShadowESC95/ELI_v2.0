@@ -8516,67 +8516,30 @@ def _execute_impl(action: str, args: Optional[Dict[str, Any]] = None) -> Dict[st
             return None
 
         def _sandbox_run_python(_code: str) -> tuple[bool, str]:
-            """Execute generated Python in a bounded, isolated subprocess to catch
-            runtime crashes before the script is handed to the user. The result
-            feeds the regeneration loop as repair feedback.
+            """Execute generated Python to catch runtime crashes before the script
+            is handed to the user. **Delegates to the one canonical sandbox**
+            (`eli/coding/sandbox.run_code`) instead of duplicating it.
 
-            Returns (ok, reason). ok=True when the script exits cleanly, runs past
-            the timeout (started fine — important for monitor/long-compute
-            scripts), is killed by a resource/signal limit, or fails only on a
-            missing optional dependency (not the code's fault on this machine).
-            ok=False ONLY on a genuine unhandled Python exception, with `reason`
-            set to the traceback tail. Disable with ELI_GENSCRIPT_VERIFY_RUN=0;
-            timeout via ELI_GENSCRIPT_RUN_TIMEOUT (default 20s)."""
-            import os as _os, sys as _sys, subprocess as _sp, tempfile as _tf
-            from pathlib import Path as _P
+            Returns (ok, reason). ok=False ONLY on a genuine unhandled Python
+            exception; clean exit, a timeout (started fine — long/monitor code), a
+            signal/limit kill, and a missing optional dependency are all tolerated.
+            Disable with ELI_GENSCRIPT_VERIFY_RUN=0; timeout via
+            ELI_GENSCRIPT_RUN_TIMEOUT (default 20s)."""
+            import os as _os
             if _os.environ.get("ELI_GENSCRIPT_VERIFY_RUN", "1").strip().lower() in ("0", "false", "no", "off"):
                 return True, ""
             try:
                 _timeout = float(_os.environ.get("ELI_GENSCRIPT_RUN_TIMEOUT", "20") or 20)
             except Exception:
                 _timeout = 20.0
-            # Generous CPU cap as defence-in-depth (wall-clock timeout is primary).
-            # NB: deliberately NO RLIMIT_AS — it breaks numpy/scipy address-space
-            # use and would cause spurious MemoryErrors on exactly the scientific
-            # scripts ELI generates.
-            _preexec = None
             try:
-                import resource as _rsrc
-                def _limits():
-                    try:
-                        _rsrc.setrlimit(_rsrc.RLIMIT_CPU, (30, 35))
-                    except Exception:
-                        pass
-                _preexec = _limits
+                from eli.coding.sandbox import run_code as _run_code
+                _r = _run_code(_code, "python", timeout=_timeout)
             except Exception:
-                _preexec = None
-            _env = {k: v for k, v in _os.environ.items()
-                    if not any(s in k.upper() for s in ("KEY", "TOKEN", "SECRET", "PASSWORD", "PASSWD"))}
-            _env["MPLBACKEND"] = "Agg"   # never open/block on a GUI window (plt.show())
-            _env["ELI_SANDBOX"] = "1"
-            try:
-                with _tf.TemporaryDirectory(prefix="eli_genscript_") as _td:
-                    _cand = _P(_td) / "candidate.py"
-                    _cand.write_text(_code, encoding="utf-8")
-                    try:
-                        _proc = _sp.run([_sys.executable, str(_cand)], cwd=_td, env=_env,
-                                        capture_output=True, text=True, timeout=_timeout,
-                                        preexec_fn=_preexec)
-                    except _sp.TimeoutExpired:
-                        return True, ""   # ran past budget = started fine
-            except Exception:
-                return True, ""           # sandbox infra failure — don't block generation
-            if _proc.returncode == 0:
+                return True, ""           # sandbox infra failure — never block generation
+            if _r.clean:
                 return True, ""
-            _err = (_proc.stderr or "").strip()
-            # Only a real unhandled exception counts as a crash. Signal/limit kills
-            # and missing optional deps are tolerated (no traceback / not our bug).
-            if "Traceback (most recent call last)" not in _err:
-                return True, ""
-            if "ModuleNotFoundError" in _err or "ImportError" in _err:
-                return True, ""
-            _tail = "\n".join(_err.splitlines()[-6:])
-            return False, _tail or f"non-zero exit {_proc.returncode}"
+            return False, (_r.traceback_tail or _r.note or "runtime crash")
 
         # Try GGUF first (local, fast, no Ollama dependency)
         try:

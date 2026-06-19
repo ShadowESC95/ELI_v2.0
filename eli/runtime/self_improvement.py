@@ -83,6 +83,40 @@ def _smoke_import_module(dotted: str, timeout: float = 30.0) -> Tuple[bool, str]
     return False, tail
 
 
+def _run_targeted_tests(module_path: Path, timeout: float = 120.0) -> Tuple[bool, bool, str]:
+    """CI-grade verification: run the tests most related to a just-patched module
+    (`pytest -k <module-stem>`). Returns (ran, passed, detail):
+
+      • ran=False  → no matching tests, a timeout, or an infra error — TOLERATED
+                     (never a false revert; a self-modifier must not block on its
+                     own tooling).
+      • ran=True, passed=False → a genuine regression: the caller reverts.
+
+    pytest exit codes: 0 all-pass, 1 failures, 5 no-tests-collected."""
+    try:
+        stem = module_path.stem
+        if not stem or stem in ("__init__",):
+            return (False, True, "no test target")
+        base = [sys.executable, "-m", "pytest", "tests/", "-k", stem,
+                "-p", "no:cacheprovider", "-q"]
+        co = subprocess.run(base + ["--collect-only"], cwd=str(PROJECT_ROOT),
+                            capture_output=True, text=True, timeout=60)
+        if co.returncode == 5:
+            return (False, True, "no matching tests")
+        proc = subprocess.run(base + ["-x"], cwd=str(PROJECT_ROOT),
+                              capture_output=True, text=True, timeout=timeout)
+        if proc.returncode == 0:
+            return (True, True, "targeted tests passed")
+        if proc.returncode == 5:
+            return (False, True, "no matching tests")
+        tail = "\n".join((proc.stdout or "").strip().splitlines()[-6:])
+        return (True, False, tail or "targeted tests failed")
+    except subprocess.TimeoutExpired:
+        return (False, True, "targeted test run timed out — tolerated")
+    except Exception as exc:
+        return (False, True, f"targeted test infra error — tolerated: {exc}")
+
+
 def _ensure_columns(conn: sqlite3.Connection, table: str, columns: Dict[str, str]) -> None:
     existing = {row[1] for row in conn.execute(f"PRAGMA table_info({table})").fetchall()}
     for name, decl in columns.items():
@@ -775,6 +809,19 @@ class SelfImprovementEngine:
                 log.debug(f"[SELF-IMPROVE] Patch reverted — import verification failed: {imp_detail}")
                 return {"ok": False, "applied": False,
                         "message": f"Patch broke module import (reverted): {imp_detail}"}
+
+        # Targeted regression (CI-grade): a patch can compile + import cleanly and
+        # still break behaviour. Run the patched module's related tests and revert
+        # on a genuine failure. Timeouts / no-matching-tests / infra errors are
+        # tolerated (never a false revert). Disable with ELI_SELFPATCH_VERIFY_TESTS=0.
+        if verify and os.environ.get("ELI_SELFPATCH_VERIFY_TESTS", "1").strip().lower() not in ("0", "false", "no", "off"):
+            t_ran, t_passed, t_detail = _run_targeted_tests(p)
+            if t_ran and not t_passed:
+                if backup.exists():
+                    shutil.copy2(str(backup), str(p))
+                log.debug(f"[SELF-IMPROVE] Patch reverted — targeted tests failed: {t_detail[:200]}")
+                return {"ok": False, "applied": False,
+                        "message": f"Patch broke targeted tests (reverted): {t_detail[:200]}"}
 
         # Log the applied patch
         try:
