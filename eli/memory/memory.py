@@ -2768,6 +2768,15 @@ class Memory(metaclass=_MemoryMeta):
     # -----------------------------------------------------------------
 
     def log_habit_event(self, event_type, details):
+        """Record one user-requested action. Writes an audit row to `habit_events` and
+        upserts a per-action running tally in `habits` (count + last-used).
+
+        The `habits` table is an *action-usage log* — "what the user has asked ELI to do,
+        and how often" — NOT a list of habits to schedule. Scheduling lives in the separate
+        `habit_rules` table (add_habit_rule); behavioural-habit *detection* is a filtered
+        read over this same tally (get_detected_habits). Surface the raw usage log via
+        get_requested_action_log(). Keep these three distinct so a frequently-invoked
+        action is never silently promoted into an automated schedule."""
         now = _now_ts()
         details_blob = _jsonify_value(details)
         conn = self._get_connection()
@@ -3331,6 +3340,43 @@ class Memory(metaclass=_MemoryMeta):
                     break
         except Exception as exc:
             log.debug("get_detected_habits failed: %s", exc)
+        return out
+
+    def get_requested_action_log(self, min_count: int = 1, limit: int = 20):
+        """The raw `habits` tally framed for what it actually is: a usage log of the
+        actions the USER has asked ELI to perform, most-used first.
+
+        Distinct from the other two habit reads:
+          • get_habit_rules()      → *scheduled* time-automations (the habit_rules table)
+          • get_detected_habits()  → *behavioural* habits (filters out ELI's own meta/
+                                      introspection/system actions as noise)
+        This one keeps EVERYTHING (including introspection/system actions like SELF_REPORT
+        or GUI_RUNTIME_AUDIT) — those are still actions the user genuinely invoked, so they
+        belong in a usage log even though they are not behavioural habits. Returns
+        [{action, count, last_used}], newest activity carried for display/sorting."""
+        out = []
+        try:
+            conn = self._get_connection()
+            try:
+                rows = conn.execute(
+                    "SELECT COALESCE(name,''), COALESCE(count,0), "
+                    "COALESCE(timestamp, ts, 0) FROM habits "
+                    "WHERE COALESCE(enabled,1)=1 AND COALESCE(count,0) >= ? "
+                    "ORDER BY COALESCE(count,0) DESC, COALESCE(timestamp, ts, 0) DESC",
+                    (int(min_count),),
+                ).fetchall()
+            finally:
+                conn.close()
+            for r in rows:
+                name = str(r[0] or "").strip()
+                if not name:
+                    continue
+                out.append({"action": name, "count": int(r[1] or 0),
+                            "last_used": float(r[2] or 0.0)})
+                if len(out) >= int(limit):
+                    break
+        except Exception as exc:
+            log.debug("get_requested_action_log failed: %s", exc)
         return out
 
     def get_habit_rules(self, enabled_only=True):

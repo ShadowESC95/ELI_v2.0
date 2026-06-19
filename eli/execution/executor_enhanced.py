@@ -5423,7 +5423,8 @@ def _execute_impl(action: str, args: Optional[Dict[str, Any]] = None) -> Dict[st
             _mem = _hm()
             rules = _mem.get_habit_rules(enabled_only=False) if hasattr(_mem, 'get_habit_rules') else []
             detected = _mem.get_detected_habits(min_count=3, limit=8) if hasattr(_mem, 'get_detected_habits') else []
-            if not rules and not detected:
+            usage = _mem.get_requested_action_log(min_count=1, limit=10) if hasattr(_mem, 'get_requested_action_log') else []
+            if not rules and not detected and not usage:
                 msg = "No habits detected yet. Use ELI regularly and habits will emerge from your patterns."
                 return {"ok": True, "action": a, "content": msg, "response": msg}
             lines = []
@@ -5434,6 +5435,16 @@ def _execute_impl(action: str, args: Optional[Dict[str, Any]] = None) -> Dict[st
                 for d in detected:
                     _nm = str(d.get("name", "?")).replace("_", " ").lower()
                     lines.append(f"  • {_nm} — seen {int(d.get('count', 0))}×")
+            # The raw usage log: actions the user has asked ELI to perform, most-used first.
+            # This is the `habits` tally framed as a usage history, distinct from scheduled
+            # rules and from the filtered behavioural-habit view above.
+            if usage:
+                if lines:
+                    lines.append("")
+                lines.append(f"Actions you've asked me to perform ({len(usage)}, most-used first):")
+                for u in usage:
+                    _an = str(u.get("action", "?")).replace("_", " ").lower()
+                    lines.append(f"  • {_an} — {int(u.get('count', 0))}×")
             if rules:
                 lines.append(f"Scheduled habit rules ({len(rules)}):")
             for r in rules:
@@ -5448,7 +5459,7 @@ def _execute_impl(action: str, args: Optional[Dict[str, Any]] = None) -> Dict[st
                 status = "enabled" if enabled else "disabled"
                 lines.append(f"  [{status}] {name} — runs '{cmd}' at {hour:02d}:{minute:02d}")
             msg = "\n".join(lines)
-            return {"ok": True, "action": a, "content": msg, "response": msg, "rules": rules, "detected": detected}
+            return {"ok": True, "action": a, "content": msg, "response": msg, "rules": rules, "detected": detected, "usage": usage}
         except Exception as e:
             return {"ok": False, "action": a, "error": str(e), "content": str(e), "response": str(e)}
 
