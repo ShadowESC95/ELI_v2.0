@@ -91,6 +91,31 @@ def init_all_data(verbose: bool = False) -> List[Tuple[str, bool, str]]:
         return "agent_dispatches, agent_metrics"
     _step("agent", _agent)
 
+    # 7) user.sqlite3 — news cache schema (news_articles + FTS) and reflections.
+    #    Constructing NewsFetcher only ensures the schema; it does NOT fetch (no
+    #    network), so a fresh install carries the table up front instead of waiting
+    #    for the first news query to lazily create it.
+    def _news():
+        from eli.tools.news.news_fetcher import NewsFetcher
+        NewsFetcher()  # __init__ → _ensure_db(): news_articles, news_fts, triggers
+        from eli.tools.news import news_synthesis as _ns
+        _ns._conn().close()  # creates news_reflections
+        return "news_articles, news_fts, news_reflections"
+    _step("user.news", _news)
+
+    # 8) user.sqlite3 — runtime-events evidence ledger (telemetry signatures used by
+    #    autonomy/goal-genesis). Schema only; no events written.
+    def _events():
+        from eli.runtime.evidence_ledger import _connect, ensure_schema
+        conn = _connect()
+        try:
+            ensure_schema(conn)
+            conn.commit()
+        finally:
+            conn.close()
+        return "runtime_events"
+    _step("user.runtime_events", _events)
+
     if verbose:
         for name, ok, detail in results:
             mark = "OK " if ok else "ERR"
