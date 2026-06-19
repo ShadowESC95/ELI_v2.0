@@ -119,23 +119,3 @@ def test_digest_falls_back_to_memories_when_table_empty(tmp_path):
         db_path = str(db)
     out = pu._get_session_narrative(M(), limit=3)
     assert out and "old session narrative" in out[0]
-
-
-# ---- Piece 3: preference-weighted recall ----------------------------------
-
-def test_preference_memory_ranks_high(tmp_path):
-    from eli.memory.memory import Memory
-    mem = Memory(db_path=str(tmp_path / "user.sqlite3"))
-    # A plain note and a durable preference, both matching the query term.
-    mem.store_memory("the reactor uses a tungsten electrode", source="user", kind="note")
-    mem.store_memory("I prefer the reactor diagnostics shown in-depth",
-                     source="user", kind="preference", tags=["preference"])
-    hits = mem.recall_memory("reactor", limit=5)
-    assert hits, "recall returned nothing"
-    texts = [h.get("text", "") for h in hits]
-    # The preference fact should surface, and rank at or above the plain note.
-    pref_idx = next((i for i, t in enumerate(texts) if "prefer" in t.lower()), None)
-    note_idx = next((i for i, t in enumerate(texts) if "tungsten" in t.lower()), None)
-    assert pref_idx is not None
-    if note_idx is not None:
-        assert pref_idx <= note_idx

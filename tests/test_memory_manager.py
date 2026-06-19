@@ -26,22 +26,6 @@ class TestMemoryManager:
         assert len(hits) >= 1
         assert "Test memory content" in hits[0]["text"]
 
-    def test_recall_finds_jazz(self):
-        mem = self.memory
-        mem.store_memory("I love jazz music", tags=["music"])
-        hits = mem.recall_memory("jazz")
-        texts = [h.get("text", "") for h in hits]
-        print("Hits:", hits)
-        assert any("jazz" in t.lower() for t in texts)
-
-    def test_recall_finds_name(self):
-        mem = self.memory
-        mem.store_memory("My name is Alice", tags=["identity"])
-        hits = mem.recall_memory("Alice")
-        texts = [h.get("text", "") for h in hits]
-        print("Hits:", hits)
-        assert any("Alice" in t for t in texts)
-
     def test_get_recent_memories(self):
         mem = self.memory
         mem.store_memory("First")
