@@ -398,7 +398,7 @@ keep moving as long as it stays useful.
 - **Found a bug or have an idea?** [Open an issue](https://github.com/ShadowESC95/ELI_MKXI_v2.0_PRO/issues).
 - **Want to contribute code?** Pull requests are welcome — please read
   **[CONTRIBUTING.md](CONTRIBUTING.md)** first. Because ELI is source-available and singly-stewarded,
-  contributions include a short **inbound license grant** so the whole codebase can stay under one
+  contributions include a short **inbound license grant** so the whole project stays under one
   consistent license.
 - **Security issue?** See **[SECURITY.md](SECURITY.md)** — report it privately, not in a public issue.
 
@@ -416,8 +416,9 @@ ELI MKXI is **source-available, not open-source**, under the
 | Use it for your own internal / personal purposes | **Host it as a service** for others |
 | Keep your own private modifications | **Sell** it or any modified version |
 
-All rights not expressly granted above are reserved by the copyright holder. For uses beyond these
-terms — such as redistribution or hosting — please get in touch. Provided "as is", without warranty.
+All commercial and distribution rights are reserved by the copyright holder. For anything beyond
+that — redistribution, hosting, or a commercial license — please get in touch. Provided "as is",
+without warranty.
 
 **Seeing ELI redistributed, hosted, or sold somewhere?** That is not permitted under the license.
 Please report it — with a link — to [jaybridgeman0095@gmail.com](mailto:jaybridgeman0095@gmail.com);
@@ -425,7 +426,7 @@ it helps the author act on violations.
 
 > **Why source-available?** To put a genuinely capable, fully-local AI assistant in people's hands
 > to *use and learn from* — while keeping the right to steward the project rather than have it
-> taken closed by others.
+> taken closed and resold.
 
 ## Contact
 
@@ -435,5 +436,5 @@ Questions, feedback, or interested in a license/services beyond the terms above?
 - **GitHub:** [@ShadowESC95](https://github.com/ShadowESC95) ·
   [open an issue](https://github.com/ShadowESC95/ELI_MKXI_v2.0_PRO/issues)
 
-For licensing arrangements beyond these terms — such as redistribution or hosting rights —
-please reach out by email.
+For commercial licensing, redistribution rights, or hosting beyond the
+[license](LICENSE), please reach out by email.
