@@ -12,6 +12,7 @@ sent to a server. No cloud, no accounts, no telemetry. Offline by default, enfor
 ![Python](https://img.shields.io/badge/python-3.10%2B-blue)
 ![Offline](https://img.shields.io/badge/network-offline%20by%20default-informational)
 ![Models](https://img.shields.io/badge/models-local%20GGUF-orange)
+[![Support on Ko-fi](https://img.shields.io/badge/support-Ko--fi-FF5E5B?logo=ko-fi&logoColor=white)](https://ko-fi.com/shadowesc95)
 
 </div>
 
