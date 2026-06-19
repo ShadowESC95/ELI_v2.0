@@ -61,6 +61,39 @@ def recency_score(ts: float, now: Optional[float] = None,
     return max(0.0, 1.0 - age_days / max(1e-6, window_days))
 
 
+# Canonical memory-ranking fusion weights. ONE source of truth so the recall
+# rerank (and any future ranker) share a single, tunable scheme instead of the
+# weights drifting across call sites. (The SQL `ORDER BY` in memory.py is a
+# deliberately coarse, index-friendly *pre-order* — the real fusion is here.)
+MEM_FUSION_W_IMPORTANCE = 0.5
+MEM_FUSION_W_WEIGHT = 0.3
+MEM_FUSION_W_RECENCY = 0.2
+
+# Overlap-aware recall reranker weights (the later stage that also has query-text
+# overlap + source bonus available — see reranker.py). Kept here so all three
+# ranking schemes (SQL pre-order, mem fusion, reranker) are tunable in one file.
+RERANK_W_OVERLAP = 0.45
+RERANK_W_IMPORTANCE = 0.20
+RERANK_W_WEIGHT = 0.15
+RERANK_W_RECENCY = 0.10
+
+
+def fuse_memory_score(importance: float, weight: float, recency: float,
+                      pref_boost: float = 0.0) -> float:
+    """Blend a memory row's importance, decay-weight and recency (each ~0..1)
+    into one ranking score, plus an optional preference/identity boost. The
+    canonical recall-rerank fusion — see the MEM_FUSION_W_* weights above."""
+    try:
+        return (
+            float(importance or 0.0) * MEM_FUSION_W_IMPORTANCE
+            + float(weight or 0.0) * MEM_FUSION_W_WEIGHT
+            + float(recency or 0.0) * MEM_FUSION_W_RECENCY
+            + float(pref_boost or 0.0)
+        )
+    except Exception:
+        return 0.0
+
+
 def conf_from_flag(ok: bool, *, hi: float = 0.9, lo: float = 0.2) -> float:
     """Binary evidence → confidence (the 'did the action succeed' agent pattern)."""
     return hi if ok else lo
@@ -79,4 +112,6 @@ def conf_from_count(n: int, *, base: float = 0.3, step: float = 0.04,
 __all__ = [
     "STOPWORDS", "tokenize", "term_overlap", "recency_score",
     "conf_from_flag", "conf_from_count",
+    "fuse_memory_score", "MEM_FUSION_W_IMPORTANCE", "MEM_FUSION_W_WEIGHT",
+    "MEM_FUSION_W_RECENCY",
 ]
