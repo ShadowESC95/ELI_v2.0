@@ -59,6 +59,26 @@ The trade-off is deliberate and stated plainly: a model running on local hardwar
 than a large cloud model, in exchange for privacy, ownership, offline operation, and the freedom to
 swap in better open models as they appear.
 
+## Why ELI exists
+
+ELI is built on one conviction: **your AI should belong to you — the person using it — not the
+company serving it.** That isn't a slogan; it's the constraint every architectural decision answers
+to.
+
+- **Everything is local. Nothing phones home.** Offline isn't a setting you toggle —
+  `eli/core/netguard` enforces it at the socket layer, so the default is silence on the wire.
+- **Your model of *you* stays on your machine.** ELI learns your patterns and preferences and writes
+  them to your disk, never a data centre.
+- **It improves for you, not for a vendor.** Self-training means ELI gets better at serving *you* —
+  not at serving someone's next corporate model update.
+- **Privacy isn't a feature checkbox. It's the founding constraint of the whole design.**
+
+There's an underdog logic to it, too. The people who most need a capable assistant — those who can't
+justify a monthly subscription, who live with bad or no internet, who simply don't want their
+conversations sitting on a stranger's server — are exactly the people cloud AI underserves. A
+capable, free, offline, self-improving assistant that runs on hardware you already own is
+**genuinely democratising**, in a way most "AI for everyone" copy only pretends to be.
+
 ## What it does
 
 You interact by typing or speaking; it understands many phrasings. Representative commands:
