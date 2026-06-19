@@ -103,6 +103,29 @@ def _cpu_limit_preexec(cpu_seconds: int):
         return None
 
 
+def _maybe_harden(argv: List[str]) -> List[str]:
+    """Optionally wrap argv in firejail/nsjail for OS-level isolation (no network
+    egress, namespaced) when one is installed AND opt-in via ELI_SANDBOX_ISOLATE=1.
+
+    Off by default → zero behaviour change (the plain subprocess + CPU-rlimit path).
+    When enabled but neither tool is present, it degrades gracefully to that same
+    path. `--noprofile` keeps the temp working dir reachable; `--net=none` is the
+    real win (generated/patched code can't phone home from the sandbox)."""
+    if os.environ.get("ELI_SANDBOX_ISOLATE", "0").strip().lower() not in ("1", "true", "yes", "on"):
+        return argv
+    try:
+        import shutil
+        fj = shutil.which("firejail")
+        if fj:
+            return [fj, "--quiet", "--noprofile", "--net=none", "--"] + argv
+        nj = shutil.which("nsjail")
+        if nj:
+            return [nj, "-Mo", "--disable_proc", "--really_quiet", "--", *argv]
+    except Exception:
+        pass
+    return argv
+
+
 def run_code(
     code: str,
     language: str = "python",
@@ -145,7 +168,7 @@ def run_code(
                 fp = Path(td) / rel
                 fp.parent.mkdir(parents=True, exist_ok=True)
                 fp.write_text(contents, encoding="utf-8")
-            argv = argv_builder(str(entry)) + list(argv_suffix or [])
+            argv = _maybe_harden(argv_builder(str(entry)) + list(argv_suffix or []))
             try:
                 proc = subprocess.run(
                     argv, cwd=td, env=env, capture_output=True, text=True,
