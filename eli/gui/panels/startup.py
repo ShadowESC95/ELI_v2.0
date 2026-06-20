@@ -154,6 +154,22 @@ class StartupModelSelectionDialog(QDialog):
         self.auto_tune_checkbox.setEnabled(False)
         layout.addWidget(self.auto_tune_checkbox)
 
+        # Direct context-window control. Defaults to ELI's canonical default
+        # (DEFAULT_N_CTX = 16384) so every model loads at 16384 unless the user
+        # changes this here. 0 = auto (fall back to the fraction/VRAM sizing below).
+        # Applied as ELI_FORCE_CTX, the optimizer's highest-priority ctx override.
+        try:
+            from eli.core.runtime_settings import DEFAULT_N_CTX as _DEFAULT_CTX
+        except Exception:
+            _DEFAULT_CTX = 16384
+        self.ctx_window_spin = QSpinBox()
+        self.ctx_window_spin.setRange(0, 262144)
+        self.ctx_window_spin.setSingleStep(2048)
+        self.ctx_window_spin.setValue(
+            int(os.environ.get("ELI_FORCE_CTX", str(int(_DEFAULT_CTX))) or int(_DEFAULT_CTX))
+        )
+        form.addRow("Context window (tokens, 0=auto)", self.ctx_window_spin)
+
         self.ctx_fraction_spin = QDoubleSpinBox()
         self.ctx_fraction_spin.setRange(0.10, 0.95)
         self.ctx_fraction_spin.setSingleStep(0.05)
@@ -193,6 +209,12 @@ class StartupModelSelectionDialog(QDialog):
         )
 
         def _apply_env():
+            # Direct context window wins (0 = auto → let fraction/VRAM size it).
+            _ctx_window = int(self.ctx_window_spin.value())
+            if _ctx_window > 0:
+                os.environ["ELI_FORCE_CTX"] = str(_ctx_window)
+            else:
+                os.environ.pop("ELI_FORCE_CTX", None)
             os.environ["ELI_CTX_FRACTION"] = str(float(self.ctx_fraction_spin.value()))
             os.environ["ELI_TARGET_BATCH"]  = str(int(self.target_batch_spin.value()))
             os.environ["ELI_VRAM_RESERVE_MB"] = str(int(self.vram_reserve_spin.value()))

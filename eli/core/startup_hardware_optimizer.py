@@ -463,6 +463,18 @@ def allocate(
     model_vram_mb = model_gb * 1024.0          # VRAM needed for full offload
     kv_per_token  = layers_total * 1024 / 1048576.0  # MB per ctx token (q4_0 KV)
 
+    # Default target context window for ALL models. The user overrides it in the
+    # GUI startup loader (Context window field → ELI_FORCE_CTX, or user_preferred_ctx
+    # in settings.json). 16384 is intentionally modest: on a VRAM-limited GPU a large
+    # train-ctx-sized window's KV cache + compute buffer eat the VRAM that would
+    # otherwise hold GPU layers, forcing CPU-bound inference. The fraction spinbox can
+    # still pull ctx BELOW this default; VRAM/RAM reduce-to-fit further.
+    try:
+        from eli.core.runtime_settings import DEFAULT_N_CTX as _DEFAULT_CTX
+    except Exception:
+        _DEFAULT_CTX = 16384
+    _default_target = min(int(_DEFAULT_CTX), train_ctx, round_ctx(int(train_ctx * ctx_fraction)))
+
     if forced_ctx:
         n_ctx = int(forced_ctx)
         ctx_source = "ELI_FORCE_CTX"
@@ -470,18 +482,25 @@ def allocate(
         n_ctx = int(user_ctx)
         ctx_source = "settings.json"
     elif model_vram_mb <= budget_after_batch:
-        # Model fits fully on GPU → maximize ctx from KV headroom.
+        # Model fits fully on GPU → ctx is the default target, capped by KV headroom.
         kv_budget = max(0.0, budget_after_batch - model_vram_mb)
         max_ctx_vram = max(2048, int(kv_budget / max(kv_per_token, 1e-6)))
-        # Honour the user's fraction cap from the startup dialog (ELI_CTX_FRACTION).
-        fraction_cap = round_ctx(int(train_ctx * ctx_fraction))
-        n_ctx = round_ctx(min(train_ctx, max_ctx_vram, fraction_cap))
-        ctx_source = f"VRAM-optimal capped at fraction {ctx_fraction:.2f} (kv_budget={kv_budget:.0f}MB)"
+        n_ctx = round_ctx(min(_default_target, max_ctx_vram))
+        ctx_source = f"default {int(_DEFAULT_CTX)} (VRAM-capped, kv_budget={kv_budget:.0f}MB)"
     else:
-        # Partial offload → use fraction-based ctx capped by RAM.
-        raw_ctx = int(train_ctx * ctx_fraction)
-        n_ctx = round_ctx(min(raw_ctx, ram_ctx_cap(ram_gb, model_gb)))
-        ctx_source = f"fraction ({ctx_fraction:.2f} × train_ctx, RAM-capped)"
+        # Partial offload → KV for CPU-resident layers lives in RAM. Keep the default
+        # target when the model + its ACTUAL KV cache fit available RAM (q4 KV for
+        # 16384 is ~1GB — the legacy ram_ctx_cap's "1GB ≈ 1024 tokens" heuristic
+        # over-estimates ~16× and would needlessly truncate). Only fall back to the
+        # conservative cap when RAM is genuinely tight.
+        _kv_default_mb = kv_cache_mb(_default_target, layers_total)
+        _ram_avail_mb = ram_gb * 1024.0
+        if (model_gb * 1024.0) + _kv_default_mb + 2048 <= _ram_avail_mb:
+            n_ctx = _default_target
+            ctx_source = f"default {int(_DEFAULT_CTX)} (model+KV fit RAM)"
+        else:
+            n_ctx = round_ctx(min(_default_target, ram_ctx_cap(ram_gb, model_gb)))
+            ctx_source = f"default {int(_DEFAULT_CTX)} (RAM-capped)"
 
     kv = kv_cache_mb(n_ctx, layers_total)
 
