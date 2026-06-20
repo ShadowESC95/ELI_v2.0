@@ -110,7 +110,7 @@ def _pulse_device_index() -> Optional[int]:
             try:
                 p.terminate()
             except Exception:
-                pass
+                log.debug("mic_resolver: PyAudio.terminate() failed", exc_info=True)
     return None
 
 
@@ -145,7 +145,7 @@ def _input_device_indices() -> List[int]:
             try:
                 p.terminate()
             except Exception:
-                pass
+                log.debug("mic_resolver: PyAudio.terminate() failed", exc_info=True)
     return out
 
 
@@ -267,7 +267,7 @@ def resolve_capture(force: bool = False) -> CaptureChoice:
             _CACHED = CaptureChoice(int(explicit), None, "ELI_MIC_DEVICE_INDEX override")
             return _CACHED
         except (TypeError, ValueError):
-            pass
+            log.debug("mic_resolver: invalid ELI_MIC_DEVICE_INDEX=%r, ignoring", explicit, exc_info=True)
 
     # 2) Auto-resolve disabled — use OS default.
     if not _autoresolve_enabled():
@@ -352,7 +352,7 @@ def _run_probe(device_arg: str, source_arg: str) -> int:
         try:
             p.terminate()
         except Exception:
-            pass
+            log.debug("mic_resolver: PyAudio.terminate() failed", exc_info=True)
 
 
 if __name__ == "__main__":

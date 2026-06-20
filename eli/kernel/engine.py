@@ -8862,7 +8862,7 @@ Answer:"""
                     )
                     reasoning_mode = "quick"
         except Exception:
-            pass
+            log.debug("phatic fast-path mode check failed", exc_info=True)
         try:
             _eli_live_mode = str(reasoning_mode or "quick").strip().lower() or "quick"
             __import__("os").environ["ELI_CURRENT_REASONING_MODE"] = _eli_live_mode
