@@ -680,11 +680,19 @@ def load_model(force_reload: bool = False):
     if n_threads is None:
         n_threads = _as_int(_runtime_value(settings, "cpu_threads", "n_threads"), os.cpu_count() or 4)
 
-    # Co-resident vision → size the text model DYNAMICALLY to the VRAM left,
-    # reducing GPU layers → batch → ctx (ctx last). No hardcoded cap; ctx ceiling
-    # is the model's native train length × the user's fraction. Per-model,
-    # per-machine. Skips cleanly if no GPU / no model path.
-    if _co_resident_active:
+    # Size the text model DYNAMICALLY to the VRAM that is ACTUALLY free right now
+    # — after any co-resident vision / embedder / required models are resident —
+    # instead of trusting a persisted (and quickly stale) gpu_layers number. ctx is
+    # anchored at the user's value (default 16384) and reduced only as a last
+    # resort; GPU layers then FILL whatever VRAM remains. This is why layers must
+    # not be a fixed 1/7/10: the right count depends on live free VRAM, the model,
+    # the ctx, and what else is loaded — all per-boot. Runs on every load (not just
+    # co-resident vision). Per-model, per-machine. Opt out with ELI_GGUF_SMART_FIT=0;
+    # skips cleanly if no GPU / no model path.
+    _smart_fit_on = str(os.environ.get("ELI_GGUF_SMART_FIT", "1")).strip().lower() not in (
+        "0", "false", "no", "off",
+    )
+    if _smart_fit_on:
         try:
             from eli.core.startup_hardware_optimizer import (
                 detect_nvidia_gpus as _sf_dng, select_gpu as _sf_sg,
@@ -703,12 +711,12 @@ def load_model(force_reload: bool = False):
                     _mgb, _sf_gpu.free_mb, user_ctx=min(int(n_ctx), _want),
                     user_batch=int(n_batch), reserve_mb=_res, kv_quantized=_kvq,
                 )
-                log.debug(f"[GGUF] co-resident smart-fit: ctx {n_ctx}->{_fc} "
-                          f"layers {n_gpu_layers}->{_fl} batch {n_batch}->{_fb} "
-                          f"(free={_sf_gpu.free_mb}MB reserve={_res})")
+                log.debug(f"[GGUF] smart-fit (free={_sf_gpu.free_mb}MB reserve={_res} "
+                          f"coresident={_co_resident_active}): ctx {n_ctx}->{_fc} "
+                          f"layers {n_gpu_layers}->{_fl} batch {n_batch}->{_fb}")
                 n_ctx, n_gpu_layers, n_batch = _fc, _fl, _fb
         except Exception as _sf_err:
-            log.debug(f"[GGUF] co-resident smart-fit skipped: {_sf_err}")
+            log.debug(f"[GGUF] smart-fit skipped: {_sf_err}")
 
     def _boolish(v, default=False):
         if v is None or v == "":
