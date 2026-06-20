@@ -10902,6 +10902,35 @@ def execute(action: str, args: Optional[Dict[str, Any]] = None, **kwargs) -> Dic
                 "batch_size": settings_req.get('batch_size', 'unknown'),
             },
         }
+        # Runtime HEALTH — surface recommended-vs-effective and an explicit
+        # utilization assessment. Without this the evidence only shows
+        # "requested == effective" (trivially consistent), so the model concludes
+        # "no discrepancy" even when the GPU is barely used or ctx is oversized.
+        # Giving it the recommendation + concerns lets it flag the problem instead
+        # of confidently declaring all-clear (it has no grounding to invent one).
+        try:
+            _eff_layers = int(runtime_eff.get('n_gpu_layers') or 0)
+            _eff_ctx = int(runtime_eff.get('n_ctx') or 0)
+            _rec_ctx = int(settings_req.get('hw_profile_n_ctx') or 0)
+            _rec_layers = int(settings_req.get('hw_profile_n_gpu_layers') or 0)
+            _concerns = []
+            if _rec_ctx and _eff_ctx > _rec_ctx:
+                _concerns.append(
+                    f"context {_eff_ctx} exceeds the hardware-recommended {_rec_ctx}; "
+                    f"the oversized KV cache crowds GPU layers out of VRAM"
+                )
+            if _eff_layers <= 1:
+                _concerns.append(
+                    f"only {_eff_layers} GPU layer(s) offloaded — inference is running "
+                    f"almost entirely on CPU, which is slow"
+                )
+            ev["runtime_health"] = {
+                "recommended_n_ctx": _rec_ctx or "unknown",
+                "recommended_n_gpu_layers": _rec_layers or "unknown",
+                "concerns": _concerns or ["none — effective config is within recommended bounds"],
+            }
+        except Exception:
+            log.debug("runtime_health assessment failed", exc_info=True)
         txt = json.dumps(ev, ensure_ascii=False, indent=2)
         model_name = (runtime_eff.get('model_path') or rep.get('model_path', '')).split('/')[-1]
         summary = (
