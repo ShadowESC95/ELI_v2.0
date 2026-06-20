@@ -20,6 +20,20 @@ _last_foreground_duration = 0.0   # seconds the most recent foreground turn took
 _MAX_ADAPTIVE_DEFER = 900.0       # cap so a pathological 20-min turn can't defer chores forever
 
 
+def _is_think_only(response: str) -> bool:
+    """True if a non-empty response is ENTIRELY a reasoning block that strips to
+    empty (a thinking model that ran out of budget mid-<think>). Such a response
+    is non-empty here but useless to the caller, so it should trigger the
+    no-think retry just like a truly empty one. Best-effort; never raises."""
+    if not response:
+        return False
+    try:
+        from eli.cognition.gguf_inference import _strip_think_text
+        return not _strip_think_text(response).strip()
+    except Exception:
+        return False
+
+
 def foreground_recently_active(window: float = 30.0) -> bool:
     """True if a user-facing inference ran (or was running) recently.
 
@@ -149,11 +163,12 @@ class InferenceBroker:
         try:
             with self._lock:
                 response = self._call(prompt, system, max_tokens, temperature, top_p)
-            if not response and retry:
-                # A reasoning model can spend its whole budget inside <think> and return nothing
-                # (the empty-string failure). Force the think block closed on the retry so the
-                # budget goes to the answer. Model-agnostic: a no-op for non-thinking models, and
-                # the prompt/context are unchanged — only the model's hidden think is suppressed.
+            if (not response or _is_think_only(response)) and retry:
+                # A reasoning model can spend its whole budget inside <think> and return either
+                # nothing OR a never-closed think block that strips to empty downstream — both
+                # leave the caller with no usable answer. Force the think block closed on the
+                # retry so the budget goes to the answer. Model-agnostic: a no-op for non-thinking
+                # models, and the prompt/context are unchanged — only the hidden think is suppressed.
                 try:
                     _nt_ctx = gi.force_no_think()
                 except Exception:

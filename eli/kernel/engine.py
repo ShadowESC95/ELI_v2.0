@@ -907,7 +907,9 @@ def _is_brief_phatic_prompt(text: str) -> bool:
     # name on the end still match the phatic phrase set below. "good afternoon eli" used to
     # fall through as non-phatic, which let the past-session project topics get injected and
     # the model resumed them off a plain hello.
-    normalized = re.sub(r"\s+eli$", "", normalized).strip() or normalized
+    normalized = re.sub(
+        r"\s+(?:eli|pal|bud|buddy|mate|man|dude|bro|friend)$", "", normalized
+    ).strip() or normalized
     # Strip a LEADING greeting so a greeting compounded with a phatic check-in still matches
     # ("good afternoon what's the story" -> "what's the story"). This only HELPS a phatic
     # remainder reach the phrase set; a substantive remainder ("good morning fix the bug")
@@ -954,6 +956,11 @@ def _is_brief_phatic_prompt(text: str) -> bool:
         "cheers", "ta", "much appreciated", "appreciate it", "nice one", "good stuff",
         "good job", "well done", "great stuff", "lovely", "perfect", "brilliant",
         "no worries", "no problem", "you're welcome", "youre welcome",
+        # Sign-offs / closers — purely phatic; a substantive remainder is caught
+        # by the follow-up guard or falls through as non-phatic.
+        "night", "good night", "goodnight", "gnight", "night night", "nighty night",
+        "see ya", "see you", "see you later", "see ya later", "talk later",
+        "talk soon", "catch you later", "goodbye", "bye", "bye bye", "cya",
     }
     if normalized in phrases:
         return True
@@ -8831,6 +8838,31 @@ Answer:"""
         # (observed: status said "Quick" while running Normal). The env var is checked ahead
         # of the trace/settings files in current_reasoning_mode(), and engine+executor share
         # one process. Also mirror it onto the engine attr (_from_engine reads it).
+        #
+        # ELI_PHATIC_MODE_FASTPATH_V1 — a greeting / ack / closer has nothing to
+        # reason about. With a multi-pass private-reasoning mode selected
+        # (chain_of_thought, tree_of_thoughts, self_consistency, constitutional_ai),
+        # running it on "good morning" costs two full generations (scratchpad +
+        # final) — minutes on a CPU-offloaded model — for zero quality gain.
+        # Downgrade phatic turns to single-pass quick; substantive turns keep the
+        # user's selected depth. The orchestrator already bypasses retrieval for
+        # phatic prompts via the same predicate, so this just aligns the GENERATION
+        # mode with that decision. Opt out with ELI_PHATIC_FASTPATH=0.
+        try:
+            if (
+                str(__import__("os").environ.get("ELI_PHATIC_FASTPATH", "1")).strip().lower()
+                not in {"0", "false", "no", "off"}
+                and reasoning_mode
+                and _is_brief_phatic_prompt(user_input)
+            ):
+                from eli.cognition.reasoning_modes import canonical_mode as _eli_phatic_cm
+                if _eli_phatic_cm(reasoning_mode) != "quick":
+                    log.debug(
+                        f"[PIPELINE] phatic fast-path: {reasoning_mode} → quick (greeting/ack)"
+                    )
+                    reasoning_mode = "quick"
+        except Exception:
+            pass
         try:
             _eli_live_mode = str(reasoning_mode or "quick").strip().lower() or "quick"
             __import__("os").environ["ELI_CURRENT_REASONING_MODE"] = _eli_live_mode
