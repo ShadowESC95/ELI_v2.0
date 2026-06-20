@@ -125,6 +125,34 @@ class StatusResponse(BaseModel):
 # ----------------------------------------------------------------------
 # API Endpoints
 # ----------------------------------------------------------------------
+def _extract_response_text(result) -> str:
+    """Normalise whatever engine.process() returned into user-visible text.
+
+    process() usually returns a dict, but several paths return a bare string
+    (e.g. the multi-question splitter joins sub-answers) or a streaming
+    generator. Assuming a dict and calling .get() on a str raised
+    "'str' object has no attribute 'get'" → HTTP 500. Field order mirrors the
+    engine's own extraction: response → content → text."""
+    if isinstance(result, str):
+        return result.strip()
+    if isinstance(result, dict):
+        return str(
+            result.get("response") or result.get("content") or result.get("text") or ""
+        ).strip()
+    try:  # streaming generator / iterable of chunks
+        parts = []
+        for chunk in result:
+            if isinstance(chunk, dict):
+                parts.append(
+                    chunk.get("response") or chunk.get("content") or chunk.get("token") or ""
+                )
+            elif isinstance(chunk, str):
+                parts.append(chunk)
+        return "".join(parts).strip()
+    except Exception:
+        return str(result or "").strip()
+
+
 @app.get("/", response_class=HTMLResponse, tags=["Root"])
 async def root():
     """The web chat UI — open this host in any browser (incl. Android/iOS)."""
@@ -155,9 +183,9 @@ async def chat(request: ChatRequest):
             source=f"api:{request.user_id}",
             stream=False
         )
-        
+
         return ChatResponse(
-            response=result.get("content", ""),
+            response=_extract_response_text(result),
             session_id=session_id,
             user_id=request.user_id,
             timestamp=time.time()
