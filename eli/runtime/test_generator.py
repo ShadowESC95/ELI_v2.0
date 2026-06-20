@@ -213,8 +213,15 @@ def _default_ask() -> AskFn:
     g.load_model()
 
     def _ask(prompt, system=None, max_tokens=1200, temperature=0.2):
-        return g.chat_completion(prompt, system=system, max_tokens=max_tokens,
-                                 temperature=temperature, top_p=0.85)
+        # Reasoning models (Qwen3-A3B, DeepSeek-R1, …) otherwise spend the entire
+        # token budget inside a <think> block that gets stripped to empty — every
+        # generated test then comes back blank and is rejected (observed: 0 of 8
+        # accepted overnight). Test code needs no visible chain-of-thought, so
+        # suppress thinking and give the whole budget to the answer. No-op on
+        # non-thinking models; prompt/context are unchanged.
+        with g.force_no_think():
+            return g.chat_completion(prompt, system=system, max_tokens=max_tokens,
+                                     temperature=temperature, top_p=0.85)
     return _ask
 
 
