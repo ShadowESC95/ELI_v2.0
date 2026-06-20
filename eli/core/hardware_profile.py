@@ -467,6 +467,14 @@ def smart_fit_config(
     while ctx > min_ctx and _needed(ctx, layers, batch) > budget:
         ctx = max(min_ctx, ctx - ctx_grain)
 
+    # Fine pack: the coarse 10%-step reduction above can leave VRAM unused (e.g. it
+    # stopped at 8 layers with ~1.5GB still free). Greedily add layers back one at a
+    # time while they still fit, so GPU offload FILLS the remaining budget — "give
+    # the leftover VRAM to the layers". Strictly bounded by budget, so it can never
+    # reintroduce an OOM; a no-op when already fully offloaded or CPU-only-by-necessity.
+    while layers < total and _needed(ctx, layers + 1, batch) <= budget:
+        layers += 1
+
     n_layers = 99 if layers >= total else layers
     return ctx, n_layers, batch
 
