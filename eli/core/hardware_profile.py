@@ -531,9 +531,17 @@ def recommend(hw: Optional[HardwareProfile] = None,
     # • CPU-only     — RAM is the binding constraint; use available RAM.
     _ctx_grain = 2048
     if hw.has_gpu and hw.free_vram_mb > 0:
-        rec.n_ctx = 32768  # generous start; VRAM refinement will set actual value
+        # Default target context window for ALL models (overridable by the user in
+        # the GUI startup loader / user_preferred_ctx). 16384 fits typical prompts
+        # and, on VRAM-limited GPUs, leaves room for more GPU layers than a
+        # train-ctx-sized window would. VRAM refinement below only REDUCES this.
+        try:
+            from eli.core.runtime_settings import DEFAULT_N_CTX as _DEF_CTX
+        except Exception:
+            _DEF_CTX = 16384
+        rec.n_ctx = int(_DEF_CTX)
         rec.reasoning.append(
-            f"n_ctx initial=32768 (GPU system — will be refined by VRAM budget)"
+            f"n_ctx default={rec.n_ctx} (GPU system — reduced to fit if VRAM is tight)"
         )
     else:
         _raw_ctx = int(hw.available_ram_gb * 1024)

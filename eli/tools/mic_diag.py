@@ -1,14 +1,52 @@
 """
 ELI Microphone Diagnostic
-Run this to measure real speech vs ambient energy so you can set the
-right energy threshold. Stay silent for the first 3s, then speak normally.
+Probes every input device for one that actually delivers audio, then measures
+real speech vs ambient energy so you can set the right energy threshold.
+Stay silent for the first 3s, then speak normally.
 
 Usage:
-    python3 eli/tools/mic_diag.py
+    python3 eli/tools/mic_diag.py            # auto-resolve a working device
+    python3 eli/tools/mic_diag.py 20         # force a specific device index
 """
-import speech_recognition as sr
 import audioop
+import sys
 import time
+
+import speech_recognition as sr
+
+
+def _probe_device(idx, seconds=0.6):
+    """Open a device briefly and return its mean RMS, or None if it can't read.
+
+    A dead device (raw ALSA "default" wired through dead JACK PCMs, or a stale
+    Bluetooth default source) either errors on open or blocks; we cap the read
+    count so probing can't hang.
+    """
+    try:
+        m = sr.Microphone(device_index=idx)
+        with m as src:
+            reads = max(1, int(seconds * src.SAMPLE_RATE / src.CHUNK))
+            rms_vals = []
+            for _ in range(reads):
+                buf = src.stream.read(src.CHUNK, exception_on_overflow=False)
+                rms_vals.append(audioop.rms(buf, src.SAMPLE_WIDTH))
+            return sum(rms_vals) // len(rms_vals)
+    except Exception:
+        return None
+
+
+def _resolve_device():
+    """Prefer the 'pulse' device by name (PulseAudio/PipeWire); fall back to the
+    first input device that opens. Returns (index, name) or (None, None)."""
+    names = sr.Microphone.list_microphone_names()
+    pulse = next((i for i, n in enumerate(names) if n == "pulse"), None)
+    if pulse is not None:
+        return pulse, names[pulse]
+    # Otherwise probe in order for the first device that yields a reading.
+    for i, n in enumerate(names):
+        if _probe_device(i, seconds=0.3) is not None:
+            return i, n
+    return None, None
 
 
 def run():
@@ -16,15 +54,28 @@ def run():
     r.energy_threshold = 50
     r.dynamic_energy_threshold = False
 
-    mics = sr.Microphone.list_microphone_names()
+    names = sr.Microphone.list_microphone_names()
     print("=== ELI MIC DIAGNOSTIC ===")
     print("Mic devices:")
-    for i, m in enumerate(mics):
+    for i, m in enumerate(names):
         print(f"  [{i}] {m}")
-
     print()
-    print("Testing device 13 (pulse/default)...")
-    m = sr.Microphone(device_index=13)
+
+    if len(sys.argv) > 1:
+        idx = int(sys.argv[1])
+        label = names[idx] if 0 <= idx < len(names) else "?"
+        print(f"Using device {idx} ({label}) from command line.")
+    else:
+        idx, label = _resolve_device()
+        if idx is None:
+            print("No working input device found. Check your system default source "
+                  "(e.g. a stale Bluetooth mic) and that a mic is connected.")
+            return
+        print(f"Auto-selected device {idx} ({label}).")
+        print(f"  → To pin ELI to it: export ELI_MIC_DEVICE_INDEX={idx}")
+    print()
+
+    m = sr.Microphone(device_index=idx)
     with m as src:
         print(f"  rate={src.SAMPLE_RATE}  width={src.SAMPLE_WIDTH}")
         print()
@@ -32,7 +83,7 @@ def run():
         ambient = []
         t0 = time.time()
         while time.time() - t0 < 3.0:
-            buf = src.stream.read(src.CHUNK)
+            buf = src.stream.read(src.CHUNK, exception_on_overflow=False)
             ambient.append(audioop.rms(buf, src.SAMPLE_WIDTH))
         print(f"  Ambient: min={min(ambient)}  avg={sum(ambient)//len(ambient)}  max={max(ambient)}")
         print()
@@ -41,7 +92,7 @@ def run():
         speech = []
         t0 = time.time()
         while time.time() - t0 < 5.0:
-            buf = src.stream.read(src.CHUNK)
+            buf = src.stream.read(src.CHUNK, exception_on_overflow=False)
             e = audioop.rms(buf, src.SAMPLE_WIDTH)
             speech.append(e)
             elapsed = time.time() - t0
@@ -72,7 +123,6 @@ def run():
 
 
 if __name__ == "__main__":
-    import sys
     try:
         run()
     except Exception as e:
