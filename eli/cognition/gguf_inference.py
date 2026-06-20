@@ -287,7 +287,13 @@ def _no_think_prefill(*, structured: bool, max_tokens) -> str:
     # short/structured output. This holds REGARDLESS of the Think toggle (the earlier bug:
     # ELI_MODEL_THINK=1 made these think and empty). The toggle only governs the MAIN
     # answer call (large budget): think unless explicitly OFF.
-    if structured or _small:
+    # Quick mode is the FAST tier — its contract is "Direct, single-pass. No staged
+    # reasoning." A thinking model otherwise burns the whole budget inside <think>
+    # even for a greeting (observed: phatic "hey eli" thought for 316s). Phatic turns
+    # are downgraded to quick upstream, so this also delivers the phatic fast-path.
+    # The deeper modes (chain_of_thought, tree_of_thoughts, …) still think.
+    _quick = os.environ.get("ELI_CURRENT_REASONING_MODE", "").strip().lower() == "quick"
+    if structured or _small or _quick:
         disable = True
     else:
         _env = os.environ.get("ELI_MODEL_THINK", "").strip().lower()
