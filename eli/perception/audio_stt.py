@@ -600,11 +600,21 @@ def _restore_later(prev_vol: Optional[str], delay_s: float = RESTORE_DELAY_S) ->
     threading.Timer(delay_s, _restore, args=(prev_vol,)).start()
 
 
+def _mic_resolver_diagnostics() -> dict:
+    """Resolver snapshot for diagnostics (never forces a probe, never raises)."""
+    try:
+        from eli.perception.mic_resolver import diagnostics
+        return diagnostics()
+    except Exception as e:
+        return {"error": repr(e)}
+
+
 def stt_diagnostics() -> dict:
     return {
         "speech_recognition_imported": sr is not None,
         "speech_recognition_error": repr(_SR_IMPORT_ERROR) if _SR_IMPORT_ERROR else None,
         "mic_device_index_env": os.environ.get("ELI_MIC_DEVICE_INDEX"),
+        "mic_resolver": _mic_resolver_diagnostics(),
         "wake_word_disabled": ELI_DISABLE_WAKE_WORD,
         "allow_direct_chat_without_wake": ALLOW_DIRECT_CHAT_WITHOUT_WAKE,
         "min_direct_chat_words": MIN_DIRECT_CHAT_WORDS,
@@ -925,6 +935,37 @@ class VoiceGate:
         return "ignore_unarmed", None, None
 
 
+def _resolve_input_device_index() -> Optional[int]:
+    """Resolve a capture device that actually delivers audio.
+
+    Delegates to :mod:`eli.perception.mic_resolver`, which probes candidate
+    devices (Bluetooth or wired, any platform) in isolated subprocesses and, on
+    Linux, pins ELI's process to a working Pulse/PipeWire source via
+    ``PULSE_SOURCE`` when the system default source is dead. Honours
+    ``ELI_MIC_DEVICE_INDEX`` and ``ELI_MIC_AUTORESOLVE``.
+
+    Returns the PortAudio device index (or None for the OS default) and applies
+    any required ``PULSE_SOURCE`` pin as a side effect.
+    """
+    try:
+        from eli.perception.mic_resolver import resolve_capture
+    except Exception:
+        # Resolver unavailable — fall back to OS default; the calibration
+        # watchdog below still guarantees startup cannot hang.
+        return None
+    try:
+        choice = resolve_capture()
+    except Exception as e:  # never let mic resolution break STT construction
+        log.debug(f"[AUDIO] mic resolver failed ({e}); using OS default device")
+        return None
+    if choice.pulse_source:
+        # Pin this process (and the PortAudio stream it opens) to the chosen
+        # source without touching the system-wide default.
+        os.environ["PULSE_SOURCE"] = choice.pulse_source
+    log.debug(f"[AUDIO] capture resolved: {choice.reason}")
+    return choice.device_index
+
+
 class ELIAudioSTT:
     def __init__(self):
         if sr is None:
@@ -971,10 +1012,10 @@ class ELIAudioSTT:
             f"non_speaking={self.recognizer.non_speaking_duration}",
         )
 
-        device_index = os.environ.get("ELI_MIC_DEVICE_INDEX")
+        device_index = _resolve_input_device_index()
         if device_index is not None:
             try:
-                self.microphone = sr.Microphone(device_index=int(device_index))
+                self.microphone = sr.Microphone(device_index=device_index)
                 log.debug(f"[AUDIO] Using microphone device index {device_index}")
             except Exception as e:
                 log.debug(f"[AUDIO] Failed to use device {device_index}: {e}. Falling back to default mic.")
@@ -1010,22 +1051,44 @@ class ELIAudioSTT:
         _do_calibrate = os.environ.get("ELI_STT_CALIBRATE", "0").lower() not in {"0", "false", "no", "off"}
         if _do_calibrate:
             log.debug("[AUDIO] Calibrating microphone for ambient noise...")
+            cal_duration = float(os.environ.get("ELI_STT_AMBIENT_CAL_SEC", "1.5"))
+            # Watchdog: a dead/misconfigured capture device (e.g. the raw ALSA
+            # "default" PCM wired through dead JACK PCMs, or a stale Bluetooth
+            # default source that delivers no frames) makes adjust_for_ambient_noise
+            # block on read forever. Run it in a daemon thread and abandon it if it
+            # overruns, so ELI startup degrades to the fixed threshold instead of
+            # hanging. Headroom = calibration duration + open/IO slack.
+            _cal_timeout = float(os.environ.get("ELI_STT_CAL_TIMEOUT", "0")) or (cal_duration + 4.0)
+
+            def _calibrate():
+                with self.microphone as source:
+                    self.recognizer.adjust_for_ambient_noise(source, duration=cal_duration)
+
             _suppress_alsa()
             try:
-                with self.microphone as source:
-                    cal_duration = float(os.environ.get("ELI_STT_AMBIENT_CAL_SEC", "1.5"))
-                    _pre_cal = self.recognizer.energy_threshold
-                    self.recognizer.adjust_for_ambient_noise(source, duration=cal_duration)
-                    # Hard cap so loud startup noise can't push threshold into shouting range.
-                    _cal_cap = float(os.environ.get("ELI_STT_CAL_CAP", "2000"))
-                    if self.recognizer.energy_threshold > _cal_cap:
-                        log.debug(
-                            f"[AUDIO] Calibration capped {self.recognizer.energy_threshold:.0f}"
-                            f" → {_cal_cap:.0f} (ELI_STT_CAL_CAP)",
-                        )
-                        self.recognizer.energy_threshold = _cal_cap
+                _cal_thread = threading.Thread(target=_calibrate, name="eli-mic-calibrate", daemon=True)
+                _cal_thread.start()
+                _cal_thread.join(_cal_timeout)
             finally:
                 _restore_stderr()
+
+            if _cal_thread.is_alive():
+                log.warning(
+                    f"[AUDIO] Ambient calibration timed out after {_cal_timeout:.1f}s — the "
+                    f"capture device is not delivering audio. Using fixed threshold "
+                    f"{self.recognizer.energy_threshold:.0f}. Check the system default input "
+                    f"source (e.g. a stale Bluetooth mic) or set ELI_MIC_DEVICE_INDEX to a "
+                    f"working device.",
+                )
+            else:
+                # Hard cap so loud startup noise can't push threshold into shouting range.
+                _cal_cap = float(os.environ.get("ELI_STT_CAL_CAP", "2000"))
+                if self.recognizer.energy_threshold > _cal_cap:
+                    log.debug(
+                        f"[AUDIO] Calibration capped {self.recognizer.energy_threshold:.0f}"
+                        f" → {_cal_cap:.0f} (ELI_STT_CAL_CAP)",
+                    )
+                    self.recognizer.energy_threshold = _cal_cap
         else:
             log.debug(
                 f"[AUDIO] Ambient calibration skipped (ELI_STT_CALIBRATE=0). "
