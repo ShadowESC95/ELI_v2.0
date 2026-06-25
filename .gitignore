@@ -11,11 +11,17 @@ __pycache__/
 .coverage
 coverage.xml
 *.tar.gz
+*.zip
 *.broken
 *.egg-info/
 dist/
 build/
 .eggs/
+
+# ── Large local archives / scratch (NEVER commit — GitHub rejects >100MB) ────
+eli.zip
+/sd
+*.wav
 
 # ── Virtual environment ──────────────────────────────────────────────────────
 .venv/
