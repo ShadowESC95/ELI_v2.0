@@ -122,10 +122,15 @@ class StartupModelSelectionDialog(QDialog):
 
         self.gguf_combo = QComboBox()
         self.gguf_combo.setSizeAdjustPolicy(QComboBox.SizeAdjustPolicy.AdjustToContents)
+        try:
+            from eli.core.model_download import _as_gib
+        except Exception:
+            _as_gib = lambda gb: float(gb or 0) * 1_000_000_000 / (1024 ** 3)
         for m in self._models:
+            # GiB (binary) so the figure matches what the OS file managers show.
             label = (
                 f"[{m.get('source', '?')}] {m.get('name', 'model')} "
-                f"({float(m.get('size_gb', 0.0)):.2f} GB)"
+                f"({_as_gib(m.get('size_gb', 0.0)):.2f} GiB)"
             )
             self.gguf_combo.addItem(label, str(m.get("path") or ""))
         form.addRow("GGUF models", self.gguf_combo)
@@ -554,8 +559,12 @@ class FirstBootWizard(QDialog):
             self._dl_catalog = list_catalog()
         except Exception as _cat_err:
             log.debug(f"[wizard] model catalog unavailable: {_cat_err}")
+        try:
+            from eli.core.model_download import _fmt_size_gib as _fmt_gib
+        except Exception:
+            _fmt_gib = lambda gb: f"~{float(gb or 0)*1e9/(1024**3):.1f} GiB"
         for _e in self._dl_catalog:
-            _label = f"{_e.get('name','?')}  · ~{_e.get('size_gb','?')}GB · VRAM {_e.get('vram_gb',0)}GB+"
+            _label = f"{_e.get('name','?')}  · {_fmt_gib(_e.get('size_gb'))} · VRAM {_e.get('vram_gb',0)}GB+"
             if _e.get("default"):
                 _label += "  (recommended)"
             self._dl_combo.addItem(_label, _e.get("key"))
@@ -671,10 +680,13 @@ class FirstBootWizard(QDialog):
         if not entry:
             QMessageBox.warning(self, "No model selected", "Pick a model to download first.")
             return
-        size = entry.get("size_gb", "?")
+        try:
+            from eli.core.model_download import _fmt_size_gib as _fmt_gib
+        except Exception:
+            _fmt_gib = lambda gb: f"~{float(gb or 0)*1e9/(1024**3):.1f} GiB"
         if QMessageBox.question(
             self, "Download model",
-            f"Download {entry.get('name')} (~{size} GB) into\n{_MODELS_DIR}?\n\n"
+            f"Download {entry.get('name')} ({_fmt_gib(entry.get('size_gb'))}) into\n{_MODELS_DIR}?\n\n"
             "This is a one-time, deliberate network download. ELI stays offline "
             "by default afterwards.",
         ) != QMessageBox.StandardButton.Yes:
@@ -708,7 +720,20 @@ class FirstBootWizard(QDialog):
             self._dl_progress.setRange(0, 1)
             self._dl_progress.setValue(1)
             verb = "Already present" if res.get("already_present") else "Downloaded"
-            self._dl_status.setText(f"✓ {verb}: {path}")
+            # Show the REAL on-disk size, not the catalog's static estimate, and
+            # flag when they diverge (stale catalog / repointed URL = the "wrong
+            # size displayed" symptom).
+            _act = res.get("size_gib_actual")
+            _sz = f" ({_act:.2f} GiB)" if isinstance(_act, (int, float)) and _act else ""
+            _warn = ""
+            if res.get("size_mismatch") and _act:
+                try:
+                    from eli.core.model_download import _as_gib as _ag
+                    _est = f"~{_ag(res.get('size_gb_estimate')):.1f}"
+                except Exception:
+                    _est = f"~{res.get('size_gb_estimate')}"
+                _warn = (f"  ⚠ actual {_act:.2f} GiB vs {_est} GiB listed")
+            self._dl_status.setText(f"✓ {verb}: {path}{_sz}{_warn}")
         else:
             self._dl_progress.setVisible(False)
             err = res.get("error", "unknown error")

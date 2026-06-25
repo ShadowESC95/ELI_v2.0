@@ -177,6 +177,26 @@ def download_aux(required_only: bool = True,
 
 _GGUF_MAGIC = b"GGUF"
 _CHUNK = 1024 * 256  # 256 KiB
+_GIB = 1024 ** 3
+
+
+def _as_gib(size_gb_decimal: Any) -> float:
+    """Convert a decimal-GB figure (bytes/1e9, as catalog estimates and
+    discover_models use) to binary GiB, so every displayed size matches what the
+    OS file managers report (they show 1024³-based GiB). Display-only — internal
+    size_gb stays decimal because hardware_profile's layer thresholds key off it."""
+    try:
+        return float(size_gb_decimal) * 1_000_000_000 / _GIB
+    except Exception:
+        return 0.0
+
+
+def _fmt_size_gib(size_gb_decimal: Any) -> str:
+    """Display string like '~4.1 GiB' (or '~? GiB' when unknown)."""
+    try:
+        return f"~{_as_gib(float(size_gb_decimal)):.1f} GiB"
+    except (TypeError, ValueError):
+        return "~? GiB"
 
 
 # --------------------------------------------------------------------------- #
@@ -225,12 +245,65 @@ def default_entry() -> Dict[str, Any]:
 
 
 def recommend_for_vram(free_vram_gb: Optional[float]) -> Dict[str, Any]:
-    """Largest catalog model that fits the detected VRAM (CPU-only → smallest)."""
-    cat = sorted(list_catalog(), key=lambda e: float(e.get("vram_gb", 0)))
+    """Largest catalog model that fits the detected VRAM (CPU-only → smallest).
+
+    Fit is judged on the model's ACTUAL quantized file size (plus headroom for
+    the KV cache + CUDA context), not the catalog's `vram_gb` — which is a
+    conservative "comfortable" rating, not a hard requirement. ELI also offloads
+    partially and always has a CPU fallback, so gating on `vram_gb` wrongly
+    rejected models whose weights actually fit (e.g. the 4.4 GB 7B was dropped to
+    a 3 B on a 6.7 GB-free card because its `vram_gb` rating is 8)."""
+    cat = sorted(list_catalog(), key=lambda e: float(e.get("size_gb", 0)))
     if not free_vram_gb or free_vram_gb <= 0:
         return cat[0]
-    fit = [e for e in cat if float(e.get("vram_gb", 0)) <= float(free_vram_gb)]
+    # ~1.25× the weights covers KV cache + CUDA context for a full-GPU load.
+    _headroom = 1.25
+    fit = [e for e in cat if float(e.get("size_gb", 0)) * _headroom <= float(free_vram_gb)]
     return (fit[-1] if fit else cat[0])
+
+
+def remote_size_bytes(key_or_entry: Any, timeout: float = 30.0) -> int:
+    """Best-effort TRUE download size via an HTTP HEAD (Content-Length), routed
+    through netguard. Returns 0 if unknown/offline. Lets callers display the real
+    size instead of the catalog's static `size_gb` estimate (which goes stale
+    when a repo re-quantizes or a URL is repointed → the 'wrong size displayed'
+    symptom)."""
+    entry = key_or_entry if isinstance(key_or_entry, dict) else get_entry(key_or_entry)
+    if not entry:
+        return 0
+    url = str(entry.get("url") or "").strip()
+    if not url:
+        return 0
+    try:
+        with netguard.allow_network(f"size check: {entry.get('filename') or url}"):
+            req = urllib.request.Request(
+                url, method="HEAD",
+                headers={"User-Agent": "ELI-MKXI/2.0 (size-check)"},
+            )
+            with netguard.guarded_urlopen(req, timeout=timeout) as resp:
+                clen = resp.headers.get("Content-Length")
+                if clen and str(clen).isdigit():
+                    return int(clen)
+    except Exception:
+        return 0
+    return 0
+
+
+def _size_result_fields(final_path: Path, entry: Dict[str, Any]) -> Dict[str, Any]:
+    """Real on-disk size + whether it diverges materially from the catalog
+    estimate (a >25% gap means the displayed `~size_gb` was wrong)."""
+    try:
+        actual_gb = final_path.stat().st_size / 1e9
+    except Exception:
+        return {}
+    est_gb = float(entry.get("size_gb") or 0)
+    mismatch = bool(est_gb and abs(actual_gb - est_gb) / est_gb > 0.25)
+    return {
+        "size_gb_actual": round(actual_gb, 2),      # decimal GB (mismatch math)
+        "size_gib_actual": round(_as_gib(actual_gb), 2),   # binary GiB (display)
+        "size_gb_estimate": est_gb,
+        "size_mismatch": mismatch,
+    }
 
 
 # --------------------------------------------------------------------------- #
@@ -283,7 +356,8 @@ def download_model(
     final_path = dest_dir / filename
     if is_valid_gguf(final_path):
         return {"ok": True, "path": str(final_path), "already_present": True,
-                "name": entry.get("name"), "key": entry.get("key")}
+                "name": entry.get("name"), "key": entry.get("key"),
+                **_size_result_fields(final_path, entry)}
 
     part_path = dest_dir / (filename + ".part")
     resume_from = part_path.stat().st_size if part_path.exists() else 0
@@ -353,7 +427,8 @@ def download_model(
         return {"ok": False, "error": f"Could not finalise download: {e}", "part": str(part_path)}
 
     return {"ok": True, "path": str(final_path), "already_present": False,
-            "name": entry.get("name"), "key": entry.get("key")}
+            "name": entry.get("name"), "key": entry.get("key"),
+            **_size_result_fields(final_path, entry)}
 
 
 # --------------------------------------------------------------------------- #
@@ -364,7 +439,7 @@ def _fmt_catalog() -> str:
     for e in list_catalog():
         tag = "  [default]" if e.get("default") else ""
         lines.append(
-            f"  {e['key']:<14} {e['name']:<34} ~{e.get('size_gb','?')}GB"
+            f"  {e['key']:<14} {e['name']:<34} {_fmt_size_gib(e.get('size_gb'))}"
             f"  (VRAM {e.get('vram_gb',0)}GB+){tag}"
         )
         if e.get("note"):
@@ -373,19 +448,18 @@ def _fmt_catalog() -> str:
     lines.append("Support models (embedder is required + auto-installed; vision is optional):")
     for e in list_aux():
         tag = "  [required]" if e.get("required") else "  [optional]"
-        lines.append(f"  {e['key']:<14} {e['name']:<34} ~{e.get('size_gb','?')}GB{tag}")
+        lines.append(f"  {e['key']:<14} {e['name']:<34} {_fmt_size_gib(e.get('size_gb'))}{tag}")
         if e.get("note"):
             lines.append(f"      {e['note']}")
     return "\n".join(lines)
 
 
 def _cli_progress(done: int, total: int) -> None:
-    mb = done / (1024 * 1024)
     if total:
         pct = 100.0 * done / total
-        sys.stdout.write(f"\r  ↓ {mb:8.1f} MB / {total/(1024*1024):.1f} MB  ({pct:5.1f}%)")
+        sys.stdout.write(f"\r  ↓ {done/_GIB:6.2f} GiB / {total/_GIB:.2f} GiB  ({pct:5.1f}%)")
     else:
-        sys.stdout.write(f"\r  ↓ {mb:8.1f} MB")
+        sys.stdout.write(f"\r  ↓ {done/_GIB:6.2f} GiB")
     sys.stdout.flush()
 
 
@@ -393,11 +467,16 @@ def _download_one(entry: Dict[str, Any]) -> bool:
     """Download a single catalog entry with a progress bar. Returns ok."""
     sub = str(entry.get("subdir", "") or "")
     where = models_dir() / sub if sub else models_dir()
-    print(f"\nDownloading {entry['name']}  (~{entry.get('size_gb','?')}GB) → {where}")
+    print(f"\nDownloading {entry['name']}  ({_fmt_size_gib(entry.get('size_gb'))}) → {where}")
     res = download_model(entry, progress_cb=_cli_progress)
     sys.stdout.write("\n")
     if res.get("ok"):
-        print(f"  ✅ {'Already present' if res.get('already_present') else 'Downloaded'}: {res['path']}")
+        _act = res.get("size_gib_actual")
+        _sz = f" ({_act:.2f} GiB)" if _act else ""
+        print(f"  ✅ {'Already present' if res.get('already_present') else 'Downloaded'}: {res['path']}{_sz}")
+        if res.get("size_mismatch") and _act:
+            print(f"  ⚠  actual size {_act:.2f} GiB differs from the catalog estimate "
+                  f"({_fmt_size_gib(res.get('size_gb_estimate'))}) — listing was off; update the catalog.")
         return True
     print(f"  ❌ {res.get('error')}")
     if res.get("resumable"):
@@ -413,7 +492,7 @@ def interactive_select() -> int:
     print("\nChoose which model(s) to download — you can pick several.\n")
     for i, e in enumerate(cat, 1):
         tag = "  [recommended default]" if e.get("default") else ""
-        print(f"  {i:>2}. {e['key']:<16} {e['name']:<34} ~{e.get('size_gb','?')}GB "
+        print(f"  {i:>2}. {e['key']:<16} {e['name']:<34} {_fmt_size_gib(e.get('size_gb'))} "
               f"(VRAM {e.get('vram_gb',0)}GB+){tag}")
         if e.get("note"):
             print(f"      {e['note']}")

@@ -48,13 +48,23 @@ def _retain_days() -> int:
 # ── Path helpers ──────────────────────────────────────────────
 
 def _conversations_dir() -> Optional[Path]:
+    # Single source of truth for the conversation-log directory so writers and
+    # readers (e.g. learning/dataset_builder) never diverge across install
+    # layouts. Falls back to the artifacts_dir computation if the helper is
+    # unavailable (both resolve to data_dir()/conversations).
     try:
-        from eli.core.paths import get_paths
-        d = Path(get_paths().artifacts_dir) / "conversations"
+        from eli.core.paths import conversations_dir
+        d = conversations_dir()
         d.mkdir(parents=True, exist_ok=True)
         return d
     except Exception:
-        return None
+        try:
+            from eli.core.paths import get_paths
+            d = Path(get_paths().artifacts_dir) / "conversations"
+            d.mkdir(parents=True, exist_ok=True)
+            return d
+        except Exception:
+            return None
 
 
 def _archive_dir() -> Optional[Path]:
