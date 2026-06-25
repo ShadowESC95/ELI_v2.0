@@ -158,7 +158,8 @@ def bootstrap_once(verbose: bool = False) -> None:
     try:
         init_all_data(verbose=verbose)
     except Exception:  # pragma: no cover - boot must never fail on this
-        pass
+        import logging
+        logging.getLogger("eli.init_data").debug("bootstrap_once failed", exc_info=True)
 
 
 def main() -> int:

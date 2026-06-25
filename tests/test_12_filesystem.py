@@ -99,7 +99,10 @@ def test_plugin_registry_index_valid_json():
 
 
 def test_user_sqlite_exists():
-    path = os.path.join(ELI_ROOT, "artifacts", "user.sqlite3")
+    # Canonical user DB is <project_root>/artifacts/db/user.sqlite3 (see
+    # eli.core.paths.user_db_path / habits_memory_db._eli_canonical_user_db_path,
+    # which EXPLICITLY deprecates the legacy eli/artifacts/user.sqlite3 location).
+    path = os.path.join(PROJECT_ROOT, "artifacts", "db", "user.sqlite3")
     assert os.path.isfile(path), f"user.sqlite3 not found at {path}"
 
 
