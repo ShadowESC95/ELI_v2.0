@@ -30,6 +30,15 @@ def main() -> int:
             print("Error: --trust-agent requires a file path argument", file=sys.stderr)
             return 1
 
+    # ── First-run/boot DB + machine-inventory bootstrap (idempotent) ─────────
+    # Ensures the full schema exists and the app index is populated even when ELI
+    # was not launched via install.sh (copied tree / portable bundle / bare run).
+    try:
+        from eli.core.init_data import bootstrap_once
+        bootstrap_once()
+    except Exception:
+        pass
+
     # ── Headless REPL ────────────────────────────────────────────────────────
     if "--headless" in args or "-H" in args:
         from eli.cli.headless import run_headless

@@ -94,7 +94,9 @@ class SystemIndex:
     
     def scan_executables(self):
         """Scan all directories in $PATH for executables."""
-        paths = os.environ.get("PATH", "").split(":")
+        # os.pathsep so the split is correct on every OS (":" on Linux/macOS,
+        # ";" on Windows) — a hard-coded ":" left Windows installs unindexed.
+        paths = os.environ.get("PATH", "").split(os.pathsep)
         for p in paths:
             if not os.path.isdir(p):
                 continue
@@ -110,8 +112,38 @@ class SystemIndex:
                 continue
         self.conn.commit()
     
+    def _xdg_user_dirs(self) -> Dict[str, str]:
+        """Linux: resolve localized user directories from ~/.config/user-dirs.dirs
+        (XDG). Returns {canonical_key: real_path}. Empty on non-Linux or when the
+        file is absent — so the English defaults stand on macOS/Windows."""
+        mapping: Dict[str, str] = {}
+        cfg = Path.home() / ".config" / "user-dirs.dirs"
+        if not cfg.is_file():
+            return mapping
+        key_map = {
+            "XDG_DESKTOP_DIR": "desktop", "XDG_DOWNLOAD_DIR": "downloads",
+            "XDG_DOCUMENTS_DIR": "documents", "XDG_MUSIC_DIR": "music",
+            "XDG_PICTURES_DIR": "pictures", "XDG_VIDEOS_DIR": "videos",
+            "XDG_PUBLICSHARE_DIR": "public", "XDG_TEMPLATES_DIR": "templates",
+        }
+        try:
+            for line in cfg.read_text(encoding="utf-8", errors="ignore").splitlines():
+                line = line.strip()
+                if line.startswith("#") or "=" not in line:
+                    continue
+                k, _, v = line.partition("=")
+                k = k.strip()
+                if k not in key_map:
+                    continue
+                v = v.strip().strip('"').replace("$HOME", str(Path.home()))
+                if v:
+                    mapping[key_map[k]] = v
+        except Exception:
+            pass
+        return mapping
+
     def scan_user_dirs(self):
-        """Add common user directories."""
+        """Add common user directories (localized where the OS exposes it)."""
         dirs = {
             "home": str(Path.home()),
             "desktop": str(Path.home() / "Desktop"),
@@ -123,6 +155,12 @@ class SystemIndex:
             "public": str(Path.home() / "Public"),
             "templates": str(Path.home() / "Templates"),
         }
+        # Overlay localized XDG paths on Linux so non-English folder names
+        # ("Téléchargements", "Bilder", …) resolve under the canonical key.
+        try:
+            dirs.update(self._xdg_user_dirs())
+        except Exception:
+            pass
         for name, path in dirs.items():
             if os.path.exists(path):
                 self.conn.execute("""

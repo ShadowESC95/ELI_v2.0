@@ -71,9 +71,26 @@ def init_all_data(verbose: bool = False) -> List[Tuple[str, bool, str]]:
     _step("user.knowledge_graph", _kg)
 
     # 4) system_index.sqlite3 — desktop apps / executables / recent files / dirs.
+    #    Unlike the personal stores, this one is POPULATED on a fresh install:
+    #    it indexes the machine's own software inventory (installed apps, $PATH
+    #    executables, standard user directories) so "open <app>" / path lookups
+    #    work out of the box — that is regenerable ENVIRONMENT data, not personal
+    #    memory/profile/history, so it's consistent with the blank-slate promise.
+    #    Scanned only when empty: idempotent, avoids re-scanning on every call,
+    #    and self-heals an existing install whose index was left schema-only.
     def _sysindex():
         from eli.memory.system_index import SystemIndex
-        SystemIndex()
+        idx = SystemIndex()  # ensures schema
+        try:
+            _n = int(idx.conn.execute("SELECT COUNT(*) FROM executables").fetchone()[0] or 0)
+        except Exception:
+            _n = -1
+        if _n == 0:
+            try:
+                idx.refresh()
+                return "desktop_apps, executables, recent_files, user_dirs (scanned)"
+            except Exception as _e:
+                return f"schema ready; inventory scan deferred ({type(_e).__name__})"
         return "desktop_apps, executables, recent_files, user_dirs"
     _step("system_index", _sysindex)
 
@@ -121,6 +138,27 @@ def init_all_data(verbose: bool = False) -> List[Tuple[str, bool, str]]:
             mark = "OK " if ok else "ERR"
             print(f"  [{mark}] {name:24s} {detail}")
     return results
+
+
+_BOOTSTRAPPED = False
+
+
+def bootstrap_once(verbose: bool = False) -> None:
+    """Idempotent, run-at-most-once-per-process initialiser for the app entry
+    points. The installer calls ``init_data`` directly, but a launch that did NOT
+    go through ``install.sh`` (a copied tree, the prebuilt portable bundle, or a
+    bare ``eli`` console-script run) would otherwise never build the full schema
+    or populate the machine inventory. Calling this at boot makes "complete and
+    runnable on first launch" true regardless of how ELI was started, and
+    self-heals an install whose index was left schema-only. Never raises."""
+    global _BOOTSTRAPPED
+    if _BOOTSTRAPPED:
+        return
+    _BOOTSTRAPPED = True
+    try:
+        init_all_data(verbose=verbose)
+    except Exception:  # pragma: no cover - boot must never fail on this
+        pass
 
 
 def main() -> int:
