@@ -22,7 +22,16 @@ from typing import Any, Iterable, Optional
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 USER_DB = PROJECT_ROOT / "artifacts" / "db" / "user.sqlite3"
 AGENT_DB = PROJECT_ROOT / "artifacts" / "db" / "agent.sqlite3"
-CONV_DIR = PROJECT_ROOT / "artifacts" / "conversations"
+# Read conversation logs from the SAME directory the runtime writes them to.
+# The writers (log_rotation / executor convlog) use paths.conversations_dir()
+# (= data_dir()/conversations); hardcoding PROJECT_ROOT/artifacts/conversations
+# here diverged on any redistributed install where data_dir() is a per-user
+# directory rather than the project tree — the builder then saw an empty folder.
+try:
+    from eli.core.paths import conversations_dir as _conversations_dir
+    CONV_DIR = _conversations_dir()
+except Exception:
+    CONV_DIR = PROJECT_ROOT / "artifacts" / "conversations"
 
 DEFAULT_OUT = PROJECT_ROOT / "training" / "datasets" / "eli_supervised_v0.jsonl"
 DEFAULT_REPORT = PROJECT_ROOT / "training" / "datasets" / "eli_supervised_v0.report.json"

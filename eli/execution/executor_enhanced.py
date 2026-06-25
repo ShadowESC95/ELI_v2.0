@@ -2679,11 +2679,17 @@ def _yt_mix_url(watch_url: str | None) -> str | None:
 
 
 def _open_in_browser(url: str) -> None:
-    """Open a URL in the default browser via xdg-open."""
-    import subprocess as _sp2
-    if shutil.which("xdg-open"):
-        _sp2.Popen(["xdg-open", url], stdout=_sp2.DEVNULL, stderr=_sp2.DEVNULL,
-                   start_new_session=True)
+    """Open a URL in the default browser, cross-platform (xdg-open on Linux,
+    `open` on macOS, the default handler on Windows) via platform_compat —
+    raw xdg-open silently no-ops off Linux."""
+    try:
+        from eli.utils.platform_compat import open_url as _open_url
+        _open_url(url)
+    except Exception:
+        import subprocess as _sp2
+        if shutil.which("xdg-open"):
+            _sp2.Popen(["xdg-open", url], stdout=_sp2.DEVNULL, stderr=_sp2.DEVNULL,
+                       start_new_session=True)
 
 
 def _spotify_open_uri(uri: str) -> bool:
@@ -5100,10 +5106,13 @@ def _execute_impl(action: str, args: Optional[Dict[str, Any]] = None) -> Dict[st
                     msg = f"Could not open folder: {raw_target}"
                     return {"ok": False, "action": a, "error": "path_not_found", "content": msg, "response": msg}
 
-            probe = _open_app_with_timeout(["xdg-open", resolved])
-            if probe.get("ok") or probe.get("spawned"):
+            # Cross-platform folder open: xdg-open (Linux) / open (macOS) /
+            # os.startfile (Windows) via platform_compat — raw xdg-open was
+            # Linux-only and silently failed elsewhere.
+            from eli.utils.platform_compat import open_file as _open_file
+            if _open_file(resolved):
                 msg = f"Opened folder: {resolved}"
-                return {"ok": True, "action": a, "content": msg, "response": msg, "probe": probe}
+                return {"ok": True, "action": a, "content": msg, "response": msg}
 
             return {
                 "ok": False,
@@ -5220,9 +5229,9 @@ def _execute_impl(action: str, args: Optional[Dict[str, Any]] = None) -> Dict[st
             }
             _web_url = _WEB_APPS.get(name.lower())
             if _web_url:
-                import subprocess as _wsp
-                _wsp.Popen(["xdg-open", _web_url], stdout=_wsp.DEVNULL,
-                           stderr=_wsp.DEVNULL, start_new_session=True)
+                # Cross-platform default-browser open (was raw xdg-open → Linux-only).
+                from eli.utils.platform_compat import open_url as _open_url
+                _open_url(_web_url)
                 msg = f"Opening {name} in browser."
                 return {"ok": True, "action": a, "content": msg, "response": msg}
 
@@ -6927,6 +6936,13 @@ def _execute_impl(action: str, args: Optional[Dict[str, Any]] = None) -> Dict[st
             if not p.exists():
                 return {"ok": False, "action": a, "error": f"Path not found: {p}", "content": f"Path not found: {p}", "response": f"Path not found: {p}"}
             if not p.is_dir():
+                # A FILE (not a dir) was handed to LIST_DIR — almost always a
+                # mis-route of "read/show <file>" (e.g. a conversation .json or a
+                # generated .docx). Redirect to READ_FILE rather than returning an
+                # error: erroring here surfaced a "Not a directory" failure that
+                # the proactive daemon then replayed as a recurring error forever.
+                if p.is_file():
+                    return _execute_impl("READ_FILE", {"path": str(p)})
                 return {"ok": False, "action": a, "error": f"Not a directory: {p}", "content": f"Not a directory: {p}", "response": f"Not a directory: {p}"}
 
             items = sorted([
@@ -7879,8 +7895,8 @@ def _execute_impl(action: str, args: Optional[Dict[str, Any]] = None) -> Dict[st
             _saved_path = _save_artifact(_doc_content, "documents",
                                          f"{_stem}_{_task_slug}", fmt="docx")
             try:
-                _sp.Popen(["xdg-open", _saved_path], stdout=_sp.DEVNULL, stderr=_sp.DEVNULL)
-                _opened = True
+                from eli.utils.platform_compat import open_file as _open_file
+                _opened = bool(_open_file(_saved_path))
             except Exception:
                 _opened = False
 
@@ -9684,8 +9700,8 @@ def _execute_impl(action: str, args: Optional[Dict[str, Any]] = None) -> Dict[st
             )
             _sf_saved = _save_artifact(_sf_doc_content, "documents", f"{_sf_stem}_summary", fmt="docx")
             try:
-                _sfsp.Popen(["xdg-open", _sf_saved], stdout=_sfsp.DEVNULL, stderr=_sfsp.DEVNULL)
-                _sf_opened = True
+                from eli.utils.platform_compat import open_file as _open_file
+                _sf_opened = bool(_open_file(_sf_saved))
             except Exception:
                 _sf_opened = False
             _sf_chat = (
@@ -10375,7 +10391,8 @@ def _execute_impl(action: str, args: Optional[Dict[str, Any]] = None) -> Dict[st
                 content = f"# {title}\n\n*Document generated by ELI.*\n"
             _DPath(filename).write_text(content, encoding="utf-8")
             try:
-                _dsp.Popen(["xdg-open", filename])
+                from eli.utils.platform_compat import open_file as _open_file
+                _open_file(filename)
             except Exception:
                 pass
             msg = f"Document saved to `{filename}` and opened."

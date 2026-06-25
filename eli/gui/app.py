@@ -304,6 +304,16 @@ def _save_config(cfg: dict):
 # ── Main ─────────────────────────────────────────────────────────────────────
 
 def main():
+    # ── First-run/boot DB + machine-inventory bootstrap (idempotent) ─────────
+    # The `eli`/`eli-gui` console scripts enter here directly (bypassing
+    # eli.__main__), so ensure the full schema + app index exist even when ELI
+    # was not launched via install.sh. Process-once guarded; never fatal.
+    try:
+        from eli.core.init_data import bootstrap_once
+        bootstrap_once()
+    except Exception:
+        pass
+
     # ── Load config first — determines whether setup UI is needed ────────────
     cfg         = _load_config()
     saved_model = cfg.get("model_path") or cfg.get("bundled_model_path") or ""

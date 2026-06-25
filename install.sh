@@ -184,7 +184,11 @@ if [ "$ASSUME_YES" -eq 0 ]; then
     if [ "$NO_MODEL" -eq 0 ] && [ -z "$FETCH_MODEL" ]; then
         _m=""; read -r -p "  Choose model(s) to download now? [${B}Y${R}/n]  " _m || true
         # --choose opens a multi-select menu (pick any number, or 'auto'/'all'/'none').
-        case "${_m:-Y}" in [Nn]*) NO_MODEL=1 ;; *) FETCH_MODEL="--choose" ;; esac
+        # Declining here skips only the (large) CHAT model — it must NOT set
+        # NO_MODEL, or the tiny REQUIRED embedder (nomic, ~85 MB; memory/RAG can't
+        # work without it) is skipped too. NO_MODEL stays reserved for the explicit
+        # `--no-model` CLI flag (a deliberate fully-offline install).
+        case "${_m:-Y}" in [Nn]*) FETCH_MODEL="" ;; *) FETCH_MODEL="--choose" ;; esac
     fi
 fi
 
