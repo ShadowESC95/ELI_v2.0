@@ -139,7 +139,8 @@ class SystemIndex:
                 if v:
                     mapping[key_map[k]] = v
         except Exception:
-            pass
+            import logging
+            logging.getLogger(__name__).debug("XDG user-dirs parse failed", exc_info=True)
         return mapping
 
     def scan_user_dirs(self):
@@ -160,7 +161,8 @@ class SystemIndex:
         try:
             dirs.update(self._xdg_user_dirs())
         except Exception:
-            pass
+            import logging
+            logging.getLogger(__name__).debug("XDG dir overlay failed", exc_info=True)
         for name, path in dirs.items():
             if os.path.exists(path):
                 self.conn.execute("""
