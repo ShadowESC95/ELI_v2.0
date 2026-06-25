@@ -208,6 +208,19 @@ def run_reset(keep_profile: bool = False, keep_conversations: bool = False,
             p.unlink()
         except Exception:
             pass
+    # Drop the in-memory FAISS singleton so the wipe takes effect IMMEDIATELY,
+    # without relying on a restart. Otherwise the live VectorStore keeps serving
+    # the deleted vectors and its next autosave re-writes the stale index back to
+    # disk — silently undoing the FAISS half of the wipe (orphan vectors pointing
+    # at deleted memories). The next get_vector_store() rebuilds from the (now
+    # empty) index/DB.
+    try:
+        from eli.memory.vector_store import reset_vector_store
+        reset_vector_store()
+        summary["vector_store_reset"] = True
+    except Exception as e:
+        summary["vector_store_reset"] = False
+        summary["errors"].append(f"vector_store_reset: {e}")
     summary["name_fields_blanked"] = sum(scrub_json_names(p) for p in t["name_caches"])
     summary["settings_name_cleared"] = any(clear_settings_name(p) for p in t["settings"])
     summary["faiss_reset"] = len(t["faiss"])
