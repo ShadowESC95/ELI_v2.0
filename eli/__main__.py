@@ -37,7 +37,8 @@ def main() -> int:
         from eli.core.init_data import bootstrap_once
         bootstrap_once()
     except Exception:
-        pass
+        import logging
+        logging.getLogger("eli.boot").debug("boot bootstrap skipped", exc_info=True)
 
     # ── Headless REPL ────────────────────────────────────────────────────────
     if "--headless" in args or "-H" in args:

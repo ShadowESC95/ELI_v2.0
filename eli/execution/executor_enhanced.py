@@ -10394,7 +10394,8 @@ def _execute_impl(action: str, args: Optional[Dict[str, Any]] = None) -> Dict[st
                 from eli.utils.platform_compat import open_file as _open_file
                 _open_file(filename)
             except Exception:
-                pass
+                import logging
+                logging.getLogger(__name__).debug("open saved document failed", exc_info=True)
             msg = f"Document saved to `{filename}` and opened."
             return {"ok": True, "action": a, "content": msg, "response": msg, "filepath": filename}
         except Exception as _dge:

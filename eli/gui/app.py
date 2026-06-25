@@ -312,7 +312,8 @@ def main():
         from eli.core.init_data import bootstrap_once
         bootstrap_once()
     except Exception:
-        pass
+        import logging
+        logging.getLogger("eli.boot").debug("GUI boot bootstrap skipped", exc_info=True)
 
     # ── Load config first — determines whether setup UI is needed ────────────
     cfg         = _load_config()
