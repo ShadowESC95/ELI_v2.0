@@ -244,9 +244,20 @@ class ProactiveDaemon:
                 })
 
         # ── Pattern 2: Meaningful topic focus (top 5 non-trivial words) ────
+        # Count words from GENUINE USER text only. ELI's own auto-generated
+        # insight/reflection/news memories carry meta vocabulary ("Conversation
+        # volume: 51 user messages", "Top topics: …", "Recent issues: …") which
+        # otherwise feeds straight back as the user's "focus areas" — a
+        # self-reinforcing loop (observed: volume/messages/topics/recent/
+        # conversation dominating ×100+). User conversation turns have empty
+        # tags, so skipping auto-tagged rows keeps real topics and drops the echo.
+        _AUTO_TAG_MARKERS = ("auto", "insight", "reflection", "proactive", "news", "briefing")
         word_counts: Dict[str, int] = {}
-        for _, text, _ in rows:
+        for _ts, text, _tags in rows:
             if not text:
+                continue
+            _tg = str(_tags or "").lower()
+            if any(_k in _tg for _k in _AUTO_TAG_MARKERS):
                 continue
             for w in str(text).lower().split():
                 w = w.strip('.,!?;:\'"()[]{}')
@@ -294,11 +305,21 @@ class ProactiveDaemon:
         try:
             con = sqlite3.connect(str(self.db_path))
             cur = con.cursor()
+            # Only surface CURRENT recurring errors. Without a recency window an
+            # old open failure (e.g. a one-off LIST_DIR misroute days ago) was
+            # replayed as "recurring" on every tick forever — polluting pattern
+            # detection and re-raising repair_pressure. Window to the last 48h
+            # using whichever timestamp the row carries.
+            _recent_cutoff = time.time() - float(
+                os.environ.get("ELI_RECURRING_ERROR_WINDOW_S", str(48 * 3600))
+            )
             cur.execute(
                 "SELECT error, occurrence_count FROM failures "
                 "WHERE occurrence_count >= 2 "
                 "AND COALESCE(status, 'open') NOT IN ('resolved', 'closed') "
-                "ORDER BY timestamp DESC LIMIT 10"
+                "AND COALESCE(last_seen, timestamp, ts, 0) >= ? "
+                "ORDER BY COALESCE(last_seen, timestamp, ts, 0) DESC LIMIT 10",
+                (_recent_cutoff,),
             )
             _added = 0
             for err, cnt in (cur.fetchall() or []):

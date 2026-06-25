@@ -85,30 +85,57 @@ def clear_pending_proposal() -> None:
 # command phrase (first concrete option) or "" if the text contains no offer.
 import re as _re
 
-_OFFER_RE = _re.compile(
-    r"\b(?:want me to|shall i|should i|would you like me to|do you want me to|"
-    r"i can|i could|i'?ll|happy to)\s+(.+?)(?:\?|,| or |$)",
+# STRONG offers are inherently a question the user can affirm ("want me to …",
+# "shall I …"). The captured action phrase STOPS at the first clause/sentence
+# boundary so a declarative tail can never run into it (the old regex stopped
+# only at ? , or-end, so "I'll backup my state. You have to deal with …" was
+# swallowed whole and stored as a fake action).
+_STRONG_OFFER_RE = _re.compile(
+    r"\b(?:want me to|shall i|should i|would you like me to|do you want me to)\s+"
+    r"(.+?)(?:[.?!]|,| or |$)",
     _re.I,
 )
+
+# WEAK declarative stems ("I can …", "I'll …") are only a real OFFER when the
+# clause is phrased as a question (ends with ?). Otherwise "I can appreciate the
+# absurdity of existence" / "I'll be waiting here" are narrative, not actions —
+# capturing them let a later "yes" trigger a bogus command (no-fake-actions
+# violation). Requiring the trailing ? keeps genuine "I can run that for you?"
+# offers while dropping declaratives.
+_WEAK_OFFER_RE = _re.compile(
+    r"\b(?:i can|i could|i'?ll|i'd be happy to|happy to)\s+(.+?)\?",
+    _re.I,
+)
+
+# A real queued action phrase is short and imperative — a runaway multi-clause
+# capture is prose, not an offer.
+_MAX_PROPOSAL_WORDS = 12
 
 # Phrases that are conversational, not real actions worth queuing.
 _NON_ACTION = _re.compile(
     r"^(help|assist|explain|tell you|let you know|clarify|answer|continue|"
-    r"keep going|elaborate|go on|see|check back|be here)\b",
+    r"keep going|elaborate|go on|see|check back|be here|appreciate|understand|"
+    r"remember|think|know|be honest|admit|note)\b",
     _re.I,
 )
 
 
 def extract_proposal(response_text: str) -> str:
-    """Pull the first concrete actionable offer out of an ELI reply, if any."""
+    """Pull the first concrete actionable offer out of an ELI reply, if any.
+
+    Only genuine offers the user can affirm are returned: question-form "want me
+    to …" / "shall I …", or a declarative "I can/I'll …" clause that is itself a
+    question. Declarative narrative is never treated as a queued action."""
     text = (response_text or "").strip()
     if not text:
         return ""
-    m = _OFFER_RE.search(text)
+    m = _STRONG_OFFER_RE.search(text) or _WEAK_OFFER_RE.search(text)
     if not m:
         return ""
     phrase = " ".join(m.group(1).split()).strip(" .,;:")
     if not phrase or len(phrase) < 3:
+        return ""
+    if len(phrase.split()) > _MAX_PROPOSAL_WORDS:
         return ""
     if _NON_ACTION.match(phrase):
         return ""
