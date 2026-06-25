@@ -3509,6 +3509,26 @@ class CognitiveEngine:
         # tuned ceiling; the real ctx comes from the live runtime snapshot above.
         return 4096
 
+    def _runtime_n_ctx(self) -> int:
+        """Authoritative live context window for prompt-fit / budget guards.
+
+        Single source of truth so the guards track whatever the dynamic loader
+        actually selected — NEVER a hard-coded default. Order:
+          1. gguf_inference.current_context_limit() — the loaded model's usable
+             ceiling, min(loaded n_ctx, trained window); 0 when no model is loaded
+             or when the model loaded via the broker (no module-level _llm).
+          2. _effective_n_ctx() — live runtime params → runtime_snapshot.json →
+             conservative pre-load last resort.
+        """
+        try:
+            if gguf_inference is not None and hasattr(gguf_inference, "current_context_limit"):
+                _c = int(gguf_inference.current_context_limit() or 0)
+                if _c > 0:
+                    return _c
+        except Exception:
+            pass
+        return int(self._effective_n_ctx())
+
     def _compact_persona(self) -> str:
         persona = _load_persona_text().strip()
         # Carry the full persona voice into compact/quick mode too. The earlier
@@ -4326,12 +4346,12 @@ Answer:"""
         since_date = self._extract_since_date(query)
         # Budget-aware fetch_limit cap — prevents context overflow on deep
         # modes
+        # Use the live loaded ctx (dynamic loader's actual choice), never a
+        # hard-coded default — the configured n_ctx is often stale.
         try:
-            _ctx_for_cap = int(
-    (runtime_settings.load_settings() or {}).get(
-        'n_ctx', 16384))
+            _ctx_for_cap = self._runtime_n_ctx()
         except Exception:
-            _ctx_for_cap = 16384
+            _ctx_for_cap = int(self._effective_n_ctx())
         _reserved_out = reserved_tokens if reserved_tokens > 0 else 512
         _prompt_oh = 1500  # persona + system rules + query overhead (tokens)
         _ctx_for_turns = max(500, _ctx_for_cap - _reserved_out - _prompt_oh)
@@ -4656,11 +4676,12 @@ Answer:"""
                 log.debug(f"[MEMORY] Runtime fact block failed: {e}")
 
         full_context = "\n\n".join(context_parts)
+        # Live loaded ctx (dynamic loader's actual choice), never a hard-coded
+        # default — the configured n_ctx is often stale.
         try:
-            settings = runtime_settings.load_settings()
-            n_ctx = int((settings or {}).get("n_ctx", 4096))
+            n_ctx = self._runtime_n_ctx()
         except Exception:
-            n_ctx = 4096
+            n_ctx = int(self._effective_n_ctx())
         gen = self._generation_settings()
         _reserved = reserved_tokens if reserved_tokens > 0 else int(
             gen.get("max_tokens", 512))
@@ -5483,7 +5504,7 @@ Answer:"""
                 # Rule: persona (~2k chars) + user_input + max_tokens must fit
                 # in n_ctx with room to spare. Memory context gets the budget
                 # that remains after persona + query.
-                _n_ctx_guard = int(getattr(self, '_n_ctx', gen.get('n_ctx', 16384)))
+                _n_ctx_guard = self._runtime_n_ctx()
                 _max_tok_guard = int(gen.get('max_tokens', 512))
                 _persona_chars = len(_load_persona_text())
                 _query_chars = len(prompt or '')
@@ -5524,8 +5545,9 @@ Answer:"""
                     # CRITICAL: use the LIVE loaded model's n_ctx, not the
                     # configured value. Mistral may have fallen back to 1024
                     # ctx if VRAM was tight; the configured 4096 is a lie.
-                    # Start from gen (settings-derived) as last-resort fallback.
-                    _n_ctx_pf1 = int(gen.get("n_ctx", 16384))
+                    # Start from the live loaded ctx (authoritative), not a
+                    # hard-coded default; the override chain below confirms it.
+                    _n_ctx_pf1 = self._runtime_n_ctx()
                     # Override with the LIVE loaded value.  Priority chain:
                     #   1. _live_runtime_params["n_ctx"] — set by gguf_inference
                     #      after a successful load; always correct.
@@ -5628,7 +5650,7 @@ Answer:"""
                     )
                 else:
                     log.debug("[COGNITIVE] Using direct GGUF path (broker unavailable)")
-                    _n_ctx_pf2 = int(gen.get("n_ctx", 16384))
+                    _n_ctx_pf2 = self._runtime_n_ctx()
                     _pt_pf2 = max(1, (len(enhanced_system) + len(prompt)) // 3)
                     _avail_pf2 = max(128, _n_ctx_pf2 - _pt_pf2 - 64)
                     _req_pf2 = int(gen["max_tokens"])
@@ -5723,7 +5745,7 @@ Answer:"""
                 except Exception:
                     _n_ctx = 0
                 if _n_ctx <= 0:
-                    _n_ctx = int(getattr(self, '_n_ctx', gen.get('n_ctx', 16384)))
+                    _n_ctx = self._runtime_n_ctx()
                 _max_tok_s = int(gen.get('max_tokens', 512))
                 _persona_chars_s = len(_load_persona_text())
                 _query_chars_s = len(prompt or '')

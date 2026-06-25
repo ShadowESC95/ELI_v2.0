@@ -2874,6 +2874,20 @@ def route(text: str) -> Dict[str, Any]:
         raw, re.I)
     if m_bare:
         path = _expand_common_dir(m_bare.group(1).strip())
+        # "read/show <file>" is a FILE op, not a directory listing. When the
+        # captured token is a file (has an extension, or exists as a file),
+        # route to READ_FILE — otherwise a conversation .json / .docx path was
+        # handed to LIST_DIR, which errors "Not a directory" and (historically)
+        # got replayed as a recurring failure. Bare dirs still go to LIST_DIR.
+        try:
+            _pb = Path(path).expanduser()
+            _looks_file = (bool(_pb.suffix) and not path.rstrip().endswith(("/", "\\"))) \
+                or (_pb.exists() and _pb.is_file())
+        except Exception:
+            _looks_file = False
+        if _looks_file:
+            return _mk("READ_FILE", {"path": path}, 0.93,
+                       matched_by="fs.read_file_bare_path", entities={"path": path})
         return _mk("LIST_DIR", {"path": path}, 0.93,
                    matched_by="fs.list_bare_path", entities={"path": path})
 
