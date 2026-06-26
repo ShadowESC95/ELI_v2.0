@@ -1,6 +1,6 @@
 <div align="center">
 
-# ELI MKXI v2.0 PRO
+# ELI MKXI v2.0
 
 **A strictly local, private AI assistant and cognitive runtime.**
 
@@ -260,8 +260,8 @@ the boundary with a single network toggle.
 build → offers to download a model sized to your hardware:
 
 ```bash
-git clone https://github.com/ShadowESC95/ELI_MKXI_v2.0_PRO.git
-cd ELI_MKXI_v2.0_PRO
+git clone https://github.com/ShadowESC95/ELI_MKXI_v2.0.git
+cd ELI_MKXI_v2.0
 bash install.sh                 # interactive: report → plan → install → pick model(s)
 ./scripts/eli_launch.sh         # launch the desktop app (first run shows a quick setup)
 ```
@@ -458,7 +458,7 @@ Questions, feedback, or interested in a license/services beyond the terms above?
 
 - **Email:** [jaybridgeman0095@gmail.com](mailto:jaybridgeman0095@gmail.com)
 - **GitHub:** [@ShadowESC95](https://github.com/ShadowESC95) ·
-  [open an issue](https://github.com/ShadowESC95/ELI_MKXI_v2.0_PRO/issues)
+  [open an issue](https://github.com/ShadowESC95/ELI_MKXI_v2.0/issues)
 
 For commercial licensing, redistribution rights, or hosting beyond the
 [license](LICENSE), please reach out by email.
