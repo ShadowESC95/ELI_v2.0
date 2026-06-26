@@ -3854,9 +3854,21 @@ def route(text: str) -> Dict[str, Any]:
 
     # ── Coverage patch: additional patterns before fallback ──
 
-    # Power: shutdown / restart / reboot
-    if re.search(
-            r"\b(shutdown|shut\s+down|power\s+off|poweroff|restart|reboot)\b", low):
+    # Power: shutdown / restart / reboot — ONLY as an actual command. The bare words
+    # "restart"/"reboot" occur in ordinary conversation ("feeling better after a
+    # restart?", "the server needs a restart"), so a bare keyword match here opened
+    # gnome power settings on a greeting (user-reported). Require an imperative frame:
+    # the power verb LEADS the message (optionally behind please/can-you), OR it takes
+    # the machine as its explicit object — and never fire on a how-to/state question.
+    _power_cmd = (
+        re.match(r"^\s*(?:please\s+|can\s+you\s+|could\s+you\s+|pls\s+)?"
+                 r"(?:shut\s*down|power\s*off|poweroff|restart|reboot)\b", low)
+        or re.search(r"\b(?:shut\s*down|power\s*off|poweroff|restart|reboot)\s+"
+                     r"(?:the\s+|my\s+|this\s+)?"
+                     r"(?:computer|system|pc|machine|laptop|device|server|box)\b", low)
+    )
+    _power_question = re.match(r"^\s*(?:how|what|why|when|where|do i|should i|is it|does)\b", low)
+    if _power_cmd and not _power_question:
         return _mk("OPEN_POWER_SETTINGS", {}, 0.95, matched_by="system.power")
 
     # System settings (bare)

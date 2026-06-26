@@ -41,9 +41,12 @@ def test_tight_vram_preserves_ctx_by_shedding_layers():
     # "ctx last, quality over speed": when VRAM is tight but the KV cache still fits
     # CPU-only, ctx is PRESERVED and the GPU layers are shed instead (trade speed,
     # keep context — the fraction is the user's speed↔context dial).
-    ctx, layers, batch = _fit(2600)
+    # (free=2700 is the demonstration point under the 128 batch floor — batch never
+    # drops below 128, so a touch more VRAM is needed to hold full ctx at 0 layers.)
+    ctx, layers, batch = _fit(2700)
     assert ctx == USER_CTX, "ctx preserved by shedding GPU layers before crushing ctx"
     assert layers == 0, "tight VRAM sheds to CPU-only to keep ctx"
+    assert batch >= 128, "batch floor (128) is honoured even at the tightest GPU offload"
 
 
 def test_very_tight_vram_finally_reduces_ctx():
