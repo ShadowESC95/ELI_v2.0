@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# ELI MKXI — Linux / macOS installer
+# ELI v2.0 — Linux / macOS installer
 # Usage: bash install.sh [--cpu-only] [--skip-torch]
 set -euo pipefail
 
@@ -257,7 +257,7 @@ if [ "$SKIP_TORCH" -eq 0 ] && [ "$CPU_ONLY" -eq 0 ] && [ "$OS" != "Darwin" ]; th
     fi
 fi
 
-# Install ELI MKXI wheel
+# Install ELI v2.0 wheel
 echo "[..] Installing ELI v2.0..."
 WHEEL=$(ls "$SCRIPT_DIR"/dist/eli_mkxi-*.whl 2>/dev/null | head -1)
 if [ -n "$WHEEL" ]; then
