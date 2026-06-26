@@ -7816,7 +7816,7 @@ Answer:"""
                 r"how(?:'?s| is) (?:the|your) head|feeling better|you feeling|"
                 r"after (?:a|the|your|that) (?:restart|reboot)|"
                 r"did you (?:sleep|crash|rest)|how (?:do|are) you (?:feel|feeling|running|doing|holding up)|"
-                r"are you (?:ok|okay|alright|running|overheating|still (?:there|alive))|"
+                r"(?:are |r )?(?:you|u) (?:ok|okay|alright)\b|are you (?:running|overheating|still (?:there|alive))|"
                 r"(?:your|check your|the) (?:cpu|gpu|temp|temperature|vram|ram|memory|uptime|status|health)|"
                 r"(?:memory |any )?leaks?\b|"
                 r"overheat|thermal|how long have you been (?:up|running))\b",
