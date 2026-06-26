@@ -108,7 +108,18 @@ _WEB_UI = """<!doctype html>
   .gauge { width:84px; height:84px; border-radius:50%; margin:0 auto; display:grid; place-items:center; background:conic-gradient(var(--teal) calc(var(--p)*1%), #2a2d35 0); }
   .gauge i { width:64px; height:64px; border-radius:50%; background:var(--card); display:grid; place-items:center; font-size:16px; font-weight:600; font-style:normal; }
   .err { color:#f87171; font-size:13px; padding:10px; } .muted { color:var(--mut); font-size:13px; text-align:center; padding:30px; }
-  a.link { color:var(--teal); cursor:pointer; }
+  a.link, .link { color:var(--teal); cursor:pointer; }
+  input[type=range] { width:100%; accent-color:var(--teal); margin-top:4px; }
+  .media { display:flex; gap:6px; justify-content:center; }
+  .media button { background:#15171c; border:1px solid var(--line); color:#e6e6e6; border-radius:8px; padding:6px 9px; font-size:15px; cursor:pointer; }
+  .clim { display:flex; align-items:center; justify-content:space-between; }
+  .clim button { width:32px; height:32px; border-radius:8px; border:1px solid var(--line); background:#15171c; color:#e6e6e6; font-size:18px; cursor:pointer; }
+  .bar { height:8px; border-radius:6px; background:#2a2d35; overflow:hidden; margin-top:4px; }
+  .bar i { display:block; height:100%; background:var(--teal); }
+  .syscard { background:var(--card); border:1px solid var(--line); border-radius:16px; padding:16px; }
+  .syscard h4 { margin:0 0 12px; font-size:12px; color:var(--teal); text-transform:uppercase; letter-spacing:.5px; }
+  .kv { display:flex; justify-content:space-between; font-size:13px; margin:6px 0; color:#cdd2da; }
+  .glabel { text-align:center; font-size:11px; color:var(--mut); margin-top:4px; }
 </style></head><body>
   <header>
     <b>ELI</b><small>local &middot; private</small>
@@ -116,6 +127,7 @@ _WEB_UI = """<!doctype html>
       <button data-tab="chat" class="active">Chat</button>
       <button data-tab="commands">Commands</button>
       <button data-tab="home">Home</button>
+      <button data-tab="system">System</button>
     </nav>
   </header>
   <section class="view active" id="view-chat">
@@ -129,6 +141,7 @@ _WEB_UI = """<!doctype html>
     </div>
   </section>
   <section class="view" id="view-home"><div id="home"><div class="muted">Loading…</div></div></section>
+  <section class="view" id="view-system"><div id="system"><div class="muted">Loading…</div></div></section>
 <script>
   const $ = s => document.querySelector(s);
   let uid=localStorage.getItem('eli_uid');
@@ -149,6 +162,7 @@ _WEB_UI = """<!doctype html>
     $('#view-'+b.dataset.tab).classList.add('active');
     if(b.dataset.tab==='commands' && !cmdsLoaded) loadCommands();
     if(b.dataset.tab==='home') loadHome();
+    if(b.dataset.tab==='system') loadSystem();
   });
 
   /* chat */
@@ -186,7 +200,6 @@ _WEB_UI = """<!doctype html>
   }
 
   /* home */
-  const TOGGLE_DOMAINS=['light','switch','fan','input_boolean'];
   function loadHome(){
     api('/v1/smarthome/config').then(cfg=>{
       if(!cfg.configured){renderHomeConfig(cfg.hass_url||'');return;}
@@ -207,31 +220,76 @@ _WEB_UI = """<!doctype html>
     $('#home').innerHTML='<div class="muted">Saving…</div>';
     api('/v1/smarthome/config',{method:'POST',body:JSON.stringify({hass_url:url,hass_token:tok})})
       .then(()=>loadHome()).catch(e=>{$('#home').innerHTML='<div class="err">'+esc(''+e)+'</div>';});}
+  function deviceCard(dv){
+    const dom=dv.domain||(dv.entity_id.split('.')[0]||''), a=dv.attrs||{};
+    const card=document.createElement('div');card.className='card';
+    const head='<div><div class="nm">'+esc(dv.name)+'</div><div class="dom">'+esc(dom)+'</div></div>';
+    const on=(''+dv.state).toLowerCase()==='on';
+    if(dom==='light'){
+      let h=head+'<div class="row"><span class="st">'+(on?'On':'Off')+'</span><label class="sw"><input type="checkbox" '+(on?'checked':'')+'><span></span></label></div>';
+      if(on && a.brightness_pct!=null) h+='<input type="range" min="1" max="100" value="'+a.brightness_pct+'">';
+      card.innerHTML=h;
+      const tg=card.querySelector('.sw input');tg.onchange=()=>control(dv.entity_id,tg.checked?'on':'off');
+      const sl=card.querySelector('input[type=range]');
+      if(sl){let t;sl.oninput=()=>{clearTimeout(t);t=setTimeout(()=>control(dv.entity_id,'on',+sl.value),250);};}
+    } else if(dom==='switch'||dom==='fan'||dom==='input_boolean'){
+      card.innerHTML=head+'<div class="row"><span class="st">'+(on?'On':'Off')+'</span><label class="sw"><input type="checkbox" '+(on?'checked':'')+'><span></span></label></div>';
+      const tg=card.querySelector('.sw input');tg.onchange=()=>control(dv.entity_id,tg.checked?'on':'off');
+    } else if(dom==='media_player'){
+      const title=a.media_title?(esc(a.media_title)+(a.media_artist?' — '+esc(a.media_artist):'')):esc(''+dv.state);
+      card.innerHTML=head+'<div class="st">'+title+'</div><div class="media"><button data-c="previous">⏮</button><button data-c="play_pause">⏯</button><button data-c="next">⏭</button><button data-c="stop">⏹</button></div>';
+      card.querySelectorAll('.media button').forEach(b=>b.onclick=()=>media(dv.entity_id,b.dataset.c));
+    } else if(dom==='climate'){
+      const cur=a.current_temperature, mn=(a.min_temp!=null?+a.min_temp:7), mx=(a.max_temp!=null?+a.max_temp:35);
+      let target=(a.temperature!=null?+a.temperature:20);
+      card.innerHTML=head+'<div class="st">'+(cur!=null?cur+'° now':esc(''+dv.state))+'</div>'+
+        '<div class="clim"><button data-d="-1">−</button><span class="st sp">'+(a.temperature!=null?target+'°':'—')+'</span><button data-d="1">+</button></div>';
+      const sp=card.querySelector('.sp');
+      card.querySelectorAll('.clim button').forEach(b=>b.onclick=()=>{target=Math.max(mn,Math.min(mx,target+(+b.dataset.d)));sp.textContent=target+'°';climate(dv.entity_id,target);});
+    } else {
+      const num=parseFloat(dv.state), isNum=!isNaN(num)&&isFinite(num), unit=a.unit_of_measurement||'';
+      if(isNum && (unit==='%'||(!unit && num>=0 && num<=100))){
+        card.innerHTML='<div class="nm">'+esc(dv.name)+'</div><div class="gauge" style="--p:'+num+'"><i>'+Math.round(num)+'</i></div>';
+      } else {
+        card.innerHTML=head+'<div class="row"><span class="st">'+esc(''+dv.state)+(unit?' '+esc(unit):'')+'</span></div>';
+      }
+    }
+    return card;
+  }
   function renderDevices(devs){
     if(!devs.length){$('#home').innerHTML='<div class="muted">No devices found.</div>'+cfgLink();return;}
     const grid=document.createElement('div');grid.className='grid';
-    devs.forEach(dv=>{
-      const dom=(dv.entity_id.split('.')[0]||''),num=parseFloat(dv.state),isNum=!isNaN(num)&&isFinite(num);
-      const card=document.createElement('div');card.className='card';
-      if(TOGGLE_DOMAINS.includes(dom)){
-        const on=(''+dv.state).toLowerCase()==='on';
-        card.innerHTML='<div><div class="nm">'+esc(dv.name)+'</div><div class="dom">'+esc(dom)+'</div></div>'+
-          '<div class="row"><span class="st">'+(on?'On':'Off')+'</span>'+
-          '<label class="sw"><input type="checkbox" '+(on?'checked':'')+'><span></span></label></div>';
-        const inp=card.querySelector('input');inp.onchange=()=>control(dv.entity_id,inp.checked?'on':'off');
-      } else if(isNum && num>=0 && num<=100){
-        card.innerHTML='<div class="nm">'+esc(dv.name)+'</div><div class="gauge" style="--p:'+num+'"><i>'+Math.round(num)+'</i></div>';
-      } else {
-        card.innerHTML='<div><div class="nm">'+esc(dv.name)+'</div><div class="dom">'+esc(dom)+'</div></div>'+
-          '<div class="row"><span class="st">'+esc(''+dv.state)+'</span></div>';
-      }
-      grid.appendChild(card);});
+    devs.forEach(dv=>grid.appendChild(deviceCard(dv)));
     const h=$('#home');h.innerHTML='';h.appendChild(grid);
     const foot=document.createElement('div');foot.innerHTML=cfgLink();h.appendChild(foot);
   }
-  function control(entity,cmd){api('/v1/smarthome/control',{method:'POST',body:JSON.stringify({entity_id:entity,command:cmd})}).then(()=>setTimeout(loadHome,400));}
+  function control(entity,cmd,bri){const b={entity_id:entity,command:cmd};if(bri!=null)b.brightness=bri;
+    api('/v1/smarthome/control',{method:'POST',body:JSON.stringify(b)}).then(()=>{if(bri==null)setTimeout(loadHome,400);});}
+  function media(entity,cmd){api('/v1/smarthome/media',{method:'POST',body:JSON.stringify({entity_id:entity,command:cmd})}).then(()=>setTimeout(loadHome,600));}
+  function climate(entity,temp){api('/v1/smarthome/climate',{method:'POST',body:JSON.stringify({entity_id:entity,temperature:temp})});}
   function editHome(){renderHomeConfig('');}
-  window.renderHomeConfig=renderHomeConfig; window.saveHome=saveHome; window.control=control; window.editHome=editHome;
+
+  /* system */
+  function sgauge(v,label){return '<div><div class="gauge" style="--p:'+(v||0)+'"><i>'+Math.round(v||0)+'</i></div><div class="glabel">'+esc(label)+'</div></div>';}
+  function loadSystem(){
+    api('/v1/system').then(d=>{ if(!d.ok){$('#system').innerHTML='<div class="err">'+esc(d.error||'unavailable')+'</div>';return;} renderSystem(d.status||{}); })
+      .catch(e=>{$('#system').innerHTML='<div class="err">'+esc(''+e)+'</div>';});
+  }
+  function renderSystem(s){
+    const g=s.gpu,c=s.cpu,r=s.ram,m=s.model||{}; let h='<div class="grid">';
+    if(g){const vp=g.vram_total_mb?Math.round(g.vram_used_mb/g.vram_total_mb*100):0;
+      h+='<div class="syscard"><h4>GPU</h4><div class="nm" style="margin-bottom:10px">'+esc(g.name||'')+'</div>'+
+        '<div class="row" style="gap:14px">'+sgauge(g.temp_c,'°C')+sgauge(g.util_pct,'% util')+'</div>'+
+        '<div class="kv">VRAM<span>'+g.vram_used_mb+' / '+g.vram_total_mb+' MB</span></div><div class="bar"><i style="width:'+vp+'%"></i></div></div>';}
+    if(c){h+='<div class="syscard"><h4>CPU</h4><div class="row" style="gap:14px">'+sgauge(c.usage_pct,'% load')+(c.temp_c!=null?sgauge(c.temp_c,'°C'):'')+'</div>'+
+        '<div class="kv">Cores<span>'+(c.cores||'?')+'</span></div></div>';}
+    if(r){h+='<div class="syscard"><h4>Memory</h4><div class="kv">RAM<span>'+r.used_mb+' / '+r.total_mb+' MB</span></div><div class="bar"><i style="width:'+(r.pct||0)+'%"></i></div></div>';}
+    h+='<div class="syscard"><h4>Model</h4><div class="nm">'+esc(m.name||'—')+'</div>'+
+       '<div class="kv">ctx<span>'+(m.n_ctx||'?')+'</span></div><div class="kv">gpu layers<span>'+(m.n_gpu_layers||'?')+'</span></div>'+
+       '<div class="kv">uptime<span>'+esc(s.uptime||'?')+'</span></div></div>';
+    $('#system').innerHTML=h+'</div>';
+  }
+  window.renderHomeConfig=renderHomeConfig; window.saveHome=saveHome; window.control=control; window.media=media; window.climate=climate; window.editHome=editHome;
 </script></body></html>"""
 
 # ----------------------------------------------------------------------
@@ -274,7 +332,15 @@ class SmartHomeConfig(BaseModel):
 class SmartHomeControl(BaseModel):
     entity_id: str
     command: str  # "on" | "off"
-    brightness: Optional[int] = None
+    brightness: Optional[int] = None  # 0-100 (%)
+
+class MediaControl(BaseModel):
+    entity_id: str
+    command: str  # play | pause | play_pause | next | previous | stop
+
+class ClimateControl(BaseModel):
+    entity_id: str
+    temperature: float
 
 # ----------------------------------------------------------------------
 # API Endpoints
@@ -429,13 +495,43 @@ async def smarthome_devices():
 
 @app.post("/v1/smarthome/control", tags=["Smart Home"], dependencies=[Depends(_require_token)])
 async def smarthome_control(req: SmartHomeControl):
-    """Turn an entity on/off (optionally set brightness on lights)."""
+    """Turn an entity on/off (optionally set brightness % on lights)."""
     sh = _smart_home()
     args = {"entity_id": req.entity_id}
     if req.brightness is not None:
-        args["brightness"] = int(req.brightness)
+        args["brightness_pct"] = int(req.brightness)
     res = sh.turn_on(args) if (req.command or "").lower() == "on" else sh.turn_off(args)
     return {"ok": bool(res.get("ok")), "message": res.get("response") or res.get("content")}
+
+@app.post("/v1/smarthome/media", tags=["Smart Home"], dependencies=[Depends(_require_token)])
+async def smarthome_media(req: MediaControl):
+    """Transport control for a media_player (play/pause/next/previous/stop)."""
+    res = _smart_home().media_control({"entity_id": req.entity_id, "command": req.command})
+    return {"ok": bool(res.get("ok")), "message": res.get("response") or res.get("content")}
+
+@app.post("/v1/smarthome/climate", tags=["Smart Home"], dependencies=[Depends(_require_token)])
+async def smarthome_climate(req: ClimateControl):
+    """Set a climate entity's target temperature."""
+    res = _smart_home().set_temperature({"entity_id": req.entity_id, "temperature": req.temperature})
+    return {"ok": bool(res.get("ok")), "message": res.get("response") or res.get("content")}
+
+# ----------------------------------------------------------------------
+# System telemetry  (powers the "System" tab — real, measured, never guessed)
+# ----------------------------------------------------------------------
+@app.get("/v1/system", tags=["System"], dependencies=[Depends(_require_token)])
+async def system_status():
+    """Live, MEASURED self-status — GPU temp/util/VRAM, CPU load/temp, RAM, the
+    loaded model and uptime. Same grounded source ELI uses so it never confabulates
+    hardware numbers. Read-only."""
+    try:
+        from eli.runtime.self_status import get_self_status
+        st = get_self_status()
+        m = st.get("model")
+        if isinstance(m, dict) and m.get("model_path"):
+            m["name"] = os.path.basename(str(m["model_path"]))
+        return {"ok": True, "status": st}
+    except Exception as e:
+        return {"ok": False, "error": str(e), "status": {}}
 
 # ----------------------------------------------------------------------
 # Run the server
