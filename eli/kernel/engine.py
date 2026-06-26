@@ -7803,6 +7803,34 @@ Answer:"""
         except Exception:
             pass
 
+        # ── Real self-status (anti-confabulation) ────────────────────────────
+        # When the user asks how ELI is doing / running / "how was your sleep",
+        # the persona used to fabricate telemetry ("thermal throttling stayed at
+        # 43°C", "overnight diagnostics ran clean") — ELI has no thermal sensor.
+        # Inject the REAL, measured GPU temp/util/VRAM + uptime + loaded model so
+        # it cites truth (or says it doesn't track something), never invents it.
+        try:
+            _self_physical = bool(re.search(
+                r"\b(how (?:are|r) (?:you|u)|how(?:'?s| is) it going|how was your (?:sleep|night|day)|"
+                r"how(?:'?s| is) (?:the|your) head|feeling better|you feeling|"
+                r"after (?:a|the|your|that) (?:restart|reboot)|"
+                r"did you (?:sleep|crash|rest)|how (?:do|are) you (?:feel|feeling|running|doing|holding up)|"
+                r"are you (?:ok|okay|alright|running|overheating|still (?:there|alive))|"
+                r"your (?:temp|temperature|gpu|vram|uptime|status|health|memory usage)|"
+                r"overheat|thermal|how long have you been (?:up|running))\b",
+                _ui_low))
+            if _self_physical:
+                from eli.runtime.self_status import render_self_status_block as _rss
+                _ss = _rss()
+                if _ss.strip():
+                    _extra_blocks.append(
+                        "[LIVE SELF-STATUS — REAL, MEASURED RIGHT NOW. If you mention your "
+                        "physical/runtime state, use THESE exact figures. You have NO other "
+                        "sensors: never invent a temperature, 'thermal throttling', or 'overnight "
+                        "diagnostics' — if a value isn't listed here, say you don't track it]\n" + _ss)
+        except Exception:
+            log.debug("live self-status injection skipped", exc_info=True)
+
         # ── User profile facts injection ─────────────────────────────────────
         # Surface the user's stored projects / research / preferences into the
         # chat brief so ELI actually RECALLS them in normal conversation — not
@@ -8980,11 +9008,27 @@ Answer:"""
             _mqs_raw = str(user_input or "").strip()
             _mqs_q_count = _mqs_raw.count("?")
             _mqs_total_words = len(_mqs_raw.split())
+            # Conversational / relational turns are ONE turn, not a list of
+            # independent questions — splitting them atomises the context and
+            # re-routes each fragment in isolation (e.g. "you keep saying 43
+            # degrees, have you checked it recently?" → GET_WEATHER). Second-
+            # person commentary about ELI ("you are…", "why are you…", "you
+            # keep…", "have you actually…") and first-person banter are the
+            # tell. The persona handles a multi-point conversational turn fine
+            # in a single reply, so skip the splitter for these.
+            _mqs_low = _mqs_raw.lower()
+            _CONVERSATIONAL_MARKERS = (
+                "you are ", "you're ", "you keep ", "you said ", "you were ",
+                "you've ", "you have been", "why are you", "why did you",
+                "why do you", "have you actually", "have you really",
+                "i am grand", "i don't need", "i dont need",
+            )
+            _mqs_conversational = any(m in _mqs_low for m in _CONVERSATIONAL_MARKERS)
             # Only split compound questions when the message is long enough to
             # contain multiple genuine standalone questions. Short messages
             # (≤25 words) are conversational — splitting loses context and
             # produces canned per-fragment responses.
-            if _mqs_q_count > 1 and _mqs_total_words > 25:
+            if _mqs_q_count > 1 and _mqs_total_words > 25 and not _mqs_conversational:
                 # Split on '?' — each segment must be a standalone question
                 # (≥6 words); fragments like 'good "what"?' are not sub-questions.
                 _mqs_parts = _mqs_raw.split("?")

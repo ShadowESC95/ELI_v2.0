@@ -957,10 +957,12 @@ class LocalModelManager:
                             f"~{_sf_brief_floor}: persona/memory will be truncated and output quality "
                             f"will suffer. Choose a model with >= {_sf_brief_floor} context "
                             f"(e.g. Qwen3-8B = 40960).")
+                    _sf_min_batch = int(_sf_os.environ.get("ELI_MIN_BATCH", "128") or "128")
                     _sf_ctx, _sf_layers, _sf_batch = _sf_fit(
                         _sf_model_gb, _sf_gpu.free_mb,
-                        user_ctx=_sf_user_ctx, user_batch=_user_batch,
+                        user_ctx=_sf_user_ctx, user_batch=max(_user_batch, _sf_min_batch),
                         reserve_mb=_sf_reserve, kv_quantized=_sf_kvq,
+                        min_batch=_sf_min_batch,
                     )
                     log.debug(
                         f"[GUI][LOAD] smart-fit (post-init free={_sf_gpu.free_mb}MB "
@@ -8713,12 +8715,29 @@ _register()
                 raise FileNotFoundError(f"Model not found: {model_file}")
             size_bytes = int(model_file.stat().st_size)
             hw = _hp_detect()
+            # The user's EXPLICITLY chosen ctx must anchor the recommendation, not be
+            # overwritten by the DEFAULT_N_CTX target. Source of truth (highest first):
+            # the startup dialog's "Direct context window" field (ELI_FORCE_CTX), else
+            # the live ctx spinbox (persisted from settings.json n_ctx). recommend()
+            # honours it and only trims it on a real VRAM constraint (logged).
+            import os as _os_ctx
+            _forced_ctx = (_os_ctx.environ.get("ELI_FORCE_CTX") or "").strip()
+            try:
+                _spin_ctx = int(self.n_ctx_input.value())
+            except Exception:
+                _spin_ctx = 0
+            if _forced_ctx.isdigit() and int(_forced_ctx) >= 2048:
+                _user_pinned_ctx = int(_forced_ctx)
+            elif _spin_ctx >= 2048:
+                _user_pinned_ctx = _spin_ctx
+            else:
+                _user_pinned_ctx = None
             rec = _hp_recommend(hw, [{
                 "name": model_file.name,
                 "path": str(model_file),
                 "size_bytes": size_bytes,
                 "size_gb": size_bytes / 1e9,
-            }])
+            }], user_ctx=_user_pinned_ctx)
 
             # Runtime CUDA/backend may be unavailable even if VRAM probe reports
             # a GPU. In that case force CPU-safe values so the GUI does not keep
@@ -8771,10 +8790,17 @@ _register()
             # Apply the calculated profile to the live spinboxes so load_model()
             # reads the model-specific values as its primary (attempt 1) load.
             # setValue() clamps to each spinbox's range automatically.
+            # CANONICAL ctx = the user's chosen value (preserved), NOT the possibly
+            # VRAM-reduced rec.n_ctx — writing the reduced effective back would strand
+            # the user at a lower ctx next boot. The load path's smart-fit reduces to
+            # fit (and logs) at load time; the effective value lives in hw_profile_*.
+            _canonical_ctx = int(_user_pinned_ctx) if _user_pinned_ctx else int(rec.n_ctx)
+            _min_batch = int(_os_ctx.environ.get("ELI_MIN_BATCH", "128") or "128")
+            _apply_batch = max(int(rec.batch_size), _min_batch)
             try:
-                self.n_ctx_input.setValue(int(rec.n_ctx))
+                self.n_ctx_input.setValue(_canonical_ctx)
                 self.n_gpu_layers_input.setValue(int(rec.n_gpu_layers))
-                self.batch_size_input.setValue(int(rec.batch_size))
+                self.batch_size_input.setValue(_apply_batch)
                 if int(rec.n_threads) > 0:
                     self.n_threads_input.setValue(int(rec.n_threads))
             except Exception as _spin_err:
@@ -8786,12 +8812,12 @@ _register()
             try:
                 from eli.core.runtime_settings import load_settings as _rs_load, save_settings as _rs_save
                 _s = dict(_rs_load() or {})
-                _s["n_ctx"] = int(rec.n_ctx)
+                _s["n_ctx"] = _canonical_ctx        # user's chosen ctx, preserved
                 _s["n_gpu_layers"] = int(rec.n_gpu_layers)
-                _s["batch_size"] = int(rec.batch_size)
+                _s["batch_size"] = _apply_batch
                 if int(rec.n_threads) > 0:
                     _s["n_threads"] = int(rec.n_threads)
-                _s["hw_profile_n_ctx"] = int(rec.n_ctx)
+                _s["hw_profile_n_ctx"] = int(rec.n_ctx)   # effective (VRAM-reduced) value
                 _s["hw_profile_n_gpu_layers"] = int(rec.n_gpu_layers)
                 _s["hw_profile_batch_size"] = int(rec.batch_size)
                 _s["cache_type_k"] = _ck
