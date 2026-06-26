@@ -59,6 +59,49 @@ def _gpu() -> Optional[dict[str, Any]]:
         return None
 
 
+def _cpu() -> dict[str, Any]:
+    """Real CPU load / temperature / core count via psutil. {} if unavailable."""
+    out: dict[str, Any] = {}
+    try:
+        import psutil
+        out["usage_pct"] = int(round(psutil.cpu_percent(interval=0.1)))
+        cores = psutil.cpu_count(logical=True)
+        if cores:
+            out["cores"] = int(cores)
+        temps = getattr(psutil, "sensors_temperatures", lambda: {})() or {}
+        for key in ("coretemp", "k10temp", "cpu_thermal", "acpitz"):
+            arr = temps.get(key)
+            if not arr:
+                continue
+            pick = None
+            for e in arr:
+                lbl = (getattr(e, "label", "") or "").lower()
+                if "package" in lbl or "tctl" in lbl or "tdie" in lbl:
+                    pick = e
+                    break
+            pick = pick or arr[0]
+            cur = getattr(pick, "current", None)
+            if cur:
+                out["temp_c"] = int(round(cur))
+                break
+    except Exception:
+        log.debug("cpu status unavailable", exc_info=True)
+    return out
+
+
+def _ram() -> dict[str, Any]:
+    """Real system RAM usage via psutil. {} if unavailable."""
+    try:
+        import psutil
+        vm = psutil.virtual_memory()
+        return {"used_mb": int(vm.used // 1048576),
+                "total_mb": int(vm.total // 1048576),
+                "pct": int(vm.percent)}
+    except Exception:
+        log.debug("ram status unavailable", exc_info=True)
+        return {}
+
+
 def _uptime_str() -> str:
     s = max(0, int(time.time() - _PROC_START))
     h, rem = divmod(s, 3600)
@@ -89,6 +132,12 @@ def get_self_status() -> dict[str, Any]:
     g = _gpu()
     if g:
         st["gpu"] = g
+    c = _cpu()
+    if c:
+        st["cpu"] = c
+    r = _ram()
+    if r:
+        st["ram"] = r
     m = _model()
     if m:
         st["model"] = m
@@ -105,6 +154,20 @@ def render_self_status_block() -> str:
             f"  GPU: {g['name']} — {g['temp_c']}°C, {g['util_pct']}% util, "
             f"{g['vram_used_mb']}/{g['vram_total_mb']} MB VRAM"
         )
+    c = st.get("cpu")
+    if isinstance(c, dict) and c:
+        bits = []
+        if "usage_pct" in c:
+            bits.append(f"{c['usage_pct']}% load")
+        if "temp_c" in c:
+            bits.append(f"{c['temp_c']}°C")
+        if "cores" in c:
+            bits.append(f"{c['cores']} cores")
+        if bits:
+            lines.append("  CPU: " + ", ".join(bits))
+    r = st.get("ram")
+    if isinstance(r, dict) and r:
+        lines.append(f"  RAM: {r['used_mb']}/{r['total_mb']} MB ({r.get('pct', '?')}%)")
     m = st.get("model")
     if isinstance(m, dict) and m:
         name = Path(str(m.get("model_path", ""))).name or "unknown"
