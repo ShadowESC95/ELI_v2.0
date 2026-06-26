@@ -10103,8 +10103,27 @@ def _execute_impl(action: str, args: Optional[Dict[str, Any]] = None) -> Dict[st
             count = psutil.cpu_count()
             freq = psutil.cpu_freq()
             freq_str = f" @ {freq.current:.0f} MHz" if freq else ""
-            msg = f"CPU usage: {pct:.1f}%  ({count} cores{freq_str})"
-            return {"ok": True, "action": a, "percent": pct, "cores": count, "content": msg, "response": msg}
+            # Real CPU temperature (package/Tctl) so "cpu temperature" is grounded,
+            # not confabulated. None when the platform exposes no thermal sensor.
+            _cpu_temp = None
+            try:
+                _temps = getattr(psutil, "sensors_temperatures", lambda: {})() or {}
+                for _k in ("coretemp", "k10temp", "cpu_thermal", "acpitz"):
+                    _arr = _temps.get(_k)
+                    if not _arr:
+                        continue
+                    _pick = next((e for e in _arr if any(
+                        x in (getattr(e, "label", "") or "").lower()
+                        for x in ("package", "tctl", "tdie"))), _arr[0])
+                    if getattr(_pick, "current", None):
+                        _cpu_temp = int(round(_pick.current))
+                        break
+            except Exception:
+                _cpu_temp = None
+            _temp_str = f", {_cpu_temp}°C" if _cpu_temp is not None else ""
+            msg = f"CPU usage: {pct:.1f}%  ({count} cores{freq_str}{_temp_str})"
+            return {"ok": True, "action": a, "percent": pct, "cores": count,
+                    "temperature_c": _cpu_temp, "content": msg, "response": msg}
         except ImportError:
             import subprocess as _sp
             try:
