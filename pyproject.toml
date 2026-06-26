@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "eli-mkxi"
 version = "2.0.0"
-description = "ELI MKXI v2.0 PRO — Local cognitive runtime, assistant GUI, memory, tools, and GGUF inference"
+description = "ELI v2.0 — Local cognitive runtime, assistant GUI, memory, tools, and GGUF inference"
 readme = "README.md"
 requires-python = ">=3.10"
 # Source-available (NOT open-source): use + modify for internal/personal use; no
@@ -131,8 +131,8 @@ training = [
 ]
 
 [project.urls]
-Homepage = "https://github.com/ShadowESC95/ELI_MKXI_v2.0_PRO"
-Repository = "https://github.com/ShadowESC95/ELI_MKXI_v2.0_PRO"
+Homepage = "https://github.com/ShadowESC95/ELI_v2.0"
+Repository = "https://github.com/ShadowESC95/ELI_v2.0"
 
 [project.scripts]
 eli = "eli.gui.app:main"

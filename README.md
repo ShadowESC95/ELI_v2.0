@@ -45,7 +45,7 @@ hardware from a laptop to a multi-GPU workstation.
 ## What is ELI?
 
 ELI is not a chatbot wrapped around a cloud API. It is a complete, self-contained local cognitive
-runtime — ~140,000 lines of Python implementing a 12-stage reasoning pipeline, 14 specialist agents
+runtime — ~140,000 lines of Python implementing a 12-stage reasoning pipeline, 15 specialist agents
 on a DAG orchestrator, layered memory (SQLite + a FAISS vector index + a knowledge graph), local
 voice and vision, and a desktop GUI. It is model-, user-, and hardware-agnostic, and it runs with no
 external service of any kind.
@@ -260,8 +260,8 @@ the boundary with a single network toggle.
 build → offers to download a model sized to your hardware:
 
 ```bash
-git clone https://github.com/ShadowESC95/ELI_MKXI_v2.0.git
-cd ELI_MKXI_v2.0
+git clone https://github.com/ShadowESC95/ELI_v2.0.git
+cd ELI_v2.0
 bash install.sh                 # interactive: report → plan → install → pick model(s)
 ./scripts/eli_launch.sh         # launch the desktop app (first run shows a quick setup)
 ```
@@ -345,7 +345,7 @@ install knows **nothing** about you until you talk to it, and you can delete you
 - `eli/gui` — PySide6 GUI launcher and `EliMainWindow`
 - `eli/cli` — headless REPL (`eli --headless`)
 - `config` — portable default settings · `models` — local GGUF payloads (gitignored)
-- `tests` — pytest suite (6,800+ tests across 160+ files)
+- `tests` — pytest suite (~6,960 tests across 169 files)
 
 **Scaling:** the loader reads each model's real `n_ctx_train` from GGUF metadata and fits
 layers/batch/ctx to the hardware present; VRAM is summed across all GPUs. One path runs a 3B on a
@@ -405,7 +405,8 @@ Defence-in-depth, all local:
 |---|---|
 | Prompt-injection guard | Strips `[INST]`, `<\|im_start\|>system`, jailbreak phrases before the model sees input |
 | SQL identifier validation | Allowlist regex on every f-string SQL identifier — no injection via table/column names |
-| Shell security gate | `RUN_CMD` is **fail-closed**: blocked unless allowlisted; destructive patterns (`rm -rf /`, `mkfs`, fork bombs) denied even then |
+| Shell gate (`RUN_CMD`) — denylist | Destructive patterns (`rm -rf /`, `mkfs`, fork bombs) and dangerous executables (`dd`, `fdisk`, …) are **denylisted**. With Full Control off (the default), shell is additionally fail-closed — nothing runs unless allowlisted via `ELI_ALLOWED_CMDS` |
+| Shell gate — Full Control caveat | The **ELI Full Control** toggle (off by default) **bypasses the shell gate entirely** — every command runs, *including* the destructive denylist. Enable it only when you intend ELI to have full machine access |
 | Custom-agent trust | SHA-256 registry — unregistered/tampered agent files are skipped at load |
 | Offline-by-default | A process-wide network guard fails closed unless a task is explicitly authorised online |
 
@@ -416,7 +417,7 @@ Direction, releases, and what gets merged are decided by the copyright holder. I
 as-is with **no support guarantee**, but bug reports and ideas are genuinely welcome, and it will
 keep moving as long as it stays useful.
 
-- **Found a bug or have an idea?** [Open an issue](https://github.com/ShadowESC95/ELI_MKXI_v2.0_PRO/issues).
+- **Found a bug or have an idea?** [Open an issue](https://github.com/ShadowESC95/ELI_v2.0/issues).
 - **Want to contribute code?** Pull requests are welcome — please read
   **[CONTRIBUTING.md](CONTRIBUTING.md)** first. Because ELI is source-available and singly-stewarded,
   contributions include a short **inbound license grant** so the whole project stays under one
@@ -431,7 +432,7 @@ back here instead of publishing your own copy.
 
 ## License
 
-ELI MKXI is **source-available, not open-source**, under the
+ELI v2.0 is **source-available, not open-source**, under the
 **[PolyForm Internal Use License 1.0.0](LICENSE)** — © 2026 Jason Fitzgibbon Bridgeman.
 
 | You **may** | You **may not** |
@@ -458,7 +459,7 @@ Questions, feedback, or interested in a license/services beyond the terms above?
 
 - **Email:** [jaybridgeman0095@gmail.com](mailto:jaybridgeman0095@gmail.com)
 - **GitHub:** [@ShadowESC95](https://github.com/ShadowESC95) ·
-  [open an issue](https://github.com/ShadowESC95/ELI_MKXI_v2.0/issues)
+  [open an issue](https://github.com/ShadowESC95/ELI_v2.0/issues)
 
 For commercial licensing, redistribution rights, or hosting beyond the
 [license](LICENSE), please reach out by email.

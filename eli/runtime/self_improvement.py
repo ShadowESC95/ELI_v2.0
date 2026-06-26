@@ -736,6 +736,28 @@ class SelfImprovementEngine:
         except ValueError:
             return {"ok": False, "applied": False, "message": f"Refused: {p} is outside project root"}
 
+        # Protected-path guard — the self-improver must NEVER auto-patch the safety
+        # guardrails (or itself): a faulty or adversarial patch to these would disable
+        # the very gates that contain it (network fail-closed, shell denylist, Full
+        # Control, grounding, the patcher). Env-extensible via ELI_PROTECTED_PATCH_PATHS
+        # (comma-separated project-relative posix paths).
+        try:
+            _rel = p.relative_to(PROJECT_ROOT).as_posix()
+        except Exception:
+            _rel = p.as_posix()
+        _protected = {
+            "eli/runtime/security.py",
+            "eli/core/netguard.py",
+            "eli/core/full_control.py",
+            "eli/runtime/approval_engine.py",
+            "eli/runtime/self_improvement.py",
+            "eli/runtime/deterministic_grounding_gate.py",
+        }
+        _protected |= {x.strip() for x in os.environ.get("ELI_PROTECTED_PATCH_PATHS", "").split(",") if x.strip()}
+        if _rel in _protected:
+            return {"ok": False, "applied": False,
+                    "message": f"Refused: {_rel} is a protected safety guardrail and cannot be auto-patched"}
+
         if not p.exists():
             return {"ok": False, "applied": False, "message": f"File not found: {p}"}
         if p.suffix != ".py":
