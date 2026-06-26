@@ -7719,6 +7719,7 @@ Answer:"""
         # Inject the latest context (if fresh < 30 min) so ELI is always aware
         # of active patterns without requiring explicit "proactive status" queries.
         _extra_blocks = []
+        _live_self_status = ""  # real telemetry — emitted ABOVE the cap (never truncated)
         try:
             import time as _inj_time
             from eli.core.paths import get_paths as _inj_paths
@@ -7816,14 +7817,19 @@ Answer:"""
                 r"after (?:a|the|your|that) (?:restart|reboot)|"
                 r"did you (?:sleep|crash|rest)|how (?:do|are) you (?:feel|feeling|running|doing|holding up)|"
                 r"are you (?:ok|okay|alright|running|overheating|still (?:there|alive))|"
-                r"your (?:temp|temperature|gpu|vram|uptime|status|health|memory usage)|"
+                r"(?:your|check your|the) (?:cpu|gpu|temp|temperature|vram|ram|memory|uptime|status|health)|"
+                r"(?:memory |any )?leaks?\b|"
                 r"overheat|thermal|how long have you been (?:up|running))\b",
                 _ui_low))
             if _self_physical:
                 from eli.runtime.self_status import render_self_status_block as _rss
                 _ss = _rss()
                 if _ss.strip():
-                    _extra_blocks.append(
+                    # Stored, NOT appended to _extra_blocks: it must ride ABOVE the
+                    # 8192 handoff cap (which keeps the head and chops the tail), or
+                    # it gets truncated out on long turns and the model falls back to
+                    # fabricating telemetry ("no live telemetry → CPU 41°C, GPU 38°C").
+                    _live_self_status = (
                         "[LIVE SELF-STATUS — REAL, MEASURED RIGHT NOW. If you mention your "
                         "physical/runtime state, use THESE exact figures. You have NO other "
                         "sensors: never invent a temperature, 'thermal throttling', or 'overnight "
@@ -7885,6 +7891,11 @@ Answer:"""
             brief = "\n\n".join(filter(None, [brief] + _extra_blocks))
         # Phase 6: single 8 KB ceiling for the full assembled handoff.
         brief = self._cap_text(brief, 8192, "persona_handoff")
+        # Real self-status rides ABOVE the cap — if the user asked how ELI is doing,
+        # the measured telemetry must never be the thing truncation drops (that's
+        # what made the model fall back to fabricating CPU/GPU temperatures).
+        if _live_self_status:
+            brief = brief + "\n\n" + _live_self_status
         # Safety steering rides above the cap so it is never truncated.
         brief = self._prepend_crisis_steering(brief)
         # Execution grounding rides above the cap too — it must never be dropped,
