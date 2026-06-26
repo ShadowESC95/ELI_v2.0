@@ -36,6 +36,19 @@ def _add(cat: str, action: str, desc: str, *phrases: str) -> None:
     _C[action] = (cat, desc, list(phrases))
 
 
+def catalogue() -> List[dict]:
+    """Structured command catalogue grouped by category — for the web UI / API.
+
+    Built from the same `_C` table that renders the markdown reference, so the
+    on-screen command list can never drift from the documented capability set.
+    """
+    by_cat: "OrderedDict[str, List[dict]]" = OrderedDict()
+    for action, (cat, desc, phrases) in _C.items():
+        by_cat.setdefault(cat, []).append(
+            {"action": action, "description": desc, "phrases": list(phrases)})
+    return [{"category": c, "actions": acts} for c, acts in by_cat.items()]
+
+
 # ── Conversation & persona ──────────────────────────────────────────────────
 _add("Conversation & persona", "CHAT", "Open conversation / fallback; persona-bound reply", "anything not matching a command", "“how are you”", "“tell me a story”")
 _add("Conversation & persona", "EXPLAIN_LAST_RESPONSE", "Explain why ELI gave its previous answer", "“why did you say that”", "“explain your last response”")
