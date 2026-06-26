@@ -159,20 +159,33 @@ class StartupModelSelectionDialog(QDialog):
         self.auto_tune_checkbox.setEnabled(False)
         layout.addWidget(self.auto_tune_checkbox)
 
-        # Direct context-window control. Defaults to ELI's canonical default
-        # (DEFAULT_N_CTX = 16384) so every model loads at 16384 unless the user
-        # changes this here. 0 = auto (fall back to the fraction/VRAM sizing below).
-        # Applied as ELI_FORCE_CTX, the optimizer's highest-priority ctx override.
+        # Direct context-window control. Pre-fills with YOUR last chosen ctx so the
+        # dialog reflects what you actually picked — never a hardcoded number. Source
+        # order (first available wins): ELI_FORCE_CTX env (set in-session) → saved
+        # settings n_ctx (your last choice, persisted) → DEFAULT_N_CTX (true first-run
+        # fallback only, when no choice has ever been made). 0 = auto (fraction/VRAM
+        # sizing). Applied as ELI_FORCE_CTX, the optimizer's highest-priority override.
         try:
             from eli.core.runtime_settings import DEFAULT_N_CTX as _DEFAULT_CTX
         except Exception:
             _DEFAULT_CTX = 16384
+        _saved_ctx = 0
+        try:
+            from eli.core.runtime_settings import load_settings as _rs_load
+            _saved_ctx = int((_rs_load() or {}).get("n_ctx", 0) or 0)
+        except Exception:
+            _saved_ctx = 0
+        _env_ctx = (os.environ.get("ELI_FORCE_CTX") or "").strip()
+        if _env_ctx.isdigit() and int(_env_ctx) >= 2048:
+            _initial_ctx = int(_env_ctx)            # explicit in-session override
+        elif _saved_ctx >= 2048:
+            _initial_ctx = _saved_ctx               # your last chosen value
+        else:
+            _initial_ctx = int(_DEFAULT_CTX)        # first-run fallback only
         self.ctx_window_spin = QSpinBox()
         self.ctx_window_spin.setRange(0, 262144)
         self.ctx_window_spin.setSingleStep(2048)
-        self.ctx_window_spin.setValue(
-            int(os.environ.get("ELI_FORCE_CTX", str(int(_DEFAULT_CTX))) or int(_DEFAULT_CTX))
-        )
+        self.ctx_window_spin.setValue(_initial_ctx)
         form.addRow("Context window (tokens, 0=auto)", self.ctx_window_spin)
 
         self.ctx_fraction_spin = QDoubleSpinBox()
@@ -291,7 +304,12 @@ class StartupModelSelectionDialog(QDialog):
                             }]
                     except Exception:
                         pass
-                _rec  = _hp_recommend(_hw, _rec_models)
+                # Honour the user's "Direct context window" choice (ELI_FORCE_CTX,
+                # just set by _apply_env) so the regenerated profile reflects what
+                # they asked for — not the DEFAULT_N_CTX target.
+                _forced_ctx = (os.environ.get("ELI_FORCE_CTX") or "").strip()
+                _pin_ctx = int(_forced_ctx) if _forced_ctx.isdigit() and int(_forced_ctx) >= 2048 else None
+                _rec  = _hp_recommend(_hw, _rec_models, user_ctx=_pin_ctx)
                 _hp_apply(_rec)
                 log.debug(
                     "[STARTUP_DIALOG][HW_OPT] regenerated profile "
@@ -751,7 +769,9 @@ class FirstBootWizard(QDialog):
             )
             _hw   = _hp_detect()
             _mods = _hp_models()
-            rec   = _hp_recommend(_hw, _mods)
+            _forced_ctx = (os.environ.get("ELI_FORCE_CTX") or "").strip()
+            _pin_ctx = int(_forced_ctx) if _forced_ctx.isdigit() and int(_forced_ctx) >= 2048 else None
+            rec   = _hp_recommend(_hw, _mods, user_ctx=_pin_ctx)
             _hp_apply(rec)
             self._hw_result_label.setText(
                 f"GPU: {_hw.gpu_name}  |  GPU layers: {rec.n_gpu_layers}  "

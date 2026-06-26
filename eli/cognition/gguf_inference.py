@@ -707,9 +707,11 @@ def load_model(force_reload: bool = False):
                 _res = int(os.environ.get("ELI_VRAM_RESERVE_MB", "700") or "700")
                 _kvq = bool(_sf_gpu.total_mb and _sf_gpu.total_mb < 12000)
                 _want = max(2048, (int(int(_sf_tc(str(_mp))) * _frac) // 2048) * 2048)
+                _min_batch = int(os.environ.get("ELI_MIN_BATCH", "128") or "128")
                 _fc, _fl, _fb = _sf_fit(
                     _mgb, _sf_gpu.free_mb, user_ctx=min(int(n_ctx), _want),
-                    user_batch=int(n_batch), reserve_mb=_res, kv_quantized=_kvq,
+                    user_batch=max(int(n_batch), _min_batch), reserve_mb=_res,
+                    kv_quantized=_kvq, min_batch=_min_batch,
                 )
                 log.debug(f"[GGUF] smart-fit (free={_sf_gpu.free_mb}MB reserve={_res} "
                           f"coresident={_co_resident_active}): ctx {n_ctx}->{_fc} "
