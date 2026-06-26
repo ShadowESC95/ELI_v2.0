@@ -452,14 +452,14 @@ class FirstBootWizard(QDialog):
     """3-step setup wizard shown on first boot when no GGUF model is found.
 
     Steps:
-      1. Welcome — explains ELI MKXI and what is needed
+      1. Welcome — explains ELI v2.0 and what is needed
       2. Model    — file browser to locate a GGUF, or switch to Ollama
       3. Hardware — confirm hardware tuning and launch
     """
 
     def __init__(self, parent=None):
         super().__init__(parent)
-        self.setWindowTitle("ELI MKXI — First Boot Setup")
+        self.setWindowTitle("ELI v2.0 — First Boot Setup")
         self.setMinimumWidth(640)
         self.setMinimumHeight(400)
 
@@ -501,11 +501,11 @@ class FirstBootWizard(QDialog):
         w = QWidget()
         v = QVBoxLayout(w)
         v.setContentsMargins(14, 14, 14, 14)
-        title = QLabel("Welcome to ELI MKXI")
+        title = QLabel("Welcome to ELI v2.0")
         title.setStyleSheet("font-size:18px;font-weight:bold;color:#88c0d0;")
         v.addWidget(title)
         body = QLabel(
-            "ELI MKXI is a 100% local AI assistant that runs entirely on your hardware — "
+            "ELI v2.0 is a 100% local AI assistant that runs entirely on your hardware — "
             "no cloud, no subscriptions, no data leaving your machine.\n\n"
             "To get started you need:\n"
             "  • A GGUF language model file  (e.g. Qwen2.5-7B or Mistral-7B Q4)\n"

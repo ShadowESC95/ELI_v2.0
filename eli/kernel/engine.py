@@ -1754,7 +1754,7 @@ def _mw_rs_synthesize(question, mode, evidence) -> dict:
     }.get(str(mode), "Use the normal non-Quick synthesis path. Output only the final answer.")
 
     system = (
-        "You are ELI, the local assistant inside the ELI MKXI project. "
+        "You are ELI, the local assistant inside the ELI v2.0 project. "
         "You are answering from live runtime telemetry evidence. "
         "Do not invent runtime facts. "
         "Do not expose JSON packets, internal report fields, repair reasons, raw candidate metadata, or validation machinery. "
@@ -1997,7 +1997,7 @@ def _mw_mem_runtime_strict_synthesize(question, mode, evidence) -> dict:
     }.get(str(mode), "Use the normal non-Quick synthesis path. Output only the final answer.")
 
     system = (
-        "You are ELI, the local assistant inside the ELI MKXI project. "
+        "You are ELI, the local assistant inside the ELI v2.0 project. "
         "You are answering a question about how your own memory system works internally. "
         "Use ONLY the evidence below; do not invent file paths, table names, or function names. "
         "Do not expose JSON packets, internal report fields, repair reasons, or validation machinery. "
@@ -2148,7 +2148,7 @@ def _mw_recent_memory_processing_synthesize(question, mode, evidence) -> dict:
     }.get(str(mode), "Use the normal non-Quick synthesis path. Output only the final answer.")
 
     system = (
-        "You are ELI, the local assistant inside the ELI MKXI project. "
+        "You are ELI, the local assistant inside the ELI v2.0 project. "
         "You are answering a question about recent durable memory-processing evidence. "
         "Use ONLY the evidence below. Do not invent recent processing, emotional activity, "
         "mathematical work, project work, or hidden background actions unless the evidence states it. "
@@ -2311,7 +2311,7 @@ def _mw_self_report_recent_updates_synthesize(question, mode, evidence) -> dict:
     }.get(str(mode), "Use the normal non-Quick synthesis path. Output only the final answer.")
 
     system = (
-        "You are ELI, the local assistant inside the ELI MKXI project. "
+        "You are ELI, the local assistant inside the ELI v2.0 project. "
         "You are answering a self-report question about what updates, checks, or recent "
         "operational work are actually evidenced. Use ONLY the grounded report below. "
         "Do not invent Git commits, status changes, capability changes, runtime changes, "

@@ -119,7 +119,7 @@ attempt_runtime_tools() {
 }
 
 echo "${B}${CYN}╔══════════════════════════════════════════════╗${R}"
-echo "${B}${CYN}║  ELI MKXI · Installer                         ║${R}"
+echo "${B}${CYN}║  ELI v2.0 · Installer                         ║${R}"
 echo "${B}${CYN}║  ${R}${D}100% local · private · offline-by-default${R}${B}${CYN}    ║${R}"
 echo "${B}${CYN}╚══════════════════════════════════════════════╝${R}"
 
@@ -258,7 +258,7 @@ if [ "$SKIP_TORCH" -eq 0 ] && [ "$CPU_ONLY" -eq 0 ] && [ "$OS" != "Darwin" ]; th
 fi
 
 # Install ELI MKXI wheel
-echo "[..] Installing ELI MKXI..."
+echo "[..] Installing ELI v2.0..."
 WHEEL=$(ls "$SCRIPT_DIR"/dist/eli_mkxi-*.whl 2>/dev/null | head -1)
 if [ -n "$WHEEL" ]; then
     "$PIP" install "$WHEEL"[full] --quiet
@@ -359,11 +359,11 @@ fi
 echo
 if [ "$VERIFY_OK" -eq 1 ]; then
     echo "${B}${GRN}╔══════════════════════════════════════════════╗${R}"
-    echo "${B}${GRN}║  ELI MKXI — installation complete             ║${R}"
+    echo "${B}${GRN}║  ELI v2.0 — installation complete             ║${R}"
     echo "${B}${GRN}╚══════════════════════════════════════════════╝${R}"
 else
     echo "${B}${YEL}╔══════════════════════════════════════════════╗${R}"
-    echo "${B}${YEL}║  ELI MKXI — finished WITH ERRORS (see above)  ║${R}"
+    echo "${B}${YEL}║  ELI v2.0 — finished WITH ERRORS (see above)  ║${R}"
     echo "${B}${YEL}╚══════════════════════════════════════════════╝${R}"
 fi
 

@@ -56,3 +56,4 @@ jobs:
           tests/test_08_hardware.py
           tests/test_smart_fit.py
           tests/test_settings_extended.py
+          tests/test_shell_security_gate.py
