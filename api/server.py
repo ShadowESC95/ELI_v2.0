@@ -4,9 +4,10 @@ Provides REST endpoints for chat and command execution.
 """
 
 from fastapi import FastAPI, HTTPException, Depends, Header
-from fastapi.responses import HTMLResponse
+from fastapi.responses import HTMLResponse, StreamingResponse
 from pydantic import BaseModel
 from typing import Optional
+import json
 import os
 import secrets
 import time
@@ -169,11 +170,27 @@ _WEB_UI = """<!doctype html>
   const log=$('#log'),box=$('#box'),send=$('#send'),f=$('#f');
   let session=null;
   function add(t,who){const d=document.createElement('div');d.className='msg '+who;d.textContent=t;log.appendChild(d);log.scrollTop=log.scrollHeight;return d;}
-  f.addEventListener('submit',e=>{e.preventDefault();const text=box.value.trim();if(!text)return;
-    add(text,'user');box.value='';send.disabled=true;const p=add('…','eli');
-    api('/v1/chat',{method:'POST',body:JSON.stringify({message:text,user_id:uid,session_id:session})})
-      .then(j=>{session=j.session_id||session;p.textContent=j.response||j.detail||'(no response)';})
-      .catch(err=>{p.textContent='Error: '+err;}).finally(()=>{send.disabled=false;box.focus();});});
+  const NL=String.fromCharCode(10), SEP=NL+NL;
+  f.addEventListener('submit',e=>{e.preventDefault();const text=box.value.trim();if(!text)return;box.value='';streamChat(text);});
+  async function streamChat(text){
+    add(text,'user');send.disabled=true;const p=add('…','eli');let got=false;
+    try{
+      const r=await fetch('/v1/chat/stream',{method:'POST',headers:H(),body:JSON.stringify({message:text,user_id:uid,session_id:session})});
+      const reader=r.body.getReader(),dec=new TextDecoder();let buf='';
+      for(;;){const rd=await reader.read();if(rd.done)break;
+        buf+=dec.decode(rd.value,{stream:true});let i;
+        while((i=buf.indexOf(SEP))>=0){const frame=buf.slice(0,i);buf=buf.slice(i+SEP.length);
+          if(frame.indexOf('data:')!==0)continue;
+          let j;try{j=JSON.parse(frame.slice(5).trim());}catch(_e){continue;}
+          if(j.session_id)session=j.session_id;
+          if(j.delta){if(!got){p.textContent='';got=true;}p.textContent+=j.delta;log.scrollTop=log.scrollHeight;}
+          if(j.error)p.textContent+=(p.textContent?NL:'')+'[error: '+j.error+']';
+        }
+      }
+      if(!p.textContent)p.textContent='(no response)';
+    }catch(err){p.textContent='Error: '+err;}
+    finally{send.disabled=false;box.focus();}
+  }
 
   /* commands */
   let CAT=[];
@@ -412,6 +429,43 @@ async def chat(request: ChatRequest):
         )
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/v1/chat/stream", tags=["Chat"], dependencies=[Depends(_require_token)])
+def chat_stream(request: ChatRequest):
+    """Stream ELI's reply incrementally as Server-Sent Events — same LOCAL model and
+    same pipeline as /v1/chat, just token-by-token so the UI isn't blank for a minute.
+    Frames: {"session_id":…} first, then {"delta":"…"} chunks, then {"done":true}."""
+    engine = get_engine()
+    session_id = request.session_id or str(int(time.time()))
+
+    def _frame(obj) -> str:
+        return "data: " + json.dumps(obj) + "\n\n"
+
+    def _gen():
+        yield _frame({"session_id": session_id})
+        try:
+            result = engine.process(request.message, source=f"api:{request.user_id}", stream=True)
+            if isinstance(result, dict):
+                yield _frame({"delta": _extract_response_text(result)})
+            elif isinstance(result, str):
+                yield _frame({"delta": result})
+            else:
+                for chunk in result:
+                    if isinstance(chunk, str):
+                        t = chunk
+                    elif isinstance(chunk, dict):
+                        t = (chunk.get("token") or chunk.get("delta") or chunk.get("content")
+                             or chunk.get("response") or "")
+                    else:
+                        t = str(chunk)
+                    if t:
+                        yield _frame({"delta": t})
+            yield _frame({"done": True})
+        except Exception as e:
+            yield _frame({"error": str(e)})
+
+    return StreamingResponse(_gen(), media_type="text/event-stream",
+                             headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"})
 
 @app.post("/v1/execute", response_model=ExecuteResponse, tags=["Commands"], dependencies=[Depends(_require_token)])
 async def execute(request: ExecuteRequest):
