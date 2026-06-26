@@ -404,7 +404,7 @@ def smart_fit_config(
     total_layers: Optional[int] = None,
     ctx_grain: int = 2048,
     min_ctx: int = 2048,
-    min_batch: int = 64,
+    min_batch: int = 128,
     min_gpu_fraction: float = 0.25,
 ) -> tuple[int, int, int]:
     """Smart loader fit.
@@ -480,11 +480,18 @@ def smart_fit_config(
 
 
 def recommend(hw: Optional[HardwareProfile] = None,
-              models: Optional[List[Dict[str, Any]]] = None) -> ModelRecommendation:
+              models: Optional[List[Dict[str, Any]]] = None,
+              user_ctx: Optional[int] = None) -> ModelRecommendation:
     """Generate optimal model + parameter recommendation for this hardware.
 
     Picks the largest model that fits within free VRAM (after KV cache +
     CUDA overhead) OR within available RAM if no GPU.
+
+    ``user_ctx`` (when >= 2048) is the user's EXPLICITLY chosen context window —
+    it anchors n_ctx instead of the DEFAULT_N_CTX target, and the VRAM refinement
+    below only ever REDUCES it to fit (never inflates, never silently replaces).
+    This is what makes "what you type is what loads" hold: the chosen value wins,
+    and is only trimmed on a real VRAM constraint (and the reasoning log says so).
     """
     if hw is None:
         hw = detect_hardware()
@@ -543,13 +550,24 @@ def recommend(hw: Optional[HardwareProfile] = None,
         # the GUI startup loader / user_preferred_ctx). 16384 fits typical prompts
         # and, on VRAM-limited GPUs, leaves room for more GPU layers than a
         # train-ctx-sized window would. VRAM refinement below only REDUCES this.
-        try:
-            from eli.core.runtime_settings import DEFAULT_N_CTX as _DEF_CTX
-        except Exception:
-            _DEF_CTX = 16384
-        rec.n_ctx = int(_DEF_CTX)
+        if user_ctx and int(user_ctx) >= 2048:
+            rec.n_ctx = int(user_ctx)
+            rec.reasoning.append(
+                f"n_ctx={rec.n_ctx} (user-pinned — reduced to fit only if VRAM is tight)"
+            )
+        else:
+            try:
+                from eli.core.runtime_settings import DEFAULT_N_CTX as _DEF_CTX
+            except Exception:
+                _DEF_CTX = 16384
+            rec.n_ctx = int(_DEF_CTX)
+            rec.reasoning.append(
+                f"n_ctx default={rec.n_ctx} (GPU system — reduced to fit if VRAM is tight)"
+            )
+    elif user_ctx and int(user_ctx) >= 2048:
+        rec.n_ctx = max(2048, (int(user_ctx) // _ctx_grain) * _ctx_grain)
         rec.reasoning.append(
-            f"n_ctx default={rec.n_ctx} (GPU system — reduced to fit if VRAM is tight)"
+            f"n_ctx={rec.n_ctx} (user-pinned, 2048-grain; CPU-only)"
         )
     else:
         _raw_ctx = int(hw.available_ram_gb * 1024)
