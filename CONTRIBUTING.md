@@ -1,4 +1,4 @@
-# Contributing to ELI MKXI
+# Contributing to ELI v2.0
 
 Thanks for your interest! One thing to know up front: **ELI is source-available,
 not open-source** (see [LICENSE](LICENSE)), and that shapes how contributions
@@ -26,7 +26,7 @@ author), you agree that:**
 2. You grant **Jason Fitzgibbon Bridgeman** (the copyright holder) a perpetual,
    worldwide, irrevocable, royalty-free license to **use, modify, sublicense, and
    relicense** your contribution — including for commercial purposes — as part of
-   ELI MKXI, under the project's current license and any future license the
+   ELI v2.0, under the project's current license and any future license the
    holder may choose (including commercial / dual licensing).
 3. You retain your own copyright in your contribution; you are simply granting the
    license above so the project can stay singly-stewarded and commercially viable.
