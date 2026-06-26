@@ -304,16 +304,49 @@ see **[`docs/TRAINING_YOUR_OWN_MODEL.md`](docs/TRAINING_YOUR_OWN_MODEL.md)**.
 
 ## Optional: a remote view over your own network
 
-The desktop app is the primary interface. Optionally, you can open ELI in a phone or tablet browser
-**on your own home network** as a second screen. **The AI still runs entirely on your computer** — the
-phone only displays it, nothing runs on the phone, and nothing reaches the internet. Off by default
-(loopback-only) until you explicitly enable local-network access:
+The desktop app is the primary interface. Optionally, ELI runs a small built-in **home server** (a
+local FastAPI app) so you can open it in any phone/tablet/desktop browser **on your own home network**
+as a second screen. **The AI still runs entirely on your computer** — the browser only displays it,
+nothing runs on the device, and nothing reaches the internet.
 
 ```bash
 ./scripts/eli_serve.sh             # this computer only  → http://127.0.0.1:8081/
-./scripts/eli_serve.sh --lan       # your local network  → prints a token-protected URL
+./scripts/eli_serve.sh --lan       # your home network   → prints a token-protected URL
 ```
-Details: **[`docs/SERVER_AND_WEB_APP.md`](docs/SERVER_AND_WEB_APP.md)**.
+
+### The web app — four tabs
+- **Chat** — talk to ELI from any device; inference stays on the host.
+- **Commands** — a searchable catalogue of every documented action (with descriptions and example
+  phrases). Tap a phrase to drop it into the chat box.
+- **Home** — control your smart home (see below): a device grid with light/switch toggles and
+  brightness sliders, media transport (play/pause/skip), climate set-points, and live sensor gauges.
+- **System** — ELI's own **measured** telemetry: GPU temperature/utilisation/VRAM, CPU load/temp,
+  RAM, the loaded model, and uptime — the same grounded source ELI reports from, so the numbers are
+  real, never guessed.
+
+### Home Assistant setup (the Home tab)
+Smart-home control is via [Home Assistant](https://www.home-assistant.io/). In the **Home** tab, paste:
+- your HA **server URL** (e.g. `http://homeassistant.local:8123`), and
+- a **long-lived access token** (HA → your Profile → Security → *Long-lived access tokens* → Create).
+
+ELI then lists and controls your lights, switches, fans, climate, media players, covers, and sensors.
+The token is stored locally (in your config) and is **never** returned by the API.
+
+### Security
+- **Loopback (default) is tokenless** for zero-friction same-machine use (`127.0.0.1`).
+- **Any non-loopback bind requires a token.** ELI fails closed: if you expose the server beyond
+  loopback (e.g. `--lan`, `ELI_API_HOST=0.0.0.0`, a systemd unit, Docker) without setting
+  `ELI_API_TOKEN`, it **auto-generates one and prints it** rather than ever serving unauthenticated.
+  Every endpoint — chat, command execution, and all smart-home/system controls — sits behind that token.
+- Keep it on your **own LAN**. Don't port-forward it to the public internet; it's a personal-network tool.
+
+### Maintenance
+- **Stable token:** set `ELI_API_TOKEN=<your-token>` (env or your service unit) so clients don't break
+  on restart; otherwise a fresh token is generated each non-loopback start and printed to the logs.
+- **HA token expired/rotated?** Re-enter it in the Home tab — it overwrites the stored one.
+- **Port/host:** `ELI_API_PORT` (default 8081) and `ELI_API_HOST` (default `127.0.0.1`).
+
+Full details: **[`docs/SERVER_AND_WEB_APP.md`](docs/SERVER_AND_WEB_APP.md)**.
 
 ## Privacy
 
