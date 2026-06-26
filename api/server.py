@@ -19,13 +19,31 @@ from eli.memory.memory import get_memory
 # automatically when binding beyond loopback (--lan). Loopback (default) runs tokenless
 # for zero-friction same-machine use. Local-first: nothing here reaches the network; the
 # token only controls who on YOUR LAN may talk to the server.
-_API_TOKEN = os.environ.get("ELI_API_TOKEN", "").strip()
+def _api_token() -> str:
+    """Active bearer token, read LIVE from the environment so a token set at startup
+    (e.g. the non-loopback safety guard in main()) is always enforced — not merely
+    whatever happened to be present at import time."""
+    return os.environ.get("ELI_API_TOKEN", "").strip()
+
+
+def _is_loopback_host(host: str) -> bool:
+    """True only for genuinely local binds (127.0.0.0/8, ::1, localhost). Anything
+    else — 0.0.0.0, a LAN IP, an unresolved hostname — is treated as network-exposed."""
+    h = (host or "").strip().lower()
+    if h in ("localhost", ""):
+        return True
+    try:
+        import ipaddress
+        return ipaddress.ip_address(h).is_loopback
+    except ValueError:
+        return False
 
 
 def _require_token(authorization: str = Header(default="")):
-    if not _API_TOKEN:
+    token = _api_token()
+    if not token:
         return
-    if not secrets.compare_digest(authorization or "", f"Bearer {_API_TOKEN}"):
+    if not secrets.compare_digest(authorization or "", f"Bearer {token}"):
         raise HTTPException(status_code=401, detail="missing or invalid API token")
 
 app = FastAPI(
@@ -238,6 +256,25 @@ def main():
     host = os.environ.get("ELI_API_HOST", "127.0.0.1")
     port = int(os.environ.get("ELI_API_PORT", "8081"))
     reload = os.environ.get("ELI_API_RELOAD", "0").strip().lower() in ("1", "true", "yes", "on")
+
+    # Fail-closed network guard — the "token-gated by default" guarantee must NOT
+    # depend on the launcher script. Started any other way (ELI_API_HOST=0.0.0.0
+    # python -m api.server, a systemd unit, Docker) a non-loopback bind with no token
+    # would expose /v1/execute — screenshots, file reads, app open/close — to the whole
+    # network unauthenticated. So if we're binding beyond loopback with no token, refuse
+    # the silent fail-open: auto-generate one, enforce it (the gate reads it live), and
+    # announce it loudly. Opt out only by setting ELI_API_TOKEN yourself.
+    if not _is_loopback_host(host) and not _api_token():
+        _gen = secrets.token_urlsafe(32)
+        os.environ["ELI_API_TOKEN"] = _gen
+        _bar = "=" * 72
+        print(_bar, flush=True)
+        print(f"  SECURITY: binding to non-loopback host {host!r} with no ELI_API_TOKEN set.", flush=True)
+        print("  Auto-generated a token so the API is NOT exposed unauthenticated.", flush=True)
+        print(f"  Clients must send header:   Authorization: Bearer {_gen}", flush=True)
+        print("  Set ELI_API_TOKEN yourself for a token that's stable across restarts.", flush=True)
+        print(_bar, flush=True)
+
     uvicorn.run("api.server:app", host=host, port=port, reload=reload, log_level="info")
 
 if __name__ == "__main__":
