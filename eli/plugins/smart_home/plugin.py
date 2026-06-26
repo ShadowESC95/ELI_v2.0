@@ -27,6 +27,8 @@ class SmartHomePlugin(Plugin):
             "turn_off": self.turn_off,
             "state": self.get_state,
             "list": self.list_devices,
+            "media": self.media_control,
+            "temperature": self.set_temperature,
         }
         super().__init__()
 
@@ -94,7 +96,9 @@ class SmartHomePlugin(Plugin):
         device = args.get("device") or args.get("name") or args.get("entity_id") or ""
         entity = self._entity(device)
         extra: dict = {}
-        if "brightness" in args:
+        if args.get("brightness_pct") is not None:
+            extra["brightness_pct"] = max(0, min(100, int(args["brightness_pct"])))
+        elif args.get("brightness") is not None:
             extra["brightness"] = int(args["brightness"])
         if "color" in args:
             extra["color_name"] = args["color"]
@@ -131,20 +135,58 @@ class SmartHomePlugin(Plugin):
             msg += f" (temp {attrs['current_temperature']}°)"
         return {"ok": True, "content": msg, "response": msg, "state": state, "attributes": attrs}
 
+    def media_control(self, args: dict) -> dict:
+        """Transport control for a media_player (play/pause/next/previous/stop)."""
+        entity = args.get("entity_id") or self._entity(args.get("device") or args.get("name") or "")
+        cmd = (args.get("command") or "").lower().strip()
+        svc = {
+            "play": "media_play", "pause": "media_pause", "stop": "media_stop",
+            "next": "media_next_track", "previous": "media_previous_track",
+            "prev": "media_previous_track", "play_pause": "media_play_pause",
+        }.get(cmd, cmd)
+        _, err = self._hass("POST", f"/api/services/media_player/{svc}", {"entity_id": entity})
+        if err:
+            return {"ok": False, "content": err, "response": err}
+        return {"ok": True, "content": f"{svc} → {entity}", "response": f"{svc} → {entity}"}
+
+    def set_temperature(self, args: dict) -> dict:
+        """Set the target temperature on a climate entity."""
+        entity = args.get("entity_id") or self._entity(args.get("device") or args.get("name") or "")
+        try:
+            temp = float(args.get("temperature"))
+        except (TypeError, ValueError):
+            return {"ok": False, "content": "temperature required", "response": "temperature required"}
+        _, err = self._hass("POST", "/api/services/climate/set_temperature",
+                            {"entity_id": entity, "temperature": temp})
+        if err:
+            return {"ok": False, "content": err, "response": err}
+        return {"ok": True, "content": f"Set {entity} to {temp}°", "response": f"Set {entity} to {temp}°"}
+
     def list_devices(self, args: dict) -> dict:
         result, err = self._hass("GET", "/api/states")
         if err:
             return {"ok": False, "content": err, "response": err}
-        _DOMAINS = {"light", "switch", "climate", "media_player", "sensor", "binary_sensor", "cover"}
+        _DOMAINS = {"light", "switch", "fan", "climate", "media_player", "sensor", "binary_sensor", "cover"}
+        # Selected attributes passed through for richer UI controls (brightness sliders,
+        # media transport, climate setpoints, sensor units) — not the whole HA blob.
+        _ATTRS = ("brightness", "unit_of_measurement", "device_class", "current_temperature",
+                  "temperature", "min_temp", "max_temp", "media_title", "media_artist",
+                  "supported_color_modes")
         entities = []
         for e in (result or []):
             eid = e.get("entity_id", "")
             domain = eid.split(".")[0] if "." in eid else ""
             if domain in _DOMAINS:
+                a = e.get("attributes", {}) or {}
+                attrs = {k: a.get(k) for k in _ATTRS if a.get(k) is not None}
+                if a.get("brightness") is not None:
+                    attrs["brightness_pct"] = round(int(a["brightness"]) / 255 * 100)
                 entities.append({
                     "entity_id": eid,
+                    "domain": domain,
                     "state": e.get("state", "?"),
-                    "name": e.get("attributes", {}).get("friendly_name", eid),
+                    "name": a.get("friendly_name", eid),
+                    "attrs": attrs,
                 })
         if not entities:
             return {"ok": True, "content": "No devices found (HASS not connected or no devices).",
