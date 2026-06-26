@@ -359,6 +359,17 @@ class ClimateControl(BaseModel):
     entity_id: str
     temperature: float
 
+class CompletionMessage(BaseModel):
+    role: str = "user"
+    content: str = ""
+
+class CompletionRequest(BaseModel):
+    # The de-facto industry chat shape. Extra fields (temperature, top_p, …) are
+    # accepted and ignored so any standard client connects without erroring.
+    model: Optional[str] = "eli-local"
+    messages: list[CompletionMessage] = []
+    stream: bool = False
+
 # ----------------------------------------------------------------------
 # API Endpoints
 # ----------------------------------------------------------------------
@@ -466,6 +477,96 @@ def chat_stream(request: ChatRequest):
 
     return StreamingResponse(_gen(), media_type="text/event-stream",
                              headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"})
+
+# ----------------------------------------------------------------------
+# ELI local API — the de-facto industry chat shape, served by the LOCAL model.
+# Lets any standard local-AI client (IDE assistants, notebooks, MCP bridges) point
+# its "Base URL" at ELI and run on your hardware. NOT OpenAI: nothing leaves the
+# box; the model is ELI's local GGUF, behind netguard, token-gated like everything.
+# ----------------------------------------------------------------------
+def _messages_to_prompt(messages) -> str:
+    """Flatten a standard `messages` array into one ELI turn. Single-turn → the raw
+    user text; multi-turn → a transcript, with any system message(s) on top."""
+    msgs = [m for m in messages if (m.content or "").strip()]
+    if not msgs:
+        return ""
+    system = "\n".join(m.content for m in msgs if (m.role or "").lower() == "system").strip()
+    convo = [m for m in msgs if (m.role or "").lower() != "system"]
+    if len(convo) == 1:
+        body = convo[0].content
+    else:
+        body = "\n".join(
+            (("Assistant: " if (m.role or "").lower() == "assistant" else "User: ") + m.content)
+            for m in convo)
+    return ((system + "\n\n") if system else "") + body
+
+@app.get("/v1/models", tags=["Chat"], dependencies=[Depends(_require_token)])
+def list_models():
+    """Advertise ELI's local model in the standard list shape (clients query this
+    before chatting). It's one entry: your local model, owned by 'eli'."""
+    return {"object": "list",
+            "data": [{"id": "eli-local", "object": "model", "created": 0, "owned_by": "eli"}]}
+
+@app.post("/v1/chat/completions", tags=["Chat"], dependencies=[Depends(_require_token)])
+def chat_completions(request: CompletionRequest):
+    """Standard chat-completions shape, answered by ELI's LOCAL model + pipeline.
+    Honours `stream`; returns the canonical `chat.completion` / `chat.completion.chunk`
+    objects (and the `[DONE]` sentinel) so standard clients work drop-in."""
+    engine = get_engine()
+    prompt = _messages_to_prompt(request.messages)
+    if not prompt.strip():
+        raise HTTPException(status_code=400, detail="no message content")
+    model = request.model or "eli-local"
+    created = int(time.time())
+    cid = "chatcmpl-" + secrets.token_hex(12)
+
+    def _chunk(delta: dict, finish=None) -> str:
+        return "data: " + json.dumps({
+            "id": cid, "object": "chat.completion.chunk", "created": created, "model": model,
+            "choices": [{"index": 0, "delta": delta, "finish_reason": finish}]}) + "\n\n"
+
+    if request.stream:
+        def _gen():
+            try:
+                yield _chunk({"role": "assistant"})
+                result = engine.process(prompt, source="api:completions", stream=True)
+                if isinstance(result, dict):
+                    t = _extract_response_text(result)
+                    if t:
+                        yield _chunk({"content": t})
+                elif isinstance(result, str):
+                    if result:
+                        yield _chunk({"content": result})
+                else:
+                    for chunk in result:
+                        if isinstance(chunk, str):
+                            t = chunk
+                        elif isinstance(chunk, dict):
+                            t = (chunk.get("token") or chunk.get("delta") or chunk.get("content")
+                                 or chunk.get("response") or "")
+                        else:
+                            t = str(chunk)
+                        if t:
+                            yield _chunk({"content": t})
+                yield _chunk({}, finish="stop")
+                yield "data: [DONE]\n\n"
+            except Exception as e:
+                yield "data: " + json.dumps({"error": {"message": str(e)}}) + "\n\n"
+                yield "data: [DONE]\n\n"
+        return StreamingResponse(_gen(), media_type="text/event-stream",
+                                 headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"})
+
+    try:
+        result = engine.process(prompt, source="api:completions", stream=False)
+        text = _extract_response_text(result)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+    return {
+        "id": cid, "object": "chat.completion", "created": created, "model": model,
+        "choices": [{"index": 0, "message": {"role": "assistant", "content": text},
+                     "finish_reason": "stop"}],
+        "usage": {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0},
+    }
 
 @app.post("/v1/execute", response_model=ExecuteResponse, tags=["Commands"], dependencies=[Depends(_require_token)])
 async def execute(request: ExecuteRequest):
