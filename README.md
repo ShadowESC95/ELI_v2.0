@@ -345,7 +345,8 @@ install knows **nothing** about you until you talk to it, and you can delete you
 - `eli/gui` — PySide6 GUI launcher and `EliMainWindow`
 - `eli/cli` — headless REPL (`eli --headless`)
 - `config` — portable default settings · `models` — local GGUF payloads (gitignored)
-- `tests` — pytest suite (~6,960 tests across 169 files)
+- `tests` — pytest suite (~6,960 tests across 169 files); the full suite runs locally,
+  while CI gates a cross-platform portable subset (no GGUF/display/GPU) on Linux, macOS, and Windows
 
 **Scaling:** the loader reads each model's real `n_ctx_train` from GGUF metadata and fits
 layers/batch/ctx to the hardware present; VRAM is summed across all GPUs. One path runs a 3B on a
