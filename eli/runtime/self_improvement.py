@@ -752,6 +752,10 @@ class SelfImprovementEngine:
             "eli/runtime/approval_engine.py",
             "eli/runtime/self_improvement.py",
             "eli/runtime/deterministic_grounding_gate.py",
+            "eli/execution/shell_gate.py",        # shell denylist (extracted from executor)
+            "eli/runtime/authority_gate.py",      # action allow/check gate
+            "eli/execution/route_authority.py",   # routing authority
+            "eli/runtime/persistence_gate.py",    # upstream action/persistence gate
         }
         _protected |= {x.strip() for x in os.environ.get("ELI_PROTECTED_PATCH_PATHS", "").split(",") if x.strip()}
         if _rel in _protected:

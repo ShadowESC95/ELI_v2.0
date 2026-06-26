@@ -1,4 +1,4 @@
-# ELI MKXI — Windows PowerShell installer
+# ELI v2.0 — Windows PowerShell installer
 # Run: powershell -ExecutionPolicy Bypass -File install.ps1 [-CpuOnly] [-Latest] [-InstallCuda] [-CudaVersion cu121]
 
 param(
@@ -41,7 +41,7 @@ if ($Wheelhouse) {
 
 Write-Host ""
 Write-Host "==================================================" -ForegroundColor Cyan
-Write-Host "  ELI MKXI - Installer (Windows)" -ForegroundColor Cyan
+Write-Host "  ELI v2.0 - Installer (Windows)" -ForegroundColor Cyan
 Write-Host "  100% local - private - offline-by-default" -ForegroundColor DarkGray
 Write-Host "==================================================" -ForegroundColor Cyan
 Write-Host ""
@@ -180,8 +180,8 @@ if (-not $CpuOnly) {
     }
 }
 
-# ELI MKXI wheel
-Write-Host "[..] Installing ELI MKXI..."
+# ELI v2.0 wheel
+Write-Host "[..] Installing ELI v2.0..."
 $Wheel = Get-ChildItem (Join-Path $ScriptDir "dist") -Filter "eli_mkxi-*.whl" -ErrorAction SilentlyContinue | Select-Object -First 1
 if ($Wheel) {
     Invoke-Pip (@("install") + $PipFindLinksArgs + @("$($Wheel.FullName)[full]", "--quiet"))
@@ -243,7 +243,7 @@ if (-not $NoModel) {
 
 Write-Host ""
 Write-Host "==================================================" -ForegroundColor Green
-Write-Host "  ELI MKXI - installation complete" -ForegroundColor Green
+Write-Host "  ELI v2.0 - installation complete" -ForegroundColor Green
 Write-Host "==================================================" -ForegroundColor Green
 Write-Host ""
 Write-Host "--- Summary ---" -ForegroundColor Magenta

@@ -255,7 +255,7 @@ def build_live_evidence(
 
     return RuntimeStatusEvidence(
         name="ELI / Enhanced Learning Interface",
-        role="local GGUF-backed assistant running inside this ELI MKXI project",
+        role="local GGUF-backed assistant running inside this ELI v2.0 project",
         provider=_first(runtime.get("provider"), cfg.get("provider"), "gguf"),
         model_name=model_name,
         model_path=model_path,
