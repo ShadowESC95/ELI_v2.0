@@ -1,6 +1,6 @@
 <div align="center">
 
-# ELI MKXI v2.0
+# ELI v2.0
 
 **A strictly local, private AI assistant and cognitive runtime.**
 
