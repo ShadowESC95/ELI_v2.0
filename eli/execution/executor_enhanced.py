@@ -672,10 +672,11 @@ def _gpu_status_report() -> Dict[str, Any]:
             f"- CPU threads: {runtime_snapshot.get('n_threads', 'unknown')}",
         ])
 
+    _total_gb_txt = f"{total / 1024.0:.0f} GB" if total else "a VRAM-limited"
     lines.extend([
         "",
         "Performance reading:",
-        "- The live runtime is constrained by available VRAM. On a 4 GB GPU, large context and high GPU-layer counts can fail and force fallback.",
+        f"- The live runtime is constrained by available VRAM. On {_total_gb_txt} GPU, large context and high GPU-layer counts can exceed it and force fallback.",
         "- If ELI booted with lower selected ctx/GPU-layer parameters than requested, the fallback is expected behavior, not a settings lie.",
         "- Higher free VRAM gives more room for GPU layers or batch size; low free VRAM means slower CPU-heavy inference and longer response times.",
     ])
