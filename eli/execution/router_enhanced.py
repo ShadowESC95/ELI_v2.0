@@ -968,6 +968,19 @@ def _route_plugin_bridge_prepass(raw: str, low: str):
     if re.match(r"^(?:ram\s+usage|memory\s+usage|show\s+ram\s+usage|show\s+memory\s+usage|how\s+much\s+ram\s+is\s+used)$", low):
         return _mk("RAM_USAGE", {}, 0.98, matched_by="plugin.prepass.ram_usage")
 
+    # Hardware/system TEMPERATURE → grounded GPU status (which reports the real temp),
+    # NEVER weather. "temperature"/"temp"/"thermal"/"how hot" about the gpu/cpu/card/
+    # system/your hardware — or a bare "temperature reading(s)" sensor follow-up — was
+    # being misrouted to GET_WEATHER by the LLM resolver, which then denied having data
+    # it had just shown (user-reported: reported 51°C, then "I have no live sensor data").
+    # Guarded against an actual weather/location query.
+    if (re.search(r"\b(?:temperature|temp|thermal|how\s+hot|degrees|°c)\b", low)
+            and re.search(r"\b(?:gpu|cpu|card|chip|core|vram|system|your|hardware|"
+                          r"sensor|readings?|head)\b", low)
+            and not re.search(r"\b(?:weather|forecast|outside|outdoors|humid|rain|"
+                              r"snow|sunny|tomorrow|in\s+[a-z]+land)\b", low)):
+        return _mk("GPU_STATUS", {}, 0.95, matched_by="system.hw_temperature")
+
     # Pomodoro plugin.
     if re.match(r"^(?:start\s+pomodoro|begin\s+pomodoro|pomodoro\s+start)(?:\s+timer)?$", low):
         return _mk("POMODORO_START", {}, 0.98, matched_by="plugin.prepass.pomodoro_start")
