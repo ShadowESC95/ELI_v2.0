@@ -631,6 +631,11 @@ def _select_agents_for_intent(user_input: str, action: str) -> Optional[Set[str]
 # express further dependencies; cycles are rejected at build time.
 _AGENT_DEPENDENCIES: Dict[str, Set[str]] = {
     "knowledge_graph": {"memory"},
+    # critic is the second-tier verifier: it must run AFTER the retrievers it
+    # cross-checks so their results are in intent["_upstream"]. Deps are
+    # intersected with the active set, so on a narrow turn it simply runs after
+    # whichever of these are active (and self-gates if <2 grounded sources).
+    "critic": {"memory", "system", "knowledge_graph"},
 }
 
 
@@ -2978,6 +2983,89 @@ class KnowledgeGraphAgent(_BaseAgent):
                                data={}, elapsed_ms=elapsed, error=str(e))
 
 
+class CriticAgent(_BaseAgent):
+    """Second-tier verifier — the one bus agent that reasons over OTHER agents'
+    output (`intent['_upstream']`) rather than the raw query, giving the agent DAG a
+    real downstream tier instead of a flat fan-out.
+
+    Deterministic, no LLM: it pulls the representative text each retriever surfaced
+    this turn, measures pairwise term agreement, and emits a corroboration-vs-
+    contradiction signal. Self-gates to nothing on <2 grounded sources, so it never
+    fires on trivial turns. Depends on memory/system/knowledge_graph, so it runs
+    after them in the topological layers and sees their results.
+    """
+    name = "critic"
+    timeout_s = 2.0
+
+    @staticmethod
+    def _representative_text(data: Dict[str, Any]) -> str:
+        """Pull a short representative string from a retriever's result `data`."""
+        if not isinstance(data, dict):
+            return ""
+        for k in ("content", "summary", "answer", "text"):
+            v = data.get(k)
+            if isinstance(v, str) and v.strip():
+                return v.strip()
+        for k in ("results", "hits", "conv_hits", "snippets", "entries"):
+            hits = data.get(k)
+            if isinstance(hits, (list, tuple)):
+                parts: List[str] = []
+                for h in hits[:3]:
+                    if isinstance(h, dict):
+                        t = h.get("text") or h.get("content") or h.get("summary") or ""
+                        if t:
+                            parts.append(str(t))
+                    elif isinstance(h, str):
+                        parts.append(h)
+                if parts:
+                    return " ".join(parts)
+        return ""
+
+    def run(self, user_input: str, intent: Dict[str, Any],
+            session_id: str, user_id: str) -> AgentResult:
+        t0 = time.perf_counter()
+        try:
+            up = (intent or {}).get("_upstream") or {}
+            contribs: Dict[str, str] = {}
+            for _name, _data in up.items():
+                if _name == self.name:
+                    continue
+                txt = self._representative_text(_data)
+                if txt and len(txt) >= 12:
+                    contribs[_name] = txt[:600]
+            if len(contribs) < 2:
+                # Nothing to cross-check — self-gate (never fire on trivial turns).
+                return AgentResult(agent=self.name, ok=True, confidence=0.0,
+                                   data={"skipped": True, "sources": list(contribs)},
+                                   elapsed_ms=(time.perf_counter() - t0) * 1000)
+            import itertools
+            from eli.cognition.scoring import term_overlap as _overlap
+            texts = list(contribs.values())
+            sims = [_overlap(a, b) for a, b in itertools.combinations(texts, 2)]
+            agreement = round(sum(sims) / max(1, len(sims)), 3)
+            contradiction = agreement < 0.08
+            srcs = ", ".join(sorted(contribs))
+            if contradiction:
+                conf = 0.25
+                note = (f"Verification: {len(contribs)} sources ({srcs}) show little "
+                        f"mutual agreement (overlap {agreement}); treat with lower "
+                        f"confidence and prefer the deterministic/grounded path.")
+            else:
+                conf = round(min(0.9, 0.4 + agreement), 3)
+                note = (f"Verification: {len(contribs)} sources ({srcs}) corroborate "
+                        f"(agreement {agreement}).")
+            return AgentResult(
+                agent=self.name, ok=True, confidence=conf,
+                data={"content": note, "sources": sorted(contribs),
+                      "agreement": agreement, "contradiction": contradiction},
+                elapsed_ms=(time.perf_counter() - t0) * 1000,
+            )
+        except Exception as exc:
+            return AgentResult(agent=self.name, ok=False, confidence=0.0,
+                               data={"error": True}, error=str(exc),
+                               elapsed_ms=(time.perf_counter() - t0) * 1000)
+
+
 # All agent classes are defined above. _ALL_AGENTS is placed here so that
 # FileCodeAgent and ReflectionAgent exist when the list is evaluated.
 _ALL_AGENTS: List[_BaseAgent] = [
@@ -2995,6 +3083,7 @@ _ALL_AGENTS: List[_BaseAgent] = [
     ReflectionAgent(),
     IntrospectionBusAgent(),
     KnowledgeGraphAgent(),
+    CriticAgent(),  # second-tier verifier; runs after its retriever deps (see _AGENT_DEPENDENCIES)
 ]
 
 def _apply_runtime_policy_timeouts() -> None:
