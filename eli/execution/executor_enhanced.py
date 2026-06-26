@@ -5321,69 +5321,17 @@ def _execute_impl(action: str, args: Optional[Dict[str, Any]] = None) -> Dict[st
                 _cmd_str = str(cmd)
             _cmd_low = _cmd_str.lower().strip()
 
-            # ELI Full Control lifts even the hard command-safety floor (user opt-in,
-            # default off). When on, the destructive-pattern block + denylist step aside.
-            try:
-                from eli.core.full_control import is_full_control as _ifc_cmd
-                _cmd_full_control = bool(_ifc_cmd())
-            except Exception:
-                _cmd_full_control = False
-
-            # ── Destructive / dangerous command patterns — block outright ──
-            _BLOCKED_PATTERNS = [
-                r"\brm\s+(-[rf]+\s+)?/(?!tmp)",           # rm -rf / (except /tmp)
-                r"\bmkfs\b",                                # format filesystem
-                r"\bdd\s+.*of=/dev/",                      # dd to raw device
-                r"\bchmod\s+777\s+/",                      # chmod 777 on root
-                r"\b:\(\)\s*\{.*\}",                        # fork bomb
-                r"\bshutdown\b|\breboot\b|\bpoweroff\b",   # system power control
-                r"\bcurl\b.*\|\s*(?:ba)?sh\b",             # curl | bash (remote exec)
-                r"\bwget\b.*\|\s*(?:ba)?sh\b",             # wget | bash
-                r"\b/dev/sd[a-z]\b",                        # raw disk device access
-                r"\biptables\s+-F\b",                       # flush firewall rules
-                r"\bmv\s+/\S",                              # mv files from root
-                r"\b(?:bash|sh|zsh|ksh|fish|dash)\s+-c\b", # shell -c arbitrary exec
-                r"\bpython\d*\s+-c\b",                      # python -c arbitrary exec
-                r"\bperl\s+-e\b",                           # perl -e arbitrary exec
-                r"\bruby\s+-e\b",                           # ruby -e arbitrary exec
-                r"\bnc\b.*-e\b",                            # netcat reverse shell
-                r"\b(?:ncat|netcat)\b.*-e\b",               # netcat variants
-                r">\s*/etc/",                               # redirect to system config
-                r">\s*/boot/",                              # redirect to boot partition
-                r"\bchpasswd\b|\bpasswd\b\s+\w",           # password change
-                r"\bvisudo\b|\bsudoers\b",                  # sudoers modification
-                r"\bcrontab\s+-[re]\b",                     # crontab modification
-            ]
-
-            for pat in ([] if _cmd_full_control else _BLOCKED_PATTERNS):
-                if re.search(pat, _cmd_low):
-                    msg = f"Blocked dangerous command: {_cmd_str[:60]}"
-                    return {"ok": False, "action": a, "error": "security_blocked",
-                            "content": msg, "response": msg, "blocked": True}
-
-            # ── Denylist dangerous executable names as argv[0] ──
-            import shlex as _shlex_sec
-            try:
-                if isinstance(cmd, (list, tuple)):
-                    _argv0 = str(cmd[0]) if cmd else ""
-                else:
-                    _argv0 = (_shlex_sec.split(_cmd_str) or [""])[0]
-                _argv0_base = os.path.basename(_argv0).lower()
-            except Exception:
-                _argv0_base = ""
-            _DENIED_EXECUTABLES = {
-                "bash", "sh", "zsh", "ksh", "fish", "dash",  # shell interpreters
-                "python", "python3", "python2",                # scripting engines
-                "perl", "ruby", "node", "nodejs",              # more scripting engines
-                "nc", "ncat", "netcat",                        # network tools
-                "dd", "mkfs", "fdisk", "parted",               # disk tools
-                "rm", "shred", "wipe",                         # destructive file ops
-                "iptables", "ip6tables", "nftables",           # firewall manipulation
-            }
-            if _argv0_base in _DENIED_EXECUTABLES and not _cmd_full_control:
-                msg = f"Execution of '{_argv0_base}' is not permitted via RUN_CMD for security reasons."
-                return {"ok": False, "action": a, "error": "security_blocked",
-                        "content": msg, "response": msg, "blocked": True}
+            # ── SECURITY GATE — centralised, protected denylist ──
+            # Destructive-pattern + dangerous-executable denylist lives in
+            # eli/execution/shell_gate.py (a protected file apply_code_patch refuses to
+            # auto-edit), so a self-improvement patch can't quietly strip it. Behaviour
+            # is identical to the former inline gate: returns a block result unless ELI
+            # Full Control is on, in which case the hard safety floor is lifted.
+            from eli.execution.shell_gate import check_command as _shell_gate_check
+            _gate = _shell_gate_check(cmd)
+            if _gate is not None:
+                _gate["action"] = a
+                return _gate
 
             # Warn on sudo — allow but flag
             _needs_sudo = "sudo " in _cmd_low
