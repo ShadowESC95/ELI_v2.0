@@ -4847,7 +4847,8 @@ def _eli_runtime_cognition_failure_guard(text):
 
     if re.search(r"\bnvidia-smi\b", low) or (
         re.search(r"\b(gpu|vram|cuda|nvidia)\b", low)
-        and re.search(r"\b(status|diagnostic|diagnostics|usage|memory|performance|running on|tell me what it means)\b", low)
+        and re.search(r"\b(stat|stats|status|diagnostic|diagnostics|usage|memory|"
+                      r"performance|running on|tell me what it means|temp|temperature|how hot)\b", low)
     ):
         return {
             "action": "GPU_STATUS",
