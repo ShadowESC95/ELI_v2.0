@@ -5,8 +5,14 @@ Lightweight tone/communication-style analyzer.
 
 Derives user behavioral preferences from recent conversation turns using
 heuristics — no LLM calls. Results are written to user_patterns as
-preference.tone.* entries, which flow automatically through the persona
-updater into the system prompt.
+preference.tone.* entries.
+
+Consumption path (corrected): these rows reach the model via
+eli.runtime.user_model — _read_patterns_grouped() buckets every `preference.*`
+prefix into the `comms_style` group, and render_brief() emits it in the per-turn
+USER MODEL brief (pulled in by context_synthesiser.get_user_brief). NOTE: the
+persona_updater overlay (persona.auto.txt) does NOT render these — it only reads
+user_patterns for a dirty-check fingerprint — so user_model is the real carrier.
 
 Signals detected
 ----------------
