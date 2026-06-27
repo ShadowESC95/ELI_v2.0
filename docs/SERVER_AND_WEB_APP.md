@@ -81,7 +81,7 @@ in a window so the phone URL + token are visible).
 | GET  | `/v1/status/{user_id}` | open | Runtime status (model, uptime) |
 | GET  | `/v1/system` | **token** | Measured GPU/CPU/RAM/model telemetry |
 | GET  | `/v1/audit` | **token** | Tamper-evident (hash-chained) action trail + chain verification |
-| GET  | `/v1/admin/*` | **token** | Enterprise console: `overview` (integrity + totals + per-user + policy), `user` (drill-down) |
+| GET/POST | `/v1/admin/*` | **admin** | Enterprise console: `overview`, `user` (drill-down), `users/add`, `users/remove`. Admin role required. |
 | GET/POST | `/v1/devices/*` | **token** | ELI's own MQTT device server: `status`, `config`, `register`, `control` (no Home Assistant) |
 | GET/POST | `/v1/research/*` | **token** | Shared, collaborative corpora: `corpora`, `ingest`, `note`, `documents`, `activity`, `remove`, `query` (grounded, cited, attributed) |
 | GET  | `/v1/voice/voices` | **token** | List local Piper voices + the active one |
@@ -105,6 +105,7 @@ The launchers set these for you; you can also set them directly before `python -
 | `ELI_API_PORT` | `8081` | Listen port. |
 | `ELI_API_TOKEN` | _(unset)_ | When set, required as `Authorization: Bearer <token>` on the action endpoints. The launcher sets this in `--lan` mode. |
 | `ELI_API_ALLOW_TOKENLESS` | _(unset)_ | Permits tokenless serving. **The gate fails closed without it** — `main()` sets it to `1` only on a loopback bind, so an ASGI-direct launch (uvicorn/Docker) that skips `main()` stays locked down. Set `0` to require a token even on loopback. |
+| `ELI_API_USERS_FILE` | `config/api_users.json` | RBAC user store (admin/member). Manage with `python -m eli.runtime.api_users add\|remove\|list` or the Admin tab. With no users defined, the API stays single-operator. |
 | `ELI_RESEARCH_ROOT` | `artifacts/research/_sources/` | The only directory `/v1/research/ingest` may read documents from. Paths outside it are rejected. |
 | `ELI_RESEARCH_MAX_FILES` / `ELI_RESEARCH_MAX_BYTES` | `2000` / `512 MB` | Caps on a single research ingest (directory-walk DoS guard). |
 | `ELI_API_RELOAD` | `0` | `1` enables uvicorn auto-reload (dev only). |
