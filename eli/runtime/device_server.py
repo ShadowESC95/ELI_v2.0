@@ -89,7 +89,7 @@ class DeviceServer:
     # ── Registry ────────────────────────────────────────────────────────────
     def register_device(self, *, device_id: str, name: str = "", dtype: str = "switch",
                         command_topic: str = "", state_topic: str = "",
-                        attrs: Optional[dict] = None) -> Dict[str, Any]:
+                        room: str = "", attrs: Optional[dict] = None) -> Dict[str, Any]:
         did = (device_id or "").strip()
         if not did:
             return {"ok": False, "error": "device_id required"}
@@ -100,6 +100,7 @@ class DeviceServer:
                 "id": did,
                 "name": name or dev.get("name") or did,
                 "type": dtype,
+                "room": (room.strip() if room else dev.get("room", "")),
                 "command_topic": command_topic or dev.get("command_topic", ""),
                 "state_topic": state_topic or dev.get("state_topic", ""),
                 "attrs": {**(dev.get("attrs") or {}), **(attrs or {})},
@@ -112,6 +113,39 @@ class DeviceServer:
         if self._connected and dev.get("state_topic"):
             self._subscribe(dev["state_topic"])
         return {"ok": True, "device": dev}
+
+    def set_room(self, device_id: str, room: str) -> Dict[str, Any]:
+        with self._lock:
+            dev = self._devices.get(device_id)
+            if not dev:
+                return {"ok": False, "error": "unknown device"}
+            dev["room"] = (room or "").strip()
+            self._save()
+        return {"ok": True, "device": dev}
+
+    def rooms(self) -> List[Dict[str, Any]]:
+        """Devices grouped by room. Named rooms first (alphabetical), 'Unassigned' last."""
+        groups: Dict[str, List[Dict[str, Any]]] = {}
+        with self._lock:
+            for d in self._devices.values():
+                groups.setdefault((d.get("room") or "").strip() or "Unassigned", []).append(dict(d))
+        named = sorted(k for k in groups if k != "Unassigned")
+        order = named + (["Unassigned"] if "Unassigned" in groups else [])
+        return [{"room": r, "devices": sorted(groups[r], key=lambda x: x.get("name") or x["id"])}
+                for r in order]
+
+    def control_room(self, room: str, command: str) -> Dict[str, Any]:
+        """Turn every controllable device in a room on/off."""
+        room = (room or "").strip() or "Unassigned"
+        with self._lock:
+            targets = [d["id"] for d in self._devices.values()
+                       if ((d.get("room") or "").strip() or "Unassigned") == room
+                       and d.get("command_topic")]
+        if not targets:
+            return {"ok": False, "error": f"no controllable devices in '{room}'"}
+        results = [self.control(did, command) for did in targets]
+        ok = any(r.get("ok") for r in results)
+        return {"ok": ok, "room": room, "count": sum(1 for r in results if r.get("ok"))}
 
     def remove_device(self, device_id: str) -> Dict[str, Any]:
         with self._lock:
