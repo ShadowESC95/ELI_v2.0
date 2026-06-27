@@ -6,7 +6,7 @@ Provides REST endpoints for chat and command execution.
 from fastapi import FastAPI, HTTPException, Depends, Header, Request
 from fastapi.responses import HTMLResponse, StreamingResponse, Response
 from pydantic import BaseModel
-from typing import Optional
+from typing import Optional, Any
 import json
 import os
 import secrets
@@ -181,7 +181,7 @@ _WEB_UI = """<!doctype html>
     <nav class="tabs">
       <button data-tab="chat" class="active">Chat</button>
       <button data-tab="commands">Commands</button>
-      <button data-tab="home">Home</button>
+      <button data-tab="devices">Devices</button>
       <button data-tab="system">System</button>
       <button data-tab="research">Research</button>
       <button data-tab="audit">Audit</button>
@@ -198,7 +198,7 @@ _WEB_UI = """<!doctype html>
       <div id="cmdlist"><div class="muted">Loading…</div></div>
     </div>
   </section>
-  <section class="view" id="view-home"><div id="home"><div class="muted">Loading…</div></div></section>
+  <section class="view" id="view-devices"><div id="devices"><div class="muted">Loading…</div></div></section>
   <section class="view" id="view-system"><div id="system"><div class="muted">Loading…</div></div></section>
   <section class="view" id="view-research"><div id="research"><div class="muted">Loading…</div></div></section>
   <section class="view" id="view-audit"><div id="audit"><div class="muted">Loading…</div></div></section>
@@ -221,7 +221,7 @@ _WEB_UI = """<!doctype html>
     document.querySelectorAll('.view').forEach(v=>v.classList.remove('active'));
     $('#view-'+b.dataset.tab).classList.add('active');
     if(b.dataset.tab==='commands' && !cmdsLoaded) loadCommands();
-    if(b.dataset.tab==='home') loadHome();
+    if(b.dataset.tab==='devices') loadDevices();
     if(b.dataset.tab==='system') loadSystem();
     if(b.dataset.tab==='research') loadResearch();
     if(b.dataset.tab==='audit') loadAudit();
@@ -325,75 +325,87 @@ _WEB_UI = """<!doctype html>
     if(!wrap.children.length)wrap.innerHTML='<div class="muted">No matches.</div>';
   }
 
-  /* home */
-  function loadHome(){
-    api('/v1/smarthome/config').then(cfg=>{
-      if(!cfg.configured){renderHomeConfig(cfg.hass_url||'');return;}
-      api('/v1/smarthome/devices').then(d=>{
-        if(!d.ok){$('#home').innerHTML='<div class="err">'+esc(d.error||'Home Assistant unreachable')+'</div>'+cfgLink();return;}
-        renderDevices(d.devices||[]);});
-    }).catch(e=>{$('#home').innerHTML='<div class="err">'+esc(''+e)+'</div>';});
+  /* devices — ELI's OWN MQTT device server (no Home Assistant) */
+  function loadDevices(){
+    api('/v1/devices/status').then(s=>{
+      const st=(s&&s.status)||{};
+      if(!st.configured){renderDevConfig(st);return;}
+      api('/v1/devices').then(d=>renderDevices(d.devices||[], st))
+        .catch(e=>{$('#devices').innerHTML='<div class="err">'+esc(''+e)+'</div>';});
+    }).catch(e=>{$('#devices').innerHTML='<div class="err">'+esc(''+e)+'</div>';});
   }
-  function cfgLink(){return '<div class="muted"><span class="link" onclick="editHome()">Edit Home Assistant connection</span></div>';}
-  function renderHomeConfig(url){
-    $('#home').innerHTML='<div class="hconfig"><h3>Home Assistant</h3>'+
-      '<p>Connect Home Assistant to control your devices here. Paste your server URL and a long-lived access token (HA &rarr; Profile &rarr; Security &rarr; Long-lived access tokens).</p>'+
-      '<label>Server URL</label><input id="ha_url" placeholder="http://homeassistant.local:8123" value="'+esc(url)+'">'+
-      '<label>Long-lived token</label><input id="ha_tok" type="password" placeholder="paste token (blank = keep existing)">'+
-      '<button onclick="saveHome()">Save &amp; connect</button></div>';
+  function renderDevConfig(st){
+    st=st||{};
+    $('#devices').innerHTML='<div class="hconfig"><h3>ELI device server</h3>'+
+      '<p>ELI talks to your devices directly over <b>MQTT</b> — no Home Assistant. Point it at your MQTT broker (e.g. Mosquitto), and use devices that speak MQTT (ESPHome / Tasmota / Zigbee2MQTT).</p>'+
+      '<label>Broker host</label><input id="mq_host" placeholder="192.168.1.50" value="'+esc(st.brokerHost||'')+'">'+
+      '<label>Port</label><input id="mq_port" value="1883">'+
+      '<label>Username (optional)</label><input id="mq_user" autocomplete="off">'+
+      '<label>Password (optional)</label><input id="mq_pass" type="password" autocomplete="new-password">'+
+      '<label>Discovery prefix (optional — auto-finds devices)</label><input id="mq_disc" placeholder="leave blank for manual devices">'+
+      '<button onclick="saveDevConfig()">Save &amp; connect</button></div>';
   }
-  function saveHome(){const url=$('#ha_url').value.trim(),tok=$('#ha_tok').value.trim();
-    $('#home').innerHTML='<div class="muted">Saving…</div>';
-    api('/v1/smarthome/config',{method:'POST',body:JSON.stringify({hass_url:url,hass_token:tok})})
-      .then(()=>loadHome()).catch(e=>{$('#home').innerHTML='<div class="err">'+esc(''+e)+'</div>';});}
-  function deviceCard(dv){
-    const dom=dv.domain||(dv.entity_id.split('.')[0]||''), a=dv.attrs||{};
-    const card=document.createElement('div');card.className='card';
-    const head='<div><div class="nm">'+esc(dv.name)+'</div><div class="dom">'+esc(dom)+'</div></div>';
-    const on=(''+dv.state).toLowerCase()==='on';
-    if(dom==='light'){
+  function saveDevConfig(){
+    const body={host:($('#mq_host').value||'').trim(), port:parseInt($('#mq_port').value||'1883',10)||1883,
+      username:($('#mq_user').value||'').trim(), password:$('#mq_pass').value||'',
+      discovery_prefix:($('#mq_disc').value||'').trim()};
+    $('#devices').innerHTML='<div class="muted">Connecting to broker…</div>';
+    api('/v1/devices/config',{method:'POST',body:JSON.stringify(body)}).then(r=>{
+      if(!r.ok){$('#devices').innerHTML='<div class="err">'+esc(r.error||'connect failed')+'</div><div class="rnote"><span class="link" onclick="loadDevices()">back</span></div>';return;}
+      setTimeout(loadDevices,500);
+    }).catch(e=>{$('#devices').innerHTML='<div class="err">'+esc(''+e)+'</div>';});
+  }
+  function devCard(dv){
+    const t=dv.type||'switch', card=document.createElement('div');card.className='card';
+    const head='<div><div class="nm">'+esc(dv.name||dv.id)+'</div><div class="dom">'+esc(t)+'</div></div>';
+    const on=(''+(dv.state||'')).toUpperCase()==='ON';
+    if(t==='light'||t==='switch'||t==='fan'||t==='outlet'){
       let h=head+'<div class="row"><span class="st">'+(on?'On':'Off')+'</span><label class="sw"><input type="checkbox" '+(on?'checked':'')+'><span></span></label></div>';
-      if(on && a.brightness_pct!=null) h+='<input type="range" min="1" max="100" value="'+a.brightness_pct+'">';
+      const briTopic=(dv.attrs||{}).brightness_command_topic;
+      if(t==='light'&&briTopic) h+='<input type="range" min="1" max="100" value="100">';
       card.innerHTML=h;
-      const tg=card.querySelector('.sw input');tg.onchange=()=>control(dv.entity_id,tg.checked?'on':'off');
+      const tg=card.querySelector('.sw input');tg.onchange=()=>ctlDev(dv.id,tg.checked?'on':'off');
       const sl=card.querySelector('input[type=range]');
-      if(sl){let t;sl.oninput=()=>{clearTimeout(t);t=setTimeout(()=>control(dv.entity_id,'on',+sl.value),250);};}
-    } else if(dom==='switch'||dom==='fan'||dom==='input_boolean'){
-      card.innerHTML=head+'<div class="row"><span class="st">'+(on?'On':'Off')+'</span><label class="sw"><input type="checkbox" '+(on?'checked':'')+'><span></span></label></div>';
-      const tg=card.querySelector('.sw input');tg.onchange=()=>control(dv.entity_id,tg.checked?'on':'off');
-    } else if(dom==='media_player'){
-      const title=a.media_title?(esc(a.media_title)+(a.media_artist?' — '+esc(a.media_artist):'')):esc(''+dv.state);
-      card.innerHTML=head+'<div class="st">'+title+'</div><div class="media"><button data-c="previous">⏮</button><button data-c="play_pause">⏯</button><button data-c="next">⏭</button><button data-c="stop">⏹</button></div>';
-      card.querySelectorAll('.media button').forEach(b=>b.onclick=()=>media(dv.entity_id,b.dataset.c));
-    } else if(dom==='climate'){
-      const cur=a.current_temperature, mn=(a.min_temp!=null?+a.min_temp:7), mx=(a.max_temp!=null?+a.max_temp:35);
-      let target=(a.temperature!=null?+a.temperature:20);
-      card.innerHTML=head+'<div class="st">'+(cur!=null?cur+'° now':esc(''+dv.state))+'</div>'+
-        '<div class="clim"><button data-d="-1">−</button><span class="st sp">'+(a.temperature!=null?target+'°':'—')+'</span><button data-d="1">+</button></div>';
-      const sp=card.querySelector('.sp');
-      card.querySelectorAll('.clim button').forEach(b=>b.onclick=()=>{target=Math.max(mn,Math.min(mx,target+(+b.dataset.d)));sp.textContent=target+'°';climate(dv.entity_id,target);});
+      if(sl){let t2;sl.oninput=()=>{clearTimeout(t2);t2=setTimeout(()=>ctlDev(dv.id,'brightness',+sl.value),250);};}
     } else {
-      const num=parseFloat(dv.state), isNum=!isNaN(num)&&isFinite(num), unit=a.unit_of_measurement||'';
-      if(isNum && (unit==='%'||(!unit && num>=0 && num<=100))){
-        card.innerHTML='<div class="nm">'+esc(dv.name)+'</div><div class="gauge" style="--p:'+num+'"><i>'+Math.round(num)+'</i></div>';
+      const num=parseFloat(dv.state), isNum=!isNaN(num)&&isFinite(num);
+      if(isNum && num>=0 && num<=100){
+        card.innerHTML='<div class="nm">'+esc(dv.name||dv.id)+'</div><div class="gauge" style="--p:'+num+'"><i>'+Math.round(num)+'</i></div>';
       } else {
-        card.innerHTML=head+'<div class="row"><span class="st">'+esc(''+dv.state)+(unit?' '+esc(unit):'')+'</span></div>';
+        card.innerHTML=head+'<div class="row"><span class="st">'+esc(''+(dv.state||'unknown'))+'</span></div>';
       }
     }
     return card;
   }
-  function renderDevices(devs){
-    if(!devs.length){$('#home').innerHTML='<div class="muted">No devices found.</div>'+cfgLink();return;}
-    const grid=document.createElement('div');grid.className='grid';
-    devs.forEach(dv=>grid.appendChild(deviceCard(dv)));
-    const h=$('#home');h.innerHTML='';h.appendChild(grid);
-    const foot=document.createElement('div');foot.innerHTML=cfgLink();h.appendChild(foot);
+  function renderDevices(devs, st){
+    const h=$('#devices');h.innerHTML='';
+    const bar=document.createElement('div');bar.className='abadge '+(st&&st.connected?'ok':'bad');
+    bar.innerHTML='<span class="dot"></span><span>'+(st&&st.connected?('Connected to '+esc(st.broker||'broker')):('Not connected'+(st&&st.error?(' — '+esc(st.error)):'')))+' · '+devs.length+' device(s)</span>';
+    h.appendChild(bar);
+    if(devs.length){const grid=document.createElement('div');grid.className='grid';devs.forEach(dv=>grid.appendChild(devCard(dv)));h.appendChild(grid);}
+    else{const m=document.createElement('div');m.className='muted';m.textContent='No devices yet. Add one below, or set a discovery prefix to auto-find them.';h.appendChild(m);}
+    const foot=document.createElement('div');foot.className='afilter';foot.style.marginTop='14px';
+    foot.innerHTML='<button onclick="addDevicePrompt()">+ Add device</button><button onclick="loadDevices()">Refresh</button><span class="link" style="align-self:center" onclick="renderDevConfig({})">Broker settings</span>';
+    h.appendChild(foot);
+    const slot=document.createElement('div');slot.id='dev-add';h.appendChild(slot);
   }
-  function control(entity,cmd,bri){const b={entity_id:entity,command:cmd};if(bri!=null)b.brightness=bri;
-    api('/v1/smarthome/control',{method:'POST',body:JSON.stringify(b)}).then(()=>{if(bri==null)setTimeout(loadHome,400);});}
-  function media(entity,cmd){api('/v1/smarthome/media',{method:'POST',body:JSON.stringify({entity_id:entity,command:cmd})}).then(()=>setTimeout(loadHome,600));}
-  function climate(entity,temp){api('/v1/smarthome/climate',{method:'POST',body:JSON.stringify({entity_id:entity,temperature:temp})});}
-  function editHome(){renderHomeConfig('');}
+  function addDevicePrompt(){
+    $('#dev-add').innerHTML='<div class="rsec" style="margin-top:12px"><h4>Register a device</h4>'+
+      '<div class="rrow"><input id="d-id" placeholder="device id (unique)"><input id="d-name" placeholder="name"></div>'+
+      '<div class="rrow"><select id="d-type"><option>light</option><option>switch</option><option>fan</option><option>outlet</option><option>sensor</option></select>'+
+      '<input id="d-cmd" placeholder="command topic (e.g. home/lamp/set)"></div>'+
+      '<div class="rrow"><input id="d-state" placeholder="state topic (e.g. home/lamp/state)"><button onclick="addDevice()">Add</button></div></div>';
+  }
+  function addDevice(){
+    const body={device_id:($('#d-id').value||'').trim(), name:($('#d-name').value||'').trim(),
+      type:$('#d-type').value, command_topic:($('#d-cmd').value||'').trim(), state_topic:($('#d-state').value||'').trim()};
+    if(!body.device_id){return;}
+    api('/v1/devices/register',{method:'POST',body:JSON.stringify(body)}).then(()=>loadDevices());
+  }
+  function ctlDev(id,cmd,value){
+    const body={device_id:id,command:cmd};if(value!=null)body.value=value;
+    api('/v1/devices/control',{method:'POST',body:JSON.stringify(body)}).then(()=>{if(cmd!=='brightness')setTimeout(loadDevices,400);});
+  }
 
   /* system */
   function sgauge(v,label){return '<div><div class="gauge" style="--p:'+(v||0)+'"><i>'+Math.round(v||0)+'</i></div><div class="glabel">'+esc(label)+'</div></div>';}
@@ -471,7 +483,7 @@ _WEB_UI = """<!doctype html>
       .finally(()=>{btn.disabled=false;});
   }
 
-  window.renderHomeConfig=renderHomeConfig; window.saveHome=saveHome; window.control=control; window.media=media; window.climate=climate; window.editHome=editHome;
+  window.renderDevConfig=renderDevConfig; window.saveDevConfig=saveDevConfig; window.ctlDev=ctlDev; window.addDevicePrompt=addDevicePrompt; window.addDevice=addDevice; window.loadDevices=loadDevices;
   /* audit — tamper-evident trail + chain verification */
   let auditUser='';
   function loadAudit(){
@@ -541,22 +553,26 @@ class StatusResponse(BaseModel):
     uptime: float
     user_id: str
 
-class SmartHomeConfig(BaseModel):
-    hass_url: str = ""
-    hass_token: str = ""
+class DeviceConfig(BaseModel):
+    # ELI's own MQTT broker connection — NOT Home Assistant.
+    host: str = ""
+    port: int = 1883
+    username: str = ""
+    password: str = ""
+    discovery_prefix: str = ""   # optional MQTT discovery; blank = manual devices only
+    tls: bool = False
 
-class SmartHomeControl(BaseModel):
-    entity_id: str
-    command: str  # "on" | "off"
-    brightness: Optional[int] = None  # 0-100 (%)
+class DeviceRegister(BaseModel):
+    device_id: str
+    name: str = ""
+    type: str = "switch"          # light|switch|fan|sensor|climate|media|cover|outlet
+    command_topic: str = ""
+    state_topic: str = ""
 
-class MediaControl(BaseModel):
-    entity_id: str
-    command: str  # play | pause | play_pause | next | previous | stop
-
-class ClimateControl(BaseModel):
-    entity_id: str
-    temperature: float
+class DeviceControl(BaseModel):
+    device_id: str
+    command: str                  # on | off | brightness | set
+    value: Optional[Any] = None
 
 class CompletionMessage(BaseModel):
     role: str = "user"
@@ -852,58 +868,57 @@ async def capabilities():
     return {"total": sum(len(c["actions"]) for c in cats), "categories": cats}
 
 # ----------------------------------------------------------------------
-# Smart-home  (powers the "Home" tab — reuses the Home Assistant plugin)
+# Devices  (powers the "Devices" tab — ELI's OWN MQTT device server, no Home Assistant)
+# ELI keeps its own device registry and talks to devices directly over MQTT
+# (ESPHome / Tasmota / Zigbee2MQTT, or anything that speaks MQTT).
 # ----------------------------------------------------------------------
-def _smart_home():
-    from eli.plugins.smart_home.plugin import SmartHomePlugin
-    return SmartHomePlugin()
+def _device_server():
+    from eli.runtime.device_server import get_server
+    return get_server()
 
-@app.get("/v1/smarthome/config", tags=["Smart Home"], dependencies=[Depends(_require_token)])
-async def smarthome_get_config():
-    """Current Home Assistant connection (URL + whether a token is set). The token
-    itself is never returned."""
-    from eli.core import config
-    url = (config.get("hass_url") or "").strip()
-    return {"hass_url": url, "configured": bool(url and (config.get("hass_token") or "").strip())}
+@app.get("/v1/devices/status", tags=["Devices"], dependencies=[Depends(_require_token)])
+async def devices_status():
+    """Broker connection + registry summary (no secrets returned)."""
+    return {"ok": True, "status": _device_server().status()}
 
-@app.post("/v1/smarthome/config", tags=["Smart Home"], dependencies=[Depends(_require_token)])
-async def smarthome_set_config(cfg: SmartHomeConfig):
-    """Save the Home Assistant URL and long-lived token (token-gated endpoint)."""
-    from eli.core import config
-    config.set("hass_url", cfg.hass_url.strip().rstrip("/"))
-    if cfg.hass_token.strip():
-        config.set("hass_token", cfg.hass_token.strip())
-    return {"ok": True}
+@app.post("/v1/devices/config", tags=["Devices"], dependencies=[Depends(_require_token)])
+async def devices_config(cfg: DeviceConfig):
+    """Save the MQTT broker settings, then (re)connect. Password is never returned."""
+    srv = _device_server()
+    srv.configure(host=cfg.host.strip(), port=int(cfg.port), username=cfg.username,
+                  password=cfg.password, discovery_prefix=cfg.discovery_prefix.strip(),
+                  tls=bool(cfg.tls))
+    return srv.connect()
 
-@app.get("/v1/smarthome/devices", tags=["Smart Home"], dependencies=[Depends(_require_token)])
-async def smarthome_devices():
-    """List Home Assistant entities (lights/switches/climate/media/sensors/covers)."""
-    res = _smart_home().list_devices({})
-    ok = bool(res.get("ok"))
-    return {"ok": ok, "devices": res.get("devices", []),
-            "error": None if ok else (res.get("content") or "unavailable")}
+@app.post("/v1/devices/connect", tags=["Devices"], dependencies=[Depends(_require_token)])
+async def devices_connect():
+    """Connect to the configured MQTT broker."""
+    return _device_server().connect()
 
-@app.post("/v1/smarthome/control", tags=["Smart Home"], dependencies=[Depends(_require_token)])
-async def smarthome_control(req: SmartHomeControl):
-    """Turn an entity on/off (optionally set brightness % on lights)."""
-    sh = _smart_home()
-    args = {"entity_id": req.entity_id}
-    if req.brightness is not None:
-        args["brightness_pct"] = int(req.brightness)
-    res = sh.turn_on(args) if (req.command or "").lower() == "on" else sh.turn_off(args)
-    return {"ok": bool(res.get("ok")), "message": res.get("response") or res.get("content")}
+@app.post("/v1/devices/disconnect", tags=["Devices"], dependencies=[Depends(_require_token)])
+async def devices_disconnect():
+    return _device_server().disconnect()
 
-@app.post("/v1/smarthome/media", tags=["Smart Home"], dependencies=[Depends(_require_token)])
-async def smarthome_media(req: MediaControl):
-    """Transport control for a media_player (play/pause/next/previous/stop)."""
-    res = _smart_home().media_control({"entity_id": req.entity_id, "command": req.command})
-    return {"ok": bool(res.get("ok")), "message": res.get("response") or res.get("content")}
+@app.get("/v1/devices", tags=["Devices"], dependencies=[Depends(_require_token)])
+async def devices_list():
+    """List ELI's registered devices with their last-known state."""
+    return {"ok": True, "devices": _device_server().list_devices()}
 
-@app.post("/v1/smarthome/climate", tags=["Smart Home"], dependencies=[Depends(_require_token)])
-async def smarthome_climate(req: ClimateControl):
-    """Set a climate entity's target temperature."""
-    res = _smart_home().set_temperature({"entity_id": req.entity_id, "temperature": req.temperature})
-    return {"ok": bool(res.get("ok")), "message": res.get("response") or res.get("content")}
+@app.post("/v1/devices/register", tags=["Devices"], dependencies=[Depends(_require_token)])
+async def devices_register(req: DeviceRegister):
+    """Manually register a device by its MQTT topics (works without discovery)."""
+    return _device_server().register_device(
+        device_id=req.device_id, name=req.name, dtype=req.type,
+        command_topic=req.command_topic, state_topic=req.state_topic)
+
+@app.post("/v1/devices/remove", tags=["Devices"], dependencies=[Depends(_require_token)])
+async def devices_remove(req: DeviceRegister):
+    return _device_server().remove_device(req.device_id)
+
+@app.post("/v1/devices/control", tags=["Devices"], dependencies=[Depends(_require_token)])
+async def devices_control(req: DeviceControl):
+    """Control a device: on | off | brightness <0-100> | set <payload>."""
+    return _device_server().control(req.device_id, req.command, req.value)
 
 # ----------------------------------------------------------------------
 # System telemetry  (powers the "System" tab — real, measured, never guessed)

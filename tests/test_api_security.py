@@ -45,7 +45,7 @@ _AUTH_DRIVER = textwrap.dedent(
     import api.server as S
 
     GATED = ["/v1/system", "/v1/voice/voices", "/v1/research/corpora",
-             "/v1/smarthome/devices", "/v1/capabilities", "/v1/status/me"]
+             "/v1/devices", "/v1/capabilities", "/v1/status/me"]
 
     # (a) tokenless + no opt-out -> every gated endpoint 401 (fail closed)
     c = TestClient(S.app)
@@ -53,8 +53,8 @@ _AUTH_DRIVER = textwrap.dedent(
         r = c.get(p)
         assert r.status_code == 401, f"FAIL-OPEN {p}: {r.status_code}"
     # device control (POST) also denied
-    assert c.post("/v1/smarthome/control",
-                  json={"entity_id": "light.x", "command": "on"}).status_code == 401
+    assert c.post("/v1/devices/control",
+                  json={"device_id": "x", "command": "on"}).status_code == 401
     # research ingest (the file-read primitive) denied
     assert c.post("/v1/research/ingest", json={"corpus": "x", "path": "/etc"}).status_code == 401
 
