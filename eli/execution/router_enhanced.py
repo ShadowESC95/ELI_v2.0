@@ -1282,11 +1282,14 @@ def route(text: str) -> Dict[str, Any]:
     # These are not casual chat. They require grounded runtime/file evidence.
     # This block belongs inside the primary route() function, not as an
     # end-of-file wrapper around route().
+    # A PROOF challenge AND an explicit reference to ELI's own runtime/source — not bare
+    # "data"/"read"/"file", which over-matched ordinary requests ("read the data in that
+    # file and prove it's right") and hijacked them into a runtime audit.
     if re.search(
-        r"\b(prove|proof|timestamp|timestamps|data|scanned|actually scanned|read the file|read in full)\b",
+        r"\b(prove|proof|timestamps?|actually scanned|scanned (?:the|your)|read (?:the|your) (?:file|code|source)|read in full)\b",
         low,
     ) and re.search(
-        r"\b(gui|file|audit|scan|read)\b",
+        r"\b(gui|audit|runtime|your (?:code|source|files?)|source code|the codebase)\b",
         low,
     ):
         return _mk(
@@ -4888,7 +4891,12 @@ def _eli_runtime_cognition_failure_guard(text):
             },
         }
 
-    if re.search(r"\brecent\s+failures?\b", low) or re.search(r"\bactual\s+root\s+cause\b", low):
+    # SELF_ANALYZE inspects ELI's OWN failure log — so require a self-reference
+    # ("your/you/eli"), not a bare "recent failures" / "root cause" which over-matched
+    # questions about the user's own code/project.
+    if (re.search(r"\b(your|you'?ve had|eli'?s)\s+(?:recent\s+)?failures?\b", low)
+            or re.search(r"\bactual root cause of (?:your|eli'?s|the last)\b", low)
+            or re.search(r"\banalyse?\s+(?:your|eli'?s)\s+(?:own\s+)?(?:recent\s+)?failures?\b", low)):
         return {
             "action": "SELF_ANALYZE",
             "args": {},

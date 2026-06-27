@@ -397,6 +397,13 @@ def _canonical_runtime_file_map() -> Dict[str, Path]:
         'inference_broker': ['cognition/inference_broker.py'],
         'output_governor':  ['cognition/output_governor.py'],
         'vector_store':     ['memory/vector_store.py'],
+        # Web server + home/RBAC/audit runtime (api/server.py lives at the project root,
+        # one level above eli/, hence the `../`).
+        'web_server':       ['../api/server.py'],
+        'device_server':    ['runtime/device_server.py'],
+        'home_intel':       ['runtime/home_intel.py'],
+        'api_users':        ['runtime/api_users.py'],
+        'evidence_ledger':  ['runtime/evidence_ledger.py'],
     }
     out: Dict[str, Path] = {}
     for key, candidates in rels.items():
