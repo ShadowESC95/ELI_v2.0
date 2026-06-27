@@ -356,7 +356,134 @@ class DeviceServer:
                 return {"ok": False, "error": f"unsupported command: {command}"}
         except Exception as e:
             return {"ok": False, "error": str(e)}
+        self._record_usage(device_id, cmd, dev)
         return {"ok": True, "device": device_id, "command": cmd}
+
+    # ── Usage / preference tracking + awareness ──────────────────────────────
+    def _record_usage(self, device_id: str, cmd: str, dev: dict) -> None:
+        """Append a usage event (for ELI to learn preferences) + feed the LLM's memory.
+        Best-effort; never raises into control()."""
+        try:
+            row = {"id": device_id, "name": dev.get("name") or device_id, "type": dev.get("type"),
+                   "room": dev.get("room") or "", "command": cmd, "ts": time.time(),
+                   "hour": time.localtime().tm_hour}
+            with self._lock:
+                p = _registry_path().parent / "usage.jsonl"
+                with p.open("a", encoding="utf-8") as fh:
+                    fh.write(json.dumps(row, ensure_ascii=False) + "\n")
+        except Exception:
+            log.debug("device_server: usage log failed", exc_info=True)
+        # Let ELI's preference layer know (so 'what do you know about me' reflects home use).
+        try:
+            from eli.runtime import home_intel
+            home_intel.note_usage(row)
+        except Exception:
+            pass
+
+    def usage_summary(self, days: int = 14) -> Dict[str, Any]:
+        """Aggregate recent device usage into preference signals: per-device counts and
+        the typical hour of use. Drives proactive automation suggestions."""
+        import collections
+        since = time.time() - float(days) * 86400.0
+        per: Dict[str, dict] = {}
+        try:
+            p = _registry_path().parent / "usage.jsonl"
+            if p.exists():
+                for line in p.read_text(encoding="utf-8").splitlines():
+                    if not line.strip():
+                        continue
+                    try:
+                        r = json.loads(line)
+                    except Exception:
+                        continue
+                    if (r.get("ts") or 0) < since:
+                        continue
+                    d = per.setdefault(r.get("id"), {"id": r.get("id"), "name": r.get("name"),
+                                                     "room": r.get("room", ""), "count": 0,
+                                                     "hours": collections.Counter(), "last": 0})
+                    d["count"] += 1
+                    d["hours"][r.get("hour")] += 1
+                    d["last"] = max(d["last"], r.get("ts") or 0)
+        except Exception:
+            log.debug("device_server: usage summary failed", exc_info=True)
+        out = []
+        for d in per.values():
+            fav = d["hours"].most_common(1)
+            out.append({"id": d["id"], "name": d["name"], "room": d["room"], "uses": d["count"],
+                        "favourite_hour": (fav[0][0] if fav else None), "last": d["last"]})
+        out.sort(key=lambda x: x["uses"], reverse=True)
+        return {"days": days, "devices": out}
+
+    def home_state(self) -> Dict[str, Any]:
+        """A compact snapshot of the home for ELI's self-awareness / LLM context:
+        connection, rooms, devices and their states."""
+        st = self.status()
+        rooms = self.rooms()
+        on = [d["name"] for r in rooms for d in r["devices"]
+              if str(d.get("state", "")).upper() == "ON"]
+        return {"connected": st.get("connected"), "broker": st.get("broker"),
+                "device_count": st.get("device_count"), "on": on, "rooms": rooms}
+
+
+def discover(timeout: float = 3.0) -> Dict[str, Any]:
+    """Find MQTT brokers and smart devices on the LAN via mDNS — so the user doesn't
+    have to know IPs/topics. Gated through netguard (a deliberate local-network scan);
+    degrades cleanly if zeroconf isn't installed."""
+    try:
+        from zeroconf import Zeroconf, ServiceBrowser, ServiceListener
+    except Exception:
+        return {"ok": False, "error": "zeroconf not installed (pip install zeroconf)", "found": []}
+
+    # Service types worth surfacing: MQTT brokers + common smart-device advertisements.
+    types = ["_mqtt._tcp.local.", "_esphomelib._tcp.local.", "_hap._tcp.local.",
+             "_googlecast._tcp.local.", "_homekit._tcp.local.", "_http._tcp.local."]
+    found: List[dict] = []
+
+    class _L(ServiceListener):
+        def _grab(self, zc, type_, name):
+            try:
+                info = zc.get_service_info(type_, name, timeout=1500)
+                if not info:
+                    return
+                addrs = []
+                try:
+                    addrs = info.parsed_addresses()
+                except Exception:
+                    pass
+                found.append({"name": name.split("." + type_)[0] or name, "service": type_,
+                              "host": addrs[0] if addrs else "", "port": getattr(info, "port", None)})
+            except Exception:
+                pass
+        def add_service(self, zc, type_, name): self._grab(zc, type_, name)
+        def update_service(self, zc, type_, name): pass
+        def remove_service(self, zc, type_, name): pass
+
+    try:
+        from eli.core import netguard
+        ctx = netguard.allow_network("mDNS device discovery")
+    except Exception:
+        import contextlib
+        ctx = contextlib.nullcontext()
+    try:
+        with ctx:
+            zc = Zeroconf()
+            listener = _L()
+            _browsers = [ServiceBrowser(zc, t, listener) for t in types]
+            time.sleep(max(1.0, float(timeout)))
+            zc.close()
+    except Exception as e:
+        return {"ok": False, "error": str(e), "found": []}
+
+    # Dedupe + classify.
+    seen, uniq = set(), []
+    for f in found:
+        key = (f.get("host"), f.get("port"), f.get("service"))
+        if key in seen:
+            continue
+        seen.add(key)
+        uniq.append(f)
+    brokers = [f for f in uniq if f["service"].startswith("_mqtt") and f.get("host")]
+    return {"ok": True, "found": uniq, "brokers": brokers}
 
 
 _SERVER: Optional[DeviceServer] = None
