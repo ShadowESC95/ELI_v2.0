@@ -20,7 +20,8 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 _lock = threading.Lock()
-ROLES = ("admin", "member")
+# Privilege hierarchy: viewer (read-only) < member (acts) < admin (console + user mgmt).
+ROLES = ("admin", "member", "viewer")
 
 
 def _store_path() -> Path:
