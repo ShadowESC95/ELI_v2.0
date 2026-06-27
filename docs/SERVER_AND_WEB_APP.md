@@ -82,7 +82,8 @@ in a window so the phone URL + token are visible).
 | GET  | `/v1/system` | **token** | Measured GPU/CPU/RAM/model telemetry |
 | GET  | `/v1/audit` | **token** | Tamper-evident (hash-chained) action trail + chain verification |
 | GET/POST | `/v1/admin/*` | **admin** | Enterprise console: `overview`, `user` (drill-down), `users/add`, `users/remove`. Admin role required. |
-| GET/POST | `/v1/devices/*` | **token** | ELI's own MQTT device server: `status`, `config`, `register`, `control` (no Home Assistant) |
+| GET/POST | `/v1/devices/*` | **token** | ELI's MQTT device server: `status`, `config`, `discover` (mDNS), `register`, `control`, `rooms`, `room/control` (no Home Assistant) |
+| GET/POST | `/v1/home/*` | **token** | Home AI: `state`, `suggestions` (+`accept`), `automations/*` (+`create`), `scenes/*` (+`activate`), `location`, `sun` |
 | GET/POST | `/v1/research/*` | **token** | Shared, collaborative corpora: `corpora`, `ingest`, `note`, `documents`, `activity`, `remove`, `query` (grounded, cited, attributed) |
 | GET  | `/v1/voice/voices` | **token** | List local Piper voices + the active one |
 | POST | `/v1/voice/stt` | **token** | Transcribe an audio clip (raw body) with the local whisper model |
