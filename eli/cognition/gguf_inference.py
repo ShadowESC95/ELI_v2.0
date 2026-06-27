@@ -1298,7 +1298,23 @@ def _generate_legacy(
                 _rec_speed(_gen / _elapsed)
         except Exception:
             pass
-        yield {"response": _clean_eli_output(_raw_text)}
+        _cleaned = _clean_eli_output(_raw_text)
+        # A reasoning model can spend its whole budget inside <think> and produce no
+        # answer → empty after strip → dead turn. Retry ONCE forcing no-think (reuses the
+        # existing force_no_think / _no_think_prefill path) so it answers directly.
+        if (not _cleaned.strip()) and _is_thinking_model() and not _force_no_think_active() and grammar is None:
+            log.debug("[GGUF] empty after think-strip — one no-think retry")
+            try:
+                with force_no_think():
+                    _retry_prompt = _format_prompt(system, prompt) + _no_think_prefill(structured=False, max_tokens=max_tokens)
+                    _r2 = _safe_invoke_llm(
+                        llm, _retry_prompt, temperature=temperature,
+                        max_tokens=min(int(max_tokens or 512), 512), top_p=top_p, top_k=top_k,
+                        repeat_penalty=repeat_penalty, stop=stop, stream=False, grammar=None)
+                    _cleaned = _clean_eli_output(_r2["choices"][0]["text"])
+            except Exception:
+                log.debug("[GGUF] no-think retry failed", exc_info=True)
+        yield {"response": _cleaned}
 
 
 _json_grammar = LlamaGrammar.from_string(
