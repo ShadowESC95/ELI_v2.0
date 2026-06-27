@@ -51,6 +51,17 @@ _DRIVER = textwrap.dedent(
     assert c.get("/v1/admin/overview", headers=H(ta)).status_code == 200  # admin ok
     assert c.get("/v1/system", headers=H("garbage")).status_code == 401   # bad token
 
+    # viewer (read-only): can read dashboards, cannot act, cannot see the admin console
+    v = c.post("/v1/admin/users/add", headers=H(ta), json={"user_id": "val", "role": "viewer"}).json()
+    tv = v["token"]
+    assert c.get("/v1/me", headers=H(tv)).json()["role"] == "viewer"
+    assert c.get("/v1/system", headers=H(tv)).status_code == 200            # read ok
+    assert c.get("/v1/research/corpora", headers=H(tv)).status_code == 200  # read ok
+    assert c.post("/v1/chat", headers=H(tv), json={"message": "hi"}).status_code == 403
+    assert c.post("/v1/devices/control", headers=H(tv),
+                  json={"device_id": "x", "command": "on"}).status_code == 403
+    assert c.get("/v1/admin/overview", headers=H(tv)).status_code == 403
+
     # authenticated attribution: bob claims to be alice -> recorded as bob
     c.post("/v1/chat", headers=H(tb), json={"message": "hi", "user_id": "alice"})
     users = {u["user_id"] for u in c.get("/v1/admin/overview", headers=H(ta)).json()["users"]}

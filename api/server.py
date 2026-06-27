@@ -94,8 +94,16 @@ def _resolve_principal(authorization: str) -> Optional[Principal]:
     return None
 
 
-def require_member(authorization: str = Header(default="")) -> Principal:
-    """Fail-CLOSED gate: any authenticated caller. The default — no token, no opt-out —
+# Privilege hierarchy: viewer (read-only) < member (acts) < admin (console + user mgmt).
+_ROLE_RANK = {"viewer": 0, "member": 1, "admin": 2}
+
+
+def _rank(role: str) -> int:
+    return _ROLE_RANK.get((role or "").strip().lower(), 0)  # unknown role → least privilege
+
+
+def _authenticated(authorization: str) -> Principal:
+    """Fail-CLOSED: resolve to a Principal or 401. The default — no token, no opt-out —
     is DENY, so a raw `uvicorn api.server:app` stays locked down regardless of main()."""
     p = _resolve_principal(authorization)
     if p is None:
@@ -107,17 +115,31 @@ def require_member(authorization: str = Header(default="")) -> Principal:
     return p
 
 
+def require_viewer(authorization: str = Header(default="")) -> Principal:
+    """Read-only level — any authenticated caller (viewer, member, or admin)."""
+    return _authenticated(authorization)
+
+
+def require_member(authorization: str = Header(default="")) -> Principal:
+    """Acting level — member or admin. A read-only viewer is 403'd from mutating actions."""
+    p = _authenticated(authorization)
+    if _rank(p.role) < _ROLE_RANK["member"]:
+        raise HTTPException(status_code=403, detail="member role required (read-only viewer)")
+    return p
+
+
 def require_admin(authorization: str = Header(default="")) -> Principal:
-    """Require an admin role (the Admin console + user management)."""
-    p = require_member(authorization)
-    if p.role != "admin":
+    """Admin level — the Admin console + user management."""
+    p = _authenticated(authorization)
+    if _rank(p.role) < _ROLE_RANK["admin"]:
         raise HTTPException(status_code=403, detail="admin role required")
     return p
 
 
 def _require_token(authorization: str = Header(default="")):
-    """Member-level dependency (kept as the name every endpoint already references)."""
-    require_member(authorization)
+    """Read-level dependency (kept as the name read-only endpoints already reference) —
+    permits any authenticated caller, including a viewer."""
+    require_viewer(authorization)
 
 
 def _effective_user(principal: Optional[Principal], supplied: str) -> str:
@@ -265,7 +287,7 @@ _WEB_UI = """<!doctype html>
   .emrow .em { color:var(--teal); font-weight:600; } .emrow .ec { color:#b8bcc4; font-size:12px; }
 </style></head><body>
   <header>
-    <b>ELI</b><small>local &middot; private</small>
+    <b>ELI</b><small>local &middot; private<span id="rolebadge"></span></small>
     <nav class="tabs">
       <button data-tab="chat" class="active">Chat</button>
       <button data-tab="commands">Commands</button>
@@ -718,7 +740,7 @@ _WEB_UI = """<!doctype html>
        (rbac.enabled?('Role-based access ON — '+(rbac.accounts||[]).length+' account(s). Each token maps to a user + role; attribution is authenticated.')
         :'Single-operator mode — the operator is admin. Add a user below to enable role-based access (admin / member).')+'</span></div>'+
        '<div id="acctlist"></div>'+
-       '<div class="afilter" style="margin-top:10px"><input id="nu-id" autocomplete="off" placeholder="new user id"><select id="nu-role"><option value="member">member</option><option value="admin">admin</option></select><button onclick="addUser()">Add user</button></div>'+
+       '<div class="afilter" style="margin-top:10px"><input id="nu-id" autocomplete="off" placeholder="new user id"><select id="nu-role"><option value="viewer">viewer</option><option value="member" selected>member</option><option value="admin">admin</option></select><button onclick="addUser()">Add user</button></div>'+
        '<div id="nu-token" class="rnote"></div></div>';
     $('#admin').innerHTML=h+'</div>';
     const ul=$('#ulist');
@@ -767,6 +789,22 @@ _WEB_UI = """<!doctype html>
 
   window.ingestCorpus=ingestCorpus; window.askCorpus=askCorpus; window.addNote=addNote; window.removeDoc=removeDoc; window.loadCorpusDetail=loadCorpusDetail; window.setResearchName=setResearchName;
   window.filterAudit=filterAudit; window.clearAudit=clearAudit; window.loadAdmin=loadAdmin; window.drillUser=drillUser; window.addUser=addUser; window.removeUser=removeUser;
+
+  /* who am I — reflect role; a read-only viewer can browse dashboards but not act */
+  (function initMe(){
+    api('/v1/me').then(m=>{
+      if(!m||!m.ok)return;
+      window.MY_ROLE=m.role;
+      const rb=$('#rolebadge'); if(rb) rb.textContent=' · '+m.role+(m.role==='viewer'?' (read-only)':'');
+      if(m.role==='viewer'){
+        const send=$('#send'), box=$('#box'), mic=$('#mic');
+        if(send){send.disabled=true;send.textContent='read-only';}
+        if(box){box.disabled=true;box.placeholder='Read-only (viewer) — browse dashboards; you can\\'t send actions.';}
+        if(mic){mic.disabled=true;}
+        const adminBtn=document.querySelector('nav.tabs button[data-tab="admin"]'); if(adminBtn) adminBtn.style.display='none';
+      }
+    }).catch(()=>{});
+  })();
 </script></body></html>"""
 
 # ----------------------------------------------------------------------
@@ -941,7 +979,7 @@ def _audit(event_type: str, *, user_id: str = "default", action: str = "",
 
 
 @app.post("/v1/chat", response_model=ChatResponse, tags=["Chat"])
-async def chat(request: ChatRequest, principal: Principal = Depends(require_member)):
+def chat(request: ChatRequest, principal: Principal = Depends(require_member)):
     """Send a message to ELI and get a response."""
     try:
         engine = get_engine()
@@ -1092,7 +1130,7 @@ def chat_completions(request: CompletionRequest):
     }
 
 @app.post("/v1/execute", response_model=ExecuteResponse, tags=["Commands"])
-async def execute(request: ExecuteRequest, principal: Principal = Depends(require_member)):
+def execute(request: ExecuteRequest, principal: Principal = Depends(require_member)):
     """Execute a direct ELI command (OPEN_APP, SCREENSHOT, etc.)."""
     try:
         from eli.execution.executor_enhanced import execute as exec_cmd
@@ -1117,7 +1155,7 @@ async def execute(request: ExecuteRequest, principal: Principal = Depends(requir
 
 @app.get("/v1/status/{user_id}", response_model=StatusResponse, tags=["System"],
          dependencies=[Depends(_require_token)])
-async def status(user_id: str):
+def status(user_id: str):
     """Get ELI's current status for a user."""
     try:
         from eli.execution.executor_enhanced import get_status
@@ -1157,12 +1195,12 @@ def _device_server():
     return get_server()
 
 @app.get("/v1/devices/status", tags=["Devices"], dependencies=[Depends(_require_token)])
-async def devices_status():
+def devices_status():
     """Broker connection + registry summary (no secrets returned)."""
     return {"ok": True, "status": _device_server().status()}
 
-@app.post("/v1/devices/config", tags=["Devices"], dependencies=[Depends(_require_token)])
-async def devices_config(cfg: DeviceConfig):
+@app.post("/v1/devices/config", tags=["Devices"], dependencies=[Depends(require_member)])
+def devices_config(cfg: DeviceConfig):
     """Save the MQTT broker settings, then (re)connect. Password is never returned."""
     srv = _device_server()
     srv.configure(host=cfg.host.strip(), port=int(cfg.port), username=cfg.username,
@@ -1170,48 +1208,48 @@ async def devices_config(cfg: DeviceConfig):
                   tls=bool(cfg.tls))
     return srv.connect()
 
-@app.post("/v1/devices/connect", tags=["Devices"], dependencies=[Depends(_require_token)])
-async def devices_connect():
+@app.post("/v1/devices/connect", tags=["Devices"], dependencies=[Depends(require_member)])
+def devices_connect():
     """Connect to the configured MQTT broker."""
     return _device_server().connect()
 
-@app.post("/v1/devices/disconnect", tags=["Devices"], dependencies=[Depends(_require_token)])
-async def devices_disconnect():
+@app.post("/v1/devices/disconnect", tags=["Devices"], dependencies=[Depends(require_member)])
+def devices_disconnect():
     return _device_server().disconnect()
 
 @app.get("/v1/devices", tags=["Devices"], dependencies=[Depends(_require_token)])
-async def devices_list():
+def devices_list():
     """List ELI's registered devices with their last-known state."""
     return {"ok": True, "devices": _device_server().list_devices()}
 
 @app.get("/v1/devices/rooms", tags=["Devices"], dependencies=[Depends(_require_token)])
-async def devices_rooms():
+def devices_rooms():
     """Devices grouped by room (named rooms first, 'Unassigned' last)."""
     return {"ok": True, "rooms": _device_server().rooms()}
 
-@app.post("/v1/devices/register", tags=["Devices"], dependencies=[Depends(_require_token)])
-async def devices_register(req: DeviceRegister):
+@app.post("/v1/devices/register", tags=["Devices"], dependencies=[Depends(require_member)])
+def devices_register(req: DeviceRegister):
     """Manually register a device by its MQTT topics (works without discovery)."""
     return _device_server().register_device(
         device_id=req.device_id, name=req.name, dtype=req.type,
         command_topic=req.command_topic, state_topic=req.state_topic, room=req.room)
 
-@app.post("/v1/devices/room", tags=["Devices"], dependencies=[Depends(_require_token)])
-async def devices_set_room(req: DeviceRoom):
+@app.post("/v1/devices/room", tags=["Devices"], dependencies=[Depends(require_member)])
+def devices_set_room(req: DeviceRoom):
     """Assign (or clear) a device's room."""
     return _device_server().set_room(req.device_id, req.room)
 
-@app.post("/v1/devices/room/control", tags=["Devices"], dependencies=[Depends(_require_token)])
-async def devices_room_control(req: RoomControl):
+@app.post("/v1/devices/room/control", tags=["Devices"], dependencies=[Depends(require_member)])
+def devices_room_control(req: RoomControl):
     """Turn every controllable device in a room on/off at once."""
     return _device_server().control_room(req.room, req.command)
 
-@app.post("/v1/devices/remove", tags=["Devices"], dependencies=[Depends(_require_token)])
-async def devices_remove(req: DeviceRegister):
+@app.post("/v1/devices/remove", tags=["Devices"], dependencies=[Depends(require_member)])
+def devices_remove(req: DeviceRegister):
     return _device_server().remove_device(req.device_id)
 
-@app.post("/v1/devices/control", tags=["Devices"], dependencies=[Depends(_require_token)])
-async def devices_control(req: DeviceControl):
+@app.post("/v1/devices/control", tags=["Devices"], dependencies=[Depends(require_member)])
+def devices_control(req: DeviceControl):
     """Control a device: on | off | brightness <0-100> | set <payload>."""
     return _device_server().control(req.device_id, req.command, req.value)
 
@@ -1219,7 +1257,7 @@ async def devices_control(req: DeviceControl):
 # System telemetry  (powers the "System" tab — real, measured, never guessed)
 # ----------------------------------------------------------------------
 @app.get("/v1/system", tags=["System"], dependencies=[Depends(_require_token)])
-async def system_status():
+def system_status():
     """Live, MEASURED self-status — GPU temp/util/VRAM, CPU load/temp, RAM, the
     loaded model and uptime. Same grounded source ELI uses so it never confabulates
     hardware numbers. Read-only."""
@@ -1257,6 +1295,13 @@ def audit_log(user_id: Optional[str] = None, limit: int = 50):
         return {"ok": True, "integrity": verify_chain(), "events": events}
     except Exception as e:
         return {"ok": False, "error": str(e), "events": [], "integrity": None}
+
+@app.get("/v1/me", tags=["Auth"])
+def whoami(principal: Principal = Depends(require_viewer)):
+    """The authenticated caller's identity + role (lets the UI reflect read-only viewers)."""
+    from eli.runtime import api_users
+    return {"ok": True, "user_id": principal.user_id, "role": principal.role,
+            "rbac": api_users.rbac_enabled()}
 
 # ----------------------------------------------------------------------
 # Admin / Enterprise console  (powers the "Admin" tab — read-only management view)
@@ -1408,7 +1453,7 @@ def voice_voices():
 
 _VOICE_EXTS = {"webm", "ogg", "mp4", "m4a", "wav", "mp3"}
 
-@app.post("/v1/voice/stt", tags=["Voice"], dependencies=[Depends(_require_token)])
+@app.post("/v1/voice/stt", tags=["Voice"], dependencies=[Depends(require_member)])
 async def voice_stt(request: Request, ext: str = "webm"):
     """Transcribe a raw audio clip (POST body) with ELI's local whisper model.
     Body is the audio bytes; `?ext=` (or the Content-Type subtype) names the
@@ -1426,7 +1471,9 @@ async def voice_stt(request: Request, ext: str = "webm"):
             tmp.write(data)
             tmp_path = tmp.name
         from eli.perception.local_whisper_stt import transcribe_file
-        text = (transcribe_file(tmp_path) or "").strip()
+        from fastapi.concurrency import run_in_threadpool
+        # Offload the blocking transcription so it doesn't stall the event loop.
+        text = (await run_in_threadpool(transcribe_file, tmp_path) or "").strip()
         return {"ok": True, "text": text}
     except Exception as e:
         return {"ok": False, "error": str(e)}
@@ -1437,7 +1484,7 @@ async def voice_stt(request: Request, ext: str = "webm"):
             except OSError:
                 pass
 
-@app.post("/v1/voice/tts", tags=["Voice"], dependencies=[Depends(_require_token)])
+@app.post("/v1/voice/tts", tags=["Voice"], dependencies=[Depends(require_member)])
 def voice_tts(req: TTSRequest):
     """Render text to a WAV with ELI's local Piper voice (the browser plays it)."""
     try:
