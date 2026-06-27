@@ -95,6 +95,32 @@ def test_totals_and_users_summary(ledger_db):
     assert us["bob"] == (2, 1) and us["alice"] == (2, 0) and us["carol"] == (1, 0)
 
 
+def test_hmac_defeats_knowledgeable_forger(ledger_db, monkeypatch):
+    """With an HMAC key, a forger who can write the DB but not read the key cannot
+    produce a clean chain even by recomputing chain_sig with plain SHA-256."""
+    import hashlib
+    monkeypatch.setenv("ELI_AUDIT_HMAC_KEY", "test-key-not-on-disk")
+    for i in range(5):
+        L.record_event("e", source="api", action=f"A{i}", user_id="u", db_path=ledger_db)
+    v = L.verify_chain(db_path=ledger_db)
+    assert v["ok"] and v["keyed"] is True
+
+    conn = sqlite3.connect(ledger_db)
+    row = conn.execute(
+        "SELECT id, ts, event_type, source, action, subject, content, payload_json, severity, "
+        "outcome, confidence, reusable, session_id, user_id, request_id, signature, prev_sig "
+        "FROM runtime_events ORDER BY id LIMIT 1 OFFSET 2").fetchone()
+    rid, prev = row[0], row[16]
+    vals = [row[1], row[2], row[3], "FORGED", row[5], row[6], row[7], row[8], row[9],
+            row[10], row[11], row[12], row[13], row[14], row[15]]
+    forged = hashlib.sha256(("\x1f".join([str(prev)] + ["" if x is None else str(x) for x in vals])).encode()).hexdigest()
+    conn.execute("UPDATE runtime_events SET action='FORGED', chain_sig=? WHERE id=?", (forged, rid))
+    conn.commit()
+    conn.close()
+    v2 = L.verify_chain(db_path=ledger_db)
+    assert v2["ok"] is False  # the plain-SHA-256 forgery doesn't match the HMAC
+
+
 def test_chain_links_each_row_to_previous(ledger_db):
     """Structural: every row's prev_sig equals the prior row's chain_sig."""
     _seed(ledger_db, 4)

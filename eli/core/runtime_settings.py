@@ -395,6 +395,7 @@ def _load_settings_unsanitized() -> Dict[str, Any]:
                 json.dumps(migrated_data, indent=2, ensure_ascii=False),
                 encoding="utf-8",
             )
+            _harden_perms(settings_file)
             if not _MIGRATION_LOGGED:
                 log.debug(f"[SETTINGS] Migrated {len(migrated_keys)} legacy keys: {migrated_keys}")
                 _MIGRATION_LOGGED = True
@@ -454,6 +455,16 @@ def _persist_healed_paths(settings: Dict[str, Any], settings_file: Path) -> None
         json.dumps(existing, indent=2, ensure_ascii=False),
         encoding="utf-8",
     )
+    _harden_perms(settings_file)
+
+
+def _harden_perms(path) -> None:
+    """Restrict a settings file to its owner (0600) — it can hold secrets (broker
+    passwords, tokens). Best-effort: effective on POSIX, a no-op on Windows."""
+    try:
+        os.chmod(path, 0o600)
+    except OSError:
+        pass
 
 
 def save_settings(settings: Dict[str, Any]) -> None:
@@ -499,6 +510,7 @@ def save_settings(settings: Dict[str, Any]) -> None:
         json.dumps(existing, indent=2, ensure_ascii=False),
         encoding="utf-8",
     )
+    _harden_perms(settings_file)
 
 
 def update_settings(**kwargs: Any) -> Dict[str, Any]:

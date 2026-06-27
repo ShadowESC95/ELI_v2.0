@@ -147,3 +147,6 @@ eli/models/
 eli-mkxi.desktop
 dxdiag.txt
 note_*.md
+
+# Audit chain HMAC key — secret, never commit
+config/.audit_hmac_key
