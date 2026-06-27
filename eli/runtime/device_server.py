@@ -530,9 +530,13 @@ class DeviceServer:
             else f"{act.get('device')} {act.get('command', 'on')}"
         return (what + " " + when).strip()
 
-    def create_automation(self, name: str, trigger: dict, action: dict) -> Dict[str, Any]:
+    def create_automation(self, name: str, trigger: dict, action: Any,
+                          condition: Any = None) -> Dict[str, Any]:
+        """trigger -> action(s), optionally only when condition(s) hold.
+        action may be one action dict or a LIST (multi-action). condition is a list of
+        {device, state} that must all be true for the automation to run."""
         import re as _re
-        t, act = dict(trigger or {}), dict(action or {})
+        t = dict(trigger or {})
         typ = t.get("type", "time")
         if typ == "time":
             if not _re.match(r"^\d{1,2}:\d{2}$", (t.get("time") or "").strip()):
@@ -545,20 +549,41 @@ class DeviceServer:
                 return {"ok": False, "error": "device_state trigger needs a device"}
         else:
             return {"ok": False, "error": f"unknown trigger type: {typ}"}
-        if act.get("kind") == "scene":
-            if not act.get("scene"):
-                return {"ok": False, "error": "scene action needs a scene"}
-        else:
-            act["kind"] = "device"
-            if not act.get("device"):
-                return {"ok": False, "error": "device action needs a device"}
-        auto = {"id": "a" + str(int(time.time() * 1000)), "name": name or self._auto_label(t, act),
-                "enabled": True, "trigger": t, "action": act}
+        acts = action if isinstance(action, list) else [action]
+        for act in acts:
+            if not isinstance(act, dict):
+                return {"ok": False, "error": "each action must be an object"}
+            if act.get("kind") == "scene":
+                if not act.get("scene"):
+                    return {"ok": False, "error": "scene action needs a scene"}
+            else:
+                act["kind"] = "device"
+                if not act.get("device"):
+                    return {"ok": False, "error": "device action needs a device"}
+        cond = [c for c in (condition or []) if isinstance(c, dict) and c.get("device")]
+        label_act = acts[0] if len(acts) == 1 else {"kind": "device", "device": f"{len(acts)} actions"}
+        auto = {"id": "a" + str(int(time.time() * 1000)), "name": name or self._auto_label(t, label_act),
+                "enabled": True, "trigger": t, "action": action, "condition": cond}
         autos = self.list_automations()
         autos.append(auto)
         self._save_automations(autos)
         self._ensure_scheduler()
         return {"ok": True, "automation": auto}
+
+    def _conditions_met(self, condition: Any) -> bool:
+        """True if every {device, state} condition currently holds."""
+        if not condition:
+            return True
+        with self._lock:
+            devs = dict(self._devices)
+        for c in condition:
+            d = devs.get(c.get("device"))
+            want = str(c.get("state", "")).upper()
+            if d is None:
+                return False
+            if want and str(d.get("state", "")).upper() != want:
+                return False
+        return True
 
     def add_automation(self, *, device: str, command: str, time_str: str,
                        value: Any = None, days: Any = "daily", name: str = "") -> Dict[str, Any]:
@@ -589,7 +614,10 @@ class DeviceServer:
         self._save_automations(autos)
         return {"ok": True}
 
-    def _run_action(self, action: dict) -> Dict[str, Any]:
+    def _run_action(self, action: Any) -> Dict[str, Any]:
+        if isinstance(action, list):  # multi-action
+            res = [self._run_action(a) for a in action]
+            return {"ok": any(r.get("ok") for r in res), "ran": sum(1 for r in res if r.get("ok"))}
         if (action or {}).get("kind") == "scene":
             return self.activate_scene(action.get("scene"))
         return self.control(action.get("device"), action.get("command", "on"), action.get("value"))
@@ -621,7 +649,8 @@ class DeviceServer:
                 continue
             tr = a.get("trigger", {})
             if (tr.get("type") == "device_state" and tr.get("device") == device_id
-                    and (not tr.get("state") or str(tr.get("state")).upper() == s)):
+                    and (not tr.get("state") or str(tr.get("state")).upper() == s)
+                    and self._conditions_met(a.get("condition"))):
                 try:
                     self._run_action(a.get("action", {}))
                 except Exception:
@@ -656,6 +685,8 @@ class DeviceServer:
                         if base and self._apply_offset(base, tr.get("offset", 0)) == hm:
                             fire = True
                     # device_state triggers fire from on_message, not here.
+                    if fire and not self._conditions_met(a.get("condition")):
+                        fire = False
                     if fire and last.get(a["id"]) != stamp:
                         last[a["id"]] = stamp
                         try:

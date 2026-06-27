@@ -798,9 +798,15 @@ _WEB_UI = """<!doctype html>
       if(scenes.length){scenes.forEach(s=>{h+='<div class="src"><div class="sh"><span>'+esc(s.name)+' <span class="rnote">('+(s.actions||[]).length+')</span></span><span><button class="roombtn scene-go" data-id="'+esc(s.id)+'">Activate</button> <span class="link scene-rm" data-id="'+esc(s.id)+'">remove</span></span></div></div>';});}
       else h+='<div class="muted">No scenes yet. Set your devices how you like, then snapshot them as a scene.</div>';
       h+='<div class="rrow" style="margin-top:10px"><input id="sc-name" placeholder="scene name (e.g. Movie mode)"><button onclick="createScene()">Snapshot current state</button></div></div>';
+      // location (for sunrise/sunset triggers)
+      h+='<div class="syscard"><h4>&#127758; Location (for sun triggers)</h4>'+
+        '<div class="rrow"><input id="loc-lat" placeholder="latitude" style="max-width:140px"><input id="loc-lon" placeholder="longitude" style="max-width:140px">'+
+        '<button class="cbtn" onclick="useMyLocation()">&#128205; Use my location</button><button onclick="saveLocation()">Save</button></div>'+
+        '<div id="loc-status" class="rnote"></div></div>';
       h+='<div class="syscard"><h4>&#9881; New automation</h4>'+
         '<div class="rrow"><span class="rnote" style="align-self:center;min-width:36px">When</span><select id="au-trig" onchange="autoTrigFields()"><option value="time">at a time</option><option value="sunset">at sunset</option><option value="sunrise">at sunrise</option><option value="device_state">a device turns on/off</option></select><span id="au-tf"></span></div>'+
         '<div class="rrow"><span class="rnote" style="align-self:center;min-width:36px">Then</span><select id="au-act" onchange="autoActFields()"><option value="device">control a device</option><option value="scene">activate a scene</option></select><span id="au-af"></span></div>'+
+        '<div class="rrow"><span class="rnote" style="align-self:center;min-width:36px">Only if</span><select id="au-cond"><option value="">(always)</option>'+_bdevs.map(d=>'<option value="'+esc(d.id)+'">'+esc(d.name)+'</option>').join('')+'</select><select id="au-condstate"><option value="ON">is on</option><option value="OFF">is off</option></select></div>'+
         '<div class="rrow"><button onclick="createAutomation()">Create</button><span id="au-status" class="rnote" style="align-self:center"></span></div></div>';
       box.innerHTML=h;
       box.querySelectorAll('.scene-go').forEach(b=>b.onclick=()=>activateScene(b.dataset.id));
@@ -839,11 +845,28 @@ _WEB_UI = """<!doctype html>
     let action;
     if(at==='device')action={kind:'device',device:$('#au-adev').value,command:$('#au-acmd').value};
     else action={kind:'scene',scene:$('#au-ascene')?$('#au-ascene').value:''};
+    const cd=$('#au-cond')?$('#au-cond').value:'';
+    const condition=cd?[{device:cd,state:$('#au-condstate').value}]:[];
     if(st)st.textContent='Creating…';
-    api('/v1/home/automations/create',{method:'POST',body:JSON.stringify({name:'',trigger:trigger,action:action})}).then(r=>{
+    api('/v1/home/automations/create',{method:'POST',body:JSON.stringify({name:'',trigger:trigger,action:action,condition:condition})}).then(r=>{
       if(st)st.innerHTML=r.ok?'Created.':'<span style="color:#f87171">'+esc(r.error||'failed')+'</span>';
       if(r.ok)loadHomeSuggestions();
     }).catch(e=>{if(st)st.textContent=''+e;});
+  }
+  function useMyLocation(){
+    const stt=$('#loc-status'); if(!navigator.geolocation){if(stt)stt.textContent='Geolocation not available — type it in.';return;}
+    if(stt)stt.textContent='Locating…';
+    navigator.geolocation.getCurrentPosition(function(p){
+      const la=$('#loc-lat'),lo=$('#loc-lon'); if(la)la.value=p.coords.latitude.toFixed(4); if(lo)lo.value=p.coords.longitude.toFixed(4);
+      if(stt)stt.textContent='Got it — click Save.';
+    },function(e){if(stt)stt.textContent='Location blocked: '+e.message;});
+  }
+  function saveLocation(){
+    const lat=parseFloat($('#loc-lat').value), lon=parseFloat($('#loc-lon').value), stt=$('#loc-status');
+    if(isNaN(lat)||isNaN(lon)){if(stt)stt.textContent='Enter latitude and longitude (or use my location).';return;}
+    api('/v1/home/location',{method:'POST',body:JSON.stringify({lat:lat,lon:lon})}).then(r=>{
+      if(stt)stt.innerHTML=r.ok?('Saved. Sunrise '+esc((r.sun||{}).sunrise||'?')+' · Sunset '+esc((r.sun||{}).sunset||'?')):'<span style="color:#f87171">failed</span>';
+    }).catch(()=>{});
   }
   function ctlRoom(room,cmd){
     api('/v1/devices/room/control',{method:'POST',body:JSON.stringify({room:room,command:cmd})}).then(()=>setTimeout(loadDevices,500));
@@ -1027,7 +1050,7 @@ _WEB_UI = """<!doctype html>
   function toggleAuto(id,en){api('/v1/home/automations/toggle',{method:'POST',body:JSON.stringify({id:id,enabled:en})}).catch(()=>{});}
   function removeAuto(id){api('/v1/home/automations/remove',{method:'POST',body:JSON.stringify({id:id})}).then(()=>loadHomeSuggestions()).catch(()=>{});}
   window.renderDevConfig=renderDevConfig; window.saveDevConfig=saveDevConfig; window.ctlDev=ctlDev; window.addDevicePrompt=addDevicePrompt; window.addDevice=addDevice; window.loadDevices=loadDevices; window.ctlRoom=ctlRoom; window.moveDevice=moveDevice; window.discoverDevices=discoverDevices; window.useBroker=useBroker;
-  window.loadScenesPanel=loadScenesPanel; window.createScene=createScene; window.activateScene=activateScene; window.removeScene=removeScene; window.autoTrigFields=autoTrigFields; window.autoActFields=autoActFields; window.createAutomation=createAutomation;
+  window.loadScenesPanel=loadScenesPanel; window.createScene=createScene; window.activateScene=activateScene; window.removeScene=removeScene; window.autoTrigFields=autoTrigFields; window.autoActFields=autoActFields; window.createAutomation=createAutomation; window.useMyLocation=useMyLocation; window.saveLocation=saveLocation;
   /* audit — tamper-evident trail + chain verification */
   let auditUser='';
   function loadAudit(){
@@ -1304,7 +1327,8 @@ class SceneActivate(BaseModel):
 class AutomationCreateV2(BaseModel):
     name: str = ""
     trigger: dict                 # {type:time|sun|device_state, ...}
-    action: dict                  # {kind:device|scene, ...}
+    action: Any                   # an action dict, or a list of them (multi-action)
+    condition: list = []          # [{device, state}] — all must hold for it to run
 
 class HomeLocation(BaseModel):
     lat: float
@@ -1779,9 +1803,9 @@ def home_automation_toggle(req: AutomationRef):
 
 @app.post("/v1/home/automations/create", tags=["Devices"], dependencies=[Depends(require_member)])
 def home_automation_create(req: AutomationCreateV2):
-    """Create an automation with any trigger (time / sun / device_state) + action
-    (control a device, or activate a scene)."""
-    return _device_server().create_automation(req.name, req.trigger, req.action)
+    """Create an automation: a trigger (time / sun / device_state) runs one or more
+    actions (control a device, or activate a scene), optionally only when conditions hold."""
+    return _device_server().create_automation(req.name, req.trigger, req.action, req.condition)
 
 # ── Scenes ──────────────────────────────────────────────────────────────────
 @app.get("/v1/home/scenes", tags=["Devices"], dependencies=[Depends(_require_token)])

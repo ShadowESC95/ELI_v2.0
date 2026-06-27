@@ -249,6 +249,33 @@ def test_device_state_trigger_fires(server, fake_paho):
     assert fake_paho and ("h/lamp/set", "ON") in fake_paho
 
 
+def test_multi_action_automation(server, fake_paho):
+    for d in ("lamp", "tv"):
+        server.register_device(device_id=d, dtype="switch", command_topic=f"h/{d}/set")
+    server.configure(host="192.168.1.50")
+    server.connect()
+    r = server.create_automation("multi", {"type": "time", "time": "20:00"},
+                                 [{"kind": "device", "device": "lamp", "command": "on"},
+                                  {"kind": "device", "device": "tv", "command": "on"}])
+    assert r["ok"] and isinstance(r["automation"]["action"], list)
+    fake_paho.clear()
+    server._run_action(r["automation"]["action"])
+    assert {t for t, _ in fake_paho} == {"h/lamp/set", "h/tv/set"}
+
+
+def test_automation_condition_gating(server, fake_paho):
+    server.register_device(device_id="lamp", dtype="light", command_topic="h/lamp/set")
+    server.register_device(device_id="door", dtype="sensor", state_topic="h/door/state")
+    r = server.create_automation("cond", {"type": "time", "time": "20:00"},
+                                 {"kind": "device", "device": "lamp", "command": "on"},
+                                 condition=[{"device": "door", "state": "ON"}])
+    cond = r["automation"]["condition"]
+    server._devices["door"]["state"] = "OFF"
+    assert server._conditions_met(cond) is False
+    server._devices["door"]["state"] = "ON"
+    assert server._conditions_met(cond) is True
+
+
 def test_sun_times_calc():
     from eli.runtime.device_server import _sun_times_local
     t = _sun_times_local(53.35, -6.26)  # Dublin
