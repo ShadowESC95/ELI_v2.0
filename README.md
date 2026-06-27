@@ -338,9 +338,12 @@ sidebar, and lets you recolour the chat to taste.
   those sources, with citations** — all on ELI's own embedder + FAISS. Every contribution is
   **attributed** (who added/edited/asked what), shown as members + a per-corpus activity feed and
   recorded in the tamper-evident Audit trail. Documents never mix with ELI's memory; nothing leaves the box.
-- **Audit** — a **tamper-evident** trail of every action (who did what, with what outcome), hash-chained
-  so any edited/deleted/reordered record is detected. The tab shows a live "verified intact / tampering
-  detected" verdict and a per-user event list.
+- **Audit** — a **tamper-evident** trail of every action (who did what, with what outcome). Each record
+  is **HMAC-SHA-256 chained** to the one before it, keyed with a secret stored *separately* from the
+  database (`config/.audit_hmac_key`, owner-only, or `$ELI_AUDIT_HMAC_KEY`). So any edited / deleted /
+  reordered / downgraded record is detected — and a local attacker who can write the database but can't
+  read the key can't forge a clean chain. The tab shows a live "verified intact / tampering detected"
+  verdict and a per-user event list. (Keep the key off the DB's backups/media to preserve that property.)
 - **Admin** — an enterprise management console (admin role): chain-integrity status, totals, a
   **per-user activity** rollup (click a user to drill into their recent actions), the **approval /
   risk-gate policy**, and **user management** — create **admin / member / viewer** accounts (each gets a
