@@ -14,10 +14,23 @@ import json
 import logging
 import os
 import re
+import time
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 log = logging.getLogger(__name__)
+
+
+def _audit_research(action: str, corpus: str, user: str, detail: str = "") -> None:
+    """Record a research collaboration event into the tamper-evident audit ledger
+    (who did what, in which corpus). Best-effort — never raises into callers."""
+    try:
+        from eli.runtime.evidence_ledger import record_event
+        record_event("research", source="research", action=action,
+                     subject=_safe_name(corpus), content=detail,
+                     user_id=(user or "anon"), reusable=False)
+    except Exception:
+        log.debug("research_corpus: audit failed", exc_info=True)
 
 _SUPPORTED = {".pdf", ".txt", ".md", ".markdown", ".rst", ".text"}
 
@@ -183,14 +196,29 @@ def _gather_files(src: Path, root: Path):
 
 
 # ── Public API ──────────────────────────────────────────────────────────────
-def ingest(corpus: str, path: str) -> Dict[str, Any]:
-    """Ingest a file or folder of documents into ``corpus`` (append-only).
+def _append(corpus: str, vecs: List[list], metas: List[dict], dim: int) -> int:
+    """Append vectors + metadata to a corpus index (append-only). Returns total chunks."""
+    import numpy as np
+    import faiss
+    d = _corpus_dir(corpus)
+    idx_path, meta_path = d / "index.faiss", d / "chunks.jsonl"
+    arr = np.array(vecs, dtype="float32")
+    index = faiss.read_index(str(idx_path)) if idx_path.exists() else faiss.IndexFlatL2(int(dim))
+    index.add(arr)
+    faiss.write_index(index, str(idx_path))
+    with meta_path.open("a", encoding="utf-8") as fh:
+        for m in metas:
+            fh.write(json.dumps(m, ensure_ascii=False) + "\n")
+    return int(index.ntotal)
+
+
+def ingest(corpus: str, path: str, user: str = "") -> Dict[str, Any]:
+    """Ingest a file or folder of documents into ``corpus`` (append-only), attributed
+    to ``user`` so collaborators can see who contributed what.
 
     The source path is confined to the research root (see ``research_source_root``)
     — caller-supplied paths that escape it are rejected — and the walk is bounded by
     ``_MAX_FILES`` / ``_MAX_BYTES`` so a directory ingest cannot walk the whole disk."""
-    import numpy as np
-    import faiss
     try:
         src = _resolve_within_root(path)
     except ValueError as e:
@@ -205,8 +233,8 @@ def ingest(corpus: str, path: str) -> Dict[str, Any]:
     if not files:
         return {"ok": False, "error": "no supported documents (.pdf/.txt/.md) found within the research root"}
 
-    d = _corpus_dir(corpus)
-    idx_path, meta_path = d / "index.faiss", d / "chunks.jsonl"
+    now = time.time()
+    by = (user or "anon")
     vecs: List[list] = []
     metas: List[dict] = []
     docs, skipped, dim = 0, [], None
@@ -222,56 +250,171 @@ def ingest(corpus: str, path: str) -> Dict[str, Any]:
                 return {"ok": False, "error": "embedder unavailable (nomic embed model not loaded)"}
             dim = len(v)
             vecs.append(v)
-            metas.append({"source": f.name, "path": str(f), "text": c})
+            metas.append({"source": f.name, "path": str(f), "text": c,
+                          "added_by": by, "added_at": now})
             added += 1
         if added:
             docs += 1
     if not vecs:
         return {"ok": False, "error": "no extractable text in the supplied documents"}
 
-    arr = np.array(vecs, dtype="float32")
-    if idx_path.exists():
-        index = faiss.read_index(str(idx_path))
-    else:
-        index = faiss.IndexFlatL2(int(dim))
-    index.add(arr)
-    faiss.write_index(index, str(idx_path))
-    with meta_path.open("a", encoding="utf-8") as fh:
-        for m in metas:
-            fh.write(json.dumps(m, ensure_ascii=False) + "\n")
+    total = _append(corpus, vecs, metas, dim)
+    _audit_research("INGEST", corpus, by, f"{docs} document(s), {len(vecs)} chunk(s)")
     return {"ok": True, "corpus": _safe_name(corpus), "docs_added": docs,
-            "chunks_added": len(vecs), "total_chunks": int(index.ntotal),
-            "skipped": skipped}
+            "chunks_added": len(vecs), "total_chunks": total, "skipped": skipped}
+
+
+def add_note(corpus: str, title: str, text: str, user: str = "") -> Dict[str, Any]:
+    """Create a text 'note' document directly in a corpus — collaborative create/share
+    without a file. Re-adding the same title replaces the old note (simple edit)."""
+    title = (title or "").strip() or "note"
+    text = (text or "").strip()
+    if not text:
+        return {"ok": False, "error": "empty note text"}
+    # Edit semantics: drop any existing note with this title first.
+    existing = {m.get("source") for m in _read_metas(corpus)}
+    if title in existing:
+        remove_document(corpus, title, user=user, _silent=True)
+    chunks = _chunk(text)
+    now = time.time()
+    by = (user or "anon")
+    vecs, metas, dim = [], [], None
+    for c in chunks:
+        v = _embed_doc(c)
+        if v is None:
+            return {"ok": False, "error": "embedder unavailable (nomic embed model not loaded)"}
+        dim = len(v)
+        vecs.append(v)
+        metas.append({"source": title, "path": "note", "text": c,
+                      "added_by": by, "added_at": now})
+    if not vecs:
+        return {"ok": False, "error": "note produced no content"}
+    total = _append(corpus, vecs, metas, dim)
+    _audit_research("NOTE", corpus, by, f"note '{title}' ({len(vecs)} chunk(s))")
+    return {"ok": True, "corpus": _safe_name(corpus), "note": title,
+            "chunks_added": len(vecs), "total_chunks": total}
+
+
+def _read_metas(corpus: str) -> List[dict]:
+    meta_path = _corpus_dir(corpus) / "chunks.jsonl"
+    if not meta_path.exists():
+        return []
+    out = []
+    for line in meta_path.read_text(encoding="utf-8").splitlines():
+        if line.strip():
+            try:
+                out.append(json.loads(line))
+            except Exception:
+                pass
+    return out
+
+
+def documents(corpus: str) -> List[Dict[str, Any]]:
+    """List the distinct documents in a corpus with who added each and when."""
+    by_source: Dict[str, Dict[str, Any]] = {}
+    for m in _read_metas(corpus):
+        s = m.get("source") or "?"
+        rec = by_source.setdefault(s, {"source": s, "kind": ("note" if m.get("path") == "note" else "file"),
+                                       "added_by": m.get("added_by") or "anon",
+                                       "added_at": m.get("added_at") or 0, "chunks": 0})
+        rec["chunks"] += 1
+    return sorted(by_source.values(), key=lambda r: r.get("added_at") or 0, reverse=True)
+
+
+def members(corpus: str) -> List[str]:
+    """Distinct contributors to a corpus (who has added documents)."""
+    return sorted({(m.get("added_by") or "anon") for m in _read_metas(corpus)})
+
+
+def remove_document(corpus: str, source: str, user: str = "", _silent: bool = False) -> Dict[str, Any]:
+    """Remove a document (all its chunks) from a corpus, rebuilding the index from the
+    remaining vectors (no re-embedding). Enables collaborative edit/cleanup."""
+    import numpy as np
+    import faiss
+    d = _corpus_dir(corpus)
+    idx_path, meta_path = d / "index.faiss", d / "chunks.jsonl"
+    metas = _read_metas(corpus)
+    if not metas or not idx_path.exists():
+        return {"ok": False, "error": "corpus empty"}
+    keep = [i for i, m in enumerate(metas) if m.get("source") != source]
+    if len(keep) == len(metas):
+        return {"ok": False, "error": f"no document named '{source}'"}
+    try:
+        index = faiss.read_index(str(idx_path))
+        dim = index.d
+        if keep:
+            vecs = np.vstack([index.reconstruct(int(i)) for i in keep]).astype("float32")
+            new_index = faiss.IndexFlatL2(dim)
+            new_index.add(vecs)
+        else:
+            new_index = faiss.IndexFlatL2(dim)
+        faiss.write_index(new_index, str(idx_path))
+        with meta_path.open("w", encoding="utf-8") as fh:
+            for i in keep:
+                fh.write(json.dumps(metas[i], ensure_ascii=False) + "\n")
+    except Exception as e:
+        return {"ok": False, "error": str(e)}
+    if not _silent:
+        _audit_research("REMOVE", corpus, (user or "anon"), f"removed '{source}'")
+    return {"ok": True, "corpus": _safe_name(corpus), "removed": source,
+            "total_chunks": len(keep)}
+
+
+def activity(corpus: str, limit: int = 25) -> List[Dict[str, Any]]:
+    """Recent collaboration activity in a corpus (who ingested/added/asked), from the
+    tamper-evident audit ledger."""
+    try:
+        from eli.runtime.evidence_ledger import recent_events
+        rows = recent_events(limit=400, event_type="research")
+    except Exception:
+        return []
+    name = _safe_name(corpus)
+    out = []
+    for e in rows:
+        if e.get("subject") != name:
+            continue
+        out.append({"action": e.get("action"), "user": e.get("user_id"),
+                    "detail": e.get("content"), "timestamp": e.get("timestamp")})
+        if len(out) >= int(limit):
+            break
+    return out
 
 
 def corpora() -> List[Dict[str, Any]]:
-    """List all corpora with document + chunk counts."""
+    """List all corpora with document/chunk counts and contributor (member) count."""
     out: List[Dict[str, Any]] = []
     try:
         for d in sorted(_root().iterdir()):
-            if not d.is_dir():
+            # Skip the source-documents sandbox dir — it is not a corpus.
+            if not d.is_dir() or d.name == "_sources":
                 continue
+            n, srcs, who = 0, set(), set()
             meta = d / "chunks.jsonl"
-            n, srcs = 0, set()
             if meta.exists():
                 for line in meta.read_text(encoding="utf-8").splitlines():
                     if not line.strip():
                         continue
                     n += 1
                     try:
-                        srcs.add(json.loads(line).get("source"))
+                        row = json.loads(line)
+                        srcs.add(row.get("source"))
+                        who.add(row.get("added_by") or "anon")
                     except Exception:
                         pass
-            out.append({"corpus": d.name, "chunks": n, "documents": len(srcs)})
+            out.append({"corpus": d.name, "chunks": n, "documents": len(srcs),
+                        "members": len(who)})
     except Exception:
         log.debug("research_corpus: list failed", exc_info=True)
     return out
 
 
-def query(corpus: str, question: str, k: int = 6) -> Dict[str, Any]:
-    """Retrieve the top-k most relevant chunks (with source + score) for a question."""
+def query(corpus: str, question: str, k: int = 6, user: str = "") -> Dict[str, Any]:
+    """Retrieve the top-k most relevant chunks (with source + score) for a question,
+    attributing the query to ``user`` in the corpus activity feed."""
     import numpy as np
     import faiss
+    if (question or "").strip():
+        _audit_research("QUERY", corpus, (user or "anon"), (question or "")[:160])
     d = _corpus_dir(corpus)
     idx_path, meta_path = d / "index.faiss", d / "chunks.jsonl"
     if not idx_path.exists() or not meta_path.exists():
