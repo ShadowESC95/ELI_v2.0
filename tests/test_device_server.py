@@ -159,6 +159,35 @@ def test_set_room_reassigns(server):
     assert "Kitchen" in rooms and "Unassigned" not in rooms
 
 
+def test_usage_tracking_and_summary(server, fake_paho):
+    server.register_device(device_id="lamp", name="Desk Lamp", dtype="light",
+                           command_topic="h/lamp/set", room="Office")
+    server.configure(host="192.168.1.50")
+    server.connect()
+    for _ in range(5):
+        server.control("lamp", "on")
+    summ = server.usage_summary()["devices"]
+    assert summ and summ[0]["id"] == "lamp" and summ[0]["uses"] == 5
+    assert summ[0]["favourite_hour"] is not None
+
+
+def test_home_state_snapshot(server, fake_paho):
+    server.register_device(device_id="lamp", name="Lamp", dtype="light",
+                           command_topic="h/l/set", room="Office")
+    server.configure(host="192.168.1.50")
+    server.connect()
+    st = server.home_state()
+    assert st["device_count"] == 1 and "rooms" in st and isinstance(st["on"], list)
+
+
+def test_discover_degrades_without_zeroconf(monkeypatch):
+    import sys
+    import eli.runtime.device_server as ds
+    monkeypatch.setitem(sys.modules, "zeroconf", None)  # force ImportError path
+    r = ds.discover(timeout=1.0)
+    assert r["ok"] is False and "zeroconf" in r["error"] and r["found"] == []
+
+
 def test_control_room_targets_only_that_room(server, fake_paho):
     server.register_device(device_id="lamp", dtype="light", command_topic="h/lamp/set", room="Living Room")
     server.register_device(device_id="tv", dtype="switch", command_topic="h/tv/set", room="Living Room")

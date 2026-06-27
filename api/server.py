@@ -701,8 +701,28 @@ _WEB_UI = """<!doctype html>
       '<label>Username (optional)</label><input id="mq_user" autocomplete="off" value="'+esc(vals.username||'')+'">'+
       '<label>Password (optional)</label><input id="mq_pass" type="password" autocomplete="new-password" value="'+esc(vals.password||'')+'">'+
       '<label>Discovery prefix (optional — auto-finds devices)</label><input id="mq_disc" placeholder="leave blank for manual devices" value="'+esc(vals.discovery_prefix||'')+'">'+
-      '<button id="mq-save" onclick="saveDevConfig()">Save &amp; connect</button></div>';
+      '<div class="rrow" style="margin-top:14px"><button id="mq-save" onclick="saveDevConfig()">Save &amp; connect</button>'+
+      '<button class="cbtn" id="mq-find" onclick="discoverDevices()">&#128270; Find on my network</button></div>'+
+      '<div id="mq-found"></div></div>';
   }
+  function discoverDevices(){
+    const box=$('#mq-found'), btn=$('#mq-find');
+    if(btn){btn.disabled=true;btn.textContent='Scanning…';}
+    box.innerHTML='<div class="rnote">Scanning your network (mDNS)…</div>';
+    api('/v1/devices/discover',{method:'POST',body:JSON.stringify({})}).then(d=>{
+      if(btn){btn.disabled=false;btn.innerHTML='&#128270; Find on my network';}
+      if(!d.ok){box.innerHTML='<div class="banner bad" style="margin-top:10px">'+esc(d.error||'discovery failed')+'</div>';return;}
+      const br=d.brokers||[], all=d.found||[];
+      let h='';
+      if(br.length){h+='<div class="rnote" style="margin-top:10px">MQTT brokers found — click to use:</div>';
+        br.forEach(b=>{h+='<div class="src" style="cursor:pointer" onclick="useBroker(\\''+esc(b.host)+'\\','+(b.port||1883)+')"><div class="sh"><span>&#128268; '+esc(b.name||b.host)+'</span><span>'+esc(b.host)+':'+(b.port||'')+'</span></div></div>';});}
+      const others=all.filter(f=>!(f.service||'').indexOf('_mqtt')===0);
+      if(all.length){h+='<div class="rnote" style="margin-top:10px">'+all.length+' service(s) seen on the network'+(br.length?'':' — none were MQTT brokers; set one up (e.g. Mosquitto) and re-scan')+'.</div>';}
+      else h+='<div class="rnote" style="margin-top:10px">Nothing found. Make sure devices/broker are on the same network.</div>';
+      box.innerHTML=h;
+    }).catch(e=>{if(btn){btn.disabled=false;btn.innerHTML='&#128270; Find on my network';}box.innerHTML='<div class="banner bad">'+esc(''+e)+'</div>';});
+  }
+  function useBroker(host,port){const h=$('#mq_host'),p=$('#mq_port');if(h)h.value=host;if(p)p.value=port||1883;const f=$('#mq-found');if(f)f.innerHTML='<div class="rnote" style="margin-top:10px">Broker set to '+esc(host)+'. Click &ldquo;Save &amp; connect&rdquo;.</div>';}
   function saveDevConfig(){
     const body={host:($('#mq_host').value||'').trim(), port:parseInt($('#mq_port').value||'1883',10)||1883,
       username:($('#mq_user').value||'').trim(), password:$('#mq_pass').value||'',
@@ -748,6 +768,8 @@ _WEB_UI = """<!doctype html>
     const bar=document.createElement('div');bar.className='abadge '+(st&&st.connected?'ok':'bad');
     bar.innerHTML='<span class="dot"></span><span>'+(st&&st.connected?('Connected to '+esc(st.broker||'broker')):('Not connected'+(st&&st.error?(' — '+esc(st.error)):'')))+' · '+total+' device(s)</span>';
     h.appendChild(bar);
+    const sg=document.createElement('div');sg.id='home-sugg';h.appendChild(sg);
+    loadHomeSuggestions();
     if(!total){const m=document.createElement('div');m.className='muted';m.textContent='No devices yet. Add one below, or set a discovery prefix to auto-find them.';h.appendChild(m);}
     rooms.forEach(rm=>{
       const sec=document.createElement('div');sec.className='roomsec';
@@ -919,7 +941,17 @@ _WEB_UI = """<!doctype html>
       .finally(()=>{btn.disabled=false;});
   }
 
-  window.renderDevConfig=renderDevConfig; window.saveDevConfig=saveDevConfig; window.ctlDev=ctlDev; window.addDevicePrompt=addDevicePrompt; window.addDevice=addDevice; window.loadDevices=loadDevices; window.ctlRoom=ctlRoom; window.moveDevice=moveDevice;
+  function loadHomeSuggestions(){
+    api('/v1/home/suggestions').then(d=>{
+      const box=$('#home-sugg'); if(!box)return;
+      const s=(d&&d.suggestions)||[];
+      if(!s.length){box.innerHTML='';return;}
+      let h='<div class="syscard" style="margin-bottom:14px"><h4>&#10024; ELI suggests</h4>';
+      s.forEach(x=>{h+='<div class="src"><div class="sx">'+esc(x.text)+'</div></div>';});
+      box.innerHTML=h+'</div>';
+    }).catch(()=>{});
+  }
+  window.renderDevConfig=renderDevConfig; window.saveDevConfig=saveDevConfig; window.ctlDev=ctlDev; window.addDevicePrompt=addDevicePrompt; window.addDevice=addDevice; window.loadDevices=loadDevices; window.ctlRoom=ctlRoom; window.moveDevice=moveDevice; window.discoverDevices=discoverDevices; window.useBroker=useBroker;
   /* audit — tamper-evident trail + chain verification */
   let auditUser='';
   function loadAudit(){
@@ -1583,6 +1615,23 @@ def devices_remove(req: DeviceRegister):
 def devices_control(req: DeviceControl):
     """Control a device: on | off | brightness <0-100> | set <payload>."""
     return _device_server().control(req.device_id, req.command, req.value)
+
+@app.post("/v1/devices/discover", tags=["Devices"], dependencies=[Depends(require_member)])
+def devices_discover(timeout: float = 3.0):
+    """Scan the LAN (mDNS) for MQTT brokers + smart devices, so you don't have to know IPs."""
+    from eli.runtime.device_server import discover
+    return discover(timeout=min(8.0, max(1.0, float(timeout))))
+
+@app.get("/v1/home/state", tags=["Devices"], dependencies=[Depends(_require_token)])
+def home_state_ep():
+    """Home snapshot for ELI's awareness — connection, rooms, what's on."""
+    return {"ok": True, "state": _device_server().home_state()}
+
+@app.get("/v1/home/suggestions", tags=["Devices"], dependencies=[Depends(_require_token)])
+def home_suggestions_ep():
+    """Proactive automation ideas ELI derives from how you use your devices."""
+    from eli.runtime import home_intel
+    return {"ok": True, "suggestions": home_intel.suggestions()}
 
 # ----------------------------------------------------------------------
 # System telemetry  (powers the "System" tab — real, measured, never guessed)
