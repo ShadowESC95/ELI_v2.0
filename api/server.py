@@ -166,8 +166,13 @@ app = FastAPI(
 _WEB_UI = """<!doctype html>
 <html lang="en"><head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, viewport-fit=cover">
 <title>ELI</title>
+<link rel="manifest" href="/manifest.webmanifest">
+<meta name="theme-color" content="#05070d">
+<link rel="icon" href="/icon.svg"><link rel="apple-touch-icon" href="/icon.svg">
+<meta name="apple-mobile-web-app-capable" content="yes"><meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <script>try{if(localStorage.getItem('eli_theme')==='light')document.documentElement.setAttribute('data-theme','light');}catch(e){}</script>
 <style>
   :root {
@@ -238,16 +243,17 @@ _WEB_UI = """<!doctype html>
   #log { scroll-behavior:smooth; }
   .msg { max-width:80%; padding:11px 14px; border-radius:16px; white-space:pre-wrap; line-height:1.5; font-size:15px; box-shadow:var(--shadow); animation:pop .18s ease; }
   @keyframes pop { from{opacity:0;transform:translateY(6px) scale(.98);} to{opacity:1;transform:none;} }
-  .user { align-self:flex-end; background:linear-gradient(135deg,var(--accent),var(--accent-press)); color:#fff; border-bottom-right-radius:5px; }
+  .user { align-self:flex-end; background:var(--ubub,linear-gradient(135deg,var(--accent),var(--accent-press))); color:#fff; border-bottom-right-radius:5px; }
   .eli  { align-self:flex-start; background:var(--card); border:1px solid var(--line); border-bottom-left-radius:5px; }
   .meta { font-size:11px; color:var(--mut); align-self:center; }
   form#f { display:flex; gap:8px; padding:12px 14px; border-top:1px solid var(--line); background:var(--bg2); }
   #box { flex:1; padding:13px 14px; border-radius:12px; border:1px solid var(--line); background:var(--input); color:var(--fg); font-size:16px; transition:var(--fast); }
   #box:focus { outline:none; border-color:var(--accent); box-shadow:0 0 0 3px rgba(59,130,246,.18); }
-  form#f button { padding:0 20px; border:0; border-radius:12px; background:var(--accent); color:#fff; font-size:16px; font-weight:600; cursor:pointer; transition:var(--fast); }
-  form#f button:hover:not(:disabled) { background:var(--accent-press); }
+  form#f #send { padding:0 20px; border:0; border-radius:12px; background:var(--sendc,var(--accent)); color:#fff; font-size:16px; font-weight:600; cursor:pointer; transition:var(--fast); }
+  form#f #send:hover:not(:disabled) { filter:brightness(1.1); }
+  form#f #send:disabled { opacity:.45; cursor:not-allowed; }
   form#f button:disabled { opacity:.45; cursor:not-allowed; }
-  #mic { padding:0 14px; border:1px solid var(--line); border-radius:10px; background:var(--input); color:var(--fg); font-size:18px; cursor:pointer; }
+  #mic { padding:0 14px; border:1px solid var(--line); border-radius:10px; background:var(--micc,var(--input)); color:var(--micfg,var(--fg)); font-size:18px; cursor:pointer; transition:var(--fast); }
   #mic.rec { background:#b42a2a; border-color:#b42a2a; color:#fff; animation:pulse 1.1s infinite; }
   @keyframes pulse { 0%,100%{opacity:1;} 50%{opacity:.55;} }
   .voicebar { display:flex; align-items:center; gap:12px; padding:0 12px 10px; font-size:13px; color:var(--mut); }
@@ -299,6 +305,20 @@ _WEB_UI = """<!doctype html>
   .gauge { width:84px; height:84px; border-radius:50%; margin:0 auto; display:grid; place-items:center; background:conic-gradient(var(--teal) calc(var(--p)*1%), #2a2d35 0); }
   .gauge i { width:64px; height:64px; border-radius:50%; background:var(--card); display:grid; place-items:center; font-size:16px; font-weight:600; font-style:normal; }
   .err { color:var(--bad); font-size:13px; padding:10px; } .muted { color:var(--mut); font-size:13px; text-align:center; padding:30px; }
+  .modal { position:fixed; inset:0; background:rgba(0,0,0,.55); backdrop-filter:blur(5px); display:none; align-items:center; justify-content:center; z-index:50; }
+  .modal.show { display:flex; animation:fade .2s ease; }
+  .modal .sheet { background:var(--card2); border:1px solid var(--line); border-radius:18px; padding:22px; width:min(440px,92vw); box-shadow:var(--shadow); }
+  .modal h3 { margin:0 0 4px; font-size:16px; } .modal .sub { color:var(--mut); font-size:12px; margin-bottom:16px; }
+  .crow { margin-bottom:15px; } .crow .cl { font-size:12px; color:var(--fg-dim); margin-bottom:8px; }
+  .sw-list { display:flex; flex-wrap:wrap; gap:7px; align-items:center; }
+  .sw { width:25px; height:25px; border-radius:7px; cursor:pointer; border:2px solid transparent; transition:var(--fast); }
+  .sw:hover { transform:scale(1.15); }
+  .sw.sel { border-color:var(--fg); box-shadow:0 0 0 2px var(--card2), 0 0 12px currentColor; }
+  .sw.custom { background:var(--input); display:grid; place-items:center; color:var(--fg-dim); font-size:13px; position:relative; overflow:hidden; }
+  .sw.custom input { position:absolute; inset:0; opacity:0; cursor:pointer; }
+  .modal .mfoot { display:flex; justify-content:space-between; margin-top:8px; }
+  .modal .mbtn { padding:9px 16px; border:1px solid var(--line); border-radius:10px; background:var(--input); color:var(--fg); font-size:13px; cursor:pointer; }
+  .modal .mbtn.primary { background:var(--accent); border-color:var(--accent); color:#04121a; font-weight:600; }
   .banner { border-radius:10px; padding:10px 13px; font-size:13px; }
   .banner.bad { background:rgba(248,113,113,.12); border:1px solid var(--bad); color:var(--bad); }
   .banner.ok { background:rgba(52,211,153,.12); border:1px solid var(--ok); color:var(--ok); }
@@ -404,7 +424,7 @@ _WEB_UI = """<!doctype html>
       <button data-tab="audit"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M12 3l8 3v6c0 5-4 8-8 9-4-1-8-4-8-9V6z"/><path d="M9 12l2 2 4-4"/></svg><span>Audit</span></button>
       <button data-tab="admin"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M4 6h16M4 12h16M4 18h16"/><circle cx="9" cy="6" r="2" fill="currentColor" stroke="none"/><circle cx="15" cy="12" r="2" fill="currentColor" stroke="none"/><circle cx="8" cy="18" r="2" fill="currentColor" stroke="none"/></svg><span>Admin</span></button>
     </nav>
-    <div class="sidefoot"><span id="rolebadge">local &middot; private</span><button class="iconbtn" id="themebtn" title="Toggle light / dark">&#9680;</button></div>
+    <div class="sidefoot"><span id="rolebadge">local &middot; private</span><button class="iconbtn" id="appearbtn" title="Colours" onclick="openAppear()">&#9670;</button><button class="iconbtn" id="themebtn" title="Toggle light / dark">&#9680;</button></div>
   </aside>
   <main class="main">
   <section class="view active" id="view-overview"><div id="overview"><div class="muted">Loading…</div></div></section>
@@ -431,6 +451,11 @@ _WEB_UI = """<!doctype html>
   <section class="view" id="view-audit"><div id="audit"><div class="muted">Loading…</div></div></section>
   <section class="view" id="view-admin"><div id="admin"><div class="muted">Loading…</div></div></section>
   </main>
+  <div id="appear" class="modal"><div class="sheet">
+    <h3>Colours</h3><div class="sub">Personalise the chat — your choices are saved on this device.</div>
+    <div id="appear-rows"></div>
+    <div class="mfoot"><button class="mbtn" onclick="resetColors()">Reset</button><button class="mbtn primary" onclick="closeAppear()">Done</button></div>
+  </div></div>
 <script>
   const $ = s => document.querySelector(s);
   let uid=localStorage.getItem('eli_uid');
@@ -452,6 +477,36 @@ _WEB_UI = """<!doctype html>
   }
   applyTheme(localStorage.getItem('eli_theme')||'dark');
   if(themebtn)themebtn.onclick=()=>{const t=(localStorage.getItem('eli_theme')==='light')?'dark':'light';localStorage.setItem('eli_theme',t);applyTheme(t);};
+
+  /* appearance — pick chat colours (saved per device) */
+  const PALETTE=['#22d3ee','#38bdf8','#3b82f6','#6366f1','#8b5cf6','#a855f7','#d946ef','#ec4899','#f43f5e','#ef4444','#f97316','#f59e0b','#84cc16','#22c55e','#10b981','#14b8a6','#64748b','#94a3b8'];
+  let colors={}; try{colors=JSON.parse(localStorage.getItem('eli_colors')||'{}');}catch(e){colors={};}
+  function applyColors(){
+    const r=document.documentElement.style;
+    colors.ubub?r.setProperty('--ubub',colors.ubub):r.removeProperty('--ubub');
+    colors.sendc?r.setProperty('--sendc',colors.sendc):r.removeProperty('--sendc');
+    if(colors.micc){r.setProperty('--micc',colors.micc);r.setProperty('--micfg','#04121a');}else{r.removeProperty('--micc');r.removeProperty('--micfg');}
+  }
+  function setColor(t,v){colors[t]=v;localStorage.setItem('eli_colors',JSON.stringify(colors));applyColors();renderAppear();}
+  function resetColors(){colors={};localStorage.removeItem('eli_colors');applyColors();renderAppear();}
+  function openAppear(){renderAppear();$('#appear').classList.add('show');}
+  function closeAppear(){$('#appear').classList.remove('show');}
+  function renderAppear(){
+    const box=$('#appear-rows'); if(!box)return; box.innerHTML='';
+    [['ubub','Your chat bubble'],['micc','Mic button'],['sendc','Send button']].forEach(function(pair){
+      const target=pair[0], label=pair[1], cur=(colors[target]||'').toLowerCase();
+      const row=document.createElement('div'); row.className='crow';
+      const cl=document.createElement('div'); cl.className='cl'; cl.textContent=label; row.appendChild(cl);
+      const list=document.createElement('div'); list.className='sw-list';
+      PALETTE.forEach(function(c){const sw=document.createElement('span'); sw.className='sw'+(cur===c?' sel':''); sw.style.background=c; sw.style.color=c; sw.title=c; sw.onclick=function(){setColor(target,c);}; list.appendChild(sw);});
+      const lab=document.createElement('label'); lab.className='sw custom'; lab.title='Custom'; lab.textContent='+';
+      const inp=document.createElement('input'); inp.type='color'; inp.value=colors[target]||'#22d3ee'; inp.oninput=function(){setColor(target,inp.value);}; lab.appendChild(inp); list.appendChild(lab);
+      row.appendChild(list); box.appendChild(row);
+    });
+  }
+  applyColors();
+  window.openAppear=openAppear; window.closeAppear=closeAppear; window.resetColors=resetColors;
+  { const am=$('#appear'); if(am) am.onclick=function(e){ if(e.target===am) closeAppear(); }; }
 
   let cmdsLoaded=false;
   document.querySelectorAll('nav.tabs button').forEach(b=>b.onclick=()=>{
@@ -531,7 +586,10 @@ _WEB_UI = """<!doctype html>
           if(j.error)raw+=(raw?NL:'')+'[error: '+j.error+']';
         }
       }
-    }catch(err){if(err.name!=='AbortError')raw+=(raw?NL:'')+'Error: '+err;}
+    }catch(err){if(err.name!=='AbortError'){
+      const net=(err.name==='TypeError')||((''+err).indexOf('NetworkError')>=0)||((''+err).indexOf('Failed to fetch')>=0);
+      raw+=(raw?NL:'')+(net?'Connection to the server dropped. If this was the first message, the local model may still be loading (a large model can take a minute on first use) — or the server ran low on memory. Wait a few seconds and try again; if it keeps happening, run the server on its own (not alongside the desktop app) so the model only loads once.':'Error: '+err);
+    }}
     finally{abortCtl=null;setBusy(false);box.focus();}
     if(!raw)raw=got?'(stopped)':'(no response)';
     p.innerHTML=mdRender(raw);pushMsg('eli',raw);log.scrollTop=log.scrollHeight;
@@ -548,6 +606,10 @@ _WEB_UI = """<!doctype html>
   window.newChat=newChat; window.switchSession=switchSession; window.deleteSession=deleteSession; window.regenerate=regenerate; window.copyCode=copyCode;
   loadSessions();
   loadOverview();
+  /* PWA: installable + offline shell */
+  if('serviceWorker' in navigator){try{navigator.serviceWorker.register('/sw.js').catch(function(){});}catch(e){}}
+  /* live: refresh the dashboard while it's open (no manual reload) */
+  setInterval(function(){const v=$('#view-overview'); if(v&&v.classList.contains('active')&&!document.hidden)loadOverview();},6000);
 
   /* voice — local STT (whisper) in, local TTS (piper) out; nothing leaves the box */
   const mic=$('#mic'),spk=$('#spk'),vstat=$('#vstat');
@@ -1177,6 +1239,47 @@ def _extract_response_text(result) -> str:
 async def root():
     """The web chat UI — open this host in any browser (incl. Android/iOS)."""
     return HTMLResponse(_WEB_UI)
+
+# ── PWA: make the web app installable (home-screen icon) + an offline shell ──
+_PWA_ICON = (
+    '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">'
+    '<rect width="512" height="512" rx="96" fill="#05070d"/>'
+    '<text x="50%" y="56%" font-family="monospace" font-size="240" font-weight="800" '
+    'text-anchor="middle" fill="#22d3ee">E</text>'
+    '<rect x="96" y="372" width="320" height="14" rx="7" fill="#f637ec"/></svg>'
+)
+_PWA_MANIFEST = {
+    "name": "ELI", "short_name": "ELI", "start_url": "/", "scope": "/",
+    "display": "standalone", "background_color": "#05070d", "theme_color": "#05070d",
+    "icons": [{"src": "/icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any maskable"}],
+}
+_SERVICE_WORKER = """
+const C='eli-shell-v1';
+self.addEventListener('install',e=>self.skipWaiting());
+self.addEventListener('activate',e=>e.waitUntil(self.clients.claim()));
+self.addEventListener('fetch',e=>{
+  if(e.request.method!=='GET')return;
+  const u=new URL(e.request.url);
+  if(u.pathname.startsWith('/v1/')||u.pathname.startsWith('/docs'))return; // never cache live API
+  e.respondWith(caches.open(C).then(c=>c.match(e.request).then(hit=>{
+    const net=fetch(e.request).then(r=>{if(r&&r.status===200)c.put(e.request,r.clone());return r;}).catch(()=>hit);
+    return hit||net;
+  })));
+});
+"""
+
+@app.get("/manifest.webmanifest", tags=["Root"])
+def pwa_manifest():
+    return Response(content=json.dumps(_PWA_MANIFEST), media_type="application/manifest+json")
+
+@app.get("/icon.svg", tags=["Root"])
+def pwa_icon():
+    return Response(content=_PWA_ICON, media_type="image/svg+xml",
+                   headers={"Cache-Control": "max-age=86400"})
+
+@app.get("/sw.js", tags=["Root"])
+def pwa_sw():
+    return Response(content=_SERVICE_WORKER, media_type="application/javascript")
 
 @app.get("/api", tags=["Root"])
 async def api_info():
