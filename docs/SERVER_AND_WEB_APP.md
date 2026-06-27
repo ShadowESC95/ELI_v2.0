@@ -80,7 +80,7 @@ in a window so the phone URL + token are visible).
 | POST | `/v1/execute` | **token** | Run a direct action (OPEN_APP, SCREENSHOT, …) |
 | GET  | `/v1/status/{user_id}` | open | Runtime status (model, uptime) |
 | GET  | `/v1/system` | **token** | Measured GPU/CPU/RAM/model telemetry |
-| GET  | `/v1/audit` | **token** | Tamper-evident (hash-chained) action trail + chain verification |
+| GET  | `/v1/audit` | **token** | Tamper-evident (HMAC-SHA-256 chained) action trail + chain verification |
 | GET/POST | `/v1/admin/*` | **admin** | Enterprise console: `overview`, `user` (drill-down), `users/add`, `users/remove`. Admin role required. |
 | GET/POST | `/v1/devices/*` | **token** | ELI's MQTT device server: `status`, `config`, `discover` (mDNS), `register`, `control`, `rooms`, `room/control` (no Home Assistant) |
 | GET/POST | `/v1/home/*` | **token** | Home AI: `state`, `suggestions` (+`accept`), `automations/*` (+`create`), `scenes/*` (+`activate`), `location`, `sun` |
