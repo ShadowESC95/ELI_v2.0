@@ -665,3 +665,96 @@ def speak_text(text: str, *, piper_path: str | None = None, model_path: str | No
         voice_name = _Path(model_path).stem
     ok = _run_tts(str(text or ""), voice_name=voice_name)
     return {"ok": bool(ok), "backend": "piper_cli_final" if ok else None}
+
+
+# ── Synthesise to WAV bytes (no host playback) — powers browser voice ───────
+# The browser plays the audio itself, so the host must NOT use aplay/afplay here.
+# Reuses the same Piper binary/voice discovery + CUDA→CPU fallback as _speak_piper_cli.
+
+def _piper_render_wav(text: str, model, cfg, piper_bin: str) -> Optional[bytes]:
+    """Run Piper once for `text`, returning WAV bytes (CUDA→CPU fallback). No playback."""
+    import os as _os
+    import subprocess as _subprocess
+    import tempfile as _tempfile
+    from pathlib import Path as _Path
+
+    with _tempfile.NamedTemporaryFile(prefix="eli_piper_wav_", suffix=".wav", delete=False) as tmp:
+        wav = _Path(tmp.name)
+
+    global _PIPER_CUDA_FAILED
+    _want_cuda = (
+        _os.environ.get("ELI_PIPER_CUDA", "1").strip().lower() in {"1", "true", "yes", "on"}
+        and not _PIPER_CUDA_FAILED
+    )
+    base_cmd = [piper_bin, "--model", str(model), "--output_file", str(wav)]
+    if cfg:
+        base_cmd.extend(["--config", str(cfg)])
+
+    def _run(use_cuda):
+        cmd = list(base_cmd) + (["--cuda"] if use_cuda else [])
+        return _subprocess.run(cmd, input=str(text or ""), text=True,
+                               stdout=_subprocess.PIPE, stderr=_subprocess.PIPE, timeout=45)
+    try:
+        proc = _run(_want_cuda)
+        if proc.returncode != 0 and _want_cuda:
+            _PIPER_CUDA_FAILED = True
+            log.debug(f"[TTS_WAV] --cuda failed rc={proc.returncode}; CPU fallback: {proc.stderr[-300:]}")
+            proc = _run(False)
+        if proc.returncode != 0:
+            log.debug(f"[TTS_WAV] piper failed rc={proc.returncode}: {proc.stderr[-400:]}")
+            return None
+        if not wav.exists() or wav.stat().st_size < 1000:
+            return None
+        return wav.read_bytes()
+    except Exception:
+        log.debug("[TTS_WAV] render failed", exc_info=True)
+        return None
+    finally:
+        try:
+            wav.unlink(missing_ok=True)
+        except Exception:
+            pass
+
+
+def _concat_wavs(wavs: list[bytes]) -> Optional[bytes]:
+    """Concatenate same-format WAV chunks into a single WAV (PCM frame splice)."""
+    wavs = [w for w in wavs if w]
+    if not wavs:
+        return None
+    if len(wavs) == 1:
+        return wavs[0]
+    import wave
+    params = None
+    frames = bytearray()
+    for wb in wavs:
+        with wave.open(io.BytesIO(wb), "rb") as wf:
+            if params is None:
+                params = wf.getparams()
+            frames += wf.readframes(wf.getnframes())
+    out = io.BytesIO()
+    with wave.open(out, "wb") as wf:
+        wf.setparams(params)
+        wf.writeframes(bytes(frames))
+    return out.getvalue()
+
+
+def synthesize_wav(text: str, voice_name: str | None = None) -> Optional[bytes]:
+    """Render `text` to WAV bytes with the active Piper voice — for clients that
+    play audio themselves (browser voice). Returns None if nothing speakable or
+    no Piper voice/binary is available. Never plays on the host."""
+    text = _eli_tts_visible_text(text)
+    if _eli_tts_is_unspeakable(text):
+        return None
+    active = voice_name or get_active_voice()
+    model = find_voice_model(active)
+    if not model:
+        log.debug(f"[TTS_WAV] no voice model for active={active}")
+        return None
+    piper_bin = _find_piper_bin()
+    if not piper_bin:
+        log.debug("[TTS_WAV] no piper binary available")
+        return None
+    cfg = _find_piper_config(model)
+    chunks = _tts_chunks(text) or [text]
+    rendered = [_piper_render_wav(c, model, cfg, piper_bin) for c in chunks]
+    return _concat_wavs([r for r in rendered if r])

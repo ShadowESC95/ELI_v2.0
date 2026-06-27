@@ -221,37 +221,48 @@ def _reload_model_on_cpu() -> None:
     _MODEL_KEY = (model_name, model_dir, "cpu", "int8", local_only)
 
 
+def _transcribe_path_with_fallback(wav_path: str, language: str | None) -> str:
+    """Transcribe a file path, retrying once on CPU if CUDA runs out of VRAM."""
+    model = get_model()
+    try:
+        return _do_transcribe(model, wav_path, language)
+    except RuntimeError as exc:
+        _exc_str = str(exc).lower()
+        _is_vram_failure = (
+            "out of memory" in _exc_str
+            or "cublas_status_alloc_failed" in _exc_str
+            or "cuda error" in _exc_str
+            or "cufft" in _exc_str
+        )
+        if not _is_vram_failure:
+            raise
+        # CUDA VRAM failure: flush cache and retry once on CPU
+        log.warning("[LOCAL_STT] CUDA failure during transcription — flushing cache and retrying on CPU")
+        try:
+            import torch
+            torch.cuda.empty_cache()
+        except Exception:
+            pass
+        _reload_model_on_cpu()
+        return _do_transcribe(_MODEL, wav_path, language)
+
+
 def transcribe_speech_recognition_audio(audio):
     wav_bytes = audio.get_wav_data(convert_rate=16000, convert_width=2)
     if not wav_bytes:
         return ""
 
-    model = get_model()
     language = _env("ELI_WHISPER_LANGUAGE", "en") or None
 
     with tempfile.NamedTemporaryFile(prefix="eli_stt_", suffix=".wav", delete=True) as tmp:
         tmp.write(wav_bytes)
         tmp.flush()
-        wav_path = tmp.name
+        return _transcribe_path_with_fallback(tmp.name, language)
 
-        try:
-            return _do_transcribe(model, wav_path, language)
-        except RuntimeError as exc:
-            _exc_str = str(exc).lower()
-            _is_vram_failure = (
-                "out of memory" in _exc_str
-                or "cublas_status_alloc_failed" in _exc_str
-                or "cuda error" in _exc_str
-                or "cufft" in _exc_str
-            )
-            if not _is_vram_failure:
-                raise
-            # CUDA VRAM failure: flush cache and retry once on CPU
-            log.warning("[LOCAL_STT] CUDA failure during transcription — flushing cache and retrying on CPU")
-            try:
-                import torch
-                torch.cuda.empty_cache()
-            except Exception:
-                pass
-            _reload_model_on_cpu()
-            return _do_transcribe(_MODEL, wav_path, language)
+
+def transcribe_file(path: str, language: str | None = None) -> str:
+    """Transcribe an arbitrary local audio file (wav/webm/ogg/mp3 — decoded via
+    PyAV by faster-whisper). Powers the browser-voice endpoint; nothing leaves
+    the box. Mirrors the CUDA→CPU VRAM fallback of the live-mic path."""
+    lang = language or (_env("ELI_WHISPER_LANGUAGE", "en") or None)
+    return _transcribe_path_with_fallback(str(path), lang)
