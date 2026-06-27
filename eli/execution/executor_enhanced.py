@@ -10249,7 +10249,17 @@ def _execute_impl(action: str, args: Optional[Dict[str, Any]] = None) -> Dict[st
                     return {"ok": True, "action": a, "content": msg, "response": msg}
                 err = res.get("error") or "no controllable devices"
                 return {"ok": False, "action": a, "error": err, "content": err, "response": err}
-            msg = f"I don't have a device or room called '{device}'."
+            # Not a device or room — maybe a scene ("activate movie mode" / "movie mode").
+            scene_names = {s["name"].lower(): s["name"] for s in srv.list_scenes()}
+            scene_key = next((k for k in scene_names if k in dl or dl in k), None)
+            if scene_key:
+                res = srv.activate_scene(scene_names[scene_key])
+                if res.get("ok"):
+                    msg = f"Scene '{res.get('scene')}' activated ({res.get('ran', 0)} device(s))."
+                    return {"ok": True, "action": a, "content": msg, "response": msg}
+                err = res.get("error") or "scene failed"
+                return {"ok": False, "action": a, "error": err, "content": err, "response": err}
+            msg = f"I don't have a device, room, or scene called '{device}'."
             return {"ok": False, "action": a, "error": "not_found", "content": msg, "response": msg}
         except Exception as e:
             return {"ok": False, "action": a, "error": str(e), "content": str(e), "response": str(e)}
