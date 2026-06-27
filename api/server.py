@@ -121,6 +121,19 @@ _WEB_UI = """<!doctype html>
   .syscard h4 { margin:0 0 12px; font-size:12px; color:var(--teal); text-transform:uppercase; letter-spacing:.5px; }
   .kv { display:flex; justify-content:space-between; font-size:13px; margin:6px 0; color:#cdd2da; }
   .glabel { text-align:center; font-size:11px; color:var(--mut); margin-top:4px; }
+  #research { overflow-y:auto; padding:14px; }
+  .rwrap { max-width:760px; margin:0 auto; }
+  .rsec { background:var(--card); border:1px solid var(--line); border-radius:14px; padding:16px; margin-bottom:14px; }
+  .rsec h4 { margin:0 0 10px; font-size:12px; color:var(--teal); text-transform:uppercase; letter-spacing:.5px; }
+  .rrow { display:flex; gap:8px; margin:8px 0; flex-wrap:wrap; }
+  .rrow input, .rrow select { flex:1; min-width:140px; padding:10px; border-radius:9px; border:1px solid var(--line); background:#15171c; color:#e6e6e6; font-size:14px; }
+  .rrow button { padding:10px 16px; border:0; border-radius:9px; background:var(--accent); color:#fff; font-size:14px; cursor:pointer; }
+  .rrow button:disabled { opacity:.5; }
+  .answer { background:#15171c; border:1px solid var(--line); border-radius:10px; padding:13px; white-space:pre-wrap; line-height:1.5; font-size:14px; margin-top:6px; }
+  .src { background:#15171c; border:1px solid var(--line); border-radius:9px; padding:9px 11px; margin-top:7px; font-size:13px; }
+  .src .sh { display:flex; justify-content:space-between; color:var(--teal); font-weight:600; margin-bottom:4px; }
+  .src .sx { color:#b8bcc4; }
+  .rnote { font-size:12px; color:var(--mut); margin-top:6px; }
 </style></head><body>
   <header>
     <b>ELI</b><small>local &middot; private</small>
@@ -129,6 +142,7 @@ _WEB_UI = """<!doctype html>
       <button data-tab="commands">Commands</button>
       <button data-tab="home">Home</button>
       <button data-tab="system">System</button>
+      <button data-tab="research">Research</button>
     </nav>
   </header>
   <section class="view active" id="view-chat">
@@ -143,6 +157,7 @@ _WEB_UI = """<!doctype html>
   </section>
   <section class="view" id="view-home"><div id="home"><div class="muted">Loading…</div></div></section>
   <section class="view" id="view-system"><div id="system"><div class="muted">Loading…</div></div></section>
+  <section class="view" id="view-research"><div id="research"><div class="muted">Loading…</div></div></section>
 <script>
   const $ = s => document.querySelector(s);
   let uid=localStorage.getItem('eli_uid');
@@ -164,6 +179,7 @@ _WEB_UI = """<!doctype html>
     if(b.dataset.tab==='commands' && !cmdsLoaded) loadCommands();
     if(b.dataset.tab==='home') loadHome();
     if(b.dataset.tab==='system') loadSystem();
+    if(b.dataset.tab==='research') loadResearch();
   });
 
   /* chat */
@@ -306,7 +322,63 @@ _WEB_UI = """<!doctype html>
        '<div class="kv">uptime<span>'+esc(s.uptime||'?')+'</span></div></div>';
     $('#system').innerHTML=h+'</div>';
   }
+  /* research */
+  function _ropt(list){return list.length
+    ? list.map(c=>'<option value="'+esc(c.corpus)+'">'+esc(c.corpus)+' ('+c.documents+' docs · '+c.chunks+' chunks)</option>').join('')
+    : '<option value="" disabled selected>(no corpora yet)</option>';}
+  function loadResearch(){
+    api('/v1/research/corpora').then(d=>renderResearch((d&&d.corpora)||[]))
+      .catch(e=>{$('#research').innerHTML='<div class="err">'+esc(''+e)+'</div>';});
+  }
+  function renderResearch(list){
+    let h='<div class="rwrap">';
+    h+='<div class="rsec"><h4>Corpora</h4><div class="rrow"><select id="rq-corpus">'+_ropt(list)+'</select></div>'+
+       '<div class="rnote">Each corpus is an isolated local index — your documents never mix with ELI\\'s memory, and nothing leaves this machine.</div></div>';
+    h+='<div class="rsec"><h4>Ingest documents</h4>'+
+       '<div class="rrow"><input id="ing-name" autocomplete="off" placeholder="corpus name (new or existing)"></div>'+
+       '<div class="rrow"><input id="ing-path" autocomplete="off" placeholder="local file or folder path (.pdf / .txt / .md)"><button id="ing-btn" onclick="ingestCorpus()">Ingest</button></div>'+
+       '<div id="ing-status" class="rnote"></div></div>';
+    h+='<div class="rsec"><h4>Ask (grounded in the corpus)</h4>'+
+       '<div class="rrow"><input id="ask-q" autocomplete="off" placeholder="Ask a question answered only from this corpus…"><button id="ask-btn" onclick="askCorpus()">Ask</button></div>'+
+       '<div id="ask-out"></div></div>';
+    $('#research').innerHTML=h+'</div>';
+  }
+  function refreshCorpusSelect(sel){
+    api('/v1/research/corpora').then(d=>{
+      const dd=$('#rq-corpus'); if(!dd)return;
+      dd.innerHTML=_ropt((d&&d.corpora)||[]); if(sel)dd.value=sel;
+    }).catch(()=>{});
+  }
+  function ingestCorpus(){
+    const name=($('#ing-name').value||'').trim(), path=($('#ing-path').value||'').trim();
+    const st=$('#ing-status'), btn=$('#ing-btn');
+    if(!name||!path){st.textContent='Enter a corpus name and a file/folder path.';return;}
+    btn.disabled=true; st.textContent='Ingesting… (extracting + embedding locally, this can take a while)';
+    api('/v1/research/ingest',{method:'POST',body:JSON.stringify({corpus:name,path:path})}).then(d=>{
+      if(!d.ok){st.innerHTML='<span style="color:#f87171">'+esc(d.error||'ingest failed')+'</span>';return;}
+      st.textContent='Added '+d.docs_added+' document(s), '+d.chunks_added+' chunk(s). Corpus "'+d.corpus+'" now holds '+d.total_chunks+' chunks'+
+        (d.skipped&&d.skipped.length?' — skipped '+d.skipped.length+' file(s) with no extractable text':'')+'.';
+      refreshCorpusSelect(d.corpus);
+    }).catch(e=>{st.innerHTML='<span style="color:#f87171">'+esc(''+e)+'</span>';})
+      .finally(()=>{btn.disabled=false;});
+  }
+  function askCorpus(){
+    const dd=$('#rq-corpus'), q=($('#ask-q').value||'').trim(), out=$('#ask-out'), btn=$('#ask-btn');
+    const corpus=dd?dd.value:'';
+    if(!corpus){out.innerHTML='<div class="rnote">Ingest a corpus first.</div>';return;}
+    if(!q){out.innerHTML='<div class="rnote">Type a question.</div>';return;}
+    btn.disabled=true; out.innerHTML='<div class="rnote">Searching the corpus and synthesising with the local model…</div>';
+    api('/v1/research/query',{method:'POST',body:JSON.stringify({corpus:corpus,question:q,k:6})}).then(d=>{
+      if(!d.ok){out.innerHTML='<div class="err">'+esc(d.error||'query failed')+'</div>';return;}
+      let h='<div class="answer">'+esc(d.answer||'')+'</div>';
+      (d.sources||[]).forEach(s=>{h+='<div class="src"><div class="sh"><span>'+esc(s.source||'?')+'</span><span>'+(s.score!=null?esc(s.score):'')+'</span></div><div class="sx">'+esc(s.excerpt||'')+'</div></div>';});
+      out.innerHTML=h;
+    }).catch(e=>{out.innerHTML='<div class="err">'+esc(''+e)+'</div>';})
+      .finally(()=>{btn.disabled=false;});
+  }
+
   window.renderHomeConfig=renderHomeConfig; window.saveHome=saveHome; window.control=control; window.media=media; window.climate=climate; window.editHome=editHome;
+  window.ingestCorpus=ingestCorpus; window.askCorpus=askCorpus;
 </script></body></html>"""
 
 # ----------------------------------------------------------------------
@@ -369,6 +441,15 @@ class CompletionRequest(BaseModel):
     model: Optional[str] = "eli-local"
     messages: list[CompletionMessage] = []
     stream: bool = False
+
+class ResearchIngest(BaseModel):
+    corpus: str
+    path: str
+
+class ResearchQuery(BaseModel):
+    corpus: str
+    question: str
+    k: int = 6
 
 # ----------------------------------------------------------------------
 # API Endpoints
@@ -687,6 +768,48 @@ async def system_status():
         return {"ok": True, "status": st}
     except Exception as e:
         return {"ok": False, "error": str(e), "status": {}}
+
+# ----------------------------------------------------------------------
+# Research workspaces  (powers the "Research" tab — fully local, no external surface)
+# Ingest your own documents into an isolated corpus, then ask grounded questions
+# answered ONLY from those sources (with citations). Reuses ELI's nomic embedder +
+# FAISS + the local model; nothing leaves the box.
+# ----------------------------------------------------------------------
+@app.get("/v1/research/corpora", tags=["Research"], dependencies=[Depends(_require_token)])
+def research_corpora():
+    from eli.runtime.research_corpus import corpora
+    return {"ok": True, "corpora": corpora()}
+
+@app.post("/v1/research/ingest", tags=["Research"], dependencies=[Depends(_require_token)])
+def research_ingest(req: ResearchIngest):
+    """Ingest a local file or folder of documents (.pdf/.txt/.md) into a corpus.
+    Synchronous; a very large corpus may take a while (embedding is CPU-local)."""
+    from eli.runtime.research_corpus import ingest
+    return ingest(req.corpus, req.path)
+
+@app.post("/v1/research/query", tags=["Research"], dependencies=[Depends(_require_token)])
+def research_query(req: ResearchQuery):
+    """Retrieve the most relevant passages from a corpus and synthesise a grounded,
+    cited answer with the LOCAL model. Returns {answer, sources}."""
+    from eli.runtime.research_corpus import query
+    res = query(req.corpus, req.question, k=req.k)
+    if not res.get("ok"):
+        return res
+    hits = res.get("hits", [])
+    if not hits:
+        return {"ok": True, "answer": "No relevant passages found in this corpus.", "sources": []}
+    ctx = "\n\n".join(f"[{h['source']}] {h['text']}" for h in hits)
+    prompt = ("Answer the QUESTION using ONLY the SOURCES below. After each claim, cite the "
+              "source name in square brackets, e.g. [paper.pdf]. If the sources do not contain "
+              "the answer, say so plainly — do not invent.\n\nSOURCES:\n" + ctx +
+              "\n\nQUESTION: " + req.question)
+    try:
+        answer = _extract_response_text(get_engine().process(prompt, source="api:research", stream=False))
+    except Exception as e:
+        answer = f"(retrieval succeeded; local-model synthesis unavailable: {e})"
+    sources = [{"source": h["source"], "score": h["score"], "excerpt": (h["text"] or "")[:240]}
+               for h in hits]
+    return {"ok": True, "answer": answer, "sources": sources}
 
 # ----------------------------------------------------------------------
 # Run the server
