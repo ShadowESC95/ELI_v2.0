@@ -81,6 +81,7 @@ in a window so the phone URL + token are visible).
 | GET  | `/v1/status/{user_id}` | open | Runtime status (model, uptime) |
 | GET  | `/v1/system` | **token** | Measured GPU/CPU/RAM/model telemetry |
 | GET  | `/v1/audit` | **token** | Tamper-evident (hash-chained) action trail + chain verification |
+| GET  | `/v1/admin/*` | **token** | Enterprise console: `overview` (integrity + totals + per-user + policy), `user` (drill-down) |
 | GET/POST | `/v1/devices/*` | **token** | ELI's own MQTT device server: `status`, `config`, `register`, `control` (no Home Assistant) |
 | GET/POST | `/v1/research/*` | **token** | Shared, collaborative corpora: `corpora`, `ingest`, `note`, `documents`, `activity`, `remove`, `query` (grounded, cited, attributed) |
 | GET  | `/v1/voice/voices` | **token** | List local Piper voices + the active one |

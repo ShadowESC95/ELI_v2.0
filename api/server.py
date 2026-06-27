@@ -182,6 +182,22 @@ _WEB_UI = """<!doctype html>
   .roombtn { font-size:12px; padding:5px 11px; border:1px solid var(--line); border-radius:8px; background:#15171c; color:#cdd2da; cursor:pointer; }
   .roombtn:hover { border-color:var(--teal); color:#fff; }
   .roomhd .roombtn:first-of-type { margin-left:auto; }
+  #admin { overflow-y:auto; padding:14px; }
+  .adwrap { max-width:900px; margin:0 auto; }
+  .adtot { display:grid; grid-template-columns:repeat(auto-fit,minmax(120px,1fr)); gap:10px; margin-bottom:14px; }
+  .adtot .syscard { text-align:center; }
+  .adtot .big { font-size:26px; font-weight:700; color:#e6e6e6; }
+  .adtot .lbl { font-size:11px; color:var(--mut); text-transform:uppercase; letter-spacing:.5px; margin-top:4px; }
+  .urow { display:grid; grid-template-columns:1fr 70px 70px 150px; gap:10px; align-items:center; padding:9px 11px; border:1px solid var(--line); border-radius:9px; background:var(--card); margin-bottom:6px; font-size:13px; cursor:pointer; }
+  .urow:hover { border-color:var(--teal); }
+  .urow .un { font-weight:600; } .urow .uf.bad { color:#f8a0a0; } .urow .ut { color:var(--mut); font-size:12px; text-align:right; }
+  .uhdr { display:grid; grid-template-columns:1fr 70px 70px 150px; gap:10px; padding:4px 11px; font-size:11px; color:var(--mut); text-transform:uppercase; letter-spacing:.5px; }
+  .pol { display:flex; flex-wrap:wrap; gap:6px; margin:6px 0 10px; }
+  .pol .tag { font-size:12px; padding:4px 10px; border-radius:14px; border:1px solid var(--line); }
+  .pol .tag.auto { background:#10331f; border-color:#1f7a44; color:#7ee2a8; }
+  .pol .tag.manual { background:#3a2a14; border-color:#a06a2a; color:#ebcb8b; }
+  .emrow { display:grid; grid-template-columns:160px 1fr; gap:10px; padding:6px 11px; font-size:13px; border-bottom:1px solid #20242c; }
+  .emrow .em { color:var(--teal); font-weight:600; } .emrow .ec { color:#b8bcc4; font-size:12px; }
 </style></head><body>
   <header>
     <b>ELI</b><small>local &middot; private</small>
@@ -192,6 +208,7 @@ _WEB_UI = """<!doctype html>
       <button data-tab="system">System</button>
       <button data-tab="research">Research</button>
       <button data-tab="audit">Audit</button>
+      <button data-tab="admin">Admin</button>
     </nav>
   </header>
   <section class="view active" id="view-chat">
@@ -209,6 +226,7 @@ _WEB_UI = """<!doctype html>
   <section class="view" id="view-system"><div id="system"><div class="muted">Loading…</div></div></section>
   <section class="view" id="view-research"><div id="research"><div class="muted">Loading…</div></div></section>
   <section class="view" id="view-audit"><div id="audit"><div class="muted">Loading…</div></div></section>
+  <section class="view" id="view-admin"><div id="admin"><div class="muted">Loading…</div></div></section>
 <script>
   const $ = s => document.querySelector(s);
   let uid=localStorage.getItem('eli_uid');
@@ -232,6 +250,7 @@ _WEB_UI = """<!doctype html>
     if(b.dataset.tab==='system') loadSystem();
     if(b.dataset.tab==='research') loadResearch();
     if(b.dataset.tab==='audit') loadAudit();
+    if(b.dataset.tab==='admin') loadAdmin();
   });
 
   /* chat */
@@ -600,8 +619,58 @@ _WEB_UI = """<!doctype html>
   function filterAudit(){auditUser=($('#aud-user').value||'').trim();loadAudit();}
   function clearAudit(){auditUser='';loadAudit();}
 
+  /* admin — enterprise console: integrity + users + approval/risk gate */
+  function loadAdmin(){
+    api('/v1/admin/overview').then(renderAdmin)
+      .catch(e=>{$('#admin').innerHTML='<div class="err">'+esc(''+e)+'</div>';});
+  }
+  function renderAdmin(d){
+    if(!d||!d.ok){$('#admin').innerHTML='<div class="err">'+esc((d&&d.error)||'unavailable')+'</div>';return;}
+    const ig=d.integrity||{}, t=d.totals||{}, pol=d.policy||{}, users=d.users||[];
+    let h='<div class="adwrap">';
+    if(ig.ok) h+='<div class="abadge ok"><span class="dot"></span><span>Audit chain verified intact — '+(ig.chained||0)+' hash-chained event(s). No tampering.</span></div>';
+    else{const b=ig.first_break||{};h+='<div class="abadge bad"><span class="dot"></span><span>TAMPERING DETECTED at event #'+esc(b.id)+' — '+esc(b.reason||'')+'.</span></div>';}
+    h+='<div class="adtot">'+
+       '<div class="syscard"><div class="big">'+(t.events||0)+'</div><div class="lbl">events</div></div>'+
+       '<div class="syscard"><div class="big">'+(t.users||0)+'</div><div class="lbl">users</div></div>'+
+       '<div class="syscard"><div class="big">'+(t.failed||0)+'</div><div class="lbl">failures</div></div></div>';
+    h+='<div class="syscard" style="margin-bottom:14px"><h4>Users — activity</h4>'+
+       '<div class="uhdr"><span>user</span><span>events</span><span>failed</span><span>last seen</span></div>'+
+       (users.length?'':'<div class="muted">No activity yet.</div>')+
+       '<div id="ulist"></div><div id="udetail"></div></div>';
+    h+='<div class="syscard"><h4>Approval / risk gate</h4>';
+    if(pol.full_control) h+='<div class="abadge bad" style="margin:6px 0"><span class="dot"></span><span>ELI Full Control is ON — approval barriers lifted (every proposal auto-approved).</span></div>';
+    h+='<div class="rnote">Action classes — how the risk gate treats each:</div><div class="pol">';
+    (pol.action_classes||[]).forEach(ac=>{const auto=(pol.auto_approve||[]).indexOf(ac)>=0;
+      h+='<span class="tag '+(auto?'auto':'manual')+'">'+esc(ac)+' · '+(auto?'auto-approve':'manual')+'</span>';});
+    h+='</div><div class="rnote">Which agent (emitter) may propose which classes:</div>';
+    const ep=pol.emitter_policy||{};
+    Object.keys(ep).forEach(em=>{h+='<div class="emrow"><div class="em">'+esc(em)+'</div><div class="ec">'+ep[em].map(esc).join(', ')+'</div></div>';});
+    h+='</div>';
+    $('#admin').innerHTML=h+'</div>';
+    const ul=$('#ulist');
+    users.forEach(u=>{
+      const row=document.createElement('div');row.className='urow';
+      row.innerHTML='<span class="un">'+esc(u.user_id)+'</span><span>'+u.events+'</span><span class="uf '+(u.failed?'bad':'')+'">'+u.failed+'</span><span class="ut">'+esc(fmtTime(u.last_seen))+'</span>';
+      row.onclick=()=>drillUser(u.user_id);
+      ul.appendChild(row);
+    });
+  }
+  function drillUser(u){
+    const box=$('#udetail'); if(!box)return; box.innerHTML='<div class="muted">Loading '+esc(u)+'…</div>';
+    api('/v1/admin/user?user_id='+encodeURIComponent(u)+'&limit=40').then(d=>{
+      if(!d.ok){box.innerHTML='<div class="err">'+esc(d.error||'failed')+'</div>';return;}
+      let h='<div class="rnote" style="margin-top:10px">Recent activity — '+esc(u)+'</div>';
+      const ev=d.events||[];
+      if(!ev.length) h+='<div class="muted">No events.</div>';
+      ev.forEach(e=>{const oc=(e.outcome||'').toLowerCase();
+        h+='<div class="arow"><div class="at">'+esc(fmtTime(e.timestamp))+'</div><div><span class="aa">'+esc(e.action||e.event_type||'')+'</span>'+(e.subject?' <span class="as">'+esc(e.subject)+'</span>':'')+'<div class="at">'+esc(e.source||'')+'</div></div><div class="ao '+esc(oc)+'">'+esc(e.outcome||'')+'</div></div>';});
+      box.innerHTML=h;
+    }).catch(e=>{box.innerHTML='<div class="err">'+esc(''+e)+'</div>';});
+  }
+
   window.ingestCorpus=ingestCorpus; window.askCorpus=askCorpus; window.addNote=addNote; window.removeDoc=removeDoc; window.loadCorpusDetail=loadCorpusDetail; window.setResearchName=setResearchName;
-  window.filterAudit=filterAudit; window.clearAudit=clearAudit;
+  window.filterAudit=filterAudit; window.clearAudit=clearAudit; window.loadAdmin=loadAdmin; window.drillUser=drillUser;
 </script></body></html>"""
 
 # ----------------------------------------------------------------------
@@ -1083,6 +1152,60 @@ def audit_log(user_id: Optional[str] = None, limit: int = 50):
         return {"ok": True, "integrity": verify_chain(), "events": events}
     except Exception as e:
         return {"ok": False, "error": str(e), "events": [], "integrity": None}
+
+# ----------------------------------------------------------------------
+# Admin / Enterprise console  (powers the "Admin" tab — read-only management view)
+# Aggregates the tamper-evident audit ledger (integrity, totals, per-user activity)
+# and surfaces the approval/risk-gate policy. All local; metadata only.
+# ----------------------------------------------------------------------
+def _approval_policy() -> dict:
+    """The risk-gate policy: which action classes auto-approve vs need manual approval,
+    and which emitter (agent) may propose which classes."""
+    try:
+        from eli.runtime import approval_engine as ap
+        return {
+            "action_classes": sorted(ap.ACTION_CLASSES),
+            "auto_approve": sorted(ap.AUTO_APPROVE),
+            "manual_approve": sorted(ap.MANUAL_APPROVE),
+            "emitter_policy": {k: sorted(v) for k, v in ap.EMITTER_POLICY.items()},
+            "full_control": _full_control_on(),
+        }
+    except Exception as e:
+        return {"error": str(e)}
+
+def _full_control_on() -> bool:
+    try:
+        from eli.core.full_control import is_full_control
+        return bool(is_full_control())
+    except Exception:
+        return False
+
+@app.get("/v1/admin/overview", tags=["Admin"], dependencies=[Depends(_require_token)])
+def admin_overview():
+    """Enterprise overview: audit-chain integrity, totals, per-user activity rollup,
+    and the approval/risk-gate policy."""
+    try:
+        from eli.runtime.evidence_ledger import verify_chain, totals, users_summary
+        return {"ok": True, "integrity": verify_chain(), "totals": totals(),
+                "users": users_summary(), "policy": _approval_policy()}
+    except Exception as e:
+        return {"ok": False, "error": str(e)}
+
+@app.get("/v1/admin/user", tags=["Admin"], dependencies=[Depends(_require_token)])
+def admin_user(user_id: str, limit: int = 50):
+    """Recent activity for one user (drill-down from the overview)."""
+    try:
+        from eli.runtime.evidence_ledger import recent_events
+        rows = recent_events(limit=max(1, min(int(limit or 50), 500)), user_id=user_id)
+        events = [{
+            "id": e.get("id"), "timestamp": e.get("timestamp"),
+            "event_type": e.get("event_type"), "source": e.get("source"),
+            "action": e.get("action"), "subject": e.get("subject"),
+            "outcome": e.get("outcome"), "severity": e.get("severity"),
+        } for e in rows]
+        return {"ok": True, "user_id": user_id, "events": events}
+    except Exception as e:
+        return {"ok": False, "error": str(e), "events": []}
 
 # ----------------------------------------------------------------------
 # Research workspaces  (powers the "Research" tab — fully local, no external surface)

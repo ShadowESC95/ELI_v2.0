@@ -314,15 +314,16 @@ nothing runs on the device, and nothing reaches the internet.
 ./scripts/eli_serve.sh --lan       # your home network   → prints a token-protected URL
 ```
 
-### The web app — six tabs
+### The web app — seven tabs
 - **Chat** — talk to ELI from any device; inference stays on the host. Streams replies token-by-token,
   and **"Talk to ELI"** voice: tap the mic to speak (your phone's audio is transcribed by ELI's *local*
   whisper model), and tick **Speak replies** to have answers read back in ELI's *local* Piper voice —
   no cloud STT/TTS, the audio never leaves your machine.
 - **Commands** — a searchable catalogue of every documented action (with descriptions and example
   phrases). Tap a phrase to drop it into the chat box.
-- **Devices** — ELI's **own** device server (see below): a device grid with light/switch toggles and
-  brightness sliders, talking to your devices directly over **MQTT** — no Home Assistant, no cloud.
+- **Home** — ELI's **own** device server (see below): devices grouped into **rooms** with light/switch
+  toggles, brightness sliders, and per-room "all on/off", talking to your devices directly over **MQTT**
+  — no Home Assistant, no cloud.
 - **System** — ELI's own **measured** telemetry: GPU temperature/utilisation/VRAM, CPU load/temp,
   RAM, the loaded model, and uptime — the same grounded source ELI reports from, so the numbers are
   real, never guessed.
@@ -334,6 +335,9 @@ nothing runs on the device, and nothing reaches the internet.
 - **Audit** — a **tamper-evident** trail of every action (who did what, with what outcome), hash-chained
   so any edited/deleted/reordered record is detected. The tab shows a live "verified intact / tampering
   detected" verdict and a per-user event list.
+- **Admin** — an enterprise management console: chain-integrity status, totals, a **per-user activity**
+  rollup (click a user to drill into their recent actions), and the **approval / risk-gate policy** —
+  which action classes auto-approve vs need manual approval, and which agent may propose which.
 
 ### ELI device server (the Devices tab) — MQTT, no Home Assistant
 ELI keeps its **own** device registry and talks to devices **directly over MQTT** — the open DIY-IoT
