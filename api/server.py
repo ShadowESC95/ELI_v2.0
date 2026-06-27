@@ -942,15 +942,31 @@ _WEB_UI = """<!doctype html>
   }
 
   function loadHomeSuggestions(){
-    api('/v1/home/suggestions').then(d=>{
+    Promise.all([api('/v1/home/suggestions'),api('/v1/home/automations')]).then(function(res){
       const box=$('#home-sugg'); if(!box)return;
-      const s=(d&&d.suggestions)||[];
-      if(!s.length){box.innerHTML='';return;}
-      let h='<div class="syscard" style="margin-bottom:14px"><h4>&#10024; ELI suggests</h4>';
-      s.forEach(x=>{h+='<div class="src"><div class="sx">'+esc(x.text)+'</div></div>';});
-      box.innerHTML=h+'</div>';
+      const s=(res[0]&&res[0].suggestions)||[], autos=(res[1]&&res[1].automations)||[];
+      let h='';
+      if(s.length){
+        h+='<div class="syscard" style="margin-bottom:14px"><h4>&#10024; ELI suggests</h4>';
+        s.forEach(x=>{h+='<div class="src"><div class="sh"><span class="sx">'+esc(x.text)+'</span>'+
+          '<button class="roombtn sugg-accept" data-dev="'+esc(x.device)+'" data-hour="'+(x.hour||0)+'" data-name="'+esc(x.name||'')+'">Automate</button></div></div>';});
+        h+='</div>';
+      }
+      if(autos.length){
+        h+='<div class="syscard" style="margin-bottom:14px"><h4>&#9201; Automations</h4>';
+        autos.forEach(a=>{h+='<div class="src"><div class="sh"><span>'+(a.enabled?'':'&#9208; ')+esc(a.name||a.id)+'</span>'+
+          '<span><label class="sw"><input type="checkbox" class="auto-toggle" data-id="'+esc(a.id)+'" '+(a.enabled?'checked':'')+'><span></span></label> <span class="link auto-rm" data-id="'+esc(a.id)+'">remove</span></span></div></div>';});
+        h+='</div>';
+      }
+      box.innerHTML=h;
+      box.querySelectorAll('.sugg-accept').forEach(b=>b.onclick=()=>acceptSugg(b.dataset.dev,+b.dataset.hour,b.dataset.name));
+      box.querySelectorAll('.auto-toggle').forEach(c=>c.onchange=()=>toggleAuto(c.dataset.id,c.checked));
+      box.querySelectorAll('.auto-rm').forEach(r=>r.onclick=()=>removeAuto(r.dataset.id));
     }).catch(()=>{});
   }
+  function acceptSugg(device,hour,name){api('/v1/home/suggestions/accept',{method:'POST',body:JSON.stringify({device:device,command:'on',hour:hour,name:name})}).then(()=>loadHomeSuggestions()).catch(()=>{});}
+  function toggleAuto(id,en){api('/v1/home/automations/toggle',{method:'POST',body:JSON.stringify({id:id,enabled:en})}).catch(()=>{});}
+  function removeAuto(id){api('/v1/home/automations/remove',{method:'POST',body:JSON.stringify({id:id})}).then(()=>loadHomeSuggestions()).catch(()=>{});}
   window.renderDevConfig=renderDevConfig; window.saveDevConfig=saveDevConfig; window.ctlDev=ctlDev; window.addDevicePrompt=addDevicePrompt; window.addDevice=addDevice; window.loadDevices=loadDevices; window.ctlRoom=ctlRoom; window.moveDevice=moveDevice; window.discoverDevices=discoverDevices; window.useBroker=useBroker;
   /* audit — tamper-evident trail + chain verification */
   let auditUser='';
@@ -1191,6 +1207,24 @@ class DeviceRoom(BaseModel):
 class RoomControl(BaseModel):
     room: str
     command: str                  # on | off
+
+class AutomationCreate(BaseModel):
+    device: str
+    command: str = "on"
+    time: str                     # HH:MM
+    value: Optional[Any] = None
+    days: Any = "daily"           # "daily" or a list of weekday ints (0=Mon)
+    name: str = ""
+
+class AutomationRef(BaseModel):
+    id: str
+    enabled: Optional[bool] = None
+
+class SuggestionAccept(BaseModel):
+    device: str
+    command: str = "on"
+    hour: int
+    name: str = ""
 
 class CompletionMessage(BaseModel):
     role: str = "user"
@@ -1632,6 +1666,32 @@ def home_suggestions_ep():
     """Proactive automation ideas ELI derives from how you use your devices."""
     from eli.runtime import home_intel
     return {"ok": True, "suggestions": home_intel.suggestions()}
+
+@app.post("/v1/home/suggestions/accept", tags=["Devices"], dependencies=[Depends(require_member)])
+def home_suggestion_accept(req: SuggestionAccept):
+    """Turn one of ELI's suggestions into a real recurring automation."""
+    hm = f"{int(req.hour) % 24:02d}:00"
+    return _device_server().add_automation(device=req.device, command=req.command,
+                                          time_str=hm, name=req.name)
+
+@app.get("/v1/home/automations", tags=["Devices"], dependencies=[Depends(_require_token)])
+def home_automations_list():
+    return {"ok": True, "automations": _device_server().list_automations()}
+
+@app.post("/v1/home/automations/add", tags=["Devices"], dependencies=[Depends(require_member)])
+def home_automation_add(req: AutomationCreate):
+    """Create a recurring automation: run <command> on <device> at <time> (HH:MM)."""
+    return _device_server().add_automation(device=req.device, command=req.command,
+                                          time_str=req.time, value=req.value,
+                                          days=req.days, name=req.name)
+
+@app.post("/v1/home/automations/remove", tags=["Devices"], dependencies=[Depends(require_member)])
+def home_automation_remove(req: AutomationRef):
+    return _device_server().remove_automation(req.id)
+
+@app.post("/v1/home/automations/toggle", tags=["Devices"], dependencies=[Depends(require_member)])
+def home_automation_toggle(req: AutomationRef):
+    return _device_server().set_automation_enabled(req.id, bool(req.enabled))
 
 # ----------------------------------------------------------------------
 # System telemetry  (powers the "System" tab — real, measured, never guessed)
