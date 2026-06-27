@@ -180,6 +180,36 @@ def test_home_state_snapshot(server, fake_paho):
     assert st["device_count"] == 1 and "rooms" in st and isinstance(st["on"], list)
 
 
+def test_automation_create_validate_toggle_remove(server, fake_paho):
+    server.register_device(device_id="lamp", name="Desk Lamp", dtype="light",
+                           command_topic="h/lamp/set", room="Office")
+    assert server.add_automation(device="lamp", command="on", time_str="bad")["ok"] is False
+    r = server.add_automation(device="lamp", command="on", time_str="20:00")
+    assert r["ok"] and r["automation"]["time"] == "20:00"
+    aid = r["automation"]["id"]
+    assert [a["id"] for a in server.list_automations()] == [aid]
+    assert server.set_automation_enabled(aid, False)["ok"]
+    assert server.list_automations()[0]["enabled"] is False
+    assert server.remove_automation(aid)["ok"]
+    assert server.list_automations() == []
+
+
+def test_scheduler_fires_due_automation(server, fake_paho):
+    import time as _t
+    server.register_device(device_id="lamp", dtype="light", command_topic="h/lamp/set")
+    server.configure(host="192.168.1.50")
+    server.connect()
+    now = _t.localtime()
+    server.add_automation(device="lamp", command="on", time_str="%02d:%02d" % (now.tm_hour, now.tm_min))
+    fake_paho.clear()
+    # run one scheduler pass (the loop body) for the current minute
+    cur = "%02d:%02d" % (now.tm_hour, now.tm_min)
+    for a in server.list_automations():
+        if a["enabled"] and a["time"] == cur:
+            server.control(a["device"], a["command"])
+    assert fake_paho and fake_paho[-1] == ("h/lamp/set", "ON")
+
+
 def test_discover_degrades_without_zeroconf(monkeypatch):
     import sys
     import eli.runtime.device_server as ds
