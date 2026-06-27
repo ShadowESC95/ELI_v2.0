@@ -340,11 +340,20 @@ ELI then lists and controls your lights, switches, fans, climate, media players,
 The token is stored locally (in your config) and is **never** returned by the API.
 
 ### Security
-- **Loopback (default) is tokenless** for zero-friction same-machine use (`127.0.0.1`).
-- **Any non-loopback bind requires a token.** ELI fails closed: if you expose the server beyond
-  loopback (e.g. `--lan`, `ELI_API_HOST=0.0.0.0`, a systemd unit, Docker) without setting
-  `ELI_API_TOKEN`, it **auto-generates one and prints it** rather than ever serving unauthenticated.
-  Every endpoint — chat, command execution, and all smart-home/system controls — sits behind that token.
+- **The auth gate fails closed.** By default — no `ELI_API_TOKEN`, no explicit opt-out — every
+  action endpoint returns `401`. The guarantee no longer depends on the launcher script: a raw
+  `uvicorn api.server:app`, a Docker `CMD`, a systemd `ExecStart`, or any other ASGI-direct launch
+  that never runs `main()` is **locked down**, not wide open.
+- **Loopback is zero-friction.** Launch via `scripts/eli_serve.sh` (or `python -m api.server` on the
+  default `127.0.0.1`) and same-machine use is tokenless — `main()` enables tokenless serving *only*
+  for a genuine loopback bind (set `ELI_API_ALLOW_TOKENLESS=0` to require a token even locally).
+- **Any non-loopback bind requires a token.** Expose beyond loopback (`--lan`, `ELI_API_HOST=0.0.0.0`)
+  with no token and ELI **auto-generates one and prints it** rather than ever serving unauthenticated.
+  Every endpoint — chat, command execution, smart-home/system controls, research ingest — sits behind it.
+- **Research ingest is sandboxed.** The Research tab can only read documents under a configured root
+  (default `artifacts/research/_sources/`, or set `ELI_RESEARCH_ROOT`); paths outside it are rejected and
+  a directory ingest is bounded by file-count / total-byte caps. A client can never make the server read
+  arbitrary host files.
 - Keep it on your **own LAN**. Don't port-forward it to the public internet; it's a personal-network tool.
 
 ### Maintenance
