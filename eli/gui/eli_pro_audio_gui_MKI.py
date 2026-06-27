@@ -7100,6 +7100,7 @@ _register()
         ("Application", "🖥"),
         ("Agents",      "🤖"),
         ("Gaze",        "👁"),
+        ("Web Server",  "🌐"),
         ("Advanced",    "⚙️"),
     ]
 
@@ -7163,6 +7164,7 @@ _register()
         self._settings_stack.addWidget(self._build_settings_app_page())
         self._settings_stack.addWidget(self._build_settings_agents_page())
         self._settings_stack.addWidget(self._build_settings_gaze_page())
+        self._settings_stack.addWidget(self._build_settings_server_page())
         self._settings_stack.addWidget(self._build_settings_advanced_page())
 
         self._settings_zoom_view = _ZoomableSettingsView(self._settings_stack)
@@ -8182,6 +8184,160 @@ _register()
             )
         except Exception as ex:
             QMessageBox.warning(self, "TTS test failed", str(ex))
+
+    # ── Web Server — one-click launch for phone/tablet/browser access ─────────
+    def _build_settings_server_page(self) -> QWidget:
+        page, vbox = self._settings_page(
+            "Web Server",
+            "Open ELI in a browser on this computer, or on your phone/tablet over your "
+            "own Wi-Fi. Inference stays on this machine — the browser is just a screen.",
+        )
+        self._srv_status = QLabel("● Stopped")
+        self._srv_status.setStyleSheet("font-size:12px;font-weight:700;color:#bf616a;")
+        vbox.addWidget(self._srv_status)
+
+        row = QHBoxLayout()
+        self._srv_btn_local = QPushButton("▶  Start (this computer)")
+        self._srv_btn_lan = QPushButton("📱  Start (phone / Wi-Fi)")
+        self._srv_btn_stop = QPushButton("■  Stop")
+        for b, col in ((self._srv_btn_local, "#5e81ac"), (self._srv_btn_lan, "#5e81ac"),
+                       (self._srv_btn_stop, "#3b4252")):
+            b.setFixedHeight(30)
+            b.setStyleSheet(
+                f"QPushButton{{background:{col};color:#fff;font-weight:600;border:none;"
+                "border-radius:5px;padding:0 14px;font-size:11px;}"
+                "QPushButton:hover{background:#81a1c1;}"
+                "QPushButton:disabled{background:#2a2d36;color:#5b6275;}")
+            row.addWidget(b)
+        row.addStretch()
+        vbox.addLayout(row)
+        self._srv_btn_local.clicked.connect(lambda: self._eli_server_start(False))
+        self._srv_btn_lan.clicked.connect(lambda: self._eli_server_start(True))
+        self._srv_btn_stop.clicked.connect(self._eli_server_stop)
+
+        self._srv_url = QLineEdit()
+        self._srv_url.setReadOnly(True)
+        self._srv_url.setPlaceholderText("The address to open will appear here when running…")
+        self._srv_url.setStyleSheet(
+            "QLineEdit{background:#12141a;color:#a3be8c;border:1px solid #2a2d36;"
+            "border-radius:5px;padding:7px;font-size:12px;}")
+        vbox.addWidget(self._srv_url)
+
+        hint = QLabel(
+            "“Phone / Wi-Fi” mode is protected by a one-time access token baked into the "
+            "link — open it once on the phone and it’s remembered. Keep this on your own "
+            "network; don’t expose it to the public internet.")
+        hint.setWordWrap(True)
+        hint.setStyleSheet("color:#606880;font-size:10px;")
+        vbox.addWidget(hint)
+        vbox.addStretch()
+
+        # Poll the child process so the UI reflects crashes / external stops.
+        self._srv_timer = QTimer(self)
+        self._srv_timer.setInterval(1500)
+        self._srv_timer.timeout.connect(self._eli_server_poll)
+        self._srv_timer.start()
+        self._eli_server_update_ui("stopped")
+        return page
+
+    def _eli_server_lan_ip(self) -> str:
+        import socket
+        try:
+            ip = socket.gethostbyname(socket.gethostname())
+            if ip and not ip.startswith("127."):
+                return ip
+        except Exception:
+            pass
+        try:
+            import subprocess as _sp
+            out = _sp.run(["hostname", "-I"], capture_output=True, text=True, timeout=2)
+            ip = (out.stdout or "").split()[0] if out.stdout.strip() else ""
+            if ip:
+                return ip
+        except Exception:
+            pass
+        return "<this-computer-ip>"
+
+    def _eli_server_start(self, lan: bool) -> None:
+        import os, sys, subprocess, secrets
+        if getattr(self, "_srv_proc", None) and self._srv_proc.poll() is None:
+            return  # already running
+        port = os.environ.get("ELI_API_PORT", "8081")
+        env = dict(os.environ)
+        env["ELI_API_PORT"] = port
+        if lan:
+            token = secrets.token_urlsafe(16)
+            env["ELI_API_HOST"] = "0.0.0.0"
+            env["ELI_API_TOKEN"] = token
+            url = f"http://{self._eli_server_lan_ip()}:{port}/?token={token}"
+        else:
+            env["ELI_API_HOST"] = "127.0.0.1"
+            env.setdefault("ELI_API_ALLOW_TOKENLESS", "1")
+            url = f"http://127.0.0.1:{port}/"
+        try:
+            root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+            self._srv_proc = subprocess.Popen(
+                [sys.executable, "-m", "api.server"], cwd=root, env=env,
+                stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            self._srv_url.setText(url)
+            self._eli_server_update_ui("starting")
+        except Exception as e:
+            self._eli_server_update_ui("error", str(e))
+
+    def _eli_server_stop(self) -> None:
+        proc = getattr(self, "_srv_proc", None)
+        if proc and proc.poll() is None:
+            try:
+                proc.terminate()
+            except Exception:
+                pass
+        self._srv_proc = None
+        self._srv_url.clear()
+        self._eli_server_update_ui("stopped")
+
+    def _eli_server_poll(self) -> None:
+        proc = getattr(self, "_srv_proc", None)
+        if proc is None:
+            return
+        if proc.poll() is not None:  # exited (crash or external stop)
+            self._srv_proc = None
+            self._srv_url.clear()
+            self._eli_server_update_ui("stopped")
+            return
+        # Running — confirm the port is actually accepting connections (loopback,
+        # so netguard always permits it).
+        import os as _os, socket
+        try:
+            port = int(_os.environ.get("ELI_API_PORT", "8081"))
+        except Exception:
+            port = 8081
+        up = False
+        try:
+            with socket.create_connection(("127.0.0.1", port), timeout=0.4):
+                up = True
+        except Exception:
+            up = False
+        self._eli_server_update_ui("running" if up else "starting")
+
+    def _eli_server_update_ui(self, state: str, detail: str = "") -> None:
+        running = state in ("running", "starting")
+        try:
+            self._srv_btn_local.setEnabled(not running)
+            self._srv_btn_lan.setEnabled(not running)
+            self._srv_btn_stop.setEnabled(running)
+        except Exception:
+            pass
+        text, colour = {
+            "stopped": ("● Stopped", "#bf616a"),
+            "starting": ("● Starting…", "#ebcb8b"),
+            "running": ("● Running — open the address below", "#a3be8c"),
+            "error": (f"● Error: {detail}", "#bf616a"),
+        }.get(state, ("● Stopped", "#bf616a"))
+        try:
+            self._srv_status.setText(text)
+            self._srv_status.setStyleSheet(f"font-size:12px;font-weight:700;color:{colour};")
+        except Exception:
+            pass
 
     # ── Page 3 — Application ──────────────────────────────────────────────────
     def _build_settings_app_page(self) -> QWidget:
@@ -10895,6 +11051,15 @@ _register()
             return
 
         self._eli_shutdown_started = True
+
+        # Stop the web server child process if the user launched one from Settings,
+        # so closing the GUI doesn't leave an orphaned server bound to the port.
+        try:
+            _srv = getattr(self, "_srv_proc", None)
+            if _srv is not None and _srv.poll() is None:
+                _srv.terminate()
+        except Exception:
+            pass
 
         try:
             self._cancel_stream_requested = True
