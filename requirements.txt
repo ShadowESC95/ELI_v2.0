@@ -85,6 +85,7 @@ urllib3==2.6.3
 fastapi>=0.110
 uvicorn>=0.27
 paho-mqtt>=1.6,<3   # ELI-native MQTT device server (no Home Assistant)
+zeroconf>=0.70   # mDNS device/broker discovery on the LAN
 opencv-python>=4.8
 pytesseract>=0.3
 openwakeword>=0.4
