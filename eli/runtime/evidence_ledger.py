@@ -40,6 +40,29 @@ def _signature(parts: Iterable[Any]) -> str:
     return hashlib.sha1(raw.encode("utf-8", "ignore")).hexdigest()
 
 
+# ── Tamper-evident hash chain ────────────────────────────────────────────────
+# Each event's chain_sig = sha256(prev_chain_sig ⊕ this row's stored fields). Because
+# every row commits to the one before it, editing a field, deleting a row, or
+# reordering rows changes a recomputed chain_sig and breaks the linkage — which
+# verify_chain() detects. The first row chains off a fixed genesis marker.
+_GENESIS = "ELI-AUDIT-GENESIS"
+_SEP = "\x1f"  # unit separator — can't appear in normalised text/JSON values
+
+# The exact stored columns (in order) that the chain commits to. Anything an auditor
+# cares about — who/what/when/outcome — is here; id and the chain columns are excluded.
+_CHAIN_FIELDS = (
+    "ts", "event_type", "source", "action", "subject", "content", "payload_json",
+    "severity", "outcome", "confidence", "reusable", "session_id", "user_id",
+    "request_id", "signature",
+)
+
+
+def _chain_signature(prev_sig: str, ordered_values: Iterable[Any]) -> str:
+    parts = [str(prev_sig if prev_sig is not None else "")]
+    parts.extend("" if v is None else str(v) for v in ordered_values)
+    return hashlib.sha256(_SEP.join(parts).encode("utf-8", "ignore")).hexdigest()
+
+
 def _connect(db_path: Optional[str | Path] = None) -> sqlite3.Connection:
     path = Path(db_path).expanduser().resolve() if db_path else _default_db_path()
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -70,7 +93,9 @@ def ensure_schema(conn: sqlite3.Connection) -> None:
             session_id TEXT,
             user_id TEXT,
             request_id TEXT,
-            signature TEXT
+            signature TEXT,
+            prev_sig TEXT,
+            chain_sig TEXT
         )
         """
     )
@@ -92,6 +117,10 @@ def ensure_schema(conn: sqlite3.Connection) -> None:
         ("user_id", "TEXT"),
         ("request_id", "TEXT"),
         ("signature", "TEXT"),
+        # Tamper-evidence: each row commits to the previous row's chain_sig, so any
+        # edit/deletion/reorder breaks the chain (see _chain_signature / verify_chain).
+        ("prev_sig", "TEXT"),
+        ("chain_sig", "TEXT"),
     ]:
         if name not in existing:
             conn.execute(f"ALTER TABLE runtime_events ADD COLUMN {name} {decl}")
@@ -127,8 +156,24 @@ def record_event(
     now = float(timestamp or time.time())
     payload = dict(payload or {})
     sig = _signature([event_type, source, action, subject, content, payload.get("error") or payload.get("path") or ""])
+    # Pre-normalise once; these exact stored values are what the chain commits to.
+    v_event = _norm(event_type, 120)
+    v_source = _norm(source, 160)
+    v_action = _norm(action, 160)
+    v_subject = _norm(subject, 300)
+    v_content = _norm(content, 4000)
+    v_payload = _json(payload)[:30000]
+    v_severity = _norm(severity, 80) or "info"
+    v_outcome = _norm(outcome, 160)
+    v_reusable = 1 if reusable else 0
+    v_session = _norm(session_id, 200)
+    v_user = _norm(user_id, 200)
+    v_request = _norm(request_id, 200)
     conn = _connect(db_path)
     try:
+        # Serialise the read-prev → compute → insert so concurrent writers can't fork
+        # the chain (the audit log is low-rate; an immediate write lock is fine).
+        conn.execute("BEGIN IMMEDIATE")
         # Deduplication: skip if the same signature was inserted within the dedup window.
         # This prevents duplicate rows from concurrent threads writing the same event.
         if _DEDUP_WINDOW_SECONDS > 0:
@@ -137,33 +182,32 @@ def record_event(
                 (sig, now - _DEDUP_WINDOW_SECONDS),
             ).fetchone()
             if existing:
+                conn.commit()
                 return int(existing[0])
+
+        # Chain link: this row commits to the previous row's chain_sig (genesis if first).
+        last = conn.execute(
+            "SELECT chain_sig FROM runtime_events WHERE chain_sig IS NOT NULL "
+            "ORDER BY id DESC LIMIT 1"
+        ).fetchone()
+        prev_sig = (last[0] if last and last[0] else _GENESIS)
+        ordered = (now, v_event, v_source, v_action, v_subject, v_content, v_payload,
+                   v_severity, v_outcome, confidence, v_reusable, v_session, v_user,
+                   v_request, sig)
+        chain_sig = _chain_signature(prev_sig, ordered)
 
         cur = conn.execute(
             """
             INSERT INTO runtime_events (
                 ts, timestamp, event_type, source, action, subject, content,
                 payload_json, severity, outcome, confidence, reusable,
-                session_id, user_id, request_id, signature
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                session_id, user_id, request_id, signature, prev_sig, chain_sig
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
-                now,
-                now,
-                _norm(event_type, 120),
-                _norm(source, 160),
-                _norm(action, 160),
-                _norm(subject, 300),
-                _norm(content, 4000),
-                _json(payload)[:30000],
-                _norm(severity, 80) or "info",
-                _norm(outcome, 160),
-                confidence,
-                1 if reusable else 0,
-                _norm(session_id, 200),
-                _norm(user_id, 200),
-                _norm(request_id, 200),
-                sig,
+                now, now, v_event, v_source, v_action, v_subject, v_content,
+                v_payload, v_severity, v_outcome, confidence, v_reusable,
+                v_session, v_user, v_request, sig, prev_sig, chain_sig,
             ),
         )
         conn.commit()
@@ -179,6 +223,7 @@ def recent_events(
     source: str | None = None,
     action: str | None = None,
     reusable_only: bool = False,
+    user_id: str | None = None,
     db_path: Optional[str | Path] = None,
 ) -> List[Dict[str, Any]]:
     sql = (
@@ -197,6 +242,9 @@ def recent_events(
     if action:
         where.append("action = ?")
         params.append(action)
+    if user_id is not None:
+        where.append("user_id = ?")
+        params.append(_norm(user_id, 200))
     if reusable_only:
         where.append("COALESCE(reusable, 1) = 1")
     if where:
@@ -238,6 +286,64 @@ def recent_events(
             }
         )
     return out
+
+
+def verify_chain(db_path: Optional[str | Path] = None) -> Dict[str, Any]:
+    """Walk the tamper-evident hash chain and report its integrity.
+
+    Recomputes each row's chain_sig from its stored fields + the previous row's
+    chain_sig. Any edited field, deleted row, or reordering makes a recomputed
+    signature mismatch or breaks the prev_sig linkage — reported as the first break.
+
+    Returns ``{ok, checked, chained, legacy, first_break}`` where ``legacy`` counts
+    pre-feature rows (no chain_sig) that are skipped, and ``first_break`` is ``None``
+    when intact or ``{id, reason}`` at the first inconsistency."""
+    conn = _connect(db_path)
+    try:
+        rows = conn.execute(
+            "SELECT id, ts, event_type, source, action, subject, content, payload_json, "
+            "severity, outcome, confidence, reusable, session_id, user_id, request_id, "
+            "signature, prev_sig, chain_sig FROM runtime_events ORDER BY id ASC"
+        ).fetchall()
+    finally:
+        conn.close()
+
+    checked = 0
+    chained = 0
+    legacy = 0
+    prev_chain = _GENESIS
+    first_break: Optional[Dict[str, Any]] = None
+    for r in rows:
+        rid = r[0]
+        stored_chain = r[17]
+        if stored_chain is None:
+            legacy += 1  # pre-tamper-evidence row; not part of the chain
+            continue
+        checked += 1
+        stored_prev = r[16]
+        # 1) Linkage: this row must commit to the previous chained row.
+        if str(stored_prev or "") != str(prev_chain):
+            first_break = {"id": rid, "reason": "broken link (prev_sig != previous chain_sig) "
+                                                 "— a row was deleted, reordered, or inserted"}
+            break
+        # 2) Integrity: recompute this row's chain_sig from its stored fields.
+        ordered = (r[1], r[2], r[3], r[4], r[5], r[6], r[7], r[8], r[9], r[10],
+                   r[11], r[12], r[13], r[14], r[15])
+        recomputed = _chain_signature(stored_prev, ordered)
+        if recomputed != str(stored_chain):
+            first_break = {"id": rid, "reason": "content tampered (a field was edited "
+                                                "after the row was written)"}
+            break
+        chained += 1
+        prev_chain = stored_chain
+
+    return {
+        "ok": first_break is None,
+        "checked": checked,
+        "chained": chained,
+        "legacy": legacy,
+        "first_break": first_break,
+    }
 
 
 def repeated_event_signals(*, limit: int = 8, days: int = 3, db_path: Optional[str | Path] = None) -> List[Dict[str, Any]]:
