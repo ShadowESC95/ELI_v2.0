@@ -48,24 +48,89 @@ def _tokenless_allowed() -> bool:
     return os.environ.get("ELI_API_ALLOW_TOKENLESS", "").strip().lower() in ("1", "true", "yes", "on")
 
 
-def _require_token(authorization: str = Header(default="")):
-    """Fail-CLOSED auth gate. A token is required unless tokenless serving has been
-    explicitly enabled (loopback only). Critically, the *default* — no token set and
-    no explicit opt-out — is DENY, so the security guarantee no longer depends on the
-    launcher script having run main(); a raw `uvicorn api.server:app` is locked down too."""
-    token = _api_token()
-    if token:
-        if not secrets.compare_digest(authorization or "", f"Bearer {token}"):
-            raise HTTPException(status_code=401, detail="missing or invalid API token")
-        return
-    # No token configured.
+from typing import NamedTuple
+
+
+class Principal(NamedTuple):
+    """The authenticated caller: a user id and a role (admin | member)."""
+    user_id: str
+    role: str
+
+
+def _bearer(authorization: str) -> str:
+    a = (authorization or "").strip()
+    return a[7:].strip() if a.lower().startswith("bearer ") else ""
+
+
+def _resolve_principal(authorization: str) -> Optional[Principal]:
+    """Resolve a request to an authenticated Principal, or None (→ 401).
+
+    RBAC mode (one or more users defined): the bearer token maps to a (user_id, role).
+    Single-operator mode (no users): the legacy ELI_API_TOKEN — or a loopback bind with
+    tokenless allowed — authenticates the local 'operator' as admin (back-compatible)."""
+    token = _bearer(authorization)
+    try:
+        from eli.runtime import api_users
+        if api_users.rbac_enabled():
+            rec = api_users.resolve_token(token)
+            if rec:
+                return Principal(rec["user_id"], rec["role"])
+            # No matching token. The LOOPBACK operator (no token + tokenless allowed,
+            # which main() enables only on a loopback bind) is the machine owner — keep
+            # them admin so they can manage users / never lock themselves out. A LAN
+            # client (no tokenless) with no/invalid token still fails closed.
+            if not token and _tokenless_allowed():
+                return Principal("operator", "admin")
+            return None
+    except Exception:
+        pass  # store unreadable → fall through to single-operator mode (fail-closed below)
+    configured = _api_token()
+    if configured:
+        if token and secrets.compare_digest(token, configured):
+            return Principal("operator", "admin")
+        return None
     if _tokenless_allowed():
-        return
-    raise HTTPException(
-        status_code=401,
-        detail="API token required: set ELI_API_TOKEN (or, for same-machine use, "
-               "launch via scripts/eli_serve.sh which enables loopback tokenless serving)",
-    )
+        return Principal("operator", "admin")
+    return None
+
+
+def require_member(authorization: str = Header(default="")) -> Principal:
+    """Fail-CLOSED gate: any authenticated caller. The default — no token, no opt-out —
+    is DENY, so a raw `uvicorn api.server:app` stays locked down regardless of main()."""
+    p = _resolve_principal(authorization)
+    if p is None:
+        raise HTTPException(
+            status_code=401,
+            detail="API token required (set ELI_API_TOKEN or define a user; for "
+                   "same-machine use launch via scripts/eli_serve.sh)",
+        )
+    return p
+
+
+def require_admin(authorization: str = Header(default="")) -> Principal:
+    """Require an admin role (the Admin console + user management)."""
+    p = require_member(authorization)
+    if p.role != "admin":
+        raise HTTPException(status_code=403, detail="admin role required")
+    return p
+
+
+def _require_token(authorization: str = Header(default="")):
+    """Member-level dependency (kept as the name every endpoint already references)."""
+    require_member(authorization)
+
+
+def _effective_user(principal: Optional[Principal], supplied: str) -> str:
+    """The user id to attribute an action to. In RBAC mode the *authenticated* identity
+    is authoritative (a member can't spoof another user); otherwise the client-supplied
+    value is used (single-operator mode has no per-user tokens)."""
+    try:
+        from eli.runtime import api_users
+        if api_users.rbac_enabled() and principal is not None:
+            return principal.user_id
+    except Exception:
+        pass
+    return (supplied or "anon")
 
 app = FastAPI(
     title="ELI Cognitive OS Agent API",
@@ -647,6 +712,14 @@ _WEB_UI = """<!doctype html>
     const ep=pol.emitter_policy||{};
     Object.keys(ep).forEach(em=>{h+='<div class="emrow"><div class="em">'+esc(em)+'</div><div class="ec">'+ep[em].map(esc).join(', ')+'</div></div>';});
     h+='</div>';
+    const rbac=d.rbac||{enabled:false,accounts:[]};
+    h+='<div class="syscard" style="margin-top:14px"><h4>Users &amp; access (RBAC)</h4>'+
+       '<div class="abadge '+(rbac.enabled?'ok':'bad')+'" style="margin:6px 0"><span class="dot"></span><span>'+
+       (rbac.enabled?('Role-based access ON — '+(rbac.accounts||[]).length+' account(s). Each token maps to a user + role; attribution is authenticated.')
+        :'Single-operator mode — the operator is admin. Add a user below to enable role-based access (admin / member).')+'</span></div>'+
+       '<div id="acctlist"></div>'+
+       '<div class="afilter" style="margin-top:10px"><input id="nu-id" autocomplete="off" placeholder="new user id"><select id="nu-role"><option value="member">member</option><option value="admin">admin</option></select><button onclick="addUser()">Add user</button></div>'+
+       '<div id="nu-token" class="rnote"></div></div>';
     $('#admin').innerHTML=h+'</div>';
     const ul=$('#ulist');
     users.forEach(u=>{
@@ -655,6 +728,29 @@ _WEB_UI = """<!doctype html>
       row.onclick=()=>drillUser(u.user_id);
       ul.appendChild(row);
     });
+    const al=$('#acctlist');
+    (rbac.accounts||[]).forEach(ac=>{
+      const row=document.createElement('div');row.className='emrow';
+      row.innerHTML='<div class="em">'+esc(ac.user_id)+'</div><div class="ec" style="display:flex;justify-content:space-between;align-items:center"><span class="tag '+(ac.role==='admin'?'manual':'auto')+'">'+esc(ac.role)+'</span><span class="rmv link">remove</span></div>';
+      row.querySelector('.rmv').onclick=()=>removeUser(ac.user_id);
+      al.appendChild(row);
+    });
+  }
+  function addUser(){
+    const id=($('#nu-id').value||'').trim(), role=$('#nu-role').value, box=$('#nu-token');
+    if(!id){box.textContent='Enter a user id.';return;}
+    api('/v1/admin/users/add',{method:'POST',body:JSON.stringify({user_id:id,role:role})}).then(d=>{
+      if(!d.ok){box.innerHTML='<span style="color:#f87171">'+esc(d.error||'failed')+'</span>';return;}
+      box.innerHTML='Created <b>'+esc(d.user_id)+'</b> ('+esc(d.role)+'). Share this token — shown ONCE: <code style="color:#a3be8c">'+esc(d.token)+'</code>';
+      $('#nu-id').value='';
+      const al=$('#acctlist'); if(al){const row=document.createElement('div');row.className='emrow';row.innerHTML='<div class="em">'+esc(d.user_id)+'</div><div class="ec"><span class="tag '+(d.role==='admin'?'manual':'auto')+'">'+esc(d.role)+'</span></div>';al.appendChild(row);}
+    }).catch(e=>{box.innerHTML='<span style="color:#f87171">'+esc(''+e)+'</span>';});
+  }
+  function removeUser(id){
+    if(!confirm('Remove user "'+id+'"? Their token stops working.'))return;
+    api('/v1/admin/users/remove',{method:'POST',body:JSON.stringify({user_id:id})}).then(d=>{
+      if(!d.ok){alert(d.error||'failed');return;} loadAdmin();
+    }).catch(()=>{});
   }
   function drillUser(u){
     const box=$('#udetail'); if(!box)return; box.innerHTML='<div class="muted">Loading '+esc(u)+'…</div>';
@@ -670,7 +766,7 @@ _WEB_UI = """<!doctype html>
   }
 
   window.ingestCorpus=ingestCorpus; window.askCorpus=askCorpus; window.addNote=addNote; window.removeDoc=removeDoc; window.loadCorpusDetail=loadCorpusDetail; window.setResearchName=setResearchName;
-  window.filterAudit=filterAudit; window.clearAudit=clearAudit; window.loadAdmin=loadAdmin; window.drillUser=drillUser;
+  window.filterAudit=filterAudit; window.clearAudit=clearAudit; window.loadAdmin=loadAdmin; window.drillUser=drillUser; window.addUser=addUser; window.removeUser=removeUser;
 </script></body></html>"""
 
 # ----------------------------------------------------------------------
@@ -773,6 +869,13 @@ class TTSRequest(BaseModel):
     text: str
     voice: Optional[str] = None
 
+class UserCreate(BaseModel):
+    user_id: str
+    role: str = "member"   # admin | member
+
+class UserRef(BaseModel):
+    user_id: str
+
 # ----------------------------------------------------------------------
 # API Endpoints
 # ----------------------------------------------------------------------
@@ -837,20 +940,21 @@ def _audit(event_type: str, *, user_id: str = "default", action: str = "",
         pass
 
 
-@app.post("/v1/chat", response_model=ChatResponse, tags=["Chat"], dependencies=[Depends(_require_token)])
-async def chat(request: ChatRequest):
+@app.post("/v1/chat", response_model=ChatResponse, tags=["Chat"])
+async def chat(request: ChatRequest, principal: Principal = Depends(require_member)):
     """Send a message to ELI and get a response."""
     try:
         engine = get_engine()
         session_id = request.session_id or str(int(time.time()))
+        who = _effective_user(principal, request.user_id)
 
         result = engine.process(
             request.message,
-            source=f"api:{request.user_id}",
+            source=f"api:{who}",
             stream=False
         )
 
-        _audit("api_chat", user_id=request.user_id, action="CHAT", session_id=session_id)
+        _audit("api_chat", user_id=who, action="CHAT", session_id=session_id)
         return ChatResponse(
             response=_extract_response_text(result),
             session_id=session_id,
@@ -987,8 +1091,8 @@ def chat_completions(request: CompletionRequest):
         "usage": {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0},
     }
 
-@app.post("/v1/execute", response_model=ExecuteResponse, tags=["Commands"], dependencies=[Depends(_require_token)])
-async def execute(request: ExecuteRequest):
+@app.post("/v1/execute", response_model=ExecuteResponse, tags=["Commands"])
+async def execute(request: ExecuteRequest, principal: Principal = Depends(require_member)):
     """Execute a direct ELI command (OPEN_APP, SCREENSHOT, etc.)."""
     try:
         from eli.execution.executor_enhanced import execute as exec_cmd
@@ -996,7 +1100,8 @@ async def execute(request: ExecuteRequest):
         result = exec_cmd(request.action, request.args)
 
         ok = bool(result.get("ok", False))
-        _audit("api_execute", user_id=request.user_id,
+        who = _effective_user(principal, request.user_id)
+        _audit("api_execute", user_id=who,
                action=str(request.action or "").upper(),
                subject=str(request.args or {})[:200],
                outcome="ok" if ok else "failed",
@@ -1004,7 +1109,7 @@ async def execute(request: ExecuteRequest):
         return ExecuteResponse(
             ok=ok,
             result=result,
-            user_id=request.user_id,
+            user_id=who,
             timestamp=time.time()
         )
     except Exception as e:
@@ -1180,18 +1285,32 @@ def _full_control_on() -> bool:
     except Exception:
         return False
 
-@app.get("/v1/admin/overview", tags=["Admin"], dependencies=[Depends(_require_token)])
+@app.get("/v1/admin/overview", tags=["Admin"], dependencies=[Depends(require_admin)])
 def admin_overview():
     """Enterprise overview: audit-chain integrity, totals, per-user activity rollup,
-    and the approval/risk-gate policy."""
+    the approval/risk-gate policy, and the RBAC user roster. Admin only."""
     try:
         from eli.runtime.evidence_ledger import verify_chain, totals, users_summary
+        from eli.runtime import api_users
         return {"ok": True, "integrity": verify_chain(), "totals": totals(),
-                "users": users_summary(), "policy": _approval_policy()}
+                "users": users_summary(), "policy": _approval_policy(),
+                "rbac": {"enabled": api_users.rbac_enabled(), "accounts": api_users.list_users()}}
     except Exception as e:
         return {"ok": False, "error": str(e)}
 
-@app.get("/v1/admin/user", tags=["Admin"], dependencies=[Depends(_require_token)])
+@app.post("/v1/admin/users/add", tags=["Admin"], dependencies=[Depends(require_admin)])
+def admin_users_add(req: UserCreate):
+    """Create (or replace) a user with a role; returns a one-time token to share. Admin only."""
+    from eli.runtime import api_users
+    return api_users.add_user(req.user_id, req.role)
+
+@app.post("/v1/admin/users/remove", tags=["Admin"], dependencies=[Depends(require_admin)])
+def admin_users_remove(req: UserRef):
+    """Remove a user (the last admin cannot be removed). Admin only."""
+    from eli.runtime import api_users
+    return api_users.remove_user(req.user_id)
+
+@app.get("/v1/admin/user", tags=["Admin"], dependencies=[Depends(require_admin)])
 def admin_user(user_id: str, limit: int = 50):
     """Recent activity for one user (drill-down from the overview)."""
     try:
@@ -1218,24 +1337,24 @@ def research_corpora():
     from eli.runtime.research_corpus import corpora
     return {"ok": True, "corpora": corpora()}
 
-@app.post("/v1/research/ingest", tags=["Research"], dependencies=[Depends(_require_token)])
-def research_ingest(req: ResearchIngest):
+@app.post("/v1/research/ingest", tags=["Research"])
+def research_ingest(req: ResearchIngest, principal: Principal = Depends(require_member)):
     """Ingest a local file or folder of documents (.pdf/.txt/.md) into a SHARED corpus,
-    attributed to the contributor. Synchronous (embedding is CPU-local)."""
+    attributed to the (authenticated, under RBAC) contributor."""
     from eli.runtime.research_corpus import ingest
-    return ingest(req.corpus, req.path, user=req.user)
+    return ingest(req.corpus, req.path, user=_effective_user(principal, req.user))
 
-@app.post("/v1/research/note", tags=["Research"], dependencies=[Depends(_require_token)])
-def research_note(req: ResearchNote):
+@app.post("/v1/research/note", tags=["Research"])
+def research_note(req: ResearchNote, principal: Principal = Depends(require_member)):
     """Create/replace a text note in a shared corpus (collaborative create/edit)."""
     from eli.runtime.research_corpus import add_note
-    return add_note(req.corpus, req.title, req.text, user=req.user)
+    return add_note(req.corpus, req.title, req.text, user=_effective_user(principal, req.user))
 
-@app.post("/v1/research/remove", tags=["Research"], dependencies=[Depends(_require_token)])
-def research_remove(req: ResearchDoc):
+@app.post("/v1/research/remove", tags=["Research"])
+def research_remove(req: ResearchDoc, principal: Principal = Depends(require_member)):
     """Remove a document from a shared corpus (collaborative edit/cleanup)."""
     from eli.runtime.research_corpus import remove_document
-    return remove_document(req.corpus, req.source, user=req.user)
+    return remove_document(req.corpus, req.source, user=_effective_user(principal, req.user))
 
 @app.get("/v1/research/documents", tags=["Research"], dependencies=[Depends(_require_token)])
 def research_documents(corpus: str):
@@ -1249,12 +1368,12 @@ def research_activity(corpus: str, limit: int = 25):
     from eli.runtime.research_corpus import activity
     return {"ok": True, "activity": activity(corpus, limit=limit)}
 
-@app.post("/v1/research/query", tags=["Research"], dependencies=[Depends(_require_token)])
-def research_query(req: ResearchQuery):
+@app.post("/v1/research/query", tags=["Research"])
+def research_query(req: ResearchQuery, principal: Principal = Depends(require_member)):
     """Retrieve the most relevant passages from a corpus and synthesise a grounded,
     cited answer with the LOCAL model. Returns {answer, sources}."""
     from eli.runtime.research_corpus import query
-    res = query(req.corpus, req.question, k=req.k, user=req.user)
+    res = query(req.corpus, req.question, k=req.k, user=_effective_user(principal, req.user))
     if not res.get("ok"):
         return res
     hits = res.get("hits", [])
