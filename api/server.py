@@ -253,7 +253,10 @@ _WEB_UI = """<!doctype html>
   .sw input:checked + span:before { transform:translateX(20px); }
   .gauge { width:84px; height:84px; border-radius:50%; margin:0 auto; display:grid; place-items:center; background:conic-gradient(var(--teal) calc(var(--p)*1%), #2a2d35 0); }
   .gauge i { width:64px; height:64px; border-radius:50%; background:var(--card); display:grid; place-items:center; font-size:16px; font-weight:600; font-style:normal; }
-  .err { color:#f87171; font-size:13px; padding:10px; } .muted { color:var(--mut); font-size:13px; text-align:center; padding:30px; }
+  .err { color:var(--bad); font-size:13px; padding:10px; } .muted { color:var(--mut); font-size:13px; text-align:center; padding:30px; }
+  .banner { border-radius:10px; padding:10px 13px; font-size:13px; }
+  .banner.bad { background:rgba(248,113,113,.12); border:1px solid var(--bad); color:var(--bad); }
+  .banner.ok { background:rgba(52,211,153,.12); border:1px solid var(--ok); color:var(--ok); }
   a.link, .link { color:var(--teal); cursor:pointer; }
   input[type=range] { width:100%; accent-color:var(--teal); margin-top:4px; }
   .media { display:flex; gap:6px; justify-content:center; }
@@ -490,26 +493,28 @@ _WEB_UI = """<!doctype html>
         .catch(e=>{$('#devices').innerHTML='<div class="err">'+esc(''+e)+'</div>';});
     }).catch(e=>{$('#devices').innerHTML='<div class="err">'+esc(''+e)+'</div>';});
   }
-  function renderDevConfig(st){
-    st=st||{};
-    $('#devices').innerHTML='<div class="hconfig"><h3>ELI device server</h3>'+
-      '<p>ELI talks to your devices directly over <b>MQTT</b> — no Home Assistant. Point it at your MQTT broker (e.g. Mosquitto), and use devices that speak MQTT (ESPHome / Tasmota / Zigbee2MQTT).</p>'+
-      '<label>Broker host</label><input id="mq_host" placeholder="192.168.1.50" value="'+esc(st.brokerHost||'')+'">'+
-      '<label>Port</label><input id="mq_port" value="1883">'+
-      '<label>Username (optional)</label><input id="mq_user" autocomplete="off">'+
-      '<label>Password (optional)</label><input id="mq_pass" type="password" autocomplete="new-password">'+
-      '<label>Discovery prefix (optional — auto-finds devices)</label><input id="mq_disc" placeholder="leave blank for manual devices">'+
-      '<button onclick="saveDevConfig()">Save &amp; connect</button></div>';
+  function renderDevConfig(st, vals, err){
+    st=st||{}; vals=vals||{};
+    $('#devices').innerHTML='<div class="hconfig"><h3>Set up ELI&#39;s device server</h3>'+
+      '<p>ELI talks to your devices directly over <b>MQTT</b> — no Home Assistant. Point it at your MQTT broker (e.g. a local Mosquitto), then add devices that speak MQTT (ESPHome / Tasmota / Zigbee2MQTT).</p>'+
+      (err?'<div class="banner bad" style="margin:0 0 12px">'+esc(err)+'</div>':'')+
+      '<label>Broker host</label><input id="mq_host" autocomplete="off" placeholder="192.168.1.50 or mosquitto.local" value="'+esc(vals.host||st.brokerHost||'')+'">'+
+      '<label>Port</label><input id="mq_port" value="'+esc(vals.port||'1883')+'">'+
+      '<label>Username (optional)</label><input id="mq_user" autocomplete="off" value="'+esc(vals.username||'')+'">'+
+      '<label>Password (optional)</label><input id="mq_pass" type="password" autocomplete="new-password" value="'+esc(vals.password||'')+'">'+
+      '<label>Discovery prefix (optional — auto-finds devices)</label><input id="mq_disc" placeholder="leave blank for manual devices" value="'+esc(vals.discovery_prefix||'')+'">'+
+      '<button id="mq-save" onclick="saveDevConfig()">Save &amp; connect</button></div>';
   }
   function saveDevConfig(){
     const body={host:($('#mq_host').value||'').trim(), port:parseInt($('#mq_port').value||'1883',10)||1883,
       username:($('#mq_user').value||'').trim(), password:$('#mq_pass').value||'',
       discovery_prefix:($('#mq_disc').value||'').trim()};
-    $('#devices').innerHTML='<div class="muted">Connecting to broker…</div>';
+    if(!body.host){renderDevConfig({}, body, 'Enter your MQTT broker host (e.g. 192.168.1.50 or mosquitto.local).');return;}
+    const btn=$('#mq-save'); if(btn){btn.disabled=true;btn.textContent='Connecting…';}
     api('/v1/devices/config',{method:'POST',body:JSON.stringify(body)}).then(r=>{
-      if(!r.ok){$('#devices').innerHTML='<div class="err">'+esc(r.error||'connect failed')+'</div><div class="rnote"><span class="link" onclick="loadDevices()">back</span></div>';return;}
+      if(!r.ok){renderDevConfig({}, body, r.error||'Could not connect to the broker.');return;}
       setTimeout(loadDevices,500);
-    }).catch(e=>{$('#devices').innerHTML='<div class="err">'+esc(''+e)+'</div>';});
+    }).catch(e=>{renderDevConfig({}, body, ''+e);});
   }
   function devCard(dv){
     const t=dv.type||'switch', card=document.createElement('div');card.className='card';
