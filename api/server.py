@@ -160,6 +160,21 @@ _WEB_UI = """<!doctype html>
   .src .sh { display:flex; justify-content:space-between; color:var(--teal); font-weight:600; margin-bottom:4px; }
   .src .sx { color:#b8bcc4; }
   .rnote { font-size:12px; color:var(--mut); margin-top:6px; }
+  #audit { overflow-y:auto; padding:14px; }
+  .awrap { max-width:880px; margin:0 auto; }
+  .abadge { border-radius:12px; padding:12px 16px; margin-bottom:14px; font-size:14px; display:flex; align-items:center; gap:10px; }
+  .abadge.ok { background:#10331f; border:1px solid #1f7a44; color:#7ee2a8; }
+  .abadge.bad { background:#3a1414; border:1px solid #b42a2a; color:#f8a0a0; }
+  .abadge .dot { width:10px; height:10px; border-radius:50%; flex:none; }
+  .abadge.ok .dot { background:#22c55e; } .abadge.bad .dot { background:#ef4444; }
+  .arow { display:grid; grid-template-columns:128px 1fr 84px; gap:10px; padding:9px 11px; border:1px solid var(--line); border-radius:9px; background:var(--card); margin-bottom:6px; font-size:13px; align-items:center; }
+  .arow .at { color:var(--mut); font-size:12px; } .arow .aa { font-weight:600; }
+  .arow .au { color:var(--teal); font-size:12px; } .arow .as { color:#b8bcc4; font-size:12px; }
+  .arow .ao { text-align:right; font-size:12px; }
+  .arow .ao.ok { color:#7ee2a8; } .arow .ao.failed, .arow .ao.error { color:#f8a0a0; }
+  .afilter { display:flex; gap:8px; margin-bottom:12px; }
+  .afilter input { flex:1; padding:9px 11px; border-radius:9px; border:1px solid var(--line); background:#15171c; color:#e6e6e6; font-size:13px; }
+  .afilter button { padding:9px 14px; border:0; border-radius:9px; background:var(--accent); color:#fff; font-size:13px; cursor:pointer; }
 </style></head><body>
   <header>
     <b>ELI</b><small>local &middot; private</small>
@@ -169,6 +184,7 @@ _WEB_UI = """<!doctype html>
       <button data-tab="home">Home</button>
       <button data-tab="system">System</button>
       <button data-tab="research">Research</button>
+      <button data-tab="audit">Audit</button>
     </nav>
   </header>
   <section class="view active" id="view-chat">
@@ -185,6 +201,7 @@ _WEB_UI = """<!doctype html>
   <section class="view" id="view-home"><div id="home"><div class="muted">Loading…</div></div></section>
   <section class="view" id="view-system"><div id="system"><div class="muted">Loading…</div></div></section>
   <section class="view" id="view-research"><div id="research"><div class="muted">Loading…</div></div></section>
+  <section class="view" id="view-audit"><div id="audit"><div class="muted">Loading…</div></div></section>
 <script>
   const $ = s => document.querySelector(s);
   let uid=localStorage.getItem('eli_uid');
@@ -207,6 +224,7 @@ _WEB_UI = """<!doctype html>
     if(b.dataset.tab==='home') loadHome();
     if(b.dataset.tab==='system') loadSystem();
     if(b.dataset.tab==='research') loadResearch();
+    if(b.dataset.tab==='audit') loadAudit();
   });
 
   /* chat */
@@ -454,7 +472,40 @@ _WEB_UI = """<!doctype html>
   }
 
   window.renderHomeConfig=renderHomeConfig; window.saveHome=saveHome; window.control=control; window.media=media; window.climate=climate; window.editHome=editHome;
+  /* audit — tamper-evident trail + chain verification */
+  let auditUser='';
+  function loadAudit(){
+    const q=auditUser?('?user_id='+encodeURIComponent(auditUser)):'';
+    api('/v1/audit'+q).then(renderAudit)
+      .catch(e=>{$('#audit').innerHTML='<div class="err">'+esc(''+e)+'</div>';});
+  }
+  function fmtTime(ts){try{return new Date(ts*1000).toLocaleString();}catch(_e){return ''+ts;}}
+  function renderAudit(d){
+    if(!d||!d.ok){$('#audit').innerHTML='<div class="err">'+esc((d&&d.error)||'unavailable')+'</div>';return;}
+    const ig=d.integrity||{}; let h='<div class="awrap">';
+    if(ig.ok){
+      h+='<div class="abadge ok"><span class="dot"></span><span>Audit chain verified intact — '+(ig.chained||0)+' event(s) hash-chained'+(ig.legacy?(', '+ig.legacy+' legacy'):'')+'. No tampering detected.</span></div>';
+    }else{
+      const b=ig.first_break||{};
+      h+='<div class="abadge bad"><span class="dot"></span><span>TAMPERING DETECTED at event #'+esc(b.id)+' — '+esc(b.reason||'chain broken')+'.</span></div>';
+    }
+    h+='<div class="afilter"><input id="aud-user" autocomplete="off" placeholder="filter by user id…" value="'+esc(auditUser)+'">'+
+       '<button onclick="filterAudit()">Filter</button><button onclick="clearAudit()">All</button></div>';
+    const ev=d.events||[];
+    if(!ev.length){h+='<div class="muted">No audit events yet.</div>';}
+    ev.forEach(e=>{
+      const oc=(e.outcome||'').toLowerCase();
+      h+='<div class="arow"><div><div class="at">'+esc(fmtTime(e.timestamp))+'</div>'+(e.user_id?'<div class="au">'+esc(e.user_id)+'</div>':'')+'</div>'+
+         '<div><span class="aa">'+esc(e.action||e.event_type||'')+'</span>'+(e.subject?' <span class="as">'+esc(e.subject)+'</span>':'')+'<div class="at">'+esc(e.source||'')+'</div></div>'+
+         '<div class="ao '+esc(oc)+'">'+esc(e.outcome||'')+'</div></div>';
+    });
+    $('#audit').innerHTML=h+'</div>';
+  }
+  function filterAudit(){auditUser=($('#aud-user').value||'').trim();loadAudit();}
+  function clearAudit(){auditUser='';loadAudit();}
+
   window.ingestCorpus=ingestCorpus; window.askCorpus=askCorpus;
+  window.filterAudit=filterAudit; window.clearAudit=clearAudit;
 </script></body></html>"""
 
 # ----------------------------------------------------------------------
@@ -580,19 +631,35 @@ async def api_info():
 async def health():
     return {"status": "healthy"}
 
+def _audit(event_type: str, *, user_id: str = "default", action: str = "",
+           subject: str = "", outcome: str = "ok", severity: str = "info",
+           session_id: str = "", payload: Optional[dict] = None) -> None:
+    """Best-effort, tamper-evident audit record for an API request. Records WHO
+    (user_id) did WHAT (action) with what OUTCOME into the hash-chained ledger —
+    metadata only, never message/response content. Never raises into the request."""
+    try:
+        from eli.runtime.evidence_ledger import record_event
+        record_event(event_type, source="api", action=action, subject=subject,
+                     outcome=outcome, severity=severity, user_id=user_id or "default",
+                     session_id=session_id, payload=payload or {})
+    except Exception:
+        pass
+
+
 @app.post("/v1/chat", response_model=ChatResponse, tags=["Chat"], dependencies=[Depends(_require_token)])
 async def chat(request: ChatRequest):
     """Send a message to ELI and get a response."""
     try:
         engine = get_engine()
         session_id = request.session_id or str(int(time.time()))
-        
+
         result = engine.process(
             request.message,
             source=f"api:{request.user_id}",
             stream=False
         )
 
+        _audit("api_chat", user_id=request.user_id, action="CHAT", session_id=session_id)
         return ChatResponse(
             response=_extract_response_text(result),
             session_id=session_id,
@@ -734,11 +801,17 @@ async def execute(request: ExecuteRequest):
     """Execute a direct ELI command (OPEN_APP, SCREENSHOT, etc.)."""
     try:
         from eli.execution.executor_enhanced import execute as exec_cmd
-        
+
         result = exec_cmd(request.action, request.args)
-        
+
+        ok = bool(result.get("ok", False))
+        _audit("api_execute", user_id=request.user_id,
+               action=str(request.action or "").upper(),
+               subject=str(request.args or {})[:200],
+               outcome="ok" if ok else "failed",
+               severity="info" if ok else "error")
         return ExecuteResponse(
-            ok=result.get("ok", False),
+            ok=ok,
             result=result,
             user_id=request.user_id,
             timestamp=time.time()
@@ -849,6 +922,31 @@ async def system_status():
         return {"ok": True, "status": st}
     except Exception as e:
         return {"ok": False, "error": str(e), "status": {}}
+
+# ----------------------------------------------------------------------
+# Audit trail  (powers the "Audit" tab — tamper-evident, read-only)
+# Every API action is recorded into a hash-chained ledger (who did what, with what
+# outcome). /v1/audit returns recent events (optionally per user) plus a live
+# verification of the chain's integrity — any edited/deleted/reordered row is flagged.
+# ----------------------------------------------------------------------
+@app.get("/v1/audit", tags=["System"], dependencies=[Depends(_require_token)])
+def audit_log(user_id: Optional[str] = None, limit: int = 50):
+    """Tamper-evident audit trail: recent action events (optionally filtered to one
+    user) + a verification of the hash chain. Metadata only — no message content."""
+    try:
+        from eli.runtime.evidence_ledger import recent_events, verify_chain
+        n = max(1, min(int(limit or 50), 500))
+        rows = recent_events(limit=n, user_id=user_id)
+        events = [{
+            "id": e.get("id"), "timestamp": e.get("timestamp"),
+            "event_type": e.get("event_type"), "source": e.get("source"),
+            "action": e.get("action"), "subject": e.get("subject"),
+            "outcome": e.get("outcome"), "severity": e.get("severity"),
+            "user_id": e.get("user_id"), "session_id": e.get("session_id"),
+        } for e in rows]
+        return {"ok": True, "integrity": verify_chain(), "events": events}
+    except Exception as e:
+        return {"ok": False, "error": str(e), "events": [], "integrity": None}
 
 # ----------------------------------------------------------------------
 # Research workspaces  (powers the "Research" tab — fully local, no external surface)
