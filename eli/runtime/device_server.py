@@ -65,7 +65,11 @@ class DeviceServer:
         self._client = None
         self._connected = False
         self._last_error = ""
+        self._sched_thread = None
         self._load()
+        # Resume any saved automations after a restart.
+        if self.list_automations():
+            self._ensure_scheduler()
 
     # ── Persistence ─────────────────────────────────────────────────────────
     def _load(self) -> None:
@@ -423,6 +427,96 @@ class DeviceServer:
               if str(d.get("state", "")).upper() == "ON"]
         return {"connected": st.get("connected"), "broker": st.get("broker"),
                 "device_count": st.get("device_count"), "on": on, "rooms": rooms}
+
+    # ── Automations (run a device command at a time of day) ──────────────────
+    def _automations_path(self) -> "Path":
+        return _registry_path().parent / "automations.json"
+
+    def list_automations(self) -> List[Dict[str, Any]]:
+        try:
+            p = self._automations_path()
+            if p.exists():
+                data = json.loads(p.read_text(encoding="utf-8"))
+                if isinstance(data, list):
+                    return [a for a in data if isinstance(a, dict)]
+        except Exception:
+            log.debug("device_server: automations load failed", exc_info=True)
+        return []
+
+    def _save_automations(self, autos: List[dict]) -> None:
+        p = self._automations_path()
+        tmp = p.with_suffix(".json.part")
+        tmp.write_text(json.dumps(autos, ensure_ascii=False, indent=2), encoding="utf-8")
+        tmp.replace(p)
+
+    def add_automation(self, *, device: str, command: str, time_str: str,
+                       value: Any = None, days: Any = "daily", name: str = "") -> Dict[str, Any]:
+        import re as _re
+        if not (device or "").strip():
+            return {"ok": False, "error": "device required"}
+        if not _re.match(r"^\d{1,2}:\d{2}$", (time_str or "").strip()):
+            return {"ok": False, "error": "time must be HH:MM"}
+        with self._lock:
+            dev = self._devices.get(device)
+        label = name or (f"{(dev or {}).get('name', device)} → {command} at {time_str}")
+        auto = {"id": "a" + str(int(time.time() * 1000)), "device": device,
+                "command": (command or "on").lower().strip(), "value": value,
+                "time": time_str.strip(), "days": days or "daily", "enabled": True, "name": label}
+        autos = self.list_automations()
+        autos.append(auto)
+        self._save_automations(autos)
+        self._ensure_scheduler()
+        return {"ok": True, "automation": auto}
+
+    def remove_automation(self, auto_id: str) -> Dict[str, Any]:
+        autos = self.list_automations()
+        kept = [a for a in autos if a.get("id") != auto_id]
+        if len(kept) == len(autos):
+            return {"ok": False, "error": "no such automation"}
+        self._save_automations(kept)
+        return {"ok": True}
+
+    def set_automation_enabled(self, auto_id: str, enabled: bool) -> Dict[str, Any]:
+        autos = self.list_automations()
+        found = False
+        for a in autos:
+            if a.get("id") == auto_id:
+                a["enabled"] = bool(enabled); found = True
+        if not found:
+            return {"ok": False, "error": "no such automation"}
+        self._save_automations(autos)
+        return {"ok": True}
+
+    def _ensure_scheduler(self) -> None:
+        if getattr(self, "_sched_thread", None) and self._sched_thread.is_alive():
+            return
+        self._sched_thread = threading.Thread(target=self._sched_loop, daemon=True)
+        self._sched_thread.start()
+
+    def _sched_loop(self) -> None:
+        last: Dict[str, str] = {}
+        while True:
+            try:
+                now = time.localtime()
+                hm = "%02d:%02d" % (now.tm_hour, now.tm_min)
+                stamp = time.strftime("%Y-%m-%d %H:%M", now)
+                for a in self.list_automations():
+                    if not a.get("enabled") or a.get("time") != hm:
+                        continue
+                    days = a.get("days")
+                    if isinstance(days, list) and now.tm_wday not in days:
+                        continue
+                    if last.get(a["id"]) == stamp:
+                        continue
+                    last[a["id"]] = stamp
+                    try:
+                        self.control(a.get("device"), a.get("command", "on"), a.get("value"))
+                        log.debug("automation fired: %s", a.get("name"))
+                    except Exception:
+                        log.debug("automation fire failed", exc_info=True)
+            except Exception:
+                log.debug("scheduler loop error", exc_info=True)
+            time.sleep(20)
 
 
 def discover(timeout: float = 3.0) -> Dict[str, Any]:

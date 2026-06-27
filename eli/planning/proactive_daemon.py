@@ -908,6 +908,19 @@ Date: {datetime.now().strftime("%A %B %d %H:%M")} | Interactions last 24h: {inte
                     for improvement in improvements:
                         self.suggestion_queue.put(("improvement", improvement))
 
+                    # ── Home automation suggestions (from device usage) ─────
+                    try:
+                        from eli.runtime.home_intel import suggestions as _home_sugg
+                        for _hs in _home_sugg():
+                            self.suggestion_queue.put(("home", {
+                                "type": "home",
+                                "suggestion": _hs.get("text"),
+                                "device": _hs.get("device"),
+                                "hour": _hs.get("hour"),
+                            }))
+                    except Exception:
+                        pass
+
                     # ── Habit detection + execution ────────────────────────
                     try:
                         from eli.planning.habits import detect_habits
