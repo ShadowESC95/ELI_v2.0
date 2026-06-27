@@ -8292,67 +8292,68 @@ _register()
         return sys.executable
 
     def _eli_server_start(self, lan: bool) -> None:
-        import os, subprocess, secrets, tempfile
-        if getattr(self, "_srv_proc", None) and self._srv_proc.poll() is None:
+        # Run the web server IN-PROCESS (a background thread) so it shares this app's
+        # already-loaded model/engine instead of spawning a second process that would
+        # load the model again and run the machine out of memory.
+        import os, secrets, threading
+        if getattr(self, "_srv_thread", None) and self._srv_thread.is_alive():
             return  # already running
-        port = os.environ.get("ELI_API_PORT", "8081")
-        env = dict(os.environ)
-        env["ELI_API_PORT"] = port
+        port = int(os.environ.get("ELI_API_PORT", "8081"))
         if lan:
             token = secrets.token_urlsafe(16)
-            env["ELI_API_HOST"] = "0.0.0.0"
-            env["ELI_API_TOKEN"] = token
-            env.pop("ELI_API_ALLOW_TOKENLESS", None)  # LAN must require the token
-            ip = self._eli_server_lan_ip()
-            url = f"http://{ip}:{port}/?token={token}"
+            host = "0.0.0.0"
+            os.environ["ELI_API_HOST"] = host
+            os.environ["ELI_API_TOKEN"] = token
+            os.environ.pop("ELI_API_ALLOW_TOKENLESS", None)  # LAN must require the token
+            url = f"http://{self._eli_server_lan_ip()}:{port}/?token={token}"
         else:
-            env["ELI_API_HOST"] = "127.0.0.1"
-            env["ELI_API_ALLOW_TOKENLESS"] = "1"
+            host = "127.0.0.1"
+            os.environ["ELI_API_HOST"] = host
+            os.environ["ELI_API_ALLOW_TOKENLESS"] = "1"
             url = f"http://127.0.0.1:{port}/"
+        os.environ["ELI_API_PORT"] = str(port)
+        self._srv_err = ""
         try:
-            root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-            # Capture stderr so a failed start (bad interpreter, port in use) is visible.
-            self._srv_log = tempfile.NamedTemporaryFile(prefix="eli_server_", suffix=".log", delete=False)
-            self._srv_proc = subprocess.Popen(
-                [self._eli_server_python(), "-m", "api.server"], cwd=root, env=env,
-                stdout=self._srv_log, stderr=subprocess.STDOUT)
+            import uvicorn
+            from api.server import app as _app
+            # Signal handlers are auto-skipped off the main thread; safe in a Qt app.
+            self._srv_uv = uvicorn.Server(uvicorn.Config(_app, host=host, port=port, log_level="warning"))
+
+            def _run():
+                try:
+                    self._srv_uv.run()
+                except Exception as e:
+                    self._srv_err = str(e)
+
+            self._srv_thread = threading.Thread(target=_run, daemon=True)
+            self._srv_thread.start()
             self._srv_url.setText(url)
             self._eli_server_update_ui("starting")
         except Exception as e:
             self._eli_server_update_ui("error", str(e))
 
     def _eli_server_stop(self) -> None:
-        proc = getattr(self, "_srv_proc", None)
-        if proc and proc.poll() is None:
+        uv = getattr(self, "_srv_uv", None)
+        if uv is not None:
             try:
-                proc.terminate()
+                uv.should_exit = True
             except Exception:
                 pass
-        self._srv_proc = None
+        self._srv_uv = None
+        self._srv_thread = None
         self._srv_url.clear()
         self._eli_server_update_ui("stopped")
 
     def _eli_server_poll(self) -> None:
-        proc = getattr(self, "_srv_proc", None)
-        if proc is None:
+        th = getattr(self, "_srv_thread", None)
+        if th is None:
             return
-        if proc.poll() is not None:  # exited (crash or external stop)
-            self._srv_proc = None
+        if not th.is_alive():  # thread exited (error / stopped)
+            self._srv_thread = None
             self._srv_url.clear()
-            # Surface the captured reason (bad interpreter, port already in use, …).
-            tail = ""
-            try:
-                log = getattr(self, "_srv_log", None)
-                if log is not None:
-                    with open(log.name, "r", errors="replace") as fh:
-                        lines = [l for l in fh.read().strip().splitlines() if l.strip()]
-                    tail = lines[-1] if lines else ""
-            except Exception:
-                tail = ""
-            self._eli_server_update_ui("error" if tail else "stopped", tail[:160])
+            err = getattr(self, "_srv_err", "")
+            self._eli_server_update_ui("error" if err else "stopped", err[:160])
             return
-        # Running — confirm the port is actually accepting connections (loopback,
-        # so netguard always permits it).
         import os as _os, socket
         try:
             port = int(_os.environ.get("ELI_API_PORT", "8081"))
@@ -11099,12 +11100,12 @@ _register()
 
         self._eli_shutdown_started = True
 
-        # Stop the web server child process if the user launched one from Settings,
-        # so closing the GUI doesn't leave an orphaned server bound to the port.
+        # Stop the in-process web server (if the user started one from Settings) so the
+        # port is released on exit.
         try:
-            _srv = getattr(self, "_srv_proc", None)
-            if _srv is not None and _srv.poll() is None:
-                _srv.terminate()
+            _uv = getattr(self, "_srv_uv", None)
+            if _uv is not None:
+                _uv.should_exit = True
         except Exception:
             pass
 
