@@ -102,6 +102,9 @@ The launchers set these for you; you can also set them directly before `python -
 | `ELI_API_HOST` | `127.0.0.1` | Bind address (`0.0.0.0` = LAN). |
 | `ELI_API_PORT` | `8081` | Listen port. |
 | `ELI_API_TOKEN` | _(unset)_ | When set, required as `Authorization: Bearer <token>` on the action endpoints. The launcher sets this in `--lan` mode. |
+| `ELI_API_ALLOW_TOKENLESS` | _(unset)_ | Permits tokenless serving. **The gate fails closed without it** — `main()` sets it to `1` only on a loopback bind, so an ASGI-direct launch (uvicorn/Docker) that skips `main()` stays locked down. Set `0` to require a token even on loopback. |
+| `ELI_RESEARCH_ROOT` | `artifacts/research/_sources/` | The only directory `/v1/research/ingest` may read documents from. Paths outside it are rejected. |
+| `ELI_RESEARCH_MAX_FILES` / `ELI_RESEARCH_MAX_BYTES` | `2000` / `512 MB` | Caps on a single research ingest (directory-walk DoS guard). |
 | `ELI_API_RELOAD` | `0` | `1` enables uvicorn auto-reload (dev only). |
 
 Run it directly (advanced):

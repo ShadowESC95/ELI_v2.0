@@ -356,6 +356,21 @@ if [ "$NO_MODEL" -eq 0 ]; then
     fi
 fi
 
+# Voice weights (browser voice + TTS): the faster-whisper STT model and a Piper
+# voice. The pip packages ship the runtimes; these are the (gitignored) weights.
+# Best-effort + idempotent — skipped if already present, never fatal.
+VOICE_STATUS="skipped"
+if [ "$NO_MODEL" -eq 0 ]; then
+    info "Ensuring voice models (local STT + TTS, for browser/desktop voice) are present..."
+    if "$PYTHON_VENV" -m eli.runtime.voice_assets; then
+        ok "Voice models ready."
+        VOICE_STATUS="ready"
+    else
+        warn "Voice models deferred — fetch later with: .venv/bin/python -m eli.runtime.voice_assets"
+        VOICE_STATUS="deferred (fetch later)"
+    fi
+fi
+
 echo
 if [ "$VERIFY_OK" -eq 1 ]; then
     echo "${B}${GRN}╔══════════════════════════════════════════════╗${R}"
@@ -370,6 +385,7 @@ fi
 section "Summary"
 ok "Build       ${B}llama-cpp ${BUILD_LABEL}${R}"
 ok "Model       ${B}${MODEL_STATUS}${R}   ${D}(${SCRIPT_DIR}/models/)${R}"
+ok "Voice       ${B}${VOICE_STATUS}${R}   ${D}(local STT + TTS weights)${R}"
 ok "Data        ${B}fresh local databases${R}, offline-by-default"
 
 section "Launch"
