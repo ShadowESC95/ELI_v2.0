@@ -80,7 +80,8 @@ in a window so the phone URL + token are visible).
 | POST | `/v1/execute` | **token** | Run a direct action (OPEN_APP, SCREENSHOT, …) |
 | GET  | `/v1/status/{user_id}` | open | Runtime status (model, uptime) |
 | GET  | `/v1/system` | **token** | Measured GPU/CPU/RAM/model telemetry |
-| GET/POST | `/v1/smarthome/*` | **token** | Home Assistant device list + control (light/media/climate) |
+| GET  | `/v1/audit` | **token** | Tamper-evident (hash-chained) action trail + chain verification |
+| GET/POST | `/v1/devices/*` | **token** | ELI's own MQTT device server: `status`, `config`, `register`, `control` (no Home Assistant) |
 | GET/POST | `/v1/research/*` | **token** | Local document corpora: `corpora`, `ingest`, `query` (grounded, cited) |
 | GET  | `/v1/voice/voices` | **token** | List local Piper voices + the active one |
 | POST | `/v1/voice/stt` | **token** | Transcribe an audio clip (raw body) with the local whisper model |
