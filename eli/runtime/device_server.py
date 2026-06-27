@@ -326,12 +326,20 @@ class DeviceServer:
                 state = str(obj.get("state", obj.get("value", state)))
             except Exception:
                 pass
+        changed = False
         with self._lock:
             dev = self._devices.get(device_id)
             if dev:
+                changed = str(dev.get("state")) != state
                 dev["state"] = state
                 dev["last_seen"] = time.time()
                 self._save()
+        # Fire any "when this device reaches this state" automations.
+        if changed:
+            try:
+                self.fire_device_state_triggers(device_id, state)
+            except Exception:
+                log.debug("device-state trigger dispatch failed", exc_info=True)
 
     # ── Control ─────────────────────────────────────────────────────────────
     def control(self, device_id: str, command: str, value: Any = None) -> Dict[str, Any]:
@@ -428,20 +436,84 @@ class DeviceServer:
         return {"connected": st.get("connected"), "broker": st.get("broker"),
                 "device_count": st.get("device_count"), "on": on, "rooms": rooms}
 
-    # ── Automations (run a device command at a time of day) ──────────────────
+    # ── Scenes (a named group of device actions: "movie mode" etc.) ──────────
+    def _scenes_path(self) -> "Path":
+        return _registry_path().parent / "scenes.json"
+
+    def list_scenes(self) -> List[Dict[str, Any]]:
+        try:
+            p = self._scenes_path()
+            if p.exists():
+                d = json.loads(p.read_text(encoding="utf-8"))
+                if isinstance(d, list):
+                    return [s for s in d if isinstance(s, dict)]
+        except Exception:
+            log.debug("device_server: scenes load failed", exc_info=True)
+        return []
+
+    def _save_scenes(self, scenes: List[dict]) -> None:
+        p = self._scenes_path()
+        tmp = p.with_suffix(".json.part")
+        tmp.write_text(json.dumps(scenes, ensure_ascii=False, indent=2), encoding="utf-8")
+        tmp.replace(p)
+
+    def add_scene(self, name: str, actions: List[dict]) -> Dict[str, Any]:
+        name = (name or "").strip()
+        if not name:
+            return {"ok": False, "error": "scene name required"}
+        acts = [{"device": a.get("device"), "command": (a.get("command") or "on").lower(),
+                 "value": a.get("value")} for a in (actions or []) if a.get("device")]
+        if not acts:
+            return {"ok": False, "error": "a scene needs at least one device action"}
+        sc = {"id": "sc" + str(int(time.time() * 1000)), "name": name, "actions": acts}
+        scenes = [s for s in self.list_scenes() if s.get("name", "").lower() != name.lower()]
+        scenes.append(sc)
+        self._save_scenes(scenes)
+        return {"ok": True, "scene": sc}
+
+    def remove_scene(self, scene_id: str) -> Dict[str, Any]:
+        scenes = self.list_scenes()
+        kept = [s for s in scenes if s.get("id") != scene_id and s.get("name") != scene_id]
+        if len(kept) == len(scenes):
+            return {"ok": False, "error": "no such scene"}
+        self._save_scenes(kept)
+        return {"ok": True}
+
+    def activate_scene(self, scene_or_id: str) -> Dict[str, Any]:
+        key = (scene_or_id or "").strip().lower()
+        sc = next((s for s in self.list_scenes()
+                   if s.get("id") == scene_or_id or s.get("name", "").lower() == key), None)
+        if not sc:
+            return {"ok": False, "error": f"no scene called '{scene_or_id}'"}
+        results = [self.control(a["device"], a.get("command", "on"), a.get("value"))
+                   for a in sc.get("actions", [])]
+        return {"ok": any(r.get("ok") for r in results), "scene": sc["name"],
+                "ran": sum(1 for r in results if r.get("ok"))}
+
+    # ── Automations: a trigger (time / sun / device-state) runs an action ────
     def _automations_path(self) -> "Path":
         return _registry_path().parent / "automations.json"
 
+    def _normalize_automation(self, a: dict) -> dict:
+        # Back-compat: an old flat {device,command,time} record → trigger+action.
+        if "trigger" not in a:
+            a = {**a,
+                 "trigger": {"type": "time", "time": a.get("time", ""), "days": a.get("days", "daily")},
+                 "action": {"kind": "device", "device": a.get("device"),
+                            "command": a.get("command", "on"), "value": a.get("value")}}
+        return a
+
     def list_automations(self) -> List[Dict[str, Any]]:
+        out: List[dict] = []
         try:
             p = self._automations_path()
             if p.exists():
-                data = json.loads(p.read_text(encoding="utf-8"))
-                if isinstance(data, list):
-                    return [a for a in data if isinstance(a, dict)]
+                d = json.loads(p.read_text(encoding="utf-8"))
+                if isinstance(d, list):
+                    out = [self._normalize_automation(a) for a in d if isinstance(a, dict)]
         except Exception:
             log.debug("device_server: automations load failed", exc_info=True)
-        return []
+        return out
 
     def _save_automations(self, autos: List[dict]) -> None:
         p = self._automations_path()
@@ -449,24 +521,54 @@ class DeviceServer:
         tmp.write_text(json.dumps(autos, ensure_ascii=False, indent=2), encoding="utf-8")
         tmp.replace(p)
 
-    def add_automation(self, *, device: str, command: str, time_str: str,
-                       value: Any = None, days: Any = "daily", name: str = "") -> Dict[str, Any]:
+    def _auto_label(self, trig: dict, act: dict) -> str:
+        when = {"time": "at " + trig.get("time", ""),
+                "sun": "at " + trig.get("event", ""),
+                "device_state": f"when {trig.get('device')} {trig.get('state', '')}".strip()
+                }.get(trig.get("type"), "")
+        what = ("scene " + str(act.get("scene"))) if act.get("kind") == "scene" \
+            else f"{act.get('device')} {act.get('command', 'on')}"
+        return (what + " " + when).strip()
+
+    def create_automation(self, name: str, trigger: dict, action: dict) -> Dict[str, Any]:
         import re as _re
-        if not (device or "").strip():
-            return {"ok": False, "error": "device required"}
-        if not _re.match(r"^\d{1,2}:\d{2}$", (time_str or "").strip()):
-            return {"ok": False, "error": "time must be HH:MM"}
-        with self._lock:
-            dev = self._devices.get(device)
-        label = name or (f"{(dev or {}).get('name', device)} → {command} at {time_str}")
-        auto = {"id": "a" + str(int(time.time() * 1000)), "device": device,
-                "command": (command or "on").lower().strip(), "value": value,
-                "time": time_str.strip(), "days": days or "daily", "enabled": True, "name": label}
+        t, act = dict(trigger or {}), dict(action or {})
+        typ = t.get("type", "time")
+        if typ == "time":
+            if not _re.match(r"^\d{1,2}:\d{2}$", (t.get("time") or "").strip()):
+                return {"ok": False, "error": "time must be HH:MM"}
+        elif typ == "sun":
+            if t.get("event") not in ("sunrise", "sunset"):
+                return {"ok": False, "error": "sun trigger event must be sunrise or sunset"}
+        elif typ == "device_state":
+            if not t.get("device"):
+                return {"ok": False, "error": "device_state trigger needs a device"}
+        else:
+            return {"ok": False, "error": f"unknown trigger type: {typ}"}
+        if act.get("kind") == "scene":
+            if not act.get("scene"):
+                return {"ok": False, "error": "scene action needs a scene"}
+        else:
+            act["kind"] = "device"
+            if not act.get("device"):
+                return {"ok": False, "error": "device action needs a device"}
+        auto = {"id": "a" + str(int(time.time() * 1000)), "name": name or self._auto_label(t, act),
+                "enabled": True, "trigger": t, "action": act}
         autos = self.list_automations()
         autos.append(auto)
         self._save_automations(autos)
         self._ensure_scheduler()
         return {"ok": True, "automation": auto}
+
+    def add_automation(self, *, device: str, command: str, time_str: str,
+                       value: Any = None, days: Any = "daily", name: str = "") -> Dict[str, Any]:
+        """Back-compat helper: a clock-time trigger that controls one device."""
+        with self._lock:
+            dev = self._devices.get(device)
+        label = name or (f"{(dev or {}).get('name', device)} → {command} at {time_str}")
+        return self.create_automation(
+            label, {"type": "time", "time": (time_str or "").strip(), "days": days or "daily"},
+            {"kind": "device", "device": device, "command": (command or "on").lower().strip(), "value": value})
 
     def remove_automation(self, auto_id: str) -> Dict[str, Any]:
         autos = self.list_automations()
@@ -487,6 +589,44 @@ class DeviceServer:
         self._save_automations(autos)
         return {"ok": True}
 
+    def _run_action(self, action: dict) -> Dict[str, Any]:
+        if (action or {}).get("kind") == "scene":
+            return self.activate_scene(action.get("scene"))
+        return self.control(action.get("device"), action.get("command", "on"), action.get("value"))
+
+    def _sun_hm(self) -> Dict[str, str]:
+        try:
+            from eli.core import config
+            lat, lon = config.get("home_lat"), config.get("home_lon")
+            if lat is None or lon is None:
+                return {}
+            return _sun_times_local(float(lat), float(lon)) or {}
+        except Exception:
+            return {}
+
+    @staticmethod
+    def _apply_offset(hm: str, offset_min: Any) -> str:
+        try:
+            h, m = hm.split(":")
+            tot = (int(h) * 60 + int(m) + int(offset_min or 0)) % (24 * 60)
+            return "%02d:%02d" % (tot // 60, tot % 60)
+        except Exception:
+            return hm
+
+    def fire_device_state_triggers(self, device_id: str, state: str) -> None:
+        """Run any 'when <device> reaches <state>' automations. Called on state updates."""
+        s = (state or "").upper()
+        for a in self.list_automations():
+            if not a.get("enabled"):
+                continue
+            tr = a.get("trigger", {})
+            if (tr.get("type") == "device_state" and tr.get("device") == device_id
+                    and (not tr.get("state") or str(tr.get("state")).upper() == s)):
+                try:
+                    self._run_action(a.get("action", {}))
+                except Exception:
+                    log.debug("device_state automation failed", exc_info=True)
+
     def _ensure_scheduler(self) -> None:
         if getattr(self, "_sched_thread", None) and self._sched_thread.is_alive():
             return
@@ -500,20 +640,29 @@ class DeviceServer:
                 now = time.localtime()
                 hm = "%02d:%02d" % (now.tm_hour, now.tm_min)
                 stamp = time.strftime("%Y-%m-%d %H:%M", now)
+                sun = self._sun_hm()
                 for a in self.list_automations():
-                    if not a.get("enabled") or a.get("time") != hm:
+                    if not a.get("enabled"):
                         continue
-                    days = a.get("days")
-                    if isinstance(days, list) and now.tm_wday not in days:
-                        continue
-                    if last.get(a["id"]) == stamp:
-                        continue
-                    last[a["id"]] = stamp
-                    try:
-                        self.control(a.get("device"), a.get("command", "on"), a.get("value"))
-                        log.debug("automation fired: %s", a.get("name"))
-                    except Exception:
-                        log.debug("automation fire failed", exc_info=True)
+                    tr = a.get("trigger", {})
+                    typ = tr.get("type")
+                    fire = False
+                    if typ == "time":
+                        if tr.get("time") == hm:
+                            days = tr.get("days")
+                            fire = not (isinstance(days, list) and now.tm_wday not in days)
+                    elif typ == "sun":
+                        base = sun.get(tr.get("event"))
+                        if base and self._apply_offset(base, tr.get("offset", 0)) == hm:
+                            fire = True
+                    # device_state triggers fire from on_message, not here.
+                    if fire and last.get(a["id"]) != stamp:
+                        last[a["id"]] = stamp
+                        try:
+                            self._run_action(a.get("action", {}))
+                            log.debug("automation fired: %s", a.get("name"))
+                        except Exception:
+                            log.debug("automation fire failed", exc_info=True)
             except Exception:
                 log.debug("scheduler loop error", exc_info=True)
             time.sleep(20)
@@ -578,6 +727,47 @@ def discover(timeout: float = 3.0) -> Dict[str, Any]:
         uniq.append(f)
     brokers = [f for f in uniq if f["service"].startswith("_mqtt") and f.get("host")]
     return {"ok": True, "found": uniq, "brokers": brokers}
+
+
+def _sun_times_local(lat: float, lon: float) -> Optional[Dict[str, str]]:
+    """Local sunrise/sunset 'HH:MM' for today at (lat, lon) — the standard sunrise
+    equation, no network or extra deps. Returns None at the poles where the sun
+    doesn't rise/set. Accurate to about a minute (fine for home automation)."""
+    import math
+    try:
+        now = time.localtime()
+        N = time.struct_time(now).tm_yday
+        zenith = 90.833  # official sunrise/sunset
+        lng_hour = lon / 15.0
+        out: Dict[str, str] = {}
+        for event, rising in (("sunrise", True), ("sunset", False)):
+            t = N + ((6 if rising else 18) - lng_hour) / 24.0
+            M = (0.9856 * t) - 3.289
+            L = (M + 1.916 * math.sin(math.radians(M)) + 0.020 * math.sin(math.radians(2 * M)) + 282.634) % 360
+            RA = (math.degrees(math.atan(0.91764 * math.tan(math.radians(L))))) % 360
+            RA += (math.floor(L / 90) * 90) - (math.floor(RA / 90) * 90)
+            RA /= 15.0
+            sin_dec = 0.39782 * math.sin(math.radians(L))
+            cos_dec = math.cos(math.asin(sin_dec))
+            cos_h = (math.cos(math.radians(zenith)) - sin_dec * math.sin(math.radians(lat))) / (cos_dec * math.cos(math.radians(lat)))
+            if cos_h > 1 or cos_h < -1:
+                return None
+            H = (360 - math.degrees(math.acos(cos_h))) if rising else math.degrees(math.acos(cos_h))
+            H /= 15.0
+            T = H + RA - (0.06571 * t) - 6.622
+            UT = (T - lng_hour) % 24
+            offset = (-time.altzone if now.tm_isdst and time.daylight else -time.timezone) / 3600.0
+            local = (UT + offset) % 24
+            hh = int(local)
+            mm = int(round((local - hh) * 60))
+            if mm == 60:
+                hh = (hh + 1) % 24
+                mm = 0
+            out[event] = "%02d:%02d" % (hh, mm)
+        return out
+    except Exception:
+        log.debug("sun calc failed", exc_info=True)
+        return None
 
 
 _SERVER: Optional[DeviceServer] = None

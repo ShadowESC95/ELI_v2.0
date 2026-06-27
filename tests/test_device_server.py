@@ -185,7 +185,8 @@ def test_automation_create_validate_toggle_remove(server, fake_paho):
                            command_topic="h/lamp/set", room="Office")
     assert server.add_automation(device="lamp", command="on", time_str="bad")["ok"] is False
     r = server.add_automation(device="lamp", command="on", time_str="20:00")
-    assert r["ok"] and r["automation"]["time"] == "20:00"
+    assert r["ok"] and r["automation"]["trigger"]["time"] == "20:00"
+    assert r["automation"]["action"]["device"] == "lamp"
     aid = r["automation"]["id"]
     assert [a["id"] for a in server.list_automations()] == [aid]
     assert server.set_automation_enabled(aid, False)["ok"]
@@ -205,9 +206,53 @@ def test_scheduler_fires_due_automation(server, fake_paho):
     # run one scheduler pass (the loop body) for the current minute
     cur = "%02d:%02d" % (now.tm_hour, now.tm_min)
     for a in server.list_automations():
-        if a["enabled"] and a["time"] == cur:
-            server.control(a["device"], a["command"])
+        if a["enabled"] and a["trigger"].get("time") == cur:
+            server._run_action(a["action"])
     assert fake_paho and fake_paho[-1] == ("h/lamp/set", "ON")
+
+
+def test_scenes_create_and_activate(server, fake_paho):
+    server.register_device(device_id="lamp", dtype="light", command_topic="h/lamp/set")
+    server.register_device(device_id="tv", dtype="switch", command_topic="h/tv/set")
+    server.configure(host="192.168.1.50")
+    server.connect()
+    r = server.add_scene("Movie mode", [{"device": "lamp", "command": "off"},
+                                        {"device": "tv", "command": "on"}])
+    assert r["ok"]
+    fake_paho.clear()
+    act = server.activate_scene("movie mode")  # by name, case-insensitive
+    assert act["ok"] and act["ran"] == 2
+    assert {t for t, _ in fake_paho} == {"h/lamp/set", "h/tv/set"}
+
+
+def test_automation_with_scene_action(server, fake_paho):
+    server.register_device(device_id="lamp", dtype="light", command_topic="h/lamp/set")
+    server.add_scene("Night", [{"device": "lamp", "command": "off"}])
+    r = server.create_automation("Bedtime", {"type": "time", "time": "23:00"},
+                                 {"kind": "scene", "scene": "Night"})
+    assert r["ok"] and r["automation"]["action"]["kind"] == "scene"
+
+
+def test_device_state_trigger_fires(server, fake_paho):
+    server.register_device(device_id="door", dtype="sensor", state_topic="h/door/state")
+    server.register_device(device_id="lamp", dtype="light", command_topic="h/lamp/set")
+    server.configure(host="192.168.1.50")
+    server.connect()
+    server.create_automation("door opens -> lamp", {"type": "device_state", "device": "door", "state": "ON"},
+                             {"kind": "device", "device": "lamp", "command": "on"})
+    fake_paho.clear()
+
+    class M:
+        topic = "h/door/state"
+        payload = b"ON"
+    server._on_message(None, None, M())  # door reports ON -> lamp on
+    assert fake_paho and ("h/lamp/set", "ON") in fake_paho
+
+
+def test_sun_times_calc():
+    from eli.runtime.device_server import _sun_times_local
+    t = _sun_times_local(53.35, -6.26)  # Dublin
+    assert t is None or (":" in t.get("sunrise", "") and ":" in t.get("sunset", ""))
 
 
 def test_discover_degrades_without_zeroconf(monkeypatch):
