@@ -357,11 +357,12 @@ locally and never returned by the API.
   action endpoint returns `401`. The guarantee no longer depends on the launcher script: a raw
   `uvicorn api.server:app`, a Docker `CMD`, a systemd `ExecStart`, or any other ASGI-direct launch
   that never runs `main()` is **locked down**, not wide open.
-- **Roles (admin / member), opt-in.** Define users (`python -m eli.runtime.api_users add <id> admin`,
-  or the Admin tab) and every request's token resolves to a **(user, role)**: members reach the normal
-  surfaces but are `403`'d from the Admin console, and **attribution becomes authenticated** — a member
-  can't claim to be someone else in the audit trail. With no users defined it stays single-operator
-  (the loopback owner is admin). Tokens are stored only as **SHA-256 hashes**; the raw token is shown once.
+- **Roles (admin / member / viewer), opt-in.** Define users (`python -m eli.runtime.api_users add <id>
+  <role>`, or the Admin tab) and every request's token resolves to a **(user, role)**: a **viewer** is
+  read-only (browse dashboards, no actions), a **member** acts but is `403`'d from the Admin console,
+  an **admin** manages everything. **Attribution is authenticated** — a member can't claim to be someone
+  else in the audit trail. With no users defined it stays single-operator (the loopback owner is admin).
+  Tokens are stored only as **SHA-256 hashes**; the raw token is shown once.
 - **Loopback is zero-friction.** Launch via `scripts/eli_serve.sh` (or `python -m api.server` on the
   default `127.0.0.1`) and same-machine use is tokenless — `main()` enables tokenless serving *only*
   for a genuine loopback bind (set `ELI_API_ALLOW_TOKENLESS=0` to require a token even locally).
