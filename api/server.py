@@ -1063,7 +1063,7 @@ _WEB_UI = """<!doctype html>
     if(!d||!d.ok){$('#audit').innerHTML='<div class="err">'+esc((d&&d.error)||'unavailable')+'</div>';return;}
     const ig=d.integrity||{}; let h='<div class="awrap">';
     if(ig.ok){
-      h+='<div class="abadge ok"><span class="dot"></span><span>Audit chain verified intact — '+(ig.chained||0)+' event(s) hash-chained'+(ig.legacy?(', '+ig.legacy+' legacy'):'')+'. No tampering detected.</span></div>';
+      h+='<div class="abadge ok"><span class="dot"></span><span>Audit chain verified intact — '+(ig.chained||0)+' event(s) '+(ig.keyed?'HMAC-keyed':'hash-chained')+(ig.legacy?(', '+ig.legacy+' legacy'):'')+'. No tampering detected.</span></div>';
     }else{
       const b=ig.first_break||{};
       h+='<div class="abadge bad"><span class="dot"></span><span>TAMPERING DETECTED at event #'+esc(b.id)+' — '+esc(b.reason||'chain broken')+'.</span></div>';
@@ -1092,7 +1092,7 @@ _WEB_UI = """<!doctype html>
     if(!d||!d.ok){$('#admin').innerHTML='<div class="err">'+esc((d&&d.error)||'unavailable')+'</div>';return;}
     const ig=d.integrity||{}, t=d.totals||{}, pol=d.policy||{}, users=d.users||[];
     let h='<div class="adwrap">';
-    if(ig.ok) h+='<div class="abadge ok"><span class="dot"></span><span>Audit chain verified intact — '+(ig.chained||0)+' hash-chained event(s). No tampering.</span></div>';
+    if(ig.ok) h+='<div class="abadge ok"><span class="dot"></span><span>Audit chain verified intact — '+(ig.chained||0)+' '+(ig.keyed?'HMAC-keyed':'hash-chained')+' event(s). No tampering.</span></div>';
     else{const b=ig.first_break||{};h+='<div class="abadge bad"><span class="dot"></span><span>TAMPERING DETECTED at event #'+esc(b.id)+' — '+esc(b.reason||'')+'.</span></div>';}
     h+='<div class="adtot">'+
        '<div class="syscard"><div class="big">'+(t.events||0)+'</div><div class="lbl">events</div></div>'+

@@ -58,6 +58,10 @@ def _save_raw(users: List[dict]) -> None:
     tmp = p.with_suffix(".json.part")
     tmp.write_text(json.dumps(users, indent=2), encoding="utf-8")
     tmp.replace(p)
+    try:
+        os.chmod(p, 0o600)  # holds token hashes — keep it owner-only
+    except OSError:
+        pass
 
 
 def rbac_enabled() -> bool:
