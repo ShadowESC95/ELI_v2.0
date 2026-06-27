@@ -8241,25 +8241,58 @@ _register()
         return page
 
     def _eli_server_lan_ip(self) -> str:
+        """Best-effort LAN IP the phone can actually reach. Prefers a real private
+        address (192.168/10/non-docker 172) over loopback (Linux maps the hostname to
+        127.0.1.1) and over docker bridges."""
         import socket
+        cands = []
         try:
-            ip = socket.gethostbyname(socket.gethostname())
-            if ip and not ip.startswith("127."):
-                return ip
+            cands.append(socket.gethostbyname(socket.gethostname()))
         except Exception:
             pass
         try:
             import subprocess as _sp
             out = _sp.run(["hostname", "-I"], capture_output=True, text=True, timeout=2)
-            ip = (out.stdout or "").split()[0] if out.stdout.strip() else ""
-            if ip:
-                return ip
+            cands += (out.stdout or "").split()
         except Exception:
             pass
-        return "<this-computer-ip>"
+        try:
+            import subprocess as _sp  # macOS
+            for ifc in ("en0", "en1"):
+                out = _sp.run(["ipconfig", "getifaddr", ifc], capture_output=True, text=True, timeout=2)
+                if out.stdout.strip():
+                    cands.append(out.stdout.strip())
+        except Exception:
+            pass
+
+        def _score(ip: str) -> int:
+            if not ip or ip.startswith("127.") or ":" in ip:
+                return -1
+            if ip.startswith("192.168."):
+                return 4
+            if ip.startswith("10."):
+                return 3
+            if ip.startswith("172.17.") or ip.startswith("172.18."):
+                return 1  # docker bridge — usable but deprioritised
+            if ip.startswith("172."):
+                return 2
+            return 2
+        best = max(cands, key=_score, default="")
+        return best if best and _score(best) > 0 else "<this-computer-ip>"
+
+    def _eli_server_python(self) -> str:
+        """Always launch the server with the project's venv interpreter — NOT whatever
+        python happens to be on PATH (system python lacks fastapi etc.)."""
+        import os, sys
+        root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+        for cand in (os.path.join(root, ".venv", "bin", "python"),
+                     os.path.join(root, ".venv", "Scripts", "python.exe")):
+            if os.path.exists(cand):
+                return cand
+        return sys.executable
 
     def _eli_server_start(self, lan: bool) -> None:
-        import os, sys, subprocess, secrets
+        import os, subprocess, secrets, tempfile
         if getattr(self, "_srv_proc", None) and self._srv_proc.poll() is None:
             return  # already running
         port = os.environ.get("ELI_API_PORT", "8081")
@@ -8269,16 +8302,20 @@ _register()
             token = secrets.token_urlsafe(16)
             env["ELI_API_HOST"] = "0.0.0.0"
             env["ELI_API_TOKEN"] = token
-            url = f"http://{self._eli_server_lan_ip()}:{port}/?token={token}"
+            env.pop("ELI_API_ALLOW_TOKENLESS", None)  # LAN must require the token
+            ip = self._eli_server_lan_ip()
+            url = f"http://{ip}:{port}/?token={token}"
         else:
             env["ELI_API_HOST"] = "127.0.0.1"
-            env.setdefault("ELI_API_ALLOW_TOKENLESS", "1")
+            env["ELI_API_ALLOW_TOKENLESS"] = "1"
             url = f"http://127.0.0.1:{port}/"
         try:
             root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+            # Capture stderr so a failed start (bad interpreter, port in use) is visible.
+            self._srv_log = tempfile.NamedTemporaryFile(prefix="eli_server_", suffix=".log", delete=False)
             self._srv_proc = subprocess.Popen(
-                [sys.executable, "-m", "api.server"], cwd=root, env=env,
-                stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                [self._eli_server_python(), "-m", "api.server"], cwd=root, env=env,
+                stdout=self._srv_log, stderr=subprocess.STDOUT)
             self._srv_url.setText(url)
             self._eli_server_update_ui("starting")
         except Exception as e:
@@ -8302,7 +8339,17 @@ _register()
         if proc.poll() is not None:  # exited (crash or external stop)
             self._srv_proc = None
             self._srv_url.clear()
-            self._eli_server_update_ui("stopped")
+            # Surface the captured reason (bad interpreter, port already in use, …).
+            tail = ""
+            try:
+                log = getattr(self, "_srv_log", None)
+                if log is not None:
+                    with open(log.name, "r", errors="replace") as fh:
+                        lines = [l for l in fh.read().strip().splitlines() if l.strip()]
+                    tail = lines[-1] if lines else ""
+            except Exception:
+                tail = ""
+            self._eli_server_update_ui("error" if tail else "stopped", tail[:160])
             return
         # Running — confirm the port is actually accepting connections (loopback,
         # so netguard always permits it).
