@@ -241,6 +241,16 @@ if (-not $NoModel) {
     else { Write-Host "[WARN] Embedder fetch deferred (run: python -m eli.core.model_download --aux)" -ForegroundColor Yellow }
 }
 
+# Voice weights (browser voice + TTS): local faster-whisper STT + a Piper voice.
+# The pip packages ship the runtimes; these are the (gitignored) weights. Best-effort.
+$VoiceStatus = "skipped"
+if (-not $NoModel) {
+    Write-Host "[..] Ensuring voice models (local STT + TTS, for browser/desktop voice) are present..."
+    & $PythonVenv -m eli.runtime.voice_assets
+    if ($LASTEXITCODE -eq 0) { Write-Host "[OK] Voice models ready." -ForegroundColor Green; $VoiceStatus = "ready" }
+    else { Write-Host "[WARN] Voice models deferred (run: .venv\Scripts\python -m eli.runtime.voice_assets)" -ForegroundColor Yellow; $VoiceStatus = "deferred (fetch later)" }
+}
+
 Write-Host ""
 Write-Host "==================================================" -ForegroundColor Green
 Write-Host "  ELI v2.0 - installation complete" -ForegroundColor Green
@@ -249,6 +259,7 @@ Write-Host ""
 Write-Host "--- Summary ---" -ForegroundColor Magenta
 Write-Host "[OK] Build       llama-cpp $BuildLabel" -ForegroundColor Green
 Write-Host "[OK] Model       $ModelStatus" -ForegroundColor Green
+Write-Host "[OK] Voice       $VoiceStatus" -ForegroundColor Green
 Write-Host "[OK] Data        fresh local databases, offline-by-default" -ForegroundColor Green
 Write-Host ""
 Write-Host "--- Launch ---" -ForegroundColor Magenta

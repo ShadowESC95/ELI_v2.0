@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 import re
 from pathlib import Path
 from typing import Any, Dict, List, Optional
@@ -20,11 +21,47 @@ log = logging.getLogger(__name__)
 
 _SUPPORTED = {".pdf", ".txt", ".md", ".markdown", ".rst", ".text"}
 
+# Hard caps on a single ingest so a directory walk can't exhaust CPU/RAM/disk
+# (override via env for power users with large local corpora).
+_MAX_FILES = int(os.environ.get("ELI_RESEARCH_MAX_FILES", "2000"))
+_MAX_BYTES = int(os.environ.get("ELI_RESEARCH_MAX_BYTES", str(512 * 1024 * 1024)))  # 512 MB
+
 
 def _root() -> Path:
     from eli.core.paths import get_paths
     p = Path(get_paths().artifacts_dir) / "research"
     p.mkdir(parents=True, exist_ok=True)
+    return p
+
+
+def research_source_root() -> Path:
+    """The ONLY directory ingest may read documents from. Confines the file-read
+    primitive: a client (possibly remote, over the LAN) can never make the server
+    embed and echo back arbitrary host files (~/.config, exported data, /etc, …).
+
+    Defaults to ``artifacts/research/_sources`` (the leading underscore can never
+    collide with a sanitised corpus-index dir); override with ``ELI_RESEARCH_ROOT``
+    to point at your own documents folder (e.g. a papers/PDF library)."""
+    env = os.environ.get("ELI_RESEARCH_ROOT", "").strip()
+    root = Path(env).expanduser() if env else (_root() / "_sources")
+    root.mkdir(parents=True, exist_ok=True)
+    return root.resolve()
+
+
+def _resolve_within_root(path: str) -> Path:
+    """Resolve a caller-supplied path against the research root and REJECT anything
+    that escapes it (absolute paths outside, ``..`` traversal, or symlink escapes —
+    ``resolve()`` collapses all three before the containment check)."""
+    root = research_source_root()
+    p = Path(path or "").expanduser()
+    if not p.is_absolute():
+        p = root / p
+    p = p.resolve()
+    try:
+        p.relative_to(root)  # raises if p is not root or beneath it
+    except ValueError:
+        raise ValueError(f"path is outside the research root ({root}); "
+                         f"set ELI_RESEARCH_ROOT or place documents under it")
     return p
 
 
@@ -105,19 +142,68 @@ def _chunk(text: str, size: int = 1200, overlap: int = 150) -> List[str]:
     return out
 
 
+def _gather_files(src: Path, root: Path):
+    """Collect supported documents under ``src`` (already confined to ``root``),
+    bounded by file-count and total-byte caps and safe against symlink escapes.
+    Returns a list of Paths, or a ``{"ok": False, "error": ...}`` dict if a cap is hit."""
+    if src.is_file():
+        candidates = [src]
+    else:
+        candidates = []
+        # followlinks=False: a symlinked subdirectory can't redirect the walk outside root.
+        for dirpath, dirnames, filenames in os.walk(src, followlinks=False):
+            for fn in sorted(filenames):
+                fp = Path(dirpath) / fn
+                if fp.suffix.lower() not in _SUPPORTED:
+                    continue
+                candidates.append(fp)
+                if len(candidates) > _MAX_FILES:
+                    return {"ok": False, "error": (
+                        f"too many documents (> {_MAX_FILES}); narrow the path or raise "
+                        f"ELI_RESEARCH_MAX_FILES")}
+
+    files: List[Path] = []
+    total = 0
+    for fp in candidates:
+        if fp.suffix.lower() not in _SUPPORTED:
+            continue
+        try:
+            rp = fp.resolve()
+            rp.relative_to(root)  # reject individual files that symlink outside root
+            sz = rp.stat().st_size
+        except (ValueError, OSError):
+            continue
+        total += sz
+        if total > _MAX_BYTES:
+            return {"ok": False, "error": (
+                f"total document size exceeds {_MAX_BYTES} bytes; narrow the path or raise "
+                f"ELI_RESEARCH_MAX_BYTES")}
+        files.append(fp)
+    return files
+
+
 # ── Public API ──────────────────────────────────────────────────────────────
 def ingest(corpus: str, path: str) -> Dict[str, Any]:
-    """Ingest a file or folder of documents into ``corpus`` (append-only)."""
+    """Ingest a file or folder of documents into ``corpus`` (append-only).
+
+    The source path is confined to the research root (see ``research_source_root``)
+    — caller-supplied paths that escape it are rejected — and the walk is bounded by
+    ``_MAX_FILES`` / ``_MAX_BYTES`` so a directory ingest cannot walk the whole disk."""
     import numpy as np
     import faiss
-    src = Path(path).expanduser()
+    try:
+        src = _resolve_within_root(path)
+    except ValueError as e:
+        return {"ok": False, "error": str(e)}
     if not src.exists():
-        return {"ok": False, "error": f"path not found: {src}"}
-    files = ([src] if src.is_file()
-             else sorted(p for p in src.rglob("*") if p.is_file()))
-    files = [f for f in files if f.suffix.lower() in _SUPPORTED]
+        return {"ok": False, "error": f"path not found within research root: {path}"}
+
+    root = research_source_root()
+    files = _gather_files(src, root)
+    if isinstance(files, dict):  # cap/error sentinel
+        return files
     if not files:
-        return {"ok": False, "error": "no supported documents (.pdf/.txt/.md) found"}
+        return {"ok": False, "error": "no supported documents (.pdf/.txt/.md) found within the research root"}
 
     d = _corpus_dir(corpus)
     idx_path, meta_path = d / "index.faiss", d / "chunks.jsonl"
