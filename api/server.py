@@ -457,38 +457,79 @@ _WEB_UI = """<!doctype html>
   }
   /* research */
   function _ropt(list){return list.length
-    ? list.map(c=>'<option value="'+esc(c.corpus)+'">'+esc(c.corpus)+' ('+c.documents+' docs · '+c.chunks+' chunks)</option>').join('')
+    ? list.map(c=>'<option value="'+esc(c.corpus)+'">'+esc(c.corpus)+' ('+c.documents+' docs · '+(c.members||0)+' member'+((c.members||0)===1?'':'s')+')</option>').join('')
     : '<option value="" disabled selected>(no corpora yet)</option>';}
+  function researchName(){return (localStorage.getItem('eli_name')||uid);}
+  function setResearchName(){localStorage.setItem('eli_name',($('#r-name').value||'').trim()||uid);}
+  function _curCorpus(){const dd=$('#rq-corpus');return (dd&&dd.value)||($('#ing-name')?($('#ing-name').value||'').trim():'');}
   function loadResearch(){
     api('/v1/research/corpora').then(d=>renderResearch((d&&d.corpora)||[]))
       .catch(e=>{$('#research').innerHTML='<div class="err">'+esc(''+e)+'</div>';});
   }
   function renderResearch(list){
     let h='<div class="rwrap">';
-    h+='<div class="rsec"><h4>Corpora</h4><div class="rrow"><select id="rq-corpus">'+_ropt(list)+'</select></div>'+
-       '<div class="rnote">Each corpus is an isolated local index — your documents never mix with ELI\\'s memory, and nothing leaves this machine.</div></div>';
+    h+='<div class="rsec"><h4>Shared corpora</h4>'+
+       '<div class="rrow"><select id="rq-corpus" onchange="loadCorpusDetail()">'+_ropt(list)+'</select></div>'+
+       '<div class="rrow"><input id="r-name" autocomplete="off" placeholder="your name (for who-added-what)" value="'+esc(researchName())+'" onchange="setResearchName()"></div>'+
+       '<div class="rnote">Corpora are shared across everyone on this server — collaborators ingest, add notes, and ask together, all local. Contributions are attributed and recorded in the tamper-evident Audit trail.</div></div>';
     h+='<div class="rsec"><h4>Ingest documents</h4>'+
        '<div class="rrow"><input id="ing-name" autocomplete="off" placeholder="corpus name (new or existing)"></div>'+
        '<div class="rrow"><input id="ing-path" autocomplete="off" placeholder="path under the research root (.pdf / .txt / .md)"><button id="ing-btn" onclick="ingestCorpus()">Ingest</button></div>'+
-       '<div class="rnote">Documents must live under the server\\'s research root (default <code>artifacts/research/_sources/</code>, or set <code>ELI_RESEARCH_ROOT</code>). Paths outside it are rejected — a remote client can never make the server read arbitrary host files.</div>'+
+       '<div class="rnote">Documents must live under the server\\'s research root (default <code>artifacts/research/_sources/</code>, or set <code>ELI_RESEARCH_ROOT</code>). Paths outside it are rejected.</div>'+
        '<div id="ing-status" class="rnote"></div></div>';
+    h+='<div class="rsec"><h4>Add a note (create / share text)</h4>'+
+       '<div class="rrow"><input id="note-title" autocomplete="off" placeholder="note title"></div>'+
+       '<div class="rrow"><textarea id="note-text" placeholder="type or paste text to add to the selected corpus…" style="flex:1;min-height:74px;padding:10px;border-radius:9px;border:1px solid var(--line);background:#15171c;color:#e6e6e6;font-size:14px;font-family:inherit;"></textarea></div>'+
+       '<div class="rrow"><button onclick="addNote()">Add note</button><span id="note-status" class="rnote" style="align-self:center"></span></div></div>';
     h+='<div class="rsec"><h4>Ask (grounded in the corpus)</h4>'+
        '<div class="rrow"><input id="ask-q" autocomplete="off" placeholder="Ask a question answered only from this corpus…"><button id="ask-btn" onclick="askCorpus()">Ask</button></div>'+
        '<div id="ask-out"></div></div>';
+    h+='<div id="rdetail"></div>';
     $('#research').innerHTML=h+'</div>';
+    loadCorpusDetail();
   }
   function refreshCorpusSelect(sel){
     api('/v1/research/corpora').then(d=>{
       const dd=$('#rq-corpus'); if(!dd)return;
       dd.innerHTML=_ropt((d&&d.corpora)||[]); if(sel)dd.value=sel;
+      loadCorpusDetail();
     }).catch(()=>{});
+  }
+  function loadCorpusDetail(){
+    const c=_curCorpus(), box=$('#rdetail'); if(!box)return;
+    if(!c){box.innerHTML='';return;}
+    Promise.all([api('/v1/research/documents?corpus='+encodeURIComponent(c)),
+                 api('/v1/research/activity?corpus='+encodeURIComponent(c))])
+      .then(([d,a])=>renderCollab(c,d,a)).catch(()=>{});
+  }
+  function renderCollab(corpus,d,a){
+    const box=$('#rdetail'); if(!box)return; box.innerHTML='';
+    const sec=document.createElement('div'); sec.className='rsec';
+    const members=(d&&d.members)||[];
+    sec.innerHTML='<h4>Documents — '+esc(corpus)+'</h4><div class="rnote">Members: '+(members.map(esc).join(', ')||'—')+'</div>';
+    const docs=(d&&d.documents)||[];
+    if(!docs.length){const m=document.createElement('div');m.className='muted';m.textContent='No documents yet.';sec.appendChild(m);}
+    docs.forEach(doc=>{
+      const row=document.createElement('div'); row.className='src';
+      row.innerHTML='<div class="sh"><span>'+(doc.kind==='note'?'📝 ':'📄 ')+esc(doc.source)+'</span><span class="rmv link">remove</span></div>'+
+        '<div class="sx">added by '+esc(doc.added_by)+' · '+esc(fmtTime(doc.added_at))+' · '+doc.chunks+' chunk(s)</div>';
+      row.querySelector('.rmv').onclick=()=>removeDoc(corpus,doc.source);
+      sec.appendChild(row);
+    });
+    box.appendChild(sec);
+    const act=(a&&a.activity)||[];
+    const asec=document.createElement('div'); asec.className='rsec';
+    let ah='<h4>Activity</h4>';
+    if(!act.length) ah+='<div class="muted">No activity yet.</div>';
+    act.forEach(ev=>{ah+='<div class="arow"><div class="at">'+esc(fmtTime(ev.timestamp))+'</div><div><span class="aa">'+esc(ev.action)+'</span> <span class="au">'+esc(ev.user)+'</span><div class="as">'+esc(ev.detail||'')+'</div></div><div></div></div>';});
+    asec.innerHTML=ah; box.appendChild(asec);
   }
   function ingestCorpus(){
     const name=($('#ing-name').value||'').trim(), path=($('#ing-path').value||'').trim();
     const st=$('#ing-status'), btn=$('#ing-btn');
     if(!name||!path){st.textContent='Enter a corpus name and a file/folder path.';return;}
     btn.disabled=true; st.textContent='Ingesting… (extracting + embedding locally, this can take a while)';
-    api('/v1/research/ingest',{method:'POST',body:JSON.stringify({corpus:name,path:path})}).then(d=>{
+    api('/v1/research/ingest',{method:'POST',body:JSON.stringify({corpus:name,path:path,user:researchName()})}).then(d=>{
       if(!d.ok){st.innerHTML='<span style="color:#f87171">'+esc(d.error||'ingest failed')+'</span>';return;}
       st.textContent='Added '+d.docs_added+' document(s), '+d.chunks_added+' chunk(s). Corpus "'+d.corpus+'" now holds '+d.total_chunks+' chunks'+
         (d.skipped&&d.skipped.length?' — skipped '+d.skipped.length+' file(s) with no extractable text':'')+'.';
@@ -496,17 +537,32 @@ _WEB_UI = """<!doctype html>
     }).catch(e=>{st.innerHTML='<span style="color:#f87171">'+esc(''+e)+'</span>';})
       .finally(()=>{btn.disabled=false;});
   }
+  function addNote(){
+    const c=_curCorpus(), title=($('#note-title').value||'').trim(), text=($('#note-text').value||'').trim(), st=$('#note-status');
+    if(!c){st.textContent='Select a corpus, or type a name in Ingest first.';return;}
+    if(!text){st.textContent='Type some note text.';return;}
+    st.textContent='Adding…';
+    api('/v1/research/note',{method:'POST',body:JSON.stringify({corpus:c,title:title,text:text,user:researchName()})}).then(d=>{
+      if(!d.ok){st.innerHTML='<span style="color:#f87171">'+esc(d.error||'failed')+'</span>';return;}
+      st.textContent='Note "'+esc(d.note)+'" added.'; $('#note-text').value=''; $('#note-title').value='';
+      refreshCorpusSelect(d.corpus);
+    }).catch(e=>{st.innerHTML='<span style="color:#f87171">'+esc(''+e)+'</span>';});
+  }
+  function removeDoc(corpus,source){
+    if(!confirm('Remove "'+source+'" from '+corpus+'?'))return;
+    api('/v1/research/remove',{method:'POST',body:JSON.stringify({corpus:corpus,source:source,user:researchName()})})
+      .then(()=>refreshCorpusSelect(corpus)).catch(()=>{});
+  }
   function askCorpus(){
-    const dd=$('#rq-corpus'), q=($('#ask-q').value||'').trim(), out=$('#ask-out'), btn=$('#ask-btn');
-    const corpus=dd?dd.value:'';
-    if(!corpus){out.innerHTML='<div class="rnote">Ingest a corpus first.</div>';return;}
+    const q=($('#ask-q').value||'').trim(), out=$('#ask-out'), btn=$('#ask-btn'), corpus=_curCorpus();
+    if(!corpus){out.innerHTML='<div class="rnote">Ingest or select a corpus first.</div>';return;}
     if(!q){out.innerHTML='<div class="rnote">Type a question.</div>';return;}
     btn.disabled=true; out.innerHTML='<div class="rnote">Searching the corpus and synthesising with the local model…</div>';
-    api('/v1/research/query',{method:'POST',body:JSON.stringify({corpus:corpus,question:q,k:6})}).then(d=>{
+    api('/v1/research/query',{method:'POST',body:JSON.stringify({corpus:corpus,question:q,k:6,user:researchName()})}).then(d=>{
       if(!d.ok){out.innerHTML='<div class="err">'+esc(d.error||'query failed')+'</div>';return;}
       let h='<div class="answer">'+esc(d.answer||'')+'</div>';
       (d.sources||[]).forEach(s=>{h+='<div class="src"><div class="sh"><span>'+esc(s.source||'?')+'</span><span>'+(s.score!=null?esc(s.score):'')+'</span></div><div class="sx">'+esc(s.excerpt||'')+'</div></div>';});
-      out.innerHTML=h;
+      out.innerHTML=h; loadCorpusDetail();
     }).catch(e=>{out.innerHTML='<div class="err">'+esc(''+e)+'</div>';})
       .finally(()=>{btn.disabled=false;});
   }
@@ -544,7 +600,7 @@ _WEB_UI = """<!doctype html>
   function filterAudit(){auditUser=($('#aud-user').value||'').trim();loadAudit();}
   function clearAudit(){auditUser='';loadAudit();}
 
-  window.ingestCorpus=ingestCorpus; window.askCorpus=askCorpus;
+  window.ingestCorpus=ingestCorpus; window.askCorpus=askCorpus; window.addNote=addNote; window.removeDoc=removeDoc; window.loadCorpusDetail=loadCorpusDetail; window.setResearchName=setResearchName;
   window.filterAudit=filterAudit; window.clearAudit=clearAudit;
 </script></body></html>"""
 
@@ -625,11 +681,24 @@ class CompletionRequest(BaseModel):
 class ResearchIngest(BaseModel):
     corpus: str
     path: str
+    user: str = "anon"
 
 class ResearchQuery(BaseModel):
     corpus: str
     question: str
     k: int = 6
+    user: str = "anon"
+
+class ResearchNote(BaseModel):
+    corpus: str
+    title: str
+    text: str
+    user: str = "anon"
+
+class ResearchDoc(BaseModel):
+    corpus: str
+    source: str
+    user: str = "anon"
 
 class TTSRequest(BaseModel):
     text: str
@@ -1028,17 +1097,41 @@ def research_corpora():
 
 @app.post("/v1/research/ingest", tags=["Research"], dependencies=[Depends(_require_token)])
 def research_ingest(req: ResearchIngest):
-    """Ingest a local file or folder of documents (.pdf/.txt/.md) into a corpus.
-    Synchronous; a very large corpus may take a while (embedding is CPU-local)."""
+    """Ingest a local file or folder of documents (.pdf/.txt/.md) into a SHARED corpus,
+    attributed to the contributor. Synchronous (embedding is CPU-local)."""
     from eli.runtime.research_corpus import ingest
-    return ingest(req.corpus, req.path)
+    return ingest(req.corpus, req.path, user=req.user)
+
+@app.post("/v1/research/note", tags=["Research"], dependencies=[Depends(_require_token)])
+def research_note(req: ResearchNote):
+    """Create/replace a text note in a shared corpus (collaborative create/edit)."""
+    from eli.runtime.research_corpus import add_note
+    return add_note(req.corpus, req.title, req.text, user=req.user)
+
+@app.post("/v1/research/remove", tags=["Research"], dependencies=[Depends(_require_token)])
+def research_remove(req: ResearchDoc):
+    """Remove a document from a shared corpus (collaborative edit/cleanup)."""
+    from eli.runtime.research_corpus import remove_document
+    return remove_document(req.corpus, req.source, user=req.user)
+
+@app.get("/v1/research/documents", tags=["Research"], dependencies=[Depends(_require_token)])
+def research_documents(corpus: str):
+    """List the documents in a corpus with who added each and when."""
+    from eli.runtime.research_corpus import documents, members
+    return {"ok": True, "documents": documents(corpus), "members": members(corpus)}
+
+@app.get("/v1/research/activity", tags=["Research"], dependencies=[Depends(_require_token)])
+def research_activity(corpus: str, limit: int = 25):
+    """Recent collaboration activity in a corpus (who ingested/added/asked)."""
+    from eli.runtime.research_corpus import activity
+    return {"ok": True, "activity": activity(corpus, limit=limit)}
 
 @app.post("/v1/research/query", tags=["Research"], dependencies=[Depends(_require_token)])
 def research_query(req: ResearchQuery):
     """Retrieve the most relevant passages from a corpus and synthesise a grounded,
     cited answer with the LOCAL model. Returns {answer, sources}."""
     from eli.runtime.research_corpus import query
-    res = query(req.corpus, req.question, k=req.k)
+    res = query(req.corpus, req.question, k=req.k, user=req.user)
     if not res.get("ok"):
         return res
     hits = res.get("hits", [])
