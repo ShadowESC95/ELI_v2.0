@@ -225,6 +225,23 @@ _WEB_UI = """<!doctype html>
   .voicebar { display:flex; align-items:center; gap:12px; padding:0 12px 10px; font-size:13px; color:var(--mut); }
   .voicebar .spk { display:flex; align-items:center; gap:6px; cursor:pointer; }
   .voicebar #vstat { color:var(--teal); }
+  .chatbar { display:flex; gap:8px; align-items:center; padding:10px 14px; border-bottom:1px solid var(--line); background:var(--bg2); }
+  .chatbar select { flex:1; min-width:0; padding:8px 10px; border-radius:9px; border:1px solid var(--line); background:var(--input); color:var(--fg); font-size:13px; }
+  .cbtn { padding:8px 12px; border:1px solid var(--line); border-radius:9px; background:var(--card); color:var(--fg-dim); font-size:13px; cursor:pointer; transition:var(--fast); white-space:nowrap; }
+  .cbtn:hover { color:var(--fg); border-color:var(--teal); }
+  form#f button.stop { background:var(--bad); }
+  .typing { display:inline-flex; gap:4px; padding:3px 0; }
+  .typing i { width:7px; height:7px; border-radius:50%; background:var(--fg-dim); display:inline-block; animation:blink 1.2s infinite; }
+  .typing i:nth-child(2){animation-delay:.2s;} .typing i:nth-child(3){animation-delay:.4s;}
+  @keyframes blink { 0%,80%,100%{opacity:.25;transform:translateY(0);} 40%{opacity:1;transform:translateY(-3px);} }
+  .msg .mh { margin:.5em 0 .3em; font-size:1.05em; font-weight:700; }
+  .msg .ml { margin:.3em 0; padding-left:1.3em; } .msg .ml li { margin:.15em 0; }
+  .msg a { color:var(--teal); }
+  .msg .ic { background:var(--input); border:1px solid var(--line); border-radius:5px; padding:1px 5px; font-family:ui-monospace,Menlo,Consolas,monospace; font-size:.92em; }
+  .cb { margin:8px 0; border:1px solid var(--line); border-radius:10px; overflow:hidden; background:var(--input); }
+  .cb .cbh { display:flex; justify-content:space-between; align-items:center; padding:5px 10px; background:rgba(127,127,127,.1); font-size:11px; color:var(--mut); }
+  .cb .cpy { border:0; background:transparent; color:var(--teal); font-size:11px; cursor:pointer; }
+  .cb pre { margin:0; padding:11px 12px; overflow-x:auto; } .cb code { font-family:ui-monospace,Menlo,Consolas,monospace; font-size:13px; line-height:1.5; color:var(--fg); }
   #commands, #home { overflow-y:auto; padding:14px; }
   #cmdsearch { width:100%; padding:11px 13px; border-radius:10px; border:1px solid var(--line); background:var(--input); color:var(--fg); font-size:15px; margin-bottom:12px; }
   .cat h3 { margin:18px 0 8px; font-size:13px; text-transform:uppercase; letter-spacing:.6px; color:var(--teal); }
@@ -335,6 +352,12 @@ _WEB_UI = """<!doctype html>
     <button class="iconbtn" id="themebtn" title="Toggle light / dark">&#9680;</button>
   </header>
   <section class="view active" id="view-chat">
+    <div class="chatbar">
+      <button class="cbtn" onclick="newChat()" title="New chat">&#43; New</button>
+      <select id="sessionsel" onchange="switchSession(this.value)"></select>
+      <button class="cbtn" id="regenbtn" onclick="regenerate()" title="Regenerate last reply">&#8635;</button>
+      <button class="cbtn" onclick="deleteSession()" title="Delete this chat">&#128465;</button>
+    </div>
     <div id="log"><div class="meta">Connected to your ELI server. Say hello.</div></div>
     <form id="f"><button type="button" id="mic" title="Tap to talk">&#127908;</button><input id="box" autocomplete="off" placeholder="Message ELI..."><button id="send">Send</button></form>
     <div class="voicebar"><label class="spk"><input type="checkbox" id="spk"> Speak replies</label><span id="vstat"></span></div>
@@ -388,30 +411,83 @@ _WEB_UI = """<!doctype html>
 
   /* chat */
   const log=$('#log'),box=$('#box'),send=$('#send'),f=$('#f');
-  let session=null;
-  function add(t,who){const d=document.createElement('div');d.className='msg '+who;d.textContent=t;log.appendChild(d);log.scrollTop=log.scrollHeight;return d;}
   const NL=String.fromCharCode(10), SEP=NL+NL;
-  f.addEventListener('submit',e=>{e.preventDefault();const text=box.value.trim();if(!text)return;box.value='';streamChat(text);});
+  let session=null, abortCtl=null;
+
+  /* --- markdown (safe, vanilla, offline) --- */
+  function mdRender(src){
+    src=String(src||''); const blocks=[];
+    src=src.replace(/```(\\w*)\\n?([\\s\\S]*?)```/g,(m,lang,code)=>{blocks.push({lang:lang,code:code.replace(/\\n$/,'')});return '\\u0000B'+(blocks.length-1)+'\\u0000';});
+    src=esc(src);
+    src=src.replace(/`([^`]+)`/g,(m,c)=>'<code class="ic">'+c+'</code>');
+    src=src.replace(/\\*\\*([^*]+)\\*\\*/g,'<b>$1</b>').replace(/(^|[^*])\\*([^*]+)\\*/g,'$1<i>$2</i>');
+    src=src.replace(/\\[([^\\]]+)\\]\\((https?:[^)\\s]+)\\)/g,'<a href="$2" target="_blank" rel="noopener">$1</a>');
+    const lines=src.split('\\n'); let out=[],inList=false;
+    for(let ln of lines){
+      let h=ln.match(/^(#{1,4})\\s+(.*)$/);
+      if(h){if(inList){out.push('</ul>');inList=false;} const lv=Math.min(6,h[1].length+2); out.push('<h'+lv+' class="mh">'+h[2]+'</h'+lv+'>'); continue;}
+      let li=ln.match(/^\\s*[-*]\\s+(.*)$/);
+      if(li){if(!inList){out.push('<ul class="ml">');inList=true;} out.push('<li>'+li[1]+'</li>'); continue;}
+      if(inList){out.push('</ul>');inList=false;}
+      out.push(ln.trim()===''?'<br>':'<div>'+ln+'</div>');
+    }
+    if(inList)out.push('</ul>');
+    let html=out.join('');
+    html=html.replace(/\\u0000B(\\d+)\\u0000/g,(m,i)=>{const b=blocks[i];return '<div class="cb"><div class="cbh"><span>'+esc(b.lang||'code')+'</span><button class="cpy" onclick="copyCode(this)">copy</button></div><pre><code>'+esc(b.code)+'</code></pre></div>';});
+    return html;
+  }
+  function copyCode(btn){const c=btn.closest('.cb').querySelector('code').textContent;navigator.clipboard.writeText(c).then(()=>{btn.textContent='copied';setTimeout(()=>btn.textContent='copy',1200);}).catch(()=>{});}
+
+  /* --- sessions (persisted locally) --- */
+  let sessions=[], curId=null;
+  function loadSessions(){try{sessions=JSON.parse(localStorage.getItem('eli_sessions')||'[]');}catch(e){sessions=[];} curId=localStorage.getItem('eli_cur')||null; if(!sessions.length)newChat(); else{if(!sessions.find(s=>s.id===curId))curId=sessions[0].id; const s=curSession(); session=s?s.server:null; renderSessionSel(); renderLog();}}
+  function persist(){try{localStorage.setItem('eli_sessions',JSON.stringify(sessions.slice(0,50)));localStorage.setItem('eli_cur',curId||'');}catch(e){}}
+  function curSession(){return sessions.find(s=>s.id===curId);}
+  function newChat(){const id='s'+Date.now();sessions.unshift({id:id,title:'New chat',ts:Date.now(),msgs:[],server:null});curId=id;session=null;persist();renderSessionSel();renderLog();if(box)box.focus();}
+  function switchSession(id){curId=id;const s=curSession();session=s?s.server:null;persist();renderLog();}
+  function deleteSession(){if(!curId)return;sessions=sessions.filter(s=>s.id!==curId);if(!sessions.length){newChat();return;}curId=sessions[0].id;const s=curSession();session=s.server;persist();renderSessionSel();renderLog();}
+  function renderSessionSel(){const sel=$('#sessionsel');if(!sel)return;sel.innerHTML=sessions.map(s=>'<option value="'+s.id+'"'+(s.id===curId?' selected':'')+'>'+esc((s.title||'Chat').slice(0,40))+'</option>').join('')||'<option>—</option>';}
+  function renderLog(){const s=curSession();log.innerHTML='';if(!s||!s.msgs.length){log.innerHTML='<div class="meta">New chat — say hello to ELI.</div>';return;}s.msgs.forEach(m=>{const d=document.createElement('div');d.className='msg '+m.who;if(m.who==='eli')d.innerHTML=mdRender(m.text);else d.textContent=m.text;log.appendChild(d);});log.scrollTop=log.scrollHeight;}
+  function pushMsg(who,text){const s=curSession();if(!s)return;s.msgs.push({who:who,text:text});if(who==='user'&&(!s.title||s.title==='New chat'))s.title=text.slice(0,40);s.ts=Date.now();persist();renderSessionSel();}
+
+  function add(t,who){const d=document.createElement('div');d.className='msg '+who;d.textContent=t;log.appendChild(d);log.scrollTop=log.scrollHeight;return d;}
+  function setBusy(b){send.textContent=b?'Stop':'Send';send.classList.toggle('stop',b);}
+  f.addEventListener('submit',e=>{e.preventDefault();if(abortCtl){abortCtl.abort();return;}const text=box.value.trim();if(!text)return;box.value='';streamChat(text);});
+
   async function streamChat(text){
-    add(text,'user');send.disabled=true;const p=add('…','eli');let got=false;
+    if(!curSession())newChat();
+    add(text,'user');pushMsg('user',text);
+    const p=add('','eli');p.innerHTML='<span class="typing"><i></i><i></i><i></i></span>';
+    let raw='',got=false; abortCtl=new AbortController(); setBusy(true);
     try{
-      const r=await fetch('/v1/chat/stream',{method:'POST',headers:H(),body:JSON.stringify({message:text,user_id:uid,session_id:session})});
+      const r=await fetch('/v1/chat/stream',{method:'POST',headers:H(),body:JSON.stringify({message:text,user_id:uid,session_id:session}),signal:abortCtl.signal});
       const reader=r.body.getReader(),dec=new TextDecoder();let buf='';
       for(;;){const rd=await reader.read();if(rd.done)break;
         buf+=dec.decode(rd.value,{stream:true});let i;
         while((i=buf.indexOf(SEP))>=0){const frame=buf.slice(0,i);buf=buf.slice(i+SEP.length);
           if(frame.indexOf('data:')!==0)continue;
           let j;try{j=JSON.parse(frame.slice(5).trim());}catch(_e){continue;}
-          if(j.session_id)session=j.session_id;
-          if(j.delta){if(!got){p.textContent='';got=true;}p.textContent+=j.delta;log.scrollTop=log.scrollHeight;}
-          if(j.error)p.textContent+=(p.textContent?NL:'')+'[error: '+j.error+']';
+          if(j.session_id){session=j.session_id;const s=curSession();if(s)s.server=session;}
+          if(j.delta){if(!got){got=true;p.textContent='';}raw+=j.delta;p.textContent=raw;log.scrollTop=log.scrollHeight;}
+          if(j.error)raw+=(raw?NL:'')+'[error: '+j.error+']';
         }
       }
-      if(!p.textContent)p.textContent='(no response)';
-    }catch(err){p.textContent='Error: '+err;}
-    finally{send.disabled=false;box.focus();}
-    return got?p.textContent:'';
+    }catch(err){if(err.name!=='AbortError')raw+=(raw?NL:'')+'Error: '+err;}
+    finally{abortCtl=null;setBusy(false);box.focus();}
+    if(!raw)raw=got?'(stopped)':'(no response)';
+    p.innerHTML=mdRender(raw);pushMsg('eli',raw);log.scrollTop=log.scrollHeight;
+    return got?raw:'';
   }
+  function regenerate(){
+    const s=curSession();if(!s||!s.msgs.length||abortCtl)return;
+    let lastUser=null;for(let k=s.msgs.length-1;k>=0;k--){if(s.msgs[k].who==='user'){lastUser=s.msgs[k].text;break;}}
+    if(!lastUser)return;
+    while(s.msgs.length&&s.msgs[s.msgs.length-1].who==='eli')s.msgs.pop();
+    if(s.msgs.length&&s.msgs[s.msgs.length-1].who==='user')s.msgs.pop();
+    persist();renderLog();streamChat(lastUser);
+  }
+  window.newChat=newChat; window.switchSession=switchSession; window.deleteSession=deleteSession; window.regenerate=regenerate; window.copyCode=copyCode;
+  loadSessions();
 
   /* voice — local STT (whisper) in, local TTS (piper) out; nothing leaves the box */
   const mic=$('#mic'),spk=$('#spk'),vstat=$('#vstat');
