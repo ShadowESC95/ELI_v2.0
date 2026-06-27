@@ -181,7 +181,7 @@ _WEB_UI = """<!doctype html>
     <nav class="tabs">
       <button data-tab="chat" class="active">Chat</button>
       <button data-tab="commands">Commands</button>
-      <button data-tab="devices">Devices</button>
+      <button data-tab="devices">Home</button>
       <button data-tab="system">System</button>
       <button data-tab="research">Research</button>
       <button data-tab="audit">Audit</button>
