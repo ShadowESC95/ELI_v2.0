@@ -40,12 +40,32 @@ def _is_loopback_host(host: str) -> bool:
         return False
 
 
+def _tokenless_allowed() -> bool:
+    """Tokenless serving is permitted ONLY when explicitly opted in. The loopback
+    launcher / loopback `main()` set this; nothing else does — so any ASGI-direct
+    launch (uvicorn api.server:app, gunicorn, a Docker CMD, a systemd ExecStart)
+    that never runs main() leaves it UNSET and the gate fails closed."""
+    return os.environ.get("ELI_API_ALLOW_TOKENLESS", "").strip().lower() in ("1", "true", "yes", "on")
+
+
 def _require_token(authorization: str = Header(default="")):
+    """Fail-CLOSED auth gate. A token is required unless tokenless serving has been
+    explicitly enabled (loopback only). Critically, the *default* — no token set and
+    no explicit opt-out — is DENY, so the security guarantee no longer depends on the
+    launcher script having run main(); a raw `uvicorn api.server:app` is locked down too."""
     token = _api_token()
-    if not token:
+    if token:
+        if not secrets.compare_digest(authorization or "", f"Bearer {token}"):
+            raise HTTPException(status_code=401, detail="missing or invalid API token")
         return
-    if not secrets.compare_digest(authorization or "", f"Bearer {token}"):
-        raise HTTPException(status_code=401, detail="missing or invalid API token")
+    # No token configured.
+    if _tokenless_allowed():
+        return
+    raise HTTPException(
+        status_code=401,
+        detail="API token required: set ELI_API_TOKEN (or, for same-machine use, "
+               "launch via scripts/eli_serve.sh which enables loopback tokenless serving)",
+    )
 
 app = FastAPI(
     title="ELI Cognitive OS Agent API",
@@ -391,7 +411,8 @@ _WEB_UI = """<!doctype html>
        '<div class="rnote">Each corpus is an isolated local index — your documents never mix with ELI\\'s memory, and nothing leaves this machine.</div></div>';
     h+='<div class="rsec"><h4>Ingest documents</h4>'+
        '<div class="rrow"><input id="ing-name" autocomplete="off" placeholder="corpus name (new or existing)"></div>'+
-       '<div class="rrow"><input id="ing-path" autocomplete="off" placeholder="local file or folder path (.pdf / .txt / .md)"><button id="ing-btn" onclick="ingestCorpus()">Ingest</button></div>'+
+       '<div class="rrow"><input id="ing-path" autocomplete="off" placeholder="path under the research root (.pdf / .txt / .md)"><button id="ing-btn" onclick="ingestCorpus()">Ingest</button></div>'+
+       '<div class="rnote">Documents must live under the server\\'s research root (default <code>artifacts/research/_sources/</code>, or set <code>ELI_RESEARCH_ROOT</code>). Paths outside it are rejected — a remote client can never make the server read arbitrary host files.</div>'+
        '<div id="ing-status" class="rnote"></div></div>';
     h+='<div class="rsec"><h4>Ask (grounded in the corpus)</h4>'+
        '<div class="rrow"><input id="ask-q" autocomplete="off" placeholder="Ask a question answered only from this corpus…"><button id="ask-btn" onclick="askCorpus()">Ask</button></div>'+
@@ -725,7 +746,8 @@ async def execute(request: ExecuteRequest):
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
-@app.get("/v1/status/{user_id}", response_model=StatusResponse, tags=["System"])
+@app.get("/v1/status/{user_id}", response_model=StatusResponse, tags=["System"],
+         dependencies=[Depends(_require_token)])
 async def status(user_id: str):
     """Get ELI's current status for a user."""
     try:
@@ -937,14 +959,20 @@ def main():
     port = int(os.environ.get("ELI_API_PORT", "8081"))
     reload = os.environ.get("ELI_API_RELOAD", "0").strip().lower() in ("1", "true", "yes", "on")
 
-    # Fail-closed network guard — the "token-gated by default" guarantee must NOT
-    # depend on the launcher script. Started any other way (ELI_API_HOST=0.0.0.0
-    # python -m api.server, a systemd unit, Docker) a non-loopback bind with no token
-    # would expose /v1/execute — screenshots, file reads, app open/close — to the whole
-    # network unauthenticated. So if we're binding beyond loopback with no token, refuse
-    # the silent fail-open: auto-generate one, enforce it (the gate reads it live), and
-    # announce it loudly. Opt out only by setting ELI_API_TOKEN yourself.
-    if not _is_loopback_host(host) and not _api_token():
+    # The auth gate (_require_token) now fails CLOSED by default: with no token and no
+    # explicit opt-out, every gated endpoint returns 401. main() is where we relax that
+    # for the two safe cases — and ONLY here, so a raw `uvicorn api.server:app` (which
+    # never runs main()) stays locked down.
+    if _is_loopback_host(host):
+        # Genuinely local bind (127.0.0.0/8, ::1) — enable tokenless serving for
+        # zero-friction same-machine use. This is the ONLY place it is enabled.
+        # An explicit ELI_API_ALLOW_TOKENLESS=0 (lock down even local) is respected.
+        os.environ.setdefault("ELI_API_ALLOW_TOKENLESS", "1")
+    elif not _api_token():
+        # Non-loopback bind with no token (ELI_API_HOST=0.0.0.0 python -m api.server,
+        # a systemd unit, etc.) — would expose device control + file ingest to the whole
+        # network. Refuse the silent fail-open: auto-generate a token, enforce it (the
+        # gate reads it live), and announce it loudly. Tokenless stays OFF here.
         _gen = secrets.token_urlsafe(32)
         os.environ["ELI_API_TOKEN"] = _gen
         _bar = "=" * 72
