@@ -335,9 +335,10 @@ nothing runs on the device, and nothing reaches the internet.
 - **Audit** — a **tamper-evident** trail of every action (who did what, with what outcome), hash-chained
   so any edited/deleted/reordered record is detected. The tab shows a live "verified intact / tampering
   detected" verdict and a per-user event list.
-- **Admin** — an enterprise management console: chain-integrity status, totals, a **per-user activity**
-  rollup (click a user to drill into their recent actions), and the **approval / risk-gate policy** —
-  which action classes auto-approve vs need manual approval, and which agent may propose which.
+- **Admin** — an enterprise management console (admin role): chain-integrity status, totals, a
+  **per-user activity** rollup (click a user to drill into their recent actions), the **approval /
+  risk-gate policy**, and **user management** — create admin/member accounts (each gets a one-time
+  token) and revoke them.
 
 ### ELI device server (the Devices tab) — MQTT, no Home Assistant
 ELI keeps its **own** device registry and talks to devices **directly over MQTT** — the open DIY-IoT
@@ -356,6 +357,11 @@ locally and never returned by the API.
   action endpoint returns `401`. The guarantee no longer depends on the launcher script: a raw
   `uvicorn api.server:app`, a Docker `CMD`, a systemd `ExecStart`, or any other ASGI-direct launch
   that never runs `main()` is **locked down**, not wide open.
+- **Roles (admin / member), opt-in.** Define users (`python -m eli.runtime.api_users add <id> admin`,
+  or the Admin tab) and every request's token resolves to a **(user, role)**: members reach the normal
+  surfaces but are `403`'d from the Admin console, and **attribution becomes authenticated** — a member
+  can't claim to be someone else in the audit trail. With no users defined it stays single-operator
+  (the loopback owner is admin). Tokens are stored only as **SHA-256 hashes**; the raw token is shown once.
 - **Loopback is zero-friction.** Launch via `scripts/eli_serve.sh` (or `python -m api.server` on the
   default `127.0.0.1`) and same-machine use is tokenless — `main()` enables tokenless serving *only*
   for a genuine loopback bind (set `ELI_API_ALLOW_TOKENLESS=0` to require a token even locally).
