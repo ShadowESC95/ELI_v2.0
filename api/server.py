@@ -172,40 +172,68 @@ _WEB_UI = """<!doctype html>
 <style>
   :root {
     color-scheme: dark;
-    --bg:#0b0c10; --bg2:#0e0f13; --card:#16181f; --card2:#1b1d25; --line:#262a33; --input:#11131a;
-    --fg:#e9ebf0; --fg-dim:#aab2c0; --mut:#6b7280;
-    --accent:#3b82f6; --accent-press:#2563eb; --teal:#38bdf8;
-    --ok:#34d399; --warn:#fbbf24; --bad:#f87171;
-    --radius:12px; --radius-sm:9px; --shadow:0 1px 2px rgba(0,0,0,.4), 0 8px 24px rgba(0,0,0,.28);
-    --fast:.16s cubic-bezier(.4,0,.2,1);
+    --bg:#05070d; --bg2:#080b14; --grid:rgba(34,211,238,.05);
+    --card:rgba(13,20,33,.62); --card2:rgba(20,28,44,.55); --line:rgba(64,224,255,.15); --input:rgba(7,12,22,.72);
+    --fg:#dbeafe; --fg-dim:#8aa4c8; --mut:#5b6b86;
+    --accent:#22d3ee; --accent2:#f637ec; --accent-press:#06b6d4; --teal:#22d3ee;
+    --glow:0 0 0 1px rgba(34,211,238,.3), 0 0 18px rgba(34,211,238,.2);
+    --ok:#34f5c5; --warn:#ffd166; --bad:#ff5d73;
+    --radius:14px; --radius-sm:10px; --shadow:0 2px 10px rgba(0,0,0,.5), 0 14px 44px rgba(0,0,0,.42);
+    --fast:.18s cubic-bezier(.4,0,.2,1); --mono:ui-monospace,"JetBrains Mono",Menlo,Consolas,monospace;
   }
   [data-theme="light"] {
     color-scheme: light;
-    --bg:#f4f6fa; --bg2:#eef1f6; --card:#ffffff; --card2:#f7f9fc; --line:#e2e6ee; --input:#f0f3f8;
-    --fg:#11151c; --fg-dim:#4a5364; --mut:#8a93a3;
-    --accent:#2563eb; --accent-press:#1d4ed8; --teal:#0ea5e9;
-    --ok:#059669; --warn:#b45309; --bad:#dc2626;
-    --shadow:0 1px 2px rgba(20,30,60,.06), 0 8px 24px rgba(20,30,60,.08);
+    --bg:#eef3fb; --bg2:#e6edf7; --grid:rgba(8,145,178,.06);
+    --card:rgba(255,255,255,.82); --card2:#f4f8fd; --line:rgba(8,145,178,.22); --input:#eef4fb;
+    --fg:#0c1828; --fg-dim:#3f5168; --mut:#7589a3;
+    --accent:#0891b2; --accent2:#be1d8f; --accent-press:#0e7490; --teal:#0891b2;
+    --glow:0 0 0 1px rgba(8,145,178,.25); --ok:#059669; --warn:#b45309; --bad:#dc2626;
+    --shadow:0 1px 2px rgba(20,30,60,.06), 0 10px 30px rgba(20,30,60,.1);
   }
   * { box-sizing: border-box; }
   body { margin:0; font-family: ui-sans-serif,system-ui,-apple-system,Segoe UI,Roboto,sans-serif;
-    background:var(--bg); color:var(--fg); height:100dvh; display:flex; flex-direction:column;
-    -webkit-font-smoothing:antialiased; text-rendering:optimizeLegibility; transition:background var(--fast),color var(--fast); }
-  header { padding:11px 16px; border-bottom:1px solid var(--line); display:flex; align-items:center; gap:10px;
-    background:linear-gradient(180deg,var(--bg2),var(--bg)); position:sticky; top:0; z-index:5; }
-  header b { font-weight:700; letter-spacing:.3px; font-size:16px; background:linear-gradient(90deg,var(--fg),var(--teal)); -webkit-background-clip:text; background-clip:text; -webkit-text-fill-color:transparent; }
-  header small { color:var(--mut); font-size:12px; }
-  .iconbtn { margin-left:6px; width:34px; height:34px; border:1px solid var(--line); border-radius:9px; background:var(--card); color:var(--fg-dim); font-size:15px; cursor:pointer; display:grid; place-items:center; transition:var(--fast); flex:none; }
-  .iconbtn:hover { color:var(--fg); border-color:var(--teal); }
-  nav.tabs { margin-left:auto; display:flex; gap:3px; overflow-x:auto; scrollbar-width:none; -ms-overflow-style:none; padding:3px; background:var(--card); border:1px solid var(--line); border-radius:11px; }
+    color:var(--fg); height:100dvh; display:flex; overflow:hidden; -webkit-font-smoothing:antialiased;
+    background:
+      radial-gradient(1100px 560px at 82% -12%, rgba(34,211,238,.08), transparent 60%),
+      radial-gradient(900px 520px at -12% 112%, rgba(246,55,236,.06), transparent 60%),
+      linear-gradient(var(--grid) 1px, transparent 1px) 0 0/34px 34px,
+      linear-gradient(90deg, var(--grid) 1px, transparent 1px) 0 0/34px 34px,
+      var(--bg);
+    transition:background var(--fast),color var(--fast); }
+  /* ── sidebar shell ── */
+  .sidebar { width:214px; flex:none; display:flex; flex-direction:column; gap:4px; padding:14px 12px;
+    background:linear-gradient(180deg, rgba(10,16,28,.72), rgba(6,10,18,.5)); border-right:1px solid var(--line); backdrop-filter:blur(16px); }
+  .brand { display:flex; align-items:baseline; gap:9px; padding:4px 8px 14px; }
+  .brand .logo { font-family:var(--mono); color:var(--accent); font-weight:800; font-size:16px; text-shadow:0 0 14px var(--accent); }
+  .brand b { font-weight:800; letter-spacing:3px; font-size:19px; background:linear-gradient(90deg,var(--accent),var(--accent2)); -webkit-background-clip:text; background-clip:text; -webkit-text-fill-color:transparent; }
+  .brand small { color:var(--mut); font-size:10px; letter-spacing:1.5px; text-transform:uppercase; }
+  nav.tabs { display:flex; flex-direction:column; gap:3px; flex:1; min-height:0; overflow-y:auto; scrollbar-width:none; }
   nav.tabs::-webkit-scrollbar { display:none; }
-  nav.tabs button { padding:7px 13px; border:0; border-radius:8px; background:transparent; color:var(--fg-dim); font-size:13.5px; font-weight:500; cursor:pointer; white-space:nowrap; transition:var(--fast); }
-  nav.tabs button:hover { color:var(--fg); }
-  nav.tabs button.active { background:var(--accent); color:#fff; box-shadow:0 1px 6px rgba(59,130,246,.4); }
+  nav.tabs button { display:flex; align-items:center; gap:11px; padding:10px 12px; border:0; border-radius:10px;
+    background:transparent; color:var(--fg-dim); font-size:13.5px; font-weight:500; cursor:pointer; text-align:left;
+    position:relative; transition:var(--fast); letter-spacing:.3px; white-space:nowrap; }
+  nav.tabs button svg { width:17px; height:17px; flex:none; opacity:.75; transition:var(--fast); }
+  nav.tabs button:hover { color:var(--fg); background:rgba(34,211,238,.07); }
+  nav.tabs button.active { color:var(--accent); background:linear-gradient(90deg, rgba(34,211,238,.16), transparent);
+    box-shadow:inset 0 0 0 1px rgba(34,211,238,.28); text-shadow:0 0 12px rgba(34,211,238,.55); }
+  nav.tabs button.active::before { content:""; position:absolute; left:0; top:18%; bottom:18%; width:3px; border-radius:0 3px 3px 0; background:var(--accent); box-shadow:0 0 12px var(--accent); }
+  nav.tabs button.active svg { opacity:1; filter:drop-shadow(0 0 5px var(--accent)); }
+  .sidefoot { display:flex; align-items:center; gap:8px; padding-top:11px; margin-top:2px; border-top:1px solid var(--line); }
+  .sidefoot #rolebadge { flex:1; color:var(--mut); font-size:11px; letter-spacing:.4px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .iconbtn { width:34px; height:34px; border:1px solid var(--line); border-radius:9px; background:var(--input); color:var(--fg-dim); font-size:15px; cursor:pointer; display:grid; place-items:center; transition:var(--fast); flex:none; }
+  .iconbtn:hover { color:var(--accent); border-color:var(--accent); box-shadow:var(--glow); }
+  .main { flex:1; min-width:0; display:flex; flex-direction:column; }
   .view { flex:1; min-height:0; display:none; flex-direction:column; }
-  .view.active { display:flex; animation:fade .22s ease; }
-  @keyframes fade { from{opacity:0;transform:translateY(4px);} to{opacity:1;transform:none;} }
-  @media (max-width:560px){ header b{font-size:15px;} header small{display:none;} nav.tabs button{padding:7px 11px;} }
+  .view.active { display:flex; animation:fade .25s ease; }
+  @keyframes fade { from{opacity:0;transform:translateY(6px);} to{opacity:1;transform:none;} }
+  @media (max-width:720px){
+    body{ flex-direction:column-reverse; }
+    .sidebar{ width:100%; flex-direction:row; gap:2px; padding:6px; overflow-x:auto; border-right:0; border-top:1px solid var(--line); backdrop-filter:blur(16px); }
+    .brand,.sidefoot{ display:none; }
+    nav.tabs{ flex-direction:row; }
+    nav.tabs button{ flex-direction:column; gap:3px; padding:7px 10px; font-size:10px; }
+    nav.tabs button.active::before{ left:18%; right:18%; top:0; bottom:auto; width:auto; height:3px; border-radius:0 0 3px 3px; }
+  }
   #log { flex:1; overflow-y:auto; padding:16px; display:flex; flex-direction:column; gap:10px; }
   #log { scroll-behavior:smooth; }
   .msg { max-width:80%; padding:11px 14px; border-radius:16px; white-space:pre-wrap; line-height:1.5; font-size:15px; box-shadow:var(--shadow); animation:pop .18s ease; }
@@ -257,8 +285,8 @@ _WEB_UI = """<!doctype html>
   .hconfig input { width:100%; padding:10px; border-radius:9px; border:1px solid var(--line); background:var(--input); color:var(--fg); font-size:14px; }
   .hconfig button { margin-top:14px; padding:10px 18px; border:0; border-radius:9px; background:var(--accent); color:#fff; font-size:15px; cursor:pointer; }
   .grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(168px,1fr)); gap:12px; }
-  .card { background:var(--card); border:1px solid var(--line); border-radius:16px; padding:14px; display:flex; flex-direction:column; gap:10px; min-height:120px; box-shadow:var(--shadow); transition:transform var(--fast),border-color var(--fast); }
-  .card:hover { transform:translateY(-2px); border-color:var(--teal); }
+  .card { background:var(--card); border:1px solid var(--line); border-radius:16px; padding:14px; display:flex; flex-direction:column; gap:10px; min-height:120px; box-shadow:var(--shadow); backdrop-filter:blur(12px); transition:transform var(--fast),border-color var(--fast),box-shadow var(--fast); }
+  .card:hover { transform:translateY(-3px); border-color:var(--accent); box-shadow:var(--shadow),var(--glow); }
   .card .nm { font-size:14px; font-weight:600; } .card .dom { font-size:11px; color:var(--mut); text-transform:uppercase; letter-spacing:.5px; }
   .card .row { display:flex; align-items:center; justify-content:space-between; margin-top:auto; }
   .st { font-size:13px; color:var(--fg-dim); }
@@ -282,8 +310,9 @@ _WEB_UI = """<!doctype html>
   .clim button { width:32px; height:32px; border-radius:8px; border:1px solid var(--line); background:var(--input); color:var(--fg); font-size:18px; cursor:pointer; }
   .bar { height:8px; border-radius:6px; background:#2a2d35; overflow:hidden; margin-top:4px; }
   .bar i { display:block; height:100%; background:var(--teal); }
-  .syscard { background:var(--card); border:1px solid var(--line); border-radius:16px; padding:16px; box-shadow:var(--shadow); margin-bottom:14px; }
-  .syscard h4 { margin:0 0 12px; font-size:12px; color:var(--teal); text-transform:uppercase; letter-spacing:.5px; }
+  .syscard { background:var(--card); border:1px solid var(--line); border-radius:16px; padding:16px; box-shadow:var(--shadow); backdrop-filter:blur(12px); margin-bottom:14px; position:relative; }
+  .syscard::before { content:""; position:absolute; left:14px; right:14px; top:0; height:1px; background:linear-gradient(90deg,transparent,var(--accent),transparent); opacity:.5; }
+  .syscard h4 { margin:0 0 12px; font-size:11px; color:var(--accent); text-transform:uppercase; letter-spacing:1.5px; font-family:var(--mono); text-shadow:0 0 10px rgba(34,211,238,.4); }
   .kv { display:flex; justify-content:space-between; font-size:13px; margin:6px 0; color:var(--fg-dim); }
   .glabel { text-align:center; font-size:11px; color:var(--mut); margin-top:4px; }
   #research { overflow-y:auto; padding:14px; }
@@ -321,6 +350,31 @@ _WEB_UI = """<!doctype html>
   .roombtn { font-size:12px; padding:5px 11px; border:1px solid var(--line); border-radius:8px; background:var(--input); color:var(--fg-dim); cursor:pointer; }
   .roombtn:hover { border-color:var(--teal); color:#fff; }
   .roomhd .roombtn:first-of-type { margin-left:auto; }
+  #overview { overflow-y:auto; padding:20px; }
+  .ovwrap { max-width:1120px; margin:0 auto; }
+  .ovhero { display:flex; gap:22px; flex-wrap:wrap; align-items:center; margin-bottom:18px; padding:18px 20px; border:1px solid var(--line); border-radius:18px; background:var(--card); box-shadow:var(--shadow); backdrop-filter:blur(12px); }
+  .clock .t { font-family:var(--mono); font-size:48px; font-weight:700; letter-spacing:3px; color:var(--accent); text-shadow:0 0 24px rgba(34,211,238,.55); line-height:1; }
+  .clock .d { color:var(--fg-dim); font-size:12px; margin-top:7px; letter-spacing:2px; text-transform:uppercase; }
+  .ovstat { flex:1; min-width:240px; display:flex; flex-direction:column; gap:8px; }
+  .ovstat-row { font-size:13px; color:var(--fg-dim); display:flex; align-items:center; gap:9px; }
+  .dot { width:9px; height:9px; border-radius:50%; flex:none; }
+  .dot.ok { background:var(--ok); box-shadow:0 0 10px var(--ok); }
+  .dot.bad { background:var(--bad); box-shadow:0 0 10px var(--bad); animation:pulse 1.1s infinite; }
+  .ov-grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(260px,1fr)); gap:14px; }
+  .widget { background:var(--card); border:1px solid var(--line); border-radius:16px; padding:16px; box-shadow:var(--shadow); backdrop-filter:blur(12px); }
+  .widget.wide { grid-column:1/-1; }
+  .widget h4 { margin:0 0 14px; font-size:11px; color:var(--accent); text-transform:uppercase; letter-spacing:1.5px; font-family:var(--mono); }
+  .ovgauges { display:flex; gap:16px; flex-wrap:wrap; justify-content:space-around; }
+  .ovg { text-align:center; }
+  .ring { width:76px; height:76px; border-radius:50%; display:grid; place-items:center; background:conic-gradient(var(--accent) calc(var(--p)*1%), rgba(127,127,127,.13) 0); box-shadow:0 0 18px rgba(34,211,238,.22); }
+  .ring span { width:58px; height:58px; border-radius:50%; background:var(--bg2); display:grid; place-items:center; font-weight:700; font-family:var(--mono); color:var(--fg); font-size:16px; }
+  .ovg-l { font-size:11px; color:var(--mut); margin-top:7px; text-transform:uppercase; letter-spacing:.5px; }
+  .qa { display:flex; flex-wrap:wrap; gap:8px; }
+  .qchip { padding:9px 13px; border:1px solid var(--line); border-radius:10px; background:var(--input); color:var(--fg-dim); font-size:13px; cursor:pointer; transition:var(--fast); }
+  .qchip:hover { color:var(--accent); border-color:var(--accent); box-shadow:var(--glow); }
+  .ovact { display:grid; grid-template-columns:1fr auto auto; gap:14px; align-items:center; padding:8px 4px; border-bottom:1px solid var(--line); font-size:13px; }
+  .ovact:last-child { border-bottom:0; }
+  .ovact .aa { font-weight:600; } .ovact .au { color:var(--teal); font-size:12px; font-family:var(--mono); } .ovact .at { color:var(--mut); font-size:12px; }
   #admin { overflow-y:auto; padding:14px; }
   .adwrap { max-width:900px; margin:0 auto; }
   .adtot { display:grid; grid-template-columns:repeat(auto-fit,minmax(120px,1fr)); gap:10px; margin-bottom:14px; }
@@ -338,20 +392,23 @@ _WEB_UI = """<!doctype html>
   .emrow { display:grid; grid-template-columns:160px 1fr; gap:10px; padding:6px 11px; font-size:13px; border-bottom:1px solid #20242c; }
   .emrow .em { color:var(--teal); font-weight:600; } .emrow .ec { color:var(--fg-dim); font-size:12px; }
 </style></head><body>
-  <header>
-    <b>ELI</b><small>local &middot; private<span id="rolebadge"></span></small>
+  <aside class="sidebar">
+    <div class="brand"><span class="logo">&#9698;&#9700;</span><b>ELI</b><small>v2</small></div>
     <nav class="tabs">
-      <button data-tab="chat" class="active">Chat</button>
-      <button data-tab="commands">Commands</button>
-      <button data-tab="devices">Home</button>
-      <button data-tab="system">System</button>
-      <button data-tab="research">Research</button>
-      <button data-tab="audit">Audit</button>
-      <button data-tab="admin">Admin</button>
+      <button data-tab="overview" class="active"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/><rect x="14" y="14" width="7" height="7" rx="1.5"/></svg><span>Overview</span></button>
+      <button data-tab="chat"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M21 12a8 8 0 0 1-11.6 7.1L3 21l1.9-6.4A8 8 0 1 1 21 12z"/></svg><span>Chat</span></button>
+      <button data-tab="commands"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M7 9l3 3-3 3M13 15h4"/></svg><span>Commands</span></button>
+      <button data-tab="devices"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M3 11l9-8 9 8M5 10v10h14V10"/></svg><span>Home</span></button>
+      <button data-tab="system"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><rect x="6" y="6" width="12" height="12" rx="2"/><path d="M9 1.5v3M15 1.5v3M9 19.5v3M15 19.5v3M1.5 9h3M1.5 15h3M19.5 9h3M19.5 15h3"/></svg><span>System</span></button>
+      <button data-tab="research"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M9 3h6M10 3v6l-5.5 9.5A2 2 0 0 0 6.2 21h11.6a2 2 0 0 0 1.7-3.5L14 9V3"/></svg><span>Research</span></button>
+      <button data-tab="audit"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M12 3l8 3v6c0 5-4 8-8 9-4-1-8-4-8-9V6z"/><path d="M9 12l2 2 4-4"/></svg><span>Audit</span></button>
+      <button data-tab="admin"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M4 6h16M4 12h16M4 18h16"/><circle cx="9" cy="6" r="2" fill="currentColor" stroke="none"/><circle cx="15" cy="12" r="2" fill="currentColor" stroke="none"/><circle cx="8" cy="18" r="2" fill="currentColor" stroke="none"/></svg><span>Admin</span></button>
     </nav>
-    <button class="iconbtn" id="themebtn" title="Toggle light / dark">&#9680;</button>
-  </header>
-  <section class="view active" id="view-chat">
+    <div class="sidefoot"><span id="rolebadge">local &middot; private</span><button class="iconbtn" id="themebtn" title="Toggle light / dark">&#9680;</button></div>
+  </aside>
+  <main class="main">
+  <section class="view active" id="view-overview"><div id="overview"><div class="muted">Loading…</div></div></section>
+  <section class="view" id="view-chat">
     <div class="chatbar">
       <button class="cbtn" onclick="newChat()" title="New chat">&#43; New</button>
       <select id="sessionsel" onchange="switchSession(this.value)"></select>
@@ -373,6 +430,7 @@ _WEB_UI = """<!doctype html>
   <section class="view" id="view-research"><div id="research"><div class="muted">Loading…</div></div></section>
   <section class="view" id="view-audit"><div id="audit"><div class="muted">Loading…</div></div></section>
   <section class="view" id="view-admin"><div id="admin"><div class="muted">Loading…</div></div></section>
+  </main>
 <script>
   const $ = s => document.querySelector(s);
   let uid=localStorage.getItem('eli_uid');
@@ -401,6 +459,7 @@ _WEB_UI = """<!doctype html>
     b.classList.add('active');
     document.querySelectorAll('.view').forEach(v=>v.classList.remove('active'));
     $('#view-'+b.dataset.tab).classList.add('active');
+    if(b.dataset.tab==='overview') loadOverview();
     if(b.dataset.tab==='commands' && !cmdsLoaded) loadCommands();
     if(b.dataset.tab==='devices') loadDevices();
     if(b.dataset.tab==='system') loadSystem();
@@ -488,6 +547,7 @@ _WEB_UI = """<!doctype html>
   }
   window.newChat=newChat; window.switchSession=switchSession; window.deleteSession=deleteSession; window.regenerate=regenerate; window.copyCode=copyCode;
   loadSessions();
+  loadOverview();
 
   /* voice — local STT (whisper) in, local TTS (piper) out; nothing leaves the box */
   const mic=$('#mic'),spk=$('#spk'),vstat=$('#vstat');
@@ -914,12 +974,56 @@ _WEB_UI = """<!doctype html>
   window.ingestCorpus=ingestCorpus; window.askCorpus=askCorpus; window.addNote=addNote; window.removeDoc=removeDoc; window.loadCorpusDetail=loadCorpusDetail; window.setResearchName=setResearchName;
   window.filterAudit=filterAudit; window.clearAudit=clearAudit; window.loadAdmin=loadAdmin; window.drillUser=drillUser; window.addUser=addUser; window.removeUser=removeUser;
 
+  /* overview dashboard */
+  let ovClockTimer=null;
+  function ovGauge(v,label){v=Math.round(v||0);return '<div class="ovg"><div class="ring" style="--p:'+Math.max(0,Math.min(100,v))+'"><span>'+v+'</span></div><div class="ovg-l">'+esc(label)+'</div></div>';}
+  function tickClock(){const el=$('#ov-clock');if(!el)return;const d=new Date();const t=el.querySelector('.t'),dd=el.querySelector('.d');if(t)t.textContent=d.toLocaleTimeString();if(dd)dd.textContent=d.toLocaleDateString(undefined,{weekday:'long',month:'short',day:'numeric'});}
+  function loadOverview(){
+    Promise.all([api('/v1/system').catch(()=>({})),api('/v1/audit?limit=8').catch(()=>({})),
+                 api('/v1/devices').catch(()=>({})),api('/v1/research/corpora').catch(()=>({}))])
+      .then(([sys,aud,dev,res])=>renderOverview(sys,aud,dev,res))
+      .catch(e=>{$('#overview').innerHTML='<div class="err">'+esc(''+e)+'</div>';});
+  }
+  function renderOverview(sys,aud,dev,res){
+    const s=(sys&&sys.status)||{}, g=s.gpu, c=s.cpu, r=s.ram, m=s.model||{};
+    const ig=(aud&&aud.integrity)||{}, ev=(aud&&aud.events)||[];
+    const devs=(dev&&dev.devices)||[], on=devs.filter(d=>(''+(d.state||'')).toUpperCase()==='ON').length;
+    const corpora=(res&&res.corpora)||[];
+    let h='<div class="ovwrap"><div class="ovhero">'+
+      '<div id="ov-clock" class="clock"><div class="t">--:--:--</div><div class="d"></div></div>'+
+      '<div class="ovstat">'+
+        '<div class="ovstat-row"><span class="dot ok"></span> System online &middot; model <b>'+esc(m.name||'—')+'</b></div>'+
+        '<div class="ovstat-row"><span class="dot '+(ig.ok?'ok':'bad')+'"></span> Audit '+(ig.ok?('verified &middot; '+(ig.chained||0)+' events'):'TAMPER DETECTED')+'</div>'+
+        '<div class="ovstat-row"><span class="dot ok"></span> '+devs.length+' device(s) &middot; '+on+' on &middot; '+corpora.length+' corpora</div>'+
+      '</div></div>';
+    h+='<div class="ov-grid"><div class="widget"><h4>Vitals</h4><div class="ovgauges">';
+    if(g){h+=ovGauge(g.util_pct,'GPU')+ovGauge(g.temp_c,'GPU °C');}
+    if(c){h+=ovGauge(c.usage_pct,'CPU');}
+    if(r){h+=ovGauge(r.pct!=null?r.pct:(r.total_mb?Math.round(r.used_mb/r.total_mb*100):0),'RAM');}
+    if(!g&&!c&&!r)h+='<div class="muted">Telemetry unavailable.</div>';
+    h+='</div></div>';
+    h+='<div class="widget"><h4>Quick actions</h4><div class="qa">'+
+       '<button class="qchip" onclick="switchTab(\\'chat\\')">&#128172; Chat</button>'+
+       '<button class="qchip" onclick="switchTab(\\'devices\\')">&#127968; Home</button>'+
+       '<button class="qchip" onclick="switchTab(\\'research\\')">&#128300; Research</button>'+
+       '<button class="qchip" onclick="switchTab(\\'system\\')">&#128202; Telemetry</button>'+
+       '<button class="qchip" onclick="switchTab(\\'audit\\')">&#128737; Audit</button>'+
+       '</div></div>';
+    h+='<div class="widget wide"><h4>Recent activity</h4>';
+    if(!ev.length)h+='<div class="muted">No activity yet.</div>';
+    ev.slice(0,8).forEach(e=>{h+='<div class="ovact"><span class="aa">'+esc(e.action||e.event_type||'')+'</span><span class="au">'+esc(e.user_id||'system')+'</span><span class="at">'+esc(fmtTime(e.timestamp))+'</span></div>';});
+    h+='</div></div></div>';
+    $('#overview').innerHTML=h;
+    tickClock(); if(ovClockTimer)clearInterval(ovClockTimer); ovClockTimer=setInterval(tickClock,1000);
+  }
+  window.loadOverview=loadOverview;
+
   /* who am I — reflect role; a read-only viewer can browse dashboards but not act */
   (function initMe(){
     api('/v1/me').then(m=>{
       if(!m||!m.ok)return;
       window.MY_ROLE=m.role;
-      const rb=$('#rolebadge'); if(rb) rb.textContent=' · '+m.role+(m.role==='viewer'?' (read-only)':'');
+      const rb=$('#rolebadge'); if(rb) rb.textContent=m.role+(m.role==='viewer'?' · read-only':' · local');
       if(m.role==='viewer'){
         const send=$('#send'), box=$('#box'), mic=$('#mic');
         if(send){send.disabled=true;send.textContent='read-only';}
