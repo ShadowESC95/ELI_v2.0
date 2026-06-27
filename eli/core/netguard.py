@@ -122,13 +122,49 @@ def offline_response(action: str, what: str = "do that") -> Dict[str, Any]:
 _LOCAL_HOST_PREFIXES = ("127.", "0.0.0.0", "::1", "localhost", "::ffff:127.")
 
 
+# Explicitly-registered LOCAL-network services (e.g. a user-configured MQTT broker on
+# the LAN). These are deliberate, user-configured local endpoints — like a local
+# inference server — NOT internet access. ONLY the exact registered host(s) are
+# permitted; the global offline-by-default policy is unchanged for every other host.
+_local_services_lock = threading.Lock()
+_LOCAL_SERVICES: set = set()
+
+
+def _norm_host(host: Optional[str]) -> str:
+    return str(host or "").strip().lower().strip("[]")
+
+
+def register_local_service(*hosts: str) -> None:
+    """Permit outbound connections to specific user-configured LAN hosts (and only
+    those), without weakening the offline-by-default default for anything else."""
+    with _local_services_lock:
+        for h in hosts:
+            nh = _norm_host(h)
+            if nh:
+                _LOCAL_SERVICES.add(nh)
+
+
+def unregister_local_service(*hosts: str) -> None:
+    with _local_services_lock:
+        for h in hosts:
+            _LOCAL_SERVICES.discard(_norm_host(h))
+
+
+def local_services() -> list:
+    with _local_services_lock:
+        return sorted(_LOCAL_SERVICES)
+
+
 def _is_local_host(host: Optional[str]) -> bool:
     if not host:
         return False
-    h = str(host).strip().lower().strip("[]")
+    h = _norm_host(host)
     if h in ("localhost", "::1"):
         return True
-    return any(h.startswith(p) for p in _LOCAL_HOST_PREFIXES)
+    if any(h.startswith(p) for p in _LOCAL_HOST_PREFIXES):
+        return True
+    with _local_services_lock:
+        return h in _LOCAL_SERVICES
 
 
 def guarded_urlopen(url, *args, timeout: float = 20, **kwargs):

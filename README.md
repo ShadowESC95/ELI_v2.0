@@ -314,15 +314,15 @@ nothing runs on the device, and nothing reaches the internet.
 ./scripts/eli_serve.sh --lan       # your home network   → prints a token-protected URL
 ```
 
-### The web app — five tabs
+### The web app — six tabs
 - **Chat** — talk to ELI from any device; inference stays on the host. Streams replies token-by-token,
   and **"Talk to ELI"** voice: tap the mic to speak (your phone's audio is transcribed by ELI's *local*
   whisper model), and tick **Speak replies** to have answers read back in ELI's *local* Piper voice —
   no cloud STT/TTS, the audio never leaves your machine.
 - **Commands** — a searchable catalogue of every documented action (with descriptions and example
   phrases). Tap a phrase to drop it into the chat box.
-- **Home** — control your smart home (see below): a device grid with light/switch toggles and
-  brightness sliders, media transport (play/pause/skip), climate set-points, and live sensor gauges.
+- **Devices** — ELI's **own** device server (see below): a device grid with light/switch toggles and
+  brightness sliders, talking to your devices directly over **MQTT** — no Home Assistant, no cloud.
 - **System** — ELI's own **measured** telemetry: GPU temperature/utilisation/VRAM, CPU load/temp,
   RAM, the loaded model, and uptime — the same grounded source ELI reports from, so the numbers are
   real, never guessed.
@@ -330,14 +330,21 @@ nothing runs on the device, and nothing reaches the internet.
   (`.pdf` / `.txt` / `.md`), and it ingests them into a private FAISS index (using ELI's own embedder),
   then answers questions **grounded only in those sources, with citations**. Your documents never mix
   with ELI's memory and nothing leaves the box.
+- **Audit** — a **tamper-evident** trail of every action (who did what, with what outcome), hash-chained
+  so any edited/deleted/reordered record is detected. The tab shows a live "verified intact / tampering
+  detected" verdict and a per-user event list.
 
-### Home Assistant setup (the Home tab)
-Smart-home control is via [Home Assistant](https://www.home-assistant.io/). In the **Home** tab, paste:
-- your HA **server URL** (e.g. `http://homeassistant.local:8123`), and
-- a **long-lived access token** (HA → your Profile → Security → *Long-lived access tokens* → Create).
+### ELI device server (the Devices tab) — MQTT, no Home Assistant
+ELI keeps its **own** device registry and talks to devices **directly over MQTT** — the open DIY-IoT
+standard (ESPHome / Tasmota / Zigbee2MQTT, or anything that speaks MQTT). No Home Assistant, no vendor
+cloud. In the **Devices** tab:
+- point ELI at your **MQTT broker** (e.g. a local Mosquitto): host, port, optional username/password;
+- **register a device** by its command/state topics, or set a **discovery prefix** to auto-find devices
+  that publish the standard retained MQTT discovery messages.
 
-ELI then lists and controls your lights, switches, fans, climate, media players, covers, and sensors.
-The token is stored locally (in your config) and is **never** returned by the API.
+The broker is a local-network service: ELI registers **only that host** with its offline socket guard
+(`netguard`), so the offline-by-default policy is unchanged for everything else. Credentials are stored
+locally and never returned by the API.
 
 ### Security
 - **The auth gate fails closed.** By default — no `ELI_API_TOKEN`, no explicit opt-out — every
