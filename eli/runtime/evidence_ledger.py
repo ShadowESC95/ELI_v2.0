@@ -5,6 +5,7 @@ import os
 import sqlite3
 import time
 import hashlib
+import hmac
 from pathlib import Path
 from typing import Any, Dict, Iterable, List, Optional
 
@@ -36,15 +37,20 @@ def _norm(value: Any, limit: int = 4000) -> str:
 
 
 def _signature(parts: Iterable[Any]) -> str:
+    # Content/dedup fingerprint (NOT the security boundary — that's the chain below).
+    # SHA-256 for consistency with the chain.
     raw = "|".join(_norm(part, 1000) for part in parts)
-    return hashlib.sha1(raw.encode("utf-8", "ignore")).hexdigest()
+    return hashlib.sha256(raw.encode("utf-8", "ignore")).hexdigest()
 
 
-# ── Tamper-evident hash chain ────────────────────────────────────────────────
-# Each event's chain_sig = sha256(prev_chain_sig ⊕ this row's stored fields). Because
-# every row commits to the one before it, editing a field, deleting a row, or
-# reordering rows changes a recomputed chain_sig and breaks the linkage — which
-# verify_chain() detects. The first row chains off a fixed genesis marker.
+# ── Tamper-evident, HMAC-keyed hash chain ────────────────────────────────────
+# Each event's chain_sig = HMAC-SHA256(key, prev_chain_sig ⊕ this row's stored fields).
+# Every row commits to the one before it (off a fixed genesis), so an edit, deletion, or
+# reorder breaks the chain — which verify_chain() detects. Keying it with a secret stored
+# SEPARATELY from the DB means a local attacker who can write the SQLite file but cannot
+# read the key cannot forge a clean, self-consistent chain (without the key the chain is
+# only tamper-EVIDENT; with it, tampering is also unforgeable). The key lives at
+# config/.audit_hmac_key (0600) or $ELI_AUDIT_HMAC_KEY; keep it off the DB's media/backups.
 _GENESIS = "ELI-AUDIT-GENESIS"
 _SEP = "\x1f"  # unit separator — can't appear in normalised text/JSON values
 
@@ -57,10 +63,41 @@ _CHAIN_FIELDS = (
 )
 
 
-def _chain_signature(prev_sig: str, ordered_values: Iterable[Any]) -> str:
+def _audit_key() -> Optional[bytes]:
+    """The HMAC key for the audit chain: $ELI_AUDIT_HMAC_KEY, else a 0600 file beside the
+    config (NOT beside the DB). Created on first use. None only if it can't be read/made."""
+    env = os.environ.get("ELI_AUDIT_HMAC_KEY", "").strip()
+    if env:
+        return env.encode("utf-8")
+    try:
+        from eli.core.paths import config_dir
+        kp = Path(config_dir()) / ".audit_hmac_key"
+    except Exception:
+        kp = Path("config") / ".audit_hmac_key"
+    try:
+        if kp.exists():
+            data = kp.read_text(encoding="utf-8").strip()
+            return data.encode("utf-8") if data else None
+        import secrets as _secrets
+        key = _secrets.token_hex(32)
+        kp.parent.mkdir(parents=True, exist_ok=True)
+        kp.write_text(key, encoding="utf-8")
+        try:
+            os.chmod(kp, 0o600)
+        except OSError:
+            pass
+        return key.encode("utf-8")
+    except Exception:
+        return None
+
+
+def _chain_signature(prev_sig: str, ordered_values: Iterable[Any], key: Optional[bytes] = None) -> str:
     parts = [str(prev_sig if prev_sig is not None else "")]
     parts.extend("" if v is None else str(v) for v in ordered_values)
-    return hashlib.sha256(_SEP.join(parts).encode("utf-8", "ignore")).hexdigest()
+    raw = _SEP.join(parts).encode("utf-8", "ignore")
+    if key:
+        return hmac.new(key, raw, hashlib.sha256).hexdigest()
+    return hashlib.sha256(raw).hexdigest()
 
 
 def _connect(db_path: Optional[str | Path] = None) -> sqlite3.Connection:
@@ -95,7 +132,8 @@ def ensure_schema(conn: sqlite3.Connection) -> None:
             request_id TEXT,
             signature TEXT,
             prev_sig TEXT,
-            chain_sig TEXT
+            chain_sig TEXT,
+            keyed INTEGER DEFAULT 0
         )
         """
     )
@@ -121,6 +159,7 @@ def ensure_schema(conn: sqlite3.Connection) -> None:
         # edit/deletion/reorder breaks the chain (see _chain_signature / verify_chain).
         ("prev_sig", "TEXT"),
         ("chain_sig", "TEXT"),
+        ("keyed", "INTEGER DEFAULT 0"),
     ]:
         if name not in existing:
             conn.execute(f"ALTER TABLE runtime_events ADD COLUMN {name} {decl}")
@@ -199,20 +238,22 @@ def record_event(
         ordered = (now, v_event, v_source, v_action, v_subject, v_content, v_payload,
                    v_severity, v_outcome, confidence, v_reusable, v_session, v_user,
                    v_request, sig)
-        chain_sig = _chain_signature(prev_sig, ordered)
+        key = _audit_key()
+        chain_sig = _chain_signature(prev_sig, ordered, key)
+        keyed = 1 if key else 0
 
         cur = conn.execute(
             """
             INSERT INTO runtime_events (
                 ts, timestamp, event_type, source, action, subject, content,
                 payload_json, severity, outcome, confidence, reusable,
-                session_id, user_id, request_id, signature, prev_sig, chain_sig
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                session_id, user_id, request_id, signature, prev_sig, chain_sig, keyed
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 now, now, v_event, v_source, v_action, v_subject, v_content,
                 v_payload, v_severity, v_outcome, confidence, v_reusable,
-                v_session, v_user, v_request, sig, prev_sig, chain_sig,
+                v_session, v_user, v_request, sig, prev_sig, chain_sig, keyed,
             ),
         )
         conn.commit()
@@ -300,22 +341,24 @@ def verify_chain(db_path: Optional[str | Path] = None) -> Dict[str, Any]:
     chain_sig. Any edited field, deleted row, or reordering makes a recomputed
     signature mismatch or breaks the prev_sig linkage — reported as the first break.
 
-    Returns ``{ok, checked, chained, legacy, first_break}`` where ``legacy`` counts
-    pre-feature rows (no chain_sig) that are skipped, and ``first_break`` is ``None``
-    when intact or ``{id, reason}`` at the first inconsistency."""
+    Returns ``{ok, checked, chained, legacy, keyed, first_break}``. ``keyed`` is True when
+    the chain is HMAC-protected (a local forger without the key can't produce a clean
+    chain). Once HMAC starts, a later UNkeyed row is treated as a downgrade attempt."""
     conn = _connect(db_path)
     try:
         rows = conn.execute(
             "SELECT id, ts, event_type, source, action, subject, content, payload_json, "
             "severity, outcome, confidence, reusable, session_id, user_id, request_id, "
-            "signature, prev_sig, chain_sig FROM runtime_events ORDER BY id ASC"
+            "signature, prev_sig, chain_sig, keyed FROM runtime_events ORDER BY id ASC"
         ).fetchall()
     finally:
         conn.close()
 
+    key = _audit_key()
     checked = 0
     chained = 0
     legacy = 0
+    keyed_seen = False
     prev_chain = _GENESIS
     first_break: Optional[Dict[str, Any]] = None
     for r in rows:
@@ -326,20 +369,30 @@ def verify_chain(db_path: Optional[str | Path] = None) -> Dict[str, Any]:
             continue
         checked += 1
         stored_prev = r[16]
+        row_keyed = bool(r[18])
         # 1) Linkage: this row must commit to the previous chained row.
         if str(stored_prev or "") != str(prev_chain):
             first_break = {"id": rid, "reason": "broken link (prev_sig != previous chain_sig) "
                                                  "— a row was deleted, reordered, or inserted"}
             break
-        # 2) Integrity: recompute this row's chain_sig from its stored fields.
+        # 1b) No downgrade: once the chain is HMAC-keyed, every later row must be too.
+        if keyed_seen and not row_keyed:
+            first_break = {"id": rid, "reason": "downgrade attempt — an unkeyed row after the "
+                                                "HMAC-keyed epoch (chain may have been rewritten)"}
+            break
+        if row_keyed and key is None:
+            first_break = {"id": rid, "reason": "HMAC key unavailable — cannot verify a keyed row"}
+            break
+        # 2) Integrity: recompute this row's chain_sig from its stored fields (+ key if keyed).
         ordered = (r[1], r[2], r[3], r[4], r[5], r[6], r[7], r[8], r[9], r[10],
                    r[11], r[12], r[13], r[14], r[15])
-        recomputed = _chain_signature(stored_prev, ordered)
+        recomputed = _chain_signature(stored_prev, ordered, key if row_keyed else None)
         if recomputed != str(stored_chain):
             first_break = {"id": rid, "reason": "content tampered (a field was edited "
                                                 "after the row was written)"}
             break
         chained += 1
+        keyed_seen = keyed_seen or row_keyed
         prev_chain = stored_chain
 
     return {
@@ -347,6 +400,7 @@ def verify_chain(db_path: Optional[str | Path] = None) -> Dict[str, Any]:
         "checked": checked,
         "chained": chained,
         "legacy": legacy,
+        "keyed": keyed_seen,
         "first_break": first_break,
     }
 
