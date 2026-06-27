@@ -138,3 +138,36 @@ def test_connect_registers_broker_with_netguard(server, fake_paho):
 def test_no_broker_configured_degrades(server):
     r = server.connect()
     assert r["ok"] is False and "broker" in r["error"]
+
+
+def test_rooms_grouping_and_ordering(server):
+    server.register_device(device_id="lamp", dtype="light", command_topic="h/lamp/set", room="Living Room")
+    server.register_device(device_id="tv", dtype="switch", command_topic="h/tv/set", room="Living Room")
+    server.register_device(device_id="kettle", dtype="outlet", command_topic="h/kettle/set")  # no room
+    rooms = server.rooms()
+    names = [r["room"] for r in rooms]
+    assert names[0] == "Living Room"        # named rooms first
+    assert names[-1] == "Unassigned"        # unassigned last
+    living = [r for r in rooms if r["room"] == "Living Room"][0]
+    assert {d["id"] for d in living["devices"]} == {"lamp", "tv"}
+
+
+def test_set_room_reassigns(server):
+    server.register_device(device_id="kettle", dtype="outlet", command_topic="h/kettle/set")
+    assert server.set_room("kettle", "Kitchen")["ok"]
+    rooms = {r["room"] for r in server.rooms()}
+    assert "Kitchen" in rooms and "Unassigned" not in rooms
+
+
+def test_control_room_targets_only_that_room(server, fake_paho):
+    server.register_device(device_id="lamp", dtype="light", command_topic="h/lamp/set", room="Living Room")
+    server.register_device(device_id="tv", dtype="switch", command_topic="h/tv/set", room="Living Room")
+    server.register_device(device_id="kettle", dtype="outlet", command_topic="h/kettle/set", room="Kitchen")
+    server.configure(host="192.168.1.50")
+    server.connect()
+    fake_paho.clear()
+    r = server.control_room("Living Room", "off")
+    assert r["ok"] and r["count"] == 2
+    topics = {t for t, _ in fake_paho}
+    assert topics == {"h/lamp/set", "h/tv/set"}  # kitchen kettle untouched
+    assert all(payload == "OFF" for _, payload in fake_paho)
