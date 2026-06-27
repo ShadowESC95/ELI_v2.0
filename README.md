@@ -314,16 +314,22 @@ nothing runs on the device, and nothing reaches the internet.
 ./scripts/eli_serve.sh --lan       # your home network   → prints a token-protected URL
 ```
 
-### The web app — seven tabs
+### The web app — eight tabs
+The web app is installable (PWA: "Add to Home Screen", offline shell), has light/dark themes and a
+sidebar, and lets you recolour the chat to taste.
+- **Overview** — a live dashboard: clock, GPU/CPU/RAM gauges, audit-integrity status, device + corpora
+  counts, quick actions, and a recent-activity feed that refreshes on its own.
 - **Chat** — talk to ELI from any device; inference stays on the host. Streams replies token-by-token,
-  and **"Talk to ELI"** voice: tap the mic to speak (your phone's audio is transcribed by ELI's *local*
-  whisper model), and tick **Speak replies** to have answers read back in ELI's *local* Piper voice —
-  no cloud STT/TTS, the audio never leaves your machine.
+  renders **markdown + code** (with copy), keeps **multiple sessions/history**, and has **stop** and
+  **regenerate**. Plus **"Talk to ELI"** voice: tap the mic to speak (your phone's audio is transcribed
+  by ELI's *local* whisper model), and tick **Speak replies** to have answers read back in ELI's *local*
+  Piper voice — no cloud STT/TTS, the audio never leaves your machine.
 - **Commands** — a searchable catalogue of every documented action (with descriptions and example
   phrases). Tap a phrase to drop it into the chat box.
-- **Home** — ELI's **own** device server (see below): devices grouped into **rooms** with light/switch
-  toggles, brightness sliders, and per-room "all on/off", talking to your devices directly over **MQTT**
-  — no Home Assistant, no cloud.
+- **Home** — ELI's **own** device server (see below): **find** devices on your network, group them into
+  **rooms**, control them (toggles, brightness, per-room "all on/off"), build **scenes** and
+  **automations** — all over **MQTT**, no Home Assistant, no cloud. ELI learns how you use them and
+  suggests automations.
 - **System** — ELI's own **measured** telemetry: GPU temperature/utilisation/VRAM, CPU load/temp,
   RAM, the loaded model, and uptime — the same grounded source ELI reports from, so the numbers are
   real, never guessed.
@@ -337,20 +343,31 @@ nothing runs on the device, and nothing reaches the internet.
   detected" verdict and a per-user event list.
 - **Admin** — an enterprise management console (admin role): chain-integrity status, totals, a
   **per-user activity** rollup (click a user to drill into their recent actions), the **approval /
-  risk-gate policy**, and **user management** — create admin/member accounts (each gets a one-time
-  token) and revoke them.
+  risk-gate policy**, and **user management** — create **admin / member / viewer** accounts (each gets a
+  one-time token) and revoke them.
 
-### ELI device server (the Devices tab) — MQTT, no Home Assistant
+### ELI device server (the Home tab) — a local home-AI, MQTT, no Home Assistant
 ELI keeps its **own** device registry and talks to devices **directly over MQTT** — the open DIY-IoT
 standard (ESPHome / Tasmota / Zigbee2MQTT, or anything that speaks MQTT). No Home Assistant, no vendor
-cloud. In the **Devices** tab:
-- point ELI at your **MQTT broker** (e.g. a local Mosquitto): host, port, optional username/password;
-- **register a device** by its command/state topics, or set a **discovery prefix** to auto-find devices
-  that publish the standard retained MQTT discovery messages.
+cloud. It is a full local home-AI:
+- **Find devices** — scan the LAN over **mDNS** for MQTT brokers + smart devices (one click fills the
+  broker for you), or register a device by its command/state topics, or auto-populate from the standard
+  retained MQTT discovery messages.
+- **Control** — toggles, brightness, rooms with per-room "all on/off" — from the web, or by **voice**
+  ("turn on the desk lamp", "turn off the kitchen").
+- **Scenes** — name a group of device states ("Movie mode"); activate from the tab or by voice
+  ("activate movie mode").
+- **Automations** — a **trigger** runs **action(s)**: triggers are a clock time, **sunrise/sunset**
+  (±offset, computed locally from your lat/lon — no network), or **when a device turns on/off**; actions
+  control a device or activate a scene; optional **conditions** ("only if the TV is off") and
+  **multi-action**.
+- **Learns + proactive** — ELI tracks how you use devices (recorded as a preference in its memory),
+  is **aware of the home state** when you ask in chat, and **suggests automations** from your patterns
+  ("you usually turn the lamp on around 20:00 — automate it?") — accept and it's scheduled for real.
 
-The broker is a local-network service: ELI registers **only that host** with its offline socket guard
-(`netguard`), so the offline-by-default policy is unchanged for everything else. Credentials are stored
-locally and never returned by the API.
+The broker/mDNS are local-network only: ELI registers **only your broker host** with its offline socket
+guard (`netguard`), so the offline-by-default policy is unchanged for everything else. Credentials are
+stored locally and never returned by the API.
 
 ### Security
 - **The auth gate fails closed.** By default — no `ELI_API_TOKEN`, no explicit opt-out — every
