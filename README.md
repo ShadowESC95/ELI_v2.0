@@ -326,10 +326,11 @@ nothing runs on the device, and nothing reaches the internet.
 - **System** — ELI's own **measured** telemetry: GPU temperature/utilisation/VRAM, CPU load/temp,
   RAM, the loaded model, and uptime — the same grounded source ELI reports from, so the numbers are
   real, never guessed.
-- **Research** — build isolated local document corpora: point ELI at a file or folder
-  (`.pdf` / `.txt` / `.md`), and it ingests them into a private FAISS index (using ELI's own embedder),
-  then answers questions **grounded only in those sources, with citations**. Your documents never mix
-  with ELI's memory and nothing leaves the box.
+- **Research** — **shared** local document corpora for working alone or **together**: collaborators on
+  the server ingest files (`.pdf` / `.txt` / `.md`), paste notes, and ask questions **grounded only in
+  those sources, with citations** — all on ELI's own embedder + FAISS. Every contribution is
+  **attributed** (who added/edited/asked what), shown as members + a per-corpus activity feed and
+  recorded in the tamper-evident Audit trail. Documents never mix with ELI's memory; nothing leaves the box.
 - **Audit** — a **tamper-evident** trail of every action (who did what, with what outcome), hash-chained
   so any edited/deleted/reordered record is detected. The tab shows a live "verified intact / tampering
   detected" verdict and a per-user event list.
