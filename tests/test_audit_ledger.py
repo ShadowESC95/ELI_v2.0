@@ -71,6 +71,30 @@ def test_row_deletion_is_detected(ledger_db):
     assert "broken link" in v["first_break"]["reason"]
 
 
+def test_different_users_same_action_recorded_separately(ledger_db):
+    """Audit attribution: two users doing the identical action within the dedup window
+    must each be recorded — user_id is part of the dedup signature."""
+    a = L.record_event("e", source="api", action="EXECUTE", user_id="alice", db_path=ledger_db)
+    b = L.record_event("e", source="api", action="EXECUTE", user_id="bob", db_path=ledger_db)
+    assert a != b  # not collapsed into one row
+    # but the SAME user's duplicate (racing threads, same turn) still collapses
+    a2 = L.record_event("e", source="api", action="EXECUTE", user_id="alice", db_path=ledger_db)
+    assert a2 == a
+
+
+def test_totals_and_users_summary(ledger_db):
+    for u, act, oc in [("alice", "CHAT", "ok"), ("alice", "EXECUTE", "ok"),
+                       ("bob", "EXECUTE", "failed"), ("bob", "CHAT", "ok"),
+                       ("carol", "RESEARCH", "ok")]:
+        L.record_event("e", source="api", action=act, outcome=oc,
+                       severity=("error" if oc == "failed" else "info"),
+                       user_id=u, db_path=ledger_db)
+    t = L.totals(db_path=ledger_db)
+    assert t == {"events": 5, "failed": 1, "users": 3}
+    us = {u["user_id"]: (u["events"], u["failed"]) for u in L.users_summary(db_path=ledger_db)}
+    assert us["bob"] == (2, 1) and us["alice"] == (2, 0) and us["carol"] == (1, 0)
+
+
 def test_chain_links_each_row_to_previous(ledger_db):
     """Structural: every row's prev_sig equals the prior row's chain_sig."""
     _seed(ledger_db, 4)
