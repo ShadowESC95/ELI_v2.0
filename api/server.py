@@ -175,6 +175,13 @@ _WEB_UI = """<!doctype html>
   .afilter { display:flex; gap:8px; margin-bottom:12px; }
   .afilter input { flex:1; padding:9px 11px; border-radius:9px; border:1px solid var(--line); background:#15171c; color:#e6e6e6; font-size:13px; }
   .afilter button { padding:9px 14px; border:0; border-radius:9px; background:var(--accent); color:#fff; font-size:13px; cursor:pointer; }
+  .roomsec { margin-top:16px; }
+  .roomhd { display:flex; align-items:center; gap:9px; margin:6px 2px 9px; }
+  .roomnm { font-size:13px; font-weight:700; color:var(--teal); text-transform:uppercase; letter-spacing:.5px; }
+  .roomct { font-size:11px; color:var(--mut); background:#15171c; border:1px solid var(--line); border-radius:10px; padding:1px 8px; }
+  .roombtn { font-size:12px; padding:5px 11px; border:1px solid var(--line); border-radius:8px; background:#15171c; color:#cdd2da; cursor:pointer; }
+  .roombtn:hover { border-color:var(--teal); color:#fff; }
+  .roomhd .roombtn:first-of-type { margin-left:auto; }
 </style></head><body>
   <header>
     <b>ELI</b><small>local &middot; private</small>
@@ -330,7 +337,7 @@ _WEB_UI = """<!doctype html>
     api('/v1/devices/status').then(s=>{
       const st=(s&&s.status)||{};
       if(!st.configured){renderDevConfig(st);return;}
-      api('/v1/devices').then(d=>renderDevices(d.devices||[], st))
+      api('/v1/devices/rooms').then(d=>renderDevices(d.rooms||[], st))
         .catch(e=>{$('#devices').innerHTML='<div class="err">'+esc(''+e)+'</div>';});
     }).catch(e=>{$('#devices').innerHTML='<div class="err">'+esc(''+e)+'</div>';});
   }
@@ -357,7 +364,7 @@ _WEB_UI = """<!doctype html>
   }
   function devCard(dv){
     const t=dv.type||'switch', card=document.createElement('div');card.className='card';
-    const head='<div><div class="nm">'+esc(dv.name||dv.id)+'</div><div class="dom">'+esc(t)+'</div></div>';
+    const head='<div><div class="nm">'+esc(dv.name||dv.id)+'</div><div class="dom" title="click to change room">'+esc(t)+'</div></div>';
     const on=(''+(dv.state||'')).toUpperCase()==='ON';
     if(t==='light'||t==='switch'||t==='fan'||t==='outlet'){
       let h=head+'<div class="row"><span class="st">'+(on?'On':'Off')+'</span><label class="sw"><input type="checkbox" '+(on?'checked':'')+'><span></span></label></div>';
@@ -370,35 +377,56 @@ _WEB_UI = """<!doctype html>
     } else {
       const num=parseFloat(dv.state), isNum=!isNaN(num)&&isFinite(num);
       if(isNum && num>=0 && num<=100){
-        card.innerHTML='<div class="nm">'+esc(dv.name||dv.id)+'</div><div class="gauge" style="--p:'+num+'"><i>'+Math.round(num)+'</i></div>';
+        card.innerHTML='<div class="nm">'+esc(dv.name||dv.id)+'</div><div class="dom" title="click to change room">'+esc(t)+'</div><div class="gauge" style="--p:'+num+'"><i>'+Math.round(num)+'</i></div>';
       } else {
         card.innerHTML=head+'<div class="row"><span class="st">'+esc(''+(dv.state||'unknown'))+'</span></div>';
       }
     }
+    const dom=card.querySelector('.dom');if(dom){dom.style.cursor='pointer';dom.onclick=()=>moveDevice(dv);}
     return card;
   }
-  function renderDevices(devs, st){
+  function moveDevice(dv){
+    const r=prompt('Room for "'+(dv.name||dv.id)+'" (blank = Unassigned):', dv.room||'');
+    if(r===null)return;
+    api('/v1/devices/room',{method:'POST',body:JSON.stringify({device_id:dv.id,room:r.trim()})}).then(()=>loadDevices());
+  }
+  function renderDevices(rooms, st){
     const h=$('#devices');h.innerHTML='';
+    const total=rooms.reduce((n,r)=>n+(r.devices?r.devices.length:0),0);
     const bar=document.createElement('div');bar.className='abadge '+(st&&st.connected?'ok':'bad');
-    bar.innerHTML='<span class="dot"></span><span>'+(st&&st.connected?('Connected to '+esc(st.broker||'broker')):('Not connected'+(st&&st.error?(' — '+esc(st.error)):'')))+' · '+devs.length+' device(s)</span>';
+    bar.innerHTML='<span class="dot"></span><span>'+(st&&st.connected?('Connected to '+esc(st.broker||'broker')):('Not connected'+(st&&st.error?(' — '+esc(st.error)):'')))+' · '+total+' device(s)</span>';
     h.appendChild(bar);
-    if(devs.length){const grid=document.createElement('div');grid.className='grid';devs.forEach(dv=>grid.appendChild(devCard(dv)));h.appendChild(grid);}
-    else{const m=document.createElement('div');m.className='muted';m.textContent='No devices yet. Add one below, or set a discovery prefix to auto-find them.';h.appendChild(m);}
+    if(!total){const m=document.createElement('div');m.className='muted';m.textContent='No devices yet. Add one below, or set a discovery prefix to auto-find them.';h.appendChild(m);}
+    rooms.forEach(rm=>{
+      const sec=document.createElement('div');sec.className='roomsec';
+      const hd=document.createElement('div');hd.className='roomhd';
+      hd.innerHTML='<span class="roomnm">'+esc(rm.room)+'</span><span class="roomct">'+(rm.devices?rm.devices.length:0)+'</span>';
+      const on=document.createElement('button');on.className='roombtn';on.textContent='All on';on.onclick=()=>ctlRoom(rm.room,'on');
+      const off=document.createElement('button');off.className='roombtn';off.textContent='All off';off.onclick=()=>ctlRoom(rm.room,'off');
+      hd.appendChild(on);hd.appendChild(off);sec.appendChild(hd);
+      const grid=document.createElement('div');grid.className='grid';(rm.devices||[]).forEach(dv=>grid.appendChild(devCard(dv)));sec.appendChild(grid);
+      h.appendChild(sec);
+    });
     const foot=document.createElement('div');foot.className='afilter';foot.style.marginTop='14px';
     foot.innerHTML='<button onclick="addDevicePrompt()">+ Add device</button><button onclick="loadDevices()">Refresh</button><span class="link" style="align-self:center" onclick="renderDevConfig({})">Broker settings</span>';
     h.appendChild(foot);
     const slot=document.createElement('div');slot.id='dev-add';h.appendChild(slot);
   }
+  function ctlRoom(room,cmd){
+    api('/v1/devices/room/control',{method:'POST',body:JSON.stringify({room:room,command:cmd})}).then(()=>setTimeout(loadDevices,500));
+  }
   function addDevicePrompt(){
     $('#dev-add').innerHTML='<div class="rsec" style="margin-top:12px"><h4>Register a device</h4>'+
       '<div class="rrow"><input id="d-id" placeholder="device id (unique)"><input id="d-name" placeholder="name"></div>'+
       '<div class="rrow"><select id="d-type"><option>light</option><option>switch</option><option>fan</option><option>outlet</option><option>sensor</option></select>'+
-      '<input id="d-cmd" placeholder="command topic (e.g. home/lamp/set)"></div>'+
-      '<div class="rrow"><input id="d-state" placeholder="state topic (e.g. home/lamp/state)"><button onclick="addDevice()">Add</button></div></div>';
+      '<input id="d-room" placeholder="room (optional)"></div>'+
+      '<div class="rrow"><input id="d-cmd" placeholder="command topic (e.g. home/lamp/set)"><input id="d-state" placeholder="state topic (e.g. home/lamp/state)"></div>'+
+      '<div class="rrow"><button onclick="addDevice()">Add</button></div></div>';
   }
   function addDevice(){
     const body={device_id:($('#d-id').value||'').trim(), name:($('#d-name').value||'').trim(),
-      type:$('#d-type').value, command_topic:($('#d-cmd').value||'').trim(), state_topic:($('#d-state').value||'').trim()};
+      type:$('#d-type').value, command_topic:($('#d-cmd').value||'').trim(), state_topic:($('#d-state').value||'').trim(),
+      room:($('#d-room').value||'').trim()};
     if(!body.device_id){return;}
     api('/v1/devices/register',{method:'POST',body:JSON.stringify(body)}).then(()=>loadDevices());
   }
@@ -483,7 +511,7 @@ _WEB_UI = """<!doctype html>
       .finally(()=>{btn.disabled=false;});
   }
 
-  window.renderDevConfig=renderDevConfig; window.saveDevConfig=saveDevConfig; window.ctlDev=ctlDev; window.addDevicePrompt=addDevicePrompt; window.addDevice=addDevice; window.loadDevices=loadDevices;
+  window.renderDevConfig=renderDevConfig; window.saveDevConfig=saveDevConfig; window.ctlDev=ctlDev; window.addDevicePrompt=addDevicePrompt; window.addDevice=addDevice; window.loadDevices=loadDevices; window.ctlRoom=ctlRoom; window.moveDevice=moveDevice;
   /* audit — tamper-evident trail + chain verification */
   let auditUser='';
   function loadAudit(){
@@ -568,11 +596,20 @@ class DeviceRegister(BaseModel):
     type: str = "switch"          # light|switch|fan|sensor|climate|media|cover|outlet
     command_topic: str = ""
     state_topic: str = ""
+    room: str = ""
 
 class DeviceControl(BaseModel):
     device_id: str
     command: str                  # on | off | brightness | set
     value: Optional[Any] = None
+
+class DeviceRoom(BaseModel):
+    device_id: str
+    room: str = ""
+
+class RoomControl(BaseModel):
+    room: str
+    command: str                  # on | off
 
 class CompletionMessage(BaseModel):
     role: str = "user"
@@ -904,12 +941,27 @@ async def devices_list():
     """List ELI's registered devices with their last-known state."""
     return {"ok": True, "devices": _device_server().list_devices()}
 
+@app.get("/v1/devices/rooms", tags=["Devices"], dependencies=[Depends(_require_token)])
+async def devices_rooms():
+    """Devices grouped by room (named rooms first, 'Unassigned' last)."""
+    return {"ok": True, "rooms": _device_server().rooms()}
+
 @app.post("/v1/devices/register", tags=["Devices"], dependencies=[Depends(_require_token)])
 async def devices_register(req: DeviceRegister):
     """Manually register a device by its MQTT topics (works without discovery)."""
     return _device_server().register_device(
         device_id=req.device_id, name=req.name, dtype=req.type,
-        command_topic=req.command_topic, state_topic=req.state_topic)
+        command_topic=req.command_topic, state_topic=req.state_topic, room=req.room)
+
+@app.post("/v1/devices/room", tags=["Devices"], dependencies=[Depends(_require_token)])
+async def devices_set_room(req: DeviceRoom):
+    """Assign (or clear) a device's room."""
+    return _device_server().set_room(req.device_id, req.room)
+
+@app.post("/v1/devices/room/control", tags=["Devices"], dependencies=[Depends(_require_token)])
+async def devices_room_control(req: RoomControl):
+    """Turn every controllable device in a room on/off at once."""
+    return _device_server().control_room(req.room, req.command)
 
 @app.post("/v1/devices/remove", tags=["Devices"], dependencies=[Depends(_require_token)])
 async def devices_remove(req: DeviceRegister):
