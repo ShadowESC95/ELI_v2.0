@@ -781,10 +781,69 @@ _WEB_UI = """<!doctype html>
       const grid=document.createElement('div');grid.className='grid';(rm.devices||[]).forEach(dv=>grid.appendChild(devCard(dv)));sec.appendChild(grid);
       h.appendChild(sec);
     });
+    const sp=document.createElement('div');sp.id='scenes-panel';h.appendChild(sp);loadScenesPanel();
     const foot=document.createElement('div');foot.className='afilter';foot.style.marginTop='14px';
     foot.innerHTML='<button onclick="addDevicePrompt()">+ Add device</button><button onclick="loadDevices()">Refresh</button><span class="link" style="align-self:center" onclick="renderDevConfig({})">Broker settings</span>';
     h.appendChild(foot);
     const slot=document.createElement('div');slot.id='dev-add';h.appendChild(slot);
+  }
+  /* scenes + automation builder */
+  let _bdevs=[], _bscenes=[];
+  function loadScenesPanel(){
+    Promise.all([api('/v1/home/scenes'),api('/v1/devices')]).then(function(res){
+      const box=$('#scenes-panel'); if(!box)return;
+      const scenes=(res[0]&&res[0].scenes)||[], devs=((res[1]&&res[1].devices)||[]);
+      _bdevs=devs.map(d=>({id:d.id,name:d.name||d.id})); _bscenes=scenes.map(s=>s.name);
+      let h='<div class="syscard" style="margin-top:16px"><h4>&#127902; Scenes</h4>';
+      if(scenes.length){scenes.forEach(s=>{h+='<div class="src"><div class="sh"><span>'+esc(s.name)+' <span class="rnote">('+(s.actions||[]).length+')</span></span><span><button class="roombtn scene-go" data-id="'+esc(s.id)+'">Activate</button> <span class="link scene-rm" data-id="'+esc(s.id)+'">remove</span></span></div></div>';});}
+      else h+='<div class="muted">No scenes yet. Set your devices how you like, then snapshot them as a scene.</div>';
+      h+='<div class="rrow" style="margin-top:10px"><input id="sc-name" placeholder="scene name (e.g. Movie mode)"><button onclick="createScene()">Snapshot current state</button></div></div>';
+      h+='<div class="syscard"><h4>&#9881; New automation</h4>'+
+        '<div class="rrow"><span class="rnote" style="align-self:center;min-width:36px">When</span><select id="au-trig" onchange="autoTrigFields()"><option value="time">at a time</option><option value="sunset">at sunset</option><option value="sunrise">at sunrise</option><option value="device_state">a device turns on/off</option></select><span id="au-tf"></span></div>'+
+        '<div class="rrow"><span class="rnote" style="align-self:center;min-width:36px">Then</span><select id="au-act" onchange="autoActFields()"><option value="device">control a device</option><option value="scene">activate a scene</option></select><span id="au-af"></span></div>'+
+        '<div class="rrow"><button onclick="createAutomation()">Create</button><span id="au-status" class="rnote" style="align-self:center"></span></div></div>';
+      box.innerHTML=h;
+      box.querySelectorAll('.scene-go').forEach(b=>b.onclick=()=>activateScene(b.dataset.id));
+      box.querySelectorAll('.scene-rm').forEach(b=>b.onclick=()=>removeScene(b.dataset.id));
+      autoTrigFields(); autoActFields();
+    }).catch(()=>{});
+  }
+  function _devSelect(id){return '<select id="'+id+'">'+_bdevs.map(d=>'<option value="'+esc(d.id)+'">'+esc(d.name)+'</option>').join('')+'</select>';}
+  function autoTrigFields(){
+    const t=$('#au-trig').value, box=$('#au-tf'); if(!box)return;
+    if(t==='time')box.innerHTML='<input id="au-time" placeholder="HH:MM" style="max-width:110px" value="20:00">';
+    else if(t==='sunset'||t==='sunrise')box.innerHTML='<input id="au-off" placeholder="offset min (e.g. -15)" style="max-width:150px" value="0">';
+    else box.innerHTML=_devSelect('au-tdev')+'<select id="au-tstate"><option value="ON">turns on</option><option value="OFF">turns off</option></select>';
+  }
+  function autoActFields(){
+    const a=$('#au-act').value, box=$('#au-af'); if(!box)return;
+    if(a==='device')box.innerHTML=_devSelect('au-adev')+'<select id="au-acmd"><option value="on">on</option><option value="off">off</option></select>';
+    else box.innerHTML='<select id="au-ascene">'+_bscenes.map(s=>'<option value="'+esc(s)+'">'+esc(s)+'</option>').join('')+'</select>'+(_bscenes.length?'':'<span class="rnote">create a scene first</span>');
+  }
+  function createScene(){
+    const name=($('#sc-name').value||'').trim(); if(!name)return;
+    api('/v1/devices').then(d=>{
+      const devs=(d&&d.devices)||[];
+      const actions=devs.filter(x=>x.command_topic).map(x=>({device:x.id,command:(''+(x.state||'')).toUpperCase()==='ON'?'on':'off'}));
+      api('/v1/home/scenes/add',{method:'POST',body:JSON.stringify({name:name,actions:actions})}).then(()=>{const n=$('#sc-name');if(n)n.value='';loadScenesPanel();});
+    }).catch(()=>{});
+  }
+  function activateScene(id){api('/v1/home/scenes/activate',{method:'POST',body:JSON.stringify({scene:id})}).then(()=>setTimeout(loadDevices,400)).catch(()=>{});}
+  function removeScene(id){api('/v1/home/scenes/remove',{method:'POST',body:JSON.stringify({id:id})}).then(()=>loadScenesPanel()).catch(()=>{});}
+  function createAutomation(){
+    const tt=$('#au-trig').value, at=$('#au-act').value, st=$('#au-status');
+    let trigger;
+    if(tt==='time')trigger={type:'time',time:($('#au-time').value||'').trim(),days:'daily'};
+    else if(tt==='sunset'||tt==='sunrise')trigger={type:'sun',event:tt,offset:parseInt($('#au-off').value||'0',10)||0};
+    else trigger={type:'device_state',device:$('#au-tdev').value,state:$('#au-tstate').value};
+    let action;
+    if(at==='device')action={kind:'device',device:$('#au-adev').value,command:$('#au-acmd').value};
+    else action={kind:'scene',scene:$('#au-ascene')?$('#au-ascene').value:''};
+    if(st)st.textContent='Creating…';
+    api('/v1/home/automations/create',{method:'POST',body:JSON.stringify({name:'',trigger:trigger,action:action})}).then(r=>{
+      if(st)st.innerHTML=r.ok?'Created.':'<span style="color:#f87171">'+esc(r.error||'failed')+'</span>';
+      if(r.ok)loadHomeSuggestions();
+    }).catch(e=>{if(st)st.textContent=''+e;});
   }
   function ctlRoom(room,cmd){
     api('/v1/devices/room/control',{method:'POST',body:JSON.stringify({room:room,command:cmd})}).then(()=>setTimeout(loadDevices,500));
@@ -968,6 +1027,7 @@ _WEB_UI = """<!doctype html>
   function toggleAuto(id,en){api('/v1/home/automations/toggle',{method:'POST',body:JSON.stringify({id:id,enabled:en})}).catch(()=>{});}
   function removeAuto(id){api('/v1/home/automations/remove',{method:'POST',body:JSON.stringify({id:id})}).then(()=>loadHomeSuggestions()).catch(()=>{});}
   window.renderDevConfig=renderDevConfig; window.saveDevConfig=saveDevConfig; window.ctlDev=ctlDev; window.addDevicePrompt=addDevicePrompt; window.addDevice=addDevice; window.loadDevices=loadDevices; window.ctlRoom=ctlRoom; window.moveDevice=moveDevice; window.discoverDevices=discoverDevices; window.useBroker=useBroker;
+  window.loadScenesPanel=loadScenesPanel; window.createScene=createScene; window.activateScene=activateScene; window.removeScene=removeScene; window.autoTrigFields=autoTrigFields; window.autoActFields=autoActFields; window.createAutomation=createAutomation;
   /* audit — tamper-evident trail + chain verification */
   let auditUser='';
   function loadAudit(){
@@ -1225,6 +1285,30 @@ class SuggestionAccept(BaseModel):
     command: str = "on"
     hour: int
     name: str = ""
+
+class SceneAction(BaseModel):
+    device: str
+    command: str = "on"
+    value: Optional[Any] = None
+
+class SceneCreate(BaseModel):
+    name: str
+    actions: list[SceneAction] = []
+
+class SceneRef(BaseModel):
+    id: str
+
+class SceneActivate(BaseModel):
+    scene: str                    # id or name
+
+class AutomationCreateV2(BaseModel):
+    name: str = ""
+    trigger: dict                 # {type:time|sun|device_state, ...}
+    action: dict                  # {kind:device|scene, ...}
+
+class HomeLocation(BaseModel):
+    lat: float
+    lon: float
 
 class CompletionMessage(BaseModel):
     role: str = "user"
@@ -1692,6 +1776,42 @@ def home_automation_remove(req: AutomationRef):
 @app.post("/v1/home/automations/toggle", tags=["Devices"], dependencies=[Depends(require_member)])
 def home_automation_toggle(req: AutomationRef):
     return _device_server().set_automation_enabled(req.id, bool(req.enabled))
+
+@app.post("/v1/home/automations/create", tags=["Devices"], dependencies=[Depends(require_member)])
+def home_automation_create(req: AutomationCreateV2):
+    """Create an automation with any trigger (time / sun / device_state) + action
+    (control a device, or activate a scene)."""
+    return _device_server().create_automation(req.name, req.trigger, req.action)
+
+# ── Scenes ──────────────────────────────────────────────────────────────────
+@app.get("/v1/home/scenes", tags=["Devices"], dependencies=[Depends(_require_token)])
+def scenes_list():
+    return {"ok": True, "scenes": _device_server().list_scenes()}
+
+@app.post("/v1/home/scenes/add", tags=["Devices"], dependencies=[Depends(require_member)])
+def scenes_add(req: SceneCreate):
+    return _device_server().add_scene(req.name, [a.model_dump() for a in req.actions])
+
+@app.post("/v1/home/scenes/remove", tags=["Devices"], dependencies=[Depends(require_member)])
+def scenes_remove(req: SceneRef):
+    return _device_server().remove_scene(req.id)
+
+@app.post("/v1/home/scenes/activate", tags=["Devices"], dependencies=[Depends(require_member)])
+def scenes_activate(req: SceneActivate):
+    return _device_server().activate_scene(req.scene)
+
+# ── Location (for sunrise/sunset triggers) ──────────────────────────────────
+@app.get("/v1/home/sun", tags=["Devices"], dependencies=[Depends(_require_token)])
+def home_sun():
+    return {"ok": True, "sun": _device_server()._sun_hm()}
+
+@app.post("/v1/home/location", tags=["Devices"], dependencies=[Depends(require_member)])
+def home_location(req: HomeLocation):
+    """Save the home's latitude/longitude so sunrise/sunset triggers can be computed."""
+    from eli.core import config
+    config.set("home_lat", req.lat)
+    config.set("home_lon", req.lon)
+    return {"ok": True, "sun": _device_server()._sun_hm()}
 
 # ----------------------------------------------------------------------
 # System telemetry  (powers the "System" tab — real, measured, never guessed)
