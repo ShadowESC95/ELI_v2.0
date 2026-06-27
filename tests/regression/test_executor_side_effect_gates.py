@@ -54,56 +54,83 @@ def test_speak_uses_mocked_tts_not_real_audio(monkeypatch):
     assert calls == [{"text": "side effect gate test", "enabled": True}]
 
 
-def test_smart_home_without_config_does_not_call_network(monkeypatch):
-    monkeypatch.delenv("ELI_HA_URL", raising=False)
-    monkeypatch.delenv("ELI_HA_TOKEN", raising=False)
-
+def test_smart_home_with_no_devices_is_honest(monkeypatch):
+    # SMART_HOME now routes through ELI's OWN MQTT device server (no Home Assistant).
+    # With no devices registered it must refuse honestly — and never touch the network.
     import urllib.request as urllib_request
 
     def blocked_urlopen(*args, **kwargs):
-        raise AssertionError("urlopen should not be called when Home Assistant is not configured")
+        raise AssertionError("urlopen must not be called — SMART_HOME uses MQTT, not HTTP/HA")
 
     monkeypatch.setattr(urllib_request, "urlopen", blocked_urlopen)
+
+    import eli.runtime.device_server as ds
+
+    class _EmptySrv:
+        def list_devices(self): return []
+        def rooms(self): return []
+        def control(self, *a, **k): return {"ok": False}
+        def control_room(self, *a, **k): return {"ok": False}
+
+    monkeypatch.setattr(ds, "get_server", lambda: _EmptySrv())
 
     ex = _executor()
     result = ex.execute("SMART_HOME", {"command": "turn on", "device": "desk lamp"})
 
     assert isinstance(result, dict)
     assert result.get("ok") is False
-    assert result.get("error") == "not_configured"
+    assert result.get("error") == "no_devices"
 
 
-def test_smart_home_configured_uses_mocked_network(monkeypatch):
-    monkeypatch.setenv("ELI_HA_URL", "http://homeassistant.local:8123")
-    monkeypatch.setenv("ELI_HA_TOKEN", "fake-token")
+def test_smart_home_controls_device_via_mqtt_server(monkeypatch):
+    # A registered device is resolved by name and controlled via the device server.
+    import eli.runtime.device_server as ds
 
     calls = []
 
-    class FakeResponse:
-        def __enter__(self):
-            return self
+    class _Srv:
+        def list_devices(self):
+            return [{"id": "lamp1", "name": "Desk Lamp", "type": "light",
+                     "command_topic": "home/lamp/set"}]
+        def rooms(self): return []
+        def control(self, device_id, command, value=None):
+            calls.append((device_id, command))
+            return {"ok": True, "device": device_id, "command": command}
+        def control_room(self, *a, **k): return {"ok": False}
 
-        def __exit__(self, exc_type, exc, tb):
-            return False
-
-        def read(self):
-            return b"{}"
-
-    import urllib.request as urllib_request
-
-    def fake_urlopen(req, timeout=10):
-        calls.append({"req": req, "timeout": timeout})
-        return FakeResponse()
-
-    monkeypatch.setattr(urllib_request, "urlopen", fake_urlopen)
+    monkeypatch.setattr(ds, "get_server", lambda: _Srv())
 
     ex = _executor()
-    result = ex.execute("SMART_HOME", {"command": "turn on", "device": "light.desk_lamp"})
+    result = ex.execute("SMART_HOME", {"command": "turn on", "device": "desk lamp"})
 
     assert isinstance(result, dict)
     assert result.get("ok") is True
-    assert calls
-    assert calls[0]["timeout"] == 10
+    assert calls == [("lamp1", "on")]
+
+
+def test_smart_home_controls_room(monkeypatch):
+    # A spoken room name controls every device in that room.
+    import eli.runtime.device_server as ds
+
+    calls = []
+
+    class _Srv:
+        def list_devices(self):
+            return [{"id": "lamp1", "name": "Lamp", "type": "light", "command_topic": "h/l/set"}]
+        def rooms(self):
+            return [{"room": "Kitchen", "devices": []}]
+        def control(self, *a, **k): return {"ok": False}
+        def control_room(self, room, command):
+            calls.append((room, command))
+            return {"ok": True, "room": room, "count": 2}
+
+    monkeypatch.setattr(ds, "get_server", lambda: _Srv())
+
+    ex = _executor()
+    result = ex.execute("SMART_HOME", {"command": "turn off", "device": "kitchen"})
+
+    assert result.get("ok") is True
+    assert calls == [("Kitchen", "off")]
 
 
 def test_pomodoro_start_stop_uses_temp_config_dir(monkeypatch, tmp_path):
