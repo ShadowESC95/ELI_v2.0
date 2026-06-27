@@ -155,7 +155,12 @@ def record_event(
 ) -> int:
     now = float(timestamp or time.time())
     payload = dict(payload or {})
-    sig = _signature([event_type, source, action, subject, content, payload.get("error") or payload.get("path") or ""])
+    # user_id + session_id are part of the dedup signature so that two DIFFERENT users
+    # (or sessions) performing the same action are recorded SEPARATELY — the audit must
+    # attribute each actor — while a single actor's duplicate writes (same turn, racing
+    # threads) still collapse.
+    sig = _signature([event_type, source, action, subject, content,
+                      payload.get("error") or payload.get("path") or "", user_id, session_id])
     # Pre-normalise once; these exact stored values are what the chain commits to.
     v_event = _norm(event_type, 120)
     v_source = _norm(source, 160)
@@ -344,6 +349,44 @@ def verify_chain(db_path: Optional[str | Path] = None) -> Dict[str, Any]:
         "legacy": legacy,
         "first_break": first_break,
     }
+
+
+_FAILED_SQL = "(LOWER(COALESCE(outcome,'')) IN ('failed','error') OR LOWER(COALESCE(severity,'')) = 'error')"
+
+
+def totals(db_path: Optional[str | Path] = None) -> Dict[str, Any]:
+    """Aggregate counts across the whole audit ledger (events, failures, distinct users)."""
+    conn = _connect(db_path)
+    try:
+        ev = conn.execute("SELECT COUNT(*) FROM runtime_events").fetchone()[0]
+        failed = conn.execute(f"SELECT COUNT(*) FROM runtime_events WHERE {_FAILED_SQL}").fetchone()[0]
+        users = conn.execute(
+            "SELECT COUNT(DISTINCT COALESCE(NULLIF(user_id,''),'(system)')) FROM runtime_events"
+        ).fetchone()[0]
+    finally:
+        conn.close()
+    return {"events": int(ev or 0), "failed": int(failed or 0), "users": int(users or 0)}
+
+
+def users_summary(db_path: Optional[str | Path] = None) -> List[Dict[str, Any]]:
+    """Per-user activity rollup for the admin console: event count, failures, last seen."""
+    conn = _connect(db_path)
+    try:
+        rows = conn.execute(
+            f"""
+            SELECT COALESCE(NULLIF(user_id,''),'(system)') AS u,
+                   COUNT(*) AS n,
+                   SUM(CASE WHEN {_FAILED_SQL} THEN 1 ELSE 0 END) AS f,
+                   MAX(COALESCE(ts, timestamp)) AS last_ts
+            FROM runtime_events
+            GROUP BY u
+            ORDER BY n DESC
+            """
+        ).fetchall()
+    finally:
+        conn.close()
+    return [{"user_id": r[0], "events": int(r[1] or 0), "failed": int(r[2] or 0),
+             "last_seen": r[3]} for r in rows]
 
 
 def repeated_event_signals(*, limit: int = 8, days: int = 3, db_path: Optional[str | Path] = None) -> List[Dict[str, Any]]:
