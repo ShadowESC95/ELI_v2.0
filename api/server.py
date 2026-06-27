@@ -3,8 +3,8 @@ ELI API Server – Enterprise edition.
 Provides REST endpoints for chat and command execution.
 """
 
-from fastapi import FastAPI, HTTPException, Depends, Header
-from fastapi.responses import HTMLResponse, StreamingResponse
+from fastapi import FastAPI, HTTPException, Depends, Header, Request
+from fastapi.responses import HTMLResponse, StreamingResponse, Response
 from pydantic import BaseModel
 from typing import Optional
 import json
@@ -81,6 +81,12 @@ _WEB_UI = """<!doctype html>
   #box { flex:1; padding:12px; border-radius:10px; border:1px solid var(--line); background:#15171c; color:#e6e6e6; font-size:16px; }
   form#f button { padding:0 18px; border:0; border-radius:10px; background:var(--accent); color:#fff; font-size:16px; }
   form#f button:disabled { opacity:.5; }
+  #mic { padding:0 14px; border:1px solid var(--line); border-radius:10px; background:#15171c; color:#e6e6e6; font-size:18px; cursor:pointer; }
+  #mic.rec { background:#b42a2a; border-color:#b42a2a; color:#fff; animation:pulse 1.1s infinite; }
+  @keyframes pulse { 0%,100%{opacity:1;} 50%{opacity:.55;} }
+  .voicebar { display:flex; align-items:center; gap:12px; padding:0 12px 10px; font-size:13px; color:var(--mut); }
+  .voicebar .spk { display:flex; align-items:center; gap:6px; cursor:pointer; }
+  .voicebar #vstat { color:var(--teal); }
   #commands, #home { overflow-y:auto; padding:14px; }
   #cmdsearch { width:100%; padding:11px 13px; border-radius:10px; border:1px solid var(--line); background:#15171c; color:#e6e6e6; font-size:15px; margin-bottom:12px; }
   .cat h3 { margin:18px 0 8px; font-size:13px; text-transform:uppercase; letter-spacing:.6px; color:var(--teal); }
@@ -147,7 +153,8 @@ _WEB_UI = """<!doctype html>
   </header>
   <section class="view active" id="view-chat">
     <div id="log"><div class="meta">Connected to your ELI server. Say hello.</div></div>
-    <form id="f"><input id="box" autocomplete="off" placeholder="Message ELI..."><button id="send">Send</button></form>
+    <form id="f"><button type="button" id="mic" title="Tap to talk">&#127908;</button><input id="box" autocomplete="off" placeholder="Message ELI..."><button id="send">Send</button></form>
+    <div class="voicebar"><label class="spk"><input type="checkbox" id="spk"> Speak replies</label><span id="vstat"></span></div>
   </section>
   <section class="view" id="view-commands">
     <div id="commands">
@@ -206,7 +213,55 @@ _WEB_UI = """<!doctype html>
       if(!p.textContent)p.textContent='(no response)';
     }catch(err){p.textContent='Error: '+err;}
     finally{send.disabled=false;box.focus();}
+    return got?p.textContent:'';
   }
+
+  /* voice — local STT (whisper) in, local TTS (piper) out; nothing leaves the box */
+  const mic=$('#mic'),spk=$('#spk'),vstat=$('#vstat');
+  spk.checked=localStorage.getItem('eli_speak')==='1';
+  spk.onchange=()=>localStorage.setItem('eli_speak',spk.checked?'1':'0');
+  function vmsg(m){vstat.textContent=m||'';}
+  let mediaRec=null,vchunks=[],recording=false,vstream=null;
+  async function toggleMic(){
+    if(recording){try{mediaRec.stop();}catch(_e){}return;}
+    if(!navigator.mediaDevices||!window.MediaRecorder){vmsg('Voice not supported here');return;}
+    try{vstream=await navigator.mediaDevices.getUserMedia({audio:true});}
+    catch(e){vmsg('Mic blocked: '+e.name);return;}
+    let mt='';['audio/webm','audio/mp4','audio/ogg'].forEach(t=>{if(!mt&&window.MediaRecorder.isTypeSupported&&MediaRecorder.isTypeSupported(t))mt=t;});
+    vchunks=[];
+    mediaRec=mt?new MediaRecorder(vstream,{mimeType:mt}):new MediaRecorder(vstream);
+    mediaRec.ondataavailable=e=>{if(e.data&&e.data.size)vchunks.push(e.data);};
+    mediaRec.onstop=async()=>{
+      recording=false;mic.classList.remove('rec');
+      if(vstream){vstream.getTracks().forEach(t=>t.stop());vstream=null;}
+      const type=(mediaRec.mimeType||mt||'audio/webm').split(';')[0];
+      const ext=type.indexOf('mp4')>=0?'mp4':type.indexOf('ogg')>=0?'ogg':'webm';
+      const blob=new Blob(vchunks,{type:type});
+      if(!blob.size){vmsg('No audio captured');return;}
+      vmsg('Transcribing…');
+      const h={'Content-Type':type};if(token)h['Authorization']='Bearer '+token;
+      try{
+        const r=await fetch('/v1/voice/stt?ext='+ext,{method:'POST',headers:h,body:blob});
+        const j=await r.json();
+        if(!j.ok){vmsg('STT error: '+(j.error||'failed'));return;}
+        const text=(j.text||'').trim();
+        if(!text){vmsg('Didn\\'t catch that — try again');return;}
+        vmsg('');box.value='';
+        const reply=await streamChat(text);
+        if(spk.checked&&reply)speakReply(reply);
+      }catch(e){vmsg('Voice error: '+e);}
+    };
+    recording=true;mic.classList.add('rec');vmsg('Listening… tap mic to stop');mediaRec.start();
+  }
+  async function speakReply(text){
+    try{
+      const r=await fetch('/v1/voice/tts',{method:'POST',headers:H(),body:JSON.stringify({text:text})});
+      if(!r.ok)return;
+      const a=new Audio(URL.createObjectURL(await r.blob()));
+      a.play().catch(()=>{});
+    }catch(_e){}
+  }
+  mic.onclick=toggleMic;
 
   /* commands */
   let CAT=[];
@@ -450,6 +505,10 @@ class ResearchQuery(BaseModel):
     corpus: str
     question: str
     k: int = 6
+
+class TTSRequest(BaseModel):
+    text: str
+    voice: Optional[str] = None
 
 # ----------------------------------------------------------------------
 # API Endpoints
@@ -810,6 +869,63 @@ def research_query(req: ResearchQuery):
     sources = [{"source": h["source"], "score": h["score"], "excerpt": (h["text"] or "")[:240]}
                for h in hits]
     return {"ok": True, "answer": answer, "sources": sources}
+
+# ----------------------------------------------------------------------
+# Browser voice  (powers "Talk to ELI" from any phone — fully local)
+# Mic audio → ELI's local faster-whisper STT → text; reply text → local Piper
+# TTS → WAV the browser plays itself. No cloud STT/TTS; nothing leaves the box.
+# ----------------------------------------------------------------------
+@app.get("/v1/voice/voices", tags=["Voice"], dependencies=[Depends(_require_token)])
+def voice_voices():
+    try:
+        from eli.perception import tts_router
+        return {"ok": True, "voices": tts_router.list_voices(),
+                "active": tts_router.get_active_voice()}
+    except Exception as e:
+        return {"ok": False, "error": str(e), "voices": [], "active": None}
+
+_VOICE_EXTS = {"webm", "ogg", "mp4", "m4a", "wav", "mp3"}
+
+@app.post("/v1/voice/stt", tags=["Voice"], dependencies=[Depends(_require_token)])
+async def voice_stt(request: Request, ext: str = "webm"):
+    """Transcribe a raw audio clip (POST body) with ELI's local whisper model.
+    Body is the audio bytes; `?ext=` (or the Content-Type subtype) names the
+    container so PyAV can decode it. Raw-body keeps us free of python-multipart."""
+    import tempfile
+    data = await request.body()
+    if not data:
+        return {"ok": False, "error": "empty audio"}
+    ct = (request.headers.get("content-type") or "").split(";")[0].split("/")[-1].strip().lower()
+    chosen = (ext or "").lower() if (ext or "").lower() in _VOICE_EXTS else (ct if ct in _VOICE_EXTS else "webm")
+    suffix = "." + chosen
+    tmp_path = None
+    try:
+        with tempfile.NamedTemporaryFile(prefix="eli_voice_", suffix=suffix, delete=False) as tmp:
+            tmp.write(data)
+            tmp_path = tmp.name
+        from eli.perception.local_whisper_stt import transcribe_file
+        text = (transcribe_file(tmp_path) or "").strip()
+        return {"ok": True, "text": text}
+    except Exception as e:
+        return {"ok": False, "error": str(e)}
+    finally:
+        if tmp_path:
+            try:
+                os.unlink(tmp_path)
+            except OSError:
+                pass
+
+@app.post("/v1/voice/tts", tags=["Voice"], dependencies=[Depends(_require_token)])
+def voice_tts(req: TTSRequest):
+    """Render text to a WAV with ELI's local Piper voice (the browser plays it)."""
+    try:
+        from eli.perception import tts_router
+        wav = tts_router.synthesize_wav(req.text, voice_name=req.voice)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"tts failed: {e}")
+    if not wav:
+        raise HTTPException(status_code=503, detail="no speakable text or no local voice available")
+    return Response(content=wav, media_type="audio/wav")
 
 # ----------------------------------------------------------------------
 # Run the server
