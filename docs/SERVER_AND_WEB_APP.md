@@ -75,8 +75,16 @@ in a window so the phone URL + token are visible).
 | GET  | `/health` | open | Liveness check |
 | GET  | `/docs` | open | OpenAPI / Swagger docs |
 | POST | `/v1/chat` | **token** | Send a message, get ELI's reply |
+| POST | `/v1/chat/stream` | **token** | Same, streamed token-by-token (SSE) |
+| POST | `/v1/chat/completions` | **token** | Drop-in local-model endpoint (de-facto chat shape; `+/v1/models`) |
 | POST | `/v1/execute` | **token** | Run a direct action (OPEN_APP, SCREENSHOT, …) |
 | GET  | `/v1/status/{user_id}` | open | Runtime status (model, uptime) |
+| GET  | `/v1/system` | **token** | Measured GPU/CPU/RAM/model telemetry |
+| GET/POST | `/v1/smarthome/*` | **token** | Home Assistant device list + control (light/media/climate) |
+| GET/POST | `/v1/research/*` | **token** | Local document corpora: `corpora`, `ingest`, `query` (grounded, cited) |
+| GET  | `/v1/voice/voices` | **token** | List local Piper voices + the active one |
+| POST | `/v1/voice/stt` | **token** | Transcribe an audio clip (raw body) with the local whisper model |
+| POST | `/v1/voice/tts` | **token** | Render text to WAV with the local Piper voice (returned, not played on host) |
 
 **Chat request:**
 ```bash

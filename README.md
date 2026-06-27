@@ -314,8 +314,11 @@ nothing runs on the device, and nothing reaches the internet.
 ./scripts/eli_serve.sh --lan       # your home network   → prints a token-protected URL
 ```
 
-### The web app — four tabs
-- **Chat** — talk to ELI from any device; inference stays on the host.
+### The web app — five tabs
+- **Chat** — talk to ELI from any device; inference stays on the host. Streams replies token-by-token,
+  and **"Talk to ELI"** voice: tap the mic to speak (your phone's audio is transcribed by ELI's *local*
+  whisper model), and tick **Speak replies** to have answers read back in ELI's *local* Piper voice —
+  no cloud STT/TTS, the audio never leaves your machine.
 - **Commands** — a searchable catalogue of every documented action (with descriptions and example
   phrases). Tap a phrase to drop it into the chat box.
 - **Home** — control your smart home (see below): a device grid with light/switch toggles and
@@ -323,6 +326,10 @@ nothing runs on the device, and nothing reaches the internet.
 - **System** — ELI's own **measured** telemetry: GPU temperature/utilisation/VRAM, CPU load/temp,
   RAM, the loaded model, and uptime — the same grounded source ELI reports from, so the numbers are
   real, never guessed.
+- **Research** — build isolated local document corpora: point ELI at a file or folder
+  (`.pdf` / `.txt` / `.md`), and it ingests them into a private FAISS index (using ELI's own embedder),
+  then answers questions **grounded only in those sources, with citations**. Your documents never mix
+  with ELI's memory and nothing leaves the box.
 
 ### Home Assistant setup (the Home tab)
 Smart-home control is via [Home Assistant](https://www.home-assistant.io/). In the **Home** tab, paste:
