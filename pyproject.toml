@@ -90,6 +90,7 @@ server = [
     "fastapi>=0.110",
     "uvicorn>=0.27",
     "paho-mqtt>=1.6,<3",  # ELI-native MQTT device server (no Home Assistant)
+    "zeroconf>=0.70",     # mDNS device/broker discovery
 ]
 # Gaze cursor + on-screen OCR.
 vision = [

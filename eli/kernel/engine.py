@@ -7885,6 +7885,22 @@ Answer:"""
         except Exception:
             pass
 
+        # ── Home awareness injection ─────────────────────────────────────────
+        # On a home/device question, give ELI the REAL device state (what's on, rooms,
+        # usual habits) from its own device server so it answers from fact, not guesses.
+        try:
+            if re.search(r"\b(lights?|lamp|switch|plug|outlet|thermostat|heater|fan|"
+                         r"devices?|rooms?|kitchen|living\s?room|bedroom|turn (?:on|off)|dim|"
+                         r"smart\s?home|my home)\b", str(user_input or ""), re.I):
+                from eli.runtime.home_intel import home_context as _home_context
+                _hctx = _home_context()
+                if _hctx:
+                    _extra_blocks.append(
+                        "[HOME STATE — real device data from ELI's own device server. Use these "
+                        "facts for anything about the user's home; never invent device states]\n" + _hctx)
+        except Exception:
+            pass
+
         # Assemble all injections and cap ONCE so no individual block is silently
         # truncated mid-sentence by a per-injection cap.
         if _extra_blocks:
