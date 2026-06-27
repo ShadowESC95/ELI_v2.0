@@ -10210,30 +10210,47 @@ def _execute_impl(action: str, args: Optional[Dict[str, Any]] = None) -> Dict[st
             return {"ok": False, "action": a, "error": str(e), "content": str(e), "response": str(e)}
 
     # ---- SMART_HOME ----
+    # Routes through ELI's OWN MQTT device server (eli.runtime.device_server) — no
+    # Home Assistant. Resolves the spoken device/room name against ELI's registry and
+    # publishes on/off over MQTT. Devices are set up in the web app's Home tab.
     if a == "SMART_HOME":
         try:
+            from eli.runtime.device_server import get_server
+            srv = get_server()
             device = (args.get("device") or args.get("name") or "").strip()
-            command = (args.get("command") or args.get("action") or args.get("state") or "").strip()
-            # Try Home Assistant if configured
-            ha_url = os.environ.get("ELI_HA_URL", "").rstrip("/")
-            ha_token = os.environ.get("ELI_HA_TOKEN", "")
-            if ha_url and ha_token:
-                import urllib.request as _ur, json as _j
-                entity_id = device.replace(" ", "_").lower()
-                svc = "turn_on" if "on" in command.lower() else "turn_off" if "off" in command.lower() else command
-                payload = json.dumps({"entity_id": entity_id}).encode()
-                req = _ur.Request(
-                    f"{ha_url}/api/services/homeassistant/{svc}",
-                    data=payload,
-                    headers={"Authorization": f"Bearer {ha_token}", "Content-Type": "application/json"},
-                )
-                with _ur.urlopen(req, timeout=10) as resp:
-                    resp.read()
-                msg = f"Smart home: {svc} → {device}"
-                return {"ok": True, "action": a, "content": msg, "response": msg}
-            msg = ("Smart home control requires Home Assistant. "
-                   "Set ELI_HA_URL and ELI_HA_TOKEN environment variables.")
-            return {"ok": False, "action": a, "error": "not_configured", "content": msg, "response": msg}
+            raw = (args.get("command") or args.get("action") or args.get("state") or "").strip().lower()
+            cmd = "on" if "on" in raw else "off" if "off" in raw else raw
+            if not device:
+                msg = "Which device or room? For example: 'turn on the desk lamp'."
+                return {"ok": False, "action": a, "error": "no_device", "content": msg, "response": msg}
+            devs = srv.list_devices()
+            if not devs:
+                msg = ("No devices set up yet — add them in the Home tab of ELI's web app "
+                       "(ELI's own MQTT device server).")
+                return {"ok": False, "action": a, "error": "no_devices", "content": msg, "response": msg}
+            dl = device.lower()
+            match = next((d for d in devs if d["id"].lower() == dl or (d.get("name", "").lower() == dl)), None)
+            if match is None:
+                match = next((d for d in devs if dl and dl in (d.get("name", "").lower())), None)
+            if match is not None:
+                res = srv.control(match["id"], cmd)
+                label = match.get("name") or match["id"]
+                if res.get("ok"):
+                    msg = f"{label}: {cmd}"
+                    return {"ok": True, "action": a, "content": msg, "response": msg}
+                err = res.get("error") or "control failed"
+                return {"ok": False, "action": a, "error": err, "content": err, "response": err}
+            # Not a device — maybe a room name ("turn off the kitchen").
+            room_names = {r["room"].lower(): r["room"] for r in srv.rooms()}
+            if dl in room_names:
+                res = srv.control_room(room_names[dl], cmd)
+                if res.get("ok"):
+                    msg = f"{room_names[dl]}: {cmd} ({res.get('count', 0)} device(s))"
+                    return {"ok": True, "action": a, "content": msg, "response": msg}
+                err = res.get("error") or "no controllable devices"
+                return {"ok": False, "action": a, "error": err, "content": err, "response": err}
+            msg = f"I don't have a device or room called '{device}'."
+            return {"ok": False, "action": a, "error": "not_found", "content": msg, "response": msg}
         except Exception as e:
             return {"ok": False, "action": a, "error": str(e), "content": str(e), "response": str(e)}
 
