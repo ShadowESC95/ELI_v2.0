@@ -83,6 +83,11 @@ def delete(key: str):
         if ck in data:
             del data[ck]
             settings_file.write_text(json.dumps(data, indent=2, ensure_ascii=False), encoding="utf-8")
+            try:
+                import os as _os
+                _os.chmod(settings_file, 0o600)  # settings may hold secrets — owner-only
+            except OSError:
+                pass
             return True
     except Exception:
         pass
