@@ -618,8 +618,13 @@ _WEB_UI = """<!doctype html>
   const $ = s => document.querySelector(s);
   let uid=localStorage.getItem('eli_uid');
   if(!uid){uid='web-'+Math.random().toString(36).slice(2,8);localStorage.setItem('eli_uid',uid);}
-  const qp=new URLSearchParams(location.search);
-  if(qp.get('token')){localStorage.setItem('eli_token',qp.get('token'));history.replaceState({},'',location.pathname);}
+  // Pull the token from the URL FRAGMENT (#token=…) — fragments aren't sent to the server,
+  // so the token never reaches the access log. (Accept ?token= too for old links.) Store it,
+  // then strip both query + fragment from history so the token doesn't linger.
+  let _tk='';
+  try{ if(location.hash){_tk=new URLSearchParams(location.hash.replace(/^#/,'')).get('token')||'';} }catch(e){}
+  if(!_tk){_tk=new URLSearchParams(location.search).get('token')||'';}
+  if(_tk){localStorage.setItem('eli_token',_tk);history.replaceState({},'',location.pathname);}
   const token=localStorage.getItem('eli_token')||'';
   const H=()=>{const h={'Content-Type':'application/json'};if(token)h['Authorization']='Bearer '+token;return h;};
   const api=(path,opts)=>fetch(path,Object.assign({headers:H()},opts||{})).then(r=>r.json());
@@ -2673,7 +2678,10 @@ def _connect_url() -> dict:
     lan_accessible = host in ("0.0.0.0", "::", "")  # bound to all interfaces
     ip = _lan_ip()
     token = _api_token()
-    q = f"?token={token}" if token else ""
+    # Token in the URL FRAGMENT (#token=…), never the query: the fragment is not sent to
+    # the server, so it can't land in uvicorn's access log; the page JS reads location.hash,
+    # stores it, and strips it from history. Keeps the bearer token out of logs/history.
+    q = f"#token={token}" if token else ""
     url = f"http://{ip}:{port}/" + q            # primary connect — opens on any phone
     hport = os.environ.get("ELI_API_HTTPS_PORT")  # set only when HTTPS (voice) is running
     voice_url = (f"https://{ip}:{hport}/" + q) if hport else None
@@ -3095,10 +3103,10 @@ def main():
         print(_bar, flush=True)
         print(f"  ELI web server on the LAN  ({host}:{port})", flush=True)
         print(f"  Phone — open the Connect tab and scan, or visit:", flush=True)
-        print(f"      http://{ip}:{port}/?token={token}", flush=True)
+        print(f"      http://{ip}:{port}/#token={token}", flush=True)
         if https_port:
             print(f"  Phone microphone (voice) needs HTTPS — same Connect tab, or visit:", flush=True)
-            print(f"      https://{ip}:{https_port}/?token={token}", flush=True)
+            print(f"      https://{ip}:{https_port}/#token={token}", flush=True)
             print("      (self-signed: accept the one-time 'not private' warning to use the mic)", flush=True)
         else:
             print("  Tip: add --https to also enable the phone microphone (voice).", flush=True)
