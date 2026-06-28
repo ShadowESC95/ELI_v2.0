@@ -1295,14 +1295,32 @@ _WEB_UI = """<!doctype html>
     api('/v1/devices/control',{method:'POST',body:JSON.stringify(body)}).then(()=>{if(cmd!=='brightness')setTimeout(loadDevices,400);});
   }
 
-  /* system */
+  /* system — sub-tabbed console: Live | Model | Network */
   function sgauge(v,label){return '<div><div class="gauge" style="--p:'+(v||0)+'"><i>'+Math.round(v||0)+'</i></div><div class="glabel">'+esc(label)+'</div></div>';}
+  let _sysSub='live', _sysData={};
   function loadSystem(){
-    api('/v1/system').then(d=>{ if(!d.ok){$('#system').innerHTML='<div class="err">'+esc(d.error||'unavailable')+'</div>';return;} renderSystem(d.status||{}); })
-      .catch(e=>{$('#system').innerHTML='<div class="err">'+esc(''+e)+'</div>';});
+    Promise.all([api('/v1/system'), api('/v1/net').catch(()=>({})), api('/v1/net/egress').catch(()=>({}))]).then(function(r){
+      const d=r[0]||{}; if(!d.ok){$('#system').innerHTML='<div class="err">'+esc(d.error||'unavailable')+'</div>';return;}
+      _sysData={s:d.status||{}, net:(r[1]&&r[1].net)||{}, eg:r[2]||{}};
+      const s=_sysData.s, g=s.gpu||{}, c=s.cpu||{};
+      const host=$('#system');host.innerHTML='';
+      const strip=document.createElement('div');strip.className='livestrip';
+      strip.innerHTML='<span class="lstitle">&#9670; SYSTEM</span>'
+        +'<span class="lspill"><span class="ld live"></span>'+esc(((s.model||{}).name)||'model')+'</span>'
+        +(g.name?'<span class="lspill">GPU <b>'+Math.round(g.util_pct||0)+'%</b></span>':'')
+        +'<span class="lspill">CPU <b>'+Math.round(c.usage_pct||0)+'%</b></span>'
+        +'<span class="lspill">up '+esc(s.uptime||'?')+'</span>';
+      host.appendChild(strip);
+      const shell=document.createElement('div');shell.className='subwrap';host.appendChild(shell);
+      mountSubtabs(shell,[
+        {id:'live',label:'Live',render:sysLive},
+        {id:'model',label:'Model',render:sysModel},
+        {id:'network',label:'Network',render:sysNet},
+      ],_sysSub,id=>{_sysSub=id;});
+    }).catch(e=>{$('#system').innerHTML='<div class="err">'+esc(''+e)+'</div>';});
   }
-  function renderSystem(s){
-    const g=s.gpu,c=s.cpu,r=s.ram,m=s.model||{}; let h='<div class="grid">';
+  function sysLive(el){
+    const s=_sysData.s||{}, g=s.gpu, c=s.cpu, r=s.ram; let h='<div class="grid">';
     if(g){const vp=g.vram_total_mb?Math.round(g.vram_used_mb/g.vram_total_mb*100):0;
       h+='<div class="syscard"><h4>GPU</h4><div class="nm" style="margin-bottom:10px">'+esc(g.name||'')+'</div>'+
         '<div class="row" style="gap:14px">'+sgauge(g.temp_c,'°C')+sgauge(g.util_pct,'% util')+'</div>'+
@@ -1310,10 +1328,30 @@ _WEB_UI = """<!doctype html>
     if(c){h+='<div class="syscard"><h4>CPU</h4><div class="row" style="gap:14px">'+sgauge(c.usage_pct,'% load')+(c.temp_c!=null?sgauge(c.temp_c,'°C'):'')+'</div>'+
         '<div class="kv">Cores<span>'+(c.cores||'?')+'</span></div></div>';}
     if(r){h+='<div class="syscard"><h4>Memory</h4><div class="kv">RAM<span>'+r.used_mb+' / '+r.total_mb+' MB</span></div><div class="bar"><i style="width:'+(r.pct||0)+'%"></i></div></div>';}
-    h+='<div class="syscard"><h4>Model</h4><div class="nm">'+esc(m.name||'—')+'</div>'+
-       '<div class="kv">ctx<span>'+(m.n_ctx||'?')+'</span></div><div class="kv">gpu layers<span>'+(m.n_gpu_layers||'?')+'</span></div>'+
-       '<div class="kv">uptime<span>'+esc(s.uptime||'?')+'</span></div></div>';
-    $('#system').innerHTML=h+'</div>';
+    el.innerHTML=h+'</div><div class="rrow" style="margin-top:12px"><button class="cbtn" onclick="loadSystem()">&#10227; Refresh</button></div>';
+  }
+  function sysModel(el){
+    const s=_sysData.s||{}, m=s.model||{};
+    el.innerHTML='<div class="jhead">Loaded model</div><div class="syscard"><div class="nm" style="font-size:16px">'+esc(m.name||'—')+'</div>'+
+      '<div class="kv">context window<span>'+(m.n_ctx||'?')+' tokens</span></div>'+
+      '<div class="kv">GPU layers<span>'+(m.n_gpu_layers!=null?m.n_gpu_layers:'?')+'</span></div>'+
+      (m.n_batch?'<div class="kv">batch<span>'+m.n_batch+'</span></div>':'')+
+      '<div class="kv">uptime<span>'+esc(s.uptime||'?')+'</span></div></div>'+
+      '<div class="rnote">Generation parameters (temperature, top-p, deep thinking…) live in <b>Settings &#8594; Generation</b>. The model loads via the adaptive VRAM-aware loader — no name is hardcoded.</div>';
+  }
+  function sysNet(el){
+    const net=_sysData.net||{}, eg=_sysData.eg||{};
+    let h='<div class="jhead">Internet gate</div><div class="syscard">'+
+      '<div class="row"><span class="st">'+(net.blocked?'<span style="color:#e0a72e">&#9679; OFFLINE — sealed at the socket</span>':'<span style="color:#2ec07a">&#9679; ONLINE — monitored</span>')+'</span></div>'+
+      '<div class="kv">policy<span>'+(net.enabled?'enabled':'disabled')+'</span></div>'+
+      '<div class="kv">permitted LAN hosts<span>'+((net.local_services||[]).length)+'</span></div>'+
+      '<div class="kv">outbound connections recorded<span>'+(net.egress_total!=null?net.egress_total:(eg.total||0))+'</span></div></div>'+
+      '<div class="jhead">Recent egress (live tail)</div><div class="syscard">';
+    const list=(eg.egress&&eg.egress.length?eg.egress:(net.egress_recent||[]));
+    if(list.length){list.slice().reverse().forEach(x=>{const t=x.ts?new Date(x.ts*1000).toLocaleTimeString():'';
+      h+='<div class="src"><div class="sh"><span>&#11167; '+esc(x.host||'')+':'+esc(''+(x.port||''))+'</span><span class="rnote">'+esc(t)+'</span></div></div>';});}
+    else h+='<div class="muted">No outbound connections recorded — ELI is offline or hasn\\'t reached out.</div>';
+    el.innerHTML=h+'</div>';
   }
   /* research */
   function _ropt(list){return list.length
