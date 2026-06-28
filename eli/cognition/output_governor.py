@@ -328,7 +328,7 @@ _PRONOUN_OWNER_RE = re.compile(
 def repair_self_user_confusion(text: str) -> str:
     """Catch first-person framings of facts that belong to the user.
 
-    Example: model says "my GitHub handle is ShadowESC95" while the runtime
+    Example: model says "my GitHub handle is <handle>" while the runtime
     profile records that handle for the user. Rewrites to attribute the fact
     to the user by stored name, so ELI does not impersonate the operator.
     """
