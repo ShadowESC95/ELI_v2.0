@@ -285,9 +285,14 @@ def test_sun_times_calc():
 def test_discover_degrades_without_zeroconf(monkeypatch):
     import sys
     import eli.runtime.device_server as ds
-    monkeypatch.setitem(sys.modules, "zeroconf", None)  # force ImportError path
+    monkeypatch.setitem(sys.modules, "zeroconf", None)  # force the mDNS ImportError path
+    # SSDP is an independent path, so discovery no longer hard-fails when zeroconf is
+    # absent — it degrades: the mDNS leg is reported in errors, the scan still returns ok.
+    monkeypatch.setattr(ds, "_ssdp_discover", lambda timeout: [])  # keep it offline/deterministic
     r = ds.discover(timeout=1.0)
-    assert r["ok"] is False and "zeroconf" in r["error"] and r["found"] == []
+    assert r["ok"] is True
+    assert r["found"] == []
+    assert any("zeroconf" in e for e in r.get("errors", []))
 
 
 def test_control_room_targets_only_that_room(server, fake_paho):
