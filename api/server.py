@@ -764,17 +764,35 @@ _WEB_UI = """<!doctype html>
   function discoverDevices(){
     const box=$('#mq-found'), btn=$('#mq-find');
     if(btn){btn.disabled=true;btn.textContent='Scanning…';}
-    box.innerHTML='<div class="rnote">Scanning your network (mDNS)…</div>';
+    box.innerHTML='<div class="rnote">Scanning your network (mDNS + UPnP)…</div>';
     api('/v1/devices/discover',{method:'POST',body:JSON.stringify({})}).then(d=>{
       if(btn){btn.disabled=false;btn.innerHTML='&#128270; Find on my network';}
       if(!d.ok){box.innerHTML='<div class="banner bad" style="margin-top:10px">'+esc(d.error||'discovery failed')+'</div>';return;}
-      const br=d.brokers||[], all=d.found||[];
+      const all=d.found||[], br=d.brokers||[], c=d.counts||{};
+      const lab={ready:'control ready',roadmap:'control coming',cloud:'cloud only',detected:'detected'};
+      const col={ready:'#2ec07a',roadmap:'#e0a72e',cloud:'#6aa3e0',detected:'#7a8699'};
       let h='';
-      if(br.length){h+='<div class="rnote" style="margin-top:10px">MQTT brokers found — click to use:</div>';
+      if(br.length){h+='<div class="rnote" style="margin-top:10px">MQTT broker(s) found — click to use:</div>';
         br.forEach(b=>{h+='<div class="src" style="cursor:pointer" onclick="useBroker(\\''+esc(b.host)+'\\','+(b.port||1883)+')"><div class="sh"><span>&#128268; '+esc(b.name||b.host)+'</span><span>'+esc(b.host)+':'+(b.port||'')+'</span></div></div>';});}
-      const others=all.filter(f=>!(f.service||'').indexOf('_mqtt')===0);
-      if(all.length){h+='<div class="rnote" style="margin-top:10px">'+all.length+' service(s) seen on the network'+(br.length?'':' — none were MQTT brokers; set one up (e.g. Mosquitto) and re-scan')+'.</div>';}
-      else h+='<div class="rnote" style="margin-top:10px">Nothing found. Make sure devices/broker are on the same network.</div>';
+      const others=all.filter(f=>f.kind!=='mqtt_broker');
+      if(others.length){
+        h+='<div class="rnote" style="margin-top:12px">Devices seen on your network:</div>';
+        others.forEach(f=>{
+          const cs=f.control_status||'detected';
+          h+='<div class="src"><div class="sh"><span>'+esc(f.label||f.kind)+' — '+esc(f.name||'')+'</span>'
+            +'<span style="color:'+(col[cs]||col.detected)+'">'+(lab[cs]||'detected')+'</span></div>'
+            +'<div style="font-size:.8em;opacity:.6">'+esc(f.host||'')+(f.port?(':'+f.port):'')+'</div></div>';
+        });
+      }
+      if(all.length){
+        let summ=(c.total||all.length)+' found'+(c.brokers?(', '+c.brokers+' broker'):'')+(c.controllable?(', '+c.controllable+' controllable now'):'');
+        h+='<div class="rnote" style="margin-top:10px">'+esc(summ);
+        if(!br.length) h+=' — no MQTT broker yet; for switches/lights run a broker (e.g. Mosquitto) and flash devices with ESPHome/Tasmota, then re-scan';
+        h+='.</div>';
+        if((d.errors||[]).length) h+='<div class="rnote" style="opacity:.55">'+esc((d.errors||[]).join('; '))+'</div>';
+      } else {
+        h='<div class="rnote" style="margin-top:10px">Nothing found. Make sure your devices are on the same Wi-Fi / LAN as this computer.</div>';
+      }
       box.innerHTML=h;
     }).catch(e=>{if(btn){btn.disabled=false;btn.innerHTML='&#128270; Find on my network';}box.innerHTML='<div class="banner bad">'+esc(''+e)+'</div>';});
   }
