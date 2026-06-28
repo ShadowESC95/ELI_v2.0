@@ -1360,30 +1360,28 @@ _WEB_UI = """<!doctype html>
   function researchName(){return (localStorage.getItem('eli_name')||uid);}
   function setResearchName(){localStorage.setItem('eli_name',($('#r-name').value||'').trim()||uid);}
   function _curCorpus(){const dd=$('#rq-corpus');return (dd&&dd.value)||($('#ing-name')?($('#ing-name').value||'').trim():'');}
+  let _resSub='docs', _resDocs=null, _resAct=null;
   function loadResearch(){
     api('/v1/research/corpora').then(d=>renderResearch((d&&d.corpora)||[]))
       .catch(e=>{$('#research').innerHTML='<div class="err">'+esc(''+e)+'</div>';});
   }
   function renderResearch(list){
-    let h='<div class="rwrap">';
-    h+='<div class="rsec"><h4>Shared corpora</h4>'+
-       '<div class="rrow"><select id="rq-corpus" onchange="loadCorpusDetail()">'+_ropt(list)+'</select></div>'+
-       '<div class="rrow"><input id="r-name" autocomplete="off" placeholder="your name (for who-added-what)" value="'+esc(researchName())+'" onchange="setResearchName()"></div>'+
-       '<div class="rnote">Corpora are shared across everyone on this server — collaborators ingest, add notes, and ask together, all local. Contributions are attributed and recorded in the tamper-evident Audit trail.</div></div>';
-    h+='<div class="rsec"><h4>Ingest documents</h4>'+
-       '<div class="rrow"><input id="ing-name" autocomplete="off" placeholder="corpus name (new or existing)"></div>'+
-       '<div class="rrow"><input id="ing-path" autocomplete="off" placeholder="path under the research root (.pdf / .txt / .md)"><button id="ing-btn" onclick="ingestCorpus()">Ingest</button></div>'+
-       '<div class="rnote">Documents must live under the server\\'s research root (default <code>artifacts/research/_sources/</code>, or set <code>ELI_RESEARCH_ROOT</code>). Paths outside it are rejected.</div>'+
-       '<div id="ing-status" class="rnote"></div></div>';
-    h+='<div class="rsec"><h4>Add a note (create / share text)</h4>'+
-       '<div class="rrow"><input id="note-title" autocomplete="off" placeholder="note title"></div>'+
-       '<div class="rrow"><textarea id="note-text" placeholder="type or paste text to add to the selected corpus…" style="flex:1;min-height:74px;padding:10px;border-radius:9px;border:1px solid var(--line);background:var(--input);color:var(--fg);font-size:14px;font-family:inherit;"></textarea></div>'+
-       '<div class="rrow"><button onclick="addNote()">Add note</button><span id="note-status" class="rnote" style="align-self:center"></span></div></div>';
-    h+='<div class="rsec"><h4>Ask (grounded in the corpus)</h4>'+
-       '<div class="rrow"><input id="ask-q" autocomplete="off" placeholder="Ask a question answered only from this corpus…"><button id="ask-btn" onclick="askCorpus()">Ask</button></div>'+
-       '<div id="ask-out"></div></div>';
-    h+='<div id="rdetail"></div>';
-    $('#research').innerHTML=h+'</div>';
+    const host=$('#research');host.innerHTML='';
+    const strip=document.createElement('div');strip.className='livestrip';
+    strip.innerHTML='<span class="lstitle">&#9670; RESEARCH</span><span class="lspill"><b>'+list.length+'</b> corpora</span><span class="lspill"><span class="ld live"></span>local · grounded · cited</span>';
+    host.appendChild(strip);
+    const hd=document.createElement('div');hd.className='syscard';hd.style.marginBottom='14px';
+    hd.innerHTML='<div class="rrow"><span class="rnote" style="align-self:center;min-width:52px">Corpus</span><select id="rq-corpus" onchange="loadCorpusDetail()" style="flex:1">'+_ropt(list)+'</select></div>'+
+      '<div class="rrow"><span class="rnote" style="align-self:center;min-width:52px">You</span><input id="r-name" autocomplete="off" placeholder="your name (for who-added-what)" value="'+esc(researchName())+'" onchange="setResearchName()"></div>'+
+      '<div class="rnote">Corpora are shared across everyone on this server — ingest, note, and ask together, all local; every contribution is attributed in the tamper-evident Audit trail.</div>';
+    host.appendChild(hd);
+    const shell=document.createElement('div');shell.className='subwrap';host.appendChild(shell);
+    mountSubtabs(shell,[
+      {id:'docs',label:'Documents',render:resDocs},
+      {id:'ingest',label:'Ingest',render:resIngest},
+      {id:'ask',label:'Ask',render:resAsk},
+      {id:'activity',label:'Activity',render:resActivity},
+    ],_resSub,id=>{_resSub=id;});
     loadCorpusDetail();
   }
   function refreshCorpusSelect(sel){
@@ -1394,33 +1392,43 @@ _WEB_UI = """<!doctype html>
     }).catch(()=>{});
   }
   function loadCorpusDetail(){
-    const c=_curCorpus(), box=$('#rdetail'); if(!box)return;
-    if(!c){box.innerHTML='';return;}
+    const c=_curCorpus();
+    if(!c){_resDocs={documents:[],members:[]};_resAct={activity:[]};_rerenderRes();return;}
     Promise.all([api('/v1/research/documents?corpus='+encodeURIComponent(c)),
                  api('/v1/research/activity?corpus='+encodeURIComponent(c))])
-      .then(([d,a])=>renderCollab(c,d,a)).catch(()=>{});
+      .then(function(r){_resDocs=r[0]||{};_resAct=r[1]||{};_rerenderRes();}).catch(()=>{});
   }
-  function renderCollab(corpus,d,a){
-    const box=$('#rdetail'); if(!box)return; box.innerHTML='';
-    const sec=document.createElement('div'); sec.className='rsec';
-    const members=(d&&d.members)||[];
-    sec.innerHTML='<h4>Documents — '+esc(corpus)+'</h4><div class="rnote">Members: '+(members.map(esc).join(', ')||'—')+'</div>';
-    const docs=(d&&d.documents)||[];
-    if(!docs.length){const m=document.createElement('div');m.className='muted';m.textContent='No documents yet.';sec.appendChild(m);}
-    docs.forEach(doc=>{
-      const row=document.createElement('div'); row.className='src';
-      row.innerHTML='<div class="sh"><span>'+(doc.kind==='note'?'📝 ':'📄 ')+esc(doc.source)+'</span><span class="rmv link">remove</span></div>'+
-        '<div class="sx">added by '+esc(doc.added_by)+' · '+esc(fmtTime(doc.added_at))+' · '+doc.chunks+' chunk(s)</div>';
-      row.querySelector('.rmv').onclick=()=>removeDoc(corpus,doc.source);
-      sec.appendChild(row);
-    });
-    box.appendChild(sec);
-    const act=(a&&a.activity)||[];
-    const asec=document.createElement('div'); asec.className='rsec';
-    let ah='<h4>Activity</h4>';
-    if(!act.length) ah+='<div class="muted">No activity yet.</div>';
-    act.forEach(ev=>{ah+='<div class="arow"><div class="at">'+esc(fmtTime(ev.timestamp))+'</div><div><span class="aa">'+esc(ev.action)+'</span> <span class="au">'+esc(ev.user)+'</span><div class="as">'+esc(ev.detail||'')+'</div></div><div></div></div>';});
-    asec.innerHTML=ah; box.appendChild(asec);
+  function _rerenderRes(){const b=document.querySelector('#research .subbody');if(!b)return;
+    if(_resSub==='docs')resDocs(b); else if(_resSub==='activity')resActivity(b);}
+  function resDocs(el){
+    const d=_resDocs||{}, members=(d.members)||[], docs=(d.documents)||[], c=_curCorpus();
+    let h='<div class="jhead">Documents'+(c?(' — '+esc(c)):'')+'</div>';
+    h+='<div class="rnote" style="margin-bottom:8px">Members: '+(members.map(esc).join(', ')||'—')+'</div>';
+    if(!docs.length)h+='<div class="muted">No documents yet — add some in the Ingest tab.</div>';
+    docs.forEach(doc=>{h+='<div class="src"><div class="sh"><span>'+(doc.kind==='note'?'&#128221; ':'&#128196; ')+esc(doc.source)+'</span><span class="rmv link" data-s="'+esc(doc.source)+'">remove</span></div>'+
+      '<div class="sx">added by '+esc(doc.added_by)+' · '+esc(fmtTime(doc.added_at))+' · '+doc.chunks+' chunk(s)</div></div>';});
+    el.innerHTML=h;
+    el.querySelectorAll('.rmv').forEach(b=>b.onclick=()=>removeDoc(_curCorpus(),b.dataset.s));
+  }
+  function resIngest(el){
+    el.innerHTML='<div class="jhead">Ingest documents</div>'+
+      '<div class="syscard"><div class="rrow"><input id="ing-name" autocomplete="off" placeholder="corpus name (new or existing)"></div>'+
+      '<div class="rrow"><input id="ing-path" autocomplete="off" placeholder="path under the research root (.pdf / .txt / .md)"><button id="ing-btn" onclick="ingestCorpus()">Ingest</button></div>'+
+      '<div class="rnote">Documents must live under the server\\'s research root (default <code>artifacts/research/_sources/</code>, or set <code>ELI_RESEARCH_ROOT</code>). Paths outside it are rejected.</div><div id="ing-status" class="rnote"></div></div>'+
+      '<div class="jhead">Add a note</div><div class="syscard"><div class="rrow"><input id="note-title" autocomplete="off" placeholder="note title"></div>'+
+      '<div class="rrow"><textarea id="note-text" placeholder="type or paste text to add to the selected corpus…" style="flex:1;min-height:74px;padding:10px;border-radius:9px;border:1px solid var(--line);background:var(--input);color:var(--fg);font-size:14px;font-family:inherit;"></textarea></div>'+
+      '<div class="rrow"><button onclick="addNote()">Add note</button><span id="note-status" class="rnote" style="align-self:center"></span></div></div>';
+  }
+  function resAsk(el){
+    el.innerHTML='<div class="jhead">Ask — answered only from the corpus</div>'+
+      '<div class="syscard"><div class="rrow"><input id="ask-q" autocomplete="off" placeholder="Ask a question answered only from this corpus…" style="flex:1"><button id="ask-btn" onclick="askCorpus()">Ask</button></div><div id="ask-out"></div></div>';
+  }
+  function resActivity(el){
+    const act=(_resAct&&_resAct.activity)||[];
+    let h='<div class="jhead">Activity feed</div>';
+    if(!act.length)h+='<div class="muted">No activity yet.</div>';
+    act.forEach(ev=>{h+='<div class="arow"><div class="at">'+esc(fmtTime(ev.timestamp))+'</div><div><span class="aa">'+esc(ev.action)+'</span> <span class="au">'+esc(ev.user)+'</span><div class="as">'+esc(ev.detail||'')+'</div></div><div></div></div>';});
+    el.innerHTML=h;
   }
   function ingestCorpus(){
     const name=($('#ing-name').value||'').trim(), path=($('#ing-path').value||'').trim();
@@ -1493,34 +1501,51 @@ _WEB_UI = """<!doctype html>
   function removeAuto(id){api('/v1/home/automations/remove',{method:'POST',body:JSON.stringify({id:id})}).then(()=>loadHomeSuggestions()).catch(()=>{});}
   window.renderDevConfig=renderDevConfig; window.saveDevConfig=saveDevConfig; window.ctlDev=ctlDev; window.addDevicePrompt=addDevicePrompt; window.addDevice=addDevice; window.loadDevices=loadDevices; window.ctlRoom=ctlRoom; window.moveDevice=moveDevice; window.discoverDevices=discoverDevices; window.useBroker=useBroker; window.openDiscover=openDiscover; window.addDiscovered=addDiscovered; window.pairDialog=pairDialog;
   window.loadScenesPanel=loadScenesPanel; window.createScene=createScene; window.activateScene=activateScene; window.removeScene=removeScene; window.autoTrigFields=autoTrigFields; window.autoActFields=autoActFields; window.createAutomation=createAutomation; window.useMyLocation=useMyLocation; window.saveLocation=saveLocation;
-  /* audit — tamper-evident trail + chain verification */
-  let auditUser='';
+  /* audit — tamper-evident trail + chain verification (Events | Integrity) */
+  let auditUser='', _audSub='events', _audData=null;
+  function fmtTime(ts){try{return new Date(ts*1000).toLocaleString();}catch(_e){return ''+ts;}}
   function loadAudit(){
     const q=auditUser?('?user_id='+encodeURIComponent(auditUser)):'';
     api('/v1/audit'+q).then(renderAudit)
       .catch(e=>{$('#audit').innerHTML='<div class="err">'+esc(''+e)+'</div>';});
   }
-  function fmtTime(ts){try{return new Date(ts*1000).toLocaleString();}catch(_e){return ''+ts;}}
   function renderAudit(d){
     if(!d||!d.ok){$('#audit').innerHTML='<div class="err">'+esc((d&&d.error)||'unavailable')+'</div>';return;}
-    const ig=d.integrity||{}; let h='<div class="awrap">';
-    if(ig.ok){
-      h+='<div class="abadge ok"><span class="dot"></span><span>Audit chain verified intact — '+(ig.chained||0)+' event(s) '+(ig.keyed?'HMAC-keyed':'hash-chained')+(ig.legacy?(', '+ig.legacy+' legacy'):'')+'. No tampering detected.</span></div>';
-    }else{
-      const b=ig.first_break||{};
-      h+='<div class="abadge bad"><span class="dot"></span><span>TAMPERING DETECTED at event #'+esc(b.id)+' — '+esc(b.reason||'chain broken')+'.</span></div>';
-    }
-    h+='<div class="afilter"><input id="aud-user" autocomplete="off" placeholder="filter by user id…" value="'+esc(auditUser)+'">'+
-       '<button onclick="filterAudit()">Filter</button><button onclick="clearAudit()">All</button></div>';
+    _audData=d; const ig=d.integrity||{};
+    const host=$('#audit');host.innerHTML='';
+    const strip=document.createElement('div');strip.className='livestrip';
+    strip.innerHTML='<span class="lstitle">&#9670; AUDIT</span>'
+      +(ig.ok?'<span class="lspill"><span class="ld live"></span>chain intact</span>':'<span class="lspill"><span class="ld warn"></span>TAMPERING</span>')
+      +'<span class="lspill"><b>'+(ig.chained||0)+'</b> events</span>'
+      +'<span class="lspill">'+(ig.keyed?'HMAC-keyed':'hash-chained')+'</span>';
+    host.appendChild(strip);
+    const shell=document.createElement('div');shell.className='subwrap';host.appendChild(shell);
+    mountSubtabs(shell,[
+      {id:'events',label:'Events',render:audEvents},
+      {id:'integrity',label:'Integrity',render:audIntegrity},
+    ],_audSub,id=>{_audSub=id;});
+  }
+  function audEvents(el){
+    const d=_audData||{};
+    let h='<div class="afilter" style="margin-bottom:10px"><input id="aud-user" autocomplete="off" placeholder="filter by user id…" value="'+esc(auditUser)+'"><button onclick="filterAudit()">Filter</button><button onclick="clearAudit()">All</button></div>';
     const ev=d.events||[];
-    if(!ev.length){h+='<div class="muted">No audit events yet.</div>';}
-    ev.forEach(e=>{
-      const oc=(e.outcome||'').toLowerCase();
+    if(!ev.length)h+='<div class="muted">No audit events yet.</div>';
+    ev.forEach(e=>{const oc=(e.outcome||'').toLowerCase();
       h+='<div class="arow"><div><div class="at">'+esc(fmtTime(e.timestamp))+'</div>'+(e.user_id?'<div class="au">'+esc(e.user_id)+'</div>':'')+'</div>'+
          '<div><span class="aa">'+esc(e.action||e.event_type||'')+'</span>'+(e.subject?' <span class="as">'+esc(e.subject)+'</span>':'')+'<div class="at">'+esc(e.source||'')+'</div></div>'+
-         '<div class="ao '+esc(oc)+'">'+esc(e.outcome||'')+'</div></div>';
-    });
-    $('#audit').innerHTML=h+'</div>';
+         '<div class="ao '+esc(oc)+'">'+esc(e.outcome||'')+'</div></div>';});
+    el.innerHTML=h;
+  }
+  function audIntegrity(el){
+    const ig=(_audData&&_audData.integrity)||{};
+    let h='<div class="jhead">Chain integrity</div>';
+    if(ig.ok)h+='<div class="abadge ok"><span class="dot"></span><span>Audit chain verified intact — '+(ig.chained||0)+' event(s) '+(ig.keyed?'HMAC-keyed':'hash-chained')+(ig.legacy?(', '+ig.legacy+' legacy'):'')+'. No tampering detected.</span></div>';
+    else{const b=ig.first_break||{};h+='<div class="abadge bad"><span class="dot"></span><span>TAMPERING DETECTED at event #'+esc(b.id)+' — '+esc(b.reason||'chain broken')+'.</span></div>';}
+    h+='<div class="syscard"><div class="kv">chained events<span>'+(ig.chained||0)+'</span></div>'+
+       '<div class="kv">keying<span>'+(ig.keyed?'HMAC-SHA-256':'hash-only')+'</span></div>'+
+       (ig.legacy?'<div class="kv">legacy (unkeyed)<span>'+ig.legacy+'</span></div>':'')+'</div>'+
+       '<div class="rnote">Every event is hash-chained to the one before it and HMAC-keyed with a secret stored separately from the database — so any edited, deleted, or reordered row is detected.</div>';
+    el.innerHTML=h;
   }
   function filterAudit(){auditUser=($('#aud-user').value||'').trim();loadAudit();}
   function clearAudit(){auditUser='';loadAudit();}
