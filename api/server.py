@@ -783,6 +783,8 @@ _WEB_UI = """<!doctype html>
     finally{abortCtl=null;setBusy(false);box.focus();}
     if(!raw)raw=got?'(stopped)':'(no response)';
     p.innerHTML=mdRender(raw);pushMsg('eli',raw);log.scrollTop=log.scrollHeight;
+    // Speak EVERY real reply when "Speak replies" is on — typed, regenerated, or voice.
+    if(got&&raw&&spk&&spk.checked)speakReply(raw);
     return got?raw:'';
   }
   function regenerate(){
@@ -809,7 +811,10 @@ _WEB_UI = """<!doctype html>
   let mediaRec=null,vchunks=[],recording=false,vstream=null;
   async function toggleMic(){
     if(recording){try{mediaRec.stop();}catch(_e){}return;}
-    if(!navigator.mediaDevices||!window.MediaRecorder){vmsg('Voice not supported here');return;}
+    if(!navigator.mediaDevices||!window.MediaRecorder){
+      vmsg(location.protocol==='https:'||location.hostname==='localhost'||location.hostname==='127.0.0.1'
+        ? 'Mic not available in this browser.'
+        : 'Mic needs a secure page — open ELI on http://127.0.0.1:8081 (this computer), or use HTTPS. Browsers block the mic on plain http://LAN-IP.');return;}
     try{vstream=await navigator.mediaDevices.getUserMedia({audio:true});}
     catch(e){vmsg('Mic blocked: '+e.name);return;}
     let mt='';['audio/webm','audio/mp4','audio/ogg'].forEach(t=>{if(!mt&&window.MediaRecorder.isTypeSupported&&MediaRecorder.isTypeSupported(t))mt=t;});
@@ -832,19 +837,26 @@ _WEB_UI = """<!doctype html>
         const text=(j.text||'').trim();
         if(!text){vmsg('Didn\\'t catch that — try again');return;}
         vmsg('');box.value='';
-        const reply=await streamChat(text);
-        if(spk.checked&&reply)speakReply(reply);
+        await streamChat(text);   // streamChat speaks the reply itself when Speak-replies is on
       }catch(e){vmsg('Voice error: '+e);}
     };
     recording=true;mic.classList.add('rec');vmsg('Listening… tap mic to stop');mediaRec.start();
   }
+  let _ttsAudio=null;
   async function speakReply(text){
+    // Strip markdown/code so Piper reads prose, not asterisks and backticks.
+    const clean=(''+text).replace(/```[\\s\\S]*?```/g,' ').replace(/`([^`]+)`/g,'$1')
+      .replace(/[*_#>~]/g,'').replace(/\\[(.*?)\\]\\(.*?\\)/g,'$1').replace(/\\s+/g,' ').trim();
+    if(!clean){return;}
     try{
-      const r=await fetch('/v1/voice/tts',{method:'POST',headers:H(),body:JSON.stringify({text:text})});
-      if(!r.ok)return;
-      const a=new Audio(URL.createObjectURL(await r.blob()));
-      a.play().catch(()=>{});
-    }catch(_e){}
+      if(_ttsAudio){try{_ttsAudio.pause();}catch(_e){}}
+      vmsg('Speaking…');
+      const r=await fetch('/v1/voice/tts',{method:'POST',headers:H(),body:JSON.stringify({text:clean})});
+      if(!r.ok){vmsg('TTS error ('+r.status+')');return;}
+      _ttsAudio=new Audio(URL.createObjectURL(await r.blob()));
+      _ttsAudio.onended=()=>vmsg('');
+      _ttsAudio.play().then(()=>vmsg('')).catch(()=>vmsg('Tap anywhere, then try again (browser blocked autoplay)'));
+    }catch(e){vmsg('TTS error: '+e);}
   }
   mic.onclick=toggleMic;
 
