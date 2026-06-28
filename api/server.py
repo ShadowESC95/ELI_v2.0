@@ -496,6 +496,41 @@ _WEB_UI = """<!doctype html>
   .pol .tag.manual { background:#3a2a14; border-color:#a06a2a; color:#ebcb8b; }
   .emrow { display:grid; grid-template-columns:160px 1fr; gap:10px; padding:6px 11px; font-size:13px; border-bottom:1px solid #20242c; }
   .emrow .em { color:var(--teal); font-weight:600; } .emrow .ec { color:var(--fg-dim); font-size:12px; }
+  /* ════ ELEVATED HOME — state-reactive neon device cards + console chrome ════ */
+  .grid { gap:14px; }
+  .card { background:linear-gradient(158deg,rgba(22,32,52,.72),rgba(9,14,26,.66)); border:1px solid var(--line); border-radius:18px; padding:15px 16px; position:relative; overflow:hidden; }
+  .card::after { content:""; position:absolute; left:14px; right:14px; top:0; height:1px; background:linear-gradient(90deg,transparent,rgba(180,240,255,.22),transparent); }
+  .card.on { border-color:rgba(34,211,238,.5); box-shadow:0 0 0 1px rgba(34,211,238,.22),0 0 26px rgba(34,211,238,.16),0 12px 30px rgba(0,0,0,.45); }
+  .card.on::before { content:""; position:absolute; left:0; top:14px; bottom:14px; width:3px; border-radius:0 3px 3px 0; background:var(--accent); box-shadow:0 0 14px var(--accent); }
+  .card.off { opacity:.78; }
+  .chead { display:flex; align-items:center; gap:11px; }
+  .cmeta { min-width:0; } .card .nm { font-size:14px; font-weight:600; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .dicon { width:38px; height:38px; flex:none; display:grid; place-items:center; font-size:18px; border-radius:11px; background:rgba(6,11,20,.65); border:1px solid var(--line); color:var(--fg-dim); transition:var(--fast); }
+  .card.on .dicon { color:var(--accent); border-color:rgba(34,211,238,.5); box-shadow:0 0 16px rgba(34,211,238,.32); text-shadow:0 0 12px var(--accent); }
+  .card .st { font-family:var(--mono); font-size:11px; letter-spacing:1.3px; text-transform:uppercase; color:var(--mut); }
+  .card.on .st { color:var(--accent); text-shadow:0 0 10px rgba(34,211,238,.4); }
+  .sw { position:relative; width:48px; height:27px; flex:none; }
+  .sw input { opacity:0; width:0; height:0; }
+  .sw span { position:absolute; inset:0; background:rgba(6,11,20,.85); border:1px solid var(--line); border-radius:27px; transition:.28s cubic-bezier(.4,0,.2,1); cursor:pointer; }
+  .sw span:before { content:""; position:absolute; height:19px; width:19px; left:3px; top:3px; background:#79889e; border-radius:50%; transition:.28s cubic-bezier(.4,0,.2,1); }
+  .sw input:checked + span { background:linear-gradient(90deg,var(--accent-press),var(--accent)); border-color:var(--accent); box-shadow:0 0 15px rgba(34,211,238,.5),inset 0 0 9px rgba(34,211,238,.32); }
+  .sw input:checked + span:before { transform:translateX(21px); background:#ecffff; box-shadow:0 0 9px rgba(180,250,255,.8); }
+  .gauge { width:90px; height:90px; border-radius:50%; margin:8px auto 2px; display:grid; place-items:center; background:conic-gradient(var(--accent) calc(var(--p)*1%),rgba(255,255,255,.06) 0); box-shadow:0 0 20px rgba(34,211,238,.22); position:relative; }
+  .gauge::before { content:""; position:absolute; inset:0; border-radius:50%; box-shadow:inset 0 0 13px rgba(34,211,238,.3); }
+  .gauge i { width:68px; height:68px; border-radius:50%; background:rgba(7,11,20,.96); display:grid; place-items:center; font-size:17px; font-weight:700; font-style:normal; font-family:var(--mono); color:var(--accent); text-shadow:0 0 10px rgba(34,211,238,.4); }
+  .brange { -webkit-appearance:none; appearance:none; width:100%; height:5px; border-radius:5px; background:rgba(255,255,255,.1); outline:none; margin-top:6px; }
+  .brange::-webkit-slider-thumb { -webkit-appearance:none; width:15px; height:15px; border-radius:50%; background:var(--accent); box-shadow:0 0 11px var(--accent); cursor:pointer; }
+  .brange::-moz-range-thumb { width:15px; height:15px; border:0; border-radius:50%; background:var(--accent); box-shadow:0 0 11px var(--accent); cursor:pointer; }
+  .grid .card { animation:cardin .34s cubic-bezier(.2,.8,.2,1) backwards; }
+  .grid .card:nth-child(2){animation-delay:.04s}.grid .card:nth-child(3){animation-delay:.08s}.grid .card:nth-child(4){animation-delay:.12s}.grid .card:nth-child(5){animation-delay:.16s}.grid .card:nth-child(n+6){animation-delay:.2s}
+  @keyframes cardin { from{opacity:0;transform:translateY(9px) scale(.985)} to{opacity:1;transform:none} }
+  .roomnm { color:var(--accent); text-shadow:0 0 10px rgba(34,211,238,.32); }
+  .roomct { background:rgba(34,211,238,.08); border-color:rgba(34,211,238,.25); color:var(--accent); }
+  /* Driver (media) cards — console transport */
+  .card [data-cap] { padding:7px 0; min-width:36px; font-size:14px; border:1px solid var(--line); border-radius:9px; background:rgba(6,11,20,.6); color:var(--fg-dim); transition:var(--fast); }
+  .card [data-cap]:hover { color:var(--accent); border-color:var(--accent); box-shadow:0 0 10px rgba(34,211,238,.3); }
+  /* Atmospheric depth behind the home view */
+  #view-devices::before { content:""; position:fixed; top:-10%; right:-5%; width:50vw; height:50vh; background:radial-gradient(circle,rgba(34,211,238,.06),transparent 70%); pointer-events:none; z-index:0; }
 </style></head><body>
   <aside class="sidebar">
     <div class="brand"><span class="logo">&#9698;&#9700;</span><b>ELI</b><small>v2</small></div>
@@ -939,15 +974,18 @@ _WEB_UI = """<!doctype html>
       'On the Fire TV: Settings → My Fire TV → Developer Options → enable ADB debugging.',
       'Click Pair, then accept “Allow debugging from this computer?” on the TV.']}:{});
   }
+  const DEV_ICON={light:'&#128161;',switch:'&#9211;',fan:'&#10052;',outlet:'&#128268;',sensor:'&#128200;',climate:'&#127777;',media:'&#9654;',cover:'&#129003;'};
   function devCard(dv){
     if(dv.driver && dv.driver!=='mqtt') return driverCard(dv);
-    const t=dv.type||'switch', card=document.createElement('div');card.className='card';
-    const head='<div><div class="nm">'+esc(dv.name||dv.id)+'</div><div class="dom" title="click to change room">'+esc(t)+'</div></div>';
-    const on=(''+(dv.state||'')).toUpperCase()==='ON';
+    const t=dv.type||'switch', card=document.createElement('div');
+    const sv=(''+(dv.state||'')).toUpperCase(), on=sv==='ON', off=sv==='OFF';
+    card.className='card'+(on?' on':(off?' off':''));
+    const icon='<span class="dicon">'+(DEV_ICON[t]||'&#9670;')+'</span>';
+    const head='<div class="chead">'+icon+'<div class="cmeta"><div class="nm">'+esc(dv.name||dv.id)+'</div><div class="dom" title="click to change room">'+esc(dv.room||t)+'</div></div></div>';
     if(t==='light'||t==='switch'||t==='fan'||t==='outlet'){
-      let h=head+'<div class="row"><span class="st">'+(on?'On':'Off')+'</span><label class="sw"><input type="checkbox" '+(on?'checked':'')+'><span></span></label></div>';
+      let h=head+'<div class="row"><span class="st">'+(on?'Online':(off?'Off':esc(''+(dv.state||'—'))))+'</span><label class="sw"><input type="checkbox" '+(on?'checked':'')+'><span></span></label></div>';
       const briTopic=(dv.attrs||{}).brightness_command_topic;
-      if(t==='light'&&briTopic) h+='<input type="range" min="1" max="100" value="100">';
+      if(t==='light'&&briTopic) h+='<input class="brange" type="range" min="1" max="100" value="100">';
       card.innerHTML=h;
       const tg=card.querySelector('.sw input');tg.onchange=()=>ctlDev(dv.id,tg.checked?'on':'off');
       const sl=card.querySelector('input[type=range]');
@@ -955,7 +993,7 @@ _WEB_UI = """<!doctype html>
     } else {
       const num=parseFloat(dv.state), isNum=!isNaN(num)&&isFinite(num);
       if(isNum && num>=0 && num<=100){
-        card.innerHTML='<div class="nm">'+esc(dv.name||dv.id)+'</div><div class="dom" title="click to change room">'+esc(t)+'</div><div class="gauge" style="--p:'+num+'"><i>'+Math.round(num)+'</i></div>';
+        card.innerHTML=head+'<div class="gauge" style="--p:'+num+'"><i>'+Math.round(num)+'</i></div>';
       } else {
         card.innerHTML=head+'<div class="row"><span class="st">'+esc(''+(dv.state||'unknown'))+'</span></div>';
       }
