@@ -2930,6 +2930,20 @@ class EliMainWindow(QMainWindow):
             from eli.core import config as _cfg
             _cfg.set("network_enabled", checked)
             self.net_btn.setText("🌐 Net: ON" if checked else "🌐 Net: OFF")
+            # Record the flip in the tamper-evident audit ledger (the web toggle already
+            # does; the desktop one did not). Enabling is logged at 'warning' so it stands
+            # out. Once on, netguard records each outbound connection separately.
+            try:
+                from eli.runtime.evidence_ledger import record_event
+                record_event(
+                    "net_toggle", source="gui",
+                    action="NET_ENABLE" if checked else "NET_DISABLE",
+                    outcome="enabled" if checked else "disabled",
+                    severity="warning" if checked else "info",
+                    payload={"enabled": bool(checked)},
+                )
+            except Exception:
+                pass
         except Exception as e:
             log.debug(f"[GUI] network toggle failed: {e}")
 
@@ -4136,8 +4150,10 @@ class EliMainWindow(QMainWindow):
         self.net_btn.setChecked(_net_on)
         self.net_btn.setToolTip(
             "Toggle internet access for ELI.\n"
-            "ON  — news fetch, RSS feeds, and web tools are active.\n"
-            "OFF — fully offline; all AI runs locally with no network calls."
+            "ON  — news fetch, RSS feeds, and web tools are active; every outbound\n"
+            "      connection is logged to the audit trail (host:port).\n"
+            "OFF — fully offline; all AI runs locally with no network calls.\n"
+            "The flip itself is recorded either way."
         )
         self.net_btn.setStyleSheet(
             _BTN_BASE
