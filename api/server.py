@@ -2074,13 +2074,28 @@ _PWA_MANIFEST = {
     "icons": [{"src": "/icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any maskable"}],
 }
 _SERVICE_WORKER = """
-const C='eli-shell-v1';
+const C='eli-shell-v3';
 self.addEventListener('install',e=>self.skipWaiting());
-self.addEventListener('activate',e=>e.waitUntil(self.clients.claim()));
+self.addEventListener('activate',e=>e.waitUntil((async()=>{
+  // Drop any older cache so a stale app shell can never linger.
+  const keys=await caches.keys();
+  await Promise.all(keys.filter(k=>k!==C).map(k=>caches.delete(k)));
+  await self.clients.claim();
+})()));
 self.addEventListener('fetch',e=>{
   if(e.request.method!=='GET')return;
   const u=new URL(e.request.url);
   if(u.pathname.startsWith('/v1/')||u.pathname.startsWith('/docs'))return; // never cache live API
+  // NETWORK-FIRST for the app shell (the HTML page + the SW) so UI updates always appear;
+  // fall back to cache only when genuinely offline. Static assets stay cache-first.
+  const isShell=e.request.mode==='navigate'||u.pathname==='/'||u.pathname==='/sw.js';
+  if(isShell){
+    e.respondWith(fetch(e.request).then(r=>{
+      if(r&&r.status===200){const cp=r.clone();caches.open(C).then(c=>c.put(e.request,cp));}
+      return r;
+    }).catch(()=>caches.match(e.request)));
+    return;
+  }
   e.respondWith(caches.open(C).then(c=>c.match(e.request).then(hit=>{
     const net=fetch(e.request).then(r=>{if(r&&r.status===200)c.put(e.request,r.clone());return r;}).catch(()=>hit);
     return hit||net;
