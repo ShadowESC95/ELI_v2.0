@@ -681,6 +681,14 @@ _WEB_UI = """<!doctype html>
           '<div class="rrow" style="justify-content:center;margin-top:10px"><button class="cbtn" onclick="copyConnUrl()">&#128203; Copy link</button>'+
           '<button class="cbtn" onclick="loadConnect()">&#10227; Refresh</button></div>'+
           '<div class="rnote" style="margin-top:8px">Make sure the phone is on the <b>same Wi-Fi</b> as this computer.</div></div>';
+        if(d.https){
+          h+='<div class="syscard"><div class="row" style="gap:8px"><span class="ld live" style="width:8px;height:8px;border-radius:50%;background:#2ec07a;box-shadow:0 0 8px #2ec07a"></span><b>HTTPS on — phone microphone enabled.</b></div>'+
+            '<div class="rnote" style="margin-top:6px">First open shows a <b>“connection not private”</b> warning (the certificate is self-signed and local) — tap <b>Advanced &#8594; Proceed</b> once. That accept is what unlocks the mic; voice works after it.</div></div>';
+        } else {
+          h+='<div class="syscard"><div class="row" style="gap:8px"><span class="ld warn" style="width:8px;height:8px;border-radius:50%;background:#e0a72e;box-shadow:0 0 8px #e0a72e"></span><b>Phone microphone needs HTTPS.</b></div>'+
+            '<div class="rnote" style="margin-top:6px">Typed chat &amp; “Speak replies” already work on the phone. For the phone <b>mic</b>, restart with HTTPS — one flag, cert generated locally:</div>'+
+            '<div class="connecturl" style="margin:8px 0"><code>python api/server.py --lan --https</code></div></div>';
+        }
       } else {
         h+='<div class="jhead">Make it reachable from your phone</div>'+
           '<div class="syscard"><div class="banner bad" style="margin:0 0 12px">The server is running in <b>local-only</b> mode (loopback), so your phone can&#39;t reach it yet.</div>'+
@@ -2616,11 +2624,13 @@ def _connect_url() -> dict:
     host = os.environ.get("ELI_API_HOST", "127.0.0.1")
     port = os.environ.get("ELI_API_PORT", "8081")
     lan_accessible = host in ("0.0.0.0", "::", "")  # bound to all interfaces
+    scheme = os.environ.get("ELI_API_SCHEME", "http")
     ip = _lan_ip()
     token = _api_token()
-    url = f"http://{ip}:{port}/" + (f"?token={token}" if token else "")
-    return {"lan_ip": ip, "port": port, "bind_host": host,
-            "lan_accessible": lan_accessible, "url": url, "has_token": bool(token)}
+    url = f"{scheme}://{ip}:{port}/" + (f"?token={token}" if token else "")
+    return {"lan_ip": ip, "port": port, "bind_host": host, "scheme": scheme,
+            "https": scheme == "https", "lan_accessible": lan_accessible,
+            "url": url, "has_token": bool(token)}
 
 @app.get("/v1/connect", tags=["System"], dependencies=[Depends(_require_token)])
 def connect_info():
@@ -2903,6 +2913,72 @@ def _lan_ip() -> str:
     return best if best and _score(best) > 0 else "<this-computer-ip>"
 
 
+def _ensure_lan_cert():
+    """Self-signed TLS cert for LAN HTTPS — so a phone browser will allow the microphone
+    (getUserMedia is blocked on plain http://LAN-IP). Generated locally with `cryptography`
+    (pure-python, cross-platform, no cloud); SANs cover the LAN IP + loopback + localhost.
+    Private key born 0600. Reused while valid + still covering the current IP. Returns
+    (cert_path, key_path)."""
+    import datetime
+    import ipaddress
+    from pathlib import Path
+    try:
+        from eli.core.paths import get_paths
+        cdir = Path(get_paths().config_dir) / "certs"
+    except Exception:
+        cdir = Path("config") / "certs"
+    cdir.mkdir(parents=True, exist_ok=True)
+    crt, key = cdir / "eli-lan.crt", cdir / "eli-lan.key"
+    ip = _lan_ip()
+    from cryptography import x509
+    from cryptography.x509.oid import NameOID
+    from cryptography.hazmat.primitives import hashes, serialization
+    from cryptography.hazmat.primitives.asymmetric import rsa
+
+    if crt.exists() and key.exists():  # reuse if valid + covers this IP
+        try:
+            c = x509.load_pem_x509_certificate(crt.read_bytes())
+            ok_time = c.not_valid_after_utc > datetime.datetime.now(datetime.timezone.utc) + datetime.timedelta(days=1)
+            san = c.extensions.get_extension_for_class(x509.SubjectAlternativeName).value
+            ips = [str(x) for x in san.get_values_for_type(x509.IPAddress)]
+            if ok_time and (ip in ips or ip == "<this-computer-ip>"):
+                return str(crt), str(key)
+        except Exception:
+            pass
+
+    k = rsa.generate_private_key(public_exponent=65537, key_size=2048)
+    san_ips = []
+    for cand in (ip, "127.0.0.1"):
+        try:
+            san_ips.append(x509.IPAddress(ipaddress.ip_address(cand)))
+        except Exception:
+            pass
+    san = [x509.DNSName("localhost")] + san_ips
+    name = x509.Name([x509.NameAttribute(NameOID.COMMON_NAME, "ELI Local Server")])
+    now = datetime.datetime.now(datetime.timezone.utc)
+    cert = (x509.CertificateBuilder().subject_name(name).issuer_name(name)
+            .public_key(k.public_key()).serial_number(x509.random_serial_number())
+            .not_valid_before(now - datetime.timedelta(minutes=5))
+            .not_valid_after(now + datetime.timedelta(days=825))
+            .add_extension(x509.SubjectAlternativeName(san), critical=False)
+            .add_extension(x509.BasicConstraints(ca=False, path_length=None), critical=True)
+            .sign(k, hashes.SHA256()))
+    crt.write_bytes(cert.public_bytes(serialization.Encoding.PEM))
+    key_pem = k.private_bytes(serialization.Encoding.PEM,
+                              serialization.PrivateFormat.TraditionalOpenSSL,
+                              serialization.NoEncryption())
+    try:
+        from eli.core import secure_io
+        secure_io.secure_write_bytes(str(key), key_pem, mode=0o600)
+    except Exception:
+        key.write_bytes(key_pem)
+        try:
+            os.chmod(str(key), 0o600)
+        except Exception:
+            pass
+    return str(crt), str(key)
+
+
 def main():
     import argparse
     ap = argparse.ArgumentParser(
@@ -2917,6 +2993,9 @@ def main():
     ap.add_argument("--token", default=None,
                     help="API token to require (default: reuse ELI_API_TOKEN, else auto-generate)")
     ap.add_argument("--reload", action="store_true", help="uvicorn auto-reload (dev)")
+    ap.add_argument("--https", action="store_true",
+                    help="serve over HTTPS with a local self-signed cert — unlocks the phone "
+                         "microphone (browsers block the mic on plain http://LAN-IP)")
     args, _ = ap.parse_known_args()
 
     # Precedence: explicit flag > --lan > env default. --lan means 0.0.0.0 unless --host given.
@@ -2929,6 +3008,18 @@ def main():
     # server is reachable from the LAN (0.0.0.0) or loopback-only, and build the phone URL.
     os.environ["ELI_API_HOST"] = host
     os.environ["ELI_API_PORT"] = str(port)
+
+    # Optional HTTPS (self-signed) so the phone browser allows the microphone.
+    use_https = args.https or os.environ.get("ELI_API_HTTPS", "0").strip().lower() in ("1", "true", "yes", "on")
+    ssl_kw = {}
+    if use_https:
+        try:
+            _crt, _key = _ensure_lan_cert()
+            ssl_kw = {"ssl_certfile": _crt, "ssl_keyfile": _key}
+        except Exception as _e:
+            print(f"  HTTPS requested but cert setup failed ({_e}); serving over HTTP.", flush=True)
+            use_https = False
+    os.environ["ELI_API_SCHEME"] = "https" if use_https else "http"
 
     # The auth gate (_require_token) fails CLOSED by default: with no token and no explicit
     # opt-out, every gated endpoint returns 401. main() is where we relax that for the two
@@ -2949,18 +3040,24 @@ def main():
         if auto_generated:
             token = secrets.token_urlsafe(32)
             os.environ["ELI_API_TOKEN"] = token
-        url = f"http://{_lan_ip()}:{port}/?token={token}"
+        _scheme = "https" if use_https else "http"
+        url = f"{_scheme}://{_lan_ip()}:{port}/?token={token}"
         _bar = "=" * 72
         print(_bar, flush=True)
-        print(f"  ELI web server exposed on the LAN  ({host}:{port})", flush=True)
+        print(f"  ELI web server exposed on the LAN  ({host}:{port}, {_scheme.upper()})", flush=True)
         print(f"  Open this on your phone (same Wi-Fi):   {url}", flush=True)
         print(f"  Or send header:   Authorization: Bearer {token}", flush=True)
+        if use_https:
+            print("  HTTPS is self-signed: your phone will warn once — tap Advanced -> Proceed.", flush=True)
+            print("  (That accept is what unlocks the phone microphone.)", flush=True)
+        else:
+            print("  Tip: add --https to unlock the phone microphone (voice).", flush=True)
         if auto_generated:
             print("  (Token auto-generated; pass --token <secret> or set ELI_API_TOKEN "
                   "for one stable across restarts.)", flush=True)
         print(_bar, flush=True)
 
-    uvicorn.run("api.server:app", host=host, port=port, reload=reload, log_level="info")
+    uvicorn.run("api.server:app", host=host, port=port, reload=reload, log_level="info", **ssl_kw)
 
 if __name__ == "__main__":
     main()

@@ -150,3 +150,9 @@ note_*.md
 
 # Audit chain HMAC key — secret, never commit
 config/.audit_hmac_key
+
+# Local self-signed TLS certs for LAN HTTPS (never commit the private key)
+config/certs/
+*.key
+*.crt
+*.pem
