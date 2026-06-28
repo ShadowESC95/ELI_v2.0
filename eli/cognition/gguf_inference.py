@@ -1261,11 +1261,30 @@ def _generate_legacy(
             stream=True,
             grammar=grammar,
         )
+        _streamed_any = False
         for chunk in _stream_clean_chunks(_strip_think_stream(
                 {"response": c["choices"][0]["text"]} for c in response)):
             cleaned = chunk.get("response", "")
             if cleaned:
+                _streamed_any = True
                 yield {"response": cleaned}
+        # A reasoning model can spend its whole budget inside <think> → the stream strips to
+        # nothing → dead turn. (The broker handles this for non-stream calls; the streaming
+        # main-answer path doesn't go through it.) Retry ONCE forcing no-think so it answers.
+        if (not _streamed_any) and _is_thinking_model() and not _force_no_think_active() and grammar is None:
+            log.debug("[GGUF] empty stream after think-strip — one no-think retry")
+            try:
+                with force_no_think():
+                    _rp = _format_prompt(system, prompt) + _no_think_prefill(structured=False, max_tokens=max_tokens)
+                    _r = _safe_invoke_llm(
+                        llm, _rp, temperature=temperature, max_tokens=min(int(max_tokens or 512), 512),
+                        top_p=top_p, top_k=top_k, repeat_penalty=repeat_penalty, stop=stop,
+                        stream=False, grammar=None)
+                    _c = _clean_eli_output(_r["choices"][0]["text"])
+                    if _c.strip():
+                        yield {"response": _c}
+            except Exception:
+                log.debug("[GGUF] stream no-think retry failed", exc_info=True)
         log.debug(f"[GGUF][TIMING] stream_call_total={time.perf_counter()-started:.3f}s")
     else:
         prompt_tokens = _estimate_prompt_tokens(llm, full_prompt)
@@ -1298,23 +1317,7 @@ def _generate_legacy(
                 _rec_speed(_gen / _elapsed)
         except Exception:
             pass
-        _cleaned = _clean_eli_output(_raw_text)
-        # A reasoning model can spend its whole budget inside <think> and produce no
-        # answer → empty after strip → dead turn. Retry ONCE forcing no-think (reuses the
-        # existing force_no_think / _no_think_prefill path) so it answers directly.
-        if (not _cleaned.strip()) and _is_thinking_model() and not _force_no_think_active() and grammar is None:
-            log.debug("[GGUF] empty after think-strip — one no-think retry")
-            try:
-                with force_no_think():
-                    _retry_prompt = _format_prompt(system, prompt) + _no_think_prefill(structured=False, max_tokens=max_tokens)
-                    _r2 = _safe_invoke_llm(
-                        llm, _retry_prompt, temperature=temperature,
-                        max_tokens=min(int(max_tokens or 512), 512), top_p=top_p, top_k=top_k,
-                        repeat_penalty=repeat_penalty, stop=stop, stream=False, grammar=None)
-                    _cleaned = _clean_eli_output(_r2["choices"][0]["text"])
-            except Exception:
-                log.debug("[GGUF] no-think retry failed", exc_info=True)
-        yield {"response": _cleaned}
+        yield {"response": _clean_eli_output(_raw_text)}
 
 
 _json_grammar = LlamaGrammar.from_string(
