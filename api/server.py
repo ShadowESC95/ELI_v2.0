@@ -693,18 +693,21 @@ _WEB_UI = """<!doctype html>
       if(d.lan_accessible){
         h+='<div class="jhead">Scan with your phone</div>'+
           '<div class="syscard" style="text-align:center">'+
-          '<div class="rnote" style="margin-bottom:10px">Open your phone&#39;s camera and point it at this code — the dashboard opens automatically, already signed in.</div>'+
+          '<div class="rnote" style="margin-bottom:10px">Open your phone&#39;s camera and point it at this code — the dashboard opens automatically, already signed in. (Plain HTTP, so any phone opens it.)</div>'+
           '<div class="qrbox"><div id="qr-img" class="qrimg"><span class="muted">generating…</span></div></div>'+
           '<div class="connecturl"><code id="conn-url">'+esc(d.url)+'</code></div>'+
           '<div class="rrow" style="justify-content:center;margin-top:10px"><button class="cbtn" onclick="copyConnUrl()">&#128203; Copy link</button>'+
           '<button class="cbtn" onclick="loadConnect()">&#10227; Refresh</button></div>'+
           '<div class="rnote" style="margin-top:8px">Make sure the phone is on the <b>same Wi-Fi</b> as this computer.</div></div>';
-        if(d.https){
-          h+='<div class="syscard"><div class="row" style="gap:8px"><span class="ld live" style="width:8px;height:8px;border-radius:50%;background:#2ec07a;box-shadow:0 0 8px #2ec07a"></span><b>HTTPS on — phone microphone enabled.</b></div>'+
-            '<div class="rnote" style="margin-top:6px">First open shows a <b>“connection not private”</b> warning (the certificate is self-signed and local) — tap <b>Advanced &#8594; Proceed</b> once. That accept is what unlocks the mic; voice works after it.</div></div>';
+        if(d.https_available){
+          h+='<div class="jhead">Phone microphone (voice)</div>'+
+            '<div class="syscard" style="text-align:center">'+
+            '<div class="rnote" style="margin-bottom:10px">The mic needs HTTPS. Scan <b>this</b> code instead to open the secure version — your phone shows a <b>“connection not private”</b> warning once (the cert is self-signed &amp; local); tap <b>Advanced &#8594; Proceed</b>. That accept unlocks the mic.</div>'+
+            '<div class="qrbox"><div id="qr-voice" class="qrimg"><span class="muted">generating…</span></div></div>'+
+            '<div class="connecturl"><code>'+esc(d.voice_url||'')+'</code></div></div>';
         } else {
-          h+='<div class="syscard"><div class="row" style="gap:8px"><span class="ld warn" style="width:8px;height:8px;border-radius:50%;background:#e0a72e;box-shadow:0 0 8px #e0a72e"></span><b>Phone microphone needs HTTPS.</b></div>'+
-            '<div class="rnote" style="margin-top:6px">Typed chat &amp; “Speak replies” already work on the phone. For the phone <b>mic</b>, restart with HTTPS — one flag, cert generated locally:</div>'+
+          h+='<div class="syscard"><div class="row" style="gap:8px"><span class="ld warn" style="width:8px;height:8px;border-radius:50%;background:#e0a72e;box-shadow:0 0 8px #e0a72e"></span><b>Want the phone microphone too?</b></div>'+
+            '<div class="rnote" style="margin-top:6px">Typed chat &amp; “Speak replies” already work on the phone. For the phone <b>mic</b>, also start HTTPS — one flag, cert generated locally; a second QR appears here for it:</div>'+
             '<div class="connecturl" style="margin:8px 0"><code>python api/server.py --lan --https</code></div></div>';
         }
       } else {
@@ -717,10 +720,15 @@ _WEB_UI = """<!doctype html>
       }
       const body=document.createElement('div');body.innerHTML=h;host.appendChild(body);
       if(d.lan_accessible){
-        // Fetch the QR WITH auth (an <img> can't send the token) and inject it inline.
-        fetch('/v1/connect/qr.svg',{headers:H()}).then(r=>r.ok?r.text():'').then(svg=>{
+        // Fetch the QR(s) WITH auth (an <img> can't send the token) and inject inline.
+        fetch('/v1/connect/qr.svg?kind=connect',{headers:H()}).then(r=>r.ok?r.text():'').then(svg=>{
           const e=$('#qr-img'); if(e&&svg)e.innerHTML=svg;
         }).catch(()=>{});
+        if(d.https_available){
+          fetch('/v1/connect/qr.svg?kind=voice',{headers:H()}).then(r=>r.ok?r.text():'').then(svg=>{
+            const e=$('#qr-voice'); if(e&&svg)e.innerHTML=svg;
+          }).catch(()=>{});
+        }
       }
     }).catch(e=>{$('#connect-tab').innerHTML='<div class="err">'+esc(''+e)+'</div>';});
   }
@@ -2663,13 +2671,15 @@ def _connect_url() -> dict:
     host = os.environ.get("ELI_API_HOST", "127.0.0.1")
     port = os.environ.get("ELI_API_PORT", "8081")
     lan_accessible = host in ("0.0.0.0", "::", "")  # bound to all interfaces
-    scheme = os.environ.get("ELI_API_SCHEME", "http")
     ip = _lan_ip()
     token = _api_token()
-    url = f"{scheme}://{ip}:{port}/" + (f"?token={token}" if token else "")
-    return {"lan_ip": ip, "port": port, "bind_host": host, "scheme": scheme,
-            "https": scheme == "https", "lan_accessible": lan_accessible,
-            "url": url, "has_token": bool(token)}
+    q = f"?token={token}" if token else ""
+    url = f"http://{ip}:{port}/" + q            # primary connect — opens on any phone
+    hport = os.environ.get("ELI_API_HTTPS_PORT")  # set only when HTTPS (voice) is running
+    voice_url = (f"https://{ip}:{hport}/" + q) if hport else None
+    return {"lan_ip": ip, "port": port, "bind_host": host, "scheme": "http",
+            "lan_accessible": lan_accessible, "url": url, "has_token": bool(token),
+            "https_available": bool(hport), "https_port": hport, "voice_url": voice_url}
 
 @app.get("/v1/connect", tags=["System"], dependencies=[Depends(_require_token)])
 def connect_info():
@@ -2677,15 +2687,15 @@ def connect_info():
     return {"ok": True, **_connect_url()}
 
 @app.get("/v1/connect/qr.svg", tags=["System"], dependencies=[Depends(_require_token)])
-def connect_qr():
-    """A scannable QR (SVG) of the phone URL — point the phone camera at it and the
-    dashboard opens, token and all. Generated locally with segno (no cloud, no deps).
-    Dark modules on a light field with a quiet-zone border so phone cameras read it
-    reliably; the dashboard fetches this with auth and injects it inline."""
+def connect_qr(kind: str = "connect"):
+    """A scannable QR (SVG). kind=connect → the HTTP URL (opens on any phone); kind=voice →
+    the HTTPS URL (enables the mic). Dark modules on a light field with a quiet-zone border
+    so phone cameras read it reliably; the dashboard fetches this with auth and injects it."""
     info = _connect_url()
+    target = info["voice_url"] if (kind == "voice" and info.get("voice_url")) else info["url"]
     try:
         import segno
-        svg = segno.make(info["url"], error="m").svg_inline(
+        svg = segno.make(target, error="m").svg_inline(
             scale=7, border=3, dark="#06141f", light="#eafcff")
         return Response(content=svg, media_type="image/svg+xml")
     except Exception as e:
@@ -3051,55 +3061,60 @@ def main():
     os.environ["ELI_API_HOST"] = host
     os.environ["ELI_API_PORT"] = str(port)
 
-    # Optional HTTPS (self-signed) so the phone browser allows the microphone.
+    # Optional HTTPS for the phone MICROPHONE (getUserMedia is blocked on http://LAN-IP).
+    # Key insight: a self-signed HTTPS URL is hostile to QR scanners (many refuse to open
+    # it). So we keep PLAIN HTTP as the primary connect path — it opens on any phone — and,
+    # when --https is on, run HTTPS ALONGSIDE on its own port purely for voice. The Connect
+    # tab shows the HTTP QR to connect + an HTTPS link/QR to enable the mic.
     use_https = args.https or os.environ.get("ELI_API_HTTPS", "0").strip().lower() in ("1", "true", "yes", "on")
-    ssl_kw = {}
+    https_port = None
+    _crt = _key = None
     if use_https:
         try:
             _crt, _key = _ensure_lan_cert()
-            ssl_kw = {"ssl_certfile": _crt, "ssl_keyfile": _key}
+            https_port = int(os.environ.get("ELI_API_HTTPS_PORT", "8443"))
+            os.environ["ELI_API_HTTPS_PORT"] = str(https_port)
         except Exception as _e:
-            print(f"  HTTPS requested but cert setup failed ({_e}); serving over HTTP.", flush=True)
+            print(f"  HTTPS requested but cert setup failed ({_e}); HTTP only.", flush=True)
             use_https = False
-    os.environ["ELI_API_SCHEME"] = "https" if use_https else "http"
+            https_port = None
+    os.environ["ELI_API_SCHEME"] = "http"  # primary is always HTTP (reliable phone-open)
 
-    # The auth gate (_require_token) fails CLOSED by default: with no token and no explicit
-    # opt-out, every gated endpoint returns 401. main() is where we relax that for the two
-    # safe cases — and ONLY here, so a raw `uvicorn api.server:app` (which never runs main())
-    # stays locked down.
+    # The auth gate fails CLOSED by default; main() relaxes it for the two safe cases ONLY.
     if _is_loopback_host(host):
-        # Genuinely local bind (127.0.0.0/8, ::1) — enable tokenless serving for
-        # zero-friction same-machine use. This is the ONLY place it is enabled.
-        # An explicit ELI_API_ALLOW_TOKENLESS=0 (lock down even local) is respected.
         os.environ.setdefault("ELI_API_ALLOW_TOKENLESS", "1")
     else:
-        # Non-loopback bind — would expose device control + file ingest to the whole
-        # network. A token is mandatory: reuse ELI_API_TOKEN if set, else auto-generate.
-        # Tokenless stays OFF here regardless.
         os.environ.pop("ELI_API_ALLOW_TOKENLESS", None)
         token = _api_token()
         auto_generated = not token
         if auto_generated:
             token = secrets.token_urlsafe(32)
             os.environ["ELI_API_TOKEN"] = token
-        _scheme = "https" if use_https else "http"
-        url = f"{_scheme}://{_lan_ip()}:{port}/?token={token}"
+        ip = _lan_ip()
         _bar = "=" * 72
         print(_bar, flush=True)
-        print(f"  ELI web server exposed on the LAN  ({host}:{port}, {_scheme.upper()})", flush=True)
-        print(f"  Open this on your phone (same Wi-Fi):   {url}", flush=True)
-        print(f"  Or send header:   Authorization: Bearer {token}", flush=True)
-        if use_https:
-            print("  HTTPS is self-signed: your phone will warn once — tap Advanced -> Proceed.", flush=True)
-            print("  (That accept is what unlocks the phone microphone.)", flush=True)
+        print(f"  ELI web server on the LAN  ({host}:{port})", flush=True)
+        print(f"  Phone — open the Connect tab and scan, or visit:", flush=True)
+        print(f"      http://{ip}:{port}/?token={token}", flush=True)
+        if https_port:
+            print(f"  Phone microphone (voice) needs HTTPS — same Connect tab, or visit:", flush=True)
+            print(f"      https://{ip}:{https_port}/?token={token}", flush=True)
+            print("      (self-signed: accept the one-time 'not private' warning to use the mic)", flush=True)
         else:
-            print("  Tip: add --https to unlock the phone microphone (voice).", flush=True)
+            print("  Tip: add --https to also enable the phone microphone (voice).", flush=True)
+        print(f"  Or send header:   Authorization: Bearer {token}", flush=True)
         if auto_generated:
-            print("  (Token auto-generated; pass --token <secret> or set ELI_API_TOKEN "
-                  "for one stable across restarts.)", flush=True)
+            print("  (Token auto-generated; pass --token <secret> for a stable one.)", flush=True)
         print(_bar, flush=True)
 
-    uvicorn.run("api.server:app", host=host, port=port, reload=reload, log_level="info", **ssl_kw)
+    # Run HTTPS (voice) alongside on its own port, in a daemon thread.
+    if https_port and _crt and _key:
+        import threading
+        _hsrv = uvicorn.Server(uvicorn.Config(
+            "api.server:app", host=host, port=https_port, log_level="warning",
+            ssl_certfile=_crt, ssl_keyfile=_key))
+        threading.Thread(target=_hsrv.run, daemon=True).start()
+    uvicorn.run("api.server:app", host=host, port=port, reload=reload, log_level="info")
 
 if __name__ == "__main__":
     main()
