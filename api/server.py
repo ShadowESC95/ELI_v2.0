@@ -560,8 +560,8 @@ _WEB_UI = """<!doctype html>
   input[type=color].setinput { padding:2px; width:46px; min-width:46px; height:32px; cursor:pointer; }
   /* Connect a phone */
   .qrbox { display:inline-block; padding:14px; background:#eafcff; border:1px solid rgba(34,211,238,.3); border-radius:16px; box-shadow:0 0 28px rgba(34,211,238,.18); }
-  .qrimg { width:236px; height:236px; display:grid; place-items:center; }
-  .qrimg svg { width:236px; height:236px; display:block; }
+  .qrimg { width:248px; height:248px; display:block; }
+  .qrimg svg { width:100%; height:100%; display:block; }
   .connecturl { margin-top:12px; }
   .connecturl code { display:inline-block; font-family:var(--mono); font-size:12.5px; color:var(--accent); background:rgba(7,12,22,.6); border:1px solid var(--line); border-radius:8px; padding:8px 12px; word-break:break-all; max-width:100%; }
 </style></head><body>
@@ -2702,9 +2702,20 @@ def connect_qr(kind: str = "connect"):
     info = _connect_url()
     target = info["voice_url"] if (kind == "voice" and info.get("voice_url")) else info["url"]
     try:
+        import re
         import segno
         svg = segno.make(target, error="m").svg_inline(
-            scale=7, border=3, dark="#06141f", light="#eafcff")
+            scale=8, border=4, dark="#06141f", light="#eafcff")
+        # segno's svg_inline emits width/height but NO viewBox, so a CSS resize CLIPS it
+        # (cutting off the QR → unscannable). Add a viewBox so it scales to its container,
+        # and make it responsive (width/height 100%).
+        m = re.search(r'width="(\d+)" height="(\d+)"', svg)
+        if m:
+            w = m.group(1)
+            svg = svg.replace(
+                m.group(0),
+                f'viewBox="0 0 {w} {w}" width="100%" height="100%" '
+                f'preserveAspectRatio="xMidYMid meet"', 1)
         return Response(content=svg, media_type="image/svg+xml")
     except Exception as e:
         raise HTTPException(status_code=503, detail=f"qr unavailable: {e} (pip install segno)")
