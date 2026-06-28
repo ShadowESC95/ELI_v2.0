@@ -531,6 +531,16 @@ _WEB_UI = """<!doctype html>
   .card [data-cap]:hover { color:var(--accent); border-color:var(--accent); box-shadow:0 0 10px rgba(34,211,238,.3); }
   /* Atmospheric depth behind the home view */
   #view-devices::before { content:""; position:fixed; top:-10%; right:-5%; width:50vw; height:50vh; background:radial-gradient(circle,rgba(34,211,238,.06),transparent 70%); pointer-events:none; z-index:0; }
+  /* Settings rows */
+  .setrow { display:flex; align-items:center; justify-content:space-between; gap:16px; padding:12px 2px; border-bottom:1px solid var(--line); }
+  .setrow:last-child { border-bottom:0; }
+  .setlbl { font-size:13.5px; } .setlbl .rnote { margin-top:2px; }
+  .setctl { display:flex; align-items:center; gap:9px; flex:none; }
+  .setinput { padding:7px 10px; border:1px solid var(--line); border-radius:8px; background:var(--input); color:var(--fg); font-size:13px; min-width:130px; }
+  .setinput:focus { outline:none; border-color:var(--accent); box-shadow:0 0 0 2px rgba(34,211,238,.18); }
+  input.setinput[type=range] { min-width:160px; padding:0; }
+  .setnum { font-family:var(--mono); font-size:12px; color:var(--accent); min-width:46px; text-align:right; text-shadow:0 0 8px rgba(34,211,238,.3); }
+  input[type=color].setinput { padding:2px; width:46px; min-width:46px; height:32px; cursor:pointer; }
 </style></head><body>
   <aside class="sidebar">
     <div class="brand"><span class="logo">&#9698;&#9700;</span><b>ELI</b><small>v2</small></div>
@@ -543,6 +553,7 @@ _WEB_UI = """<!doctype html>
       <button data-tab="research"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M9 3h6M10 3v6l-5.5 9.5A2 2 0 0 0 6.2 21h11.6a2 2 0 0 0 1.7-3.5L14 9V3"/></svg><span>Research</span></button>
       <button data-tab="audit"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M12 3l8 3v6c0 5-4 8-8 9-4-1-8-4-8-9V6z"/><path d="M9 12l2 2 4-4"/></svg><span>Audit</span></button>
       <button data-tab="admin"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M4 6h16M4 12h16M4 18h16"/><circle cx="9" cy="6" r="2" fill="currentColor" stroke="none"/><circle cx="15" cy="12" r="2" fill="currentColor" stroke="none"/><circle cx="8" cy="18" r="2" fill="currentColor" stroke="none"/></svg><span>Admin</span></button>
+      <button data-tab="settings"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg><span>Settings</span></button>
     </nav>
     <div class="sidefoot"><span id="rolebadge">local &middot; private</span><button class="iconbtn" id="appearbtn" title="Colours" onclick="openAppear()">&#9670;</button><button class="iconbtn" id="themebtn" title="Toggle light / dark">&#9680;</button></div>
   </aside>
@@ -570,6 +581,7 @@ _WEB_UI = """<!doctype html>
   <section class="view" id="view-research"><div id="research"><div class="muted">Loading…</div></div></section>
   <section class="view" id="view-audit"><div id="audit"><div class="muted">Loading…</div></div></section>
   <section class="view" id="view-admin"><div id="admin"><div class="muted">Loading…</div></div></section>
+  <section class="view" id="view-settings"><div id="settings-tab"><div class="muted">Loading…</div></div></section>
   </main>
   <div id="appear" class="modal"><div class="sheet">
     <h3>Colours</h3><div class="sub">Personalise the chat — your choices are saved on this device.</div>
@@ -586,6 +598,62 @@ _WEB_UI = """<!doctype html>
   const H=()=>{const h={'Content-Type':'application/json'};if(token)h['Authorization']='Bearer '+token;return h;};
   const api=(path,opts)=>fetch(path,Object.assign({headers:H()},opts||{})).then(r=>r.json());
   function esc(s){return (''+s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));}
+  // ── Settings (real, typed options wired to ELI's config) ───────────────
+  let _setSub='General', _setSchema=[], _setVals={}, _setVoices=[];
+  function loadSettings(){
+    Promise.all([api('/v1/settings'), api('/v1/voice/voices').catch(()=>({})), api('/v1/me').catch(()=>({}))]).then(function(r){
+      const s=r[0]||{}, v=r[1]||{}, me=r[2]||{};
+      _setSchema=s.schema||[]; _setVals=s.values||{};
+      _setVoices=((v.voices)||[]).map(x=>x.id||x.name||x);
+      const isAdmin=!me.role||me.role==='admin';
+      const groups=[],seen={};_setSchema.forEach(it=>{if(!seen[it.group]){seen[it.group]=1;groups.push(it.group);}});
+      const host=$('#settings-tab');host.innerHTML='';
+      const strip=document.createElement('div');strip.className='livestrip';
+      strip.innerHTML='<span class="lstitle">&#9670; SETTINGS</span><span class="lspill"><b>'+_setSchema.length+'</b> options</span>'+(isAdmin?'<span class="lspill"><span class="ld live"></span>admin — editable</span>':'<span class="lspill"><span class="ld warn"></span>read-only</span>');
+      host.appendChild(strip);
+      const shell=document.createElement('div');shell.className='subwrap';host.appendChild(shell);
+      mountSubtabs(shell, groups.map(g=>({id:g,label:g,render:el=>settingsPane(el,g,isAdmin)})), groups.indexOf(_setSub)>=0?_setSub:groups[0], id=>{_setSub=id;});
+    }).catch(e=>{$('#settings-tab').innerHTML='<div class="err">'+esc(''+e)+'</div>';});
+  }
+  function settingControl(it,val){
+    const k=esc(it.key);
+    if(it.type==='bool')return '<label class="sw"><input type="checkbox" data-k="'+k+'" '+(val?'checked':'')+'><span></span></label>';
+    if(it.type==='int'||it.type==='float'){
+      if(it.min!==undefined)return '<input type="range" class="brange setinput" data-k="'+k+'" data-t="'+it.type+'" min="'+it.min+'" max="'+it.max+'" step="'+it.step+'" value="'+(val!=null?val:it.min)+'" oninput="this.nextElementSibling.textContent=this.value"><span class="setnum">'+(val!=null?val:it.min)+'</span>';
+      return '<input type="number" class="setinput" data-k="'+k+'" data-t="'+it.type+'" value="'+(val!=null?val:'')+'">';
+    }
+    if(it.key==='tts_voice'&&_setVoices.length)return '<select class="setinput" data-k="'+k+'">'+_setVoices.map(v=>'<option '+(v===val?'selected':'')+'>'+esc(v)+'</option>').join('')+'</select>';
+    if(it.key==='theme')return '<select class="setinput" data-k="'+k+'"><option '+(val==='dark'?'selected':'')+'>dark</option><option '+(val==='light'?'selected':'')+'>light</option></select>';
+    if(it.key==='user_text_color')return '<input type="color" class="setinput" data-k="'+k+'" value="'+(val||'#4DA3FF')+'">';
+    return '<input type="text" class="setinput" data-k="'+k+'" value="'+esc(val!=null?val:'')+'">';
+  }
+  function settingsPane(el, group, isAdmin){
+    const items=_setSchema.filter(it=>it.group===group);
+    let h='<div class="jhead">'+esc(group)+'</div><div class="syscard">';
+    items.forEach(it=>{h+='<div class="setrow"><div class="setlbl"><div>'+esc(it.label)+'</div>'+(it.hint?'<div class="rnote">'+esc(it.hint)+'</div>':'')+'</div><div class="setctl">'+settingControl(it,_setVals[it.key])+'</div></div>';});
+    h+='</div>';
+    if(isAdmin)h+='<div class="rrow" style="margin-top:14px"><button onclick="saveSettings(\\''+esc(group)+'\\')">Save '+esc(group)+'</button><span id="set-status-'+esc(group)+'" class="rnote" style="align-self:center"></span></div>';
+    else h+='<div class="rnote" style="margin-top:10px">Sign in as admin to change settings.</div>';
+    el.innerHTML=h;
+    if(!isAdmin)el.querySelectorAll('[data-k]').forEach(x=>x.disabled=true);
+  }
+  function saveSettings(group){
+    const st=$('#set-status-'+group);if(st)st.textContent='Saving…';
+    const out={};
+    document.querySelectorAll('#view-settings [data-k]').forEach(el=>{
+      const k=el.dataset.k;let v;
+      if(el.type==='checkbox')v=el.checked;
+      else if(el.dataset.t==='int')v=parseInt(el.value,10);
+      else if(el.dataset.t==='float')v=parseFloat(el.value);
+      else v=el.value;
+      out[k]=v;
+    });
+    api('/v1/settings',{method:'POST',body:JSON.stringify({settings:out})}).then(r=>{
+      if(st)st.innerHTML=r.ok?'Saved &#10003;':'<span style="color:#f87171">'+esc(r.error||'failed')+'</span>';
+      if(out.theme){applyTheme(out.theme==='light'?'light':'dark');}
+      if(out.hasOwnProperty('user_name')&&r.ok){const e=$('#me-name');if(e)e.textContent=out.user_name||'';}
+    }).catch(e=>{if(st)st.textContent=''+e;});
+  }
   function switchTab(t){document.querySelector('nav.tabs button[data-tab="'+t+'"]').click();}
 
   /* theme toggle (persisted; applied pre-paint in <head> to avoid flash) */
@@ -641,6 +709,7 @@ _WEB_UI = """<!doctype html>
     if(b.dataset.tab==='research') loadResearch();
     if(b.dataset.tab==='audit') loadAudit();
     if(b.dataset.tab==='admin') loadAdmin();
+    if(b.dataset.tab==='settings') loadSettings();
   });
 
   /* chat */
@@ -1718,6 +1787,33 @@ class NetToggle(BaseModel):
     enabled: bool
     reason: str = ""
 
+class SettingsUpdate(BaseModel):
+    settings: dict = {}
+
+# Curated, safe-to-expose ELI settings — real keys from runtime_settings.DEFAULTS, grouped
+# for the dashboard. Excludes anything that could strand a running model (model_path,
+# n_gpu_layers, tensor_split…). (type, group, label, hint, [min, max, step] for numbers).
+_SETTINGS_SCHEMA = {
+    "user_name":              ("str",  "General",    "Your name", "What ELI calls you"),
+    "auto_save":              ("bool", "General",    "Auto-save conversations", ""),
+    "log_to_file":            ("bool", "General",    "Write logs to file", ""),
+    "temperature":            ("float","Generation", "Temperature", "Higher = more creative", 0.0, 2.0, 0.05),
+    "top_p":                  ("float","Generation", "Top-p", "Nucleus sampling", 0.0, 1.0, 0.01),
+    "top_k":                  ("int",  "Generation", "Top-k", "0 = disabled", 0, 200, 1),
+    "max_tokens":             ("int",  "Generation", "Max response tokens", "", 256, 32768, 256),
+    "repeat_penalty":         ("float","Generation", "Repeat penalty", "", 1.0, 1.5, 0.01),
+    "model_thinking":         ("bool", "Generation", "Deep thinking (reasoning models)", "Higher quality, slower"),
+    "auto_speak":             ("bool", "Voice",      "Speak replies aloud", ""),
+    "tts_voice":              ("str",  "Voice",      "Voice", "Local Piper voice"),
+    "mic_enabled":            ("bool", "Voice",      "Microphone / wake word", ""),
+    "vision_enabled":         ("bool", "Vision",     "Local vision", "Describe images & screen"),
+    "ambient_vision_enabled": ("bool", "Vision",     "Ambient screen glances", "Periodic awareness"),
+    "ambient_vision_interval":("int",  "Vision",     "Glance interval (s)", "", 30, 1800, 30),
+    "searxng_url":            ("str",  "Network",    "SearXNG URL", "Optional self-hosted search"),
+    "theme":                  ("str",  "Appearance", "Theme", "dark or light"),
+    "user_text_color":        ("str",  "Appearance", "Your message colour", ""),
+}
+
 class ResearchQuery(BaseModel):
     corpus: str
     question: str
@@ -2318,6 +2414,51 @@ def net_set(body: NetToggle, principal: Principal = Depends(require_admin)):
         return {"ok": True, "net": state}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/v1/settings", tags=["System"], dependencies=[Depends(_require_token)])
+def get_settings():
+    """Current values for the curated, safe-to-expose settings + their schema, so the
+    dashboard can render real, typed controls (no invented options)."""
+    from eli.core import config as _cfg
+    cur = {}
+    for k in _SETTINGS_SCHEMA:
+        cur[k] = _cfg.get(k, None)
+    schema = []
+    for k, t in _SETTINGS_SCHEMA.items():
+        item = {"key": k, "type": t[0], "group": t[1], "label": t[2], "hint": t[3]}
+        if len(t) > 4:
+            item.update({"min": t[4], "max": t[5], "step": t[6]})
+        schema.append(item)
+    return {"ok": True, "values": cur, "schema": schema}
+
+@app.post("/v1/settings", tags=["System"])
+def set_settings(req: SettingsUpdate, principal: Principal = Depends(require_admin)):
+    """Apply settings (admin-only). Only allow-listed keys with valid coercion are written;
+    every change is recorded to the tamper-evident audit ledger."""
+    from eli.core import config as _cfg
+    applied = {}
+    for k, v in (req.settings or {}).items():
+        if k not in _SETTINGS_SCHEMA:
+            continue
+        typ = _SETTINGS_SCHEMA[k][0]
+        try:
+            if typ == "bool":
+                v = bool(v)
+            elif typ == "int":
+                v = int(v)
+            elif typ == "float":
+                v = float(v)
+            else:
+                v = str(v)
+        except Exception:
+            continue
+        _cfg.set(k, v)
+        applied[k] = v
+    if applied:
+        _audit("settings_update", user_id=principal.user_id, action="UPDATE",
+               subject=",".join(sorted(applied)), outcome="applied",
+               payload={"applied": applied})
+    return {"ok": True, "applied": applied}
 
 # ----------------------------------------------------------------------
 # Audit trail  (powers the "Audit" tab — tamper-evident, read-only)
