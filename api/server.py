@@ -559,8 +559,9 @@ _WEB_UI = """<!doctype html>
   .setnum { font-family:var(--mono); font-size:12px; color:var(--accent); min-width:46px; text-align:right; text-shadow:0 0 8px rgba(34,211,238,.3); }
   input[type=color].setinput { padding:2px; width:46px; min-width:46px; height:32px; cursor:pointer; }
   /* Connect a phone */
-  .qrbox { display:inline-block; padding:14px; background:#05070d; border:1px solid rgba(34,211,238,.3); border-radius:16px; box-shadow:0 0 28px rgba(34,211,238,.18); }
-  .qrbox img { width:232px; height:232px; display:block; }
+  .qrbox { display:inline-block; padding:14px; background:#eafcff; border:1px solid rgba(34,211,238,.3); border-radius:16px; box-shadow:0 0 28px rgba(34,211,238,.18); }
+  .qrimg { width:236px; height:236px; display:grid; place-items:center; }
+  .qrimg svg { width:236px; height:236px; display:block; }
   .connecturl { margin-top:12px; }
   .connecturl code { display:inline-block; font-family:var(--mono); font-size:12.5px; color:var(--accent); background:rgba(7,12,22,.6); border:1px solid var(--line); border-radius:8px; padding:8px 12px; word-break:break-all; max-width:100%; }
 </style></head><body>
@@ -693,7 +694,7 @@ _WEB_UI = """<!doctype html>
         h+='<div class="jhead">Scan with your phone</div>'+
           '<div class="syscard" style="text-align:center">'+
           '<div class="rnote" style="margin-bottom:10px">Open your phone&#39;s camera and point it at this code — the dashboard opens automatically, already signed in.</div>'+
-          '<div class="qrbox"><img id="qr-img" alt="QR code" src="/v1/connect/qr.svg?t='+Date.now()+'"></div>'+
+          '<div class="qrbox"><div id="qr-img" class="qrimg"><span class="muted">generating…</span></div></div>'+
           '<div class="connecturl"><code id="conn-url">'+esc(d.url)+'</code></div>'+
           '<div class="rrow" style="justify-content:center;margin-top:10px"><button class="cbtn" onclick="copyConnUrl()">&#128203; Copy link</button>'+
           '<button class="cbtn" onclick="loadConnect()">&#10227; Refresh</button></div>'+
@@ -715,6 +716,12 @@ _WEB_UI = """<!doctype html>
           '<div class="rnote" style="margin-top:10px;opacity:.7">Your LAN address would be <b>http://'+esc(d.lan_ip||'this-computer')+':'+esc(''+(d.port||'8081'))+'/</b> once LAN mode is on.</div></div>';
       }
       const body=document.createElement('div');body.innerHTML=h;host.appendChild(body);
+      if(d.lan_accessible){
+        // Fetch the QR WITH auth (an <img> can't send the token) and inject it inline.
+        fetch('/v1/connect/qr.svg',{headers:H()}).then(r=>r.ok?r.text():'').then(svg=>{
+          const e=$('#qr-img'); if(e&&svg)e.innerHTML=svg;
+        }).catch(()=>{});
+      }
     }).catch(e=>{$('#connect-tab').innerHTML='<div class="err">'+esc(''+e)+'</div>';});
   }
   function copyConnUrl(){const u=($('#conn-url')||{}).textContent||'';
@@ -2657,11 +2664,14 @@ def connect_info():
 @app.get("/v1/connect/qr.svg", tags=["System"], dependencies=[Depends(_require_token)])
 def connect_qr():
     """A scannable QR (SVG) of the phone URL — point the phone camera at it and the
-    dashboard opens, token and all. Generated locally with segno (no cloud, no deps)."""
+    dashboard opens, token and all. Generated locally with segno (no cloud, no deps).
+    Dark modules on a light field with a quiet-zone border so phone cameras read it
+    reliably; the dashboard fetches this with auth and injects it inline."""
     info = _connect_url()
     try:
         import segno
-        svg = segno.make(info["url"], error="m").svg_inline(scale=6, dark="#22d3ee", light=None)
+        svg = segno.make(info["url"], error="m").svg_inline(
+            scale=7, border=3, dark="#06141f", light="#eafcff")
         return Response(content=svg, media_type="image/svg+xml")
     except Exception as e:
         raise HTTPException(status_code=503, detail=f"qr unavailable: {e} (pip install segno)")
