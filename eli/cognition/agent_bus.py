@@ -3147,8 +3147,10 @@ def _trust_custom_agent(py_file: Path) -> None:
         if registry_path.exists():
             existing = _json_ta.loads(registry_path.read_text(encoding="utf-8"))
         existing[py_file.name] = sha
-        registry_path.parent.mkdir(parents=True, exist_ok=True)
-        registry_path.write_text(_json_ta.dumps(existing, indent=2), encoding="utf-8")
+        # Integrity anchor for the agent-trust gate (hashes, not secrets) — write
+        # it 0600/atomic so it can't be tampered or partially written by others.
+        from eli.core.secure_io import secure_write_text as _secure_write_ta
+        _secure_write_ta(registry_path, _json_ta.dumps(existing, indent=2), mode=0o600)
         log.debug(f"[AGENTBUS] Trusted agent registered: {py_file.name} ({sha[:12]}…)")
     except Exception as _e:
         log.debug(f"[AGENTBUS] Failed to register agent trust for {py_file.name}: {_e}")

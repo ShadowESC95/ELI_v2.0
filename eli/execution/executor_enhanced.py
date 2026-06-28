@@ -941,8 +941,94 @@ def _format_runtime_paths(report: Dict[str, Any]) -> str:
         )
     return "\n".join(lines)
 
-def _gui_runtime_audit_report() -> Dict[str, Any]:
-    gui_path = _canonical_runtime_file_map()['gui']
+def _grounded_file_audit_report(path: Path) -> Dict[str, Any]:
+    """Grounded structural audit of an explicitly-referenced source file.
+
+    Unlike the GUI wiring scan (which checks a fixed set of needles in one
+    hardcoded file), this derives all of its evidence dynamically from the file
+    the user actually pointed at: AST top-level structure for Python, plus
+    merge-marker and user-specific-path scans. It reports what is genuinely in
+    that file rather than confabulating about an unrelated one.
+    """
+    entry = {'path': str(path), 'status': 'PASS', 'issues': [], 'evidence': {}, 'snippets': {}}
+    if not path.exists():
+        entry['status'] = 'FAIL'
+        entry['issues'].append({'type': 'missing_file', 'line': 0, 'message': 'file not found'})
+        return {'ok': True, 'entry': entry}
+    text = path.read_text(encoding='utf-8', errors='replace')
+    lines = text.splitlines()
+    entry['evidence']['lines_total'] = [len(lines)]
+    if path.suffix == '.py':
+        import ast
+        try:
+            tree = ast.parse(text)
+        except SyntaxError as e:
+            entry['status'] = 'FAIL'
+            entry['issues'].append({'type': 'syntax', 'line': int(e.lineno or 0),
+                                    'message': f'SyntaxError: {e.msg}'})
+            tree = None
+        if tree is not None:
+            imports: List[int] = []
+            classes: List[int] = []
+            funcs: List[int] = []
+            decorators: List[int] = []
+            for node in tree.body:
+                if isinstance(node, (ast.Import, ast.ImportFrom)):
+                    imports.append(node.lineno)
+                elif isinstance(node, ast.ClassDef):
+                    classes.append(node.lineno)
+                    entry['snippets'].setdefault('classes', []).append(
+                        f"  line {node.lineno}: class {node.name}")
+                elif isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                    funcs.append(node.lineno)
+                    entry['snippets'].setdefault('functions', []).append(
+                        f"  line {node.lineno}: def {node.name}")
+                    decorators.extend(node.lineno for _ in node.decorator_list)
+            entry['evidence']['imports'] = imports
+            entry['evidence']['classes'] = classes
+            entry['evidence']['functions'] = funcs
+            if decorators:
+                entry['evidence']['decorated_defs'] = decorators
+            # Cap the structural sample so the audit stays evidence, not a dump.
+            for cat in ('classes', 'functions'):
+                snips = entry['snippets'].get(cat) or []
+                if len(snips) > 15:
+                    entry['snippets'][cat] = snips[:15] + [f"  … +{len(snips) - 15} more"]
+    entry['issues'].extend(_scan_merge_markers(lines))
+    entry['issues'].extend(_scan_user_specific_paths(lines))
+    if entry['issues'] and entry['status'] != 'FAIL':
+        entry['status'] = 'FAIL'
+    return {'ok': True, 'entry': entry}
+
+
+def _gui_runtime_audit_report(question: Optional[str] = None) -> Dict[str, Any]:
+    canon = _canonical_runtime_file_map()
+    gui_path = canon['gui']
+    # Dynamic target: if the user explicitly referenced a source file, audit
+    # THAT file (grounded, AST-derived) instead of the hardcoded GUI file. The
+    # old behaviour ignored the referenced path entirely and always reported on
+    # the GUI — so a request about api/server.py came back describing the GUI.
+    if question:
+        try:
+            from eli.runtime.code_examiner import _extract_named_paths as _enp
+            referenced = _enp(question)
+        except Exception:
+            referenced = []
+        for cand in referenced:
+            if cand.resolve() != gui_path.resolve():
+                return _grounded_file_audit_report(cand)
+    # No path in this turn — thread the file the conversation was actually about
+    # (set when ELI last summarised/examined/fixed a file). This is what makes a
+    # follow-up "prove you read it" audit the right file instead of the GUI.
+    try:
+        from eli.runtime.code_examiner import get_last_file as _glf
+        last = str(_glf() or "").strip()
+        if last:
+            lp = Path(last)
+            if lp.exists() and lp.resolve() != gui_path.resolve():
+                return _grounded_file_audit_report(lp)
+    except Exception:
+        pass
     entry = {'path': str(gui_path), 'status': 'PASS', 'issues': [], 'evidence': {}, 'snippets': {}}
     if not gui_path.exists():
         entry['status'] = 'FAIL'; entry['issues'].append({'type': 'missing_file', 'line': 0, 'message': 'file not found'})
@@ -987,6 +1073,86 @@ def _format_gui_runtime_audit(report: Dict[str, Any]) -> str:
         prefix = f"  - line {line_no}" if line_no else '  - line ?'
         out.append(f"{prefix} [{issue.get('type')}] {issue.get('message')}")
     return '\n'.join(out)
+
+
+def _split_text_on_lines(text: str, max_chars: int) -> List[str]:
+    """Split text into <= max_chars windows on line boundaries. A single line
+    longer than max_chars is hard-split so nothing is dropped."""
+    out: List[str] = []
+    buf: List[str] = []
+    size = 0
+    for line in text.splitlines(keepends=True):
+        if len(line) > max_chars:
+            if buf:
+                out.append("".join(buf)); buf = []; size = 0
+            for i in range(0, len(line), max_chars):
+                out.append(line[i:i + max_chars])
+            continue
+        if size + len(line) > max_chars and buf:
+            out.append("".join(buf)); buf = []; size = 0
+        buf.append(line); size += len(line)
+    if buf:
+        out.append("".join(buf))
+    return out
+
+
+_SUMMARY_SYSTEM = ("You are a precise technical analyst. Summarize key points, "
+                   "structure, and purpose. Ground every statement in the text "
+                   "provided; never invent details that are not present.")
+
+
+def _summarize_long_text(content: str, instruction: str = "", *, _depth: int = 0) -> Optional[str]:
+    """Summarize text of ANY length WITHOUT truncation, via hierarchical
+    map-reduce sized to the loaded model's real context window.
+
+    Small inputs are summarised in one pass. Larger inputs are split on line
+    boundaries into context-sized chunks, each chunk is summarised (MAP), then
+    the partial summaries are synthesised into one (REDUCE) — recursing if the
+    combined partials are themselves too large. The entire file is always read;
+    nothing is silently dropped. Returns None only if no model is available.
+    """
+    from eli.cognition import gguf_inference as _gi
+    if _gi.load_model() is None:
+        return None
+    # Usable context (tokens) → input char budget (~3.5 chars/token), leaving
+    # headroom for the system prompt, instruction, and the generated summary.
+    try:
+        ctx_tokens = int(_gi.current_context_limit() or 0)
+    except Exception:
+        ctx_tokens = 0
+    if ctx_tokens <= 0:
+        ctx_tokens = 4096
+    in_token_budget = max(512, int(ctx_tokens * 0.55))
+    chunk_chars = max(2000, int(in_token_budget * 3.5))
+
+    base_instruction = (instruction or "").strip() or "Summarize the following file content."
+
+    if len(content) <= chunk_chars:
+        msg = f"{base_instruction}\n\nFile content:\n\n{content}"
+        return _gi.chat_completion(msg, system=_SUMMARY_SYSTEM, max_tokens=900, temperature=0.3)
+
+    # Degenerate-input guard: stop recursing if reduction can't shrink the text.
+    if _depth >= 5:
+        msg = (f"{base_instruction}\n\nFile content (final reduction pass):\n\n"
+               f"{content[:chunk_chars]}")
+        return _gi.chat_completion(msg, system=_SUMMARY_SYSTEM, max_tokens=900, temperature=0.3)
+
+    chunks = _split_text_on_lines(content, chunk_chars)
+    n = len(chunks)
+    partials: List[str] = []
+    for i, ch in enumerate(chunks, 1):
+        msg = (f"{base_instruction}\n\nThis is part {i} of {n} of a single file. "
+               f"Summarize THIS part's key points, structure, and purpose:\n\n{ch}")
+        part = _gi.chat_completion(msg, system=_SUMMARY_SYSTEM, max_tokens=500, temperature=0.3)
+        partials.append(f"[Part {i}/{n}]\n{(part or '').strip()}")
+
+    combined = "\n\n".join(partials)
+    reduce_instruction = (
+        "Synthesize these partial summaries of ONE file into a single coherent, "
+        "complete summary covering its structure, key components, and purpose. "
+        "Do not present them as separate parts.")
+    return _summarize_long_text(combined, reduce_instruction, _depth=_depth + 1)
+
 
 def _explain_memory_runtime_report() -> Dict[str, Any]:
     import sqlite3
@@ -9663,22 +9829,22 @@ def _execute_impl(action: str, args: Optional[Dict[str, Any]] = None) -> Dict[st
                 pass
             _sf_body = _sf_summary if _sf_summary else _sf_raw[:3000]
             return {"ok": True, "action": a, "content": _sf_body, "response": _sf_body}
+        # Anchor the conversational "current file" so a later proof-challenge
+        # ("prove you read it") audits THIS file rather than the GUI default.
         try:
+            from eli.runtime import code_examiner as _ce_sf
+            _ce_sf.set_last_file(str(expanded))
+        except Exception:
+            pass
+        try:
+            # Read the WHOLE file — no 8000-byte truncation. The summariser does
+            # hierarchical map-reduce sized to the model context, so an arbitrarily
+            # large file is fully covered instead of summarising only its first 10%.
             with open(expanded, errors="replace") as _sf:
-                _sf_raw = _sf.read(8000)
+                _sf_raw = _sf.read()
             _sf_summary = None
             try:
-                from eli.cognition import gguf_inference as _sfgi
-                if _sfgi.load_model() is not None:
-                    _sf_user_msg = (
-                        f"{_sf_instruction}\n\nFile content:\n\n{_sf_raw[:6000]}"
-                        if _sf_instruction else
-                        f"Summarize the following file content:\n\n{_sf_raw[:6000]}"
-                    )
-                    _sf_summary = _sfgi.chat_completion(
-                        _sf_user_msg,
-                        system="You are a precise technical analyst. Summarize key points, structure, and purpose.",
-                        max_tokens=700, temperature=0.3)
+                _sf_summary = _summarize_long_text(_sf_raw, _sf_instruction)
             except Exception:
                 pass
             _sf_stem = _SFPP(expanded).stem
@@ -9799,7 +9965,15 @@ def _execute_impl(action: str, args: Optional[Dict[str, Any]] = None) -> Dict[st
             # specific files AND there's genuine breakage (syntax / failed import / undefined
             # name). This stops a vague "run full audit" from applying botched 7B lint patches
             # to ELI's own core files.
-            _named = bool(_ce._extract_named_paths(request))
+            _named = _ce._extract_named_paths(request)
+            # Anchor the conversational "current file" when the user named one,
+            # so a later "prove you actually read it" audits that file.
+            if _named:
+                try:
+                    _ce.set_last_file(str(_named[0]))
+                except Exception:
+                    pass
+            _named = bool(_named)
             _fixable = [f for f in findings if _ce.is_real_breakage(f)]
             if _named and _fixable:
                 _ce.set_pending_fix(_fixable, paths)
@@ -11027,7 +11201,10 @@ def execute(action: str, args: Optional[Dict[str, Any]] = None, **kwargs) -> Dic
         rep = _resolve_runtime_paths_report(); txt = _format_runtime_paths(rep)
         return {'ok': True, 'action': a, 'report': rep, 'content': txt, 'response': txt}
     if a == 'GUI_RUNTIME_AUDIT':
-        rep = _gui_runtime_audit_report(); txt = _format_gui_runtime_audit(rep)
+        _q = ""
+        if isinstance(args, dict):
+            _q = str(args.get("question") or args.get("message") or args.get("text") or "")
+        rep = _gui_runtime_audit_report(_q); txt = _format_gui_runtime_audit(rep)
         return {'ok': True, 'action': a, 'report': rep, 'content': txt, 'response': txt}
     if a == 'EXPLAIN_ALL_REASONING_MODES':
         rep = _explain_all_reasoning_modes_report(); txt = _format_all_reasoning_modes(rep)
