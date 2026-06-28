@@ -108,24 +108,38 @@ def _bearer(authorization: str) -> str:
     return a[7:].strip() if a.lower().startswith("bearer ") else ""
 
 
-def _resolve_principal(authorization: str) -> Optional[Principal]:
+def _is_loopback_client(request) -> bool:
+    """True when the request comes from THIS machine (the socket peer is loopback). Used to
+    keep same-machine browsing zero-friction even when the server is bound to 0.0.0.0 for
+    the LAN. The peer address is the real kernel socket source — it can't be spoofed to
+    127.x from another device (martian-source packets are dropped), so this is safe."""
+    try:
+        host = (request.client.host if (request and request.client) else "") or ""
+    except Exception:
+        return False
+    return host == "::1" or host == "localhost" or host.startswith("127.")
+
+
+def _resolve_principal(authorization: str, loopback: bool = False) -> Optional[Principal]:
     """Resolve a request to an authenticated Principal, or None (→ 401).
 
     RBAC mode (one or more users defined): the bearer token maps to a (user_id, role).
-    Single-operator mode (no users): the legacy ELI_API_TOKEN — or a loopback bind with
-    tokenless allowed — authenticates the local 'operator' as admin (back-compatible)."""
+    Single-operator mode (no users): the legacy ELI_API_TOKEN — or a loopback connection /
+    tokenless bind — authenticates the local 'operator' as admin (back-compatible).
+    `loopback` lets a same-machine caller serve tokenless even in --lan mode; LAN callers
+    (non-loopback) always still need the token."""
     token = _bearer(authorization)
+    tokenless = _tokenless_allowed() or loopback
     try:
         from eli.runtime import api_users
         if api_users.rbac_enabled():
             rec = api_users.resolve_token(token)
             if rec:
                 return Principal(rec["user_id"], rec["role"])
-            # No matching token. The LOOPBACK operator (no token + tokenless allowed,
-            # which main() enables only on a loopback bind) is the machine owner — keep
-            # them admin so they can manage users / never lock themselves out. A LAN
-            # client (no tokenless) with no/invalid token still fails closed.
-            if not token and _tokenless_allowed():
+            # No matching token. The LOOPBACK operator (machine owner) stays admin so they
+            # can manage users / never lock themselves out. A LAN client (non-loopback, no
+            # tokenless) with no/invalid token still fails closed.
+            if not token and tokenless:
                 return Principal("operator", "admin")
             return None
     except Exception:
@@ -134,8 +148,10 @@ def _resolve_principal(authorization: str) -> Optional[Principal]:
     if configured:
         if token and secrets.compare_digest(token, configured):
             return Principal("operator", "admin")
+        if not token and loopback:   # same machine, no token typed → owner
+            return Principal("operator", "admin")
         return None
-    if _tokenless_allowed():
+    if tokenless:
         return Principal("operator", "admin")
     return None
 
@@ -148,10 +164,11 @@ def _rank(role: str) -> int:
     return _ROLE_RANK.get((role or "").strip().lower(), 0)  # unknown role → least privilege
 
 
-def _authenticated(authorization: str) -> Principal:
+def _authenticated(authorization: str, loopback: bool = False) -> Principal:
     """Fail-CLOSED: resolve to a Principal or 401. The default — no token, no opt-out —
-    is DENY, so a raw `uvicorn api.server:app` stays locked down regardless of main()."""
-    p = _resolve_principal(authorization)
+    is DENY, so a raw `uvicorn api.server:app` stays locked down regardless of main().
+    A same-machine (loopback) caller is the owner and serves tokenless even in --lan mode."""
+    p = _resolve_principal(authorization, loopback)
     if p is None:
         raise HTTPException(
             status_code=401,
@@ -161,31 +178,31 @@ def _authenticated(authorization: str) -> Principal:
     return p
 
 
-def require_viewer(authorization: str = Header(default="")) -> Principal:
+def require_viewer(request: Request, authorization: str = Header(default="")) -> Principal:
     """Read-only level — any authenticated caller (viewer, member, or admin)."""
-    return _authenticated(authorization)
+    return _authenticated(authorization, _is_loopback_client(request))
 
 
-def require_member(authorization: str = Header(default="")) -> Principal:
+def require_member(request: Request, authorization: str = Header(default="")) -> Principal:
     """Acting level — member or admin. A read-only viewer is 403'd from mutating actions."""
-    p = _authenticated(authorization)
+    p = _authenticated(authorization, _is_loopback_client(request))
     if _rank(p.role) < _ROLE_RANK["member"]:
         raise HTTPException(status_code=403, detail="member role required (read-only viewer)")
     return p
 
 
-def require_admin(authorization: str = Header(default="")) -> Principal:
+def require_admin(request: Request, authorization: str = Header(default="")) -> Principal:
     """Admin level — the Admin console + user management."""
-    p = _authenticated(authorization)
+    p = _authenticated(authorization, _is_loopback_client(request))
     if _rank(p.role) < _ROLE_RANK["admin"]:
         raise HTTPException(status_code=403, detail="admin role required")
     return p
 
 
-def _require_token(authorization: str = Header(default="")):
+def _require_token(request: Request, authorization: str = Header(default="")):
     """Read-level dependency (kept as the name read-only endpoints already reference) —
     permits any authenticated caller, including a viewer."""
-    require_viewer(authorization)
+    _authenticated(authorization, _is_loopback_client(request))
 
 
 def _effective_user(principal: Optional[Principal], supplied: str) -> str:
