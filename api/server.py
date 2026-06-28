@@ -740,17 +740,24 @@ _WEB_UI = """<!doctype html>
 
   /* devices — ELI's OWN MQTT device server (no Home Assistant) */
   function loadDevices(){
-    api('/v1/devices/status').then(s=>{
+    // Load driver status first so non-MQTT cards render correctly, then the device grid.
+    // The grid shows whenever there are ANY devices (MQTT or driver-based) OR a broker is
+    // configured — so AirPlay/Fire TV/Cast work with no MQTT broker at all.
+    Promise.all([api('/v1/devices/status'), loadDrivers()]).then(([s])=>{
       const st=(s&&s.status)||{};
-      if(!st.configured){renderDevConfig(st);return;}
-      api('/v1/devices/rooms').then(d=>renderDevices(d.rooms||[], st))
-        .catch(e=>{$('#devices').innerHTML='<div class="err">'+esc(''+e)+'</div>';});
+      api('/v1/devices/rooms').then(d=>{
+        const rooms=d.rooms||[];
+        const total=rooms.reduce((n,r)=>n+(r.devices?r.devices.length:0),0);
+        if(!st.configured && !total){renderDevConfig(st);return;}
+        renderDevices(rooms, st);
+      }).catch(e=>{$('#devices').innerHTML='<div class="err">'+esc(''+e)+'</div>';});
     }).catch(e=>{$('#devices').innerHTML='<div class="err">'+esc(''+e)+'</div>';});
   }
   function renderDevConfig(st, vals, err){
     st=st||{}; vals=vals||{};
     $('#devices').innerHTML='<div class="hconfig"><h3>Set up ELI&#39;s device server</h3>'+
-      '<p>ELI talks to your devices directly over <b>MQTT</b> — no Home Assistant. Point it at your MQTT broker (e.g. a local Mosquitto), then add devices that speak MQTT (ESPHome / Tasmota / Zigbee2MQTT).</p>'+
+      '<p><b>Find on my network</b> to add media devices — AirPlay, Fire TV, Chromecast, UPnP — controlled locally, no cloud. '+
+      'For switches &amp; lights, point ELI at an <b>MQTT</b> broker (e.g. a local Mosquitto) and add devices that speak MQTT (ESPHome / Tasmota / Zigbee2MQTT) — no Home Assistant.</p>'+
       (err?'<div class="banner bad" style="margin:0 0 12px">'+esc(err)+'</div>':'')+
       '<label>Broker host</label><input id="mq_host" autocomplete="off" placeholder="192.168.1.50 or mosquitto.local" value="'+esc(vals.host||st.brokerHost||'')+'">'+
       '<label>Port</label><input id="mq_port" value="'+esc(vals.port||'1883')+'">'+
@@ -774,13 +781,16 @@ _WEB_UI = """<!doctype html>
       let h='';
       if(br.length){h+='<div class="rnote" style="margin-top:10px">MQTT broker(s) found — click to use:</div>';
         br.forEach(b=>{h+='<div class="src" style="cursor:pointer" onclick="useBroker(\\''+esc(b.host)+'\\','+(b.port||1883)+')"><div class="sh"><span>&#128268; '+esc(b.name||b.host)+'</span><span>'+esc(b.host)+':'+(b.port||'')+'</span></div></div>';});}
-      const others=all.filter(f=>f.kind!=='mqtt_broker');
+      window._disc=all;
+      const others=[]; all.forEach((f,i)=>{if(f.kind!=='mqtt_broker')others.push([f,i]);});
+      const ADDABLE={airplay:1,firetv:1,cast:1,upnp_renderer:1,sonos:1};
       if(others.length){
         h+='<div class="rnote" style="margin-top:12px">Devices seen on your network:</div>';
-        others.forEach(f=>{
+        others.forEach(([f,i])=>{
           const cs=f.control_status||'detected';
+          const add=ADDABLE[f.kind]?'<button class="cbtn" style="padding:2px 10px" onclick="addDiscovered('+i+')">Add</button>':'';
           h+='<div class="src"><div class="sh"><span>'+esc(f.label||f.kind)+' — '+esc(f.name||'')+'</span>'
-            +'<span style="color:'+(col[cs]||col.detected)+'">'+(lab[cs]||'detected')+'</span></div>'
+            +'<span style="display:flex;gap:8px;align-items:center"><span style="color:'+(col[cs]||col.detected)+'">'+(lab[cs]||'detected')+'</span>'+add+'</span></div>'
             +'<div style="font-size:.8em;opacity:.6">'+esc(f.host||'')+(f.port?(':'+f.port):'')+'</div></div>';
         });
       }
@@ -797,6 +807,12 @@ _WEB_UI = """<!doctype html>
     }).catch(e=>{if(btn){btn.disabled=false;btn.innerHTML='&#128270; Find on my network';}box.innerHTML='<div class="banner bad">'+esc(''+e)+'</div>';});
   }
   function useBroker(host,port){const h=$('#mq_host'),p=$('#mq_port');if(h)h.value=host;if(p)p.value=port||1883;const f=$('#mq-found');if(f)f.innerHTML='<div class="rnote" style="margin-top:10px">Broker set to '+esc(host)+'. Click &ldquo;Save &amp; connect&rdquo;.</div>';}
+  function openDiscover(){let f=$('#mq-found');if(!f){f=document.createElement('div');f.id='mq-found';$('#devices').appendChild(f);}f.scrollIntoView({behavior:'smooth',block:'nearest'});discoverDevices();}
+  function addDiscovered(i){const f=(window._disc||[])[i];if(!f)return;
+    api('/v1/devices/add-discovered',{method:'POST',body:JSON.stringify({device:f})}).then(r=>{
+      if(!r.ok){alert(r.error||'Could not add device');return;}
+      loadDrivers().then(loadDevices);
+    }).catch(e=>alert(''+e));}
   function saveDevConfig(){
     const body={host:($('#mq_host').value||'').trim(), port:parseInt($('#mq_port').value||'1883',10)||1883,
       username:($('#mq_user').value||'').trim(), password:$('#mq_pass').value||'',
@@ -808,7 +824,96 @@ _WEB_UI = """<!doctype html>
       setTimeout(loadDevices,500);
     }).catch(e=>{renderDevConfig({}, body, ''+e);});
   }
+  // ── Local-control drivers (AirPlay / Fire TV / Cast / UPnP) ────────────────
+  let DRIVERS={};
+  const DRIVER_CAPS={
+    airplay:['play','pause','stop','previous','next','volume'],
+    firetv:['home','back','up','down','left','right','select','play','pause','on','off'],
+    cast:['play','pause','stop','volume'],
+    upnp:['play','pause','stop','volume'],
+  };
+  const CAP_LABEL={play:'▶',pause:'⏸',stop:'⏹',previous:'⏮',next:'⏭',home:'⌂',back:'↩',
+    up:'▲',down:'▼',left:'◀',right:'▶',select:'OK',on:'On',off:'Off',volume:'🔊'};
+  function loadDrivers(){return api('/v1/devices/drivers').then(d=>{DRIVERS={};(d.drivers||[]).forEach(x=>DRIVERS[x.name]=x);return DRIVERS;}).catch(()=>DRIVERS);}
+  function isPaired(dv){const a=dv.attrs||{};
+    if(dv.driver==='airplay')return !!a.airplay_credentials;
+    if(dv.driver==='firetv')return !!a.adbkey;
+    return true;}
+  function driverCard(dv){
+    const card=document.createElement('div');card.className='card';
+    const drv=DRIVERS[dv.driver]||{};
+    const head='<div><div class="nm">'+esc(dv.name||dv.id)+'</div><div class="dom">'+esc((drv.label||dv.driver))+'</div></div>';
+    let h=head;
+    if(!drv.installed){
+      h+='<div class="row"><span class="st" style="color:#e0a72e">driver needed</span>'
+        +'<button class="cbtn" data-act="install">Install</button></div>'
+        +'<div style="font-size:.78em;opacity:.6">one-click — installs '+esc(drv.pip||dv.driver)+' locally</div>';
+    } else if(drv.needs_pairing && !isPaired(dv)){
+      h+='<div class="row"><span class="st" style="color:#e0a72e">not paired</span>'
+        +'<button class="cbtn" data-act="pair">Pair</button></div>';
+    } else {
+      const caps=DRIVER_CAPS[dv.driver]||[];
+      h+='<div class="row" style="flex-wrap:wrap;gap:6px">';
+      caps.forEach(c=>{h+='<button class="cbtn" data-cap="'+c+'" title="'+c+'">'+(CAP_LABEL[c]||c)+'</button>';});
+      h+='</div><div style="font-size:.78em;opacity:.55">'+esc(dv.host||'')+' · ready</div>';
+    }
+    card.innerHTML=h;
+    const ib=card.querySelector('[data-act=install]');
+    if(ib)ib.onclick=()=>{ib.disabled=true;ib.textContent='Installing…';
+      api('/v1/devices/driver/install',{method:'POST',body:JSON.stringify({name:dv.driver})}).then(r=>{
+        if(!r.ok){ib.disabled=false;ib.textContent='Install';alert('Install failed: '+(r.error||'')+(r.log?('\\n'+r.log):''));return;}
+        loadDrivers().then(loadDevices);
+      }).catch(e=>{ib.disabled=false;ib.textContent='Install';alert(''+e);});};
+    const pb=card.querySelector('[data-act=pair]');
+    if(pb)pb.onclick=()=>pairDialog(dv);
+    card.querySelectorAll('[data-cap]').forEach(b=>{b.onclick=()=>{
+      let v=null; if(b.dataset.cap==='volume'){v=prompt('Volume 0–100:','30');if(v===null)return;v=parseInt(v,10)||0;}
+      b.disabled=true;api('/v1/devices/control',{method:'POST',body:JSON.stringify({device_id:dv.id,command:b.dataset.cap,value:v})}).then(r=>{
+        b.disabled=false; if(!r.ok){if(r.need_pair){loadDevices();}else alert('Failed: '+(r.error||''));}
+      }).catch(e=>{b.disabled=false;alert(''+e);});};});
+    const rm=document.createElement('button');rm.className='cbtn';rm.textContent='remove';rm.style.cssText='margin-top:8px;opacity:.6';
+    rm.onclick=()=>{if(confirm('Remove '+(dv.name||dv.id)+'?'))api('/v1/devices/remove',{method:'POST',body:JSON.stringify({device_id:dv.id})}).then(loadDevices);};
+    card.appendChild(rm);
+    return card;
+  }
+  // Guided pairing — adapts to the driver's style (accept-on-device vs PIN entry).
+  function pairDialog(dv){
+    const drv=DRIVERS[dv.driver]||{};
+    const ov=document.createElement('div');ov.className='pairov';
+    ov.style.cssText='position:fixed;inset:0;background:rgba(0,0,0,.6);display:flex;align-items:center;justify-content:center;z-index:9999';
+    const box=document.createElement('div');box.className='card';box.style.cssText='max-width:440px;width:92%;padding:20px';
+    ov.appendChild(box);document.body.appendChild(ov);
+    const close=()=>{ov.remove();loadDevices();};
+    function render(state){
+      let h='<div class="nm" style="font-size:1.1em">Pair '+esc(dv.name||dv.id)+'</div>';
+      if(state.instructions&&state.instructions.length){h+='<ol style="margin:10px 0 4px;padding-left:18px;line-height:1.5">'+state.instructions.map(s=>'<li>'+esc(s)+'</li>').join('')+'</ol>';}
+      if(state.error)h+='<div class="banner bad" style="margin:8px 0">'+esc(state.error)+'</div>';
+      if(state.need_code){h+='<div style="margin:10px 0">'+esc(state.prompt||'Enter the code shown on the device:')+'</div><input id="pcode" inputmode="numeric" placeholder="PIN" style="width:120px">';}
+      if(state.paired){h+='<div class="banner ok" style="margin:8px 0">Paired — '+esc(dv.name||dv.id)+' is ready.</div>';}
+      h+='<div class="row" style="margin-top:14px;gap:8px;justify-content:flex-end">';
+      if(state.paired){h+='<button class="cbtn" data-x="done">Done</button>';}
+      else{h+='<button class="cbtn" data-x="cancel" style="opacity:.6">Cancel</button>'
+        +'<button class="cbtn" data-x="go">'+(state.need_code?'Finish':(drv.pair_style==='pin'?'Start':'Pair'))+'</button>';}
+      h+='</div>';box.innerHTML=h;
+      const go=box.querySelector('[data-x=go]'),cn=box.querySelector('[data-x=cancel]'),dn=box.querySelector('[data-x=done]');
+      if(cn)cn.onclick=()=>ov.remove();
+      if(dn)dn.onclick=close;
+      if(go)go.onclick=()=>{
+        const code=state.need_code?((box.querySelector('#pcode')||{}).value||'').trim():null;
+        go.disabled=true;go.textContent='…';
+        api('/v1/devices/pair',{method:'POST',body:JSON.stringify({device_id:dv.id,code:code})}).then(r=>{
+          if(r.paired){render({paired:true});return;}
+          render(r);
+        }).catch(e=>render({error:''+e}));
+      };
+    }
+    // Fire TV starts with instructions; AirPlay starts with a Start button.
+    render(drv.pair_style==='accept'?{instructions:[
+      'On the Fire TV: Settings → My Fire TV → Developer Options → enable ADB debugging.',
+      'Click Pair, then accept “Allow debugging from this computer?” on the TV.']}:{});
+  }
   function devCard(dv){
+    if(dv.driver && dv.driver!=='mqtt') return driverCard(dv);
     const t=dv.type||'switch', card=document.createElement('div');card.className='card';
     const head='<div><div class="nm">'+esc(dv.name||dv.id)+'</div><div class="dom" title="click to change room">'+esc(t)+'</div></div>';
     const on=(''+(dv.state||'')).toUpperCase()==='ON';
@@ -844,7 +949,9 @@ _WEB_UI = """<!doctype html>
     h.appendChild(bar);
     const sg=document.createElement('div');sg.id='home-sugg';h.appendChild(sg);
     loadHomeSuggestions();
-    if(!total){const m=document.createElement('div');m.className='muted';m.textContent='No devices yet. Add one below, or set a discovery prefix to auto-find them.';h.appendChild(m);}
+    if(!total){const m=document.createElement('div');m.className='muted';m.style.cssText='padding:18px 0;line-height:1.6';
+      m.innerHTML='No devices yet. <b>Find on my network</b> to add a media device (AirPlay, Fire TV, Cast), '
+        +'or set up an MQTT broker for switches &amp; lights (ESPHome / Tasmota / Zigbee2MQTT).';h.appendChild(m);}
     rooms.forEach(rm=>{
       const sec=document.createElement('div');sec.className='roomsec';
       const hd=document.createElement('div');hd.className='roomhd';
@@ -857,9 +964,12 @@ _WEB_UI = """<!doctype html>
     });
     const sp=document.createElement('div');sp.id='scenes-panel';h.appendChild(sp);loadScenesPanel();
     const foot=document.createElement('div');foot.className='afilter';foot.style.marginTop='14px';
-    foot.innerHTML='<button onclick="addDevicePrompt()">+ Add device</button><button onclick="loadDevices()">Refresh</button><span class="link" style="align-self:center" onclick="renderDevConfig({})">Broker settings</span>';
+    foot.innerHTML='<button class="cbtn" onclick="openDiscover()">&#128270; Find on my network</button>'
+      +'<button onclick="addDevicePrompt()">+ Add device</button><button onclick="loadDevices()">Refresh</button>'
+      +'<span class="link" style="align-self:center" onclick="renderDevConfig({})">Broker settings</span>';
     h.appendChild(foot);
     const slot=document.createElement('div');slot.id='dev-add';h.appendChild(slot);
+    const found=document.createElement('div');found.id='mq-found';found.style.marginTop='10px';h.appendChild(found);
   }
   /* scenes + automation builder */
   let _bdevs=[], _bscenes=[];
@@ -1123,7 +1233,7 @@ _WEB_UI = """<!doctype html>
   function acceptSugg(device,hour,name){api('/v1/home/suggestions/accept',{method:'POST',body:JSON.stringify({device:device,command:'on',hour:hour,name:name})}).then(()=>loadHomeSuggestions()).catch(()=>{});}
   function toggleAuto(id,en){api('/v1/home/automations/toggle',{method:'POST',body:JSON.stringify({id:id,enabled:en})}).catch(()=>{});}
   function removeAuto(id){api('/v1/home/automations/remove',{method:'POST',body:JSON.stringify({id:id})}).then(()=>loadHomeSuggestions()).catch(()=>{});}
-  window.renderDevConfig=renderDevConfig; window.saveDevConfig=saveDevConfig; window.ctlDev=ctlDev; window.addDevicePrompt=addDevicePrompt; window.addDevice=addDevice; window.loadDevices=loadDevices; window.ctlRoom=ctlRoom; window.moveDevice=moveDevice; window.discoverDevices=discoverDevices; window.useBroker=useBroker;
+  window.renderDevConfig=renderDevConfig; window.saveDevConfig=saveDevConfig; window.ctlDev=ctlDev; window.addDevicePrompt=addDevicePrompt; window.addDevice=addDevice; window.loadDevices=loadDevices; window.ctlRoom=ctlRoom; window.moveDevice=moveDevice; window.discoverDevices=discoverDevices; window.useBroker=useBroker; window.openDiscover=openDiscover; window.addDiscovered=addDiscovered; window.pairDialog=pairDialog;
   window.loadScenesPanel=loadScenesPanel; window.createScene=createScene; window.activateScene=activateScene; window.removeScene=removeScene; window.autoTrigFields=autoTrigFields; window.autoActFields=autoActFields; window.createAutomation=createAutomation; window.useMyLocation=useMyLocation; window.saveLocation=saveLocation;
   /* audit — tamper-evident trail + chain verification */
   let auditUser='';
@@ -1380,6 +1490,17 @@ class DeviceRoom(BaseModel):
 class RoomControl(BaseModel):
     room: str
     command: str                  # on | off
+
+class DriverInstall(BaseModel):
+    name: str                     # cast | firetv | airplay | upnp
+
+class AddDiscovered(BaseModel):
+    # A discovery result from /v1/devices/discover (kind/host/port/control/name/...).
+    device: dict = {}
+
+class DevicePair(BaseModel):
+    device_id: str
+    code: Optional[str] = None    # PIN for AirPlay; omit to begin pairing
 
 class AutomationCreate(BaseModel):
     device: str
@@ -1856,9 +1977,35 @@ def devices_control(req: DeviceControl):
 
 @app.post("/v1/devices/discover", tags=["Devices"], dependencies=[Depends(require_member)])
 def devices_discover(timeout: float = 3.0):
-    """Scan the LAN (mDNS) for MQTT brokers + smart devices, so you don't have to know IPs."""
+    """Scan the LAN (mDNS + SSDP/UPnP) for brokers, media devices, AirPlay, Fire TV, Cast."""
     from eli.runtime.device_server import discover
     return discover(timeout=min(8.0, max(1.0, float(timeout))))
+
+@app.get("/v1/devices/drivers", tags=["Devices"], dependencies=[Depends(_require_token)])
+def devices_drivers():
+    """Local-control driver status: which are installed, how each pairs — so the dashboard
+    can offer one-click Install / guided Pair when you choose to control a device."""
+    from eli.runtime import device_drivers
+    return {"ok": True, "drivers": device_drivers.driver_status(),
+            "adb": device_drivers.adb_available()}
+
+@app.post("/v1/devices/driver/install", tags=["Devices"], dependencies=[Depends(require_admin)])
+def devices_driver_install(req: DriverInstall):
+    """One-click, on-demand install of a control driver's library into ELI's own venv
+    (admin-only). Keeps the base lean — you only pull a driver when you actually use it."""
+    from eli.runtime import device_drivers
+    return device_drivers.install_driver(req.name)
+
+@app.post("/v1/devices/add-discovered", tags=["Devices"], dependencies=[Depends(require_member)])
+def devices_add_discovered(req: AddDiscovered):
+    """Promote a discovery result into a controllable device with its local driver."""
+    return _device_server().add_discovered_device(req.device or {})
+
+@app.post("/v1/devices/pair", tags=["Devices"], dependencies=[Depends(require_member)])
+def devices_pair(req: DevicePair):
+    """Drive a device's pairing (AirPlay PIN / Fire TV accept-on-device). Returns the next
+    step: need_code, instructions, or paired."""
+    return _device_server().pair_device(req.device_id, req.code)
 
 @app.get("/v1/home/state", tags=["Devices"], dependencies=[Depends(_require_token)])
 def home_state_ep():

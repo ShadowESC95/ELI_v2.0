@@ -93,7 +93,9 @@ class DeviceServer:
     # ── Registry ────────────────────────────────────────────────────────────
     def register_device(self, *, device_id: str, name: str = "", dtype: str = "switch",
                         command_topic: str = "", state_topic: str = "",
-                        room: str = "", attrs: Optional[dict] = None) -> Dict[str, Any]:
+                        room: str = "", attrs: Optional[dict] = None,
+                        driver: str = "mqtt", host: str = "", port: Optional[int] = None,
+                        location: str = "") -> Dict[str, Any]:
         did = (device_id or "").strip()
         if not did:
             return {"ok": False, "error": "device_id required"}
@@ -105,6 +107,10 @@ class DeviceServer:
                 "name": name or dev.get("name") or did,
                 "type": dtype,
                 "room": (room.strip() if room else dev.get("room", "")),
+                "driver": (driver or dev.get("driver") or "mqtt").lower(),
+                "host": host or dev.get("host", ""),
+                "port": port if port is not None else dev.get("port"),
+                "location": location or dev.get("location", ""),
                 "command_topic": command_topic or dev.get("command_topic", ""),
                 "state_topic": state_topic or dev.get("state_topic", ""),
                 "attrs": {**(dev.get("attrs") or {}), **(attrs or {})},
@@ -117,6 +123,52 @@ class DeviceServer:
         if self._connected and dev.get("state_topic"):
             self._subscribe(dev["state_topic"])
         return {"ok": True, "device": dev}
+
+    def add_discovered_device(self, disc: Dict[str, Any]) -> Dict[str, Any]:
+        """Promote a discovery result (mDNS/SSDP) into a controllable registry device,
+        carrying the right local driver. MQTT brokers are configured separately, not added
+        as devices."""
+        kind = (disc.get("kind") or "").lower()
+        control = (disc.get("control") or "").lower()
+        if kind == "mqtt_broker":
+            return {"ok": False, "error": "that's an MQTT broker — set it as your broker instead"}
+        driver = {"cast": "cast", "airplay": "airplay", "firetv": "firetv",
+                  "upnp_renderer": "upnp", "sonos": "upnp"}.get(kind, control or "")
+        if driver not in ("cast", "airplay", "firetv", "upnp"):
+            return {"ok": False, "error": f"{disc.get('label') or kind} isn't locally controllable yet"}
+        host = disc.get("host") or ""
+        did = f"{driver}-{host.replace('.', '-')}" if host else f"{driver}-{disc.get('name','dev')}"
+        return self.register_device(
+            device_id=did, name=disc.get("name") or disc.get("label") or did,
+            dtype="media", driver=driver, host=host, port=disc.get("port"),
+            location=disc.get("location", ""),
+            attrs={"discovered": True, "device_kind": kind})
+
+    def pair_device(self, device_id: str, code: Optional[str] = None) -> Dict[str, Any]:
+        """Drive a non-MQTT device's pairing through its driver and persist any returned
+        credentials. Returns the driver's pairing state (need_code / instructions / paired)."""
+        with self._lock:
+            dev = self._devices.get(device_id)
+        if not dev:
+            return {"ok": False, "error": f"unknown device: {device_id}"}
+        driver_name = (dev.get("driver") or "mqtt").lower()
+        if driver_name == "mqtt":
+            return {"ok": False, "error": "MQTT devices don't need pairing"}
+        from eli.runtime import device_drivers
+        drv = device_drivers.get_driver(driver_name)
+        if not drv:
+            return {"ok": False, "error": f"no driver for {driver_name!r}"}
+        ok_lib, pip = drv.available()
+        if not ok_lib:
+            return {"ok": False, "error": f"driver not installed: pip install {pip}",
+                    "need_install": True, "driver": driver_name, "pip": pip}
+        res = drv.pair(dev, code=code)
+        # The driver mutates dev (e.g. stores credentials in attrs); persist if paired.
+        if res.get("paired") or res.get("ok"):
+            with self._lock:
+                self._devices[device_id] = dev
+                self._save()
+        return res
 
     def set_room(self, device_id: str, room: str) -> Dict[str, Any]:
         with self._lock:
@@ -347,6 +399,24 @@ class DeviceServer:
             dev = self._devices.get(device_id)
         if not dev:
             return {"ok": False, "error": f"unknown device: {device_id}"}
+        # Non-MQTT devices (AirPlay / Fire TV / Cast / UPnP) route to their local driver,
+        # which manages its own connection — no broker required.
+        driver_name = (dev.get("driver") or "mqtt").lower()
+        if driver_name != "mqtt":
+            from eli.runtime import device_drivers
+            drv = device_drivers.get_driver(driver_name)
+            if not drv:
+                return {"ok": False, "error": f"no driver for {driver_name!r}"}
+            ok_lib, pip = drv.available()
+            if not ok_lib:
+                return {"ok": False, "error": f"driver not installed: pip install {pip}",
+                        "need_install": True, "driver": driver_name, "pip": pip}
+            res = drv.control(dev, command, value)
+            if res.get("ok"):
+                with self._lock:
+                    self._save()
+                self._record_usage(device_id, (command or "").lower().strip(), dev)
+            return res
         if not self._connected or self._client is None:
             return {"ok": False, "error": "not connected to a broker"}
         cmd = (command or "").lower().strip()
