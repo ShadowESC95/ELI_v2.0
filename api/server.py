@@ -2231,35 +2231,93 @@ def voice_tts(req: TTSRequest):
 # ----------------------------------------------------------------------
 # Run the server
 # ----------------------------------------------------------------------
-def main():
-    # Safe-by-default: bind loopback unless explicitly told otherwise (the launcher sets
-    # ELI_API_HOST=0.0.0.0 only with --lan, and then also sets ELI_API_TOKEN).
-    host = os.environ.get("ELI_API_HOST", "127.0.0.1")
-    port = int(os.environ.get("ELI_API_PORT", "8081"))
-    reload = os.environ.get("ELI_API_RELOAD", "0").strip().lower() in ("1", "true", "yes", "on")
+def _lan_ip() -> str:
+    """Best-effort private LAN IP a phone on the same Wi-Fi can actually reach.
+    Prefers 192.168/10/non-docker-172 over loopback and docker bridges."""
+    import socket, subprocess
+    cands = []
+    try:
+        cands.append(socket.gethostbyname(socket.gethostname()))
+    except Exception:
+        pass
+    try:
+        out = subprocess.run(["hostname", "-I"], capture_output=True, text=True, timeout=2)
+        cands += (out.stdout or "").split()
+    except Exception:
+        pass
+    try:  # macOS
+        for ifc in ("en0", "en1"):
+            out = subprocess.run(["ipconfig", "getifaddr", ifc], capture_output=True, text=True, timeout=2)
+            if out.stdout.strip():
+                cands.append(out.stdout.strip())
+    except Exception:
+        pass
 
-    # The auth gate (_require_token) now fails CLOSED by default: with no token and no
-    # explicit opt-out, every gated endpoint returns 401. main() is where we relax that
-    # for the two safe cases — and ONLY here, so a raw `uvicorn api.server:app` (which
-    # never runs main()) stays locked down.
+    def _score(ip: str) -> int:
+        if not ip or ip.startswith("127.") or ":" in ip:
+            return -1
+        if ip.startswith("192.168."):
+            return 4
+        if ip.startswith("10."):
+            return 3
+        if ip.startswith("172.17.") or ip.startswith("172.18."):
+            return 1  # docker bridge — usable but deprioritised
+        return 2
+    best = max(cands, key=_score, default="")
+    return best if best and _score(best) > 0 else "<this-computer-ip>"
+
+
+def main():
+    import argparse
+    ap = argparse.ArgumentParser(
+        prog="api.server",
+        description="ELI local web server. Default: loopback only (same machine). "
+                    "Use --lan to expose it to your phone / other devices on the Wi-Fi.")
+    ap.add_argument("--lan", action="store_true",
+                    help="bind 0.0.0.0 so other devices can reach it, require a token, "
+                         "and print the ready-to-open phone URL")
+    ap.add_argument("--host", default=None, help="bind host (overrides --lan / ELI_API_HOST)")
+    ap.add_argument("--port", type=int, default=None, help="port (default 8081 / ELI_API_PORT)")
+    ap.add_argument("--token", default=None,
+                    help="API token to require (default: reuse ELI_API_TOKEN, else auto-generate)")
+    ap.add_argument("--reload", action="store_true", help="uvicorn auto-reload (dev)")
+    args, _ = ap.parse_known_args()
+
+    # Precedence: explicit flag > --lan > env default. --lan means 0.0.0.0 unless --host given.
+    host = args.host or ("0.0.0.0" if args.lan else os.environ.get("ELI_API_HOST", "127.0.0.1"))
+    port = args.port or int(os.environ.get("ELI_API_PORT", "8081"))
+    reload = args.reload or os.environ.get("ELI_API_RELOAD", "0").strip().lower() in ("1", "true", "yes", "on")
+    if args.token:
+        os.environ["ELI_API_TOKEN"] = args.token
+
+    # The auth gate (_require_token) fails CLOSED by default: with no token and no explicit
+    # opt-out, every gated endpoint returns 401. main() is where we relax that for the two
+    # safe cases — and ONLY here, so a raw `uvicorn api.server:app` (which never runs main())
+    # stays locked down.
     if _is_loopback_host(host):
         # Genuinely local bind (127.0.0.0/8, ::1) — enable tokenless serving for
         # zero-friction same-machine use. This is the ONLY place it is enabled.
         # An explicit ELI_API_ALLOW_TOKENLESS=0 (lock down even local) is respected.
         os.environ.setdefault("ELI_API_ALLOW_TOKENLESS", "1")
-    elif not _api_token():
-        # Non-loopback bind with no token (ELI_API_HOST=0.0.0.0 python -m api.server,
-        # a systemd unit, etc.) — would expose device control + file ingest to the whole
-        # network. Refuse the silent fail-open: auto-generate a token, enforce it (the
-        # gate reads it live), and announce it loudly. Tokenless stays OFF here.
-        _gen = secrets.token_urlsafe(32)
-        os.environ["ELI_API_TOKEN"] = _gen
+    else:
+        # Non-loopback bind — would expose device control + file ingest to the whole
+        # network. A token is mandatory: reuse ELI_API_TOKEN if set, else auto-generate.
+        # Tokenless stays OFF here regardless.
+        os.environ.pop("ELI_API_ALLOW_TOKENLESS", None)
+        token = _api_token()
+        auto_generated = not token
+        if auto_generated:
+            token = secrets.token_urlsafe(32)
+            os.environ["ELI_API_TOKEN"] = token
+        url = f"http://{_lan_ip()}:{port}/?token={token}"
         _bar = "=" * 72
         print(_bar, flush=True)
-        print(f"  SECURITY: binding to non-loopback host {host!r} with no ELI_API_TOKEN set.", flush=True)
-        print("  Auto-generated a token so the API is NOT exposed unauthenticated.", flush=True)
-        print(f"  Clients must send header:   Authorization: Bearer {_gen}", flush=True)
-        print("  Set ELI_API_TOKEN yourself for a token that's stable across restarts.", flush=True)
+        print(f"  ELI web server exposed on the LAN  ({host}:{port})", flush=True)
+        print(f"  Open this on your phone (same Wi-Fi):   {url}", flush=True)
+        print(f"  Or send header:   Authorization: Bearer {token}", flush=True)
+        if auto_generated:
+            print("  (Token auto-generated; pass --token <secret> or set ELI_API_TOKEN "
+                  "for one stable across restarts.)", flush=True)
         print(_bar, flush=True)
 
     uvicorn.run("api.server:app", host=host, port=port, reload=reload, log_level="info")
