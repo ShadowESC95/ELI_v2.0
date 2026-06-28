@@ -307,3 +307,42 @@ def test_control_room_targets_only_that_room(server, fake_paho):
     topics = {t for t, _ in fake_paho}
     assert topics == {"h/lamp/set", "h/tv/set"}  # kitchen kettle untouched
     assert all(payload == "OFF" for _, payload in fake_paho)
+
+
+# ── Non-MQTT local-control drivers (AirPlay / Fire TV / Cast / UPnP) ──────────
+def test_driver_status_and_graceful_degrade():
+    """Driver registry reports availability + pairing style, and never crashes when a
+    library is absent — the dashboard relies on this to offer Install/Pair."""
+    from eli.runtime import device_drivers as dd
+    by = {d["name"]: d for d in dd.driver_status()}
+    assert by["upnp"]["installed"] is True and by["upnp"]["pip"] is None     # no dep
+    assert by["firetv"]["pair_style"] == "accept" and by["firetv"]["pip"]
+    assert by["airplay"]["pair_style"] == "pin" and by["airplay"]["needs_pairing"] is True
+    # install of a no-dep driver is a no-op success; unknown driver fails cleanly.
+    assert dd.install_driver("upnp")["ok"] is True
+    assert dd.install_driver("does-not-exist")["ok"] is False
+
+
+def test_add_discovered_routes_to_driver(server):
+    """A discovery result becomes a registry device carrying the right local driver."""
+    r = server.add_discovered_device(
+        {"kind": "firetv", "control": "adb", "name": "Fire TV", "host": "10.0.0.9", "port": 5555})
+    assert r["ok"] and r["device"]["driver"] == "firetv" and r["device"]["host"] == "10.0.0.9"
+    # An MQTT broker is NOT addable as a device.
+    assert server.add_discovered_device({"kind": "mqtt_broker", "host": "10.0.0.1"})["ok"] is False
+    # A merely-detected, non-controllable kind is rejected (no fake control).
+    assert server.add_discovered_device({"kind": "printer", "host": "10.0.0.5"})["ok"] is False
+
+
+def test_driver_device_control_and_pair_degrade_without_lib(server, monkeypatch):
+    """With the driver library absent, control() and pair() report need_install instead of
+    requiring a broker or crashing — and never touch the MQTT path."""
+    from eli.runtime import device_drivers as dd
+    monkeypatch.setattr(dd.get_driver("airplay"), "available", lambda: (False, "pyatv"))
+    server.add_discovered_device(
+        {"kind": "airplay", "control": "airplay", "name": "Neo", "host": "10.0.0.7"})
+    did = "airplay-10-0-0-7"
+    c = server.control(did, "play")
+    assert c["ok"] is False and c.get("need_install") and c["pip"] == "pyatv"
+    p = server.pair_device(did)
+    assert p["ok"] is False and p.get("need_install")
