@@ -3,6 +3,52 @@ ELI API Server – Enterprise edition.
 Provides REST endpoints for chat and command execution.
 """
 
+# --- Make the repo root importable regardless of how we were launched ---
+# `python api/server.py` (path form) puts the api/ dir on sys.path[0], NOT the repo
+# root, so `import eli` / `import api.*` fail. Prepend the repo root so the script form
+# works the same as `python -m api.server` and the in-process GUI launch.
+import os as _os, sys as _sys
+_REPO_ROOT = _os.path.dirname(_os.path.dirname(_os.path.abspath(__file__)))
+if _REPO_ROOT not in _sys.path:
+    _sys.path.insert(0, _REPO_ROOT)
+
+# --- Self-heal: run under the project's venv even if invoked with system python ---
+# `python api/server.py` (system interpreter) lacks fastapi/uvicorn; the deps live in
+# the project's .venv. Rather than fail with ModuleNotFoundError, transparently re-exec
+# this same command under .venv/bin/python (Scripts/python.exe on Windows) when it
+# exists and we're not already running it. Cross-platform; one-shot (guarded against a
+# re-exec loop); falls through to the normal import if no venv is found.
+def _reexec_under_venv() -> None:
+    import os, sys
+    try:
+        import fastapi  # noqa: F401 — already in the right interpreter, nothing to do
+        return
+    except Exception:
+        pass
+    if os.environ.get("_ELI_VENV_REEXEC") == "1":
+        return  # already tried once — avoid an exec loop; let the real ImportError surface
+    _root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    # NB: compare plain abspaths, NOT realpath — a venv's python is usually a *symlink*
+    # to the base interpreter, so realpath() would make them equal and skip the re-exec.
+    _here = os.path.normcase(os.path.abspath(sys.executable))
+    for _cand in (os.path.join(_root, ".venv", "bin", "python"),
+                  os.path.join(_root, ".venv", "Scripts", "python.exe")):
+        if os.path.isfile(_cand) and os.path.normcase(os.path.abspath(_cand)) != _here:
+            os.environ["_ELI_VENV_REEXEC"] = "1"
+            try:
+                os.execv(_cand, [_cand, os.path.abspath(__file__), *sys.argv[1:]])
+            except Exception:
+                break  # exec failed — fall through to the normal import / error
+    # No venv found (or exec failed): let the import below raise the real, clear error.
+
+
+# Only self-heal when launched as the entry point (`python api/server.py` or
+# `python -m api.server`). When imported in-process (e.g. the GUI launcher does
+# `from api.server import app`), never re-exec — that would replace the host process;
+# the caller is responsible for its own interpreter.
+if __name__ == "__main__":
+    _reexec_under_venv()
+
 from fastapi import FastAPI, HTTPException, Depends, Header, Request
 from fastapi.responses import HTMLResponse, StreamingResponse, Response
 from pydantic import BaseModel
