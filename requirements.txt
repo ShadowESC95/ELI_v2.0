@@ -86,6 +86,7 @@ fastapi>=0.110
 uvicorn>=0.27
 paho-mqtt>=1.6,<3   # ELI-native MQTT device server (no Home Assistant)
 zeroconf>=0.70   # mDNS device/broker discovery on the LAN
+segno>=1.5   # pure-python QR codes (the web app's "Connect a phone" tab) — no deps
 opencv-python>=4.8
 pytesseract>=0.3
 openwakeword>=0.4

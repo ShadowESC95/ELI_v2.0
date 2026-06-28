@@ -541,6 +541,11 @@ _WEB_UI = """<!doctype html>
   input.setinput[type=range] { min-width:160px; padding:0; }
   .setnum { font-family:var(--mono); font-size:12px; color:var(--accent); min-width:46px; text-align:right; text-shadow:0 0 8px rgba(34,211,238,.3); }
   input[type=color].setinput { padding:2px; width:46px; min-width:46px; height:32px; cursor:pointer; }
+  /* Connect a phone */
+  .qrbox { display:inline-block; padding:14px; background:#05070d; border:1px solid rgba(34,211,238,.3); border-radius:16px; box-shadow:0 0 28px rgba(34,211,238,.18); }
+  .qrbox img { width:232px; height:232px; display:block; }
+  .connecturl { margin-top:12px; }
+  .connecturl code { display:inline-block; font-family:var(--mono); font-size:12.5px; color:var(--accent); background:rgba(7,12,22,.6); border:1px solid var(--line); border-radius:8px; padding:8px 12px; word-break:break-all; max-width:100%; }
 </style></head><body>
   <aside class="sidebar">
     <div class="brand"><span class="logo">&#9698;&#9700;</span><b>ELI</b><small>v2</small></div>
@@ -554,6 +559,7 @@ _WEB_UI = """<!doctype html>
       <button data-tab="audit"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M12 3l8 3v6c0 5-4 8-8 9-4-1-8-4-8-9V6z"/><path d="M9 12l2 2 4-4"/></svg><span>Audit</span></button>
       <button data-tab="admin"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M4 6h16M4 12h16M4 18h16"/><circle cx="9" cy="6" r="2" fill="currentColor" stroke="none"/><circle cx="15" cy="12" r="2" fill="currentColor" stroke="none"/><circle cx="8" cy="18" r="2" fill="currentColor" stroke="none"/></svg><span>Admin</span></button>
       <button data-tab="settings"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg><span>Settings</span></button>
+      <button data-tab="connect"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><rect x="7" y="2" width="10" height="20" rx="2.5"/><path d="M11 18.5h2"/></svg><span>Connect</span></button>
     </nav>
     <div class="sidefoot"><span id="rolebadge">local &middot; private</span><button class="iconbtn" id="appearbtn" title="Colours" onclick="openAppear()">&#9670;</button><button class="iconbtn" id="themebtn" title="Toggle light / dark">&#9680;</button></div>
   </aside>
@@ -583,6 +589,7 @@ _WEB_UI = """<!doctype html>
   <section class="view" id="view-audit"><div id="audit"><div class="muted">Loading…</div></div></section>
   <section class="view" id="view-admin"><div id="admin"><div class="muted">Loading…</div></div></section>
   <section class="view" id="view-settings"><div id="settings-tab"><div class="muted">Loading…</div></div></section>
+  <section class="view" id="view-connect"><div id="connect-tab"><div class="muted">Loading…</div></div></section>
   </main>
   <div id="appear" class="modal"><div class="sheet">
     <h3>Colours</h3><div class="sub">Personalise the chat — your choices are saved on this device.</div>
@@ -655,6 +662,39 @@ _WEB_UI = """<!doctype html>
       if(out.hasOwnProperty('user_name')&&r.ok){const e=$('#me-name');if(e)e.textContent=out.user_name||'';}
     }).catch(e=>{if(st)st.textContent=''+e;});
   }
+  // ── Connect a phone — QR + LAN URL ─────────────────────────────────────
+  function loadConnect(){
+    api('/v1/connect').then(function(d){
+      const host=$('#connect-tab');if(!host)return;host.innerHTML='';
+      const strip=document.createElement('div');strip.className='livestrip';
+      strip.innerHTML='<span class="lstitle">&#9670; CONNECT</span>'+
+        (d.lan_accessible?'<span class="lspill"><span class="ld live"></span>reachable on your network</span>':'<span class="lspill"><span class="ld warn"></span>this computer only</span>')+
+        '<span class="lspill">'+esc(d.lan_ip||'?')+':'+esc(''+(d.port||''))+'</span>';
+      host.appendChild(strip);
+      let h='';
+      if(d.lan_accessible){
+        h+='<div class="jhead">Scan with your phone</div>'+
+          '<div class="syscard" style="text-align:center">'+
+          '<div class="rnote" style="margin-bottom:10px">Open your phone&#39;s camera and point it at this code — the dashboard opens automatically, already signed in.</div>'+
+          '<div class="qrbox"><img id="qr-img" alt="QR code" src="/v1/connect/qr.svg?t='+Date.now()+'"></div>'+
+          '<div class="connecturl"><code id="conn-url">'+esc(d.url)+'</code></div>'+
+          '<div class="rrow" style="justify-content:center;margin-top:10px"><button class="cbtn" onclick="copyConnUrl()">&#128203; Copy link</button>'+
+          '<button class="cbtn" onclick="loadConnect()">&#10227; Refresh</button></div>'+
+          '<div class="rnote" style="margin-top:8px">Make sure the phone is on the <b>same Wi-Fi</b> as this computer.</div></div>';
+      } else {
+        h+='<div class="jhead">Make it reachable from your phone</div>'+
+          '<div class="syscard"><div class="banner bad" style="margin:0 0 12px">The server is running in <b>local-only</b> mode (loopback), so your phone can&#39;t reach it yet.</div>'+
+          '<div class="rnote">Restart the server in LAN mode — one command, and it prints a phone link &amp; QR:</div>'+
+          '<div class="connecturl" style="margin:8px 0"><code>python api/server.py --lan</code></div>'+
+          '<div class="rnote">Or, from the desktop app: <b>Settings &#8594; Web Server</b>, tick <b>LAN</b>, Start. Either way, come back here and the QR appears.</div>'+
+          '<div class="rnote" style="margin-top:10px;opacity:.7">Your LAN address would be <b>http://'+esc(d.lan_ip||'this-computer')+':'+esc(''+(d.port||'8081'))+'/</b> once LAN mode is on.</div></div>';
+      }
+      const body=document.createElement('div');body.innerHTML=h;host.appendChild(body);
+    }).catch(e=>{$('#connect-tab').innerHTML='<div class="err">'+esc(''+e)+'</div>';});
+  }
+  function copyConnUrl(){const u=($('#conn-url')||{}).textContent||'';
+    if(navigator.clipboard)navigator.clipboard.writeText(u).then(()=>{const b=event&&event.target;if(b){const o=b.textContent;b.textContent='Copied \\u2713';setTimeout(()=>b.textContent=o,1400);}}).catch(()=>{});}
+  window.loadConnect=loadConnect; window.copyConnUrl=copyConnUrl;
   function switchTab(t){document.querySelector('nav.tabs button[data-tab="'+t+'"]').click();}
 
   /* theme toggle (persisted; applied pre-paint in <head> to avoid flash) */
@@ -711,6 +751,7 @@ _WEB_UI = """<!doctype html>
     if(b.dataset.tab==='audit') loadAudit();
     if(b.dataset.tab==='admin') loadAdmin();
     if(b.dataset.tab==='settings') loadSettings();
+    if(b.dataset.tab==='connect') loadConnect();
   });
 
   /* chat */
@@ -2569,6 +2610,35 @@ def set_settings(req: SettingsUpdate, principal: Principal = Depends(require_adm
                payload={"applied": applied})
     return {"ok": True, "applied": applied}
 
+def _connect_url() -> dict:
+    """Everything the 'Connect a phone' tab needs: the LAN IP, port, the ready-to-open URL
+    (token included when set), and whether the server is actually reachable from the LAN."""
+    host = os.environ.get("ELI_API_HOST", "127.0.0.1")
+    port = os.environ.get("ELI_API_PORT", "8081")
+    lan_accessible = host in ("0.0.0.0", "::", "")  # bound to all interfaces
+    ip = _lan_ip()
+    token = _api_token()
+    url = f"http://{ip}:{port}/" + (f"?token={token}" if token else "")
+    return {"lan_ip": ip, "port": port, "bind_host": host,
+            "lan_accessible": lan_accessible, "url": url, "has_token": bool(token)}
+
+@app.get("/v1/connect", tags=["System"], dependencies=[Depends(_require_token)])
+def connect_info():
+    """Phone-connect details (URL + LAN reachability) for the Connect tab."""
+    return {"ok": True, **_connect_url()}
+
+@app.get("/v1/connect/qr.svg", tags=["System"], dependencies=[Depends(_require_token)])
+def connect_qr():
+    """A scannable QR (SVG) of the phone URL — point the phone camera at it and the
+    dashboard opens, token and all. Generated locally with segno (no cloud, no deps)."""
+    info = _connect_url()
+    try:
+        import segno
+        svg = segno.make(info["url"], error="m").svg_inline(scale=6, dark="#22d3ee", light=None)
+        return Response(content=svg, media_type="image/svg+xml")
+    except Exception as e:
+        raise HTTPException(status_code=503, detail=f"qr unavailable: {e} (pip install segno)")
+
 # ----------------------------------------------------------------------
 # Audit trail  (powers the "Audit" tab — tamper-evident, read-only)
 # Every API action is recorded into a hash-chained ledger (who did what, with what
@@ -2855,6 +2925,10 @@ def main():
     reload = args.reload or os.environ.get("ELI_API_RELOAD", "0").strip().lower() in ("1", "true", "yes", "on")
     if args.token:
         os.environ["ELI_API_TOKEN"] = args.token
+    # Record the actual bind host/port so the "Connect a phone" tab can tell whether the
+    # server is reachable from the LAN (0.0.0.0) or loopback-only, and build the phone URL.
+    os.environ["ELI_API_HOST"] = host
+    os.environ["ELI_API_PORT"] = str(port)
 
     # The auth gate (_require_token) fails CLOSED by default: with no token and no explicit
     # opt-out, every gated endpoint returns 401. main() is where we relax that for the two
