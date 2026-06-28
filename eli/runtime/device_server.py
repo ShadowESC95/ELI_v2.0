@@ -699,65 +699,184 @@ class DeviceServer:
             time.sleep(20)
 
 
+# mDNS service type → (friendly kind, human label, can ELI control it locally?, how).
+# "controllable" reflects whether a real LOCAL control path exists (no cloud); the
+# control drivers themselves are added incrementally — discovery never fakes control.
+_MDNS_KINDS: Dict[str, Dict[str, Any]] = {
+    "_mqtt._tcp.local.":            {"kind": "mqtt_broker", "label": "MQTT broker",       "control": "mqtt"},
+    "_esphomelib._tcp.local.":      {"kind": "esphome",     "label": "ESPHome device",    "control": "mqtt"},
+    "_googlecast._tcp.local.":      {"kind": "cast",        "label": "Google Cast",       "control": "cast"},
+    "_airplay._tcp.local.":         {"kind": "airplay",     "label": "AirPlay receiver",  "control": "airplay"},
+    "_raop._tcp.local.":            {"kind": "airplay",     "label": "AirPlay speaker",   "control": "airplay"},
+    "_amzn-wplay._tcp.local.":      {"kind": "firetv",      "label": "Amazon Fire TV",    "control": "adb"},
+    "_androidtvremote2._tcp.local.":{"kind": "androidtv",   "label": "Android TV",        "control": "atvremote"},
+    "_spotify-connect._tcp.local.": {"kind": "spotify",     "label": "Spotify Connect",   "control": "cloud"},
+    "_sonos._tcp.local.":           {"kind": "sonos",       "label": "Sonos",             "control": "upnp"},
+    "_hue._tcp.local.":             {"kind": "hue",         "label": "Philips Hue bridge","control": "hue"},
+    "_hap._tcp.local.":             {"kind": "homekit",     "label": "HomeKit accessory", "control": None},
+    "_homekit._tcp.local.":         {"kind": "homekit",     "label": "HomeKit accessory", "control": None},
+    "_ipp._tcp.local.":             {"kind": "printer",     "label": "Printer",           "control": None},
+    "_printer._tcp.local.":         {"kind": "printer",     "label": "Printer",           "control": None},
+    "_http._tcp.local.":            {"kind": "http",        "label": "Web service",       "control": None},
+}
+
+# Local control paths considered "real" today vs. still on the roadmap. Keep this honest:
+# only mark a device controllable here when a driver can actually act on it. As drivers
+# land (UPnP/DLNA, Cast, AirPlay via pyatv, Fire TV via ADB) move them into _CONTROL_LIVE.
+_CONTROL_LIVE = {"mqtt", "upnp"}            # genuinely actionable right now
+_CONTROL_ROADMAP = {"cast", "airplay", "adb", "atvremote", "hue"}  # detectable, driver pending
+# "cloud" (Spotify) intentionally excluded — not local-first.
+
+
 def discover(timeout: float = 3.0) -> Dict[str, Any]:
-    """Find MQTT brokers and smart devices on the LAN via mDNS — so the user doesn't
-    have to know IPs/topics. Gated through netguard (a deliberate local-network scan);
-    degrades cleanly if zeroconf isn't installed."""
-    try:
-        from zeroconf import Zeroconf, ServiceBrowser, ServiceListener
-    except Exception:
-        return {"ok": False, "error": "zeroconf not installed (pip install zeroconf)", "found": []}
-
-    # Service types worth surfacing: MQTT brokers + common smart-device advertisements.
-    types = ["_mqtt._tcp.local.", "_esphomelib._tcp.local.", "_hap._tcp.local.",
-             "_googlecast._tcp.local.", "_homekit._tcp.local.", "_http._tcp.local."]
+    """Find smart devices + media renderers on the LAN via mDNS *and* SSDP/UPnP — so the
+    user doesn't have to know IPs/topics. Classifies each result (what it is, and whether
+    ELI can control it locally). Gated through netguard (a deliberate local-network scan);
+    degrades cleanly if zeroconf isn't installed (SSDP still runs)."""
     found: List[dict] = []
-
-    class _L(ServiceListener):
-        def _grab(self, zc, type_, name):
-            try:
-                info = zc.get_service_info(type_, name, timeout=1500)
-                if not info:
-                    return
-                addrs = []
-                try:
-                    addrs = info.parsed_addresses()
-                except Exception:
-                    pass
-                found.append({"name": name.split("." + type_)[0] or name, "service": type_,
-                              "host": addrs[0] if addrs else "", "port": getattr(info, "port", None)})
-            except Exception:
-                pass
-        def add_service(self, zc, type_, name): self._grab(zc, type_, name)
-        def update_service(self, zc, type_, name): pass
-        def remove_service(self, zc, type_, name): pass
+    errors: List[str] = []
 
     try:
         from eli.core import netguard
-        ctx = netguard.allow_network("mDNS device discovery")
+        ctx = netguard.allow_network("LAN device discovery")
     except Exception:
         import contextlib
         ctx = contextlib.nullcontext()
-    try:
-        with ctx:
-            zc = Zeroconf()
-            listener = _L()
-            _browsers = [ServiceBrowser(zc, t, listener) for t in types]
-            time.sleep(max(1.0, float(timeout)))
-            zc.close()
-    except Exception as e:
-        return {"ok": False, "error": str(e), "found": []}
 
-    # Dedupe + classify.
+    with ctx:
+        # ---- 1. mDNS / Bonjour ----
+        try:
+            from zeroconf import Zeroconf, ServiceBrowser, ServiceListener
+
+            class _L(ServiceListener):
+                def _grab(self, zc, type_, name):
+                    try:
+                        info = zc.get_service_info(type_, name, timeout=1500)
+                        if not info:
+                            return
+                        try:
+                            addrs = info.parsed_addresses()
+                        except Exception:
+                            addrs = []
+                        meta = _MDNS_KINDS.get(type_, {"kind": "other", "label": type_, "control": None})
+                        found.append({
+                            "name": (name.split("." + type_)[0] or name),
+                            "service": type_, "via": "mdns",
+                            "kind": meta["kind"], "label": meta["label"], "control": meta["control"],
+                            "host": addrs[0] if addrs else "", "port": getattr(info, "port", None),
+                        })
+                    except Exception:
+                        pass
+                def add_service(self, zc, type_, name): self._grab(zc, type_, name)
+                def update_service(self, zc, type_, name): pass
+                def remove_service(self, zc, type_, name): pass
+
+            zc = Zeroconf()
+            try:
+                _browsers = [ServiceBrowser(zc, t, _L()) for t in _MDNS_KINDS]
+                time.sleep(max(1.0, float(timeout)))
+            finally:
+                zc.close()
+        except Exception as e:
+            errors.append(f"mDNS: {e} (pip install zeroconf)")
+
+        # ---- 2. SSDP / UPnP (Cast, DLNA/MediaRenderer, smart TVs, Sonos) ----
+        try:
+            found.extend(_ssdp_discover(min(4.0, max(1.5, float(timeout)))))
+        except Exception as e:
+            errors.append(f"SSDP: {e}")
+
+    # Dedupe (host+port+kind) and classify controllability.
     seen, uniq = set(), []
     for f in found:
-        key = (f.get("host"), f.get("port"), f.get("service"))
-        if key in seen:
+        key = (f.get("host"), f.get("port"), f.get("kind"))
+        if not f.get("host") or key in seen:
             continue
         seen.add(key)
+        # Friendly-up raw advertisement ids (e.g. Fire TV's "amzn.dmgr:HEX").
+        _nm = str(f.get("name") or "")
+        if not _nm or _nm.lower().startswith(("amzn.", "amzn-", "_")) or _nm.startswith(f.get("kind", "")):
+            f["name"] = f"{f.get('label', 'Device')} ({f.get('host')})"
+        f["controllable"] = f.get("control") in _CONTROL_LIVE
+        f["control_status"] = ("ready" if f.get("control") in _CONTROL_LIVE
+                               else "roadmap" if f.get("control") in _CONTROL_ROADMAP
+                               else "cloud" if f.get("control") == "cloud"
+                               else "detected")
         uniq.append(f)
-    brokers = [f for f in uniq if f["service"].startswith("_mqtt") and f.get("host")]
-    return {"ok": True, "found": uniq, "brokers": brokers}
+
+    uniq.sort(key=lambda d: (0 if d["controllable"] else 1, d.get("kind", ""), d.get("name", "")))
+    brokers = [f for f in uniq if f.get("kind") == "mqtt_broker"]
+    return {"ok": True, "found": uniq, "brokers": brokers,
+            "errors": errors, "counts": {"total": len(uniq), "brokers": len(brokers),
+                                         "controllable": sum(1 for f in uniq if f["controllable"])}}
+
+
+def _ssdp_discover(timeout: float) -> List[dict]:
+    """Raw SSDP M-SEARCH (no extra deps). Surfaces UPnP/DLNA MediaRenderers, Cast, smart
+    TVs, Sonos, and routers — many devices that don't advertise over mDNS answer here."""
+    import socket
+    out: List[dict] = []
+    msg = "\r\n".join([
+        "M-SEARCH * HTTP/1.1", "HOST: 239.255.255.250:1900",
+        'MAN: "ssdp:discover"', "MX: 2", "ST: ssdp:all", "", "",
+    ]).encode()
+    s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM, socket.IPPROTO_UDP)
+    try:
+        s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        s.settimeout(timeout)
+        s.sendto(msg, ("239.255.255.250", 1900))
+        seen = set()
+        t0 = time.time()
+        while time.time() - t0 < timeout + 1:
+            try:
+                data, addr = s.recvfrom(4096)
+            except socket.timeout:
+                break
+            txt = data.decode(errors="ignore")
+            st = server = location = ""
+            for line in txt.split("\r\n"):
+                low = line.lower()
+                if low.startswith("st:"):
+                    st = line[3:].strip()
+                elif low.startswith("server:"):
+                    server = line[7:].strip()
+                elif low.startswith("location:"):
+                    location = line[9:].strip()
+            ip = addr[0]
+            # Only surface media-relevant UPnP devices; skip raw service/uuid spam + self.
+            is_renderer = "mediarenderer" in st.lower()
+            is_root = st.lower() in ("upnp:rootdevice", "ssdp:all")
+            if not (is_renderer or is_root):
+                continue
+            key = (ip, "upnp_renderer" if is_renderer else "upnp")
+            if key in seen:
+                continue
+            seen.add(key)
+            kind = "upnp_renderer" if is_renderer else "upnp"
+            out.append({
+                "name": _ssdp_friendly_name(server, ip), "service": st, "via": "ssdp",
+                "kind": kind, "label": "Media renderer" if is_renderer else "UPnP device",
+                "control": "upnp" if is_renderer else None,
+                "host": ip, "port": _port_from_location(location), "location": location,
+            })
+    finally:
+        s.close()
+    return out
+
+
+def _ssdp_friendly_name(server: str, ip: str) -> str:
+    # SERVER header is like "Linux UPnP/1.0 GUPnP/1.2" — last token is the most telling.
+    tok = (server or "").split()
+    return (tok[-1] if tok else "") or ip
+
+
+def _port_from_location(location: str) -> Optional[int]:
+    try:
+        from urllib.parse import urlparse
+        p = urlparse(location).port
+        return int(p) if p else None
+    except Exception:
+        return None
 
 
 def _sun_times_local(lat: float, lon: float) -> Optional[Dict[str, str]]:
