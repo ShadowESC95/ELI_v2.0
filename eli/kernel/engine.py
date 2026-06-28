@@ -121,6 +121,19 @@ _PHASE45_SILENT_FAST_ACTIONS = {'NOOP'}
 # status/report/self-introspection actions that return directly (PHASE33) instead of going
 # through GGUF synthesis. Single source of truth: the inline PHASE33 block builds from this,
 # and _is_soft_informational_action() uses it to decide what may be re-routed on low grounding.
+# Actions for which the authority gate fails CLOSED: if the gate errors or returns a
+# malformed result, these privileged / side-effecting actions are DENIED (deny-on-doubt)
+# rather than allowed through. Read-only / conversational actions degrade OPEN instead,
+# so a bug in the gate can never mute ELI entirely. Mirrors the side-effecting set used
+# elsewhere in process(); keep the two in step if either grows.
+_AUTHORITY_FAILCLOSED_ACTIONS = frozenset({
+    "RUN_CMD", "SHELL_EXEC", "GENERATE_SCRIPT", "GENERATE_PROJECT",
+    "FIX_FILE", "CODE_SOLVE", "CREATE_FOLDER", "DELETE_FILE",
+    "OPEN_APP", "CLOSE_APP", "MINIMIZE_APP", "OPEN_URL", "OPEN_IDE", "OPEN_IN_IDE",
+    "VOLUME", "PLAY_MEDIA", "PAUSE_MEDIA", "NEXT_MEDIA", "SELF_PATCH", "SELF_UPGRADE",
+    "KEYBOARD", "MOUSE_CONTROL",
+})
+
 _DIRECT_FINAL_ACTIONS = frozenset({
     "OPEN_APP", "OPEN_URL", "OPEN_BROWSER", "OPEN_FILE_SYSTEM",
     "OPEN_IN_IDE", "OPEN_SYSTEM_SETTINGS", "OPEN_AUDIO_SETTINGS",
@@ -10006,10 +10019,17 @@ Answer:"""
             log.debug("[COGNITIVE] Upgraded CHAT -> RUNTIME_STATUS for grounded runtime query")
 
         # --- Stage 2: Persona Lock Verify (authority gate) ---
+        # Fail-CLOSED by construction so this can't betray us once it's given real teeth:
+        #   * a missing "allowed" key is treated as DENY (not allow);
+        #   * an exception in the gate DENIES privileged/side-effecting actions
+        #     (deny-on-doubt) but lets read-only / conversational actions degrade OPEN, so a
+        #     gate bug can never mute ELI entirely.
+        # The current authority_gate stub always returns allowed=True, so this is
+        # behaviour-identical today and already safe for whatever logic future-us fills in.
         try:
             from eli.runtime.authority_gate import check as _gate_check
             _gate_result = _gate_check(action, args)
-            if not _gate_result.get("allowed", True):
+            if not _gate_result.get("allowed", False):
                 _blocked_msg = _gate_result.get("reason", "Action blocked by persona authority gate.")
 
                 return {
@@ -10018,7 +10038,18 @@ Answer:"""
                     "meta": {"blocked": True, "gate": _gate_result}, "trace": trace,
                 }
         except Exception as _gate_err:
-            log.debug(f"[COGNITIVE] Authority gate check failed (non-fatal): {_gate_err}")
+            if str(action or "").upper() in _AUTHORITY_FAILCLOSED_ACTIONS:
+                log.warning(f"[COGNITIVE] Authority gate errored on privileged action "
+                            f"{action!r} — denying (fail-closed): {_gate_err}")
+                _blocked_msg = ("Action blocked: the authority gate could not verify this "
+                                "privileged action, so it was denied as a precaution.")
+                return {
+                    "ok": False, "action": action, "content": _blocked_msg,
+                    "response": _blocked_msg, "confidence": 0.0,
+                    "meta": {"blocked": True, "gate": {"error": str(_gate_err)}}, "trace": trace,
+                }
+            log.debug(f"[COGNITIVE] Authority gate check failed on non-privileged action "
+                      f"{action!r} — degrading open (non-fatal): {_gate_err}")
 
 
         # News topic-deepen (USER's own follow-up): the deepen detector + last-action-news
