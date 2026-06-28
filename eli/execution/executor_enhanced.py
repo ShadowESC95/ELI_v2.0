@@ -7204,6 +7204,40 @@ def _execute_impl(action: str, args: Optional[Dict[str, Any]] = None) -> Dict[st
                 text = " ".join(str(value or "").split())
                 return text if len(text) <= limit else text[: max(0, limit - 3)] + "..."
 
+            _rc_llm_budget = [3]  # cap LLM root-cause inferences per report (bounds latency)
+
+            def _llm_root_cause(ui, err):
+                # Infer a real cause for failures the hardcoded signatures don't cover —
+                # reuses the inference broker (which auto-yields on background threads).
+                if _rc_llm_budget[0] <= 0:
+                    return None
+                try:
+                    from eli.cognition.inference_broker import get_broker
+                    from eli.cognition.gguf_inference import force_no_think
+                    broker = get_broker()
+                except Exception:
+                    return None
+                _rc_llm_budget[0] -= 1
+                prompt = ("State the single most likely ROOT CAUSE of this failure in one "
+                          "technical sentence — no preamble, no fix, just the cause.\n\n"
+                          "Request: " + (ui or "")[:300] + "\nError: " + (err or "")[:700])
+                try:
+                    with force_no_think():
+                        out = broker.infer(prompt, max_tokens=90, temperature=0.1)
+                    out = " ".join(str(out or "").split()).strip()
+                    return out[:300] or None
+                except Exception:
+                    return None
+
+            def _descriptive_cause(err):
+                # Non-LLM fallback that still DIFFERS per failure (was an identical string).
+                err = (err or "").strip()
+                first = err.splitlines()[0][:160] if err else ""
+                m = re.search(r"\b([A-Za-z_]+Error|Exception)\b", err)
+                if m and first and m.group(1) not in first[:40]:
+                    return f"{m.group(1)} — {first}"
+                return first or (m.group(1) if m else "No deterministic signature; needs manual review.")
+
             def _root_cause_for(failure):
                 ui = str(failure.get("user_input") or "")
                 err = str(failure.get("error") or "")
@@ -7241,7 +7275,8 @@ def _execute_impl(action: str, args: Optional[Dict[str, Any]] = None) -> Dict[st
                         "The router produced an action that the executor did not implement, "
                         "so the engine fell back into chat/synthesis instead of returning grounded output."
                     )
-                return "No single deterministic root cause could be inferred from the stored failure text."
+                # No hardcoded signature — infer the cause (LLM, capped) or describe it.
+                return _llm_root_cause(ui, err) or _descriptive_cause(err)
 
             for f in failures[:10]:
                 lines.append(
