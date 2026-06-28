@@ -573,6 +573,7 @@ _WEB_UI = """<!doctype html>
   <section class="view" id="view-commands">
     <div id="commands">
       <input id="cmdsearch" autocomplete="off" placeholder="Search commands…">
+      <div id="cmdcats" class="subtabs" style="margin-top:10px"></div>
       <div id="cmdlist"><div class="muted">Loading…</div></div>
     </div>
   </section>
@@ -847,14 +848,23 @@ _WEB_UI = """<!doctype html>
   }
   mic.onclick=toggleMic;
 
-  /* commands */
-  let CAT=[];
-  function loadCommands(){api('/v1/capabilities').then(d=>{CAT=d.categories||[];cmdsLoaded=true;renderCommands('');})
+  /* commands — category sub-tabs + search */
+  let CAT=[], _cmdCat='';
+  function loadCommands(){api('/v1/capabilities').then(d=>{CAT=d.categories||[];cmdsLoaded=true;buildCmdCats();renderCommands(($('#cmdsearch').value||'').toLowerCase());})
     .catch(e=>{$('#cmdlist').innerHTML='<div class="err">Could not load commands: '+esc(''+e)+'</div>';});}
+  function buildCmdCats(){
+    const bar=$('#cmdcats');if(!bar)return;bar.innerHTML='';
+    const mk=(id,label,n)=>{const b=document.createElement('button');b.className='subtab'+(_cmdCat===id?' active':'');b.innerHTML=esc(label)+(n!=null?(' <span style="opacity:.5">'+n+'</span>'):'');
+      b.onclick=()=>{_cmdCat=id;bar.querySelectorAll('.subtab').forEach(x=>x.classList.remove('active'));b.classList.add('active');renderCommands(($('#cmdsearch').value||'').toLowerCase());};return b;};
+    const total=CAT.reduce((n,c)=>n+(c.actions?c.actions.length:0),0);
+    bar.appendChild(mk('','All',total));
+    CAT.forEach(c=>bar.appendChild(mk(c.category,c.category,(c.actions||[]).length)));
+  }
   $('#cmdsearch').addEventListener('input',e=>renderCommands(e.target.value.toLowerCase()));
   function renderCommands(q){
     const wrap=$('#cmdlist');wrap.innerHTML='';
     CAT.forEach(cat=>{
+      if(_cmdCat&&cat.category!==_cmdCat)return;
       const acts=cat.actions.filter(a=>!q||a.action.toLowerCase().includes(q)||(a.description||'').toLowerCase().includes(q)||(a.phrases||[]).join(' ').toLowerCase().includes(q));
       if(!acts.length)return;
       const c=document.createElement('div');c.className='cat';c.innerHTML='<h3>'+esc(cat.category)+'</h3>';
@@ -1555,52 +1565,65 @@ _WEB_UI = """<!doctype html>
     api('/v1/admin/overview').then(renderAdmin)
       .catch(e=>{$('#admin').innerHTML='<div class="err">'+esc(''+e)+'</div>';});
   }
+  let _admData=null, _admSub='console';
   function renderAdmin(d){
     if(!d||!d.ok){$('#admin').innerHTML='<div class="err">'+esc((d&&d.error)||'unavailable')+'</div>';return;}
-    const ig=d.integrity||{}, t=d.totals||{}, pol=d.policy||{}, users=d.users||[];
-    let h='<div class="adwrap">';
-    if(ig.ok) h+='<div class="abadge ok"><span class="dot"></span><span>Audit chain verified intact — '+(ig.chained||0)+' '+(ig.keyed?'HMAC-keyed':'hash-chained')+' event(s). No tampering.</span></div>';
+    _admData=d; const ig=d.integrity||{}, t=d.totals||{};
+    const host=$('#admin');host.innerHTML='';
+    const strip=document.createElement('div');strip.className='livestrip';
+    strip.innerHTML='<span class="lstitle">&#9670; ADMIN</span>'
+      +(ig.ok?'<span class="lspill"><span class="ld live"></span>chain intact</span>':'<span class="lspill"><span class="ld warn"></span>TAMPERING</span>')
+      +'<span class="lspill"><b>'+(t.events||0)+'</b> events</span>'
+      +'<span class="lspill"><b>'+(t.users||0)+'</b> users</span>'
+      +'<span class="lspill"><b>'+(t.failed||0)+'</b> failures</span>';
+    host.appendChild(strip);
+    const shell=document.createElement('div');shell.className='subwrap';host.appendChild(shell);
+    mountSubtabs(shell,[
+      {id:'console',label:'Console',render:admConsole},
+      {id:'users',label:'Users',render:admUsers},
+      {id:'policy',label:'Risk Policy',render:admPolicy},
+    ],_admSub,id=>{_admSub=id;});
+  }
+  function admConsole(el){
+    const d=_admData||{}, ig=d.integrity||{}, t=d.totals||{};
+    let h='';
+    if(ig.ok)h+='<div class="abadge ok"><span class="dot"></span><span>Audit chain verified intact — '+(ig.chained||0)+' '+(ig.keyed?'HMAC-keyed':'hash-chained')+' event(s). No tampering.</span></div>';
     else{const b=ig.first_break||{};h+='<div class="abadge bad"><span class="dot"></span><span>TAMPERING DETECTED at event #'+esc(b.id)+' — '+esc(b.reason||'')+'.</span></div>';}
-    h+='<div class="adtot">'+
-       '<div class="syscard"><div class="big">'+(t.events||0)+'</div><div class="lbl">events</div></div>'+
+    h+='<div class="adtot"><div class="syscard"><div class="big">'+(t.events||0)+'</div><div class="lbl">events</div></div>'+
        '<div class="syscard"><div class="big">'+(t.users||0)+'</div><div class="lbl">users</div></div>'+
        '<div class="syscard"><div class="big">'+(t.failed||0)+'</div><div class="lbl">failures</div></div></div>';
-    h+='<div class="syscard" style="margin-bottom:14px"><h4>Users — activity</h4>'+
-       '<div class="uhdr"><span>user</span><span>events</span><span>failed</span><span>last seen</span></div>'+
-       (users.length?'':'<div class="muted">No activity yet.</div>')+
-       '<div id="ulist"></div><div id="udetail"></div></div>';
-    h+='<div class="syscard"><h4>Approval / risk gate</h4>';
-    if(pol.full_control) h+='<div class="abadge bad" style="margin:6px 0"><span class="dot"></span><span>ELI Full Control is ON — approval barriers lifted (every proposal auto-approved).</span></div>';
-    h+='<div class="rnote">Action classes — how the risk gate treats each:</div><div class="pol">';
-    (pol.action_classes||[]).forEach(ac=>{const auto=(pol.auto_approve||[]).indexOf(ac)>=0;
-      h+='<span class="tag '+(auto?'auto':'manual')+'">'+esc(ac)+' · '+(auto?'auto-approve':'manual')+'</span>';});
-    h+='</div><div class="rnote">Which agent (emitter) may propose which classes:</div>';
-    const ep=pol.emitter_policy||{};
-    Object.keys(ep).forEach(em=>{h+='<div class="emrow"><div class="em">'+esc(em)+'</div><div class="ec">'+ep[em].map(esc).join(', ')+'</div></div>';});
-    h+='</div>';
-    const rbac=d.rbac||{enabled:false,accounts:[]};
-    h+='<div class="syscard" style="margin-top:14px"><h4>Users &amp; access (RBAC)</h4>'+
-       '<div class="abadge '+(rbac.enabled?'ok':'bad')+'" style="margin:6px 0"><span class="dot"></span><span>'+
-       (rbac.enabled?('Role-based access ON — '+(rbac.accounts||[]).length+' account(s). Each token maps to a user + role; attribution is authenticated.')
-        :'Single-operator mode — the operator is admin. Add a user below to enable role-based access (admin / member).')+'</span></div>'+
-       '<div id="acctlist"></div>'+
-       '<div class="afilter" style="margin-top:10px"><input id="nu-id" autocomplete="off" placeholder="new user id"><select id="nu-role"><option value="viewer">viewer</option><option value="member" selected>member</option><option value="admin">admin</option></select><button onclick="addUser()">Add user</button></div>'+
-       '<div id="nu-token" class="rnote"></div></div>';
-    $('#admin').innerHTML=h+'</div>';
+    el.innerHTML=h;
+  }
+  function admUsers(el){
+    const d=_admData||{}, users=d.users||[], rbac=d.rbac||{enabled:false,accounts:[]};
+    let h='<div class="jhead">User activity</div><div class="syscard"><div class="uhdr"><span>user</span><span>events</span><span>failed</span><span>last seen</span></div>'+
+      (users.length?'':'<div class="muted">No activity yet.</div>')+'<div id="ulist"></div><div id="udetail"></div></div>';
+    h+='<div class="jhead">Accounts &amp; access (RBAC)</div><div class="syscard">'+
+      '<div class="abadge '+(rbac.enabled?'ok':'bad')+'" style="margin:6px 0"><span class="dot"></span><span>'+
+      (rbac.enabled?('Role-based access ON — '+(rbac.accounts||[]).length+' account(s). Each token maps to a user + role; attribution is authenticated.')
+       :'Single-operator mode — the operator is admin. Add a user below to enable role-based access (admin / member).')+'</span></div>'+
+      '<div id="acctlist"></div>'+
+      '<div class="afilter" style="margin-top:10px"><input id="nu-id" autocomplete="off" placeholder="new user id"><select id="nu-role"><option value="viewer">viewer</option><option value="member" selected>member</option><option value="admin">admin</option></select><button onclick="addUser()">Add user</button></div>'+
+      '<div id="nu-token" class="rnote"></div></div>';
+    el.innerHTML=h;
     const ul=$('#ulist');
-    users.forEach(u=>{
-      const row=document.createElement('div');row.className='urow';
+    users.forEach(u=>{const row=document.createElement('div');row.className='urow';
       row.innerHTML='<span class="un">'+esc(u.user_id)+'</span><span>'+u.events+'</span><span class="uf '+(u.failed?'bad':'')+'">'+u.failed+'</span><span class="ut">'+esc(fmtTime(u.last_seen))+'</span>';
-      row.onclick=()=>drillUser(u.user_id);
-      ul.appendChild(row);
-    });
+      row.onclick=()=>drillUser(u.user_id);ul.appendChild(row);});
     const al=$('#acctlist');
-    (rbac.accounts||[]).forEach(ac=>{
-      const row=document.createElement('div');row.className='emrow';
+    (rbac.accounts||[]).forEach(ac=>{const row=document.createElement('div');row.className='emrow';
       row.innerHTML='<div class="em">'+esc(ac.user_id)+'</div><div class="ec" style="display:flex;justify-content:space-between;align-items:center"><span class="tag '+(ac.role==='admin'?'manual':'auto')+'">'+esc(ac.role)+'</span><span class="rmv link">remove</span></div>';
-      row.querySelector('.rmv').onclick=()=>removeUser(ac.user_id);
-      al.appendChild(row);
-    });
+      row.querySelector('.rmv').onclick=()=>removeUser(ac.user_id);al.appendChild(row);});
+  }
+  function admPolicy(el){
+    const pol=(_admData||{}).policy||{};
+    let h='<div class="jhead">Approval / risk gate</div><div class="syscard">';
+    if(pol.full_control)h+='<div class="abadge bad" style="margin:6px 0"><span class="dot"></span><span>ELI Full Control is ON — approval barriers lifted (every proposal auto-approved).</span></div>';
+    h+='<div class="rnote">Action classes — how the risk gate treats each:</div><div class="pol">';
+    (pol.action_classes||[]).forEach(ac=>{const auto=(pol.auto_approve||[]).indexOf(ac)>=0;h+='<span class="tag '+(auto?'auto':'manual')+'">'+esc(ac)+' · '+(auto?'auto-approve':'manual')+'</span>';});
+    h+='</div><div class="rnote">Which agent (emitter) may propose which classes:</div>';
+    const ep=pol.emitter_policy||{};Object.keys(ep).forEach(em=>{h+='<div class="emrow"><div class="em">'+esc(em)+'</div><div class="ec">'+ep[em].map(esc).join(', ')+'</div></div>';});
+    el.innerHTML=h+'</div>';
   }
   function addUser(){
     const id=($('#nu-id').value||'').trim(), role=$('#nu-role').value, box=$('#nu-token');
@@ -1653,6 +1676,8 @@ _WEB_UI = """<!doctype html>
       .catch(e=>{alert('Could not change internet access: '+esc(''+e)); loadOverview();});
   }
   window.setNet=setNet;
+  function ovCtl(id,cmd){api('/v1/devices/control',{method:'POST',body:JSON.stringify({device_id:id,command:cmd})}).then(()=>setTimeout(loadOverview,400)).catch(()=>{});}
+  window.ovCtl=ovCtl;
   function renderOverview(sys,aud,dev,res,net){
     const s=(sys&&sys.status)||{}, g=s.gpu, c=s.cpu, r=s.ram, m=s.model||{};
     const ig=(aud&&aud.integrity)||{}, ev=(aud&&aud.events)||[];
@@ -1685,6 +1710,15 @@ _WEB_UI = """<!doctype html>
        '<button class="qchip" onclick="switchTab(\\'system\\')">&#128202; Telemetry</button>'+
        '<button class="qchip" onclick="switchTab(\\'audit\\')">&#128737; Audit</button>'+
        '</div></div>';
+    const ctl=devs.filter(x=>x.command_topic||['airplay','firetv','cast','upnp'].indexOf(x.driver)>=0).slice(0,8);
+    h+='<div class="widget"><h4>Quick controls</h4>';
+    if(!ctl.length)h+='<div class="muted">No controllable devices yet — add some in Home.</div>';
+    ctl.forEach(x=>{const xon=(''+(x.state||'')).toUpperCase()==='ON';
+      const media=['airplay','firetv','cast','upnp'].indexOf(x.driver)>=0;
+      h+='<div class="ovact"><span class="aa">'+esc(x.name||x.id)+'</span>'+
+        (media?('<span><button class="roombtn" onclick="ovCtl(\\''+esc(x.id)+'\\',\\'play\\')">&#9654;</button> <button class="roombtn" onclick="ovCtl(\\''+esc(x.id)+'\\',\\'pause\\')">&#9208;</button></span>')
+          :('<button class="roombtn" onclick="ovCtl(\\''+esc(x.id)+'\\',\\''+(xon?'off':'on')+'\\')">'+(xon?'Turn off':'Turn on')+'</button>'))+'</div>';});
+    h+='</div>';
     h+='<div class="widget wide"><h4>Recent activity</h4>';
     if(!ev.length)h+='<div class="muted">No activity yet.</div>';
     ev.slice(0,8).forEach(e=>{h+='<div class="ovact"><span class="aa">'+esc(e.action||e.event_type||'')+'</span><span class="au">'+esc(e.user_id||'system')+'</span><span class="at">'+esc(fmtTime(e.timestamp))+'</span></div>';});
