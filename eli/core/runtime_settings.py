@@ -391,11 +391,8 @@ def _load_settings_unsanitized() -> Dict[str, Any]:
     if migrated_keys:
         try:
             settings_file.parent.mkdir(parents=True, exist_ok=True)
-            settings_file.write_text(
-                json.dumps(migrated_data, indent=2, ensure_ascii=False),
-                encoding="utf-8",
-            )
-            _harden_perms(settings_file)
+            from eli.core.secure_io import secure_write_text as _secure_write
+            _secure_write(settings_file, json.dumps(migrated_data, indent=2, ensure_ascii=False), mode=0o600)
             if not _MIGRATION_LOGGED:
                 log.debug(f"[SETTINGS] Migrated {len(migrated_keys)} legacy keys: {migrated_keys}")
                 _MIGRATION_LOGGED = True
@@ -451,11 +448,10 @@ def _persist_healed_paths(settings: Dict[str, Any], settings_file: Path) -> None
             existing[key] = settings[key]
     existing = _portable_settings_for_storage(existing)
     settings_file.parent.mkdir(parents=True, exist_ok=True)
-    settings_file.write_text(
-        json.dumps(existing, indent=2, ensure_ascii=False),
-        encoding="utf-8",
-    )
-    _harden_perms(settings_file)
+    # settings may hold secrets (broker passwords, tokens) — born-0600 atomic
+    # write, never world-readable for any instant. See eli.core.secure_io.
+    from eli.core.secure_io import secure_write_text as _secure_write
+    _secure_write(settings_file, json.dumps(existing, indent=2, ensure_ascii=False), mode=0o600)
 
 
 def _harden_perms(path) -> None:
@@ -506,11 +502,10 @@ def save_settings(settings: Dict[str, Any]) -> None:
             pass
 
     settings_file.parent.mkdir(parents=True, exist_ok=True)
-    settings_file.write_text(
-        json.dumps(existing, indent=2, ensure_ascii=False),
-        encoding="utf-8",
-    )
-    _harden_perms(settings_file)
+    # settings may hold secrets (broker passwords, tokens) — born-0600 atomic
+    # write, never world-readable for any instant. See eli.core.secure_io.
+    from eli.core.secure_io import secure_write_text as _secure_write
+    _secure_write(settings_file, json.dumps(existing, indent=2, ensure_ascii=False), mode=0o600)
 
 
 def update_settings(**kwargs: Any) -> Dict[str, Any]:

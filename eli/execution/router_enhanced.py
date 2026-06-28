@@ -1261,6 +1261,51 @@ def _sanitise_news_topic(topic: str) -> str:
     return cleaned
 
 
+def _eli_proof_of_reading_challenge(low: str) -> bool:
+    """True when the user is challenging ELI to prove it actually read/scanned a
+    file or its own code — skepticism about ELI's *own action*.
+
+    This reads the whole utterance for the challenge frame rather than matching
+    isolated keywords, so it separates two superficially-similar shapes that a
+    bare keyword pair cannot:
+
+      • CHALLENGE  → audit:  "prove that you actually scanned the file",
+        "timestamps as proof that you read the file", "did you even open it?"
+      • IMPERATIVE → not audit: "read the data in that file and prove it's right"
+        — here "prove" is about the *data's* correctness and "read" is a request,
+        not a claim that ELI already read anything.
+
+    The discriminator is whether the proof is aimed at ELI's reading action: a
+    second-person past/perfect claim ("you read/scanned/opened…"), a "proof that
+    you …" / "prove (that) you …" frame, or a "did/have you (actually) read…"
+    frame — OR an explicit reference to ELI's own runtime/source surface.
+    """
+    if not re.search(
+        r"\b(prove|proof|timestamps?|don'?t believe|do not believe|"
+        r"are you lying|you'?re lying|convince me)\b",
+        low,
+    ):
+        return False
+    # (a) explicit reference to ELI's own runtime/source.
+    runtime_ref = re.search(
+        r"\b(gui|audit|runtime|your (?:code|source|files?)|source code|the codebase)\b",
+        low,
+    )
+    # (b) a challenge aimed at ELI's *own* reading/scanning action. Bare "you
+    #     read" is excluded (it collides with the request "can you read…");
+    #     it only counts with an emphatic adverb or inside a proof/did-you frame.
+    eli_read_claim = (
+        re.search(r"\bproof that you\b", low)
+        or re.search(r"\bprove (?:to me )?(?:that )?(?:you|u)\b", low)
+        or re.search(r"\b(?:did|have|haven'?t|didn'?t) (?:you|u) "
+                     r"(?:actually |even |really )?(?:read|scan|open|look)", low)
+        or re.search(r"\b(?:you|u) (?:actually|really|even|genuinely|truly) "
+                     r"(?:read|scann?ed|looked at|opened|examined|checked)\b", low)
+        or re.search(r"\b(?:you|u) (?:scann?ed|looked at|opened|examined)\b", low)
+    )
+    return bool(runtime_ref or eli_read_claim)
+
+
 def route(text: str) -> Dict[str, Any]:
 
     raw, low = _normalize_text(text)
@@ -1282,16 +1327,11 @@ def route(text: str) -> Dict[str, Any]:
     # These are not casual chat. They require grounded runtime/file evidence.
     # This block belongs inside the primary route() function, not as an
     # end-of-file wrapper around route().
-    # A PROOF challenge AND an explicit reference to ELI's own runtime/source — not bare
-    # "data"/"read"/"file", which over-matched ordinary requests ("read the data in that
-    # file and prove it's right") and hijacked them into a runtime audit.
-    if re.search(
-        r"\b(prove|proof|timestamps?|actually scanned|scanned (?:the|your)|read (?:the|your) (?:file|code|source)|read in full)\b",
-        low,
-    ) and re.search(
-        r"\b(gui|audit|runtime|your (?:code|source|files?)|source code|the codebase)\b",
-        low,
-    ):
+    # A PROOF challenge aimed at ELI's *own* reading/scanning action — see
+    # _eli_proof_of_reading_challenge. This reads the whole utterance for the
+    # challenge frame so "prove you read the file" routes here while the
+    # imperative "read the data in that file and prove it's right" does not.
+    if _eli_proof_of_reading_challenge(low):
         return _mk(
             "GUI_RUNTIME_AUDIT",
             {
