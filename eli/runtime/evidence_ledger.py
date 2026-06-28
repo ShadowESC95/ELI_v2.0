@@ -80,12 +80,10 @@ def _audit_key() -> Optional[bytes]:
             return data.encode("utf-8") if data else None
         import secrets as _secrets
         key = _secrets.token_hex(32)
-        kp.parent.mkdir(parents=True, exist_ok=True)
-        kp.write_text(key, encoding="utf-8")
-        try:
-            os.chmod(kp, 0o600)
-        except OSError:
-            pass
+        # Born locked (0600) — never world-readable, even for the instant
+        # between create and chmod. See eli.core.secure_io.
+        from eli.core.secure_io import secure_write_text as _secure_write
+        _secure_write(kp, key, mode=0o600)
         return key.encode("utf-8")
     except Exception:
         return None

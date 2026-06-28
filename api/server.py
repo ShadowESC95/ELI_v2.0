@@ -380,6 +380,15 @@ _WEB_UI = """<!doctype html>
   .dot { width:9px; height:9px; border-radius:50%; flex:none; }
   .dot.ok { background:var(--ok); box-shadow:0 0 10px var(--ok); }
   .dot.bad { background:var(--bad); box-shadow:0 0 10px var(--bad); animation:pulse 1.1s infinite; }
+  .dot.warn { background:#f59e0b; box-shadow:0 0 10px #f59e0b; }
+  .netrow { display:flex; align-items:center; gap:12px; }
+  .netstate { font-family:var(--mono); font-size:12px; font-weight:700; letter-spacing:1px; padding:4px 10px; border-radius:8px; }
+  .netstate.on { color:#f59e0b; background:rgba(245,158,11,.13); border:1px solid rgba(245,158,11,.4); }
+  .netstate.off { color:var(--ok); background:rgba(34,197,94,.10); border:1px solid rgba(34,197,94,.32); }
+  .netbtn { margin-left:auto; cursor:pointer; font-size:12px; font-weight:600; padding:7px 14px; border-radius:9px; border:1px solid var(--line); background:var(--bg2); color:var(--fg); }
+  .netbtn.off:not([disabled]):hover { border-color:#f59e0b; color:#f59e0b; }
+  .netbtn.on:not([disabled]):hover { border-color:var(--ok); color:var(--ok); }
+  .netbtn[disabled] { opacity:.45; cursor:not-allowed; }
   .ov-grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(260px,1fr)); gap:14px; }
   .widget { background:var(--card); border:1px solid var(--line); border-radius:16px; padding:16px; box-shadow:var(--shadow); backdrop-filter:blur(12px); }
   .widget.wide { grid-column:1/-1; }
@@ -1173,23 +1182,38 @@ _WEB_UI = """<!doctype html>
   function tickClock(){const el=$('#ov-clock');if(!el)return;const d=new Date();const t=el.querySelector('.t'),dd=el.querySelector('.d');if(t)t.textContent=d.toLocaleTimeString();if(dd)dd.textContent=d.toLocaleDateString(undefined,{weekday:'long',month:'short',day:'numeric'});}
   function loadOverview(){
     Promise.all([api('/v1/system').catch(()=>({})),api('/v1/audit?limit=8').catch(()=>({})),
-                 api('/v1/devices').catch(()=>({})),api('/v1/research/corpora').catch(()=>({}))])
-      .then(([sys,aud,dev,res])=>renderOverview(sys,aud,dev,res))
+                 api('/v1/devices').catch(()=>({})),api('/v1/research/corpora').catch(()=>({})),
+                 api('/v1/net').catch(()=>({}))])
+      .then(([sys,aud,dev,res,net])=>renderOverview(sys,aud,dev,res,net))
       .catch(e=>{$('#overview').innerHTML='<div class="err">'+esc(''+e)+'</div>';});
   }
-  function renderOverview(sys,aud,dev,res){
+  function setNet(on){
+    const reason = on ? (prompt('Enable internet access for ELI?\\nOptionally note why (logged to the audit trail):','')||'') : '';
+    if(on && reason===null) return;
+    api('/v1/net',{method:'POST',body:JSON.stringify({enabled:!!on,reason:reason})})
+      .then(d=>{ if(!d||!d.ok){alert('Could not change internet access: '+esc((d&&d.error)||'unknown'));} loadOverview(); })
+      .catch(e=>{alert('Could not change internet access: '+esc(''+e)); loadOverview();});
+  }
+  window.setNet=setNet;
+  function renderOverview(sys,aud,dev,res,net){
     const s=(sys&&sys.status)||{}, g=s.gpu, c=s.cpu, r=s.ram, m=s.model||{};
     const ig=(aud&&aud.integrity)||{}, ev=(aud&&aud.events)||[];
     const devs=(dev&&dev.devices)||[], on=devs.filter(d=>(''+(d.state||'')).toUpperCase()==='ON').length;
     const corpora=(res&&res.corpora)||[];
+    const n=(net&&net.net)||{}, netOn=!!n.enabled, isAdmin=(window.MY_ROLE==='admin'||!window.MY_ROLE);
     let h='<div class="ovwrap"><div class="ovhero">'+
       '<div id="ov-clock" class="clock"><div class="t">--:--:--</div><div class="d"></div></div>'+
       '<div class="ovstat">'+
         '<div class="ovstat-row"><span class="dot ok"></span> System online &middot; model <b>'+esc(m.name||'—')+'</b></div>'+
         '<div class="ovstat-row"><span class="dot '+(ig.ok?'ok':'bad')+'"></span> Audit '+(ig.ok?('verified &middot; '+(ig.chained||0)+' events'):'TAMPER DETECTED')+'</div>'+
+        '<div class="ovstat-row"><span class="dot '+(netOn?'warn':'ok')+'"></span> Internet '+(netOn?'<b>ON</b> &middot; monitored':'off &middot; offline-by-default')+(n.override_active?' &middot; temp-allow active':'')+'</div>'+
         '<div class="ovstat-row"><span class="dot ok"></span> '+devs.length+' device(s) &middot; '+on+' on &middot; '+corpora.length+' corpora</div>'+
       '</div></div>';
-    h+='<div class="ov-grid"><div class="widget"><h4>Vitals</h4><div class="ovgauges">';
+    h+='<div class="ov-grid"><div class="widget"><h4>Internet access</h4>'+
+       '<div class="netrow"><span class="netstate '+(netOn?'on':'off')+'">'+(netOn?'ENABLED':'OFF')+'</span>'+
+       '<button class="netbtn '+(netOn?'on':'off')+'" '+(isAdmin?'':'disabled title="Admin only"')+' onclick="setNet('+(netOn?'false':'true')+')">'+(netOn?'Turn off':'Turn on')+'</button></div>'+
+       '<div class="muted" style="margin-top:6px">ELI is offline-by-default and hard-gated at the socket boundary. Turning this on lets ELI reach the internet; every change is recorded in the audit trail.</div></div>';
+    h+='<div class="widget"><h4>Vitals</h4><div class="ovgauges">';
     if(g){h+=ovGauge(g.util_pct,'GPU')+ovGauge(g.temp_c,'GPU °C');}
     if(c){h+=ovGauge(c.usage_pct,'CPU');}
     if(r){h+=ovGauge(r.pct!=null?r.pct:(r.total_mb?Math.round(r.used_mb/r.total_mb*100):0),'RAM');}
@@ -1349,6 +1373,12 @@ class ResearchIngest(BaseModel):
     corpus: str
     path: str
     user: str = "anon"
+
+class NetToggle(BaseModel):
+    # The monitored internet switch. Off by default; admin-only to flip. Every
+    # change is recorded in the tamper-evident audit ledger.
+    enabled: bool
+    reason: str = ""
 
 class ResearchQuery(BaseModel):
     corpus: str
@@ -1854,6 +1884,59 @@ def system_status():
         return {"ok": True, "status": st}
     except Exception as e:
         return {"ok": False, "error": str(e), "status": {}}
+
+# ----------------------------------------------------------------------
+# Internet toggle  (powers the Overview "Internet" switch)
+# ELI is offline-by-default and hard-gated at the socket boundary (eli.core.netguard).
+# This surface lets the OWNER deliberately open internet access while keeping it tightly
+# monitored: the switch is admin-only and every flip is written to the tamper-evident
+# audit ledger. Reading the state is token-gated; flipping it is admin-only.
+# ----------------------------------------------------------------------
+def _net_state() -> dict:
+    """Current, grounded internet-gate state — what netguard will actually enforce."""
+    from eli.core import netguard
+    try:
+        from eli.core.config import network_allowed
+        enabled = bool(network_allowed())
+    except Exception:
+        enabled = False
+    return {
+        "enabled": enabled,                                  # persisted policy
+        "override_active": netguard.network_override_active(),  # scoped allow_network()
+        "blocked": netguard.should_block_network(),          # net effect right now
+        "local_services": netguard.local_services(),         # permitted LAN hosts
+    }
+
+@app.get("/v1/net", tags=["System"], dependencies=[Depends(_require_token)])
+def net_status():
+    """Read the monitored internet-gate state (read-only)."""
+    try:
+        return {"ok": True, "net": _net_state()}
+    except Exception as e:
+        return {"ok": False, "error": str(e), "net": {}}
+
+@app.post("/v1/net", tags=["System"])
+def net_set(body: NetToggle, principal: Principal = Depends(require_admin)):
+    """Flip the internet switch (admin-only). Persisted and recorded to the audit
+    ledger. Enabling is logged at 'warning' severity so it stands out in the trail.
+    The socket-level failsafe still governs every actual connection."""
+    try:
+        from eli.core import config as _cfg
+        _cfg.set("network_enabled", bool(body.enabled))
+        state = _net_state()
+        _audit(
+            "net_toggle",
+            user_id=principal.user_id,
+            action="NET_ENABLE" if body.enabled else "NET_DISABLE",
+            subject=(body.reason or "")[:280],
+            outcome="enabled" if body.enabled else "disabled",
+            severity="warning" if body.enabled else "info",
+            payload={"enabled": bool(body.enabled), "reason": body.reason or "",
+                     "state": state},
+        )
+        return {"ok": True, "net": state}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
 
 # ----------------------------------------------------------------------
 # Audit trail  (powers the "Audit" tab — tamper-evident, read-only)
