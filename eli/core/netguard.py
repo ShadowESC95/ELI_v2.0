@@ -30,10 +30,14 @@ from __future__ import annotations
 
 import contextlib
 import json
+import os
+import queue
 import socket
 import threading
+import time
 import urllib.request
-from typing import Any, Dict, Optional
+from collections import deque
+from typing import Any, Dict, List, Optional
 
 
 class OfflineError(RuntimeError):
@@ -167,6 +171,128 @@ def _is_local_host(host: Optional[str]) -> bool:
         return h in _LOCAL_SERVICES
 
 
+# --------------------------------------------------------------------------- #
+# Egress monitoring                                                           #
+# Offline-by-default is enforced above. When the owner deliberately enables    #
+# network, the toggle is no longer a blind hole: every ALLOWED non-loopback    #
+# connection is RECORDED — into an in-memory ring buffer (live dashboard view) #
+# and, throttled, into the tamper-evident audit ledger — so "internet on" is   #
+# reviewable. Recording is best-effort and OFF the hot path (a background      #
+# writer drains a queue); it never delays or breaks a connection.              #
+# --------------------------------------------------------------------------- #
+_EGRESS_RING_MAX = 500
+_egress_ring: "deque" = deque(maxlen=_EGRESS_RING_MAX)
+_egress_ring_lock = threading.Lock()
+_egress_total = 0                       # monotonic count of recorded egress events
+_egress_q: "Optional[queue.Queue]" = None
+_egress_writer_started = False
+_egress_writer_lock = threading.Lock()
+
+
+def _egress_log_window() -> float:
+    """Seconds between durable ledger rows for the same host:port (a burst of
+    connections to one host yields one audit row per window, not thousands).
+    The in-memory ring still captures every event. 0 disables throttling.
+    Tunable via ELI_EGRESS_LOG_WINDOW (default 300s)."""
+    try:
+        return float(os.environ.get("ELI_EGRESS_LOG_WINDOW", "300"))
+    except Exception:
+        return 300.0
+
+
+def _egress_ledger_enabled() -> bool:
+    return os.environ.get("ELI_EGRESS_LEDGER", "1").strip().lower() not in ("0", "false", "no", "off")
+
+
+def _egress_writer_loop() -> None:
+    last_logged: Dict[str, int] = {}
+    while True:
+        try:
+            item = _egress_q.get()  # type: ignore[union-attr]
+        except Exception:
+            continue
+        if item is None:
+            continue
+        host, port, ts = item
+        try:
+            win = _egress_log_window()
+            key = f"{host}:{port}"
+            bucket = int(ts // win) if win > 0 else int(ts)
+            if win > 0 and last_logged.get(key) == bucket:
+                continue                # already logged this host this window
+            last_logged[key] = bucket
+            if len(last_logged) > 4096:  # cap the throttle map
+                last_logged.clear()
+            from eli.runtime.evidence_ledger import record_event
+            # The window bucket is in `content` (part of the dedup signature) so each
+            # window produces a distinct durable row rather than collapsing to one ever.
+            record_event(
+                "net_egress",
+                source="netguard",
+                action="OUTBOUND",
+                subject=key,
+                content=f"egress to {key} @w{bucket}",
+                severity="info",
+                payload={"host": host, "port": port, "window_bucket": bucket},
+            )
+        except Exception:
+            continue
+
+
+def _start_egress_writer() -> None:
+    global _egress_q, _egress_writer_started
+    if _egress_writer_started:
+        return
+    with _egress_writer_lock:
+        if _egress_writer_started:
+            return
+        _egress_q = queue.Queue(maxsize=2048)
+        threading.Thread(target=_egress_writer_loop, name="eli-egress-writer",
+                         daemon=True).start()
+        _egress_writer_started = True
+
+
+def _record_egress(host: Optional[str], port: Any = None) -> None:
+    """Record an ALLOWED non-loopback outbound connection. Best-effort, never raises,
+    never blocks the connection (ledger write happens on a background thread)."""
+    global _egress_total
+    if not host:
+        return
+    try:
+        nh = _norm_host(host)
+        ts = time.time()
+        with _egress_ring_lock:
+            _egress_ring.append({"host": nh, "port": port, "ts": ts})
+            _egress_total += 1
+        if _egress_ledger_enabled():
+            _start_egress_writer()
+            if _egress_q is not None:
+                try:
+                    _egress_q.put_nowait((nh, port, ts))
+                except Exception:
+                    pass            # queue full → ring still has it; drop the ledger write
+    except Exception:
+        pass
+
+
+def recent_egress(limit: int = 100) -> List[Dict[str, Any]]:
+    """Most-recent allowed outbound connections (newest last) for the dashboard."""
+    with _egress_ring_lock:
+        items = list(_egress_ring)
+    return items[-limit:] if (limit and limit > 0) else items
+
+
+def egress_total() -> int:
+    """Total allowed outbound connections recorded since process start."""
+    return _egress_total
+
+
+def _addr_host_port(address) -> tuple:
+    if isinstance(address, tuple) and address:
+        return str(address[0]), (address[1] if len(address) > 1 else None)
+    return None, None
+
+
 def guarded_urlopen(url, *args, timeout: float = 20, **kwargs):
     """urllib.request.urlopen that refuses (fails closed) when offline.
 
@@ -224,14 +350,21 @@ def install_socket_guard() -> bool:
                 raise OfflineError(
                     f"network disabled (offline mode): blocked connection to {address}"
                 )
+            # Allowed non-loopback egress → record it (this is the single chokepoint
+            # every outbound connection passes through, so it's the one place to watch).
+            _host, _port = _addr_host_port(address)
+            _record_egress(_host, _port)
         return _REAL_CONNECT(self, address)
 
     def _guarded_create_connection(address, *args, **kwargs):
         host = _addr_host(address) if isinstance(address, tuple) else None
-        if host and not _is_local_host(host) and should_block_network():
-            raise OfflineError(
-                f"network disabled (offline mode): blocked connection to {address}"
-            )
+        if host and not _is_local_host(host):
+            if should_block_network():
+                raise OfflineError(
+                    f"network disabled (offline mode): blocked connection to {address}"
+                )
+            _host, _port = _addr_host_port(address)
+            _record_egress(_host, _port)
         return _REAL_CREATE_CONNECTION(address, *args, **kwargs)
 
     socket.socket.connect = _guarded_connect
