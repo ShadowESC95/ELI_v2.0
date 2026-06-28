@@ -53,15 +53,10 @@ def _load_raw() -> List[dict]:
 
 
 def _save_raw(users: List[dict]) -> None:
-    p = _store_path()
-    p.parent.mkdir(parents=True, exist_ok=True)
-    tmp = p.with_suffix(".json.part")
-    tmp.write_text(json.dumps(users, indent=2), encoding="utf-8")
-    tmp.replace(p)
-    try:
-        os.chmod(p, 0o600)  # holds token hashes — keep it owner-only
-    except OSError:
-        pass
+    # Holds token hashes — born 0600, never world-readable for any instant
+    # (the old temp-then-chmod left a brief window). See eli.core.secure_io.
+    from eli.core.secure_io import secure_write_text as _secure_write
+    _secure_write(_store_path(), json.dumps(users, indent=2), mode=0o600)
 
 
 def rbac_enabled() -> bool:
