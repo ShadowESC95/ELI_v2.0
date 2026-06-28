@@ -414,6 +414,35 @@ _WEB_UI = """<!doctype html>
   .roomnm { font-size:13px; font-weight:700; color:var(--teal); text-transform:uppercase; letter-spacing:.5px; }
   .roomct { font-size:11px; color:var(--mut); background:var(--input); border:1px solid var(--line); border-radius:10px; padding:1px 8px; }
   .roombtn { font-size:12px; padding:5px 11px; border:1px solid var(--line); border-radius:8px; background:var(--input); color:var(--fg-dim); cursor:pointer; }
+  /* ── JARVIS sub-tab framework + command-console chrome ───────────────── */
+  .subwrap { margin-top:4px; }
+  .subtabs { display:flex; gap:2px; border-bottom:1px solid var(--line); margin-bottom:16px; overflow-x:auto; scrollbar-width:none; position:relative; }
+  .subtabs::-webkit-scrollbar { display:none; }
+  .subtab { position:relative; background:transparent; border:0; color:var(--fg-dim); font-family:var(--mono); font-size:12px; letter-spacing:1.2px; text-transform:uppercase; padding:11px 16px 12px; cursor:pointer; white-space:nowrap; transition:var(--fast); }
+  .subtab:hover { color:var(--fg); }
+  .subtab.active { color:var(--accent); text-shadow:0 0 12px rgba(34,211,238,.5); }
+  .subtab.active::after { content:""; position:absolute; left:8px; right:8px; bottom:-1px; height:2px; background:linear-gradient(90deg,transparent,var(--accent),transparent); box-shadow:0 0 12px var(--accent); animation:subglow 2.4s ease-in-out infinite; }
+  @keyframes subglow { 0%,100%{opacity:.7} 50%{opacity:1} }
+  .subbody { animation:fadein .25s ease; }
+  @keyframes fadein { from{opacity:0;transform:translateY(4px)} to{opacity:1;transform:none} }
+  /* Live status strip — the mission-control header */
+  .livestrip { display:flex; flex-wrap:wrap; gap:10px; align-items:center; padding:12px 16px; margin-bottom:14px; border-radius:14px;
+    background:linear-gradient(120deg,rgba(13,20,33,.85),rgba(20,28,44,.6)); border:1px solid var(--line); position:relative; overflow:hidden; box-shadow:var(--shadow); }
+  .livestrip::before { content:""; position:absolute; inset:0; background:repeating-linear-gradient(90deg,transparent,transparent 38px,var(--grid) 38px,var(--grid) 39px); pointer-events:none; }
+  .lspill { display:flex; align-items:center; gap:7px; font-size:12.5px; font-family:var(--mono); color:var(--fg); padding:5px 12px; border-radius:20px; background:rgba(7,12,22,.55); border:1px solid var(--line); position:relative; z-index:1; }
+  .lspill b { color:var(--accent); font-weight:700; }
+  .lspill .ld { width:8px; height:8px; border-radius:50%; background:var(--accent); box-shadow:0 0 8px var(--accent); }
+  .lspill .ld.warn { background:#e0a72e; box-shadow:0 0 8px #e0a72e; }
+  .lspill .ld.off { background:var(--mut); box-shadow:none; }
+  .lspill .ld.live { animation:pulse 1.8s ease-in-out infinite; }
+  @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:.35} }
+  .lstitle { font-family:var(--mono); font-size:11px; letter-spacing:2px; text-transform:uppercase; color:var(--accent); text-shadow:0 0 10px rgba(34,211,238,.4); margin-right:4px; z-index:1; }
+  /* Futuristic section header with accent bar */
+  .jhead { display:flex; align-items:center; gap:10px; margin:18px 0 10px; font-family:var(--mono); font-size:12px; letter-spacing:1.6px; text-transform:uppercase; color:var(--fg-dim); }
+  .jhead::before { content:""; width:3px; height:14px; background:var(--accent); border-radius:2px; box-shadow:0 0 10px var(--accent); }
+  .jhead::after { content:""; flex:1; height:1px; background:linear-gradient(90deg,var(--line),transparent); }
+  .grid .card { transition:var(--fast); }
+  .grid .card:hover { border-color:var(--accent); box-shadow:0 0 0 1px rgba(34,211,238,.25),0 8px 26px rgba(0,0,0,.4); }
   .roombtn:hover { border-color:var(--teal); color:#fff; }
   .roomhd .roombtn:first-of-type { margin-left:auto; }
   #overview { overflow-y:auto; padding:20px; }
@@ -746,10 +775,7 @@ _WEB_UI = """<!doctype html>
     Promise.all([api('/v1/devices/status'), loadDrivers()]).then(([s])=>{
       const st=(s&&s.status)||{};
       api('/v1/devices/rooms').then(d=>{
-        const rooms=d.rooms||[];
-        const total=rooms.reduce((n,r)=>n+(r.devices?r.devices.length:0),0);
-        if(!st.configured && !total){renderDevConfig(st);return;}
-        renderDevices(rooms, st);
+        renderDevices(d.rooms||[], st);   // sub-tabbed; broker setup lives in Discover & Setup
       }).catch(e=>{$('#devices').innerHTML='<div class="err">'+esc(''+e)+'</div>';});
     }).catch(e=>{$('#devices').innerHTML='<div class="err">'+esc(''+e)+'</div>';});
   }
@@ -817,12 +843,13 @@ _WEB_UI = """<!doctype html>
     const body={host:($('#mq_host').value||'').trim(), port:parseInt($('#mq_port').value||'1883',10)||1883,
       username:($('#mq_user').value||'').trim(), password:$('#mq_pass').value||'',
       discovery_prefix:($('#mq_disc').value||'').trim()};
-    if(!body.host){renderDevConfig({}, body, 'Enter your MQTT broker host (e.g. 192.168.1.50 or mosquitto.local).');return;}
+    const cfgbox=$('#broker-cfg')||$('#broker-cfg2');
+    if(!body.host){renderBrokerCfg(cfgbox, body, 'Enter your MQTT broker host (e.g. 192.168.1.50 or mosquitto.local).');return;}
     const btn=$('#mq-save'); if(btn){btn.disabled=true;btn.textContent='Connecting…';}
     api('/v1/devices/config',{method:'POST',body:JSON.stringify(body)}).then(r=>{
-      if(!r.ok){renderDevConfig({}, body, r.error||'Could not connect to the broker.');return;}
+      if(!r.ok){renderBrokerCfg(cfgbox, body, r.error||'Could not connect to the broker.');return;}
       setTimeout(loadDevices,500);
-    }).catch(e=>{renderDevConfig({}, body, ''+e);});
+    }).catch(e=>{renderBrokerCfg(cfgbox, body, ''+e);});
   }
   // ── Local-control drivers (AirPlay / Fire TV / Cast / UPnP) ────────────────
   let DRIVERS={};
@@ -941,17 +968,55 @@ _WEB_UI = """<!doctype html>
     if(r===null)return;
     api('/v1/devices/room',{method:'POST',body:JSON.stringify({device_id:dv.id,room:r.trim()})}).then(()=>loadDevices());
   }
+  // ── Generic sub-tab framework (reused across main tabs) ────────────────
+  function mountSubtabs(host, tabs, initial, onSwitch){
+    host.innerHTML='';
+    const bar=document.createElement('div');bar.className='subtabs';
+    const body=document.createElement('div');body.className='subbody';
+    tabs.forEach(t=>{
+      const b=document.createElement('button');b.className='subtab'+(t.id===initial?' active':'');b.textContent=t.label;
+      b.onclick=()=>{if(onSwitch)onSwitch(t.id);bar.querySelectorAll('.subtab').forEach(x=>x.classList.remove('active'));b.classList.add('active');body.className='subbody';body.innerHTML='';t.render(body);};
+      bar.appendChild(b);
+    });
+    host.appendChild(bar);host.appendChild(body);
+    (tabs.find(t=>t.id===initial)||tabs[0]).render(body);
+  }
+  // ── Home: live status strip + sub-tabbed command console ───────────────
+  let _homeSub='devices';
+  function homeStatusStrip(rooms, st){
+    const devs=[];rooms.forEach(r=>(r.devices||[]).forEach(d=>devs.push(d)));
+    const on=devs.filter(d=>(''+(d.state||'')).toUpperCase()==='ON').length;
+    const off=devs.filter(d=>(''+(d.state||'')).toUpperCase()==='OFF').length;
+    const idle=devs.length-on-off;
+    const strip=document.createElement('div');strip.className='livestrip';
+    const conn=st&&st.connected;
+    strip.innerHTML='<span class="lstitle">&#9670; ELI HOME</span>'
+      +'<span class="lspill"><span class="ld '+(conn?'live':'warn')+'"></span>'+(conn?('broker '+esc(st.broker||'online')):'no broker')+'</span>'
+      +'<span class="lspill"><span class="ld live"></span><b>'+on+'</b> on</span>'
+      +'<span class="lspill"><span class="ld off"></span><b>'+off+'</b> off</span>'
+      +(idle?'<span class="lspill"><span class="ld warn"></span><b>'+idle+'</b> idle</span>':'')
+      +'<span class="lspill"><b>'+devs.length+'</b> devices</span>'
+      +'<span class="lspill" id="ls-autos"><b>&middot;</b> automations</span>';
+    api('/v1/home/automations').then(d=>{const n=((d&&d.automations)||[]).length;const e=$('#ls-autos');if(e)e.innerHTML='<b>'+n+'</b> automations';}).catch(()=>{});
+    return strip;
+  }
   function renderDevices(rooms, st){
     const h=$('#devices');h.innerHTML='';
+    h.appendChild(homeStatusStrip(rooms, st));
+    const sg=document.createElement('div');sg.id='home-sugg';h.appendChild(sg);loadHomeSuggestions();
+    const shell=document.createElement('div');shell.className='subwrap';h.appendChild(shell);
+    mountSubtabs(shell,[
+      {id:'devices',label:'Devices',render:el=>paneDevices(el,rooms,st)},
+      {id:'autos',label:'Automations',render:paneAutomations},
+      {id:'scenes',label:'Scenes',render:paneScenes},
+      {id:'discover',label:'Discover & Setup',render:paneDiscover},
+      {id:'advanced',label:'Advanced',render:paneAdvanced},
+    ],_homeSub,(id)=>{_homeSub=id;});
+  }
+  function paneDevices(el, rooms, st){
     const total=rooms.reduce((n,r)=>n+(r.devices?r.devices.length:0),0);
-    const bar=document.createElement('div');bar.className='abadge '+(st&&st.connected?'ok':'bad');
-    bar.innerHTML='<span class="dot"></span><span>'+(st&&st.connected?('Connected to '+esc(st.broker||'broker')):('Not connected'+(st&&st.error?(' — '+esc(st.error)):'')))+' · '+total+' device(s)</span>';
-    h.appendChild(bar);
-    const sg=document.createElement('div');sg.id='home-sugg';h.appendChild(sg);
-    loadHomeSuggestions();
-    if(!total){const m=document.createElement('div');m.className='muted';m.style.cssText='padding:18px 0;line-height:1.6';
-      m.innerHTML='No devices yet. <b>Find on my network</b> to add a media device (AirPlay, Fire TV, Cast), '
-        +'or set up an MQTT broker for switches &amp; lights (ESPHome / Tasmota / Zigbee2MQTT).';h.appendChild(m);}
+    if(!total){const m=document.createElement('div');m.className='muted';m.style.cssText='padding:22px 0;line-height:1.7';
+      m.innerHTML='No devices yet. Open <b>Discover &amp; Setup</b> to find media devices (AirPlay, Fire TV, Cast, UPnP) on your network, or connect an MQTT broker for switches &amp; lights.';el.appendChild(m);}
     rooms.forEach(rm=>{
       const sec=document.createElement('div');sec.className='roomsec';
       const hd=document.createElement('div');hd.className='roomhd';
@@ -960,42 +1025,90 @@ _WEB_UI = """<!doctype html>
       const off=document.createElement('button');off.className='roombtn';off.textContent='All off';off.onclick=()=>ctlRoom(rm.room,'off');
       hd.appendChild(on);hd.appendChild(off);sec.appendChild(hd);
       const grid=document.createElement('div');grid.className='grid';(rm.devices||[]).forEach(dv=>grid.appendChild(devCard(dv)));sec.appendChild(grid);
-      h.appendChild(sec);
+      el.appendChild(sec);
     });
-    const sp=document.createElement('div');sp.id='scenes-panel';h.appendChild(sp);loadScenesPanel();
     const foot=document.createElement('div');foot.className='afilter';foot.style.marginTop='14px';
-    foot.innerHTML='<button class="cbtn" onclick="openDiscover()">&#128270; Find on my network</button>'
-      +'<button onclick="addDevicePrompt()">+ Add device</button><button onclick="loadDevices()">Refresh</button>'
-      +'<span class="link" style="align-self:center" onclick="renderDevConfig({})">Broker settings</span>';
-    h.appendChild(foot);
-    const slot=document.createElement('div');slot.id='dev-add';h.appendChild(slot);
-    const found=document.createElement('div');found.id='mq-found';found.style.marginTop='10px';h.appendChild(found);
+    foot.innerHTML='<button class="cbtn" onclick="loadDevices()">&#10227; Refresh</button><button onclick="addDevicePrompt()">+ Add device manually</button>';
+    el.appendChild(foot);
+    const slot=document.createElement('div');slot.id='dev-add';el.appendChild(slot);
   }
-  /* scenes + automation builder */
+  function paneScenes(el){
+    el.innerHTML='<div class="jhead">Scenes</div><div id="scenes-panel"><div class="muted">Loading…</div></div>';
+    loadScenesPanel();
+  }
+  function paneAutomations(el){
+    el.innerHTML='<div class="jhead">Active automations</div><div id="autos-list"><div class="muted">Loading…</div></div>'
+      +'<div class="jhead">New automation</div><div id="autos-builder"></div>';
+    loadAutomationsList();
+    Promise.all([api('/v1/devices'),api('/v1/home/scenes')]).then(r=>{
+      _bdevs=((r[0]&&r[0].devices)||[]).map(d=>({id:d.id,name:d.name||d.id}));
+      _bscenes=((r[1]&&r[1].scenes)||[]).map(s=>s.name);
+      renderAutoBuilder($('#autos-builder'));
+    }).catch(()=>{});
+  }
+  function loadAutomationsList(){
+    api('/v1/home/automations').then(d=>{
+      const box=$('#autos-list');if(!box)return;const autos=(d&&d.automations)||[];
+      if(!autos.length){box.innerHTML='<div class="muted">No automations yet — create one below.</div>';return;}
+      let h='';autos.forEach(a=>{const dot=a.enabled?'<span style="display:inline-block;width:7px;height:7px;border-radius:50%;background:#2ec07a;box-shadow:0 0 8px #2ec07a;margin-right:8px"></span>':'<span style="opacity:.4;margin-right:8px">○</span>';
+        h+='<div class="src"><div class="sh"><span>'+dot+esc(a.name||a.id)+'</span><span class="link au-rm" data-id="'+esc(a.id)+'">remove</span></div></div>';});
+      box.innerHTML=h;
+      box.querySelectorAll('.au-rm').forEach(b=>b.onclick=()=>api('/v1/home/automations/remove',{method:'POST',body:JSON.stringify({id:b.dataset.id})}).then(()=>{loadAutomationsList();}));
+    }).catch(()=>{});
+  }
+  function renderAutoBuilder(box){
+    if(!box)return;
+    box.innerHTML='<div class="syscard">'+
+      '<div class="rrow"><span class="rnote" style="align-self:center;min-width:42px">When</span><select id="au-trig" onchange="autoTrigFields()"><option value="time">at a time</option><option value="sunset">at sunset</option><option value="sunrise">at sunrise</option><option value="device_state">a device turns on/off</option></select><span id="au-tf"></span></div>'+
+      '<div class="rrow"><span class="rnote" style="align-self:center;min-width:42px">Then</span><select id="au-act" onchange="autoActFields()"><option value="device">control a device</option><option value="scene">activate a scene</option></select><span id="au-af"></span></div>'+
+      '<div class="rrow"><span class="rnote" style="align-self:center;min-width:42px">Only if</span><select id="au-cond"><option value="">(always)</option>'+_bdevs.map(d=>'<option value="'+esc(d.id)+'">'+esc(d.name)+'</option>').join('')+'</select><select id="au-condstate"><option value="ON">is on</option><option value="OFF">is off</option></select></div>'+
+      '<div class="rrow"><button onclick="createAutomation()">Create automation</button><span id="au-status" class="rnote" style="align-self:center"></span></div></div>';
+    autoTrigFields();autoActFields();
+  }
+  function paneDiscover(el){
+    el.innerHTML='<div class="jhead">Find devices on your network</div>'+
+      '<div class="syscard"><p class="rnote" style="margin:0 0 10px;line-height:1.6">Scan via mDNS + UPnP for media devices (AirPlay, Fire TV, Chromecast, UPnP/DLNA) and MQTT brokers. Add what you find — controlled locally, never the cloud.</p>'+
+      '<button class="cbtn" id="mq-find" onclick="discoverDevices()">&#128270; Find on my network</button><div id="mq-found"></div></div>'+
+      '<div class="jhead">MQTT broker — switches &amp; lights</div><div id="broker-cfg"></div>';
+    renderBrokerCfg($('#broker-cfg'));
+  }
+  function paneAdvanced(el){
+    el.innerHTML='<div class="jhead">Location — for sun-based automations</div>'+
+      '<div class="syscard"><div class="rrow"><input id="loc-lat" placeholder="latitude" style="max-width:140px"><input id="loc-lon" placeholder="longitude" style="max-width:140px">'+
+      '<button class="cbtn" onclick="useMyLocation()">&#128205; Use my location</button><button onclick="saveLocation()">Save</button></div><div id="loc-status" class="rnote"></div></div>'+
+      '<div class="jhead">Broker / connection</div><div id="broker-cfg2"></div>';
+    renderBrokerCfg($('#broker-cfg2'));
+  }
+  function renderBrokerCfg(box, vals, err){
+    if(!box)return; vals=vals||{};
+    api('/v1/devices/status').then(s=>{
+      const st=(s&&s.status)||{};
+      box.innerHTML='<div class="syscard">'+
+        (st.configured?('<div class="rnote" style="margin-bottom:10px">'+(st.connected?'<span style="color:#2ec07a">&#9679; connected to '+esc(st.broker||'')+'</span>':'<span style="color:#e0a72e">&#9675; configured ('+esc(st.broker||'')+') — not connected</span>')+'</div>'):'')+
+        (err?'<div class="banner bad" style="margin:0 0 12px">'+esc(err)+'</div>':'')+
+        '<label>Broker host</label><input id="mq_host" autocomplete="off" placeholder="192.168.1.50 or mosquitto.local" value="'+esc(vals.host||st.brokerHost||'')+'">'+
+        '<label>Port</label><input id="mq_port" value="'+esc(vals.port||'1883')+'">'+
+        '<label>Username (optional)</label><input id="mq_user" autocomplete="off" value="'+esc(vals.username||'')+'">'+
+        '<label>Password (optional)</label><input id="mq_pass" type="password" autocomplete="new-password" value="'+esc(vals.password||'')+'">'+
+        '<label>Discovery prefix (optional — auto-finds MQTT devices)</label><input id="mq_disc" placeholder="leave blank for manual devices" value="'+esc(vals.discovery_prefix||'')+'">'+
+        '<div class="rrow" style="margin-top:14px"><button id="mq-save" onclick="saveDevConfig()">Save &amp; connect</button>'+
+        (st.connected?'<button class="cbtn" onclick="api(\\'/v1/devices/disconnect\\',{method:\\'POST\\'}).then(loadDevices)">Disconnect</button>':'')+'</div></div>';
+    }).catch(()=>{});
+  }
+  /* scenes + automation builder state */
   let _bdevs=[], _bscenes=[];
   function loadScenesPanel(){
     Promise.all([api('/v1/home/scenes'),api('/v1/devices')]).then(function(res){
       const box=$('#scenes-panel'); if(!box)return;
       const scenes=(res[0]&&res[0].scenes)||[], devs=((res[1]&&res[1].devices)||[]);
       _bdevs=devs.map(d=>({id:d.id,name:d.name||d.id})); _bscenes=scenes.map(s=>s.name);
-      let h='<div class="syscard" style="margin-top:16px"><h4>&#127902; Scenes</h4>';
+      let h='<div class="syscard">';
       if(scenes.length){scenes.forEach(s=>{h+='<div class="src"><div class="sh"><span>'+esc(s.name)+' <span class="rnote">('+(s.actions||[]).length+')</span></span><span><button class="roombtn scene-go" data-id="'+esc(s.id)+'">Activate</button> <span class="link scene-rm" data-id="'+esc(s.id)+'">remove</span></span></div></div>';});}
       else h+='<div class="muted">No scenes yet. Set your devices how you like, then snapshot them as a scene.</div>';
       h+='<div class="rrow" style="margin-top:10px"><input id="sc-name" placeholder="scene name (e.g. Movie mode)"><button onclick="createScene()">Snapshot current state</button></div></div>';
-      // location (for sunrise/sunset triggers)
-      h+='<div class="syscard"><h4>&#127758; Location (for sun triggers)</h4>'+
-        '<div class="rrow"><input id="loc-lat" placeholder="latitude" style="max-width:140px"><input id="loc-lon" placeholder="longitude" style="max-width:140px">'+
-        '<button class="cbtn" onclick="useMyLocation()">&#128205; Use my location</button><button onclick="saveLocation()">Save</button></div>'+
-        '<div id="loc-status" class="rnote"></div></div>';
-      h+='<div class="syscard"><h4>&#9881; New automation</h4>'+
-        '<div class="rrow"><span class="rnote" style="align-self:center;min-width:36px">When</span><select id="au-trig" onchange="autoTrigFields()"><option value="time">at a time</option><option value="sunset">at sunset</option><option value="sunrise">at sunrise</option><option value="device_state">a device turns on/off</option></select><span id="au-tf"></span></div>'+
-        '<div class="rrow"><span class="rnote" style="align-self:center;min-width:36px">Then</span><select id="au-act" onchange="autoActFields()"><option value="device">control a device</option><option value="scene">activate a scene</option></select><span id="au-af"></span></div>'+
-        '<div class="rrow"><span class="rnote" style="align-self:center;min-width:36px">Only if</span><select id="au-cond"><option value="">(always)</option>'+_bdevs.map(d=>'<option value="'+esc(d.id)+'">'+esc(d.name)+'</option>').join('')+'</select><select id="au-condstate"><option value="ON">is on</option><option value="OFF">is off</option></select></div>'+
-        '<div class="rrow"><button onclick="createAutomation()">Create</button><span id="au-status" class="rnote" style="align-self:center"></span></div></div>';
       box.innerHTML=h;
       box.querySelectorAll('.scene-go').forEach(b=>b.onclick=()=>activateScene(b.dataset.id));
       box.querySelectorAll('.scene-rm').forEach(b=>b.onclick=()=>removeScene(b.dataset.id));
-      autoTrigFields(); autoActFields();
     }).catch(()=>{});
   }
   function _devSelect(id){return '<select id="'+id+'">'+_bdevs.map(d=>'<option value="'+esc(d.id)+'">'+esc(d.name)+'</option>').join('')+'</select>';}
