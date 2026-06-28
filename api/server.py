@@ -389,6 +389,7 @@ _WEB_UI = """<!doctype html>
   .netbtn.off:not([disabled]):hover { border-color:#f59e0b; color:#f59e0b; }
   .netbtn.on:not([disabled]):hover { border-color:var(--ok); color:var(--ok); }
   .netbtn[disabled] { opacity:.45; cursor:not-allowed; }
+  .netegress { margin-top:8px; font-family:var(--mono); font-size:11px; color:var(--fg-dim); word-break:break-all; }
   .ov-grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(260px,1fr)); gap:14px; }
   .widget { background:var(--card); border:1px solid var(--line); border-radius:16px; padding:16px; box-shadow:var(--shadow); backdrop-filter:blur(12px); }
   .widget.wide { grid-column:1/-1; }
@@ -1206,13 +1207,14 @@ _WEB_UI = """<!doctype html>
       '<div class="ovstat">'+
         '<div class="ovstat-row"><span class="dot ok"></span> System online &middot; model <b>'+esc(m.name||'—')+'</b></div>'+
         '<div class="ovstat-row"><span class="dot '+(ig.ok?'ok':'bad')+'"></span> Audit '+(ig.ok?('verified &middot; '+(ig.chained||0)+' events'):'TAMPER DETECTED')+'</div>'+
-        '<div class="ovstat-row"><span class="dot '+(netOn?'warn':'ok')+'"></span> Internet '+(netOn?'<b>ON</b> &middot; monitored':'off &middot; offline-by-default')+(n.override_active?' &middot; temp-allow active':'')+'</div>'+
+        '<div class="ovstat-row"><span class="dot '+(netOn?'warn':'ok')+'"></span> Internet '+(netOn?('<b>ON</b> &middot; '+(n.egress_total||0)+' outbound logged'):'off &middot; offline-by-default')+(n.override_active?' &middot; temp-allow active':'')+'</div>'+
         '<div class="ovstat-row"><span class="dot ok"></span> '+devs.length+' device(s) &middot; '+on+' on &middot; '+corpora.length+' corpora</div>'+
       '</div></div>';
     h+='<div class="ov-grid"><div class="widget"><h4>Internet access</h4>'+
        '<div class="netrow"><span class="netstate '+(netOn?'on':'off')+'">'+(netOn?'ENABLED':'OFF')+'</span>'+
        '<button class="netbtn '+(netOn?'on':'off')+'" '+(isAdmin?'':'disabled title="Admin only"')+' onclick="setNet('+(netOn?'false':'true')+')">'+(netOn?'Turn off':'Turn on')+'</button></div>'+
-       '<div class="muted" style="margin-top:6px">ELI is offline-by-default and hard-gated at the socket boundary. Turning this on lets ELI reach the internet; every change is recorded in the audit trail.</div></div>';
+       (netOn&&(n.egress_recent||[]).length?('<div class="netegress">Recent outbound: '+(n.egress_recent||[]).slice(-5).map(e=>esc(e.host+(e.port?(':'+e.port):''))).join(' &middot; ')+'</div>'):'')+
+       '<div class="muted" style="margin-top:6px">ELI is offline-by-default and hard-gated at the socket boundary. Turning this on lets ELI reach the internet — and every outbound connection (host:port) is recorded to the tamper-evident audit trail, as is the on/off flip itself.</div></div>';
     h+='<div class="widget"><h4>Vitals</h4><div class="ovgauges">';
     if(g){h+=ovGauge(g.util_pct,'GPU')+ovGauge(g.temp_c,'GPU °C');}
     if(c){h+=ovGauge(c.usage_pct,'CPU');}
@@ -1886,11 +1888,13 @@ def system_status():
         return {"ok": False, "error": str(e), "status": {}}
 
 # ----------------------------------------------------------------------
-# Internet toggle  (powers the Overview "Internet" switch)
+# Internet toggle + egress monitoring  (powers the Overview "Internet" switch)
 # ELI is offline-by-default and hard-gated at the socket boundary (eli.core.netguard).
-# This surface lets the OWNER deliberately open internet access while keeping it tightly
+# This surface lets the OWNER deliberately open internet access while keeping it
 # monitored: the switch is admin-only and every flip is written to the tamper-evident
-# audit ledger. Reading the state is token-gated; flipping it is admin-only.
+# audit ledger, AND — once on — netguard records every allowed outbound connection
+# (host:port) to the same ledger (`net_egress` events) and an in-memory live tail.
+# Reading the state/egress is token-gated; flipping the switch is admin-only.
 # ----------------------------------------------------------------------
 def _net_state() -> dict:
     """Current, grounded internet-gate state — what netguard will actually enforce."""
@@ -1905,15 +1909,30 @@ def _net_state() -> dict:
         "override_active": netguard.network_override_active(),  # scoped allow_network()
         "blocked": netguard.should_block_network(),          # net effect right now
         "local_services": netguard.local_services(),         # permitted LAN hosts
+        "egress_total": netguard.egress_total(),             # outbound connections recorded
+        "egress_recent": netguard.recent_egress(limit=5),    # last few host:port (live tail)
     }
 
 @app.get("/v1/net", tags=["System"], dependencies=[Depends(_require_token)])
 def net_status():
-    """Read the monitored internet-gate state (read-only)."""
+    """Read the monitored internet-gate state + a live tail of recorded egress (read-only)."""
     try:
         return {"ok": True, "net": _net_state()}
     except Exception as e:
         return {"ok": False, "error": str(e), "net": {}}
+
+@app.get("/v1/net/egress", tags=["System"], dependencies=[Depends(_require_token)])
+def net_egress(limit: int = 100):
+    """The outbound connections netguard allowed (host:port + timestamp). This is the
+    live in-memory tail; the durable, tamper-evident record is the `net_egress` events
+    in the audit trail (`/v1/audit`)."""
+    try:
+        from eli.core import netguard
+        n = max(1, min(int(limit or 100), 500))
+        return {"ok": True, "total": netguard.egress_total(),
+                "egress": netguard.recent_egress(limit=n)}
+    except Exception as e:
+        return {"ok": False, "error": str(e), "egress": [], "total": 0}
 
 @app.post("/v1/net", tags=["System"])
 def net_set(body: NetToggle, principal: Principal = Depends(require_admin)):
