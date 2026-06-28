@@ -29,6 +29,7 @@ defence-in-depth — forgetting the helper fails closed rather than leaking.
 from __future__ import annotations
 
 import contextlib
+import errno
 import json
 import os
 import queue
@@ -318,24 +319,39 @@ def http_get_json(url: str, headers: Optional[Dict[str, str]] = None, timeout: f
 
 _GUARD_INSTALLED = False
 _REAL_CONNECT = None
+_REAL_CONNECT_EX = None
 _REAL_CREATE_CONNECTION = None
+_REAL_PROACTOR_CONNECT = None
 
 
 def install_socket_guard() -> bool:
     """Install a process-wide tripwire on outbound socket connections.
 
-    While the Net toggle is off, any connect() to a non-loopback address raises
-    OfflineError. Loopback and unix sockets are always allowed. Idempotent.
+    While the Net toggle is off, any non-loopback connection is refused; while it
+    is on, every allowed non-loopback connection is recorded (see _record_egress).
+    Loopback and unix sockets are always allowed. Idempotent.
+
+    Covers the four ways outbound connections actually happen:
+      - `socket.socket.connect`        (raises OfflineError when blocked) — sync, and the
+                                        CPython selector asyncio loop's _sock_connect.
+      - `socket.create_connection`     (raises) — urllib/requests/http.client.
+      - `socket.socket.connect_ex`     (returns ENETUNREACH when blocked) — its NON-raising
+                                        sibling; probes/health-checks use it, and it would
+                                        otherwise bypass BOTH the block and the recorder.
+      - Windows ProactorEventLoop      (best-effort patch of IocpProactor.connect, which
+                                        uses overlapped ConnectEx and never touches
+                                        socket.socket.connect).
 
     This is the guarantee that *every* internet-based task — including ones that
     forgot to call network_allowed() — is gated: it fails closed at the socket
     boundary rather than leaking.
     """
-    global _GUARD_INSTALLED, _REAL_CONNECT, _REAL_CREATE_CONNECTION
+    global _GUARD_INSTALLED, _REAL_CONNECT, _REAL_CONNECT_EX, _REAL_CREATE_CONNECTION
     if _GUARD_INSTALLED:
         return False
 
     _REAL_CONNECT = socket.socket.connect
+    _REAL_CONNECT_EX = socket.socket.connect_ex
     _REAL_CREATE_CONNECTION = socket.create_connection
 
     def _addr_host(address) -> Optional[str]:
@@ -343,9 +359,13 @@ def install_socket_guard() -> bool:
             return str(address[0])
         return None
 
+    def _is_remote(address) -> bool:
+        """True for a non-loopback IP/host tuple — the addresses we gate + record."""
+        return isinstance(address, tuple) and not _is_local_host(_addr_host(address))
+
     def _guarded_connect(self, address):
         # AF_UNIX (str address) and loopback are always local → allow.
-        if isinstance(address, tuple) and not _is_local_host(_addr_host(address)):
+        if _is_remote(address):
             if should_block_network():
                 raise OfflineError(
                     f"network disabled (offline mode): blocked connection to {address}"
@@ -356,9 +376,19 @@ def install_socket_guard() -> bool:
             _record_egress(_host, _port)
         return _REAL_CONNECT(self, address)
 
+    def _guarded_connect_ex(self, address):
+        # The non-raising sibling: it must RETURN an errno, not raise. When blocked we
+        # return ENETUNREACH so the caller sees a failed connect (no socket is opened),
+        # preserving offline enforcement for code that uses connect_ex (probes, libs).
+        if _is_remote(address):
+            if should_block_network():
+                return errno.ENETUNREACH
+            _host, _port = _addr_host_port(address)
+            _record_egress(_host, _port)
+        return _REAL_CONNECT_EX(self, address)
+
     def _guarded_create_connection(address, *args, **kwargs):
-        host = _addr_host(address) if isinstance(address, tuple) else None
-        if host and not _is_local_host(host):
+        if _is_remote(address):
             if should_block_network():
                 raise OfflineError(
                     f"network disabled (offline mode): blocked connection to {address}"
@@ -368,6 +398,39 @@ def install_socket_guard() -> bool:
         return _REAL_CREATE_CONNECTION(address, *args, **kwargs)
 
     socket.socket.connect = _guarded_connect
+    socket.socket.connect_ex = _guarded_connect_ex
     socket.create_connection = _guarded_create_connection
+    _install_proactor_guard()
     _GUARD_INSTALLED = True
     return True
+
+
+def _install_proactor_guard() -> None:
+    """Best-effort: gate the Windows ProactorEventLoop, which connects via overlapped
+    ConnectEx (`IocpProactor.connect`) and never touches `socket.socket.connect`, so the
+    socket patches above don't cover it. No-op on non-Windows / if asyncio internals shift.
+    """
+    global _REAL_PROACTOR_CONNECT
+    try:
+        from asyncio.windows_events import IocpProactor  # type: ignore
+    except Exception:
+        return  # not Windows (or no proactor) → nothing to guard
+    if _REAL_PROACTOR_CONNECT is not None:
+        return
+    try:
+        _REAL_PROACTOR_CONNECT = IocpProactor.connect
+
+        def _guarded_proactor_connect(self, conn, address):
+            if isinstance(address, tuple) and not _is_local_host(
+                    str(address[0]) if address else None):
+                if should_block_network():
+                    raise OfflineError(
+                        f"network disabled (offline mode): blocked connection to {address}"
+                    )
+                _host, _port = _addr_host_port(address)
+                _record_egress(_host, _port)
+            return _REAL_PROACTOR_CONNECT(self, conn, address)
+
+        IocpProactor.connect = _guarded_proactor_connect
+    except Exception:
+        _REAL_PROACTOR_CONNECT = None  # leave it unpatched rather than half-patched
