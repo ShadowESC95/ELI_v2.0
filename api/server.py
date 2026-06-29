@@ -581,6 +581,14 @@ _WEB_UI = """<!doctype html>
   .qrimg svg { width:100%; height:100%; display:block; }
   .connecturl { margin-top:12px; }
   .connecturl code { display:inline-block; font-family:var(--mono); font-size:12.5px; color:var(--accent); background:rgba(7,12,22,.6); border:1px solid var(--line); border-radius:8px; padding:8px 12px; word-break:break-all; max-width:100%; }
+  /* Scroll: every main-tab content pane scrolls within the viewport. Each inner div is the
+     flex child of .view.active (a flex column), so it needs flex:1 + min-height:0 + overflow-y.
+     Fixes no-scroll on Home (#devices), System, Settings, and Connect — the old rule targeted
+     '#home', which matches no element (the Home content div is #devices). */
+  #overview,#commands,#devices,#system,#research,#audit,#admin,#settings-tab,#connect-tab{
+    flex:1; min-height:0; overflow-y:auto; -webkit-overflow-scrolling:touch;
+  }
+  #devices,#system,#settings-tab,#connect-tab{ padding:18px; }
 </style></head><body>
   <aside class="sidebar">
     <div class="brand"><span class="logo">&#9698;&#9700;</span><b>ELI</b><small>v2</small></div>
