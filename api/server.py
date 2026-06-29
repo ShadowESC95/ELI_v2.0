@@ -223,6 +223,23 @@ app = FastAPI(
     version="1.0.0"
 )
 
+# Has any device OTHER than this machine actually reached the server? In LAN mode the
+# desktop connects via loopback, so if this stays False after the server's been up a
+# while, real LAN traffic isn't getting through — almost always the OS firewall. The
+# Connect tab uses this to detect-and-warn (with the exact 'allow' command).
+_LAN_SEEN = {"any": False, "count": 0, "last": None}
+
+@app.middleware("http")
+async def _track_lan_reachability(request, call_next):
+    try:
+        if not _is_loopback_client(request):
+            _LAN_SEEN["any"] = True
+            _LAN_SEEN["count"] += 1
+            _LAN_SEEN["last"] = request.client.host if request.client else None
+    except Exception:
+        pass
+    return await call_next(request)
+
 # Minimal, dependency-free, mobile-first chat UI. Served at "/". Lets any device
 # with a browser (Android/iOS/desktop) talk to a self-hosted ELI over the network —
 # inference stays on the host running this server (no on-device model build needed).
@@ -714,6 +731,19 @@ _WEB_UI = """<!doctype html>
           h+='<div class="syscard"><div class="row" style="gap:8px"><span class="ld warn" style="width:8px;height:8px;border-radius:50%;background:#e0a72e;box-shadow:0 0 8px #e0a72e"></span><b>Want the phone microphone too?</b></div>'+
             '<div class="rnote" style="margin-top:6px">Typed chat &amp; “Speak replies” already work on the phone. For the phone <b>mic</b>, also start HTTPS — one flag, cert generated locally; a second QR appears here for it:</div>'+
             '<div class="connecturl" style="margin:8px 0"><code>python api/server.py --lan --https</code></div></div>';
+        }
+        // Behavioural firewall detection: has any LAN device actually reached us yet?
+        const fw=d.firewall||{}, cmds=(fw.commands||[]);
+        const cmdHtml=cmds.map(c=>'<div class="connecturl" style="margin:6px 0"><code>'+esc(c)+'</code></div>').join('');
+        if(!d.lan_clients_seen){
+          h+='<div class="jhead">Phone can&#39;t connect?</div>'+
+            '<div class="syscard"><div class="row" style="gap:8px"><span class="ld warn" style="width:9px;height:9px;border-radius:50%;background:#e0a72e;box-shadow:0 0 8px #e0a72e"></span><b>No device has reached the server yet.</b></div>'+
+            '<div class="rnote" style="margin:6px 0 8px">The server is listening, but nothing on the network has connected — almost always your computer&#39;s <b>firewall</b> ('+esc(fw.tool||'firewall')+') blocking the port. Allow it for your LAN'+(cmds.length?':':'.')+'</div>'+
+            cmdHtml+
+            '<div class="rnote" style="margin-top:6px">Then re-scan. (Also: phone on the <b>same Wi-Fi</b>, and router <b>AP/client isolation</b> off.) This banner clears the moment any device gets through.</div></div>';
+        } else {
+          h+='<div class="syscard"><div class="row" style="gap:8px"><span class="ld live" style="width:9px;height:9px;border-radius:50%;background:#2ec07a;box-shadow:0 0 8px #2ec07a"></span><b>Devices are reaching the server</b> <span class="rnote">('+d.lan_client_count+' LAN request(s))</span></div>'+
+            (cmds.length?('<div class="rnote" style="margin-top:6px">If a new device can&#39;t connect, allow the port through the firewall ('+esc(fw.tool||'')+'):</div>'+cmdHtml):'')+'</div>';
         }
       } else {
         h+='<div class="jhead">Make it reachable from your phone</div>'+
@@ -2670,6 +2700,51 @@ def set_settings(req: SettingsUpdate, principal: Principal = Depends(require_adm
                payload={"applied": applied})
     return {"ok": True, "applied": applied}
 
+def _lan_subnet() -> str:
+    """The /24 the LAN IP sits on (e.g. 192.168.1.0/24) — used to scope the firewall rule
+    to the local network rather than the whole world."""
+    ip = _lan_ip()
+    p = ip.split(".")
+    if len(p) == 4 and ip != "<this-computer-ip>":
+        return f"{p[0]}.{p[1]}.{p[2]}.0/24"
+    return "192.168.0.0/16"
+
+
+def _firewall_hint() -> dict:
+    """OS-aware command to open the LAN port through the local firewall, + a best-effort
+    read of whether it's likely the blocker. Detection is behavioural (see _LAN_SEEN);
+    this supplies the exact fix for the detected OS/firewall tool."""
+    import platform
+    import shutil
+    osname = platform.system().lower()
+    port = os.environ.get("ELI_API_PORT", "8081")
+    hport = os.environ.get("ELI_API_HTTPS_PORT")
+    subnet = _lan_subnet()
+    cmds, tool = [], ""
+    if osname == "linux":
+        if shutil.which("ufw"):
+            tool = "ufw"
+            cmds = [f"sudo ufw allow from {subnet} to any port {port} proto tcp"]
+            if hport:
+                cmds.append(f"sudo ufw allow from {subnet} to any port {hport} proto tcp")
+        elif shutil.which("firewall-cmd"):
+            tool = "firewalld"
+            cmds = [f"sudo firewall-cmd --add-port={port}/tcp",
+                    f"sudo firewall-cmd --permanent --add-port={port}/tcp"]
+        else:
+            tool = "iptables"
+            cmds = [f"sudo iptables -I INPUT -p tcp -s {subnet} --dport {port} -j ACCEPT"]
+    elif osname == "windows":
+        tool = "Windows Firewall"
+        cmds = [f'netsh advfirewall firewall add rule name="ELI" dir=in '
+                f'action=allow protocol=TCP localport={port}']
+    elif osname == "darwin":
+        tool = "macOS firewall"
+        cmds = ["System Settings → Network → Firewall → allow incoming connections for "
+                "python3 (or turn the firewall off while testing)."]
+    return {"os": osname, "tool": tool, "commands": cmds, "subnet": subnet}
+
+
 def _connect_url() -> dict:
     """Everything the 'Connect a phone' tab needs: the LAN IP, port, the ready-to-open URL
     (token included when set), and whether the server is actually reachable from the LAN."""
@@ -2691,8 +2766,14 @@ def _connect_url() -> dict:
 
 @app.get("/v1/connect", tags=["System"], dependencies=[Depends(_require_token)])
 def connect_info():
-    """Phone-connect details (URL + LAN reachability) for the Connect tab."""
-    return {"ok": True, **_connect_url()}
+    """Phone-connect details (URL + LAN reachability) for the Connect tab — plus behavioural
+    firewall detection: whether any LAN device has actually reached the server, and the
+    exact 'allow' command if not."""
+    info = _connect_url()
+    info["lan_clients_seen"] = bool(_LAN_SEEN["any"])
+    info["lan_client_count"] = int(_LAN_SEEN["count"])
+    info["firewall"] = _firewall_hint()
+    return {"ok": True, **info}
 
 @app.get("/v1/connect/qr.svg", tags=["System"], dependencies=[Depends(_require_token)])
 def connect_qr(kind: str = "connect"):
@@ -3124,6 +3205,15 @@ def main():
         print(f"  Or send header:   Authorization: Bearer {token}", flush=True)
         if auto_generated:
             print("  (Token auto-generated; pass --token <secret> for a stable one.)", flush=True)
+        try:
+            _fw = _firewall_hint()
+            if _fw.get("commands"):
+                print(f"  If a phone can't connect, your {_fw['tool']} firewall is likely "
+                      f"blocking it — allow the port:", flush=True)
+                for _c in _fw["commands"]:
+                    print(f"      {_c}", flush=True)
+        except Exception:
+            pass
         print(_bar, flush=True)
 
     # Run HTTPS (voice) alongside on its own port, in a daemon thread.
