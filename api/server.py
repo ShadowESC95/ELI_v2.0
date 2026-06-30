@@ -570,6 +570,17 @@ _WEB_UI = """<!doctype html>
   .gphrow { display:flex; align-items:center; gap:10px; font-size:11px; color:var(--mut); font-family:var(--mono); }
   .gphrow > span { width:32px; flex:none; }
   .gphrow canvas { flex:1; height:34px; background:rgba(7,12,22,.4); border-radius:8px; border:1px solid var(--line); }
+  /* ── agent DAG (cognition mesh) ── */
+  .mesh { display:flex; gap:6px; overflow-x:auto; padding:12px 2px 4px; align-items:stretch; scrollbar-width:thin; }
+  .meshcol { display:flex; flex-direction:column; gap:6px; flex:none; }
+  .meshl { font-size:9px; color:var(--mut); font-family:var(--mono); text-align:center; letter-spacing:1px; margin-bottom:2px; }
+  .meshnode { font-size:10px; padding:5px 9px; border-radius:8px; white-space:nowrap; color:var(--accent);
+    background:rgba(34,211,238,.1); border:1px solid rgba(34,211,238,.35); box-shadow:0 0 10px rgba(34,211,238,.13);
+    animation:meshpulse 2.6s ease-in-out infinite; }
+  .meshcol:nth-child(2) .meshnode{animation-delay:.3s} .meshcol:nth-child(3) .meshnode{animation-delay:.6s}
+  @keyframes meshpulse { 0%,100%{box-shadow:0 0 8px rgba(34,211,238,.1)} 50%{box-shadow:0 0 16px rgba(34,211,238,.35)} }
+  .masharrow { align-self:center; color:var(--mut); font-size:15px; flex:none; }
+  .kindbadge { font-size:9px; font-family:var(--mono); text-transform:uppercase; letter-spacing:.5px; padding:2px 6px; border-radius:6px; border:1px solid; margin-right:5px; }
   #admin { overflow-y:auto; padding:14px; }
   .adwrap { max-width:900px; margin:0 auto; }
   .adtot { display:grid; grid-template-columns:repeat(auto-fit,minmax(120px,1fr)); gap:10px; margin-bottom:14px; }
@@ -1860,12 +1871,12 @@ _WEB_UI = """<!doctype html>
   let OV_LAYOUT=null, OV_EDIT=false, OV_PREFS_LOADED=false, OV_DRAG=null;
   // Full catalog (palette order). Each user composes their own subset — the layout
   // decides which endpoints get fetched, so unused widgets cost nothing.
-  const OV_CATALOG=['ask','nowplaying','graph','model','gpu','vitals','internet','egress','connect','quickcontrols','rooms','scenes','automations','suggestions','quickactions','corpora','capabilities','sun','note','activity','audit'];
-  const OV_DEFAULT=['ask','nowplaying','graph','vitals','quickcontrols','activity'];
-  const OV_TITLES={ask:'Ask ELI',nowplaying:'Now playing',graph:'Live vitals',model:'Model & runtime',gpu:'GPU',vitals:'Vitals',internet:'Internet access',egress:'Network egress',connect:'Connect a phone',quickcontrols:'Quick controls',rooms:'Rooms',scenes:'Scenes',automations:'Automations',suggestions:'Suggestions',quickactions:'Quick actions',corpora:'Research corpora',capabilities:'Capabilities',sun:'Sun',note:'Note',activity:'Recent activity',audit:'Audit integrity'};
-  const OV_WIDE={activity:1,capabilities:1};
-  const OV_SRC={system:'/v1/system',audit:'/v1/audit?limit=8',devices:'/v1/devices',corpora:'/v1/research/corpora',net:'/v1/net',media:'/v1/media',automations:'/v1/home/automations',scenes:'/v1/home/scenes',suggestions:'/v1/home/suggestions',sun:'/v1/home/sun',capabilities:'/v1/capabilities',connect:'/v1/connect',rooms:'/v1/devices/rooms'};
-  const OV_NEEDS={ask:[],nowplaying:['media'],graph:['system'],model:['system'],gpu:['system'],vitals:['system'],internet:['net'],egress:['net'],connect:['connect'],quickcontrols:['devices'],rooms:['rooms'],scenes:['scenes'],automations:['automations','devices'],suggestions:['suggestions'],quickactions:[],corpora:['corpora'],capabilities:['capabilities'],sun:['sun'],note:[],activity:['audit'],audit:['audit']};
+  const OV_CATALOG=['ask','mesh','goals','tasks','nowplaying','graph','model','gpu','vitals','internet','egress','connect','quickcontrols','rooms','scenes','automations','suggestions','quickactions','corpora','capabilities','sun','note','activity','audit'];
+  const OV_DEFAULT=['ask','mesh','tasks','goals','graph','nowplaying','quickcontrols'];
+  const OV_TITLES={ask:'Ask ELI',mesh:'Cognition mesh',goals:'Autonomy & goals',tasks:'Scheduled tasks',nowplaying:'Now playing',graph:'Live vitals',model:'Model & runtime',gpu:'GPU',vitals:'Vitals',internet:'Internet access',egress:'Network egress',connect:'Connect a phone',quickcontrols:'Quick controls',rooms:'Rooms',scenes:'Scenes',automations:'Automations',suggestions:'Suggestions',quickactions:'Quick actions',corpora:'Research corpora',capabilities:'Capabilities',sun:'Sun',note:'Note',activity:'Recent activity',audit:'Audit integrity'};
+  const OV_WIDE={mesh:1,activity:1,capabilities:1};
+  const OV_SRC={system:'/v1/system',audit:'/v1/audit?limit=8',devices:'/v1/devices',corpora:'/v1/research/corpora',net:'/v1/net',media:'/v1/media',automations:'/v1/home/automations',scenes:'/v1/home/scenes',suggestions:'/v1/home/suggestions',sun:'/v1/home/sun',capabilities:'/v1/capabilities',connect:'/v1/connect',rooms:'/v1/devices/rooms',orchestration:'/v1/cognition/orchestration',goals:'/v1/autonomy/goals',tasks:'/v1/tasks'};
+  const OV_NEEDS={ask:[],mesh:['orchestration'],goals:['goals'],tasks:['tasks'],nowplaying:['media'],graph:['system'],model:['system'],gpu:['system'],vitals:['system'],internet:['net'],egress:['net'],connect:['connect'],quickcontrols:['devices'],rooms:['rooms'],scenes:['scenes'],automations:['automations','devices'],suggestions:['suggestions'],quickactions:[],corpora:['corpora'],capabilities:['capabilities'],sun:['sun'],note:[],activity:['audit'],audit:['audit']};
   const OV_BASE=['system','audit','devices','corpora','net'];   // the hero always needs these
   function ovLayout(){
     if(!OV_LAYOUT||!Array.isArray(OV_LAYOUT.order))OV_LAYOUT={order:OV_DEFAULT.slice(),hidden:[],note:''};
@@ -1932,6 +1943,12 @@ _WEB_UI = """<!doctype html>
   function ovAutoRemove(id){api('/v1/home/automations/remove',{method:'POST',body:JSON.stringify({id:id})}).then(()=>setTimeout(loadOverview,200)).catch(()=>{});}
   function ovAutoToggle(id,en){api('/v1/home/automations/toggle',{method:'POST',body:JSON.stringify({id:id,enabled:!!en})}).catch(()=>{});}
   window.ovAutoAdd=ovAutoAdd; window.ovAutoRemove=ovAutoRemove; window.ovAutoToggle=ovAutoToggle;
+  // Queue / cancel ELI's scheduled (overnight) tasks straight from the dashboard.
+  function ovTaskAdd(){const r=((($('#tk-req')||{}).value)||'').trim(); if(!r)return;
+    const when=(($('#tk-when')||{}).value)||'overnight', kind=(($('#tk-kind')||{}).value)||'';
+    api('/v1/tasks',{method:'POST',body:JSON.stringify({request:r,when:when,kind:kind})}).then(()=>setTimeout(loadOverview,300)).catch(()=>{});}
+  function ovTaskRemove(pid){api('/v1/tasks/remove',{method:'POST',body:JSON.stringify({pid:pid})}).then(()=>setTimeout(loadOverview,200)).catch(()=>{});}
+  window.ovTaskAdd=ovTaskAdd; window.ovTaskRemove=ovTaskRemove;
   // Live vitals sparklines — rolling history drawn on <canvas>.
   function ovDrawGraphs(){const H=window._ovHist||{};
     document.querySelectorAll('.gph canvas').forEach(cv=>{
@@ -1969,6 +1986,44 @@ _WEB_UI = """<!doctype html>
         '<div class="gphrow"><span>GPU '+cur('gpu')+'%</span><canvas data-k="gpu" width="240" height="34"></canvas></div>'+
         '<div class="gphrow"><span>CPU '+cur('cpu')+'%</span><canvas data-k="cpu" width="240" height="34"></canvas></div>'+
         '<div class="gphrow"><span>RAM '+cur('ram')+'%</span><canvas data-k="ram" width="240" height="34"></canvas></div></div>';
+    }
+    if(id==='mesh'){
+      const o=D.orchestration||{}, layers=o.execution_layers||[], agents=o.agents||[];
+      if(!agents.length)return '<div class="muted">'+esc(o.error||'Orchestration unavailable.')+'</div>';
+      let h='<div class="ovkv"><span class="k">Engine</span><span class="v">'+esc(o.engine||'—')+'</span></div>'+
+        '<div class="ovkv"><span class="k">Agents</span><span class="v">'+(o.count||agents.length)+' on the bus</span></div>'+
+        '<div class="ovkv"><span class="k">Parallel layers</span><span class="v">'+(o.critical_path||layers.length)+'</span></div>';
+      if(layers.length){
+        h+='<div class="mesh">';
+        layers.forEach((L,i)=>{h+='<div class="meshcol"><div class="meshl">L'+(i+1)+'</div>'+
+          (L||[]).map(a=>'<span class="meshnode">'+esc(a)+'</span>').join('')+'</div>'+
+          (i<layers.length-1?'<div class="masharrow">&#8594;</div>':'');});
+        h+='</div>';
+      }
+      return h;
+    }
+    if(id==='goals'){
+      const g=D.goals||{};
+      const list=(g.goals&&g.goals.length)?g.goals:((g.titles||[]).map(t=>({title:t})));
+      let h='<div class="ovkv"><span class="k">Active goals</span><span class="v">'+(g.active||list.length||0)+' / '+(g.total||list.length||0)+'</span></div>';
+      if(!list.length)h+='<div class="muted" style="margin-top:6px">No active goals yet — ELI generates its own as it runs (autonomy tick).</div>';
+      list.slice(0,8).forEach(x=>{h+='<div class="ovact"><span class="aa">&#9883; '+esc((x.title||'goal').slice(0,72))+'</span>'+(x.kind?('<span class="at">'+esc(x.kind)+'</span>'):'')+'</div>';});
+      return h;
+    }
+    if(id==='tasks'){
+      const t=(D.tasks&&D.tasks.tasks)||[];
+      const badge={code:'#22d3ee',research:'#a78bfa',eval:'#2ec07a',testgen:'#e0a72e',self_upgrade:'#ff6b8a',reflection:'#6aa3e0',lora:'#f637ec'};
+      let h='';
+      if(!t.length)h+='<div class="muted" style="margin-bottom:8px">No scheduled tasks. Queue one below — e.g. &ldquo;review the codebase for bugs&rdquo; overnight.</div>';
+      t.slice(0,6).forEach(x=>{const col=badge[x.kind]||'#7a8699',when=x.when_ts?fmtTime(x.when_ts):esc(x.when_spec||'');
+        h+='<div class="ovact"><span class="aa"><span class="kindbadge" style="background:'+col+'22;color:'+col+';border-color:'+col+'66">'+esc(x.kind||'task')+'</span>'+esc((x.request||'').slice(0,56))+'</span>'+
+          '<span style="display:flex;gap:6px;align-items:center"><span class="at">'+when+(x.recurring?' &#8635;':'')+'</span><button class="wbtn rm" onclick="ovTaskRemove(\\''+esc(x.pid)+'\\')" title="Cancel">&#10005;</button></span></div>';});
+      h+='<div class="ovform">'+
+        '<input id="tk-req" placeholder="Tell ELI to do something…" style="flex:1;min-width:150px">'+
+        '<select id="tk-when"><option value="overnight">Overnight</option><option value="tonight">Tonight</option><option value="in 1 hour">In 1 hour</option><option value="in 10 minutes">In 10 min</option></select>'+
+        '<select id="tk-kind"><option value="">Auto</option><option value="code">Code</option><option value="research">Research</option><option value="eval">Eval</option><option value="reflection">Reflect</option></select>'+
+        '<button class="qchip" onclick="ovTaskAdd()">+ Schedule</button></div>';
+      return h;
     }
     if(id==='nowplaying'){
       const md=D.media, ps=(md&&md.players)||[];
@@ -2293,6 +2348,14 @@ class MediaControl(BaseModel):
 class UIPrefs(BaseModel):
     prefs: dict = {}                      # arbitrary per-user dashboard layout JSON
 
+class TaskCreate(BaseModel):
+    request: str                          # what ELI should do
+    when: str = "overnight"               # "overnight" | "tonight" | "in 1 hour" | "2am" …
+    kind: Optional[str] = None            # code|research|eval|reflection|… (None = inferred)
+
+class TaskRef(BaseModel):
+    pid: str
+
 class AutomationCreate(BaseModel):
     device: str
     command: str = "on"
@@ -2499,7 +2562,7 @@ _PWA_MANIFEST = {
     ],
 }
 _SERVICE_WORKER = """
-const C='eli-shell-v10';
+const C='eli-shell-v11';
 self.addEventListener('install',e=>self.skipWaiting());
 self.addEventListener('activate',e=>e.waitUntil((async()=>{
   // Drop any older cache so a stale app shell can never linger.
@@ -2997,6 +3060,64 @@ def ui_prefs_set(req: UIPrefs, request: Request, authorization: str = Header(def
         except Exception as e:
             return {"ok": False, "error": str(e)}
     return {"ok": True, "prefs": req.prefs or {}}
+
+# ── Cognition / autonomy: surface ELI's real internals to the dashboard ──
+@app.get("/v1/cognition/orchestration", tags=["Cognition"], dependencies=[Depends(_require_token)])
+def cognition_orchestration():
+    """The live agent DAG: orchestration engine, agents, and parallel execution layers."""
+    try:
+        from eli.cognition.agent_bus import orchestration_snapshot
+        return {"ok": True, **orchestration_snapshot()}
+    except Exception as e:
+        return {"ok": False, "error": str(e), "agents": [], "execution_layers": []}
+
+@app.get("/v1/autonomy/goals", tags=["Cognition"], dependencies=[Depends(_require_token)])
+def autonomy_goals():
+    """ELI's self-generated autonomous goals (habit-streamlining, self-repair, …)."""
+    try:
+        from eli.planning.goal_store import summarize_goals, list_active_goals
+        s = summarize_goals()
+        try:
+            s["goals"] = [{"title": g.title, "status": getattr(g, "status", "active"),
+                           "kind": getattr(g, "kind", "")} for g in list_active_goals()[:10]]
+        except Exception:
+            pass
+        return s
+    except Exception as e:
+        return {"ok": False, "error": str(e), "active": 0, "total": 0, "titles": []}
+
+@app.get("/v1/tasks", tags=["Cognition"], dependencies=[Depends(_require_token)])
+def tasks_list():
+    """Scheduled / overnight tasks ELI will run (code, research, eval, reflection, …)."""
+    try:
+        from eli.runtime.scheduled_tasks import _load_store
+        items = [{"pid": e.get("pid"), "request": e.get("request"), "kind": e.get("kind"),
+                  "when_ts": e.get("when_ts"), "when_spec": e.get("when_spec"),
+                  "recurring": bool(e.get("recurring"))} for e in _load_store()]
+        items.sort(key=lambda x: x.get("when_ts") or 0)
+        return {"ok": True, "tasks": items}
+    except Exception as e:
+        return {"ok": False, "error": str(e), "tasks": []}
+
+@app.post("/v1/tasks", tags=["Cognition"], dependencies=[Depends(require_member)])
+def tasks_add(req: TaskCreate):
+    """Queue a task for ELI to run later (e.g. 'review the codebase for bugs' overnight)."""
+    if not (req.request or "").strip():
+        return {"ok": False, "error": "no task description"}
+    try:
+        from eli.runtime.scheduled_tasks import schedule_request
+        return schedule_request(req.request, when_spec=(req.when or req.request), kind=req.kind)
+    except Exception as e:
+        return {"ok": False, "error": str(e)}
+
+@app.post("/v1/tasks/remove", tags=["Cognition"], dependencies=[Depends(require_member)])
+def tasks_remove(req: TaskRef):
+    try:
+        from eli.runtime.scheduled_tasks import forget
+        forget(req.pid)
+        return {"ok": True}
+    except Exception as e:
+        return {"ok": False, "error": str(e)}
 
 @app.get("/v1/home/suggestions", tags=["Devices"], dependencies=[Depends(_require_token)])
 def home_suggestions_ep():
