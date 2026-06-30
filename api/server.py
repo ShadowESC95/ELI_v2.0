@@ -951,7 +951,10 @@ _WEB_UI = """<!doctype html>
   }
   window.newChat=newChat; window.switchSession=switchSession; window.deleteSession=deleteSession; window.regenerate=regenerate; window.copyCode=copyCode;
   loadSessions();
-  loadOverview();
+  /* Defer the first dashboard load to a macrotask so it runs AFTER the whole script has
+     executed — loadOverview() touches OV_* state (let) declared further down; calling it
+     synchronously here would hit the temporal dead zone and abort the rest of the script. */
+  setTimeout(loadOverview,0);
   /* PWA: installable + offline shell */
   if('serviceWorker' in navigator){try{navigator.serviceWorker.register('/sw.js').catch(function(){});}catch(e){}}
   /* live: refresh the dashboard while it's open (no manual reload) */
@@ -2259,7 +2262,7 @@ _PWA_MANIFEST = {
     "icons": [{"src": "/icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any maskable"}],
 }
 _SERVICE_WORKER = """
-const C='eli-shell-v5';
+const C='eli-shell-v6';
 self.addEventListener('install',e=>self.skipWaiting());
 self.addEventListener('activate',e=>e.waitUntil((async()=>{
   // Drop any older cache so a stale app shell can never linger.
