@@ -252,7 +252,7 @@ _WEB_UI = """<!doctype html>
 <title>ELI</title>
 <link rel="manifest" href="/manifest.webmanifest">
 <meta name="theme-color" content="#05070d">
-<link rel="icon" href="/icon.svg"><link rel="apple-touch-icon" href="/icon.svg">
+<link rel="icon" type="image/png" sizes="64x64" href="/icon.png?size=64"><link rel="apple-touch-icon" href="/apple-touch-icon.png">
 <meta name="apple-mobile-web-app-capable" content="yes"><meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <script>try{if(localStorage.getItem('eli_theme')==='light')document.documentElement.setAttribute('data-theme','light');}catch(e){}</script>
@@ -290,8 +290,9 @@ _WEB_UI = """<!doctype html>
   /* ── sidebar shell ── */
   .sidebar { width:214px; flex:none; display:flex; flex-direction:column; gap:4px; padding:14px 12px;
     background:linear-gradient(180deg, rgba(10,16,28,.72), rgba(6,10,18,.5)); border-right:1px solid var(--line); backdrop-filter:blur(16px); }
-  .brand { display:flex; align-items:baseline; gap:9px; padding:4px 8px 14px; }
+  .brand { display:flex; align-items:center; gap:9px; padding:4px 8px 14px; }
   .brand .logo { font-family:var(--mono); color:var(--accent); font-weight:800; font-size:16px; text-shadow:0 0 14px var(--accent); }
+  .brand img.logo { width:26px; height:26px; object-fit:contain; filter:drop-shadow(0 0 9px rgba(34,211,238,.55)); }
   .brand b { font-weight:800; letter-spacing:3px; font-size:19px; background:linear-gradient(90deg,var(--accent),var(--accent2)); -webkit-background-clip:text; background-clip:text; -webkit-text-fill-color:transparent; }
   .brand small { color:var(--mut); font-size:10px; letter-spacing:1.5px; text-transform:uppercase; }
   nav.tabs { display:flex; flex-direction:column; gap:3px; flex:1; min-height:0; overflow-y:auto; scrollbar-width:none; }
@@ -544,6 +545,31 @@ _WEB_UI = """<!doctype html>
   .nptrans button.big { background:linear-gradient(120deg,rgba(34,211,238,.2),rgba(246,55,236,.12)); }
   .npsel { margin-top:10px; }
   .npsel select { width:100%; background:var(--input); color:var(--fg); border:1px solid var(--line); border-radius:8px; padding:6px 8px; font-size:12px; }
+  /* ── generic widget atoms (key/value rows, bars, note) ── */
+  .ovkv { display:flex; justify-content:space-between; gap:10px; align-items:center; padding:6px 2px; border-bottom:1px solid var(--line); font-size:13px; }
+  .ovkv:last-child { border-bottom:0; } .ovkv .k { color:var(--mut); } .ovkv .v { font-family:var(--mono); text-align:right; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; max-width:62%; }
+  .ovbar { height:7px; border-radius:5px; background:#16233a; overflow:hidden; margin-top:7px; }
+  .ovbar > i { display:block; height:100%; background:linear-gradient(90deg,var(--accent),var(--accent2)); }
+  .ovnote { width:100%; min-height:96px; background:var(--input); color:var(--fg); border:1px solid var(--line); border-radius:10px; padding:10px; font-family:inherit; font-size:13.5px; line-height:1.5; resize:vertical; }
+  /* ── add-automation form + richer rooms ── */
+  .ovform { display:flex; gap:6px; flex-wrap:wrap; margin-top:11px; align-items:center; }
+  .ovform select, .ovform input { background:var(--input); color:var(--fg); border:1px solid var(--line); border-radius:8px; padding:6px 8px; font-size:12.5px; }
+  .miniSw input { vertical-align:middle; cursor:pointer; }
+  .ovroom { margin-bottom:12px; } .ovroom:last-child { margin-bottom:0; }
+  .ovroomh { display:flex; justify-content:space-between; align-items:center; padding:4px 0 6px; border-bottom:1px solid var(--line); margin-bottom:5px; }
+  .ovdev { display:flex; justify-content:space-between; align-items:center; padding:5px 2px 5px 6px; font-size:13px; }
+  .ddot { display:inline-block; width:7px; height:7px; border-radius:50%; margin-right:8px; background:#5a6473; vertical-align:middle; }
+  .ddot.on { background:#2ec07a; box-shadow:0 0 8px #2ec07a; } .ddot.idle { background:#e0a72e; }
+  /* ── Ask ELI ── */
+  .askwrap { display:flex; flex-direction:column; gap:10px; }
+  .askout { min-height:46px; max-height:170px; overflow-y:auto; font-size:13.5px; line-height:1.55; white-space:pre-wrap; background:rgba(7,12,22,.5); border:1px solid var(--line); border-radius:10px; padding:11px; }
+  .askrow { display:flex; gap:6px; }
+  .askrow input { flex:1; background:var(--input); color:var(--fg); border:1px solid var(--line); border-radius:9px; padding:8px 10px; font-size:13.5px; }
+  /* ── live vitals sparklines ── */
+  .gph { display:flex; flex-direction:column; gap:9px; }
+  .gphrow { display:flex; align-items:center; gap:10px; font-size:11px; color:var(--mut); font-family:var(--mono); }
+  .gphrow > span { width:32px; flex:none; }
+  .gphrow canvas { flex:1; height:34px; background:rgba(7,12,22,.4); border-radius:8px; border:1px solid var(--line); }
   #admin { overflow-y:auto; padding:14px; }
   .adwrap { max-width:900px; margin:0 auto; }
   .adtot { display:grid; grid-template-columns:repeat(auto-fit,minmax(120px,1fr)); gap:10px; margin-bottom:14px; }
@@ -621,7 +647,7 @@ _WEB_UI = """<!doctype html>
   #devices,#system,#settings-tab,#connect-tab{ padding:18px; }
 </style></head><body>
   <aside class="sidebar">
-    <div class="brand"><span class="logo">&#9698;&#9700;</span><b>ELI</b><small>v2</small></div>
+    <div class="brand"><img class="logo" src="/icon.png?size=80" alt="ELI" width="26" height="26"><b>ELI</b><small>v2</small></div>
     <nav class="tabs">
       <button data-tab="overview" class="active"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/><rect x="14" y="14" width="7" height="7" rx="1.5"/></svg><span>Overview</span></button>
       <button data-tab="chat"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M21 12a8 8 0 0 1-11.6 7.1L3 21l1.9-6.4A8 8 0 1 1 21 12z"/></svg><span>Chat</span></button>
@@ -958,7 +984,7 @@ _WEB_UI = """<!doctype html>
   /* PWA: installable + offline shell */
   if('serviceWorker' in navigator){try{navigator.serviceWorker.register('/sw.js').catch(function(){});}catch(e){}}
   /* live: refresh the dashboard while it's open (no manual reload) */
-  setInterval(function(){const v=$('#view-overview'); if(v&&v.classList.contains('active')&&!document.hidden&&!OV_EDIT)loadOverview();},6000);
+  setInterval(function(){const v=$('#view-overview'); if(v&&v.classList.contains('active')&&!document.hidden&&!OV_EDIT&&!isOvEditingField())loadOverview();},6000);
 
   /* voice — local STT (whisper) in, local TTS (piper) out; nothing leaves the box */
   const mic=$('#mic'),spk=$('#spk'),vstat=$('#vstat');
@@ -1831,16 +1857,23 @@ _WEB_UI = """<!doctype html>
   function ovGauge(v,label){v=Math.round(v||0);return '<div class="ovg"><div class="ring" style="--p:'+Math.max(0,Math.min(100,v))+'"><span>'+v+'</span></div><div class="ovg-l">'+esc(label)+'</div></div>';}
   function tickClock(){const el=$('#ov-clock');if(!el)return;const d=new Date();const t=el.querySelector('.t'),dd=el.querySelector('.d');if(t)t.textContent=d.toLocaleTimeString();if(dd)dd.textContent=d.toLocaleDateString(undefined,{weekday:'long',month:'short',day:'numeric'});}
   // ── Overview: customizable widget dashboard ───────────────────────────────
-  let OV_LAYOUT=null, OV_EDIT=false, OV_MEDIA=null, OV_PREFS_LOADED=false, OV_DRAG=null;
-  const OV_DEFAULT_ORDER=['nowplaying','internet','vitals','quickcontrols','quickactions','activity'];
-  const OV_TITLES={nowplaying:'Now playing',internet:'Internet access',vitals:'Vitals',quickcontrols:'Quick controls',quickactions:'Quick actions',activity:'Recent activity'};
-  const OV_WIDE={activity:1};
+  let OV_LAYOUT=null, OV_EDIT=false, OV_PREFS_LOADED=false, OV_DRAG=null;
+  // Full catalog (palette order). Each user composes their own subset — the layout
+  // decides which endpoints get fetched, so unused widgets cost nothing.
+  const OV_CATALOG=['ask','nowplaying','graph','model','gpu','vitals','internet','egress','connect','quickcontrols','rooms','scenes','automations','suggestions','quickactions','corpora','capabilities','sun','note','activity','audit'];
+  const OV_DEFAULT=['ask','nowplaying','graph','vitals','quickcontrols','activity'];
+  const OV_TITLES={ask:'Ask ELI',nowplaying:'Now playing',graph:'Live vitals',model:'Model & runtime',gpu:'GPU',vitals:'Vitals',internet:'Internet access',egress:'Network egress',connect:'Connect a phone',quickcontrols:'Quick controls',rooms:'Rooms',scenes:'Scenes',automations:'Automations',suggestions:'Suggestions',quickactions:'Quick actions',corpora:'Research corpora',capabilities:'Capabilities',sun:'Sun',note:'Note',activity:'Recent activity',audit:'Audit integrity'};
+  const OV_WIDE={activity:1,capabilities:1};
+  const OV_SRC={system:'/v1/system',audit:'/v1/audit?limit=8',devices:'/v1/devices',corpora:'/v1/research/corpora',net:'/v1/net',media:'/v1/media',automations:'/v1/home/automations',scenes:'/v1/home/scenes',suggestions:'/v1/home/suggestions',sun:'/v1/home/sun',capabilities:'/v1/capabilities',connect:'/v1/connect',rooms:'/v1/devices/rooms'};
+  const OV_NEEDS={ask:[],nowplaying:['media'],graph:['system'],model:['system'],gpu:['system'],vitals:['system'],internet:['net'],egress:['net'],connect:['connect'],quickcontrols:['devices'],rooms:['rooms'],scenes:['scenes'],automations:['automations','devices'],suggestions:['suggestions'],quickactions:[],corpora:['corpora'],capabilities:['capabilities'],sun:['sun'],note:[],activity:['audit'],audit:['audit']};
+  const OV_BASE=['system','audit','devices','corpora','net'];   // the hero always needs these
   function ovLayout(){
-    if(!OV_LAYOUT||!OV_LAYOUT.order)OV_LAYOUT={order:OV_DEFAULT_ORDER.slice(),hidden:[]};
-    if(!OV_LAYOUT.hidden)OV_LAYOUT.hidden=[];
-    OV_DEFAULT_ORDER.forEach(id=>{if(OV_LAYOUT.order.indexOf(id)<0)OV_LAYOUT.order.push(id);});
+    if(!OV_LAYOUT||!Array.isArray(OV_LAYOUT.order))OV_LAYOUT={order:OV_DEFAULT.slice(),hidden:[],note:''};
+    if(!Array.isArray(OV_LAYOUT.hidden))OV_LAYOUT.hidden=[];
+    OV_LAYOUT.order=OV_LAYOUT.order.filter(id=>OV_CATALOG.indexOf(id)>=0);   // drop unknown ids
     return OV_LAYOUT;
   }
+  function ovVisible(){const l=ovLayout();return l.order.filter(id=>l.hidden.indexOf(id)<0);}
   function ovSaveLayout(){try{localStorage.setItem('eli_ov_layout',JSON.stringify(OV_LAYOUT));}catch(_e){}
     api('/v1/ui/prefs',{method:'POST',body:JSON.stringify({prefs:{overview:OV_LAYOUT}})}).catch(()=>{});}
   function ovLoadPrefs(){
@@ -1848,11 +1881,14 @@ _WEB_UI = """<!doctype html>
     return api('/v1/ui/prefs').then(d=>{if(d&&d.ok&&d.prefs&&d.prefs.overview)OV_LAYOUT=d.prefs.overview;}).catch(()=>{});
   }
   function loadOverview(){
-    const run=()=>Promise.all([api('/v1/system').catch(()=>({})),api('/v1/audit?limit=8').catch(()=>({})),
-        api('/v1/devices').catch(()=>({})),api('/v1/research/corpora').catch(()=>({})),
-        api('/v1/net').catch(()=>({})),api('/v1/media').catch(()=>({}))])
-      .then(([sys,aud,dev,res,net,media])=>{OV_MEDIA=media;renderOverview(sys,aud,dev,res,net,media);})
-      .catch(e=>{$('#overview').innerHTML='<div class="err">'+esc(''+e)+'</div>';});
+    const run=()=>{
+      const need={}; OV_BASE.forEach(s=>need[s]=1);
+      ovVisible().forEach(id=>(OV_NEEDS[id]||[]).forEach(s=>need[s]=1));
+      const keys=Object.keys(need);
+      return Promise.all(keys.map(k=>api(OV_SRC[k]).catch(()=>({}))))
+        .then(results=>{const D={};keys.forEach((k,i)=>D[k]=results[i]);renderOverview(D);})
+        .catch(e=>{$('#overview').innerHTML='<div class="err">'+esc(''+e)+'</div>';});
+    };
     if(!OV_PREFS_LOADED){OV_PREFS_LOADED=true;return ovLoadPrefs().then(run);}
     return run();
   }
@@ -1865,15 +1901,77 @@ _WEB_UI = """<!doctype html>
   }
   window.setNet=setNet;
   function ovCtl(id,cmd){api('/v1/devices/control',{method:'POST',body:JSON.stringify({device_id:id,command:cmd})}).then(()=>setTimeout(loadOverview,400)).catch(()=>{});}
-  window.ovCtl=ovCtl;
+  function ovScene(id){api('/v1/home/scenes/activate',{method:'POST',body:JSON.stringify({scene:id})}).then(()=>setTimeout(loadOverview,400)).catch(()=>{});}
+  function ovRoom(room,cmd){api('/v1/devices/room/control',{method:'POST',body:JSON.stringify({room:room,command:cmd})}).then(()=>setTimeout(loadOverview,500)).catch(()=>{});}
+  function ovNote(t){const l=ovLayout();l.note=t.value;clearTimeout(window._ovNoteT);window._ovNoteT=setTimeout(ovSaveLayout,600);}
+  window.ovCtl=ovCtl; window.ovScene=ovScene; window.ovRoom=ovRoom; window.ovNote=ovNote;
   function mediaCtl(cmd){const p=window._ovPlayer||null;
     api('/v1/media/control',{method:'POST',body:JSON.stringify({command:cmd,player:p})}).then(()=>setTimeout(loadOverview,350)).catch(()=>{});}
   function mediaPick(sel){window._ovPlayer=sel.value;loadOverview();}
   window.mediaCtl=mediaCtl; window.mediaPick=mediaPick;
-  // Widget body builders — each returns inner HTML (without the header); null = skip.
-  function ovWidget(id,x){
+  // Ask ELI — talk to the full engine straight from the dashboard. Last Q/A is kept in
+  // window._ovAsk so the 6s auto-refresh re-renders the answer instead of wiping it.
+  function ovAsk(preset){
+    const inp=$('#ask-in'),out=$('#ask-out');
+    const q=(preset!=null?preset:((inp&&inp.value)||'')).trim();
+    if(!q)return;
+    if(inp&&preset==null)inp.value='';
+    window._ovAsk={q:q,a:''};
+    if(out){out.classList.remove('muted');out.textContent='…';}
+    api('/v1/chat',{method:'POST',body:JSON.stringify({message:q})}).then(r=>{
+      const a=(r&&r.response)||'(no reply)'; window._ovAsk={q:q,a:a};
+      const o=$('#ask-out'); if(o){o.classList.remove('muted');o.textContent=a;}
+    }).catch(e=>{const o=$('#ask-out'); if(o)o.textContent='Error: '+esc(''+e);});
+  }
+  function ovGlance(){ovAsk('what is currently on my screen?');}
+  window.ovAsk=ovAsk; window.ovGlance=ovGlance;
+  // Add / manage device automations from the dashboard.
+  function ovAutoAdd(){const dev=(($('#au-dev')||{}).value||''),cmd=(($('#au-cmd')||{}).value||'on'),time=(($('#au-time')||{}).value||'');
+    if(!dev||!time){return;}
+    api('/v1/home/automations/add',{method:'POST',body:JSON.stringify({device:dev,command:cmd,time:time})}).then(()=>setTimeout(loadOverview,300)).catch(()=>{});}
+  function ovAutoRemove(id){api('/v1/home/automations/remove',{method:'POST',body:JSON.stringify({id:id})}).then(()=>setTimeout(loadOverview,200)).catch(()=>{});}
+  function ovAutoToggle(id,en){api('/v1/home/automations/toggle',{method:'POST',body:JSON.stringify({id:id,enabled:!!en})}).catch(()=>{});}
+  window.ovAutoAdd=ovAutoAdd; window.ovAutoRemove=ovAutoRemove; window.ovAutoToggle=ovAutoToggle;
+  // Live vitals sparklines — rolling history drawn on <canvas>.
+  function ovDrawGraphs(){const H=window._ovHist||{};
+    document.querySelectorAll('.gph canvas').forEach(cv=>{
+      const k=cv.getAttribute('data-k'),data=H[k]||[];
+      const c=cv.getContext&&cv.getContext('2d'); if(!c)return;
+      const w=cv.width,h=cv.height; c.clearRect(0,0,w,h);
+      if(data.length<2)return;
+      const grd=c.createLinearGradient(0,0,w,0); grd.addColorStop(0,'#22d3ee'); grd.addColorStop(1,'#f637ec');
+      c.lineWidth=2; c.strokeStyle=grd; c.beginPath();
+      data.forEach((v,i)=>{const x=i/(data.length-1)*w,y=h-(Math.max(0,Math.min(100,v))/100)*(h-5)-2; i?c.lineTo(x,y):c.moveTo(x,y);});
+      c.stroke(); c.lineTo(w,h); c.lineTo(0,h); c.closePath(); c.fillStyle='rgba(34,211,238,.09)'; c.fill();
+    });}
+  window.ovDrawGraphs=ovDrawGraphs;
+  function isOvEditingField(){const ae=document.activeElement;return !!(ae&&/^(INPUT|SELECT|TEXTAREA)$/.test(ae.tagName||''));}
+  function ovBar(used,total){const p=total?Math.max(0,Math.min(100,Math.round(used/total*100))):0;return '<div class="ovbar"><i style="width:'+p+'%"></i></div>';}
+  function kv(k,v){return '<div class="ovkv"><span class="k">'+k+'</span><span class="v">'+v+'</span></div>';}
+  // Widget body builders — each returns inner HTML (without the header). D = fetched data.
+  function ovWidget(id,D){
+    const sys=(D.system&&D.system.status)||{};
+    if(id==='ask'){
+      const last=window._ovAsk||{};
+      return '<div class="askwrap"><div id="ask-out" class="askout'+(last.a?'':' muted')+'">'+(last.a?esc(last.a):'Ask ELI anything — it routes through the full local engine (chat, actions, vision).')+'</div>'+
+        '<div class="askrow"><input id="ask-in" placeholder="Ask ELI…" onkeydown="if(event.key===\\'Enter\\')ovAsk()">'+
+        '<button class="qchip" onclick="ovAsk()">Send</button>'+
+        '<button class="qchip" onclick="ovGlance()" title="What is on my screen? (local vision)">&#128065;</button></div></div>';
+    }
+    if(id==='graph'){
+      const g=sys.gpu,c=sys.cpu,r=sys.ram;
+      const H=window._ovHist||(window._ovHist={gpu:[],cpu:[],ram:[]});
+      if(g)H.gpu.push(g.util_pct||0); if(c)H.cpu.push(c.usage_pct||0); if(r)H.ram.push(r.pct!=null?r.pct:(r.total_mb?Math.round(r.used_mb/r.total_mb*100):0));
+      ['gpu','cpu','ram'].forEach(k=>{if(H[k].length>48)H[k]=H[k].slice(-48);});
+      setTimeout(ovDrawGraphs,0);
+      const cur=k=>{const a=H[k];return a&&a.length?a[a.length-1]:0;};
+      return '<div class="gph">'+
+        '<div class="gphrow"><span>GPU '+cur('gpu')+'%</span><canvas data-k="gpu" width="240" height="34"></canvas></div>'+
+        '<div class="gphrow"><span>CPU '+cur('cpu')+'%</span><canvas data-k="cpu" width="240" height="34"></canvas></div>'+
+        '<div class="gphrow"><span>RAM '+cur('ram')+'%</span><canvas data-k="ram" width="240" height="34"></canvas></div></div>';
+    }
     if(id==='nowplaying'){
-      const md=x.media, ps=(md&&md.players)||[];
+      const md=D.media, ps=(md&&md.players)||[];
       if(!ps.length)return '<div class="muted">Nothing playing. Start Spotify, VLC or a browser video and it&#39;ll appear here with live controls. (Say &ldquo;pause Spotify&rdquo; too.)</div>';
       const cur=ps.find(p=>p.player===window._ovPlayer)||ps.find(p=>p.is_active)||ps[0];
       const playing=(cur.status==='playing');
@@ -1896,18 +1994,30 @@ _WEB_UI = """<!doctype html>
       return h;
     }
     if(id==='internet'){
-      return '<div class="netrow"><span class="netstate '+(x.netOn?'on':'off')+'">'+(x.netOn?'ENABLED':'OFF')+'</span>'+
-        '<button class="netbtn '+(x.netOn?'on':'off')+'" '+(x.isAdmin?'':'disabled title="Admin only"')+' onclick="setNet('+(x.netOn?'false':'true')+')">'+(x.netOn?'Turn off':'Turn on')+'</button></div>'+
-        (x.netOn&&(x.n.egress_recent||[]).length?('<div class="netegress">Recent outbound: '+(x.n.egress_recent||[]).slice(-5).map(e=>esc(e.host+(e.port?(':'+e.port):''))).join(' &middot; ')+'</div>'):'')+
+      const net=(D.net&&D.net.net)||{}, netOn=!!net.enabled, isAdmin=(window.MY_ROLE==='admin'||!window.MY_ROLE);
+      return '<div class="netrow"><span class="netstate '+(netOn?'on':'off')+'">'+(netOn?'ENABLED':'OFF')+'</span>'+
+        '<button class="netbtn '+(netOn?'on':'off')+'" '+(isAdmin?'':'disabled title="Admin only"')+' onclick="setNet('+(netOn?'false':'true')+')">'+(netOn?'Turn off':'Turn on')+'</button></div>'+
+        (netOn&&(net.egress_recent||[]).length?('<div class="netegress">Recent outbound: '+(net.egress_recent||[]).slice(-5).map(e=>esc(e.host+(e.port?(':'+e.port):''))).join(' &middot; ')+'</div>'):'')+
         '<div class="muted" style="margin-top:6px">ELI is offline-by-default and hard-gated at the socket boundary. Turning this on lets ELI reach the internet — and every outbound connection (host:port) is recorded to the tamper-evident audit trail, as is the on/off flip itself.</div>';
     }
     if(id==='vitals'){
+      const g=sys.gpu,c=sys.cpu,r=sys.ram;
       let v='<div class="ovgauges">';
-      if(x.g){v+=ovGauge(x.g.util_pct,'GPU')+ovGauge(x.g.temp_c,'GPU °C');}
-      if(x.c){v+=ovGauge(x.c.usage_pct,'CPU');}
-      if(x.r){v+=ovGauge(x.r.pct!=null?x.r.pct:(x.r.total_mb?Math.round(x.r.used_mb/x.r.total_mb*100):0),'RAM');}
-      if(!x.g&&!x.c&&!x.r)v+='<div class="muted">Telemetry unavailable.</div>';
+      if(g){v+=ovGauge(g.util_pct,'GPU')+ovGauge(g.temp_c,'GPU °C');}
+      if(c){v+=ovGauge(c.usage_pct,'CPU');}
+      if(r){v+=ovGauge(r.pct!=null?r.pct:(r.total_mb?Math.round(r.used_mb/r.total_mb*100):0),'RAM');}
+      if(!g&&!c&&!r)v+='<div class="muted">Telemetry unavailable.</div>';
       return v+'</div>';
+    }
+    if(id==='gpu'){
+      const g=sys.gpu; if(!g)return '<div class="muted">No GPU telemetry.</div>';
+      return '<div class="ovgauges">'+ovGauge(g.util_pct,'Util')+ovGauge(g.temp_c,'°C')+'</div>'+
+        kv(esc(g.name||'GPU'),(g.vram_used_mb||0)+' / '+(g.vram_total_mb||0)+' MB')+ovBar(g.vram_used_mb,g.vram_total_mb);
+    }
+    if(id==='model'){
+      const m=sys.model||{}; if(!m.name)return '<div class="muted">Model info unavailable.</div>';
+      return kv('Model',esc(m.name))+kv('Context',(m.n_ctx||'—'))+kv('GPU layers',(m.n_gpu_layers!=null?m.n_gpu_layers:'—'))+
+        kv('Batch',(m.n_batch||'—'))+kv('Uptime',esc(sys.uptime||'—'));
     }
     if(id==='quickactions'){
       return '<div class="qa">'+
@@ -1918,7 +2028,8 @@ _WEB_UI = """<!doctype html>
         '<button class="qchip" onclick="switchTab(\\'audit\\')">&#128737; Audit</button></div>';
     }
     if(id==='quickcontrols'){
-      const ctl=x.devs.filter(z=>z.command_topic||['airplay','firetv','cast','upnp'].indexOf(z.driver)>=0).slice(0,8);
+      const devs=(D.devices&&D.devices.devices)||[];
+      const ctl=devs.filter(z=>z.command_topic||['airplay','firetv','cast','upnp'].indexOf(z.driver)>=0).slice(0,8);
       if(!ctl.length)return '<div class="muted">No controllable devices yet — add some in Home.</div>';
       let cb='';
       ctl.forEach(z=>{const xon=(''+(z.state||'')).toUpperCase()==='ON';
@@ -1928,48 +2039,138 @@ _WEB_UI = """<!doctype html>
             :('<button class="roombtn" onclick="ovCtl(\\''+esc(z.id)+'\\',\\''+(xon?'off':'on')+'\\')">'+(xon?'Turn off':'Turn on')+'</button>'))+'</div>';});
       return cb;
     }
+    if(id==='rooms'){
+      const rooms=(D.rooms&&D.rooms.rooms)||[];
+      if(!rooms.length)return '<div class="muted">No rooms yet — assign devices to rooms in Home.</div>';
+      let h='';
+      rooms.forEach(rm=>{const nm=rm.room||'Room',ds=rm.devices||[];
+        h+='<div class="ovroom"><div class="ovroomh"><span class="aa">'+esc(nm)+' <span class="muted">('+ds.length+')</span></span>'+
+          '<span><button class="roombtn" onclick="ovRoom(\\''+esc(nm)+'\\',\\'on\\')">All on</button> '+
+          '<button class="roombtn" onclick="ovRoom(\\''+esc(nm)+'\\',\\'off\\')">All off</button></span></div>';
+        ds.forEach(z=>{const sv=(''+(z.state||'')).toUpperCase(),on=sv==='ON',off=sv==='OFF';
+          const media=['airplay','firetv','cast','upnp'].indexOf(z.driver)>=0;
+          const dot=on?'on':(off?'':'idle');
+          h+='<div class="ovdev"><span class="aa"><span class="ddot '+dot+'"></span>'+esc(z.name||z.id)+'</span>'+
+            (media?('<span><button class="roombtn" onclick="ovCtl(\\''+esc(z.id)+'\\',\\'play\\')">&#9654;</button> <button class="roombtn" onclick="ovCtl(\\''+esc(z.id)+'\\',\\'pause\\')">&#9208;</button></span>')
+              :('<button class="roombtn" onclick="ovCtl(\\''+esc(z.id)+'\\',\\''+(on?'off':'on')+'\\')">'+(on?'Off':'On')+'</button>'))+'</div>';});
+        h+='</div>';});
+      return h;
+    }
+    if(id==='scenes'){
+      const sc=(D.scenes&&D.scenes.scenes)||[];
+      if(!sc.length)return '<div class="muted">No scenes yet — create scenes in Home.</div>';
+      let h='';sc.forEach(s=>{const nm=s.name||s.id||'Scene';
+        h+='<div class="ovact"><span class="aa">'+esc(nm)+'</span><button class="roombtn" onclick="ovScene(\\''+esc(s.id||nm)+'\\')">Activate</button></div>';});
+      return h;
+    }
+    if(id==='automations'){
+      const au=(D.automations&&D.automations.automations)||[];
+      const devs=(D.devices&&D.devices.devices)||[];
+      let h='';
+      if(!au.length)h+='<div class="muted" style="margin-bottom:8px">No automations yet — add one below.</div>';
+      au.slice(0,8).forEach(a=>{const tr=a.trigger||{},ac=a.action||{};
+        h+='<div class="ovact"><span class="aa">'+esc(a.name||ac.device||'Automation')+
+          ' <span class="muted">'+esc((tr.time||'')+' &middot; '+(ac.command||''))+'</span></span>'+
+          '<span style="display:flex;gap:8px;align-items:center"><label class="miniSw"><input type="checkbox" '+(a.enabled?'checked':'')+' onchange="ovAutoToggle(\\''+esc(a.id)+'\\',this.checked)"></label>'+
+          '<button class="wbtn rm" onclick="ovAutoRemove(\\''+esc(a.id)+'\\')" title="Remove">&#10005;</button></span></div>';});
+      const opts=devs.map(d=>'<option value="'+esc(d.id)+'">'+esc(d.name||d.id)+'</option>').join('');
+      h+='<div class="ovform">'+
+        '<select id="au-dev">'+(opts||'<option value="">no devices</option>')+'</select>'+
+        '<select id="au-cmd"><option value="on">On</option><option value="off">Off</option></select>'+
+        '<input id="au-time" type="time" value="08:00">'+
+        '<button class="qchip" onclick="ovAutoAdd()">+ Add</button></div>';
+      return h;
+    }
+    if(id==='suggestions'){
+      const sg=(D.suggestions&&D.suggestions.suggestions)||[];
+      if(!sg.length)return '<div class="muted">No suggestions right now — ELI proposes automations as it learns your habits.</div>';
+      let h='';sg.slice(0,6).forEach(s=>{h+='<div class="ovact"><span class="aa">'+esc(s.title||s.name||s.text||s.description||'Suggestion')+'</span></div>';});
+      return h+'<button class="qchip" style="margin-top:8px" onclick="switchTab(\\'devices\\')">Review in Home</button>';
+    }
+    if(id==='corpora'){
+      const co=(D.corpora&&D.corpora.corpora)||[];
+      if(!co.length)return '<div class="muted">No research corpora yet.</div>';
+      let h='';co.slice(0,8).forEach(z=>{const cnt=(z.documents!=null?z.documents:(z.count!=null?z.count:(z.docs!=null?z.docs:'')));
+        h+='<div class="ovact"><span class="aa">'+esc(z.name||z.id||'corpus')+'</span><span class="at">'+(cnt!==''?(cnt+' docs'):'')+'</span></div>';});
+      return h+'<button class="qchip" style="margin-top:8px" onclick="switchTab(\\'research\\')">Open Research</button>';
+    }
+    if(id==='capabilities'){
+      const cp=D.capabilities||{}, cats=cp.categories||[];
+      let h=kv('Total actions',(cp.total||0));
+      cats.slice(0,8).forEach(z=>{h+='<div class="ovact"><span class="aa">'+esc(z.category||'')+'</span><span class="at">'+((z.actions||[]).length||'')+'</span></div>';});
+      return h+'<button class="qchip" style="margin-top:8px" onclick="switchTab(\\'commands\\')">Browse commands</button>';
+    }
+    if(id==='sun'){
+      const su=(D.sun&&D.sun.sun)||{};
+      if(!su.sunrise&&!su.sunset)return '<div class="muted">Sun times unavailable.</div>';
+      return kv('&#127749; Sunrise',esc(su.sunrise||'—'))+kv('&#127751; Sunset',esc(su.sunset||'—'));
+    }
+    if(id==='connect'){
+      const cn=D.connect||{}, acc=cn.lan_accessible;
+      return kv('Address',esc(cn.url||((cn.scheme||'http')+'://'+(cn.lan_ip||'')+':'+(cn.port||''))))+
+        kv('LAN reachable','<span style="color:'+(acc?'#2ec07a':'#e0a72e')+'">'+(acc?'yes':'check firewall')+'</span>')+
+        '<button class="qchip" style="margin-top:8px" onclick="switchTab(\\'connect\\')">Open Connect &amp; QR</button>';
+    }
+    if(id==='egress'){
+      const net=(D.net&&D.net.net)||{};
+      if(!net.enabled)return '<div class="muted">Internet is off — no outbound traffic. (Offline-by-default.)</div>';
+      const rec=net.egress_recent||[];
+      if(!rec.length)return '<div class="muted">Internet on; no outbound connections logged yet.</div>';
+      let h=kv('Total outbound',(net.egress_total||0));
+      rec.slice(-8).reverse().forEach(e=>{h+='<div class="ovact"><span class="aa">'+esc((e.host||'')+(e.port?(':'+e.port):''))+'</span><span class="at">'+esc(e.ts?fmtTime(e.ts):'')+'</span></div>';});
+      return h;
+    }
+    if(id==='note'){
+      const l=ovLayout();
+      return '<textarea class="ovnote" oninput="ovNote(this)" onfocus="window._ovNoteFocus=1" onblur="window._ovNoteFocus=0" placeholder="Private notes — saved to your profile, synced across your devices.">'+esc(l.note||'')+'</textarea>';
+    }
     if(id==='activity'){
-      if(!x.ev.length)return '<div class="muted">No activity yet.</div>';
+      const ev=(D.audit&&D.audit.events)||[];
+      if(!ev.length)return '<div class="muted">No activity yet.</div>';
       let ab='';
-      x.ev.slice(0,8).forEach(e=>{ab+='<div class="ovact"><span class="aa">'+esc(e.action||e.event_type||'')+'</span><span class="au">'+esc(e.user_id||'system')+'</span><span class="at">'+esc(fmtTime(e.timestamp))+'</span></div>';});
+      ev.slice(0,8).forEach(e=>{ab+='<div class="ovact"><span class="aa">'+esc(e.action||e.event_type||'')+'</span><span class="au">'+esc(e.user_id||'system')+'</span><span class="at">'+esc(fmtTime(e.timestamp))+'</span></div>';});
       return ab;
     }
-    return null;
+    if(id==='audit'){
+      const ig=(D.audit&&D.audit.integrity)||{};
+      return kv('Integrity','<span style="color:'+(ig.ok?'#2ec07a':'#ff6b8a')+'">'+(ig.ok?'verified':'TAMPER')+'</span>')+
+        kv('Chained events',(ig.chained||0))+
+        '<button class="qchip" style="margin-top:8px" onclick="switchTab(\\'audit\\')">Open Audit</button>';
+    }
+    return '<div class="muted">No data.</div>';
   }
-  function renderOverview(sys,aud,dev,res,net,media){
-    const s=(sys&&sys.status)||{}, g=s.gpu, c=s.cpu, r=s.ram, m=s.model||{};
-    const ig=(aud&&aud.integrity)||{}, ev=(aud&&aud.events)||[];
-    const devs=(dev&&dev.devices)||[], on=devs.filter(d=>(''+(d.state||'')).toUpperCase()==='ON').length;
-    const corpora=(res&&res.corpora)||[];
-    const n=(net&&net.net)||{}, netOn=!!n.enabled, isAdmin=(window.MY_ROLE==='admin'||!window.MY_ROLE);
-    const x={s,g,c,r,m,ig,ev,devs,on,corpora,n,netOn,isAdmin,media};
+  function renderOverview(D){
+    const sys=(D.system&&D.system.status)||{}, m=sys.model||{};
+    const ig=(D.audit&&D.audit.integrity)||{};
+    const devs=(D.devices&&D.devices.devices)||[], on=devs.filter(d=>(''+(d.state||'')).toUpperCase()==='ON').length;
+    const corpora=(D.corpora&&D.corpora.corpora)||[];
+    const net=(D.net&&D.net.net)||{}, netOn=!!net.enabled;
     const hero='<div class="ovhero">'+
       '<div id="ov-clock" class="clock"><div class="t">--:--:--</div><div class="d"></div></div>'+
       '<div class="ovstat">'+
         '<div class="ovstat-row"><span class="dot ok"></span> System online &middot; model <b>'+esc(m.name||'—')+'</b></div>'+
         '<div class="ovstat-row"><span class="dot '+(ig.ok?'ok':'bad')+'"></span> Audit '+(ig.ok?('verified &middot; '+(ig.chained||0)+' events'):'TAMPER DETECTED')+'</div>'+
-        '<div class="ovstat-row"><span class="dot '+(netOn?'warn':'ok')+'"></span> Internet '+(netOn?('<b>ON</b> &middot; '+(n.egress_total||0)+' outbound logged'):'off &middot; offline-by-default')+(n.override_active?' &middot; temp-allow active':'')+'</div>'+
+        '<div class="ovstat-row"><span class="dot '+(netOn?'warn':'ok')+'"></span> Internet '+(netOn?('<b>ON</b> &middot; '+(net.egress_total||0)+' outbound logged'):'off &middot; offline-by-default')+(net.override_active?' &middot; temp-allow active':'')+'</div>'+
         '<div class="ovstat-row"><span class="dot ok"></span> '+devs.length+' device(s) &middot; '+on+' on &middot; '+corpora.length+' corpora</div>'+
       '</div></div>';
-    const lay=ovLayout();
+    const vis=ovVisible();
     let grid='';
-    lay.order.forEach(id=>{
-      if(lay.hidden.indexOf(id)>=0)return;
-      const body=ovWidget(id,x); if(body==null)return;
+    vis.forEach(id=>{
+      const body=ovWidget(id,D);
       grid+='<div class="widget'+(OV_WIDE[id]?' wide':'')+'" data-wid="'+id+'"'+(OV_EDIT?' draggable="true"':'')+'>'+
         '<div class="whead"><h4>'+esc(OV_TITLES[id]||id)+'</h4>'+
         (OV_EDIT?('<span class="wctl"><button class="wbtn" onclick="ovMove(\\''+id+'\\',-1)" title="Move up">&#9650;</button>'+
           '<button class="wbtn" onclick="ovMove(\\''+id+'\\',1)" title="Move down">&#9660;</button>'+
           '<button class="wbtn rm" onclick="ovRemove(\\''+id+'\\')" title="Remove">&#10005;</button></span>'):'')+
-        '</div>'+body+'</div>';
+        '</div>'+(body||'')+'</div>';
     });
     const editbar='<div class="oveditbar"><button class="cbtn" onclick="ovToggleEdit()">'+(OV_EDIT?'&#10003; Done':'&#9998; Customize')+'</button>'+
-      (OV_EDIT?'<button class="cbtn" style="opacity:.7" onclick="ovResetLayout()">Reset</button><span class="muted">Drag tiles, or use &#9650;&#9660; &middot; &#10005; removes &middot; add hidden tiles below</span>':'')+'</div>';
+      (OV_EDIT?'<button class="cbtn" style="opacity:.7" onclick="ovResetLayout()">Reset</button><span class="muted">Drag tiles, or use &#9650;&#9660; &middot; &#10005; removes &middot; add more tiles below</span>':'')+'</div>';
     let pal='';
     if(OV_EDIT){
-      const hid=lay.order.filter(id=>lay.hidden.indexOf(id)>=0);
-      pal='<div class="ovpal"><div class="muted" style="margin-bottom:4px">'+(hid.length?'Hidden tiles — tap to add back:':'All tiles are on your dashboard.')+'</div>'+
-        hid.map(id=>'<button class="qchip" onclick="ovAdd(\\''+id+'\\')">+ '+esc(OV_TITLES[id]||id)+'</button>').join('')+'</div>';
+      const avail=OV_CATALOG.filter(id=>vis.indexOf(id)<0);
+      pal='<div class="ovpal"><div class="muted" style="margin-bottom:6px">'+(avail.length?('Available tiles ('+avail.length+') — tap to add:'):'Every tile is on your dashboard.')+'</div>'+
+        avail.map(id=>'<button class="qchip" onclick="ovAdd(\\''+id+'\\')">+ '+esc(OV_TITLES[id]||id)+'</button>').join('')+'</div>';
     }
     $('#overview').innerHTML='<div class="ovwrap">'+hero+editbar+'<div class="ov-grid'+(OV_EDIT?' editing':'')+'" id="ov-grid">'+grid+'</div>'+pal+'</div>';
     if(OV_EDIT)ovBindDnd();
@@ -1979,7 +2180,7 @@ _WEB_UI = """<!doctype html>
   function ovMove(id,dir){const o=ovLayout().order,i=o.indexOf(id),j=i+dir;if(i<0||j<0||j>=o.length)return;const t=o[i];o[i]=o[j];o[j]=t;ovSaveLayout();loadOverview();}
   function ovRemove(id){const l=ovLayout();if(l.hidden.indexOf(id)<0)l.hidden.push(id);ovSaveLayout();loadOverview();}
   function ovAdd(id){const l=ovLayout();l.hidden=l.hidden.filter(z=>z!==id);if(l.order.indexOf(id)<0)l.order.push(id);ovSaveLayout();loadOverview();}
-  function ovResetLayout(){OV_LAYOUT={order:OV_DEFAULT_ORDER.slice(),hidden:[]};ovSaveLayout();loadOverview();}
+  function ovResetLayout(){const note=(OV_LAYOUT&&OV_LAYOUT.note)||'';OV_LAYOUT={order:OV_DEFAULT.slice(),hidden:[],note:note};ovSaveLayout();loadOverview();}
   function ovReorder(src,dst){const o=ovLayout().order,i=o.indexOf(src);if(i<0)return;o.splice(i,1);const j=o.indexOf(dst);o.splice(j<0?o.length:j,0,src);ovSaveLayout();loadOverview();}
   function ovBindDnd(){const grid=$('#ov-grid');if(!grid)return;
     grid.querySelectorAll('.widget').forEach(w=>{
@@ -2256,13 +2457,49 @@ _PWA_ICON = (
     'text-anchor="middle" fill="#22d3ee">E</text>'
     '<rect x="96" y="372" width="320" height="14" rx="7" fill="#f637ec"/></svg>'
 )
+import io as _io
+from functools import lru_cache as _lru
+
+@_lru(maxsize=24)
+def _eli_icon_png(size: int, maskable: bool) -> bytes:
+    """Render ELI's real icon (blueprints/Eli_Icon.png) onto a square <size> canvas.
+    Transparent + minimal padding for the favicon/sidebar; dark-filled with safe-zone
+    padding for installable/maskable app icons (Android squircle-crops maskable icons).
+    The source is non-square, so we letterbox-fit it centred. Cached per (size, maskable)."""
+    from PIL import Image
+    src = Image.open(_os.path.join(_REPO_ROOT, "blueprints", "Eli_Icon.png")).convert("RGBA")
+    bg = (6, 20, 31, 255) if maskable else (0, 0, 0, 0)
+    pad = 0.72 if maskable else 0.92
+    canvas = Image.new("RGBA", (size, size), bg)
+    box = int(size * pad)
+    sw, sh = src.size
+    scale = min(box / sw, box / sh)
+    nw, nh = max(1, int(sw * scale)), max(1, int(sh * scale))
+    src = src.resize((nw, nh), Image.LANCZOS)
+    canvas.alpha_composite(src, ((size - nw) // 2, (size - nh) // 2))
+    buf = _io.BytesIO()
+    canvas.save(buf, "PNG")
+    return buf.getvalue()
+
+def _icon_resp(size: int, maskable: bool):
+    """Serve the rendered PNG, falling back to the bundled SVG glyph if PIL/the file fails."""
+    try:
+        return Response(content=_eli_icon_png(size, maskable), media_type="image/png",
+                        headers={"Cache-Control": "max-age=604800"})
+    except Exception:
+        return Response(content=_PWA_ICON, media_type="image/svg+xml")
+
 _PWA_MANIFEST = {
     "name": "ELI", "short_name": "ELI", "start_url": "/", "scope": "/",
     "display": "standalone", "background_color": "#05070d", "theme_color": "#05070d",
-    "icons": [{"src": "/icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any maskable"}],
+    "icons": [
+        {"src": "/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any"},
+        {"src": "/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "maskable"},
+        {"src": "/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any maskable"},
+    ],
 }
 _SERVICE_WORKER = """
-const C='eli-shell-v6';
+const C='eli-shell-v9';
 self.addEventListener('install',e=>self.skipWaiting());
 self.addEventListener('activate',e=>e.waitUntil((async()=>{
   // Drop any older cache so a stale app shell can never linger.
@@ -2299,6 +2536,29 @@ def pwa_manifest():
 def pwa_icon():
     return Response(content=_PWA_ICON, media_type="image/svg+xml",
                    headers={"Cache-Control": "max-age=86400"})
+
+@app.get("/icon.png", tags=["Root"])
+def icon_png(size: int = 64):
+    """ELI's real icon as a transparent square PNG (favicon / in-app logo)."""
+    return _icon_resp(max(16, min(512, int(size))), maskable=False)
+
+@app.get("/icon-192.png", tags=["Root"])
+def icon_192():
+    return _icon_resp(192, maskable=True)
+
+@app.get("/icon-512.png", tags=["Root"])
+def icon_512():
+    return _icon_resp(512, maskable=True)
+
+@app.get("/apple-touch-icon.png", tags=["Root"])
+def apple_touch_icon():
+    """iOS home-screen icon (no transparency — iOS fills it anyway)."""
+    return _icon_resp(180, maskable=True)
+
+@app.get("/favicon.ico", tags=["Root"])
+def favicon():
+    """Browsers auto-request /favicon.ico — serve the real ELI icon (PNG bytes; accepted)."""
+    return _icon_resp(32, maskable=False)
 
 @app.get("/sw.js", tags=["Root"])
 def pwa_sw():
