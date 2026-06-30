@@ -292,7 +292,7 @@ _WEB_UI = """<!doctype html>
     background:linear-gradient(180deg, rgba(10,16,28,.72), rgba(6,10,18,.5)); border-right:1px solid var(--line); backdrop-filter:blur(16px); }
   .brand { display:flex; align-items:center; gap:9px; padding:4px 8px 14px; }
   .brand .logo { font-family:var(--mono); color:var(--accent); font-weight:800; font-size:16px; text-shadow:0 0 14px var(--accent); }
-  .brand img.logo { width:26px; height:26px; object-fit:contain; filter:drop-shadow(0 0 9px rgba(34,211,238,.55)); }
+  .brand img.logo { width:52px; height:52px; object-fit:contain; filter:drop-shadow(0 0 12px rgba(34,211,238,.6)); }
   .brand b { font-weight:800; letter-spacing:3px; font-size:19px; background:linear-gradient(90deg,var(--accent),var(--accent2)); -webkit-background-clip:text; background-clip:text; -webkit-text-fill-color:transparent; }
   .brand small { color:var(--mut); font-size:10px; letter-spacing:1.5px; text-transform:uppercase; }
   nav.tabs { display:flex; flex-direction:column; gap:3px; flex:1; min-height:0; overflow-y:auto; scrollbar-width:none; }
@@ -647,7 +647,7 @@ _WEB_UI = """<!doctype html>
   #devices,#system,#settings-tab,#connect-tab{ padding:18px; }
 </style></head><body>
   <aside class="sidebar">
-    <div class="brand"><img class="logo" src="/icon.png?size=80" alt="ELI" width="26" height="26"><b>ELI</b><small>v2</small></div>
+    <div class="brand"><img class="logo" src="/icon.png?size=160" alt="ELI" width="52" height="52"><small>v2</small></div>
     <nav class="tabs">
       <button data-tab="overview" class="active"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/><rect x="14" y="14" width="7" height="7" rx="1.5"/></svg><span>Overview</span></button>
       <button data-tab="chat"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M21 12a8 8 0 0 1-11.6 7.1L3 21l1.9-6.4A8 8 0 1 1 21 12z"/></svg><span>Chat</span></button>
@@ -2499,7 +2499,7 @@ _PWA_MANIFEST = {
     ],
 }
 _SERVICE_WORKER = """
-const C='eli-shell-v9';
+const C='eli-shell-v10';
 self.addEventListener('install',e=>self.skipWaiting());
 self.addEventListener('activate',e=>e.waitUntil((async()=>{
   // Drop any older cache so a stale app shell can never linger.
