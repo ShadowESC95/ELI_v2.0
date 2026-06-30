@@ -798,13 +798,91 @@ _CONTROL_ROADMAP = {"cast", "airplay", "adb", "atvremote", "hue"}  # detectable,
 # "cloud" (Spotify) intentionally excluded — not local-first.
 
 
-def discover(timeout: float = 3.0) -> Dict[str, Any]:
+def _mdns_discover(timeout: float, found: List[dict], errors: List[str]) -> None:
+    """One mDNS/Bonjour sweep. Appends raw hits to ``found`` (thread-safe: caller owns the
+    list and only reads it after join). Degrades cleanly if zeroconf isn't installed."""
+    try:
+        from zeroconf import Zeroconf, ServiceBrowser, ServiceListener
+    except Exception as e:
+        errors.append(f"mDNS: {e} (pip install zeroconf)")
+        return
+
+    class _L(ServiceListener):
+        def _grab(self, zc, type_, name):
+            try:
+                # Short per-service resolve so one slow record can't stall the sweep; the
+                # ServiceBrowser keeps firing add_service as records arrive.
+                info = zc.get_service_info(type_, name, timeout=900)
+                if not info:
+                    return
+                try:
+                    addrs = info.parsed_addresses()
+                except Exception:
+                    addrs = []
+                meta = _MDNS_KINDS.get(type_, {"kind": "other", "label": type_, "control": None})
+                props = {}
+                try:
+                    for k, v in (info.properties or {}).items():
+                        try:
+                            props[k.decode(errors="ignore")] = (v.decode(errors="ignore")
+                                                                if isinstance(v, (bytes, bytearray)) else v)
+                        except Exception:
+                            pass
+                except Exception:
+                    pass
+                found.append({
+                    "name": (name.split("." + type_)[0] or name),
+                    "service": type_, "via": "mdns",
+                    "kind": meta["kind"], "label": meta["label"], "control": meta["control"],
+                    "host": addrs[0] if addrs else "", "port": getattr(info, "port", None),
+                    "hostname": getattr(info, "server", "") or "",
+                    "props": props,
+                })
+            except Exception:
+                pass
+        def add_service(self, zc, type_, name): self._grab(zc, type_, name)
+        def update_service(self, zc, type_, name): self._grab(zc, type_, name)
+        def remove_service(self, zc, type_, name): pass
+
+    try:
+        zc = Zeroconf()
+    except Exception as e:
+        errors.append(f"mDNS: {e}")
+        return
+    try:
+        _browsers = [ServiceBrowser(zc, t, _L()) for t in _MDNS_KINDS]
+        time.sleep(max(1.0, float(timeout)))
+    except Exception as e:
+        errors.append(f"mDNS: {e}")
+    finally:
+        try:
+            zc.close()
+        except Exception:
+            pass
+
+
+# Rolling discovery cache: devices answer at different moments (mDNS especially is bursty),
+# so we MERGE every sweep into a short-lived cache keyed by (host, kind) and return the union
+# seen within the TTL. This is why a second "Refresh" feels instant and accumulates devices
+# instead of starting cold each time. last_seen lets the UI/age-out stale entries.
+_DISC_LOCK = threading.Lock()
+_DISC_CACHE: Dict[tuple, dict] = {}
+_DISC_TTL = 300.0  # seconds an entry survives without being re-seen
+
+
+def discover(timeout: float = 3.0, fresh: bool = False) -> Dict[str, Any]:
     """Find smart devices + media renderers on the LAN via mDNS *and* SSDP/UPnP — so the
     user doesn't have to know IPs/topics. Classifies each result (what it is, and whether
     ELI can control it locally). Gated through netguard (a deliberate local-network scan);
-    degrades cleanly if zeroconf isn't installed (SSDP still runs)."""
+    degrades cleanly if zeroconf isn't installed (SSDP still runs).
+
+    mDNS and SSDP now run **concurrently** (wall time ≈ one sweep, not the sum), and results
+    are merged into a short-lived rolling cache so late responders + prior finds accumulate.
+    Pass ``fresh=True`` to drop the cache and scan cold.
+    """
     found: List[dict] = []
     errors: List[str] = []
+    timeout = min(8.0, max(1.0, float(timeout)))
 
     try:
         from eli.core import netguard
@@ -814,71 +892,56 @@ def discover(timeout: float = 3.0) -> Dict[str, Any]:
         ctx = contextlib.nullcontext()
 
     with ctx:
-        # ---- 1. mDNS / Bonjour ----
-        try:
-            from zeroconf import Zeroconf, ServiceBrowser, ServiceListener
-
-            class _L(ServiceListener):
-                def _grab(self, zc, type_, name):
-                    try:
-                        info = zc.get_service_info(type_, name, timeout=1500)
-                        if not info:
-                            return
-                        try:
-                            addrs = info.parsed_addresses()
-                        except Exception:
-                            addrs = []
-                        meta = _MDNS_KINDS.get(type_, {"kind": "other", "label": type_, "control": None})
-                        found.append({
-                            "name": (name.split("." + type_)[0] or name),
-                            "service": type_, "via": "mdns",
-                            "kind": meta["kind"], "label": meta["label"], "control": meta["control"],
-                            "host": addrs[0] if addrs else "", "port": getattr(info, "port", None),
-                        })
-                    except Exception:
-                        pass
-                def add_service(self, zc, type_, name): self._grab(zc, type_, name)
-                def update_service(self, zc, type_, name): pass
-                def remove_service(self, zc, type_, name): pass
-
-            zc = Zeroconf()
+        # mDNS and SSDP in parallel — independent transports, no reason to serialise them.
+        ssdp_timeout = min(4.0, max(1.5, timeout))
+        def _run_ssdp():
             try:
-                _browsers = [ServiceBrowser(zc, t, _L()) for t in _MDNS_KINDS]
-                time.sleep(max(1.0, float(timeout)))
-            finally:
-                zc.close()
-        except Exception as e:
-            errors.append(f"mDNS: {e} (pip install zeroconf)")
+                found.extend(_ssdp_discover(ssdp_timeout))
+            except Exception as e:
+                errors.append(f"SSDP: {e}")
+        t_ssdp = threading.Thread(target=_run_ssdp, name="eli-ssdp", daemon=True)
+        t_ssdp.start()
+        _mdns_discover(timeout, found, errors)   # runs in this thread
+        t_ssdp.join(timeout=ssdp_timeout + 3.0)
 
-        # ---- 2. SSDP / UPnP (Cast, DLNA/MediaRenderer, smart TVs, Sonos) ----
-        try:
-            found.extend(_ssdp_discover(min(4.0, max(1.5, float(timeout)))))
-        except Exception as e:
-            errors.append(f"SSDP: {e}")
+    now = time.time()
+    if fresh:
+        with _DISC_LOCK:
+            _DISC_CACHE.clear()
 
-    # Dedupe (host+port+kind) and classify controllability.
-    seen, uniq = set(), []
-    for f in found:
-        key = (f.get("host"), f.get("port"), f.get("kind"))
-        if not f.get("host") or key in seen:
-            continue
-        seen.add(key)
-        # Friendly-up raw advertisement ids (e.g. Fire TV's "amzn.dmgr:HEX").
-        _nm = str(f.get("name") or "")
-        if not _nm or _nm.lower().startswith(("amzn.", "amzn-", "_")) or _nm.startswith(f.get("kind", "")):
-            f["name"] = f"{f.get('label', 'Device')} ({f.get('host')})"
-        f["controllable"] = f.get("control") in _CONTROL_LIVE
-        f["control_status"] = ("ready" if f.get("control") in _CONTROL_LIVE
-                               else "roadmap" if f.get("control") in _CONTROL_ROADMAP
-                               else "cloud" if f.get("control") == "cloud"
-                               else "detected")
-        uniq.append(f)
+    # Merge this sweep into the rolling cache, deduped + classified.
+    with _DISC_LOCK:
+        for f in found:
+            host = f.get("host")
+            if not host:
+                continue
+            key = (host, f.get("port"), f.get("kind"))
+            # Friendly-up raw advertisement ids (e.g. Fire TV's "amzn.dmgr:HEX").
+            _nm = str(f.get("name") or "")
+            if not _nm or _nm.lower().startswith(("amzn.", "amzn-", "_")) or _nm.startswith(f.get("kind", "")):
+                f["name"] = f"{f.get('label', 'Device')} ({host})"
+            f["controllable"] = f.get("control") in _CONTROL_LIVE
+            f["control_status"] = ("ready" if f.get("control") in _CONTROL_LIVE
+                                   else "roadmap" if f.get("control") in _CONTROL_ROADMAP
+                                   else "cloud" if f.get("control") == "cloud"
+                                   else "detected")
+            f["last_seen"] = now
+            prev = _DISC_CACHE.get(key)
+            if prev:
+                prev.update({k: v for k, v in f.items() if v not in (None, "", [])})
+                prev["last_seen"] = now
+            else:
+                _DISC_CACHE[key] = f
+        # Age out stale entries, then snapshot the live union.
+        for k in [k for k, v in _DISC_CACHE.items() if now - v.get("last_seen", 0) > _DISC_TTL]:
+            _DISC_CACHE.pop(k, None)
+        uniq = [dict(v) for v in _DISC_CACHE.values()]
 
-    uniq.sort(key=lambda d: (0 if d["controllable"] else 1, d.get("kind", ""), d.get("name", "")))
+    uniq.sort(key=lambda d: (0 if d.get("controllable") else 1, d.get("kind", ""), d.get("name", "")))
     brokers = [f for f in uniq if f.get("kind") == "mqtt_broker"]
     return {"ok": True, "found": uniq, "brokers": brokers,
             "errors": errors, "counts": {"total": len(uniq), "brokers": len(brokers),
-                                         "controllable": sum(1 for f in uniq if f["controllable"])}}
+                                         "controllable": sum(1 for f in uniq if f.get("controllable"))}}
 
 
 def _ssdp_discover(timeout: float) -> List[dict]:
