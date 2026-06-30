@@ -56,7 +56,9 @@ from typing import Optional, Any
 import json
 import os
 import secrets
+import threading
 import time
+from pathlib import Path
 import uvicorn
 
 from eli.kernel.engine import get_engine
@@ -246,7 +248,7 @@ async def _track_lan_reachability(request, call_next):
 _WEB_UI = """<!doctype html>
 <html lang="en"><head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, viewport-fit=cover">
+<meta name="viewport" content="width=device-width, initial-scale=1, user-scalable=yes, viewport-fit=cover">
 <title>ELI</title>
 <link rel="manifest" href="/manifest.webmanifest">
 <meta name="theme-color" content="#05070d">
@@ -307,7 +309,7 @@ _WEB_UI = """<!doctype html>
   .sidefoot #rolebadge { flex:1; color:var(--mut); font-size:11px; letter-spacing:.4px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
   .iconbtn { width:34px; height:34px; border:1px solid var(--line); border-radius:9px; background:var(--input); color:var(--fg-dim); font-size:15px; cursor:pointer; display:grid; place-items:center; transition:var(--fast); flex:none; }
   .iconbtn:hover { color:var(--accent); border-color:var(--accent); box-shadow:var(--glow); }
-  .main { flex:1; min-width:0; display:flex; flex-direction:column; }
+  .main { flex:1; min-width:0; min-height:0; display:flex; flex-direction:column; }
   .view { flex:1; min-height:0; display:none; flex-direction:column; }
   .view.active { display:flex; animation:fade .25s ease; }
   @keyframes fade { from{opacity:0;transform:translateY(6px);} to{opacity:1;transform:none;} }
@@ -319,7 +321,7 @@ _WEB_UI = """<!doctype html>
     nav.tabs button{ flex-direction:column; gap:3px; padding:7px 10px; font-size:10px; }
     nav.tabs button.active::before{ left:18%; right:18%; top:0; bottom:auto; width:auto; height:3px; border-radius:0 0 3px 3px; }
   }
-  #log { flex:1; overflow-y:auto; padding:16px; display:flex; flex-direction:column; gap:10px; }
+  #log { flex:1; min-height:0; overflow-y:auto; -webkit-overflow-scrolling:touch; padding:16px; display:flex; flex-direction:column; gap:10px; }
   #log { scroll-behavior:smooth; }
   .msg { max-width:80%; padding:11px 14px; border-radius:16px; white-space:pre-wrap; line-height:1.5; font-size:15px; box-shadow:var(--shadow); animation:pop .18s ease; }
   @keyframes pop { from{opacity:0;transform:translateY(6px) scale(.98);} to{opacity:1;transform:none;} }
@@ -514,6 +516,34 @@ _WEB_UI = """<!doctype html>
   .ovact { display:grid; grid-template-columns:1fr auto auto; gap:14px; align-items:center; padding:8px 4px; border-bottom:1px solid var(--line); font-size:13px; }
   .ovact:last-child { border-bottom:0; }
   .ovact .aa { font-weight:600; } .ovact .au { color:var(--teal); font-size:12px; font-family:var(--mono); } .ovact .at { color:var(--mut); font-size:12px; }
+  /* ── widget header (title + edit controls) ── */
+  .whead { display:flex; align-items:center; justify-content:space-between; gap:8px; margin-bottom:12px; }
+  .whead h4 { margin:0; }
+  .wctl { display:flex; gap:4px; }
+  .wbtn { width:26px; height:24px; border:1px solid var(--line); border-radius:7px; background:var(--input); color:var(--fg-dim); font-size:12px; cursor:pointer; line-height:1; }
+  .wbtn:hover { color:var(--accent); border-color:var(--accent); }
+  .wbtn.rm:hover { color:#ff6b8a; border-color:#ff6b8a; }
+  .oveditbar { display:flex; gap:8px; align-items:center; flex-wrap:wrap; margin:0 0 14px; }
+  .ov-grid.editing .widget { border-style:dashed; cursor:grab; }
+  .ov-grid.editing .widget:active { cursor:grabbing; }
+  .widget.drag { opacity:.45; outline:2px dashed var(--accent); }
+  .widget.dragover { outline:2px solid var(--accent); }
+  .ovpal { margin-top:14px; padding:14px; border:1px dashed var(--line); border-radius:14px; background:rgba(34,211,238,.03); }
+  .ovpal .qchip { margin:4px 6px 0 0; }
+  /* ── now-playing widget ── */
+  .nowp { display:flex; gap:14px; align-items:center; }
+  .npart { width:54px; height:54px; flex:none; border-radius:12px; display:grid; place-items:center; font-size:26px;
+    background:linear-gradient(150deg,rgba(34,211,238,.18),rgba(246,55,236,.12)); border:1px solid var(--line); }
+  .npmeta { min-width:0; flex:1; }
+  .nptitle { font-weight:700; font-size:15px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .npsub { color:var(--mut); font-size:12.5px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .npplayer { color:var(--accent); font-size:11px; font-family:var(--mono); text-transform:uppercase; letter-spacing:.6px; margin-top:2px; }
+  .nptrans { display:flex; gap:6px; margin-top:12px; justify-content:center; }
+  .nptrans button { width:40px; height:34px; border:1px solid var(--line); border-radius:9px; background:var(--input); color:var(--fg); font-size:15px; cursor:pointer; transition:var(--fast); }
+  .nptrans button:hover { color:var(--accent); border-color:var(--accent); box-shadow:var(--glow); }
+  .nptrans button.big { background:linear-gradient(120deg,rgba(34,211,238,.2),rgba(246,55,236,.12)); }
+  .npsel { margin-top:10px; }
+  .npsel select { width:100%; background:var(--input); color:var(--fg); border:1px solid var(--line); border-radius:8px; padding:6px 8px; font-size:12px; }
   #admin { overflow-y:auto; padding:14px; }
   .adwrap { max-width:900px; margin:0 auto; }
   .adtot { display:grid; grid-template-columns:repeat(auto-fit,minmax(120px,1fr)); gap:10px; margin-bottom:14px; }
@@ -925,7 +955,7 @@ _WEB_UI = """<!doctype html>
   /* PWA: installable + offline shell */
   if('serviceWorker' in navigator){try{navigator.serviceWorker.register('/sw.js').catch(function(){});}catch(e){}}
   /* live: refresh the dashboard while it's open (no manual reload) */
-  setInterval(function(){const v=$('#view-overview'); if(v&&v.classList.contains('active')&&!document.hidden)loadOverview();},6000);
+  setInterval(function(){const v=$('#view-overview'); if(v&&v.classList.contains('active')&&!document.hidden&&!OV_EDIT)loadOverview();},6000);
 
   /* voice — local STT (whisper) in, local TTS (piper) out; nothing leaves the box */
   const mic=$('#mic'),spk=$('#spk'),vstat=$('#vstat');
@@ -1797,12 +1827,31 @@ _WEB_UI = """<!doctype html>
   let ovClockTimer=null;
   function ovGauge(v,label){v=Math.round(v||0);return '<div class="ovg"><div class="ring" style="--p:'+Math.max(0,Math.min(100,v))+'"><span>'+v+'</span></div><div class="ovg-l">'+esc(label)+'</div></div>';}
   function tickClock(){const el=$('#ov-clock');if(!el)return;const d=new Date();const t=el.querySelector('.t'),dd=el.querySelector('.d');if(t)t.textContent=d.toLocaleTimeString();if(dd)dd.textContent=d.toLocaleDateString(undefined,{weekday:'long',month:'short',day:'numeric'});}
+  // ── Overview: customizable widget dashboard ───────────────────────────────
+  let OV_LAYOUT=null, OV_EDIT=false, OV_MEDIA=null, OV_PREFS_LOADED=false, OV_DRAG=null;
+  const OV_DEFAULT_ORDER=['nowplaying','internet','vitals','quickcontrols','quickactions','activity'];
+  const OV_TITLES={nowplaying:'Now playing',internet:'Internet access',vitals:'Vitals',quickcontrols:'Quick controls',quickactions:'Quick actions',activity:'Recent activity'};
+  const OV_WIDE={activity:1};
+  function ovLayout(){
+    if(!OV_LAYOUT||!OV_LAYOUT.order)OV_LAYOUT={order:OV_DEFAULT_ORDER.slice(),hidden:[]};
+    if(!OV_LAYOUT.hidden)OV_LAYOUT.hidden=[];
+    OV_DEFAULT_ORDER.forEach(id=>{if(OV_LAYOUT.order.indexOf(id)<0)OV_LAYOUT.order.push(id);});
+    return OV_LAYOUT;
+  }
+  function ovSaveLayout(){try{localStorage.setItem('eli_ov_layout',JSON.stringify(OV_LAYOUT));}catch(_e){}
+    api('/v1/ui/prefs',{method:'POST',body:JSON.stringify({prefs:{overview:OV_LAYOUT}})}).catch(()=>{});}
+  function ovLoadPrefs(){
+    try{const ls=localStorage.getItem('eli_ov_layout');if(ls)OV_LAYOUT=JSON.parse(ls);}catch(_e){}
+    return api('/v1/ui/prefs').then(d=>{if(d&&d.ok&&d.prefs&&d.prefs.overview)OV_LAYOUT=d.prefs.overview;}).catch(()=>{});
+  }
   function loadOverview(){
-    Promise.all([api('/v1/system').catch(()=>({})),api('/v1/audit?limit=8').catch(()=>({})),
-                 api('/v1/devices').catch(()=>({})),api('/v1/research/corpora').catch(()=>({})),
-                 api('/v1/net').catch(()=>({}))])
-      .then(([sys,aud,dev,res,net])=>renderOverview(sys,aud,dev,res,net))
+    const run=()=>Promise.all([api('/v1/system').catch(()=>({})),api('/v1/audit?limit=8').catch(()=>({})),
+        api('/v1/devices').catch(()=>({})),api('/v1/research/corpora').catch(()=>({})),
+        api('/v1/net').catch(()=>({})),api('/v1/media').catch(()=>({}))])
+      .then(([sys,aud,dev,res,net,media])=>{OV_MEDIA=media;renderOverview(sys,aud,dev,res,net,media);})
       .catch(e=>{$('#overview').innerHTML='<div class="err">'+esc(''+e)+'</div>';});
+    if(!OV_PREFS_LOADED){OV_PREFS_LOADED=true;return ovLoadPrefs().then(run);}
+    return run();
   }
   function setNet(on){
     const reason = on ? (prompt('Enable internet access for ELI?\\nOptionally note why (logged to the audit trail):','')||'') : '';
@@ -1814,13 +1863,84 @@ _WEB_UI = """<!doctype html>
   window.setNet=setNet;
   function ovCtl(id,cmd){api('/v1/devices/control',{method:'POST',body:JSON.stringify({device_id:id,command:cmd})}).then(()=>setTimeout(loadOverview,400)).catch(()=>{});}
   window.ovCtl=ovCtl;
-  function renderOverview(sys,aud,dev,res,net){
+  function mediaCtl(cmd){const p=window._ovPlayer||null;
+    api('/v1/media/control',{method:'POST',body:JSON.stringify({command:cmd,player:p})}).then(()=>setTimeout(loadOverview,350)).catch(()=>{});}
+  function mediaPick(sel){window._ovPlayer=sel.value;loadOverview();}
+  window.mediaCtl=mediaCtl; window.mediaPick=mediaPick;
+  // Widget body builders — each returns inner HTML (without the header); null = skip.
+  function ovWidget(id,x){
+    if(id==='nowplaying'){
+      const md=x.media, ps=(md&&md.players)||[];
+      if(!ps.length)return '<div class="muted">Nothing playing. Start Spotify, VLC or a browser video and it&#39;ll appear here with live controls. (Say &ldquo;pause Spotify&rdquo; too.)</div>';
+      const cur=ps.find(p=>p.player===window._ovPlayer)||ps.find(p=>p.is_active)||ps[0];
+      const playing=(cur.status==='playing');
+      const ic={spotify:'&#127925;',vlc:'&#127916;',mpv:'&#127916;',firefox:'&#127760;',chromium:'&#127760;',chrome:'&#127760;'};
+      const key=Object.keys(ic).find(k=>(''+(cur.player||'')).toLowerCase().startsWith(k));
+      const icon=ic[key]||'&#9835;';
+      const sub=esc([cur.artist,cur.album].filter(Boolean).join(' — ')||cur.status||'');
+      let h='<div class="nowp"><div class="npart">'+icon+'</div><div class="npmeta">'+
+        '<div class="nptitle">'+(cur.title?esc(cur.title):'(no title)')+'</div>'+
+        '<div class="npsub">'+sub+'</div>'+
+        '<div class="npplayer">'+esc(cur.player||'')+(playing?' &middot; playing':(cur.status?(' &middot; '+esc(cur.status)):''))+'</div>'+
+        '</div></div>';
+      h+='<div class="nptrans">'+
+        '<button onclick="mediaCtl(\\'previous\\')" title="Previous">&#9198;</button>'+
+        '<button class="big" onclick="mediaCtl(\\'play-pause\\')" title="Play / pause">'+(playing?'&#9208;':'&#9654;')+'</button>'+
+        '<button onclick="mediaCtl(\\'next\\')" title="Next">&#9197;</button>'+
+        '<button onclick="mediaCtl(\\'stop\\')" title="Stop">&#9209;</button>'+
+        '</div>';
+      if(ps.length>1)h+='<div class="npsel"><select onchange="mediaPick(this)">'+ps.map(p=>'<option value="'+esc(p.player)+'"'+(p.player===cur.player?' selected':'')+'>'+esc(p.player)+(p.title?(' — '+esc(p.title)):'')+'</option>').join('')+'</select></div>';
+      return h;
+    }
+    if(id==='internet'){
+      return '<div class="netrow"><span class="netstate '+(x.netOn?'on':'off')+'">'+(x.netOn?'ENABLED':'OFF')+'</span>'+
+        '<button class="netbtn '+(x.netOn?'on':'off')+'" '+(x.isAdmin?'':'disabled title="Admin only"')+' onclick="setNet('+(x.netOn?'false':'true')+')">'+(x.netOn?'Turn off':'Turn on')+'</button></div>'+
+        (x.netOn&&(x.n.egress_recent||[]).length?('<div class="netegress">Recent outbound: '+(x.n.egress_recent||[]).slice(-5).map(e=>esc(e.host+(e.port?(':'+e.port):''))).join(' &middot; ')+'</div>'):'')+
+        '<div class="muted" style="margin-top:6px">ELI is offline-by-default and hard-gated at the socket boundary. Turning this on lets ELI reach the internet — and every outbound connection (host:port) is recorded to the tamper-evident audit trail, as is the on/off flip itself.</div>';
+    }
+    if(id==='vitals'){
+      let v='<div class="ovgauges">';
+      if(x.g){v+=ovGauge(x.g.util_pct,'GPU')+ovGauge(x.g.temp_c,'GPU °C');}
+      if(x.c){v+=ovGauge(x.c.usage_pct,'CPU');}
+      if(x.r){v+=ovGauge(x.r.pct!=null?x.r.pct:(x.r.total_mb?Math.round(x.r.used_mb/x.r.total_mb*100):0),'RAM');}
+      if(!x.g&&!x.c&&!x.r)v+='<div class="muted">Telemetry unavailable.</div>';
+      return v+'</div>';
+    }
+    if(id==='quickactions'){
+      return '<div class="qa">'+
+        '<button class="qchip" onclick="switchTab(\\'chat\\')">&#128172; Chat</button>'+
+        '<button class="qchip" onclick="switchTab(\\'devices\\')">&#127968; Home</button>'+
+        '<button class="qchip" onclick="switchTab(\\'research\\')">&#128300; Research</button>'+
+        '<button class="qchip" onclick="switchTab(\\'system\\')">&#128202; Telemetry</button>'+
+        '<button class="qchip" onclick="switchTab(\\'audit\\')">&#128737; Audit</button></div>';
+    }
+    if(id==='quickcontrols'){
+      const ctl=x.devs.filter(z=>z.command_topic||['airplay','firetv','cast','upnp'].indexOf(z.driver)>=0).slice(0,8);
+      if(!ctl.length)return '<div class="muted">No controllable devices yet — add some in Home.</div>';
+      let cb='';
+      ctl.forEach(z=>{const xon=(''+(z.state||'')).toUpperCase()==='ON';
+        const md=['airplay','firetv','cast','upnp'].indexOf(z.driver)>=0;
+        cb+='<div class="ovact"><span class="aa">'+esc(z.name||z.id)+'</span>'+
+          (md?('<span><button class="roombtn" onclick="ovCtl(\\''+esc(z.id)+'\\',\\'play\\')">&#9654;</button> <button class="roombtn" onclick="ovCtl(\\''+esc(z.id)+'\\',\\'pause\\')">&#9208;</button></span>')
+            :('<button class="roombtn" onclick="ovCtl(\\''+esc(z.id)+'\\',\\''+(xon?'off':'on')+'\\')">'+(xon?'Turn off':'Turn on')+'</button>'))+'</div>';});
+      return cb;
+    }
+    if(id==='activity'){
+      if(!x.ev.length)return '<div class="muted">No activity yet.</div>';
+      let ab='';
+      x.ev.slice(0,8).forEach(e=>{ab+='<div class="ovact"><span class="aa">'+esc(e.action||e.event_type||'')+'</span><span class="au">'+esc(e.user_id||'system')+'</span><span class="at">'+esc(fmtTime(e.timestamp))+'</span></div>';});
+      return ab;
+    }
+    return null;
+  }
+  function renderOverview(sys,aud,dev,res,net,media){
     const s=(sys&&sys.status)||{}, g=s.gpu, c=s.cpu, r=s.ram, m=s.model||{};
     const ig=(aud&&aud.integrity)||{}, ev=(aud&&aud.events)||[];
     const devs=(dev&&dev.devices)||[], on=devs.filter(d=>(''+(d.state||'')).toUpperCase()==='ON').length;
     const corpora=(res&&res.corpora)||[];
     const n=(net&&net.net)||{}, netOn=!!n.enabled, isAdmin=(window.MY_ROLE==='admin'||!window.MY_ROLE);
-    let h='<div class="ovwrap"><div class="ovhero">'+
+    const x={s,g,c,r,m,ig,ev,devs,on,corpora,n,netOn,isAdmin,media};
+    const hero='<div class="ovhero">'+
       '<div id="ov-clock" class="clock"><div class="t">--:--:--</div><div class="d"></div></div>'+
       '<div class="ovstat">'+
         '<div class="ovstat-row"><span class="dot ok"></span> System online &middot; model <b>'+esc(m.name||'—')+'</b></div>'+
@@ -1828,40 +1948,46 @@ _WEB_UI = """<!doctype html>
         '<div class="ovstat-row"><span class="dot '+(netOn?'warn':'ok')+'"></span> Internet '+(netOn?('<b>ON</b> &middot; '+(n.egress_total||0)+' outbound logged'):'off &middot; offline-by-default')+(n.override_active?' &middot; temp-allow active':'')+'</div>'+
         '<div class="ovstat-row"><span class="dot ok"></span> '+devs.length+' device(s) &middot; '+on+' on &middot; '+corpora.length+' corpora</div>'+
       '</div></div>';
-    h+='<div class="ov-grid"><div class="widget"><h4>Internet access</h4>'+
-       '<div class="netrow"><span class="netstate '+(netOn?'on':'off')+'">'+(netOn?'ENABLED':'OFF')+'</span>'+
-       '<button class="netbtn '+(netOn?'on':'off')+'" '+(isAdmin?'':'disabled title="Admin only"')+' onclick="setNet('+(netOn?'false':'true')+')">'+(netOn?'Turn off':'Turn on')+'</button></div>'+
-       (netOn&&(n.egress_recent||[]).length?('<div class="netegress">Recent outbound: '+(n.egress_recent||[]).slice(-5).map(e=>esc(e.host+(e.port?(':'+e.port):''))).join(' &middot; ')+'</div>'):'')+
-       '<div class="muted" style="margin-top:6px">ELI is offline-by-default and hard-gated at the socket boundary. Turning this on lets ELI reach the internet — and every outbound connection (host:port) is recorded to the tamper-evident audit trail, as is the on/off flip itself.</div></div>';
-    h+='<div class="widget"><h4>Vitals</h4><div class="ovgauges">';
-    if(g){h+=ovGauge(g.util_pct,'GPU')+ovGauge(g.temp_c,'GPU °C');}
-    if(c){h+=ovGauge(c.usage_pct,'CPU');}
-    if(r){h+=ovGauge(r.pct!=null?r.pct:(r.total_mb?Math.round(r.used_mb/r.total_mb*100):0),'RAM');}
-    if(!g&&!c&&!r)h+='<div class="muted">Telemetry unavailable.</div>';
-    h+='</div></div>';
-    h+='<div class="widget"><h4>Quick actions</h4><div class="qa">'+
-       '<button class="qchip" onclick="switchTab(\\'chat\\')">&#128172; Chat</button>'+
-       '<button class="qchip" onclick="switchTab(\\'devices\\')">&#127968; Home</button>'+
-       '<button class="qchip" onclick="switchTab(\\'research\\')">&#128300; Research</button>'+
-       '<button class="qchip" onclick="switchTab(\\'system\\')">&#128202; Telemetry</button>'+
-       '<button class="qchip" onclick="switchTab(\\'audit\\')">&#128737; Audit</button>'+
-       '</div></div>';
-    const ctl=devs.filter(x=>x.command_topic||['airplay','firetv','cast','upnp'].indexOf(x.driver)>=0).slice(0,8);
-    h+='<div class="widget"><h4>Quick controls</h4>';
-    if(!ctl.length)h+='<div class="muted">No controllable devices yet — add some in Home.</div>';
-    ctl.forEach(x=>{const xon=(''+(x.state||'')).toUpperCase()==='ON';
-      const media=['airplay','firetv','cast','upnp'].indexOf(x.driver)>=0;
-      h+='<div class="ovact"><span class="aa">'+esc(x.name||x.id)+'</span>'+
-        (media?('<span><button class="roombtn" onclick="ovCtl(\\''+esc(x.id)+'\\',\\'play\\')">&#9654;</button> <button class="roombtn" onclick="ovCtl(\\''+esc(x.id)+'\\',\\'pause\\')">&#9208;</button></span>')
-          :('<button class="roombtn" onclick="ovCtl(\\''+esc(x.id)+'\\',\\''+(xon?'off':'on')+'\\')">'+(xon?'Turn off':'Turn on')+'</button>'))+'</div>';});
-    h+='</div>';
-    h+='<div class="widget wide"><h4>Recent activity</h4>';
-    if(!ev.length)h+='<div class="muted">No activity yet.</div>';
-    ev.slice(0,8).forEach(e=>{h+='<div class="ovact"><span class="aa">'+esc(e.action||e.event_type||'')+'</span><span class="au">'+esc(e.user_id||'system')+'</span><span class="at">'+esc(fmtTime(e.timestamp))+'</span></div>';});
-    h+='</div></div></div>';
-    $('#overview').innerHTML=h;
+    const lay=ovLayout();
+    let grid='';
+    lay.order.forEach(id=>{
+      if(lay.hidden.indexOf(id)>=0)return;
+      const body=ovWidget(id,x); if(body==null)return;
+      grid+='<div class="widget'+(OV_WIDE[id]?' wide':'')+'" data-wid="'+id+'"'+(OV_EDIT?' draggable="true"':'')+'>'+
+        '<div class="whead"><h4>'+esc(OV_TITLES[id]||id)+'</h4>'+
+        (OV_EDIT?('<span class="wctl"><button class="wbtn" onclick="ovMove(\\''+id+'\\',-1)" title="Move up">&#9650;</button>'+
+          '<button class="wbtn" onclick="ovMove(\\''+id+'\\',1)" title="Move down">&#9660;</button>'+
+          '<button class="wbtn rm" onclick="ovRemove(\\''+id+'\\')" title="Remove">&#10005;</button></span>'):'')+
+        '</div>'+body+'</div>';
+    });
+    const editbar='<div class="oveditbar"><button class="cbtn" onclick="ovToggleEdit()">'+(OV_EDIT?'&#10003; Done':'&#9998; Customize')+'</button>'+
+      (OV_EDIT?'<button class="cbtn" style="opacity:.7" onclick="ovResetLayout()">Reset</button><span class="muted">Drag tiles, or use &#9650;&#9660; &middot; &#10005; removes &middot; add hidden tiles below</span>':'')+'</div>';
+    let pal='';
+    if(OV_EDIT){
+      const hid=lay.order.filter(id=>lay.hidden.indexOf(id)>=0);
+      pal='<div class="ovpal"><div class="muted" style="margin-bottom:4px">'+(hid.length?'Hidden tiles — tap to add back:':'All tiles are on your dashboard.')+'</div>'+
+        hid.map(id=>'<button class="qchip" onclick="ovAdd(\\''+id+'\\')">+ '+esc(OV_TITLES[id]||id)+'</button>').join('')+'</div>';
+    }
+    $('#overview').innerHTML='<div class="ovwrap">'+hero+editbar+'<div class="ov-grid'+(OV_EDIT?' editing':'')+'" id="ov-grid">'+grid+'</div>'+pal+'</div>';
+    if(OV_EDIT)ovBindDnd();
     tickClock(); if(ovClockTimer)clearInterval(ovClockTimer); ovClockTimer=setInterval(tickClock,1000);
   }
+  function ovToggleEdit(){OV_EDIT=!OV_EDIT;loadOverview();}
+  function ovMove(id,dir){const o=ovLayout().order,i=o.indexOf(id),j=i+dir;if(i<0||j<0||j>=o.length)return;const t=o[i];o[i]=o[j];o[j]=t;ovSaveLayout();loadOverview();}
+  function ovRemove(id){const l=ovLayout();if(l.hidden.indexOf(id)<0)l.hidden.push(id);ovSaveLayout();loadOverview();}
+  function ovAdd(id){const l=ovLayout();l.hidden=l.hidden.filter(z=>z!==id);if(l.order.indexOf(id)<0)l.order.push(id);ovSaveLayout();loadOverview();}
+  function ovResetLayout(){OV_LAYOUT={order:OV_DEFAULT_ORDER.slice(),hidden:[]};ovSaveLayout();loadOverview();}
+  function ovReorder(src,dst){const o=ovLayout().order,i=o.indexOf(src);if(i<0)return;o.splice(i,1);const j=o.indexOf(dst);o.splice(j<0?o.length:j,0,src);ovSaveLayout();loadOverview();}
+  function ovBindDnd(){const grid=$('#ov-grid');if(!grid)return;
+    grid.querySelectorAll('.widget').forEach(w=>{
+      w.addEventListener('dragstart',()=>{OV_DRAG=w.getAttribute('data-wid');w.classList.add('drag');});
+      w.addEventListener('dragend',()=>{w.classList.remove('drag');grid.querySelectorAll('.dragover').forEach(e=>e.classList.remove('dragover'));OV_DRAG=null;});
+      w.addEventListener('dragover',e=>{e.preventDefault();if(OV_DRAG&&w.getAttribute('data-wid')!==OV_DRAG)w.classList.add('dragover');});
+      w.addEventListener('dragleave',()=>w.classList.remove('dragover'));
+      w.addEventListener('drop',e=>{e.preventDefault();const dst=w.getAttribute('data-wid');if(OV_DRAG&&dst!==OV_DRAG)ovReorder(OV_DRAG,dst);});
+    });
+  }
+  window.ovToggleEdit=ovToggleEdit;window.ovMove=ovMove;window.ovRemove=ovRemove;window.ovAdd=ovAdd;window.ovResetLayout=ovResetLayout;
   window.loadOverview=loadOverview;
 
   /* who am I — reflect role; a read-only viewer can browse dashboards but not act */
@@ -1954,6 +2080,14 @@ class AddDiscovered(BaseModel):
 class DevicePair(BaseModel):
     device_id: str
     code: Optional[str] = None    # PIN for AirPlay; omit to begin pairing
+
+class MediaControl(BaseModel):
+    command: str                          # play|pause|play-pause|stop|next|previous|volume
+    player: Optional[str] = None          # target a specific player; None = active player
+    value: Optional[float] = None         # for volume (0–100)
+
+class UIPrefs(BaseModel):
+    prefs: dict = {}                      # arbitrary per-user dashboard layout JSON
 
 class AutomationCreate(BaseModel):
     device: str
@@ -2125,7 +2259,7 @@ _PWA_MANIFEST = {
     "icons": [{"src": "/icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any maskable"}],
 }
 _SERVICE_WORKER = """
-const C='eli-shell-v3';
+const C='eli-shell-v5';
 self.addEventListener('install',e=>self.skipWaiting());
 self.addEventListener('activate',e=>e.waitUntil((async()=>{
   // Drop any older cache so a stale app shell can never linger.
@@ -2471,10 +2605,12 @@ def devices_control(req: DeviceControl):
     return _device_server().control(req.device_id, req.command, req.value)
 
 @app.post("/v1/devices/discover", tags=["Devices"], dependencies=[Depends(require_member)])
-def devices_discover(timeout: float = 3.0):
-    """Scan the LAN (mDNS + SSDP/UPnP) for brokers, media devices, AirPlay, Fire TV, Cast."""
+def devices_discover(timeout: float = 3.0, fresh: bool = False):
+    """Scan the LAN (mDNS + SSDP/UPnP) for brokers, media devices, AirPlay, Fire TV, Cast.
+    Runs both transports concurrently and merges into a rolling cache (repeat scans
+    accumulate); pass ``fresh=true`` to drop the cache and scan cold."""
     from eli.runtime.device_server import discover
-    return discover(timeout=min(8.0, max(1.0, float(timeout))))
+    return discover(timeout=min(8.0, max(1.0, float(timeout))), fresh=bool(fresh))
 
 @app.get("/v1/devices/drivers", tags=["Devices"], dependencies=[Depends(_require_token)])
 def devices_drivers():
@@ -2506,6 +2642,98 @@ def devices_pair(req: DevicePair):
 def home_state_ep():
     """Home snapshot for ELI's awareness — connection, rooms, what's on."""
     return {"ok": True, "state": _device_server().home_state()}
+
+# ── Now-playing media (local MPRIS players: Spotify desktop, VLC, browsers, …) ──
+@app.get("/v1/media", tags=["Media"], dependencies=[Depends(_require_token)])
+def media_now_playing():
+    """Live now-playing across local MPRIS2 players (the same backend voice control uses).
+    Returns every running player + which one is 'active', so the dashboard can show a
+    now-playing widget and drive transport controls."""
+    try:
+        from eli.integrations.mpris import playerctl_backend as mp
+    except Exception as e:
+        return {"ok": False, "error": f"media backend unavailable: {e}", "players": []}
+    try:
+        infos = mp.list_player_infos()
+    except Exception as e:
+        return {"ok": False, "error": str(e), "players": []}
+    active = None
+    try:
+        active = mp.get_active_player(command="status")
+    except Exception:
+        active = (infos[0]["player"] if infos else None)
+    for i in infos:
+        i["is_active"] = (i.get("player") == active)
+    return {"ok": True, "players": infos, "active": active,
+            "playing": any((i.get("status") == "playing") for i in infos)}
+
+@app.post("/v1/media/control", tags=["Media"], dependencies=[Depends(require_member)])
+def media_control(req: MediaControl):
+    """Drive a local media player: play/pause/play-pause/stop/next/previous/volume.
+    Same path as voice ('pause spotify') — controls the desktop app on this machine."""
+    try:
+        from eli.integrations.mpris import playerctl_backend as mp
+    except Exception as e:
+        return {"ok": False, "error": f"media backend unavailable: {e}"}
+    cmd = (req.command or "").strip().lower()
+    p = req.player
+    fn = {
+        "play": lambda: mp.play(p),
+        "pause": lambda: mp.pause(p),
+        "play-pause": lambda: mp.play_pause(p),
+        "toggle": lambda: mp.play_pause(p),
+        "stop": lambda: mp.stop(p),
+        "next": lambda: mp.next_track(p),
+        "previous": lambda: mp.previous_track(p),
+        "prev": lambda: mp.previous_track(p),
+        "volume": lambda: mp.set_volume(int(req.value if req.value is not None else 30), p),
+    }.get(cmd)
+    if not fn:
+        return {"ok": False, "error": f"unsupported media command {req.command!r}"}
+    try:
+        return fn()
+    except Exception as e:
+        return {"ok": False, "error": str(e)}
+
+# ── Per-user dashboard layout (server-side so it syncs across PC ↔ phone) ──
+_UI_PREFS_LOCK = threading.Lock()
+
+def _ui_prefs_path():
+    try:
+        from eli.core.paths import get_paths
+        base = Path(get_paths().artifacts_dir)
+    except Exception:
+        base = Path("artifacts")
+    base.mkdir(parents=True, exist_ok=True)
+    return base / "ui_prefs.json"
+
+def _ui_prefs_all() -> dict:
+    try:
+        return json.loads(_ui_prefs_path().read_text())
+    except Exception:
+        return {}
+
+@app.get("/v1/ui/prefs", tags=["UI"])
+def ui_prefs_get(request: Request, authorization: str = Header(default="")):
+    """Load this user's saved dashboard layout (widget order + hidden set). Empty = defaults."""
+    p = _authenticated(authorization, _is_loopback_client(request))
+    uid = _effective_user(p, "")
+    with _UI_PREFS_LOCK:
+        return {"ok": True, "prefs": _ui_prefs_all().get(uid, {})}
+
+@app.post("/v1/ui/prefs", tags=["UI"], dependencies=[Depends(require_member)])
+def ui_prefs_set(req: UIPrefs, request: Request, authorization: str = Header(default="")):
+    """Persist this user's dashboard layout."""
+    p = _authenticated(authorization, _is_loopback_client(request))
+    uid = _effective_user(p, "")
+    with _UI_PREFS_LOCK:
+        allp = _ui_prefs_all()
+        allp[uid] = req.prefs or {}
+        try:
+            _ui_prefs_path().write_text(json.dumps(allp, indent=2))
+        except Exception as e:
+            return {"ok": False, "error": str(e)}
+    return {"ok": True, "prefs": req.prefs or {}}
 
 @app.get("/v1/home/suggestions", tags=["Devices"], dependencies=[Depends(_require_token)])
 def home_suggestions_ep():

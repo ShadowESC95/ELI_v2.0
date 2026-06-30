@@ -342,13 +342,37 @@ class AirPlayDriver(Driver):
     def capabilities(self, dev):
         return ["play", "pause", "stop", "next", "previous", "volume"]
 
-    async def _scan_one(self, pyatv, host):
+    async def _scan_one(self, pyatv, host, timeout: float = 6.0):
+        """Locate the receiver robustly. A targeted unicast scan to AirPlay devices is
+        flaky (Apple TV / Sky / Now boxes often ignore unicast mDNS), so if it comes up
+        empty we fall back to a full broadcast sweep and match by address. On failure we
+        report what we *did* see, so 'not found' is actionable instead of a dead end."""
         import asyncio
         loop = asyncio.get_event_loop()
-        confs = await pyatv.scan(loop, hosts=[host], timeout=5)
-        if not confs:
-            raise RuntimeError("AirPlay device not found on the network")
-        return confs[0]
+        # 1) targeted unicast scan (fast path)
+        confs = []
+        try:
+            confs = await pyatv.scan(loop, hosts=[host], timeout=timeout)
+        except Exception:
+            confs = []
+        if confs:
+            return confs[0]
+        # 2) broadcast sweep, match by address
+        try:
+            confs = await pyatv.scan(loop, timeout=timeout)
+        except Exception:
+            confs = []
+        for c in confs or []:
+            if str(getattr(c, "address", "")) == str(host):
+                return c
+        if confs:
+            names = ", ".join(sorted({str(getattr(c, "name", "?")) for c in confs})[:6])
+            raise RuntimeError(
+                f"that address didn't answer AirPlay pairing; receivers I can see: {names}. "
+                "If yours isn't listed it may not support AirPlay PIN pairing.")
+        raise RuntimeError(
+            "no AirPlay receiver answered — make sure it's powered on, awake, and on this "
+            "same Wi-Fi/LAN, then try again")
 
     def pair(self, dev, code=None):
         """Two-step PIN pairing. First call (no code): begin pairing — the device shows a
