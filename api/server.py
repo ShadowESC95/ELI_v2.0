@@ -992,8 +992,19 @@ _WEB_UI = """<!doctype html>
      executed — loadOverview() touches OV_* state (let) declared further down; calling it
      synchronously here would hit the temporal dead zone and abort the rest of the script. */
   setTimeout(loadOverview,0);
-  /* PWA: installable + offline shell */
-  if('serviceWorker' in navigator){try{navigator.serviceWorker.register('/sw.js').catch(function(){});}catch(e){}}
+  /* PWA: installable + offline shell. Force a fresh-code check on every load and
+     auto-reload once a new worker takes control, so an installed PWA can never get
+     stranded on a stale cached shell (e.g. one cached during a transient bad build). */
+  if('serviceWorker' in navigator){try{
+    var _swReloading=false;
+    navigator.serviceWorker.addEventListener('controllerchange',function(){
+      if(_swReloading)return; _swReloading=true; location.reload();
+    });
+    navigator.serviceWorker.register('/sw.js').then(function(reg){
+      try{reg.update();}catch(e){}                       // check for a newer /sw.js now
+      if(reg.waiting){try{reg.waiting.postMessage('skip');}catch(e){}}
+    }).catch(function(){});
+  }catch(e){}}
   /* live: refresh the dashboard while it's open (no manual reload) */
   setInterval(function(){const v=$('#view-overview'); if(v&&v.classList.contains('active')&&!document.hidden&&!OV_EDIT&&!isOvEditingField())loadOverview();},6000);
 
@@ -2562,8 +2573,9 @@ _PWA_MANIFEST = {
     ],
 }
 _SERVICE_WORKER = """
-const C='eli-shell-v11';
+const C='eli-shell-v12';
 self.addEventListener('install',e=>self.skipWaiting());
+self.addEventListener('message',e=>{if(e.data==='skip')self.skipWaiting();});
 self.addEventListener('activate',e=>e.waitUntil((async()=>{
   // Drop any older cache so a stale app shell can never linger.
   const keys=await caches.keys();
