@@ -7299,7 +7299,6 @@ Answer:"""
                             evidence_packet,
                             user_input,
                             reasoning_mode=reasoning_mode,
-                            compact_override=True,
                             max_tokens_override=384,
                             action="META_DIAGNOSTIC",
                         ).strip()
@@ -8669,7 +8668,6 @@ Answer:"""
                         synthesized = self._synthesize_answer(
                             evidence_packet,
                             user_input,
-                            compact_override=True,
                             max_tokens_override=384,
                             action="META_DIAGNOSTIC",
                         ).strip()
@@ -11663,7 +11661,6 @@ Answer:"""
                         direct_text,
                         user_input,
                         reasoning_mode=reasoning_mode,
-                        compact_override=True,
                         max_tokens_override=_grounded_persona_budget,
                         action=action,
                     )
@@ -11793,7 +11790,6 @@ Answer:"""
                     raw_response,
                     user_input,
                     reasoning_mode=reasoning_mode,
-                    compact_override=True,
                     max_tokens_override=512,
                     action=action,
                 ).strip()
@@ -13272,7 +13268,7 @@ Answer:"""
         return out
 
     def _synthesize_answer(self, evidence: str, query: str,
-                           reasoning_mode=None, compact_override: bool = False,
+                           reasoning_mode=None,
                            max_tokens_override: Optional[int] = None,
                            action: Optional[str] = None) -> str:
         # Don't call GGUF when the executor already reported failure — it would
