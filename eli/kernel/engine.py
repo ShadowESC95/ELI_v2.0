@@ -71,7 +71,6 @@ except ImportError:
     _get_inference_broker = None
 
 
-# === PHASE45_COMMAND_FASTPATH_HELPERS ===
 # Deterministic OS/media/control actions must never wait for AgentBus,
 # memory retrieval, persona synthesis, or GGUF. Chat/questions still use
 # the full cognitive path.
@@ -232,7 +231,6 @@ def _phase45_force_direct_result(action, result):
             "phase45_fastpath": True,
         })
     return result
-# === END PHASE45_COMMAND_FASTPATH_HELPERS ===
 
 
 
@@ -1127,7 +1125,6 @@ def _eli_is_placeholder_output(text) -> bool:
     return bool(_ELI_PLACEHOLDER_RX.search(t) or _ELI_PLACEHOLDER_TOKEN_RX.search(t))
 
 
-# === ELI_PHASE19_GROUNDED_FOLLOWUP_REBIND_V1 ===
 # Contextual detail/challenge turns after an authoritative grounded action
 # must remain attached to that action. Without this, prompts such as
 # "what are the exact lines?", "can you fix it?", or "are you lying?"
@@ -1245,7 +1242,6 @@ def _eli_phase19_rebind_grounded_followup(engine, user_input: str, intent: Dict[
         current["confidence"] = 0.985
     return current
 
-# === END ELI_PHASE19_GROUNDED_FOLLOWUP_REBIND_V1 ===
 
 def _classify_query(text: str, action: str) -> str:
     """
@@ -2526,7 +2522,6 @@ def _mw_mc_turns_result(mode) -> dict:
     }
 
 
-# === ELI_ENGINE_PHASE2C_HELPERS_SECTION_V1 ===
 # Helpers relocated from the legacy bottom-of-file wrapper blocks
 # (Phase 2c). Defined unconditionally at module level so the inline
 # middleware inside CognitiveEngine.process() never needs globals()
@@ -2783,7 +2778,6 @@ def _eli_mc_payload_v5(question, mode):
     }
 
 
-# === END ELI_ENGINE_PHASE2C_HELPERS_SECTION_V1 ===
 
 
 
@@ -9029,7 +9023,6 @@ Answer:"""
         except Exception:
             pass
 
-        # === ELI_MULTI_QUESTION_SPLITTER_V2 ===
         # Handles inputs containing multiple distinct questions, e.g.:
         #   "Story pal? Who are you, and who am I?"  →  3 answers
         #   "Who are you, and who am I?"              →  2 answers (single-? compound)
@@ -9203,7 +9196,6 @@ Answer:"""
                 return _cis_a or _cis_b
         except Exception as _cis_err:
             log.debug("[ENGINE] compound identity splitter failed: %s", _cis_err)
-        # === END ELI_MULTI_QUESTION_SPLITTER_V2 ===
 
         # ELI_REASONING_MODE_STAMP_V1
         # Stamp active reasoning mode onto self so downstream consumers
@@ -9223,7 +9215,6 @@ Answer:"""
         # real runtime facts. This honours: "always go through the final
         # stage in ELI's persona" while quick mode stays a fast diagnostic.
 
-        # === ELI_ENGINE_MIDDLEWARE_REASONING_STATUS_V1 ===
         # Migrated from bottom-of-file _eli_engine_second_process wrapper.
         # Handles reasoning-mode status as a first-class process middleware
         # without reassigning CognitiveEngine.process at import time.
@@ -9255,9 +9246,7 @@ Answer:"""
                     return "Current reasoning mode: unavailable"
         except Exception as _eli_reasoning_status_middleware_err:
             log.debug(f"[ENGINE][WARN] reasoning-status middleware failed: {_eli_reasoning_status_middleware_err}")
-        # === END ELI_ENGINE_MIDDLEWARE_REASONING_STATUS_V1 ===
 
-        # === ELI_ENGINE_MIDDLEWARE_PERSONAL_MEMORY_QUICK_V1 ===
         # Migrated from bottom-of-file _eli_pm_engine_process wrapper.
         # Quick mode keeps direct personal-memory/routing-fault surfaces.
         # Non-Quick falls through to the normal cognition/persona pipeline.
@@ -9303,10 +9292,8 @@ Answer:"""
                         return f"Personal memory deep response failed: {type(_eli_pm_mem_err).__name__}: {_eli_pm_mem_err}"
         except Exception as _eli_pm_middleware_err:
             log.debug(f"[ENGINE][WARN] personal-memory quick middleware failed: {_eli_pm_middleware_err}")
-        # === END ELI_ENGINE_MIDDLEWARE_PERSONAL_MEMORY_QUICK_V1 ===
 
 
-        # === ELI_ENGINE_MIDDLEWARE_RUNTIME_STATUS_NONQUICK_FULL_PIPELINE_V1 ===
         # 2026-05-22 (Option 1): Quick mode keeps its deterministic short-circuit.
         # Non-Quick modes (CoT / SC / ToT / CAI) now fall through to the full
         # Stage 1-12 orchestrator pipeline where each mode runs its actual
@@ -9334,10 +9321,8 @@ Answer:"""
                 return _mw_rs_synthesize(_mw_rs_text, _mw_rs_mode, _mw_rs_evidence)
         except Exception as _mw_rs_err:
             log.debug(f"[ENGINE][WARN] runtime-status Quick-direct middleware failed: {_mw_rs_err}")
-        # === END ELI_ENGINE_MIDDLEWARE_RUNTIME_STATUS_NONQUICK_FULL_PIPELINE_V1 ===
 
 
-        # === ELI_ENGINE_MIDDLEWARE_MEMORY_RUNTIME_STRICT_V1 ===
         # Quick mode returns deterministic live memory-runtime evidence
         # directly. Non-Quick modes synthesize via local GGUF from the same
         # evidence (per spec: "All non-Quick modes must run the full cognition
@@ -9367,10 +9352,8 @@ Answer:"""
                 # Non-Quick: fall through to the full pipeline.
         except Exception as _mw_mrs_err:
             log.debug(f"[ENGINE][WARN] memory-runtime Quick-direct middleware failed: {_mw_mrs_err}")
-        # === END ELI_ENGINE_MIDDLEWARE_MEMORY_RUNTIME_STRICT_V1 ===
 
 
-        # === ELI_ENGINE_MIDDLEWARE_MEMORY_COUNT_TURNS_TELEMETRY_V1 ===
         # Migrated from bottom-of-file _eli_memory_count_turns_* wrapper.
         # Specifically handles "how many memories AND conversation turns" — a
         # broader telemetry surface than the narrower MEMORY_COUNT_V5 middleware.
@@ -9391,13 +9374,11 @@ Answer:"""
                 return _mw_mc_turns_result(_mw_mct_mode)
         except Exception as _mw_mct_err:
             log.debug(f"[ENGINE][WARN] memory-count turns middleware failed: {_mw_mct_err}")
-        # === END ELI_ENGINE_MIDDLEWARE_MEMORY_COUNT_TURNS_TELEMETRY_V1 ===
 
 
         # === ELI_ENGINE_MIDDLEWARE_RUNTIME_STATUS_V8_DELETED_PHASE2B ===
         # Replaced by ELI_ENGINE_MIDDLEWARE_RUNTIME_STATUS_NONQUICK_FULL_PIPELINE_V1 (V19) above.
 
-        # === ELI_ENGINE_MIDDLEWARE_MEMORY_COUNT_V5 ===
         # Migrated from bottom-of-file _eli_process_memory_count_depth_v5 wrapper.
         # Memory-count questions are deterministic SQLite/runtime facts.
         # This must preserve Quick vs non-Quick mode depth and must not call GGUF.
@@ -9418,9 +9399,7 @@ Answer:"""
                 return _eli_mc_payload_v5(user_input, _eli_mc_mw_mode)
         except Exception as _eli_mc_middleware_err:
             log.debug(f"[ENGINE][WARN] memory-count v5 middleware failed: {_eli_mc_middleware_err}")
-        # === END ELI_ENGINE_MIDDLEWARE_MEMORY_COUNT_V5 ===
 
-        # === ELI_ENGINE_MIDDLEWARE_RECENT_MEMORY_PROCESSING_V4 ===
         # Migrated from bottom-of-file _eli_recent_mem_process_v3 wrapper.
         # Recent-memory-processing questions are deterministic memory-runtime
         # evidence queries. Quick may return compact evidence directly; Non-Quick
@@ -9467,9 +9446,7 @@ Answer:"""
 
         except Exception as _eli_recent_mem_middleware_err:
             log.debug(f"[ENGINE][WARN] recent-memory-processing middleware failed: {_eli_recent_mem_middleware_err}")
-        # === END ELI_ENGINE_MIDDLEWARE_RECENT_MEMORY_PROCESSING_V4 ===
 
-        # === ELI_ENGINE_MIDDLEWARE_SELF_REPORT_RECENT_UPDATES_V4 ===
         # Migrated from bottom-of-file _eli_self_engine_process wrapper.
         # Recent self-report/update questions are grounded runtime evidence
         # queries. Quick may return structured evidence directly; Non-Quick
@@ -9551,7 +9528,6 @@ Answer:"""
 
         except Exception as _eli_self_report_middleware_err:
             log.debug(f"[ENGINE][WARN] self-report recent-updates middleware failed: {_eli_self_report_middleware_err}")
-        # === END ELI_ENGINE_MIDDLEWARE_SELF_REPORT_RECENT_UPDATES_V4 ===
 
 
 
@@ -10078,7 +10054,6 @@ Answer:"""
         except Exception:
             pass
 
-        # === PHASE45_PROCESS_COMMAND_FASTPATH ===
         # Route deterministic controls straight to executor. No AgentBus, no memory,
         # no GGUF, no persona synthesis. This is what OS-layer commands need.
         try:
@@ -10100,7 +10075,6 @@ Answer:"""
                 return _p45_result
         except Exception as _p45_err:
             log.debug(f"[PHASE45] direct command fastpath failed: {_p45_err}")
-        # === END PHASE45_PROCESS_COMMAND_FASTPATH ===
 
         # Agent bus dispatch
         bus_result = None
@@ -10109,7 +10083,6 @@ Answer:"""
         # only — every class flows through the full bus + persona pipeline so
         # the LLM persona produces the final response from grounded evidence).
         _qclass = _classify_query(user_input, action)
-        # === ELI_ENGINE_PRESERVE_RUNTIME_STATUS_ACTION_V1 ===
         # Router-owned RUNTIME_STATUS must not be rewritten into SELF_REPORT.
         # SELF_REPORT is identity/persona evidence; RUNTIME_STATUS is live runtime evidence.
         try:
@@ -10149,7 +10122,6 @@ Answer:"""
                     log.debug("[COGNITIVE] Preserved RUNTIME_STATUS; blocked SELF_REPORT upgrade")
         except Exception as _eli_prs_err:
             log.debug(f"[COGNITIVE][WARN] runtime-status action preservation failed: {_eli_prs_err}")
-        # === END ELI_ENGINE_PRESERVE_RUNTIME_STATUS_ACTION_V1 ===
         log.debug(f'[COGNITIVE] Query class: {_qclass}')
 
         # PHASE36_SILENT_QUICK_CONTROLS:
@@ -12029,7 +12001,6 @@ Answer:"""
                      pre_built_memory_context: str = "",
                      pre_built_bus_result: Optional[Any] = None) -> Generator[str, None, None]:
 
-        # === PHASE41_SILENT_DIRECT_ACTION_STREAM_FIX ===
         # Direct OS/audio controls that intentionally return no visible GUI text must
         # execute before GGUF/stream fallback. Otherwise the no-visible-output guard
         # mistakes a successful silent action for a broken generation.
@@ -12064,7 +12035,6 @@ Answer:"""
                     return
         except Exception as _p41_err:
             log.debug(f"[COGNITIVE][PHASE41] silent direct fastpath skipped: {_p41_err}")
-        # === END PHASE41_SILENT_DIRECT_ACTION_STREAM_FIX ===
 
         """
         Canonical single-dispatch streaming path.
@@ -12098,7 +12068,6 @@ Answer:"""
         if not prompt:
             return
 
-        # === PHASE45_STREAM_COMMAND_FASTPATH ===
         # Streaming GUI path must also bypass inference for commands.
         try:
             _p45_intent = route_intent(prompt)
@@ -12122,7 +12091,6 @@ Answer:"""
                 return
         except Exception as _p45_stream_err:
             log.debug(f"[PHASE45] stream command fastpath failed: {_p45_stream_err}")
-        # === END PHASE45_STREAM_COMMAND_FASTPATH ===
 
         # (SHORT_AMBIGUOUS_INPUT_FASTPATH removed — short/one-word inputs like
         # "Hi" now reach the model normally instead of being rejected with
@@ -12547,7 +12515,6 @@ Answer:"""
 
         # 6. Final visible failure. This should only happen if both generation paths failed.
 
-        # === PHASE41_NO_VISIBLE_OUTPUT_SILENT_ACTION_SUPPRESSOR ===
         try:
             from eli.execution.router_enhanced import route as _p41_route2
             _p41_text2 = str(user_input or "").strip()
@@ -12561,8 +12528,6 @@ Answer:"""
                 return
         except Exception as _p41_suppress_err:
             log.debug(f"[COGNITIVE][PHASE41] no-visible suppressor skipped: {_p41_suppress_err}")
-        # === END PHASE41_NO_VISIBLE_OUTPUT_SILENT_ACTION_SUPPRESSOR ===
-        # === PHASE43_SUPPRESS_SILENT_DIRECT_NO_OUTPUT ===
         try:
             _p43_silent_actions = {'VOLUME'}
             _p43_action = ''
@@ -12590,7 +12555,6 @@ Answer:"""
                 return
         except Exception as _p43_e:
             log.debug(f'[COGNITIVE][PHASE43] silent-action suppress check failed: {_p43_e}')
-        # === END PHASE43_SUPPRESS_SILENT_DIRECT_NO_OUTPUT ===
         msg = "❌ CognitiveEngine stream produced no visible output after Stage 11 and direct GGUF fallback."
         log.debug(f"[COGNITIVE] {msg}")
         yield msg
