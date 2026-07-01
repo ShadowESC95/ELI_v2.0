@@ -1,0 +1,34 @@
+# Coverage configuration — combined across the three test lanes.
+# ELI's fast unit suite mocks the heavy deps (pydantic/llama_cpp/torch/faiss/PySide6)
+# so it can't execute the real web server, a real model, or the GUI in-process. Full,
+# honest coverage is therefore measured across THREE lanes and combined:
+#   1. mocked unit suite      (breadth + core logic)
+#   2. web-server clean lane  (real FastAPI, --noconftest)
+#   3. live engine clean lane (real GGUF model, --noconftest)
+# See scripts/coverage_full.sh and docs/COVERAGE.md.
+# NOTE: coverage's parser does NOT strip inline comments after a value — keep
+# comments on their own lines.
+
+[run]
+parallel = True
+source = eli,api
+branch = False
+omit =
+    */tests/*
+    */__pycache__/*
+    */build/*
+    */.venv/*
+
+[report]
+show_missing = True
+skip_covered = False
+exclude_lines =
+    pragma: no cover
+    def __repr__
+    raise NotImplementedError
+    if __name__ == .__main__.:
+    if TYPE_CHECKING:
+    @(abc\.)?abstractmethod
+
+[html]
+directory = artifacts/coverage_html
