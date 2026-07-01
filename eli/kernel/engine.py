@@ -116,15 +116,12 @@ _PHASE45_DIRECT_FAST_ACTIONS = {
 # NOOP = fragment rejected or truly empty input; return silence, store nothing
 _PHASE45_SILENT_FAST_ACTIONS = {'NOOP'}
 
-# Actions whose executor/system payload IS the grounded answer — control, OS, and
-# status/report/self-introspection actions that return directly (PHASE33) instead of going
-# through GGUF synthesis. Single source of truth: the inline PHASE33 block builds from this,
-# and _is_soft_informational_action() uses it to decide what may be re-routed on low grounding.
-# Actions for which the authority gate fails CLOSED: if the gate errors or returns a
-# malformed result, these privileged / side-effecting actions are DENIED (deny-on-doubt)
-# rather than allowed through. Read-only / conversational actions degrade OPEN instead,
-# so a bug in the gate can never mute ELI entirely. Mirrors the side-effecting set used
-# elsewhere in process(); keep the two in step if either grows.
+# Actions whose executor payload IS the grounded answer — control/OS and
+# status/self-report that return directly instead of via GGUF. Single source of truth
+# for the direct-return block and _is_soft_informational_action() (what may re-route on
+# low grounding). Fail-closed: if the authority gate errors or returns garbage, these
+# side-effecting actions are DENIED (deny-on-doubt); read-only ones degrade OPEN, so a
+# gate bug can't mute ELI. Mirrors the side-effecting set in process() — keep in step.
 _AUTHORITY_FAILCLOSED_ACTIONS = frozenset({
     "RUN_CMD", "SHELL_EXEC", "GENERATE_SCRIPT", "GENERATE_PROJECT",
     "FIX_FILE", "CODE_SOLVE", "CREATE_FOLDER", "DELETE_FILE",
@@ -183,12 +180,11 @@ def _is_soft_informational_action(action) -> bool:
         pass
     return True
 
-# Process-global guard: the destructive shutdown steps (memory close, vector
-# embedder close, GGUF unload) act on MODULE-LEVEL singletons shared by every
-# CognitiveEngine instance. If a second instance runs shutdown after the first
-# already freed those native (CUDA) handles, the re-close is a double-free →
-# Segmentation fault on exit. This flag makes that teardown run at most once
-# per process, no matter how many instances (or atexit hooks) fire shutdown.
+# Process-global guard. Shutdown's destructive steps (memory/vector/GGUF close) act
+# on module-level singletons shared by every CognitiveEngine. If a second instance
+# runs shutdown after the first freed those native CUDA handles, the re-close is a
+# double-free → segfault on exit. So teardown runs at most once per process, however
+# many instances or atexit hooks fire.
 _ELI_NATIVE_TEARDOWN_DONE = False
 
 def _phase45_action_name(action) -> str:
@@ -2104,18 +2100,10 @@ def _mw_mem_runtime_strict_synthesize(question, mode, evidence) -> dict:
     }
 
 
-# =============================================================================
-# ELI_PHASE65_NONQUICK_GROUNDED_SYNTHESIS_REPAIR_V1
-# Dedicated Non-Quick synthesis helpers for deterministic grounded evidence
-# surfaces previously returned directly across all modes:
-#
-#   - MEMORY_STATUS.recent_processing
-#   - SELF_REPORT.recent_updates
-#
-# Quick mode remains direct evidence. Non-Quick modes must synthesize through
-# local GGUF, validate the generated answer, and return only the synthesized
-# surface.
-# =============================================================================
+# Non-Quick grounded-synthesis helpers for evidence surfaces that used to return
+# directly in every mode (MEMORY_STATUS.recent_processing, SELF_REPORT.recent_updates).
+# Quick stays direct; Non-Quick synthesises through local GGUF, validates, and returns
+# only the synthesised surface.
 
 def _mw_recent_memory_processing_synthesize(question, mode, evidence) -> dict:
     evidence_text = _mw_rs_extract_text(evidence)
@@ -2443,9 +2431,6 @@ def _mw_self_report_recent_updates_synthesize(question, mode, evidence) -> dict:
         },
     }
 
-# =============================================================================
-# END ELI_PHASE65_NONQUICK_GROUNDED_SYNTHESIS_REPAIR_V1
-# =============================================================================
 
 
 def _mw_mem_runtime_strict_live_result(raw, mode) -> dict:
