@@ -1,5 +1,5 @@
 {
-  "updated": "2026-06-23T02:38:53",
+  "updated": "2026-07-01T02:41:46",
   "entries": [
     {
       "qual": "eli.core.model_tier:clear_cache",
@@ -10,15 +10,16 @@
     },
     {
       "qual": "eli.core.dag:build_dag",
-      "reason": "syntax error: expected 'except' or 'finally' block (<unknown>, line 127)",
+      "reason": "no tests collected",
       "accepted": false,
-      "ts": "2026-06-23T02:38:53"
+      "ts": "2026-07-01T02:41:46"
     },
     {
       "qual": "eli.core.model_tier:detect_tier",
-      "reason": "failed/errored",
-      "accepted": false,
-      "ts": "2026-06-23T02:38:53"
+      "file": "tests/generated/test_gen_eli_core_model_tier__detect_tier.py",
+      "passed": 9,
+      "accepted": true,
+      "ts": "2026-07-01T02:41:46"
     },
     {
       "qual": "eli.cognition.reasoning_modes:apply_final_reasoning_contract",
@@ -36,9 +37,9 @@
     },
     {
       "qual": "eli.core.dag:run_graph",
-      "reason": "no tests collected",
+      "reason": "syntax error: '(' was never closed (<unknown>, line 149)",
       "accepted": false,
-      "ts": "2026-06-23T02:38:53"
+      "ts": "2026-07-01T02:41:46"
     },
     {
       "qual": "eli.core.model_tier:tier_scale",
@@ -58,19 +59,20 @@
       "qual": "eli.cognition.reasoning_modes:gui_prompt_prefix_for_mode",
       "reason": "failed/errored",
       "accepted": false,
-      "ts": "2026-06-09T10:26:20"
+      "ts": "2026-07-01T02:41:46"
     },
     {
       "qual": "eli.cognition.reasoning_modes:is_private_reasoning_mode",
-      "reason": "no tests collected",
-      "accepted": false,
-      "ts": "2026-06-09T10:26:20"
+      "file": "tests/generated/test_gen_eli_cognition_reasoning_modes__is_private_reasoning_mode.py",
+      "passed": 4,
+      "accepted": true,
+      "ts": "2026-07-01T02:41:46"
     },
     {
       "qual": "eli.cognition.reasoning_modes:mode_budget_multiplier",
-      "reason": "no tests collected",
+      "reason": "failed/errored",
       "accepted": false,
-      "ts": "2026-06-09T10:26:20"
+      "ts": "2026-07-01T02:41:46"
     },
     {
       "qual": "eli.core.model_tier:measured_tok_s",
@@ -83,13 +85,13 @@
       "qual": "eli.core.model_tier:record_speed",
       "reason": "no tests collected",
       "accepted": false,
-      "ts": "2026-06-23T02:38:53"
+      "ts": "2026-07-01T02:41:46"
     },
     {
       "qual": "eli.core.model_tier:speed_passes",
-      "reason": "syntax error: expected '(' (<unknown>, line 89)",
+      "reason": "failed/errored",
       "accepted": false,
-      "ts": "2026-06-23T02:38:53"
+      "ts": "2026-07-01T02:41:46"
     }
   ]
 }
