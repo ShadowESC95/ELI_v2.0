@@ -7,7 +7,6 @@ import json
 import requests
 from datetime import datetime
 
-from eli.cognition.introspection_agent import IntrospectionAgent
 import os
 import re
 import shutil
@@ -4038,7 +4037,7 @@ def _speak_legacy(text: str):
 
 # --- TTS PATCH ---
 import tempfile
-from eli.utils.platform_compat import open_url, open_file, notify, copy_to_clipboard, play_sound, LINUX, WINDOWS, MACOS
+from eli.utils.platform_compat import open_url, open_file, notify, play_sound, WINDOWS
 
 # ---- Ollama host canonical config ----
 OLLAMA_HOST = (os.environ.get("ELI_OLLAMA_HOST") or os.environ.get("OLLAMA_HOST") or "http://127.0.0.1:11434").rstrip("/")
@@ -8490,7 +8489,6 @@ def _execute_impl(action: str, args: Optional[Dict[str, Any]] = None) -> Dict[st
                 if _ag_code.strip():
                     _safe = re.sub(r"[^a-z0-9]+", "_", desc.lower())[:40].strip("_") or "generated"
                     _fname = f"{_safe}{_detected_ext}"
-                    from pathlib import Path as _SPath
                     _scripts_dir = _eli_generated_scripts_dir()
                     _scripts_dir.mkdir(parents=True, exist_ok=True)
                     _full = _scripts_dir / _fname
@@ -8763,7 +8761,6 @@ def _execute_impl(action: str, args: Optional[Dict[str, Any]] = None) -> Dict[st
                     return {"ok": False, "action": a, "error": msg, "content": msg, "response": msg}
                 safe = _re.sub(r"[^a-z0-9]+", "_", desc.lower())[:40].strip("_")
                 fname = f"{safe}{_detected_ext}" if safe else f"generated{_detected_ext}"
-                from pathlib import Path as _SPath
                 scripts_dir = _eli_generated_scripts_dir()
                 scripts_dir.mkdir(parents=True, exist_ok=True)
                 full_path = scripts_dir / fname
@@ -8805,7 +8802,6 @@ def _execute_impl(action: str, args: Optional[Dict[str, Any]] = None) -> Dict[st
         safe = _re.sub(r"[^a-z0-9]+", "_", desc.lower())[:40].strip("_")
         fname = f"{safe}{_detected_ext}" if safe else f"generated{_detected_ext}"
         # Save script to disk
-        from pathlib import Path as _SPath
         scripts_dir = _eli_generated_scripts_dir()
         scripts_dir.mkdir(parents=True, exist_ok=True)
         full_path = scripts_dir / fname
@@ -8961,7 +8957,6 @@ def _execute_impl(action: str, args: Optional[Dict[str, Any]] = None) -> Dict[st
             if not _runnable:
                 _ext = _ext + ".draft"
             safe = _re_cs.sub(r"[^a-z0-9]+", "_", desc.lower())[:40].strip("_") or "solution"
-            from pathlib import Path as _SPath
             scripts_dir = _eli_generated_scripts_dir()
             scripts_dir.mkdir(parents=True, exist_ok=True)
             full_path = scripts_dir / f"{safe}{_ext}"
@@ -10583,7 +10578,7 @@ def _execute_impl(action: str, args: Optional[Dict[str, Any]] = None) -> Dict[st
     # ── DOC_GENERATE / GENERATE_DOCUMENT / CREATE_DOCUMENT ──────────────────
     if a in ("DOC_GENERATE", "GENERATE_DOCUMENT", "CREATE_DOCUMENT"):
         try:
-            import re as _dre, subprocess as _dsp, tempfile as _dtmp
+            import re as _dre, tempfile as _dtmp
             from pathlib import Path as _DPath
             content  = str(args.get("content")  or args.get("text")  or args.get("generated") or "")
             filename = str(args.get("filename") or args.get("filepath") or args.get("path") or "")
@@ -10817,7 +10812,6 @@ def _action_post_dispatch(
         ))
         if isinstance(result, dict) and not bool(result.get("ok", True)):
             import json as _json
-            from eli.memory.memory import get_memory as _get_memory
 
             # Remediation actions are terminal honest outcomes — skip failure logging.
             if str(action or "").upper() in _remediation_actions:
