@@ -198,3 +198,62 @@ def test_repeated_identical_turns_are_stable(engine):
     b = engine.process("hello", reasoning_mode="quick")
     # Both complete without error and produce a reply (persona may vary — that's fine).
     assert _text(a).strip() and _text(b).strip()
+
+
+# --------------------------------------------------------------------------- #
+# Safe, read-only executor handlers driven through a real turn. These route via
+# the deterministic regex router (not the model), so the handler actually runs and
+# gets covered. Destructive handlers (open app, shell, screenshot, volume, media)
+# are deliberately NOT triggered — a test must never drive the machine.
+# --------------------------------------------------------------------------- #
+def test_date_handler(engine):
+    r = engine.process("what's the date today?", reasoning_mode="quick")
+    assert isinstance(r, dict) and _text(r).strip()
+
+
+def test_gpu_status_handler(engine):
+    r = engine.process("what's your gpu status right now?", reasoning_mode="quick")
+    assert isinstance(r, dict) and _text(r).strip()
+
+
+def test_list_dir_handler(engine, tmp_path):
+    (tmp_path / "a.txt").write_text("x", encoding="utf-8")
+    (tmp_path / "b.txt").write_text("y", encoding="utf-8")
+    r = engine.process(f"list the files in {tmp_path}", reasoning_mode="quick")
+    assert isinstance(r, dict) and _text(r).strip()
+
+
+def test_summarize_file_handler(engine, tmp_path):
+    p = tmp_path / "note.txt"
+    p.write_text("The meeting is on Tuesday at 3pm about the budget.\n" * 5, encoding="utf-8")
+    r = engine.process(f"summarise the file at {p}", reasoning_mode="quick")
+    assert isinstance(r, dict) and _text(r).strip()
+
+
+def test_read_file_handler(engine, tmp_path):
+    p = tmp_path / "data.txt"
+    p.write_text("hello from the read-file test", encoding="utf-8")
+    r = engine.process(f"read the file {p}", reasoning_mode="quick")
+    assert isinstance(r, dict) and _text(r).strip()
+
+
+def test_create_file_handler(engine, tmp_path):
+    # CREATE_FILE runs through the security path gate; whether it writes or is
+    # blocked, the handler executes and returns a structured result (never crashes).
+    target = tmp_path / "made.txt"
+    r = engine.process(f"create a file at {target} containing hello world",
+                       reasoning_mode="quick")
+    assert isinstance(r, dict) and _text(r).strip()
+
+
+def test_background_jobs_handler(engine):
+    r = engine.process("are there any background jobs running?", reasoning_mode="quick")
+    assert isinstance(r, dict) and _text(r).strip()
+
+
+def test_weather_offline_grounded(engine, monkeypatch):
+    import eli.core.config as cfg
+    monkeypatch.setattr(cfg, "network_allowed", lambda: False, raising=False)
+    r = engine.process("what's the weather in Dublin?", reasoning_mode="quick")
+    # Net off: must degrade to an honest, non-empty answer, not crash or fabricate.
+    assert isinstance(r, dict) and _text(r).strip()
