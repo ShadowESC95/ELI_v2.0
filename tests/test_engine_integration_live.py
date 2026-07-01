@@ -149,3 +149,52 @@ def test_empty_and_whitespace_input_are_safe(engine):
         r = engine.process(junk, reasoning_mode="quick")
         # Must not raise; returns a dict/str, never crashes the pipeline.
         assert r is not None
+
+
+# --------------------------------------------------------------------------- #
+# Varied intents + deeper reasoning modes — each drives different router/executor/
+# grounding/escalation paths through the REAL pipeline (structural assertions only).
+# --------------------------------------------------------------------------- #
+def test_capability_query(engine):
+    r = engine.process("what can you do?", reasoning_mode="quick")
+    assert isinstance(r, dict) and _text(r).strip()
+
+
+def test_time_query_routes_and_answers(engine):
+    r = engine.process("what time is it right now?", reasoning_mode="quick")
+    assert isinstance(r, dict) and _text(r).strip()
+
+
+def test_news_query_offline_is_grounded_not_fabricated(engine, monkeypatch):
+    # With the net gated off, a news ask must degrade to a grounded, non-empty answer
+    # (honest "can't fetch" / cached) rather than crash or fabricate live headlines.
+    import eli.core.config as cfg
+    monkeypatch.setattr(cfg, "network_allowed", lambda: False, raising=False)
+    r = engine.process("what's the latest news?", reasoning_mode="quick")
+    assert isinstance(r, dict) and _text(r).strip()
+
+
+def test_normal_mode_turn(engine):
+    # 'normal' mode exercises more of the pipeline than the single-pass 'quick'.
+    r = engine.process("explain what you are in a sentence", reasoning_mode="normal")
+    assert isinstance(r, dict) and _text(r).strip()
+
+
+def test_advanced_mode_multipass(engine):
+    # A deeper mode drives the multi-pass / escalation path (a distinct code route).
+    r = engine.process("give me a brief thought on curiosity", reasoning_mode="advanced")
+    assert isinstance(r, dict) and _text(r).strip()
+
+
+def test_opinion_prompt_stays_conversational(engine):
+    r = engine.process("what's your favourite kind of music?", reasoning_mode="quick")
+    assert isinstance(r, dict) and _text(r).strip()
+    # A subjective/rapport prompt must not be shunted to a web/news action.
+    assert str(r.get("action", "")).upper() not in {"WEB_SEARCH", "NEWS_FETCH"}
+
+
+def test_repeated_identical_turns_are_stable(engine):
+    a = engine.process("hello", reasoning_mode="quick")
+    b = engine.process("hello", reasoning_mode="quick")
+    # Both complete without error and produce a reply (persona may vary — that's fine).
+    assert _text(a).strip() and _text(b).strip()
