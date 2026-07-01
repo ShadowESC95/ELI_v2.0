@@ -331,6 +331,33 @@ def _derive_interest_terms(user_id=None, limit: int = 5) -> list:
     return [w for w, _ in counts.most_common(limit)]
 
 
+def _article_age_days(art):
+    """Age in days from an article's publication date (fallback: fetch time), or None
+    when no usable date is present. Shared freshness check so no interest surface
+    presents a stale niche match as current."""
+    import datetime as _dt
+    s = str((art or {}).get("published") or "").strip()
+    d = None
+    if s:
+        try:
+            d = _dt.datetime.fromisoformat(
+                s.replace("Z", "+00:00").replace("z", "+00:00")).replace(tzinfo=None)
+        except Exception:
+            try:
+                from email.utils import parsedate_to_datetime as _pdt
+                d = _pdt(s)
+                d = d.replace(tzinfo=None) if d else None
+            except Exception:
+                d = None
+    if d is None:
+        try:
+            _f = (art or {}).get("fetched_at")
+            d = _dt.datetime.fromtimestamp(float(_f)) if _f else None
+        except Exception:
+            d = None
+    return (_dt.datetime.now() - d).days if d else None
+
+
 def interest_news_block(user_id=None, max_items: int = 4) -> str:
     """A short, personalised news section for the morning report.
 
@@ -361,14 +388,26 @@ def interest_news_block(user_id=None, max_items: int = 4) -> str:
             fetch_news(topic=term)          # populate store (gated; no-op offline)
         except Exception:
             pass
+        # Prefer get_recent (fetched_at-DESC = current) over search_stored_news, which
+        # orders by FTS rank and reliably returned week-old items — the exact staleness
+        # in the interest ("relevant to you") surface.
         try:
-            hits = search_stored_news(term, limit=4) or []
+            from eli.tools.news.news_fetcher import NewsFetcher
+            hits = NewsFetcher().get_recent(limit=8, topic=term) or []
         except Exception:
             hits = []
+        if not hits:
+            try:
+                hits = search_stored_news(term, limit=4) or []
+            except Exception:
+                hits = []
         for art in hits:
             title = str(art.get("title") or "").strip()
             if not title or title.lower() in seen:
                 continue
+            _age = _article_age_days(art)
+            if _age is not None and _age > _INTEREST_MAX_AGE_DAYS:
+                continue  # stale niche match — never present it as current
             seen.add(title.lower())
             articles.append(art)
             if len(articles) >= max_items:
