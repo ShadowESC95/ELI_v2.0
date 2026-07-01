@@ -76,12 +76,14 @@ def test_spread_caps_at_n_and_available():
 # _article_age_days
 # --------------------------------------------------------------------------- #
 def test_age_from_iso_published():
-    today = dt.datetime.now().strftime("%Y-%m-%dT08:00:00Z")
-    assert ns._article_age_days({"published": today}) == 0
+    # "now minus a bit" — not a hardcoded 08:00, which becomes a FUTURE time when the
+    # test runs in the small hours and throws the day-math off by one.
+    recent = (dt.datetime.now() - dt.timedelta(minutes=10)).strftime("%Y-%m-%dT%H:%M:%SZ")
+    assert ns._article_age_days({"published": recent}) == 0
 
 
 def test_age_counts_days_back():
-    ten_ago = (dt.datetime.now() - dt.timedelta(days=10)).strftime("%Y-%m-%dT08:00:00Z")
+    ten_ago = (dt.datetime.now() - dt.timedelta(days=10, minutes=10)).strftime("%Y-%m-%dT%H:%M:%SZ")
     assert ns._article_age_days({"published": ten_ago}) == 10
 
 
