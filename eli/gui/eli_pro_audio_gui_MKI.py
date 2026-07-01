@@ -49,12 +49,11 @@ def _eli_path_get(obj, key, default=None):
         return obj.get(key, default)
     return getattr(obj, key, default)
 
-# Qt imports — PySide6-first policy for licensing portability.
-# PySide6 (LGPLv3) is the canonical binding because LGPL allows dynamic
-# linking from proprietary code, while PyQt6 is GPLv3 which would force
-# the whole binary to be GPL. PyQt6/PyQt5 fallbacks remain available so
-# users who already have those installed can run ELI without adding a
-# second Qt binding, but the shipped requirements pin PySide6 only.
+# Qt imports — PySide6 first, and that's a licensing call, not a taste one. PySide6 is
+# LGPLv3 so proprietary code can link it dynamically; PyQt6 is GPLv3, which would drag the
+# whole binary under GPL. So PySide6 is the canonical binding. I keep PyQt6/PyQt5 as
+# fallbacks so anyone who already has them can run ELI without pulling in a second Qt
+# binding, but the shipped requirements pin PySide6 only.
 try:
     from PySide6.QtWidgets import *
     from PySide6.QtCore import *
