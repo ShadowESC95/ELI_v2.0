@@ -719,7 +719,28 @@ _WEB_UI = """<!doctype html>
   if(_tk){localStorage.setItem('eli_token',_tk);history.replaceState({},'',location.pathname);}
   const token=localStorage.getItem('eli_token')||'';
   const H=()=>{const h={'Content-Type':'application/json'};if(token)h['Authorization']='Bearer '+token;return h;};
-  const api=(path,opts)=>fetch(path,Object.assign({headers:H()},opts||{})).then(r=>r.json());
+  // Self-healing fetch. A phone waking from Wi-Fi power-save drops the FIRST request:
+  // fetch() REJECTS with a network error before any HTTP response arrives. Auto-retry
+  // those with short backoff so a transient never reaches the user. Safety: only a
+  // pre-response rejection is retried — a resolved response (ANY http status) is never
+  // retried, and a deliberate AbortError is never retried. Because fetch() only rejects
+  // before the server responds, retrying a POST cannot double-deliver a streamed reply.
+  const _sleep=ms=>new Promise(r=>setTimeout(r,ms));
+  const _isNetErr=err=>!!err&&(err.name==='TypeError'||(''+err).indexOf('NetworkError')>=0||(''+err).indexOf('Failed to fetch')>=0);
+  async function _fetchHeal(path,opts,tries){
+    tries=tries||3;let lastErr;
+    for(let a=0;a<tries;a++){
+      try{return await fetch(path,opts);}
+      catch(err){
+        if(err&&err.name==='AbortError')throw err;
+        lastErr=err;
+        if(!_isNetErr(err)||a===tries-1)throw err;
+        await _sleep(250*Math.pow(2,a)); // 250ms, then 500ms
+      }
+    }
+    throw lastErr;
+  }
+  const api=(path,opts)=>_fetchHeal(path,Object.assign({headers:H()},opts||{})).then(r=>r.json());
   function esc(s){return (''+s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));}
   // ── Settings (real, typed options wired to ELI's config) ───────────────
   let _setSub='General', _setSchema=[], _setVals={}, _setVoices=[];
@@ -955,7 +976,9 @@ _WEB_UI = """<!doctype html>
     const p=add('','eli');p.innerHTML='<span class="typing"><i></i><i></i><i></i></span>';
     let raw='',got=false; abortCtl=new AbortController(); setBusy(true);
     try{
-      const r=await fetch('/v1/chat/stream',{method:'POST',headers:H(),body:JSON.stringify({message:text,user_id:uid,session_id:session}),signal:abortCtl.signal});
+      // tries=2: one connection-establishment retry (power-save wake). Never retries once
+      // the server has responded, so a partially-streamed reply can't be resubmitted.
+      const r=await _fetchHeal('/v1/chat/stream',{method:'POST',headers:H(),body:JSON.stringify({message:text,user_id:uid,session_id:session}),signal:abortCtl.signal},2);
       const reader=r.body.getReader(),dec=new TextDecoder();let buf='';
       for(;;){const rd=await reader.read();if(rd.done)break;
         buf+=dec.decode(rd.value,{stream:true});let i;
