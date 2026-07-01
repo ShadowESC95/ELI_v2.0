@@ -1,4 +1,3 @@
-# === PHASEN6_EXECUTOR_SYNTAX_PATCH ===
 from __future__ import annotations
 import hashlib
 import subprocess
@@ -41,7 +40,6 @@ def _eli_generated_scripts_dir() -> Path:
     d.mkdir(parents=True, exist_ok=True)
     return d
 
-# === PHASEN_RESPONSE_MODE_HELPER ===
 def _eli_attach_response_mode(result, action=None, args=None, meta=None):
     try:
         if isinstance(result, dict):
