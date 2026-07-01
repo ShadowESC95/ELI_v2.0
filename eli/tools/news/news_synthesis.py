@@ -459,9 +459,21 @@ def build_news_briefing(user_id=None, topic: str = "", top_n: int = 5,
 
     topic = str(topic or "").strip()
     fetcher = NewsFetcher()
+    # Capture whether the refresh actually brought anything LIVE. Offline (the Net
+    # toggle off) makes fetch() a no-op, so the read below is served entirely from the
+    # cached store — which can be days or weeks old. We record this so the synthesis
+    # DISCLOSES the staleness instead of narrating a stale cache as "the latest".
+    try:
+        from eli.core.config import network_allowed as _net_allowed
+        _online = bool(_net_allowed())
+    except Exception:
+        _online = True
+    _fetched_new = 0
     if refresh:
         try:
-            fetcher.fetch(sources=None, topic=topic)
+            _fr = fetcher.fetch(sources=None, topic=topic)
+            if isinstance(_fr, dict):
+                _fetched_new = int(_fr.get("stored_new") or 0)
         except Exception:
             pass
 
@@ -621,6 +633,50 @@ def build_news_briefing(user_id=None, topic: str = "", top_n: int = 5,
             "ELI'S NEWS READ:"
         )
 
+    # ── Freshness disclosure ─────────────────────────────────────────────────
+    # Never let a stale cache be narrated as "the latest". Find the age of the freshest
+    # SELECTED item; when offline, or the newest item is >=2 days old, prepend a
+    # mandatory disclosure the persona must surface — and which forbids implying any
+    # story is from "today" (the exact confabulation that dressed a 2-week cache as live).
+    def _newest_dt(items):
+        newest = None
+        for a in items:
+            d = _parse_pub(a.get("published"))
+            if d is None:
+                try:
+                    _f = a.get("fetched_at")
+                    if _f:
+                        d = _dt.datetime.fromtimestamp(float(_f))
+                except Exception:
+                    d = None
+            if d and (newest is None or d > newest):
+                newest = d
+        return newest
+
+    _newest = _newest_dt(list(top) + list(interest))
+    _age_days = (_dt.datetime.now() - _newest).days if _newest else None
+    _stale = (not _online) or (_age_days is not None and _age_days >= 2)
+    if not _online:
+        _when = (f"from {_newest.strftime('%d %b %Y')}" if _newest else "of unknown date")
+        _age = f" ({_age_days} day(s) old)" if _age_days is not None else ""
+        _freshness = (
+            "FRESHNESS — CRITICAL: the network is OFF, so I could NOT fetch live news. "
+            f"Everything below is CACHED; the most recent item is {_when}{_age}. You MUST "
+            "open by telling the user this is cached and NOT live, and state the age of the "
+            "newest item. You MUST NOT imply any story is from today or is breaking. Tell "
+            "them to turn the Net toggle on for a live fetch."
+        )
+    elif _age_days is not None and _age_days >= 2:
+        _freshness = (
+            f"FRESHNESS: a live refresh found nothing newer than {_age_days} day(s) ago "
+            f"(newest item from {_newest.strftime('%d %b %Y')}). Say up front you couldn't "
+            "find anything more recent, and do NOT imply any story is from today."
+        )
+    else:
+        _freshness = ""
+    if _freshness:
+        prompt = _freshness + "\n\n" + prompt
+
     return {
         "ok": True,
         "topic": topic,
@@ -629,6 +685,9 @@ def build_news_briefing(user_id=None, topic: str = "", top_n: int = 5,
         "interest_terms": interest_terms[:3] if interest_terms else [],
         "synthesis_prompt": prompt,
         "article_count": len(top) + len(interest),
+        "stale": _stale,
+        "offline": (not _online),
+        "newest_age_days": _age_days,
     }
 
 
