@@ -43,6 +43,13 @@ CREATE TABLE IF NOT EXISTS news_reflections (
 """
 
 
+# Max age (days) for an interest-matched ("relevant to you") article. The top-stories
+# half is already current; this keeps the interest half from surfacing a stale niche
+# match (e.g. a 2-week-old arXiv paper the FTS-rank fallback loved) as if it were fresh.
+# Slightly looser than same-day because academic/niche feeds publish less often.
+_INTEREST_MAX_AGE_DAYS = 4
+
+
 def _user_db() -> Path:
     from eli.core.paths import user_db_path
     return Path(user_db_path())
@@ -582,12 +589,28 @@ def build_news_briefing(user_id=None, topic: str = "", top_n: int = 5,
         seen = {str(a.get("title") or "").strip().lower() for a in top}
         interest_terms = _derive_interest_terms(user_id)
         interest = []
+        # The interest ("relevant to you") half must be as FRESH as the top half.
+        # Both retrieval paths can surface a stale niche match — get_recent filters
+        # recent-fetched rows by topic (an old-published arXiv paper can slip in), and
+        # the search_stored_news fallback orders by FTS rank (documented to return the
+        # same week-old items). Gate every candidate on age: drop anything older than
+        # the window rather than parade a two-week-old paper as current. Better to show
+        # fewer fresh items than pad with stale ones.
+        _now_dt = _dt.datetime.now()
+
+        def _art_age_days(art):
+            d = _parse_pub(art.get("published"))
+            if d is None:
+                try:
+                    _f = art.get("fetched_at")
+                    d = _dt.datetime.fromtimestamp(float(_f)) if _f else None
+                except Exception:
+                    d = None
+            return (_now_dt - d).days if d else None
+
         for term in interest_terms[:3]:
             # Pull FRESH, term-specific news, then take the most RECENT matches
-            # (NOT relevance-ranked). Fixes stale interest items: search() orders
-            # by FTS rank so it returned the same old articles every time —
-            # get_recent(topic=…) is fetched_at-DESC, so items are current and
-            # rotate as new articles arrive. Fetch is network-gated (no-op offline).
+            # (NOT relevance-ranked). Fetch is network-gated (no-op offline).
             try:
                 if refresh:
                     fetcher.fetch(sources=None, topic=term)
@@ -606,6 +629,9 @@ def build_news_briefing(user_id=None, topic: str = "", top_n: int = 5,
                 t = str(art.get("title") or "").strip().lower()
                 if not t or t in seen:
                     continue
+                _age = _art_age_days(art)
+                if _age is not None and _age > _INTEREST_MAX_AGE_DAYS:
+                    continue  # stale niche match — never surface it as "relevant now"
                 seen.add(t)
                 interest.append(art)
                 if len(interest) >= interest_n:
