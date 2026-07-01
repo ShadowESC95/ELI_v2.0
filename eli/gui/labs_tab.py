@@ -35,12 +35,10 @@ _LABS_PLOT_FILES = {
 def _labs_plot_literal(name: str) -> str:
     return repr(str(_LABS_PLOT_FILES[name]))
 
-# ── Qt imports ─────────────────────────────────────────────────────────────
-# === PHASE13_LABS_QT_BINDING_ALIGNMENT ===
-# Labs must use the same Qt binding as the already-loaded main GUI.
-# A PySide6 QWidget cannot accept a PyQt6 QMainWindow as parent, and vice versa.
-# Prefer the live binding already imported by the GUI; otherwise honour
-# ELI_QT_API; otherwise fall back PySide6 → PyQt6 → PyQt5.
+# Qt imports. Labs has to use the same Qt binding as the already-loaded main GUI —
+# a PySide6 QWidget won't accept a PyQt6 QMainWindow as a parent, or the other way round.
+# So I take whatever binding the GUI already imported, else ELI_QT_API, else fall back
+# PySide6 → PyQt6 → PyQt5.
 
 _QT = None
 _QT_ERRORS = []
