@@ -116,12 +116,13 @@ _PHASE45_DIRECT_FAST_ACTIONS = {
 # NOOP = fragment rejected or truly empty input; return silence, store nothing
 _PHASE45_SILENT_FAST_ACTIONS = {'NOOP'}
 
-# Actions whose executor payload IS the grounded answer — control/OS and
-# status/self-report that return directly instead of via GGUF. Single source of truth
-# for the direct-return block and _is_soft_informational_action() (what may re-route on
-# low grounding). Fail-closed: if the authority gate errors or returns garbage, these
-# side-effecting actions are DENIED (deny-on-doubt); read-only ones degrade OPEN, so a
-# gate bug can't mute ELI. Mirrors the side-effecting set in process() — keep in step.
+# These are the actions where the executor payload IS the answer — control/OS and
+# status/self-report stuff I return straight out instead of running it back through the
+# model. It's my single source of truth for the direct-return block and for
+# _is_soft_informational_action() (deciding what can re-route when grounding is low).
+# Fail-closed on purpose: if the authority gate throws or hands back garbage I DENY these
+# side-effecting actions rather than risk it — read-only ones degrade open instead, so a
+# gate bug can never leave ELI mute. Keep this in step with the side-effecting set in process().
 _AUTHORITY_FAILCLOSED_ACTIONS = frozenset({
     "RUN_CMD", "SHELL_EXEC", "GENERATE_SCRIPT", "GENERATE_PROJECT",
     "FIX_FILE", "CODE_SOLVE", "CREATE_FOLDER", "DELETE_FILE",
@@ -180,11 +181,11 @@ def _is_soft_informational_action(action) -> bool:
         pass
     return True
 
-# Process-global guard. Shutdown's destructive steps (memory/vector/GGUF close) act
-# on module-level singletons shared by every CognitiveEngine. If a second instance
-# runs shutdown after the first freed those native CUDA handles, the re-close is a
-# double-free → segfault on exit. So teardown runs at most once per process, however
-# many instances or atexit hooks fire.
+# I only want the destructive teardown to run once per process. The close steps
+# (memory/vector/GGUF) all hit module-level singletons shared across every
+# CognitiveEngine, so if a second instance shuts down after the first already freed
+# the CUDA handles, we double-free and segfault on the way out. This flag stops that
+# no matter how many instances or atexit hooks fire.
 _ELI_NATIVE_TEARDOWN_DONE = False
 
 def _phase45_action_name(action) -> str:
@@ -1429,9 +1430,9 @@ def _eli_sanitize_identity_context_block(text: str, user_input: str = "") -> str
     return s.strip()
 
 
-# Rapport classification helpers. These don't generate canned replies — they only
-# classify whether a prompt is casual/rapport-style so the normal pipeline answers in
-# persona instead of being dragged through HyDE/memory/status.
+# Rapport helpers. These don't hand back canned replies — all I'm doing here is working
+# out whether a prompt is just casual/rapport chat, so the normal pipeline can answer it
+# in persona instead of dragging it through HyDE/memory/status for no reason.
 
 def _eli_is_rapport_prompt(text: str) -> bool:
     import re
@@ -1547,9 +1548,8 @@ def _eli_rapport_prompt_instruction(text: str) -> str:
     )
 
 
-# Engine middleware helpers — module-level, used by the inline middleware sections in
-# CognitiveEngine.process(). Defined above the class so process() never needs
-# `"name" in globals()` guards.
+# Middleware helpers the inline sections inside process() lean on. I keep them up here at
+# module level on purpose so process() never has to do `"name" in globals()` checks.
 
 # -- RUNTIME_STATUS non-Quick full-pipeline (V18+V19 merged) -----------
 
@@ -2094,10 +2094,10 @@ def _mw_mem_runtime_strict_synthesize(question, mode, evidence) -> dict:
     }
 
 
-# Non-Quick grounded-synthesis helpers for evidence surfaces that used to return
-# directly in every mode (MEMORY_STATUS.recent_processing, SELF_REPORT.recent_updates).
-# Quick stays direct; Non-Quick synthesises through local GGUF, validates, and returns
-# only the synthesised surface.
+# Synthesis helpers for a couple of evidence surfaces I used to just return raw in every
+# mode (MEMORY_STATUS.recent_processing, SELF_REPORT.recent_updates). Quick mode still
+# gets it raw; for the deeper modes I run it through the local model, sanity-check what
+# comes back, and only hand out the synthesised version.
 
 def _mw_recent_memory_processing_synthesize(question, mode, evidence) -> dict:
     evidence_text = _mw_rs_extract_text(evidence)
@@ -13388,10 +13388,10 @@ def get_engine() -> CognitiveEngine:
 # PERSONAL_MEMORY body block removed (Phase 2c — helpers relocated above class CognitiveEngine)
 
 
-# Non-quick persona-pipeline safety guard. Runtime/identity/audit actions aren't
-# direct-command fastpathed; non-quick diagnostics still go engine -> router ->
-# agents/evidence, but the final status/audit/trace answer may stay deterministic
-# rather than being rewritten by persona synthesis.
+# Safety guard for the non-quick persona pipeline. I don't let runtime/identity/audit
+# actions get fastpathed like a plain command — the non-quick diagnostics still go
+# engine -> router -> agents/evidence. I just let the final status/audit/trace answer
+# stay deterministic instead of having the persona rewrite it.
 try:
     _ELI_NONQUICK_BLOCKED_FAST_ACTIONS = {
         "SELF_REPORT",
