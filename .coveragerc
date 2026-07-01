@@ -1,13 +1,18 @@
 # Coverage configuration — combined across the three test lanes.
-# ELI's fast unit suite mocks the heavy deps (pydantic/llama_cpp/torch/faiss/PySide6)
-# so it can't execute the real web server, a real model, or the GUI in-process. Full,
-# honest coverage is therefore measured across THREE lanes and combined:
+# Full, honest coverage is measured across THREE lanes and combined:
 #   1. mocked unit suite      (breadth + core logic)
 #   2. web-server clean lane  (real FastAPI, --noconftest)
 #   3. live engine clean lane (real GGUF model, --noconftest)
 # See scripts/coverage_full.sh and docs/COVERAGE.md.
 # NOTE: coverage's parser does NOT strip inline comments after a value — keep
 # comments on their own lines.
+#
+# The `omit` list excludes ONLY code that genuinely cannot run in headless CI —
+# the interactive desktop GUI and hardware I/O (mic/camera/speakers/GPU-vision/
+# gaze/OS-control/screen). This measures the *testable surface*. Code that is
+# merely untested (e.g. image_engine, the analyze_* parsers, executor handlers)
+# is deliberately KEPT in the denominator — excluding it would inflate the number
+# dishonestly. Every exclusion here is justified in docs/COVERAGE.md.
 
 [run]
 parallel = True
@@ -18,6 +23,8 @@ omit =
     */__pycache__/*
     */build/*
     */.venv/*
+    */__main__.py
+    */gui/*
 
 [report]
 show_missing = True
