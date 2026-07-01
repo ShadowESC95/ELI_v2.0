@@ -271,3 +271,67 @@ def test_chat_requires_auth(secured, monkeypatch):
     client, _ = secured(monkeypatch)
     # /v1/chat is token-gated; no token → 401 before the engine is ever touched.
     assert client.post("/v1/chat", json={"message": "hi"}).status_code == 401
+
+
+# --------------------------------------------------------------------------- #
+# Read-endpoint contract: every GET surface degrades gracefully — it returns a
+# structured JSON body (200), never an unhandled 500, even when its subsystem is
+# unavailable. That "never crash the dashboard" guarantee matters for an audited
+# service, so it's asserted per endpoint (which also executes each handler).
+# --------------------------------------------------------------------------- #
+_READ_ENDPOINTS = [
+    "/v1/system", "/v1/net", "/v1/net/egress", "/v1/audit", "/v1/settings",
+    "/v1/ui/prefs", "/v1/cognition/orchestration", "/v1/autonomy/goals", "/v1/tasks",
+    "/v1/home/state", "/v1/home/automations", "/v1/home/scenes", "/v1/home/sun",
+    "/v1/home/suggestions", "/v1/devices", "/v1/devices/rooms", "/v1/devices/drivers",
+    "/v1/media", "/v1/research/corpora",
+    "/v1/connect",
+]
+# Note: /v1/research/documents and /v1/research/activity require a `corpus_id` query
+# param (a bare GET correctly returns 422), so they're not in the no-arg read set.
+
+
+@pytest.mark.parametrize("path", _READ_ENDPOINTS)
+def test_read_endpoint_returns_structured_json(tokenless_client, path):
+    r = tokenless_client.get(path)
+    assert r.status_code == 200, f"{path} -> {r.status_code}"
+    body = r.json()
+    assert isinstance(body, dict), f"{path} did not return a JSON object"
+
+
+@pytest.mark.parametrize("path", _READ_ENDPOINTS)
+def test_read_endpoint_is_token_gated(secured, monkeypatch, path):
+    # Every dashboard read requires auth in secured (LAN) mode. /v1/ui/prefs is the
+    # one deliberately-open UI-preferences read (no principal), so it's exempt.
+    if path == "/v1/ui/prefs":
+        pytest.skip("ui/prefs is intentionally open (no principal)")
+    client, _ = secured(monkeypatch)
+    assert client.get(path).status_code == 401, f"{path} served unauthenticated"
+
+
+# --------------------------------------------------------------------------- #
+# Mutating endpoints must reject unauthenticated callers (fail-closed).
+# --------------------------------------------------------------------------- #
+@pytest.mark.parametrize("method,path,body", [
+    ("post", "/v1/tasks", {"request": "x", "kind": "reflection", "when_spec": "tonight"}),
+    ("post", "/v1/devices/control", {"device_id": "x", "command": "on"}),
+    ("post", "/v1/ui/prefs", {"prefs": {}}),
+    ("post", "/v1/settings", {"values": {}}),
+    ("post", "/v1/net", {"enabled": False}),
+])
+def test_mutating_endpoint_fails_closed(secured, monkeypatch, method, path, body):
+    client, _ = secured(monkeypatch)
+    r = getattr(client, method)(path, json=body)
+    assert r.status_code == 401, f"{method.upper()} {path} served unauthenticated ({r.status_code})"
+
+
+def test_status_endpoint_shape(tokenless_client):
+    r = tokenless_client.get("/v1/status/default")
+    assert r.status_code == 200
+    body = r.json()
+    assert {"status", "version", "model", "uptime", "user_id"} <= set(body)
+
+
+def test_net_egress_respects_limit(tokenless_client):
+    r = tokenless_client.get("/v1/net/egress?limit=3")
+    assert r.status_code == 200 and r.json().get("ok") is True
