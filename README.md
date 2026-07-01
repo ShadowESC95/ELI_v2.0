@@ -18,12 +18,13 @@ sent to a server. No cloud, no accounts, no telemetry. Offline by default, enfor
 
 ---
 
-ELI is an AI assistant you run **entirely on your own machine**. It holds a conversation, operates
-your computer, reads your screen and documents, writes and repairs code, and builds a private model
-of who you are over time — by typing or speaking. The model and every byte of your data live and
-stay on your hardware; there is no cloud component and no account. It is offline by default and
-enforces that at the network socket, and it loads a local model of your choosing, auto-tuned to your
-hardware from a laptop to a multi-GPU workstation.
+ELI is an AI assistant that runs **entirely on your own machine** — and I mean *entirely*. It holds
+a real conversation, drives your computer, reads your screen and your documents, writes and fixes
+code, and quietly builds up a private picture of who you are the more you use it. Talk to it or type
+to it — your call. The model and every last byte of your data stay on your hardware and never leave:
+no cloud, no account, nobody else in the loop. It's offline by default and it *enforces* that down at
+the network socket — not on the honour system. Point it at whatever local model you like and it tunes
+itself to the hardware you've got, from a laptop to a multi-GPU tower.
 
 ## Contents
 - [What is ELI?](#what-is-eli)
@@ -44,26 +45,27 @@ hardware from a laptop to a multi-GPU workstation.
 
 ## What is ELI?
 
-ELI is not a chatbot wrapped around a cloud API. It is a complete, self-contained local cognitive
-runtime — ~140,000 lines of Python implementing a 12-stage reasoning pipeline, 15 specialist agents
-on a DAG orchestrator, layered memory (SQLite + a FAISS vector index + a knowledge graph), local
-voice and vision, and a desktop GUI. It is model-, user-, and hardware-agnostic, and it runs with no
-external service of any kind.
+ELI is not a chatbot bolted onto someone else's cloud API — I had no interest in building another
+one of those. It's a complete, self-contained cognitive runtime — a 12-stage reasoning pipeline, a
+fleet of specialist agents on a DAG orchestrator, layered
+memory (SQLite + a FAISS vector index + a knowledge graph), local voice and vision, its own
+smart-home server, and a full desktop app *and* web dashboard — all running with no external service
+of any kind. It's model-, user-, and hardware-agnostic by design.
 
 Beyond answering questions, it acts on your machine, remembers you across sessions, reports its own
-state from real runtime evidence rather than guessing, and can modify its own source code and
-fine-tune its model on your conversation history. **208 capabilities** sit behind a single typed or
-spoken interface.
+state from real runtime evidence rather than guessing, and can even read its own source, write and
+repair code, and fine-tune on your conversation history so it gets better at serving *you*.
+**208 capabilities** sit behind a single typed or spoken interface.
 
-The trade-off is deliberate and stated plainly: a model running on local hardware is less capable
-than a large cloud model, in exchange for privacy, ownership, offline operation, and the freedom to
-swap in better open models as they appear.
+And because the model is *yours* and swappable, ELI's ceiling isn't fixed — it rises with the
+open-model frontier and the hardware you give it. The quality is a dial you control, not a
+subscription tier someone sells you back.
 
 ## Why ELI exists
 
-ELI is built on one conviction: **your AI should belong to you — the person using it — not the
-company serving it.** That isn't a slogan; it's the constraint every architectural decision answers
-to.
+I built ELI on one conviction: **your AI should belong to you — the person using it — not the
+company serving it.** That isn't a slogan I put on a badge; it's the constraint every single
+architectural decision in here has to answer to.
 
 - **Everything is local. Nothing phones home.** Offline isn't a setting you toggle —
   `eli/core/netguard` enforces it at the socket layer, so the default is silence on the wire.
@@ -81,7 +83,8 @@ capable, free, offline, self-improving assistant that runs on hardware you alrea
 
 ## What it does
 
-You interact by typing or speaking; it understands many phrasings. Representative commands:
+You talk to it or type — it's not fussy about exact wording. Here's the sort of thing I use it for
+day to day:
 
 | Area | Examples |
 |---|---|
@@ -125,8 +128,9 @@ generated from the live capability manifest.
 
 ## Design principles
 
-What distinguishes ELI from a typical assistant is architectural, not cosmetic. Each principle is
-backed by a concrete mechanism in the codebase:
+What sets ELI apart from a typical assistant isn't cosmetic — it's baked into the architecture. I
+can stand behind every one of these because each is a real mechanism in the code, not a line I liked
+the sound of:
 
 1. **Local and offline-first.** Everything runs on your hardware. A process-wide network guard
    (`eli/core/netguard`) fail-closes at the socket layer: with networking disabled, no outbound
@@ -304,10 +308,10 @@ see **[`docs/TRAINING_YOUR_OWN_MODEL.md`](docs/TRAINING_YOUR_OWN_MODEL.md)**.
 
 ## Optional: a remote view over your own network
 
-The desktop app is the primary interface. Optionally, ELI runs a small built-in **home server** (a
-local FastAPI app) so you can open it in any phone/tablet/desktop browser **on your own home network**
-as a second screen. **The AI still runs entirely on your computer** — the browser only displays it,
-nothing runs on the device, and nothing reaches the internet.
+The desktop app is the main event, but I also gave ELI a small built-in **home server** (a local
+FastAPI app) so you can pull it up in any phone/tablet/desktop browser **on your own home network**
+as a second screen. **The AI still runs entirely on your computer** — the browser is just a window
+onto it. Nothing runs on the device, and nothing reaches the internet.
 
 ```bash
 ./scripts/eli_serve.sh             # this computer only  → http://127.0.0.1:8081/
@@ -405,9 +409,10 @@ Full details: **[`docs/SERVER_AND_WEB_APP.md`](docs/SERVER_AND_WEB_APP.md)**.
 
 ## Privacy
 
-Nothing leaves your computer unless you ask for something online (news, search, downloading a
-model) — and ELI tells you when it does. No accounts, no telemetry, no subscription. A fresh
-install knows **nothing** about you until you talk to it, and you can delete your data anytime.
+Nothing leaves your computer unless you ask for something online (news, a search, downloading a
+model) — and ELI tells you flat out when it does. No accounts, no telemetry, no subscription, no
+asterisks. A fresh install knows **nothing** about you until you talk to it, and you can wipe your
+data whenever you want.
 
 ## Documentation
 
@@ -433,8 +438,9 @@ install knows **nothing** about you until you talk to it, and you can delete you
 - `eli/gui` — PySide6 GUI launcher and `EliMainWindow`
 - `eli/cli` — headless REPL (`eli --headless`)
 - `config` — portable default settings · `models` — local GGUF payloads (gitignored)
-- `tests` — pytest suite (~6,960 tests across 169 files); the full suite runs locally,
-  while CI gates a cross-platform portable subset (no GGUF/display/GPU) on Linux, macOS, and Windows
+- `tests` — a large pytest suite (7,000+ tests across 176 files, including a `claims/` layer that
+  checks the project against its own documentation); the full suite runs locally, while CI gates a
+  cross-platform portable subset (no GGUF/display/GPU) on Linux, macOS, and Windows
 
 **Scaling:** the loader reads each model's real `n_ctx_train` from GGUF metadata and fits
 layers/batch/ctx to the hardware present; VRAM is summed across all GPUs. One path runs a 3B on a
@@ -501,16 +507,15 @@ Defence-in-depth, all local:
 
 ## Project status & contributing
 
-ELI is **actively developed and solely maintained** by its author — a single-steward project.
-Direction, releases, and what gets merged are decided by the copyright holder. It is provided
-as-is with **no support guarantee**, but bug reports and ideas are genuinely welcome, and it will
-keep moving as long as it stays useful.
+ELI is **actively developed** and independently built, and it ships new work most weeks. Direction,
+releases, and what gets merged are decided by the copyright holder. Bug reports and ideas are
+genuinely welcome, and the project keeps moving as long as it stays useful — which, so far, it very
+much is.
 
 - **Found a bug or have an idea?** [Open an issue](https://github.com/ShadowESC95/ELI_v2.0/issues).
 - **Want to contribute code?** Pull requests are welcome — please read
-  **[CONTRIBUTING.md](CONTRIBUTING.md)** first. Because ELI is source-available and singly-stewarded,
-  contributions include a short **inbound license grant** so the whole project stays under one
-  consistent license.
+  **[CONTRIBUTING.md](CONTRIBUTING.md)** first. Because ELI is source-available, contributions
+  include a short **inbound license grant** so the whole project stays under one consistent license.
 - **Security issue?** See **[SECURITY.md](SECURITY.md)** — report it privately, not in a public issue.
 - **Want to support development?** ELI is free to use; if it's useful to you, you can chip in at
   **[ko-fi.com/shadowesc95](https://ko-fi.com/shadowesc95)**. Entirely optional — it just helps keep
@@ -538,9 +543,9 @@ without warranty.
 Please report it — with a link — to [jaybridgeman0095@gmail.com](mailto:jaybridgeman0095@gmail.com);
 it helps the author act on violations.
 
-> **Why source-available?** To put a genuinely capable, fully-local AI assistant in people's hands
-> to *use and learn from* — while keeping the right to steward the project rather than have it
-> taken closed and resold.
+> **Why source-available?** Because I want a genuinely capable, fully-local AI assistant in people's
+> hands to *use and learn from* — while keeping the right to steer the project myself, rather than
+> watch someone take it closed and resell it.
 
 ## Contact
 
