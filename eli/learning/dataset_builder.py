@@ -20,8 +20,19 @@ from typing import Any, Iterable, Optional
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
-USER_DB = PROJECT_ROOT / "artifacts" / "db" / "user.sqlite3"
-AGENT_DB = PROJECT_ROOT / "artifacts" / "db" / "agent.sqlite3"
+# Read the SQLite stores from the SAME directory the runtime writes them to.
+# The runtime uses paths.db_dir() (= data_dir()/db); hardcoding
+# PROJECT_ROOT/artifacts/db here diverged on any redistributed / per-user
+# install where data_dir() is NOT the project tree — the builder then opened
+# empty databases and produced a zero-example dataset (the adapter trained on
+# nothing). Same latent bug already fixed for CONV_DIR just below.
+try:
+    from eli.core.paths import db_dir as _db_dir
+    _DB_DIR = _db_dir()
+except Exception:
+    _DB_DIR = PROJECT_ROOT / "artifacts" / "db"
+USER_DB = _DB_DIR / "user.sqlite3"
+AGENT_DB = _DB_DIR / "agent.sqlite3"
 # Read conversation logs from the SAME directory the runtime writes them to.
 # The writers (log_rotation / executor convlog) use paths.conversations_dir()
 # (= data_dir()/conversations); hardcoding PROJECT_ROOT/artifacts/conversations
