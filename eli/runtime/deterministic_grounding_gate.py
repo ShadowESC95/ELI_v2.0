@@ -2548,14 +2548,9 @@ def _eli_personal_memory_answer_v2(mode_label: str = "") -> str:  # type: ignore
     lines.append("Operational rule: never ship developer-specific facts as defaults. User identity must be learned per installation.")
     return "\n".join(lines).strip()
 
-# =============================================================================
-# ELI DYNAMIC PROFILE SURFACE V9
-# Final portable user-profile surface.
-# - No static profile files.
-# - No developer-specific shipped identity.
-# - Rejects prompt/image-generation/event rows.
-# - Keeps runtime SELF_REPORT only for explicit runtime-status questions.
-# =============================================================================
+# The portable user-profile surface. No static profile files, no dev-specific identity
+# shipped in, it rejects prompt/image-gen/event rows, and it only keeps runtime
+# SELF_REPORT for actual runtime-status questions.
 
 import re as _eli_v9_re
 from typing import Any as _EliV9Any, Mapping as _EliV9Mapping
@@ -3133,15 +3128,10 @@ def _eli_v10_personal_memory_answer(mode_label: str = "") -> str:
 # byte-identical across all actions/modes (oracle). The live delegation chain is
 # unchanged.
 
-# =============================================================================
-# ELI NO-NAME + QUICK-ONLY RESPONSE SURFACE V11
-#
-# Rules:
-# 1. Never expose the user's personal name or OS account name in user-facing output.
-# 2. Redact user home paths.
-# 3. Quick mode may use instant deterministic response surfaces.
-# 4. Non-Quick modes must go through ELI's normal persona/cognition path.
-# =============================================================================
+# Hard rules I enforce on the response surface here: never leak the user's real name or
+# OS account name into anything user-facing, redact home paths, let quick mode use the
+# instant deterministic surfaces, and push non-quick modes through the normal
+# persona/cognition path instead.
 
 import getpass as _eli_v11_getpass
 import re as _eli_v11_re
@@ -3338,17 +3328,11 @@ _ELI_V11_PREVIOUS_INSTALL = globals().get("install")
 
 
 
-# =============================================================================
-# ELI NO-NAME PERSONA SURFACE V12
-#
-# Final correction over V11:
-# - Quick mode may use short deterministic surfaces.
-# - Non-Quick mode must not delegate identity/runtime actions back into older
-#   wrappers that let GGUF hallucinate role, model size, names, or paths.
-# - User identity is never exposed.
-# - User home paths are redacted.
-# - Output from fallback model paths is post-sanitised.
-# =============================================================================
+# Tightens the layer above. Quick mode can still use the short deterministic surfaces,
+# but non-quick identity/runtime actions must NOT get handed back to the older wrappers —
+# those let the model hallucinate its role, model size, names or paths. User identity is
+# never exposed, home paths are redacted, and anything coming off a fallback model path
+# gets post-sanitised before it goes out.
 
 import getpass as _eli_v12_getpass
 import re as _eli_v12_re
@@ -3620,16 +3604,10 @@ _ELI_V12_PREVIOUS_INSTALL = globals().get("install")
 
 
 
-# =============================================================================
-# ELI PERSONA RUNTIME SURFACE V13
-#
-# Fixes V12 surface issue:
-# - Quick mode: short deterministic answer only.
-# - Non-Quick modes: ELI persona answer using exact deterministic runtime evidence.
-# - No personal-name exposure.
-# - No "You are <user> local user" prose.
-# - No GGUF delegation for SELF_REPORT/runtime identity surfaces.
-# =============================================================================
+# Fixes a surface issue in the layer above. Quick mode gets a short deterministic answer
+# only; the deeper modes get a proper persona answer built from the exact deterministic
+# runtime evidence. No personal-name exposure, no "You are <user> local user" prose, and
+# I don't hand SELF_REPORT/runtime-identity surfaces off to the model.
 
 import re as _eli_v13_re
 
@@ -3846,16 +3824,10 @@ _ELI_V13_SURFACE_ACTIONS = set(globals().get("_ELI_V12_SURFACE_ACTIONS", set()))
 
 
 
-# =============================================================================
-# ELI QUICK-ONLY BYPASS CONTRACT V14
-#
-# Fixes:
-# - Direct deterministic bypass is allowed ONLY in Quick mode.
-# - Non-Quick modes must run through CognitiveEngine.process / persona pipeline.
-# - Runtime/identity answers are post-validated to prevent hallucinated claims.
-# - Redaction is path/name safe, not prose-corrupting.
-# - No "<user>" in normal prose.
-# =============================================================================
+# Quick-only bypass rules. The direct deterministic bypass is allowed ONLY in quick mode —
+# deeper modes have to run through CognitiveEngine.process / the persona pipeline. I
+# post-validate runtime/identity answers so nothing hallucinated slips out, and the
+# redaction is path/name-safe without mangling normal prose. No "<user>" in prose.
 
 import getpass as _eli_v14_getpass
 import json as _eli_v14_json
