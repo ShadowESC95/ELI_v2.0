@@ -1960,17 +1960,13 @@ def _format_cognition_status(report: Dict[str, Any]) -> str:
 # ----------------------------
 
 
-# Dynamic resolution — no hardcoded model name.
-#
-# Ollama is a user-attached fallback (the primary path is GGUF via
-# llama-cpp-python). The GUI's Ollama model selector writes the user's
-# chosen model to runtime_settings as "ollama_model"; we pick it up here.
-#
-# Resolution order:
-#   1. ELI_CHAT_MODEL env var         (explicit override)
-#   2. OLLAMA_MODEL env var           (legacy override)
-#   3. settings["ollama_model"]       (user-attached via GUI)
-#   4. ""                             (empty — forces caller to be explicit)
+# Work out the chat model at runtime — I never hardcode a model name anywhere.
+# Ollama is just a fallback the user can attach; the real path is GGUF via
+# llama-cpp-python. When someone picks an Ollama model in the GUI it lands in
+# runtime_settings as "ollama_model" and I read it back here.
+# Order I check: ELI_CHAT_MODEL env -> OLLAMA_MODEL env (legacy) ->
+# settings["ollama_model"] -> "" (empty, so the caller has to be explicit instead
+# of me guessing).
 def _resolve_default_chat_model() -> str:
     envv = os.environ.get("ELI_CHAT_MODEL") or os.environ.get("OLLAMA_MODEL")
     if envv:
@@ -12805,16 +12801,10 @@ except Exception as _eli_identity_only_err:
     log.debug(f"[EXECUTOR] identity-only helpers failed: {_eli_identity_only_err}")
 # =============================================================================
 
-# =============================================================================
-# ELI PROFILE MEMORY EXECUTION CONTRACT
-# Makes PERSONAL_MEMORY_SUMMARY mode-aware:
-#   inventory_only       -> category counts only, no preference dump
-#   preferences_detail   -> explicit preference/working-style details
-#   full_profile         -> full active-user profile snapshot
-#
-# Also removes identity/name commentary from EXPLAIN_MEMORY_RUNTIME.
-# No user names are hardcoded here.
-# =============================================================================
+# Makes PERSONAL_MEMORY_SUMMARY mode-aware: inventory_only = just the category counts
+# (no preference dump), preferences_detail = the actual preference/working-style stuff,
+# full_profile = the whole active-user snapshot. I also strip the identity/name chatter
+# out of EXPLAIN_MEMORY_RUNTIME here. No user names hardcoded anywhere in this.
 try:
     def _eli_profile_scope_active_user_id():
         try:
@@ -13647,13 +13637,10 @@ try:
 except Exception as _eli_recent_memory_exec_err:
     log.debug(f"[EXECUTOR] recent-memory-processing provider install failed: {_eli_recent_memory_exec_err}")
 
-# =============================================================================
-# ELI RECENT MEMORY PROCESSING EVIDENCE CLEANUP V2
-# The first recent_processing provider was too permissive: it could surface
-# runtime echoes, current prompts, model-not-ready messages, or previous
-# hallucinated answers as "recent memory processing". This wrapper cleans the
-# report before it reaches user-visible synthesis.
-# =============================================================================
+# Second pass at the recent-memory-processing cleanup. My first provider was way too
+# loose — it'd surface runtime echoes, the current prompt, model-not-ready messages,
+# even old hallucinated answers as "recent memory processing". This wrapper scrubs the
+# report before it ever reaches user-visible synthesis.
 try:
     def _eli_recent_mem_v2_bad_runtime_text(text: object, question: object = "") -> bool:
         low = str(text or "").strip().lower()
