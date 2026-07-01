@@ -8216,8 +8216,12 @@ _register()
         self._srv_btn_local = QPushButton("▶  Start (this computer)")
         self._srv_btn_lan = QPushButton("📱  Start (phone / Wi-Fi)")
         self._srv_btn_stop = QPushButton("■  Stop")
+        self._srv_btn_rotate = QPushButton("🔄  Rotate token")
+        self._srv_btn_rotate.setToolTip(
+            "Mint a fresh access token. Kicks off every currently-paired device — "
+            "re-open the link on each phone to pair again.")
         for b, col in ((self._srv_btn_local, "#5e81ac"), (self._srv_btn_lan, "#5e81ac"),
-                       (self._srv_btn_stop, "#3b4252")):
+                       (self._srv_btn_stop, "#3b4252"), (self._srv_btn_rotate, "#4c566a")):
             b.setFixedHeight(30)
             b.setStyleSheet(
                 f"QPushButton{{background:{col};color:#fff;font-weight:600;border:none;"
@@ -8230,6 +8234,7 @@ _register()
         self._srv_btn_local.clicked.connect(lambda: self._eli_server_start(False))
         self._srv_btn_lan.clicked.connect(lambda: self._eli_server_start(True))
         self._srv_btn_stop.clicked.connect(self._eli_server_stop)
+        self._srv_btn_rotate.clicked.connect(self._eli_server_rotate_token)
 
         self._srv_url = QLineEdit()
         self._srv_url.setReadOnly(True)
@@ -8316,7 +8321,11 @@ _register()
             return  # already running
         port = int(os.environ.get("ELI_API_PORT", "8081"))
         if lan:
-            token = secrets.token_urlsafe(16)
+            # Stable, persisted token — reused across restarts so an already-paired
+            # phone is NOT stranded (a fresh token every start meant its saved URL
+            # went 401 on every restart). Rotate explicitly to kick devices off.
+            from api.api_token import get_stable_token
+            token = get_stable_token()
             host = "0.0.0.0"
             os.environ["ELI_API_HOST"] = host
             os.environ["ELI_API_TOKEN"] = token
@@ -8359,6 +8368,39 @@ _register()
         self._srv_thread = None
         self._srv_url.clear()
         self._eli_server_update_ui("stopped")
+
+    def _eli_server_rotate_token(self) -> None:
+        """Mint a fresh LAN access token, retiring every currently-paired device.
+
+        The running server reads ELI_API_TOKEN LIVE (see api/server.py), so the new
+        token takes effect immediately — old links go 401 at once. If the server is
+        up in phone/Wi-Fi mode we refresh the displayed URL so you can re-pair; if
+        it's stopped or loopback-only, the new token is simply persisted for the
+        next LAN launch.
+        """
+        import os
+        try:
+            from api.api_token import rotate_token
+            token = rotate_token()  # persists to disk + exports ELI_API_TOKEN
+        except Exception as e:
+            self._eli_server_update_ui("error", f"token rotate failed: {e}")
+            return
+        running = bool(getattr(self, "_srv_thread", None) and self._srv_thread.is_alive())
+        lan = os.environ.get("ELI_API_HOST", "") == "0.0.0.0"
+        if running and lan:
+            port = int(os.environ.get("ELI_API_PORT", "8081"))
+            self._srv_url.setText(f"http://{self._eli_server_lan_ip()}:{port}/?token={token}")
+            try:
+                self._srv_status.setText("● Token rotated — re-open the new link on each phone")
+                self._srv_status.setStyleSheet("font-size:12px;font-weight:700;color:#ebcb8b;")
+            except Exception:
+                pass
+        else:
+            try:
+                self._srv_status.setText("● Token rotated — applies on next phone/Wi-Fi launch")
+                self._srv_status.setStyleSheet("font-size:12px;font-weight:700;color:#ebcb8b;")
+            except Exception:
+                pass
 
     def _eli_server_poll(self) -> None:
         th = getattr(self, "_srv_thread", None)
