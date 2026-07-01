@@ -1429,12 +1429,9 @@ def _eli_sanitize_identity_context_block(text: str, user_input: str = "") -> str
     return s.strip()
 
 
-# ---------------------------------------------------------------------
-# ELI rapport classification helpers
-# ---------------------------------------------------------------------
-# These helpers do NOT generate canned replies. They only classify whether
-# a prompt is casual/rapport-style so the normal model pipeline can answer
-# in ELI's persona instead of being dragged through HyDE/memory/status sludge.
+# Rapport classification helpers. These don't generate canned replies — they only
+# classify whether a prompt is casual/rapport-style so the normal pipeline answers in
+# persona instead of being dragged through HyDE/memory/status.
 
 def _eli_is_rapport_prompt(text: str) -> bool:
     import re
@@ -1550,12 +1547,9 @@ def _eli_rapport_prompt_instruction(text: str) -> str:
     )
 
 
-# ============================================================
-# ENGINE MIDDLEWARE HELPERS (Phase 2a consolidation)
-# Module-level helpers used by the inline middleware sections inside
-# CognitiveEngine.process(). Defined unconditionally above the class
-# so process() never needs `"name" in globals()` guards.
-# ============================================================
+# Engine middleware helpers — module-level, used by the inline middleware sections in
+# CognitiveEngine.process(). Defined above the class so process() never needs
+# `"name" in globals()` guards.
 
 # -- RUNTIME_STATUS non-Quick full-pipeline (V18+V19 merged) -----------
 
@@ -13394,14 +13388,10 @@ def get_engine() -> CognitiveEngine:
 # PERSONAL_MEMORY body block removed (Phase 2c — helpers relocated above class CognitiveEngine)
 
 
-# =============================================================================
-# ELI NON-QUICK PERSONA PIPELINE SAFETY GUARD
-# Runtime/identity/audit actions must not be direct-command fastpathed.
-# Quick-mode routing can still be handled elsewhere. Non-quick diagnostic
-# actions still use CognitiveEngine -> router -> agents/evidence, but the
-# final status/audit/trace answer may remain deterministic instead of being
-# rewritten by persona synthesis.
-# =============================================================================
+# Non-quick persona-pipeline safety guard. Runtime/identity/audit actions aren't
+# direct-command fastpathed; non-quick diagnostics still go engine -> router ->
+# agents/evidence, but the final status/audit/trace answer may stay deterministic
+# rather than being rewritten by persona synthesis.
 try:
     _ELI_NONQUICK_BLOCKED_FAST_ACTIONS = {
         "SELF_REPORT",
