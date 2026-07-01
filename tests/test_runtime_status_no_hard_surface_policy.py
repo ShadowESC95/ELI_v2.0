@@ -21,16 +21,13 @@ def test_v19_middleware_is_quick_direct_nonquick_synthesize():
     surface contract: Quick may return deterministic evidence; Non-Quick
     routes through executor evidence + LLM synthesis + validation."""
     src = Path("eli/kernel/engine.py").read_text(encoding="utf-8", errors="replace")
-    start = src.index("ELI_ENGINE_MIDDLEWARE_RUNTIME_STATUS_NONQUICK_FULL_PIPELINE_V1 ===")
-    end = src.index("END ELI_ENGINE_MIDDLEWARE_RUNTIME_STATUS_NONQUICK_FULL_PIPELINE_V1")
-    block = src[start:end]
 
-    # Quick branch returns deterministic canonical evidence directly.
-    assert "_mw_rs_is_quick" in block
-    assert "_mw_rs_quick_direct" in block
-    # Non-Quick branch gathers evidence then synthesizes via LLM.
-    assert "_mw_rs_call_runtime_status" in block
-    assert "_mw_rs_synthesize" in block
+    # Quick branch returns deterministic canonical evidence directly; Non-Quick
+    # gathers executor evidence then synthesises via the LLM. Anchor on the actual
+    # middleware functions, not comment markers.
+    for fn in ("_mw_rs_is_quick", "_mw_rs_quick_direct",
+               "_mw_rs_call_runtime_status", "_mw_rs_synthesize"):
+        assert fn in src, f"{fn} missing from engine.py"
 
     # V8 deletion sentinel proves the dead middleware was removed.
     assert "ELI_ENGINE_MIDDLEWARE_RUNTIME_STATUS_V8_DELETED_PHASE2B" in src
