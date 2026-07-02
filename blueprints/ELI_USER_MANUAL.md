@@ -222,15 +222,20 @@ terms:
 | **Chat** | Talk to ELI, by voice or text. Home base. |
 | **Memory** | Browse what ELI remembers about you; add or remove facts. |
 | **Habits** | Routines ELI has learned; turn on/off, edit times, add your own. |
+| **Proactive** | Controls for ELI's "act on its own" behaviour (suggestions, summaries, insights). |
 | **Tasks** | Scheduled & overnight jobs and their status. |
-| **Proactive** | Controls for ELI's "act on its own" behaviour. |
-| **Report Builder** | Generate longer documents/reports with sources. |
-| **Labs** | Power-user tools — image generation, code tools, projects, evaluations. |
-| **Settings** | Model, hardware, voice, and privacy options (§16). |
+| **Images** | Generate images — procedural (fast) or diffusion (photoreal). |
+| **Screen** | Watch/read your screen, take screenshots, OCR. |
+| **Coding / IDE** | Write, examine, and fix code; a built-in editor. |
+| **Self-Improve** | What ELI is proposing to improve in *itself* — approval-gated. |
+| **Report Builder** | Generate longer documents/reports with sources (evidence → outline → draft → revise). |
+| **Elis World** | ELI's own world-model view. |
+| **Labs** | Power-user workshop — notebook, Jupyter, calculator, physics, file-chat, **projects/workspaces**, sim-IDE, orchestration, test review. |
+| **Settings** | Model (incl. the model-switch dropdown), hardware, voice, and privacy options (§16). |
 
 You rarely need the tabs directly — almost everything is reachable by **asking** in Chat:
-"show my habits", "what do you remember about me", "show background jobs", and ELI opens or
-reports the right thing.
+"show my habits", "what do you remember about me", "show background jobs", "make an image of …",
+and ELI opens or reports the right thing.
 
 ---
 
@@ -262,6 +267,9 @@ reports the right thing.
 - "write a bash script to monitor the GPU" · "solve this: implement a function that …"
 - "fix the bugs in foo.py" · "examine eli/memory/memory.py for errors" → ELI scans, **offers**
   fixes, and applies them only if you say "yes, fix it". · "show the diff"
+- The **Report Builder** tab turns "generate a document on X" into a real report: it gathers
+  evidence, plans an outline, drafts each section, then **reviews and revises** it — with
+  document-type quality profiles. It's generation-first, not a one-shot dump.
 
 ### 📊 Screen, images, PDFs, spreadsheets
 - "what's on my screen?" · "find the submit button on screen" · "take a screenshot"
@@ -282,6 +290,54 @@ reports the right thing.
 ### 🔧 Asking ELI about itself (honest introspection)
 - "what are you running on?" (model, context, GPU) · "how does your memory work?"
 - "what do you know about me?" · "what have you been working on?" · "status"
+
+### 👁️ Eye control (gaze)
+- "calibrate gaze", then "enable gaze". With it on, ELI clicks **where you're looking** when you
+  say "open" / "left click" / "right click" / "hit enter" — hands-free pointing.
+- "gaze status" · "disable gaze"
+
+### 🎨 Making images
+- "make an image of a red bike by the sea" · "generate a picture of …"
+- Two engines: a fast **procedural** one (always available) and **diffusion** (SSD-1B) for
+  photoreal results — ELI briefly frees the model's VRAM to run it. The **Images** tab has the
+  controls; results save locally.
+
+### 🧩 Coding & building things
+- "solve this: implement a function that …" → ELI plans it, writes it, then **verifies and
+  repairs** it.
+- "generate a project that does X" (a full multi-file scaffold) · "write a bash script to …"
+- "examine eli/memory/memory.py for errors" → a tiered scan; it **offers** fixes and applies them
+  only if you say "yes". · "show the diff" · "generate tests for your code" (it writes *and*
+  sandbox-verifies them). The **Coding** tab and the built-in **IDE** are home for this.
+
+### 🔧 ELI improving itself
+- "improve yourself" → a self-improvement patch cycle — proposed, and **gated by your approval**.
+- "show your self-improvement log" · "patch yourself" · "upgrade yourself" (git pull → deps →
+  rebuild indexes) · "run your self-tests". The **Self-Improve** tab shows what it's proposing.
+
+### 🔌 Plugins & your own agents
+- "list plugins" · "enable the X plugin" · "install the X plugin" · "plugin status"
+- You can **build your own agent** just by describing it — ELI runs a short dialog, validates it,
+  and registers it live (the create-agent flow).
+
+### 🌙 Overnight & scheduled work
+- "research the best solar inverters overnight" · "build me a script at 2am" · "every night,
+  regenerate the test report" → durable **background jobs** that survive restarts.
+- "show background jobs" · "check job 5". The **Tasks** tab lists them.
+
+### 🎭 Shaping ELI's voice (persona)
+ELI's personality is **emergent** — it forms from your profile, your history, and the way you talk
+to it, not from a hand-written script. Most of the time you leave it alone and it just *becomes*
+itself with you. When you want to steer it, you can, without erasing that:
+- "lock your persona to a terse senior engineer" · "what persona are you locked to?" · "clear
+  persona lock". A lock **layers on top** of the emergent voice for the session; clearing it hands
+  the wheel back to the natural persona.
+- "refresh your persona" reloads it from your latest profile (after ELI's learned something new
+  about you).
+
+The rule of thumb: **the emergent voice is the default and the truth of who ELI is with you; a
+lock is a temporary hat it wears on request.** ELI won't drift into a scripted character on its
+own, and a lock never overwrites the underlying personality — it sits on top until you clear it.
 
 ---
 
@@ -348,6 +404,21 @@ Schedule real unattended work too:
 > "research X overnight" · "generate tests for your code tonight"
 
 These appear in the **Tasks** tab and survive restarts.
+
+### The autonomy tick — what "on its own" actually means
+When you allow it, ELI runs a quiet **autonomy tick** inside the proactive daemon — roughly every
+half hour, and only if it's switched on (kill switch: `ELI_AUTONOMY_TICK=0`). One tick does three
+things, all **read-only or proposal-only**:
+
+1. **Code monitor** — it glances over its own code health and flags anything that's drifted.
+2. **Self-model refresh** — it updates its understanding of itself (what it's running, what it can
+   do) so its introspection stays honest.
+3. **Goal autogenesis** — it may propose a goal, or a scheduled task, it reckons would help you.
+
+The guardrail that matters: every autogenerated goal is **proposal-only**. It shows up as a
+suggestion you accept or dismiss — nothing destructive ever runs unattended, and anything risky
+still goes through the **approval gate** (Appendix C). Autonomy makes ELI *thoughtful* on its own,
+not *loose*.
 
 ---
 
