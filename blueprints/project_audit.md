@@ -33,7 +33,7 @@ session **[V]**.
 | Capabilities (`capability_manifest.json`) | **208** |
 | `SUPPORTED_ACTIONS` (`executor_enhanced.py`) | **174** |
 | Specialist bus agents | **14** (named in §4.4) |
-| Test files / suite | **189** files; full run **7,302 passed / 5 failed / 45 skipped / 2 xfailed** *(2026-07-01)* |
+| Test files / suite | **189** files; full run **7,347 passed / 5 failed / 45 skipped / 2 xfailed** *(2026-07-01)* |
 | Test groups | `tests/claims` (11), `tests/regression` (6), `tests/generated` (3) |
 | SQLite stores | **4** (`user`, `agent`, `system_index`, `coding_memory`) |
 | Vector index | FAISS, **1,228** vectors, `nomic-embed-text-v1.5.Q4_K_M` *(runtime snapshot)* |
@@ -323,7 +323,7 @@ Severity P0=integrity, P1=routing/exec, P2=quality. Status as of `a641471`.
 ---
 
 ## 11. Tests & verification
-- 194 test files; full run **7,302 passed / 5 failed / 45 skipped / 2 xfailed** (2026-07-01). **[V]**
+- 194 test files; full run **7,347 passed / 5 failed / 45 skipped / 2 xfailed** (2026-07-01). **[V]**
   The 5 remaining reds are the in-progress `smart_home` plugin removal + one stale blueprint
   ref — pre-existing, unrelated, fail identically on a clean tree.
 - Groups: `tests/claims/` (project-vs-claims, symbol inventory, agent contracts),

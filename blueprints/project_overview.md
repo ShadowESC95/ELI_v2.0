@@ -140,7 +140,7 @@ wrapper.
    `experimental/*.zip` binaries. Makes the repo look less serious than the code
    is.
 5. **Tests are GREEN (measured 2026-07-01).** 194 test files; `pytest tests/` =
-   **7,302 passed / 5 failed / 45 skipped / 2 xfailed** (~11m23s on the `.venv`/GPU). The 5
+   **7,347 passed / 5 failed / 45 skipped / 2 xfailed** (~11m23s on the `.venv`/GPU). The 5
    remaining reds are the in-progress `smart_home` plugin removal + one stale blueprint
    ref — pre-existing and unrelated (they fail identically on a clean tree). The
    `tests/claims/` contract layer makes it a real safety net.
@@ -174,7 +174,7 @@ Ranked by effect-per-effort:
    into stage modules). Reduces regression surface and makes the pipeline
    readable.
 3. **Delete duplication + clutter.** Collapse the overlapping `runtime/` surfaces,
-   remove root junk/one-off scripts. *(The suite is already green — 7,302 passing;
+   remove root junk/one-off scripts. *(The suite is already green — 7,347 passing;
    this is now signal-to-noise hygiene, not a red-test cleanup.)*
 4. **Consolidate the `runtime/` surfaces.** The many `personal_memory_*` /
    `*_surface` / `*_response` modules want to be a handful of well-named ones.
