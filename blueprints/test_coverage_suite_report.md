@@ -8,7 +8,7 @@ number.
 
 Reproducible via `scripts/coverage_full.sh`; methodology in
 [`docs/COVERAGE.md`](../docs/COVERAGE.md). Measured on the real interpreter
-(`.venv/bin/python`), 2026-07-02.
+(`.venv/bin/python`), 2026-07-03.
 
 ---
 
@@ -16,12 +16,12 @@ Reproducible via `scripts/coverage_full.sh`; methodology in
 
 | Metric | Value |
 |--------|-------|
-| **Testable coverage** | **48.7%** — 34,131 / 70,086 statements |
+| **Testable coverage** | **49.2%** — 34,514 / 70,086 statements |
 | **GUI recovered** (was 0.6%) | **45%** — 2,455 / 5,439 statements |
-| Tests passing | **7,436** (7,302 unit + 76 web + 31 live + 27 GUI) |
-| New test modules this effort | **24** (~330 tests) |
+| Tests passing | **7,481** (7,347 unit + 76 web + 31 live + 27 GUI) |
+| New test modules this effort | **35** (~385 tests) |
 | Pre-existing reds (unrelated) | 5 |
-| Skipped / xfailed (documented) | 45 / 2 |
+| Skipped / xfailed (documented) | 45 / 2 (the tool/name-alias bug is now fixed — that xfail is a real pass) |
 
 > **Sole exclusion:** `eli/gui/eli_pro_audio_gui_MKI.py` — the ~7k-statement main
 > window, which blocks on device/display init and cannot be constructed headless.
@@ -52,7 +52,7 @@ they're exercised for real on their own lanes and folded in.
 
 ---
 
-## 3. The suite — new test modules (~280 tests)
+## 3. The suite — new test modules (~385 tests)
 
 | Module | Target | Before | After |
 |--------|--------|:------:|:-----:|
@@ -74,6 +74,24 @@ they're exercised for real on their own lanes and folded in.
 | `test_grounded_remediation.py` | yes/no intent + repair state | 18% | ↑ |
 | `test_executor_helpers.py` | fail-closed shell gate + scanners | — | security lines |
 
+**Coverage-shortlist pass** — previously-untested pure-logic modules, picked off one by one:
+
+| Module | Before → After | | Module | Before → After |
+|--------|:---:|-|--------|:---:|
+| `api_token` (stable-token/rotate) | 0 → **90%** | | `context_builder` | 14 → **52%** |
+| `retrieval_packets` | 13 → **81%** | | `memory_reset` (privacy wipe) | 11 → **44%** |
+| `operator_goal_actions` | 14 → **78%** | | `operator_actions` (proposal queue) | 16 → **44%** |
+| `tool_result_normalizer` | 18 → **74%** | | `approval_engine` (autonomy gate) | 19 → **34%** |
+| `grounded_control` (contract) | 15 → **61%** | | `personal_memory_surface`¹ | 6 → **10%** |
+| `tool_execution_authority` | 16 → **59%** | | `deterministic_grounding_gate` | 24 → **34%** |
+
+¹ Only the pure `is_personal_memory_query` classifier is reachable; the rest builds a live
+surface from the memory DB (not testable headless) — reported honestly, not padded.
+
+This pass also **found and fixed a latent bug**: `canonicalize_execution_call` advertised
+`tool`/`name` aliases for `action`, but they were dead code — a `{"tool": X}` call resolved to
+`action=""` because `_payload_from_packet_like` returned the plain dict first. Now fixed and tested.
+
 Bias throughout: the **security/privacy-critical** paths an auditor checks first —
 bearer/RBAC auth, the fail-closed shell allowlist, the hardcoded-path/PII scanners,
 the anti-confabulation guards, and DB-path isolation.
@@ -85,14 +103,14 @@ the anti-confabulation guards, and DB-path isolation.
 | Subsystem | Cover | Stmts | | Subsystem | Cover | Stmts |
 |-----------|------:|------:|-|-----------|------:|------:|
 | `eli/onboarding` | 85% | 159 | | `eli/gui` | 45% | 5,439 |
-| `eli/world` | 85% | 971 | | `eli/contracts` | 44% | 256 |
-| `eli/coding` | 81% | 1,045 | | `eli/planning` | 42% | 2,132 |
+| `eli/world` | 85% | 971 | | `eli/contracts` | 61% | 256 |
+| `eli/coding` | 81% | 1,045 | | `eli/planning` | 45% | 2,132 |
 | `eli/cognition` | 65% | 7,021 | | `eli/execution` | 41% | 12,309 |
 | `eli/learning` | 62% | 1,520 | | `eli/plugins` | 39% | 1,050 |
-| `eli/core` | 55% | 3,492 | | `eli/system` | 37% | 261 |
+| `eli/core` | 56% | 3,492 | | `eli/system` | 37% | 261 |
 | `eli/memory` | 54% | 3,338 | | `eli/tools` | 30% | 4,508 |
 | `eli/kernel` | 52% | 7,059 | | `eli/perception` | 27% | 4,138 |
-| `eli/runtime` | 54% | 13,131 | | `eli/integrations` | 26% | 507 |
+| `eli/runtime` | 55% | 13,131 | | `eli/integrations` | 26% | 507 |
 | `api` (web) | 51% | 1,204 | | `eli/utils` | 25% | 468 |
 | | | | | *(gui main window)* | *excl.* | ~7k |
 
@@ -104,10 +122,10 @@ world        █████████████████░░░  85%
 coding       ████████████████░░░░  81%
 cognition    █████████████░░░░░░░  65%
 learning     ████████████░░░░░░░░  62%
-core         ███████████░░░░░░░░░  55%
+core         ███████████░░░░░░░░░  56%
 memory       ███████████░░░░░░░░░  54%
 kernel       ██████████░░░░░░░░░░  52%
-runtime      ███████████░░░░░░░░░  54%
+runtime      ███████████░░░░░░░░░  55%
 api          ██████████░░░░░░░░░░  51%
 gui          █████████░░░░░░░░░░░  45%   (was 0.6% — main window excl.)
 execution    ████████░░░░░░░░░░░░  41%   (router 70% / handlers 31% via live turns)

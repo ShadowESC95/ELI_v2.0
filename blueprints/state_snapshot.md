@@ -24,7 +24,7 @@ agent's system python. Deeper detail lives in the companion blueprints
 - **License:** source-available — PolyForm Internal Use 1.0.0 (`LICENSE`/`NOTICE`); use+modify for internal/personal use, no redistribution; all commercial rights reserved. Governance: `SECURITY.md`, `CONTRIBUTING.md` (inbound grant).
 
 ## Tests & eval (measured on `.venv`, 2026-07-01)
-- Full run: **7,302 passed, 5 failed, 45 skipped, 2 xfailed**. The 5 reds are
+- Full run: **7,347 passed, 5 failed, 45 skipped, 2 xfailed**. The 5 reds are
   pre-existing and unrelated to current work — they belong to the in-progress
   `smart_home` plugin removal (voice SMART_HOME now uses ELI's own MQTT server) and
   one stale blueprint reference; they fail identically on a clean tree.
@@ -166,7 +166,7 @@ truncation) is in place.
 ELI is now a two-front local-first system: a frontier desktop cognitive assistant **and**
 a self-hosted web app with its own smart-home, multi-user roles, a tamper-evident audit
 trail, collaborative research corpora, browser voice, and a monitored path to the
-internet — all local, all owner-controlled. It tests itself (7,302 passing), evals itself
+internet — all local, all owner-controlled. It tests itself (7,347 passing), evals itself
 nightly, writes its own tests, grounds its generation in real evidence, and never hardcodes
 its model. The open work is engineering debt (god-files, swallowed exceptions, surface
 duplication) and the model ceiling — both known, both phased, neither blocking.
