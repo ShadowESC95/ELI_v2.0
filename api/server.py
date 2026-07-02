@@ -745,7 +745,7 @@ _WEB_UI = """<!doctype html>
   // ── Settings (real, typed options wired to ELI's config) ───────────────
   let _setSub='General', _setSchema=[], _setVals={}, _setVoices=[], _setModels=[], _setModelActive='';
   function loadSettings(){
-    Promise.all([api('/v1/settings'), api('/v1/voice/voices').catch(()=>({})), api('/v1/me').catch(()=>({})), api('/v1/models').catch(()=>({}))]).then(function(r){
+    Promise.all([api('/v1/settings'), api('/v1/voice/voices').catch(()=>({})), api('/v1/me').catch(()=>({})), api('/v1/models/installed').catch(()=>({}))]).then(function(r){
       const s=r[0]||{}, v=r[1]||{}, me=r[2]||{}, mo=r[3]||{};
       _setSchema=s.schema||[]; _setVals=s.values||{};
       _setVoices=((v.voices)||[]).map(x=>x.id||x.name||x);
@@ -3388,9 +3388,10 @@ def _list_chat_models() -> list:
     return out
 
 
-@app.get("/v1/models", tags=["System"], dependencies=[Depends(_require_token)])
+@app.get("/v1/models/installed", tags=["System"], dependencies=[Depends(_require_token)])
 def list_models():
     """Available chat models + the active one, for the dashboard's model dropdown.
+    (Distinct path from the OpenAI-compatible /v1/models so it isn't shadowed by it.)
     `active` is the *actually resolved* model (honours the env override), so the
     dropdown reflects what's really loaded — not just what's in config."""
     active = None
