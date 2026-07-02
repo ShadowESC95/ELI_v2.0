@@ -16,20 +16,18 @@ Reproducible via `scripts/coverage_full.sh`; methodology in
 
 | Metric | Value |
 |--------|-------|
-| **Testable coverage** | **45.9%** — 32,174 / 70,086 statements |
-| **GUI recovered** (was 0.6%) | **25%** — 1,385 / 5,439 statements |
-| Tests passing | **7,338** (7,229 unit + 72 web + 23 live + 14 GUI) |
-| New test modules this effort | **19** (~260 tests) |
+| **Testable coverage** | **48.1%** — 33,681 / 70,086 statements |
+| **GUI recovered** (was 0.6%) | **45%** — 2,455 / 5,439 statements |
+| Tests passing | **7,351** (7,229 unit + 72 web + 23 live + 27 GUI) |
+| New test modules this effort | **20** (~280 tests) |
 | Pre-existing reds (unrelated) | 5 |
 | Skipped / xfailed (documented) | 45 / 2 |
 
 > **Sole exclusion:** `eli/gui/eli_pro_audio_gui_MKI.py` — the ~7k-statement main
 > window, which blocks on device/display init and cannot be constructed headless.
-> *Everything else is in the denominator*, including the GUI tab widgets (now tested
-> offscreen), hardware-adjacent code, and merely-untested code. The number went
-> **down** from an earlier GUI-excluded 47.6% precisely because the full GUI is now
-> honestly counted — that's the correct trade: a complete denominator over a flattering
-> one.
+> *Everything else is in the denominator.* Notably the number is now **higher** than
+> the earlier GUI-*excluded* 47.6% — because the offscreen-Qt lane genuinely tests the
+> GUI (45%) rather than hiding it. A complete denominator *and* a higher number.
 
 ---
 
@@ -54,13 +52,13 @@ they're exercised for real on their own lanes and folded in.
 
 ---
 
-## 3. The suite — new test modules (~260 tests)
+## 3. The suite — new test modules (~280 tests)
 
 | Module | Target | Before | After |
 |--------|--------|:------:|:-----:|
 | `test_api_server.py` | web server: auth/RBAC + every read endpoint | 0% | **53%** |
 | `test_engine_integration_live.py` | full pipeline, real GGUF + safe handlers | — | live lane |
-| `test_gui_offscreen.py` | construct the tab widgets headless | 0.6% | **labs 40% / coding 49%** |
+| `test_gui_offscreen.py` | construct **every** GUI widget headless | 0.6% | **GUI 45%** |
 | `test_gui_app_helpers.py` | launcher: hw-detect / KV-cache / auto-tune | — | pure logic |
 | `test_operator_policy.py` | autonomy governance gate | 42% | **88%** |
 | `test_memory_evidence.py` | grounded memory bundle | 12% | **77%** |
@@ -86,34 +84,35 @@ the anti-confabulation guards, and DB-path isolation.
 
 | Subsystem | Cover | Stmts | | Subsystem | Cover | Stmts |
 |-----------|------:|------:|-|-----------|------:|------:|
-| `eli/onboarding` | 85% | 159 | | `eli/planning` | 41% | 2,132 |
-| `eli/coding` | 81% | 1,045 | | `eli/execution` | 41% | 12,309 |
-| `eli/cognition` | 65% | 7,021 | | `eli/plugins` | 38% | 1,050 |
-| `eli/learning` | 62% | 1,520 | | `eli/system` | 37% | 261 |
-| `eli/core` | 54% | 3,492 | | `eli/tools` | 30% | 4,508 |
-| `eli/memory` | 54% | 3,338 | | `eli/perception` | 27% | 4,138 |
-| `eli/world` | 54% | 971 | | `eli/gui` | 25% | 5,439 |
-| `eli/kernel` | 52% | 7,059 | | `eli/utils` | 25% | 468 |
-| `eli/runtime` | 51% | 13,131 | | `eli/integrations` | 21% | 507 |
-| `api` (web) | 49% | 1,204 | | *(gui main window)* | *excl.* | ~7k |
+| `eli/onboarding` | 85% | 159 | | `eli/gui` | 45% | 5,439 |
+| `eli/world` | 85% | 971 | | `eli/contracts` | 44% | 256 |
+| `eli/coding` | 81% | 1,045 | | `eli/planning` | 42% | 2,132 |
+| `eli/cognition` | 65% | 7,021 | | `eli/execution` | 41% | 12,309 |
+| `eli/learning` | 62% | 1,520 | | `eli/plugins` | 39% | 1,050 |
+| `eli/core` | 55% | 3,492 | | `eli/system` | 37% | 261 |
+| `eli/memory` | 54% | 3,338 | | `eli/tools` | 30% | 4,508 |
+| `eli/kernel` | 52% | 7,059 | | `eli/perception` | 27% | 4,138 |
+| `eli/runtime` | 51% | 13,131 | | `eli/integrations` | 26% | 507 |
+| `api` (web) | 49% | 1,204 | | `eli/utils` | 25% | 468 |
+| | | | | *(gui main window)* | *excl.* | ~7k |
 
 ### Visual (testable surface)
 
 ```
 onboarding   █████████████████░░░  85%
+world        █████████████████░░░  85%
 coding       ████████████████░░░░  81%
 cognition    █████████████░░░░░░░  65%
 learning     ████████████░░░░░░░░  62%
-core         ███████████░░░░░░░░░  54%
+core         ███████████░░░░░░░░░  55%
 memory       ███████████░░░░░░░░░  54%
 kernel       ██████████░░░░░░░░░░  52%
 runtime      ██████████░░░░░░░░░░  51%
 api          ██████████░░░░░░░░░░  49%
-planning     ████████░░░░░░░░░░░░  41%
+gui          █████████░░░░░░░░░░░  45%   (was 0.6% — main window excl.)
 execution    ████████░░░░░░░░░░░░  41%   (router 70% / handlers 31% via live turns)
 tools        ██████░░░░░░░░░░░░░░  30%
 perception   █████░░░░░░░░░░░░░░░  27%
-gui          █████░░░░░░░░░░░░░░░  25%   (was 0.6% — labs 40%, coding 49%; main window excl.)
 utils        █████░░░░░░░░░░░░░░░  25%
 ```
 
@@ -122,36 +121,36 @@ utils        █████░░░░░░░░░░░░░░░  25%
 ## 5. GUI recovery (the offscreen-Qt effort)
 
 The GUI was 0.6%. The **main window** (`eli_pro_audio_gui_MKI.py`, ~7k stmts) blocks on
-device/display init and can't be built in CI — that stays excluded. But under
-`QT_QPA_PLATFORM=offscreen` the **tab widgets construct standalone**, so lane 4 builds
-them for real:
+device/display init and can't be built in CI — that stays excluded. Everything else
+constructs standalone under `QT_QPA_PLATFORM=offscreen`, so lane 4 builds them all for
+real (27 tests):
 
-- `labs_tab.py` — **40%** (1,222 stmts): `LabsTab` builds its full 400+-widget tree,
-  and all 10 sub-tabs (Notebook, Jupyter, Calculator, Physics, Report, FileChat,
-  Workspaces, SimIDE, Orchestration, TestReview) construct.
-- `coding_tab.py` — **49%**; `app.py` launcher logic **12%**; `qt_compat` shim **16%**.
+| GUI file | Cover | | GUI file | Cover |
+|----------|------:|-|----------|------:|
+| `tabs/eli_world_tab.py` | **100%** | | `docks/operator_console_dock.py` | **67%** |
+| `docks/proactive_dock.py` | **94%** | | `panels/settings.py` | **60%** |
+| `tabs/experimental_tab.py` | **82%** | | `widgets/ollama_model_selector.py` | 50% |
+| `panels/startup.py` | **61%** | | `coding_tab.py` | 49% |
+| `labs_tab.py` | 40% | | `tabs/tasks_tab.py` | 45% |
 
-**Still recoverable (next pass):** `panels/settings.py` (504), `panels/startup.py`
-(533), `tabs/tasks_tab.py` (219), `tabs/experimental_tab.py` (103),
-`docks/operator_console_dock.py` (229), `widgets/ollama_model_selector.py` (138) — all
-sit at ~0–9% because lane 4 doesn't construct them yet. They're candidates for the same
-offscreen treatment, which would lift both the GUI and the overall number.
+`LabsTab` builds its full 400+-widget tree; the settings dialog builds 268 children;
+the startup wizards, both docks, and every tab construct and wire their UI. The only
+GUI left uncovered is the main window itself (excluded) and residual event-handler
+branches that need real user interaction.
 
 ---
 
-## 6. Why the low subsystems are low (root-cause analysis)
+## 6. Why the remaining low subsystems are low
 
 The low scores cluster around **one cause: the I/O boundaries where ELI touches the
 real world.** Pure logic is well covered; the edges aren't.
 
 | Subsystem | Why it's low |
 |-----------|--------------|
-| `execution` (41%) | ~174 action handlers, **most side-effecting** (open apps, shell, screenshots, media). Can't unit-test "open Firefox" — the test *does it*. Covered only via real live-lane turns (safe read-only handlers). The router beside it is **70%** (pure parsing). |
-| `perception` (27%) | The body: GPU vision, whisper STT (mic), TTS (speakers), gaze (webcam), `os_controller` (needs a live desktop), screenshots. **None runs headless.** Covered part = the pure parsers (equations 100%, CSV 78%). |
-| `gui` (25%) | Recovered from 0.6% via offscreen Qt (labs 40%, coding 49%); the main window can't be built headless, and several panels/tabs aren't constructed yet (§5). |
-| `utils` (25%) | Mostly `platform_compat.py` — `if WINDOWS … elif MACOS …` branches; on Linux CI only the Linux branch runs. Inherent to cross-platform code. |
+| `execution` (41%) | ~174 action handlers, **most side-effecting** (open apps, shell, screenshots, media). Can't unit-test "open Firefox" — the test *does it*. Covered via safe live-lane turns. Router beside it is **70%**. |
 | `tools` (30%) | News fetcher (network, gated off), image engine (GPU diffusion), weather (network). Non-network logic is tested; fetch/GPU paths aren't. |
-| `planning` (41%) | Proactive daemon / autonomy tick / scheduler run on **background timer threads** tests don't drive. Pure scheduling logic *is* tested. |
+| `perception` (27%) | GPU vision, mic STT, TTS, gaze, live-desktop control — **none runs headless**. Covered part = the pure parsers (equations 100%, CSV 78%). |
+| `utils` (25%) | Mostly `platform_compat.py` — `if WINDOWS … elif MACOS …`; on Linux CI only the Linux branch runs. Inherent to cross-platform code. |
 
 ---
 
@@ -170,10 +169,11 @@ real world.** Pure logic is well covered; the edges aren't.
 The gap is largely *what ELI is*: a large **embodiment surface** — desktop GUI,
 gaze/webcam, mic/voice, local vision, OS control, smart-home — that can't fully run in
 headless CI. A leaner pure-software agent lacks that surface, so a higher fraction of
-its code is unit-testable by construction. ELI's cognitive **core is already in a
-comparable band** (coding 81%, cognition 65%, kernel 52%, memory 54%); the aggregate is
-lower because ELI does more, and because this report **honestly counts the whole
-surface** rather than hiding the parts that are hard to test.
+its code is unit-testable by construction. ELI's cognitive **core is in a comparable
+band** (coding 81%, cognition 65%, kernel 52%), and this report **honestly counts the
+whole surface** — including the GUI (now 45%) — rather than hiding the hard parts. The
+residual gap is the genuinely un-automatable edges: side-effecting OS actions, physical
+hardware, and the one window that can't be built headless.
 
 ---
 
