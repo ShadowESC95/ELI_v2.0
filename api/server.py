@@ -3859,24 +3859,19 @@ def _ensure_lan_cert():
     return str(crt), str(key)
 
 
-def _osc8(url: str, label: str | None = None) -> str:
-    """Wrap a URL as an OSC 8 terminal hyperlink so it's Ctrl/Cmd-clickable in
-    terminals that support them (GNOME Terminal, kitty, iTerm2, WezTerm, foot…).
-    Terminals that don't understand OSC 8 ignore the escapes and just show the label,
-    so we default the label to the URL itself — it stays visible and copy-pasteable."""
-    label = label or url
-    return f"\033]8;;{url}\033\\{label}\033]8;;\033\\"
-
-
-def _open_browser_async(url: str, delay: float = 1.2) -> None:
+def _open_browser_async(url: str, delay: float = 1.2) -> bool:
     """Open `url` in the default browser shortly after the server comes up, so you
-    don't have to click or copy anything. Skipped on headless boxes (no DISPLAY /
-    WAYLAND_DISPLAY) and when ELI_API_NO_BROWSER is set."""
+    never have to click or copy anything. Returns True if a browser open was launched.
+    Skipped only on a genuinely headless box (no desktop session at all) or when
+    ELI_API_NO_BROWSER is set."""
     if os.environ.get("ELI_API_NO_BROWSER", "").strip().lower() in ("1", "true", "yes", "on"):
-        return
-    if _sys.platform.startswith("linux") and not (
-            os.environ.get("DISPLAY") or os.environ.get("WAYLAND_DISPLAY")):
-        return  # headless box — nothing to open a browser onto
+        return False
+    # Only bail if there's clearly NO desktop session to open onto (real headless server).
+    if _sys.platform.startswith("linux") and not any(
+            os.environ.get(v) for v in
+            ("DISPLAY", "WAYLAND_DISPLAY", "XDG_SESSION_TYPE", "XDG_CURRENT_DESKTOP")):
+        return False
+
     def _go():
         try:
             import webbrowser
@@ -3885,6 +3880,7 @@ def _open_browser_async(url: str, delay: float = 1.2) -> None:
         except Exception:
             pass
     threading.Thread(target=_go, daemon=True).start()
+    return True
 
 
 def main():
@@ -3953,10 +3949,10 @@ def main():
         print(f"  ELI web server on the LAN  ({host}:{port})", flush=True)
         local_url = f"http://127.0.0.1:{port}/#token={token}"
         print(f"  Phone — open the Connect tab and scan, or visit:", flush=True)
-        print(f"      {_osc8(f'http://{ip}:{port}/#token={token}')}", flush=True)
+        print(f"      http://{ip}:{port}/#token={token}", flush=True)
         if https_port:
             print(f"  Phone microphone (voice) needs HTTPS — same Connect tab, or visit:", flush=True)
-            print(f"      {_osc8(f'https://{ip}:{https_port}/#token={token}')}", flush=True)
+            print(f"      https://{ip}:{https_port}/#token={token}", flush=True)
             print("      (self-signed: accept the one-time 'not private' warning to use the mic)", flush=True)
         else:
             print("  Tip: add --https to also enable the phone microphone (voice).", flush=True)
@@ -3976,8 +3972,12 @@ def main():
 
     # Open-on-this-computer: a clickable link + auto-launch the local browser so you
     # never have to copy-paste the URL (set ELI_API_NO_BROWSER=1 to skip the launch).
-    print(f"  On this computer:  {_osc8(local_url)}", flush=True)
-    _open_browser_async(local_url)
+    print(f"  On this computer:  {local_url}", flush=True)
+    if _open_browser_async(local_url):
+        print("  (opening it in your browser now — Ctrl-click or copy the URL above if it doesn't)",
+              flush=True)
+    else:
+        print("  (copy the URL above into your browser)", flush=True)
 
     # Run HTTPS (voice) alongside on its own port, in a daemon thread.
     if https_port and _crt and _key:
