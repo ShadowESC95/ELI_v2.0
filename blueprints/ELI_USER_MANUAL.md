@@ -35,7 +35,7 @@ How to read this manual:
 10. [ELI helps before you ask (proactive)](#10-eli-helps-before-you-ask-proactive)
 11. [Voice, wake word, and dictation](#11-voice-wake-word-and-dictation)
 12. [Seeing your screen and images (vision)](#12-seeing-your-screen-and-images-vision)
-13. [Using ELI from your phone](#13-using-eli-from-your-phone)
+13. [The ELI server & using it from your phone](#13-the-eli-server--using-it-from-your-phone)
 14. [Models: picking, switching, and training your own](#14-models-picking-switching-and-training-your-own)
 15. [How hard ELI thinks (reasoning modes)](#15-how-hard-eli-thinks-reasoning-modes)
 16. [Settings you'll actually touch](#16-settings-youll-actually-touch)
@@ -391,11 +391,11 @@ With a webcam set up, ELI even supports **eye-tracking control**: "enable gaze c
 
 ---
 
-## 13. Using ELI from your phone
+## 13. The ELI server & using it from your phone
 
 🟡 *Slightly technical, but only at setup.*
 
-ELI includes a built-in **web app**. Start the server on your computer and chat with ELI from your
+ELI includes a built-in **server** and **web app**. Start the server on your computer and chat with ELI from your
 **phone or tablet's browser** over your home Wi-Fi — while all the actual thinking stays on your
 computer.
 
@@ -416,6 +416,47 @@ flowchart TD
   `scripts/eli_serve.ps1` (Windows). Full details: `docs/SERVER_AND_WEB_APP.md`.
 - The web app is **installable** — your phone's "Add to Home Screen" makes it open like an app, and the
   shell works offline. Light/dark themes; you can recolour the chat.
+
+### Starting the server, and what it prints
+Start the server and it does two friendly things so you never have to hunt for the address: it
+**prints a clickable link** (Ctrl/Cmd-click it right in the terminal), and it **auto-opens your
+local browser** to the dashboard. (Set `ELI_API_NO_BROWSER=1` if you'd rather it didn't.)
+
+- **This computer only (default):** the dashboard opens at `http://127.0.0.1:8081/`. No token —
+  you're on the machine, so you're trusted automatically.
+- **Phone / Wi-Fi (LAN mode):** it prints your computer's LAN address (e.g.
+  `http://192.168.1.20:8081/`) with a **one-time token** baked into the link, plus a **QR code**
+  in the Connect tab. Scan it or open the link and you're in.
+
+### The token, and the rotate button
+The phone's token is **stable** — it's saved (permissions `0600`, under your config dir) and
+survives server restarts, so a paired phone stays paired; no re-scanning every reboot. Lost the
+phone, or just want a clean slate? Hit **rotate**: it mints a fresh token and instantly cuts off
+anything still using the old one.
+
+### Voice from the phone needs HTTPS
+Browsers block the microphone on a plain `http://` LAN address, so the phone **mic** needs a
+secure page. Start with `--https` (or the HTTPS toggle) and ELI runs a *second* server alongside
+on port **8443** with a self-signed certificate — accept the one-time "not private" warning and
+the mic works. Plain HTTP stays the primary path (it's what QR scanners open reliably); HTTPS
+runs *in addition*, purely for voice.
+
+### Switching the model from the dashboard
+**Settings → Model** lists every model installed on your computer, with sizes. Pick one and ELI
+**hot-swaps** it live — no restart. Only real, installed files show up, so you can't point it at
+something that won't load, and only an **admin** can switch it.
+
+### Two servers, one machine
+Worth knowing: "the server" is really **two** local services. The **web/API server** (port 8081)
+serves the dashboard, the phone app, and a small API. The **device server** is a separate MQTT
+service that talks to your smart-home gear (see the Home tab, below). Both run locally; both are
+yours. Everything about who's allowed in — tokens, roles, the loopback trust — is laid out in
+**Appendix C (Security)**.
+
+### If a phone can't connect
+Nine times out of ten it's the firewall. When it starts in LAN mode ELI prints the **exact**
+command to open the port for your OS — run that, and make sure the phone is on the **same
+Wi-Fi**. It's all scoped to your local network; nothing is exposed to the internet.
 
 ### What's in the web app
 It has a sidebar with several sections:
