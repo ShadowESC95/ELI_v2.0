@@ -215,7 +215,7 @@ def test_capabilities_lists_actions(tokenless_client):
 
 
 def test_models_endpoint(tokenless_client):
-    r = tokenless_client.get("/v1/models")
+    r = tokenless_client.get("/v1/models/installed")
     assert r.status_code == 200
 
 
@@ -335,3 +335,32 @@ def test_status_endpoint_shape(tokenless_client):
 def test_net_egress_respects_limit(tokenless_client):
     r = tokenless_client.get("/v1/net/egress?limit=3")
     assert r.status_code == 200 and r.json().get("ok") is True
+
+
+def test_list_models_endpoint(tokenless_client):
+    r = tokenless_client.get("/v1/models/installed")
+    assert r.status_code == 200
+    d = r.json()
+    assert d["ok"] is True and isinstance(d["models"], list)
+    assert all({"path", "name", "size_gb"} <= set(m) for m in d["models"])
+
+
+def test_switch_model_rejects_unknown_path(tokenless_client):
+    # Unknown path is rejected WITHOUT reloading anything (a dropdown can't strand it).
+    r = tokenless_client.post("/v1/model", json={"path": "models/nope-not-real.gguf"})
+    assert r.status_code == 200
+    d = r.json()
+    assert d["ok"] is False and d["error"] == "unknown_model"
+
+
+def test_switch_model_empty_path_rejected(tokenless_client):
+    r = tokenless_client.post("/v1/model", json={"path": ""})
+    assert r.status_code == 200 and r.json()["ok"] is False
+
+
+def test_settings_get_shape(tokenless_client):
+    r = tokenless_client.get("/v1/settings")
+    assert r.status_code == 200
+    d = r.json()
+    assert d["ok"] is True and isinstance(d.get("schema"), list) and d["schema"]
+    assert "values" in d
