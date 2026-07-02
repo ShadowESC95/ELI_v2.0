@@ -210,6 +210,11 @@ You don't need special phrasing. Talk normally:
 **If ELI isn't sure** what you meant, it asks — it won't guess wildly or pretend. And if a request
 needs the internet, it tells you before going online.
 
+**If you're having a hard time:** ELI is tuned to notice genuine first-person distress (it's built
+to ignore ambient audio and dark jokes, not to over-react). When it does, it steps out of
+task-mode and gently checks in — pointing you toward real human support rather than ploughing on
+with commands or reciting a canned line. It's a steer, not a script.
+
 ---
 
 ## 6. A tour of the window
@@ -220,6 +225,7 @@ terms:
 | Tab | What it's for |
 |---|---|
 | **Chat** | Talk to ELI, by voice or text. Home base. |
+| **Quick Actions** | One-tap buttons for the things you do most. |
 | **Memory** | Browse what ELI remembers about you; add or remove facts. |
 | **Habits** | Routines ELI has learned; turn on/off, edit times, add your own. |
 | **Proactive** | Controls for ELI's "act on its own" behaviour (suggestions, summaries, insights). |
@@ -267,6 +273,7 @@ and ELI opens or reports the right thing.
 - "write a bash script to monitor the GPU" · "solve this: implement a function that …"
 - "fix the bugs in foo.py" · "examine eli/memory/memory.py for errors" → ELI scans, **offers**
   fixes, and applies them only if you say "yes, fix it". · "show the diff"
+- "fabricate a test dataset for X" → ELI generates synthetic/test data on a topic.
 - The **Report Builder** tab turns "generate a document on X" into a real report: it gathers
   evidence, plans an outline, drafts each section, then **reviews and revises** it — with
   document-type quality profiles. It's generation-first, not a one-shot dump.
@@ -360,6 +367,10 @@ flowchart TD
 **Tell it something to keep:** "remember that my sister's name is Anna" · "my name is Alex"
 **Ask what it knows:** "what do you remember about my car?" · "what do you know about me?" ·
 "explain everything you know about me and where it's stored" (a sourced, detailed answer).
+
+**It remembers the thread, not just facts:** when a conversation ends, ELI quietly summarises it
+and carries a digest of your recent sessions forward — so it recalls what you've been *working
+through* over days, not just isolated one-off facts.
 
 Everything is stored **locally** in small private databases. Review and prune it in the **Memory**
 tab. A brand-new install is a **blank slate** — ELI knows nothing about you until you talk.
