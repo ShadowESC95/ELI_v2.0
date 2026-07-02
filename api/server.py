@@ -3786,6 +3786,34 @@ def _ensure_lan_cert():
     return str(crt), str(key)
 
 
+def _osc8(url: str, label: str | None = None) -> str:
+    """Wrap a URL as an OSC 8 terminal hyperlink so it's Ctrl/Cmd-clickable in
+    terminals that support them (GNOME Terminal, kitty, iTerm2, WezTerm, foot…).
+    Terminals that don't understand OSC 8 ignore the escapes and just show the label,
+    so we default the label to the URL itself — it stays visible and copy-pasteable."""
+    label = label or url
+    return f"\033]8;;{url}\033\\{label}\033]8;;\033\\"
+
+
+def _open_browser_async(url: str, delay: float = 1.2) -> None:
+    """Open `url` in the default browser shortly after the server comes up, so you
+    don't have to click or copy anything. Skipped on headless boxes (no DISPLAY /
+    WAYLAND_DISPLAY) and when ELI_API_NO_BROWSER is set."""
+    if os.environ.get("ELI_API_NO_BROWSER", "").strip().lower() in ("1", "true", "yes", "on"):
+        return
+    if _sys.platform.startswith("linux") and not (
+            os.environ.get("DISPLAY") or os.environ.get("WAYLAND_DISPLAY")):
+        return  # headless box — nothing to open a browser onto
+    def _go():
+        try:
+            import webbrowser
+            time.sleep(delay)          # let uvicorn finish binding first
+            webbrowser.open(url)
+        except Exception:
+            pass
+    threading.Thread(target=_go, daemon=True).start()
+
+
 def main():
     import argparse
     ap = argparse.ArgumentParser(
@@ -3838,6 +3866,7 @@ def main():
     # The auth gate fails CLOSED by default; main() relaxes it for the two safe cases ONLY.
     if _is_loopback_host(host):
         os.environ.setdefault("ELI_API_ALLOW_TOKENLESS", "1")
+        local_url = f"http://127.0.0.1:{port}/"
     else:
         os.environ.pop("ELI_API_ALLOW_TOKENLESS", None)
         token = _api_token()
@@ -3849,11 +3878,12 @@ def main():
         _bar = "=" * 72
         print(_bar, flush=True)
         print(f"  ELI web server on the LAN  ({host}:{port})", flush=True)
+        local_url = f"http://127.0.0.1:{port}/#token={token}"
         print(f"  Phone — open the Connect tab and scan, or visit:", flush=True)
-        print(f"      http://{ip}:{port}/#token={token}", flush=True)
+        print(f"      {_osc8(f'http://{ip}:{port}/#token={token}')}", flush=True)
         if https_port:
             print(f"  Phone microphone (voice) needs HTTPS — same Connect tab, or visit:", flush=True)
-            print(f"      https://{ip}:{https_port}/#token={token}", flush=True)
+            print(f"      {_osc8(f'https://{ip}:{https_port}/#token={token}')}", flush=True)
             print("      (self-signed: accept the one-time 'not private' warning to use the mic)", flush=True)
         else:
             print("  Tip: add --https to also enable the phone microphone (voice).", flush=True)
@@ -3870,6 +3900,11 @@ def main():
         except Exception:
             pass
         print(_bar, flush=True)
+
+    # Open-on-this-computer: a clickable link + auto-launch the local browser so you
+    # never have to copy-paste the URL (set ELI_API_NO_BROWSER=1 to skip the launch).
+    print(f"  On this computer:  {_osc8(local_url)}", flush=True)
+    _open_browser_async(local_url)
 
     # Run HTTPS (voice) alongside on its own port, in a daemon thread.
     if https_port and _crt and _key:
