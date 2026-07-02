@@ -93,3 +93,44 @@ def test_calculator_tab_has_inputs(qapp):
               + w.findChildren(QPlainTextEdit))
     assert isinstance(w, QWidget)
     assert len(w.findChildren(QWidget)) > 0
+
+
+# --------------------------------------------------------------------------- #
+# panels / tabs / docks / widgets — every other GUI widget that constructs
+# standalone offscreen (the main window is the only piece that can't).
+# --------------------------------------------------------------------------- #
+MORE_WIDGETS = [
+    ("eli.gui.panels.settings", "AdvancedSettingsDialog"),
+    ("eli.gui.panels.startup", "HardwareTuningDock"),
+    ("eli.gui.panels.startup", "StartupModelSelectionDialog"),
+    ("eli.gui.panels.startup", "FirstBootWizard"),
+    ("eli.gui.tabs.tasks_tab", "TasksTab"),
+    ("eli.gui.tabs.experimental_tab", "ExperimentalTab"),
+    ("eli.gui.tabs.eli_world_tab", "EliWorldTab"),
+    ("eli.gui.docks.operator_console_dock", "OperatorConsoleDock"),
+    ("eli.gui.docks.proactive_dock", "ProactiveDock"),
+    ("eli.gui.widgets.ollama_model_selector", "OllamaModelSelector"),
+    ("eli.gui.widgets.ollama_model_selector", "_StatusDot"),
+]
+
+
+@pytest.mark.parametrize("module,clsname", MORE_WIDGETS)
+def test_gui_widget_constructs(qapp, module, clsname):
+    import importlib
+    cls = getattr(importlib.import_module(module), clsname)
+    w = cls()
+    assert isinstance(w, QWidget)
+
+
+def test_agent_edit_dialog_constructs(qapp):
+    from eli.gui.panels.agent_wizard import AgentEditDialog
+    w = AgentEditDialog(agent_info={"name": "tester", "description": "a test agent",
+                                    "triggers": [], "capabilities": []})
+    assert isinstance(w, QWidget)
+
+
+def test_settings_dialog_builds_deep_tree(qapp):
+    from eli.gui.panels.settings import AdvancedSettingsDialog
+    w = AdvancedSettingsDialog()
+    assert isinstance(w, QWidget)
+    assert len(w.findChildren(QWidget)) > 50   # a full multi-tab settings surface
