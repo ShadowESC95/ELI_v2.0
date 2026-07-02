@@ -4,7 +4,6 @@ executor funnels through.
 """
 from __future__ import annotations
 
-import pytest
 
 from eli.execution import tool_execution_authority as tea
 
@@ -19,22 +18,20 @@ def test_canonicalize_bare_string():
     assert action == "GET_TIME" and isinstance(args, dict)
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="LATENT BUG: canonicalize_execution_call lists 'tool'/'name' as aliases for "
-           "'action' (line ~47), but _payload_from_packet_like returns the plain dict "
-           "first, so the 'if payload:' branch honours only the 'action' key and the "
-           "alias branch is dead code. A {'tool': X} call resolves to action=''.",
-)
-def test_canonicalize_tool_key_alias_SHOULD_work():
+def test_canonicalize_tool_key_alias():
+    # FIXED: the 'if payload:' branch now honours the tool/name aliases too.
     _, action, _ = tea.canonicalize_execution_call({"tool": "VOLUME", "args": {}})
     assert action == "VOLUME"
 
 
-def test_canonicalize_tool_key_current_behaviour():
-    # Documents the *actual* (buggy) behaviour so a future fix is a visible change.
-    _, action, _ = tea.canonicalize_execution_call({"tool": "VOLUME", "args": {}})
-    assert action == ""
+def test_canonicalize_name_key_alias():
+    _, action, _ = tea.canonicalize_execution_call({"name": "GET_TIME", "args": {}})
+    assert action == "GET_TIME"
+
+
+def test_canonicalize_kwargs_alias():
+    _, _, args = tea.canonicalize_execution_call({"action": "OPEN_APP", "kwargs": {"app": "x"}})
+    assert args.get("app") == "x"
 
 
 def test_record_execution_result_no_crash():
