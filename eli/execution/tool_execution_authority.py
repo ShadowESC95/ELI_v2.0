@@ -40,8 +40,10 @@ def canonicalize_execution_call(action: Any, args: Dict[str, Any] | None = None)
 
     if payload:
         packet = action
-        act = str(payload.get("action") or "")
-        call_args = dict(payload.get("args") or {})
+        # `_payload_from_packet_like` returns ANY plain dict here, so honour the same
+        # action aliases the dedicated dict branch below advertises (action/tool/name).
+        act = str(payload.get("action") or payload.get("tool") or payload.get("name") or "")
+        call_args = dict(payload.get("args") or payload.get("kwargs") or {})
         return packet, act, call_args
 
     if isinstance(action, dict) and ("action" in action or "tool" in action or "name" in action):
