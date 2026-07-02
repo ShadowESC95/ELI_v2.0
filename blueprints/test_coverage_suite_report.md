@@ -16,10 +16,10 @@ Reproducible via `scripts/coverage_full.sh`; methodology in
 
 | Metric | Value |
 |--------|-------|
-| **Testable coverage** | **48.1%** — 33,681 / 70,086 statements |
+| **Testable coverage** | **48.7%** — 34,131 / 70,086 statements |
 | **GUI recovered** (was 0.6%) | **45%** — 2,455 / 5,439 statements |
-| Tests passing | **7,351** (7,229 unit + 72 web + 23 live + 27 GUI) |
-| New test modules this effort | **20** (~280 tests) |
+| Tests passing | **7,436** (7,302 unit + 76 web + 31 live + 27 GUI) |
+| New test modules this effort | **24** (~330 tests) |
 | Pre-existing reds (unrelated) | 5 |
 | Skipped / xfailed (documented) | 45 / 2 |
 
@@ -92,8 +92,8 @@ the anti-confabulation guards, and DB-path isolation.
 | `eli/core` | 55% | 3,492 | | `eli/system` | 37% | 261 |
 | `eli/memory` | 54% | 3,338 | | `eli/tools` | 30% | 4,508 |
 | `eli/kernel` | 52% | 7,059 | | `eli/perception` | 27% | 4,138 |
-| `eli/runtime` | 51% | 13,131 | | `eli/integrations` | 26% | 507 |
-| `api` (web) | 49% | 1,204 | | `eli/utils` | 25% | 468 |
+| `eli/runtime` | 54% | 13,131 | | `eli/integrations` | 26% | 507 |
+| `api` (web) | 51% | 1,204 | | `eli/utils` | 25% | 468 |
 | | | | | *(gui main window)* | *excl.* | ~7k |
 
 ### Visual (testable surface)
@@ -107,8 +107,8 @@ learning     ████████████░░░░░░░░  62%
 core         ███████████░░░░░░░░░  55%
 memory       ███████████░░░░░░░░░  54%
 kernel       ██████████░░░░░░░░░░  52%
-runtime      ██████████░░░░░░░░░░  51%
-api          ██████████░░░░░░░░░░  49%
+runtime      ███████████░░░░░░░░░  54%
+api          ██████████░░░░░░░░░░  51%
 gui          █████████░░░░░░░░░░░  45%   (was 0.6% — main window excl.)
 execution    ████████░░░░░░░░░░░░  41%   (router 70% / handlers 31% via live turns)
 tools        ██████░░░░░░░░░░░░░░  30%
