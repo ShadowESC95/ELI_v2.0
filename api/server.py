@@ -743,12 +743,16 @@ _WEB_UI = """<!doctype html>
   const api=(path,opts)=>_fetchHeal(path,Object.assign({headers:H()},opts||{})).then(r=>r.json());
   function esc(s){return (''+s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));}
   // ── Settings (real, typed options wired to ELI's config) ───────────────
-  let _setSub='General', _setSchema=[], _setVals={}, _setVoices=[];
+  let _setSub='General', _setSchema=[], _setVals={}, _setVoices=[], _setModels=[], _setModelActive='';
   function loadSettings(){
-    Promise.all([api('/v1/settings'), api('/v1/voice/voices').catch(()=>({})), api('/v1/me').catch(()=>({}))]).then(function(r){
-      const s=r[0]||{}, v=r[1]||{}, me=r[2]||{};
+    Promise.all([api('/v1/settings'), api('/v1/voice/voices').catch(()=>({})), api('/v1/me').catch(()=>({})), api('/v1/models').catch(()=>({}))]).then(function(r){
+      const s=r[0]||{}, v=r[1]||{}, me=r[2]||{}, mo=r[3]||{};
       _setSchema=s.schema||[]; _setVals=s.values||{};
       _setVoices=((v.voices)||[]).map(x=>x.id||x.name||x);
+      _setModels=(mo.models)||[]; _setModelActive=mo.active||'';
+      // Inject a "Model" group at the top: a safe dropdown of installed models.
+      // Switching hot-reloads via /v1/model (never a free-text path that could strand it).
+      if(_setModels.length)_setSchema=[{key:'__model',type:'model',group:'Model',label:'Active model',hint:'Switch the loaded model — reloads, may take a moment'}].concat(_setSchema);
       const isAdmin=!me.role||me.role==='admin';
       const groups=[],seen={};_setSchema.forEach(it=>{if(!seen[it.group]){seen[it.group]=1;groups.push(it.group);}});
       const host=$('#settings-tab');host.innerHTML='';
@@ -766,6 +770,7 @@ _WEB_UI = """<!doctype html>
       if(it.min!==undefined)return '<input type="range" class="brange setinput" data-k="'+k+'" data-t="'+it.type+'" min="'+it.min+'" max="'+it.max+'" step="'+it.step+'" value="'+(val!=null?val:it.min)+'" oninput="this.nextElementSibling.textContent=this.value"><span class="setnum">'+(val!=null?val:it.min)+'</span>';
       return '<input type="number" class="setinput" data-k="'+k+'" data-t="'+it.type+'" value="'+(val!=null?val:'')+'">';
     }
+    if(it.type==='model'){const av=(_setModelActive||'').split('/').pop();return '<select class="setinput" onchange="switchModel(this.value)">'+_setModels.map(m=>'<option value="'+esc(m.path)+'" '+(m.name===av?'selected':'')+'>'+esc(m.name)+' ('+esc(''+m.size_gb)+'GB)</option>').join('')+'</select> <span id="model-switch-status" class="rnote"></span>';}
     if(it.key==='tts_voice'&&_setVoices.length)return '<select class="setinput" data-k="'+k+'">'+_setVoices.map(v=>'<option '+(v===val?'selected':'')+'>'+esc(v)+'</option>').join('')+'</select>';
     if(it.key==='theme')return '<select class="setinput" data-k="'+k+'"><option '+(val==='dark'?'selected':'')+'>dark</option><option '+(val==='light'?'selected':'')+'>light</option></select>';
     if(it.key==='user_text_color')return '<input type="color" class="setinput" data-k="'+k+'" value="'+(val||'#4DA3FF')+'">';
@@ -780,6 +785,13 @@ _WEB_UI = """<!doctype html>
     else h+='<div class="rnote" style="margin-top:10px">Sign in as admin to change settings.</div>';
     el.innerHTML=h;
     if(!isAdmin)el.querySelectorAll('[data-k]').forEach(x=>x.disabled=true);
+  }
+  function switchModel(path){
+    const st=$('#model-switch-status');if(st)st.textContent='Switching… reloading (may take a moment)…';
+    api('/v1/model',{method:'POST',body:JSON.stringify({path:path})}).then(function(r){
+      if(r&&r.ok){_setModelActive=path;if(st)st.innerHTML='Switched &#10003; '+esc(path.split('/').pop());}
+      else{if(st)st.innerHTML='<span style="color:#f87171">'+esc((r&&r.error)||'switch failed')+'</span>';}
+    }).catch(e=>{if(st)st.textContent=''+e;});
   }
   function saveSettings(group){
     const st=$('#set-status-'+group);if(st)st.textContent='Saving…';
@@ -2458,6 +2470,10 @@ class NetToggle(BaseModel):
 class SettingsUpdate(BaseModel):
     settings: dict = {}
 
+
+class ModelSwitch(BaseModel):
+    path: str = ""
+
 # Curated, safe-to-expose ELI settings — real keys from runtime_settings.DEFAULTS, grouped
 # for the dashboard. Excludes anything that could strand a running model (model_path,
 # n_gpu_layers, tensor_split…). (type, group, label, hint, [min, max, step] for numbers).
@@ -3354,6 +3370,62 @@ def set_settings(req: SettingsUpdate, principal: Principal = Depends(require_adm
                subject=",".join(sorted(applied)), outcome="applied",
                payload={"applied": applied})
     return {"ok": True, "applied": applied}
+
+
+def _list_chat_models() -> list:
+    """Chat-capable GGUFs under models/ (excludes vision/projector/embedding files)."""
+    import glob
+    out = []
+    for g in sorted(glob.glob("models/**/*.gguf", recursive=True)):
+        base = os.path.basename(g).lower()
+        if any(x in base for x in ("mmproj", "embed", "nomic", "clip", "moondream", "vision")):
+            continue
+        try:
+            gb = round(os.path.getsize(g) / 1e9, 1)
+        except OSError:
+            continue
+        out.append({"path": g, "name": os.path.basename(g), "size_gb": gb})
+    return out
+
+
+@app.get("/v1/models", tags=["System"], dependencies=[Depends(_require_token)])
+def list_models():
+    """Available chat models + the active one, for the dashboard's model dropdown.
+    `active` is the *actually resolved* model (honours the env override), so the
+    dropdown reflects what's really loaded — not just what's in config."""
+    active = None
+    try:
+        from eli.cognition import gguf_inference as _gi
+        p = _gi.get_model_path()
+        active = str(p) if p else None
+    except Exception:
+        pass
+    if not active:
+        from eli.core import config as _cfg
+        active = (_cfg.get("gguf_model_path", None) or _cfg.get("model_path", None)
+                  or _cfg.get("custom_model_path", None))
+    return {"ok": True, "models": _list_chat_models(), "active": active}
+
+
+@app.post("/v1/model", tags=["System"])
+def switch_model(req: ModelSwitch, principal: Principal = Depends(require_admin)):
+    """Switch the active model and hot-reload it (admin-only). Only a path already in
+    the available-models list is accepted, so the dropdown can never strand the runtime
+    on a bad path; the VRAM loader fits it on reload."""
+    path = (req.path or "").strip()
+    if path not in {m["path"] for m in _list_chat_models()}:
+        return {"ok": False, "error": "unknown_model", "path": path}
+    try:
+        from eli.core import runtime_settings as _rs
+        res = _rs.apply_runtime_settings(
+            {"model_path": path, "gguf_model_path": path, "custom_model_path": path},
+            do_reload=True)
+        _audit("model_switch", user_id=principal.user_id, action="UPDATE",
+               subject=os.path.basename(path), outcome="applied", payload={"path": path})
+        return {"ok": True, "path": path, "reload": res}
+    except Exception as e:
+        return {"ok": False, "error": f"{type(e).__name__}: {e}"}
+
 
 def _lan_subnet() -> str:
     """The /24 the LAN IP sits on (e.g. 192.168.1.0/24) — used to scope the firewall rule
