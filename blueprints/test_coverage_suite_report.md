@@ -15,7 +15,7 @@ Reproducible via `scripts/coverage_full.sh`; methodology in
 
 | Metric | Value |
 |--------|-------|
-| **Testable coverage (GUI excluded)** | **47.3%** — 30,520 / 64,587 statements |
+| **Testable coverage (GUI excluded)** | **47.6%** — 30,764 / 64,587 statements |
 | Raw coverage (whole tree, GUI included) | 39.6% |
 | Tests passing | **7,218** (unit) + 72 (web) + 15 (live) |
 | New test modules this effort | **15** (~230 tests) |
@@ -92,7 +92,7 @@ the anti-confabulation guards, and DB-path isolation.
 | `eli/runtime` | 51% | ~13,131 | grounding / guards / contracts |
 | `eli/contracts` | 44% | ~256 | typed contracts |
 | `eli/planning` | 41% | ~2,132 | daemon / scheduler / autonomy |
-| `eli/execution` | 39% | ~12,315 | router (70%) + executor handlers |
+| `eli/execution` | 41% | ~12,315 | router (70%) + executor handlers |
 | `eli/plugins` | 38% | ~1,050 | runtime-loaded tools |
 | `eli/system` | 37% | ~261 | system index |
 | `eli/tools` | ~30% | ~4,510 | news / image / weather |
@@ -114,7 +114,7 @@ api          ██████████░░░░░░░░░░  51%
 kernel       ██████████░░░░░░░░░░  51%
 runtime      ██████████░░░░░░░░░░  51%
 planning     ████████░░░░░░░░░░░░  41%
-execution    ████████░░░░░░░░░░░░  39%   (router 70% / executor handlers ~29%)
+execution    ████████░░░░░░░░░░░░  41%   (router 70% / executor handlers 31%)
 tools        ██████░░░░░░░░░░░░░░  30%
 perception   █████░░░░░░░░░░░░░░░  27%
 utils        █████░░░░░░░░░░░░░░░  23%
@@ -130,7 +130,7 @@ real world.** Pure logic is well covered; the edges aren't.
 
 | Subsystem | Why it's low |
 |-----------|--------------|
-| `execution` (39%) | The executor is ~174 action handlers, **most side-effecting** — open apps, run shell, screenshots, volume, file writes, media. You can't unit-test "open Firefox" (the test *does it*). They cover only via real live-lane turns (a limited safe set). The router beside it is **70%** — pure parsing. |
+| `execution` (41%) | The executor is ~174 action handlers, **most side-effecting** — open apps, run shell, screenshots, volume, file writes, media. You can't unit-test "open Firefox" (the test *does it*). They cover only via real live-lane turns (a limited safe set). The router beside it is **70%** — pure parsing. |
 | `perception` (27%) | The body: GPU vision, whisper STT (mic), TTS (speakers), gaze (webcam), `os_controller` (**8%** — needs a live desktop), screenshots (a display). **None runs headless.** The covered part is the pure parsers (equations 100%, CSV 78%). |
 | `utils` (23%) | Almost entirely `platform_compat.py` — `if WINDOWS … elif MACOS … else …` branches. On the Linux CI box **only the Linux branch runs**; the other-OS code is counted uncovered. Inherent to cross-platform code. |
 | `tools` (30%) | News fetcher (network, gated off in tests), image engine (GPU diffusion), weather (network). The non-network logic is tested; fetch/GPU paths aren't. |
