@@ -7,12 +7,13 @@
 # NOTE: coverage's parser does NOT strip inline comments after a value — keep
 # comments on their own lines.
 #
-# The `omit` list excludes ONLY code that genuinely cannot run in headless CI —
-# the interactive desktop GUI and hardware I/O (mic/camera/speakers/GPU-vision/
-# gaze/OS-control/screen). This measures the *testable surface*. Code that is
-# merely untested (e.g. image_engine, the analyze_* parsers, executor handlers)
-# is deliberately KEPT in the denominator — excluding it would inflate the number
-# dishonestly. Every exclusion here is justified in docs/COVERAGE.md.
+# The `omit` list excludes ONLY code that genuinely cannot run in headless CI.
+# After the offscreen-Qt lane (lane 4) the GUI *tab* widgets ARE testable and are
+# now IN the denominator; the sole GUI exclusion is the main window
+# (eli_pro_audio_gui_MKI.py), which blocks on device/display init and cannot be
+# constructed headless. Code that is merely untested (image_engine, the analyze_*
+# parsers, executor handlers) is deliberately KEPT in the count — excluding it would
+# inflate the number dishonestly. Every exclusion here is justified in docs/COVERAGE.md.
 
 [run]
 parallel = True
@@ -24,7 +25,7 @@ omit =
     */build/*
     */.venv/*
     */__main__.py
-    */gui/*
+    */gui/eli_pro_audio_gui_MKI.py
 
 [report]
 show_missing = True
