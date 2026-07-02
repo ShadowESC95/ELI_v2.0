@@ -257,3 +257,48 @@ def test_weather_offline_grounded(engine, monkeypatch):
     r = engine.process("what's the weather in Dublin?", reasoning_mode="quick")
     # Net off: must degrade to an honest, non-empty answer, not crash or fabricate.
     assert isinstance(r, dict) and _text(r).strip()
+
+
+# --------------------------------------------------------------------------- #
+# Varied intents + deeper modes — each drives distinct router / engine / synthesis
+# branches through the real pipeline (structural assertions only, no fine-tuning).
+# --------------------------------------------------------------------------- #
+def test_definition_intent(engine):
+    r = engine.process("what does 'entropy' mean in one line?", reasoning_mode="quick")
+    assert isinstance(r, dict) and _text(r).strip()
+
+
+def test_summarization_intent(engine):
+    r = engine.process("summarise the idea of gravity in one sentence", reasoning_mode="normal")
+    assert isinstance(r, dict) and _text(r).strip()
+
+
+def test_comparison_intent(engine):
+    r = engine.process("briefly, cats or dogs — which is more independent?", reasoning_mode="quick")
+    assert isinstance(r, dict) and _text(r).strip()
+
+
+def test_list_intent(engine):
+    r = engine.process("name three primary colours", reasoning_mode="quick")
+    assert isinstance(r, dict) and _text(r).strip()
+
+
+def test_research_mode_deeper_pipeline(engine):
+    # 'research' drives the deepest agent-bus / escalation route.
+    r = engine.process("what is curiosity, briefly?", reasoning_mode="research")
+    assert isinstance(r, dict) and _text(r).strip()
+
+
+def test_expert_mode(engine):
+    r = engine.process("give one crisp thought on learning", reasoning_mode="expert")
+    assert isinstance(r, dict) and _text(r).strip()
+
+
+def test_long_input_is_handled(engine):
+    r = engine.process(("tell me about focus. " * 40).strip(), reasoning_mode="quick")
+    assert isinstance(r, dict) and _text(r).strip()
+
+
+def test_special_characters_input(engine):
+    r = engine.process("what's 2+2? (reply briefly) — thanks!! 🙂", reasoning_mode="quick")
+    assert isinstance(r, dict) and _text(r).strip()
