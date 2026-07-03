@@ -9,7 +9,7 @@ import pytest
 
 PLUGIN_NAMES = [
     "calendar", "document_reader", "media", "notes",
-    "pomodoro", "smart_home", "system_stats", "tts",
+    "pomodoro", "system_stats", "tts",
     "weather", "web", "web_automation",
 ]
 

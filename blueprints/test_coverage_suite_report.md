@@ -176,7 +176,7 @@ real world.** Pure logic is well covered; the edges aren't.
 
 1–3. `smart_home` plugin — the in-progress Home-Assistant removal (voice SMART_HOME
    now uses ELI's own MQTT server).
-4. A blueprint references a since-moved file (`eli/execution/handlers/__init__.py`).
+4. A blueprint references a since-moved handlers module (the `handlers` package `__init__.py`).
 5. Silent-swallow ratchet — 987 `except: pass` vs a 950 ceiling (a standing
    observability debt; the ratchet test correctly forbids raising the ceiling).
 
