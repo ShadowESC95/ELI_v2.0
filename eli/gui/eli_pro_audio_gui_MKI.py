@@ -8329,7 +8329,7 @@ _register()
             os.environ["ELI_API_HOST"] = host
             os.environ["ELI_API_TOKEN"] = token
             os.environ.pop("ELI_API_ALLOW_TOKENLESS", None)  # LAN must require the token
-            url = f"http://{self._eli_server_lan_ip()}:{port}/?token={token}"
+            url = f"http://{self._eli_server_lan_ip()}:{port}/#token={token}"
         else:
             host = "127.0.0.1"
             os.environ["ELI_API_HOST"] = host
@@ -8388,7 +8388,7 @@ _register()
         lan = os.environ.get("ELI_API_HOST", "") == "0.0.0.0"
         if running and lan:
             port = int(os.environ.get("ELI_API_PORT", "8081"))
-            self._srv_url.setText(f"http://{self._eli_server_lan_ip()}:{port}/?token={token}")
+            self._srv_url.setText(f"http://{self._eli_server_lan_ip()}:{port}/#token={token}")
             try:
                 self._srv_status.setText("● Token rotated — re-open the new link on each phone")
                 self._srv_status.setStyleSheet("font-size:12px;font-weight:700;color:#ebcb8b;")

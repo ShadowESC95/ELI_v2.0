@@ -42,7 +42,7 @@ if [ "$LAN" -eq 1 ]; then
   echo " ELI server — LAN mode (token-protected, still 100% local)"
   echo "   On a phone/tablet on the SAME network, open:"
   echo ""
-  echo "     http://$LANIP:$PORT/?token=$TOKEN"
+  echo "     http://$LANIP:$PORT/#token=$TOKEN"
   echo ""
   echo "   The page stores the token; afterwards just http://$LANIP:$PORT/ works."
   echo "   Inference runs on THIS machine — nothing leaves it to any cloud."
