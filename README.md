@@ -438,7 +438,7 @@ data whenever you want.
 - `eli/gui` — PySide6 GUI launcher and `EliMainWindow`
 - `eli/cli` — headless REPL (`eli --headless`)
 - `config` — portable default settings · `models` — local GGUF payloads (gitignored)
-- `tests` — a large pytest suite (7,000+ tests across 176 files, including a `claims/` layer that
+- `tests` — a large pytest suite (7,000+ tests across 205 files, including a `claims/` layer that
   checks the project against its own documentation); the full suite runs locally, while CI gates a
   cross-platform portable subset (no GGUF/display/GPU) on Linux, macOS, and Windows
 
@@ -488,8 +488,9 @@ Large model/voice binaries are distributed separately (GitHub Release assets) vi
 Guards + aliases cover Windows, macOS, Linux, BSD, and Android/Termux, but no package makes every
 OS permission instant: Windows may need SmartScreen approval + audio/COM packages; macOS needs
 Screen-Recording/Accessibility permissions; Linux desktop control depends on Wayland/X11 +
-PulseAudio/PipeWire; Android/Termux is headless-only; GPU acceleration depends on local
-drivers/CUDA/Metal. Full matrix: **[`docs/CROSS_PLATFORM.md`](docs/CROSS_PLATFORM.md)**.
+PulseAudio/PipeWire; Android/Termux is headless-only; GPU acceleration depends on local drivers
+(NVIDIA CUDA / AMD ROCm / Apple Metal — the installer auto-detects and builds for whichever you
+have, falling back to CPU otherwise). Full matrix: **[`docs/CROSS_PLATFORM.md`](docs/CROSS_PLATFORM.md)**.
 </details>
 
 ## Security
@@ -507,10 +508,9 @@ Defence-in-depth, all local:
 
 ## Project status & contributing
 
-ELI is **actively developed** and independently built, and it ships new work most weeks. Direction,
-releases, and what gets merged are decided by the copyright holder. Bug reports and ideas are
-genuinely welcome, and the project keeps moving as long as it stays useful — which, so far, it very
-much is.
+I work on ELI most weeks and keep shipping. I'm the one who decides what goes in and when it
+releases — but bug reports and ideas are genuinely welcome, and I'll keep it moving as long as it's
+useful to people. So far, it very much is.
 
 - **Found a bug or have an idea?** [Open an issue](https://github.com/ShadowESC95/ELI_v2.0/issues).
 - **Want to contribute code?** Pull requests are welcome — please read
