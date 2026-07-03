@@ -3859,6 +3859,15 @@ def _ensure_lan_cert():
     return str(crt), str(key)
 
 
+def _osc8(url: str, label: str | None = None) -> str:
+    """Wrap a URL as an OSC 8 terminal hyperlink — Ctrl/Cmd-clickable in terminals that
+    support them (GNOME Terminal, kitty, iTerm2, WezTerm, foot…). The label defaults to
+    the URL itself, so it stays visible and copy-pasteable either way. (NB: `cat -v` and
+    log files always show the raw escapes — that is NOT how a live terminal renders it.)"""
+    label = label or url
+    return f"\033]8;;{url}\033\\{label}\033]8;;\033\\"
+
+
 def _open_browser_async(url: str, delay: float = 1.2) -> bool:
     """Open `url` in the default browser shortly after the server comes up, so you
     never have to click or copy anything. Returns True if a browser open was launched.
@@ -3973,10 +3982,10 @@ def main():
         print(f"  ELI web server on the LAN  ({host}:{port})", flush=True)
         local_url = f"http://127.0.0.1:{port}/#token={token}"
         print(f"  Phone — open the Connect tab and scan, or visit:", flush=True)
-        print(f"      http://{ip}:{port}/#token={token}", flush=True)
+        print(f"      {_osc8(f'http://{ip}:{port}/#token={token}')}", flush=True)
         if https_port:
             print(f"  Phone microphone (voice) needs HTTPS — same Connect tab, or visit:", flush=True)
-            print(f"      https://{ip}:{https_port}/#token={token}", flush=True)
+            print(f"      {_osc8(f'https://{ip}:{https_port}/#token={token}')}", flush=True)
             print("      (self-signed: accept the one-time 'not private' warning to use the mic)", flush=True)
         else:
             print("  Tip: add --https to also enable the phone microphone (voice).", flush=True)
@@ -3996,7 +4005,7 @@ def main():
 
     # Open-on-this-computer: a clickable link + auto-launch the local browser so you
     # never have to copy-paste the URL (set ELI_API_NO_BROWSER=1 to skip the launch).
-    print(f"  On this computer:  {local_url}", flush=True)
+    print(f"  On this computer:  {_osc8(local_url)}", flush=True)
     if _open_browser_async(local_url):
         print("  (opening it in your browser now — Ctrl-click or copy the URL above if it doesn't)",
               flush=True)
