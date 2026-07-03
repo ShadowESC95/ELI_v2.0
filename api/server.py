@@ -3872,13 +3872,37 @@ def _open_browser_async(url: str, delay: float = 1.2) -> bool:
             ("DISPLAY", "WAYLAND_DISPLAY", "XDG_SESSION_TYPE", "XDG_CURRENT_DESKTOP")):
         return False
 
-    def _go():
+    def _launch():
+        # Prefer the OS "open in default browser" handler — far more reliable than
+        # Python's webbrowser, whose Mozilla backend uses flaky `firefox -remote` calls
+        # that silently no-op (notably with a snap Firefox).
+        import shutil
+        import subprocess
+        plat = _sys.platform
         try:
+            if plat.startswith("linux"):
+                opener = shutil.which("xdg-open") or shutil.which("gio")
+                if opener:
+                    args = [opener, "open", url] if opener.endswith("gio") else [opener, url]
+                    subprocess.Popen(args, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                    return
+            elif plat == "darwin":
+                subprocess.Popen(["open", url], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                return
+            elif plat.startswith("win"):
+                os.startfile(url)  # type: ignore[attr-defined]
+                return
+        except Exception:
+            pass
+        try:                       # last-ditch fallback
             import webbrowser
-            time.sleep(delay)          # let uvicorn finish binding first
             webbrowser.open(url)
         except Exception:
             pass
+
+    def _go():
+        time.sleep(delay)          # let uvicorn finish binding first
+        _launch()
     threading.Thread(target=_go, daemon=True).start()
     return True
 
