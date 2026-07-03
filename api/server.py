@@ -3882,30 +3882,30 @@ def _open_browser_async(url: str, delay: float = 1.2) -> bool:
         return False
 
     def _launch():
-        # Prefer the OS "open in default browser" handler — far more reliable than
-        # Python's webbrowser, whose Mozilla backend uses flaky `firefox -remote` calls
-        # that silently no-op (notably with a snap Firefox).
+        # Try every mechanism until one works — different desktops/confinements favour
+        # different ones. webbrowser first (it returns True on success and is what worked
+        # historically), then the OS "open" handlers.
         import shutil
         import subprocess
         plat = _sys.platform
         try:
-            if plat.startswith("linux"):
-                opener = shutil.which("xdg-open") or shutil.which("gio")
-                if opener:
-                    args = [opener, "open", url] if opener.endswith("gio") else [opener, url]
-                    subprocess.Popen(args, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-                    return
-            elif plat == "darwin":
-                subprocess.Popen(["open", url], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-                return
-            elif plat.startswith("win"):
-                os.startfile(url)  # type: ignore[attr-defined]
+            import webbrowser
+            if webbrowser.open(url):
                 return
         except Exception:
             pass
-        try:                       # last-ditch fallback
-            import webbrowser
-            webbrowser.open(url)
+        try:
+            if plat.startswith("linux"):
+                for name in ("xdg-open", "gio", "sensible-browser", "gnome-open"):
+                    opener = shutil.which(name)
+                    if opener:
+                        args = [opener, "open", url] if name == "gio" else [opener, url]
+                        subprocess.Popen(args, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                        return
+            elif plat == "darwin":
+                subprocess.Popen(["open", url], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            elif plat.startswith("win"):
+                os.startfile(url)  # type: ignore[attr-defined]
         except Exception:
             pass
 
@@ -3982,10 +3982,10 @@ def main():
         print(f"  ELI web server on the LAN  ({host}:{port})", flush=True)
         local_url = f"http://127.0.0.1:{port}/#token={token}"
         print(f"  Phone — open the Connect tab and scan, or visit:", flush=True)
-        print(f"      {_osc8(f'http://{ip}:{port}/#token={token}')}", flush=True)
+        print(f"      http://{ip}:{port}/#token={token}", flush=True)
         if https_port:
             print(f"  Phone microphone (voice) needs HTTPS — same Connect tab, or visit:", flush=True)
-            print(f"      {_osc8(f'https://{ip}:{https_port}/#token={token}')}", flush=True)
+            print(f"      https://{ip}:{https_port}/#token={token}", flush=True)
             print("      (self-signed: accept the one-time 'not private' warning to use the mic)", flush=True)
         else:
             print("  Tip: add --https to also enable the phone microphone (voice).", flush=True)
@@ -4005,7 +4005,7 @@ def main():
 
     # Open-on-this-computer: a clickable link + auto-launch the local browser so you
     # never have to copy-paste the URL (set ELI_API_NO_BROWSER=1 to skip the launch).
-    print(f"  On this computer:  {_osc8(local_url)}", flush=True)
+    print(f"  On this computer:  {local_url}", flush=True)
     if _open_browser_async(local_url):
         print("  (opening it in your browser now — Ctrl-click or copy the URL above if it doesn't)",
               flush=True)
@@ -4019,7 +4019,7 @@ def main():
             "api.server:app", host=host, port=https_port, log_level="warning",
             ssl_certfile=_crt, ssl_keyfile=_key))
         threading.Thread(target=_hsrv.run, daemon=True).start()
-    uvicorn.run("api.server:app", host=host, port=port, reload=reload, log_level="warning")
+    uvicorn.run("api.server:app", host=host, port=port, reload=reload, log_level="info")
 
 if __name__ == "__main__":
     main()
