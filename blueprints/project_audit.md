@@ -130,10 +130,11 @@ doc. **Refactor note:** the synthesis/think/budget logic should move behind the 
 Inference Governor (companion doc) rather than per-site flags.
 
 ### 4.4 Agent bus — `cognition/agent_bus.py (3138)
-**14 agents** (verified classes): `memory` (723), `system` (942), `habit` (1061),
+**15 agents** (verified classes): `memory` (723), `system` (942), `habit` (1061),
 `self_improvement` (1117), `proactive` (1176), `frontier` (1243), `plugin` (1320),
 `capability` (1362), `voice` (1408), `orchestrator` (1590), `file_code` (2316),
-`introspection` (2641), `reflection` (2721), `knowledge_graph` (2816). Profiles selected per
+`introspection` (2641), `reflection` (2721), `knowledge_graph` (2816), `critic` (2986).
+Profiles selected per
 action by `_select_profile` (default branch + keyword heuristics; this is what dropped
 `system` on the compound CREATE_FILE turn — §9). Dependency DAG: `knowledge_graph ← memory`
 (`_AGENT_DEPENDENCIES`, `:596`), executed in topological layers via `core/dag.py`. **[V]**
@@ -367,7 +368,7 @@ Severity P0=integrity, P1=routing/exec, P2=quality. Status as of `a641471`.
 `_compact_grounded_synthesis`, `_synthesize_answer`, replan, low-grounding downgrade),
 `gguf_inference` (`_no_think_prefill`, `_is_thinking_model`, `record_speed`, broker legacy
 paths), `reasoning_modes` budget, `model_tier` (EMA + `speed_passes`), `hardware_profile`
-(reserve), `startup_hardware_optimizer.train_ctx_for_model`, `agent_bus` (14 agents +
+(reserve), `startup_hardware_optimizer.train_ctx_for_model`, `agent_bus` (15 agents +
 `_select_profile` branches), `persona_updater`, `dynamic_runtime_budget` (dead),
 executor CREATE_FILE / CHECK_JOB handlers, `SUPPORTED_ACTIONS`, structure/LOC/test counts.
 **From the 2026-06-17 session log [L]:** model load, stage map, DB table dump, vision/STT/TTS
