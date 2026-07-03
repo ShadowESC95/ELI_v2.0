@@ -3971,10 +3971,15 @@ def main():
         local_url = f"http://127.0.0.1:{port}/"
     else:
         os.environ.pop("ELI_API_ALLOW_TOKENLESS", None)
-        token = _api_token()
+        token = _api_token()   # explicit --token / ELI_API_TOKEN env wins
         auto_generated = not token
         if auto_generated:
-            token = secrets.token_urlsafe(32)
+            # Use the PERSISTED stable token (saved 0600 under config_dir) so it stays the
+            # SAME across restarts — otherwise every restart mints a fresh random token and
+            # strands the already-paired phone (its QR/URL carries the old one → 401 →
+            # "loads but not fully"). Rotate deliberately via the Connect tab.
+            from api.api_token import get_stable_token
+            token = get_stable_token()
             os.environ["ELI_API_TOKEN"] = token
         ip = _lan_ip()
         _bar = "=" * 72
@@ -3991,7 +3996,8 @@ def main():
             print("  Tip: add --https to also enable the phone microphone (voice).", flush=True)
         print(f"  Or send header:   Authorization: Bearer {token}", flush=True)
         if auto_generated:
-            print("  (Token auto-generated; pass --token <secret> for a stable one.)", flush=True)
+            print("  (Stable token — saved locally, survives restarts so your phone stays paired.", flush=True)
+            print("   Change it with the Connect tab's Rotate, or pass --token <secret>.)", flush=True)
         try:
             _fw = _firewall_hint()
             if _fw.get("commands"):
