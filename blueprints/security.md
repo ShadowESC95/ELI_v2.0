@@ -231,3 +231,19 @@ Two web-tier changes this cycle, both verified against the code:
 
 Neither weakens the existing posture — the socket failsafe, fail-closed command gate, and audit
 ledger all still apply.
+
+## Update — 2026-07-03 (token moved to the URL fragment; test reds cleared)
+
+- **Token in the URL fragment, never the query string.** Every emitter of the phone link now
+  builds `…/#token=…` instead of `…/?token=…`: the server's printed URLs *and* the desktop **Web
+  Server panel** (`eli/gui/eli_pro_audio_gui_MKI.py:8332/:8391`) *and* both launchers
+  (`scripts/eli_serve.sh`, `scripts/eli_serve.ps1`). A query string reaches the server — it lands
+  in **uvicorn's access log** before any client-side strip can run — whereas a **fragment is never
+  sent to the server**, so the token can't leak into the log. The page reads it from
+  `location.hash`, stores it, and clears the address bar; it still accepts `?token=` for old
+  links, so the transition breaks nothing. (An earlier commit fixed only the web tab + printed
+  URL, leaving the GUI/launcher paths — most real usage — still leaking; this closes them.)
+
+- **All 5 standing test reds cleared.** Deprecated `smart_home` plugin removed; 113 silent
+  `except: pass` swallows made observable (987→874, ceiling 950→900); stale blueprint references
+  fixed. Not a security change per se, but the suite is now fully green.
