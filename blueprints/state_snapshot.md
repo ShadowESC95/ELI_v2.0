@@ -24,10 +24,10 @@ agent's system python. Deeper detail lives in the companion blueprints
 - **License:** source-available — PolyForm Internal Use 1.0.0 (`LICENSE`/`NOTICE`); use+modify for internal/personal use, no redistribution; all commercial rights reserved. Governance: `SECURITY.md`, `CONTRIBUTING.md` (inbound grant).
 
 ## Tests & eval (measured on `.venv`, 2026-07-01)
-- Full run: **7,347 passed, 5 failed, 45 skipped, 2 xfailed**. The 5 reds are
-  pre-existing and unrelated to current work — they belong to the in-progress
-  `smart_home` plugin removal (voice SMART_HOME now uses ELI's own MQTT server) and
-  one stale blueprint reference; they fail identically on a clean tree.
+- Full run: **7,347 passed, 0 failed, 45 skipped, 2 xfailed** — all 5 previously-
+  pre-existing reds cleared 2026-07-03 (deprecated `smart_home` plugin removed; 113
+  silent `except: pass` swallows made observable, 987→874, ceiling 950→900; blueprint
+  references fixed).
 - Composition: original unit/regression/integration + **`tests/claims/`** (examines the
   project vs its claims: every module compiles + core imports; every manifest capability
   well-formed + flags match the live executor; every SUPPORTED_ACTION handled; every
