@@ -792,7 +792,7 @@ flowchart TD
     FP -->|No| MODE{Reasoning mode}
 
     MODE -->|quick · default| BUS[Agent Bus dispatch]
-    BUS --> AG[14 specialist agents run over a DAG<br/>memory · knowledge-graph · system · file-code<br/>introspection · capability · habit · proactive<br/>reflection · self-improve · plugin · voice · frontier · orchestrator]
+    BUS --> AG[15 specialist agents run over a DAG<br/>memory · knowledge-graph · system · file-code<br/>introspection · capability · habit · proactive<br/>reflection · self-improve · plugin · voice · frontier · orchestrator · critic]
     AG --> DR[DispatchResult<br/>grounding_confidence · agents_used · memory_context]
     DR --> GE{Low grounding on a<br/>factual question?}
     GE -->|Yes| ESC[Escalate: web tier / local tier / honest hedge] --> GOV
@@ -844,7 +844,7 @@ to `CognitiveEngine.process()`. The router also remembers the *last used path* s
   **verbatim**. There's no model call, so these are instant and can't be "hallucinated". This is
   why "pause" never produces a chatty paragraph.
 - **Quick path (the default) — the Agent Bus.** Conversational and lightly-grounded requests go
-  to the **Agent Bus**, which runs up to **14 specialist agents** in parallel over a dependency
+  to the **Agent Bus**, which runs up to **15 specialist agents** in parallel over a dependency
   graph, each contributing evidence (memory hits, knowledge-graph facts, system readings, code
   search, capability info, …). Their combined result carries a **grounding confidence** — an
   honest "is this actually backed by anything?" score.
