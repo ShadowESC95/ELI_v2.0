@@ -15,6 +15,7 @@ ASSUME_YES=0     # --yes/-y: no prompts, use detected defaults (CI / piped insta
 FETCH_MODEL=""   # --model=KEY or --auto-model: download a model after install
 NO_MODEL=0       # --no-model: never download a model
 HAS_NVIDIA=0     # set by the system report below
+HAS_AMD=0        # set by the system report below (AMD ROCm/HIP GPUs)
 
 for arg in "$@"; do
     case "$arg" in
@@ -157,17 +158,29 @@ if command -v nvidia-smi &>/dev/null; then
         HAS_NVIDIA=1
     fi
 fi
-if [ "$HAS_NVIDIA" -eq 0 ]; then
+# AMD GPU (ROCm) — checked only when there's no NVIDIA + not macOS. rocminfo/rocm-smi or the
+# /dev/kfd kernel node means a ROCm-capable AMD GPU is present.
+if [ "$HAS_NVIDIA" -eq 0 ] && [ "$OS" != "Darwin" ]; then
+    if command -v rocminfo &>/dev/null || command -v rocm-smi &>/dev/null || [ -e /dev/kfd ]; then
+        _AGPU="$(rocm-smi --showproductname 2>/dev/null | grep -m1 -iE 'series|card' | sed 's/.*: *//' || true)"
+        [ -z "$_AGPU" ] && _AGPU="$(lspci 2>/dev/null | grep -iE 'vga|display|3d' | grep -iE 'amd|radeon|advanced micro' | head -1 | sed 's/.*: //')"
+        ok "GPU         ${B}${GRN}AMD ROCm${R}  ${D}${_AGPU:-detected}${R}"
+        HAS_AMD=1
+    fi
+fi
+if [ "$HAS_NVIDIA" -eq 0 ] && [ "$HAS_AMD" -eq 0 ]; then
     if [ "$OS" = "Darwin" ]; then ok "GPU         ${B}Apple Metal${R} ${D}(unified memory)${R}"
     else warn "GPU         none detected — ELI will run on ${B}CPU${R} (much slower)"; fi
 fi
 
-# Default the build to the hardware unless the user forced it.
-if [ "$CPU_ONLY" -eq 0 ] && [ "$HAS_NVIDIA" -eq 0 ] && [ "$OS" != "Darwin" ]; then
+# Default the build to the hardware unless the user forced it. AMD boxes now get a ROCm build
+# instead of being silently dropped to CPU.
+if [ "$CPU_ONLY" -eq 0 ] && [ "$HAS_NVIDIA" -eq 0 ] && [ "$HAS_AMD" -eq 0 ] && [ "$OS" != "Darwin" ]; then
     CPU_ONLY=1
 fi
 if   [ "$CPU_ONLY" -eq 1 ]; then BUILD_LABEL="CPU-only"
 elif [ "$OS" = "Darwin" ];  then BUILD_LABEL="GPU (Metal)"
+elif [ "$HAS_AMD" -eq 1 ];  then BUILD_LABEL="GPU (AMD ROCm)"
 else                             BUILD_LABEL="GPU (CUDA)"; fi
 
 # ── Plan — what is about to happen ───────────────────────────────────────────
@@ -215,6 +228,11 @@ if [ "$SKIP_TORCH" -eq 0 ]; then
     elif [ "$OS" = "Darwin" ]; then
         echo "[..] Installing PyTorch (macOS / MPS)..."
         "$PIP" install torch torchvision torchaudio --quiet
+    elif [ "$HAS_AMD" -eq 1 ]; then
+        echo "[..] Installing PyTorch (AMD ROCm)..."
+        "$PIP" install torch --index-url https://download.pytorch.org/whl/rocm6.2 --quiet || {
+            echo "[WARN] ROCm PyTorch wheel unavailable — falling back to CPU PyTorch."
+            "$PIP" install torch --index-url https://download.pytorch.org/whl/cpu --quiet; }
     else
         echo "[..] Installing PyTorch (CUDA 12.1)..."
         "$PIP" install torch --index-url https://download.pytorch.org/whl/cu121 --quiet
@@ -228,6 +246,15 @@ if [ "$OS" = "Darwin" ]; then
     CMAKE_ARGS="-DLLAMA_METAL=on" "$PIP" install llama-cpp-python --prefer-binary --quiet
 elif [ "$CPU_ONLY" -eq 1 ]; then
     "$PIP" install llama-cpp-python --prefer-binary --quiet
+elif [ "$HAS_AMD" -eq 1 ]; then
+    echo "     (AMD ROCm / hipBLAS — source build, best-effort)"
+    # Needs the ROCm toolkit (hipcc) on PATH. Non-fatal: falls back to the CPU build so ELI
+    # still runs (just without GPU offload) if the ROCm dev toolchain isn't installed.
+    CMAKE_ARGS="-DGGML_HIPBLAS=on" "$PIP" install llama-cpp-python --no-cache-dir --quiet || {
+        echo "[WARN] ROCm llama-cpp build failed (needs the ROCm toolkit / hipcc)."
+        echo "       Installing the CPU build so ELI runs. To get AMD GPU offload later:"
+        echo "         install ROCm, then: CMAKE_ARGS=\"-DGGML_HIPBLAS=on\" \"$PIP\" install --force-reinstall --no-cache-dir llama-cpp-python"
+        "$PIP" install llama-cpp-python --prefer-binary --quiet; }
 else
     "$PIP" install llama-cpp-python --prefer-binary \
         --extra-index-url https://abetlen.github.io/llama-cpp-python/whl/cu121 --quiet
@@ -236,8 +263,13 @@ fi
 # Verify GPU offload actually compiled into llama-cpp (catch a silent CPU-only wheel —
 # this is exactly the trap where ELI runs 30-50x slower without anyone noticing).
 if [ "$SKIP_TORCH" -eq 0 ] && [ "$CPU_ONLY" -eq 0 ] && [ "$OS" != "Darwin" ]; then
+    _GPU_KIND="$([ "$HAS_AMD" -eq 1 ] && echo ROCm || echo CUDA)"
     if "$PYTHON_VENV" -c "import llama_cpp,sys; sys.exit(0 if llama_cpp.llama_supports_gpu_offload() else 1)" 2>/dev/null; then
-        echo "[OK] llama-cpp-python has CUDA GPU offload."
+        echo "[OK] llama-cpp-python has ${_GPU_KIND} GPU offload."
+    elif [ "$HAS_AMD" -eq 1 ]; then
+        echo "[WARN] llama-cpp is CPU-only — ROCm/hipBLAS did not compile (needs the ROCm toolkit / hipcc)."
+        echo "       ELI runs on CPU for now. For AMD GPU offload: install ROCm, then rebuild:"
+        echo "         CMAKE_ARGS=\"-DGGML_HIPBLAS=on\" \"$PIP\" install --force-reinstall --no-cache-dir llama-cpp-python"
     elif [ "$INSTALL_CUDA" -eq 1 ]; then
         echo "[WARN] prebuilt llama-cpp is CPU-only — installing CUDA toolkit and rebuilding from source..."
         attempt_cuda_toolkit || true

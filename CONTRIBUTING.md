@@ -29,7 +29,7 @@ author), you agree that:**
    ELI v2.0, under the project's current license and any future license the
    holder may choose (including commercial / dual licensing).
 3. You retain your own copyright in your contribution; you are simply granting the
-   license above so the project can stay singly-stewarded and commercially viable.
+   license above so I can keep the whole project under one license and keep steering it.
 4. Contributions are provided "as is", without warranty.
 
 If you can't agree to these terms, please open an issue to discuss rather than
