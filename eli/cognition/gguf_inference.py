@@ -164,7 +164,7 @@ def get_model_path() -> Optional[Path]:
         if cand and Path(cand).exists():
             return Path(cand)
     except Exception:
-        pass
+        _SWLOG.debug("suppressed exception", exc_info=True)
 
     from eli.core import config
     path = config.get("gguf_model_path")
@@ -364,7 +364,7 @@ def _canonical_eli_persona() -> str:
         if val:
             return val
     except Exception:
-        pass
+        _SWLOG.debug("suppressed exception", exc_info=True)
 
     try:
         from eli.core import config
@@ -372,7 +372,7 @@ def _canonical_eli_persona() -> str:
         if val:
             return val
     except Exception:
-        pass
+        _SWLOG.debug("suppressed exception", exc_info=True)
 
     return "You are ELI, a local reasoning and automation assistant. Be direct, accurate, grounded, privacy-preserving, and useful."
 
@@ -791,7 +791,7 @@ def load_model(force_reload: bool = False):
             try:
                 kwargs["main_gpu"] = int(_main_gpu_raw)
             except Exception:
-                pass
+                _SWLOG.debug("suppressed exception", exc_info=True)
         if _split_mode_raw:
             _sm = {"none": 0, "layer": 1, "row": 2}.get(str(_split_mode_raw).strip().lower())
             if _sm is None:
@@ -1051,7 +1051,7 @@ def _truncate_prompt_to_tokens(llm, text: str, max_tokens: int) -> str:
         tail = llm.detokenize(toks[-tail_n:]).decode("utf-8", errors="ignore")
         return head + "\n…\n" + tail
     except Exception:
-        pass
+        _SWLOG.debug("suppressed exception", exc_info=True)
     # char-based fallback (~4 chars/token)
     max_chars = max_tokens * 4
     if len(text) <= max_chars:
@@ -1075,7 +1075,7 @@ def _model_train_ctx(model_path=None) -> int:
             v = int(_tc(str(mp)))
             return v if v > 0 else 0
     except Exception:
-        pass
+        _SWLOG.debug("suppressed exception", exc_info=True)
     return 0
 
 
@@ -1316,7 +1316,7 @@ def _generate_legacy(
                 from eli.core.model_tier import record_speed as _rec_speed
                 _rec_speed(_gen / _elapsed)
         except Exception:
-            pass
+            _SWLOG.debug("suppressed exception", exc_info=True)
         yield {"response": _clean_eli_output(_raw_text)}
 
 
@@ -1558,7 +1558,7 @@ def unload_model() -> None:
             try:
                 _llm.close()
             except Exception:
-                pass
+                _SWLOG.debug("suppressed exception", exc_info=True)
             _llm = None
         _load_failed = False
         _last_error = None
@@ -1657,7 +1657,7 @@ def _sync_world_model_runtime(payload):
         try:
             log.debug(f"[GGUF] PhaseAR2 world_model runtime sync failed: {e}")
         except Exception:
-            pass
+            _SWLOG.debug("suppressed exception", exc_info=True)
 
 
 def _write_shared_runtime_snapshot(payload: Dict[str, Any]) -> None:
@@ -1683,7 +1683,7 @@ def set_runtime_override(payload: Dict[str, Any] | None) -> Dict[str, Any]:
     try:
         _write_shared_runtime_snapshot(dict(clean))
     except Exception:
-        pass
+        _SWLOG.debug("suppressed exception", exc_info=True)
     return dict(clean)
 
 def clear_runtime_override() -> None:
@@ -1722,7 +1722,7 @@ def get_runtime_snapshot() -> Dict[str, Any]:
             if "n_batch" in _live:
                 snap["n_batch"] = int(_live["n_batch"])
     except Exception:
-        pass
+        _SWLOG.debug("suppressed exception", exc_info=True)
 
     if not snap["n_ctx"]:
         try:
@@ -1807,7 +1807,7 @@ def get_runtime_snapshot() -> Dict[str, Any]:
                 if val not in (None, "", 0):
                     snap[dst] = int(val)
     except Exception:
-        pass
+        _SWLOG.debug("suppressed exception", exc_info=True)
 
     return snap
 
@@ -1831,7 +1831,7 @@ def publish_live_runtime(runtime: dict) -> dict:
     try:
         _write_shared_runtime_snapshot(dict(snap))
     except Exception:
-        pass
+        _SWLOG.debug("suppressed exception", exc_info=True)
     return snap
 
 
@@ -1989,7 +1989,7 @@ try:
                     if callable(fn):
                         return fn()
                 except Exception:
-                    pass
+                    _SWLOG.debug("suppressed exception", exc_info=True)
                 return fallback
 
             # hw_profile_* values are the hardware-calibrated baseline.
@@ -2129,7 +2129,7 @@ try:
                         "n_batch": max(32, int(_ov.get("n_batch") or req_batch)),
                     })
             except Exception:
-                pass
+                _SWLOG.debug("suppressed exception", exc_info=True)
 
             # First real attempt. When the trained context is known, force an explicit
             # capped override (never pass the stale-large raw config through, which would
@@ -2248,7 +2248,7 @@ try:
                 if callable(fn):
                     fn()
             except Exception:
-                pass
+                _SWLOG.debug("suppressed exception", exc_info=True)
 
         def _eli_candidate_env_overrides(candidate):
             """
@@ -2435,7 +2435,7 @@ try:
                 if p.exists():
                     return _eli_eff_json.loads(p.read_text(encoding="utf-8"))
             except Exception:
-                pass
+                _SWLOG.debug("suppressed exception", exc_info=True)
             return {}
 
         def _eli_eff_write_json(path, payload):
@@ -2447,7 +2447,7 @@ try:
                 try:
                     log.debug(f"[GGUF][EFFECTIVE] runtime snapshot write failed: {e}")
                 except Exception:
-                    pass
+                    _SWLOG.debug("suppressed exception", exc_info=True)
 
         def _eli_eff_call_or_attr(obj, name):
             try:
@@ -2520,14 +2520,14 @@ try:
                 if val:
                     return str(val)
             except Exception:
-                pass
+                _SWLOG.debug("suppressed exception", exc_info=True)
             try:
                 from eli.core import config
                 val = config.get_gguf_model_path()
                 if val:
                     return str(val)
             except Exception:
-                pass
+                _SWLOG.debug("suppressed exception", exc_info=True)
             return ""
 
         def _eli_eff_requested(existing=None, adaptive=None):
@@ -2576,7 +2576,7 @@ try:
                     if isinstance(rep, dict):
                         return dict(rep)
             except Exception:
-                pass
+                _SWLOG.debug("suppressed exception", exc_info=True)
             return {}
 
         def _eli_eff_effective(llm=None, existing=None, adaptive=None):
@@ -2692,7 +2692,7 @@ try:
                     f"batch={payload['effective'].get('n_batch')}",
                 )
             except Exception:
-                pass
+                _SWLOG.debug("suppressed exception", exc_info=True)
             return llm
 
         load_model._eli_effective_runtime_snapshot_contract = True
@@ -2703,10 +2703,10 @@ try:
         try:
             log.debug("[GGUF][EFFECTIVE] requested/effective runtime snapshot contract installed")
         except Exception:
-            pass
+            _SWLOG.debug("suppressed exception", exc_info=True)
 
 except Exception as _eli_effective_runtime_err:
     try:
         log.debug(f"[GGUF][EFFECTIVE] runtime snapshot contract failed: {_eli_effective_runtime_err}")
     except Exception:
-        pass
+        _SWLOG.debug("suppressed exception", exc_info=True)

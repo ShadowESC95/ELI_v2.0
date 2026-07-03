@@ -289,7 +289,7 @@ def _load_agent_metrics_cached() -> Dict[tuple, Dict[str, float]]:
                         "rolling_score": float(rs or 0.5),
                     }
         except Exception:
-            pass
+            _SWLOG.debug("suppressed exception", exc_info=True)
     with _metrics_cache_lock:
         _metrics_cache["loaded_at"] = now
         _metrics_cache["rows"] = dict(rows)
@@ -377,7 +377,7 @@ def _persist_agent_metrics_for_dispatch(
             with _metrics_cache_lock:
                 _metrics_cache["loaded_at"] = 0.0  # invalidate cache
         except Exception:
-            pass
+            _SWLOG.debug("suppressed exception", exc_info=True)
 
     threading.Thread(target=_write, daemon=True, name="eli-agent-metrics").start()
 
@@ -835,20 +835,20 @@ class BusMemoryAgent(_BaseAgent):
                     try:
                         _tn[_gk] = min(200, int(round(_tn[_gk] * _gm)))
                     except Exception:
-                        pass
+                        _SWLOG.debug("suppressed exception", exc_info=True)
             limit = _tn["cog.mem_semantic_recall"]  # semantic hits
             raw_hits = mem.recall_memory(user_input, limit=limit)
             conv_hits = []
             try:
                 conv_hits = mem.search_conversations(user_input, user_id=user_id, limit=_tn["cog.mem_conv_recall"])
             except Exception:
-                pass
+                _SWLOG.debug("suppressed exception", exc_info=True)
             recent = mem.get_recent_conversation(limit=_tn["cog.mem_recent_turns"], user_id=user_id)  # full history, char-budgeted below
             summaries = []
             try:
                 summaries = mem.get_session_summaries(user_id=user_id, limit=_tn["cog.mem_summaries_recall"])
             except Exception:
-                pass
+                _SWLOG.debug("suppressed exception", exc_info=True)
 
             # Multi-hop deepen (#2): when hop-1 recall is THIN, take the strongest
             # hit's salient terms and re-query — surfaces facts connected to the
@@ -877,7 +877,7 @@ class BusMemoryAgent(_BaseAgent):
                         if _added:
                             log.debug(f"[AGENT:memory] hop-2 deepen: +{_added} hits from {_seed_terms}")
                 except Exception:
-                    pass
+                    _SWLOG.debug("suppressed exception", exc_info=True)
 
             # Rerank via the CANONICAL reranker (eli.cognition.reranker — same owner Stage 9
             # uses) so the strongest, freshest evidence leads instead of raw semantic order.
@@ -888,7 +888,7 @@ class BusMemoryAgent(_BaseAgent):
                 if raw_hits:
                     raw_hits = rerank_candidates(user_input, raw_hits, limit=len(raw_hits))
             except Exception:
-                pass
+                _SWLOG.debug("suppressed exception", exc_info=True)
             contradictions: List[Dict[str, Any]] = []
             try:
                 contradictions = _detect_contradictions(raw_hits)
@@ -924,7 +924,7 @@ class BusMemoryAgent(_BaseAgent):
                         if should_exclude_turn_from_prompt(t.get("role"), t.get("content")):
                             continue
                     except Exception:
-                        pass
+                        _SWLOG.debug("suppressed exception", exc_info=True)
                     role = "User" if t.get("role") == "user" else "ELI"
                     text = (t.get("content") or "")[:_tn["cog.mem_recent_chars"]]  # trim each turn
                     line = f"{role}: {text}"
@@ -961,7 +961,7 @@ class BusMemoryAgent(_BaseAgent):
                         if should_exclude_turn_from_prompt(h.get("role"), h.get("content")):
                             continue
                     except Exception:
-                        pass
+                        _SWLOG.debug("suppressed exception", exc_info=True)
                     txt = (h.get("content") or "")[:_tn["cog.mem_conv_chars"]]
                     role = h.get("role", "?")
                     if txt:
@@ -1213,7 +1213,7 @@ class SelfImprovementAgent(_BaseAgent):
                 from eli.memory import get_memory
                 proposals = get_memory().get_pending_proposals(limit=5)
             except Exception:
-                pass
+                _SWLOG.debug("suppressed exception", exc_info=True)
             # Also surface the self-repair proposals the background proposer persisted as
             # goals (coding-agent verified/candidate fixes) — so the agent reports ELI's
             # real self-improvement agenda, not just an empty capability_proposals table.
@@ -1225,7 +1225,7 @@ class SelfImprovementAgent(_BaseAgent):
                                           "reasoning": getattr(g, "objective", ""),
                                           "source": "self_repair_goal"})
             except Exception:
-                pass
+                _SWLOG.debug("suppressed exception", exc_info=True)
             elapsed = (time.perf_counter() - t0) * 1000
             local_conf = conf_from_flag(bool(failures or proposals), hi=0.65, lo=0.25)
             log.debug(f"[AGENT:self_improvement] failures={len(failures)} "
@@ -1280,7 +1280,7 @@ class ProactiveAgent(_BaseAgent):
                 if _syn:
                     insights.append(f"[synthesis] {_syn[:400]}")
             except Exception:
-                pass
+                _SWLOG.debug("suppressed exception", exc_info=True)
             for fname in ("latest_context.txt", "latest_summary.txt", "latest_action.txt"):
                 fp = pro_dir / fname
                 if fp.exists():
@@ -1289,7 +1289,7 @@ class ProactiveAgent(_BaseAgent):
                         if txt:
                             insights.append(txt[:300])
                     except Exception:
-                        pass
+                        _SWLOG.debug("suppressed exception", exc_info=True)
 
             from eli.execution.executor_enhanced import execute
             status = execute("PROACTIVE_STATUS", {})
@@ -1504,7 +1504,7 @@ class VoiceAgent(_BaseAgent):
                 import faster_whisper  # noqa: F401
                 stt_avail = True
             except ImportError:
-                pass
+                _SWLOG.debug("suppressed exception", exc_info=True)
             elapsed = (time.perf_counter() - t0) * 1000
             info = {
                 "tts_engine": engine,
@@ -2133,7 +2133,7 @@ class AgentBus:
         try:
             self._last_orchestration = report.to_dict()
         except Exception:
-            pass
+            _SWLOG.debug("suppressed exception", exc_info=True)
         results: List[AgentResult] = []
         for a in active_agents:
             o = report.outcomes.get(a.name)
@@ -2318,7 +2318,7 @@ def _eli_py_stems(eli_root: Path) -> set:
                     continue
                 s.add(p.stem.lower())
         except Exception:
-            pass
+            _SWLOG.debug("suppressed exception", exc_info=True)
         _ELI_PY_STEMS_CACHE = s
     return _ELI_PY_STEMS_CACHE
 
@@ -2832,7 +2832,7 @@ class ReflectionAgent(_BaseAgent):
                 if _synth:
                     insights.append(f"[synthesis] {_synth[:400]}")
             except Exception:
-                pass
+                _SWLOG.debug("suppressed exception", exc_info=True)
 
             try:
                 obs = list(mem.get_recent_observations(limit=8) or [])
@@ -2951,7 +2951,7 @@ class KnowledgeGraphAgent(_BaseAgent):
                                 _seen_chain.add(_chain)
                                 multihop.append(_chain)
             except Exception:
-                pass
+                _SWLOG.debug("suppressed exception", exc_info=True)
 
             elapsed = (time.perf_counter() - t0) * 1000
 
@@ -3101,7 +3101,7 @@ def _apply_runtime_policy_timeouts() -> None:
                 float(getattr(_eli_agent, "timeout_s", 4.0) or 4.0),
             )
     except Exception:
-        pass
+        _SWLOG.debug("suppressed exception", exc_info=True)
 
 
 _apply_runtime_policy_timeouts()
@@ -3128,7 +3128,7 @@ def _get_trusted_agents_registry() -> dict:
         if registry_path.exists():
             return _json_ta.loads(registry_path.read_text(encoding="utf-8"))
     except Exception:
-        pass
+        _SWLOG.debug("suppressed exception", exc_info=True)
     return {}
 
 
@@ -3216,7 +3216,7 @@ def _load_custom_agents() -> None:
                             try:
                                 _na._custom = True
                             except Exception:
-                                pass
+                                _SWLOG.debug("suppressed exception", exc_info=True)
                     log.debug(f"[AGENTBUS] Loaded custom agent: {py_file.name} from {custom_dir}")
                 except Exception as _e:
                     log.debug(f"[AGENTBUS] Failed to load custom agent {py_file.name}: {_e}")

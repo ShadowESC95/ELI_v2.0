@@ -111,7 +111,7 @@ def _eli_latest_screenshot() -> str | None:
         from eli.utils import platform_compat as _pf
         dirs.append(str(_pf.user_pictures_dir()))
     except Exception:
-        pass
+        _SWLOG.debug("suppressed exception", exc_info=True)
     dirs += [
         os.path.expanduser("~/Pictures"),
         os.path.expanduser("~/Pictures/Screenshots"),
@@ -4475,7 +4475,7 @@ def _eli_voice_contract_wrap_callable(fn):
         _wrapped.__doc__ = getattr(fn, "__doc__", None)
         _wrapped._eli_voice_contract_wrapped = True
     except Exception:
-        pass
+        _SWLOG.debug("suppressed exception", exc_info=True)
     return _wrapped
 
 _eli_voice_contract_route_names = (
@@ -4503,7 +4503,7 @@ for _obj in list(globals().values()):
                 if callable(_method):
                     setattr(_obj, _name, _eli_voice_contract_wrap_callable(_method))
             except Exception:
-                pass
+                _SWLOG.debug("suppressed exception", exc_info=True)
 
 # portable_runtime_contract_v3_router_hook
 
@@ -4522,7 +4522,7 @@ def _eli_lrf_mk(action, args=None, confidence=0.99, matched_by="eli.live_route_s
             try:
                 return mk(action, args or {}, confidence, matched_by=matched_by)
             except TypeError:
-                pass
+                _SWLOG.debug("suppressed exception", exc_info=True)
     return {
         "action": action,
         "args": args or {},
@@ -4633,7 +4633,7 @@ def _eli_pm_mk(action, args=None, confidence=0.99, matched_by="eli.personal_memo
             try:
                 return mk(action, args or {}, confidence, matched_by=matched_by)
             except TypeError:
-                pass
+                _SWLOG.debug("suppressed exception", exc_info=True)
     return {
         "action": action,
         "args": args or {},
@@ -6099,7 +6099,7 @@ def _eli_phase38_media_query_cleaner_post(result):
                 args["query"] = cleaned
                 result.setdefault("meta", {})["query_cleaned_by"] = "eli.final_media_query_cleaner"
     except Exception:
-        pass
+        _SWLOG.debug("suppressed exception", exc_info=True)
     return result
 
 
@@ -6211,7 +6211,7 @@ def _eli_phase38_tiny_fragment_post(raw, result):
                                 matched_by="pending_remediation.no_intercept",
                             )
                 except Exception:
-                    pass
+                    _SWLOG.debug("suppressed exception", exc_info=True)
 
                 grid_text = str(raw or "").strip().lower().replace("×", "x")
                 grid_text = _re.sub(r"\btree\b", "3", grid_text)
@@ -6248,7 +6248,7 @@ def _eli_phase38_tiny_fragment_post(raw, result):
                 )
 
     except Exception:
-        pass
+        _SWLOG.debug("suppressed exception", exc_info=True)
 
     return result
 
@@ -6271,7 +6271,7 @@ def _eli_phase38_voice_portable_persona_lower_dispatch(raw, *args, **kwargs):
             if portable is not None:
                 return portable
         except Exception:
-            pass
+            _SWLOG.debug("suppressed exception", exc_info=True)
 
     voice = globals().get("_eli_voice_contract_route")
     if callable(voice):
@@ -6280,7 +6280,7 @@ def _eli_phase38_voice_portable_persona_lower_dispatch(raw, *args, **kwargs):
             if shortcut is not None:
                 return shortcut
         except Exception:
-            pass
+            _SWLOG.debug("suppressed exception", exc_info=True)
 
     persona = _eli_phase38_persona_override_contract(raw)
     if persona is not None:
@@ -6301,7 +6301,7 @@ def _eli_phase38_lower_contract_dispatch(raw, *args, **kwargs):
             if out is not None:
                 return out
         except Exception:
-            pass
+            _SWLOG.debug("suppressed exception", exc_info=True)
 
     return _eli_phase38_voice_portable_persona_lower_dispatch(raw, *args, **kwargs)
 
@@ -6314,7 +6314,7 @@ def _eli_phase38_personal_memory_guard_dispatch(raw, *args, **kwargs):
             if out is not None:
                 return out
         except Exception:
-            pass
+            _SWLOG.debug("suppressed exception", exc_info=True)
 
     return _eli_phase38_lower_contract_dispatch(raw, *args, **kwargs)
 
@@ -6327,7 +6327,7 @@ def _eli_phase38_self_improvement_dispatch(raw, *args, **kwargs):
             if guarded:
                 return guarded
         except Exception:
-            pass
+            _SWLOG.debug("suppressed exception", exc_info=True)
 
     return _eli_phase38_personal_memory_guard_dispatch(raw, *args, **kwargs)
 
@@ -6340,7 +6340,7 @@ def _eli_phase38_runtime_cognition_failure_dispatch(raw, *args, **kwargs):
             if guarded:
                 return guarded
         except Exception:
-            pass
+            _SWLOG.debug("suppressed exception", exc_info=True)
 
     return _eli_phase38_self_improvement_dispatch(raw, *args, **kwargs)
 
@@ -6773,7 +6773,7 @@ try:
                         if out:
                             return out
                     except Exception:
-                        pass
+                        _SWLOG.debug("suppressed exception", exc_info=True)
                 return None
 
             def _stage_self_improvement_guard(text, *_a, **_k):
@@ -6784,7 +6784,7 @@ try:
                         if out:
                             return out
                     except Exception:
-                        pass
+                        _SWLOG.debug("suppressed exception", exc_info=True)
                 return None
 
             def _stage_personal_memory_pre_route(text, *_a, **_k):
@@ -6795,7 +6795,7 @@ try:
                         if out is not None:
                             return out
                     except Exception:
-                        pass
+                        _SWLOG.debug("suppressed exception", exc_info=True)
                 return None
 
             def _stage_lrf_pre_route(text, *_a, **_k):
@@ -6806,7 +6806,7 @@ try:
                         if out is not None:
                             return out
                     except Exception:
-                        pass
+                        _SWLOG.debug("suppressed exception", exc_info=True)
                 return None
 
             def _stage_portable_route(text, *_a, **_k):
@@ -6825,7 +6825,7 @@ try:
                         if out is not None:
                             return out
                     except Exception:
-                        pass
+                        _SWLOG.debug("suppressed exception", exc_info=True)
                 return None
 
             def _stage_persona_override(text, *_a, **_k):
@@ -6889,7 +6889,7 @@ try:
                             "meta": {"matched_by": "pending_habit.yes_intercept"},
                         }
                 except Exception:
-                    pass
+                    _SWLOG.debug("suppressed exception", exc_info=True)
                 return None
 
             def _stage_pending_code_fix_confirm(text, *_a, **_k):
@@ -6928,7 +6928,7 @@ try:
                             "meta": {"matched_by": "pending_code_fix.yes_intercept"},
                         }
                 except Exception:
-                    pass
+                    _SWLOG.debug("suppressed exception", exc_info=True)
                 return None
 
             def _stage_pending_remediation_confirm(text, *_a, **_k):
@@ -6968,7 +6968,7 @@ try:
                             "meta": {"matched_by": "pending_remediation.install_download_intercept"},
                         }
                 except Exception:
-                    pass
+                    _SWLOG.debug("suppressed exception", exc_info=True)
                 return None
 
             def _stage_pending_proposal_confirm(text, *_a, **_k):

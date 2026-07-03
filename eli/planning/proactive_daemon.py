@@ -139,7 +139,7 @@ class ProactiveDaemon:
                 )
                 rows = cur.fetchall()
             except Exception:
-                pass
+                _SWLOG.debug("suppressed exception", exc_info=True)
             try:
                 cur.execute(
                     "SELECT timestamp, content, '' FROM conversation_turns "
@@ -147,7 +147,7 @@ class ProactiveDaemon:
                 )
                 rows += cur.fetchall()
             except Exception:
-                pass
+                _SWLOG.debug("suppressed exception", exc_info=True)
             con.close()
         except sqlite3.OperationalError:
             return patterns
@@ -170,7 +170,7 @@ class ProactiveDaemon:
                     return datetime.fromtimestamp(_v).hour
                 return None                      # 0 / tiny / default → not real activity
             except (TypeError, ValueError):
-                pass
+                _SWLOG.debug("suppressed exception", exc_info=True)
             # ISO-ish datetime string fallback
             _s = str(_ts).strip()
             for _fmt in ("%Y-%m-%d %H:%M:%S.%f", "%Y-%m-%d %H:%M:%S",
@@ -221,7 +221,7 @@ class ProactiveDaemon:
                 hour_counts[_h] = hour_counts.get(_h, 0.0) + _w
             _pc.close()
         except Exception:
-            pass
+            _SWLOG.debug("suppressed exception", exc_info=True)
         if hour_counts and sum(hour_counts.values()) > 5:
             _ranked = sorted(hour_counts.items(), key=lambda kv: kv[1], reverse=True)
             peak, _peak_n = _ranked[0]
@@ -290,7 +290,7 @@ class ProactiveDaemon:
                     "suggestion": f"Heavy PDF usage ({pdf_row[0]} in 30d) — pipeline automation may help"
                 })
         except Exception:
-            pass
+            _SWLOG.debug("suppressed exception", exc_info=True)
 
         # ── Pattern 4: Recurring errors from agent DB ────────────────────────
         # Filter out world-awareness metric strings (repair_pressure=X.XX,
@@ -339,7 +339,7 @@ class ProactiveDaemon:
                 _added += 1
             con.close()
         except Exception:
-            pass
+            _SWLOG.debug("suppressed exception", exc_info=True)
 
         # ── Pattern 5: Active project signals from user_patterns table ───────
         try:
@@ -394,7 +394,7 @@ class ProactiveDaemon:
                             "suggestion": suggestion
                         })
         except Exception:
-            pass
+            _SWLOG.debug("suppressed exception", exc_info=True)
 
         # ── User Model: goal-aligned signal (tailor proposals to stated goals) ──
         try:
@@ -405,7 +405,7 @@ class ProactiveDaemon:
                 patterns.append({"type": "user_goal",
                                  "suggestion": f"User goal to support: {_goals[0]}"})
         except Exception:
-            pass
+            _SWLOG.debug("suppressed exception", exc_info=True)
 
         # ── Pattern 6: Frequent behaviours → proactive proposals ─────────────
         # High-frequency behaviours that never become time-scheduled rules
@@ -430,7 +430,7 @@ class ProactiveDaemon:
                                        f"(×{_bcnt}) — offer to streamline"),
                     })
         except Exception:
-            pass
+            _SWLOG.debug("suppressed exception", exc_info=True)
 
         # Store a single compact observation (not per-pattern spam)
         if patterns:
@@ -444,7 +444,7 @@ class ProactiveDaemon:
                     })[:1000],
                 )
             except Exception:
-                pass
+                _SWLOG.debug("suppressed exception", exc_info=True)
 
         # --- Trend detection: compare against last stored observation ---
         # This closes the loop: patterns are not just logged once, they're
@@ -460,7 +460,7 @@ class ProactiveDaemon:
                         for _t in _obs_data.get("topics", []):
                             _past_topics.add(str(_t).lower())
                     except Exception:
-                        pass
+                        _SWLOG.debug("suppressed exception", exc_info=True)
             for _pat in patterns:
                 if _pat.get("type") == "topic_focus":
                     _cur_topics = set(str(t).lower() for t in _pat.get("topics", []))
@@ -480,7 +480,7 @@ class ProactiveDaemon:
                         })
                     break
         except Exception:
-            pass
+            _SWLOG.debug("suppressed exception", exc_info=True)
 
         # Persist current patterns as an observation for future trend comparison
         try:
@@ -492,7 +492,7 @@ class ProactiveDaemon:
             if _obs_mem:
                 _obs_mem.add_observation("proactive_pattern_tick", _obs_payload)
         except Exception:
-            pass
+            _SWLOG.debug("suppressed exception", exc_info=True)
 
         log.debug(f"[PROACTIVE] Pattern analysis: {len(patterns)} signals ({', '.join(p['type'] for p in patterns)})")
         return patterns
@@ -574,7 +574,7 @@ class ProactiveDaemon:
             try:
                 self.agent_mem.log_improvement("code_quality", json.dumps(item)[:4000])
             except Exception:
-                pass
+                _SWLOG.debug("suppressed exception", exc_info=True)
 
         return improvements
 
@@ -598,7 +598,7 @@ class ProactiveDaemon:
                 from eli.core import config as _cfg
                 _habit_shell_on = bool(_cfg.get("habit_shell_enabled", True))
             except Exception:
-                pass
+                _SWLOG.debug("suppressed exception", exc_info=True)
         if not _habit_shell_on:
             return {"ok": False, "error": "Shell habits are disabled (habit_shell_enabled=false)"}
         try:
@@ -623,7 +623,7 @@ class ProactiveDaemon:
                     content=out[:500],
                 )
             except Exception:
-                pass
+                _SWLOG.debug("suppressed exception", exc_info=True)
             return {"ok": result.returncode == 0, "output": out, "returncode": result.returncode}
         except subprocess.TimeoutExpired:
             msg = f"Habit '{name}' timed out after 30s"
@@ -769,7 +769,7 @@ class ProactiveDaemon:
                     if _rule_lines:
                         ctx_parts.append("Detected user habits:\n" + "\n".join(_rule_lines))
         except Exception:
-            pass
+            _SWLOG.debug("suppressed exception", exc_info=True)
 
         context = "\n\n".join(ctx_parts) if ctx_parts else "No recent activity."
 
@@ -837,7 +837,7 @@ Date: {datetime.now().strftime("%A %B %d %H:%M")} | Interactions last 24h: {inte
             from eli.cognition.gguf_inference import set_background_inference as _set_bg
             _set_bg(True)
         except Exception:
-            pass
+            _SWLOG.debug("suppressed exception", exc_info=True)
 
         last_analysis = time.time()
         last_report = datetime.now().date()
@@ -901,7 +901,7 @@ Date: {datetime.now().strftime("%A %B %d %H:%M")} | Interactions last 24h: {inte
                         from eli.planning.insight_synthesis import refresh_insight
                         refresh_insight(self.user_mem)
                     except Exception:
-                        pass
+                        _SWLOG.debug("suppressed exception", exc_info=True)
 
                     for pattern in patterns:
                         self.suggestion_queue.put(("pattern", pattern))
@@ -919,7 +919,7 @@ Date: {datetime.now().strftime("%A %B %d %H:%M")} | Interactions last 24h: {inte
                                 "hour": _hs.get("hour"),
                             }))
                     except Exception:
-                        pass
+                        _SWLOG.debug("suppressed exception", exc_info=True)
 
                     # ── Habit detection + execution ────────────────────────
                     try:
@@ -1041,7 +1041,7 @@ Date: {datetime.now().strftime("%A %B %d %H:%M")} | Interactions last 24h: {inte
                             },
                         )
                     except Exception:
-                        pass
+                        _SWLOG.debug("suppressed exception", exc_info=True)
 
                     # ── World → runtime feedback loop ────────────────────────
                     # Read AwarenessState-driven suggestions from the world engine
@@ -1068,7 +1068,7 @@ Date: {datetime.now().strftime("%A %B %d %H:%M")} | Interactions last 24h: {inte
                                             content=_ws.get("reason", "world awareness threshold exceeded"),
                                         )
                                 except Exception:
-                                    pass
+                                    _SWLOG.debug("suppressed exception", exc_info=True)
 
                             if _ws_priority >= 0.70 and _ws_action:
                                 # HIGH priority: actually execute the suggested action.
@@ -1096,7 +1096,7 @@ Date: {datetime.now().strftime("%A %B %d %H:%M")} | Interactions last 24h: {inte
                                             importance=0.72,
                                         )
                                 except Exception:
-                                    pass
+                                    _SWLOG.debug("suppressed exception", exc_info=True)
 
                             if _ws_priority >= 0.55:
                                 log.debug(
@@ -1141,7 +1141,7 @@ Date: {datetime.now().strftime("%A %B %d %H:%M")} | Interactions last 24h: {inte
                         from eli.core.config import network_allowed as _net_ok
                         _news_net_ok = _net_ok()
                     except Exception:
-                        pass
+                        _SWLOG.debug("suppressed exception", exc_info=True)
                     if _news_net_ok and time.time() - last_news_fetch > 10800:  # 3 hours
                         try:
                             from eli.tools.news.news_fetcher import fetch_news as _fetch_news
@@ -1267,7 +1267,7 @@ def _guarded_daemon_run(daemon) -> None:
             _crash_log = get_paths().artifacts_dir / "proactive_daemon_crash.txt"
             _crash_log.write_text(_crash_text, encoding="utf-8")
         except Exception:
-            pass
+            _SWLOG.debug("suppressed exception", exc_info=True)
         log.debug(f"[PROACTIVE_DAEMON] Crashed: {_exc}")
 
 
@@ -1304,7 +1304,7 @@ def _maybe_update_persona_from_db():
         try:
             log.debug(f"[PROACTIVE] persona overlay update failed: {_e}")
         except Exception:
-            pass
+            _SWLOG.debug("suppressed exception", exc_info=True)
 
 
 if __name__ == "__main__":

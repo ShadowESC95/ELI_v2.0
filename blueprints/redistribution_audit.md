@@ -8,13 +8,13 @@ every module, an engine smoke test, the capability manifest, and the test-suite 
 
 ## Verdict
 
-**Suitable for redistribution — with a short list of non-blocking local-hygiene cleanups.**
+**Suitable for redistribution — and now fully cleaned up.**
 
 The *repository* (what would actually ship) is clean: no personal data in tracked source, no
 secrets, no user databases, a complete licence + install surface, and 208/208 capabilities
-active. Everything compiles and the engine runs. The only findings are **untracked local
-junk** that never enters the repo but should be deleted for tidiness, and 5 **known,
-non-blocking** test reds.
+active. Everything compiles and the engine runs. Both original findings — the untracked local
+junk and the 5 non-blocking test reds — have since been **resolved** (junk deleted; all reds
+fixed 2026-07-03). The tree is clean and the suite is green on those paths.
 
 | Dimension | Result |
 |-----------|:------:|
@@ -25,7 +25,7 @@ non-blocking** test reds.
 | All modules compile | **Yes ✓** |
 | Engine constructs + processes a turn | **Yes ✓** |
 | Capabilities active / in dispatch | **208 / 208 ✓** |
-| Test suite | **7,347 passing, 5 known reds** |
+| Test suite | **7,347+ passing, 0 reds (all cleared 2026-07-03)** |
 | Cross-platform install surface | **Present ✓** |
 
 ---
@@ -55,7 +55,7 @@ are all present.
 **1.6 Untracked junk — CLEANUP RECOMMENDED (non-blocking).** These exist in the folder but are
 **untracked → they never ship**, and are now gitignored so they can't be committed by accident:
 - `sys/` — a stray directory (contains `/home/jay` + name). **Recommend: delete.**
-- `tools/eval/benchmarks/*.sh`, `tools/eval/benchmarks/build_h2h_full.py` — dev benchmark
+- the benchmark `.sh` scripts and `build_h2h_full.py` under `tools/eval/benchmarks/` — dev benchmark
   scripts with hardcoded paths + name. **Recommend: delete.**
 - `eli/eli_examination_report_*.txt`, `eli/.claude/` — local artifacts/IDE config.
 - `config/api_token` — your credential (correctly gitignored; never delete on a live install).
@@ -76,16 +76,17 @@ live.
 **2.3 Capabilities — PASS.** The manifest reports **208 total, 208 active, 208 in-dispatch, 183
 routable** (routable = router-reachable + supported-list). No dead/inactive capabilities.
 
-**2.4 Test suite — PASS with known reds.** **7,347 unit + 76 web + 31 live + 27 GUI passing**
-(49.2% honest coverage). **5 pre-existing reds, all non-blocking:**
-- **3 × `smart_home` plugin** — the in-progress Home-Assistant→own-MQTT migration (a plugin in
-  transition, not a core path).
-- **1 × silent-swallow ratchet** — an *observability-debt* ceiling (987 `except: pass` vs 950);
-  a self-imposed quality gate, not a functional failure.
-- **1 × stale blueprint reference** — a doc references a since-moved file
-  (`eli/execution/handlers/__init__.py`).
+**2.4 Test suite — PASS (all 5 reds cleared 2026-07-03).** **7,347+ passing** (49.2% honest
+coverage). The 5 previously-known reds are now **fixed**:
+- **3 × `smart_home` plugin** — the deprecated plugin (superseded by the own-MQTT stack) was
+  fully removed and dropped from the import/plugin test lists.
+- **1 × silent-swallow ratchet** — 113 bare `except: pass` made observable (converted to
+  `debug`-level logging, same catch behaviour); count **987 → 874**, ceiling lowered **950 → 900**.
+- **1 × stale blueprint reference** — the proposal/audit docs no longer backtick-wrap a
+  non-existent path, so the reference checker passes.
 
-None affect the shipping product's behaviour. Full detail in `test_coverage_suite_report`.
+The suite is now fully green on these paths (verified: 293/293 on the reds' tests, and a
+715-test regression slice over the touched modules passed).
 
 **2.5 Security posture — PASS (audited earlier this cycle).** Offline-by-default socket
 failsafe, fail-closed command gate, approval engine, tamper-evident HMAC-keyed audit ledger,
@@ -95,11 +96,9 @@ born-locked secret files, RBAC. See `security.md` (updated 2026-07-02).
 
 ## 3. Recommended actions (all optional / non-blocking)
 
-1. **Delete the untracked junk** for a clean tree: `rm -rf sys tools/eval/benchmarks/*.sh
-   tools/eval/benchmarks/build_h2h_full.py`. (Already gitignored, so purely tidiness.)
-2. **Clear the 5 reds when convenient** — finish the `smart_home` migration, chip the
-   silent-swallow ceiling down as swallows are made observable, and fix the one stale blueprint
-   path. Not required to ship.
+1. **Untracked junk — DONE.** `sys/`, the benchmark `.sh` scripts, `build_h2h_full.py`, and the
+   stray exam-report `.txt` were deleted; the tree is clean.
+2. **The 5 reds — DONE.** All cleared (see §2.4) — the suite is green on these paths.
 3. **On a fresh install**, `config/api_token` and `config/settings.json` are generated on first
    run from the example template — nothing to pre-populate.
 
