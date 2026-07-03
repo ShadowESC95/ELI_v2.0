@@ -27,7 +27,7 @@ if ($Lan) {
     Write-Host " ELI server - LAN mode (token-protected, still 100% local)" -ForegroundColor Cyan
     Write-Host "   On a phone/tablet on the SAME network, open:"
     Write-Host ""
-    Write-Host "     http://${ip}:$Port/?token=$Token" -ForegroundColor White
+    Write-Host "     http://${ip}:$Port/#token=$Token" -ForegroundColor White
     Write-Host ""
     Write-Host "   The page stores the token; afterwards just http://${ip}:$Port/ works."
     Write-Host "   Inference runs on THIS machine - nothing leaves it to any cloud."
