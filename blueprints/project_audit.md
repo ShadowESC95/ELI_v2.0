@@ -32,8 +32,8 @@ session **[V]**.
 | Largest modules | executor_enhanced 14,294 · engine 13,326 · GUI `eli_pro_audio_gui_MKI` 10,985 · router 7,076 · labs_tab 5,562 · memory 4,415 · deterministic_grounding_gate 4,292 · agent_bus 3,073 · gguf_inference 2,538 |
 | Capabilities (`capability_manifest.json`) | **208** |
 | `SUPPORTED_ACTIONS` (`executor_enhanced.py`) | **174** |
-| Specialist bus agents | **14** (named in §4.4) |
-| Test files / suite | **189** files; full run **7,347 passed / 5 failed / 45 skipped / 2 xfailed** *(2026-07-01)* |
+| Specialist bus agents | **15** (named in §4.4) |
+| Test files / suite | **205** files; full run **7,348 passed / 0 failed / 45 skipped / 2 xfailed** *(2026-07-03)* |
 | Test groups | `tests/claims` (11), `tests/regression` (6), `tests/generated` (3) |
 | SQLite stores | **4** (`user`, `agent`, `system_index`, `coding_memory`) |
 | Vector index | FAISS, **1,228** vectors, `nomic-embed-text-v1.5.Q4_K_M` *(runtime snapshot)* |
@@ -84,7 +84,7 @@ Single entry: `CognitiveEngine.process()` (`engine.py:8790`). 12 logical stages 
 3. Router + task decomposer — `execution/router_enhanced.py:route()` → `{action,args,confidence,meta}`.
 4. Truth / grounding gate — forbids a direct LLM answer when grounding is required.
 5. Executive controller / planner — picks agent profile + order.
-6. Agent bus — up to 14 specialist agents on a `ThreadPoolExecutor`, ordered by a dependency DAG.
+6. Agent bus — up to 15 specialist agents on a `ThreadPoolExecutor`, ordered by a dependency DAG.
 7. Working-memory / context assembler.
 8. **Single inference broker** — `cognition/inference_broker.py`; all model calls serialize on
    `_LLM_CALL_LOCK` (`gguf_inference.py:515`). llama.cpp is not concurrency-safe; vision
@@ -324,9 +324,9 @@ Severity P0=integrity, P1=routing/exec, P2=quality. Status as of `a641471`.
 ---
 
 ## 11. Tests & verification
-- 194 test files; full run **7,347 passed / 5 failed / 45 skipped / 2 xfailed** (2026-07-01). **[V]**
-  The 5 remaining reds are the in-progress `smart_home` plugin removal + one stale blueprint
-  ref — pre-existing, unrelated, fail identically on a clean tree.
+- 205 test files; full run **7,348 passed / 0 failed / 45 skipped / 2 xfailed** (2026-07-03). **[V]**
+  The 5 former reds (deprecated `smart_home` plugin, silent-swallow ratchet, stale blueprint
+  ref) were all cleared 2026-07-03 — the suite is fully green.
 - Groups: `tests/claims/` (project-vs-claims, symbol inventory, agent contracts),
   `tests/regression/`, `tests/generated/` (+ `_manifest.json`), plus the flat `test_*` suite.
 - No-GGUF pattern: many tests assert engine/router behaviour without loading a model
