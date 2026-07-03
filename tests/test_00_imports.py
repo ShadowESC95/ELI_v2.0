@@ -156,8 +156,6 @@ ALL_MODULES = [
     "eli.plugins.notes.plugin",
     "eli.plugins.pomodoro",
     "eli.plugins.pomodoro.plugin",
-    "eli.plugins.smart_home",
-    "eli.plugins.smart_home.plugin",
     "eli.plugins.system_stats",
     "eli.plugins.system_stats.plugin",
     "eli.plugins.tts",
