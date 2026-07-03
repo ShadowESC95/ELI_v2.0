@@ -190,8 +190,8 @@ wrapper:
   explicitly allow them. Custom agents are AST-validated and hash-trusted before
   they can run. A crisis-guard steers the persona on self-harm signals.
 
-- **Extensibility.** A real plugin system (11 built-ins: weather, web, calendar,
-  notes, pomodoro, smart-home, document-reader, web-automation, system-stats,
+- **Extensibility.** A real plugin system (10 built-ins: weather, web, calendar,
+  notes, pomodoro, document-reader, web-automation, system-stats,
   media, TTS) with install/enable/disable, plus user-created custom agents that
   register live. `capability_sync` keeps the 208-capability manifest *measured*
   against the actual code, not asserted.

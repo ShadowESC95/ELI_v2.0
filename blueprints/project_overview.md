@@ -37,7 +37,7 @@ wrapper.
 ## 2. Scale & shape
 
 **143,432 LOC across 370 Python files** (`eli/`), plus the FastAPI web server
-(`api/server.py`, ~3,884 lines with an embedded dashboard PWA) and 194 test files.
+(`api/server.py`, ~3,884 lines with an embedded dashboard PWA) and 205 test files.
 *(measured 2026-06-28.)*
 
 | Subsystem | LOC | Files | Role |
@@ -139,10 +139,10 @@ wrapper.
    `verify_eli_claims*.sh` versions, diag outputs, `.coverage`, and
    `experimental/*.zip` binaries. Makes the repo look less serious than the code
    is.
-5. **Tests are GREEN (measured 2026-07-01).** 194 test files; `pytest tests/` =
-   **7,347 passed / 5 failed / 45 skipped / 2 xfailed** (~11m23s on the `.venv`/GPU). The 5
-   remaining reds are the in-progress `smart_home` plugin removal + one stale blueprint
-   ref — pre-existing and unrelated (they fail identically on a clean tree). The
+5. **Tests are GREEN (measured 2026-07-01).** 205 test files; `pytest tests/` =
+   **7,348 passed / 0 failed / 45 skipped / 2 xfailed** (~8m16s on the `.venv`/GPU). The 5
+   former reds (deprecated `smart_home` plugin, silent-swallow ratchet, stale blueprint
+   ref) were all cleared 2026-07-03. The
    `tests/claims/` contract layer makes it a real safety net.
 6. **13 monkeypatch/`globals()` hacks** — mostly load-bearing (e.g. the CPU-clip
    vision fix), but they're fragile seams worth tracking.
