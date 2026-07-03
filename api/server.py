@@ -4010,7 +4010,7 @@ def main():
             "api.server:app", host=host, port=https_port, log_level="warning",
             ssl_certfile=_crt, ssl_keyfile=_key))
         threading.Thread(target=_hsrv.run, daemon=True).start()
-    uvicorn.run("api.server:app", host=host, port=port, reload=reload, log_level="info")
+    uvicorn.run("api.server:app", host=host, port=port, reload=reload, log_level="warning")
 
 if __name__ == "__main__":
     main()
