@@ -7,7 +7,9 @@ CI (side-effecting OS actions, physical hardware, GPU, the un-buildable main win
 and other-OS branches). This document breaks down, per area, **what brings the score
 down** and **what could bring it up**, with realistic estimates.
 
-Baseline measured 2026-07-02: **48.1%** (33,681 / 70,086), all 4 lanes.
+Baseline 2026-07-02: **48.1%** (33,681 / 70,086). **Update 2026-07-03 — the shortlist pass
+below was executed: now 49.2% (34,514 / 70,086), 7,481 tests passing.** The remaining path to
+the mid-50s (more logic tests + the planner/effector refactor) still stands.
 
 ---
 
@@ -167,7 +169,7 @@ mock, not ELI. That is deliberately **not** done here.
 
 | | Coverage |
 |--|--:|
-| Today (honest, whole surface) | **48.1%** |
+| Today (after the shortlist pass) | **49.2%** |
 | After a focused Bucket-A/B pass (grounding gate, remediation, engine turns, memory, api, gui slots, orchestrator, image procedural path, misc logic) | **~54–56%** |
 | Theoretical max without faking the world | **~58–60%** |
 | Hard floor of untestable code | **~16%** of the tree |
