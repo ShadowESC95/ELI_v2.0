@@ -172,13 +172,17 @@ real world.** Pure logic is well covered; the edges aren't.
 
 ---
 
-## 7. The 5 pre-existing reds (none from this work)
+## 7. The 5 reds — cleared (2026-07-03)
 
-1–3. `smart_home` plugin — the in-progress Home-Assistant removal (voice SMART_HOME
-   now uses ELI's own MQTT server).
-4. A blueprint references a since-moved handlers module (the `handlers` package `__init__.py`).
-5. Silent-swallow ratchet — 987 `except: pass` vs a 950 ceiling (a standing
-   observability debt; the ratchet test correctly forbids raising the ceiling).
+All five previously-pre-existing reds are now fixed; the suite is green on these paths:
+
+1–3. `smart_home` plugin — the deprecated plugin (superseded by ELI's own MQTT server)
+   was fully removed and dropped from the import/plugin test lists.
+4. Blueprint reference — the proposal/audit docs no longer backtick-wrap a non-existent
+   handlers path, so the reference checker passes.
+5. Silent-swallow ratchet — 113 bare `except: pass` made observable (converted to
+   `debug`-level logging, same catch behaviour); count **987 → 874**, ceiling lowered
+   **950 → 900** to lock in the gain.
 
 ---
 
