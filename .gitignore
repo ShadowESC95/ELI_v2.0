@@ -165,3 +165,6 @@ tools/eval/benchmarks/*.sh
 tools/eval/benchmarks/build_h2h_full.py
 eli/eli_examination_report_*.txt
 eli/.claude/
+
+# training build cache (never commit)
+models/unsloth_compiled_cache/
