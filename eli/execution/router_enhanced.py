@@ -1021,6 +1021,47 @@ def _route_plugin_bridge_prepass(raw: str, low: str):
     if re.match(r"^(?:list\s+notes|show\s+notes|show\s+my\s+notes|notes\s+list)$", low):
         return _mk("LIST_NOTES", {}, 0.98, matched_by="plugin.prepass.notes_list")
 
+    # Bluetooth voice control — connect/pair/disconnect a device, or route audio to it.
+    # ("connect my headphones", "pair the speaker", "disconnect my earbuds",
+    #  "play through the kitchen speaker", "use my headphones for audio")
+    _BT_WORDS = (r"headphones?|headset|earbuds?|earphones?|buds|airpods|speakers?|soundbar|"
+                 r"bluetooth|smart\s*watch|earpiece|dongle")
+    if not re.search(r"\b(wi-?fi|internet|network|vpn|server|hotspot|ethernet|the\s+call)\b", low):
+        # Route audio to a device: "play/route/send audio through|to the <speaker/headphones>".
+        _bt_audio = re.search(
+            r"\b(?:play|route|send|switch|output|put)\s+(?:the\s+)?"
+            r"(?:audio|sound|music|it|everything)?\s*(?:through|to|on|via|out\s+of)\s+"
+            r"(?:my\s+|the\s+)?(.+)$", low)
+        # Explicit form: "use my headphones for audio/output".
+        _bt_audio2 = re.search(
+            r"\buse\s+(?:my\s+|the\s+)?(.+?)\s+(?:for|as)\s+(?:the\s+)?"
+            r"(?:audio|sound|output|speaker|playback)\b", low)
+        _excl_media = re.search(r"\b(spotify|youtube|netflix|playlist|song|track|video|album|podcast|radio)\b", low)
+        if not _excl_media and _bt_audio and re.search(_BT_WORDS, _bt_audio.group(1)):
+            _dev = _bt_audio.group(1).strip(" .!?")
+            return _mk("SMART_HOME", {"device": _dev, "command": "use_for_audio", "bt": True},
+                       0.95, matched_by="bluetooth.audio", entities={"device": _dev})
+        if not _excl_media and _bt_audio2:
+            _dev = _bt_audio2.group(1).strip(" .!?")
+            if _dev:
+                return _mk("SMART_HOME", {"device": _dev, "command": "use_for_audio", "bt": True},
+                           0.95, matched_by="bluetooth.audio", entities={"device": _dev})
+        # Connect / pair — only when a BT device word (or "bluetooth") is present.
+        _bt_conn = re.search(r"\b(connect|pair|reconnect)\s+(?:to\s+)?(?:my\s+|the\s+)?(.+)$", low)
+        if _bt_conn and (re.search(_BT_WORDS, _bt_conn.group(2)) or "bluetooth" in low):
+            _dev = re.sub(r"\b(over|via|by|using|through)\s+bluetooth\b", "", _bt_conn.group(2)).strip(" .!?")
+            _cmd = "pair" if _bt_conn.group(1).startswith("pair") else "connect"
+            if _dev:
+                return _mk("SMART_HOME", {"device": _dev, "command": _cmd, "bt": True},
+                           0.95, matched_by="bluetooth.connect", entities={"device": _dev})
+        # Disconnect — same guard.
+        _bt_disc = re.search(r"\bdisconnect\s+(?:from\s+)?(?:my\s+|the\s+)?(.+)$", low)
+        if _bt_disc and (re.search(_BT_WORDS, _bt_disc.group(1)) or "bluetooth" in low):
+            _dev = re.sub(r"\b(over|via|by|using|from)\s+bluetooth\b", "", _bt_disc.group(1)).strip(" .!?")
+            if _dev:
+                return _mk("SMART_HOME", {"device": _dev, "command": "disconnect", "bt": True},
+                           0.95, matched_by="bluetooth.disconnect", entities={"device": _dev})
+
     # Smart-home plugin.
     _smart_m = re.match(
         r"^(?:smart\s+home|home\s+automation)\s+(.+)$",
