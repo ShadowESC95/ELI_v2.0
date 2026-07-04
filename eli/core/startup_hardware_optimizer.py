@@ -97,6 +97,29 @@ def detect_nvidia_gpus() -> List[GPUInfo]:
 
 def detect_other_gpus() -> List[GPUInfo]:
     out: List[GPUInfo] = []
+    # AMD VRAM from rocm-smi (lspci reports no memory). Summed across cards, in MB; assigned
+    # to the first AMD card found so the layer-sizing math sees real VRAM, not 0.
+    amd_total = amd_free = 0
+    try:
+        import json as _json
+        _o = run(["rocm-smi", "--showmeminfo", "vram", "--json"])
+        for _c, _i in (_json.loads(_o) if _o else {}).items():
+            if not isinstance(_i, dict):
+                continue
+            _tot = _used = 0
+            for k, v in _i.items():
+                kl = str(k).lower()
+                if "vram" in kl and "total" in kl and "memory" in kl and "used" not in kl:
+                    try: _tot = int(v)
+                    except Exception: pass
+                elif "vram" in kl and "used" in kl and "memory" in kl:
+                    try: _used = int(v)
+                    except Exception: pass
+            if _tot > 0:
+                amd_total += _tot // (1024 * 1024)
+                amd_free += max(0, _tot - _used) // (1024 * 1024)
+    except Exception:
+        pass
     try:
         raw = run(["lspci"])
         for i, line in enumerate(raw.splitlines()):
@@ -105,7 +128,11 @@ def detect_other_gpus() -> List[GPUInfo]:
                 if "nvidia" in low:
                     continue
                 vendor = "amd" if ("amd" in low or "advanced micro" in low) else ("intel" if "intel" in low else "unknown")
-                out.append(GPUInfo(i, line.strip(), vendor, 0, 0))
+                if vendor == "amd" and amd_total > 0:
+                    out.append(GPUInfo(i, line.strip(), vendor, amd_total, amd_free))
+                    amd_total = amd_free = 0  # assign the summed VRAM once
+                else:
+                    out.append(GPUInfo(i, line.strip(), vendor, 0, 0))
     except Exception:
         pass
     return out
