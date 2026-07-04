@@ -141,7 +141,8 @@ def _target_terms(target: Optional[str]) -> List[str]:
     if not target:
         return []
     t = target.strip().lower().replace("_", " ").replace("-", " ")
-    terms = {t}
+    terms = {t, target.strip().lower()}   # keep the raw form (underscores/dots) too, so a
+                                          # partial id like "instance_1_125" still matches
     compact = t.replace(" ", "")
     if compact:
         terms.add(compact)
@@ -176,6 +177,16 @@ def resolve_player_target(target: Optional[str] = None, command: Optional[str] =
     infos = list_player_infos()
     if not infos:
         return None
+
+    # Exact player-name match wins. The dashboard passes the live MPRIS id
+    # (e.g. "firefox.instance_1_125"); the fuzzy matcher below turns underscores into
+    # spaces, so an exact id would fail to match its OWN name → resolve to None →
+    # control silently no-ops (the Netflix/YouTube "pause does nothing" bug).
+    if target:
+        tl = str(target).strip().lower()
+        for info in infos:
+            if str(info.get("player", "")).lower() == tl:
+                return str(info["player"])
 
     terms = _target_terms(target)
     if terms:
