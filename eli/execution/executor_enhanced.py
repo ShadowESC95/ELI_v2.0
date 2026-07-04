@@ -10435,6 +10435,25 @@ def _execute_impl(action: str, args: Optional[Dict[str, Any]] = None) -> Dict[st
             srv = get_server()
             device = (args.get("device") or args.get("name") or "").strip()
             raw = (args.get("command") or args.get("action") or args.get("state") or "").strip().lower()
+            # Bluetooth verbs (connect/disconnect/pair/use_for_audio) — resolve the spoken name
+            # against discovered/registered Bluetooth devices and drive the OS BT stack. Handled
+            # HERE, before the on/off mapping below ("on" is a substring of "c-on-nect").
+            _btc = raw.replace(" ", "_").replace("-", "_")
+            if args.get("bt") or _btc in ("connect", "disconnect", "pair", "trust", "use_for_audio"):
+                from eli.runtime.device_server import bluetooth_control_by_name
+                _r = bluetooth_control_by_name(device, _btc or "connect")
+                _nm = _r.get("device_name") or device or "the device"
+                if _r.get("ok"):
+                    _say = {
+                        "use_for_audio": f"Audio is now playing through {_nm}.",
+                        "connect": f"Connected to {_nm}.",
+                        "disconnect": f"Disconnected {_nm}.",
+                        "pair": f"Paired with {_nm}.",
+                        "trust": f"Trusted {_nm}.",
+                    }.get(_btc, f"{_nm}: {_btc}.")
+                    return {"ok": True, "action": a, "content": _say, "response": _say}
+                _e = _r.get("error") or "I couldn't do that with Bluetooth."
+                return {"ok": False, "action": a, "error": _e, "content": _e, "response": _e}
             cmd = "on" if "on" in raw else "off" if "off" in raw else raw
             if not device:
                 msg = "Which device or room? For example: 'turn on the desk lamp'."
