@@ -1030,15 +1030,32 @@ _WEB_UI = """<!doctype html>
   /* PWA: installable + offline shell. Force a fresh-code check on every load and
      auto-reload once a new worker takes control, so an installed PWA can never get
      stranded on a stale cached shell (e.g. one cached during a transient bad build). */
+  // A service worker is great for offline PWA on localhost / a real HTTPS domain — but HARMFUL
+  // on a self-signed LAN HTTPS origin (an IP host). There the browser treats the cert as
+  // errored: SW registration is flaky and a stale one strands the phone on a blank/spinning
+  // shell. That's exactly why the http://LAN-IP connect page works (no SW allowed there) while
+  // the https://LAN-IP voice page goes blank (SW is the only difference). So on an IP-address
+  // HTTPS origin we SKIP the SW and actively unregister any stale one + wipe its caches, which
+  // also heals a phone already stranded by a previously-registered worker.
+  var _ipHost=/^\\d{1,3}(\\.\\d{1,3}){3}$/.test(location.hostname);
   if('serviceWorker' in navigator){try{
-    var _swReloading=false;
-    navigator.serviceWorker.addEventListener('controllerchange',function(){
-      if(_swReloading)return; _swReloading=true; location.reload();
-    });
-    navigator.serviceWorker.register('/sw.js').then(function(reg){
-      try{reg.update();}catch(e){}                       // check for a newer /sw.js now
-      if(reg.waiting){try{reg.waiting.postMessage('skip');}catch(e){}}
-    }).catch(function(){});
+    if(location.protocol==='https:'&&_ipHost){
+      navigator.serviceWorker.getRegistrations()
+        .then(function(rs){rs.forEach(function(r){try{r.unregister();}catch(e){}});}).catch(function(){});
+      if(window.caches){caches.keys()
+        .then(function(ks){ks.forEach(function(k){try{caches.delete(k);}catch(e){}});}).catch(function(){});}
+    } else {
+      var _swReloading=false, _hadCtrl=!!navigator.serviceWorker.controller;
+      navigator.serviceWorker.addEventListener('controllerchange',function(){
+        // Reload only for a genuine UPDATE (a controller already existed) — never on the
+        // first-ever claim, which used to race page load into a blank reload.
+        if(_swReloading||!_hadCtrl)return; _swReloading=true; location.reload();
+      });
+      navigator.serviceWorker.register('/sw.js').then(function(reg){
+        try{reg.update();}catch(e){}                       // check for a newer /sw.js now
+        if(reg.waiting){try{reg.waiting.postMessage('skip');}catch(e){}}
+      }).catch(function(){});
+    }
   }catch(e){}}
   /* live: refresh the dashboard while it's open (no manual reload) */
   setInterval(function(){const v=$('#view-overview'); if(v&&v.classList.contains('active')&&!document.hidden&&!OV_EDIT&&!isOvEditingField())loadOverview();},6000);
