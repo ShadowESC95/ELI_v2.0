@@ -435,6 +435,8 @@ def main():
             _llama_kwargs["n_gpu_layers"] = 0
             _llama_kwargs["n_ctx"] = max(int(_llama_kwargs.get("n_ctx", 0) or 0), 4096)
             os.environ.setdefault("CUDA_VISIBLE_DEVICES", "")
+            os.environ.setdefault("HIP_VISIBLE_DEVICES", "")   # AMD/ROCm equivalent of CUDA_VISIBLE_DEVICES
+            os.environ.setdefault("ROCR_VISIBLE_DEVICES", "")  # ROCm runtime device mask
             os.environ.setdefault("GGML_CUDA_NO_DEVICE_INIT", "1")
             _free_mb = 0  # treat as VRAM-tight so the attempt list is CPU-only
 
