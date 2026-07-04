@@ -78,6 +78,7 @@ fastapi>=0.110
 uvicorn>=0.27
 paho-mqtt>=1.6,<3
 zeroconf>=0.70
+bleak>=0.21       # Bluetooth (BLE) device discovery (uses CoreBluetooth on macOS)
 opencv-python>=4.8
 pytesseract>=0.3
 openwakeword>=0.4
