@@ -1642,6 +1642,17 @@ def route(text: str) -> Dict[str, Any]:
     ):
         return _mk("GAZE_STATUS", {}, 0.95, matched_by="gaze.status.preempt")
 
+    # Dwell-click (accessibility): "enable gaze clicking" / "turn on dwell click" starts the
+    # gaze engine AND switches on look-and-hold clicking — hands-free AND voice-free. Checked
+    # first (higher priority) so "gaze clicking" doesn't fall through to plain gaze-enable.
+    if re.search(
+        r"\b(enable|start|turn\s+on|activate|switch\s+on)\s+(the\s+)?"
+        r"(dwell[\s-]?click(ing)?|gaze[\s-]?click(ing)?|eye[\s-]?click(ing)?|click(ing)?\s+by\s+(gaze|eye|looking))\b"
+        r"|\b(dwell[\s-]?click(ing)?|gaze[\s-]?click(ing)?)\s+(on|enable)\b",
+        low,
+    ):
+        return _mk("GAZE_ENABLE", {"dwell": True}, 0.97, matched_by="gaze.dwell.enable.preempt")
+
     if re.search(
         r"\b(enable|start|turn\s+on|activate|switch\s+on)\s+(the\s+)?(gaze|gaze\s+engine|gaze\s+track(er|ing))\b"
         r"|\bgaze\s+(engine\s+)?(on|enable|start|activate)\b",

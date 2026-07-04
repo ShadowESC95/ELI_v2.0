@@ -134,6 +134,14 @@ DEFAULTS: Dict[str, Any] = {
     "first_run_complete": False,
     "theme": "dark",
     "searxng_url": "",
+    # --- Gaze dwell-click (accessibility): rest your gaze on a target and it clicks there —
+    # the hands-free AND voice-free path, for users who can operate neither a mouse nor voice.
+    # Off by default (an always-on auto-click is intrusive); turn it on when you need it, either
+    # here, from Settings, or by voice ("enable gaze clicking"). Needs gaze calibrated + running.
+    "gaze_dwell_click": False,
+    "gaze_dwell_seconds": 1.0,      # hold your gaze this long before it clicks
+    "gaze_dwell_radius": 60,        # px the gaze may wander and still count as "held"
+    "gaze_dwell_min_confidence": 0.35,
     # --- Local vision (model-agnostic, via llama-cpp; hot-swaps with the text
     # model). Paths empty = auto-discover any projector-paired VL GGUF in the
     # models dir. No model name is hardcoded; override per-install via these

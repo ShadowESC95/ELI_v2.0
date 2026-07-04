@@ -301,6 +301,11 @@ and ELI opens or reports the right thing.
 ### 👁️ Eye control (gaze)
 - "calibrate gaze", then "enable gaze". With it on, ELI clicks **where you're looking** when you
   say "open" / "left click" / "right click" / "hit enter" — hands-free pointing.
+- **Fully hands-free *and* voice-free — dwell-click.** Say **"enable gaze clicking"** (or turn on
+  **Dwell-click** in Settings) and ELI clicks wherever you **rest your gaze for about a second** —
+  no mouse, no voice needed. This is built for people who can't use their hands *or* speak
+  reliably. Tune the hold time, wander radius, and sensitivity in Settings (`gaze_dwell_seconds`,
+  `gaze_dwell_radius`). Turn it off any time; it's opt-in.
 - "gaze status" · "disable gaze"
 
 ### 🎨 Making images
