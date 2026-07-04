@@ -11354,10 +11354,17 @@ def proactive_status() -> Dict[str, Any]:
     alive = False
     if pid:
         try:
-            os.kill(pid, 0)
-            alive = True
+            import psutil as _psutil
+            alive = _psutil.pid_exists(int(pid))
         except Exception:
-            alive = False
+            # psutil missing — the signal-0 probe is POSIX-only. On Windows os.kill with
+            # ANY signal calls TerminateProcess, so os.kill(pid, 0) would KILL the process.
+            if os.name != "nt":
+                try:
+                    os.kill(pid, 0)
+                    alive = True
+                except Exception:
+                    alive = False
     # In-process daemon: the GUI runs it as a THREAD (no separate PID), so the PID check
     # above misses it and falsely reports STOPPED (observed: agent_bus daemon_running=False
     # while '[PROACTIVE] Daemon started'). Also honour the live in-process signals — the
