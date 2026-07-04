@@ -9698,6 +9698,32 @@ Answer:"""
         except Exception:
             pass
 
+        # Relational facts — the people/pets the user mentions in passing ("my dog Shadow",
+        # "Shadow (my dog)", "my wife is Jane"). ELI stored the user's OWN name but never these,
+        # so "what's my dog's name?" had nothing to recall even after the user had said it.
+        # Store each as a recallable identity memory (and pin it, like the name path).
+        try:
+            from eli.runtime.relational_facts import extract_relational_facts as _erf
+            _rel_facts = _erf(user_input)
+            for _rf in _rel_facts:
+                _rf_text = f"User's {_rf['relation']} is named {_rf['name']}."
+                try:
+                    self.memory.store_memory(
+                        _rf_text,
+                        tags=["user", "relation", _rf["relation"]],
+                        source="runtime_relational_extractor",
+                        kind="identity",
+                        importance=0.82,
+                    )
+                    if self._working_memory:
+                        self._working_memory.pin(_rf_text, source="relation", importance=0.82)
+                except Exception:
+                    pass
+            if _rel_facts:
+                log.debug(f"[COGNITIVE] Relational facts stored: {_rel_facts}")
+        except Exception:
+            pass
+
         # Detect in-session ELI acronym corrections ("ELI = X", "ELI stands for X")
         # and pin them to working memory so the LLM uses the corrected name for the
         # rest of the session without waiting for a source-file edit.
