@@ -3184,10 +3184,20 @@ def _eli_v11_redact_user_identity(text: object) -> str:
         os_user = ""
 
     if os_user:
+        # Linux
         s = s.replace(f"/home/{os_user}/", "/home/<user>/")
         s = s.replace(f"/home/{os_user}", "/home/<user>")
+        # macOS (/Users/<user>)
+        s = s.replace(f"/Users/{os_user}/", "/Users/<user>/")
+        s = s.replace(f"/Users/{os_user}", "/Users/<user>")
+        # terminal-style ~<user>
         s = s.replace(f"~{os_user}/", "~<user>/")
         s = s.replace(f"~{os_user}", "~<user>")
+        # Windows (C:\Users\<user>) — any drive letter, case-insensitive
+        try:
+            s = re.sub(rf"(?i)([A-Za-z]:\\Users\\){re.escape(os_user)}", r"\1<user>", s)
+        except Exception:
+            pass
 
     # Redact known personal tokens as standalone words/phrases.
     for tok in sorted(_eli_v11_user_tokens(), key=len, reverse=True):
@@ -3476,10 +3486,20 @@ def _eli_v12_redact(text: object) -> str:
         os_user = ""
 
     if os_user:
+        # Linux
         s = s.replace(f"/home/{os_user}/", "/home/<user>/")
         s = s.replace(f"/home/{os_user}", "/home/<user>")
+        # macOS (/Users/<user>)
+        s = s.replace(f"/Users/{os_user}/", "/Users/<user>/")
+        s = s.replace(f"/Users/{os_user}", "/Users/<user>")
+        # terminal-style ~<user>
         s = s.replace(f"~{os_user}/", "~<user>/")
         s = s.replace(f"~{os_user}", "~<user>")
+        # Windows (C:\Users\<user>) — any drive letter, case-insensitive
+        try:
+            s = re.sub(rf"(?i)([A-Za-z]:\\Users\\){re.escape(os_user)}", r"\1<user>", s)
+        except Exception:
+            pass
 
     for tok in sorted(_eli_v12_dynamic_identity_tokens(), key=len, reverse=True):
         if not tok:
