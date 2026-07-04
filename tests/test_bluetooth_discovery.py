@@ -34,7 +34,7 @@ def test_ble_discover_shapes_devices(monkeypatch):
     assert named["kind"] == "bluetooth"
     assert named["transport"] == "bluetooth"
     assert named["name"] == "My Buds"
-    assert named["control"] is None            # discovery-only
+    assert named["control"] == "bluetooth"     # controllable: pair/connect/disconnect/audio
     # An unnamed device still gets a friendly fallback carrying its address.
     unnamed = next(f for f in found if f["host"] == "11:22:33:44:55:66")
     assert "11:22:33:44:55:66" in unnamed["name"]

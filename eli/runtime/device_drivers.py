@@ -455,10 +455,123 @@ class AirPlayDriver(Driver):
 
 
 # ─────────────────────────────────────────────────────────────────────────────
+# Bluetooth — pair / connect / disconnect + route system audio to the device.
+# Uses the OS Bluetooth stack, NO python dep: bluetoothctl + pactl/pipewire on Linux,
+# blueutil (+ switchaudio-osx) on macOS. Windows control is not wired yet (roadmap).
+# Every branch degrades to a clean, actionable message — it never raises.
+# ─────────────────────────────────────────────────────────────────────────────
+class BluetoothDriver(Driver):
+    name = "bluetooth"
+    label = "Bluetooth device"
+    pip = None                    # OS tools, no python package
+    needs_pairing = True
+    pair_style = "accept"         # usually confirm/accept the pairing on the device itself
+
+    def capabilities(self, dev):
+        return ["connect", "disconnect", "pair", "trust", "use_for_audio"]
+
+    @staticmethod
+    def _addr(dev: Dict[str, Any]) -> str:
+        a = str(dev.get("host") or dev.get("address") or "").strip()
+        if not a and str(dev.get("id", "")).startswith("ble:"):
+            a = str(dev["id"])[4:]
+        return a
+
+    @staticmethod
+    def _sh(args, timeout: float = 25.0):
+        import subprocess
+        try:
+            r = subprocess.run(args, capture_output=True, text=True, timeout=timeout)
+            return r.returncode, (r.stdout or "") + (r.stderr or "")
+        except FileNotFoundError:
+            return 127, "tool-not-found"
+        except Exception as e:  # timeout / permission / anything — stay graceful
+            return 1, str(e)
+
+    def pair(self, dev, code=None):
+        return self.control(dev, "pair")
+
+    def control(self, dev, command, value=None):
+        addr = self._addr(dev)
+        if not addr:
+            return {"ok": False, "error": "bluetooth: no device address"}
+        cmd = (command or "").lower().replace("-", "_")
+        if cmd in ("use_for_audio", "audio", "route_audio", "listen", "output"):
+            return self._route_audio(addr)
+        action = {
+            "connect": "connect", "on": "connect",
+            "disconnect": "disconnect", "off": "disconnect",
+            "pair": "pair", "trust": "trust",
+        }.get(cmd)
+        if not action:
+            return {"ok": False, "error": f"bluetooth: unsupported command {command!r}"}
+        return self._bt_action(addr, action)
+
+    def _bt_action(self, addr, action):
+        import shutil, sys
+        if sys.platform == "darwin":
+            if not shutil.which("blueutil"):
+                return {"ok": False, "error": "bluetooth on macOS needs blueutil (brew install blueutil)"}
+            flag = {"connect": "--connect", "disconnect": "--disconnect",
+                    "pair": "--pair", "trust": "--connect"}[action]
+            rc, out = self._sh(["blueutil", flag, addr])
+            return {"ok": rc == 0, "command": action, "device": addr, "output": out[:300]}
+        if not shutil.which("bluetoothctl"):
+            if sys.platform.startswith("win"):
+                return {"ok": False, "error": "bluetooth control on Windows isn't wired yet (roadmap)"}
+            return {"ok": False, "error": "bluetooth: bluetoothctl not found (install bluez)"}
+        # Linux: power the adapter on, then run the step(s). Pairing implies trust + connect.
+        self._sh(["bluetoothctl", "power", "on"], timeout=8)
+        steps = {"pair": ["pair", "trust", "connect"], "connect": ["connect"],
+                 "disconnect": ["disconnect"], "trust": ["trust"]}[action]
+        out_all, ok = "", False
+        for step in steps:
+            rc, out = self._sh(["bluetoothctl", step, addr], timeout=25)
+            out_all += out + "\n"
+            low = out.lower()
+            ok = (rc == 0 or "successful" in low or "changing" in low
+                  or "connected: yes" in low or "paired: yes" in low)
+        return {"ok": ok, "command": action, "device": addr, "output": out_all.strip()[:400]}
+
+    def _route_audio(self, addr):
+        """Make this Bluetooth device the system audio output (Linux PulseAudio/PipeWire)."""
+        import shutil, sys
+        if sys.platform == "darwin":
+            if shutil.which("SwitchAudioSource"):
+                rc, out = self._sh(["SwitchAudioSource", "-t", "output", "-s", addr])
+                return {"ok": rc == 0, "routed": rc == 0, "output": out[:200]}
+            return {"ok": False, "error": "macOS audio routing needs switchaudio-osx (brew install switchaudio-osx)"}
+        if not shutil.which("pactl"):
+            return {"ok": False, "error": "audio routing needs PulseAudio/PipeWire (pactl not found)"}
+        # BlueZ names the sink after the MAC with underscores: bluez_output.AA_BB_CC_DD_EE_FF…
+        token = addr.replace(":", "_").upper()
+        _, sinks = self._sh(["pactl", "list", "short", "sinks"])
+        sink = None
+        for line in sinks.splitlines():
+            if token in line.upper() and "bluez" in line.lower():
+                parts = line.split()
+                if len(parts) >= 2:
+                    sink = parts[1]
+                    break
+        if not sink:
+            return {"ok": False,
+                    "error": "no Bluetooth audio sink for that device — connect it as audio first"}
+        rc, _ = self._sh(["pactl", "set-default-sink", sink])
+        # Move any playing streams onto it too, so sound follows immediately.
+        _, inputs = self._sh(["pactl", "list", "short", "sink-inputs"])
+        for line in inputs.splitlines():
+            parts = line.split()
+            if parts:
+                self._sh(["pactl", "move-sink-input", parts[0], sink])
+        return {"ok": rc == 0, "routed": rc == 0, "sink": sink, "device": addr}
+
+
+# ─────────────────────────────────────────────────────────────────────────────
 # Registry + on-demand install
 # ─────────────────────────────────────────────────────────────────────────────
 _DRIVERS: Dict[str, Driver] = {
-    d.name: d for d in (UpnpDriver(), CastDriver(), FireTVDriver(), AirPlayDriver())
+    d.name: d for d in (UpnpDriver(), CastDriver(), FireTVDriver(), AirPlayDriver(),
+                        BluetoothDriver())
 }
 
 
