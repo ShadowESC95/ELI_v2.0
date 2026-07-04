@@ -8311,6 +8311,15 @@ def _execute_impl(action: str, args: Optional[Dict[str, Any]] = None) -> Dict[st
             from eli.perception.gaze_engine import start_gaze_engine, needs_calibration
             camera = str(args.get("camera", "auto") or "auto").strip()
             result = start_gaze_engine(camera=camera)
+            # "enable gaze clicking / dwell click" also switches on dwell-click (accessibility:
+            # rest your gaze on a target ~1s to click it — no mouse or voice needed).
+            _dwell_on = bool(args.get("dwell"))
+            if _dwell_on:
+                try:
+                    from eli.core.runtime_settings import update_settings as _us_dwell
+                    _us_dwell(gaze_dwell_click=True)
+                except Exception:
+                    pass
             if result.get("already_running"):
                 msg = "Gaze engine is already running."
             elif result.get("ok"):
@@ -8318,6 +8327,8 @@ def _execute_impl(action: str, args: Optional[Dict[str, Any]] = None) -> Dict[st
                 msg = f"Gaze engine started{cal_note}."
             else:
                 msg = f"Gaze engine failed to start: {result.get('error', 'unknown error')}"
+            if _dwell_on and result.get("ok"):
+                msg += " Dwell-click is on — hold your gaze on a target for ~1s to click it."
             result.setdefault("content", msg)
             result.setdefault("response", msg)
             result["action"] = a
