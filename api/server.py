@@ -1174,7 +1174,8 @@ _WEB_UI = """<!doctype html>
       '<label>Password (optional)</label><input id="mq_pass" type="password" autocomplete="new-password" value="'+esc(vals.password||'')+'">'+
       '<label>Discovery prefix (optional — auto-finds devices)</label><input id="mq_disc" placeholder="leave blank for manual devices" value="'+esc(vals.discovery_prefix||'')+'">'+
       '<div class="rrow" style="margin-top:14px"><button id="mq-save" onclick="saveDevConfig()">Save &amp; connect</button>'+
-      '<button class="cbtn" id="mq-find" onclick="discoverDevices()">&#128270; Find on my network</button></div>'+
+      '<button class="cbtn" id="mq-find" onclick="discoverDevices()">&#128270; Find on my network</button>'+
+      '<button class="cbtn" id="bt-find" onclick="searchBluetooth()">&#127911; Search Bluetooth</button></div>'+
       '<div id="mq-found"></div></div>';
   }
   function discoverDevices(){
@@ -1214,6 +1215,43 @@ _WEB_UI = """<!doctype html>
       }
       box.innerHTML=h;
     }).catch(e=>{if(btn){btn.disabled=false;btn.innerHTML='&#128270; Find on my network';}box.innerHTML='<div class="banner bad">'+esc(''+e)+'</div>';});
+  }
+  function searchBluetooth(){
+    const box=$('#mq-found'), btn=$('#bt-find');
+    if(btn){btn.disabled=true;btn.textContent='Scanning…';}
+    box.innerHTML='<div class="rnote">Scanning for Bluetooth devices…</div>';
+    api('/v1/devices/discover?kind=bluetooth&fresh=true',{method:'POST',body:JSON.stringify({})}).then(d=>{
+      if(btn){btn.disabled=false;btn.innerHTML='&#127911; Search Bluetooth';}
+      if(!d.ok){box.innerHTML='<div class="banner bad" style="margin-top:10px">'+esc(d.error||'scan failed')+'</div>';return;}
+      const bt=(d.found||[]).filter(f=>f.kind==='bluetooth'); window._bt=bt;
+      let h='';
+      if(!bt.length){
+        const note=(d.errors||[]).find(e=>/bluetooth/i.test(e));
+        h='<div class="rnote" style="margin-top:10px">No Bluetooth devices found. '+(note?esc(note):'Make sure Bluetooth is on and the device is in pairing mode.')+'</div>';
+      } else {
+        h+='<div class="rnote" style="margin-top:12px">Bluetooth devices nearby — tap to connect, pair, or route audio:</div>';
+        bt.forEach((f,i)=>{
+          h+='<div class="src"><div class="sh"><span>&#127911; '+esc(f.name||'Bluetooth device')+'</span>'
+            +'<span style="display:flex;gap:6px;flex-wrap:wrap">'
+            +'<button class="cbtn" style="padding:2px 10px" onclick="btDo('+i+',0)">Connect</button>'
+            +'<button class="cbtn" style="padding:2px 10px" onclick="btDo('+i+',1)">Pair</button>'
+            +'<button class="cbtn" style="padding:2px 10px" onclick="btDo('+i+',2)">Use for audio</button>'
+            +'<button class="cbtn" style="padding:2px 10px" onclick="btDo('+i+',3)">Disconnect</button>'
+            +'</span></div>'
+            +'<div style="font-size:.8em;opacity:.6">'+esc(f.host||'')+(f.rssi?(' &middot; '+esc(f.rssi)+' dBm'):'')+'</div>'
+            +'<div class="rnote" id="bt-st-'+i+'" style="opacity:.75"></div></div>';
+        });
+      }
+      box.innerHTML=h;
+    }).catch(e=>{if(btn){btn.disabled=false;btn.innerHTML='&#127911; Search Bluetooth';}box.innerHTML='<div class="banner bad">'+esc(''+e)+'</div>';});
+  }
+  function btDo(i,c){
+    const f=(window._bt||[])[i]; if(!f)return;
+    const cmd=['connect','pair','use_for_audio','disconnect'][c]||'connect';
+    const st=$('#bt-st-'+i); if(st)st.textContent=cmd.replace(/_/g,' ')+'…';
+    api('/v1/devices/bluetooth',{method:'POST',body:JSON.stringify({address:f.host||'',name:f.name||'',command:cmd})}).then(r=>{
+      if(st)st.innerHTML=(r&&r.ok)?('&#10003; '+esc(r.device_name||f.name||'device')+' — '+esc(cmd.replace(/_/g,' '))):('<span style="color:#f87171">'+esc((r&&r.error)||'failed')+'</span>');
+    }).catch(e=>{if(st)st.innerHTML='<span style="color:#f87171">'+esc(''+e)+'</span>';});
   }
   function useBroker(host,port){const h=$('#mq_host'),p=$('#mq_port');if(h)h.value=host;if(p)p.value=port||1883;const f=$('#mq-found');if(f)f.innerHTML='<div class="rnote" style="margin-top:10px">Broker set to '+esc(host)+'. Click &ldquo;Save &amp; connect&rdquo;.</div>';}
   function openDiscover(){let f=$('#mq-found');if(!f){f=document.createElement('div');f.id='mq-found';$('#devices').appendChild(f);}f.scrollIntoView({behavior:'smooth',block:'nearest'});discoverDevices();}
@@ -2399,6 +2437,11 @@ class AddDiscovered(BaseModel):
     # A discovery result from /v1/devices/discover (kind/host/port/control/name/...).
     device: dict = {}
 
+class BluetoothAction(BaseModel):
+    address: str = ""             # BT MAC (from a scan); or leave blank and give a name
+    name: str = ""
+    command: str = "connect"      # connect | disconnect | pair | trust | use_for_audio
+
 class DevicePair(BaseModel):
     device_id: str
     code: Optional[str] = None    # PIN for AirPlay; omit to begin pairing
@@ -2999,12 +3042,36 @@ def devices_control(req: DeviceControl):
     return _device_server().control(req.device_id, req.command, req.value)
 
 @app.post("/v1/devices/discover", tags=["Devices"], dependencies=[Depends(require_member)])
-def devices_discover(timeout: float = 3.0, fresh: bool = False):
-    """Scan the LAN (mDNS + SSDP/UPnP) for brokers, media devices, AirPlay, Fire TV, Cast.
-    Runs both transports concurrently and merges into a rolling cache (repeat scans
-    accumulate); pass ``fresh=true`` to drop the cache and scan cold."""
+def devices_discover(timeout: float = 3.0, fresh: bool = False, kind: str = "all"):
+    """Scan for devices. ``kind=network`` → LAN only (mDNS + SSDP/UPnP: brokers, media, AirPlay,
+    Fire TV, Cast). ``kind=bluetooth`` → nearby Bluetooth only. ``kind=all`` (default) → both.
+    Runs transports concurrently, merged into a rolling cache; ``fresh=true`` scans cold."""
     from eli.runtime.device_server import discover
-    return discover(timeout=min(8.0, max(1.0, float(timeout))), fresh=bool(fresh))
+    k = (kind or "all").lower()
+    return discover(timeout=min(8.0, max(1.0, float(timeout))), fresh=bool(fresh),
+                    include_network=(k in ("all", "network")),
+                    include_bluetooth=(k in ("all", "bluetooth")))
+
+
+@app.post("/v1/devices/bluetooth", tags=["Devices"], dependencies=[Depends(require_member)])
+def devices_bluetooth(req: BluetoothAction):
+    """Control a Bluetooth device: connect / disconnect / pair / trust / use_for_audio. Give an
+    address (from a scan) or a spoken name; both resolve to the OS Bluetooth stack."""
+    try:
+        cmd = (req.command or "connect").strip().lower().replace(" ", "_").replace("-", "_")
+        addr = (req.address or "").strip()
+        if addr:
+            from eli.runtime import device_drivers
+            drv = device_drivers.get_driver("bluetooth")
+            if not drv:
+                return {"ok": False, "error": "bluetooth driver unavailable"}
+            res = dict(drv.control({"host": addr, "name": req.name or "", "driver": "bluetooth"}, cmd))
+            res.setdefault("device_name", req.name or addr)
+            return res
+        from eli.runtime.device_server import bluetooth_control_by_name
+        return bluetooth_control_by_name(req.name, cmd)
+    except Exception as e:
+        return {"ok": False, "error": str(e)}
 
 @app.get("/v1/devices/drivers", tags=["Devices"], dependencies=[Depends(_require_token)])
 def devices_drivers():

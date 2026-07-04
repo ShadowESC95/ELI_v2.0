@@ -921,7 +921,8 @@ def _ble_discover(timeout: float, found: List[dict], errors: List[str]) -> None:
         })
 
 
-def discover(timeout: float = 3.0, fresh: bool = False, include_bluetooth: bool = True) -> Dict[str, Any]:
+def discover(timeout: float = 3.0, fresh: bool = False, include_bluetooth: bool = True,
+             include_network: bool = True) -> Dict[str, Any]:
     """Find smart devices + media renderers on the LAN via mDNS *and* SSDP/UPnP — plus
     nearby **Bluetooth** devices — so the user doesn't have to know IPs/topics. Classifies
     each result (what it is, and whether ELI can control it locally). Network scans are gated
@@ -944,16 +945,18 @@ def discover(timeout: float = 3.0, fresh: bool = False, include_bluetooth: bool 
         ctx = contextlib.nullcontext()
 
     with ctx:
-        # mDNS and SSDP in parallel — independent transports, no reason to serialise them.
+        # mDNS, SSDP (network) and Bluetooth run in parallel — independent transports/radios.
+        # Either side can be turned off (network-only or Bluetooth-only) via the flags.
         ssdp_timeout = min(4.0, max(1.5, timeout))
-        def _run_ssdp():
-            try:
-                found.extend(_ssdp_discover(ssdp_timeout))
-            except Exception as e:
-                errors.append(f"SSDP: {e}")
-        t_ssdp = threading.Thread(target=_run_ssdp, name="eli-ssdp", daemon=True)
-        t_ssdp.start()
-        # Bluetooth (BLE) sweep — a separate radio, independent of the network scan.
+        t_ssdp = None
+        if include_network:
+            def _run_ssdp():
+                try:
+                    found.extend(_ssdp_discover(ssdp_timeout))
+                except Exception as e:
+                    errors.append(f"SSDP: {e}")
+            t_ssdp = threading.Thread(target=_run_ssdp, name="eli-ssdp", daemon=True)
+            t_ssdp.start()
         t_ble = None
         if include_bluetooth:
             def _run_ble():
@@ -963,8 +966,10 @@ def discover(timeout: float = 3.0, fresh: bool = False, include_bluetooth: bool 
                     errors.append(f"bluetooth: {e}")
             t_ble = threading.Thread(target=_run_ble, name="eli-ble", daemon=True)
             t_ble.start()
-        _mdns_discover(timeout, found, errors)   # runs in this thread
-        t_ssdp.join(timeout=ssdp_timeout + 3.0)
+        if include_network:
+            _mdns_discover(timeout, found, errors)   # runs in this thread
+        if t_ssdp is not None:
+            t_ssdp.join(timeout=ssdp_timeout + 3.0)
         if t_ble is not None:
             t_ble.join(timeout=timeout + 4.0)
 
