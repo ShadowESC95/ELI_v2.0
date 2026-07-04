@@ -448,6 +448,48 @@ class _ModelDownloadThread(QThread):
 
 # ── FirstBootWizard ────────────────────────────────────────────────────────────
 
+_WIZARD_QSS = """
+QDialog { background: #16181d; }
+QWidget { color: #cdd6e4; font-size: 13px; }
+QLineEdit, QComboBox {
+    background: #21242b; color: #e5e9f0;
+    border: 1px solid #333844; border-radius: 8px;
+    padding: 7px 11px; min-height: 20px; selection-background-color: #5e81ac;
+}
+QLineEdit:focus, QComboBox:focus { border: 1px solid #5e81ac; }
+QComboBox::drop-down { border: none; width: 22px; }
+QComboBox QAbstractItemView {
+    background: #21242b; color: #e5e9f0; border: 1px solid #333844;
+    selection-background-color: #5e81ac; outline: none;
+}
+QPushButton {
+    background: #262a32; color: #e5e9f0; border: 1px solid #363b47;
+    border-radius: 8px; padding: 8px 18px; font-weight: 600;
+}
+QPushButton:hover   { background: #2f343d; border-color: #454b59; }
+QPushButton:pressed { background: #21242b; }
+QPushButton:disabled{ color: #5b6270; background: #1c1f25; border-color: #262a32; }
+QPushButton#wizPrimary          { background: #5e81ac; color: #eceff4; border: none; }
+QPushButton#wizPrimary:hover    { background: #6a8fbd; }
+QPushButton#wizPrimary:pressed  { background: #52739b; }
+QPushButton#wizPrimary:disabled { background: #2b323d; color: #6b7280; }
+QProgressBar {
+    background: #21242b; border: 1px solid #333844; border-radius: 7px;
+    height: 12px; text-align: center; color: #cdd6e4; font-size: 11px;
+}
+QProgressBar::chunk {
+    background: qlineargradient(x1:0,y1:0,x2:1,y2:0, stop:0 #5e81ac, stop:1 #81a1c1);
+    border-radius: 6px;
+}
+QTabWidget::pane { border: 1px solid #262a32; border-radius: 12px; background: #191c22; top: -1px; }
+QTabBar::tab { background: transparent; color: #7b8394; padding: 9px 20px;
+    margin-right: 4px; border: none; font-weight: 600; }
+QTabBar::tab:selected { color: #eceff4; border-bottom: 2px solid #5e81ac; }
+QTabBar::tab:hover:!selected { color: #aab3c5; }
+QCheckBox { color: #cdd6e4; spacing: 8px; }
+"""
+
+
 class FirstBootWizard(QDialog):
     """3-step setup wizard shown on first boot when no GGUF model is found.
 
@@ -459,9 +501,10 @@ class FirstBootWizard(QDialog):
 
     def __init__(self, parent=None):
         super().__init__(parent)
-        self.setWindowTitle("ELI v2.0 — First Boot Setup")
-        self.setMinimumWidth(640)
-        self.setMinimumHeight(400)
+        self.setWindowTitle("Welcome to ELI — Setup")
+        self.setMinimumWidth(660)
+        self.setMinimumHeight(440)
+        self.setStyleSheet(_WIZARD_QSS)
 
         self._selected_path: str = ""
         self._selected_provider: str = "bundled_gguf"
@@ -481,7 +524,9 @@ class FirstBootWizard(QDialog):
         btn_row = QHBoxLayout()
         self._back_btn  = QPushButton("← Back")
         self._next_btn  = QPushButton("Next →")
+        self._next_btn.setObjectName("wizPrimary")
         self._finish_btn = QPushButton("✓ Finish")
+        self._finish_btn.setObjectName("wizPrimary")
         self._finish_btn.setVisible(False)
         btn_row.addWidget(self._back_btn)
         btn_row.addStretch()
@@ -505,13 +550,13 @@ class FirstBootWizard(QDialog):
         title.setStyleSheet("font-size:18px;font-weight:bold;color:#88c0d0;")
         v.addWidget(title)
         body = QLabel(
-            "ELI v2.0 is a 100% local AI assistant that runs entirely on your hardware — "
-            "no cloud, no subscriptions, no data leaving your machine.\n\n"
-            "To get started you need:\n"
-            "  • A GGUF language model file  (e.g. Qwen2.5-7B or Mistral-7B Q4)\n"
-            "  • OR an Ollama server running locally\n\n"
-            "This wizard will guide you through placing a model and configuring ELI "
-            "for your hardware."
+            "ELI runs entirely on your own machine — no cloud, no accounts, nothing leaves "
+            "your computer.\n\n"
+            "First we'll sort the model — the local brain ELI thinks with. You can:\n"
+            "   •   Download a curated one now, sized to your hardware  (next step)\n"
+            "   •   Point ELI at a .gguf file you already have\n"
+            "   •   Or connect a local Ollama server\n\n"
+            "Pick a model, confirm your hardware, and you're in."
         )
         body.setWordWrap(True)
         body.setStyleSheet("color:#c8d0e0;line-height:1.5;")
@@ -592,6 +637,7 @@ class FirstBootWizard(QDialog):
                 self._dl_combo.setCurrentIndex(_i)
                 break
         self._dl_btn = QPushButton("Download")
+        self._dl_btn.setObjectName("wizPrimary")
         self._dl_btn.clicked.connect(self._start_download)
         dl_row.addWidget(self._dl_combo, stretch=1)
         dl_row.addWidget(self._dl_btn)
