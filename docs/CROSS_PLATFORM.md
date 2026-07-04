@@ -4,6 +4,30 @@ ELI is **model-, user-, and hardware-agnostic** and runs on **Linux, macOS, Wind
 Android/Termux**, plus **headless / via the web server (FastAPI)**. This document is the honest
 map of how each capability family behaves on each target.
 
+## Tested on — what's actually been run (2026-07-04)
+
+The matrix below is **code coverage** — how each capability is *implemented* per OS. This bit is
+separate and more honest: what I've genuinely **run**.
+
+- **Run-verified, end to end:** **Linux (x86_64) + NVIDIA.** Install, first-run, the full test
+  suite (7,300+ passing), voice, vision, the server — all of it. This is the tested path.
+- **Code-verified, not yet run on real hardware:** **AMD (ROCm), Windows, macOS, Android.** The
+  installers, per-OS requirements, paths, GPU detection (NVIDIA / AMD / Apple), and the abstraction
+  layer below are all present and read line-by-line — but "correct in the code" isn't the same as
+  "confirmed on the metal," and I won't pretend it is. Run ELI on one of these and send me the
+  result (working or broken) — that's the fastest way to close the gap for everyone.
+
+A few edges worth knowing going in:
+- **AMD voice is CPU-only** — the speech-to-text engine (CTranslate2) has no ROCm support, so on an
+  AMD GPU it stays on the CPU (works, just not accelerated). The main model + vision use the AMD GPU
+  via hipBLAS.
+- **Windows secret-file permissions are weaker** — `0600` is a Unix bit Windows ignores; the
+  token/key files lean on `%APPDATA%` being private (it is, by default). A proper Windows ACL is on
+  the list.
+- **Big models can be slow to load or run out of memory** — a large model takes a minute on first
+  use, and if VRAM/RAM is tight the server can drop mid-reply. Run the server on its own (not
+  alongside the desktop app) so the model loads once.
+
 ## The backbone (why it's portable)
 Every OS-touching operation routes through one of three cross-platform layers — never a raw
 Linux call:
@@ -72,7 +96,7 @@ OS-level binaries; the installers handle these best-effort:
 | Voice input (mic) | PortAudio | apt/dnf/pacman | brew | bundled in the PyAudio wheel |
 | Media playback / Whisper | `ffmpeg`, `mpv` | apt/dnf/pacman | brew | winget (FFmpeg) |
 | Desktop control | xdotool, wmctrl, scrot, xclip/wl-clipboard, libnotify | apt/dnf/pacman | native APIs | native APIs |
-| GPU offload | CUDA toolkit / Metal | `--install-cuda` (apt/dnf/pacman) | Metal (built in) | `/cuda` (winget) |
+| GPU offload | CUDA / **AMD ROCm** / Metal | CUDA `--install-cuda`; **AMD auto-detected → ROCm/hipBLAS build** | Metal (built in) | CUDA `/cuda` (winget) |
 | Web automation | playwright browsers | `playwright install` | `playwright install` | `playwright install` |
 | Volume / clipboard / notifications | — | system tools above | native (osascript/pbcopy) | native (pycaw/clip/plyer) |
 
