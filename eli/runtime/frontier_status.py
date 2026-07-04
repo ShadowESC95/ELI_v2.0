@@ -145,10 +145,16 @@ def _proactive_status() -> Dict[str, Any]:
             pid = 0
     if pid > 0:
         try:
-            os.kill(pid, 0)
-            running = True
+            import psutil as _psutil
+            running = _psutil.pid_exists(int(pid))
         except Exception:
-            running = False
+            # signal-0 probe is POSIX-only; on Windows os.kill would TerminateProcess.
+            if os.name != "nt":
+                try:
+                    os.kill(pid, 0)
+                    running = True
+                except Exception:
+                    running = False
 
     summary: Dict[str, Any] = {}
     try:
