@@ -336,7 +336,23 @@ def pause(player: Optional[str] = None) -> Dict[str, Any]:
 
 
 def play_pause(player: Optional[str] = None) -> Dict[str, Any]:
-    """Toggle play/pause."""
+    """Toggle play/pause — status-aware.
+
+    playerctl's raw ``play-pause`` toggle is unreliable at *pausing* some players
+    (notably Spotify: it resumes fine but the toggle frequently no-ops on pause, which
+    is why the dashboard's play button worked but the pause button didn't). So resolve
+    the target's current status and issue an EXPLICIT pause/play — the same reliable
+    path voice control uses. Falls back to the raw toggle only if status is unknown.
+    """
+    st = get_player_status(player)
+    if isinstance(st, dict) and st.get("ok"):
+        status = str(st.get("status", "")).lower()
+        target = st.get("player") or player  # the player we actually resolved
+        if status == "playing":
+            return pause(target)
+        if status in ("paused", "stopped"):
+            return play(target)
+    # Couldn't determine status (or no player) — fall back to the raw toggle.
     return _playerctl("play-pause", player)
 
 
