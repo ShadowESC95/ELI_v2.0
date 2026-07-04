@@ -1008,6 +1008,65 @@ def discover(timeout: float = 3.0, fresh: bool = False, include_bluetooth: bool 
                                          "controllable": sum(1 for f in uniq if f.get("controllable"))}}
 
 
+def bluetooth_control_by_name(name: str, command: str, scan_timeout: float = 3.0) -> Dict[str, Any]:
+    """Voice entry point: resolve a spoken Bluetooth device name — or a generic word like
+    "headphones"/"speaker" — to a discovered or registered BT device and run a control command
+    (connect / disconnect / pair / use_for_audio) through the Bluetooth driver.
+
+    Best-effort + graceful: no devices, no match, or a driver error all return a clean dict.
+    """
+    from eli.runtime import device_drivers
+
+    name_l = (name or "").strip().lower()
+    cands: List[dict] = []
+    try:
+        srv = get_server()
+        cands += [d for d in srv.list_devices()
+                  if (d.get("driver") == "bluetooth" or d.get("kind") == "bluetooth")]
+    except Exception:
+        pass
+    try:
+        cands += [d for d in discover(timeout=scan_timeout, include_bluetooth=True).get("found", [])
+                  if d.get("kind") == "bluetooth"]
+    except Exception:
+        pass
+
+    # Dedupe by address.
+    seen: set = set()
+    uniq: List[dict] = []
+    for d in cands:
+        addr = str(d.get("host") or d.get("address") or d.get("id") or "").lower()
+        if addr and addr not in seen:
+            seen.add(addr)
+            uniq.append(d)
+    if not uniq:
+        return {"ok": False, "error": "I don't see any Bluetooth devices — is Bluetooth switched on?"}
+
+    # Resolve: a specific spoken name wins; generic words ("headphones") match the
+    # strongest-signal device; a two-word name ("kitchen speaker") matches on its non-generic
+    # word ("kitchen") so it doesn't collide with every speaker.
+    _GENERIC = {"headphones", "headphone", "headset", "earbuds", "earphones", "earphone",
+                "buds", "airpods", "speaker", "speakers", "soundbar", "bluetooth", "device", "it"}
+    match = None
+    if name_l and name_l not in _GENERIC:
+        match = next((d for d in uniq if name_l in str(d.get("name", "")).lower()), None)
+        if match is None:
+            words = [w for w in name_l.split() if w not in _GENERIC]
+            match = next((d for d in uniq
+                          if any(w in str(d.get("name", "")).lower() for w in words)), None)
+    if match is None:
+        named = [d for d in uniq if d.get("name") and not str(d["name"]).startswith("Bluetooth device")]
+        match = max(named or uniq,
+                    key=lambda d: (d.get("rssi") if d.get("rssi") is not None else -999))
+
+    drv = device_drivers.get_driver("bluetooth")
+    if not drv:
+        return {"ok": False, "error": "bluetooth driver unavailable"}
+    res = dict(drv.control(match, command))
+    res.setdefault("device_name", match.get("name") or match.get("host"))
+    return res
+
+
 def _ssdp_discover(timeout: float) -> List[dict]:
     """Raw SSDP M-SEARCH (no extra deps). Surfaces UPnP/DLNA MediaRenderers, Cast, smart
     TVs, Sonos, and routers — many devices that don't advertise over mDNS answer here."""
