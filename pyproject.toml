@@ -91,6 +91,7 @@ server = [
     "uvicorn>=0.27",
     "paho-mqtt>=1.6,<3",  # ELI-native MQTT device server (no Home Assistant)
     "zeroconf>=0.70",     # mDNS device/broker discovery
+    "bleak>=0.21",        # Bluetooth (BLE) device discovery (degrades cleanly if no radio)
 ]
 # Gaze cursor + on-screen OCR.
 vision = [
