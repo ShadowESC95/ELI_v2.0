@@ -948,6 +948,17 @@ def _safe_invoke_llm(llm, full_prompt: str, *, temperature, max_tokens, top_p, t
             if not bg and _fg_preempt_enabled():
                 _FG_PRIORITY.clear()
 
+    def _safe_release():
+        # Release the call lock, tolerating "already released". A model reload / inference
+        # abort race (observed on Ctrl-C during a live stream, and on a mid-stream reload) can
+        # release the lock out from under this call; a second release() then raises
+        # "cannot release un-acquired lock" — which used to surface as "GGUF streaming failed"
+        # and kill the reply mid-stream. Swallow exactly that case; never crash cleanup on it.
+        try:
+            _LLM_CALL_LOCK.release()
+        except RuntimeError:
+            pass
+
     for _ in range(4):
         try:
             if stream:
@@ -966,7 +977,7 @@ def _safe_invoke_llm(llm, full_prompt: str, *, temperature, max_tokens, top_p, t
                         **extra,
                     )
                 except Exception:
-                    _LLM_CALL_LOCK.release()
+                    _safe_release()
                     raise
 
                 def _locked_stream():
@@ -974,7 +985,7 @@ def _safe_invoke_llm(llm, full_prompt: str, *, temperature, max_tokens, top_p, t
                         for item in response:
                             yield item
                     finally:
-                        _LLM_CALL_LOCK.release()
+                        _safe_release()
 
                 return _locked_stream()
 
@@ -993,7 +1004,7 @@ def _safe_invoke_llm(llm, full_prompt: str, *, temperature, max_tokens, top_p, t
                     **extra,
                 )
             finally:
-                _LLM_CALL_LOCK.release()
+                _safe_release()
         except Exception as e:
             last_exc = e
             msg = str(e).lower()
