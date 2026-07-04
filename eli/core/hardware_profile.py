@@ -309,6 +309,51 @@ def detect_hardware() -> HardwareProfile:
     except Exception:
         pass
 
+    # AMD ROCm fallback — nvidia-smi doesn't exist on AMD GPUs, so the block above finds
+    # nothing there. Read free/total VRAM from rocm-smi so the smart loader can size GPU
+    # layers on AMD too (mirrors the nvidia path; llama.cpp + hipBLAS splits across HIP
+    # devices the same way). Non-fatal: if rocm-smi is absent it falls through to CPU.
+    if not hw.has_gpu:
+        try:
+            import json as _json
+            _out = subprocess.check_output(
+                ["rocm-smi", "--showmeminfo", "vram", "--json"],
+                stderr=subprocess.DEVNULL, timeout=5
+            ).decode().strip()
+            _data = _json.loads(_out) if _out else {}
+
+            def _amd_mb(info: dict, must: tuple, mustnot: tuple = ()) -> int:
+                # rocm-smi field names drift across versions ("VRAM Total Memory (B)" etc.),
+                # so match by keyword instead of an exact key.
+                for k, v in info.items():
+                    kl = str(k).lower()
+                    if all(n in kl for n in must) and not any(n in kl for n in mustnot):
+                        try:
+                            return int(v)
+                        except Exception:
+                            continue
+                return 0
+
+            free_sum = total_sum = cards = 0
+            for _card, _info in _data.items():
+                if not isinstance(_info, dict):
+                    continue
+                tot = _amd_mb(_info, ("vram", "total", "memory"), mustnot=("used",))
+                used = _amd_mb(_info, ("vram", "used", "memory"))
+                if tot <= 0:
+                    continue
+                total_sum += tot // (1024 * 1024)
+                free_sum += max(0, tot - used) // (1024 * 1024)
+                cards += 1
+            if total_sum > 0:
+                hw.free_vram_mb = free_sum
+                hw.total_vram_mb = total_sum
+                hw.gpu_name = "AMD GPU" + (f" ×{cards}" if cards > 1 else "")
+                hw.vram_gb = hw.free_vram_mb / 1024.0
+                hw.has_gpu = True
+        except Exception:
+            pass
+
     if not hw.has_gpu and not hw.gpu_name:
         hw.gpu_name = "CPU only"
 
