@@ -793,7 +793,7 @@ _MDNS_KINDS: Dict[str, Dict[str, Any]] = {
 # Local control paths considered "real" today vs. still on the roadmap. Keep this honest:
 # only mark a device controllable here when a driver can actually act on it. As drivers
 # land (UPnP/DLNA, Cast, AirPlay via pyatv, Fire TV via ADB) move them into _CONTROL_LIVE.
-_CONTROL_LIVE = {"mqtt", "upnp"}            # genuinely actionable right now
+_CONTROL_LIVE = {"mqtt", "upnp", "bluetooth"}   # genuinely actionable right now
 _CONTROL_ROADMAP = {"cast", "airplay", "adb", "atvremote", "hue"}  # detectable, driver pending
 # "cloud" (Spotify) intentionally excluded — not local-first.
 
@@ -914,7 +914,8 @@ def _ble_discover(timeout: float, found: List[dict], errors: List[str]) -> None:
             "name": nm or f"Bluetooth device ({addr})",
             "kind": "bluetooth",
             "label": "Bluetooth device",
-            "control": None,              # discovery only for now
+            "control": "bluetooth",       # pair/connect/disconnect + audio routing
+            "driver": "bluetooth",
             "transport": "bluetooth",
             "rssi": getattr(d, "rssi", None),
         })
