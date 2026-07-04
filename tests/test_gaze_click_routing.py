@@ -32,3 +32,20 @@ def test_explicit_click_commands_always_gaze_click(monkeypatch):
         assert _act("double click") == "GAZE_CLICK"
         assert _act("right click") == "GAZE_CLICK"
         assert _act("left click") == "GAZE_CLICK"
+
+
+def test_enable_gaze_clicking_turns_on_dwell():
+    """'enable gaze clicking' / 'turn on dwell click' → GAZE_ENABLE with dwell=True
+    (accessibility: hands-free AND voice-free look-and-hold clicking). 2026-07-04."""
+    for q in ("enable gaze clicking", "turn on dwell click", "enable dwell clicking"):
+        r = route(q) or {}
+        assert r.get("action") == "GAZE_ENABLE", q
+        assert (r.get("args") or {}).get("dwell") is True, q
+
+
+def test_plain_enable_gaze_does_not_turn_on_dwell():
+    """Plain 'enable gaze' starts tracking WITHOUT auto-click dwell mode."""
+    for q in ("enable gaze", "enable the gaze tracker"):
+        r = route(q) or {}
+        assert r.get("action") == "GAZE_ENABLE", q
+        assert not (r.get("args") or {}).get("dwell"), q
