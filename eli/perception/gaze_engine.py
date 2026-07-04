@@ -181,6 +181,37 @@ class _GazeEngineService:
 
     # ── background loop ───────────────────────────────────────────────────────
 
+    def _dwell_config(self) -> Dict[str, Any]:
+        """Read dwell-click settings (opt-in; sensible defaults). Dwell-click is the
+        hands-free AND voice-free path: rest your gaze on a target and it clicks there —
+        for users who can operate neither a mouse nor voice. Off by default because an
+        always-on auto-click is intrusive; a person who needs it turns it on and stays on."""
+        try:
+            from eli.core.runtime_settings import load_settings
+            s = load_settings() or {}
+        except Exception:
+            s = {}
+        def _f(key, dflt):
+            try:
+                return float(s.get(key, dflt))
+            except Exception:
+                return float(dflt)
+        return {
+            "enabled": bool(s.get("gaze_dwell_click", False)),
+            "seconds": max(0.4, _f("gaze_dwell_seconds", 1.0)),   # hold time before it clicks
+            "radius": max(20.0, _f("gaze_dwell_radius", 60.0)),   # px the gaze may wander
+            "min_conf": max(0.0, min(1.0, _f("gaze_dwell_min_confidence", 0.35))),
+        }
+
+    def _do_dwell_click(self, x: int, y: int) -> None:
+        """Left-click at the dwelled-on gaze point via the cross-platform mouse backend."""
+        try:
+            from eli.perception.os_controller import mouse_click
+            mouse_click(button="left", x=int(x), y=int(y))
+            log.debug(f"[GAZE] dwell-click at ({x},{y})")
+        except Exception as e:
+            log.debug(f"[GAZE] dwell-click failed: {e}")
+
     def _run_loop(self):
         try:
             from eli_gaze_core.face_gaze import FaceGazeExtractor, open_camera
@@ -210,6 +241,14 @@ class _GazeEngineService:
 
         last_write = 0.0
         WRITE_INTERVAL = 0.10  # 10 Hz state writes
+
+        # Dwell-click state (accessibility). Config is cached + refreshed every 2s so toggling
+        # the setting takes effect quickly without a file read on every frame.
+        _dwell_anchor: Optional[tuple] = None
+        _dwell_start = 0.0
+        _last_dwell_click = 0.0
+        _dcfg = self._dwell_config()
+        _dcfg_ts = time.time()
 
         try:
             while not self._stop_event.is_set():
@@ -255,6 +294,27 @@ class _GazeEngineService:
                         "calibrated": mapper is not None,
                     }
                     self._last_payload = payload
+
+                    # ── Dwell-click: hold your gaze on a spot and it clicks there — the
+                    # hands-free AND voice-free path. Opt-in, calibrated + confident only, with
+                    # a cooldown so it can't machine-gun. Resets after a click (must re-dwell).
+                    if now - _dcfg_ts >= 2.0:
+                        _dcfg = self._dwell_config()
+                        _dcfg_ts = now
+                    if _dcfg["enabled"] and mapper is not None and sample.confidence >= _dcfg["min_conf"]:
+                        if (_dwell_anchor is not None
+                                and abs(sx - _dwell_anchor[0]) <= _dcfg["radius"]
+                                and abs(sy - _dwell_anchor[1]) <= _dcfg["radius"]):
+                            if ((now - _dwell_start) >= _dcfg["seconds"]
+                                    and (now - _last_dwell_click) >= max(_dcfg["seconds"], 1.2)):
+                                self._do_dwell_click(int(sx), int(sy))
+                                _last_dwell_click = now
+                                _dwell_anchor = None
+                        else:
+                            _dwell_anchor = (sx, sy)
+                            _dwell_start = now
+                    else:
+                        _dwell_anchor = None
 
                 if now - last_write >= WRITE_INTERVAL:
                     try:
