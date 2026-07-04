@@ -870,15 +870,66 @@ _DISC_CACHE: Dict[tuple, dict] = {}
 _DISC_TTL = 300.0  # seconds an entry survives without being re-seen
 
 
-def discover(timeout: float = 3.0, fresh: bool = False) -> Dict[str, Any]:
-    """Find smart devices + media renderers on the LAN via mDNS *and* SSDP/UPnP — so the
-    user doesn't have to know IPs/topics. Classifies each result (what it is, and whether
-    ELI can control it locally). Gated through netguard (a deliberate local-network scan);
-    degrades cleanly if zeroconf isn't installed (SSDP still runs).
+def _ble_discover(timeout: float, found: List[dict], errors: List[str]) -> None:
+    """Scan for nearby Bluetooth Low Energy devices (best-effort, discovery-only).
 
-    mDNS and SSDP now run **concurrently** (wall time ≈ one sweep, not the sum), and results
-    are merged into a short-lived rolling cache so late responders + prior finds accumulate.
-    Pass ``fresh=True`` to drop the cache and scan cold.
+    Adds each to ``found`` in the same shape as the network results — the BT address is
+    carried as ``host`` so the existing dedup/merge keys on it with no special-casing.
+    Bluetooth is *local radio*, not the internet, so it needs no netguard window. Degrades
+    cleanly: no bleak, no adapter, or a powered-off radio yields nothing plus a short note —
+    it never raises into the caller.
+    """
+    try:
+        import asyncio
+        from bleak import BleakScanner
+    except Exception:
+        errors.append("bluetooth: BLE support not installed (pip install bleak)")
+        return
+
+    async def _scan():
+        return await BleakScanner.discover(timeout=max(2.0, min(float(timeout), 8.0)))
+
+    try:
+        try:
+            devices = asyncio.run(_scan())
+        except RuntimeError:
+            # Already inside a running loop — use a private one.
+            _loop = asyncio.new_event_loop()
+            try:
+                devices = _loop.run_until_complete(_scan())
+            finally:
+                _loop.close()
+    except Exception as e:
+        errors.append(f"bluetooth scan failed (adapter off/absent?): {e}")
+        return
+
+    for d in devices or []:
+        addr = getattr(d, "address", None)
+        if not addr:
+            continue
+        nm = (getattr(d, "name", None) or "").strip()
+        found.append({
+            "host": addr,                 # BT address doubles as the merge key
+            "port": None,
+            "name": nm or f"Bluetooth device ({addr})",
+            "kind": "bluetooth",
+            "label": "Bluetooth device",
+            "control": None,              # discovery only for now
+            "transport": "bluetooth",
+            "rssi": getattr(d, "rssi", None),
+        })
+
+
+def discover(timeout: float = 3.0, fresh: bool = False, include_bluetooth: bool = True) -> Dict[str, Any]:
+    """Find smart devices + media renderers on the LAN via mDNS *and* SSDP/UPnP — plus
+    nearby **Bluetooth** devices — so the user doesn't have to know IPs/topics. Classifies
+    each result (what it is, and whether ELI can control it locally). Network scans are gated
+    through netguard (a deliberate local-network sweep); degrades cleanly if zeroconf isn't
+    installed (SSDP still runs) or bleak/the BT radio is absent (network results still return).
+
+    mDNS, SSDP and the Bluetooth scan run **concurrently** (wall time ≈ one sweep, not the
+    sum), merged into a short-lived rolling cache so late responders + prior finds accumulate.
+    Pass ``fresh=True`` to drop the cache and scan cold; ``include_bluetooth=False`` to skip BT.
     """
     found: List[dict] = []
     errors: List[str] = []
@@ -901,8 +952,20 @@ def discover(timeout: float = 3.0, fresh: bool = False) -> Dict[str, Any]:
                 errors.append(f"SSDP: {e}")
         t_ssdp = threading.Thread(target=_run_ssdp, name="eli-ssdp", daemon=True)
         t_ssdp.start()
+        # Bluetooth (BLE) sweep — a separate radio, independent of the network scan.
+        t_ble = None
+        if include_bluetooth:
+            def _run_ble():
+                try:
+                    _ble_discover(timeout, found, errors)
+                except Exception as e:
+                    errors.append(f"bluetooth: {e}")
+            t_ble = threading.Thread(target=_run_ble, name="eli-ble", daemon=True)
+            t_ble.start()
         _mdns_discover(timeout, found, errors)   # runs in this thread
         t_ssdp.join(timeout=ssdp_timeout + 3.0)
+        if t_ble is not None:
+            t_ble.join(timeout=timeout + 4.0)
 
     now = time.time()
     if fresh:
