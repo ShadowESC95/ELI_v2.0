@@ -344,6 +344,7 @@ python -m eli.core.model_download --auto      # one best-fit for your VRAM
 | `qwen3.6-35b-a3b` | Qwen3.6-35B-A3B (MoE, Apache-2.0) | ~20.6 GB | 24 GB GPU / CPU |
 | `falcon-h1-34b` | Falcon-H1-34B-Instruct | ~18.9 GB | 24 GB GPU / CPU |
 
+Note: Just want to write a quick note here. These parameters/settings are based on optimum efficiency and latency etc. I started developing Eli on an RTX 2060 super, running qwen3.6-35b-a3b and rceived some (non complex) answers in quiet good time. So if you don't mind waiting a little longer, and giving Eli time to think, it will respond- again, this is just a physics problem (upgrade hardware to run a better model/optimise settings, to find that sweet spot and let Eli does what it does best) 
 You can also drop **any `.gguf`** into `models/`, or point ELI at your own catalog
 (`ELI_MODEL_CATALOG`). The tiny **embedder** (memory/RAG) installs automatically; vision is an
 optional extra. Want ELI to *speak in its own voice* out of the box? Fine-tune your own model —
