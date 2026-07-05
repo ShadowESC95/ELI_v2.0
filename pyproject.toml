@@ -139,7 +139,7 @@ Repository = "https://github.com/ShadowESC95/ELI_v2.0"
 
 [project.scripts]
 eli = "eli.gui.app:main"
-eli-v2.0 = "eli.gui.app:main"
+"eli-v2.0" = "eli.gui.app:main"
 eli-cli = "eli.gui.app:main"
 
 [project.gui-scripts]
