@@ -22,6 +22,8 @@
   "use_mmap": true,
   "use_mlock": false,
   "auto_speak": false,
+  "hub_zone": "Home",
+  "bluetooth_display_name": "",
   "mic_enabled": false,
   "auto_save": true,
   "log_to_file": false,

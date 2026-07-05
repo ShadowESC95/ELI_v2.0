@@ -1242,7 +1242,7 @@ _WEB_UI = """<!doctype html>
         const note=(d.errors||[]).find(e=>/bluetooth/i.test(e));
         h='<div class="rnote" style="margin-top:10px">No Bluetooth devices found. '+(note?esc(note):'Turn Bluetooth on and put headphones or speakers in pairing mode.')+'</div>';
       } else {
-        h+='<div class="rnote" style="margin-top:8px">This PC appears as <b>Eli</b> on TVs and speakers. New device: tap <b>Pair</b>, accept on the device, then <b>Use for audio</b>.</div>';
+        h+='<div class="rnote" style="margin-top:8px">This controller appears as <b id="bt-alias-hint">Eli · Home</b> on TVs and speakers. New device: tap <b>Pair</b>, accept on the device, then <b>Use for audio</b>.</div>';
         bt.forEach((f,i)=>{
           h+='<div class="src"><div class="sh"><span>&#127911; '+esc(f.name||'Bluetooth device')+'</span>'
             +'<span style="display:flex;gap:6px;flex-wrap:wrap">'
@@ -1274,6 +1274,9 @@ _WEB_UI = """<!doctype html>
       if(ws)ws.innerHTML=w.connected?('<span class="ld live"></span>'+esc(w.ssid||'WiFi')):'<span class="ld warn"></span>WiFi';
       if(as)as.innerHTML=a.default_sink?('<span class="ld live"></span>'+esc((a.default_sink||'').split('.').pop().slice(0,24))):'<span class="ld warn"></span>audio';
       if(bs)bs.innerHTML=b.available?(b.powered?'<span class="ld live"></span>BT':'<span class="ld warn"></span>BT off'):'<span class="ld off"></span>BT';
+      const alias=b.adapter_name||'Eli · Home';
+      const hint=$('#bt-alias-hint'); if(hint)hint.textContent=alias;
+      const homeHint=$('#home-bt-alias'); if(homeHint)homeHint.textContent=alias;
       const pill=$('#home-wifi-pill'); if(pill&&w.connected)pill.innerHTML='&#10003; Connected to <b>'+esc(w.ssid)+'</b>'+(w.signal?(' &middot; '+w.signal+'%'):'');
       else if(pill&&!w.connected&&w.available)pill.innerHTML='Not on WiFi — scan and join below so LAN devices can be found.';
       else if(pill&&pill.dataset)pill.innerHTML=pill.dataset.fallback||'';
@@ -1536,7 +1539,7 @@ _WEB_UI = """<!doctype html>
       +'<div id="home-wifi-status" class="rnote" style="min-height:1.2em;margin-top:8px"></div>'
       +'<div id="home-wifi-list" style="margin-top:8px"></div></div>'
       +'<div class="jhead">2 — Bluetooth</div>'
-      +'<div class="syscard"><p class="rnote" style="margin:0 0 10px">Pair headphones or speakers, then route ELI&#39;s voice and media to them.</p>'
+      +'<div class="syscard"><p class="rnote" style="margin:0 0 10px">Pair headphones, speakers, or TVs. This hub appears as <b id="home-bt-alias">Eli · Home</b> on their pairing screen.</p>'
       +'<div class="rrow"><button class="cbtn" id="home-bt-scan" onclick="searchBluetooth(\\'#home-bt-box\\',\\'#home-bt-scan\\')">&#127911; Search Bluetooth</button></div>'
       +'<div id="home-bt-box" style="margin-top:8px"></div></div>'
       +'<div class="jhead">3 — Where sound plays</div>'

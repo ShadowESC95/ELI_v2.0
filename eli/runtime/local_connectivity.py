@@ -54,14 +54,14 @@ def bluetooth_status() -> Dict[str, Any]:
         try:
             from eli.runtime.device_drivers import BluetoothDriver
             BluetoothDriver.ensure_adapter_alias()
-            adapter_name = BluetoothDriver.ADAPTER_ALIAS
+            adapter_name = BluetoothDriver.resolve_adapter_alias()
         except Exception:
-            adapter_name = adapter_name or "Eli"
+            adapter_name = adapter_name or "Eli · Home"
     return {
         "available": bool(tool),
         "tool": tool or "",
         "powered": powered,
-        "adapter_name": adapter_name or "Eli",
+        "adapter_name": adapter_name or "Eli · Home",
     }
 
 
