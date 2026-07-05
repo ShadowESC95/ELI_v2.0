@@ -59,7 +59,11 @@ artifacts/*
 eli/artifacts/
 .code_monitor_state.json
 
-# ── Generated / auto-updated files (manifest + blueprint docs are tracked) ───
+# ── Blueprints — PDFs only in git; source docs/icons stay local ───────────────
+blueprints/*
+!blueprints/*.pdf
+
+# ── Generated / auto-updated files (manifest tracked; blueprint markdown local) ─
 eli/capability_inventory.generated.json
 capability_inventory.generated.json
 eli/cognition/persona.auto.txt
