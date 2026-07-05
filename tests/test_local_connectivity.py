@@ -46,3 +46,35 @@ def test_aux_status_embedder_path():
     st = aux_status("embedder")
     assert st["key"] == "embedder"
     assert "size_gib_estimate" in st
+
+
+def test_audio_alias_resolve_by_name(monkeypatch):
+    monkeypatch.setattr(
+        lc,
+        "list_audio_outputs",
+        lambda: {
+            "ok": True,
+            "sinks": [
+                {"id": "sink-a", "name": "Built-in Audio", "alias": "Kitchen speaker",
+                 "display_name": "Kitchen speaker", "device_number": 1,
+                 "voice_names": ["kitchen speaker", "device 1"]},
+                {"id": "sink-b", "name": "HDMI", "alias": "", "display_name": "HDMI",
+                 "device_number": 2, "voice_names": ["hdmi", "device 2"]},
+            ],
+        },
+    )
+    hit = lc.resolve_audio_sink("kitchen speaker")
+    assert hit and hit["id"] == "sink-a"
+    hit2 = lc.resolve_audio_sink("device 2")
+    assert hit2 and hit2["id"] == "sink-b"
+
+
+def test_route_audio_by_name(monkeypatch):
+    monkeypatch.setattr(
+        lc,
+        "resolve_audio_sink",
+        lambda q: {"id": "sink-a", "alias": "Sitting room", "display_name": "Sitting room"},
+    )
+    monkeypatch.setattr(lc, "set_default_audio", lambda s: {"ok": True, "sink": s})
+    r = lc.route_audio_by_name("sitting room")
+    assert r["ok"] is True and r["display_name"] == "Sitting room"

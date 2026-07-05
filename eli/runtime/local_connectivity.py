@@ -35,34 +35,31 @@ def connectivity_status() -> Dict[str, Any]:
 
 
 def bluetooth_status() -> Dict[str, Any]:
-    if sys.platform == "darwin":
-        tool = "blueutil" if shutil.which("blueutil") else None
-    elif sys.platform.startswith("win"):
-        tool = None  # roadmap
-    else:
-        tool = "bluetoothctl" if shutil.which("bluetoothctl") else None
-    powered = False
-    adapter_name = ""
-    if tool == "bluetoothctl":
-        _, out = _sh(["bluetoothctl", "show"], timeout=8)
-        powered = "powered: yes" in out.lower()
-        for line in out.splitlines():
-            low = line.strip().lower()
-            if low.startswith("alias:"):
-                adapter_name = line.split(":", 1)[1].strip()
-                break
-        try:
-            from eli.runtime.device_drivers import BluetoothDriver
-            BluetoothDriver.ensure_adapter_alias()
-            adapter_name = BluetoothDriver.resolve_adapter_alias()
-        except Exception:
-            adapter_name = adapter_name or "Eli · Home"
-    return {
-        "available": bool(tool),
-        "tool": tool or "",
-        "powered": powered,
-        "adapter_name": adapter_name or "Eli · Home",
-    }
+    try:
+        from eli.runtime import bt_platform as bp
+        from eli.runtime.device_drivers import BluetoothDriver
+        rs = bp.radio_status()
+        BluetoothDriver.ensure_adapter_alias()
+        return {
+            "available": rs.get("available", False),
+            "tool": rs.get("tool", ""),
+            "powered": rs.get("powered", False),
+            "radio_down": rs.get("radio_down", False),
+            "recovery_hint": rs.get("recovery_hint", ""),
+            "adapter_count": rs.get("adapter_count", 0),
+            "platform": rs.get("platform", bp.platform_kind()),
+            "adapter_name": BluetoothDriver.resolve_adapter_alias(),
+            "connected_devices": bp.connected_devices(),
+        }
+    except Exception:
+        return {
+            "available": False,
+            "tool": "",
+            "powered": False,
+            "radio_down": False,
+            "recovery_hint": "",
+            "adapter_name": "Eli · Home",
+        }
 
 
 def wifi_status() -> Dict[str, Any]:
@@ -323,21 +320,145 @@ def audio_status() -> Dict[str, Any]:
     }
 
 
+def load_audio_aliases() -> Dict[str, str]:
+    """User-chosen names for outputs: {sink_id: 'Kitchen speaker'}."""
+    try:
+        from eli.core.runtime_settings import load_settings
+        raw = (load_settings() or {}).get("audio_output_aliases") or {}
+        if not isinstance(raw, dict):
+            return {}
+        return {str(k): str(v).strip() for k, v in raw.items() if str(v).strip()}
+    except Exception:
+        return {}
+
+
+def save_audio_alias(sink_id: str, name: str) -> Dict[str, Any]:
+    """Set or clear a friendly name for one audio output."""
+    sink_id = (sink_id or "").strip()
+    name = (name or "").strip()
+    if not sink_id:
+        return {"ok": False, "error": "sink id required"}
+    try:
+        from eli.core.runtime_settings import load_settings, save_settings
+        settings = load_settings() or {}
+        aliases = dict(settings.get("audio_output_aliases") or {})
+        if name:
+            aliases[sink_id] = name[:64]
+        else:
+            aliases.pop(sink_id, None)
+        settings["audio_output_aliases"] = aliases
+        save_settings(settings)
+        return {"ok": True, "sink": sink_id, "alias": name}
+    except Exception as e:
+        return {"ok": False, "error": str(e)}
+
+
+def _enrich_sinks_with_aliases(result: Dict[str, Any]) -> Dict[str, Any]:
+    """Attach alias, display_name, device_number for UI + voice."""
+    if not result.get("ok"):
+        return result
+    aliases = load_audio_aliases()
+    sinks = result.get("sinks") or []
+    for i, s in enumerate(sinks):
+        sid = str(s.get("id") or "")
+        alias = aliases.get(sid, "")
+        os_name = str(s.get("name") or sid)
+        s["device_number"] = i + 1
+        s["alias"] = alias
+        s["os_name"] = os_name
+        s["display_name"] = alias or os_name
+        s["voice_names"] = _voice_names_for_sink(alias, os_name, i + 1)
+    result["aliases"] = aliases
+    return result
+
+
+def _voice_names_for_sink(alias: str, os_name: str, device_number: int) -> List[str]:
+    names: List[str] = []
+    if alias:
+        names.append(alias.lower())
+        for part in re.split(r"[\s/,-]+", alias.lower()):
+            if len(part) > 2:
+                names.append(part)
+    if os_name:
+        names.append(os_name.lower())
+    names.append(f"device {device_number}")
+    names.append(f"device{device_number}")
+    # dedupe preserve order
+    seen: set = set()
+    out: List[str] = []
+    for n in names:
+        if n and n not in seen:
+            seen.add(n)
+            out.append(n)
+    return out
+
+
+def resolve_audio_sink(query: str) -> Optional[Dict[str, Any]]:
+    """Match a spoken/UI label to a sink — alias, device N, or OS name."""
+    q = (query or "").strip().lower()
+    if not q:
+        return None
+    listed = list_audio_outputs()
+    sinks = listed.get("sinks") or []
+
+    m = re.match(r"^(?:device|output|speaker)\s*#?\s*(\d+)$", q)
+    if m:
+        n = int(m.group(1))
+        if 1 <= n <= len(sinks):
+            return sinks[n - 1]
+
+    for s in sinks:
+        for vn in s.get("voice_names") or []:
+            if q == vn or q in vn or vn in q:
+                return s
+        if q == str(s.get("id") or "").lower():
+            return s
+        if q == str(s.get("alias") or "").lower():
+            return s
+        if q == str(s.get("name") or "").lower():
+            return s
+        if q == str(s.get("display_name") or "").lower():
+            return s
+
+    # Partial match on alias/display (e.g. "kitchen" → "kitchen speaker")
+    for s in sinks:
+        for field in ("alias", "display_name", "name"):
+            val = str(s.get(field) or "").lower()
+            if val and (q in val or val in q):
+                return s
+    return None
+
+
+def route_audio_by_name(name: str) -> Dict[str, Any]:
+    """Voice/UI: switch default output by friendly name, device number, or OS label."""
+    sink = resolve_audio_sink(name)
+    if not sink:
+        return {"ok": False, "error": f"No speaker called '{name}' — name it in Overview → Now playing"}
+    res = set_default_audio(str(sink.get("id") or ""))
+    if res.get("ok"):
+        label = sink.get("alias") or sink.get("display_name") or name
+        res["alias"] = label
+        res["display_name"] = label
+    return res
+
+
 def list_audio_outputs() -> Dict[str, Any]:
     if shutil.which("pactl"):
-        return _list_sinks_pactl()
+        return _enrich_sinks_with_aliases(_list_sinks_pactl())
     if shutil.which("wpctl"):
-        return _list_sinks_wpctl()
+        return _enrich_sinks_with_aliases(_list_sinks_wpctl())
     if sys.platform == "darwin" and shutil.which("SwitchAudioSource"):
-        return _list_sinks_mac()
+        return _enrich_sinks_with_aliases(_list_sinks_mac())
+    if sys.platform.startswith("win"):
+        return _enrich_sinks_with_aliases(_list_sinks_windows())
     return {
         "ok": False,
-        "error": "No audio router found (install PulseAudio/PipeWire pactl, or wpctl)",
+        "error": "No audio router found (install PulseAudio/PipeWire pactl, wpctl, or use OS sound settings)",
         "sinks": [],
     }
 
 
-def _list_sinks_pactl() -> Dict[str, Any]:
+def _list_sinks_pactl_raw() -> Dict[str, Any]:
     if shutil.which("pactl"):
         _, def_out = _sh(["pactl", "get-default-sink"], timeout=8)
         default = def_out.strip().splitlines()[0].strip() if def_out.strip() else ""
@@ -349,6 +470,15 @@ def _list_sinks_pactl() -> Dict[str, Any]:
             if "default sink:" in line.lower():
                 default = line.split(":", 1)[-1].strip()
                 break
+    descriptions: Dict[str, str] = {}
+    _, detail = _sh(["pactl", "list", "sinks"], timeout=12)
+    cur_name = ""
+    for line in detail.splitlines():
+        s = line.strip()
+        if s.startswith("Name:"):
+            cur_name = s.split(":", 1)[-1].strip()
+        elif s.startswith("Description:") and cur_name:
+            descriptions[cur_name] = s.split(":", 1)[-1].strip()
     _, out = _sh(["pactl", "list", "short", "sinks"], timeout=10)
     sinks: List[Dict[str, Any]] = []
     for line in out.splitlines():
@@ -356,7 +486,7 @@ def _list_sinks_pactl() -> Dict[str, Any]:
         if len(parts) < 2:
             continue
         sid = parts[1]
-        desc = sid
+        desc = descriptions.get(sid) or sid
         sinks.append({
             "id": sid,
             "name": desc,
@@ -364,6 +494,10 @@ def _list_sinks_pactl() -> Dict[str, Any]:
             "kind": "bluetooth" if "bluez" in sid.lower() else "local",
         })
     return {"ok": True, "sinks": sinks, "default": default, "backend": "pactl"}
+
+
+def _list_sinks_pactl() -> Dict[str, Any]:
+    return _list_sinks_pactl_raw()
 
 
 def _list_sinks_wpctl() -> Dict[str, Any]:
@@ -404,10 +538,34 @@ def _list_sinks_mac() -> Dict[str, Any]:
     return {"ok": bool(sinks), "sinks": sinks, "default": current, "backend": "switchaudio-osx"}
 
 
+def _list_sinks_windows() -> Dict[str, Any]:
+    from eli.runtime import bt_platform as bp
+    rc, out = bp.powershell(
+        "Get-PnpDevice -Class AudioEndpoint -Status OK -ErrorAction SilentlyContinue |"
+        " ForEach-Object { $_.FriendlyName }",
+        timeout=15,
+    )
+    if rc != 0:
+        return {"ok": False, "error": (out or "audio enumeration failed")[:200], "sinks": []}
+    sinks = []
+    for i, name in enumerate([ln.strip() for ln in (out or "").splitlines() if ln.strip()]):
+        sinks.append({
+            "id": name,
+            "name": name,
+            "is_default": i == 0,
+            "kind": "bluetooth" if re.search(r"bluetooth|headphone|headset", name, re.I) else "local",
+        })
+    default = sinks[0]["id"] if sinks else ""
+    return {"ok": bool(sinks), "sinks": sinks, "default": default, "backend": "windows-pnp"}
+
+
 def set_default_audio(sink: str) -> Dict[str, Any]:
     sink = (sink or "").strip()
     if not sink:
         return {"ok": False, "error": "sink id or name required"}
+    resolved = resolve_audio_sink(sink)
+    if resolved:
+        sink = str(resolved.get("id") or sink)
     if shutil.which("pactl"):
         rc, out = _sh(["pactl", "set-default-sink", sink], timeout=10)
         if rc == 0:
@@ -433,4 +591,11 @@ def set_default_audio(sink: str) -> Dict[str, Any]:
     if sys.platform == "darwin" and shutil.which("SwitchAudioSource"):
         rc, out = _sh(["SwitchAudioSource", "-s", sink, "-t", "output"], timeout=10)
         return {"ok": rc == 0, "sink": sink, "output": out.strip()[:200], "backend": "switchaudio-osx"}
+    if sys.platform.startswith("win"):
+        return {
+            "ok": True,
+            "sink": sink,
+            "note": "On Windows, set the default output in Settings → System → Sound",
+            "backend": "windows-manual",
+        }
     return {"ok": False, "error": "no audio routing tool available"}

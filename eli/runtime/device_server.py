@@ -921,72 +921,42 @@ def _strip_ansi(text: str) -> str:
 
 def _classic_bt_discover(timeout: float, found: List[dict], seen: set, errors: List[str]) -> None:
     """Classic BR/EDR scan — finds audio headphones/speakers that BLE often misses."""
-    try:
-        from eli.runtime.device_drivers import BluetoothDriver as BT
-        ok, msg = BT._bt_ensure_controller()
-        if not ok:
-            errors.append(f"Bluetooth radio unavailable — {msg}")
-            return
-    except Exception as exc:
-        errors.append(f"Bluetooth setup failed: {exc}")
-        return
-
-    if not shutil.which("bluetoothctl"):
-        return
-
-    def _ingest(text: str) -> None:
-        for line in _strip_ansi(text).splitlines():
-            m = re.search(
-                r"(?:\[(?:NEW|CHG)\]\s+)?Device\s+([0-9A-Fa-f]{2}(?::[0-9A-Fa-f]{2}){5})\s*(.*)",
-                line.strip(),
-            )
-            if not m:
-                continue
-            addr, rest = m.group(1).upper(), m.group(2).strip()
-            if addr in seen:
-                # Upgrade unnamed BLE stubs with a classic name when we learn one.
-                if rest and rest != addr.replace(":", "-"):
-                    for row in found:
-                        if row.get("host", "").upper() == addr:
-                            row["name"] = rest
-                continue
-            seen.add(addr)
-            name = rest if rest and not rest.upper().startswith("RSSI") else ""
-            found.append(_bt_discover_entry(addr, name))
-
-    try:
-        r = subprocess.run(
-            ["bluetoothctl", "devices"],
-            capture_output=True, text=True, timeout=8,
-        )
-        _ingest(r.stdout or "")
-    except Exception as e:
-        errors.append(f"bluetooth devices list: {e}")
-
-    secs = max(4, min(int(timeout) + 2, 15))
-    try:
-        r = subprocess.run(
-            ["bluetoothctl", "--timeout", str(secs), "scan", "on"],
-            capture_output=True, text=True, timeout=secs + 8,
-        )
-        _ingest((r.stdout or "") + (r.stderr or ""))
-    except Exception as e:
-        errors.append(f"bluetooth classic scan: {e}")
-    finally:
-        try:
-            from eli.runtime.device_drivers import BluetoothDriver as BT
-            BT._bt_ensure_controller()
-        except Exception:
-            pass
+    from eli.runtime import bt_platform as bp
+    bp.classic_discover(timeout, found, seen, errors, _bt_discover_entry)
 
 
-def _ble_discover(timeout: float, found: List[dict], errors: List[str]) -> None:
-    """Scan nearby Bluetooth devices: BLE (bleak) + classic BR/EDR (bluetoothctl)."""
+def _quick_bt_discover(found: List[dict], errors: List[str]) -> None:
+    """Instant Bluetooth list from OS cache — no radio scan."""
+    from eli.runtime import bt_platform as bp
     try:
         from eli.runtime.device_drivers import BluetoothDriver
         BluetoothDriver.ensure_adapter_alias()
     except Exception:
         pass
+    ok, msg = bp.ensure_radio()
+    if not ok:
+        errors.append(f"Bluetooth radio unavailable — {msg}")
+    for row in bp.list_known_devices():
+        found.append(row)
+    if found:
+        _enrich_bt_discover_results(found)
+
+
+def _ble_discover(timeout: float, found: List[dict], errors: List[str], *, quick: bool = False) -> None:
+    """Scan nearby Bluetooth devices: BLE (bleak) + classic BR/EDR (OS-native)."""
+    if quick:
+        _quick_bt_discover(found, errors)
+        return
+    from eli.runtime import bt_platform as bp
+    radio_ok = False
+    try:
+        from eli.runtime.device_drivers import BluetoothDriver
+        BluetoothDriver.ensure_adapter_alias()
+        radio_ok, radio_msg = bp.ensure_radio()
+        if not radio_ok:
+            errors.append(f"Bluetooth radio unavailable — {radio_msg}")
+    except Exception as exc:
+        errors.append(f"Bluetooth setup failed: {exc}")
 
     seen: set = set()
 
@@ -996,9 +966,10 @@ def _ble_discover(timeout: float, found: List[dict], errors: List[str]) -> None:
         bleak_ok = True
     except Exception:
         bleak_ok = False
-        errors.append("bluetooth: BLE scan unavailable (pip install bleak) — using classic scan only")
+        if radio_ok:
+            errors.append("bluetooth: BLE scan unavailable (pip install bleak) — using classic scan only")
 
-    if bleak_ok:
+    if bleak_ok and radio_ok:
         async def _scan():
             return await BleakScanner.discover(timeout=max(2.0, min(float(timeout), 8.0)))
 
@@ -1033,10 +1004,11 @@ def _ble_discover(timeout: float, found: List[dict], errors: List[str]) -> None:
 def _enrich_bt_discover_results(found: List[dict]) -> None:
     """Resolve real names + device type (headphones vs printer vs adapter)."""
     try:
+        from eli.runtime import bt_platform as bp
         from eli.runtime.device_drivers import BluetoothDriver as BT
     except Exception:
         return
-    BT._bt_ensure_controller()
+    bp.ensure_radio()
     for row in found:
         if row.get("kind") != "bluetooth":
             continue
@@ -1058,7 +1030,7 @@ def _enrich_bt_discover_results(found: List[dict]) -> None:
 
 
 def discover(timeout: float = 3.0, fresh: bool = False, include_bluetooth: bool = True,
-             include_network: bool = True) -> Dict[str, Any]:
+             include_network: bool = True, quick: bool = False) -> Dict[str, Any]:
     """Find smart devices + media renderers on the LAN via mDNS *and* SSDP/UPnP — plus
     nearby **Bluetooth** devices — so the user doesn't have to know IPs/topics. Classifies
     each result (what it is, and whether ELI can control it locally). Network scans are gated
@@ -1071,7 +1043,7 @@ def discover(timeout: float = 3.0, fresh: bool = False, include_bluetooth: bool 
     """
     found: List[dict] = []
     errors: List[str] = []
-    timeout = min(15.0 if not include_network else 8.0, max(1.0, float(timeout)))
+    timeout = (3.0 if quick else min(15.0 if not include_network else 8.0, max(1.0, float(timeout))))
 
     try:
         from eli.core import netguard
@@ -1097,7 +1069,7 @@ def discover(timeout: float = 3.0, fresh: bool = False, include_bluetooth: bool 
         if include_bluetooth:
             def _run_ble():
                 try:
-                    _ble_discover(timeout, found, errors)
+                    _ble_discover(timeout, found, errors, quick=quick)
                 except Exception as e:
                     errors.append(f"bluetooth: {e}")
             t_ble = threading.Thread(target=_run_ble, name="eli-ble", daemon=True)
@@ -1107,7 +1079,7 @@ def discover(timeout: float = 3.0, fresh: bool = False, include_bluetooth: bool 
         if t_ssdp is not None:
             t_ssdp.join(timeout=ssdp_timeout + 3.0)
         if t_ble is not None:
-            t_ble.join(timeout=timeout + 18.0)
+            t_ble.join(timeout=(4.0 if quick else timeout + 18.0))
 
     if include_bluetooth and found:
         _enrich_bt_discover_results(found)

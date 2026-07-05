@@ -456,8 +456,7 @@ class AirPlayDriver(Driver):
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Bluetooth — pair / connect / disconnect + route system audio to the device.
-# Uses the OS Bluetooth stack, NO python dep: bluetoothctl + pactl/pipewire on Linux,
-# blueutil (+ switchaudio-osx) on macOS. Windows control is not wired yet (roadmap).
+# Uses the OS Bluetooth stack via bt_platform (Linux / macOS / Windows).
 # Every branch degrades to a clean, actionable message — it never raises.
 # ─────────────────────────────────────────────────────────────────────────────
 class BluetoothDriver(Driver):
@@ -472,6 +471,13 @@ class BluetoothDriver(Driver):
 
     def capabilities(self, dev):
         return ["connect", "disconnect", "pair", "trust", "use_for_audio"]
+
+    def available(self) -> Tuple[bool, str]:
+        from eli.runtime import bt_platform as bp
+        tools = bp.tools_for_platform()
+        if tools.get("control") or tools.get("ble"):
+            return True, tools.get("detail", "OS Bluetooth")
+        return False, f"Bluetooth tools not found on {tools.get('platform', 'this OS')}"
 
     @staticmethod
     def _addr(dev: Dict[str, Any]) -> str:
@@ -534,58 +540,44 @@ class BluetoothDriver(Driver):
     @classmethod
     def ensure_adapter_alias(cls, alias: Optional[str] = None) -> Dict[str, Any]:
         """Set this PC's Bluetooth friendly name (what TVs/speakers show when pairing)."""
-        import shutil, sys
+        from eli.runtime import bt_platform as bp
         name = (alias or cls.resolve_adapter_alias()).strip() or cls.resolve_adapter_alias()
-        if sys.platform == "darwin":
-            return {"ok": False, "alias": name,
-                    "note": "macOS uses System Settings → General → Sharing → Local hostname"}
-        if not shutil.which("bluetoothctl"):
-            return {"ok": False, "alias": name, "error": "bluetoothctl not found"}
-        _, show = cls._sh(["bluetoothctl", "show"], timeout=8)
-        for line in show.splitlines():
-            if line.strip().lower().startswith("alias:"):
-                current = line.split(":", 1)[1].strip()
-                if current == name:
-                    return {"ok": True, "alias": name, "already_set": True}
-                break
-        try:
-            import subprocess
-            cls._bt_prepare_radio()
-            r = subprocess.run(
-                ["bluetoothctl"],
-                input=f"power on\nsystem-alias {name}\nquit\n",
-                capture_output=True,
-                text=True,
-                timeout=12,
-            )
-            out = (r.stdout or "") + (r.stderr or "")
-            return {"ok": True, "alias": name, "output": out.strip()[:200]}
-        except Exception as e:
-            return {"ok": False, "alias": name, "error": str(e)}
+        return bp.set_adapter_alias(name)
+
+    @classmethod
+    def _bt_hci_interfaces(cls) -> List[Dict[str, str]]:
+        from eli.runtime import bt_platform as bp
+        return [
+            {"name": a.id, "address": a.address, "state": a.state}
+            for a in bp.list_adapters() if a.source == "kernel"
+        ]
+
+    @classmethod
+    def _bt_try_recover_radio(cls) -> None:
+        from eli.runtime import bt_platform as bp
+        bp.try_recover_radio()
+
+    @classmethod
+    def _bt_recovery_hint(cls) -> str:
+        from eli.runtime import bt_platform as bp
+        return bp.recovery_hint()
+
+    @classmethod
+    def radio_status(cls) -> Dict[str, Any]:
+        from eli.runtime import bt_platform as bp
+        return bp.radio_status()
 
     @classmethod
     def _bt_ensure_controller(cls) -> Tuple[bool, str]:
-        """Select an available controller and power the radio on."""
-        import re, shutil, sys
-        if sys.platform != "linux" or not shutil.which("bluetoothctl"):
-            return False, "bluetoothctl not found"
-        _, out = cls._sh(["bluetoothctl", "list"], timeout=8)
-        addrs = re.findall(r"Controller\s+([0-9A-Fa-f:]{17})", out or "")
-        if not addrs:
-            return False, "no Bluetooth controller — enable in system settings or replug USB adapter"
-        for addr in addrs:
-            cls._sh(["bluetoothctl", "select", addr], timeout=6)
-            cls._sh(["bluetoothctl", "power", "on"], timeout=10)
-            _, show = cls._sh(["bluetoothctl", "show"], timeout=8)
-            if "powered: yes" in show.lower():
-                return True, addr
-        return False, "Bluetooth radio off"
+        from eli.runtime import bt_platform as bp
+        return bp.ensure_radio()
 
     @classmethod
     def _bt_prepare_radio(cls) -> None:
         """Power on + pairable so outbound pairing to headphones works."""
+        from eli.runtime import bt_platform as bp
         ok, _ = cls._bt_ensure_controller()
-        if not ok:
+        if not ok or bp.platform_kind() != "linux" or not shutil.which("bluetoothctl"):
             return
         try:
             import subprocess
@@ -601,29 +593,13 @@ class BluetoothDriver(Driver):
 
     @classmethod
     def _device_in_cache(cls, addr: str) -> bool:
-        _, listing = cls._sh(["bluetoothctl", "devices"], timeout=8)
-        return addr.upper() in (listing or "").upper()
+        from eli.runtime import bt_platform as bp
+        return bp.device_known(addr)
 
     @classmethod
     def _wait_for_bt_device(cls, addr: str, timeout: float = 18.0) -> bool:
-        """Scan until BlueZ lists the device (headphones must be in pairing mode)."""
-        import time
-        addr_u = addr.upper()
-        ok, _ = cls._bt_ensure_controller()
-        if not ok:
-            return False
-        if cls._device_in_cache(addr_u):
-            return True
-        secs = max(8, min(int(timeout), 20))
-        cls._sh(["bluetoothctl", "--timeout", str(secs), "scan", "on"], timeout=secs + 6)
-        deadline = time.time() + secs
-        while time.time() < deadline:
-            if cls._device_in_cache(addr_u):
-                cls._bt_ensure_controller()
-                return True
-            time.sleep(2)
-        cls._bt_ensure_controller()
-        return cls._device_in_cache(addr_u)
+        from eli.runtime import bt_platform as bp
+        return bp.wait_for_device(addr, timeout=timeout)
 
     @classmethod
     def _is_paired(cls, addr: str) -> bool:
@@ -631,19 +607,8 @@ class BluetoothDriver(Driver):
 
     @classmethod
     def _bt_device_info(cls, addr: str) -> Dict[str, Any]:
-        _, out = cls._sh(["bluetoothctl", "info", addr], timeout=10)
-        info: Dict[str, Any] = {"uuids": []}
-        for line in (out or "").splitlines():
-            line = line.strip()
-            if not line or ":" not in line:
-                continue
-            k, v = line.split(":", 1)
-            key = k.strip().lower().replace(" ", "_")
-            if key == "uuid":
-                info["uuids"].append(v.strip())
-            else:
-                info[key] = v.strip()
-        return info
+        from eli.runtime import bt_platform as bp
+        return bp.device_info(addr)
 
     @classmethod
     def classify_bt_device(cls, info: Dict[str, Any], name: str = "") -> Dict[str, Any]:
@@ -658,9 +623,13 @@ class BluetoothDriver(Driver):
             or any("fdb4" in u or "fdf7" in u or "fe78" in u for u in uuids)
         )
         is_tv = "tv" in nm or "[tv]" in nm
-        is_adapter = any(x in nm for x in ("hoco", "adapter", "dongle", "transmitter", "receiver"))
         has_sink = any("audio sink" in u or "0000110b" in u for u in uuids)
         has_headphones = any(x in icon for x in ("headset", "headphones", "audio-headphones"))
+        # USB BT dongles only — not bundled headphone kits that ship with their own dongle.
+        is_adapter = (
+            any(x in nm for x in ("adapter", "dongle", "transmitter", "receiver", "csr"))
+            and not (has_sink or has_headphones)
+        )
 
         if is_printer:
             return {"bt_type": "printer", "audio_capable": False, "label": "Printer"}
@@ -742,6 +711,67 @@ class BluetoothDriver(Driver):
         except Exception as e:
             return False, str(e)
 
+    def _windows_route_audio(self, addr):
+        """Route Windows default playback to a Bluetooth endpoint by device name/MAC."""
+        from eli.runtime import bt_platform as bp
+        info = self._bt_device_info(addr)
+        name = str(info.get("name") or "")
+        conn = self._windows_bt_action(addr, "connect")
+        if not conn.get("ok"):
+            conn = self._windows_bt_action(addr, "pair")
+        if not conn.get("ok"):
+            return {
+                "ok": False,
+                "error": conn.get("error") or "Could not connect — pair first, then Use for audio",
+                "output": conn.get("output", ""),
+            }
+        token = addr.replace(":", "_").upper()
+        rc, out = bp.powershell(
+            "Add-Type -TypeDefinition @'"
+            "using System.Runtime.InteropServices;"
+            "[Guid(\"870af99c-171d-4f9e-af0d-e63df40c2bc9\"), InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]"
+            "interface IPolicyConfig { int unused1; int unused2; int unused3; int unused4;"
+            "  int SetDefaultEndpoint([MarshalAs(UnmanagedType.LPWStr)] string id, int role); }"
+            "[ComImport, Guid(\"870af99c-171d-4f9e-af0d-e63df40c2bc9\")] class PolicyConfigClient { }"
+            "'@ -ErrorAction SilentlyContinue;"
+            "$devName = $env:ELI_BT_NAME;"
+            "Add-Type -AssemblyName System.Runtime.WindowsRuntime;"
+            "$null = [Windows.Media.Devices.MediaDevice, Windows.Media, ContentType=WindowsRuntime];"
+            "Get-PnpDevice -Class AudioEndpoint -Status OK -ErrorAction SilentlyContinue |"
+            " Where-Object { $_.FriendlyName -match 'Bluetooth|BT|Headphone|Headset' } |"
+            " ForEach-Object { Write-Output $_.FriendlyName }",
+            timeout=20,
+        )
+        _ = rc
+        # Match discovered endpoint name to paired device
+        target = ""
+        for line in (out or "").splitlines():
+            ln = line.strip()
+            if not ln:
+                continue
+            if name and name.lower() in ln.lower():
+                target = ln
+                break
+            if token[:8].replace("_", "") in ln.upper().replace(":", "").replace("-", ""):
+                target = ln
+                break
+        if not target and (out or "").strip():
+            target = (out or "").splitlines()[0].strip()
+        if target:
+            return {
+                "ok": True,
+                "routed": True,
+                "sink": target,
+                "device": addr,
+                "note": "Connected — select this output in Windows Sound settings if audio does not switch",
+            }
+        return {
+            "ok": True,
+            "routed": False,
+            "device": addr,
+            "note": "Bluetooth connected — pick the device in Settings → System → Sound",
+        }
+
     def _find_bt_sink(self, addr: str) -> Optional[str]:
         token = addr.replace(":", "_").upper()
         _, sinks = self._sh(["pactl", "list", "short", "sinks"])
@@ -751,6 +781,28 @@ class BluetoothDriver(Driver):
                 if len(parts) >= 2:
                     return parts[1]
         return None
+
+    def _windows_bt_action(self, addr, action):
+        from eli.runtime import bt_platform as bp
+        bp.ensure_radio()
+        if action == "pair":
+            info = self._bt_device_info(addr)
+            meta = self.classify_bt_device(info, str(info.get("name") or ""))
+            if meta.get("bt_type") == "printer":
+                return {"ok": False, "error": "That is a printer — not pairable for audio"}
+            if meta.get("bt_type") == "adapter":
+                return {"ok": False, "error": "That is a Bluetooth adapter/dongle — pair your headphones instead"}
+            if not self._is_paired(addr) and not self._wait_for_bt_device(addr, timeout=18.0):
+                dev_name = str(info.get("name") or "device")
+                return {
+                    "ok": False,
+                    "error": f"{dev_name} not found — keep them in pairing mode (LED flashing) and tap Pair",
+                }
+        ok, out = bp.windows_bt_action(addr, action)
+        res = {"ok": ok, "command": action, "device": addr, "output": out}
+        if not ok:
+            res["error"] = self._bt_error_hint(out, action)
+        return res
 
     def _bt_action(self, addr, action):
         import shutil, sys
@@ -765,9 +817,9 @@ class BluetoothDriver(Driver):
             if not ok:
                 res["error"] = out.strip()[:200] or "bluetooth command failed"
             return res
+        if sys.platform.startswith("win"):
+            return self._windows_bt_action(addr, action)
         if not shutil.which("bluetoothctl"):
-            if sys.platform.startswith("win"):
-                return {"ok": False, "error": "bluetooth control on Windows isn't wired yet (roadmap)"}
             return {"ok": False, "error": "bluetooth: bluetoothctl not found (install bluez)"}
         self.ensure_adapter_alias()
         self._bt_prepare_radio()
@@ -807,7 +859,7 @@ class BluetoothDriver(Driver):
         return res
 
     def _route_audio(self, addr):
-        """Make this Bluetooth device the system audio output (Linux PulseAudio/PipeWire)."""
+        """Make this Bluetooth device the system audio output."""
         import shutil, sys, time
         if sys.platform == "darwin":
             if shutil.which("SwitchAudioSource"):
@@ -818,6 +870,8 @@ class BluetoothDriver(Driver):
                     res["error"] = out.strip()[:200] or "audio routing failed"
                 return res
             return {"ok": False, "error": "macOS audio routing needs switchaudio-osx (brew install switchaudio-osx)"}
+        if sys.platform.startswith("win"):
+            return self._windows_route_audio(addr)
         if not shutil.which("pactl"):
             return {"ok": False, "error": "audio routing needs PulseAudio/PipeWire (pactl not found)"}
         sink = self._find_bt_sink(addr)
