@@ -11,8 +11,9 @@ breaks import (`NameError: name 'log' is not defined`). Converting them safely
 requires per-site scope checking, done incrementally.
 
 What this test gives us now: a **ratchet**. The count can't grow — a new silent
-swallow fails CI. To clear a real one, make it observable (log it, with `log`
-proven in scope) and lower CEILING; never raise it to hide a new swallow.
+swallow fails CI (`cross-platform-smoke` runs this file). To clear a real one,
+make it observable (log it, with `log` proven in scope) and lower CEILING; never
+raise it to hide a new swallow.
 """
 import ast
 import glob
