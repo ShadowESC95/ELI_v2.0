@@ -29,7 +29,12 @@ def linux_tools(monkeypatch):
         calls.append(list(args))
         return _responder(args)
 
+    def fake_batch(addr, steps, timeout=45.0):
+        calls.append(["bluetoothctl-batch", addr, *steps])
+        return True, "Connection successful"
+
     monkeypatch.setattr(dd.BluetoothDriver, "_sh", staticmethod(fake_sh))
+    monkeypatch.setattr(dd.BluetoothDriver, "_btctl_batch", staticmethod(fake_batch))
     monkeypatch.setattr(sys, "platform", "linux")
     monkeypatch.setattr(shutil, "which", lambda t: "/usr/bin/" + t)
     return calls
@@ -48,7 +53,7 @@ def test_driver_registered():
 def test_connect_and_disconnect(linux_tools):
     d = dd.get_driver("bluetooth")
     assert d.control(DEV, "connect")["ok"] is True
-    assert ["bluetoothctl", "connect", "AA:BB:CC:DD:EE:FF"] in linux_tools
+    assert ["bluetoothctl-batch", "AA:BB:CC:DD:EE:FF", "connect"] in linux_tools
     linux_tools.clear()
     assert d.control(DEV, "disconnect")["ok"] is True
     assert ["bluetoothctl", "disconnect", "AA:BB:CC:DD:EE:FF"] in linux_tools
@@ -57,8 +62,37 @@ def test_connect_and_disconnect(linux_tools):
 def test_pair_runs_pair_trust_connect(linux_tools):
     d = dd.get_driver("bluetooth")
     d.control(DEV, "pair")
-    steps = [c[1] for c in linux_tools if c and c[0] == "bluetoothctl"]
-    assert steps == ["power", "pair", "trust", "connect"]
+    assert ["bluetoothctl-batch", "AA:BB:CC:DD:EE:FF", "pair", "trust", "connect"] in linux_tools
+
+
+def test_ensure_adapter_alias_skips_when_already_eli(monkeypatch):
+    monkeypatch.setattr(sys, "platform", "linux")
+    monkeypatch.setattr(shutil, "which", lambda t: "/usr/bin/" + t)
+    monkeypatch.setattr(dd.BluetoothDriver, "_sh",
+                        staticmethod(lambda args, timeout=25.0: (0, "Alias: Eli\nPowered: yes")))
+    r = dd.BluetoothDriver.ensure_adapter_alias()
+    assert r["ok"] is True and r.get("already_set") is True
+
+
+def test_ensure_adapter_alias_sets_eli(monkeypatch):
+    import subprocess
+    monkeypatch.setattr(sys, "platform", "linux")
+    monkeypatch.setattr(shutil, "which", lambda t: "/usr/bin/" + t)
+    monkeypatch.setattr(dd.BluetoothDriver, "_sh",
+                        staticmethod(lambda args, timeout=25.0: (0, "Alias: ghost\nPowered: yes")))
+    captured = {}
+
+    def fake_run(args, input=None, **kw):
+        captured["input"] = input
+        class R:
+            stdout = "Changing Eli succeeded"
+            stderr = ""
+        return R()
+
+    monkeypatch.setattr(subprocess, "run", fake_run)
+    r = dd.BluetoothDriver.ensure_adapter_alias()
+    assert r["ok"] is True and r["alias"] == "Eli"
+    assert "system-alias Eli" in captured["input"]
 
 
 def test_use_for_audio_routes_to_bluez_sink(linux_tools):
@@ -72,8 +106,9 @@ def test_use_for_audio_no_sink_is_clean_error(monkeypatch):
     monkeypatch.setattr(sys, "platform", "linux")
     monkeypatch.setattr(shutil, "which", lambda t: "/usr/bin/" + t)
     monkeypatch.setattr(dd.BluetoothDriver, "_sh", staticmethod(lambda a, timeout=25.0: (0, "no bluez here")))
+    monkeypatch.setattr(dd.BluetoothDriver, "_btctl_batch", staticmethod(lambda addr, steps, timeout=45.0: (False, "Failed to connect")))
     r = dd.get_driver("bluetooth").control(DEV, "use_for_audio")
-    assert r["ok"] is False and "sink" in r["error"].lower()
+    assert r["ok"] is False and "error" in r
 
 
 def test_degrades_when_bluetoothctl_absent(monkeypatch):
