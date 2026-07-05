@@ -672,7 +672,8 @@ class BluetoothDriver(Driver):
         if "page timeout" in low or "connectionattemptfailed" in low:
             return "Device not in pairing mode — open the case / hold power until the LED flashes, then tap Pair"
         if "failed to set power on" in low or "org.bluez.error.failed" in low:
-            return "Bluetooth adapter is off — run: sudo hciconfig hci0 up  (then retry Pair)"
+            from eli.runtime import bt_platform as bp
+            return "Bluetooth adapter is off — " + bp.recovery_hint()
         if "authentication failed" in low or "rejected" in low:
             return "Pairing rejected — accept the prompt on the device, then tap Pair again"
         if "failed to connect" in low or "br-connection" in low:
