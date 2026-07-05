@@ -3092,6 +3092,7 @@ def play_specific(query: str, target: str | None = None) -> Dict[str, Any]:
     is_spotify = "spotify" in t or (player and "spotify" in (player or "").lower())
     is_youtube = "youtube" in t or t in ("yt",)
     is_yt_web  = is_youtube and bool(_re.search(r"\bweb(?:site)?\b", t))
+    is_yt_browser = is_yt_web or bool(_re.search(r"youtube\.com", t, _re.I))
 
     if is_spotify and not is_youtube:
         import time as _time
@@ -3136,8 +3137,8 @@ def play_specific(query: str, target: str | None = None) -> Dict[str, Any]:
                 "search_only": True, "target": "spotify",
                 "content": msg, "response": msg}
 
-    # ── 2. "youtube web/website" → browser only (never mpv) ──────────────────
-    if is_yt_web:
+    # ── 2. "youtube web/website/.com" → browser only (never mpv) ─────────────
+    if is_yt_browser:
         watch = _yt_mix_url(_yt_resolve_watch_url(query))
         url = watch or f"https://www.youtube.com/results?search_query={urllib.parse.quote_plus(query)}"
         _open_in_browser(url)

@@ -224,10 +224,37 @@ class DeviceServer:
             "configured": bool(cfg["host"]),
             "connected": self._connected,
             "broker": (f"{cfg['host']}:{cfg['port']}" if cfg["host"] else ""),
+            "brokerHost": cfg["host"],
+            "brokerPort": cfg["port"],
+            "username": cfg["username"] or "",
+            "discovery_prefix": cfg["discovery_prefix"],
             "discovery": bool(cfg["discovery_prefix"]),
+            "tls": bool(cfg["tls"]),
             "device_count": n,
             "error": self._last_error or None,
         }
+
+    def maybe_auto_connect(self) -> None:
+        """Background reconnect when a broker was saved previously."""
+        cfg = _cfg()
+        if not cfg["host"] or self._connected:
+            return
+        try:
+            from eli.core import config
+            if config.get("mqtt_auto_connect") is False:
+                return
+        except Exception:
+            pass
+
+        def _run():
+            try:
+                res = self.connect()
+                if not res.get("ok"):
+                    log.debug("device_server: auto-connect failed: %s", res.get("error"))
+            except Exception:
+                log.debug("device_server: auto-connect error", exc_info=True)
+
+        threading.Thread(target=_run, daemon=True, name="eli-mqtt-autoconnect").start()
 
     def configure(self, **kw) -> Dict[str, Any]:
         """Persist broker settings (host/port/username/password/discovery_prefix/tls)."""
@@ -1191,4 +1218,5 @@ def get_server() -> DeviceServer:
         with _server_lock:
             if _SERVER is None:
                 _SERVER = DeviceServer()
+                _SERVER.maybe_auto_connect()
     return _SERVER

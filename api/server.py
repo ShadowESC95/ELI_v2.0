@@ -225,6 +225,15 @@ app = FastAPI(
     version="1.0.0"
 )
 
+@app.on_event("startup")
+def _eli_startup_hooks():
+    """Resume saved MQTT broker connection when the API server boots."""
+    try:
+        from eli.runtime.device_server import get_server
+        get_server().maybe_auto_connect()
+    except Exception:
+        pass
+
 # Has any device OTHER than this machine actually reached the server? In LAN mode the
 # desktop connects via loopback, so if this stays False after the server's been up a
 # while, real LAN traffic isn't getting through — almost always the OS firewall. The
@@ -1263,8 +1272,8 @@ _WEB_UI = """<!doctype html>
   function saveDevConfig(){
     const body={host:($('#mq_host').value||'').trim(), port:parseInt($('#mq_port').value||'1883',10)||1883,
       username:($('#mq_user').value||'').trim(), password:$('#mq_pass').value||'',
-      discovery_prefix:($('#mq_disc').value||'').trim()};
-    const cfgbox=$('#broker-cfg')||$('#broker-cfg2');
+      discovery_prefix:($('#mq_disc').value||'').trim(), tls:!!($('#mq_tls')&&$('#mq_tls').checked)};
+    const cfgbox=$('#broker-cfg-mqtt')||$('#broker-cfg')||$('#broker-cfg2');
     if(!body.host){renderBrokerCfg(cfgbox, body, 'Enter your MQTT broker host (e.g. 192.168.1.50 or mosquitto.local).');return;}
     const btn=$('#mq-save'); if(btn){btn.disabled=true;btn.textContent='Connecting…';}
     api('/v1/devices/config',{method:'POST',body:JSON.stringify(body)}).then(r=>{
@@ -1415,7 +1424,7 @@ _WEB_UI = """<!doctype html>
     const strip=document.createElement('div');strip.className='livestrip';
     const conn=st&&st.connected;
     strip.innerHTML='<span class="lstitle">&#9670; ELI HOME</span>'
-      +'<span class="lspill"><span class="ld '+(conn?'live':'warn')+'"></span>'+(conn?('broker '+esc(st.broker||'online')):'no broker')+'</span>'
+      +'<span class="lspill"><span class="ld '+(conn?'live':'warn')+'"></span>'+(conn?('MQTT '+esc(st.broker||'online')):'MQTT offline')+'</span>'
       +'<span class="lspill"><span class="ld live"></span><b>'+on+'</b> on</span>'
       +'<span class="lspill"><span class="ld off"></span><b>'+off+'</b> off</span>'
       +(idle?'<span class="lspill"><span class="ld warn"></span><b>'+idle+'</b> idle</span>':'')
@@ -1427,20 +1436,31 @@ _WEB_UI = """<!doctype html>
   function renderDevices(rooms, st){
     const h=$('#devices');h.innerHTML='';
     h.appendChild(homeStatusStrip(rooms, st));
+    if(st&&!st.connected){
+      const b=document.createElement('div');
+      b.className='banner';
+      b.style.cssText='margin:0 0 12px;line-height:1.65;border-color:rgba(255,209,102,.35);background:rgba(255,209,102,.08)';
+      b.innerHTML='<b>MQTT broker not connected.</b> ELI needs a broker to control lights, switches, and sensors. Open the <b>MQTT Setup</b> tab — scan your network, follow the steps for your OS, then <b>Save &amp; connect</b>.';
+      h.appendChild(b);
+    }
     const sg=document.createElement('div');sg.id='home-sugg';h.appendChild(sg);loadHomeSuggestions();
     const shell=document.createElement('div');shell.className='subwrap';h.appendChild(shell);
+    const initial=_homeSub||((st&&st.connected)?'devices':'mqtt');
     mountSubtabs(shell,[
+      {id:'mqtt',label:'MQTT Setup',render:el=>paneMqttSetup(el,st)},
       {id:'devices',label:'Devices',render:el=>paneDevices(el,rooms,st)},
       {id:'autos',label:'Automations',render:paneAutomations},
       {id:'scenes',label:'Scenes',render:paneScenes},
-      {id:'discover',label:'Discover & Setup',render:paneDiscover},
+      {id:'discover',label:'Media discovery',render:paneDiscover},
       {id:'advanced',label:'Advanced',render:paneAdvanced},
-    ],_homeSub,(id)=>{_homeSub=id;});
+    ],initial,(id)=>{_homeSub=id;});
   }
   function paneDevices(el, rooms, st){
     const total=rooms.reduce((n,r)=>n+(r.devices?r.devices.length:0),0);
     if(!total){const m=document.createElement('div');m.className='muted';m.style.cssText='padding:22px 0;line-height:1.7';
-      m.innerHTML='No devices yet. Open <b>Discover &amp; Setup</b> to find media devices (AirPlay, Fire TV, Cast, UPnP) on your network, or connect an MQTT broker for switches &amp; lights.';el.appendChild(m);}
+      m.innerHTML=(st&&st.connected)
+        ?'No devices yet. Use <b>MQTT Setup</b> discovery prefix auto-find, <b>Media discovery</b> for AirPlay/Fire TV/Cast, or <b>+ Add device manually</b> below.'
+        :'Connect your MQTT broker in <b>MQTT Setup</b> first, then add lights/switches via discovery or manual registration.';el.appendChild(m);}
     rooms.forEach(rm=>{
       const sec=document.createElement('div');sec.className='roomsec';
       const hd=document.createElement('div');hd.className='roomhd';
@@ -1490,33 +1510,118 @@ _WEB_UI = """<!doctype html>
     autoTrigFields();autoActFields();
   }
   function paneDiscover(el){
-    el.innerHTML='<div class="jhead">Find devices on your network</div>'+
-      '<div class="syscard"><p class="rnote" style="margin:0 0 10px;line-height:1.6">Scan via mDNS + UPnP for media devices (AirPlay, Fire TV, Chromecast, UPnP/DLNA) and MQTT brokers. Add what you find — controlled locally, never the cloud.</p>'+
-      '<button class="cbtn" id="mq-find" onclick="discoverDevices()">&#128270; Find on my network</button><div id="mq-found"></div></div>'+
-      '<div class="jhead">MQTT broker — switches &amp; lights</div><div id="broker-cfg"></div>';
-    renderBrokerCfg($('#broker-cfg'));
+    el.innerHTML='<div class="jhead">Media devices on your network</div>'+
+      '<div class="syscard"><p class="rnote" style="margin:0 0 10px;line-height:1.6">Find AirPlay, Fire TV, Chromecast, and UPnP/DLNA renderers. These pair locally — separate from your MQTT lights and switches (configure those under <b>MQTT Setup</b>).</p>'+
+      '<button class="cbtn" id="mq-find" onclick="discoverDevices()">&#128270; Scan for media devices</button><div id="mq-found"></div></div>';
+  }
+  function paneMqttSetup(el, st){
+    st=st||{};
+    el.innerHTML='<div class="jhead">MQTT broker — required for lights, switches &amp; sensors</div>'+
+      '<div class="syscard"><p class="rnote" style="margin:0 0 12px;line-height:1.65">ELI talks MQTT directly to your hardware (ESPHome, Tasmota, Zigbee2MQTT, or any broker-backed device). Works on <b>any</b> machine — Linux, Windows, Mac, or a Pi/NAS on your network.</p>'+
+      '<div class="rrow" style="gap:8px;flex-wrap:wrap;margin-bottom:10px">'+
+      '<button class="cbtn" onclick="discoverBrokersOnly()">&#128270; Scan network for brokers</button>'+
+      '<button class="cbtn" onclick="loadMqttGuide()">&#128214; Show setup guide for my OS</button>'+
+      '</div>'+
+      '<div id="mqtt-guide" class="rnote" style="display:none;margin-bottom:12px;line-height:1.65"></div>'+
+      '<div id="mqtt-scan"></div></div>'+
+      '<div id="broker-cfg-mqtt"></div>';
+    renderBrokerCfg($('#broker-cfg-mqtt'), {}, '');
+    if(!st.connected){setTimeout(discoverBrokersOnly, 400);}
+  }
+  function loadMqttGuide(){
+    const box=$('#mqtt-guide'); if(!box)return;
+    box.style.display='block'; box.textContent='Loading guide…';
+    api('/v1/devices/mqtt/guide').then(g=>{
+      if(!g.ok){box.innerHTML='<span style="color:#f87171">Could not load guide</span>';return;}
+      let h='<b>'+esc(g.title||'MQTT setup')+'</b><ol style="margin:8px 0 0 18px">';
+      (g.steps||[]).forEach(s=>{h+='<li>'+esc(s)+'</li>';});
+      h+='</ol>';
+      if(g.notes) h+='<div style="margin-top:8px;opacity:.85">'+esc(g.notes)+'</div>';
+      if((g.suggested_hosts||[]).length){
+        h+='<div style="margin-top:10px">Quick try: ';
+        g.suggested_hosts.slice(0,4).forEach(hst=>{
+          h+='<button class="cbtn" style="padding:2px 8px;margin:2px" onclick="quickBrokerHost(\\''+esc(hst)+'\\')">'+esc(hst)+'</button> ';
+        });
+        h+='</div>';
+      }
+      box.innerHTML=h;
+    }).catch(e=>{box.innerHTML='<span style="color:#f87171">'+esc(''+e)+'</span>';});
+  }
+  function quickBrokerHost(host){
+    const h=$('#mq_host'),p=$('#mq_port'); if(h)h.value=host; if(p&&!p.value)p.value='1883';
+    const n=$('#mqtt-scan'); if(n)n.innerHTML='<div class="rnote">Host set to '+esc(host)+' — click <b>Test connection</b> or <b>Save &amp; connect</b>.</div>';
+  }
+  function discoverBrokersOnly(){
+    const box=$('#mqtt-scan'); if(!box)return;
+    box.innerHTML='<div class="rnote">Scanning for MQTT brokers on your LAN…</div>';
+    api('/v1/devices/discover',{method:'POST',body:JSON.stringify({})}).then(d=>{
+      if(!d.ok){box.innerHTML='<div class="banner bad">'+esc(d.error||'scan failed')+'</div>';return;}
+      const br=d.brokers||[];
+      if(!br.length){
+        box.innerHTML='<div class="rnote">No MQTT broker found on the network yet. Use the setup guide above to install Mosquitto (or point ELI at your Home Assistant / Pi IP).</div>';
+        return;
+      }
+      let h='<div class="rnote">Brokers found — click one to fill the form:</div>';
+      br.forEach(b=>{
+        h+='<div class="src" style="cursor:pointer" onclick="useBroker(\\''+esc(b.host)+'\\','+(b.port||1883)+')"><div class="sh"><span>&#128268; '+esc(b.name||b.host)+'</span><span>'+esc(b.host)+':'+(b.port||1883)+'</span></div></div>';
+      });
+      box.innerHTML=h;
+    }).catch(e=>{box.innerHTML='<div class="banner bad">'+esc(''+e)+'</div>';});
+  }
+  function testMqttConnection(){
+    const body={host:($('#mq_host').value||'').trim(), port:parseInt($('#mq_port').value||'1883',10)||1883,
+      username:($('#mq_user').value||'').trim(), password:($('#mq_pass').value||''),
+      discovery_prefix:($('#mq_disc').value||'').trim(), tls:!!($('#mq_tls')&&$('#mq_tls').checked)};
+    const stt=$('#mqtt-test-status'); if(stt)stt.textContent='Testing…';
+    if(!body.host){if(stt)stt.innerHTML='<span style="color:#f87171">Enter a broker host first.</span>';return;}
+    api('/v1/devices/mqtt/test',{method:'POST',body:JSON.stringify(body)}).then(r=>{
+      if(stt){
+        if(r.ok) stt.innerHTML='<span style="color:#2ec07a">&#10003; '+esc(r.message||'Connected')+'</span>';
+        else stt.innerHTML='<span style="color:#f87171">'+esc(r.error||'failed')+'</span>'+(r.hint?('<div class="rnote" style="margin-top:6px">'+esc(r.hint)+'</div>'):'');
+      }
+    }).catch(e=>{if(stt)stt.innerHTML='<span style="color:#f87171">'+esc(''+e)+'</span>';});
+  }
+  function applyDiscoveryPreset(val){
+    const d=$('#mq_disc'); if(d) d.value=val||'';
   }
   function paneAdvanced(el){
     el.innerHTML='<div class="jhead">Location — for sun-based automations</div>'+
       '<div class="syscard"><div class="rrow"><input id="loc-lat" placeholder="latitude" style="max-width:140px"><input id="loc-lon" placeholder="longitude" style="max-width:140px">'+
       '<button class="cbtn" onclick="useMyLocation()">&#128205; Use my location</button><button onclick="saveLocation()">Save</button></div><div id="loc-status" class="rnote"></div></div>'+
-      '<div class="jhead">Broker / connection</div><div id="broker-cfg2"></div>';
+      '<div class="jhead">Broker / connection</div>'+
+      '<div class="syscard"><p class="rnote" style="margin:0 0 12px;line-height:1.65">Same MQTT settings as the <b>MQTT Setup</b> tab. If status shows <code>not connected</code>, the broker is not running, the host/IP is wrong, or a firewall is blocking port 1883.</p></div>'+
+      '<div id="broker-cfg2"></div>';
     renderBrokerCfg($('#broker-cfg2'));
   }
   function renderBrokerCfg(box, vals, err){
     if(!box)return; vals=vals||{};
-    api('/v1/devices/status').then(s=>{
-      const st=(s&&s.status)||{};
+    Promise.all([api('/v1/devices/status'), api('/v1/devices/mqtt/guide')]).then(function(res){
+      const st=(res[0]&&res[0].status)||{};
+      const guide=res[1]||{};
+      const presets=(guide.discovery_presets||[]);
+      let presetOpts='';
+      presets.forEach(p=>{presetOpts+='<option value="'+esc(p.id||'')+'">'+esc(p.label||p.id||'manual')+'</option>';});
       box.innerHTML='<div class="syscard">'+
-        (st.configured?('<div class="rnote" style="margin-bottom:10px">'+(st.connected?'<span style="color:#2ec07a">&#9679; connected to '+esc(st.broker||'')+'</span>':'<span style="color:#e0a72e">&#9675; configured ('+esc(st.broker||'')+') — not connected</span>')+'</div>'):'')+
+        (st.configured?('<div class="rnote" style="margin-bottom:10px">'+(st.connected?'<span style="color:#2ec07a">&#9679; connected to '+esc(st.broker||'')+'</span>':'<span style="color:#e0a72e">&#9675; configured ('+esc(st.broker||'')+') — not connected</span>')+(st.error?('<div style="color:#f87171;margin-top:6px">'+esc(st.error)+'</div>'):'')+'</div>'):'<div class="rnote" style="margin-bottom:10px;color:#e0a72e">&#9888; No broker configured yet — ELI cannot control MQTT lights/switches until you connect one.</div>')+
         (err?'<div class="banner bad" style="margin:0 0 12px">'+esc(err)+'</div>':'')+
-        '<label>Broker host</label><input id="mq_host" autocomplete="off" placeholder="192.168.1.50 or mosquitto.local" value="'+esc(vals.host||st.brokerHost||'')+'">'+
-        '<label>Port</label><input id="mq_port" value="'+esc(vals.port||'1883')+'">'+
-        '<label>Username (optional)</label><input id="mq_user" autocomplete="off" value="'+esc(vals.username||'')+'">'+
-        '<label>Password (optional)</label><input id="mq_pass" type="password" autocomplete="new-password" value="'+esc(vals.password||'')+'">'+
-        '<label>Discovery prefix (optional — auto-finds MQTT devices)</label><input id="mq_disc" placeholder="leave blank for manual devices" value="'+esc(vals.discovery_prefix||'')+'">'+
-        '<div class="rrow" style="margin-top:14px"><button id="mq-save" onclick="saveDevConfig()">Save &amp; connect</button>'+
-        (st.connected?'<button class="cbtn" onclick="api(\\'/v1/devices/disconnect\\',{method:\\'POST\\'}).then(loadDevices)">Disconnect</button>':'')+'</div></div>';
+        '<label>Broker host <span class="rnote">(IP or hostname on your LAN)</span></label><input id="mq_host" autocomplete="off" placeholder="127.0.0.1 · 192.168.1.50 · mosquitto.local" value="'+esc(vals.host||st.brokerHost||'')+'">'+
+        '<label>Port <span class="rnote">(default 1883)</span></label><input id="mq_port" value="'+esc(vals.port||st.brokerPort||'1883')+'">'+
+        '<label>Username <span class="rnote">(leave blank if your broker has no login)</span></label><input id="mq_user" autocomplete="off" value="'+esc(vals.username||st.username||'')+'">'+
+        '<label>Password</label><input id="mq_pass" type="password" autocomplete="new-password" value="'+esc(vals.password||'')+'">'+
+        '<label>Device discovery preset</label><select id="mq_preset" onchange="applyDiscoveryPreset(this.value)">'+presetOpts+'</select>'+
+        '<label>Discovery prefix <span class="rnote">(advanced — auto-finds MQTT devices)</span></label><input id="mq_disc" placeholder="homeassistant" value="'+esc(vals.discovery_prefix||st.discovery_prefix||'')+'">'+
+        '<label class="rrow" style="gap:8px;align-items:center"><input type="checkbox" id="mq_tls" '+(st.tls?'checked':'')+'> Use TLS (port 8883)</label>'+
+        '<div id="mqtt-test-status" class="rnote" style="min-height:1.2em;margin-top:8px"></div>'+
+        '<div class="rrow" style="margin-top:14px;flex-wrap:wrap;gap:8px">'+
+        '<button class="cbtn" onclick="testMqttConnection()">Test connection</button>'+
+        '<button id="mq-save" onclick="saveDevConfig()">Save &amp; connect</button>'+
+        (st.connected?'<button class="cbtn" onclick="api(\\'/v1/devices/disconnect\\',{method:\\'POST\\'}).then(loadDevices)">Disconnect</button>':'')+
+        '</div></div>';
+      const presetSel=$('#mq_preset'), disc=$('#mq_disc');
+      if(presetSel&&disc){
+        const cur=disc.value||'';
+        for(let i=0;i<presetSel.options.length;i++){if(presetSel.options[i].value===cur){presetSel.selectedIndex=i;break;}}
+      }
     }).catch(()=>{});
   }
   /* scenes + automation builder state */
@@ -2986,6 +3091,26 @@ def _device_server():
 def devices_status():
     """Broker connection + registry summary (no secrets returned)."""
     return {"ok": True, "status": _device_server().status()}
+
+@app.get("/v1/devices/mqtt/guide", tags=["Devices"], dependencies=[Depends(_require_token)])
+def devices_mqtt_guide():
+    """Platform-specific MQTT broker install steps and discovery presets."""
+    from eli.runtime.mqtt_setup import broker_install_guide, suggest_local_hosts
+    guide = broker_install_guide()
+    guide["suggested_hosts"] = suggest_local_hosts()
+    return {"ok": True, **guide}
+
+@app.post("/v1/devices/mqtt/test", tags=["Devices"], dependencies=[Depends(require_member)])
+def devices_mqtt_test(cfg: DeviceConfig):
+    """Test broker reachability without persisting settings."""
+    from eli.runtime.mqtt_setup import probe_broker_connection
+    return probe_broker_connection(
+        host=cfg.host.strip(),
+        port=int(cfg.port or 1883),
+        username=cfg.username or "",
+        password=cfg.password or "",
+        tls=bool(cfg.tls),
+    )
 
 @app.post("/v1/devices/config", tags=["Devices"], dependencies=[Depends(require_member)])
 def devices_config(cfg: DeviceConfig):
