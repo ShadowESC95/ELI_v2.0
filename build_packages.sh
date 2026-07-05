@@ -122,6 +122,16 @@ _stage_windows_common() {
     if ls "$DIST"/eli_v2_0-*.whl >/dev/null 2>&1; then
         cp "$DIST"/eli_v2_0-*.whl "$STAGING/dist/"
     fi
+    cat > "$STAGING/ELI_Setup.bat" <<'BAT_EOF'
+@echo off
+title ELI Setup
+cd /d "%~dp0"
+echo ELI v2.0 setup — first run may take several minutes.
+powershell -NoProfile -ExecutionPolicy Bypass -File "%~dp0install.ps1" -Yes
+if errorlevel 1 ( echo Setup failed. & pause & exit /b 1 )
+echo Setup complete. Run eli.bat to launch ELI.
+pause
+BAT_EOF
     cat > "$STAGING/README_INSTALL.txt" <<EOF
 ELI v2 — Windows portable (${2:-lean})
 
