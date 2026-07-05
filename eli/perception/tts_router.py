@@ -73,8 +73,10 @@ _VOICE_SEARCH_DIRS = [
     *_packaged_piper_voice_dirs(),
 ]
 
-# Default voice (can be overridden via setting or env)
-_DEFAULT_VOICE = "en_US-ryan-high"
+# Default Piper voice (can be overridden via setting or env).
+# Must match voice_assets._PIPER_VOICE and public bundle policy (no NC-SA ryan).
+_DEFAULT_VOICE = "en_US-amy-medium"
+_SYSTEM_VOICE_PREFIX = "sys:"
 
 
 def _voice_dir() -> Path:
@@ -151,8 +153,30 @@ def _raw_pcm_to_wav(raw_bytes: bytes, sample_rate: int = 22050) -> bytes:
     return wav_buf.getvalue()
 
 
+def _list_system_voices() -> list[str]:
+    """OS-installed voices via pyttsx3 (SAPI on Windows, NSS on macOS). Prefixed sys:."""
+    out: list[str] = []
+    try:
+        import pyttsx3
+
+        eng = pyttsx3.init()
+        for v in eng.getProperty("voices") or []:
+            vid = getattr(v, "id", None)
+            if not vid:
+                continue
+            label = f"{_SYSTEM_VOICE_PREFIX}{vid}"
+            out.append(label)
+        try:
+            eng.stop()
+        except Exception:
+            pass
+    except Exception:
+        pass
+    return out
+
+
 def list_voices() -> list[str]:
-    """Return runnable Piper voices (without .onnx extension)."""
+    """Return runnable voices: Piper ONNX names, then OS voices (``sys:`` prefix)."""
     voices: list[str] = []
     seen: set[str] = set()
     for d in _voice_search_dirs():
@@ -166,7 +190,19 @@ def list_voices() -> list[str]:
                     voices.append(name)
         except Exception:
             pass
+    for sv in _list_system_voices():
+        if sv not in seen:
+            seen.add(sv)
+            voices.append(sv)
     return voices
+
+
+def _is_system_voice(name: str) -> bool:
+    return str(name or "").startswith(_SYSTEM_VOICE_PREFIX)
+
+
+def _system_voice_id(name: str) -> str:
+    return str(name or "")[len(_SYSTEM_VOICE_PREFIX):]
 
 
 def find_voice_model(voice_name: str) -> Optional[Path]:
@@ -212,6 +248,14 @@ def get_active_voice() -> str:
             return v
     except Exception:
         pass
+    installed = list_voices()
+    if _DEFAULT_VOICE in installed:
+        return _DEFAULT_VOICE
+    piper_only = [v for v in installed if not _is_system_voice(v)]
+    if piper_only:
+        return piper_only[0]
+    if installed:
+        return installed[0]
     return _DEFAULT_VOICE
 
 
@@ -273,6 +317,7 @@ def available_backends() -> dict:
         "piper_python": True,
         "piper_bin": _find_piper_bin(),
         "piper_voices": installed,
+        "system_voices": [v for v in installed if _is_system_voice(v)],
         "active_voice": active,
         "active_model": str(active_model) if active_model else None,
         "pyttsx3": True,
@@ -562,6 +607,27 @@ def _eli_tts_is_unspeakable(text) -> bool:
     return False
 
 
+def _speak_pyttsx3(text: str, voice_name: str) -> bool:
+    """Speak via OS TTS (Windows SAPI, macOS NSS, Linux espeak backend in pyttsx3)."""
+    try:
+        import pyttsx3
+
+        eng = pyttsx3.init()
+        vid = _system_voice_id(voice_name) if _is_system_voice(voice_name) else voice_name
+        if vid:
+            eng.setProperty("voice", vid)
+        eng.say(str(text or ""))
+        eng.runAndWait()
+        try:
+            eng.stop()
+        except Exception:
+            pass
+        return True
+    except Exception:
+        log.debug("[TTS] pyttsx3 speak failed", exc_info=True)
+        return False
+
+
 def _run_tts(text: str, voice_name: str | None = None) -> bool:
     import os as _os
 
@@ -574,6 +640,18 @@ def _run_tts(text: str, voice_name: str | None = None) -> bool:
 
     if not chunks:
         return False
+
+    use_system = _is_system_voice(active) or (
+        _os.environ.get("ELI_TTS_BACKEND", "").strip().lower() in {"system", "pyttsx3"}
+    )
+    if use_system and _is_system_voice(active):
+        ok_all = True
+        for i, chunk in enumerate(chunks, 1):
+            log.debug(f"[TTS_SYSTEM] {i}/{len(chunks)} voice={active[:48]} chars={len(chunk)}")
+            if not _speak_pyttsx3(chunk, active):
+                ok_all = False
+                break
+        return ok_all
 
     try:
         max_chunks = int(_os.environ.get("ELI_TTS_MAX_CHUNKS", "0") or "0")
@@ -603,8 +681,15 @@ def _run_tts(text: str, voice_name: str | None = None) -> bool:
     for i, chunk in enumerate(chunks, 1):
         log.debug(f"[TTS_FINAL_PIPER_ONLY_CHUNK] {i}/{len(chunks)} voice={active} chars={len(chunk)}")
         ok = _speak_piper_cli(chunk, active)
+        if not ok and _os.environ.get("ELI_TTS_FALLBACK", "").strip().lower() in {
+            "1", "true", "yes", "on", "system", "pyttsx3",
+        }:
+            sys_voices = _list_system_voices()
+            if sys_voices:
+                log.debug("[TTS] Piper failed; falling back to system voice.")
+                ok = _speak_pyttsx3(chunk, sys_voices[0])
         if not ok:
-            log.debug("[TTS_FINAL_PIPER_ONLY] failed; robot fallback disabled.")
+            log.debug("[TTS_FINAL_PIPER_ONLY] failed; no further fallback.")
             ok_all = False
             break
 
