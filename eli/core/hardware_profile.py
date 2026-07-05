@@ -696,6 +696,44 @@ def recommend(hw: Optional[HardwareProfile] = None,
                 f"gpu_model={_gpu_model_mb:.0f}MB offload={_offload_frac:.2f})"
             )
 
+    # Layer count was computed at the pre-refinement ctx; recompute once ctx settles.
+    if hw.has_gpu and hw.free_vram_mb > 0 and rec.n_gpu_layers > 0:
+        _settled = _gpu_layers_for_model(
+            chosen["size_gb"], hw.free_vram_mb, rec.n_ctx, kv_quantized=kv_q,
+        )
+        if _settled != rec.n_gpu_layers:
+            rec.reasoning.append(
+                f"n_gpu_layers adjusted {rec.n_gpu_layers}→{_settled} "
+                f"after ctx settled to {rec.n_ctx}"
+            )
+            rec.n_gpu_layers = _settled
+            chosen_layers = _settled
+
+    # Partial offload on a real GPU: prefer at least 10 layers by trimming ctx
+    # before we hand the profile to the user (8 GB cards + 20 GB MoE, etc.).
+    _MIN_GPU_LAYERS = 10
+    if (hw.has_gpu and hw.free_vram_mb >= 4096
+            and 0 < rec.n_gpu_layers < _MIN_GPU_LAYERS):
+        _ctx_try = rec.n_ctx
+        while _ctx_try > 2048 and rec.n_gpu_layers < _MIN_GPU_LAYERS:
+            _ctx_try = max(2048, _ctx_try - 2048)
+            _try_layers = _gpu_layers_for_model(
+                chosen["size_gb"], hw.free_vram_mb, _ctx_try, kv_quantized=kv_q,
+            )
+            if _try_layers >= _MIN_GPU_LAYERS:
+                rec.n_ctx = _ctx_try
+                rec.n_gpu_layers = _try_layers
+                chosen_layers = _try_layers
+                rec.reasoning.append(
+                    f"n_ctx→{rec.n_ctx} to reach {rec.n_gpu_layers} GPU layers "
+                    f"(target min {_MIN_GPU_LAYERS})"
+                )
+                break
+            if _try_layers > rec.n_gpu_layers:
+                rec.n_ctx = _ctx_try
+                rec.n_gpu_layers = _try_layers
+                chosen_layers = _try_layers
+
     total_layers = _layers_for_size(chosen["size_gb"])
     _full_offload = chosen_layers >= total_layers  # 99 >= actual layer count → all layers on GPU
     if _full_offload:

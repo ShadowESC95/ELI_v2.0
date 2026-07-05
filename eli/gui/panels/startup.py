@@ -586,6 +586,7 @@ class FirstBootWizard(QDialog):
 
         self._selected_path: str = ""
         self._selected_provider: str = "bundled_gguf"
+        self._hw_auto_ran: bool = False
 
         root_layout = QVBoxLayout(self)
         root_layout.setContentsMargins(18, 18, 18, 18)
@@ -825,6 +826,33 @@ class FirstBootWizard(QDialog):
         self._back_btn.setEnabled(idx > 0)
         self._next_btn.setVisible(idx < last)
         self._finish_btn.setVisible(idx == last)
+        # Step 3 promises automatic detection — run it on first entry, not on click.
+        if idx == 2 and not self._hw_auto_ran:
+            self._hw_auto_ran = True
+            self._run_hw_detection()
+
+    def _models_for_hw_recommend(self) -> List[Dict[str, Any]]:
+        """Prefer the wizard's selected/downloaded model over largest-on-disk."""
+        try:
+            from eli.core.hardware_profile import discover_models, _is_embedder_path
+        except Exception:
+            return []
+        sel = self._wiz_path.text().strip() or self._selected_path
+        if sel:
+            try:
+                sp = Path(sel).expanduser().resolve()
+                if (sp.exists() and sp.suffix.lower() == ".gguf"
+                        and not _is_embedder_path(sp)):
+                    sz = sp.stat().st_size
+                    return [{
+                        "name": sp.name,
+                        "path": str(sp),
+                        "size_bytes": sz,
+                        "size_gb": sz / 1e9,
+                    }]
+            except Exception:
+                pass
+        return discover_models()
 
     def _go_next(self):
         self._tabs.setCurrentIndex(self._tabs.currentIndex() + 1)
@@ -979,6 +1007,32 @@ class FirstBootWizard(QDialog):
                 _warn = (f"  ⚠ actual {_act:.2f} GiB vs {_est} GiB listed")
             self._dl_status.setText(f"✓ {verb}: {path}{_sz}{_warn}")
             self._start_support_assets()
+            try:
+                from eli.core.hardware_profile import detect_hardware, recommend
+                _hw = detect_hardware()
+                _sz_gb = float(res.get("size_gib_actual") or 0)
+                if not _sz_gb and path:
+                    _sz_gb = Path(path).stat().st_size / 1e9
+                if _hw.has_gpu and _hw.total_vram_mb > 0 and _sz_gb > 0:
+                    _vram_gb = _hw.total_vram_mb / 1024.0
+                    if _sz_gb * 1.1 > _vram_gb:
+                        self._dl_status.setText(
+                            self._dl_status.text()
+                            + f"\n⚠ {_sz_gb:.1f} GB model on {_vram_gb:.0f} GB GPU — "
+                            "expect partial offload; Qwen2.5-7B is better for 8 GB cards."
+                        )
+                if _hw.has_gpu and path:
+                    _probe = [{
+                        "name": Path(path).name,
+                        "path": path,
+                        "size_bytes": Path(path).stat().st_size,
+                        "size_gb": Path(path).stat().st_size / 1e9,
+                    }]
+                    _layers = recommend(_hw, _probe).n_gpu_layers
+                    if _layers == 0:
+                        self._dl_status.setStyleSheet("color:#ebcb8b;font-size:11px;")
+            except Exception:
+                pass
         else:
             self._dl_progress.setVisible(False)
             err = res.get("error", "unknown error")
@@ -990,22 +1044,40 @@ class FirstBootWizard(QDialog):
         try:
             from eli.core.hardware_profile import (
                 detect_hardware as _hp_detect,
-                discover_models as _hp_models,
                 recommend as _hp_recommend,
                 apply_recommendation as _hp_apply,
             )
-            _hw   = _hp_detect()
-            _mods = _hp_models()
-            _forced_ctx = (os.environ.get("ELI_FORCE_CTX") or "").strip()
-            _pin_ctx = int(_forced_ctx) if _forced_ctx.isdigit() and int(_forced_ctx) >= 2048 else None
-            rec   = _hp_recommend(_hw, _mods, user_ctx=_pin_ctx)
-            _hp_apply(rec)
+            _hw = _hp_detect()
+            _mods = self._models_for_hw_recommend()
+            if not _mods:
+                self._hw_result_label.setText(
+                    f"GPU: {_hw.gpu_name}  |  Free VRAM: {_hw.free_vram_mb}MB\n"
+                    "⚠ No chat model yet — pick or download one on step 2, then return here."
+                )
+                self._hw_result_label.setStyleSheet("color:#ebcb8b;font-size:12px;")
+                return
+            _rec = _hp_recommend(_hw, _mods)
+            _hp_apply(_rec)
+            _style = "color:#a3be8c;font-size:12px;"
+            _extra = ""
+            if _hw.has_gpu and _rec.n_gpu_layers == 0:
+                _style = "color:#ebcb8b;font-size:12px;"
+                _extra = (
+                    "\n⚠ This model is too large for comfortable GPU offload on your card. "
+                    "Try Qwen2.5-7B (recommended for 8 GB GPUs)."
+                )
+            elif _hw.has_gpu and 0 < _rec.n_gpu_layers < 10:
+                _extra = (
+                    "\n⚠ Partial GPU offload — consider a smaller model for faster replies."
+                )
+            self._hw_result_label.setStyleSheet(_style)
             self._hw_result_label.setText(
-                f"GPU: {_hw.gpu_name}  |  GPU layers: {rec.n_gpu_layers}  "
-                f"|  Context: {rec.n_ctx}  |  Batch: {rec.batch_size}  "
-                f"|  Free VRAM: {_hw.free_vram_mb}MB"
+                f"GPU: {_hw.gpu_name}  |  GPU layers: {_rec.n_gpu_layers}  "
+                f"|  Context: {_rec.n_ctx}  |  Batch: {_rec.batch_size}  "
+                f"|  Free VRAM: {_hw.free_vram_mb}MB{_extra}"
             )
         except Exception as exc:
+            self._hw_result_label.setStyleSheet("color:#bf616a;font-size:12px;")
             self._hw_result_label.setText(f"Detection failed: {exc}")
 
     # ── Public accessors ─────────────────────────────────────────────────────
@@ -1028,4 +1100,5 @@ class FirstBootWizard(QDialog):
             QMessageBox.warning(self, "No model selected",
                                 "Please select a .gguf model file or switch to Ollama.")
             return
+        self._run_hw_detection()
         super().accept()

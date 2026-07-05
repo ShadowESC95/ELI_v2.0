@@ -235,7 +235,7 @@ class CentralMemoryAdapter:
 # ============================================================
 
 APP_NAME = "ELI v2.0"
-APP_VERSION = "7.0.7"
+APP_VERSION = "7.0.8"
 
 PROJECT_ROOT = _BOOT_PROJECT_ROOT
 
