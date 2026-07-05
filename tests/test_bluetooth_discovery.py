@@ -25,6 +25,7 @@ def test_ble_discover_shapes_devices(monkeypatch):
 
     fake_bleak = types.SimpleNamespace(BleakScanner=types.SimpleNamespace(discover=_fake_discover))
     monkeypatch.setitem(sys.modules, "bleak", fake_bleak)
+    monkeypatch.setattr(ds, "_classic_bt_discover", lambda *a, **k: None)
 
     found, errors = [], []
     ds._ble_discover(2.0, found, errors)
@@ -49,10 +50,11 @@ def test_ble_discover_degrades_without_bleak(monkeypatch):
         return real_import(name, *a, **k)
 
     monkeypatch.setattr(builtins, "__import__", _no_bleak)
+    monkeypatch.setattr(ds, "_classic_bt_discover", lambda *a, **k: None)
     found, errors = [], []
     ds._ble_discover(2.0, found, errors)
     assert found == []
-    assert errors and any("bleak" in e.lower() or "not installed" in e.lower() for e in errors)
+    assert errors and any("classic scan only" in e.lower() for e in errors)
 
 
 def test_ble_discover_survives_scan_error(monkeypatch):
@@ -61,6 +63,7 @@ def test_ble_discover_survives_scan_error(monkeypatch):
 
     fake_bleak = types.SimpleNamespace(BleakScanner=types.SimpleNamespace(discover=_boom))
     monkeypatch.setitem(sys.modules, "bleak", fake_bleak)
+    monkeypatch.setattr(ds, "_classic_bt_discover", lambda *a, **k: None)
     found, errors = [], []
     ds._ble_discover(2.0, found, errors)          # must NOT raise
     assert found == []
@@ -74,3 +77,25 @@ def test_discover_skips_bluetooth_when_disabled(monkeypatch):
     monkeypatch.setattr(ds, "_ssdp_discover", lambda *a, **k: [])
     ds.discover(timeout=1.0, fresh=True, include_bluetooth=False)
     assert called["ble"] is False
+
+
+def test_classic_bt_discover_includes_known_headphones(monkeypatch):
+    monkeypatch.setattr(ds.shutil, "which", lambda t: "/usr/bin/bluetoothctl" if t == "bluetoothctl" else None)
+
+    def fake_run(args, **kw):
+        cmd = args
+        class R:
+            stdout = ""
+            stderr = ""
+        if cmd[:2] == ["bluetoothctl", "devices"]:
+            R.stdout = "Device 41:42:51:08:4E:49 HOCO W46\n"
+            return R
+        if len(cmd) >= 3 and cmd[:3] == ["bluetoothctl", "--timeout", "6"]:
+            R.stdout = "[NEW] Device 41:42:51:08:4E:49 HOCO W46\n"
+            return R
+        return R
+
+    monkeypatch.setattr(ds.subprocess, "run", fake_run)
+    found, seen, errors = [], set(), []
+    ds._classic_bt_discover(4.0, found, seen, errors)
+    assert any(f["name"] == "HOCO W46" for f in found)
