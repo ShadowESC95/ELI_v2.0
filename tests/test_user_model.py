@@ -77,13 +77,25 @@ def test_onboarding_flow_seeds_and_finishes(db, monkeypatch):
     assert "call you" in iv.onboarding_intercept("hey", db_path=db).lower()
     assert iv.is_onboarding_active()
     assert "work on" in iv.onboarding_intercept("Alex", db_path=db).lower()
-    assert "terse" in iv.onboarding_intercept("physics", db_path=db).lower()
-    done = iv.onboarding_intercept("terse and direct", db_path=db)
-    assert "baseline" in done.lower() and not iv.is_onboarding_active()
+    assert "1)" in iv.onboarding_intercept("physics", db_path=db).lower()
+    assert "last one" in iv.onboarding_intercept("2", db_path=db).lower()
+    done = iv.onboarding_intercept("d", db_path=db)
+    assert "baseline" in done.lower() and "Alex" in done and not iv.is_onboarding_active()
     assert captured.get("name") == "Alex"
     rows = dict(sqlite3.connect(str(db)).execute(
         "select pattern_type, pattern_data from user_patterns").fetchall())
-    assert "identity.role" in rows and "preference.style" in rows
+    assert "identity.role" in rows and "preference.style" in rows and "goal.primary" in rows
+    iv.clear_onboarding_state()
+
+
+def test_onboarding_meta_question_starts_flow(db):
+    iv.clear_onboarding_state()
+    msg = iv.onboarding_intercept(
+        "I thought you had an initial question set to build a report on me?",
+        db_path=db,
+    )
+    assert msg and "call you" in msg.lower()
+    assert iv.is_onboarding_active()
     iv.clear_onboarding_state()
 
 

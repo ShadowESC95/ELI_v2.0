@@ -472,7 +472,7 @@ class StartupModelSelectionDialog(QDialog):
 class _ModelDownloadThread(QThread):
     """Runs a curated GGUF download off the UI thread. Routed through netguard
     (offline-by-default preserved; the download opens a scoped allow window)."""
-    progress = pyqtSignal(int, int)        # downloaded_bytes, total_bytes
+    progress = pyqtSignal(int, int)        # percent_milli (0-1000), done_mib
     finished_result = pyqtSignal(dict)     # download_model() result dict
 
     def __init__(self, entry: Dict[str, Any], parent=None):
@@ -482,9 +482,15 @@ class _ModelDownloadThread(QThread):
     def run(self):
         try:
             from eli.core.model_download import download_model
+            def _emit_progress(done: int, total: int) -> None:
+                # Qt int signals are 32-bit — raw byte counts overflow on multi-GB models.
+                pct = int(min(1000, round(1000 * done / total))) if total > 0 else 0
+                done_mib = min(int(done // (1024 * 1024)), 2_000_000)
+                self.progress.emit(pct, done_mib)
+
             res = download_model(
                 self._entry,
-                progress_cb=lambda d, t: self.progress.emit(int(d), int(t)),
+                progress_cb=_emit_progress,
             )
         except Exception as exc:  # never let a worker crash take down the wizard
             res = {"ok": False, "error": f"Download crashed: {exc}"}
@@ -934,16 +940,17 @@ class FirstBootWizard(QDialog):
         self._dl_thread.finished_result.connect(self._on_dl_done)
         self._dl_thread.start()
 
-    def _on_dl_progress(self, done: int, total: int):
-        if total > 0 and done > total:
-            total = done
-        gib_done = done / (1024 ** 3)
-        if total > 0:
-            self._dl_progress.setRange(0, total)
-            self._dl_progress.setValue(min(done, total))
-            gib_total = total / (1024 ** 3)
-            self._dl_status.setText(
-                f"Downloading … {gib_done:.2f} GiB / {gib_total:.2f} GiB")
+    def _on_dl_progress(self, pct_milli: int, done_mib: int):
+        gib_done = done_mib / 1024.0
+        if pct_milli > 0:
+            self._dl_progress.setRange(0, 1000)
+            self._dl_progress.setValue(min(pct_milli, 1000))
+            if pct_milli >= 1000:
+                self._dl_status.setText(f"Downloading … {gib_done:.2f} GiB (finishing)")
+            else:
+                est_total_gib = gib_done * 1000.0 / max(pct_milli, 1)
+                self._dl_status.setText(
+                    f"Downloading … {gib_done:.2f} / ~{est_total_gib:.2f} GiB")
         else:
             self._dl_status.setText(f"Downloading … {gib_done:.2f} GiB")
 
