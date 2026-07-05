@@ -14,6 +14,11 @@ sent to a server. No cloud, no accounts, no telemetry. Offline by default, enfor
 ![Models](https://img.shields.io/badge/models-local%20GGUF-orange)
 [![Support on Ko-fi](https://img.shields.io/badge/support-Ko--fi-FF5E5B?logo=ko-fi&logoColor=white)](https://ko-fi.com/shadowesc95)
 
+**v2 is live software, not a polished product drop.** Expect rough edges — I'm one dev, and ELI
+touches real hardware. I'm sharing it partly to see if there's interest. **[ELI v3](https://github.com/ShadowESC95/Eli_v3)**
+is mapped out and in active development; this repo stays the v2 line. Feedback helps — bugs, ideas,
+or a plain "I tried it and…" — [open an issue](https://github.com/ShadowESC95/ELI_v2.0/issues).
+
 </div>
 
 ---
@@ -546,18 +551,22 @@ Defence-in-depth, all local:
 
 ## Project status & contributing
 
-I work on ELI most weeks and keep shipping. I'm the one who decides what goes in and when it
-releases — but bug reports and ideas are genuinely welcome, and I'll keep it moving as long as it's
-useful to people. So far, it very much is.
+**ELI v2.0** is here to use, but I won't pretend it's flawless everywhere — there will be rough edges,
+especially off the Linux + NVIDIA path I've run most. I'm a solo dev putting this out to see if
+people want a fully local assistant like this, while **[v3](https://github.com/ShadowESC95/Eli_v3)**
+is already mapped out and being built.
+
+Community feedback is genuinely welcome: what works, what breaks, what's missing. That shapes v3
+and tells me whether to keep pushing.
 
 - **Found a bug or have an idea?** [Open an issue](https://github.com/ShadowESC95/ELI_v2.0/issues).
+- **Following v3?** [github.com/ShadowESC95/Eli_v3](https://github.com/ShadowESC95/Eli_v3)
 - **Want to contribute code?** Pull requests are welcome — please read
   **[CONTRIBUTING.md](CONTRIBUTING.md)** first. Because ELI is source-available, contributions
   include a short **inbound license grant** so the whole project stays under one consistent license.
 - **Security issue?** See **[SECURITY.md](SECURITY.md)** — report it privately, not in a public issue.
-- **Want to support development?** ELI is free to use; if it's useful to you, you can chip in at
-  **[ko-fi.com/shadowesc95](https://ko-fi.com/shadowesc95)**. Entirely optional — it just helps keep
-  the project moving.
+- **Want to support development?** ELI is free to use under PolyForm Internal Use; if it's useful,
+  **[ko-fi.com/shadowesc95](https://ko-fi.com/shadowesc95)** is optional and helps keep me shipping.
 
 Forks for **redistribution** are not permitted by the [license](LICENSE) — contribute improvements
 back here instead of publishing your own copy.
