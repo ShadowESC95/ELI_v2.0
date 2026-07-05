@@ -10441,6 +10441,13 @@ def _execute_impl(action: str, args: Optional[Dict[str, Any]] = None) -> Dict[st
             # HERE, before the on/off mapping below ("on" is a substring of "c-on-nect").
             _btc = raw.replace(" ", "_").replace("-", "_")
             if args.get("bt") or _btc in ("connect", "disconnect", "pair", "trust", "use_for_audio"):
+                if _btc in ("use_for_audio", "audio", "route_audio") and device:
+                    from eli.runtime.local_connectivity import route_audio_by_name
+                    _ar = route_audio_by_name(device)
+                    if _ar.get("ok"):
+                        _label = _ar.get("display_name") or _ar.get("alias") or device
+                        _say = f"Audio is now playing through {_label}."
+                        return {"ok": True, "action": a, "content": _say, "response": _say}
                 from eli.runtime.device_server import bluetooth_control_by_name
                 _r = bluetooth_control_by_name(device, _btc or "connect")
                 _nm = _r.get("device_name") or device or "the device"
