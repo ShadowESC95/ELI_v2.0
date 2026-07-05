@@ -3134,12 +3134,20 @@ from functools import lru_cache as _lru
 
 @_lru(maxsize=24)
 def _eli_icon_png(size: int, maskable: bool) -> bytes:
-    """Render ELI's real icon (blueprints/Eli_Icon.png) onto a square <size> canvas.
+    """Render ELI's launcher icon onto a square <size> canvas.
     Transparent + minimal padding for the favicon/sidebar; dark-filled with safe-zone
     padding for installable/maskable app icons (Android squircle-crops maskable icons).
     The source is non-square, so we letterbox-fit it centred. Cached per (size, maskable)."""
     from PIL import Image
-    src = Image.open(_os.path.join(_REPO_ROOT, "blueprints", "Eli_Icon.png")).convert("RGBA")
+    src_path = None
+    for rel in ("packaging/desktop/Eli_Icon.png", "blueprints/Eli_Icon.png"):
+        cand = _os.path.join(_REPO_ROOT, rel)
+        if _os.path.isfile(cand):
+            src_path = cand
+            break
+    if not src_path:
+        raise FileNotFoundError("Eli_Icon.png not found under packaging/desktop or blueprints/")
+    src = Image.open(src_path).convert("RGBA")
     bg = (6, 20, 31, 255) if maskable else (0, 0, 0, 0)
     pad = 0.72 if maskable else 0.92
     canvas = Image.new("RGBA", (size, size), bg)
