@@ -158,8 +158,10 @@ def main() -> int:
     parser.add_argument("--tag", default=DEFAULT_TAG)
     parser.add_argument("--chunk-bytes", type=int, default=DEFAULT_CHUNK_BYTES)
     parser.add_argument("--work-dir", default=str(ROOT / "dist" / "github_assets" / "direct_work"))
-    parser.add_argument("--include-runtime", action="store_true", help="include artifacts/ private runtime state")
-    parser.add_argument("--include-venv", action="store_true", help="include .venv machine-specific environment")
+    parser.add_argument("--include-runtime", action="store_true",
+                        help="DANGEROUS: include artifacts/ private runtime state — never on public releases")
+    parser.add_argument("--include-venv", action="store_true",
+                        help="DANGEROUS: include .venv — never on public releases")
     parser.add_argument("--keep-work", action="store_true", help="keep staged upload files/chunks")
     args = parser.parse_args()
     return upload(args)

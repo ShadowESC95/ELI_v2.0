@@ -4,8 +4,9 @@
 
 **A strictly local, private AI assistant and cognitive runtime.**
 
-Everything runs on your own machine — the model, your data, and all processing. Nothing is ever
-sent to a server. No cloud, no accounts, no telemetry. Offline by default, enforced at the network socket.
+Everything runs on your own machine — the model, your data, and all processing stay local.
+**Offline by default** — outbound network access is blocked at the socket layer unless you
+or an authorised task explicitly enables it. No cloud accounts, no vendor telemetry.
 
 ![License](https://img.shields.io/badge/license-PolyForm%20Internal%20Use-blue)
 ![Platform](https://img.shields.io/badge/platform-Linux%20·%20macOS%20·%20Windows-lightgrey)
@@ -17,7 +18,7 @@ sent to a server. No cloud, no accounts, no telemetry. Offline by default, enfor
 **v2 is live software, not a polished product drop.** Expect rough edges — I'm one dev, and ELI
 touches real hardware. I'm sharing it partly to see if there's interest. **[ELI v3](https://github.com/ShadowESC95/Eli_v3)**
 is mapped out and in active development; this repo stays the v2 line. Feedback helps and is more than appreciated/welcomed, a second pair of eyes is better than just mine because the project has turned into a lot more than initially planned! I prefer someone bringing an issue to me rather than giving me a compliment. Finding issues and reporting them is invaluable to me — bugs, ideas,
-or a plain "I tried it and…" — [open an issue](https://github.com/ShadowESC95/ELI_v2.0/issues). Also, if Eli v2 helps and you want to support my fridge and university tuition fees, feel free to check out my ko-fi https://ko-fi.com/shadowesc95- Dev's gotta eat too! Enjoy, share, and report!
+or a plain "I tried it and…" — [open an issue](https://github.com/ShadowESC95/ELI_v2.0/issues). Also, if ELI v2 helps and you want to support my fridge and university tuition fees, feel free to check out my [ko-fi](https://ko-fi.com/shadowesc95) — dev's gotta eat too! **Enjoy, use, and report!**
 
 **Not open source — on purpose.** ELI is **source-available** under
 [PolyForm Internal Use](LICENSE): read it, run it, change it on *your* machine — you should be able
@@ -26,21 +27,25 @@ repackage it, or host it as someone else's product. I'm one dev; I want capable 
 hands to use and learn from, but I also want to keep steering this project — not watch it forked
 outside, resold, or shipped as something I can't stand behind. That won't stop every bad actor, and
 I know I can't control piracy; it still sets clear terms and gives me a real basis when someone
-crosses the line.
+crosses the line. **Public GitHub forks and republishing violate the license** — clone for
+yourself, report issues, and send PRs here instead.
 
-One more note-- Want a personalised Eli, features, theme, undertanding/teaching etc.? Reach out to me via email and I can assist you this
+**Custom work?** Personalised ELI builds, themes, training, and commercial licensing are
+available by email ([jaybridgeman0095@gmail.com](mailto:jaybridgeman0095@gmail.com)) —
+separate from the free PolyForm grant above.
 
 </div>
 
 ---
 
-ELI is an AI assistant that runs **entirely on your own machine** — and I mean *entirely*. It holds
-a real conversation, drives your computer, reads your screen and your documents, writes and fixes
-code, and quietly builds up a private picture of who you are the more you use it. Talk to it or type
-to it — your call. The model and every last byte of your data stay on your hardware and never leave:
-no cloud, no account, nobody else in the loop. It's offline by default and it *enforces* that down at
-the network socket — not on the honour system. Point it at whatever local model you like and it tunes
-itself to the hardware you've got, from a laptop to a multi-GPU tower.
+ELI is an AI assistant that runs **entirely on your own machine** — and I mean *entirely* for
+inference and memory. It holds a real conversation, drives your computer, reads your screen and
+your documents, writes and fixes code, and quietly builds up a private picture of who you are the
+more you use it. Talk to it or type to it — your call. The model and your data stay on your
+hardware by default; optional online features (web search, news, downloads) only run when you
+enable network access. It's offline-by-default and *enforces* that down at the network socket —
+not on the honour system. Point it at whatever local model you like and it tunes itself to the
+hardware you've got, from a laptop to a multi-GPU tower.
 
 ## Contents
 - [What is ELI?](#what-is-eli)
@@ -64,11 +69,13 @@ itself to the hardware you've got, from a laptop to a multi-GPU tower.
 ## What is ELI?
 
 ELI is not a chatbot bolted onto someone else's cloud API — I had no interest in building another
-one of those. It's a complete, self-contained cognitive runtime — a 12-stage reasoning pipeline, a
+one of those. It's a **local cognitive runtime** — a 12-stage reasoning pipeline, a
 fleet of specialist agents on a DAG orchestrator, layered
 memory (SQLite + a FAISS vector index + a knowledge graph), local voice and vision, its own
-smart-home server, and a full desktop app *and* web dashboard — all running with no external service
-of any kind. It's model-, user-, and hardware-agnostic by design.
+smart-home server, and a full desktop app *and* web dashboard — designed to run on your hardware
+with **no required cloud service**. You bring your own GGUF models, GPU stack, and (optionally)
+voice/model packs from [GitHub Releases](https://github.com/ShadowESC95/ELI_v2.0/releases). It's
+model-, user-, and hardware-agnostic by design.
 
 Beyond answering questions, it acts on your machine, remembers you across sessions, reports its own
 state from real runtime evidence rather than guessing, and can even read its own source, write and
@@ -85,8 +92,9 @@ I built ELI on one conviction: **your AI should belong to you — the person usi
 company serving it.** That isn't a slogan I put on a badge; it's the constraint every single
 architectural decision in here has to answer to.
 
-- **Everything is local. Nothing phones home.** Offline isn't a setting you toggle —
-  `eli/core/netguard` enforces it at the socket layer, so the default is silence on the wire.
+- **Everything is local by default.** Offline isn't a setting you toggle —
+  `eli/core/netguard` enforces it at the socket layer. Optional online features (web search,
+  news, model download) open a **scoped** network window when you enable them.
 - **Your model of *you* stays on your machine.** ELI learns your patterns and preferences and writes
   them to your disk, never a data centre.
 - **It improves for you, not for a vendor.** Self-training means ELI gets better at serving *you* —
@@ -177,13 +185,14 @@ the sound of:
 ## Features
 
 ### Conversation and reasoning
-Five reasoning modes — Quick, Normal, Advanced, Research, Expert — each genuinely multi-pass
-(self-consistency sampling, tree-of-thoughts branches, draft → critique). The mode is auto-selected
+Five reasoning modes — Quick, Normal, Advanced, Research, Expert. **Normal through Expert**
+are genuinely multi-pass (self-consistency sampling, tree-of-thoughts branches, draft → critique);
+**Quick** is a single-pass fast path. The mode is auto-selected
 by how deep the question is, and when the supporting evidence is weak ELI deepens on its own: it
 re-gathers harder and escalates one tier to raise its confidence *before* answering. For a quick
 reply it can keep working in the background and surface a better-grounded answer afterwards. A
 12-stage retrieval pipeline (HyDE query expansion → vector + full-text + knowledge-graph retrieval →
-re-rank → synthesis) sits underneath, run by a 14-agent dependency-DAG orchestrator with
+re-rank → synthesis) sits underneath, run by a **15-agent** dependency-DAG orchestrator with
 parallelism, retries, caching, and fallback.
 
 ### Memory that persists
@@ -372,7 +381,7 @@ onto it. Nothing runs on the device, and nothing reaches the internet.
 ./scripts/eli_serve.sh --lan       # your home network   → prints a token-protected URL
 ```
 
-### The web app — eight tabs
+### The web app — ten tabs
 The web app is installable (PWA: "Add to Home Screen", offline shell), has light/dark themes and a
 sidebar, and lets you recolour the chat to taste.
 - **Overview** — a live dashboard: clock, GPU/CPU/RAM gauges, audit-integrity status, device + corpora
@@ -406,6 +415,10 @@ sidebar, and lets you recolour the chat to taste.
   **per-user activity** rollup (click a user to drill into their recent actions), the **approval /
   risk-gate policy**, and **user management** — create **admin / member / viewer** accounts (each gets a
   one-time token) and revoke them.
+- **Settings** — live ELI config groups (network, voice, vision, habits, etc.) saved back to your
+  local `config/settings.json`.
+- **Connect** — QR code + LAN URL to open the dashboard on a phone or tablet on your home network
+  (pairs with `./scripts/eli_serve.sh --lan`).
 
 ### ELI device server (the Home tab) — a local home-AI, MQTT, no Home Assistant
 ELI keeps its **own** device registry and talks to devices **directly over MQTT** — the open DIY-IoT
@@ -588,16 +601,20 @@ touches real hardware. I'd rather you know them going in.
 
 ## Security
 
-Defence-in-depth, all local:
+ELI is a **host-control agent** — treat it like running a capable automation tool with an LLM
+attached, not like a sandboxed chat app. Defence-in-depth, all local:
 
-| Layer | Protects against |
-|---|---|
-| Prompt-injection guard | Strips `[INST]`, `<\|im_start\|>system`, jailbreak phrases before the model sees input |
-| SQL identifier validation | Allowlist regex on every f-string SQL identifier — no injection via table/column names |
-| Shell gate (`RUN_CMD`) — denylist | Destructive patterns (`rm -rf /`, `mkfs`, fork bombs) and dangerous executables (`dd`, `fdisk`, …) are **denylisted**. With Full Control off (the default), shell is additionally fail-closed — nothing runs unless allowlisted via `ELI_ALLOWED_CMDS` |
-| Shell gate — Full Control caveat | The **ELI Full Control** toggle (off by default) **bypasses the shell gate entirely** — every command runs, *including* the destructive denylist. Enable it only when you intend ELI to have full machine access |
-| Custom-agent trust | SHA-256 registry — unregistered/tampered agent files are skipped at load |
-| Offline-by-default | A process-wide network guard fails closed unless a task is explicitly authorised online |
+| Layer | What it does | Honest limits |
+|---|---|---|
+| Prompt-injection guard | Regex scrub of `[INST]`, `<\|im_start\|>system`, common jailbreak phrases on **direct user chat input** | Not applied to file contents, tool output, or every API field |
+| SQL identifier validation | Allowlist regex on f-string SQL identifiers | — |
+| Shell gate (`RUN_CMD`) | **Denylist** of destructive patterns and dangerous executables (`bash`, `python -c`, `dd`, `rm`, …) | Many ordinary commands (`ls`, `git`, `curl`, …) are **allowed** without `ELI_ALLOWED_CMDS`. Separate `_run()` paths use allowlist or fail-open for desktop automation |
+| `READ_FILE` / `LIST_DIR` | Reads/lists paths the OS permits | **No ELI path sandbox yet** — can read any OS-readable file (e.g. `~/.ssh`, `/etc/passwd`) |
+| Full Control (off by default) | Normal guarded mode | When **on**, bypasses shell denylist, network guard, path gates, and approval — use only if you intend full machine access |
+| Custom-agent trust | SHA-256 registry — tampered agent files skipped at load | — |
+| Offline-by-default | Socket-level guard; fails closed when network disabled | Scoped `allow_network()`, broker allowlist, and Full Control can open egress |
+
+Full detail: **[SECURITY.md](SECURITY.md)**.
 
 ## Project status & contributing
 
@@ -635,6 +652,10 @@ ELI v2.0 is **source-available, not open-source**, under the
 All commercial and distribution rights are reserved by the copyright holder. For anything beyond
 that — redistribution, hosting, or a commercial license — please get in touch. Provided "as is",
 without warranty.
+
+**Third-party components:** see **[THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)**.  
+**Model/voice assets:** see **[models/MODEL_LICENSES.md](models/MODEL_LICENSES.md)** (also bundled
+with GitHub Release model packs).
 
 **Seeing ELI redistributed, hosted, or sold somewhere?** That is not permitted under the license.
 Please report it — with a link — to [jaybridgeman0095@gmail.com](mailto:jaybridgeman0095@gmail.com);
