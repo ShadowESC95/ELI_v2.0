@@ -79,8 +79,8 @@ def _model_settings():
     # transcription). The model lives in download_root; no network is needed.
     if not local_only:
         try:
-            from eli.core.config import network_allowed
-            if not network_allowed():
+            from eli.core.netguard import should_block_network
+            if should_block_network():
                 local_only = True
         except Exception:
             local_only = True
