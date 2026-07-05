@@ -84,6 +84,10 @@ def test_discover_skips_bluetooth_when_disabled(monkeypatch):
 
 def test_classic_bt_discover_includes_known_headphones(monkeypatch):
     monkeypatch.setattr(ds.shutil, "which", lambda t: "/usr/bin/bluetoothctl" if t == "bluetoothctl" else None)
+    monkeypatch.setattr(
+        "eli.runtime.device_drivers.BluetoothDriver._bt_ensure_controller",
+        classmethod(lambda cls: (True, "00:11:22:33:44:55")),
+    )
 
     def fake_run(args, **kw):
         cmd = args
