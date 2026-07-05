@@ -913,6 +913,12 @@ def _ble_discover(timeout: float, found: List[dict], errors: List[str]) -> None:
         errors.append("bluetooth: BLE support not installed (pip install bleak)")
         return
 
+    try:
+        from eli.runtime.device_drivers import BluetoothDriver
+        BluetoothDriver.ensure_adapter_alias()
+    except Exception:
+        pass
+
     async def _scan():
         return await BleakScanner.discover(timeout=max(2.0, min(float(timeout), 8.0)))
 
