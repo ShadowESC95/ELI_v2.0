@@ -3,6 +3,7 @@
 #  ELI v2.0 — Test Runner
 #  Usage:
 #    ./run_tests.sh              # full suite
+#    ./run_tests.sh claims       # bootstrap manifest + claims suite
 #    ./run_tests.sh imports      # imports only
 #    ./run_tests.sh fast         # skip slow integration tests
 #    ./run_tests.sh html         # full suite + HTML report
@@ -27,6 +28,12 @@ echo ""
 BASE_ARGS="-v --tb=short --color=yes"
 
 case "$MODE" in
+  claims)
+    echo "▶  Bootstrapping claims artifacts (manifest + blueprints)..."
+    python3 "$SCRIPT_DIR/tools/bootstrap_claims_artifacts.py"
+    echo "▶  Running claims-verification suite..."
+    python3 -m pytest "$TESTS_DIR/claims/" $BASE_ARGS
+    ;;
   imports)
     echo "▶  Running IMPORT tests only..."
     python3 -m pytest "$TESTS_DIR/test_00_imports.py" $BASE_ARGS

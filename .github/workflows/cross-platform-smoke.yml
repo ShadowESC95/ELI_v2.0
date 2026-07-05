@@ -50,6 +50,9 @@ jobs:
         run: |
           python -c "from eli.core.paths import get_paths; get_paths(); import eli.memory as M; (M.get_memory() if hasattr(M,'get_memory') else None); print('data dirs + DB init OK')"
 
+      - name: Bootstrap claims artifacts (manifest + blueprints — fresh-clone path)
+        run: python tools/bootstrap_claims_artifacts.py
+
       - name: Cross-platform unit tests (explicit self-contained files — no GGUF / display / generated artifacts)
         run: >
           pytest -q -p no:cacheprovider
@@ -62,3 +65,10 @@ jobs:
           tests/test_pyproject_packaging.py
           tests/test_device_names.py
           tests/test_install_script.py
+
+      - name: Claims structural smoke (manifest ↔ executor ↔ blueprints)
+        run: >
+          pytest -q -p no:cacheprovider
+          tests/claims/test_structural_claims.py
+          tests/claims/test_capability_manifest.py::test_manifest_total_matches_capability_count
+          tests/claims/test_blueprint_refs.py
