@@ -106,6 +106,24 @@ _URL_TLDS = frozenset({
     "app", "ai", "me", "info", "xyz", "tv", "fm", "cloud", "online", "site",
 })
 
+# Named sites users say without a TLD — open in the browser, not as an installed app.
+_WEB_SITE_OPEN_ALIASES = {
+    "youtube": "https://www.youtube.com",
+    "google": "https://www.google.com",
+    "gmail": "https://mail.google.com",
+    "facebook": "https://www.facebook.com",
+    "twitter": "https://www.twitter.com",
+    "x": "https://x.com",
+    "instagram": "https://www.instagram.com",
+    "reddit": "https://www.reddit.com",
+    "github": "https://www.github.com",
+    "wikipedia": "https://www.wikipedia.org",
+    "netflix": "https://www.netflix.com",
+    "amazon": "https://www.amazon.com",
+    "twitch": "https://www.twitch.tv",
+    "hulu": "https://www.hulu.com",
+}
+
 
 def _looks_like_url_target(target: str) -> bool:
     """True when an OPEN target is a web address rather than an app name."""
@@ -298,6 +316,13 @@ def try_route(text: str) -> Optional[dict]:
                 "args": {"url": _build_url(target)},
                 "confidence": 0.97,
                 "meta": {"matched_by": "portable_intent_contract.open_url"},
+            }
+        elif target.lower().strip() in _WEB_SITE_OPEN_ALIASES:
+            return {
+                "action": "OPEN_URL",
+                "args": {"url": _WEB_SITE_OPEN_ALIASES[target.lower().strip()]},
+                "confidence": 0.97,
+                "meta": {"matched_by": "portable_intent_contract.open_named_site"},
             }
         elif _looks_like_app_target(target):
             return {

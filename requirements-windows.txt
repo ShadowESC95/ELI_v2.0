@@ -87,6 +87,11 @@ matplotlib>=3.7
 huggingface-hub>=0.20
 pyflakes>=3.0
 
+# ── Smart home / MQTT (LAN broker + mDNS discovery) ──
+paho-mqtt>=2.0
+zeroconf>=0.131
+bleak>=0.21
+
 # ── Optional feature deps (web search/automation, calendar, notifications) ──
 # Match pyproject [full] so requirements installs are equivalent. All degrade
 # gracefully if absent; playwright also needs `playwright install` for browsers.
