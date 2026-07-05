@@ -151,6 +151,16 @@ def test_resolve_principal_no_config_no_tokenless_denies(monkeypatch):
     assert srv._resolve_principal("", loopback=False) is None
 
 
+def test_loopback_admin_opt_out(monkeypatch):
+    """ELI_LOOPBACK_ADMIN=0 — hardened shared-host / reverse-proxy deployments."""
+    monkeypatch.delenv("ELI_API_TOKEN", raising=False)
+    monkeypatch.delenv("ELI_API_ALLOW_TOKENLESS", raising=False)
+    monkeypatch.setenv("ELI_LOOPBACK_ADMIN", "0")
+    assert srv._resolve_principal("", loopback=True) is None
+    monkeypatch.setenv("ELI_API_TOKEN", "secret")
+    assert srv._resolve_principal("Bearer secret", loopback=True).role == "admin"
+
+
 # --------------------------------------------------------------------------- #
 # Static / PWA routes (no auth)
 # --------------------------------------------------------------------------- #
