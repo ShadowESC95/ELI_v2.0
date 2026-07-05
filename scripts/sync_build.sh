@@ -6,9 +6,10 @@ set -euo pipefail
 
 PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 VERSION="$(cd "$PROJECT_ROOT" && python3 - <<'PY'
-import tomllib
-with open("pyproject.toml", "rb") as f:
-    print(tomllib.load(f)["project"]["version"])
+import sys
+sys.path.insert(0, ".")
+from eli.core.toml_util import load_toml
+print(load_toml("pyproject.toml")["project"]["version"])
 PY
 )"
 APP_NAME="ELI_v2.0"

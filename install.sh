@@ -350,6 +350,18 @@ else
     echo "[WARN] Some stores deferred to first launch (they self-build on first use)."
 fi
 
+# Capability manifest + command reference (idempotent — refreshes if code changed)
+echo "[..] Ensuring capability manifest and command reference..."
+if "$PYTHON_VENV" -c "from eli.tools.registry.capability_updater import update_capability_manifest; r=update_capability_manifest(); assert r.get('ok'), r; print(f\"[OK] {r.get('total',0)} capabilities indexed\")"; then
+    :
+    else
+        if [ -f "$SCRIPT_DIR/capability_manifest.json" ]; then
+            echo "[OK] Using shipped capability_manifest.json (regeneration skipped)."
+        else
+            echo "[WARN] Capability manifest missing — run: .venv/bin/python -m eli.tools.registry.capability_updater"
+        fi
+    fi
+
 # ── Verify the install actually imports and the entry point resolves ─────────
 echo "[..] Verifying installation..."
 VERIFY_OK=1
