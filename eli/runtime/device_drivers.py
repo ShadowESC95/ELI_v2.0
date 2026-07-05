@@ -692,7 +692,8 @@ class BluetoothDriver(Driver):
         """Run bluetoothctl steps (no agent — uses the system/desktop pairing agent)."""
         import subprocess
         BluetoothDriver._bt_ensure_controller()
-        alias_name = BluetoothDriver.resolve_adapter_alias()
+        from eli.runtime import bt_platform as bp
+        alias_name = bp._bluetoothctl_quote(BluetoothDriver.resolve_adapter_alias())
         script = "\n".join([
             "power on",
             "pairable on",

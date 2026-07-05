@@ -14,6 +14,7 @@ import shutil
 import subprocess
 import sys
 import time
+from pathlib import Path
 from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional, Set, Tuple
 
@@ -665,7 +666,7 @@ def set_adapter_alias(name: str) -> Dict[str, Any]:
     try:
         r = subprocess.run(
             ["bluetoothctl"],
-            input=f"power on\nsystem-alias {name}\nquit\n",
+            input=f"power on\nsystem-alias {_bluetoothctl_quote(name)}\nquit\n",
             capture_output=True, text=True, timeout=12,
         )
         out = (r.stdout or "") + (r.stderr or "")
@@ -955,16 +956,58 @@ def resolve_device(addr: str = "", name: str = "", timeout: float = 20.0) -> Dic
             "duration_s": round(time.time() - start, 1)}
 
 
-def _linux_device_dbus_path(addr: str) -> str:
-    """Standard BlueZ D-Bus path for a device on the default controller."""
-    addr_u = (addr or "").strip().upper().replace(":", "_")
+def _bluetoothctl_quote(value: str) -> str:
+    """Quote values for bluetoothctl scripted input (aliases often contain spaces)."""
+    v = (value or "").strip()
+    if not v:
+        return '""'
+    if " " in v or "·" in v or '"' in v:
+        return '"' + v.replace("\\", "\\\\").replace('"', '\\"') + '"'
+    return v
+
+
+def _linux_default_hci_id() -> str:
+    """BlueZ controller id (e.g. hci2) for the default adapter."""
     _, listing = _sh(["bluetoothctl", "list"], timeout=6)
-    hci = "hci0"
-    for line in (listing or "").splitlines():
-        if line.strip().lower().startswith("controller"):
-            # Controller AA:BB:CC:DD:EE:FF hostname [default]
+    default_mac = ""
+    for line in re.sub(r"\x1b\[[0-9;]*m", "", listing or "").splitlines():
+        s = line.strip()
+        if not s.lower().startswith("controller"):
+            continue
+        parts = s.split()
+        if len(parts) >= 2:
+            default_mac = parts[1].upper()
+        if "[default]" in s.lower():
             break
-    return f"/org/bluez/{hci}/dev_{addr_u}"
+    for hci_dir in sorted(Path("/sys/class/bluetooth").glob("hci*")):
+        try:
+            mac = (hci_dir / "address").read_text(encoding="utf-8").strip().upper()
+        except OSError:
+            continue
+        if not default_mac or mac == default_mac:
+            return hci_dir.name
+    rc, out = _sh(["busctl", "tree", "org.bluez"], timeout=8)
+    for line in (out or "").splitlines():
+        m = re.search(r"/org/bluez/(hci\d+)\s*$", line.strip().rstrip("├└│─ "))
+        if m:
+            return m.group(1)
+    return "hci0"
+
+
+def _linux_device_dbus_path(addr: str) -> str:
+    """D-Bus path for a device on the active BlueZ controller."""
+    addr_u = (addr or "").strip().upper().replace(":", "_")
+    token = f"dev_{addr_u}"
+    rc, out = _sh(["busctl", "tree", "org.bluez"], timeout=8)
+    if rc == 0:
+        for line in (out or "").splitlines():
+            if token not in line:
+                continue
+            m = re.search(rf"(/org/bluez/hci\d+/{re.escape(token)})", line)
+            if m:
+                return m.group(1)
+    hci = _linux_default_hci_id()
+    return f"/org/bluez/{hci}/{token}"
 
 
 def _linux_dbus_call(path: str, interface: str, method: str,
@@ -1087,7 +1130,7 @@ def linux_pair_session(
         "power on",
         "pairable on",
         "discoverable off",
-        f"system-alias {alias}",
+        f"system-alias {_bluetoothctl_quote(alias)}",
         *[f"{step} {addr}" for step in steps],
         "scan off",
         "quit",
