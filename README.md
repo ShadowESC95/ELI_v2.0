@@ -16,8 +16,8 @@ sent to a server. No cloud, no accounts, no telemetry. Offline by default, enfor
 
 **v2 is live software, not a polished product drop.** Expect rough edges — I'm one dev, and ELI
 touches real hardware. I'm sharing it partly to see if there's interest. **[ELI v3](https://github.com/ShadowESC95/Eli_v3)**
-is mapped out and in active development; this repo stays the v2 line. Feedback helps — bugs, ideas,
-or a plain "I tried it and…" — [open an issue](https://github.com/ShadowESC95/ELI_v2.0/issues).
+is mapped out and in active development; this repo stays the v2 line. Feedback helps and i more than appreciated, i prefer someone bringing an issue to me rather than giving me a compliment. Finding issues and reporting them is invaluable to me — bugs, ideas,
+or a plain "I tried it and…" — [open an issue](https://github.com/ShadowESC95/ELI_v2.0/issues). Also, if Eli v2 helps and you want to support my fridge and university tuitoin fees, feel free to check out my ko-fi page - Dev's gotta eat too! Enjoy, share, and report!
 
 </div>
 
