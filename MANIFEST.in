@@ -1,10 +1,10 @@
 include README.md
 include pyproject.toml
-include .env.example .env.full.example .env.mkxi
+include .env.example .env.full.example .env.eli_v2_0
 include requirements*.txt
 include eli.sh eli.bat
 include install.sh install.bat install.ps1
-include eli-mkxi.desktop
+include eli-v2.0.desktop
 
 recursive-include eli *.py *.json *.yaml *.yml *.txt *.toml *.md
 recursive-include eli/cognition persona*.txt

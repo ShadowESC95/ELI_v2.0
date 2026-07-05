@@ -1,6 +1,6 @@
 """Offscreen GUI widget lane — construct REAL Qt widgets, headless.
 
-The full main window (`eli_pro_audio_gui_MKI.py`) blocks on device/display init and
+The full main window (`eli_pro_audio_gui_v2_0.py`) blocks on device/display init and
 can't be built in CI. But the tab widgets construct standalone under the offscreen
 Qt platform (`QT_QPA_PLATFORM=offscreen`). This lane builds each one for real and
 asserts it wired its UI — recovering the GUI __init__/layout/wiring coverage that the

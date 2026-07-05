@@ -1,4 +1,4 @@
-MKXI model and training layout
+v2.0 model and training layout
 
 models/
   gguf/

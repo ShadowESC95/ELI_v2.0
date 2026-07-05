@@ -5,7 +5,7 @@ TURN_ORCHESTRATOR_MODULE = "eli.cognition.orchestrator"
 ACTION_EXECUTOR_MODULE = "eli.execution.executor_enhanced"
 REPAIR_OWNER_MODULE = "eli.runtime.grounded_remediation"
 MEMORY_OWNER_MODULE = "eli.memory.memory"
-GUI_PRIMARY_MODULE = "eli.gui.eli_pro_audio_gui_MKI"
+GUI_PRIMARY_MODULE = "eli.gui.eli_pro_audio_gui_v2_0"
 GUI_OPTIONAL_MODULES = ()
 
 PROPOSAL_ONLY_MODULE_PREFIXES = (

@@ -25,7 +25,7 @@ tools/eval/
 ## Quick start
 
 ```bash
-cd ~/Desktop/ELI_MKXI-main_MAY_NEWEST && source .venv/bin/activate
+cd ~/Desktop/ELI_v2.0 && source .venv/bin/activate
 
 # ① behavioural board — routing regressions, no model (~60ms)
 python tools/eval/run_eval.py

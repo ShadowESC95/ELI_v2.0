@@ -1,4 +1,4 @@
-"""ELI MKXI — Startup panel components.
+"""ELI v2.0 — Startup panel components.
 
 Contains:
   - HardwareTuningDock  — dock widget showing hardware tuning status/log

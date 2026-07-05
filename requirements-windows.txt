@@ -1,4 +1,4 @@
-# ELI MKXI — Windows requirements
+# ELI v2.0 — Windows requirements
 # Run with Python 3.11+: pip install -r requirements-windows.txt
 # NOTE: llama-cpp-python requires Visual C++ build tools or use a pre-built wheel:
 #   pip install llama-cpp-python --prefer-binary

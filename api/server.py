@@ -1075,6 +1075,37 @@ _WEB_UI = """<!doctype html>
   }catch(e){}}
   /* live: refresh the dashboard while it's open (no manual reload) */
   setInterval(function(){const v=$('#view-overview'); if(v&&v.classList.contains('active')&&!document.hidden&&!OV_EDIT&&!isOvEditingField())loadOverview();},6000);
+  /* live: refresh Home connectivity (BT + speakers + LAN players) while that tab is open */
+  setInterval(function(){
+    if(document.hidden)return;
+    const dev=$('#view-devices');
+    if(!dev||!dev.classList.contains('active'))return;
+    refreshHomeConnectivity();
+    loadAudioOutputs();
+    if(window._btBusy)return;
+    const btBox=$('#home-bt-box'), btBtn=$('#home-bt-scan');
+    api('/v1/devices/discover?kind=bluetooth&quick=1',{method:'POST',body:JSON.stringify({})})
+      .then(d=>{if(d&&d.ok)renderBluetoothResults(d,btBox,btBtn,false);}).catch(()=>{});
+    const netBox=$('#home-net-box'), netBtn=$('#home-net-scan');
+    if(netBox&&!window._homeNetScanBusy){
+      window._homeNetScanBusy=1;
+      api('/v1/devices/discover?kind=network&timeout=6',{method:'POST',body:JSON.stringify({})})
+        .then(d=>{
+          window._homeNetScanBusy=0;
+          if(!d||!d.ok||!netBox)return;
+          const others=(d.found||[]).filter(f=>f.kind!=='mqtt_broker'&&f.kind!=='bluetooth');
+          if(!others.length)return;
+          window._homeNetDisc=others;
+          let h='<div class="rnote" style="margin-bottom:8px">Devices on your network (auto-refreshed):</div>';
+          const ADDABLE={airplay:1,firetv:1,cast:1,upnp_renderer:1,sonos:1};
+          others.forEach((f,i)=>{
+            const add=ADDABLE[f.kind]?'<button class="cbtn" style="padding:2px 10px" onclick="addHomeNetDevice('+i+')">Add</button>':'';
+            h+='<div class="src"><div class="sh"><span>'+esc(f.label||f.kind)+' — '+esc(f.name||'')+'</span><span>'+add+'</span></div></div>';
+          });
+          netBox.innerHTML=h;
+        }).catch(()=>{window._homeNetScanBusy=0;});
+    }
+  },12000);
 
   /* voice — local STT (whisper) in, local TTS (piper) out; nothing leaves the box */
   const mic=$('#mic'),spk=$('#spk'),vstat=$('#vstat');
@@ -1233,9 +1264,26 @@ _WEB_UI = """<!doctype html>
       box.innerHTML=h;
     }).catch(e=>{if(btn){btn.disabled=false;btn.innerHTML='&#128270; Find on my network';}if(box)box.innerHTML='<div class="banner bad">'+esc(''+e)+'</div>';});
   }
+  window._btStatus=window._btStatus||{};
+  window._btBusy=false;
+  function _btKey(f){return String((f&&f.host)||'').toUpperCase();}
+  function _btPaintStatus(key){
+    const s=window._btStatus[key]; if(!s)return;
+    const el=document.querySelector('.bt-st[data-bt="'+key+'"]');
+    if(el)el.innerHTML=s.html;
+  }
+  function _btSetStatus(key,html,busy){
+    window._btStatus[key]={html:html,t:Date.now(),busy:!!busy};
+    if(busy)window._btBusy=true;
+    _btPaintStatus(key);
+  }
+  function _btClearBusy(key){
+    const s=window._btStatus[key]; if(s)s.busy=false;
+    window._btBusy=Object.keys(window._btStatus).some(function(k){return window._btStatus[k].busy;});
+  }
   function renderBluetoothResults(d, box, btn, scanning){
     if(!box)return;
-    if(btn&&!scanning){btn.disabled=false;btn.innerHTML='&#127911; Search Bluetooth';}
+    if(btn&&!scanning&&!window._btBusy){btn.disabled=false;btn.innerHTML='&#127911; Search Bluetooth';}
     if(!d.ok){box.innerHTML='<div class="banner bad" style="margin-top:10px">'+esc(d.error||'scan failed')+'</div>';return;}
     const bt=(d.found||[]).filter(f=>f.kind==='bluetooth'); window._bt=bt;
     let h='';
@@ -1258,26 +1306,36 @@ _WEB_UI = """<!doctype html>
         h+='<div class="rnote" style="margin-bottom:8px;color:#2ec07a">&#10003; Connected: '+connected.map(f=>esc(f.name||f.host)).join(', ')+'</div>';
       }
       h+='<div class="rnote" style="margin-top:8px">'+(scanning?'Scanning for more devices… ':'')
-        +'Put <b>your headphones</b> in pairing mode (LED flashing), then tap <b>Pair</b>. Printers and BT adapters are listed separately.</div>';
+        +'<b>Headphones:</b> put them in pairing mode (LED flashing), then tap <b>Connect for music</b> — one step, full quality audio.</div>';
       bt.forEach((f,i)=>{
         const tag=f.label||f.bt_type||'device';
         const cap=f.audio_capable?'&#127911; ':'&#128268; ';
         const st=f.connected?' &middot; <span style="color:#2ec07a">connected</span>':(f.paired?' &middot; paired':'');
+        const bkey=_btKey(f);
+        const saved=window._btStatus[bkey];
+        const stHtml=saved&&saved.html?saved.html:'';
+        const busy=saved&&saved.busy;
+        let btns='';
+        if(f.bt_type==='printer'||f.bt_type==='adapter'){
+          btns='<span class="rnote" style="font-size:.85em">'+(f.bt_type==='printer'?'Printer — not for audio':'BT adapter — pair headphones instead')+'</span>';
+        } else if(f.audio_capable){
+          btns='<button class="cbtn pri" style="padding:4px 14px"'+(busy?' disabled':'')+' onclick="btDo('+i+',2)">Connect for music</button>'
+            +'<button class="cbtn" style="padding:2px 10px;opacity:.75"'+(busy?' disabled':'')+' onclick="btDo('+i+',3)">Disconnect</button>';
+        } else {
+          btns='<button class="cbtn" style="padding:2px 10px"'+(busy?' disabled':'')+' onclick="btDo('+i+',1)">Pair</button>'
+            +'<button class="cbtn" style="padding:2px 10px"'+(busy?' disabled':'')+' onclick="btDo('+i+',3)">Disconnect</button>';
+        }
         h+='<div class="src"><div class="sh"><span>'+cap+esc(f.name||'Bluetooth device')+'</span>'
           +'<span style="font-size:.75em;opacity:.7">'+esc(tag)+st+'</span>'
-          +'<span style="display:flex;gap:6px;flex-wrap:wrap">'
-          +'<button class="cbtn" style="padding:2px 10px" onclick="btDo('+i+',1)">Pair</button>'
-          +'<button class="cbtn" style="padding:2px 10px" onclick="btDo('+i+',0)">Connect</button>'
-          +(f.audio_capable?'<button class="cbtn pri" style="padding:2px 10px" onclick="btDo('+i+',2)">Use for audio</button>':'')
-          +'<button class="cbtn" style="padding:2px 10px" onclick="btDo('+i+',3)">Disconnect</button>'
-          +'</span></div>'
+          +'<span style="display:flex;gap:6px;flex-wrap:wrap">'+btns+'</span></div>'
           +'<div style="font-size:.8em;opacity:.6">'+esc(f.host||'')+(f.rssi?(' &middot; '+esc(f.rssi)+' dBm'):'')+'</div>'
-          +'<div class="rnote" id="bt-st-'+i+'" style="opacity:.75"></div></div>';
+          +'<div class="rnote bt-st" data-bt="'+esc(bkey)+'" id="bt-st-'+i+'" style="opacity:.75">'+stHtml+'</div></div>';
       });
     }
     box.innerHTML=h;
   }
   function searchBluetooth(boxSel, btnSel){
+    if(window._btBusy)return;
     const box=$(boxSel||'#mq-found'), btn=$(btnSel||'#bt-find');
     if(btn){btn.disabled=true;btn.textContent='Scanning…';}
     if(box)box.innerHTML='<div class="rnote">Loading known Bluetooth devices…</div>';
@@ -1289,16 +1347,44 @@ _WEB_UI = """<!doctype html>
     }).catch(e=>{if(btn){btn.disabled=false;btn.innerHTML='&#127911; Search Bluetooth';}if(box)box.innerHTML='<div class="banner bad">'+esc(''+e)+'</div>';});
   }
   function btDo(i,c){
-    const f=(window._bt||[])[i]; if(!f)return;
+    const f=(window._bt||[])[i]; if(!f||window._btBusy)return;
     const cmd=['connect','pair','use_for_audio','disconnect'][c]||'connect';
-    const st=$('#bt-st-'+i);
-    if(st)st.textContent=(cmd==='pair'?'Pairing — keep device in pairing mode (~15s)…':cmd.replace(/_/g,' ')+'…');
+    const key=_btKey(f);
+    const labels={pair:'Pairing headphones (keep LED flashing)',connect:'Connecting',use_for_audio:'Connecting for music — pairing + high-quality audio',disconnect:'Disconnecting'};
+    let elapsed=0;
+    window._btBusy=true;
+    _btSetStatus(key,esc(labels[cmd]||cmd)+' (0s)…',true);
+    const tick=setInterval(function(){
+      elapsed++;
+      _btSetStatus(key,esc(labels[cmd]||cmd)+' ('+elapsed+'s)…',true);
+    },1000);
     api('/v1/devices/bluetooth',{method:'POST',body:JSON.stringify({address:f.host||'',name:f.name||'',command:cmd})}).then(r=>{
-      if(st)st.innerHTML=(r&&r.ok)?('&#10003; '+esc(r.device_name||f.name||'device')+' — '+esc(cmd.replace(/_/g,' '))+(r.sink?(' &rarr; '+esc(r.sink)):'')):('<span style="color:#f87171">'+esc((r&&r.error)||(r&&r.output&&r.output.slice(0,120))||'failed')+'</span>');
-      if(r&&r.ok&&cmd==='use_for_audio'){loadAudioOutputs();refreshHomeConnectivity();}
-      searchBluetooth('#home-bt-box','#home-bt-scan');
+      clearInterval(tick);
+      const dur=r&&r.duration_s?(' ('+Math.round(r.duration_s)+'s)'):'';
+      const done={pair:'paired',connect:'connected',use_for_audio:'playing music here',disconnect:'disconnected'};
+      if(r&&r.ok){
+        _btSetStatus(key,'&#10003; '+esc(r.device_name||f.name||'device')+' '+esc(done[cmd]||'done')+dur+(r.sink?(' &rarr; '+esc(r.sink)):''),false);
+      } else {
+        const hint=(r&&r.error)||(r&&r.output&&r.output.slice(0,160))||'failed';
+        _btSetStatus(key,'<span style="color:#f87171">'+esc(hint)+dur+'</span>',false);
+      }
+      _btClearBusy(key);
+      if(r&&r.ok&&cmd==='use_for_audio'){
+        loadAudioOutputs();refreshHomeConnectivity();
+        if(r.sink)setAudioOutput(r.sink);
+      }
       loadAudioOutputs();
-    }).catch(e=>{if(st)st.innerHTML='<span style="color:#f87171">'+esc(''+e)+'</span>';});
+      setTimeout(function(){
+        if(window._btBusy)return;
+        const btBox=$('#home-bt-box'), btBtn=$('#home-bt-scan');
+        api('/v1/devices/discover?kind=bluetooth&quick=1',{method:'POST',body:JSON.stringify({})})
+          .then(function(d){if(d&&d.ok)renderBluetoothResults(d,btBox,btBtn,false);}).catch(function(){});
+      },4000);
+    }).catch(e=>{
+      clearInterval(tick);
+      _btSetStatus(key,'<span style="color:#f87171">'+esc(''+e)+'</span>',false);
+      _btClearBusy(key);
+    });
   }
   function refreshHomeConnectivity(){
     api('/v1/connectivity/status').then(d=>{
@@ -1359,7 +1445,7 @@ _WEB_UI = """<!doctype html>
   function loadAudioOutputs(){
     const box=$('#home-audio-list'); if(!box)return;
     box.innerHTML='<div class="rnote">Loading speakers…</div>';
-    api('/v1/connectivity/audio/outputs').then(d=>{
+    api('/v1/connectivity/audio/outputs?refresh=1').then(d=>{
       if(!d.ok){box.innerHTML='<div class="banner bad">'+esc(d.error||'unavailable')+'</div>';return;}
       const sinks=d.sinks||[];
       if(!sinks.length){box.innerHTML='<div class="rnote">No audio outputs found. Connect speakers via cable or Bluetooth first.</div>';return;}
@@ -1402,6 +1488,11 @@ _WEB_UI = """<!doctype html>
   function useBroker(host,port){const h=$('#mq_host'),p=$('#mq_port');if(h)h.value=host;if(p)p.value=port||1883;const f=$('#mq-found');if(f)f.innerHTML='<div class="rnote" style="margin-top:10px">Broker set to '+esc(host)+'. Click &ldquo;Save &amp; connect&rdquo;.</div>';}
   function openDiscover(){let f=$('#mq-found');if(!f){f=document.createElement('div');f.id='mq-found';$('#devices').appendChild(f);}f.scrollIntoView({behavior:'smooth',block:'nearest'});discoverDevices();}
   function addDiscovered(i){const f=(window._disc||[])[i];if(!f)return;
+    api('/v1/devices/add-discovered',{method:'POST',body:JSON.stringify({device:f})}).then(r=>{
+      if(!r.ok){alert(r.error||'Could not add device');return;}
+      loadDrivers().then(loadDevices);
+    }).catch(e=>alert(''+e));}
+  function addHomeNetDevice(i){const f=(window._homeNetDisc||[])[i];if(!f)return;
     api('/v1/devices/add-discovered',{method:'POST',body:JSON.stringify({device:f})}).then(r=>{
       if(!r.ok){alert(r.error||'Could not add device');return;}
       loadDrivers().then(loadDevices);
@@ -1586,9 +1677,12 @@ _WEB_UI = """<!doctype html>
       +'<div class="rrow"><button class="cbtn" onclick="wifiScan()">&#128246; Scan networks</button></div>'
       +'<div id="home-wifi-status" class="rnote" style="min-height:1.2em;margin-top:8px"></div>'
       +'<div id="home-wifi-list" style="margin-top:8px"></div></div>'
-      +'<div class="jhead">2 — Bluetooth</div>'
-      +'<div class="syscard"><p class="rnote" style="margin:0 0 10px">Pair headphones, speakers, or TVs. This hub appears as <b id="home-bt-alias">Eli · Home</b> on their pairing screen.</p>'
-      +'<div class="rrow"><button class="cbtn" id="home-bt-scan" onclick="searchBluetooth(\\'#home-bt-box\\',\\'#home-bt-scan\\')">&#127911; Search Bluetooth</button></div>'
+      +'<div class="jhead">2 — Headphones &amp; speakers (Bluetooth)</div>'
+      +'<div class="syscard"><p class="rnote" style="margin:0 0 10px;line-height:1.6">'
+      +'<b>One tap:</b> put headphones in pairing mode (LED flashing), tap <b>Search Bluetooth</b>, then <b>Connect for music</b>. '
+      +'ELI pairs, connects, and switches sound — high-quality music mode, not phone/handsfree. '
+      +'This hub shows as <b id="home-bt-alias">Eli · Home</b> on their screen.</p>'
+      +'<div class="rrow"><button class="cbtn pri" id="home-bt-scan" onclick="searchBluetooth(\\'#home-bt-box\\',\\'#home-bt-scan\\')">&#127911; Search Bluetooth</button></div>'
       +'<div id="home-bt-box" style="margin-top:8px"></div></div>'
       +'<div class="jhead">3 — Where sound plays</div>'
       +'<div class="syscard"><p class="rnote" style="margin:0 0 10px">Pick the speaker or HDMI output for ELI and desktop media — switch anytime.</p>'
@@ -1604,6 +1698,7 @@ _WEB_UI = """<!doctype html>
       +'<button class="cbtn" onclick="_homeSub=\\'mqtt\\';loadDevices()">Open MQTT Setup &rarr;</button></div>'):'');
     refreshHomeConnectivity();
     loadAudioOutputs();
+    searchBluetooth('#home-bt-box','#home-bt-scan');
   }
   function paneMediaOutput(el){
     el.innerHTML='<div class="jhead">Play on this machine</div>'
@@ -2294,7 +2389,7 @@ _WEB_UI = """<!doctype html>
   const OV_DEFAULT=['ask','mesh','tasks','goals','graph','nowplaying','quickcontrols'];
   const OV_TITLES={ask:'Ask ELI',mesh:'Cognition mesh',goals:'Autonomy & goals',tasks:'Scheduled tasks',nowplaying:'Now playing',graph:'Live vitals',model:'Model & runtime',gpu:'GPU',vitals:'Vitals',internet:'Internet access',egress:'Network egress',connect:'Connect a phone',quickcontrols:'Quick controls',rooms:'Rooms',scenes:'Scenes',automations:'Automations',suggestions:'Suggestions',quickactions:'Quick actions',corpora:'Research corpora',capabilities:'Capabilities',sun:'Sun',note:'Note',activity:'Recent activity',audit:'Audit integrity'};
   const OV_WIDE={mesh:1,activity:1,capabilities:1};
-  const OV_SRC={system:'/v1/system',audit:'/v1/audit?limit=8',devices:'/v1/devices',corpora:'/v1/research/corpora',net:'/v1/net',media:'/v1/media',audio:'/v1/connectivity/audio/outputs',automations:'/v1/home/automations',scenes:'/v1/home/scenes',suggestions:'/v1/home/suggestions',sun:'/v1/home/sun',capabilities:'/v1/capabilities',connect:'/v1/connect',rooms:'/v1/devices/rooms',orchestration:'/v1/cognition/orchestration',goals:'/v1/autonomy/goals',tasks:'/v1/tasks'};
+  const OV_SRC={system:'/v1/system',audit:'/v1/audit?limit=8',devices:'/v1/devices',corpora:'/v1/research/corpora',net:'/v1/net',media:'/v1/media',audio:'/v1/connectivity/audio/outputs?refresh=1',automations:'/v1/home/automations',scenes:'/v1/home/scenes',suggestions:'/v1/home/suggestions',sun:'/v1/home/sun',capabilities:'/v1/capabilities',connect:'/v1/connect',rooms:'/v1/devices/rooms',orchestration:'/v1/cognition/orchestration',goals:'/v1/autonomy/goals',tasks:'/v1/tasks'};
   const OV_NEEDS={ask:[],mesh:['orchestration'],goals:['goals'],tasks:['tasks'],nowplaying:['media','audio'],graph:['system'],model:['system'],gpu:['system'],vitals:['system'],internet:['net'],egress:['net'],connect:['connect'],quickcontrols:['devices'],rooms:['rooms'],scenes:['scenes'],automations:['automations','devices'],suggestions:['suggestions'],quickactions:[],corpora:['corpora'],capabilities:['capabilities'],sun:['sun'],note:[],activity:['audit'],audit:['audit']};
   const OV_BASE=['system','audit','devices','corpora','net'];   // the hero always needs these
   function ovLayout(){
@@ -2312,6 +2407,7 @@ _WEB_UI = """<!doctype html>
   }
   function loadOverview(){
     const run=()=>{
+      try{const sel=document.querySelector('.npaudio select');if(sel)window._ovAudioSink=sel.value;}catch(_e){}
       const need={}; OV_BASE.forEach(s=>need[s]=1);
       ovVisible().forEach(id=>(OV_NEEDS[id]||[]).forEach(s=>need[s]=1));
       const keys=Object.keys(need);
@@ -2465,7 +2561,9 @@ _WEB_UI = """<!doctype html>
           const nm=esc(s.display_name||s.name||s.id||'output');
           const dev=s.device_number?(' · Device '+s.device_number):'';
           const tag=s.is_default?' (current)':'';
-          return '<option value="'+id+'"'+(s.is_default?' selected':'')+'>'+nm+dev+tag+'</option>';
+          const picked=window._ovAudioSink||'';
+          const selOn=picked?(picked===id):(!!s.is_default);
+          return '<option value="'+id+'"'+(selOn?' selected':'')+'>'+nm+dev+tag+'</option>';
         }).join('');
         const rename=sinks.map(s=>'<div class="npaudio-row" style="margin-top:6px;display:flex;gap:6px;flex-wrap:wrap">'
           +'<span style="opacity:.7;font-size:.85em;min-width:5em">Device '+(s.device_number||'?')+'</span>'
@@ -3489,10 +3587,10 @@ def connectivity_wifi_connect(req: WifiConnect):
     return lc.wifi_connect(req.ssid, req.password or "")
 
 @app.get("/v1/connectivity/audio/outputs", tags=["Devices"], dependencies=[Depends(_require_token)])
-def connectivity_audio_outputs():
+def connectivity_audio_outputs(refresh: bool = False):
     """List system audio sinks (speakers, HDMI, Bluetooth) — route media without cloud."""
     from eli.runtime import local_connectivity as lc
-    return lc.list_audio_outputs()
+    return lc.list_audio_outputs(refresh=bool(refresh))
 
 @app.post("/v1/connectivity/audio/default", tags=["Devices"], dependencies=[Depends(require_member)])
 def connectivity_audio_default(req: AudioRoute):

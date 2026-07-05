@@ -298,7 +298,7 @@ def personal_memory_surface(question: Any = None) -> str:
                 identity.append(_item("memories", r["id"], text, 220, 3, ts_value))
             elif source_l == "user" and re.search(r"\bprefer|preference|no vague|diagnostic|audit|bash|step-by-step|in-depth\b", low):
                 prefs.append(_item("memories", r["id"], text, 170, 3, ts_value))
-            elif source_l == "user" and re.search(r"\beli|mkxi|mkix|gguf|cognition|orchestrator|sqlite|memory|runtime\b", low):
+            elif source_l == "user" and re.search(r"\beli|eli_v2_0|eli_v2_0|gguf|cognition|orchestrator|sqlite|memory|runtime\b", low):
                 eli_project.append(_item("memories", r["id"], text, 160, 3, ts_value))
             elif source_l == "user" and re.search(r"\bphysics\b|\bchemistry\b|\bbiology\b|\bengineering\b|\bsimulation\b|\bresearch\b|\bexperiment\b|\btheory\b", text, re.IGNORECASE):
                 research.append(_item("memories", r["id"], text, 160, 3, ts_value))
@@ -334,7 +334,7 @@ def personal_memory_surface(question: Any = None) -> str:
             if re.search(r"\bno vague descriptions\b|\bfull runtime audit\b|\bdiagnostic\b|\bdirect bash commands\b|\bin depth\b|\bevery step\b", low):
                 prefs.append(_item("conversation_turns", r["id"], text, 95, 1, ts_value))
 
-            if re.search(r"\beli\b|\bmkxi\b|\bcognition pipeline\b|\borchestrator\b|\bmemory\b|\bruntime\b|\bpersona\.auto\b", low):
+            if re.search(r"\beli\b|\beli_v2_0\b|\bcognition pipeline\b|\borchestrator\b|\bmemory\b|\bruntime\b|\bpersona\.auto\b", low):
                 eli_project.append(_item("conversation_turns", r["id"], text, 90, 1, ts_value))
 
             if re.search(r"\bphysics\b|\bchemistry\b|\bbiology\b|\bengineering\b|\btheory\b|\bsimulation\b|\bresearch\b|\bexperiment\b", text, re.IGNORECASE):

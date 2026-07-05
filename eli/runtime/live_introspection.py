@@ -456,7 +456,7 @@ def build_report(action: str, user_input: str = "") -> Dict[str, Any]:
             "eli.memory.memory",
             "eli.execution.router_enhanced",
             "eli.execution.executor_enhanced",
-            "eli.gui.eli_pro_audio_gui_MKI",
+            "eli.gui.eli_pro_audio_gui_v2_0",
             "eli.planning.proactive_daemon",
         ]
         entries = []
@@ -483,7 +483,7 @@ def build_report(action: str, user_input: str = "") -> Dict[str, Any]:
             "eli/execution/router_enhanced.py",
             "eli/execution/executor_enhanced.py",
             "eli/runtime/live_introspection.py",
-            "eli/gui/eli_pro_audio_gui_MKI.py",
+            "eli/gui/eli_pro_audio_gui_v2_0.py",
             "eli/planning/proactive_daemon.py",
             "eli/memory/memory.py",
             "eli/world/agency/autonomy_engine.py",
@@ -615,7 +615,7 @@ def build_report(action: str, user_input: str = "") -> Dict[str, Any]:
             "eli/cognition/gguf_inference.py",
             "eli/execution/router_enhanced.py",
             "eli/execution/executor_enhanced.py",
-            "eli/gui/eli_pro_audio_gui_MKI.py",
+            "eli/gui/eli_pro_audio_gui_v2_0.py",
             "eli/kernel/pipeline.py",
             "eli/planning/proactive_daemon.py",
         ]

@@ -23,6 +23,87 @@ def _sh(args: List[str], timeout: float = 25.0) -> Tuple[int, str]:
         return 1, str(e)
 
 
+_A2DP_PROFILES = ("a2dp-sink", "a2dp")
+
+
+def is_handsfree_sink(sink_id: str, description: str = "") -> bool:
+    """True for HSP/HFP phone-quality sinks — not what we want for music."""
+    blob = f"{sink_id} {description}".lower()
+    return any(k in blob for k in (
+        "headset-head-unit", "headset_head_unit", "handsfree", "hands-free",
+        "hsp", "hfp", ".sco", "headset_head",
+    ))
+
+
+def _pactl_sink_descriptions() -> Dict[str, str]:
+    descriptions: Dict[str, str] = {}
+    _, detail = _sh(["pactl", "list", "sinks"], timeout=12)
+    cur_name = ""
+    for line in detail.splitlines():
+        s = line.strip()
+        if s.startswith("Name:"):
+            cur_name = s.split(":", 1)[-1].strip()
+        elif s.startswith("Description:") and cur_name:
+            descriptions[cur_name] = s.split(":", 1)[-1].strip()
+    return descriptions
+
+
+def activate_bt_a2dp(addr: str) -> bool:
+    """Switch a BlueZ card to high-quality A2DP playback — never HSP handsfree."""
+    if not shutil.which("pactl"):
+        return False
+    token = addr.replace(":", "_").upper()
+    _, cards = _sh(["pactl", "list", "short", "cards"], timeout=10)
+    for line in cards.splitlines():
+        if token not in line.upper():
+            continue
+        parts = line.split()
+        if len(parts) < 2:
+            continue
+        card_id = parts[1]
+        # Turn off handsfree so PipeWire/BlueZ stops routing phone-quality audio.
+        _sh(["pactl", "set-card-profile", card_id, "headset-head-unit", "off"], timeout=6)
+        for profile in _A2DP_PROFILES:
+            rc, _ = _sh(["pactl", "set-card-profile", card_id, profile], timeout=10)
+            if rc == 0:
+                return True
+        return False
+    return False
+
+
+def find_bt_a2dp_sink(addr: str, name: str = "") -> Optional[str]:
+    """Pick the music-quality sink for a BT MAC, not handsfree/HSP."""
+    token = addr.replace(":", "_").upper()
+    nm = (name or "").strip().lower()
+    descriptions = _pactl_sink_descriptions()
+    a2dp: List[str] = []
+    fallback: List[str] = []
+    _, listing = _sh(["pactl", "list", "short", "sinks"], timeout=10)
+    for line in listing.splitlines():
+        if token not in line.upper() or "bluez" not in line.lower():
+            continue
+        parts = line.split()
+        if len(parts) < 2:
+            continue
+        sid = parts[1]
+        desc = descriptions.get(sid, "")
+        if is_handsfree_sink(sid, desc):
+            fallback.append(sid)
+        else:
+            a2dp.append(sid)
+    if a2dp:
+        if nm:
+            for sid in a2dp:
+                if nm in descriptions.get(sid, "").lower():
+                    return sid
+        return a2dp[0]
+    if nm:
+        for sid in fallback:
+            if nm in descriptions.get(sid, "").lower():
+                return sid
+    return fallback[0] if fallback else None
+
+
 def connectivity_status() -> Dict[str, Any]:
     """Snapshot for the Home dashboard — WiFi, default audio sink, Bluetooth stack."""
     return {
@@ -442,7 +523,45 @@ def route_audio_by_name(name: str) -> Dict[str, Any]:
     return res
 
 
-def list_audio_outputs() -> Dict[str, Any]:
+def refresh_bluetooth_audio() -> None:
+    """Best-effort: wake A2DP profiles on connected BT devices so sinks appear in pactl."""
+    if not shutil.which("pactl") or not shutil.which("bluetoothctl"):
+        return
+    try:
+        from eli.runtime import bt_platform as bp
+        from eli.runtime.device_drivers import BluetoothDriver as BT
+    except Exception:
+        return
+    bp.ensure_radio()
+    _, cards = _sh(["pactl", "list", "short", "cards"], timeout=10)
+    for dev in bp.list_known_devices():
+        if not dev.get("connected"):
+            continue
+        addr = str(dev.get("host") or "").strip()
+        if not addr:
+            continue
+        try:
+            info = BT._bt_device_info(addr)
+            meta = BT.classify_bt_device(info, str(dev.get("name") or ""))
+            if not meta.get("audio_capable"):
+                continue
+        except Exception:
+            continue
+        token = addr.replace(":", "_").upper()
+        for line in cards.splitlines():
+            if token not in line.upper():
+                continue
+            parts = line.split()
+            if len(parts) < 2:
+                continue
+            card_id = parts[1]
+            activate_bt_a2dp(addr)
+            break
+
+
+def list_audio_outputs(*, refresh: bool = False) -> Dict[str, Any]:
+    if refresh:
+        refresh_bluetooth_audio()
     if shutil.which("pactl"):
         return _enrich_sinks_with_aliases(_list_sinks_pactl())
     if shutil.which("wpctl"):
@@ -487,11 +606,16 @@ def _list_sinks_pactl_raw() -> Dict[str, Any]:
             continue
         sid = parts[1]
         desc = descriptions.get(sid) or sid
+        if is_handsfree_sink(sid, desc):
+            desc = f"{desc} (phone/handsfree — use Connect for music on headphones)"
         sinks.append({
             "id": sid,
             "name": desc,
             "is_default": sid == default,
             "kind": "bluetooth" if "bluez" in sid.lower() else "local",
+            "profile": "handsfree" if is_handsfree_sink(sid, desc) else (
+                "a2dp" if "bluez" in sid.lower() else "local"
+            ),
         })
     return {"ok": True, "sinks": sinks, "default": default, "backend": "pactl"}
 

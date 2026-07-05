@@ -1,4 +1,4 @@
-"""ELI MKXI — Tasks tab.
+"""ELI v2.0 — Tasks tab.
 
 The home for ADVANCED / SCHEDULED / OVERNIGHT background work: anything submitted
 to the shared BackgroundTasks pool — coding jobs, and timed tasks created by

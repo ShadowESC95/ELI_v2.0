@@ -14,7 +14,7 @@
 # 100% local. For model-graded (llm-rubric) asserts, start a local judge server
 # and uncomment the `defaultTest.options.provider` block (see promptfooconfig.yaml).
 
-description: "ELI MKXI — TruthfulQA-style assistant benchmark (local)"
+description: "ELI v2.0 — TruthfulQA-style assistant benchmark (local)"
 
 providers:
   - id: 'python:eli_provider.py'

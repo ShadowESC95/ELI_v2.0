@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Build installable Python package artifacts for ELI MKXI.
+# Build installable Python package artifacts for ELI v2.0.
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -14,4 +14,4 @@ ls -lh "$ROOT/dist" | sed -n '1,80p'
 
 echo ""
 echo "Install from wheel:"
-echo "  python -m pip install dist/eli_mkxi-*.whl[full]"
+echo "  python -m pip install dist/eli_v2_0-*.whl[full]"

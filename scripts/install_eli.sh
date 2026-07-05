@@ -7,7 +7,7 @@ cd "$ROOT"
 PYTHON_BIN="${PYTHON_BIN:-python3}"
 VENV_DIR="${VENV_DIR:-.venv}"
 
-echo "=== ELI MKXI installer ==="
+echo "=== ELI v2.0 installer ==="
 echo "Project: $ROOT"
 echo "Python : $($PYTHON_BIN --version 2>&1)"
 

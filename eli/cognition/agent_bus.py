@@ -2448,7 +2448,7 @@ class FileCodeAgent(_BaseAgent):
                 "memory_init":       "memory/__init__.py",
                 "router":            "execution/router_enhanced.py",
                 "executor":          "execution/executor_enhanced.py",
-                "gui_mki":           "gui/eli_pro_audio_gui_MKI.py",
+                "gui_v2_0":           "gui/eli_pro_audio_gui_v2_0.py",
                 "core_paths":        "core/paths.py",
                 "proactive":         "planning/proactive_daemon.py",
                 "output_governor":   "cognition/output_governor.py",
@@ -2604,7 +2604,7 @@ class FileCodeAgent(_BaseAgent):
                     files_map["agent_bus"],
                     files_map["cognitive_engine"],
                     files_map["orchestrator"],
-                    files_map["gui_mki"],
+                    files_map["gui_v2_0"],
                     files_map["vector_store"],
                 ])
             if any(x in low for x in ("proactive", "daemon", "background")):

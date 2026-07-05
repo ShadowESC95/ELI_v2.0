@@ -1,5 +1,5 @@
 #!/data/data/com.termux/files/usr/bin/bash
-# ELI MKXI — Android / Termux installer (headless runtime, no GUI/CUDA).
+# ELI v2.0 — Android / Termux installer (headless runtime, no GUI/CUDA).
 # Usage (in Termux):  bash scripts/install_android.sh
 set -euo pipefail
 
@@ -7,7 +7,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 VENV="$SCRIPT_DIR/.venv"
 
 echo "=================================="
-echo "  ELI MKXI — Android / Termux setup"
+echo "  ELI v2.0 — Android / Termux setup"
 echo "=================================="
 echo ""
 echo "Android runs the HEADLESS runtime only: no desktop GUI, no CUDA (CPU"
