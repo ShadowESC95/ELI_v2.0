@@ -9,6 +9,12 @@ from collections import defaultdict
 from pathlib import Path
 from typing import Any, Dict, Iterable, List
 
+try:
+    from asset_release_policy import is_excluded_voice_filename
+except ImportError:
+    def is_excluded_voice_filename(name: str) -> bool:  # type: ignore
+        return False
+
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -69,6 +75,12 @@ def _classify(rel: str) -> Dict[str, Any]:
             "reason": "required for offline local model/image operation",
         }
     if rel.startswith("tts_piper/"):
+        if is_excluded_voice_filename(Path(rel).name):
+            return {
+                "category": "voice_asset_excluded",
+                "upload_recommended": False,
+                "reason": "excluded from public bundles (NC-SA / license review — see models/MODEL_LICENSES.md)",
+            }
         return {
             "category": "voice_asset",
             "upload_recommended": True,
