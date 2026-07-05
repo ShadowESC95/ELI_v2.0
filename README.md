@@ -4,10 +4,6 @@
 
 **A strictly local, private AI assistant and cognitive runtime.**
 
-Everything runs on your own machine — the model, your data, and all processing stay local.
-**Offline by default** — outbound network access is blocked at the socket layer unless you
-or an authorised task explicitly enables it. No cloud accounts, no vendor telemetry.
-
 ![License](https://img.shields.io/badge/license-PolyForm%20Internal%20Use-blue)
 ![Platform](https://img.shields.io/badge/platform-Linux%20·%20macOS%20·%20Windows-lightgrey)
 ![Python](https://img.shields.io/badge/python-3.10%2B-blue)
@@ -15,47 +11,33 @@ or an authorised task explicitly enables it. No cloud accounts, no vendor teleme
 ![Models](https://img.shields.io/badge/models-local%20GGUF-orange)
 [![Support on Ko-fi](https://img.shields.io/badge/support-Ko--fi-FF5E5B?logo=ko-fi&logoColor=white)](https://ko-fi.com/shadowesc95)
 
-**v2 is live software, not a polished product drop.** Expect rough edges — I'm one dev, and ELI
-touches real hardware. I'm sharing it partly to see if there's interest. **ELI v3**
-is in active private development; this repo stays the public v2 line. Feedback helps and is more than appreciated/welcomed, a second pair of eyes is better than just mine because the project has turned into a lot more than initially planned, and feels like it has just scratched the surface. I prefer someone bringing an issue to me rather than giving me a compliment. Finding issues and reporting them is invaluable to me — bugs, ideas,
-or a plain "I tried it and…" — [open an issue](https://github.com/ShadowESC95/ELI_v2.0/issues). Also, if ELI v2 helps and you want to support my fridge and university tuition fees, feel free to check out my [ko-fi](https://ko-fi.com/shadowesc95) — dev's gotta eat too! **Enjoy, use, and report!**
-
-**Source-available — personal & internal use only (not open source).** ELI is published on
-GitHub under [PolyForm Internal Use](LICENSE): clone, read, run, and modify on *your* machine.
-You **may not** redistribute, repackage, mirror, or host it for others. Forks for public
-re-publishing violate the license — open issues and PRs here instead.
-
-**Custom work?** Personalised ELI builds, themes, training, and commercial licensing are
-available by email ([jaybridgeman0095@gmail.com](mailto:jaybridgeman0095@gmail.com)) —
-separate from the free PolyForm grant above.
-
 </div>
-
----
 
 ELI is an AI assistant that runs **entirely on your own machine** — and I mean *entirely* for
 inference and memory. It holds a real conversation, drives your computer, reads your screen and
 your documents, writes and fixes code, and quietly builds up a private picture of who you are the
-more you use it. Talk to it or type to it — your call. The model and your data stay on your
-hardware by default; optional online features (web search, news, downloads) only run when you
-enable network access. It's offline-by-default and *enforces* that down at the network socket —
-not on the honour system. Point it at whatever local model you like and it tunes itself to the
-hardware you've got, from a laptop to a multi-GPU tower.
+more you use it. Talk to it or type to it — your call. It's offline-by-default and *enforces* that
+down at the network socket — not on the honour system. Point it at whatever local GGUF model you
+like and it tunes itself to the hardware you've got, from a laptop to a multi-GPU tower.
+
+> **v2 is live software, not a polished product drop.** I'm one dev, ELI touches real hardware, and
+> there will be rough edges — especially off the Linux + NVIDIA path I run daily. I'd rather get a
+> bug report than a compliment: **[open an issue](https://github.com/ShadowESC95/ELI_v2.0/issues)**.
+> ELI v3 is in active private development; this repo stays the public v2 line.
 
 ## Contents
 - [What is ELI?](#what-is-eli)
 - [What it does](#what-it-does)
 - [Design principles](#design-principles)
-- [Features](#features)
 - [Quick Start](#quick-start)
-- [Download & run (Linux portable)](#download--run-linux-portable)
 - [Choose your model](#choose-your-model)
+- [Features](#features)
 - [Optional: a remote view over your own network](#optional-a-remote-view-over-your-own-network)
 - [Privacy](#privacy)
-- [Documentation](#documentation)
-- [Under the hood](#under-the-hood)
-- [Tested on & known limitations](#tested-on--known-limitations)
 - [Security](#security)
+- [Tested on & known limitations](#tested-on--known-limitations)
+- [Under the hood](#under-the-hood)
+- [Documentation](#documentation)
 - [Project status & contributing](#project-status--contributing)
 - [License](#license) · [Contact](#contact)
 
@@ -64,48 +46,39 @@ hardware you've got, from a laptop to a multi-GPU tower.
 ## What is ELI?
 
 ELI is not a chatbot bolted onto someone else's cloud API — I had no interest in building another
-one of those. It's a **local cognitive runtime** — a 12-stage reasoning pipeline, a
-fleet of specialist agents on a DAG orchestrator, layered
-memory (SQLite + a FAISS vector index + a knowledge graph), local voice and vision, its own
-smart-home server, and a full desktop app *and* web dashboard — designed to run on your hardware
-with **no required cloud service**. You bring your own GGUF models, GPU stack, and (optionally)
-voice/model packs from [GitHub Releases](https://github.com/ShadowESC95/ELI_v2.0/releases). It's
-model-, user-, and hardware-agnostic by design.
+one of those. It's a **local cognitive runtime**: a 12-stage reasoning pipeline, a fleet of
+specialist agents on a DAG orchestrator, layered memory (SQLite + a FAISS vector index + a
+knowledge graph), local voice and vision, its own smart-home server, and a full desktop app *and*
+web dashboard — designed to run on your hardware with **no required cloud service**. You bring your
+own GGUF models, GPU stack, and (optionally) voice/model packs from
+[GitHub Releases](https://github.com/ShadowESC95/ELI_v2.0/releases). It's model-, user-, and
+hardware-agnostic by design. **208 capabilities** sit behind a single typed or spoken interface.
 
-Beyond answering questions, it acts on your machine, remembers you across sessions, reports its own
-state from real runtime evidence rather than guessing, and can even read its own source, write and
-repair code, and fine-tune on your conversation history so it gets better at serving *you*.
-**208 capabilities** sit behind a single typed or spoken interface.
+I built it on one conviction: **your AI should belong to you — the person using it — not the
+company serving it.** That isn't a slogan on a badge; it's the constraint every architectural
+decision in here has to answer to:
 
-And because the model is *yours* and swappable, ELI's ceiling isn't fixed — it rises with the
-open-model frontier and the hardware you give it. The quality is a dial you control, not a
-subscription tier someone sells you back.
-
-## Why ELI exists
-
-I built ELI on one conviction: **your AI should belong to you — the person using it — not the
-company serving it.** That isn't a slogan I put on a badge; it's the constraint every single
-architectural decision in here has to answer to.
-
-- **Everything is local by default.** Offline isn't a setting you toggle —
-  `eli/core/netguard` enforces it at the socket layer. Optional online features (web search,
-  news, model download) open a **scoped** network window when you enable them.
-- **Your model of *you* stays on your machine.** ELI learns your patterns and preferences and writes
-  them to your disk, never a data centre.
+- **Everything is local by default.** Offline isn't a setting you toggle — `eli/core/netguard`
+  enforces it at the socket layer. Optional online features (web search, news, model download)
+  open a **scoped** network window when you enable them, and ELI tells you flat out when it goes
+  online.
+- **Your model of *you* stays on your machine.** ELI learns your patterns and preferences and
+  writes them to your disk, never a data centre.
 - **It improves for you, not for a vendor.** Self-training means ELI gets better at serving *you* —
   not at serving someone's next corporate model update.
 - **Privacy isn't a feature checkbox. It's the founding constraint of the whole design.**
 
-There's an underdog logic to it, too. The people who most need a capable assistant — those who can't
-justify a monthly subscription, who live with bad or no internet, who simply don't want their
-conversations sitting on a stranger's server — are exactly the people cloud AI underserves. A
-capable, free, offline, self-improving assistant that runs on hardware you already own is
-**genuinely democratising**, in a way most "AI for everyone" copy only pretends to be.
+There's an underdog logic to it, too. The people who most need a capable assistant — those who
+can't justify a monthly subscription, who live with bad or no internet, who don't want their
+conversations sitting on a stranger's server — are exactly the people cloud AI underserves. And
+because the model is *yours* and swappable, ELI's ceiling isn't fixed — it rises with the
+open-model frontier and the hardware you give it. The quality is a dial you control, not a
+subscription tier someone sells you back.
 
 ## What it does
 
-You talk to it or type — it's not fussy about exact wording. Here's the sort of thing I use it for
-day to day:
+You talk to it or type — it's not fussy about exact wording. The sort of thing I use it for day to
+day:
 
 | Area | Examples |
 |---|---|
@@ -143,192 +116,33 @@ Asking *"what can you do?"* lists the full surface.
 | **Plugins** | install / enable / disable tools at runtime |
 | **System & web** | CPU/RAM/GPU status, time/date, weather, news synthesis, web search (net-gated) |
 
-Every action is real and traceable to code — full per-action reference with example phrases is
+Every action is real and traceable to code — the full per-action reference with example phrases is
 generated from the live capability manifest.
 </details>
 
 ## Design principles
 
-What sets ELI apart from a typical assistant isn't cosmetic — it's baked into the architecture. I
-can stand behind every one of these because each is a real mechanism in the code, not a line I liked
-the sound of:
+What sets ELI apart isn't cosmetic — it's baked into the architecture. Each of these is a real
+mechanism in the code, not a line I liked the sound of:
 
-1. **Local and offline-first.** Everything runs on your hardware. A process-wide network guard
-   (`eli/core/netguard`) fail-closes at the socket layer: with networking disabled, no outbound
-   connection can be made, even by a component that tries. Online actions (search, news) are explicit
-   and individually gated.
-
-2. **Model-agnostic.** No model name or size is hardcoded on the inference path. ELI loads any local
-   GGUF model, detects its chat template, and sizes context to the model's real `n_ctx_train`. Newer
-   open models can be dropped in without code changes.
-
+1. **Local and offline-first.** A process-wide network guard fail-closes at the socket layer: with
+   networking disabled, no outbound connection can be made, even by a component that tries.
+2. **Model-agnostic.** No model name or size is hardcoded on the inference path. ELI loads any
+   local GGUF, detects its chat template, and sizes context to the model's real `n_ctx_train`.
 3. **Grounded introspection.** Asked about its own state, ELI reports from live runtime evidence —
    actual database row counts, the loaded model, the active pipeline — rather than generating a
-   plausible answer. A no-fake-actions guard prevents it from claiming an action it did not perform.
-
+   plausible answer. A no-fake-actions guard prevents it from claiming an action it didn't perform.
 4. **Self-maintaining.** It logs its own failures and can generate, syntax-check, apply, and
    automatically roll back patches to its own source. A LoRA/QLoRA pipeline (PyTorch/PEFT) can
    fine-tune the model on your own conversation history.
-
 5. **Embodied.** It operates the desktop directly — applications, windows, input, screenshots,
-   clipboard, image and live-screen understanding, and optional webcam gaze control — not just text.
-
+   clipboard, image and live-screen understanding, optional webcam gaze control — not just text.
 6. **User-aware.** A continuous, semantic user model is read on every turn and feeds the persona,
-   proactive, reflection, and memory subsystems, so context persists across sessions and adapts to
-   how you work.
+   proactive, reflection, and memory subsystems, so context persists across sessions.
 
-## Features
+## Quick Start
 
-### Conversation and reasoning
-Five reasoning modes — Quick, Normal, Advanced, Research, Expert. **Normal through Expert**
-are genuinely multi-pass (self-consistency sampling, tree-of-thoughts branches, draft → critique);
-**Quick** is a single-pass fast path. The mode is auto-selected
-by how deep the question is, and when the supporting evidence is weak ELI deepens on its own: it
-re-gathers harder and escalates one tier to raise its confidence *before* answering. For a quick
-reply it can keep working in the background and surface a better-grounded answer afterwards. A
-12-stage retrieval pipeline (HyDE query expansion → vector + full-text + knowledge-graph retrieval →
-re-rank → synthesis) sits underneath, run by a **15-agent** dependency-DAG orchestrator with
-parallelism, retries, caching, and fallback.
-
-### Memory that persists
-A four-store memory — a FAISS vector index, full-text search, a knowledge graph, and working memory —
-maintains a living, versioned profile of you. It is dynamic: active projects stay current while
-abandoned ones fade, so its picture of you reflects the present. It is read on every turn, so you
-don't repeat yourself across sessions.
-
-### Operates your computer
-Open, close, focus, tile, minimise, or maximise applications and windows; switch workspaces; open
-system / audio / power / network settings; open URLs and your IDE. Application launch is backed by a
-live index of your machine's own executables — and if an app isn't installed, ELI offers to install
-it for you (real `apt` / `snap` / `flatpak` on your confirmation). It also controls volume, types
-text, and moves and clicks the mouse.
-
-### Voice, hands-free
-Always-listening with a wake word **you can train** — and that hears you over background music. It
-ducks your media to listen, waits for an unfinished command to complete, ignores its own spoken
-output, and builds a per-user voice profile. Includes dictation, audio transcription, and a Piper
-text-to-speech voice that never voices garbled fragments. A separate "train my voice" session learns
-your pitch, energy, and tone so its delivery adapts to how you sound.
-
-### Vision and screen understanding
-Local vision-language models describe any image or your live screen; OCR extracts text from
-pictures; "find the button that says X" locates UI elements on screen; optional ambient glances keep
-a rolling awareness. All local — no cloud vision APIs.
-
-### Gaze control (webcam)
-Eye-tracking via MediaPipe with calibration and smoothing — "open / click that" moves the cursor to
-where you're looking and clicks it. A genuine hands-free and accessibility capability.
-
-### Image generation
-A from-scratch procedural renderer with 10+ scene types (landscape, space, city, poster, emblem,
-abstract, product, …) — composition planning, palettes, atmosphere, and post-processing, no model
-required. Plus optional SSD-1B diffusion with VRAM hot-swap, and matplotlib plotting from your data.
-
-### Documents and files
-Create, read, and list files and folders; summarise any file; analyse CSVs, PDFs (single or whole
-folders), and images. **Convert any document** to PDF, PDF-via-LuaLaTeX, `.docx`, `.odt`, `.rtf`,
-HTML, Markdown, `.tex`, EPUB, or `.txt` (pandoc + a LibreOffice fallback). Two standout tools:
-- **Report Builder** — drop in your sources (PDFs, data, code, notebooks) and ELI writes a full
-  document grounded in your evidence: every claim is tied to a source or marked `[source needed]` —
-  no fabricated citations or numbers.
-- **File Chat** — open a file or folder and have a conversation about its actual contents.
-
-Even a quick "generate a document about X" runs a multi-stage grounded pipeline — gather evidence →
-plan an outline → draft section by section against that evidence → review and revise.
-
-### Coding agent
-Describe a task and it plans it, decomposes it into a dependency graph, writes it, runs it in a
-sandbox, tests it, and repairs its own bugs — remembering fixes for next time. Plus examine-and-fix
-on your existing files (tiered scan → offer → verified, auto-reverting patch), project scaffolding,
-diffs, and a built-in Sim-IDE.
-
-### Scheduling and automation
-Defer any command to a time — "open Spotify at 8pm", "get the news at 7am", "morning report ready
-for 7:15" — to durable background workers that survive restarts ("every morning" makes it recurring).
-Chain several commands in one sentence ("close Steam and set an alarm for 7am"). Alarms, timers, and
-pomodoro included.
-
-### Proactive and self-aware
-A background daemon notices your patterns and *offers* (never silently) to automate routines, builds
-your morning briefing, and surfaces things worth your attention through a governed, approval-gated
-layer. On a 30-minute beat it runs a self-awareness tick: it watches its own code for changes,
-refreshes its self-model, and advances goals into proposals for your approval — nothing destructive
-runs unattended.
-
-### Maintains and improves itself
-Logs its own failures and runs a self-repair cycle (generate → verify → apply → auto-revert); runs
-maintenance (update, rebuild indexes, refresh capabilities); audits its own runtime from live health
-probes; detects a missing dependency and heals its environment; and can **train a LoRA adapter on
-your own conversations**, locally.
-
-### Web, news, and weather (network-gated)
-With the Net switch on, ELI fetches web answers, weather, and a **synthesised news digest** — a
-rolling, interest-matched read rather than raw headlines. With it off, networking is sealed at the
-socket and nothing leaves your machine.
-
-### Interfaces — desktop, terminal, and an optional local screen-share
-The primary interface is a desktop GUI (Chat plus Labs, Report Builder, Coding, Tasks, and an
-embodied self-model view); there's also a headless CLI. **ELI itself always runs on your computer
-and only your computer** — the AI never runs on, or sends anything to, another device. Optionally,
-you can open a window onto it from a phone or tablet browser **on your own home network** via a
-built-in local server (loopback-only and token-gated by default). The phone is just a remote screen:
-no AI runs on it, and nothing touches the internet.
-
-### Make it yours
-Swap the model (any local GGUF). Tune the mind via a dedicated Cognition settings panel that exposes
-every knowledge-gathering limit and the synthesis budget. Extend it with a real plugin system
-(weather, web, calendar, notes, pomodoro, and your own). Teach it routines it proposes. And control
-the boundary with a single network toggle.
-
-## Choose your model
-
-ELI is **not locked to Qwen, Mistral, or Phi.** The installer catalog is a convenience menu
-only — inference loads **any GGUF** you place under `models/` (recursive scan via
-`discover_models()`). That includes Kimi, Nemotron, Europa, Llama, Gemma, DeepSeek, MoE
-quant builds, and future families, as long as:
-
-- The file is a **chat/instruct** GGUF (not an embedder-only weight — those live under
-  `models/embeddings/` and are auto-excluded from the chat picker).
-- **llama-cpp-python** on your hardware can load it (VRAM/RAM — ELI's smart-fit scales
-  layers, context, and batch to what you have).
-- For best reply quality, the GGUF should carry an embedded **`tokenizer.chat_template`**
-  (most modern instruct quants do). ELI reads that metadata first, then falls back to
-  filename heuristics (Qwen/ChatML, Llama-3, Mistral `[INST]`, Phi, Gemma), then a
-  generic prompt format.
-
-**Vision models** need the matching **mmproj** GGUF alongside the main weights. **Ollama**
-is also supported as an alternate backend if you point ELI at a local Ollama instance.
-
-To use a model: drop `YourModel-Q4_K_M.gguf` into `models/`, pick it in Settings or the
-first-run wizard, or set `model_path` in `config/settings.json`.
-
-ELI needs one local **model** (the brain). The installer can fetch one sized to your
-hardware, or pick your own — you can grab several and switch anytime:
-
-```bash
-python -m eli.core.model_download --choose   # multi-select menu — pick ANY number
-python -m eli.core.model_download --auto      # one best-fit for your VRAM
-```
-
-| key | model | size | needs |
-|---|---|---|---|
-| `qwen2.5-3b` | Qwen2.5-3B-Instruct | ~1.8 GB | 4 GB GPU / CPU |
-| `qwen2.5-7b` | Qwen2.5-7B-Instruct *(default)* | ~4.4 GB | 8 GB GPU |
-| `qwen3-8b` | Qwen3-8B (40K ctx, reasoning; LoRA base) | ~4.7 GB | 8 GB GPU |
-| `falcon3-10b` | Falcon3-10B-Instruct | ~5.9 GB | 12 GB GPU |
-| `phi-4` | Phi-4 (14B dense, MIT) | ~8.4 GB | 12 GB GPU |
-| `qwen3.6-35b-a3b` | Qwen3.6-35B-A3B (MoE, Apache-2.0) | ~20.6 GB | 24 GB GPU / CPU |
-| `falcon-h1-34b` | Falcon-H1-34B-Instruct | ~18.9 GB | 24 GB GPU / CPU |
-
-Quick note: The figures I provided above are for running said model at it's most efficient. 
-I still use the Qwen3.6-35B-A3B-UD-Q4_K_M.gguf on my rtx 2060 super 8gb 
-(nope it is not lightening ffast, but i personally prefer candor/content, over inference- not that i currently have the choice haha)
-
-The tiny **embedder** (memory/RAG) installs automatically with `install.sh` unless you pass
-`--no-model`. Vision and custom voice packs are optional extras. Fine-tune your own model —
-see **[`docs/TRAINING_YOUR_OWN_MODEL.md`](docs/TRAINING_YOUR_OWN_MODEL.md)**.
-
-## Download & run (Linux portable)
+### Download & run (Linux portable) — the easy path
 
 **This is the finish line for v2** — if you don't want to clone and build from source, use the
 portable package from **[GitHub Releases](https://github.com/ShadowESC95/ELI_v2.0/releases)**.
@@ -351,32 +165,30 @@ cd ELI_v2.0-2.0.0-linux-portable
 ./RUN_ELI.sh                        # launch desktop ELI
 ```
 
+First launch walks you through setup and model selection. `artifacts/` and databases are created
+automatically — nothing to copy from git. The first run is a **blank slate** (no preloaded data)
+with a 10-second, skippable "what should I call you?" intro.
+
+<details>
+<summary><b>Model pack & asset restore details</b></summary>
+
 **Model pack (`local-assets-v2.1`):** nomic embedder + starter chat GGUFs + cleared Piper voices.
-Release title on GitHub may still show legacy naming — assets are ELI v2.0. Licenses: **[models/MODEL_LICENSES.md](models/MODEL_LICENSES.md)**.
+Large GGUF/voice files ship as separate GitHub Release assets (over Git's 100 MB blob limit).
+Release title on GitHub may still show legacy naming — assets are ELI v2.0. Licenses:
+**[models/MODEL_LICENSES.md](models/MODEL_LICENSES.md)**.
 
 **Requires for asset restore:** `gh` CLI (`gh auth login`) **or** manual download from the
 [model pack release](https://github.com/ShadowESC95/ELI_v2.0/releases/tag/local-assets-v2.1).
-`en_US-ryan-*` and `en_US-lessac-*` and `en_GB-cori-high` are **skipped automatically** during restore — default voice is **`en_US-amy-medium`**.
+`en_US-ryan-*`, `en_US-lessac-*`, and `en_GB-cori-high` are **skipped automatically** during
+restore — default voice is **`en_US-amy-medium`**.
 
 ```bash
 # Without gh: download assets manually, then:
 python3 scripts/restore_github_asset_files.py --from-dir /path/to/downloaded/assets
 ```
+</details>
 
-First launch walks you through setup and model selection (or download one via the installer).
-`artifacts/` and databases are created automatically — nothing to copy from git.
-
-**Optional model pack:** large GGUF/voice files ship as separate GitHub Release assets (over Git's
-100 MB limit). Use `--with-github-assets` once `gh auth login` is done, or see
-`README_INSTALL.txt` inside the tarball.
-
-**Build the portable yourself (maintainers):**
-```bash
-bash scripts/build_v2_release.sh              # lean package (no models)
-bash scripts/build_v2_release.sh --with-assets  # huge; includes local models/
-```
-
-## Quick Start (from source — developers)
+### From source (developers)
 
 **Linux / macOS** — `install.sh` gives you a system report → a plan → installs the right CPU/GPU
 build → offers to download a model sized to your hardware:
@@ -396,127 +208,210 @@ Flags: `--yes` (no prompts) · `--install-cuda` (auto-install CUDA toolkit) · `
 .\eli.bat                # launch
 ```
 
-That's it — the first run is a **blank slate** (no preloaded data) with a 10-second, skippable
-"what should I call you?" intro. See **[docs/FIRST_RUN.md](docs/FIRST_RUN.md)** for clone vs portable paths.
+See **[docs/FIRST_RUN.md](docs/FIRST_RUN.md)** for clone vs portable paths.
+
+## Choose your model
+
+ELI is **not locked to Qwen, Mistral, or Phi.** The installer catalog is a convenience menu only —
+inference loads **any GGUF** you place under `models/` (recursive scan via `discover_models()`).
+That includes Kimi, Nemotron, Europa, Llama, Gemma, DeepSeek, MoE quant builds, and future
+families, as long as:
+
+- The file is a **chat/instruct** GGUF (not an embedder-only weight — those live under
+  `models/embeddings/` and are auto-excluded from the chat picker).
+- **llama-cpp-python** on your hardware can load it — ELI's smart-fit scales layers, context, and
+  batch to the VRAM/RAM you have.
+- For best reply quality, the GGUF should carry an embedded **`tokenizer.chat_template`** (most
+  modern instruct quants do). ELI reads that metadata first, then falls back to filename heuristics
+  (Qwen/ChatML, Llama-3, Mistral `[INST]`, Phi, Gemma), then a generic prompt format.
+
+**Vision models** need the matching **mmproj** GGUF alongside the main weights. **Ollama** is also
+supported as an alternate backend if you point ELI at a local Ollama instance.
+
+To use a model: drop `YourModel-Q4_K_M.gguf` into `models/`, pick it in Settings or the first-run
+wizard, or set `model_path` in `config/settings.json`. The installer can also fetch one sized to
+your hardware:
+
+```bash
+python -m eli.core.model_download --choose   # multi-select menu — pick ANY number
+python -m eli.core.model_download --auto     # one best-fit for your VRAM
+```
+
+| key | model | size | needs |
+|---|---|---|---|
+| `qwen2.5-3b` | Qwen2.5-3B-Instruct | ~1.8 GB | 4 GB GPU / CPU |
+| `qwen2.5-7b` | Qwen2.5-7B-Instruct *(default)* | ~4.4 GB | 8 GB GPU |
+| `qwen3-8b` | Qwen3-8B (40K ctx, reasoning; LoRA base) | ~4.7 GB | 8 GB GPU |
+| `falcon3-10b` | Falcon3-10B-Instruct | ~5.9 GB | 12 GB GPU |
+| `phi-4` | Phi-4 (14B dense, MIT) | ~8.4 GB | 12 GB GPU |
+| `qwen3.6-35b-a3b` | Qwen3.6-35B-A3B (MoE, Apache-2.0) | ~20.6 GB | 24 GB GPU / CPU |
+| `falcon-h1-34b` | Falcon-H1-34B-Instruct | ~18.9 GB | 24 GB GPU / CPU |
+
+The "needs" figures are for running each model at its most efficient. For what it's worth, I run
+Qwen3.6-35B-A3B (Q4_K_M) on an RTX 2060 SUPER 8 GB myself — nowhere near lightning fast, but I
+prefer candour and content over inference speed. Not that I currently have the choice.
+
+The tiny **embedder** (memory/RAG) installs automatically with `install.sh` unless you pass
+`--no-model`. Vision and custom voice packs are optional extras. Fine-tune your own model — see
+**[docs/TRAINING_YOUR_OWN_MODEL.md](docs/TRAINING_YOUR_OWN_MODEL.md)**.
+
+## Features
+
+**Conversation and reasoning.** Five reasoning modes — Quick, Normal, Advanced, Research, Expert.
+Normal through Expert are genuinely multi-pass (self-consistency sampling, tree-of-thoughts
+branches, draft → critique); Quick is a single-pass fast path. The mode auto-selects by question
+depth, and when supporting evidence is weak ELI deepens on its own — re-gathering harder and
+escalating a tier *before* answering. A 12-stage retrieval pipeline (HyDE query expansion → vector
++ full-text + knowledge-graph retrieval → re-rank → synthesis) sits underneath, run by a 15-agent
+dependency-DAG orchestrator with parallelism, retries, caching, and fallback.
+
+**Memory that persists.** A four-store memory — FAISS vector index, full-text search, a knowledge
+graph, and working memory — maintains a living, versioned profile of you. Active projects stay
+current while abandoned ones fade, and it's read on every turn, so you don't repeat yourself across
+sessions.
+
+**Operates your computer.** Open, close, focus, tile, minimise, or maximise apps and windows;
+switch workspaces; open URLs and your IDE; control volume; type text; move and click the mouse.
+App launch is backed by a live index of your machine's own executables — and if an app isn't
+installed, ELI offers to install it (real `apt` / `snap` / `flatpak`, on your confirmation).
+
+**Voice, hands-free.** Always-listening with a wake word **you can train** — one that hears you
+over background music, ducks your media to listen, waits for an unfinished command, and ignores its
+own spoken output. Dictation, transcription, and a Piper TTS voice included; a "train my voice"
+session learns your pitch, energy, and tone so delivery adapts to how you sound.
+
+**Vision, screen, and gaze.** Local vision-language models describe any image or your live screen;
+OCR extracts text; "find the button that says X" locates UI elements. Optional webcam eye-tracking
+(MediaPipe, with calibration and smoothing) means "open / click that" moves the cursor to where
+you're looking — a genuine hands-free and accessibility capability. All local, no cloud vision APIs.
+
+**Image generation.** A from-scratch procedural renderer with 10+ scene types (landscape, space,
+city, poster, emblem, abstract, product, …) — no model required. Plus optional SSD-1B diffusion
+with VRAM hot-swap, and matplotlib plotting from your data.
+
+**Documents and files.** Create, read, summarise, and analyse files (CSVs, PDFs, images — single
+or whole folders); **convert any document** to PDF, `.docx`, `.odt`, `.rtf`, HTML, Markdown,
+`.tex`, EPUB, or `.txt` (pandoc + LibreOffice fallback). Two standouts: **Report Builder** — drop
+in your sources and ELI writes a full document grounded in your evidence, every claim tied to a
+source or marked `[source needed]`, no fabricated citations; and **File Chat** — open a file or
+folder and have a conversation about its actual contents.
+
+**Coding agent.** Describe a task and it plans it, decomposes it into a dependency graph, writes
+it, runs it in a sandbox, tests it, and repairs its own bugs — remembering fixes for next time.
+Plus examine-and-fix on your existing files (tiered scan → offer → verified, auto-reverting patch),
+project scaffolding, diffs, and a built-in Sim-IDE.
+
+**Scheduling and automation.** Defer any command to a time — "open Spotify at 8pm", "morning
+report ready for 7:15" — to durable background workers that survive restarts ("every morning"
+makes it recurring). Chain several commands in one sentence. Alarms, timers, pomodoro included.
+
+**Proactive and self-maintaining.** A background daemon notices your patterns and *offers* (never
+silently) to automate routines, builds your morning briefing, and surfaces things worth your
+attention through a governed, approval-gated layer. ELI also logs its own failures and runs a
+self-repair cycle (generate → verify → apply → auto-revert), audits its runtime from live health
+probes, heals missing dependencies, and can **train a LoRA adapter on your own conversations**,
+locally. Nothing destructive runs unattended.
+
+**Make it yours.** Swap the model (any local GGUF). Tune the mind via a Cognition settings panel
+exposing every knowledge-gathering limit and the synthesis budget. Extend it with a real plugin
+system. Teach it routines it proposes. Control the boundary with a single network toggle.
 
 ## Optional: a remote view over your own network
 
-The desktop app is the main event, but I also gave ELI a small built-in **home server** (a local
-FastAPI app) so you can pull it up in any phone/tablet/desktop browser **on your own home network**
-as a second screen. **The AI still runs entirely on your computer** — the browser is just a window
-onto it. Nothing runs on the device, and nothing reaches the internet.
+The desktop app is the main event, but ELI also has a small built-in **home server** (local
+FastAPI) so you can pull it up in any phone/tablet browser **on your own home network** as a second
+screen. **The AI still runs entirely on your computer** — the browser is just a window onto it;
+nothing runs on the device and nothing reaches the internet.
 
 ```bash
 ./scripts/eli_serve.sh             # this computer only  → http://127.0.0.1:8081/
 ./scripts/eli_serve.sh --lan       # your home network   → prints a token-protected URL
 ```
 
-### The web app — ten tabs
-The web app is installable (PWA: "Add to Home Screen", offline shell), has light/dark themes and a
-sidebar, and lets you recolour the chat to taste.
-- **Overview** — a live dashboard: clock, GPU/CPU/RAM gauges, audit-integrity status, device + corpora
-  counts, quick actions, and a recent-activity feed that refreshes on its own.
-- **Chat** — talk to ELI from any device; inference stays on the host. Streams replies token-by-token,
-  renders **markdown + code** (with copy), keeps **multiple sessions/history**, and has **stop** and
-  **regenerate**. Plus **"Talk to ELI"** voice: tap the mic to speak (your phone's audio is transcribed
-  by ELI's *local* whisper model), and tick **Speak replies** to have answers read back in ELI's *local*
-  Piper voice — no cloud STT/TTS, the audio never leaves your machine.
-- **Commands** — a searchable catalogue of every documented action (with descriptions and example
-  phrases). Tap a phrase to drop it into the chat box.
-- **Home** — ELI's **own** device server (see below): **find** devices on your network, group them into
-  **rooms**, control them (toggles, brightness, per-room "all on/off"), build **scenes** and
-  **automations** — all over **MQTT**, no Home Assistant, no cloud. ELI learns how you use them and
-  suggests automations.
-- **System** — ELI's own **measured** telemetry: GPU temperature/utilisation/VRAM, CPU load/temp,
-  RAM, the loaded model, and uptime — the same grounded source ELI reports from, so the numbers are
-  real, never guessed.
-- **Research** — **shared** local document corpora for working alone or **together**: collaborators on
-  the server ingest files (`.pdf` / `.txt` / `.md`), paste notes, and ask questions **grounded only in
-  those sources, with citations** — all on ELI's own embedder + FAISS. Every contribution is
-  **attributed** (who added/edited/asked what), shown as members + a per-corpus activity feed and
-  recorded in the tamper-evident Audit trail. Documents never mix with ELI's memory; nothing leaves the box.
-- **Audit** — a **tamper-evident** trail of every action (who did what, with what outcome). Each record
-  is **HMAC-SHA-256 chained** to the one before it, keyed with a secret stored *separately* from the
-  database (`config/.audit_hmac_key`, owner-only, or `$ELI_AUDIT_HMAC_KEY`). So any edited / deleted /
-  reordered / downgraded record is detected — and a local attacker who can write the database but can't
-  read the key can't forge a clean chain. The tab shows a live "verified intact / tampering detected"
-  verdict and a per-user event list. (Keep the key off the DB's backups/media to preserve that property.)
-- **Admin** — an enterprise management console (admin role): chain-integrity status, totals, a
-  **per-user activity** rollup (click a user to drill into their recent actions), the **approval /
-  risk-gate policy**, and **user management** — create **admin / member / viewer** accounts (each gets a
-  one-time token) and revoke them.
-- **Settings** — live ELI config groups (network, voice, vision, habits, etc.) saved back to your
-  local `config/settings.json`.
-- **Connect** — QR code + LAN URL to open the dashboard on a phone or tablet on your home network
-  (pairs with `./scripts/eli_serve.sh --lan`).
+The web app is an installable PWA with ten tabs: live dashboard, chat (streaming, markdown,
+multi-session, local voice in/out), a searchable command catalogue, **smart-home control**
+(ELI's own MQTT device server — device discovery, rooms, scenes, automations, no Home Assistant,
+no vendor cloud), measured system telemetry, **shared research corpora** (grounded, cited,
+attributed Q&A over your own documents), a **tamper-evident HMAC-chained audit trail**, an admin
+console with roles (admin / member / viewer), live settings, and QR-code pairing.
 
-### ELI device server (the Home tab) — a local home-AI, MQTT, no Home Assistant
-ELI keeps its **own** device registry and talks to devices **directly over MQTT** — the open DIY-IoT
-standard (ESPHome / Tasmota / Zigbee2MQTT, or anything that speaks MQTT). No Home Assistant, no vendor
-cloud. It is a full local home-AI:
-- **Find devices** — scan the LAN over **mDNS** for MQTT brokers + smart devices (one click fills the
-  broker for you), or register a device by its command/state topics, or auto-populate from the standard
-  retained MQTT discovery messages.
-- **Control** — toggles, brightness, rooms with per-room "all on/off" — from the web, or by **voice**
-  ("turn on the desk lamp", "turn off the kitchen").
-- **Scenes** — name a group of device states ("Movie mode"); activate from the tab or by voice
-  ("activate movie mode").
-- **Automations** — a **trigger** runs **action(s)**: triggers are a clock time, **sunrise/sunset**
-  (±offset, computed locally from your lat/lon — no network), or **when a device turns on/off**; actions
-  control a device or activate a scene; optional **conditions** ("only if the TV is off") and
-  **multi-action**.
-- **Learns + proactive** — ELI tracks how you use devices (recorded as a preference in its memory),
-  is **aware of the home state** when you ask in chat, and **suggests automations** from your patterns
-  ("you usually turn the lamp on around 20:00 — automate it?") — accept and it's scheduled for real.
+Server security in brief — full detail in **[docs/SERVER_AND_WEB_APP.md](docs/SERVER_AND_WEB_APP.md)**:
 
-The broker/mDNS are local-network only: ELI registers **only your broker host** with its offline socket
-guard (`netguard`), so the offline-by-default policy is unchanged for everything else. Credentials are
-stored locally and never returned by the API.
-
-### Security
-- **The auth gate fails closed.** By default — no `ELI_API_TOKEN`, no explicit opt-out — every
-  action endpoint returns `401`. The guarantee no longer depends on the launcher script: a raw
-  `uvicorn api.server:app`, a Docker `CMD`, a systemd `ExecStart`, or any other ASGI-direct launch
-  that never runs `main()` is **locked down**, not wide open.
-- **Roles (admin / member / viewer), opt-in.** Define users (`python -m eli.runtime.api_users add <id>
-  <role>`, or the Admin tab) and every request's token resolves to a **(user, role)**: a **viewer** is
-  read-only (browse dashboards, no actions), a **member** acts but is `403`'d from the Admin console,
-  an **admin** manages everything. **Attribution is authenticated** — a member can't claim to be someone
-  else in the audit trail. With no users defined it stays single-operator (the loopback owner is admin).
-  Tokens are stored only as **SHA-256 hashes**; the raw token is shown once.
-- **Loopback is zero-friction.** Launch via `scripts/eli_serve.sh` (or `python -m api.server` on the
-  default `127.0.0.1`) and same-machine use is tokenless — `main()` enables tokenless serving *only*
-  for a genuine loopback bind (set `ELI_API_ALLOW_TOKENLESS=0` to require a token even locally).
-- **Any non-loopback bind requires a token.** Expose beyond loopback (`--lan`, `ELI_API_HOST=0.0.0.0`)
-  with no token and ELI **auto-generates one and prints it** rather than ever serving unauthenticated.
-  Every endpoint — chat, command execution, smart-home/system controls, research ingest — sits behind it.
-- **Research ingest is sandboxed.** The Research tab can only read documents under a configured root
-  (default `artifacts/research/_sources/`, or set `ELI_RESEARCH_ROOT`); paths outside it are rejected and
-  a directory ingest is bounded by file-count / total-byte caps. A client can never make the server read
-  arbitrary host files.
-- Keep it on your **own LAN**. Don't port-forward it to the public internet; it's a personal-network tool.
-
-### Maintenance
-- **Stable token:** set `ELI_API_TOKEN=<your-token>` (env or your service unit) so clients don't break
-  on restart; otherwise a fresh token is generated each non-loopback start and printed to the logs.
-- **HA token expired/rotated?** Re-enter it in the Home tab — it overwrites the stored one.
-- **Port/host:** `ELI_API_PORT` (default 8081) and `ELI_API_HOST` (default `127.0.0.1`).
-
-Full details: **[`docs/SERVER_AND_WEB_APP.md`](docs/SERVER_AND_WEB_APP.md)**.
+- **The auth gate fails closed.** No `ELI_API_TOKEN` and no explicit opt-out means every action
+  endpoint returns `401` — even under a raw `uvicorn` / Docker / systemd launch that never runs
+  `main()`.
+- **Any non-loopback bind requires a token.** Expose beyond loopback with no token and ELI
+  **auto-generates one and prints it** rather than ever serving unauthenticated. Loopback stays
+  zero-friction (tokenless *only* for a genuine loopback bind; `ELI_API_ALLOW_TOKENLESS=0` to
+  require one anyway).
+- **Roles are opt-in and attribution is authenticated.** Viewers are read-only, members are
+  `403`'d from the admin console, and a member can't claim to be someone else in the audit trail.
+  Tokens are stored only as SHA-256 hashes.
+- **Research ingest is sandboxed** to a configured root with file-count / byte caps — a client can
+  never make the server read arbitrary host files.
+- Keep it on your **own LAN**. Don't port-forward it to the public internet.
 
 ## Privacy
 
-Nothing leaves your computer unless you ask for something online (news, a search, downloading a
-model) — and ELI tells you flat out when it does. No accounts, no telemetry, no subscription, no
-asterisks. A fresh install knows **nothing** about you until you talk to it, and you can wipe your
-data whenever you want.
+Nothing leaves your computer unless you ask for something online (news, a search, a model
+download) — and ELI tells you flat out when it does. No accounts, no telemetry, no subscription,
+no asterisks. A fresh install knows **nothing** about you until you talk to it, and you can wipe
+your data whenever you want.
 
-## Documentation
+## Security
 
-- **[Server & Web App](docs/SERVER_AND_WEB_APP.md)** — self-hosted FastAPI server + phone/web UI
-- **[Train your own model](docs/TRAINING_YOUR_OWN_MODEL.md)** — A-to-Z LoRA/QLoRA into an ELI GGUF
-- **[Cross-platform coverage](docs/CROSS_PLATFORM.md)** — capability × platform matrix
-- **[Model runtime policy](docs/model_runtime_policy.md)** — how ctx/layers/batch are sized
+ELI is a **host-control agent** — treat it like running a capable automation tool with an LLM
+attached, not like a sandboxed chat app. Defence-in-depth, all local:
+
+| Layer | What it does | Honest limits |
+|---|---|---|
+| Prompt-injection guard | Regex scrub of `[INST]`, `<\|im_start\|>system`, common jailbreak phrases on **direct user chat input** | Not applied to file contents, tool output, or every API field |
+| SQL identifier validation | Allowlist regex on f-string SQL identifiers | — |
+| Shell gate (`RUN_CMD`) | **Denylist** of destructive patterns and dangerous executables (`bash`, `python -c`, `dd`, `rm`, …) | Many ordinary commands (`ls`, `git`, `curl`, …) are **allowed** without `ELI_ALLOWED_CMDS`. Separate `_run()` paths use allowlist or fail-open for desktop automation |
+| `READ_FILE` / `LIST_DIR` | Reads/lists paths the OS permits | **No ELI path sandbox yet** — can read any OS-readable file (e.g. `~/.ssh`, `/etc/passwd`) |
+| Full Control (off by default) | Normal guarded mode | When **on**, bypasses shell denylist, network guard, path gates, and approval — use only if you intend full machine access |
+| Custom-agent trust | SHA-256 registry — tampered agent files skipped at load | — |
+| Offline-by-default | Socket-level guard; fails closed when network disabled | Scoped `allow_network()`, broker allowlist, and Full Control can open egress |
+
+Full detail: **[SECURITY.md](SECURITY.md)**. Found a security issue? Report it privately per
+SECURITY.md, not in a public issue.
+
+## Tested on & known limitations
+
+*Last updated 2026-07-04.*
+
+I'd rather tell you exactly what I've run than pretend it's flawless everywhere.
+
+**What I've actually run, end to end:** Linux (x86_64) with an NVIDIA GPU. That's my machine, so
+it's the one platform where I can honestly say the whole thing — install, first-run, the full test
+suite (7,300+ passing), voice, vision, the server, all of it — genuinely works. If you're on
+Linux + NVIDIA, you're on the tested path.
+
+**What the code handles but I haven't run on real hardware yet:** AMD (ROCm), Windows, and macOS.
+The installers, per-OS requirements, cross-platform paths, GPU detection (NVIDIA / AMD / Apple),
+and the OS-abstraction layer are all there and I've read every line — but "correct in the code"
+isn't the same as "confirmed on the metal," and I won't claim it is. If you run ELI on one of
+these, I'd genuinely love the output (working or broken) so I can close the gap for everyone.
+
+**The honest edges:**
+- **Desktop control varies by OS.** The core — chat, memory, the model, the server, vision — is
+  portable. The part that drives your actual desktop (window control, some audio, screenshots) is
+  built on Linux and routed through a cross-platform layer; it's the piece most likely to be rough
+  on Windows/macOS on first run.
+- **macOS needs permissions.** The first time ELI takes a screenshot or moves the mouse, macOS
+  asks for Screen-Recording and Accessibility access (System Settings → Privacy). Grant and retry.
+- **AMD voice is CPU-only.** The speech-to-text engine (CTranslate2) has no ROCm support, so on an
+  AMD GPU it stays on the CPU — it works, just not accelerated. Everything else uses your AMD GPU.
+- **Windows secret-file permissions are weaker.** ELI locks its token/key files to `0600` on Unix;
+  Windows ignores that bit, so those files lean on your user profile being private (which it is by
+  default under `%APPDATA%`). A proper Windows ACL is on the list.
+- **Big models can be slow to load or run out of memory.** A large model takes a minute on first
+  use, and if VRAM/RAM is tight the server can drop mid-reply. Running the server on its own (not
+  alongside the desktop app) loads the model once and avoids most of that.
+- **Android/Termux is headless** — server + CLI only, no desktop GUI.
+
+None of these are hidden gotchas — they're the honest edges of a local, embodied assistant that
+touches real hardware. I'd rather you know them going in.
 
 ## Under the hood
 
@@ -541,8 +436,8 @@ data whenever you want.
 
 **Scaling:** the loader reads each model's real `n_ctx_train` from GGUF metadata and fits
 layers/batch/ctx to the hardware present; VRAM is summed across all GPUs. One path runs a 3B on a
-laptop and a 35B on a workstation. Multi-GPU: enable a profile in `config/gpu_profiles.json` or set
-`tensor_split`. Always local, never cloud, at every size.
+laptop and a 35B on a workstation. Multi-GPU: enable a profile in `config/gpu_profiles.json` or
+set `tensor_split`. Always local, never cloud, at every size.
 </details>
 
 <details>
@@ -570,6 +465,7 @@ Most users leave `ELI_PROJECT_ROOT` unset (auto-detected). Env reference: `.env.
 
 ```bash
 bash scripts/build_v2_release.sh                    # v2 portable Linux (download-and-run)
+bash scripts/build_v2_release.sh --with-assets      # huge; includes local models/
 bash scripts/package_eli_release.sh                 # wheel/sdist
 bash scripts/package_desktop_app.sh                 # portable Linux desktop package
 bash build_packages.sh wheel deb appimage macos windows
@@ -589,82 +485,34 @@ OS permission instant: Windows may need SmartScreen approval + audio/COM package
 Screen-Recording/Accessibility permissions; Linux desktop control depends on Wayland/X11 +
 PulseAudio/PipeWire; Android/Termux is headless-only; GPU acceleration depends on local drivers
 (NVIDIA CUDA / AMD ROCm / Apple Metal — the installer auto-detects and builds for whichever you
-have, falling back to CPU otherwise). Full matrix: **[`docs/CROSS_PLATFORM.md`](docs/CROSS_PLATFORM.md)**.
+have, falling back to CPU otherwise). Full matrix: **[docs/CROSS_PLATFORM.md](docs/CROSS_PLATFORM.md)**.
 </details>
 
-## Tested on & known limitations
+## Documentation
 
-*Last updated 2026-07-04.*
-
-I'd rather tell you exactly what I've run than pretend it's flawless everywhere.
-
-**What I've actually run, end to end:** Linux (x86_64) with an NVIDIA GPU. That's my machine, so
-it's the one platform where I can honestly say the whole thing — install, first-run, the full test
-suite (7,300+ passing), voice, vision, the server, all of it — genuinely works. If you're on
-Linux + NVIDIA, you're on the tested path.
-
-**What the code handles but I haven't run on real hardware yet:** AMD (ROCm), Windows, and macOS.
-The installers, per-OS requirements, cross-platform paths, GPU detection (NVIDIA / AMD / Apple), and
-the OS-abstraction layer are all there and I've read every line — but "correct in the code" isn't
-the same as "confirmed on the metal," and I won't claim it is. If you run ELI on one of these, I'd
-genuinely love the output (working or broken) so I can close the gap for everyone.
-
-**The honest edges:**
-- **Desktop control varies by OS.** The core — chat, memory, the model, the server, vision — is
-  portable. The part that drives your actual desktop (window control, some audio, screenshots) is
-  built on Linux and routed through a cross-platform layer; it's the piece most likely to be rough
-  on Windows/macOS on first run.
-- **macOS needs permissions.** The first time ELI takes a screenshot or moves the mouse, macOS asks
-  for Screen-Recording and Accessibility access (System Settings → Privacy). Grant them and retry.
-- **AMD voice is CPU-only.** The speech-to-text engine (CTranslate2) has no ROCm support, so on an
-  AMD GPU it stays on the CPU — it works, just not accelerated. Everything else uses your AMD GPU.
-- **Windows secret-file permissions are weaker.** ELI locks its token/key files to `0600` on Unix;
-  Windows ignores that bit, so those files lean on your user profile being private (which it is by
-  default under `%APPDATA%`). A proper Windows ACL is on the list.
-- **Big models can be slow to load or run out of memory.** A large model takes a minute on first
-  use, and if VRAM/RAM is tight the server can drop mid-reply. Running the server on its own (not
-  alongside the desktop app) loads the model once and avoids most of that.
-- **Android/Termux is headless** — server + CLI only, no desktop GUI.
-
-None of these are hidden gotchas — they're the honest edges of a local, embodied assistant that
-touches real hardware. I'd rather you know them going in.
-
-## Security
-
-ELI is a **host-control agent** — treat it like running a capable automation tool with an LLM
-attached, not like a sandboxed chat app. Defence-in-depth, all local:
-
-| Layer | What it does | Honest limits |
-|---|---|---|
-| Prompt-injection guard | Regex scrub of `[INST]`, `<\|im_start\|>system`, common jailbreak phrases on **direct user chat input** | Not applied to file contents, tool output, or every API field |
-| SQL identifier validation | Allowlist regex on f-string SQL identifiers | — |
-| Shell gate (`RUN_CMD`) | **Denylist** of destructive patterns and dangerous executables (`bash`, `python -c`, `dd`, `rm`, …) | Many ordinary commands (`ls`, `git`, `curl`, …) are **allowed** without `ELI_ALLOWED_CMDS`. Separate `_run()` paths use allowlist or fail-open for desktop automation |
-| `READ_FILE` / `LIST_DIR` | Reads/lists paths the OS permits | **No ELI path sandbox yet** — can read any OS-readable file (e.g. `~/.ssh`, `/etc/passwd`) |
-| Full Control (off by default) | Normal guarded mode | When **on**, bypasses shell denylist, network guard, path gates, and approval — use only if you intend full machine access |
-| Custom-agent trust | SHA-256 registry — tampered agent files skipped at load | — |
-| Offline-by-default | Socket-level guard; fails closed when network disabled | Scoped `allow_network()`, broker allowlist, and Full Control can open egress |
-
-Full detail: **[SECURITY.md](SECURITY.md)**.
+- **[Server & Web App](docs/SERVER_AND_WEB_APP.md)** — self-hosted FastAPI server + phone/web UI
+- **[Train your own model](docs/TRAINING_YOUR_OWN_MODEL.md)** — A-to-Z LoRA/QLoRA into an ELI GGUF
+- **[Cross-platform coverage](docs/CROSS_PLATFORM.md)** — capability × platform matrix
+- **[Model runtime policy](docs/model_runtime_policy.md)** — how ctx/layers/batch are sized
+- **[First run](docs/FIRST_RUN.md)** — clone vs portable paths
 
 ## Project status & contributing
 
-**ELI v2.0** is here to use, but I won't pretend it's flawless everywhere — there will be rough edges,
-especially off the Linux + NVIDIA path I've run most. I'm a solo dev putting this out to see if
-people want a fully local assistant like this. **ELI v3** is in active private development.
+**ELI v2.0** is here to use. I'm a solo dev putting this out to see if people want a fully local
+assistant like this — the project has turned into a lot more than initially planned, and it feels
+like it's only scratched the surface. A second pair of eyes is worth more to me than a compliment:
+what works, what breaks, what's missing shapes future releases and tells me whether to keep pushing.
 
-Community feedback is genuinely welcome: what works, what breaks, what's missing. That shapes future releases
-and tells me whether to keep pushing.
-
-- **Found a bug or have an idea?** [Open an issue](https://github.com/ShadowESC95/ELI_v2.0/issues).
+- **Found a bug or have an idea?** [Open an issue](https://github.com/ShadowESC95/ELI_v2.0/issues) —
+  bugs, ideas, or a plain "I tried it and…" are all invaluable.
 - **Want to contribute code?** Pull requests are welcome — please read
   **[CONTRIBUTING.md](CONTRIBUTING.md)** first. Because ELI is source-available, contributions
   include a short **inbound license grant** so the whole project stays under one consistent license.
-- **Security issue?** See **[SECURITY.md](SECURITY.md)** — report it privately, not in a public issue.
-- **Want to support development?** ELI is free to use under PolyForm Internal Use; if it's useful,
-  **[ko-fi.com/shadowesc95](https://ko-fi.com/shadowesc95)** is optional and helps keep me shipping.
-
-Forks for **redistribution** are not permitted by the [license](LICENSE) — contribute improvements
-back here instead of publishing your own copy.
+- **Security issue?** See **[SECURITY.md](SECURITY.md)** — report it privately, not publicly.
+- **Want to support development?** ELI is free to use under the license below; if it helps you and
+  you want to support my fridge and university tuition fees,
+  **[ko-fi.com/shadowesc95](https://ko-fi.com/shadowesc95)** is optional and keeps me shipping —
+  dev's gotta eat too. **Enjoy, use, and report!**
 
 ## License
 
@@ -677,19 +525,21 @@ ELI v2.0 is **source-available, not open-source**, under the
 | Use it for your own internal / personal purposes | **Host it as a service** for others |
 | Keep your own private modifications | **Sell** it or any modified version |
 
-All commercial and distribution rights are reserved by the copyright holder. For anything beyond
-that — redistribution, hosting, or a commercial license — please get in touch. Provided "as is",
-without warranty.
+**Why PolyForm?** I want anyone to be able to read, run, and modify ELI on their own machine for
+free — and I want commercial and distribution rights to stay with me while v2 is out in the open
+and v3 is in development. PolyForm Internal Use is the cleanest off-the-shelf license that does
+exactly that, without pretending to be open source when it isn't.
 
-**Third-party components:** see **[THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)**.  
+Forks for **public re-publishing** violate the license — contribute improvements back here instead
+of publishing your own copy. **Seeing ELI redistributed, hosted, or sold somewhere?** Please report
+it — with a link — to [jaybridgeman0095@gmail.com](mailto:jaybridgeman0095@gmail.com).
+
+**Custom work?** Personalised ELI builds, themes, training, and commercial licensing are available
+by email — separate from the free PolyForm grant above. Provided "as is", without warranty.
+
+**Third-party components:** see **[THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)**.
 **Model/voice assets:** see **[models/MODEL_LICENSES.md](models/MODEL_LICENSES.md)** (also bundled
 with GitHub Release model packs).
-
-**Seeing ELI redistributed, hosted, or sold somewhere?** That is not permitted under the license.
-Please report it — with a link — to [jaybridgeman0095@gmail.com](mailto:jaybridgeman0095@gmail.com);
-it helps the author act on violations.
-
-> **Why PolyForm?** See the note at the top of this README — same place as the v2 rough-edges banner.
 
 ## Contact
 
@@ -698,6 +548,3 @@ Questions, feedback, or interested in a license/services beyond the terms above?
 - **Email:** [jaybridgeman0095@gmail.com](mailto:jaybridgeman0095@gmail.com)
 - **GitHub:** [@ShadowESC95](https://github.com/ShadowESC95) ·
   [open an issue](https://github.com/ShadowESC95/ELI_v2.0/issues)
-
-For commercial licensing, redistribution rights, or hosting beyond the
-[license](LICENSE), please reach out by email.
