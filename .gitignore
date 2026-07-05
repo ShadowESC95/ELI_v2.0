@@ -1,6 +1,5 @@
 # ── Not for the repo (local only) ───────────────────────────────────────────
 WHAT_ELI_IS.md
-blueprints/
 
 # ── Python / build artefacts ────────────────────────────────────────────────
 __pycache__/
@@ -60,12 +59,10 @@ artifacts/*
 eli/artifacts/
 .code_monitor_state.json
 
-# ── Generated / auto-updated files ──────────────────────────────────────────
+# ── Generated / auto-updated files (manifest + blueprint docs are tracked) ───
 eli/capability_inventory.generated.json
 capability_inventory.generated.json
-eli/capability_manifest.json
 eli/cognition/persona.auto.txt
-capability_manifest.json
 .capability_snapshot.json
 .code_monitor_state.json
 config/user_id
@@ -75,8 +72,12 @@ Pasted\ text.txt
 
 # ── Secrets / environment ────────────────────────────────────────────────────
 .env
+.env.local
 .env.*
+!.env.example
+!.env.full.example
 *.env
+!*.env.example
 
 # ── IDE & editor ─────────────────────────────────────────────────────────────
 .vscode/
