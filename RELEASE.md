@@ -6,7 +6,7 @@
 
 ```bash
 bash scripts/build_v2_release.sh
-# Output: dist/app_packages/ELI_v2.0-2.0.1-linux-portable.tar.gz
+# Output: dist/app_packages/ELI_v2-2.0.3-linux-portable.tar.gz
 ```
 
 Optional full bundle (local models — very large):
@@ -34,9 +34,9 @@ python3 scripts/upload_github_asset_files.py --repo ShadowESC95/ELI_v2.0 --tag v
 ## 3. Publish GitHub Release
 
 1. [New release](https://github.com/ShadowESC95/ELI_v2.0/releases/new)
-2. Tag: `v2.0.1` (or `v2.0.1-portable`)
+2. Tag: `v2.0.3` (semver matches `pyproject.toml`)
 3. Attach:
-   - `ELI_v2.0-2.0.1-linux-portable.tar.gz`
+   - `ELI_v2-2.0.3-linux-portable.tar.gz`
    - `.sha256` sidecar
    - Model pack assets (optional separate tag)
 
