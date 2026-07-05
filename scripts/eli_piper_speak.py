@@ -15,7 +15,7 @@ CACHE_DIR.mkdir(parents=True, exist_ok=True)
 
 DEFAULT_VOICE = os.environ.get(
     "ELI_PIPER_VOICE",
-    str(VOICE_DIR / "en_US-ryan-high.onnx")
+    str(VOICE_DIR / "en_US-amy-medium.onnx")
 )
 
 MAX_CHARS = int(os.environ.get("ELI_TTS_CHUNK_CHARS", "420"))
