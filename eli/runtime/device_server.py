@@ -793,7 +793,7 @@ _MDNS_KINDS: Dict[str, Dict[str, Any]] = {
 # Local control paths considered "real" today vs. still on the roadmap. Keep this honest:
 # only mark a device controllable here when a driver can actually act on it. As drivers
 # land (UPnP/DLNA, Cast, AirPlay via pyatv, Fire TV via ADB) move them into _CONTROL_LIVE.
-_CONTROL_LIVE = {"mqtt", "upnp"}            # genuinely actionable right now
+_CONTROL_LIVE = {"mqtt", "upnp", "bluetooth"}   # genuinely actionable right now
 _CONTROL_ROADMAP = {"cast", "airplay", "adb", "atvremote", "hue"}  # detectable, driver pending
 # "cloud" (Spotify) intentionally excluded — not local-first.
 
@@ -870,15 +870,68 @@ _DISC_CACHE: Dict[tuple, dict] = {}
 _DISC_TTL = 300.0  # seconds an entry survives without being re-seen
 
 
-def discover(timeout: float = 3.0, fresh: bool = False) -> Dict[str, Any]:
-    """Find smart devices + media renderers on the LAN via mDNS *and* SSDP/UPnP — so the
-    user doesn't have to know IPs/topics. Classifies each result (what it is, and whether
-    ELI can control it locally). Gated through netguard (a deliberate local-network scan);
-    degrades cleanly if zeroconf isn't installed (SSDP still runs).
+def _ble_discover(timeout: float, found: List[dict], errors: List[str]) -> None:
+    """Scan for nearby Bluetooth Low Energy devices (best-effort, discovery-only).
 
-    mDNS and SSDP now run **concurrently** (wall time ≈ one sweep, not the sum), and results
-    are merged into a short-lived rolling cache so late responders + prior finds accumulate.
-    Pass ``fresh=True`` to drop the cache and scan cold.
+    Adds each to ``found`` in the same shape as the network results — the BT address is
+    carried as ``host`` so the existing dedup/merge keys on it with no special-casing.
+    Bluetooth is *local radio*, not the internet, so it needs no netguard window. Degrades
+    cleanly: no bleak, no adapter, or a powered-off radio yields nothing plus a short note —
+    it never raises into the caller.
+    """
+    try:
+        import asyncio
+        from bleak import BleakScanner
+    except Exception:
+        errors.append("bluetooth: BLE support not installed (pip install bleak)")
+        return
+
+    async def _scan():
+        return await BleakScanner.discover(timeout=max(2.0, min(float(timeout), 8.0)))
+
+    try:
+        try:
+            devices = asyncio.run(_scan())
+        except RuntimeError:
+            # Already inside a running loop — use a private one.
+            _loop = asyncio.new_event_loop()
+            try:
+                devices = _loop.run_until_complete(_scan())
+            finally:
+                _loop.close()
+    except Exception as e:
+        errors.append(f"bluetooth scan failed (adapter off/absent?): {e}")
+        return
+
+    for d in devices or []:
+        addr = getattr(d, "address", None)
+        if not addr:
+            continue
+        nm = (getattr(d, "name", None) or "").strip()
+        found.append({
+            "host": addr,                 # BT address doubles as the merge key
+            "port": None,
+            "name": nm or f"Bluetooth device ({addr})",
+            "kind": "bluetooth",
+            "label": "Bluetooth device",
+            "control": "bluetooth",       # pair/connect/disconnect + audio routing
+            "driver": "bluetooth",
+            "transport": "bluetooth",
+            "rssi": getattr(d, "rssi", None),
+        })
+
+
+def discover(timeout: float = 3.0, fresh: bool = False, include_bluetooth: bool = True,
+             include_network: bool = True) -> Dict[str, Any]:
+    """Find smart devices + media renderers on the LAN via mDNS *and* SSDP/UPnP — plus
+    nearby **Bluetooth** devices — so the user doesn't have to know IPs/topics. Classifies
+    each result (what it is, and whether ELI can control it locally). Network scans are gated
+    through netguard (a deliberate local-network sweep); degrades cleanly if zeroconf isn't
+    installed (SSDP still runs) or bleak/the BT radio is absent (network results still return).
+
+    mDNS, SSDP and the Bluetooth scan run **concurrently** (wall time ≈ one sweep, not the
+    sum), merged into a short-lived rolling cache so late responders + prior finds accumulate.
+    Pass ``fresh=True`` to drop the cache and scan cold; ``include_bluetooth=False`` to skip BT.
     """
     found: List[dict] = []
     errors: List[str] = []
@@ -892,17 +945,33 @@ def discover(timeout: float = 3.0, fresh: bool = False) -> Dict[str, Any]:
         ctx = contextlib.nullcontext()
 
     with ctx:
-        # mDNS and SSDP in parallel — independent transports, no reason to serialise them.
+        # mDNS, SSDP (network) and Bluetooth run in parallel — independent transports/radios.
+        # Either side can be turned off (network-only or Bluetooth-only) via the flags.
         ssdp_timeout = min(4.0, max(1.5, timeout))
-        def _run_ssdp():
-            try:
-                found.extend(_ssdp_discover(ssdp_timeout))
-            except Exception as e:
-                errors.append(f"SSDP: {e}")
-        t_ssdp = threading.Thread(target=_run_ssdp, name="eli-ssdp", daemon=True)
-        t_ssdp.start()
-        _mdns_discover(timeout, found, errors)   # runs in this thread
-        t_ssdp.join(timeout=ssdp_timeout + 3.0)
+        t_ssdp = None
+        if include_network:
+            def _run_ssdp():
+                try:
+                    found.extend(_ssdp_discover(ssdp_timeout))
+                except Exception as e:
+                    errors.append(f"SSDP: {e}")
+            t_ssdp = threading.Thread(target=_run_ssdp, name="eli-ssdp", daemon=True)
+            t_ssdp.start()
+        t_ble = None
+        if include_bluetooth:
+            def _run_ble():
+                try:
+                    _ble_discover(timeout, found, errors)
+                except Exception as e:
+                    errors.append(f"bluetooth: {e}")
+            t_ble = threading.Thread(target=_run_ble, name="eli-ble", daemon=True)
+            t_ble.start()
+        if include_network:
+            _mdns_discover(timeout, found, errors)   # runs in this thread
+        if t_ssdp is not None:
+            t_ssdp.join(timeout=ssdp_timeout + 3.0)
+        if t_ble is not None:
+            t_ble.join(timeout=timeout + 4.0)
 
     now = time.time()
     if fresh:
@@ -942,6 +1011,65 @@ def discover(timeout: float = 3.0, fresh: bool = False) -> Dict[str, Any]:
     return {"ok": True, "found": uniq, "brokers": brokers,
             "errors": errors, "counts": {"total": len(uniq), "brokers": len(brokers),
                                          "controllable": sum(1 for f in uniq if f.get("controllable"))}}
+
+
+def bluetooth_control_by_name(name: str, command: str, scan_timeout: float = 3.0) -> Dict[str, Any]:
+    """Voice entry point: resolve a spoken Bluetooth device name — or a generic word like
+    "headphones"/"speaker" — to a discovered or registered BT device and run a control command
+    (connect / disconnect / pair / use_for_audio) through the Bluetooth driver.
+
+    Best-effort + graceful: no devices, no match, or a driver error all return a clean dict.
+    """
+    from eli.runtime import device_drivers
+
+    name_l = (name or "").strip().lower()
+    cands: List[dict] = []
+    try:
+        srv = get_server()
+        cands += [d for d in srv.list_devices()
+                  if (d.get("driver") == "bluetooth" or d.get("kind") == "bluetooth")]
+    except Exception:
+        pass
+    try:
+        cands += [d for d in discover(timeout=scan_timeout, include_bluetooth=True).get("found", [])
+                  if d.get("kind") == "bluetooth"]
+    except Exception:
+        pass
+
+    # Dedupe by address.
+    seen: set = set()
+    uniq: List[dict] = []
+    for d in cands:
+        addr = str(d.get("host") or d.get("address") or d.get("id") or "").lower()
+        if addr and addr not in seen:
+            seen.add(addr)
+            uniq.append(d)
+    if not uniq:
+        return {"ok": False, "error": "I don't see any Bluetooth devices — is Bluetooth switched on?"}
+
+    # Resolve: a specific spoken name wins; generic words ("headphones") match the
+    # strongest-signal device; a two-word name ("kitchen speaker") matches on its non-generic
+    # word ("kitchen") so it doesn't collide with every speaker.
+    _GENERIC = {"headphones", "headphone", "headset", "earbuds", "earphones", "earphone",
+                "buds", "airpods", "speaker", "speakers", "soundbar", "bluetooth", "device", "it"}
+    match = None
+    if name_l and name_l not in _GENERIC:
+        match = next((d for d in uniq if name_l in str(d.get("name", "")).lower()), None)
+        if match is None:
+            words = [w for w in name_l.split() if w not in _GENERIC]
+            match = next((d for d in uniq
+                          if any(w in str(d.get("name", "")).lower() for w in words)), None)
+    if match is None:
+        named = [d for d in uniq if d.get("name") and not str(d["name"]).startswith("Bluetooth device")]
+        match = max(named or uniq,
+                    key=lambda d: (d.get("rssi") if d.get("rssi") is not None else -999))
+
+    drv = device_drivers.get_driver("bluetooth")
+    if not drv:
+        return {"ok": False, "error": "bluetooth driver unavailable"}
+    res = dict(drv.control(match, command))
+    res.setdefault("device_name", match.get("name") or match.get("host"))
+    return res
 
 
 def _ssdp_discover(timeout: float) -> List[dict]:

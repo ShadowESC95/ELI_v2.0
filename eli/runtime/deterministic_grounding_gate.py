@@ -260,7 +260,7 @@ def _self_improve_report() -> str:
                 "FROM failures ORDER BY id DESC LIMIT 8"
             ).fetchall()
         except Exception:
-            pass
+            _SWLOG.debug("suppressed exception", exc_info=True)
 
         try:
             improvements = cur.execute(
@@ -268,7 +268,7 @@ def _self_improve_report() -> str:
                 "FROM improvements ORDER BY id DESC LIMIT 8"
             ).fetchall()
         except Exception:
-            pass
+            _SWLOG.debug("suppressed exception", exc_info=True)
 
         con.close()
 
@@ -422,7 +422,7 @@ def _current_mode_label(engine: Any = None) -> str:
                 if s:
                     return s
         except Exception:
-            pass
+            _SWLOG.debug("suppressed exception", exc_info=True)
 
     # 2. Nested engine dicts.
     for obj_name in ("settings", "config", "runtime_settings", "_settings", "state", "_state"):
@@ -443,7 +443,7 @@ def _current_mode_label(engine: Any = None) -> str:
                         if s:
                             return s
         except Exception:
-            pass
+            _SWLOG.debug("suppressed exception", exc_info=True)
 
     # 3. Helper fallback LAST. If it says Quick, treat it as unknown unless
     # the live engine already confirmed Quick above.
@@ -464,7 +464,7 @@ def _current_mode_label(engine: Any = None) -> str:
 
             return s
     except Exception:
-        pass
+        _SWLOG.debug("suppressed exception", exc_info=True)
 
     return ""
 
@@ -559,7 +559,7 @@ def _eli_json_file_v2(path: _EliPath) -> dict:
         if path.exists():
             return _eli_json.loads(path.read_text(encoding="utf-8"))
     except Exception:
-        pass
+        _SWLOG.debug("suppressed exception", exc_info=True)
     return {}
 
 
@@ -694,7 +694,7 @@ def _eli_known_user_name_v2() -> str:
         if stored:
             return stored
     except Exception:
-        pass
+        _SWLOG.debug("suppressed exception", exc_info=True)
 
     for t in _eli_sample_memory_texts_v2(120):
         m = _eli_re.search(r"(?:preferred name|user'?s preferred name|name)\s*[:=]\s*([A-Za-z][A-Za-z0-9 _.-]{1,40})", t, _eli_re.I)
@@ -728,7 +728,7 @@ def _eli_mode_label_v2(engine: _EliAny = None, kwargs: dict | None = None) -> st
             if isinstance(v, str) and v.strip():
                 return v.strip()
         except Exception:
-            pass
+            _SWLOG.debug("suppressed exception", exc_info=True)
 
     return ""
 
@@ -1267,7 +1267,7 @@ def _eli_known_user_name_v2() -> str:  # type: ignore[override]
         if stored:
             return stored
     except Exception:
-        pass
+        _SWLOG.debug("suppressed exception", exc_info=True)
 
     samples = _eli_sample_memory_texts_v2(200)
     blob = "\n".join(samples)
@@ -2179,7 +2179,7 @@ def _eli_sample_memory_texts_v2(limit: int = 80) -> list[str]:  # type: ignore[o
 
             con.close()
         except Exception:
-            pass
+            _SWLOG.debug("suppressed exception", exc_info=True)
 
     ranked = sorted(candidates, key=lambda x: x[0], reverse=True)
 
@@ -2406,7 +2406,7 @@ def _eli_v8_collect_db_texts(limit_per_table: int = 600) -> list[str]:
             try:
                 con.close()
             except Exception:
-                pass
+                _SWLOG.debug("suppressed exception", exc_info=True)
 
     return texts
 
@@ -3160,7 +3160,7 @@ def _eli_v11_user_tokens() -> list[str]:
         if u:
             toks.append(str(u))
     except Exception:
-        pass
+        _SWLOG.debug("suppressed exception", exc_info=True)
     out = []
     seen = set()
     for t in toks:
@@ -3184,10 +3184,20 @@ def _eli_v11_redact_user_identity(text: object) -> str:
         os_user = ""
 
     if os_user:
+        # Linux
         s = s.replace(f"/home/{os_user}/", "/home/<user>/")
         s = s.replace(f"/home/{os_user}", "/home/<user>")
+        # macOS (/Users/<user>)
+        s = s.replace(f"/Users/{os_user}/", "/Users/<user>/")
+        s = s.replace(f"/Users/{os_user}", "/Users/<user>")
+        # terminal-style ~<user>
         s = s.replace(f"~{os_user}/", "~<user>/")
         s = s.replace(f"~{os_user}", "~<user>")
+        # Windows (C:\Users\<user>) — any drive letter, case-insensitive
+        try:
+            s = re.sub(rf"(?i)([A-Za-z]:\\Users\\){re.escape(os_user)}", r"\1<user>", s)
+        except Exception:
+            pass
 
     # Redact known personal tokens as standalone words/phrases.
     for tok in sorted(_eli_v11_user_tokens(), key=len, reverse=True):
@@ -3384,7 +3394,7 @@ def _eli_v12_dynamic_identity_tokens() -> list[str]:
         if u:
             toks.append(u)
     except Exception:
-        pass
+        _SWLOG.debug("suppressed exception", exc_info=True)
 
     # Extract explicit learned identity facts from local DB rows, then redact them.
     # This lets each installation protect its own learned user identity without
@@ -3451,7 +3461,7 @@ def _eli_v12_dynamic_identity_tokens() -> list[str]:
                                 toks.append(candidate)
             con.close()
         except Exception:
-            pass
+            _SWLOG.debug("suppressed exception", exc_info=True)
 
     out = []
     seen = set()
@@ -3476,10 +3486,20 @@ def _eli_v12_redact(text: object) -> str:
         os_user = ""
 
     if os_user:
+        # Linux
         s = s.replace(f"/home/{os_user}/", "/home/<user>/")
         s = s.replace(f"/home/{os_user}", "/home/<user>")
+        # macOS (/Users/<user>)
+        s = s.replace(f"/Users/{os_user}/", "/Users/<user>/")
+        s = s.replace(f"/Users/{os_user}", "/Users/<user>")
+        # terminal-style ~<user>
         s = s.replace(f"~{os_user}/", "~<user>/")
         s = s.replace(f"~{os_user}", "~<user>")
+        # Windows (C:\Users\<user>) — any drive letter, case-insensitive
+        try:
+            s = re.sub(rf"(?i)([A-Za-z]:\\Users\\){re.escape(os_user)}", r"\1<user>", s)
+        except Exception:
+            pass
 
     for tok in sorted(_eli_v12_dynamic_identity_tokens(), key=len, reverse=True):
         if not tok:
@@ -3621,7 +3641,7 @@ def _eli_v13_safe_redact(text: object) -> str:
     try:
         s = _eli_v12_redact(s)  # type: ignore[name-defined]
     except Exception:
-        pass
+        _SWLOG.debug("suppressed exception", exc_info=True)
 
     # Clean bad identity prose introduced by earlier surfaces.
     s = _eli_v13_re.sub(
@@ -3853,7 +3873,7 @@ def _eli_v14_read_json(path: _EliV14Path) -> dict:
         if path.exists():
             return _eli_v14_json.loads(path.read_text(encoding="utf-8"))
     except Exception:
-        pass
+        _SWLOG.debug("suppressed exception", exc_info=True)
     return {}
 
 
@@ -3888,7 +3908,7 @@ def _eli_v14_gpu_line() -> str:
         if out:
             return out[0].strip()
     except Exception:
-        pass
+        _SWLOG.debug("suppressed exception", exc_info=True)
     return "unavailable"
 
 
@@ -3944,7 +3964,7 @@ def _eli_v14_name_tokens() -> set[str]:
         if u:
             tokens.add(u)
     except Exception:
-        pass
+        _SWLOG.debug("suppressed exception", exc_info=True)
 
     try:
         host = _eli_v14_socket.gethostname()
@@ -3953,7 +3973,7 @@ def _eli_v14_name_tokens() -> set[str]:
                 if len(part) >= 3:
                     tokens.add(part)
     except Exception:
-        pass
+        _SWLOG.debug("suppressed exception", exc_info=True)
 
     # Pull explicit name-like memory facts dynamically from this installation only.
     root = _eli_v14_project_root()
@@ -3983,7 +4003,7 @@ def _eli_v14_name_tokens() -> set[str]:
                                         tokens.add(part)
             con.close()
     except Exception:
-        pass
+        _SWLOG.debug("suppressed exception", exc_info=True)
 
     reject = {
         "user", "local", "home", "desktop", "eli", "mkxi", "root", "python",

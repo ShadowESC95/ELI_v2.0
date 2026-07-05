@@ -141,7 +141,8 @@ def _target_terms(target: Optional[str]) -> List[str]:
     if not target:
         return []
     t = target.strip().lower().replace("_", " ").replace("-", " ")
-    terms = {t}
+    terms = {t, target.strip().lower()}   # keep the raw form (underscores/dots) too, so a
+                                          # partial id like "instance_1_125" still matches
     compact = t.replace(" ", "")
     if compact:
         terms.add(compact)
@@ -176,6 +177,16 @@ def resolve_player_target(target: Optional[str] = None, command: Optional[str] =
     infos = list_player_infos()
     if not infos:
         return None
+
+    # Exact player-name match wins. The dashboard passes the live MPRIS id
+    # (e.g. "firefox.instance_1_125"); the fuzzy matcher below turns underscores into
+    # spaces, so an exact id would fail to match its OWN name → resolve to None →
+    # control silently no-ops (the Netflix/YouTube "pause does nothing" bug).
+    if target:
+        tl = str(target).strip().lower()
+        for info in infos:
+            if str(info.get("player", "")).lower() == tl:
+                return str(info["player"])
 
     terms = _target_terms(target)
     if terms:
@@ -336,7 +347,23 @@ def pause(player: Optional[str] = None) -> Dict[str, Any]:
 
 
 def play_pause(player: Optional[str] = None) -> Dict[str, Any]:
-    """Toggle play/pause."""
+    """Toggle play/pause — status-aware.
+
+    playerctl's raw ``play-pause`` toggle is unreliable at *pausing* some players
+    (notably Spotify: it resumes fine but the toggle frequently no-ops on pause, which
+    is why the dashboard's play button worked but the pause button didn't). So resolve
+    the target's current status and issue an EXPLICIT pause/play — the same reliable
+    path voice control uses. Falls back to the raw toggle only if status is unknown.
+    """
+    st = get_player_status(player)
+    if isinstance(st, dict) and st.get("ok"):
+        status = str(st.get("status", "")).lower()
+        target = st.get("player") or player  # the player we actually resolved
+        if status == "playing":
+            return pause(target)
+        if status in ("paused", "stopped"):
+            return play(target)
+    # Couldn't determine status (or no player) — fall back to the raw toggle.
     return _playerctl("play-pause", player)
 
 

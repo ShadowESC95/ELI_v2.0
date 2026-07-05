@@ -14,20 +14,20 @@ agent's system python. Deeper detail lives in the companion blueprints
   executor `SUPPORTED_ACTIONS`, plugin/route-backed remainder.
 - **12 main GUI tabs** (Chat, Proactive, Images, Quick Actions, Screen, Files, Labs,
   Coding, Tasks, Report Builder, Eli's World, Settings — Test & Review + Orchestration are
-  Labs sub-tabs); **14** bus agents + the CodeAgent; **4** SQLite stores
+  Labs sub-tabs); **15** bus agents + the CodeAgent; **4** SQLite stores
   (user / agent / system_index / coding_memory).
 - **A second front end:** a local-first **FastAPI web server + dashboard PWA**
   (`api/server.py`) — chat, live telemetry, ELI's own smart-home, research corpora,
   the tamper-evident audit trail, and an admin console. Launchable one-click from
   the desktop GUI (Settings) or standalone.
-- **189** test files.
+- **205** test files.
 - **License:** source-available — PolyForm Internal Use 1.0.0 (`LICENSE`/`NOTICE`); use+modify for internal/personal use, no redistribution; all commercial rights reserved. Governance: `SECURITY.md`, `CONTRIBUTING.md` (inbound grant).
 
 ## Tests & eval (measured on `.venv`, 2026-07-01)
-- Full run: **7,302 passed, 5 failed, 45 skipped, 2 xfailed**. The 5 reds are
-  pre-existing and unrelated to current work — they belong to the in-progress
-  `smart_home` plugin removal (voice SMART_HOME now uses ELI's own MQTT server) and
-  one stale blueprint reference; they fail identically on a clean tree.
+- Full run: **7,347 passed, 0 failed, 45 skipped, 2 xfailed** — all 5 previously-
+  pre-existing reds cleared 2026-07-03 (deprecated `smart_home` plugin removed; 113
+  silent `except: pass` swallows made observable, 987→874, ceiling 950→900; blueprint
+  references fixed).
 - Composition: original unit/regression/integration + **`tests/claims/`** (examines the
   project vs its claims: every module compiles + core imports; every manifest capability
   well-formed + flags match the live executor; every SUPPORTED_ACTION handled; every
@@ -166,7 +166,7 @@ truncation) is in place.
 ELI is now a two-front local-first system: a frontier desktop cognitive assistant **and**
 a self-hosted web app with its own smart-home, multi-user roles, a tamper-evident audit
 trail, collaborative research corpora, browser voice, and a monitored path to the
-internet — all local, all owner-controlled. It tests itself (7,302 passing), evals itself
+internet — all local, all owner-controlled. It tests itself (7,347 passing), evals itself
 nightly, writes its own tests, grounds its generation in real evidence, and never hardcodes
 its model. The open work is engineering debt (god-files, swallowed exceptions, surface
 duplication) and the model ceiling — both known, both phased, neither blocking.

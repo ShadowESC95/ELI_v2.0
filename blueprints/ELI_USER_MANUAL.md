@@ -301,6 +301,11 @@ and ELI opens or reports the right thing.
 ### 👁️ Eye control (gaze)
 - "calibrate gaze", then "enable gaze". With it on, ELI clicks **where you're looking** when you
   say "open" / "left click" / "right click" / "hit enter" — hands-free pointing.
+- **Fully hands-free *and* voice-free — dwell-click.** Say **"enable gaze clicking"** (or turn on
+  **Dwell-click** in Settings) and ELI clicks wherever you **rest your gaze for about a second** —
+  no mouse, no voice needed. This is built for people who can't use their hands *or* speak
+  reliably. Tune the hold time, wander radius, and sensitivity in Settings (`gaze_dwell_seconds`,
+  `gaze_dwell_radius`). Turn it off any time; it's opt-in.
 - "gaze status" · "disable gaze"
 
 ### 🎨 Making images
@@ -516,6 +521,14 @@ survives server restarts, so a paired phone stays paired; no re-scanning every r
 phone, or just want a clean slate? Hit **rotate**: it mints a fresh token and instantly cuts off
 anything still using the old one.
 
+### How the link keeps your token safe
+The token rides in the link's **fragment** — the part after the `#` (`…:8081/#token=…`). Browsers
+**never send the fragment to the server**, so your token can't land in the server's access log (or
+any proxy log in between). When the page loads it reads the token from the fragment, stores it
+locally, then **wipes it from the address bar** so it isn't left in your history either. Older
+links that used `?token=` still work — the page accepts both — but everything ELI prints or
+displays now uses the safe fragment form, on the desktop panel and both launcher scripts alike.
+
 ### Voice from the phone needs HTTPS
 Browsers block the microphone on a plain `http://` LAN address, so the phone **mic** needs a
 secure page. Start with `--https` (or the HTTPS toggle) and ELI runs a *second* server alongside
@@ -534,6 +547,23 @@ serves the dashboard, the phone app, and a small API. The **device server** is a
 service that talks to your smart-home gear (see the Home tab, below). Both run locally; both are
 yours. Everything about who's allowed in — tokens, roles, the loopback trust — is laid out in
 **Appendix C (Security)**.
+
+### Under the hood (for scripts & power users)
+The web/API server is a **FastAPI** app served by **uvicorn** (`api/server.py`). You rarely touch
+it directly — the desktop app and the launcher scripts wire everything up — but if you script it,
+a handful of environment variables control it:
+- `ELI_API_HOST` — `127.0.0.1` (default, this-computer-only) or `0.0.0.0` (LAN mode).
+- `ELI_API_PORT` — the HTTP port (default `8081`); the HTTPS voice server uses `8443`.
+- `ELI_API_TOKEN` — set your own token; if unset, ELI uses the saved stable one
+  (`config/api_token`, permissions `0600`) so a paired phone survives restarts.
+- `ELI_API_ALLOW_TOKENLESS` — honoured only on loopback; LAN mode always requires the token.
+- `ELI_API_NO_BROWSER=1` — start without auto-opening the local browser.
+
+The launchers wrap all of this: `scripts/eli_serve.sh` (Mac/Linux) and `scripts/eli_serve.ps1`
+(Windows) start LAN mode, then print the phone link (with the safe `#token=` fragment) and the
+**exact** firewall command for your OS — the quickest way in from a terminal. The API itself is a
+small REST surface (chat, status/telemetry, model list/switch, voice, memory, research, audit);
+full endpoint detail lives in `docs/SERVER_AND_WEB_APP.md`.
 
 ### If a phone can't connect
 Nine times out of ten it's the firewall. When it starts in LAN mode ELI prints the **exact**
@@ -767,7 +797,7 @@ flowchart TD
     FP -->|No| MODE{Reasoning mode}
 
     MODE -->|quick · default| BUS[Agent Bus dispatch]
-    BUS --> AG[14 specialist agents run over a DAG<br/>memory · knowledge-graph · system · file-code<br/>introspection · capability · habit · proactive<br/>reflection · self-improve · plugin · voice · frontier · orchestrator]
+    BUS --> AG[15 specialist agents run over a DAG<br/>memory · knowledge-graph · system · file-code<br/>introspection · capability · habit · proactive<br/>reflection · self-improve · plugin · voice · frontier · orchestrator · critic]
     AG --> DR[DispatchResult<br/>grounding_confidence · agents_used · memory_context]
     DR --> GE{Low grounding on a<br/>factual question?}
     GE -->|Yes| ESC[Escalate: web tier / local tier / honest hedge] --> GOV
@@ -819,7 +849,7 @@ to `CognitiveEngine.process()`. The router also remembers the *last used path* s
   **verbatim**. There's no model call, so these are instant and can't be "hallucinated". This is
   why "pause" never produces a chatty paragraph.
 - **Quick path (the default) — the Agent Bus.** Conversational and lightly-grounded requests go
-  to the **Agent Bus**, which runs up to **14 specialist agents** in parallel over a dependency
+  to the **Agent Bus**, which runs up to **15 specialist agents** in parallel over a dependency
   graph, each contributing evidence (memory hits, knowledge-graph facts, system readings, code
   search, capability info, …). Their combined result carries a **grounding confidence** — an
   honest "is this actually backed by anything?" score.
@@ -1040,7 +1070,9 @@ by default.
 ### C.4 — The phone: who's allowed in
 The web server (§13) is locked down. On the same machine (loopback) you're trusted
 automatically. From the network, every request must carry a **bearer token** — and that token is
-never stored in plain text, only its SHA-256 hash. Define one or more users and **RBAC** switches
+never stored in plain text, only its SHA-256 hash. The token travels in the link's URL
+**fragment** (after the `#`), which browsers never transmit to the server, so it can't appear in
+the access log; the page reads it locally and immediately clears it from the address bar. Define one or more users and **RBAC** switches
 on: each token maps to a role (admin / member), and admin-only actions — changing settings,
 switching the model — reject anyone who isn't admin. With no users defined it's single-operator
 mode: just you. The **rotate** button issues a fresh token and kills the old one, so a paired

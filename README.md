@@ -37,6 +37,7 @@ itself to the hardware you've got, from a laptop to a multi-GPU tower.
 - [Privacy](#privacy)
 - [Documentation](#documentation)
 - [Under the hood](#under-the-hood)
+- [Tested on & known limitations](#tested-on--known-limitations)
 - [Security](#security)
 - [Project status & contributing](#project-status--contributing)
 - [License](#license) · [Contact](#contact)
@@ -438,7 +439,7 @@ data whenever you want.
 - `eli/gui` — PySide6 GUI launcher and `EliMainWindow`
 - `eli/cli` — headless REPL (`eli --headless`)
 - `config` — portable default settings · `models` — local GGUF payloads (gitignored)
-- `tests` — a large pytest suite (7,000+ tests across 176 files, including a `claims/` layer that
+- `tests` — a large pytest suite (7,000+ tests across 205 files, including a `claims/` layer that
   checks the project against its own documentation); the full suite runs locally, while CI gates a
   cross-platform portable subset (no GGUF/display/GPU) on Linux, macOS, and Windows
 
@@ -488,9 +489,47 @@ Large model/voice binaries are distributed separately (GitHub Release assets) vi
 Guards + aliases cover Windows, macOS, Linux, BSD, and Android/Termux, but no package makes every
 OS permission instant: Windows may need SmartScreen approval + audio/COM packages; macOS needs
 Screen-Recording/Accessibility permissions; Linux desktop control depends on Wayland/X11 +
-PulseAudio/PipeWire; Android/Termux is headless-only; GPU acceleration depends on local
-drivers/CUDA/Metal. Full matrix: **[`docs/CROSS_PLATFORM.md`](docs/CROSS_PLATFORM.md)**.
+PulseAudio/PipeWire; Android/Termux is headless-only; GPU acceleration depends on local drivers
+(NVIDIA CUDA / AMD ROCm / Apple Metal — the installer auto-detects and builds for whichever you
+have, falling back to CPU otherwise). Full matrix: **[`docs/CROSS_PLATFORM.md`](docs/CROSS_PLATFORM.md)**.
 </details>
+
+## Tested on & known limitations
+
+*Last updated 2026-07-04.*
+
+I'd rather tell you exactly what I've run than pretend it's flawless everywhere.
+
+**What I've actually run, end to end:** Linux (x86_64) with an NVIDIA GPU. That's my machine, so
+it's the one platform where I can honestly say the whole thing — install, first-run, the full test
+suite (7,300+ passing), voice, vision, the server, all of it — genuinely works. If you're on
+Linux + NVIDIA, you're on the tested path.
+
+**What the code handles but I haven't run on real hardware yet:** AMD (ROCm), Windows, and macOS.
+The installers, per-OS requirements, cross-platform paths, GPU detection (NVIDIA / AMD / Apple), and
+the OS-abstraction layer are all there and I've read every line — but "correct in the code" isn't
+the same as "confirmed on the metal," and I won't claim it is. If you run ELI on one of these, I'd
+genuinely love the output (working or broken) so I can close the gap for everyone.
+
+**The honest edges:**
+- **Desktop control varies by OS.** The core — chat, memory, the model, the server, vision — is
+  portable. The part that drives your actual desktop (window control, some audio, screenshots) is
+  built on Linux and routed through a cross-platform layer; it's the piece most likely to be rough
+  on Windows/macOS on first run.
+- **macOS needs permissions.** The first time ELI takes a screenshot or moves the mouse, macOS asks
+  for Screen-Recording and Accessibility access (System Settings → Privacy). Grant them and retry.
+- **AMD voice is CPU-only.** The speech-to-text engine (CTranslate2) has no ROCm support, so on an
+  AMD GPU it stays on the CPU — it works, just not accelerated. Everything else uses your AMD GPU.
+- **Windows secret-file permissions are weaker.** ELI locks its token/key files to `0600` on Unix;
+  Windows ignores that bit, so those files lean on your user profile being private (which it is by
+  default under `%APPDATA%`). A proper Windows ACL is on the list.
+- **Big models can be slow to load or run out of memory.** A large model takes a minute on first
+  use, and if VRAM/RAM is tight the server can drop mid-reply. Running the server on its own (not
+  alongside the desktop app) loads the model once and avoids most of that.
+- **Android/Termux is headless** — server + CLI only, no desktop GUI.
+
+None of these are hidden gotchas — they're the honest edges of a local, embodied assistant that
+touches real hardware. I'd rather you know them going in.
 
 ## Security
 
@@ -507,10 +546,9 @@ Defence-in-depth, all local:
 
 ## Project status & contributing
 
-ELI is **actively developed** and independently built, and it ships new work most weeks. Direction,
-releases, and what gets merged are decided by the copyright holder. Bug reports and ideas are
-genuinely welcome, and the project keeps moving as long as it stays useful — which, so far, it very
-much is.
+I work on ELI most weeks and keep shipping. I'm the one who decides what goes in and when it
+releases — but bug reports and ideas are genuinely welcome, and I'll keep it moving as long as it's
+useful to people. So far, it very much is.
 
 - **Found a bug or have an idea?** [Open an issue](https://github.com/ShadowESC95/ELI_v2.0/issues).
 - **Want to contribute code?** Pull requests are welcome — please read

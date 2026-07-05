@@ -1030,15 +1030,32 @@ _WEB_UI = """<!doctype html>
   /* PWA: installable + offline shell. Force a fresh-code check on every load and
      auto-reload once a new worker takes control, so an installed PWA can never get
      stranded on a stale cached shell (e.g. one cached during a transient bad build). */
+  // A service worker is great for offline PWA on localhost / a real HTTPS domain — but HARMFUL
+  // on a self-signed LAN HTTPS origin (an IP host). There the browser treats the cert as
+  // errored: SW registration is flaky and a stale one strands the phone on a blank/spinning
+  // shell. That's exactly why the http://LAN-IP connect page works (no SW allowed there) while
+  // the https://LAN-IP voice page goes blank (SW is the only difference). So on an IP-address
+  // HTTPS origin we SKIP the SW and actively unregister any stale one + wipe its caches, which
+  // also heals a phone already stranded by a previously-registered worker.
+  var _ipHost=/^\\d{1,3}(\\.\\d{1,3}){3}$/.test(location.hostname);
   if('serviceWorker' in navigator){try{
-    var _swReloading=false;
-    navigator.serviceWorker.addEventListener('controllerchange',function(){
-      if(_swReloading)return; _swReloading=true; location.reload();
-    });
-    navigator.serviceWorker.register('/sw.js').then(function(reg){
-      try{reg.update();}catch(e){}                       // check for a newer /sw.js now
-      if(reg.waiting){try{reg.waiting.postMessage('skip');}catch(e){}}
-    }).catch(function(){});
+    if(location.protocol==='https:'&&_ipHost){
+      navigator.serviceWorker.getRegistrations()
+        .then(function(rs){rs.forEach(function(r){try{r.unregister();}catch(e){}});}).catch(function(){});
+      if(window.caches){caches.keys()
+        .then(function(ks){ks.forEach(function(k){try{caches.delete(k);}catch(e){}});}).catch(function(){});}
+    } else {
+      var _swReloading=false, _hadCtrl=!!navigator.serviceWorker.controller;
+      navigator.serviceWorker.addEventListener('controllerchange',function(){
+        // Reload only for a genuine UPDATE (a controller already existed) — never on the
+        // first-ever claim, which used to race page load into a blank reload.
+        if(_swReloading||!_hadCtrl)return; _swReloading=true; location.reload();
+      });
+      navigator.serviceWorker.register('/sw.js').then(function(reg){
+        try{reg.update();}catch(e){}                       // check for a newer /sw.js now
+        if(reg.waiting){try{reg.waiting.postMessage('skip');}catch(e){}}
+      }).catch(function(){});
+    }
   }catch(e){}}
   /* live: refresh the dashboard while it's open (no manual reload) */
   setInterval(function(){const v=$('#view-overview'); if(v&&v.classList.contains('active')&&!document.hidden&&!OV_EDIT&&!isOvEditingField())loadOverview();},6000);
@@ -1157,7 +1174,8 @@ _WEB_UI = """<!doctype html>
       '<label>Password (optional)</label><input id="mq_pass" type="password" autocomplete="new-password" value="'+esc(vals.password||'')+'">'+
       '<label>Discovery prefix (optional — auto-finds devices)</label><input id="mq_disc" placeholder="leave blank for manual devices" value="'+esc(vals.discovery_prefix||'')+'">'+
       '<div class="rrow" style="margin-top:14px"><button id="mq-save" onclick="saveDevConfig()">Save &amp; connect</button>'+
-      '<button class="cbtn" id="mq-find" onclick="discoverDevices()">&#128270; Find on my network</button></div>'+
+      '<button class="cbtn" id="mq-find" onclick="discoverDevices()">&#128270; Find on my network</button>'+
+      '<button class="cbtn" id="bt-find" onclick="searchBluetooth()">&#127911; Search Bluetooth</button></div>'+
       '<div id="mq-found"></div></div>';
   }
   function discoverDevices(){
@@ -1197,6 +1215,43 @@ _WEB_UI = """<!doctype html>
       }
       box.innerHTML=h;
     }).catch(e=>{if(btn){btn.disabled=false;btn.innerHTML='&#128270; Find on my network';}box.innerHTML='<div class="banner bad">'+esc(''+e)+'</div>';});
+  }
+  function searchBluetooth(){
+    const box=$('#mq-found'), btn=$('#bt-find');
+    if(btn){btn.disabled=true;btn.textContent='Scanning…';}
+    box.innerHTML='<div class="rnote">Scanning for Bluetooth devices…</div>';
+    api('/v1/devices/discover?kind=bluetooth&fresh=true',{method:'POST',body:JSON.stringify({})}).then(d=>{
+      if(btn){btn.disabled=false;btn.innerHTML='&#127911; Search Bluetooth';}
+      if(!d.ok){box.innerHTML='<div class="banner bad" style="margin-top:10px">'+esc(d.error||'scan failed')+'</div>';return;}
+      const bt=(d.found||[]).filter(f=>f.kind==='bluetooth'); window._bt=bt;
+      let h='';
+      if(!bt.length){
+        const note=(d.errors||[]).find(e=>/bluetooth/i.test(e));
+        h='<div class="rnote" style="margin-top:10px">No Bluetooth devices found. '+(note?esc(note):'Make sure Bluetooth is on and the device is in pairing mode.')+'</div>';
+      } else {
+        h+='<div class="rnote" style="margin-top:12px">Bluetooth devices nearby — tap to connect, pair, or route audio:</div>';
+        bt.forEach((f,i)=>{
+          h+='<div class="src"><div class="sh"><span>&#127911; '+esc(f.name||'Bluetooth device')+'</span>'
+            +'<span style="display:flex;gap:6px;flex-wrap:wrap">'
+            +'<button class="cbtn" style="padding:2px 10px" onclick="btDo('+i+',0)">Connect</button>'
+            +'<button class="cbtn" style="padding:2px 10px" onclick="btDo('+i+',1)">Pair</button>'
+            +'<button class="cbtn" style="padding:2px 10px" onclick="btDo('+i+',2)">Use for audio</button>'
+            +'<button class="cbtn" style="padding:2px 10px" onclick="btDo('+i+',3)">Disconnect</button>'
+            +'</span></div>'
+            +'<div style="font-size:.8em;opacity:.6">'+esc(f.host||'')+(f.rssi?(' &middot; '+esc(f.rssi)+' dBm'):'')+'</div>'
+            +'<div class="rnote" id="bt-st-'+i+'" style="opacity:.75"></div></div>';
+        });
+      }
+      box.innerHTML=h;
+    }).catch(e=>{if(btn){btn.disabled=false;btn.innerHTML='&#127911; Search Bluetooth';}box.innerHTML='<div class="banner bad">'+esc(''+e)+'</div>';});
+  }
+  function btDo(i,c){
+    const f=(window._bt||[])[i]; if(!f)return;
+    const cmd=['connect','pair','use_for_audio','disconnect'][c]||'connect';
+    const st=$('#bt-st-'+i); if(st)st.textContent=cmd.replace(/_/g,' ')+'…';
+    api('/v1/devices/bluetooth',{method:'POST',body:JSON.stringify({address:f.host||'',name:f.name||'',command:cmd})}).then(r=>{
+      if(st)st.innerHTML=(r&&r.ok)?('&#10003; '+esc(r.device_name||f.name||'device')+' — '+esc(cmd.replace(/_/g,' '))):('<span style="color:#f87171">'+esc((r&&r.error)||'failed')+'</span>');
+    }).catch(e=>{if(st)st.innerHTML='<span style="color:#f87171">'+esc(''+e)+'</span>';});
   }
   function useBroker(host,port){const h=$('#mq_host'),p=$('#mq_port');if(h)h.value=host;if(p)p.value=port||1883;const f=$('#mq-found');if(f)f.innerHTML='<div class="rnote" style="margin-top:10px">Broker set to '+esc(host)+'. Click &ldquo;Save &amp; connect&rdquo;.</div>';}
   function openDiscover(){let f=$('#mq-found');if(!f){f=document.createElement('div');f.id='mq-found';$('#devices').appendChild(f);}f.scrollIntoView({behavior:'smooth',block:'nearest'});discoverDevices();}
@@ -2382,6 +2437,11 @@ class AddDiscovered(BaseModel):
     # A discovery result from /v1/devices/discover (kind/host/port/control/name/...).
     device: dict = {}
 
+class BluetoothAction(BaseModel):
+    address: str = ""             # BT MAC (from a scan); or leave blank and give a name
+    name: str = ""
+    command: str = "connect"      # connect | disconnect | pair | trust | use_for_audio
+
 class DevicePair(BaseModel):
     device_id: str
     code: Optional[str] = None    # PIN for AirPlay; omit to begin pairing
@@ -2982,12 +3042,36 @@ def devices_control(req: DeviceControl):
     return _device_server().control(req.device_id, req.command, req.value)
 
 @app.post("/v1/devices/discover", tags=["Devices"], dependencies=[Depends(require_member)])
-def devices_discover(timeout: float = 3.0, fresh: bool = False):
-    """Scan the LAN (mDNS + SSDP/UPnP) for brokers, media devices, AirPlay, Fire TV, Cast.
-    Runs both transports concurrently and merges into a rolling cache (repeat scans
-    accumulate); pass ``fresh=true`` to drop the cache and scan cold."""
+def devices_discover(timeout: float = 3.0, fresh: bool = False, kind: str = "all"):
+    """Scan for devices. ``kind=network`` → LAN only (mDNS + SSDP/UPnP: brokers, media, AirPlay,
+    Fire TV, Cast). ``kind=bluetooth`` → nearby Bluetooth only. ``kind=all`` (default) → both.
+    Runs transports concurrently, merged into a rolling cache; ``fresh=true`` scans cold."""
     from eli.runtime.device_server import discover
-    return discover(timeout=min(8.0, max(1.0, float(timeout))), fresh=bool(fresh))
+    k = (kind or "all").lower()
+    return discover(timeout=min(8.0, max(1.0, float(timeout))), fresh=bool(fresh),
+                    include_network=(k in ("all", "network")),
+                    include_bluetooth=(k in ("all", "bluetooth")))
+
+
+@app.post("/v1/devices/bluetooth", tags=["Devices"], dependencies=[Depends(require_member)])
+def devices_bluetooth(req: BluetoothAction):
+    """Control a Bluetooth device: connect / disconnect / pair / trust / use_for_audio. Give an
+    address (from a scan) or a spoken name; both resolve to the OS Bluetooth stack."""
+    try:
+        cmd = (req.command or "connect").strip().lower().replace(" ", "_").replace("-", "_")
+        addr = (req.address or "").strip()
+        if addr:
+            from eli.runtime import device_drivers
+            drv = device_drivers.get_driver("bluetooth")
+            if not drv:
+                return {"ok": False, "error": "bluetooth driver unavailable"}
+            res = dict(drv.control({"host": addr, "name": req.name or "", "driver": "bluetooth"}, cmd))
+            res.setdefault("device_name", req.name or addr)
+            return res
+        from eli.runtime.device_server import bluetooth_control_by_name
+        return bluetooth_control_by_name(req.name, cmd)
+    except Exception as e:
+        return {"ok": False, "error": str(e)}
 
 @app.get("/v1/devices/drivers", tags=["Devices"], dependencies=[Depends(_require_token)])
 def devices_drivers():
@@ -3860,31 +3944,60 @@ def _ensure_lan_cert():
 
 
 def _osc8(url: str, label: str | None = None) -> str:
-    """Wrap a URL as an OSC 8 terminal hyperlink so it's Ctrl/Cmd-clickable in
-    terminals that support them (GNOME Terminal, kitty, iTerm2, WezTerm, foot…).
-    Terminals that don't understand OSC 8 ignore the escapes and just show the label,
-    so we default the label to the URL itself — it stays visible and copy-pasteable."""
+    """Wrap a URL as an OSC 8 terminal hyperlink — Ctrl/Cmd-clickable in terminals that
+    support them (GNOME Terminal, kitty, iTerm2, WezTerm, foot…). The label defaults to
+    the URL itself, so it stays visible and copy-pasteable either way. (NB: `cat -v` and
+    log files always show the raw escapes — that is NOT how a live terminal renders it.)"""
     label = label or url
     return f"\033]8;;{url}\033\\{label}\033]8;;\033\\"
 
 
-def _open_browser_async(url: str, delay: float = 1.2) -> None:
+def _open_browser_async(url: str, delay: float = 1.2) -> bool:
     """Open `url` in the default browser shortly after the server comes up, so you
-    don't have to click or copy anything. Skipped on headless boxes (no DISPLAY /
-    WAYLAND_DISPLAY) and when ELI_API_NO_BROWSER is set."""
+    never have to click or copy anything. Returns True if a browser open was launched.
+    Skipped only on a genuinely headless box (no desktop session at all) or when
+    ELI_API_NO_BROWSER is set."""
     if os.environ.get("ELI_API_NO_BROWSER", "").strip().lower() in ("1", "true", "yes", "on"):
-        return
-    if _sys.platform.startswith("linux") and not (
-            os.environ.get("DISPLAY") or os.environ.get("WAYLAND_DISPLAY")):
-        return  # headless box — nothing to open a browser onto
-    def _go():
+        return False
+    # Only bail if there's clearly NO desktop session to open onto (real headless server).
+    if _sys.platform.startswith("linux") and not any(
+            os.environ.get(v) for v in
+            ("DISPLAY", "WAYLAND_DISPLAY", "XDG_SESSION_TYPE", "XDG_CURRENT_DESKTOP")):
+        return False
+
+    def _launch():
+        # Try every mechanism until one works — different desktops/confinements favour
+        # different ones. webbrowser first (it returns True on success and is what worked
+        # historically), then the OS "open" handlers.
+        import shutil
+        import subprocess
+        plat = _sys.platform
         try:
             import webbrowser
-            time.sleep(delay)          # let uvicorn finish binding first
-            webbrowser.open(url)
+            if webbrowser.open(url):
+                return
         except Exception:
             pass
+        try:
+            if plat.startswith("linux"):
+                for name in ("xdg-open", "gio", "sensible-browser", "gnome-open"):
+                    opener = shutil.which(name)
+                    if opener:
+                        args = [opener, "open", url] if name == "gio" else [opener, url]
+                        subprocess.Popen(args, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                        return
+            elif plat == "darwin":
+                subprocess.Popen(["open", url], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            elif plat.startswith("win"):
+                os.startfile(url)  # type: ignore[attr-defined]
+        except Exception:
+            pass
+
+    def _go():
+        time.sleep(delay)          # let uvicorn finish binding first
+        _launch()
     threading.Thread(target=_go, daemon=True).start()
+    return True
 
 
 def main():
@@ -3942,10 +4055,15 @@ def main():
         local_url = f"http://127.0.0.1:{port}/"
     else:
         os.environ.pop("ELI_API_ALLOW_TOKENLESS", None)
-        token = _api_token()
+        token = _api_token()   # explicit --token / ELI_API_TOKEN env wins
         auto_generated = not token
         if auto_generated:
-            token = secrets.token_urlsafe(32)
+            # Use the PERSISTED stable token (saved 0600 under config_dir) so it stays the
+            # SAME across restarts — otherwise every restart mints a fresh random token and
+            # strands the already-paired phone (its QR/URL carries the old one → 401 →
+            # "loads but not fully"). Rotate deliberately via the Connect tab.
+            from api.api_token import get_stable_token
+            token = get_stable_token()
             os.environ["ELI_API_TOKEN"] = token
         ip = _lan_ip()
         _bar = "=" * 72
@@ -3953,16 +4071,17 @@ def main():
         print(f"  ELI web server on the LAN  ({host}:{port})", flush=True)
         local_url = f"http://127.0.0.1:{port}/#token={token}"
         print(f"  Phone — open the Connect tab and scan, or visit:", flush=True)
-        print(f"      {_osc8(f'http://{ip}:{port}/#token={token}')}", flush=True)
+        print(f"      http://{ip}:{port}/#token={token}", flush=True)
         if https_port:
             print(f"  Phone microphone (voice) needs HTTPS — same Connect tab, or visit:", flush=True)
-            print(f"      {_osc8(f'https://{ip}:{https_port}/#token={token}')}", flush=True)
+            print(f"      https://{ip}:{https_port}/#token={token}", flush=True)
             print("      (self-signed: accept the one-time 'not private' warning to use the mic)", flush=True)
         else:
             print("  Tip: add --https to also enable the phone microphone (voice).", flush=True)
         print(f"  Or send header:   Authorization: Bearer {token}", flush=True)
         if auto_generated:
-            print("  (Token auto-generated; pass --token <secret> for a stable one.)", flush=True)
+            print("  (Stable token — saved locally, survives restarts so your phone stays paired.", flush=True)
+            print("   Change it with the Connect tab's Rotate, or pass --token <secret>.)", flush=True)
         try:
             _fw = _firewall_hint()
             if _fw.get("commands"):
@@ -3976,8 +4095,12 @@ def main():
 
     # Open-on-this-computer: a clickable link + auto-launch the local browser so you
     # never have to copy-paste the URL (set ELI_API_NO_BROWSER=1 to skip the launch).
-    print(f"  On this computer:  {_osc8(local_url)}", flush=True)
-    _open_browser_async(local_url)
+    print(f"  On this computer:  {local_url}", flush=True)
+    if _open_browser_async(local_url):
+        print("  (opening it in your browser now — Ctrl-click or copy the URL above if it doesn't)",
+              flush=True)
+    else:
+        print("  (copy the URL above into your browser)", flush=True)
 
     # Run HTTPS (voice) alongside on its own port, in a daemon thread.
     if https_port and _crt and _key:

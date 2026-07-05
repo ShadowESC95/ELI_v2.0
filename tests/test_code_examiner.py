@@ -35,6 +35,11 @@ def tmp_module(request):
         p.unlink(missing_ok=True)
         for bak in p.parent.glob(p.name + ".eli_bak*"):
             bak.unlink(missing_ok=True)
+        # Remove the compiled bytecode too — otherwise the .pyc lingers as a "ghost"
+        # (no matching .py) in __pycache__ and trips the source-only-pycache guard
+        # (test_12_filesystem) on the next full-suite run.
+        for pyc in (p.parent / "__pycache__").glob(p.stem + ".*.pyc"):
+            pyc.unlink(missing_ok=True)
     CE.clear_pending_fix()
 
 
