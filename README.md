@@ -19,6 +19,15 @@ touches real hardware. I'm sharing it partly to see if there's interest. **[ELI 
 is mapped out and in active development; this repo stays the v2 line. Feedback helps and is more than appreciated/welcomed, a second pair of eyes is better than just mine because the project has turned into a lot more than initially planned! I prefer someone bringing an issue to me rather than giving me a compliment. Finding issues and reporting them is invaluable to me — bugs, ideas,
 or a plain "I tried it and…" — [open an issue](https://github.com/ShadowESC95/ELI_v2.0/issues). Also, if Eli v2 helps and you want to support my fridge and university tuition fees, feel free to check out my ko-fi page - Dev's gotta eat too! Enjoy, share, and report!
 
+**Not open source — on purpose.** ELI is **source-available** under
+[PolyForm Internal Use](LICENSE): read it, run it, change it on *your* machine — you should be able
+to audit something that drives your desktop and shell. What you can't do is redistribute it,
+repackage it, or host it as someone else's product. I'm one dev; I want capable local AI in people's
+hands to use and learn from, but I also want to keep steering this project — not watch it forked
+outside, resold, or shipped as something I can't stand behind. That won't stop every bad actor, and
+I know I can't control piracy; it still sets clear terms and gives me a real basis when someone
+crosses the line.
+
 </div>
 
 ---
@@ -344,7 +353,6 @@ python -m eli.core.model_download --auto      # one best-fit for your VRAM
 | `qwen3.6-35b-a3b` | Qwen3.6-35B-A3B (MoE, Apache-2.0) | ~20.6 GB | 24 GB GPU / CPU |
 | `falcon-h1-34b` | Falcon-H1-34B-Instruct | ~18.9 GB | 24 GB GPU / CPU |
 
-Note: Just want to write a quick note here. These parameters/settings are based on optimum efficiency and latency etc. I started developing Eli on an RTX 2060 super, running qwen3.6-35b-a3b and rceived some (non complex) answers in quiet good time. So if you don't mind waiting a little longer, and giving Eli time to think, it will respond- again, this is just a physics problem (upgrade hardware to run a better model/optimise settings, to find that sweet spot and let Eli does what it does best) 
 You can also drop **any `.gguf`** into `models/`, or point ELI at your own catalog
 (`ELI_MODEL_CATALOG`). The tiny **embedder** (memory/RAG) installs automatically; vision is an
 optional extra. Want ELI to *speak in its own voice* out of the box? Fine-tune your own model —
@@ -630,9 +638,7 @@ without warranty.
 Please report it — with a link — to [jaybridgeman0095@gmail.com](mailto:jaybridgeman0095@gmail.com);
 it helps the author act on violations.
 
-> **Why source-available?** Because I want a genuinely capable, fully-local AI assistant in people's
-> hands to *use and learn from* — while keeping the right to steer the project myself, rather than
-> watch someone take it closed and resell it.
+> **Why PolyForm?** See the note at the top of this README — same place as the v2 rough-edges banner.
 
 ## Contact
 
