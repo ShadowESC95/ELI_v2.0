@@ -44,6 +44,28 @@ def test_linux_pick_controller_prefers_valid_mac():
     assert pick == "AA:BB:CC:DD:EE:FF"
 
 
+def test_linux_default_hci_id_uses_busctl_not_hardcoded(monkeypatch):
+    monkeypatch.setattr(bp, "_linux_bluez_default_controller_mac", lambda: "AA:BB:CC:DD:EE:FF")
+    monkeypatch.setattr(bp, "_linux_hci_for_controller_mac", lambda m: "hci2" if m == "AA:BB:CC:DD:EE:FF" else "")
+    assert bp._linux_default_hci_id() == "hci2"
+
+
+def test_linux_device_dbus_path_prefers_active_hci(monkeypatch):
+    tree = "└─ /org/bluez/hci2/dev_AA_BB_CC_DD_EE_FF\n"
+    monkeypatch.setattr(bp, "_sh", lambda args, timeout=10: (0, tree))
+    monkeypatch.setattr(bp, "_linux_default_hci_id", lambda: "hci2")
+    path = bp._linux_device_dbus_path("AA:BB:CC:DD:EE:FF")
+    assert path == "/org/bluez/hci2/dev_AA_BB_CC_DD_EE_FF"
+
+
+def test_linux_hci_down_skips_zero_mac_ghosts(monkeypatch):
+    monkeypatch.setattr(bp, "_linux_kernel_adapters", lambda: [
+        bp.BtAdapter(id="hci1", address="00:00:00:00:00:00", state="down", source="kernel"),
+        bp.BtAdapter(id="hci2", address="AA:BB:CC:DD:EE:FF", state="down", source="kernel"),
+    ])
+    assert bp._linux_hci_down() == ["hci2"]
+
+
 def test_ensure_radio_delegates_by_platform(monkeypatch):
     monkeypatch.setattr(bp, "platform_kind", lambda: "darwin")
     monkeypatch.setattr(bp, "_darwin_ensure_radio", lambda: (True, "default"))

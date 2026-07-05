@@ -274,9 +274,31 @@ def _linux_hci_down() -> List[str]:
     for a in _linux_kernel_adapters():
         if a.state != "down":
             continue
-        if _valid_mac(a.address) or a.id == "hci0":
-            down.append(a.id)
+        # Skip ghost adapters (zero MAC) — common with disabled second radios.
+        if not _valid_mac(a.address):
+            continue
+        down.append(a.id)
     return down
+
+
+def adapter_display_alias() -> str:
+    """Hub label shown on Bluetooth pairing screens — from user settings, never hard-coded."""
+    try:
+        from eli.runtime.device_drivers import BluetoothDriver
+        return BluetoothDriver.resolve_adapter_alias()
+    except Exception:
+        pass
+    try:
+        from eli.core.runtime_settings import load_settings
+        s = load_settings() or {}
+        override = str(s.get("bluetooth_display_name") or "").strip()
+        if override:
+            return override[:48]
+        zone = str(s.get("hub_zone") or "").strip() or "Home"
+        brand = str(s.get("hub_brand") or "").strip() or "Eli"
+        return f"{brand} · {zone}"[:48]
+    except Exception:
+        return "Eli"
 
 
 def _linux_try_recover() -> None:
@@ -966,38 +988,94 @@ def _bluetoothctl_quote(value: str) -> str:
     return v
 
 
-def _linux_default_hci_id() -> str:
-    """BlueZ controller id (e.g. hci2) for the default adapter."""
-    _, listing = _sh(["bluetoothctl", "list"], timeout=6)
+def _linux_bluez_default_controller_mac() -> str:
+    """MAC of BlueZ's [default] controller, or the first powered controller."""
+    _, listing = _sh(["bluetoothctl", "list"], timeout=8)
+    lines = re.sub(r"\x1b\[[0-9;]*m", "", listing or "").splitlines()
+    first_mac = ""
     default_mac = ""
-    for line in re.sub(r"\x1b\[[0-9;]*m", "", listing or "").splitlines():
+    for line in lines:
         s = line.strip()
         if not s.lower().startswith("controller"):
             continue
         parts = s.split()
-        if len(parts) >= 2:
-            default_mac = parts[1].upper()
-        if "[default]" in s.lower():
+        if len(parts) < 2:
+            continue
+        mac = parts[1].upper()
+        if _valid_mac(mac) and not first_mac:
+            first_mac = mac
+        if "[default]" in s.lower() and _valid_mac(mac):
+            default_mac = mac
             break
+    if default_mac:
+        return default_mac
+    _, show = _sh(["bluetoothctl", "show"], timeout=8)
+    for line in re.sub(r"\x1b\[[0-9;]*m", "", show or "").splitlines():
+        s = line.strip()
+        if s.lower().startswith("controller"):
+            parts = s.split()
+            if len(parts) >= 2 and _valid_mac(parts[1]):
+                return parts[1].upper()
+    return first_mac
+
+
+def _linux_hci_for_controller_mac(mac: str) -> str:
+    """Map a controller MAC to its kernel hciN id via sysfs."""
+    want = (mac or "").strip().upper()
+    if not _valid_mac(want):
+        return ""
     for hci_dir in sorted(Path("/sys/class/bluetooth").glob("hci*")):
         try:
-            mac = (hci_dir / "address").read_text(encoding="utf-8").strip().upper()
+            addr = (hci_dir / "address").read_text(encoding="utf-8").strip().upper()
         except OSError:
             continue
-        if not default_mac or mac == default_mac:
+        if addr == want:
             return hci_dir.name
+    return ""
+
+
+def _linux_busctl_hci_ids() -> List[str]:
+    """All hciN controllers registered with BlueZ (any hardware)."""
     rc, out = _sh(["busctl", "tree", "org.bluez"], timeout=8)
+    ids: List[str] = []
+    if rc != 0:
+        return ids
     for line in (out or "").splitlines():
-        m = re.search(r"/org/bluez/(hci\d+)\s*$", line.strip().rstrip("├└│─ "))
-        if m:
-            return m.group(1)
-    return "hci0"
+        m = re.search(r"/org/bluez/(hci\d+)", line)
+        if m and m.group(1) not in ids:
+            ids.append(m.group(1))
+    return ids
+
+
+def _linux_default_hci_id() -> str:
+    """Active BlueZ controller hci id — discovered from OS, never assumed."""
+    mac = _linux_bluez_default_controller_mac()
+    if mac:
+        hci = _linux_hci_for_controller_mac(mac)
+        if hci:
+            return hci
+    # Prefer a powered kernel interface that BlueZ also knows about.
+    bluez_hcis = set(_linux_busctl_hci_ids())
+    for a in _linux_kernel_adapters():
+        if a.id in bluez_hcis and a.state == "up" and _valid_mac(a.address):
+            return a.id
+    if bluez_hcis:
+        return sorted(bluez_hcis)[0]
+    for a in _linux_kernel_adapters():
+        if a.state == "up" and _valid_mac(a.address):
+            return a.id
+    adapters = _linux_kernel_adapters()
+    if adapters:
+        return adapters[0].id
+    return ""
 
 
 def _linux_device_dbus_path(addr: str) -> str:
     """D-Bus path for a device on the active BlueZ controller."""
     addr_u = (addr or "").strip().upper().replace(":", "_")
     token = f"dev_{addr_u}"
+    prefer_hci = _linux_default_hci_id()
+    matches: List[str] = []
     rc, out = _sh(["busctl", "tree", "org.bluez"], timeout=8)
     if rc == 0:
         for line in (out or "").splitlines():
@@ -1005,9 +1083,16 @@ def _linux_device_dbus_path(addr: str) -> str:
                 continue
             m = re.search(rf"(/org/bluez/hci\d+/{re.escape(token)})", line)
             if m:
-                return m.group(1)
-    hci = _linux_default_hci_id()
-    return f"/org/bluez/{hci}/{token}"
+                matches.append(m.group(1))
+    if matches:
+        if prefer_hci:
+            for path in matches:
+                if f"/org/bluez/{prefer_hci}/" in path:
+                    return path
+        return matches[0]
+    if prefer_hci:
+        return f"/org/bluez/{prefer_hci}/{token}"
+    return ""
 
 
 def _linux_dbus_call(path: str, interface: str, method: str,
@@ -1034,7 +1119,10 @@ def _linux_dbus_set_trusted(path: str) -> Tuple[bool, str]:
 
 def _linux_dbus_bt_steps(addr: str, steps: List[str]) -> Tuple[bool, str, str]:
     """Pair/trust/connect via D-Bus — works when a desktop agent is already registered."""
+    ensure_radio()
     path = _linux_device_dbus_path(addr)
+    if not path:
+        return False, "Bluetooth device path not found — run Search Bluetooth with device in pairing mode", "no_path"
     outputs: List[str] = []
     for step in steps:
         if step == "pair":
@@ -1109,7 +1197,7 @@ def linux_pair_session(
     if not ok:
         return False, radio_msg or "Bluetooth radio off", "radio_off"
 
-    alias = (alias or "Eli · Home").strip() or "Eli · Home"
+    alias = (alias or adapter_display_alias()).strip() or adapter_display_alias()
     scan_secs = max(6, min(int(scan_secs), 25))
 
     # Discover device while it is in pairing mode
