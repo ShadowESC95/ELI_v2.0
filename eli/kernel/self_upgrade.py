@@ -12,17 +12,20 @@ Gives ELI the ability to:
 from __future__ import annotations
 
 import os
+import re
 import subprocess
 import sys
 import tempfile
 import time
 import traceback
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 
 
 from eli.core.paths import project_root as _project_root
 PROJECT_ROOT = _project_root()
+_DEFAULT_RELEASE_REPO = os.environ.get("ELI_RELEASE_REPO", "ShadowESC95/ELI_v2.0")
+_DEFAULT_RELEASE_TAG = os.environ.get("ELI_RELEASE_TAG", "v2.0.0")
 
 
 def _run(cmd: List[str], cwd: Optional[Path] = None, timeout: int = 120) -> Dict[str, Any]:
@@ -62,12 +65,13 @@ class SelfUpgrader:
     # ── Public API (called by executor) ──────────────────────────────────────
 
     def upgrade(self, request: str = "") -> str:
-        """Full upgrade: git pull → pip install → rebuild indexes."""
+        """Upgrade: prefer GitHub release wheel, then safe git ff-only, then indexes."""
         self.log.clear()
         self._log("Starting ELI self-upgrade…")
 
         steps = [
-            ("Git pull", self._git_pull),
+            ("Release upgrade", self._release_upgrade),
+            ("Git pull (ff-only)", self._git_pull),
             ("Pip upgrade", self._pip_upgrade),
             ("Rebuild FAISS index", self._rebuild_faiss),
             ("Rebuild knowledge graph", self._rebuild_kg),
@@ -140,14 +144,79 @@ class SelfUpgrader:
 
     # ── Private step implementations ──────────────────────────────────────────
 
+    def _local_version(self) -> str:
+        try:
+            import importlib.metadata as im
+            return str(im.version("eli-mkxi"))
+        except Exception:
+            pass
+        try:
+            text = (PROJECT_ROOT / "pyproject.toml").read_text(encoding="utf-8")
+            m = re.search(r'^version\s*=\s*"([^"]+)"', text, re.M)
+            if m:
+                return m.group(1)
+        except Exception:
+            pass
+        return "0.0.0"
+
+    def _release_upgrade(self) -> Tuple[bool, str]:
+        """Install/upgrade from the published GitHub release wheel (not stale git)."""
+        repo = _DEFAULT_RELEASE_REPO
+        tag = _DEFAULT_RELEASE_TAG
+        work = Path(tempfile.mkdtemp(prefix="eli_release_upgrade_"))
+        try:
+            dl = _run(
+                ["gh", "release", "download", tag, "--repo", repo,
+                 "--pattern", "eli_mkxi-*.whl", "--dir", str(work), "--clobber"],
+                timeout=180,
+            )
+            if not dl["ok"]:
+                return False, f"No release wheel ({tag}) — using local checkout: {dl['stderr'][:80]}"
+            wheels = sorted(work.glob("eli_mkxi-*.whl"))
+            if not wheels:
+                return False, f"Release {tag} has no eli_mkxi wheel — skipped."
+            wheel = wheels[-1]
+            before = self._local_version()
+            ins = _run(
+                [sys.executable, "-m", "pip", "install", "-q", "--upgrade", str(wheel)],
+                timeout=300,
+            )
+            if not ins["ok"]:
+                return False, ins["stderr"][:120]
+            after = self._local_version()
+            return True, f"Release wheel {wheel.name} ({before} → {after})"
+        finally:
+            try:
+                for p in work.glob("*"):
+                    p.unlink(missing_ok=True)
+                work.rmdir()
+            except Exception:
+                pass
+
     def _git_pull(self):
-        """Pull latest changes if inside a git repo."""
+        """Pull only when origin is strictly ahead (ff-only — never force, never downgrade)."""
         git = _run(["git", "rev-parse", "--is-inside-work-tree"])
         if not git["ok"]:
-            return False, "Not a git repository — skipping pull."
+            return False, "Not a git repository — skipped."
+        fetch = _run(["git", "fetch", "--quiet", "origin"], timeout=120)
+        if not fetch["ok"]:
+            return False, f"fetch failed: {fetch['stderr'][:80]}"
+        upstream = _run(["git", "rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{u}"])
+        if not upstream["ok"]:
+            return False, "No upstream branch — skipped pull."
+        local = _run(["git", "rev-parse", "HEAD"])
+        remote = _run(["git", "rev-parse", upstream["stdout"]])
+        if not local["ok"] or not remote["ok"]:
+            return False, "Could not compare local/remote revisions."
+        if local["stdout"] == remote["stdout"]:
+            return True, "Already up to date with origin."
+        # Local is ahead — do not pull (avoids replacing newer local work with older remote).
+        ancestor = _run(["git", "merge-base", "--is-ancestor", remote["stdout"], "HEAD"])
+        if ancestor["ok"] and ancestor["returncode"] == 0:
+            return True, "Local checkout is ahead of origin — skipped pull."
         r = _run(["git", "pull", "--ff-only"])
         if r["ok"]:
-            detail = r["stdout"].splitlines()[0] if r["stdout"] else "Already up to date."
+            detail = r["stdout"].splitlines()[0] if r["stdout"] else "Fast-forwarded."
             return True, detail
         return False, r["stderr"][:120]
 
