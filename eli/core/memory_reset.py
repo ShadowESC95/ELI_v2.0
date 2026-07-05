@@ -10,9 +10,13 @@ caches and re-synced on next launch. This module knows ALL of them:
   • artifacts/db/*.sqlite3        rows wiped (schema kept, FTS reset, VACUUM)
   • vectors/index.faiss + meta    semantic index reset (rebuilds empty)
   • runtime/users/**/user_profile.json + user_info*   learned profile
-  • config/settings.json[user_name]                   the identity SEED
-  • runtime/world_model.json, state.json              name fields blanked
+  • config/settings.json identity fields              name, device labels, …
+  • runtime/world_model.json, state.json              removed or name-scrubbed
   • conversations/*.json                              session transcripts
+  • eli/cognition/persona.auto.txt                    ELI learned overlay
+  • runtime residue (last_trace, user_info.txt, …)  stale caches
+
+After wipe, rebuilds the full DB architecture via init_all_data().
 
 Used by both tools/clear_memory.py (CLI) and the GUI Advanced settings page.
 VACUUM is best-effort so a reset can run even while ELI holds DB connections
@@ -25,9 +29,25 @@ import shutil
 import sqlite3
 import time
 from pathlib import Path
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional
 
 _NAME_KEYS = {"name", "preferred_name", "user_name", "nickname", "alias", "first_name"}
+_IDENTITY_SETTINGS = {
+    "user_name": "",
+    "bluetooth_display_name": "",
+    "device_custom_names": {},
+    "audio_output_aliases": {},
+}
+_RUNTIME_RESIDUE = (
+    "runtime_snapshot.json",
+    "runtime/last_trace.json",
+    "runtime/last_response.json",
+    "runtime/last_image_generation.json",
+    "user_info.txt",
+    "user_info.meta.json",
+    "user_info_diff.jsonl",
+)
+_BLANK_PERSONA_TEMPLATE = Path(__file__).resolve().parents[2] / "config" / "templates" / "persona.auto.template.txt"
 
 
 def bases():
@@ -44,6 +64,21 @@ def _skip(p: Path) -> bool:
     return "_memory_backup_" in str(p)
 
 
+def _persona_overlay_paths(config: Path) -> List[Path]:
+    paths: List[Path] = []
+    try:
+        from eli.core.paths import persona_auto_path
+        p = persona_auto_path()
+        if p.exists():
+            paths.append(p)
+    except Exception:
+        pass
+    alt = config / "persona.auto.txt"
+    if alt.exists() and alt not in paths:
+        paths.append(alt)
+    return paths
+
+
 def discover(base: Path, config: Path,
              keep_conversations: bool = False, keep_profile: bool = False) -> Dict[str, List[Path]]:
     """Existing targets by category."""
@@ -52,9 +87,15 @@ def discover(base: Path, config: Path,
     t["faiss"] = [p for p in (base / "vectors").glob("*.faiss") if not _skip(p)]
     if (base / "vectors" / "meta.json").exists():
         t["faiss"].append(base / "vectors" / "meta.json")
-    t["name_caches"] = [p for p in (base / "runtime" / "world_model.json",
-                                    base / "state.json",
-                                    base / "runtime" / "state.json") if p.exists()]
+    wm = base / "runtime" / "world_model.json"
+    st = [base / "state.json", base / "runtime" / "state.json"]
+    if keep_profile:
+        t["name_caches"] = [p for p in [wm, *st] if p.exists()]
+        t["runtime_wipe"] = []
+    else:
+        t["name_caches"] = []
+        t["runtime_wipe"] = [p for p in [wm, *st] if p.exists()]
+        t["runtime_wipe"].extend(p for rel in _RUNTIME_RESIDUE if (p := base / rel).exists())
     t["settings"] = [config / "settings.json"] if (config / "settings.json").exists() and not keep_profile else []
     t["profile"] = []
     if not keep_profile:
@@ -63,12 +104,10 @@ def discover(base: Path, config: Path,
                 t["profile"].append(p)
     t["conversations"] = ([] if keep_conversations
                           else [p for p in (base / "conversations").rglob("*.json") if not _skip(p)])
-    # Transient runtime state — pending offers ELI may have left mid-conversation
-    # (code-fix suggestions, app/package repair offers). Not "learned" memory but
-    # a true factory reset should not leave a stale pending action behind.
     t["transient"] = [p for p in (base / "pending_code_fix.json",
                                   base / "pending_remediation.json")
                       if p.exists()]
+    t["persona_overlay"] = _persona_overlay_paths(config)
     return t
 
 
@@ -78,13 +117,7 @@ def counts(t: Dict[str, List[Path]]) -> Dict[str, int]:
 
 # ── operations ──────────────────────────────────────────────────────────────
 def clear_db(path: Path, keep_tables: "frozenset[str] | set[str] | None" = None) -> int:
-    """Delete all rows (keep schema), reset FTS, best-effort VACUUM. Returns rows cleared.
-
-    `keep_tables` is an opt-in allow-list of table names whose rows are LEFT INTACT
-    (default empty → wipe everything, the factory-reset behaviour). Used by the
-    "fresh slate but keep my usage history" path to preserve the habits/usage tally
-    (`habits`, `habit_events`, `habit_rules`) while clearing memories/KG/profile/etc.
-    Tables not present in this DB are simply ignored."""
+    """Delete all rows (keep schema), reset FTS, best-effort VACUUM. Returns rows cleared."""
     keep = {str(t) for t in (keep_tables or ())}
     c = sqlite3.connect(str(path)); c.isolation_level = None
     try:
@@ -121,7 +154,7 @@ def clear_db(path: Path, keep_tables: "frozenset[str] | set[str] | None" = None)
         except Exception:
             pass
         try:
-            c.execute("VACUUM")  # best-effort: may fail if ELI holds a connection
+            c.execute("VACUUM")
         except Exception:
             pass
         return before
@@ -154,16 +187,78 @@ def scrub_json_names(path: Path) -> int:
     return n
 
 
-def clear_settings_name(path: Path) -> bool:
+def clear_settings_identity(path: Path) -> bool:
+    """Clear user-specific fields in settings.json (name, device labels, …)."""
     try:
         d = json.loads(path.read_text(encoding="utf-8"))
     except Exception:
         return False
-    if str(d.get("user_name", "")).strip():
-        d["user_name"] = ""
+    changed = False
+    for key, blank in _IDENTITY_SETTINGS.items():
+        cur = d.get(key)
+        if cur == blank:
+            continue
+        if isinstance(blank, dict):
+            if cur:
+                d[key] = dict(blank)
+                changed = True
+        elif str(cur or "").strip() != str(blank).strip():
+            d[key] = blank
+            changed = True
+    if changed:
         path.write_text(json.dumps(d, indent=2), encoding="utf-8")
+    return changed
+
+
+def clear_settings_name(path: Path) -> bool:
+    """Backward-compatible alias — clears full identity block in settings."""
+    return clear_settings_identity(path)
+
+
+def reset_persona_overlay(template: Optional[Path] = None) -> bool:
+    """Replace persona.auto.txt with the blank shipped template."""
+    tpl = template or _BLANK_PERSONA_TEMPLATE
+    text = ""
+    if tpl.exists():
+        text = tpl.read_text(encoding="utf-8")
+    else:
+        text = (
+            "# Auto-updated persona overlay\n"
+            "# Generated from habits, reflection, self-improvement, memory, and runtime signals.\n"
+        )
+    try:
+        from eli.cognition.persona import write_auto_persona
+        write_auto_persona(text)
         return True
-    return False
+    except Exception:
+        try:
+            from eli.core.paths import persona_auto_path
+            dest = persona_auto_path()
+            dest.parent.mkdir(parents=True, exist_ok=True)
+            dest.write_text(text.rstrip() + "\n", encoding="utf-8")
+            return True
+        except Exception:
+            return False
+
+
+def rebuild_after_reset(verbose: bool = False) -> Dict[str, Any]:
+    """Drop in-memory caches and rebuild the full blank DB architecture."""
+    out: Dict[str, Any] = {"init_ok": True, "init_steps": 0, "init_failed": []}
+    try:
+        from eli.memory import _clear_memory_singletons
+        _clear_memory_singletons()
+    except Exception:
+        pass
+    try:
+        from eli.core.init_data import init_all_data
+        results = init_all_data(verbose=verbose)
+        out["init_steps"] = len(results)
+        out["init_failed"] = [n for n, ok, _ in results if not ok]
+        out["init_ok"] = not out["init_failed"]
+    except Exception as e:
+        out["init_ok"] = False
+        out["init_error"] = str(e)
+    return out
 
 
 def backup(t: Dict[str, List[Path]], base: Path) -> Path:
@@ -182,12 +277,9 @@ def backup(t: Dict[str, List[Path]], base: Path) -> Path:
 
 def run_reset(keep_profile: bool = False, keep_conversations: bool = False,
               do_backup: bool = True,
-              keep_tables: "frozenset[str] | set[str] | None" = None) -> Dict[str, Any]:
-    """Perform the reset. Returns a summary dict (safe to show in a UI).
-
-    `keep_tables` (opt-in) preserves the named DB tables' rows across the wipe — e.g.
-    ``{"habits", "habit_events", "habit_rules"}`` to keep the usage/action history on a
-    "fresh slate, but remember what I use" reset. Default None → full factory reset."""
+              keep_tables: "frozenset[str] | set[str] | None" = None,
+              rebuild: bool = True) -> Dict[str, Any]:
+    """Perform the reset. Returns a summary dict (safe to show in a UI)."""
     base, config = bases()
     t = discover(base, config, keep_conversations, keep_profile)
     summary: Dict[str, Any] = {"ok": True, "backup": None, "db_rows": 0, "errors": []}
@@ -203,17 +295,15 @@ def run_reset(keep_profile: bool = False, keep_conversations: bool = False,
             summary["db_rows"] += clear_db(p, keep_tables=keep_tables)
         except Exception as e:
             summary["errors"].append(f"{p.name}: {e}")
-    for p in t["faiss"] + t["profile"] + t["conversations"] + t.get("transient", []):
+
+    removed = (t["faiss"] + t["profile"] + t["conversations"]
+               + t.get("transient", []) + t.get("runtime_wipe", []))
+    for p in removed:
         try:
             p.unlink()
         except Exception:
             pass
-    # Drop the in-memory FAISS singleton so the wipe takes effect IMMEDIATELY,
-    # without relying on a restart. Otherwise the live VectorStore keeps serving
-    # the deleted vectors and its next autosave re-writes the stale index back to
-    # disk — silently undoing the FAISS half of the wipe (orphan vectors pointing
-    # at deleted memories). The next get_vector_store() rebuilds from the (now
-    # empty) index/DB.
+
     try:
         from eli.memory.vector_store import reset_vector_store
         reset_vector_store()
@@ -221,11 +311,19 @@ def run_reset(keep_profile: bool = False, keep_conversations: bool = False,
     except Exception as e:
         summary["vector_store_reset"] = False
         summary["errors"].append(f"vector_store_reset: {e}")
+
     summary["name_fields_blanked"] = sum(scrub_json_names(p) for p in t["name_caches"])
-    summary["settings_name_cleared"] = any(clear_settings_name(p) for p in t["settings"])
+    summary["settings_identity_cleared"] = any(clear_settings_identity(p) for p in t["settings"])
+    summary["settings_name_cleared"] = summary["settings_identity_cleared"]
+    summary["persona_overlay_reset"] = reset_persona_overlay()
     summary["faiss_reset"] = len(t["faiss"])
     summary["profiles_removed"] = len(t["profile"])
     summary["conversations_removed"] = len(t["conversations"])
     summary["transient_removed"] = len(t.get("transient", []))
+    summary["runtime_wiped"] = len(t.get("runtime_wipe", []))
+
+    if rebuild:
+        summary["rebuild"] = rebuild_after_reset()
+
     summary["ok"] = not summary["errors"]
     return summary

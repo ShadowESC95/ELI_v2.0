@@ -7,8 +7,9 @@ identity in, while preserving all DB schema and install config. Backs up first.
 
 Stores cleared (see eli/core/memory_reset.py for the authoritative list):
   artifacts/db/*.sqlite3 · vectors/index.faiss · runtime/users/**/user_profile
-  · config/settings.json[user_name] · runtime/world_model.json · state.json
-  · conversations/*.json
+  · config/settings.json identity fields · runtime/world_model.json · state.json
+  · conversations/*.json · persona.auto.txt · runtime residue caches
+  Then rebuilds full DB architecture (init_all_data).
 
 Usage:
   python tools/clear_memory.py                 # show plan, confirm, back up, wipe
@@ -50,8 +51,10 @@ def main(argv=None) -> int:
         "faiss": "FAISS index files",
         "profile": "profile files",
         "name_caches": "name-cache files (name fields blanked)",
-        "settings": "settings.json user_name",
+        "runtime_wipe": "runtime caches (world model, traces, …)",
+        "settings": "settings.json identity fields",
         "conversations": "conversation logs",
+        "persona_overlay": "persona.auto.txt overlay",
     }
     for k, lbl in labels.items():
         print(f"    {len(t.get(k, [])):>4}  {lbl}")
@@ -80,13 +83,18 @@ def main(argv=None) -> int:
     print(f"  ✓ wiped {s['db_rows']} DB rows · reset {s['faiss_reset']} FAISS file(s) · "
           f"removed {s['profiles_removed']} profile file(s)")
     print(f"  ✓ blanked {s['name_fields_blanked']} name field(s) · "
-          f"settings user_name {'cleared' if s['settings_name_cleared'] else 'unchanged'} · "
+          f"settings identity {'cleared' if s.get('settings_identity_cleared') else 'unchanged'} · "
           f"deleted {s['conversations_removed']} conversation log(s)")
+    if s.get("persona_overlay_reset"):
+        print("  ✓ persona.auto.txt reset to blank template")
+    rb = s.get("rebuild") or {}
+    if rb.get("init_steps"):
+        print(f"  ✓ rebuilt DB architecture ({rb['init_steps']} init steps)")
     if s.get("backup"):
         print(f"  restore from: {s['backup']}")
     if s.get("errors"):
         print(f"  ! errors: {s['errors']}")
-    print("  Schemas intact. Restart ELI — it will start fresh (and ask your name).\n")
+    print("  Schemas intact. Restart ELI for a clean slate (will ask your name).\n")
     return 0 if s.get("ok") else 2
 
 

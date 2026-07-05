@@ -208,6 +208,18 @@ if ((-not (Test-Path $Settings)) -and (Test-Path $Template)) {
     Write-Host "[OK] Seeded clean config: config\settings.json" -ForegroundColor Green
 }
 New-Item -ItemType Directory -Force -Path (Join-Path $ScriptDir "models") | Out-Null
+$TemplateDbDir = Join-Path $ScriptDir "config\templates\db"
+$ArtifactDbDir = Join-Path $ScriptDir "artifacts\db"
+if (Test-Path $TemplateDbDir) {
+    New-Item -ItemType Directory -Force -Path $ArtifactDbDir | Out-Null
+    $Existing = Get-ChildItem -Path $ArtifactDbDir -Filter "*.sqlite3" -ErrorAction SilentlyContinue
+    if (-not $Existing) {
+        Copy-Item (Join-Path $TemplateDbDir "*.sqlite3") $ArtifactDbDir -ErrorAction SilentlyContinue
+        if (Get-ChildItem -Path $ArtifactDbDir -Filter "*.sqlite3" -ErrorAction SilentlyContinue) {
+            Write-Host "[OK] Seeded blank database templates from config\templates\db\" -ForegroundColor Green
+        }
+    }
+}
 Write-Host "[..] Initialising data directories and full database architecture..."
 # Build EVERY store + table up front (blank slate — schema only, no personal data).
 & $PythonVenv -m eli.core.init_data

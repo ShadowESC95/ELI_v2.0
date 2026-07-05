@@ -339,6 +339,19 @@ mkdir -p "$SCRIPT_DIR/models"
 # ── Runtime tools (media playback + desktop control) ─────────────────────────
 attempt_runtime_tools || true
 
+# ── Seed blank DB templates when artifacts/db is empty (schema-only, no personal data) ─
+TEMPLATE_DB_DIR="$SCRIPT_DIR/config/templates/db"
+ARTIFACT_DB_DIR="$SCRIPT_DIR/artifacts/db"
+if [ -d "$TEMPLATE_DB_DIR" ]; then
+    mkdir -p "$ARTIFACT_DB_DIR"
+    if [ -z "$(find "$ARTIFACT_DB_DIR" -maxdepth 1 -name '*.sqlite3' -print -quit 2>/dev/null)" ]; then
+        cp "$TEMPLATE_DB_DIR"/*.sqlite3 "$ARTIFACT_DB_DIR"/ 2>/dev/null || true
+        if [ -n "$(find "$ARTIFACT_DB_DIR" -maxdepth 1 -name '*.sqlite3' -print -quit 2>/dev/null)" ]; then
+            echo "[OK] Seeded blank database templates from config/templates/db/"
+        fi
+    fi
+fi
+
 # ── Initialise data directories + FULL database architecture (idempotent) ────
 # Build EVERY store + table up front (user/agent/system_index/coding_memory) so a
 # fresh install runs at full efficiency with nothing for the user to fix — yet it
