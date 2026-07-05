@@ -407,8 +407,14 @@ def _cleanup(text: str) -> str:
     return re.sub(r"^[,\s\-:;.]+", "", t).strip()
 
 
-def _collapse_repeated_phrase(text: str) -> str:
-    t = _cleanup(text)
+def _normalize_transcript(text: str) -> str:
+    """Whitespace + case normalisation for chat display; keeps . ? ! , ; :"""
+    t = (text or "").strip().lower()
+    return re.sub(r"\s+", " ", t).strip()
+
+
+def _collapse_repeated_phrase(text: str, *, strip_punctuation: bool = True) -> str:
+    t = _cleanup(text) if strip_punctuation else _normalize_transcript(text)
     words = t.split()
     n = len(words)
     if n < 2:
@@ -1315,8 +1321,8 @@ class ELIAudioSTT:
             with self.microphone as source:
                 audio = self.recognizer.listen(source, timeout=timeout, phrase_time_limit=PHRASE_TIME_LIMIT)
             from eli.perception.local_whisper_stt import transcribe_speech_recognition_audio as _eli_local_stt
-            text = _eli_local_stt(audio).lower().strip()
-            text = _collapse_repeated_phrase(text)
+            text = _eli_local_stt(audio).strip()
+            text = _collapse_repeated_phrase(text, strip_punctuation=False)
             text = _eli_fast_command_alias(text)
             self.last_transcript = text
             return text
@@ -1326,7 +1332,8 @@ class ELIAudioSTT:
     def _recognize(self, audio) -> str:
         try:
             from eli.perception.local_whisper_stt import transcribe_speech_recognition_audio as _eli_local_stt
-            return _collapse_repeated_phrase(_eli_local_stt(audio).lower().strip())
+            raw = (_eli_local_stt(audio) or "").strip()
+            return _collapse_repeated_phrase(raw, strip_punctuation=False)
         except Exception as _stt_err:
             log.debug(f"[STT][ERROR] transcription failed: {type(_stt_err).__name__}: {_stt_err}")
             return ""
@@ -1574,7 +1581,7 @@ class ELIAudioSTT:
 
                     transcript = self._recognize(audio)
 
-                    # ── Acoustic wake-word detector (self-trained, robust over music) ──
+                    # Acoustic wake-word detector (self-trained, robust over music)
                     # When UNARMED and a local model is trained, score the captured audio
                     # directly. This catches "computer" even when whisper transcribed the
                     # background music instead of the wake word — the whole reason it exists.
@@ -1683,27 +1690,30 @@ class ELIAudioSTT:
                     # Update user voice profile for next time's threshold bias.
                     self._record_voice_sample(audio)
 
-                    transcript = _collapse_repeated_phrase(transcript)
-                    transcript = _eli_fast_command_alias(transcript)
+                    transcript_display = _eli_fast_command_alias(transcript)
+                    transcript_route = _collapse_repeated_phrase(transcript_display, strip_punctuation=True)
                     # Speaker-bleed filter: when media is audible and the transcript
                     # looks like a song-loop capture (high token-repetition density),
                     # drop it. Real commands rarely have >60% repetition.
                     try:
-                        _words = transcript.split()
+                        _words = transcript_route.split()
                         if len(_words) >= 4 and _eli_media_probably_audible():
                             _unique = len(set(_words))
                             _rep_ratio = 1.0 - (_unique / len(_words))
                             if _rep_ratio >= 0.5:
                                 _vprint(
                                     f"🎵 [AUDIO_BLEED_FILTER] dropped likely-music transcript "
-                                    f"(rep_ratio={_rep_ratio:.2f}): {transcript!r}",
+                                    f"(rep_ratio={_rep_ratio:.2f}): {transcript_display!r}",
                                     flush=True,
                                 )
                                 continue
                     except Exception:
                         pass
-                    _heard_preview = transcript if len(transcript) <= 80 else (transcript[:77] + "...")
-                    _vprint(f"👂 [AUDIO] Heard ({len(transcript)} chars): '{_heard_preview}'", flush=True)
+                    _heard_preview = (
+                        transcript_display if len(transcript_display) <= 80
+                        else (transcript_display[:77] + "...")
+                    )
+                    _vprint(f"👂 [AUDIO] Heard ({len(transcript_display)} chars): '{_heard_preview}'", flush=True)
 
                     # Drop mic input during short post-command cooldown.
                     try:
@@ -1712,7 +1722,7 @@ class ELIAudioSTT:
                             left = getattr(self, "_eli_ignore_until", 0.0) - now_mono
                             _vprint(
                                 f"🛡️ [AUDIO_ECHO_GATE] ignored during cooldown "
-                                f"({left:.1f}s left): {transcript!r}",
+                                f"({left:.1f}s left): {transcript_display!r}",
                                 flush=True,
                             )
                             continue
@@ -1721,13 +1731,13 @@ class ELIAudioSTT:
 
                     # Drop obvious assistant/TTS echo.
                     try:
-                        if _eli_echo_like_assistant_output(transcript):
-                            _vprint(f"🛡️ [AUDIO_ECHO_GATE] ignored assistant echo: {transcript!r}", flush=True)
+                        if _eli_echo_like_assistant_output(transcript_route):
+                            _vprint(f"🛡️ [AUDIO_ECHO_GATE] ignored assistant echo: {transcript_display!r}", flush=True)
                             continue
                     except Exception:
                         pass
 
-                    self.audio_queue.put(transcript)
+                    self.audio_queue.put(transcript_display)
 
                     # Restore volume if we took a duck snapshot but the gate
                     # expired without ever dispatching a command (e.g. arm →
@@ -1740,7 +1750,7 @@ class ELIAudioSTT:
                         except Exception as _re:
                             log.debug(f"[AUDIO_DUCK][RESTORE_ERROR] {_re}")
 
-                    action, payload, wake = self._voice_gate.classify(transcript)
+                    action, payload, wake = self._voice_gate.classify(transcript_route)
 
                     if action == "arm":
                         print(f"🔊 [AUDIO] Wake word detected: '{wake}'")
@@ -1773,7 +1783,7 @@ class ELIAudioSTT:
                     if action == "ignore_too_short":
                         _vprint(
                             f"🫥 [AUDIO] ignored — too short "
-                            f"({_word_count(transcript)} words, need {MIN_DIRECT_CHAT_WORDS})",
+                            f"({_word_count(transcript_route)} words, need {MIN_DIRECT_CHAT_WORDS})",
                             flush=True,
                         )
                         continue
@@ -1782,7 +1792,7 @@ class ELIAudioSTT:
                         continue
 
                     if action == "dispatch" and payload:
-                        self._emit(payload)
+                        self._emit(transcript_display)
                         continue
         finally:
             try:

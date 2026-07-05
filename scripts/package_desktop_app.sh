@@ -10,7 +10,7 @@ with open('pyproject.toml','rb') as f:
     print(tomllib.load(f)['project']['version'])
 PY
 )"
-APP_NAME="ELI_MKXI_v2.0_PRO"
+APP_NAME="ELI_v2"
 OUT_DIR="$ROOT/dist/app_packages"
 WORK_DIR="$ROOT/build/app-package"
 WITH_ASSETS=0
@@ -31,7 +31,7 @@ Options:
   -h, --help              Show help.
 
 Output:
-  dist/app_packages/ELI_MKXI_v2.0_PRO-${VERSION}-linux-portable.tar.gz
+  dist/app_packages/ELI_v2-${VERSION}-linux-portable.tar.gz
 EOF_USAGE
 }
 
@@ -115,7 +115,7 @@ bash "\$APP_ROOT/scripts/eli_one_click_setup.sh" "\$@"
 INSTALL_EOF
 chmod +x "$STAGING/INSTALL_ELI.sh"
 
-cat > "$STAGING/packaging/desktop/ELI_MKXI_v2_PRO.desktop.template" <<'DESKTOP_EOF'
+cat > "$STAGING/packaging/desktop/ELI_v2.desktop.template" <<'DESKTOP_EOF'
 [Desktop Entry]
 Name=ELI Pro
 GenericName=Local AI Assistant
@@ -137,7 +137,7 @@ APP_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 DESKTOP_DIR="${XDG_DATA_HOME:-$HOME/.local/share}/applications"
 mkdir -p "$DESKTOP_DIR"
 sed "s#__APP_ROOT__#$APP_ROOT#g" \
-  "$APP_ROOT/packaging/desktop/ELI_MKXI_v2_PRO.desktop.template" \
+  "$APP_ROOT/packaging/desktop/ELI_v2.desktop.template" \
   > "$DESKTOP_DIR/eli.desktop"
 rm -f "$DESKTOP_DIR/eli-pro.desktop" "$DESKTOP_DIR/eli-mkxi-v2-pro.desktop"
 chmod +x "$DESKTOP_DIR/eli.desktop"

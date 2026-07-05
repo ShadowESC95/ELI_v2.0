@@ -245,6 +245,16 @@ def test_stt_wake_word_still_allows_freeform_chat():
     assert wake == "computer"
 
 
+def test_stt_preserves_punctuation_for_chat_display():
+    from eli.perception.audio_stt import _collapse_repeated_phrase
+
+    raw = "what time is it? really!"
+    display = _collapse_repeated_phrase(raw, strip_punctuation=False)
+    route = _collapse_repeated_phrase(raw, strip_punctuation=True)
+    assert "?" in display and "!" in display
+    assert "?" not in route and "!" not in route
+
+
 def test_news_relevance_filter_does_not_return_unrelated_hackernews(tmp_path):
     from eli.tools.news import news_fetcher
 
