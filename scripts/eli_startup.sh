@@ -6,7 +6,7 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 VENV="$ROOT/.venv"
 PY="$VENV/bin/python"
-REPO="${GITHUB_REPOSITORY:-ShadowESC95/ELI_MKXI_v2.0_PRO}"
+REPO="${GITHUB_REPOSITORY:-ShadowESC95/ELI_v2.0}"
 TAG="${ELI_ASSET_RELEASE_TAG:-local-assets-v2.0}"
 RUN_SETUP="auto"
 RESTORE_ASSETS=0

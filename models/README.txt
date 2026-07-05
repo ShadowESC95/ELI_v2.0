@@ -1,35 +1,30 @@
-ELI MKXI organized release folder
+ELI v2.0 release artifacts (organised copy)
 
 Use these folders by target platform:
 
 Windows/
-  eli-mkxi-1.0.0-windows-portable.zip
-  Extract on Windows, then run install.bat or install.ps1 from inside the extracted folder.
-  The zip includes README.md, .env.example, .env.full.example, requirements files, and an offline Windows wheelhouse for Python 3.11/3.12 CPU installs.
+  eli-mkxi-2.0.0-windows-portable.zip
+  Extract, then run install.bat or install.ps1 inside the folder.
 
 Linux/
-  eli-mkxi_1.0.0_amd64.deb
-  Install on Debian/Ubuntu with: sudo apt install ./eli-mkxi_1.0.0_amd64.deb
+  ELI_MKXI_v2.0_PRO-2.0.0-linux-portable.tar.gz
+  Extract, then ./INSTALL_ELI.sh and ./RUN_ELI.sh
+  (Best tested on Linux x86_64 + NVIDIA.)
 
-  eli-mkxi-1.0.0-x86_64-portable.tar.gz
-  Extract on Linux and run the included launcher/install scripts from inside the extracted folder.
+  eli-mkxi_2.0.0_amd64.deb
+  sudo apt install ./eli-mkxi_2.0.0_amd64.deb
 
 macOS/
-  ELI_MKXI-1.0.0-macos-app.tar.gz
-  Extract on macOS. This is an app bundle tarball; producing a .dmg still requires running the macOS packaging script on a macOS host.
+  ELI_MKXI-2.0.0-macos-app.tar.gz
+  Extract on macOS; .dmg requires building on a Mac host.
 
 Python/
-  eli_mkxi-1.0.0-py3-none-any.whl
-  Install into an existing Python environment with: python -m pip install eli_mkxi-1.0.0-py3-none-any.whl
+  eli_mkxi-2.0.0-py3-none-any.whl
+  python -m pip install eli_mkxi-2.0.0-py3-none-any.whl
 
-Docs/
-  Full instruction document if available.
+Model / voice packs/
+  Distributed separately via GitHub Release assets (too large for git).
+  Restore after install: ./RUN_ELI.sh --with-github-assets
 
 Checksums/
-  SHA256SUMS.txt contains checksums for the canonical artifacts in the project dist/ folder.
-  SHA256SUMS_ORGANIZED.txt in this folder contains checksums for this organized Desktop copy.
-
-Portability notes:
-  Paths inside the app are intended to resolve relative to the project/install tree or environment variables such as ELI_PROJECT_ROOT.
-  Android support targets Termux/headless operation. Full desktop-control and GUI feature parity is not realistic on Android.
-  Windows/macOS/Linux desktop-control features still depend on OS permissions, installed helper tools, drivers, microphone/speaker access, and available model files.
+  SHA256SUMS.txt alongside builds in dist/

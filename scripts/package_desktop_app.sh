@@ -15,7 +15,7 @@ OUT_DIR="$ROOT/dist/app_packages"
 WORK_DIR="$ROOT/build/app-package"
 WITH_ASSETS=0
 SKIP_WHEEL=0
-REPO="${GITHUB_REPOSITORY:-ShadowESC95/ELI_MKXI_v2.0_PRO}"
+REPO="${GITHUB_REPOSITORY:-ShadowESC95/ELI_v2.0}"
 TAG="${ELI_ASSET_RELEASE_TAG:-local-assets-v2.0}"
 
 usage() {
@@ -142,29 +142,37 @@ DESKTOP_INSTALL_EOF
 chmod +x "$STAGING/packaging/desktop/install_desktop_launcher.sh"
 
 cat > "$STAGING/README_INSTALL.txt" <<README_EOF
-ELI Pro portable desktop package
+ELI v2.0 — portable download-and-run package
 
-Run:
-  ./INSTALL_ELI.sh
-  eli
+Hardware (honest):
+  Best tested: Linux x86_64 + NVIDIA GPU.
+  Windows/macOS/AMD builds exist; expect rough edges — feedback welcome.
+
+Quick start:
+  1. ./INSTALL_ELI.sh
+  2. ./RUN_ELI.sh --with-github-assets    # optional model/voice pack
+  3. ./RUN_ELI.sh                         # launch ELI
+
+Daily use:
   ./RUN_ELI.sh
+  eli    (after INSTALL_ELI.sh installs ~/.local/bin/eli)
 
-Restore model/voice assets from GitHub release:
+Model/voice pack (separate download — too large for this tarball):
   gh auth login
   ./RUN_ELI.sh --with-github-assets
-
-Manual restore:
-  .venv/bin/python scripts/restore_github_asset_files.py --repo $REPO --tag $TAG
+  # or: .venv/bin/python scripts/restore_github_asset_files.py --repo $REPO --tag $TAG
 
 Desktop launcher:
   ./packaging/desktop/install_desktop_launcher.sh
 
-Terminal command:
-  ./INSTALL_ELI.sh installs ~/.local/bin/eli by default.
-  If your shell has cached an older eli command, run: hash -r
-  To remove an old system ELI package: sudo bash scripts/purge_legacy_eli.sh --yes
+Data folders (auto-created on first run):
+  artifacts/db/  artifacts/runtime/  config/
 
-This package intentionally excludes .venv, runtime/private artifacts, caches, and heavy model/voice assets unless built with --with-assets.
+Terminal command:
+  INSTALL_ELI.sh installs ~/.local/bin/eli by default.
+  If your shell cached an older eli: hash -r
+
+v3 is in development: https://github.com/ShadowESC95/Eli_v3
 README_EOF
 
 PACKAGE="$OUT_DIR/${APP_NAME}-${VERSION}-linux-portable.tar.gz"

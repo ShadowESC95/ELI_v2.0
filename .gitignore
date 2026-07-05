@@ -55,7 +55,8 @@ models/whisper/
 models/.goutputstream*
 
 # ── Runtime artefacts & user data ────────────────────────────────────────────
-artifacts/
+artifacts/*
+!artifacts/README.md
 eli/artifacts/
 .code_monitor_state.json
 

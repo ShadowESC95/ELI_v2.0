@@ -37,6 +37,7 @@ itself to the hardware you've got, from a laptop to a multi-GPU tower.
 - [Design principles](#design-principles)
 - [Features](#features)
 - [Quick Start](#quick-start)
+- [Download & run (Linux portable)](#download--run-linux-portable)
 - [Choose your model](#choose-your-model)
 - [Optional: a remote view over your own network](#optional-a-remote-view-over-your-own-network)
 - [Privacy](#privacy)
@@ -264,7 +265,43 @@ every knowledge-gathering limit and the synthesis budget. Extend it with a real 
 (weather, web, calendar, notes, pomodoro, and your own). Teach it routines it proposes. And control
 the boundary with a single network toggle.
 
-## Quick Start
+## Download & run (Linux portable)
+
+**This is the finish line for v2** — if you don't want to clone and build from source, use the
+portable package from **[GitHub Releases](https://github.com/ShadowESC95/ELI_v2.0/releases)**.
+
+| | |
+|---|---|
+| **Best tested** | Linux x86_64 + **NVIDIA** GPU (the path I've run end-to-end) |
+| **Also coded for** | Windows, macOS, AMD — installers exist; expect rough edges until reported |
+| **Includes** | ELI app, installer scripts, wheel — **not** multi-GB models (separate model pack) |
+
+```bash
+# 1. Download from Releases:
+#    ELI_MKXI_v2.0_PRO-2.0.0-linux-portable.tar.gz
+
+tar -xzf ELI_MKXI_v2.0_PRO-2.0.0-linux-portable.tar.gz
+cd ELI_MKXI_v2.0_PRO-2.0.0-linux-portable
+
+./INSTALL_ELI.sh                    # venv + deps + DB schema (blank slate)
+./RUN_ELI.sh --with-github-assets   # optional: pull model/voice pack from Release assets
+./RUN_ELI.sh                        # launch desktop ELI
+```
+
+First launch walks you through setup and model selection (or download one via the installer).
+`artifacts/` and databases are created automatically — nothing to copy from git.
+
+**Optional model pack:** large GGUF/voice files ship as separate GitHub Release assets (over Git's
+100 MB limit). Use `--with-github-assets` once `gh auth login` is done, or see
+`README_INSTALL.txt` inside the tarball.
+
+**Build the portable yourself (maintainers):**
+```bash
+bash scripts/build_v2_release.sh              # lean package (no models)
+bash scripts/build_v2_release.sh --with-assets  # huge; includes local models/
+```
+
+## Quick Start (from source — developers)
 
 **Linux / macOS** — `install.sh` gives you a system report → a plan → installs the right CPU/GPU
 build → offers to download a model sized to your hardware:
@@ -478,10 +515,12 @@ Most users leave `ELI_PROJECT_ROOT` unset (auto-detected). Env reference: `.env.
 <summary><b>Packaging & releases</b></summary>
 
 ```bash
+bash scripts/build_v2_release.sh                    # v2 portable Linux (download-and-run)
 bash scripts/package_eli_release.sh                 # wheel/sdist
 bash scripts/package_desktop_app.sh                 # portable Linux desktop package
 bash build_packages.sh wheel deb appimage macos windows
 ```
+See **[RELEASE.md](RELEASE.md)** for publishing to GitHub Releases.
 A real Windows `.exe`/`.msi` must be built on Windows; a signed/notarized macOS `.dmg` on macOS.
 Large model/voice binaries are distributed separately (GitHub Release assets) via
 `scripts/upload_github_asset_files.py` / `restore_github_asset_files.py` — they exceed Git's
