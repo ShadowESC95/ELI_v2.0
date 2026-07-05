@@ -125,6 +125,15 @@ bash "\$APP_ROOT/scripts/eli_one_click_setup.sh" "\$@"
 INSTALL_EOF
 chmod +x "$STAGING/INSTALL_ELI.sh"
 
+cat > "$STAGING/ELI_Setup.sh" <<'SETUP_EOF'
+#!/usr/bin/env bash
+# Double-click friendly name — same as scripts/eli_setup.sh (grandparent setup).
+set -euo pipefail
+APP_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+exec "$APP_ROOT/scripts/eli_setup.sh" "$@"
+SETUP_EOF
+chmod +x "$STAGING/ELI_Setup.sh"
+
 cat > "$STAGING/packaging/desktop/ELI_v2.desktop.template" <<'DESKTOP_EOF'
 [Desktop Entry]
 Name=ELI v2.0
@@ -162,7 +171,17 @@ Hardware (honest):
   Best tested: Linux x86_64 + NVIDIA GPU.
   Windows/macOS/AMD builds exist; expect rough edges — feedback welcome.
 
-Quick start:
+Quick start (easiest):
+  chmod +x ELI_Setup.sh && ./ELI_Setup.sh          # guided one-click setup (recommended)
+  # or: ./INSTALL_ELI.sh && ./RUN_ELI.sh
+
+Linux AppImage (double-click after chmod +x):
+  See GitHub Releases — ELI_v2-*-x86_64.AppImage
+
+Windows Setup.exe:
+  See GitHub Releases — ELI_v2-*-Setup.exe (or ELI_Setup.bat inside the zip)
+
+Classic portable:
   1. ./INSTALL_ELI.sh
   2. ./RUN_ELI.sh --with-github-assets    # optional model/voice pack
   3. ./RUN_ELI.sh                         # launch ELI

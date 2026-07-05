@@ -2,11 +2,30 @@
 
 > Maintainer walkthrough: **`blueprints/v2_release.pdf`** (local markdown also under `blueprints/`)
 
-## 1. Build portable Linux package
+## 1. Build packages
+
+**Grandma-friendly (Linux AppImage + portable):**
+
+```bash
+bash scripts/build_grandma_release.sh
+# Output:
+#   dist/app_packages/ELI_v2-<ver>-x86_64.AppImage      ← double-click Linux
+#   dist/app_packages/ELI_v2-<ver>-linux-portable.tar.gz
+```
+
+**Portable only:**
 
 ```bash
 bash scripts/build_v2_release.sh
 # Output: dist/app_packages/ELI_v2-2.0.7-linux-portable.tar.gz
+```
+
+**Windows Setup.exe** (run on a Windows PC with [Inno Setup 6](https://jrsoftware.org/isinfo.php)):
+
+```powershell
+bash build_packages.sh windows-lean
+powershell -ExecutionPolicy Bypass -File packaging/windows/build-windows.ps1 -Version 2.0.7
+# Output: dist/ELI_v2-2.0.7-Setup.exe
 ```
 
 Optional full bundle (local models — very large):
@@ -18,7 +37,7 @@ bash scripts/build_v2_release.sh --with-assets
 Other platforms (maintainer hosts):
 
 ```bash
-bash build_packages.sh wheel windows macos
+bash build_packages.sh wheel windows macos appimage
 ```
 
 ## 2. Upload model / voice pack (separate)
@@ -37,17 +56,32 @@ python3 scripts/upload_github_asset_files.py --repo ShadowESC95/ELI_v2.0 --tag v
 2. Tag: `v2.0.7` (semver matches `pyproject.toml`)
 3. Attach:
    - `ELI_v2-2.0.7-linux-portable.tar.gz`
-   - `.sha256` sidecar
+   - `ELI_v2-2.0.7-x86_64.AppImage` (grandma-friendly)
+   - `ELI_v2-2.0.7-Setup.exe` (Windows, if built)
+   - `.sha256` sidecars
    - Model pack assets (optional separate tag)
 
 ## 4. What users do
 
+**Easiest Linux:** download `ELI_v2-*-x86_64.AppImage`, then:
+
 ```bash
-tar -xzf ELI_v2.0-2.0.0-linux-portable.tar.gz
-cd ELI_v2.0-2.0.0-linux-portable
-./INSTALL_ELI.sh
-./RUN_ELI.sh --with-github-assets
-./RUN_ELI.sh
+chmod +x ELI_v2-*-x86_64.AppImage
+./ELI_v2-*-x86_64.AppImage
+```
+
+First launch installs to `~/.local/share/ELI_v2` and opens the setup wizard.
+
+**Easiest Windows:** download `ELI_v2-*-Setup.exe`, run it, click through the installer.
+Or extract the zip and double-click `ELI_Setup.bat`.
+
+**Classic portable:**
+
+```bash
+tar -xzf ELI_v2-2.0.7-linux-portable.tar.gz
+cd ELI_v2-2.0.7-linux-portable
+chmod +x ELI_Setup.sh && ./ELI_Setup.sh    # guided (recommended)
+# or: ./INSTALL_ELI.sh && ./RUN_ELI.sh
 ```
 
 **Tested path:** Linux x86_64 + NVIDIA. Other OS builds are best-effort until reported.
