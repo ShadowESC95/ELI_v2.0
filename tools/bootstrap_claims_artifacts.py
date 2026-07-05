@@ -45,11 +45,12 @@ def main() -> int:
         ok = False
 
     bp = ROOT / "blueprints"
-    if not bp.is_dir() or not any(bp.glob("*.md")):
-        print("[WARN] blueprints/*.md missing — claims blueprint refs will fail", file=sys.stderr)
+    pdfs = list(bp.glob("*.pdf")) if bp.is_dir() else []
+    if not pdfs:
+        print("[WARN] no blueprints/*.pdf — ship PDF docs for reference", file=sys.stderr)
         ok = False
     else:
-        print(f"[OK] blueprints ({len(list(bp.glob('*.md')))} docs)")
+        print(f"[OK] blueprints ({len(pdfs)} PDFs in git; markdown stays local)")
 
     return 0 if ok else 1
 

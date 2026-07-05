@@ -49,9 +49,9 @@ APPS="${XDG_DATA_HOME:-$HOME/.local/share}/applications"
 mkdir -p "$APPS"
 chmod +x "$ROOT/scripts/eli_launch.sh" "$ROOT/scripts/eli_serve.sh" "$ROOT/scripts/eli_setup.sh" 2>/dev/null || true
 
-# App-menu icon from blueprints/ (Eli_Icon.png is the shipped launcher artwork).
+# App-menu icon (shipped under packaging/desktop; local blueprints copy is optional).
 ICON="utilities-terminal"
-for c in "$ROOT/blueprints/Eli_Icon.png" "$ROOT/blueprints/eli_logo2.png" "$ROOT/eli/gui/assets/eli.png"; do
+for c in "$ROOT/packaging/desktop/Eli_Icon.png" "$ROOT/blueprints/Eli_Icon.png" "$ROOT/blueprints/eli_logo2.png"; do
     [ -f "$c" ] && { ICON="$c"; break; }
 done
 

@@ -66,9 +66,8 @@ jobs:
           tests/test_device_names.py
           tests/test_install_script.py
 
-      - name: Claims structural smoke (manifest ↔ executor ↔ blueprints)
+      - name: Claims structural smoke (manifest ↔ executor)
         run: >
           pytest -q -p no:cacheprovider
           tests/claims/test_structural_claims.py
           tests/claims/test_capability_manifest.py::test_manifest_total_matches_capability_count
-          tests/claims/test_blueprint_refs.py

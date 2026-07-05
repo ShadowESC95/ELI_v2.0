@@ -8,6 +8,11 @@ grounded, not invented.
 
 Run: `pytest tests/claims/ -q`
 
+**Note:** Git ships `blueprints/*.pdf` only. Markdown blueprint sources (`*.md`) and
+`capabilities_and_actions.md` stay local — regenerate with
+`python -m eli.tools.registry.capabilities_doc` after manifest changes.
+`test_blueprint_refs.py` skips automatically when no local `*.md` is present.
+
 ## What it checks (per-item, parametrized)
 
 | File | Examines | ~Tests |
