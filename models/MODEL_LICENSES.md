@@ -47,7 +47,8 @@ default voice assets, and common bundled release files.
 |---|---|---|
 | `en_GB-cori-high` | Review before ship | LibriVox-derived dataset per upstream card — retain evidence |
 | `en_US-lessac-high` | **License review required** | Blizzard 2013 Lessac dataset — check upstream MODEL_CARD |
-| `en_US-ryan-high` | **Non-commercial risk** | Upstream CC BY-NC-SA 4.0 — **exclude from commercial bundles** |
+| `en_US-ryan-high` | **Excluded from public restore** | CC BY-NC-SA 4.0 — not installed by `--with-github-assets` |
+| `en_US-ryan-medium` | **Excluded from public restore** | Same upstream family |
 
 See `packaging/VOICE_LICENSE_REVIEW.md` for maintainer guidance.
 

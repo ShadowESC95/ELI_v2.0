@@ -16,7 +16,7 @@ WORK_DIR="$ROOT/build/app-package"
 WITH_ASSETS=0
 SKIP_WHEEL=0
 REPO="${GITHUB_REPOSITORY:-ShadowESC95/ELI_v2.0}"
-TAG="${ELI_ASSET_RELEASE_TAG:-local-assets-v2.0}"
+TAG="${ELI_ASSET_RELEASE_TAG:-local-assets-v2.1}"
 
 usage() {
   cat <<EOF_USAGE
@@ -161,10 +161,11 @@ Daily use:
   ./RUN_ELI.sh
   eli    (after INSTALL_ELI.sh installs ~/.local/bin/eli)
 
-Model/voice pack (separate download — too large for this tarball):
+Model/voice pack (separate download — tag: local-assets-v2.1):
   gh auth login
   ./RUN_ELI.sh --with-github-assets
   # or: .venv/bin/python scripts/restore_github_asset_files.py --repo $REPO --tag $TAG
+  # NC-SA voices (en_US-ryan-*) are skipped automatically — see models/MODEL_LICENSES.md
 
 Desktop launcher:
   ./packaging/desktop/install_desktop_launcher.sh
