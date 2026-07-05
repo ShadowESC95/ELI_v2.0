@@ -336,6 +336,14 @@ fi
 # Models dir exists so first-boot can drop/download a model into it.
 mkdir -p "$SCRIPT_DIR/models"
 
+# Local copy of the desktop icon under blueprints/ (PDF-only in git; icon lives in packaging/)
+_ICON_SRC="$SCRIPT_DIR/packaging/desktop/Eli_Icon.png"
+_ICON_DST="$SCRIPT_DIR/blueprints/Eli_Icon.png"
+if [ -f "$_ICON_SRC" ]; then
+    mkdir -p "$SCRIPT_DIR/blueprints"
+    cp "$_ICON_SRC" "$_ICON_DST" 2>/dev/null || true
+fi
+
 # ── Runtime tools (media playback + desktop control) ─────────────────────────
 attempt_runtime_tools || true
 

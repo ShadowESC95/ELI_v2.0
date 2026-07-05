@@ -90,11 +90,15 @@ else
   (cd "$ROOT" && git archive --format=tar HEAD -- ':!:models/**' ':!:tts_piper/**') | tar -xf - -C "$STAGING"
 fi
 
-mkdir -p "$STAGING/dist" "$STAGING/packaging/desktop" "$STAGING/models" "$STAGING/tts_piper"
+mkdir -p "$STAGING/dist" "$STAGING/packaging/desktop" "$STAGING/models" "$STAGING/tts_piper" "$STAGING/blueprints"
 # License docs live under models/ but models/** is excluded from the lean archive — copy explicitly
 for _lic in MODEL_LICENSES.md README.txt; do
   [ -f "$ROOT/models/$_lic" ] && cp "$ROOT/models/$_lic" "$STAGING/models/"
 done
+if [ -f "$ROOT/packaging/desktop/Eli_Icon.png" ]; then
+  cp "$ROOT/packaging/desktop/Eli_Icon.png" "$STAGING/packaging/desktop/"
+  cp "$ROOT/packaging/desktop/Eli_Icon.png" "$STAGING/blueprints/"
+fi
 if ls "$ROOT"/dist/eli_v2_0-*.whl >/dev/null 2>&1; then
   cp "$ROOT"/dist/eli_v2_0-*.whl "$STAGING/dist/"
 fi
