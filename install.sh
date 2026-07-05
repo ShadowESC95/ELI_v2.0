@@ -382,7 +382,13 @@ fi
 if [ "$NO_MODEL" -eq 0 ]; then
     info "Ensuring the text embedder (required for memory/RAG) is present..."
     if "$PYTHON_VENV" -m eli.core.model_download --aux; then
-        ok "Embedder ready."
+        EMB_PATH="$SCRIPT_DIR/models/embeddings/nomic-embed-text-v1.5.Q4_K_M.gguf"
+        if [ -f "$EMB_PATH" ]; then
+            EMB_MB=$(du -m "$EMB_PATH" 2>/dev/null | awk '{print $1}')
+            ok "Embedder ready at models/embeddings/ (${EMB_MB:-~80} MiB)."
+        else
+            ok "Embedder ready."
+        fi
     else
         warn "Embedder fetch deferred — get it later with: python -m eli.core.model_download --aux"
     fi

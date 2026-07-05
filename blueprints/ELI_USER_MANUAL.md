@@ -144,17 +144,26 @@ flowchart TD
     A([Run the installer]) --> B[It checks your computer<br/>memory, graphics card, disk]
     B --> C[Shows you the plan]
     C --> D{Proceed?}
-    D -->|Yes| E[Sets up ELI<br/>+ the memory embedder]
+    D -->|Yes| E[Sets up ELI + blank-slate databases]
     D -->|No| Z([Stops, nothing changed])
-    E --> F{Download a model now,<br/>sized to your hardware?}
-    F -->|Yes recommended| G[Picks the right-size<br/>brain for your machine]
-    F -->|No| H[You can add one later]
+    E --> J[Embedder ~80 MiB + amy voice]
+    J --> F{Download a chat model now?}
+    F -->|Yes recommended| G[Picks the right-size brain]
+    F -->|No| H[Add one later in the wizard]
     G --> I([Done — launch ELI])
     H --> I
 ```
 
-The installer also fetches a tiny **embedder** model automatically (it powers ELI's memory), so
-you don't have to think about it. Everything ELI needs ends up in place — no extra steps.
+The installer also fetches two **required support assets** automatically:
+
+| Asset | Where it lands | Size |
+|---|---|---|
+| **Nomic embedder** | `models/embeddings/nomic-embed-text-v1.5.Q4_K_M.gguf` | ~80 MiB |
+| **Default voice** | `en_US-amy-medium` (Piper) + whisper STT | ~60 MiB + ~464 MiB cache |
+
+It also builds the **full database architecture** (every SQLite table) with **no personal
+data** — a true blank slate. The first-run wizard double-checks embedder + voice and can
+download a **chat** GGUF sized to your hardware.
 
 ### First launch — the quick interview
 The very first time you open ELI, it doesn't know you yet, so it asks **three short questions**
