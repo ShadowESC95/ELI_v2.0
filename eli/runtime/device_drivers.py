@@ -900,6 +900,9 @@ class BluetoothDriver(Driver):
                     if not pair_res.get("ok"):
                         return pair_res
             ok, out = self._btctl_batch(addr, steps, timeout=45.0)
+            if action == "connect" and not ok:
+                if str(self._bt_device_info(addr).get("connected", "")).lower() == "yes":
+                    ok = True
             phase = action
         res = {
             "ok": ok,
@@ -916,6 +919,27 @@ class BluetoothDriver(Driver):
             else:
                 res["error"] = self._bt_error_hint(out, action)
         return res
+
+    def _ensure_bt_media_link(self, addr: str, name: str = "") -> bool:
+        """Paired BT without a PipeWire bluez card needs disconnect/reconnect for A2DP."""
+        import time
+        info = self._bt_device_info(addr)
+        if str(info.get("paired", "")).lower() != "yes":
+            return False
+        token = addr.replace(":", "_").upper()
+        _, cards = self._sh(["pactl", "list", "short", "cards"], timeout=10)
+        has_card = token in (cards or "").upper()
+        if has_card and self._find_bt_sink(addr, name):
+            return True
+        if str(info.get("connected", "")).lower() == "yes":
+            self._bt_action(addr, "disconnect", name=name)
+            time.sleep(0.6)
+        conn = self._bt_action(addr, "connect", name=name)
+        time.sleep(1.0)
+        return bool(
+            conn.get("ok")
+            or str(self._bt_device_info(addr).get("connected", "")).lower() == "yes"
+        )
 
     def _route_audio(self, addr, name: str = ""):
         """Make this Bluetooth device the system audio output."""
@@ -939,6 +963,9 @@ class BluetoothDriver(Driver):
         addr = bp._prefer_address(addr, dev_name)
         sink = self._find_bt_sink(addr, dev_name)
         if not sink:
+            self._ensure_bt_media_link(addr, dev_name)
+            sink = self._find_bt_sink(addr, dev_name)
+        if not sink:
             conn = self._bt_action(addr, "connect", name=dev_name)
             if not conn.get("ok"):
                 if not self._is_paired(addr):
@@ -959,7 +986,8 @@ class BluetoothDriver(Driver):
         if not sink:
             return {
                 "ok": False,
-                "error": "No Bluetooth audio output for this device — connect first, or use HDMI / a speaker",
+                "error": ("No music audio for this device — disconnect in system settings, "
+                          "put headphones in pairing mode, then tap Connect for music again"),
             }
         rc, _ = self._sh(["pactl", "set-default-sink", sink])
         _, inputs = self._sh(["pactl", "list", "short", "sink-inputs"])
