@@ -17,7 +17,7 @@ sent to a server. No cloud, no accounts, no telemetry. Offline by default, enfor
 **v2 is live software, not a polished product drop.** Expect rough edges — I'm one dev, and ELI
 touches real hardware. I'm sharing it partly to see if there's interest. **[ELI v3](https://github.com/ShadowESC95/Eli_v3)**
 is mapped out and in active development; this repo stays the v2 line. Feedback helps and is more than appreciated/welcomed, a second pair of eyes is better than just mine because the project has turned into a lot more than initially planned! I prefer someone bringing an issue to me rather than giving me a compliment. Finding issues and reporting them is invaluable to me — bugs, ideas,
-or a plain "I tried it and…" — [open an issue](https://github.com/ShadowESC95/ELI_v2.0/issues). Also, if Eli v2 helps and you want to support my fridge and university tuition fees, feel free to check out my ko-fi page - Dev's gotta eat too! Enjoy, share, and report!
+or a plain "I tried it and…" — [open an issue](https://github.com/ShadowESC95/ELI_v2.0/issues). Also, if Eli v2 helps and you want to support my fridge and university tuition fees, feel free to check out my ko-fi https://ko-fi.com/shadowesc95- Dev's gotta eat too! Enjoy, share, and report!
 
 **Not open source — on purpose.** ELI is **source-available** under
 [PolyForm Internal Use](LICENSE): read it, run it, change it on *your* machine — you should be able
