@@ -68,8 +68,9 @@ def test_pair_runs_pair_trust_connect(linux_tools):
 def test_ensure_adapter_alias_skips_when_already_eli(monkeypatch):
     monkeypatch.setattr(sys, "platform", "linux")
     monkeypatch.setattr(shutil, "which", lambda t: "/usr/bin/" + t)
+    monkeypatch.setattr(dd.BluetoothDriver, "resolve_adapter_alias", classmethod(lambda cls: "Eli · Home"))
     monkeypatch.setattr(dd.BluetoothDriver, "_sh",
-                        staticmethod(lambda args, timeout=25.0: (0, "Alias: Eli\nPowered: yes")))
+                        staticmethod(lambda args, timeout=25.0: (0, "Alias: Eli · Home\nPowered: yes")))
     r = dd.BluetoothDriver.ensure_adapter_alias()
     assert r["ok"] is True and r.get("already_set") is True
 
@@ -78,6 +79,7 @@ def test_ensure_adapter_alias_sets_eli(monkeypatch):
     import subprocess
     monkeypatch.setattr(sys, "platform", "linux")
     monkeypatch.setattr(shutil, "which", lambda t: "/usr/bin/" + t)
+    monkeypatch.setattr(dd.BluetoothDriver, "resolve_adapter_alias", classmethod(lambda cls: "Eli · Home"))
     monkeypatch.setattr(dd.BluetoothDriver, "_sh",
                         staticmethod(lambda args, timeout=25.0: (0, "Alias: ghost\nPowered: yes")))
     captured = {}
@@ -85,14 +87,35 @@ def test_ensure_adapter_alias_sets_eli(monkeypatch):
     def fake_run(args, input=None, **kw):
         captured["input"] = input
         class R:
-            stdout = "Changing Eli succeeded"
+            stdout = "Changing Eli · Home succeeded"
             stderr = ""
         return R()
 
     monkeypatch.setattr(subprocess, "run", fake_run)
     r = dd.BluetoothDriver.ensure_adapter_alias()
-    assert r["ok"] is True and r["alias"] == "Eli"
-    assert "system-alias Eli" in captured["input"]
+    assert r["ok"] is True and r["alias"] == "Eli · Home"
+    assert "system-alias Eli · Home" in captured["input"]
+
+
+def test_resolve_adapter_alias_default_home(monkeypatch):
+    monkeypatch.setattr("eli.core.runtime_settings.load_settings", lambda: {})
+    assert dd.BluetoothDriver.resolve_adapter_alias() == "Eli · Home"
+
+
+def test_resolve_adapter_alias_custom_zone(monkeypatch):
+    monkeypatch.setattr(
+        "eli.core.runtime_settings.load_settings",
+        lambda: {"hub_zone": "Living room"},
+    )
+    assert dd.BluetoothDriver.resolve_adapter_alias() == "Eli · Living room"
+
+
+def test_resolve_adapter_alias_override(monkeypatch):
+    monkeypatch.setattr(
+        "eli.core.runtime_settings.load_settings",
+        lambda: {"bluetooth_display_name": "Eli Hub", "hub_zone": "Garage"},
+    )
+    assert dd.BluetoothDriver.resolve_adapter_alias() == "Eli Hub"
 
 
 def test_use_for_audio_routes_to_bluez_sink(linux_tools):
