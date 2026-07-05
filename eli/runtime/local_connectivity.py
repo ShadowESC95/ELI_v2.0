@@ -415,41 +415,39 @@ def load_audio_aliases() -> Dict[str, str]:
 
 def save_audio_alias(sink_id: str, name: str) -> Dict[str, Any]:
     """Set or clear a friendly name for one audio output."""
-    sink_id = (sink_id or "").strip()
-    name = (name or "").strip()
-    if not sink_id:
+    from eli.runtime.device_names import save_custom_name, sink_key
+    key = sink_key(sink_id)
+    if not key:
         return {"ok": False, "error": "sink id required"}
-    try:
-        from eli.core.runtime_settings import load_settings, save_settings
-        settings = load_settings() or {}
-        aliases = dict(settings.get("audio_output_aliases") or {})
-        if name:
-            aliases[sink_id] = name[:64]
-        else:
-            aliases.pop(sink_id, None)
-        settings["audio_output_aliases"] = aliases
-        save_settings(settings)
-        return {"ok": True, "sink": sink_id, "alias": name}
-    except Exception as e:
-        return {"ok": False, "error": str(e)}
+    res = save_custom_name(key, name)
+    if res.get("ok"):
+        res["sink"] = sink_id
+        res["alias"] = name
+    return res
 
 
 def _enrich_sinks_with_aliases(result: Dict[str, Any]) -> Dict[str, Any]:
     """Attach alias, display_name, device_number for UI + voice."""
     if not result.get("ok"):
         return result
-    aliases = load_audio_aliases()
+    from eli.runtime.device_names import apply_name, load_custom_names, sink_key
+    names = load_custom_names()
     sinks = result.get("sinks") or []
     for i, s in enumerate(sinks):
         sid = str(s.get("id") or "")
-        alias = aliases.get(sid, "")
         os_name = str(s.get("name") or sid)
+        key = sink_key(sid)
         s["device_number"] = i + 1
-        s["alias"] = alias
-        s["os_name"] = os_name
-        s["display_name"] = alias or os_name
-        s["voice_names"] = _voice_names_for_sink(alias, os_name, i + 1)
-    result["aliases"] = aliases
+        apply_name(s, key, os_name)
+        # Direct sink-id alias fallback (legacy).
+        legacy = names.get(f"sinkid:{sid}", "")
+        if legacy and not s.get("custom_name"):
+            s["custom_name"] = legacy
+            s["alias"] = legacy
+            s["display_name"] = legacy
+        s["voice_names"] = _voice_names_for_sink(
+            s.get("custom_name") or s.get("alias") or "", os_name, i + 1)
+    result["aliases"] = {k: v for k, v in names.items() if k.startswith("sink")}
     return result
 
 
