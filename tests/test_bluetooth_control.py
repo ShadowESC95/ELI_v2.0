@@ -77,8 +77,10 @@ def test_classify_printer_and_adapter():
     d = dd.get_driver("bluetooth")
     pr = d.classify_bt_device({"name": "DeskJet 2800 series", "uuids": ["0000fdb4-..."]})
     assert pr["bt_type"] == "printer" and pr["audio_capable"] is False
-    ad = d.classify_bt_device({"name": "HOCO W46", "icon": "audio-headset", "uuids": ["Audio Sink"]})
-    assert ad["bt_type"] == "adapter" and ad["audio_capable"] is False
+    ad = d.classify_bt_device({"name": "BT Headphones Kit", "icon": "audio-headset", "uuids": ["Audio Sink"]})
+    assert ad["bt_type"] == "headphones" and ad["audio_capable"] is True
+    dongle = d.classify_bt_device({"name": "CSR Bluetooth Dongle", "icon": "computer", "uuids": []})
+    assert dongle["bt_type"] == "adapter" and dongle["audio_capable"] is False
 
 
 def test_use_for_audio_rejects_printer(monkeypatch):
@@ -93,35 +95,26 @@ def test_use_for_audio_rejects_printer(monkeypatch):
 
 
 def test_ensure_adapter_alias_skips_when_already_eli(monkeypatch):
-    monkeypatch.setattr(sys, "platform", "linux")
-    monkeypatch.setattr(shutil, "which", lambda t: "/usr/bin/" + t)
-    monkeypatch.setattr(dd.BluetoothDriver, "resolve_adapter_alias", classmethod(lambda cls: "Eli · Home"))
-    monkeypatch.setattr(dd.BluetoothDriver, "_sh",
-                        staticmethod(lambda args, timeout=25.0: (0, "Alias: Eli · Home\nPowered: yes")))
+    monkeypatch.setattr(
+        "eli.runtime.bt_platform.set_adapter_alias",
+        lambda name: {"ok": True, "alias": name, "already_set": True},
+    )
     r = dd.BluetoothDriver.ensure_adapter_alias()
     assert r["ok"] is True and r.get("already_set") is True
 
 
 def test_ensure_adapter_alias_sets_eli(monkeypatch):
-    import subprocess
-    monkeypatch.setattr(sys, "platform", "linux")
-    monkeypatch.setattr(shutil, "which", lambda t: "/usr/bin/" + t)
-    monkeypatch.setattr(dd.BluetoothDriver, "resolve_adapter_alias", classmethod(lambda cls: "Eli · Home"))
-    monkeypatch.setattr(dd.BluetoothDriver, "_sh",
-                        staticmethod(lambda args, timeout=25.0: (0, "Alias: ghost\nPowered: yes")))
     captured = {}
 
-    def fake_run(args, input=None, **kw):
-        captured["input"] = input
-        class R:
-            stdout = "Changing Eli · Home succeeded"
-            stderr = ""
-        return R()
+    def fake_set(name):
+        captured["name"] = name
+        return {"ok": True, "alias": name, "output": "Changing Eli · Home succeeded"}
 
-    monkeypatch.setattr(subprocess, "run", fake_run)
+    monkeypatch.setattr("eli.runtime.bt_platform.set_adapter_alias", fake_set)
+    monkeypatch.setattr(dd.BluetoothDriver, "resolve_adapter_alias", classmethod(lambda cls: "Eli · Home"))
     r = dd.BluetoothDriver.ensure_adapter_alias()
     assert r["ok"] is True and r["alias"] == "Eli · Home"
-    assert "system-alias Eli · Home" in captured["input"]
+    assert captured["name"] == "Eli · Home"
 
 
 def test_resolve_adapter_alias_default_home(monkeypatch):
