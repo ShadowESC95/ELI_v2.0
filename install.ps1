@@ -214,6 +214,17 @@ Write-Host "[..] Initialising data directories and full database architecture...
 if ($LASTEXITCODE -eq 0) { Write-Host "[OK] Full database architecture ready (blank slate)." -ForegroundColor Green }
 else { Write-Host "[WARN] Some stores deferred to first launch (self-build on first use)." -ForegroundColor Yellow }
 
+Write-Host "[..] Ensuring capability manifest and command reference..."
+try {
+    & $PythonVenv -c "from eli.tools.registry.capability_updater import update_capability_manifest; r=update_capability_manifest(); assert r.get('ok'), r; print(f'[OK] {r.get(\"total\",0)} capabilities indexed')"
+} catch {
+    if (Test-Path (Join-Path $ScriptDir "capability_manifest.json")) {
+        Write-Host "[OK] Using shipped capability_manifest.json (regeneration skipped)." -ForegroundColor Green
+    } else {
+        Write-Host "[WARN] Capability manifest missing — run: .venv\Scripts\python -m eli.tools.registry.capability_updater" -ForegroundColor Yellow
+    }
+}
+
 # ── Optional system tools (best-effort via winget): ffmpeg = media/whisper, tesseract = OCR ──
 # Non-fatal. Windows uses native APIs for volume/clipboard/notifications, so only these help.
 if (Get-Command winget -ErrorAction SilentlyContinue) {
