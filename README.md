@@ -17,7 +17,7 @@ or an authorised task explicitly enables it. No cloud accounts, no vendor teleme
 
 **v2 is live software, not a polished product drop.** Expect rough edges — I'm one dev, and ELI
 touches real hardware. I'm sharing it partly to see if there's interest. **ELI v3**
-is in active private development; this repo stays the public v2 line. Feedback helps and is more than appreciated/welcomed, a second pair of eyes is better than just mine because the project has turned into a lot more than initially planned! I prefer someone bringing an issue to me rather than giving me a compliment. Finding issues and reporting them is invaluable to me — bugs, ideas,
+is in active private development; this repo stays the public v2 line. Feedback helps and is more than appreciated/welcomed, a second pair of eyes is better than just mine because the project has turned into a lot more than initially planned, and feels like it has just scratched the surface. I prefer someone bringing an issue to me rather than giving me a compliment. Finding issues and reporting them is invaluable to me — bugs, ideas,
 or a plain "I tried it and…" — [open an issue](https://github.com/ShadowESC95/ELI_v2.0/issues). Also, if ELI v2 helps and you want to support my fridge and university tuition fees, feel free to check out my [ko-fi](https://ko-fi.com/shadowesc95) — dev's gotta eat too! **Enjoy, use, and report!**
 
 **Source-available — personal & internal use only (not open source).** ELI is published on
