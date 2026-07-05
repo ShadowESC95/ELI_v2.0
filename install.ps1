@@ -138,7 +138,8 @@ if ($Wheelhouse) {
 }
 
 Write-Host "[..] Upgrading pip..."
-Invoke-Pip @("install", "--quiet", "--upgrade", "pip", "setuptools", "wheel")
+Invoke-Pip @("install", "--quiet", "--upgrade", "pip", "wheel")
+Invoke-Pip @("install", "--quiet", "setuptools>=68,<82")
 
 # PyTorch
 if ($CpuOnly) {
@@ -186,7 +187,12 @@ $Wheel = Get-ChildItem (Join-Path $ScriptDir "dist") -Filter "eli_v2_0-*.whl" -E
 if ($Wheel) {
     Invoke-Pip (@("install") + $PipFindLinksArgs + @("$($Wheel.FullName)[full]", "--quiet"))
 } else {
-    Invoke-Pip (@("install") + $PipFindLinksArgs + @("-e", "$ScriptDir[full]", "--quiet"))
+    Push-Location $ScriptDir
+    try {
+        Invoke-Pip (@("install") + $PipFindLinksArgs + @("-e", ".[full]", "--quiet"))
+    } finally {
+        Pop-Location
+    }
 }
 
 # Remaining deps
