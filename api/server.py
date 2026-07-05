@@ -1242,7 +1242,7 @@ _WEB_UI = """<!doctype html>
         const note=(d.errors||[]).find(e=>/bluetooth/i.test(e));
         h='<div class="rnote" style="margin-top:10px">No Bluetooth devices found. '+(note?esc(note):'Turn Bluetooth on and put headphones or speakers in pairing mode.')+'</div>';
       } else {
-        h+='<div class="rnote" style="margin-top:8px">Tap <b>Pair</b> first for new devices, then <b>Use for audio</b> to hear ELI on that speaker.</div>';
+        h+='<div class="rnote" style="margin-top:8px">This PC appears as <b>Eli</b> on TVs and speakers. New device: tap <b>Pair</b>, accept on the device, then <b>Use for audio</b>.</div>';
         bt.forEach((f,i)=>{
           h+='<div class="src"><div class="sh"><span>&#127911; '+esc(f.name||'Bluetooth device')+'</span>'
             +'<span style="display:flex;gap:6px;flex-wrap:wrap">'
@@ -1263,7 +1263,7 @@ _WEB_UI = """<!doctype html>
     const cmd=['connect','pair','use_for_audio','disconnect'][c]||'connect';
     const st=$('#bt-st-'+i); if(st)st.textContent=cmd.replace(/_/g,' ')+'…';
     api('/v1/devices/bluetooth',{method:'POST',body:JSON.stringify({address:f.host||'',name:f.name||'',command:cmd})}).then(r=>{
-      if(st)st.innerHTML=(r&&r.ok)?('&#10003; '+esc(r.device_name||f.name||'device')+' — '+esc(cmd.replace(/_/g,' '))+(r.sink?(' &rarr; '+esc(r.sink)):'')):('<span style="color:#f87171">'+esc((r&&r.error)||'failed')+'</span>');
+      if(st)st.innerHTML=(r&&r.ok)?('&#10003; '+esc(r.device_name||f.name||'device')+' — '+esc(cmd.replace(/_/g,' '))+(r.sink?(' &rarr; '+esc(r.sink)):'')):('<span style="color:#f87171">'+esc((r&&r.error)||(r&&r.output&&r.output.slice(0,120))||'failed')+'</span>');
       if(r&&r.ok&&cmd==='use_for_audio'){loadAudioOutputs();refreshHomeConnectivity();}
     }).catch(e=>{if(st)st.innerHTML='<span style="color:#f87171">'+esc(''+e)+'</span>';});
   }

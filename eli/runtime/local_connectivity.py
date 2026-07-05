@@ -42,10 +42,27 @@ def bluetooth_status() -> Dict[str, Any]:
     else:
         tool = "bluetoothctl" if shutil.which("bluetoothctl") else None
     powered = False
+    adapter_name = ""
     if tool == "bluetoothctl":
         _, out = _sh(["bluetoothctl", "show"], timeout=8)
         powered = "powered: yes" in out.lower()
-    return {"available": bool(tool), "tool": tool or "", "powered": powered}
+        for line in out.splitlines():
+            low = line.strip().lower()
+            if low.startswith("alias:"):
+                adapter_name = line.split(":", 1)[1].strip()
+                break
+        try:
+            from eli.runtime.device_drivers import BluetoothDriver
+            BluetoothDriver.ensure_adapter_alias()
+            adapter_name = BluetoothDriver.ADAPTER_ALIAS
+        except Exception:
+            adapter_name = adapter_name or "Eli"
+    return {
+        "available": bool(tool),
+        "tool": tool or "",
+        "powered": powered,
+        "adapter_name": adapter_name or "Eli",
+    }
 
 
 def wifi_status() -> Dict[str, Any]:
