@@ -201,7 +201,9 @@ if [ "$ASSUME_YES" -eq 0 ]; then
         # NO_MODEL, or the tiny REQUIRED embedder (nomic, ~85 MB; memory/RAG can't
         # work without it) is skipped too. NO_MODEL stays reserved for the explicit
         # `--no-model` CLI flag (a deliberate fully-offline install).
-        case "${_m:-Y}" in [Nn]*) FETCH_MODEL="" ;; *) FETCH_MODEL="--choose" ;; esac
+        # Default skip — wizard offers a VRAM-sized download; saying Y runs --auto
+        # (one hardware-fit model), not the full multi-select menu.
+        case "${_m:-n}" in [Yy]*) FETCH_MODEL="--auto" ;; *) FETCH_MODEL="" ;; esac
     fi
 fi
 
