@@ -96,10 +96,22 @@ def ensure_whisper() -> Dict[str, Any]:
         from eli.core import netguard
         from eli.perception import local_whisper_stt as W
         with netguard.allow_network("voice asset: whisper model"):
-            W.preload_model()  # loads from disk if present, else downloads
+            prev_local = os.environ.get("ELI_WHISPER_LOCAL_ONLY")
+            os.environ["ELI_WHISPER_LOCAL_ONLY"] = "0"
+            try:
+                W.preload_model()
+            finally:
+                if prev_local is None:
+                    os.environ.pop("ELI_WHISPER_LOCAL_ONLY", None)
+                else:
+                    os.environ["ELI_WHISPER_LOCAL_ONLY"] = prev_local
         present = getattr(W, "_MODEL", None) is not None
+        err = None if present else "model not loaded (is faster-whisper installed?)"
         return {"ok": present, "asset": "whisper",
-                "already_present": present, **({} if present else {"error": "model not loaded"})}
+                "already_present": present, **({} if present else {"error": err})}
+    except ImportError:
+        return {"ok": False, "asset": "whisper",
+                "error": "faster-whisper not installed — re-run INSTALL_ELI.sh"}
     except Exception as e:
         log.debug("voice_assets: whisper preload failed", exc_info=True)
         return {"ok": False, "asset": "whisper", "error": str(e)}

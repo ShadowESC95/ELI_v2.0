@@ -26,6 +26,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import sys
 import urllib.request
 from pathlib import Path
@@ -414,9 +415,22 @@ def download_model(
                     resume_from = 0
                     mode = "wb"
                 total = 0
-                clen = resp.headers.get("Content-Length")
-                if clen and str(clen).isdigit():
-                    total = int(clen) + (resume_from if status == 206 else 0)
+                crange = resp.headers.get("Content-Range") or ""
+                m = re.match(r"bytes \d+-\d+/(\d+)", str(crange))
+                if m:
+                    total = int(m.group(1))
+                else:
+                    clen = resp.headers.get("Content-Length")
+                    if clen and str(clen).isdigit():
+                        chunk_len = int(clen)
+                        if status == 206:
+                            total = resume_from + chunk_len
+                        else:
+                            total = chunk_len
+                # Stale catalog / odd servers: grow total once we know we're past it.
+                est_bytes = int(float(entry.get("size_gb") or 0) * 1e9)
+                if total <= 0 and est_bytes > 0:
+                    total = est_bytes
                 downloaded = resume_from
                 if progress_cb:
                     try:
@@ -430,6 +444,8 @@ def download_model(
                             break
                         out.write(chunk)
                         downloaded += len(chunk)
+                        if total > 0 and downloaded > total:
+                            total = downloaded
                         if progress_cb:
                             try:
                                 progress_cb(downloaded, total)

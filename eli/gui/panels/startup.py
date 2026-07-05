@@ -570,6 +570,13 @@ class FirstBootWizard(QDialog):
         self.setMinimumWidth(660)
         self.setMinimumHeight(440)
         self.setStyleSheet(_WIZARD_QSS)
+        try:
+            from eli.gui.branding import load_app_icon
+            _icon = load_app_icon()
+            if _icon is not None:
+                self.setWindowIcon(_icon)
+        except Exception:
+            pass
 
         self._selected_path: str = ""
         self._selected_provider: str = "bundled_gguf"
@@ -611,6 +618,21 @@ class FirstBootWizard(QDialog):
         w = QWidget()
         v = QVBoxLayout(w)
         v.setContentsMargins(14, 14, 14, 14)
+        try:
+            from eli.gui.branding import resolve_app_icon_path
+            from eli.gui.panels._qt import QPixmap
+            _ip = resolve_app_icon_path()
+            if _ip is not None:
+                _logo = QLabel()
+                _pix = QPixmap(str(_ip)).scaled(
+                    96, 96, Qt.AspectRatioMode.KeepAspectRatio,
+                    Qt.TransformationMode.SmoothTransformation,
+                )
+                _logo.setPixmap(_pix)
+                _logo.setAlignment(Qt.AlignmentFlag.AlignHCenter)
+                v.addWidget(_logo)
+        except Exception:
+            pass
         title = QLabel("Welcome to ELI v2.0")
         title.setStyleSheet("font-size:18px;font-weight:bold;color:#88c0d0;")
         v.addWidget(title)
@@ -913,13 +935,17 @@ class FirstBootWizard(QDialog):
         self._dl_thread.start()
 
     def _on_dl_progress(self, done: int, total: int):
-        mb = done / (1024 * 1024)
+        if total > 0 and done > total:
+            total = done
+        gib_done = done / (1024 ** 3)
         if total > 0:
             self._dl_progress.setRange(0, total)
-            self._dl_progress.setValue(done)
-            self._dl_status.setText(f"Downloading … {mb:.0f} MB / {total/(1024*1024):.0f} MB")
+            self._dl_progress.setValue(min(done, total))
+            gib_total = total / (1024 ** 3)
+            self._dl_status.setText(
+                f"Downloading … {gib_done:.2f} GiB / {gib_total:.2f} GiB")
         else:
-            self._dl_status.setText(f"Downloading … {mb:.0f} MB")
+            self._dl_status.setText(f"Downloading … {gib_done:.2f} GiB")
 
     def _on_dl_done(self, res: Dict[str, Any]):
         self._dl_btn.setEnabled(True)
