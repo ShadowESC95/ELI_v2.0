@@ -1242,7 +1242,7 @@ _WEB_UI = """<!doctype html>
         const note=(d.errors||[]).find(e=>/bluetooth/i.test(e));
         h='<div class="rnote" style="margin-top:10px">No Bluetooth devices found. '+(note?esc(note):'Turn Bluetooth on and put headphones or speakers in pairing mode.')+'</div>';
       } else {
-        h+='<div class="rnote" style="margin-top:8px">This controller appears as <b id="bt-alias-hint">Eli · Home</b> on TVs and speakers. New device: tap <b>Pair</b>, accept on the device, then <b>Use for audio</b>.</div>';
+        h+='<div class="rnote" style="margin-top:8px">This controller appears as <b id="bt-alias-hint">Eli · Home</b> on TVs and speakers. Headphones: put them in <b>pairing mode</b> (LED flashing), tap <b>Pair</b>, then <b>Use for audio</b>.</div>';
         bt.forEach((f,i)=>{
           h+='<div class="src"><div class="sh"><span>&#127911; '+esc(f.name||'Bluetooth device')+'</span>'
             +'<span style="display:flex;gap:6px;flex-wrap:wrap">'

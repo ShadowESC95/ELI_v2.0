@@ -572,27 +572,33 @@ class BluetoothDriver(Driver):
     def _bt_error_hint(out: str, action: str) -> str:
         low = (out or "").lower()
         if "authentication failed" in low or "rejected" in low:
-            return "Pairing rejected — accept the prompt on the TV/speaker, then tap Pair again"
+            return "Pairing rejected — accept the prompt on the device, then tap Pair again"
         if "failed to connect" in low or "br-connection" in low:
-            return "Could not connect — tap Pair first and accept on the device"
+            return "Could not connect — put headphones in pairing mode (LED flashing), then tap Pair"
         if action == "pair":
-            return "Pairing did not finish — confirm on the TV, then tap Pair again"
+            return ("Pairing did not finish — put headphones in pairing mode (hold power ~5s), "
+                    "accept on TVs, then tap Pair again")
         if action == "connect":
-            return "Connect failed — tap Pair and accept on the device first"
+            return "Connect failed — tap Pair first (headphones: pairing mode with LED flashing)"
         tail = [ln.strip() for ln in (out or "").splitlines() if ln.strip()]
         return (tail[-1][:140] if tail else "Bluetooth command failed")
 
     @staticmethod
     def _btctl_batch(addr: str, steps: List[str], timeout: float = 45.0):
-        """Run bluetoothctl with a NoInputNoOutput agent (needed for TV/speaker pairing)."""
+        """Run bluetoothctl with an agent suited to pairing (headphones/TVs)."""
         import subprocess
         alias_name = BluetoothDriver.resolve_adapter_alias()
+        pairing = "pair" in steps
+        agent = "DisplayYesNo" if pairing else "NoInputNoOutput"
         script = "\n".join([
-            "agent NoInputNoOutput",
+            f"agent {agent}",
             "default-agent",
             "power on",
+            "pairable on",
             f"system-alias {alias_name}",
+            *(["scan on"] if pairing else []),
             *[f"{step} {addr}" for step in steps],
+            *(["scan off"] if pairing else []),
             "quit",
             "",
         ])
@@ -645,7 +651,7 @@ class BluetoothDriver(Driver):
         else:
             steps = {"pair": ["pair", "trust", "connect"], "connect": ["connect"],
                      "trust": ["trust"]}[action]
-            ok, out = self._btctl_batch(addr, steps)
+            ok, out = self._btctl_batch(addr, steps, timeout=60.0 if action == "pair" else 45.0)
         res = {"ok": ok, "command": action, "device": addr, "output": out.strip()[:400]}
         if not ok:
             res["error"] = self._bt_error_hint(out, action)
