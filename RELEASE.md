@@ -27,7 +27,8 @@ Large assets exceed GitHub's 100 MB file limit for git blobs:
 
 ```bash
 bash scripts/create_github_asset_archives.sh   # if present
-bash scripts/upload_github_asset_files.py --repo ShadowESC95/ELI_v2.0 --tag v2.0.0-assets
+# Attach models/MODEL_LICENSES.md to the release notes or asset bundle
+python3 scripts/upload_github_asset_files.py --repo ShadowESC95/ELI_v2.0 --tag v2.0.0-assets
 ```
 
 ## 3. Publish GitHub Release
