@@ -30,9 +30,26 @@ WORLD_DIR = _world_dir()
 STATE_PATH = WORLD_DIR / "eli_world_state.json"
 EVENTS_PATH = WORLD_DIR / "events.jsonl"
 ACTIONS_PATH = WORLD_DIR / "actions.jsonl"
+_CORRUPT_BACKUP_KEEP = 5
 
 def _ensure() -> None:
     WORLD_DIR.mkdir(parents=True, exist_ok=True)
+
+def _prune_corrupt_backups(keep: int = _CORRUPT_BACKUP_KEEP) -> None:
+    """Keep only the newest corrupt-state backups to avoid unbounded disk use."""
+    try:
+        backups = sorted(
+            WORLD_DIR.glob(f"{STATE_PATH.stem}.corrupt_*.json"),
+            key=lambda p: p.stat().st_mtime,
+            reverse=True,
+        )
+        for old in backups[keep:]:
+            try:
+                old.unlink()
+            except Exception:
+                pass
+    except Exception:
+        pass
 
 def _state_from_dict(data: Dict[str, Any]) -> EliWorldState:
     state = EliWorldState()
@@ -69,6 +86,7 @@ class EliWorldStorage:
                 self.state_path.rename(corrupt)
             except Exception:
                 pass
+            _prune_corrupt_backups()
             state = EliWorldState(identity=get_world_identity(), constitution=get_world_constitution(), rooms=get_default_rooms())
             self.save(state)
             return state
@@ -76,7 +94,10 @@ class EliWorldStorage:
     def save(self, state: EliWorldState) -> None:
         _ensure()
         state.timestamp = time()
-        self.state_path.write_text(json.dumps(state.to_dict(), indent=2, ensure_ascii=False), encoding="utf-8")
+        payload = json.dumps(state.to_dict(), indent=2, ensure_ascii=False)
+        tmp = self.state_path.with_suffix(".tmp")
+        tmp.write_text(payload, encoding="utf-8")
+        tmp.replace(self.state_path)
 
     def append_event(self, event: WorldEvent) -> None:
         _ensure()
