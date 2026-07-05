@@ -10,7 +10,7 @@ from typing import List
 
 
 ROOT = Path(__file__).resolve().parents[1]
-DEFAULT_REPO = "ShadowESC95/ELI_MKXI_v2.0_PRO"
+DEFAULT_REPO = "ShadowESC95/ELI_v2.0"
 DEFAULT_TAG = "local-assets-v2.0"
 
 
