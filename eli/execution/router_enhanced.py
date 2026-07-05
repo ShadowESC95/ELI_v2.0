@@ -2760,11 +2760,13 @@ def route(text: str) -> Dict[str, Any]:
 
     # "play X by Y" / "play X from Z" / "play some jazz" / "play movie soundtrack"
     _play_specific_m = re.match(
-        r"^play\s+(?:me\s+|some\s+)?(.+?)(?:\s+on\s+(\w+))?$", raw, re.I
+        r"^play\s+(?:me\s+|some\s+)?(.+?)(?:\s+on\s+([\w.]+))?$", raw, re.I
     )
     if _play_specific_m:
         query = _play_specific_m.group(1).strip()
         target = (_play_specific_m.group(2) or "").strip() or None
+        if target and re.search(r"youtube\.com", target, re.I):
+            target = "youtube website"
         # Only route as specific if it's not a bare "play" or "play media"
         if query and query.lower() not in ("media", "music", "audio", ""):
             return _mk("PLAY_MEDIA", {"query": query, "target": target}, 0.92,
@@ -3787,6 +3789,14 @@ def route(text: str) -> Dict[str, Any]:
         if target_low in generic_ide:
             return _mk("OPEN_IDE", {"name": "ide"}, 0.99, matched_by="open.ide.literal_preempt")
 
+        if target_low in WEBSITE_ALIASES:
+            return _mk(
+                "OPEN_URL",
+                {"url": WEBSITE_ALIASES[target_low]},
+                0.99,
+                matched_by="open.website.literal_preempt",
+            )
+
         canonical = app_aliases.get(target_low, target)
         return _mk("OPEN_APP", {"name": canonical}, 0.99, matched_by="open.app.literal_preempt")
     m = re.match(r"^\s*(open|run|launch|start)\s+(.+?)\s*$", raw, re.I)
@@ -3813,6 +3823,14 @@ def route(text: str) -> Dict[str, Any]:
 
         if target_low in generic_ide:
             return _mk("OPEN_IDE", {"name": "ide"}, 0.99, matched_by="open.ide.literal_preempt")
+
+        if target_low in WEBSITE_ALIASES:
+            return _mk(
+                "OPEN_URL",
+                {"url": WEBSITE_ALIASES[target_low]},
+                0.99,
+                matched_by="open.website.literal_preempt",
+            )
 
         canonical = app_aliases.get(target_low, target)
         return _mk("OPEN_APP", {"name": canonical}, 0.99, matched_by="open.app.literal_preempt")
@@ -4384,7 +4402,7 @@ def _eli_mqc_clean_query(q: str) -> str:
     # Without this, "logic by diabolic on spotify" → query="logic by diabolic on spotify"
     # instead of the expected "logic by diabolic".
     q = _eli_mqc_re.sub(
-        r"\s+on\s+(spotify|youtube|yt|mpv|soundcloud|apple\s+music|tidal|deezer)\s*$",
+        r"\s+on\s+(spotify|youtube|yt|youtube\.com|mpv|soundcloud|apple\s+music|tidal|deezer)\s*$",
         "",
         q,
         flags=_eli_mqc_re.I,
@@ -6052,6 +6070,10 @@ def _eli_media_contract_post(raw, result):
         if m:
             return _play(m.group(2), m.group(1), "media.play_query_on_target_contract")
 
+        m = re.match(r"^play\s+(.+?)\s+on\s+youtube\.com\s*$", text)
+        if m:
+            return _play("youtube website", m.group(1), "media.play_on_youtube_dot_com_contract")
+
         m = re.match(r"^play\s+(.+\s+by\s+.+)$", text)
         if m:
             return _play("spotify", m.group(1), "media.play_song_by_artist_contract")
@@ -6084,6 +6106,13 @@ def _eli_media_contract_post(raw, result):
                 or name in {"browser", "youtube"}
             )
             if known:
+                if verb in {"open", "launch", "start"} and name in WEBSITE_ALIASES:
+                    return _mk(
+                        "OPEN_URL",
+                        {"url": WEBSITE_ALIASES[name]},
+                        0.98,
+                        matched_by="app.wake_prefix_contract.web_alias",
+                    )
                 action = "CLOSE_APP" if verb in {"close", "quit", "kill", "exit"} else "OPEN_APP"
                 return _mk(action, {"name": name}, 0.98, matched_by="app.wake_prefix_contract")
 

@@ -1,5 +1,5 @@
 {
-  "updated": "2026-07-01T02:41:46",
+  "updated": "2026-07-05T02:32:57",
   "entries": [
     {
       "qual": "eli.core.model_tier:clear_cache",
@@ -10,9 +10,9 @@
     },
     {
       "qual": "eli.core.dag:build_dag",
-      "reason": "no tests collected",
+      "reason": "syntax error: unterminated string literal (detected at line 134) (<unknown>, line 134)",
       "accepted": false,
-      "ts": "2026-07-01T02:41:46"
+      "ts": "2026-07-05T02:32:57"
     },
     {
       "qual": "eli.core.model_tier:detect_tier",
@@ -37,9 +37,10 @@
     },
     {
       "qual": "eli.core.dag:run_graph",
-      "reason": "syntax error: '(' was never closed (<unknown>, line 149)",
-      "accepted": false,
-      "ts": "2026-07-01T02:41:46"
+      "file": "tests/generated/test_gen_eli_core_dag__run_graph.py",
+      "passed": 4,
+      "accepted": true,
+      "ts": "2026-07-05T02:32:57"
     },
     {
       "qual": "eli.core.model_tier:tier_scale",
@@ -85,7 +86,7 @@
       "qual": "eli.core.model_tier:record_speed",
       "reason": "no tests collected",
       "accepted": false,
-      "ts": "2026-07-01T02:41:46"
+      "ts": "2026-07-05T02:32:57"
     },
     {
       "qual": "eli.core.model_tier:speed_passes",

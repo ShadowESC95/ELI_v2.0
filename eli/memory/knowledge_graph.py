@@ -40,6 +40,23 @@ _STOPWORDS = frozenset({
     "just", "so", "then", "than", "also", "very", "too", "some", "any",
     "also", "yes", "yeah", "ok", "okay", "hey", "hi", "hello", "well",
 })
+
+# Family / pet relationship nouns for possessive-fact extraction
+# ("my dog Shadow", "Shadow (my dog)"). Maps surface word -> normalised relation.
+_REL_NORMALISE = {
+    "puppy": "dog", "pup": "dog", "kitten": "cat", "kitty": "cat",
+    "mum": "mother", "mom": "mother", "mummy": "mother", "mommy": "mother",
+    "dad": "father", "daddy": "father", "kid": "child", "baby": "child",
+    "hubby": "husband", "fiancee": "fiance",
+}
+_REL_WORDS = (
+    "dog", "puppy", "pup", "cat", "kitten", "kitty", "pet", "horse", "bird",
+    "wife", "husband", "hubby", "partner", "spouse", "fiance", "fiancee",
+    "girlfriend", "boyfriend",
+    "son", "daughter", "kid", "child", "baby",
+    "mother", "father", "mum", "mom", "mummy", "mommy", "dad", "daddy",
+    "brother", "sister", "friend", "colleague", "boss", "roommate",
+)
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
@@ -428,12 +445,33 @@ class KnowledgeGraph:
             if aliases:
                 header += f" — also known as: {aliases}"
             lines.append(header)
-            for rel in (ent_detail.get("outbound") or [])[:5]:
+            # Query-aware ordering: float relations whose predicate/object match a
+            # query token to the top, so "what is my dog's name" surfaces
+            # has_dog→Shadow instead of it being crowded out by the [:5] cap.
+            _q_toks = {
+                t.lower() for t in re.split(r"[^a-zA-Z0-9]+", query)
+                if len(t) > 2 and t.lower() not in _STOPWORDS
+            }
+            _q_toks |= {t[:-1] for t in list(_q_toks) if t.endswith("s") and len(t) > 3}
+
+            def _rel_relevance(_rel: Dict[str, Any]) -> int:
+                _blob = f"{_rel.get('predicate','')} {_rel.get('object','')}".lower()
+                return sum(1 for _t in _q_toks if _t in _blob)
+
+            # Skip retired/contradicted relations (weight demoted to ~0.05 by the
+            # has_name conflict handler) so a corrected name never leaks back in.
+            _outbound = sorted(
+                (r for r in (ent_detail.get("outbound") or [])
+                 if float(r.get("weight", 1.0) or 0) > 0.1),
+                key=_rel_relevance, reverse=True,
+            )
+            for rel in _outbound[:5]:
                 triple = (name, rel["predicate"], rel["object"])
                 if triple not in seen_triples:
                     seen_triples.add(triple)
                     lines.append(f"  {name} —[{rel['predicate']}]→ {rel['object']}")
-            for rel in (ent_detail.get("inbound") or [])[:3]:
+            for rel in [r for r in (ent_detail.get("inbound") or [])
+                        if float(r.get("weight", 1.0) or 0) > 0.1][:3]:
                 triple = (rel["subject"], rel["predicate"], name)
                 if triple not in seen_triples:
                     seen_triples.add(triple)
@@ -540,6 +578,45 @@ class KnowledgeGraph:
                         self.upsert_entity(obj)
                         if self.add_relation(subj, predicate, obj, source=source):
                             added += 1
+
+        # Possessive relationships — "my dog Shadow", "Shadow (my dog)". These are
+        # identity-grade user facts, so trust user-authored text only (same rule
+        # as has_name) to keep hallucinated assistant turns out of the graph.
+        if source in _trusted_sources:
+            added += self._extract_relationships(text, source)
+        return added
+
+    def _extract_relationships(self, text: str, source: str) -> int:
+        """
+        Extract "User —[has_<rel>]→ Name" triples from possessive phrases the
+        main pattern table misses: "my dog Shadow", "my dog is/named/called
+        Shadow", "my dog's name is Shadow", "Shadow (my dog)", "Shadow, my dog",
+        "Shadow is my dog". Names must be capitalised; noise is filtered via the
+        stopword set. This is the gap that dropped "Shadow (my dog)" on the floor.
+        """
+        added = 0
+        rel_alt = "|".join(sorted(set(_REL_WORDS), key=len, reverse=True))
+        name_grp = r"[A-Z][A-Za-z'’\-]{1,20}"
+        patterns = [
+            # name AFTER: my <rel> [is/named/called/'s name is] <Name>
+            rf"\bmy\s+(?P<rel>{rel_alt})"
+            rf"(?:’s\s+name\s+is|'s\s+name\s+is|\s+(?:is\s+)?(?:called\s+|named\s+)?)"
+            rf"\s*(?P<name>{name_grp})",
+            # name BEFORE: <Name> (my <rel>) | <Name>, my <rel> | <Name> is my <rel>
+            rf"(?P<name>{name_grp})\s*(?:\(\s*|,\s*|\s+is\s+)my\s+(?P<rel>{rel_alt})\b",
+        ]
+        for pat in patterns:
+            for m in re.finditer(pat, text):
+                rel = (m.group("rel") or "").lower()
+                nm = (m.group("name") or "").strip()
+                if not nm or nm.lower() in _STOPWORDS:
+                    continue
+                rel = _REL_NORMALISE.get(rel, rel)
+                predicate = f"has_{rel}"
+                self.upsert_entity("User", "person")
+                self.upsert_entity(nm)
+                if self.add_relation("User", predicate, nm, source=source):
+                    added += 1
         return added
 
 
