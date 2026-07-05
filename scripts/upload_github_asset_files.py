@@ -9,11 +9,12 @@ import subprocess
 from pathlib import Path
 from typing import Any, Dict, List
 
+from asset_release_policy import is_excluded_voice_filename
 from github_asset_manifest import ROOT, build_manifest
 
 
 DEFAULT_REPO = "ShadowESC95/ELI_v2.0"
-DEFAULT_TAG = "local-assets-v2.0"
+DEFAULT_TAG = "local-assets-v2.1"
 DEFAULT_CHUNK_BYTES = 1_900_000_000
 
 
@@ -66,6 +67,9 @@ def _split_file(src: Path, prefix: Path, chunk_bytes: int) -> List[Path]:
 def _selected_rows(manifest: Dict[str, Any], include_runtime: bool, include_venv: bool) -> List[Dict[str, Any]]:
     rows = []
     for row in manifest.get("files") or []:
+        rel = str(row.get("path") or "")
+        if is_excluded_voice_filename(Path(rel).name):
+            continue
         category = row.get("category")
         if row.get("upload_recommended"):
             rows.append(row)
