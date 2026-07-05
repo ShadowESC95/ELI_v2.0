@@ -15,7 +15,8 @@
 #   deb      Debian .deb       (requires dpkg-deb; runs build-deb.sh)
 #   appimage Linux AppImage    (requires appimagetool; falls back to tar.gz)
 #   macos    macOS .app/.dmg   (use on macOS for the .dmg; tar.gz elsewhere)
-#   windows  Windows installer (use on Windows for .exe; portable zip elsewhere)
+#   windows      Windows portable zip with offline wheelhouse (large)
+#   windows-lean Windows portable zip — source + wheel only (online pip install)
 set -euo pipefail
 
 PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -24,7 +25,7 @@ VERSION=$(grep -E '^version' "$PROJECT_ROOT/pyproject.toml" | head -1 | awk -F'"
 
 mkdir -p "$DIST"
 
-ALL_TARGETS=("wheel" "wheelhouse" "deb" "appimage" "macos" "windows")
+ALL_TARGETS=("wheel" "wheelhouse" "deb" "appimage" "macos" "windows" "windows-lean")
 if [ "$#" -eq 0 ]; then
     TARGETS=("${ALL_TARGETS[@]}")
 else
@@ -103,6 +104,35 @@ build_windows_wheelhouse() {
     ( cd "$WHEELHOUSE" && ls -1 > "$DIST/WHEELHOUSE.txt" 2>/dev/null || true )
 }
 
+_stage_windows_common() {
+    local STAGING="$1"
+    rm -rf "$STAGING"
+    mkdir -p "$STAGING/dist"
+    (cd "$PROJECT_ROOT" && git archive --format=tar HEAD -- ':!:models/**' ':!:tts_piper/**') | tar -xf - -C "$STAGING"
+    cp "$PROJECT_ROOT/install.bat" "$PROJECT_ROOT/install.ps1" "$PROJECT_ROOT/eli.bat" "$STAGING/"
+    cp "$PROJECT_ROOT/requirements-windows.txt" "$STAGING/requirements.txt"
+    cp "$PROJECT_ROOT/requirements-windows.txt" "$STAGING/"
+    for extra in requirements-full.txt requirements-macos.txt requirements-android.txt pyproject.toml README.md .env.example; do
+        [ -f "$PROJECT_ROOT/$extra" ] && cp "$PROJECT_ROOT/$extra" "$STAGING/" 2>/dev/null || true
+    done
+    if [ -d "$PROJECT_ROOT/packaging/windows" ]; then
+        mkdir -p "$STAGING/installers"
+        cp -r "$PROJECT_ROOT/packaging/windows/." "$STAGING/installers/"
+    fi
+    if ls "$DIST"/eli_mkxi-*.whl >/dev/null 2>&1; then
+        cp "$DIST"/eli_mkxi-*.whl "$STAGING/dist/"
+    fi
+    cat > "$STAGING/README_INSTALL.txt" <<EOF
+ELI v2 — Windows portable (${2:-lean})
+
+1. Extract this folder
+2. Run install.bat  (or: powershell -ExecutionPolicy Bypass -File install.ps1)
+3. Run eli.bat
+
+Model pack: GitHub release tag local-assets-v2.1 or python scripts/restore_github_asset_files.py
+EOF
+}
+
 # ── Pre-flight: tests must pass before producing artifacts ──────────────
 echo ""
 echo "[pre-flight] Compiling the codebase…"
@@ -143,46 +173,38 @@ for target in "${TARGETS[@]}"; do
             bash "$PROJECT_ROOT/packaging/macos/build-macos-app.sh" "$VERSION" || \
                 echo "[macos] macOS builder failed (run on macOS for a real .dmg)."
             ;;
+        windows-lean)
+            echo ""
+            echo "[windows-lean] Producing lean portable zip (source + wheel)…"
+            if ! ls "$DIST"/eli_mkxi-*.whl >/dev/null 2>&1; then
+                build_python_artifacts
+            fi
+            STAGING="$PROJECT_ROOT/build/win-portable/ELI_v2-${VERSION}-windows-portable"
+            _stage_windows_common "$STAGING" "lean"
+            ZIP="$DIST/ELI_v2-${VERSION}-windows-portable.zip"
+            rm -f "$ZIP"
+            ( cd "$(dirname "$STAGING")" && zip -r -q "$ZIP" "$(basename "$STAGING")" )
+            echo "[windows-lean] Portable zip: $ZIP"
+            ;;
         windows)
             echo ""
             if [ "$(uname -s)" = "Darwin" ] || [ "$(uname -s)" = "Linux" ]; then
-                echo "[windows] Producing portable zip on $(uname -s)…"
+                echo "[windows] Producing full offline portable zip on $(uname -s)…"
                 if ! ls "$DIST"/eli_mkxi-*.whl >/dev/null 2>&1; then
                     build_python_artifacts
                 fi
                 if ! find "$DIST/wheelhouse" -maxdepth 1 -name '*.whl' -print -quit 2>/dev/null | grep -q .; then
                     build_windows_wheelhouse
                 fi
-                STAGING="$PROJECT_ROOT/build/win-portable/eli-mkxi-${VERSION}-windows"
-                rm -rf "$STAGING"
-                mkdir -p "$STAGING/dist"
-                cp -r "$PROJECT_ROOT/eli"     "$STAGING/"
-                cp -r "$PROJECT_ROOT/config"  "$STAGING/" 2>/dev/null || true
-                cp    "$PROJECT_ROOT/pyproject.toml" "$STAGING/"
-                cp    "$PROJECT_ROOT/README.md" "$STAGING/" 2>/dev/null || true
-                cp    "$PROJECT_ROOT/.env.example" "$STAGING/" 2>/dev/null || true
-                cp    "$PROJECT_ROOT/.env.full.example" "$STAGING/" 2>/dev/null || true
-                cp    "$PROJECT_ROOT/eli.bat" "$STAGING/"
-                cp    "$PROJECT_ROOT/install.bat" "$STAGING/"
-                cp    "$PROJECT_ROOT/install.ps1" "$STAGING/"
-                cp    "$PROJECT_ROOT/requirements-full.txt" "$STAGING/requirements-full.txt"
-                cp    "$PROJECT_ROOT/requirements-android.txt" "$STAGING/requirements-android.txt"
-                cp    "$PROJECT_ROOT/requirements-macos.txt" "$STAGING/requirements-macos.txt"
-                cp    "$PROJECT_ROOT/requirements-windows.txt" "$STAGING/requirements-windows.txt"
-                cp    "$PROJECT_ROOT/requirements-windows.txt" "$STAGING/requirements.txt"
-                if [ -d "$PROJECT_ROOT/packaging/windows" ]; then
-                    cp -r "$PROJECT_ROOT/packaging/windows" "$STAGING/installers"
-                fi
-                if ls "$DIST"/eli_mkxi-*.whl >/dev/null 2>&1; then
-                    cp "$DIST"/eli_mkxi-*.whl "$STAGING/dist/"
-                fi
+                STAGING="$PROJECT_ROOT/build/win-portable/ELI_v2-${VERSION}-windows-portable-full"
+                _stage_windows_common "$STAGING" "full offline"
                 if [ -d "$DIST/wheelhouse" ]; then
                     cp -r "$DIST/wheelhouse" "$STAGING/wheelhouse"
                 fi
-                ZIP="$DIST/eli-mkxi-${VERSION}-windows-portable.zip"
+                ZIP="$DIST/ELI_v2-${VERSION}-windows-portable-full.zip"
                 rm -f "$ZIP"
                 ( cd "$(dirname "$STAGING")" && zip -r -q "$ZIP" "$(basename "$STAGING")" )
-                echo "[windows] Portable zip: $ZIP"
+                echo "[windows] Full portable zip: $ZIP"
                 echo "[windows] To produce a .exe / .msi installer: run packaging/windows/build-windows.ps1 on a Windows host."
             else
                 powershell.exe -ExecutionPolicy Bypass -File "$PROJECT_ROOT/packaging/windows/build-windows.ps1" \
@@ -204,16 +226,16 @@ fi
 echo "[finalise] Computing SHA-256 checksums…"
 ( cd "$DIST" && sha256sum eli_mkxi-*.whl 2>/dev/null \
                           eli_mkxi-*.tar.gz 2>/dev/null \
-                          ELI_MKXI-*.dmg 2>/dev/null \
-                          ELI_MKXI-*.AppImage 2>/dev/null \
-                          ELI_MKXI-*-Setup.exe 2>/dev/null \
+                          ELI_v2-*.dmg 2>/dev/null \
+                          ELI_v2-*.AppImage 2>/dev/null \
+                          ELI_v2-*-Setup.exe 2>/dev/null \
                           eli-mkxi_*_amd64.deb 2>/dev/null \
-                          eli-mkxi-*-windows-portable.zip 2>/dev/null \
-                          eli-mkxi-*-portable.tar.gz 2>/dev/null \
-                          ELI_MKXI-*-macos-app.tar.gz 2>/dev/null > SHA256SUMS.txt || true )
+                          ELI_v2-*-windows-portable*.zip 2>/dev/null \
+                          ELI_v2-*-linux-portable.tar.gz 2>/dev/null \
+                          ELI_v2-*-macos-app.tar.gz 2>/dev/null > SHA256SUMS.txt || true )
 
 cat > "$DIST/RELEASE_NOTES.md" <<EOF
-# ELI MKXI ${VERSION}
+# ELI v2 ${VERSION}
 
 Built on: $(date -u +"%Y-%m-%d %H:%M UTC")
 Host: $(uname -s) $(uname -r) ($(uname -m))
@@ -229,9 +251,10 @@ $(cat "$DIST/SHA256SUMS.txt" 2>/dev/null || echo "(checksum file missing)")
 ## Install quick reference
 - **pip / wheel**: \`pip install dist/eli_mkxi-${VERSION}-py3-none-any.whl[full]\`
 - **Debian/Ubuntu**: \`sudo dpkg -i dist/eli-mkxi_${VERSION}_amd64.deb && sudo apt -f install\`
-- **Linux AppImage**: \`chmod +x dist/ELI_MKXI-${VERSION}-x86_64.AppImage && ./dist/ELI_MKXI-${VERSION}-x86_64.AppImage\`
-- **macOS**: open \`dist/ELI_MKXI-${VERSION}.dmg\`, drag ELI MKXI.app to Applications
-- **Windows installer**: run \`dist/ELI_MKXI-${VERSION}-Setup.exe\` (Inno/NSIS) or extract the portable zip and run \`install.bat\`
+- **Linux portable**: extract \`dist/ELI_v2-${VERSION}-linux-portable.tar.gz\`, run \`./INSTALL_ELI.sh\`
+- **Windows lean**: extract \`dist/ELI_v2-${VERSION}-windows-portable.zip\`, run \`install.bat\`
+- **Windows full offline**: extract \`dist/ELI_v2-${VERSION}-windows-portable-full.zip\`, run \`install.bat\`
+- **macOS**: build on a Mac host with \`bash build_packages.sh macos\`
 
 EOF
 
