@@ -47,8 +47,7 @@ jobs:
           python -c "from fastapi.testclient import TestClient; from api.server import app; c=TestClient(app); assert c.get('/health').status_code==200; assert c.get('/').status_code==200; print('server endpoints reachable (health + web UI)')"
 
       - name: First-run DB autobuild (cross-platform paths)
-        run: |
-          python -c "from eli.core.paths import get_paths; get_paths(); import eli.memory as M; (M.get_memory() if hasattr(M,'get_memory') else None); print('data dirs + DB init OK')"
+        run: python -m eli.core.init_data
 
       - name: Bootstrap claims artifacts (manifest + blueprints — fresh-clone path)
         run: python tools/bootstrap_claims_artifacts.py
