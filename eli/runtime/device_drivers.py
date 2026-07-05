@@ -564,45 +564,66 @@ class BluetoothDriver(Driver):
             return {"ok": False, "alias": name, "error": str(e)}
 
     @classmethod
+    def _bt_ensure_controller(cls) -> Tuple[bool, str]:
+        """Select an available controller and power the radio on."""
+        import re, shutil, sys
+        if sys.platform != "linux" or not shutil.which("bluetoothctl"):
+            return False, "bluetoothctl not found"
+        _, out = cls._sh(["bluetoothctl", "list"], timeout=8)
+        addrs = re.findall(r"Controller\s+([0-9A-Fa-f:]{17})", out or "")
+        if not addrs:
+            return False, "no Bluetooth controller — enable in system settings or replug USB adapter"
+        for addr in addrs:
+            cls._sh(["bluetoothctl", "select", addr], timeout=6)
+            cls._sh(["bluetoothctl", "power", "on"], timeout=10)
+            _, show = cls._sh(["bluetoothctl", "show"], timeout=8)
+            if "powered: yes" in show.lower():
+                return True, addr
+        return False, "Bluetooth radio off"
+
+    @classmethod
     def _bt_prepare_radio(cls) -> None:
         """Power on + pairable so outbound pairing to headphones works."""
-        import shutil, subprocess, sys
-        if sys.platform != "linux" or not shutil.which("bluetoothctl"):
+        ok, _ = cls._bt_ensure_controller()
+        if not ok:
             return
         try:
+            import subprocess
             subprocess.run(
                 ["bluetoothctl"],
-                input="power on\npairable on\ndiscoverable off\nquit\n",
+                input="pairable on\ndiscoverable off\nquit\n",
                 capture_output=True,
                 text=True,
-                timeout=10,
+                timeout=8,
             )
         except Exception:
             pass
 
     @classmethod
-    def _device_available(cls, addr: str) -> bool:
-        info = cls._bt_device_info(addr)
-        blob = " ".join(str(v) for v in info.values()).lower()
-        return "not available" not in blob and bool(info.get("name") or info.get("alias"))
+    def _device_in_cache(cls, addr: str) -> bool:
+        _, listing = cls._sh(["bluetoothctl", "devices"], timeout=8)
+        return addr.upper() in (listing or "").upper()
 
     @classmethod
     def _wait_for_bt_device(cls, addr: str, timeout: float = 18.0) -> bool:
-        """Scan until BlueZ sees the device (headphones must be in pairing mode)."""
+        """Scan until BlueZ lists the device (headphones must be in pairing mode)."""
         import time
         addr_u = addr.upper()
-        cls._bt_prepare_radio()
-        cls._sh(["bluetoothctl", "scan", "on"], timeout=6)
-        deadline = time.time() + max(6.0, float(timeout))
-        try:
-            while time.time() < deadline:
-                _, listing = cls._sh(["bluetoothctl", "devices"], timeout=8)
-                if addr_u in listing.upper() and cls._device_available(addr):
-                    return True
-                time.sleep(2)
-            return cls._device_available(addr)
-        finally:
-            cls._sh(["bluetoothctl", "scan", "off"], timeout=6)
+        ok, _ = cls._bt_ensure_controller()
+        if not ok:
+            return False
+        if cls._device_in_cache(addr_u):
+            return True
+        secs = max(8, min(int(timeout), 20))
+        cls._sh(["bluetoothctl", "--timeout", str(secs), "scan", "on"], timeout=secs + 6)
+        deadline = time.time() + secs
+        while time.time() < deadline:
+            if cls._device_in_cache(addr_u):
+                cls._bt_ensure_controller()
+                return True
+            time.sleep(2)
+        cls._bt_ensure_controller()
+        return cls._device_in_cache(addr_u)
 
     @classmethod
     def _is_paired(cls, addr: str) -> bool:
@@ -693,8 +714,8 @@ class BluetoothDriver(Driver):
     def _btctl_batch(addr: str, steps: List[str], timeout: float = 45.0, agent: str = "NoInputNoOutput"):
         """Run bluetoothctl with a pairing agent (headphones: NoInputNoOutput, TVs: DisplayYesNo)."""
         import subprocess
+        BluetoothDriver._bt_ensure_controller()
         alias_name = BluetoothDriver.resolve_adapter_alias()
-        pairing = "pair" in steps
         script = "\n".join([
             f"agent {agent}",
             "default-agent",
@@ -702,9 +723,7 @@ class BluetoothDriver(Driver):
             "pairable on",
             "discoverable off",
             f"system-alias {alias_name}",
-            *(["scan on"] if pairing else []),
             *[f"{step} {addr}" for step in steps],
-            *(["scan off"] if pairing else []),
             "quit",
             "",
         ])
