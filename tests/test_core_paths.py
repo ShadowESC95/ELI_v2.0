@@ -82,10 +82,10 @@ def test_dev_mode_detection():
 def test_installer_like_tree_without_git_is_not_dev_mode(monkeypatch, tmp_path):
     import eli.core.paths as paths
 
-    root = tmp_path / "ELI_MKXI"
+    root = tmp_path / "ELI_v2.0"
     (root / "eli" / "cognition").mkdir(parents=True)
     (root / "eli" / "gui").mkdir(parents=True)
-    (root / "pyproject.toml").write_text("[project]\nname='eli-mkxi'\n")
+    (root / "pyproject.toml").write_text("[project]\nname='eli-v2.0'\n")
 
     monkeypatch.delenv("ELI_PROJECT_ROOT", raising=False)
     monkeypatch.delenv("ELI_DEV_MODE", raising=False)
@@ -106,7 +106,7 @@ def test_installer_like_tree_without_git_is_not_dev_mode(monkeypatch, tmp_path):
 def test_explicit_project_root_keeps_dev_mode(monkeypatch, tmp_path):
     import eli.core.paths as paths
 
-    root = tmp_path / "ELI_MKXI"
+    root = tmp_path / "ELI_v2.0"
     (root / "eli" / "cognition").mkdir(parents=True)
     (root / "eli" / "gui").mkdir(parents=True)
     monkeypatch.setenv("ELI_PROJECT_ROOT", str(root))

@@ -5,7 +5,7 @@ THIS="$(readlink -f "${BASH_SOURCE[0]}")"
 BIN_DIR="$(dirname "$THIS")"
 ROOT="$(cd "$BIN_DIR/.." && pwd)"
 REAL="$ROOT/bin/elix.real"
-ENVFILE="$ROOT/.env.mkxi"
+ENVFILE="$ROOT/.env.eli_v2_0"
 
 if [ ! -x "$REAL" ]; then
   echo "❌ Missing executable launcher: $REAL" >&2
@@ -113,7 +113,7 @@ export ELI_MODEL_PATH="$SELECTED"
 export ELI_MODEL="$SELECTED"
 export GGUF_MODEL_PATH="$SELECTED"
 
-# Persist into .env.mkxi so launchers that source env after this still receive the selected model.
+# Persist into .env.eli_v2_0 so launchers that source env after this still receive the selected model.
 python3 - "$ENVFILE" "$SELECTED" <<'PY'
 from __future__ import annotations
 

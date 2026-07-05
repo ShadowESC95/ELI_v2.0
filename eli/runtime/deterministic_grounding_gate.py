@@ -30,7 +30,7 @@ IMPORT_TARGETS = [
     "eli.memory.memory",
     "eli.execution.router_enhanced",
     "eli.execution.executor_enhanced",
-    "eli.gui.eli_pro_audio_gui_MKI",
+    "eli.gui.eli_pro_audio_gui_v2_0",
     "eli.core.runtime_settings",
     "eli.core.paths",
     "eli.planning.proactive_daemon",
@@ -137,7 +137,7 @@ def _import_audit() -> str:
 
 
 def _gui_runtime_audit() -> str:
-    path = PROJECT_ROOT / "eli" / "gui" / "eli_pro_audio_gui_MKI.py"
+    path = PROJECT_ROOT / "eli" / "gui" / "eli_pro_audio_gui_v2_0.py"
     lines = ["GUI runtime audit: deterministic file inspection", ""]
     lines.append(f"file: {path}")
     lines.append(f"exists: {path.exists()}")
@@ -217,7 +217,7 @@ def _cognition_report() -> str:
         "eli/cognition/context_synthesiser.py",
         "eli/memory/memory.py",
         "eli/memory/vector_store.py",
-        "eli/gui/eli_pro_audio_gui_MKI.py",
+        "eli/gui/eli_pro_audio_gui_v2_0.py",
     ]
 
     lines = ["Cognition pipeline report: deterministic", ""]
@@ -304,7 +304,7 @@ def _full_runtime_audit_report() -> str:
         "eli/kernel/engine.py",
         "eli/execution/router_enhanced.py",
         "eli/execution/executor_enhanced.py",
-        "eli/gui/eli_pro_audio_gui_MKI.py",
+        "eli/gui/eli_pro_audio_gui_v2_0.py",
     ]
 
     rc, out, err = _run([sys.executable, "-m", "py_compile", *files], timeout=30)
@@ -331,7 +331,7 @@ def _full_runtime_audit_report() -> str:
         "eli/kernel/engine.py",
         "eli/execution/router_enhanced.py",
         "eli/execution/executor_enhanced.py",
-        "eli/gui/eli_pro_audio_gui_MKI.py",
+        "eli/gui/eli_pro_audio_gui_v2_0.py",
     ):
         path = PROJECT_ROOT / rel
         if not path.exists():
@@ -843,7 +843,7 @@ def _eli_personal_memory_answer_v2(mode_label: str = "") -> str:
 
     for s in samples:
         low = s.lower()
-        if any(k in low for k in ("eli", "mkxi", "gguf", "router", "executor", "agent", "memory", "persona", "runtime")):
+        if any(k in low for k in ("eli", "eli_v2_0", "gguf", "router", "executor", "agent", "memory", "persona", "runtime")):
             buckets["ELI / local assistant engineering"].append(s)
         elif any(k in low for k in ("gpu", "nvidia", "linux", "ubuntu", "fedora", "ctx", "model", "wine", "steam")):
             buckets["runtime / hardware / OS"].append(s)
@@ -925,7 +925,7 @@ def _eli_cognition_pipeline_v2() -> str:
     return """Cognition pipeline, input to output:
 
 1. GUI / voice capture
-- Text input enters through eli/gui/eli_pro_audio_gui_MKI.py.
+- Text input enters through eli/gui/eli_pro_audio_gui_v2_0.py.
 - Voice input is captured through the STT/audio path, then normalised before it is sent into cognition.
 
 2. Input normalisation
@@ -990,7 +990,7 @@ def _eli_runtime_audit_v2() -> str:
         root / "eli" / "execution" / "executor_enhanced.py",
         root / "eli" / "runtime" / "deterministic_grounding_gate.py",
         root / "eli" / "runtime" / "generated_script_guard.py",
-        root / "eli" / "gui" / "eli_pro_audio_gui_MKI.py",
+        root / "eli" / "gui" / "eli_pro_audio_gui_v2_0.py",
         root / "eli" / "core" / "runtime_settings.py",
     ]
 
@@ -1143,7 +1143,7 @@ _PERSONAL_MEMORY_POSITIVE_HINTS_V3 = (
     "user uses",
     "user works",
     "eli",
-    "mkxi",
+    "eli_v2_0",
     "local assistant",
     "gguf",
     "memory",
@@ -1291,7 +1291,7 @@ def _eli_personal_memory_answer_v2(mode_label: str = "") -> str:  # type: ignore
     samples = _eli_sample_memory_texts_v2(100)
 
     buckets = {
-        "ELI / MKXI / local assistant engineering": [],
+        "ELI / v2.0 / local assistant engineering": [],
         "runtime / hardware / OS": [],
         "tone and working style": [],
         "research / theory / writing": [],
@@ -1301,8 +1301,8 @@ def _eli_personal_memory_answer_v2(mode_label: str = "") -> str:  # type: ignore
     for s in samples:
         low = s.lower()
 
-        if any(k in low for k in ("eli", "mkxi", "local assistant", "gguf", "router", "executor", "agent", "memory", "persona", "response surface")):
-            buckets["ELI / MKXI / local assistant engineering"].append(s)
+        if any(k in low for k in ("eli", "eli_v2_0", "local assistant", "gguf", "router", "executor", "agent", "memory", "persona", "response surface")):
+            buckets["ELI / v2.0 / local assistant engineering"].append(s)
         elif any(k in low for k in ("gpu", "nvidia", "linux", "ubuntu", "fedora", "ctx", "model", "wine", "steam", "vram")):
             buckets["runtime / hardware / OS"].append(s)
         elif any(k in low for k in ("direct", "truth", "bullshit", "flattery", "tone", "honest", "precise", "jargon", "no lies")):
@@ -1477,7 +1477,7 @@ def _eli_memory_fact_score_v4(s: str, source_table: str = "") -> int:
 
     if any(k in low for k in ("prefers", "does not want", "doesn't want", "wants", "values")):
         score += 6
-    if any(k in low for k in ("eli", "mkxi", "local assistant", "gguf", "runtime", "memory", "persona")):
+    if any(k in low for k in ("eli", "eli_v2_0", "local assistant", "gguf", "runtime", "memory", "persona")):
         score += 3
     if any(k in low for k in ("physics", "simulation", "latex", "paper")):
         score += 3
@@ -1567,7 +1567,7 @@ def _eli_personal_memory_answer_v2(mode_label: str = "") -> str:  # type: ignore
     samples = _eli_sample_memory_texts_v2(120)
 
     buckets = {
-        "ELI / MKXI / local assistant engineering": [],
+        "ELI / v2.0 / local assistant engineering": [],
         "runtime / hardware / OS": [],
         "tone and working style": [],
         "research / theory / writing": [],
@@ -1577,8 +1577,8 @@ def _eli_personal_memory_answer_v2(mode_label: str = "") -> str:  # type: ignore
     for s in samples:
         low = s.lower()
 
-        if any(k in low for k in ("eli", "mkxi", "local assistant", "gguf", "router", "executor", "agent", "memory", "persona", "response surface")):
-            buckets["ELI / MKXI / local assistant engineering"].append(s)
+        if any(k in low for k in ("eli", "eli_v2_0", "local assistant", "gguf", "router", "executor", "agent", "memory", "persona", "response surface")):
+            buckets["ELI / v2.0 / local assistant engineering"].append(s)
         elif any(k in low for k in ("gpu", "nvidia", "linux", "ubuntu", "fedora", "wine", "steam", "vram")):
             buckets["runtime / hardware / OS"].append(s)
         elif any(k in low for k in ("direct", "truth", "bullshit", "flattery", "tone", "honest", "precise", "jargon", "no lies", "prefers")):
@@ -1772,7 +1772,7 @@ def _eli_memory_fact_score_v5(s: str, source_table: str = "") -> int:
 
     if any(k in low for k in ("prefers", "does not want", "doesn't want", "wants", "values")):
         score += 8
-    if any(k in low for k in ("eli", "mkxi", "local assistant", "gguf", "memory", "persona", "cognition", "orchestrator")):
+    if any(k in low for k in ("eli", "eli_v2_0", "local assistant", "gguf", "memory", "persona", "cognition", "orchestrator")):
         score += 5
     if any(k in low for k in ("physics", "simulation", "latex", "paper")):
         score += 4
@@ -1855,7 +1855,7 @@ def _eli_personal_memory_answer_v2(mode_label: str = "") -> str:  # type: ignore
     samples = _eli_sample_memory_texts_v2(80)
 
     buckets = {
-        "ELI / MKXI / local assistant engineering": [],
+        "ELI / v2.0 / local assistant engineering": [],
         "runtime / hardware / OS": [],
         "tone and working style": [],
         "research / theory / writing": [],
@@ -1865,8 +1865,8 @@ def _eli_personal_memory_answer_v2(mode_label: str = "") -> str:  # type: ignore
     for s in samples:
         low = s.lower()
 
-        if any(k in low for k in ("eli", "mkxi", "local assistant", "gguf", "router", "executor", "agent", "memory", "persona", "cognition", "orchestrator")):
-            buckets["ELI / MKXI / local assistant engineering"].append(s)
+        if any(k in low for k in ("eli", "eli_v2_0", "local assistant", "gguf", "router", "executor", "agent", "memory", "persona", "cognition", "orchestrator")):
+            buckets["ELI / v2.0 / local assistant engineering"].append(s)
         elif any(k in low for k in ("gpu", "nvidia", "linux", "ubuntu", "fedora", "wine", "steam", "vram")):
             buckets["runtime / hardware / OS"].append(s)
         elif any(k in low for k in ("direct", "truth", "bullshit", "flattery", "tone", "honest", "precise", "jargon", "no lies", "prefers", "step-by-step", "diagnostics")):
@@ -2095,7 +2095,7 @@ def _eli_v6_score_fact(s: str, source: str = "") -> int:
 
     if any(k in low for k in ("prefers", "does not want", "doesn't want", "wants", "values")):
         score += 10
-    if any(k in low for k in ("eli", "mkxi", "local assistant", "gguf", "memory", "persona", "cognition", "orchestrator", "router", "executor")):
+    if any(k in low for k in ("eli", "eli_v2_0", "local assistant", "gguf", "memory", "persona", "cognition", "orchestrator", "router", "executor")):
         score += 6
     if any(k in low for k in ("physics", "simulation", "latex", "paper", "field", "theory")):
         score += 5
@@ -2203,7 +2203,7 @@ def _eli_personal_memory_answer_v2(mode_label: str = "") -> str:  # type: ignore
     samples = _eli_sample_memory_texts_v2(80)
 
     buckets = {
-        "ELI / MKXI / local assistant engineering": [],
+        "ELI / v2.0 / local assistant engineering": [],
         "runtime / hardware / OS": [],
         "tone and working style": [],
         "research / theory / writing": [],
@@ -2213,8 +2213,8 @@ def _eli_personal_memory_answer_v2(mode_label: str = "") -> str:  # type: ignore
     for s in samples:
         low = s.lower()
 
-        if any(k in low for k in ("eli", "mkxi", "local assistant", "gguf", "router", "executor", "agent", "memory", "persona", "cognition", "orchestrator")):
-            buckets["ELI / MKXI / local assistant engineering"].append(s)
+        if any(k in low for k in ("eli", "eli_v2_0", "local assistant", "gguf", "router", "executor", "agent", "memory", "persona", "cognition", "orchestrator")):
+            buckets["ELI / v2.0 / local assistant engineering"].append(s)
         elif any(k in low for k in ("gpu", "nvidia", "linux", "ubuntu", "fedora", "wine", "steam", "vram", "terminal", "bash", "commands")):
             buckets["runtime / hardware / OS"].append(s)
         elif any(k in low for k in ("direct", "truth", "bullshit", "flattery", "tone", "honest", "precise", "jargon", "no lies", "prefers", "step-by-step", "diagnostics", "thorough", "meticulous")):
@@ -2463,7 +2463,7 @@ def _eli_v8_bucket_for_fact(fact: str) -> str:
         return "tone and working style"
 
     if any(k in low for k in (
-        "eli", "mkxi", "assistant", "gguf", "router", "executor",
+        "eli", "eli_v2_0", "assistant", "gguf", "router", "executor",
         "orchestrator", "cognition", "memory", "recall", "sqlite",
         "persona", "runtime"
     )):
@@ -2723,7 +2723,7 @@ def _eli_v9_bucket_for_fact(fact: str) -> str:
         return "tone and working style"
 
     if any(k in low for k in (
-        "eli", "mkxi", "assistant", "gguf", "router", "executor",
+        "eli", "eli_v2_0", "assistant", "gguf", "router", "executor",
         "orchestrator", "cognition", "memory", "recall", "sqlite",
         "persona", "runtime"
     )):
@@ -3068,7 +3068,7 @@ def _eli_v10_personal_memory_answer(mode_label: str = "") -> str:
         )):
             bucket = "tone and working style"
         elif any(k in low for k in (
-            "eli", "mkxi", "assistant", "gguf", "router", "executor",
+            "eli", "eli_v2_0", "assistant", "gguf", "router", "executor",
             "orchestrator", "cognition", "memory", "recall", "sqlite",
             "persona", "runtime"
         )):
@@ -4006,7 +4006,7 @@ def _eli_v14_name_tokens() -> set[str]:
         _SWLOG.debug("suppressed exception", exc_info=True)
 
     reject = {
-        "user", "local", "home", "desktop", "eli", "mkxi", "root", "python",
+        "user", "local", "home", "desktop", "eli", "eli_v2_0", "root", "python",
         "linux", "model", "runtime", "assistant", "installation", "the",
         "and", "you", "your", "this", "that", "preferred", "name",
     }

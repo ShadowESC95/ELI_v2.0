@@ -37,7 +37,7 @@ def test_settings_heals_stale_path_to_existing_model(tmp_settings_file, monkeypa
     monkeypatch.setenv("ELI_SETTINGS_FILE", str(tmp_settings_file))
     # Use a stale path for the actual model file that exists
     model_filename = "openhermes-2.5-mistral-7b.Q3_K_M.gguf"
-    stale = f"/nonexistent/ELI_MKXI/models/gguf/base/{model_filename}"
+    stale = f"/nonexistent/ELI_v2.0/models/gguf/base/{model_filename}"
     tmp_settings_file.write_text(json.dumps({"model_path": stale}))
     s = load_settings()
     # Either healed to real path or kept stale if model doesn't exist

@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Build the v2 download-and-run Linux portable package.
-# Output: dist/app_packages/ELI_MKXI_v2.0_PRO-<version>-linux-portable.tar.gz
+# Output: dist/app_packages/ELI_v2.0-<version>-linux-portable.tar.gz
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"

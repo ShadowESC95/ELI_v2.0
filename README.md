@@ -16,8 +16,8 @@ or an authorised task explicitly enables it. No cloud accounts, no vendor teleme
 [![Support on Ko-fi](https://img.shields.io/badge/support-Ko--fi-FF5E5B?logo=ko-fi&logoColor=white)](https://ko-fi.com/shadowesc95)
 
 **v2 is live software, not a polished product drop.** Expect rough edges — I'm one dev, and ELI
-touches real hardware. I'm sharing it partly to see if there's interest. **[ELI v3](https://github.com/ShadowESC95/Eli_v3)**
-is mapped out and in active development; this repo stays the v2 line. Feedback helps and is more than appreciated/welcomed, a second pair of eyes is better than just mine because the project has turned into a lot more than initially planned! I prefer someone bringing an issue to me rather than giving me a compliment. Finding issues and reporting them is invaluable to me — bugs, ideas,
+touches real hardware. I'm sharing it partly to see if there's interest. **ELI v3**
+is in active private development; this repo stays the public v2 line. Feedback helps and is more than appreciated/welcomed, a second pair of eyes is better than just mine because the project has turned into a lot more than initially planned! I prefer someone bringing an issue to me rather than giving me a compliment. Finding issues and reporting them is invaluable to me — bugs, ideas,
 or a plain "I tried it and…" — [open an issue](https://github.com/ShadowESC95/ELI_v2.0/issues). Also, if ELI v2 helps and you want to support my fridge and university tuition fees, feel free to check out my [ko-fi](https://ko-fi.com/shadowesc95) — dev's gotta eat too! **Enjoy, use, and report!**
 
 **Source-available — personal & internal use only (not open source).** ELI is published on
@@ -315,10 +315,10 @@ portable package from **[GitHub Releases](https://github.com/ShadowESC95/ELI_v2.
 
 ```bash
 # 1. Download from Releases:
-#    ELI_MKXI_v2.0_PRO-2.0.0-linux-portable.tar.gz
+#    ELI_v2.0-2.0.0-linux-portable.tar.gz
 
-tar -xzf ELI_MKXI_v2.0_PRO-2.0.0-linux-portable.tar.gz
-cd ELI_MKXI_v2.0_PRO-2.0.0-linux-portable
+tar -xzf ELI_v2.0-2.0.0-linux-portable.tar.gz
+cd ELI_v2.0-2.0.0-linux-portable
 
 ./INSTALL_ELI.sh                    # venv + deps + DB schema (blank slate)
 ./RUN_ELI.sh --with-github-assets   # starter model + voice pack (tag: local-assets-v2.1)
@@ -650,14 +650,12 @@ Full detail: **[SECURITY.md](SECURITY.md)**.
 
 **ELI v2.0** is here to use, but I won't pretend it's flawless everywhere — there will be rough edges,
 especially off the Linux + NVIDIA path I've run most. I'm a solo dev putting this out to see if
-people want a fully local assistant like this, while **[v3](https://github.com/ShadowESC95/Eli_v3)**
-is already mapped out and being built.
+people want a fully local assistant like this. **ELI v3** is in active private development.
 
-Community feedback is genuinely welcome: what works, what breaks, what's missing. That shapes v3
+Community feedback is genuinely welcome: what works, what breaks, what's missing. That shapes future releases
 and tells me whether to keep pushing.
 
 - **Found a bug or have an idea?** [Open an issue](https://github.com/ShadowESC95/ELI_v2.0/issues).
-- **Following v3?** [github.com/ShadowESC95/Eli_v3](https://github.com/ShadowESC95/Eli_v3)
 - **Want to contribute code?** Pull requests are welcome — please read
   **[CONTRIBUTING.md](CONTRIBUTING.md)** first. Because ELI is source-available, contributions
   include a short **inbound license grant** so the whole project stays under one consistent license.

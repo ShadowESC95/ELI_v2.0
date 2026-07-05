@@ -11,7 +11,7 @@ with open("pyproject.toml", "rb") as f:
     print(tomllib.load(f)["project"]["version"])
 PY
 )"
-APP_NAME="ELI_MKXI_v2.0_PRO"
+APP_NAME="ELI_v2.0"
 BUILD_TARGET="$PROJECT_ROOT/build/app-package/${APP_NAME}-${VERSION}-linux-portable"
 
 DRY_RUN=0

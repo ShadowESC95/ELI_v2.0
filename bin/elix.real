@@ -31,9 +31,9 @@ else
 fi
 export ELI_PROJECT_ROOT
 
-if [ -f "$ELI_PROJECT_ROOT/.env.mkxi" ]; then
+if [ -f "$ELI_PROJECT_ROOT/.env.eli_v2_0" ]; then
   # shellcheck disable=SC1090
-  source "$ELI_PROJECT_ROOT/.env.mkxi"
+  source "$ELI_PROJECT_ROOT/.env.eli_v2_0"
 fi
 
 export ELI_ARTIFACTS_DIR="${ELI_ARTIFACTS_DIR:-$ELI_PROJECT_ROOT/artifacts}"

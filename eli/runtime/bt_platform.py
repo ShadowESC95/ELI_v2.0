@@ -97,6 +97,10 @@ def _linux_kernel_adapters() -> List[BtAdapter]:
         if shutil.which("hciconfig"):
             _, out = _sh(["hciconfig", name], timeout=4)
             state = "up" if re.search(r"\bUP\b", out or "") else "down"
+            if not addr:
+                m = re.search(r"BD Address:\s*([0-9A-Fa-f:]{17})", out or "")
+                if m:
+                    addr = m.group(1).upper()
         adapters.append(BtAdapter(
             id=name,
             address=addr,
@@ -233,9 +237,14 @@ def recovery_hint(adapters: Optional[List[BtAdapter]] = None) -> str:
     kind = platform_kind()
 
     if kind == "linux":
-        down = [a.id for a in adapters if a.state == "down" and a.source == "kernel"]
+        down = _linux_hci_down()
         if down:
             names = " ".join(down)
+            return (f"Bluetooth adapter is down ({names}) — run: "
+                    f"sudo bash scripts/eli_bt_reset.sh  (or: sudo hciconfig {names} up)")
+        down_legacy = [a.id for a in adapters if a.state == "down" and a.source == "kernel"]
+        if down_legacy:
+            names = " ".join(down_legacy)
             return (f"replug your USB Bluetooth adapter, then run: "
                     f"sudo hciconfig {names} up && sudo systemctl restart bluetooth")
         if adapters and not any(a.bluez for a in adapters):
@@ -256,6 +265,17 @@ def recovery_hint(adapters: Optional[List[BtAdapter]] = None) -> str:
     if not shutil.which("powershell") and not shutil.which("pwsh"):
         return "turn on Bluetooth in Settings → Bluetooth & devices"
     return "turn on Bluetooth in Settings → Bluetooth & devices"
+
+
+def _linux_hci_down() -> List[str]:
+    """Kernel hci* interfaces that are DOWN (BlueZ cannot power on until these are up)."""
+    down = []
+    for a in _linux_kernel_adapters():
+        if a.state != "down":
+            continue
+        if _valid_mac(a.address) or a.id == "hci0":
+            down.append(a.id)
+    return down
 
 
 def _linux_try_recover() -> None:
@@ -299,6 +319,16 @@ def _linux_ensure_radio() -> Tuple[bool, str]:
         return re.findall(r"Controller\s+([0-9A-Fa-f:]{17})", listing or "")
 
     adapters = list_adapters()
+    down_hci = _linux_hci_down()
+    if down_hci:
+        try_recover_radio()
+        time.sleep(0.4)
+        down_hci = _linux_hci_down()
+        if down_hci:
+            names = " ".join(down_hci)
+            return False, (f"Bluetooth adapter is down ({names}) — run: "
+                           f"sudo bash scripts/eli_bt_reset.sh")
+
     addrs = _controllers()
     if not addrs and adapters:
         try_recover_radio()
@@ -742,34 +772,356 @@ def device_known(addr: str) -> bool:
     return False
 
 
-def wait_for_device(addr: str, timeout: float = 18.0) -> bool:
-    """Scan until the device appears (headphones must be in pairing mode)."""
-    addr_u = (addr or "").strip().upper()
-    ok, _ = ensure_radio()
-    if not ok or not addr_u:
+def _norm_bt_name(name: str) -> str:
+    n = (name or "").strip().lower()
+    if not n or n.startswith("bluetooth device ("):
+        return ""
+    return n
+
+
+def _linux_list_devices() -> List[Dict[str, str]]:
+    """Return [{address, name}] from bluetoothctl's device cache."""
+    rows: List[Dict[str, str]] = []
+    if not shutil.which("bluetoothctl"):
+        return rows
+    _, listing = _sh(["bluetoothctl", "devices"], timeout=8)
+    for line in re.sub(r"\x1b\[[0-9;]*m", "", listing or "").splitlines():
+        m = re.search(r"Device\s+([0-9A-Fa-f:]{17})\s*(.*)", line.strip())
+        if not m:
+            continue
+        rows.append({"address": m.group(1).upper(), "name": (m.group(2) or "").strip()})
+    return rows
+
+
+def _name_matches(want: str, candidate: str) -> bool:
+    """Loose name match — handles BLE vs classic MAC showing the same product name."""
+    want = _norm_bt_name(want)
+    cand = _norm_bt_name(candidate)
+    if not want or not cand:
         return False
-    if device_known(addr_u):
+    if want == cand:
         return True
+    if want in cand or cand in want:
+        return True
+    # Strip common suffixes/prefixes from scan noise
+    for strip in ("-bt", " bt", " series", " headphones", " headset"):
+        if want.replace(strip, "") == cand.replace(strip, ""):
+            return True
+    return False
+
+
+def _linux_active_scan(secs: int) -> None:
+    """Run a classic BR/EDR scan so pairing-mode devices enter the BlueZ cache."""
+    secs = max(6, min(int(secs), 25))
+    if not shutil.which("bluetoothctl"):
+        return
+    try:
+        subprocess.run(
+            ["bluetoothctl", "--timeout", str(secs), "scan", "on"],
+            capture_output=True, text=True, timeout=secs + 10,
+        )
+    except Exception as e:
+        log.debug("bluetooth scan: %s", e)
+    finally:
+        _sh(["bluetoothctl", "scan", "off"], timeout=6)
+        ensure_radio()
+
+
+def _address_quality_score(addr: str) -> int:
+    """Rank MACs when one product name maps to both BLE ads and classic BR/EDR."""
+    info = device_info(addr)
+    score = 0
+    icon = (info.get("icon") or "").lower()
+    if any(x in icon for x in ("headset", "headphones", "audio")):
+        score += 120
+    uuids = [u.lower() for u in info.get("uuids") or []]
+    if any("110b" in u or "110a" in u or "audio sink" in u or "audio source" in u for u in uuids):
+        score += 80
+    if info.get("class"):
+        score += 40
+    if str(info.get("paired", "")).lower() == "yes":
+        score += 50
+    if str(info.get("connected", "")).lower() == "yes":
+        score += 40
+    mfg = info.get("manufacturerdata.key") or info.get("manufacturerdata_key")
+    if mfg and not icon and not info.get("class"):
+        score -= 50
+    if not icon and not info.get("class") and len(uuids) <= 2:
+        score -= 20
+    return score
+
+
+def _best_address_for_name(name: str) -> str:
+    """Pick the classic/audio MAC when BlueZ lists the same name twice."""
+    want = _norm_bt_name(name)
+    if not want:
+        return ""
+    addrs = [d["address"] for d in _linux_list_devices() if _name_matches(want, d["name"])]
+    if not addrs:
+        return ""
+    if len(addrs) == 1:
+        return addrs[0]
+    return max(addrs, key=_address_quality_score)
+
+
+def _prefer_address(addr: str = "", name: str = "") -> str:
+    """Resolve stale BLE MACs to the best BlueZ address for pairing/audio."""
+    by_name = _best_address_for_name(name)
+    if by_name:
+        return by_name
+    return (addr or "").strip().upper()
+
+
+def resolve_device(addr: str = "", name: str = "", timeout: float = 20.0) -> Dict[str, Any]:
+    """Active scan and resolve a device — fixes stale BLE MACs by matching friendly name."""
+    start = time.time()
+    addr_u = _prefer_address(addr, name)
+    want_name = _norm_bt_name(name)
+
+    # Resolve by friendly name from the OS cache first (fixes BLE vs classic MAC mismatch).
+    if want_name and platform_kind() == "linux" and shutil.which("bluetoothctl"):
+        best = _best_address_for_name(name)
+        if best:
+            return {
+                "address": best,
+                "found": True,
+                "phase": "resolved_by_name",
+                "duration_s": round(time.time() - start, 1),
+            }
+
+    ok, radio_msg = ensure_radio()
+    if not ok:
+        return {
+            "address": addr_u,
+            "found": False,
+            "phase": "radio_off",
+            "radio_error": radio_msg,
+            "duration_s": round(time.time() - start, 1),
+        }
+
+    if addr_u and device_known(addr_u):
+        info = device_info(addr_u)
+        if not want_name or _name_matches(want_name, str(info.get("name") or info.get("alias") or "")):
+            return {
+                "address": addr_u,
+                "found": True,
+                "phase": "cached",
+                "duration_s": round(time.time() - start, 1),
+            }
 
     kind = platform_kind()
-    secs = max(8, min(int(timeout), 20))
+    secs = max(8, min(int(timeout), 25))
+
     if kind == "linux" and shutil.which("bluetoothctl"):
-        _sh(["bluetoothctl", "--timeout", str(secs), "scan", "on"], timeout=secs + 6)
-        deadline = time.time() + secs
-        while time.time() < deadline:
-            if device_known(addr_u):
-                ensure_radio()
-                return True
-            time.sleep(2)
-        ensure_radio()
-        return device_known(addr_u)
+        _linux_active_scan(secs)
+        devices = _linux_list_devices()
+        if addr_u and any(d["address"] == addr_u for d in devices):
+            return {
+                "address": addr_u,
+                "found": True,
+                "phase": "scanned_mac",
+                "duration_s": round(time.time() - start, 1),
+            }
+        if want_name:
+            best = _best_address_for_name(name)
+            if best:
+                return {
+                    "address": best,
+                    "found": True,
+                    "phase": "resolved_by_name",
+                    "duration_s": round(time.time() - start, 1),
+                }
+        return {
+            "address": addr_u,
+            "found": bool(addr_u and device_known(addr_u)),
+            "phase": "not_in_scan",
+            "duration_s": round(time.time() - start, 1),
+        }
+
     if kind == "darwin" and shutil.which("blueutil"):
         _sh(["blueutil", "--inquiry", str(secs)], timeout=secs + 8)
-        return device_known(addr_u)
+        if addr_u and device_known(addr_u):
+            return {"address": addr_u, "found": True, "phase": "scanned_mac",
+                    "duration_s": round(time.time() - start, 1)}
+        return {"address": addr_u, "found": device_known(addr_u), "phase": "darwin_scan",
+                "duration_s": round(time.time() - start, 1)}
+
     if kind == "windows":
         _windows_classic_discover(secs, [], set(), [], lambda a, n: {"host": a, "name": n})
-        return device_known(addr_u)
+        return {"address": addr_u, "found": device_known(addr_u), "phase": "windows_scan",
+                "duration_s": round(time.time() - start, 1)}
+
+    return {"address": addr_u, "found": False, "phase": "unsupported",
+            "duration_s": round(time.time() - start, 1)}
+
+
+def _linux_device_dbus_path(addr: str) -> str:
+    """Standard BlueZ D-Bus path for a device on the default controller."""
+    addr_u = (addr or "").strip().upper().replace(":", "_")
+    _, listing = _sh(["bluetoothctl", "list"], timeout=6)
+    hci = "hci0"
+    for line in (listing or "").splitlines():
+        if line.strip().lower().startswith("controller"):
+            # Controller AA:BB:CC:DD:EE:FF hostname [default]
+            break
+    return f"/org/bluez/{hci}/dev_{addr_u}"
+
+
+def _linux_dbus_call(path: str, interface: str, method: str,
+                      extra: Optional[List[str]] = None,
+                      timeout: float = 45.0) -> Tuple[bool, str]:
+    """Invoke a BlueZ D-Bus method (no bluetoothctl agent required)."""
+    args = ["dbus-send", "--system", "--dest=org.bluez", "--print-reply",
+            path, f"{interface}.{method}"]
+    if extra:
+        args.extend(extra)
+    rc, out = _sh(args, timeout=timeout)
+    low = (out or "").lower()
+    ok = rc == 0 and "error" not in low.split("method return")[0]
+    return ok, out
+
+
+def _linux_dbus_set_trusted(path: str) -> Tuple[bool, str]:
+    return _linux_dbus_call(
+        path, "org.freedesktop.DBus.Properties", "Set",
+        extra=["string:org.bluez.Device1", "string:Trusted", "variant:boolean:true"],
+        timeout=20.0,
+    )
+
+
+def _linux_dbus_bt_steps(addr: str, steps: List[str]) -> Tuple[bool, str, str]:
+    """Pair/trust/connect via D-Bus — works when a desktop agent is already registered."""
+    path = _linux_device_dbus_path(addr)
+    outputs: List[str] = []
+    for step in steps:
+        if step == "pair":
+            ok, out = _linux_dbus_call(path, "org.bluez.Device1", "Pair", timeout=60.0)
+            outputs.append(out)
+            if not ok and "already exists" not in out.lower():
+                return False, "\n".join(outputs), "pair_failed"
+        elif step == "trust":
+            ok, out = _linux_dbus_set_trusted(path)
+            outputs.append(out)
+        elif step == "connect":
+            ok, out = _linux_dbus_call(path, "org.bluez.Device1", "Connect", timeout=45.0)
+            outputs.append(out)
+            if not ok and "already connected" not in out.lower():
+                return False, "\n".join(outputs), "connect_failed"
+    combined = "\n".join(outputs)
+    info = device_info(addr)
+    paired = str(info.get("paired", "")).lower() == "yes"
+    connected = str(info.get("connected", "")).lower() == "yes"
+    if paired or connected:
+        return True, combined, "paired"
+    if "pair" in steps and not paired:
+        return False, combined, "pair_failed"
+    return True, combined, "connected"
+
+
+def _device_paired(addr: str) -> bool:
+    info = device_info(addr)
+    return str(info.get("paired", "")).lower() == "yes"
+
+
+def _parse_bt_output(out: str) -> bool:
+    low = (out or "").lower()
+    if "authentication failed" in low or "org.bluez.error" in low:
+        return False
+    if "failed to register agent" in low or "no agent is registered" in low:
+        return False
+    if ("failed to pair" in low or "failed to connect" in low) and "connection successful" not in low:
+        return False
+    if "page timeout" in low or "connectionattemptfailed" in low:
+        return False
+    if "connection successful" in low or "already connected" in low:
+        return True
+    if "pairing successful" in low or "paired: yes" in low or "connected: yes" in low:
+        return True
     return False
+
+
+def _resolve_addr_after_scan(addr: str, name: str = "") -> str:
+    """Pick the BlueZ classic MAC after scan — fixes stale BLE random addresses."""
+    return _prefer_address(addr, name)
+
+
+def linux_pair_session(
+    addr: str,
+    steps: List[str],
+    *,
+    agent: str = "NoInputNoOutput",
+    alias: str = "",
+    name: str = "",
+    scan_secs: int = 15,
+    timeout: float = 95.0,
+) -> Tuple[bool, str, str]:
+    """Scan, then pair/trust/connect — one session so headphones in pairing mode are found."""
+    addr = (addr or "").strip().upper()
+    if not addr and not (name or "").strip():
+        return False, "no device address", "no_address"
+    if not shutil.which("bluetoothctl"):
+        return False, "bluetoothctl not found", "no_tool"
+
+    ok, radio_msg = ensure_radio()
+    if not ok:
+        return False, radio_msg or "Bluetooth radio off", "radio_off"
+
+    alias = (alias or "Eli · Home").strip() or "Eli · Home"
+    scan_secs = max(6, min(int(scan_secs), 25))
+
+    # Discover device while it is in pairing mode
+    _linux_active_scan(scan_secs)
+    addr = _resolve_addr_after_scan(addr, name)
+    phase = "scan_done"
+
+    # Prefer D-Bus (uses the system/desktop pairing agent — no agent registration conflict).
+    dbus_ok, dbus_out, dbus_phase = _linux_dbus_bt_steps(addr, steps)
+    if dbus_ok or _device_paired(addr):
+        return True, dbus_out, "paired"
+    if dbus_phase == "pair_failed" and "page timeout" in dbus_out.lower():
+        return False, (dbus_out + "\nDevice not responding — keep headphones in pairing mode "
+                       "(LED flashing) and tap Pair again"), "not_found"
+
+    # Fallback: bluetoothctl script without agent (desktop agent handles pairing prompts).
+    script = "\n".join([
+        "power on",
+        "pairable on",
+        "discoverable off",
+        f"system-alias {alias}",
+        *[f"{step} {addr}" for step in steps],
+        "scan off",
+        "quit",
+        "",
+    ])
+    try:
+        r = subprocess.run(
+            ["bluetoothctl"],
+            input=script,
+            capture_output=True,
+            text=True,
+            timeout=timeout,
+        )
+        out = (r.stdout or "") + (r.stderr or "")
+        ok = _parse_bt_output(out) or _device_paired(addr)
+        if ok:
+            phase = "paired"
+        elif "failed to pair" in out.lower():
+            phase = "pair_failed"
+        elif "failed to connect" in out.lower():
+            phase = "connect_failed"
+        else:
+            phase = "pair_attempted"
+        return ok, out, phase
+    except subprocess.TimeoutExpired:
+        return False, f"bluetoothctl timed out after {int(timeout)}s", "timeout"
+    except Exception as e:
+        return False, str(e), "error"
+
+
+def wait_for_device(addr: str, timeout: float = 18.0, name: str = "") -> bool:
+    """Scan until the device appears (headphones must be in pairing mode)."""
+    res = resolve_device(addr, name, timeout=timeout)
+    return bool(res.get("found"))
 
 
 def windows_bt_action(addr: str, action: str) -> Tuple[bool, str]:

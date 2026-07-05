@@ -9,7 +9,7 @@
 # NOTE: model-graded asserts (llm-rubric) call a judge — point it at a LOCAL
 # model to stay offline; do NOT use a cloud judge for a 100%-local project.
 
-description: "ELI MKXI behavioural eval"
+description: "ELI v2.0 behavioural eval"
 
 providers:
   - id: 'python:eli_provider.py'

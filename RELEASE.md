@@ -6,7 +6,7 @@
 
 ```bash
 bash scripts/build_v2_release.sh
-# Output: dist/app_packages/ELI_MKXI_v2.0_PRO-2.0.0-linux-portable.tar.gz
+# Output: dist/app_packages/ELI_v2.0-2.0.0-linux-portable.tar.gz
 ```
 
 Optional full bundle (local models — very large):
@@ -36,15 +36,15 @@ python3 scripts/upload_github_asset_files.py --repo ShadowESC95/ELI_v2.0 --tag v
 1. [New release](https://github.com/ShadowESC95/ELI_v2.0/releases/new)
 2. Tag: `v2.0.0` (or `v2.0.0-portable`)
 3. Attach:
-   - `ELI_MKXI_v2.0_PRO-2.0.0-linux-portable.tar.gz`
+   - `ELI_v2.0-2.0.0-linux-portable.tar.gz`
    - `.sha256` sidecar
    - Model pack assets (optional separate tag)
 
 ## 4. What users do
 
 ```bash
-tar -xzf ELI_MKXI_v2.0_PRO-2.0.0-linux-portable.tar.gz
-cd ELI_MKXI_v2.0_PRO-2.0.0-linux-portable
+tar -xzf ELI_v2.0-2.0.0-linux-portable.tar.gz
+cd ELI_v2.0-2.0.0-linux-portable
 ./INSTALL_ELI.sh
 ./RUN_ELI.sh --with-github-assets
 ./RUN_ELI.sh

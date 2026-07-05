@@ -37,7 +37,7 @@ def _ensure_release(repo: str, tag: str) -> None:
     _run([
         "gh", "release", "create", tag,
         "--repo", repo,
-        "--title", "ELI MKXI v2.0 PRO local model and voice assets",
+        "--title", "ELI v2.0 v2.0 PRO local model and voice assets",
         "--notes",
         "Large local assets uploaded as direct files/chunks. Restore with scripts/restore_github_asset_files.py.",
     ])

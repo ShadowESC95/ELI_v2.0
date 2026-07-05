@@ -5280,8 +5280,8 @@ def _eli_gui_audit_actual_scan_v2(text):
         return False
 
     file_hit = any(x in q for x in (
-        "eli/gui/eli_pro_audio_gui_mki.py",
-        "eli_pro_audio_gui_mki.py",
+        "eli/gui/eli_pro_audio_gui_v2_0.py",
+        "eli_pro_audio_gui_v2_0.py",
         "gui file",
         "audio gui",
     ))

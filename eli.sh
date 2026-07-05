@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# ELI MKXI — Linux launcher
+# ELI v2.0 — Linux launcher
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"

@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # ══════════════════════════════════════════════════════════════════════════════
-#  ELI MKXI — Test Runner
+#  ELI v2.0 — Test Runner
 #  Usage:
 #    ./run_tests.sh              # full suite
 #    ./run_tests.sh imports      # imports only
@@ -20,7 +20,7 @@ TIMESTAMP=$(date +"%Y%m%d_%H%M%S")
 
 echo ""
 echo "╔══════════════════════════════════════════════════╗"
-echo "║       ELI MKXI — Test Suite  ($TIMESTAMP)        ║"
+echo "║       ELI v2.0 — Test Suite  ($TIMESTAMP)        ║"
 echo "╚══════════════════════════════════════════════════╝"
 echo ""
 

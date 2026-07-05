@@ -1,4 +1,4 @@
-# ELI MKXI Android / Termux profile.
+# ELI v2.0 Android / Termux profile.
 # Android cannot provide full desktop parity for PySide6 GUI, global desktop
 # control, PyAudio, CUDA, AppImage, Windows COM audio, or macOS automation.
 # This profile is for the portable/headless runtime and Termux integrations.

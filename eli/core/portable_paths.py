@@ -124,12 +124,12 @@ def make_portable_path_value(value: Any, root: str | Path | None = None) -> Any:
         return norm[len(root_s) + 1:]
 
     # Strip Linux/macOS absolute project prefixes from any user's machine.
-    m = re.search(r"[/\\](?:home|Users)[/\\][^/\\]+[/\\](?:Desktop|Documents|Downloads)?[/\\]?ELI_MKXI[/\\](.+)$", s)
+    m = re.search(r"[/\\](?:home|Users)[/\\][^/\\]+[/\\](?:Desktop|Documents|Downloads)?[/\\]?ELI_v2.0[/\\](.+)$", s)
     if m:
         return m.group(1).replace("\\", "/")
 
     # Strip temporary staging prefix.
-    m = re.search(r"[/\\]ELI_MKXI_github_stage[/\\](.+)$", s)
+    m = re.search(r"[/\\]ELI_v2.0_github_stage[/\\](.+)$", s)
     if m:
         return m.group(1).replace("\\", "/")
 

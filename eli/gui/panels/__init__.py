@@ -1,4 +1,4 @@
-"""ELI MKXI GUI panel components.
+"""ELI v2.0 GUI panel components.
 
 Re-exports all public panel classes so callers can do:
     from eli.gui.panels import HardwareTuningDock, FirstBootWizard, ...

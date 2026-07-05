@@ -1,5 +1,5 @@
 # Install Start Menu shortcuts (Windows) for BOTH ELI surfaces, so they launch like any app:
-#   • ELI Pro            -> the desktop GUI
+#   • ELI v2.0           -> the desktop GUI
 #   • ELI Server (Web App) -> the self-hosted web app for phone/tablet (LAN + token)
 # Run:  powershell -ExecutionPolicy Bypass -File scripts\install_desktop_apps.ps1
 $ErrorActionPreference = "Stop"
@@ -8,9 +8,9 @@ $Programs = [Environment]::GetFolderPath("Programs")   # Start Menu\Programs
 New-Item -ItemType Directory -Force -Path $Programs | Out-Null
 $ws = New-Object -ComObject WScript.Shell
 
-# ELI Pro -> eli.bat (GUI)
+# ELI v2.0 -> eli.bat (GUI)
 $eliBat = Join-Path $Root "eli.bat"
-$lnk1 = $ws.CreateShortcut((Join-Path $Programs "ELI Pro.lnk"))
+$lnk1 = $ws.CreateShortcut((Join-Path $Programs "ELI v2.0.lnk"))
 $lnk1.TargetPath = $eliBat
 $lnk1.WorkingDirectory = $Root
 $lnk1.Description = "Local, private AI assistant (desktop GUI)"
@@ -25,7 +25,9 @@ $lnk2.WorkingDirectory = $Root
 $lnk2.Description = "Self-hosted ELI web app - open from any device on your network"
 $lnk2.Save()
 
+Remove-Item -Force -ErrorAction SilentlyContinue (Join-Path $Programs "ELI Pro.lnk")
+
 Write-Host "[OK] Start Menu shortcuts installed:" -ForegroundColor Green
-Write-Host "       - ELI Pro              (desktop GUI)"
+Write-Host "       - ELI v2.0             (desktop GUI)"
 Write-Host "       - ELI Server (Web App) (prints the phone URL + token)"
 Write-Host "     Find them in the Start Menu. Inference stays 100% local."

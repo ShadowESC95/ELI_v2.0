@@ -1,4 +1,4 @@
-"""ELI MKXI — Coding tab.
+"""ELI v2.0 — Coding tab.
 
 A dedicated GUI surface for the verified coding agent (eli/coding): type a task,
 pick a language, and ELI runs the full pipeline (plan → DAG/tree-search →

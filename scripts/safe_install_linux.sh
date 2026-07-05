@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# ELI MKXI — hardened Linux install helper
+# ELI v2.0 — hardened Linux install helper
 # Fresh venv, secret rotation, conservative defaults for solo offline use.
 #
 # Usage (from repo root):
