@@ -8977,8 +8977,9 @@ _register()
         box.setInformativeText(
             "This clears the databases (rows only — table schema is kept), the "
             "semantic vector index, the learned user profile, conversation logs, "
-            "and the stored name. Everything is backed up first and is reversible.\n\n"
-            "ELI must be RESTARTED afterwards for the reset to fully take effect."
+            "persona overlay, device labels, and the stored name. Full DB structure "
+            "is rebuilt immediately. Everything is backed up first.\n\n"
+            "Restart ELI afterwards so in-memory caches reload cleanly."
         )
         keep_profile = QCheckBox("Keep my name && profile (clear history only)")
         box.setCheckBox(keep_profile)
@@ -8996,15 +8997,18 @@ _register()
             QMessageBox.critical(self, "Reset failed", f"Could not clear memory:\n{e}")
             return
 
+        rb = s.get("rebuild") or {}
         msg = (
             f"Wiped {s.get('db_rows', 0)} memory rows.\n"
             f"Reset {s.get('faiss_reset', 0)} vector-index file(s).\n"
             f"Removed {s.get('profiles_removed', 0)} profile file(s), "
             f"{s.get('conversations_removed', 0)} conversation log(s), "
-            f"{s.get('transient_removed', 0)} pending-state file(s).\n"
-            f"Name {'kept' if keep_profile.isChecked() else 'cleared'}.\n\n"
+            f"{s.get('runtime_wiped', 0)} runtime cache file(s).\n"
+            f"Persona overlay {'reset' if s.get('persona_overlay_reset') else 'unchanged'}.\n"
+            f"Name {'kept' if keep_profile.isChecked() else 'cleared'}.\n"
+            f"DB architecture rebuilt ({rb.get('init_steps', 0)} steps).\n\n"
             f"Backup: {s.get('backup') or '(none)'}\n\n"
-            "Schema preserved. Please restart ELI now for a clean slate."
+            "Please restart ELI now for a clean slate."
         )
         if s.get("errors"):
             msg += f"\n\nNote: {s['errors']}"
