@@ -20,6 +20,9 @@ from __future__ import annotations
 
 import json
 import logging
+import re
+import shutil
+import subprocess
 import threading
 import time
 from pathlib import Path
@@ -897,61 +900,119 @@ _DISC_CACHE: Dict[tuple, dict] = {}
 _DISC_TTL = 300.0  # seconds an entry survives without being re-seen
 
 
-def _ble_discover(timeout: float, found: List[dict], errors: List[str]) -> None:
-    """Scan for nearby Bluetooth Low Energy devices (best-effort, discovery-only).
+def _bt_discover_entry(addr: str, name: str = "", rssi: Optional[int] = None) -> dict:
+    nm = (name or "").strip()
+    return {
+        "host": addr,
+        "port": None,
+        "name": nm or f"Bluetooth device ({addr})",
+        "kind": "bluetooth",
+        "label": "Bluetooth device",
+        "control": "bluetooth",
+        "driver": "bluetooth",
+        "transport": "bluetooth",
+        "rssi": rssi,
+    }
 
-    Adds each to ``found`` in the same shape as the network results — the BT address is
-    carried as ``host`` so the existing dedup/merge keys on it with no special-casing.
-    Bluetooth is *local radio*, not the internet, so it needs no netguard window. Degrades
-    cleanly: no bleak, no adapter, or a powered-off radio yields nothing plus a short note —
-    it never raises into the caller.
-    """
-    try:
-        import asyncio
-        from bleak import BleakScanner
-    except Exception:
-        errors.append("bluetooth: BLE support not installed (pip install bleak)")
+
+def _strip_ansi(text: str) -> str:
+    return re.sub(r"\x1b\[[0-9;]*m", "", text or "")
+
+
+def _classic_bt_discover(timeout: float, found: List[dict], seen: set, errors: List[str]) -> None:
+    """Classic BR/EDR scan — finds audio headphones/speakers that BLE often misses."""
+    if not shutil.which("bluetoothctl"):
         return
 
+    def _ingest(text: str) -> None:
+        for line in _strip_ansi(text).splitlines():
+            m = re.search(
+                r"(?:\[(?:NEW|CHG)\]\s+)?Device\s+([0-9A-Fa-f]{2}(?::[0-9A-Fa-f]{2}){5})\s*(.*)",
+                line.strip(),
+            )
+            if not m:
+                continue
+            addr, rest = m.group(1).upper(), m.group(2).strip()
+            if addr in seen:
+                # Upgrade unnamed BLE stubs with a classic name when we learn one.
+                if rest and rest != addr.replace(":", "-"):
+                    for row in found:
+                        if row.get("host", "").upper() == addr:
+                            row["name"] = rest
+                continue
+            seen.add(addr)
+            name = rest if rest and not rest.upper().startswith("RSSI") else ""
+            found.append(_bt_discover_entry(addr, name))
+
+    try:
+        r = subprocess.run(
+            ["bluetoothctl", "devices"],
+            capture_output=True, text=True, timeout=8,
+        )
+        _ingest(r.stdout or "")
+    except Exception as e:
+        errors.append(f"bluetooth devices list: {e}")
+
+    secs = max(4, min(int(timeout) + 2, 15))
+    try:
+        subprocess.run(["bluetoothctl", "power", "on"], capture_output=True, text=True, timeout=6)
+        r = subprocess.run(
+            ["bluetoothctl", "--timeout", str(secs), "scan", "on"],
+            capture_output=True, text=True, timeout=secs + 8,
+        )
+        _ingest((r.stdout or "") + (r.stderr or ""))
+        subprocess.run(["bluetoothctl", "scan", "off"], capture_output=True, text=True, timeout=6)
+    except Exception as e:
+        errors.append(f"bluetooth classic scan: {e}")
+
+
+def _ble_discover(timeout: float, found: List[dict], errors: List[str]) -> None:
+    """Scan nearby Bluetooth devices: BLE (bleak) + classic BR/EDR (bluetoothctl)."""
     try:
         from eli.runtime.device_drivers import BluetoothDriver
         BluetoothDriver.ensure_adapter_alias()
     except Exception:
         pass
 
-    async def _scan():
-        return await BleakScanner.discover(timeout=max(2.0, min(float(timeout), 8.0)))
+    seen: set = set()
 
     try:
-        try:
-            devices = asyncio.run(_scan())
-        except RuntimeError:
-            # Already inside a running loop — use a private one.
-            _loop = asyncio.new_event_loop()
-            try:
-                devices = _loop.run_until_complete(_scan())
-            finally:
-                _loop.close()
-    except Exception as e:
-        errors.append(f"bluetooth scan failed (adapter off/absent?): {e}")
-        return
+        import asyncio
+        from bleak import BleakScanner
+        bleak_ok = True
+    except Exception:
+        bleak_ok = False
+        errors.append("bluetooth: BLE scan unavailable (pip install bleak) — using classic scan only")
 
-    for d in devices or []:
-        addr = getattr(d, "address", None)
-        if not addr:
-            continue
-        nm = (getattr(d, "name", None) or "").strip()
-        found.append({
-            "host": addr,                 # BT address doubles as the merge key
-            "port": None,
-            "name": nm or f"Bluetooth device ({addr})",
-            "kind": "bluetooth",
-            "label": "Bluetooth device",
-            "control": "bluetooth",       # pair/connect/disconnect + audio routing
-            "driver": "bluetooth",
-            "transport": "bluetooth",
-            "rssi": getattr(d, "rssi", None),
-        })
+    if bleak_ok:
+        async def _scan():
+            return await BleakScanner.discover(timeout=max(2.0, min(float(timeout), 8.0)))
+
+        try:
+            try:
+                devices = asyncio.run(_scan())
+            except RuntimeError:
+                _loop = asyncio.new_event_loop()
+                try:
+                    devices = _loop.run_until_complete(_scan())
+                finally:
+                    _loop.close()
+        except Exception as e:
+            errors.append(f"bluetooth BLE scan failed: {e}")
+            devices = []
+        else:
+            for d in devices or []:
+                addr = getattr(d, "address", None)
+                if not addr:
+                    continue
+                key = str(addr).upper()
+                if key in seen:
+                    continue
+                seen.add(key)
+                nm = (getattr(d, "name", None) or "").strip()
+                found.append(_bt_discover_entry(key, nm, getattr(d, "rssi", None)))
+
+    _classic_bt_discover(timeout, found, seen, errors)
 
 
 def discover(timeout: float = 3.0, fresh: bool = False, include_bluetooth: bool = True,
