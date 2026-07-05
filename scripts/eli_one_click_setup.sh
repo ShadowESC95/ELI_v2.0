@@ -86,7 +86,7 @@ case "$ASSET_MODE" in
     ;;
 esac
 
-echo "[setup] Installing ELI Pro"
+echo "[setup] Installing ELI v2.0"
 bash "$ROOT/install.sh" "${INSTALL_ARGS[@]}"
 
 if [ "$WITH_GITHUB_ASSETS" -eq 1 ]; then
@@ -101,6 +101,8 @@ fi
 if [ "$INSTALL_DESKTOP" -eq 1 ] && [ "$(uname -s)" = "Linux" ]; then
   DESKTOP_DIR="${XDG_DATA_HOME:-$HOME/.local/share}/applications"
   mkdir -p "$DESKTOP_DIR"
+  ICON="$ROOT/blueprints/Eli_Icon.png"
+  [ -f "$ICON" ] || ICON="$ROOT/eli/gui/assets/eli.png"
   write_desktop_entry() {
     local target="$1"
     local name="$2"
@@ -110,10 +112,10 @@ Name=$name
 GenericName=Local AI Assistant
 Comment=Local AI cognitive runtime and assistant
 Exec=$ROOT/scripts/eli_one_click_run.sh
-Icon=$ROOT/blueprints/eli_logo2.png
+Icon=$ICON
 Type=Application
 Categories=Utility;
-Keywords=ai;assistant;llm;local;eli;mkxi;
+Keywords=ai;assistant;llm;local;eli;eli_v2_0;
 StartupNotify=true
 Terminal=false
 StartupWMClass=ELI
@@ -121,11 +123,11 @@ EOF
   }
   # User-level override for the legacy system package entry at /usr/share/applications/eli.desktop.
   # This keeps old package files intact while making app menus launch this checkout.
-  write_desktop_entry "$DESKTOP_DIR/eli.desktop" "ELI Pro"
-  rm -f "$DESKTOP_DIR/eli-pro.desktop" "$DESKTOP_DIR/eli-mkxi-v2-pro.desktop"
-  chmod +x "$DESKTOP_DIR/eli.desktop"
-  echo "[setup] Desktop launcher installed: $DESKTOP_DIR/eli.desktop"
-  echo "[setup] Legacy ELI app-menu override installed as ELI Pro"
+  write_desktop_entry "$DESKTOP_DIR/eli-v2.desktop" "ELI v2.0"
+  rm -f "$DESKTOP_DIR/eli.desktop" "$DESKTOP_DIR/eli-pro.desktop" "$DESKTOP_DIR/eli-v2-0.desktop"
+  chmod +x "$DESKTOP_DIR/eli-v2.desktop"
+  echo "[setup] Desktop launcher installed: $DESKTOP_DIR/eli-v2.desktop"
+  echo "[setup] App menu entry: ELI v2.0 (icon: $ICON)"
 fi
 
 if [ "$INSTALL_COMMAND" -eq 1 ]; then

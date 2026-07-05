@@ -1,4 +1,4 @@
-# ELI MKXI — macOS requirements
+# ELI v2.0 — macOS requirements
 # Run: pip install -r requirements-macos.txt
 # NOTE: llama-cpp-python with Metal acceleration:
 #   CMAKE_ARGS="-DLLAMA_METAL=on" pip install llama-cpp-python

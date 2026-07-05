@@ -513,7 +513,7 @@ class BluetoothDriver(Driver):
                     "ok": False,
                     "error": f"{meta.get('label', 'Device')} is not an audio output — pair your headphones, not printers/adapters",
                 }
-            return self._route_audio(addr)
+            return self._route_audio(addr, name=str(dev.get("name") or ""))
         action = {
             "connect": "connect", "on": "connect",
             "disconnect": "disconnect", "off": "disconnect",
@@ -521,7 +521,7 @@ class BluetoothDriver(Driver):
         }.get(cmd)
         if not action:
             return {"ok": False, "error": f"bluetooth: unsupported command {command!r}"}
-        return self._bt_action(addr, action)
+        return self._bt_action(addr, action, name=str(dev.get("name") or ""))
 
     @classmethod
     def resolve_adapter_alias(cls) -> str:
@@ -658,13 +658,21 @@ class BluetoothDriver(Driver):
             return False
         if "connection successful" in low or "already connected" in low:
             return True
-        if "paired: yes" in low or "connected: yes" in low or "changing" in low:
+        if "paired: yes" in low or "connected: yes" in low or "pairing successful" in low:
             return True
         return False
 
     @staticmethod
     def _bt_error_hint(out: str, action: str) -> str:
         low = (out or "").lower()
+        if "adapter is down" in low or "hciconfig" in low or "cannot allocate memory" in low:
+            return (out or "").strip()[:300] or "Bluetooth stuck — run: sudo bash scripts/eli_bt_reset.sh"
+        if "no resources" in low or "error.failed" in low:
+            return "Bluetooth dongle stuck (No Resources) — unplug USB dongle, wait 5s, replug, then: sudo bash scripts/eli_bt_reset.sh"
+        if "page timeout" in low or "connectionattemptfailed" in low:
+            return "Device not in pairing mode — open the case / hold power until the LED flashes, then tap Pair"
+        if "failed to set power on" in low or "org.bluez.error.failed" in low:
+            return "Bluetooth adapter is off — run: sudo hciconfig hci0 up  (then retry Pair)"
         if "authentication failed" in low or "rejected" in low:
             return "Pairing rejected — accept the prompt on the device, then tap Pair again"
         if "failed to connect" in low or "br-connection" in low:
@@ -681,13 +689,11 @@ class BluetoothDriver(Driver):
 
     @staticmethod
     def _btctl_batch(addr: str, steps: List[str], timeout: float = 45.0, agent: str = "NoInputNoOutput"):
-        """Run bluetoothctl with a pairing agent (headphones: NoInputNoOutput, TVs: DisplayYesNo)."""
+        """Run bluetoothctl steps (no agent — uses the system/desktop pairing agent)."""
         import subprocess
         BluetoothDriver._bt_ensure_controller()
         alias_name = BluetoothDriver.resolve_adapter_alias()
         script = "\n".join([
-            f"agent {agent}",
-            "default-agent",
             "power on",
             "pairable on",
             "discoverable off",
@@ -772,39 +778,35 @@ class BluetoothDriver(Driver):
             "note": "Bluetooth connected — pick the device in Settings → System → Sound",
         }
 
-    def _find_bt_sink(self, addr: str) -> Optional[str]:
-        token = addr.replace(":", "_").upper()
-        _, sinks = self._sh(["pactl", "list", "short", "sinks"])
-        for line in sinks.splitlines():
-            if token in line.upper() and "bluez" in line.lower():
-                parts = line.split()
-                if len(parts) >= 2:
-                    return parts[1]
-        return None
+    def _find_bt_sink(self, addr: str, name: str = "") -> Optional[str]:
+        from eli.runtime.local_connectivity import find_bt_a2dp_sink
+        return find_bt_a2dp_sink(addr, name)
 
-    def _windows_bt_action(self, addr, action):
+    def _activate_bt_card(self, addr: str) -> None:
+        """Switch a connected BT card to A2DP music profile (not HSP handsfree)."""
+        from eli.runtime.local_connectivity import activate_bt_a2dp
+        activate_bt_a2dp(addr)
+
+    def _windows_bt_action(self, addr, action, name: str = ""):
         from eli.runtime import bt_platform as bp
         bp.ensure_radio()
         if action == "pair":
             info = self._bt_device_info(addr)
-            meta = self.classify_bt_device(info, str(info.get("name") or ""))
+            meta = self.classify_bt_device(info, str(info.get("name") or name or ""))
             if meta.get("bt_type") == "printer":
                 return {"ok": False, "error": "That is a printer — not pairable for audio"}
             if meta.get("bt_type") == "adapter":
                 return {"ok": False, "error": "That is a Bluetooth adapter/dongle — pair your headphones instead"}
-            if not self._is_paired(addr) and not self._wait_for_bt_device(addr, timeout=18.0):
-                dev_name = str(info.get("name") or "device")
-                return {
-                    "ok": False,
-                    "error": f"{dev_name} not found — keep them in pairing mode (LED flashing) and tap Pair",
-                }
+            dev_name = str(info.get("name") or info.get("alias") or name or "device")
+            resolved = bp.resolve_device(addr, dev_name, timeout=20.0)
+            addr = resolved.get("address") or addr
         ok, out = bp.windows_bt_action(addr, action)
         res = {"ok": ok, "command": action, "device": addr, "output": out}
         if not ok:
             res["error"] = self._bt_error_hint(out, action)
         return res
 
-    def _bt_action(self, addr, action):
+    def _bt_action(self, addr, action, name: str = ""):
         import shutil, sys
         if sys.platform == "darwin":
             if not shutil.which("blueutil"):
@@ -818,47 +820,102 @@ class BluetoothDriver(Driver):
                 res["error"] = out.strip()[:200] or "bluetooth command failed"
             return res
         if sys.platform.startswith("win"):
-            return self._windows_bt_action(addr, action)
+            return self._windows_bt_action(addr, action, name=name)
         if not shutil.which("bluetoothctl"):
             return {"ok": False, "error": "bluetooth: bluetoothctl not found (install bluez)"}
+        import time as _time
+        t0 = _time.time()
         self.ensure_adapter_alias()
         self._bt_prepare_radio()
         if action == "disconnect":
             rc, out = self._sh(["bluetoothctl", "disconnect", addr], timeout=25)
             ok = rc == 0 or "successful" in out.lower() or "disconnected" in out.lower()
+            phase = "disconnect"
         elif action == "pair":
             info = self._bt_device_info(addr)
-            meta = self.classify_bt_device(info, str(info.get("name") or ""))
+            meta = self.classify_bt_device(info, str(info.get("name") or name or ""))
             if meta.get("bt_type") == "printer":
                 return {"ok": False, "error": "That is a printer — not pairable for audio"}
             if meta.get("bt_type") == "adapter":
                 return {"ok": False, "error": "That is a Bluetooth adapter/dongle — pair your headphones instead"}
-            dev_name = str(info.get("name") or info.get("alias") or "headphones")
-            if not self._is_paired(addr) and not self._wait_for_bt_device(addr, timeout=18.0):
+            dev_name = str(info.get("name") or info.get("alias") or name or "headphones")
+            from eli.runtime import bt_platform as bp
+            addr = bp._prefer_address(addr, dev_name)
+            bp.try_recover_radio()
+            radio_ok, radio_msg = bp.ensure_radio()
+            if not radio_ok:
                 return {
                     "ok": False,
-                    "error": f"{dev_name} not found — keep them in pairing mode (LED flashing) and tap Pair",
+                    "error": radio_msg or "Bluetooth radio is off — enable it in system settings",
+                    "command": action,
+                    "device": addr,
+                    "resolved_address": addr,
+                    "phase": "radio_off",
+                    "duration_s": round(_time.time() - t0, 1),
+                }
+            resolved = bp.resolve_device(addr, dev_name, timeout=22.0)
+            addr = resolved.get("address") or addr
+            phase = str(resolved.get("phase") or "")
+            if resolved.get("phase") == "radio_off":
+                return {
+                    "ok": False,
+                    "error": resolved.get("radio_error") or radio_msg or "Bluetooth radio is off",
+                    "command": action,
+                    "device": addr,
+                    "resolved_address": addr,
+                    "phase": "radio_off",
+                    "duration_s": round(_time.time() - t0, 1),
                 }
             steps = self._pair_steps_for(addr)
             agents = (["DisplayYesNo", "NoInputNoOutput"] if meta.get("bt_type") == "tv"
                       else ["NoInputNoOutput", "DisplayYesNo"])
-            ok, out = False, ""
+            ok, out, pair_phase = False, "", "scan"
+            scan_secs = 18 if not resolved.get("found") else 10
             for agent in agents:
-                ok, out = self._btctl_batch(addr, steps, timeout=90.0, agent=agent)
+                ok, out, pair_phase = bp.linux_pair_session(
+                    addr, steps,
+                    agent=agent,
+                    alias=self.resolve_adapter_alias(),
+                    name=dev_name,
+                    scan_secs=scan_secs,
+                    timeout=95.0,
+                )
                 if ok or self._is_paired(addr):
                     ok = True
                     break
             if ok and "connect" in steps:
                 self._btctl_batch(addr, ["connect"], timeout=45.0)
+            ok = self._is_paired(addr)
+            phase = pair_phase or phase
         else:
             steps = {"connect": ["connect"], "trust": ["trust"]}[action]
+            if action == "connect" and not self._is_paired(addr):
+                info = self._bt_device_info(addr)
+                meta = self.classify_bt_device(info, str(info.get("name") or name or ""))
+                if meta.get("audio_capable"):
+                    pair_res = self._bt_action(addr, "pair", name=name)
+                    pair_res["duration_s"] = round(_time.time() - t0, 1)
+                    if not pair_res.get("ok"):
+                        return pair_res
             ok, out = self._btctl_batch(addr, steps, timeout=45.0)
-        res = {"ok": ok, "command": action, "device": addr, "output": out.strip()[:400]}
+            phase = action
+        res = {
+            "ok": ok,
+            "command": action,
+            "device": addr,
+            "resolved_address": addr,
+            "duration_s": round(_time.time() - t0, 1),
+            "phase": phase,
+            "output": out.strip()[:400],
+        }
         if not ok:
-            res["error"] = self._bt_error_hint(out, action)
+            if phase == "radio_off" or "adapter is down" in (out or "").lower():
+                res["error"] = (out or "").strip()[:300] or self._bt_recovery_hint()
+            else:
+                res["error"] = self._bt_error_hint(out, action)
         return res
 
-    def _route_audio(self, addr):
+    def _route_audio(self, addr, name: str = ""):
         """Make this Bluetooth device the system audio output."""
         import shutil, sys, time
         if sys.platform == "darwin":
@@ -874,19 +931,26 @@ class BluetoothDriver(Driver):
             return self._windows_route_audio(addr)
         if not shutil.which("pactl"):
             return {"ok": False, "error": "audio routing needs PulseAudio/PipeWire (pactl not found)"}
-        sink = self._find_bt_sink(addr)
+        info = self._bt_device_info(addr)
+        dev_name = str(info.get("name") or info.get("alias") or name or "")
+        from eli.runtime import bt_platform as bp
+        addr = bp._prefer_address(addr, dev_name)
+        sink = self._find_bt_sink(addr, dev_name)
         if not sink:
-            conn = self._bt_action(addr, "connect")
+            conn = self._bt_action(addr, "connect", name=dev_name)
             if not conn.get("ok"):
-                conn = self._bt_action(addr, "pair")
-            if not conn.get("ok"):
-                return {
-                    "ok": False,
-                    "error": conn.get("error") or "Could not connect — tap Pair, accept on the TV, then Use for audio",
-                    "output": conn.get("output", ""),
-                }
-            for _ in range(20):
-                sink = self._find_bt_sink(addr)
+                if not self._is_paired(addr):
+                    conn = self._bt_action(addr, "pair", name=dev_name)
+                if not conn.get("ok"):
+                    return {
+                        "ok": False,
+                        "error": conn.get("error") or "Could not connect — tap Pair, accept on the device, then Use for audio",
+                        "output": conn.get("output", ""),
+                    }
+            addr = str(conn.get("resolved_address") or conn.get("device") or addr)
+            for _ in range(30):
+                self._activate_bt_card(addr)
+                sink = self._find_bt_sink(addr, dev_name)
                 if sink:
                     break
                 time.sleep(0.5)

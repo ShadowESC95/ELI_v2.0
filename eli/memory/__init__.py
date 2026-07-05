@@ -207,27 +207,27 @@ def get_memory_status(db_path: Optional[str | Path] = None) -> Dict[str, Any]:
 
 from .memory import get_search_memory, get_memory_authority, rebuild_vector_index_from_search_db
 
-# === MKXI_LOCAL_DB_AUTHORITY_PATCH ===
-from pathlib import Path as _MKXIPath
-import os as _MKXIOS
+# === ELI_V2_0_LOCAL_DB_AUTHORITY_PATCH ===
+from pathlib import Path as _ELI_V2_0_Path
+import os as _ELI_V2_0_OS
 
-def _mkxi_user_db_path():
-    from eli.core.paths import get_paths as _mkxi_get_paths
-    gp = _mkxi_get_paths()
+def _eli_v2_0_user_db_path():
+    from eli.core.paths import get_paths as _eli_v2_0_get_paths
+    gp = _eli_v2_0_get_paths()
     raw = (
-        _MKXIOS.environ.get("ELI_MEMORY_DB")
-        or _MKXIOS.environ.get("ELI_MEMORY_DB_PATH")
+        _ELI_V2_0_OS.environ.get("ELI_MEMORY_DB")
+        or _ELI_V2_0_OS.environ.get("ELI_MEMORY_DB_PATH")
         or str(gp.user_db)
     )
-    p = _MKXIPath(raw).expanduser().resolve()
+    p = _ELI_V2_0_Path(raw).expanduser().resolve()
     p.parent.mkdir(parents=True, exist_ok=True)
     return p
 
-def _mkxi_agent_db_path():
-    from eli.core.paths import get_paths as _mkxi_get_paths
-    gp = _mkxi_get_paths()
-    raw = _MKXIOS.environ.get("ELI_AGENT_DB") or str(gp.agent_db)
-    p = _MKXIPath(raw).expanduser().resolve()
+def _eli_v2_0_agent_db_path():
+    from eli.core.paths import get_paths as _eli_v2_0_get_paths
+    gp = _eli_v2_0_get_paths()
+    raw = _ELI_V2_0_OS.environ.get("ELI_AGENT_DB") or str(gp.agent_db)
+    p = _ELI_V2_0_Path(raw).expanduser().resolve()
     p.parent.mkdir(parents=True, exist_ok=True)
     return p
 
@@ -237,7 +237,7 @@ def _mkxi_agent_db_path():
 # attribute access) and bypassed the canonical Memory(db_path=...)
 # arg contract. The canonical versions imported from eli.memory.memory
 # at the top of this file (line ~16) return proper DBPaths dataclasses
-# and accept an optional db_path. _mkxi_user_db_path / _mkxi_agent_db_path
+# and accept an optional db_path. _eli_v2_0_user_db_path / _eli_v2_0_agent_db_path
 # above remain in place — they are independent helpers any caller can
 # use directly to resolve a single db path under env-var precedence.
 

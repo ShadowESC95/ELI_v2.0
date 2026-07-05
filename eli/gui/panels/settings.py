@@ -1,4 +1,4 @@
-"""ELI MKXI — Advanced Settings dialog panel."""
+"""ELI v2.0 — Advanced Settings dialog panel."""
 from __future__ import annotations
 
 import threading
@@ -288,7 +288,7 @@ class AdvancedSettingsDialog(QDialog):
     def _populate_models_table(self):
         rows = []
         try:
-            from eli.gui.eli_pro_audio_gui_MKI import discover_gguf_models
+            from eli.gui.eli_pro_audio_gui_v2_0 import discover_gguf_models
             models = discover_gguf_models()
             for m in models:
                 size_str = f"{m.get('size_gb', 0.0):.2f} GB"
@@ -296,7 +296,7 @@ class AdvancedSettingsDialog(QDialog):
         except Exception:
             pass
         try:
-            from eli.gui.eli_pro_audio_gui_MKI import OllamaModelManager
+            from eli.gui.eli_pro_audio_gui_v2_0 import OllamaModelManager
             host = "http://localhost:11434"
             om = OllamaModelManager()
             ollama_names = om.list_models(host)

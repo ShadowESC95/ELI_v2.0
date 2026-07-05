@@ -1,0 +1,12 @@
+[Desktop Entry]
+Version=1.0
+Type=Application
+Name=ELI v2.0
+Comment=Local Cognitive AI Assistant
+GenericName=Local AI Assistant
+Exec=__REPO_ROOT__/scripts/eli_launch.sh gui
+Path=__REPO_ROOT__
+Icon=__REPO_ROOT__/blueprints/Eli_Icon.png
+Terminal=false
+Categories=Utility;Development;AI;
+StartupNotify=true

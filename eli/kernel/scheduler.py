@@ -1,5 +1,5 @@
 """
-MKXI kernel-local scheduler compatibility layer.
+v2.0 kernel-local scheduler compatibility layer.
 
 Why this exists:
 - eli.kernel.engine imports `from .scheduler import get_scheduler`
@@ -28,7 +28,7 @@ class KernelScheduler:
     def __post_init__(self) -> None:
         self._executor = ThreadPoolExecutor(
             max_workers=max(1, int(self.max_workers)),
-            thread_name_prefix="eli-mkxi-scheduler",
+            thread_name_prefix="eli-v2.0-scheduler",
         )
 
     def submit(self, fn: Callable[..., Any], *args: Any, **kwargs: Any) -> Future:

@@ -1,4 +1,4 @@
-"""ELI MKXI — Agent edit dialog panel."""
+"""ELI v2.0 — Agent edit dialog panel."""
 from __future__ import annotations
 
 from eli.gui.panels._qt import (

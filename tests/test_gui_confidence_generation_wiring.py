@@ -28,7 +28,7 @@ def test_dynamic_clarifier_returns_question_from_model_path():
 
 
 def test_engine_ask_uses_cognitive_engine_dict_response():
-    source = Path("eli/gui/eli_pro_audio_gui_MKI.py").read_text(encoding="utf-8")
+    source = Path("eli/gui/eli_pro_audio_gui_v2_0.py").read_text(encoding="utf-8")
     engine_ask = source[source.index("    def _engine_ask("):source.index("    def create_labs_tab(")]
 
     assert "if isinstance(result, dict):" in engine_ask
@@ -38,7 +38,7 @@ def test_engine_ask_uses_cognitive_engine_dict_response():
 
 
 def test_gui_preloaded_handoff_reads_preloaded_params():
-    source = Path("eli/gui/eli_pro_audio_gui_MKI.py").read_text(encoding="utf-8")
+    source = Path("eli/gui/eli_pro_audio_gui_v2_0.py").read_text(encoding="utf-8")
     handoff = source[source.index("_PRELOADED_PARAMS"):source.index("QTimer.singleShot(600")]
 
     assert "_pre_params" in handoff
@@ -296,7 +296,7 @@ def test_generate_document_normalizes_to_documents_dir(monkeypatch, tmp_path):
 
 
 def test_gui_has_generated_artifact_open_signal_and_handlers():
-    source = Path("eli/gui/eli_pro_audio_gui_MKI.py").read_text(encoding="utf-8")
+    source = Path("eli/gui/eli_pro_audio_gui_v2_0.py").read_text(encoding="utf-8")
 
     assert "_generated_artifact_open_sig = pyqtSignal(object)" in source
     assert "_open_generated_artifact_from_result" in source

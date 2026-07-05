@@ -1,7 +1,7 @@
 """
 Ollama model selector widget for ELI GUI.
 
-Usage — add to your toolbar in eli_pro_audio_gui_MKI.py:
+Usage — add to your toolbar in eli_pro_audio_gui_v2_0.py:
 
     from eli.gui.widgets.ollama_model_selector import OllamaModelSelector
 

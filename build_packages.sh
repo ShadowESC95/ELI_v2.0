@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# ELI MKXI — master release builder.
+# ELI v2.0 — master release builder.
 #
 # Drives the per-platform builders under packaging/<platform>/ and emits
 # checksums + RELEASE_NOTES.md alongside the artifacts in dist/.
@@ -33,7 +33,7 @@ else
 fi
 
 echo "================================================="
-echo "  ELI MKXI release builder — version ${VERSION}"
+echo "  ELI v2.0 release builder — version ${VERSION}"
 echo "  Targets: ${TARGETS[*]}"
 echo "================================================="
 
@@ -119,8 +119,8 @@ _stage_windows_common() {
         mkdir -p "$STAGING/installers"
         cp -r "$PROJECT_ROOT/packaging/windows/." "$STAGING/installers/"
     fi
-    if ls "$DIST"/eli_mkxi-*.whl >/dev/null 2>&1; then
-        cp "$DIST"/eli_mkxi-*.whl "$STAGING/dist/"
+    if ls "$DIST"/eli_v2_0-*.whl >/dev/null 2>&1; then
+        cp "$DIST"/eli_v2_0-*.whl "$STAGING/dist/"
     fi
     cat > "$STAGING/README_INSTALL.txt" <<EOF
 ELI v2 — Windows portable (${2:-lean})
@@ -176,7 +176,7 @@ for target in "${TARGETS[@]}"; do
         windows-lean)
             echo ""
             echo "[windows-lean] Producing lean portable zip (source + wheel)…"
-            if ! ls "$DIST"/eli_mkxi-*.whl >/dev/null 2>&1; then
+            if ! ls "$DIST"/eli_v2_0-*.whl >/dev/null 2>&1; then
                 build_python_artifacts
             fi
             STAGING="$PROJECT_ROOT/build/win-portable/ELI_v2-${VERSION}-windows-portable"
@@ -190,7 +190,7 @@ for target in "${TARGETS[@]}"; do
             echo ""
             if [ "$(uname -s)" = "Darwin" ] || [ "$(uname -s)" = "Linux" ]; then
                 echo "[windows] Producing full offline portable zip on $(uname -s)…"
-                if ! ls "$DIST"/eli_mkxi-*.whl >/dev/null 2>&1; then
+                if ! ls "$DIST"/eli_v2_0-*.whl >/dev/null 2>&1; then
                     build_python_artifacts
                 fi
                 if ! find "$DIST/wheelhouse" -maxdepth 1 -name '*.whl' -print -quit 2>/dev/null | grep -q .; then
@@ -224,12 +224,12 @@ if [ -d "$DIST/wheelhouse" ]; then
 fi
 
 echo "[finalise] Computing SHA-256 checksums…"
-( cd "$DIST" && sha256sum eli_mkxi-*.whl 2>/dev/null \
-                          eli_mkxi-*.tar.gz 2>/dev/null \
+( cd "$DIST" && sha256sum eli_v2_0-*.whl 2>/dev/null \
+                          eli_v2_0-*.tar.gz 2>/dev/null \
                           ELI_v2-*.dmg 2>/dev/null \
                           ELI_v2-*.AppImage 2>/dev/null \
                           ELI_v2-*-Setup.exe 2>/dev/null \
-                          eli-mkxi_*_amd64.deb 2>/dev/null \
+                          eli-v2.0_*_amd64.deb 2>/dev/null \
                           ELI_v2-*-windows-portable*.zip 2>/dev/null \
                           ELI_v2-*-linux-portable.tar.gz 2>/dev/null \
                           ELI_v2-*-macos-app.tar.gz 2>/dev/null > SHA256SUMS.txt || true )
@@ -249,8 +249,8 @@ $(cat "$DIST/SHA256SUMS.txt" 2>/dev/null || echo "(checksum file missing)")
 \`\`\`
 
 ## Install quick reference
-- **pip / wheel**: \`pip install dist/eli_mkxi-${VERSION}-py3-none-any.whl[full]\`
-- **Debian/Ubuntu**: \`sudo dpkg -i dist/eli-mkxi_${VERSION}_amd64.deb && sudo apt -f install\`
+- **pip / wheel**: \`pip install dist/eli_v2_0-${VERSION}-py3-none-any.whl[full]\`
+- **Debian/Ubuntu**: \`sudo dpkg -i dist/eli-v2.0_${VERSION}_amd64.deb && sudo apt -f install\`
 - **Linux portable**: extract \`dist/ELI_v2-${VERSION}-linux-portable.tar.gz\`, run \`./INSTALL_ELI.sh\`
 - **Windows lean**: extract \`dist/ELI_v2-${VERSION}-windows-portable.zip\`, run \`install.bat\`
 - **Windows full offline**: extract \`dist/ELI_v2-${VERSION}-windows-portable-full.zip\`, run \`install.bat\`
