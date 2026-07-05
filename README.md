@@ -302,6 +302,28 @@ is also supported as an alternate backend if you point ELI at a local Ollama ins
 To use a model: drop `YourModel-Q4_K_M.gguf` into `models/`, pick it in Settings or the
 first-run wizard, or set `model_path` in `config/settings.json`.
 
+ELI needs one local **model** (the brain). The installer can fetch one sized to your
+hardware, or pick your own — you can grab several and switch anytime:
+
+```bash
+python -m eli.core.model_download --choose   # multi-select menu — pick ANY number
+python -m eli.core.model_download --auto      # one best-fit for your VRAM
+```
+
+| key | model | size | needs |
+|---|---|---|---|
+| `qwen2.5-3b` | Qwen2.5-3B-Instruct | ~1.8 GB | 4 GB GPU / CPU |
+| `qwen2.5-7b` | Qwen2.5-7B-Instruct *(default)* | ~4.4 GB | 8 GB GPU |
+| `qwen3-8b` | Qwen3-8B (40K ctx, reasoning; LoRA base) | ~4.7 GB | 8 GB GPU |
+| `falcon3-10b` | Falcon3-10B-Instruct | ~5.9 GB | 12 GB GPU |
+| `phi-4` | Phi-4 (14B dense, MIT) | ~8.4 GB | 12 GB GPU |
+| `qwen3.6-35b-a3b` | Qwen3.6-35B-A3B (MoE, Apache-2.0) | ~20.6 GB | 24 GB GPU / CPU |
+| `falcon-h1-34b` | Falcon-H1-34B-Instruct | ~18.9 GB | 24 GB GPU / CPU |
+
+The tiny **embedder** (memory/RAG) installs automatically with `install.sh` unless you pass
+`--no-model`. Vision and custom voice packs are optional extras. Fine-tune your own model —
+see **[`docs/TRAINING_YOUR_OWN_MODEL.md`](docs/TRAINING_YOUR_OWN_MODEL.md)**.
+
 ## Download & run (Linux portable)
 
 **This is the finish line for v2** — if you don't want to clone and build from source, use the
@@ -325,9 +347,8 @@ cd ELI_v2.0-2.0.0-linux-portable
 ./RUN_ELI.sh                        # launch desktop ELI
 ```
 
-**Model pack (`local-assets-v2.1`):** nomic embedder + starter chat GGUFs (TinyLlama, SmolLM2,
-Ministral-3B, DeepSeek-R1-Distill, Palmyra-mini) + cleared Piper voices — **not** the full 7B
-Qwen default. Licenses: **[models/MODEL_LICENSES.md](models/MODEL_LICENSES.md)**.
+**Model pack (`local-assets-v2.1`):** nomic embedder + starter chat GGUFs + cleared Piper voices.
+Release title on GitHub may still show legacy naming — assets are ELI v2.0. Licenses: **[models/MODEL_LICENSES.md](models/MODEL_LICENSES.md)**.
 
 **Requires for asset restore:** `gh` CLI (`gh auth login`) **or** manual download from the
 [model pack release](https://github.com/ShadowESC95/ELI_v2.0/releases/tag/local-assets-v2.1).
@@ -372,32 +393,7 @@ Flags: `--yes` (no prompts) · `--install-cuda` (auto-install CUDA toolkit) · `
 ```
 
 That's it — the first run is a **blank slate** (no preloaded data) with a 10-second, skippable
-"what should I call you?" intro.
-
-## Choose your model
-
-ELI needs one local **model** (the brain). The installer offers to fetch one sized to your
-hardware, or pick your own — you can grab several and switch anytime:
-
-```bash
-python -m eli.core.model_download --choose   # multi-select menu — pick ANY number
-python -m eli.core.model_download --auto      # one best-fit for your VRAM
-```
-
-| key | model | size | needs |
-|---|---|---|---|
-| `qwen2.5-3b` | Qwen2.5-3B-Instruct | ~1.8 GB | 4 GB GPU / CPU |
-| `qwen2.5-7b` | Qwen2.5-7B-Instruct *(default)* | ~4.4 GB | 8 GB GPU |
-| `qwen3-8b` | Qwen3-8B (40K ctx, reasoning; LoRA base) | ~4.7 GB | 8 GB GPU |
-| `falcon3-10b` | Falcon3-10B-Instruct | ~5.9 GB | 12 GB GPU |
-| `phi-4` | Phi-4 (14B dense, MIT) | ~8.4 GB | 12 GB GPU |
-| `qwen3.6-35b-a3b` | Qwen3.6-35B-A3B (MoE, Apache-2.0) | ~20.6 GB | 24 GB GPU / CPU |
-| `falcon-h1-34b` | Falcon-H1-34B-Instruct | ~18.9 GB | 24 GB GPU / CPU |
-
-You can also drop **any `.gguf`** into `models/`, or point ELI at your own catalog
-(`ELI_MODEL_CATALOG`). The tiny **embedder** (memory/RAG) installs automatically; vision is an
-optional extra. Want ELI to *speak in its own voice* out of the box? Fine-tune your own model —
-see **[`docs/TRAINING_YOUR_OWN_MODEL.md`](docs/TRAINING_YOUR_OWN_MODEL.md)**.
+"what should I call you?" intro. See **[docs/FIRST_RUN.md](docs/FIRST_RUN.md)** for clone vs portable paths.
 
 ## Optional: a remote view over your own network
 
