@@ -466,7 +466,9 @@ class BluetoothDriver(Driver):
     pip = None                    # OS tools, no python package
     needs_pairing = True
     pair_style = "accept"         # usually confirm/accept the pairing on the device itself
-    ADAPTER_ALIAS = "Eli"         # friendly name remote devices see when pairing
+    BRAND = "Eli"
+    DEFAULT_HUB_ZONE = "Home"
+    MAX_ALIAS_LEN = 48            # TVs truncate long Bluetooth names
 
     def capabilities(self, dev):
         return ["connect", "disconnect", "pair", "trust", "use_for_audio"]
@@ -509,10 +511,24 @@ class BluetoothDriver(Driver):
         return self._bt_action(addr, action)
 
     @classmethod
+    def resolve_adapter_alias(cls) -> str:
+        """Hub label on Bluetooth pairing screens: Eli · {zone}, or a settings override."""
+        try:
+            from eli.core.runtime_settings import load_settings
+            s = load_settings() or {}
+        except Exception:
+            s = {}
+        override = str(s.get("bluetooth_display_name") or "").strip()
+        if override:
+            return override[: cls.MAX_ALIAS_LEN]
+        zone = str(s.get("hub_zone") or "").strip() or cls.DEFAULT_HUB_ZONE
+        return f"{cls.BRAND} · {zone}"[: cls.MAX_ALIAS_LEN]
+
+    @classmethod
     def ensure_adapter_alias(cls, alias: Optional[str] = None) -> Dict[str, Any]:
         """Set this PC's Bluetooth friendly name (what TVs/speakers show when pairing)."""
         import shutil, sys
-        name = (alias or cls.ADAPTER_ALIAS).strip() or cls.ADAPTER_ALIAS
+        name = (alias or cls.resolve_adapter_alias()).strip() or cls.resolve_adapter_alias()
         if sys.platform == "darwin":
             return {"ok": False, "alias": name,
                     "note": "macOS uses System Settings → General → Sharing → Local hostname"}
@@ -570,11 +586,12 @@ class BluetoothDriver(Driver):
     def _btctl_batch(addr: str, steps: List[str], timeout: float = 45.0):
         """Run bluetoothctl with a NoInputNoOutput agent (needed for TV/speaker pairing)."""
         import subprocess
+        alias_name = BluetoothDriver.resolve_adapter_alias()
         script = "\n".join([
             "agent NoInputNoOutput",
             "default-agent",
             "power on",
-            f"system-alias {BluetoothDriver.ADAPTER_ALIAS}",
+            f"system-alias {alias_name}",
             *[f"{step} {addr}" for step in steps],
             "quit",
             "",
