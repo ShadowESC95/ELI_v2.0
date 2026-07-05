@@ -2385,12 +2385,12 @@ _WEB_UI = """<!doctype html>
   let OV_LAYOUT=null, OV_EDIT=false, OV_PREFS_LOADED=false, OV_DRAG=null;
   // Full catalog (palette order). Each user composes their own subset — the layout
   // decides which endpoints get fetched, so unused widgets cost nothing.
-  const OV_CATALOG=['ask','mesh','goals','tasks','nowplaying','graph','model','gpu','vitals','internet','egress','connect','quickcontrols','rooms','scenes','automations','suggestions','quickactions','corpora','capabilities','sun','note','activity','audit'];
-  const OV_DEFAULT=['ask','mesh','tasks','goals','graph','nowplaying','quickcontrols'];
-  const OV_TITLES={ask:'Ask ELI',mesh:'Cognition mesh',goals:'Autonomy & goals',tasks:'Scheduled tasks',nowplaying:'Now playing',graph:'Live vitals',model:'Model & runtime',gpu:'GPU',vitals:'Vitals',internet:'Internet access',egress:'Network egress',connect:'Connect a phone',quickcontrols:'Quick controls',rooms:'Rooms',scenes:'Scenes',automations:'Automations',suggestions:'Suggestions',quickactions:'Quick actions',corpora:'Research corpora',capabilities:'Capabilities',sun:'Sun',note:'Note',activity:'Recent activity',audit:'Audit integrity'};
+  const OV_CATALOG=['ask','mesh','goals','tasks','nowplaying','devicenames','graph','model','gpu','vitals','internet','egress','connect','quickcontrols','rooms','scenes','automations','suggestions','quickactions','corpora','capabilities','sun','note','activity','audit'];
+  const OV_DEFAULT=['ask','mesh','tasks','goals','graph','nowplaying','devicenames','quickcontrols'];
+  const OV_TITLES={ask:'Ask ELI',mesh:'Cognition mesh',goals:'Autonomy & goals',tasks:'Scheduled tasks',nowplaying:'Now playing',devicenames:'Device names',graph:'Live vitals',model:'Model & runtime',gpu:'GPU',vitals:'Vitals',internet:'Internet access',egress:'Network egress',connect:'Connect a phone',quickcontrols:'Quick controls',rooms:'Rooms',scenes:'Scenes',automations:'Automations',suggestions:'Suggestions',quickactions:'Quick actions',corpora:'Research corpora',capabilities:'Capabilities',sun:'Sun',note:'Note',activity:'Recent activity',audit:'Audit integrity'};
   const OV_WIDE={mesh:1,activity:1,capabilities:1};
-  const OV_SRC={system:'/v1/system',audit:'/v1/audit?limit=8',devices:'/v1/devices',corpora:'/v1/research/corpora',net:'/v1/net',media:'/v1/media',audio:'/v1/connectivity/audio/outputs?refresh=1',automations:'/v1/home/automations',scenes:'/v1/home/scenes',suggestions:'/v1/home/suggestions',sun:'/v1/home/sun',capabilities:'/v1/capabilities',connect:'/v1/connect',rooms:'/v1/devices/rooms',orchestration:'/v1/cognition/orchestration',goals:'/v1/autonomy/goals',tasks:'/v1/tasks'};
-  const OV_NEEDS={ask:[],mesh:['orchestration'],goals:['goals'],tasks:['tasks'],nowplaying:['media','audio'],graph:['system'],model:['system'],gpu:['system'],vitals:['system'],internet:['net'],egress:['net'],connect:['connect'],quickcontrols:['devices'],rooms:['rooms'],scenes:['scenes'],automations:['automations','devices'],suggestions:['suggestions'],quickactions:[],corpora:['corpora'],capabilities:['capabilities'],sun:['sun'],note:[],activity:['audit'],audit:['audit']};
+  const OV_SRC={system:'/v1/system',audit:'/v1/audit?limit=8',devices:'/v1/devices',corpora:'/v1/research/corpora',net:'/v1/net',media:'/v1/media',audio:'/v1/connectivity/audio/outputs?refresh=1',devnames:'/v1/devices/names',automations:'/v1/home/automations',scenes:'/v1/home/scenes',suggestions:'/v1/home/suggestions',sun:'/v1/home/sun',capabilities:'/v1/capabilities',connect:'/v1/connect',rooms:'/v1/devices/rooms',orchestration:'/v1/cognition/orchestration',goals:'/v1/autonomy/goals',tasks:'/v1/tasks'};
+  const OV_NEEDS={ask:[],mesh:['orchestration'],goals:['goals'],tasks:['tasks'],nowplaying:['media','audio'],devicenames:['devnames'],graph:['system'],model:['system'],gpu:['system'],vitals:['system'],internet:['net'],egress:['net'],connect:['connect'],quickcontrols:['devices'],rooms:['rooms'],scenes:['scenes'],automations:['automations','devices'],suggestions:['suggestions'],quickactions:[],corpora:['corpora'],capabilities:['capabilities'],sun:['sun'],note:[],activity:['audit'],audit:['audit']};
   const OV_BASE=['system','audit','devices','corpora','net'];   // the hero always needs these
   function ovLayout(){
     if(!OV_LAYOUT||!Array.isArray(OV_LAYOUT.order))OV_LAYOUT={order:OV_DEFAULT.slice(),hidden:[],note:''};
@@ -2438,6 +2438,22 @@ _WEB_UI = """<!doctype html>
     api('/v1/connectivity/audio/alias',{method:'POST',body:JSON.stringify({sink:sink,name:name||''})})
       .then(()=>setTimeout(loadOverview,200)).catch(()=>{});
   }
+  function ovSaveDeviceName(key,inputId,btn){
+    const inp=document.getElementById(inputId);
+    const name=(inp&&inp.value||'').trim();
+    if(!key){alert('Missing device key');return;}
+    if(btn){btn.disabled=true;btn.textContent='Saving…';}
+    api('/v1/devices/name',{method:'POST',body:JSON.stringify({key:key,name:name})})
+      .then(r=>{
+        if(r&&r.ok){
+          if(btn){btn.textContent='✓ Saved';btn.disabled=false;setTimeout(()=>{btn.textContent='Save';},2200);}
+          setTimeout(loadOverview,350);
+        }else{
+          alert('Could not save name: '+esc((r&&r.error)||'unknown'));
+          if(btn){btn.textContent='Save';btn.disabled=false;}
+        }
+      }).catch(e=>{alert('Could not save name: '+esc(''+e));if(btn){btn.textContent='Save';btn.disabled=false;}});
+  }
   function ovSetAudioOutput(sel){
     const sink=(sel&&sel.value)||'';
     if(!sink)return;
@@ -2445,7 +2461,7 @@ _WEB_UI = """<!doctype html>
       .then(r=>{if(r&&r.ok)setTimeout(loadOverview,300);})
       .catch(()=>{});
   }
-  window.mediaCtl=mediaCtl; window.mediaPick=mediaPick; window.ovSetAudioOutput=ovSetAudioOutput; window.ovSetAudioAlias=ovSetAudioAlias;
+  window.mediaCtl=mediaCtl; window.mediaPick=mediaPick; window.ovSetAudioOutput=ovSetAudioOutput; window.ovSetAudioAlias=ovSetAudioAlias; window.ovSaveDeviceName=ovSaveDeviceName;
   // Ask ELI — talk to the full engine straight from the dashboard. Last Q/A is kept in
   // window._ovAsk so the 6s auto-refresh re-renders the answer instead of wiping it.
   function ovAsk(preset){
@@ -2565,14 +2581,15 @@ _WEB_UI = """<!doctype html>
           const selOn=picked?(picked===id):(!!s.is_default);
           return '<option value="'+id+'"'+(selOn?' selected':'')+'>'+nm+dev+tag+'</option>';
         }).join('');
-        const rename=sinks.map(s=>'<div class="npaudio-row" style="margin-top:6px;display:flex;gap:6px;flex-wrap:wrap">'
+        const rename=sinks.map((s,i)=>'<div class="npaudio-row" style="margin-top:6px;display:flex;gap:6px;flex-wrap:wrap;align-items:center">'
           +'<span style="opacity:.7;font-size:.85em;min-width:5em">Device '+(s.device_number||'?')+'</span>'
-          +'<input class="inp" style="flex:1;min-width:120px" placeholder="Name this speaker" value="'+esc(s.alias||'')+'" '
-          +'onchange="ovSetAudioAlias('+JSON.stringify(s.id||'')+',this.value)"></div>').join('');
+          +'<span style="opacity:.55;font-size:.8em;max-width:100px;overflow:hidden;text-overflow:ellipsis" title="'+esc(s.os_name||s.name||'')+'">'+esc(s.os_name||s.name||'')+'</span>'
+          +'<input class="inp" id="ov-sink-'+i+'" style="flex:1;min-width:120px" placeholder="Name for voice control" value="'+esc(s.custom_name||s.alias||'')+'">'
+          +'<button class="cbtn pri" onclick="ovSaveDeviceName('+JSON.stringify(s.name_key||'')+','+JSON.stringify('ov-sink-'+i)+',this)">Save</button></div>').join('');
         audioSel='<div class="npaudio"><label>Sound output</label><div class="nprow">'
           +'<select onchange="ovSetAudioOutput(this)">'+opts+'</select>'
           +'<button class="cbtn pri" onclick="ovSetAudioOutput(this.previousElementSibling)">Apply</button></div>'
-          +'<div class="rnote" style="margin-top:6px">Name speakers for voice: <i>play music to kitchen speaker</i> or <i>device 1</i></div>'
+          +'<div class="rnote" style="margin-top:6px">Name speakers for voice — click <b>Save</b>: <i>play music to kitchen speaker</i></div>'
           +rename+'</div>';
       }
       if(!ps.length)return '<div class="muted">Nothing playing. Start Spotify, VLC or a browser video and it&#39;ll appear here with live controls.</div>'+audioSel;
@@ -2595,6 +2612,25 @@ _WEB_UI = """<!doctype html>
         '</div>';
       if(ps.length>1)h+='<div class="npsel"><select onchange="mediaPick(this)">'+ps.map(p=>'<option value="'+esc(p.player)+'"'+(p.player===cur.player?' selected':'')+'>'+esc(p.player)+(p.title?(' — '+esc(p.title)):'')+'</option>').join('')+'</select></div>';
       return h+audioSel;
+    }
+    if(id==='devicenames'){
+      const rows=(D.devnames&&D.devnames.devices)||[];
+      if(!rows.length)return '<div class="muted">No devices yet — pair Bluetooth, add Home devices, or connect speakers, then name them here.</div>';
+      let h='<div class="rnote" style="margin-bottom:8px">ELI matches these names in voice commands — e.g. <i>connect reflex</i>, <i>turn on bedroom light</i>. Names are saved until you clear them.</div>';
+      rows.forEach((r,i)=>{
+        const kid='dn-'+i, key=r.key||'';
+        const kind=esc((r.kind||'device').slice(0,12));
+        const os=esc(r.os_name||'');
+        const saved=esc(r.saved_name||r.custom_name||'');
+        h+='<div class="npaudio-row" style="margin-top:6px;display:flex;gap:6px;flex-wrap:wrap;align-items:center">'
+          +'<span style="opacity:.7;font-size:.8em;min-width:4.5em">'+kind+'</span>'
+          +'<span style="opacity:.5;font-size:.78em;max-width:110px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="'+os+'">'+os+'</span>'
+          +'<input class="inp" id="'+kid+'" style="flex:1;min-width:130px" placeholder="Your name (voice keyword)" value="'+saved+'">'
+          +'<button class="cbtn pri" onclick="ovSaveDeviceName('+JSON.stringify(key)+','+JSON.stringify(kid)+',this)">Save</button>'
+          +(saved?('<button class="cbtn" onclick="document.getElementById(\\''+kid+'\\').value=\\'\\';ovSaveDeviceName('+JSON.stringify(key)+','+JSON.stringify(kid)+',this)" title="Remove custom name">Clear</button>'):'')
+          +'</div>';
+      });
+      return h;
     }
     if(id==='internet'){
       const net=(D.net&&D.net.net)||{}, netOn=!!net.enabled, isAdmin=(window.MY_ROLE==='admin'||!window.MY_ROLE);
@@ -2637,7 +2673,7 @@ _WEB_UI = """<!doctype html>
       let cb='';
       ctl.forEach(z=>{const xon=(''+(z.state||'')).toUpperCase()==='ON';
         const md=['airplay','firetv','cast','upnp'].indexOf(z.driver)>=0;
-        cb+='<div class="ovact"><span class="aa">'+esc(z.name||z.id)+'</span>'+
+        cb+='<div class="ovact"><span class="aa">'+esc(z.display_name||z.name||z.id)+'</span>'+
           (md?('<span><button class="roombtn" onclick="ovCtl(\\''+esc(z.id)+'\\',\\'play\\')">&#9654;</button> <button class="roombtn" onclick="ovCtl(\\''+esc(z.id)+'\\',\\'pause\\')">&#9208;</button></span>')
             :('<button class="roombtn" onclick="ovCtl(\\''+esc(z.id)+'\\',\\''+(xon?'off':'on')+'\\')">'+(xon?'Turn off':'Turn on')+'</button>'))+'</div>';});
       return cb;
@@ -2653,7 +2689,7 @@ _WEB_UI = """<!doctype html>
         ds.forEach(z=>{const sv=(''+(z.state||'')).toUpperCase(),on=sv==='ON',off=sv==='OFF';
           const media=['airplay','firetv','cast','upnp'].indexOf(z.driver)>=0;
           const dot=on?'on':(off?'':'idle');
-          h+='<div class="ovdev"><span class="aa"><span class="ddot '+dot+'"></span>'+esc(z.name||z.id)+'</span>'+
+          h+='<div class="ovdev"><span class="aa"><span class="ddot '+dot+'"></span>'+esc(z.display_name||z.name||z.id)+'</span>'+
             (media?('<span><button class="roombtn" onclick="ovCtl(\\''+esc(z.id)+'\\',\\'play\\')">&#9654;</button> <button class="roombtn" onclick="ovCtl(\\''+esc(z.id)+'\\',\\'pause\\')">&#9208;</button></span>')
               :('<button class="roombtn" onclick="ovCtl(\\''+esc(z.id)+'\\',\\''+(on?'off':'on')+'\\')">'+(on?'Off':'On')+'</button>'))+'</div>';});
         h+='</div>';});
@@ -2676,7 +2712,7 @@ _WEB_UI = """<!doctype html>
           ' <span class="muted">'+esc((tr.time||'')+' &middot; '+(ac.command||''))+'</span></span>'+
           '<span style="display:flex;gap:8px;align-items:center"><label class="miniSw"><input type="checkbox" '+(a.enabled?'checked':'')+' onchange="ovAutoToggle(\\''+esc(a.id)+'\\',this.checked)"></label>'+
           '<button class="wbtn rm" onclick="ovAutoRemove(\\''+esc(a.id)+'\\')" title="Remove">&#10005;</button></span></div>';});
-      const opts=devs.map(d=>'<option value="'+esc(d.id)+'">'+esc(d.name||d.id)+'</option>').join('');
+      const opts=devs.map(d=>'<option value="'+esc(d.id)+'">'+esc(d.display_name||d.name||d.id)+'</option>').join('');
       h+='<div class="ovform">'+
         '<select id="au-dev">'+(opts||'<option value="">no devices</option>')+'</select>'+
         '<select id="au-cmd"><option value="on">On</option><option value="off">Off</option></select>'+
@@ -2899,6 +2935,11 @@ class AudioRoute(BaseModel):
 class AudioAlias(BaseModel):
     sink: str
     name: str = ""                # friendly label; empty clears
+
+class DeviceNameSave(BaseModel):
+    key: str = ""                 # stable key: dev:{id}, sink:{MAC}, bt:{MAC}
+    name: str = ""                # user label for voice; empty clears
+    sink: str = ""                # legacy: resolve sink → stable key when key omitted
 
 class DevicePair(BaseModel):
     device_id: str
@@ -3604,6 +3645,23 @@ def connectivity_audio_alias(req: AudioAlias):
     """Name a speaker/output for voice — e.g. 'Kitchen speaker', 'Device 1' → sink id."""
     from eli.runtime import local_connectivity as lc
     return lc.save_audio_alias(req.sink, req.name)
+
+@app.get("/v1/devices/names", tags=["Devices"], dependencies=[Depends(_require_token)])
+def devices_names():
+    """All nameable devices (Home registry, speakers, Bluetooth) with saved labels."""
+    from eli.runtime.device_names import list_nameable_devices
+    return {"ok": True, "devices": list_nameable_devices()}
+
+@app.post("/v1/devices/name", tags=["Devices"], dependencies=[Depends(require_member)])
+def devices_save_name(req: DeviceNameSave):
+    """Save a persistent custom name ELI uses for voice control."""
+    from eli.runtime.device_names import save_custom_name, sink_key
+    key = (req.key or "").strip()
+    if not key and req.sink:
+        key = sink_key(req.sink)
+    if not key:
+        return {"ok": False, "error": "device key required"}
+    return save_custom_name(key, req.name)
 
 @app.get("/v1/devices/drivers", tags=["Devices"], dependencies=[Depends(_require_token)])
 def devices_drivers():
