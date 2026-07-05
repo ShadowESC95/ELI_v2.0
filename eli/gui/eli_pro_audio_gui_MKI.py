@@ -11236,7 +11236,7 @@ def main():
                 update_kwargs = {"first_run_complete": True}
                 if _wiz_path:
                     update_kwargs.update({
-                        "provider": "custom_gguf",
+                        "provider": _wiz_provider if _wiz_provider in ("bundled_gguf", "custom_gguf") else "custom_gguf",
                         "model_path": _wiz_path,
                         "custom_model_path": _wiz_path,
                         "gguf_model_path": _wiz_path,

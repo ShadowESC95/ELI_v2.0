@@ -63,6 +63,9 @@ def test_app_open_close_routes_are_preserved():
     _assert_arg("open spotify", "name", "spotify")
     _assert_action("open spotify", "OPEN_APP")
 
+    out = _assert_action("open youtube", "OPEN_URL")
+    assert (out.get("args") or {}).get("url", "").startswith("https://")
+
     _assert_arg("close spotify", "name", "spotify")
     _assert_action("close spotify", "CLOSE_APP")
 
@@ -115,6 +118,10 @@ def test_youtube_and_spotify_play_queries_are_preserved():
     _assert_action("play the martyr by immortal technique on youtube", "PLAY_MEDIA")
     _assert_arg("play the martyr by immortal technique on youtube", "target", "youtube")
     _assert_arg("play the martyr by immortal technique on youtube", "query", "the martyr by immortal technique")
+
+    _assert_action("play al jazeera on youtube.com", "PLAY_MEDIA")
+    _assert_arg("play al jazeera on youtube.com", "target", "youtube website")
+    _assert_arg("play al jazeera on youtube.com", "query", "al jazeera")
 
 
 def test_implied_song_by_artist_defaults_to_spotify():

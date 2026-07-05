@@ -1513,6 +1513,24 @@ class Memory(metaclass=_MemoryMeta):
         except Exception:
             return None
 
+    def _memory_text_exists(self, text: str) -> bool:
+        """True if an identical memory row already exists — prevents the
+        salience auto-capture from promoting the same statement twice."""
+        t = (text or "").strip()
+        if not t:
+            return True
+        try:
+            conn = self._get_connection()
+            try:
+                row = conn.execute(
+                    "SELECT 1 FROM memories WHERE text = ? LIMIT 1", (t,)
+                ).fetchone()
+                return row is not None
+            finally:
+                conn.close()
+        except Exception:
+            return False
+
     def _store_to_db(self, conn: sqlite3.Connection, text: str, tags: Optional[List[str]] = None,
                      source: str = "user", kind: str = "memory", confidence: float = 1.0,
                      ts: float = None, importance: float = 0.5) -> int:
@@ -1546,14 +1564,22 @@ class Memory(metaclass=_MemoryMeta):
         Heuristically score memory importance (0.0–1.0) so high-salience
         memories surface higher in recall rankings.
 
+        Salience is inferred from the content itself so ELI weights what matters
+        naturally, rather than depending on the caller to tag things "important".
+
         Scoring rules (additive, clamped to [0.05, 1.0]):
-          +0.30  user explicitly asked to remember ("remember", "store", "note that")
-          +0.20  identity/preference/name information
+          +0.30  user explicitly asked to remember ("remember", "note that")
+          +0.20  identity/preference/name information ("my name is", "i prefer")
+          +0.18  possessive relationship ("my dog/wife/son …" — durable life facts)
           +0.15  source == "user" (user-authored is more salient than ELI-inferred)
+          +0.12  emotional intensity ("i love/hate", "afraid", "favourite")
+          +0.12  commitment / plan / date ("i need to", "tomorrow", "my birthday")
           +0.10  kind in {"preference", "fact", "identity"} (structured facts)
           +0.10  tagged with "important", "key", "critical", "remember"
+          +0.08  contains a named entity (proper noun mid-sentence)
           +0.05  longer text (≥80 chars signals substance)
-          -0.20  kind == "reflection" or source == "awareness" (auto-generated, less salient)
+          -0.15  looks like a question to ELI, not a statement of fact
+          -0.20  kind == "reflection" or source == "awareness" (auto-generated)
           -0.10  kind == "system" (internal bookkeeping)
         """
         score = 0.30  # baseline
@@ -1564,21 +1590,105 @@ class Memory(metaclass=_MemoryMeta):
                                   "make a note", "save that", "keep in mind")):
             score += 0.30
         if any(k in low for k in ("my name is", "i am ", "i'm ", "i prefer ", "i like ",
-                                  "i don't like", "i work ", "i use ", "my job", "i live")):
+                                  "i don't like", "i work ", "i use ", "my job", "i live",
+                                  "i'm allergic", "i was born", "call me ")):
             score += 0.20
+        # Possessive life-relationships (pets/family/partners) — durable facts.
+        if re.search(r"\bmy\s+(dog|puppy|cat|kitten|pet|wife|husband|hubby|partner|"
+                     r"spouse|fiance|fiancee|girlfriend|boyfriend|son|daughter|kid|"
+                     r"child|baby|mother|father|mum|mom|dad|brother|sister|"
+                     r"boss|colleague|friend)\b", low):
+            score += 0.18
         if source == "user":
             score += 0.15
+        # Emotional intensity — people remember what they feel strongly about.
+        if any(k in low for k in ("i love", "i hate", "i'm afraid", "i am afraid",
+                                  "terrified", "excited", "i'm worried", "favourite",
+                                  "favorite", "means a lot", "important to me",
+                                  "can't stand", "i miss")):
+            score += 0.12
+        # Commitments / plans / temporal anchors.
+        if (any(k in low for k in ("i need to", "i have to", "i want to", "i'm going to",
+                                   "i am going to", "remind me", "deadline", "my birthday",
+                                   "anniversary", "appointment"))
+                or re.search(r"\b(tomorrow|tonight|next week|next month|on monday|"
+                             r"on tuesday|on wednesday|on thursday|on friday|"
+                             r"on saturday|on sunday|\d{1,2}(st|nd|rd|th)|"
+                             r"january|february|march|april|june|july|august|"
+                             r"september|october|november|december)\b", low)):
+            score += 0.12
+        # First-person life events ("i just started a new job", "i moved to Berlin",
+        # "we adopted a dog") — self-disclosures worth remembering, without needing
+        # a fixed noun list.
+        if re.search(r"\b(i|we)\s+(just\s+|recently\s+)?(started|got|move[d]?|joined|"
+                     r"quit|left|bought|sold|adopted|married|divorced|finished|"
+                     r"graduated|launched|founded|met|changed|switched|signed)\b", low):
+            score += 0.12
         if kind in ("preference", "fact", "identity", "note"):
             score += 0.10
         if any(k in tag_str for k in ("important", "key", "critical", "remember", "preference")):
             score += 0.10
+        # Named entity: a capitalised word that isn't the sentence opener and isn't
+        # "I" — a proper noun (person/place/pet/brand) worth anchoring on.
+        if re.search(r"(?<!^)(?<![.!?]\s)\b(?!I\b)[A-Z][a-zA-Z]{2,}", text or ""):
+            score += 0.08
         if len(text or "") >= 80:
             score += 0.05
+        # A question aimed at ELI is a query, not a fact to weight highly.
+        if Memory._looks_like_question(text or ""):
+            score -= 0.15
         if kind in ("reflection", "auto") or source in ("awareness", "reflection"):
             score -= 0.20
         if kind == "system":
             score -= 0.10
         return max(0.05, min(1.0, score))
+
+    @staticmethod
+    def _looks_like_question(text: str) -> bool:
+        """A turn that primarily asks ELI something (vs. discloses a fact)."""
+        t = (text or "").strip().lower()
+        if not t:
+            return False
+        _interro = ("what", "who", "when", "where", "why", "how", "which",
+                    "can you", "could you", "do you", "did you", "are you",
+                    "will you", "would you", "is there", "tell me")
+        return t.endswith("?") or t.startswith(_interro)
+
+    @staticmethod
+    def _is_memorable_statement(text: str) -> bool:
+        """
+        Decide whether a user turn is a durable self-fact worth promoting into the
+        long-term store — identity, preference, relationship, commitment — rather
+        than chit-chat or a question. This is what lets facts stated once in
+        passing ("Shadow (my dog)") survive, without the user saying "remember".
+        """
+        t = (text or "").strip()
+        low = t.lower()
+        if len(t) < 12:
+            return False
+        # A pure question to ELI is a query, not a fact — never promote it.
+        if Memory._looks_like_question(t) and not any(
+                k in low for k in ("my name is", "i prefer", "i like", "i love",
+                                   "i hate", "i work", "i live", "remember")):
+            return False
+        self_fact = (
+            any(k in low for k in (
+                "my name is", "call me ", "i am ", "i'm ", "i live", "i work",
+                "my job", "i prefer", "i like", "i love", "i hate", "i don't like",
+                "i use ", "i'm allergic", "i was born", "my birthday", "i need to",
+                "i have to", "i want to", "i'm going to", "i am going to",
+                "remember ", "note that", "don't forget", "favourite", "favorite",
+            ))
+            or re.search(r"\bmy\s+(dog|puppy|cat|kitten|pet|wife|husband|hubby|"
+                         r"partner|spouse|fiance|fiancee|girlfriend|boyfriend|son|"
+                         r"daughter|kid|child|baby|mother|father|mum|mom|dad|"
+                         r"brother|sister|boss|colleague|friend|car|house|home|"
+                         r"company|project|team)\b", low) is not None
+            or re.search(r"\b(i|we)\s+(just\s+|recently\s+)?(started|got|move[d]?|"
+                         r"joined|quit|left|bought|sold|adopted|married|divorced|"
+                         r"graduated|launched|founded|switched)\b", low) is not None
+        )
+        return bool(self_fact)
 
     def store_memory(
         self,
@@ -2090,16 +2200,51 @@ class Memory(metaclass=_MemoryMeta):
             # This surfaces things the user said that were never extracted as facts.
             if len(out) < 2 and _has_table(conn, "conversation_turns"):
                 try:
-                    _conv_like = f"%{q.lower()}%"
+                    _q_low2 = q.lower()
+                    # Key on distinctive content nouns, not the whole question.
+                    # "what is my dog's name" must surface a turn saying "…my dog
+                    # Shadow" — a verbatim '%what is my dog's name%' LIKE never
+                    # matches it. Drop interrogatives/possessives/generic-memory
+                    # words so the query keys on "dog"; de-pluralise so
+                    # "dogs" also finds "dog".
+                    _fb_stop = {
+                        "what", "whats", "which", "who", "whom", "when", "where",
+                        "why", "how", "is", "are", "was", "were", "the", "an",
+                        "my", "your", "our", "you", "we", "do", "does", "did",
+                        "tell", "know", "knew", "remember", "recall", "again",
+                        "please", "name", "named", "call", "called", "about",
+                        "and", "for", "its", "that", "this", "eli", "have",
+                    }
+                    _kw: list = []
+                    for _tok in re.split(r"[^a-z0-9]+", _q_low2):
+                        if len(_tok) < 3 or _tok in _fb_stop:
+                            continue
+                        _kw.append(_tok)
+                        if _tok.endswith("s") and len(_tok) > 3:
+                            _kw.append(_tok[:-1])  # de-pluralise: dogs -> dog
+                    _kw = list(dict.fromkeys(_kw))
+                    # Full phrase first, then a distinctive-keyword OR sweep.
+                    _likes = [f"%{_q_low2}%"] + [f"%{_k}%" for _k in _kw]
+                    _where = " OR ".join("LOWER(content) LIKE ?" for _ in _likes)
                     _conv_rows = conn.execute(
-                        """SELECT COALESCE(timestamp, ts, 0), role, content
+                        f"""SELECT COALESCE(timestamp, ts, 0), role, content
                            FROM conversation_turns
-                           WHERE LOWER(content) LIKE ?
+                           WHERE ({_where})
                            AND role = 'user'
                            ORDER BY COALESCE(timestamp, ts, 0) DESC
                            LIMIT ?""",
-                        (_conv_like, max(3, limit - len(out))),
+                        (*_likes, max(6, limit - len(out)) * 4),
                     ).fetchall()
+                    # Rank by count of distinct keywords matched, then recency,
+                    # so the discriminating turn wins over generic recent chatter.
+                    def _kw_score(_content: str) -> int:
+                        _cl = (_content or "").lower()
+                        return sum(1 for _k in _kw if _k in _cl)
+                    _conv_rows = sorted(
+                        _conv_rows,
+                        key=lambda r: (_kw_score(r[2]), float(r[0] or 0)),
+                        reverse=True,
+                    )[: max(3, limit - len(out))]
                     for _cr in _conv_rows:
                         _txt = (_cr[2] or "").strip()
                         _key = _txt[:160].lower()
@@ -2424,6 +2569,33 @@ class Memory(metaclass=_MemoryMeta):
         _eli_sync_world_model_from_memory(self, kind="conversation_turn",
                                           role=str(role or ""), text=content,
                                           tags=None)
+
+        # Promote facts stated in passing (e.g. "my dog Shadow") into durable
+        # memory so they're recallable later, not just buried in the raw turn
+        # log. User-authored turns only (identity-grade trust). Two complementary
+        # captures: (a) structured entity/relation triples into the knowledge
+        # graph, (b) salience-scored durable memory rows for anything ELI judges
+        # memorable — so genuinely important statements survive without the user
+        # ever saying "remember this".
+        if str(role or "").lower() == "user":
+            _content_s = str(content or "")
+            try:
+                from eli.memory.knowledge_graph import get_knowledge_graph
+                get_knowledge_graph().extract_from_memory(_content_s, source="user")
+            except Exception:
+                pass
+            try:
+                if Memory._is_memorable_statement(_content_s) and not self._memory_text_exists(_content_s):
+                    _imp = Memory._score_importance(_content_s, None, "user", "fact")
+                    self.store_memory(
+                        _content_s,
+                        tags="conversation,auto_fact",
+                        source="conversation",
+                        kind="fact",
+                        importance=_imp,
+                    )
+            except Exception:
+                pass
 
         try:
             self.log_learning_event(
@@ -4164,6 +4336,14 @@ class Memory(metaclass=_MemoryMeta):
             pass
         finally:
             conn.close()
+        # Also extract entity/relation triples into the KG so semantic facts are
+        # recallable for ANY query (recall_memory only reads the `semantic` table
+        # for identity queries; the KG is consulted for all queries).
+        try:
+            from eli.memory.knowledge_graph import get_knowledge_graph
+            get_knowledge_graph().extract_from_memory(str(fact or ""), source="user")
+        except Exception:
+            pass
 
     def recall_semantic(self, query="", limit=10):
         """Recall user facts from semantic table."""

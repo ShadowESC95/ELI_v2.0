@@ -103,8 +103,11 @@ class StartupModelSelectionDialog(QDialog):
         layout.setSpacing(10)
 
         intro = QLabel(
-            "Choose which model to load for this session. "
-            "You can run automatic hardware tuning before load."
+            "Choose which model to load for this session.\n\n"
+            "• Bundled / Custom GGUF — runs locally via llama.cpp (fully offline once loaded)\n"
+            "• Ollama — uses a model already served by your local Ollama instance "
+            "(http://localhost:11434; loopback is allowed even with NetGuard on)\n\n"
+            "Hardware tuning applies to GGUF only. Ollama manages its own VRAM."
         )
         intro.setWordWrap(True)
         intro.setStyleSheet("color:#c8d0e0;")
@@ -150,6 +153,9 @@ class StartupModelSelectionDialog(QDialog):
         if ollama_model:
             self.ollama_model_combo.setEditText(ollama_model)
         form.addRow("Ollama model", self.ollama_model_combo)
+        refresh_ollama_btn = QPushButton("Refresh Ollama models")
+        refresh_ollama_btn.clicked.connect(self._refresh_ollama_models)
+        form.addRow("", refresh_ollama_btn)
         layout.addLayout(form)
 
         self.auto_tune_checkbox = QCheckBox(
@@ -334,6 +340,45 @@ class StartupModelSelectionDialog(QDialog):
             self.provider_combo.setCurrentIndex(provider_idx)
         self._select_model_path(current_model_path)
         self._sync_provider_controls()
+
+    def _refresh_ollama_models(self):
+        import json
+        import urllib.error
+        import urllib.request
+
+        host = self.ollama_host_input.text().strip() or "http://localhost:11434"
+        url = host.rstrip("/") + "/api/tags"
+        try:
+            with urllib.request.urlopen(url, timeout=5) as resp:
+                data = json.loads(resp.read().decode("utf-8", errors="ignore"))
+            names = sorted(
+                m["name"] for m in data.get("models", [])
+                if isinstance(m, dict) and m.get("name")
+            )
+        except (urllib.error.URLError, TimeoutError, json.JSONDecodeError, OSError) as exc:
+            QMessageBox.warning(
+                self, "Ollama unreachable",
+                f"Could not list models at {host}.\n\n"
+                f"Start Ollama locally (ollama serve) and ensure NetGuard allows loopback.\n\n{exc}",
+            )
+            return
+        if not names:
+            QMessageBox.information(
+                self, "No Ollama models",
+                f"Ollama is running at {host} but no models are installed yet.\n"
+                "Pull one first, e.g.  ollama pull llama3",
+            )
+            return
+        current = self.ollama_model_combo.currentText().strip()
+        self.ollama_model_combo.clear()
+        for name in names:
+            self.ollama_model_combo.addItem(name)
+        if current:
+            idx = self.ollama_model_combo.findText(current)
+            if idx >= 0:
+                self.ollama_model_combo.setCurrentIndex(idx)
+            else:
+                self.ollama_model_combo.setEditText(current)
 
     def _browse_gguf_file(self):
         file_path, _ = QFileDialog.getOpenFileName(
@@ -586,6 +631,7 @@ class FirstBootWizard(QDialog):
         prow.addWidget(QLabel("Provider:"))
         self._wiz_provider = QComboBox()
         self._wiz_provider.addItem("Bundled GGUF", "bundled_gguf")
+        self._wiz_provider.addItem("Custom GGUF (.gguf file)", "custom_gguf")
         self._wiz_provider.addItem("Ollama (local server)", "ollama")
         prow.addWidget(self._wiz_provider)
         prow.addStretch()
