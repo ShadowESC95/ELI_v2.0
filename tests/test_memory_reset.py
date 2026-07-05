@@ -57,4 +57,33 @@ def test_clear_settings_name(tmp_path):
     p.write_text(json.dumps({"user_name": "Alex", "theme": "dark"}), encoding="utf-8")
     assert mr.clear_settings_name(p) is True
     assert json.loads(p.read_text())["user_name"] == ""
-    assert mr.clear_settings_name(p) is False        # nothing left to clear
+    assert mr.clear_settings_name(p) is False
+
+
+def test_clear_settings_identity_clears_device_labels(tmp_path):
+    p = tmp_path / "s.json"
+    p.write_text(json.dumps({
+        "user_name": "Alex",
+        "device_custom_names": {"bt:AA:BB:CC:DD:EE:FF": "Kitchen"},
+        "audio_output_aliases": {"sink1": "Office"},
+        "bluetooth_display_name": "JayPhone",
+    }), encoding="utf-8")
+    assert mr.clear_settings_identity(p) is True
+    d = json.loads(p.read_text())
+    assert d["user_name"] == "" and d["device_custom_names"] == {}
+    assert d["audio_output_aliases"] == {} and d["bluetooth_display_name"] == ""
+
+
+def test_reset_persona_overlay_writes_template(tmp_path, monkeypatch):
+    tpl = tmp_path / "persona.auto.template.txt"
+    tpl.write_text("# blank overlay\n", encoding="utf-8")
+    dest = tmp_path / "persona.auto.txt"
+    monkeypatch.setattr(mr, "_BLANK_PERSONA_TEMPLATE", tpl)
+
+    def _write(text):
+        dest.write_text(text, encoding="utf-8")
+        return text
+
+    monkeypatch.setattr("eli.cognition.persona.write_auto_persona", _write)
+    assert mr.reset_persona_overlay(tpl) is True
+    assert "blank overlay" in dest.read_text(encoding="utf-8")        # nothing left to clear
