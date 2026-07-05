@@ -59,10 +59,32 @@ def test_connect_and_disconnect(linux_tools):
     assert ["bluetoothctl", "disconnect", "AA:BB:CC:DD:EE:FF"] in linux_tools
 
 
-def test_pair_runs_pair_trust_connect(linux_tools):
+def test_pair_runs_pair_trust_connect(linux_tools, monkeypatch):
     d = dd.get_driver("bluetooth")
+    monkeypatch.setattr(dd.BluetoothDriver, "_bt_device_info", classmethod(lambda cls, a: {"paired": "no"}))
+    monkeypatch.setattr(dd.BluetoothDriver, "_pair_steps_for", classmethod(lambda cls, a: ["pair", "trust", "connect"]))
+    monkeypatch.setattr(dd.BluetoothDriver, "classify_bt_device", classmethod(lambda cls, i, n="": {"bt_type": "headphones", "audio_capable": True}))
     d.control(DEV, "pair")
     assert ["bluetoothctl-batch", "AA:BB:CC:DD:EE:FF", "pair", "trust", "connect"] in linux_tools
+
+
+def test_classify_printer_and_adapter():
+    d = dd.get_driver("bluetooth")
+    pr = d.classify_bt_device({"name": "DeskJet 2800 series", "uuids": ["0000fdb4-..."]})
+    assert pr["bt_type"] == "printer" and pr["audio_capable"] is False
+    ad = d.classify_bt_device({"name": "HOCO W46", "icon": "audio-headset", "uuids": ["Audio Sink"]})
+    assert ad["bt_type"] == "adapter" and ad["audio_capable"] is False
+
+
+def test_use_for_audio_rejects_printer(monkeypatch):
+    monkeypatch.setattr(sys, "platform", "linux")
+    monkeypatch.setattr(shutil, "which", lambda t: "/usr/bin/" + t)
+    monkeypatch.setattr(
+        dd.BluetoothDriver, "_bt_device_info",
+        classmethod(lambda cls, a: {"name": "DeskJet 2800 series", "uuids": ["0000fdb4"]}),
+    )
+    r = dd.get_driver("bluetooth").control(DEV, "use_for_audio")
+    assert r["ok"] is False and "printer" in r["error"].lower()
 
 
 def test_ensure_adapter_alias_skips_when_already_eli(monkeypatch):
@@ -118,7 +140,11 @@ def test_resolve_adapter_alias_override(monkeypatch):
     assert dd.BluetoothDriver.resolve_adapter_alias() == "Eli Hub"
 
 
-def test_use_for_audio_routes_to_bluez_sink(linux_tools):
+def test_use_for_audio_routes_to_bluez_sink(linux_tools, monkeypatch):
+    monkeypatch.setattr(
+        dd.BluetoothDriver, "_bt_device_info",
+        classmethod(lambda cls, a: {"name": "My Buds", "icon": "audio-headset", "uuids": ["Audio Sink"]}),
+    )
     d = dd.get_driver("bluetooth")
     r = d.control(DEV, "use_for_audio")
     assert r["ok"] is True and r["sink"] == "bluez_output.AA_BB_CC_DD_EE_FF.1"

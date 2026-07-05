@@ -1232,7 +1232,7 @@ _WEB_UI = """<!doctype html>
     const box=$(boxSel||'#mq-found'), btn=$(btnSel||'#bt-find');
     if(btn){btn.disabled=true;btn.textContent='Scanning…';}
     if(box)box.innerHTML='<div class="rnote">Scanning for Bluetooth devices…</div>';
-    api('/v1/devices/discover?kind=bluetooth&fresh=true',{method:'POST',body:JSON.stringify({})}).then(d=>{
+    api('/v1/devices/discover?kind=bluetooth&fresh=true&timeout=12',{method:'POST',body:JSON.stringify({})}).then(d=>{
       if(btn){btn.disabled=false;btn.innerHTML='&#127911; Search Bluetooth';}
       if(!box)return;
       if(!d.ok){box.innerHTML='<div class="banner bad" style="margin-top:10px">'+esc(d.error||'scan failed')+'</div>';return;}
@@ -1242,13 +1242,17 @@ _WEB_UI = """<!doctype html>
         const note=(d.errors||[]).find(e=>/bluetooth/i.test(e));
         h='<div class="rnote" style="margin-top:10px">No Bluetooth devices found. '+(note?esc(note):'Turn Bluetooth on and put headphones or speakers in pairing mode.')+'</div>';
       } else {
-        h+='<div class="rnote" style="margin-top:8px">This controller appears as <b id="bt-alias-hint">Eli · Home</b> on TVs and speakers. Headphones: put them in <b>pairing mode</b> (LED flashing), tap <b>Pair</b>, then <b>Use for audio</b>.</div>';
+        h+='<div class="rnote" style="margin-top:8px">Put <b>your headphones</b> in pairing mode (LED flashing), then tap <b>Pair</b>. Printers and BT adapters are listed separately — ignore those for audio.</div>';
         bt.forEach((f,i)=>{
-          h+='<div class="src"><div class="sh"><span>&#127911; '+esc(f.name||'Bluetooth device')+'</span>'
+          const tag=f.label||f.bt_type||'device';
+          const cap=f.audio_capable?'&#127911; ':'&#128268; ';
+          const st=f.paired?(f.connected?' &middot; connected':' &middot; paired'):'';
+          h+='<div class="src"><div class="sh"><span>'+cap+esc(f.name||'Bluetooth device')+'</span>'
+            +'<span style="font-size:.75em;opacity:.7">'+esc(tag)+st+'</span>'
             +'<span style="display:flex;gap:6px;flex-wrap:wrap">'
             +'<button class="cbtn" style="padding:2px 10px" onclick="btDo('+i+',1)">Pair</button>'
             +'<button class="cbtn" style="padding:2px 10px" onclick="btDo('+i+',0)">Connect</button>'
-            +'<button class="cbtn pri" style="padding:2px 10px" onclick="btDo('+i+',2)">Use for audio</button>'
+            +(f.audio_capable?'<button class="cbtn pri" style="padding:2px 10px" onclick="btDo('+i+',2)">Use for audio</button>':'')
             +'<button class="cbtn" style="padding:2px 10px" onclick="btDo('+i+',3)">Disconnect</button>'
             +'</span></div>'
             +'<div style="font-size:.8em;opacity:.6">'+esc(f.host||'')+(f.rssi?(' &middot; '+esc(f.rssi)+' dBm'):'')+'</div>'
