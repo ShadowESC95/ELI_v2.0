@@ -291,7 +291,7 @@ fi
 
 # Install ELI v2.0 wheel
 echo "[..] Installing ELI v2.0..."
-WHEEL=$(ls "$SCRIPT_DIR"/dist/eli_mkxi-*.whl 2>/dev/null | head -1)
+WHEEL=$(ls "$SCRIPT_DIR"/dist/eli_v2_0-*.whl 2>/dev/null | head -1)
 if [ -n "$WHEEL" ]; then
     "$PIP" install "$WHEEL"[full] --quiet
 else
@@ -427,10 +427,11 @@ ok "Voice       ${B}${VOICE_STATUS}${R}   ${D}(local STT + TTS weights)${R}"
 ok "Data        ${B}fresh local databases${R}, offline-by-default"
 
 section "Launch"
+echo "  ${B}./scripts/eli_setup.sh${R}               ${D}# first-time one-click setup (grandparent-ready)${R}"
 echo "  ${B}./scripts/eli_launch.sh${R}              ${D}# desktop app (GUI)${R}"
 echo "  ${B}./scripts/eli_launch.sh serve --lan${R}  ${D}# web app for phone / tablet${R}"
 echo "  ${B}./eli.sh${R}                             ${D}# also launches the desktop app${R}"
-echo "  ${B}./scripts/install_desktop_apps.sh${R}    ${D}# add ELI Pro + ELI Server to your app menu (Linux/macOS)${R}"
+echo "  ${B}./scripts/install_desktop_apps.sh${R}    ${D}# ELI Setup + ELI v2.0 + ELI Server icons${R}"
 echo
 if [ "$MODEL_STATUS" = "none yet" ] || [ "$MODEL_STATUS" = "download failed (fetch later)" ]; then
     echo "  ${D}No model yet — the first-run wizard offers a download, or run:${R}"

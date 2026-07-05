@@ -51,7 +51,7 @@ _TAB_CREATORS = [
     "create_labs_tab", "create_coding_tab", "create_tasks_tab",
     "create_report_builder_tab", "create_eli_world_tab", "create_settings_tab",
 ]
-_GUI_SRC = (H.REPO / "eli" / "gui" / "eli_pro_audio_gui_MKI.py").read_text(encoding="utf-8")
+_GUI_SRC = (H.REPO / "eli" / "gui" / "eli_pro_audio_gui_v2_0.py").read_text(encoding="utf-8")
 
 
 @pytest.mark.parametrize("creator", _TAB_CREATORS, ids=_TAB_CREATORS)

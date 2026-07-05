@@ -11,8 +11,8 @@ from eli.utils.log import get_logger
 log = get_logger(__name__)
 
 CATEGORY_PATTERNS = {
-    "ELI / MKXI / local assistant engineering": re.compile(
-        r"\b(eli|mkxi|mkix|agent|orchestrator|gguf|llama|runtime|router|executor|"
+    "ELI / v2.0 / local assistant engineering": re.compile(
+        r"\b(eli|eli_v2_0|eli_v2_0|agent|orchestrator|gguf|llama|runtime|router|executor|"
         r"memory|faiss|sqlite|tts|stt|voice|piper|wake word|proactive|habit|reflection|"
         r"self[- ]?upgrade|capability|plugin|pyqt|gui|ollama)\b",
         re.I,

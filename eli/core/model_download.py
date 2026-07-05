@@ -313,7 +313,7 @@ def remote_size_bytes(key_or_entry: Any, timeout: float = 30.0) -> int:
         with netguard.allow_network(f"size check: {entry.get('filename') or url}"):
             req = urllib.request.Request(
                 url, method="HEAD",
-                headers={"User-Agent": "ELI-MKXI/2.0 (size-check)"},
+                headers={"User-Agent": "ELI-v2.0/2.0 (size-check)"},
             )
             with netguard.guarded_urlopen(req, timeout=timeout) as resp:
                 clen = resp.headers.get("Content-Length")
@@ -397,7 +397,7 @@ def download_model(
     part_path = dest_dir / (filename + ".part")
     resume_from = part_path.stat().st_size if part_path.exists() else 0
 
-    headers = {"User-Agent": "ELI-MKXI/2.0 (model-download)"}
+    headers = {"User-Agent": "ELI-v2.0/2.0 (model-download)"}
     if resume_from > 0:
         headers["Range"] = f"bytes={resume_from}-"
 

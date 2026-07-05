@@ -1001,6 +1001,64 @@ def _ble_discover(timeout: float, found: List[dict], errors: List[str], *, quick
     _enrich_bt_discover_results(found)
 
 
+def _dedupe_bluetooth_entries(found: List[dict]) -> List[dict]:
+    """Merge duplicate Bluetooth rows (BLE vs classic scan, multiple MACs per name)."""
+    bt = [r for r in found if r.get("kind") == "bluetooth"]
+    other = [r for r in found if r.get("kind") != "bluetooth"]
+    if len(bt) < 2:
+        return found
+
+    def _norm_name(row: dict) -> str:
+        n = (row.get("name") or "").strip().lower()
+        if not n or n.startswith("bluetooth device ("):
+            return ""
+        return n
+
+    def _score(row: dict) -> int:
+        s = 0
+        if row.get("audio_capable"):
+            s += 100
+        if row.get("paired"):
+            s += 50
+        if row.get("connected"):
+            s += 40
+        if _norm_name(row):
+            s += 20
+        if row.get("source") == "known":
+            s += 30
+        return s
+
+    by_name: Dict[str, List[dict]] = {}
+    unnamed: List[dict] = []
+    for row in bt:
+        nm = _norm_name(row)
+        if nm:
+            by_name.setdefault(nm, []).append(row)
+        else:
+            unnamed.append(row)
+
+    merged = list(other)
+    seen_addr: set = set()
+    for group in by_name.values():
+        best = max(group, key=_score)
+        for row in group:
+            if row.get("bt_type") in ("printer", "adapter"):
+                best["bt_type"] = row["bt_type"]
+                best["audio_capable"] = False
+                best["label"] = row.get("label") or best.get("label")
+                break
+        addr = str(best.get("host") or "").upper()
+        if addr:
+            seen_addr.add(addr)
+        merged.append(best)
+    for row in unnamed:
+        addr = str(row.get("host") or "").upper()
+        if addr and addr not in seen_addr:
+            seen_addr.add(addr)
+            merged.append(row)
+    return merged
+
+
 def _enrich_bt_discover_results(found: List[dict]) -> None:
     """Resolve real names + device type (headphones vs printer vs adapter)."""
     try:
@@ -1009,12 +1067,28 @@ def _enrich_bt_discover_results(found: List[dict]) -> None:
     except Exception:
         return
     bp.ensure_radio()
+    # Prefer classic/audio MAC when BlueZ lists the same name twice (BLE ad + BR/EDR).
+    known_by_name: Dict[str, str] = {}
+    try:
+        seen_names: set = set()
+        for d in bp._linux_list_devices():
+            nm = (d.get("name") or "").strip().lower()
+            if nm and nm not in seen_names:
+                seen_names.add(nm)
+                known_by_name[nm] = bp._best_address_for_name(d["name"]) or d["address"]
+    except Exception:
+        pass
+
     for row in found:
         if row.get("kind") != "bluetooth":
             continue
         addr = str(row.get("host") or "").strip()
         if not addr:
             continue
+        row_nm = (row.get("name") or "").strip().lower()
+        if row_nm and row_nm in known_by_name:
+            row["host"] = known_by_name[row_nm]
+            addr = row["host"]
         try:
             info = BT._bt_device_info(addr)
             name = info.get("name") or info.get("alias") or row.get("name") or ""
@@ -1026,6 +1100,9 @@ def _enrich_bt_discover_results(found: List[dict]) -> None:
             row["connected"] = info.get("connected", "").lower() == "yes"
         except Exception:
             continue
+    deduped = _dedupe_bluetooth_entries(found)
+    found.clear()
+    found.extend(deduped)
     found.sort(key=lambda r: (0 if r.get("audio_capable") else 1, str(r.get("name") or "")))
 
 

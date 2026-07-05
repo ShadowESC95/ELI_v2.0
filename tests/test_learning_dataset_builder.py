@@ -81,7 +81,7 @@ def test_dataset_builder_redacts_private_paths(tmp_path):
         [
             (
                 "Where was the script saved?",
-                "The script was saved at /home/user/Desktop/ELI_MKXI/artifacts/scripts/example.py.",
+                "The script was saved at /home/user/Desktop/ELI_v2.0/artifacts/scripts/example.py.",
             )
         ],
     )

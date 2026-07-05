@@ -10,9 +10,9 @@ PROJECT_ROOT = Path(__file__).resolve().parents[2]
 
 PROJECT_ALIAS_PATH_RE = re.compile(
     r"(?:"
-    r"/home/[A-Za-z0-9._-]+/[^\s]*?ELI_MKXI[^/\s]*"
-    r"|/Users/[A-Za-z0-9._-]+/[^\s]*?ELI_MKXI[^/\s]*"
-    r"|[A-Za-z]:\\Users\\[^\\\s]+\\[^\s]*?ELI_MKXI[^\\\s]*"
+    r"/home/[A-Za-z0-9._-]+/[^\s]*?ELI_v2.0[^/\s]*"
+    r"|/Users/[A-Za-z0-9._-]+/[^\s]*?ELI_v2.0[^/\s]*"
+    r"|[A-Za-z]:\\Users\\[^\\\s]+\\[^\s]*?ELI_v2.0[^\\\s]*"
     r")"
 )
 

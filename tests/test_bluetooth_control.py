@@ -63,14 +63,28 @@ def test_pair_runs_pair_trust_connect(linux_tools, monkeypatch):
     d = dd.get_driver("bluetooth")
     monkeypatch.setattr(dd.BluetoothDriver, "_bt_device_info",
                         classmethod(lambda cls, a: {"paired": "no", "name": "My Buds"}))
-    monkeypatch.setattr(dd.BluetoothDriver, "_wait_for_bt_device", classmethod(lambda cls, a, timeout=18.0: True))
+    monkeypatch.setattr(
+        "eli.runtime.bt_platform.resolve_device",
+        lambda addr, name="", timeout=20.0: {"address": addr, "found": True, "phase": "cached"},
+    )
+    monkeypatch.setattr(
+        "eli.runtime.bt_platform.ensure_radio",
+        lambda: (True, "hci0"),
+    )
+    monkeypatch.setattr("eli.runtime.bt_platform.try_recover_radio", lambda: None)
+
+    def fake_session(addr, steps, **kw):
+        linux_tools.append(["linux_pair_session", addr, *steps])
+        return True, "Connection successful", "paired"
+
+    monkeypatch.setattr("eli.runtime.bt_platform.linux_pair_session", fake_session)
     monkeypatch.setattr(dd.BluetoothDriver, "_bt_ensure_controller", classmethod(lambda cls: (True, "AA:BB:CC:DD:EE:00")))
     monkeypatch.setattr(dd.BluetoothDriver, "_is_paired", classmethod(lambda cls, a: False))
     monkeypatch.setattr(dd.BluetoothDriver, "_pair_steps_for", classmethod(lambda cls, a: ["pair", "trust", "connect"]))
     monkeypatch.setattr(dd.BluetoothDriver, "classify_bt_device",
                         classmethod(lambda cls, i, n="": {"bt_type": "headphones", "audio_capable": True}))
     d.control(DEV, "pair")
-    assert ["bluetoothctl-batch", "AA:BB:CC:DD:EE:FF", "pair", "trust", "connect"] in linux_tools
+    assert ["linux_pair_session", "AA:BB:CC:DD:EE:FF", "pair", "trust", "connect"] in linux_tools
 
 
 def test_classify_printer_and_adapter():
@@ -141,8 +155,12 @@ def test_resolve_adapter_alias_override(monkeypatch):
 def test_use_for_audio_routes_to_bluez_sink(linux_tools, monkeypatch):
     monkeypatch.setattr(
         dd.BluetoothDriver, "_bt_device_info",
-        classmethod(lambda cls, a: {"name": "My Buds", "icon": "audio-headset", "uuids": ["Audio Sink"]}),
+        classmethod(lambda cls, a: {"name": "My Buds", "icon": "audio-headset", "uuids": ["Audio Sink"], "paired": "yes"}),
     )
+    monkeypatch.setattr(dd.BluetoothDriver, "_is_paired", classmethod(lambda cls, a: True))
+    monkeypatch.setattr("eli.runtime.local_connectivity.find_bt_a2dp_sink",
+                        lambda addr, name="": "bluez_output.AA_BB_CC_DD_EE_FF.1")
+    monkeypatch.setattr("eli.runtime.local_connectivity.activate_bt_a2dp", lambda addr: True)
     d = dd.get_driver("bluetooth")
     r = d.control(DEV, "use_for_audio")
     assert r["ok"] is True and r["sink"] == "bluez_output.AA_BB_CC_DD_EE_FF.1"

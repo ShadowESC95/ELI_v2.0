@@ -182,7 +182,7 @@ if (-not $CpuOnly) {
 
 # ELI v2.0 wheel
 Write-Host "[..] Installing ELI v2.0..."
-$Wheel = Get-ChildItem (Join-Path $ScriptDir "dist") -Filter "eli_mkxi-*.whl" -ErrorAction SilentlyContinue | Select-Object -First 1
+$Wheel = Get-ChildItem (Join-Path $ScriptDir "dist") -Filter "eli_v2_0-*.whl" -ErrorAction SilentlyContinue | Select-Object -First 1
 if ($Wheel) {
     Invoke-Pip (@("install") + $PipFindLinksArgs + @("$($Wheel.FullName)[full]", "--quiet"))
 } else {

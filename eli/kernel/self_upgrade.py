@@ -147,7 +147,7 @@ class SelfUpgrader:
     def _local_version(self) -> str:
         try:
             import importlib.metadata as im
-            return str(im.version("eli-mkxi"))
+            return str(im.version("eli-v2.0"))
         except Exception:
             pass
         try:
@@ -167,14 +167,14 @@ class SelfUpgrader:
         try:
             dl = _run(
                 ["gh", "release", "download", tag, "--repo", repo,
-                 "--pattern", "eli_mkxi-*.whl", "--dir", str(work), "--clobber"],
+                 "--pattern", "eli_v2_0-*.whl", "--dir", str(work), "--clobber"],
                 timeout=180,
             )
             if not dl["ok"]:
                 return False, f"No release wheel ({tag}) — using local checkout: {dl['stderr'][:80]}"
-            wheels = sorted(work.glob("eli_mkxi-*.whl"))
+            wheels = sorted(work.glob("eli_v2_0-*.whl"))
             if not wheels:
-                return False, f"Release {tag} has no eli_mkxi wheel — skipped."
+                return False, f"Release {tag} has no eli_v2_0 wheel — skipped."
             wheel = wheels[-1]
             before = self._local_version()
             ins = _run(
