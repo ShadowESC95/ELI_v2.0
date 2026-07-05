@@ -1,5 +1,7 @@
 # ELI v2.0 — cutting a download-and-run release
 
+> Full walkthrough: **[blueprints/v2_release.md](blueprints/v2_release.md)**
+
 ## 1. Build portable Linux package
 
 ```bash
