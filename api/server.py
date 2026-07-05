@@ -556,6 +556,11 @@ _WEB_UI = """<!doctype html>
   .nptrans button.big { background:linear-gradient(120deg,rgba(34,211,238,.2),rgba(246,55,236,.12)); }
   .npsel { margin-top:10px; }
   .npsel select { width:100%; background:var(--input); color:var(--fg); border:1px solid var(--line); border-radius:8px; padding:6px 8px; font-size:12px; }
+  .npaudio { margin-top:12px; padding-top:10px; border-top:1px solid var(--line); }
+  .npaudio label { display:block; font-size:11px; color:var(--mut); margin-bottom:6px; text-transform:uppercase; letter-spacing:.5px; }
+  .npaudio .nprow { display:flex; gap:6px; }
+  .npaudio select { flex:1; background:var(--input); color:var(--fg); border:1px solid var(--line); border-radius:8px; padding:6px 8px; font-size:12px; }
+  .npaudio button { flex:none; }
   /* ── generic widget atoms (key/value rows, bars, note) ── */
   .ovkv { display:flex; justify-content:space-between; gap:10px; align-items:center; padding:6px 2px; border-bottom:1px solid var(--line); font-size:13px; }
   .ovkv:last-child { border-bottom:0; } .ovkv .k { color:var(--mut); } .ovkv .v { font-family:var(--mono); text-align:right; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; max-width:62%; }
@@ -1582,13 +1587,23 @@ _WEB_UI = """<!doctype html>
     api('/v1/media').then(d=>{
       const box=$('#media-now-local'); if(!box)return;
       const ps=(d&&d.players)||[];
-      if(!ps.length){box.innerHTML='<div class="muted">Nothing playing locally. Start Spotify, VLC, or a browser — or add a network player above.</div>';return;}
-      const cur=ps.find(p=>p.is_active)||ps[0];
-      box.innerHTML='<div class="nm">'+esc(cur.title||'(no title)')+'</div>'
-        +'<div class="rnote">'+esc([cur.artist,cur.album].filter(Boolean).join(' — ')||cur.player||'')+'</div>'
-        +'<div class="rrow" style="margin-top:10px">'
-        +'<button class="cbtn" onclick="mediaCtl(\\'play-pause\\')">Play / pause</button>'
-        +'<button class="cbtn" onclick="mediaCtl(\\'next\\')">Next</button></div>';
+      const renderNow=(sinks)=>{
+        let audio='';
+        if(sinks&&sinks.length){
+          audio='<div class="npaudio" style="margin-top:12px"><label style="display:block;font-size:11px;color:var(--mut);margin-bottom:6px">SOUND OUTPUT</label><div class="nprow" style="display:flex;gap:6px">'
+            +'<select id="media-local-out" style="flex:1;background:var(--input);color:var(--fg);border:1px solid var(--line);border-radius:8px;padding:6px 8px">'
+            +sinks.map((s,i)=>'<option value="'+esc(s.id||s.name||'')+'"'+(s.is_default?' selected':'')+'>'+esc(s.name||s.id)+(s.is_default?' (current)':'')+'</option>').join('')
+            +'</select><button class="cbtn pri" onclick="var _o=document.getElementById(\\'media-local-out\\');setAudioOutput(_o?_o.value:\\'\\')">Apply</button></div></div>';
+        }
+        if(!ps.length){box.innerHTML='<div class="muted">Nothing playing locally. Start Spotify, VLC, or a browser — or add a network player above.</div>'+audio;return;}
+        const cur=ps.find(p=>p.is_active)||ps[0];
+        box.innerHTML='<div class="nm">'+esc(cur.title||'(no title)')+'</div>'
+          +'<div class="rnote">'+esc([cur.artist,cur.album].filter(Boolean).join(' — ')||cur.player||'')+'</div>'
+          +'<div class="rrow" style="margin-top:10px">'
+          +'<button class="cbtn" onclick="mediaCtl(\\'play-pause\\')">Play / pause</button>'
+          +'<button class="cbtn" onclick="mediaCtl(\\'next\\')">Next</button></div>'+audio;
+      };
+      api('/v1/connectivity/audio/outputs').then(a=>renderNow((a&&a.ok&&a.sinks)||[])).catch(()=>renderNow([]));
     }).catch(()=>{});
   }
   function renderDevices(rooms, st){
@@ -2241,8 +2256,8 @@ _WEB_UI = """<!doctype html>
   const OV_DEFAULT=['ask','mesh','tasks','goals','graph','nowplaying','quickcontrols'];
   const OV_TITLES={ask:'Ask ELI',mesh:'Cognition mesh',goals:'Autonomy & goals',tasks:'Scheduled tasks',nowplaying:'Now playing',graph:'Live vitals',model:'Model & runtime',gpu:'GPU',vitals:'Vitals',internet:'Internet access',egress:'Network egress',connect:'Connect a phone',quickcontrols:'Quick controls',rooms:'Rooms',scenes:'Scenes',automations:'Automations',suggestions:'Suggestions',quickactions:'Quick actions',corpora:'Research corpora',capabilities:'Capabilities',sun:'Sun',note:'Note',activity:'Recent activity',audit:'Audit integrity'};
   const OV_WIDE={mesh:1,activity:1,capabilities:1};
-  const OV_SRC={system:'/v1/system',audit:'/v1/audit?limit=8',devices:'/v1/devices',corpora:'/v1/research/corpora',net:'/v1/net',media:'/v1/media',automations:'/v1/home/automations',scenes:'/v1/home/scenes',suggestions:'/v1/home/suggestions',sun:'/v1/home/sun',capabilities:'/v1/capabilities',connect:'/v1/connect',rooms:'/v1/devices/rooms',orchestration:'/v1/cognition/orchestration',goals:'/v1/autonomy/goals',tasks:'/v1/tasks'};
-  const OV_NEEDS={ask:[],mesh:['orchestration'],goals:['goals'],tasks:['tasks'],nowplaying:['media'],graph:['system'],model:['system'],gpu:['system'],vitals:['system'],internet:['net'],egress:['net'],connect:['connect'],quickcontrols:['devices'],rooms:['rooms'],scenes:['scenes'],automations:['automations','devices'],suggestions:['suggestions'],quickactions:[],corpora:['corpora'],capabilities:['capabilities'],sun:['sun'],note:[],activity:['audit'],audit:['audit']};
+  const OV_SRC={system:'/v1/system',audit:'/v1/audit?limit=8',devices:'/v1/devices',corpora:'/v1/research/corpora',net:'/v1/net',media:'/v1/media',audio:'/v1/connectivity/audio/outputs',automations:'/v1/home/automations',scenes:'/v1/home/scenes',suggestions:'/v1/home/suggestions',sun:'/v1/home/sun',capabilities:'/v1/capabilities',connect:'/v1/connect',rooms:'/v1/devices/rooms',orchestration:'/v1/cognition/orchestration',goals:'/v1/autonomy/goals',tasks:'/v1/tasks'};
+  const OV_NEEDS={ask:[],mesh:['orchestration'],goals:['goals'],tasks:['tasks'],nowplaying:['media','audio'],graph:['system'],model:['system'],gpu:['system'],vitals:['system'],internet:['net'],egress:['net'],connect:['connect'],quickcontrols:['devices'],rooms:['rooms'],scenes:['scenes'],automations:['automations','devices'],suggestions:['suggestions'],quickactions:[],corpora:['corpora'],capabilities:['capabilities'],sun:['sun'],note:[],activity:['audit'],audit:['audit']};
   const OV_BASE=['system','audit','devices','corpora','net'];   // the hero always needs these
   function ovLayout(){
     if(!OV_LAYOUT||!Array.isArray(OV_LAYOUT.order))OV_LAYOUT={order:OV_DEFAULT.slice(),hidden:[],note:''};
@@ -2285,7 +2300,14 @@ _WEB_UI = """<!doctype html>
   function mediaCtl(cmd){const p=window._ovPlayer||null;
     api('/v1/media/control',{method:'POST',body:JSON.stringify({command:cmd,player:p})}).then(()=>setTimeout(loadOverview,350)).catch(()=>{});}
   function mediaPick(sel){window._ovPlayer=sel.value;loadOverview();}
-  window.mediaCtl=mediaCtl; window.mediaPick=mediaPick;
+  function ovSetAudioOutput(sel){
+    const sink=(sel&&sel.value)||'';
+    if(!sink)return;
+    api('/v1/connectivity/audio/default',{method:'POST',body:JSON.stringify({sink:sink})})
+      .then(r=>{if(r&&r.ok)setTimeout(loadOverview,300);})
+      .catch(()=>{});
+  }
+  window.mediaCtl=mediaCtl; window.mediaPick=mediaPick; window.ovSetAudioOutput=ovSetAudioOutput;
   // Ask ELI — talk to the full engine straight from the dashboard. Last Q/A is kept in
   // window._ovAsk so the 6s auto-refresh re-renders the answer instead of wiping it.
   function ovAsk(preset){
@@ -2393,7 +2415,20 @@ _WEB_UI = """<!doctype html>
     }
     if(id==='nowplaying'){
       const md=D.media, ps=(md&&md.players)||[];
-      if(!ps.length)return '<div class="muted">Nothing playing. Start Spotify, VLC or a browser video and it&#39;ll appear here with live controls. (Say &ldquo;pause Spotify&rdquo; too.)</div>';
+      const sinks=((D.audio&&D.audio.ok)&&D.audio.sinks)||[];
+      let audioSel='';
+      if(sinks.length){
+        const opts=sinks.map(s=>{
+          const id=esc(s.id||s.name||'');
+          const nm=esc(s.name||s.id||'output');
+          const tag=s.is_default?' (current)':'';
+          return '<option value="'+id+'"'+(s.is_default?' selected':'')+'>'+nm+tag+'</option>';
+        }).join('');
+        audioSel='<div class="npaudio"><label>Sound output</label><div class="nprow">'
+          +'<select onchange="ovSetAudioOutput(this)">'+opts+'</select>'
+          +'<button class="cbtn pri" onclick="ovSetAudioOutput(this.previousElementSibling)">Apply</button></div></div>';
+      }
+      if(!ps.length)return '<div class="muted">Nothing playing. Start Spotify, VLC or a browser video and it&#39;ll appear here with live controls.</div>'+audioSel;
       const cur=ps.find(p=>p.player===window._ovPlayer)||ps.find(p=>p.is_active)||ps[0];
       const playing=(cur.status==='playing');
       const ic={spotify:'&#127925;',vlc:'&#127916;',mpv:'&#127916;',firefox:'&#127760;',chromium:'&#127760;',chrome:'&#127760;'};
@@ -2412,7 +2447,7 @@ _WEB_UI = """<!doctype html>
         '<button onclick="mediaCtl(\\'stop\\')" title="Stop">&#9209;</button>'+
         '</div>';
       if(ps.length>1)h+='<div class="npsel"><select onchange="mediaPick(this)">'+ps.map(p=>'<option value="'+esc(p.player)+'"'+(p.player===cur.player?' selected':'')+'>'+esc(p.player)+(p.title?(' — '+esc(p.title)):'')+'</option>').join('')+'</select></div>';
-      return h;
+      return h+audioSel;
     }
     if(id==='internet'){
       const net=(D.net&&D.net.net)||{}, netOn=!!net.enabled, isAdmin=(window.MY_ROLE==='admin'||!window.MY_ROLE);

@@ -64,6 +64,7 @@ def test_pair_runs_pair_trust_connect(linux_tools, monkeypatch):
     monkeypatch.setattr(dd.BluetoothDriver, "_bt_device_info",
                         classmethod(lambda cls, a: {"paired": "no", "name": "My Buds"}))
     monkeypatch.setattr(dd.BluetoothDriver, "_wait_for_bt_device", classmethod(lambda cls, a, timeout=18.0: True))
+    monkeypatch.setattr(dd.BluetoothDriver, "_bt_ensure_controller", classmethod(lambda cls: (True, "AA:BB:CC:DD:EE:00")))
     monkeypatch.setattr(dd.BluetoothDriver, "_is_paired", classmethod(lambda cls, a: False))
     monkeypatch.setattr(dd.BluetoothDriver, "_pair_steps_for", classmethod(lambda cls, a: ["pair", "trust", "connect"]))
     monkeypatch.setattr(dd.BluetoothDriver, "classify_bt_device",
