@@ -955,7 +955,11 @@ def _classic_bt_discover(timeout: float, found: List[dict], seen: set, errors: L
 
     secs = max(4, min(int(timeout) + 2, 15))
     try:
-        subprocess.run(["bluetoothctl", "power", "on"], capture_output=True, text=True, timeout=6)
+        subprocess.run(
+            ["bluetoothctl"],
+            input="power on\npairable on\nquit\n",
+            capture_output=True, text=True, timeout=6,
+        )
         r = subprocess.run(
             ["bluetoothctl", "--timeout", str(secs), "scan", "on"],
             capture_output=True, text=True, timeout=secs + 8,
@@ -1013,6 +1017,34 @@ def _ble_discover(timeout: float, found: List[dict], errors: List[str]) -> None:
                 found.append(_bt_discover_entry(key, nm, getattr(d, "rssi", None)))
 
     _classic_bt_discover(timeout, found, seen, errors)
+    _enrich_bt_discover_results(found)
+
+
+def _enrich_bt_discover_results(found: List[dict]) -> None:
+    """Resolve real names + device type (headphones vs printer vs adapter)."""
+    try:
+        from eli.runtime.device_drivers import BluetoothDriver as BT
+    except Exception:
+        return
+    BT._bt_prepare_radio()
+    for row in found:
+        if row.get("kind") != "bluetooth":
+            continue
+        addr = str(row.get("host") or "").strip()
+        if not addr:
+            continue
+        try:
+            info = BT._bt_device_info(addr)
+            name = info.get("name") or info.get("alias") or row.get("name") or ""
+            if name and not str(name).startswith("Bluetooth device ("):
+                row["name"] = name
+            meta = BT.classify_bt_device(info, name)
+            row.update(meta)
+            row["paired"] = info.get("paired", "").lower() == "yes"
+            row["connected"] = info.get("connected", "").lower() == "yes"
+        except Exception:
+            continue
+    found.sort(key=lambda r: (0 if r.get("audio_capable") else 1, str(r.get("name") or "")))
 
 
 def discover(timeout: float = 3.0, fresh: bool = False, include_bluetooth: bool = True,
@@ -1029,7 +1061,7 @@ def discover(timeout: float = 3.0, fresh: bool = False, include_bluetooth: bool 
     """
     found: List[dict] = []
     errors: List[str] = []
-    timeout = min(8.0, max(1.0, float(timeout)))
+    timeout = min(15.0 if not include_network else 8.0, max(1.0, float(timeout)))
 
     try:
         from eli.core import netguard
@@ -1065,7 +1097,10 @@ def discover(timeout: float = 3.0, fresh: bool = False, include_bluetooth: bool 
         if t_ssdp is not None:
             t_ssdp.join(timeout=ssdp_timeout + 3.0)
         if t_ble is not None:
-            t_ble.join(timeout=timeout + 4.0)
+            t_ble.join(timeout=timeout + 18.0)
+
+    if include_bluetooth and found:
+        _enrich_bt_discover_results(found)
 
     now = time.time()
     if fresh:
@@ -1091,7 +1126,7 @@ def discover(timeout: float = 3.0, fresh: bool = False, include_bluetooth: bool 
             f["last_seen"] = now
             prev = _DISC_CACHE.get(key)
             if prev:
-                prev.update({k: v for k, v in f.items() if v not in (None, "", [])})
+                prev.update({k: v for k, v in f.items() if v is not None and v != "" and v != []})
                 prev["last_seen"] = now
             else:
                 _DISC_CACHE[key] = f
