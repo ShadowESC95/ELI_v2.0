@@ -35,10 +35,10 @@ _COLS = ("identity", "comms_style", "current_focus", "interests", "habits", "goa
 
 # Single source of the onboarding nudge (was inlined in context_synthesiser.py).
 ONBOARDING_NUDGE = (
-    "ONBOARDING: You do not know this user yet — no profile is stored. Naturally work a "
-    "brief, conversational baseline into your reply (their name, then what they work on and "
-    "how they like answers — terse vs detailed). Keep it light, one or two questions at a "
-    "time, not a form. The user can say 'skip' anytime. Do this until a profile exists."
+    "ONBOARDING: You do not know this user yet — no profile is stored. Offer the baseline "
+    "setup: name, then work area (A–E), answer style (1–4), and primary focus (A–D). "
+    "They can pick letters/numbers or type freely; say 'skip' anytime. Keep it light, "
+    "one step at a time — not a wall of text. Persona grows from there."
 )
 
 
