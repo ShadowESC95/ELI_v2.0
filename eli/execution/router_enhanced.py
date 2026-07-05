@@ -1037,6 +1037,18 @@ def _route_plugin_bridge_prepass(raw: str, low: str):
             r"\buse\s+(?:my\s+|the\s+)?(.+?)\s+(?:for|as)\s+(?:the\s+)?"
             r"(?:audio|sound|output|speaker|playback)\b", low)
         _excl_media = re.search(r"\b(spotify|youtube|netflix|playlist|song|track|video|album|podcast|radio)\b", low)
+        # "change/play/switch music|media|audio to kitchen speaker / device 1"
+        _audio_out = re.search(
+            r"\b(?:change|switch|move|play|route|send|put|output)\s+(?:the\s+)?"
+            r"(?:music|media|audio|sound|playback|it|everything)?\s*"
+            r"(?:to|on|through|via|out\s+(?:of|to))\s+(?:the\s+|my\s+)?(.+)$",
+            low,
+        )
+        if not _excl_media and _audio_out:
+            _dev = _audio_out.group(1).strip(" .!?")
+            if _dev and not re.search(r"\b(wi-?fi|internet|network|vpn|server|hotspot)\b", _dev):
+                return _mk("SMART_HOME", {"device": _dev, "command": "use_for_audio", "bt": True},
+                           0.95, matched_by="audio.output", entities={"device": _dev})
         if not _excl_media and _bt_audio and re.search(_BT_WORDS, _bt_audio.group(1)):
             _dev = _bt_audio.group(1).strip(" .!?")
             return _mk("SMART_HOME", {"device": _dev, "command": "use_for_audio", "bt": True},

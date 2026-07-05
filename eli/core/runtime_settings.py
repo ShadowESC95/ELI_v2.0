@@ -131,6 +131,8 @@ DEFAULTS: Dict[str, Any] = {
     # bluetooth_display_name → "Eli · {hub_zone}". Override for a fixed label.
     "hub_zone": "Home",
     "bluetooth_display_name": "",
+    # User labels for speakers/outputs — voice: "play to kitchen speaker", "device 1".
+    "audio_output_aliases": {},
     "mic_enabled": False,
     "auto_save": True,
     "log_to_file": False,
