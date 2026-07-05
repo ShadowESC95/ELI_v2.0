@@ -6,12 +6,13 @@ from typing import Any, Dict, Union
 
 
 def loads_toml(data: bytes) -> Dict[str, Any]:
+    text = data.decode("utf-8")
     try:
         import tomllib
-        return tomllib.loads(data.decode("utf-8"))
+        return tomllib.loads(text)
     except ImportError:
         import tomli
-        return tomli.loads(data)
+        return tomli.loads(text)
 
 
 def load_toml(path: Union[str, Path]) -> Dict[str, Any]:
