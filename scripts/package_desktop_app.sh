@@ -85,6 +85,10 @@ else
 fi
 
 mkdir -p "$STAGING/dist" "$STAGING/packaging/desktop" "$STAGING/models" "$STAGING/tts_piper"
+# License docs live under models/ but models/** is excluded from the lean archive — copy explicitly
+for _lic in MODEL_LICENSES.md README.txt; do
+  [ -f "$ROOT/models/$_lic" ] && cp "$ROOT/models/$_lic" "$STAGING/models/"
+done
 if ls "$ROOT"/dist/eli_mkxi-*.whl >/dev/null 2>&1; then
   cp "$ROOT"/dist/eli_mkxi-*.whl "$STAGING/dist/"
 fi
