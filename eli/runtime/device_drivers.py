@@ -572,13 +572,41 @@ class BluetoothDriver(Driver):
         try:
             subprocess.run(
                 ["bluetoothctl"],
-                input="power on\npairable on\nquit\n",
+                input="power on\npairable on\ndiscoverable off\nquit\n",
                 capture_output=True,
                 text=True,
                 timeout=10,
             )
         except Exception:
             pass
+
+    @classmethod
+    def _device_available(cls, addr: str) -> bool:
+        info = cls._bt_device_info(addr)
+        blob = " ".join(str(v) for v in info.values()).lower()
+        return "not available" not in blob and bool(info.get("name") or info.get("alias"))
+
+    @classmethod
+    def _wait_for_bt_device(cls, addr: str, timeout: float = 18.0) -> bool:
+        """Scan until BlueZ sees the device (headphones must be in pairing mode)."""
+        import time
+        addr_u = addr.upper()
+        cls._bt_prepare_radio()
+        cls._sh(["bluetoothctl", "scan", "on"], timeout=6)
+        deadline = time.time() + max(6.0, float(timeout))
+        try:
+            while time.time() < deadline:
+                _, listing = cls._sh(["bluetoothctl", "devices"], timeout=8)
+                if addr_u in listing.upper() and cls._device_available(addr):
+                    return True
+                time.sleep(2)
+            return cls._device_available(addr)
+        finally:
+            cls._sh(["bluetoothctl", "scan", "off"], timeout=6)
+
+    @classmethod
+    def _is_paired(cls, addr: str) -> bool:
+        return cls._bt_device_info(addr).get("paired", "").lower() == "yes"
 
     @classmethod
     def _bt_device_info(cls, addr: str) -> Dict[str, Any]:
@@ -627,12 +655,8 @@ class BluetoothDriver(Driver):
 
     @classmethod
     def _pair_steps_for(cls, addr: str) -> List[str]:
-        import time
-        info = cls._bt_device_info(addr)
-        if info.get("paired", "").lower() == "yes":
+        if cls._is_paired(addr):
             return ["trust", "connect"]
-        cls._sh(["bluetoothctl", "--timeout", "12", "scan", "on"], timeout=14)
-        time.sleep(3)
         return ["pair", "trust", "connect"]
 
     @staticmethod
@@ -655,26 +679,28 @@ class BluetoothDriver(Driver):
             return "Pairing rejected — accept the prompt on the device, then tap Pair again"
         if "failed to connect" in low or "br-connection" in low:
             return "Could not connect — put headphones in pairing mode (LED flashing), then tap Pair"
+        if "not available" in low:
+            return "Device not in range — open the headphones case / hold power until LED flashes, then Pair again"
         if action == "pair":
-            return ("Pairing did not finish — put headphones in pairing mode (hold power ~5s), "
-                    "accept on TVs, then tap Pair again")
+            return ("Pairing did not finish — keep headphones in pairing mode (LED flashing), "
+                    "then tap Pair again (scan takes ~15s)")
         if action == "connect":
             return "Connect failed — tap Pair first (headphones: pairing mode with LED flashing)"
         tail = [ln.strip() for ln in (out or "").splitlines() if ln.strip()]
         return (tail[-1][:140] if tail else "Bluetooth command failed")
 
     @staticmethod
-    def _btctl_batch(addr: str, steps: List[str], timeout: float = 45.0):
-        """Run bluetoothctl with an agent suited to pairing (headphones/TVs)."""
+    def _btctl_batch(addr: str, steps: List[str], timeout: float = 45.0, agent: str = "NoInputNoOutput"):
+        """Run bluetoothctl with a pairing agent (headphones: NoInputNoOutput, TVs: DisplayYesNo)."""
         import subprocess
         alias_name = BluetoothDriver.resolve_adapter_alias()
         pairing = "pair" in steps
-        agent = "DisplayYesNo" if pairing else "NoInputNoOutput"
         script = "\n".join([
             f"agent {agent}",
             "default-agent",
             "power on",
             "pairable on",
+            "discoverable off",
             f"system-alias {alias_name}",
             *(["scan on"] if pairing else []),
             *[f"{step} {addr}" for step in steps],
@@ -731,15 +757,28 @@ class BluetoothDriver(Driver):
             ok = rc == 0 or "successful" in out.lower() or "disconnected" in out.lower()
         elif action == "pair":
             info = self._bt_device_info(addr)
-            meta = self.classify_bt_device(info, "")
+            meta = self.classify_bt_device(info, str(info.get("name") or ""))
             if meta.get("bt_type") == "printer":
                 return {"ok": False, "error": "That is a printer — not pairable for audio"}
+            if meta.get("bt_type") == "adapter":
+                return {"ok": False, "error": "That is a Bluetooth adapter/dongle — pair your headphones instead"}
+            dev_name = str(info.get("name") or info.get("alias") or "headphones")
+            if not self._is_paired(addr) and not self._wait_for_bt_device(addr, timeout=18.0):
+                return {
+                    "ok": False,
+                    "error": f"{dev_name} not found — keep them in pairing mode (LED flashing) and tap Pair",
+                }
             steps = self._pair_steps_for(addr)
-            ok, out = self._btctl_batch(addr, steps, timeout=90.0)
-            if not ok and info.get("paired", "").lower() != "yes":
-                ok2, out2 = self._btctl_batch(addr, ["connect"], timeout=45.0)
-                if ok2:
-                    ok, out = ok2, out2
+            agents = (["DisplayYesNo", "NoInputNoOutput"] if meta.get("bt_type") == "tv"
+                      else ["NoInputNoOutput", "DisplayYesNo"])
+            ok, out = False, ""
+            for agent in agents:
+                ok, out = self._btctl_batch(addr, steps, timeout=90.0, agent=agent)
+                if ok or self._is_paired(addr):
+                    ok = True
+                    break
+            if ok and "connect" in steps:
+                self._btctl_batch(addr, ["connect"], timeout=45.0)
         else:
             steps = {"connect": ["connect"], "trust": ["trust"]}[action]
             ok, out = self._btctl_batch(addr, steps, timeout=45.0)

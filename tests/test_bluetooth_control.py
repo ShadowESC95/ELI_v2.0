@@ -29,7 +29,7 @@ def linux_tools(monkeypatch):
         calls.append(list(args))
         return _responder(args)
 
-    def fake_batch(addr, steps, timeout=45.0):
+    def fake_batch(addr, steps, timeout=45.0, agent="NoInputNoOutput"):
         calls.append(["bluetoothctl-batch", addr, *steps])
         return True, "Connection successful"
 
@@ -61,9 +61,13 @@ def test_connect_and_disconnect(linux_tools):
 
 def test_pair_runs_pair_trust_connect(linux_tools, monkeypatch):
     d = dd.get_driver("bluetooth")
-    monkeypatch.setattr(dd.BluetoothDriver, "_bt_device_info", classmethod(lambda cls, a: {"paired": "no"}))
+    monkeypatch.setattr(dd.BluetoothDriver, "_bt_device_info",
+                        classmethod(lambda cls, a: {"paired": "no", "name": "My Buds"}))
+    monkeypatch.setattr(dd.BluetoothDriver, "_wait_for_bt_device", classmethod(lambda cls, a, timeout=18.0: True))
+    monkeypatch.setattr(dd.BluetoothDriver, "_is_paired", classmethod(lambda cls, a: False))
     monkeypatch.setattr(dd.BluetoothDriver, "_pair_steps_for", classmethod(lambda cls, a: ["pair", "trust", "connect"]))
-    monkeypatch.setattr(dd.BluetoothDriver, "classify_bt_device", classmethod(lambda cls, i, n="": {"bt_type": "headphones", "audio_capable": True}))
+    monkeypatch.setattr(dd.BluetoothDriver, "classify_bt_device",
+                        classmethod(lambda cls, i, n="": {"bt_type": "headphones", "audio_capable": True}))
     d.control(DEV, "pair")
     assert ["bluetoothctl-batch", "AA:BB:CC:DD:EE:FF", "pair", "trust", "connect"] in linux_tools
 
