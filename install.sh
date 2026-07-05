@@ -217,7 +217,9 @@ PIP="$VENV/bin/pip"
 PYTHON_VENV="$VENV/bin/python"
 
 echo "[..] Upgrading pip..."
-"$PIP" install --quiet --upgrade pip setuptools wheel
+"$PIP" install --quiet --upgrade pip wheel
+# torch wheels currently require setuptools<82; cap before PyTorch install.
+"$PIP" install --quiet 'setuptools>=68,<82'
 
 # Install PyTorch
 if [ "$SKIP_TORCH" -eq 0 ]; then
@@ -289,13 +291,16 @@ if [ "$SKIP_TORCH" -eq 0 ] && [ "$CPU_ONLY" -eq 0 ] && [ "$OS" != "Darwin" ]; th
     fi
 fi
 
-# Install ELI v2.0 wheel
+# Install ELI v2.0 wheel (or editable from source checkout)
 echo "[..] Installing ELI v2.0..."
-WHEEL=$(ls "$SCRIPT_DIR"/dist/eli_v2_0-*.whl 2>/dev/null | head -1)
+WHEEL=""
+shopt -s nullglob 2>/dev/null || true
+for _w in "$SCRIPT_DIR"/dist/eli_v2_0-*.whl; do WHEEL="$_w"; break; done
+shopt -u nullglob 2>/dev/null || true
 if [ -n "$WHEEL" ]; then
-    "$PIP" install "$WHEEL"[full] --quiet
+    "$PIP" install "${WHEEL}[full]" --quiet
 else
-    "$PIP" install -e "$SCRIPT_DIR"[full] --quiet
+    ( cd "$SCRIPT_DIR" && "$PIP" install -e ".[full]" --quiet )
 fi
 
 # Install remaining runtime requirements. Default = the FROZEN LOCK (exact known-good
