@@ -145,7 +145,7 @@ models/voice_profile/
 eli/models/
 
 # personal launcher with absolute paths — generated per-machine by scripts/eli_one_click_setup.sh
-eli-mkxi.desktop
+eli-v2.0.desktop
 dxdiag.txt
 note_*.md
 

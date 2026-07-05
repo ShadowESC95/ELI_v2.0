@@ -78,3 +78,31 @@ def test_route_audio_by_name(monkeypatch):
     monkeypatch.setattr(lc, "set_default_audio", lambda s: {"ok": True, "sink": s})
     r = lc.route_audio_by_name("sitting room")
     assert r["ok"] is True and r["display_name"] == "Sitting room"
+
+
+def test_is_handsfree_sink_detects_hsp():
+    assert lc.is_handsfree_sink("bluez_output.XX.headset-head-unit", "HOCO W46")
+    assert not lc.is_handsfree_sink("bluez_output.XX_1", "HOCO W46")
+    assert lc.is_handsfree_sink("bluez_sink.aa_bb", "Handsfree")
+
+
+def test_find_bt_a2dp_sink_prefers_music_profile(monkeypatch):
+    def fake_sh(args, timeout=25.0):
+        if args[:3] == ["pactl", "list", "short"]:
+            if "sinks" in args:
+                return 0, (
+                    "1\tbluez_output.AA_BB_CC_DD_EE_FF.headset-head-unit\tmod\ts16le\n"
+                    "2\tbluez_output.AA_BB_CC_DD_EE_FF.1\tmod\ts16le\n"
+                )
+            return 0, "0\tbluez_card.AA_BB_CC_DD_EE_FF\tmodule-bluez5-device.c\n"
+        if args[:3] == ["pactl", "list", "sinks"]:
+            return 0, (
+                "Name: bluez_output.AA_BB_CC_DD_EE_FF.headset-head-unit\n"
+                "Description: HOCO Handsfree\n"
+                "Name: bluez_output.AA_BB_CC_DD_EE_FF.1\n"
+                "Description: HOCO W46\n"
+            )
+        return 0, ""
+    monkeypatch.setattr(lc, "_sh", fake_sh)
+    sid = lc.find_bt_a2dp_sink("AA:BB:CC:DD:EE:FF", "HOCO")
+    assert sid == "bluez_output.AA_BB_CC_DD_EE_FF.1"

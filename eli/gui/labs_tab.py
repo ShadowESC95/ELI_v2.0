@@ -1,5 +1,5 @@
 """
-ELI MKXI — Labs Tab
+ELI v2.0 — Labs Tab
 Scientific workspace: Notebook, Conversations, ELI Memory, Jupyter, Calculator,
 Physics constants, Report generator, File Chat, Workspaces, Sim/IDE.
 """

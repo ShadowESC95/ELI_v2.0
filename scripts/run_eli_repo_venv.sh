@@ -20,9 +20,9 @@ export PYTHONPATH="$ROOT${PYTHONPATH:+:$PYTHONPATH}"
 
 # Optional project environment flags are allowed,
 # but model choice must remain picker-owned.
-if [[ -f "$ROOT/.env.mkxi" ]]; then
+if [[ -f "$ROOT/.env.eli_v2_0" ]]; then
   # shellcheck disable=SC1091
-  source "$ROOT/.env.mkxi"
+  source "$ROOT/.env.eli_v2_0"
 fi
 
 # Never allow stale shell vars to bypass the model picker.

@@ -89,8 +89,8 @@ mkdir -p "$STAGING/dist" "$STAGING/packaging/desktop" "$STAGING/models" "$STAGIN
 for _lic in MODEL_LICENSES.md README.txt; do
   [ -f "$ROOT/models/$_lic" ] && cp "$ROOT/models/$_lic" "$STAGING/models/"
 done
-if ls "$ROOT"/dist/eli_mkxi-*.whl >/dev/null 2>&1; then
-  cp "$ROOT"/dist/eli_mkxi-*.whl "$STAGING/dist/"
+if ls "$ROOT"/dist/eli_v2_0-*.whl >/dev/null 2>&1; then
+  cp "$ROOT"/dist/eli_v2_0-*.whl "$STAGING/dist/"
 fi
 
 if [ "$WITH_ASSETS" -eq 1 ]; then
@@ -117,14 +117,14 @@ chmod +x "$STAGING/INSTALL_ELI.sh"
 
 cat > "$STAGING/packaging/desktop/ELI_v2.desktop.template" <<'DESKTOP_EOF'
 [Desktop Entry]
-Name=ELI Pro
+Name=ELI v2.0
 GenericName=Local AI Assistant
 Comment=Local AI cognitive runtime and assistant
 Exec=__APP_ROOT__/RUN_ELI.sh
-Icon=__APP_ROOT__/blueprints/eli_logo2.png
+Icon=__APP_ROOT__/blueprints/Eli_Icon.png
 Type=Application
 Categories=Utility;
-Keywords=ai;assistant;llm;local;eli;mkxi;
+Keywords=ai;assistant;llm;local;eli;eli_v2_0;
 StartupNotify=true
 Terminal=false
 StartupWMClass=ELI
@@ -138,10 +138,10 @@ DESKTOP_DIR="${XDG_DATA_HOME:-$HOME/.local/share}/applications"
 mkdir -p "$DESKTOP_DIR"
 sed "s#__APP_ROOT__#$APP_ROOT#g" \
   "$APP_ROOT/packaging/desktop/ELI_v2.desktop.template" \
-  > "$DESKTOP_DIR/eli.desktop"
-rm -f "$DESKTOP_DIR/eli-pro.desktop" "$DESKTOP_DIR/eli-mkxi-v2-pro.desktop"
-chmod +x "$DESKTOP_DIR/eli.desktop"
-echo "$DESKTOP_DIR/eli.desktop"
+  > "$DESKTOP_DIR/eli-v2.desktop"
+rm -f "$DESKTOP_DIR/eli.desktop" "$DESKTOP_DIR/eli-pro.desktop" "$DESKTOP_DIR/eli-v2-0.desktop"
+chmod +x "$DESKTOP_DIR/eli-v2.desktop"
+echo "$DESKTOP_DIR/eli-v2.desktop"
 DESKTOP_INSTALL_EOF
 chmod +x "$STAGING/packaging/desktop/install_desktop_launcher.sh"
 
@@ -177,7 +177,7 @@ Terminal command:
   INSTALL_ELI.sh installs ~/.local/bin/eli by default.
   If your shell cached an older eli: hash -r
 
-v3 is in development: https://github.com/ShadowESC95/Eli_v3
+ELI v3 is in private development (not linked from this package).
 README_EOF
 
 PACKAGE="$OUT_DIR/${APP_NAME}-${VERSION}-linux-portable.tar.gz"

@@ -1,1 +1,1 @@
-"""MKXI package marker."""
+"""ELI v2.0 package marker."""

@@ -1,4 +1,4 @@
-# ELI MKXI full Python runtime profile.
+# ELI v2.0 full Python runtime profile.
 # Use this for a source checkout when you want the broadest feature set.
 # Platform-specific installers may use requirements-windows.txt,
 # requirements-macos.txt, requirements.txt, or requirements-android.txt instead.

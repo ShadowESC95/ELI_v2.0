@@ -1,4 +1,4 @@
-"""Stress and load tests for ELI MKXI — ~120 tests."""
+"""Stress and load tests for ELI v2.0 — ~120 tests."""
 from __future__ import annotations
 
 import json

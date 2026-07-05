@@ -2,7 +2,7 @@
 
 #!/usr/bin/env python3
 """
-ELI MKXI — desktop GUI.
+ELI v2.0 — desktop GUI.
 
 Runs whatever local GGUF model is configured (model-agnostic). Dockable
 multi-panel interface: chat, memory, proactive suggestions, IDE, document
@@ -32,7 +32,7 @@ from collections import deque
 from eli.utils.log import get_logger
 log = get_logger(__name__)
 
-# Direct script launches (`python eli/gui/eli_pro_audio_gui_MKI.py`) do not put
+# Direct script launches (`python eli/gui/eli_pro_audio_gui_v2_0.py`) do not put
 # the project root on sys.path. Bootstrap it early so `import eli.*` succeeds.
 _BOOT_PROJECT_ROOT = Path(__file__).resolve().parents[2]
 if str(_BOOT_PROJECT_ROOT) not in sys.path:
@@ -234,7 +234,7 @@ class CentralMemoryAdapter:
 # CONSTANTS & CONFIGURATION
 # ============================================================
 
-APP_NAME = "ELI Pro"
+APP_NAME = "ELI v2.0"
 APP_VERSION = "7.0.7"
 
 PROJECT_ROOT = _BOOT_PROJECT_ROOT
@@ -2470,10 +2470,10 @@ class EliMainWindow(QMainWindow):
         self.apply_theme()
         # If the launcher pre-loaded a model into this module, wire it directly
         # into model_manager so the GUI doesn't re-load (or load the wrong one).
-        _pre = getattr(__import__('eli.gui.eli_pro_audio_gui_MKI',
+        _pre = getattr(__import__('eli.gui.eli_pro_audio_gui_v2_0',
                                   fromlist=['_PRELOADED_MODEL']),
                        '_PRELOADED_MODEL', None)
-        _pre_path = getattr(__import__('eli.gui.eli_pro_audio_gui_MKI',
+        _pre_path = getattr(__import__('eli.gui.eli_pro_audio_gui_v2_0',
                                        fromlist=['_PRELOADED_MODEL_PATH']),
                             '_PRELOADED_MODEL_PATH', None)
         if _pre is not None:
@@ -8248,6 +8248,41 @@ _register()
         hint.setWordWrap(True)
         hint.setStyleSheet("color:#606880;font-size:10px;")
         vbox.addWidget(hint)
+
+        fw_title = QLabel("Phone can't connect? — Firewall (one-time)")
+        fw_title.setStyleSheet("color:#88c0d0;font-size:12px;font-weight:700;margin-top:8px;")
+        vbox.addWidget(fw_title)
+        self._srv_fw_note = QLabel(
+            "If your phone is on the same Wi-Fi but cannot open ELI, your computer's "
+            "firewall is usually blocking port 8081. Ask a tech-savvy person to run "
+            "the command below once — or copy it and paste into Terminal."
+        )
+        self._srv_fw_note.setWordWrap(True)
+        self._srv_fw_note.setStyleSheet("color:#7b8394;font-size:10px;line-height:1.45;")
+        vbox.addWidget(self._srv_fw_note)
+        self._srv_fw_cmd = QLineEdit()
+        self._srv_fw_cmd.setReadOnly(True)
+        self._srv_fw_cmd.setPlaceholderText("Firewall command appears here when phone/Wi-Fi mode is used…")
+        self._srv_fw_cmd.setStyleSheet(
+            "QLineEdit{background:#12141a;color:#ebcb8b;border:1px solid #2a2d36;"
+            "border-radius:5px;padding:7px;font-size:11px;font-family:monospace;}")
+        vbox.addWidget(self._srv_fw_cmd)
+        fw_row = QHBoxLayout()
+        self._srv_fw_copy = QPushButton("Copy command")
+        self._srv_fw_term = QPushButton("Open in Terminal")
+        for b in (self._srv_fw_copy, self._srv_fw_term):
+            b.setFixedHeight(28)
+            b.setStyleSheet(
+                "QPushButton{background:#3b4252;color:#eceff4;border:none;border-radius:5px;"
+                "padding:0 12px;font-size:11px;font-weight:600;}"
+                "QPushButton:hover{background:#4c566a;}")
+            fw_row.addWidget(b)
+        fw_row.addStretch()
+        vbox.addLayout(fw_row)
+        self._srv_fw_copy.clicked.connect(self._eli_server_copy_firewall_cmd)
+        self._srv_fw_term.clicked.connect(self._eli_server_open_firewall_terminal)
+        self._eli_server_refresh_firewall_hint()
+
         vbox.addStretch()
 
         # Poll the child process so the UI reflects crashes / external stops.
@@ -8309,6 +8344,118 @@ _register()
                 return cand
         return sys.executable
 
+    def _eli_server_refresh_firewall_hint(self) -> None:
+        try:
+            from eli.runtime.server_util import firewall_hint
+            fw = firewall_hint()
+            cmds = fw.get("commands") or []
+            tool = fw.get("tool") or "firewall"
+            if cmds:
+                self._srv_fw_cmd.setText(cmds[0])
+                self._srv_fw_note.setText(
+                    f"If your phone cannot connect, allow ELI through {tool} on your home network. "
+                    "A tech-savvy person can run the command below once in Terminal "
+                    "(it will ask for your computer password)."
+                )
+            else:
+                self._srv_fw_cmd.clear()
+                self._srv_fw_note.setText(
+                    "If your phone cannot connect, check your computer's firewall settings "
+                    "and allow incoming connections for Python / ELI on port 8081."
+                )
+        except Exception:
+            pass
+
+    def _eli_server_copy_firewall_cmd(self) -> None:
+        cmd = (self._srv_fw_cmd.text() or "").strip()
+        if not cmd:
+            return
+        try:
+            QApplication.clipboard().setText(cmd)
+            self._srv_status.setText("● Firewall command copied — paste into Terminal")
+            self._srv_status.setStyleSheet("font-size:12px;font-weight:700;color:#ebcb8b;")
+        except Exception:
+            pass
+
+    def _eli_server_open_firewall_terminal(self) -> None:
+        import shlex
+        cmd = (self._srv_fw_cmd.text() or "").strip()
+        if not cmd:
+            QMessageBox.information(
+                self,
+                "Firewall",
+                "Start phone / Wi-Fi mode first, or copy a firewall command from the Connect tab.",
+            )
+            return
+        script = f"{cmd}\necho\necho Done. You can close this window.\nread -r -p 'Press Enter to close…' _"
+        for term_cmd in (
+            ["x-terminal-emulator", "-e", "bash", "-lc", script],
+            ["gnome-terminal", "--", "bash", "-lc", script],
+            ["konsole", "-e", "bash", "-lc", script],
+            ["xfce4-terminal", "-e", f"bash -lc {shlex.quote(script)}"],
+        ):
+            try:
+                subprocess.Popen(term_cmd)
+                return
+            except Exception:
+                continue
+        QMessageBox.information(
+            self,
+            "Firewall",
+            "Could not open a terminal automatically.\n\nCopy the command and run it manually:\n\n" + cmd,
+        )
+
+    def _eli_server_show_running_dialog(self, probe: dict, lan: bool) -> bool:
+        """Return True if caller should treat the server as available."""
+        from PySide6.QtWidgets import QDialog, QVBoxLayout, QLabel, QDialogButtonBox
+        try:
+            from PySide6.QtGui import QDesktopServices
+            from PySide6.QtCore import QUrl
+        except ImportError:
+            from PyQt6.QtWidgets import QDialog, QVBoxLayout, QLabel, QDialogButtonBox
+            from PyQt6.QtGui import QDesktopServices
+            from PyQt6.QtCore import QUrl
+
+        if probe.get("eli_running"):
+            title = "ELI is already running"
+            body = (
+                "The web server is already active on this computer — "
+                "you do not need to start it again.\n\n"
+                "Open the link below on this computer or your phone."
+            )
+            url = (probe.get("lan_url") if lan else None) or probe.get("local_url") or ""
+        else:
+            title = "Port already in use"
+            body = (
+                f"Port {probe.get('port', 8081)} is used by another program, so ELI cannot start here.\n\n"
+                "Close the other program, or run ELI Server from only one place at a time."
+            )
+            url = ""
+
+        dlg = QDialog(self)
+        dlg.setWindowTitle(title)
+        dlg.setMinimumWidth(480)
+        lay = QVBoxLayout(dlg)
+        lay.addWidget(QLabel(body))
+        if url:
+            link = QLabel(f'<a href="{url}" style="color:#a3be8c;">{url}</a>')
+            link.setOpenExternalLinks(True)
+            link.setWordWrap(True)
+            lay.addWidget(link)
+            self._srv_url.setText(url)
+            self._eli_server_update_ui("running")
+        box = QDialogButtonBox()
+        if url:
+            open_btn = box.addButton("Open in browser", QDialogButtonBox.ButtonRole.AcceptRole)
+            open_btn.clicked.connect(lambda: QDesktopServices.openUrl(QUrl(url)))
+        box.addButton(QDialogButtonBox.StandardButton.Close)
+        lay.addWidget(box)
+        box.rejected.connect(dlg.reject)
+        if url:
+            box.accepted.connect(lambda: QDesktopServices.openUrl(QUrl(url)))
+        dlg.exec()
+        return bool(probe.get("eli_running"))
+
     def _eli_server_start(self, lan: bool) -> None:
         # Run the web server IN-PROCESS (a background thread) so it shares this app's
         # already-loaded model/engine instead of spawning a second process that would
@@ -8317,6 +8464,16 @@ _register()
         if getattr(self, "_srv_thread", None) and self._srv_thread.is_alive():
             return  # already running
         port = int(os.environ.get("ELI_API_PORT", "8081"))
+        try:
+            from eli.runtime.server_util import probe_eli_server
+            probe = probe_eli_server(port)
+            if probe.get("in_use"):
+                if self._eli_server_show_running_dialog(probe, lan):
+                    if lan:
+                        self._eli_server_refresh_firewall_hint()
+                    return
+        except Exception:
+            pass
         if lan:
             # Stable, persisted token — reused across restarts so an already-paired
             # phone is NOT stranded (a fresh token every start meant its saved URL
@@ -8351,8 +8508,21 @@ _register()
             self._srv_thread.start()
             self._srv_url.setText(url)
             self._eli_server_update_ui("starting")
+            if lan:
+                self._eli_server_refresh_firewall_hint()
         except Exception as e:
-            self._eli_server_update_ui("error", str(e))
+            err = str(e)
+            if "98" in err or "already in use" in err.lower() or "address already in use" in err.lower():
+                try:
+                    from eli.runtime.server_util import probe_eli_server
+                    probe = probe_eli_server(port)
+                    if probe.get("in_use") and self._eli_server_show_running_dialog(probe, lan):
+                        if lan:
+                            self._eli_server_refresh_firewall_hint()
+                        return
+                except Exception:
+                    pass
+            self._eli_server_update_ui("error", err)
 
     def _eli_server_stop(self) -> None:
         uv = getattr(self, "_srv_uv", None)
@@ -8405,8 +8575,22 @@ _register()
             return
         if not th.is_alive():  # thread exited (error / stopped)
             self._srv_thread = None
-            self._srv_url.clear()
             err = getattr(self, "_srv_err", "")
+            if err and ("98" in err or "already in use" in err.lower()):
+                try:
+                    from eli.runtime.server_util import probe_eli_server
+                    import os as _os
+                    port = int(_os.environ.get("ELI_API_PORT", "8081"))
+                    probe = probe_eli_server(port)
+                    lan = _os.environ.get("ELI_API_HOST", "") == "0.0.0.0"
+                    if probe.get("in_use") and self._eli_server_show_running_dialog(probe, lan):
+                        if lan:
+                            self._eli_server_refresh_firewall_hint()
+                        return
+                except Exception:
+                    pass
+            if not err:
+                self._srv_url.clear()
             self._eli_server_update_ui("error" if err else "stopped", err[:160])
             return
         import os as _os, socket
