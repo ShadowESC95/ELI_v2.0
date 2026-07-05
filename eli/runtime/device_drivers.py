@@ -500,6 +500,13 @@ class BluetoothDriver(Driver):
             return {"ok": False, "error": "bluetooth: no device address"}
         cmd = (command or "").lower().replace("-", "_")
         if cmd in ("use_for_audio", "audio", "route_audio", "listen", "output"):
+            info = self._bt_device_info(addr)
+            meta = self.classify_bt_device(info, str(dev.get("name") or ""))
+            if not meta.get("audio_capable"):
+                return {
+                    "ok": False,
+                    "error": f"{meta.get('label', 'Device')} is not an audio output — pair your headphones, not printers/adapters",
+                }
             return self._route_audio(addr)
         action = {
             "connect": "connect", "on": "connect",
@@ -543,6 +550,7 @@ class BluetoothDriver(Driver):
                 break
         try:
             import subprocess
+            cls._bt_prepare_radio()
             r = subprocess.run(
                 ["bluetoothctl"],
                 input=f"power on\nsystem-alias {name}\nquit\n",
@@ -554,6 +562,78 @@ class BluetoothDriver(Driver):
             return {"ok": True, "alias": name, "output": out.strip()[:200]}
         except Exception as e:
             return {"ok": False, "alias": name, "error": str(e)}
+
+    @classmethod
+    def _bt_prepare_radio(cls) -> None:
+        """Power on + pairable so outbound pairing to headphones works."""
+        import shutil, subprocess, sys
+        if sys.platform != "linux" or not shutil.which("bluetoothctl"):
+            return
+        try:
+            subprocess.run(
+                ["bluetoothctl"],
+                input="power on\npairable on\nquit\n",
+                capture_output=True,
+                text=True,
+                timeout=10,
+            )
+        except Exception:
+            pass
+
+    @classmethod
+    def _bt_device_info(cls, addr: str) -> Dict[str, Any]:
+        _, out = cls._sh(["bluetoothctl", "info", addr], timeout=10)
+        info: Dict[str, Any] = {"uuids": []}
+        for line in (out or "").splitlines():
+            line = line.strip()
+            if not line or ":" not in line:
+                continue
+            k, v = line.split(":", 1)
+            key = k.strip().lower().replace(" ", "_")
+            if key == "uuid":
+                info["uuids"].append(v.strip())
+            else:
+                info[key] = v.strip()
+        return info
+
+    @classmethod
+    def classify_bt_device(cls, info: Dict[str, Any], name: str = "") -> Dict[str, Any]:
+        """Label printers/TVs/adapters/headphones so the UI routes audio correctly."""
+        nm = (name or info.get("name") or info.get("alias") or "").lower()
+        icon = (info.get("icon") or "").lower()
+        uuids = [u.lower() for u in info.get("uuids") or []]
+
+        is_printer = (
+            any(x in nm for x in ("deskjet", "printer", "laserjet", "officejet", "envy"))
+            or "printer" in icon
+            or any("fdb4" in u or "fdf7" in u or "fe78" in u for u in uuids)
+        )
+        is_tv = "tv" in nm or "[tv]" in nm
+        is_adapter = any(x in nm for x in ("hoco", "adapter", "dongle", "transmitter", "receiver"))
+        has_sink = any("audio sink" in u or "0000110b" in u for u in uuids)
+        has_headphones = any(x in icon for x in ("headset", "headphones", "audio-headphones"))
+
+        if is_printer:
+            return {"bt_type": "printer", "audio_capable": False, "label": "Printer"}
+        if is_adapter:
+            return {"bt_type": "adapter", "audio_capable": False, "label": "BT adapter (not headphones)"}
+        if is_tv:
+            return {"bt_type": "tv", "audio_capable": True, "label": "TV / speaker"}
+        if has_headphones or (has_sink and not is_adapter):
+            return {"bt_type": "headphones", "audio_capable": True, "label": "Headphones / audio"}
+        if has_sink:
+            return {"bt_type": "speaker", "audio_capable": True, "label": "Speaker"}
+        return {"bt_type": "device", "audio_capable": False, "label": "Bluetooth device"}
+
+    @classmethod
+    def _pair_steps_for(cls, addr: str) -> List[str]:
+        import time
+        info = cls._bt_device_info(addr)
+        if info.get("paired", "").lower() == "yes":
+            return ["trust", "connect"]
+        cls._sh(["bluetoothctl", "--timeout", "12", "scan", "on"], timeout=14)
+        time.sleep(3)
+        return ["pair", "trust", "connect"]
 
     @staticmethod
     def _parse_bt_ok(out: str) -> bool:
@@ -645,13 +725,24 @@ class BluetoothDriver(Driver):
                 return {"ok": False, "error": "bluetooth control on Windows isn't wired yet (roadmap)"}
             return {"ok": False, "error": "bluetooth: bluetoothctl not found (install bluez)"}
         self.ensure_adapter_alias()
+        self._bt_prepare_radio()
         if action == "disconnect":
             rc, out = self._sh(["bluetoothctl", "disconnect", addr], timeout=25)
             ok = rc == 0 or "successful" in out.lower() or "disconnected" in out.lower()
+        elif action == "pair":
+            info = self._bt_device_info(addr)
+            meta = self.classify_bt_device(info, "")
+            if meta.get("bt_type") == "printer":
+                return {"ok": False, "error": "That is a printer — not pairable for audio"}
+            steps = self._pair_steps_for(addr)
+            ok, out = self._btctl_batch(addr, steps, timeout=90.0)
+            if not ok and info.get("paired", "").lower() != "yes":
+                ok2, out2 = self._btctl_batch(addr, ["connect"], timeout=45.0)
+                if ok2:
+                    ok, out = ok2, out2
         else:
-            steps = {"pair": ["pair", "trust", "connect"], "connect": ["connect"],
-                     "trust": ["trust"]}[action]
-            ok, out = self._btctl_batch(addr, steps, timeout=60.0 if action == "pair" else 45.0)
+            steps = {"connect": ["connect"], "trust": ["trust"]}[action]
+            ok, out = self._btctl_batch(addr, steps, timeout=45.0)
         res = {"ok": ok, "command": action, "device": addr, "output": out.strip()[:400]}
         if not ok:
             res["error"] = self._bt_error_hint(out, action)

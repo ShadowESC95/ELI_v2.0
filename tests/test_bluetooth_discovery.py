@@ -26,6 +26,7 @@ def test_ble_discover_shapes_devices(monkeypatch):
     fake_bleak = types.SimpleNamespace(BleakScanner=types.SimpleNamespace(discover=_fake_discover))
     monkeypatch.setitem(sys.modules, "bleak", fake_bleak)
     monkeypatch.setattr(ds, "_classic_bt_discover", lambda *a, **k: None)
+    monkeypatch.setattr(ds, "_enrich_bt_discover_results", lambda *a, **k: None)
 
     found, errors = [], []
     ds._ble_discover(2.0, found, errors)
@@ -51,6 +52,7 @@ def test_ble_discover_degrades_without_bleak(monkeypatch):
 
     monkeypatch.setattr(builtins, "__import__", _no_bleak)
     monkeypatch.setattr(ds, "_classic_bt_discover", lambda *a, **k: None)
+    monkeypatch.setattr(ds, "_enrich_bt_discover_results", lambda *a, **k: None)
     found, errors = [], []
     ds._ble_discover(2.0, found, errors)
     assert found == []
@@ -64,6 +66,7 @@ def test_ble_discover_survives_scan_error(monkeypatch):
     fake_bleak = types.SimpleNamespace(BleakScanner=types.SimpleNamespace(discover=_boom))
     monkeypatch.setitem(sys.modules, "bleak", fake_bleak)
     monkeypatch.setattr(ds, "_classic_bt_discover", lambda *a, **k: None)
+    monkeypatch.setattr(ds, "_enrich_bt_discover_results", lambda *a, **k: None)
     found, errors = [], []
     ds._ble_discover(2.0, found, errors)          # must NOT raise
     assert found == []
