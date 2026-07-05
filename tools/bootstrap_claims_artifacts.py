@@ -6,6 +6,7 @@ Safe to run before pytest tests/claims/ or in CI — idempotent, never raises.
 from __future__ import annotations
 
 import json
+import shutil
 import sys
 from pathlib import Path
 
@@ -14,11 +15,44 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 MIN_CAPS = 200
+_EXPECTED_DBS = (
+    "user.sqlite3",
+    "agent.sqlite3",
+    "system_index.sqlite3",
+    "coding_memory.sqlite3",
+)
+
+
+def _ensure_db_stores() -> bool:
+    """Mirror install.sh: seed blank templates, then init full schema for claims."""
+    artifact_dir = ROOT / "artifacts" / "db"
+    template_dir = ROOT / "config" / "templates" / "db"
+    try:
+        if template_dir.is_dir():
+            artifact_dir.mkdir(parents=True, exist_ok=True)
+            if not any(artifact_dir.glob("*.sqlite3")):
+                for src in template_dir.glob("*.sqlite3"):
+                    shutil.copy2(src, artifact_dir / src.name)
+        from eli.core.init_data import init_all_data
+
+        init_all_data()
+        missing = [n for n in _EXPECTED_DBS if not (artifact_dir / n).exists()]
+        if missing:
+            print(f"[WARN] DB stores missing after init: {', '.join(missing)}", file=sys.stderr)
+            return False
+        print(f"[OK] database stores ({len(_EXPECTED_DBS)} blank SQLite files)")
+        return True
+    except Exception as e:
+        print(f"[WARN] DB bootstrap skipped: {e}", file=sys.stderr)
+        return False
 
 
 def main() -> int:
     manifest = ROOT / "capability_manifest.json"
     ok = True
+
+    if not _ensure_db_stores():
+        ok = False
 
     try:
         from eli.tools.registry.capability_updater import update_capability_manifest
