@@ -320,6 +320,10 @@ python -m eli.core.model_download --auto      # one best-fit for your VRAM
 | `qwen3.6-35b-a3b` | Qwen3.6-35B-A3B (MoE, Apache-2.0) | ~20.6 GB | 24 GB GPU / CPU |
 | `falcon-h1-34b` | Falcon-H1-34B-Instruct | ~18.9 GB | 24 GB GPU / CPU |
 
+Quick note: The figures I provided above are for running said model at it's most efficient. 
+I still use the Qwen3.6-35B-A3B-UD-Q4_K_M.gguf on my rtx 2060 super 8gb 
+(nope it is not lightening ffast, but i personally prefer candor/content, over inference- not that i currently have the choice haha)
+
 The tiny **embedder** (memory/RAG) installs automatically with `install.sh` unless you pass
 `--no-model`. Vision and custom voice packs are optional extras. Fine-tune your own model —
 see **[`docs/TRAINING_YOUR_OWN_MODEL.md`](docs/TRAINING_YOUR_OWN_MODEL.md)**.
