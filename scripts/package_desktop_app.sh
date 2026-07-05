@@ -4,7 +4,12 @@
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-VERSION="$(cd "$ROOT" && python3 - <<'PY'
+if [ -x "$ROOT/.venv/bin/python3" ]; then
+  PYTHON="${PYTHON:-$ROOT/.venv/bin/python3}"
+else
+  PYTHON="${PYTHON:-python3}"
+fi
+VERSION="$(cd "$ROOT" && "$PYTHON" - <<'PY'
 import sys
 sys.path.insert(0, ".")
 from eli.core.toml_util import load_toml
@@ -74,8 +79,8 @@ rm -rf "$STAGING"
 mkdir -p "$STAGING"
 
 if [ "$SKIP_WHEEL" -eq 0 ]; then
-  echo "[package] building wheel"
-  (cd "$ROOT" && python3 -m build --wheel --no-isolation)
+  echo "[package] building wheel ($PYTHON)"
+  (cd "$ROOT" && "$PYTHON" -m build --wheel --no-isolation)
 fi
 
 echo "[package] exporting committed source from HEAD"
