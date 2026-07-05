@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Reset a stuck CSR / USB Bluetooth dongle (hci0 ENOMEM / "No Resources").
+# Reset a stuck USB Bluetooth adapter (ENOMEM / "No Resources" on any hciN).
 # Run: sudo bash scripts/eli_bt_reset.sh
 set -euo pipefail
 

@@ -139,7 +139,7 @@ def bluetooth_status() -> Dict[str, Any]:
             "powered": False,
             "radio_down": False,
             "recovery_hint": "",
-            "adapter_name": "Eli · Home",
+            "adapter_name": bp.adapter_display_alias(),
         }
 
 
