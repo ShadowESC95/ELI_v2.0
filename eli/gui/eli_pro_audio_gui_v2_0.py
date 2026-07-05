@@ -11396,6 +11396,13 @@ def main():
 
     app = QApplication(sys.argv)
     app.setStyle('Fusion')
+    try:
+        from eli.gui.branding import load_app_icon
+        _app_icon = load_app_icon()
+        if _app_icon is not None:
+            app.setWindowIcon(_app_icon)
+    except Exception:
+        pass
     app.setApplicationName(APP_NAME)
 
     # ── First-boot check: show wizard if no models are installed ─────────────

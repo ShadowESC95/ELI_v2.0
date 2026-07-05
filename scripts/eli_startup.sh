@@ -78,6 +78,8 @@ if [ "$SAFE_MODE" -eq 1 ]; then
 fi
 export ELI_PROJECT_ROOT="$ROOT"
 export PYTHONPATH="$ROOT${PYTHONPATH:+:$PYTHONPATH}"
+# GNOME/KDE often set QT_STYLE_OVERRIDE=adwaita — PySide6 only ships Fusion/Windows.
+unset QT_STYLE_OVERRIDE 2>/dev/null || true
 cd "$ROOT"
 
 need_setup=0
