@@ -1,26 +1,50 @@
 """Light, skippable first-run onboarding interview.
 
-On a blank-slate user (no name, no User Model), ELI runs a short 3-question baseline —
-name → role/work → answer style — driven through `engine.process` so it works in BOTH the
-GUI and headless. Answers seed the existing stores (`set_user_name` + `user_patterns`),
-which flow automatically into the continuous User Model, persona, KG, and cognition.
+On a blank-slate user (no name, no User Model), ELI runs a short baseline —
+name → role → answer style → primary focus — driven through `engine.process` so it
+works in BOTH the GUI and headless. Pick A–D / 1–4 or type your own answer; results
+seed `set_user_name` + `user_patterns` and a one-paragraph baseline report, which
+flow into the continuous User Model, persona, KG, and cognition.
 
-NON-BLOCKING + SKIPPABLE: a substantive first message (a real task/question) passes straight
-through to normal processing (the persona-handoff nudge then learns the baseline organically);
-the explicit interview only engages on a light opener, and "skip"/"later" ends it at any step.
-State lives in `artifacts/onboarding_state.json` (mirrors `pending_habit.json`). Fully local.
+NON-BLOCKING + SKIPPABLE: a substantive first message (a real task/question) passes
+straight through to normal processing; the explicit interview only engages on a light
+opener or when the user asks for profile setup. "skip"/"later" ends it at any step.
+State lives in `artifacts/onboarding_state.json`. Fully local.
 """
 from __future__ import annotations
 
 import json
+import re
 import sqlite3
 import time
 from pathlib import Path
 from typing import Any, Dict, Optional
 
-_STEPS = ("name", "role", "style")
+_STEPS = ("name", "role", "style", "focus")
 _SKIP_WORDS = ("skip", "later", "skip onboarding", "no thanks", "not now", "maybe later")
 _STATE_TTL = 7 * 24 * 3600  # a week — fine to resume; cleared on finish/skip
+
+_ROLE_OPTIONS = {
+    "a": "Software / tech",
+    "b": "Research / science",
+    "c": "Creative / writing",
+    "d": "Business / ops / admin",
+    "e": "Other (user described)",
+}
+
+_STYLE_OPTIONS = {
+    "1": "Terse and direct",
+    "2": "Balanced",
+    "3": "Detailed explanations",
+    "4": "Tutorial-style walkthroughs",
+}
+
+_FOCUS_OPTIONS = {
+    "a": "Coding and debugging",
+    "b": "Research and learning",
+    "c": "Everyday assistant (notes, files, media)",
+    "d": "Mix of everything",
+}
 
 
 def _artifacts_dir() -> Path:
@@ -78,31 +102,23 @@ def is_onboarding_active() -> bool:
 # --------------------------------------------------------------------------- #
 # Blank-slate detection + opener heuristic                                    #
 # --------------------------------------------------------------------------- #
-def _count(db_path, table: str) -> int:
+def _profile_missing(db_path=None) -> bool:
+    """True when no structured user profile exists yet (name + patterns)."""
     try:
-        con = sqlite3.connect(str(db_path))
-        try:
-            return int(con.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0])
-        finally:
-            con.close()
+        from eli.runtime import user_model as um
+        model = um.read_user_model(db_path=db_path)
+        if model.get("is_seeded"):
+            return False
+        grouped = um._read_patterns_grouped(db_path)
+        name = um._get_name()
+        return not (name or any(grouped[c] for c in um._COLS))
     except Exception:
-        return 0  # table missing → 0
+        return False
 
 
 def _is_blank_slate(db_path=None) -> bool:
-    """Truly brand-new install: no User Model AND no prior conversation AND no stored
-    memories. Strict on purpose — a user who already has any history is NOT onboarded
-    (and existing tests with seeded data never trip the interview)."""
-    try:
-        from eli.runtime import user_model as um
-        if um.read_user_model(db_path=db_path).get("is_seeded"):
-            return False
-        p = um._db_path(db_path)
-        if _count(p, "conversation_turns") > 0 or _count(p, "memories") > 0:
-            return False
-        return True
-    except Exception:
-        return False
+    """Brand-new user profile — ignore stray session memories from a first greeting."""
+    return _profile_missing(db_path=db_path)
 
 
 def _looks_substantive(text: str) -> bool:
@@ -116,13 +132,30 @@ def _looks_substantive(text: str) -> bool:
     return any(t.startswith(v) or f" {v}" in t for v in _verbs)
 
 
-def _is_not_an_answer(text: str) -> bool:
-    """True when the user typed a question or command instead of answering the interview.
+def _is_onboarding_meta_question(text: str) -> bool:
+    t = (text or "").strip().lower()
+    if not t:
+        return False
+    phrases = (
+        "initial question",
+        "question set",
+        "onboarding",
+        "baseline profile",
+        "build a report",
+        "get to know me",
+        "know about me",
+        "user report",
+        "profile setup",
+        "setup questions",
+        "baseline eli",
+    )
+    return any(p in t for p in phrases)
 
-    Guards against the contamination class where a mid-interview question
-    ("what do you know about me?") was captured RAW as the user's role/style. A real
-    answer ("I work on physics sims", "terse") is declarative — it isn't an
-    interrogative and doesn't start with a command verb — so it still stores correctly."""
+
+def _is_not_an_answer(text: str) -> bool:
+    """True when the user typed a question or command instead of answering the interview."""
+    if _is_onboarding_meta_question(text):
+        return False
     t = (text or "").strip().lower()
     if not t:
         return True
@@ -137,25 +170,79 @@ def _is_not_an_answer(text: str) -> bool:
     return first in _q or first in _cmd
 
 
+def _resolve_mc_choice(text: str, options: Dict[str, str]) -> str:
+    """Map A/B/1/2 or free text to a canonical option label."""
+    raw = (text or "").strip()
+    if not raw:
+        return raw
+    t = raw.lower()
+    if t in options:
+        return options[t]
+    m = re.match(r"^([a-e1-4])[\).\]:]?\s*(.*)$", t)
+    if m and m.group(1) in options:
+        tail = (m.group(2) or "").strip()
+        if tail and m.group(1) == "e":
+            return tail[:200]
+        return options[m.group(1)]
+    for key, label in options.items():
+        if label.lower() in t or t == label.lower():
+            return label
+    # fuzzy: "terse" → option 1, etc.
+    if options is _STYLE_OPTIONS:
+        if "terse" in t or "direct" in t or "short" in t:
+            return options["1"]
+        if "tutorial" in t or "walkthrough" in t or "step by step" in t:
+            return options["4"]
+        if "detail" in t or "thorough" in t:
+            return options["3"]
+    return raw[:200]
+
+
+def _format_options(options: Dict[str, str]) -> str:
+    lines = []
+    for key, label in options.items():
+        lines.append(f"  {key.upper()}) {label}")
+    return "\n".join(lines)
+
+
 # --------------------------------------------------------------------------- #
 # Question script                                                             #
 # --------------------------------------------------------------------------- #
 def _question(step: str, answers: Dict[str, Any]) -> str:
     name = answers.get("name", "")
     if step == "name":
-        return ("First time here, so I don't know you yet — quick baseline and then I'm out of "
-                "your way. What should I call you?  (or say 'skip' and just ask me anything)")
+        return (
+            "First time here — I'll build a quick baseline report on you (pick letters/numbers "
+            "or type your own; say 'skip' anytime).\n\n"
+            "What should I call you?"
+        )
     if step == "role":
-        return f"Good to meet you, {name}. What do you mostly work on?"
+        who = f", {name}" if name else ""
+        return (
+            f"Good to meet you{who}. What do you mostly work on?\n"
+            f"{_format_options(_ROLE_OPTIONS)}\n"
+            "Reply with A–E or describe it in your own words."
+        )
     if step == "style":
-        return "Noted. Default answer style — terse and direct, or full detail?"
+        return (
+            "Noted. Default answer style?\n"
+            f"{_format_options(_STYLE_OPTIONS)}\n"
+            "Reply with 1–4 or describe it."
+        )
+    if step == "focus":
+        return (
+            "Last one — what do you want ELI for most?\n"
+            f"{_format_options(_FOCUS_OPTIONS)}\n"
+            "Reply with A–D or describe it."
+        )
     return ""
 
 
-def _apply_answer(step: str, text: str, db_path=None) -> None:
+def _apply_answer(step: str, text: str, db_path=None) -> str:
+    """Persist one answer; return the canonical value stored."""
     text = (text or "").strip()
     if not text:
-        return
+        return ""
     if step == "name":
         nm = text
         for lead in ("my name is ", "i'm ", "i am ", "call me ", "it's ", "name's "):
@@ -167,37 +254,99 @@ def _apply_answer(step: str, text: str, db_path=None) -> None:
             set_user_name(nm)
         except Exception:
             pass
-        return
-    # role / style → user_patterns. Defensive: never persist a question/command as a
-    # profile fact even if reached directly (the intercept already filters these).
+        return nm
     if _is_not_an_answer(text):
-        return
+        return ""
+    if step == "role":
+        canonical = _resolve_mc_choice(text, _ROLE_OPTIONS)
+    elif step == "style":
+        canonical = _resolve_mc_choice(text, _STYLE_OPTIONS)
+    elif step == "focus":
+        canonical = _resolve_mc_choice(text, _FOCUS_OPTIONS)
+    else:
+        canonical = text[:200]
     try:
-        import sqlite3
         from eli.runtime.profile_extractor import _insert_user_pattern, ensure_profile_tables, _user_db
         db = Path(db_path) if db_path else _user_db()
         ensure_profile_tables(db)
         con = sqlite3.connect(str(db))
         cur = con.cursor()
         if step == "role":
-            _insert_user_pattern(cur, "identity.role", f"User's work/role: {text[:200]}")
+            _insert_user_pattern(cur, "identity.role", f"User's work/role: {canonical[:200]}")
         elif step == "style":
-            _insert_user_pattern(cur, "preference.style", f"User prefers {text[:120]} answers by default.")
+            _insert_user_pattern(cur, "preference.style", f"User prefers {canonical[:120]} answers by default.")
+        elif step == "focus":
+            _insert_user_pattern(cur, "goal.primary", f"User wants ELI mainly for: {canonical[:200]}.")
         con.commit()
         con.close()
+    except Exception:
+        pass
+    return canonical
+
+
+def _baseline_report(answers: Dict[str, Any]) -> str:
+    name = (answers.get("name") or "").strip() or "(not set)"
+    role = (answers.get("role") or "").strip() or "(not set)"
+    style = (answers.get("style") or "").strip() or "(not set)"
+    focus = (answers.get("focus") or "").strip() or "(not set)"
+    return (
+        "Here's your baseline — I'll refine this as we talk:\n\n"
+        f"• Name: {name}\n"
+        f"• Work: {role}\n"
+        f"• Style: {style}\n"
+        f"• Focus: {focus}\n\n"
+        "My read on you will keep evolving from here — correct me anytime. "
+        "What can I do for you?"
+    )
+
+
+def _store_baseline_memory(answers: Dict[str, Any], db_path=None) -> None:
+    try:
+        from eli.memory.memory import get_memory
+        mem = get_memory()
+        parts = []
+        if answers.get("name"):
+            parts.append(f"User's preferred name is {answers['name']}.")
+        if answers.get("role"):
+            parts.append(f"User's work/role: {answers['role']}.")
+        if answers.get("style"):
+            parts.append(f"User prefers {answers['style']} answers by default.")
+        if answers.get("focus"):
+            parts.append(f"User wants ELI mainly for: {answers['focus']}.")
+        if not parts:
+            return
+        text = " ".join(parts)
+        mem.store_memory(
+            text,
+            tags=["user", "baseline", "onboarding"],
+            source="onboarding_interview",
+            kind="identity",
+            importance=0.9,
+        )
     except Exception:
         pass
 
 
 def _finish(db_path=None) -> str:
+    st = get_onboarding_state() or {}
+    answers = dict(st.get("answers") or {})
     clear_onboarding_state()
     try:
         from eli.runtime.user_model import refresh_user_model_brief
         refresh_user_model_brief(db_path=db_path)
     except Exception:
         pass
-    return ("Set — I've got a baseline. I'll fill in the rest as we go; tell me anything to "
-            "remember at any time. What can I do for you?")
+    _store_baseline_memory(answers, db_path=db_path)
+    return _baseline_report(answers)
+
+
+def _begin_or_resume(db_path=None) -> str:
+    st = get_onboarding_state()
+    if st and st.get("status") == "active":
+        step = st.get("step", "name")
+        return _question(step, st.get("answers") or {})
+    _set_onboarding_state("name", {})
+    return _question("name", {})
 
 
 # --------------------------------------------------------------------------- #
@@ -211,30 +360,34 @@ def onboarding_intercept(user_input: str, user_id: Optional[str] = None, db_path
     if is_onboarding_active():
         st = get_onboarding_state() or {}
         step = st.get("step", "name")
-        answers = st.get("answers", {})
+        answers = dict(st.get("answers") or {})
         if text.lower() in _SKIP_WORDS:
             clear_onboarding_state()
             return "No problem — I'll pick it up as we go. Ask me anything."
-        # If the user asked a question / issued a command instead of answering, bow out
-        # of the interview and let it process normally — never capture it as a profile
-        # fact. (This is what stored raw questions as the user's role/style before.)
+        if _is_onboarding_meta_question(text):
+            return (
+                "Yes — we're doing that now. "
+                + _question(step, answers)
+            )
         if _is_not_an_answer(text):
             clear_onboarding_state()
             return None
-        # store this answer, advance
-        _apply_answer(step, text, db_path=db_path)
-        answers[step] = text if step != "name" else text
+        canonical = _apply_answer(step, text, db_path=db_path)
+        if step == "name":
+            answers["name"] = canonical or text.strip().strip(".!,")[:40]
+        else:
+            answers[step] = canonical or text[:200]
         idx = _STEPS.index(step) if step in _STEPS else 0
         if idx + 1 < len(_STEPS):
             nxt = _STEPS[idx + 1]
-            # remember the name for later question phrasing
-            if step == "name":
-                answers["name"] = answers.get("name", text).strip().strip(".!,")[:40]
-            _set_onboarding_state(nxt, {step: text, "name": answers.get("name", "")})
+            _set_onboarding_state(nxt, answers)
             return _question(nxt, answers)
+        _set_onboarding_state(step, answers)
         return _finish(db_path=db_path)
 
-    # Not active — only begin on a true blank slate AND a light opener (never hijack a task).
+    if _profile_missing(db_path=db_path) and _is_onboarding_meta_question(text):
+        return _begin_or_resume(db_path=db_path)
+
     if _is_blank_slate(db_path=db_path) and not _looks_substantive(text):
         _set_onboarding_state("name", {})
         return _question("name", {})
