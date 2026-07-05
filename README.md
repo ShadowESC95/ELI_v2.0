@@ -28,6 +28,8 @@ outside, resold, or shipped as something I can't stand behind. That won't stop e
 I know I can't control piracy; it still sets clear terms and gives me a real basis when someone
 crosses the line.
 
+One more note-- Want a personalised Eli, features, theme, undertanding/teaching etc.? Reach out to me via email and I can assist you this
+
 </div>
 
 ---
