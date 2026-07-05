@@ -355,6 +355,8 @@ _WEB_UI = """<!doctype html>
   .chatbar select { flex:1; min-width:0; padding:8px 10px; border-radius:9px; border:1px solid var(--line); background:var(--input); color:var(--fg); font-size:13px; }
   .cbtn { padding:8px 12px; border:1px solid var(--line); border-radius:9px; background:var(--card); color:var(--fg-dim); font-size:13px; cursor:pointer; transition:var(--fast); white-space:nowrap; }
   .cbtn:hover { color:var(--fg); border-color:var(--teal); }
+  .cbtn.pri { background:var(--accent); border-color:var(--accent); color:#04121a; font-weight:600; }
+  .cbtn.pri:hover { filter:brightness(1.08); color:#04121a; }
   form#f button.stop { background:var(--bad); }
   .typing { display:inline-flex; gap:4px; padding:3px 0; }
   .typing i { width:7px; height:7px; border-radius:50%; background:var(--fg-dim); display:inline-block; animation:blink 1.2s infinite; }
@@ -1187,15 +1189,16 @@ _WEB_UI = """<!doctype html>
       '<button class="cbtn" id="bt-find" onclick="searchBluetooth()">&#127911; Search Bluetooth</button></div>'+
       '<div id="mq-found"></div></div>';
   }
-  function discoverDevices(){
-    const box=$('#mq-found'), btn=$('#mq-find');
+  function discoverDevices(boxSel, btnSel){
+    const box=$(boxSel||'#mq-found'), btn=$(btnSel||'#mq-find');
     if(btn){btn.disabled=true;btn.textContent='Scanning…';}
-    box.innerHTML='<div class="rnote">Scanning your network (mDNS + UPnP)…</div>';
+    if(box)box.innerHTML='<div class="rnote">Scanning your LAN (mDNS + UPnP) — no cloud…</div>';
     api('/v1/devices/discover',{method:'POST',body:JSON.stringify({})}).then(d=>{
       if(btn){btn.disabled=false;btn.innerHTML='&#128270; Find on my network';}
+      if(!box)return;
       if(!d.ok){box.innerHTML='<div class="banner bad" style="margin-top:10px">'+esc(d.error||'discovery failed')+'</div>';return;}
       const all=d.found||[], br=d.brokers||[], c=d.counts||{};
-      const lab={ready:'control ready',roadmap:'control coming',cloud:'cloud only',detected:'detected'};
+      const lab={ready:'control ready',roadmap:'control coming',cloud:'not local',detected:'detected'};
       const col={ready:'#2ec07a',roadmap:'#e0a72e',cloud:'#6aa3e0',detected:'#7a8699'};
       let h='';
       if(br.length){h+='<div class="rnote" style="margin-top:10px">MQTT broker(s) found — click to use:</div>';
@@ -1223,28 +1226,29 @@ _WEB_UI = """<!doctype html>
         h='<div class="rnote" style="margin-top:10px">Nothing found. Make sure your devices are on the same Wi-Fi / LAN as this computer.</div>';
       }
       box.innerHTML=h;
-    }).catch(e=>{if(btn){btn.disabled=false;btn.innerHTML='&#128270; Find on my network';}box.innerHTML='<div class="banner bad">'+esc(''+e)+'</div>';});
+    }).catch(e=>{if(btn){btn.disabled=false;btn.innerHTML='&#128270; Find on my network';}if(box)box.innerHTML='<div class="banner bad">'+esc(''+e)+'</div>';});
   }
-  function searchBluetooth(){
-    const box=$('#mq-found'), btn=$('#bt-find');
+  function searchBluetooth(boxSel, btnSel){
+    const box=$(boxSel||'#mq-found'), btn=$(btnSel||'#bt-find');
     if(btn){btn.disabled=true;btn.textContent='Scanning…';}
-    box.innerHTML='<div class="rnote">Scanning for Bluetooth devices…</div>';
+    if(box)box.innerHTML='<div class="rnote">Scanning for Bluetooth devices…</div>';
     api('/v1/devices/discover?kind=bluetooth&fresh=true',{method:'POST',body:JSON.stringify({})}).then(d=>{
       if(btn){btn.disabled=false;btn.innerHTML='&#127911; Search Bluetooth';}
+      if(!box)return;
       if(!d.ok){box.innerHTML='<div class="banner bad" style="margin-top:10px">'+esc(d.error||'scan failed')+'</div>';return;}
       const bt=(d.found||[]).filter(f=>f.kind==='bluetooth'); window._bt=bt;
       let h='';
       if(!bt.length){
         const note=(d.errors||[]).find(e=>/bluetooth/i.test(e));
-        h='<div class="rnote" style="margin-top:10px">No Bluetooth devices found. '+(note?esc(note):'Make sure Bluetooth is on and the device is in pairing mode.')+'</div>';
+        h='<div class="rnote" style="margin-top:10px">No Bluetooth devices found. '+(note?esc(note):'Turn Bluetooth on and put headphones or speakers in pairing mode.')+'</div>';
       } else {
-        h+='<div class="rnote" style="margin-top:12px">Bluetooth devices nearby — tap to connect, pair, or route audio:</div>';
+        h+='<div class="rnote" style="margin-top:8px">Tap <b>Pair</b> first for new devices, then <b>Use for audio</b> to hear ELI on that speaker.</div>';
         bt.forEach((f,i)=>{
           h+='<div class="src"><div class="sh"><span>&#127911; '+esc(f.name||'Bluetooth device')+'</span>'
             +'<span style="display:flex;gap:6px;flex-wrap:wrap">'
-            +'<button class="cbtn" style="padding:2px 10px" onclick="btDo('+i+',0)">Connect</button>'
             +'<button class="cbtn" style="padding:2px 10px" onclick="btDo('+i+',1)">Pair</button>'
-            +'<button class="cbtn" style="padding:2px 10px" onclick="btDo('+i+',2)">Use for audio</button>'
+            +'<button class="cbtn" style="padding:2px 10px" onclick="btDo('+i+',0)">Connect</button>'
+            +'<button class="cbtn pri" style="padding:2px 10px" onclick="btDo('+i+',2)">Use for audio</button>'
             +'<button class="cbtn" style="padding:2px 10px" onclick="btDo('+i+',3)">Disconnect</button>'
             +'</span></div>'
             +'<div style="font-size:.8em;opacity:.6">'+esc(f.host||'')+(f.rssi?(' &middot; '+esc(f.rssi)+' dBm'):'')+'</div>'
@@ -1252,15 +1256,97 @@ _WEB_UI = """<!doctype html>
         });
       }
       box.innerHTML=h;
-    }).catch(e=>{if(btn){btn.disabled=false;btn.innerHTML='&#127911; Search Bluetooth';}box.innerHTML='<div class="banner bad">'+esc(''+e)+'</div>';});
+    }).catch(e=>{if(btn){btn.disabled=false;btn.innerHTML='&#127911; Search Bluetooth';}if(box)box.innerHTML='<div class="banner bad">'+esc(''+e)+'</div>';});
   }
   function btDo(i,c){
     const f=(window._bt||[])[i]; if(!f)return;
     const cmd=['connect','pair','use_for_audio','disconnect'][c]||'connect';
     const st=$('#bt-st-'+i); if(st)st.textContent=cmd.replace(/_/g,' ')+'…';
     api('/v1/devices/bluetooth',{method:'POST',body:JSON.stringify({address:f.host||'',name:f.name||'',command:cmd})}).then(r=>{
-      if(st)st.innerHTML=(r&&r.ok)?('&#10003; '+esc(r.device_name||f.name||'device')+' — '+esc(cmd.replace(/_/g,' '))):('<span style="color:#f87171">'+esc((r&&r.error)||'failed')+'</span>');
+      if(st)st.innerHTML=(r&&r.ok)?('&#10003; '+esc(r.device_name||f.name||'device')+' — '+esc(cmd.replace(/_/g,' '))+(r.sink?(' &rarr; '+esc(r.sink)):'')):('<span style="color:#f87171">'+esc((r&&r.error)||'failed')+'</span>');
+      if(r&&r.ok&&cmd==='use_for_audio'){loadAudioOutputs();refreshHomeConnectivity();}
     }).catch(e=>{if(st)st.innerHTML='<span style="color:#f87171">'+esc(''+e)+'</span>';});
+  }
+  function refreshHomeConnectivity(){
+    api('/v1/connectivity/status').then(d=>{
+      const w=(d&&d.wifi)||{}, a=(d&&d.audio)||{}, b=(d&&d.bluetooth)||{};
+      const ws=$('#ls-wifi'), as=$('#ls-audio'), bs=$('#ls-bt');
+      if(ws)ws.innerHTML=w.connected?('<span class="ld live"></span>'+esc(w.ssid||'WiFi')):'<span class="ld warn"></span>WiFi';
+      if(as)as.innerHTML=a.default_sink?('<span class="ld live"></span>'+esc((a.default_sink||'').split('.').pop().slice(0,24))):'<span class="ld warn"></span>audio';
+      if(bs)bs.innerHTML=b.available?(b.powered?'<span class="ld live"></span>BT':'<span class="ld warn"></span>BT off'):'<span class="ld off"></span>BT';
+      const pill=$('#home-wifi-pill'); if(pill&&w.connected)pill.innerHTML='&#10003; Connected to <b>'+esc(w.ssid)+'</b>'+(w.signal?(' &middot; '+w.signal+'%'):'');
+      else if(pill&&!w.connected&&w.available)pill.innerHTML='Not on WiFi — scan and join below so LAN devices can be found.';
+      else if(pill&&pill.dataset)pill.innerHTML=pill.dataset.fallback||'';
+    }).catch(()=>{});
+  }
+  function wifiScan(){
+    const box=$('#home-wifi-list'); if(!box)return;
+    box.innerHTML='<div class="rnote">Scanning nearby networks…</div>';
+    api('/v1/connectivity/wifi/networks').then(d=>{
+      if(!d.ok){box.innerHTML='<div class="banner bad">'+esc(d.error||'scan failed')+'</div>';return;}
+      const nets=d.networks||[];
+      if(!nets.length){box.innerHTML='<div class="rnote">No networks found. Check WiFi is on, or use your system settings.</div>';return;}
+      window._wifiNets=nets;
+      let h='<div class="rnote" style="margin-bottom:8px">Tap a network to join — credentials stay on this machine only.</div>';
+      nets.forEach((n,i)=>{
+        const sec=n.security&&n.security!=='--'?esc(n.security):'open';
+        h+='<div class="src" style="cursor:pointer" onclick="wifiConnectAt('+i+')">'
+          +'<div class="sh"><span>'+(n.in_use?'&#10003; ':'')+esc(n.ssid)+'</span>'
+          +'<span>'+esc(''+n.signal)+'% &middot; '+sec+'</span></div></div>';
+      });
+      box.innerHTML=h;
+    }).catch(e=>{box.innerHTML='<div class="banner bad">'+esc(''+e)+'</div>';});
+  }
+  function wifiConnectAt(i){
+    const n=(window._wifiNets||[])[i]; if(!n)return;
+    wifiConnectPrompt(n.ssid||'');
+  }
+  function wifiConnectPrompt(ssid){
+    const pw=prompt('Password for "'+ssid+'" (leave blank if open):','');
+    if(pw===null)return;
+    const st=$('#home-wifi-status'); if(st)st.textContent='Joining '+ssid+'…';
+    api('/v1/connectivity/wifi/connect',{method:'POST',body:JSON.stringify({ssid:ssid,password:pw||''})}).then(r=>{
+      if(st)st.innerHTML=r.ok?('<span style="color:#2ec07a">&#10003; Connected to '+esc(ssid)+'</span>'):('<span style="color:#f87171">'+esc(r.error||r.output||'failed')+'</span>');
+      if(r.ok){refreshHomeConnectivity();wifiScan();}
+    }).catch(e=>{if(st)st.innerHTML='<span style="color:#f87171">'+esc(''+e)+'</span>';});
+  }
+  function loadAudioOutputs(){
+    const box=$('#home-audio-list'); if(!box)return;
+    box.innerHTML='<div class="rnote">Loading speakers…</div>';
+    api('/v1/connectivity/audio/outputs').then(d=>{
+      if(!d.ok){box.innerHTML='<div class="banner bad">'+esc(d.error||'unavailable')+'</div>';return;}
+      const sinks=d.sinks||[];
+      if(!sinks.length){box.innerHTML='<div class="rnote">No audio outputs found. Connect speakers via cable or Bluetooth first.</div>';return;}
+      window._audioSinks=sinks;
+      let h='<div class="rnote" style="margin-bottom:8px">Choose where ELI and your media play — local routing only.</div>';
+      sinks.forEach((s,i)=>{
+        const nm=esc(s.name||s.id);
+        const def=s.is_default?' <span style="color:#2ec07a">(current)</span>':'';
+        const kind=s.kind==='bluetooth'?'&#127911; ':'&#128266; ';
+        h+='<div class="src"><div class="sh"><span>'+kind+nm+def+'</span>'
+          +(s.is_default?'':'<button class="cbtn pri" style="padding:2px 10px" onclick="setAudioOutputAt('+i+')">Use this</button>')
+          +'</div></div>';
+      });
+      box.innerHTML=h;
+    }).catch(e=>{box.innerHTML='<div class="banner bad">'+esc(''+e)+'</div>';});
+  }
+  function setAudioOutputAt(i){
+    const s=(window._audioSinks||[])[i]; if(!s)return;
+    setAudioOutput(s.id||s.name||'');
+  }
+  function setAudioOutput(sink){
+    const st=$('#home-audio-status'); if(st)st.textContent='Switching output…';
+    api('/v1/connectivity/audio/default',{method:'POST',body:JSON.stringify({sink:sink})}).then(r=>{
+      if(st)st.innerHTML=r.ok?'<span style="color:#2ec07a">&#10003; Audio routed</span>':'<span style="color:#f87171">'+esc(r.error||'failed')+'</span>';
+      if(r.ok){loadAudioOutputs();refreshHomeConnectivity();}
+    }).catch(e=>{if(st)st.innerHTML='<span style="color:#f87171">'+esc(''+e)+'</span>';});
+  }
+  function homeQuickScan(){
+    wifiScan();
+    searchBluetooth('#home-bt-box','#home-bt-scan');
+    loadAudioOutputs();
+    discoverDevices('#home-net-box','#home-net-scan');
+    refreshHomeConnectivity();
   }
   function useBroker(host,port){const h=$('#mq_host'),p=$('#mq_port');if(h)h.value=host;if(p)p.value=port||1883;const f=$('#mq-found');if(f)f.innerHTML='<div class="rnote" style="margin-top:10px">Broker set to '+esc(host)+'. Click &ldquo;Save &amp; connect&rdquo;.</div>';}
   function openDiscover(){let f=$('#mq-found');if(!f){f=document.createElement('div');f.id='mq-found';$('#devices').appendChild(f);}f.scrollIntoView({behavior:'smooth',block:'nearest'});discoverDevices();}
@@ -1415,7 +1501,7 @@ _WEB_UI = """<!doctype html>
     (tabs.find(t=>t.id===initial)||tabs[0]).render(body);
   }
   // ── Home: live status strip + sub-tabbed command console ───────────────
-  let _homeSub='devices';
+  let _homeSub='setup';
   function homeStatusStrip(rooms, st){
     const devs=[];rooms.forEach(r=>(r.devices||[]).forEach(d=>devs.push(d)));
     const on=devs.filter(d=>(''+(d.state||'')).toUpperCase()==='ON').length;
@@ -1424,14 +1510,78 @@ _WEB_UI = """<!doctype html>
     const strip=document.createElement('div');strip.className='livestrip';
     const conn=st&&st.connected;
     strip.innerHTML='<span class="lstitle">&#9670; ELI HOME</span>'
-      +'<span class="lspill"><span class="ld '+(conn?'live':'warn')+'"></span>'+(conn?('MQTT '+esc(st.broker||'online')):'MQTT offline')+'</span>'
+      +'<span class="lspill" style="border-color:rgba(46,192,122,.35);background:rgba(46,192,122,.08)"><span class="ld live"></span>100% local</span>'
+      +'<span class="lspill" id="ls-wifi"><span class="ld warn"></span>WiFi</span>'
+      +'<span class="lspill" id="ls-bt"><span class="ld off"></span>BT</span>'
+      +'<span class="lspill" id="ls-audio"><span class="ld warn"></span>audio</span>'
+      +'<span class="lspill"><span class="ld '+(conn?'live':'warn')+'"></span>'+(conn?('MQTT '+esc(st.broker||'online')):'MQTT optional')+'</span>'
       +'<span class="lspill"><span class="ld live"></span><b>'+on+'</b> on</span>'
       +'<span class="lspill"><span class="ld off"></span><b>'+off+'</b> off</span>'
       +(idle?'<span class="lspill"><span class="ld warn"></span><b>'+idle+'</b> idle</span>':'')
       +'<span class="lspill"><b>'+devs.length+'</b> devices</span>'
       +'<span class="lspill" id="ls-autos"><b>&middot;</b> automations</span>';
     api('/v1/home/automations').then(d=>{const n=((d&&d.automations)||[]).length;const e=$('#ls-autos');if(e)e.innerHTML='<b>'+n+'</b> automations';}).catch(()=>{});
+    refreshHomeConnectivity();
     return strip;
+  }
+  function paneQuickSetup(el, st){
+    el.innerHTML='<div class="syscard" style="border-color:rgba(46,192,122,.25);background:rgba(46,192,122,.05);margin-bottom:14px;line-height:1.65">'
+      +'<b>ELI is sovereign.</b> WiFi, Bluetooth, speakers, and smart devices are discovered and controlled on <b>your LAN</b> only — no cloud accounts, no telemetry. '
+      +'Models, voice, and memory run on this machine.</div>'
+      +'<div class="rrow" style="margin-bottom:16px"><button class="cbtn pri" onclick="homeQuickScan()">&#9889; Scan everything</button>'
+      +'<span class="rnote">WiFi + Bluetooth + speakers + LAN devices in one go</span></div>'
+      +'<div class="jhead">1 — WiFi</div>'
+      +'<div class="syscard"><p id="home-wifi-pill" class="rnote" style="margin:0 0 10px" data-fallback="Join your WiFi so ELI can find lights, speakers, and brokers on your home network.">Checking…</p>'
+      +'<div class="rrow"><button class="cbtn" onclick="wifiScan()">&#128246; Scan networks</button></div>'
+      +'<div id="home-wifi-status" class="rnote" style="min-height:1.2em;margin-top:8px"></div>'
+      +'<div id="home-wifi-list" style="margin-top:8px"></div></div>'
+      +'<div class="jhead">2 — Bluetooth</div>'
+      +'<div class="syscard"><p class="rnote" style="margin:0 0 10px">Pair headphones or speakers, then route ELI&#39;s voice and media to them.</p>'
+      +'<div class="rrow"><button class="cbtn" id="home-bt-scan" onclick="searchBluetooth(\\'#home-bt-box\\',\\'#home-bt-scan\\')">&#127911; Search Bluetooth</button></div>'
+      +'<div id="home-bt-box" style="margin-top:8px"></div></div>'
+      +'<div class="jhead">3 — Where sound plays</div>'
+      +'<div class="syscard"><p class="rnote" style="margin:0 0 10px">Pick the speaker or HDMI output for ELI and desktop media — switch anytime.</p>'
+      +'<div class="rrow"><button class="cbtn" onclick="loadAudioOutputs()">&#128266; List speakers</button></div>'
+      +'<div id="home-audio-status" class="rnote" style="min-height:1.2em;margin-top:8px"></div>'
+      +'<div id="home-audio-list" style="margin-top:8px"></div></div>'
+      +'<div class="jhead">4 — Devices on your LAN</div>'
+      +'<div class="syscard"><p class="rnote" style="margin:0 0 10px">AirPlay, Chromecast, Fire TV, MQTT brokers — found via mDNS on your network, never via a cloud API.</p>'
+      +'<div class="rrow"><button class="cbtn" id="home-net-scan" onclick="discoverDevices(\\'#home-net-box\\',\\'#home-net-scan\\')">&#128270; Find on my network</button></div>'
+      +'<div id="home-net-box" style="margin-top:8px"></div></div>'
+      +(st&&!st.connected?('<div class="jhead">5 — Lights &amp; switches (optional MQTT)</div>'
+      +'<div class="syscard"><p class="rnote" style="margin:0 0 10px">MQTT is only needed for broker-backed hardware. Media and Bluetooth work without it.</p>'
+      +'<button class="cbtn" onclick="_homeSub=\\'mqtt\\';loadDevices()">Open MQTT Setup &rarr;</button></div>'):'');
+    refreshHomeConnectivity();
+    loadAudioOutputs();
+  }
+  function paneMediaOutput(el){
+    el.innerHTML='<div class="jhead">Play on this machine</div>'
+      +'<div class="syscard"><p class="rnote" style="margin:0 0 10px">Route system audio to built-in speakers, HDMI, or a paired Bluetooth device.</p>'
+      +'<div class="rrow"><button class="cbtn pri" onclick="loadAudioOutputs()">&#128266; Choose speaker</button>'
+      +'<button class="cbtn" onclick="searchBluetooth(\\'#media-bt-box\\',\\'#media-bt-scan\\')">&#127911; Bluetooth</button></div>'
+      +'<div id="home-audio-status" class="rnote" style="min-height:1.2em;margin-top:8px"></div>'
+      +'<div id="home-audio-list" style="margin-top:8px"></div>'
+      +'<div id="media-bt-box" style="margin-top:10px"></div>'
+      +'<button class="cbtn" id="media-bt-scan" style="display:none"></button></div>'
+      +'<div class="jhead">Play on a network device</div>'
+      +'<div class="syscard"><p class="rnote" style="margin:0 0 12px;line-height:1.65">Add AirPlay, Chromecast, Fire TV, or UPnP renderers from your LAN. Control them from <b>Devices</b> or say &ldquo;play on living room TV&rdquo; — all local drivers.</p>'
+      +'<button class="cbtn" onclick="discoverDevices(\\'#media-net-box\\',\\'#media-net-scan\\')">&#128270; Find media players</button>'
+      +'<div id="media-net-box" style="margin-top:10px"></div>'
+      +'<button class="cbtn" id="media-net-scan" style="display:none"></button></div>'
+      +'<div class="jhead">Now playing (this PC)</div>'
+      +'<div class="syscard" id="media-now-local"><div class="rnote">Loading…</div></div>';
+    loadAudioOutputs();
+    api('/v1/media').then(d=>{
+      const box=$('#media-now-local'); if(!box)return;
+      const ps=(d&&d.players)||[];
+      if(!ps.length){box.innerHTML='<div class="muted">Nothing playing locally. Start Spotify, VLC, or a browser — or add a network player above.</div>';return;}
+      const cur=ps.find(p=>p.is_active)||ps[0];
+      box.innerHTML='<div class="nm">'+esc(cur.title||'(no title)')+'</div>'
+        +'<div class="rnote">'+esc([cur.artist,cur.album].filter(Boolean).join(' — ')||cur.player||'')+'</div>'
+        +'<div class="rrow" style="margin-top:10px">'
+        +'<button class="cbtn" onclick="mediaCtl(\\'play-pause\\')">Play / pause</button>'
+        +'<button class="cbtn" onclick="mediaCtl(\\'next\\')">Next</button></div>';
+    }).catch(()=>{});
   }
   function renderDevices(rooms, st){
     const h=$('#devices');h.innerHTML='';
@@ -1440,18 +1590,20 @@ _WEB_UI = """<!doctype html>
       const b=document.createElement('div');
       b.className='banner';
       b.style.cssText='margin:0 0 12px;line-height:1.65;border-color:rgba(255,209,102,.35);background:rgba(255,209,102,.08)';
-      b.innerHTML='<b>MQTT broker not connected.</b> ELI needs a broker to control lights, switches, and sensors. Open the <b>MQTT Setup</b> tab — scan your network, follow the steps for your OS, then <b>Save &amp; connect</b>.';
+      b.innerHTML='<b>MQTT optional.</b> WiFi, Bluetooth, and media players work without a broker. For MQTT lights/switches, open <b>MQTT Setup</b> or use the guided flow in <b>Quick setup</b>.';
       h.appendChild(b);
     }
     const sg=document.createElement('div');sg.id='home-sugg';h.appendChild(sg);loadHomeSuggestions();
     const shell=document.createElement('div');shell.className='subwrap';h.appendChild(shell);
-    const initial=_homeSub||((st&&st.connected)?'devices':'mqtt');
+    const initial=_homeSub||'setup';
     mountSubtabs(shell,[
-      {id:'mqtt',label:'MQTT Setup',render:el=>paneMqttSetup(el,st)},
+      {id:'setup',label:'Quick setup',render:el=>paneQuickSetup(el,st)},
+      {id:'media',label:'Media & output',render:paneMediaOutput},
       {id:'devices',label:'Devices',render:el=>paneDevices(el,rooms,st)},
+      {id:'mqtt',label:'MQTT Setup',render:el=>paneMqttSetup(el,st)},
       {id:'autos',label:'Automations',render:paneAutomations},
       {id:'scenes',label:'Scenes',render:paneScenes},
-      {id:'discover',label:'Media discovery',render:paneDiscover},
+      {id:'discover',label:'LAN scan',render:paneDiscover},
       {id:'advanced',label:'Advanced',render:paneAdvanced},
     ],initial,(id)=>{_homeSub=id;});
   }
@@ -1510,14 +1662,14 @@ _WEB_UI = """<!doctype html>
     autoTrigFields();autoActFields();
   }
   function paneDiscover(el){
-    el.innerHTML='<div class="jhead">Media devices on your network</div>'+
-      '<div class="syscard"><p class="rnote" style="margin:0 0 10px;line-height:1.6">Find AirPlay, Fire TV, Chromecast, and UPnP/DLNA renderers. These pair locally — separate from your MQTT lights and switches (configure those under <b>MQTT Setup</b>).</p>'+
-      '<button class="cbtn" id="mq-find" onclick="discoverDevices()">&#128270; Scan for media devices</button><div id="mq-found"></div></div>';
+    el.innerHTML='<div class="jhead">LAN device scan</div>'+
+      '<div class="syscard"><p class="rnote" style="margin:0 0 10px;line-height:1.6">Find AirPlay, Fire TV, Chromecast, UPnP/DLNA, and MQTT brokers via mDNS on <b>your network</b> — no cloud lookup. For a guided flow use <b>Quick setup</b>.</p>'+
+      '<button class="cbtn" id="mq-find" onclick="discoverDevices()">&#128270; Scan LAN</button><div id="mq-found"></div></div>';
   }
   function paneMqttSetup(el, st){
     st=st||{};
-    el.innerHTML='<div class="jhead">MQTT broker — required for lights, switches &amp; sensors</div>'+
-      '<div class="syscard"><p class="rnote" style="margin:0 0 12px;line-height:1.65">ELI talks MQTT directly to your hardware (ESPHome, Tasmota, Zigbee2MQTT, or any broker-backed device). Works on <b>any</b> machine — Linux, Windows, Mac, or a Pi/NAS on your network.</p>'+
+    el.innerHTML='<div class="jhead">MQTT broker — for lights, switches &amp; sensors</div>'+
+      '<div class="syscard"><p class="rnote" style="margin:0 0 12px;line-height:1.65">Optional unless you use broker-backed hardware (ESPHome, Tasmota, Zigbee2MQTT). WiFi, Bluetooth, and media players work without MQTT. All broker traffic stays on your LAN.</p>'+
       '<div class="rrow" style="gap:8px;flex-wrap:wrap;margin-bottom:10px">'+
       '<button class="cbtn" onclick="discoverBrokersOnly()">&#128270; Scan network for brokers</button>'+
       '<button class="cbtn" onclick="loadMqttGuide()">&#128214; Show setup guide for my OS</button>'+
@@ -2547,6 +2699,13 @@ class BluetoothAction(BaseModel):
     name: str = ""
     command: str = "connect"      # connect | disconnect | pair | trust | use_for_audio
 
+class WifiConnect(BaseModel):
+    ssid: str
+    password: str = ""
+
+class AudioRoute(BaseModel):
+    sink: str                     # pactl sink name/id or wpctl numeric id
+
 class DevicePair(BaseModel):
     device_id: str
     code: Optional[str] = None    # PIN for AirPlay; omit to begin pairing
@@ -3197,6 +3356,37 @@ def devices_bluetooth(req: BluetoothAction):
         return bluetooth_control_by_name(req.name, cmd)
     except Exception as e:
         return {"ok": False, "error": str(e)}
+
+# ── Local connectivity (WiFi + audio routing) — sovereign, OS tools only ──
+@app.get("/v1/connectivity/status", tags=["Devices"], dependencies=[Depends(_require_token)])
+def connectivity_status_ep():
+    """WiFi link, default audio output, Bluetooth stack — all local, nothing cloud."""
+    from eli.runtime import local_connectivity as lc
+    return lc.connectivity_status()
+
+@app.get("/v1/connectivity/wifi/networks", tags=["Devices"], dependencies=[Depends(_require_token)])
+def connectivity_wifi_scan():
+    """Scan nearby WiFi networks via nmcli/netsh — stays on your machine."""
+    from eli.runtime import local_connectivity as lc
+    return lc.wifi_scan()
+
+@app.post("/v1/connectivity/wifi/connect", tags=["Devices"], dependencies=[Depends(require_member)])
+def connectivity_wifi_connect(req: WifiConnect):
+    """Join a WiFi network locally (member). Password optional for open networks."""
+    from eli.runtime import local_connectivity as lc
+    return lc.wifi_connect(req.ssid, req.password or "")
+
+@app.get("/v1/connectivity/audio/outputs", tags=["Devices"], dependencies=[Depends(_require_token)])
+def connectivity_audio_outputs():
+    """List system audio sinks (speakers, HDMI, Bluetooth) — route media without cloud."""
+    from eli.runtime import local_connectivity as lc
+    return lc.list_audio_outputs()
+
+@app.post("/v1/connectivity/audio/default", tags=["Devices"], dependencies=[Depends(require_member)])
+def connectivity_audio_default(req: AudioRoute):
+    """Set the default audio output so ELI voice and media play on that device."""
+    from eli.runtime import local_connectivity as lc
+    return lc.set_default_audio(req.sink)
 
 @app.get("/v1/devices/drivers", tags=["Devices"], dependencies=[Depends(_require_token)])
 def devices_drivers():
