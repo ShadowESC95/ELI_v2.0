@@ -1265,7 +1265,8 @@ _WEB_UI = """<!doctype html>
   function btDo(i,c){
     const f=(window._bt||[])[i]; if(!f)return;
     const cmd=['connect','pair','use_for_audio','disconnect'][c]||'connect';
-    const st=$('#bt-st-'+i); if(st)st.textContent=cmd.replace(/_/g,' ')+'…';
+    const st=$('#bt-st-'+i);
+    if(st)st.textContent=(cmd==='pair'?'Pairing — keep device in pairing mode (~15s)…':cmd.replace(/_/g,' ')+'…');
     api('/v1/devices/bluetooth',{method:'POST',body:JSON.stringify({address:f.host||'',name:f.name||'',command:cmd})}).then(r=>{
       if(st)st.innerHTML=(r&&r.ok)?('&#10003; '+esc(r.device_name||f.name||'device')+' — '+esc(cmd.replace(/_/g,' '))+(r.sink?(' &rarr; '+esc(r.sink)):'')):('<span style="color:#f87171">'+esc((r&&r.error)||(r&&r.output&&r.output.slice(0,120))||'failed')+'</span>');
       if(r&&r.ok&&cmd==='use_for_audio'){loadAudioOutputs();refreshHomeConnectivity();}
