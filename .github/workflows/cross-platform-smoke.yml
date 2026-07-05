@@ -30,6 +30,7 @@ jobs:
       - name: Install (core + server, CPU — no GPU/image stack)
         run: |
           python -m pip install --upgrade pip
+          python -c "import tomllib,sys; s=tomllib.load(open('pyproject.toml','rb'))['project']['scripts']; bad={k:v for k,v in s.items() if not isinstance(v,str)}; assert not bad, f'project.scripts must be strings: {bad}'; print('pyproject scripts OK:', list(s))"
           pip install -e ".[server]"
           pip install llama-cpp-python --prefer-binary
           pip install httpx pytest
@@ -57,3 +58,5 @@ jobs:
           tests/test_smart_fit.py
           tests/test_settings_extended.py
           tests/test_shell_security_gate.py
+          tests/test_pyproject_packaging.py
+          tests/test_device_names.py
