@@ -921,6 +921,16 @@ def _strip_ansi(text: str) -> str:
 
 def _classic_bt_discover(timeout: float, found: List[dict], seen: set, errors: List[str]) -> None:
     """Classic BR/EDR scan — finds audio headphones/speakers that BLE often misses."""
+    try:
+        from eli.runtime.device_drivers import BluetoothDriver as BT
+        ok, msg = BT._bt_ensure_controller()
+        if not ok:
+            errors.append(f"Bluetooth radio unavailable — {msg}")
+            return
+    except Exception as exc:
+        errors.append(f"Bluetooth setup failed: {exc}")
+        return
+
     if not shutil.which("bluetoothctl"):
         return
 
@@ -955,19 +965,19 @@ def _classic_bt_discover(timeout: float, found: List[dict], seen: set, errors: L
 
     secs = max(4, min(int(timeout) + 2, 15))
     try:
-        subprocess.run(
-            ["bluetoothctl"],
-            input="power on\npairable on\nquit\n",
-            capture_output=True, text=True, timeout=6,
-        )
         r = subprocess.run(
             ["bluetoothctl", "--timeout", str(secs), "scan", "on"],
             capture_output=True, text=True, timeout=secs + 8,
         )
         _ingest((r.stdout or "") + (r.stderr or ""))
-        subprocess.run(["bluetoothctl", "scan", "off"], capture_output=True, text=True, timeout=6)
     except Exception as e:
         errors.append(f"bluetooth classic scan: {e}")
+    finally:
+        try:
+            from eli.runtime.device_drivers import BluetoothDriver as BT
+            BT._bt_ensure_controller()
+        except Exception:
+            pass
 
 
 def _ble_discover(timeout: float, found: List[dict], errors: List[str]) -> None:
@@ -1026,7 +1036,7 @@ def _enrich_bt_discover_results(found: List[dict]) -> None:
         from eli.runtime.device_drivers import BluetoothDriver as BT
     except Exception:
         return
-    BT._bt_prepare_radio()
+    BT._bt_ensure_controller()
     for row in found:
         if row.get("kind") != "bluetooth":
             continue
