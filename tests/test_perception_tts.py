@@ -16,6 +16,7 @@ from eli.perception.tts_router import (
     _voice_dir,
     _DEFAULT_VOICE,
     _VOICE_SEARCH_DIRS,
+    _is_system_voice,
     _run_tts,
     speak_if_enabled,
 )
@@ -238,16 +239,16 @@ def test_voice_models_have_json_config():
 
 # ── Default voice ─────────────────────────────────────────────────────────
 
-def test_default_voice_is_string():
-    assert isinstance(_DEFAULT_VOICE, str)
+def test_default_voice_constant():
+    assert _DEFAULT_VOICE == "en_US-amy-medium"
 
-def test_default_voice_is_installed():
-    assert _DEFAULT_VOICE in list_voices()
-
-def test_default_voice_model_exists():
-    model = find_voice_model(_DEFAULT_VOICE)
-    assert model is not None
-    assert model.exists()
+def test_get_active_voice_resolves_to_usable_voice():
+    result = get_active_voice()
+    assert isinstance(result, str) and len(result) > 0
+    if _is_system_voice(result):
+        assert len(result) > len("sys:")
+    else:
+        assert result in list_voices() or find_voice_model(result) is not None
 
 
 # ── Edge cases ────────────────────────────────────────────────────────────

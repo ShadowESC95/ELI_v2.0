@@ -170,7 +170,9 @@ for target in "${TARGETS[@]}"; do
                 cp    "$PROJECT_ROOT/requirements-macos.txt" "$STAGING/requirements-macos.txt"
                 cp    "$PROJECT_ROOT/requirements-windows.txt" "$STAGING/requirements-windows.txt"
                 cp    "$PROJECT_ROOT/requirements-windows.txt" "$STAGING/requirements.txt"
-                cp -r "$PROJECT_ROOT/packaging/windows" "$STAGING/installers"
+                if [ -d "$PROJECT_ROOT/packaging/windows" ]; then
+                    cp -r "$PROJECT_ROOT/packaging/windows" "$STAGING/installers"
+                fi
                 if ls "$DIST"/eli_mkxi-*.whl >/dev/null 2>&1; then
                     cp "$DIST"/eli_mkxi-*.whl "$STAGING/dist/"
                 fi
