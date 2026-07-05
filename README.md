@@ -285,6 +285,28 @@ every knowledge-gathering limit and the synthesis budget. Extend it with a real 
 (weather, web, calendar, notes, pomodoro, and your own). Teach it routines it proposes. And control
 the boundary with a single network toggle.
 
+## Choose your model
+
+ELI is **not locked to Qwen, Mistral, or Phi.** The installer catalog is a convenience menu
+only — inference loads **any GGUF** you place under `models/` (recursive scan via
+`discover_models()`). That includes Kimi, Nemotron, Europa, Llama, Gemma, DeepSeek, MoE
+quant builds, and future families, as long as:
+
+- The file is a **chat/instruct** GGUF (not an embedder-only weight — those live under
+  `models/embeddings/` and are auto-excluded from the chat picker).
+- **llama-cpp-python** on your hardware can load it (VRAM/RAM — ELI's smart-fit scales
+  layers, context, and batch to what you have).
+- For best reply quality, the GGUF should carry an embedded **`tokenizer.chat_template`**
+  (most modern instruct quants do). ELI reads that metadata first, then falls back to
+  filename heuristics (Qwen/ChatML, Llama-3, Mistral `[INST]`, Phi, Gemma), then a
+  generic prompt format.
+
+**Vision models** need the matching **mmproj** GGUF alongside the main weights. **Ollama**
+is also supported as an alternate backend if you point ELI at a local Ollama instance.
+
+To use a model: drop `YourModel-Q4_K_M.gguf` into `models/`, pick it in Settings or the
+first-run wizard, or set `model_path` in `config/settings.json`.
+
 ## Download & run (Linux portable)
 
 **This is the finish line for v2** — if you don't want to clone and build from source, use the
@@ -304,8 +326,23 @@ tar -xzf ELI_MKXI_v2.0_PRO-2.0.0-linux-portable.tar.gz
 cd ELI_MKXI_v2.0_PRO-2.0.0-linux-portable
 
 ./INSTALL_ELI.sh                    # venv + deps + DB schema (blank slate)
-./RUN_ELI.sh --with-github-assets   # optional: pull model/voice pack from Release assets
+./RUN_ELI.sh --with-github-assets   # starter model + voice pack (tag: local-assets-v2.1)
 ./RUN_ELI.sh                        # launch desktop ELI
+```
+
+**Model pack (`local-assets-v2.1`):** starter/smaller chat models (TinyLlama, SmolLM2,
+Ministral-3B, etc.) + embedder + Piper voices — **not** the full 7B Qwen default. For
+Qwen2.5-7B or Kimi/Nemotron/Europa GGUFs, download during `INSTALL_ELI.sh` (HuggingFace)
+or copy your own `.gguf` into `models/`.
+
+**Requires for asset restore:** `gh` CLI (`gh auth login`) **or** manual download from the
+[model pack release](https://github.com/ShadowESC95/ELI_v2.0/releases/tag/local-assets-v2.1).
+NC-SA voices (e.g. `en_US-ryan-high`) are **skipped automatically** — see
+[models/MODEL_LICENSES.md](models/MODEL_LICENSES.md).
+
+```bash
+# Without gh: download assets manually, then:
+python3 scripts/restore_github_asset_files.py --from-dir /path/to/downloaded/assets
 ```
 
 First launch walks you through setup and model selection (or download one via the installer).
