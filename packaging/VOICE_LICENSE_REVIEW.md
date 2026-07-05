@@ -41,4 +41,4 @@ This report is packaging guidance, not a replacement for formal legal review.
 
 - `en_US-ryan-high` should be excluded from a commercial redistribution bundle by default unless you obtain independent legal clearance.
 - `en_US-lessac-high` / `en_US-lessac-medium` are excluded from ELI's public auto-restore; install manually only after reviewing Blizzard/Lessac upstream terms.
-- `en_GB-cori-high` appears materially lower risk from the available upstream card, but it should still be documented before shipping.
+- `en_GB-cori-high` is excluded from auto-restore and the GitHub asset pack; **`en_US-amy-medium`** is the default out-of-the-box Piper voice.

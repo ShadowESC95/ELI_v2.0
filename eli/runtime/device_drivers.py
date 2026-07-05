@@ -466,6 +466,7 @@ class BluetoothDriver(Driver):
     pip = None                    # OS tools, no python package
     needs_pairing = True
     pair_style = "accept"         # usually confirm/accept the pairing on the device itself
+    ADAPTER_ALIAS = "Eli"         # friendly name remote devices see when pairing
 
     def capabilities(self, dev):
         return ["connect", "disconnect", "pair", "trust", "use_for_audio"]
@@ -507,6 +508,102 @@ class BluetoothDriver(Driver):
             return {"ok": False, "error": f"bluetooth: unsupported command {command!r}"}
         return self._bt_action(addr, action)
 
+    @classmethod
+    def ensure_adapter_alias(cls, alias: Optional[str] = None) -> Dict[str, Any]:
+        """Set this PC's Bluetooth friendly name (what TVs/speakers show when pairing)."""
+        import shutil, sys
+        name = (alias or cls.ADAPTER_ALIAS).strip() or cls.ADAPTER_ALIAS
+        if sys.platform == "darwin":
+            return {"ok": False, "alias": name,
+                    "note": "macOS uses System Settings → General → Sharing → Local hostname"}
+        if not shutil.which("bluetoothctl"):
+            return {"ok": False, "alias": name, "error": "bluetoothctl not found"}
+        _, show = cls._sh(["bluetoothctl", "show"], timeout=8)
+        for line in show.splitlines():
+            if line.strip().lower().startswith("alias:"):
+                current = line.split(":", 1)[1].strip()
+                if current == name:
+                    return {"ok": True, "alias": name, "already_set": True}
+                break
+        try:
+            import subprocess
+            r = subprocess.run(
+                ["bluetoothctl"],
+                input=f"power on\nsystem-alias {name}\nquit\n",
+                capture_output=True,
+                text=True,
+                timeout=12,
+            )
+            out = (r.stdout or "") + (r.stderr or "")
+            return {"ok": True, "alias": name, "output": out.strip()[:200]}
+        except Exception as e:
+            return {"ok": False, "alias": name, "error": str(e)}
+
+    @staticmethod
+    def _parse_bt_ok(out: str) -> bool:
+        low = (out or "").lower()
+        if "authentication failed" in low or "org.bluez.error" in low:
+            return False
+        if ("failed to pair" in low or "failed to connect" in low) and "connection successful" not in low:
+            return False
+        if "connection successful" in low or "already connected" in low:
+            return True
+        if "paired: yes" in low or "connected: yes" in low or "changing" in low:
+            return True
+        return False
+
+    @staticmethod
+    def _bt_error_hint(out: str, action: str) -> str:
+        low = (out or "").lower()
+        if "authentication failed" in low or "rejected" in low:
+            return "Pairing rejected — accept the prompt on the TV/speaker, then tap Pair again"
+        if "failed to connect" in low or "br-connection" in low:
+            return "Could not connect — tap Pair first and accept on the device"
+        if action == "pair":
+            return "Pairing did not finish — confirm on the TV, then tap Pair again"
+        if action == "connect":
+            return "Connect failed — tap Pair and accept on the device first"
+        tail = [ln.strip() for ln in (out or "").splitlines() if ln.strip()]
+        return (tail[-1][:140] if tail else "Bluetooth command failed")
+
+    @staticmethod
+    def _btctl_batch(addr: str, steps: List[str], timeout: float = 45.0):
+        """Run bluetoothctl with a NoInputNoOutput agent (needed for TV/speaker pairing)."""
+        import subprocess
+        script = "\n".join([
+            "agent NoInputNoOutput",
+            "default-agent",
+            "power on",
+            f"system-alias {BluetoothDriver.ADAPTER_ALIAS}",
+            *[f"{step} {addr}" for step in steps],
+            "quit",
+            "",
+        ])
+        try:
+            r = subprocess.run(
+                ["bluetoothctl"],
+                input=script,
+                capture_output=True,
+                text=True,
+                timeout=timeout,
+            )
+            out = (r.stdout or "") + (r.stderr or "")
+            return BluetoothDriver._parse_bt_ok(out), out
+        except FileNotFoundError:
+            return False, "bluetoothctl not found"
+        except Exception as e:
+            return False, str(e)
+
+    def _find_bt_sink(self, addr: str) -> Optional[str]:
+        token = addr.replace(":", "_").upper()
+        _, sinks = self._sh(["pactl", "list", "short", "sinks"])
+        for line in sinks.splitlines():
+            if token in line.upper() and "bluez" in line.lower():
+                parts = line.split()
+                if len(parts) >= 2:
+                    return parts[1]
+        return None
+
     def _bt_action(self, addr, action):
         import shutil, sys
         if sys.platform == "darwin":
@@ -515,55 +612,74 @@ class BluetoothDriver(Driver):
             flag = {"connect": "--connect", "disconnect": "--disconnect",
                     "pair": "--pair", "trust": "--connect"}[action]
             rc, out = self._sh(["blueutil", flag, addr])
-            return {"ok": rc == 0, "command": action, "device": addr, "output": out[:300]}
+            ok = rc == 0
+            res = {"ok": ok, "command": action, "device": addr, "output": out[:300]}
+            if not ok:
+                res["error"] = out.strip()[:200] or "bluetooth command failed"
+            return res
         if not shutil.which("bluetoothctl"):
             if sys.platform.startswith("win"):
                 return {"ok": False, "error": "bluetooth control on Windows isn't wired yet (roadmap)"}
             return {"ok": False, "error": "bluetooth: bluetoothctl not found (install bluez)"}
-        # Linux: power the adapter on, then run the step(s). Pairing implies trust + connect.
-        self._sh(["bluetoothctl", "power", "on"], timeout=8)
-        steps = {"pair": ["pair", "trust", "connect"], "connect": ["connect"],
-                 "disconnect": ["disconnect"], "trust": ["trust"]}[action]
-        out_all, ok = "", False
-        for step in steps:
-            rc, out = self._sh(["bluetoothctl", step, addr], timeout=25)
-            out_all += out + "\n"
-            low = out.lower()
-            ok = (rc == 0 or "successful" in low or "changing" in low
-                  or "connected: yes" in low or "paired: yes" in low)
-        return {"ok": ok, "command": action, "device": addr, "output": out_all.strip()[:400]}
+        self.ensure_adapter_alias()
+        if action == "disconnect":
+            rc, out = self._sh(["bluetoothctl", "disconnect", addr], timeout=25)
+            ok = rc == 0 or "successful" in out.lower() or "disconnected" in out.lower()
+        else:
+            steps = {"pair": ["pair", "trust", "connect"], "connect": ["connect"],
+                     "trust": ["trust"]}[action]
+            ok, out = self._btctl_batch(addr, steps)
+        res = {"ok": ok, "command": action, "device": addr, "output": out.strip()[:400]}
+        if not ok:
+            res["error"] = self._bt_error_hint(out, action)
+        return res
 
     def _route_audio(self, addr):
         """Make this Bluetooth device the system audio output (Linux PulseAudio/PipeWire)."""
-        import shutil, sys
+        import shutil, sys, time
         if sys.platform == "darwin":
             if shutil.which("SwitchAudioSource"):
                 rc, out = self._sh(["SwitchAudioSource", "-t", "output", "-s", addr])
-                return {"ok": rc == 0, "routed": rc == 0, "output": out[:200]}
+                ok = rc == 0
+                res = {"ok": ok, "routed": ok, "output": out[:200]}
+                if not ok:
+                    res["error"] = out.strip()[:200] or "audio routing failed"
+                return res
             return {"ok": False, "error": "macOS audio routing needs switchaudio-osx (brew install switchaudio-osx)"}
         if not shutil.which("pactl"):
             return {"ok": False, "error": "audio routing needs PulseAudio/PipeWire (pactl not found)"}
-        # BlueZ names the sink after the MAC with underscores: bluez_output.AA_BB_CC_DD_EE_FF…
-        token = addr.replace(":", "_").upper()
-        _, sinks = self._sh(["pactl", "list", "short", "sinks"])
-        sink = None
-        for line in sinks.splitlines():
-            if token in line.upper() and "bluez" in line.lower():
-                parts = line.split()
-                if len(parts) >= 2:
-                    sink = parts[1]
-                    break
+        sink = self._find_bt_sink(addr)
         if not sink:
-            return {"ok": False,
-                    "error": "no Bluetooth audio sink for that device — connect it as audio first"}
+            conn = self._bt_action(addr, "connect")
+            if not conn.get("ok"):
+                conn = self._bt_action(addr, "pair")
+            if not conn.get("ok"):
+                return {
+                    "ok": False,
+                    "error": conn.get("error") or "Could not connect — tap Pair, accept on the TV, then Use for audio",
+                    "output": conn.get("output", ""),
+                }
+            for _ in range(20):
+                sink = self._find_bt_sink(addr)
+                if sink:
+                    break
+                time.sleep(0.5)
+        if not sink:
+            return {
+                "ok": False,
+                "error": "No Bluetooth audio output for this device — connect first, or use HDMI / a speaker",
+            }
         rc, _ = self._sh(["pactl", "set-default-sink", sink])
-        # Move any playing streams onto it too, so sound follows immediately.
         _, inputs = self._sh(["pactl", "list", "short", "sink-inputs"])
         for line in inputs.splitlines():
             parts = line.split()
             if parts:
                 self._sh(["pactl", "move-sink-input", parts[0], sink])
-        return {"ok": rc == 0, "routed": rc == 0, "sink": sink, "device": addr}
+        ok = rc == 0
+        res = {"ok": ok, "routed": ok, "sink": sink, "device": addr}
+        if not ok:
+            res["error"] = "Could not set default audio output"
+        return res
 
 
 # ─────────────────────────────────────────────────────────────────────────────
