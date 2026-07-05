@@ -36,3 +36,13 @@ def test_wifi_connect_rejects_empty_ssid():
 def test_set_default_audio_rejects_empty():
     r = lc.set_default_audio("")
     assert r["ok"] is False
+
+
+def test_aux_status_embedder_path():
+    from eli.core.model_download import aux_asset_path, aux_status
+    p = aux_asset_path("embedder")
+    assert p.name == "nomic-embed-text-v1.5.Q4_K_M.gguf"
+    assert "embeddings" in str(p)
+    st = aux_status("embedder")
+    assert st["key"] == "embedder"
+    assert "size_gib_estimate" in st

@@ -45,7 +45,6 @@ copy your own `.gguf` into `models/`.
 |---|---|---|---|
 | `en_US-amy-medium` | [rhasspy/piper-voices](https://huggingface.co/rhasspy/piper-voices) | Per voice card (typically CC BY 4.0) | **Yes** (ELI default TTS) |
 | `en_GB-alan-medium` | rhasspy/piper-voices | Per voice card | Yes |
-| `en_GB-cori-high` | rhasspy/piper-voices | LibriVox-derived dataset per card — retain evidence | Yes |
 | `en_GB-northern_english_male-medium` | rhasspy/piper-voices | Per voice card | Yes |
 | `de_DE-thorsten-medium`, `fr_FR-siwis-medium`, `es_ES-carlfm-x_low`, `it_IT-riccardo-x_low`, `cs_CZ-jirka-medium`, `nl_NL-mls-medium`, `pl_PL-gosia-medium`, `ru_RU-ruslan-medium`, `zh_CN-huayan-x_low` | rhasspy/piper-voices | Per voice card | Yes |
 
@@ -57,7 +56,8 @@ but ELI **skips** them during restore (see `EXCLUDED_VOICE_BASENAMES`):
 | Voice | Reason |
 |---|---|
 | `en_US-ryan-high`, `en_US-ryan-medium` | CC BY-NC-SA 4.0 upstream — non-commercial |
-| `en_US-lessac-high`, `en_US-lessac-medium` | Blizzard 2013 Lessac dataset — redistribution not cleared for public bundle |
+| `en_US-lessac-high`, `en_US-lessac-medium` | Blizzard/Lessac dataset — not cleared for public bundle |
+| `en_GB-cori-high` | LibriVox-derived — excluded; use `en_US-amy-medium` out of the box |
 
 Install cleared voices only, or fetch alternatives from [rhasspy/piper-voices](https://huggingface.co/rhasspy/piper-voices) directly.
 
@@ -120,7 +120,7 @@ Weight files for Phi-3 are **not** committed; download separately under Microsof
 
 1. Attach **this file** to every model/voice GitHub Release (`MODEL_LICENSES.md`).
 2. Do not upload `--include-runtime` or `--include-venv` private data.
-3. Do not auto-restore voices in `EXCLUDED_VOICE_BASENAMES` (ryan, lessac).
-4. Default TTS remains `en_US-amy-medium`.
+3. Do not auto-restore voices in `EXCLUDED_VOICE_BASENAMES` (ryan, lessac, cori).
+4. Default TTS remains `en_US-amy-medium` (install + GitHub pack).
 
 Questions: **jaybridgeman0095@gmail.com**

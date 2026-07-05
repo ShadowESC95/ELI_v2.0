@@ -36,6 +36,7 @@ def test_flat_restore_places_gguf_and_skips_excluded_voices(tmp_path, restore_mo
     (download / "en_US-amy-medium.onnx").write_bytes(b"onnx")
     (download / "en_US-ryan-high.onnx").write_bytes(b"skip")
     (download / "en_US-lessac-high.onnx").write_bytes(b"skip")
+    (download / "en_GB-cori-high.onnx").write_bytes(b"skip")
 
     count = restore_mod._restore_flat(download)
 
@@ -45,3 +46,4 @@ def test_flat_restore_places_gguf_and_skips_excluded_voices(tmp_path, restore_mo
     assert (tmp_path / "tts_piper" / "piper" / "en_US-amy-medium.onnx").exists()
     assert not (tmp_path / "tts_piper" / "piper" / "en_US-ryan-high.onnx").exists()
     assert not (tmp_path / "tts_piper" / "piper" / "en_US-lessac-high.onnx").exists()
+    assert not (tmp_path / "tts_piper" / "piper" / "en_GB-cori-high.onnx").exists()

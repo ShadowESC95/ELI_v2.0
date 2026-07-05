@@ -120,9 +120,11 @@ AUX_MODELS: List[Dict[str, Any]] = [
         "filename": "nomic-embed-text-v1.5.Q4_K_M.gguf",
         "url": "https://huggingface.co/nomic-ai/nomic-embed-text-v1.5-GGUF/resolve/main/nomic-embed-text-v1.5.Q4_K_M.gguf",
         "subdir": "embeddings",
-        "size_gb": 0.08,
+        "size_gb": 0.0841,
+        "size_bytes": 84106624,
         "required": True,
-        "note": "Text embedder for memory / RAG / knowledge-graph recall. Required; auto-installed.",
+        "note": "Text embedder for memory / RAG / knowledge-graph recall. Required; "
+                "auto-installed to models/embeddings/.",
     },
     {
         "key": "vision",
@@ -173,6 +175,39 @@ def download_aux(required_only: bool = True,
     out: List[Dict[str, Any]] = []
     for e in list_aux(required_only=required_only):
         out.append(download_model(e, progress_cb=progress_cb, timeout=timeout))
+    return out
+
+
+def aux_asset_path(key: str = "embedder") -> Path:
+    """Resolved on-disk path for a catalogued auxiliary model (embedder → models/embeddings/)."""
+    e = get_aux(key)
+    if not e:
+        return models_dir() / "unknown.gguf"
+    sub = str(e.get("subdir") or "").strip()
+    return (models_dir() / sub / e["filename"]) if sub else models_dir() / str(e.get("filename") or "")
+
+
+def aux_status(key: str = "embedder") -> Dict[str, Any]:
+    """Presence + size for the wizard/installer UI."""
+    e = get_aux(key)
+    if not e:
+        return {"ok": False, "key": key, "error": f"unknown aux key: {key!r}"}
+    path = aux_asset_path(key)
+    present = is_valid_gguf(path)
+    out: Dict[str, Any] = {
+        "ok": present,
+        "key": key,
+        "name": e.get("name"),
+        "path": str(path),
+        "size_gib_estimate": _fmt_size_gib(e.get("size_gb")),
+    }
+    if present:
+        try:
+            nbytes = path.stat().st_size
+            out["size_mib"] = round(nbytes / (1024 * 1024), 1)
+            out["size_gib_actual"] = round(_as_gib(nbytes / 1e9), 2)
+        except Exception:
+            pass
     return out
 
 _GGUF_MAGIC = b"GGUF"

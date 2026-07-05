@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import logging
 import os
+import shutil
 from pathlib import Path
 from typing import Any, Dict
 
@@ -41,10 +42,26 @@ def _piper_dest() -> Path:
         return Path("models/tts/piper")
 
 
+def _mirror_piper_to_packaged_layout(voice: str) -> None:
+    """Also place the default voice where GitHub restore + portable builds expect it."""
+    try:
+        from eli.core.paths import project_root
+        src = _piper_dest()
+        dest = Path(project_root()) / "tts_piper" / "piper"
+        dest.mkdir(parents=True, exist_ok=True)
+        for fn in (f"{voice}.onnx", f"{voice}.onnx.json"):
+            s = src / fn
+            if s.is_file() and s.stat().st_size > 0:
+                shutil.copy2(s, dest / fn)
+    except Exception:
+        log.debug("voice_assets: packaged piper mirror skipped", exc_info=True)
+
+
 def ensure_piper_voice() -> Dict[str, Any]:
     """Fetch the default Piper voice (``.onnx`` + ``.onnx.json``) if no voice exists."""
     if _piper_present():
-        return {"ok": True, "asset": "piper", "already_present": True}
+        _mirror_piper_to_packaged_layout(_PIPER_VOICE)
+        return {"ok": True, "asset": "piper", "already_present": True, "voice": _PIPER_VOICE}
     dest = _piper_dest()
     try:
         dest.mkdir(parents=True, exist_ok=True)
@@ -64,6 +81,7 @@ def ensure_piper_voice() -> Dict[str, Any]:
                 tmp = target.with_suffix(target.suffix + ".part")
                 tmp.write_bytes(data)
                 tmp.replace(target)
+        _mirror_piper_to_packaged_layout(_PIPER_VOICE)
         return {"ok": True, "asset": "piper", "already_present": False, "voice": _PIPER_VOICE}
     except Exception as e:
         log.debug("voice_assets: piper fetch failed", exc_info=True)
