@@ -33,9 +33,39 @@ explicitly permit it.
 | **Custom-agent trust registry** | Loading an unregistered or tampered agent file |
 | **Network guard** | Unauthorised outbound egress while offline / network disabled |
 | **LAN FastAPI server** | Auth or RBAC bypass when run with `--lan` |
+| **Loopback / reverse-proxy auth** | Tokenless admin via loopback trust, or proxy misconfiguration (see below) |
 
 Generally **out of scope**: issues that require the user to enable **Full Control**
 or to deliberately run code they already chose to run.
+
+## LAN web server — loopback trust & deployment constraints
+
+The FastAPI server (`api/server.py`) treats **socket loopback peers** (`127.0.0.1`,
+`::1`) as the **local operator**: they may call admin endpoints **without a bearer
+token**, even when the server is bound to `0.0.0.0` for LAN phone access. This is
+intentional for single-user desktop use.
+
+**Deployment footguns (document, do not ignore):**
+
+1. **Reverse proxy on the same machine** — If nginx/Caddy/Traefik terminates TLS
+   and forwards to `http://127.0.0.1:<port>`, ELI sees every client as loopback.
+   **All remote users become tokenless admin.** Fix: terminate TLS on the LAN bind
+   and use `--lan` + bearer tokens / RBAC, or proxy to the LAN IP (not loopback)
+   and require tokens.
+
+2. **Shared multi-user host** — Any local Unix user/process that can open
+   `http://127.0.0.1:<port>` gets operator admin, **even when RBAC users are
+   configured**, unless loopback admin is disabled.
+
+**Opt-out (multi-user / hardened deployments):**
+
+```bash
+export ELI_LOOPBACK_ADMIN=0   # require bearer token for localhost too
+export ELI_API_TOKEN=your-secret   # or configure RBAC users
+```
+
+Default is `ELI_LOOPBACK_ADMIN=1` (loopback operator stays admin so you never lock
+yourself out on a personal machine).
 
 ## Shell execution — actual behaviour (three paths)
 

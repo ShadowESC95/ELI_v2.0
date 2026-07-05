@@ -1,4 +1,5 @@
 """
+import logging
 Cognitive Engine – grounded multi-phase controller for ELI.
 """
 
@@ -178,7 +179,7 @@ def _is_soft_informational_action(action) -> bool:
         if a in {str(x).upper() for x in (_CC or set())}:
             return False
     except Exception:
-        pass
+        logging.getLogger(__name__).debug("suppressed exception", exc_info=True)
     return True
 
 # I only want the destructive teardown to run once per process. The close steps
@@ -349,7 +350,7 @@ def _eli_direct_grounded_answer(user_text: str):
         if any(t in _q_guard for t in _persona_terms) and not any(t in _q_guard for t in _explicit_file_scan_terms):
             return None
     except Exception:
-        pass
+        logging.getLogger(__name__).debug("suppressed exception", exc_info=True)
 
     """
     Deterministic answers for questions that must not be delegated to the LLM:
@@ -360,7 +361,7 @@ def _eli_direct_grounded_answer(user_text: str):
         if persona_answer is not None:
             return persona_answer
     except Exception:
-        pass
+        logging.getLogger(__name__).debug("suppressed exception", exc_info=True)
 
     try:
         from eli.cognition.grounded_status import direct_grounded_answer
@@ -397,7 +398,7 @@ def _load_persona_text() -> str:
         if _ca:
             return _ca
     except Exception:
-        pass
+        logging.getLogger(__name__).debug("suppressed exception", exc_info=True)
 
     root = Path(__file__).resolve().parents[2]
 
@@ -424,7 +425,7 @@ def _load_persona_text() -> str:
                     base = cleaned
                     break
         except Exception:
-            pass
+            logging.getLogger(__name__).debug("suppressed exception", exc_info=True)
 
     overlay = ""
     for cand in overlay_candidates:
@@ -436,7 +437,7 @@ def _load_persona_text() -> str:
                     overlay = cleaned
                     break
         except Exception:
-            pass
+            logging.getLogger(__name__).debug("suppressed exception", exc_info=True)
 
     if base and overlay:
         return base + "\n\n" + overlay
@@ -450,14 +451,14 @@ def _load_persona_text() -> str:
         if forced:
             return forced
     except Exception:
-        pass
+        logging.getLogger(__name__).debug("suppressed exception", exc_info=True)
 
     try:
         configured = (config.get_persona() or "").strip()
         if configured:
             return configured
     except Exception:
-        pass
+        logging.getLogger(__name__).debug("suppressed exception", exc_info=True)
 
     return (
         "You are ELI — Enhanced Learning Interface. You run locally on this "
@@ -675,7 +676,7 @@ def _eli_bad_identity_self_report_output(user_input: str, response: str) -> bool
             ):
                 return False
     except Exception:
-        pass
+        logging.getLogger(__name__).debug("suppressed exception", exc_info=True)
     low = text.lower()
     if re.search(r"\byour (?:identity|persona)\b", low):
         return True
@@ -1612,7 +1613,7 @@ def _mw_rs_is_runtime_status_question(text) -> bool:
         if isinstance(routed, dict):
             return str(routed.get("action") or "").strip().upper() == "RUNTIME_STATUS"
     except Exception:
-        pass
+        logging.getLogger(__name__).debug("suppressed exception", exc_info=True)
     return bool(
         _re.search(r"\b(what are you actually running on|runtime status|context size|gpu layers|gpu|ctx)\b", low)
         and _re.search(r"\b(running|runtime|model|context|ctx|gpu|layers|provider|everything)\b", low)
@@ -1696,7 +1697,7 @@ def _mw_rs_generate(prompt, system, mode) -> str:
                 if txt:
                     return txt
             except Exception:
-                pass
+                logging.getLogger(__name__).debug("suppressed exception", exc_info=True)
         raise RuntimeError("No usable GGUF synthesis surface produced text")
     except Exception as e:
         raise RuntimeError(f"runtime-status non-Quick synthesis failed: {e}") from e
@@ -2587,7 +2588,7 @@ def _eli_recent_mem_v3_mode(args, kwargs):
         if args:
             return str(args[0] or "quick").strip().lower()
     except Exception:
-        pass
+        logging.getLogger(__name__).debug("suppressed exception", exc_info=True)
     return "quick"
 
 
@@ -2664,7 +2665,7 @@ def _eli_mc_counts_v4():
                 counts["user_patterns"] = _eli_mc_table_count_v4(conn, "user_patterns")
                 counts["recall_log_rows"] = _eli_mc_table_count_v4(conn, "recall_log")
         except Exception:
-            pass
+            logging.getLogger(__name__).debug("suppressed exception", exc_info=True)
     return str(db_path), counts
 
 
@@ -2699,7 +2700,7 @@ def _eli_mc_mode_v4(args, kwargs):
             if isinstance(args[0], str):
                 mode = args[0]
         except Exception:
-            pass
+            logging.getLogger(__name__).debug("suppressed exception", exc_info=True)
     return str(mode or "quick").strip().lower()
 
 
@@ -2784,7 +2785,7 @@ def _eli_phase13c_bus_action_result(bus_result, action):
                 str(ar.get("action") or action_u).upper().strip() == action_u:
             candidates.append(dict(ar))
     except Exception:
-        pass
+        logging.getLogger(__name__).debug("suppressed exception", exc_info=True)
     try:
         for r in list(getattr(bus_result, "agent_results", []) or []):
             if str(getattr(r, "agent", "") or "") not in {"system", "plugin"}:
@@ -2795,7 +2796,7 @@ def _eli_phase13c_bus_action_result(bus_result, action):
             if str(data.get("action") or action_u).upper().strip() == action_u:
                 candidates.append(dict(data))
     except Exception:
-        pass
+        logging.getLogger(__name__).debug("suppressed exception", exc_info=True)
 
     if not candidates:
         return None
@@ -2834,7 +2835,7 @@ def _eli_bus_first_ok_result(bus_result, action):
         if _ok_with_content(ar):
             return dict(ar)
     except Exception:
-        pass
+        logging.getLogger(__name__).debug("suppressed exception", exc_info=True)
 
     try:
         for r in list(getattr(bus_result, "agent_results", []) or []):
@@ -2844,7 +2845,7 @@ def _eli_bus_first_ok_result(bus_result, action):
             if _ok_with_content(data):
                 return dict(data)
     except Exception:
-        pass
+        logging.getLogger(__name__).debug("suppressed exception", exc_info=True)
 
     return None
 
@@ -3167,7 +3168,7 @@ class CognitiveEngine:
             if _rot.get("archived") or _rot.get("deleted"):
                 log.debug(f"[COGNITIVE] Log rotation: archived={len(_rot['archived'])} deleted={len(_rot['deleted'])}")
         except Exception:
-            pass
+            logging.getLogger(__name__).debug("suppressed exception", exc_info=True)
 
         # ── Register shutdown hooks for non-GUI / CLI sessions ─────────────
         if not _eli_test_mode():
@@ -3305,7 +3306,7 @@ class CognitiveEngine:
             from eli.runtime.reflection import reflect_on_memories
             reflect_on_memories(days=1)
         except Exception:
-            pass
+            logging.getLogger(__name__).debug("suppressed exception", exc_info=True)
 
         # 5. Brief self-improvement analysis on exit (if there were failures)
         try:
@@ -3313,7 +3314,7 @@ class CognitiveEngine:
             si = get_self_improvement()
             si.analyze_and_improve()
         except Exception:
-            pass
+            logging.getLogger(__name__).debug("suppressed exception", exc_info=True)
 
         # 6. Close the memory store — final WAL checkpoint, then SQLite handles.
         try:
@@ -3380,7 +3381,7 @@ class CognitiveEngine:
                     if _devnull is not None:
                         _os_sd.close(_devnull)
                 except Exception:
-                    pass
+                    logging.getLogger(__name__).debug("suppressed exception", exc_info=True)
             log.debug("[COGNITIVE] Shutdown: GGUF model unloaded")
         except Exception as _gguf_err:
             log.debug(f"[COGNITIVE] Shutdown: GGUF unload failed (non-fatal): {_gguf_err}")
@@ -3438,7 +3439,7 @@ class CognitiveEngine:
             from eli.runtime.runtime_policy import budget as _eli_budget
             requested = _eli_budget("max_tokens", max(512, requested), floor=max(512, requested), ceiling=max(2048, n_ctx // 3))
         except Exception:
-            pass
+            logging.getLogger(__name__).debug("suppressed exception", exc_info=True)
 
         try:
             gpu_layers = int(
@@ -3479,7 +3480,7 @@ class CognitiveEngine:
             if _c > 0:
                 return _c
         except Exception:
-            pass
+            logging.getLogger(__name__).debug("suppressed exception", exc_info=True)
         try:
             import json as _j
             from eli.core.paths import project_root as _r
@@ -3490,7 +3491,7 @@ class CognitiveEngine:
                 if _c > 0:
                     return _c
         except Exception:
-            pass
+            logging.getLogger(__name__).debug("suppressed exception", exc_info=True)
         # Conservative last-resort only (no runtime ctx published yet) — never a
         # tuned ceiling; the real ctx comes from the live runtime snapshot above.
         return 4096
@@ -3512,7 +3513,7 @@ class CognitiveEngine:
                 if _c > 0:
                     return _c
         except Exception:
-            pass
+            logging.getLogger(__name__).debug("suppressed exception", exc_info=True)
         return int(self._effective_n_ctx())
 
     def _compact_persona(self) -> str:
@@ -3714,7 +3715,7 @@ class CognitiveEngine:
                 if "max_tokens_final" not in profile:
                     profile["max_tokens_final"] = int(settings.get("max_tokens") or max(1536, int(profile.get("max_tokens", 1536))))
             except Exception:
-                pass
+                logging.getLogger(__name__).debug("suppressed exception", exc_info=True)
         return profile
 
     def _next_trace(self, user_input: str,
@@ -3854,7 +3855,7 @@ class CognitiveEngine:
                     more = f", +{len(names) - 12} more" if len(names) > 12 else ""
                     return f"I have {len(names)} capabilities: {preview}{more}."
         except Exception:
-            pass
+            logging.getLogger(__name__).debug("suppressed exception", exc_info=True)
         return ""
 
     def _recent_topic_summary(self, user_input: str = "") -> Optional[str]:
@@ -3899,7 +3900,7 @@ class CognitiveEngine:
                     if row:
                         hits.append(row)
             except Exception:
-                pass
+                logging.getLogger(__name__).debug("suppressed exception", exc_info=True)
 
         if not hits:
             try:
@@ -3944,7 +3945,7 @@ class CognitiveEngine:
                             hits.append(
                                 f"[{target_date}] {role}: {content[:220]}")
             except Exception:
-                pass
+                logging.getLogger(__name__).debug("suppressed exception", exc_info=True)
 
         if not hits and target_date:
             try:

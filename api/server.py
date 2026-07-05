@@ -96,6 +96,17 @@ def _tokenless_allowed() -> bool:
     return os.environ.get("ELI_API_ALLOW_TOKENLESS", "").strip().lower() in ("1", "true", "yes", "on")
 
 
+def _loopback_grants_admin() -> bool:
+    """When false (ELI_LOOPBACK_ADMIN=0), localhost connections must present a token
+    like any remote client — for shared machines or reverse-proxy hardening."""
+    return os.environ.get("ELI_LOOPBACK_ADMIN", "1").strip().lower() not in (
+        "0",
+        "false",
+        "no",
+        "off",
+    )
+
+
 from typing import NamedTuple
 
 
@@ -131,7 +142,8 @@ def _resolve_principal(authorization: str, loopback: bool = False) -> Optional[P
     `loopback` lets a same-machine caller serve tokenless even in --lan mode; LAN callers
     (non-loopback) always still need the token."""
     token = _bearer(authorization)
-    tokenless = _tokenless_allowed() or loopback
+    loopback_admin = loopback and _loopback_grants_admin()
+    tokenless = _tokenless_allowed() or loopback_admin
     try:
         from eli.runtime import api_users
         if api_users.rbac_enabled():
@@ -150,7 +162,7 @@ def _resolve_principal(authorization: str, loopback: bool = False) -> Optional[P
     if configured:
         if token and secrets.compare_digest(token, configured):
             return Principal("operator", "admin")
-        if not token and loopback:   # same machine, no token typed → owner
+        if not token and loopback_admin:   # same machine, no token typed → owner
             return Principal("operator", "admin")
         return None
     if tokenless:
