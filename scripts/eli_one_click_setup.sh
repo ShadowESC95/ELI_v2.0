@@ -101,8 +101,8 @@ fi
 if [ "$INSTALL_DESKTOP" -eq 1 ] && [ "$(uname -s)" = "Linux" ]; then
   DESKTOP_DIR="${XDG_DATA_HOME:-$HOME/.local/share}/applications"
   mkdir -p "$DESKTOP_DIR"
-  ICON="$ROOT/blueprints/Eli_Icon.png"
-  [ -f "$ICON" ] || ICON="$ROOT/eli/gui/assets/eli.png"
+  ICON="$ROOT/packaging/desktop/Eli_Icon.png"
+  [ -f "$ICON" ] || ICON="$ROOT/blueprints/Eli_Icon.png"
   write_desktop_entry() {
     local target="$1"
     local name="$2"

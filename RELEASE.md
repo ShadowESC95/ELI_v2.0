@@ -1,6 +1,6 @@
 # ELI v2.0 — cutting a download-and-run release
 
-> Full walkthrough: **[blueprints/v2_release.md](blueprints/v2_release.md)**
+> Maintainer walkthrough: **`blueprints/v2_release.pdf`** (local markdown also under `blueprints/`)
 
 ## 1. Build portable Linux package
 
