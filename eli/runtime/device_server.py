@@ -184,13 +184,17 @@ class DeviceServer:
 
     def rooms(self) -> List[Dict[str, Any]]:
         """Devices grouped by room. Named rooms first (alphabetical), 'Unassigned' last."""
+        from eli.runtime.device_names import apply_name, registry_key
         groups: Dict[str, List[Dict[str, Any]]] = {}
         with self._lock:
             for d in self._devices.values():
-                groups.setdefault((d.get("room") or "").strip() or "Unassigned", []).append(dict(d))
+                row = dict(d)
+                k = registry_key(str(row.get("id") or ""))
+                apply_name(row, k, str(row.get("name") or row.get("id") or ""))
+                groups.setdefault((row.get("room") or "").strip() or "Unassigned", []).append(row)
         named = sorted(k for k in groups if k != "Unassigned")
         order = named + (["Unassigned"] if "Unassigned" in groups else [])
-        return [{"room": r, "devices": sorted(groups[r], key=lambda x: x.get("name") or x["id"])}
+        return [{"room": r, "devices": sorted(groups[r], key=lambda x: x.get("display_name") or x.get("name") or x["id"])}
                 for r in order]
 
     def control_room(self, room: str, command: str) -> Dict[str, Any]:
@@ -215,8 +219,15 @@ class DeviceServer:
         return {"ok": False, "error": "unknown device"}
 
     def list_devices(self) -> List[Dict[str, Any]]:
+        from eli.runtime.device_names import apply_name, registry_key
         with self._lock:
-            return [dict(d) for d in self._devices.values()]
+            out: List[Dict[str, Any]] = []
+            for d in self._devices.values():
+                row = dict(d)
+                k = registry_key(str(row.get("id") or ""))
+                apply_name(row, k, str(row.get("name") or row.get("id") or ""))
+                out.append(row)
+            return out
 
     # ── Connection ──────────────────────────────────────────────────────────
     def status(self) -> Dict[str, Any]:
@@ -1098,6 +1109,13 @@ def _enrich_bt_discover_results(found: List[dict]) -> None:
             row.update(meta)
             row["paired"] = info.get("paired", "").lower() == "yes"
             row["connected"] = info.get("connected", "").lower() == "yes"
+            try:
+                from eli.runtime.device_names import apply_name, bt_key
+                k = bt_key(addr)
+                if k:
+                    apply_name(row, k, str(row.get("name") or ""))
+            except Exception:
+                pass
         except Exception:
             continue
     deduped = _dedupe_bluetooth_entries(found)
@@ -1242,7 +1260,10 @@ def bluetooth_control_by_name(name: str, command: str, scan_timeout: float = 3.0
                 "buds", "airpods", "speaker", "speakers", "soundbar", "bluetooth", "device", "it"}
     match = None
     if name_l and name_l not in _GENERIC:
-        match = next((d for d in uniq if name_l in str(d.get("name", "")).lower()), None)
+        from eli.runtime.device_names import match_bluetooth_name
+        match = match_bluetooth_name(name_l, uniq)
+        if match is None:
+            match = next((d for d in uniq if name_l in str(d.get("name", "")).lower()), None)
         if match is None:
             words = [w for w in name_l.split() if w not in _GENERIC]
             match = next((d for d in uniq

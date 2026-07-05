@@ -133,6 +133,8 @@ DEFAULTS: Dict[str, Any] = {
     "bluetooth_display_name": "",
     # User labels for speakers/outputs — voice: "play to kitchen speaker", "device 1".
     "audio_output_aliases": {},
+    # Stable custom names for voice control — keys: dev:{id}, sink:{MAC}, bt:{MAC}.
+    "device_custom_names": {},
     "mic_enabled": False,
     "auto_save": True,
     "log_to_file": False,
