@@ -7,10 +7,9 @@ This report is packaging guidance, not a replacement for formal legal review.
 ### `en_GB-cori-high`
 
 - ONNX: `tts_piper/piper/en_GB-cori-high.onnx`
-- Config present: `True`
-- Classification: **review_before_ship**
-- Commercial bundle default: **manual_review**
-- Reason: Upstream model card identifies a public-domain LibriVox dataset; still retain upstream model-card/license evidence before shipping.
+- Classification: **exclude** (auto-restore)
+- Commercial bundle default: **exclude**
+- Reason: LibriVox-derived upstream card — use `en_US-amy-medium` for out-of-the-box voice instead.
 
 ### `en_US-lessac-high`
 

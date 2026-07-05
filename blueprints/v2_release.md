@@ -12,10 +12,19 @@ Companion: root [`RELEASE.md`](../RELEASE.md) (maintainer checklist) ·
 
 | Artifact | Size (typical) | Contains |
 |---|---|---|
-| `ELI_MKXI_v2.0_PRO-2.0.0-linux-portable.tar.gz` | ~8 MB (no models) | Source tree, wheel, `INSTALL_ELI.sh`, `RUN_ELI.sh`, install scripts |
-| Model/voice pack (separate Release) | GB-scale | GGUF + Piper assets via `upload_github_asset_files.py` |
+| `ELI_v2-2.0.0-linux-portable.tar.gz` | ~8 MB (no models) | Source tree, wheel, `INSTALL_ELI.sh`, `RUN_ELI.sh`, install scripts |
+| Model/voice pack (`local-assets-v2.1`) | ~6+ GB total | nomic embedder, starter GGUFs, cleared Piper voices |
 
-**Not in the tarball:** `.venv`, `artifacts/`, `models/*.gguf` — created or restored at install time.
+**Not in the tarball:** `.venv`, `artifacts/`, `models/*.gguf` — created at install time.
+
+**Auto-fetched on `INSTALL_ELI.sh` (network once):**
+- Python deps into `.venv`
+- Full SQLite architecture (blank slate) via `eli.core.init_data`
+- `models/embeddings/nomic-embed-text-v1.5.Q4_K_M.gguf` (~80 MiB)
+- Piper `en_US-amy-medium` + whisper STT via `eli.runtime.voice_assets`
+
+**From asset pack (`--with-github-assets`):** starter chat models + voices on the release tag.
+Excluded from auto-restore: `en_US-ryan-*`, `en_US-lessac-*`, `en_GB-cori-high`.
 
 **Tested path:** Linux x86_64 + NVIDIA GPU. Windows/macOS/AMD installers exist; feedback welcome.
 

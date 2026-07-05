@@ -491,6 +491,26 @@ class _ModelDownloadThread(QThread):
         self.finished_result.emit(dict(res))
 
 
+class _SupportAssetsThread(QThread):
+    """Fetch required embedder + voice weights (idempotent) off the UI thread."""
+    finished_result = pyqtSignal(dict)
+
+    def run(self):
+        out: Dict[str, Any] = {"embedder": {}, "voice": {}}
+        try:
+            from eli.core.model_download import download_aux
+            aux = download_aux(required_only=True)
+            out["embedder"] = aux[0] if aux else {"ok": False, "error": "no embedder entry"}
+        except Exception as exc:
+            out["embedder"] = {"ok": False, "error": str(exc)}
+        try:
+            from eli.runtime.voice_assets import ensure_voice_assets
+            out["voice"] = ensure_voice_assets()
+        except Exception as exc:
+            out["voice"] = {"piper": {"ok": False, "error": str(exc)}, "whisper": {"ok": False}}
+        self.finished_result.emit(out)
+
+
 # ── FirstBootWizard ────────────────────────────────────────────────────────────
 
 _WIZARD_QSS = """
@@ -595,13 +615,14 @@ class FirstBootWizard(QDialog):
         title.setStyleSheet("font-size:18px;font-weight:bold;color:#88c0d0;")
         v.addWidget(title)
         body = QLabel(
-            "ELI runs entirely on your own machine — no cloud, no accounts, nothing leaves "
-            "your computer.\n\n"
-            "First we'll sort the model — the local brain ELI thinks with. You can:\n"
-            "   •   Download a curated one now, sized to your hardware  (next step)\n"
-            "   •   Point ELI at a .gguf file you already have\n"
-            "   •   Or connect a local Ollama server\n\n"
-            "Pick a model, confirm your hardware, and you're in."
+            "ELI runs entirely on your own machine — no cloud, no accounts.\n\n"
+            "A fresh install also builds the **full database architecture** (blank slate — "
+            "every table exists, no personal memories yet).\n\n"
+            "Next we'll set up three local assets:\n"
+            "   •   **Chat model** — the brain (pick/download on step 2)\n"
+            "   •   **Embedder** — nomic ~80 MiB → `models/embeddings/` (memory/RAG; auto)\n"
+            "   •   **Voice** — `en_US-amy-medium` Piper + whisper STT (auto)\n\n"
+            "Pick a chat model, confirm hardware, and you're in."
         )
         body.setWordWrap(True)
         body.setStyleSheet("color:#c8d0e0;line-height:1.5;")
@@ -702,6 +723,24 @@ class FirstBootWizard(QDialog):
             self._dl_status.setText("Download catalog unavailable — browse to a .gguf instead.")
         self._dl_thread: Optional[_ModelDownloadThread] = None
 
+        sup_title = QLabel("Required support assets (auto):")
+        sup_title.setStyleSheet("color:#88c0d0;font-weight:bold;margin-top:10px;")
+        gv.addWidget(sup_title)
+        self._embedder_status = QLabel("")
+        self._embedder_status.setWordWrap(True)
+        self._embedder_status.setStyleSheet("color:#a3be8c;font-size:11px;")
+        gv.addWidget(self._embedder_status)
+        self._voice_status = QLabel("")
+        self._voice_status.setWordWrap(True)
+        self._voice_status.setStyleSheet("color:#a3be8c;font-size:11px;")
+        gv.addWidget(self._voice_status)
+        fetch_sup = QPushButton("Fetch embedder + voice now")
+        fetch_sup.clicked.connect(self._start_support_assets)
+        gv.addWidget(fetch_sup)
+        self._support_thread: Optional[_SupportAssetsThread] = None
+        self._refresh_support_status()
+        self._start_support_assets()
+
         v.addWidget(self._gguf_widget)
 
         # Ollama section
@@ -780,6 +819,68 @@ class FirstBootWizard(QDialog):
         if path:
             self._wiz_path.setText(path)
 
+    def _refresh_support_status(self):
+        try:
+            from eli.core.model_download import aux_status
+            from eli.perception import tts_router
+            emb = aux_status("embedder")
+            if emb.get("ok"):
+                sz = emb.get("size_mib")
+                self._embedder_status.setText(
+                    f"✓ Embedder ready — {emb.get('path','')}"
+                    + (f" ({sz} MiB)" if sz else ""))
+            else:
+                self._embedder_status.setText(
+                    f"○ Embedder missing — will download to models/embeddings/ "
+                    f"({emb.get('size_gib_estimate','~80 MiB')})")
+            voices = tts_router.list_voices()
+            if voices:
+                self._voice_status.setText(
+                    f"✓ Voice ready — default {tts_router.get_active_voice()} "
+                    f"({len(voices)} voice(s) found)")
+            else:
+                self._voice_status.setText(
+                    "○ Voice missing — will fetch en_US-amy-medium (Piper) + whisper STT")
+        except Exception as exc:
+            self._embedder_status.setText(f"○ Embedder status unknown ({exc})")
+            self._voice_status.setText("○ Voice status unknown")
+
+    def _start_support_assets(self):
+        if getattr(self, "_support_thread", None) is not None and self._support_thread.isRunning():
+            return
+        self._embedder_status.setText("Fetching embedder (nomic) …")
+        self._voice_status.setText("Fetching voice models …")
+        self._support_thread = _SupportAssetsThread(parent=self)
+        self._support_thread.finished_result.connect(self._on_support_done)
+        self._support_thread.start()
+
+    def _on_support_done(self, res: Dict[str, Any]):
+        emb = res.get("embedder") or {}
+        if emb.get("ok"):
+            sz = emb.get("size_gib_actual") or emb.get("size_mib")
+            extra = f" ({sz} GiB)" if isinstance(sz, float) and sz < 2 else (
+                f" ({sz} MiB)" if emb.get("size_mib") else "")
+            self._embedder_status.setText(
+                f"✓ Embedder {'present' if emb.get('already_present') else 'downloaded'}: "
+                f"{emb.get('path','')}{extra}")
+        else:
+            self._embedder_status.setText(
+                f"✗ Embedder: {emb.get('error','failed')} — retry or run: "
+                "python -m eli.core.model_download --aux")
+        voice = res.get("voice") or {}
+        piper = voice.get("piper") or {}
+        whisper = voice.get("whisper") or {}
+        if piper.get("ok") and whisper.get("ok"):
+            self._voice_status.setText(
+                f"✓ Voice ready — Piper {piper.get('voice','en_US-amy-medium')} + whisper STT")
+        else:
+            parts = []
+            if not piper.get("ok"):
+                parts.append(f"Piper: {piper.get('error','missing')}")
+            if not whisper.get("ok"):
+                parts.append(f"whisper: {whisper.get('error','missing')}")
+            self._voice_status.setText("✗ Voice: " + "; ".join(parts))
+
     # ── Download ──────────────────────────────────────────────────────────────
 
     def _start_download(self):
@@ -844,6 +945,7 @@ class FirstBootWizard(QDialog):
                     _est = f"~{res.get('size_gb_estimate')}"
                 _warn = (f"  ⚠ actual {_act:.2f} GiB vs {_est} GiB listed")
             self._dl_status.setText(f"✓ {verb}: {path}{_sz}{_warn}")
+            self._start_support_assets()
         else:
             self._dl_progress.setVisible(False)
             err = res.get("error", "unknown error")

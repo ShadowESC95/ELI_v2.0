@@ -331,8 +331,7 @@ Qwen default. Licenses: **[models/MODEL_LICENSES.md](models/MODEL_LICENSES.md)**
 
 **Requires for asset restore:** `gh` CLI (`gh auth login`) **or** manual download from the
 [model pack release](https://github.com/ShadowESC95/ELI_v2.0/releases/tag/local-assets-v2.1).
-`en_US-ryan-*` and `en_US-lessac-*` voices are **skipped automatically** during restore — install
-manually from upstream only if you accept their license terms.
+`en_US-ryan-*` and `en_US-lessac-*` and `en_GB-cori-high` are **skipped automatically** during restore — default voice is **`en_US-amy-medium`**.
 
 ```bash
 # Without gh: download assets manually, then:
