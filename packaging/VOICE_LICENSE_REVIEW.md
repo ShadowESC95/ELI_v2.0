@@ -17,8 +17,12 @@ This report is packaging guidance, not a replacement for formal legal review.
 - ONNX: `tts_piper/piper/en_US-lessac-high.onnx`
 - Config present: `True`
 - Classification: **license_review_required**
-- Commercial bundle default: **manual_review**
-- Reason: Upstream MODEL_CARD points to the Blizzard 2013 Lessac dataset license; commercial redistribution requires explicit review.
+- Commercial bundle default: **exclude**
+- Reason: Upstream MODEL_CARD points to the Blizzard 2013 Lessac dataset license; **excluded from `--with-github-assets` restore**. Fetch manually from upstream if you accept those terms.
+
+### `en_US-lessac-medium`
+
+- Classification: **exclude** (same Lessac upstream family as `-high`)
 
 ### `en_US-ryan-high`
 
@@ -37,5 +41,5 @@ This report is packaging guidance, not a replacement for formal legal review.
 ## Immediate implication
 
 - `en_US-ryan-high` should be excluded from a commercial redistribution bundle by default unless you obtain independent legal clearance.
-- `en_US-lessac-high` requires review of the Blizzard/LESSAC dataset license referenced by its upstream model card.
+- `en_US-lessac-high` / `en_US-lessac-medium` are excluded from ELI's public auto-restore; install manually only after reviewing Blizzard/Lessac upstream terms.
 - `en_GB-cori-high` appears materially lower risk from the available upstream card, but it should still be documented before shipping.

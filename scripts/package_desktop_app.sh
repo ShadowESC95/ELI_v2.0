@@ -165,7 +165,7 @@ Model/voice pack (separate download — tag: local-assets-v2.1):
   gh auth login
   ./RUN_ELI.sh --with-github-assets
   # or: .venv/bin/python scripts/restore_github_asset_files.py --repo $REPO --tag $TAG
-  # NC-SA voices (en_US-ryan-*) are skipped automatically — see models/MODEL_LICENSES.md
+  # Ryan (NC-SA) and Lessac (uncleared) voices are skipped — see models/MODEL_LICENSES.md
 
 Desktop launcher:
   ./packaging/desktop/install_desktop_launcher.sh

@@ -126,7 +126,7 @@ DEFAULTS: Dict[str, Any] = {
     "cache_type_k": "",
     "cache_type_v": "",
     "auto_speak": False,
-    "tts_voice": "en_US-lessac-high",
+    "tts_voice": "en_US-amy-medium",
     "mic_enabled": False,
     "auto_save": True,
     "log_to_file": False,

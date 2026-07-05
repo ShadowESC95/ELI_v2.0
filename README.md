@@ -20,15 +20,10 @@ touches real hardware. I'm sharing it partly to see if there's interest. **[ELI 
 is mapped out and in active development; this repo stays the v2 line. Feedback helps and is more than appreciated/welcomed, a second pair of eyes is better than just mine because the project has turned into a lot more than initially planned! I prefer someone bringing an issue to me rather than giving me a compliment. Finding issues and reporting them is invaluable to me — bugs, ideas,
 or a plain "I tried it and…" — [open an issue](https://github.com/ShadowESC95/ELI_v2.0/issues). Also, if ELI v2 helps and you want to support my fridge and university tuition fees, feel free to check out my [ko-fi](https://ko-fi.com/shadowesc95) — dev's gotta eat too! **Enjoy, use, and report!**
 
-**Not open source — on purpose.** ELI is **source-available** under
-[PolyForm Internal Use](LICENSE): read it, run it, change it on *your* machine — you should be able
-to audit something that drives your desktop and shell. What you can't do is redistribute it,
-repackage it, or host it as someone else's product. I'm one dev; I want capable local AI in people's
-hands to use and learn from, but I also want to keep steering this project — not watch it forked
-outside, resold, or shipped as something I can't stand behind. That won't stop every bad actor, and
-I know I can't control piracy; it still sets clear terms and gives me a real basis when someone
-crosses the line. **Public GitHub forks and republishing violate the license** — clone for
-yourself, report issues, and send PRs here instead.
+**Source-available — personal & internal use only (not open source).** ELI is published on
+GitHub under [PolyForm Internal Use](LICENSE): clone, read, run, and modify on *your* machine.
+You **may not** redistribute, repackage, mirror, or host it for others. Forks for public
+re-publishing violate the license — open issues and PRs here instead.
 
 **Custom work?** Personalised ELI builds, themes, training, and commercial licensing are
 available by email ([jaybridgeman0095@gmail.com](mailto:jaybridgeman0095@gmail.com)) —
@@ -330,15 +325,14 @@ cd ELI_MKXI_v2.0_PRO-2.0.0-linux-portable
 ./RUN_ELI.sh                        # launch desktop ELI
 ```
 
-**Model pack (`local-assets-v2.1`):** starter/smaller chat models (TinyLlama, SmolLM2,
-Ministral-3B, etc.) + embedder + Piper voices — **not** the full 7B Qwen default. For
-Qwen2.5-7B or Kimi/Nemotron/Europa GGUFs, download during `INSTALL_ELI.sh` (HuggingFace)
-or copy your own `.gguf` into `models/`.
+**Model pack (`local-assets-v2.1`):** nomic embedder + starter chat GGUFs (TinyLlama, SmolLM2,
+Ministral-3B, DeepSeek-R1-Distill, Palmyra-mini) + cleared Piper voices — **not** the full 7B
+Qwen default. Licenses: **[models/MODEL_LICENSES.md](models/MODEL_LICENSES.md)**.
 
 **Requires for asset restore:** `gh` CLI (`gh auth login`) **or** manual download from the
 [model pack release](https://github.com/ShadowESC95/ELI_v2.0/releases/tag/local-assets-v2.1).
-NC-SA voices (e.g. `en_US-ryan-high`) are **skipped automatically** — see
-[models/MODEL_LICENSES.md](models/MODEL_LICENSES.md).
+`en_US-ryan-*` and `en_US-lessac-*` voices are **skipped automatically** during restore — install
+manually from upstream only if you accept their license terms.
 
 ```bash
 # Without gh: download assets manually, then:
