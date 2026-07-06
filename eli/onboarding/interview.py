@@ -33,10 +33,10 @@ _ROLE_OPTIONS = {
 }
 
 _STYLE_OPTIONS = {
-    "1": "Terse and direct",
-    "2": "Balanced",
-    "3": "Detailed explanations",
-    "4": "Tutorial-style walkthroughs",
+    "1": "Just the answer — quick and to the point",
+    "2": "Balanced — the answer with a little context",
+    "3": "Thorough — walk me through the reasoning",
+    "4": "Collaborative — think it through with me and ask me things back",
 }
 
 _FOCUS_OPTIONS = {
@@ -187,14 +187,16 @@ def _resolve_mc_choice(text: str, options: Dict[str, str]) -> str:
     for key, label in options.items():
         if label.lower() in t or t == label.lower():
             return label
-    # fuzzy: "terse" → option 1, etc.
+    # fuzzy: map how-they-describe-it to the closest interaction style
     if options is _STYLE_OPTIONS:
-        if "terse" in t or "direct" in t or "short" in t:
+        if any(w in t for w in ("terse", "direct", "short", "just the answer", "quick", "brief", "concise")):
             return options["1"]
-        if "tutorial" in t or "walkthrough" in t or "step by step" in t:
+        if any(w in t for w in ("collaborat", "think it through", "ask me", "ask back", "back and forth", "together", "conversation")):
             return options["4"]
-        if "detail" in t or "thorough" in t:
+        if any(w in t for w in ("detail", "thorough", "walk", "reasoning", "explain", "tutorial", "step by step")):
             return options["3"]
+        if "balanc" in t:
+            return options["2"]
     return raw[:200]
 
 
@@ -208,32 +210,61 @@ def _format_options(options: Dict[str, str]) -> str:
 # --------------------------------------------------------------------------- #
 # Question script                                                             #
 # --------------------------------------------------------------------------- #
+def _short(val: str) -> str:
+    """A tidy, lowercase fragment of a stored answer, safe to drop inline into the
+    next question so the interview references what the user just said."""
+    s = (val or "").strip().rstrip(".")
+    s = re.sub(r"\s*\(user described\)\s*$", "", s, flags=re.I)
+    return s[:48]
+
+
 def _question(step: str, answers: Dict[str, Any]) -> str:
-    name = answers.get("name", "")
+    """One warm, curious question at a time. Each step plays off the previous answer so
+    it reads like ELI genuinely getting to know the person, not a form to fill in."""
+    name = (answers.get("name") or "").strip()
     if step == "name":
         return (
-            "First time here — I'll build a quick baseline report on you (pick letters/numbers "
-            "or type your own; say 'skip' anytime).\n\n"
-            "What should I call you?"
+            "Before we get into anything — I'd genuinely like to know who I'm working with. "
+            "The more I understand you, the more I can be *your* ELI instead of a generic "
+            "assistant, and I'll keep learning as we go. Just a couple of quick things, and "
+            "skip anything you'd rather not answer (say 'skip' anytime).\n\n"
+            "So, to start with — what should I call you?"
         )
     if step == "role":
-        who = f", {name}" if name else ""
+        hi = f"{name} — good to meet you properly." if name else "Good to meet you."
         return (
-            f"Good to meet you{who}. What do you mostly work on?\n"
+            f"{hi} I'm curious what your days actually look like, so I can shape myself "
+            "around them — what do you mostly work on?\n"
             f"{_format_options(_ROLE_OPTIONS)}\n"
-            "Reply with A–E or describe it in your own words."
+            "Pick a letter, or just tell me in your own words — I'd rather hear it how you'd say it."
         )
     if step == "style":
+        role = _short(answers.get("role", ""))
+        lead = (
+            f"{role.capitalize()} — that tells me a lot about how to be useful to you."
+            if role and len(role) <= 32 else
+            "Good — that helps me picture how to be useful to you."
+        )
         return (
-            "Noted. Default answer style?\n"
+            f"{lead} Now the part I really care about: how do you actually like to be "
+            "worked with? When I answer you, what feels right?\n"
             f"{_format_options(_STYLE_OPTIONS)}\n"
-            "Reply with 1–4 or describe it."
+            "Pick a number, or just describe the kind of back-and-forth you enjoy — some people "
+            "want me to get straight to it, others like me to think out loud and ask questions back."
         )
     if step == "focus":
+        whom = f", {name}" if name else ""
+        role = _short(answers.get("role", ""))
+        ask = (
+            f"Given you're into {role}, what do you most want me around for?"
+            if role and len(role) <= 32 else
+            "What do you most want me around for?"
+        )
         return (
-            "Last one — what do you want ELI for most?\n"
+            f"Last one{whom}, then I'll get out of your way and we can actually start.\n"
+            f"{ask}\n"
             f"{_format_options(_FOCUS_OPTIONS)}\n"
-            "Reply with A–D or describe it."
+            "A–D, or tell me what you're hoping I'll take off your plate."
         )
     return ""
 
@@ -289,14 +320,16 @@ def _baseline_report(answers: Dict[str, Any]) -> str:
     role = (answers.get("role") or "").strip() or "(not set)"
     style = (answers.get("style") or "").strip() or "(not set)"
     focus = (answers.get("focus") or "").strip() or "(not set)"
+    opener = f"Thanks, {name} — here's what I've picked up so far:" if name and name != "(not set)" \
+        else "Thanks — here's what I've picked up so far:"
     return (
-        "Here's your baseline — I'll refine this as we talk:\n\n"
-        f"• Name: {name}\n"
-        f"• Work: {role}\n"
-        f"• Style: {style}\n"
-        f"• Focus: {focus}\n\n"
-        "My read on you will keep evolving from here — correct me anytime. "
-        "What can I do for you?"
+        f"{opener}\n\n"
+        f"• I'll call you: {name}\n"
+        f"• You work on: {role}\n"
+        f"• You like me to be: {style}\n"
+        f"• You mostly want me for: {focus}\n\n"
+        "That's just my starting read on you and it'll keep evolving the more we talk — "
+        "so correct me any time and I'll adjust. Now, what's on your mind?"
     )
 
 

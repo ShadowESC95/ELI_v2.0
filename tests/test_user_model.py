@@ -80,7 +80,8 @@ def test_onboarding_flow_seeds_and_finishes(db, monkeypatch):
     assert "1)" in iv.onboarding_intercept("physics", db_path=db).lower()
     assert "last one" in iv.onboarding_intercept("2", db_path=db).lower()
     done = iv.onboarding_intercept("d", db_path=db)
-    assert "baseline" in done.lower() and "Alex" in done and not iv.is_onboarding_active()
+    # closing summary echoes the name + at least one captured answer, and ends onboarding
+    assert "Alex" in done and "picked up" in done.lower() and not iv.is_onboarding_active()
     assert captured.get("name") == "Alex"
     rows = dict(sqlite3.connect(str(db)).execute(
         "select pattern_type, pattern_data from user_patterns").fetchall())
