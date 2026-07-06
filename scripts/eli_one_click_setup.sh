@@ -3,6 +3,12 @@
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+export ELI_PROJECT_ROOT="$ROOT"
+export ELI_DATA_DIR="${ELI_DATA_DIR:-$ROOT/artifacts}"
+export ELI_CONFIG_DIR="${ELI_CONFIG_DIR:-$ROOT/config}"
+export ELI_MODELS_DIR="${ELI_MODELS_DIR:-$ROOT/models}"
+export ELI_CACHE_DIR="${ELI_CACHE_DIR:-$ROOT/cache}"
+export PYTHONPATH="$ROOT${PYTHONPATH:+:$PYTHONPATH}"
 CPU_ONLY=0
 SKIP_TORCH=0
 WITH_GITHUB_ASSETS=0
