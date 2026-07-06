@@ -289,7 +289,11 @@ def test_discover_degrades_without_zeroconf(monkeypatch):
     # SSDP is an independent path, so discovery no longer hard-fails when zeroconf is
     # absent — it degrades: the mDNS leg is reported in errors, the scan still returns ok.
     monkeypatch.setattr(ds, "_ssdp_discover", lambda timeout: [])  # keep it offline/deterministic
-    r = ds.discover(timeout=1.0)
+    # The Bluetooth leg scans the REAL radio — stub it too, or this test fails on any
+    # machine with paired/nearby BT devices (environment leak, not a product bug).
+    monkeypatch.setattr(ds, "_ble_discover", lambda timeout, found, errors, quick=False: None)
+    # fresh=True drops the rolling discovery cache so earlier tests/scans can't leak in.
+    r = ds.discover(timeout=1.0, fresh=True)
     assert r["ok"] is True
     assert r["found"] == []
     assert any("zeroconf" in e for e in r.get("errors", []))

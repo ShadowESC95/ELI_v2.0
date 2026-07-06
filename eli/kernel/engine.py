@@ -1,9 +1,10 @@
 """
-import logging
 Cognitive Engine – grounded multi-phase controller for ELI.
 """
 
 from __future__ import annotations
+
+import logging
 from eli.cognition.output_governor import govern_output
 from eli.cognition.output_governor import normalize_assistant_text as _output_governor_normalize
 from .scheduler import get_scheduler
