@@ -350,6 +350,16 @@ def install_socket_guard() -> bool:
     if _GUARD_INSTALLED:
         return False
 
+    # Guard against DOUBLE installation across module identities. In a packaged/portable
+    # build this module can be imported under two names (e.g. `eli.core.netguard` and a
+    # top-level `netguard`), each with its own `_GUARD_INSTALLED=False`. If the second copy
+    # captured the first copy's already-guarded `socket.connect` as its "real" one, the
+    # guard would call itself → "maximum recursion depth exceeded" on the next connect
+    # (exactly what MQTT auto-connect tripped). Refuse to wrap an already-guarded socket.
+    if getattr(socket.socket.connect, "_eli_netguard", False):
+        _GUARD_INSTALLED = True
+        return False
+
     _REAL_CONNECT = socket.socket.connect
     _REAL_CONNECT_EX = socket.socket.connect_ex
     _REAL_CREATE_CONNECTION = socket.create_connection
@@ -397,6 +407,11 @@ def install_socket_guard() -> bool:
             _record_egress(_host, _port)
         return _REAL_CREATE_CONNECTION(address, *args, **kwargs)
 
+    # Tag each wrapper so a second module-copy of netguard can detect an already-guarded
+    # socket and refuse to re-wrap it (prevents the self-recursion described above).
+    _guarded_connect._eli_netguard = True
+    _guarded_connect_ex._eli_netguard = True
+    _guarded_create_connection._eli_netguard = True
     socket.socket.connect = _guarded_connect
     socket.socket.connect_ex = _guarded_connect_ex
     socket.create_connection = _guarded_create_connection

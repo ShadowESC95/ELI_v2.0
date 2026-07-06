@@ -27,9 +27,32 @@ def _http_json(url: str, headers: Optional[Dict[str, str]] = None, timeout: floa
         return None
 
 
+def effective_api_port() -> int:
+    """The port the ELI web/API server should listen on.
+
+    Precedence: an explicit ELI_API_PORT env (set by --port / launcher) wins; otherwise
+    the user's persisted `api_port` setting; otherwise the 8081 default. This is the single
+    source every launch path consults, so changing the setting moves the server everywhere
+    (useful when 8081 is already taken by another service on the LAN)."""
+    env = os.environ.get("ELI_API_PORT")
+    if env:
+        try:
+            return int(env)
+        except (TypeError, ValueError):
+            pass
+    try:
+        from eli.core import config
+        v = config.get("api_port")
+        if v:
+            return int(v)
+    except Exception:
+        pass
+    return 8081
+
+
 def probe_eli_server(port: Optional[int] = None) -> Dict[str, Any]:
     """Best-effort probe of whatever is listening on the ELI API port."""
-    port = int(port or os.environ.get("ELI_API_PORT", "8081"))
+    port = int(port or effective_api_port())
     out: Dict[str, Any] = {
         "port": port,
         "in_use": False,

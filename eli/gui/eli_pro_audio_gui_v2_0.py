@@ -8539,7 +8539,8 @@ _register()
         import os, secrets, threading
         if getattr(self, "_srv_thread", None) and self._srv_thread.is_alive():
             return  # already running
-        port = int(os.environ.get("ELI_API_PORT", "8081"))
+        from eli.runtime.server_util import effective_api_port
+        port = effective_api_port()  # honours the user's saved api_port setting
         try:
             from eli.runtime.server_util import probe_eli_server
             probe = probe_eli_server(port)
