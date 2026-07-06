@@ -292,6 +292,8 @@ Write-Host "[OK] Voice       $VoiceStatus" -ForegroundColor Green
 Write-Host "[OK] Data        fresh local databases, offline-by-default" -ForegroundColor Green
 Write-Host ""
 Write-Host "--- Launch ---" -ForegroundColor Magenta
+Write-Host "[..] Installing Start Menu shortcuts with ELI icon..."
+powershell -ExecutionPolicy Bypass -File "$Root\scripts\install_desktop_apps.ps1"
 Write-Host "  .\eli.bat                                  # desktop app (GUI)" -ForegroundColor White
 Write-Host "  .\scripts\eli_serve.ps1 -Lan               # web app for phone / tablet" -ForegroundColor White
 Write-Host "  powershell -File scripts\install_desktop_apps.ps1   # add Start Menu shortcuts" -ForegroundColor White

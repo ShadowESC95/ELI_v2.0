@@ -25,8 +25,8 @@ WizardStyle=modern
 PrivilegesRequired=lowest
 ArchitecturesAllowed=x64compatible
 ArchitecturesInstallIn64BitMode=x64compatible
-SetupIconFile=..\..\packaging\desktop\Eli_Icon.png
-UninstallDisplayIcon={app}\packaging\desktop\Eli_Icon.png
+SetupIconFile=..\..\packaging\desktop\Eli_Icon.ico
+UninstallDisplayIcon={app}\packaging\desktop\Eli_Icon.ico
 
 [Languages]
 Name: "english"; MessagesFile: "compiler:Default.isl"
@@ -38,9 +38,9 @@ Name: "desktopicon"; Description: "Create a desktop shortcut"; GroupDescription:
 Source: "..\..\build\win-portable\ELI_v2-{#MyAppVersion}-windows-portable\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
 
 [Icons]
-Name: "{group}\{#MyAppName}"; Filename: "{app}\eli.bat"; WorkingDir: "{app}"; IconFilename: "{app}\packaging\desktop\Eli_Icon.png"
-Name: "{group}\ELI Setup (repair)"; Filename: "{app}\ELI_Setup.bat"; WorkingDir: "{app}"
-Name: "{autodesktop}\{#MyAppName}"; Filename: "{app}\eli.bat"; WorkingDir: "{app}"; Tasks: desktopicon; IconFilename: "{app}\packaging\desktop\Eli_Icon.png"
+Name: "{group}\{#MyAppName}"; Filename: "{app}\eli.bat"; WorkingDir: "{app}"; IconFilename: "{app}\packaging\desktop\Eli_Icon.ico"
+Name: "{group}\ELI Setup (repair)"; Filename: "{app}\ELI_Setup.bat"; WorkingDir: "{app}"; IconFilename: "{app}\packaging\desktop\Eli_Icon.ico"
+Name: "{autodesktop}\{#MyAppName}"; Filename: "{app}\eli.bat"; WorkingDir: "{app}"; Tasks: desktopicon; IconFilename: "{app}\packaging\desktop\Eli_Icon.ico"
 
 [Run]
 Filename: "{app}\ELI_Setup.bat"; Description: "Set up ELI now (recommended)"; Flags: postinstall nowait skipifsilent

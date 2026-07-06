@@ -96,8 +96,16 @@ for _lic in MODEL_LICENSES.md README.txt; do
   [ -f "$ROOT/models/$_lic" ] && cp "$ROOT/models/$_lic" "$STAGING/models/"
 done
 if [ -f "$ROOT/packaging/desktop/Eli_Icon.png" ]; then
+  if [ -x "$ROOT/.venv/bin/python" ] 2>/dev/null || [ -x "$PYTHON" ]; then
+    _GEN_PY="${PYTHON:-python3}"
+    [ -x "$ROOT/.venv/bin/python" ] && _GEN_PY="$ROOT/.venv/bin/python"
+    "$_GEN_PY" "$ROOT/scripts/generate_branding_icons.py" 2>/dev/null || true
+  fi
   cp "$ROOT/packaging/desktop/Eli_Icon.png" "$STAGING/packaging/desktop/"
   cp "$ROOT/packaging/desktop/Eli_Icon.png" "$STAGING/blueprints/"
+  for _ic in Eli_Icon.ico eli-48.png eli-128.png eli-256.png; do
+    [ -f "$ROOT/packaging/desktop/$_ic" ] && cp "$ROOT/packaging/desktop/$_ic" "$STAGING/packaging/desktop/"
+  done
 fi
 if ls "$ROOT"/dist/eli_v2_0-*.whl >/dev/null 2>&1; then
   cp "$ROOT"/dist/eli_v2_0-*.whl "$STAGING/dist/"
@@ -140,7 +148,7 @@ Name=ELI v2.0
 GenericName=Local AI Assistant
 Comment=Local AI cognitive runtime and assistant
 Exec=__APP_ROOT__/RUN_ELI.sh
-Icon=__APP_ROOT__/packaging/desktop/Eli_Icon.png
+Icon=eli
 Type=Application
 Categories=Utility;
 Keywords=ai;assistant;llm;local;eli;eli_v2_0;

@@ -11,6 +11,7 @@ set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 [ -x "$ROOT/.venv/bin/python" ] || { echo "[eli] .venv not found — run install.sh first."; exit 1; }
+PYTHON="$ROOT/.venv/bin/python"
 
 OS="$(uname -s)"
 chmod +x "$ROOT/scripts/eli_launch.sh" "$ROOT/scripts/eli_serve.sh" "$ROOT/scripts/eli_setup.sh" 2>/dev/null || true
@@ -49,11 +50,15 @@ APPS="${XDG_DATA_HOME:-$HOME/.local/share}/applications"
 mkdir -p "$APPS"
 chmod +x "$ROOT/scripts/eli_launch.sh" "$ROOT/scripts/eli_serve.sh" "$ROOT/scripts/eli_setup.sh" 2>/dev/null || true
 
-# App-menu icon (shipped under packaging/desktop; local blueprints copy is optional).
-ICON="utilities-terminal"
-for c in "$ROOT/packaging/desktop/Eli_Icon.png" "$ROOT/blueprints/Eli_Icon.png" "$ROOT/blueprints/eli_logo2.png"; do
-    [ -f "$c" ] && { ICON="$c"; break; }
-done
+# Install Freedesktop theme icon (eli) + blueprints/ runtime copy.
+ICON="eli"
+if ! ICON="$("$PYTHON" -c "from eli.gui.branding import prepare_launcher_icons; print(prepare_launcher_icons())")"; then
+    echo "[WARN] Could not install theme icon — falling back to bundled PNG path." >&2
+    for c in "$ROOT/packaging/desktop/Eli_Icon.png" "$ROOT/blueprints/Eli_Icon.png"; do
+        [ -f "$c" ] && { ICON="$c"; break; }
+    done
+fi
+command -v gtk-update-icon-cache >/dev/null 2>&1 && gtk-update-icon-cache -f -t "${XDG_DATA_HOME:-$HOME/.local/share}/icons/hicolor" 2>/dev/null || true
 
 cat > "$APPS/eli-setup.desktop" <<EOF
 [Desktop Entry]
