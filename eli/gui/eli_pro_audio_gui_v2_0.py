@@ -8493,8 +8493,9 @@ _register()
     def _eli_server_refresh_qr(self, http_url: str = "", https_url: str = "") -> None:
         """Render connect QRs in the settings page (best-effort)."""
         try:
-            from eli.runtime.server_util import qr_png_data_uri
+            from eli.runtime.server_util import qr_png_bytes
             from PySide6.QtCore import Qt
+            from PySide6.QtGui import QPixmap
         except Exception:
             return
         for lab, url, label in (
@@ -8505,14 +8506,19 @@ _register()
                 continue
             if url:
                 try:
-                    uri = qr_png_data_uri(url)
-                    lab.setText(
-                        f'<div style="text-align:center;font-size:10px;color:#06141f;">'
-                        f'<b>{label}</b><br><img src="{uri}" width="180" height="180"></div>')
-                    lab.setTextFormat(Qt.TextFormat.RichText)
+                    # QLabel rich-text can't load data: URI <img> — decode the PNG into a
+                    # QPixmap and set it directly. This is what makes the QR actually appear.
+                    pix = QPixmap()
+                    if not pix.loadFromData(qr_png_bytes(url), "PNG"):
+                        raise RuntimeError("QR decode failed")
+                    pix = pix.scaled(190, 190, Qt.AspectRatioMode.KeepAspectRatio,
+                                     Qt.TransformationMode.SmoothTransformation)
+                    lab.setPixmap(pix)
+                    lab.setToolTip(f"{label}: {url}")
                 except Exception as ex:
                     lab.setText(f"{label}\n(QR unavailable: {ex})")
             else:
+                lab.clear()
                 lab.setText(f"{label}\n(start phone/Wi-Fi mode)")
 
     def _eli_server_stop_https(self) -> None:

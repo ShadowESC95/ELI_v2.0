@@ -133,15 +133,19 @@ def start_https_sidecar(host: str = "0.0.0.0", https_port: Optional[int] = None)
         return None
 
 
-def qr_png_data_uri(url: str) -> str:
-    """PNG data-URI for embedding a connect QR in the Qt settings page."""
-    import base64
+def qr_png_bytes(url: str) -> bytes:
+    """Raw PNG bytes for a connect QR. Use with QPixmap.loadFromData() in the Qt GUI —
+    QLabel rich-text does NOT render `data:` URI <img> tags, so the data-URI form below
+    silently shows nothing there. This bytes form is the reliable path for the desktop app."""
     import io
-
     import segno
-
     buf = io.BytesIO()
     segno.make(url, error="m").save(buf, kind="png", scale=6, border=4,
                                     dark="#06141f", light="#eafcff")
-    b64 = base64.b64encode(buf.getvalue()).decode("ascii")
-    return f"data:image/png;base64,{b64}"
+    return buf.getvalue()
+
+
+def qr_png_data_uri(url: str) -> str:
+    """PNG data-URI for embedding a connect QR (web / HTML contexts only, NOT Qt QLabel)."""
+    import base64
+    return "data:image/png;base64," + base64.b64encode(qr_png_bytes(url)).decode("ascii")
