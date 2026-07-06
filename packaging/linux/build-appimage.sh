@@ -74,13 +74,13 @@ if [ ! -f "$MARKER" ]; then
     echo "=== ELI AppImage first-run setup $(date -Iseconds) ==="
     rsync -a --delete --exclude=.venv --exclude='artifacts/db/*.sqlite3' \
       "$HERE/" "$INSTALL_ROOT/" 2>&1 || cp -a "$HERE/." "$INSTALL_ROOT/"
-    if [ -x "$INSTALL_ROOT/INSTALL_ELI.sh" ]; then
-      bash "$INSTALL_ROOT/INSTALL_ELI.sh" --yes >>"$LOG" 2>&1
+    if [ -x "$INSTALL_ROOT/ELI_Setup.sh" ]; then
+      bash "$INSTALL_ROOT/ELI_Setup.sh" >>"$LOG" 2>&1
+    elif [ -x "$INSTALL_ROOT/INSTALL_ELI.sh" ]; then
+      bash "$INSTALL_ROOT/INSTALL_ELI.sh" >>"$LOG" 2>&1
     else
       bash "$INSTALL_ROOT/install.sh" --yes >>"$LOG" 2>&1
     fi
-    "$INSTALL_ROOT/.venv/bin/python" -m eli.core.init_data >>"$LOG" 2>&1 || true
-    bash "$INSTALL_ROOT/scripts/install_desktop_apps.sh" >>"$LOG" 2>&1 || true
     touch "$MARKER"
   } || {
     kill "$_ZPID" 2>/dev/null || true
