@@ -1,6 +1,6 @@
 include README.md
 include pyproject.toml
-include .env.example .env.full.example .env.eli_v2_0
+include .env.example .env.full.example
 include requirements*.txt
 include eli.sh eli.bat
 include install.sh install.bat install.ps1

@@ -167,9 +167,14 @@ for target in "${TARGETS[@]}"; do
             ;;
         deb)
             echo ""
-            echo "[deb] Invoking packaging/debian/build-deb.sh…"
-            bash "$PROJECT_ROOT/packaging/debian/build-deb.sh" "$VERSION" || \
-                echo "[deb] build-deb.sh failed (probably missing dpkg-deb / fakeroot)."
+            if [ -f "$PROJECT_ROOT/packaging/debian/build-deb.sh" ]; then
+                echo "[deb] Invoking packaging/debian/build-deb.sh…"
+                bash "$PROJECT_ROOT/packaging/debian/build-deb.sh" "$VERSION" || \
+                    echo "[deb] build-deb.sh failed (probably missing dpkg-deb / fakeroot)."
+            else
+                echo "[deb] No .deb builder yet (packaging/debian/ does not exist)."
+                echo "[deb] Use the portable tarball or AppImage instead: bash build_packages.sh appimage"
+            fi
             ;;
         appimage)
             echo ""
@@ -179,9 +184,14 @@ for target in "${TARGETS[@]}"; do
             ;;
         macos)
             echo ""
-            echo "[macos] Invoking packaging/macos/build-macos-app.sh…"
-            bash "$PROJECT_ROOT/packaging/macos/build-macos-app.sh" "$VERSION" || \
-                echo "[macos] macOS builder failed (run on macOS for a real .dmg)."
+            if [ -f "$PROJECT_ROOT/packaging/macos/build-macos-app.sh" ]; then
+                echo "[macos] Invoking packaging/macos/build-macos-app.sh…"
+                bash "$PROJECT_ROOT/packaging/macos/build-macos-app.sh" "$VERSION" || \
+                    echo "[macos] macOS builder failed (run on macOS for a real .dmg)."
+            else
+                echo "[macos] No macOS builder yet (packaging/macos/ does not exist)."
+                echo "[macos] macOS users: install from source — bash install.sh (Metal auto-detected)."
+            fi
             ;;
         windows-lean)
             echo ""

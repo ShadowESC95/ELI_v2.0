@@ -1,7 +1,7 @@
 # Build ELI v2 Windows Setup.exe (Inno Setup) from the lean portable zip.
 # Run ON WINDOWS with Inno Setup 6 installed (iscc.exe on PATH).
 #
-#   powershell -ExecutionPolicy Bypass -File packaging\windows\build-windows.ps1 -Version 2.0.7
+#   powershell -ExecutionPolicy Bypass -File packaging\windows\build-windows.ps1 -Version 2.0.9
 param(
     [string]$Version = "",
     [string]$ProjectRoot = ""

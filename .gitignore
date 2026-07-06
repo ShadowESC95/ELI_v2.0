@@ -30,9 +30,16 @@ env/
 # ── TTS voice model files (large binaries) ───────────────────────────────────
 *.onnx
 tts_piper/piper/*.onnx.json
+models/tts/
 
 # ── Training data / outputs ───────────────────────────────────────────────────
-training/
+# Datasets/runs are derived from personal conversation logs — never ship them.
+# The pipeline docs + scripts DO ship (docs/TRAINING_YOUR_OWN_MODEL.md references them).
+training/*
+!training/README.md
+!training/extract_eli_dataset.py
+!training/train_lora.py
+!training/merge_and_convert.py
 
 # ── Model files (large binaries — distribute separately) ─────────────────────
 models/*.gguf
