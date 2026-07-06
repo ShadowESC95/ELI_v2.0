@@ -153,23 +153,27 @@ portable package from **[GitHub Releases](https://github.com/ShadowESC95/ELI_v2.
 |---|---|
 | **Best tested** | Linux x86_64 + **NVIDIA** GPU (the path I've run end-to-end) |
 | **Also coded for** | Windows, macOS, AMD — installers exist; expect rough edges until reported |
-| **Includes** | ELI app, installer scripts, wheel — **not** multi-GB models (separate model pack) |
+| **Includes** | ELI app + installer, a bundled CPU-torch fallback wheel, and a **small starter model (TinyLlama) so it answers out of the box** — no separate download needed to get going |
 
 ```bash
 # 1. Download from Releases:
-#    ELI_v2-2.0.14-linux-portable.tar.gz
+#    ELI_v2-2.0.18-linux-portable.tar.gz
 
-tar -xzf ELI_v2-2.0.14-linux-portable.tar.gz
-cd ELI_v2-2.0.14-linux-portable
-
-./INSTALL_ELI.sh                    # venv + deps + DB schema (blank slate)
-./RUN_ELI.sh --with-github-assets   # starter model + voice pack (tag: local-assets-v2.1)
-./RUN_ELI.sh                        # launch desktop ELI
+tar -xzf ELI_v2-2.0.18-linux-portable.tar.gz
+cd ELI_v2-2.0.18-linux-portable
+chmod +x ELI_Setup.sh
+./ELI_Setup.sh                      # one-click: system deps + venv + all packages + DB + launch
 ```
 
-First launch walks you through setup and model selection. `artifacts/` and databases are created
-automatically — nothing to copy from git. The first run is a **blank slate** (no preloaded data)
-with a 10-second, skippable "what should I call you?" intro.
+`ELI_Setup.sh` installs **everything for your machine and OS** — system tools (OCR/mic/media
+via apt/dnf/pacman/brew), all Python dependencies (frozen, reproducible lock), the GPU
+CUDA + llama-cpp build (CPU fallback bundled), the local databases — then launches ELI. The
+bundled starter model means it can answer immediately; swap in a bigger GGUF any time (drop it
+in `models/`, or `./RUN_ELI.sh --with-github-assets` for the full model + voice pack).
+
+Prefer the manual two-step? `./INSTALL_ELI.sh` then `./RUN_ELI.sh`. First launch is a **blank
+slate** (no preloaded data) with a short, skippable "what should I call you?" intro; `artifacts/`
+and databases are created automatically.
 
 <details>
 <summary><b>Model pack & asset restore details</b></summary>
