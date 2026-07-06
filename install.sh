@@ -217,11 +217,20 @@ if [ "$ASSUME_YES" -eq 0 ]; then
     fi
 fi
 
-# Create venv
-if [ -d "$VENV" ]; then
+# Create venv. A venv is machine- and path-specific (its bin/ scripts hard-code an
+# absolute python path in their shebang), so one copied from another machine — or from
+# the build host, or left over in the extract folder — will "exist" but its python/pip
+# cannot execute ("required file not found"). Validate it actually runs; rebuild if not.
+_venv_ok() { [ -x "$VENV/bin/python" ] && "$VENV/bin/python" -c "import sys" >/dev/null 2>&1; }
+if [ -d "$VENV" ] && _venv_ok; then
     echo "[OK] Virtual environment already exists."
 else
-    echo "[..] Creating virtual environment..."
+    if [ -d "$VENV" ]; then
+        echo "[..] Existing .venv is broken (built for a different machine/path) — rebuilding..."
+        rm -rf "$VENV"
+    else
+        echo "[..] Creating virtual environment..."
+    fi
     "$PYTHON" -m venv "$VENV"
 fi
 
@@ -229,7 +238,9 @@ PIP="$VENV/bin/pip"
 PYTHON_VENV="$VENV/bin/python"
 
 echo "[..] Upgrading pip..."
-"$PIP" install --quiet --upgrade pip wheel
+# Use `python -m pip` (not the bin/pip shebang) so a freshly-repaired venv is used
+# reliably even before pip's own launcher is regenerated.
+"$PYTHON_VENV" -m pip install --quiet --upgrade pip wheel
 # torch wheels currently require setuptools<82; cap before PyTorch install.
 "$PIP" install --quiet 'setuptools>=68,<82'
 
