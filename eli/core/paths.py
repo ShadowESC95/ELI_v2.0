@@ -61,6 +61,57 @@ def _find_project_root() -> Path | None:
     return None
 
 
+def _is_eli_root(path: Path) -> bool:
+    """True when *path* looks like a runnable ELI tree.
+
+    Portable archives, source checkouts, and AppImage install roots all carry the
+    `eli/` package. Use the package layout rather than a hardcoded folder name so
+    this works no matter where the user extracts ELI or what the archive is named.
+    """
+    try:
+        eli_pkg = path / "eli"
+        return eli_pkg.is_dir() and (eli_pkg / "cognition").is_dir() and (eli_pkg / "gui").is_dir()
+    except Exception:
+        return False
+
+
+def _active_root() -> Path:
+    """The install root that relative runtime paths should be anchored to.
+
+    A redistributable/portable copy must be self-contained: `models`, `artifacts`,
+    `config`, etc. should resolve inside the active install root, not inside the
+    user's shell cwd. Launchers set ELI_PROJECT_ROOT to an absolute path; when it
+    points at an ELI tree, trust it. Otherwise fall back to the physical source
+    tree found from this file.
+    """
+    env = os.environ.get("ELI_PROJECT_ROOT", "").strip()
+    if env:
+        p = Path(env).expanduser()
+        if not p.is_absolute():
+            p = Path.cwd() / p
+        p = p.resolve()
+        if _is_eli_root(p):
+            return p
+    found = _find_project_root()
+    if found is not None:
+        return found.resolve()
+    return Path(__file__).resolve().parents[2]
+
+
+def resolve_runtime_path(value: str | os.PathLike, *, base: Path | None = None) -> Path:
+    """Resolve a user/runtime path in a portable-safe way.
+
+    Absolute paths stay absolute. Relative paths resolve against the active ELI
+    root (or an explicit base), never the process cwd. This prevents doubled or
+    cross-install paths like `<dev repo>/<portable repo>/models` when a launcher is
+    invoked from a different working directory.
+    """
+    p = Path(value).expanduser()
+    if p.is_absolute():
+        return p.resolve()
+    return ((base or _active_root()) / p).resolve()
+
+
 
 # ── Dev-mode detection ──
 
@@ -81,9 +132,8 @@ def _is_dev_mode() -> bool:
     # signal a user can give. Honor it first.
     explicit_root = os.environ.get("ELI_PROJECT_ROOT")
     if explicit_root:
-        p = Path(explicit_root).expanduser().resolve()
-        eli_pkg = p / "eli"
-        if eli_pkg.is_dir() and (eli_pkg / "cognition").is_dir() and (eli_pkg / "gui").is_dir():
+        p = resolve_runtime_path(explicit_root, base=Path.cwd()) if not Path(explicit_root).expanduser().is_absolute() else Path(explicit_root).expanduser().resolve()
+        if _is_eli_root(p):
             return True
     root = _find_project_root()
     if root is None:
@@ -212,7 +262,7 @@ def models_dir() -> Path:
     """GGUF model files directory."""
     override = os.environ.get("ELI_MODELS_DIR")
     if override:
-        return Path(override).expanduser().resolve()
+        return resolve_runtime_path(override)
     if _is_dev_mode():
         return project_root() / "models"
     return data_dir() / "models"
@@ -363,7 +413,7 @@ _gguf_model_path: str | None = None
 def project_root() -> Path:
     env = os.environ.get("ELI_PROJECT_ROOT")
     if env:
-        return Path(env).expanduser().resolve()
+        return resolve_runtime_path(env, base=Path.cwd()) if not Path(env).expanduser().is_absolute() else Path(env).expanduser().resolve()
     found = _find_project_root()
     if found is not None:
         return found
@@ -390,7 +440,7 @@ def training_root() -> Path:
 def get_gguf_model_path() -> str | None:
     env = os.environ.get("ELI_GGUF_MODEL_PATH") or os.environ.get("ELI_MODEL")
     if env:
-        return env
+        return str(resolve_runtime_path(env))
     if _gguf_model_path:
         return _gguf_model_path
     d = gguf_models_dir()

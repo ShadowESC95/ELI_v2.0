@@ -26,7 +26,7 @@ from eli.core.runtime_settings import (
     _settings_file as _rs_file,
     DEFAULT_N_CTX as _DEFAULT_N_CTX,
 )
-from eli.core.paths import config_dir, gguf_models_dir, project_root
+from eli.core.paths import config_dir, gguf_models_dir, models_dir as _paths_models_dir, project_root, resolve_runtime_path
 
 
 def _running_under_pytest() -> bool:
@@ -116,7 +116,10 @@ MODEL_DIR = gguf_models_dir()
 
 
 def get_model_dir():
-    return Path(os.getenv("ELI_MODELS_DIR", MODEL_DIR)).expanduser()
+    env = os.getenv("ELI_MODELS_DIR")
+    if env:
+        return resolve_runtime_path(env)
+    return _paths_models_dir()
 
 
 def get_available_gguf_models():
@@ -128,8 +131,10 @@ def get_available_gguf_models():
 
 def get_default_gguf_model():
     env = os.getenv("ELI_GGUF_MODEL_PATH")
-    if env and Path(env).exists():
-        return env
+    if env:
+        p = resolve_runtime_path(env)
+        if p.exists():
+            return str(p)
     name = os.getenv("ELI_GGUF_MODEL")
     if name:
         p = get_model_dir() / name
@@ -150,16 +155,16 @@ def set_gguf_model_path(path: str):
 def get_gguf_model_path() -> Optional[str]:
     env = os.getenv("ELI_GGUF_MODEL_PATH")
     if env:
-        p = Path(env).expanduser()
+        p = resolve_runtime_path(env)
         if p.exists():
             return str(p)
     models_dir = os.getenv("ELI_MODELS_DIR")
     model_name = os.getenv("ELI_GGUF_MODEL")
     if models_dir and model_name:
-        return str((Path(models_dir).expanduser().resolve() / model_name))
+        return str((resolve_runtime_path(models_dir) / model_name).resolve())
     v = get("model_path")
     if v:
-        return v
+        return str(resolve_runtime_path(str(v)))
     try:
         from eli.core.paths import PATHS
         return str(PATHS.model)

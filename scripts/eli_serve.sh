@@ -14,6 +14,12 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 PY="$ROOT/.venv/bin/python"
 [ -x "$PY" ] || { echo "[eli-serve] .venv not found — run install.sh first."; exit 1; }
+export ELI_PROJECT_ROOT="$ROOT"
+export ELI_DATA_DIR="${ELI_DATA_DIR:-$ROOT/artifacts}"
+export ELI_CONFIG_DIR="${ELI_CONFIG_DIR:-$ROOT/config}"
+export ELI_MODELS_DIR="${ELI_MODELS_DIR:-$ROOT/models}"
+export ELI_CACHE_DIR="${ELI_CACHE_DIR:-$ROOT/cache}"
+export PYTHONPATH="$ROOT${PYTHONPATH:+:$PYTHONPATH}"
 
 HOST="127.0.0.1"
 PORT="${ELI_API_PORT:-8081}"

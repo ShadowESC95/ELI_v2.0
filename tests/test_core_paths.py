@@ -41,6 +41,7 @@ from eli.core.paths import (
     is_frozen,
     _is_dev_mode,
     _find_project_root,
+    resolve_runtime_path,
 )
 
 
@@ -114,6 +115,39 @@ def test_explicit_project_root_keeps_dev_mode(monkeypatch, tmp_path):
     monkeypatch.delenv("ELI_FORCE_DEV_MODE", raising=False)
 
     assert paths._is_dev_mode() is True
+
+
+def test_relative_runtime_paths_anchor_to_active_project_root(monkeypatch, tmp_path):
+    import eli.core.paths as paths
+
+    root = tmp_path / "ELI_v2-2.0.9-linux-portable"
+    cwd = tmp_path / "somewhere_else"
+    (root / "eli" / "cognition").mkdir(parents=True)
+    (root / "eli" / "gui").mkdir(parents=True)
+    cwd.mkdir()
+
+    monkeypatch.setenv("ELI_PROJECT_ROOT", str(root))
+    monkeypatch.chdir(cwd)
+
+    assert paths.resolve_runtime_path("models") == root / "models"
+    assert paths.resolve_runtime_path("artifacts/db/user.sqlite3") == root / "artifacts" / "db" / "user.sqlite3"
+
+
+def test_models_dir_relative_override_is_not_cwd_based(monkeypatch, tmp_path):
+    import eli.core.paths as paths
+
+    root = tmp_path / "ELI_v2-2.0.9-linux-portable"
+    cwd = tmp_path / "caller_cwd"
+    (root / "eli" / "cognition").mkdir(parents=True)
+    (root / "eli" / "gui").mkdir(parents=True)
+    cwd.mkdir()
+
+    monkeypatch.setenv("ELI_PROJECT_ROOT", str(root))
+    monkeypatch.setenv("ELI_MODELS_DIR", "models")
+    monkeypatch.chdir(cwd)
+
+    assert paths.models_dir() == root / "models"
+    assert paths.models_dir() != cwd / "models"
 
 
 # ── Directory functions return Paths ─────────────────────────────────────
@@ -233,6 +267,25 @@ def test_gguf_env_override(monkeypatch, tmp_path):
     model.write_bytes(b"fake")
     monkeypatch.setenv("ELI_GGUF_MODEL_PATH", str(model))
     assert get_gguf_model_path() == str(model)
+
+
+def test_gguf_relative_env_path_anchors_to_project_root(monkeypatch, tmp_path):
+    import eli.core.paths as paths
+
+    root = tmp_path / "ELI_v2-2.0.9-linux-portable"
+    cwd = tmp_path / "caller_cwd"
+    model = root / "models" / "env_model.gguf"
+    (root / "eli" / "cognition").mkdir(parents=True)
+    (root / "eli" / "gui").mkdir(parents=True)
+    model.parent.mkdir(parents=True)
+    model.write_bytes(b"fake")
+    cwd.mkdir()
+
+    monkeypatch.setenv("ELI_PROJECT_ROOT", str(root))
+    monkeypatch.setenv("ELI_GGUF_MODEL_PATH", "models/env_model.gguf")
+    monkeypatch.chdir(cwd)
+
+    assert paths.get_gguf_model_path() == str(model)
 
 
 # ── path_info ────────────────────────────────────────────────────────────

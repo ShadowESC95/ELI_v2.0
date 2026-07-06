@@ -126,10 +126,12 @@ _last_error: Optional[str] = None
 _last_params: Dict[str, Any] = {}
 
 def get_model_path() -> Optional[Path]:
+    from eli.core.paths import resolve_runtime_path
+
     # Strongest override: explicit file path. If explicitly set and missing, do not silently fall back.
     env_path = os.environ.get("ELI_GGUF_MODEL_PATH")
     if env_path:
-        p = Path(env_path).expanduser()
+        p = resolve_runtime_path(env_path)
         if p.exists():
             return p
         log.debug(f"[GGUF] Warning: ELI_GGUF_MODEL_PATH={p} does not exist")
@@ -144,7 +146,7 @@ def get_model_path() -> Optional[Path]:
         for key in ("model_path", "custom_model_path", "bundled_model_path"):
             path_value = settings.get(key)
             if path_value:
-                p = Path(str(path_value)).expanduser()
+                p = resolve_runtime_path(str(path_value))
                 if p.exists():
                     return p
 
@@ -152,7 +154,7 @@ def get_model_path() -> Optional[Path]:
     model_name = os.environ.get("ELI_GGUF_MODEL")
     models_dir = os.environ.get("ELI_MODELS_DIR")
     if model_name and models_dir:
-        cand = (Path(models_dir).expanduser().resolve() / model_name)
+        cand = (resolve_runtime_path(models_dir) / model_name).resolve()
         if cand.exists():
             return cand
 
@@ -169,7 +171,7 @@ def get_model_path() -> Optional[Path]:
     from eli.core import config
     path = config.get("gguf_model_path")
     if path:
-        p = Path(path).expanduser()
+        p = resolve_runtime_path(str(path))
         if p.exists():
             return p
 
