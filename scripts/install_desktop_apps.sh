@@ -30,7 +30,7 @@ cd "$ROOT" && exec "$ROOT/scripts/eli_launch.sh" gui
 EOF
     cat > "$APPS/ELI Server (Web App).command" <<EOF
 #!/bin/bash
-cd "$ROOT" && exec "$ROOT/scripts/eli_serve.sh" --lan
+cd "$ROOT" && exec "$ROOT/scripts/eli_serve.sh" --lan --https
 EOF
     rm -f "$APPS/ELI Pro.command"
     chmod +x "$APPS/ELI Setup.command" "$APPS/ELI v2.0.command" "$APPS/ELI Server (Web App).command"
@@ -93,7 +93,7 @@ cat > "$APPS/eli-server.desktop" <<EOF
 Type=Application
 Name=ELI Server (Web App)
 Comment=Self-hosted ELI web app — open from any device on your network (LAN + token)
-Exec=$ROOT/scripts/eli_serve.sh --lan
+Exec=$ROOT/scripts/eli_serve.sh --lan --https
 Path=$ROOT
 Icon=$ICON
 Terminal=true

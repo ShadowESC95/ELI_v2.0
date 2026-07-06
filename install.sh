@@ -441,18 +441,16 @@ if [ "$NO_MODEL" -eq 0 ]; then
 fi
 
 # Voice weights (browser voice + TTS): the faster-whisper STT model and a Piper
-# voice. The pip packages ship the runtimes; these are the (gitignored) weights.
-# Best-effort + idempotent — skipped if already present, never fatal.
+# voice. Required for web-server mic (phone/PC browser) — always fetch, not gated
+# on chat-model download. Best-effort + idempotent — never fatal.
 VOICE_STATUS="skipped"
-if [ "$NO_MODEL" -eq 0 ]; then
-    info "Ensuring voice models (local STT + TTS, for browser/desktop voice) are present..."
-    if "$PYTHON_VENV" -m eli.runtime.voice_assets; then
-        ok "Voice models ready."
-        VOICE_STATUS="ready"
-    else
-        warn "Voice models deferred — fetch later with: .venv/bin/python -m eli.runtime.voice_assets"
-        VOICE_STATUS="deferred (fetch later)"
-    fi
+info "Ensuring voice models (local STT + TTS, for browser/desktop voice) are present..."
+if "$PYTHON_VENV" -m eli.runtime.voice_assets; then
+    ok "Voice models ready."
+    VOICE_STATUS="ready"
+else
+    warn "Voice models deferred — fetch later with: .venv/bin/python -m eli.runtime.voice_assets"
+    VOICE_STATUS="deferred (fetch later)"
 fi
 
 echo
@@ -483,7 +481,7 @@ if [ "$OS" = "Linux" ] && [ -x "$PYTHON_VENV" ]; then
 fi
 echo "  ${B}./scripts/eli_setup.sh${R}               ${D}# first-time one-click setup (grandparent-ready)${R}"
 echo "  ${B}./scripts/eli_launch.sh${R}              ${D}# desktop app (GUI)${R}"
-echo "  ${B}./scripts/eli_launch.sh serve --lan${R}  ${D}# web app for phone / tablet${R}"
+echo "  ${B}./scripts/eli_launch.sh serve --lan --https${R}  ${D}# web app for phone / tablet (mic)${R}"
 echo "  ${B}./eli.sh${R}                             ${D}# also launches the desktop app${R}"
 echo "  ${B}./scripts/install_desktop_apps.sh${R}    ${D}# ELI Setup + ELI v2.0 + ELI Server icons${R}"
 echo

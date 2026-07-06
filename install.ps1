@@ -276,15 +276,12 @@ if (-not $NoModel) {
     else { Write-Host "[WARN] Embedder fetch deferred (run: python -m eli.core.model_download --aux)" -ForegroundColor Yellow }
 }
 
-# Voice weights (browser voice + TTS): local faster-whisper STT + a Piper voice.
-# The pip packages ship the runtimes; these are the (gitignored) weights. Best-effort.
+# Voice weights: required for web-server mic — always fetch, not gated on chat model.
 $VoiceStatus = "skipped"
-if (-not $NoModel) {
-    Write-Host "[..] Ensuring voice models (local STT + TTS, for browser/desktop voice) are present..."
-    & $PythonVenv -m eli.runtime.voice_assets
-    if ($LASTEXITCODE -eq 0) { Write-Host "[OK] Voice models ready." -ForegroundColor Green; $VoiceStatus = "ready" }
-    else { Write-Host "[WARN] Voice models deferred (run: .venv\Scripts\python -m eli.runtime.voice_assets)" -ForegroundColor Yellow; $VoiceStatus = "deferred (fetch later)" }
-}
+Write-Host "[..] Ensuring voice models (local STT + TTS, for browser/desktop voice) are present..."
+& $PythonVenv -m eli.runtime.voice_assets
+if ($LASTEXITCODE -eq 0) { Write-Host "[OK] Voice models ready." -ForegroundColor Green; $VoiceStatus = "ready" }
+else { Write-Host "[WARN] Voice models deferred (run: .venv\Scripts\python -m eli.runtime.voice_assets)" -ForegroundColor Yellow; $VoiceStatus = "deferred (fetch later)" }
 
 Write-Host ""
 Write-Host "==================================================" -ForegroundColor Green

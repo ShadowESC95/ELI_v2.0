@@ -157,10 +157,10 @@ portable package from **[GitHub Releases](https://github.com/ShadowESC95/ELI_v2.
 
 ```bash
 # 1. Download from Releases:
-#    ELI_v2-2.0.9-linux-portable.tar.gz
+#    ELI_v2-2.0.10-linux-portable.tar.gz
 
-tar -xzf ELI_v2-2.0.9-linux-portable.tar.gz
-cd ELI_v2-2.0.9-linux-portable
+tar -xzf ELI_v2-2.0.10-linux-portable.tar.gz
+cd ELI_v2-2.0.10-linux-portable
 
 ./INSTALL_ELI.sh                    # venv + deps + DB schema (blank slate)
 ./RUN_ELI.sh --with-github-assets   # starter model + voice pack (tag: local-assets-v2.1)
