@@ -111,6 +111,18 @@ if ls "$ROOT"/dist/eli_v2_0-*.whl >/dev/null 2>&1; then
   cp "$ROOT"/dist/eli_v2_0-*.whl "$STAGING/dist/"
 fi
 
+# CPU torch wheel — fallback when pytorch.org CUDA CDN hits SSL/firewall on user networks.
+echo "[package] bundling CPU torch fallback wheel (optional; needs network during build)"
+mkdir -p "$STAGING/wheelhouse"
+if "$PYTHON" -m pip download torch -d "$STAGING/wheelhouse" \
+    --platform manylinux2014_x86_64 --python-version 312 --implementation cp \
+    --abi cp312 --only-binary=:all: --no-deps -q 2>/dev/null; then
+  echo "[package] wheelhouse: $(ls -1 "$STAGING/wheelhouse"/*.whl 2>/dev/null | wc -l) wheel(s)"
+else
+  echo "[package] wheelhouse: skipped (no network or pip download failed)"
+  rmdir "$STAGING/wheelhouse" 2>/dev/null || true
+fi
+
 if [ "$WITH_ASSETS" -eq 1 ]; then
   echo "[package] including local model/voice assets; this can be very large"
   [ -d "$ROOT/models" ] && cp -a "$ROOT/models/." "$STAGING/models/"
