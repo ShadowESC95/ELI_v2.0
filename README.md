@@ -518,8 +518,7 @@ what works, what breaks, what's missing shapes future releases and tells me whet
 - **Security issue?** See **[SECURITY.md](SECURITY.md)** — report it privately, not publicly.
 - **Want to support development?** ELI is free to use under the license below; if it helps you and
   you want to support my fridge and university tuition fees,
-  **[ko-fi.com/shadowesc95](https://ko-fi.com/shadowesc95)** is optional and keeps me shipping —
-  dev's gotta eat too. **Enjoy, use, and report!**
+  **[ko-fi.com/shadowesc95](https://ko-fi.com/shadowesc95)** is optional and keeps me shipping, and to be honest, i miss physics— Clearly didn't       get into this for the money buta dev's gotta eat too! **Enjoy, use, and report!**
 
 ## License
 
