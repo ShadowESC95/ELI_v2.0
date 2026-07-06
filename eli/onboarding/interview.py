@@ -218,9 +218,74 @@ def _short(val: str) -> str:
     return s[:48]
 
 
+# What each step is really asking about + the answer scaffold (options + how to answer).
+_STEP_TOPIC = {
+    "name": "what they'd like you to call them",
+    "role": "what they mostly work on or spend their days doing",
+    "style": "how they like to be worked with — the answer style and back-and-forth they prefer",
+    "focus": "what they most want you (ELI) around for",
+}
+_STEP_SCAFFOLD = {
+    "role": (_ROLE_OPTIONS, "Pick a letter, or just tell me in your own words."),
+    "style": (_STYLE_OPTIONS, "Pick a number, or describe the kind of back-and-forth you enjoy."),
+    "focus": (_FOCUS_OPTIONS, "A–D, or tell me what you're hoping I'll take off your plate."),
+}
+
+
+def _known_facts(answers: Dict[str, Any]) -> str:
+    bits = []
+    if answers.get("name"):  bits.append(f"they're called {answers['name']}")
+    if answers.get("role"):  bits.append(f"they work on {_short(answers['role'])}")
+    if answers.get("style"): bits.append(f"they like answers that are {_short(answers['style'])}")
+    return "; ".join(bits) if bits else "nothing yet — this is the very first thing"
+
+
+def _llm_question(step: str, answers: Dict[str, Any]) -> Optional[str]:
+    """Generate the next onboarding question with the LOCAL model, so the interview is a
+    real conversation that plays off prior answers rather than a fixed script. Returns None
+    on any problem (empty/odd output, model not ready) so the caller falls back to script."""
+    topic = _STEP_TOPIC.get(step)
+    if not topic:
+        return None
+    try:
+        from eli.cognition import gguf_inference as _llm
+        sys_p = (
+            "You are ELI, a local AI assistant meeting a new user for the first time and "
+            "genuinely getting to know them. Ask EXACTLY ONE short, warm, curious question "
+            "(1-2 sentences). Reference what you already know so it feels like a real "
+            "conversation, not a form. Do NOT answer for them, do NOT list any options or "
+            "letters, do NOT add anything after the question. Output only the question."
+        )
+        extra = ("This is the opener — also gently mention they can say 'skip' anytime."
+                 if step == "name" else "")
+        usr_p = f"What you know so far: {_known_facts(answers)}. Now ask them about: {topic}. {extra}".strip()
+        out = _llm.generate(sys_p, usr_p, max_tokens=70, temperature=0.7)
+        q = (out or "").strip().strip('"').split("\n")[0].strip()
+        # Reject junk: too short/long, leaked options, or an answer instead of a question.
+        if not q or len(q) < 12 or len(q) > 320:
+            return None
+        if any(m in q for m in ("A)", "B)", "1)", "2)", "<|", "•")):
+            return None
+        scaffold = _STEP_SCAFFOLD.get(step)
+        if scaffold:
+            opts, howto = scaffold
+            return f"{q}\n{_format_options(opts)}\n{howto}"
+        return q
+    except Exception:
+        return None
+
+
 def _question(step: str, answers: Dict[str, Any]) -> str:
-    """One warm, curious question at a time. Each step plays off the previous answer so
-    it reads like ELI genuinely getting to know the person, not a form to fill in."""
+    """The next question — LLM-generated (dynamic, plays off prior answers), with the
+    scripted version below as a reliable fallback when the model isn't available."""
+    dynamic = _llm_question(step, answers)
+    if dynamic:
+        return dynamic
+    return _scripted_question(step, answers)
+
+
+def _scripted_question(step: str, answers: Dict[str, Any]) -> str:
+    """Deterministic fallback questions (used when the local model can't generate one)."""
     name = (answers.get("name") or "").strip()
     if step == "name":
         return (
