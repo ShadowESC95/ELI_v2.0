@@ -56,7 +56,9 @@ echo "  ${GRN}OK${R}  $(python3 --version 2>&1)"
 stage 3 "Python environment + dependencies"
 if [ ! -x "$PY" ]; then
   echo "  Installing ELI (this may take several minutes)…"
-  bash "$ROOT/install.sh" --yes --auto-model || bash "$ROOT/install.sh" --yes
+  bash "$ROOT/install.sh" --yes --auto-model \
+    || bash "$ROOT/install.sh" --yes --cpu-only --auto-model \
+    || bash "$ROOT/install.sh" --yes --cpu-only
 else
   echo "  ${GRN}OK${R}  Virtual environment already present."
 fi
