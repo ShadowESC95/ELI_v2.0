@@ -229,23 +229,62 @@ echo "[..] Upgrading pip..."
 # torch wheels currently require setuptools<82; cap before PyTorch install.
 "$PIP" install --quiet 'setuptools>=68,<82'
 
+# Optional bundled wheels (Windows portable always; Linux portable may include CPU torch fallback).
+_WHEELHOUSE=""
+for _wh in "$SCRIPT_DIR/wheelhouse" "$SCRIPT_DIR/dist/wheelhouse"; do
+    if [ -d "$_wh" ] && compgen -G "$_wh/*.whl" > /dev/null 2>&1; then
+        _WHEELHOUSE="$_wh"
+        break
+    fi
+done
+_PIP_LINKS=()
+if [ -n "$_WHEELHOUSE" ]; then
+    echo "[OK] Bundled wheelhouse: $_WHEELHOUSE"
+    _PIP_LINKS=(--find-links "$_WHEELHOUSE" --prefer-binary)
+fi
+
+_pip_quiet() {
+    "$PIP" install --quiet "${_PIP_LINKS[@]}" "$@" && return 0
+    return 1
+}
+
+_install_pytorch_cpu() {
+    _pip_quiet torch --index-url https://download.pytorch.org/whl/cpu \
+        || _pip_quiet torch
+}
+
+_install_pytorch_cuda() {
+    echo "[..] Installing PyTorch (CUDA 12.1)..."
+    if _pip_quiet torch --index-url https://download.pytorch.org/whl/cu121; then
+        return 0
+    fi
+    warn "CUDA PyTorch download failed (network/SSL/firewall on download.pytorch.org)."
+    warn "Falling back to CPU PyTorch — ELI still installs; GPU torch can be retried later."
+    if _install_pytorch_cpu; then
+        CPU_ONLY=1
+        return 0
+    fi
+    warn "PyTorch install failed — continuing without torch."
+    SKIP_TORCH=1
+    return 1
+}
+
 # Install PyTorch
 if [ "$SKIP_TORCH" -eq 0 ]; then
     echo ""
     if [ "$CPU_ONLY" -eq 1 ]; then
         echo "[..] Installing PyTorch (CPU)..."
-        "$PIP" install torch --index-url https://download.pytorch.org/whl/cpu --quiet
+        _install_pytorch_cpu || { warn "CPU PyTorch failed — continuing without torch."; SKIP_TORCH=1; }
     elif [ "$OS" = "Darwin" ]; then
         echo "[..] Installing PyTorch (macOS / MPS)..."
-        "$PIP" install torch torchvision torchaudio --quiet
+        _pip_quiet torch torchvision torchaudio || _pip_quiet torch
     elif [ "$HAS_AMD" -eq 1 ]; then
         echo "[..] Installing PyTorch (AMD ROCm)..."
-        "$PIP" install torch --index-url https://download.pytorch.org/whl/rocm6.2 --quiet || {
-            echo "[WARN] ROCm PyTorch wheel unavailable — falling back to CPU PyTorch."
-            "$PIP" install torch --index-url https://download.pytorch.org/whl/cpu --quiet; }
+        _pip_quiet torch --index-url https://download.pytorch.org/whl/rocm6.2 || {
+            warn "ROCm PyTorch wheel unavailable — falling back to CPU PyTorch."
+            _install_pytorch_cpu; }
     else
-        echo "[..] Installing PyTorch (CUDA 12.1)..."
-        "$PIP" install torch --index-url https://download.pytorch.org/whl/cu121 --quiet
+        _install_pytorch_cuda || true
     fi
 fi
 
