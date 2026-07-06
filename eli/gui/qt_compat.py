@@ -39,7 +39,7 @@ try:
     from PySide6.QtCore import Qt, QTimer, QThread, QObject, Signal as pyqtSignal
     from PySide6.QtGui import (  # noqa: F401
         QColor, QFont, QIcon, QPixmap, QImage, QPainter, QPalette, QKeySequence,
-        QTextCursor, QTextCharFormat, QBrush, QPen, QAction,
+        QTextCursor, QTextCharFormat, QBrush, QPen, QAction, QDesktopServices,
     )
     from PySide6.QtWidgets import (  # noqa: F401
         QApplication, QMainWindow, QWidget, QDialog, QDockWidget,
@@ -61,7 +61,7 @@ except Exception:
         from PyQt6.QtCore import Qt, QTimer, QThread, QObject, pyqtSignal
         from PyQt6.QtGui import (  # noqa: F401
             QColor, QFont, QIcon, QPixmap, QImage, QPainter, QPalette, QKeySequence,
-            QTextCursor, QTextCharFormat, QBrush, QPen, QAction,
+            QTextCursor, QTextCharFormat, QBrush, QPen, QAction, QDesktopServices,
         )
         from PyQt6.QtWidgets import (  # noqa: F401
             QApplication, QMainWindow, QWidget, QDialog, QDockWidget,
@@ -83,7 +83,7 @@ except Exception:
             from PyQt5.QtCore import Qt, QTimer, QThread, QObject, pyqtSignal
             from PyQt5.QtGui import (  # noqa: F401
                 QColor, QFont, QIcon, QPixmap, QImage, QPainter, QPalette, QKeySequence,
-                QTextCursor, QTextCharFormat, QBrush, QPen,
+                QTextCursor, QTextCharFormat, QBrush, QPen, QDesktopServices,
             )
             from PyQt5.QtWidgets import (  # noqa: F401
                 QApplication, QMainWindow, QWidget, QDialog, QDockWidget,
@@ -120,6 +120,7 @@ except Exception:
             pyqtSignal = pyqtSlot = _stub
             QColor = QFont = QIcon = QPixmap = QImage = QPainter = QPalette = _stub
             QKeySequence = QTextCursor = QTextCharFormat = QBrush = QPen = _stub
+            QDesktopServices = _stub
             QApplication = QMainWindow = QWidget = QDialog = QDockWidget = _Stub
             QVBoxLayout = QHBoxLayout = QGridLayout = QFormLayout = QStackedLayout = _Stub
             QLabel = QPushButton = QLineEdit = QTextEdit = QPlainTextEdit = _Stub
