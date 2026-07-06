@@ -70,6 +70,14 @@ class WebSearchPlugin(Plugin):
             max_results = 5
         max_results = max(1, min(max_results, 10))
 
+        # Net gate first — never touch the network (or confabulate) when offline.
+        try:
+            from eli.core.netguard import should_block_network, offline_response
+            if should_block_network():
+                return offline_response("WEB_SEARCH", "search the web")
+        except Exception:
+            pass
+
         try:
             results = _web_search_results(query, max_results=max_results)
         except Exception as exc:
@@ -244,7 +252,17 @@ def _web_search_results(query: str, max_results: int = 5) -> List[Dict[str, Any]
     SearXNG is preferred (self-hosted, not rate-limited, privacy-aligned).
     DuckDuckGo via the ddgs package is the fallback when SearXNG is absent or
     returns nothing.
+
+    OFFLINE GATE (defense-in-depth): this is the single choke point every web-search
+    caller funnels through, so the Net toggle is enforced HERE — not only at the
+    executor. The `ddgs`/`duckduckgo_search` package drives libcurl (curl_cffi/primp)
+    at the C/Rust level, which does NOT pass through Python's socket layer, so the
+    process-wide socket guard cannot see it. Without this check an offline box would
+    still reach the network via that path. Fail closed.
     """
+    from eli.core.netguard import should_block_network, OfflineError
+    if should_block_network():
+        raise OfflineError("web search blocked: network access is off (Net toggle)")
     try:
         results = _searxng_search(query, max_results=max_results)
     except Exception:
