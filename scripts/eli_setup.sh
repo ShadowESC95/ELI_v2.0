@@ -56,8 +56,7 @@ echo "  ${GRN}OK${R}  $(python3 --version 2>&1)"
 stage 3 "Python environment + dependencies"
 if [ ! -x "$PY" ]; then
   echo "  Installing ELI (this may take several minutes)…"
-  bash "$ROOT/install.sh" --yes --auto-model \
-    || bash "$ROOT/install.sh" --yes --cpu-only --auto-model \
+  bash "$ROOT/install.sh" --yes \
     || bash "$ROOT/install.sh" --yes --cpu-only
 else
   echo "  ${GRN}OK${R}  Virtual environment already present."
@@ -79,9 +78,16 @@ if [ "$need_model" -eq 1 ]; then
     if "$PY" "$ROOT/scripts/restore_github_asset_files.py" --repo "$REPO" --tag "$TAG"; then
       echo "  ${GRN}OK${R}  GitHub asset restore finished."
     else
-      echo "  ${YEL}[!]${R}  Asset restore failed — trying automatic model download…"
-      "$PY" -m eli.core.model_download --auto || true
+      echo "  ${YEL}[!]${R}  Asset restore failed — opening model catalog…"
+      if [ -t 0 ] && [ -t 1 ]; then
+        "$PY" -m eli.core.model_download --choose || "$PY" -m eli.core.model_download --auto || true
+      else
+        "$PY" -m eli.core.model_download --auto || true
+      fi
     fi
+  elif [ -t 0 ] && [ -t 1 ]; then
+    echo "  Pick chat model(s) from the full catalog (multi-select, or type 'auto'):"
+    "$PY" -m eli.core.model_download --choose || "$PY" -m eli.core.model_download --auto || true
   else
     echo "  Downloading a starter model sized to your hardware…"
     "$PY" -m eli.core.model_download --auto || true

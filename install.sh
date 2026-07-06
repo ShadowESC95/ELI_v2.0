@@ -31,12 +31,17 @@ for arg in "$@"; do
         --latest)      USE_LATEST=1 ;;
         --install-cuda|--cuda) INSTALL_CUDA=1 ;;
         --yes|-y)      ASSUME_YES=1 ;;
-        --auto-model)  FETCH_MODEL="--auto" ;;
+        --auto-model|--auto) FETCH_MODEL="--auto" ;;
+        --choose-model|--choose) FETCH_MODEL="--choose" ;;
         --model=*)     FETCH_MODEL="${arg#*=}" ;;
         --no-model)    NO_MODEL=1 ;;
     esac
 done
 [ -t 0 ] || ASSUME_YES=1   # not a TTY (piped install) → never block on prompts
+# Non-interactive: VRAM-sized default chat model unless --no-model.
+if [ "$ASSUME_YES" -eq 1 ] && [ "$NO_MODEL" -eq 0 ] && [ -z "$FETCH_MODEL" ]; then
+    FETCH_MODEL="--auto"
+fi
 
 # ── colours + log helpers (only when stdout is a terminal) ───────────────────
 if [ -t 1 ]; then
@@ -207,9 +212,8 @@ if [ "$ASSUME_YES" -eq 0 ]; then
         # NO_MODEL, or the tiny REQUIRED embedder (nomic, ~85 MB; memory/RAG can't
         # work without it) is skipped too. NO_MODEL stays reserved for the explicit
         # `--no-model` CLI flag (a deliberate fully-offline install).
-        # Default skip — wizard offers a VRAM-sized download; saying Y runs --auto
-        # (one hardware-fit model), not the full multi-select menu.
-        case "${_m:-n}" in [Yy]*) FETCH_MODEL="--auto" ;; *) FETCH_MODEL="" ;; esac
+        # Saying Y opens the full catalog picker (--choose); decline skips chat model only.
+        case "${_m:-n}" in [Yy]*) FETCH_MODEL="--choose" ;; *) FETCH_MODEL="" ;; esac
     fi
 fi
 
@@ -296,14 +300,18 @@ if [ "$OS" = "Darwin" ]; then
 elif [ "$CPU_ONLY" -eq 1 ]; then
     "$PIP" install llama-cpp-python --prefer-binary --quiet
 elif [ "$HAS_AMD" -eq 1 ]; then
-    echo "     (AMD ROCm / hipBLAS — source build, best-effort)"
-    # Needs the ROCm toolkit (hipcc) on PATH. Non-fatal: falls back to the CPU build so ELI
-    # still runs (just without GPU offload) if the ROCm dev toolchain isn't installed.
-    CMAKE_ARGS="-DGGML_HIPBLAS=on" "$PIP" install llama-cpp-python --no-cache-dir --quiet || {
-        echo "[WARN] ROCm llama-cpp build failed (needs the ROCm toolkit / hipcc)."
-        echo "       Installing the CPU build so ELI runs. To get AMD GPU offload later:"
-        echo "         install ROCm, then: CMAKE_ARGS=\"-DGGML_HIPBLAS=on\" \"$PIP\" install --force-reinstall --no-cache-dir llama-cpp-python"
-        "$PIP" install llama-cpp-python --prefer-binary --quiet; }
+    echo "     (AMD — ROCm/hipBLAS, then Vulkan, then CPU)"
+    if CMAKE_ARGS="-DGGML_HIPBLAS=on" "$PIP" install llama-cpp-python --no-cache-dir --quiet 2>/dev/null; then
+        :
+    elif CMAKE_ARGS="-DGGML_VULKAN=on" "$PIP" install llama-cpp-python --no-cache-dir --quiet 2>/dev/null; then
+        echo "[OK] llama-cpp built with Vulkan (AMD GPU via Mesa/Vulkan)."
+    else
+        echo "[WARN] AMD GPU builds failed (ROCm toolkit or Vulkan dev libs missing)."
+        echo "       Installing CPU build. For AMDGPU later:"
+        echo "         ROCm:  CMAKE_ARGS=\"-DGGML_HIPBLAS=on\" \"$PIP\" install --force-reinstall --no-cache-dir llama-cpp-python"
+        echo "         Vulkan: CMAKE_ARGS=\"-DGGML_VULKAN=on\" \"$PIP\" install --force-reinstall --no-cache-dir llama-cpp-python"
+        "$PIP" install llama-cpp-python --prefer-binary --quiet
+    fi
 else
     "$PIP" install llama-cpp-python --prefer-binary \
         --extra-index-url https://abetlen.github.io/llama-cpp-python/whl/cu121 --quiet
@@ -316,9 +324,10 @@ if [ "$SKIP_TORCH" -eq 0 ] && [ "$CPU_ONLY" -eq 0 ] && [ "$OS" != "Darwin" ]; th
     if "$PYTHON_VENV" -c "import llama_cpp,sys; sys.exit(0 if llama_cpp.llama_supports_gpu_offload() else 1)" 2>/dev/null; then
         echo "[OK] llama-cpp-python has ${_GPU_KIND} GPU offload."
     elif [ "$HAS_AMD" -eq 1 ]; then
-        echo "[WARN] llama-cpp is CPU-only — ROCm/hipBLAS did not compile (needs the ROCm toolkit / hipcc)."
-        echo "       ELI runs on CPU for now. For AMD GPU offload: install ROCm, then rebuild:"
-        echo "         CMAKE_ARGS=\"-DGGML_HIPBLAS=on\" \"$PIP\" install --force-reinstall --no-cache-dir llama-cpp-python"
+        echo "[WARN] llama-cpp is CPU-only — ROCm/Vulkan GPU builds did not compile."
+        echo "       ELI runs on CPU for now. For AMD GPU offload:"
+        echo "         ROCm:  CMAKE_ARGS=\"-DGGML_HIPBLAS=on\" \"$PIP\" install --force-reinstall --no-cache-dir llama-cpp-python"
+        echo "         Vulkan: CMAKE_ARGS=\"-DGGML_VULKAN=on\" \"$PIP\" install --force-reinstall --no-cache-dir llama-cpp-python"
     elif [ "$INSTALL_CUDA" -eq 1 ]; then
         echo "[WARN] prebuilt llama-cpp is CPU-only — installing CUDA toolkit and rebuilding from source..."
         attempt_cuda_toolkit || true
