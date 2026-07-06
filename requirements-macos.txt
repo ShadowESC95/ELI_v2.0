@@ -87,6 +87,7 @@ matplotlib>=3.7
 huggingface-hub>=0.20
 pyflakes>=3.0
 segno>=1.5        # pure-python QR codes (web app's "Connect a phone" tab) — no deps
+cryptography>=41   # self-signed LAN HTTPS cert (phone microphone)
 
 # ── Optional feature deps (web search/automation, calendar, notifications) ──
 # Match pyproject [full] so requirements installs are equivalent. All degrade
