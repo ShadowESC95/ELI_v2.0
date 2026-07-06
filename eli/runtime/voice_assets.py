@@ -51,7 +51,7 @@ def piper_voice_ready(voice: str = _PIPER_VOICE) -> bool:
         else:
             return True
     except Exception:
-        pass
+        log.debug("packaged piper voice probe failed", exc_info=True)
     return False
 
 
