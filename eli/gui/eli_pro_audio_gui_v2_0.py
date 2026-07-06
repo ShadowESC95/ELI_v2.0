@@ -8241,6 +8241,40 @@ _register()
             "border-radius:5px;padding:7px;font-size:12px;}")
         vbox.addWidget(self._srv_url)
 
+        qr_title = QLabel("Scan with your phone (Connect tab also has these)")
+        qr_title.setStyleSheet("color:#88c0d0;font-size:12px;font-weight:700;margin-top:10px;")
+        vbox.addWidget(qr_title)
+        qr_row = QHBoxLayout()
+        self._srv_qr_http = QLabel("HTTP QR appears when phone/Wi-Fi mode is running…")
+        self._srv_qr_http.setAlignment(Qt.AlignCenter)
+        self._srv_qr_http.setMinimumSize(200, 200)
+        self._srv_qr_https = QLabel("")
+        self._srv_qr_https.setAlignment(Qt.AlignCenter)
+        self._srv_qr_https.setMinimumSize(200, 200)
+        for lab in (self._srv_qr_http, self._srv_qr_https):
+            lab.setStyleSheet(
+                "QLabel{background:#eafcff;border:1px solid #2a2d36;border-radius:8px;"
+                "padding:8px;color:#4c566a;font-size:10px;}")
+            qr_row.addWidget(lab)
+        qr_row.addStretch()
+        vbox.addLayout(qr_row)
+
+        self._srv_https_url = QLineEdit()
+        self._srv_https_url.setReadOnly(True)
+        self._srv_https_url.setPlaceholderText("HTTPS link for phone microphone (port 8443)…")
+        self._srv_https_url.setStyleSheet(
+            "QLineEdit{background:#12141a;color:#88c0d0;border:1px solid #2a2d36;"
+            "border-radius:5px;padding:7px;font-size:12px;}")
+        vbox.addWidget(self._srv_https_url)
+
+        https_note = QLabel(
+            "Phone chat uses HTTP (port 8081). Phone microphone needs HTTPS (port 8443) — "
+            "accept the one-time “connection not private” warning on the phone. "
+            "Do not use https:// on port 8081 (that causes “Invalid HTTP request” errors).")
+        https_note.setWordWrap(True)
+        https_note.setStyleSheet("color:#606880;font-size:10px;")
+        vbox.addWidget(https_note)
+
         hint = QLabel(
             "“Phone / Wi-Fi” mode is protected by a one-time access token baked into the "
             "link — open it once on the phone and it’s remembered. Keep this on your own "
@@ -8456,6 +8490,48 @@ _register()
         dlg.exec()
         return bool(probe.get("eli_running"))
 
+    def _eli_server_refresh_qr(self, http_url: str = "", https_url: str = "") -> None:
+        """Render connect QRs in the settings page (best-effort)."""
+        try:
+            from eli.runtime.server_util import qr_png_data_uri
+            from PySide6.QtCore import Qt
+        except Exception:
+            return
+        for lab, url, label in (
+            (getattr(self, "_srv_qr_http", None), http_url, "HTTP connect"),
+            (getattr(self, "_srv_qr_https", None), https_url, "HTTPS voice"),
+        ):
+            if lab is None:
+                continue
+            if url:
+                try:
+                    uri = qr_png_data_uri(url)
+                    lab.setText(
+                        f'<div style="text-align:center;font-size:10px;color:#06141f;">'
+                        f'<b>{label}</b><br><img src="{uri}" width="180" height="180"></div>')
+                    lab.setTextFormat(Qt.TextFormat.RichText)
+                except Exception as ex:
+                    lab.setText(f"{label}\n(QR unavailable: {ex})")
+            else:
+                lab.setText(f"{label}\n(start phone/Wi-Fi mode)")
+
+    def _eli_server_stop_https(self) -> None:
+        uv = getattr(self, "_srv_https_uv", None)
+        if uv is not None:
+            try:
+                uv.should_exit = True
+            except Exception:
+                pass
+        self._srv_https_uv = None
+        self._srv_https_thread = None
+        import os
+        os.environ.pop("ELI_API_HTTPS_PORT", None)
+        try:
+            self._srv_https_url.clear()
+            self._eli_server_refresh_qr()
+        except Exception:
+            pass
+
     def _eli_server_start(self, lan: bool) -> None:
         # Run the web server IN-PROCESS (a background thread) so it shares this app's
         # already-loaded model/engine instead of spawning a second process that would
@@ -8484,14 +8560,16 @@ _register()
             os.environ["ELI_API_HOST"] = host
             os.environ["ELI_API_TOKEN"] = token
             os.environ.pop("ELI_API_ALLOW_TOKENLESS", None)  # LAN must require the token
-            url = f"http://{self._eli_server_lan_ip()}:{port}/#token={token}"
+            url = f"http://{self._eli_server_lan_ip()}:{port}/?open=connect#token={token}"
         else:
             host = "127.0.0.1"
             os.environ["ELI_API_HOST"] = host
             os.environ["ELI_API_ALLOW_TOKENLESS"] = "1"
+            os.environ.pop("ELI_API_HTTPS_PORT", None)
             url = f"http://127.0.0.1:{port}/"
         os.environ["ELI_API_PORT"] = str(port)
         self._srv_err = ""
+        https_url = ""
         try:
             import uvicorn
             from api.server import app as _app
@@ -8506,10 +8584,31 @@ _register()
 
             self._srv_thread = threading.Thread(target=_run, daemon=True)
             self._srv_thread.start()
+            if lan:
+                from eli.runtime.server_util import start_https_sidecar
+                hport = start_https_sidecar(host=host)
+                if hport:
+                    https_url = f"https://{self._eli_server_lan_ip()}:{hport}/#token={token}"
+                    self._srv_https_url.setText(https_url)
+                else:
+                    self._srv_https_url.setText("(HTTPS unavailable — pip install cryptography segno)")
+            else:
+                self._srv_https_url.clear()
+                self._eli_server_stop_https()
             self._srv_url.setText(url)
+            self._eli_server_refresh_qr(
+                http_url=f"http://{self._eli_server_lan_ip()}:{port}/#token={token}" if lan else "",
+                https_url=https_url,
+            )
             self._eli_server_update_ui("starting")
             if lan:
                 self._eli_server_refresh_firewall_hint()
+                try:
+                    from PySide6.QtGui import QDesktopServices
+                    from PySide6.QtCore import QUrl
+                    QDesktopServices.openUrl(QUrl(url))
+                except Exception:
+                    pass
         except Exception as e:
             err = str(e)
             if "98" in err or "already in use" in err.lower() or "address already in use" in err.lower():
@@ -8525,6 +8624,7 @@ _register()
             self._eli_server_update_ui("error", err)
 
     def _eli_server_stop(self) -> None:
+        self._eli_server_stop_https()
         uv = getattr(self, "_srv_uv", None)
         if uv is not None:
             try:
@@ -8534,6 +8634,10 @@ _register()
         self._srv_uv = None
         self._srv_thread = None
         self._srv_url.clear()
+        try:
+            self._eli_server_refresh_qr()
+        except Exception:
+            pass
         self._eli_server_update_ui("stopped")
 
     def _eli_server_rotate_token(self) -> None:
@@ -8556,7 +8660,17 @@ _register()
         lan = os.environ.get("ELI_API_HOST", "") == "0.0.0.0"
         if running and lan:
             port = int(os.environ.get("ELI_API_PORT", "8081"))
-            self._srv_url.setText(f"http://{self._eli_server_lan_ip()}:{port}/#token={token}")
+            self._srv_url.setText(
+                f"http://{self._eli_server_lan_ip()}:{port}/?open=connect#token={token}")
+            hport = os.environ.get("ELI_API_HTTPS_PORT", "")
+            https_url = (
+                f"https://{self._eli_server_lan_ip()}:{hport}/#token={token}" if hport else "")
+            if https_url:
+                self._srv_https_url.setText(https_url)
+            self._eli_server_refresh_qr(
+                http_url=f"http://{self._eli_server_lan_ip()}:{port}/#token={token}",
+                https_url=https_url,
+            )
             try:
                 self._srv_status.setText("● Token rotated — re-open the new link on each phone")
                 self._srv_status.setStyleSheet("font-size:12px;font-weight:700;color:#ebcb8b;")
