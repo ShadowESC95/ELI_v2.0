@@ -12,7 +12,8 @@ from eli.core.toml_util import load_toml
 print(load_toml("pyproject.toml")["project"]["version"])
 PY
 )"
-APP_NAME="ELI_v2.0"
+# Must match APP_NAME in scripts/package_desktop_app.sh (the staging tree it creates).
+APP_NAME="ELI_v2"
 BUILD_TARGET="$PROJECT_ROOT/build/app-package/${APP_NAME}-${VERSION}-linux-portable"
 
 DRY_RUN=0

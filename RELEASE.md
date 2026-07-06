@@ -17,15 +17,15 @@ bash scripts/build_grandma_release.sh
 
 ```bash
 bash scripts/build_v2_release.sh
-# Output: dist/app_packages/ELI_v2-2.0.8-linux-portable.tar.gz
+# Output: dist/app_packages/ELI_v2-2.0.9-linux-portable.tar.gz
 ```
 
 **Windows Setup.exe** (run on a Windows PC with [Inno Setup 6](https://jrsoftware.org/isinfo.php)):
 
 ```powershell
 bash build_packages.sh windows-lean
-powershell -ExecutionPolicy Bypass -File packaging/windows/build-windows.ps1 -Version 2.0.8
-# Output: dist/ELI_v2-2.0.8-Setup.exe
+powershell -ExecutionPolicy Bypass -File packaging/windows/build-windows.ps1 -Version 2.0.9
+# Output: dist/ELI_v2-2.0.9-Setup.exe
 ```
 
 Optional full bundle (local models — very large):
@@ -45,19 +45,19 @@ bash build_packages.sh wheel windows macos appimage
 Large assets exceed GitHub's 100 MB file limit for git blobs:
 
 ```bash
-bash scripts/create_github_asset_archives.sh   # if present
+bash scripts/create_github_asset_archives.sh
 # Attach models/MODEL_LICENSES.md to the release notes or asset bundle
-python3 scripts/upload_github_asset_files.py --repo ShadowESC95/ELI_v2.0 --tag v2.0.0-assets
+python3 scripts/upload_github_asset_files.py --repo ShadowESC95/ELI_v2.0 --tag local-assets-v2.1
 ```
 
 ## 3. Publish GitHub Release
 
 1. [New release](https://github.com/ShadowESC95/ELI_v2.0/releases/new)
-2. Tag: `v2.0.8` (semver matches `pyproject.toml`)
+2. Tag: `v2.0.9` (semver matches `pyproject.toml`)
 3. Attach:
-   - `ELI_v2-2.0.8-linux-portable.tar.gz`
-   - `ELI_v2-2.0.8-x86_64.AppImage` (grandma-friendly)
-   - `ELI_v2-2.0.8-Setup.exe` (Windows, if built)
+   - `ELI_v2-2.0.9-linux-portable.tar.gz`
+   - `ELI_v2-2.0.9-x86_64.AppImage` (grandma-friendly)
+   - `ELI_v2-2.0.9-Setup.exe` (Windows, if built)
    - `.sha256` sidecars
    - Model pack assets (optional separate tag)
 
@@ -78,8 +78,8 @@ Or extract the zip and double-click `ELI_Setup.bat`.
 **Classic portable:**
 
 ```bash
-tar -xzf ELI_v2-2.0.8-linux-portable.tar.gz
-cd ELI_v2-2.0.8-linux-portable
+tar -xzf ELI_v2-2.0.9-linux-portable.tar.gz
+cd ELI_v2-2.0.9-linux-portable
 chmod +x ELI_Setup.sh && ./ELI_Setup.sh    # guided (recommended)
 # or: ./INSTALL_ELI.sh && ./RUN_ELI.sh
 ```

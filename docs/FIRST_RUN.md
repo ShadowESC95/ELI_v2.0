@@ -19,7 +19,7 @@ Flags: `--cpu-only` · `--install-cuda` · `--model=qwen2.5-7b` · `--no-model` 
 Download **ELI v2.0 — Linux portable** from [GitHub Releases](https://github.com/ShadowESC95/ELI_v2.0/releases), then:
 
 ```bash
-tar -xzf ELI_v2.0-*-linux-portable.tar.gz && cd ELI_v2.0-*-linux-portable
+tar -xzf ELI_v2-*-linux-portable.tar.gz && cd ELI_v2-*-linux-portable
 ./INSTALL_ELI.sh
 ./RUN_ELI.sh --with-github-assets   # optional starter models + voices
 ./RUN_ELI.sh
