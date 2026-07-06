@@ -93,6 +93,8 @@ server = [
     "paho-mqtt>=1.6,<3",  # ELI-native MQTT device server (no Home Assistant)
     "zeroconf>=0.70",     # mDNS device/broker discovery
     "bleak>=0.21",        # Bluetooth (BLE) device discovery (degrades cleanly if no radio)
+    "segno>=1.5",         # QR codes for Connect tab / phone pairing
+    "cryptography>=41",   # self-signed LAN HTTPS cert (phone microphone)
 ]
 # Gaze cursor + on-screen OCR.
 vision = [

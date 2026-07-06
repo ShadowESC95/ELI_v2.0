@@ -457,7 +457,6 @@ def update_persona_overlay(memory: Any = None) -> Dict[str, Any]:
         _sig = None  # on any error, fall through and write (safe default)
 
     if _sig is not None and _sig == _LAST_OVERLAY_SIG:
-        log.debug("persona_updater: overlay/KG/profile unchanged — skipping writes")
         return {"ok": True, "changed": False, "skipped": True, "reason": "unchanged"}
     _LAST_OVERLAY_SIG = _sig
 

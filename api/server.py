@@ -259,11 +259,15 @@ def _eli_startup_hooks():
             home_mesh.ensure_watchdog()
     except Exception:
         pass
-    # Preload whisper when cached so web mic (/v1/voice/stt) works offline.
+    # Preload whisper when cached so web mic (/v1/voice/stt) works offline. Do it in a
+    # BACKGROUND thread — loading the model on CPU takes ~20s and would otherwise block
+    # uvicorn's startup event, delaying the HTTP/HTTPS port bind (and the Connect page).
     try:
         from eli.perception.local_whisper_stt import whisper_cache_ready, preload_model
         if whisper_cache_ready():
-            preload_model()
+            import threading
+            threading.Thread(target=preload_model, daemon=True,
+                             name="eli-whisper-preload").start()
     except Exception:
         pass
 
@@ -946,6 +950,10 @@ _WEB_UI = """<!doctype html>
     if(navigator.clipboard)navigator.clipboard.writeText(u).then(()=>{const b=event&&event.target;if(b){const o=b.textContent;b.textContent='Copied \\u2713';setTimeout(()=>b.textContent=o,1400);}}).catch(()=>{});}
   window.loadConnect=loadConnect; window.copyConnUrl=copyConnUrl;
   function switchTab(t){document.querySelector('nav.tabs button[data-tab="'+t+'"]').click();}
+  try{
+    const _openTab=new URLSearchParams(location.search).get('open')||'';
+    if(_openTab) switchTab(_openTab);
+  }catch(e){}
 
   /* theme toggle (persisted; applied pre-paint in <head> to avoid flash) */
   const themebtn=$('#themebtn');
