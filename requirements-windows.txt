@@ -86,6 +86,7 @@ pandas>=2.0
 matplotlib>=3.7
 huggingface-hub>=0.20
 pyflakes>=3.0
+segno>=1.5        # pure-python QR codes (web app's "Connect a phone" tab) — no deps
 
 # ── Smart home / MQTT (LAN broker + mDNS discovery) ──
 paho-mqtt>=2.0

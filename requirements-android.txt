@@ -44,3 +44,4 @@ urllib3>=2.6
 # Self-hosted server (pure-python; the recommended way to reach ELI from a phone)
 fastapi>=0.110
 uvicorn>=0.27
+segno>=1.5        # pure-python QR codes (web app's "Connect a phone" tab) — no deps
