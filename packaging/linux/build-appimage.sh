@@ -36,7 +36,8 @@ fi
 cp -a "$STAGING/." "$APPDIR/"
 rm -rf "$STAGING"
 
-ICON="$APPDIR/packaging/desktop/Eli_Icon.png"
+ICON="$APPDIR/packaging/desktop/eli-256.png"
+[ -f "$ICON" ] || ICON="$APPDIR/packaging/desktop/Eli_Icon.png"
 [ -f "$ICON" ] || ICON="$ROOT/packaging/desktop/Eli_Icon.png"
 
 cat > "$APPDIR/AppRun" <<'APPRUN_EOF'
