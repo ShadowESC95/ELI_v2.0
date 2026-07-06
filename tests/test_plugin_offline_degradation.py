@@ -37,3 +37,34 @@ def test_fetch_registry_routes_through_netguard(monkeypatch):
     out = manager._fetch_registry()
     assert called["guarded"] is True
     assert out == [{"name": "x"}]
+
+
+def test_web_search_blocks_offline_at_choke_point(monkeypatch):
+    """The Net toggle must be enforced INSIDE the web plugin, not only at the executor.
+
+    `ddgs`/`duckduckgo_search` drive libcurl (curl_cffi/primp) at the C/Rust level,
+    which bypasses Python's socket layer — so the process-wide socket guard cannot
+    see it. If a caller reaches the plugin without the executor's gate, offline must
+    still hold. Guard against that regression here.
+    """
+    import eli.core.netguard as ng
+    from eli.plugins.web import plugin as wp
+
+    monkeypatch.setattr(ng, "_net_allowed", lambda: False)  # toggle off, no full-control
+
+    # A backend fetch would mean the network was touched — it must NEVER run offline.
+    def _boom(*a, **k):
+        raise AssertionError("network backend invoked while offline")
+    monkeypatch.setattr(wp, "_searxng_search", _boom)
+    monkeypatch.setattr(wp, "_duckduckgo_search", _boom)
+    monkeypatch.setattr(wp, "_duckduckgo_html_search", _boom)
+
+    # 1) canonical choke point fails closed (no backend call)
+    import pytest
+    with pytest.raises(ng.OfflineError):
+        wp._web_search_results("anything")
+
+    # 2) public plugin entry returns an honest offline response, not a guess
+    out = wp.WebSearchPlugin().web_search({"query": "latest headlines"})
+    assert out.get("offline") is True and out.get("ok") is False
+    assert "network access is off" in (out.get("content") or "").lower()
