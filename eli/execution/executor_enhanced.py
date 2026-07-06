@@ -4874,11 +4874,19 @@ def _eli_self_description_block(limit: int = 2600) -> str:
     that are ABOUT ELI itself ("propose upgrades for yourself"). Sourced from the
     repo's own blueprints (real, code-traceable) so a self-referential document is
     grounded in ELI's ACTUAL architecture instead of a hallucinated generic plan.
-    Best-effort: returns "" if no blueprint is available (caller degrades)."""
+    Best-effort: returns "" if no source is available (caller degrades).
+
+    Preference order: local blueprint markdown (maintainer checkouts, richest
+    detail) -> README.md (tracked in git, so every fresh clone has it — the
+    blueprints/ markdown does NOT ship publicly, only the PDFs do)."""
     try:
         from pathlib import Path as _P
         root = _P(__file__).resolve().parents[2]
-        for rel in ("blueprints/what_eli_is.md", "blueprints/capability_catalogue.md"):
+        for rel in (
+            "blueprints/what_eli_is.md",
+            "blueprints/capability_catalogue.md",
+            "README.md",
+        ):
             fp = root / rel
             if fp.is_file():
                 txt = fp.read_text(encoding="utf-8", errors="ignore").strip()
