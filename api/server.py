@@ -252,6 +252,13 @@ def _eli_startup_hooks():
         get_server().maybe_auto_connect()
     except Exception:
         pass
+    # Preload whisper when cached so web mic (/v1/voice/stt) works offline.
+    try:
+        from eli.perception.local_whisper_stt import whisper_cache_ready, preload_model
+        if whisper_cache_ready():
+            preload_model()
+    except Exception:
+        pass
 
 # Has any device OTHER than this machine actually reached the server? In LAN mode the
 # desktop connects via loopback, so if this stays False after the server's been up a

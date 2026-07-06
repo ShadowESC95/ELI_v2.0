@@ -25,13 +25,38 @@ _PIPER_BASE = ("https://huggingface.co/rhasspy/piper-voices/resolve/main/"
                "en/en_US/amy/medium/")
 
 
-def _piper_present() -> bool:
+def piper_voice_ready(voice: str = _PIPER_VOICE) -> bool:
+    """True when a runnable Piper ONNX voice exists (not merely OS/espeak voices)."""
     try:
-        from eli.perception import tts_router
-        return bool(tts_router.list_voices())
+        from eli.perception.tts_router import find_voice_model
+        if find_voice_model(voice) is not None:
+            return True
     except Exception:
-        log.debug("voice_assets: piper presence check failed", exc_info=True)
-        return False
+        log.debug("voice_assets: piper router check failed", exc_info=True)
+    # Fallback: scan the on-disk layout we download into.
+    for base in (_piper_dest(),):
+        for fn in (f"{voice}.onnx", f"{voice}.onnx.json"):
+            p = base / fn
+            if not p.is_file() or p.stat().st_size <= 0:
+                break
+        else:
+            return True
+    try:
+        from eli.core.paths import project_root
+        packaged = Path(project_root()) / "tts_piper" / "piper"
+        for fn in (f"{voice}.onnx", f"{voice}.onnx.json"):
+            p = packaged / fn
+            if not p.is_file() or p.stat().st_size <= 0:
+                break
+        else:
+            return True
+    except Exception:
+        pass
+    return False
+
+
+def _piper_present() -> bool:
+    return piper_voice_ready(_PIPER_VOICE)
 
 
 def _piper_dest() -> Path:
@@ -93,8 +118,16 @@ def ensure_whisper() -> Dict[str, Any]:
     first construction; force CPU so the installer claims no VRAM, and gate the fetch."""
     os.environ.setdefault("ELI_WHISPER_DEVICE", "cpu")
     try:
-        from eli.core import netguard
+        from eli.perception.local_whisper_stt import whisper_cache_ready
         from eli.perception import local_whisper_stt as W
+        already = whisper_cache_ready()
+        if already:
+            os.environ.setdefault("ELI_WHISPER_LOCAL_ONLY", "1")
+            W.preload_model()
+            present = getattr(W, "_MODEL", None) is not None
+            return {"ok": present, "asset": "whisper", "already_present": True,
+                    **({} if present else {"error": "model cache present but load failed"})}
+        from eli.core import netguard
         with netguard.allow_network("voice asset: whisper model"):
             prev_local = os.environ.get("ELI_WHISPER_LOCAL_ONLY")
             os.environ["ELI_WHISPER_LOCAL_ONLY"] = "0"
@@ -108,7 +141,7 @@ def ensure_whisper() -> Dict[str, Any]:
         present = getattr(W, "_MODEL", None) is not None
         err = None if present else "model not loaded (is faster-whisper installed?)"
         return {"ok": present, "asset": "whisper",
-                "already_present": present, **({} if present else {"error": err})}
+                "already_present": False, **({} if present else {"error": err})}
     except ImportError:
         return {"ok": False, "asset": "whisper",
                 "error": "faster-whisper not installed — re-run INSTALL_ELI.sh"}
