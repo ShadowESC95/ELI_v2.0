@@ -467,6 +467,14 @@ ok "Voice       ${B}${VOICE_STATUS}${R}   ${D}(local STT + TTS weights)${R}"
 ok "Data        ${B}fresh local databases${R}, offline-by-default"
 
 section "Launch"
+if [ "$OS" = "Linux" ] && [ -x "$PYTHON_VENV" ]; then
+    info "Installing app-menu icons (ELI v2.0 + ELI Server)…"
+    if bash "$SCRIPT_DIR/scripts/install_desktop_apps.sh"; then
+        ok "Desktop launchers installed with ELI icon."
+    else
+        warn "Desktop icons deferred — run: ./scripts/install_desktop_apps.sh"
+    fi
+fi
 echo "  ${B}./scripts/eli_setup.sh${R}               ${D}# first-time one-click setup (grandparent-ready)${R}"
 echo "  ${B}./scripts/eli_launch.sh${R}              ${D}# desktop app (GUI)${R}"
 echo "  ${B}./scripts/eli_launch.sh serve --lan${R}  ${D}# web app for phone / tablet${R}"

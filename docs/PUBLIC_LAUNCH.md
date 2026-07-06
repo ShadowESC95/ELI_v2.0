@@ -3,22 +3,22 @@
 ## Links (share these)
 
 - **Repo:** https://github.com/ShadowESC95/ELI_v2.0
-- **Release v2.0.8:** https://github.com/ShadowESC95/ELI_v2.0/releases/tag/v2.0.8
+- **Release v2.0.9:** https://github.com/ShadowESC95/ELI_v2.0/releases/tag/v2.0.9
 - **License:** PolyForm Internal Use (source-available, personal use — not OSI open source)
 
 ## Easiest install — Linux
 
 ```bash
 # Option A: AppImage (double-click after chmod)
-wget https://github.com/ShadowESC95/ELI_v2.0/releases/download/v2.0.8/ELI_v2-2.0.8-x86_64.AppImage
-chmod +x ELI_v2-2.0.8-x86_64.AppImage
-./ELI_v2-2.0.8-x86_64.AppImage
+wget https://github.com/ShadowESC95/ELI_v2.0/releases/download/v2.0.9/ELI_v2-2.0.9-x86_64.AppImage
+chmod +x ELI_v2-2.0.9-x86_64.AppImage
+./ELI_v2-2.0.9-x86_64.AppImage
 ```
 
 ```bash
 # Option B: portable tarball
-wget https://github.com/ShadowESC95/ELI_v2.0/releases/download/v2.0.8/ELI_v2-2.0.8-linux-portable.tar.gz
-tar -xzf ELI_v2-2.0.8-linux-portable.tar.gz && cd ELI_v2-2.0.8-linux-portable
+wget https://github.com/ShadowESC95/ELI_v2.0/releases/download/v2.0.9/ELI_v2-2.0.9-linux-portable.tar.gz
+tar -xzf ELI_v2-2.0.9-linux-portable.tar.gz && cd ELI_v2-2.0.9-linux-portable
 chmod +x ELI_Setup.sh && ./ELI_Setup.sh
 ```
 
@@ -26,13 +26,13 @@ chmod +x ELI_Setup.sh && ./ELI_Setup.sh
 
 ## Easiest install — Windows
 
-1. Download `ELI_v2-2.0.8-windows-portable.zip` from the release page
+1. Download `ELI_v2-2.0.9-windows-portable.zip` from the release page
 2. Extract → double-click **`ELI_Setup.bat`**
 3. Run **`eli.bat`**
 
 ## Hacker News / Reddit one-liner
 
-> **ELI v2.0.8** — local-first AI assistant (GGUF, PySide6 GUI, offline-by-default). Runs entirely on your machine; no cloud account. Linux AppImage + portable; Windows zip. Source-available (PolyForm Internal Use). https://github.com/ShadowESC95/ELI_v2.0/releases/tag/v2.0.8
+> **ELI v2.0.9** — local-first AI assistant (GGUF, PySide6 GUI, offline-by-default). Runs entirely on your machine; no cloud account. Linux AppImage + portable; Windows zip. Source-available (PolyForm Internal Use). https://github.com/ShadowESC95/ELI_v2.0/releases/tag/v2.0.9
 
 ## What to say it is
 
