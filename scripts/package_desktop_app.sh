@@ -183,6 +183,12 @@ Quick start (easiest):
   chmod +x ELI_Setup.sh && ./ELI_Setup.sh          # guided one-click setup (recommended)
   # or: ./INSTALL_ELI.sh && ./RUN_ELI.sh
 
+Full new-user guide (all OS, every command):
+  blueprints/new_user_install_guide.pdf
+
+Phone / tablet (LAN + microphone):
+  ./scripts/eli_serve.sh --lan --https
+
 Linux AppImage (double-click after chmod +x):
   See GitHub Releases — ELI_v2-*-x86_64.AppImage
 
