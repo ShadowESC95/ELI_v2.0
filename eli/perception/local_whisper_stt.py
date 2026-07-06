@@ -43,6 +43,51 @@ def _gpu_total_mb() -> int:
     return mb
 
 
+def _whisper_hub_dir(model: str) -> str:
+    """HF cache folder name faster-whisper uses under download_root."""
+    return f"models--Systran--faster-whisper-{model.replace('/', '--')}"
+
+
+def whisper_cache_ready(
+    model_dir: Optional[str] = None,
+    model: Optional[str] = None,
+) -> bool:
+    """True when the whisper weights are already on disk (no HF download needed)."""
+    model = model or _env("ELI_WHISPER_MODEL", "small.en")
+    root = Path(_resolve_model_dir(model_dir or _env("ELI_WHISPER_MODEL_DIR", "models/whisper")))
+    direct = root / model
+    if direct.exists():
+        return True
+    hub = root / _whisper_hub_dir(model)
+    snaps = hub / "snapshots"
+    if snaps.is_dir():
+        for snap in snaps.iterdir():
+            if snap.is_dir() and any(snap.iterdir()):
+                return True
+    return False
+
+
+def _offline_whisper_missing_message() -> str:
+    return (
+        "Whisper STT model not installed locally. ELI is offline-by-default, so "
+        "voice transcription cannot download from huggingface.co. "
+        "On the server host run: .venv/bin/python -m eli.runtime.voice_assets "
+        "(or re-run ./INSTALL_ELI.sh with network enabled)."
+    )
+
+
+def _resolve_model_dir(raw: str) -> str:
+    """Absolute whisper cache dir — relative paths break when cwd != install root."""
+    p = Path(raw)
+    if p.is_absolute():
+        return str(p)
+    try:
+        from eli.core.paths import project_root
+        return str((Path(project_root()) / p).resolve())
+    except Exception:
+        return str(Path(raw).expanduser().resolve())
+
+
 def _model_settings():
     # small.en (not base.en): base.en mis-transcribes too much on real speech
     # ("hair with stings") — accuracy is driven by model size, so small.en stays
@@ -51,7 +96,7 @@ def _model_settings():
     # Override with ELI_WHISPER_MODEL=base.en/tiny.en (faster, less accurate) or
     # medium.en (more accurate, larger footprint).
     model = _env("ELI_WHISPER_MODEL", "small.en")
-    model_dir = _env("ELI_WHISPER_MODEL_DIR", "models/whisper")
+    model_dir = _resolve_model_dir(_env("ELI_WHISPER_MODEL_DIR", "models/whisper"))
     # Prefer GPU for speed (CPU int8 is too slow); get_model() falls back to CPU
     # automatically if the CUDA load fails / OOMs. Force CPU with
     # ELI_WHISPER_DEVICE=cpu. On GPU we use int8_float16 (int8 weights, float16
@@ -121,6 +166,9 @@ def get_model():
             _MODEL_READY.clear()
 
             from faster_whisper import WhisperModel
+
+            if local_only and not whisper_cache_ready(model_dir, model):
+                raise RuntimeError(_offline_whisper_missing_message())
 
             log.debug(
                 f"[LOCAL_STT] loading faster-whisper model={model!r} "
