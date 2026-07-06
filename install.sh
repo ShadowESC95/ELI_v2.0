@@ -381,7 +381,9 @@ else
 fi
 
 echo "[..] Installing dependencies from $(basename "$REQ")$([ "$REQ" = "$SCRIPT_DIR/requirements.lock.txt" ] && echo ' (frozen, reproducible)')..."
-"$PIP" install -r "$REQ" --quiet --ignore-installed
+# ${_PIP_LINKS[@]} points pip at the bundled wheelhouse (--find-links) when the release
+# shipped one, so a full-wheelhouse build installs with zero network; otherwise it's empty.
+"$PIP" install "${_PIP_LINKS[@]}" -r "$REQ" --quiet --ignore-installed
 
 # Make launchers executable
 chmod +x "$SCRIPT_DIR/eli.sh" 2>/dev/null || true
