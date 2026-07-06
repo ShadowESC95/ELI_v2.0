@@ -71,12 +71,11 @@ class WebSearchPlugin(Plugin):
         max_results = max(1, min(max_results, 10))
 
         # Net gate first — never touch the network (or confabulate) when offline.
-        try:
-            from eli.core.netguard import should_block_network, offline_response
-            if should_block_network():
-                return offline_response("WEB_SEARCH", "search the web")
-        except Exception:
-            pass
+        # netguard is a core module (always importable) and should_block_network()
+        # already fails closed, so this needs no defensive try/except.
+        from eli.core.netguard import should_block_network, offline_response
+        if should_block_network():
+            return offline_response("WEB_SEARCH", "search the web")
 
         try:
             results = _web_search_results(query, max_results=max_results)
