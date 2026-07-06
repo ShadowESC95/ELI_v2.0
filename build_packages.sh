@@ -146,7 +146,15 @@ EOF
 # ── Pre-flight: tests must pass before producing artifacts ──────────────
 echo ""
 echo "[pre-flight] Compiling the codebase…"
-( cd "$PROJECT_ROOT" && python3 -m py_compile $(git ls-files '*.py') )
+# This is a MAINTAINER build tool. If it's run from an unpacked release (no .git),
+# fall back to a plain file walk instead of `git ls-files` so it doesn't error out.
+if git -C "$PROJECT_ROOT" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
+    ( cd "$PROJECT_ROOT" && python3 -m py_compile $(git ls-files '*.py') )
+else
+    echo "[pre-flight] not a git checkout — this is the maintainer release builder;"
+    echo "             to USE ELI run ./ELI_Setup.sh (or ./RUN_ELI.sh). Skipping compile."
+    ( cd "$PROJECT_ROOT" && find eli api -name '*.py' -print0 2>/dev/null | xargs -0 python3 -m py_compile 2>/dev/null || true )
+fi
 
 if [ -z "${SKIP_TESTS:-}" ]; then
     echo "[pre-flight] Running pytest (set SKIP_TESTS=1 to skip)…"
