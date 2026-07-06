@@ -7,34 +7,24 @@ import sys
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
-try:
-    from PySide6.QtCore import Qt, QThread, pyqtSignal
-    from PySide6.QtGui import QDesktopServices
-    from PySide6.QtWidgets import (
-        QApplication,
-        QDialog,
-        QHBoxLayout,
-        QLabel,
-        QMessageBox,
-        QPushButton,
-        QProgressBar,
-        QVBoxLayout,
-        QWidget,
-    )
-except ImportError:
-    from PyQt6.QtCore import Qt, QThread, pyqtSignal
-    from PyQt6.QtGui import QDesktopServices
-    from PyQt6.QtWidgets import (
-        QApplication,
-        QDialog,
-        QHBoxLayout,
-        QLabel,
-        QMessageBox,
-        QPushButton,
-        QProgressBar,
-        QVBoxLayout,
-        QWidget,
-    )
+# Single Qt binding policy lives in eli.gui.qt_compat (PySide6 → PyQt6 → PyQt5 →
+# headless stubs). Importing through the shim avoids a broken hard dependency on
+# PyQt6 when only PySide6 is installed (the shipped, LGPL-safe binding).
+from eli.gui.qt_compat import (
+    Qt,
+    QThread,
+    pyqtSignal,
+    QDesktopServices,
+    QApplication,
+    QDialog,
+    QHBoxLayout,
+    QLabel,
+    QMessageBox,
+    QPushButton,
+    QProgressBar,
+    QVBoxLayout,
+    QWidget,
+)
 
 from eli.setup.status import (
     has_chat_model,
