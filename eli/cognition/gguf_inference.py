@@ -404,9 +404,17 @@ def _clean_eli_output(text: str) -> str:
         parts = t.split("<|im_end|>")
         # Take the last non-empty part
         t = next((p for p in reversed(parts) if p.strip()), t)
+    # Safety net for Zephyr/Phi role tokens (TinyLlama etc.): if the model ran past its
+    # turn and started a fake "<|user|>/<|system|>" continuation, keep only the answer
+    # BEFORE it. Then strip any stray role/turn tokens.
+    for _rt in ("<|user|>", "<|system|>", "<|assistant|>"):
+        if _rt in t:
+            t = t.split(_rt)[0]
     t = t.replace("[INST]", "").replace("[/INST]", "").replace("<s>", "").replace("</s>", "")
     t = t.replace("Assistant:", "ELI:").replace("assistant:", "ELI:").replace("AI:", "ELI:")
     t = t.replace("<|im_start|>", "").replace("<|im_end|>", "").replace("assistant\n", "")
+    for _tok in ("<|end|>", "<|eot_id|>", "<|end_of_text|>", "<|assistant|>", "<|user|>", "<|system|>"):
+        t = t.replace(_tok, "")
     t = t.strip()
     t = re.sub(r"^\s*ELI:\s*", "", t)
     # Strip canned completion-style prefixes the model outputs in prompt-continuation mode
@@ -1224,8 +1232,13 @@ def _generate_legacy(
     stop = stop or []
 
     # Universal turn-boundary stops — prevent the model from running on into the
-    # next turn. Chat-template tokens always apply.
-    stop += ["<|im_start|>", "<|im_end|>"]
+    # next turn. Chat-template ROLE tokens always apply. These are special tokens (not
+    # natural-language labels), so they never appear inside a thinking model's <think>
+    # block — safe to stop on for every model. Without `<|user|>`/`<|assistant|>` here,
+    # Zephyr/Phi-template models (e.g. TinyLlama) run past their turn and hallucinate a
+    # fake "<|user|> …" continuation after their real answer.
+    stop += ["<|im_start|>", "<|im_end|>",
+             "<|user|>", "<|assistant|>", "<|system|>"]
 
     # The natural-language role labels ("User:" / "Assistant:") are a crude guard
     # for non-templated models — and they are DELIBERATELY withheld from thinking
