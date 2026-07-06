@@ -90,8 +90,9 @@ Documentation and marketing must match this:
   `engine.process()` only — not on file contents, tool output, or all API fields.
 - **Offline enforcement**: socket guard installs when the cognitive engine
   starts; some code paths use raw `urlopen` and rely on that guard being active.
-- **Web RBAC**: `/v1/chat` enforces member role; some stream/completions
-  endpoints may be looser — treat LAN viewer accounts accordingly until aligned.
+- **Web RBAC**: `/v1/chat`, `/v1/chat/stream`, and `/v1/chat/completions` all
+  enforce the member role (read-only viewers are `403`'d from anything that runs
+  the engine).
 
 ## Supported versions
 

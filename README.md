@@ -59,9 +59,11 @@ company serving it.** That isn't a slogan on a badge; it's the constraint every 
 decision in here has to answer to:
 
 - **Everything is local by default.** Offline isn't a setting you toggle — `eli/core/netguard`
-  enforces it at the socket layer. Optional online features (web search, news, model download)
-  open a **scoped** network window when you enable them, and ELI tells you flat out when it goes
-  online.
+  enforces it at the socket layer, fail-closed, for ELI's own in-process network calls. (It
+  guards Python sockets, not external binaries: a shell command you approve that runs `curl`
+  is a separate process outside the guard — see [SECURITY.md](SECURITY.md).) Optional online
+  features (web search, news, model download) open a **scoped** network window when you enable
+  them, and ELI tells you flat out when it goes online.
 - **Your model of *you* stays on your machine.** ELI learns your patterns and preferences and
   writes them to your disk, never a data centre.
 - **It improves for you, not for a vendor.** Self-training means ELI gets better at serving *you* —
@@ -155,10 +157,10 @@ portable package from **[GitHub Releases](https://github.com/ShadowESC95/ELI_v2.
 
 ```bash
 # 1. Download from Releases:
-#    ELI_v2.0-2.0.0-linux-portable.tar.gz
+#    ELI_v2-2.0.9-linux-portable.tar.gz
 
-tar -xzf ELI_v2.0-2.0.0-linux-portable.tar.gz
-cd ELI_v2.0-2.0.0-linux-portable
+tar -xzf ELI_v2-2.0.9-linux-portable.tar.gz
+cd ELI_v2-2.0.9-linux-portable
 
 ./INSTALL_ELI.sh                    # venv + deps + DB schema (blank slate)
 ./RUN_ELI.sh --with-github-assets   # starter model + voice pack (tag: local-assets-v2.1)
@@ -346,7 +348,12 @@ Server security in brief — full detail in **[docs/SERVER_AND_WEB_APP.md](docs/
   require one anyway).
 - **Roles are opt-in and attribution is authenticated.** Viewers are read-only, members are
   `403`'d from the admin console, and a member can't claim to be someone else in the audit trail.
-  Tokens are stored only as SHA-256 hashes.
+  RBAC user tokens are stored as SHA-256 hashes; the single-operator LAN pairing token is a
+  plaintext local file (`config/api_token`, `0600` on Unix) compared with a constant-time check.
+- **Loopback is trusted by default.** A process on the same machine reaching `127.0.0.1` is
+  treated as the local operator (tokenless admin) even when the server is bound for LAN access —
+  deliberate for single-user desktops, a footgun behind a same-host reverse proxy or on shared
+  hosts. Opt out with `ELI_LOOPBACK_ADMIN=0`. Details in [SECURITY.md](SECURITY.md).
 - **Research ingest is sandboxed** to a configured root with file-count / byte caps — a client can
   never make the server read arbitrary host files.
 - Keep it on your **own LAN**. Don't port-forward it to the public internet.
