@@ -58,9 +58,17 @@ _DRIVER = textwrap.dedent(
     assert c.get("/v1/system", headers=H(tv)).status_code == 200            # read ok
     assert c.get("/v1/research/corpora", headers=H(tv)).status_code == 200  # read ok
     assert c.post("/v1/chat", headers=H(tv), json={"message": "hi"}).status_code == 403
+    # the streaming + completions chat shapes run the same engine — same acting level
+    assert c.post("/v1/chat/stream", headers=H(tv), json={"message": "hi"}).status_code == 403
+    assert c.post("/v1/chat/completions", headers=H(tv),
+                  json={"messages": [{"role": "user", "content": "hi"}]}).status_code == 403
     assert c.post("/v1/devices/control", headers=H(tv),
                   json={"device_id": "x", "command": "on"}).status_code == 403
     assert c.get("/v1/admin/overview", headers=H(tv)).status_code == 403
+    # a member CAN use the streaming + completions endpoints
+    assert c.post("/v1/chat/stream", headers=H(tb), json={"message": "hi"}).status_code == 200
+    assert c.post("/v1/chat/completions", headers=H(tb),
+                  json={"messages": [{"role": "user", "content": "hi"}]}).status_code == 200
 
     # authenticated attribution: bob claims to be alice -> recorded as bob
     c.post("/v1/chat", headers=H(tb), json={"message": "hi", "user_id": "alice"})

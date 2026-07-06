@@ -47,6 +47,16 @@ def _ensure_db_stores() -> bool:
         return False
 
 
+def _manifest_is_valid(path: Path) -> bool:
+    """A tracked manifest with a plausible capability count is good enough — no need
+    to regenerate (regeneration rewrites `generated_at` and dirties the working tree
+    on every claims-suite run)."""
+    try:
+        return int(json.loads(path.read_text(encoding="utf-8")).get("total") or 0) >= MIN_CAPS
+    except Exception:
+        return False
+
+
 def main() -> int:
     manifest = ROOT / "capability_manifest.json"
     ok = True
@@ -54,16 +64,21 @@ def main() -> int:
     if not _ensure_db_stores():
         ok = False
 
-    try:
-        from eli.tools.registry.capability_updater import update_capability_manifest
-        r = update_capability_manifest()
-        if not r.get("ok"):
-            print(f"[WARN] manifest refresh: {r}", file=sys.stderr)
-            ok = False
-        else:
-            print(f"[OK] capability manifest ({r.get('total', '?')} capabilities)")
-    except Exception as e:
-        print(f"[WARN] manifest refresh skipped: {e}", file=sys.stderr)
+    # Only (re)generate the manifest when it's missing or stale on a fresh clone.
+    # A valid, tracked manifest is left untouched so running the suite never dirties git.
+    if _manifest_is_valid(manifest):
+        print("[OK] capability manifest present (kept as-is)")
+    else:
+        try:
+            from eli.tools.registry.capability_updater import update_capability_manifest
+            r = update_capability_manifest()
+            if not r.get("ok"):
+                print(f"[WARN] manifest refresh: {r}", file=sys.stderr)
+                ok = False
+            else:
+                print(f"[OK] capability manifest ({r.get('total', '?')} capabilities)")
+        except Exception as e:
+            print(f"[WARN] manifest refresh skipped: {e}", file=sys.stderr)
 
     if manifest.is_file():
         try:

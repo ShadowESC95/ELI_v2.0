@@ -239,7 +239,14 @@ app = FastAPI(
 
 @app.on_event("startup")
 def _eli_startup_hooks():
-    """Resume saved MQTT broker connection when the API server boots."""
+    """Server boot hooks. Install the offline socket guard FIRST so early startup
+    egress (e.g. MQTT auto-connect, any raw urlopen) is gated even before the first
+    chat request lazily constructs the CognitiveEngine."""
+    try:
+        from eli.core.netguard import install_socket_guard
+        install_socket_guard()
+    except Exception:
+        pass
     try:
         from eli.runtime.device_server import get_server
         get_server().maybe_auto_connect()
@@ -3309,13 +3316,16 @@ def chat(request: ChatRequest, principal: Principal = Depends(require_member)):
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
-@app.post("/v1/chat/stream", tags=["Chat"], dependencies=[Depends(_require_token)])
-def chat_stream(request: ChatRequest):
+@app.post("/v1/chat/stream", tags=["Chat"])
+def chat_stream(request: ChatRequest, principal: Principal = Depends(require_member)):
     """Stream ELI's reply incrementally as Server-Sent Events — same LOCAL model and
     same pipeline as /v1/chat, just token-by-token so the UI isn't blank for a minute.
-    Frames: {"session_id":…} first, then {"delta":"…"} chunks, then {"done":true}."""
+    Frames: {"session_id":…} first, then {"delta":"…"} chunks, then {"done":true}.
+    Same acting level as /v1/chat: it runs the full engine, so a read-only viewer
+    is 403'd here too, and attribution uses the authenticated identity."""
     engine = get_engine()
     session_id = request.session_id or str(int(time.time()))
+    who = _effective_user(principal, request.user_id)
 
     def _frame(obj) -> str:
         return "data: " + json.dumps(obj) + "\n\n"
@@ -3323,7 +3333,7 @@ def chat_stream(request: ChatRequest):
     def _gen():
         yield _frame({"session_id": session_id})
         try:
-            result = engine.process(request.message, source=f"api:{request.user_id}", stream=True)
+            result = engine.process(request.message, source=f"api:{who}", stream=True)
             if isinstance(result, dict):
                 yield _frame({"delta": _extract_response_text(result)})
             elif isinstance(result, str):
@@ -3375,11 +3385,12 @@ def list_models():
     return {"object": "list",
             "data": [{"id": "eli-local", "object": "model", "created": 0, "owned_by": "eli"}]}
 
-@app.post("/v1/chat/completions", tags=["Chat"], dependencies=[Depends(_require_token)])
+@app.post("/v1/chat/completions", tags=["Chat"], dependencies=[Depends(require_member)])
 def chat_completions(request: CompletionRequest):
     """Standard chat-completions shape, answered by ELI's LOCAL model + pipeline.
     Honours `stream`; returns the canonical `chat.completion` / `chat.completion.chunk`
-    objects (and the `[DONE]` sentinel) so standard clients work drop-in."""
+    objects (and the `[DONE]` sentinel) so standard clients work drop-in.
+    Acting level (member+): it runs the full engine, so read-only viewers are 403'd."""
     engine = get_engine()
     prompt = _messages_to_prompt(request.messages)
     if not prompt.strip():

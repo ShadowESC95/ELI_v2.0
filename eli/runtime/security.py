@@ -58,7 +58,10 @@ class SecurityManager:
         """Parse allowed commands with normalization"""
         raw = os.environ.get("ELI_ALLOWED_CMDS", "").strip()
         if not raw:
-            return set()  # Empty means no restrictions (for now)
+            # Empty allowlist. NOTE: this is fail-CLOSED, not "no restrictions" —
+            # is_command_allowed() returns False for an empty set unless Full Control
+            # is on. Set ELI_ALLOWED_CMDS=cmd1,cmd2 (or "*") to permit specific commands.
+            return set()
         
         allowed = set()
         
