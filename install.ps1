@@ -17,6 +17,12 @@ $ErrorActionPreference = "Stop"
 
 $ScriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
 $Venv = Join-Path $ScriptDir ".venv"
+$env:ELI_PROJECT_ROOT = $ScriptDir
+if (-not $env:ELI_DATA_DIR) { $env:ELI_DATA_DIR = Join-Path $ScriptDir "artifacts" }
+if (-not $env:ELI_CONFIG_DIR) { $env:ELI_CONFIG_DIR = Join-Path $ScriptDir "config" }
+if (-not $env:ELI_MODELS_DIR) { $env:ELI_MODELS_DIR = Join-Path $ScriptDir "models" }
+if (-not $env:ELI_CACHE_DIR) { $env:ELI_CACHE_DIR = Join-Path $ScriptDir "cache" }
+if ($env:PYTHONPATH) { $env:PYTHONPATH = "$ScriptDir;$env:PYTHONPATH" } else { $env:PYTHONPATH = $ScriptDir }
 # Frozen lock by default (reproducible); -Latest uses the Windows/range profile.
 $RequirementCandidates = if ($Latest) {
     @( (Join-Path $ScriptDir "requirements-windows.txt"), (Join-Path $ScriptDir "requirements.txt") )

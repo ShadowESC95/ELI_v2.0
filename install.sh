@@ -6,6 +6,12 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 VENV="$SCRIPT_DIR/.venv"
 PYTHON="${PYTHON:-python3}"
+export ELI_PROJECT_ROOT="$SCRIPT_DIR"
+export ELI_DATA_DIR="${ELI_DATA_DIR:-$SCRIPT_DIR/artifacts}"
+export ELI_CONFIG_DIR="${ELI_CONFIG_DIR:-$SCRIPT_DIR/config}"
+export ELI_MODELS_DIR="${ELI_MODELS_DIR:-$SCRIPT_DIR/models}"
+export ELI_CACHE_DIR="${ELI_CACHE_DIR:-$SCRIPT_DIR/cache}"
+export PYTHONPATH="$SCRIPT_DIR${PYTHONPATH:+:$PYTHONPATH}"
 CPU_ONLY=0
 SKIP_TORCH=0
 USE_LATEST=0     # default: install the frozen lock (reproducible). --latest = version ranges.
