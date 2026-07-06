@@ -1,6 +1,7 @@
 # ELI v2.0 — cutting a download-and-run release
 
-> Maintainer walkthrough: **`blueprints/v2_release.pdf`** (local markdown also under `blueprints/`)
+> Maintainer walkthrough: **`blueprints/v2_release.pdf`** (local markdown also under `blueprints/`)  
+> **New users:** **`blueprints/new_user_install_guide.pdf`** — full install commands for Linux, Windows, and macOS.
 
 ## 1. Build packages
 
