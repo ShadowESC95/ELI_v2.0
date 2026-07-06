@@ -85,3 +85,40 @@ def firewall_hint() -> Dict[str, Any]:
         return _firewall_hint()
     except Exception:
         return {"tool": "firewall", "commands": [], "subnet": ""}
+
+
+def start_https_sidecar(host: str = "0.0.0.0", https_port: Optional[int] = None) -> Optional[int]:
+    """Run HTTPS alongside HTTP (phone mic). Returns port or None on failure."""
+    import threading
+
+    try:
+        import uvicorn
+        from api.server import _ensure_lan_cert, app as _app
+    except Exception:
+        return None
+    try:
+        crt, key = _ensure_lan_cert()
+        port = int(https_port or os.environ.get("ELI_API_HTTPS_PORT", "8443"))
+        os.environ["ELI_API_HTTPS_PORT"] = str(port)
+        srv = uvicorn.Server(uvicorn.Config(
+            _app, host=host, port=port, log_level="warning",
+            ssl_certfile=crt, ssl_keyfile=key))
+        threading.Thread(target=srv.run, daemon=True).start()
+        return port
+    except Exception:
+        os.environ.pop("ELI_API_HTTPS_PORT", None)
+        return None
+
+
+def qr_png_data_uri(url: str) -> str:
+    """PNG data-URI for embedding a connect QR in the Qt settings page."""
+    import base64
+    import io
+
+    import segno
+
+    buf = io.BytesIO()
+    segno.make(url, error="m").save(buf, kind="png", scale=6, border=4,
+                                    dark="#06141f", light="#eafcff")
+    b64 = base64.b64encode(buf.getvalue()).decode("ascii")
+    return f"data:image/png;base64,{b64}"
