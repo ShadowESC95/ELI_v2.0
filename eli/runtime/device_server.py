@@ -452,11 +452,22 @@ class DeviceServer:
             if not ok_lib:
                 return {"ok": False, "error": f"driver not installed: pip install {pip}",
                         "need_install": True, "driver": driver_name, "pip": pip}
-            res = drv.control(dev, command, value)
+            cmd = (command or "").lower().strip()
+            if cmd in ("play_url", "play_media"):
+                url = str(value or "").strip()
+                if not url:
+                    return {"ok": False, "error": "play_url requires value (URL)"}
+                ct = ""
+                if isinstance(value, dict):
+                    url = str(value.get("url") or url).strip()
+                    ct = str(value.get("content_type") or "").strip()
+                res = drv.play_media(dev, url, ct)
+            else:
+                res = drv.control(dev, command, value)
             if res.get("ok"):
                 with self._lock:
                     self._save()
-                self._record_usage(device_id, (command or "").lower().strip(), dev)
+                self._record_usage(device_id, cmd if cmd in ("play_url", "play_media") else cmd, dev)
             return res
         if not self._connected or self._client is None:
             return {"ok": False, "error": "not connected to a broker"}

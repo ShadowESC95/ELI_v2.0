@@ -82,6 +82,13 @@ def home_context(max_chars: int = 420) -> str:
             parts.append("You most use: " + ", ".join(habits) + ".")
     except Exception:
         pass
+    try:
+        from eli.runtime import home_mesh
+        line = home_mesh.mesh_context_line()
+        if line:
+            parts.append(line)
+    except Exception:
+        pass
     return " ".join(parts)[:max_chars]
 
 

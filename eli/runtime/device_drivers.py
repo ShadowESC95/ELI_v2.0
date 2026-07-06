@@ -76,6 +76,10 @@ class Driver:
     def control(self, dev: Dict[str, Any], command: str, value: Any = None) -> Dict[str, Any]:
         return {"ok": False, "error": f"{self.name}: unsupported command {command!r}"}
 
+    def play_media(self, dev: Dict[str, Any], url: str, content_type: str = "") -> Dict[str, Any]:
+        """Push a URL (audio/video/image) to a renderer. Override per driver."""
+        return {"ok": False, "error": f"{self.name}: media push not supported for this device"}
+
     # Small helper so async libs can be driven from the sync device server.
     @staticmethod
     def _run(coro):
@@ -169,6 +173,38 @@ class UpnpDriver(Driver):
             return {"ok": False, "error": f"upnp: {e}"}
         return {"ok": True, "device": dev.get("id"), "command": cmd}
 
+    def play_media(self, dev, url: str, content_type: str = "") -> Dict[str, Any]:
+        av, _, _ = self._control_url(dev)
+        if not av:
+            return {"ok": False, "error": "upnp: no AVTransport control URL"}
+        AVT = "urn:schemas-upnp-org:service:AVTransport:1"
+        ct = content_type or _guess_media_type(url)
+        meta = (
+            '&lt;?xml version="1.0"?&gt;&lt;DIDL-Lite xmlns="urn:schemas-upnp-org:metadata-1-0/DIDL-Lite/" '
+            'xmlns:dc="http://purl.org/dc/elements/1.1/" xmlns:upnp="urn:schemas-upnp-org:metadata-1-0/upnp/"&gt;'
+            '&lt;item id="0" parentID="0" restricted="0"&gt;&lt;dc:title&gt;Media&lt;/dc:title&gt;'
+            f'&lt;res protocolInfo="http-get:*:{ct}:*"&gt;{url}&lt;/res&gt;&lt;/item&gt;&lt;/DIDL-Lite&gt;'
+        )
+        try:
+            self._soap(av, AVT, "SetAVTransportURI",
+                       f"<InstanceID>0</InstanceID><CurrentURI>{url}</CurrentURI>"
+                       f"<CurrentURIMetaData>{meta}</CurrentURIMetaData>")
+            self._soap(av, AVT, "Play", "<InstanceID>0</InstanceID><Speed>1</Speed>")
+        except Exception as e:
+            return {"ok": False, "error": f"upnp: {e}"}
+        return {"ok": True, "device": dev.get("id"), "url": url, "content_type": ct}
+
+
+def _guess_media_type(url: str) -> str:
+    u = (url or "").lower().split("?")[0]
+    if u.endswith((".jpg", ".jpeg", ".png", ".gif", ".webp", ".bmp")):
+        return "image/jpeg"
+    if u.endswith((".mp3", ".m4a", ".wav", ".ogg", ".flac")):
+        return "audio/mpeg"
+    if u.endswith((".mp4", ".mkv", ".webm", ".mov")):
+        return "video/mp4"
+    return "video/mp4"
+
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Google Cast / Chromecast — pychromecast, NO pairing (open on LAN)
@@ -223,6 +259,24 @@ class CastDriver(Driver):
         except Exception as e:
             return {"ok": False, "error": f"cast: {e}"}
         return {"ok": True, "device": dev.get("id"), "command": cmd}
+
+    def play_media(self, dev, url: str, content_type: str = "") -> Dict[str, Any]:
+        ct = content_type or _guess_media_type(url)
+        try:
+            cast, browser = self._cast(dev)
+            try:
+                mc = cast.media_controller
+                mc.play_media(url, ct)
+                mc.block_until_active(12)
+            finally:
+                try:
+                    if browser:
+                        browser.stop_discovery()
+                except Exception:
+                    pass
+        except Exception as e:
+            return {"ok": False, "error": f"cast: {e}"}
+        return {"ok": True, "device": dev.get("id"), "url": url, "content_type": ct}
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -323,6 +377,18 @@ class FireTVDriver(Driver):
         except Exception as e:
             return {"ok": False, "error": f"firetv: {e}"}
         return {"ok": True, "device": dev.get("id"), "command": cmd}
+
+    def play_media(self, dev, url: str, content_type: str = "") -> Dict[str, Any]:
+        try:
+            aftv = self._connect(dev)
+            if not self._available(aftv):
+                return {"ok": False, "error": "not paired/authorised — pair the Fire TV first",
+                        "need_pair": True}
+            safe = (url or "").replace('"', '\\"')
+            aftv.adb_shell(f'am start -a android.intent.action.VIEW -d "{safe}"')
+        except Exception as e:
+            return {"ok": False, "error": f"firetv: {e}"}
+        return {"ok": True, "device": dev.get("id"), "url": url}
 
 
 # ─────────────────────────────────────────────────────────────────────────────

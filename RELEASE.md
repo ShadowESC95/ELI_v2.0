@@ -18,15 +18,15 @@ bash scripts/build_grandma_release.sh
 
 ```bash
 bash scripts/build_v2_release.sh
-# Output: dist/app_packages/ELI_v2-2.0.12-linux-portable.tar.gz
+# Output: dist/app_packages/ELI_v2-2.0.13-linux-portable.tar.gz
 ```
 
 **Windows Setup.exe** (run on a Windows PC with [Inno Setup 6](https://jrsoftware.org/isinfo.php)):
 
 ```powershell
 bash build_packages.sh windows-lean
-powershell -ExecutionPolicy Bypass -File packaging/windows/build-windows.ps1 -Version 2.0.12
-# Output: dist/ELI_v2-2.0.12-Setup.exe
+powershell -ExecutionPolicy Bypass -File packaging/windows/build-windows.ps1 -Version 2.0.13
+# Output: dist/ELI_v2-2.0.13-Setup.exe
 ```
 
 Optional full bundle (local models — very large):
@@ -54,11 +54,11 @@ python3 scripts/upload_github_asset_files.py --repo ShadowESC95/ELI_v2.0 --tag l
 ## 3. Publish GitHub Release
 
 1. [New release](https://github.com/ShadowESC95/ELI_v2.0/releases/new)
-2. Tag: `v2.0.12` (semver matches `pyproject.toml`)
+2. Tag: `v2.0.13` (semver matches `pyproject.toml`)
 3. Attach:
-   - `ELI_v2-2.0.12-linux-portable.tar.gz`
-   - `ELI_v2-2.0.12-x86_64.AppImage` (grandma-friendly)
-   - `ELI_v2-2.0.12-Setup.exe` (Windows, if built)
+   - `ELI_v2-2.0.13-linux-portable.tar.gz`
+   - `ELI_v2-2.0.13-x86_64.AppImage` (grandma-friendly)
+   - `ELI_v2-2.0.13-Setup.exe` (Windows, if built)
    - `.sha256` sidecars
    - Model pack assets (optional separate tag)
 
@@ -79,8 +79,8 @@ Or extract the zip and double-click `ELI_Setup.bat`.
 **Classic portable:**
 
 ```bash
-tar -xzf ELI_v2-2.0.12-linux-portable.tar.gz
-cd ELI_v2-2.0.12-linux-portable
+tar -xzf ELI_v2-2.0.13-linux-portable.tar.gz
+cd ELI_v2-2.0.13-linux-portable
 chmod +x ELI_Setup.sh && ./ELI_Setup.sh    # guided (recommended)
 # or: ./INSTALL_ELI.sh && ./RUN_ELI.sh
 ```

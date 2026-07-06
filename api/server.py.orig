@@ -52,7 +52,7 @@ if __name__ == "__main__":
 from fastapi import FastAPI, HTTPException, Depends, Header, Request
 from fastapi.responses import HTMLResponse, StreamingResponse, Response
 from pydantic import BaseModel
-from typing import Optional, Any, List
+from typing import Optional, Any
 import json
 import os
 import secrets
@@ -250,13 +250,6 @@ def _eli_startup_hooks():
     try:
         from eli.runtime.device_server import get_server
         get_server().maybe_auto_connect()
-    except Exception:
-        pass
-    try:
-        from eli.runtime import home_mesh
-        cfg = home_mesh.load_config()
-        if cfg.get("enabled"):
-            home_mesh.ensure_watchdog()
     except Exception:
         pass
     # Preload whisper when cached so web mic (/v1/voice/stt) works offline.
@@ -676,24 +669,6 @@ _WEB_UI = """<!doctype html>
   @keyframes cardin { from{opacity:0;transform:translateY(9px) scale(.985)} to{opacity:1;transform:none} }
   .roomnm { color:var(--accent); text-shadow:0 0 10px rgba(34,211,238,.32); }
   .roomct { background:rgba(34,211,238,.08); border-color:rgba(34,211,238,.25); color:var(--accent); }
-  /* Per-device hub — picker chips + detail panel */
-  .devhub { margin-bottom:18px; }
-  .devpick { display:flex; gap:8px; overflow-x:auto; padding:4px 2px 10px; scrollbar-width:none; }
-  .devpick::-webkit-scrollbar { display:none; }
-  .devchip { flex:none; padding:8px 14px; border-radius:12px; border:1px solid var(--line); background:rgba(6,11,20,.55); color:var(--fg-dim); font-size:13px; cursor:pointer; transition:var(--fast); }
-  .devchip:hover { border-color:rgba(34,211,238,.35); color:var(--fg); }
-  .devchip.active { border-color:rgba(34,211,238,.55); background:rgba(34,211,238,.1); color:var(--accent); box-shadow:0 0 14px rgba(34,211,238,.18); }
-  .devhub-body { border:1px solid var(--line); border-radius:16px; padding:14px; background:linear-gradient(158deg,rgba(18,28,46,.55),rgba(8,12,22,.5)); }
-  .devhub-body .subtabs { margin-bottom:12px; }
-  .devhub-hd { display:flex; align-items:center; gap:12px; margin-bottom:12px; }
-  .devhub-hd .dicon { width:44px; height:44px; font-size:20px; }
-  .devhub-hd .nm { font-size:16px; font-weight:600; }
-  .devhub-hd .dom { font-size:12px; color:var(--mut); }
-  .devact { display:flex; flex-wrap:wrap; gap:8px; margin-top:10px; }
-  .devurl { display:flex; gap:8px; margin-top:10px; flex-wrap:wrap; }
-  .devurl input { flex:1; min-width:180px; padding:8px 10px; border:1px solid var(--line); border-radius:8px; background:var(--input); color:var(--fg); font-size:13px; }
-  .card.devsel { outline:2px solid rgba(34,211,238,.45); box-shadow:0 0 20px rgba(34,211,238,.2); }
-  .card.hubopen { cursor:pointer; }
   /* Driver (media) cards — console transport */
   .card [data-cap] { padding:7px 0; min-width:36px; font-size:14px; border:1px solid var(--line); border-radius:9px; background:rgba(6,11,20,.6); color:var(--fg-dim); transition:var(--fast); }
   .card [data-cap]:hover { color:var(--accent); border-color:var(--accent); box-shadow:0 0 10px rgba(34,211,238,.3); }
@@ -1397,14 +1372,6 @@ _WEB_UI = """<!doctype html>
       if(d)renderBluetoothResults(d, box, btn, false);
     }).catch(e=>{if(btn){btn.disabled=false;btn.innerHTML='&#127911; Search Bluetooth';}if(box)box.innerHTML='<div class="banner bad">'+esc(''+e)+'</div>';});
   }
-  function btDoAddr(addr,cmd,name){
-    if(!addr){alert('No Bluetooth address');return;}
-    api('/v1/devices/bluetooth',{method:'POST',body:JSON.stringify({address:addr,name:name||'',command:cmd||'connect'})}).then(r=>{
-      if(!r.ok)alert((r.error||'Bluetooth failed').slice(0,200));
-      else if(cmd==='use_for_audio'){loadAudioOutputs();refreshHomeConnectivity();}
-      loadDevices();
-    }).catch(e=>alert(''+e));
-  }
   function btDo(i,c){
     const f=(window._bt||[])[i]; if(!f||window._btBusy)return;
     const cmd=['connect','pair','use_for_audio','disconnect'][c]||'connect';
@@ -1584,8 +1551,7 @@ _WEB_UI = """<!doctype html>
     if(dv.driver==='firetv')return !!a.adbkey;
     return true;}
   function driverCard(dv){
-    const card=document.createElement('div');card.className='card hubopen'+(_devHubId===dv.id?' devsel':'');
-    card.onclick=(e)=>{if(e.target.closest('button,input,label'))return;openDeviceHub(dv.id);};
+    const card=document.createElement('div');card.className='card';
     const drv=DRIVERS[dv.driver]||{};
     const head='<div><div class="nm">'+esc(dv.name||dv.id)+'</div><div class="dom">'+esc((drv.label||dv.driver))+'</div></div>';
     let h=head;
@@ -1662,8 +1628,7 @@ _WEB_UI = """<!doctype html>
     if(dv.driver && dv.driver!=='mqtt') return driverCard(dv);
     const t=dv.type||'switch', card=document.createElement('div');
     const sv=(''+(dv.state||'')).toUpperCase(), on=sv==='ON', off=sv==='OFF';
-    card.className='card hubopen'+(_devHubId===dv.id?' devsel':'')+(on?' on':(off?' off':''));
-    card.onclick=(e)=>{if(e.target.closest('button,input,label,.sw'))return;openDeviceHub(dv.id);};
+    card.className='card'+(on?' on':(off?' off':''));
     const icon='<span class="dicon">'+(DEV_ICON[t]||'&#9670;')+'</span>';
     const head='<div class="chead">'+icon+'<div class="cmeta"><div class="nm">'+esc(dv.name||dv.id)+'</div><div class="dom" title="click to change room">'+esc(dv.room||t)+'</div></div></div>';
     if(t==='light'||t==='switch'||t==='fan'||t==='outlet'){
@@ -1704,205 +1669,7 @@ _WEB_UI = """<!doctype html>
     (tabs.find(t=>t.id===initial)||tabs[0]).render(body);
   }
   // ── Home: live status strip + sub-tabbed command console ───────────────
-  let _homeSub='setup', _devHubId='', _devHubSub='connect';
-  function openDeviceHub(id){_devHubId=id;_homeSub='devices';loadDevices();}
-  function playOnDevice(id, url, contentType){
-    const u=(url||'').trim(); if(!u){alert('Enter a URL');return;}
-    const body={device_id:id,command:'play_url',value:u};
-    if(contentType)body.value={url:u,content_type:contentType};
-    api('/v1/devices/control',{method:'POST',body:JSON.stringify(body)}).then(r=>{
-      if(!r.ok)alert('Play failed: '+(r.error||'')); else alert('Sent to device');
-    }).catch(e=>alert(''+e));
-  }
-  function devHubCaps(dv){
-    const drv=DRIVERS[dv.driver]||{};
-    if(dv.driver&&dv.driver!=='mqtt')return DRIVER_CAPS[dv.driver]||[];
-    const t=dv.type||'switch';
-    if(t==='light'||t==='switch'||t==='fan'||t==='outlet')return['on','off'].concat(t==='light'&&((dv.attrs||{}).brightness_command_topic)?['volume']:'');
-    return[];
-  }
-  function paneDevConnect(el,dv){
-    const drv=DRIVERS[dv.driver]||{};
-    let btAddr='';
-    let h='<div class="devhub-hd"><span class="dicon">'+(DEV_ICON[dv.type]||'&#9670;')+'</span><div><div class="nm">'+esc(dv.name||dv.id)+'</div><div class="dom">'+esc(dv.room||'Unassigned')+' · '+esc(drv.label||dv.driver||'device')+'</div></div></div>';
-    if(dv.driver==='bluetooth'||(dv.attrs||{}).address){
-      btAddr=dv.host||(dv.attrs||{}).address||'';
-      h+='<div class="syscard"><div class="jhead">Bluetooth</div><p class="rnote">'+esc(btAddr||'no address')+'</p><div class="devact">'
-        +'<button class="cbtn" data-bt="pair">Pair</button>'
-        +'<button class="cbtn" data-bt="connect">Connect</button>'
-        +'<button class="cbtn pri" data-bt="use_for_audio">Use for audio</button></div></div>';
-    } else if(drv.needs_pairing&&!isPaired(dv)){
-      h+='<div class="syscard"><div class="jhead">Pairing required</div><p class="rnote">This device must be paired before control or casting.</p>'
-        +'<button class="cbtn pri" id="dh-connect-pair">Pair now</button></div>';
-    } else if(['cast','upnp','airplay','firetv'].indexOf(dv.driver)>=0){
-      h+='<div class="syscard"><div class="jhead">Network device</div><p class="rnote">Reachable on your LAN at <b>'+esc(dv.host||'?')+'</b>. No extra pairing needed'+(dv.driver==='cast'||dv.driver==='upnp'?' for basic casting':'')+'.</p></div>';
-    } else {
-      h+='<div class="syscard"><div class="jhead">WiFi &amp; LAN</div><p class="rnote">WiFi is configured on this hub (not per device). Use <b>Quick setup</b> to join a network and scan for players.</p>'
-        +'<button class="cbtn" onclick="_homeSub=\\'setup\\';loadDevices()">Open Quick setup</button></div>';
-    }
-    if(!drv.installed&&dv.driver&&dv.driver!=='mqtt'){
-      h+='<div class="banner bad" style="margin-top:10px">Driver not installed — install from the Controls tab.</div>';
-    }
-    el.innerHTML=h;
-    const cp=el.querySelector('#dh-connect-pair');if(cp)cp.onclick=()=>pairDialog(dv);
-    el.querySelectorAll('[data-bt]').forEach(b=>{b.onclick=()=>btDoAddr(btAddr,b.dataset.bt,dv.name||'');});
-  }
-  function paneDevMedia(el,dv){
-    const drv=DRIVERS[dv.driver]||{};
-    const canCast=['cast','upnp','firetv'].indexOf(dv.driver)>=0;
-    const needsPair=drv.needs_pairing&&!isPaired(dv);
-    let h='<div class="jhead">Play media on this device</div>';
-    if(needsPair){
-      h+='<div class="muted">Pair this device first (Connect tab).</div>';
-    } else if(canCast||dv.driver==='airplay'){
-      h+='<div class="syscard"><p class="rnote">Push a URL — video, audio, or image — to '+esc(dv.name||dv.id)+'.</p>'
-        +'<div class="devurl"><input id="dh-url-'+esc(dv.id)+'" type="url" placeholder="https://… mp4, mp3, or image URL">'
-        +'<button class="cbtn pri" onclick="playOnDevice(\\''+esc(dv.id)+'\\',document.getElementById(\\'dh-url-'+esc(dv.id)+'\\').value)">Play</button></div>'
-        +'<div class="devact" style="margin-top:8px">'
-        +'<button class="cbtn" onclick="document.getElementById(\\'dh-url-'+esc(dv.id)+'\\').value=\\'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/BigBuckBunny.mp4\\';playOnDevice(\\''+esc(dv.id)+'\\',document.getElementById(\\'dh-url-'+esc(dv.id)+'\\').value)">Sample video</button>'
-        +'</div></div>';
-    } else if(dv.driver==='bluetooth'){
-      h+='<div class="syscard"><p class="rnote">Route system audio to this Bluetooth device, then play from Spotify, VLC, or ELI voice on this PC.</p>'
-        +'<button class="cbtn pri" id="dh-bt-audio">Use for audio</button></div>';
-    } else {
-      h+='<div class="muted">Media push is for Cast, UPnP, Fire TV, and AirPlay devices. MQTT lights use Controls.</div>';
-    }
-    h+='<div class="jhead" style="margin-top:16px">Cast ELI to a screen</div>'
-      +'<div class="syscard"><p class="rnote">Open this page on your TV browser, or use Chrome &ldquo;Cast tab&rdquo; to mirror the ELI dashboard. Phone screen mirroring (WebRTC) is planned for a later release.</p>'
-      +'<div class="devact"><button class="cbtn" onclick="navigator.clipboard&&navigator.clipboard.writeText(location.href);alert(\\'Link copied — open on your TV browser\\')">Copy dashboard URL</button></div></div>';
-    el.innerHTML=h;
-    const ba=el.querySelector('#dh-bt-audio');if(ba)ba.onclick=()=>btDoAddr(dv.host||'','use_for_audio',dv.name||'');
-  }
-  function paneDevControls(el,dv){
-    const drv=DRIVERS[dv.driver]||{};
-    let h='<div class="jhead">Controls</div>';
-    if(!drv.installed&&dv.driver&&dv.driver!=='mqtt'){
-      h+='<div class="syscard"><span class="st" style="color:#e0a72e">driver needed</span> '
-        +'<button class="cbtn" id="dh-install">Install '+esc(drv.pip||dv.driver)+'</button></div>';
-    } else if(drv.needs_pairing&&!isPaired(dv)){
-      h+='<div class="syscard"><button class="cbtn pri" id="dh-pair">Pair device</button></div>';
-    } else {
-      const caps=devHubCaps(dv);
-      h+='<div class="syscard"><div class="devact">';
-      caps.forEach(c=>{
-        const lbl=CAP_LABEL[c]||c;
-        h+='<button class="cbtn" data-cap="'+c+'">'+lbl+'</button>';
-      });
-      h+='</div></div>';
-      if((dv.type==='light'||dv.type==='switch')&&dv.driver==='mqtt'){
-        const on=(''+(dv.state||'')).toUpperCase()==='ON';
-        h+='<div class="syscard" style="margin-top:10px"><label class="sw"><input type="checkbox" id="dh-sw" '+(on?'checked':'')+'><span></span></label> Power</div>';
-        if(dv.type==='light'&&(dv.attrs||{}).brightness_command_topic){
-          h+='<div class="syscard" style="margin-top:10px"><input class="brange" type="range" id="dh-bri" min="1" max="100" value="100"></div>';
-        }
-      }
-    }
-    el.innerHTML=h;
-    const ib=el.querySelector('#dh-install');
-    if(ib)ib.onclick=()=>{ib.disabled=true;api('/v1/devices/driver/install',{method:'POST',body:JSON.stringify({name:dv.driver})}).then(r=>{
-      if(!r.ok){ib.disabled=false;alert(r.error||'install failed');}else loadDevices();
-    });};
-    const pb=el.querySelector('#dh-pair');if(pb)pb.onclick=()=>pairDialog(dv);
-    el.querySelectorAll('[data-cap]').forEach(b=>{b.onclick=()=>{
-      let v=null;if(b.dataset.cap==='volume'){v=prompt('Volume 0–100:','30');if(v===null)return;v=parseInt(v,10)||0;}
-      ctlDev(dv.id,b.dataset.cap,v);
-    };});
-    const sw=el.querySelector('#dh-sw');if(sw)sw.onchange=()=>ctlDev(dv.id,sw.checked?'on':'off');
-    const bri=el.querySelector('#dh-bri');if(bri){let t;bri.oninput=()=>{clearTimeout(t);t=setTimeout(()=>ctlDev(dv.id,'brightness',+bri.value),250);};}
-  }
-  function paneDevInfo(el,dv){
-    const drv=DRIVERS[dv.driver]||{};
-    el.innerHTML='<div class="syscard">'
-      +'<div class="kv">ID<span>'+esc(dv.id)+'</span></div>'
-      +'<div class="kv">Name<span>'+esc(dv.name||'—')+'</span></div>'
-      +'<div class="kv">Room<span>'+esc(dv.room||'Unassigned')+'</span></div>'
-      +'<div class="kv">Type<span>'+esc(dv.type||'—')+'</span></div>'
-      +'<div class="kv">Driver<span>'+esc(drv.label||dv.driver||'mqtt')+'</span></div>'
-      +'<div class="kv">Host<span>'+esc(dv.host||'—')+'</span></div>'
-      +'<div class="kv">State<span>'+esc(''+(dv.state||'—'))+'</span></div>'
-      +'</div><div class="devact" style="margin-top:12px">'
-      +'<button class="cbtn" id="dh-info-room">Change room</button>'
-      +'<button class="cbtn" id="dh-info-rm">Remove</button>'
-      +'</div>';
-    const rb=el.querySelector('#dh-info-room');if(rb)rb.onclick=()=>moveDevice(dv);
-    const rm=el.querySelector('#dh-info-rm');
-    if(rm)rm.onclick=()=>{if(confirm('Remove this device?'))api('/v1/devices/remove',{method:'POST',body:JSON.stringify({device_id:dv.id})}).then(loadDevices);};
-  }
-  function paneMeshBrains(el){
-    el.innerHTML='<div class="syscard"><div class="muted">Loading mesh…</div></div>';
-    api('/v1/home/mesh/status').then(d=>{
-      if(!d||!d.ok){el.innerHTML='<div class="err">mesh unavailable</div>';return;}
-      const cfg=d.config||{}, rt=d.runtime||{}, node=d.node||{};
-      const mode=rt.mode||'off';
-      const modeLbl={cognition:'Primary brain — full cognition',standby:'Standby — watching primary',acting_secondary:'Secondary brain ACTIVE (primary down)',acting_tertiary:'Tertiary brain ACTIVE',reflex:'Reflex mode — local devices only',off:'Mesh off'}[mode]||mode;
-      let h='<div class="syscard" style="border-color:rgba(34,211,238,.3);margin-bottom:14px">'
-        +'<div class="jhead">Home mesh</div>'
-        +'<p class="rnote" style="line-height:1.65">Tiered brains for smart home. Primary runs full ELI. Secondary / tertiary nodes watch heartbeats and take over if the main PC dies — stays on your LAN, no cloud.</p>'
-        +'<div class="kv">Status<span><b>'+esc(modeLbl)+'</b></span></div>'
-        +'<div class="kv">This node<span>'+esc(node.node_name||cfg.node_name||'?')+' <span class="rnote">('+esc(cfg.role||'off')+')</span></span></div>'
-        +'<div class="kv">Acting brain<span>'+esc(rt.acting_brain||'—')+'</span></div>'
-        +'<div class="kv">Primary reachable<span>'+(rt.primary_alive?'yes':'no')+'</span></div>'
-        +(rt.failover_reason?'<div class="banner bad" style="margin-top:10px">'+esc(rt.failover_reason)+'</div>':'')
-        +'</div>';
-      h+='<div class="syscard"><div class="jhead">Configure this machine</div>'
-        +'<div class="setrow"><span class="setlbl">Enable mesh</span><label class="sw"><input type="checkbox" id="mh-en" '+(cfg.enabled?'checked':'')+'><span></span></label></div>'
-        +'<div class="setrow"><span class="setlbl">Role</span><select id="mh-role" class="setinput"><option value="off">off</option><option value="primary">primary (main PC)</option><option value="secondary">secondary (2nd brain)</option><option value="tertiary">tertiary (3rd brain)</option><option value="reflex">reflex (edge only)</option></select></div>'
-        +'<div class="setrow"><span class="setlbl">Node name</span><input id="mh-name" class="setinput" value="'+esc(cfg.node_name||'')+'"></div>'
-        +'<div class="setrow"><span class="setlbl">Primary URL</span><input id="mh-primary" class="setinput" placeholder="https://192.168.1.10:8765" value="'+esc(cfg.primary_url||location.origin)+'"></div>'
-        +'<div class="setrow"><span class="setlbl">Failover after (sec)</span><input id="mh-fail" type="number" class="setinput" min="6" max="120" value="'+(cfg.failover_after_sec||18)+'"></div>'
-        +'<div class="setrow"><span class="setlbl">Auto takeover</span><label class="sw"><input type="checkbox" id="mh-auto" '+(cfg.auto_takeover!==false?'checked':'')+'><span></span></label></div>'
-        +'<div class="jhead" style="margin-top:14px">Other brains on LAN</div>'
-        +'<div id="mh-peers"></div>'
-        +'<button class="cbtn" id="mh-add-peer">+ Add peer</button>'
-        +'<div class="rrow" style="margin-top:14px">'
-        +'<button class="cbtn pri" id="mh-save">Save</button>'
-        +'<button class="cbtn" id="mh-take">Take over now</button>'
-        +'<span id="mh-st" class="rnote"></span></div></div>';
-      el.innerHTML=h;
-      const rs=$('#mh-role'); if(rs)rs.value=cfg.role||'off';
-      function renderPeers(){
-        const box=$('#mh-peers'); if(!box)return;
-        const peers=cfg.peers||[];
-        if(!peers.length){box.innerHTML='<div class="rnote">No peers yet — add your 2nd/3rd brain URL.</div>';return;}
-        let ph=''; peers.forEach((p,i)=>{
-          ph+='<div class="rrow" style="margin-bottom:8px;flex-wrap:wrap">'
-            +'<input class="setinput" data-pi="'+i+'" data-f="name" placeholder="name" value="'+esc(p.name||'')+'" style="min-width:100px">'
-            +'<input class="setinput" data-pi="'+i+'" data-f="url" placeholder="https://…" value="'+esc(p.url||'')+'" style="flex:1;min-width:160px">'
-            +'<select class="setinput" data-pi="'+i+'" data-f="role"><option value="primary">primary</option><option value="secondary">secondary</option><option value="tertiary">tertiary</option></select>'
-            +'<button class="cbtn" data-prm="'+i+'">remove</button></div>';
-        });
-        box.innerHTML=ph;
-        box.querySelectorAll('[data-prm]').forEach(b=>b.onclick=()=>{cfg.peers.splice(+b.dataset.prm,1);renderPeers();});
-        box.querySelectorAll('select[data-f=role]').forEach(s=>{s.value=(peers[+s.dataset.pi]||{}).role||'secondary';});
-      }
-      renderPeers();
-      const ap=$('#mh-add-peer'); if(ap)ap.onclick=()=>{(cfg.peers=cfg.peers||[]).push({name:'',url:'',role:'secondary'});renderPeers();};
-      const save=$('#mh-save');
-      if(save)save.onclick=()=>{
-        const peers=[]; ($('#mh-peers')||{querySelectorAll:()=>[]}).querySelectorAll('.rrow').forEach(row=>{
-          const name=(row.querySelector('[data-f=name]')||{}).value||'';
-          const url=(row.querySelector('[data-f=url]')||{}).value||'';
-          const role=(row.querySelector('[data-f=role]')||{}).value||'secondary';
-          if(url.trim())peers.push({name:name.trim(),url:url.trim(),role:role});
-        });
-        const body={enabled:!!($('#mh-en')&&$('#mh-en').checked),role:($('#mh-role')||{}).value||'off',
-          node_name:($('#mh-name')||{}).value||'',primary_url:($('#mh-primary')||{}).value||'',
-          failover_after_sec:parseFloat(($('#mh-fail')||{}).value)||18,auto_takeover:!!($('#mh-auto')&&$('#mh-auto').checked),
-          peers:peers};
-        save.disabled=true;
-        api('/v1/home/mesh/config',{method:'POST',body:JSON.stringify(body)}).then(r=>{
-          save.disabled=false;
-          const st=$('#mh-st'); if(st)st.textContent=r.ok?'saved':'failed: '+(r.error||'');
-          if(r.ok)loadDevices();
-        }).catch(e=>{save.disabled=false;const st=$('#mh-st');if(st)st.textContent=''+e;});
-      };
-      const tk=$('#mh-take');
-      if(tk)tk.onclick=()=>api('/v1/home/mesh/takeover',{method:'POST',body:'{}'}).then(r=>{
-        alert(r.ok?'This node is now acting brain':'Takeover failed: '+(r.error||''));
-        loadDevices();
-      }).catch(e=>alert(''+e));
-    }).catch(e=>{el.innerHTML='<div class="err">'+esc(''+e)+'</div>';});
-  }
+  let _homeSub='setup';
   function homeStatusStrip(rooms, st){
     const devs=[];rooms.forEach(r=>(r.devices||[]).forEach(d=>devs.push(d)));
     const on=devs.filter(d=>(''+(d.state||'')).toUpperCase()==='ON').length;
@@ -1920,16 +1687,8 @@ _WEB_UI = """<!doctype html>
       +'<span class="lspill"><span class="ld off"></span><b>'+off+'</b> off</span>'
       +(idle?'<span class="lspill"><span class="ld warn"></span><b>'+idle+'</b> idle</span>':'')
       +'<span class="lspill"><b>'+devs.length+'</b> devices</span>'
-      +'<span class="lspill" id="ls-mesh"><span class="ld warn"></span>mesh</span>'
       +'<span class="lspill" id="ls-autos"><b>&middot;</b> automations</span>';
     api('/v1/home/automations').then(d=>{const n=((d&&d.automations)||[]).length;const e=$('#ls-autos');if(e)e.innerHTML='<b>'+n+'</b> automations';}).catch(()=>{});
-    api('/v1/home/mesh/status').then(d=>{
-      const e=$('#ls-mesh'); if(!e||!d||!d.ok)return;
-      const rt=d.runtime||{}, mode=rt.mode||'off';
-      const live=mode==='cognition'||mode==='acting_secondary'||mode==='acting_tertiary';
-      const lbl=mode==='cognition'?'primary':(mode==='acting_secondary'?'2nd brain':(mode==='acting_tertiary'?'3rd brain':(mode==='standby'?'standby':'mesh off')));
-      e.innerHTML='<span class="ld '+(live?'live':(mode==='standby'?'warn':'off'))+'"></span>'+esc(lbl);
-    }).catch(()=>{});
     refreshHomeConnectivity();
     return strip;
   }
@@ -2023,7 +1782,6 @@ _WEB_UI = """<!doctype html>
       {id:'setup',label:'Quick setup',render:el=>paneQuickSetup(el,st)},
       {id:'media',label:'Media & output',render:paneMediaOutput},
       {id:'devices',label:'Devices',render:el=>paneDevices(el,rooms,st)},
-      {id:'brains',label:'Brains',render:paneMeshBrains},
       {id:'mqtt',label:'MQTT Setup',render:el=>paneMqttSetup(el,st)},
       {id:'autos',label:'Automations',render:paneAutomations},
       {id:'scenes',label:'Scenes',render:paneScenes},
@@ -2032,41 +1790,11 @@ _WEB_UI = """<!doctype html>
     ],initial,(id)=>{_homeSub=id;});
   }
   function paneDevices(el, rooms, st){
-    el.innerHTML='';
-    const all=[];rooms.forEach(rm=>(rm.devices||[]).forEach(d=>all.push(d)));
-    if(all.length){
-      if(!_devHubId||!all.find(d=>d.id===_devHubId))_devHubId=all[0].id;
-      const sel=all.find(d=>d.id===_devHubId)||all[0];
-      const hub=document.createElement('div');hub.className='devhub';
-      const pick=document.createElement('div');pick.className='devpick';
-      all.forEach(dv=>{
-        const ch=document.createElement('button');ch.type='button';ch.className='devchip'+(_devHubId===dv.id?' active':'');
-        ch.textContent=dv.name||dv.id;
-        ch.onclick=()=>{_devHubId=dv.id;paneDevices(el,rooms,st);};
-        pick.appendChild(ch);
-      });
-      hub.appendChild(pick);
-      const hd=document.createElement('div');hd.className='devhub-hd';
-      hd.innerHTML='<span class="dicon">'+(DEV_ICON[sel.type]||'&#9670;')+'</span><div><div class="nm">'+esc(sel.name||sel.id)+'</div><div class="dom">'+esc(sel.room||'Unassigned')+'</div></div>';
-      hub.appendChild(hd);
-      const shell=document.createElement('div');shell.className='devhub-body subwrap';
-      hub.appendChild(shell);
-      mountSubtabs(shell,[
-        {id:'connect',label:'Connect',render:el2=>paneDevConnect(el2,sel)},
-        {id:'media',label:'Media',render:el2=>paneDevMedia(el2,sel)},
-        {id:'controls',label:'Controls',render:el2=>paneDevControls(el2,sel)},
-        {id:'info',label:'Info',render:el2=>paneDevInfo(el2,sel)},
-      ],_devHubSub,id=>{_devHubSub=id;});
-      el.appendChild(hub);
-    }
-    const total=all.length;
+    const total=rooms.reduce((n,r)=>n+(r.devices?r.devices.length:0),0);
     if(!total){const m=document.createElement('div');m.className='muted';m.style.cssText='padding:22px 0;line-height:1.7';
       m.innerHTML=(st&&st.connected)
-        ?'No devices yet. Use <b>Quick setup</b> or <b>LAN scan</b> to find players, or <b>MQTT Setup</b> for lights.'
-        :'Use <b>Quick setup</b> to join WiFi and scan for Bluetooth &amp; media players — MQTT is optional for lights.';el.appendChild(m);}
-    if(total){
-      const jh=document.createElement('div');jh.className='jhead';jh.textContent='By room';el.appendChild(jh);
-    }
+        ?'No devices yet. Use <b>MQTT Setup</b> discovery prefix auto-find, <b>Media discovery</b> for AirPlay/Fire TV/Cast, or <b>+ Add device manually</b> below.'
+        :'Connect your MQTT broker in <b>MQTT Setup</b> first, then add lights/switches via discovery or manual registration.';el.appendChild(m);}
     rooms.forEach(rm=>{
       const sec=document.createElement('div');sec.className='roomsec';
       const hd=document.createElement('div');hd.className='roomhd';
@@ -3243,22 +2971,6 @@ class DevicePair(BaseModel):
     device_id: str
     code: Optional[str] = None    # PIN for AirPlay; omit to begin pairing
 
-class MeshPeer(BaseModel):
-    id: str = ""
-    name: str = ""
-    url: str = ""
-    role: str = "secondary"       # primary | secondary | tertiary
-
-class MeshConfig(BaseModel):
-    enabled: bool = False
-    role: str = "off"             # primary | secondary | tertiary | reflex | off
-    node_name: str = ""
-    primary_url: str = ""
-    peers: List[MeshPeer] = []
-    heartbeat_interval_sec: float = 5.0
-    failover_after_sec: float = 18.0
-    auto_takeover: bool = True
-
 class MediaControl(BaseModel):
     command: str                          # play|pause|play-pause|stop|next|previous|volume
     player: Optional[str] = None          # target a specific player; None = active player
@@ -4019,29 +3731,6 @@ def devices_pair(req: DevicePair):
 def home_state_ep():
     """Home snapshot for ELI's awareness — connection, rooms, what's on."""
     return {"ok": True, "state": _device_server().home_state()}
-
-@app.get("/v1/home/mesh/ping", tags=["Devices"], dependencies=[Depends(_require_token)])
-def home_mesh_ping():
-    """LAN heartbeat — other ELI nodes poll this to detect primary-up/down."""
-    from eli.runtime import home_mesh
-    return home_mesh.ping_payload()
-
-@app.get("/v1/home/mesh/status", tags=["Devices"], dependencies=[Depends(_require_token)])
-def home_mesh_status():
-    from eli.runtime import home_mesh
-    return home_mesh.mesh_status()
-
-@app.post("/v1/home/mesh/config", tags=["Devices"], dependencies=[Depends(require_member)])
-def home_mesh_config(req: MeshConfig):
-    from eli.runtime import home_mesh
-    patch = req.model_dump()
-    patch["peers"] = [p.model_dump() if hasattr(p, "model_dump") else p for p in (req.peers or [])]
-    return home_mesh.update_config(patch)
-
-@app.post("/v1/home/mesh/takeover", tags=["Devices"], dependencies=[Depends(require_member)])
-def home_mesh_takeover():
-    from eli.runtime import home_mesh
-    return home_mesh.manual_takeover()
 
 # ── Now-playing media (local MPRIS players: Spotify desktop, VLC, browsers, …) ──
 @app.get("/v1/media", tags=["Media"], dependencies=[Depends(_require_token)])
