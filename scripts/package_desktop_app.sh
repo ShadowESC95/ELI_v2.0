@@ -137,11 +137,11 @@ exec "$APP_ROOT/scripts/eli_startup.sh" "$@"
 RUN_EOF
 chmod +x "$STAGING/RUN_ELI.sh"
 
-cat > "$STAGING/INSTALL_ELI.sh" <<INSTALL_EOF
+cat > "$STAGING/INSTALL_ELI.sh" <<'INSTALL_EOF'
 #!/usr/bin/env bash
 set -euo pipefail
-APP_ROOT="\$(cd "\$(dirname "\${BASH_SOURCE[0]}")" && pwd)"
-bash "\$APP_ROOT/scripts/eli_one_click_setup.sh" "\$@"
+APP_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+exec "$APP_ROOT/scripts/eli_setup.sh" "$@"
 INSTALL_EOF
 chmod +x "$STAGING/INSTALL_ELI.sh"
 
@@ -193,7 +193,12 @@ Hardware (honest):
 
 Quick start (easiest):
   chmod +x ELI_Setup.sh && ./ELI_Setup.sh          # guided one-click setup (recommended)
-  # or: ./INSTALL_ELI.sh && ./RUN_ELI.sh
+  # picks chat models from full catalog + installs voice/embedder
+
+Chat models (7 in catalog):
+  qwen2.5-3b, qwen2.5-7b, qwen3-8b, falcon3-10b, phi-4, qwen3.6-35b-a3b, falcon-h1-34b
+  Always installed: nomic embedder (~85 MB) + voice (whisper + piper)
+  Re-pick later: .venv/bin/python -m eli.core.model_download --choose
 
 Full new-user guide (all OS, every command):
   blueprints/new_user_install_guide.pdf
