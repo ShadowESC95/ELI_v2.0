@@ -236,7 +236,17 @@ class CentralMemoryAdapter:
 
 APP_NAME = "ELI v2.0"
 def _eli_app_version() -> str:
-    """Real package version (pyproject), so the banner/title never drift."""
+    """Version of the source ACTUALLY running. Portable installs run from the source tree
+    (PYTHONPATH), which may be newer than the installed wheel, so read pyproject FIRST;
+    fall back to installed-package metadata only if the source can't be found."""
+    try:
+        from eli.core.toml_util import load_toml
+        from eli.core.paths import project_root
+        v = load_toml(str(project_root() / "pyproject.toml"))["project"]["version"]
+        if v:
+            return v
+    except Exception:
+        pass
     try:
         from importlib.metadata import version, PackageNotFoundError
         for _pkg in ("eli-v2.0", "eli_v2_0", "eli-mkxi", "eli"):
@@ -246,12 +256,7 @@ def _eli_app_version() -> str:
                 continue
     except Exception:
         pass
-    try:
-        from eli.core.toml_util import load_toml
-        from eli.core.paths import project_root
-        return load_toml(str(project_root() / "pyproject.toml"))["project"]["version"]
-    except Exception:
-        return "2.0"
+    return "2.0"
 APP_VERSION = _eli_app_version()
 
 PROJECT_ROOT = _BOOT_PROJECT_ROOT
