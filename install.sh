@@ -361,9 +361,9 @@ fi
 # Install ELI v2.0 wheel (or editable from source checkout)
 echo "[..] Installing ELI v2.0..."
 WHEEL=""
-shopt -s nullglob 2>/dev/null || true
-for _w in "$SCRIPT_DIR"/dist/eli_v2_0-*.whl; do WHEEL="$_w"; break; done
-shopt -u nullglob 2>/dev/null || true
+# Pick the HIGHEST version wheel (sort -V), not the first — a plain glob returns the
+# oldest first, which would install a stale version if several wheels are present.
+WHEEL="$(ls "$SCRIPT_DIR"/dist/eli_v2_0-*.whl 2>/dev/null | sort -V | tail -1)"
 if [ -n "$WHEEL" ]; then
     "$PIP" install "${WHEEL}[full]" --quiet
 else
