@@ -45,14 +45,16 @@ like and it tunes itself to the hardware you've got, from a laptop to a multi-GP
 
 ## What is ELI?
 
-ELI is not a chatbot bolted onto someone else's cloud API — I had no interest in building another
-one of those. It's a **local cognitive runtime**: a 12-stage reasoning pipeline, a fleet of
-specialist agents on a DAG orchestrator, layered memory (SQLite + a FAISS vector index + a
-knowledge graph), local voice and vision, its own smart-home server, and a full desktop app *and*
-web dashboard — designed to run on your hardware with **no required cloud service**. You bring your
-own GGUF models, GPU stack, and (optionally) voice/model packs from
-[GitHub Releases](https://github.com/ShadowESC95/ELI_v2.0/releases). It's model-, user-, and
-hardware-agnostic by design. **208 capabilities** sit behind a single typed or spoken interface.
+ELI is a **private AI assistant that runs entirely on your own computer.** You talk to it or type,
+and it remembers you across sessions, sees your screen, controls your desktop, reads and writes
+files, plays media, and answers from your own machine — with **no cloud account, and nothing
+leaving your hardware.** Point your phone at it over your own Wi-Fi and it's there too.
+
+Under that simple surface it's a **local cognitive runtime**, not a chatbot bolted onto someone
+else's API: a 12-stage reasoning pipeline, a fleet of specialist agents on a DAG orchestrator,
+layered memory (SQLite + a FAISS vector index + a knowledge graph), local voice and vision, and its
+own smart-home server — all behind a single typed or spoken interface with **208 capabilities**.
+You bring your own GGUF model; ELI is model-, user-, and hardware-agnostic by design.
 
 I built it on one conviction: **your AI should belong to you — the person using it — not the
 company serving it.** That isn't a slogan on a badge; it's the constraint every architectural
@@ -395,7 +397,7 @@ I'd rather tell you exactly what I've run than pretend it's flawless everywhere.
 
 **What I've actually run, end to end:** Linux (x86_64) with an NVIDIA GPU. That's my machine, so
 it's the one platform where I can honestly say the whole thing — install, first-run, the full test
-suite (7,300+ passing), voice, vision, the server, all of it — genuinely works. If you're on
+suite (7,600+ tests), voice, vision, the server, all of it — genuinely works. If you're on
 Linux + NVIDIA, you're on the tested path.
 
 **What the code handles but I haven't run on real hardware yet:** AMD (ROCm), Windows, and macOS.
