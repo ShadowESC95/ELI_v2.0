@@ -32,12 +32,18 @@ EOF
 #!/bin/bash
 cd "$ROOT" && exec "$ROOT/scripts/eli_serve.sh" --lan --https
 EOF
+    cat > "$APPS/ELI Uninstall.command" <<EOF
+#!/bin/bash
+exec "$ROOT/scripts/eli_uninstall.sh"
+EOF
     rm -f "$APPS/ELI Pro.command"
-    chmod +x "$APPS/ELI Setup.command" "$APPS/ELI v2.0.command" "$APPS/ELI Server (Web App).command"
+    chmod +x "$APPS/ELI Setup.command" "$APPS/ELI v2.0.command" \
+             "$APPS/ELI Server (Web App).command" "$APPS/ELI Uninstall.command"
     echo "[OK] Installed launchers to $APPS :"
     echo "       • ELI Setup.command          (first-time one-click setup)"
     echo "       • ELI v2.0.command           (desktop GUI)"
     echo "       • ELI Server (Web App).command (prints the phone URL + token)"
+    echo "       • ELI Uninstall.command      (remove ELI; optionally delete the install)"
     echo "     Double-click from Finder. Inference stays 100% local."
     exit 0
 elif [ "$OS" != "Linux" ]; then

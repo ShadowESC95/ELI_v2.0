@@ -8250,6 +8250,28 @@ _register()
         self._srv_btn_stop.clicked.connect(self._eli_server_stop)
         self._srv_btn_rotate.clicked.connect(self._eli_server_rotate_token)
 
+        # Server port — move ELI off a busy port. Saved; applied on the next Start.
+        port_row = QHBoxLayout()
+        _port_lbl = QLabel("Server port:")
+        _port_lbl.setStyleSheet("color:#d8dee9;font-size:11px;")
+        port_row.addWidget(_port_lbl)
+        self._srv_port_spin = QSpinBox()
+        self._srv_port_spin.setRange(1024, 65535)
+        try:
+            from eli.runtime.server_util import effective_api_port
+            self._srv_port_spin.setValue(int(effective_api_port()))
+        except Exception:
+            self._srv_port_spin.setValue(8081)
+        self._srv_port_spin.setToolTip(
+            "Change if 8081 clashes with another app on your network. Saved; used on the next Start.")
+        port_row.addWidget(self._srv_port_spin)
+        _port_apply = QPushButton("Apply")
+        _port_apply.setFixedHeight(28)
+        _port_apply.clicked.connect(self._eli_server_apply_port)
+        port_row.addWidget(_port_apply)
+        port_row.addStretch()
+        vbox.addLayout(port_row)
+
         self._srv_url = QLineEdit()
         self._srv_url.setReadOnly(True)
         self._srv_url.setPlaceholderText("The address to open will appear here when running…")
@@ -8506,6 +8528,20 @@ _register()
             box.accepted.connect(lambda: QDesktopServices.openUrl(QUrl(url)))
         dlg.exec()
         return bool(probe.get("eli_running"))
+
+    def _eli_server_apply_port(self) -> None:
+        """Persist the chosen API port; used on the next server Start."""
+        try:
+            port = int(self._srv_port_spin.value())
+            if not (1024 <= port <= 65535):
+                raise ValueError("Port must be between 1024 and 65535.")
+            from eli.core import config
+            config.set("api_port", port)
+            QMessageBox.information(
+                self, "Server port",
+                f"Server port set to {port}.\n\nStop and Start the server for it to take effect.")
+        except Exception as ex:
+            QMessageBox.warning(self, "Server port", str(ex))
 
     def _eli_server_refresh_qr(self, http_url: str = "", https_url: str = "") -> None:
         """Render connect QRs in the settings page (best-effort)."""
