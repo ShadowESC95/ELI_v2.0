@@ -235,7 +235,24 @@ class CentralMemoryAdapter:
 # ============================================================
 
 APP_NAME = "ELI v2.0"
-APP_VERSION = "7.0.9"
+def _eli_app_version() -> str:
+    """Real package version (pyproject), so the banner/title never drift."""
+    try:
+        from importlib.metadata import version, PackageNotFoundError
+        for _pkg in ("eli-v2.0", "eli_v2_0", "eli-mkxi", "eli"):
+            try:
+                return version(_pkg)
+            except PackageNotFoundError:
+                continue
+    except Exception:
+        pass
+    try:
+        from eli.core.toml_util import load_toml
+        from eli.core.paths import project_root
+        return load_toml(str(project_root() / "pyproject.toml"))["project"]["version"]
+    except Exception:
+        return "2.0"
+APP_VERSION = _eli_app_version()
 
 PROJECT_ROOT = _BOOT_PROJECT_ROOT
 
@@ -8519,7 +8536,11 @@ _register()
                     lab.setText(f"{label}\n(QR unavailable: {ex})")
             else:
                 lab.clear()
-                lab.setText(f"{label}\n(start phone/Wi-Fi mode)")
+                lab.setText(
+                    f"{label}\n\nClick “📱 Start (phone / Wi-Fi)” above.\n"
+                    "The QR appears here for your phone\n"
+                    "to scan. (“This computer” mode is\nlocalhost-only — no phone QR.)"
+                )
 
     def _eli_server_stop_https(self) -> None:
         uv = getattr(self, "_srv_https_uv", None)
