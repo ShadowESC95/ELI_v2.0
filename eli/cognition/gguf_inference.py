@@ -417,6 +417,20 @@ def _clean_eli_output(text: str) -> str:
         t = t.replace(_tok, "")
     t = t.strip()
     t = re.sub(r"^\s*ELI:\s*", "", t)
+    # Weak/short-context models sometimes echo ELI's OWN prompt scaffolding — the persona
+    # brief, context/history markers, the "reply directly" instruction — instead of
+    # answering. Cut the reply at the first such marker so internal scaffolding is NEVER
+    # shown to the user. (Observed on TinyLlama with a truncated 2048-ctx prompt.)
+    _scaffold_markers = (
+        "--- BRIEF ---", "--- END HISTORY", "END HISTORY ---", "--- END BRIEF",
+        "--- CONVERSATION HISTORY", "--- CONVERSACTION HISTORY", "CONVERSACTION HISTORY",
+        "Knowledge graph context:", "Reply to the latest user message",
+        "CRITICAL: NEVER copy", "NEVER copy or verbatim",
+    )
+    _low = t.lower()
+    _hits = [_low.find(m.lower()) for m in _scaffold_markers if m.lower() in _low]
+    if _hits:
+        t = t[:min(_hits)].strip()
     # Strip canned completion-style prefixes the model outputs in prompt-continuation mode
     t = re.sub(r"^\s*Short\s+answer\s*:\s*", "", t, flags=re.I)
     t = re.sub(r"^\s*(?:Answer|Response|Reply)\s*:\s*", "", t, flags=re.I)
