@@ -499,7 +499,7 @@ _WEB_UI = """<!doctype html>
   .roomnm { font-size:13px; font-weight:700; color:var(--teal); text-transform:uppercase; letter-spacing:.5px; }
   .roomct { font-size:11px; color:var(--mut); background:var(--input); border:1px solid var(--line); border-radius:10px; padding:1px 8px; }
   .roombtn { font-size:12px; padding:5px 11px; border:1px solid var(--line); border-radius:8px; background:var(--input); color:var(--fg-dim); cursor:pointer; }
-  /* ── Command-console sub-tab framework + command-console chrome ───────────────── */
+  /* ── Command-console sub-tab framework ───────────────── */
   .subwrap { margin-top:4px; }
   .subtabs { display:flex; gap:2px; border-bottom:1px solid var(--line); margin-bottom:16px; overflow-x:auto; scrollbar-width:none; position:relative; }
   .subtabs::-webkit-scrollbar { display:none; }
