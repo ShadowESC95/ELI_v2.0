@@ -304,6 +304,24 @@ def _save_config(cfg: dict):
 # ── Main ─────────────────────────────────────────────────────────────────────
 
 def main():
+    # Pin THIS install's root for the `eli`/`eli-gui` console scripts. They enter here
+    # directly (not via RUN_ELI.sh, which already exports ELI_PROJECT_ROOT), so without
+    # this the runtime paths resolve via _find_project_root() and can leak into ANOTHER
+    # ELI checkout on the same machine — observed: a fresh portable install writing its
+    # DB into a dev tree, so it wasn't a blank slate and onboarding was skipped. Derive
+    # the root from the venv running us (…/<root>/.venv/bin/python → <root>) and pin it.
+    try:
+        import os as _os, sys as _sys
+        from pathlib import Path as _P
+        if not _os.environ.get("ELI_PROJECT_ROOT"):
+            _root = _P(_sys.executable).resolve().parents[2]  # bin/python → .venv → root
+            if (_root / "eli" / "gui").is_dir():
+                _os.environ["ELI_PROJECT_ROOT"] = str(_root)
+                _os.environ.setdefault("ELI_DATA_DIR", str(_root / "artifacts"))
+                _os.environ.setdefault("ELI_CONFIG_DIR", str(_root / "config"))
+                _os.environ.setdefault("ELI_MODELS_DIR", str(_root / "models"))
+    except Exception:
+        pass
     # ── First-run/boot DB + machine-inventory bootstrap (idempotent) ─────────
     # The `eli`/`eli-gui` console scripts enter here directly (bypassing
     # eli.__main__), so ensure the full schema + app index exist even when ELI
