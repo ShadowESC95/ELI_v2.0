@@ -25,6 +25,9 @@ MODE="${1:-gui}"
 
 case "$MODE" in
   gui|desktop|app)
+    # Feedback for the ~20s first load (model warm-up) so the icon doesn't look dead.
+    command -v notify-send >/dev/null 2>&1 && \
+      notify-send "ELI v2.0" "Starting the desktop app… first load can take ~20s." 2>/dev/null || true
     cd "$ROOT"; exec "$PY" -m eli "$@" ;;
   serve|server|web)
     exec "$ROOT/scripts/eli_serve.sh" "$@" ;;
