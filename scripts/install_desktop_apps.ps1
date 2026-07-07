@@ -38,11 +38,22 @@ $lnk2.Description = "Self-hosted ELI web app - open from any device on your netw
 if ($icon) { $lnk2.IconLocation = $icon }
 $lnk2.Save()
 
+# ELI Uninstall -> scripts\uninstall.ps1 (remove shortcuts; optionally delete the folder)
+$unins = Join-Path $Root "scripts\uninstall.ps1"
+$lnk3 = $ws.CreateShortcut((Join-Path $Programs "ELI Uninstall.lnk"))
+$lnk3.TargetPath = "powershell.exe"
+$lnk3.Arguments = "-ExecutionPolicy Bypass -NoExit -File `"$unins`""
+$lnk3.WorkingDirectory = $Root
+$lnk3.Description = "Remove ELI (Start Menu shortcuts; optionally the whole install)"
+if ($icon) { $lnk3.IconLocation = $icon }
+$lnk3.Save()
+
 Remove-Item -Force -ErrorAction SilentlyContinue (Join-Path $Programs "ELI Pro.lnk")
 
 Write-Host "[OK] Start Menu shortcuts installed:" -ForegroundColor Green
 Write-Host "       - ELI v2.0             (desktop GUI)"
 Write-Host "       - ELI Server (Web App) (prints the phone URL + token)"
+Write-Host "       - ELI Uninstall        (remove ELI)"
 if ($icon) {
     Write-Host "     Icon: $($icon.Split(',')[0])"
 } else {
