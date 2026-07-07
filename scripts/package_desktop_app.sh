@@ -107,8 +107,10 @@ if [ -f "$ROOT/packaging/desktop/Eli_Icon.png" ]; then
     [ -f "$ROOT/packaging/desktop/$_ic" ] && cp "$ROOT/packaging/desktop/$_ic" "$STAGING/packaging/desktop/"
   done
 fi
-if ls "$ROOT"/dist/eli_v2_0-*.whl >/dev/null 2>&1; then
-  cp "$ROOT"/dist/eli_v2_0-*.whl "$STAGING/dist/"
+# Ship ONLY this version's wheel — the dev dist/ accumulates old wheels, and a glob
+# would bundle all of them (install.sh then picked the oldest → wrong version banner).
+if ls "$ROOT"/dist/eli_v2_0-"${VERSION}"-*.whl >/dev/null 2>&1; then
+  cp "$ROOT"/dist/eli_v2_0-"${VERSION}"-*.whl "$STAGING/dist/"
 fi
 
 # Offline wheelhouse — set ELI_FULL_WHEELHOUSE=1 to bundle EVERY pinned wheel so the app
