@@ -70,7 +70,15 @@ stage 4 "Starter model pack"
 need_model=1
 if "$PY" -c "from eli.setup.status import has_chat_model; raise SystemExit(0 if has_chat_model() else 1)" 2>/dev/null; then
   need_model=0
-  echo "  ${GRN}OK${R}  Chat model already present."
+  echo "  ${GRN}OK${R}  Chat model already present (default: Qwen2.5-3B)."
+  # A model ships with ELI, but the full catalog stays open — offer bigger/other models.
+  if [ -t 0 ] && [ -t 1 ]; then
+    printf "  Download additional / different models from the catalog? [y/N] "
+    read -r _more || _more=""
+    case "$_more" in
+      y|Y|yes|YES) "$PY" -m eli.core.model_download --choose || true ;;
+    esac
+  fi
 fi
 if [ "$need_model" -eq 1 ]; then
   if command -v gh >/dev/null 2>&1 && gh auth status >/dev/null 2>&1; then
