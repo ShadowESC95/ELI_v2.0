@@ -115,11 +115,16 @@ fi
 # installs with ZERO network (install.sh points pip at this dir). Default: just the CPU
 # torch fallback wheel (keeps the download small). Best-effort: whatever pip can't fetch
 # a wheel for (source-only or CUDA llama-cpp) simply falls back to the normal install path.
-echo "[package] bundling wheelhouse (ELI_FULL_WHEELHOUSE=${ELI_FULL_WHEELHOUSE:-0})"
+# We bundle a real ~1.7GB starter model (Qwen2.5-3B) below, so bundling the 766MB torch
+# wheel too would push a single release asset over GitHub's 2GB cap. Torch is therefore
+# OPT-IN (ELI_BUNDLE_TORCH=1); by default it's fetched at install time (small, quick).
+echo "[package] wheelhouse (torch=${ELI_BUNDLE_TORCH:-0}, full=${ELI_FULL_WHEELHOUSE:-0})"
 mkdir -p "$STAGING/wheelhouse"
-"$PYTHON" -m pip download torch -d "$STAGING/wheelhouse" \
-    --platform manylinux2014_x86_64 --python-version 312 --implementation cp \
-    --abi cp312 --only-binary=:all: --no-deps -q 2>/dev/null || true
+if [ "${ELI_BUNDLE_TORCH:-0}" = "1" ]; then
+  "$PYTHON" -m pip download torch -d "$STAGING/wheelhouse" \
+      --platform manylinux2014_x86_64 --python-version 312 --implementation cp \
+      --abi cp312 --only-binary=:all: --no-deps -q 2>/dev/null || true
+fi
 if [ "${ELI_FULL_WHEELHOUSE:-0}" = "1" ] && [ -f "$ROOT/requirements.lock.txt" ]; then
   echo "[package]   downloading full pinned wheel set (this is large, needs network)…"
   "$PYTHON" -m pip download -r "$ROOT/requirements.lock.txt" -d "$STAGING/wheelhouse" \
@@ -131,9 +136,11 @@ else
   rmdir "$STAGING/wheelhouse" 2>/dev/null || true
 fi
 
-# Starter model — bundle ONE small GGUF so a fresh install answers immediately with no
-# model download. Set ELI_STARTER_MODEL to a filename in models/ (default: tinyllama).
-STARTER_MODEL="${ELI_STARTER_MODEL:-tinyllama-1.1b-chat-v1.0.Q4_K_M.gguf}"
+# Starter model — bundle a genuinely usable small GGUF so a fresh install answers well
+# out of the box. Default: Qwen2.5-3B-Instruct (great on 4GB+ GPUs / CPU). Override with
+# ELI_STARTER_MODEL=<filename in models/>. Users can still download any other model from
+# the full catalog during setup — this is just the default it ships with.
+STARTER_MODEL="${ELI_STARTER_MODEL:-Qwen2.5-3B-Instruct-Q4_K_M.gguf}"
 if [ -f "$ROOT/models/$STARTER_MODEL" ]; then
   echo "[package] bundling starter model: $STARTER_MODEL ($(du -h "$ROOT/models/$STARTER_MODEL" | cut -f1))"
   mkdir -p "$STAGING/models"; cp "$ROOT/models/$STARTER_MODEL" "$STAGING/models/"
