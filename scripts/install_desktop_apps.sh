@@ -48,7 +48,9 @@ fi
 
 APPS="${XDG_DATA_HOME:-$HOME/.local/share}/applications"
 mkdir -p "$APPS"
-chmod +x "$ROOT/scripts/eli_launch.sh" "$ROOT/scripts/eli_serve.sh" "$ROOT/scripts/eli_setup.sh" 2>/dev/null || true
+chmod +x "$ROOT/scripts/eli_launch.sh" "$ROOT/scripts/eli_serve.sh" "$ROOT/scripts/eli_setup.sh" \
+         "$ROOT/scripts/eli_term.sh" "$ROOT/scripts/eli_uninstall.sh" 2>/dev/null || true
+TERM_RUN="$ROOT/scripts/eli_term.sh"   # opens a real terminal (GNOME/Wayland ignore Terminal=true)
 
 # Install Freedesktop theme icon (eli) + blueprints/ runtime copy.
 ICON="eli"
@@ -66,10 +68,10 @@ Type=Application
 Name=ELI Setup
 GenericName=First-time ELI setup
 Comment=One-click install — models, database, shortcuts, then launch ELI v2.0
-Exec=$ROOT/scripts/eli_setup.sh
+Exec=$TERM_RUN $ROOT/scripts/eli_setup.sh
 Path=$ROOT
 Icon=$ICON
-Terminal=true
+Terminal=false
 Categories=Utility;Settings;
 StartupNotify=true
 Keywords=setup;install;first;run;eli;
@@ -86,6 +88,7 @@ Icon=$ICON
 Terminal=false
 Categories=Utility;Development;Office;
 StartupNotify=true
+StartupWMClass=ELI
 EOF
 
 cat > "$APPS/eli-server.desktop" <<EOF
@@ -93,20 +96,36 @@ cat > "$APPS/eli-server.desktop" <<EOF
 Type=Application
 Name=ELI Server (Web App)
 Comment=Self-hosted ELI web app — open from any device on your network (LAN + token)
-Exec=$ROOT/scripts/eli_serve.sh --lan --https
+Exec=$TERM_RUN $ROOT/scripts/eli_serve.sh --lan --https
 Path=$ROOT
 Icon=$ICON
-Terminal=true
+Terminal=false
 Categories=Utility;Network;
 StartupNotify=true
 EOF
 
+cat > "$APPS/eli-uninstall.desktop" <<EOF
+[Desktop Entry]
+Type=Application
+Name=ELI Uninstall
+GenericName=Remove ELI
+Comment=Remove ELI's menu icons and the 'eli' command; optionally delete this install
+Exec=$TERM_RUN $ROOT/scripts/eli_uninstall.sh
+Path=$ROOT
+Icon=$ICON
+Terminal=false
+Categories=Utility;Settings;
+StartupNotify=true
+Keywords=uninstall;remove;delete;eli;
+EOF
+
 rm -f "$APPS/eli-pro.desktop" "$APPS/eli-v2-0.desktop"
-chmod +x "$APPS/eli-setup.desktop" "$APPS/eli-v2.desktop" "$APPS/eli-server.desktop" 2>/dev/null || true
+chmod +x "$APPS/eli-setup.desktop" "$APPS/eli-v2.desktop" "$APPS/eli-server.desktop" "$APPS/eli-uninstall.desktop" 2>/dev/null || true
 command -v update-desktop-database >/dev/null 2>&1 && update-desktop-database "$APPS" 2>/dev/null || true
 
 echo "[OK] Installed desktop launchers to $APPS :"
 echo "       • ELI Setup          (first-time one-click setup)"
 echo "       • ELI v2.0           (desktop GUI, icon: $ICON)"
-echo "       • ELI Server (Web App) (runs in a terminal; prints the phone URL + token)"
+echo "       • ELI Server (Web App) (opens a terminal; prints the phone URL + token)"
+echo "       • ELI Uninstall      (remove icons/command; optionally delete the install)"
 echo "     They should now appear in your application menu. Inference stays 100% local."
