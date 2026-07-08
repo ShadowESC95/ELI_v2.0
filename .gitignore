@@ -190,3 +190,7 @@ blueprints/*.pdf
 
 # Regenerated on every install/run — tracked churn on one timestamp; built fresh into packages.
 /capability_manifest.json
+
+# private dev handoff — never publish
+blueprints/NEXT_SESSION.md
+blueprints/NEXT_SESSION.pdf
