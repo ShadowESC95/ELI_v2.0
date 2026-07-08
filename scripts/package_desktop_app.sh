@@ -78,10 +78,9 @@ STAGING="$WORK_DIR/${APP_NAME}-${VERSION}-linux-portable"
 rm -rf "$STAGING"
 mkdir -p "$STAGING"
 
-if [ "$SKIP_WHEEL" -eq 0 ]; then
-  echo "[package] building wheel ($PYTHON)"
-  (cd "$ROOT" && "$PYTHON" -m build --wheel --no-isolation)
-fi
+# NOTE: the wheel is built LATER, from the clean git-archive staging tree (not this dirty
+# working tree), so the shipped binary always matches the shipped source — no stale or
+# untracked modules leak into the wheel and reproducibility holds.
 
 echo "[package] exporting committed source from HEAD"
 if [ "$WITH_ASSETS" -eq 1 ]; then
@@ -107,10 +106,14 @@ if [ -f "$ROOT/packaging/desktop/Eli_Icon.png" ]; then
     [ -f "$ROOT/packaging/desktop/$_ic" ] && cp "$ROOT/packaging/desktop/$_ic" "$STAGING/packaging/desktop/"
   done
 fi
-# Ship ONLY this version's wheel — the dev dist/ accumulates old wheels, and a glob
-# would bundle all of them (install.sh then picked the oldest → wrong version banner).
-if ls "$ROOT"/dist/eli_v2_0-"${VERSION}"-*.whl >/dev/null 2>&1; then
-  cp "$ROOT"/dist/eli_v2_0-"${VERSION}"-*.whl "$STAGING/dist/"
+# Build the wheel FROM the staging tree (the exact git-archive source we ship), so the
+# shipped binary == shipped source. Only this version's wheel ends up in dist/.
+if [ "$SKIP_WHEEL" -eq 0 ]; then
+  echo "[package] building wheel from clean staging tree ($PYTHON)"
+  ( cd "$STAGING" && "$PYTHON" -m build --wheel --no-isolation ) \
+    || { echo "[package] wheel build failed" >&2; exit 1; }
+  # keep only this version's wheel in the staged dist/
+  find "$STAGING/dist" -maxdepth 1 -name 'eli_v2_0-*.whl' ! -name "eli_v2_0-${VERSION}-*.whl" -delete 2>/dev/null || true
 fi
 
 # Offline wheelhouse — set ELI_FULL_WHEELHOUSE=1 to bundle EVERY pinned wheel so the app

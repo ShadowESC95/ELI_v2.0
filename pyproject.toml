@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "eli-v2.0"
-version = "2.0.25"
+version = "2.0.26"
 description = "ELI v2.0 — Local cognitive runtime, assistant GUI, memory, tools, and GGUF inference"
 readme = "README.md"
 requires-python = ">=3.10"
@@ -166,4 +166,14 @@ exclude = ["tests*", "ops*", "build*"]
     "tools/image_engine/config/*.json",
     "plugins/registry/*.json",
     "cognition/persona*.txt",
+]
+
+# Never let dev-tooling / dot-directories (.claude, .git, caches) get hoovered into the
+# wheel by the broad **/*.json globs above — that leaked local paths/usernames once.
+[tool.setuptools.exclude-package-data]
+"eli" = [
+    ".claude/*", "**/.claude/*",
+    ".git/*", "**/.git/*",
+    "**/.*/**",
+    "**/__pycache__/*",
 ]
