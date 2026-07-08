@@ -141,6 +141,11 @@ ELI v2 — Windows portable (${2:-lean})
 
 Model pack: GitHub release tag local-assets-v2.1 or python scripts/restore_github_asset_files.py
 EOF
+
+    # cmd.exe's goto-label lookup fails intermittently on LF-only .bat (byte-offset
+    # dependent), so force CRLF on every Windows script in the staged package.
+    find "$STAGING" -type f \( -name '*.bat' -o -name '*.cmd' -o -name '*.ps1' \) \
+        -exec sed -i 's/\r*$/\r/' {} + 2>/dev/null || true
 }
 
 # ── Pre-flight: tests must pass before producing artifacts ──────────────
