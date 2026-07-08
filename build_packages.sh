@@ -146,6 +146,23 @@ EOF
     # dependent), so force CRLF on every Windows script in the staged package.
     find "$STAGING" -type f \( -name '*.bat' -o -name '*.cmd' -o -name '*.ps1' \) \
         -exec sed -i 's/\r*$/\r/' {} + 2>/dev/null || true
+
+    # Remove Linux/macOS entry points from the WINDOWS package — a customer double-clicking
+    # install.sh or an .desktop file on Windows is pure user-error bait. The Python source
+    # stays (source-available); only the POSIX launchers/installers are pruned.
+    rm -f "$STAGING/install.sh" "$STAGING/eli.sh" "$STAGING/ELI_Setup.sh" \
+          "$STAGING/build_packages.sh" "$STAGING"/*.desktop 2>/dev/null || true
+    rm -rf "$STAGING/bin" 2>/dev/null || true
+    for _s in eli_launch.sh eli_serve.sh eli_setup.sh eli_startup.sh eli_term.sh \
+              eli_uninstall.sh install_desktop_apps.sh; do
+        rm -f "$STAGING/scripts/$_s" 2>/dev/null || true
+    done
+
+    # Pre-generate the capability manifest into the package (it's gitignored, so the
+    # git-archive source carries none) — the installer's offline fallback copy.
+    ( cd "$STAGING" && PYTHONPATH="$STAGING" python3 -c \
+      "from eli.tools.registry.capability_updater import update_capability_manifest; update_capability_manifest()" ) \
+      >/dev/null 2>&1 || true
 }
 
 # ── Pre-flight: tests must pass before producing artifacts ──────────────

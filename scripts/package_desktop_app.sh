@@ -116,6 +116,12 @@ if [ "$SKIP_WHEEL" -eq 0 ]; then
   find "$STAGING/dist" -maxdepth 1 -name 'eli_v2_0-*.whl' ! -name "eli_v2_0-${VERSION}-*.whl" -delete 2>/dev/null || true
 fi
 
+# Generate a fresh capability_manifest.json into the package (it's gitignored, so the
+# git-archive source doesn't carry one) — this is the installer's offline fallback copy.
+( cd "$STAGING" && PYTHONPATH="$STAGING" "$PYTHON" -c \
+  "from eli.tools.registry.capability_updater import update_capability_manifest; update_capability_manifest()" ) \
+  >/dev/null 2>&1 || echo "[package] (manifest pre-gen skipped — installer will regenerate)"
+
 # Offline wheelhouse — set ELI_FULL_WHEELHOUSE=1 to bundle EVERY pinned wheel so the app
 # installs with ZERO network (install.sh points pip at this dir). Default: just the CPU
 # torch fallback wheel (keeps the download small). Best-effort: whatever pip can't fetch
