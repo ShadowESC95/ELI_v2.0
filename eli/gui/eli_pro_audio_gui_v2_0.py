@@ -2414,7 +2414,15 @@ class EliMainWindow(QMainWindow):
         app = QApplication.instance()
         if app:
             _f = app.font()
-            _f.setPointSize(9)
+            # Auto-fit the base UI scale to the display so it isn't oversized on small /
+            # laptop / high-DPI screens (Ctrl+scroll still fine-tunes from here). Shorter
+            # screens get a smaller base point size.
+            try:
+                _sh = QApplication.primaryScreen().availableGeometry().height()
+            except Exception:
+                _sh = 1080
+            _base = 8 if _sh < 800 else (9 if _sh < 1200 else (10 if _sh < 1500 else 11))
+            _f.setPointSize(_base)
             app.setFont(_f)
             self._global_zoom_filter = _GlobalScrollZoom(self)
             app.installEventFilter(self._global_zoom_filter)
