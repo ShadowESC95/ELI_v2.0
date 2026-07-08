@@ -9642,8 +9642,10 @@ def _execute_impl(action: str, args: Optional[Dict[str, Any]] = None) -> Dict[st
             matches = result.get("matches") or []
             if matches:
                 first = matches[0]
-                if click:
+                if click and result.get("clicked"):
                     msg = f"Clicked '{query}' at ({first.get('cx')}, {first.get('cy')})."
+                elif click:
+                    msg = f"Found '{query}' at ({first.get('cx')}, {first.get('cy')}), but the click didn't go through."
                 else:
                     msg = f"Found '{query}' at ({first.get('cx')}, {first.get('cy')})."
             else:

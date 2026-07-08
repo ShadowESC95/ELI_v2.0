@@ -356,6 +356,7 @@ def locate_in_image(
 def locate_on_screen(
     query: str,
     *,
+    click: bool = False,
     region: str = "full",
     lang: str = "eng",
     psm: int = 11,
@@ -376,7 +377,27 @@ def locate_on_screen(
             "content": f"Screenshot failed before locating '{query}': {error}",
             "response": f"Screenshot failed before locating '{query}': {error}",
         }
-    return locate_in_image(path, query, lang=lang, psm=psm, max_matches=max_matches, min_score=min_score)
+    result = locate_in_image(path, query, lang=lang, psm=psm, max_matches=max_matches, min_score=min_score)
+    # Optionally CLICK the top match — this turns "find X on screen" into real screen
+    # control: find-and-click any visible item by its label (a general way to drive the
+    # UI by name). No-fake-actions: only mark clicked=True if the click actually ran.
+    if click:
+        matches = result.get("matches") or []
+        top = matches[0] if matches else None
+        cx = (top or {}).get("cx"); cy = (top or {}).get("cy")
+        if top is not None and cx is not None and cy is not None:
+            try:
+                from eli.perception.os_controller import mouse_click
+                clk = mouse_click(x=int(cx), y=int(cy))
+                result["clicked"] = bool(clk.get("ok"))
+                if not result["clicked"]:
+                    result["click_error"] = str(clk.get("error") or "click failed")
+            except Exception as e:
+                result["clicked"] = False
+                result["click_error"] = str(e)
+        else:
+            result["clicked"] = False
+    return result
 
 
 __all__ = [
