@@ -356,6 +356,59 @@ def spotify_query(query: str) -> str:
     return f"Searching Spotify for: {q}"
 
 
+# Streaming platforms ELI can't deep-control (login-gated, no local API) but CAN target
+# precisely: "play X on netflix/prime/disney/plex/..." deep-links to that platform's SEARCH
+# for the title, in the browser. The named platform is honoured — it NEVER silently falls
+# through to YouTube (the old bug), per the media-target contract.
+STREAMING_PLATFORMS = {
+    "netflix": "https://www.netflix.com/search?q={q}",
+    "prime": "https://www.primevideo.com/search/?phrase={q}",
+    "prime video": "https://www.primevideo.com/search/?phrase={q}",
+    "primevideo": "https://www.primevideo.com/search/?phrase={q}",
+    "amazon": "https://www.primevideo.com/search/?phrase={q}",
+    "amazon prime": "https://www.primevideo.com/search/?phrase={q}",
+    "disney": "https://www.disneyplus.com/search?q={q}",
+    "disney+": "https://www.disneyplus.com/search?q={q}",
+    "disneyplus": "https://www.disneyplus.com/search?q={q}",
+    "hbo": "https://play.max.com/search?q={q}",
+    "hbo max": "https://play.max.com/search?q={q}",
+    "max": "https://play.max.com/search?q={q}",
+    "hulu": "https://www.hulu.com/search?q={q}",
+    "paramount": "https://www.paramountplus.com/search/{q}/",
+    "peacock": "https://www.peacocktv.com/search?q={q}",
+    "apple tv": "https://tv.apple.com/search?term={q}",
+    "appletv": "https://tv.apple.com/search?term={q}",
+    "plex": "https://app.plex.tv/desktop/#!/search?query={q}",
+}
+
+
+def _play_on_streaming(target: str, query: str) -> str:
+    """Deep-link to a streaming platform's search for the requested title. Honest: reports
+    exactly what it did (opened + searched), never claims playback it can't verify."""
+    import urllib.parse, re
+    tpl = STREAMING_PLATFORMS.get(_lower(target))
+    if not tpl:
+        return ""
+    label = target.strip().title()
+    if query:
+        url = tpl.format(q=urllib.parse.quote(query))
+        msg = f"Opened {label} and searched for '{query}'. Pick it from the results to play."
+    else:
+        url = re.split(r"/search|/#!", tpl)[0] or tpl
+        msg = f"Opened {label}."
+    try:
+        from eli.utils import platform_compat as _pc
+        if _pc.open_url(url):
+            return msg
+    except Exception:
+        pass
+    try:
+        import webbrowser
+        return msg if webbrowser.open(url, new=2) else f"Couldn't open {label}."
+    except Exception:
+        return f"Couldn't open {label}."
+
+
 def install_media_executor(original_execute_action: Callable[..., Any]) -> Callable[..., Any]:
     """
     Return execute_action wrapper preserving current ELI media behaviour.
@@ -393,6 +446,11 @@ def install_media_executor(original_execute_action: Callable[..., Any]) -> Calla
 
         if target in SPOTIFY_TARGETS and act in PLAY_ACTIONS and query:
             return spotify_query(query)
+
+        # Explicit streaming platform (netflix/prime/disney/plex/...) → deep-link its search.
+        # Honours the media-target contract: a named platform NEVER falls through to YouTube.
+        if target and act in PLAY_ACTIONS and _lower(target) in STREAMING_PLATFORMS:
+            return _play_on_streaming(target, query)
 
         return original_execute_action(action, args, *a, **kw)
 
