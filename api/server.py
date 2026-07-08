@@ -1699,6 +1699,20 @@ _WEB_UI = """<!doctype html>
       const tg=card.querySelector('.sw input');tg.onchange=()=>ctlDev(dv.id,tg.checked?'on':'off');
       const sl=card.querySelector('input[type=range]');
       if(sl){let t2;sl.oninput=()=>{clearTimeout(t2);t2=setTimeout(()=>ctlDev(dv.id,'brightness',+sl.value),250);};}
+    } else if(['media','speaker','tv','cast','chromecast','airplay','dlna','upnp','firetv','sonos','player','renderer'].indexOf(t)>=0){
+      // Advanced media tile: inline transport + volume so common actions don't need the hub.
+      card.innerHTML=head+'<div class="row mediactl" style="gap:6px;flex-wrap:wrap">'
+        +'<button class="cbtn" title="Play">&#9654;</button>'
+        +'<button class="cbtn" title="Pause">&#10073;&#10073;</button>'
+        +'<button class="cbtn" title="Stop">&#9632;</button>'
+        +'<input class="brange" type="range" min="0" max="100" value="'+(parseInt(dv.volume,10)||40)+'" title="Volume" style="flex:1;min-width:70px">'
+        +'</div>';
+      const mb=card.querySelectorAll('.mediactl button');
+      if(mb[0])mb[0].onclick=()=>ctlDev(dv.id,'play');
+      if(mb[1])mb[1].onclick=()=>ctlDev(dv.id,'pause');
+      if(mb[2])mb[2].onclick=()=>ctlDev(dv.id,'stop');
+      const vol=card.querySelector('input[type=range]');
+      if(vol){let vt;vol.oninput=()=>{clearTimeout(vt);vt=setTimeout(()=>ctlDev(dv.id,'volume',+vol.value),250);};}
     } else {
       const num=parseFloat(dv.state), isNum=!isNaN(num)&&isFinite(num);
       if(isNum && num>=0 && num<=100){
