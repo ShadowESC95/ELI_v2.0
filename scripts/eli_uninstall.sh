@@ -27,12 +27,29 @@ APPS="${XDG_DATA_HOME:-$HOME/.local/share}/applications"
 BIN="$HOME/.local/bin"
 ICONS="${XDG_DATA_HOME:-$HOME/.local/share}/icons/hicolor"
 
+# Stop any ELI instance running FROM THIS install first — otherwise its background daemon
+# (server / proactive / autonomy) keeps recreating artifacts/ and the folder "won't delete".
+# Scoped to this ROOT so other ELI installs are untouched.
+_stop_running() {
+  local pids
+  pids="$(pgrep -f "$ROOT/.venv/bin/python" 2>/dev/null; pgrep -f "$ROOT/scripts/eli_" 2>/dev/null)"
+  pids="$(printf '%s\n' $pids | sort -un)"
+  [ -n "$pids" ] || { echo "  ${GRN}OK${R}  No running ELI instance from this install."; return; }
+  echo "  Stopping running ELI processes from this install: $(echo $pids | tr '\n' ' ')"
+  kill $pids 2>/dev/null || true; sleep 2
+  for p in $pids; do kill -9 "$p" 2>/dev/null || true; done
+  echo "  ${GRN}OK${R}  Stopped."
+}
+echo
+echo "Checking for a running ELI (server/desktop) from this install…"
+_stop_running
+
 echo
 echo "This removes ELI's app-menu icons, the 'eli' command, and its theme icon."
 if ask "Remove ELI's system integration now?"; then
   rm -f "$APPS"/eli-setup.desktop "$APPS"/eli-v2.desktop "$APPS"/eli-server.desktop \
         "$APPS"/eli-uninstall.desktop "$APPS"/eli-pro.desktop "$APPS"/eli-v2-0.desktop 2>/dev/null || true
-  rm -f "$BIN/eli" 2>/dev/null || true
+  rm -f "$BIN/eli" "$BIN/eli-run" 2>/dev/null || true
   # Only remove the eli theme icon we installed (never touch other icons).
   find "$ICONS" -type f -name 'eli.*' -delete 2>/dev/null || true
   command -v update-desktop-database >/dev/null 2>&1 && update-desktop-database "$APPS" 2>/dev/null || true
