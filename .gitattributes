@@ -1,6 +1,6 @@
-# Windows batch files must be CRLF — cmd.exe goto-label lookup fails on LF-only .bat.
-*.bat text eol=crlf
-*.ps1 text eol=crlf
-*.cmd text eol=crlf
-# Everything else stays LF.
+# Windows scripts stored byte-for-byte (CRLF) — cmd.exe goto-label lookup fails on LF-only
+# .bat. The Windows build also force-converts, so CRLF is guaranteed either way.
+*.bat -text
+*.cmd -text
+*.ps1 -text
 *.sh text eol=lf
