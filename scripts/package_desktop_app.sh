@@ -114,6 +114,10 @@ if [ "$SKIP_WHEEL" -eq 0 ]; then
     || { echo "[package] wheel build failed" >&2; exit 1; }
   # keep only this version's wheel in the staged dist/
   find "$STAGING/dist" -maxdepth 1 -name 'eli_v2_0-*.whl' ! -name "eli_v2_0-${VERSION}-*.whl" -delete 2>/dev/null || true
+  # Remove setuptools build cruft `python -m build` leaves in the tree: an .egg-info on
+  # PYTHONPATH makes pip think ELI is already installed (unmet-deps warnings + skipped
+  # editable install), and build/lib/ is a duplicate source tree. Neither ships.
+  rm -rf "$STAGING/build/lib" "$STAGING/build/bdist."* "$STAGING"/*.egg-info 2>/dev/null || true
 fi
 
 # Generate a fresh capability_manifest.json into the package (it's gitignored, so the
