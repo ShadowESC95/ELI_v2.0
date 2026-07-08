@@ -609,18 +609,20 @@ def build_news_briefing(user_id=None, topic: str = "", top_n: int = 5,
         interest: List[Dict[str, Any]] = []
         interest_terms: List[str] = []
         prompt = (
-            f"You are ELI giving the user a focused news read on \"{topic}\". Do NOT open with a greeting (no 'Good day'/'Hello') — this is mid-conversation. "
-            "Use ONLY the articles below — never invent. For EACH story, include "
-            "its source AND its publication date exactly as shown in the "
-            "[source — time] bracket (e.g. \"[BBC — 14:23]\") so the reader can "
-            "see how fresh each item is. Cover the stories conversationally, "
-            "giving each roughly a sentence of real context (not just the "
-            "headline). Close with one or two pointed follow-up questions tied "
-            "to the actual stories (just one unless there are genuinely distinct "
-            "threads worth pursuing), and offer to go deeper if they want to "
-            "discuss something at length.\n\n"
+            f"You are ELI giving a focused, crisp news read on \"{topic}\" — mid-conversation, "
+            "so no greeting. Use ONLY the articles below; never invent, never pad.\n"
+            "STYLE — follow exactly:\n"
+            "- One story per sentence, COMPLETE and grammatical — NEVER open with a raw "
+            "headline fragment. What happened, then a short clause on why it matters.\n"
+            "- BANNED filler: \"it's intriguing how…\", \"this could spark a conversation\", "
+            "and any hedging that adds no information.\n"
+            "- Cite each story's source + date exactly as in its [source — time] bracket "
+            "(e.g. \"[BBC — 14:23]\").\n"
+            "- Close with EXACTLY ONE sharp, single-sentence follow-up tied to a specific "
+            "story, then offer to go deeper.\n"
+            "- Read like a sharp human editor: tight, concrete, no waffle.\n\n"
             f"STORIES ON \"{topic}\":\n{_block(top) or '(none found)'}\n\n"
-            "ELI'S NEWS READ:"
+            "ELI'S NEWS BRIEF:"
         )
     else:
         recent = fetcher.get_recent(limit=60) or []
@@ -678,24 +680,26 @@ def build_news_briefing(user_id=None, topic: str = "", top_n: int = 5,
             if len(interest) >= interest_n:
                 break
         prompt = (
-            "You are ELI giving the user a quick, natural news read. Do NOT open with a "
-            "greeting (no 'Good day'/'Hello') — this is mid-conversation. Use ONLY the "
-            "articles below — never invent. For EACH story, include its source "
-            "AND its publication date exactly as shown in the [source — time] "
-            "bracket (e.g. \"[BBC — 14:23]\") so the reader can see how fresh "
-            "each item is. Present "
-            "the TOP STORIES conversationally across the "
-            "different domains, giving each roughly a sentence of real context "
-            "(not just the headline). THEN, if there are interest matches, say "
-            "something like \"I also found these articles that might interest you\" "
-            "and cover them the same way. Close with one or two pointed follow-up "
-            "questions tied to the actual stories (just one unless there are "
-            "genuinely distinct threads worth pursuing), and offer to go deeper if "
-            "they want to discuss something at length.\n\n"
+            "You are ELI giving a crisp, natural news brief — mid-conversation, so no "
+            "greeting. Use ONLY the articles below; never invent, never pad.\n"
+            "STYLE — follow exactly (this is what makes the brief sharp, not rambling):\n"
+            "- One story per sentence. Write COMPLETE, grammatical sentences — NEVER open "
+            "with a raw headline fragment. State plainly what happened, then a short clause "
+            "on why it matters.\n"
+            "- BANNED filler: \"it's intriguing how…\", \"this could spark a conversation\", "
+            "\"which might interest you\", and any hedging that adds no information.\n"
+            "- Cite each story's source + date exactly as in its [source — time] bracket "
+            "(e.g. \"[BBC — 14:23]\").\n"
+            "- Lead with the TOP STORIES (spread across domains). If there are interest "
+            "matches, add one short transition like \"A couple more in your wheelhouse:\" "
+            "then cover them the same way.\n"
+            "- Close with EXACTLY ONE sharp, single-sentence follow-up question tied to a "
+            "specific story — not a multi-part question — then offer to go deeper on any of them.\n"
+            "- Read like a sharp human editor briefing a busy person: tight, concrete, no waffle.\n\n"
             f"TOP STORIES (across domains):\n{_block(top) or '(none available)'}\n\n"
             f"MATCHED TO THEIR INTERESTS ({', '.join(interest_terms[:3]) or 'n/a'}):\n"
             f"{_block(interest) or '(none found)'}\n\n"
-            "ELI'S NEWS READ:"
+            "ELI'S NEWS BRIEF:"
         )
 
     # ── Freshness disclosure ─────────────────────────────────────────────────
