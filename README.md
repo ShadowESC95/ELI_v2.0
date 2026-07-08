@@ -155,14 +155,13 @@ portable package from **[GitHub Releases](https://github.com/ShadowESC95/ELI_v2.
 |---|---|
 | **Best tested** | Linux x86_64 + **NVIDIA** GPU (the path I've run end-to-end) |
 | **Also coded for** | Windows, macOS, AMD — installers exist; expect rough edges until reported |
-| **Includes** | ELI app + installer, a bundled CPU-torch fallback wheel, and a **small starter model (TinyLlama) so it answers out of the box** — no separate download needed to get going |
+| **Includes** | ELI app + installer and a **usable starter model (Qwen2.5-3B) so it answers well out of the box** — no separate download needed to get going |
 
 ```bash
-# 1. Download from Releases:
-#    ELI_v2-2.0.18-linux-portable.tar.gz
+# 1. Download the latest ELI_v2-*-linux-portable.tar.gz from Releases, then:
 
-tar -xzf ELI_v2-2.0.18-linux-portable.tar.gz
-cd ELI_v2-2.0.18-linux-portable
+tar -xzf ELI_v2-*-linux-portable.tar.gz
+cd ELI_v2-*-linux-portable
 chmod +x ELI_Setup.sh
 ./ELI_Setup.sh                      # one-click: system deps + venv + all packages + DB + launch
 ```

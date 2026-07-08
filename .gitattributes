@@ -1,0 +1,6 @@
+# Windows batch files must be CRLF — cmd.exe goto-label lookup fails on LF-only .bat.
+*.bat text eol=crlf
+*.ps1 text eol=crlf
+*.cmd text eol=crlf
+# Everything else stays LF.
+*.sh text eol=lf
