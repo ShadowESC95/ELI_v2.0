@@ -233,9 +233,10 @@ if ($LASTEXITCODE -eq 0) { Write-Host "[OK] Full database architecture ready (bl
 else { Write-Host "[WARN] Some stores deferred to first launch (self-build on first use)." -ForegroundColor Yellow }
 
 Write-Host "[..] Ensuring capability manifest and command reference..."
-try {
-    & $PythonVenv -c "from eli.tools.registry.capability_updater import update_capability_manifest; r=update_capability_manifest(); assert r.get('ok'), r; print(f'[OK] {r.get(\"total\",0)} capabilities indexed')"
-} catch {
+# Native (python) non-zero exits do NOT throw in PowerShell, so a try/catch can't see
+# them — check $LASTEXITCODE explicitly (same pattern Invoke-Pip uses).
+& $PythonVenv -c "from eli.tools.registry.capability_updater import update_capability_manifest; r=update_capability_manifest(); assert r.get('ok'), r; print(f'[OK] {r.get(\"total\",0)} capabilities indexed')"
+if ($LASTEXITCODE -ne 0) {
     if (Test-Path (Join-Path $ScriptDir "capability_manifest.json")) {
         Write-Host "[OK] Using shipped capability_manifest.json (regeneration skipped)." -ForegroundColor Green
     } else {

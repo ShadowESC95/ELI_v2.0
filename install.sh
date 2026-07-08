@@ -364,10 +364,12 @@ WHEEL=""
 # Pick the HIGHEST version wheel (sort -V), not the first — a plain glob returns the
 # oldest first, which would install a stale version if several wheels are present.
 WHEEL="$(ls "$SCRIPT_DIR"/dist/eli_v2_0-*.whl 2>/dev/null | sort -V | tail -1)"
-if [ -n "$WHEEL" ]; then
-    "$PIP" install "${WHEEL}[full]" --quiet
-else
-    ( cd "$SCRIPT_DIR" && "$PIP" install -e ".[full]" --quiet )
+# Install ELI EDITABLE from the source tree, so the tree is the SINGLE runtime authority
+# (site-packages links to it — nothing shadows a duplicate wheel copy; the launchers'
+# PYTHONPATH becomes redundant belt-and-suspenders). Fall back to the bundled wheel only
+# if an editable install can't be created on this machine.
+if ! ( cd "$SCRIPT_DIR" && "$PIP" install -e ".[full]" --quiet ); then
+    [ -n "$WHEEL" ] && "$PIP" install "${WHEEL}[full]" --quiet
 fi
 
 # Install remaining runtime requirements. Default = the FROZEN LOCK (exact known-good
