@@ -10,8 +10,14 @@
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-[ -x "$ROOT/.venv/bin/python" ] || { echo "[eli] .venv not found — run install.sh first."; exit 1; }
-PYTHON="$ROOT/.venv/bin/python"
+# Don't hard-fail if the venv is missing — we can still install working launchers + the
+# guard (only the theme-icon step needs Python, and it already has a PNG fallback).
+if [ -x "$ROOT/.venv/bin/python" ]; then
+    PYTHON="$ROOT/.venv/bin/python"
+else
+    echo "[eli] note: .venv not found — installing launchers anyway (run install.sh to finish setup)."
+    PYTHON="$(command -v python3 || echo python3)"
+fi
 
 OS="$(uname -s)"
 chmod +x "$ROOT/scripts/eli_launch.sh" "$ROOT/scripts/eli_serve.sh" "$ROOT/scripts/eli_setup.sh" 2>/dev/null || true
@@ -58,6 +64,44 @@ chmod +x "$ROOT/scripts/eli_launch.sh" "$ROOT/scripts/eli_serve.sh" "$ROOT/scrip
          "$ROOT/scripts/eli_term.sh" "$ROOT/scripts/eli_uninstall.sh" 2>/dev/null || true
 TERM_RUN="$ROOT/scripts/eli_term.sh"   # opens a real terminal (GNOME/Wayland ignore Terminal=true)
 
+# Guard wrapper in ~/.local/bin (OUTSIDE the install) so the icons fail LOUDLY — with a
+# visible dialog — if the install is later moved/deleted or its scripts go missing,
+# instead of silently doing nothing (the failure mode that kept biting).
+BIN="$HOME/.local/bin"; mkdir -p "$BIN"; GUARD="$BIN/eli-run"
+cat > "$GUARD" <<'GUARD_EOF'
+#!/usr/bin/env bash
+# ELI launcher guard. Args: <install_root> <gui|serve|setup|uninstall>
+R="$1"; A="$2"
+_err(){ command -v zenity >/dev/null 2>&1 && zenity --error --title="ELI" --width=420 --text="$1" 2>/dev/null \
+    || { command -v notify-send >/dev/null 2>&1 && notify-send "ELI" "$1" 2>/dev/null; } \
+    || { printf '%s\n' "$1"; sleep 6; }; }
+[ -n "$R" ] && [ -d "$R" ] || { _err "ELI install not found at:
+$R
+
+Re-run ELI Setup, or reinstall the latest release."; exit 1; }
+T="$R/scripts/eli_term.sh"
+case "$A" in
+  gui)       S="$R/scripts/eli_launch.sh";    RUN=(gui) ;;
+  serve)     S="$R/scripts/eli_serve.sh";     RUN=(--lan --https) ;;
+  setup)     S="$R/scripts/eli_setup.sh";     RUN=() ;;
+  uninstall) S="$R/scripts/eli_uninstall.sh"; RUN=() ;;
+  *) _err "Unknown ELI action: $A"; exit 2 ;;
+esac
+if [ "$A" = "gui" ]; then
+  [ -x "$S" ] || { _err "ELI is damaged (missing launcher) at:
+$R
+
+Reinstall the latest release."; exit 1; }
+  exec "$S" "${RUN[@]}"
+fi
+{ [ -x "$T" ] && [ -x "$S" ]; } || { _err "ELI is damaged (missing scripts) at:
+$R
+
+Re-run ELI Setup, or reinstall the latest release."; exit 1; }
+exec "$T" "$S" "${RUN[@]}"
+GUARD_EOF
+chmod +x "$GUARD"
+
 # Install Freedesktop theme icon (eli) + blueprints/ runtime copy.
 ICON="eli"
 if ! ICON="$("$PYTHON" -c "from eli.gui.branding import prepare_launcher_icons; print(prepare_launcher_icons())")"; then
@@ -74,7 +118,7 @@ Type=Application
 Name=ELI Setup
 GenericName=First-time ELI setup
 Comment=One-click install — models, database, shortcuts, then launch ELI v2.0
-Exec=$TERM_RUN $ROOT/scripts/eli_setup.sh
+Exec=$GUARD "$ROOT" setup
 Path=$ROOT
 Icon=$ICON
 Terminal=false
@@ -88,7 +132,7 @@ cat > "$APPS/eli-v2.desktop" <<EOF
 Type=Application
 Name=ELI v2.0
 Comment=Local, private AI assistant (desktop GUI)
-Exec=$ROOT/scripts/eli_launch.sh gui
+Exec=$GUARD "$ROOT" gui
 Path=$ROOT
 Icon=$ICON
 Terminal=false
@@ -102,7 +146,7 @@ cat > "$APPS/eli-server.desktop" <<EOF
 Type=Application
 Name=ELI Server (Web App)
 Comment=Self-hosted ELI web app — open from any device on your network (LAN + token)
-Exec=$TERM_RUN $ROOT/scripts/eli_serve.sh --lan --https
+Exec=$GUARD "$ROOT" serve
 Path=$ROOT
 Icon=$ICON
 Terminal=false
@@ -116,7 +160,7 @@ Type=Application
 Name=ELI Uninstall
 GenericName=Remove ELI
 Comment=Remove ELI's menu icons and the 'eli' command; optionally delete this install
-Exec=$TERM_RUN $ROOT/scripts/eli_uninstall.sh
+Exec=$GUARD "$ROOT" uninstall
 Path=$ROOT
 Icon=$ICON
 Terminal=false
