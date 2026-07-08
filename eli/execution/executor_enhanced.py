@@ -12195,15 +12195,25 @@ except NameError:
         else:
             raw = str(raw or "")
 
+        def _norm(s):
+            # Some backends return code as a single physical line with escaped newlines
+            # ("\n"/"\t", JSON-style) — that compiles as an "unterminated string literal
+            # at line 1". If escapes are present but there are no real newlines, decode them.
+            s = str(s or "").strip()
+            if "\n" not in s and ("\\n" in s or "\\t" in s):
+                s = (s.replace("\\r\\n", "\n").replace("\\n", "\n")
+                       .replace("\\t", "\t").replace('\\"', '"').replace("\\'", "'"))
+            return s.strip()
+
         fences = re.findall(r"```([A-Za-z0-9+#._-]*)\n(.*?)```", raw, flags=re.DOTALL)
         if fences:
             wanted = str(language or "").lower()
             for lang, code in fences:
                 if wanted and wanted != "auto" and lang.lower() == wanted:
-                    return code.strip()
-            return fences[0][1].strip()
+                    return _norm(code)
+            return _norm(fences[0][1])
 
-        return raw.strip()
+        return _norm(raw)
 
     def _eli_v3_generate_script(args=None):
         action_name = "GENERATE_SCRIPT"
