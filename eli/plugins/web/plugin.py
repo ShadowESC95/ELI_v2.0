@@ -113,15 +113,49 @@ class WebSearchPlugin(Plugin):
             else:
                 lines.append(f"{i}. {title}")
 
+        # ALSO open the results in a real browser — "search the web" summarises AND opens
+        # the page so the user can click through. Best-effort; never fails the search.
+        import urllib.parse as _up
+        open_url = "https://duckduckgo.com/?q=" + _up.quote(query)
+        opened = _open_in_browser(open_url)
+        if opened:
+            lines.append(f"\n(Opened the search page in your browser: {open_url})")
+
         msg = "\n".join(lines)
         return {
             "ok": True,
             "action": "WEB_SEARCH",
             "query": query,
             "results": results,
+            "opened_url": open_url,   # web UI can also open this in a new tab
+            "browser_opened": opened,
             "content": msg,
             "response": msg,
         }
+
+
+def _open_in_browser(url: str) -> bool:
+    """Open a URL in the user's default browser on the ELI host. Tries ELI's os_controller
+    (knows the desktop session), then stdlib webbrowser. Best-effort → bool."""
+    if not url:
+        return False
+    try:
+        from eli.perception import os_controller as _osc
+        for _m in ("open_url", "open_browser", "launch_url", "open_in_browser"):
+            fn = getattr(_osc, _m, None)
+            if callable(fn):
+                try:
+                    fn(url)
+                    return True
+                except Exception:
+                    pass
+    except Exception:
+        pass
+    try:
+        import webbrowser
+        return bool(webbrowser.open(url, new=2))
+    except Exception:
+        return False
 
 
 def _duckduckgo_search(query: str, max_results: int = 5) -> List[Dict[str, Any]]:
@@ -244,6 +278,133 @@ def _duckduckgo_html_search(query: str, max_results: int = 5) -> List[Dict[str, 
     return out
 
 
+def _http_get(url: str, timeout: int = 10, data: bytes | None = None) -> str:
+    """Guarded HTTP GET/POST → decoded text. Routes through netguard so offline is
+    enforced; a realistic browser UA reduces bot-blocking. Returns "" on any failure."""
+    import urllib.request as _ur
+    try:
+        from eli.core.netguard import guarded_urlopen as _open
+    except Exception:
+        _open = lambda req, timeout=10: _ur.urlopen(req, timeout=timeout)
+    req = _ur.Request(url, data=data, headers={
+        "User-Agent": "Mozilla/5.0 (X11; Linux x86_64; rv:124.0) Gecko/20100101 Firefox/124.0",
+        "Accept-Language": "en-US,en;q=0.9",
+    })
+    try:
+        with _open(req, timeout=timeout) as r:
+            return r.read().decode("utf-8", errors="replace")
+    except Exception:
+        return ""
+
+
+def _strip_html(s: str) -> str:
+    import re as _re, html as _html
+    return _html.unescape(_re.sub(r"<[^>]+>", "", s or "")).strip()
+
+
+def _ddg_lite_search(query: str, max_results: int = 5) -> List[Dict[str, Any]]:
+    """lite.duckduckgo.com — a stripped endpoint that survives when the main DDG is
+    rate-limited. Independent enough to be worth trying before non-DDG engines."""
+    import re as _re, html as _html, urllib.parse as _up
+    page = _http_get("https://lite.duckduckgo.com/lite/", data=_up.urlencode({"q": query}).encode())
+    out: List[Dict[str, Any]] = []
+    for m in _re.finditer(r'<a[^>]+class="result-link"[^>]+href="([^"]+)"[^>]*>(.*?)</a>', page, _re.S):
+        href = _html.unescape(m.group(1)); _mu = _re.search(r"uddg=([^&]+)", href)
+        if _mu: href = _up.unquote(_mu.group(1))
+        t = _strip_html(m.group(2))
+        if t and href.startswith("http"):
+            out.append({"title": t, "href": href, "body": ""})
+        if len(out) >= max_results: break
+    return out
+
+
+def _bing_html_search(query: str, max_results: int = 5) -> List[Dict[str, Any]]:
+    """Bing HTML — a fully independent index from DuckDuckGo, so it works when DDG
+    blocks the IP. Bing wraps real URLs in a /ck/a?…&u=a1<base64url> redirect, which we
+    decode back to the destination. Titles come from the result <h2>."""
+    import re as _re, urllib.parse as _up, base64 as _b64, html as _html
+    page = _http_get("https://www.bing.com/search?q=" + _up.quote(query) + "&setlang=en")
+    def _real(href: str) -> str:
+        mu = _re.search(r'[?&]u=a1([^&]+)', href)
+        if not mu:
+            return href
+        b = mu.group(1); b += "=" * (-len(b) % 4)
+        try:
+            return _b64.urlsafe_b64decode(b).decode("utf-8", "replace")
+        except Exception:
+            return ""
+    out: List[Dict[str, Any]] = []
+    # Each organic result is an <li class="b_algo"> … <h2><a href="…">Title</a></h2> … <p>snippet</p>
+    for blk in _re.finditer(r'<li class="b_algo".*?</li>', page, _re.S):
+        b = blk.group(0)
+        m = _re.search(r'<h2>.*?<a [^>]*href="([^"]+)"[^>]*>(.*?)</a>', b, _re.S)
+        if not m:
+            continue
+        href = _real(_html.unescape(m.group(1))); title = _strip_html(m.group(2))
+        ps = _re.search(r'<p[^>]*>(.*?)</p>', b, _re.S)
+        body = _strip_html(ps.group(1)) if ps else ""
+        if title and href.startswith("http"):
+            out.append({"title": title, "href": href, "body": body})
+        if len(out) >= max_results:
+            break
+    return out
+
+
+def _ddg_instant_answer(query: str, max_results: int = 5) -> List[Dict[str, Any]]:
+    """DuckDuckGo Instant Answer JSON API — a DIFFERENT endpoint from the search scrape,
+    far less rate-limited, returns clean structured facts. The Abstract + RelatedTopics
+    are excellent grounding, so this catches the exact 'model would otherwise guess a
+    fact' case even when the HTML search paths are blocked."""
+    import json as _json, urllib.parse as _up
+    raw = _http_get("https://api.duckduckgo.com/?" + _up.urlencode(
+        {"q": query, "format": "json", "no_html": 1, "no_redirect": 1, "t": "eli"}))
+    if not raw:
+        return []
+    try:
+        d = _json.loads(raw)
+    except Exception:
+        return []
+    out: List[Dict[str, Any]] = []
+    if d.get("AbstractText"):
+        out.append({"title": d.get("Heading") or query,
+                    "href": d.get("AbstractURL") or "",
+                    "body": d.get("AbstractText")})
+    for t in (d.get("RelatedTopics") or []):
+        if len(out) >= max_results:
+            break
+        if isinstance(t, dict) and t.get("Text"):
+            out.append({"title": (t.get("Text") or "")[:80],
+                        "href": (t.get("FirstURL") or ""),
+                        "body": t.get("Text") or ""})
+    return out
+
+
+def _wikipedia_search(query: str, max_results: int = 5) -> List[Dict[str, Any]]:
+    """Wikipedia API — not a general web search, but rock-solid and never rate-limited
+    for factual/definitional queries ('what is X'), which is exactly where the model
+    otherwise guesses. Great grounding source of last resort."""
+    import json as _json, urllib.parse as _up
+    raw = _http_get("https://en.wikipedia.org/w/api.php?" + _up.urlencode({
+        "action": "query", "list": "search", "srsearch": query,
+        "format": "json", "srlimit": max_results, "srprop": "snippet",
+    }))
+    if not raw:
+        return []
+    try:
+        hits = (_json.loads(raw).get("query") or {}).get("search") or []
+    except Exception:
+        return []
+    out: List[Dict[str, Any]] = []
+    for h in hits[:max_results]:
+        title = h.get("title") or ""
+        out.append({
+            "title": title,
+            "href": "https://en.wikipedia.org/wiki/" + _up.quote((title).replace(" ", "_")),
+            "body": _strip_html(h.get("snippet") or ""),
+        })
+    return out
+
+
 def _web_search_results(query: str, max_results: int = 5) -> List[Dict[str, Any]]:
     """Canonical web-search entry point: SearXNG (if configured) → DuckDuckGo
     package → stdlib DuckDuckGo HTML scrape (no dependency).
@@ -262,24 +423,34 @@ def _web_search_results(query: str, max_results: int = 5) -> List[Dict[str, Any]
     from eli.core.netguard import should_block_network, OfflineError
     if should_block_network():
         raise OfflineError("web search blocked: network access is off (Net toggle)")
-    try:
-        results = _searxng_search(query, max_results=max_results)
-    except Exception:
-        results = []
-    if results:
-        return results
-    # Package-based DDG (if installed)
-    try:
-        results = _duckduckgo_search(query, max_results=max_results)
-        if results:
-            return results
-    except Exception:
-        pass
-    # Stdlib HTML fallback — no pip dependency, so search works out of the box.
-    try:
-        return _duckduckgo_html_search(query, max_results=max_results)
-    except Exception:
-        return []
+
+    # Try INDEPENDENT providers in order until one returns results. This is what makes
+    # search bulletproof: when DuckDuckGo rate-limits the IP (every DDG-based path fails
+    # at once), the non-DDG engines (Bing, Mojeek) and Wikipedia still deliver. Order =
+    # best-quality/least-limited first; Wikipedia last as a factual safety net.
+    providers = (
+        ("searxng",   _searxng_search),          # self-hosted, unlimited (if configured)
+        ("ddg",       _duckduckgo_search),        # ddgs package, if installed
+        ("ddg_html",  _duckduckgo_html_search),   # stdlib DDG scrape
+        ("ddg_lite",  _ddg_lite_search),          # DDG lite endpoint (survives some blocks)
+        ("ddg_ia",    _ddg_instant_answer),       # DDG JSON API (clean facts, less limited)
+        ("bing",      _bing_html_search),         # independent index (best-effort scrape)
+        ("wikipedia", _wikipedia_search),         # factual safety net (never rate-limited)
+    )
+    import time as _t
+    # Two passes: first quick sweep, then a single retry of the transient engines with a
+    # short backoff (covers momentary rate-limit blips) before giving up.
+    for _attempt in range(2):
+        for _name, _fn in providers:
+            try:
+                results = _fn(query, max_results=max_results)
+            except Exception:
+                results = []
+            if results:
+                return results
+        if _attempt == 0:
+            _t.sleep(1.2)
+    return []
 
 
 def execute(action: str, args: Dict[str, Any] | None = None) -> Dict[str, Any]:
