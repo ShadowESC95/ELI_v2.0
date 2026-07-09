@@ -40,6 +40,13 @@ def project_root() -> Path:
     physical = _physical_project_root()
 
     env_root_raw = os.getenv("ELI_PROJECT_ROOT", "").strip()
+    # Frozen builds: the physical tree is the read-only bundle and
+    # ELI_PROJECT_ROOT is pinned in-process by the bundle's runtime hook
+    # (not inherited from a shell) — trust it, or artifacts land on the
+    # read-only mount.
+    import sys as _sys
+    if getattr(_sys, "frozen", False) and env_root_raw:
+        return Path(env_root_raw).expanduser().resolve()
     if env_root_raw:
         try:
             env_root = Path(env_root_raw).expanduser().resolve()
@@ -70,6 +77,13 @@ def artifacts_dir() -> Path:
     """
     env_artifacts = os.getenv("ELI_ARTIFACTS_DIR", "").strip()
     env_root_raw = os.getenv("ELI_PROJECT_ROOT", "").strip()
+
+    # Frozen builds: same exception as project_root() above.
+    import sys as _sys
+    if getattr(_sys, "frozen", False) and env_artifacts:
+        p = Path(env_artifacts).expanduser().resolve()
+        p.mkdir(parents=True, exist_ok=True)
+        return p
 
     if env_artifacts and env_root_raw:
         try:
