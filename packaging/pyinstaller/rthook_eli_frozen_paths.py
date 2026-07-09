@@ -30,6 +30,24 @@ import shutil
 import sys
 from pathlib import Path
 
+
+def _force_utf8_streams() -> None:
+    """ELI prints unicode (emoji/dashes) throughout. Windows consoles default
+    to cp1252 and a single print at import time then kills the whole app with
+    UnicodeEncodeError (killed ELI-Server.exe + the CI selftest). Frozen
+    builds always run with UTF-8 streams, replacing unmappable characters."""
+    os.environ.setdefault("PYTHONIOENCODING", "utf-8")
+    for stream in (sys.stdout, sys.stderr):
+        try:
+            if stream is not None and hasattr(stream, "reconfigure"):
+                stream.reconfigure(encoding="utf-8", errors="replace")
+        except Exception:
+            pass
+
+
+if getattr(sys, "frozen", False):
+    _force_utf8_streams()
+
 # Directories/files seeded into the per-user root. eli/ and api/ are the
 # source trees (introspection + plugin discovery read them from disk); the
 # rest are runtime data the app resolves via PROJECT_ROOT.
