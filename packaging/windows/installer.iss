@@ -58,6 +58,9 @@ Name: "english"; MessagesFile: "compiler:Default.isl"
 
 [Tasks]
 Name: "desktopicon"; Description: "Create a desktop shortcut"; GroupDescription: "Shortcuts:"; Flags: checkedonce
+; Only shown when an NVIDIA driver is present (nvcuda.dll). Downloads the CUDA
+; llama.cpp build (~several hundred MB) into the per-user data root.
+Name: "gpupack"; Description: "Download NVIDIA GPU acceleration now (recommended for NVIDIA cards)"; GroupDescription: "GPU:"; Check: HasNvidiaDriver
 
 [InstallDelete]
 ; The frozen runtime is versioned as a whole: upgrading over an older install
@@ -74,6 +77,15 @@ Source: "..\..\build\vc_redist.x64.exe"; DestDir: "{tmp}"; Flags: deleteafterins
 [Run]
 Filename: "{tmp}\vc_redist.x64.exe"; Parameters: "/install /quiet /norestart"; \
   StatusMsg: "Installing Microsoft Visual C++ runtime (required)..."; Flags: waituntilterminated
+; ELI-Server.exe is the console build — the user sees download progress.
+Filename: "{app}\ELI-Server.exe"; Parameters: "--install-gpu-pack"; Tasks: gpupack; \
+  StatusMsg: "Downloading NVIDIA GPU acceleration pack..."; Flags: waituntilterminated
+
+[Code]
+function HasNvidiaDriver: Boolean;
+begin
+  Result := FileExists(ExpandConstant('{sys}\nvcuda.dll'));
+end;
 
 [Icons]
 Name: "{group}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"; WorkingDir: "{app}"

@@ -25,6 +25,25 @@ the project's `local-assets-v2.1` release) and a second `ELI-Server`
 executable (console) for the phone/web server. GGUF chat/vision/image model
 weights remain first-run downloads into the per-user `ELI_v2` root.
 
+## GPU acceleration in frozen builds
+
+The bundles ship the **CPU** llama.cpp build (a CUDA build crashes on
+machines without NVIDIA drivers). macOS uses the Metal build — Apple GPUs
+work out of the box. NVIDIA machines add CUDA via the **GPU pack**:
+
+```
+ELI --install-gpu-pack        # AppImage: ./ELI_v2-*.AppImage --install-gpu-pack
+```
+
+(the Windows installer offers this as a checkbox when an NVIDIA driver is
+detected; `ELI-Server.exe --install-gpu-pack` shows console progress). The
+pack downloads the matching CUDA build from the official llama-cpp-python
+wheel index into `<ELI root>/runtime/gpu`, which shadows the bundled CPU
+copy on the next launch (`llama_cpp` is collected as on-disk files via
+`module_collection_mode` precisely so sys.path priority can do this).
+AMD GPUs: no official prebuilt wheels exist (Vulkan/ROCm) — CPU inference is
+used; a CI-built Vulkan pack is a planned follow-up.
+
 ## Moving parts
 
 | File | Role |

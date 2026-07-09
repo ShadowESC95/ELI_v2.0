@@ -147,6 +147,14 @@ def _pin_frozen_root() -> None:
         )
         return
 
+    # NVIDIA GPU pack (see eli_gpu_pack.py): a downloaded CUDA build of
+    # llama_cpp in the user root shadows the bundled CPU build. llama_cpp is
+    # collected as on-disk source (module_collection_mode in ELI.spec), so
+    # plain sys.path priority decides which copy imports.
+    gpu_dir = root / "runtime" / "gpu"
+    if (gpu_dir / "llama_cpp").is_dir():
+        sys.path.insert(0, str(gpu_dir))
+
     os.environ["ELI_PROJECT_ROOT"] = str(root)
     os.environ.setdefault("ELI_HOME", str(root))
     os.environ.setdefault("ELI_DATA_DIR", str(root / "artifacts"))
