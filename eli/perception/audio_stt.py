@@ -26,6 +26,14 @@ import threading
 import time
 from typing import Callable, Optional
 
+# numpy is required by the acoustic wake-word scoring and tone classification
+# paths; guarded so a missing numpy degrades those features instead of
+# breaking STT entirely (their call sites already catch exceptions).
+try:
+    import numpy as np
+except Exception:  # pragma: no cover
+    np = None
+
 
 # Purpose:
 #   - When wake word is heard, reduce playback volume while user speaks command.

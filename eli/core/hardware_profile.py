@@ -191,7 +191,12 @@ def _derive_mode_presets(_base_n_ctx: int, base_max_tokens: int,
         },
         "chain_of_thought": {
             "passes": 1,
-            "max_tokens": int(base_max * 0.85),
+            # CoT spends tokens on hidden reasoning BEFORE the visible answer,
+            # so it needs more budget than the base, not less — below ~1536 the
+            # answer truncates mid-reasoning. Floor there whenever ctx allows
+            # (still ctx-derived: tiny-ctx machines keep a proportional cap).
+            "max_tokens": max(int(base_max * 0.85),
+                              min(1536, max(256, int(_base_n_ctx * 0.4)))),
             "temperature": max(0.3, float(base_temperature) - 0.2),
             "top_p": 0.85,
             "top_k": 40,

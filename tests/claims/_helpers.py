@@ -53,7 +53,11 @@ def rel(p: Path) -> str:
 
 @lru_cache(maxsize=1)
 def blueprint_files() -> tuple:
-    return tuple(sorted((REPO / "blueprints").glob("*.md")))
+    # NEXT_SESSION.md is the private (gitignored) forward-work handoff: it
+    # deliberately references modules that don't exist YET, so it is excluded
+    # from claims that verify blueprints against the current tree.
+    return tuple(sorted(p for p in (REPO / "blueprints").glob("*.md")
+                        if p.name != "NEXT_SESSION.md"))
 
 
 _FILE_RE = re.compile(r"`([a-zA-Z0-9_][a-zA-Z0-9_./\-]*\.py)`")
