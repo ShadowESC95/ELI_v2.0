@@ -1,7 +1,14 @@
 # Build-time tooling for the release pipeline (NOT runtime deps — those come
-# from pyproject.toml extras). Pinned exactly so release builds are reproducible.
-pyinstaller==6.11.1
-pyinstaller-hooks-contrib==2024.11
+# from pyproject.toml extras).
+#
+# PyInstaller floor is 6.13: 6.11's pyi_rth_pkgres runtime hook crashes with
+# modern setuptools ("pkg_resources has no attribute NullProvider" — killed
+# the v2.1.0 macOS .app at boot) and its numpy collection missed
+# numpy._core submodules. setuptools is capped below 81 because that release
+# starts dismantling pkg_resources, which several runtime deps still import.
+pyinstaller>=6.13,<7
+pyinstaller-hooks-contrib>=2025.1
+setuptools>=70,<81
 # Windows version-resource generation on Python < 3.11 (tomllib fallback).
 tomli==2.0.1; python_version < "3.11"
 # jaraco.context runtime dep on py<3.12; namespace package that PyInstaller
