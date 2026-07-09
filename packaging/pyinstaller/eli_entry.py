@@ -89,6 +89,13 @@ def _selftest() -> int:
         import eli.gui.eli_pro_audio_gui_v2_0 as gui  # full GUI import chain (Qt, plugins, memory)
         import api.server                             # noqa: F401  web/phone server stack
         import llama_cpp                              # noqa: F401  native inference libs load
+        # llama_cpp must import from REAL files on disk (module_collection_mode
+        # "py") or the GPU pack cannot shadow it via sys.path.
+        if getattr(sys, "frozen", False) and not Path(llama_cpp.__file__).is_file():
+            raise RuntimeError(
+                f"llama_cpp imported from the frozen archive, not from disk "
+                f"({llama_cpp.__file__}) — GPU pack shadowing would be broken"
+            )
         _assert_paths_outside_bundle()
         print(f"selftest OK — ELI {gui.APP_VERSION}, python {sys.version.split()[0]}")
         return 0
@@ -106,6 +113,8 @@ def _mode() -> str:
     argv = sys.argv[1:]
     if "--selftest" in argv:
         return "selftest"
+    if "--install-gpu-pack" in argv:
+        return "gpu-pack"
     exe = Path(sys.argv[0]).stem.lower()
     if "--server" in argv or exe.endswith("server"):
         return "server"
@@ -116,6 +125,9 @@ if __name__ == "__main__":
     mode = _mode()
     if mode == "selftest":
         sys.exit(_selftest())
+    elif mode == "gpu-pack":
+        import eli_gpu_pack
+        sys.exit(eli_gpu_pack.install([a for a in sys.argv[1:] if a != "--install-gpu-pack"]))
     elif mode == "server":
         sys.argv = [sys.argv[0]] + [a for a in sys.argv[1:] if a != "--server"]
         from api.server import main as server_main
