@@ -153,6 +153,13 @@ jobs:
           V=${{ needs.guard.outputs.version }}
           7z a -tzip "dist/ELI_v2-$V-windows-x64.zip" ./dist/ELI
 
+      - name: Download VC++ redistributable (bundled into installer)
+        shell: bash
+        run: |
+          mkdir -p build
+          curl -fsSL -o build/vc_redist.x64.exe https://aka.ms/vs/17/release/vc_redist.x64.exe
+          test -s build/vc_redist.x64.exe || { echo "::error::vc_redist download failed"; exit 1; }
+
       - name: Inno Setup installer
         shell: pwsh
         run: |
