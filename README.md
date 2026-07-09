@@ -20,7 +20,7 @@ more you use it. Talk to it or type to it — your call. It's offline-by-default
 down at the network socket — not on the honour system. Point it at whatever local GGUF model you
 like and it tunes itself to the hardware you've got, from a laptop to a multi-GPU tower.
 
-> **v2 is live software, not a polished product drop.** I'm one dev, ELI touches real hardware, and
+> **v2 is live software, not a polished product drop.** ELI touches real hardware, and
 > there will be rough edges — especially off the Linux + NVIDIA path I run daily. I'd rather get a
 > bug report than a compliment: **[open an issue](https://github.com/ShadowESC95/ELI_v2.0/issues)**.
 > ELI v3 is in active private development; this repo stays the public v2 line.
