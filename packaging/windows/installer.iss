@@ -19,6 +19,7 @@
 
 #define MyAppName "ELI v2.0"
 #define MyAppExeName "ELI.exe"
+#define MyServerExeName "ELI-Server.exe"
 #define MyAppPublisher "ShadowESC95"
 #define MyAppURL "https://github.com/ShadowESC95/ELI_v2.0"
 #define BundleDir "..\..\dist\ELI"
@@ -63,7 +64,11 @@ Source: "{#BundleDir}\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs 
 
 [Icons]
 Name: "{group}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"; WorkingDir: "{app}"
+Name: "{group}\ELI Server (phone and web)"; Filename: "{app}\{#MyServerExeName}"; WorkingDir: "{app}"
+Name: "{group}\Uninstall {#MyAppName}"; Filename: "{uninstallexe}"
 Name: "{autodesktop}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"; WorkingDir: "{app}"; Tasks: desktopicon
+Name: "{autodesktop}\ELI Server"; Filename: "{app}\{#MyServerExeName}"; WorkingDir: "{app}"; Tasks: desktopicon
+Name: "{autodesktop}\Uninstall ELI"; Filename: "{uninstallexe}"; Tasks: desktopicon
 
 [Run]
 Filename: "{app}\{#MyAppExeName}"; Description: "Launch ELI"; Flags: postinstall nowait skipifsilent

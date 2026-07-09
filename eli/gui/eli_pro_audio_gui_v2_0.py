@@ -3422,9 +3422,10 @@ class EliMainWindow(QMainWindow):
         # wake_on=True → wake word required → direct chat disabled
         _os.environ["ELI_STT_ALLOW_DIRECT_CHAT"] = "0" if wake_on else "1"
         self.wake_word_btn.setText("Wake: ON" if wake_on else "Wake: OFF")
-        log.debug(
-            f"[WAKE] {'ON — say \"computer\" before commands' if wake_on else 'OFF — all speech dispatched (≥2 words)'}",
-        )
+        # No backslash inside the f-string expression — that's py3.12-only
+        # (PEP 701) and breaks 3.10/3.11 installs (requires-python >=3.10).
+        _wake_desc = 'ON — say "computer" before commands' if wake_on else "OFF — all speech dispatched (≥2 words)"
+        log.debug(f"[WAKE] {_wake_desc}")
         # Keep settings-page checkbox in sync
         if hasattr(self, "allow_direct_chat_checkbox"):
             self.allow_direct_chat_checkbox.blockSignals(True)

@@ -48,6 +48,18 @@ jobs:
       version: ${{ steps.ver.outputs.version }}
     steps:
       - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+      - name: Whole-tree syntax gate at the BUILD python version
+        # The v2.1.0 exe shipped broken because one file used py3.12-only
+        # f-string syntax while builds run py3.11: PyInstaller only WARNS on
+        # uncompilable modules. Fail the release up front instead.
+        run: |
+          python -m compileall -q eli api || {
+            echo "::error::source does not compile under the release Python ($PYTHON_VERSION) — fix the file above (requires-python is >=3.10, so no 3.12-only syntax)"
+            exit 1
+          }
       - name: Read version from pyproject.toml and check the tag matches
         id: ver
         run: |
@@ -101,12 +113,20 @@ jobs:
         shell: bash
         run: pyinstaller --noconfirm --clean ELI.spec
 
-      - name: Smoke check — bundle launches Python runtime
+      - name: Smoke check — bundle structure + REAL launch selftest
         shell: bash
         run: |
           test -f dist/ELI/ELI.exe || { echo "::error::dist/ELI/ELI.exe missing"; exit 1; }
+          test -f dist/ELI/ELI-Server.exe || { echo "::error::dist/ELI/ELI-Server.exe missing"; exit 1; }
           test -d dist/ELI/_internal/eli || { echo "::error::eli source tree missing from bundle"; exit 1; }
           test -f dist/ELI/_internal/config/settings.example.json || { echo "::error::config seeds missing from bundle"; exit 1; }
+          # Boot the frozen app's import stack for real — catches missing
+          # hidden imports / syntax errors that only appear at runtime.
+          if ! ./dist/ELI/ELI.exe --selftest; then
+            echo "::error::frozen app failed its launch selftest:"
+            cat eli_selftest_error.log 2>/dev/null || true
+            exit 1
+          fi
 
       - name: Reclaim disk before packaging
         shell: bash
@@ -190,10 +210,15 @@ jobs:
       - name: PyInstaller build (ELI.spec)
         run: pyinstaller --noconfirm --clean ELI.spec
 
-      - name: Smoke check — .app structure
+      - name: Smoke check — .app structure + REAL launch selftest
         run: |
           test -x dist/ELI.app/Contents/MacOS/ELI || { echo "::error::ELI.app executable missing"; exit 1; }
           test -d dist/ELI.app/Contents/Frameworks/eli -o -d dist/ELI.app/Contents/Resources/eli || { echo "::error::eli source tree missing from .app"; exit 1; }
+          if ! ./dist/ELI.app/Contents/MacOS/ELI --selftest; then
+            echo "::error::frozen app failed its launch selftest:"
+            cat eli_selftest_error.log 2>/dev/null || true
+            exit 1
+          fi
 
       - name: Build .dmg (ad-hoc signed)
         run: bash packaging/macos/build-dmg.sh
@@ -268,10 +293,18 @@ jobs:
       - name: PyInstaller build (ELI.spec)
         run: pyinstaller --noconfirm --clean ELI.spec
 
-      - name: Smoke check — bundle boots headless
+      - name: Smoke check — bundle structure + REAL launch selftest (headless)
+        env:
+          QT_QPA_PLATFORM: offscreen
         run: |
           test -x dist/ELI/ELI || { echo "::error::dist/ELI/ELI missing"; exit 1; }
+          test -x dist/ELI/ELI-Server || { echo "::error::dist/ELI/ELI-Server missing"; exit 1; }
           test -d dist/ELI/_internal/eli || { echo "::error::eli source tree missing from bundle"; exit 1; }
+          if ! ./dist/ELI/ELI --selftest; then
+            echo "::error::frozen app failed its launch selftest:"
+            cat eli_selftest_error.log 2>/dev/null || true
+            exit 1
+          fi
 
       - name: Build AppImage
         run: bash packaging/linux/build-appimage-pyinstaller.sh

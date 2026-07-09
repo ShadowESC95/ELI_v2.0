@@ -4,6 +4,10 @@ pyinstaller==6.11.1
 pyinstaller-hooks-contrib==2024.11
 # Windows version-resource generation on Python < 3.11 (tomllib fallback).
 tomli==2.0.1; python_version < "3.11"
+# jaraco.context runtime dep on py<3.12; namespace package that PyInstaller
+# needs installed + explicitly hidden-imported (ELI.spec) or frozen apps
+# crash at boot with ModuleNotFoundError: backports.
+backports.tarfile==1.2.0; python_version < "3.12"
 # Icon conversion (.png -> .icns/.ico) inside PyInstaller. Pillow is also a
 # runtime dep; the pin here only governs the build venv.
 Pillow>=10.0
