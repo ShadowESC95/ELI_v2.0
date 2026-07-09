@@ -117,7 +117,7 @@ jobs:
         shell: bash
         run: |
           mkdir -p tts_piper/piper
-          gh release download local-assets-v2.1 --repo "$GITHUB_REPOSITORY" \
+          gh release download local-assets-v2.1 --repo "$GITHUB_REPOSITORY" --clobber \
             --pattern "*.onnx" --pattern "*.onnx.json" --dir tts_piper/piper \
             || { echo "::error::could not download voices from the local-assets-v2.1 release"; exit 1; }
           count=$(ls tts_piper/piper/*.onnx 2>/dev/null | wc -l)
@@ -228,7 +228,7 @@ jobs:
       - name: Bundle Piper voices (from the project's local-assets release)
         run: |
           mkdir -p tts_piper/piper
-          gh release download local-assets-v2.1 --repo "$GITHUB_REPOSITORY" \
+          gh release download local-assets-v2.1 --repo "$GITHUB_REPOSITORY" --clobber \
             --pattern "*.onnx" --pattern "*.onnx.json" --dir tts_piper/piper \
             || { echo "::error::could not download voices from the local-assets-v2.1 release"; exit 1; }
           count=$(ls tts_piper/piper/*.onnx 2>/dev/null | wc -l)
@@ -324,7 +324,7 @@ jobs:
       - name: Bundle Piper voices (from the project's local-assets release)
         run: |
           mkdir -p tts_piper/piper
-          gh release download local-assets-v2.1 --repo "$GITHUB_REPOSITORY" \
+          gh release download local-assets-v2.1 --repo "$GITHUB_REPOSITORY" --clobber \
             --pattern "*.onnx" --pattern "*.onnx.json" --dir tts_piper/piper \
             || { echo "::error::could not download voices from the local-assets-v2.1 release"; exit 1; }
           count=$(ls tts_piper/piper/*.onnx 2>/dev/null | wc -l)
