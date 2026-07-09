@@ -187,6 +187,22 @@ for mod in ("backports", "backports.tarfile"):
 # pyinstaller-hooks-contrib; these are belt-and-braces for hook gaps).
 binaries = []
 binaries += _optional_collect("llama_cpp", libs=True)
+
+# Windows: ship the MSVC runtime app-locally. CI runners have the VC++
+# redistributable installed globally, so the selftest passes there — but a
+# clean end-user machine without it cannot load llama.dll/onnxruntime
+# ("Could not find module ... or one of its dependencies"). App-local CRT
+# deployment is Microsoft-sanctioned; the installer additionally runs
+# vc_redist.x64.exe for the UCRT on older Windows 10.
+if sys.platform == "win32":
+    _sys32 = Path(os.environ.get("SystemRoot", r"C:\Windows")) / "System32"
+    for _dll in ("vcruntime140.dll", "vcruntime140_1.dll", "msvcp140.dll",
+                 "msvcp140_1.dll", "msvcp140_2.dll", "concrt140.dll", "vcomp140.dll"):
+        _p = _sys32 / _dll
+        if _p.is_file():
+            binaries.append((str(_p), "."))
+        else:
+            print(f"[ELI.spec] WARNING: {_dll} not found in System32 — relying on vc_redist at install time")
 for pkg in ("llama_cpp", "faster_whisper", "openwakeword", "piper"):
     datas += _optional_collect(pkg, data=True)
 
