@@ -216,14 +216,19 @@ excludes = [
 
 a = Analysis(
     [str(ENTRY)],
-    pathex=[str(ROOT)],
+    pathex=[str(ROOT), str(ROOT / "packaging" / "pyinstaller")],
     binaries=binaries,
     datas=datas,
-    hiddenimports=hiddenimports,
+    hiddenimports=hiddenimports + ["eli_gpu_pack"],
     hookspath=[],
     runtime_hooks=[str(RTHOOK)],
     excludes=excludes,
     noarchive=False,
+    # llama_cpp must live as REAL FILES on disk (not in the frozen archive):
+    # the NVIDIA GPU pack shadows it via sys.path priority (see
+    # rthook_eli_frozen_paths.py / eli_gpu_pack.py), which only works with
+    # normal path-based imports.
+    module_collection_mode={"llama_cpp": "py"},
 )
 
 pyz = PYZ(a.pure)
