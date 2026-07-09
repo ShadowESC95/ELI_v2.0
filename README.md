@@ -57,7 +57,7 @@ own smart-home server — all behind a single typed or spoken interface with **2
 You bring your own GGUF model; ELI is model-, user-, and hardware-agnostic by design.
 
 I built it on one conviction: **your AI should belong to you — the person using it — not the
-company serving it.** That isn't a slogan on a badge; it's the constraint every architectural
+company renting it as a subscription.** That isn't a slogan on a badge; it's the constraint every architectural
 decision in here has to answer to:
 
 - **Everything is local by default.** Offline isn't a setting you toggle — `eli/core/netguard`
