@@ -5056,9 +5056,9 @@ class _SimIDETab(QWidget):
             self._editor.setAutoCompletionThreshold(2)
             self._editor.setFolding(QsciScintilla.FoldStyle.BoxedTreeFoldStyle)
         else:
-            self._editor = QTextEdit()
-            self._editor.setFont(QFont("Courier New", 10))
-            _PySyntaxHighlighter(self._editor.document())
+            # Native full editor — QScintilla has no PySide6 build.
+            from eli.gui.code_editor import PyCodeEditor
+            self._editor = PyCodeEditor()
 
         ev.addWidget(self._editor)
         h_splitter.addWidget(editor_widget)

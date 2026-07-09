@@ -96,7 +96,9 @@ except ImportError:
     QSCI_AVAILABLE = False
 
 if not QSCI_AVAILABLE:
-    print("⚠️  QScintilla not available. IDE will use basic editor.")
+    print("ℹ️  IDE using ELI's native code editor (line numbers, Python "
+          "highlighting, auto-indent). QScintilla is used instead only when "
+          "ELI runs under PyQt6/PyQt5.")
 
 # --- Central ELI imports ---
 try:
@@ -2367,6 +2369,13 @@ class _GlobalScrollZoom(QObject):
                                     child.setFont(cf)
                         except Exception:
                             pass
+                        # Dark theme's stylesheet pins font sizes; regenerate it
+                        # at the new size so zoom works on BOTH themes.
+                        try:
+                            if hasattr(w, "apply_theme"):
+                                w.apply_theme()
+                        except Exception:
+                            log.debug("suppressed exception", exc_info=True)
             event.accept()
             return True
         except Exception:
@@ -6443,9 +6452,10 @@ class EliMainWindow(QMainWindow):
             self.code_editor.setIndentationsUseTabs(False)
             self.code_editor.setAutoIndent(True)
         else:
-            self.code_editor = QTextEdit()
-            font = QFont("Courier New", 10)
-            self.code_editor.setFont(font)
+            # Native full editor (line numbers, highlighting, auto-indent) —
+            # QScintilla has no PySide6 build, so this IS the shipped editor.
+            from eli.gui.code_editor import PyCodeEditor
+            self.code_editor = PyCodeEditor()
         layout.addWidget(self.code_editor, stretch=7)
         console_group = QGroupBox("Console Output")
         console_layout = QVBoxLayout(console_group)
@@ -11241,7 +11251,7 @@ _register()
 
     def apply_theme(self):
         if self.current_theme == "dark":
-            self.setStyleSheet("""
+            _qss = ("""
                 QMainWindow, QWidget {
                     background: #141821;
                     color: #e6ecf5;
@@ -11375,6 +11385,18 @@ _register()
                     border-top: 1px solid #232b38;
                 }
             """)
+            # The stylesheet's px font rules override the QApplication font,
+            # which froze Ctrl+scroll zoom in dark theme (light theme has no
+            # stylesheet, so it zoomed fine). Derive the size from the live
+            # app font so zoom scales BOTH themes; the zoom filter re-applies
+            # the theme after each font change.
+            try:
+                _app_font_pt = int(QApplication.instance().font().pointSize())
+            except Exception:
+                _app_font_pt = 0
+            if _app_font_pt > 0:
+                _qss = _qss.replace("font-size: 11px", f"font-size: {_app_font_pt}pt")
+            self.setStyleSheet(_qss)
         else:
             self.setStyleSheet("")
 
