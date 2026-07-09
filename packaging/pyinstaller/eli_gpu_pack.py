@@ -82,6 +82,19 @@ def _has_amd_gpu() -> bool:
     return False
 
 
+def _vulkan_loader_present() -> bool:
+    """The Vulkan pack needs the system Vulkan loader (GPU drivers ship it;
+    minimal Linux installs may not have it)."""
+    try:
+        if sys.platform == "win32":
+            import os
+            return (Path(os.environ.get("SystemRoot", r"C:\Windows")) / "System32" / "vulkan-1.dll").is_file()
+        import ctypes.util
+        return bool(ctypes.util.find_library("vulkan"))
+    except Exception:
+        return True  # inconclusive — let the install-time verifier decide
+
+
 def _platform_tag() -> str:
     if sys.platform == "win32":
         return "win_amd64"
@@ -168,6 +181,16 @@ def install(argv: list[str] | None = None) -> int:
         # driver already ships the Vulkan loader the wheel needs.
         _say("using the Vulkan backend (AMD / Intel Arc)" if not want_vulkan
              else "Vulkan backend forced (--vulkan)")
+        # Vulkan is llama.cpp's universal AMD/Intel path: works on every card
+        # with a standard graphics driver, no ROCm/oneAPI install needed (no
+        # official prebuilt ROCm wheels exist; a ROCm pack can be added to the
+        # gpu-packs workflow later if a card would benefit).
+        if not _vulkan_loader_present():
+            return _fail(
+                "the system Vulkan loader is missing. Install your GPU vendor's "
+                "driver (Windows) or the distro package (e.g. Debian/Ubuntu: "
+                "libvulkan1, Fedora: vulkan-loader) and retry. CPU keeps working."
+            )
         found = _pick_vulkan_wheel()
         if not found:
             return _fail(
