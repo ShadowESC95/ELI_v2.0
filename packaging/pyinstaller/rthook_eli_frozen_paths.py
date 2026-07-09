@@ -150,6 +150,9 @@ def _pin_frozen_root() -> None:
     os.environ["ELI_PROJECT_ROOT"] = str(root)
     os.environ.setdefault("ELI_HOME", str(root))
     os.environ.setdefault("ELI_DATA_DIR", str(root / "artifacts"))
+    # Some subsystems (image engine runtime_paths) key on ELI_ARTIFACTS_DIR
+    # rather than ELI_DATA_DIR — export both names for the same directory.
+    os.environ.setdefault("ELI_ARTIFACTS_DIR", str(root / "artifacts"))
     os.environ.setdefault("ELI_CONFIG_DIR", str(root / "config"))
     os.environ.setdefault("ELI_MODELS_DIR", str(root / "models"))
 

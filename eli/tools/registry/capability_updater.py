@@ -12,7 +12,17 @@ import re
 import time
 from pathlib import Path
 
-ELI_ROOT = Path(__file__).resolve().parents[3]
+def _eli_root() -> Path:
+    # Canonical env-honoring root — __file__ resolves into the read-only
+    # bundle in frozen builds and manifest/inventory writes then fail.
+    try:
+        from eli.core.paths import project_root
+        return Path(project_root())
+    except Exception:
+        return Path(__file__).resolve().parents[3]
+
+
+ELI_ROOT = _eli_root()
 
 
 def extract_executor_actions(executor_path: Path) -> list:
