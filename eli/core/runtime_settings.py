@@ -692,8 +692,21 @@ def _eli_runtime_physical_project_root():
 
     This deliberately does not trust ELI_PROJECT_ROOT because copied installs
     can inherit stale environment variables from the source/developer machine.
+
+    Frozen builds are the one exception: there the physical location is the
+    read-only PyInstaller bundle (_internal / AppImage mount) and
+    ELI_PROJECT_ROOT is pinned in-process by the bundle's own runtime hook
+    (not inherited from a shell), pointing at the per-user ELI_v2 root.
+    Anchoring on the bundle made this guard strip the correct root and sent
+    every PROJECT_ROOT-relative write to the read-only mount.
     """
+    import os
+    import sys
     from pathlib import Path
+    if getattr(sys, "frozen", False):
+        env = str(os.environ.get("ELI_PROJECT_ROOT") or "").strip()
+        if env:
+            return Path(env).expanduser().resolve()
     return Path(__file__).resolve().parents[2]
 
 
@@ -891,7 +904,9 @@ def _eli_runtime_clear_stale_env_paths():
 # ---------------------------------------------------------------------
 def _eli_project_root_for_runtime_settings() -> Path:
     try:
-        return Path(__file__).resolve().parents[2]
+        # Same frozen exception as _eli_runtime_physical_project_root: the
+        # bundle is read-only; the rthook-pinned per-user root is the anchor.
+        return _eli_runtime_physical_project_root()
     except Exception:
         return Path.cwd().resolve()
 

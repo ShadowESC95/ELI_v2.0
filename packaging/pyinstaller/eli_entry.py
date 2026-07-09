@@ -10,22 +10,71 @@ Modes:
   --server      the phone/web server (api.server:main) — also the default when
                 the executable is named ELI-Server (second EXE in ELI.spec,
                 built console=True so server logs + the phone URL are visible)
-  --selftest    import the heavy runtime stack and exit 0/1. CI runs this on
-                the built bundle for every platform: it catches broken frozen
-                imports (missing hidden imports, syntax errors from a Python
-                version mismatch) BEFORE an artifact can reach a release.
-                Failures are also written to eli_selftest_error.log because a
-                windowed Windows exe has no stderr.
+  --selftest    boot the runtime stack + verify every mutable path resolves
+                OUTSIDE the read-only bundle, then exit 0/1. CI runs this on
+                the built bundle for every platform before anything ships.
+  -c / -m       python-compatible passthrough. ELI spawns
+                `sys.executable -c "…"` helpers (import smoke tests, sandbox
+                probes); in a frozen app sys.executable is ELI itself, and
+                without this the helpers re-launched whole GUI instances
+                (the "installer started the app two more times" bug).
 
 multiprocessing.freeze_support() must run before anything else: ELI spawns
-helper processes (import smoke tests, sandboxed code runs) and without it a
-frozen child process on Windows/macOS re-executes the whole GUI.
+helper processes and without it a frozen child on Windows/macOS re-executes
+the whole GUI.
 """
 import multiprocessing
+import os
 import sys
 from pathlib import Path
 
 multiprocessing.freeze_support()
+
+# python -c / -m passthrough for self-spawned helpers (see module docstring).
+if len(sys.argv) >= 2 and sys.argv[1] == "-c":
+    _code = sys.argv[2] if len(sys.argv) >= 3 else ""
+    sys.argv = [sys.argv[0]] + sys.argv[3:]
+    exec(compile(_code, "<frozen -c>", "exec"), {"__name__": "__main__"})
+    sys.exit(0)
+if len(sys.argv) >= 3 and sys.argv[1] == "-m":
+    import runpy
+    _mod = sys.argv[2]
+    sys.argv = [sys.argv[0]] + sys.argv[3:]
+    runpy.run_module(_mod, run_name="__main__", alter_sys=True)
+    sys.exit(0)
+
+
+def _assert_paths_outside_bundle() -> None:
+    """Every mutable path must resolve outside the read-only bundle — the
+    v2.1.0 AppImage shipped with vector store / voice mirror / pending-state
+    writes all pointed into the squashfs mount."""
+    if not getattr(sys, "frozen", False):
+        return
+    from eli.core import paths as _paths
+    from eli.runtime import grounded_remediation as _grem
+    bundle = Path(getattr(sys, "_MEIPASS", Path(sys.executable).parent)).resolve()
+    exe_dir = Path(sys.executable).resolve().parent
+    checks = {
+        "project_root": Path(_paths.project_root()),
+        "data_dir": Path(_paths.data_dir()),
+        "config_dir": Path(_paths.config_dir()),
+        "models_dir": Path(_paths.models_dir()),
+        "remediation_root": _grem._root(),
+    }
+    for name, p in checks.items():
+        rp = p.resolve()
+        for ro in (bundle, exe_dir):
+            if rp == ro or str(rp).startswith(str(ro) + os.sep):
+                raise RuntimeError(
+                    f"selftest: {name} resolves inside the read-only bundle: {rp}"
+                )
+    probe = Path(_paths.data_dir()) / ".selftest_write_probe"
+    probe.parent.mkdir(parents=True, exist_ok=True)
+    probe.write_text("ok", encoding="utf-8")
+    probe.unlink()
+    if os.environ.get("ELI_REQUIRE_VOICES") == "1":
+        if not list((bundle / "tts_piper" / "piper").glob("*.onnx")):
+            raise RuntimeError("selftest: no Piper voices bundled (tts_piper/piper/*.onnx)")
 
 
 def _selftest() -> int:
@@ -34,13 +83,13 @@ def _selftest() -> int:
         import eli                                    # noqa: F401
         # Replicate the real launch order: eli.gui.app:main runs the DB/schema
         # bootstrap BEFORE importing the GUI module (whose import opens the
-        # memory DB). Skipping it made the selftest fail on paths a real
-        # launch creates.
+        # memory DB).
         from eli.core.init_data import bootstrap_once
         bootstrap_once()
         import eli.gui.eli_pro_audio_gui_v2_0 as gui  # full GUI import chain (Qt, plugins, memory)
         import api.server                             # noqa: F401  web/phone server stack
         import llama_cpp                              # noqa: F401  native inference libs load
+        _assert_paths_outside_bundle()
         print(f"selftest OK — ELI {gui.APP_VERSION}, python {sys.version.split()[0]}")
         return 0
     except Exception:

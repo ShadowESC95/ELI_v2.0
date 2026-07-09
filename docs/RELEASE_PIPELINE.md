@@ -17,7 +17,13 @@ produces on the Release page:
 | `ELI_v2-<v>-windows-x64.zip` | Windows portable — unzip, run `ELI\ELI.exe` |
 | `ELI_v2-<v>-macos-arm64.dmg` | macOS Apple Silicon — drag ELI.app to Applications |
 | `ELI_v2-<v>-x86_64.AppImage` | Linux — `chmod +x` and run (needs libfuse2, or `--appimage-extract-and-run`) |
+| `ELI_v2-<v>-linux-portable.tar.gz` | classic source tarball incl. voices (previous-release format) |
 | `SHA256SUMS.txt` | checksums for all of the above |
+
+All frozen bundles include the full Piper voice set (pulled at build time from
+the project's `local-assets-v2.1` release) and a second `ELI-Server`
+executable (console) for the phone/web server. GGUF chat/vision/image model
+weights remain first-run downloads into the per-user `ELI_v2` root.
 
 ## Moving parts
 

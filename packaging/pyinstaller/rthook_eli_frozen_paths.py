@@ -51,7 +51,7 @@ if getattr(sys, "frozen", False):
 # Directories/files seeded into the per-user root. eli/ and api/ are the
 # source trees (introspection + plugin discovery read them from disk); the
 # rest are runtime data the app resolves via PROJECT_ROOT.
-_SEED_TREES = ("eli", "api", "config", "blueprints", "docs", "packaging/desktop")
+_SEED_TREES = ("eli", "api", "config", "blueprints", "docs", "packaging/desktop", "tts_piper")
 _SEED_FILES = (
     "pyproject.toml",
     "capability_manifest.json",
