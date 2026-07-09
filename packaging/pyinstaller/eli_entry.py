@@ -32,6 +32,12 @@ def _selftest() -> int:
     import traceback
     try:
         import eli                                    # noqa: F401
+        # Replicate the real launch order: eli.gui.app:main runs the DB/schema
+        # bootstrap BEFORE importing the GUI module (whose import opens the
+        # memory DB). Skipping it made the selftest fail on paths a real
+        # launch creates.
+        from eli.core.init_data import bootstrap_once
+        bootstrap_once()
         import eli.gui.eli_pro_audio_gui_v2_0 as gui  # full GUI import chain (Qt, plugins, memory)
         import api.server                             # noqa: F401  web/phone server stack
         import llama_cpp                              # noqa: F401  native inference libs load
