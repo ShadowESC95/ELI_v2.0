@@ -714,4 +714,89 @@ def clear_pending_fix() -> None:
     try:
         _pending_file().unlink()
     except FileNotFoundError:
-        pass
+        log.debug("suppressed exception", exc_info=True)
+
+
+# --------------------------------------------------------------------------- #
+# Last-audit persistence — findings survive across turns/restarts so a        #
+# follow-up like "list the errors you found" replays the real audit instead   #
+# of the model improvising (or admitting the data is gone). No TTL: recall    #
+# of the last audit is the whole point.                                       #
+# --------------------------------------------------------------------------- #
+def _last_audit_file() -> Path:
+    path = PROJECT_ROOT / "artifacts" / "code_exam_last.json"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    return path
+
+
+def save_last_audit(paths: List[Path], findings: List[Finding]) -> None:
+    payload = {
+        "created_at": time.time(),
+        "paths": [_rel(p) for p in paths],
+        "findings": [f.to_dict() for f in findings],
+    }
+    try:
+        _last_audit_file().write_text(
+            json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+    except Exception:
+        log.debug("suppressed exception", exc_info=True)  # persistence is best-effort; the live report already went out
+
+
+def get_last_audit() -> Optional[Dict[str, Any]]:
+    path = _last_audit_file()
+    if not path.exists():
+        return None
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except Exception:
+        return None
+    return payload if payload.get("findings") is not None else None
+
+
+_RECALL_RE = re.compile(
+    r"\b(?:"
+    r"(?:list|show|give|enumerate|repeat|recap)\b.{0,60}\b(?:errors?|issues?|findings?|problems?|breakages?)\b.{0,40}\b(?:found|flagged|reported|earlier|before|audit|scan)"
+    r"|(?:errors?|issues?|findings?|problems?|breakages?)\b.{0,20}\byou\s+(?:found|flagged|reported)"
+    r"|(?:last|previous|that)\s+(?:audit|scan|examination|code\s+exam)"
+    # Definite reference to an existing report ("list all of the 43 errors",
+    # "show me those issues") — but not a fresh-scan target ("errors in <file>").
+    r"|(?:list|show|give|enumerate)\b.{0,40}\b(?:the|those|these|all(?:\s+of)?(?:\s+the)?)\s+(?:\d+\s+)?(?:errors?|issues?|findings?|problems?|breakages?)\b(?!\s+in\b)"
+    r")",
+    re.I | re.S,
+)
+
+
+def is_recall_request(request: str) -> bool:
+    """True when the user is asking to see the findings from the last audit
+    (not to run a new one)."""
+    return bool(_RECALL_RE.search(str(request or "")))
+
+
+def format_saved_audit(payload: Dict[str, Any]) -> str:
+    """Enumerate EVERY persisted finding — file, line, kind, message — grouped
+    by file. This answers "list all of them" exactly; no summarising."""
+    findings = payload.get("findings") or []
+    paths = payload.get("paths") or []
+    when = ""
+    try:
+        when = time.strftime("%Y-%m-%d %H:%M", time.localtime(float(payload.get("created_at", 0))))
+    except Exception:
+        log.debug("suppressed exception", exc_info=True)
+    real = [f for f in findings if is_real_breakage(Finding(**f))]
+    lines = [
+        f"Findings from my last code audit ({when or 'time unknown'}) — "
+        f"{len(paths)} file(s) examined, {len(findings)} finding(s), "
+        f"{len(real)} genuine breakage(s):"
+    ]
+    by_file: Dict[str, List[Dict[str, Any]]] = {}
+    for f in findings:
+        by_file.setdefault(str(f.get("file") or "?"), []).append(f)
+    for fname in sorted(by_file):
+        lines.append(f"\n{fname}:")
+        for f in sorted(by_file[fname], key=lambda x: (x.get("line") or 0)):
+            loc = f"line {f['line']}" if f.get("line") else "file-level"
+            tag = "BREAKAGE" if is_real_breakage(Finding(**f)) else "cosmetic"
+            lines.append(f"  - {loc} [{f.get('kind', '?')}/{tag}] {f.get('message', '')}")
+    if not findings:
+        lines.append("  (the last audit found nothing)")
+    return "\n".join(lines)
