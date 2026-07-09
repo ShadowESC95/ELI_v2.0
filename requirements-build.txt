@@ -1,0 +1,9 @@
+# Build-time tooling for the release pipeline (NOT runtime deps — those come
+# from pyproject.toml extras). Pinned exactly so release builds are reproducible.
+pyinstaller==6.11.1
+pyinstaller-hooks-contrib==2024.11
+# Windows version-resource generation on Python < 3.11 (tomllib fallback).
+tomli==2.0.1; python_version < "3.11"
+# Icon conversion (.png -> .icns/.ico) inside PyInstaller. Pillow is also a
+# runtime dep; the pin here only governs the build venv.
+Pillow>=10.0

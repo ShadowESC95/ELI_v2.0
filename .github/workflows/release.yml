@@ -1,0 +1,330 @@
+# ELI v2 — cross-platform release pipeline.
+#
+# Trigger: push a tag `v<version>` (must match [project].version in
+# pyproject.toml — the guard job fails the run with a clear message if not).
+#
+#   git tag v2.1.0 && git push origin v2.1.0
+#
+# Builds in parallel and uploads to the GitHub Release for that tag:
+#   Windows : ELI-Setup-<v>.exe (Inno Setup) + ELI_v2-<v>-windows-x64.zip (portable, ELI.exe inside)
+#   macOS   : ELI_v2-<v>-macos-arm64.dmg (drag-to-Applications, ad-hoc signed)
+#   Linux   : ELI_v2-<v>-x86_64.AppImage
+# plus SHA256SUMS.txt.
+#
+# Model weights / Piper voices are NOT bundled (size + license review) — the
+# app downloads them on first run. Binaries are unsigned; see
+# docs/RELEASE_PIPELINE.md for optional Windows/Apple signing steps.
+
+name: release
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch: {}   # manual dry-run: builds artifacts, skips the Release
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  PYTHON_VERSION: "3.11"   # newest version with binary wheels for the FULL stack (piper-phonemize, tflite-runtime cap at 3.11)
+  PYTHONHASHSEED: "0"
+  PIP_DISABLE_PIP_VERSION_CHECK: "1"
+  PIP_NO_CACHE_DIR: "1"
+  # Extras that MUST be in the frozen app; the build fails if any is missing.
+  REQUIRED_EXTRAS: "gui llm server docs analysis extras"
+  # Extras bundled when their wheels resolve on the runner; skipped (loudly)
+  # otherwise — every optional import in ELI degrades cleanly by design.
+  OPTIONAL_EXTRAS: "tts asr image vision web wakeword"
+
+jobs:
+  guard:
+    name: version guard
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.ver.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Read version from pyproject.toml and check the tag matches
+        id: ver
+        run: |
+          VERSION=$(python3 -c "import tomllib,pathlib; print(tomllib.loads(pathlib.Path('pyproject.toml').read_text())['project']['version'])")
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "pyproject version: $VERSION"
+          if [[ "$GITHUB_REF" == refs/tags/* ]]; then
+            TAG="${GITHUB_REF#refs/tags/}"
+            if [[ "$TAG" != "v$VERSION" ]]; then
+              echo "::error::Tag '$TAG' does not match pyproject.toml version '$VERSION'. Bump [project].version (and eli/kernel/self_upgrade.py + tests/test_pyproject_packaging.py) or re-tag as v$VERSION."
+              exit 1
+            fi
+          fi
+
+  build-windows:
+    name: windows (exe + installer)
+    needs: guard
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: Set SOURCE_DATE_EPOCH (reproducible timestamps)
+        shell: bash
+        run: echo "SOURCE_DATE_EPOCH=$(git log -1 --format=%ct)" >> "$GITHUB_ENV"
+
+      - name: Install dependencies (core hard-fails; optional extras degrade loudly)
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m pip install --upgrade pip wheel
+          pip install -r requirements-build.txt
+          pip install ".[$(echo $REQUIRED_EXTRAS | tr ' ' ',')]"
+          pip install llama-cpp-python --prefer-binary \
+            --extra-index-url https://abetlen.github.io/llama-cpp-python/whl/cpu \
+            || pip install llama-cpp-python
+          for extra in $OPTIONAL_EXTRAS; do
+            pip install ".[$extra]" \
+              || echo "::warning::optional extra '$extra' has no installable wheels on windows — shipped build degrades cleanly without it"
+          done
+
+      - name: Generate capability manifests (bundled introspection data)
+        shell: bash
+        run: |
+          python -m eli.core.init_data
+          python tools/bootstrap_claims_artifacts.py
+
+      - name: PyInstaller build (ELI.spec)
+        shell: bash
+        run: pyinstaller --noconfirm --clean ELI.spec
+
+      - name: Smoke check — bundle launches Python runtime
+        shell: bash
+        run: |
+          test -f dist/ELI/ELI.exe || { echo "::error::dist/ELI/ELI.exe missing"; exit 1; }
+          test -d dist/ELI/_internal/eli || { echo "::error::eli source tree missing from bundle"; exit 1; }
+          test -f dist/ELI/_internal/config/settings.example.json || { echo "::error::config seeds missing from bundle"; exit 1; }
+
+      - name: Reclaim disk before packaging
+        shell: bash
+        run: rm -rf build/ELI
+
+      - name: Portable zip
+        shell: bash
+        run: |
+          V=${{ needs.guard.outputs.version }}
+          7z a -tzip "dist/ELI_v2-$V-windows-x64.zip" ./dist/ELI
+
+      - name: Inno Setup installer
+        shell: pwsh
+        run: |
+          $iscc = "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe"
+          if (-not (Test-Path $iscc)) { choco install innosetup -y --no-progress; $iscc = "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe" }
+          if (-not (Test-Path $iscc)) { Write-Error "Inno Setup 6 (ISCC.exe) not found and choco install failed"; exit 1 }
+          & $iscc packaging\windows\installer.iss /DMyAppVersion=${{ needs.guard.outputs.version }}
+          if ($LASTEXITCODE -ne 0) { Write-Error "ISCC failed with exit code $LASTEXITCODE"; exit 1 }
+
+      - name: Checksums + GitHub 2 GiB asset-size guard
+        shell: bash
+        run: |
+          cd dist
+          rm -rf ELI
+          for f in *.zip *.exe; do
+            [ -e "$f" ] || continue
+            sha256sum "$f" >> SHA256SUMS-windows.txt
+            size=$(stat -c%s "$f")
+            if [ "$size" -ge 2147483648 ]; then
+              echo "::error::$f is $size bytes — over GitHub's 2 GiB release-asset limit. Trim OPTIONAL_EXTRAS in release.yml."
+              exit 1
+            fi
+          done
+          cat SHA256SUMS-windows.txt
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: eli-windows
+          path: |
+            dist/*.zip
+            dist/*.exe
+            dist/SHA256SUMS-windows.txt
+          if-no-files-found: error
+
+  build-macos:
+    name: macos (app + dmg, arm64)
+    needs: guard
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: Set SOURCE_DATE_EPOCH (reproducible timestamps)
+        run: echo "SOURCE_DATE_EPOCH=$(git log -1 --format=%ct)" >> "$GITHUB_ENV"
+
+      - name: System build deps (portaudio for PyAudio)
+        run: brew install portaudio
+
+      - name: Install dependencies (core hard-fails; optional extras degrade loudly)
+        run: |
+          set -euo pipefail
+          python -m pip install --upgrade pip wheel
+          pip install -r requirements-build.txt
+          pip install ".[$(echo $REQUIRED_EXTRAS | tr ' ' ',')]"
+          pip install llama-cpp-python --prefer-binary \
+            --extra-index-url https://abetlen.github.io/llama-cpp-python/whl/metal \
+            || pip install llama-cpp-python
+          for extra in $OPTIONAL_EXTRAS; do
+            pip install ".[$extra]" \
+              || echo "::warning::optional extra '$extra' has no installable wheels on macos-arm64 — shipped build degrades cleanly without it"
+          done
+
+      - name: Generate capability manifests (bundled introspection data)
+        run: |
+          python -m eli.core.init_data
+          python tools/bootstrap_claims_artifacts.py
+
+      - name: PyInstaller build (ELI.spec)
+        run: pyinstaller --noconfirm --clean ELI.spec
+
+      - name: Smoke check — .app structure
+        run: |
+          test -x dist/ELI.app/Contents/MacOS/ELI || { echo "::error::ELI.app executable missing"; exit 1; }
+          test -d dist/ELI.app/Contents/Frameworks/eli -o -d dist/ELI.app/Contents/Resources/eli || { echo "::error::eli source tree missing from .app"; exit 1; }
+
+      - name: Build .dmg (ad-hoc signed)
+        run: bash packaging/macos/build-dmg.sh
+
+      - name: Checksums + GitHub 2 GiB asset-size guard
+        run: |
+          cd dist
+          rm -rf ELI ELI.app
+          for f in *.dmg; do
+            shasum -a 256 "$f" >> SHA256SUMS-macos.txt
+            size=$(stat -f%z "$f")
+            if [ "$size" -ge 2147483648 ]; then
+              echo "::error::$f is $size bytes — over GitHub's 2 GiB release-asset limit. Trim OPTIONAL_EXTRAS in release.yml."
+              exit 1
+            fi
+          done
+          cat SHA256SUMS-macos.txt
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: eli-macos
+          path: |
+            dist/*.dmg
+            dist/SHA256SUMS-macos.txt
+          if-no-files-found: error
+
+  build-linux:
+    name: linux (AppImage)
+    needs: guard
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: Set SOURCE_DATE_EPOCH (reproducible timestamps)
+        run: echo "SOURCE_DATE_EPOCH=$(git log -1 --format=%ct)" >> "$GITHUB_ENV"
+
+      - name: Free runner disk (full dependency stack + staging needs it)
+        run: |
+          sudo rm -rf /usr/local/lib/android /usr/share/dotnet /opt/ghc /usr/local/.ghcup
+          df -h /
+
+      - name: System build deps (portaudio, espeak, Qt/GL runtime libs)
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            portaudio19-dev libasound2-dev libegl1 libgl1 libxkbcommon-x11-0 espeak-ng
+
+      - name: Install dependencies (core hard-fails; optional extras degrade loudly)
+        run: |
+          set -euo pipefail
+          python -m pip install --upgrade pip wheel
+          pip install -r requirements-build.txt
+          # CPU torch first — default PyPI torch drags ~6 GB of CUDA libs into the bundle.
+          pip install torch --index-url https://download.pytorch.org/whl/cpu
+          pip install ".[$(echo $REQUIRED_EXTRAS | tr ' ' ',')]"
+          pip install llama-cpp-python --prefer-binary \
+            --extra-index-url https://abetlen.github.io/llama-cpp-python/whl/cpu \
+            || pip install llama-cpp-python
+          for extra in $OPTIONAL_EXTRAS; do
+            pip install ".[$extra]" \
+              || echo "::warning::optional extra '$extra' has no installable wheels on linux — shipped build degrades cleanly without it"
+          done
+
+      - name: Generate capability manifests (bundled introspection data)
+        run: |
+          python -m eli.core.init_data
+          python tools/bootstrap_claims_artifacts.py
+
+      - name: PyInstaller build (ELI.spec)
+        run: pyinstaller --noconfirm --clean ELI.spec
+
+      - name: Smoke check — bundle boots headless
+        run: |
+          test -x dist/ELI/ELI || { echo "::error::dist/ELI/ELI missing"; exit 1; }
+          test -d dist/ELI/_internal/eli || { echo "::error::eli source tree missing from bundle"; exit 1; }
+
+      - name: Build AppImage
+        run: bash packaging/linux/build-appimage-pyinstaller.sh
+
+      - name: Checksums + GitHub 2 GiB asset-size guard
+        run: |
+          cd dist
+          rm -rf ELI
+          for f in *.AppImage; do
+            sha256sum "$f" >> SHA256SUMS-linux.txt
+            size=$(stat -c%s "$f")
+            if [ "$size" -ge 2147483648 ]; then
+              echo "::error::$f is $size bytes — over GitHub's 2 GiB release-asset limit. Trim OPTIONAL_EXTRAS in release.yml."
+              exit 1
+            fi
+          done
+          cat SHA256SUMS-linux.txt
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: eli-linux
+          path: |
+            dist/*.AppImage
+            dist/SHA256SUMS-linux.txt
+          if-no-files-found: error
+
+  release:
+    name: publish GitHub Release
+    if: startsWith(github.ref, 'refs/tags/')
+    needs: [guard, build-windows, build-macos, build-linux]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+
+      - name: Merge checksums
+        run: |
+          cd dist
+          cat SHA256SUMS-*.txt > SHA256SUMS.txt
+          rm SHA256SUMS-*.txt
+          ls -lh
+
+      - name: Create/update GitHub Release and upload artifacts
+        uses: softprops/action-gh-release@v2
+        with:
+          name: ELI v${{ needs.guard.outputs.version }}
+          generate_release_notes: true
+          files: |
+            dist/*.zip
+            dist/*.exe
+            dist/*.dmg
+            dist/*.AppImage
+            dist/SHA256SUMS.txt
+          fail_on_unmatched_files: true
