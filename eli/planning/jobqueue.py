@@ -8,8 +8,17 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
-ROOT = Path(__file__).resolve().parent.parent
-JOBS_DIR = ROOT / "artifacts" / "jobs"
+def _jobs_dir() -> Path:
+    # Canonical artifacts dir — the package-adjacent default wrote inside
+    # eli/ (read-only in frozen builds).
+    try:
+        from eli.core.paths import data_dir
+        return Path(data_dir()) / "jobs"
+    except Exception:
+        return Path(__file__).resolve().parent.parent / "artifacts" / "jobs"
+
+
+JOBS_DIR = _jobs_dir()
 DB_PATH = JOBS_DIR / "jobs.sqlite"
 
 def _db() -> sqlite3.Connection:
