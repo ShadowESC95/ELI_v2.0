@@ -49,7 +49,7 @@ ArchitecturesInstallIn64BitMode=x64compatible
 SetupIconFile=..\desktop\Eli_Icon.ico
 UninstallDisplayIcon={app}\{#MyAppExeName}
 VersionInfoVersion={#MyAppVersion}
-VersionInfoPublisher={#MyAppPublisher}
+VersionInfoCompany={#MyAppPublisher}
 VersionInfoDescription=ELI v2.0 - Local AI Assistant
 
 [Languages]

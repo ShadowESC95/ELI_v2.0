@@ -62,15 +62,18 @@ EOF
 cp "$ICON" "$APPDIR/eli.png"
 cp "$ICON" "$APPDIR/.DirIcon"
 
-# appimagetool: use one on PATH, else fetch the pinned AppImageKit 13 release.
+# appimagetool: use one on PATH, else download it (current repo first, then
+# the legacy AppImageKit 13 URL — upstream moved between these once already).
 APPIMAGETOOL="$(command -v appimagetool || true)"
 if [ -z "$APPIMAGETOOL" ]; then
     APPIMAGETOOL="$WORK/appimagetool-x86_64.AppImage"
     if [ ! -x "$APPIMAGETOOL" ]; then
-        echo "[appimage] downloading appimagetool (AppImageKit 13, pinned)"
+        echo "[appimage] downloading appimagetool"
         curl -fsSL -o "$APPIMAGETOOL" \
+            "https://github.com/AppImage/appimagetool/releases/download/continuous/appimagetool-x86_64.AppImage" \
+        || curl -fsSL -o "$APPIMAGETOOL" \
             "https://github.com/AppImage/AppImageKit/releases/download/13/appimagetool-x86_64.AppImage" \
-            || fail "could not download appimagetool — install it or place it at $APPIMAGETOOL"
+        || fail "could not download appimagetool — install it or place it at $APPIMAGETOOL"
         chmod +x "$APPIMAGETOOL"
     fi
 fi
