@@ -359,6 +359,72 @@ def detect_hardware() -> HardwareProfile:
         except Exception:
             pass
 
+    # AMD without ROCm (the common desktop case, and what the Vulkan GPU pack
+    # targets) — rocm-smi rarely exists there. Read VRAM from the stock
+    # amdgpu driver's sysfs so AMD flows through the SAME HardwareProfile
+    # fields (and therefore the same smart-fit layer allocation) as NVIDIA.
+    if not hw.has_gpu and sys.platform.startswith("linux"):
+        try:
+            free_sum = total_sum = cards = 0
+            for vendor_file in Path("/sys/class/drm").glob("card[0-9]*/device/vendor"):
+                try:
+                    if vendor_file.read_text().strip().lower() != "0x1002":  # AMD
+                        continue
+                    dev = vendor_file.parent
+                    total = int((dev / "mem_info_vram_total").read_text().strip())
+                    used = int((dev / "mem_info_vram_used").read_text().strip())
+                except Exception:
+                    continue
+                if total <= 0:
+                    continue
+                total_sum += total // (1024 * 1024)
+                free_sum += max(0, total - used) // (1024 * 1024)
+                cards += 1
+            if total_sum > 0:
+                hw.free_vram_mb = free_sum
+                hw.total_vram_mb = total_sum
+                hw.gpu_name = "AMD GPU (amdgpu)" + (f" ×{cards}" if cards > 1 else "")
+                hw.vram_gb = hw.free_vram_mb / 1024.0
+                hw.has_gpu = True
+        except Exception:
+            pass
+
+    # AMD on Windows — no CLI ships with the driver; VRAM total + name live in
+    # the display-class registry keys. Free VRAM is not exposed, so estimate
+    # conservatively (85% of total on an idle desktop); the loader's
+    # reduce-to-fit attempts and live tuner correct any optimism at load time.
+    if not hw.has_gpu and sys.platform == "win32":
+        try:
+            import winreg
+            base = r"SYSTEM\CurrentControlSet\Control\Class\{4d36e968-e325-11ce-bfc1-08002be10318}"
+            with winreg.OpenKey(winreg.HKEY_LOCAL_MACHINE, base) as cls:
+                i = 0
+                while True:
+                    try:
+                        sub = winreg.EnumKey(cls, i)
+                    except OSError:
+                        break
+                    i += 1
+                    if not sub.isdigit():
+                        continue
+                    try:
+                        with winreg.OpenKey(cls, sub) as k:
+                            desc = str(winreg.QueryValueEx(k, "DriverDesc")[0])
+                            if not any(t in desc.lower() for t in ("amd", "radeon")):
+                                continue
+                            qw = int(winreg.QueryValueEx(k, "HardwareInformation.qwMemorySize")[0])
+                    except OSError:
+                        continue
+                    if qw > 0:
+                        hw.total_vram_mb = qw // (1024 * 1024)
+                        hw.free_vram_mb = int(hw.total_vram_mb * 0.85)
+                        hw.gpu_name = desc
+                        hw.vram_gb = hw.free_vram_mb / 1024.0
+                        hw.has_gpu = True
+                        break
+        except Exception:
+            pass
+
     if not hw.has_gpu and not hw.gpu_name:
         hw.gpu_name = "CPU only"
 
