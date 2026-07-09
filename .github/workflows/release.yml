@@ -11,8 +11,9 @@
 #   Linux   : ELI_v2-<v>-x86_64.AppImage
 # plus SHA256SUMS.txt.
 #
-# Model weights / Piper voices are NOT bundled (size + license review) — the
-# app downloads them on first run. Binaries are unsigned; see
+# Piper TTS voices ARE bundled (pulled from the project's local-assets-v2.1
+# release — same set previous full tarballs shipped). GGUF model weights are
+# runtime downloads (too big to bundle). Binaries are unsigned; see
 # docs/RELEASE_PIPELINE.md for optional Windows/Apple signing steps.
 
 name: release
@@ -75,6 +76,9 @@ jobs:
           fi
 
   build-windows:
+    env:
+      ELI_REQUIRE_VOICES: "1"
+      GH_TOKEN: ${{ github.token }}
     name: windows (exe + installer)
     needs: guard
     runs-on: windows-latest
@@ -109,6 +113,17 @@ jobs:
           python -m eli.core.init_data
           python tools/bootstrap_claims_artifacts.py
 
+      - name: Bundle Piper voices (from the project's local-assets release)
+        shell: bash
+        run: |
+          mkdir -p tts_piper/piper
+          gh release download local-assets-v2.1 --repo "$GITHUB_REPOSITORY" \
+            --pattern "*.onnx" --pattern "*.onnx.json" --dir tts_piper/piper \
+            || { echo "::error::could not download voices from the local-assets-v2.1 release"; exit 1; }
+          count=$(ls tts_piper/piper/*.onnx 2>/dev/null | wc -l)
+          echo "voices downloaded: $count"
+          [ "$count" -ge 1 ] || { echo "::error::no .onnx voices present after download"; exit 1; }
+
       - name: PyInstaller build (ELI.spec)
         shell: bash
         run: pyinstaller --noconfirm --clean ELI.spec
@@ -130,7 +145,7 @@ jobs:
 
       - name: Reclaim disk before packaging
         shell: bash
-        run: rm -rf build/ELI
+        run: rm -rf build/ELI tts_piper
 
       - name: Portable zip
         shell: bash
@@ -173,6 +188,9 @@ jobs:
           if-no-files-found: error
 
   build-macos:
+    env:
+      ELI_REQUIRE_VOICES: "1"
+      GH_TOKEN: ${{ github.token }}
     name: macos (app + dmg, arm64)
     needs: guard
     runs-on: macos-latest
@@ -206,6 +224,16 @@ jobs:
         run: |
           python -m eli.core.init_data
           python tools/bootstrap_claims_artifacts.py
+
+      - name: Bundle Piper voices (from the project's local-assets release)
+        run: |
+          mkdir -p tts_piper/piper
+          gh release download local-assets-v2.1 --repo "$GITHUB_REPOSITORY" \
+            --pattern "*.onnx" --pattern "*.onnx.json" --dir tts_piper/piper \
+            || { echo "::error::could not download voices from the local-assets-v2.1 release"; exit 1; }
+          count=$(ls tts_piper/piper/*.onnx 2>/dev/null | wc -l)
+          echo "voices downloaded: $count"
+          [ "$count" -ge 1 ] || { echo "::error::no .onnx voices present after download"; exit 1; }
 
       - name: PyInstaller build (ELI.spec)
         run: pyinstaller --noconfirm --clean ELI.spec
@@ -246,6 +274,9 @@ jobs:
           if-no-files-found: error
 
   build-linux:
+    env:
+      ELI_REQUIRE_VOICES: "1"
+      GH_TOKEN: ${{ github.token }}
     name: linux (AppImage)
     needs: guard
     runs-on: ubuntu-latest
@@ -290,6 +321,16 @@ jobs:
           python -m eli.core.init_data
           python tools/bootstrap_claims_artifacts.py
 
+      - name: Bundle Piper voices (from the project's local-assets release)
+        run: |
+          mkdir -p tts_piper/piper
+          gh release download local-assets-v2.1 --repo "$GITHUB_REPOSITORY" \
+            --pattern "*.onnx" --pattern "*.onnx.json" --dir tts_piper/piper \
+            || { echo "::error::could not download voices from the local-assets-v2.1 release"; exit 1; }
+          count=$(ls tts_piper/piper/*.onnx 2>/dev/null | wc -l)
+          echo "voices downloaded: $count"
+          [ "$count" -ge 1 ] || { echo "::error::no .onnx voices present after download"; exit 1; }
+
       - name: PyInstaller build (ELI.spec)
         run: pyinstaller --noconfirm --clean ELI.spec
 
@@ -309,11 +350,19 @@ jobs:
       - name: Build AppImage
         run: bash packaging/linux/build-appimage-pyinstaller.sh
 
+      - name: Classic portable tarball (source + voices — parity with previous releases)
+        run: |
+          pip install build
+          SKIP_TESTS=1 bash scripts/package_desktop_app.sh --with-assets
+          mv dist/app_packages/ELI_v2-*-linux-portable.tar.gz dist/
+          ls -lh dist/*.tar.gz
+
       - name: Checksums + GitHub 2 GiB asset-size guard
         run: |
           cd dist
           rm -rf ELI
-          for f in *.AppImage; do
+          for f in *.AppImage *.tar.gz; do
+            [ -e "$f" ] || continue
             sha256sum "$f" >> SHA256SUMS-linux.txt
             size=$(stat -c%s "$f")
             if [ "$size" -ge 2147483648 ]; then
@@ -328,6 +377,7 @@ jobs:
           name: eli-linux
           path: |
             dist/*.AppImage
+            dist/*.tar.gz
             dist/SHA256SUMS-linux.txt
           if-no-files-found: error
 
@@ -359,5 +409,6 @@ jobs:
             dist/*.exe
             dist/*.dmg
             dist/*.AppImage
+            dist/*.tar.gz
             dist/SHA256SUMS.txt
           fail_on_unmatched_files: true

@@ -11362,7 +11362,7 @@ if __name__ == "__main__":
 try:
     from eli.tools.registry.capability_registry import register as _cap_register
     for _a in SUPPORTED_ACTIONS:
-        _cap_register(_a, description=f"Executor action: {_a}")
+        _cap_register(_a, {"description": f"Executor action: {_a}"})
 except Exception:
     log.debug("suppressed exception", exc_info=True)
 
