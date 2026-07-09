@@ -115,6 +115,88 @@ def _selftest() -> int:
         return 1
 
 
+def _first_run_gpu_offer() -> None:
+    """First-launch hardware chooser (frozen GUI builds, Windows/Linux).
+
+    Asks once: enable GPU acceleration (NVIDIA→CUDA / AMD→Vulkan, auto-
+    detected) or stay on CPU. Runs BEFORE anything imports llama_cpp, so an
+    installed pack takes effect the same boot (sys.path shadowing) with no
+    restart. The dialog + download run in ELI subprocesses (via the python
+    `-c` passthrough above) because the main GUI later creates its own
+    QApplication. Declining writes a marker and never asks again;
+    `--install-gpu-pack` stays available. macOS is Metal out of the box.
+    """
+    if not getattr(sys, "frozen", False) or sys.platform == "darwin":
+        return
+    try:
+        import subprocess
+        root = Path(os.environ.get("ELI_PROJECT_ROOT", "") or "")
+        if not str(root):
+            return
+        runtime = root / "runtime"
+        marker = runtime / ".gpu_choice"
+        if marker.exists() or (runtime / "gpu" / "llama_cpp").is_dir():
+            return
+        import eli_gpu_pack
+        nvidia = eli_gpu_pack._driver_cuda_version() is not None
+        amd = (not nvidia) and eli_gpu_pack._has_amd_gpu()
+        runtime.mkdir(parents=True, exist_ok=True)
+        if not (nvidia or amd):
+            marker.write_text("cpu-no-gpu-hardware", encoding="utf-8")
+            return
+        vendor = "NVIDIA (CUDA)" if nvidia else "AMD (Vulkan)"
+        size = "roughly 400-500 MB" if nvidia else "roughly 90 MB"
+        ask = f"""
+import sys
+from PySide6.QtWidgets import QApplication, QMessageBox
+app = QApplication(sys.argv)
+m = QMessageBox()
+m.setWindowTitle("ELI - GPU acceleration")
+m.setText("ELI detected a {vendor} GPU.")
+m.setInformativeText("Enable GPU acceleration now? This downloads the GPU "
+                     "inference engine once ({size}). CPU mode always works; "
+                     "you can enable GPU later by running ELI with --install-gpu-pack.")
+yes = m.addButton("Enable GPU (recommended)", QMessageBox.AcceptRole)
+m.addButton("Use CPU", QMessageBox.RejectRole)
+m.exec()
+sys.exit(0 if m.clickedButton() is yes else 3)
+"""
+        if subprocess.run([sys.executable, "-c", ask]).returncode != 0:
+            marker.write_text("cpu-user-choice", encoding="utf-8")
+            return
+        download = """
+import sys, threading
+from PySide6.QtWidgets import QApplication, QProgressDialog
+from PySide6.QtCore import Qt, QTimer
+import eli_gpu_pack
+app = QApplication(sys.argv)
+dlg = QProgressDialog("Downloading the GPU acceleration pack...", None, 0, 0)
+dlg.setWindowTitle("ELI - GPU acceleration")
+dlg.setCancelButton(None)
+dlg.setWindowModality(Qt.ApplicationModal)
+dlg.setMinimumWidth(420)
+dlg.show()
+rc = {"v": 1}
+t = threading.Thread(target=lambda: rc.__setitem__("v", eli_gpu_pack.install([])), daemon=True)
+t.start()
+timer = QTimer()
+timer.timeout.connect(lambda: None if t.is_alive() else app.quit())
+timer.start(300)
+app.exec()
+sys.exit(rc["v"])
+"""
+        rc = subprocess.run([sys.executable, "-c", download]).returncode
+        if rc == 0 and (runtime / "gpu" / "llama_cpp").is_dir():
+            marker.write_text("gpu", encoding="utf-8")
+            sys.path.insert(0, str(runtime / "gpu"))  # effective THIS boot
+        else:
+            # no marker on failure — the offer returns next launch, and the
+            # CLI path (--install-gpu-pack) is always available.
+            print("[gpu-pack] install failed; continuing on CPU (will offer again next launch)")
+    except Exception:
+        pass  # never block the GUI boot on the chooser
+
+
 def _mode() -> str:
     argv = sys.argv[1:]
     if "--selftest" in argv:
@@ -139,5 +221,6 @@ if __name__ == "__main__":
         from api.server import main as server_main
         sys.exit(server_main())
     else:
+        _first_run_gpu_offer()
         from eli.gui.app import main
         sys.exit(main())
