@@ -201,7 +201,11 @@ def _worker_eval(request: str):
     import subprocess
     import sys as _sys
     from pathlib import Path as _P
-    repo = _P(__file__).resolve().parents[2]
+    try:
+        from eli.core.paths import project_root as _pr
+        repo = _P(_pr())
+    except Exception:
+        repo = _P(__file__).resolve().parents[2]
     out = {"ok": True}
     try:
         evdir = repo / "artifacts" / "eval"

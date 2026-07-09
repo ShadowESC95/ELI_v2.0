@@ -195,13 +195,25 @@ app.exec()
 sys.exit(rc["v"])
 """
         rc = subprocess.run([sys.executable, "-c", download]).returncode
-        if rc == 0 and (runtime / "gpu" / "llama_cpp").is_dir():
+        if rc == 0 and (runtime / "gpu" / ".gpu_pack_ok").is_file():
             marker.write_text("gpu", encoding="utf-8")
             sys.path.insert(0, str(runtime / "gpu"))  # effective THIS boot
+            import eli_gpu_pack as _gp
+            _gp.preload_native_libs(runtime / "gpu")
         else:
             # no marker on failure — the offer returns next launch, and the
-            # CLI path (--install-gpu-pack) is always available.
-            print("[gpu-pack] install failed; continuing on CPU (will offer again next launch)")
+            # CLI path (--install-gpu-pack) is always available. The pack
+            # installer already removed anything unverified.
+            notice = """
+import sys
+from PySide6.QtWidgets import QApplication, QMessageBox
+app = QApplication(sys.argv)
+QMessageBox.warning(None, "ELI - GPU acceleration",
+    "The GPU pack could not be installed or verified on this machine, so ELI "
+    "will run on CPU (fully functional). It will offer GPU again at next "
+    "launch; you can also retry any time with:  ELI --install-gpu-pack")
+"""
+            subprocess.run([sys.executable, "-c", notice])
     except Exception:
         pass  # never block the GUI boot on the chooser
 
@@ -212,6 +224,8 @@ def _mode() -> str:
         return "selftest"
     if "--install-gpu-pack" in argv:
         return "gpu-pack"
+    if "--remove-gpu-pack" in argv:
+        return "gpu-pack-remove"
     exe = Path(sys.argv[0]).stem.lower()
     if "--server" in argv or exe.endswith("server"):
         return "server"
@@ -225,6 +239,15 @@ if __name__ == "__main__":
     elif mode == "gpu-pack":
         import eli_gpu_pack
         sys.exit(eli_gpu_pack.install([a for a in sys.argv[1:] if a != "--install-gpu-pack"]))
+    elif mode == "gpu-pack-remove":
+        import os as _os
+        import shutil as _shutil
+        _gpu = Path(_os.environ.get("ELI_PROJECT_ROOT", "")) / "runtime" / "gpu"
+        _marker = _gpu.parent / ".gpu_choice"
+        _shutil.rmtree(_gpu, ignore_errors=True)
+        _marker.unlink(missing_ok=True)
+        print(f"[gpu-pack] removed {_gpu}; ELI runs on CPU and will offer GPU again at next launch")
+        sys.exit(0)
     elif mode == "server":
         sys.argv = [sys.argv[0]] + [a for a in sys.argv[1:] if a != "--server"]
         from api.server import main as server_main

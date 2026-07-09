@@ -8,7 +8,13 @@ from eli.runtime.tool_result_models import ToolResultRecord
 
 
 def _project_root() -> Path:
-    return Path(__file__).resolve().parents[3]
+    # Canonical env-honoring root — __file__ resolves into the read-only
+    # bundle in frozen builds.
+    try:
+        from eli.core.paths import project_root
+        return Path(project_root())
+    except Exception:
+        return Path(__file__).resolve().parents[3]
 
 
 def tool_result_store_path() -> Path:

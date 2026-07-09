@@ -4029,8 +4029,11 @@ def _eli_tts_echo(_text: str) -> None:
             from pathlib import Path
             import json
             from datetime import datetime
-            root = Path(__file__).resolve().parent
-            logp = root / "data" / "logs" / "tts.jsonl"
+            try:
+                from eli.core.paths import logs_dir
+                logp = Path(logs_dir()) / "tts.jsonl"
+            except Exception:
+                logp = Path(__file__).resolve().parent / "data" / "logs" / "tts.jsonl"
             logp.parent.mkdir(parents=True, exist_ok=True)
             rec = {"ts": datetime.now().isoformat(timespec="seconds"), "text": _text}
             with open(logp, "a", encoding="utf-8") as f:
