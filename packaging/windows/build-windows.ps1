@@ -1,4 +1,4 @@
-# Build ELI v2 Windows Setup.exe (Inno Setup) from the lean portable zip.
+﻿# Build ELI v2 Windows Setup.exe (Inno Setup) from the lean portable zip.
 # Run ON WINDOWS with Inno Setup 6 installed (iscc.exe on PATH).
 #
 #   powershell -ExecutionPolicy Bypass -File packaging\windows\build-windows.ps1 -Version 2.0.9
@@ -22,11 +22,11 @@ $Staging = Join-Path $ProjectRoot "build\win-portable\ELI_v2-$Version-windows-po
 $Zip = Join-Path $Dist "ELI_v2-$Version-windows-portable.zip"
 
 if (-not (Test-Path $Zip)) {
-    Write-Host "[windows] portable zip missing — run: bash build_packages.sh windows-lean"
+    Write-Host "[windows] portable zip missing -- run: bash build_packages.sh windows-lean"
     if (Get-Command bash -ErrorAction SilentlyContinue) {
         bash build_packages.sh windows-lean
     } else {
-        throw "Missing $Zip — build the windows-lean zip first."
+        throw "Missing $Zip -- build the windows-lean zip first."
     }
 }
 
@@ -42,7 +42,7 @@ $SetupBat = Join-Path $Staging "ELI_Setup.bat"
 title ELI Setup
 cd /d "%~dp0"
 echo.
-echo  ELI v2.0 — one-click setup
+echo  ELI v2.0 -- one-click setup
 echo  This may take several minutes the first time.
 echo.
 powershell -NoProfile -ExecutionPolicy Bypass -File "%~dp0install.ps1" -Yes

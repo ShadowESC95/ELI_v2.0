@@ -1,4 +1,4 @@
-# ELI v2.0 — Windows PowerShell installer
+﻿# ELI v2.0 -- Windows PowerShell installer
 # Run: powershell -ExecutionPolicy Bypass -File install.ps1 [-CpuOnly] [-Latest] [-InstallCuda] [-CudaVersion cu121]
 
 param(
@@ -64,7 +64,7 @@ try {
     exit 1
 }
 
-# ── System report — full info before anything runs ──
+# -- System report -- full info before anything runs --
 Write-Host "--- Your system ---" -ForegroundColor Magenta
 Write-Host "[OK] Python      $pyVer" -ForegroundColor Green
 Write-Host "[OK] Platform    Windows ($([System.Environment]::OSVersion.Version))" -ForegroundColor Green
@@ -95,7 +95,7 @@ if (-not $HasNvidia) { Write-Host "[WARN] GPU       none detected - ELI will run
 if ((-not $CpuOnly) -and (-not $Gpu) -and (-not $HasNvidia)) { $CpuOnly = $true }
 $BuildLabel = if ($CpuOnly) { "CPU-only" } else { "GPU (CUDA $CudaVersion)" }
 
-# ── Plan ──
+# -- Plan --
 Write-Host ""
 Write-Host "--- Plan ---" -ForegroundColor Magenta
 Write-Host "  - llama-cpp build : $BuildLabel"
@@ -171,19 +171,19 @@ if (-not $CpuOnly) {
     if ($LASTEXITCODE -eq 0) {
         Write-Host "[OK] llama-cpp-python has CUDA GPU offload." -ForegroundColor Green
     } elseif ($InstallCuda) {
-        Write-Host "[WARN] prebuilt llama-cpp is CPU-only — installing CUDA toolkit (winget) + rebuilding..." -ForegroundColor Yellow
+        Write-Host "[WARN] prebuilt llama-cpp is CPU-only -- installing CUDA toolkit (winget) + rebuilding..." -ForegroundColor Yellow
         if (Get-Command winget -ErrorAction SilentlyContinue) {
             winget install --id Nvidia.CUDA --silent --accept-package-agreements --accept-source-agreements 2>$null
         } else {
-            Write-Host "        winget not found — install the CUDA Toolkit from https://developer.nvidia.com/cuda-downloads" -ForegroundColor Yellow
+            Write-Host "        winget not found -- install the CUDA Toolkit from https://developer.nvidia.com/cuda-downloads" -ForegroundColor Yellow
         }
         $env:CMAKE_ARGS = "-DGGML_CUDA=on"
         & $Pip install --force-reinstall --no-cache-dir llama-cpp-python --quiet
         & $PythonVenv -c "import llama_cpp,sys; sys.exit(0 if llama_cpp.llama_supports_gpu_offload() else 1)" 2>$null
         if ($LASTEXITCODE -eq 0) { Write-Host "[OK] llama-cpp-python rebuilt with CUDA." -ForegroundColor Green }
-        else { Write-Host "[WARN] still CPU-only — ELI will run on CPU." -ForegroundColor Yellow }
+        else { Write-Host "[WARN] still CPU-only -- ELI will run on CPU." -ForegroundColor Yellow }
     } else {
-        Write-Host "[WARN] llama-cpp-python is CPU-ONLY — ELI will be slow. Re-run with -InstallCuda to fix." -ForegroundColor Yellow
+        Write-Host "[WARN] llama-cpp-python is CPU-ONLY -- ELI will be slow. Re-run with -InstallCuda to fix." -ForegroundColor Yellow
     }
 }
 
@@ -227,24 +227,24 @@ if (Test-Path $TemplateDbDir) {
     }
 }
 Write-Host "[..] Initialising data directories and full database architecture..."
-# Build EVERY store + table up front (blank slate — schema only, no personal data).
+# Build EVERY store + table up front (blank slate -- schema only, no personal data).
 & $PythonVenv -m eli.core.init_data
 if ($LASTEXITCODE -eq 0) { Write-Host "[OK] Full database architecture ready (blank slate)." -ForegroundColor Green }
 else { Write-Host "[WARN] Some stores deferred to first launch (self-build on first use)." -ForegroundColor Yellow }
 
 Write-Host "[..] Ensuring capability manifest and command reference..."
 # Native (python) non-zero exits do NOT throw in PowerShell, so a try/catch can't see
-# them — check $LASTEXITCODE explicitly (same pattern Invoke-Pip uses).
+# them -- check $LASTEXITCODE explicitly (same pattern Invoke-Pip uses).
 & $PythonVenv -c "from eli.tools.registry.capability_updater import update_capability_manifest; r=update_capability_manifest(); assert r.get('ok'), r; print(f'[OK] {r.get(\"total\",0)} capabilities indexed')"
 if ($LASTEXITCODE -ne 0) {
     if (Test-Path (Join-Path $ScriptDir "capability_manifest.json")) {
         Write-Host "[OK] Using shipped capability_manifest.json (regeneration skipped)." -ForegroundColor Green
     } else {
-        Write-Host "[WARN] Capability manifest missing — run: .venv\Scripts\python -m eli.tools.registry.capability_updater" -ForegroundColor Yellow
+        Write-Host "[WARN] Capability manifest missing -- run: .venv\Scripts\python -m eli.tools.registry.capability_updater" -ForegroundColor Yellow
     }
 }
 
-# ── Optional system tools (best-effort via winget): ffmpeg = media/whisper, tesseract = OCR ──
+# -- Optional system tools (best-effort via winget): ffmpeg = media/whisper, tesseract = OCR --
 # Non-fatal. Windows uses native APIs for volume/clipboard/notifications, so only these help.
 if (Get-Command winget -ErrorAction SilentlyContinue) {
     Write-Host "[..] Installing optional system tools (ffmpeg, tesseract) via winget..."
@@ -253,10 +253,10 @@ if (Get-Command winget -ErrorAction SilentlyContinue) {
     }
     Write-Host "[OK] Optional system tools step done (skips any already present)." -ForegroundColor Green
 } else {
-    Write-Host "[..] winget not found — optional: install FFmpeg + Tesseract OCR for media/OCR features." -ForegroundColor DarkGray
+    Write-Host "[..] winget not found -- optional: install FFmpeg + Tesseract OCR for media/OCR features." -ForegroundColor DarkGray
 }
 
-# ── Optional model download — the one online step ──
+# -- Optional model download -- the one online step --
 $ModelStatus = "none yet"
 $existingModel = Get-ChildItem (Join-Path $ScriptDir "models") -Filter "*.gguf" -ErrorAction SilentlyContinue | Select-Object -First 1
 if ($existingModel) {
@@ -277,7 +277,7 @@ if (-not $NoModel) {
     else { Write-Host "[WARN] Embedder fetch deferred (run: python -m eli.core.model_download --aux)" -ForegroundColor Yellow }
 }
 
-# Voice weights: required for web-server mic — always fetch, not gated on chat model.
+# Voice weights: required for web-server mic -- always fetch, not gated on chat model.
 $VoiceStatus = "skipped"
 Write-Host "[..] Ensuring voice models (local STT + TTS, for browser/desktop voice) are present..."
 & $PythonVenv -m eli.runtime.voice_assets
