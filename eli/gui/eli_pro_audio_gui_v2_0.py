@@ -37,6 +37,15 @@ log = get_logger(__name__)
 _BOOT_PROJECT_ROOT = Path(__file__).resolve().parents[2]
 if str(_BOOT_PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(_BOOT_PROJECT_ROOT))
+# Re-anchor on the canonical env-honoring root: in frozen builds the file
+# location is the read-only bundle, and the models/ scan + bundled-model
+# picker must look in the per-user ELI root instead. In source installs
+# both resolve to the same repo root.
+try:
+    from eli.core.paths import project_root as _eli_canonical_root
+    _BOOT_PROJECT_ROOT = Path(_eli_canonical_root())
+except Exception:
+    pass
 
 def _eli_path_get(obj, key, default=None):
     """

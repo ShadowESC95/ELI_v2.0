@@ -25,6 +25,7 @@ Design notes
   packaging/pyinstaller/rthook_eli_frozen_paths.py.
 """
 
+import os
 import subprocess
 import sys
 from pathlib import Path
@@ -118,6 +119,21 @@ for name in ("capability_manifest.json", "capability_inventory.generated.json"):
         datas.append((str(gen), "."))
     else:
         print(f"[ELI.spec] WARNING: {name} missing — run tools/bootstrap_claims_artifacts.py to bundle it")
+
+# Piper TTS voices — full voice UX ships in the bundle. The .onnx weights are
+# NOT in git (too big); CI downloads them from the project's own
+# `local-assets-v2.1` release into tts_piper/piper before building (the same
+# voice set previous full tarballs shipped). ELI_REQUIRE_VOICES=1 (set in CI)
+# makes a voiceless build a hard failure instead of a silent regression.
+_voice_dir = ROOT / "tts_piper" / "piper"
+_voice_files = sorted(_voice_dir.glob("*.onnx*")) if _voice_dir.is_dir() else []
+if not any(f.suffix == ".onnx" for f in _voice_files):
+    if os.environ.get("ELI_REQUIRE_VOICES") == "1":
+        _fail("ELI_REQUIRE_VOICES=1 but no .onnx voices in tts_piper/piper — "
+              "run: gh release download local-assets-v2.1 --pattern '*.onnx*' --dir tts_piper/piper")
+    print("[ELI.spec] WARNING: no Piper voices in tts_piper/piper — bundle will rely on runtime voice download")
+for f in _voice_files:
+    datas.append((str(f), "tts_piper/piper"))
 
 
 # ── Hidden imports ───────────────────────────────────────────────────────────

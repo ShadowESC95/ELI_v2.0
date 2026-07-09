@@ -76,7 +76,13 @@ def _now() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 def _root() -> Path:
-    return Path(__file__).resolve().parents[3]
+    # Canonical env-honoring root — __file__ resolves into the read-only
+    # bundle in frozen builds and pending-state writes then crash.
+    try:
+        from eli.core.paths import project_root
+        return Path(project_root())
+    except Exception:
+        return Path(__file__).resolve().parents[3]
 
 def _q(value: str) -> str:
     return shlex.quote(str(value))
