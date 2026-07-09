@@ -137,14 +137,23 @@ def _first_run_gpu_offer() -> None:
         marker = runtime / ".gpu_choice"
         if marker.exists() or (runtime / "gpu" / "llama_cpp").is_dir():
             return
-        import eli_gpu_pack
-        nvidia = eli_gpu_pack._driver_cuda_version() is not None
-        amd = (not nvidia) and eli_gpu_pack._has_amd_gpu()
+        # Canonical detection — the SAME HardwareProfile install.sh's verify,
+        # the smart-fit loader and the HARDWARE_PROFILE action use (NVIDIA
+        # nvidia-smi, AMD rocm-smi/sysfs/registry). One source of truth.
+        from eli.core.hardware_profile import detect_hardware
+        hp = detect_hardware()
         runtime.mkdir(parents=True, exist_ok=True)
-        if not (nvidia or amd):
+        if not hp.has_gpu:
             marker.write_text("cpu-no-gpu-hardware", encoding="utf-8")
             return
-        vendor = "NVIDIA (CUDA)" if nvidia else "AMD (Vulkan)"
+        name_l = (hp.gpu_name or "").lower()
+        nvidia = "nvidia" in name_l or "geforce" in name_l or "rtx" in name_l or "gtx" in name_l
+        amd = (not nvidia) and ("amd" in name_l or "radeon" in name_l)
+        if not (nvidia or amd):
+            marker.write_text(f"cpu-unsupported-gpu:{hp.gpu_name}", encoding="utf-8")
+            return
+        vendor = f"{hp.gpu_name} — {max(hp.total_vram_mb, hp.free_vram_mb) / 1024:.0f} GB VRAM"
+        backend = "NVIDIA CUDA" if nvidia else "AMD Vulkan"
         size = "roughly 400-500 MB" if nvidia else "roughly 90 MB"
         ask = f"""
 import sys
@@ -152,8 +161,8 @@ from PySide6.QtWidgets import QApplication, QMessageBox
 app = QApplication(sys.argv)
 m = QMessageBox()
 m.setWindowTitle("ELI - GPU acceleration")
-m.setText("ELI detected a {vendor} GPU.")
-m.setInformativeText("Enable GPU acceleration now? This downloads the GPU "
+m.setText("ELI detected: {vendor}")
+m.setInformativeText("Enable {backend} acceleration now? This downloads the GPU "
                      "inference engine once ({size}). CPU mode always works; "
                      "you can enable GPU later by running ELI with --install-gpu-pack.")
 yes = m.addButton("Enable GPU (recommended)", QMessageBox.AcceptRole)
