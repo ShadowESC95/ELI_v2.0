@@ -58,7 +58,7 @@ if not (ROOT / "eli" / "gui" / "app.py").is_file():
     _fail(f"eli package not found under {ROOT} — run PyInstaller from the repo root.")
 
 ICON_ICO = ROOT / "packaging" / "desktop" / "Eli_Icon.ico"
-ICON_PNG = ROOT / "packaging" / "desktop" / "Eli_Icon.png"
+ICON_PNG = ROOT / "packaging" / "desktop" / "eli-256.png"  # 256px master; Eli_Icon.png is only 175px and renders fuzzy
 for icon in (ICON_ICO, ICON_PNG):
     if not icon.is_file():
         _fail(f"application icon missing: {icon}")
