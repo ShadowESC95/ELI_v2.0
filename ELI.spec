@@ -140,6 +140,9 @@ hiddenimports = []
 # pkgutil.iter_modules, kernel pipeline, executor via importlib) — collect all.
 hiddenimports += collect_submodules("eli")
 hiddenimports += collect_submodules("api")
+# numpy 2.x: the standard hook missed numpy._core._exceptions on Linux and
+# the frozen app died importing numpy — collect the whole package explicitly.
+hiddenimports += collect_submodules("numpy")
 # Dynamic-dispatch third-party packages PyInstaller cannot trace statically.
 for pkg in ("pyttsx3", "plyer.platforms", "uvicorn"):
     hiddenimports += _optional_collect(pkg)
