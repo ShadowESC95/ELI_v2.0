@@ -1,0 +1,33 @@
+# PyInstaller VSVersionInfo template — DO NOT hardcode versions here.
+# packaging/pyinstaller/gen_version_info.py fills @…@ placeholders from
+# pyproject.toml and writes build/version.rc, which ELI.spec passes to EXE().
+VSVersionInfo(
+  ffi=FixedFileInfo(
+    filevers=(@MAJOR@, @MINOR@, @PATCH@, 0),
+    prodvers=(@MAJOR@, @MINOR@, @PATCH@, 0),
+    mask=0x3f,
+    flags=0x0,
+    OS=0x40004,
+    fileType=0x1,
+    subtype=0x0,
+    date=(0, 0)
+  ),
+  kids=[
+    StringFileInfo(
+      [
+        StringTable(
+          '040904B0',
+          [StringStruct('CompanyName', 'ShadowESC95'),
+           StringStruct('FileDescription', 'ELI v2.0 — Local AI Assistant'),
+           StringStruct('FileVersion', '@VERSION@'),
+           StringStruct('InternalName', 'ELI'),
+           StringStruct('LegalCopyright', '(c) ShadowESC95. All rights reserved.'),
+           StringStruct('OriginalFilename', 'ELI.exe'),
+           StringStruct('ProductName', 'ELI v2.0'),
+           StringStruct('ProductVersion', '@VERSION@')]
+        )
+      ]
+    ),
+    VarFileInfo([VarStruct('Translation', [1033, 1200])])
+  ]
+)
