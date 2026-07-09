@@ -151,6 +151,19 @@ else:
     hiddenimports += ["pyttsx3.drivers.espeak"]
 hiddenimports = [h for h in hiddenimports if h]
 
+# `backports` is a NAMESPACE package PyInstaller cannot trace: jaraco.context
+# (pulled in via the setuptools/pkg_resources chain) does
+# `from backports import tarfile` on Python < 3.12, and the v2.1.0 AppImage
+# shipped without it and crashed at boot (ModuleNotFoundError: backports).
+# requirements-build.txt guarantees it is installed in the build venv.
+for mod in ("backports", "backports.tarfile"):
+    try:
+        __import__(mod)
+        hiddenimports.append(mod)
+    except ImportError:
+        if sys.version_info < (3, 12):
+            _fail(f"{mod} not installed in the build venv — install requirements-build.txt")
+
 # Native/data payloads of optional runtime deps (each has a hook in
 # pyinstaller-hooks-contrib; these are belt-and-braces for hook gaps).
 binaries = []
@@ -200,8 +213,27 @@ exe = EXE(
     version=version_rc,
 )
 
+# Second executable, same code: the phone/web server with a REAL console so
+# users can see logs + the phone-connect URL. eli_entry.py dispatches to
+# api.server:main when the exe name ends in "server" (or --server is passed).
+exe_server = EXE(
+    pyz,
+    a.scripts,
+    [],
+    exclude_binaries=True,
+    name=f"{APP_NAME}-Server",
+    debug=False,
+    bootloader_ignore_signals=False,
+    strip=False,
+    upx=False,
+    console=True,
+    icon=str(ICON_ICO if sys.platform == "win32" else ICON_PNG),
+    version=version_rc,
+)
+
 coll = COLLECT(
     exe,
+    exe_server,
     a.binaries,
     a.datas,
     strip=False,

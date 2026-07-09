@@ -4,18 +4,23 @@ ELI treats its project root as a self-contained tree (config/, models/,
 artifacts/ live beside the eli/ package; see eli/core/paths.py and
 eli/core/portable_paths.py). The launchers for source installs (RUN_ELI.sh,
 bin/elix, eli.gui.app:main) all pin ELI_PROJECT_ROOT + the data/config/models
-dirs before the app boots. This hook does the same job for frozen bundles:
+dirs before the app boots. This hook does the same job for frozen bundles.
 
-* Windows installer / portable unzip: the bundle directory is user-writable,
-  so it IS the root — settings, models and artifacts live beside the app,
-  exactly like a portable source install. Nothing is copied.
+Policy: the root is ALWAYS the per-user ELI_v2 directory —
+    Windows : %LOCALAPPDATA%\\ELI_v2
+    macOS   : ~/Library/Application Support/ELI_v2
+    Linux   : ~/.local/share/ELI_v2
+— the SAME location previous ELI releases (portable installs, the old
+AppImage) used, so models, settings and conversation data carry straight
+over on upgrade. It is also the only safe choice everywhere: the AppImage
+mount is read-only, writing inside a macOS .app breaks its codesign seal,
+and burying models under Program Files-style install dirs hides them from
+the user and loses them on uninstall.
 
-* macOS .app in /Applications and Linux AppImage (read-only squashfs): the
-  bundle cannot hold mutable state. First launch materialises a per-user root
-  (platform data dir /ELI_v2) and seeds it from the bundle: the eli/ source
-  tree (ELI self-inspects its own code), config templates, blueprints and
-  manifests. Code/data dirs are re-seeded on version upgrades; user files
-  (config/settings.json, artifacts/, models/) are never overwritten.
+First launch (and each version upgrade) seeds the root from the bundle:
+the eli/ source tree (ELI self-inspects its own code), api/, config
+templates, blueprints and manifests. User state — config/settings.json,
+models/, artifacts/ — is NEVER overwritten.
 
 Explicit ELI_PROJECT_ROOT / ELI_*_DIR environment variables always win —
 the hook only fills in what the user has not set.
@@ -25,9 +30,9 @@ import shutil
 import sys
 from pathlib import Path
 
-# Directories/files seeded into a per-user root when the bundle is read-only.
-# eli/ and api/ are the source trees (introspection + plugin discovery read
-# them from disk); the rest are runtime data the app resolves via PROJECT_ROOT.
+# Directories/files seeded into the per-user root. eli/ and api/ are the
+# source trees (introspection + plugin discovery read them from disk); the
+# rest are runtime data the app resolves via PROJECT_ROOT.
 _SEED_TREES = ("eli", "api", "config", "blueprints", "docs", "packaging/desktop")
 _SEED_FILES = (
     "pyproject.toml",
@@ -38,22 +43,13 @@ _SEED_FILES = (
     "THIRD_PARTY_NOTICES.md",
     "README.md",
 )
-# Never clobbered on upgrade re-seed: the user's live settings.
+# Merge-only trees: add missing files, never clobber what the user has
+# (config/ holds live settings.json, tokens, certs).
 _PRESERVE = ("config",)
 
 
 def _bundle_dir() -> Path:
     return Path(getattr(sys, "_MEIPASS", Path(sys.executable).parent))
-
-
-def _is_writable(path: Path) -> bool:
-    probe = path / ".eli_write_probe"
-    try:
-        probe.touch()
-        probe.unlink()
-        return True
-    except Exception:
-        return False
 
 
 def _app_version(bundle: Path) -> str:
@@ -94,8 +90,6 @@ def _seed(bundle: Path, root: Path) -> None:
             continue
         dst = root / rel
         if rel in _PRESERVE and dst.exists():
-            # Only add files the user does not already have (fresh templates
-            # on upgrade must not clobber live settings.json etc.).
             for f in src.rglob("*"):
                 if f.is_file():
                     target = dst / f.relative_to(src)
@@ -125,22 +119,15 @@ def _pin_frozen_root() -> None:
     if os.environ.get("ELI_PROJECT_ROOT"):
         return  # launcher/user already decided — respect it
 
-    bundle = _bundle_dir()
-    # macOS: a dragged-in .app is usually user-writable, but writing state
-    # inside the bundle breaks the codesign seal (fatal on Apple Silicon) —
-    # always use the per-user root there.
-    if sys.platform != "darwin" and (bundle / "eli").is_dir() and _is_writable(bundle):
-        root = bundle
-    else:
-        root = _user_root()
-        try:
-            _seed(bundle, root)
-        except Exception as exc:  # pragma: no cover — first-run disk issues
-            sys.stderr.write(
-                f"[ELI] could not prepare user data root {root}: {exc}\n"
-                f"[ELI] set ELI_PROJECT_ROOT to a writable ELI directory and relaunch.\n"
-            )
-            return
+    root = _user_root()
+    try:
+        _seed(_bundle_dir(), root)
+    except Exception as exc:  # pragma: no cover — first-run disk issues
+        sys.stderr.write(
+            f"[ELI] could not prepare user data root {root}: {exc}\n"
+            f"[ELI] set ELI_PROJECT_ROOT to a writable ELI directory and relaunch.\n"
+        )
+        return
 
     os.environ["ELI_PROJECT_ROOT"] = str(root)
     os.environ.setdefault("ELI_HOME", str(root))
