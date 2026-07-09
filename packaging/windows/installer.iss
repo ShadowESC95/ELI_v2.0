@@ -59,8 +59,21 @@ Name: "english"; MessagesFile: "compiler:Default.isl"
 [Tasks]
 Name: "desktopicon"; Description: "Create a desktop shortcut"; GroupDescription: "Shortcuts:"; Flags: checkedonce
 
+[InstallDelete]
+; The frozen runtime is versioned as a whole: upgrading over an older install
+; must never mix two PyInstaller trees (stale DLLs made llama.dll unloadable
+; on upgraded machines). User data lives in {localappdata}\ELI_v2, not here.
+Type: filesandordirs; Name: "{app}\_internal"
+
 [Files]
 Source: "{#BundleDir}\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
+; Microsoft Visual C++ 2015-2022 runtime — required by llama.cpp/onnxruntime
+; on machines that never installed it (CI downloads this next to the bundle).
+Source: "..\..\build\vc_redist.x64.exe"; DestDir: "{tmp}"; Flags: deleteafterinstall
+
+[Run]
+Filename: "{tmp}\vc_redist.x64.exe"; Parameters: "/install /quiet /norestart"; \
+  StatusMsg: "Installing Microsoft Visual C++ runtime (required)..."; Flags: waituntilterminated
 
 [Icons]
 Name: "{group}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"; WorkingDir: "{app}"
