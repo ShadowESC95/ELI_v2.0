@@ -3975,7 +3975,7 @@ class CognitiveEngine:
                         except Exception:
                             continue
             except Exception:
-                pass
+                log.debug("suppressed exception", exc_info=True)
 
         if not hits:
             return None
@@ -4040,7 +4040,7 @@ class CognitiveEngine:
                     if value not in (None, "", 0):
                         snap[key] = int(value)
                 except Exception:
-                    pass
+                    log.debug("suppressed exception", exc_info=True)
 
             # Common llama_cpp parameter containers
             for container_name, mappings in (
@@ -4057,7 +4057,7 @@ class CognitiveEngine:
                         if value not in (None, "", 0):
                             snap[key] = int(value)
                 except Exception:
-                    pass
+                    log.debug("suppressed exception", exc_info=True)
 
         # Fallback only if live object did not expose values
         try:
@@ -4069,7 +4069,7 @@ class CognitiveEngine:
             try:
                 snap["n_ctx"] = int(settings.get("n_ctx", 0) or getattr(self, "_ctx", 0) or 0)
             except Exception:
-                pass
+                log.debug("suppressed exception", exc_info=True)
 
         if not snap["gpu_layers"]:
             try:
@@ -4079,19 +4079,19 @@ class CognitiveEngine:
                     or 0
                 )
             except Exception:
-                pass
+                log.debug("suppressed exception", exc_info=True)
 
         if not snap["threads"]:
             try:
                 snap["threads"] = int(settings.get("n_threads", settings.get("threads", 0)) or 0)
             except Exception:
-                pass
+                log.debug("suppressed exception", exc_info=True)
 
         if not snap["batch"]:
             try:
                 snap["batch"] = int(settings.get("n_batch", settings.get("batch", 0)) or 0)
             except Exception:
-                pass
+                log.debug("suppressed exception", exc_info=True)
 
         if not snap["model_name"]:
             snap["model_name"] = "unknown"
@@ -4379,7 +4379,7 @@ Answer:"""
                     context_parts.append(
                         "Known facts about the user:\n" + "\n".join(lines_out[:8000]))
             except Exception:
-                pass
+                log.debug("suppressed exception", exc_info=True)
 
         if profile.get("recent_chat"):
             try:
@@ -4408,7 +4408,7 @@ Answer:"""
                             if _eli_skip_turn(turn.get("role"), turn.get("content")):
                                 continue
                         except Exception:
-                            pass
+                            log.debug("suppressed exception", exc_info=True)
                         role = "User" if turn.get("role") == "user" else "ELI"
                         _raw_ts = turn.get("timestamp", 0) or 0
                         try:
@@ -4448,7 +4448,7 @@ Answer:"""
                                 if _eli_skip_turn(turn.get("role"), turn.get("content")):
                                     continue
                             except Exception:
-                                pass
+                                log.debug("suppressed exception", exc_info=True)
                             role = "User" if turn.get(
                                 "role") == "user" else "ELI"
                             _raw_ts = turn.get("timestamp", 0) or 0
@@ -4561,7 +4561,7 @@ Answer:"""
                                         _hyde_result[0] = expand_query_hyde(
                                             query, _quick_infer, n_hypothetical=1)
                                     except Exception:
-                                        pass
+                                        log.debug("suppressed exception", exc_info=True)
 
                                 _ht = _hyde_thr.Thread(target=_run_hyde, daemon=True)
                                 _ht.start()
@@ -4930,7 +4930,7 @@ Answer:"""
                                 "upset, brisk if they're energetic. Do NOT mention this cue.]")
                         situation_brief = (_cue + "\n\n" + (situation_brief or "")).strip()
         except Exception:
-            pass
+            log.debug("suppressed exception", exc_info=True)
 
         # ── Proactive self-heal notice (recurring-error escalation) ──
         # If ELI flagged a recurring error (≥5×) or attempted a self-fix (≥10×), raise it
@@ -4944,7 +4944,7 @@ Answer:"""
                        + str(_note["message"]) + "]")
                 situation_brief = (_nb + "\n\n" + (situation_brief or "")).strip()
         except Exception:
-            pass
+            log.debug("suppressed exception", exc_info=True)
 
         # ── Live self-model (auto-upgrading self-awareness) ──
         # Inject ELI's current self-model — agents, capabilities, model, world-room, all
@@ -4957,7 +4957,7 @@ Answer:"""
                 if _sm and _sm.strip():
                     situation_brief = (_sm.strip() + "\n\n" + (situation_brief or "")).strip()
         except Exception:
-            pass
+            log.debug("suppressed exception", exc_info=True)
 
         persona = self._compact_persona() if compact else _load_persona_text()
         reasoning_instruction = self._reasoning_mode_instruction(
@@ -4989,7 +4989,7 @@ Answer:"""
             if len(persona) > _persona_budget:
                 persona = persona[:_persona_budget].rstrip() + "\n[persona trimmed to fit evidence]"
         except Exception:
-            pass
+            log.debug("suppressed exception", exc_info=True)
 
         # Grounded runtime identity. When the user asks what/which model you're
         # running (or "are you running a 7b/70b"), answer from the LIVE loaded
@@ -5022,7 +5022,7 @@ Answer:"""
                     )
                     situation_brief = (_rt_line + "\n\n" + (situation_brief or "")).strip()
         except Exception:
-            pass
+            log.debug("suppressed exception", exc_info=True)
 
         # Load user profile from user_profile.json — separate from ELI's persona.
         # Injected prominently so quantized models see it near the top.
@@ -5031,7 +5031,7 @@ Answer:"""
             from eli.kernel.state import get_user_profile_text as _get_profile
             _user_profile_block = _get_profile().strip()
         except Exception:
-            pass
+            log.debug("suppressed exception", exc_info=True)
         if not _user_profile_block:
             # Fallback: name only from state.json
             try:
@@ -5040,7 +5040,7 @@ Answer:"""
                 if _n:
                     _user_profile_block = f"Name: {_n}"
             except Exception:
-                pass
+                log.debug("suppressed exception", exc_info=True)
 
         if _user_profile_block:
             _user_context_rule = (
@@ -5167,7 +5167,7 @@ Answer:"""
                         "broad subject; anchor every point to an actual article you already cited.\n"
                     )
         except Exception:
-            pass
+            log.debug("suppressed exception", exc_info=True)
 
         # Runtime facts are now injected via the SITUATION BRIEF (context_synthesiser
         # _get_runtime_state), which sits in the middle of the prompt where model
@@ -5472,14 +5472,14 @@ Answer:"""
                 try:
                     self._init_gguf()
                 except Exception:
-                    pass
+                    log.debug("suppressed exception", exc_info=True)
 
         try:
             _mode_contract = dict(getattr(self, "_last_mode_execution_contract", {}) or {})
             if _mode_contract:
                 self._maybe_apply_mode_runtime_adaptation(reasoning_mode, _mode_contract)
         except Exception:
-            pass
+            log.debug("suppressed exception", exc_info=True)
 
         if self._gguf_available:
             try:
@@ -5565,7 +5565,7 @@ Answer:"""
                                 if _snap_ctx > 0:
                                     _n_ctx_pf1 = _snap_ctx
                     except Exception:
-                        pass
+                        log.debug("suppressed exception", exc_info=True)
                     # Token estimate uses 3.5 chars/token (Mistral-ish);
                     # earlier code used 3 which under-estimated and let
                     # oversized prompts through.
@@ -5719,7 +5719,7 @@ Answer:"""
                     if _mode_contract:
                         self._maybe_apply_mode_runtime_adaptation(reasoning_mode, _mode_contract)
                 except Exception:
-                    pass
+                    log.debug("suppressed exception", exc_info=True)
                 # ── Context size guard (same logic as non-streaming path) ──
                 # Use the model's REAL usable ceiling (min of loaded n_ctx and
                 # n_ctx_train), not the config default — a model whose trained context
@@ -5809,7 +5809,7 @@ Answer:"""
                                 )
                             prompt = _block + "\n\nYou: " + _orig_msg
                     except Exception:
-                        pass
+                        log.debug("suppressed exception", exc_info=True)
 
                 enhanced_system = self._build_enhanced_system(
                     _trimmed_mem_s,
@@ -5978,7 +5978,7 @@ Answer:"""
                     if _v is not None:
                         gen_overrides[_k] = _v
         except Exception:
-            pass
+            log.debug("suppressed exception", exc_info=True)
         try:
             _mode_contract = dict(getattr(self, "_last_mode_execution_contract", {}) or {})
         except Exception:
@@ -5998,7 +5998,7 @@ Answer:"""
                     target_gpu_layers=int(_rt.get("target_n_gpu_layers") or _rt.get("n_gpu_layers") or 0),
                 )
             except Exception:
-                pass
+                log.debug("suppressed exception", exc_info=True)
         intent_conf = float((intent or {}).get('confidence') or 0.6)
         requires_grounding = self._intent_requires_grounding(
             intent, user_input)
@@ -6212,7 +6212,7 @@ Answer:"""
             from eli.world.world_event_bus import fire_reasoning_stage_event as _frs
             _frs("chain_of_thought", 1, 2, "private_scratchpad_reasoning")
         except Exception:
-            pass
+            log.debug("suppressed exception", exc_info=True)
         reason_prompt = (
             "Think through the following request step by step. "
             "This is your PRIVATE reasoning scratchpad — it will NOT be shown to the user. "
@@ -6240,7 +6240,7 @@ Answer:"""
             from eli.world.world_event_bus import fire_reasoning_stage_event as _frs
             _frs("chain_of_thought", 2, 2, "final_synthesis")
         except Exception:
-            pass
+            log.debug("suppressed exception", exc_info=True)
         final_prompt = (
             "Using your internal reasoning below, write ONLY the final answer to the original request. "
             "Do NOT reproduce your reasoning steps or numbered list. "
@@ -6294,7 +6294,7 @@ Answer:"""
             from eli.core.model_tier import speed_passes as _spass
             k, depth = _spass(k), _spass(depth)
         except Exception:
-            pass
+            log.debug("suppressed exception", exc_info=True)
         max_tok_propose = int(preset.get("max_tokens_propose", 600))
         max_tok_develop = int(preset.get("max_tokens_develop", 1500))
         temp_propose = float(preset.get("temperature_propose", 0.6))
@@ -6305,7 +6305,7 @@ Answer:"""
             from eli.world.world_event_bus import fire_reasoning_stage_event as _frs
             _frs("tree_of_thoughts", 1, 2, "branch_tree_proposal")
         except Exception:
-            pass
+            log.debug("suppressed exception", exc_info=True)
         propose_prompt = (
             f"For the following request, propose {k} DISTINCT high-level approaches. "
             f"For each: name it (1-5 words), state the core idea (1 sentence), "
@@ -6337,7 +6337,7 @@ Answer:"""
                 from eli.world.world_event_bus import fire_reasoning_stage_event as _frs
                 _frs("tree_of_thoughts", _level, depth + 1, "branch_refinement")
             except Exception:
-                pass
+                log.debug("suppressed exception", exc_info=True)
             refine_prompt = (
                 f"Candidate angles for the request (internal — NOT shown to the user):\n\n"
                 f"{candidates}\n\n"
@@ -6359,7 +6359,7 @@ Answer:"""
             from eli.world.world_event_bus import fire_reasoning_stage_event as _frs
             _frs("tree_of_thoughts", depth + 1, depth + 1, "highest_branch_development")
         except Exception:
-            pass
+            log.debug("suppressed exception", exc_info=True)
         develop_prompt = (
             f"You internally evaluated {k} angles (NOT SHOWN TO USER):\n\n"
             f"{candidates}\n\n"
@@ -6409,7 +6409,7 @@ Answer:"""
             from eli.world.world_event_bus import fire_reasoning_stage_event as _frs
             _frs("constitutional_ai", 1, 3, "initial_draft")
         except Exception:
-            pass
+            log.debug("suppressed exception", exc_info=True)
         gen_overrides_1 = dict(gen_overrides or {})
         gen_overrides_1["max_tokens"] = max_tok_gen
         gen_overrides_1["temperature"] = gen_temp
@@ -6425,7 +6425,7 @@ Answer:"""
             from eli.world.world_event_bus import fire_reasoning_stage_event as _frs
             _frs("constitutional_ai", 2, 3, "principle_critique")
         except Exception:
-            pass
+            log.debug("suppressed exception", exc_info=True)
         # Grounded-trust: when the engine already considers this turn well-grounded, the weak
         # local critic must not invent factual problems and delete a correct answer (a grounded
         # the user's name was once nuked to "[no memories found]"). Applied as a PROMPT instruction here
@@ -6496,7 +6496,7 @@ Answer:"""
             from eli.world.world_event_bus import fire_reasoning_stage_event as _frs
             _frs("constitutional_ai", 3, 3, "revision_and_finalize")
         except Exception:
-            pass
+            log.debug("suppressed exception", exc_info=True)
         revise_prompt = (
             "Revise the draft to address the critique. Output ONLY the revised response — "
             "do not narrate the revision, do not restate the critique. "
@@ -6573,7 +6573,7 @@ Answer:"""
             from eli.core.model_tier import speed_passes as _spass
             n = _spass(n)
         except Exception:
-            pass
+            log.debug("suppressed exception", exc_info=True)
         sample_max_tok = int(preset.get("max_tokens_per_sample", preset.get("max_tokens", 1100)))
         final_max_tok = int(
             preset.get(
@@ -6593,7 +6593,7 @@ Answer:"""
                 from eli.world.world_event_bus import fire_reasoning_stage_event as _frs
                 _frs("self_consistency", i + 1, _sc_total_stages, "sample_generation")
             except Exception:
-                pass
+                log.debug("suppressed exception", exc_info=True)
             s = self._get_chat_response(
                 user_input, working_context,
                 reasoning_mode="self_consistency", gen_overrides=sample_overrides,
@@ -6623,7 +6623,7 @@ Answer:"""
             from eli.world.world_event_bus import fire_reasoning_stage_event as _frs
             _frs("self_consistency", _sc_total_stages, _sc_total_stages, "consensus_selection")
         except Exception:
-            pass
+            log.debug("suppressed exception", exc_info=True)
         labelled = "\n\n".join(f"=== SAMPLE {i+1} ===\n{s}" for i, s in enumerate(samples))
         select_prompt = (
             f"{n} independent attempts to answer the same request are below. They may differ. "
@@ -6753,11 +6753,11 @@ Answer:"""
                     f"target_gpu_layers={_rt.get('target_n_gpu_layers')}"
                 )
             except Exception:
-                pass
+                log.debug("suppressed exception", exc_info=True)
 
             return overrides
         except Exception:
-            pass
+            log.debug("suppressed exception", exc_info=True)
 
         # Conservative fallback if mode-contract helpers fail.
         mode = str(reasoning_mode or "quick").strip().lower() or "quick"
@@ -6826,7 +6826,7 @@ Answer:"""
                 self._ctx = int(refreshed.get("n_ctx") or self._ctx)
                 self._gpu_layers = int(refreshed.get("gpu_layers") or self._gpu_layers)
             except Exception:
-                pass
+                log.debug("suppressed exception", exc_info=True)
             self._last_runtime_retune_ts = now_ts
             log.debug(
                 "[MODE][RUNTIME_ADAPT] "
@@ -6854,7 +6854,7 @@ Answer:"""
                 st.get("distinct_sessions", 0) or 0)
             snap["db_path"] = str(st.get("db_path", "") or "")
         except Exception:
-            pass
+            log.debug("suppressed exception", exc_info=True)
         try:
             hits = self.memory.recall_memory(
     "identity preference name", limit=12) or []
@@ -6868,7 +6868,7 @@ Answer:"""
                     snap["known_name"] = m.group(1)
                     break
         except Exception:
-            pass
+            log.debug("suppressed exception", exc_info=True)
         return snap
 
     def _build_grounded_evidence_context(self, user_input: str) -> str:
@@ -6903,7 +6903,7 @@ Answer:"""
                 _sconn.close()
                 if _sem:
                     lines.append(f"- semantic_user_facts: {_sem}")
-            except Exception: pass
+            except Exception: log.debug("suppressed exception", exc_info=True)
             if snap.get("known_name"):
                 lines.append(f"- stored_name_signal: {snap['known_name']}")
 
@@ -6996,7 +6996,7 @@ Answer:"""
                             _sug_obj = _json.loads(_suggestion)
                             _suggestion = _sug_obj.get("suggestion", _suggestion)
                         except Exception:
-                            pass
+                            log.debug("suppressed exception", exc_info=True)
                         _log_lines.append(f"  [{_its}] [{_i[1]}:{_i[2]}] {_suggestion[:100]}")
 
                 # error_tracking table
@@ -7240,7 +7240,7 @@ Answer:"""
             from eli.cognition.reasoning_modes import apply_final_reasoning_contract as _rm_final
             response = _rm_final(response, mode=reasoning_mode)
         except Exception:
-            pass
+            log.debug("suppressed exception", exc_info=True)
         try:
             from eli.cognition.reasoning_modes import canonical_mode as _eli_final_mode
             _eli_mode_key = _eli_final_mode(reasoning_mode)
@@ -7283,7 +7283,7 @@ Answer:"""
                             from eli.cognition.reasoning_modes import apply_final_reasoning_contract as _rm_final2
                             response = _rm_final2(response, mode=reasoning_mode)
                         except Exception:
-                            pass
+                            log.debug("suppressed exception", exc_info=True)
         except Exception as _depth_err:
             log.debug(f"[COGNITIVE] non-quick depth expansion skipped: {_depth_err}")
         try:
@@ -7315,7 +7315,7 @@ Answer:"""
             from eli.cognition.response_sanitizer import sanitize_assistant_text as _san
             response = _san(response) or response
         except Exception:
-            pass
+            log.debug("suppressed exception", exc_info=True)
         grounded = bool(evidence_used)
 
         if threshold is None or float(threshold) <= 0.0:
@@ -7353,7 +7353,7 @@ Answer:"""
                 response=response,
             )
         except Exception:
-            pass
+            log.debug("suppressed exception", exc_info=True)
 
         self._store_assistant_turn(response)
         self._maybe_store_memory(user_input, role="user")
@@ -7364,7 +7364,7 @@ Answer:"""
             if self._engagement:
                 self._engagement.update_confidence(score)
         except Exception:
-            pass
+            log.debug("suppressed exception", exc_info=True)
 
         # Blueprint Post-Response: Weight Decay (runs ~1% of responses to amortise cost)
         try:
@@ -7374,7 +7374,7 @@ Answer:"""
                 if _decayed:
                     log.debug(f"[MEMORY] Weight decay applied to {_decayed} old memories")
         except Exception:
-            pass
+            log.debug("suppressed exception", exc_info=True)
 
         reasoning_meta = {
             "confidence": score,
@@ -7410,7 +7410,7 @@ Answer:"""
                 request_id=str((trace or {}).get("request_id") or ""),
             )
         except Exception:
-            pass
+            log.debug("suppressed exception", exc_info=True)
 
 
         return {
@@ -7718,7 +7718,7 @@ Answer:"""
                     if _pro_text:
                         _extra_blocks.append(f"[PROACTIVE AWARENESS]\n{_pro_text}")
         except Exception:
-            pass
+            log.debug("suppressed exception", exc_info=True)
         # ── Self-awareness: habit execution summary ──────────────────────────
         try:
             _habit_file = _inj_paths().artifacts_dir / "proactive" / "latest_action.txt"
@@ -7729,7 +7729,7 @@ Answer:"""
                     if _habit_text:
                         _extra_blocks.append(f"[RECENT SELF-IMPROVEMENT SIGNALS]\n{_habit_text}")
         except Exception:
-            pass
+            log.debug("suppressed exception", exc_info=True)
 
         # ── World awareness state injection ──────────────────────────────────
         # Inject ELI's live AwarenessState so synthesis knows its own internal
@@ -7789,7 +7789,7 @@ Answer:"""
                     "asked; do NOT invent tasks, contradictions, inconsistencies, or maintenance "
                     "work you are not actually running)\n" + "\n".join(_world_lines))
         except Exception:
-            pass
+            log.debug("suppressed exception", exc_info=True)
 
         # ── Real self-status (anti-confabulation) ────────────────────────────
         # When the user asks how ELI is doing / running / "how was your sleep",
@@ -7870,7 +7870,7 @@ Answer:"""
                     "never bring them up unprompted or treat them as a task to resume]\n"
                     + "\n".join(_pf_lines))
         except Exception:
-            pass
+            log.debug("suppressed exception", exc_info=True)
 
         # ── Home awareness injection ─────────────────────────────────────────
         # On a home/device question, give ELI the REAL device state (what's on, rooms,
@@ -7886,7 +7886,7 @@ Answer:"""
                         "[HOME STATE — real device data from ELI's own device server. Use these "
                         "facts for anything about the user's home; never invent device states]\n" + _hctx)
         except Exception:
-            pass
+            log.debug("suppressed exception", exc_info=True)
 
         # Assemble all injections and cap ONCE so no individual block is silently
         # truncated mid-sentence by a per-injection cap.
@@ -7908,13 +7908,13 @@ Answer:"""
             if _grounding:
                 brief = brief + "\n\n" + _grounding
         except Exception:
-            pass
+            log.debug("suppressed exception", exc_info=True)
 
         try:
             if working_memory is not None:
                 setattr(working_memory, "persona_handoff", brief)
         except Exception:
-            pass
+            log.debug("suppressed exception", exc_info=True)
 
         return brief
 
@@ -7992,103 +7992,91 @@ Answer:"""
         except Exception:
             return []
 
-    def _dispatch_agent_bus(self, user_input: str, intent: dict) -> str:
-        _try_orchestrator = (
-            action == "CHAT"
-            and not _is_brief_phatic_prompt(user_input)
-            and not getattr(self, "_orchestrator_active", False)
-        )
-        if _try_orchestrator:
-            try:
-                _orch_result = self._run_internal_orchestrator(
-                    user_input,
-                    stream=stream,
-                    reasoning_mode=reasoning_mode,
-                )
-                if _orch_result is not None:
-                    return _orch_result
-            except Exception as _orch_err:
-                log.debug(f"[COGNITIVE] internal orchestrator failed, falling back to core pipeline: {_orch_err}")
+    def _correction_repair(self, user_input: str, trace: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+        """CORRECTION shortcut: dynamic repair using the corrected target only.
 
-        # CORRECTION shortcut: dynamic repair using the corrected target only.
-        if _qclass == 'CORRECTION':
-            # Wire correction into adaptation loop
-            try:
-                _si_corr = get_self_improvement()
-                _si_corr.handle_correction(user_input, "CORRECTION")
-            except Exception:
-                pass
+        Returns a finished result dict when the quick repair produced a
+        response; returns None so the caller escalates to the GENERAL
+        pipeline otherwise.
+        """
+        # Wire correction into adaptation loop
+        try:
+            _si_corr = get_self_improvement()
+            _si_corr.handle_correction(user_input, "CORRECTION")
+        except Exception:
+            log.debug("suppressed exception", exc_info=True)
+        _corr_target = user_input
+        try:
+            _quoted = re.findall(r'"([^"]{1,300})"', user_input or "")
+            if _quoted:
+                _corr_target = _quoted[-1]
+        except Exception:
             _corr_target = user_input
+
+        _corr_system = (
+            "You are ELI. Current speech act: CORRECTION_REPAIR. "
+            "The user is correcting your previous answer. Answer only the corrected request. "
+            "Do not introduce memory, runtime, files, diagnostics, identity, projects, or specifications unless the corrected request explicitly asks for them. "
+            "Keep the reply direct, natural, and concise."
+        )
+
+        _corr_response = None
+        if not self._gguf_available and gguf_inference is not None:
+            _ovr3 = gguf_inference.get_live_runtime_override() or {}
+            if _ovr3.get("loaded"):
+                self._gguf_available = True
+                self._gguf_load_error = None
+        if self._gguf_available and gguf_inference is not None:
             try:
-                _quoted = re.findall(r'"([^"]{1,300})"', user_input or "")
-                if _quoted:
-                    _corr_target = _quoted[-1]
-            except Exception:
-                _corr_target = user_input
-
-            _corr_system = (
-                "You are ELI. Current speech act: CORRECTION_REPAIR. "
-                "The user is correcting your previous answer. Answer only the corrected request. "
-                "Do not introduce memory, runtime, files, diagnostics, identity, projects, or specifications unless the corrected request explicitly asks for them. "
-                "Keep the reply direct, natural, and concise."
-            )
-
-            _corr_response = None
-            if not self._gguf_available and gguf_inference is not None:
-                _ovr3 = gguf_inference.get_live_runtime_override() or {}
-                if _ovr3.get("loaded"):
-                    self._gguf_available = True
-                    self._gguf_load_error = None
-            if self._gguf_available and gguf_inference is not None:
-                try:
-                    broker = _get_inference_broker() if _get_inference_broker else None
-                    if broker and broker.gguf_ready:
-                        _corr_response = broker.infer(
+                broker = _get_inference_broker() if _get_inference_broker else None
+                if broker and broker.gguf_ready:
+                    _corr_response = broker.infer(
+                        _corr_target,
+                        system=_corr_system,
+                        max_tokens=160,
+                        temperature=0.35,
+                    )
+                else:
+                    with self._gguf_lock:
+                        _corr_response = gguf_inference.chat_completion(
                             _corr_target,
                             system=_corr_system,
                             max_tokens=160,
                             temperature=0.35,
                         )
-                    else:
-                        with self._gguf_lock:
-                            _corr_response = gguf_inference.chat_completion(
-                                _corr_target,
-                                system=_corr_system,
-                                max_tokens=160,
-                                temperature=0.35,
-                            )
-                except Exception as _ce:
-                    log.debug(f"[COGNITIVE] Correction GGUF call failed: {_ce}")
-                    _corr_response = None
+            except Exception as _ce:
+                log.debug(f"[COGNITIVE] Correction GGUF call failed: {_ce}")
+                _corr_response = None
+
+        if _corr_response:
+            _corr_response = _normalize_assistant_text(_corr_target, _corr_response.strip())
+            try:
+                _corr_response = govern_output(_corr_response or "", is_grounded=False).strip()
+            except Exception:
+                _corr_response = (_corr_response or "").strip()
 
             if _corr_response:
-                _corr_response = _normalize_assistant_text(_corr_target, _corr_response.strip())
-                try:
-                    _corr_response = govern_output(_corr_response or "", is_grounded=False).strip()
-                except Exception:
-                    _corr_response = (_corr_response or "").strip()
+                self._store_assistant_turn(_corr_response)
+                return {
+                    "ok": True,
+                    "action": "CHAT",
+                    "content": _corr_response,
+                    "response": _corr_response,
+                    "confidence": 0.88,
+                    "confidence_score": 0.88,
+                    "evidence_used": False,
+                    "grounded": False,
+                    "meta": {
+                        "speech_act": "CORRECTION_REPAIR",
+                        "corrected_target": _corr_target,
+                    },
+                    "trace": trace,
+                }
 
-                if _corr_response:
-                    self._store_assistant_turn(_corr_response)
-                    return {
-                        "ok": True,
-                        "action": "CHAT",
-                        "content": _corr_response,
-                        "response": _corr_response,
-                        "confidence": 0.88,
-                        "confidence_score": 0.88,
-                        "evidence_used": False,
-                        "grounded": False,
-                        "meta": {
-                            "speech_act": "CORRECTION_REPAIR",
-                            "corrected_target": _corr_target,
-                        },
-                        "trace": trace,
-                    }
+        log.debug("[COGNITIVE] Correction: no direct correction response, escalating to GENERAL pipeline")
+        return None
 
-            log.debug("[COGNITIVE] Correction: no direct correction response, escalating to GENERAL pipeline")
-            _qclass = 'GENERAL'
-
+    def _dispatch_agent_bus(self, user_input: str, intent: dict) -> str:
         try:
             from eli.cognition.agent_bus import get_bus
             dr = get_bus().dispatch(
@@ -8099,7 +8087,7 @@ Answer:"""
             try:
                 self._last_bus_result = dr
             except Exception:
-                pass
+                log.debug("suppressed exception", exc_info=True)
             return str(getattr(dr, "memory_context", "") or "").strip()
         except Exception as e:
             log.debug(f"[COGNITIVE] _dispatch_agent_bus failed: {e}")
@@ -8134,11 +8122,11 @@ Answer:"""
                 log.debug("[COGNITIVE] skipped storing unsupported assistant image/status frame")
                 return
         except Exception:
-            pass
+            log.debug("suppressed exception", exc_info=True)
         try:
             self._last_response = str(text)
         except Exception:
-            pass
+            log.debug("suppressed exception", exc_info=True)
         # Capture any follow-up offer ELI just made ("Want me to update the
         # profile?") so a later "yes" re-routes and actually executes it. This
         # lives at the single store chokepoint every reply path funnels through
@@ -8204,7 +8192,7 @@ Answer:"""
             try:
                 _grounding_score = float(grounding_confidence)
             except Exception:
-                pass
+                log.debug("suppressed exception", exc_info=True)
         if _grounding_score is None:
             try:
                 _grounding_score = float((trace or {}).get("grounding_confidence") or 0.0)
@@ -8229,17 +8217,17 @@ Answer:"""
             if "agent_confidence" in (trace or {}):
                 meta["aggregated_confidence"] = float((trace or {}).get("agent_confidence") or 0.0)
         except Exception:
-            pass
+            log.debug("suppressed exception", exc_info=True)
 
         try:
             self._last_request_meta = dict(meta)
         except Exception:
-            pass
+            log.debug("suppressed exception", exc_info=True)
         try:
             from eli.runtime.last_trace import save_last_trace
             save_last_trace(meta)
         except Exception:
-            pass
+            log.debug("suppressed exception", exc_info=True)
 
     def enqueue_post_response_storage(self, user_input: str, response: str,
                                       intent: dict, command: bool = False,
@@ -8457,7 +8445,7 @@ Answer:"""
                 setattr(working_memory, "intent", intent)
                 setattr(working_memory, "persona_handoff", handoff_brief)
         except Exception:
-            pass
+            log.debug("suppressed exception", exc_info=True)
 
         return assembled_context, final_prompt
 
@@ -8612,7 +8600,7 @@ Answer:"""
                     log.debug(f"[REPLAN] proposed {alt_action} not in SUPPORTED_ACTIONS — keeping original result")
                     return failed_result
             except Exception:
-                pass
+                log.debug("suppressed exception", exc_info=True)
 
             log.debug(f"[REPLAN] Retrying {failed_action} → {alt_action} (attempt {_retry_count + 1})")
             from eli.execution.executor_enhanced import execute as _exec
@@ -8649,13 +8637,13 @@ Answer:"""
             try:
                 response = normalize_response(response, user_input)
             except Exception:
-                pass
+                log.debug("suppressed exception", exc_info=True)
         response = govern_output(response, is_grounded=is_grounded, evidence=memory_context)
         try:
             from eli.cognition.reasoning_modes import apply_final_reasoning_contract as _rm_final
             response = _rm_final(response)
         except Exception:
-            pass
+            log.debug("suppressed exception", exc_info=True)
         try:
             from eli.runtime.diagnostic_patterns import is_vague_dynamic_status_claim
             if is_vague_dynamic_status_claim(response):
@@ -8677,7 +8665,7 @@ Answer:"""
                         synthesized = ""
                     response = synthesized or evidence_packet
         except Exception:
-            pass
+            log.debug("suppressed exception", exc_info=True)
         if not response:
             response = "I lost the thread during generation. Ask it again and I will rebuild from current context."
         return response.strip()
@@ -8931,7 +8919,7 @@ Answer:"""
             __import__("os").environ["ELI_CURRENT_REASONING_MODE"] = _eli_live_mode
             self._reasoning_mode = _eli_live_mode
         except Exception:
-            pass
+            log.debug("suppressed exception", exc_info=True)
         # Request-scoped: the Phase-13 META_DIAGNOSTIC→CHAT veto sets this so the orchestrator
         # path honours it too; reset per request.
         self._eli_phase13_chat_override = False
@@ -8947,7 +8935,7 @@ Answer:"""
                     parts.append(f"{k}={v}")
                 log.debug("[PIPELINE][ENGINE] " + " ".join(parts))
             except Exception:
-                pass
+                log.debug("suppressed exception", exc_info=True)
 
         try:
             _eli_pipeline_req = str(getattr(self, "_pipeline_req_id", "") or "")
@@ -9000,7 +8988,7 @@ Answer:"""
             if _ob_msg is not None:
                 return {"ok": True, "action": "CHAT", "content": _ob_msg, "response": _ob_msg}
         except Exception:
-            pass
+            log.debug("suppressed exception", exc_info=True)
 
         # Handles inputs containing multiple distinct questions, e.g.:
         #   "Story pal? Who are you, and who am I?"  →  3 answers
@@ -9185,7 +9173,7 @@ Answer:"""
             try:
                 object.__setattr__(self, "_current_reasoning_mode", reasoning_mode)
             except Exception:
-                pass
+                log.debug("suppressed exception", exc_info=True)
 
         # deterministic_introspection_engine_gate_v2 — mode-aware
         # Quick mode: deterministic dump is the answer (fast, raw, no GGUF).
@@ -9239,7 +9227,7 @@ Answer:"""
             try:
                 _eli_pm_mw_kwargs.setdefault("reasoning_mode", reasoning_mode)
             except Exception:
-                pass
+                log.debug("suppressed exception", exc_info=True)
 
             _eli_pm_mw_mode = _eli_pm_engine_mode_key(self, (), _eli_pm_mw_kwargs)
 
@@ -9285,7 +9273,7 @@ Answer:"""
             try:
                 _mw_rs_kwargs.setdefault("reasoning_mode", reasoning_mode)
             except Exception:
-                pass
+                log.debug("suppressed exception", exc_info=True)
             _mw_rs_text = _mw_rs_text_from_args((user_input,), _mw_rs_kwargs) or str(user_input or "")
             if _mw_rs_is_runtime_status_question(_mw_rs_text):
                 _mw_rs_mode = _mw_rs_mode_from_args((user_input,), _mw_rs_kwargs)
@@ -9320,7 +9308,7 @@ Answer:"""
             try:
                 _mw_mrs_kwargs.setdefault("reasoning_mode", reasoning_mode)
             except Exception:
-                pass
+                log.debug("suppressed exception", exc_info=True)
             _mw_mrs_text = _mw_rs_text_from_args((user_input,), _mw_mrs_kwargs) or str(user_input or "")
             if _mw_mem_runtime_strict_is_question(_mw_mrs_text):
                 _mw_mrs_mode = _mw_rs_mode_from_args((user_input,), _mw_mrs_kwargs)
@@ -9342,7 +9330,7 @@ Answer:"""
             try:
                 _mw_mct_kwargs.setdefault("reasoning_mode", reasoning_mode)
             except Exception:
-                pass
+                log.debug("suppressed exception", exc_info=True)
             _mw_mct_text = _mw_rs_text_from_args((user_input,), _mw_mct_kwargs) or str(user_input or "")
             if _mw_mc_turns_is_question(_mw_mct_text):
                 _mw_mct_mode = _mw_rs_mode_from_args((user_input,), _mw_mct_kwargs)
@@ -9370,7 +9358,7 @@ Answer:"""
                 try:
                     _eli_mc_mw_kwargs.setdefault("reasoning_mode", reasoning_mode)
                 except Exception:
-                    pass
+                    log.debug("suppressed exception", exc_info=True)
                 _eli_mc_mw_mode = _eli_mc_mode_v4((), _eli_mc_mw_kwargs)
                 _eli_pipe("mw_memory_count_hit", mode=_eli_mc_mw_mode)
                 # MEMORY_COUNT is always deterministic (SQLite fact lookup, no GGUF needed).
@@ -9393,7 +9381,7 @@ Answer:"""
                 try:
                     _eli_rm_kwargs.setdefault("reasoning_mode", reasoning_mode)
                 except Exception:
-                    pass
+                    log.debug("suppressed exception", exc_info=True)
 
                 _eli_rm_mode = _eli_recent_mem_v3_mode((), _eli_rm_kwargs)
                 _eli_pipe("mw_recent_memory_processing_hit", mode=_eli_rm_mode)
@@ -9556,7 +9544,7 @@ Answer:"""
                                     "source": "eli.runtime.deterministic_introspection",
                                 }
                             except Exception:
-                                pass
+                                log.debug("suppressed exception", exc_info=True)
                             if stream:
                                 _eli_det_text = str(_eli_det_response)
                                 def _eli_det_stream():
@@ -9586,7 +9574,7 @@ Answer:"""
                 try:
                     self._store_assistant_turn(final_response)
                 except Exception:
-                    pass
+                    log.debug("suppressed exception", exc_info=True)
                 if stream:
                     def _eli_direct_persona_stream():
                         for piece in self._yield_text_chunks(final_response, chunk_size=24):
@@ -9627,7 +9615,7 @@ Answer:"""
                               f"[COGNITIVE] Auto-escalate: quick → {_deepest} (complexity={_ch})")
                     reasoning_mode = _deepest
             except Exception:
-                pass
+                log.debug("suppressed exception", exc_info=True)
 
         if not _user_turn_stored:
             self._store_user_turn(user_input)
@@ -9638,14 +9626,14 @@ Answer:"""
                 self._working_memory.advance_turn()
                 self._working_memory.absorb_user_message(user_input)
         except Exception:
-            pass
+            log.debug("suppressed exception", exc_info=True)
 
         # ── Engagement tracker: record this turn ──────────────────────────────
         try:
             if self._engagement:
                 self._engagement.record_turn(user_input)
         except Exception:
-            pass
+            log.debug("suppressed exception", exc_info=True)
 
         # Detect and persist explicit user identity declarations. Also allows
         # the user to CORRECT a previously stored name — "my name is X" is
@@ -9690,15 +9678,15 @@ Answer:"""
                             f"User's preferred name is {_candidate}.",
                             source="identity", importance=0.92)
                 except Exception:
-                    pass
+                    log.debug("suppressed exception", exc_info=True)
                 try:
                     from eli.cognition.persona import append_preference
                     append_preference(f"User's preferred name: {_candidate}")
                 except Exception:
-                    pass
+                    log.debug("suppressed exception", exc_info=True)
                 log.debug(f"[COGNITIVE] Explicit user identity detected and stored: {_candidate}")
         except Exception:
-            pass
+            log.debug("suppressed exception", exc_info=True)
 
         # Relational facts — the people/pets the user mentions in passing ("my dog Shadow",
         # "Shadow (my dog)", "my wife is Jane"). ELI stored the user's OWN name but never these,
@@ -9720,11 +9708,11 @@ Answer:"""
                     if self._working_memory:
                         self._working_memory.pin(_rf_text, source="relation", importance=0.82)
                 except Exception:
-                    pass
+                    log.debug("suppressed exception", exc_info=True)
             if _rel_facts:
                 log.debug(f"[COGNITIVE] Relational facts stored: {_rel_facts}")
         except Exception:
-            pass
+            log.debug("suppressed exception", exc_info=True)
 
         # Detect in-session ELI acronym corrections ("ELI = X", "ELI stands for X")
         # and pin them to working memory so the LLM uses the corrected name for the
@@ -9752,11 +9740,11 @@ Answer:"""
                                 importance=0.95,
                             )
                         except Exception:
-                            pass
+                            log.debug("suppressed exception", exc_info=True)
                         log.debug(f"[COGNITIVE] ELI acronym correction stored: {_correction}")
                         break
         except Exception:
-            pass
+            log.debug("suppressed exception", exc_info=True)
 
         context = self.memory.get_recent_conversation(5, user_id=getattr(self, "user_id", None))
 
@@ -9889,7 +9877,7 @@ Answer:"""
                     "action": action, "args": dict(args or {}), "input": user_input,
                 }
         except Exception:
-            pass
+            log.debug("suppressed exception", exc_info=True)
 
         def _eli_phase13_explicit_meta_diagnostic_request(probe: str) -> bool:
             """Return True only when the user is explicitly requesting a meta/diagnostic
@@ -10077,7 +10065,7 @@ Answer:"""
                         intent["allow_chat_without_evidence"] = True
                         intent["_deepen_topic"] = _deepen_topic
         except Exception:
-            pass
+            log.debug("suppressed exception", exc_info=True)
 
         # Route deterministic controls straight to executor. No AgentBus, no memory,
         # no GGUF, no persona synthesis. This is what OS-layer commands need.
@@ -10108,6 +10096,14 @@ Answer:"""
         # only — every class flows through the full bus + persona pipeline so
         # the LLM persona produces the final response from grounded evidence).
         _qclass = _classify_query(user_input, action)
+        # CORRECTION shortcut: the user is correcting the previous answer
+        # ("that's not what I asked"). Try a direct steered repair before the
+        # heavy pipeline; on failure fall through as GENERAL.
+        if _qclass == 'CORRECTION':
+            _corr_result = self._correction_repair(user_input, trace)
+            if _corr_result is not None:
+                return _corr_result
+            _qclass = 'GENERAL'
         # Router-owned RUNTIME_STATUS must not be rewritten into SELF_REPORT.
         # SELF_REPORT is identity/persona evidence; RUNTIME_STATUS is live runtime evidence.
         try:
@@ -10299,7 +10295,7 @@ Answer:"""
                     action=action,
                 )
             except Exception:
-                pass
+                log.debug("suppressed exception", exc_info=True)
 
             # ── Low-grounding re-selection (LLM-resolver soft-action mis-guess) ───
             # When the LLM intent resolver CONFIDENTLY picked a soft informational action but the
@@ -10351,7 +10347,7 @@ Answer:"""
                             self._store_assistant_turn(
                                 str(_esc.get("response") or _esc.get("content") or ""))
                         except Exception:
-                            pass
+                            log.debug("suppressed exception", exc_info=True)
                         return _esc
                 except Exception as _esc_err:
                     log.debug(f"[COGNITIVE] grounding escalation skipped: {_esc_err}")
@@ -10615,7 +10611,7 @@ Answer:"""
                                 try:
                                     self._store_assistant_turn(_final_text)
                                 except Exception:
-                                    pass
+                                    log.debug("suppressed exception", exc_info=True)
                                 _direct_conf = max(float(getattr(bus_result, "aggregated_confidence", 0.0) or 0.0), 0.85)
                                 try:
                                     self._publish_last_response_meta(
@@ -10629,11 +10625,11 @@ Answer:"""
                                         response=_final_text,
                                     )
                                 except Exception:
-                                    pass
+                                    log.debug("suppressed exception", exc_info=True)
                                 try:
                                     self._learn_from_result(intent, _chosen_payload)
                                 except Exception:
-                                    pass
+                                    log.debug("suppressed exception", exc_info=True)
                                 try:
                                     self._execute_post_actions(trace, _chosen_payload)
                                 except Exception as _pa_err:
@@ -10685,7 +10681,7 @@ Answer:"""
                             try:
                                 self._store_assistant_turn(_direct_content)
                             except Exception:
-                                pass
+                                log.debug("suppressed exception", exc_info=True)
                             _direct_conf = max(float(getattr(bus_result, "aggregated_confidence", 0.0) or 0.0), 0.90)
                             try:
                                 self._publish_last_response_meta(
@@ -10699,11 +10695,11 @@ Answer:"""
                                     response=_direct_content,
                                 )
                             except Exception:
-                                pass
+                                log.debug("suppressed exception", exc_info=True)
                             try:
                                 self._learn_from_result(intent, _chosen_payload)
                             except Exception:
-                                pass
+                                log.debug("suppressed exception", exc_info=True)
                             try:
                                 self._execute_post_actions(trace, _chosen_payload)
                             except Exception as _pa_err:
@@ -10780,7 +10776,7 @@ Answer:"""
                             try:
                                 self._store_assistant_turn(_final_text)
                             except Exception:
-                                pass
+                                log.debug("suppressed exception", exc_info=True)
                             _direct_conf = max(float(getattr(bus_result, "aggregated_confidence", 0.0) or 0.0), 0.90)
                             try:
                                 self._publish_last_response_meta(
@@ -10794,11 +10790,11 @@ Answer:"""
                                     response=_final_text,
                                 )
                             except Exception:
-                                pass
+                                log.debug("suppressed exception", exc_info=True)
                             try:
                                 self._learn_from_result(intent, _chosen_payload)
                             except Exception:
-                                pass
+                                log.debug("suppressed exception", exc_info=True)
                             try:
                                 self._execute_post_actions(trace, _chosen_payload)
                             except Exception as _pa_err:
@@ -11020,11 +11016,11 @@ Answer:"""
                     _final["meta"]["tool_evidence_source"] = _ev_result.get("evidence_source")
                     _final["meta"]["orchestrator_plan"] = trace.get("orchestrator_plan")
                 except Exception:
-                    pass
+                    log.debug("suppressed exception", exc_info=True)
                 try:
                     self._learn_from_result(intent, _ev_result)
                 except Exception:
-                    pass
+                    log.debug("suppressed exception", exc_info=True)
                 try:
                     self._execute_post_actions(trace, _ev_result)
                 except Exception as _pa_err:
@@ -11123,11 +11119,11 @@ Answer:"""
                         try:
                             self._store_assistant_turn(_self_text)
                         except Exception:
-                            pass
+                            log.debug("suppressed exception", exc_info=True)
                         try:
                             self._learn_from_result(intent, _self_payload)
                         except Exception:
-                            pass
+                            log.debug("suppressed exception", exc_info=True)
                         try:
                             self._execute_post_actions(trace, _self_payload)
                         except Exception as _pa_err:
@@ -11283,7 +11279,7 @@ Answer:"""
                     try:
                         self._store_assistant_turn(_direct)
                     except Exception:
-                        pass
+                        log.debug("suppressed exception", exc_info=True)
                     return {
                         'ok': True, 'action': action,
                         'content': _direct, 'response': _direct,
@@ -11321,7 +11317,7 @@ Answer:"""
                     try:
                         self._store_assistant_turn(_img_direct)
                     except Exception:
-                        pass
+                        log.debug("suppressed exception", exc_info=True)
                     ok_flag = bool(_action_result.get("ok", True)) if isinstance(_action_result, dict) else True
                     return {
                         'ok': ok_flag, 'action': action,
@@ -11404,7 +11400,7 @@ Answer:"""
                 self._prev_bus_result = getattr(self, "_last_bus_result", None)
                 self._last_bus_result = bus_result
             except Exception:
-                pass
+                log.debug("suppressed exception", exc_info=True)
 
             admin_executor_actions = set(getattr(self, "admin_executor_actions", set()) or set())
 
@@ -11461,7 +11457,7 @@ Answer:"""
                             if _pinned:
                                 log.debug(f"[WM] Pinned {_pinned} new fact(s) from memory hits")
                     except Exception:
-                        pass
+                        log.debug("suppressed exception", exc_info=True)
                 if bus_memory_context and bus_memory_context not in memory_context:
                     memory_context = (
     memory_context +
@@ -11645,7 +11641,7 @@ Answer:"""
                         try:
                             self._last_request_meta = dict(_lt)
                         except Exception:
-                            pass
+                            log.debug("suppressed exception", exc_info=True)
 
                         _lines.append(
                             f"- aggregated_confidence: {_score}" + (f" ({_label})" if _label else "")
@@ -11758,7 +11754,7 @@ Answer:"""
             try:
                 self._awareness.refresh()
             except Exception:
-                pass
+                log.debug("suppressed exception", exc_info=True)
         if not result.get("ok", False):
             try:
                 si = get_self_improvement()
@@ -11788,7 +11784,7 @@ Answer:"""
                         _wm_summary, source="executor", importance=_wm_imp
                     )
             except Exception:
-                pass
+                log.debug("suppressed exception", exc_info=True)
         # ── End WorkingMemory pin ──────────────────────────────────────────
 
         raw_response = str(result.get("content", "") or result.get("response", "") or "").strip()
@@ -11912,7 +11908,7 @@ Answer:"""
                         "meta": {"matched_by": "phatic.fastpath",
                                  "allow_chat_without_evidence": True}}
         except Exception:
-            pass
+            log.debug("suppressed exception", exc_info=True)
         # Unmatched → grounded LLM intent resolver (real catalogue, cached). Only
         # adopt a confident, actionable result; otherwise fall through to chat.
         try:
@@ -11939,7 +11935,7 @@ Answer:"""
                           f"(conf {li.get('confidence')})")
                 return li
         except Exception:
-            pass
+            log.debug("suppressed exception", exc_info=True)
         # Genuine conversation.
         if router_intent and _matched_by == "fallback.chat":
             return router_intent
@@ -11957,7 +11953,7 @@ Answer:"""
             try:
                 parts.append(str(tok or ""))
             except Exception:
-                pass
+                log.debug("suppressed exception", exc_info=True)
             yield tok
         full = "".join(parts).strip()
         if not full or getattr(self, "_in_followthrough", False):
@@ -12086,7 +12082,7 @@ Answer:"""
                     parts.append(f"{k}={v}")
                 log.debug("[PIPELINE][ENGINE_STREAM] " + " ".join(parts))
             except Exception:
-                pass
+                log.debug("suppressed exception", exc_info=True)
 
         if not prompt:
             return
@@ -12169,7 +12165,7 @@ Answer:"""
                 if _profile_txt:
                     memory_context = f"USER PROFILE:\n{_profile_txt}"
             except Exception:
-                pass
+                log.debug("suppressed exception", exc_info=True)
             log.debug("[COGNITIVE] Stream: rapport prompt — lightweight profile context only")
             _eli_pipe_stream("context_mode", mode="rapport_profile_only")
         elif _phatic_stream:
@@ -12418,7 +12414,7 @@ Answer:"""
                 try:
                     self._store_assistant_turn(_fault)
                 except Exception:
-                    pass
+                    log.debug("suppressed exception", exc_info=True)
                 log.debug(f"[COGNITIVE][TIMING] stream_total={_time.perf_counter() - started:.3f}s")
                 return
 
@@ -12715,7 +12711,7 @@ Answer:"""
                                 self._working_memory.pin(
                                     fact, source=f"auto_{tag}", importance=_imp)
                         except Exception:
-                            pass
+                            log.debug("suppressed exception", exc_info=True)
                         # Post-response: also index in vector store
                         try:
                             from eli.memory.vector_store import get_vector_store
@@ -12724,7 +12720,7 @@ Answer:"""
                                 _vs.add(fact, metadata={"tags": tag, "source": source,
                                                         "importance": _imp})
                         except Exception:
-                            pass
+                            log.debug("suppressed exception", exc_info=True)
                 except Exception as mem_e:
                     log.debug(f"[MEMORY] store failed: {mem_e}")
         else:
@@ -12741,14 +12737,14 @@ Answer:"""
                 if _wm_db:
                     self._working_memory.persist(_wm_db)
         except Exception:
-            pass
+            log.debug("suppressed exception", exc_info=True)
 
         # --- Periodic session digest (every 20 turns) ---
         try:
             if getattr(self, "_wm_turn_counter", 0) % 20 == 0:
                 self._generate_session_digest()
         except Exception:
-            pass
+            log.debug("suppressed exception", exc_info=True)
 
     def _generate_session_digest(self) -> None:
         """Summarise the last 20 conversation turns into a searchable session digest memory."""
@@ -12780,7 +12776,7 @@ Answer:"""
                 if any("Session digest" in str(m.get("text", "")) for m in existing):
                     return
             except Exception:
-                pass
+                log.debug("suppressed exception", exc_info=True)
             self.memory.store_memory(
                 digest,
                 tags=["session_digest", "auto"],
@@ -12789,7 +12785,7 @@ Answer:"""
                 importance=0.50,
             )
         except Exception:
-            pass
+            log.debug("suppressed exception", exc_info=True)
 
     def _learn_from_result(
         self, intent: Dict[str, Any], result: Dict[str, Any]) -> None:
@@ -12813,7 +12809,7 @@ Answer:"""
                 },
             )
         except Exception:
-            pass
+            log.debug("suppressed exception", exc_info=True)
 
         try:
             self.memory.log_habit_event(
@@ -12827,7 +12823,7 @@ Answer:"""
                 },
             )
         except Exception:
-            pass
+            log.debug("suppressed exception", exc_info=True)
 
         try:
             from eli.runtime.evidence_ledger import record_event as _eli_record_event
@@ -12850,7 +12846,7 @@ Answer:"""
                 user_id=str(getattr(self, "user_id", "") or ""),
             )
         except Exception:
-            pass
+            log.debug("suppressed exception", exc_info=True)
 
         if action == "OPEN_APP" and ok:
             name = args.get("name") or args.get("target") or args.get("app")
@@ -12916,7 +12912,7 @@ Answer:"""
                                 importance=0.68,
                             )
                         except Exception:
-                            pass
+                            log.debug("suppressed exception", exc_info=True)
             except Exception as e:
                 log.debug(f"[COGNITIVE] Reflection failed: {e}")
         finally:
@@ -13194,7 +13190,7 @@ Answer:"""
                 # hallucination, it was created right here.)
                 ev = ev.replace(_proj_root + '/', '').replace(_proj_root, '')
         except Exception:
-            pass
+            log.debug("suppressed exception", exc_info=True)
 
         _ev_cap = 8000
         if len(ev) > _ev_cap:
@@ -13222,7 +13218,7 @@ Answer:"""
                 if 40 < len(_vtxt) <= 700:
                     _voice_primer = "VOICE (non-negotiable, phrasing only — never changes a fact): " + _vtxt
         except Exception:
-            pass
+            log.debug("suppressed exception", exc_info=True)
 
         system = (
             "You are ELI. Answer using ONLY the GROUNDED EVIDENCE block below. "
@@ -13275,7 +13271,7 @@ Answer:"""
             try:
                 text = _strip_reasoning_scaffold(text)
             except Exception:
-                pass
+                log.debug("suppressed exception", exc_info=True)
             # Fact-preservation guard: a small model re-narrating grounded evidence often
             # CORRUPTS file paths — observed "eli/eli/execution/router_enhanced.py" (a doubled
             # segment that is NOT in the evidence). Deterministically repair doubled path
@@ -13284,7 +13280,7 @@ Answer:"""
             try:
                 text = self._repair_synthesis_paths(text, ev)
             except Exception:
-                pass
+                log.debug("suppressed exception", exc_info=True)
             return text
         except Exception as exc:
             log.debug(f"[COGNITIVE] _compact_grounded_synthesis failed: {exc}")
@@ -13411,7 +13407,7 @@ Answer:"""
             try:
                 _eli_clear_current_action()
             except Exception:
-                pass
+                log.debug("suppressed exception", exc_info=True)
             log.debug(f"[COGNITIVE] _synthesize_answer LLM call failed: {e}")
         return ""
 
