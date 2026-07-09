@@ -163,6 +163,10 @@ def _pin_frozen_root() -> None:
     os.environ.setdefault("ELI_ARTIFACTS_DIR", str(root / "artifacts"))
     os.environ.setdefault("ELI_CONFIG_DIR", str(root / "config"))
     os.environ.setdefault("ELI_MODELS_DIR", str(root / "models"))
+    # Custom agents are created at runtime; both the GUI writer and the
+    # agent-bus loader honor this variable (module-relative default is
+    # read-only in frozen builds).
+    os.environ.setdefault("ELI_CUSTOM_AGENTS_DIR", str(root / "eli" / "brain" / "agents" / "custom"))
 
 
 _pin_frozen_root()

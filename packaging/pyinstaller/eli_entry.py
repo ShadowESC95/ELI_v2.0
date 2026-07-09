@@ -54,12 +54,18 @@ def _assert_paths_outside_bundle() -> None:
     from eli.runtime import grounded_remediation as _grem
     bundle = Path(getattr(sys, "_MEIPASS", Path(sys.executable).parent)).resolve()
     exe_dir = Path(sys.executable).resolve().parent
+    from eli.cognition import persona as _persona
+    from eli.tools.image_engine import runtime_paths as _img_paths
     checks = {
         "project_root": Path(_paths.project_root()),
         "data_dir": Path(_paths.data_dir()),
         "config_dir": Path(_paths.config_dir()),
         "models_dir": Path(_paths.models_dir()),
         "remediation_root": _grem._root(),
+        # runtime WRITE targets that shipped broken once each — keep gated
+        "persona_auto_file": Path(_persona._PERSONA_AUTO_FILE),
+        "image_artifacts_dir": Path(_img_paths.artifacts_dir()),
+        "custom_agents_dir": Path(os.environ.get("ELI_CUSTOM_AGENTS_DIR", "")) if os.environ.get("ELI_CUSTOM_AGENTS_DIR") else Path(_paths.project_root()) / "eli",
     }
     for name, p in checks.items():
         rp = p.resolve()

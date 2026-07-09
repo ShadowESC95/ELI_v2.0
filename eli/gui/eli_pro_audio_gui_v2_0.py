@@ -6933,8 +6933,13 @@ class EliMainWindow(QMainWindow):
                 persona_output=persona_output,
             )
 
-            # Resolve target file path before showing preview.
-            agents_custom_dir = Path(__file__).resolve().parents[1] / "brain" / "agents" / "custom"
+            # Resolve target file path before showing preview. Custom agents
+            # are runtime WRITES: honor ELI_CUSTOM_AGENTS_DIR (set by the
+            # frozen runtime hook — the module dir is read-only there; the
+            # agent-bus loader honors the same variable).
+            _custom_env = os.environ.get("ELI_CUSTOM_AGENTS_DIR", "").strip()
+            agents_custom_dir = (Path(_custom_env) if _custom_env
+                                 else Path(__file__).resolve().parents[1] / "brain" / "agents" / "custom")
             agents_custom_dir.mkdir(parents=True, exist_ok=True)
             (agents_custom_dir / "__init__.py").touch(exist_ok=True)
             agent_file = agents_custom_dir / f"{agent_name}.py"
