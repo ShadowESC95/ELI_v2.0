@@ -60,6 +60,12 @@ import re
 from pathlib import Path
 from typing import Dict, Any, Optional, Tuple, List
 
+# Logger for safety-wrapper suppressed-exception reporting (used before the
+# module's main logger exists; must be defined at the top of the file).
+import logging as _swlog_logging
+_SWLOG = _swlog_logging.getLogger(__name__)
+
+
 # ============================================================
 # PRE-COMPILED REGEX — module-level so route() pays zero compile cost.
 # Python caches up to 512 recently-used patterns, but 379 inline calls
