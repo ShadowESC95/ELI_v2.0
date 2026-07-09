@@ -8,12 +8,19 @@ Option B (TWO DBs):
 - Writes proactive observations/improvements/errors to AGENT DB
 """
 
+import hashlib
 import os
 import re
 import sys
 import time
 import subprocess
 import json
+
+# Logger for safety-wrapper suppressed-exception reporting (used before the
+# module's main logger exists; must be defined at the top of the file).
+import logging as _swlog_logging
+_SWLOG = _swlog_logging.getLogger(__name__)
+
 import sqlite3
 from pathlib import Path
 from datetime import datetime
@@ -62,9 +69,49 @@ class ProactiveDaemon:
         # (but this should always refer to AGENT DB in Option B)
         self.db_path = Path(self.agent_mem.db_path)
 
+        # Cross-tick suggestion dedup: normalized-text → last-emitted epoch.
+        # analyze_user_patterns() re-derives the same stable signals every
+        # 10-minute cycle (user_goal, time_habit, topic_focus…); without this
+        # the proactive tab fills with identical repeats. Persisted so a
+        # restart doesn't replay the backlog either.
+        self._emitted_suggestions: Dict[str, float] = {}
+        self._emitted_path = Path(self.user_mem.db_path).parent.parent / "proactive" / "emitted_suggestions.json"
+        try:
+            if self._emitted_path.exists():
+                self._emitted_suggestions = {
+                    str(k): float(v)
+                    for k, v in json.loads(self._emitted_path.read_text(encoding="utf-8")).items()
+                }
+        except Exception:
+            _SWLOG.debug("suppressed exception", exc_info=True)
+
         log.debug("[PROACTIVE] Daemon initialized")
         log.debug(f"[PROACTIVE] USER DB  : {self.user_mem.db_path}")
         log.debug(f"[PROACTIVE] AGENT DB : {self.agent_mem.db_path}")
+
+    def _should_emit(self, kind: str, text: str, ttl_sec: float = 24 * 3600) -> bool:
+        """True when this (kind, text) suggestion hasn't been surfaced within
+        ttl_sec. A changed text (e.g. a new focus topic) always passes — dedup
+        is on content, so evolving signals still come through."""
+        norm = " ".join(str(text or "").lower().split())
+        if not norm:
+            return False
+        key = f"{kind}|{hashlib.sha1(norm.encode()).hexdigest()}"
+        now = time.time()
+        # purge expired entries so the state file stays small
+        self._emitted_suggestions = {
+            k: v for k, v in self._emitted_suggestions.items() if now - v < ttl_sec
+        }
+        if key in self._emitted_suggestions:
+            return False
+        self._emitted_suggestions[key] = now
+        try:
+            self._emitted_path.parent.mkdir(parents=True, exist_ok=True)
+            self._emitted_path.write_text(
+                json.dumps(self._emitted_suggestions), encoding="utf-8")
+        except Exception:
+            _SWLOG.debug("suppressed exception", exc_info=True)
+        return True
 
     # ------------------------------
     # Low-level helpers (agent DB)
@@ -904,14 +951,20 @@ Date: {datetime.now().strftime("%A %B %d %H:%M")} | Interactions last 24h: {inte
                         _SWLOG.debug("suppressed exception", exc_info=True)
 
                     for pattern in patterns:
-                        self.suggestion_queue.put(("pattern", pattern))
+                        if self._should_emit("pattern", pattern.get("suggestion", "")):
+                            self.suggestion_queue.put(("pattern", pattern))
                     for improvement in improvements:
-                        self.suggestion_queue.put(("improvement", improvement))
+                        _imp_txt = (improvement.get("detail") or improvement.get("description")
+                                    or improvement.get("suggestion") or "")
+                        if self._should_emit("improvement", _imp_txt):
+                            self.suggestion_queue.put(("improvement", improvement))
 
                     # ── Home automation suggestions (from device usage) ─────
                     try:
                         from eli.runtime.home_intel import suggestions as _home_sugg
                         for _hs in _home_sugg():
+                            if not self._should_emit("home", _hs.get("text") or ""):
+                                continue
                             self.suggestion_queue.put(("home", {
                                 "type": "home",
                                 "suggestion": _hs.get("text"),
