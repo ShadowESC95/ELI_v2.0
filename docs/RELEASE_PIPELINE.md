@@ -41,8 +41,11 @@ pack downloads the matching CUDA build from the official llama-cpp-python
 wheel index into `<ELI root>/runtime/gpu`, which shadows the bundled CPU
 copy on the next launch (`llama_cpp` is collected as on-disk files via
 `module_collection_mode` precisely so sys.path priority can do this).
-AMD GPUs: no official prebuilt wheels exist (Vulkan/ROCm) — CPU inference is
-used; a CI-built Vulkan pack is a planned follow-up.
+AMD / Intel Arc GPUs use CI-built **Vulkan** wheels (no official prebuilt
+ones exist): the `gpu-packs` workflow in ELI_v2.0 compiles llama-cpp-python
+with `-DGGML_VULKAN=on` and publishes to the `gpu-packs` pre-release;
+`--install-gpu-pack` picks them automatically on AMD (`--vulkan` forces it,
+e.g. for Intel Arc). Drivers already ship the Vulkan loader the wheel needs.
 
 ## Moving parts
 

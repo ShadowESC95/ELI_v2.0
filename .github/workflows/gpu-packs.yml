@@ -1,0 +1,97 @@
+# Build Vulkan llama-cpp-python wheels for the ELI GPU pack (AMD / Intel Arc).
+#
+# No official prebuilt Vulkan wheels exist upstream, so this compiles them:
+#   windows-latest + ubuntu-latest, python 3.11 (same as the frozen app),
+#   CMAKE_ARGS=-DGGML_VULKAN=on, and publishes them (renamed vulkan-*.whl) to
+#   the `gpu-packs` pre-release. eli_gpu_pack.py downloads from there when it
+#   detects an AMD GPU (or with --vulkan).
+#
+# Runtime needs only the Vulkan loader, which AMD/Intel/NVIDIA drivers ship;
+# glslc/the SDK are build-time-only. Re-run manually to refresh the wheels.
+
+name: gpu-packs
+
+on:
+  workflow_dispatch:
+    inputs:
+      llama_version:
+        description: "llama-cpp-python version to build"
+        default: "0.3.19"
+        required: true
+
+permissions:
+  contents: write
+
+env:
+  PYTHON_VERSION: "3.11"   # must match the frozen app's interpreter
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: Vulkan SDK (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libvulkan-dev glslc || {
+            echo "::error::libvulkan-dev/glslc unavailable — Vulkan build cannot proceed"; exit 1; }
+          glslc --version
+
+      - name: Vulkan SDK (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          curl.exe -fsSL -o vulkan_sdk.exe https://sdk.lunarg.com/sdk/download/latest/windows/vulkan_sdk.exe
+          Start-Process -Wait -FilePath .\vulkan_sdk.exe -ArgumentList "--accept-licenses","--default-answer","--confirm-command","install"
+          $sdk = (Get-ChildItem C:\VulkanSDK | Sort-Object Name -Descending | Select-Object -First 1).FullName
+          if (-not $sdk) { Write-Error "Vulkan SDK install failed"; exit 1 }
+          echo "VULKAN_SDK=$sdk" >> $env:GITHUB_ENV
+          echo "$sdk\Bin" >> $env:GITHUB_PATH
+
+      - name: Build Vulkan wheel
+        shell: bash
+        env:
+          CMAKE_ARGS: "-DGGML_VULKAN=on"
+        run: |
+          set -euo pipefail
+          python -m pip install --upgrade pip wheel cmake ninja
+          python -m pip wheel "llama-cpp-python==${{ inputs.llama_version }}" \
+            --no-deps --no-binary llama-cpp-python -w wheelhouse
+          ls -lh wheelhouse
+          for f in wheelhouse/llama_cpp_python-*.whl; do
+            mv "$f" "wheelhouse/vulkan-$(basename "$f")"
+          done
+          ls -lh wheelhouse
+
+      - name: Sanity — wheel contains the Vulkan backend
+        shell: bash
+        run: |
+          python - <<'EOF'
+          import glob, sys, zipfile
+          whl = glob.glob("wheelhouse/vulkan-*.whl")[0]
+          names = zipfile.ZipFile(whl).namelist()
+          hits = [n for n in names if "vulkan" in n.lower()]
+          print("vulkan artifacts in wheel:", hits or "NONE")
+          sys.exit(0 if hits else 1)
+          EOF
+
+      - name: Publish to the gpu-packs pre-release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: gpu-packs
+          name: "ELI GPU packs (Vulkan llama.cpp builds)"
+          prerelease: true
+          body: >
+            CI-built Vulkan wheels of llama-cpp-python for the ELI GPU pack
+            (AMD / Intel Arc). Installed automatically by
+            `ELI --install-gpu-pack`; not meant for manual pip use.
+          files: wheelhouse/vulkan-*.whl
+          fail_on_unmatched_files: true

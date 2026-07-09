@@ -9,7 +9,14 @@ and the runtime hook puts that directory FIRST on sys.path, so the CUDA copy
 shadows the bundled CPU copy on the next launch. Like models and voices, the
 heavy GPU binaries are per-machine downloads, never part of the installer.
 
-Invoked via:  ELI --install-gpu-pack   (ELI-Server.exe on Windows shows progress)
+Backends:
+  NVIDIA      official CUDA wheels (abetlen index), picked by driver version
+  AMD/Intel   CI-built Vulkan wheels from the ELI_v2.0 `gpu-packs` release
+              (auto on AMD; use --vulkan to force, e.g. Intel Arc)
+  Apple       nothing to do — the macOS bundle already uses Metal
+
+Invoked via:  ELI --install-gpu-pack [--vulkan] [--force]
+              (ELI-Server.exe on Windows shows progress)
 """
 from __future__ import annotations
 
@@ -26,6 +33,9 @@ from pathlib import Path
 WHEEL_INDEX = "https://abetlen.github.io/llama-cpp-python/whl/{cuda}/llama-cpp-python/"
 # Newest first — pick the newest index the driver supports.
 CUDA_INDEXES = ("cu124", "cu123", "cu122", "cu121")
+# CI-built Vulkan wheels (AMD / Intel Arc) — built by .github/workflows/
+# gpu-packs.yml in the public ELI_v2.0 repo; both v2 and v3 download from it.
+VULKAN_RELEASE_API = "https://api.github.com/repos/ShadowESC95/ELI_v2.0/releases/tags/gpu-packs"
 
 
 def _say(msg: str) -> None:
@@ -106,8 +116,28 @@ def _pick_wheel(cuda_idx: str) -> tuple[str, str] | None:
     return version, urllib.request.urljoin(url, href)
 
 
+def _pick_vulkan_wheel() -> tuple[str, str] | None:
+    """Return (version, url) of the CI-built Vulkan wheel for this python/platform."""
+    try:
+        with urllib.request.urlopen(VULKAN_RELEASE_API, timeout=30) as r:
+            assets = json.load(r).get("assets", [])
+    except Exception as exc:
+        _say(f"gpu-packs release unavailable ({exc})")
+        return None
+    py = f"cp{sys.version_info.major}{sys.version_info.minor}"
+    plat = _platform_tag()
+    pat = re.compile(r"vulkan-llama_cpp_python-(\d+(?:\.\d+)+)-%s-%s-.*%s\.whl" % (py, py, plat))
+    for a in assets:
+        m = pat.fullmatch(a.get("name", ""))
+        if m:
+            return m.group(1), a["browser_download_url"]
+    return None
+
+
 def install(argv: list[str] | None = None) -> int:
-    force = bool(argv and "--force" in argv)
+    argv = argv or []
+    force = "--force" in argv
+    want_vulkan = "--vulkan" in argv
     try:
         root = _eli_root()
     except RuntimeError as exc:
@@ -118,38 +148,42 @@ def install(argv: list[str] | None = None) -> int:
         _say(f"GPU pack already installed at {dest} (use --force to reinstall)")
         return 0
 
-    drv = _driver_cuda_version()
-    if drv is None:
-        if _has_amd_gpu():
+    drv = None if want_vulkan else _driver_cuda_version()
+    if drv is not None:
+        _say(f"NVIDIA driver supports CUDA {drv[0]}.{drv[1]}")
+        candidates = [c for c in CUDA_INDEXES if (int(c[2:4]), int(c[4:])) <= drv]
+        if not candidates:
+            return _fail(f"driver CUDA {drv[0]}.{drv[1]} is older than the oldest wheel index ({CUDA_INDEXES[-1]}) — update the NVIDIA driver")
+        picked = None
+        for cuda_idx in candidates:
+            found = _pick_wheel(cuda_idx)
+            if found:
+                picked = (cuda_idx, *found)
+                break
+        if not picked:
+            return _fail("no CUDA wheel found for this python/platform in the llama-cpp-python index")
+        backend, version, url = picked
+    elif want_vulkan or _has_amd_gpu():
+        # AMD / Intel Arc (or forced): CI-built Vulkan backend. The GPU
+        # driver already ships the Vulkan loader the wheel needs.
+        _say("using the Vulkan backend (AMD / Intel Arc)" if not want_vulkan
+             else "Vulkan backend forced (--vulkan)")
+        found = _pick_vulkan_wheel()
+        if not found:
             return _fail(
-                "AMD GPU detected. llama.cpp supports AMD via Vulkan/ROCm, but no "
-                "official prebuilt python wheels exist yet, so the GPU pack cannot "
-                "install one — ELI continues with CPU inference. A Vulkan GPU pack "
-                "built by this project's CI is planned; source installs (install.sh) "
-                "can compile llama-cpp-python with -DGGML_VULKAN=on today."
+                "no Vulkan wheel available for this python/platform in the "
+                "gpu-packs release — run the gpu-packs workflow in ELI_v2.0, "
+                "or use a source install. CPU inference keeps working."
             )
+        backend, (version, url) = "vulkan", found
+    else:
         return _fail(
-            "no NVIDIA driver detected (nvidia-smi not found or unreadable). "
-            "The GPU pack only accelerates NVIDIA cards; Apple GPUs are already "
-            "supported by the macOS build, and CPU inference keeps working."
+            "no supported GPU detected (no NVIDIA driver, no AMD GPU). Apple "
+            "GPUs are already supported by the macOS build; use --vulkan to "
+            "force the Vulkan pack (e.g. Intel Arc). CPU inference keeps working."
         )
-    _say(f"NVIDIA driver supports CUDA {drv[0]}.{drv[1]}")
 
-    candidates = [c for c in CUDA_INDEXES if (int(c[2:4]), int(c[4:])) <= drv]
-    if not candidates:
-        return _fail(f"driver CUDA {drv[0]}.{drv[1]} is older than the oldest wheel index ({CUDA_INDEXES[-1]}) — update the NVIDIA driver")
-
-    picked = None
-    for cuda_idx in candidates:
-        found = _pick_wheel(cuda_idx)
-        if found:
-            picked = (cuda_idx, *found)
-            break
-    if not picked:
-        return _fail("no CUDA wheel found for this python/platform in the llama-cpp-python index")
-
-    cuda_idx, version, url = picked
-    _say(f"downloading llama-cpp-python {version} ({cuda_idx}, {_platform_tag()}) — several hundred MB…")
+    _say(f"downloading llama-cpp-python {version} ({backend}, {_platform_tag()}) — several hundred MB…")
     with tempfile.TemporaryDirectory() as td:
         whl = Path(td) / "pack.whl"
         try:
@@ -182,7 +216,7 @@ def install(argv: list[str] | None = None) -> int:
             shutil.move(str(item), str(dest / item.name))
 
     (dest / ".gpu_pack.json").write_text(
-        json.dumps({"version": version, "cuda_index": cuda_idx, "url": url}, indent=2),
+        json.dumps({"version": version, "backend": backend, "url": url}, indent=2),
         encoding="utf-8",
     )
     _say(f"installed to {dest}")
