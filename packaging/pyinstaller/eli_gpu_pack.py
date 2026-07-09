@@ -187,15 +187,7 @@ def install(argv: list[str] | None = None) -> int:
     with tempfile.TemporaryDirectory() as td:
         whl = Path(td) / "pack.whl"
         try:
-            with urllib.request.urlopen(url, timeout=60) as r, open(whl, "wb") as f:
-                total = int(r.headers.get("Content-Length") or 0)
-                done = 0
-                while chunk := r.read(1 << 20):
-                    f.write(chunk)
-                    done += len(chunk)
-                    if total:
-                        print(f"\r[gpu-pack] {done // (1 << 20)} / {total // (1 << 20)} MB", end="", flush=True)
-                print(flush=True)
+            _download(url, whl)
         except Exception as exc:
             return _fail(f"download failed: {exc}")
 
@@ -209,16 +201,159 @@ def install(argv: list[str] | None = None) -> int:
         if not (staging / "llama_cpp").is_dir():
             return _fail("wheel did not contain a llama_cpp package")
 
+        if backend != "vulkan":
+            # The CUDA wheels do NOT vendor the CUDA runtime (cudart/cublas):
+            # NVIDIA ships those separately, CI runners have them system-wide,
+            # end-user machines usually don't — v2.1.4 crashed at boot on
+            # exactly this. Pull NVIDIA's official PyPI redistributables and
+            # drop their libraries next to llama.dll (the llama loader adds
+            # that directory to the DLL search path; rthook preloads them too).
+            libdir = staging / "llama_cpp" / "lib"
+            try:
+                _vendor_cuda_runtime(libdir, Path(td), backend)
+            except Exception as exc:
+                return _fail(f"could not fetch the CUDA runtime libraries: {exc}")
+
         if dest.exists():
             shutil.rmtree(dest, ignore_errors=True)
         dest.mkdir(parents=True, exist_ok=True)
         for item in staging.iterdir():
             shutil.move(str(item), str(dest / item.name))
 
+    # VERIFY before activation — a pack that cannot load must never be able
+    # to brick the app (activation requires the .gpu_pack_ok marker).
+    _say("verifying the GPU pack loads on this machine…")
+    ok, detail = _verify(dest)
+    if not ok:
+        shutil.rmtree(dest, ignore_errors=True)
+        return _fail(
+            "the downloaded GPU build failed to load on this machine — removed it; "
+            f"ELI stays on CPU (fully functional).\nLoader said: {detail}"
+        )
+
     (dest / ".gpu_pack.json").write_text(
         json.dumps({"version": version, "backend": backend, "url": url}, indent=2),
         encoding="utf-8",
     )
-    _say(f"installed to {dest}")
-    _say("done — restart ELI; the model loader will now offload layers to the GPU.")
+    (dest / ".gpu_pack_ok").write_text("verified", encoding="utf-8")
+    _say(f"installed and verified at {dest}")
+    _say("done — the model loader will now offload layers to the GPU.")
     return 0
+
+
+def _download(url: str, path: Path) -> None:
+    with urllib.request.urlopen(url, timeout=60) as r, open(path, "wb") as f:
+        total = int(r.headers.get("Content-Length") or 0)
+        done = 0
+        while chunk := r.read(1 << 20):
+            f.write(chunk)
+            done += len(chunk)
+            if total:
+                print(f"\r[gpu-pack] {done // (1 << 20)} / {total // (1 << 20)} MB", end="", flush=True)
+        print(flush=True)
+
+
+def _vendor_cuda_runtime(libdir: Path, tmp: Path, cuda_idx: str = "cu124") -> None:
+    """Fetch cudart + cublas from NVIDIA's official PyPI wheels into libdir.
+
+    Version pinned to the same CUDA minor the llama wheel was built against
+    (cu124 → 12.4.x); x86_64 wheels only (PyPI also hosts aarch64)."""
+    want_ext = ".dll" if sys.platform == "win32" else ".so"
+    minor = f"{cuda_idx[2:4]}.{cuda_idx[4:]}"  # "cu124" -> "12.4"
+
+    def _pick(files):
+        for f in files:
+            n = f["filename"]
+            if not n.endswith(".whl"):
+                continue
+            if sys.platform == "win32":
+                if "win_amd64" in n:
+                    return f
+            elif "manylinux" in n and "x86_64" in n:
+                return f
+        return None
+
+    for pkg in ("nvidia-cuda-runtime-cu12", "nvidia-cublas-cu12"):
+        with urllib.request.urlopen(f"https://pypi.org/pypi/{pkg}/json", timeout=30) as r:
+            meta = json.load(r)
+        versions = sorted(
+            (v for v in meta["releases"] if v.startswith(minor + ".")),
+            key=lambda v: tuple(int(x) for x in v.split(".")),
+            reverse=True,
+        ) or [meta["info"]["version"]]
+        hit = None
+        for ver in versions:
+            hit = _pick(meta["releases"][ver])
+            if hit:
+                break
+        if not hit:
+            raise RuntimeError(f"no x86_64 wheel for {pkg} (CUDA {minor})")
+        _say(f"fetching CUDA runtime component {pkg} {ver}…")
+        whl = tmp / f"{pkg}.whl"
+        _download(hit["url"], whl)
+        with zipfile.ZipFile(whl) as z:
+            for name in z.namelist():
+                base = name.rsplit("/", 1)[-1]
+                if want_ext in base and ("/bin/" in name or "/lib/" in name):
+                    with z.open(name) as src, open(libdir / base, "wb") as dst:
+                        shutil.copyfileobj(src, dst)
+
+
+def _verify(dest: Path) -> tuple[bool, str]:
+    """Import llama_cpp from the pack in a throwaway ELI subprocess."""
+    # Self-contained probe (no eli_gpu_pack import — must also work when the
+    # verifier runs outside the frozen bundle, e.g. in tests).
+    probe = (
+        "import sys, os, ctypes\n"
+        "from pathlib import Path\n"
+        f"dest = Path({str(dest)!r})\n"
+        "sys.path.insert(0, str(dest))\n"
+        "lib = dest / 'llama_cpp' / 'lib'\n"
+        "if lib.is_dir():\n"
+        "    if sys.platform == 'win32':\n"
+        "        os.add_dll_directory(str(lib))\n"
+        "        pats = ('cudart64*.dll', 'cublasLt64*.dll', 'cublas64*.dll')\n"
+        "    else:\n"
+        "        pats = ('libcudart.so*', 'libcublasLt.so*', 'libcublas.so*')\n"
+        "    for p in pats:\n"
+        "        for f in sorted(lib.glob(p)):\n"
+        "            try: ctypes.CDLL(str(f))\n"
+        "            except Exception: pass\n"
+        "import llama_cpp\n"
+        "print('gpu-pack-verify-ok', llama_cpp.__version__)\n"
+    )
+    try:
+        out = subprocess.run(
+            [sys.executable, "-c", probe],
+            capture_output=True, text=True, timeout=180,
+        )
+    except Exception as exc:
+        return False, str(exc)
+    if out.returncode == 0 and "gpu-pack-verify-ok" in (out.stdout or ""):
+        return True, out.stdout.strip()
+    return False, (out.stderr or out.stdout or "no output").strip()[-800:]
+
+
+def preload_native_libs(pack_dir: str | Path) -> None:
+    """Preload the pack's CUDA runtime libs so dependency resolution succeeds
+    regardless of RPATH. Called by the frozen runtime hook on activation and
+    by the install-time verifier."""
+    import ctypes
+    lib = Path(pack_dir) / "llama_cpp" / "lib"
+    if not lib.is_dir():
+        return
+    if sys.platform == "win32":
+        try:
+            import os
+            os.add_dll_directory(str(lib))
+        except Exception:
+            pass
+        patterns = ("cudart64*.dll", "cublasLt64*.dll", "cublas64*.dll")
+    else:
+        patterns = ("libcudart.so*", "libcublasLt.so*", "libcublas.so*")
+    for pat in patterns:
+        for f in sorted(lib.glob(pat)):
+            try:
+                ctypes.CDLL(str(f))
+            except Exception:
+                pass

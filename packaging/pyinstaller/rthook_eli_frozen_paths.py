@@ -147,13 +147,27 @@ def _pin_frozen_root() -> None:
         )
         return
 
-    # NVIDIA GPU pack (see eli_gpu_pack.py): a downloaded CUDA build of
+    # GPU pack (see eli_gpu_pack.py): a downloaded CUDA/Vulkan build of
     # llama_cpp in the user root shadows the bundled CPU build. llama_cpp is
     # collected as on-disk source (module_collection_mode in ELI.spec), so
-    # plain sys.path priority decides which copy imports.
+    # plain sys.path priority decides which copy imports. Activation REQUIRES
+    # the install-time verification marker: an unverified/broken pack must
+    # never brick the app (v2.1.4 crashed at every boot when a CUDA pack
+    # missing its runtime libs shadowed the working CPU copy).
     gpu_dir = root / "runtime" / "gpu"
     if (gpu_dir / "llama_cpp").is_dir():
-        sys.path.insert(0, str(gpu_dir))
+        if (gpu_dir / ".gpu_pack_ok").is_file():
+            sys.path.insert(0, str(gpu_dir))
+            try:
+                import eli_gpu_pack
+                eli_gpu_pack.preload_native_libs(gpu_dir)
+            except Exception:
+                pass
+        else:
+            sys.stderr.write(
+                "[ELI] ignoring unverified GPU pack (missing .gpu_pack_ok) — "
+                "running on CPU; reinstall with: ELI --install-gpu-pack --force\n"
+            )
 
     os.environ["ELI_PROJECT_ROOT"] = str(root)
     os.environ.setdefault("ELI_HOME", str(root))
@@ -167,6 +181,10 @@ def _pin_frozen_root() -> None:
     # agent-bus loader honor this variable (module-relative default is
     # read-only in frozen builds).
     os.environ.setdefault("ELI_CUSTOM_AGENTS_DIR", str(root / "eli" / "brain" / "agents" / "custom"))
+    # Additional env names honored by individual subsystems whose defaults
+    # are module-relative (read-only when frozen).
+    os.environ.setdefault("ELI_ROOT", str(root))                      # habits_memory_db
+    os.environ.setdefault("ELI_DOC_DIR", str(root / "eli_docs"))      # executor document actions
 
 
 _pin_frozen_root()
