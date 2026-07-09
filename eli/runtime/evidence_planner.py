@@ -29,7 +29,7 @@ from __future__ import annotations
 
 import os
 import re
-from typing import List, Tuple
+from typing import Dict, List, Tuple
 
 from eli.utils.log import get_logger
 

@@ -3,8 +3,15 @@ from __future__ import annotations
 import ast
 import importlib
 import json
+import re
 import sqlite3
 import subprocess
+
+# Logger for safety-wrapper suppressed-exception reporting (used before the
+# module's main logger exists; must be defined at the top of the file).
+import logging as _swlog_logging
+_SWLOG = _swlog_logging.getLogger(__name__)
+
 import sys
 from pathlib import Path
 from typing import Any, Mapping
@@ -3197,7 +3204,7 @@ def _eli_v11_redact_user_identity(text: object) -> str:
         try:
             s = re.sub(rf"(?i)([A-Za-z]:\\Users\\){re.escape(os_user)}", r"\1<user>", s)
         except Exception:
-            pass
+            _SWLOG.debug("suppressed exception", exc_info=True)
 
     # Redact known personal tokens as standalone words/phrases.
     for tok in sorted(_eli_v11_user_tokens(), key=len, reverse=True):
@@ -3499,7 +3506,7 @@ def _eli_v12_redact(text: object) -> str:
         try:
             s = re.sub(rf"(?i)([A-Za-z]:\\Users\\){re.escape(os_user)}", r"\1<user>", s)
         except Exception:
-            pass
+            _SWLOG.debug("suppressed exception", exc_info=True)
 
     for tok in sorted(_eli_v12_dynamic_identity_tokens(), key=len, reverse=True):
         if not tok:

@@ -60,6 +60,12 @@ import re
 from pathlib import Path
 import sqlite3 as _sqlite3
 import threading
+
+# Logger for safety-wrapper suppressed-exception reporting (used before the
+# module's main logger exists; must be defined at the top of the file).
+import logging as _swlog_logging
+_SWLOG = _swlog_logging.getLogger(__name__)
+
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed, TimeoutError as FuturesTimeout
 from dataclasses import dataclass, field
@@ -67,7 +73,7 @@ from dataclasses import dataclass, field
 # Canonical confidence primitives — one owner for the per-agent evidence→confidence policy
 # (was 10 ad-hoc inline formulas).
 from eli.cognition.scoring import conf_from_flag, conf_from_count
-from typing import Any, Dict, List, Optional, Set
+from typing import Any, Dict, List, Optional, Set, Tuple
 
 
 
@@ -125,7 +131,7 @@ def _persist_dispatch_result(
                 )
                 _conn.commit()
         except Exception:
-            pass  # Never block the dispatch path
+            _SWLOG.debug("suppressed exception", exc_info=True)  # Never block the dispatch path
 
     threading.Thread(target=_write, daemon=True, name="eli-agent-persist").start()
 
@@ -2195,7 +2201,7 @@ class AgentBus:
                     log.debug(f"[AGENTBUS] {agent.name} raised: {e}")
                     results.append(AgentResult(agent=agent.name, ok=False, confidence=0.0, data={}, error=str(e)))
         except FuturesTimeout:
-            pass  # outer wait elapsed; fill stragglers below
+            _SWLOG.debug("suppressed exception", exc_info=True)  # outer wait elapsed; fill stragglers below
         for fut, agent in futures.items():
             if agent.name not in done:
                 results.append(AgentResult(agent=agent.name, ok=False, confidence=0.0, data={}, error="timeout"))

@@ -1,6 +1,9 @@
 from __future__ import annotations
 import hashlib
+import shlex
+import sqlite3
 import subprocess
+import sys
 import time
 import json
 import requests
@@ -10,6 +13,13 @@ import os
 import re
 import shutil
 from pathlib import Path
+
+from eli.utils.log import get_logger
+
+log = get_logger(__name__)
+
+# Verbose diagnostics knob for optional-dependency fallbacks (TTS etc.).
+DEBUG = os.environ.get("ELI_DEBUG", "").strip().lower() in {"1", "true", "yes", "on"}
 
 def _eli_path_get(obj, key, default=None):
     """
@@ -206,6 +216,23 @@ def memory_recall(query, limit=20):
         return {"ok": True, "results": results, "path": str(_get_memory_path())}
     except Exception as e:
         return {"ok": False, "error": repr(e), "results": [], "path": str(_get_memory_path())}
+
+
+def _ollama_http_post_json(url: str, payload: Dict[str, Any], timeout_s: int = 30):
+    """POST JSON to an Ollama endpoint.
+
+    Returns (ok, status_code, parsed_json_or_None, error_repr_or_None) so
+    callers can distinguish transport failures from HTTP-level failures.
+    """
+    try:
+        resp = requests.post(url, json=payload, timeout=timeout_s)
+        try:
+            data = resp.json()
+        except Exception:
+            data = None
+        return (200 <= resp.status_code < 300, resp.status_code, data, None)
+    except Exception as e:
+        return (False, 0, None, repr(e))
 
 
 def _ollama_warm_load(model: str, ollama_host: str) -> bool:
@@ -1025,7 +1052,7 @@ def _gui_runtime_audit_report(question: Optional[str] = None) -> Dict[str, Any]:
             if lp.exists() and lp.resolve() != gui_path.resolve():
                 return _grounded_file_audit_report(lp)
     except Exception:
-        pass
+        log.debug("suppressed exception", exc_info=True)
     entry = {'path': str(gui_path), 'status': 'PASS', 'issues': [], 'evidence': {}, 'snippets': {}}
     if not gui_path.exists():
         entry['status'] = 'FAIL'; entry['issues'].append({'type': 'missing_file', 'line': 0, 'message': 'file not found'})
@@ -1172,7 +1199,7 @@ def _explain_memory_runtime_report() -> Dict[str, Any]:
         try:
             status_candidates.append(_executor_get_memory_status(candidate))
         except Exception:
-            pass
+            log.debug("suppressed exception", exc_info=True)
     if status_candidates:
         status = max(
             status_candidates,
@@ -1187,7 +1214,7 @@ def _explain_memory_runtime_report() -> Dict[str, Any]:
         from eli.kernel.state import get_user_name as _gun_exec
         name_guess = _gun_exec().strip() or None
     except Exception:
-        pass
+        log.debug("suppressed exception", exc_info=True)
 
     try:
         recent = mem.get_recent_conversation(limit=6)
@@ -1304,7 +1331,7 @@ def _explain_memory_runtime_report() -> Dict[str, Any]:
             except Exception:
                 continue
     except Exception:
-        pass
+        log.debug("suppressed exception", exc_info=True)
 
     # ── Live mechanism probes (#5/Option 4) ───────────────────────────────
     # Re-derive every claim about ELI's own internals each call rather than
@@ -1978,7 +2005,7 @@ def _resolve_default_chat_model() -> str:
         if v:
             return v
     except Exception:
-        pass
+        log.debug("suppressed exception", exc_info=True)
     return ""
 
 DEFAULT_CHAT_MODEL = _resolve_default_chat_model()
@@ -2258,7 +2285,7 @@ def _load_state() -> Dict[str, Any]:
         if STATE_PATH.exists():
             return json.loads(STATE_PATH.read_text(encoding="utf-8"))
     except Exception:
-        pass
+        log.debug("suppressed exception", exc_info=True)
     return {}
 
 
@@ -2267,7 +2294,7 @@ def _save_state(st: Dict[str, Any]) -> None:
         STATE_PATH.parent.mkdir(parents=True, exist_ok=True)
         STATE_PATH.write_text(json.dumps(st, indent=2), encoding="utf-8")
     except Exception:
-        pass
+        log.debug("suppressed exception", exc_info=True)
 
 
 def _state_get_history(st: Dict[str, Any]) -> List[Dict[str, str]]:
@@ -2523,7 +2550,7 @@ def self_test() -> Dict[str, Any]:
             st.pop("persona_lock", None)
             _save_state(st)
         except Exception:
-            pass
+            log.debug("suppressed exception", exc_info=True)
     ok_lock, reason, details = _verify_persona_lock(st)
 
     results: Dict[str, Any] = {
@@ -2711,7 +2738,7 @@ def _resolve_media_target(target: str | None) -> str | None:
                     if p.strip().lower().startswith(bp.lower()):
                         return p.strip()
         except Exception:
-            pass
+            log.debug("suppressed exception", exc_info=True)
         return "firefox"   # fallback name
     return alias   # e.g. "spotify", "vlc"
 
@@ -2785,7 +2812,7 @@ def previous_media(target: str | None = None) -> Dict[str, Any]:
                 capture_output=True, timeout=2,
             )
         except Exception:
-            pass
+            log.debug("suppressed exception", exc_info=True)
     result = _playerctl("previous", p)
     result["action"] = "PREVIOUS_MEDIA"
     return result
@@ -2825,7 +2852,7 @@ def _yt_resolve_watch_url(query: str) -> str | None:
         if m:
             return f"https://www.youtube.com/watch?v={m.group(1)}"
     except Exception:
-        pass
+        log.debug("suppressed exception", exc_info=True)
     return None
 
 
@@ -2908,7 +2935,7 @@ def _spotify_play() -> bool:
     try:
         _sp2.run(["playerctl", "-p", "spotify", "play"], capture_output=True, timeout=5)
     except Exception:
-        pass
+        log.debug("suppressed exception", exc_info=True)
     try:
         _sp2.run(
             ["dbus-send", "--print-reply",
@@ -2918,7 +2945,7 @@ def _spotify_play() -> bool:
             capture_output=True, timeout=5,
         )
     except Exception:
-        pass
+        log.debug("suppressed exception", exc_info=True)
     return _spotify_is_playing()
 
 
@@ -2931,7 +2958,7 @@ def _spotify_is_playing() -> bool:
         if r.returncode == 0 and "playing" in (r.stdout or "").strip().lower():
             return True
     except Exception:
-        pass
+        log.debug("suppressed exception", exc_info=True)
     return False
 
 
@@ -2962,7 +2989,7 @@ def _mpv_socket_path() -> str:
         if _pc.WINDOWS:
             return r"\\.\pipe\eli_youtube_mpv"
     except Exception:
-        pass
+        log.debug("suppressed exception", exc_info=True)
     import tempfile
     return os.path.join(tempfile.gettempdir(), "eli_youtube_mpv.sock")
 
@@ -3005,7 +3032,7 @@ def _mpv_ipc(command: list, *, want_response: bool = False):
                         out = j["data"]
                         break
                 except Exception:
-                    pass
+                    log.debug("suppressed exception", exc_info=True)
         s.close()
         return out if want_response else True
     except Exception:
@@ -3055,7 +3082,7 @@ def now_playing() -> Dict[str, Any]:
                 return {"ok": True, "action": "NOW_PLAYING",
                         "content": f"▶ {meta} — {p}.", "response": f"▶ {meta} — {p}."}
     except Exception:
-        pass
+        log.debug("suppressed exception", exc_info=True)
     msg = "Nothing is playing right now."
     return {"ok": True, "action": "NOW_PLAYING", "content": msg, "response": msg}
 
@@ -3171,7 +3198,7 @@ def play_specific(query: str, target: str | None = None) -> Dict[str, Any]:
             return {"ok": True, "action": "PLAY_MEDIA", "played": True,
                     "content": msg, "response": msg}
         except Exception:
-            pass
+            log.debug("suppressed exception", exc_info=True)
 
     # ── 4. No yt-dlp/mpv → resolve watch URL and open in browser ─────────────
     # Direct in-app playback needs yt-dlp + mpv; without them we can only open the
@@ -3268,12 +3295,12 @@ def _memory_capability_truth() -> str:
             from eli.memory.memory_adapter import memory_recall as _mr  # noqa: F401
             has_adapter = True
         except Exception:
-            pass
+            log.debug("suppressed exception", exc_info=True)
         try:
             import sqlite3 as _sql  # noqa: F401
             has_sqlite = True
         except Exception:
-            pass
+            log.debug("suppressed exception", exc_info=True)
 
         if has_adapter or has_sqlite:
             return (
@@ -3377,7 +3404,7 @@ def _live_memory_audit() -> dict:
                         for _ in fh:
                             total += 1
                 except Exception:
-                    pass
+                    log.debug("suppressed exception", exc_info=True)
             conv_out["lines_total"] = total
     except Exception as e:
         conv_out["error"] = str(e)
@@ -3497,7 +3524,7 @@ def chat(message: str, *, model: Optional[str] = None, skip_router: bool = False
             if intent.get("action") and intent["action"] != "CHAT":
                 return execute(intent["action"], intent.get("args", {}))
         except Exception:
-            pass
+            log.debug("suppressed exception", exc_info=True)
 
     st = _load_state()
 
@@ -3525,7 +3552,7 @@ def chat(message: str, *, model: Optional[str] = None, skip_router: bool = False
                 _convlog_append('assistant', content, {'fn': 'chat', 'model': 'gguf'})
                 return {"ok": True, "action": "CHAT", "model": "gguf", "content": content, "response": content}
     except Exception:
-        pass  # GGUF unavailable → fall through to Ollama
+        log.debug("suppressed exception", exc_info=True)  # GGUF unavailable → fall through to Ollama
 
     # ── Ollama fallback (requires network / local Ollama server) ──────────────
     try:
@@ -3576,7 +3603,7 @@ def chat_stream(message: str, *, model: Optional[str] = None):
                 yield out
             return
     except Exception:
-        pass
+        log.debug("suppressed exception", exc_info=True)
 
     st = _load_state()
     ok_lock, reason, details = _verify_persona_lock(st)
@@ -3641,58 +3668,6 @@ def open_file_system(path: str = "~") -> Dict[str, Any]:
     except Exception as e:
         msg = "Failed to open file system."
         return {"ok": False, "action": "OPEN_FILE_SYSTEM", "error": repr(e), "content": msg, "response": msg}
-
-
-def fabricate_document(args: Dict[str, Any]) -> Dict[str, Any]:
-    """Generate a real on-disk document (DOCX; optionally ODT) under artifacts/."""
-    topic = (args.get('topic') or args.get('title') or 'Untitled Document').strip()
-    content = (args.get('content') or '').strip()
-    fmt = (args.get('format') or 'docx').lower().strip()
-
-    # If content wasn't supplied, generate it via the chat model, but keep it deterministic-ish.
-    if not content:
-        prompt = (
-            "Write a clean, factual document in Markdown about: " + topic + "\n"
-            "Structure: title, short biography/overview, key contributions, timeline, references placeholder. "
-            "No made-up citations. If unsure, say so."
-        )
-        gen = chat(prompt, skip_router=True)
-        if not gen.get('ok'):
-            return {"ok": False, "error": gen.get('error') or 'document_content_generation_failed'}
-        content = gen.get('content', '')
-
-    want_docx = fmt in ('docx', 'both', 'docx+odt', 'odt', 'odt+docx')
-    want_odt = fmt in ('odt', 'both', 'docx+odt', 'odt+docx')
-
-    genr = AdvancedDocumentGenerator(base_dir=os.environ.get('ELI_ARTIFACTS_DIR') or 'artifacts')
-    res = genr.generate(topic=topic, content=content, want_docx=want_docx, want_odt=want_odt, also_txt=True)
-    if not res.ok:
-        return {"ok": False, "error": res.error or 'document_generation_failed', "topic": topic, "out_dir": res.out_dir}
-
-    event = json.dumps(
-        {
-            "event": "artifact_generated",
-            "kind": "document_bundle",
-            "topic": topic,
-            "out_dir": res.out_dir,
-            "txt_path": res.txt_path,
-            "docx_path": res.docx_path,
-            "odt_path": res.odt_path,
-        },
-        ensure_ascii=False,
-        default=str,
-    )
-    # Return paths so GUI can show / open.
-    return {
-        "ok": True,
-        "topic": topic,
-        "out_dir": res.out_dir,
-        "txt_path": res.txt_path,
-        "docx_path": res.docx_path,
-        "odt_path": res.odt_path,
-        "content": event,
-        "response": event,
-    }
 
 
 def open_browser(url: str = "https://duckduckgo.com", urls: list = None) -> Dict[str, Any]:
@@ -3921,7 +3896,7 @@ def _duck_schedule_resume(deadline_s: float):
             try:
                 _DUCK_TIMER.cancel()
             except Exception:
-                pass
+                log.debug("suppressed exception", exc_info=True)
             _DUCK_TIMER = None
         delay = max(0.0, float(deadline_s) - time.time())
         t = threading.Timer(delay, _duck_media_resume)
@@ -3983,7 +3958,7 @@ def _tts_list_voices() -> dict:
                 "name": getattr(v, "name", "") or "",
             })
     except Exception:
-        pass
+        log.debug("suppressed exception", exc_info=True)
     return {"current": os.environ.get("ELI_TTS_VOICE", ""), "voices": voices, "count": len(voices)}
 
 def _tts_set_voice(target: str) -> dict:
@@ -4003,21 +3978,21 @@ def _tts_set_voice(target: str) -> dict:
                 chosen_name = getattr(v, "name", None) or target
                 break
     except Exception:
-        pass
+        log.debug("suppressed exception", exc_info=True)
     if not chosen_id:
         raise ValueError(f"Voice not found: {target}")
     try:
         eng.setProperty("voice", chosen_id)
     except Exception:
         # still persist preference; engine may apply on next init
-        pass
+        log.debug("suppressed exception", exc_info=True)
     os.environ["ELI_TTS_VOICE"] = str(chosen_name)
     try:
         MEMORY_PATH.parent.mkdir(parents=True, exist_ok=True)
         TTS_PREF_FILE = MEMORY_PATH.parent / "tts_voice.json"
         TTS_PREF_FILE.write_text(json.dumps({"voice": os.environ["ELI_TTS_VOICE"]}, ensure_ascii=False, indent=2), encoding="utf-8")
     except Exception:
-        pass
+        log.debug("suppressed exception", exc_info=True)
     return {"voice": os.environ["ELI_TTS_VOICE"], "id": chosen_id}
 
 def _speak_legacy(text: str):
@@ -4061,7 +4036,7 @@ def _eli_tts_echo(_text: str) -> None:
             with open(logp, "a", encoding="utf-8") as f:
                 f.write(json.dumps(rec, ensure_ascii=False) + "\n")
     except Exception:
-        pass
+        log.debug("suppressed exception", exc_info=True)
 
 def _speak(text: str, *args, **kwargs):
     """Speak arbitrarily long text by chunking + sanitizing to avoid TTS silent failures."""
@@ -4136,7 +4111,7 @@ try:
         return _ELI_SPEAK_ORIG(text, *args, **kwargs)
 except Exception:
     # If ELI changes its internals, fail gracefully instead of crashing startup
-    pass
+    log.debug("suppressed exception", exc_info=True)
 
 
 # --- UTILITY FUNCTIONS ---
@@ -4149,7 +4124,7 @@ def _open_file(path: str) -> None:
     try:
         open_file(path)
     except Exception:
-        pass
+        log.debug("suppressed exception", exc_info=True)
 
 def _allowed_cmds_set():
     """
@@ -4195,7 +4170,7 @@ def _allowed_cmds_set():
             else:
                 allowed.add("./" + n)
         except Exception:
-            pass
+            log.debug("suppressed exception", exc_info=True)
 
     for p in parts:
         add(p)
@@ -4206,7 +4181,7 @@ def _allowed_cmds_set():
     try:
         add(str((_Path(__file__).resolve().parent.parent / ".venv/bin/python").resolve()))
     except Exception:
-        pass
+        log.debug("suppressed exception", exc_info=True)
 
     return allowed
 
@@ -4271,7 +4246,7 @@ def _run_argv(argv, timeout=30):
             else:
                 raise
         except Exception:
-            pass
+            log.debug("suppressed exception", exc_info=True)
 
         # If we didn't early-allow venv python, fall through to the original denial.
         try:
@@ -4554,7 +4529,7 @@ def _write_note_builtin(args: dict) -> dict:
             try:
                 open_file(str(path))
             except Exception:
-                pass
+                log.debug("suppressed exception", exc_info=True)
 
         return {"ok": True, "path": str(path), "title": title}
     except Exception as e:
@@ -4616,7 +4591,7 @@ def _append_note_builtin(args: dict) -> dict:
             try:
                 open_file(str(note_file))
             except Exception:
-                pass
+                log.debug("suppressed exception", exc_info=True)
 
         return {"ok": True, "path": str(note_file), "title": title or note_file.stem}
     except Exception as e:
@@ -4893,7 +4868,7 @@ def _eli_self_description_block(limit: int = 2600) -> str:
                 if txt:
                     return txt[:limit].rstrip() + ("\n…" if len(txt) > limit else "")
     except Exception:
-        pass
+        log.debug("suppressed exception", exc_info=True)
     return ""
 
 
@@ -5023,7 +4998,7 @@ def _execute_impl(action: str, args: Optional[Dict[str, Any]] = None) -> Dict[st
                     result.setdefault("response", result.get("response") or result["content"])
                 return result
             except Exception:
-                pass
+                log.debug("suppressed exception", exc_info=True)
 
             # Last resort: canonical Memory class
             try:
@@ -5381,7 +5356,7 @@ def _execute_impl(action: str, args: Optional[Dict[str, Any]] = None) -> Dict[st
                             for _ in root.glob(f"*{token}*.desktop"):
                                 return True
                     except Exception:
-                        pass
+                        log.debug("suppressed exception", exc_info=True)
 
                 return False
 
@@ -5616,7 +5591,7 @@ def _execute_impl(action: str, args: Optional[Dict[str, Any]] = None) -> Dict[st
                     _obj = str(getattr(g, "objective", "") or "").strip()
                     lines.append(f"• {getattr(g, 'title', '(goal)')}" + (f" — {_obj}" if _obj else ""))
             except Exception:
-                pass
+                log.debug("suppressed exception", exc_info=True)
             try:
                 from eli.memory import get_memory as _gm
                 for p in (_gm().get_pending_proposals(limit=5) or []):
@@ -5627,7 +5602,7 @@ def _execute_impl(action: str, args: Optional[Dict[str, Any]] = None) -> Dict[st
                     if _cap:
                         lines.append(f"• [capability] {_cap}" + (f" — {_rsn}" if _rsn else ""))
             except Exception:
-                pass
+                log.debug("suppressed exception", exc_info=True)
             if lines:
                 msg = "Proposals I've formed from what I've observed:\n" + "\n".join(lines)
             else:
@@ -5742,7 +5717,7 @@ def _execute_impl(action: str, args: Optional[Dict[str, Any]] = None) -> Dict[st
                 content = "Memory recall:\n(no matches)"
             return {"ok": True, "action": a, "hits": hits, "content": content, "response": content}
         except Exception:
-            pass
+            log.debug("suppressed exception", exc_info=True)
 
         # 2) Legacy fallback: brain.memory_adapter.memory_search (may not exist)
         try:
@@ -5788,7 +5763,7 @@ def _execute_impl(action: str, args: Optional[Dict[str, Any]] = None) -> Dict[st
                 result.setdefault("response", result.get("response") or result["content"])
             return result
         except Exception:
-            pass
+            log.debug("suppressed exception", exc_info=True)
 
         # 2) Fallback: canonical Memory class
         try:
@@ -5989,7 +5964,7 @@ def _execute_impl(action: str, args: Optional[Dict[str, Any]] = None) -> Dict[st
                     msg = f"Opened YouTube search: {_yt_query}"
                     return {"ok": True, "action": a, "content": msg, "response": msg}
             except Exception:
-                pass  # fall through to generic browser open
+                log.debug("suppressed exception", exc_info=True)  # fall through to generic browser open
 
         found_urls = [v for k, v in _site_map.items() if k in raw_q]
         if len(found_urls) > 1:
@@ -6033,7 +6008,7 @@ def _execute_impl(action: str, args: Optional[Dict[str, Any]] = None) -> Dict[st
                 try:
                     _ = _execute_impl(action="OPEN_AUDIO_SETTINGS", args={})
                 except Exception:
-                    pass
+                    log.debug("suppressed exception", exc_info=True)
 
             candidates = [
                 ["spotify"],
@@ -6055,7 +6030,7 @@ def _execute_impl(action: str, args: Optional[Dict[str, Any]] = None) -> Dict[st
                 msg = f"Opened media: {url}"
                 return {"ok": True, "action": a, "content": msg, "response": msg}
             except Exception:
-                pass
+                log.debug("suppressed exception", exc_info=True)
 
             # Local folder fallback
             try:
@@ -6205,7 +6180,7 @@ def _execute_impl(action: str, args: Optional[Dict[str, Any]] = None) -> Dict[st
             from eli.runtime.runtime_policy import budget as _eli_budget
             target_tokens = _eli_budget("document_tokens", target_tokens, floor=target_tokens, ceiling=7000)
         except Exception:
-            pass
+            log.debug("suppressed exception", exc_info=True)
         
         system_prompt = (
             "You are ELI's local document generation engine. Produce a finished artifact, not a scaffold. "
@@ -6496,7 +6471,7 @@ def _execute_impl(action: str, args: Optional[Dict[str, Any]] = None) -> Dict[st
                 from eli.perception import audio_stt as _ast
                 _ast._merge_custom_wake_words()
             except Exception:
-                pass
+                log.debug("suppressed exception", exc_info=True)
             import threading as _th_ws
             _th_ws.Thread(target=lambda: _ww.train_model(phrases=phrases),
                           daemon=True, name="eli-wake-set-train").start()
@@ -6729,7 +6704,7 @@ def _execute_impl(action: str, args: Optional[Dict[str, Any]] = None) -> Dict[st
                     if _r.returncode == 0:
                         text = _r.stdout.strip()
             except Exception:
-                pass
+                log.debug("suppressed exception", exc_info=True)
             # 2. pytesseract binding (calls tesseract binary)
             if not text:
                 try:
@@ -6737,7 +6712,7 @@ def _execute_impl(action: str, args: Optional[Dict[str, Any]] = None) -> Dict[st
                     from PIL import Image
                     text = pytesseract.image_to_string(Image.open(str(p)), config="--psm 11").strip()
                 except Exception:
-                    pass
+                    log.debug("suppressed exception", exc_info=True)
             if text is None:
                 return {"ok": False, "action": a,
                         "error": "tesseract not found. Install: sudo apt install tesseract-ocr",
@@ -6984,7 +6959,7 @@ def _execute_impl(action: str, args: Optional[Dict[str, Any]] = None) -> Dict[st
                     msg = f"Mouse action '{mouse_action}' performed"
                 return {"ok": True, "action": a, "content": msg, "response": msg}
             except ImportError:
-                pass
+                log.debug("suppressed exception", exc_info=True)
             # Fallback: ydotool (Wayland) or xdotool (X11)
             tool = "ydotool" if shutil.which("ydotool") else ("xdotool" if shutil.which("xdotool") else None)
             if tool is None:
@@ -7480,7 +7455,7 @@ def _execute_impl(action: str, args: Optional[Dict[str, Any]] = None) -> Dict[st
                     {"failures_reviewed": len(failures)},
                 )
             except Exception:
-                pass
+                log.debug("suppressed exception", exc_info=True)
             return {"ok": True, "action": a, "content": msg, "response": msg}
         except Exception as e:
             return {"ok": False, "action": a, "error": str(e), "content": str(e), "response": str(e)}
@@ -7555,7 +7530,7 @@ def _execute_impl(action: str, args: Optional[Dict[str, Any]] = None) -> Dict[st
                     {"total_files": _total_files, "total_py": _total_py},
                 )
             except Exception:
-                pass
+                log.debug("suppressed exception", exc_info=True)
             return {"ok": True, "action": a, "content": _msg, "response": _msg}
         except Exception as e:
             return {"ok": False, "action": a, "error": str(e), "content": str(e), "response": str(e)}
@@ -7636,7 +7611,7 @@ def _execute_impl(action: str, args: Optional[Dict[str, Any]] = None) -> Dict[st
                 from eli.world.world_event_bus import fire_improvement_event as _wfie
                 _wfie(proposal_count=len(imps), failure_count=len(failures))
             except Exception:
-                pass
+                log.debug("suppressed exception", exc_info=True)
             return _si_result
         except Exception as e:
             return {"ok": False, "action": a, "error": str(e), "content": str(e), "response": str(e)}
@@ -7680,7 +7655,7 @@ def _execute_impl(action: str, args: Optional[Dict[str, Any]] = None) -> Dict[st
                 if _news:
                     msg += "\n\n" + _news
             except Exception:
-                pass
+                log.debug("suppressed exception", exc_info=True)
             return {"ok": True, "action": a, "content": msg, "response": msg}
         except Exception as e:
             return {"ok": False, "action": a, "error": str(e), "content": str(e), "response": str(e)}
@@ -7784,11 +7759,11 @@ def _execute_impl(action: str, args: Optional[Dict[str, Any]] = None) -> Dict[st
                     try:
                         notify("ELI Timer", f"Timer complete! ({secs}s) - {label}")
                     except Exception:
-                        pass
+                        log.debug("suppressed exception", exc_info=True)
                     try:
                         play_sound("/usr/share/sounds/freedesktop/stereo/alarm-clock-elapsed.oga")
                     except Exception:
-                        pass
+                        log.debug("suppressed exception", exc_info=True)
                 t = threading.Thread(target=_timer_fire, daemon=True)
                 t.start()
                 msg = f"Timer set for {secs} seconds."
@@ -7835,11 +7810,11 @@ def _execute_impl(action: str, args: Optional[Dict[str, Any]] = None) -> Dict[st
                         try:
                             notify("ELI Alarm", f"Alarm! It's {alarm_time} - {label}")
                         except Exception:
-                            pass
+                            log.debug("suppressed exception", exc_info=True)
                         try:
                             play_sound("/usr/share/sounds/freedesktop/stereo/alarm-clock-elapsed.oga")
                         except Exception:
-                            pass
+                            log.debug("suppressed exception", exc_info=True)
                     t = threading.Thread(target=_alarm_fire, daemon=True)
                     t.start()
                     msg = f"Alarm set for {alarm_time} ({secs}s from now)."
@@ -8177,9 +8152,9 @@ def _execute_impl(action: str, args: Optional[Dict[str, Any]] = None) -> Dict[st
                                     chunks=r.get("chunks", []) or [],
                                     warnings=r.get("warnings", []) or []))
                             except Exception:
-                                pass
+                                log.debug("suppressed exception", exc_info=True)
                 except Exception:
-                    pass
+                    log.debug("suppressed exception", exc_info=True)
 
                 _header = (f"Summarised {count} document(s) in “{_fname}” individually "
                            f"({_per_file_done} via model). Saved to:\n{_doc_path}\n")
@@ -8328,7 +8303,7 @@ def _execute_impl(action: str, args: Optional[Dict[str, Any]] = None) -> Dict[st
                     from eli.core.runtime_settings import update_settings as _us_dwell
                     _us_dwell(gaze_dwell_click=True)
                 except Exception:
-                    pass
+                    log.debug("suppressed exception", exc_info=True)
             if result.get("already_running"):
                 msg = "Gaze engine is already running."
             elif result.get("ok"):
@@ -8499,7 +8474,7 @@ def _execute_impl(action: str, args: Optional[Dict[str, Any]] = None) -> Dict[st
                                           f"({(_rr_gs.traceback_tail or '')[:120]}); inline fallback")
                                 _ag_code = ""
                         except Exception:
-                            pass
+                            log.debug("suppressed exception", exc_info=True)
                 if _ag_code.strip():
                     _safe = re.sub(r"[^a-z0-9]+", "_", desc.lower())[:40].strip("_") or "generated"
                     _fname = f"{_safe}{_detected_ext}"
@@ -9029,7 +9004,7 @@ def _execute_impl(action: str, args: Optional[Dict[str, Any]] = None) -> Dict[st
         try:
             p = p.resolve()
         except Exception:
-            pass
+            log.debug("suppressed exception", exc_info=True)
         # Security: allow under home / project / ELI_ALLOW_ROOTS (SecurityManager)
         # or the system temp dir; refuse elsewhere unless ELI Full Control is on.
         _allowed = False
@@ -9134,7 +9109,7 @@ def _execute_impl(action: str, args: Optional[Dict[str, Any]] = None) -> Dict[st
                 from eli.runtime import code_examiner as _ce_lf
                 _ce_lf.set_last_file(str(pp))
             except Exception:
-                pass
+                log.debug("suppressed exception", exc_info=True)
         if not pp.exists():
             msg = f"Path not found: {pp}"
             return {"ok": False, "action": a, "error": msg, "content": msg, "response": msg}
@@ -9259,7 +9234,7 @@ def _execute_impl(action: str, args: Optional[Dict[str, Any]] = None) -> Dict[st
                         log.debug(f"[FIX_FILE] CodeAgent produced verified fix "
                                   f"(score {(_cr or {}).get('score')})")
                     except SyntaxError:
-                        pass
+                        log.debug("suppressed exception", exc_info=True)
             except Exception as _ca_e:
                 log.debug(f"[FIX_FILE] CodeAgent path skipped: {_ca_e}")
         for _ff_attempt in range(2):
@@ -9477,7 +9452,7 @@ def _execute_impl(action: str, args: Optional[Dict[str, Any]] = None) -> Dict[st
                 msg += "\nConversation Logs:\n" + "\n".join(log_lines)
                 counts["log_stats"] = log_info
             except Exception:
-                pass
+                log.debug("suppressed exception", exc_info=True)
             return {"ok": True, "action": a, "content": msg, "response": msg, "counts": counts}
         except Exception as e:
             return {"ok": False, "action": a, "error": str(e), "content": str(e), "response": str(e)}
@@ -9837,7 +9812,7 @@ def _execute_impl(action: str, args: Optional[Dict[str, Any]] = None) -> Dict[st
                         system="You are a precise technical analyst. Describe the directory structure, key files, and inferred purpose.",
                         max_tokens=700, temperature=0.3)
             except Exception:
-                pass
+                log.debug("suppressed exception", exc_info=True)
             _sf_body = _sf_summary if _sf_summary else _sf_raw[:3000]
             return {"ok": True, "action": a, "content": _sf_body, "response": _sf_body}
         # Anchor the conversational "current file" so a later proof-challenge
@@ -9846,7 +9821,7 @@ def _execute_impl(action: str, args: Optional[Dict[str, Any]] = None) -> Dict[st
             from eli.runtime import code_examiner as _ce_sf
             _ce_sf.set_last_file(str(expanded))
         except Exception:
-            pass
+            log.debug("suppressed exception", exc_info=True)
         try:
             # Read the WHOLE file — no 8000-byte truncation. The summariser does
             # hierarchical map-reduce sized to the model context, so an arbitrarily
@@ -9857,7 +9832,7 @@ def _execute_impl(action: str, args: Optional[Dict[str, Any]] = None) -> Dict[st
             try:
                 _sf_summary = _summarize_long_text(_sf_raw, _sf_instruction)
             except Exception:
-                pass
+                log.debug("suppressed exception", exc_info=True)
             _sf_stem = _SFPP(expanded).stem
             _sf_size = _os2.path.getsize(expanded)
             _sf_body = _sf_summary if _sf_summary else _sf_raw[:3000]
@@ -9964,6 +9939,15 @@ def _execute_impl(action: str, args: Optional[Dict[str, Any]] = None) -> Dict[st
         request = (args or {}).get('request') or (args or {}).get('query') or ''
         try:
             from eli.runtime import code_examiner as _ce
+            # Cross-turn recall: "list the errors you found" replays the persisted
+            # last audit verbatim instead of re-scanning (or the model improvising).
+            if _ce.is_recall_request(request):
+                _saved = _ce.get_last_audit()
+                if _saved:
+                    report = _ce.format_saved_audit(_saved)
+                    return {'ok': True, 'action': a, 'content': report, 'response': report,
+                            'evidence_source': 'code_examiner_last_audit'}
+                # No saved audit → fall through and run a fresh scan.
             paths = _ce.resolve_targets(request)
             if not paths:
                 msg = ("I couldn't resolve any Python files to examine. Name a file "
@@ -9971,6 +9955,7 @@ def _execute_impl(action: str, args: Optional[Dict[str, Any]] = None) -> Dict[st
                 return {'ok': True, 'action': a, 'content': msg, 'response': msg,
                         'evidence_source': 'code_examiner_no_targets'}
             findings = _ce.examine(paths)
+            _ce.save_last_audit(paths, findings)
             # Report-only policy (2026-06-09): a broad/sweep audit NEVER offers to patch, and
             # cosmetic lint is never auto-fixed. Fixing is offered only when the user named
             # specific files AND there's genuine breakage (syntax / failed import / undefined
@@ -9983,7 +9968,7 @@ def _execute_impl(action: str, args: Optional[Dict[str, Any]] = None) -> Dict[st
                 try:
                     _ce.set_last_file(str(_named[0]))
                 except Exception:
-                    pass
+                    log.debug("suppressed exception", exc_info=True)
             _named = bool(_named)
             _fixable = [f for f in findings if _ce.is_real_breakage(f)]
             if _named and _fixable:
@@ -10052,7 +10037,7 @@ def _execute_impl(action: str, args: Optional[Dict[str, Any]] = None) -> Dict[st
                     try:
                         mem.delete_habit_rule(rid)
                     except Exception:
-                        pass
+                        log.debug("suppressed exception", exc_info=True)
                 clear_pending_habit()
                 msg = f"No problem — I won't add “{name}”. I'll stop suggesting it."
                 return {'ok': True, 'action': a, 'content': msg, 'response': msg,
@@ -10067,7 +10052,7 @@ def _execute_impl(action: str, args: Optional[Dict[str, Any]] = None) -> Dict[st
             from eli.runtime import code_examiner as _ce
             _ce.clear_pending_fix()
         except Exception:
-            pass
+            log.debug("suppressed exception", exc_info=True)
         msg = "Okay — I won't change any code. The examination findings are cleared."
         return {'ok': True, 'action': a, 'content': msg, 'response': msg}
 
@@ -10350,7 +10335,7 @@ def _execute_impl(action: str, args: Optional[Dict[str, Any]] = None) -> Dict[st
                 if bat:
                     lines.append(f"Battery: {bat.percent:.0f}%  ({'charging' if bat.power_plugged else 'on battery'})")
             except Exception:
-                pass
+                log.debug("suppressed exception", exc_info=True)
             msg = "\n".join(lines)
             return {"ok": True, "action": a, "content": msg, "response": msg,
                     "cpu_percent": cpu_pct, "ram_percent": vm.percent, "disk_percent": disk.percent}
@@ -10396,7 +10381,7 @@ def _execute_impl(action: str, args: Optional[Dict[str, Any]] = None) -> Dict[st
                     for h in (search_stored_news(query, limit=5) or []):
                         results.append({"title": h.get("title", ""), "href": h.get("url", ""), "body": ""})
                 except Exception:
-                    pass
+                    log.debug("suppressed exception", exc_info=True)
 
             if not results:
                 msg = (f"I searched the web for \"{query}\" but the search returned no usable "
@@ -10578,7 +10563,7 @@ def _execute_impl(action: str, args: Optional[Dict[str, Any]] = None) -> Dict[st
                     try:
                         return _pj.loads(pom_file.read_text(encoding="utf-8"))
                     except Exception:
-                        pass
+                        log.debug("suppressed exception", exc_info=True)
                 return {}
 
             def _pom_save(d):
@@ -10665,7 +10650,7 @@ def _execute_impl(action: str, args: Optional[Dict[str, Any]] = None) -> Dict[st
                 from eli.kernel.engine import get_engine as _ge
                 _ge()._reasoning_mode = canonical
             except Exception:
-                pass
+                log.debug("suppressed exception", exc_info=True)
             msg = f"Reasoning mode set to {_md(canonical)}."
             return {"ok": True, "action": a, "content": msg, "response": msg,
                     "mode": canonical, "mode_display": _md(canonical)}
@@ -10824,7 +10809,7 @@ def _action_post_dispatch(
             reusable=True,
         )
     except Exception:
-        pass
+        log.debug("suppressed exception", exc_info=True)
 
     repeat_hint = ""
     # Phase 5: non-bugs that previously poisoned the SI failure feed. These
@@ -10890,7 +10875,7 @@ def _action_post_dispatch(
                     source="executor_post_dispatch",
                 )
             except Exception:
-                pass
+                log.debug("suppressed exception", exc_info=True)
             # Count repeats in THIS running session only. The hint means "you
             # keep retrying the same thing right now" — not all-time DB history,
             # which falsely claimed "attempt 4" on a fresh session's first try.
@@ -10932,7 +10917,7 @@ def _action_post_dispatch(
                 _offer = f"{_offer}\n\n{repeat_hint}"
             return _gr.as_executor_result(_offer, ok=False)
     except Exception:
-        pass
+        log.debug("suppressed exception", exc_info=True)
     if repeat_hint and isinstance(result, dict):
         existing = str(result.get("content") or result.get("response") or result.get("error") or "").strip()
         combined = (existing + "\n\n" + repeat_hint).strip()
@@ -11267,7 +11252,7 @@ def execute(action: str, args: Optional[Dict[str, Any]] = None, **kwargs) -> Dic
         try:
             txt += '\n\n' + _get_db_schema_evidence()
         except Exception:
-            pass
+            log.debug("suppressed exception", exc_info=True)
         return {'ok': bool(rep.get('ok', True)), 'action': a, 'report': rep, 'content': txt, 'response': txt}
     if a == 'COGNITION_STATUS':
         rep = _cognition_status_report(); txt = _format_cognition_status(rep)
@@ -11291,7 +11276,7 @@ def execute(action: str, args: Optional[Dict[str, Any]] = None, **kwargs) -> Dic
                     __eli_ret['content'] = table
                     __eli_ret['response'] = table
     except Exception:
-        pass
+        log.debug("suppressed exception", exc_info=True)
     # Post-dispatch failure capture (formerly in GROUNDED EXECUTOR WRAPPER).
     return _action_post_dispatch(action, args, __eli_ret)
 
@@ -11300,7 +11285,7 @@ def execute(action: str, args: Optional[Dict[str, Any]] = None, **kwargs) -> Dic
 try:
     execute_action = execute
 except Exception:
-    pass
+    log.debug("suppressed exception", exc_info=True)
 
 
 _PACKAGE_MIRROR_TOPLEVEL = {
@@ -11329,7 +11314,7 @@ def _resolve_existing_user_or_artifact_path(path: str) -> Path:
                 try:
                     candidates.extend(sorted(artifact_dir.glob(f"{basename}.*")))
                 except Exception:
-                    pass
+                    log.debug("suppressed exception", exc_info=True)
 
     for candidate in candidates:
         try:
@@ -11379,7 +11364,7 @@ try:
     for _a in SUPPORTED_ACTIONS:
         _cap_register(_a, description=f"Executor action: {_a}")
 except Exception:
-    pass
+    log.debug("suppressed exception", exc_info=True)
 
 
 # ----------------------------
@@ -11427,7 +11412,7 @@ def proactive_status() -> Dict[str, Any]:
                      for t in _th.enumerate()):
                 alive = True
         except Exception:
-            pass
+            log.debug("suppressed exception", exc_info=True)
     msg = f"Proactive daemon is {'RUNNING' if alive else 'STOPPED'}."
     return {"ok": True, "action": "PROACTIVE_STATUS", "pid": pid, "running": alive, "log": str(logf), "content": msg, "response": msg}
 
@@ -11468,14 +11453,14 @@ def proactive_stop() -> Dict[str, Any]:
     try:
         os.kill(pid, 15)
     except Exception:
-        pass
+        log.debug("suppressed exception", exc_info=True)
     try:
         pidf.unlink(missing_ok=True)  # py3.8+: if not available it will throw
     except Exception:
         try:
             pidf.unlink()
         except Exception:
-            pass
+            log.debug("suppressed exception", exc_info=True)
     msg = "Proactive daemon stopped."
     return {"ok": True, "action": "PROACTIVE_STOP", "pid": pid, "content": msg, "response": msg}
 
@@ -11590,7 +11575,7 @@ def _eli_safe_read_file(args=None):
             data = p.read_text(encoding=enc)
             break
         except Exception:
-            pass
+            log.debug("suppressed exception", exc_info=True)
     if data is None:
         try:
             data = p.read_bytes().decode("utf-8", errors="replace")
@@ -11942,7 +11927,7 @@ except NameError:
                     "response": "Opened system settings.",
                 }
             except Exception:
-                pass
+                log.debug("suppressed exception", exc_info=True)
 
         return {
             "ok": False,
@@ -12327,7 +12312,7 @@ except NameError:
                             max_tokens=int(data.get("max_tokens") or 1200),
                         )
                     except Exception:
-                        pass
+                        log.debug("suppressed exception", exc_info=True)
                 if _v3_retry_raw:
                     code = _eli_v3_extract_code(_v3_retry_raw, language=language)
                     try:
@@ -12444,7 +12429,7 @@ try:
     execute = _eli_reasoning_mode_execute
     execute_action = _eli_reasoning_mode_execute
 except Exception:
-    pass
+    log.debug("suppressed exception", exc_info=True)
 
 
 # ELI_EXECUTOR_VISIBLE_TILE_SECOND_FIX_20260505
@@ -12452,10 +12437,6 @@ except Exception:
 import math as _eli_tile_math
 import re as _eli_tile_re
 import subprocess as _eli_tile_subprocess
-
-
-from eli.utils.log import get_logger
-log = get_logger(__name__)
 
 _ELI_TILE_ORIG_EXECUTE = globals().get("execute")
 _ELI_TILE_ORIG_EXECUTE_ACTION = globals().get("execute_action")
@@ -12674,7 +12655,7 @@ try:
     execute = _eli_second_execute
     execute_action = _eli_second_execute
 except Exception:
-    pass
+    log.debug("suppressed exception", exc_info=True)
 
 
 # ELI_PERSONAL_MEMORY_MODE_AWARE_EXECUTOR_FIX_20260505
@@ -12751,7 +12732,7 @@ try:
     execute = _eli_pm_execute
     execute_action = _eli_pm_execute
 except Exception:
-    pass
+    log.debug("suppressed exception", exc_info=True)
 
 
 # --- ELI generated-script safety installer ---
@@ -12806,10 +12787,10 @@ try:
                             try:
                                 set_user_name(_candidate)  # persist for future sessions
                             except Exception:
-                                pass
+                                log.debug("suppressed exception", exc_info=True)
                             return _candidate
             except Exception:
-                pass
+                log.debug("suppressed exception", exc_info=True)
             return ""
         except Exception:
             return ""
@@ -13302,7 +13283,7 @@ try:
             if _eli_table_exists(conn, "conversations"):
                 return _eli_count(conn, "conversations")
         except Exception:
-            pass
+            log.debug("suppressed exception", exc_info=True)
         return 0
 
     def _eli_faiss_count():
@@ -13447,7 +13428,7 @@ try:
                 if isinstance(data, (list, tuple, dict)):
                     return len(data)
         except Exception:
-            pass
+            log.debug("suppressed exception", exc_info=True)
 
         try:
             import faiss
@@ -13455,7 +13436,7 @@ try:
             if index and _eli_recent_mem_Path(index).exists():
                 return int(faiss.read_index(str(index)).ntotal)
         except Exception:
-            pass
+            log.debug("suppressed exception", exc_info=True)
 
         return 0
 
@@ -13475,7 +13456,7 @@ try:
                             txt = str(obj.get(key))
                             break
             except Exception:
-                pass
+                log.debug("suppressed exception", exc_info=True)
 
         txt = _eli_recent_mem_re.sub(r"\s+", " ", txt).strip()
         if len(txt) > limit:
@@ -14173,7 +14154,7 @@ try:
         try:
             execute_action._eli_final_alias_sync_v1 = True
         except Exception:
-            pass
+            log.debug("suppressed exception", exc_info=True)
         log.debug("[EXECUTOR] final execute_action alias synced to execute")
 except Exception as _eli_executor_final_alias_sync_err:
     log.debug(f"[EXECUTOR] final execute_action alias sync failed: {_eli_executor_final_alias_sync_err}")
@@ -14456,7 +14437,7 @@ try:
                     if is_requested(ctx.get("args") or {}):
                         return build_evidence()
                 except Exception:
-                    pass
+                    log.debug("suppressed exception", exc_info=True)
             return nxt(ctx)
 
         def _eli_exec_mw_memory_runtime_sanitizer(ctx, nxt):
@@ -14482,7 +14463,7 @@ try:
                     if scoped is not None:
                         return scoped
                 except Exception:
-                    pass
+                    log.debug("suppressed exception", exc_info=True)
 
             out = nxt(ctx)
 
@@ -14497,7 +14478,7 @@ try:
                         out["response"] = cleaned
                         out["evidence_source"] = out.get("evidence_source") or "memory_runtime_no_identity_preamble"
                     except Exception:
-                        pass
+                        log.debug("suppressed exception", exc_info=True)
 
             return out
 
@@ -14601,7 +14582,7 @@ try:
         try:
             Executor.execute = lambda self, action, args=None, *a, **kw: execute(action, args, *a, **kw)  # type: ignore[name-defined]
         except Exception:
-            pass
+            log.debug("suppressed exception", exc_info=True)
 
         log.debug("[EXECUTOR] canonical middleware table installed")
 except Exception as _eli_executor_canonical_middleware_err:

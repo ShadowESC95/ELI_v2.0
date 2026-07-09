@@ -69,6 +69,12 @@ import json
 import re
 import threading
 import time
+
+# Logger for safety-wrapper suppressed-exception reporting (used before the
+# module's main logger exists; must be defined at the top of the file).
+import logging as _swlog_logging
+_SWLOG = _swlog_logging.getLogger(__name__)
+
 from contextlib import contextmanager
 from pathlib import Path
 from typing import Optional, Dict, Any, Generator, Union
@@ -981,7 +987,7 @@ def _safe_invoke_llm(llm, full_prompt: str, *, temperature, max_tokens, top_p, t
         try:
             _LLM_CALL_LOCK.release()
         except RuntimeError:
-            pass
+            _SWLOG.debug("suppressed exception", exc_info=True)
 
     for _ in range(4):
         try:
