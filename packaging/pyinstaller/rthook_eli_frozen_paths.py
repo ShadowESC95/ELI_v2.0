@@ -64,9 +64,27 @@ def _suppress_child_console_windows() -> None:
     subprocess.Popen.__init__ = _no_window_init
 
 
+def _pin_ssl_ca_bundle() -> None:
+    """Frozen Python cannot rely on the host's CA store: on Windows machines
+    with a stale/incomplete certificate store every HTTPS download (model,
+    embedder, GPU pack) failed with CERTIFICATE_VERIFY_FAILED. Point OpenSSL
+    and requests at the certifi bundle we ship. setdefault so users behind
+    corporate proxies can still override with their own bundle."""
+    try:
+        import certifi
+        ca = certifi.where()
+        if ca and Path(ca).is_file():
+            os.environ.setdefault("SSL_CERT_FILE", ca)
+            os.environ.setdefault("REQUESTS_CA_BUNDLE", ca)
+            os.environ.setdefault("CURL_CA_BUNDLE", ca)
+    except Exception:
+        pass  # fall back to the platform store
+
+
 if getattr(sys, "frozen", False):
     _force_utf8_streams()
     _suppress_child_console_windows()
+    _pin_ssl_ca_bundle()
 
 # Directories/files seeded into the per-user root. eli/ and api/ are the
 # source trees (introspection + plugin discovery read them from disk); the
