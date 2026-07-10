@@ -35,6 +35,10 @@ import subprocess
 import multiprocessing
 from dataclasses import dataclass, field
 from pathlib import Path
+
+from eli.utils.log import get_logger
+
+log = get_logger(__name__)
 from typing import Any, Dict, List, Optional
 
 
@@ -387,7 +391,7 @@ def detect_hardware() -> HardwareProfile:
                 hw.vram_gb = hw.free_vram_mb / 1024.0
                 hw.has_gpu = True
         except Exception:
-            pass
+            log.debug("suppressed exception", exc_info=True)
 
     # AMD on Windows — no CLI ships with the driver; VRAM total + name live in
     # the display-class registry keys. Free VRAM is not exposed, so estimate
@@ -423,7 +427,7 @@ def detect_hardware() -> HardwareProfile:
                         hw.has_gpu = True
                         break
         except Exception:
-            pass
+            log.debug("suppressed exception", exc_info=True)
 
     if not hw.has_gpu and not hw.gpu_name:
         hw.gpu_name = "CPU only"

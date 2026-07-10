@@ -238,7 +238,11 @@ def recovery_hint(adapters: Optional[List[BtAdapter]] = None) -> str:
     kind = platform_kind()
 
     if kind == "linux":
-        down = _linux_hci_down()
+        # Derive from the resolved adapter list (honours callers/tests that
+        # pass adapters) — skip explicit zero-MAC ghosts like _linux_hci_down.
+        down = [a.id for a in adapters
+                if a.state == "down" and a.source == "kernel"
+                and (not getattr(a, "address", "") or _valid_mac(a.address))]
         if down:
             names = " ".join(down)
             return (f"Bluetooth adapter is down ({names}) — run: "
