@@ -5,7 +5,9 @@
 **A strictly local, private AI assistant and cognitive runtime.**
 
 ![License](https://img.shields.io/badge/license-PolyForm%20Internal%20Use-blue)
+[![Release](https://img.shields.io/github/v/release/ShadowESC95/ELI_v2.0?label=release&color=success)](https://github.com/ShadowESC95/ELI_v2.0/releases/latest)
 ![Platform](https://img.shields.io/badge/platform-Linux%20·%20macOS%20·%20Windows-lightgrey)
+![GPU](https://img.shields.io/badge/GPU-CUDA%20·%20Vulkan%20·%20Metal-76B900)
 ![Python](https://img.shields.io/badge/python-3.10%2B-blue)
 ![Offline](https://img.shields.io/badge/network-offline%20by%20default-informational)
 ![Models](https://img.shields.io/badge/models-local%20GGUF-orange)
@@ -166,38 +168,42 @@ mechanism in the code, not a line I liked the sound of:
 
 ## Quick Start
 
-### Download & run (Linux portable) — the easy path
+### Installers (recommended) — Windows · macOS · Linux
 
-**This is the finish line for v2** — if you don't want to clone and build from source, use the
-portable package from **[GitHub Releases](https://github.com/ShadowESC95/ELI_v2.0/releases)**.
+Grab the latest from **[GitHub Releases](https://github.com/ShadowESC95/ELI_v2.0/releases/latest)**.
+Every release is built in CI and **launch-tested on all three platforms** before it can publish
+— the pipeline boots each bundle and verifies the full runtime stack, bundled voices and data
+paths, or the release is rejected.
 
-| | |
-|---|---|
-| **Best tested** | Linux x86_64 + **NVIDIA** GPU (the path I've run end-to-end) |
-| **Also coded for** | Windows, macOS, AMD — installers exist; expect rough edges until reported |
-| **Includes** | ELI app + installer and a **usable starter model (Qwen2.5-3B) so it answers well out of the box** — no separate download needed to get going |
+| Platform | Download | Notes |
+|---|---|---|
+| **Windows** | `ELI-Setup-<v>.exe` | Per-user install, no admin needed. Offers **NVIDIA GPU acceleration** at install and a **fresh-install** option when it finds existing data. Shortcuts: ELI, ELI Server, Uninstall. Portable alternative: `ELI_v2-<v>-windows-x64.zip` → run `ELI\ELI.exe`. |
+| **macOS** (Apple Silicon) | `ELI_v2-<v>-macos-arm64.dmg` | Drag to Applications. **Metal GPU acceleration built in.** Unsigned: first launch is right-click → Open. |
+| **Linux** | `ELI_v2-<v>-x86_64.AppImage` | `chmod +x` and run. Offers **applications-menu integration** (ELI, ELI Server, and a working Uninstall). |
 
-```bash
-# 1. Download the latest ELI_v2-*-linux-portable.tar.gz from Releases, then:
+**First launch walks you through everything:**
+1. **GPU** — ELI detects your hardware and offers acceleration: **NVIDIA → CUDA**,
+   **AMD / Intel Arc → Vulkan** (a one-time download that is load-verified before it ever
+   activates; CPU inference always works regardless). Apple GPUs need nothing.
+2. **Model** — no multi-gigabyte weights ship inside the installers; ELI offers the recommended
+   starter model **sized to your VRAM** with a progress bar. Add or switch to any local GGUF
+   any time in the app.
+3. **Talk** — voice works out of the box (Piper voices are bundled); type or speak.
 
-tar -xzf ELI_v2-*-linux-portable.tar.gz
-cd ELI_v2-*-linux-portable
-chmod +x ELI_Setup.sh
-./ELI_Setup.sh                      # one-click: system deps + venv + all packages + DB + launch
-```
-
-`ELI_Setup.sh` installs **everything for your machine and OS** — system tools (OCR/mic/media
-via apt/dnf/pacman/brew), all Python dependencies (frozen, reproducible lock), the GPU
-CUDA + llama-cpp build (CPU fallback bundled), the local databases — then launches ELI. The
-bundled starter model means it can answer immediately; swap in a bigger GGUF any time (drop it
-in `models/`, or `./RUN_ELI.sh --with-github-assets` for the full model + voice pack).
-
-Prefer the manual two-step? `./INSTALL_ELI.sh` then `./RUN_ELI.sh`. First launch is a **blank
-slate** (no preloaded data) with a short, skippable "what should I call you?" intro; `artifacts/`
-and databases are created automatically.
+Your data lives in one per-user folder (`%LOCALAPPDATA%\ELI_v2`,
+`~/Library/Application Support/ELI_v2`, `~/.local/share/ELI_v2`) and **survives upgrades** —
+settings, memory and models carry over like a save-game. Want a clean slate? Tick
+*Fresh install* in the Windows setup, or run `ELI --fresh-start`. GPU later?
+`ELI --install-gpu-pack` (add `--vulkan` for Intel Arc). Verify any download against
+`SHA256SUMS.txt` on the release.
 
 <details>
-<summary><b>Model pack & asset restore details</b></summary>
+<summary><b>Classic Linux tarball (source-portable) & model pack details</b></summary>
+
+The classic source tarball `ELI_v2-<v>-linux-portable.tar.gz` is still published with every
+release — unpack, `./ELI_Setup.sh`, and it builds a local venv with system deps, the GPU
+CUDA + llama-cpp build and the databases, then launches.
+
 
 **Model pack (`local-assets-v2.1`):** nomic embedder + starter chat GGUFs + cleared Piper voices.
 Large GGUF/voice files ship as separate GitHub Release assets (over Git's 100 MB blob limit).
@@ -352,6 +358,10 @@ FastAPI) so you can pull it up in any phone/tablet browser **on your own home ne
 screen. **The AI still runs entirely on your computer** — the browser is just a window onto it;
 nothing runs on the device and nothing reaches the internet.
 
+Installer builds ship it ready to go: the **ELI Server** shortcut (Windows / Linux menu entry)
+opens it with a visible console showing the phone-connect URL and QR — or run `ELI --server`.
+From source:
+
 ```bash
 ./scripts/eli_serve.sh             # this computer only  → http://127.0.0.1:8081/
 ./scripts/eli_serve.sh --lan       # your home network   → prints a token-protected URL
@@ -412,16 +422,20 @@ SECURITY.md, not in a public issue.
 
 ## Tested on & known limitations
 
-*Last updated 2026-07-04.*
+*Last updated 2026-07-10 (v2.1.9).*
 
 I'd rather tell you exactly what I've run than pretend it's flawless everywhere.
 
-**What I've actually run, end to end:** Linux (x86_64) with an NVIDIA GPU. That's my machine, so
-it's the one platform where I can honestly say the whole thing — install, first-run, the full test
-suite (7,600+ tests), voice, vision, the server, all of it — genuinely works. If you're on
-Linux + NVIDIA, you're on the tested path.
+**What I've actually run, end to end:** Linux (x86_64) with an NVIDIA GPU — install, first-run,
+the full test suite (7,600+ tests), voice, vision, the server, the AppImage with the CUDA GPU
+pack, all of it. **The Windows installer has also been field-run on real hardware** — install,
+first-boot GPU + model flow, voice and chat. On top of that, **every release is launch-tested in
+CI on Windows, macOS and Linux**: the pipeline boots each built bundle and verifies the runtime
+stack, bundled voices and data paths before it may publish.
 
-**What the code handles but I haven't run on real hardware yet:** AMD (ROCm), Windows, and macOS.
+**What the code handles but hasn't had a human run on real hardware yet:** macOS (CI-tested every
+release, not yet human-confirmed) and AMD GPUs (the Vulkan pack is CI-built and load-verified at
+install; real-card reports welcome).
 The installers, per-OS requirements, cross-platform paths, GPU detection (NVIDIA / AMD / Apple),
 and the OS-abstraction layer are all there and I've read every line — but "correct in the code"
 isn't the same as "confirmed on the metal," and I won't claim it is. If you run ELI on one of
@@ -529,6 +543,7 @@ have, falling back to CPU otherwise). Full matrix: **[docs/CROSS_PLATFORM.md](do
 - **[Cross-platform coverage](docs/CROSS_PLATFORM.md)** — capability × platform matrix
 - **[Model runtime policy](docs/model_runtime_policy.md)** — how ctx/layers/batch are sized
 - **[First run](docs/FIRST_RUN.md)** — clone vs portable paths
+- **[Release pipeline](docs/RELEASE_PIPELINE.md)** — how the installers are built, launch-tested and published; GPU packs
 
 ## Project status & contributing
 
