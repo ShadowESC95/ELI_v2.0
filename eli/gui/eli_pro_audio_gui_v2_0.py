@@ -45,7 +45,8 @@ try:
     from eli.core.paths import project_root as _eli_canonical_root
     _BOOT_PROJECT_ROOT = Path(_eli_canonical_root())
 except Exception:
-    pass
+    import logging as _boot_logging
+    _boot_logging.getLogger("eli.gui.boot").debug("suppressed exception", exc_info=True)
 
 def _eli_path_get(obj, key, default=None):
     """
