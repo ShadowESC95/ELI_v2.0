@@ -66,6 +66,16 @@ _SEED_FILES = (
 _PRESERVE = ("config",)
 
 
+def _warn(msg: str) -> None:
+    """stderr is None in windowed Windows builds — writing to it crashed the
+    boot (v2.1.7); never let a diagnostic message take the app down."""
+    try:
+        if sys.stderr is not None:
+            sys.stderr.write(msg)
+    except Exception:
+        pass
+
+
 def _bundle_dir() -> Path:
     return Path(getattr(sys, "_MEIPASS", Path(sys.executable).parent))
 
@@ -141,7 +151,7 @@ def _pin_frozen_root() -> None:
     try:
         _seed(_bundle_dir(), root)
     except Exception as exc:  # pragma: no cover — first-run disk issues
-        sys.stderr.write(
+        _warn(
             f"[ELI] could not prepare user data root {root}: {exc}\n"
             f"[ELI] set ELI_PROJECT_ROOT to a writable ELI directory and relaunch.\n"
         )
@@ -164,7 +174,7 @@ def _pin_frozen_root() -> None:
             except Exception:
                 pass
         else:
-            sys.stderr.write(
+            _warn(
                 "[ELI] ignoring unverified GPU pack (missing .gpu_pack_ok) — "
                 "running on CPU; reinstall with: ELI --install-gpu-pack --force\n"
             )
