@@ -9,7 +9,17 @@ from typing import Any, Dict, List, Optional, Tuple
 from eli.runtime.identity_validation import normalize_identity_candidate
 
 
-PROJECT_ROOT = Path(__file__).resolve().parents[2]
+def _eli_canonical_root_PROJECT_ROOT() -> Path:
+    # Canonical env-honoring root — __file__ resolves into the read-only
+    # bundle in frozen builds (identical to this path in source installs).
+    try:
+        from eli.core.paths import project_root
+        return Path(project_root())
+    except Exception:
+        return Path(__file__).resolve().parents[2]
+
+
+PROJECT_ROOT = _eli_canonical_root_PROJECT_ROOT()
 
 
 def _profile_paths() -> List[Path]:

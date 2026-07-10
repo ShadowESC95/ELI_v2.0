@@ -24,7 +24,17 @@ from collections import OrderedDict
 from pathlib import Path
 from typing import Dict, List, Tuple
 
-ELI_ROOT = Path(__file__).resolve().parents[3]
+def _eli_canonical_root_ELI_ROOT() -> Path:
+    # Canonical env-honoring root — __file__ resolves into the read-only
+    # bundle in frozen builds (identical to this path in source installs).
+    try:
+        from eli.core.paths import project_root
+        return Path(project_root())
+    except Exception:
+        return Path(__file__).resolve().parents[3]
+
+
+ELI_ROOT = _eli_canonical_root_ELI_ROOT()
 MANIFEST = ELI_ROOT / "capability_manifest.json"
 OUT = ELI_ROOT / "blueprints" / "capabilities_and_actions.md"
 
