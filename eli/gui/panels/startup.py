@@ -974,7 +974,8 @@ class FirstBootWizard(QDialog):
             self._dl_progress.setRange(0, 1000)
             self._dl_progress.setValue(min(pct_milli, 1000))
             if pct_milli >= 1000:
-                self._dl_status.setText(f"Downloading … {gib_done:.2f} GiB (finishing)")
+                self._dl_status.setText(
+                    f"Downloaded {gib_done:.2f} GiB — verifying & saving, do NOT close…")
             else:
                 est_total_gib = gib_done * 1000.0 / max(pct_milli, 1)
                 self._dl_status.setText(
@@ -985,6 +986,12 @@ class FirstBootWizard(QDialog):
     def _on_dl_done(self, res: Dict[str, Any]):
         self._dl_btn.setEnabled(True)
         self._dl_combo.setEnabled(True)
+        # Trust but verify: never show "Downloaded" unless the finalised file
+        # is actually on disk (field report: 100% shown, models dir empty).
+        if res.get("ok") and res.get("path") and not Path(str(res.get("path"))).is_file():
+            res = {"ok": False,
+                   "error": f"Finalised file missing on disk: {res.get('path')} — "
+                            "check free space/antivirus, then Download again (resumes)."}
         if res.get("ok"):
             path = res.get("path", "")
             self._wiz_path.setText(path)
