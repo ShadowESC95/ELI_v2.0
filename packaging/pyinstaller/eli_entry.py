@@ -266,6 +266,103 @@ sys.exit(0 if m.clickedButton() is yes else 3)
         pass
 
 
+def _first_run_model_offer() -> None:
+    """First launch with no chat model installed: offer to download the
+    recommended starter model (VRAM-matched via the canonical hardware
+    profile) with a progress dialog — installers cannot bundle multi-GB
+    weights (GitHub's 2 GiB asset limit), so first boot provides them."""
+    if not getattr(sys, "frozen", False):
+        return
+    try:
+        import subprocess
+        root = _user_root()
+        if not str(root):
+            return
+        from eli.core.paths import models_dir
+        mdir = Path(models_dir())
+        has_model = any(
+            "embed" not in p.name.lower()
+            for p in mdir.rglob("*.gguf")
+        ) if mdir.is_dir() else False
+        marker = root / "runtime" / ".model_choice"
+        if has_model or marker.exists():
+            return
+        from eli.core.hardware_profile import detect_hardware
+        from eli.core.model_download import recommend_for_vram
+        hp = detect_hardware()
+        entry = recommend_for_vram((hp.free_vram_mb or 0) / 1024.0 if hp.has_gpu else None)
+        name = entry.get("name") or entry.get("key") or "recommended model"
+        size = entry.get("size_gb") or entry.get("vram_gb") or "?"
+        key = entry.get("key")
+        if not key:
+            return
+        marker.parent.mkdir(parents=True, exist_ok=True)
+        ask = f"""
+import sys
+from PySide6.QtWidgets import QApplication, QMessageBox
+app = QApplication(sys.argv)
+m = QMessageBox()
+m.setWindowTitle("ELI - first model")
+m.setText("No AI model is installed yet.")
+m.setInformativeText("Download the recommended starter model now?\\n\\n{name} (~{size} GB) — matched to your hardware.\\n\\nYou can add or switch models any time in the app.")
+yes = m.addButton("Download now (recommended)", QMessageBox.AcceptRole)
+m.addButton("Later, in the app", QMessageBox.RejectRole)
+m.exec()
+sys.exit(0 if m.clickedButton() is yes else 3)
+"""
+        if subprocess.run([sys.executable, "-c", ask]).returncode != 0:
+            marker.write_text("later", encoding="utf-8")
+            return
+        download = f"""
+import sys, threading
+from PySide6.QtWidgets import QApplication, QProgressDialog
+from PySide6.QtCore import Qt, QTimer
+from eli.core.model_download import download_model
+app = QApplication(sys.argv)
+dlg = QProgressDialog("Downloading {name}...", None, 0, 100)
+dlg.setWindowTitle("ELI - first model")
+dlg.setCancelButton(None)
+dlg.setWindowModality(Qt.ApplicationModal)
+dlg.setMinimumWidth(460)
+dlg.show()
+state = {{"pct": 0, "rc": 1}}
+def cb(done, total):
+    if total:
+        state["pct"] = int(done * 100 / total)
+def work():
+    try:
+        res = download_model({key!r}, progress_cb=cb)
+        state["rc"] = 0 if res.get("ok", True) else 1
+    except Exception:
+        state["rc"] = 1
+t = threading.Thread(target=work, daemon=True)
+t.start()
+timer = QTimer()
+def tick():
+    dlg.setValue(state["pct"])
+    if not t.is_alive():
+        app.quit()
+timer.timeout.connect(tick)
+timer.start(300)
+app.exec()
+sys.exit(state["rc"])
+"""
+        rc = subprocess.run([sys.executable, "-c", download]).returncode
+        marker.write_text("downloaded" if rc == 0 else "failed-will-retry-in-app", encoding="utf-8")
+        if rc != 0:
+            notice = """
+import sys
+from PySide6.QtWidgets import QApplication, QMessageBox
+app = QApplication(sys.argv)
+QMessageBox.warning(None, "ELI - first model",
+    "The download did not finish - ELI will open anyway; use the model "
+    "picker inside the app to download or choose a model.")
+"""
+            subprocess.run([sys.executable, "-c", notice])
+    except Exception:
+        pass  # never block the GUI boot
+
+
 def _first_run_gpu_offer() -> None:
     """First-launch hardware chooser (frozen GUI builds, Windows/Linux).
 
@@ -417,6 +514,7 @@ if __name__ == "__main__":
         sys.exit(_uninstall())
     else:
         _first_run_gpu_offer()
+        _first_run_model_offer()
         _first_run_integrate_offer()
         from eli.gui.app import main
         sys.exit(main())

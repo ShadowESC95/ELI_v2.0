@@ -45,8 +45,28 @@ def _force_utf8_streams() -> None:
             pass
 
 
+def _suppress_child_console_windows() -> None:
+    """Windowed Windows builds: every console-based child process (powershell
+    audio playback in tts_router, nvidia-smi polling, clipboard probes)
+    otherwise FLASHES a console window on screen. Default all subprocess
+    spawns to CREATE_NO_WINDOW; callers that explicitly pass creationflags
+    (e.g. an intentional visible terminal) are respected."""
+    if sys.platform != "win32":
+        return
+    import subprocess
+    _orig_init = subprocess.Popen.__init__
+
+    def _no_window_init(self, *args, **kwargs):
+        if not kwargs.get("creationflags"):
+            kwargs["creationflags"] = subprocess.CREATE_NO_WINDOW
+        return _orig_init(self, *args, **kwargs)
+
+    subprocess.Popen.__init__ = _no_window_init
+
+
 if getattr(sys, "frozen", False):
     _force_utf8_streams()
+    _suppress_child_console_windows()
 
 # Directories/files seeded into the per-user root. eli/ and api/ are the
 # source trees (introspection + plugin discovery read them from disk); the
