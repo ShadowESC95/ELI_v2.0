@@ -20,6 +20,10 @@ more you use it. Talk to it or type to it — your call. It's offline-by-default
 down at the network socket — not on the honour system. Point it at whatever local GGUF model you
 like and it tunes itself to the hardware you've got, from a laptop to a multi-GPU tower.
 
+<div align="center">
+<img src=".github/screenshots/gui-onboarding.png" alt="ELI desktop app — first-run onboarding conversation with a local 35B model" width="880">
+</div>
+
 > **v2 is live software, not a polished product drop.** ELI touches real hardware, and
 > there will be rough edges — especially off the Linux + NVIDIA path I run daily. I'd rather get a
 > bug report than a compliment: **[open an issue](https://github.com/ShadowESC95/ELI_v2.0/issues)**.
@@ -27,6 +31,7 @@ like and it tunes itself to the hardware you've got, from a laptop to a multi-GP
 
 ## Contents
 - [What is ELI?](#what-is-eli)
+- [Screenshots](#screenshots)
 - [What it does](#what-it-does)
 - [Design principles](#design-principles)
 - [Quick Start](#quick-start)
@@ -78,6 +83,21 @@ conversations sitting on a stranger's server — are exactly the people cloud AI
 because the model is *yours* and swappable, ELI's ceiling isn't fixed — it rises with the
 open-model frontier and the hardware you give it. The quality is a dial you control, not a
 subscription tier someone sells you back.
+
+## Screenshots
+
+The desktop app and the phone/web dashboard, running fully local:
+
+| Desktop — chat driving the OS (Spotify, volume, news) | Web dashboard — cognition mesh: 15 agents on the DAG orchestrator |
+|:---:|:---:|
+| <img src=".github/screenshots/gui-chat-actions.png" alt="ELI desktop chat controlling Spotify and fetching news" width="420"> | <img src=".github/screenshots/web-dashboard.png" alt="ELI web dashboard with live vitals and the agent mesh" width="420"> |
+
+| Web chat — ELI introducing itself | Web overview — vitals, tasks, media & devices |
+|:---:|:---:|
+| <img src=".github/screenshots/web-chat-poster.png" alt="ELI describing its own capabilities in the web chat" width="420"> | <img src=".github/screenshots/web-overview.png" alt="ELI web overview dashboard" width="420"> |
+
+More in [`.github/screenshots/`](.github/screenshots/) — including the
+[phone-connect page](.github/screenshots/web-connect.png) (QR pairing, LAN-only).
 
 ## What it does
 
