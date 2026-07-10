@@ -116,6 +116,155 @@ def _selftest() -> int:
         return 1
 
 
+def _user_root() -> Path:
+    return Path(os.environ.get("ELI_PROJECT_ROOT", "") or "")
+
+
+def _fresh_start(argv: list[str]) -> int:
+    """Wipe per-user ELI state for a clean-slate install (game-save reset).
+
+    Removes settings, memory DBs, artifacts and the seeded code tree, so the
+    next launch reseeds + onboards from scratch. Downloaded AI models and the
+    GPU pack are KEPT (static downloads, no state) unless --purge-models.
+    """
+    import shutil
+    root = _user_root()
+    if not str(root) or not root.is_dir():
+        print(f"[fresh-start] nothing to reset ({root or 'no ELI data root'})")
+        return 0
+    purge_models = "--purge-models" in argv
+    keep = set() if purge_models else {"models", "runtime"}
+    if "--yes" not in argv:
+        kept = "nothing kept" if purge_models else "keeping downloaded models + GPU pack"
+        answer = input(f"[fresh-start] wipe ELI data in {root} ({kept})? [y/N] ").strip().lower()
+        if answer not in ("y", "yes"):
+            print("[fresh-start] cancelled")
+            return 1
+    for item in root.iterdir():
+        if item.name in keep:
+            continue
+        (shutil.rmtree if item.is_dir() else os.unlink)(item)
+    print(f"[fresh-start] done — ELI will set up fresh on next launch ({', '.join(sorted(keep)) or 'nothing'} kept)")
+    return 0
+
+
+def _desktop_files() -> dict[str, Path]:
+    apps = Path.home() / ".local" / "share" / "applications"
+    return {
+        "eli": apps / "eli-v2.desktop",
+        "server": apps / "eli-v2-server.desktop",
+        "uninstall": apps / "eli-v2-uninstall.desktop",
+        "icon": Path.home() / ".local" / "share" / "icons" / "hicolor" / "256x256" / "apps" / "eli-v2.png",
+    }
+
+
+def _integrate(quiet: bool = False) -> int:
+    """Linux: install applications-menu entries (ELI, Server, Uninstall) that
+    point at THIS AppImage, with THIS version's icon — replacing any stale
+    entries from older installs."""
+    import shutil
+    if sys.platform != "linux":
+        print("[integrate] only needed on Linux")
+        return 0
+    appimage = os.environ.get("APPIMAGE", "") or sys.executable
+    bundle = Path(getattr(sys, "_MEIPASS", Path(sys.executable).parent))
+    files = _desktop_files()
+    # replace stale entries from any older install
+    for old in files["eli"].parent.glob("eli*.desktop"):
+        old.unlink(missing_ok=True)
+    files["icon"].parent.mkdir(parents=True, exist_ok=True)
+    src_icon = bundle / "packaging" / "desktop" / "eli-256.png"
+    if src_icon.is_file():
+        shutil.copy2(src_icon, files["icon"])
+    files["eli"].parent.mkdir(parents=True, exist_ok=True)
+    entries = {
+        "eli": ("ELI v2.0", f'"{appimage}"', "ELI — private local AI assistant"),
+        "server": ("ELI Server (phone & web)", f'"{appimage}" --server', "ELI phone/web server with console output"),
+        "uninstall": ("Uninstall ELI v2.0", f'"{appimage}" --uninstall', "Remove ELI menu entries and optionally its data"),
+    }
+    for key, (name, execline, comment) in entries.items():
+        files[key].write_text(
+            "[Desktop Entry]\nType=Application\n"
+            f"Name={name}\nComment={comment}\nExec={execline}\n"
+            f"Icon={files['icon']}\nCategories=Utility;\nTerminal={'true' if key != 'eli' else 'false'}\n",
+            encoding="utf-8",
+        )
+    if not quiet:
+        print(f"[integrate] menu entries installed for {appimage}")
+    return 0
+
+
+def _uninstall() -> int:
+    """Linux: remove menu entries; optionally wipe ELI data. The AppImage file
+    itself is just a file — delete it afterwards if you want it gone."""
+    import shutil
+    import subprocess
+    files = _desktop_files()
+    for old in files["eli"].parent.glob("eli*.desktop"):
+        old.unlink(missing_ok=True)
+    files["icon"].unlink(missing_ok=True)
+    root = _user_root()
+    wipe = False
+    ask = f"""
+import sys
+from PySide6.QtWidgets import QApplication, QMessageBox
+app = QApplication(sys.argv)
+m = QMessageBox()
+m.setWindowTitle("Uninstall ELI")
+m.setText("ELI's menu entries have been removed.")
+m.setInformativeText("Also delete ELI's data (settings, memory, downloaded models) in {root}?\\n\\nFinally, delete the .AppImage file itself to finish removal.")
+yes = m.addButton("Delete data too", QMessageBox.AcceptRole)
+m.addButton("Keep data", QMessageBox.RejectRole)
+m.exec()
+sys.exit(0 if m.clickedButton() is yes else 3)
+"""
+    try:
+        wipe = subprocess.run([sys.executable, "-c", ask]).returncode == 0
+    except Exception:
+        answer = input(f"[uninstall] also delete ELI data in {root}? [y/N] ").strip().lower()
+        wipe = answer in ("y", "yes")
+    if wipe and str(root) and root.is_dir():
+        shutil.rmtree(root, ignore_errors=True)
+        print(f"[uninstall] data removed: {root}")
+    print("[uninstall] menu entries removed — delete the .AppImage file to finish")
+    return 0
+
+
+def _first_run_integrate_offer() -> None:
+    """Linux AppImage first run: offer applications-menu integration once."""
+    if sys.platform != "linux" or not os.environ.get("APPIMAGE"):
+        return
+    try:
+        import subprocess
+        root = _user_root()
+        if not str(root):
+            return
+        marker = root / "runtime" / ".desktop_integrated"
+        if marker.exists():
+            return
+        marker.parent.mkdir(parents=True, exist_ok=True)
+        ask = """
+import sys
+from PySide6.QtWidgets import QApplication, QMessageBox
+app = QApplication(sys.argv)
+m = QMessageBox()
+m.setWindowTitle("ELI - desktop integration")
+m.setText("Add ELI to your applications menu?")
+m.setInformativeText("Creates launcher entries for ELI, ELI Server and Uninstall "
+                     "pointing at this AppImage, with the current icon. Replaces "
+                     "entries from older versions.")
+yes = m.addButton("Add to menu (recommended)", QMessageBox.AcceptRole)
+m.addButton("Not now", QMessageBox.RejectRole)
+m.exec()
+sys.exit(0 if m.clickedButton() is yes else 3)
+"""
+        if subprocess.run([sys.executable, "-c", ask]).returncode == 0:
+            _integrate(quiet=True)
+        marker.write_text("asked", encoding="utf-8")
+    except Exception:
+        pass
+
+
 def _first_run_gpu_offer() -> None:
     """First-launch hardware chooser (frozen GUI builds, Windows/Linux).
 
@@ -227,6 +376,12 @@ def _mode() -> str:
         return "gpu-pack"
     if "--remove-gpu-pack" in argv:
         return "gpu-pack-remove"
+    if "--fresh-start" in argv:
+        return "fresh-start"
+    if "--integrate" in argv:
+        return "integrate"
+    if "--uninstall" in argv:
+        return "uninstall"
     exe = Path(sys.argv[0]).stem.lower()
     if "--server" in argv or exe.endswith("server"):
         return "server"
@@ -253,7 +408,14 @@ if __name__ == "__main__":
         sys.argv = [sys.argv[0]] + [a for a in sys.argv[1:] if a != "--server"]
         from api.server import main as server_main
         sys.exit(server_main())
+    elif mode == "fresh-start":
+        sys.exit(_fresh_start(sys.argv[1:]))
+    elif mode == "integrate":
+        sys.exit(_integrate())
+    elif mode == "uninstall":
+        sys.exit(_uninstall())
     else:
         _first_run_gpu_offer()
+        _first_run_integrate_offer()
         from eli.gui.app import main
         sys.exit(main())

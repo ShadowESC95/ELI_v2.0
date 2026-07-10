@@ -61,6 +61,9 @@ Name: "desktopicon"; Description: "Create a desktop shortcut"; GroupDescription:
 ; Only shown when an NVIDIA driver is present (nvcuda.dll). Downloads the CUDA
 ; llama.cpp build (~several hundred MB) into the per-user data root.
 Name: "gpupack"; Description: "Download NVIDIA GPU acceleration now (recommended for NVIDIA cards)"; GroupDescription: "GPU:"; Check: HasNvidiaDriver
+; Game-save semantics: by default an upgrade KEEPS your settings/memory/models.
+; Tick for a clean slate (models and GPU pack are kept — static downloads).
+Name: "freshinstall"; Description: "Fresh install — reset ELI's settings and memory (keeps downloaded AI models)"; GroupDescription: "Existing data:"; Flags: unchecked; Check: HasExistingData
 
 [InstallDelete]
 ; The frozen runtime is versioned as a whole: upgrading over an older install
@@ -85,6 +88,31 @@ Filename: "{app}\ELI-Server.exe"; Parameters: "--install-gpu-pack"; Tasks: gpupa
 function HasNvidiaDriver: Boolean;
 begin
   Result := FileExists(ExpandConstant('{sys}\nvcuda.dll'));
+end;
+
+function HasExistingData: Boolean;
+begin
+  Result := DirExists(ExpandConstant('{localappdata}\ELI_v2'));
+end;
+
+procedure CurStepChanged(CurStep: TSetupStep);
+var
+  Root: string;
+begin
+  { Fresh install: wipe settings/memory/artifacts BEFORE the app first runs.
+    models/ and runtime/ (GPU pack) survive - static downloads, no state. }
+  if (CurStep = ssInstall) and WizardIsTaskSelected('freshinstall') then
+  begin
+    Root := ExpandConstant('{localappdata}\ELI_v2');
+    DelTree(Root + '\config', True, True, True);
+    DelTree(Root + '\artifacts', True, True, True);
+    DelTree(Root + '\eli', True, True, True);
+    DelTree(Root + '\api', True, True, True);
+    DelTree(Root + '\blueprints', True, True, True);
+    DelTree(Root + '\docs', True, True, True);
+    DelTree(Root + '\eli_docs', True, True, True);
+    DeleteFile(Root + '\.eli_frozen_seed_version');
+  end;
 end;
 
 [Icons]
