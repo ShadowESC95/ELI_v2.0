@@ -108,7 +108,8 @@ def _selftest() -> int:
         return 0
     except Exception:
         tb = traceback.format_exc()
-        sys.stderr.write(tb)
+        if sys.stderr is not None:
+            sys.stderr.write(tb)
         try:  # windowed exes have no visible stderr — leave a breadcrumb file
             Path("eli_selftest_error.log").write_text(tb, encoding="utf-8")
         except Exception:
