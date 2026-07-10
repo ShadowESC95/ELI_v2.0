@@ -6,7 +6,17 @@ import sys
 from pathlib import Path
 from typing import Any, Dict, List, Tuple
 
-_ROOT = Path(__file__).resolve().parents[2]
+def _eli_canonical_root__ROOT() -> Path:
+    # Canonical env-honoring root — __file__ resolves into the read-only
+    # bundle in frozen builds (identical to this path in source installs).
+    try:
+        from eli.core.paths import project_root
+        return Path(project_root())
+    except Exception:
+        return Path(__file__).resolve().parents[2]
+
+
+_ROOT = _eli_canonical_root__ROOT()
 
 
 def project_root() -> Path:

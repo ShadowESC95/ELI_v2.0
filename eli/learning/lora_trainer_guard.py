@@ -11,7 +11,17 @@ from eli.learning.dataset_filters import is_bad_response, load_jsonl, row_is_rev
 from eli.learning.base_model_resolver import resolve_base_model_path
 
 
-PROJECT_ROOT = Path(__file__).resolve().parents[2]
+def _eli_canonical_root_PROJECT_ROOT() -> Path:
+    # Canonical env-honoring root — __file__ resolves into the read-only
+    # bundle in frozen builds (identical to this path in source installs).
+    try:
+        from eli.core.paths import project_root
+        return Path(project_root())
+    except Exception:
+        return Path(__file__).resolve().parents[2]
+
+
+PROJECT_ROOT = _eli_canonical_root_PROJECT_ROOT()
 REGISTRY_PATH = PROJECT_ROOT / "models/lora/registry/eli_phi_targets.json"
 RUNS_DIR = PROJECT_ROOT / "training/runs"
 
