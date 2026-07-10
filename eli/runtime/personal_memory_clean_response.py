@@ -7,7 +7,17 @@ from pathlib import Path
 from typing import Any, Iterable
 
 
-ROOT = Path(__file__).resolve().parents[2]
+def _eli_canonical_root_ROOT() -> Path:
+    # Canonical env-honoring root — __file__ resolves into the read-only
+    # bundle in frozen builds (identical to this path in source installs).
+    try:
+        from eli.core.paths import project_root
+        return Path(project_root())
+    except Exception:
+        return Path(__file__).resolve().parents[2]
+
+
+ROOT = _eli_canonical_root_ROOT()
 USER_DB = ROOT / "artifacts" / "db" / "user.sqlite3"
 AGENT_DB = ROOT / "artifacts" / "db" / "agent.sqlite3"
 
