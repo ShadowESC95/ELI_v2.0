@@ -179,6 +179,13 @@ else
 fi
 
 if [ -z "${SKIP_TESTS:-}" ]; then
+    # capability_manifest.json is gitignored, so a git-archive / release tree carries none.
+    # tests/claims read it at the project root — generate it there BEFORE pytest, or those
+    # four tests error out with FileNotFoundError during collection.
+    echo "[pre-flight] Generating capability_manifest.json (gitignored; tests/claims need it)…"
+    ( cd "$PROJECT_ROOT" && PYTHONPATH="$PROJECT_ROOT" python3 -c \
+      "from eli.tools.registry.capability_updater import update_capability_manifest; update_capability_manifest()" ) \
+      >/dev/null 2>&1 || echo "[pre-flight] (manifest generation skipped — continuing)"
     echo "[pre-flight] Running pytest (set SKIP_TESTS=1 to skip)…"
     ( cd "$PROJECT_ROOT" && pytest -q tests/ )
 fi

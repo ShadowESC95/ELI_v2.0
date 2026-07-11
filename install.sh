@@ -359,7 +359,11 @@ if [ "$SKIP_TORCH" -eq 0 ] && [ "$CPU_ONLY" -eq 0 ] && [ "$OS" != "Darwin" ]; th
 fi
 
 # Install ELI v2.0 wheel (or editable from source checkout)
-echo "[..] Installing ELI v2.0..."
+# NOT --quiet: this step resolves the full dependency tree (torch, PySide6, faiss, …)
+# and can take several minutes. Suppressing output made it look frozen, so users killed
+# it here — before the requirements install below (which brings in PySide6) ever ran,
+# leaving a GUI-less venv ("please install PySide6"). Show progress instead.
+echo "[..] Installing ELI v2.0 (editable) — resolving dependencies, this can take a few minutes..."
 WHEEL=""
 # Pick the HIGHEST version wheel (sort -V), not the first — a plain glob returns the
 # oldest first, which would install a stale version if several wheels are present.
@@ -367,9 +371,12 @@ WHEEL="$(ls "$SCRIPT_DIR"/dist/eli_v2_0-*.whl 2>/dev/null | sort -V | tail -1)"
 # Install ELI EDITABLE from the source tree, so the tree is the SINGLE runtime authority
 # (site-packages links to it — nothing shadows a duplicate wheel copy; the launchers'
 # PYTHONPATH becomes redundant belt-and-suspenders). Fall back to the bundled wheel only
-# if an editable install can't be created on this machine.
-if ! ( cd "$SCRIPT_DIR" && "$PIP" install -e ".[full]" --quiet ); then
-    [ -n "$WHEEL" ] && "$PIP" install "${WHEEL}[full]" --quiet
+# if an editable install can't be created on this machine. The `|| true` keeps `set -e`
+# from aborting the install if neither path succeeds — the pinned requirements install
+# below is the real dependency gate and still runs.
+if ! ( cd "$SCRIPT_DIR" && "$PIP" install -e ".[full]" ); then
+    echo "[!] Editable install failed; falling back to the bundled wheel, then the pinned lock."
+    { [ -n "$WHEEL" ] && "$PIP" install "${WHEEL}[full]"; } || true
 fi
 
 # Install remaining runtime requirements. Default = the FROZEN LOCK (exact known-good
