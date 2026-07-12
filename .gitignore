@@ -187,6 +187,11 @@ blueprints/*.pdf
 !blueprints/ELI_USER_MANUAL.pdf
 !blueprints/ELI_USER_MANUAL_FULL.pdf
 !blueprints/what_eli_is_and_can_do.pdf
+!blueprints/installation.pdf
+!blueprints/commands_and_installers.pdf
+!blueprints/new_user_install_guide.pdf
+!blueprints/full_setup_guide.pdf
+!blueprints/portable_scripts_guide.pdf
 
 # Regenerated on every install/run — tracked churn on one timestamp; built fresh into packages.
 /capability_manifest.json
