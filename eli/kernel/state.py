@@ -226,8 +226,15 @@ def get_user_profile_text(user_id: str | None = None) -> str:
     if name:
         lines.append(f"Name: {name}")
 
+    # Explicit tone preference — how the USER wants to be spoken to. Surfaced prominently
+    # (right after the name) as a directive so quantized models honour it; it takes priority
+    # over ELI's auto-inferred tone. Set via set_communication_style() or the GUI.
+    style = str(profile.get("communication_style") or "").strip()
+    if style:
+        lines.append(f"How to speak to {name or 'the user'} (honour this tone): {style}")
+
     for k, v in profile.items():
-        if k == "name":
+        if k in ("name", "communication_style"):
             continue
         if v is None:
             continue
@@ -236,6 +243,36 @@ def get_user_profile_text(user_id: str | None = None) -> str:
             lines.append(formatted)
 
     return "\n".join(lines).strip()
+
+
+def set_communication_style(style: str, user_id: str | None = None) -> str:
+    """Persist the user's explicit tone/communication preference (how they want to be
+    spoken to) to user_profile.json, mirror it into settings.json for the GUI, and refresh
+    the persona overlay so it takes effect. Empty clears it. Returns the stored value."""
+    s = str(style or "").strip()
+    profile = load_user_profile(user_id)
+    if s:
+        profile["communication_style"] = s
+    else:
+        profile.pop("communication_style", None)
+    save_user_profile(profile, user_id)
+    try:
+        from eli.core.runtime_settings import load_settings, save_settings
+        st = load_settings() or {}
+        st["communication_style"] = s
+        save_settings(st)
+    except Exception:
+        pass
+    try:
+        from eli.cognition.persona_updater import update_persona_overlay
+        update_persona_overlay()
+    except Exception:
+        pass
+    return s
+
+
+def get_communication_style(user_id: str | None = None) -> str:
+    return str(load_user_profile(user_id).get("communication_style") or "").strip()
 
 
 def world_model_snapshot_bridge():
