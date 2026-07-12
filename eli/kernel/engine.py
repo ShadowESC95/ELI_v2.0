@@ -676,8 +676,8 @@ def _eli_bad_identity_self_report_output(user_input: str, response: str) -> bool
                 and {"persona", "memory"} <= {str(x).lower() for x in (sources or [])}
             ):
                 return False
-    except Exception:
-        logging.getLogger(__name__).debug("suppressed exception", exc_info=True)
+    except (ValueError, TypeError):
+        pass  # a plain-text reply isn't JSON — expected, fall through to the text checks
     low = text.lower()
     if re.search(r"\byour (?:identity|persona)\b", low):
         return True
