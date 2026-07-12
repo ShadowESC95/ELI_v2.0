@@ -313,13 +313,17 @@ def main():
     try:
         import os as _os, sys as _sys
         from pathlib import Path as _P
-        if not _os.environ.get("ELI_PROJECT_ROOT"):
-            _root = _P(_sys.executable).resolve().parents[2]  # bin/python → .venv → root
-            if (_root / "eli" / "gui").is_dir():
-                _os.environ["ELI_PROJECT_ROOT"] = str(_root)
-                _os.environ.setdefault("ELI_DATA_DIR", str(_root / "artifacts"))
-                _os.environ.setdefault("ELI_CONFIG_DIR", str(_root / "config"))
-                _os.environ.setdefault("ELI_MODELS_DIR", str(_root / "models"))
+        # NOT .resolve() — the venv's bin/python is a symlink to the system
+        # python; resolving it walks OUT of the checkout (root became "/", so
+        # the pin silently no-op'd and a stale env leaked through).
+        _root = _P(_sys.executable).parents[2]  # bin/python → .venv → root
+        if (_root / "eli" / "gui").is_dir() and _os.environ.get("ELI_PROJECT_ROOT", "") != str(_root):
+            # The venv you launched owns the root; overwrite any stale/foreign
+            # value so this checkout never writes into another checkout's folders.
+            _os.environ["ELI_PROJECT_ROOT"] = str(_root)
+            _os.environ["ELI_DATA_DIR"] = str(_root / "artifacts")
+            _os.environ["ELI_CONFIG_DIR"] = str(_root / "config")
+            _os.environ["ELI_MODELS_DIR"] = str(_root / "models")
     except Exception:
         pass
     # ── First-run/boot DB + machine-inventory bootstrap (idempotent) ─────────
