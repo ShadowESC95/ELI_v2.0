@@ -120,10 +120,18 @@ elif [ -x "$ROOT/build/appimagetool-x86_64.AppImage" ]; then
   APPIMAGETOOL="$ROOT/build/appimagetool-x86_64.AppImage"
 else
   echo "[appimage] downloading appimagetool…"
-  curl -fsSL -o "$ROOT/build/appimagetool-x86_64.AppImage" \
-    "https://github.com/AppImage/AppImageKit/releases/download/continuous/appimagetool-x86_64.AppImage"
-  chmod +x "$ROOT/build/appimagetool-x86_64.AppImage"
-  APPIMAGETOOL="$ROOT/build/appimagetool-x86_64.AppImage"
+  _AT="$ROOT/build/appimagetool-x86_64.AppImage"
+  mkdir -p "$ROOT/build"
+  for _try in 1 2 3; do
+    curl -fSL --retry 3 --retry-delay 2 --connect-timeout 20 -o "$_AT" \
+      "https://github.com/AppImage/AppImageKit/releases/download/continuous/appimagetool-x86_64.AppImage" \
+      && [ -s "$_AT" ] && break
+    echo "[appimage] appimagetool fetch attempt $_try failed; retrying…" >&2
+    sleep 2
+  done
+  [ -s "$_AT" ] || { echo "[appimage] could not fetch appimagetool (network?)." >&2; exit 1; }
+  chmod +x "$_AT"
+  APPIMAGETOOL="$_AT"
 fi
 
 export ARCH="${ARCH:-x86_64}"
