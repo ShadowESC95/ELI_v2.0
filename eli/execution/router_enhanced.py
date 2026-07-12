@@ -871,6 +871,32 @@ def _route_set_user_name(raw: str, low: str) -> Optional[Dict[str, Any]]:
     return None
 
 
+def _route_set_communication_style(raw: str, low: str) -> Optional[Dict[str, Any]]:
+    """Detect explicit 'speak to me like X' / 'change your tone to X' requests and route to
+    SET_COMMUNICATION_STYLE so the tone preference persists into the persona brief."""
+    import re as _re
+    _pats = (
+        r"(?:speak|talk)\s+to\s+me\s+(?:like|as|more|in a way that'?s?|in)\s+(.{2,80})",
+        r"(?:respond|reply|answer|talk)\s+(?:to me\s+)?(?:as|like)\s+(.{2,80})",
+        r"(?:change|set|update|make)\s+your\s+(?:tone|persona|voice|style|character|way you (?:speak|talk))\s+(?:to|into)?\s*(.{2,80})",
+        r"(?:be|talk|speak)\s+(?:more\s+|less\s+)?((?:funny|funnier|blunt|blunter|formal|casual|serious|sarcastic|playful|concise|verbose|warm|friendly|professional|direct|witty|humorous|relaxed)(?:\s+and\s+[\w ]+)?)",
+        r"(?:use|with)\s+(?:a\s+)?(.{2,60}?)\s+(?:tone|voice|humou?r|style)\b",
+        r"i want you to (?:speak|talk|respond|be)\s+(.{2,80})",
+    )
+    for pat in _pats:
+        m = _re.search(pat, raw, _re.IGNORECASE)
+        if m:
+            style = m.group(1).strip().strip('."\'!?,').strip()
+            if len(style) >= 2:
+                return _mk(
+                    "SET_COMMUNICATION_STYLE",
+                    {"style": style},
+                    0.95,
+                    matched_by="persona.set_communication_style",
+                )
+    return None
+
+
 def _route_grounded_runtime_intent(
         raw: str, low: str) -> Optional[Dict[str, Any]]:
     if not raw:
@@ -6941,6 +6967,11 @@ try:
                 low = _re.sub(r"\s+", " ", str(text or "").lower()).strip()
                 return _route_set_user_name(str(text or ""), low)
 
+            def _stage_set_communication_style(text, *_a, **_k):
+                import re as _re
+                low = _re.sub(r"\s+", " ", str(text or "").lower()).strip()
+                return _route_set_communication_style(str(text or ""), low)
+
             def _stage_web_lookup(text, *_a, **_k):
                 """Real-time factual lookups / explicit web search → WEB_SEARCH
                 when network is on. Runs late (just before the core router) so
@@ -7156,6 +7187,7 @@ try:
                 # being executed now by the app router (no-time commands fall through).
                 ("schedule_prepass", lambda t, *a, **k: _eli_schedule_prepass(t)),
                 ("set_user_name", _stage_set_user_name),
+                ("set_communication_style", _stage_set_communication_style),
                 ("portable_route", _stage_portable_route),
                 ("weather_prepass", lambda t, *a, **k: _eli_weather_prepass(t)),
                 ("shell_prepass",   lambda t, *a, **k: _eli_shell_prepass(t)),
