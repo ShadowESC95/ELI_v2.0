@@ -193,10 +193,22 @@ _GENERIC_MEMORY_IDENTITY_DRIFT_RE = re.compile(
 )
 
 
+_TONE_PERSONA_REQUEST_RE = re.compile(
+    r"(?i)\b(persona|tone|humou?r|speak to me|talk to me|your (?:voice|style|persona)|"
+    r"how you (?:speak|talk)|be (?:more |less )?(?:funny|funnier|blunt|formal|casual|serious)|"
+    r"respond (?:as|like))\b"
+)
+
+
 def repair_local_persona_drift(text: str, user_input: str = "") -> str:
     result = str(text or "").strip()
     if not result:
         return ""
+
+    # If the user EXPLICITLY asked about tone / persona / how ELI speaks (or to adopt a
+    # style), a persona-flavoured reply is on-topic — do NOT strip it as "identity drift".
+    if _TONE_PERSONA_REQUEST_RE.search(str(user_input or "")):
+        return result
 
     # The old branch replaced *any* answer containing one of the medical drift
     # keywords, even when the user's current prompt had nothing to do with ELI
