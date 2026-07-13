@@ -199,6 +199,15 @@ def list_voices() -> list[str]:
                 voices.append(c["id"])
     except Exception:
         pass
+    # Cloned voices (clone:<name>) — XTTS-v2 from a reference sample.
+    try:
+        from eli.perception import tts_xtts
+        for c in tts_xtts.list_clones():
+            if c["id"] not in seen:
+                seen.add(c["id"])
+                voices.append(c["id"])
+    except Exception:
+        pass
     for sv in _list_system_voices():
         if sv not in seen:
             seen.add(sv)
@@ -641,8 +650,9 @@ def _run_tts(text: str, voice_name: str | None = None) -> bool:
     import os as _os
 
     active = voice_name or get_active_voice()
-    # Character voice (char:hal, …) → render base voice + effect chain to WAV, then play.
-    if str(active).startswith("char:"):
+    # Character (char:) / cloned (clone:) voice → render via synthesize_wav (which owns
+    # the effect chain / XTTS + fallback), then play the WAV on the host.
+    if str(active).startswith(("char:", "clone:")):
         wav = synthesize_wav(text, voice_name=active)
         return _play_wav_bytes(wav) if wav else False
     # Never voice a degenerate fragment (also avoids the piper wave crash on '-').
@@ -844,6 +854,17 @@ def synthesize_wav(text: str, voice_name: str | None = None) -> Optional[bytes]:
     if _eli_tts_is_unspeakable(text):
         return None
     active = voice_name or get_active_voice()
+    # Cloned voice (clone:<name>): Coqui XTTS-v2 from a reference sample. If the extra
+    # isn't installed / no reference, returns None → we fall back to the default voice.
+    if str(active).startswith("clone:"):
+        try:
+            from eli.perception import tts_xtts
+            wav = tts_xtts.synthesize_wav(text, active)
+            if wav:
+                return wav
+        except Exception:
+            log.debug("[TTS_WAV] clone voice resolve failed", exc_info=True)
+        active = _DEFAULT_VOICE
     # Character voice (char:hal, char:tars, …): synth the base Piper voice, then run
     # its ffmpeg effect chain over the result. Recurses once with a real base voice.
     if str(active).startswith("char:"):
