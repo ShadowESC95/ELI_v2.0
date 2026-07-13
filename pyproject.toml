@@ -135,6 +135,12 @@ training = [
     "datasets>=2.18",
     "trl>=0.8",
 ]
+# Voice cloning — Coqui XTTS-v2 (heavy, opt-in — NOT part of full). Downloads a
+# ~1.8GB model on first clone. See eli/perception/tts_xtts.py. coqui-tts is the
+# maintained fork of the (unmaintained) TTS package and still imports as `TTS`.
+clone = [
+    "coqui-tts>=0.24",
+]
 
 [project.urls]
 Homepage = "https://github.com/ShadowESC95/ELI_v2.0"
