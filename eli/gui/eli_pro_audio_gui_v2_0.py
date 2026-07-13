@@ -7908,6 +7908,26 @@ _register()
         self.user_name_input.setPlaceholderText("Your preferred name")
         form.addRow(self._field_label("Name"), self.user_name_input)
 
+        # How ELI speaks to you — persists as the explicit tone preference that feeds the
+        # persona brief (above ELI's auto-inferred tone). Editable: type your own.
+        self.communication_style_combo = QComboBox()
+        self.communication_style_combo.setEditable(True)
+        self.communication_style_combo.addItems([
+            "",  # blank = ELI's default, emergent voice
+            "blunt, concise, no preamble",
+            "warm and encouraging",
+            "dry humour, a bit sarcastic",
+            "formal and precise",
+            "playful and casual",
+            "thorough — walk me through the reasoning",
+        ])
+        self.communication_style_combo.setToolTip(
+            "How you want ELI to talk to you (tone / humour). Blank = ELI's default emergent "
+            "voice. This takes priority over the tone ELI infers. You can also just tell ELI "
+            "in chat, e.g. 'speak to me more bluntly'."
+        )
+        form.addRow(self._field_label("Tone / how ELI speaks"), self.communication_style_combo)
+
         self.image_profile_notes_input = QTextEdit()
         self.image_profile_notes_input.setPlaceholderText(
             "Visual identity cues, preferred subjects, moods, brand notes, favourite colours..."
@@ -11075,6 +11095,14 @@ _register()
                 except Exception:
                     pass
             self.user_name_input.setText(_gui_user_name)
+            if hasattr(self, "communication_style_combo"):
+                _cs = str(s.get("communication_style", "") or "")
+                try:
+                    from eli.kernel.state import get_communication_style as _gcs
+                    _cs = _gcs() or _cs
+                except Exception:
+                    pass
+                self.communication_style_combo.setCurrentText(_cs)
             self.image_profile_notes_input.setPlainText(str(s.get("image_profile_notes", "") or ""))
             self.image_style_profile_combo.setCurrentText(str(s.get("image_style_profile", "auto") or "auto"))
             self.image_palette_profile_combo.setCurrentText(str(s.get("image_palette_profile", "auto") or "auto"))
@@ -11148,6 +11176,7 @@ _register()
             "theme": self.current_theme,
             "user_text_color": getattr(self, "_user_text_color", "#a3be8c"),
             "user_name": self.user_name_input.text().strip(),
+            "communication_style": self.communication_style_combo.currentText().strip() if hasattr(self, "communication_style_combo") else "",
             "image_style_profile": self.image_style_profile_combo.currentText().strip(),
             "image_palette_profile": self.image_palette_profile_combo.currentText().strip(),
             "image_profile_notes": self.image_profile_notes_input.toPlainText().strip(),
@@ -11183,6 +11212,13 @@ _register()
             else:
                 log.debug(f"[SETTINGS] Save failed: {e}")
             return
+        # Propagate the tone preference to user_profile.json + the persona overlay — the
+        # persona brief reads communication_style from the profile, not settings.json.
+        try:
+            from eli.kernel.state import set_communication_style as _scs
+            _scs(str(updates.get("communication_style", "")))
+        except Exception:
+            log.debug("[SETTINGS] communication_style propagate failed", exc_info=True)
 
         try:
             from eli.kernel.state import set_user_name as _set_user_name, update_user_profile as _update_profile
