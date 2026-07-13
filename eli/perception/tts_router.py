@@ -190,6 +190,15 @@ def list_voices() -> list[str]:
                     voices.append(name)
         except Exception:
             pass
+    # Character voices (char:hal, char:tars, …) — base voice + ffmpeg effect chain.
+    try:
+        from eli.perception import voice_fx
+        for c in voice_fx.list_characters():
+            if c["id"] not in seen:
+                seen.add(c["id"])
+                voices.append(c["id"])
+    except Exception:
+        pass
     for sv in _list_system_voices():
         if sv not in seen:
             seen.add(sv)
