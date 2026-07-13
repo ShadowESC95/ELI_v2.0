@@ -16,7 +16,7 @@ def _values_path() -> Path:
         from eli.core.paths import get_paths
         default = get_paths().config_dir / "values.json"
     except Exception:
-        default = Path(os.environ.get("ELI_VALUES_FILE", str(get_paths().config_dir / "values.json")))
+        default = Path("config") / "values.json"  # safe fallback (get_paths unavailable)
     return Path(os.environ.get("ELI_VALUES_FILE", str(default))).expanduser().resolve()
 
 def load_values() -> Dict[str, Any]:
