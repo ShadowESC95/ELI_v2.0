@@ -632,6 +632,10 @@ def _run_tts(text: str, voice_name: str | None = None) -> bool:
     import os as _os
 
     active = voice_name or get_active_voice()
+    # Character voice (char:hal, …) → render base voice + effect chain to WAV, then play.
+    if str(active).startswith("char:"):
+        wav = synthesize_wav(text, voice_name=active)
+        return _play_wav_bytes(wav) if wav else False
     # Never voice a degenerate fragment (also avoids the piper wave crash on '-').
     if _eli_tts_is_unspeakable(text):
         log.debug(f"[TTS_FINAL_PIPER_ONLY] skipped unspeakable text: {str(text)[:24]!r}")
@@ -831,6 +835,18 @@ def synthesize_wav(text: str, voice_name: str | None = None) -> Optional[bytes]:
     if _eli_tts_is_unspeakable(text):
         return None
     active = voice_name or get_active_voice()
+    # Character voice (char:hal, char:tars, …): synth the base Piper voice, then run
+    # its ffmpeg effect chain over the result. Recurses once with a real base voice.
+    if str(active).startswith("char:"):
+        try:
+            from eli.perception import voice_fx
+            spec = voice_fx.get_preset(active)
+            if spec:
+                base_wav = synthesize_wav(text, voice_name=spec.get("base") or _DEFAULT_VOICE)
+                return voice_fx.apply_fx(base_wav, spec) if base_wav else None
+        except Exception:
+            log.debug("[TTS_WAV] character voice resolve failed", exc_info=True)
+        active = _DEFAULT_VOICE  # unknown character → safe default
     model = find_voice_model(active)
     if not model:
         log.debug(f"[TTS_WAV] no voice model for active={active}")
