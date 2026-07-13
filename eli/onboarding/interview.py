@@ -240,36 +240,48 @@ def _known_facts(answers: Dict[str, Any]) -> str:
     return "; ".join(bits) if bits else "nothing yet — this is the very first thing"
 
 
+def _unwrap_generate(out: Any) -> str:
+    """generate() returns a dict ({'response': ...}); older paths may return a string or a
+    llama.cpp choices dict. Pull the text out of whatever shape we get."""
+    if isinstance(out, dict):
+        return str(
+            out.get("response") or out.get("text") or out.get("content")
+            or (out.get("choices", [{}])[0].get("text", "") if out.get("choices") else "")
+            or ""
+        )
+    return str(out or "")
+
+
 def _llm_question(step: str, answers: Dict[str, Any]) -> Optional[str]:
     """Generate the next onboarding question with the LOCAL model, so the interview is a
-    real conversation that plays off prior answers rather than a fixed script. Returns None
-    on any problem (empty/odd output, model not ready) so the caller falls back to script."""
+    real, adaptive conversation — ELI examines what it already knows and asks the single
+    most useful, *specific* next question rather than reading a fixed script with fixed
+    options. Returns None on any problem so the caller falls back to the scripted question."""
     topic = _STEP_TOPIC.get(step)
     if not topic:
         return None
     try:
         from eli.cognition import gguf_inference as _llm
         sys_p = (
-            "You are ELI, a local AI assistant meeting a new user for the first time and "
-            "genuinely getting to know them. Ask EXACTLY ONE short, warm, curious question "
-            "(1-2 sentences). Reference what you already know so it feels like a real "
-            "conversation, not a form. Do NOT answer for them, do NOT list any options or "
-            "letters, do NOT add anything after the question. Output only the question."
+            "You are ELI, a local AI assistant meeting a new user and genuinely getting to "
+            "know them. Examine what you already know, then ask the SINGLE most useful, "
+            "SPECIFIC next question about the given topic — tailored to them and building on "
+            "their prior answers (e.g. if they said 'research', ask what field or what they're "
+            "working on lately). One short, warm question (1-2 sentences). Do NOT list "
+            "letter/number options, do NOT answer for them, do NOT add anything after the "
+            "question. Output only the question."
         )
-        extra = ("This is the opener — also gently mention they can say 'skip' anytime."
+        extra = ("This is the opener — warmly say you'd like to get to know them so you can be "
+                 "their ELI, and gently mention they can say 'skip' anytime."
                  if step == "name" else "")
-        usr_p = f"What you know so far: {_known_facts(answers)}. Now ask them about: {topic}. {extra}".strip()
-        out = _llm.generate(sys_p, usr_p, max_tokens=70, temperature=0.7)
-        q = (out or "").strip().strip('"').split("\n")[0].strip()
-        # Reject junk: too short/long, leaked options, or an answer instead of a question.
-        if not q or len(q) < 12 or len(q) > 320:
+        usr_p = f"What you know so far: {_known_facts(answers)}. Now ask about: {topic}. {extra}".strip()
+        out = _unwrap_generate(_llm.generate(sys_p, usr_p, max_tokens=90, temperature=0.8))
+        q = out.strip().strip('"').split("\n\n")[0].strip()
+        # Reject junk: empty/too short/long, leaked options, or template markers.
+        if not q or len(q) < 12 or len(q) > 400:
             return None
-        if any(m in q for m in ("A)", "B)", "1)", "2)", "<|", "•")):
+        if any(m in q for m in ("A)", "B)", "1)", "2)", "<|", "•", "```")):
             return None
-        scaffold = _STEP_SCAFFOLD.get(step)
-        if scaffold:
-            opts, howto = scaffold
-            return f"{q}\n{_format_options(opts)}\n{howto}"
         return q
     except Exception:
         return None
