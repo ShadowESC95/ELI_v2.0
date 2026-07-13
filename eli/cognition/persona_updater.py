@@ -412,6 +412,15 @@ def update_persona_overlay(memory: Any = None) -> Dict[str, Any]:
         _get_reflection_themes(memory, limit=4) + _get_session_narrative(memory, limit=3)
     )
 
+    # ELI's own evolving values/principles — surfaced into the overlay so they are part
+    # of the persona reaching the model. Previously values.json was orphaned (persisted
+    # but read nowhere). load_values() falls back to sane defaults if the file is absent.
+    try:
+        from eli.cognition.persona_values import load_values as _load_values
+        _value_lines = [f"{k}: {v}" for k, v in (_load_values() or {}).items()]
+    except Exception:
+        _value_lines = []
+
     # ELI's persona sections only — no user profile data here
     sections = {
         "Runtime Persona Notes": [
@@ -419,6 +428,7 @@ def update_persona_overlay(memory: Any = None) -> Dict[str, Any]:
             "User profile (name, preferences) is stored separately in user_profile.json.",
             "Prefer concrete continuity, memory-backed context, and direct language.",
         ],
+        "Core Values (Auto-Updated)": _value_lines,
         "Habits (Auto-Updated)": _dedup_lines(_habit_lines(memory)),
         "Reflection / Observations (Auto-Updated)": _dedup_lines(
             _top_lines(observations, "observation", limit=8)
