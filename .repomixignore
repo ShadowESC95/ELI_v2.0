@@ -1,0 +1,47 @@
+# ── Model weights & large binaries — never useful in a repo pack (dominated repomix
+#    output: phi-3/ssd-1b tokenizers + *.gguf were ~30%+ of all tokens) ────────────
+models/
+eli/models/
+*.gguf
+*.onnx
+*.onnx.json
+*.safetensors
+*.bin
+*.pt
+*.pth
+tts_piper/
+
+# ── repomix's own output (don't pack the pack) ───────────────────────────────────
+repomix-output.xml
+repomix-core.xml
+repomix-output.*
+
+# ── Build / dist / venv / caches ─────────────────────────────────────────────────
+dist/
+build/
+.venv/
+venv/
+env/
+__pycache__/
+*.pyc
+.pytest_cache/
+artifacts/
+node_modules/
+
+# ── DB templates + packaged installers (binary) ──────────────────────────────────
+config/templates/db/*.sqlite3
+*.dmg
+*.exe
+*.AppImage
+*.deb
+*.tar.gz
+*.zip
+*.whl
+
+# ── Screenshots / media (heavy, not code) ────────────────────────────────────────
+.github/screenshots/
+*.png
+*.jpg
+*.jpeg
+*.wav
+*.mp3
