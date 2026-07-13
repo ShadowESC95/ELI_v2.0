@@ -24,6 +24,60 @@ _PIPER_VOICE = "en_US-amy-medium"
 _PIPER_BASE = ("https://huggingface.co/rhasspy/piper-voices/resolve/main/"
                "en/en_US/amy/medium/")
 
+# ── Voice catalog ───────────────────────────────────────────────────────────────
+# Curated Piper voices from rhasspy/piper-voices. tier: standard | advanced.
+# NC-SA 'ryan' voices are offered for manual download but NEVER auto-bundled.
+PIPER_CATALOG: Dict[str, Dict[str, str]] = {
+    # Standard — clean, neutral, "robotic-normal"
+    "en_US-amy-medium":        {"tier": "standard", "desc": "Amy (US female) — default, clear",      "license": "MIT"},
+    "en_US-hfc_female-medium": {"tier": "standard", "desc": "HFC female (US) — neutral, crisp",       "license": "MIT"},
+    "en_US-hfc_male-medium":   {"tier": "standard", "desc": "HFC male (US) — neutral, even",          "license": "MIT"},
+    "en_US-joe-medium":        {"tier": "standard", "desc": "Joe (US male) — calm, steady",           "license": "MIT"},
+    "en_US-kathleen-low":      {"tier": "standard", "desc": "Kathleen (US female) — light, quick",    "license": "MIT"},
+    # Advanced — higher fidelity / more character
+    "en_US-lessac-high":       {"tier": "advanced", "desc": "Lessac (US male) — high fidelity, smooth","license": "BSD"},
+    "en_US-lessac-medium":     {"tier": "advanced", "desc": "Lessac (US male) — smooth, warm",        "license": "BSD"},
+    "en_GB-alan-medium":       {"tier": "advanced", "desc": "Alan (UK male) — refined British",       "license": "OS"},
+    "en_GB-northern_english_male-medium": {"tier": "advanced", "desc": "Northern English male — characterful", "license": "OS"},
+    "en_US-kusal-medium":      {"tier": "advanced", "desc": "Kusal (US male) — expressive",           "license": "MIT"},
+    # NC-SA — never auto-bundled into a release
+    "en_US-ryan-high":         {"tier": "advanced", "desc": "Ryan (US male) — very natural (NC-SA)",  "license": "CC-BY-NC-SA"},
+}
+
+
+def _voice_url_base(voice_id: str) -> str:
+    """Derive the rhasspy/piper-voices URL dir for a '<locale>-<name>-<quality>' id."""
+    parts = str(voice_id).split("-")
+    if len(parts) < 3:
+        raise ValueError(f"bad voice id: {voice_id!r}")
+    locale, quality = parts[0], parts[-1]
+    name = "-".join(parts[1:-1])
+    lang = locale.split("_")[0]
+    return (f"https://huggingface.co/rhasspy/piper-voices/resolve/main/"
+            f"{lang}/{locale}/{name}/{quality}/")
+
+
+def _voice_present_strict(voice_id: str) -> bool:
+    """True only when THIS exact voice's .onnx + .onnx.json exist (no fuzzy any-voice
+    fallback — that would make every catalog voice look installed once one exists)."""
+    dirs = [_piper_dest()]
+    try:
+        from eli.perception.tts_router import _voice_search_dirs
+        dirs += list(_voice_search_dirs())
+    except Exception:
+        pass
+    try:
+        from eli.core.paths import project_root
+        dirs.append(Path(project_root()) / "tts_piper" / "piper")
+    except Exception:
+        pass
+    for d in dirs:
+        onnx = Path(d) / f"{voice_id}.onnx"
+        cfg = Path(d) / f"{voice_id}.onnx.json"
+        if onnx.is_file() and onnx.stat().st_size > 0 and cfg.is_file() and cfg.stat().st_size > 0:
+            return True
+    return False
+
 
 def piper_voice_ready(voice: str = _PIPER_VOICE) -> bool:
     """True when a runnable Piper ONNX voice exists (not merely OS/espeak voices)."""
@@ -82,35 +136,52 @@ def _mirror_piper_to_packaged_layout(voice: str) -> None:
         log.debug("voice_assets: packaged piper mirror skipped", exc_info=True)
 
 
-def ensure_piper_voice() -> Dict[str, Any]:
-    """Fetch the default Piper voice (``.onnx`` + ``.onnx.json``) if no voice exists."""
-    if _piper_present():
-        _mirror_piper_to_packaged_layout(_PIPER_VOICE)
-        return {"ok": True, "asset": "piper", "already_present": True, "voice": _PIPER_VOICE}
+def download_voice(voice_id: str, mirror: bool = False) -> Dict[str, Any]:
+    """Fetch any catalog (or well-formed) Piper voice: ``<id>.onnx`` + ``<id>.onnx.json``.
+    Idempotent + offline-safe (netguard-gated). Streams to a ``.part`` then atomically
+    replaces, so a killed download never leaves a half-written voice."""
+    if _voice_present_strict(voice_id):
+        if mirror:
+            _mirror_piper_to_packaged_layout(voice_id)
+        return {"ok": True, "asset": "piper", "already_present": True, "voice": voice_id}
     dest = _piper_dest()
     try:
+        base = _voice_url_base(voice_id)
         dest.mkdir(parents=True, exist_ok=True)
         import urllib.request
         from eli.core import netguard
-        with netguard.allow_network("voice asset: piper voice"):
-            for fn in (f"{_PIPER_VOICE}.onnx", f"{_PIPER_VOICE}.onnx.json"):
+        with netguard.allow_network(f"voice asset: piper {voice_id}"):
+            for fn in (f"{voice_id}.onnx", f"{voice_id}.onnx.json"):
                 target = dest / fn
                 if target.exists() and target.stat().st_size > 0:
                     continue
-                req = urllib.request.Request(_PIPER_BASE + fn,
+                req = urllib.request.Request(base + fn,
                                              headers={"User-Agent": "ELI/2.0 (voice-assets)"})
-                with netguard.guarded_urlopen(req, timeout=180) as r:
-                    data = r.read()
-                if not data:
-                    return {"ok": False, "asset": "piper", "error": f"empty download: {fn}"}
                 tmp = target.with_suffix(target.suffix + ".part")
-                tmp.write_bytes(data)
+                with netguard.guarded_urlopen(req, timeout=300) as r, open(tmp, "wb") as fh:
+                    shutil.copyfileobj(r, fh, length=1 << 20)
+                if tmp.stat().st_size <= 0:
+                    tmp.unlink(missing_ok=True)
+                    return {"ok": False, "asset": "piper", "voice": voice_id,
+                            "error": f"empty download: {fn}"}
                 tmp.replace(target)
-        _mirror_piper_to_packaged_layout(_PIPER_VOICE)
-        return {"ok": True, "asset": "piper", "already_present": False, "voice": _PIPER_VOICE}
+        if mirror:
+            _mirror_piper_to_packaged_layout(voice_id)
+        return {"ok": True, "asset": "piper", "already_present": False, "voice": voice_id}
     except Exception as e:
-        log.debug("voice_assets: piper fetch failed", exc_info=True)
-        return {"ok": False, "asset": "piper", "error": str(e)}
+        log.debug("voice_assets: voice fetch failed (%s)", voice_id, exc_info=True)
+        return {"ok": False, "asset": "piper", "voice": voice_id, "error": str(e)}
+
+
+def list_catalog() -> "list[Dict[str, Any]]":
+    """Curated Piper voices annotated with on-disk presence (for a picker / CLI)."""
+    return [{"id": vid, "present": _voice_present_strict(vid), **meta}
+            for vid, meta in PIPER_CATALOG.items()]
+
+
+def ensure_piper_voice() -> Dict[str, Any]:
+    """Fetch the default Piper voice if the box has none (installer's online step)."""
+    return download_voice(_PIPER_VOICE, mirror=True)
 
 
 def ensure_whisper() -> Dict[str, Any]:
