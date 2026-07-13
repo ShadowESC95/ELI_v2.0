@@ -270,6 +270,25 @@ def _eli_startup_hooks():
                              name="eli-whisper-preload").start()
     except Exception:
         pass
+    # Preload the GGUF chat model at boot (BACKGROUND thread, like whisper above) so the
+    # FIRST chat request isn't stuck loading it. Otherwise a large model makes the first
+    # reply appear to "hang" for minutes (or fail on VRAM), which reads as a dead server.
+    # Failures surface in the log at startup instead of as a silent spinner. Run the server
+    # standalone so the model loads once — not alongside the desktop GUI (double-load OOM).
+    try:
+        import threading as _th, logging as _lg
+        def _preload_chat_model():
+            _log = _lg.getLogger("eli.api.server")
+            try:
+                from eli.cognition import gguf_inference as _gi
+                if not _gi.is_loaded():
+                    _gi.load_model()
+                    _log.info("[SERVER] chat model preloaded — first request will be fast")
+            except Exception as _e:
+                _log.warning("[SERVER] chat model preload failed (first chat will retry): %s", _e)
+        _th.Thread(target=_preload_chat_model, daemon=True, name="eli-gguf-preload").start()
+    except Exception:
+        pass
 
 # Has any device OTHER than this machine actually reached the server? In LAN mode the
 # desktop connects via loopback, so if this stays False after the server's been up a
