@@ -48,8 +48,17 @@ def to_user_visible_text(result: Any) -> str:
     if isinstance(result, dict):
         for key in ("response", "content", "message", "text", "result", "answer", "output"):
             value = result.get(key)
-            if value is not None and str(value).strip():
-                return str(value).strip()
+            if value is None:
+                continue
+            # A streamed field can itself be an UNCONSUMED generator (e.g. process(stream=True)
+            # returning {"response": <gen>} on the keyword-fallback path). str() on it would dump
+            # "<generator object ...>" into the chat — consume it into text instead.
+            if hasattr(value, "__next__"):
+                text = _consume_generator(value)
+            else:
+                text = str(value).strip()
+            if text:
+                return text
 
         action = str(result.get("action") or "UNKNOWN").strip() or "UNKNOWN"
         return f"No user-visible response was produced for action {action}."
