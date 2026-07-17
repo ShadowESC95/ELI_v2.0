@@ -86,8 +86,11 @@ attempt_cuda_toolkit() {
         if sudo -n true 2>/dev/null; then sudo dnf install -y cuda-toolkit && return 0; fi
         echo "     Run: sudo dnf install -y cuda-toolkit"
     elif command -v pacman &>/dev/null; then
-        if sudo -n true 2>/dev/null; then sudo pacman -S --noconfirm cuda && return 0; fi
+        if sudo -n true 2>/dev/null; then sudo pacman -S --noconfirm --needed cuda && return 0; fi
         echo "     Run: sudo pacman -S cuda"
+    elif command -v zypper &>/dev/null; then
+        if sudo -n true 2>/dev/null; then sudo zypper --non-interactive install cuda-toolkit && return 0; fi
+        echo "     Run: sudo zypper install cuda-toolkit"
     else
         echo "     Download the CUDA toolkit: https://developer.nvidia.com/cuda-downloads"
     fi
@@ -106,9 +109,17 @@ attempt_runtime_tools() {
     # Per-manager package names differ. tesseract = OCR (screen reading); portaudio = mic
     # (voice input); ffmpeg = media + whisper; libnotify = notifications; xclip/wl-clipboard
     # = clipboard; mpv/playerctl = media; wmctrl/xdotool/scrot = desktop control + screenshot.
-    local APT="mpv playerctl wmctrl xdotool scrot ffmpeg xclip wl-clipboard tesseract-ocr portaudio19-dev libnotify-bin"
-    local DNF="mpv playerctl wmctrl xdotool scrot ffmpeg xclip wl-clipboard tesseract portaudio-devel libnotify"
-    local PAC="mpv playerctl wmctrl xdotool scrot ffmpeg xclip wl-clipboard tesseract portaudio libnotify"
+    # Package names differ per manager, and so do their contents:
+    #   • Debian's tesseract-ocr pulls English data; Arch's tesseract and Fedora's
+    #     ship NO language data, so OCR silently reads nothing without the -data/
+    #     -langpack package.
+    #   • grim + slurp are the Wayland screenshot path (os_controller uses them).
+    #     Wayland is the default on Arch/Hyprland and modern GNOME, so without
+    #     these, screenshots fail on a stock install.
+    local APT="mpv playerctl wmctrl xdotool scrot grim slurp ffmpeg xclip wl-clipboard tesseract-ocr portaudio19-dev libnotify-bin"
+    local DNF="mpv playerctl wmctrl xdotool scrot grim slurp ffmpeg xclip wl-clipboard tesseract tesseract-langpack-eng portaudio-devel libnotify"
+    local PAC="mpv playerctl wmctrl xdotool scrot grim slurp ffmpeg xclip wl-clipboard tesseract tesseract-data-eng portaudio libnotify"
+    local ZYP="mpv playerctl wmctrl xdotool scrot grim slurp ffmpeg xclip wl-clipboard tesseract-ocr tesseract-ocr-traineddata-english portaudio-devel libnotify-tools"
     local BREW="mpv playerctl ffmpeg tesseract portaudio"
     if [ "$OS" = "Darwin" ]; then
         if command -v brew &>/dev/null; then brew install $BREW 2>/dev/null || true; echo "[OK] runtime tools (brew)"
@@ -122,8 +133,19 @@ attempt_runtime_tools() {
         if sudo -n true 2>/dev/null; then sudo dnf install -y $DNF 2>/dev/null && echo "[OK] runtime tools (dnf)"
         else echo "     Run: sudo dnf install -y $DNF"; fi
     elif command -v pacman &>/dev/null; then
-        if sudo -n true 2>/dev/null; then sudo pacman -S --noconfirm $PAC 2>/dev/null && echo "[OK] runtime tools (pacman)"
-        else echo "     Run: sudo pacman -S $PAC"; fi
+        # -S on an already-installed package is not an error, but --needed skips
+        # the pointless reinstall on a rolling distro where most of this is present.
+        if sudo -n true 2>/dev/null; then sudo pacman -S --noconfirm --needed $PAC 2>/dev/null && echo "[OK] runtime tools (pacman)"
+        else echo "     Run: sudo pacman -S --needed $PAC"; fi
+    elif command -v zypper &>/dev/null; then
+        if sudo -n true 2>/dev/null; then sudo zypper --non-interactive install $ZYP 2>/dev/null && echo "[OK] runtime tools (zypper)"
+        else echo "     Run: sudo zypper install $ZYP"; fi
+    elif command -v apk &>/dev/null; then
+        if sudo -n true 2>/dev/null; then sudo apk add $PAC 2>/dev/null && echo "[OK] runtime tools (apk)"
+        else echo "     Run: sudo apk add $PAC"; fi
+    elif command -v xbps-install &>/dev/null; then
+        if sudo -n true 2>/dev/null; then sudo xbps-install -y $PAC 2>/dev/null && echo "[OK] runtime tools (xbps)"
+        else echo "     Run: sudo xbps-install $PAC"; fi
     else
         echo "     Install (media + desktop control + OCR + audio): $APT"
     fi
@@ -303,13 +325,59 @@ if [ "$SKIP_TORCH" -eq 0 ]; then
     fi
 fi
 
+# llama-cpp-python publishes wheels only for the interpreters its maintainers build
+# for (currently up to ~3.12). A rolling distro defaults to whatever python is newest
+# — Arch ships 3.14 — where pip finds NO wheel and quietly falls back to a SOURCE
+# build. That build needs cmake + a C++ toolchain, which a bare Arch/Fedora install
+# does not have, so it failed and (under `set -e`) took the whole installer with it:
+# ELI's inference engine never installed and the app could not start at all. Ubuntu
+# 24.04 ships 3.12, has a wheel, and never hit this. Detect it and provide the tools.
+_llama_wheel_available() {
+    "$PIP" install --only-binary=:all: --dry-run llama-cpp-python >/dev/null 2>&1
+}
+
+ensure_build_toolchain() {
+    # pip's cmake/ninja wheels need no sudo and cover the build system; only the
+    # C++ compiler has to come from the OS.
+    "$PIP" install --quiet cmake ninja scikit-build-core 2>/dev/null || true
+    if command -v c++ &>/dev/null || command -v g++ &>/dev/null || command -v clang++ &>/dev/null; then
+        return 0
+    fi
+    echo "[..] Installing a C++ toolchain for the llama-cpp source build..."
+    if [ "$OS" = "Darwin" ]; then
+        xcode-select -p &>/dev/null || xcode-select --install 2>/dev/null || true
+    elif command -v pacman &>/dev/null; then
+        if sudo -n true 2>/dev/null; then sudo pacman -S --noconfirm --needed base-devel cmake git
+        else warn "Run: sudo pacman -S --needed base-devel cmake git"; fi
+    elif command -v apt-get &>/dev/null; then
+        if sudo -n true 2>/dev/null; then sudo apt-get install -y build-essential cmake git
+        else warn "Run: sudo apt-get install -y build-essential cmake git"; fi
+    elif command -v dnf &>/dev/null; then
+        if sudo -n true 2>/dev/null; then sudo dnf install -y gcc-c++ make cmake git
+        else warn "Run: sudo dnf install -y gcc-c++ make cmake git"; fi
+    elif command -v zypper &>/dev/null; then
+        if sudo -n true 2>/dev/null; then sudo zypper --non-interactive install gcc-c++ make cmake git
+        else warn "Run: sudo zypper install gcc-c++ make cmake git"; fi
+    elif command -v apk &>/dev/null; then
+        if sudo -n true 2>/dev/null; then sudo apk add build-base cmake git
+        else warn "Run: sudo apk add build-base cmake git"; fi
+    fi
+}
+
 # Install llama-cpp-python
 echo "[..] Installing llama-cpp-python..."
+if ! _llama_wheel_available; then
+    warn "No prebuilt llama-cpp-python wheel for $("$PYTHON_VENV" -V 2>&1) — building from source."
+    warn "This is normal on a rolling distro (Arch ships a newer python than upstream builds for)."
+    warn "It takes several minutes. A python with a prebuilt wheel (3.10-3.12) installs instantly:"
+    warn "  PYTHON=python3.12 bash install.sh"
+    ensure_build_toolchain
+fi
 if [ "$OS" = "Darwin" ]; then
     echo "     (with Metal GPU acceleration)"
-    CMAKE_ARGS="-DLLAMA_METAL=on" "$PIP" install llama-cpp-python --prefer-binary --quiet
+    CMAKE_ARGS="-DLLAMA_METAL=on" "$PIP" install llama-cpp-python --prefer-binary --quiet || true
 elif [ "$CPU_ONLY" -eq 1 ]; then
-    "$PIP" install llama-cpp-python --prefer-binary --quiet
+    "$PIP" install llama-cpp-python --prefer-binary --quiet || true
 elif [ "$HAS_AMD" -eq 1 ]; then
     echo "     (AMD — ROCm/hipBLAS, then Vulkan, then CPU)"
     if CMAKE_ARGS="-DGGML_HIPBLAS=on" "$PIP" install llama-cpp-python --no-cache-dir --quiet 2>/dev/null; then
@@ -325,7 +393,29 @@ elif [ "$HAS_AMD" -eq 1 ]; then
     fi
 else
     "$PIP" install llama-cpp-python --prefer-binary \
-        --extra-index-url https://abetlen.github.io/llama-cpp-python/whl/cu121 --quiet
+        --extra-index-url https://abetlen.github.io/llama-cpp-python/whl/cu121 --quiet || true
+fi
+
+# llama-cpp IS the inference engine — without it ELI has no local model at all, so
+# say precisely what went wrong instead of dying on a raw pip traceback.
+if ! "$PYTHON_VENV" -c "import llama_cpp" 2>/dev/null; then
+    warn "llama-cpp-python is NOT installed — ELI cannot run a local model yet."
+    if ! _llama_wheel_available; then
+        warn "Cause: no prebuilt wheel for $("$PYTHON_VENV" -V 2>&1), and the source build failed."
+        warn "Fix (fastest): re-run with a python that has wheels —"
+        warn "    PYTHON=python3.12 bash install.sh"
+        warn "Fix (build here): install a toolchain, then re-run —"
+        if command -v pacman &>/dev/null; then warn "    sudo pacman -S --needed base-devel cmake git"
+        elif command -v dnf &>/dev/null; then warn "    sudo dnf install -y gcc-c++ make cmake git"
+        elif command -v zypper &>/dev/null; then warn "    sudo zypper install gcc-c++ make cmake git"
+        else warn "    sudo apt-get install -y build-essential cmake git"; fi
+    else
+        warn "A wheel exists for this python — re-run: \"$PIP\" install llama-cpp-python"
+    fi
+    VERIFY_LLAMA=0
+else
+    ok "llama-cpp-python ready ($("$PYTHON_VENV" -c 'import llama_cpp;print(llama_cpp.__version__)' 2>/dev/null))."
+    VERIFY_LLAMA=1
 fi
 
 # Verify GPU offload actually compiled into llama-cpp (catch a silent CPU-only wheel —
@@ -392,7 +482,23 @@ fi
 echo "[..] Installing dependencies from $(basename "$REQ")$([ "$REQ" = "$SCRIPT_DIR/requirements.lock.txt" ] && echo ' (frozen, reproducible)')..."
 # ${_PIP_LINKS[@]} points pip at the bundled wheelhouse (--find-links) when the release
 # shipped one, so a full-wheelhouse build installs with zero network; otherwise it's empty.
-"$PIP" install "${_PIP_LINKS[@]}" -r "$REQ" --quiet --ignore-installed
+#
+# The frozen lock pins exact versions captured on ONE python/distro. A rolling distro
+# (Arch) or any newer interpreter can lack a wheel for even one of those pins — and under
+# `set -e` that aborted the whole install, so ELI simply would not install there. The lock
+# is a reproducibility nicety, not a requirement: fall back to the version RANGES in
+# requirements.txt, which resolve against whatever python the host actually ships.
+if ! "$PIP" install "${_PIP_LINKS[@]}" -r "$REQ" --quiet --ignore-installed; then
+    if [ "$REQ" != "$SCRIPT_DIR/requirements.txt" ] && [ -f "$SCRIPT_DIR/requirements.txt" ]; then
+        warn "Pinned install failed on $("$PYTHON_VENV" -V 2>&1) — some pins have no wheel for it."
+        warn "Retrying with version ranges (requirements.txt) so the install completes."
+        REQ="$SCRIPT_DIR/requirements.txt"
+        "$PIP" install "${_PIP_LINKS[@]}" -r "$REQ" --ignore-installed \
+            || warn "Some dependencies failed — ELI may be missing features. See the log above."
+    else
+        warn "Some dependencies failed to install — ELI may be missing features."
+    fi
+fi
 
 # Make launchers executable
 chmod +x "$SCRIPT_DIR/eli.sh" 2>/dev/null || true

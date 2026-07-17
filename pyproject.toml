@@ -71,6 +71,9 @@ asr = [
     "faster-whisper>=1.0",
     "SpeechRecognition>=3.10",
     "PyAudio>=0.2",
+    # audioop left the stdlib in 3.13 (PEP 594) and ELI's mic path imports it;
+    # on 3.13+ distros it previously arrived only as a transitive dep.
+    'audioop-lts>=0.2.1; python_version >= "3.13"',
 ]
 llm = [
     "llama-cpp-python>=0.2",
