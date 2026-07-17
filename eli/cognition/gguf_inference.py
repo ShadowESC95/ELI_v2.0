@@ -1894,6 +1894,51 @@ def _stream_clean(text: str) -> str:
         return text
 
 
+class _CleanTokenStream:
+    """Iterator over cleaned streaming tokens whose ``str()``/``repr()`` NEVER
+    expose the default ``<generator object ...>`` text.
+
+    A streaming reply is meant to be *iterated*. Several hops in the engine
+    (`_stream_model_response` → `generate_stream_from_assembled_prompt` →
+    `_stream_chat`) defensively do ``str(chunk or "")`` on whatever they receive.
+    When a bare generator slipped through one of those hops it was stringified
+    into ``<generator object _wrap_stream_or_text.<locals>.gen at 0x…>`` and that
+    literal repr was shown as ELI's reply (observed on the embedder-missing
+    keyword-fallback path). Making the wrapper a real iterator with a text
+    ``__str__`` closes that at the single chokepoint: iterate → tokens as before;
+    accidental ``str()`` → the actual reply text (draining what remains), never a
+    repr. Tokens are buffered as they stream so ``str()`` after partial iteration
+    still returns everything seen. No logging path stringifies this object, so
+    draining-on-str cannot pre-consume a live stream.
+    """
+
+    __slots__ = ("_it", "_buf")
+
+    def __init__(self, it):
+        self._it = iter(it)
+        self._buf: list[str] = []
+
+    def __iter__(self):
+        return self
+
+    def __next__(self):
+        tok = next(self._it)
+        if isinstance(tok, str):
+            self._buf.append(tok)
+        return tok
+
+    def _drain(self) -> str:
+        for tok in self._it:
+            if isinstance(tok, str):
+                self._buf.append(tok)
+        return "".join(self._buf)
+
+    def __str__(self) -> str:
+        return self._drain()
+
+    __repr__ = __str__
+
+
 def _wrap_stream_or_text(out):
     if isinstance(out, str):
         return _stream_clean(out)
@@ -1922,7 +1967,7 @@ def _wrap_stream_or_text(out):
                 cleaned = _stream_clean(head)
                 if cleaned:
                     yield cleaned
-        return gen()
+        return _CleanTokenStream(gen())
 
     if isinstance(out, dict):
         for k in ("text", "response", "content", "message", "final"):
