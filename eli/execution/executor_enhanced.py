@@ -5077,13 +5077,11 @@ def _execute_impl(action: str, args: Optional[Dict[str, Any]] = None) -> Dict[st
 
     # ---- TIME ----
     if a == "TIME":
-        from datetime import datetime as _dt
-        original_query = args.get("original_query", "") if args else ""
-        if "time" in original_query.lower() and not any(w in original_query.lower() for w in ["date","day","today","calendar","days"]):
-            time_fmt = "%H:%M:%S"
-        else:
-            time_fmt = "%Y-%m-%d %H:%M:%S"
-        now_str = _dt.now().strftime(time_fmt)
+        from eli.core.worldclock import describe
+        now_str = describe(
+            (args.get("original_query") or "") if args else "",
+            default_date=False, default_time=True,
+        )
         return {"ok": True, "action": a, "content": now_str, "response": now_str}
     if a == "GET_TIME":
         return _execute_impl("TIME", args)
@@ -6649,8 +6647,11 @@ def _execute_impl(action: str, args: Optional[Dict[str, Any]] = None) -> Dict[st
 
     # ---- DATE ----
     if a == "DATE":
-        from datetime import datetime as _dt
-        d = _dt.now().strftime("%A, %Y-%m-%d")
+        from eli.core.worldclock import describe
+        d = describe(
+            (args.get("original_query") or "") if args else "",
+            default_date=True, default_time=False,
+        )
         return {"ok": True, "action": a, "content": d, "response": d}
     if a == "GET_DATE":
         return _execute_impl("DATE", args)
