@@ -89,6 +89,40 @@ _RE_ALL_MODES = re.compile(
     r"|modes?\s+you\s+have|modes?\s+does|all.*mode|every.*mode)\b", re.I)
 _RE_RUNTIME_AUDIT = re.compile(
     r"\b(audit|inspect|diagnose|scan|what('s| is) wrong|broken|missing|wiring|pipeline)\b", re.I)
+# Wall-clock requests. Shared by the TIME/DATE routes and by the long-question
+# guard, which must not divert a clock question into CHAT — the model has no
+# clock in context there and truthfully answers that it cannot read one, which
+# reads as ELI denying a capability it demonstrably has.
+_WALLCLOCK_TIME_PATTERNS = (
+    r"\bwhat(?:'?s|\s+is)?\s+(?:the\s+)?time\b",
+    r"\bcurrent time\b", r"\bclock\b", r"^time[?!.\s]*$", r"\btell me the time\b",
+    r"\bwhat\s+time\s+is\s+it\b",
+    # Compound asks — "the day and time", "date & time".
+    r"\b(?:day|date)\s*(?:,)?\s*(?:and|&|\+)\s*(?:the\s+)?time\b",
+    r"\btime\s*(?:,)?\s*(?:and|&|\+)\s*(?:the\s+)?(?:day|date)\b",
+    # Tolerate words between "the" and "time" — "what the actual time is",
+    # "what the fucking time is". The trailing is/it-is keeps this off phrases
+    # like "what is the best time to call".
+    r"\bwhat(?:'?s|\s+is)?\s+(?:the\s+)?(?:\w+\s+){0,2}time\s+(?:is|it\s+is|was)\b",
+)
+_WALLCLOCK_DATE_PATTERNS = (
+    r"\bwhat(?:'?s|\s+is)?\s+(?:the\s+)?date\b",
+    r"\bcurrent date\b",
+    # today's date / today is the date — no greedy .* (would match "update")
+    r"\btoday'?s?\s+(?:is\s+the\s+|the\s+)?date\b",
+    r"^date[?!.\s]*$",
+    r"\bwhat(?:'s| is) today\b",
+    r"\bwhat day is it\b", r"\bwhat day is this\b",
+    r"\bwhat'?s?\s+the\s+day\b", r"\bwhat'?s?\s+the\s+days\b",
+    r"\bwhat days\b", r"\bwhat is the day\b", r"\bday is it\b",
+    r"\bwhat(?:'?s|\s+is)?\s+(?:the\s+)?(?:\w+\s+){0,2}(?:date|day)\s+(?:is|it\s+is|was)\b",
+)
+
+
+def _is_wallclock_question(low: str) -> bool:
+    return any(re.search(p, low) for p in _WALLCLOCK_TIME_PATTERNS + _WALLCLOCK_DATE_PATTERNS)
+
+
 _RE_SYSTEM_STATS = re.compile(
     r"\b(cpu|ram|memory usage|disk|gpu|system stats|hardware|uptime|load)\b", re.I)
 _RE_CHAT_FILLER = re.compile(
@@ -2007,7 +2041,13 @@ def route(text: str) -> Dict[str, Any]:
     ):
         return _mk("CHAT", {"message": raw}, 0.9, matched_by="chat.relational_concern")
 
-    if (("?" in raw or "!" in raw) and len(low.split()) >= 12 and not re.match(
+    # NOTE: clock questions are exempt. Asking completely ("Eli, what is the
+    # date, the day, and what is the time?" — 12 words) must not be answered
+    # worse than asking tersely ("what is the time" — 4). The TIME/DATE routes
+    # below carry their own conversational guards.
+    if (("?" in raw or "!" in raw) and len(low.split()) >= 12
+            and not _is_wallclock_question(low)
+            and not re.match(
             r"^(open|access|initiate|fabricate|check|run|execute|type|press|pause|resume|play|next|previous|stop|mute|unmute|read|list|show|write|add|analyse|analyze|improve)\b", low)):
         return _mk("CHAT", {"message": raw}, 0.85,
                    matched_by="chat.long_question_guard")
@@ -2843,16 +2883,45 @@ def route(text: str) -> Dict[str, Any]:
         _mt_scope = "today" if re.search(r"\btoday\b", low) else "all"
         return _mk("MESSAGE_TIME_QUERY", {"which": _mt_which, "scope": _mt_scope},
                    0.96, matched_by="memory.message_time", allow_chat_without_evidence=False)
-    if any(re.search(p, low) for p in [
-        r"\bwhat(?:'?s|\s+is)?\s+(?:the\s+)?time\b",
-        r'\bcurrent time\b', r'\bclock\b', r'^time[?!.\s]*$', r'\btell me the time\b',
-        r'\bwhat\s+time\s+is\s+it\b',
-    ]):
-        return _mk("TIME", {}, 1.0, matched_by="system.time")
+    # The conversational/file pre-guards are computed here so the TIME route
+    # gets them too. They used to sit below it and guard DATE only, which let
+    # "…i have asked you what the time is quite a bit lately" answer with a bare
+    # timestamp instead of being read as the remark it is.
+    _date_conv_starters = frozenset({
+        "yeah", "yes", "yep", "yup", "no", "nope", "ok", "okay",
+        "so", "well", "fair", "right", "sure", "true", "exactly",
+        "indeed", "agreed", "alright", "fine", "cool",
+    })
+    # Only habitual/reportive framings ("i have asked … quite a bit lately")
+    # mean the sentence is *about* having asked. Bare "i said"/"i asked"/"i told"
+    # are how an exasperated user re-states a request they were never given —
+    # "i said the day AND time" wants the day and the time, not a discussion.
+    # "asked you what" still covers the reportive "i asked you what the date is".
+    _date_anti_signals = (
+        "i have asked", "i've asked",
+        "i keep asking", "i've been asking", "i was asking",
+        "asked you what", "asked about the date",
+    )
+    _first_word_low = low.split()[0] if low.split() else ""
+    _is_date_conv = (
+        _first_word_low in _date_conv_starters
+        or any(s in low for s in _date_anti_signals)
+    )
+    # File-command guard: "create/write/make/save a file … today's date …, then
+    # read it back" is a file operation, not a date query — don't let "today's
+    # date" hijack it into a bare DATE answer. (Fix: issue #5 DATE misroute.)
+    _file_command = bool(
+        re.search(r"\b(?:create|write|make|save|append|generate|put)\b[^.?!]*\bfile\b", low)
+        or re.search(r"\bread it back\b", low)
+        or re.search(r"/\S*\.(?:txt|py|md|json|csv|sh|log|ini|cfg|yaml|yml)\b", low)
+    )
 
-    # Pre-guard: conversational openers mean this sentence is NOT a date request
-    # even if it contains the word "date" (e.g. "yeah that's fair enough i have
-    # asked you what the date and time is quite a bit lately").
+    if (not _is_date_conv and not _file_command
+            and any(re.search(p, low) for p in _WALLCLOCK_TIME_PATTERNS)):
+        # original_query carries the phrasing the TIME effector needs to tell
+        # "the time" from "the day and the time", and to spot a named place.
+        return _mk("TIME", {"original_query": text}, 1.0, matched_by="system.time")
+
     # CREATE_FILE: "create/make/write/save a file called PATH containing CONTENT
     # [, then read it back]". Requires both the word 'file' and a path with an
     # extension, so it can't steal "write a function/script". Runs before DATE
@@ -2887,40 +2956,8 @@ def route(text: str) -> Dict[str, Any]:
             return _mk("CREATE_FILE", {"path": _cf_path, "content": _cf_content},
                        0.96, matched_by="fs.create_file")
 
-    _date_conv_starters = frozenset({
-        "yeah", "yes", "yep", "yup", "no", "nope", "ok", "okay",
-        "so", "well", "fair", "right", "sure", "true", "exactly",
-        "indeed", "agreed", "alright", "fine", "cool",
-    })
-    _date_anti_signals = (
-        "i have asked", "i've asked", "i asked", "i said", "i told",
-        "i keep asking", "i've been asking", "i was asking",
-        "asked you what", "asked about the date",
-    )
-    _first_word_low = low.split()[0] if low.split() else ""
-    _is_date_conv = (
-        _first_word_low in _date_conv_starters
-        or any(s in low for s in _date_anti_signals)
-    )
-    # File-command guard: "create/write/make/save a file … today's date …, then
-    # read it back" is a file operation, not a date query — don't let "today's
-    # date" hijack it into a bare DATE answer. (Fix: issue #5 DATE misroute.)
-    _file_command = bool(
-        re.search(r"\b(?:create|write|make|save|append|generate|put)\b[^.?!]*\bfile\b", low)
-        or re.search(r"\bread it back\b", low)
-        or re.search(r"/\S*\.(?:txt|py|md|json|csv|sh|log|ini|cfg|yaml|yml)\b", low)
-    )
-    if not _is_date_conv and not _file_command and any(re.search(p, low) for p in [
-        r"\bwhat(?:'?s|\s+is)?\s+(?:the\s+)?date\b",
-        r'\bcurrent date\b',
-        # today's date / today is the date — no greedy .* (would match "update")
-        r"\btoday'?s?\s+(?:is\s+the\s+|the\s+)?date\b",
-        r'^date[?!.\s]*$',
-        r"\bwhat(?:'s| is) today\b",
-        r'\bwhat day is it\b', r'\bwhat day is this\b',
-        r"\bwhat'?s?\s+the\s+day\b", r"\bwhat'?s?\s+the\s+days\b",
-        r'\bwhat days\b', r'\bwhat is the day\b', r'\bday is it\b',
-    ]):
+    if (not _is_date_conv and not _file_command
+            and any(re.search(p, low) for p in _WALLCLOCK_DATE_PATTERNS)):
         return _mk("DATE", {"original_query": text}, 1.0, matched_by="system.date")
 
     if (
@@ -5002,10 +5039,22 @@ def _eli_runtime_cognition_failure_guard(text):
     raw = str(text or "")
     low = raw.lower().strip()
 
-    if re.search(r"\bnvidia-smi\b", low) or (
+    # "how many layers are you using?" means GPU offload layers in ELI's own
+    # runtime — n_gpu_layers is live in the GPU_STATUS snapshot. Left to CHAT it
+    # confabulated (a real session answered with After Effects compositing
+    # advice), and "are you using the gpu?" drew "I am running on CPU, not GPU"
+    # while 11 layers were offloaded. Grounded report, not a guess.
+    _gpu_layer_question = (
+        re.search(r"\blayers?\b", low)
+        and re.search(r"\b(you|your|offload\w*|gpu|vram|cuda|model|running|loaded|use|using)\b", low)
+        and not re.search(r"\b(image|photo|photoshop|after\s?effects|composit\w*|design|"
+                          r"canvas|css|z-index|onion\s?skin)\b", low)
+    )
+    if re.search(r"\bnvidia-smi\b", low) or _gpu_layer_question or (
         re.search(r"\b(gpu|vram|cuda|nvidia)\b", low)
-        and re.search(r"\b(stat|stats|status|diagnostic|diagnostics|usage|memory|"
-                      r"performance|running on|tell me what it means|temp|temperature|how hot)\b", low)
+        and re.search(r"\b(stat|stats|status|diagnostic|diagnostics|usage|using|use|memory|"
+                      r"performance|running on|running|offload\w*|accelerat\w*|"
+                      r"tell me what it means|temp|temperature|how hot)\b", low)
     ):
         return {
             "action": "GPU_STATUS",
@@ -5225,8 +5274,14 @@ def _eli_recent_memory_processing_question(text: object) -> bool:
     if _eli_recent_mem_re.search(r"\b(how many|count|number of)\b.{0,40}\b(memories|memory rows|memory entries)\b", low):
         return False
 
+    # "processed"/"processing" are deliberately NOT memory terms. They also
+    # appear in recent_terms below, so counting them here collapsed the two-signal
+    # AND at the bottom of this function into a bare "processing" + "you" test —
+    # which routed behavioural complaints ("you're not processing my questions
+    # properly, are you okay?") to a SQLite memory inventory. The explicit
+    # patterns below still catch "what memories have you been processing".
     memory_terms = _eli_recent_mem_re.search(
-        r"\b(memories|memory|remembered|remembering|processed|processing|learning|stored|recalled|recall)\b",
+        r"\b(memories|memory|remembered|remembering|learning|stored|recalled|recall)\b",
         low,
     )
     recent_terms = _eli_recent_mem_re.search(
