@@ -10475,8 +10475,18 @@ def _execute_impl(action: str, args: Optional[Dict[str, Any]] = None) -> Dict[st
                     _ar = route_audio_by_name(device)
                     if _ar.get("ok"):
                         _label = _ar.get("display_name") or _ar.get("alias") or device
-                        _say = f"Audio is now playing through {_label}."
+                        # Only claim audio is *currently* playing through it when a
+                        # live stream was actually moved; otherwise it's the default
+                        # for future playback. Saying "now playing" with nothing
+                        # playing is the "said connected but no audio" complaint.
+                        if _ar.get("streams_moved"):
+                            _say = f"Audio is now playing through {_label}."
+                        else:
+                            _say = f"{_label} is set as the output — audio will play through it."
                         return {"ok": True, "action": a, "content": _say, "response": _say}
+                    # Sink route didn't take (not a PulseAudio sink, or the default
+                    # didn't change) — fall through to the Bluetooth driver path,
+                    # which can connect a BT device that isn't a sink yet.
                 from eli.runtime.device_server import bluetooth_control_by_name
                 _r = bluetooth_control_by_name(device, _btc or "connect")
                 _nm = _r.get("device_name") or device or "the device"

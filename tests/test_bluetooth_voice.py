@@ -121,12 +121,28 @@ def test_executor_use_for_audio_message(monkeypatch):
     assert r["ok"] and "playing through Kitchen JBL" in r["content"]
 
 
-def test_executor_use_for_audio_prefers_named_sink(monkeypatch):
-    """The sink route wins when it resolves, and reports the sink it actually chose."""
+def test_use_for_audio_claims_playing_only_when_a_stream_moved(monkeypatch):
+    """A live stream was moved -> honest to say audio is now playing through it."""
     from eli.execution.executor_enhanced import execute
-
     import eli.runtime.local_connectivity as lc
     monkeypatch.setattr(lc, "route_audio_by_name",
-                        lambda n: {"ok": True, "display_name": "Kitchen JBL", "alias": "Kitchen JBL"})
+                        lambda n: {"ok": True, "display_name": "Kitchen JBL",
+                                   "alias": "Kitchen JBL", "streams_moved": 1})
     r = execute("SMART_HOME", {"device": "kitchen speaker", "command": "use_for_audio", "bt": True})
     assert r["ok"] and "playing through Kitchen JBL" in r["content"]
+
+
+def test_use_for_audio_says_set_as_output_when_nothing_was_playing(monkeypatch):
+    """Nothing was playing -> must NOT claim audio is 'now playing' (the server bug)."""
+    from eli.execution.executor_enhanced import execute
+    import eli.runtime.local_connectivity as lc
+    monkeypatch.setattr(lc, "route_audio_by_name",
+                        lambda n: {"ok": True, "display_name": "Kitchen JBL",
+                                   "alias": "Kitchen JBL", "streams_moved": 0})
+    # Also stub the BT fallback so a failed early hop can't reach real hardware.
+    monkeypatch.setattr(ds, "bluetooth_control_by_name",
+                        lambda n, c, scan_timeout=3.0: {"ok": False, "error": "x"})
+    r = execute("SMART_HOME", {"device": "kitchen speaker", "command": "use_for_audio", "bt": True})
+    assert r["ok"]
+    assert "now playing" not in r["content"].lower()
+    assert "set as the output" in r["content"]

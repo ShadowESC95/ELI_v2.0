@@ -713,13 +713,33 @@ def set_default_audio(sink: str) -> Dict[str, Any]:
         sink = str(resolved.get("id") or sink)
     if shutil.which("pactl"):
         rc, out = _sh(["pactl", "set-default-sink", sink], timeout=10)
+        moved = 0
         if rc == 0:
             _, inputs = _sh(["pactl", "list", "short", "sink-inputs"], timeout=8)
             for line in inputs.splitlines():
                 parts = line.split()
                 if parts:
-                    _sh(["pactl", "move-sink-input", parts[0], sink], timeout=6)
-        return {"ok": rc == 0, "sink": sink, "output": out.strip()[:200], "backend": "pactl"}
+                    mrc, _ = _sh(["pactl", "move-sink-input", parts[0], sink], timeout=6)
+                    if mrc == 0:
+                        moved += 1
+        # VERIFY the switch actually took — set-default-sink can exit 0 while the
+        # default is unchanged (stale/renamed sink id). Reporting "connected" on a
+        # bare exit code is how ELI claimed success while no audio moved. Confirm
+        # the running default now matches, and surface how many live streams moved
+        # so the caller can say "set as default" vs "now playing through" honestly.
+        _, defnow = _sh(["pactl", "get-default-sink"], timeout=6)
+        default_now = (defnow or "").strip().splitlines()[0].strip() if defnow.strip() else ""
+        switched = rc == 0 and (not default_now or default_now == sink)
+        return {
+            "ok": switched,
+            "sink": sink,
+            "default_now": default_now,
+            "streams_moved": moved,
+            "verified": bool(default_now),
+            "output": out.strip()[:200],
+            "backend": "pactl",
+            **({} if switched else {"error": f"default sink did not change (still {default_now or 'unknown'})"}),
+        }
     if shutil.which("wpctl"):
         # sink may be numeric id from wpctl status
         target = sink if sink.isdigit() else None
