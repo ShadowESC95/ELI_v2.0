@@ -5132,6 +5132,7 @@ Answer:"""
             "- Avoid filler like 'How can I make your day easier today?' unless it is genuinely appropriate.\n"
             "- CONVERSATION ATTRIBUTION: In conversation history, turns labelled 'ELI:', 'Assistant:', or similar are things YOU said — not the user. NEVER claim the user said, mentioned, asked you to remember, or told you something that only appears in your own prior turns. If challenged on something you said, own it; do not attribute it to the user.\n"
             "- INVENTED PREFERENCES: Do not assert that the user has a preference, habit, or memory (e.g. 'you like coffee', 'you always', 'you mentioned X') unless it is explicitly present in MEMORY SEARCH RESULTS or the user stated it clearly in this conversation. Free wit and cultural references in casual chat are fine; fabricated user preferences are not.\n"
+            "- NO INVENTED SELF-MECHANISM: When asked HOW you work internally — your calibration, confidence scoring, reasoning, memory, or 'what changed/improved' about your own cognition — describe ONLY mechanisms actually present in the provided runtime/cognition evidence or real module names from your codebase. NEVER fabricate named algorithms, mathematical formulas, metrics, thresholds, or 'recalibration functions' to sound authoritative (e.g. inventing an 'Entropy Normalization' softmax equation, a 'context-window pruning' stage, or a specific confidence number you did not actually measure). If you do not have grounded detail about your own internals, say exactly that — e.g. 'I don't have that level of detail on my own runtime' — rather than constructing a plausible-sounding explanation. A confident invented mechanism is a worse failure than an honest 'I don't know how that works under the hood.' This is not a licence to refuse: when the evidence DOES describe your architecture, explain it fully.\n"
             "- PAST SESSION MEMORY: Profile fields labelled 'Recalled past topics' or 'Recalled research areas' are topics from PREVIOUS sessions. They are memory recall context only — never present them as your current ongoing work, never repeat them as the answer to an unrelated question, and never loop back to them when the user is asking about something else. If these topics are directly relevant to the current question, you may reference them as recalled context ('from a previous session...'); otherwise, ignore them and answer the actual question asked.\n"
             "- NO SOCIAL DEFLECTION: Do not end a substantive answer with 'How about you?', 'And yourself?', 'What about you?', or similar social probes. Answer the question; do not redirect it back to the user as a substitute for a real answer.\n"
             "- DELIVER SUBSTANCE, NEVER DEFER: When asked to explain, discuss, elaborate on, or go deeper into a topic, give the ACTUAL content — the concrete facts, the mechanism, the reasoning, the analysis. NEVER substitute a description of HOW you would answer for the answer itself. Sentences like 'let's delve deeper into the scientific theories', 'we can explore various approaches', 'one promising method is to look at the relevant literature', 'this will provide a more comprehensive understanding', or \"I'd be happy to discuss\" — used IN PLACE of real content — are forbidden non-answers. If a follow-up says 'elaborate', 'go deeper', or 'discuss this more', ADD new concrete substance, do not restate your willingness to discuss. If you lack grounded detail, give the best substantive answer from your own knowledge and say plainly what is uncertain — never stall or rearrange words.\n"
@@ -6225,11 +6226,24 @@ Answer:"""
         reason_overrides = dict(gen_overrides or {})
         reason_overrides["temperature"] = temp_reason
         reason_overrides["max_tokens"]  = max_tok_reason
-        private_reasoning = self._get_chat_response(
-            reason_prompt, working_context,
-            reasoning_mode="chain_of_thought", gen_overrides=reason_overrides,
-            situation_brief=situation_brief,
-        )
+        # Suppress the model's own <think> wrapper on a reasoning model. This stage
+        # ALREADY asks for explicit numbered-step prose reasoning that stage 2 must
+        # read — but a reasoning model wraps that prose in <think>…</think>, and when
+        # it hits max_tokens before closing the tag, _strip_think_text drops the
+        # whole thing to empty. Stage 2 then gets an empty scratchpad and re-thinks
+        # from scratch (observed: 170-230s burned per pass, then a full retry). With
+        # the closed-think prefill the reasoning is written directly as the prose
+        # this two-stage design intends. See gguf_inference.force_no_think.
+        try:
+            from eli.cognition.gguf_inference import force_no_think as _fnt
+        except Exception:
+            from contextlib import nullcontext as _fnt  # type: ignore
+        with _fnt():
+            private_reasoning = self._get_chat_response(
+                reason_prompt, working_context,
+                reasoning_mode="chain_of_thought", gen_overrides=reason_overrides,
+                situation_brief=situation_brief,
+            )
         log.debug(
             f"[REASONING][CoT] private scratchpad ({len(private_reasoning)} chars, "
             f"max_tok={max_tok_reason}, temp={temp_reason:.2f})"
@@ -6262,11 +6276,18 @@ Answer:"""
         final_overrides = dict(gen_overrides or {})
         final_overrides["temperature"] = temp_final
         final_overrides["max_tokens"]  = max_tok_final
-        final = self._get_chat_response(
-            final_prompt, working_context,
-            reasoning_mode="chain_of_thought", gen_overrides=final_overrides,
-            situation_brief=situation_brief,
-        )
+        # Stage 2 already has the scratchpad — it must synthesise, not re-open a
+        # second <think> block that truncates to empty. Same closed-think prefill.
+        try:
+            from eli.cognition.gguf_inference import force_no_think as _fnt2
+        except Exception:
+            from contextlib import nullcontext as _fnt2  # type: ignore
+        with _fnt2():
+            final = self._get_chat_response(
+                final_prompt, working_context,
+                reasoning_mode="chain_of_thought", gen_overrides=final_overrides,
+                situation_brief=situation_brief,
+            )
         final = _strip_reasoning_scaffold(final)
         log.debug(
             f"[REASONING][CoT] final answer ({len(final)} chars, "

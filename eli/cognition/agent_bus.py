@@ -136,6 +136,42 @@ def _persist_dispatch_result(
     threading.Thread(target=_write, daemon=True, name="eli-agent-persist").start()
 
 
+def recent_dispatches(limit: int = 12) -> List[Dict[str, Any]]:
+    """Read the most recent agent-dispatch telemetry rows (newest first).
+
+    Each row is one processed request: which specialist agents ran, the
+    aggregated confidence, wall-clock elapsed_ms, ok, and a short summary. This
+    is the REAL per-cycle "agent log / metric breakdown" — surfaced so ELI answers
+    such requests from actual telemetry instead of claiming no logs exist.
+    Returns [] on any error (missing table, locked DB); never raises.
+    """
+    try:
+        from eli.core.paths import agent_db_path as _agent_db_path
+        db_path = _agent_db_path()
+        if not db_path.exists():
+            return []
+        with _sqlite3.connect(str(db_path), timeout=3.0) as _conn:
+            rows = _conn.execute(
+                "SELECT ts, action, agents_used, confidence, elapsed_ms, ok, summary "
+                "FROM agent_dispatches ORDER BY ts DESC LIMIT ?",
+                (int(limit or 12),),
+            ).fetchall()
+    except Exception:
+        return []
+    out: List[Dict[str, Any]] = []
+    for ts, action, agents_used, confidence, elapsed_ms, ok, summary in rows:
+        out.append({
+            "ts": ts,
+            "action": action,
+            "agents_used": [a for a in str(agents_used or "").split(",") if a],
+            "confidence": confidence,
+            "elapsed_ms": elapsed_ms,
+            "ok": bool(ok),
+            "summary": summary,
+        })
+    return out
+
+
 # ---------------------------------------------------------------------------
 # Evidence-driven confidence scoring (no hardcoded per-agent weights)
 # ---------------------------------------------------------------------------

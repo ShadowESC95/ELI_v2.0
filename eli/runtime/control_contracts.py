@@ -385,6 +385,49 @@ def _trace_text(trace: Dict[str, Any]) -> str:
         f"- grounded: {trace.get('grounded')}",
     ])
 
+def _runtime_telemetry_text(limit: int = 8) -> str:
+    """Real per-cycle telemetry from the log tables — agent_dispatches (per-agent
+    timings/confidence) and runtime_events. This is the actual "raw metric
+    breakdown / agent logs" for recent cycles, so ELI answers such requests from
+    logged data instead of falsely claiming no logs exist. '' if nothing logged.
+    """
+    lines: list[str] = []
+    try:
+        from eli.cognition.agent_bus import recent_dispatches
+        rows = recent_dispatches(limit=limit)
+        if rows:
+            lines.append(f"Recent agent-dispatch telemetry ({len(rows)} cycles, newest first):")
+            for r in rows:
+                agents = ", ".join(r.get("agents_used") or []) or "none"
+                conf = r.get("confidence")
+                conf_s = f"{conf:.2f}" if isinstance(conf, (int, float)) else "n/a"
+                ms = r.get("elapsed_ms")
+                ms_s = f"{ms:.0f}ms" if isinstance(ms, (int, float)) else "n/a"
+                lines.append(
+                    f"- action={r.get('action')} agents=[{agents}] "
+                    f"confidence={conf_s} elapsed={ms_s} ok={r.get('ok')}"
+                )
+    except Exception:
+        pass
+    try:
+        from eli.runtime.evidence_ledger import recent_events
+        evs = recent_events(limit=limit)
+        if evs:
+            lines.append("")
+            lines.append(f"Recent runtime_events ({len(evs)}, newest first):")
+            for e in evs:
+                conf = e.get("confidence")
+                conf_s = f" confidence={conf:.2f}" if isinstance(conf, (int, float)) else ""
+                lines.append(
+                    f"- [{e.get('event_type') or '?'}] action={e.get('action') or ''} "
+                    f"source={e.get('source') or ''} outcome={e.get('outcome') or ''}"
+                    f"{conf_s} request_id={e.get('request_id') or ''}"
+                )
+    except Exception:
+        pass
+    return "\n".join(lines).strip()
+
+
 def _recent_conversation_rows(engine: Any = None, limit: int = 12) -> list[Dict[str, Any]]:
     try:
         memory = getattr(engine, "memory", None)
@@ -453,13 +496,20 @@ def build_control_evidence(engine: Any, action: Any, args: Dict[str, Any] | None
     if act == "EXPLAIN_LAST_RESPONSE":
         prev = _last_trace(engine)
         text = _trace_text(prev)
+        # Attach REAL per-cycle telemetry (agent_dispatches timings + runtime_events)
+        # so "give me the raw metric breakdowns / agent logs for that cycle" is
+        # answered from actual logged data. Without this the evidence was only the
+        # trace summary, so ELI wrongly concluded it had "no logs" and confabulated.
+        telemetry = _runtime_telemetry_text()
+        if telemetry:
+            text = f"{text}\n\n{telemetry}"
         return {
-            "ok": bool(prev),
+            "ok": bool(prev) or bool(telemetry),
             "action": act,
             "content": text,
             "response": text,
             "report": prev,
-            "evidence_source": "last_trace",
+            "evidence_source": "last_trace+telemetry",
         }
 
     if act == "META_DIAGNOSTIC":

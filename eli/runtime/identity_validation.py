@@ -60,6 +60,21 @@ _INVALID_SINGLE_TOKENS = {
     "preferred", "prefer", "known",
 }
 
+# Imperative command verbs. A captured name almost never opens with one — a
+# real session logged "pause spotify" as the user's name (it was the first
+# thing typed), so every self-report greeted the user as "pause spotify".
+# A multi-word candidate whose FIRST word is a command verb is a command, not
+# a name, and is rejected. Single-word overlaps (e.g. the name "Mark") are left
+# alone; this only fires on the command SHAPE (verb + object).
+_COMMAND_VERBS = frozenset({
+    "pause", "play", "resume", "stop", "skip", "next", "previous", "rewind",
+    "open", "close", "launch", "start", "quit", "exit", "run", "execute",
+    "mute", "unmute", "turn", "set", "show", "hide", "toggle", "switch",
+    "tell", "give", "make", "create", "delete", "remove", "add", "send",
+    "search", "find", "go", "put", "take", "get", "download", "install",
+    "increase", "decrease", "raise", "lower", "volume", "brightness",
+})
+
 _PLACEHOLDER_RE = re.compile(r"(?i)<[^>]*(?:user|name|username|local_user)[^>]*>|\[[^\]]*(?:user|name|username)[^\]]*\]")
 _IDENTITY_CHARS_RE = re.compile(r"^[A-Za-z][A-Za-z .'\-]{0,48}$")
 
@@ -98,6 +113,10 @@ def normalize_identity_candidate(value: Any, *, max_words: int = 3) -> str:
     if any(w.lower() in _INVALID_SINGLE_TOKENS for w in words):
         return ""
     if len(words) == 1 and words[0].lower().endswith("ing") and len(words[0]) > 4:
+        return ""
+    # "pause spotify" / "open chrome": a multi-word candidate that opens with an
+    # imperative command verb is a command, not a name.
+    if len(words) > 1 and words[0].lower() in _COMMAND_VERBS:
         return ""
 
     return candidate

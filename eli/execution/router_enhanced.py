@@ -1442,6 +1442,22 @@ def route(text: str) -> Dict[str, Any]:
 
 
 
+    # A conversational request to explain or justify a statement ELI made is NOT
+    # a runtime-diagnostics request — even when it quotes ELI's own words back,
+    # which may incidentally contain 'context window', 'confidence', 'max_tokens'
+    # etc. Left ungated, "can you explain what you meant by 'the context window
+    # was full of noise'?" force-routed to a raw runtime data-dump (the user's
+    # "that is not what i asked"). Real diagnostics ("why did you take 20 minutes",
+    # "what's my context window size") don't ask to *explain a prior claim*, so
+    # they still route below. Falls through to grounded CHAT instead.
+    _explain_prior_claim = bool(
+        re.search(r"\b(can|could|would)\s+you\s+explain\b", low)
+        or re.search(r"\bexplain\s+(what\s+you\s+meant|that|this|your\s+(?:last|previous|prior)\s+(?:reply|answer|response|point))\b", low)
+        or re.search(r"\bwhat\s+(?:do|did)\s+you\s+mean\b", low)
+        or (re.search(r"\byou\s+(?:said|told\s+me|claimed|mentioned|wrote|meant)\b", low)
+            and re.search(r"\b(explain|clarify|mean|what)\b", low))
+    ) and not re.search(r"\b(audit|diagnos|prove|proof|\bscan\b)\b", low)
+
     # --- primary contract diagnostics: proof / latency / inference ---
     # These are not casual chat. They require grounded runtime/file evidence.
     # This block belongs inside the primary route() function, not as an
@@ -1465,7 +1481,7 @@ def route(text: str) -> Dict[str, Any]:
             task_family="grounded_audit",
         )
 
-    if re.search(
+    if not _explain_prior_claim and re.search(
         r"\b(took you|took so long|why did you take|response time|slow response|that took ages|20 minutes|twenty minutes|you don't believe me|dont believe me|took over|took nearly|took just under)\b",
         low,
     ):
@@ -1482,7 +1498,7 @@ def route(text: str) -> Dict[str, Any]:
             task_family="grounded_audit",
         )
 
-    if re.search(
+    if not _explain_prior_claim and re.search(
         r"\b(current inference|inference issues|gguf issues|prompt overflow|context overflow|context window|sacrificing reasoning|sacrifice reasoning|model slow|llama slow|gpu_layers|gpu layers|max_tokens|n_ctx|batch size|llama_context)\b",
         low,
     ):
@@ -1590,6 +1606,20 @@ def route(text: str) -> Dict[str, Any]:
 
     if re.search(r"\b(confidence in (?:your|my) last response|which agents contributed|what agents contributed|last response trace|previous response trace|last turn trace)\b", low):
         return _mk("EXPLAIN_LAST_RESPONSE", {}, 0.99, matched_by="router.explain_last_response", allow_chat_without_evidence=False)
+
+    # A request for the RAW metrics / agent logs / telemetry / trace of a recent
+    # cycle must surface the real logged telemetry (agent_dispatches + runtime_events
+    # via EXPLAIN_LAST_RESPONSE), NOT the settings snapshot SELF_REPORT returns. A
+    # real session asked "I want raw metric breakdowns and agent logs for that cycle"
+    # → SELF_REPORT → ELI then wrongly claimed "I have no logs" and confabulated.
+    if (re.search(r"\b(metric|metrics|telemetry|agent log|agent logs|raw log|raw logs|"
+                  r"dispatch log|breakdown|trace|logs?)\b", low)
+            and re.search(r"\b(that|this|last|previous|prior|the)\s+"
+                          r"(cycle|response|turn|request|run|answer|reply)\b", low)
+            and not re.search(r"\b(delete|clear|disable|turn off|stop)\b", low)):
+        return _mk("EXPLAIN_LAST_RESPONSE", {}, 0.98,
+                   matched_by="router.explain_last_response.metrics",
+                   need_grounding=True, allow_chat_without_evidence=False)
 
     # --- explicit grounded speech-act route authority ---
     # This is routing authority, not a canned response layer.

@@ -22,7 +22,7 @@ def test_package_name_matches_distribution():
     root = Path(__file__).resolve().parents[1]
     data = load_toml(root / "pyproject.toml")
     assert data["project"]["name"] == "eli-v2.0"
-    assert data["project"]["version"] == "2.1.16"
+    assert data["project"]["version"] == "2.1.17"
 
 
 def test_capability_manifest_shipped():
