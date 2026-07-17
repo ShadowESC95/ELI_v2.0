@@ -47,6 +47,12 @@ soundfile==0.13.1
 faster-whisper==1.2.1
 SpeechRecognition==3.16.0
 PyAudio==0.2.14
+# audioop left the stdlib in 3.13 (PEP 594), and ELI's mic path imports it. On a
+# distro shipping 3.13+ (Arch) it only survived as a transitive dep of
+# SpeechRecognition, so a --no-deps install or an upstream change silently broke
+# the microphone. Declare it: the marker keeps it off 3.12 and older, where it
+# neither installs nor is needed.
+audioop-lts>=0.2.1; python_version >= "3.13"
 
 # ── Image generation ─────────────────────────────────────────────────────────
 diffusers==0.37.1

@@ -8520,17 +8520,18 @@ _register()
             )
             return
         script = f"{cmd}\necho\necho Done. You can close this window.\nread -r -p 'Press Enter to close…' _"
-        for term_cmd in (
-            ["x-terminal-emulator", "-e", "bash", "-lc", script],
-            ["gnome-terminal", "--", "bash", "-lc", script],
-            ["konsole", "-e", "bash", "-lc", script],
-            ["xfce4-terminal", "-e", f"bash -lc {shlex.quote(script)}"],
-        ):
+        # Single owner for the terminal list (platform_compat) — this used to know
+        # only four Debian/GNOME/KDE terminals and silently found none on Arch,
+        # macOS or Windows.
+        from eli.utils.platform_compat import terminal_argv
+
+        term_cmd = terminal_argv(["bash", "-lc", script])
+        if term_cmd:
             try:
                 subprocess.Popen(term_cmd)
                 return
             except Exception:
-                continue
+                pass
         QMessageBox.information(
             self,
             "Firewall",
