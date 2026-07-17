@@ -123,99 +123,162 @@ COMMON_APP_ALIASES = {
     "music": "music",
 }
 
+# Terminal emulators, as (executable, argv-separator flags). The rest of the argv
+# is appended, so every entry must take a command as argv — not as one string.
+# Ordered: Debian's alternatives symlink, the big desktops, then the standalone
+# terminals that are usually all you get on Arch / a minimal WM, then xterm.
+TERMINAL_CANDIDATES: tuple[tuple[str, tuple[str, ...]], ...] = (
+    ("x-terminal-emulator", ("-e",)),      # Debian/Ubuntu alternatives symlink
+    ("gnome-terminal", ("--",)),
+    ("kgx", ("-e",)),                      # GNOME Console
+    ("konsole", ("-e",)),
+    ("xfce4-terminal", ("-x",)),           # -x = execute the rest of the argv
+    ("tilix", ("-e",)),
+    ("terminator", ("-x",)),
+    ("alacritty", ("-e",)),
+    ("ghostty", ("-e",)),
+    ("kitty", ()),                         # takes a bare argv
+    ("foot", ()),                          # takes a bare argv
+    ("wezterm", ("start", "--")),
+    ("urxvt", ("-e",)),
+    ("rxvt", ("-e",)),
+    ("st", ("-e",)),
+    ("xterm", ("-e",)),
+)
+
+# Linux desktops disagree about which apps exist, so a single name per role is a
+# Ubuntu/GNOME assumption, not a Linux one: `x-terminal-emulator` is a Debian
+# alternatives symlink, and gnome-*/gedit/eog/rhythmbox are absent on a KDE or
+# minimal Arch install. Each role is a candidate list resolved against PATH on
+# the host at call time; the first entry is the fallback label when none exist.
+LINUX_APP_CANDIDATES: dict[str, tuple[str, ...]] = {
+    "browser": ("xdg-open",),
+    "mail": ("thunderbird", "evolution", "kmail", "geary"),
+    "files": ("xdg-open",),
+    "terminal": tuple(name for name, _flags in TERMINAL_CANDIDATES),
+    "settings": ("gnome-control-center", "systemsettings", "systemsettings5",
+                 "xfce4-settings-manager", "cinnamon-settings", "mate-control-center"),
+    "calculator": ("gnome-calculator", "kcalc", "galculator", "qalculate-gtk",
+                   "mate-calc", "xcalc"),
+    "calendar": ("gnome-calendar", "korganizer", "evolution"),
+    "notes": ("gnome-text-editor", "gedit", "kate", "kwrite", "mousepad", "xed", "pluma"),
+    "editor": ("gnome-text-editor", "gedit", "kate", "kwrite", "mousepad", "xed",
+               "pluma", "code", "codium", "nano", "vim"),
+    "camera": ("snapshot", "cheese", "kamoso", "guvcview"),
+    "photos": ("loupe", "eog", "gwenview", "ristretto", "shotwell", "feh"),
+    "music": ("rhythmbox", "elisa", "audacious", "clementine", "strawberry", "vlc"),
+    # Arch names differ from Debian's: chromium (not chromium-browser),
+    # google-chrome-stable, code-oss (the repo build of VS Code).
+    "chrome": ("google-chrome", "google-chrome-stable", "chrome"),
+    "google chrome": ("google-chrome", "google-chrome-stable", "chrome"),
+    "chromium": ("chromium", "chromium-browser"),
+    "firefox": ("firefox", "firefox-esr"),
+    "vscode": ("code", "code-oss", "codium"),
+    "vs code": ("code", "code-oss", "codium"),
+    "visual studio code": ("code", "code-oss", "codium"),
+    "codium": ("codium", "vscodium"),
+    "sublime": ("subl", "sublime_text"),
+    "sublime text": ("subl", "sublime_text"),
+}
+
+# macOS names are .app bundle names, not PATH executables, and they move between
+# OS releases: "System Settings" is Ventura (13) and later — on Monterey and older
+# it is "System Preferences", and `open -a "System Settings"` simply fails there.
+# Same story for Music/iTunes (Catalina split). Candidates cover both eras.
+MACOS_APP_CANDIDATES: dict[str, tuple[str, ...]] = {
+    "browser": ("Safari", "Google Chrome", "Firefox", "Arc", "Brave Browser"),
+    "mail": ("Mail", "Microsoft Outlook", "Spark", "Thunderbird"),
+    "files": ("Finder",),
+    "terminal": ("Terminal", "iTerm", "Warp", "Ghostty", "WezTerm", "Alacritty", "kitty"),
+    "settings": ("System Settings", "System Preferences"),
+    "calculator": ("Calculator",),
+    "calendar": ("Calendar", "iCal"),
+    "notes": ("Notes",),
+    "editor": ("TextEdit", "Visual Studio Code", "Sublime Text", "BBEdit"),
+    "camera": ("Photo Booth",),
+    "photos": ("Photos", "Preview"),
+    "music": ("Music", "iTunes", "Spotify"),
+    "chrome": ("Google Chrome",),
+    "google chrome": ("Google Chrome",),
+    "chromium": ("Chromium",),
+    "firefox": ("Firefox", "Firefox Developer Edition"),
+    "vscode": ("Visual Studio Code", "VSCodium"),
+    "vs code": ("Visual Studio Code", "VSCodium"),
+    "visual studio code": ("Visual Studio Code", "VSCodium"),
+    "codium": ("VSCodium",),
+    "sublime": ("Sublime Text",),
+    "sublime text": ("Sublime Text",),
+}
+
+# Windows Terminal (wt.exe) ships with Windows 11 but is absent from a stock
+# Windows 10, so it cannot be the only terminal. Entries ending in ":" are URI
+# protocol handlers (os.startfile), not files on PATH — never probed with which().
+WINDOWS_APP_CANDIDATES: dict[str, tuple[str, ...]] = {
+    "browser": ("msedge.exe", "chrome.exe", "firefox.exe"),
+    "mail": ("outlook.exe", "olk.exe", "ms-mail:"),
+    "files": ("explorer.exe",),
+    "terminal": ("wt.exe", "pwsh.exe", "powershell.exe", "cmd.exe"),
+    "powershell": ("pwsh.exe", "powershell.exe"),
+    "cmd": ("cmd.exe",),
+    "settings": ("ms-settings:",),
+    "calculator": ("calc.exe",),
+    "calendar": ("outlookcal:",),
+    "notes": ("notepad.exe",),
+    "editor": ("notepad.exe", "code.cmd"),
+    "camera": ("microsoft.windows.camera:",),
+    "photos": ("ms-photos:",),
+    "music": ("mswindowsmusic:",),
+    "edge": ("msedge.exe",),
+    "chrome": ("chrome.exe",),
+    "google chrome": ("chrome.exe",),
+    "chromium": ("chrome.exe",),
+    "firefox": ("firefox.exe",),
+    "vscode": ("code.cmd", "code.exe"),
+    "vs code": ("code.cmd", "code.exe"),
+    "visual studio code": ("code.cmd", "code.exe"),
+    "codium": ("codium.cmd", "VSCodium.exe"),
+    "sublime": ("subl.exe", "sublime_text.exe"),
+    "sublime text": ("subl.exe", "sublime_text.exe"),
+}
+
+ANDROID_APP_CANDIDATES: dict[str, tuple[str, ...]] = {
+    "browser": ("com.android.chrome", "org.mozilla.firefox"),
+    "chrome": ("com.android.chrome",),
+    "firefox": ("org.mozilla.firefox",),
+    "files": ("com.google.android.documentsui", "com.android.documentsui"),
+    "terminal": ("com.termux",),
+    "settings": ("com.android.settings",),
+    "calculator": ("com.google.android.calculator", "com.android.calculator2"),
+    "calendar": ("com.google.android.calendar",),
+    "notes": ("com.google.android.keep",),
+    "camera": ("com.android.camera", "com.android.camera2"),
+    "photos": ("com.google.android.apps.photos",),
+    "music": ("com.google.android.music", "com.spotify.music"),
+    "termux": ("com.termux",),
+}
+
+BSD_APP_CANDIDATES: dict[str, tuple[str, ...]] = {
+    "browser": ("xdg-open",),
+    "files": ("xdg-open",),
+    "terminal": tuple(name for name, _flags in TERMINAL_CANDIDATES),
+    "settings": ("xfce4-settings-manager", "systemsettings"),
+    "calculator": ("xcalc", "galculator", "kcalc"),
+    "editor": ("nano", "vi", "vim", "mousepad", "gedit"),
+}
+
+APP_CANDIDATES_BY_PLATFORM: dict[str, dict[str, tuple[str, ...]]] = {
+    "linux": LINUX_APP_CANDIDATES,
+    "macos": MACOS_APP_CANDIDATES,
+    "windows": WINDOWS_APP_CANDIDATES,
+    "android": ANDROID_APP_CANDIDATES,
+    "bsd": BSD_APP_CANDIDATES,
+}
+
+# Canonical (first-choice) name per role, per platform. app_aliases() resolves the
+# full candidate list against the host when it can actually probe it.
 APP_ALIASES_BY_PLATFORM = {
-    "linux": {
-        "browser": "xdg-open",
-        "mail": "thunderbird",
-        "files": "xdg-open",
-        "terminal": "x-terminal-emulator",
-        "settings": "gnome-control-center",
-        "calculator": "gnome-calculator",
-        "calendar": "gnome-calendar",
-        "notes": "gedit",
-        "editor": "gedit",
-        "camera": "snapshot",
-        "photos": "eog",
-        "music": "rhythmbox",
-        "chrome": "google-chrome",
-        "google chrome": "google-chrome",
-        "chromium": "chromium",
-        "firefox": "firefox",
-        "vscode": "code",
-        "vs code": "code",
-        "visual studio code": "code",
-        "codium": "codium",
-        "sublime": "subl",
-        "sublime text": "subl",
-    },
-    "macos": {
-        "browser": "Safari",
-        "mail": "Mail",
-        "files": "Finder",
-        "terminal": "Terminal",
-        "settings": "System Settings",
-        "calculator": "Calculator",
-        "calendar": "Calendar",
-        "notes": "Notes",
-        "editor": "TextEdit",
-        "camera": "Photo Booth",
-        "photos": "Photos",
-        "music": "Music",
-        "chrome": "Google Chrome",
-        "google chrome": "Google Chrome",
-        "firefox": "Firefox",
-        "vscode": "Visual Studio Code",
-        "vs code": "Visual Studio Code",
-        "visual studio code": "Visual Studio Code",
-        "sublime": "Sublime Text",
-        "sublime text": "Sublime Text",
-    },
-    "windows": {
-        "browser": "msedge.exe",
-        "mail": "outlook.exe",
-        "files": "explorer.exe",
-        "terminal": "wt.exe",
-        "powershell": "powershell.exe",
-        "cmd": "cmd.exe",
-        "settings": "ms-settings:",
-        "calculator": "calc.exe",
-        "calendar": "outlookcal:",
-        "notes": "notepad.exe",
-        "editor": "notepad.exe",
-        "camera": "microsoft.windows.camera:",
-        "photos": "ms-photos:",
-        "music": "mswindowsmusic:",
-        "edge": "msedge.exe",
-        "chrome": "chrome.exe",
-        "google chrome": "chrome.exe",
-        "firefox": "firefox.exe",
-        "vscode": "code.cmd",
-        "vs code": "code.cmd",
-        "visual studio code": "code.cmd",
-    },
-    "android": {
-        "browser": "com.android.chrome",
-        "chrome": "com.android.chrome",
-        "firefox": "org.mozilla.firefox",
-        "files": "com.google.android.documentsui",
-        "terminal": "com.termux",
-        "settings": "com.android.settings",
-        "calculator": "com.google.android.calculator",
-        "calendar": "com.google.android.calendar",
-        "notes": "com.google.android.keep",
-        "camera": "com.android.camera",
-        "photos": "com.google.android.apps.photos",
-        "music": "com.google.android.music",
-        "termux": "com.termux",
-    },
-    "bsd": {
-        "browser": "xdg-open",
-        "files": "xdg-open",
-        "terminal": "xterm",
-        "settings": "settings",
-        "calculator": "xcalc",
-        "editor": "vi",
-    },
+    platform: {role: names[0] for role, names in table.items()}
+    for platform, table in APP_CANDIDATES_BY_PLATFORM.items()
 }
 
 
@@ -244,11 +307,112 @@ def platform_aliases(name: str | None = None) -> tuple[str, ...]:
     return PLATFORM_ALIASES.get(normalize_platform(name), ())
 
 
+_MACOS_APP_DIRS = (
+    "/Applications",
+    "/Applications/Utilities",
+    "/System/Applications",
+    "/System/Applications/Utilities",
+    "/System/Library/CoreServices",
+    "/System/Library/CoreServices/Applications",
+)
+
+
+def _macos_app_exists(name: str) -> bool:
+    """macOS apps are .app bundles, not PATH entries — which() never finds them."""
+    if shutil.which(name):  # CLI-installed terminals (kitty, alacritty) still count
+        return True
+    dirs = (*_MACOS_APP_DIRS, str(Path.home() / "Applications"))
+    return any((Path(d) / f"{name}.app").exists() for d in dirs)
+
+
+def app_exists(name: str, platform_name: str | None = None) -> bool:
+    """Is ``name`` launchable on this platform? Each OS needs a different test."""
+    if not name:
+        return False
+    platform = normalize_platform(platform_name)
+    if platform == "macos":
+        return _macos_app_exists(name)
+    if platform == "windows":
+        # "ms-settings:" / "shell:..." are protocol handlers, not files on PATH.
+        if name.endswith(":") or name.startswith(("ms-", "shell:")):
+            return True
+        base = name[:-4] if name.lower().endswith(".exe") else name
+        return bool(shutil.which(name) or shutil.which(base))
+    if platform == "android":
+        # Package ids can't be probed without a live `pm`; treat as available.
+        return True
+    return bool(shutil.which(name))
+
+
+def first_available(*candidates: str, platform_name: str | None = None) -> str | None:
+    """Return the first candidate that exists on this platform, else None."""
+    for candidate in candidates:
+        if candidate and app_exists(candidate, platform_name):
+            return candidate
+    return None
+
+
+def terminal_argv(argv: list[str]) -> list[str] | None:
+    """Wrap ``argv`` so it runs in a visible terminal window, on any OS.
+
+    Returns None when no terminal can be found. Callers must not assume
+    gnome-terminal/x-terminal-emulator (absent on stock Arch and minimal WMs,
+    where kitty/foot/alacritty are the norm) nor wt.exe (absent on stock
+    Windows 10).
+    """
+    if WINDOWS:
+        if shutil.which("wt.exe"):
+            return ["wt.exe", *argv]
+        for shell, flag in (("pwsh.exe", "-Command"), ("powershell.exe", "-Command")):
+            if shutil.which(shell):
+                return [shell, "-NoExit", flag, subprocess.list2cmdline(argv)]
+        if shutil.which("cmd.exe"):
+            return ["cmd.exe", "/k", subprocess.list2cmdline(argv)]
+        return None
+    if MACOS:
+        # Terminal.app takes a file to run, not an argv, so callers that need a
+        # macOS window should hand terminal_script_argv() a script path instead.
+        term = first_available(*MACOS_APP_CANDIDATES["terminal"])
+        if term and shutil.which(term):  # CLI terminals accept a bare argv
+            return [term, *argv]
+        return None
+    for name, flags in TERMINAL_CANDIDATES:
+        if shutil.which(name):
+            return [name, *flags, *argv]
+    return None
+
+
+def terminal_script_argv(script_path: str | Path) -> list[str] | None:
+    """Run a shell script in a visible terminal window, on any OS.
+
+    macOS Terminal.app can only be handed a file, which is why this exists
+    alongside terminal_argv().
+    """
+    script_path = str(script_path)
+    if MACOS:
+        term = first_available(*MACOS_APP_CANDIDATES["terminal"]) or "Terminal"
+        return ["open", "-a", term, script_path]
+    if WINDOWS:
+        return terminal_argv([script_path])
+    return terminal_argv(["bash", script_path])
+
+
 def app_aliases(name: str | None = None) -> dict[str, str]:
-    """Return app aliases for the current or requested platform."""
+    """Return app aliases for the current or requested platform.
+
+    Each role resolves to the first candidate actually installed, so ELI behaves
+    the same on Arch/KDE as on Ubuntu/GNOME, on Monterey as on Sequoia, and on
+    Windows 10 as on 11. Probing only makes sense for the host, so asking for
+    another platform's table returns its canonical names unresolved.
+    """
     platform = normalize_platform(name)
     aliases = dict(COMMON_APP_ALIASES)
-    aliases.update(APP_ALIASES_BY_PLATFORM.get(platform, {}))
+    table = APP_CANDIDATES_BY_PLATFORM.get(platform, {})
+    if table and platform == normalize_platform():
+        aliases.update({role: (first_available(*names) or names[0])
+                        for role, names in table.items()})
+    else:
+        aliases.update(APP_ALIASES_BY_PLATFORM.get(platform, {}))
     return aliases
 
 
