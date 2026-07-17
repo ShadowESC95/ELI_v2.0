@@ -207,8 +207,28 @@ def _auto_tune(model_path: Path, hw: dict) -> dict:
         "max_tokens":   -1,      # unlimited — use full remaining context
         "temperature":  0.7,
         "use_mmap":     True,
-        "use_mlock":    avail_ram_gb >= 16,
+        "use_mlock":    avail_ram_gb >= 16 and _mlock_viable(),
     }
+
+
+def _mlock_viable() -> bool:
+    """True only when the OS memlock limit can actually lock a multi-GB model.
+
+    RLIMIT_MEMLOCK is frequently capped low (64 KB–8 MB) regardless of installed
+    RAM, so requesting use_mlock there just yields 'failed to mlock … Cannot
+    allocate memory' warnings — the load still succeeds via mmap. Only gate on
+    POSIX where the limit is inspectable; leave non-POSIX (Windows) behaviour
+    unchanged.
+    """
+    try:
+        import resource
+    except Exception:
+        return True  # non-POSIX — preserve prior behaviour
+    try:
+        soft, _hard = resource.getrlimit(resource.RLIMIT_MEMLOCK)
+        return soft == -1 or soft >= 4 * 1024 ** 3  # -1 = unlimited; else need ≥4 GiB
+    except Exception:
+        return True
 
 
 # ── UI helpers ────────────────────────────────────────────────────────────────
