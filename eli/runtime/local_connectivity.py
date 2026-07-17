@@ -472,9 +472,24 @@ def _voice_names_for_sink(alias: str, os_name: str, device_number: int) -> List[
     return out
 
 
+def _sink_full_names(s: Dict[str, Any]) -> List[str]:
+    """A sink's real names — not the generic tokens split out of its alias."""
+    values = (s.get("custom_name"), s.get("alias"), s.get("display_name"),
+              s.get("name"), s.get("id"))
+    return [str(v).strip().lower() for v in values if v and str(v).strip()]
+
+
 def resolve_audio_sink(query: str) -> Optional[Dict[str, Any]]:
-    """Match a spoken/UI label to a sink — alias, device N, or OS name."""
-    q = (query or "").strip().lower()
+    """Match a spoken/UI label to a sink — alias, device N, or OS name.
+
+    Matching is tiered, and every tier is evaluated across ALL sinks before the
+    next one runs. That ordering is the whole point: _voice_names_for_sink splits
+    an alias into bare tokens, so a sink called "small speaker" also answers to
+    "speaker" — and the old first-sink-wins loop let that generic token swallow
+    "kitchen speaker", routing audio to the wrong device while reporting success.
+    An explicitly named target must never fall through to a different one.
+    """
+    q = " ".join((query or "").strip().lower().split())
     if not q:
         return None
     listed = list_audio_outputs()
@@ -486,26 +501,34 @@ def resolve_audio_sink(query: str) -> Optional[Dict[str, Any]]:
         if 1 <= n <= len(sinks):
             return sinks[n - 1]
 
+    # 1. Exact hit on a real name — beats every fuzzy tier below.
     for s in sinks:
-        for vn in s.get("voice_names") or []:
-            if q == vn or q in vn or vn in q:
-                return s
-        if q == str(s.get("id") or "").lower():
-            return s
-        if q == str(s.get("alias") or "").lower():
-            return s
-        if q == str(s.get("name") or "").lower():
-            return s
-        if q == str(s.get("display_name") or "").lower():
+        if q in _sink_full_names(s):
             return s
 
-    # Partial match on alias/display (e.g. "kitchen" → "kitchen speaker")
+    # 2. Exact hit on a voice token ("kitchen" for "Kitchen JBL", "device 2").
     for s in sinks:
-        for field in ("alias", "display_name", "name"):
-            val = str(s.get(field) or "").lower()
-            if val and (q in val or val in q):
-                return s
-    return None
+        if q in [str(v).strip().lower() for v in (s.get("voice_names") or [])]:
+            return s
+
+    # 3. The query names part of exactly one sink ("kitchen" → "kitchen speaker").
+    #    If several match, the closest (shortest) name wins rather than the first.
+    hits = [s for s in sinks if any(q in n for n in _sink_full_names(s))]
+    if len(hits) == 1:
+        return hits[0]
+    if hits:
+        return min(hits, key=lambda s: min(len(n) for n in _sink_full_names(s) if q in n))
+
+    # 4. A sink name appears inside a longer phrase ("play through the amp now").
+    #    Word boundaries + longest-wins, so a specific name beats the generic
+    #    token inside it. No match returns None — the caller then says so instead
+    #    of quietly playing through whatever it found first.
+    best, best_len = None, 0
+    for s in sinks:
+        for n in _sink_full_names(s):
+            if len(n) >= 3 and len(n) > best_len and re.search(rf"\b{re.escape(n)}\b", q):
+                best, best_len = s, len(n)
+    return best
 
 
 def route_audio_by_name(name: str) -> Dict[str, Any]:
