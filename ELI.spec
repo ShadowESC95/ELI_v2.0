@@ -135,6 +135,21 @@ if not any(f.suffix == ".onnx" for f in _voice_files):
 for f in _voice_files:
     datas.append((str(f), "tts_piper/piper"))
 
+# Text embedder (nomic-embed, ~84 MB) — REQUIRED for memory / RAG / knowledge-graph
+# recall. Not in git (a GGUF weight); CI downloads it to models/embeddings/ before
+# building. Bundling it means the packaged app has working semantic memory offline
+# instead of degrading to keyword-only ("Embed model not found"). vector_store
+# searches the frozen-bundle location when the writable data-dir copy is absent.
+_embed_file = ROOT / "models" / "embeddings" / "nomic-embed-text-v1.5.Q4_K_M.gguf"
+if _embed_file.is_file():
+    datas.append((str(_embed_file), "models/embeddings"))
+elif os.environ.get("ELI_REQUIRE_EMBEDDER") == "1":
+    _fail("ELI_REQUIRE_EMBEDDER=1 but models/embeddings/nomic-embed-text-v1.5.Q4_K_M.gguf "
+          "is missing — run: python -m eli.core.model_download --aux")
+else:
+    print("[ELI.spec] WARNING: no embedder in models/embeddings — packaged memory "
+          "will fall back to keyword recall until the model is downloaded at runtime")
+
 
 # ── Hidden imports ───────────────────────────────────────────────────────────
 def _optional_collect(package: str, *, data: bool = False, libs: bool = False):

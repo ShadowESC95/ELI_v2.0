@@ -78,6 +78,7 @@ jobs:
   build-windows:
     env:
       ELI_REQUIRE_VOICES: "1"
+      ELI_REQUIRE_EMBEDDER: "1"
       GH_TOKEN: ${{ github.token }}
     name: windows (exe + installer)
     needs: guard
@@ -123,6 +124,17 @@ jobs:
           count=$(ls tts_piper/piper/*.onnx 2>/dev/null | wc -l)
           echo "voices downloaded: $count"
           [ "$count" -ge 1 ] || { echo "::error::no .onnx voices present after download"; exit 1; }
+
+      - name: Bundle text embedder (nomic-embed, required for memory/RAG)
+        shell: bash
+        run: |
+          # Ship the ~84 MB embedder so the packaged app has semantic memory
+          # offline instead of degrading to keyword-only recall.
+          python -m eli.core.model_download --aux \
+            || { echo "::error::embedder download (--aux) failed"; exit 1; }
+          test -f models/embeddings/nomic-embed-text-v1.5.Q4_K_M.gguf \
+            || { echo "::error::embedder not present after download"; exit 1; }
+          echo "embedder: $(du -h models/embeddings/nomic-embed-text-v1.5.Q4_K_M.gguf | cut -f1)"
 
       - name: PyInstaller build (ELI.spec)
         shell: bash
@@ -197,6 +209,7 @@ jobs:
   build-macos:
     env:
       ELI_REQUIRE_VOICES: "1"
+      ELI_REQUIRE_EMBEDDER: "1"
       GH_TOKEN: ${{ github.token }}
     name: macos (app + dmg, arm64)
     needs: guard
@@ -283,6 +296,7 @@ jobs:
   build-linux:
     env:
       ELI_REQUIRE_VOICES: "1"
+      ELI_REQUIRE_EMBEDDER: "1"
       GH_TOKEN: ${{ github.token }}
     name: linux (AppImage)
     needs: guard

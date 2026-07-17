@@ -173,12 +173,31 @@ class VectorStore:
             import os
             from pathlib import Path
             from llama_cpp import Llama
+            import sys as _sys
             _models_dir = Path(os.getenv('ELI_MODELS_DIR', str(_project_root() / 'models')))
             env_embed = os.getenv('ELI_EMBED_MODEL_PATH', '').strip()
+            _EMB_REL = ('models', 'embeddings', 'nomic-embed-text-v1.5.Q4_K_M.gguf')
             if env_embed:
                 _model_path = str(Path(env_embed).expanduser().resolve())
             else:
-                _model_path = str((_project_root() / 'models' / 'embeddings' / 'nomic-embed-text-v1.5.Q4_K_M.gguf').resolve())
+                # Search several roots so a FROZEN build (PyInstaller/AppImage)
+                # finds the bundled embedder even though the writable data-dir copy
+                # is absent. Without this the packaged app fell back to keyword-only
+                # recall ("Embed model not found" in ~/.local/share/ELI_v2/…).
+                _roots = [_project_root(), _models_dir.parent]
+                _meipass = getattr(_sys, '_MEIPASS', '')
+                if _meipass:
+                    _roots.append(Path(_meipass))
+                if getattr(_sys, 'frozen', False):
+                    _roots.append(Path(_sys.executable).resolve().parent)
+                _model_path = ''
+                for _root in _roots:
+                    _cand = _root.joinpath(*_EMB_REL)
+                    if _cand.exists():
+                        _model_path = str(_cand.resolve())
+                        break
+                if not _model_path:
+                    _model_path = str((_project_root() / Path(*_EMB_REL)).resolve())
             if not os.path.exists(_model_path):
                 raise FileNotFoundError('Embed model not found: ' + _model_path)
             _llm = Llama(
