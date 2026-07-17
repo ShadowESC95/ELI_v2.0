@@ -129,12 +129,20 @@ jobs:
         shell: bash
         run: |
           # Ship the ~84 MB embedder so the packaged app has semantic memory
-          # offline instead of degrading to keyword-only recall.
-          python -m eli.core.model_download --aux \
-            || { echo "::error::embedder download (--aux) failed"; exit 1; }
-          test -f models/embeddings/nomic-embed-text-v1.5.Q4_K_M.gguf \
-            || { echo "::error::embedder not present after download"; exit 1; }
-          echo "embedder: $(du -h models/embeddings/nomic-embed-text-v1.5.Q4_K_M.gguf | cut -f1)"
+          # offline instead of degrading to keyword-only recall. Download straight
+          # to the repo-relative path ELI.spec bundles from — NOT via model_download,
+          # whose models_dir() resolves to a runtime data dir that differs per OS.
+          set -euo pipefail
+          dest="models/embeddings/nomic-embed-text-v1.5.Q4_K_M.gguf"
+          url="https://huggingface.co/nomic-ai/nomic-embed-text-v1.5-GGUF/resolve/main/nomic-embed-text-v1.5.Q4_K_M.gguf"
+          mkdir -p models/embeddings
+          curl -fL --retry 3 --retry-delay 5 -o "$dest" "$url" \
+            || { echo "::error::embedder download failed from $url"; exit 1; }
+          # Guard against an HTML error page saved as the .gguf (size sanity: >50 MB).
+          bytes=$(wc -c < "$dest")
+          [ "$bytes" -gt 52428800 ] \
+            || { echo "::error::embedder is only $bytes bytes — download did not return the model"; exit 1; }
+          echo "embedder: $(( bytes / 1048576 )) MiB at $dest"
 
       - name: PyInstaller build (ELI.spec)
         shell: bash
@@ -255,6 +263,24 @@ jobs:
           echo "voices downloaded: $count"
           [ "$count" -ge 1 ] || { echo "::error::no .onnx voices present after download"; exit 1; }
 
+      - name: Bundle text embedder (nomic-embed, required for memory/RAG)
+        shell: bash
+        run: |
+          # Ship the ~84 MB embedder so the packaged app has semantic memory
+          # offline instead of degrading to keyword-only recall. Download straight
+          # to the repo-relative path ELI.spec bundles from — NOT via model_download,
+          # whose models_dir() resolves to a runtime data dir that differs per OS.
+          set -euo pipefail
+          dest="models/embeddings/nomic-embed-text-v1.5.Q4_K_M.gguf"
+          url="https://huggingface.co/nomic-ai/nomic-embed-text-v1.5-GGUF/resolve/main/nomic-embed-text-v1.5.Q4_K_M.gguf"
+          mkdir -p models/embeddings
+          curl -fL --retry 3 --retry-delay 5 -o "$dest" "$url" \
+            || { echo "::error::embedder download failed from $url"; exit 1; }
+          bytes=$(wc -c < "$dest")
+          [ "$bytes" -gt 52428800 ] \
+            || { echo "::error::embedder is only $bytes bytes — download did not return the model"; exit 1; }
+          echo "embedder: $(( bytes / 1048576 )) MiB at $dest"
+
       - name: PyInstaller build (ELI.spec)
         run: pyinstaller --noconfirm --clean ELI.spec
 
@@ -351,6 +377,24 @@ jobs:
           count=$(ls tts_piper/piper/*.onnx 2>/dev/null | wc -l)
           echo "voices downloaded: $count"
           [ "$count" -ge 1 ] || { echo "::error::no .onnx voices present after download"; exit 1; }
+
+      - name: Bundle text embedder (nomic-embed, required for memory/RAG)
+        shell: bash
+        run: |
+          # Ship the ~84 MB embedder so the packaged app has semantic memory
+          # offline instead of degrading to keyword-only recall. Download straight
+          # to the repo-relative path ELI.spec bundles from — NOT via model_download,
+          # whose models_dir() resolves to a runtime data dir that differs per OS.
+          set -euo pipefail
+          dest="models/embeddings/nomic-embed-text-v1.5.Q4_K_M.gguf"
+          url="https://huggingface.co/nomic-ai/nomic-embed-text-v1.5-GGUF/resolve/main/nomic-embed-text-v1.5.Q4_K_M.gguf"
+          mkdir -p models/embeddings
+          curl -fL --retry 3 --retry-delay 5 -o "$dest" "$url" \
+            || { echo "::error::embedder download failed from $url"; exit 1; }
+          bytes=$(wc -c < "$dest")
+          [ "$bytes" -gt 52428800 ] \
+            || { echo "::error::embedder is only $bytes bytes — download did not return the model"; exit 1; }
+          echo "embedder: $(( bytes / 1048576 )) MiB at $dest"
 
       - name: PyInstaller build (ELI.spec)
         run: pyinstaller --noconfirm --clean ELI.spec
