@@ -108,7 +108,25 @@ def test_executor_disconnect_is_not_on(monkeypatch):
 
 def test_executor_use_for_audio_message(monkeypatch):
     from eli.execution.executor_enhanced import execute
+
+    # use_for_audio tries the PulseAudio sink route first and only falls back to
+    # the Bluetooth driver. Without stubbing that first hop the test reaches the
+    # host's real sinks and reports whatever speaker the developer has plugged in.
+    import eli.runtime.local_connectivity as lc
+    monkeypatch.setattr(lc, "route_audio_by_name",
+                        lambda n: {"ok": False, "error": "no sink"})
     monkeypatch.setattr(ds, "bluetooth_control_by_name",
                         lambda n, c, scan_timeout=3.0: {"ok": True, "command": c, "device_name": "Kitchen JBL"})
+    r = execute("SMART_HOME", {"device": "kitchen speaker", "command": "use_for_audio", "bt": True})
+    assert r["ok"] and "playing through Kitchen JBL" in r["content"]
+
+
+def test_executor_use_for_audio_prefers_named_sink(monkeypatch):
+    """The sink route wins when it resolves, and reports the sink it actually chose."""
+    from eli.execution.executor_enhanced import execute
+
+    import eli.runtime.local_connectivity as lc
+    monkeypatch.setattr(lc, "route_audio_by_name",
+                        lambda n: {"ok": True, "display_name": "Kitchen JBL", "alias": "Kitchen JBL"})
     r = execute("SMART_HOME", {"device": "kitchen speaker", "command": "use_for_audio", "bt": True})
     assert r["ok"] and "playing through Kitchen JBL" in r["content"]
