@@ -11,6 +11,12 @@ separate and more honest: what I've genuinely **run**.
 
 - **Run-verified, end to end:** **Linux (x86_64) + NVIDIA.** Install, first-run, the full test
   suite (7,300+ passing), voice, vision, the server — all of it. This is the tested path.
+- **AppImage run-verified across the mainstream distros (2026-07-18, v2.1.18):** the shipped
+  `.AppImage` was extracted and driven through a **real chat turn** (full router → agent bus →
+  memory → persona → streaming pipeline, bundled embedder loaded) in fresh containers of
+  **Arch, Ubuntu, Debian, Fedora, and openSUSE Tumbleweed** — all pass, all on the AppImage's own
+  bundled Python 3.11 (so Arch's system Python 3.14 is irrelevant), no generator-repr leak. The
+  AppImage is self-contained; it does not use the host's Python or package manager.
 - **Code-verified, not yet run on real hardware:** **AMD (ROCm), Windows, macOS, Android.** The
   installers, per-OS requirements, paths, GPU detection (NVIDIA / AMD / Apple), and the abstraction
   layer below are all present and read line-by-line — but "correct in the code" isn't the same as
@@ -18,6 +24,13 @@ separate and more honest: what I've genuinely **run**.
   result (working or broken) — that's the fastest way to close the gap for everyone.
 
 A few edges worth knowing going in:
+- **musl distros (Alpine) need a glibc shim.** The Linux `.AppImage` is glibc-linked (built on
+  Ubuntu), like essentially every AppImage. On a musl-libc distro such as **Alpine** the bundled
+  binary won't start — you get a misleading `no such file or directory` on the launcher (that's the
+  glibc dynamic linker being absent, not a missing file). Install the `gcompat` glibc-compat layer,
+  or run ELI from source in a `python:3.11` (glibc) environment instead. Every mainstream desktop
+  distro (Arch, Ubuntu/Debian, Fedora, openSUSE, Mint, Pop!_OS, …) is glibc and runs the AppImage
+  directly — see the run-verified list above.
 - **AMD voice is CPU-only** — the speech-to-text engine (CTranslate2) has no ROCm support, so on an
   AMD GPU it stays on the CPU (works, just not accelerated). The main model + vision use the AMD GPU
   via hipBLAS.
