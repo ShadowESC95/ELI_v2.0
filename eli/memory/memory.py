@@ -13,6 +13,7 @@ def _path_value(obj, key, default=None):
 import json
 import os
 import sqlite3
+import stat
 import sys as _sys
 import threading
 import time
@@ -1260,13 +1261,104 @@ def _examples_json(v):
     except Exception:
         return json.dumps([str(v)], ensure_ascii=False)
 
+def _is_readonly_error(exc: Exception) -> bool:
+    """True for the SQLITE_READONLY family ('attempt to write a readonly database')."""
+    return isinstance(exc, sqlite3.OperationalError) and "readonly" in str(exc).lower()
+
+
+def _repair_readonly_db(p: Path) -> str | None:
+    """Try to make *p* writable again. Returns a description of what was fixed.
+
+    A store can become unwritable without the user doing anything wrong:
+
+      * the install (or an earlier run) happened under ``sudo``, leaving
+        root-owned ``-wal`` / ``-shm`` sidecars that a later normal-user launch
+        cannot write — SQLite then reports SQLITE_READONLY on the FIRST write
+        (``PRAGMA journal_mode=WAL``) even though the directory and the database
+        file itself are perfectly writable;
+      * an archive or copy preserved a read-only mode bit on the database file.
+
+    Both are recoverable in place. Sidecars are only removed when they are
+    unwritable AND the main database is intact — a WAL we can still write is
+    never touched, so committed-but-uncheckpointed data is never discarded.
+    """
+    fixed: list[str] = []
+    try:
+        if p.is_file() and not os.access(p, os.W_OK) and _owned_by_us(p):
+            p.chmod(p.stat().st_mode | stat.S_IWUSR)
+            fixed.append("cleared the read-only bit on the database file")
+    except Exception:
+        log.debug("[MEMORY] could not clear read-only bit on %s", p, exc_info=True)
+    for suffix in ("-wal", "-shm"):
+        side = Path(str(p) + suffix)
+        try:
+            if side.exists() and not os.access(side, os.W_OK):
+                side.unlink()
+                fixed.append(f"removed an unwritable {suffix} sidecar (left by a root/sudo run)")
+        except Exception:
+            log.debug("[MEMORY] could not remove unwritable sidecar %s", side, exc_info=True)
+    return "; ".join(fixed) or None
+
+
+# Public name: other stores (profile, knowledge-graph, news, evidence ledger)
+# open user.sqlite3 with their own connections and would each hit the same
+# unwritable-sidecar condition. init_data repairs every store up front so
+# recovery does not depend on which one happens to open the file first.
+repair_unwritable_db = _repair_readonly_db
+
+
+def _owned_by_us(p: Path) -> bool:
+    try:
+        return p.stat().st_uid == os.getuid()
+    except Exception:
+        return False  # Windows has no uid; chmod there is a no-op anyway
+
+
+def _open_memory_db(p: Path):
+    """Open *p* with WAL where the filesystem supports it, DELETE where it doesn't.
+
+    Two distinct portability hazards are handled here:
+
+    * **WAL-hostile filesystem** (NTFS/exFAT/FAT, network mounts) — ``PRAGMA
+      journal_mode=WAL`` reports SQLITE_READONLY even though the file is writable.
+      ``apply_pragmas`` falls back to a rollback journal, which works everywhere.
+      This is the common cause of "attempt to write a readonly database" for a
+      portable build extracted onto a non-ext4 partition.
+    * **Recoverable read-only file/sidecars** (a root/sudo run left them
+      unwritable) — ``_repair_readonly_db`` clears the mode bit / removes the
+      stale sidecars before the open, then a single retry.
+
+    ``_repair_readonly_db`` is a couple of ``stat`` calls when everything is
+    healthy, which is the overwhelmingly common case.
+    """
+    from eli.core.sqlite_util import apply_pragmas
+    _repair_readonly_db(p)
+    last: Exception | None = None
+    for attempt in (0, 1):
+        conn = sqlite3.connect(str(p))
+        try:
+            apply_pragmas(conn, db_path=str(p), synchronous="NORMAL", cache_size=-64000)
+            return conn
+        except Exception as exc:
+            try:
+                conn.close()
+            except Exception:
+                log.debug("[MEMORY] failed to close connection during recovery", exc_info=True)
+            if attempt or not _is_readonly_error(exc):
+                raise
+            last = exc
+            # Best-effort repair, then retry unconditionally: opening the
+            # database can itself reset stale sidecars, so a retry is worth a
+            # shot even when there was nothing explicit to fix.
+            what = _repair_readonly_db(p) or "no explicit repair needed"
+            log.warning("[MEMORY] %s was not writable — %s; retrying", p, what)
+    raise last  # unreachable; keeps the contract explicit
+
+
 def _memory_connection(self):
     p = _path_from_args(db_path=getattr(self, "db_path", None), db_type=getattr(self, "db_type", None))
     self.db_path = p
-    conn = sqlite3.connect(str(p))
-    conn.execute("PRAGMA journal_mode=WAL;")
-    conn.execute("PRAGMA synchronous=NORMAL;")
-    conn.execute("PRAGMA cache_size=-64000;")  # 64 MB page cache
+    conn = _open_memory_db(p)  # sets journal mode (WAL or DELETE) + synchronous + cache
     _ensure_full_memory_schema(conn)
     conn.commit()
     return conn
@@ -1496,10 +1588,11 @@ class Memory(metaclass=_MemoryMeta):
         return conn
 
     def _ensure_tables(self):
-        conn = sqlite3.connect(str(_memory_db_path_for_instance(self)))
+        from eli.core.sqlite_util import apply_pragmas
+        _p = _memory_db_path_for_instance(self)
+        conn = sqlite3.connect(str(_p))
         try:
-            conn.execute("PRAGMA journal_mode=WAL;")
-            conn.execute("PRAGMA synchronous=NORMAL;")
+            apply_pragmas(conn, db_path=str(_p), synchronous="NORMAL")
             _ensure_memory_schema(conn)
             conn.commit()
         finally:
@@ -1793,11 +1886,11 @@ class Memory(metaclass=_MemoryMeta):
             pass
 
         # Write to secondaries
+        from eli.core.sqlite_util import apply_pragmas
         for sec_path in self.secondary_paths:
             try:
                 sec_conn = sqlite3.connect(sec_path)
-                sec_conn.execute("PRAGMA journal_mode=WAL;")
-                sec_conn.execute("PRAGMA synchronous=NORMAL;")
+                apply_pragmas(sec_conn, db_path=str(sec_path), synchronous="NORMAL")
                 _ensure_memory_schema(sec_conn)
                 self._store_to_db(sec_conn, t, tags, source, kind, confidence, ts,
                                    importance=importance)
@@ -2553,11 +2646,11 @@ class Memory(metaclass=_MemoryMeta):
             return rid
 
         # Secondaries
+        from eli.core.sqlite_util import apply_pragmas
         for sec_path in self.secondary_paths:
             try:
                 sec_conn = sqlite3.connect(sec_path)
-                sec_conn.execute("PRAGMA journal_mode=WAL;")
-                sec_conn.execute("PRAGMA synchronous=NORMAL;")
+                apply_pragmas(sec_conn, db_path=str(sec_path), synchronous="NORMAL")
                 _ensure_memory_schema(sec_conn)
                 _write_to_conn(sec_conn)
                 sec_conn.commit()

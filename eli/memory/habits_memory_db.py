@@ -58,8 +58,8 @@ OLLAMA_HOST = os.environ.get("OLLAMA_HOST", "http://localhost:11434")
 
 def _db() -> sqlite3.Connection:
     con = sqlite3.connect(str(DB_PATH), timeout=30.0)
-    con.execute("PRAGMA journal_mode=WAL;")
-    con.execute("PRAGMA synchronous=NORMAL;")
+    from eli.core.sqlite_util import apply_pragmas
+    apply_pragmas(con, db_path=str(DB_PATH), synchronous="NORMAL")
     con.execute("""
     CREATE TABLE IF NOT EXISTS events(
         id INTEGER PRIMARY KEY AUTOINCREMENT,

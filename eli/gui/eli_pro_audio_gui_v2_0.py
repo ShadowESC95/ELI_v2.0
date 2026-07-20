@@ -355,9 +355,9 @@ else:
         def _init_db(self):
             import sqlite3
             conn = sqlite3.connect(str(self.db_path))
+            from eli.core.sqlite_util import apply_pragmas
+            apply_pragmas(conn, db_path=str(self.db_path), synchronous="NORMAL")
             conn.executescript("""
-                PRAGMA journal_mode=WAL;
-                PRAGMA synchronous=NORMAL;
                 CREATE TABLE IF NOT EXISTS memories (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
                     timestamp TEXT NOT NULL,

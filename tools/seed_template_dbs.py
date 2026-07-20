@@ -17,6 +17,28 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 
+def _normalise_journal_mode(p: Path) -> None:
+    """Check the WAL back into the main file and ship the template in DELETE mode.
+
+    A template is a seed that gets copied between machines, filesystems and (via
+    sudo installs) uid boundaries. WAL mode drags ``-wal``/``-shm`` sidecars along
+    for the ride, and a sidecar the running user cannot write makes SQLite report
+    "attempt to write a readonly database" on the first write — with the database
+    file and its directory both perfectly writable. DELETE mode carries no
+    sidecars; ELI switches the store to WAL itself on first open.
+    """
+    import sqlite3
+    conn = sqlite3.connect(str(p))
+    try:
+        conn.execute("PRAGMA wal_checkpoint(TRUNCATE);")
+        conn.execute("PRAGMA journal_mode=DELETE;")
+        conn.commit()
+    finally:
+        conn.close()
+    for suffix in ("-wal", "-shm"):
+        Path(str(p) + suffix).unlink(missing_ok=True)
+
+
 def main() -> int:
     staging = Path(tempfile.mkdtemp(prefix="eli_db_seed_"))
     db_dir = staging / "db"
@@ -38,8 +60,10 @@ def main() -> int:
     copied = 0
     for p in sorted(db_dir.glob("*.sqlite3")):
         mr.clear_db(p)
+        _normalise_journal_mode(p)
         dest = out / p.name
         shutil.copy2(p, dest)
+        dest.chmod(0o644)  # copy2 preserves mode; a seed must never ship read-only
         copied += 1
         print(f"  [OK] {dest.name} ({dest.stat().st_size} bytes)")
 

@@ -357,6 +357,26 @@ def main():
         import logging
         logging.getLogger("eli.boot").debug("GUI boot bootstrap skipped", exc_info=True)
 
+    # A database folder this user cannot write to is fatal, but it is also
+    # entirely self-inflicted-by-sudo and trivially fixable — so say so plainly.
+    # Without this the first symptom is a raw sqlite3 traceback thrown during a
+    # GUI module import, which reads like a crash rather than a permissions
+    # problem the user can solve in one command.
+    try:
+        from eli.core.init_data import store_blocker
+        _blocker = store_blocker()
+    except Exception:
+        _blocker = None
+    if _blocker:
+        print(f"\n{_blocker}\n", file=sys.stderr)
+        try:  # windowed launches (AppImage, desktop icon) have no visible stderr
+            from PySide6.QtWidgets import QApplication, QMessageBox
+            _app = QApplication.instance() or QApplication(sys.argv)
+            QMessageBox.critical(None, "ELI — cannot write to its data folder", _blocker)
+        except Exception:
+            log.debug("could not show data-folder blocker dialog", exc_info=True)
+        return 1
+
     # ── Load config first — determines whether setup UI is needed ────────────
     cfg         = _load_config()
     saved_model = cfg.get("model_path") or cfg.get("bundled_model_path") or ""

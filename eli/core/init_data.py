@@ -48,6 +48,18 @@ def init_all_data(verbose: bool = False) -> List[Tuple[str, bool, str]]:
         return "data/config/cache/models dirs ready"
     _step("paths", _paths)
 
+    # 0b) Repair stores left unwritable by an earlier root/sudo run BEFORE any
+    #     store opens one. Several stores share user.sqlite3, so leaving this to
+    #     whichever connects first would make recovery order-dependent.
+    def _repair():
+        from pathlib import Path
+        from eli.core.paths import db_dir
+        from eli.memory.memory import repair_unwritable_db
+        fixed = [f"{p.name}: {what}" for p in sorted(Path(db_dir()).glob("*.sqlite3"))
+                 if (what := repair_unwritable_db(p))]
+        return "; ".join(fixed) if fixed else "all stores writable"
+    _step("writability", _repair)
+
     # 1) user.sqlite3 — core memory schema (memories, conversations, habits, ...).
     def _memory():
         from eli.memory import get_memory
@@ -138,6 +150,50 @@ def init_all_data(verbose: bool = False) -> List[Tuple[str, bool, str]]:
             mark = "OK " if ok else "ERR"
             print(f"  [{mark}] {name:24s} {detail}")
     return results
+
+
+def store_blocker() -> str | None:
+    """Return an actionable message when the database directory is unusable.
+
+    ``eli.memory`` repairs the recoverable cases in place (a read-only mode bit,
+    root-owned ``-wal``/``-shm`` sidecars from a ``sudo`` install). What it cannot
+    repair is a database DIRECTORY the current user has no write access to —
+    typically the whole install tree left owned by root. That used to surface as a
+    bare ``sqlite3.OperationalError`` traceback from deep inside a GUI module
+    import, which tells the user nothing about the cause or the fix.
+
+    Returns None when everything is writable, which is the normal case.
+    """
+    import logging
+    import os
+    from pathlib import Path
+    _log = logging.getLogger("eli.init_data")
+    try:
+        from eli.core.paths import db_dir
+        d = Path(db_dir())
+    except Exception:
+        return None
+    try:
+        d.mkdir(parents=True, exist_ok=True)
+        probe = d / ".write_probe"
+        probe.write_text("ok", encoding="utf-8")
+        probe.unlink()
+        return None
+    except Exception:
+        _log.debug("db dir %s failed the write probe", d, exc_info=True)
+    owner = ""
+    try:
+        import pwd
+        owner = f" (currently owned by '{pwd.getpwuid(d.stat().st_uid).pw_name}')"
+    except Exception:
+        _log.debug("could not resolve owner of %s", d, exc_info=True)
+    return (
+        f"ELI cannot write to its database folder:\n  {d}{owner}\n\n"
+        f"This usually means ELI was installed or launched once with 'sudo', which\n"
+        f"left the files owned by root. Fix it by taking ownership back:\n\n"
+        f"  sudo chown -R \"$USER\" \"{d.parent}\"\n\n"
+        f"Then start ELI normally (without sudo)."
+    )
 
 
 _BOOTSTRAPPED = False
