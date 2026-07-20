@@ -71,9 +71,6 @@ _LOCK = threading.Lock()
 # ── Schema ──────────────────────────────────────────────────────────────────
 
 _DDL = """
-PRAGMA journal_mode=WAL;
-PRAGMA synchronous=NORMAL;
-
 CREATE TABLE IF NOT EXISTS kg_entities (
     id          INTEGER PRIMARY KEY AUTOINCREMENT,
     name        TEXT    NOT NULL,
@@ -133,6 +130,11 @@ def _connect(path: Path) -> sqlite3.Connection:
     path.parent.mkdir(parents=True, exist_ok=True)
     conn = sqlite3.connect(str(path), check_same_thread=False)
     conn.row_factory = sqlite3.Row
+    # WAL where the filesystem allows it, DELETE where it doesn't (NTFS/exFAT/
+    # network mounts) — the pragma used to live in _DDL, which made the whole
+    # schema build fail readonly on a WAL-hostile portable install.
+    from eli.core.sqlite_util import apply_pragmas
+    apply_pragmas(conn, db_path=str(path), synchronous="NORMAL")
     return conn
 
 

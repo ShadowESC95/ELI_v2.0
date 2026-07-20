@@ -38,13 +38,57 @@ CUDA_INDEXES = ("cu124", "cu123", "cu122", "cu121")
 VULKAN_RELEASE_API = "https://api.github.com/repos/ShadowESC95/ELI_v2.0/releases/tags/gpu-packs"
 
 
+def _log_path() -> "Path | None":
+    """Install log location — inside the user root, next to the pack itself."""
+    import os
+    root = os.environ.get("ELI_PROJECT_ROOT")
+    if not root:
+        return None
+    try:
+        p = Path(root) / "runtime"
+        p.mkdir(parents=True, exist_ok=True)
+        return p / "gpu-pack.log"
+    except Exception:
+        return None
+
+
+def _record(line: str) -> None:
+    """Append to the install log. Frozen GUI builds have no visible console, so
+    without this a failure leaves the user (and a bug report) with nothing but
+    'could not be installed or verified' and no way to find out why."""
+    p = _log_path()
+    if p is None:
+        return
+    try:
+        import time
+        with open(p, "a", encoding="utf-8") as f:
+            f.write(f"{time.strftime('%Y-%m-%d %H:%M:%S')} {line}\n")
+    except Exception:
+        pass
+
+
 def _say(msg: str) -> None:
     print(f"[gpu-pack] {msg}", flush=True)
+    _record(msg)
 
 
 def _fail(msg: str) -> int:
     print(f"[gpu-pack] ERROR: {msg}", file=sys.stderr, flush=True)
+    _record(f"ERROR: {msg}")
     return 1
+
+
+def last_failure() -> str:
+    """The most recent recorded ERROR line, for the GUI to show the user."""
+    p = _log_path()
+    if p is None or not p.is_file():
+        return ""
+    try:
+        errors = [l for l in p.read_text(encoding="utf-8", errors="replace").splitlines()
+                  if " ERROR: " in l]
+        return errors[-1].split(" ERROR: ", 1)[1].strip() if errors else ""
+    except Exception:
+        return ""
 
 
 def _eli_root() -> Path:
@@ -148,6 +192,19 @@ def _pick_vulkan_wheel() -> tuple[str, str] | None:
 
 
 def install(argv: list[str] | None = None) -> int:
+    """Install the GPU pack, recording any unexpected crash to the install log.
+
+    Callers run this on a worker thread and only see the return code, so an
+    escaping exception would otherwise vanish entirely.
+    """
+    try:
+        return _install(argv)
+    except Exception:
+        import traceback
+        return _fail(f"unexpected error:\n{traceback.format_exc()}")
+
+
+def _install(argv: list[str] | None = None) -> int:
     argv = argv or []
     force = "--force" in argv
     want_vulkan = "--vulkan" in argv

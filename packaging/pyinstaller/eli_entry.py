@@ -402,7 +402,9 @@ def _first_run_gpu_offer() -> None:
             return
         vendor = f"{hp.gpu_name} — {max(hp.total_vram_mb, hp.free_vram_mb) / 1024:.0f} GB VRAM"
         backend = "NVIDIA CUDA" if nvidia else "AMD Vulkan"
-        size = "roughly 400-500 MB" if nvidia else "roughly 90 MB"
+        # Measured, not estimated: the CUDA wheel is ~1.3 GB and the NVIDIA
+        # runtime redistributables (cudart + cublas) add ~350 MB on top.
+        size = "roughly 1.6 GB" if nvidia else "roughly 90 MB"
         ask = f"""
 import sys
 from PySide6.QtWidgets import QApplication, QMessageBox
@@ -452,15 +454,34 @@ sys.exit(rc["v"])
             # no marker on failure — the offer returns next launch, and the
             # CLI path (--install-gpu-pack) is always available. The pack
             # installer already removed anything unverified.
-            notice = """
-import sys
-from PySide6.QtWidgets import QApplication, QMessageBox
-app = QApplication(sys.argv)
-QMessageBox.warning(None, "ELI - GPU acceleration",
-    "The GPU pack could not be installed or verified on this machine, so ELI "
-    "will run on CPU (fully functional). It will offer GPU again at next "
-    "launch; you can also retry any time with:  ELI --install-gpu-pack")
-"""
+            # Show WHY: a windowed build has no console, so the reason the
+            # installer printed would otherwise be lost and every report of this
+            # reduces to "it failed" with nothing to act on.
+            try:
+                sys.path.insert(0, str(Path(__file__).resolve().parent))
+                import eli_gpu_pack as _gp
+                reason = _gp.last_failure()
+                log_path = _gp._log_path()
+            except Exception:
+                reason, log_path = "", None
+            body = (
+                "The GPU pack could not be installed or verified on this machine, "
+                "so ELI will run on CPU (fully functional). It will offer GPU again "
+                "at next launch; you can also retry any time with:  "
+                "ELI --install-gpu-pack"
+            )
+            if reason:
+                body += f"\n\nReason: {reason}"
+            if log_path:
+                body += f"\n\nFull log: {log_path}"
+            # !r keeps a multi-line reason (tracebacks, loader errors) from
+            # breaking the generated source.
+            notice = (
+                "import sys\n"
+                "from PySide6.QtWidgets import QApplication, QMessageBox\n"
+                "app = QApplication(sys.argv)\n"
+                f"QMessageBox.warning(None, 'ELI - GPU acceleration', {body!r})\n"
+            )
             subprocess.run([sys.executable, "-c", notice])
     except Exception:
         pass  # never block the GUI boot on the chooser
