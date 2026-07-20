@@ -218,6 +218,33 @@ if sys.platform == "win32":
             binaries.append((str(_p), "."))
         else:
             print(f"[ELI.spec] WARNING: {_dll} not found in System32 — relying on vc_redist at install time")
+
+# Linux: Qt 6.5+ loads its xcb platform plugin (libqxcb.so), which dlopens
+# libxcb-cursor.so.0 at RUNTIME. Because it is not a link-time dependency of the
+# Python executable, PyInstaller only bundles it when it is present on the BUILD
+# host — a lean end-user distro (minimal Arch, Debian netinst, a bare desktop)
+# that lacks it then dies at GUI startup with:
+#   "xcb-cursor0 or libxcb-cursor0 is needed to load the Qt xcb platform plugin".
+# CI installs libxcb-cursor0 so the PySide6 hook resolves it; this block is
+# belt-and-braces that force-includes it regardless of hook behaviour.
+if sys.platform.startswith("linux"):
+    _xcb_cursor_found = False
+    for _d in ("/usr/lib/x86_64-linux-gnu", "/usr/lib64", "/usr/lib",
+               "/lib/x86_64-linux-gnu", "/lib"):
+        _dp = Path(_d)
+        if not _dp.is_dir():
+            continue
+        _matches = sorted(_dp.glob("libxcb-cursor.so.*"))
+        if _matches:
+            binaries.append((str(_matches[0]), "."))
+            print(f"[ELI.spec] bundling Qt xcb dependency: {_matches[0]}")
+            _xcb_cursor_found = True
+            break
+    if not _xcb_cursor_found:
+        print("[ELI.spec] WARNING: libxcb-cursor.so not found on build host — "
+              "install libxcb-cursor0 (Debian/Ubuntu) / xcb-util-cursor (Arch) so "
+              "Qt's xcb plugin works on lean end-user distros")
+
 for pkg in ("llama_cpp", "faster_whisper", "openwakeword", "piper"):
     datas += _optional_collect(pkg, data=True)
 
