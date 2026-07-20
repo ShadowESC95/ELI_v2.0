@@ -179,7 +179,7 @@ paths, or the release is rejected.
 |---|---|---|
 | **Windows** | `ELI-Setup-<v>.exe` | Per-user install, no admin needed. Offers **NVIDIA GPU acceleration** at install and a **fresh-install** option when it finds existing data. Shortcuts: ELI, ELI Server, Uninstall. Portable alternative: `ELI_v2-<v>-windows-x64.zip` → run `ELI\ELI.exe`. |
 | **macOS** (Apple Silicon) | `ELI_v2-<v>-macos-arm64.dmg` | Drag to Applications. **Metal GPU acceleration built in.** Unsigned: first launch is right-click → Open. |
-| **Linux** | `ELI_v2-<v>-x86_64.AppImage` | `chmod +x` and run. Offers **applications-menu integration** (ELI, ELI Server, and a working Uninstall). Verified end-to-end on Arch, Ubuntu, Debian, Fedora, and openSUSE. Runs on any glibc distro; **Alpine/musl** needs the `gcompat` shim (see `docs/CROSS_PLATFORM.md`). |
+| **Linux** | `ELI_v2-<v>-x86_64.AppImage` | `chmod +x` and run. Offers **applications-menu integration** (ELI, ELI Server, and a working Uninstall). Verified on Arch, Ubuntu, Debian, Fedora, and openSUSE. **Self-contained GUI** — bundles its own Qt/xcb libs (incl. `libxcb-cursor`), so it launches on a bare desktop with no extra packages. Runs on any glibc distro; **Alpine/musl** needs the `gcompat` shim (see `docs/CROSS_PLATFORM.md`). |
 
 **First launch walks you through everything:**
 1. **GPU** — ELI detects your hardware and offers acceleration: **NVIDIA → CUDA**,
