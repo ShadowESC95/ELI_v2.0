@@ -24,7 +24,8 @@ DB_PATH = JOBS_DIR / "jobs.sqlite"
 def _db() -> sqlite3.Connection:
     JOBS_DIR.mkdir(parents=True, exist_ok=True)
     conn = sqlite3.connect(DB_PATH)
-    conn.execute("PRAGMA journal_mode=WAL;")
+    from eli.core.sqlite_util import apply_pragmas
+    apply_pragmas(conn, db_path=str(DB_PATH), synchronous="")
     conn.execute("""
     CREATE TABLE IF NOT EXISTS jobs (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
