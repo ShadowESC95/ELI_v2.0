@@ -30,7 +30,21 @@ from typing import Any, Callable, Dict, Generator, List, Optional
 # ──────────────────────────────────────────────────────────────
 
 def _host() -> str:
-    return os.environ.get("OLLAMA_HOST", "http://localhost:11434").rstrip("/")
+    """Resolve the Ollama base URL. Precedence: OLLAMA_HOST env → the user's
+    configured ``ollama_host`` setting (so a non-default host/port set in the GUI
+    is honoured everywhere, including the toolbar selector) → the localhost default."""
+    env = os.environ.get("OLLAMA_HOST")
+    if env:
+        return env.rstrip("/")
+    try:
+        from eli.core import config
+        h = config.get("ollama_host")
+        if h:
+            return str(h).strip().rstrip("/")
+    except Exception:
+        import logging
+        logging.getLogger("eli.ollama").debug("ollama_host config read failed", exc_info=True)
+    return "http://localhost:11434"
 
 
 def _get(path: str, timeout: int = 10) -> Dict[str, Any]:
