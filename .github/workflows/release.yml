@@ -177,8 +177,12 @@ jobs:
         shell: bash
         run: |
           mkdir -p build
-          curl -fsSL -o build/vc_redist.x64.exe https://aka.ms/vs/17/release/vc_redist.x64.exe
-          test -s build/vc_redist.x64.exe || { echo "::error::vc_redist download failed"; exit 1; }
+          # aka.ms is a redirect to a Microsoft CDN that occasionally 5xx/times out —
+          # retry so a transient hiccup can't fail an otherwise-green release (it did
+          # once, skipping publish while Linux/macOS built fine).
+          curl -fsSL --retry 5 --retry-delay 5 --retry-all-errors --connect-timeout 30 \
+            -o build/vc_redist.x64.exe https://aka.ms/vs/17/release/vc_redist.x64.exe
+          test -s build/vc_redist.x64.exe || { echo "::error::vc_redist download failed after retries"; exit 1; }
 
       - name: Inno Setup installer
         shell: pwsh
