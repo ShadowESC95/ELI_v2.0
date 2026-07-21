@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 capability_updater.py
-Regenerates capability_manifest.json and capability_inventory.generated.json.
+Regenerates capability_manifest.json. (The inventory is written by capability_sync.CapabilitySync, invoked from tools/bootstrap_claims_artifacts.py at build time.)
 
 The canonical discovery implementation lives in eli.runtime.capability_sync.
 This module is kept as the stable GUI/self-upgrade entry point.
