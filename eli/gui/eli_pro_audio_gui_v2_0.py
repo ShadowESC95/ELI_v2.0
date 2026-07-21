@@ -3734,6 +3734,37 @@ class EliMainWindow(QMainWindow):
         theme_action.triggered.connect(self.toggle_theme)
         toolbar.addAction(theme_action)
 
+        # Live Ollama model switcher — pick a model your local Ollama serves and ELI
+        # switches to it immediately. No GPU/hardware tuning runs (that's GGUF-only;
+        # Ollama manages its own VRAM), and it queries your configured ollama_host so
+        # a non-default host/port works. Degrades cleanly if the widget can't load.
+        try:
+            from eli.gui.widgets.ollama_model_selector import OllamaModelSelector
+            self.ollama_selector = OllamaModelSelector(self)
+            self.ollama_selector.model_changed.connect(self._on_toolbar_ollama_model_changed)
+            toolbar.addWidget(self.ollama_selector)
+        except Exception:
+            log.debug("Ollama toolbar selector unavailable", exc_info=True)
+
+    def _on_toolbar_ollama_model_changed(self, model: str):
+        """Toolbar Ollama picker → switch the provider to Ollama and load the chosen
+        model. Deliberately runs NO GPU/hardware tuning (that is GGUF-only; Ollama
+        sizes its own VRAM) — load_model()'s dispatcher routes provider='ollama'
+        straight to the Ollama backend. Only fires on a real user selection (the
+        widget blocks signals while it auto-refreshes its list)."""
+        model = (model or "").strip()
+        if not model:
+            return
+        try:
+            idx = self.provider_combo.findData("ollama")
+            if idx >= 0:
+                self.provider_combo.setCurrentIndex(idx)   # enables the Ollama controls
+            self.ollama_model_combo.setEditText(model)
+            self.save_settings(silent=True)
+            self.load_model()
+        except Exception:
+            log.debug("toolbar Ollama switch failed", exc_info=True)
+
     def open_settings_tab(self):
         try:
             idx = self.tabs.indexOf(self._settings_root)
