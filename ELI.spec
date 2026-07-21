@@ -219,31 +219,46 @@ if sys.platform == "win32":
         else:
             print(f"[ELI.spec] WARNING: {_dll} not found in System32 — relying on vc_redist at install time")
 
-# Linux: Qt 6.5+ loads its xcb platform plugin (libqxcb.so), which dlopens
-# libxcb-cursor.so.0 at RUNTIME. Because it is not a link-time dependency of the
-# Python executable, PyInstaller only bundles it when it is present on the BUILD
-# host — a lean end-user distro (minimal Arch, Debian netinst, a bare desktop)
-# that lacks it then dies at GUI startup with:
-#   "xcb-cursor0 or libxcb-cursor0 is needed to load the Qt xcb platform plugin".
-# CI installs libxcb-cursor0 so the PySide6 hook resolves it; this block is
-# belt-and-braces that force-includes it regardless of hook behaviour.
+# Linux: Qt 6.5+ loads its xcb platform plugin (libqxcb.so), which links a whole
+# family of xcb-util helper libraries at RUNTIME. None are link-time deps of the
+# Python executable, and PyInstaller's PySide6 hook does NOT resolve the plugin's
+# own NEEDED libs — so on a lean end-user distro (minimal Arch, Debian netinst,
+# a bare desktop) that lacks them the GUI dies at startup. Qt's error message is
+# misleading — it always says "libxcb-cursor0 is needed" no matter which member
+# is actually missing (verified on Arch: the real culprit was libxcb-icccm.so.4).
+#
+# Force-bundle the full xcb-util family, placed in the Qt lib dir the plugin
+# actually searches — PySide6/Qt/lib (its RUNPATH resolves them as
+# plugins/platforms/../../lib/<lib>). v2.1.20 shipped only libxcb-cursor and put
+# it in the bundle ROOT, which the plugin never searches, so it still failed.
+# The base libxcb / libX11-xcb libs are intentionally NOT bundled — they are
+# standard on every X system and mixing them with the host's risks conflicts.
 if sys.platform.startswith("linux"):
-    _xcb_cursor_found = False
-    for _d in ("/usr/lib/x86_64-linux-gnu", "/usr/lib64", "/usr/lib",
-               "/lib/x86_64-linux-gnu", "/lib"):
-        _dp = Path(_d)
-        if not _dp.is_dir():
-            continue
-        _matches = sorted(_dp.glob("libxcb-cursor.so.*"))
-        if _matches:
-            binaries.append((str(_matches[0]), "."))
-            print(f"[ELI.spec] bundling Qt xcb dependency: {_matches[0]}")
-            _xcb_cursor_found = True
-            break
-    if not _xcb_cursor_found:
-        print("[ELI.spec] WARNING: libxcb-cursor.so not found on build host — "
-              "install libxcb-cursor0 (Debian/Ubuntu) / xcb-util-cursor (Arch) so "
-              "Qt's xcb plugin works on lean end-user distros")
+    _qt_lib_dest = os.path.join("PySide6", "Qt", "lib")
+    _xcb_util_libs = (
+        "libxcb-cursor.so.*", "libxcb-icccm.so.*", "libxcb-image.so.*",
+        "libxcb-keysyms.so.*", "libxcb-render-util.so.*", "libxcb-util.so.*",
+    )
+    _xcb_dirs = ("/usr/lib/x86_64-linux-gnu", "/usr/lib64", "/usr/lib",
+                 "/lib/x86_64-linux-gnu", "/lib")
+    for _pat in _xcb_util_libs:
+        _hit = None
+        for _d in _xcb_dirs:
+            _dp = Path(_d)
+            if not _dp.is_dir():
+                continue
+            _matches = sorted(_dp.glob(_pat))
+            if _matches:
+                _hit = _matches[0]
+                break
+        if _hit is not None:
+            binaries.append((str(_hit), _qt_lib_dest))
+            print(f"[ELI.spec] bundling Qt xcb dependency: {_hit} -> {_qt_lib_dest}")
+        else:
+            print(f"[ELI.spec] WARNING: {_pat} not found on build host — Qt's xcb "
+                  "plugin needs the full xcb-util family on lean distros (Debian: "
+                  "libxcb-icccm4 libxcb-image0 libxcb-keysyms1 libxcb-render-util0 "
+                  "libxcb-util1 libxcb-cursor0)")
 
 for pkg in ("llama_cpp", "faster_whisper", "openwakeword", "piper"):
     datas += _optional_collect(pkg, data=True)
