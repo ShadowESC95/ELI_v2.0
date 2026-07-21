@@ -37,6 +37,47 @@ MODEL_PROVIDER_LABELS = {
 }
 
 
+def _query_ollama_tags(host: str, timeout: int = 5):
+    """Query an Ollama server's /api/tags. Returns (sorted_names_or_None,
+    error_or_None); never raises. Loopback is allowed even with NetGuard on
+    (see netguard._is_local_host), so localhost:11434 is reachable offline."""
+    import json
+    import urllib.request
+    url = (host or "http://localhost:11434").strip().rstrip("/") + "/api/tags"
+    try:
+        with urllib.request.urlopen(url, timeout=timeout) as resp:
+            data = json.loads(resp.read().decode("utf-8", errors="ignore"))
+        names = sorted(
+            m["name"] for m in data.get("models", [])
+            if isinstance(m, dict) and m.get("name")
+        )
+        return names, None
+    except Exception as exc:
+        return None, exc
+
+
+def _ollama_unreachable_message(host: str, err) -> str:
+    """Accurate 'Ollama unreachable' guidance. Loopback is ALWAYS permitted by
+    NetGuard even offline (netguard._is_local_host), so a localhost Ollama needs
+    no Net toggle — the only advice there is to start `ollama serve`. Only a
+    non-loopback (LAN/remote) host is blocked while the Net toggle is off."""
+    h = (host or "").lower()
+    is_loopback = any(x in h for x in ("localhost", "127.", "::1", "0.0.0.0"))
+    if is_loopback:
+        return (
+            f"Could not reach Ollama at {host}.\n\n"
+            "Start it with:  ollama serve\n"
+            "(localhost works offline — the Net toggle can stay OFF; ELI always "
+            f"allows loopback.)\n\n{err}"
+        )
+    return (
+        f"Could not reach Ollama at {host}.\n\n"
+        "This is a non-loopback address, so ELI's offline-by-default guard blocks it "
+        "while the Net toggle is OFF. Turn the Net toggle ON (or run Ollama on "
+        f"localhost) and retry.\n\n{err}"
+    )
+
+
 # ── HardwareTuningDock ────────────────────────────────────────────────────────
 
 class HardwareTuningDock(QDockWidget):
@@ -341,34 +382,11 @@ class StartupModelSelectionDialog(QDialog):
         self._select_model_path(current_model_path)
         self._sync_provider_controls()
 
-    def _refresh_ollama_models(self):
-        import json
-        import urllib.error
-        import urllib.request
-
+    def _fetch_ollama_names(self, timeout: int = 5):
         host = self.ollama_host_input.text().strip() or "http://localhost:11434"
-        url = host.rstrip("/") + "/api/tags"
-        try:
-            with urllib.request.urlopen(url, timeout=5) as resp:
-                data = json.loads(resp.read().decode("utf-8", errors="ignore"))
-            names = sorted(
-                m["name"] for m in data.get("models", [])
-                if isinstance(m, dict) and m.get("name")
-            )
-        except (urllib.error.URLError, TimeoutError, json.JSONDecodeError, OSError) as exc:
-            QMessageBox.warning(
-                self, "Ollama unreachable",
-                f"Could not list models at {host}.\n\n"
-                f"Start Ollama locally (ollama serve) and ensure NetGuard allows loopback.\n\n{exc}",
-            )
-            return
-        if not names:
-            QMessageBox.information(
-                self, "No Ollama models",
-                f"Ollama is running at {host} but no models are installed yet.\n"
-                "Pull one first, e.g.  ollama pull llama3",
-            )
-            return
+        return _query_ollama_tags(host, timeout)
+
+    def _populate_ollama_combo(self, names):
         current = self.ollama_model_combo.currentText().strip()
         self.ollama_model_combo.clear()
         for name in names:
@@ -379,6 +397,34 @@ class StartupModelSelectionDialog(QDialog):
                 self.ollama_model_combo.setCurrentIndex(idx)
             else:
                 self.ollama_model_combo.setEditText(current)
+
+    def _auto_load_ollama_models(self):
+        """Populate the Ollama model list automatically when the user picks the
+        Ollama provider — the models must appear WITHOUT hunting for a Refresh
+        button (the reported "can't select my Ollama models" gap). Quiet on
+        failure (short timeout, no modal); the explicit Refresh button gives the
+        full 'Ollama unreachable' diagnostic when the user asks for it."""
+        if self.ollama_model_combo.count() > 0:
+            return
+        names, err = self._fetch_ollama_names(timeout=2)
+        if names:
+            self._populate_ollama_combo(names)
+
+    def _refresh_ollama_models(self):
+        host = self.ollama_host_input.text().strip() or "http://localhost:11434"
+        names, err = self._fetch_ollama_names(timeout=5)
+        if err is not None:
+            QMessageBox.warning(self, "Ollama unreachable",
+                                _ollama_unreachable_message(host, err))
+            return
+        if not names:
+            QMessageBox.information(
+                self, "No Ollama models",
+                f"Ollama is running at {host} but no models are installed yet.\n"
+                "Pull one first, e.g.  ollama pull llama3",
+            )
+            return
+        self._populate_ollama_combo(names)
 
     def _browse_gguf_file(self):
         file_path, _ = QFileDialog.getOpenFileName(
@@ -401,6 +447,10 @@ class StartupModelSelectionDialog(QDialog):
         self.ollama_model_combo.setEnabled(is_ollama)
         self.auto_tune_checkbox.setChecked(not is_ollama)
         self.auto_tune_checkbox.setEnabled(False)
+        # Selecting the Ollama provider must surface the installed models straight
+        # away — don't make the user find the Refresh button (the reported gap).
+        if is_ollama:
+            self._auto_load_ollama_models()
 
     def _sync_model_path_from_combo(self):
         if self.selected_provider() == "ollama":
@@ -779,9 +829,16 @@ class FirstBootWizard(QDialog):
         ov.addWidget(QLabel("Ollama host:"))
         self._wiz_ollama_host = QLineEdit("http://localhost:11434")
         ov.addWidget(self._wiz_ollama_host)
-        ov.addWidget(QLabel("Model name (e.g. llama3 or mistral):"))
-        self._wiz_ollama_model = QLineEdit()
+        ov.addWidget(QLabel("Model (pick one you already have, or type a name):"))
+        # Editable combo so installed models are SELECTABLE (was a blank text box
+        # with no list — the reported "can't select my Ollama models" gap). Still
+        # accepts a typed name for models not yet pulled.
+        self._wiz_ollama_model = QComboBox()
+        self._wiz_ollama_model.setEditable(True)
         ov.addWidget(self._wiz_ollama_model)
+        _wiz_refresh = QPushButton("Refresh Ollama models")
+        _wiz_refresh.clicked.connect(self._wiz_refresh_ollama_models)
+        ov.addWidget(_wiz_refresh)
         v.addWidget(self._ollama_widget)
         self._ollama_widget.setVisible(False)
 
@@ -866,6 +923,35 @@ class FirstBootWizard(QDialog):
         is_ollama = self._wiz_provider.currentData() == "ollama"
         self._gguf_widget.setVisible(not is_ollama)
         self._ollama_widget.setVisible(is_ollama)
+        # Auto-surface installed models the moment Ollama is chosen (quiet).
+        if is_ollama and self._wiz_ollama_model.count() == 0:
+            names, _err = _query_ollama_tags(self._wiz_ollama_host.text().strip(), timeout=2)
+            if names:
+                self._wiz_populate_ollama(names)
+
+    def _wiz_populate_ollama(self, names):
+        current = self._wiz_ollama_model.currentText().strip()
+        self._wiz_ollama_model.clear()
+        for name in names:
+            self._wiz_ollama_model.addItem(name)
+        if current:
+            self._wiz_ollama_model.setEditText(current)
+
+    def _wiz_refresh_ollama_models(self):
+        host = self._wiz_ollama_host.text().strip() or "http://localhost:11434"
+        names, err = _query_ollama_tags(host, timeout=5)
+        if err is not None:
+            QMessageBox.warning(self, "Ollama unreachable",
+                                _ollama_unreachable_message(host, err))
+            return
+        if not names:
+            QMessageBox.information(
+                self, "No Ollama models",
+                f"Ollama is running at {host} but no models are installed yet.\n"
+                "Pull one first, e.g.  ollama pull llama3",
+            )
+            return
+        self._wiz_populate_ollama(names)
 
     def _browse_gguf(self):
         path, _ = QFileDialog.getOpenFileName(
@@ -1099,7 +1185,7 @@ class FirstBootWizard(QDialog):
         return self._wiz_ollama_host.text().strip() or "http://localhost:11434"
 
     def selected_ollama_model(self) -> str:
-        return self._wiz_ollama_model.text().strip()
+        return self._wiz_ollama_model.currentText().strip()
 
     def accept(self):
         provider = self.selected_provider()

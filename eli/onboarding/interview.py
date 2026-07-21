@@ -346,17 +346,57 @@ def _scripted_question(step: str, answers: Dict[str, Any]) -> str:
     return ""
 
 
+_GREETING_WORDS = (
+    "good morning", "good afternoon", "good evening", "good day",
+    "hello there", "hey there", "hi there", "howdy", "greetings",
+    "hello", "hiya", "heya", "hey", "hi", "yo", "morning", "afternoon", "evening",
+)
+
+
+def _extract_name(text: str) -> str:
+    """Pull a usable name out of a name-step reply, tolerant of greetings and
+    self-introductions: 'Hi, I'm Keith' -> 'Keith', 'call me Sam' -> 'Sam'. A bare
+    greeting with no actual name ('Hello and Good Morning') -> '' so the caller
+    re-asks rather than storing the greeting AS the name — the reported skip where
+    a longer greeting got captured as the user's name."""
+    s = (text or "").strip()
+    if not s:
+        return ""
+    # Peel any number of leading greeting tokens + joiners ("hello and good morning").
+    changed = True
+    while changed and s:
+        changed = False
+        low = s.lower()
+        for g in sorted(_GREETING_WORDS, key=len, reverse=True):
+            if low.startswith(g) and (len(low) == len(g) or not low[len(g)].isalpha()):
+                s = s[len(g):].lstrip(" ,.!-–—&").lstrip()
+                for j in ("and ", "& "):
+                    if s.lower().startswith(j):
+                        s = s[len(j):].lstrip()
+                changed = True
+                break
+    # Strip an explicit self-introduction lead.
+    low = s.lower()
+    for lead in ("my name is ", "i'm ", "i am ", "call me ", "it's ", "name's ",
+                 "the name's ", "this is "):
+        if low.startswith(lead):
+            s = s[len(lead):]
+            break
+    s = s.strip().strip(".!,").split("\n")[0].strip()
+    if not s or len(s.split()) > 4:   # empty (pure greeting) or a full sentence, not a name
+        return ""
+    return s[:40]
+
+
 def _apply_answer(step: str, text: str, db_path=None) -> str:
     """Persist one answer; return the canonical value stored."""
     text = (text or "").strip()
     if not text:
         return ""
     if step == "name":
-        nm = text
-        for lead in ("my name is ", "i'm ", "i am ", "call me ", "it's ", "name's "):
-            if nm.lower().startswith(lead):
-                nm = nm[len(lead):]
-        nm = nm.strip().strip(".!,").split("\n")[0][:40]
+        nm = _extract_name(text)
+        if not nm:
+            return ""   # greeting / no real name — caller re-asks instead of storing it
         try:
             from eli.kernel.state import set_user_name
             set_user_name(nm)
@@ -484,7 +524,20 @@ def onboarding_intercept(user_input: str, user_id: Optional[str] = None, db_path
             return None
         canonical = _apply_answer(step, text, db_path=db_path)
         if step == "name":
-            answers["name"] = canonical or text.strip().strip(".!,")[:40]
+            if not canonical:
+                # No usable name (e.g. a bare greeting like "Hello and Good Morning").
+                # Re-ask ONCE rather than store the greeting as their name; after that,
+                # move on without a name so we never trap them in a loop (they can set
+                # it later, and ELI works fine without one).
+                attempts = int(answers.get("_name_attempts", 0)) + 1
+                answers["_name_attempts"] = attempts
+                if attempts < 2:
+                    _set_onboarding_state("name", answers)
+                    return ("I don't think I caught your name in there — what would you "
+                            "like me to call you? (Or just say 'skip' and I'll move on.)")
+                answers.pop("name", None)   # give up gracefully; continue the interview
+            else:
+                answers["name"] = canonical
         else:
             answers[step] = canonical or text[:200]
         idx = _STEPS.index(step) if step in _STEPS else 0
