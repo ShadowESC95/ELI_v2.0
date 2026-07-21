@@ -159,6 +159,24 @@ def _desktop_files() -> dict[str, Path]:
     }
 
 
+def _resolve_appimage_path() -> str:
+    """Absolute path to the .AppImage this process launched from, or "" if it can't
+    be determined. The AppImage runtime sets APPIMAGE on BOTH a normal FUSE run and
+    ``--appimage-extract-and-run`` (verified), with ARGV0 as a fallback. Running the
+    EXTRACTED ``AppRun`` directly sets neither — a menu launcher then has nothing
+    valid to point at, so integration must be skipped rather than pointed at a temp
+    binary (the old ``or sys.executable`` fallback wrote a launcher that broke the
+    moment the extraction dir was cleaned up)."""
+    for var in ("APPIMAGE", "ARGV0"):
+        v = os.environ.get(var, "").strip()
+        if not v:
+            continue
+        p = os.path.abspath(os.path.expanduser(v))
+        if os.path.isfile(p) and p.lower().endswith(".appimage"):
+            return p
+    return ""
+
+
 def _integrate(quiet: bool = False) -> int:
     """Linux: install applications-menu entries (ELI, Server, Uninstall) that
     point at THIS AppImage, with THIS version's icon — replacing any stale
@@ -167,7 +185,15 @@ def _integrate(quiet: bool = False) -> int:
     if sys.platform != "linux":
         print("[integrate] only needed on Linux")
         return 0
-    appimage = os.environ.get("APPIMAGE", "") or sys.executable
+    appimage = _resolve_appimage_path()
+    if not appimage:
+        print(
+            "[integrate] could not resolve the .AppImage path — are you running the "
+            "EXTRACTED AppRun (or a non-AppImage build)? Launch the .AppImage file "
+            "itself and retry, e.g.:  ./ELI_v2-*-x86_64.AppImage --integrate",
+            file=sys.stderr,
+        )
+        return 1
     bundle = Path(getattr(sys, "_MEIPASS", Path(sys.executable).parent))
     files = _desktop_files()
     # replace stale entries from any older install
@@ -233,7 +259,20 @@ sys.exit(0 if m.clickedButton() is yes else 3)
 
 def _first_run_integrate_offer() -> None:
     """Linux AppImage first run: offer applications-menu integration once."""
-    if sys.platform != "linux" or not os.environ.get("APPIMAGE"):
+    if sys.platform != "linux":
+        return
+    appimage = _resolve_appimage_path()
+    if not appimage:
+        # Running the extracted AppRun (or not an AppImage) — nothing to point a
+        # launcher at. Say so once, so "no menu icon" is diagnosable instead of a
+        # silent no-op. Users on lean distros who were told to use
+        # --appimage-extract-and-run are fine (that DOES set APPIMAGE); only the
+        # raw extracted AppRun path lands here.
+        print(
+            "[ELI] app-menu integration skipped: launch the .AppImage directly "
+            "(not the extracted AppRun) to get menu icons, or run:  ELI --integrate",
+            file=sys.stderr,
+        )
         return
     try:
         import subprocess
@@ -262,8 +301,8 @@ sys.exit(0 if m.clickedButton() is yes else 3)
         if subprocess.run([sys.executable, "-c", ask]).returncode == 0:
             _integrate(quiet=True)
         marker.write_text("asked", encoding="utf-8")
-    except Exception:
-        pass
+    except Exception as exc:
+        print(f"[ELI] app-menu integration offer failed: {exc}", file=sys.stderr)
 
 
 def _first_run_model_offer() -> None:
