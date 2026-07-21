@@ -14,6 +14,7 @@ State lives in `artifacts/onboarding_state.json`. Fully local.
 from __future__ import annotations
 
 import json
+import os
 import re
 import sqlite3
 import time
@@ -252,6 +253,19 @@ def _unwrap_generate(out: Any) -> str:
     return str(out or "")
 
 
+def _gpu_offload_active() -> bool:
+    """True when the local model is actually offloading layers to a GPU — the only
+    case where generating a question per step is fast. On CPU-only, each generation
+    took 1-4 min on a first-run (observed on Arch), a brutal onboarding, so the
+    interview falls back to instant scripted questions there."""
+    try:
+        from eli.cognition import gguf_inference as _llm
+        ovr = _llm.get_live_runtime_override() or {}
+        return int(ovr.get("n_gpu_layers") or ovr.get("gpu_layers") or 0) > 0
+    except Exception:
+        return False
+
+
 def _llm_question(step: str, answers: Dict[str, Any]) -> Optional[str]:
     """Generate the next onboarding question with the LOCAL model, so the interview is a
     real, adaptive conversation — ELI examines what it already knows and asks the single
@@ -259,6 +273,12 @@ def _llm_question(step: str, answers: Dict[str, Any]) -> Optional[str]:
     options. Returns None on any problem so the caller falls back to the scripted question."""
     topic = _STEP_TOPIC.get(step)
     if not topic:
+        return None
+    # Skip the (slow) per-step LLM generation on CPU-only hardware so the first-run
+    # interview stays snappy; the scripted questions below are the instant fallback.
+    # Force adaptive questions regardless with ELI_ONBOARDING_LLM=1.
+    if os.environ.get("ELI_ONBOARDING_LLM", "").strip().lower() not in ("1", "true", "yes", "on") \
+            and not _gpu_offload_active():
         return None
     try:
         from eli.cognition import gguf_inference as _llm
