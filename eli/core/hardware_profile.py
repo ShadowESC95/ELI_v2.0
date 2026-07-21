@@ -261,6 +261,26 @@ def _derive_mode_presets(_base_n_ctx: int, base_max_tokens: int,
     }
 
 
+def _nvidia_driver_loaded() -> bool:
+    """True when the NVIDIA kernel driver is loaded — using kernel-provided signals
+    that exist identically on every Linux distro (Ubuntu/Debian/Arch/Fedora/RHEL/
+    openSUSE), independent of whether nvidia-smi is installed or well-behaved:
+    ``/proc/driver/nvidia/version``, ``/sys/module/nvidia``, or a PCI device whose
+    vendor id is NVIDIA (0x10de)."""
+    try:
+        if Path("/proc/driver/nvidia/version").is_file() or Path("/sys/module/nvidia").is_dir():
+            return True
+        for e in Path("/sys/bus/pci/devices").glob("*/vendor"):
+            try:
+                if e.read_text().strip().lower() == "0x10de":
+                    return True
+            except Exception:
+                continue
+    except Exception:
+        log.debug("suppressed exception", exc_info=True)
+    return False
+
+
 def detect_hardware() -> HardwareProfile:
     """Probe the host for CPU/RAM/free-VRAM. Reads FREE VRAM from nvidia-smi."""
     hw = HardwareProfile()
@@ -317,6 +337,19 @@ def detect_hardware() -> HardwareProfile:
             hw.has_gpu = True
     except Exception:
         pass
+
+    # NVIDIA driver-loaded fallback — if nvidia-smi is missing or its query failed
+    # (a broken/partial userspace, an Optimus card the tool couldn't read) but the
+    # kernel driver is clearly loaded, still report the GPU so the smart loader and
+    # the GPU pack engage. ``_nvidia_driver_loaded`` reads kernel-provided signals
+    # that are identical on every distro. VRAM isn't exposed without nvidia-smi, so
+    # use a conservative estimate the loader's reduce-to-fit corrects.
+    if not hw.has_gpu and sys.platform.startswith("linux") and _nvidia_driver_loaded():
+        hw.total_vram_mb = 4096       # conservative; loader refines / OOM-falls-back
+        hw.free_vram_mb = int(hw.total_vram_mb * 0.85)
+        hw.gpu_name = "NVIDIA GPU"
+        hw.vram_gb = hw.free_vram_mb / 1024.0
+        hw.has_gpu = True
 
     # AMD ROCm fallback — nvidia-smi doesn't exist on AMD GPUs, so the block above finds
     # nothing there. Read free/total VRAM from rocm-smi so the smart loader can size GPU
@@ -393,10 +426,46 @@ def detect_hardware() -> HardwareProfile:
         except Exception:
             log.debug("suppressed exception", exc_info=True)
 
-    # AMD on Windows — no CLI ships with the driver; VRAM total + name live in
-    # the display-class registry keys. Free VRAM is not exposed, so estimate
-    # conservatively (85% of total on an idle desktop); the loader's
-    # reduce-to-fit attempts and live tuner correct any optimism at load time.
+    # Discrete Intel Arc (Linux) — same HardwareProfile pipeline as NVIDIA/AMD so
+    # the smart loader and the Vulkan GPU pack see it. Only DISCRETE Arc (the newer
+    # `xe` driver, or an Arc-family PCI device id) — an Intel iGPU (Iris/UHD) is left
+    # on CPU because Vulkan offload to shared memory rarely beats CPU. Intel exposes
+    # no stable free-VRAM sysfs, so total is a conservative estimate the loader's
+    # reduce-to-fit corrects at load time.
+    if not hw.has_gpu and sys.platform.startswith("linux"):
+        try:
+            _INTEL = "0x8086"
+            _ARC_RANGES = ((0x4F80, 0x4F8F), (0x5690, 0x56BF), (0xE200, 0xE21F))
+            for dev in Path("/sys/class/drm").glob("card*/device"):
+                try:
+                    if (dev / "vendor").read_text().strip().lower() != _INTEL:
+                        continue
+                    is_arc = False
+                    try:
+                        is_arc = (dev / "driver").resolve().name.lower() == "xe"
+                    except Exception:
+                        log.debug("suppressed exception", exc_info=True)
+                    if not is_arc:
+                        did = int((dev / "device").read_text().strip(), 16)
+                        is_arc = any(lo <= did <= hi for lo, hi in _ARC_RANGES)
+                    if not is_arc:
+                        continue
+                    hw.total_vram_mb = 8192       # conservative Arc estimate; loader refines
+                    hw.free_vram_mb = int(hw.total_vram_mb * 0.85)
+                    hw.gpu_name = "Intel Arc"
+                    hw.vram_gb = hw.free_vram_mb / 1024.0
+                    hw.has_gpu = True
+                    break
+                except Exception:
+                    continue
+        except Exception:
+            log.debug("suppressed exception", exc_info=True)
+
+    # AMD (and discrete Intel Arc) on Windows — no CLI ships with the driver; VRAM
+    # total + name live in the display-class registry keys. Free VRAM is not
+    # exposed, so estimate conservatively (85% of total on an idle desktop); the
+    # loader's reduce-to-fit attempts and live tuner correct any optimism at load
+    # time. Intel iGPUs (Iris/UHD) are skipped — only Arc is offered a GPU pack.
     if not hw.has_gpu and sys.platform == "win32":
         try:
             import winreg
@@ -414,7 +483,8 @@ def detect_hardware() -> HardwareProfile:
                     try:
                         with winreg.OpenKey(cls, sub) as k:
                             desc = str(winreg.QueryValueEx(k, "DriverDesc")[0])
-                            if not any(t in desc.lower() for t in ("amd", "radeon")):
+                            _dl = desc.lower()
+                            if not (("amd" in _dl or "radeon" in _dl) or "arc" in _dl):
                                 continue
                             qw = int(winreg.QueryValueEx(k, "HardwareInformation.qwMemorySize")[0])
                     except OSError:
