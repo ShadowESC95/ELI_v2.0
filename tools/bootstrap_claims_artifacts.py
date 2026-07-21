@@ -93,6 +93,25 @@ def main() -> int:
         print("[ERR] capability_manifest.json missing after bootstrap", file=sys.stderr)
         ok = False
 
+    # capability_inventory.generated.json — bundled introspection data (the engine
+    # fallback at engine.py + capability_sync's baseline). It is written by
+    # CapabilitySync, NOT by update_capability_manifest (whose docstring wrongly
+    # claims it), so without generating it here a fresh CI clone would ship the
+    # AppImage WITHOUT it (ELI.spec only WARNS on its absence, it doesn't fail).
+    # Produce it now so the same CI PyInstaller step bundles a complete set.
+    inventory = ROOT / "capability_inventory.generated.json"
+    if not inventory.is_file():
+        try:
+            from eli.runtime.capability_sync import CapabilitySync
+            CapabilitySync(repo_root=ROOT).run()
+        except Exception as e:
+            print(f"[WARN] capability inventory generation skipped: {e}", file=sys.stderr)
+    if inventory.is_file():
+        print("[OK] capability inventory present")
+    else:
+        print("[ERR] capability_inventory.generated.json missing after bootstrap", file=sys.stderr)
+        ok = False
+
     bp = ROOT / "blueprints"
     pdfs = list(bp.glob("*.pdf")) if bp.is_dir() else []
     if not pdfs:
