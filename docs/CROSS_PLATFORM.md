@@ -19,13 +19,17 @@ separate and more honest: what I've genuinely **run**.
   AppImage is self-contained; it does not use the host's Python or package manager. *Note: this was
   the **headless engine** path — it never loads the Qt GUI's xcb platform plugin, which is why the
   GUI-only `libxcb-cursor` gap below went unnoticed until v2.1.20.*
-- **AppImage desktop GUI verified on Arch (2026-07-20, v2.1.20):** ran the graphical app on a clean
+- **AppImage desktop GUI verified on Arch (2026-07-21, v2.1.21):** ran the graphical app on a clean
   Arch VM (XFCE). Confirmed the engine loads and the local database initialises with no error. Found
-  and fixed a real gap: the Qt 6.5+ **xcb platform plugin needs `libxcb-cursor.so.0`**, which the
-  AppImage did not bundle — so on a lean system without it the window failed to open with
-  *"xcb-cursor0 or libxcb-cursor0 is needed to load the Qt xcb platform plugin"*. **v2.1.20 bundles
-  it** (plus a virtual-X GUI selftest in CI so it can't regress), so the AppImage now launches
-  out of the box on minimal distros with no `pacman`/`apt` needed.
+  and fixed a real gap: the Qt 6.5+ **xcb platform plugin (`libqxcb.so`) links the whole xcb-util
+  family** — `libxcb-cursor`, `libxcb-icccm`, `libxcb-image`, `libxcb-keysyms`, `libxcb-render-util`,
+  `libxcb-util` — none of which a lean Arch/Debian install ships, and which PyInstaller's PySide6 hook
+  does not bundle. Qt's error is **misleading**: it always says *"libxcb-cursor0 is needed"* whichever
+  member is actually missing (on this VM the real culprit was `libxcb-icccm.so.4`). v2.1.20 bundled
+  only `libxcb-cursor` and put it in the wrong directory, so it still failed; **v2.1.21 bundles the
+  full family into `PySide6/Qt/lib`** (the dir the plugin's RUNPATH searches) and CI asserts each
+  member is present there + runs a virtual-X GUI selftest, so it can't regress. The AppImage now
+  launches out of the box on minimal distros with no `pacman`/`apt` needed.
 - **Database on WAL-hostile filesystems fixed (2026-07-20, v2.1.19):** the portable build stores its
   database under the folder it is extracted to. On filesystems that don't support SQLite's
   write-ahead-log locking — **NTFS/exFAT/FAT, and network mounts** (common for a `~/Downloads` on a
@@ -46,9 +50,11 @@ A few edges worth knowing going in:
   distro (Arch, Ubuntu/Debian, Fedora, openSUSE, Mint, Pop!_OS, …) is glibc and runs the AppImage
   directly — see the run-verified list above.
 - **Running from source (not the AppImage) needs the Qt xcb libs** — the self-contained AppImage
-  bundles `libxcb-cursor.so.0` as of v2.1.20, but a **source / portable** install uses your system's
-  Qt libraries. On a minimal desktop the GUI may need `libxcb-cursor0` (Debian/Ubuntu) or
-  `xcb-util-cursor` (Arch) installed. The AppImage does not.
+  bundles the full xcb-util family as of v2.1.21, but a **source / portable** install uses your
+  system's Qt libraries. On a minimal desktop the GUI may need the xcb-util family installed:
+  Debian/Ubuntu `libxcb-cursor0 libxcb-icccm4 libxcb-image0 libxcb-keysyms1 libxcb-render-util0
+  libxcb-util1`; Arch `xcb-util-cursor xcb-util-wm xcb-util-image xcb-util-keysyms xcb-util-renderutil
+  xcb-util`. The AppImage does not — it ships them itself.
 - **AMD voice is CPU-only** — the speech-to-text engine (CTranslate2) has no ROCm support, so on an
   AMD GPU it stays on the CPU (works, just not accelerated). The main model + vision use the AMD GPU
   via hipBLAS.
