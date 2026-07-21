@@ -12,7 +12,12 @@ def test_detect_hardware_with_nvidia(mock_subprocess):
 
 @patch("subprocess.check_output", side_effect=Exception("no nvidia-smi"))
 def test_detect_hardware_no_gpu(mock_subprocess):
-    hw = detect_hardware()
+    # Simulate a genuinely GPU-less machine: no nvidia-smi AND no loaded kernel
+    # driver (the driver-loaded fallback must also see nothing). Otherwise this
+    # test detects the real GPU on a developer's NVIDIA box via /proc//sys.
+    import eli.core.hardware_profile as hp
+    with patch.object(hp, "_nvidia_driver_loaded", return_value=False):
+        hw = detect_hardware()
     assert hw.has_gpu is False
 
 def test_recommend_no_models():

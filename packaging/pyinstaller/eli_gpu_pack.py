@@ -99,28 +99,170 @@ def _eli_root() -> Path:
     raise RuntimeError("ELI_PROJECT_ROOT not set — run via the ELI executable")
 
 
-def _driver_cuda_version() -> tuple[int, int] | None:
+def _nvidia_driver_version() -> tuple[int, int] | None:
+    """(major, minor) of the installed NVIDIA driver — distro-independent.
+
+    Reads the version from ``nvidia-smi --query-gpu=driver_version`` (a stable
+    machine field, unlike the human header) and falls back to
+    ``/proc/driver/nvidia/version``, which the kernel module writes on EVERY
+    distro whenever it is loaded. Neither depends on the CUDA-header line that
+    Node's Optimus + driver-610 setup didn't emit."""
     smi = shutil.which("nvidia-smi")
-    if not smi:
-        return None
-    try:
-        out = subprocess.run([smi], capture_output=True, text=True, timeout=20).stdout
+    if smi:
+        try:
+            out = subprocess.run([smi, "--query-gpu=driver_version", "--format=csv,noheader"],
+                                 capture_output=True, text=True, timeout=20)
+            m = re.search(r"(\d+)\.(\d+)", out.stdout or "")
+            if m:
+                return int(m.group(1)), int(m.group(2))
+        except Exception:
+            pass
+    try:  # e.g. "NVRM version: NVIDIA UNIX x86_64 Kernel Module  610.43.03  ..."
+        txt = Path("/proc/driver/nvidia/version").read_text()
+        m = re.search(r"Kernel Module\s+(\d+)\.(\d+)", txt)
+        if m:
+            return int(m.group(1)), int(m.group(2))
     except Exception:
-        return None
-    m = re.search(r"CUDA Version:\s*(\d+)\.(\d+)", out)
-    return (int(m.group(1)), int(m.group(2))) if m else None
+        pass
+    return None
+
+
+def _cuda_from_driver(drv: tuple[int, int]) -> tuple[int, int] | None:
+    """Max CUDA a Linux NVIDIA driver supports — coarse but monotonic, enough to
+    choose among the cu121..cu124 wheel indices. Newer drivers are backward
+    compatible, so a driver >= 550 (incl. Node's 610) safely runs the cu124 pack."""
+    major = drv[0]
+    for min_drv, cuda in ((550, (12, 4)), (545, (12, 3)), (535, (12, 2)), (525, (12, 1))):
+        if major >= min_drv:
+            return cuda
+    return None  # older than the oldest wheel index
+
+
+def _driver_cuda_version() -> tuple[int, int] | None:
+    """Best CUDA version the NVIDIA driver supports. Tries, in order: the
+    ``CUDA Version`` header from ``nvidia-smi`` (bare, then ``-q``), then DERIVES
+    it from the driver version. The header is a display string that some drivers/
+    configs (Optimus, headless, very new drivers) omit or garble — deriving from
+    the driver version makes wheel selection work regardless, on every distro."""
+    smi = shutil.which("nvidia-smi")
+    if smi:
+        for args in ([smi], [smi, "-q"]):
+            try:
+                out = subprocess.run(args, capture_output=True, text=True, timeout=20).stdout or ""
+            except Exception:
+                out = ""
+            m = re.search(r"CUDA Version\s*:?\s*(\d+)\.(\d+)", out)
+            if m:
+                return int(m.group(1)), int(m.group(2))
+    drv = _nvidia_driver_version()
+    if drv is not None:
+        return _cuda_from_driver(drv)
+    return None
+
+
+# PCI vendor ids (sysfs `/sys/.../vendor`, lowercased). One source of truth so
+# every vendor is detected the SAME robust way, on every OS.
+_PCI_VENDOR = {"nvidia": "0x10de", "amd": "0x1002", "intel": "0x8086"}
+# Known DISCRETE Intel Arc PCI device-id ranges (Alchemist / Arc Pro / Battlemage).
+# Used so an Intel iGPU (same 0x8086 vendor, but Vulkan offload rarely beats CPU)
+# is NOT auto-routed to a GPU pack, while a real discrete Arc is.
+_INTEL_ARC_DEVICE_RANGES = ((0x4F80, 0x4F8F), (0x5690, 0x56BF), (0xE200, 0xE21F))
+
+
+def _sysfs_pci_vendor_present(vendor_hex: str) -> bool:
+    """True if any PCI device reports *vendor_hex* (Linux sysfs). Vendor-neutral."""
+    try:
+        import os
+        for entry in os.listdir("/sys/bus/pci/devices"):
+            try:
+                if (Path("/sys/bus/pci/devices") / entry / "vendor").read_text().strip().lower() == vendor_hex:
+                    return True
+            except Exception:
+                continue
+    except Exception:
+        pass
+    return False
+
+
+def _has_nvidia_gpu() -> bool:
+    """True if an NVIDIA GPU is present, INDEPENDENT of parsing a CUDA version.
+
+    ``_driver_cuda_version`` scrapes ``CUDA Version:`` out of the bare ``nvidia-smi``
+    table, but that line can be absent/garbled on some setups (hybrid Intel+NVIDIA
+    Optimus laptops, very new drivers) even though the GPU works fine and the same
+    machine reads VRAM cleanly via ``nvidia-smi --query-gpu``. Failing to parse the
+    version must NOT be mistaken for "no NVIDIA GPU" — that regression forced a
+    working 1660 Ti onto CPU. Probe presence with the most robust signals, on every
+    OS: the driver's device list (``nvidia-smi -L``), the proven ``--query-gpu``
+    call, the PCI vendor id in sysfs (Linux), then the driver DLLs (Windows)."""
+    smi = shutil.which("nvidia-smi")
+    if smi:
+        for args in ([smi, "-L"], [smi, "--query-gpu=name", "--format=csv,noheader"]):
+            try:
+                out = subprocess.run(args, capture_output=True, text=True, timeout=20)
+                if out.returncode == 0 and (out.stdout or "").strip():
+                    return True
+            except Exception:
+                continue
+    # Kernel-provided signals — present on EVERY distro when the driver is loaded,
+    # independent of nvidia-smi/userspace tools being installed or well-behaved.
+    if Path("/proc/driver/nvidia/version").is_file() or Path("/sys/module/nvidia").is_dir():
+        return True
+    if _sysfs_pci_vendor_present(_PCI_VENDOR["nvidia"]):
+        return True
+    if sys.platform == "win32":
+        import os
+        sys32 = Path(os.environ.get("SystemRoot", r"C:\Windows")) / "System32"
+        if (sys32 / "nvcuda.dll").is_file() or (sys32 / "nvml.dll").is_file():
+            return True
+    return False
 
 
 def _has_amd_gpu() -> bool:
-    try:
-        if sys.platform == "win32":
-            import os
-            sys32 = Path(os.environ.get("SystemRoot", r"C:\Windows")) / "System32"
-            return (sys32 / "amdhip64.dll").is_file() or (sys32 / "atiadlxx.dll").is_file()
-        drm = Path("/sys/class/drm")
-        for card in drm.glob("card*/device/vendor"):
-            if card.read_text().strip().lower() == "0x1002":  # AMD PCI vendor id
+    """True if an AMD GPU is present, on every OS. Presence-based (no fragile
+    version parse): the driver runtime DLLs (Windows), the PCI vendor id in sysfs
+    (Linux), or an rocm-smi that lists a device."""
+    if sys.platform == "win32":
+        import os
+        sys32 = Path(os.environ.get("SystemRoot", r"C:\Windows")) / "System32"
+        if (sys32 / "amdhip64.dll").is_file() or (sys32 / "atiadlxx.dll").is_file():
+            return True
+    if _sysfs_pci_vendor_present(_PCI_VENDOR["amd"]):
+        return True
+    smi = shutil.which("rocm-smi")
+    if smi:
+        try:
+            out = subprocess.run([smi, "--showid"], capture_output=True, text=True, timeout=20)
+            if out.returncode == 0 and "GPU" in (out.stdout or ""):
                 return True
+        except Exception:
+            pass
+    return False
+
+
+def _has_intel_arc_gpu() -> bool:
+    """True for a DISCRETE Intel Arc GPU (NOT an integrated iGPU — Vulkan offload to
+    an iGPU rarely beats CPU, so those stay on CPU unless the user forces --vulkan).
+
+    Linux: the newer ``xe`` kernel driver is discrete-only, or a PCI device id in a
+    known Arc family range. Windows: detect_hardware's registry scan surfaces the
+    adapter name (e.g. "Intel Arc A770"); the first-run offer routes it to Vulkan
+    from there, and ``--install-gpu-pack --vulkan`` always works."""
+    try:
+        for dev in Path("/sys/class/drm").glob("card*/device"):
+            try:
+                if (dev / "vendor").read_text().strip().lower() != _PCI_VENDOR["intel"]:
+                    continue
+                try:
+                    if (dev / "driver").resolve().name.lower() == "xe":
+                        return True
+                except Exception:
+                    pass
+                did = int((dev / "device").read_text().strip(), 16)
+                if any(lo <= did <= hi for lo, hi in _INTEL_ARC_DEVICE_RANGES):
+                    return True
+            except Exception:
+                continue
     except Exception:
         pass
     return False
@@ -218,12 +360,28 @@ def _install(argv: list[str] | None = None) -> int:
         _say(f"GPU pack already installed at {dest} (use --force to reinstall)")
         return 0
 
+    # Vendor presence — checked the SAME robust, presence-based way for every
+    # vendor on every OS. An NVIDIA GPU counts as present if we parsed its CUDA
+    # version OR simply see the card: the version parse is a refinement for picking
+    # the exact wheel, not the gate for "is this NVIDIA". Conflating the two forced
+    # a working 1660 Ti (whose bare nvidia-smi lacked a parseable CUDA line) onto CPU.
     drv = None if want_vulkan else _driver_cuda_version()
-    if drv is not None:
-        _say(f"NVIDIA driver supports CUDA {drv[0]}.{drv[1]}")
-        candidates = [c for c in CUDA_INDEXES if (int(c[2:4]), int(c[4:])) <= drv]
-        if not candidates:
-            return _fail(f"driver CUDA {drv[0]}.{drv[1]} is older than the oldest wheel index ({CUDA_INDEXES[-1]}) — update the NVIDIA driver")
+    nvidia_present = (not want_vulkan) and (drv is not None or _has_nvidia_gpu())
+    amd_present = (not want_vulkan) and _has_amd_gpu()
+    intel_arc_present = (not want_vulkan) and _has_intel_arc_gpu()
+    if nvidia_present:
+        if drv is not None:
+            _say(f"NVIDIA driver supports CUDA {drv[0]}.{drv[1]}")
+            candidates = [c for c in CUDA_INDEXES if (int(c[2:4]), int(c[4:])) <= drv]
+            if not candidates:
+                return _fail(f"driver CUDA {drv[0]}.{drv[1]} is older than the oldest wheel index ({CUDA_INDEXES[-1]}) — update the NVIDIA driver")
+        else:
+            # NVIDIA GPU present but the driver's CUDA version was unreadable — try
+            # newest→oldest CUDA wheels. The install-time load verify rejects any
+            # build the driver can't actually run, so this is safe, not a gamble.
+            _say("NVIDIA GPU detected but the driver's CUDA version was unreadable — "
+                 "trying the newest CUDA wheels (each is load-verified before it activates)")
+            candidates = list(CUDA_INDEXES)
         picked = None
         for cuda_idx in candidates:
             found = _pick_wheel(cuda_idx)
@@ -233,10 +391,11 @@ def _install(argv: list[str] | None = None) -> int:
         if not picked:
             return _fail("no CUDA wheel found for this python/platform in the llama-cpp-python index")
         backend, version, url = picked
-    elif want_vulkan or _has_amd_gpu():
+    elif want_vulkan or amd_present or intel_arc_present:
         # AMD / Intel Arc (or forced): CI-built Vulkan backend. The GPU
         # driver already ships the Vulkan loader the wheel needs.
-        _say("using the Vulkan backend (AMD / Intel Arc)" if not want_vulkan
+        _vendor = "AMD" if amd_present else ("Intel Arc" if intel_arc_present else "GPU")
+        _say(f"using the Vulkan backend ({_vendor})" if not want_vulkan
              else "Vulkan backend forced (--vulkan)")
         # Vulkan is llama.cpp's universal AMD/Intel path: works on every card
         # with a standard graphics driver, no ROCm/oneAPI install needed (no
@@ -258,9 +417,11 @@ def _install(argv: list[str] | None = None) -> int:
         backend, (version, url) = "vulkan", found
     else:
         return _fail(
-            "no supported GPU detected (no NVIDIA driver, no AMD GPU). Apple "
-            "GPUs are already supported by the macOS build; use --vulkan to "
-            "force the Vulkan pack (e.g. Intel Arc). CPU inference keeps working."
+            f"no supported GPU detected on this {sys.platform} — no NVIDIA, AMD, or "
+            "discrete Intel Arc GPU found. Apple GPUs are already handled by the "
+            "macOS (Metal) build. If you have a GPU the driver isn't exposing (or an "
+            "Intel iGPU), force the Vulkan pack with:  ELI --install-gpu-pack --vulkan. "
+            "CPU inference keeps working either way."
         )
 
     _say(f"downloading llama-cpp-python {version} ({backend}, {_platform_tag()}) — several hundred MB…")
