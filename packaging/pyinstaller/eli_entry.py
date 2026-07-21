@@ -394,17 +394,28 @@ def _first_run_gpu_offer() -> None:
         if not hp.has_gpu:
             marker.write_text("cpu-no-gpu-hardware", encoding="utf-8")
             return
+        # Vendor from the (cross-OS) HardwareProfile name. NVIDIA → CUDA;
+        # AMD and discrete Intel Arc → Vulkan. Intel iGPUs ("Iris"/"UHD") are
+        # deliberately NOT offered — Vulkan offload to an iGPU rarely beats CPU;
+        # a power user can still force it with `--install-gpu-pack --vulkan`.
         name_l = (hp.gpu_name or "").lower()
         nvidia = "nvidia" in name_l or "geforce" in name_l or "rtx" in name_l or "gtx" in name_l
         amd = (not nvidia) and ("amd" in name_l or "radeon" in name_l)
-        if not (nvidia or amd):
+        intel_arc = (not nvidia and not amd) and "arc" in name_l
+        if not (nvidia or amd or intel_arc):
             marker.write_text(f"cpu-unsupported-gpu:{hp.gpu_name}", encoding="utf-8")
             return
         vendor = f"{hp.gpu_name} — {max(hp.total_vram_mb, hp.free_vram_mb) / 1024:.0f} GB VRAM"
-        backend = "NVIDIA CUDA" if nvidia else "AMD Vulkan"
+        backend = "NVIDIA CUDA" if nvidia else ("AMD Vulkan" if amd else "Intel Arc Vulkan")
         # Measured, not estimated: the CUDA wheel is ~1.3 GB and the NVIDIA
-        # runtime redistributables (cudart + cublas) add ~350 MB on top.
+        # runtime redistributables (cudart + cublas) add ~350 MB on top; the
+        # Vulkan pack (AMD / Intel Arc) is ~90 MB.
         size = "roughly 1.6 GB" if nvidia else "roughly 90 MB"
+        # Drive the pack directly from the vendor we classified here, so it works
+        # the same on every OS without the installer having to re-detect (Windows
+        # Arc, for instance, has no simple driver-DLL probe): NVIDIA → auto (CUDA),
+        # AMD/Intel Arc → force Vulkan.
+        gp_args = "[]" if nvidia else "['--vulkan']"
         ask = f"""
 import sys
 from PySide6.QtWidgets import QApplication, QMessageBox
@@ -423,7 +434,7 @@ sys.exit(0 if m.clickedButton() is yes else 3)
         if subprocess.run([sys.executable, "-c", ask]).returncode != 0:
             marker.write_text("cpu-user-choice", encoding="utf-8")
             return
-        download = """
+        download = f"""
 import sys, threading
 from PySide6.QtWidgets import QApplication, QProgressDialog
 from PySide6.QtCore import Qt, QTimer
@@ -435,8 +446,8 @@ dlg.setCancelButton(None)
 dlg.setWindowModality(Qt.ApplicationModal)
 dlg.setMinimumWidth(420)
 dlg.show()
-rc = {"v": 1}
-t = threading.Thread(target=lambda: rc.__setitem__("v", eli_gpu_pack.install([])), daemon=True)
+rc = {{"v": 1}}
+t = threading.Thread(target=lambda: rc.__setitem__("v", eli_gpu_pack.install({gp_args})), daemon=True)
 t.start()
 timer = QTimer()
 timer.timeout.connect(lambda: None if t.is_alive() else app.quit())
