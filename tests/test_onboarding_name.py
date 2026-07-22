@@ -61,3 +61,37 @@ def test_real_name_after_reask_advances(tmp_path, monkeypatch):
     assert st["answers"].get("name") == "Keith"
     assert st["step"] == "role"                                # advanced past name
     assert reply is not None
+
+
+# ── greeting-vs-name hardening (from a user screencast where "Greetings and
+#    Salutations!" was captured as the name "Salutations") ──────────────────
+@pytest.mark.parametrize("reply", [
+    "Greetings and Salutations!", "Salutations", "sup", "what's up", "hola",
+    "Good day to you", "greetings friend", "hi there friend",
+    "nice to meet you", "pleased to meet you", "!!!",
+])
+def test_greetings_and_filler_are_never_stored_as_a_name(reply):
+    from eli.onboarding.interview import _extract_name
+    assert _extract_name(reply) == ""
+
+
+@pytest.mark.parametrize("reply", ["Hello ELI", "hey eli", "hi assistant", "yo computer"])
+def test_addressing_eli_is_not_the_users_name(reply):
+    """'hello ELI' must not make the user's name 'ELI' — they'd be called that forever."""
+    from eli.onboarding.interview import _extract_name
+    assert _extract_name(reply) == ""
+
+
+@pytest.mark.parametrize("reply,expected", [
+    ("Hi, I'm Keith", "Keith"),
+    ("call me Sam", "Sam"),
+    ("my name is Jay", "Jay"),
+    ("hello, my name is Ada", "Ada"),
+    ("I'm Mary Anne", "Mary Anne"),
+    ("Node815", "Node815"),
+    ("Dr. Chen", "Dr. Chen"),
+    ("Jean-Luc", "Jean-Luc"),
+])
+def test_real_names_still_captured_through_greetings(reply, expected):
+    from eli.onboarding.interview import _extract_name
+    assert _extract_name(reply) == expected
