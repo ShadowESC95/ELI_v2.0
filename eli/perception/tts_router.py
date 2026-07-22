@@ -872,7 +872,17 @@ def synthesize_wav(text: str, voice_name: str | None = None) -> Optional[bytes]:
             from eli.perception import voice_fx
             spec = voice_fx.get_preset(active)
             if spec:
-                base_wav = synthesize_wav(text, voice_name=spec.get("base") or _DEFAULT_VOICE)
+                # Resolve the base voice to one that is actually installed: the
+                # ideal `base`, else the preset's shipped `fallback`, else the
+                # English default. Never let a missing base fall through to the
+                # generic resolver, which picks the first .onnx alphabetically (a
+                # foreign-language voice in the shipped pack) and garbles the text.
+                installed = set(list_voices())
+                base = str(spec.get("base") or "").strip()
+                if base not in installed:
+                    fb = str(spec.get("fallback") or "").strip()
+                    base = fb if fb in installed else _DEFAULT_VOICE
+                base_wav = synthesize_wav(text, voice_name=base)
                 return voice_fx.apply_fx(base_wav, spec) if base_wav else None
         except Exception:
             log.debug("[TTS_WAV] character voice resolve failed", exc_info=True)
