@@ -3072,6 +3072,34 @@ class EliMainWindow(QMainWindow):
         except Exception as ex:
             log.debug(f"[GUI] voice change failed: {ex}")
 
+    def _reload_voice_selectors(self):
+        """Repopulate every voice dropdown after the library installs a new voice,
+        preserving the current selection so the user never loses their choice."""
+        try:
+            from eli.perception.tts_router import list_voices, get_active_voice
+            voices = list(list_voices() or [])
+            active = get_active_voice()
+        except Exception as ex:
+            log.debug(f"[GUI] voice reload failed: {ex}", exc_info=True)
+            return
+        for combo in (getattr(self, "voice_combo", None),
+                      getattr(self, "_voice_selector", None)):
+            if combo is None:
+                continue
+            try:
+                keep = combo.currentText()
+                combo.blockSignals(True)
+                combo.clear()
+                for v in voices:
+                    combo.addItem(v)
+                target = keep if keep in voices else (active if active in voices else "")
+                if target:
+                    combo.setCurrentText(target)
+                combo.setEnabled(bool(voices))
+                combo.blockSignals(False)
+            except Exception as ex:
+                log.debug(f"[GUI] voice combo repopulate failed: {ex}", exc_info=True)
+
     def _on_stt_transcript(self, text: str):
         text = text.strip()
         if not text:
@@ -7687,6 +7715,33 @@ _register()
                     log.debug(f"[TTS] Test error: {e}")
             _test_btn.clicked.connect(_test_voice)
             tts_form.addRow(_test_btn)
+
+            # Voice library — the only user-facing path to the ~166 upstream voices
+            # (accents/qualities/languages). Repopulates every voice combo on close
+            # so a freshly downloaded voice is immediately selectable.
+            _get_btn = QPushButton("＋ Get more voices / accents…")
+            _get_btn.setStyleSheet(
+                "QPushButton { background:#1e2a3a; color:#7aa7d0; border:1px solid #2a4a6a;"
+                " border-radius:4px; padding:4px 10px; }"
+                "QPushButton:hover { background:#25384a; }"
+            )
+            _get_btn.setToolTip(
+                "Browse and download additional Piper voices — more English accents, "
+                "other languages, and the ideal base voices for the character presets.")
+
+            def _open_voice_library():
+                try:
+                    from eli.gui.widgets.voice_downloader import VoiceDownloadDialog
+                    dlg = VoiceDownloadDialog(self)
+                    dlg.voices_changed.connect(self._reload_voice_selectors)
+                    dlg.exec()
+                except Exception as e:
+                    log.debug(f"[TTS] voice library dialog failed: {e}", exc_info=True)
+                    QMessageBox.warning(self, "Voice library",
+                                        f"Could not open the voice library:\n{e}")
+
+            _get_btn.clicked.connect(_open_voice_library)
+            tts_form.addRow(_get_btn)
 
         except Exception as _tts_err:
             tts_form.addRow(QLabel(f"TTS status unavailable: {_tts_err}"))
