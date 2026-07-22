@@ -367,10 +367,26 @@ def _scripted_question(step: str, answers: Dict[str, Any]) -> str:
 
 
 _GREETING_WORDS = (
+    "greetings and salutations", "nice to meet you", "pleased to meet you",
     "good morning", "good afternoon", "good evening", "good day",
-    "hello there", "hey there", "hi there", "howdy", "greetings",
-    "hello", "hiya", "heya", "hey", "hi", "yo", "morning", "afternoon", "evening",
+    "hello there", "hey there", "hi there", "howdy", "greetings", "salutations",
+    "hello", "hiya", "heya", "hey", "hi", "yo", "sup", "what's up", "whats up",
+    "morning", "afternoon", "evening", "hola", "bonjour", "aloha", "welcome",
 )
+
+# Words that survive greeting-peeling but are never the user's name. Without this
+# the interview cheerfully stored "Salutations", "friend", or — worst — "ELI"
+# (from "hello ELI") as the user's name, and then addressed them by it forever.
+# Reported case: "Greetings and Salutations!" became the name "Salutations".
+_NON_NAMES = frozenset({
+    "eli", "assistant", "bot", "robot", "computer", "ai", "there", "you", "u",
+    "friend", "friends", "mate", "buddy", "pal", "dude", "man", "sir", "madam",
+    "ma'am", "everyone", "all", "world", "again", "back", "sup", "salutations",
+    "me", "myself", "human", "user", "guest", "anon", "anonymous", "test",
+})
+
+# Trailing forms of address to drop: "good day to you" -> (nothing), not "to you".
+_TRAILING_ADDRESS = ("to you", "to ya", "there", "friend", "mate", "everyone", "all")
 
 
 def _extract_name(text: str) -> str:
@@ -403,7 +419,19 @@ def _extract_name(text: str) -> str:
             s = s[len(lead):]
             break
     s = s.strip().strip(".!,").split("\n")[0].strip()
+    # Drop a trailing form of address ("good day to you", "hi there friend").
+    low = s.lower()
+    for tail in _TRAILING_ADDRESS:
+        if low == tail or low.endswith(" " + tail):
+            s = s[: len(s) - len(tail)].strip().strip(",")
+            low = s.lower()
     if not s or len(s.split()) > 4:   # empty (pure greeting) or a full sentence, not a name
+        return ""
+    # Reject leftovers that are clearly not a name — including ELI's own name,
+    # which "hello ELI" would otherwise store as the user's.
+    if all(w.strip(".,!'") .lower() in _NON_NAMES for w in s.split() if w.strip(".,!'")):
+        return ""
+    if not any(ch.isalpha() for ch in s):
         return ""
     return s[:40]
 

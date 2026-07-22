@@ -29,60 +29,176 @@ from typing import Any, Callable, Dict, Generator, List, Optional
 # Internal HTTP helpers (stdlib-only, no requests dependency)
 # ──────────────────────────────────────────────────────────────
 
+DEFAULT_PORT = 11434
+DEFAULT_HOST = f"http://127.0.0.1:{DEFAULT_PORT}"
+
+_log = __import__("logging").getLogger("eli.ollama")
+
+
+def normalise_host(raw: str) -> str:
+    """Turn anything a user (or Ollama itself) might supply into a usable base URL.
+
+    Ollama's own documentation and installers set ``OLLAMA_HOST`` **without a
+    scheme** (``127.0.0.1:11434``, ``0.0.0.0:11434``), and users naturally type
+    ``localhost:11434`` or a bare IP into the host box. urllib rejects all of
+    those with "unknown url type", which silently broke Ollama on every OS for
+    anyone who had followed Ollama's docs. Normalising in ONE place fixes the
+    client, the startup picker, the wizard and the toolbar selector together.
+
+        127.0.0.1:11434   -> http://127.0.0.1:11434
+        localhost         -> http://localhost:11434
+        192.168.1.5:11434 -> http://192.168.1.5:11434
+        [::1]:11434       -> http://[::1]:11434
+        https://box/      -> https://box:11434
+    """
+    h = str(raw or "").strip().rstrip("/")
+    if not h:
+        return DEFAULT_HOST
+    if "://" not in h:
+        h = "http://" + h
+    scheme, _, rest = h.partition("://")
+    if not rest:
+        return DEFAULT_HOST
+    # Split off any path, then decide whether a port is already present. IPv6
+    # literals are bracketed, so only look for ':' after the closing bracket.
+    hostport, slash, path = rest.partition("/")
+    if hostport.startswith("["):
+        has_port = "]:" in hostport
+    else:
+        has_port = ":" in hostport
+    if not has_port:
+        hostport = f"{hostport}:{DEFAULT_PORT}"
+    return f"{scheme}://{hostport}" + (("/" + path) if slash and path else "")
+
+
 def _host() -> str:
     """Resolve the Ollama base URL. Precedence: OLLAMA_HOST env → the user's
     configured ``ollama_host`` setting (so a non-default host/port set in the GUI
-    is honoured everywhere, including the toolbar selector) → the localhost default."""
+    is honoured everywhere, including the toolbar selector) → the local default."""
     env = os.environ.get("OLLAMA_HOST")
     if env:
-        return env.rstrip("/")
+        return normalise_host(env)
     try:
         from eli.core import config
         h = config.get("ollama_host")
         if h:
-            return str(h).strip().rstrip("/")
+            return normalise_host(h)
     except Exception:
-        import logging
-        logging.getLogger("eli.ollama").debug("ollama_host config read failed", exc_info=True)
-    return "http://localhost:11434"
+        _log.debug("ollama_host config read failed", exc_info=True)
+    return DEFAULT_HOST
+
+
+def candidate_hosts(host: Optional[str] = None) -> List[str]:
+    """The base URLs to try, in order.
+
+    ``localhost`` resolves to ``::1`` before ``127.0.0.1`` on many Windows and
+    some Linux setups, while Ollama binds IPv4 by default — the classic symptom
+    being a "connection refused" that looks like Ollama is down when it is
+    running fine. Trying the IPv4 literal as a second candidate removes that
+    whole class of report.
+    """
+    primary = normalise_host(host) if host else _host()
+    out = [primary]
+    scheme, _, rest = primary.partition("://")
+    hostport, _, _ = rest.partition("/")
+    name, _, port = hostport.rpartition(":")
+    if name.lower() in ("localhost", "[::1]", "::1"):
+        alt = f"{scheme}://127.0.0.1:{port or DEFAULT_PORT}"
+        if alt not in out:
+            out.append(alt)
+    return out
+
+
+_registered_hosts: set = set()
+
+
+def _allow_via_netguard(base: str) -> None:
+    """Let NetGuard reach a non-loopback Ollama.
+
+    ELI is offline-by-default and only loopback is implicitly permitted, so a
+    perfectly ordinary setup — Ollama on a desktop, ELI on a laptop — was blocked
+    with no explanation. An Ollama endpoint the owner configured is a deliberate
+    local service (same reasoning as the MQTT broker), so register it explicitly;
+    the global policy is unchanged for every other host.
+    """
+    if base in _registered_hosts:
+        return
+    try:
+        hostport = base.partition("://")[2].partition("/")[0]
+        name = hostport.rsplit(":", 1)[0] if not hostport.startswith("[") \
+            else hostport.partition("]")[0] + "]"
+        from eli.core import netguard
+        netguard.register_local_service(name)
+        _registered_hosts.add(base)
+    except Exception:
+        _log.debug("netguard registration for %s failed", base, exc_info=True)
+
+
+def install_hint() -> str:
+    """Per-OS guidance for getting Ollama running (shown when it's unreachable)."""
+    import sys
+    if sys.platform == "darwin":
+        return ("Install Ollama from https://ollama.com/download (or `brew install ollama`), "
+                "then open the Ollama app — it runs in the menu bar. "
+                "Pull a model with `ollama pull llama3.2`.")
+    if sys.platform.startswith("win"):
+        return ("Install Ollama from https://ollama.com/download — it starts automatically "
+                "and lives in the system tray. If it isn't running, launch \"Ollama\" from "
+                "the Start menu. Pull a model with `ollama pull llama3.2`.")
+    return ("Install Ollama with `curl -fsSL https://ollama.com/install.sh | sh`, then start it "
+            "with `systemctl --user start ollama` (or run `ollama serve`). "
+            "Pull a model with `ollama pull llama3.2`.")
 
 
 def _get(path: str, timeout: int = 10) -> Dict[str, Any]:
-    url = _host() + path
-    try:
-        with urllib.request.urlopen(url, timeout=timeout) as resp:
-            return json.loads(resp.read().decode("utf-8", errors="ignore"))
-    except urllib.error.URLError as e:
-        raise ConnectionError(f"Ollama unreachable at {url}: {e}") from e
-    except json.JSONDecodeError as e:
-        raise RuntimeError(f"Ollama returned invalid JSON from {path}: {e}") from e
+    last: Optional[Exception] = None
+    bases = candidate_hosts()
+    for base in bases:
+        _allow_via_netguard(base)
+        url = base + path
+        try:
+            with urllib.request.urlopen(url, timeout=timeout) as resp:
+                return json.loads(resp.read().decode("utf-8", errors="ignore"))
+        except urllib.error.URLError as e:
+            last = e            # try the next candidate (IPv6→IPv4 fallback)
+        except json.JSONDecodeError as e:
+            raise RuntimeError(f"Ollama returned invalid JSON from {path}: {e}") from e
+    raise ConnectionError(f"Ollama unreachable at {bases[0]}: {last}") from last
 
 
 def _post(path: str, payload: Dict[str, Any], timeout: int = 120) -> Dict[str, Any]:
-    url = _host() + path
+    last: Optional[Exception] = None
+    bases = candidate_hosts()
     body = json.dumps(payload).encode("utf-8")
-    req = urllib.request.Request(
-        url, data=body,
-        headers={"Content-Type": "application/json"},
-        method="POST",
-    )
-    try:
-        with urllib.request.urlopen(req, timeout=timeout) as resp:
-            raw = resp.read().decode("utf-8", errors="ignore")
-            return json.loads(raw) if raw.strip() else {}
-    except urllib.error.HTTPError as e:
-        raw = ""
+    for base in bases:
+        _allow_via_netguard(base)
+        url = base + path
+        req = urllib.request.Request(
+            url, data=body,
+            headers={"Content-Type": "application/json"},
+            method="POST",
+        )
         try:
-            raw = e.read().decode("utf-8", errors="ignore")
-        except Exception:
-            pass
-        raise RuntimeError(f"Ollama HTTP {e.code} on {path}: {raw[:300]}") from e
-    except urllib.error.URLError as e:
-        raise ConnectionError(f"Ollama unreachable at {url}: {e}") from e
+            with urllib.request.urlopen(req, timeout=timeout) as resp:
+                raw = resp.read().decode("utf-8", errors="ignore")
+                return json.loads(raw) if raw.strip() else {}
+        except urllib.error.HTTPError as e:
+            # The server answered — a different candidate won't help.
+            raw = ""
+            try:
+                raw = e.read().decode("utf-8", errors="ignore")
+            except Exception:
+                _log.debug("could not read Ollama error body", exc_info=True)
+            raise RuntimeError(f"Ollama HTTP {e.code} on {path}: {raw[:300]}") from e
+        except urllib.error.URLError as e:
+            last = e            # unreachable — try the next candidate
+    raise ConnectionError(f"Ollama unreachable at {bases[0]}: {last}") from last
 
 
 def _delete(path: str, payload: Dict[str, Any], timeout: int = 30) -> bool:
-    url = _host() + path
+    base = candidate_hosts()[0]
+    _allow_via_netguard(base)
+    url = base + path
     body = json.dumps(payload).encode("utf-8")
     req = urllib.request.Request(
         url, data=body,
@@ -185,7 +301,8 @@ def pull_model(
     Runs synchronously — call in a thread for large models.
     Returns {"ok": True/False, "model": ..., "error": ...}
     """
-    url = _host() + "/api/pull"
+    url = candidate_hosts()[0] + "/api/pull"
+    _allow_via_netguard(candidate_hosts()[0])
     body = json.dumps({"name": model, "stream": True}).encode("utf-8")
     req = urllib.request.Request(
         url, data=body,
@@ -294,9 +411,13 @@ def chat_completion(
     Accepted kwargs: temperature, max_tokens, num_predict, top_p, top_k, repeat_penalty
     """
     if not is_running():
+        # `ollama serve` is Linux advice; Windows/macOS users need their own
+        # instructions, and everyone needs to see WHICH host was actually tried.
         return (
-            "[Ollama is not running. Start it with: ollama serve]\n"
-            "If you want to use a local GGUF model instead, check your model config."
+            f"[Ollama is not reachable at {candidate_hosts()[0]}]\n"
+            f"{install_hint()}\n"
+            "If the host or port is different, set it in Settings > Model > Ollama. "
+            "To use a local GGUF model instead, switch Backend there."
         )
 
     resolved_model = model or get_active_model()

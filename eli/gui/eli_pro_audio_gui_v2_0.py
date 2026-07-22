@@ -1268,17 +1268,40 @@ class OllamaModelManager:
         self.is_loaded = False
         self.load_error = None
     def _normalize_host(self, host: str) -> str:
-        host = (host or "http://localhost:11434").strip().rstrip('/')
-        if not host.startswith('http://') and not host.startswith('https://'):
-            host = 'http://' + host
-        return host
+        """Delegate to the canonical normaliser so Settings behaves exactly like the
+        startup picker, the wizard and the client. The local version only added a
+        scheme — it left 'localhost' pointing at port 80, and had no IPv4 fallback."""
+        try:
+            from eli.integrations.ollama.client import normalise_host
+            return normalise_host(host or self.host)
+        except Exception:
+            host = (host or "http://127.0.0.1:11434").strip().rstrip('/')
+            if not host.startswith('http://') and not host.startswith('https://'):
+                host = 'http://' + host
+            return host
+    def _candidates(self, host: Optional[str] = None) -> List[str]:
+        try:
+            from eli.integrations.ollama.client import candidate_hosts
+            return candidate_hosts(host or self.host)
+        except Exception:
+            return [self._normalize_host(host or self.host)]
     def list_models(self, host: Optional[str] = None) -> List[str]:
-        host = self._normalize_host(host or self.host)
-        url = host + '/api/tags'
-        req = urllib.request.Request(url, headers={'Content-Type': 'application/json'})
-        with urllib.request.urlopen(req, timeout=4) as resp:
-            data = json.loads(resp.read().decode('utf-8', errors='replace'))
-        return [m.get('name', '') for m in data.get('models', []) if m.get('name')]
+        last = None
+        for base in self._candidates(host):
+            try:
+                from eli.integrations.ollama.client import _allow_via_netguard
+                _allow_via_netguard(base)
+            except Exception:
+                log.debug("[OLLAMA] netguard registration skipped", exc_info=True)
+            req = urllib.request.Request(base + '/api/tags',
+                                         headers={'Content-Type': 'application/json'})
+            try:
+                with urllib.request.urlopen(req, timeout=4) as resp:
+                    data = json.loads(resp.read().decode('utf-8', errors='replace'))
+                return [m.get('name', '') for m in data.get('models', []) if m.get('name')]
+            except Exception as exc:
+                last = exc
+        raise last if last else RuntimeError("no Ollama host to query")
     def load_model(self, host: str, model_name: str) -> bool:
         try:
             self.host = self._normalize_host(host)
@@ -11245,7 +11268,10 @@ _register()
             "model_path": model_path,
             "custom_model_path": self.model_path_input.text(),
             "bundled_model_path": bundled_path,
-            "ollama_host": self.ollama_host_input.text().strip(),
+            # Store the canonical form, so "localhost:11434" or a bare IP typed
+            # here is persisted as a URL every consumer can actually use.
+            "ollama_host": self.ollama_manager._normalize_host(
+                self.ollama_host_input.text().strip()),
             "ollama_model": self.ollama_model_combo.currentText().strip(),
             "n_ctx": int(self.n_ctx_input.value()),
             "n_threads": int(self.n_threads_input.value()),

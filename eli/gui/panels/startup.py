@@ -43,38 +43,60 @@ def _query_ollama_tags(host: str, timeout: int = 5):
     (see netguard._is_local_host), so localhost:11434 is reachable offline."""
     import json
     import urllib.request
-    url = (host or "http://localhost:11434").strip().rstrip("/") + "/api/tags"
+    # Normalise through the client so a scheme-less "localhost:11434" typed here
+    # behaves exactly as it does everywhere else, and try the same IPv4 fallback.
     try:
-        with urllib.request.urlopen(url, timeout=timeout) as resp:
-            data = json.loads(resp.read().decode("utf-8", errors="ignore"))
-        names = sorted(
-            m["name"] for m in data.get("models", [])
-            if isinstance(m, dict) and m.get("name")
-        )
-        return names, None
-    except Exception as exc:
-        return None, exc
+        from eli.integrations.ollama.client import candidate_hosts
+        bases = candidate_hosts(host)
+    except Exception:
+        bases = [(host or "http://127.0.0.1:11434").strip().rstrip("/")]
+    last = None
+    for base in bases:
+        try:
+            with urllib.request.urlopen(base + "/api/tags", timeout=timeout) as resp:
+                data = json.loads(resp.read().decode("utf-8", errors="ignore"))
+            names = sorted(
+                m["name"] for m in data.get("models", [])
+                if isinstance(m, dict) and m.get("name")
+            )
+            return names, None
+        except Exception as exc:
+            last = exc
+    return None, last
 
 
 def _ollama_unreachable_message(host: str, err) -> str:
-    """Accurate 'Ollama unreachable' guidance. Loopback is ALWAYS permitted by
-    NetGuard even offline (netguard._is_local_host), so a localhost Ollama needs
-    no Net toggle — the only advice there is to start `ollama serve`. Only a
-    non-loopback (LAN/remote) host is blocked while the Net toggle is off."""
-    h = (host or "").lower()
+    """Accurate, OS-specific 'Ollama unreachable' guidance.
+
+    Loopback is always permitted by NetGuard, and a host the owner configured is
+    registered as a deliberate local service, so the Net toggle is never the
+    answer here — saying otherwise just sent people down the wrong path. What
+    actually helps is per-OS instructions for starting Ollama, and (for a remote
+    box) the two things that really do block it: the server binding only to
+    localhost, and the firewall.
+    """
+    try:
+        from eli.integrations.ollama.client import install_hint, normalise_host
+        shown, hint = normalise_host(host), install_hint()
+    except Exception:
+        shown, hint = (host or "http://127.0.0.1:11434"), "Install Ollama from https://ollama.com"
+    h = shown.lower()
     is_loopback = any(x in h for x in ("localhost", "127.", "::1", "0.0.0.0"))
     if is_loopback:
         return (
-            f"Could not reach Ollama at {host}.\n\n"
-            "Start it with:  ollama serve\n"
-            "(localhost works offline — the Net toggle can stay OFF; ELI always "
-            f"allows loopback.)\n\n{err}"
+            f"Could not reach Ollama at {shown}.\n\n"
+            f"{hint}\n\n"
+            "This is a local address, so ELI's offline-by-default guard is not the "
+            f"problem — the Net toggle can stay OFF.\n\n{err}"
         )
     return (
-        f"Could not reach Ollama at {host}.\n\n"
-        "This is a non-loopback address, so ELI's offline-by-default guard blocks it "
-        "while the Net toggle is OFF. Turn the Net toggle ON (or run Ollama on "
-        f"localhost) and retry.\n\n{err}"
+        f"Could not reach Ollama at {shown}.\n\n"
+        "ELI allows this host (a machine you configured counts as a local service, "
+        "like a LAN broker), so check the server instead:\n"
+        "  1. Ollama must listen beyond localhost — start it with "
+        "OLLAMA_HOST=0.0.0.0:11434 on that machine.\n"
+        "  2. Its firewall must allow port 11434.\n"
+        f"  3. Confirm the address and port are right.\n\n{err}"
     )
 
 
