@@ -29,40 +29,48 @@ CHAR_PREFIX = "char:"
 
 # Built-in character presets. `filters` is a raw ffmpeg -af chain; pitch is in
 # semitones (±), speed is a tempo multiplier. `base` is the ideal Piper voice;
-# `fallback` is a voice that is ALWAYS in the shipped pack, used when `base` isn't
-# installed. This matters because the nicest matches for HAL/TARS/Rick
-# (lessac/joe/ryan) are license-restricted (Blizzard-uncleared / CC-BY-NC-SA) or
-# absent, so they can't be bundled — without a fallback a missing base fell through
-# to whatever .onnx sorted first (a Czech voice), garbling the character. The
-# effect chain carries most of the character regardless of the base voice; a user
-# who downloads the ideal base (for personal use) gets it automatically.
+# `fallback` is an ORDERED list of stand-ins tried when `base` isn't installed.
+#
+# Why a chain rather than one id: the nicest matches for HAL/TARS/Rick
+# (lessac/joe/ryan) are licence-restricted (Blizzard-uncleared / CC-BY-NC-SA) or
+# not in the pack, so they can't be bundled — and which voices a given box
+# actually has varies (an install may be missing configs, or the user may have
+# pruned voices). Without a chain, a missing base fell through to whatever .onnx
+# sorted first — a Czech voice — garbling the character. Every candidate is
+# gender-matched so the character never flips sex; the effect chain carries most
+# of the personality regardless of base. A user who downloads the ideal base (for
+# personal use, via Settings ▸ Get more voices) gets it automatically.
+_MALE_FALLBACKS = ["en_GB-northern_english_male-medium", "en_GB-alan-medium",
+                   "en_US-hfc_male-medium", "en_US-joe-medium", "en_US-kusal-medium"]
+_FEMALE_FALLBACKS = ["en_US-amy-medium", "en_US-hfc_female-medium",
+                     "en_GB-jenny_dioco-medium", "en_US-kathleen-low"]
 _BUILTIN: Dict[str, Dict[str, Any]] = {
     "hal": {
-        "base": "en_US-lessac-medium", "fallback": "en_GB-northern_english_male-medium",
+        "base": "en_US-lessac-medium", "fallback": _MALE_FALLBACKS,
         "pitch": -1.0, "speed": 0.93,
         "filters": "aecho=0.8:0.88:55:0.28,lowpass=f=3200,acompressor=threshold=-18dB:ratio=3",
         "desc": "HAL 9000 — calm, smooth, quietly menacing",
     },
     "tars": {
-        "base": "en_US-joe-medium", "fallback": "en_GB-northern_english_male-medium",
+        "base": "en_US-joe-medium", "fallback": _MALE_FALLBACKS,
         "pitch": -2.0, "speed": 0.98,
         "filters": "tremolo=f=55:d=0.35,aphaser=type=t:speed=0.5,highpass=f=120,acompressor=threshold=-16dB:ratio=4",
         "desc": "TARS — deadpan robotic, metallic buzz",
     },
     "rick": {
-        "base": "en_US-ryan-high", "fallback": "en_GB-northern_english_male-medium",
+        "base": "en_US-ryan-high", "fallback": _MALE_FALLBACKS,
         "pitch": 1.0, "speed": 1.03,
         "filters": "vibrato=f=6.5:d=0.35,tremolo=f=8:d=0.2,acompressor=threshold=-12dB:ratio=6,treble=g=4",
         "desc": "Rick — erratic, wobbly, a little fried",
     },
     "glados": {
-        "base": "en_US-amy-medium", "fallback": "en_US-amy-medium",
+        "base": "en_US-amy-medium", "fallback": _FEMALE_FALLBACKS,
         "pitch": -1.0, "speed": 0.97,
         "filters": "aphaser=type=t:speed=0.3,flanger=depth=4:speed=0.2,lowpass=f=3500,highpass=f=180",
         "desc": "GLaDOS — flat, synthetic, metallic",
     },
     "jarvis": {
-        "base": "en_GB-alan-medium", "fallback": "en_GB-alan-medium",
+        "base": "en_GB-alan-medium", "fallback": ["en_GB-alan-medium"] + _MALE_FALLBACKS,
         "pitch": 0.0, "speed": 0.98,
         "filters": "treble=g=3,aecho=0.9:0.9:40:0.15,highpass=f=90",
         "desc": "JARVIS — refined British, subtle sheen",
@@ -117,6 +125,24 @@ def list_characters() -> "list[Dict[str, Any]]":
 
 def get_preset(name: str) -> Optional[Dict[str, Any]]:
     return _load_all().get(str(name or "").lower().replace(CHAR_PREFIX, "", 1))
+
+
+def resolve_base_voice(spec: Dict[str, Any], installed, default: str = "") -> str:
+    """Best *installed* base voice for a character preset.
+
+    Order: the ideal ``base`` → each ``fallback`` in turn → ``default``. ``installed``
+    is the set of runnable voice names (tts_router.list_voices() already filters out
+    models with no config), so this can never select an unusable or foreign-language
+    voice. ``fallback`` accepts a single id or an ordered list.
+    """
+    have = set(installed or ())
+    fb = (spec or {}).get("fallback") or []
+    candidates = [(spec or {}).get("base")] + ([fb] if isinstance(fb, str) else list(fb))
+    for cand in candidates:
+        name = str(cand or "").strip()
+        if name and name in have:
+            return name
+    return default
 
 
 def save_preset(name: str, spec: Dict[str, Any]) -> Dict[str, Any]:

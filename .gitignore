@@ -192,6 +192,7 @@ blueprints/*.pdf
 !blueprints/new_user_install_guide.pdf
 !blueprints/full_setup_guide.pdf
 !blueprints/portable_scripts_guide.pdf
+!blueprints/common_errors_and_fixes.pdf
 
 # Regenerated on every install/run — tracked churn on one timestamp; built fresh into packages.
 /capability_manifest.json
