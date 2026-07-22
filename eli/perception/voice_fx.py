@@ -28,30 +28,42 @@ log = logging.getLogger(__name__)
 CHAR_PREFIX = "char:"
 
 # Built-in character presets. `filters` is a raw ffmpeg -af chain; pitch is in
-# semitones (±), speed is a tempo multiplier. Base voices are from the Piper catalog.
+# semitones (±), speed is a tempo multiplier. `base` is the ideal Piper voice;
+# `fallback` is a voice that is ALWAYS in the shipped pack, used when `base` isn't
+# installed. This matters because the nicest matches for HAL/TARS/Rick
+# (lessac/joe/ryan) are license-restricted (Blizzard-uncleared / CC-BY-NC-SA) or
+# absent, so they can't be bundled — without a fallback a missing base fell through
+# to whatever .onnx sorted first (a Czech voice), garbling the character. The
+# effect chain carries most of the character regardless of the base voice; a user
+# who downloads the ideal base (for personal use) gets it automatically.
 _BUILTIN: Dict[str, Dict[str, Any]] = {
     "hal": {
-        "base": "en_US-lessac-medium", "pitch": -1.0, "speed": 0.93,
+        "base": "en_US-lessac-medium", "fallback": "en_GB-northern_english_male-medium",
+        "pitch": -1.0, "speed": 0.93,
         "filters": "aecho=0.8:0.88:55:0.28,lowpass=f=3200,acompressor=threshold=-18dB:ratio=3",
         "desc": "HAL 9000 — calm, smooth, quietly menacing",
     },
     "tars": {
-        "base": "en_US-joe-medium", "pitch": -2.0, "speed": 0.98,
+        "base": "en_US-joe-medium", "fallback": "en_GB-northern_english_male-medium",
+        "pitch": -2.0, "speed": 0.98,
         "filters": "tremolo=f=55:d=0.35,aphaser=type=t:speed=0.5,highpass=f=120,acompressor=threshold=-16dB:ratio=4",
         "desc": "TARS — deadpan robotic, metallic buzz",
     },
     "rick": {
-        "base": "en_US-ryan-high", "pitch": 1.0, "speed": 1.03,
+        "base": "en_US-ryan-high", "fallback": "en_GB-northern_english_male-medium",
+        "pitch": 1.0, "speed": 1.03,
         "filters": "vibrato=f=6.5:d=0.35,tremolo=f=8:d=0.2,acompressor=threshold=-12dB:ratio=6,treble=g=4",
         "desc": "Rick — erratic, wobbly, a little fried",
     },
     "glados": {
-        "base": "en_US-amy-medium", "pitch": -1.0, "speed": 0.97,
+        "base": "en_US-amy-medium", "fallback": "en_US-amy-medium",
+        "pitch": -1.0, "speed": 0.97,
         "filters": "aphaser=type=t:speed=0.3,flanger=depth=4:speed=0.2,lowpass=f=3500,highpass=f=180",
         "desc": "GLaDOS — flat, synthetic, metallic",
     },
     "jarvis": {
-        "base": "en_GB-alan-medium", "pitch": 0.0, "speed": 0.98,
+        "base": "en_GB-alan-medium", "fallback": "en_GB-alan-medium",
+        "pitch": 0.0, "speed": 0.98,
         "filters": "treble=g=3,aecho=0.9:0.9:40:0.15,highpass=f=90",
         "desc": "JARVIS — refined British, subtle sheen",
     },
