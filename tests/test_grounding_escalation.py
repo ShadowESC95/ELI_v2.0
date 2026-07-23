@@ -66,15 +66,54 @@ def test_real_facts_still_external_despite_advice_gate():
 def test_external_online_escalates_to_web(monkeypatch):
     monkeypatch.setattr(C, "network_allowed", lambda: True)
     import eli.execution.executor_enhanced as E
+    # A realistic result snippet echoes the query terms (that's what the engine
+    # matched on), so it clears the relevance floor and is synthesised.
     monkeypatch.setattr(
         E, "execute",
-        lambda a, args=None: ({"web_grounded": True, "results": [1],
-                               "content": "Wiki: Marshall Bruce Mathers III"}
+        lambda a, args=None: ({"web_grounded": True,
+                               "results": [{"title": "Eminem - Wikipedia",
+                                            "body": "Marshall Bruce Mathers III is the "
+                                                    "real name of the rapper Eminem."}],
+                               "content": "Wiki: Eminem's real name is Marshall Bruce Mathers III"}
                               if a == "WEB_SEARCH" else {}))
     r = G.escalate(_FakeEngine(), "what is eminems real name",
                    {"action": "CHAT"}, _FakeBus(0.30))
     assert r is not None and r["meta"]["response_mode"] == "escalation_web"
     assert r["grounded"] is True
+
+
+def test_offtopic_web_results_hedge_instead_of_confabulating(monkeypatch):
+    """DuckDuckGo returning unrelated pages must NOT be synthesised into a confident
+    non-answer — the 'Best Buy doesn't offer breakfast recommendations' failure.
+    The turn hedges honestly, and says it searched (never 'want me to search?')."""
+    monkeypatch.setattr(C, "network_allowed", lambda: True)
+    import eli.execution.executor_enhanced as E
+    monkeypatch.setattr(
+        E, "execute",
+        lambda a, args=None: ({"web_grounded": True,
+                               "results": [{"title": "Best Buy Official Online Store",
+                                            "body": "Shop electronics, laptops and deals."}],
+                               "content": "1. Best Buy Official Online Store — Shop electronics"}
+                              if a == "WEB_SEARCH" else {}))
+    r = G.escalate(_FakeEngine(), "who is the founder of Acme Dynamics Ltd",
+                   {"action": "CHAT"}, _FakeBus(0.20))
+    assert r is not None and r["meta"]["response_mode"] == "ungrounded_hedge"
+    assert r["grounded"] is False
+    assert "searched" in r["content"].lower()
+    assert "want me to try a web search" not in r["content"].lower()
+
+
+def test_web_relevance_floor_separates_junk_from_real():
+    q = "who is the founder of Acme Dynamics"
+    junk = [{"title": "Best Buy", "body": "Shop electronics and appliances today"}]
+    real = [{"title": "Acme Dynamics", "body": "Acme Dynamics was founded by Jane Roe"}]
+    assert G.web_evidence_relevance(q, junk) < G._web_relevance_floor()
+    assert G.web_evidence_relevance(q, real) >= G._web_relevance_floor()
+    # one on-topic result among junk is enough (max over results)
+    assert G.web_evidence_relevance(q, junk + real) >= G._web_relevance_floor()
+    # fails open: no query terms, or non-dict results, never wrongly block
+    assert G.web_evidence_relevance("", junk) == 1.0
+    assert G.web_evidence_relevance(q, [1, None, "x"]) == 0.0
 
 
 def test_external_offline_hedges(monkeypatch):

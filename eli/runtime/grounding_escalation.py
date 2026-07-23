@@ -278,13 +278,54 @@ def distill_query(text: str) -> str:
     return q[:120] or (text or "").strip()[:120]
 
 
+def _web_relevance_floor() -> float:
+    """Min fraction of query content-terms a web result must contain to be trusted
+    as on-topic evidence. Below it, the search returned unrelated pages and
+    synthesising them confabulates (the 'best way to eat breakfast' → 'Best Buy
+    doesn't offer breakfast recommendations' case). Deliberately low so only
+    clearly-off-topic evidence is rejected; genuine results overlap far more."""
+    try:
+        return float(os.environ.get("ELI_WEB_RELEVANCE_FLOOR", "0.34"))
+    except (TypeError, ValueError):
+        return 0.34
+
+
+def web_evidence_relevance(query: str, results: Any) -> float:
+    """Best per-result fraction of the query's content-terms found in a result's
+    title/snippet (0..1). Uses the canonical `term_overlap`; max over results, so
+    one solidly on-topic hit is enough. Fails OPEN (returns 1.0) if scoring is
+    unavailable or the query has no content terms — never blocks on a tooling gap."""
+    try:
+        from eli.cognition.scoring import term_overlap, tokenize
+    except Exception:
+        return 1.0
+    if not tokenize(query):
+        return 1.0
+    best = 0.0
+    for item in (results or []):
+        if not isinstance(item, dict):
+            continue
+        text = " ".join(str(item.get(k) or "")
+                        for k in ("title", "name", "body", "snippet", "href", "url"))
+        ov = term_overlap(query, text)
+        if ov > best:
+            best = ov
+    return best
+
+
 # --------------------------------------------------------------------------- #
 # Hedge floor                                                                 #
 # --------------------------------------------------------------------------- #
-def _hedge(domain: str, online: bool) -> str:
+def _hedge(domain: str, online: bool, *, searched: bool = False) -> str:
     if domain == "external" and not online:
         return ("I can't verify that right now — the net's off, and I won't guess at a "
                 "fact I can't back up. Turn the Net toggle on and I'll look it up.")
+    if domain == "external" and searched:
+        # We DID search; the results just didn't answer it. Don't offer to "try a
+        # web search" (we just did), and don't synthesise the off-topic results.
+        return ("I searched the web but couldn't find anything that actually answers that, "
+                "so I'd rather not guess. Try rephrasing it or giving me a more specific "
+                "detail, and I'll look again.")
     if domain == "local":
         return ("I don't have grounded evidence for that in my own memory/runtime, and I "
                 "won't invent it. If you point me at the file or detail, I'll check properly.")
@@ -367,6 +408,7 @@ def escalate(
     log.debug(f"[ESCALATION] factual={is_fact} domain={domain} grounding={grounding:.2f} "
               f"online={online} tiers={tiers}")
 
+    web_searched = False  # did the web tier actually run? → hedge wording below
     for tier in tiers:
         try:
             if tier == "web":
@@ -375,14 +417,25 @@ def escalate(
                 from eli.execution.executor_enhanced import execute as _execute
                 q = distill_query(user_input)
                 res = _execute("WEB_SEARCH", {"query": q})
+                web_searched = True
                 if isinstance(res, dict) and res.get("web_grounded") and res.get("results"):
-                    evidence = str(res.get("content") or "")
-                    answer = engine._synthesize_answer(
-                        evidence, user_input, reasoning_mode=reasoning_mode,
-                        action="WEB_SEARCH")
-                    if answer and not _is_degenerate(answer):
-                        return _result(answer, grounded=True, mode="escalation_web", trace=trace)
-                # web reachable but no usable results → hedge
+                    # Relevance gate: DuckDuckGo can return topically-unrelated pages
+                    # for an obscure/ambiguous query. Synthesising those produces a
+                    # confident non-answer ("Best Buy doesn't offer breakfast
+                    # recommendations"), so reject clearly off-topic evidence and hedge
+                    # honestly instead. Genuine results overlap the query far more.
+                    rel = web_evidence_relevance(q, res.get("results") or [])
+                    if rel >= _web_relevance_floor():
+                        evidence = str(res.get("content") or "")
+                        answer = engine._synthesize_answer(
+                            evidence, user_input, reasoning_mode=reasoning_mode,
+                            action="WEB_SEARCH")
+                        if answer and not _is_degenerate(answer):
+                            return _result(answer, grounded=True, mode="escalation_web", trace=trace)
+                    else:
+                        log.debug(f"[ESCALATION] web results off-topic (relevance={rel:.2f} "
+                                  f"< floor {_web_relevance_floor():.2f}) → honest hedge")
+                # web reachable but no usable/relevant results → hedge
                 continue
 
             if tier == "local_deepen":
@@ -427,7 +480,7 @@ def escalate(
                 continue
 
             if tier == "hedge":
-                msg = _hedge(domain, online)
+                msg = _hedge(domain, online, searched=web_searched)
                 return _result(msg, grounded=False, mode="ungrounded_hedge", trace=trace)
         except Exception as _tier_err:
             log.debug(f"[ESCALATION] tier {tier} failed: {_tier_err}")
