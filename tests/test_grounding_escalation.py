@@ -32,6 +32,37 @@ def test_classify_factual_domains():
         assert G.classify_factual(t) == (False, "none"), t
 
 
+def test_advice_questions_are_not_checkable_facts():
+    """Advice/how-to questions must never be classed external — else an offline turn
+    refuses with 'net's off, can't verify' and an online turn web-searches them
+    (user-reported: 'what is the best way to eat breakfast' was refused, then a junk
+    web snippet 'Best Buy doesn't offer breakfast recommendations' was surfaced)."""
+    for t in ("What is the best way to eat breakfast!",
+              "what is the best way to eat lunch?",
+              "what's the best way to learn guitar",
+              "how should I structure my morning",
+              "best way to cook rice",
+              "how do I get better at chess",
+              "how to make coffee",
+              "what should I have for dinner",
+              "tips for better sleep",
+              "should I use tabs or spaces",
+              "help me understand recursion"):
+        assert G.classify_factual(t) == (False, "none"), t
+
+
+def test_real_facts_still_external_despite_advice_gate():
+    """The advice gate must not swallow genuine third-party facts."""
+    for t in ("who is the president of France",
+              "when was the Eiffel tower built",
+              "what is the capital of Japan",
+              "how old is Tom Hanks",
+              "how many moons does Mars have",
+              "who won the best actor oscar in 2020",
+              "what is the population of Tokyo"):
+        assert G.classify_factual(t) == (True, "external"), t
+
+
 def test_external_online_escalates_to_web(monkeypatch):
     monkeypatch.setattr(C, "network_allowed", lambda: True)
     import eli.execution.executor_enhanced as E
