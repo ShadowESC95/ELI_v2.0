@@ -208,6 +208,10 @@ class StartupModelSelectionDialog(QDialog):
         form.addRow("", browse_btn)
 
         self.ollama_host_input = QLineEdit(ollama_host or "http://localhost:11434")
+        self.ollama_host_input.setToolTip(
+            "Local by default. Point ELI at another machine if you like — type it any way "
+            "(localhost:11434, 127.0.0.1, 192.168.1.20); ELI fills in the scheme and port. "
+            "Works on Windows, macOS and Linux, with the Net toggle off.")
         form.addRow("Ollama host", self.ollama_host_input)
         self.ollama_model_combo = QComboBox()
         self.ollama_model_combo.setEditable(True)
@@ -717,12 +721,15 @@ class FirstBootWizard(QDialog):
         v.addWidget(title)
         body = QLabel(
             "ELI runs entirely on your own machine — no cloud, no accounts.\n\n"
-            "A fresh install also builds the **full database architecture** (blank slate — "
-            "every table exists, no personal memories yet).\n\n"
+            "A fresh install builds the full database architecture (blank slate — every "
+            "table exists, no personal memories yet).\n\n"
             "Next we'll set up three local assets:\n"
-            "   •   **Chat model** — the brain (pick/download on step 2)\n"
-            "   •   **Embedder** — nomic ~80 MiB → `models/embeddings/` (memory/RAG; auto)\n"
-            "   •   **Voice** — `en_US-amy-medium` Piper + whisper STT (auto)\n\n"
+            "   •  Chat model — the brain. Pick a GGUF file, download one, or use Ollama "
+            "on step 2. Ollama works on Windows, macOS and Linux, local or on your LAN.\n"
+            "   •  Embedder — nomic ~80 MiB (memory / RAG; automatic).\n"
+            "   •  Voice — Piper speech out + Whisper listening (automatic). More voices, "
+            "accents and character voices (HAL, JARVIS, GLaDOS…) are downloadable later "
+            "in Settings > Voice.\n\n"
             "Pick a chat model, confirm hardware, and you're in."
         )
         body.setWordWrap(True)
@@ -848,8 +855,13 @@ class FirstBootWizard(QDialog):
         self._ollama_widget = QWidget()
         ov = QVBoxLayout(self._ollama_widget)
         ov.setContentsMargins(0, 8, 0, 0)
-        ov.addWidget(QLabel("Ollama host:"))
+        ov.addWidget(QLabel("Ollama host (local by default; a LAN IP or host:port also works):"))
         self._wiz_ollama_host = QLineEdit("http://localhost:11434")
+        self._wiz_ollama_host.setToolTip(
+            "Works on Windows, macOS and Linux. Leave the default for a normal local Ollama, "
+            "or point ELI at another machine — type it any way (localhost:11434, 127.0.0.1, "
+            "192.168.1.20); ELI fills in the scheme and port. A host you set here is treated "
+            "as a local service, so it works with the Net toggle off.")
         ov.addWidget(self._wiz_ollama_host)
         ov.addWidget(QLabel("Model (pick one you already have, or type a name):"))
         # Editable combo so installed models are SELECTABLE (was a blank text box
