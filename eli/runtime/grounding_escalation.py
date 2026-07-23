@@ -99,6 +99,27 @@ _OPINION_RE = re.compile(
     r"\b(do you (?:like|think|feel|prefer|reckon|believe)|what do you think"
     r"|your (?:opinion|favourite|favorite|take|thoughts)|how do you feel"
     r"|would you rather)\b", re.I)
+# Advice / how-to / recommendation questions. These are answerable from the
+# model's own general knowledge and must NEVER be treated as a checkable external
+# fact — a low-grounding turn here should get a normal CHAT answer, not the
+# "net's off, I can't verify that" refusal. Root of a user-reported bug: "what IS
+# the best way to eat breakfast" matched the who/what…is fact pattern (the
+# apostrophe form "what's…" accidentally didn't), got classed external, and was
+# refused offline — and, once online, surfaced a junk web snippet ("Best Buy
+# doesn't offer breakfast recommendations"). "how many / how old / who won" and
+# real facts stay external — those markers aren't advice.
+_ADVICE_RE = re.compile(
+    r"\b(?:best|better|good|easiest|fastest|quickest|right|proper|healthiest|"
+    r"cheapest|safest|ideal|optimal)\s+way\s+to\b"
+    r"|\bhow\s+(?:do|should|can|would|could|might)\s+(?:i|we|you|one|someone)\b"
+    r"|\bhow\s+to\b"
+    r"|\bwhat(?:'?s| is| are)\s+(?:a\s+|the\s+|some\s+)?(?:good|best|better|easiest|"
+    r"recommended)\s+way(?:s)?\s+to\b"
+    r"|\bwhat\s+should\s+(?:i|we)\b"
+    r"|\b(?:tips|advice|guidance|suggestions?|recommendations?)\b\s*(?:for|on|about|to)\b"
+    r"|\bshould\s+i\b"
+    r"|\bhelp\s+me\s+(?:with|to|understand)\b",
+    re.I)
 _COMMAND_RE = re.compile(
     r"^(play|pause|stop|next|previous|skip|open|close|volume|mute|unmute|shuffle"
     r"|search|summari|analyse|analyze|create|generate|write|fix|run|set|remind"
@@ -223,6 +244,7 @@ def classify_factual(text: str) -> Tuple[bool, str]:
     low_clean = _INTENSIFIER_STRIP_RE.sub(" ", low)
     low_clean = re.sub(r"\s+", " ", low_clean).strip()
     if (_BANTER_RE.search(low_clean) or _OPINION_RE.search(low_clean)
+            or _ADVICE_RE.search(low_clean)
             or _COMMAND_RE.search(low_clean) or _META_SELF_RE.search(low_clean)
             or _RELATIONAL_VENT_RE.search(low_clean)
             or _CONV_META_RE.search(low_clean)):
