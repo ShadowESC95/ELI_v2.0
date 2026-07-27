@@ -2249,6 +2249,9 @@ SUPPORTED_ACTIONS = [
     'SHUFFLE_MEDIA',
     'SMART_HOME',
     'SPEAK',
+    'LIST_VOICES',
+    'DOWNLOAD_VOICE',
+    'SET_VOICE',
     'STOP_MEDIA',
     'NOW_PLAYING',
     'SUMMARIZE_FILE',
@@ -10452,6 +10455,110 @@ def _execute_impl(action: str, args: Optional[Dict[str, Any]] = None) -> Dict[st
             maybe_speak(text, enabled=True)
             msg = f"Speaking: {text[:80]}"
             return {"ok": True, "action": a, "content": msg, "response": msg}
+        except Exception as e:
+            return {"ok": False, "action": a, "error": str(e), "content": str(e), "response": str(e)}
+
+    # ---- LIST_VOICES ----
+    # Enumerate installed voices + a summary of what's downloadable, so the voice
+    # library (previously reachable only via Settings ▸ Voice) is answerable by voice.
+    if a == "LIST_VOICES":
+        try:
+            from eli.perception.tts_router import list_voices, get_active_voice
+            installed = [v for v in (list_voices() or []) if not str(v).startswith("sys:")]
+            piper = [v for v in installed if not v.startswith(("char:", "clone:"))]
+            char = [v.replace("char:", "") for v in installed if v.startswith("char:")]
+            lines = [f"Active voice: {get_active_voice()}.",
+                     f"Installed ({len(piper)}): " + (", ".join(piper[:24]) or "none")]
+            if char:
+                lines.append("Character voices: " + ", ".join(char))
+            try:
+                from eli.runtime.voice_assets import list_available_voices
+                cat = list_available_voices()
+                dl = [r for r in cat if not r["present"]]
+                langs = sorted({r["language_name"] for r in cat if r.get("language_name")})
+                en = [r for r in dl if str(r.get("language", "")).startswith("en")]
+                if dl:
+                    lines.append(
+                        f"Downloadable: {len(dl)} more"
+                        + (f" across {len(langs)} languages" if langs else "")
+                        + (f" ({len(en)} English accents)" if en else "")
+                        + ". Say e.g. \"download a British voice\", or open Settings > Voice.")
+            except Exception:
+                log.debug("[LIST_VOICES] catalog summary failed", exc_info=True)
+            msg = "\n".join(lines)
+            return {"ok": True, "action": a, "content": msg, "response": msg}
+        except Exception as e:
+            return {"ok": False, "action": a, "error": str(e), "content": str(e), "response": str(e)}
+
+    # ---- DOWNLOAD_VOICE ----
+    # Resolve a spoken request ("download a Scottish voice", "get en_GB-alan") to a
+    # concrete voice, fetch it (md5-verified, netguard-gated) and make it active.
+    if a == "DOWNLOAD_VOICE":
+        try:
+            q = (args.get("query") or args.get("voice") or args.get("text")
+                 or args.get("name") or args.get("message") or "").strip()
+            from eli.runtime.voice_assets import (
+                resolve_voice_query, download_voice, list_available_voices)
+            from eli.perception.tts_router import set_active_voice
+            r = resolve_voice_query(q)
+            vid = r.get("voice") or ""
+            if vid.startswith("char:"):
+                # Character voices are effect chains — nothing to fetch; just switch.
+                set_active_voice(vid)
+                msg = f"Switched to the {vid.replace('char:', '').upper()} character voice."
+                return {"ok": True, "action": a, "voice": vid, "content": msg, "response": msg}
+            if not vid:
+                try:
+                    sample = ", ".join(x["id"] for x in list_available_voices(language="en")[:6])
+                except Exception:
+                    sample = "en_US-amy-medium"
+                msg = (f"I couldn't tell which voice you meant from \"{q}\". Try an accent or a "
+                       f"name — e.g. \"download a British voice\". Options include: {sample}.")
+                return {"ok": False, "action": a, "content": msg, "response": msg}
+            res = download_voice(vid, mirror=True)
+            if res.get("ok"):
+                try:
+                    set_active_voice(vid)
+                except Exception:
+                    log.debug("[DOWNLOAD_VOICE] set-active after fetch failed", exc_info=True)
+                where = "already installed" if res.get("already_present") else "downloaded"
+                note = (f" (picked {vid} for that accent)"
+                        if r.get("kind") == "accent" and len(r.get("matches", [])) > 1 else "")
+                msg = f"Voice {vid} {where} and set as the active voice{note}."
+                return {"ok": True, "action": a, "voice": vid, "content": msg, "response": msg}
+            msg = f"Couldn't download {vid}: {res.get('error') or 'download failed'}."
+            return {"ok": False, "action": a, "voice": vid, "content": msg, "response": msg}
+        except Exception as e:
+            return {"ok": False, "action": a, "error": str(e), "content": str(e), "response": str(e)}
+
+    # ---- SET_VOICE ----
+    # Switch the active TTS voice to an installed one (distinct from persona tone,
+    # which is SET_COMMUNICATION_STYLE). Offers to download when it isn't installed.
+    if a == "SET_VOICE":
+        try:
+            q = (args.get("query") or args.get("voice") or args.get("text")
+                 or args.get("name") or args.get("message") or "").strip()
+            from eli.runtime.voice_assets import resolve_voice_query
+            from eli.perception.tts_router import list_voices, set_active_voice
+            installed = set(list_voices() or [])
+            r = resolve_voice_query(q)
+            vid = r.get("voice") or ""
+            if vid and vid not in installed and not vid.startswith("char:"):
+                alt = next((m for m in r.get("matches", []) if m in installed), "")
+                if alt:
+                    vid = alt
+                else:
+                    msg = (f"I don't have {vid} installed yet — say \"download a {q}\" "
+                           f"and I'll fetch it and switch to it.")
+                    return {"ok": False, "action": a, "voice": vid, "content": msg, "response": msg}
+            if not vid:
+                msg = (f"I couldn't match \"{q}\" to a voice. Say \"list voices\" to see what's "
+                       f"installed, or \"download a British voice\" to add one.")
+                return {"ok": False, "action": a, "content": msg, "response": msg}
+            set_active_voice(vid)
+            label = vid.replace("char:", "").upper() if vid.startswith("char:") else vid
+            msg = f"Voice set to {label}."
+            return {"ok": True, "action": a, "voice": vid, "content": msg, "response": msg}
         except Exception as e:
             return {"ok": False, "action": a, "error": str(e), "content": str(e), "response": str(e)}
 

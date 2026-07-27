@@ -922,6 +922,19 @@ def _route_set_communication_style(raw: str, low: str) -> Optional[Dict[str, Any
         if m:
             style = m.group(1).strip().strip('."\'!?,').strip()
             if len(style) >= 2:
+                # Disambiguate the actual SPOKEN voice from persona TONE. "use the
+                # alan voice" / "use the HAL voice" name a real TTS voice, not a
+                # tone — route those to SET_VOICE so they switch the voice instead
+                # of setting a persona style. A phrase that ISN'T a real voice
+                # ("use a sarcastic voice", "speak formally") stays persona tone.
+                if _re.search(r"\bvoice\b", low):
+                    try:
+                        from eli.runtime.voice_assets import resolve_voice_query
+                        if resolve_voice_query(raw).get("voice"):
+                            return _mk("SET_VOICE", {"query": raw}, 0.95,
+                                       matched_by="voice.set.persona_disambig")
+                    except Exception:
+                        log.debug("voice disambig in persona route failed", exc_info=True)
                 return _mk(
                     "SET_COMMUNICATION_STYLE",
                     {"style": style},
@@ -1779,6 +1792,45 @@ def route(text: str) -> Dict[str, Any]:
        re.search(r"\b(my\s+)?voice\b.*\b(train|profile|baseline|tone|emotion)\b", low):
         if "wake" not in low:
             return _mk("TRAIN_VOICE", {}, 0.93, matched_by="voice.train_profile")
+
+    # ── Voice library: list / download / switch the TTS voice ──────────────────
+    # Distinct from persona TONE (SET_COMMUNICATION_STYLE): this changes the actual
+    # spoken voice/accent and can fetch new ones from the Piper library. Placed in
+    # this deterministic region so a concrete voice request isn't swallowed by the
+    # later persona-style route ("use a X voice"). Runs AFTER wake/train above, so
+    # "train my voice" and "voice diagnostics" have already returned.
+    if re.search(r"\bvoices?\b|\baccents?\b", low):
+        _has_dl = bool(re.search(r"\b(download|install|fetch|add|grab)\b", low))
+        # LIST — asking what's available (no fetch/switch verb)
+        if (re.search(r"\b(what|which|list|show|available)\b", low)
+                and not _has_dl
+                and not re.search(r"\b(use|switch|change|set|make)\b", low)):
+            return _mk("LIST_VOICES", {}, 0.9, matched_by="voice.list")
+        # DOWNLOAD — explicit fetch ("download a British voice", "get me a Scottish accent")
+        if _has_dl or re.search(r"\bget\s+(?:me\s+)?(?:a|an|the|some)\b.*\b(voice|accent)\b", low):
+            return _mk("DOWNLOAD_VOICE", {"query": raw}, 0.92, matched_by="voice.download")
+        # SET — only when it resolves to a real voice, so "change your voice to
+        # sarcastic" still falls through to persona tone (SET_COMMUNICATION_STYLE).
+        if re.search(r"\b(use|switch|change|set|make)\b", low):
+            try:
+                from eli.runtime.voice_assets import resolve_voice_query
+                if resolve_voice_query(raw).get("voice"):
+                    return _mk("SET_VOICE", {"query": raw}, 0.9, matched_by="voice.set")
+            except Exception:
+                log.debug("voice.set resolve failed", exc_info=True)
+        return None  # mentions "voice/accent" but no actionable verb → let CHAT handle
+
+    # A bare install/download of a named voice id/accent with NO "voice" word,
+    # e.g. "install en_US-amy-medium" or "download en_GB-alan". Gated on the query
+    # actually resolving to a catalog voice, so "install firefox" is unaffected.
+    if re.search(r"\b(download|install|fetch|add|get)\b", low):
+        try:
+            from eli.runtime.voice_assets import resolve_voice_query
+            _vr = resolve_voice_query(raw)
+            if _vr.get("voice") and _vr.get("kind") in ("id", "name", "accent"):
+                return _mk("DOWNLOAD_VOICE", {"query": raw}, 0.9, matched_by="voice.download.byid")
+        except Exception:
+            log.debug("voice.download.byid resolve failed", exc_info=True)
 
     # ── Gaze engine control ────────────────────────────────────────────────────
     # Must sit before RUNTIME_AUDIT so "gaze status" / "gaze diagnostics" don't

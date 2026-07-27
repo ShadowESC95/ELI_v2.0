@@ -139,6 +139,9 @@ _add("Gaze (eye-tracking)", "GAZE_CLICK", "Click where the eyes rest", "“open�
 _add("Voice", "DICTATE", "Start/stop dictation into the active field", "“start dictation”", "“stop dictating”")
 _add("Voice", "TRANSCRIBE", "Transcribe an audio file", "“transcribe audio.wav”")
 _add("Voice", "SPEAK", "Speak text aloud (TTS)", "“say good morning”")
+_add("Voice", "LIST_VOICES", "List installed voices and what's downloadable (166 across 45 languages)", "“what voices do you have”", "“list voices”", "“which accents can I get”")
+_add("Voice", "DOWNLOAD_VOICE", "Download a voice/accent from the Piper library and switch to it", "“download a British voice”", "“get me a Scottish accent”", "“install en_US-amy-medium”")
+_add("Voice", "SET_VOICE", "Switch the active TTS voice/accent (distinct from persona tone)", "“use the alan voice”", "“switch your voice to amy”", "“use the HAL voice”")
 _add("Voice", "LISTEN_FOR_COMMAND", "Start listening for a voice command", "“listen” / the wake word “computer”")
 _add("Voice", "VOICE_DIAGNOSTICS", "Run voice/STT diagnostics", "“run voice diagnostics”", "“stt diagnostics”")
 
