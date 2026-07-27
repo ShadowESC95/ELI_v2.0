@@ -14,6 +14,7 @@ import hashlib
 import json
 import logging
 import os
+import re
 import shutil
 import time
 from pathlib import Path
@@ -387,6 +388,78 @@ def repair_voice_configs(mirror: bool = True) -> Dict[str, Any]:
         (repaired if res.get("ok") else failed).append(
             vid if res.get("ok") else {"voice": vid, "error": res.get("error")})
     return {"ok": not failed, "repaired": repaired, "failed": failed}
+
+
+# Accent / language words a user might say, mapped to a locale prefix used to
+# filter the catalog. Keeps the conversational voice actions (DOWNLOAD_VOICE /
+# SET_VOICE) from hardcoding voice ids — "get me a Scottish voice" resolves here.
+_ACCENT_HINTS = {
+    "british": "en_GB", "uk": "en_GB", "england": "en_GB", "english accent": "en_GB",
+    "scottish": "en_GB", "scotland": "en_GB",  # narrowed to a Scottish voice below
+    "american": "en_US", "us": "en_US", "usa": "en_US", "united states": "en_US",
+    "irish": "en_IE", "australian": "en_AU",
+    "french": "fr", "german": "de", "spanish": "es", "italian": "it",
+    "dutch": "nl", "polish": "pl", "russian": "ru", "chinese": "zh",
+    "portuguese": "pt", "czech": "cs",
+}
+_NAMED_ACCENT_VOICE = {  # a specific catalog voice for a narrower accent word
+    "scottish": "en_GB-alba-medium", "scotland": "en_GB-alba-medium",
+    "northern": "en_GB-northern_english_male-medium",
+}
+
+
+def resolve_voice_query(text: str) -> Dict[str, Any]:
+    """Turn a spoken voice request into a concrete choice, without hardcoding ids.
+
+    Returns ``{"voice": <id or "">, "matches": [ids…], "kind": ...}``. Resolution:
+    an exact/loose voice-name or character-name match wins; else an accent/language
+    word narrows the catalog; else empty (caller lists options). Character voices
+    (``char:hal``) are matched too, so "the HAL voice" works.
+    """
+    raw = str(text or "").strip().lower()
+    if not raw:
+        return {"voice": "", "matches": [], "kind": "none"}
+
+    # Character voices first ("hal", "jarvis", "glados"…).
+    try:
+        from eli.perception import voice_fx
+        for c in voice_fx.list_characters():
+            nm = str(c.get("name") or "").lower()
+            if nm and re.search(rf"\b{re.escape(nm)}\b", raw):
+                return {"voice": c["id"], "matches": [c["id"]], "kind": "character"}
+    except Exception:
+        log.debug("voice_fx match failed", exc_info=True)
+
+    rows = list_available_voices()
+    by_id = {r["id"].lower(): r["id"] for r in rows}
+    by_name = {}
+    for r in rows:
+        by_name.setdefault(str(r.get("name") or "").lower(), r["id"])
+
+    # Exact voice id, then a bare voice name ("amy", "alan", "thorsten").
+    for token in re.findall(r"[a-z0-9_]+", raw):
+        if token in by_id:
+            return {"voice": by_id[token], "matches": [by_id[token]], "kind": "id"}
+    for name, vid in by_name.items():
+        if name and re.search(rf"\b{re.escape(name)}\b", raw):
+            return {"voice": vid, "matches": [vid], "kind": "name"}
+
+    # A specific accent word that maps to one shipped voice. Word-boundary match
+    # so short words never fire on a substring ("us" must not match "use").
+    for word, vid in _NAMED_ACCENT_VOICE.items():
+        if re.search(rf"\b{re.escape(word)}\b", raw) and any(r["id"] == vid for r in rows):
+            return {"voice": vid, "matches": [vid], "kind": "accent"}
+
+    # An accent/language word → the catalog filtered to that locale, preferring
+    # already-installed then recommended voices so the pick is a good default.
+    for word, prefix in sorted(_ACCENT_HINTS.items(), key=lambda kv: -len(kv[0])):
+        if re.search(rf"\b{re.escape(word)}\b", raw):
+            cand = [r for r in rows if str(r.get("language", "")).startswith(prefix)]
+            cand.sort(key=lambda r: (not r["present"], not r["recommended"], r["id"]))
+            ids = [r["id"] for r in cand]
+            return {"voice": ids[0] if ids else "", "matches": ids, "kind": "accent"}
+
+    return {"voice": "", "matches": [], "kind": "none"}
 
 
 def ensure_piper_voice() -> Dict[str, Any]:
