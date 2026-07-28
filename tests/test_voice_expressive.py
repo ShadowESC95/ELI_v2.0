@@ -110,3 +110,64 @@ def test_natural_voice_synth_falls_back_to_piper_end_to_end():
     """With XTTS absent, a natural: voice must still produce audio (via Piper)."""
     wav = tr.synthesize_wav("This is a test.", "natural:sophia")
     assert wav and len(wav) > 1000
+
+
+# ── Voice creation engine (drop-in wav/mp4) ───────────────────────────────────
+import subprocess as _sp
+import shutil as _sh
+
+
+def _make_audio(path, ext, freq=200):
+    _sp.run(["ffmpeg", "-nostdin", "-hide_banner", "-loglevel", "error", "-y",
+             "-f", "lavfi", "-i", f"sine=frequency={freq}:duration=2", "-ac", "1", str(path)],
+            check=True, timeout=30)
+
+
+@pytest.mark.skipif(not _sh.which("ffmpeg"), reason="ffmpeg required to build a reference")
+@pytest.mark.parametrize("ext", ["wav", "mp4", "mp3"])
+def test_create_voice_from_dropped_in_file(ext, tmp_path, monkeypatch):
+    from eli.execution.executor_enhanced import execute
+    from eli.perception import tts_xtts, tts_router
+    monkeypatch.setattr(tts_xtts, "_refs_dir", lambda: tmp_path)
+    reg = tmp_path / "clones.json"
+    monkeypatch.setattr(tts_xtts, "_registry_path", lambda: reg)
+    src = tmp_path / f"sample.{ext}"
+    _make_audio(src, ext)
+    prev = tts_router.get_active_voice()
+    try:
+        r = execute("CREATE_VOICE", {"name": f"test_{ext}", "file": str(src)})
+        assert r.get("ok"), r
+        assert r.get("voice") == f"clone:test_{ext}"
+        assert any(c["id"] == f"clone:test_{ext}" for c in tts_xtts.list_clones())
+    finally:
+        tts_router.set_active_voice(prev)
+
+
+def test_create_voice_needs_a_file():
+    from eli.execution.executor_enhanced import execute
+    r = execute("CREATE_VOICE", {"name": "x"})
+    assert r.get("ok") is False and "audio file" in r.get("content", "").lower()
+
+
+def test_create_voice_missing_file_is_honest():
+    from eli.execution.executor_enhanced import execute
+    r = execute("CREATE_VOICE", {"name": "x", "file": "/no/such/clip.mp4"})
+    assert r.get("ok") is False and "couldn't find" in r.get("content", "").lower()
+
+
+@pytest.mark.parametrize("text", [
+    "create a voice called Nova from /tmp/clip.mp4",
+    "make an ELI voice from recording.wav",
+    "clone this voice from my sample.mp3",
+])
+def test_create_voice_routes(text):
+    from eli.execution.router_enhanced import route
+    assert (route(text).get("action") or "").upper() == "CREATE_VOICE"
+
+
+def test_create_voice_registered_capability():
+    import json
+    from pathlib import Path
+    m = json.loads((Path(__file__).resolve().parents[1] / "capability_manifest.json").read_text())
+    by = {c["action"]: c for c in m["capabilities"]}
+    assert "CREATE_VOICE" in by and by["CREATE_VOICE"]["routable"]

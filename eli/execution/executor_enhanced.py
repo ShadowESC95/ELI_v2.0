@@ -2252,6 +2252,7 @@ SUPPORTED_ACTIONS = [
     'LIST_VOICES',
     'DOWNLOAD_VOICE',
     'SET_VOICE',
+    'CREATE_VOICE',
     'STOP_MEDIA',
     'NOW_PLAYING',
     'SUMMARIZE_FILE',
@@ -10560,6 +10561,47 @@ def _execute_impl(action: str, args: Optional[Dict[str, Any]] = None) -> Dict[st
             set_active_voice(vid)
             label = vid.replace("char:", "").upper() if vid.startswith("char:") else vid
             msg = f"Voice set to {label}."
+            return {"ok": True, "action": a, "voice": vid, "content": msg, "response": msg}
+        except Exception as e:
+            return {"ok": False, "action": a, "error": str(e), "content": str(e), "response": str(e)}
+
+    # ---- CREATE_VOICE ----
+    # Build a brand-new ELI voice from a dropped-in recording — a .wav/.mp3/.mp4/
+    # .m4a/etc. of the target voice (ffmpeg extracts the audio). Registers a
+    # clone:<name> voice offline; it speaks with XTTS-v2 once the neural extra is
+    # installed, and falls back to a normal voice until then.
+    if a == "CREATE_VOICE":
+        try:
+            name = (args.get("name") or args.get("voice") or "").strip()
+            src = (args.get("file") or args.get("path") or args.get("audio")
+                   or args.get("source") or "").strip()
+            if not src:
+                msg = ("To make a voice, give me an audio file of it — a .wav, .mp3 or .mp4 "
+                       "(a short, clean ~6–20s clip works best). In the app: Settings > Voice "
+                       "> \"Create a voice from an audio file…\".")
+                return {"ok": False, "action": a, "content": msg, "response": msg}
+            import os as _os
+            src = _os.path.expanduser(src)
+            if not _os.path.isfile(src):
+                msg = f"I couldn't find that audio file: {src}"
+                return {"ok": False, "action": a, "content": msg, "response": msg}
+            if not name:
+                name = _os.path.splitext(_os.path.basename(src))[0]
+            from eli.perception import tts_xtts
+            res = tts_xtts.add_clone(name, src)
+            if not res.get("ok"):
+                msg = f"Couldn't create that voice: {res.get('error')}"
+                return {"ok": False, "action": a, "content": msg, "response": msg}
+            vid = res.get("id") or ("clone:" + name)
+            try:
+                from eli.perception.tts_router import set_active_voice
+                set_active_voice(vid)
+            except Exception:
+                log.debug("[CREATE_VOICE] set-active failed", exc_info=True)
+            extra = ("" if res.get("synth_ready") else
+                     " It'll sound like the sample once the neural voice extra is installed "
+                     "(`pip install \"eli-v2.0[natural]\"`); until then I'll use a normal voice.")
+            msg = f"Created the voice '{name}' from your recording and set it active.{extra}"
             return {"ok": True, "action": a, "voice": vid, "content": msg, "response": msg}
         except Exception as e:
             return {"ok": False, "action": a, "error": str(e), "content": str(e), "response": str(e)}
