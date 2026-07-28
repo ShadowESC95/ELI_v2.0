@@ -60,7 +60,7 @@ leaving your hardware.** Point your phone at it over your own Wi-Fi and it's the
 Under that simple surface it's a **local cognitive runtime**, not a chatbot bolted onto someone
 else's API: a 12-stage reasoning pipeline, a fleet of specialist agents on a DAG orchestrator,
 layered memory (SQLite + a FAISS vector index + a knowledge graph), local voice and vision, and its
-own smart-home server — all behind a single typed or spoken interface with **208 capabilities**.
+own smart-home server — all behind a single typed or spoken interface with **215 capabilities**.
 You bring your own GGUF model; ELI is model-, user-, and hardware-agnostic by design.
 
 I built it on one conviction: **your AI should belong to you — the person using it — not the
@@ -120,7 +120,7 @@ day:
 Asking *"what can you do?"* lists the full surface.
 
 <details>
-<summary><b>Full capability breadth — 208 capabilities across 17 areas</b></summary>
+<summary><b>Full capability breadth — 215 capabilities across 17 areas</b></summary>
 
 | Area | What's in it |
 |---|---|
@@ -432,7 +432,7 @@ SECURITY.md, not in a public issue.
 I'd rather tell you exactly what I've run than pretend it's flawless everywhere.
 
 **What I've actually run, end to end:** Linux (x86_64) with an NVIDIA GPU — install, first-run,
-the full test suite (7,600+ tests), voice, vision, the server, the AppImage with the CUDA GPU
+the full test suite (8,100+ tests), voice, vision, the server, the AppImage with the CUDA GPU
 pack, all of it. **The Windows installer has also been field-run on real hardware** — install,
 first-boot GPU + model flow, voice and chat. On top of that, **every release is launch-tested in
 CI on Windows, macOS and Linux**: the pipeline boots each built bundle and verifies the runtime
@@ -483,7 +483,7 @@ touches real hardware. I'd rather you know them going in.
 - `eli/gui` — PySide6 GUI launcher and `EliMainWindow`
 - `eli/cli` — headless REPL (`eli --headless`)
 - `config` — portable default settings · `models` — local GGUF payloads (gitignored)
-- `tests` — a large pytest suite (7,600+ tests across 230+ files, including a `claims/` layer that
+- `tests` — a large pytest suite (8,100+ tests across 245+ files, including a `claims/` layer that
   checks the project against its own documentation); the full suite runs locally, while CI gates a
   cross-platform portable subset (no GGUF/display/GPU) on Linux, macOS, and Windows
 
