@@ -132,7 +132,7 @@ def delete_clone(name: str) -> Dict[str, Any]:
         try:
             Path(reg[key].get("ref_wav", "")).unlink(missing_ok=True)
         except Exception:
-            pass
+            log.debug('tts_xtts: reference clip cleanup failed', exc_info=True)
         reg.pop(key, None)
         _save_registry(reg)
         return {"ok": True, "name": key}
@@ -278,7 +278,7 @@ def synthesize_natural_wav(text: str, voice_id: str) -> Optional[bytes]:
             try:
                 Path(outpath).unlink(missing_ok=True)
             except OSError:
-                pass
+                log.debug('tts_xtts: temp wav cleanup failed', exc_info=True)
     return None
 
 

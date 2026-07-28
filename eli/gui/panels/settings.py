@@ -6,7 +6,7 @@ from datetime import datetime
 from pathlib import Path
 
 from eli.gui.panels._qt import (
-    QAbstractItemView, QCheckBox, QDialog, QFormLayout, QGridLayout,
+    QAbstractItemView, QCheckBox, QComboBox, QDialog, QFormLayout, QGridLayout,
     QGroupBox, QHBoxLayout, QHeaderView, QLabel, QMessageBox,
     QPushButton, QScrollArea, QSpinBox, QTabWidget, QTableWidget,
     QTableWidgetItem, QTextEdit, QTimer, QVBoxLayout, QWidget, Qt, pyqtSignal,
@@ -102,6 +102,41 @@ class AdvancedSettingsDialog(QDialog):
                 form.addRow(lbl, spin)
                 self._cog_spins[t.key] = spin
             body_layout.addWidget(box)
+
+        # ── Tone override ────────────────────────────────────────────────────
+        # The numeric knobs above tune how ELI READS you; this picks the register
+        # it ANSWERS in. Not a Tunable (those are ints) — it's the same override
+        # `set_tone("be comedic")` sets by voice, surfaced as a list so the user
+        # can see every tone available instead of guessing the phrasing.
+        try:
+            from eli.cognition import emotion_palette as _pal
+            tone_box = QGroupBox("Tone of voice")
+            tone_form = QFormLayout(tone_box)
+            self._tone_combo = QComboBox()
+            self._tone_combo.addItem("Auto — adapt to how you seem", "")
+            for _name in _pal.list_tones():
+                _desc = (_pal.get_tone(_name) or {}).get("desc", "")
+                self._tone_combo.addItem(f"{_name}{(' — ' + _desc) if _desc else ''}", _name)
+            try:
+                from eli.core.runtime_settings import load_settings as _ls
+                _pinned = str((_ls() or {}).get("expressed_tone", "") or "")
+            except Exception:
+                _pinned = ""
+            _idx = self._tone_combo.findData(_pinned)
+            if _idx >= 0:
+                self._tone_combo.setCurrentIndex(_idx)
+            self._tone_combo.setToolTip(
+                "Auto lets ELI choose a fitting register from how you sound and what "
+                "you say (a distressed user gets tender, not sad). Pinning a tone "
+                "overrides that until you set it back to Auto. Either way ELI's core "
+                "personality is unchanged — this shades HOW it speaks, not who it is.")
+            _tl = QLabel("Register ELI answers in")
+            _tl.setToolTip(self._tone_combo.toolTip())
+            tone_form.addRow(_tl, self._tone_combo)
+            body_layout.addWidget(tone_box)
+        except Exception:
+            self._tone_combo = None
+
         body_layout.addStretch()
         scroll.setWidget(body)
         outer.addWidget(scroll, 1)
@@ -124,9 +159,25 @@ class AdvancedSettingsDialog(QDialog):
         for key, spin in getattr(self, "_cog_spins", {}).items():
             if set_tunable(key, spin.value()):
                 ok += 1
+        # Tone override goes through tone_adaptor so the voice path, the avatar and
+        # the persona directive all pick it up from the one authority.
+        tone_note = ""
+        combo = getattr(self, "_tone_combo", None)
+        if combo is not None:
+            try:
+                from eli.cognition import tone_adaptor as _ta
+                chosen = combo.currentData() or ""
+                if chosen:
+                    _ta.set_tone(chosen)
+                    tone_note = f"\nTone pinned to “{chosen}”."
+                else:
+                    _ta.clear_tone()
+                    tone_note = "\nTone set to Auto."
+            except Exception:
+                tone_note = "\n(Tone could not be applied.)"
         QMessageBox.information(
             self, "Cognition settings",
-            f"Saved {ok} parameter(s). They apply to your next message.")
+            f"Saved {ok} parameter(s). They apply to your next message.{tone_note}")
 
     def _reset_cognition_defaults(self):
         from eli.core.cognition_tunables import reset_defaults, snapshot

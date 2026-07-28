@@ -136,6 +136,38 @@ TUNABLES: List[Tunable] = [
             "capability tier (small=1.0× → unchanged; bigger models gather more, "
             "clamped to each limit's max). 0 = use the fixed limits.",
             1, 0, 1, 1, "Auto-scaling (model tier)"),
+
+    # ── Emotional awareness ─────────────────────────────────────────────────
+    # How readily ELI decides the user is in a sustained mood, and how forward it
+    # is about raising it. Every default here matches the shipped constant in
+    # `eli/cognition/emotion_timeline.py`, so behaviour is unchanged until touched.
+    # Deliberately conservative out of the box: a wrong "you seem upset" costs far
+    # more than a missed one.
+    Tunable("cog.emotion_enabled", "Emotional awareness on (0/1)",
+            "Master switch. When off ELI still adapts its tone to the current turn, "
+            "but keeps no emotional history and never raises your mood unprompted.",
+            1, 0, 1, 1, "Emotional awareness"),
+    Tunable("cog.emotion_run_length", "Exchanges before a mood counts",
+            "How many consecutive reads of the same feeling before ELI treats it as "
+            "a state rather than a one-off. Lower = ELI notices sooner but reacts to "
+            "single bad sentences; higher = it waits for a real pattern.",
+            3, 2, 12, 1, "Emotional awareness"),
+    Tunable("cog.emotion_confidence_pct", "Minimum confidence (%)",
+            "How sure ELI must be about each read before it counts toward a mood. "
+            "Raise it if ELI misreads you; lower it if it never notices.",
+            45, 10, 95, 5, "Emotional awareness"),
+    Tunable("cog.emotion_cooldown_min", "Minimum gap between check-ins (minutes)",
+            "After ELI raises how you seem to be feeling, it stays quiet about it for "
+            "at least this long — the guard against being nagged.",
+            45, 5, 480, 5, "Emotional awareness"),
+    Tunable("cog.emotion_window_hours", "Recent-mood window (hours)",
+            "How far back a read can be and still count toward the current mood.",
+            6, 1, 48, 1, "Emotional awareness"),
+    Tunable("cog.emotion_baseline_days", "Baseline history (days)",
+            "How much history defines what is NORMAL for you. ELI only flags a mood "
+            "as notable when it departs from this baseline, so a naturally reserved "
+            "person is never read as upset.",
+            30, 1, 365, 1, "Emotional awareness"),
 ]
 
 _BY_KEY: Dict[str, Tunable] = {t.key: t for t in TUNABLES}
