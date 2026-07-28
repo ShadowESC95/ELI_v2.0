@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 import shutil
 import subprocess
 import tempfile
@@ -151,16 +152,41 @@ def list_clones() -> "list[Dict[str, Any]]":
 # ── Synthesis (needs the optional TTS package) ──────────────────────────────────
 def xtts_available() -> bool:
     try:
+        _patch_transformers_compat()
         import TTS  # noqa: F401
         return True
     except Exception:
         return False
 
 
+def _patch_transformers_compat() -> None:
+    """coqui-tts's XTTS layer imports `isin_mps_friendly`, a torch.isin() shim
+    transformers carried for old Apple-MPS backends and dropped in transformers>=5.
+    Off MPS, plain torch.isin() is exactly the same behaviour, so restore the name
+    rather than pin transformers back (the rest of ELI is on transformers==5.x)."""
+    try:
+        import transformers.pytorch_utils as _ptu
+        if not hasattr(_ptu, "isin_mps_friendly"):
+            import torch as _torch
+            _ptu.isin_mps_friendly = lambda elements, test_elements: _torch.isin(elements, test_elements)
+    except Exception:
+        log.debug("tts_xtts: transformers compat shim failed", exc_info=True)
+
+
 def _get_model():
     global _TTS
     if _TTS is not None:
         return _TTS
+    _patch_transformers_compat()
+    # coqui-tts gates the first XTTS-v2 download behind an interactive y/n TOS
+    # prompt (agree to the non-commercial CPML, or confirm a paid Coqui licence —
+    # see TTS.utils.manage.ModelManager.ask_tos/tos_agreed). ELI's GUI has no TTY
+    # for that prompt to read from, so it would otherwise hang/EOF-error on every
+    # user's first clone. Using XTTS-v2 here is always the non-commercial path (a
+    # local, personal voice — never redistributed, same policy as the rest of the
+    # voice library), so this pre-accepts exactly that: COQUI_TOS_AGREED=1 makes
+    # tos_agreed() short-circuit True, same effect as answering "y" at the prompt.
+    os.environ.setdefault("COQUI_TOS_AGREED", "1")
     from TTS.api import TTS as _TTSApi
     device = _select_device()
     log.info("tts_xtts: loading XTTS-v2 on %s (first run downloads ~1.8GB)…", device)
