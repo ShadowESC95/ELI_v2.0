@@ -8086,6 +8086,13 @@ _register()
             "voice. This takes priority over the tone ELI infers. You can also just tell ELI "
             "in chat, e.g. 'speak to me more bluntly'."
         )
+        # An editable QComboBox has no native placeholder support the way QLineEdit
+        # does — left unset, a blank (default) value renders as a genuinely empty
+        # box with no hint text, unlike every field around it. That reads as broken
+        # rather than "intentionally blank", so give its internal line edit one.
+        if self.communication_style_combo.lineEdit() is not None:
+            self.communication_style_combo.lineEdit().setPlaceholderText(
+                "Default — ELI's own emergent voice (or type e.g. blunt, warm, formal...)")
         form.addRow(self._field_label("Tone / how ELI speaks"), self.communication_style_combo)
 
         self.image_profile_notes_input = QTextEdit()

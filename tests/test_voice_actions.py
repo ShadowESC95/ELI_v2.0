@@ -41,11 +41,20 @@ def test_set_voice_routes(text):
 
 
 @pytest.mark.parametrize("text", [
-    "change your voice to sarcastic", "speak to me like a pirate",
     "use a funny voice", "use a serious voice", "be more formal",
+    "change your voice to sarcastic",
 ])
-def test_persona_tone_not_hijacked_by_voice_actions(text):
-    """A tone request that isn't a real voice must stay persona tone."""
+def test_tone_requests_go_to_the_tone_system_not_a_voice_switch(text):
+    """A named emotion/tone ('funny'→comedic, 'formal'→professional) must reach the
+    richer SET_TONE (shades delivery), never a TTS-voice switch/download."""
+    assert _action(text) == "SET_TONE"
+
+
+@pytest.mark.parametrize("text", [
+    "speak to me like a pirate", "talk to me like a wise old wizard",
+])
+def test_freetext_persona_style_stays_persona(text):
+    """A free-text style that isn't a palette tone stays SET_COMMUNICATION_STYLE."""
     assert _action(text) == "SET_COMMUNICATION_STYLE"
 
 
