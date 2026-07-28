@@ -1,8 +1,10 @@
 from __future__ import annotations
 
+import logging
 from typing import Any, Dict, Iterable, Tuple
 
 from eli.gui.qt_compat import (
+    Qt,
     QFrame,
     QGraphicsView,
     QHBoxLayout,
@@ -15,6 +17,8 @@ from eli.gui.qt_compat import (
     QVBoxLayout,
     QWidget,
 )
+
+log = logging.getLogger(__name__)
 from eli.world.local_world_bridge import append_event, get_world_state
 from eli.world.renderers.pyside6.world_scene import EliWorldScene
 
@@ -100,6 +104,19 @@ class EliWorldPanel(QWidget):
         side = QWidget()
         outer = QVBoxLayout(side)
         outer.addWidget(self.status)
+
+        # Live animated face — shows ELI's current expressed emotion (tone_adaptor).
+        self._face = None
+        try:
+            from eli.gui.widgets.eli_face import EliFaceWidget
+            self._face = EliFaceWidget(poll_tone=True, size=150)
+            _face_row = QWidget()
+            _fr = QVBoxLayout(_face_row)
+            _fr.setContentsMargins(0, 0, 0, 6)
+            _fr.addWidget(self._face, 0, Qt.AlignmentFlag.AlignHCenter)
+            outer.addWidget(_face_row)
+        except Exception:
+            log.debug("world_panel: face widget unavailable", exc_info=True)
 
         scroll = QScrollArea()
         scroll.setWidgetResizable(True)
@@ -220,6 +237,12 @@ class EliWorldPanel(QWidget):
             activity = avatar.get("activity") or "standing_by"
             expression = avatar.get("expression") or "neutral"
             posture = avatar.get("posture") or "idle"
+
+            if getattr(self, "_face", None) is not None:
+                try:
+                    self._face.set_expression(expression)
+                except Exception:
+                    log.debug("world_panel: face expression push failed", exc_info=True)
 
             self.status.setText(f"Eli's World: {room_name} | {activity} | {expression}")
             self.summary.setText(
