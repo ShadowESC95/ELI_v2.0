@@ -2816,6 +2816,17 @@ class EliMainWindow(QMainWindow):
                     log.debug(f"[PROACTIVE] habit {icon} '{name}': {sugg}")
                     self.proactive_suggestions_signal.emit(
                         f"<b>[habit {icon}]</b> {name}: {sugg}")
+                elif kind == "emotion_checkin":
+                    # ELI opens the conversation about how the user has been reading.
+                    # Goes to CHAT (not just the suggestions pane) — the whole point is
+                    # that ELI speaks first. The daemon already set the pending proposal
+                    # so a "yes" routes instead of being swallowed.
+                    offer = data.get("suggestion", "")
+                    log.debug(f"[PROACTIVE] emotional check-in "
+                              f"({data.get('detected','')}×{data.get('run_length',0)})")
+                    self.chat_response_signal.emit(offer)
+                    self.proactive_suggestions_signal.emit(
+                        f"<b>[check-in: {data.get('detected','')}]</b> {offer}")
                 elif kind == "morning_report":
                     report_text = data.get("suggestion", "")
                     log.debug(f"[PROACTIVE] morning report ready")

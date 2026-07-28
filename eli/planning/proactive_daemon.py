@@ -1226,6 +1226,77 @@ Date: {datetime.now().strftime("%A %B %d %H:%M")} | Interactions last 24h: {inte
                         except Exception as _ne:
                             log.debug(f"[PROACTIVE] News synthesis error: {_ne}")
 
+                    # ── Emotional check-in (proactive, not reactive) ──────────────
+                    # The engine records an emotional read every turn; here the daemon
+                    # acts on the TREND without waiting to be spoken to. Gated hard:
+                    # a sustained run (not a spike), confident reads, out of the user's
+                    # own baseline, and outside the cooldown — all enforced in assess().
+                    # The wording is synthesised by the model from the evidence; if no
+                    # model is resident we emit NOTHING rather than a canned line.
+                    try:
+                        from eli.cognition import emotion_timeline as _et
+                        _ea = _et.assess()
+                        if _ea.get("should_checkin"):
+                            _facts = [f"They have read as {_ea['dominant']} across the last "
+                                      f"{_ea['run_length']} exchanges."]
+                            if _ea.get("unusual"):
+                                _facts.append(
+                                    f"That is unusual for them — they normally read "
+                                    f"{_ea['baseline'].get('dominant', 'neutral')}.")
+                            if _ea.get("transition"):
+                                _facts.append(f"The shift was "
+                                              f"{_ea['transition']['from']} → {_ea['transition']['to']}.")
+                            if _ea.get("trigger_action"):
+                                _facts.append(f"It turned right after you ran "
+                                              f"{_ea['trigger_action']}.")
+                            if _ea.get("trigger_text"):
+                                _facts.append(f"They said: \"{_ea['trigger_text']}\"")
+
+                            from eli.cognition.inference_broker import get_broker as _eb
+                            from eli.cognition.gguf_inference import (
+                                set_background_inference as _setbg3,
+                                is_background_inference as _isbg3)
+                            _prev_bg3 = _isbg3()
+                            _setbg3(True)
+                            try:
+                                _line = _eb().infer(
+                                    "Evidence about the person you are talking to:\n"
+                                    + "\n".join(f"- {f}" for f in _facts)
+                                    + "\n\nOpen the conversation yourself in ONE or TWO "
+                                      "sentences: name what you have noticed in your own "
+                                      "words and offer something genuinely useful — if they "
+                                      "seem negative, check whether something you did landed "
+                                      "badly; if positive, build on it. Speak directly to "
+                                      "them. Do not quote these facts, do not mention "
+                                      "measuring anything, and do not apologise reflexively.",
+                                    system=("You are ELI, speaking to the user unprompted. "
+                                            "Warm, direct, no filler, no preamble."),
+                                    max_tokens=120, temperature=0.7)
+                            finally:
+                                _setbg3(_prev_bg3)
+
+                            _line = str(_line or "").strip()
+                            if _line:
+                                self.suggestion_queue.put(("emotion_checkin", {
+                                    "type": "emotion_checkin",
+                                    "state": _ea.get("state", ""),
+                                    "detected": _ea.get("dominant", ""),
+                                    "run_length": _ea.get("run_length", 0),
+                                    "suggestion": _line,
+                                }))
+                                # So a plain "yes" after the offer routes properly
+                                # instead of being swallowed as chat.
+                                try:
+                                    from eli.runtime.pending_proposal import set_pending_proposal
+                                    set_pending_proposal(_line, summary="emotional check-in")
+                                except Exception:
+                                    log.debug("[PROACTIVE] check-in proposal store skipped")
+                                _et.note_checkin(_ea.get("state", ""), _ea.get("dominant", ""))
+                                log.debug(f"[PROACTIVE] emotional check-in raised: "
+                                          f"{_ea.get('reason', '')}")
+                    except Exception as _ece:
+                        log.debug(f"[PROACTIVE] emotional check-in skipped: {_ece}")
+
                     # ── Write artifact files for agent bus (do NOT drain queue) ──
                     try:
                         from eli.core.paths import get_paths as _gp

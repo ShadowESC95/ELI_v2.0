@@ -19,6 +19,7 @@ The widget:
 """
 from __future__ import annotations
 
+import logging
 import threading
 from typing import Callable, List, Optional
 
@@ -35,6 +36,9 @@ from eli.gui.qt_compat import (
     QPushButton,
     QWidget,
 )
+
+
+log = logging.getLogger(__name__)
 
 
 class _StatusDot(QLabel):
@@ -65,9 +69,23 @@ class OllamaModelSelector(QWidget):
 
     model_changed = pyqtSignal(str)
 
+    # Worker threads MUST hand results back over a signal, never QTimer.singleShot.
+    # A timer started from a plain threading.Thread has no Qt event loop to run on,
+    # so the callback is silently dropped — that is exactly what left this dropdown
+    # permanently empty with the dot stuck on "Checking Ollama..." while the client
+    # underneath was returning models fine. Signals queue to the receiver's thread.
+    _models_ready = pyqtSignal(bool, list, object)
+    _pull_progress = pyqtSignal(str, int)
+    _pull_done = pyqtSignal(dict)
+
     def __init__(self, parent=None):
         super().__init__(parent)
         self._setup_ui()
+        self._models_ready.connect(self._update_ui)
+        self._pull_progress.connect(self._on_pull_progress)
+        self._pull_done.connect(self._on_pull_done)
+        self._pull_dialog = None
+        self._pull_model_name = ""
         self._refresh_async()
 
         # Auto-refresh every 30s to catch newly pulled models
@@ -140,7 +158,8 @@ class OllamaModelSelector(QWidget):
         threading.Thread(target=self._fetch_models, daemon=True).start()
 
     def _fetch_models(self):
-        """Background: fetch models and update UI via QTimer.singleShot."""
+        """Background thread: fetch models, then hand the result to the GUI thread
+        over the _models_ready signal (never a timer — see the signal's comment)."""
         try:
             from eli.integrations.ollama.client import is_running, list_models, get_active_model
             running = is_running()
@@ -151,8 +170,8 @@ class OllamaModelSelector(QWidget):
             models = []
             active = None
 
-        # Must update UI on main thread
-        QTimer.singleShot(0, lambda: self._update_ui(running, models, active))
+        # Hand back to the GUI thread. Signal, not QTimer — see _models_ready.
+        self._models_ready.emit(bool(running), list(models or []), active)
 
     def _update_ui(self, running: bool, models: List[str], active: Optional[str]):
         """Update combo box contents (called on main thread)."""
@@ -193,7 +212,7 @@ class OllamaModelSelector(QWidget):
             from eli.integrations.ollama.client import set_active_model
             set_active_model(model)
         except Exception:
-            pass
+            log.debug('[OLLAMA] persisting active model failed', exc_info=True)
         self.model_changed.emit(model)
 
     def _on_pull_clicked(self):
@@ -213,31 +232,48 @@ class OllamaModelSelector(QWidget):
         progress.setValue(0)
         progress.show()
 
-        def on_progress(status: str, pct: int):
-            QTimer.singleShot(0, lambda: (
-                progress.setValue(pct),
-                progress.setLabelText(f"{status}\n{pct}%") if status else None,
-            ))
-
-        def on_done(result: dict):
-            QTimer.singleShot(0, lambda: _finish(result))
-
-        def _finish(result: dict):
-            progress.close()
-            if result.get("ok"):
-                QMessageBox.information(self, "Pull Complete", f"✅ {model} pulled successfully!")
-                self._refresh_async()
-                # Auto-select the newly pulled model
-                QTimer.singleShot(2000, lambda: self._select_model(model))
-            else:
-                QMessageBox.warning(self, "Pull Failed", f"❌ Failed to pull {model}:\n{result.get('error', 'Unknown error')}")
+        # The pull callbacks fire on the client's worker thread and had the same
+        # QTimer-from-a-thread defect as the model list: progress never moved and the
+        # dialog never closed. Route both over signals instead.
+        self._pull_dialog = progress
+        self._pull_model_name = model
 
         try:
             from eli.integrations.ollama.client import pull_model_async
-            pull_model_async(model, progress_cb=on_progress, done_cb=on_done)
+            pull_model_async(model,
+                             progress_cb=lambda status, pct: self._pull_progress.emit(
+                                 str(status or ""), int(pct or 0)),
+                             done_cb=lambda result: self._pull_done.emit(dict(result or {})))
         except Exception as e:
             progress.close()
+            self._pull_dialog = None
             QMessageBox.critical(self, "Error", f"Pull failed: {e}")
+
+    def _on_pull_progress(self, status: str, pct: int):
+        """GUI thread: advance the pull dialog."""
+        dlg = getattr(self, "_pull_dialog", None)
+        if dlg is None:
+            return
+        dlg.setValue(int(pct))
+        if status:
+            dlg.setLabelText(f"{status}\n{pct}%")
+
+    def _on_pull_done(self, result: dict):
+        """GUI thread: close the dialog and refresh the list."""
+        dlg = getattr(self, "_pull_dialog", None)
+        model = getattr(self, "_pull_model_name", "") or "model"
+        if dlg is not None:
+            dlg.close()
+        self._pull_dialog = None
+        if result.get("ok"):
+            QMessageBox.information(self, "Pull Complete", f"✅ {model} pulled successfully!")
+            self._refresh_async()
+            # Auto-select once the refreshed list has landed. This singleShot is
+            # safe: _on_pull_done already runs on the GUI thread.
+            QTimer.singleShot(2000, lambda: self._select_model(model))
+        else:
+            QMessageBox.warning(self, "Pull Failed",
+                                f"❌ Failed to pull {model}:\n{result.get('error', 'Unknown error')}")
 
     def _select_model(self, model: str):
         idx = self._combo.findText(model)

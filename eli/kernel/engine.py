@@ -4946,6 +4946,54 @@ Answer:"""
                 if _dir and _cur.get("tone") != "neutral":
                     _tcue = f"[Tone — {_cur['tone']}: {_dir} Do NOT mention this directive.]"
                     situation_brief = (_tcue + "\n\n" + (situation_brief or "")).strip()
+
+                # ── Persist the read so ELI can be PROACTIVE, not only reactive ──
+                # tone_adaptor forgets each turn (12s acoustic slot + last-utterance
+                # regex), which is enough to shade THIS reply and nothing else. The
+                # timeline is what lets ELI notice a sustained mood, weigh it against
+                # this user's own baseline, and know what it did just before the mood
+                # turned. Recording every read (neutral included) is deliberate — a
+                # baseline built only from bad turns would make everyone look upset.
+                try:
+                    from eli.cognition import emotion_timeline as _et
+                    _prior_action = ""
+                    try:
+                        _prior_action = str((getattr(self, "_last_request_meta", None)
+                                             or {}).get("action") or "")
+                    except Exception:
+                        _prior_action = ""
+                    _arousal = None
+                    try:
+                        from eli.perception import voice_profile as _vp_ar
+                        _arousal = (_vp_ar.get_last_tone(max_age_s=15.0) or {}).get("arousal")
+                    except Exception:
+                        _arousal = None
+                    _et.record(
+                        _cur.get("detected") or "neutral",
+                        expressed=_cur.get("tone") or "",
+                        confidence=float(_cur.get("confidence") or 0.0),
+                        source=str(_cur.get("source") or ""),
+                        user_text=user_input or "",
+                        user_id=self._get_user_id(),
+                        session_id=getattr(self, "session_id", "") or "",
+                        arousal=_arousal,
+                        eli_prior_action=_prior_action,
+                    )
+                    # Continuity every turn: how the conversation has been feeling.
+                    _trend = _et.trend_line(user_id=self._get_user_id())
+                    if _trend:
+                        situation_brief = (_trend + "\n\n" + (situation_brief or "")).strip()
+                    # Only when a sustained, confident, out-of-baseline state is
+                    # measured: hand the model the evidence and let IT decide whether
+                    # and how to raise it. No canned phrasing — the words are ELI's.
+                    _ev = _et.evidence_block(user_id=self._get_user_id(),
+                                             session_id=getattr(self, "session_id", "") or "")
+                    if _ev:
+                        situation_brief = (_ev + "\n\n" + (situation_brief or "")).strip()
+                        _et.note_checkin(_et.assess(user_id=self._get_user_id()).get("state", ""),
+                                         _cur.get("detected") or "")
+                except Exception:
+                    log.debug("emotion_timeline record/inject skipped", exc_info=True)
         except Exception:
             log.debug("tone_adaptor directive skipped", exc_info=True)
 

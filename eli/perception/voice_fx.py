@@ -115,7 +115,7 @@ def list_characters() -> "list[Dict[str, Any]]":
         if p.is_file():
             user = set(k.lower() for k in json.loads(p.read_text(encoding="utf-8")))
     except Exception:
-        pass
+        log.debug('voice_fx: user presets unreadable — using built-ins', exc_info=True)
     for name, spec in _load_all().items():
         out.append({"name": name, "id": CHAR_PREFIX + name,
                     "builtin": name in _BUILTIN and name not in user,
@@ -245,5 +245,5 @@ def apply_fx(wav_bytes: bytes, spec: Dict[str, Any]) -> Optional[bytes]:
             try:
                 os.unlink(outpath)
             except OSError:
-                pass
+                log.debug('voice_fx: temp wav cleanup failed', exc_info=True)
     return wav_bytes  # fail open — better a clean base voice than silence
