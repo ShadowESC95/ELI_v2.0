@@ -46,7 +46,8 @@ def _query_ollama_tags(host: str, timeout: int = 5):
     # Normalise through the client so a scheme-less "localhost:11434" typed here
     # behaves exactly as it does everywhere else, and try the same IPv4 fallback.
     try:
-        from eli.integrations.ollama.client import candidate_hosts
+        from eli.integrations.ollama.client import candidate_hosts, ensure_server_running
+        ensure_server_running()   # auto-start a local Ollama that's installed but stopped
         bases = candidate_hosts(host)
     except Exception:
         bases = [(host or "http://127.0.0.1:11434").strip().rstrip("/")]
@@ -85,7 +86,8 @@ def _ollama_unreachable_message(host: str, err) -> str:
     if is_loopback:
         return (
             f"Could not reach Ollama at {shown}.\n\n"
-            f"{hint}\n\n"
+            "ELI tried to start a local Ollama server automatically but it didn't come "
+            f"up — it may not be installed, or it failed to start.\n\n{hint}\n\n"
             "This is a local address, so ELI's offline-by-default guard is not the "
             f"problem — the Net toggle can stay OFF.\n\n{err}"
         )
