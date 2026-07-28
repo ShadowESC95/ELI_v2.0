@@ -1583,7 +1583,37 @@ class ELIAudioSTT:
                     except Exception as e:
                         if not self.is_listening or self._stop_event.is_set():
                             break
-                        log.debug(f"[AUDIO] Listen error: {e}")
+                        # ── Shared-microphone recovery ────────────────────────
+                        # `listen_once()` and the calibration helper open
+                        # `with self.microphone` on the SAME Microphone object we
+                        # are holding here. speech_recognition's __exit__ sets
+                        # `stream = None`, so when one of those finishes it kills
+                        # the stream out from under this loop. Every subsequent
+                        # listen() then raises "Audio source must be entered
+                        # before listening" — forever, at full speed, which is
+                        # what floods the log with thousands of identical lines
+                        # and pins a core. Re-enter the source instead of
+                        # spinning; the outer `with` still owns cleanup.
+                        if getattr(source, "stream", None) is None:
+                            try:
+                                source.__enter__()
+                                log.debug("[AUDIO] mic stream was closed by another "
+                                          "capture path — re-entered")
+                                continue
+                            except Exception as _reenter_err:
+                                log.debug(f"[AUDIO] mic re-enter failed: {_reenter_err}")
+                                time.sleep(0.5)
+                                continue
+                        # Rate-limit the generic error so a persistent fault can
+                        # never bury the log (or the disk) again.
+                        _now_err = time.monotonic()
+                        self._listen_err_count = getattr(self, "_listen_err_count", 0) + 1
+                        if _now_err - getattr(self, "_listen_err_last_log", 0.0) >= 5.0:
+                            _n = self._listen_err_count
+                            log.debug(f"[AUDIO] Listen error: {e}"
+                                      + (f" (×{_n} in the last 5s)" if _n > 1 else ""))
+                            self._listen_err_last_log = _now_err
+                            self._listen_err_count = 0
                         time.sleep(0.1)
                         continue
 

@@ -209,25 +209,77 @@ def _raw_pcm_to_wav(raw_bytes: bytes, sample_rate: int = 22050) -> bytes:
     return wav_buf.getvalue()
 
 
-def _list_system_voices() -> list[str]:
-    """OS-installed voices via pyttsx3 (SAPI on Windows, NSS on macOS). Prefixed sys:."""
+# Enumerating system voices is done OUT OF PROCESS on purpose — see below.
+_SYSTEM_VOICES_CACHE: "list[str] | None" = None
+
+_ENUM_SNIPPET = (
+    "import pyttsx3\n"
+    "e = pyttsx3.init()\n"
+    "for v in (e.getProperty('voices') or []):\n"
+    "    i = getattr(v, 'id', None)\n"
+    "    if i:\n"
+    "        print(i)\n"
+    "try:\n"
+    "    e.stop()\n"
+    "except Exception:\n"
+    "    pass\n"
+)
+
+
+def _list_system_voices(refresh: bool = False) -> list[str]:
+    """OS-installed voices via pyttsx3 (SAPI on Windows, NSS on macOS, espeak on
+    Linux), prefixed ``sys:``.
+
+    Runs in a SUBPROCESS, deliberately. espeak-ng has a fixed ``N_VOICES_LIST``
+    of 350; on a box with more installed voice/variant combinations than that,
+    ``espeak_ListVoices`` walks off the end of the array and corrupts the heap —
+    "double free or corruption (!prev)" then ``abort()``. That is a native crash,
+    so a Python ``except`` around it catches NOTHING: it took the whole GUI down
+    mid-session (observed on Linux with a large voice set installed). Isolating
+    the enumeration means the worst case is an empty list from a dead child
+    instead of ELI core-dumping. Result is cached for the process.
+    """
+    global _SYSTEM_VOICES_CACHE
+    if _SYSTEM_VOICES_CACHE is not None and not refresh:
+        return list(_SYSTEM_VOICES_CACHE)
+
     out: list[str] = []
     try:
-        import pyttsx3
-
-        eng = pyttsx3.init()
-        for v in eng.getProperty("voices") or []:
-            vid = getattr(v, "id", None)
-            if not vid:
-                continue
-            label = f"{_SYSTEM_VOICE_PREFIX}{vid}"
-            out.append(label)
-        try:
-            eng.stop()
-        except Exception:
-            pass
+        # Probe the binding IN-PROCESS first. Importing pyttsx3 is safe (the
+        # espeak overflow is in init()/getProperty(), not import), and this keeps
+        # the child honest: if the caller has no real pyttsx3 — absent, or
+        # replaced by a stub in the mocked test lane — there are no system
+        # voices, and we must NOT shell out to a fresh interpreter that would
+        # bypass that substitution and report the host's real voices.
+        import pyttsx3 as _p3
+        if type(_p3).__name__ == "MagicMock" or type(getattr(_p3, "init", None)).__name__ == "MagicMock":
+            _SYSTEM_VOICES_CACHE = []
+            return []
     except Exception:
-        pass
+        log.debug("[TTS] pyttsx3 unavailable — no system voices", exc_info=True)
+        _SYSTEM_VOICES_CACHE = []
+        return []
+
+    try:
+        import subprocess as _sp
+        import sys as _sys
+        proc = _sp.run([_sys.executable, "-c", _ENUM_SNIPPET],
+                       stdout=_sp.PIPE, stderr=_sp.DEVNULL, timeout=20)
+        if proc.returncode == 0:
+            for line in (proc.stdout or b"").decode("utf-8", "replace").splitlines():
+                vid = line.strip()
+                if vid:
+                    out.append(f"{_SYSTEM_VOICE_PREFIX}{vid}")
+        else:
+            # Negative return code = killed by a signal (SIGABRT/SIGSEGV) — the
+            # espeak overflow above. Report it; do not retry in-process.
+            log.debug("[TTS] system-voice enumeration exited %s (native crash "
+                      "isolated in the child — no system voices listed)",
+                      proc.returncode)
+    except Exception:
+        log.debug("[TTS] system-voice enumeration unavailable", exc_info=True)
+
+    _SYSTEM_VOICES_CACHE = list(out)
     return out
 
 
