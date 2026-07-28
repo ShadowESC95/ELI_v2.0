@@ -10602,7 +10602,8 @@ def _execute_impl(action: str, args: Optional[Dict[str, Any]] = None) -> Dict[st
                 log.debug("[CREATE_VOICE] set-active failed", exc_info=True)
             extra = ("" if res.get("synth_ready") else
                      " It'll sound like the sample once the neural voice extra is installed "
-                     "(`pip install \"eli-v2.0[natural]\"`); until then I'll use a normal voice.")
+                     "(`pip install -e \".[natural]\"` from the ELI project root); until then "
+                     "I'll use a normal voice.")
             msg = f"Created the voice '{name}' from your recording and set it active.{extra}"
             return {"ok": True, "action": a, "voice": vid, "content": msg, "response": msg}
         except Exception as e:

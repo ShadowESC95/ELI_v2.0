@@ -255,7 +255,7 @@ def synthesize_natural_wav(text: str, voice_id: str) -> Optional[bytes]:
     meta = natural_voice_meta(voice_id) or _NATURAL_VOICES.get(_DEFAULT_NATURAL)
     if not natural_available():
         log.info("tts_xtts: natural voice needs the neural extra — "
-                 "`pip install \"eli-v2.0[natural]\"` (falling back to Piper)")
+                 "`pip install -e \".[natural]\"` from the ELI project root (falling back to Piper)")
         return None
     import os as _os
     outpath = ""
@@ -293,8 +293,8 @@ def synthesize_wav(text: str, clone_name: str) -> Optional[bytes]:
         log.debug("tts_xtts: missing reference for '%s'", clone_name)
         return None
     if not xtts_available():
-        log.info("tts_xtts: %s needs the voice-clone extra — `pip install \"eli-v2.0[clone]\"`",
-                 str(clone_name))
+        log.info("tts_xtts: %s needs the voice-clone extra — "
+                 "`pip install -e \".[clone]\"` from the ELI project root", str(clone_name))
         return None
     outpath = ""
     try:

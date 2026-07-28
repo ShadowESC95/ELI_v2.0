@@ -311,7 +311,12 @@ installed, ELI offers to install it (real `apt` / `snap` / `flatpak`, on your co
 **Voice, hands-free.** Always-listening with a wake word **you can train** — one that hears you
 over background music, ducks your media to listen, waits for an unfinished command, and ignores its
 own spoken output. Dictation, transcription, and a Piper TTS voice included; a "train my voice"
-session learns your pitch, energy, and tone so delivery adapts to how you sound.
+session learns your pitch, energy, and tone so delivery adapts to how you sound. Built-in character
+voices (HAL, TARS, Rick, GLaDOS, JARVIS) and a 166-voice/45-language downloadable library, all free
+and offline. An optional neural voice engine (Coqui XTTS-v2, `pip install -e ".[natural]"`) adds
+human-like speech and **lets you clone any voice from a short recording** — drag an audio/video
+clip onto the drop zone in Settings ▸ Voice, or say "create a voice called X from clip.mp4"; ~1.8GB
+one-time model download, non-commercial use (Coqui CPML licence).
 
 **Vision, screen, and gaze.** Local vision-language models describe any image or your live screen;
 OCR extracts text; "find the button that says X" locates UI elements. Optional webcam eye-tracking
