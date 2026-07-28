@@ -1287,6 +1287,11 @@ class OllamaModelManager:
             return [self._normalize_host(host or self.host)]
     def list_models(self, host: Optional[str] = None) -> List[str]:
         last = None
+        try:
+            from eli.integrations.ollama.client import ensure_server_running
+            ensure_server_running()   # start a local Ollama that's installed but stopped
+        except Exception:
+            log.debug("[OLLAMA] auto-start probe failed", exc_info=True)
         for base in self._candidates(host):
             try:
                 from eli.integrations.ollama.client import _allow_via_netguard

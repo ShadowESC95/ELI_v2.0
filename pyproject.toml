@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "eli-v2.0"
-version = "2.1.29"
+version = "2.1.30"
 description = "ELI v2.0 — Local cognitive runtime, assistant GUI, memory, tools, and GGUF inference"
 readme = "README.md"
 requires-python = ">=3.10"
@@ -109,11 +109,16 @@ web = [
     "duckduckgo-search>=6.0",
     "playwright>=1.40",
 ]
-# Data/CSV analysis + plotting + 3D mesh inspection.
+# Data/CSV analysis + 2D/3D/4D plotting, simulation/dynamics, and 3D-mesh inspection.
+# scipy = ODE/PDE solvers, linear algebra, signal processing (the "dynamics"); plotly
+# = interactive 3D + time-animated (4D) figures; matplotlib(+mplot3d) = static 2D/3D;
+# meshio = STL/VTK/OBJ mesh I/O. This is the stack ELI's code agent runs to build sims.
 analysis = [
     "pandas>=2.0",
     "matplotlib>=3.7",
     "meshio>=5.3",
+    "scipy>=1.11",
+    "plotly>=5.18",
 ]
 # Wake-word listening.
 wakeword = [

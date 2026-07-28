@@ -74,6 +74,9 @@ class EliFaceWidget(QWidget):
         self._blink_phase = 0.0
         self._next_blink = random.uniform(2.0, 5.0)
         self._t = 0.0
+        self._speaking = False       # lip-sync: mouth animates while ELI talks
+        self._thinking = False       # a focused "working" look while generating
+        self._mouth_lipsync = 0.0    # extra mouth openness from speech
         self._skin = QColor("#f4f7cf")
         self._ink = QColor("#2d3220")
 
@@ -100,9 +103,18 @@ class EliFaceWidget(QWidget):
         return self._expression
 
     def _poll_tone(self) -> None:
+        # Priority: thinking > speaking-lip-sync > expressed tone. Thinking wins the
+        # face (a focused look); speaking keeps the tone face but animates the mouth.
+        try:
+            from eli.cognition import expression_state as _es
+            self._thinking = _es.is_thinking()
+            self._speaking = _es.is_speaking()
+        except Exception:
+            self._thinking = self._speaking = False
+            log.debug("eli_face: expression_state poll failed", exc_info=True)
         try:
             from eli.cognition import tone_adaptor
-            self.set_expression(tone_adaptor.expression())
+            self.set_expression("reflective" if self._thinking else tone_adaptor.expression())
         except Exception:
             log.debug("eli_face: tone poll failed", exc_info=True)
 
@@ -112,6 +124,25 @@ class EliFaceWidget(QWidget):
         # Ease current params toward target (smooth morph between expressions).
         for k, tv in self._target.items():
             self._cur[k] += (tv - self._cur[k]) * 0.18
+        # Lip-sync: while ELI speaks, open/close the mouth — from the real speech
+        # amplitude if the player reports it, else a natural talk oscillation.
+        try:
+            from eli.cognition import expression_state as _es
+            speaking = _es.is_speaking()
+            amp = _es.amplitude()
+        except Exception:
+            speaking, amp = False, 0.0
+        if speaking:
+            if amp > 0.0:
+                target_open = min(0.6, amp * 0.7)
+            else:
+                # Two overlaid sines → an irregular, mouth-like flap, not a metronome.
+                osc = 0.5 + 0.5 * math.sin(self._t * 13.0)
+                osc *= 0.6 + 0.4 * math.sin(self._t * 4.3 + 1.0)
+                target_open = 0.12 + 0.4 * max(0.0, osc)
+            self._mouth_lipsync += (target_open - self._mouth_lipsync) * 0.5
+        else:
+            self._mouth_lipsync += (0.0 - self._mouth_lipsync) * 0.35
         # Blink scheduling.
         if self._blink_phase > 0:
             self._blink_phase -= 0.16
@@ -177,16 +208,18 @@ class EliFaceWidget(QWidget):
             inner_y = brow_y - c["slant"] * r * 0.16
             p.drawLine(int(inner_x), int(inner_y), int(outer_x), int(brow_y))
 
-        # Mouth — an arc; curve sets the smile/frown, open sets height.
+        # Mouth — an arc; curve sets the smile/frown, open sets height. Lip-sync
+        # adds openness on top while ELI is speaking so the mouth actually moves.
+        open_amt = c["open"] + self._mouth_lipsync
         mouth_w = r * 0.9
-        mouth_h = r * (0.15 + 0.6 * c["open"]) + abs(c["curve"]) * r * 0.35
+        mouth_h = r * (0.15 + 0.6 * open_amt) + abs(c["curve"]) * r * 0.35
         mx = cx - mouth_w / 2
         my = cy + r * 0.28
         p.setPen(QPen(self._ink, max(2.0, r * 0.05)))
-        if c["open"] > 0.18:
+        if open_amt > 0.18:
             p.setBrush(QBrush(QColor("#7a2f36")))
             p.drawChord(int(mx), int(my - mouth_h / 2), int(mouth_w), int(mouth_h),
-                        0 if c["curve"] >= 0 else 180 * 16, 180 * 16 if c["curve"] >= 0 else -180 * 16)
+                        0 if c["curve"] >= 0 else 180 * 16, 180 * 16 if c["curve"] >= 0 else -180 * 16)  # noqa: E501
         else:
             # Closed mouth: an arc bowed up (smile) or down (frown).
             span = int(160 * 16)

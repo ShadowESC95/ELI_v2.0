@@ -177,6 +177,13 @@ hiddenimports += collect_submodules("numpy")
 # Dynamic-dispatch third-party packages PyInstaller cannot trace statically.
 for pkg in ("pyttsx3", "plyer.platforms", "uvicorn"):
     hiddenimports += _optional_collect(pkg)
+# Scientific / simulation + 3D-mesh stack: meshio loads a submodule per file
+# format at runtime and matplotlib/plotly/pandas pull dynamic backends, so the
+# standard hooks miss pieces and the frozen app's mesh analysis / plotting /
+# simulations would fail. Collect them whole so 2D/3D/(time-evolving) 4D plots,
+# graphs and mesh inspection work in the packaged build, not just from source.
+for pkg in ("meshio", "matplotlib", "mpl_toolkits", "pandas", "plotly", "scipy"):
+    hiddenimports += _optional_collect(pkg)
 if sys.platform == "win32":
     hiddenimports += ["pyttsx3.drivers.sapi5", "comtypes.stream"]
 elif sys.platform == "darwin":

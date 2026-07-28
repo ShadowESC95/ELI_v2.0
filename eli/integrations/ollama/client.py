@@ -225,6 +225,51 @@ def is_running() -> bool:
         return False
 
 
+_autostart_tried = False
+
+
+def ensure_server_running(timeout: float = 8.0) -> bool:
+    """Make Ollama reachable if we reasonably can.
+
+    The #1 "Ollama not loading anything" cause is simply that the local server
+    isn't running (Errno 111) even though the ``ollama`` binary is installed — so
+    instead of only telling the user to run ``ollama serve``, start it for them:
+    spawn a detached ``ollama serve`` and wait until it answers. Only for a LOCAL
+    host (never a remote box), once per process, and skippable with
+    ``ELI_OLLAMA_AUTOSTART=0``. Returns True if reachable (already or after start).
+    """
+    global _autostart_tried
+    if is_running():
+        return True
+    if os.environ.get("ELI_OLLAMA_AUTOSTART", "1").strip().lower() in {"0", "false", "no", "off"}:
+        return False
+    if _autostart_tried:
+        return is_running()
+    _autostart_tried = True
+    import shutil as _sh
+    exe = _sh.which("ollama")
+    if not exe:
+        return False
+    base = candidate_hosts()[0]
+    if not any(x in base for x in ("localhost", "127.", "::1", "0.0.0.0")):
+        return False   # a remote Ollama is the owner's to start, not ours
+    import subprocess as _sp
+    import time as _t
+    try:
+        _sp.Popen([exe, "serve"], stdout=_sp.DEVNULL, stderr=_sp.DEVNULL,
+                  stdin=_sp.DEVNULL, start_new_session=True)
+        _log.info("ollama: local server not running — started `ollama serve`")
+    except Exception:
+        _log.debug("ollama auto-start failed", exc_info=True)
+        return False
+    deadline = _t.time() + timeout
+    while _t.time() < deadline:
+        if is_running():
+            return True
+        _t.sleep(0.3)
+    return is_running()
+
+
 def get_version() -> str:
     """Return Ollama version string, or 'unavailable'."""
     try:
@@ -234,12 +279,15 @@ def get_version() -> str:
         return "unavailable"
 
 
-def list_models() -> List[str]:
+def list_models(autostart: bool = True) -> List[str]:
     """
     Return a sorted list of installed Ollama model names.
     Returns [] if Ollama is not running or no models installed.
-    Safe to call at any time — never raises.
+    Safe to call at any time — never raises. Auto-starts a local Ollama server if
+    it's installed but stopped (the common "not loading anything" case).
     """
+    if autostart:
+        ensure_server_running()
     try:
         data = _get("/api/tags", timeout=5)
         models = data.get("models", [])

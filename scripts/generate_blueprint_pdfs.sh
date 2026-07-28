@@ -82,6 +82,15 @@ pdf portable_scripts_guide "ELI — Portable Scripts Guide" "ELI v$VERSION" \
 pdf common_errors_and_fixes "ELI — Common Errors and Fixes" "ELI v$VERSION" \
     "$BP/common_errors_and_fixes.md"
 
+pdf ollama_startup_guide "ELI — Using Ollama (Start to Finish)" "ELI v$VERSION" \
+    "$BP/ollama_startup_guide.md"
+
+pdf ide_guide "ELI — The Built-in Code Editor" "ELI v$VERSION" \
+    "$BP/ide_guide.md"
+
+pdf simulations_and_plots "ELI — Simulations, Plots and Graphs (2D/3D/4D)" "ELI v$VERSION" \
+    "$BP/simulations_and_plots.md"
+
 # ── FULL technical manual ──────────────────────────────────────────────────
 # = the user manual + the architecture blueprint set, in reading order. Sources
 # that are absent are reported, not skipped silently — the FULL manual must
