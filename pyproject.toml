@@ -142,14 +142,33 @@ training = [
 # human-like `natural:` voices (built-in speakers, no clone) and `clone:` voice
 # cloning. Downloads a ~1.8GB model on first use. See eli/perception/tts_xtts.py.
 # coqui-tts is the maintained fork of the (unmaintained) TTS package; imports as `TTS`.
+# coqui-tts itself does NOT declare torch/torchaudio/torchcodec as install
+# dependencies (same reasoning as the `training` extra below: a GPU build must
+# match the user's own CUDA, so it can't be hard-pinned here) but genuinely needs
+# all three at import time — torchaudio for audio IO, torchcodec because torch>=2.9
+# moved audio codecs off the old backends. Unpinned here so a normal `pip install`
+# resolves current mutually-compatible versions together; if torch was already
+# installed ahead of the latest published torchaudio/torchcodec (bleeding-edge
+# torch, e.g. a nightly), install the matching build manually from
+# https://download.pytorch.org/whl/<your-cuda-tag> — same pattern documented next
+# to `torch` in requirements.txt.
 clone = [
+    "torch>=2.0",
+    "torchaudio",
+    "torchcodec",
     "coqui-tts>=0.24",
 ]
 # Aliases for the same neural-voice dependency (clearer intent at install time).
 natural = [
+    "torch>=2.0",
+    "torchaudio",
+    "torchcodec",
     "coqui-tts>=0.24",
 ]
 voice = [
+    "torch>=2.0",
+    "torchaudio",
+    "torchcodec",
     "coqui-tts>=0.24",
 ]
 

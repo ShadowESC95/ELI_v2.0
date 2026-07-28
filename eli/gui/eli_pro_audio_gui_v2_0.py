@@ -7769,25 +7769,16 @@ _register()
             # Create-your-own-voice — drop in a recording (wav/mp3/mp4) and ELI builds
             # a voice from it (XTTS-v2 clone). The neural extra makes it actually sound
             # like the sample; until then the voice is registered and falls back.
-            _make_btn = QPushButton("🎙 Create a voice from an audio file…")
-            _make_btn.setStyleSheet(
-                "QPushButton { background:#2a1e3a; color:#b78ad0; border:1px solid #4a2a6a;"
-                " border-radius:4px; padding:4px 10px; }"
-                "QPushButton:hover { background:#382548; }")
-            _make_btn.setToolTip(
-                "Build a custom ELI voice from a short, clean recording (~6–20s) of the "
-                "voice you want — .wav, .mp3 or .mp4. Needs the neural voice extra to "
-                "reproduce it (`pip install \"eli-v2.0[natural]\"`).")
+            _VOICE_CLIP_EXTS = (".wav", ".mp3", ".mp4", ".m4a", ".ogg", ".flac", ".aac", ".webm")
 
-            def _create_voice_from_file():
+            def _create_voice_from_path(path: str):
                 try:
-                    path, _ = QFileDialog.getOpenFileName(
-                        self, "Choose a voice recording", "",
-                        "Audio/Video (*.wav *.mp3 *.mp4 *.m4a *.ogg *.flac *.aac *.webm);;All files (*)")
-                    if not path:
+                    import os as _os
+                    if _os.path.splitext(path)[1].lower() not in _VOICE_CLIP_EXTS:
+                        QMessageBox.warning(self, "Create voice",
+                                             f"Not a recognised audio/video clip: {path}")
                         return
                     from eli.gui.qt_compat import QInputDialog
-                    import os as _os
                     default_name = _os.path.splitext(_os.path.basename(path))[0]
                     name, ok = QInputDialog.getText(self, "Name this voice",
                                                     "Voice name:", text=default_name)
@@ -7804,7 +7795,7 @@ _register()
                         self._reload_voice_selectors()
                         extra = ("" if res.get("synth_ready") else
                                  "\n\nInstall the neural voice extra to make it sound like the "
-                                 "recording:\n  pip install \"eli-v2.0[natural]\"")
+                                 "recording:\n  pip install -e \".[natural]\"  (from the ELI project root)")
                         QMessageBox.information(self, "Voice created",
                                                f"Created and selected the voice '{name.strip()}'.{extra}")
                     else:
@@ -7814,8 +7805,141 @@ _register()
                     log.debug(f"[TTS] create-voice failed: {e}", exc_info=True)
                     QMessageBox.warning(self, "Create voice", f"Could not create the voice:\n{e}")
 
-            _make_btn.clicked.connect(_create_voice_from_file)
-            tts_form.addRow(_make_btn)
+            def _browse_voice_file():
+                path, _ = QFileDialog.getOpenFileName(
+                    self, "Choose a voice recording", "",
+                    "Audio/Video (*.wav *.mp3 *.mp4 *.m4a *.ogg *.flac *.aac *.webm);;All files (*)")
+                if path:
+                    _create_voice_from_path(path)
+
+            class VoiceDropZone(QFrame):
+                """Dashed drop target for a voice recording — drag a clip in, or
+                click to browse. Single point of entry into add_clone()."""
+                _IDLE = ("QFrame { background:#241a33; border:2px dashed #4a2a6a;"
+                          " border-radius:6px; }"
+                          "QLabel { background:transparent; color:#b78ad0; }")
+                _HOVER = ("QFrame { background:#2e2140; border:2px dashed #b78ad0;"
+                          " border-radius:6px; }"
+                          "QLabel { background:transparent; color:#d8b8f0; }")
+
+                def __init__(self, on_path, on_browse, parent=None):
+                    super().__init__(parent)
+                    self._on_path = on_path
+                    self._on_browse = on_browse
+                    self.setAcceptDrops(True)
+                    self.setFixedHeight(56)
+                    self.setStyleSheet(self._IDLE)
+                    self.setCursor(Qt.CursorShape.PointingHandCursor)
+                    lay = QVBoxLayout(self)
+                    lay.setContentsMargins(10, 4, 10, 4)
+                    lbl = QLabel("🎙  Drop an audio/video clip here, or click to browse…")
+                    lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
+                    lay.addWidget(lbl)
+                    self.setToolTip(
+                        "Build a custom ELI voice from a short, clean recording (~6–20s) of "
+                        "the voice you want — .wav, .mp3, .mp4, .m4a, .ogg, .flac, .aac, .webm. "
+                        "Needs the neural voice extra to actually reproduce it "
+                        "(pip install -e \".[natural]\" from the ELI project root).")
+
+                def _first_local_clip(self, event) -> str:
+                    if not event.mimeData().hasUrls():
+                        return ""
+                    for url in event.mimeData().urls():
+                        p = url.toLocalFile()
+                        if p and p.lower().endswith(_VOICE_CLIP_EXTS):
+                            return p
+                    return ""
+
+                def dragEnterEvent(self, event):
+                    if self._first_local_clip(event):
+                        self.setStyleSheet(self._HOVER)
+                        event.acceptProposedAction()
+                    else:
+                        event.ignore()
+
+                def dragLeaveEvent(self, event):
+                    self.setStyleSheet(self._IDLE)
+
+                def dropEvent(self, event):
+                    self.setStyleSheet(self._IDLE)
+                    path = self._first_local_clip(event)
+                    if path:
+                        event.acceptProposedAction()
+                        self._on_path(path)
+
+                def mousePressEvent(self, event):
+                    self._on_browse()
+
+            _drop_zone = VoiceDropZone(_create_voice_from_path, _browse_voice_file)
+            tts_form.addRow(_drop_zone)
+
+            # Record-now: capture a fresh reference from the mic — no pre-existing file.
+            def _record_voice_now():
+                secs = 12
+                try:
+                    import sounddevice as _sd, soundfile as _sf
+                except Exception:
+                    QMessageBox.warning(self, "Recording unavailable",
+                                        "Microphone capture needs the audio extras "
+                                        "(sounddevice + soundfile).")
+                    return
+                import tempfile as _tf
+                prog = QProgressDialog(
+                    f"Recording {secs}s — speak naturally now (read a couple of sentences)…",
+                    "Cancel", 0, secs, self)
+                prog.setWindowTitle("Recording your voice")
+                prog.setWindowModality(Qt.WindowModality.WindowModal)
+                prog.setMinimumDuration(0)
+                holder = {"data": None, "err": None}
+
+                def _cap():
+                    try:
+                        holder["data"] = _sd.rec(int(secs * 22050), samplerate=22050,
+                                                 channels=1, dtype="float32")
+                        _sd.wait()
+                    except Exception as e:
+                        holder["err"] = str(e)
+
+                th = threading.Thread(target=_cap, daemon=True); th.start()
+                import time as _time
+                t0 = _time.time()
+                while th.is_alive():
+                    el = int(_time.time() - t0)
+                    prog.setValue(min(secs, el))
+                    QApplication.processEvents()
+                    if prog.wasCanceled():
+                        try:
+                            import sounddevice as _sd2; _sd2.stop()
+                        except Exception:
+                            log.debug("[TTS] record stop failed", exc_info=True)
+                        break
+                    _time.sleep(0.1)
+                th.join(timeout=1.0)
+                prog.setValue(secs)
+                if prog.wasCanceled():
+                    return
+                if holder["err"] or holder["data"] is None:
+                    QMessageBox.warning(self, "Recording failed",
+                                        str(holder["err"] or "no audio captured"))
+                    return
+                try:
+                    fd, wav_path = _tf.mkstemp(suffix=".wav"); os.close(fd)
+                    _sf.write(wav_path, holder["data"], 22050)
+                    _create_voice_from_path(wav_path)
+                finally:
+                    try:
+                        os.unlink(wav_path)
+                    except Exception:
+                        log.debug("[TTS] temp record cleanup failed", exc_info=True)
+
+            _rec_btn = QPushButton("🔴  Record a voice now (12s from your mic)")
+            _rec_btn.setStyleSheet(
+                "QPushButton { background:#2a1e2a; color:#d08a9a; border:1px solid #6a2a3a;"
+                " border-radius:4px; padding:5px 10px; }"
+                "QPushButton:hover { background:#382530; }")
+            _rec_btn.setToolTip("Speak for ~12 seconds and ELI builds a voice from your recording.")
+            _rec_btn.clicked.connect(_record_voice_now)
+            tts_form.addRow(_rec_btn)
 
         except Exception as _tts_err:
             tts_form.addRow(QLabel(f"TTS status unavailable: {_tts_err}"))
@@ -10047,6 +10171,11 @@ _register()
             return
 
         self.is_generating = True
+        try:
+            from eli.cognition import expression_state as _es_think
+            _es_think.set_thinking(True)  # face shows a focused "working" look
+        except Exception:
+            log.debug("[GUI] thinking-state set failed", exc_info=True)
         self.status_signal.emit('Send disabled')
         self.send_btn.setText('Generating...')
         self.status_signal.emit('🔄 Generating response...')
@@ -10232,6 +10361,11 @@ _register()
                     pass
             finally:
                 self.is_generating = False
+                try:
+                    from eli.cognition import expression_state as _es_think2
+                    _es_think2.set_thinking(False)
+                except Exception:
+                    log.debug("[GUI] thinking-state clear failed", exc_info=True)
                 self.status_signal.emit('Send enabled')
                 self.status_signal.emit('🟢 Ready')
 
