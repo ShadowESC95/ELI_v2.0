@@ -10543,7 +10543,9 @@ def _execute_impl(action: str, args: Optional[Dict[str, Any]] = None) -> Dict[st
             installed = set(list_voices() or [])
             r = resolve_voice_query(q)
             vid = r.get("voice") or ""
-            if vid and vid not in installed and not vid.startswith("char:"):
+            # char: (effect chains) and natural: (neural, graceful Piper fallback)
+            # are always selectable even when not in the installed .onnx list.
+            if vid and vid not in installed and not vid.startswith(("char:", "natural:")):
                 alt = next((m for m in r.get("matches", []) if m in installed), "")
                 if alt:
                     vid = alt

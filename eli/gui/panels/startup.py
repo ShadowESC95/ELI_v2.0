@@ -223,6 +223,27 @@ class StartupModelSelectionDialog(QDialog):
         refresh_ollama_btn = QPushButton("Refresh Ollama models")
         refresh_ollama_btn.clicked.connect(self._refresh_ollama_models)
         form.addRow("", refresh_ollama_btn)
+
+        # Voice engine — chosen HERE, before hardware tuning / GPU allocation, so a
+        # heavy neural voice's VRAM is a deliberate up-front choice on a capable box,
+        # while a low-VRAM machine keeps fast Piper and all its VRAM for the model.
+        self.tts_engine_combo = QComboBox()
+        self.tts_engine_combo.addItem("Piper — fast, low VRAM (recommended)", "piper")
+        self.tts_engine_combo.addItem("Natural neural (XTTS-v2) — human-like, uses GPU/VRAM", "natural")
+        self.tts_engine_combo.setToolTip(
+            "Piper is fast and light and runs anywhere. The natural neural voice (XTTS-v2) "
+            "sounds human — expressive, punctuation-aware — but needs the voice extra "
+            "(downloads ~1.8GB on first use) and more VRAM/compute. Pick it on a capable "
+            "machine; ELI falls back to Piper automatically if it can't load.")
+        try:
+            from eli.core.runtime_settings import load_settings as _ls
+            _cur_engine = str((_ls() or {}).get("tts_engine", "piper")).lower()
+            _ei = self.tts_engine_combo.findData(_cur_engine)
+            if _ei >= 0:
+                self.tts_engine_combo.setCurrentIndex(_ei)
+        except Exception:
+            log.debug("[STARTUP] tts_engine preselect failed", exc_info=True)
+        form.addRow("Voice engine", self.tts_engine_combo)
         layout.addLayout(form)
 
         self.auto_tune_checkbox = QCheckBox(
@@ -522,6 +543,18 @@ class StartupModelSelectionDialog(QDialog):
 
     def selected_ollama_model(self) -> str:
         return self.ollama_model_combo.currentText().strip()
+
+    def selected_tts_engine(self) -> str:
+        """'piper' or 'natural' — the voice engine chosen before model load."""
+        try:
+            return str(self.tts_engine_combo.currentData() or "piper")
+        except Exception:
+            return "piper"
+
+    def selected_tts_voice(self) -> str:
+        """The voice id implied by the engine choice: a natural neural voice, or ''
+        (empty = leave the Piper voice as-is)."""
+        return "natural:sophia" if self.selected_tts_engine() == "natural" else ""
 
     def should_auto_tune(self) -> bool:
         return self.selected_provider() != "ollama"
@@ -876,6 +909,18 @@ class FirstBootWizard(QDialog):
         v.addWidget(self._ollama_widget)
         self._ollama_widget.setVisible(False)
 
+        # Voice engine — same choice as the model picker, offered here for a brand-new
+        # user, before the model loads. Piper (fast) vs the human-like neural voice.
+        v.addWidget(QLabel("Voice engine:"))
+        self._wiz_tts_engine = QComboBox()
+        self._wiz_tts_engine.addItem("Piper — fast, works on any machine (recommended)", "piper")
+        self._wiz_tts_engine.addItem("Natural neural (XTTS-v2) — human-like, needs GPU/VRAM", "natural")
+        self._wiz_tts_engine.setToolTip(
+            "Piper is fast and light. The natural neural voice sounds human — expressive and "
+            "punctuation-aware — but downloads ~1.8GB on first use and needs more VRAM. ELI "
+            "falls back to Piper automatically if the neural voice can't load.")
+        v.addWidget(self._wiz_tts_engine)
+
         self._wiz_provider.currentIndexChanged.connect(self._sync_wiz_provider)
         v.addStretch()
         self._tabs.addTab(w, "2 — Model")
@@ -1220,6 +1265,15 @@ class FirstBootWizard(QDialog):
 
     def selected_ollama_model(self) -> str:
         return self._wiz_ollama_model.currentText().strip()
+
+    def selected_tts_engine(self) -> str:
+        try:
+            return str(self._wiz_tts_engine.currentData() or "piper")
+        except Exception:
+            return "piper"
+
+    def selected_tts_voice(self) -> str:
+        return "natural:sophia" if self.selected_tts_engine() == "natural" else ""
 
     def accept(self):
         provider = self.selected_provider()

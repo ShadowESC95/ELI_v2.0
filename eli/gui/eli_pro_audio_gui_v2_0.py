@@ -9657,6 +9657,27 @@ _register()
         if dlg.exec() != QDialog.DialogCode.Accepted:
             return False
 
+        # Persist the voice-engine choice BEFORE hardware tuning / GPU allocation
+        # below, so a neural voice's VRAM is accounted for up front (and pinned to
+        # GPU), or Piper keeps the VRAM for the model on a lean box.
+        try:
+            _tts_engine = dlg.selected_tts_engine()
+            _tts_updates = {"tts_engine": _tts_engine}
+            _tts_voice = dlg.selected_tts_voice()
+            if _tts_voice:
+                _tts_updates["tts_voice"] = _tts_voice
+            from eli.core.runtime_settings import save_settings as _rs_save_tts
+            _rs_save_tts(_tts_updates)
+            if _tts_engine == "natural":
+                os.environ["ELI_XTTS_DEVICE"] = "cuda"  # user chose it up-front → prefer GPU
+                try:
+                    from eli.perception.tts_router import set_active_voice as _sav
+                    _sav(_tts_voice or "natural:sophia")
+                except Exception:
+                    log.debug("[STARTUP] set natural voice active failed", exc_info=True)
+        except Exception as _te:
+            log.debug(f"[STARTUP] tts engine persist failed: {_te}", exc_info=True)
+
         provider = dlg.selected_provider()
         idx = self.provider_combo.findData(provider)
         if idx >= 0:
@@ -11815,6 +11836,17 @@ def main():
                         "gguf_model_path": _wiz_path,
                     })
             if _accepted:
+                # Voice engine chosen in the wizard — persist before model load so a
+                # neural voice's VRAM is a deliberate up-front choice.
+                try:
+                    _we = _wizard.selected_tts_engine()
+                    update_kwargs["tts_engine"] = _we
+                    _wv = _wizard.selected_tts_voice()
+                    if _wv:
+                        update_kwargs["tts_voice"] = _wv
+                        os.environ["ELI_XTTS_DEVICE"] = "cuda"
+                except Exception:
+                    log.debug("[ELI] wizard tts engine read failed", exc_info=True)
                 _rs_update(**update_kwargs)
         except Exception as _persist_err:
             log.debug(f"[ELI] First-boot selection persist failed: {_persist_err}")
