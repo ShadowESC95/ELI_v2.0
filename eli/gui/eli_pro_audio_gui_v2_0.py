@@ -7766,6 +7766,57 @@ _register()
             _get_btn.clicked.connect(_open_voice_library)
             tts_form.addRow(_get_btn)
 
+            # Create-your-own-voice — drop in a recording (wav/mp3/mp4) and ELI builds
+            # a voice from it (XTTS-v2 clone). The neural extra makes it actually sound
+            # like the sample; until then the voice is registered and falls back.
+            _make_btn = QPushButton("🎙 Create a voice from an audio file…")
+            _make_btn.setStyleSheet(
+                "QPushButton { background:#2a1e3a; color:#b78ad0; border:1px solid #4a2a6a;"
+                " border-radius:4px; padding:4px 10px; }"
+                "QPushButton:hover { background:#382548; }")
+            _make_btn.setToolTip(
+                "Build a custom ELI voice from a short, clean recording (~6–20s) of the "
+                "voice you want — .wav, .mp3 or .mp4. Needs the neural voice extra to "
+                "reproduce it (`pip install \"eli-v2.0[natural]\"`).")
+
+            def _create_voice_from_file():
+                try:
+                    path, _ = QFileDialog.getOpenFileName(
+                        self, "Choose a voice recording", "",
+                        "Audio/Video (*.wav *.mp3 *.mp4 *.m4a *.ogg *.flac *.aac *.webm);;All files (*)")
+                    if not path:
+                        return
+                    from eli.gui.qt_compat import QInputDialog
+                    import os as _os
+                    default_name = _os.path.splitext(_os.path.basename(path))[0]
+                    name, ok = QInputDialog.getText(self, "Name this voice",
+                                                    "Voice name:", text=default_name)
+                    if not ok or not name.strip():
+                        return
+                    from eli.perception import tts_xtts
+                    res = tts_xtts.add_clone(name.strip(), path)
+                    if res.get("ok"):
+                        try:
+                            from eli.perception.tts_router import set_active_voice
+                            set_active_voice(res.get("id") or ("clone:" + name.strip()))
+                        except Exception:
+                            log.debug("[TTS] set created voice active failed", exc_info=True)
+                        self._reload_voice_selectors()
+                        extra = ("" if res.get("synth_ready") else
+                                 "\n\nInstall the neural voice extra to make it sound like the "
+                                 "recording:\n  pip install \"eli-v2.0[natural]\"")
+                        QMessageBox.information(self, "Voice created",
+                                               f"Created and selected the voice '{name.strip()}'.{extra}")
+                    else:
+                        QMessageBox.warning(self, "Couldn't create voice",
+                                            str(res.get("error") or "unknown error"))
+                except Exception as e:
+                    log.debug(f"[TTS] create-voice failed: {e}", exc_info=True)
+                    QMessageBox.warning(self, "Create voice", f"Could not create the voice:\n{e}")
+
+            _make_btn.clicked.connect(_create_voice_from_file)
+            tts_form.addRow(_make_btn)
+
         except Exception as _tts_err:
             tts_form.addRow(QLabel(f"TTS status unavailable: {_tts_err}"))
 

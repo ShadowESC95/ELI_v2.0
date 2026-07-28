@@ -1799,6 +1799,22 @@ def route(text: str) -> Dict[str, Any]:
     # this deterministic region so a concrete voice request isn't swallowed by the
     # later persona-style route ("use a X voice"). Runs AFTER wake/train above, so
     # "train my voice" and "voice diagnostics" have already returned.
+    # CREATE / clone a voice from a dropped-in recording (wav/mp3/mp4). Checked
+    # before the download/set routes so "create a voice from …" isn't mis-read.
+    if re.search(r"\b(voice|clone)\b", low) and re.search(
+            r"\b(creat|make|build|clone|generat|record)\w*\b", low) and (
+            re.search(r"\.(wav|mp3|mp4|m4a|ogg|flac|aac|webm)\b", low)
+            or re.search(r"\b(from|using|out of|with)\b.*\b(recording|audio|clip|sample|file|voice)\b", low)
+            or re.search(r"\b(my|this|the)\s+(recording|audio|clip|sample|voice)\b", low)):
+        _m = re.search(r"\b(?:called|named|name it|as)\s+([A-Za-z0-9_ -]{1,40})", raw)
+        _f = re.search(r"([~/\w. -]+\.(?:wav|mp3|mp4|m4a|ogg|flac|aac|webm))\b", raw, re.I)
+        _args = {"query": raw}
+        if _m:
+            _args["name"] = _m.group(1).strip()
+        if _f:
+            _args["file"] = _f.group(1).strip()
+        return _mk("CREATE_VOICE", _args, 0.9, matched_by="voice.create")
+
     if re.search(r"\bvoices?\b|\baccents?\b", low):
         _has_dl = bool(re.search(r"\b(download|install|fetch|add|grab)\b", low))
         # LIST — asking what's available (no fetch/switch verb)

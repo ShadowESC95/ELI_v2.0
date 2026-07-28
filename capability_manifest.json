@@ -1,6 +1,6 @@
 {
-  "generated_at": "2026-07-28T10:02:09",
-  "total": 212,
+  "generated_at": "2026-07-28T10:19:18",
+  "total": 213,
   "capabilities": [
     {
       "action": "ADD_EVENT",
@@ -280,6 +280,15 @@
       "routable": false,
       "in_dispatch": true,
       "in_supported_list": false
+    },
+    {
+      "action": "CREATE_VOICE",
+      "source": "executor+router",
+      "active": true,
+      "plugin": null,
+      "routable": true,
+      "in_dispatch": true,
+      "in_supported_list": true
     },
     {
       "action": "DATA_FABRICATOR",

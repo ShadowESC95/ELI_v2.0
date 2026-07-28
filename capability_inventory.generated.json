@@ -249,6 +249,14 @@
       "source": "executor"
     },
     {
+      "action": "CREATE_VOICE",
+      "in_dispatch": true,
+      "in_supported_list": true,
+      "plugin": null,
+      "routable": true,
+      "source": "executor+router"
+    },
+    {
       "action": "DATA_FABRICATOR",
       "in_dispatch": true,
       "in_supported_list": true,
@@ -1697,7 +1705,7 @@
       "source": "executor"
     }
   ],
-  "count": 212,
-  "generated_at": 1785229329.8591409,
+  "count": 213,
+  "generated_at": 1785230358.8707016,
   "generator": "brain.awareness.capability_sync"
 }
