@@ -111,7 +111,17 @@ def _piper_prosody_args() -> "list[str]":
                 vals[k] = v
     except Exception:
         log.debug("[TTS] prosody settings read failed", exc_info=True)
-    for k in vals:  # env wins over settings
+    # Emotional delivery: the current tone (from tone_adaptor) overrides the base
+    # pace / expressiveness / sentence-pause so ELI's VOICE carries the emotion —
+    # slow+flat+long pauses for sad, fast+bright+short for ecstatic, etc.
+    try:
+        from eli.cognition import tone_adaptor
+        for k, v in (tone_adaptor.voice_prosody() or {}).items():
+            if k in vals and v is not None:
+                vals[k] = v
+    except Exception:
+        log.debug("[TTS] tone prosody merge skipped", exc_info=True)
+    for k in vals:  # env wins over everything (explicit user pin)
         ev = os.environ.get(f"ELI_TTS_{k.upper()}", "").strip()
         if ev:
             vals[k] = ev

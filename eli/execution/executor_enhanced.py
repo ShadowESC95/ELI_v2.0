@@ -2253,6 +2253,8 @@ SUPPORTED_ACTIONS = [
     'DOWNLOAD_VOICE',
     'SET_VOICE',
     'CREATE_VOICE',
+    'SET_TONE',
+    'CLEAR_TONE',
     'STOP_MEDIA',
     'NOW_PLAYING',
     'SUMMARIZE_FILE',
@@ -10603,6 +10605,37 @@ def _execute_impl(action: str, args: Optional[Dict[str, Any]] = None) -> Dict[st
                      "(`pip install \"eli-v2.0[natural]\"`); until then I'll use a normal voice.")
             msg = f"Created the voice '{name}' from your recording and set it active.{extra}"
             return {"ok": True, "action": a, "voice": vid, "content": msg, "response": msg}
+        except Exception as e:
+            return {"ok": False, "action": a, "error": str(e), "content": str(e), "response": str(e)}
+
+    # ---- SET_TONE ----
+    # Pin the emotion/register ELI expresses (words + voice + face). Distinct from
+    # SET_VOICE (which voice) and SET_COMMUNICATION_STYLE (free-text persona): this
+    # picks a named tone from the emotion palette ("be comedic", "talk street").
+    if a == "SET_TONE":
+        try:
+            q = (args.get("tone") or args.get("style") or args.get("query")
+                 or args.get("text") or args.get("message") or "").strip()
+            from eli.cognition import tone_adaptor, emotion_palette
+            res = tone_adaptor.set_tone(q)
+            if res.get("ok"):
+                msg = f"Tone set to {res['tone']} — {res.get('desc','')}. Say \"go back to normal\" to clear it."
+                return {"ok": True, "action": a, "tone": res["tone"], "content": msg, "response": msg}
+            sample = ", ".join(emotion_palette.list_tones()[:12])
+            msg = (f"I couldn't match \"{q}\" to a tone. Try one like: {sample}… "
+                   f"(or \"be comedic\", \"talk street\", \"go professional\").")
+            return {"ok": False, "action": a, "content": msg, "response": msg}
+        except Exception as e:
+            return {"ok": False, "action": a, "error": str(e), "content": str(e), "response": str(e)}
+
+    # ---- CLEAR_TONE ----
+    # Drop the tone override → back to autonomous, emotion-adaptive expression.
+    if a == "CLEAR_TONE":
+        try:
+            from eli.cognition import tone_adaptor
+            tone_adaptor.clear_tone()
+            msg = "Back to my normal, adaptive tone — I'll read the room again."
+            return {"ok": True, "action": a, "content": msg, "response": msg}
         except Exception as e:
             return {"ok": False, "action": a, "error": str(e), "content": str(e), "response": str(e)}
 

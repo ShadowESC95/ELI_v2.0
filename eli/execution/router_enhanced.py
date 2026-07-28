@@ -935,6 +935,16 @@ def _route_set_communication_style(raw: str, low: str) -> Optional[Dict[str, Any
                                        matched_by="voice.set.persona_disambig")
                     except Exception:
                         log.debug("voice disambig in persona route failed", exc_info=True)
+                # A named emotion/tone from the palette ("be comedic", "more sarcastic",
+                # "professional tone") → SET_TONE (shades delivery, keeps core persona).
+                # A free-text style that isn't a palette tone stays persona.
+                try:
+                    from eli.cognition.emotion_palette import resolve_tone as _rt
+                    if _rt(style) or _rt(raw):
+                        return _mk("SET_TONE", {"tone": (_rt(style) or _rt(raw))}, 0.94,
+                                   matched_by="tone.set.persona_disambig")
+                except Exception:
+                    log.debug("tone disambig in persona route failed", exc_info=True)
                 return _mk(
                     "SET_COMMUNICATION_STYLE",
                     {"style": style},
@@ -1799,6 +1809,24 @@ def route(text: str) -> Dict[str, Any]:
     # this deterministic region so a concrete voice request isn't swallowed by the
     # later persona-style route ("use a X voice"). Runs AFTER wake/train above, so
     # "train my voice" and "voice diagnostics" have already returned.
+    # ── Tone / emotion register (shades ELI's delivery; core personality unchanged) ──
+    # CLEAR first ("back to normal", "be yourself", "drop the tone").
+    if re.search(r"\b(back to (normal|yourself)|be yourself|normal tone|drop the (tone|act|voice)"
+                 r"|stop (that|the tone|acting)|reset your tone|clear (the )?tone)\b", low):
+        return _mk("CLEAR_TONE", {}, 0.9, matched_by="tone.clear")
+    # SET — an explicit tone directive that names a palette tone/alias. Gated on BOTH
+    # a tone-setting verb AND the phrase resolving to a real tone, so "be comedic" /
+    # "talk street" / "sound more professional" fire, but a passing mention
+    # ("that joke was comedic gold") does not.
+    if re.search(r"\b(be|sound|talk|speak|act|go|get|use|make it|keep it|more|less)\b", low):
+        try:
+            from eli.cognition.emotion_palette import resolve_tone as _rt
+            _tone = _rt(raw)
+            if _tone and _tone != "neutral":
+                return _mk("SET_TONE", {"tone": _tone}, 0.9, matched_by="tone.set")
+        except Exception:
+            log.debug("tone.set resolve failed", exc_info=True)
+
     # CREATE / clone a voice from a dropped-in recording (wav/mp3/mp4). Checked
     # before the download/set routes so "create a voice from …" isn't mis-read.
     if re.search(r"\b(voice|clone)\b", low) and re.search(

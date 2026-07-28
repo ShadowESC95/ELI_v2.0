@@ -143,6 +143,8 @@ _add("Voice", "LIST_VOICES", "List installed voices and what's downloadable (166
 _add("Voice", "DOWNLOAD_VOICE", "Download a voice/accent from the Piper library and switch to it", "“download a British voice”", "“get me a Scottish accent”", "“install en_US-amy-medium”")
 _add("Voice", "SET_VOICE", "Switch the active TTS voice/accent (distinct from persona tone)", "“use the alan voice”", "“switch your voice to amy”", "“use the HAL voice”", "“use the natural voice”")
 _add("Voice", "CREATE_VOICE", "Make a new ELI voice from a recording (wav/mp3/mp4 drop-in; XTTS-v2 clone)", "“create a voice called Nova from clip.mp4”", "“make an ELI voice from recording.wav”")
+_add("Conversation & persona", "SET_TONE", "Shade ELI's expressed tone/emotion (words+voice+face) without changing his core personality", "“be comedic”", "“talk street”", "“sound more professional”", "“use a deadpan tone”")
+_add("Conversation & persona", "CLEAR_TONE", "Drop a pinned tone — back to autonomous, situation-adaptive delivery", "“go back to normal”", "“be yourself”", "“drop the tone”")
 _add("Voice", "LISTEN_FOR_COMMAND", "Start listening for a voice command", "“listen” / the wake word “computer”")
 _add("Voice", "VOICE_DIAGNOSTICS", "Run voice/STT diagnostics", "“run voice diagnostics”", "“stt diagnostics”")
 

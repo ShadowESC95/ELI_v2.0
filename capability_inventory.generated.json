@@ -129,6 +129,14 @@
       "source": "executor+router"
     },
     {
+      "action": "CLEAR_TONE",
+      "in_dispatch": true,
+      "in_supported_list": true,
+      "plugin": null,
+      "routable": true,
+      "source": "executor+router"
+    },
+    {
       "action": "CLOSE_APP",
       "in_dispatch": true,
       "in_supported_list": true,
@@ -1457,6 +1465,14 @@
       "source": "executor+router"
     },
     {
+      "action": "SET_TONE",
+      "in_dispatch": true,
+      "in_supported_list": true,
+      "plugin": null,
+      "routable": true,
+      "source": "executor+router"
+    },
+    {
       "action": "SET_USER_NAME",
       "in_dispatch": true,
       "in_supported_list": false,
@@ -1705,7 +1721,7 @@
       "source": "executor"
     }
   ],
-  "count": 213,
-  "generated_at": 1785230358.8707016,
+  "count": 215,
+  "generated_at": 1785232492.374432,
   "generator": "brain.awareness.capability_sync"
 }

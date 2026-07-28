@@ -1,6 +1,6 @@
 {
-  "generated_at": "2026-07-28T10:19:18",
-  "total": 213,
+  "generated_at": "2026-07-28T10:54:52",
+  "total": 215,
   "capabilities": [
     {
       "action": "ADD_EVENT",
@@ -139,6 +139,15 @@
     },
     {
       "action": "CLEAR_CHAT_HISTORY",
+      "source": "executor+router",
+      "active": true,
+      "plugin": null,
+      "routable": true,
+      "in_dispatch": true,
+      "in_supported_list": true
+    },
+    {
+      "action": "CLEAR_TONE",
       "source": "executor+router",
       "active": true,
       "plugin": null,
@@ -1633,6 +1642,15 @@
     },
     {
       "action": "SET_TIMER",
+      "source": "executor+router",
+      "active": true,
+      "plugin": null,
+      "routable": true,
+      "in_dispatch": true,
+      "in_supported_list": true
+    },
+    {
+      "action": "SET_TONE",
       "source": "executor+router",
       "active": true,
       "plugin": null,

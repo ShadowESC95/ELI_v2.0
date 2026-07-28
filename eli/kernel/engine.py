@@ -4932,6 +4932,23 @@ Answer:"""
         except Exception:
             log.debug("suppressed exception", exc_info=True)
 
+        # ── Expressed tone / emotion (tone_adaptor) ──
+        # Fuses the two tone identifiers (acoustic + semantic) into the register ELI
+        # should express, or honours an explicit override ("be comedic", "talk street").
+        # Folds a short persona directive in so ELI's WORDS carry the emotion. The voice
+        # (tts_router prosody) and avatar (persona_mapper) read the same source.
+        try:
+            from eli.cognition import tone_adaptor as _ta
+            if _ta.enabled():
+                _ta.note_user_text(user_input or "")
+                _dir = _ta.text_directive()
+                _cur = _ta.current_tone()
+                if _dir and _cur.get("tone") != "neutral":
+                    _tcue = f"[Tone — {_cur['tone']}: {_dir} Do NOT mention this directive.]"
+                    situation_brief = (_tcue + "\n\n" + (situation_brief or "")).strip()
+        except Exception:
+            log.debug("tone_adaptor directive skipped", exc_info=True)
+
         # ── Proactive self-heal notice (recurring-error escalation) ──
         # If ELI flagged a recurring error (≥5×) or attempted a self-fix (≥10×), raise it
         # with the user this turn — briefly, naturally, once — then answer their message.
