@@ -127,6 +127,7 @@ DEFAULTS: Dict[str, Any] = {
     "cache_type_v": "",
     "auto_speak": False,
     "tts_voice": "en_US-amy-medium",
+    "tts_engine": "piper",
     # Smart-home hub identity on Bluetooth pairing screens (TVs, speakers). Empty
     # bluetooth_display_name → "Eli · {hub_zone}". Override for a fixed label.
     "hub_zone": "Home",

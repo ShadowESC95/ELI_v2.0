@@ -78,6 +78,52 @@ _VOICE_SEARCH_DIRS = [
 _DEFAULT_VOICE = "en_US-amy-medium"
 _SYSTEM_VOICE_PREFIX = "sys:"
 
+# Expressive Piper prosody. Piper at bare defaults sounds flat and clips full
+# stops (the "Amy misses ?/!/." complaint): the CLI default sentence silence is
+# ~0.2s, and the model's own noise/length defaults are conservative. These give a
+# clear pause after each sentence and slightly more pitch variation so questions
+# and exclamations land, without sounding wobbly. All overridable via env.
+#   length_scale    phoneme duration (pacing); >1 slower/more deliberate
+#   noise_scale     generator noise (expressiveness / pitch variation)
+#   noise_w         phoneme-width noise (natural timing variation)
+#   sentence_silence seconds of silence after each '.', '?' or '!'
+_PIPER_PROSODY_DEFAULTS = {
+    "length_scale": 1.03,
+    "noise_scale": 0.72,
+    "noise_w": 0.85,
+    "sentence_silence": 0.38,
+}
+
+
+def _piper_prosody_args() -> "list[str]":
+    """Build Piper CLI prosody flags from env overrides + expressive defaults.
+    Returns [] if disabled (ELI_TTS_PROSODY=0) so a user can fall back to Piper's
+    own per-voice defaults. Reads settings once; never raises."""
+    if os.environ.get("ELI_TTS_PROSODY", "1").strip().lower() in {"0", "false", "no", "off"}:
+        return []
+    vals = dict(_PIPER_PROSODY_DEFAULTS)
+    try:
+        from eli.core.runtime_settings import load_settings
+        s = load_settings() or {}
+        for k in vals:
+            v = s.get(f"tts_{k}")
+            if v is not None:
+                vals[k] = v
+    except Exception:
+        log.debug("[TTS] prosody settings read failed", exc_info=True)
+    for k in vals:  # env wins over settings
+        ev = os.environ.get(f"ELI_TTS_{k.upper()}", "").strip()
+        if ev:
+            vals[k] = ev
+    args: "list[str]" = []
+    for flag, key in (("--length_scale", "length_scale"), ("--noise_scale", "noise_scale"),
+                      ("--noise_w", "noise_w"), ("--sentence_silence", "sentence_silence")):
+        try:
+            args += [flag, str(float(vals[key]))]
+        except (TypeError, ValueError):
+            log.debug("[TTS] bad prosody value for %s: %r", key, vals[key])
+    return args
+
 
 def _voice_dir() -> Path:
     """Return the project's canonical TTS voice directory."""
@@ -175,18 +221,46 @@ def _list_system_voices() -> list[str]:
     return out
 
 
+# Piper quality tiers that sound synthetic/robotic. Hidden by default so the voice
+# list is only natural-sounding voices; still loadable if explicitly named, and
+# surfaced as a genuine last resort when nothing better exists on the box.
+_LOW_QUALITY_SUFFIXES = ("-x_low", "-low")
+
+
+def _is_low_quality_piper(name: str) -> bool:
+    return str(name or "").endswith(_LOW_QUALITY_SUFFIXES)
+
+
+def _allow_robotic_voices() -> bool:
+    """Opt back in to espeak `sys:` + low-quality Piper voices (default: hidden)."""
+    return os.environ.get("ELI_TTS_ALLOW_ROBOTIC", "0").strip().lower() in {"1", "true", "yes", "on"}
+
+
 def list_voices() -> list[str]:
-    """Return runnable voices: Piper ONNX names, then OS voices (``sys:`` prefix)."""
+    """Runnable voices, natural-sounding only by default.
+
+    Order: good Piper voices (medium/high), then character (`char:`) and cloned/
+    natural neural (`clone:`) voices. Robotic voices — espeak `sys:` and Piper
+    `low`/`x_low` — are HIDDEN unless ``ELI_TTS_ALLOW_ROBOTIC=1``, or unless the box
+    has no natural voice at all (then they return as a functional last resort so
+    ELI is never mute). This is the "get rid of the robotic voices" policy.
+    """
     voices: list[str] = []
+    low: list[str] = []
     seen: set[str] = set()
+    allow_robotic = _allow_robotic_voices()
     for d in _voice_search_dirs():
         try:
             for f in sorted(d.glob("*.onnx")):
                 if not _has_piper_config(f):
                     continue
                 name = f.stem  # e.g. en_US-lessac-high
-                if name not in seen:
-                    seen.add(name)
+                if name in seen:
+                    continue
+                seen.add(name)
+                if _is_low_quality_piper(name) and not allow_robotic:
+                    low.append(name)      # deferred; only used as last resort
+                else:
                     voices.append(name)
         except Exception:
             pass
@@ -199,7 +273,7 @@ def list_voices() -> list[str]:
                 voices.append(c["id"])
     except Exception:
         pass
-    # Cloned voices (clone:<name>) — XTTS-v2 from a reference sample.
+    # Cloned / natural neural voices (clone:<name>) — XTTS-v2.
     try:
         from eli.perception import tts_xtts
         for c in tts_xtts.list_clones():
@@ -208,10 +282,24 @@ def list_voices() -> list[str]:
                 voices.append(c["id"])
     except Exception:
         pass
-    for sv in _list_system_voices():
-        if sv not in seen:
-            seen.add(sv)
-            voices.append(sv)
+    # Natural neural built-in voices (natural:<speaker>) — XTTS-v2, no clone needed.
+    try:
+        from eli.perception import tts_xtts
+        for nid in tts_xtts.list_natural_voices():
+            if nid not in seen:
+                seen.add(nid)
+                voices.append(nid)
+    except Exception:
+        pass
+    sys_voices = [sv for sv in _list_system_voices() if sv not in seen]
+    if allow_robotic:
+        voices.extend(sys_voices)
+        voices.extend(low)
+    elif not voices:
+        # Nothing natural on this box — return the robotic ones so ELI can still
+        # speak, rather than an empty list (mute).
+        voices.extend(low)
+        voices.extend(sys_voices)
     return voices
 
 
@@ -505,6 +593,7 @@ def _speak_piper_cli(text, voice_name=None):
     _base_cmd = [piper_bin, "--model", str(model), "--output_file", str(wav)]
     if cfg:
         _base_cmd.extend(["--config", str(cfg)])
+    _base_cmd.extend(_piper_prosody_args())  # expressive pacing + sentence pauses
 
     def _run_piper(use_cuda):
         _cmd = list(_base_cmd) + (["--cuda"] if use_cuda else [])
@@ -650,9 +739,9 @@ def _run_tts(text: str, voice_name: str | None = None) -> bool:
     import os as _os
 
     active = voice_name or get_active_voice()
-    # Character (char:) / cloned (clone:) voice → render via synthesize_wav (which owns
-    # the effect chain / XTTS + fallback), then play the WAV on the host.
-    if str(active).startswith(("char:", "clone:")):
+    # Character (char:) / cloned (clone:) / natural neural (natural:) voice → render via
+    # synthesize_wav (which owns the effect chain / XTTS + fallback), then play the WAV.
+    if str(active).startswith(("char:", "clone:", "natural:")):
         wav = synthesize_wav(text, voice_name=active)
         return _play_wav_bytes(wav) if wav else False
     # Never voice a degenerate fragment (also avoids the piper wave crash on '-').
@@ -797,6 +886,7 @@ def _piper_render_wav(text: str, model, cfg, piper_bin: str) -> Optional[bytes]:
     base_cmd = [piper_bin, "--model", str(model), "--output_file", str(wav)]
     if cfg:
         base_cmd.extend(["--config", str(cfg)])
+    base_cmd.extend(_piper_prosody_args())  # same expressive prosody as host playback
 
     def _run(use_cuda):
         cmd = list(base_cmd) + (["--cuda"] if use_cuda else [])
@@ -854,6 +944,17 @@ def synthesize_wav(text: str, voice_name: str | None = None) -> Optional[bytes]:
     if _eli_tts_is_unspeakable(text):
         return None
     active = voice_name or get_active_voice()
+    # Natural neural voice (natural:<id>): XTTS-v2 built-in speaker, human-like, no
+    # clone needed. If the neural extra isn't installed, returns None → Piper default.
+    if str(active).startswith("natural:"):
+        try:
+            from eli.perception import tts_xtts
+            wav = tts_xtts.synthesize_natural_wav(text, active)
+            if wav:
+                return wav
+        except Exception:
+            log.debug("[TTS_WAV] natural voice resolve failed", exc_info=True)
+        active = _DEFAULT_VOICE
     # Cloned voice (clone:<name>): Coqui XTTS-v2 from a reference sample. If the extra
     # isn't installed / no reference, returns None → we fall back to the default voice.
     if str(active).startswith("clone:"):

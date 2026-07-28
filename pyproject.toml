@@ -138,10 +138,18 @@ training = [
     "datasets>=2.18",
     "trl>=0.8",
 ]
-# Voice cloning — Coqui XTTS-v2 (heavy, opt-in — NOT part of full). Downloads a
-# ~1.8GB model on first clone. See eli/perception/tts_xtts.py. coqui-tts is the
-# maintained fork of the (unmaintained) TTS package and still imports as `TTS`.
+# Neural voice — Coqui XTTS-v2 (heavy, opt-in — NOT part of full). Powers BOTH the
+# human-like `natural:` voices (built-in speakers, no clone) and `clone:` voice
+# cloning. Downloads a ~1.8GB model on first use. See eli/perception/tts_xtts.py.
+# coqui-tts is the maintained fork of the (unmaintained) TTS package; imports as `TTS`.
 clone = [
+    "coqui-tts>=0.24",
+]
+# Aliases for the same neural-voice dependency (clearer intent at install time).
+natural = [
+    "coqui-tts>=0.24",
+]
+voice = [
     "coqui-tts>=0.24",
 ]
 

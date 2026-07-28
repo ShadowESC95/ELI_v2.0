@@ -420,6 +420,19 @@ def resolve_voice_query(text: str) -> Dict[str, Any]:
     if not raw:
         return {"voice": "", "matches": [], "kind": "none"}
 
+    # Natural neural voice ("use the natural/human/realistic voice"). Gender-aware;
+    # falls back to Piper at synth time if the neural extra isn't installed.
+    if re.search(r"\b(natural|human|human[- ]like|realistic|lifelike|neural)\b", raw):
+        try:
+            from eli.perception import tts_xtts
+            fem = re.search(r"\b(female|woman|women|she|her)\b", raw)
+            male = re.search(r"\b(male|man|men|he|him|guy)\b", raw)
+            pick = "sophia" if fem else ("james" if male else "sophia")
+            vid = f"{tts_xtts.NATURAL_PREFIX}{pick}"
+            return {"voice": vid, "matches": [vid], "kind": "natural"}
+        except Exception:
+            log.debug("natural voice match failed", exc_info=True)
+
     # Character voices first ("hal", "jarvis", "glados"…).
     try:
         from eli.perception import voice_fx
@@ -505,8 +518,24 @@ def ensure_whisper() -> Dict[str, Any]:
 
 
 def ensure_voice_assets() -> Dict[str, Any]:
-    """Ensure both STT (whisper) and TTS (piper voice) weights are present."""
-    return {"piper": ensure_piper_voice(), "whisper": ensure_whisper()}
+    """Ensure STT (whisper) + TTS (piper voice) weights are present, and SELF-HEAL
+    the shipped pack.
+
+    The released voice asset historically shipped models without their tiny
+    ``.onnx.json`` configs (12 models / 2 configs), leaving a fresh user with only
+    a couple of usable voices. Piper can't load a config-less model, so those are
+    dead weight until repaired. Repairing here — on the first-boot asset step —
+    makes every shipped medium voice usable automatically instead of needing a
+    manual fix. Best-effort and netguard-gated; a repair failure never blocks boot.
+    """
+    out: Dict[str, Any] = {"piper": ensure_piper_voice(), "whisper": ensure_whisper()}
+    try:
+        if incomplete_voices():
+            out["repair"] = repair_voice_configs(mirror=True)
+    except Exception as e:
+        log.debug("voice_assets: config self-heal skipped", exc_info=True)
+        out["repair"] = {"ok": False, "error": str(e)}
+    return out
 
 
 def _main() -> int:

@@ -25,8 +25,26 @@ from typing import Any, Dict, Optional
 log = logging.getLogger(__name__)
 
 CLONE_PREFIX = "clone:"
+NATURAL_PREFIX = "natural:"
 _XTTS_MODEL = "tts_models/multilingual/multi-dataset/xtts_v2"
 _TTS = None  # lazy singleton
+
+# Curated natural voices using XTTS-v2's BUILT-IN studio speakers — human-like
+# neural TTS with NO clone/reference required. Friendly id → the speaker name we
+# ask XTTS for; resolution is tolerant (see _resolve_builtin_speaker) so exact
+# upstream name drift falls back to a real speaker instead of failing. This is the
+# "indistinguishable from a human" path the startup picker can select.
+_NATURAL_VOICES = {
+    "sophia": {"speaker": "Claribel Dervla", "gender": "female",
+               "desc": "Sophia — warm, natural female"},
+    "aria":   {"speaker": "Daisy Studious", "gender": "female",
+               "desc": "Aria — clear, articulate female"},
+    "james":  {"speaker": "Andrew Chipper", "gender": "male",
+               "desc": "James — bright, friendly male"},
+    "daniel": {"speaker": "Damien Black", "gender": "male",
+               "desc": "Daniel — deep, measured male"},
+}
+_DEFAULT_NATURAL = "sophia"
 
 
 # ── Registry (offline-safe) ──────────────────────────────────────────────────────
@@ -144,16 +162,98 @@ def _get_model():
     if _TTS is not None:
         return _TTS
     from TTS.api import TTS as _TTSApi
-    device = "cpu"
-    try:
-        import torch
-        if torch.cuda.is_available():
-            device = "cuda"
-    except Exception:
-        pass
+    device = _select_device()
     log.info("tts_xtts: loading XTTS-v2 on %s (first run downloads ~1.8GB)…", device)
     _TTS = _TTSApi(_XTTS_MODEL).to(device)
     return _TTS
+
+
+def _select_device() -> str:
+    """cuda if free VRAM allows, else cpu. ``ELI_XTTS_DEVICE`` forces it — this is
+    how the startup picker pins the choice made BEFORE the main model grabs VRAM."""
+    import os
+    forced = os.environ.get("ELI_XTTS_DEVICE", "").strip().lower()
+    if forced in ("cpu", "cuda"):
+        return forced
+    try:
+        import torch
+        if torch.cuda.is_available():
+            return "cuda"
+    except Exception:
+        log.debug("tts_xtts: torch/cuda probe failed", exc_info=True)
+    return "cpu"
+
+
+def natural_available() -> bool:
+    """True when the neural natural-voice backend can run (the TTS package is
+    installed). Cheap — does NOT load the ~1.8GB model."""
+    return xtts_available()
+
+
+def list_natural_voices() -> "list[str]":
+    """Built-in neural voice ids (``natural:<id>``), or [] when XTTS isn't installed.
+    Cheap: never loads the model, so it's safe to call from tts_router.list_voices()."""
+    if not natural_available():
+        return []
+    return [NATURAL_PREFIX + k for k in _NATURAL_VOICES]
+
+
+def natural_voice_meta(voice_id: str) -> Optional[Dict[str, Any]]:
+    key = str(voice_id or "").lower().replace(NATURAL_PREFIX, "", 1).strip()
+    return _NATURAL_VOICES.get(key)
+
+
+def _resolve_builtin_speaker(model, wanted: str) -> Optional[str]:
+    """Map a curated speaker name to one the loaded model actually has.
+    Exact match → case-insensitive contains → first available speaker. Returns None
+    only if the model exposes no speaker list at all (then caller omits speaker)."""
+    try:
+        speakers = list(getattr(model, "speakers", None)
+                        or getattr(getattr(model, "synthesizer", None), "speakers", None) or [])
+    except Exception:
+        speakers = []
+    if not speakers:
+        return None
+    for s in speakers:
+        if str(s).strip().lower() == wanted.strip().lower():
+            return s
+    for s in speakers:
+        if wanted.split()[0].lower() in str(s).lower():
+            return s
+    return speakers[0]
+
+
+def synthesize_natural_wav(text: str, voice_id: str) -> Optional[bytes]:
+    """Synthesize `text` with an XTTS-v2 built-in speaker — no clone needed.
+    Returns WAV bytes, or None so the caller falls back to Piper (never raises)."""
+    meta = natural_voice_meta(voice_id) or _NATURAL_VOICES.get(_DEFAULT_NATURAL)
+    if not natural_available():
+        log.info("tts_xtts: natural voice needs the neural extra — "
+                 "`pip install \"eli-v2.0[natural]\"` (falling back to Piper)")
+        return None
+    import os as _os
+    outpath = ""
+    try:
+        model = _get_model()
+        speaker = _resolve_builtin_speaker(model, str(meta.get("speaker") or ""))
+        fd, outpath = tempfile.mkstemp(suffix=".wav")
+        _os.close(fd)
+        Path(outpath).unlink(missing_ok=True)
+        kwargs = {"text": str(text), "language": "en", "file_path": outpath}
+        if speaker:
+            kwargs["speaker"] = speaker
+        model.tts_to_file(**kwargs)
+        if Path(outpath).is_file() and Path(outpath).stat().st_size > 0:
+            return Path(outpath).read_bytes()
+    except Exception:
+        log.debug("tts_xtts: natural synthesis failed", exc_info=True)
+    finally:
+        if outpath:
+            try:
+                Path(outpath).unlink(missing_ok=True)
+            except OSError:
+                pass
+    return None
 
 
 def synthesize_wav(text: str, clone_name: str) -> Optional[bytes]:
