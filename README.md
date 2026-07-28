@@ -594,6 +594,11 @@ by email — separate from the free PolyForm grant above. Provided "as is", with
 **Model/voice assets:** see **[models/MODEL_LICENSES.md](models/MODEL_LICENSES.md)** (also bundled
 with GitHub Release model packs).
 
+
+## Special Thanks
+
+- **Node815** – For invaluable testing and debugging on Arch Linux, leading to critical fixes in v2.1.19–v2.1.23. Their detailed logs and persistence helped make ELI more cross-platform.
+
 ## Contact
 
 Questions, feedback, or interested in a license/services beyond the terms above?
