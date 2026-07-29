@@ -4092,8 +4092,12 @@ def home_mesh_status():
 @app.post("/v1/home/mesh/config", tags=["Devices"], dependencies=[Depends(require_member)])
 def home_mesh_config(req: MeshConfig):
     from eli.runtime import home_mesh
-    patch = req.model_dump()
-    patch["peers"] = [p.model_dump() if hasattr(p, "model_dump") else p for p in (req.peers or [])]
+    # Only patch fields the client actually sent — a full model_dump() would splat
+    # every default (node_name="", primary_url="", …) over update_config and WIPE
+    # settings the user didn't touch (e.g. editing just the role blanked the name).
+    patch = req.model_dump(exclude_unset=True)
+    if "peers" in patch:
+        patch["peers"] = [p.model_dump() if hasattr(p, "model_dump") else p for p in (req.peers or [])]
     return home_mesh.update_config(patch)
 
 @app.post("/v1/home/mesh/takeover", tags=["Devices"], dependencies=[Depends(require_member)])
