@@ -39,19 +39,6 @@
       "builtin": true
     },
     {
-      "id": "smart_home",
-      "name": "Smart Home",
-      "version": "1.0.0",
-      "description": "Home Assistant integration",
-      "author": "ELI Core",
-      "license": "MIT",
-      "requires": [],
-      "pip": ["requests"],
-      "actions": ["SMART_HOME"],
-      "builtin": true,
-      "config_required": ["ha_url", "ha_token"]
-    },
-    {
       "id": "pomodoro",
       "name": "Pomodoro Timer",
       "version": "1.0.0",
