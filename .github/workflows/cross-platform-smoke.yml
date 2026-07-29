@@ -44,6 +44,48 @@ jobs:
         run: |
           python -c "from fastapi.testclient import TestClient; from api.server import app; c=TestClient(app); assert c.get('/health').status_code==200; assert c.get('/').status_code==200; print('server endpoints reachable (health + web UI)')"
 
+      - name: Dashboard read-endpoint smoke — every widget's data source answers (no model)
+        # The web dashboard is only as alive as the read endpoints it fetches. A blank
+        # cognition mesh / broken home-mesh shipped this way once (backend fine, endpoint
+        # not exercised in CI). Hit every OV_SRC source as the operator (tokenless
+        # loopback) and assert each returns 200 — this is the class of bug the trivial
+        # /health check above can't see.
+        env:
+          ELI_API_ALLOW_TOKENLESS: "1"
+        run: |
+          python - <<'PY'
+          from fastapi.testclient import TestClient
+          from api.server import app
+          c = TestClient(app)
+          eps = [
+              "/v1/cognition/orchestration", "/v1/home/mesh/status", "/v1/home/mesh/ping",
+              "/v1/system", "/v1/tasks", "/v1/autonomy/goals", "/v1/net", "/v1/net/egress",
+              "/v1/capabilities", "/v1/devices", "/v1/home/scenes", "/v1/home/sun",
+              "/v1/research/corpora", "/v1/audit", "/v1/connect", "/v1/media",
+          ]
+          bad = []
+          for e in eps:
+              try:
+                  r = c.get(e)
+                  if r.status_code != 200:
+                      bad.append(f"{e} -> HTTP {r.status_code}")
+              except Exception as ex:
+                  bad.append(f"{e} -> raised {type(ex).__name__}: {ex}")
+          if bad:
+              raise SystemExit("dashboard endpoints FAILED:\n  " + "\n  ".join(bad))
+          # the mesh specifically must carry real agent data, not an empty shell
+          o = c.get("/v1/cognition/orchestration").json()
+          assert o.get("ok") and o.get("agents"), f"cognition mesh returned no agents: {o}"
+          print(f"all {len(eps)} dashboard read-endpoints OK; mesh has {len(o['agents'])} agents")
+          PY
+
+      - name: Real server-endpoint suite (mesh, home-mesh, config-merge, RBAC — the full API smoke)
+        # test_api_server.py drives the real FastAPI app end-to-end (78 cases). It needs
+        # --noconftest because the repo conftest mocks pydantic/PySide6 for the fast unit
+        # suite, which makes the server un-importable. This is where the home-mesh config
+        # merge fix and the orchestration/mesh contracts are actually enforced.
+        run: pytest -q -p no:cacheprovider --noconftest tests/test_api_server.py
+
       - name: First-run DB autobuild (cross-platform paths)
         run: python -m eli.core.init_data
 
