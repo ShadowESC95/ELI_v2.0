@@ -597,7 +597,14 @@ with GitHub Release model packs).
 
 ## Special Thanks
 
-- **Node815** – For invaluable testing and debugging on Arch Linux, leading to critical fixes in v2.1.19–v2.1.23. Their detailed logs and persistence helped make ELI more cross-platform.
+**Node815** – For tireless testing on Arch Linux and hybrid GPU setups. Their detailed logs and
+persistence led directly to the cross-platform fixes in v2.1.19–v2.1.23, including:
+- SQLite WAL fallback for NTFS/exFAT filesystems
+- Qt xcb library bundling in the AppImage
+- GPU detection for hybrid Intel+NVIDIA systems
+- Ollama selector improvements
+
+Thank you for making ELI better for everyone.
 
 ## Contact
 
