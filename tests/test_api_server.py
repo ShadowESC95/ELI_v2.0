@@ -374,3 +374,22 @@ def test_settings_get_shape(tokenless_client):
     d = r.json()
     assert d["ok"] is True and isinstance(d.get("schema"), list) and d["schema"]
     assert "values" in d
+
+
+def test_home_mesh_config_partial_update_preserves_other_fields(tokenless_client, monkeypatch):
+    """POST /v1/home/mesh/config with only ONE field must not wipe the others.
+    A full model_dump() splatted every default (node_name="", …) over the saved
+    config — editing just the role blanked the node name. exclude_unset fixes it."""
+    from eli.runtime import home_mesh
+    home_mesh.save_config({**home_mesh.load_config(), "role": "off",
+                           "node_name": "My Hub", "primary_url": "http://hub:9137"})
+    try:
+        r = tokenless_client.post("/v1/home/mesh/config", json={"role": "primary"})
+        assert r.status_code == 200 and r.json().get("ok")
+        cfg = home_mesh.load_config()
+        assert cfg["role"] == "primary"
+        assert cfg["node_name"] == "My Hub", "node_name must survive a role-only update"
+        assert cfg["primary_url"] == "http://hub:9137", "primary_url must survive too"
+    finally:
+        home_mesh.save_config({**home_mesh.load_config(), "role": "off",
+                               "node_name": "Eli · Home", "primary_url": ""})
