@@ -40,8 +40,19 @@ def _read_file_token() -> str:
 def _write_file_token(token: str) -> None:
     p = _token_file()
     p.parent.mkdir(parents=True, exist_ok=True)
+    # write_text() + chmod() would birth this credential world-readable (0644 on a
+    # umask-022 box) and only lock it a few milliseconds later — the exact TOCTOU
+    # `eli.core.secure_io` exists to remove, and which the sibling API-user store
+    # already uses. This is the LAN bearer token: anyone who reads it in that
+    # window owns the server. Write it born-locked and rename atomically instead.
+    try:
+        from eli.core.secure_io import secure_write_text as _secure_write
+        _secure_write(p, token, mode=0o600)
+        return
+    except Exception:
+        pass
+    # Fallback only if secure_io is unavailable — still better than not writing.
     p.write_text(token, encoding="utf-8")
-    # It's a credential — restrict to the owner where the OS supports it.
     try:
         os.chmod(p, 0o600)
     except Exception:

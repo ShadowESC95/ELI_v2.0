@@ -100,8 +100,22 @@ def test_get_active_voice_returns_string():
     assert isinstance(result, str)
     assert len(result) > 0
 
-def test_get_active_voice_default():
-    # Without any override, should return default
+def test_get_active_voice_default(monkeypatch, tmp_path):
+    """With NO override configured, the default must resolve to a real voice.
+
+    Isolated deliberately. `get_active_voice()` reads process-wide mutable state —
+    the ELI_PIPER_VOICE env var and the `tts_voice` key in whatever settings file
+    is active — so asserting on it unisolated made this order-dependent: any test
+    that had set a voice (SET_VOICE writes `char:hal`, for instance) decided the
+    outcome, and it failed intermittently in the full suite while passing alone.
+    Point it at an empty settings file and clear the env so this exercises the
+    fallback chain it is actually named after.
+    """
+    monkeypatch.delenv("ELI_PIPER_VOICE", raising=False)
+    settings = tmp_path / "settings.json"
+    settings.write_text("{}", encoding="utf-8")
+    monkeypatch.setenv("ELI_SETTINGS_FILE", str(settings))
+
     result = get_active_voice()
     assert result in list_voices() or result == _DEFAULT_VOICE
 
