@@ -118,6 +118,11 @@ def govern_output(text: str, is_grounded: bool = False,
     # No-Fake-Actions: drop fabricated "[… command executed …]" tool-confirmations the model
     # invents when narrating an action that never actually ran (model-agnostic guard).
     result = strip_fabricated_action_claims(result).strip()
+    # A token-capped answer must not ship an empty trailing bullet. The engine's
+    # re-generation repair is deliberately non-quick only (a second inference
+    # would defeat quick mode's latency), so quick answers reached the user
+    # ending on a bare "-". Trimming is cheap and safe in every mode.
+    result = trim_dangling_fragment(result).strip()
     m = _OUTER_FENCE_RE.match(result)
     if m:
         body = m.group("body")
@@ -552,6 +557,14 @@ def _looks_truncated(text: str) -> bool:
     t = (text or "").rstrip()
     if not t:
         return False
+    # A dangling list marker with nothing after it — the generator hit its token
+    # cap just as it opened the next bullet. Checked BEFORE the terminator test
+    # because "-" is neither alphanumeric nor a sentence terminator, so the
+    # original logic returned False and shipped the stub. Observed live: a
+    # profile report that ended "...state uncertainties plainly\n-".
+    _last_line = t.splitlines()[-1].strip() if t.splitlines() else ""
+    if _last_line and re.fullmatch(r"(?:[-*+•]|\d+[.)]|#{1,6})", _last_line):
+        return True
     last_char = t[-1]
     if last_char in ".!?\"')]>}…":
         return False
@@ -559,6 +572,22 @@ def _looks_truncated(text: str) -> bool:
     if t[-1].isalnum() and len(t.split()) > 8:
         return True
     return False
+
+
+def trim_dangling_fragment(text: str) -> str:
+    """Drop a trailing orphan list marker / bare heading so a token-capped answer
+    ends on its last COMPLETE line instead of an empty bullet."""
+    t = (text or "").rstrip()
+    if not t:
+        return text
+    lines = t.splitlines()
+    while lines:
+        tail = lines[-1].strip()
+        if tail and re.fullmatch(r"(?:[-*+•]|\d+[.)]|#{1,6})", tail):
+            lines.pop()
+            continue
+        break
+    return "\n".join(lines).rstrip() or t
 
 
 def _strip_violating_lines(text: str, needle: str) -> str:

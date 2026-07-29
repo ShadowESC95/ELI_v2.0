@@ -80,6 +80,20 @@ _BAD_PHRASES = (
     "i don't have access to the actual codebase",
     "confidentiality reasons",
     "no need for you to worry",
+    # False self-denial: ELI disowning its OWN grounded memory when pushed back
+    # on. Observed live — it reported real stored profile fields, the user said
+    # "wrong", and it retracted the lot as "likely a hallucination / I have no
+    # access to your data". Both halves are false: the facts came out of
+    # user.sqlite3. Denying a real capability is as damaging as inventing one.
+    "i don't have access to your personal files",
+    "i do not have access to your personal files",
+    "i have no hidden access",
+    "i only see the text in this window",
+    "it was likely a hallucination",
+    "a hallucination (a guess based on patterns)",
+    "i don't have any memory of you",
+    "i have no memory of previous conversations",
+    "i can't remember anything between sessions",
 )
 
 def normalise_action(action: Any) -> str:
