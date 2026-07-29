@@ -171,20 +171,86 @@ def _is_not_an_answer(text: str) -> bool:
     return first in _q or first in _cmd
 
 
+# A choice explicitly flagged as one ("#4", "option c", "number 2", "letter b").
+# Safe to find anywhere in a sentence, because the marker disambiguates it from
+# an ordinary word — "i prefer #4" must resolve to option 4, not be stored verbatim.
+_MARKED_CHOICE = re.compile(
+    r"(?:#|\boption\s+|\bnumber\s+|\bletter\s+|\bchoice\s+|\bno\.\s*)([a-e1-4])\b",
+    re.I,
+)
+
+# The whole answer is nothing but choice tokens and connectors: "a", "a, b, and c",
+# "b & d", "1/3". Only in this shape is a bare letter safe to read as a pick — in
+# free prose "a" is usually just an article ("a bit of everything").
+_CHOICE_LIST_ONLY = re.compile(
+    r"^[a-e1-4](?:\s*(?:,|;|/|&|\+|\band\b|\bor\b|\s)+\s*[a-e1-4])*$", re.I
+)
+
+
+def _picked_keys(t: str, options: Dict[str, str]) -> list:
+    """Every option key the answer picks, in the order given. Handles multi-select
+    ("a, b, and c" — previously silently truncated to just "a") and choices buried
+    mid-sentence ("i prefer #4" — previously stored as the raw sentence)."""
+    picks: list = []
+
+    def _add(key: str) -> None:
+        k = (key or "").lower()
+        if k in options and k not in picks:
+            picks.append(k)
+
+    for m in _MARKED_CHOICE.finditer(t):
+        _add(m.group(1))
+    if picks:
+        return picks
+    if _CHOICE_LIST_ONLY.match(t.strip().rstrip(".!")):
+        # Tokenise on the connectors FIRST, then accept only whole one-character
+        # tokens. Scanning raw characters instead read the connector words
+        # themselves as picks: "a, b, and c" matched the 'a' and 'd' inside
+        # "and", silently adding option (d) the user never chose and writing it
+        # into their profile. Splitting means a connector can never contribute.
+        for tok in re.split(r"[\s,;/&+]+|\band\b|\bor\b", t.strip().rstrip(".!"), flags=re.I):
+            tok = tok.strip()
+            if len(tok) == 1:
+                _add(tok)
+        if picks:
+            return picks
+    # Unmarked digit in prose ("i prefer 4", "i'd say 2 normally"). Only ever
+    # consulted for digit-keyed steps, so a number in a worded role answer
+    # ("i run 3 projects") can't be mistaken for a pick.
+    for m in re.finditer(r"(?<![\w.])([1-4])(?![\w.])", t):
+        _add(m.group(1))
+    return picks
+
+
 def _resolve_mc_choice(text: str, options: Dict[str, str]) -> str:
-    """Map A/B/1/2 or free text to a canonical option label."""
+    """Map A/B/1/2 or free text to a canonical option label (or several, when the
+    user picks more than one — several of these questions genuinely have more than
+    one true answer)."""
     raw = (text or "").strip()
     if not raw:
         return raw
     t = raw.lower()
     if t in options:
         return options[t]
+
+    picks = _picked_keys(t, options)
+    if len(picks) > 1:
+        labels = []
+        for k in picks:
+            label = re.sub(r"\s*\(user described\)\s*$", "", options[k], flags=re.I).strip()
+            # Keep the leading noun of a "label — gloss" option so a combined
+            # answer stays readable: "Software / tech; Research / science".
+            labels.append(label.split(" — ")[0].strip())
+        return "; ".join(labels)[:200]
+
     m = re.match(r"^([a-e1-4])[\).\]:]?\s*(.*)$", t)
     if m and m.group(1) in options:
         tail = (m.group(2) or "").strip()
         if tail and m.group(1) == "e":
             return tail[:200]
         return options[m.group(1)]
+    if len(picks) == 1:
+        return options[picks[0]]
     for key, label in options.items():
         if label.lower() in t or t == label.lower():
             return label
