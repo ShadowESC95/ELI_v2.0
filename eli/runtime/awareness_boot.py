@@ -107,12 +107,27 @@ class AwarenessState:
             pass
         return head
 
+    def codebase_graph_summary(self) -> str:
+        """Grounded one-screen map of how ELI's own components connect (import-derived).
+        Built on demand (never per-turn — it parses source), so it's used by
+        SELF_ANALYZE / CODEBASE_GRAPH, not the hot path. Never raises."""
+        try:
+            from eli.runtime.codebase_graph import summary_text
+            return summary_text()
+        except Exception:
+            log.debug("awareness: codebase graph summary failed", exc_info=True)
+            return ""
+
     def full_briefing(self) -> str:
         """Detailed report for SELF_ANALYZE / AWARENESS_STATUS actions."""
         lines = [
             f"Self-Awareness Report — {self.capability_count} capabilities",
             "",
         ]
+        _cg = self.codebase_graph_summary()
+        if _cg:
+            lines.append(_cg)
+            lines.append("")
         if self.capability_delta_has_changes:
             lines.append(f"Capability changes: {self.capability_delta_summary}")
         else:

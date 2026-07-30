@@ -1,6 +1,6 @@
 {
-  "generated_at": "2026-07-29T08:00:21",
-  "total": 215,
+  "generated_at": "2026-07-29T20:11:07",
+  "total": 217,
   "capabilities": [
     {
       "action": "ADD_EVENT",
@@ -64,6 +64,15 @@
       "routable": false,
       "in_dispatch": true,
       "in_supported_list": false
+    },
+    {
+      "action": "AUTOPILOT_DEBUG",
+      "source": "executor+router",
+      "active": true,
+      "plugin": null,
+      "routable": true,
+      "in_dispatch": true,
+      "in_supported_list": true
     },
     {
       "action": "AWARENESS_STATUS",
@@ -172,6 +181,15 @@
       "routable": false,
       "in_dispatch": true,
       "in_supported_list": false
+    },
+    {
+      "action": "CODEBASE_GRAPH",
+      "source": "executor+router",
+      "active": true,
+      "plugin": null,
+      "routable": true,
+      "in_dispatch": true,
+      "in_supported_list": true
     },
     {
       "action": "CODE_CHANGES",
@@ -1714,9 +1732,9 @@
     },
     {
       "action": "SMART_HOME",
-      "source": "executor+router+plugin:smart_home",
+      "source": "executor+router",
       "active": true,
-      "plugin": "smart_home",
+      "plugin": null,
       "routable": true,
       "in_dispatch": true,
       "in_supported_list": true

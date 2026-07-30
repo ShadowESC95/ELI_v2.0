@@ -2236,6 +2236,8 @@ SUPPORTED_ACTIONS = [
     'LORA_STATUS',
     'LORA_TRAIN',
     'ORCHESTRATION_STATUS',
+    'CODEBASE_GRAPH',
+    'AUTOPILOT_DEBUG',
     'TEST_REVIEW',
     'MULTI_COMMAND',
     'SELF_UPDATE',
@@ -6562,6 +6564,47 @@ def _execute_impl(action: str, args: Optional[Dict[str, Any]] = None) -> Dict[st
                     "evidence_source": "agent_orchestrator", "result": snap}
         except Exception as e:
             msg = f"ORCHESTRATION_STATUS failed: {e}"
+            return {"ok": False, "action": a, "error": str(e), "content": msg, "response": msg}
+
+    # ---- CODEBASE_GRAPH — ELI answers questions about its OWN architecture ----
+    # "how does the router connect to the executor?", "what does the engine depend on?",
+    # "show your codebase graph". Answered from the LIVE import graph of ELI's own code
+    # (eli/runtime/codebase_graph.py) — grounded in what the source actually imports, never
+    # a hand-drawn diagram. The user's phrasing is passed through so component names /
+    # relationship questions resolve against the real graph.
+    if a == "CODEBASE_GRAPH":
+        try:
+            from eli.runtime import codebase_graph as _cg
+            question = str((args or {}).get("question")
+                           or (args or {}).get("text") or "").strip()
+            msg = _cg.explain(question)
+            return {"ok": True, "action": a, "content": msg, "response": msg,
+                    "evidence_source": "codebase_graph",
+                    "result": {"graph": _cg.build_graph(), "question": question}}
+        except Exception as e:
+            msg = f"CODEBASE_GRAPH failed: {e}"
+            return {"ok": False, "action": a, "error": str(e), "content": msg, "response": msg}
+
+    # ---- AUTOPILOT_DEBUG — a failure → a plan (root cause / rollback / patch / validation) ----
+    # "debug this: <traceback>", "what's causing this pytest failure <output>". Parses the
+    # error text, correlates the affected files with git history, runs the static examiner,
+    # and returns a grounded plan. run_tests=True (via args) actually runs pytest on targets.
+    if a == "AUTOPILOT_DEBUG":
+        try:
+            from eli.runtime import autopilot_debugger as _dbg
+            _args = args or {}
+            error_text = str(_args.get("error_text") or _args.get("text")
+                             or _args.get("traceback") or _args.get("query") or "")
+            targets = _args.get("targets") or _args.get("files") or []
+            if isinstance(targets, str):
+                targets = [t.strip() for t in targets.split(",") if t.strip()]
+            verdict = _dbg.diagnose(error_text=error_text, targets=list(targets),
+                                    run_tests=bool(_args.get("run_tests")))
+            msg = _dbg.format_report(verdict)
+            return {"ok": True, "action": a, "content": msg, "response": msg,
+                    "evidence_source": "autopilot_debugger", "result": verdict}
+        except Exception as e:
+            msg = f"AUTOPILOT_DEBUG failed: {e}"
             return {"ok": False, "action": a, "error": str(e), "content": msg, "response": msg}
 
     # ---- MULTI_COMMAND — run several chained commands in order, combine results ----

@@ -57,6 +57,14 @@
       "source": "executor"
     },
     {
+      "action": "AUTOPILOT_DEBUG",
+      "in_dispatch": true,
+      "in_supported_list": true,
+      "plugin": null,
+      "routable": true,
+      "source": "executor+router"
+    },
+    {
       "action": "AWARENESS_STATUS",
       "in_dispatch": true,
       "in_supported_list": true,
@@ -151,6 +159,14 @@
       "plugin": null,
       "routable": false,
       "source": "executor"
+    },
+    {
+      "action": "CODEBASE_GRAPH",
+      "in_dispatch": true,
+      "in_supported_list": true,
+      "plugin": null,
+      "routable": true,
+      "source": "executor+router"
     },
     {
       "action": "CODE_CHANGES",
@@ -1524,9 +1540,9 @@
       "action": "SMART_HOME",
       "in_dispatch": true,
       "in_supported_list": true,
-      "plugin": "smart_home",
+      "plugin": null,
       "routable": true,
-      "source": "executor+router+plugin:smart_home"
+      "source": "executor+router"
     },
     {
       "action": "SPEAK",
@@ -1721,7 +1737,7 @@
       "source": "executor"
     }
   ],
-  "count": 215,
-  "generated_at": 1785308421.4420044,
+  "count": 217,
+  "generated_at": 1785352267.5402818,
   "generator": "brain.awareness.capability_sync"
 }
