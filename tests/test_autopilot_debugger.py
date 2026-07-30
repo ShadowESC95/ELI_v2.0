@@ -66,3 +66,25 @@ def test_stdlib_frames_are_excluded_only_repo_files_kept():
     d = dbg.diagnose(tb)
     assert "eli/memory/vector_store.py" in d["affected_files"]
     assert not any("site-packages" in f or f.startswith("/usr") for f in d["affected_files"])
+
+
+def test_v2_verify_reproduces_readonly(tmp_path):
+    """v2 slight frontier improvement: verify() runs the failing test (reproduce) but stays
+    read-only — no governed apply loop (that's v3-only)."""
+    from eli.runtime import autopilot_debugger as dbg
+    root = dbg._repo_root()
+    probe = root / "tests" / "test_v2_verify_probe_tmp.py"
+    probe.write_text("def test_probe():\n    assert False\n", encoding="utf-8")
+    try:
+        t = dbg.verify("FAILED tests/test_v2_verify_probe_tmp.py::test_probe - assert False")
+        assert t["ok"] and t["reproduced"] is True and t["reproduction"]["ran"] is True
+        assert "applied" not in t  # v2 has the verify half only
+        assert "reproduc" in dbg.format_verification(t).lower()
+    finally:
+        probe.unlink(missing_ok=True)
+
+
+def test_v2_verify_no_repro_when_clean():
+    from eli.runtime import autopilot_debugger as dbg
+    t = dbg.verify("")
+    assert t["ok"] and t["reproduced"] is False
