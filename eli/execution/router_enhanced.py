@@ -1175,6 +1175,22 @@ def _route_plugin_bridge_prepass(raw: str, low: str):
             return _mk("SMART_HOME", {"command": command, "text": command}, 0.97,
                        matched_by="plugin.prepass.smart_home", entities={"command": command})
 
+    # Generic smart-home device commands with NO "smart home" prefix: "turn off the lights",
+    # "dim the bedroom lamp", "switch on the fan", "set the thermostat to 20". SMART_HOME is a
+    # CORE action (routed here, run via ELI's own MQTT device server) — not a catalog plugin —
+    # so the router must reach it directly. Scoped to real smart-home device nouns, so it never
+    # eats "turn off the music" (media) or "turn off the pc" (system).
+    _dev_cmd = re.search(
+        r"\b(turn|switch|toggle|dim|brighten|set)\b[^.?!]{0,40}?\b"
+        r"(lights?|lamps?|bulbs?|thermostat|heating|radiator|plugs?|sockets?|"
+        r"outlets?|fans?|blinds|curtains|shades|dimmer)\b",
+        low,
+    )
+    if _dev_cmd:
+        _cmd = raw.strip()
+        return _mk("SMART_HOME", {"command": _cmd, "text": _cmd}, 0.94,
+                   matched_by="smart_home.device_command", entities={"command": _cmd})
+
     return None
 
 
@@ -4996,6 +5012,33 @@ def _eli_self_improvement_phrase_guard(text):
                  r"(agent\s+)?(dag|orchestration)\b|\bagent\s+dag\b|\bhow\s+are\s+your\s+agents\s+wired\b|"
                  r"\b(execution|agent)\s+layers\b", low):
         return _mk("ORCHESTRATION_STATUS", {}, 0.95, matched_by="orchestration.status.guard")
+    # CODEBASE_GRAPH — ELI's own-architecture questions, answered from the live import
+    # graph of its source (codebase_graph.py). Triggers on an explicit graph/map request
+    # OR a component-name + connection/dependency verb ("how does the router reach the
+    # executor", "what does the engine depend on"). Kept below ORCHESTRATION_STATUS so
+    # agent-DAG questions still win there.
+    _comp = (r"(router|executor|engine|agent\s*bus|orchestrat(?:or|ion)|gguf|inference|"
+             r"memory|vector\s*store|plugins?|perception|planning|world|netguard|"
+             r"components?|modules?|subsystems?|internals?)")
+    if (re.search(r"\b(codebase|code\s*base|component|module|dependency)\s+(graph|map|diagram)\b", low)
+            or re.search(r"\b(show|explain|draw|describe|map)\s+(me\s+)?(your\s+)?"
+                         r"(codebase|code\s*base|how\s+your\s+code\s+(is\s+)?(built|organi[sz]ed|connects|fits))\b", low)
+            or re.search(r"\bhow\s+(are|do)\s+your\s+" + _comp + r"\s+(connect|wired|linked|relate)", low)
+            or re.search(r"\bhow\s+does\s+(the\s+|your\s+)?" + _comp +
+                         r"\b.{0,40}\b(connect|talk|link|relate|reach|wire|depend|feed|work\s+with)\b", low)
+            or re.search(r"\bwhat\s+does\s+(the\s+|your\s+)?" + _comp + r"\b.{0,20}\bdepend\s+on\b", low)):
+        return _mk("CODEBASE_GRAPH", {"question": low}, 0.9, matched_by="codebase.graph.guard")
+    # AUTOPILOT_DEBUG — a pasted traceback / pytest failure, or an explicit "debug/diagnose
+    # this error" request. Passes the RAW text (case-preserved) so file paths in the
+    # traceback parse correctly. A bare Python traceback signature is enough on its own.
+    if ("traceback (most recent call last)" in low
+            or re.search(r"^failed\s+\S+\.py|^\s*failed\s+tests?/", low, re.M)
+            or (re.search(r"\b(debug|diagnose|root[\s-]?cause|troubleshoot|"
+                          r"what('?s| is)\s+(causing|wrong\s+with)|why\s+(is|does|did)\b[^.?!]{0,40}\b"
+                          r"(fail|crash|break|error|except))\b", low)
+                and re.search(r"\b(error|traceback|exception|failure|failing|crash(ed)?|"
+                              r"stack\s*trace|pytest|assert(ion)?|bug)\b", low))):
+        return _mk("AUTOPILOT_DEBUG", {"error_text": raw}, 0.93, matched_by="autopilot.debug.guard")
     if re.search(r"\blora\s+status\b|\b(lora|training)\s+(status|readiness|ready)\b|"
                  r"\bis\s+lora\s+ready\b|\bcheck\s+(the\s+)?lora\b|"
                  r"\bcan\s+you\s+(fine[- ]?tune|train)\b", low):
