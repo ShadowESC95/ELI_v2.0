@@ -1,6 +1,6 @@
 {
-  "generated_at": "2026-07-30T03:33:48",
-  "total": 217,
+  "generated_at": "2026-07-30T10:18:32",
+  "total": 215,
   "capabilities": [
     {
       "action": "ADD_EVENT",
@@ -1614,15 +1614,6 @@
       "in_supported_list": true
     },
     {
-      "action": "SEQUENCE_STEP",
-      "source": "executor",
-      "active": true,
-      "plugin": null,
-      "routable": false,
-      "in_dispatch": true,
-      "in_supported_list": false
-    },
-    {
       "action": "SET_AI_MODE",
       "source": "executor",
       "active": true,
@@ -1792,15 +1783,6 @@
       "routable": true,
       "in_dispatch": true,
       "in_supported_list": true
-    },
-    {
-      "action": "TEMPLATE",
-      "source": "executor",
-      "active": true,
-      "plugin": null,
-      "routable": false,
-      "in_dispatch": true,
-      "in_supported_list": false
     },
     {
       "action": "TEST_REVIEW",

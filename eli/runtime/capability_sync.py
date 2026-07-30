@@ -133,7 +133,12 @@ def _ast_extract_dispatch_actions(source: str) -> Set[str]:
             ):
                 actions.add(v.value.upper())
 
-    return actions
+    # The `{"action": …}` heuristic above also catches string literals that are NOT
+    # dispatchable actions: TEMPLATE is a Google-Calendar URL parameter
+    # (`{"action": "TEMPLATE", "dates": …}`) and SEQUENCE_STEP is an error-result label
+    # (`{"ok": False, "action": "SEQUENCE_STEP", …}`). Neither is routed or handled, so
+    # exclude them — they were phantom capabilities in the manifest.
+    return actions - {"TEMPLATE", "SEQUENCE_STEP"}
 
 
 def _ast_extract_supported_actions(source: str) -> Set[str]:
