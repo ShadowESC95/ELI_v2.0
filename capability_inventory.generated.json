@@ -1433,14 +1433,6 @@
       "source": "executor"
     },
     {
-      "action": "SEQUENCE_STEP",
-      "in_dispatch": true,
-      "in_supported_list": false,
-      "plugin": null,
-      "routable": false,
-      "source": "executor"
-    },
-    {
       "action": "SET_AI_MODE",
       "in_dispatch": true,
       "in_supported_list": false,
@@ -1593,14 +1585,6 @@
       "source": "executor+router+plugin:system_stats"
     },
     {
-      "action": "TEMPLATE",
-      "in_dispatch": true,
-      "in_supported_list": false,
-      "plugin": null,
-      "routable": false,
-      "source": "executor"
-    },
-    {
       "action": "TEST_REVIEW",
       "in_dispatch": true,
       "in_supported_list": true,
@@ -1737,7 +1721,7 @@
       "source": "executor"
     }
   ],
-  "count": 217,
-  "generated_at": 1785378828.127286,
+  "count": 215,
+  "generated_at": 1785403112.991455,
   "generator": "brain.awareness.capability_sync"
 }
