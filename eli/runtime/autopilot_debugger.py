@@ -284,6 +284,47 @@ def diagnose(error_text: str = "", targets: Optional[List[str]] = None,
     }
 
 
+def _pytest_targets(verdict: Dict[str, Any]) -> List[str]:
+    """The failing-test node-ids to (re)run for verification — never the ratchet."""
+    out: List[str] = []
+    for c in verdict.get("validation_commands", []):
+        if "no_silent_swallow" in c:
+            continue
+        m = re.search(r"pytest\s+(\S+)", c)
+        if m and m.group(1) not in out:
+            out.append(m.group(1))
+    return out
+
+
+def _run_validation(root: Path, targets: List[str]) -> Dict[str, Any]:
+    """Run the validation targets and report whether any FAILED (the bug reproduces)."""
+    if not targets:
+        return {"ran": False, "failed": False, "output": ""}
+    out = _run_pytest(root, targets)
+    failed = bool(re.search(r"\b\d+\s+failed\b", out) or re.search(r"^(?:FAILED|ERROR)\s", out, re.M))
+    return {"ran": True, "failed": failed, "output": out[-4000:]}
+
+
+def verify(error_text: str = "", targets: Optional[List[str]] = None) -> Dict[str, Any]:
+    """Diagnose + REPRODUCE — the read-only half of a closed loop. Runs the failing
+    tests so a diagnosis becomes 'I ran it: confirmed failing', not a guess. (v2 keeps
+    the verify half only; the governed apply→fix→revert loop is a v3 frontier feature.)"""
+    verdict = diagnose(error_text, targets)
+    repro = _run_validation(_repo_root(), _pytest_targets(verdict))
+    return {"ok": True, "verdict": verdict, "reproduced": repro["failed"], "reproduction": repro}
+
+
+def format_verification(t: Dict[str, Any]) -> str:
+    L = [format_report(t["verdict"]), ""]
+    r = t.get("reproduction", {})
+    if r.get("ran"):
+        L.append("Reproduction: " + ("CONFIRMED failing (ran the validation)." if t["reproduced"]
+                                     else "did NOT reproduce — the tests pass as-is."))
+    else:
+        L.append("Reproduction: no runnable test target found in the input.")
+    return "\n".join(L)
+
+
 def format_report(d: Dict[str, Any]) -> str:
     """Human-readable rendering of a diagnose() verdict."""
     if not d.get("ok"):

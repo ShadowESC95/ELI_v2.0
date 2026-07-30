@@ -6598,6 +6598,13 @@ def _execute_impl(action: str, args: Optional[Dict[str, Any]] = None) -> Dict[st
             targets = _args.get("targets") or _args.get("files") or []
             if isinstance(targets, str):
                 targets = [t.strip() for t in targets.split(",") if t.strip()]
+            if _args.get("verify") or _args.get("reproduce"):
+                # Reproduce/verify half (read-only): run the failing tests to confirm the
+                # diagnosis. The governed apply→fix→revert loop is a v3 frontier feature.
+                trace = _dbg.verify(error_text=error_text, targets=list(targets))
+                msg = _dbg.format_verification(trace)
+                return {"ok": True, "action": a, "content": msg, "response": msg,
+                        "evidence_source": "autopilot_debugger", "result": trace}
             verdict = _dbg.diagnose(error_text=error_text, targets=list(targets),
                                     run_tests=bool(_args.get("run_tests")))
             msg = _dbg.format_report(verdict)
