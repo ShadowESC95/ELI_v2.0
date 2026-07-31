@@ -962,7 +962,7 @@ def _resolve_input_device_index() -> Optional[int]:
     any required ``PULSE_SOURCE`` pin as a side effect.
     """
     try:
-        from eli.perception.mic_resolver import resolve_capture
+        from eli.perception.mic_resolver import resolve_capture, live_device_index
     except Exception:
         # Resolver unavailable — fall back to OS default; the calibration
         # watchdog below still guarantees startup cannot hang.
@@ -976,8 +976,20 @@ def _resolve_input_device_index() -> Optional[int]:
         # Pin this process (and the PortAudio stream it opens) to the chosen
         # source without touching the system-wide default.
         os.environ["PULSE_SOURCE"] = choice.pulse_source
+    # Re-resolve by NAME against the enumeration this process will actually open with:
+    # PortAudio indices shift between PyAudio instances, so the probed index can be out
+    # of range here (and silently fall back to a DIFFERENT microphone). See
+    # mic_resolver.live_device_index.
+    try:
+        index = live_device_index(choice)
+    except Exception:
+        log.debug("[AUDIO] live device re-resolve failed; using probed index", exc_info=True)
+        index = choice.device_index
+    if index != choice.device_index:
+        log.debug(f"[AUDIO] device index re-resolved {choice.device_index} → {index} "
+                  f"(name={choice.device_name!r})")
     log.debug(f"[AUDIO] capture resolved: {choice.reason}")
-    return choice.device_index
+    return index
 
 
 class ELIAudioSTT:
