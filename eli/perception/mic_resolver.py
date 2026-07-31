@@ -34,6 +34,7 @@ override, no probing) and ``ELI_MIC_AUTORESOLVE=0`` (disable, use OS default).
 """
 from __future__ import annotations
 
+import contextlib
 import os
 import subprocess
 import sys
@@ -58,14 +59,125 @@ class CaptureChoice:
     pulse_source: if set, ELI should ``os.environ['PULSE_SOURCE'] = …`` before
         opening the mic so libpulse connects to this specific source.
     reason: human-readable explanation, surfaced in diagnostics/logs.
+    device_name: PortAudio name captured in the SAME enumeration as device_index.
+        Indices are not stable between ``PyAudio()`` instances, so callers should
+        re-resolve via :func:`live_device_index` rather than trust the raw index.
     """
 
     device_index: Optional[int]
     pulse_source: Optional[str]
     reason: str
+    device_name: Optional[str] = None
 
 
 _CACHED: Optional[CaptureChoice] = None
+
+
+@contextlib.contextmanager
+def _quiet_alsa():
+    """Silence the ALSA/JACK stderr storm PortAudio emits while enumerating devices.
+
+    Constructing ``pyaudio.PyAudio()`` on Linux probes every ALSA plugin and the JACK
+    server, printing dozens of ``Unknown PCM``/``jack server is not running`` lines each
+    time — pure noise that makes a healthy launch look broken. Redirect fd 2 for the
+    duration; always restored, and a no-op if the dup fails.
+    """
+    saved = None
+    devnull = None
+    try:
+        devnull = os.open(os.devnull, os.O_WRONLY)
+        saved = os.dup(2)
+        os.dup2(devnull, 2)
+    except Exception:
+        saved = None
+    try:
+        yield
+    finally:
+        try:
+            if saved is not None:
+                os.dup2(saved, 2)
+                os.close(saved)
+            if devnull is not None:
+                os.close(devnull)
+        except Exception:
+            log.debug("mic_resolver: stderr restore failed", exc_info=True)
+
+
+def _device_name_at(index: Optional[int]) -> Optional[str]:
+    """PortAudio device name at ``index`` in a fresh enumeration (None if unavailable)."""
+    if index is None:
+        return None
+    try:
+        import pyaudio
+    except Exception:
+        return None
+    p = None
+    try:
+        with _quiet_alsa():
+            p = pyaudio.PyAudio()
+            if 0 <= index < p.get_device_count():
+                return str(p.get_device_info_by_index(index).get("name") or "") or None
+    except Exception:
+        return None
+    finally:
+        if p is not None:
+            try:
+                p.terminate()
+            except Exception:
+                log.debug("mic_resolver: PyAudio terminate failed", exc_info=True)
+    return None
+
+
+def live_device_index(choice: "CaptureChoice") -> Optional[int]:
+    """Re-resolve ``choice`` to an index valid in THIS process, by device name.
+
+    PortAudio indices are NOT stable across ``PyAudio()`` instances on Linux: the list
+    is rebuilt each time and shifts with whichever ALSA/JACK plugins happen to
+    initialise. The resolver probed with one instance (e.g. 'pulse' at 14 of 19) and the
+    caller opens with another (which may only see 10) — handing the raw integer over
+    then blows up with "Device index out of range" and silently falls back to the OS
+    default, which can be a completely different microphone. Look the NAME up freshly
+    against the enumeration the caller will actually use; fall back to the stored index
+    only when the name can't be found (or was never captured).
+    """
+    name = getattr(choice, "device_name", None)
+    idx = choice.device_index
+    if not name:
+        return idx
+    try:
+        import pyaudio
+    except Exception:
+        return idx
+    p = None
+    try:
+        with _quiet_alsa():
+            p = pyaudio.PyAudio()
+            count = p.get_device_count()
+            # Exact name match on an input-capable device wins.
+            for i in range(count):
+                try:
+                    info = p.get_device_info_by_index(i)
+                except Exception:
+                    continue
+                if info.get("maxInputChannels", 0) > 0 and str(info.get("name") or "") == name:
+                    return i
+            # Name is gone (device unplugged / different audio stack): only trust the
+            # stored index if it is still in range AND still an input device.
+            if idx is not None and 0 <= idx < count:
+                try:
+                    if p.get_device_info_by_index(idx).get("maxInputChannels", 0) > 0:
+                        return idx
+                except Exception:
+                    log.debug("mic_resolver: device info read failed", exc_info=True)
+            return None  # let the caller use the OS default rather than a wrong device
+    except Exception:
+        return idx
+    finally:
+        if p is not None:
+            try:
+                p.terminate()
+            except Exception:
+                log.debug("mic_resolver: PyAudio terminate failed", exc_info=True)
 
 
 def _autoresolve_enabled() -> bool:
@@ -95,14 +207,15 @@ def _pulse_device_index() -> Optional[int]:
         return None
     p = None
     try:
-        p = pyaudio.PyAudio()
-        for i in range(p.get_device_count()):
-            try:
-                info = p.get_device_info_by_index(i)
-            except Exception:
-                continue
-            if info.get("maxInputChannels", 0) > 0 and info.get("name") == "pulse":
-                return i
+        with _quiet_alsa():
+            p = pyaudio.PyAudio()
+            for i in range(p.get_device_count()):
+                try:
+                    info = p.get_device_info_by_index(i)
+                except Exception:
+                    continue
+                if info.get("maxInputChannels", 0) > 0 and info.get("name") == "pulse":
+                    return i
     except Exception:
         return None
     finally:
@@ -114,30 +227,41 @@ def _pulse_device_index() -> Optional[int]:
     return None
 
 
-def _input_device_indices() -> List[int]:
-    """All PortAudio input device indices, default first (generic platforms)."""
+def _input_device_indices() -> List[Tuple[int, str]]:
+    """All PortAudio input devices as (index, name), default first.
+
+    The NAME is captured here, inside the very enumeration that produced the index —
+    the only place the two are guaranteed to correspond (indices shift between
+    PyAudio instances; see live_device_index).
+    """
     try:
         import pyaudio
     except Exception:
         return []
     p = None
-    out: List[int] = []
+    out: List[Tuple[int, str]] = []
     try:
-        p = pyaudio.PyAudio()
+        with _quiet_alsa():
+            p = pyaudio.PyAudio()
         default_idx: Optional[int] = None
         try:
             default_idx = int(p.get_default_input_device_info().get("index"))
         except Exception:
             default_idx = None
+        _seen: set = set()
         if default_idx is not None:
-            out.append(default_idx)
+            try:
+                _dn = str(p.get_device_info_by_index(default_idx).get("name") or "")
+            except Exception:
+                _dn = ""
+            out.append((default_idx, _dn)); _seen.add(default_idx)
         for i in range(p.get_device_count()):
             try:
                 info = p.get_device_info_by_index(i)
             except Exception:
                 continue
-            if info.get("maxInputChannels", 0) > 0 and i not in out:
-                out.append(i)
+            if info.get("maxInputChannels", 0) > 0 and i not in _seen:
+                out.append((i, str(info.get("name") or ""))); _seen.add(i)
     except Exception:
         return out
     finally:
@@ -232,25 +356,29 @@ def _probe(device_index: Optional[int], pulse_source: Optional[str], timeout: fl
         return False
 
 
-def _candidates() -> List[Tuple[Optional[int], Optional[str], str]]:
-    """Ordered (device_index, pulse_source, label) candidates to probe."""
-    cands: List[Tuple[Optional[int], Optional[str], str]] = []
+def _candidates() -> List[Tuple[Optional[int], Optional[str], str, Optional[str]]]:
+    """Ordered (device_index, pulse_source, label, device_name) candidates to probe.
+
+    device_name is captured alongside the index in the same enumeration, so the pair
+    stays consistent even though the index alone would not be.
+    """
+    cands: List[Tuple[Optional[int], Optional[str], str, Optional[str]]] = []
     if sys.platform.startswith("linux"):
         pulse_idx = _pulse_device_index()
         if pulse_idx is not None:
             # Default route first (no pin), then each real source explicitly.
-            cands.append((pulse_idx, None, "pulse:default-source"))
+            cands.append((pulse_idx, None, "pulse:default-source", "pulse"))
             sources, default = _pulse_sources()
             for s in sources:
                 if default and s == default:
                     continue  # already covered by the default-route probe
-                cands.append((pulse_idx, s, f"pulse:{s}"))
+                cands.append((pulse_idx, s, f"pulse:{s}", "pulse"))
             return cands
     # Generic (macOS/Windows, or Linux without a Pulse route): PortAudio devices.
-    for idx in _input_device_indices():
-        cands.append((idx, None, f"portaudio:{idx}"))
+    for idx, nm in _input_device_indices():
+        cands.append((idx, None, f"portaudio:{idx}", nm))
     if not cands:
-        cands.append((None, None, "portaudio:default"))
+        cands.append((None, None, "portaudio:default", None))
     return cands
 
 
@@ -278,10 +406,14 @@ def resolve_capture(force: bool = False) -> CaptureChoice:
     timeout = _probe_timeout()
     limit = _max_candidates()
     cands = _candidates()[:limit]
-    for device_index, pulse_source, label in cands:
+    for device_index, pulse_source, label, device_name in cands:
         if _probe(device_index, pulse_source, timeout):
-            _CACHED = CaptureChoice(device_index, pulse_source, f"probed live: {label}")
-            log.debug(f"[MIC] resolved capture → {_CACHED.reason} (index={device_index})")
+            # The NAME came from the same enumeration as the index (see _candidates);
+            # re-looking it up here would race the very instability we guard against.
+            _CACHED = CaptureChoice(device_index, pulse_source, f"probed live: {label}",
+                                    device_name=device_name)
+            log.debug(f"[MIC] resolved capture → {_CACHED.reason} "
+                      f"(index={device_index}, name={_CACHED.device_name!r})")
             return _CACHED
 
     # 4) Nothing probed live — fall back to OS default; the STT calibration

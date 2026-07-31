@@ -33,7 +33,7 @@ def test_explicit_override_skips_probing(monkeypatch):
 
 def test_invalid_override_falls_through(monkeypatch):
     monkeypatch.setenv("ELI_MIC_DEVICE_INDEX", "not-an-int")
-    monkeypatch.setattr(mr, "_candidates", lambda: [(3, None, "x")])
+    monkeypatch.setattr(mr, "_candidates", lambda: [(3, None, "x", "mic-x")])
     monkeypatch.setattr(mr, "_probe", lambda *a, **k: True)
     c = mr.resolve_capture()
     assert c.device_index == 3
@@ -48,9 +48,9 @@ def test_autoresolve_disabled_uses_default(monkeypatch):
 
 
 def test_picks_first_live_candidate(monkeypatch):
-    cands = [(20, None, "pulse:default-source"),
-             (20, "alsa_input.built_in", "pulse:alsa_input.built_in"),
-             (20, "bluez_input.headset", "pulse:bluez_input.headset")]
+    cands = [(20, None, "pulse:default-source", "pulse"),
+             (20, "alsa_input.built_in", "pulse:alsa_input.built_in", "pulse"),
+             (20, "bluez_input.headset", "pulse:bluez_input.headset", "pulse")]
     monkeypatch.setattr(mr, "_candidates", lambda: cands)
     # default-source dead, built-in live.
     live = {"alsa_input.built_in"}
@@ -64,8 +64,8 @@ def test_picks_first_live_candidate(monkeypatch):
 def test_bluetooth_default_is_used_when_live(monkeypatch):
     # When the default route (no pin) is already live — e.g. a working BT mic —
     # it is chosen first and no PULSE_SOURCE pin is applied.
-    cands = [(20, None, "pulse:default-source"),
-             (20, "alsa_input.built_in", "pulse:alsa_input.built_in")]
+    cands = [(20, None, "pulse:default-source", "pulse"),
+             (20, "alsa_input.built_in", "pulse:alsa_input.built_in", "pulse")]
     monkeypatch.setattr(mr, "_candidates", lambda: cands)
     monkeypatch.setattr(mr, "_probe", lambda idx, src, t: src is None)
     c = mr.resolve_capture()
@@ -74,7 +74,7 @@ def test_bluetooth_default_is_used_when_live(monkeypatch):
 
 
 def test_fallback_when_nothing_live(monkeypatch):
-    monkeypatch.setattr(mr, "_candidates", lambda: [(20, "a", "x"), (20, "b", "y")])
+    monkeypatch.setattr(mr, "_candidates", lambda: [(20, "a", "x", "pulse"), (20, "b", "y", "pulse")])
     monkeypatch.setattr(mr, "_probe", lambda *a, **k: False)
     c = mr.resolve_capture()
     assert c.device_index is None
@@ -89,7 +89,7 @@ def test_result_is_cached(monkeypatch):
         calls["n"] += 1
         return True
 
-    monkeypatch.setattr(mr, "_candidates", lambda: [(1, None, "x")])
+    monkeypatch.setattr(mr, "_candidates", lambda: [(1, None, "x", "mic-x")])
     monkeypatch.setattr(mr, "_probe", fake_probe)
     first = mr.resolve_capture()
     second = mr.resolve_capture()
@@ -98,10 +98,10 @@ def test_result_is_cached(monkeypatch):
 
 
 def test_force_rebuilds(monkeypatch):
-    monkeypatch.setattr(mr, "_candidates", lambda: [(1, None, "x")])
+    monkeypatch.setattr(mr, "_candidates", lambda: [(1, None, "x", "mic-x")])
     monkeypatch.setattr(mr, "_probe", lambda *a, **k: True)
     mr.resolve_capture()
-    monkeypatch.setattr(mr, "_candidates", lambda: [(2, None, "y")])
+    monkeypatch.setattr(mr, "_candidates", lambda: [(2, None, "y", "mic-y")])
     c = mr.resolve_capture(force=True)
     assert c.device_index == 2
 
