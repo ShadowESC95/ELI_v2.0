@@ -4396,10 +4396,21 @@ Answer:"""
                     conversations = filtered[-fetch_limit:] if fetch_limit < len(
                         filtered) else filtered
                 else:
+                    # Scope to THIS session. Turns are written with self.session_id but were
+                    # read back without it, so "Active chat history" actually meant "the last
+                    # 20 turns from any session" — a fresh "hello" inherited the previous
+                    # conversation and ELI carried on mid-thread, replying to things the user
+                    # had never said in this one ("I never said any of that, that was the last
+                    # conversation"). That is also why deleting the offending text never
+                    # helped: the next session simply inherited whatever was newest. Genuine
+                    # cross-session recall is unaffected — it has its own explicit path above
+                    # and semantic memory below.
                     conversations = self.memory.get_recent_conversation(
-                        limit=fetch_limit, user_id=self.user_id)
+                        limit=fetch_limit, user_id=self.user_id,
+                        session_id=getattr(self, "session_id", None))
                 log.debug(
-                    f"[MEMORY] Fetched {len(conversations)} conversation turns from active chat DB.")
+                    f"[MEMORY] Fetched {len(conversations)} conversation turns from active chat DB "
+                    f"(session={getattr(self, 'session_id', None)}).")
                 if conversations:
                     lines_out = []
                     for i, turn in enumerate(reversed(conversations), 1):
