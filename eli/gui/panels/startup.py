@@ -614,6 +614,24 @@ class _SupportAssetsThread(QThread):
 
     def run(self):
         out: Dict[str, Any] = {"embedder": {}, "voice": {}}
+        # This prefetch is started by a WIDGET, not by the user asking for it, so
+        # the offline setting governs it — unlike an explicit "download model"
+        # button, which legitimately opens a scoped network window. Without this
+        # gate, merely constructing the wizard reached out and copied assets
+        # around the disk: in the offscreen GUI test lane that fired a real Piper
+        # download mid-test and aborted the whole pytest process, silently
+        # skipping every test after it. Honour the same gate everything else does.
+        try:
+            from eli.core.config import network_allowed
+            if not network_allowed():
+                msg = "offline — asset prefetch skipped (enable networking to fetch)"
+                out["embedder"] = {"ok": False, "skipped": True, "error": msg}
+                out["voice"] = {"piper": {"ok": False, "skipped": True, "error": msg},
+                                "whisper": {"ok": False, "skipped": True}}
+                self.finished_result.emit(out)
+                return
+        except Exception:
+            log.debug("[STARTUP] network gate check failed — continuing", exc_info=True)
         try:
             from eli.core.model_download import download_aux
             aux = download_aux(required_only=True)

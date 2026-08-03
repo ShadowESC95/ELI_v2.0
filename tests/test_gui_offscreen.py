@@ -19,6 +19,13 @@ from __future__ import annotations
 import os
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+# Constructing a widget must never reach the network. FirstBootWizard kicks off a
+# real asset prefetch (Piper voices + the embedder) from its constructor, which in
+# this lane downloaded and copied files mid-test and ABORTED the pytest process —
+# taking every test after it with it. This lane is usually run with --noconftest,
+# so it cannot rely on the root conftest for the offline default: set it here, the
+# same way the offscreen Qt platform is set, so the file is hermetic on its own.
+os.environ["ELI_OFFLINE"] = "1"
 
 import pytest
 
