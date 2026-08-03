@@ -2337,7 +2337,12 @@ def _filecode_extract_terms(text: str) -> set:
         terms.add(m.lower())
     for m in re.findall(r"\b(eli(?:\.\w+)+)\b", low):
         terms.add(m.lower())
-    for m in re.findall(r"\b([a-z][a-z0-9]*(?:_[a-z0-9]+)+|[A-Z][a-zA-Z0-9]{3,})\b", text):
+    # snake_case, or GENUINE CamelCase — an internal capital is required. The old
+    # `[A-Z][a-zA-Z0-9]{3,}` matched any capitalised word, so an ordinary sentence
+    # ("Sound, thanks for clarifying…") produced a "code identifier" and sent the
+    # file_code agent grepping the repo mid-conversation, padding the prompt with
+    # 20 irrelevant snippets. CognitiveEngine/AgentBus still match; Sound/Thanks don't.
+    for m in re.findall(r"\b([a-z][a-z0-9]*(?:_[a-z0-9]+)+|[A-Z][a-z0-9]*[A-Z][a-zA-Z0-9]*)\b", text):
         terms.add(m.lower())
     for m in re.findall(r"[\"'`]([^\"'`]{3,40})[\"'`]", low):
         terms.add(m.strip().lower())
