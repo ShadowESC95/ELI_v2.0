@@ -1859,6 +1859,33 @@ def route(text: str) -> Dict[str, Any]:
             _args["file"] = _f.group(1).strip()
         return _mk("CREATE_VOICE", _args, 0.9, matched_by="voice.create")
 
+    # DESIGN_VOICE — build your own voice from a base + pitch/speed (no audio clip needed).
+    # "design a voice called Nova, deep and slow". Sits AFTER voice.create so a request that
+    # names an audio file still clones rather than designing from scratch.
+    if (re.search(r"\b(design|make|create|build|set\s*up)\b", low)
+            and re.search(r"\bvoice\b", low)
+            and re.search(r"\b(?:called|named|name it)\s+[A-Za-z0-9_-]", raw, re.I)):
+        _dm = re.search(r"\b(?:called|named|name it)\s+([A-Za-z0-9_ -]{1,40})", raw, re.I)
+        _dargs = {"query": raw}
+        if _dm:
+            _dargs["name"] = _dm.group(1).strip().rstrip(",.")
+        _p = re.search(r"\bpitch\s*([+-]?\d+(?:\.\d+)?)", low)
+        _sp = re.search(r"\bspeed\s*(\d+(?:\.\d+)?)", low)
+        if _p:
+            _dargs["pitch"] = _p.group(1)
+        if _sp:
+            _dargs["speed"] = _sp.group(1)
+        # plain-English shaping
+        if re.search(r"\b(deep|low|lower)\b", low) and not _p:
+            _dargs["pitch"] = -2.0
+        if re.search(r"\b(high|higher|bright)\b", low) and not _p:
+            _dargs["pitch"] = 2.0
+        if re.search(r"\b(slow|slower)\b", low) and not _sp:
+            _dargs["speed"] = 0.9
+        if re.search(r"\b(fast|faster|quick)\b", low) and not _sp:
+            _dargs["speed"] = 1.1
+        return _mk("DESIGN_VOICE", _dargs, 0.9, matched_by="voice.design")
+
     if re.search(r"\bvoices?\b|\baccents?\b", low):
         _has_dl = bool(re.search(r"\b(download|install|fetch|add|grab)\b", low))
         # LIST — asking what's available (no fetch/switch verb)

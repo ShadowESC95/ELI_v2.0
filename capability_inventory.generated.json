@@ -305,6 +305,14 @@
       "source": "executor+router"
     },
     {
+      "action": "DESIGN_VOICE",
+      "in_dispatch": true,
+      "in_supported_list": true,
+      "plugin": null,
+      "routable": true,
+      "source": "executor+router"
+    },
+    {
       "action": "DIAGNOSE_WRAPPERS",
       "in_dispatch": true,
       "in_supported_list": true,
@@ -1721,7 +1729,7 @@
       "source": "executor"
     }
   ],
-  "count": 215,
-  "generated_at": 1785721139.470499,
+  "count": 216,
+  "generated_at": 1785789770.48896,
   "generator": "brain.awareness.capability_sync"
 }

@@ -2255,6 +2255,7 @@ SUPPORTED_ACTIONS = [
     'DOWNLOAD_VOICE',
     'SET_VOICE',
     'CREATE_VOICE',
+    'DESIGN_VOICE',
     'SET_TONE',
     'CLEAR_TONE',
     'STOP_MEDIA',
@@ -10622,6 +10623,50 @@ def _execute_impl(action: str, args: Optional[Dict[str, Any]] = None) -> Dict[st
     # .m4a/etc. of the target voice (ffmpeg extracts the audio). Registers a
     # clone:<name> voice offline; it speaks with XTTS-v2 once the neural extra is
     # installed, and falls back to a normal voice until then.
+    # ---- DESIGN_VOICE — build your OWN named voice from a base + effects ----
+    # voice_fx.save_preset existed but nothing reached it, so users could only clone from a
+    # recording; they could not design a voice. The shipped styles are deliberately generic
+    # (calm/robotic/energetic/synthetic/refined) — this is how a user makes one that is
+    # theirs: pick a base voice, shift pitch/speed, name it, and it becomes char:<name>.
+    if a == "DESIGN_VOICE":
+        try:
+            from eli.perception import voice_fx, tts_router
+            name = str(args.get("name") or args.get("voice") or "").strip()
+            if not name:
+                msg = ("Give the voice a name — e.g. \"design a voice called Nova, deep and "
+                       "slow\". You can set base (any installed voice), pitch (semitones, "
+                       "-6..+6), speed (0.5..1.5) and a description.")
+                return {"ok": False, "action": a, "content": msg, "response": msg}
+            installed = list(tts_router.list_voices())
+            base = str(args.get("base") or "").strip()
+            if base and base not in installed:
+                msg = (f"'{base}' isn't installed. Available: " + ", ".join(installed[:12]) +
+                       ("…" if len(installed) > 12 else ""))
+                return {"ok": False, "action": a, "content": msg, "response": msg}
+            spec = {"base": base or (installed[0] if installed else "en_US-amy-medium"),
+                    "desc": str(args.get("desc") or args.get("description") or
+                                f"Custom voice: {name}")}
+            for k, lo, hi in (("pitch", -6.0, 6.0), ("speed", 0.5, 1.5)):
+                if args.get(k) is not None:
+                    try:
+                        spec[k] = max(lo, min(hi, float(args.get(k))))
+                    except (TypeError, ValueError):
+                        pass
+            if args.get("filters"):
+                spec["filters"] = str(args.get("filters"))
+            res = voice_fx.save_preset(name, spec)
+            if not res.get("ok"):
+                msg = f"Could not save that voice: {res.get('error')}"
+                return {"ok": False, "action": a, "content": msg, "response": msg}
+            msg = (f"Made the voice '{res['name']}' ({spec['desc']}) on {spec['base']}"
+                   + (f", pitch {spec['pitch']:+g}" if "pitch" in spec else "")
+                   + (f", speed {spec['speed']:g}x" if "speed" in spec else "")
+                   + f". Use it any time with: use the {res['name']} voice.")
+            return {"ok": True, "action": a, "content": msg, "response": msg, "result": res}
+        except Exception as e:
+            msg = f"DESIGN_VOICE failed: {e}"
+            return {"ok": False, "action": a, "error": str(e), "content": msg, "response": msg}
+
     if a == "CREATE_VOICE":
         try:
             name = (args.get("name") or args.get("voice") or "").strip()
