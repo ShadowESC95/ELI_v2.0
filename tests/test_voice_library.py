@@ -176,9 +176,13 @@ def test_voice_index_is_offline_safe(tmp_path, monkeypatch):
 # ── character base resolution ───────────────────────────────────────────────
 def test_character_base_prefers_ideal_when_installed():
     from eli.perception import voice_fx
-    spec = voice_fx.get_preset("char:hal")
-    installed = {"en_US-lessac-medium", "en_GB-alan-medium", "en_US-amy-medium"}
-    assert voice_fx.resolve_base_voice(spec, installed) == "en_US-lessac-medium"
+    spec = voice_fx.get_preset("char:calm")
+    ideal = spec["base"]
+    # Assert the preset's OWN ideal base is chosen when present, rather than a hard-coded
+    # voice name — the styles were renamed and re-based (generic styles instead of
+    # copyrighted characters), and this test is about preference order, not one voice.
+    installed = {ideal, "en_US-amy-medium", "en_GB-northern_english_male-medium"}
+    assert voice_fx.resolve_base_voice(spec, installed) == ideal
 
 
 def test_character_base_walks_the_chain_and_never_picks_foreign_or_wrong_gender():
@@ -187,16 +191,16 @@ def test_character_base_walks_the_chain_and_never_picks_foreign_or_wrong_gender(
     from eli.perception import voice_fx
     shipped = {"cs_CZ-jirka-medium", "de_DE-thorsten-medium", "en_US-amy-medium",
                "en_GB-alan-medium"}  # no lessac/joe/ryan, no northern_english_male
-    for char in ("hal", "tars", "rick", "jarvis"):
+    for char in ("calm", "robotic", "energetic", "refined"):
         got = voice_fx.resolve_base_voice(voice_fx.get_preset(char), shipped)
         assert got == "en_GB-alan-medium", f"{char} -> {got}"
     assert voice_fx.resolve_base_voice(
-        voice_fx.get_preset("glados"), shipped) == "en_US-amy-medium"
+        voice_fx.get_preset("synthetic"), shipped) == "en_US-amy-medium"
 
 
 def test_character_base_falls_back_to_default_when_nothing_matches():
     from eli.perception import voice_fx
-    got = voice_fx.resolve_base_voice(voice_fx.get_preset("hal"),
+    got = voice_fx.resolve_base_voice(voice_fx.get_preset("calm"),
                                       {"cs_CZ-jirka-medium"}, default="en_US-amy-medium")
     assert got == "en_US-amy-medium"
 

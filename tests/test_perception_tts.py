@@ -106,7 +106,7 @@ def test_get_active_voice_default(monkeypatch, tmp_path):
     Isolated deliberately. `get_active_voice()` reads process-wide mutable state —
     the ELI_PIPER_VOICE env var and the `tts_voice` key in whatever settings file
     is active — so asserting on it unisolated made this order-dependent: any test
-    that had set a voice (SET_VOICE writes `char:hal`, for instance) decided the
+    that had set a voice (SET_VOICE writes `char:calm`, for instance) decided the
     outcome, and it failed intermittently in the full suite while passing alone.
     Point it at an empty settings file and clear the env so this exercises the
     fallback chain it is actually named after.

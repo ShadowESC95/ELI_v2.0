@@ -1,6 +1,6 @@
 {
-  "generated_at": "2026-08-03T02:38:59",
-  "total": 215,
+  "generated_at": "2026-08-03T21:42:50",
+  "total": 216,
   "capabilities": [
     {
       "action": "ADD_EVENT",
@@ -337,6 +337,15 @@
     },
     {
       "action": "DECLINE_HABIT",
+      "source": "executor+router",
+      "active": true,
+      "plugin": null,
+      "routable": true,
+      "in_dispatch": true,
+      "in_supported_list": true
+    },
+    {
+      "action": "DESIGN_VOICE",
       "source": "executor+router",
       "active": true,
       "plugin": null,

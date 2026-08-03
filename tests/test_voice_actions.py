@@ -34,7 +34,7 @@ def test_download_voice_routes(text):
 
 
 @pytest.mark.parametrize("text", [
-    "use the alan voice", "switch your voice to amy", "use the HAL voice",
+    "use the alan voice", "switch your voice to amy", "use the calm voice",
 ])
 def test_set_voice_routes(text):
     assert _action(text) == "SET_VOICE"
@@ -65,7 +65,7 @@ def test_install_firefox_is_not_a_voice_download():
 # ── resolver ────────────────────────────────────────────────────────────────
 def test_resolve_voice_query_kinds():
     assert va.resolve_voice_query("install en_US-amy-medium")["voice"] == "en_US-amy-medium"
-    assert va.resolve_voice_query("use the HAL voice")["voice"] == "char:hal"
+    assert va.resolve_voice_query("use the calm voice")["voice"] == "char:calm"
     assert va.resolve_voice_query("a British voice")["kind"] == "accent"
     assert va.resolve_voice_query("something sarcastic")["voice"] == ""
 
@@ -88,8 +88,8 @@ def test_set_voice_executes_and_restores(monkeypatch):
     from eli.perception import tts_router
     prev = tts_router.get_active_voice()
     try:
-        r = execute("SET_VOICE", {"query": "use the HAL voice"})
-        assert r.get("ok") and r.get("voice") == "char:hal"
+        r = execute("SET_VOICE", {"query": "use the calm voice"})
+        assert r.get("ok") and r.get("voice") == "char:calm"
     finally:
         tts_router.set_active_voice(prev)
 

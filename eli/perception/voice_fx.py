@@ -44,36 +44,44 @@ _MALE_FALLBACKS = ["en_GB-northern_english_male-medium", "en_GB-alan-medium",
                    "en_US-hfc_male-medium", "en_US-joe-medium", "en_US-kusal-medium"]
 _FEMALE_FALLBACKS = ["en_US-amy-medium", "en_US-hfc_female-medium",
                      "en_GB-jenny_dioco-medium", "en_US-kathleen-low"]
+# Built-in voice STYLES. Deliberately generic: these describe a sound (calm, robotic,
+# bright…), not a named character. Earlier builds shipped presets imitating HAL 9000,
+# TARS, Rick Sanchez, GLaDOS and JARVIS — copyrighted characters, which is a real
+# liability in a product that is sold, and they did not even work: their defining base
+# voices (lessac, ryan, joe) are excluded from the shipped bundle over dataset licensing,
+# so every one of them silently fell back to the same generic male voice. A style that
+# promises "a calm, smooth delivery" is honest about what it is; one that promises "HAL"
+# and delivers a Yorkshire narrator is not. Users build their own via save_preset.
 _BUILTIN: Dict[str, Dict[str, Any]] = {
-    "hal": {
-        "base": "en_US-lessac-medium", "fallback": _MALE_FALLBACKS,
+    "calm": {
+        "base": "en_GB-alan-medium", "fallback": _MALE_FALLBACKS,
         "pitch": -1.0, "speed": 0.93,
         "filters": "aecho=0.8:0.88:55:0.28,lowpass=f=3200,acompressor=threshold=-18dB:ratio=3",
-        "desc": "HAL 9000 — calm, smooth, quietly menacing",
+        "desc": "Calm and smooth — measured, unhurried, slightly warm",
     },
-    "tars": {
-        "base": "en_US-joe-medium", "fallback": _MALE_FALLBACKS,
+    "robotic": {
+        "base": "en_GB-northern_english_male-medium", "fallback": _MALE_FALLBACKS,
         "pitch": -2.0, "speed": 0.98,
         "filters": "tremolo=f=55:d=0.35,aphaser=type=t:speed=0.5,highpass=f=120,acompressor=threshold=-16dB:ratio=4",
-        "desc": "TARS — deadpan robotic, metallic buzz",
+        "desc": "Robotic — deadpan, metallic buzz",
     },
-    "rick": {
-        "base": "en_US-ryan-high", "fallback": _MALE_FALLBACKS,
+    "energetic": {
+        "base": "en_GB-northern_english_male-medium", "fallback": _MALE_FALLBACKS,
         "pitch": 1.0, "speed": 1.03,
         "filters": "vibrato=f=6.5:d=0.35,tremolo=f=8:d=0.2,acompressor=threshold=-12dB:ratio=6,treble=g=4",
-        "desc": "Rick — erratic, wobbly, a little fried",
+        "desc": "Energetic — animated, a little frayed at the edges",
     },
-    "glados": {
+    "synthetic": {
         "base": "en_US-amy-medium", "fallback": _FEMALE_FALLBACKS,
         "pitch": -1.0, "speed": 0.97,
         "filters": "aphaser=type=t:speed=0.3,flanger=depth=4:speed=0.2,lowpass=f=3500,highpass=f=180",
-        "desc": "GLaDOS — flat, synthetic, metallic",
+        "desc": "Synthetic — flat, processed, machine-like",
     },
-    "jarvis": {
+    "refined": {
         "base": "en_GB-alan-medium", "fallback": ["en_GB-alan-medium"] + _MALE_FALLBACKS,
         "pitch": 0.0, "speed": 0.98,
         "filters": "treble=g=3,aecho=0.9:0.9:40:0.15,highpass=f=90",
-        "desc": "JARVIS — refined British, subtle sheen",
+        "desc": "Refined British — crisp, with a subtle sheen",
     },
 }
 
