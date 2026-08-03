@@ -7324,6 +7324,44 @@ Answer:"""
                               float] = None, clarified: bool = False, evidence_used: bool = False, reasoning_mode: Optional[str] = None) -> Dict[str, Any]:
         response = govern_output(response, is_grounded=evidence_used)
         response = str(response or "").strip()
+        # ── Anti-echo: never serve ELI's own previous reply back to the user ──
+        # ELI's replies are stored and later recalled as context, so on a short turn the
+        # model can latch onto its own last line and re-emit it. Observed live: the same
+        # "still glitchy, still running on the same old code" three turns running, once
+        # with the speaker flipped ("You're still glitchy") while ignoring what the user
+        # had just said. Token-level repeat_penalty cannot see across turns. Detect it and
+        # regenerate ONCE with an explicit do-not-repeat instruction; if that fails or is
+        # still an echo, keep the original (never ship an empty reply).
+        try:
+            from eli.cognition.output_governor import is_echo_of_recent
+            _prev_replies = []
+            try:
+                for _t in (self.memory.get_recent_conversation(limit=8) or []):
+                    _role = (_t.get("role") if isinstance(_t, dict) else None) or ""
+                    _content = (_t.get("content") if isinstance(_t, dict) else "") or ""
+                    if str(_role).lower() in ("assistant", "eli") and _content:
+                        _prev_replies.append(str(_content))
+            except Exception:
+                log.debug("[ECHO] recent-reply lookup failed", exc_info=True)
+            if _prev_replies and is_echo_of_recent(response, _prev_replies):
+                log.debug("[ECHO] reply repeated a recent one — regenerating once")
+                trace["echo_repaired"] = True
+                _fresh = self._get_chat_response(
+                    "You already said the following to this user, and repeating it would be "
+                    "wrong — they have moved the conversation on.\n\n"
+                    f"ALREADY SAID:\n{_prev_replies[-1]}\n\n"
+                    f"WHAT THEY JUST SAID:\n{user_input}\n\n"
+                    "Reply to what they actually just said, in your own voice. Do not reuse "
+                    "the sentence above or restate your own status unprompted.",
+                    "",
+                    reasoning_mode=reasoning_mode,
+                    gen_overrides={"max_tokens": 320, "temperature": 0.7},
+                )
+                _fresh = govern_output(str(_fresh or "").strip(), is_grounded=evidence_used).strip()
+                if _fresh and not is_echo_of_recent(_fresh, _prev_replies):
+                    response = _fresh
+        except Exception:
+            log.debug("[ECHO] anti-echo guard skipped", exc_info=True)
         try:
             from eli.cognition.reasoning_modes import apply_final_reasoning_contract as _rm_final
             response = _rm_final(response, mode=reasoning_mode)
