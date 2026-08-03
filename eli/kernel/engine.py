@@ -12055,6 +12055,35 @@ Answer:"""
                     r"tool|file|project|implement|design|fix|refactor)\b", text, _re_gi.I,
                 ):
                     li = {"action": "CHAT", "args": {"message": text}, "confidence": 0.55}
+            # Follow-up guard: when the user is asking about something ELI ITSELF just
+            # said, that's conversation, not a request to run diagnostics. Live failure:
+            # ELI said "still glitchy…", the user asked "Why are you still glitchy?", and
+            # the resolver fired SELF_ANALYZE (conf 0.95) — answering a personal question
+            # with a canned "Self-Analysis Report (0 recent issues)". Only redirect when
+            # the turn genuinely echoes ELI's last reply AND carries no explicit
+            # run-a-report intent, so "analyse your failures" still works.
+            _self_report = {"SELF_ANALYZE", "SELF_IMPROVEMENT_LOG", "RUNTIME_AUDIT",
+                            "COGNITION_STATUS", "RUNTIME_STATUS", "PROACTIVE_STATUS",
+                            "SELF_REPORT", "MEMORY_STATUS"}
+            if li and str(li.get("action") or "").upper() in _self_report:
+                import re as _re_fu
+                _explicit = _re_fu.search(
+                    r"\b(analy[sz]e|diagnos|report|audit|log[s]?|status|metrics|"
+                    r"failures?|errors?|statistics|health\s*check)\b", text, _re_fu.I)
+                if not _explicit and len(str(text or "").split()) <= 14:
+                    try:
+                        from eli.cognition.scoring import term_overlap as _ov
+                        _last_reply = ""
+                        for _t in reversed(self.memory.get_recent_conversation(limit=6) or []):
+                            if str((_t or {}).get("role", "")).lower() in ("assistant", "eli"):
+                                _last_reply = str((_t or {}).get("content", "") or "")
+                                break
+                        if _last_reply and _ov(text, _last_reply) >= 0.25:
+                            log.debug("[COGNITIVE] follow-up about ELI's own last reply "
+                                      f"→ CHAT (was {li.get('action')})")
+                            li = {"action": "CHAT", "args": {"message": text}, "confidence": 0.6}
+                    except Exception:
+                        log.debug("[COGNITIVE] follow-up guard skipped", exc_info=True)
             if (li and li.get("action") and li.get("action") != "CHAT"
                     and li.get("confidence", 0) >= 0.6):
                 log.debug(f"[COGNITIVE] LLM intent resolved: {li.get('action')} "
