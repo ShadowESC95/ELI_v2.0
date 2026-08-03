@@ -4430,6 +4430,32 @@ Answer:"""
                     context_parts.append(
     "Active chat history (chronological, oldest→newest):\n" +
      "\n".join(lines_out))
+                    # The model can copy its OWN last line straight out of this history —
+                    # observed live across three different phrasings ("still glitchy…",
+                    # then "post-breakfast haze and Rick and Morty on repeat"), re-asking
+                    # "How are you?" even after the user answered and told it to stop.
+                    # Purging the text doesn't help: the mechanism just latches onto a new
+                    # phrase. The output-side guard can't run here because streaming never
+                    # reaches finalize, so state the contract in the prompt itself — the
+                    # same shape as ELI's existing no-fake-actions rule, not a scripted line.
+                    try:
+                        _eli_said = [str(t.get("content") or "").strip()
+                                     for t in conversations
+                                     if str(t.get("role") or "").lower() in ("assistant", "eli")
+                                     and str(t.get("content") or "").strip()]
+                        if _eli_said:
+                            _recent = _eli_said[:3]  # newest-first as stored
+                            _quoted = "\n".join(f"  - {s[:220]}" for s in _recent)
+                            context_parts.append(
+                                "YOU HAVE ALREADY SAID THE FOLLOWING — do not repeat any of "
+                                "it, and do not re-ask a question the user has already "
+                                "answered:\n" + _quoted +
+                                "\nRespond to what the user just said. If you have already "
+                                "described your own state or mood, do not describe it again "
+                                "unless they ask."
+                            )
+                    except Exception:
+                        log.debug("[MEMORY] anti-repeat contract skipped", exc_info=True)
             except Exception as e:
                 log.debug(f"[MEMORY] Conversation retrieval failed: {e}")
 
