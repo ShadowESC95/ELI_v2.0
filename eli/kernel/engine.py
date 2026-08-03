@@ -12462,6 +12462,36 @@ Answer:"""
             else:
                 situation_brief = semantic_guard
 
+        # ── Anti-repeat contract (streaming) ──
+        # ELI kept re-serving its own last reply verbatim across turns — three different
+        # phrasings, still re-asking "How are you?" after the user answered and told it to
+        # stop. Earlier attempts failed because they sat on paths this one never uses: an
+        # output guard in _finalize_chat_result (streaming never reaches it) and a block in
+        # the memory-context builder (turn 1 discarded it — memory_chars=0 — and turn 2
+        # skipped the builder entirely, "reusing pre-built bus memory context"). This spot
+        # is the one that provably reaches the model: situation_brief IS the prompt
+        # (stage_11_enter logs ctx_chars=len(situation_brief)), and it is where the
+        # rapport/semantic guards are already injected. A constraint, not a scripted line.
+        try:
+            _prev_eli = []
+            for _t in (self.memory.get_recent_conversation(limit=8) or []):
+                if str((_t or {}).get("role", "")).lower() in ("assistant", "eli"):
+                    _c = str((_t or {}).get("content", "") or "").strip()
+                    if _c:
+                        _prev_eli.append(_c)
+            if _prev_eli:
+                _quoted = "\n".join(f"  - {s[:220]}" for s in _prev_eli[:3])
+                _no_repeat = (
+                    "YOU HAVE ALREADY SAID THE FOLLOWING — do not repeat any of it, and do "
+                    "not re-ask a question the user has already answered:\n" + _quoted +
+                    "\nReply to what the user just said. If you have already described your "
+                    "own state or mood, do not describe it again unless asked."
+                )
+                situation_brief = (_no_repeat + "\n\n" + situation_brief).strip()
+                log.debug(f"[ANTI-REPEAT] contract injected ({len(_prev_eli[:3])} prior replies)")
+        except Exception:
+            log.debug("[ANTI-REPEAT] contract skipped", exc_info=True)
+
         # Do not promote raw memory_context into situation_brief.
         # Raw context is private evidence, not answer text.
         if not situation_brief:
