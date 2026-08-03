@@ -1263,3 +1263,49 @@ def score_confidence(response_text: str, user_input: str = "", context: dict = N
 # clean_response_style + repair_self_user_confusion). This module is the
 # governance/quality scoring layer only.
 
+
+
+def is_echo_of_recent(text: str, recent_replies: List[str],
+                      threshold: float = 0.82) -> bool:
+    """True when `text` merely repeats one of ELI's OWN recent replies.
+
+    ELI's replies are stored and later recalled as context, so on a short user turn
+    (a 100-char message against a ~26k-char prompt) the model can latch onto its own
+    previous line and re-emit it — observed live: the same "still glitchy, still
+    running on the same old code. How's it going?" served three turns running, once
+    with the speaker flipped to "You're still glitchy". That reads as broken, and no
+    token-level repeat_penalty catches it because the repetition spans turns, not
+    tokens.
+
+    Compares against ELI's last few replies with the project's canonical term overlap.
+    Deliberately ignores very short replies ("Yes.", "Done.") where legitimate
+    repetition is normal, and never raises.
+    """
+    body = str(text or "").strip()
+    if len(body) < 40:
+        return False  # short acknowledgements may legitimately repeat
+    try:
+        from eli.cognition.scoring import term_overlap
+    except Exception:
+        return False
+    import difflib
+    low = body.lower()
+    for prev in list(recent_replies or [])[-4:]:
+        prev = str(prev or "").strip()
+        if len(prev) < 40:
+            continue
+        try:
+            if term_overlap(body, prev) >= threshold:
+                return True
+            # Whole-reply overlap misses an echo wrapped in new words — the observed
+            # "Typo? I caught that. You're still glitchy, still running on the same old
+            # code." Treat a long verbatim run lifted from the previous reply as an echo
+            # too, so a cosmetic prefix can't smuggle the same sentence through again.
+            plow = prev.lower()
+            m = difflib.SequenceMatcher(None, low, plow, autojunk=False) \
+                       .find_longest_match(0, len(low), 0, len(plow))
+            if m.size >= max(40, int(len(plow) * 0.5)):
+                return True
+        except Exception:
+            continue
+    return False
