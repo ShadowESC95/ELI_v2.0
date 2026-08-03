@@ -151,24 +151,47 @@ def list_clones() -> "list[Dict[str, Any]]":
 
 # ── Synthesis (needs the optional TTS package) ──────────────────────────────────
 def xtts_available() -> bool:
+    # Check for the optional package FIRST. Patching before this ran the shim on every
+    # availability probe — including in shipped builds where `transformers` is not
+    # bundled at all — spraying a ModuleNotFoundError traceback across the console on
+    # a perfectly healthy launch. The shim is only meaningful once TTS is importable.
     try:
-        _patch_transformers_compat()
         import TTS  # noqa: F401
-        return True
     except Exception:
         return False
+    _patch_transformers_compat()
+    return True
+
+
+_COMPAT_PATCHED = False
 
 
 def _patch_transformers_compat() -> None:
     """coqui-tts's XTTS layer imports `isin_mps_friendly`, a torch.isin() shim
     transformers carried for old Apple-MPS backends and dropped in transformers>=5.
     Off MPS, plain torch.isin() is exactly the same behaviour, so restore the name
-    rather than pin transformers back (the rest of ELI is on transformers==5.x)."""
+    rather than pin transformers back (the rest of ELI is on transformers==5.x).
+
+    Runs at most once. A missing `transformers`/`torch` is the EXPECTED state when the
+    heavy clone extra isn't installed — that path stays quiet; only genuine failures
+    (the module is present but the patch didn't take) are worth logging."""
+    global _COMPAT_PATCHED
+    if _COMPAT_PATCHED:
+        return
+    _COMPAT_PATCHED = True
     try:
         import transformers.pytorch_utils as _ptu
+    except ModuleNotFoundError:
+        return  # clone extra not installed — nothing to patch, nothing to report
+    except Exception:
+        log.debug("tts_xtts: transformers import failed", exc_info=True)
+        return
+    try:
         if not hasattr(_ptu, "isin_mps_friendly"):
             import torch as _torch
             _ptu.isin_mps_friendly = lambda elements, test_elements: _torch.isin(elements, test_elements)
+    except ModuleNotFoundError:
+        return  # torch absent — same expected optional-dependency case
     except Exception:
         log.debug("tts_xtts: transformers compat shim failed", exc_info=True)
 
