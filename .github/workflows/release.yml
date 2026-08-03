@@ -212,6 +212,7 @@ jobs:
       - uses: actions/upload-artifact@v4
         with:
           name: eli-windows
+          retention-days: 3   # build intermediates; the publish job consumes them immediately
           path: |
             dist/*.zip
             dist/*.exe
@@ -318,6 +319,7 @@ jobs:
       - uses: actions/upload-artifact@v4
         with:
           name: eli-macos
+          retention-days: 3   # build intermediates; the publish job consumes them immediately
           path: |
             dist/*.dmg
             dist/SHA256SUMS-macos.txt
@@ -473,6 +475,7 @@ jobs:
       - uses: actions/upload-artifact@v4
         with:
           name: eli-linux
+          retention-days: 3   # build intermediates; the publish job consumes them immediately
           path: |
             dist/*.AppImage
             dist/*.tar.gz
