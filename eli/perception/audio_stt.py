@@ -1039,15 +1039,22 @@ class ELIAudioSTT:
         )
 
         device_index = _resolve_input_device_index()
-        if device_index is not None:
-            try:
-                self.microphone = sr.Microphone(device_index=device_index)
-                log.debug(f"[AUDIO] Using microphone device index {device_index}")
-            except Exception as e:
-                log.debug(f"[AUDIO] Failed to use device {device_index}: {e}. Falling back to default mic.")
+        # Every sr.Microphone() builds its own PyAudio instance, and PortAudio prints
+        # ~50 lines of ALSA/JACK probe noise each time — a healthy launch looked like a
+        # wall of errors. Silence fd 2 for the construction only; always restored.
+        _suppress_alsa()
+        try:
+            if device_index is not None:
+                try:
+                    self.microphone = sr.Microphone(device_index=device_index)
+                    log.debug(f"[AUDIO] Using microphone device index {device_index}")
+                except Exception as e:
+                    log.debug(f"[AUDIO] Failed to use device {device_index}: {e}. Falling back to default mic.")
+                    self.microphone = sr.Microphone()
+            else:
                 self.microphone = sr.Microphone()
-        else:
-            self.microphone = sr.Microphone()
+        finally:
+            _restore_stderr()
 
         self.is_listening = False
         self.callback: Optional[Callable[[str], None]] = None
