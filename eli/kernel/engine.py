@@ -4609,6 +4609,29 @@ Answer:"""
     f"[MEMORY] Canonical memory-db recall failed: {legacy_e}")
                     log.debug(
                         f"[MEMORY] Stored memory search returned: {len(mem_results) if mem_results else 0} results")
+                    # ELI's OWN past replies must never come back as "Stored knowledge".
+                    # Live failure: a chat line ("still glitchy, still running on the same
+                    # old code") was stored, recalled in a LATER session as a fact, and
+                    # recited verbatim — prefixed "Yes. Here's why:", because the model was
+                    # told it was knowledge to report. Drop any recalled memory that is
+                    # really something ELI said; the user's own words stay.
+                    try:
+                        from eli.cognition.output_governor import is_echo_of_recent
+                        _own = []
+                        for _t in (self.memory.get_recent_conversation(limit=30) or []):
+                            if str((_t or {}).get("role", "")).lower() in ("assistant", "eli"):
+                                _c = str((_t or {}).get("content", "") or "")
+                                if _c:
+                                    _own.append(_c)
+                        if _own and mem_results:
+                            _kept = [m for m in mem_results
+                                     if not is_echo_of_recent(str(m.get("text") or ""), _own)]
+                            if len(_kept) != len(mem_results):
+                                log.debug(f"[MEMORY] dropped {len(mem_results) - len(_kept)} "
+                                          "recalled memories that were ELI's own replies")
+                            mem_results = _kept
+                    except Exception:
+                        log.debug("[MEMORY] self-reply memory filter skipped", exc_info=True)
                     if mem_results:
                         lines_out = []
                         for mem in mem_results[:5]:
@@ -12770,6 +12793,28 @@ Answer:"""
             if len(text.split()) < 4 or text.lower() in {
                 "i'm here.", "i'm here", "got it.", "got it", "ok.", "ok"
             }:
+                return
+            # ELI talking ABOUT ITSELF is not knowledge. Stored as a memory it comes back
+            # in a later session under "Stored knowledge:" and gets recited as fact —
+            # observed live: "I'm standing by, still glitchy, still running on the same
+            # old code" survived across sessions and was replayed as the answer to
+            # "morning" and "how are you?". Conversation history already preserves what
+            # was said; only substantive content earns a memory.
+            _t_low = text.lower()
+            _self_status = (
+                # first person + a state word ("I'm good", "I am ready")
+                (re.search(r"\b(i'?m|i am|i've|i have been|my)\b", _t_low)
+                 and re.search(r"\b(glitch\w*|standing by|running on|same old code|"
+                               r"still here|buggy|broken|fine|okay|ok|good|alright|well|"
+                               r"ready|online|operational|functioning|state|status|mood|"
+                               r"feeling)\b", _t_low))
+                # …or an unmistakable self-status phrase even without the pronoun
+                # ("Sahns. Still glitchy, still running on the same old code.")
+                or re.search(r"\b(still glitch\w*|same old code|standing by|"
+                             r"running on the same)\b", _t_low)
+            )
+            if _self_status:
+                log.debug("[MEMORY] not storing ELI's own self-status remark as knowledge")
                 return
             kind = "assistant_insight"
             source = "assistant"
