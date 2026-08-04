@@ -43,7 +43,7 @@
     {
       "action": "ANALYZE_PDF_FOLDER",
       "in_dispatch": true,
-      "in_supported_list": false,
+      "in_supported_list": true,
       "plugin": null,
       "routable": true,
       "source": "executor+router"
@@ -339,7 +339,7 @@
     {
       "action": "DOC_GENERATE",
       "in_dispatch": true,
-      "in_supported_list": false,
+      "in_supported_list": true,
       "plugin": null,
       "routable": false,
       "source": "executor"
@@ -635,7 +635,7 @@
     {
       "action": "IMAGE_STATUS",
       "in_dispatch": true,
-      "in_supported_list": false,
+      "in_supported_list": true,
       "plugin": null,
       "routable": false,
       "source": "executor"
@@ -667,7 +667,7 @@
     {
       "action": "LISTEN_FOR_COMMAND",
       "in_dispatch": true,
-      "in_supported_list": false,
+      "in_supported_list": true,
       "plugin": null,
       "routable": true,
       "source": "executor+router"
@@ -1131,7 +1131,7 @@
     {
       "action": "PLUGIN_STATUS",
       "in_dispatch": true,
-      "in_supported_list": false,
+      "in_supported_list": true,
       "plugin": null,
       "routable": false,
       "source": "executor"
@@ -1443,7 +1443,7 @@
     {
       "action": "SET_AI_MODE",
       "in_dispatch": true,
-      "in_supported_list": false,
+      "in_supported_list": true,
       "plugin": null,
       "routable": false,
       "source": "executor"
@@ -1467,7 +1467,7 @@
     {
       "action": "SET_COMMUNICATION_STYLE",
       "in_dispatch": true,
-      "in_supported_list": false,
+      "in_supported_list": true,
       "plugin": null,
       "routable": true,
       "source": "executor+router"
@@ -1491,7 +1491,7 @@
     {
       "action": "SET_USER_NAME",
       "in_dispatch": true,
-      "in_supported_list": false,
+      "in_supported_list": true,
       "plugin": null,
       "routable": true,
       "source": "executor+router"
@@ -1531,7 +1531,7 @@
     {
       "action": "SKIP_YOUTUBE_AD",
       "in_dispatch": true,
-      "in_supported_list": false,
+      "in_supported_list": true,
       "plugin": null,
       "routable": true,
       "source": "executor+router"
@@ -1563,7 +1563,7 @@
     {
       "action": "STT_DIAGNOSTICS",
       "in_dispatch": true,
-      "in_supported_list": false,
+      "in_supported_list": true,
       "plugin": null,
       "routable": false,
       "source": "executor"
@@ -1643,7 +1643,7 @@
     {
       "action": "USER_INFO_REPORT",
       "in_dispatch": true,
-      "in_supported_list": false,
+      "in_supported_list": true,
       "plugin": null,
       "routable": false,
       "source": "executor"
@@ -1730,6 +1730,6 @@
     }
   ],
   "count": 216,
-  "generated_at": 1785789770.48896,
+  "generated_at": 1785881134.8131173,
   "generator": "brain.awareness.capability_sync"
 }

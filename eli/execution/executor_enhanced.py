@@ -2091,6 +2091,20 @@ def _maybe_background_file_analysis(action, args):
 
 # Enumerated actions for capability_registry bootstrap
 SUPPORTED_ACTIONS = [
+    # Ported from v3: these all had working handlers here but were never listed,
+    # so llm_intent's catalogue (and therefore the grammar-constrained resolver)
+    # could not route to them at all.
+    'DOC_GENERATE',
+    'SET_AI_MODE',
+    'USER_INFO_REPORT',
+    'SET_USER_NAME',
+    'SET_COMMUNICATION_STYLE',
+    'SKIP_YOUTUBE_AD',
+    'ANALYZE_PDF_FOLDER',
+    'IMAGE_STATUS',
+    'LISTEN_FOR_COMMAND',
+    'PLUGIN_STATUS',
+    'STT_DIAGNOSTICS',
     'ADD_EVENT',
     'BACKGROUND_JOBS',
     'SCHEDULE_TASK',
