@@ -9,6 +9,7 @@ only resolve to actions that actually exist, and it must answer CHAT for genuine
 conversation. No per-phrase hardcoding: the model generalises from its own
 toolset.
 """
+import hashlib
 import json
 import re
 import threading
@@ -70,6 +71,45 @@ _FEW_SHOT = (
 )
 
 
+# backend without grammar support (Ollama, remote), so this stays model-agnostic.
+_GRAMMAR_CACHE: Dict[str, Any] = {}
+
+
+def _action_grammar(catalogue: List[str]):
+    """A GBNF grammar admitting only {"action": <one of catalogue>, "args": {...},
+    "confidence": <number>}. Cached per catalogue signature; None if unavailable."""
+    if not catalogue:
+        return None
+    # Admit exactly what the resolver below accepts — the catalogue plus CHAT. Omitting
+    # CHAT would make ordinary small talk unrepresentable and force every greeting to be
+    # answered as a command.
+    names = sorted(set(catalogue) | {"CHAT"})
+    key = hashlib.sha1("|".join(names).encode()).hexdigest()
+    if key in _GRAMMAR_CACHE:
+        return _GRAMMAR_CACHE[key]
+    grammar = None
+    try:
+        from llama_cpp import LlamaGrammar
+        alts = " | ".join('"\\"%s\\""' % a for a in names)
+        gbnf = (
+            'root    ::= "{" ws "\\"action\\":" ws action ws "," ws "\\"args\\":" ws object'
+            ' ws "," ws "\\"confidence\\":" ws number ws "}"\n'
+            'action  ::= ' + alts + '\n'
+            'object  ::= "{" ws ( string ":" ws value ("," ws string ":" ws value)* )? "}"\n'
+            'value   ::= object | array | string | number | "true" | "false" | "null"\n'
+            'array   ::= "[" ws ( value ("," ws value)* )? "]"\n'
+            'string  ::= "\\"" ([^"\\\\] | "\\\\" ["\\\\/bfnrt])* "\\""\n'
+            'number  ::= "-"? [0-9]+ ("." [0-9]+)?\n'
+            'ws      ::= [ \\t\\n]*\n'
+        )
+        grammar = LlamaGrammar.from_string(gbnf, verbose=False)
+    except Exception:
+        log.debug("llm_intent: grammar unavailable — using free-text JSON", exc_info=True)
+        grammar = None
+    _GRAMMAR_CACHE[key] = grammar
+    return grammar
+
+
 def parse_with_llm(text: str) -> Dict[str, Any]:
     """Resolve a free-text request to one of ELI's real actions, or CHAT.
 
@@ -101,9 +141,29 @@ def parse_with_llm(text: str) -> Dict[str, Any]:
             + "\n\nEXAMPLES (format only):\n" + _FEW_SHOT
             + f'\nUSER: "{text}"\nJSON:'
         )
-        response = gguf_inference.chat_completion(
-            prompt, system=system, max_tokens=200, temperature=0.1,
-        )
+        # Constrain the decoder to the live catalogue when the backend supports it, so
+        # the model cannot invent a capability or emit unparseable JSON. Any backend
+        # without grammar support (or a rejected kwarg) falls through to the free-text
+        # path below, which still parses and validates exactly as before.
+        _grammar = _action_grammar(catalogue)
+        response = None
+        if _grammar is not None:
+            try:
+                response = gguf_inference.chat_completion(
+                    prompt, system=system, max_tokens=200, temperature=0.1,
+                    grammar=_grammar,
+                )
+                log.debug("llm_intent: grammar-constrained decode over %d actions", len(catalogue))
+            except TypeError:
+                response = None  # backend does not accept a grammar kwarg
+            except Exception:
+                log.debug("llm_intent: grammar decode failed — falling back", exc_info=True)
+                response = None
+        if response is None:
+            response = gguf_inference.chat_completion(
+                prompt, system=system, max_tokens=200, temperature=0.1,
+            )
+
         # Tolerate models that wrap the JSON in markdown code fences (Phi-4 emits ```json … ```;
         # Qwen emits bare JSON), and give enough budget that long-arg JSON (e.g. file paths) isn't
         # truncated mid-object. Both caused routing to collapse to CHAT — and the model to then
