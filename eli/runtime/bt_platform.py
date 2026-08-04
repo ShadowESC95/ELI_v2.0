@@ -238,6 +238,17 @@ def recovery_hint(adapters: Optional[List[BtAdapter]] = None) -> str:
     kind = platform_kind()
 
     if kind == "linux":
+        # If ANY adapter is already usable, Bluetooth is ready — say nothing.
+        # A machine can carry several controllers (built-in + USB dongle + a
+        # phantom): this box has hci0 down, hci2 a zero-MAC ghost, and hci1 UP,
+        # powered and registered with BlueZ. Reporting the first down adapter had
+        # ELI announce "Bluetooth radio is off — cannot scan" and demand a sudo
+        # reset while a perfectly good controller sat there working. Judge the
+        # capability ("can I scan?"), not one device — the same mistake as pinning
+        # a microphone by index instead of asking which one actually delivers.
+        if any(getattr(a, "powered", False) or getattr(a, "bluez", False)
+               or a.state == "up" for a in adapters):
+            return ""
         # Derive from the resolved adapter list (honours callers/tests that
         # pass adapters) — skip explicit zero-MAC ghosts like _linux_hci_down.
         down = [a.id for a in adapters
@@ -346,10 +357,21 @@ def _linux_ensure_radio() -> Tuple[bool, str]:
         return re.findall(r"Controller\s+([0-9A-Fa-f:]{17})", listing or "")
 
     adapters = list_adapters()
+    # A usable controller anywhere means we can scan — an idle or phantom sibling
+    # adapter is irrelevant. Previously ANY down adapter aborted here, so a box with
+    # a working hci1 alongside a down hci0 and a zero-MAC hci2 was told "Bluetooth
+    # radio is off" and asked to run a sudo reset it did not need.
+    if any(getattr(a, "powered", False) or getattr(a, "bluez", False)
+           or a.state == "up" for a in adapters) or _controllers():
+        return True, ""
     down_hci = _linux_hci_down()
     if down_hci:
         try_recover_radio()
         time.sleep(0.4)
+        # Re-check for a usable controller after the recovery attempt before giving up.
+        if any(getattr(a, "powered", False) or getattr(a, "bluez", False)
+               or a.state == "up" for a in list_adapters()) or _controllers():
+            return True, ""
         down_hci = _linux_hci_down()
         if down_hci:
             names = " ".join(down_hci)
