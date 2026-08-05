@@ -10054,7 +10054,12 @@ def _execute_impl(action: str, args: Optional[Dict[str, Any]] = None) -> Dict[st
                                               allow_fix=(_named and bool(_fixable)))
             except Exception as _ex_exc:
                 log.debug(f"[SELF_UPGRADE] examine stage skipped: {_ex_exc}")
-            return {'ok': True, 'action': a, 'content': result, 'response': result}
+            # Report the REAL outcome. This used to be an unconditional ok=True,
+            # so an upgrade that installed nothing still came back as a success.
+            _state = getattr(inst, 'upgrade_state', 'failed')
+            return {'ok': _state in ('upgraded', 'current'), 'action': a,
+                    'upgrade_state': _state, 'upgraded': bool(getattr(inst, 'upgraded', False)),
+                    'content': result, 'response': result}
         except Exception as _exc:
             return {'ok': False, 'action': a, 'error': str(_exc), 'content': str(_exc), 'response': str(_exc)}
 
