@@ -210,16 +210,25 @@ class SelfUpgrader:
     # ── Private step implementations ──────────────────────────────────────────
 
     def _local_version(self) -> str:
-        try:
-            import importlib.metadata as im
-            return str(im.version("eli-v2.0"))
-        except Exception:
-            pass
+        """The version actually running.
+
+        pyproject.toml is consulted FIRST. Installed dist metadata goes stale the
+        moment the project is bumped without reinstalling — this checkout reports
+        2.1.29 from a months-old egg-info while pyproject says 2.1.48 — and a
+        wrong local version makes the upgrade comparison meaningless. pyproject is
+        bundled into the frozen builds too (ELI.spec ships it as data), so it is
+        the more reliable source in both cases.
+        """
         try:
             text = (PROJECT_ROOT / "pyproject.toml").read_text(encoding="utf-8")
             m = re.search(r'^version\s*=\s*"([^"]+)"', text, re.M)
             if m:
                 return m.group(1)
+        except Exception:
+            pass
+        try:
+            import importlib.metadata as im
+            return str(im.version("eli-v2.0"))
         except Exception:
             pass
         return "0.0.0"
