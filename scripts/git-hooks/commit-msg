@@ -1,0 +1,15 @@
+#!/usr/bin/env bash
+# Keep commit authorship clean — this project is authored by ShadowESC95 alone.
+#
+# Drops agent/assistant attribution trailers that editors and CLI tools append
+# on their own. Matching only `co-authored-by:` was not enough: a `Claude-Session:`
+# URL trailer went straight through and reached the published history.
+set -euo pipefail
+msg_file="${1:?}"
+tmp="$(mktemp)"
+grep -viE '^(co-authored-by:|claude-session:|claude-code-session:|codex-session:|cursor-session:|generated[- ]with:|assisted[- ]by:|signed-off-by: .*(claude|cursor|copilot|chatgpt))' "$msg_file" > "$tmp" || true
+# Drop a trailing "🤖 Generated with …" credit line and any blank run it leaves.
+grep -viE '^[[:space:]]*(🤖[[:space:]]*)?generated with \[?(claude|cursor|copilot|chatgpt)' "$tmp" > "$tmp.2" || true
+mv "$tmp.2" "$tmp"
+sed -i -e :a -e '/^\n*$/{$d;N;ba' -e '}' "$tmp" 2>/dev/null || sed -i '' -e :a -e '/^\n*$/{$d;N;ba' -e '}' "$tmp" 2>/dev/null || true
+mv "$tmp" "$msg_file"
