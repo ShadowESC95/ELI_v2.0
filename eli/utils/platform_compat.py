@@ -424,6 +424,91 @@ def normalize_app_name(name: str, platform_name: str | None = None) -> str:
     return app_aliases(platform_name).get(raw, raw)
 
 
+# Well-known per-user folders, in the vocabulary people actually speak. The
+# single source of truth for "is this phrase a location or an app name?" —
+# routing asked that question in three places with three different hand-kept
+# lists, so "open downloads" reached the app launcher and was answered
+# "downloads is not installed, shall I install it?".
+USER_DIR_NAMES = ("home", "desktop", "downloads", "documents", "music", "pictures", "videos")
+
+# XDG keys are irregular (DOWNLOAD is singular, DOCUMENTS is plural), so they
+# are spelled out rather than derived from the spoken name.
+_XDG_KEYS = {
+    "desktop": "DESKTOP",
+    "downloads": "DOWNLOAD",
+    "documents": "DOCUMENTS",
+    "music": "MUSIC",
+    "pictures": "PICTURES",
+    "videos": "VIDEOS",
+}
+
+
+def _xdg_user_dir(key: str) -> str:
+    """Localised XDG path for e.g. 'DOWNLOAD', or "" when unset/not Linux.
+
+    Redistribution matters here: a French desktop's downloads folder is
+    ~/Téléchargements, so hardcoding the English name would break the feature
+    for every non-English user.
+    """
+    if WINDOWS or MACOS:
+        return ""
+    env = os.environ.get(f"XDG_{key}_DIR")
+    if env:
+        return os.path.expandvars(env).replace("$HOME", str(Path.home()))
+    try:
+        cfg = Path(os.environ.get("XDG_CONFIG_HOME") or (Path.home() / ".config")) / "user-dirs.dirs"
+        if not cfg.is_file():
+            return ""
+        for line in cfg.read_text(encoding="utf-8", errors="replace").splitlines():
+            line = line.strip()
+            if not line.startswith(f"XDG_{key}_DIR"):
+                continue
+            _, _, val = line.partition("=")
+            val = val.strip().strip('"').strip("'")
+            if val:
+                return val.replace("$HOME", str(Path.home()))
+    except Exception:
+        log.debug("XDG user-dirs lookup failed", exc_info=True)
+    return ""
+
+
+def user_dirs() -> dict:
+    """Map of well-known folder name -> absolute path for THIS machine."""
+    home = Path.home()
+    out = {"home": "~"}
+    for name in USER_DIR_NAMES:
+        if name == "home":
+            continue
+        xdg = _xdg_user_dir(_XDG_KEYS[name])
+        out[name] = xdg or str(home / name.capitalize())
+    return out
+
+
+def known_user_dir(name: str) -> str:
+    """Absolute path when *name* denotes a well-known user folder, else "".
+
+    Tolerates the words people put around it ("the downloads folder", "download
+    directory") and singular/plural. Returns "" for anything else, so callers
+    can use it to DECIDE whether a phrase is a location at all.
+    """
+    low = " ".join(str(name or "").strip().lower().split())
+    low = low.removeprefix("the ").removeprefix("my ").removeprefix("a ").removeprefix("an ")
+    for word in (" folder", " directory", " dir"):
+        if low.endswith(word):
+            low = low[: -len(word)].strip()
+    low = low.strip("/. ")
+    if not low:
+        return ""
+    if low in {"home", "~"}:
+        return "~"
+    dirs = user_dirs()
+    for canonical in USER_DIR_NAMES:
+        singular = canonical[:-1] if canonical.endswith("s") else canonical
+        if low in {canonical, singular}:
+            return dirs.get(canonical, "")
+    return ""
+
+
 def open_url(url: str) -> bool:
     """Open a URL in the default browser. Cross-platform."""
     import webbrowser

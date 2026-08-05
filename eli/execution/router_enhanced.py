@@ -178,15 +178,21 @@ def _eli_latest_screenshot() -> str | None:
 # STATIC CONFIG
 # ============================================================
 
-COMMON_DIRS = {
-    "home": "~",
-    "desktop": str(Path.home() / "Desktop"),
-    "downloads": str(Path.home() / "Downloads"),
-    "documents": str(Path.home() / "Documents"),
-    "music": str(Path.home() / "Music"),
-    "pictures": str(Path.home() / "Pictures"),
-    "videos": str(Path.home() / "Videos"),
-}
+try:
+    # Resolved per-machine (honours XDG user-dirs, so localised folder names
+    # like ~/Téléchargements work) rather than assuming the English defaults.
+    from eli.utils.platform_compat import user_dirs as _user_dirs
+    COMMON_DIRS = _user_dirs()
+except Exception:
+    COMMON_DIRS = {
+        "home": "~",
+        "desktop": str(Path.home() / "Desktop"),
+        "downloads": str(Path.home() / "Downloads"),
+        "documents": str(Path.home() / "Documents"),
+        "music": str(Path.home() / "Music"),
+        "pictures": str(Path.home() / "Pictures"),
+        "videos": str(Path.home() / "Videos"),
+    }
 
 DESKTOP_APP_PRIORITY = {
     "spotify", "steam", "discord", "slack", "code", "vscode", "codium",
@@ -621,6 +627,26 @@ def _is_likely_path(s: str) -> bool:
     return False
 
 
+def _known_dir_path(s: str) -> str:
+    """Expanded path when *s* NAMES a well-known user folder, else "".
+
+    The decision counterpart to _expand_common_dir, which always returns
+    something (falling back to the raw token) and therefore cannot be used to
+    decide whether a phrase IS a folder. Without a predicate, "open downloads"
+    was indistinguishable from "open spotify" and got launched as an app —
+    answered with "downloads is not installed, shall I install it?".
+
+    Singular/plural tolerant: people say "download directory", the map is keyed
+    on "downloads".
+    """
+    try:
+        from eli.utils.platform_compat import known_user_dir as _kud
+        return _kud(s)
+    except Exception:
+        log.debug("known_user_dir unavailable", exc_info=True)
+        return ""
+
+
 def _expand_common_dir(s: str) -> str:
     key = s.strip()
 
@@ -639,6 +665,11 @@ def _expand_common_dir(s: str) -> str:
             if rest:
                 return str(Path(path).expanduser() / rest)
             return str(Path(path).expanduser())
+
+    # Singular phrasings ("download directory") the plural-keyed loop misses.
+    _known = _known_dir_path(key)
+    if _known:
+        return str(Path(_known).expanduser())
 
     return COMMON_DIRS.get(low, str(Path(key).expanduser()))
 
@@ -1127,15 +1158,28 @@ def _route_plugin_bridge_prepass(raw: str, low: str):
             r"(?:audio|sound|output|speaker|playback)\b", low)
         _excl_media = re.search(r"\b(spotify|youtube|netflix|playlist|song|track|video|album|podcast|radio)\b", low)
         # "change/play/switch music|media|audio to kitchen speaker / device 1"
+        #
+        # The media noun used to be OPTIONAL in front of an open-ended (.+)$
+        # tail, so ordinary prose matched: "fair play ON your explanation,
+        # but…" parsed as play → on → <device> and sent the rest of the
+        # paragraph to the Bluetooth stack as a device name — nine seconds of
+        # radio probing, then "pair your headphones, not printers". Now the
+        # utterance must open like a command, the tail must LOOK like a device
+        # name (bounded, no sentence punctuation), and either the media is
+        # named or the tail is (headphones/speaker/…).
         _audio_out = re.search(
-            r"\b(?:change|switch|move|play|route|send|put|output)\s+(?:the\s+)?"
-            r"(?:music|media|audio|sound|playback|it|everything)?\s*"
-            r"(?:to|on|through|via|out\s+(?:of|to))\s+(?:the\s+|my\s+)?(.+)$",
+            r"^(?:\s*(?:eli|hey\s+eli|ok\s+eli|please|can\s+you|could\s+you)[,\s]+)?"
+            r"(?:change|switch|move|play|route|send|put|output)\s+(?:the\s+)?"
+            r"(?P<noun>music|media|audio|sound|playback|it|everything)?\s*"
+            r"(?:to|on|through|via|out\s+(?:of|to))\s+(?:the\s+|my\s+)?"
+            r"(?P<dev>[a-z0-9][a-z0-9 '’\-]*?)\s*[.!]?\s*$",
             low,
         )
         if not _excl_media and _audio_out:
-            _dev = _audio_out.group(1).strip(" .!?")
-            if _dev and not re.search(r"\b(wi-?fi|internet|network|vpn|server|hotspot)\b", _dev):
+            _dev = (_audio_out.group("dev") or "").strip(" .!?")
+            _dev_named = bool(_audio_out.group("noun")) or bool(re.search(_BT_WORDS, _dev))
+            if (_dev and _dev_named and len(_dev.split()) <= 5
+                    and not re.search(r"\b(wi-?fi|internet|network|vpn|server|hotspot)\b", _dev)):
                 return _mk("SMART_HOME", {"device": _dev, "command": "use_for_audio", "bt": True},
                            0.95, matched_by="audio.output", entities={"device": _dev})
         if not _excl_media and _bt_audio and re.search(_BT_WORDS, _bt_audio.group(1)):
@@ -3269,8 +3313,13 @@ def route(text: str) -> Dict[str, Any]:
         return _mk("LIST_DIR", {"path": "."}, 0.9,
                    matched_by="fs.list_dir_default")
 
-    if re.match(
-            r"^(?:open|launch|start|show)\s+(?:the\s+)?(?:home|home\s+(?:folder|directory)|file\s+manager|files?)\b", low):
+    # Home only — a conjunction means more targets follow ("open home directory
+    # AND the downloads directory"), and this route can carry just one path, so
+    # it used to open home, report success, and silently drop the rest. Defer
+    # those to the open/launch block, which splits them into a SEQUENCE.
+    if (re.match(
+            r"^(?:open|launch|start|show)\s+(?:the\s+)?(?:home|home\s+(?:folder|directory)|file\s+manager|files?)\b", low)
+            and not re.search(r"\band\b", low)):
         return _mk("OPEN_FILE_SYSTEM", {
                    "path": "~"}, 0.98, matched_by="fs.open_home")
 
@@ -3986,16 +4035,14 @@ def route(text: str) -> Dict[str, Any]:
     # ------------------------------------------------------------
     # 13) OPEN / LAUNCH (apps, aliases, websites, paths)
     # ------------------------------------------------------------
-    m = re.match(r"^(?:open|launch|start)\s+(.+)$", raw, re.I)
-    if m:
-        arg = m.group(1).strip()
-        cleaned = _clean_app_name(arg)
-        cleaned_low = cleaned.lower()
-    m = re.match(r"^\s*(open|run|launch|start)\s+(.+?)\s*$", raw, re.I)
-
-    m = re.match(r"^\s*open\s+((?:https?://)?[a-z0-9][a-z0-9.-]*\.[a-z]{2,}(?:/[^\s]*)?)\s*$", text_l)
-    if m:
-        _url = m.group(1).strip()
+    # A bare domain ("open github.com") is a URL, not an app. Checked first and
+    # kept in its OWN variable: this match used to overwrite the shared `m`
+    # before the open/launch block below could read it, which silently made the
+    # whole path/folder branch unreachable — every "open <path|folder>" fell
+    # through to OPEN_APP and was answered "not installed, shall I install it?".
+    _url_m = re.match(r"^\s*open\s+((?:https?://)?[a-z0-9][a-z0-9.-]*\.[a-z]{2,}(?:/[^\s]*)?)\s*$", text_l)
+    if _url_m:
+        _url = _url_m.group(1).strip()
         if not _url.startswith(("http://", "https://")):
             _url = "https://" + _url
         return _mk(
@@ -4005,8 +4052,10 @@ def route(text: str) -> Dict[str, Any]:
             matched_by="open.domain.preempt",
             allow_chat_without_evidence=False,
         )
-    if m:
-        target = re.sub(r"\s+app$", "", m.group(2).strip(), flags=re.I)
+
+    _open_m = re.match(r"^\s*(open|run|launch|start)\s+(.+?)\s*$", raw, re.I)
+    if _open_m:
+        target = re.sub(r"\s+app$", "", _open_m.group(2).strip(), flags=re.I)
         target_low = target.lower()
 
         generic_ide = {
@@ -4014,14 +4063,6 @@ def route(text: str) -> Dict[str, Any]:
             "built in ide", "built-in ide", "gui ide", "eli ide",
             "internal ide", "ide tab", "the ide tab",
         }
-
-        if (
-            target.startswith("/")
-            or target.startswith("~/")
-            or re.search(r"\b(folder|directory|path)\b", target, re.I)
-            or target_low in {"trash", "home", "home directory"}
-        ):
-            return _mk("OPEN_FILE_SYSTEM", {"path": target}, 0.99, matched_by="open.filesystem.literal_preempt")
 
         app_aliases = {
             "vscode": "code",
@@ -4036,6 +4077,43 @@ def route(text: str) -> Dict[str, Any]:
             "camera": "snapshot",
         }
 
+        def _fs_target(tok: str) -> str:
+            """Path for one open-target when it denotes a location, else ""."""
+            tok = tok.strip()
+            if not tok:
+                return ""
+            if tok.startswith(("/", "~")):
+                return tok
+            if tok.lower() in {"trash", "/trash"}:
+                return "trash"
+            return _known_dir_path(tok)
+
+        # "open home directory and the downloads directory" — one verb, two
+        # locations. The old single-path routes silently dropped everything
+        # after the first target and reported success for the one folder they
+        # did open. Only split when EVERY part is a real location, so
+        # "open steam and chill" is untouched.
+        _parts = [p for p in re.split(r"\s+and\s+(?:then\s+)?", target, flags=re.I) if p.strip()]
+        if len(_parts) > 1:
+            _resolved = [_fs_target(p) for p in _parts]
+            if all(_resolved):
+                return _mk(
+                    "SEQUENCE",
+                    {"steps": [{"action": "OPEN_FILE_SYSTEM", "args": {"path": p}}
+                               for p in _resolved]},
+                    0.98,
+                    matched_by="open.filesystem.multi_target",
+                )
+
+        _single = _fs_target(target)
+        if (
+            _single
+            or re.search(r"\b(folder|directory|path)\b", target, re.I)
+            or target_low in {"trash", "home", "home directory"}
+        ):
+            return _mk("OPEN_FILE_SYSTEM", {"path": _single or target}, 0.99,
+                       matched_by="open.filesystem.literal_preempt")
+
         if target_low in generic_ide:
             return _mk("OPEN_IDE", {"name": "ide"}, 0.99, matched_by="open.ide.literal_preempt")
 
@@ -4048,42 +4126,8 @@ def route(text: str) -> Dict[str, Any]:
             )
 
         canonical = app_aliases.get(target_low, target)
-        return _mk("OPEN_APP", {"name": canonical}, 0.99, matched_by="open.app.literal_preempt")
-    m = re.match(r"^\s*(open|run|launch|start)\s+(.+?)\s*$", raw, re.I)
-    if m:
-        target = re.sub(r"\s+app$", "", m.group(2).strip(), flags=re.I)
-        target_low = target.lower()
-
-        generic_ide = {
-            "ide", "the ide", "editor", "the editor",
-            "built in ide", "built-in ide", "gui ide", "eli ide",
-            "internal ide", "ide tab", "the ide tab",
-        }
-
-        app_aliases = {
-            "vscode": "code",
-            "visual studio code": "code",
-            "virtual studio code": "code",
-            "vs code": "code",
-            "chrome": "chromium",
-            "google chrome": "chromium",
-            "calendar": "gnome-calendar",
-            "camera": "snapshot",
-        }
-
-        if target_low in generic_ide:
-            return _mk("OPEN_IDE", {"name": "ide"}, 0.99, matched_by="open.ide.literal_preempt")
-
-        if target_low in WEBSITE_ALIASES:
-            return _mk(
-                "OPEN_URL",
-                {"url": WEBSITE_ALIASES[target_low]},
-                0.99,
-                matched_by="open.website.literal_preempt",
-            )
-
-        canonical = app_aliases.get(target_low, target)
-        return _mk("OPEN_APP", {"name": canonical}, 0.99, matched_by="open.app.literal_preempt")
+        return _mk("OPEN_APP", {"name": canonical, "target": canonical}, 0.99,
+                   matched_by="open.app.literal_preempt")
 
     # ------------------------------------------------------------
     # 14) SHELL EXEC (explicit only)
@@ -4989,6 +5033,28 @@ def _eli_pm_pre_route(text):
             {"question": raw},
             0.995,
             "routing_fault.browser_complaint",
+        )
+
+    # "why did that one work and the others didn't", "why did you fail to open
+    # downloads", "why was that routed wrong" — questions about ELI's own
+    # dispatch. This runs in the PRE-route, ahead of chat.long_question_guard,
+    # which would otherwise force anything 12+ words to CHAT; answered as chat
+    # with no trace attached, the model invented a cause (it blamed a typo for
+    # an app the user never named). ROUTING_FAULT_EXPLAIN answers from the
+    # actual router result instead.
+    if (
+        _eli_pm_re.search(
+            r"\bwhy\b[^?]*\b(?:did|does|didn'?t|do)\b[^?]*"
+            r"\b(?:that|this|it|those|the\s+(?:others?|first|last|previous|other\s+ones?))\b"
+            r"[^?]*\b(?:work(?:ing|ed)?|fail(?:ed)?|open|run|route[ds]?)\b", low)
+        or _eli_pm_re.search(r"\bwhy\b[^?]*\b(?:fail(?:ed)?|not\s+work|didn'?t\s+work|did\s+not\s+work)\b", low)
+        or _eli_pm_re.search(r"\bwhy\b[^?]*\b(?:route[ds]?|routing|mis-?rout\w*)\b", low)
+    ):
+        return _eli_pm_mk(
+            "ROUTING_FAULT_EXPLAIN",
+            {"question": raw},
+            0.98,
+            "routing_fault.dispatch_question",
         )
 
     if _eli_pm_re.search(r"\bstop giving me data dumps\b|\bwe are not in quick mode\b|\bfull and personalised response\b|\bfull and personalized response\b", low):

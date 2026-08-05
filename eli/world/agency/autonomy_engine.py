@@ -56,9 +56,18 @@ class EliWorldAutonomyEngine:
 
     def load(self) -> EliWorldState:
         state = self.storage.load()
+        # Snapshot first: ensure_default_habits appends to the list in place,
+        # so comparing against state.habits afterwards would compare a list
+        # with itself and never detect the change.
+        before = (list(state.habits or []), list(state.goals or []))
         state.habits = ensure_default_habits(state.habits)
         state.goals = decay_goals(state.goals)
-        self.storage.save(state)
+        # Reading the world used to REWRITE it unconditionally. The persona
+        # handoff, the proactive daemon and the world panel all read on a
+        # timer, so the state file was under near-constant concurrent rewrite
+        # for turns that changed nothing. Persist only a real change.
+        if (state.habits, state.goals) != before:
+            self.storage.save(state)
         return state
 
     def save(self, state: EliWorldState) -> None:

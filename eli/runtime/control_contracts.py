@@ -362,6 +362,40 @@ def _last_trace(engine: Any = None) -> Dict[str, Any]:
     except Exception:
         return {}
 
+def _plan_summary(plan: Any) -> str:
+    """One readable line describing a plan.
+
+    The plan object used to be str()'d straight into user-visible evidence, so
+    "why did you say that" answered with a ~6,000-character Python repr of the
+    stage matrix, mode contract, runtime targets and degrade path — printed as
+    a single 'line' of the report. Every fact a person wants from it fits here.
+    """
+    if not plan:
+        return "none"
+    if isinstance(plan, str):
+        return plan[:200]
+    if not isinstance(plan, dict):
+        return str(plan)[:200]
+
+    bits = []
+    ptype = plan.get("type") or plan.get("plan_type")
+    if ptype:
+        bits.append(str(ptype))
+    if plan.get("primary_action"):
+        bits.append(f"-> {plan['primary_action']}")
+    if plan.get("reasoning_mode"):
+        bits.append(f"mode={plan['reasoning_mode']}")
+    if plan.get("query_class"):
+        bits.append(f"class={plan['query_class']}")
+    agents = plan.get("agents_used")
+    if isinstance(agents, (list, tuple)) and agents:
+        bits.append(f"agents={','.join(str(a) for a in agents)}")
+    stages = plan.get("stage_order")
+    if isinstance(stages, (list, tuple)) and stages:
+        bits.append(f"stages={len(stages)}")
+    return " ".join(bits)[:300] if bits else "none"
+
+
 def _trace_text(trace: Dict[str, Any]) -> str:
     if not trace:
         return "Previous-response trace evidence:\n- trace_available: false"
@@ -395,9 +429,10 @@ def _trace_text(trace: Dict[str, Any]) -> str:
         f"- result_action: {trace.get('result_action') or trace.get('action') or ''}",
         f"- confidence: {conf_str} (aggregated)",
         f"- confidence_label: {label}",
-        f"- grounding_confidence: {grounding if grounding is not None else 'n/a'}",
+        f"- grounding_confidence: "
+        f"{format(grounding, '.2f') if isinstance(grounding, (int, float)) else (grounding if grounding is not None else 'n/a')}",
         f"- agents_used: {', '.join(map(str, agents)) if agents else 'none recorded'}",
-        f"- plan: {trace.get('plan') or trace.get('orchestrator_plan') or 'none'}",
+        f"- plan: {_plan_summary(trace.get('plan') or trace.get('orchestrator_plan'))}",
         f"- evidence_used: {trace.get('evidence_used')}",
         f"- grounded: {trace.get('grounded')}",
     ])

@@ -5329,8 +5329,16 @@ def _execute_impl(action: str, args: Optional[Dict[str, Any]] = None) -> Dict[st
     # ---- OPEN_APP ----
     if a == "OPEN_APP":
         try:
-            name = (args or {}).get("name") or (args or {}).get("app") or ""
-            name = str(name).strip()
+            # Accept the synonyms other producers use for the same slot — the
+            # LLM resolver names its own arg keys, and an OPEN_APP carrying
+            # {"app_name": ...} used to be rejected as "Missing app name"
+            # despite the request having been understood correctly.
+            name = ""
+            for _k in ("name", "app", "app_name", "application", "target", "program"):
+                _v = (args or {}).get(_k)
+                if _v is not None and str(_v).strip():
+                    name = str(_v).strip()
+                    break
             candidates = list((args or {}).get("candidates") or [])
 
             if not name and candidates:
@@ -9993,7 +10001,18 @@ def _execute_impl(action: str, args: Optional[Dict[str, Any]] = None) -> Dict[st
                 overall_ok = False
             results.append(r)
 
-        msg = f"Executed {len(results)} step(s)." if overall_ok else f"Executed {len(results)} step(s) with failures."
+        # Report what each step DID, not just how many ran. "Executed 2 step(s)."
+        # tells the user nothing about whether both folders actually opened —
+        # the complaint that started this was a second target silently dropped.
+        _step_msgs = []
+        for r in results:
+            _t = str(r.get("response") or r.get("content") or r.get("error") or "").strip()
+            if _t and _t not in _step_msgs:
+                _step_msgs.append(_t)
+        if _step_msgs:
+            msg = "\n".join(_step_msgs)
+        else:
+            msg = f"Executed {len(results)} step(s)." if overall_ok else f"Executed {len(results)} step(s) with failures."
         return {
             "ok": overall_ok,
             "action": a,

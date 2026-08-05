@@ -1437,8 +1437,8 @@
       "in_dispatch": true,
       "in_supported_list": true,
       "plugin": null,
-      "routable": false,
-      "source": "executor"
+      "routable": true,
+      "source": "executor+router"
     },
     {
       "action": "SET_AI_MODE",
@@ -1730,6 +1730,6 @@
     }
   ],
   "count": 216,
-  "generated_at": 1785881134.8131173,
+  "generated_at": 1785937168.6116855,
   "generator": "brain.awareness.capability_sync"
 }

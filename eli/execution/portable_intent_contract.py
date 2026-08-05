@@ -24,6 +24,16 @@ import re
 from typing import Optional
 
 
+def _known_user_dir(target: str) -> str:
+    """Path when *target* names a well-known user folder, else "". Lazy import
+    keeps this module free of a hard dependency at import time."""
+    try:
+        from eli.utils.platform_compat import known_user_dir
+        return known_user_dir(target)
+    except Exception:
+        return ""
+
+
 def normalise_voice_text(text: str) -> str:
     text = str(text or "").strip().lower()
     text = text.replace("’", "'").replace("“", '"').replace("”", '"')
@@ -299,9 +309,16 @@ def try_route(text: str) -> Optional[dict]:
             target.lower().strip() in {
                 "home", "home folder", "home directory", "home dir", "my home",
                 "my files", "files", "file manager", "file explorer", "explorer",
-                "the home folder", "the home directory", "trash", "downloads",
+                "the home folder", "the home directory", "trash",
             }
             or re.search(r"\b(folder|directory)$", target.strip(), re.I)
+            or target.strip().startswith(("/", "~"))
+            # Any well-known user folder ("downloads", "documents", "desktop",
+            # "pictures"…), resolved from the one cross-platform table. The
+            # literal list above only had "downloads", so "open documents"
+            # became an app launch and offered to INSTALL a program called
+            # "documents".
+            or _known_user_dir(target)
         ):
             # File-manager / "<x> folder" requests are NOT app launches — let them
             # fall through to fs.open_home (OPEN_FILE_SYSTEM), so "open home folder"
