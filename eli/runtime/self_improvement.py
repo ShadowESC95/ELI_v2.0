@@ -390,7 +390,14 @@ class SelfImprovementEngine:
             except Exception:
                 log.debug("suppressed exception", exc_info=True)
 
-    def analyze_and_improve(self) -> Dict[str, Any]:
+    def analyze_and_improve(self, propose: bool = True) -> Dict[str, Any]:
+        """Cluster recent failures and (optionally) generate fix proposals.
+
+        ``propose=False`` keeps this to pure analysis. Proposal generation runs
+        the coding agent across a thread pool and blocks on live inference —
+        fine on a daemon tick, fatal on the shutdown path, where it hung the
+        window close until the user pressed Ctrl-C twice.
+        """
         failures = self.analyze_failures(limit=25, min_cluster_size=1)
         improvements: List[Dict[str, Any]] = []
 
@@ -438,7 +445,7 @@ class SelfImprovementEngine:
         # stubs that never became anything (the proposals=0 root cause). Propose-only:
         # nothing is auto-applied. Gated so the daemon never thrashes the GGUF/coding agent.
         proposals_made = 0
-        if improvements:
+        if improvements and propose:
             try:
                 from eli.cognition import gguf_inference as _gi
                 _model_ready = bool(getattr(_gi, "is_loaded", lambda: False)())

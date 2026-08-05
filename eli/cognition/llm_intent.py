@@ -110,6 +110,48 @@ def _action_grammar(catalogue: List[str]):
     return grammar
 
 
+# Canonical arg key -> the names a model plausibly invents for it.
+#
+# The GBNF grammar constrains the ACTION name, but `args` is a free-form JSON
+# object, so the model names the keys itself: it answered OPEN_APP with
+# {"app_name": "cyberpunk"} while the executor reads "name"/"app", and the user
+# got "Missing app name" for a perfectly understood request.
+#
+# Normalisation is ADDITIVE — the canonical key is filled in only when absent,
+# and nothing the model wrote is renamed or dropped. An action that legitimately
+# reads one of the alias names keeps seeing it.
+_ARG_ALIASES: Dict[str, tuple] = {
+    "name":    ("app_name", "application", "app", "program", "target", "title"),
+    "path":    ("file_path", "filepath", "file", "directory", "folder", "dir", "location"),
+    "query":   ("search_query", "search", "q", "topic", "question"),
+    "message": ("text", "content", "body"),
+    "level":   ("value", "amount", "percent", "percentage", "volume"),
+    "url":     ("link", "address", "website", "site"),
+    "command": ("cmd",),
+    "device":  ("device_name",),
+}
+
+
+def normalize_args(args: Dict[str, Any]) -> Dict[str, Any]:
+    """Fill in canonical arg names alongside whatever the model called them."""
+    if not isinstance(args, dict) or not args:
+        return args if isinstance(args, dict) else {}
+    out = dict(args)
+    for canonical, aliases in _ARG_ALIASES.items():
+        if str(out.get(canonical) or "").strip():
+            continue
+        for alias in aliases:
+            val = out.get(alias)
+            if val is not None and str(val).strip():
+                out[canonical] = val
+                break
+    # An app/file target is read as "target" by some effectors and "name" by
+    # others; mirror whichever one we ended up with.
+    if str(out.get("name") or "").strip() and not str(out.get("target") or "").strip():
+        out["target"] = out["name"]
+    return out
+
+
 def parse_with_llm(text: str) -> Dict[str, Any]:
     """Resolve a free-text request to one of ELI's real actions, or CHAT.
 
@@ -179,6 +221,7 @@ def parse_with_llm(text: str) -> Dict[str, Any]:
         args = parsed.get("args")
         if not isinstance(args, dict):
             args = {}
+        args = normalize_args(args)
         try:
             conf = float(parsed.get("confidence", 0.6))
         except Exception:

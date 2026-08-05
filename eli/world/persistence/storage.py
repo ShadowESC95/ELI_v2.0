@@ -1,11 +1,18 @@
 from __future__ import annotations
 import json
+import os
+import tempfile
+import threading
 from pathlib import Path
 from time import time
 from typing import Any, Dict
 from eli.world.agency.world_constitution import get_world_constitution, get_world_identity
 from eli.world.core.ontology import get_default_rooms
 from eli.world.core.schemas import AwarenessState, AvatarState, EliWorldState, WorldAction, WorldEvent, WorldObject
+
+from eli.utils.log import get_logger
+
+log = get_logger(__name__)
 
 
 def _world_dir() -> Path:
@@ -31,6 +38,9 @@ STATE_PATH = WORLD_DIR / "eli_world_state.json"
 EVENTS_PATH = WORLD_DIR / "events.jsonl"
 ACTIONS_PATH = WORLD_DIR / "actions.jsonl"
 _CORRUPT_BACKUP_KEEP = 5
+# Serialises the read-modify-write swap across the GUI turn, the proactive
+# daemon and the world panel timer, which all touch this file concurrently.
+_SAVE_LOCK = threading.RLock()
 
 def _ensure() -> None:
     WORLD_DIR.mkdir(parents=True, exist_ok=True)
@@ -92,12 +102,38 @@ class EliWorldStorage:
             return state
 
     def save(self, state: EliWorldState) -> None:
+        """Atomically persist the world state.
+
+        The scratch file is unique per write and the swap is serialised. A
+        single fixed ".tmp" name raced: the GUI turn, the proactive daemon and
+        the world panel all write this file, and every read is a write (see
+        EliWorldAutonomyEngine.load), so two writers would create the same tmp,
+        the first replace() would consume it, and the second raised
+        FileNotFoundError mid-turn — which in turn knocked out the persona
+        handoff's self-status injection.
+        """
         _ensure()
         state.timestamp = time()
         payload = json.dumps(state.to_dict(), indent=2, ensure_ascii=False)
-        tmp = self.state_path.with_suffix(".tmp")
-        tmp.write_text(payload, encoding="utf-8")
-        tmp.replace(self.state_path)
+        with _SAVE_LOCK:
+            fd, tmp_name = tempfile.mkstemp(
+                dir=str(self.state_path.parent),
+                prefix=f"{self.state_path.stem}.",
+                suffix=".tmp",
+            )
+            tmp = Path(tmp_name)
+            try:
+                with os.fdopen(fd, "w", encoding="utf-8") as fh:
+                    fh.write(payload)
+                    fh.flush()
+                    os.fsync(fh.fileno())
+                tmp.replace(self.state_path)
+            except Exception:
+                try:
+                    tmp.unlink(missing_ok=True)
+                except Exception:
+                    log.debug("world-state scratch cleanup failed", exc_info=True)
+                raise
 
     def append_event(self, event: WorldEvent) -> None:
         _ensure()

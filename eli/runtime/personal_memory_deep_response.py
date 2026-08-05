@@ -314,12 +314,122 @@ def build_personal_memory_deep_response(user_input: str = "", mode_label: str = 
 
     return "\n".join(lines).strip()
 
+def _recent_user_inputs(limit: int = 6) -> List[str]:
+    """The last few things the user actually typed, newest first. [] on any error."""
+    try:
+        from eli.core.paths import user_db_path
+        db = user_db_path()
+        if not db.exists():
+            return []
+        with sqlite3.connect(str(db), timeout=3.0) as conn:
+            if not _table_exists(conn, "conversation_turns"):
+                return []
+            rows = conn.execute(
+                "SELECT content FROM conversation_turns WHERE role = 'user' "
+                "ORDER BY COALESCE(timestamp, ts, 0) DESC LIMIT ?",
+                (int(limit),),
+            ).fetchall()
+        return [str(r[0]).strip() for r in rows if r and str(r[0] or "").strip()]
+    except Exception:
+        log.debug("recent user inputs unavailable", exc_info=True)
+        return []
+
+
+def _route_probe(phrase: str) -> Tuple[str, str]:
+    """Route *phrase* through the live router. Returns (description, action)."""
+    try:
+        from eli.execution.router_enhanced import route
+        r = route(phrase) or {}
+        action = str(r.get("action") or "?")
+        matched = str((r.get("meta") or {}).get("matched_by") or "unmatched")
+        args = r.get("args") or {}
+        detail = ""
+        for key in ("path", "name", "url", "query"):
+            if str(args.get(key) or "").strip():
+                detail = f" {key}={args[key]}"
+                break
+        return (f'- "{phrase[:70]}" -> {action}{detail}  [{matched}]', action)
+    except Exception as e:
+        return (f'- "{phrase[:70]}" -> routing probe failed ({type(e).__name__})', "")
+
+
 def build_routing_fault_explanation(user_input: str = "") -> str:
-    return (
-        "No, that should not have gone to browser/search.\n\n"
-        "What actually happened: the router treated your complaint or personalised-memory request as a generic/search-style query instead of preserving it as a local cognition/memory question. Then the local model invented a bogus explanation about using an online service or graph database. That explanation is not grounded by the runtime evidence.\n\n"
-        "Correct behaviour: for this kind of message I should answer locally, explain the routing fault, and either repair the action path or give you the exact file/function/table-level breakdown from the local SQLite/FAISS memory stack. No browser. No fake excuses. No data dump unless you explicitly ask for diagnostic counts."
+    """Explain how recent inputs were actually routed, from real evidence.
+
+    This used to be a fixed paragraph asserting the request "should not have
+    gone to browser/search" — it ignored its argument entirely, so asking why
+    one phrasing worked and another didn't produced a confident answer about a
+    browser that was never involved.
+
+    Routing is a pure function of the input text, so the honest explanation is
+    to re-run the router over the phrases in question and report exactly which
+    rule matched. Nothing here is asserted that was not measured.
+    """
+    question = str(user_input or "").strip()
+    low = question.lower()
+    lines: List[str] = []
+
+    # Phrases the user quoted are what they're asking about.
+    quoted = [q for pair in re.findall(r'"([^"]{2,70})"|\'([^\']{2,70})\'', question)
+              for q in pair if q and q.strip()]
+
+    probe_lines: List[str] = []
+    seen: set = set()
+    if quoted:
+        # Explicitly quoted phrases: report every one, whatever it routes to —
+        # the user named them, so a CHAT result is itself the answer.
+        for p in quoted:
+            key = p.strip().lower()
+            if key and key not in seen:
+                seen.add(key)
+                probe_lines.append(_route_probe(p.strip())[0])
+    else:
+        # Otherwise infer from recent turns — but only ones that route to a
+        # real action. Listing recent small talk back at the user is the noise
+        # they complained about, and it explains nothing about a dispatch.
+        for turn in _recent_user_inputs(limit=10):
+            key = turn.strip().lower()
+            if key == low or len(turn) > 120 or key in seen:
+                continue
+            seen.add(key)
+            desc, act = _route_probe(turn)
+            if act and act != "CHAT":
+                probe_lines.append(desc)
+            if len(probe_lines) >= 3:
+                break
+
+    if probe_lines:
+        lines.append("How those inputs route right now (re-run through the live router):")
+        lines.extend(probe_lines)
+
+    # What the last completed turn actually did.
+    try:
+        from eli.runtime.last_trace import load_last_trace
+        trace = load_last_trace() or {}
+        if trace:
+            act = trace.get("result_action") or trace.get("route_action") or trace.get("action")
+            conf = trace.get("aggregated_confidence", trace.get("confidence"))
+            conf_s = f"{float(conf):.2f}" if isinstance(conf, (int, float)) else "n/a"
+            if act:
+                lines.append(f"Last completed turn: {act} (confidence {conf_s}).")
+    except Exception:
+        log.debug("last trace unavailable", exc_info=True)
+
+    if re.search(r"\b(browser|web|online|search)\b", low):
+        lines.append(
+            "This kind of message should be answered locally from the runtime "
+            "evidence — not sent to the browser or a web search."
+        )
+
+    if not lines:
+        return ("I have no recorded routing evidence for that yet — nothing in the "
+                "trace or the recent-turn log to explain from.")
+
+    lines.append(
+        "A different phrasing landing on a different action means a router rule "
+        "matched, not that anything learned or changed between the two tries."
     )
+    return "\n".join(lines)
 
 __all__ = [
     "build_personal_memory_deep_response",
