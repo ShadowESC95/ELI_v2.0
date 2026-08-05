@@ -16,6 +16,7 @@ model never bleeds into another's. Model/user/hardware-agnostic.
 from __future__ import annotations
 
 import json
+import re
 import sqlite3
 import time
 from pathlib import Path
@@ -32,6 +33,35 @@ _PREFIX_TO_COL = {
     "habit": "habits",
 }
 _COLS = ("identity", "comms_style", "current_focus", "interests", "habits", "goals", "relationship")
+
+# Facts a person can only have ONE current value for. Newest wins; older rows
+# are superseded rather than listed alongside.
+_SINGLE_VALUED_TYPES = frozenset({
+    "identity.name", "identity.preferred_name", "identity.nickname",
+    "identity.role", "preference.style",
+})
+
+# Profile facts are third-person statements ABOUT the user ("User prefers
+# detailed, thorough responses"). First-person fragments and conversational
+# punctuation mean the user's raw sentence leaked into the slot instead of an
+# extracted fact — e.g. an onboarding answer that a since-fixed resolver stored
+# verbatim, leaving "User prefers no, i said more than software and tech?! i
+# prefer #4 answers by default." to be replayed as a settled preference.
+_RAW_UTTERANCE_RX = re.compile(
+    r"(?:\?|\bi\s+(?:said|meant|prefer|want|think|asked)\b|\bmy\s+(?:name|preference)\b|!\?|\?!)",
+    re.I,
+)
+
+
+def _looks_like_raw_utterance(value: str) -> bool:
+    """True when a stored 'fact' is really the user's own sentence."""
+    text = str(value or "")
+    # Strip the known third-person template heads before judging, so a legitimate
+    # fact is never rejected for the words its template contributes.
+    body = re.sub(r"^\s*(?:the\s+)?user(?:'s)?\s+(?:prefers?|wants?|is|are|has|"
+                  r"actively|occasionally|work/role:|name is|preferred name is|nickname is)\s*",
+                  "", text, flags=re.I)
+    return bool(_RAW_UTTERANCE_RX.search(body))
 
 # Single source of the onboarding nudge (was inlined in context_synthesiser.py).
 ONBOARDING_NUDGE = (
@@ -95,12 +125,27 @@ def _read_patterns_grouped(db_path: Optional[Path | str] = None) -> Dict[str, Li
     except Exception:
         return out
     seen = set()
+    taken_single: set = set()
     for ptype, pdata in rows:
-        pfx = str(ptype or "").split(".", 1)[0].lower()
+        ptype_l = str(ptype or "").strip().lower()
+        pfx = ptype_l.split(".", 1)[0]
         col = _PREFIX_TO_COL.get(pfx)
         data = (pdata or "").strip()
         if not col or not data:
             continue
+        # A raw user utterance that leaked into a profile slot is not a fact
+        # about the user; replaying it as one is worse than having no fact.
+        if _looks_like_raw_utterance(data):
+            continue
+        # Single-valued facts SUPERSEDE rather than accumulate. Rows arrive
+        # newest-first, so the first one wins and older ones are dropped. Without
+        # this, two "identity.name" rows both survived (they differ by value, so
+        # the value-dedup below never fired) and the brief read
+        # "User's name is jason; User's name is darren" on every single turn.
+        if ptype_l in _SINGLE_VALUED_TYPES:
+            if ptype_l in taken_single:
+                continue
+            taken_single.add(ptype_l)
         key = (col, data.lower())
         if key in seen:
             continue

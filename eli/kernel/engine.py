@@ -8022,6 +8022,43 @@ Answer:"""
         except Exception:
             log.debug("live self-status injection skipped", exc_info=True)
 
+        # ── Verified self-FACTS (anti-confabulation for self-description) ────
+        # The block above grounds "how are you running" (telemetry). This one
+        # grounds "what ARE you" — construction, storage, capabilities, upgrade
+        # mechanism. Identity questions are deliberately answered in CHAT so the
+        # persona stays its own, but CHAT had nothing factual to lean on, so the
+        # model improvised internals: it placed its databases under /home/jason
+        # (inventing a username from the user's first name), wrote agent.sqlite
+        # for agent.sqlite3, and described upgrading itself via "./upgrade.sh" —
+        # a script that has never existed here.
+        try:
+            # Anchored on "yourself" rather than an exact verb phrase: the
+            # question that produced the fabricated paths was typed "what fo you
+            # know of yourself", and a strict pattern would have missed it —
+            # exactly the failure mode where a typo decides whether an answer is
+            # grounded or invented.
+            _self_descriptive = bool(
+                (re.search(r"\byoursel(?:f|ves)\b", _ui_low)
+                 and re.search(r"\b(know|knew|tell|telling|describe|description|explain|"
+                               r"detail|detailed|accurate|accurately|about|of)\b", _ui_low))
+                or re.search(
+                    r"\b(what are you|who are you|describe yourself|"
+                    r"your (?:architecture|internals?|capabilit\w+|components?|design|"
+                    r"databases?|storage|memory system|codebase|upgrade path)|"
+                    r"how (?:do|are) you (?:built|structured|made|work)|"
+                    r"how do you (?:upgrade|update) yourself|what do you run on)\b",
+                    _ui_low)
+            )
+            if _self_descriptive:
+                from eli.runtime.self_facts import render_self_facts_block as _rsf
+                _sf = _rsf()
+                if _sf.strip():
+                    # Rides above the handoff cap for the same reason as the
+                    # telemetry block — truncation here reintroduces the guessing.
+                    _live_self_status = ((_live_self_status + "\n\n") if _live_self_status else "") + _sf
+        except Exception:
+            log.debug("verified self-facts injection skipped", exc_info=True)
+
         # ── User profile facts injection ─────────────────────────────────────
         # Surface the user's stored projects / research / preferences into the
         # chat brief so ELI actually RECALLS them in normal conversation — not
@@ -12052,6 +12089,22 @@ Answer:"""
                 final_response = (
                     "Sorry — my reply came out garbled there. Could you ask me that again?"
                 )
+        # Fabricated-internals guard: a claim ELI makes about its OWN paths or
+        # upgrade mechanism is checkable, so it gets checked. Observed live: it
+        # placed its databases under /home/jason (inventing a username from the
+        # user's first name), wrote agent.sqlite for agent.sqlite3, and described
+        # upgrading itself via "./upgrade.sh" — a script that has never existed.
+        # Prompt-level grounding makes that rare; this makes it correctable.
+        # Cheap: returns immediately unless a path or script token is present.
+        try:
+            from eli.runtime.self_facts import repair_self_description as _repair_self
+            _repaired, _self_fixes = _repair_self(final_response)
+            if _self_fixes:
+                log.debug(f"[COGNITIVE] Self-description repaired: {'; '.join(_self_fixes)}")
+                final_response = _repaired
+        except Exception:
+            log.debug("self-description repair skipped", exc_info=True)
+
         # Placeholder/template-leak guard (user directive, 2026-06-06: "I expect
         # the appropriate answer"): the model sometimes emits an unfilled scaffold
         # like "[list up to 3 habits from memory or analysis]" when evidence
