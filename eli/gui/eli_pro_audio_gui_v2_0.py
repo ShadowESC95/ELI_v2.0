@@ -3688,7 +3688,11 @@ class EliMainWindow(QMainWindow):
         self.create_report_builder_tab()
         # Orchestration + Test & Review are developer/diagnostic tools — they live as
         # sub-tabs under Labs (LabsTab), not as prominent top-level tabs.
-        # Experimental tab removed — gaze control is wired as a toggle in Settings.
+        # The Experimental tab is the read-only workbench over `experimental/`: it
+        # inventories prototype kits and opens folders, never runs them. (An earlier
+        # tab of the same name carried gaze control; that moved to Settings ▸ Gaze
+        # and is unrelated to what this one shows.)
+        self.create_experimental_tab()
         self.create_eli_world_tab()
         self.create_settings_tab()
         self.create_top_toolbar()
