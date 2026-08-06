@@ -28,6 +28,14 @@
   #pragma error "dist\ELI\ELI.exe not found - run `pyinstaller --noconfirm ELI.spec` first"
 #endif
 
+; ELI is source-available under PolyForm Internal Use, so the installer must put
+; the terms in front of the user before anything is written to disk. LICENSE.txt
+; is a generated UTF-8+BOM copy of LICENSE - Inno decodes a BOM-less UTF-8 file
+; as ANSI and mangles the (c), em-dash and rule characters.
+#if !FileExists("LICENSE.txt")
+  #pragma error "packaging\windows\LICENSE.txt not found - run `python scripts\make_installer_license.py` first"
+#endif
+
 [Setup]
 AppId={{7E1D9F5C-4B2A-4D3E-9C8F-2A6B5E0D7F41}
 AppName={#MyAppName}
@@ -36,6 +44,8 @@ AppVerName={#MyAppName} {#MyAppVersion}
 AppPublisher={#MyAppPublisher}
 AppPublisherURL={#MyAppURL}
 AppSupportURL={#MyAppURL}
+AppCopyright=Copyright (C) 2026 Jason Fitzgibbon Bridgeman. All rights reserved.
+LicenseFile=LICENSE.txt
 DefaultDirName={localappdata}\Programs\ELI
 DefaultGroupName={#MyAppName}
 DisableProgramGroupPage=yes

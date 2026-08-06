@@ -74,6 +74,8 @@ blueprints/*
 eli/capability_inventory.generated.json
 capability_inventory.generated.json
 eli/cognition/persona.auto.txt
+# Inno's licence pane copy — generated from LICENSE by scripts/make_installer_license.py
+packaging/windows/LICENSE.txt
 .capability_snapshot.json
 .code_monitor_state.json
 config/user_id
