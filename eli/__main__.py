@@ -6,6 +6,9 @@ Flags:
   --trust-agent <path>
                    Register a custom agent file as trusted (adds its SHA-256
                    hash to config/trusted_agents.json) then exit.
+  --license, --licence
+                   Print the PolyForm Internal Use terms ELI ships under, then
+                   exit. Same command in every download.
 """
 from __future__ import annotations
 import sys
@@ -13,6 +16,13 @@ import sys
 
 def main() -> int:
     args = sys.argv[1:]
+
+    # ── Licence ───────────────────────────────────────────────────────────────
+    # Before anything is imported or initialised: asking for the terms must work
+    # on a broken install too.
+    if "--license" in args or "--licence" in args:
+        from eli.runtime.license_info import print_license
+        return print_license()
 
     # ── Trust-agent utility ───────────────────────────────────────────────────
     if "--trust-agent" in args:

@@ -37,6 +37,17 @@ trap 'rm -rf "$STAGE"' EXIT
 cp -R "$APP" "$STAGE/"
 ln -s /Applications "$STAGE/Applications"
 
+# A drag-to-Applications dmg has no licence step of its own (unlike the Windows
+# installer's pane), so put the terms in the mounted volume where the user drags
+# from. `ELI --license` prints the same text from inside the installed app.
+for _doc in LICENSE NOTICE THIRD_PARTY_NOTICES.md; do
+    if [ -f "$ROOT/$_doc" ]; then
+        cp "$ROOT/$_doc" "$STAGE/$_doc"
+    else
+        fail "$_doc missing from the repo root — the dmg must ship the licence"
+    fi
+done
+
 echo "[build-dmg] creating $DMG"
 rm -f "$DMG"
 hdiutil create -volname "ELI v2.0 $VERSION" -srcfolder "$STAGE" -ov -format UDZO "$DMG" \
