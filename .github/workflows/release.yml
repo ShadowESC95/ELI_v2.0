@@ -187,6 +187,10 @@ jobs:
       - name: Inno Setup installer
         shell: pwsh
         run: |
+          # The licence pane reads a generated UTF-8+BOM copy of LICENSE; Inno
+          # decodes a BOM-less UTF-8 file as ANSI and mangles it.
+          python scripts\make_installer_license.py
+          if ($LASTEXITCODE -ne 0) { Write-Error "could not generate the installer licence file"; exit 1 }
           $iscc = "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe"
           if (-not (Test-Path $iscc)) { choco install innosetup -y --no-progress; $iscc = "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe" }
           if (-not (Test-Path $iscc)) { Write-Error "Inno Setup 6 (ISCC.exe) not found and choco install failed"; exit 1 }

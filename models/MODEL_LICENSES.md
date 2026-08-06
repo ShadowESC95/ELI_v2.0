@@ -50,8 +50,10 @@ copy your own `.gguf` into `models/`.
 
 ### Voices excluded from auto-restore (`--with-github-assets`)
 
-These may still exist as **manual** downloads on the release page for advanced users,
-but ELI **skips** them during restore (see `EXCLUDED_VOICE_BASENAMES`):
+These are **not published** in the `local-assets-v2.1` asset release at all, and ELI
+**also** skips them during restore if they are ever present — `EXCLUDED_VOICE_BASENAMES`
+in `scripts/asset_release_policy.py` enforces it in code, so the exclusion holds even
+for a hand-placed file:
 
 | Voice | Reason |
 |---|---|
