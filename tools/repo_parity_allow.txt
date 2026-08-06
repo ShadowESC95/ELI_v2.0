@@ -1,0 +1,5 @@
+# Intentional v2/v3 divergence — one "family:name" per line.
+# Anything listed here is a deliberate choice, not a missed port, and is
+# excluded from the parity report. Everything NOT listed is a finding.
+#
+# Families: guard | action | module | env
