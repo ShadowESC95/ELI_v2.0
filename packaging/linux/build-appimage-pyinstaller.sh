@@ -39,6 +39,16 @@ rm -rf "$APPDIR"
 mkdir -p "$APPDIR/usr"
 cp -a "$BUNDLE" "$APPDIR/usr/app"
 
+# An AppImage has no installer step to show terms in, so put them at the AppDir
+# root (visible to `--appimage-extract`) and in the conventional doc location.
+# `./ELI_v2-*.AppImage --license` prints the same text without extracting.
+mkdir -p "$APPDIR/usr/share/doc/eli"
+for _doc in LICENSE NOTICE THIRD_PARTY_NOTICES.md; do
+    [ -f "$ROOT/$_doc" ] || fail "$_doc missing from the repo root — the AppImage must ship the licence"
+    cp "$ROOT/$_doc" "$APPDIR/$_doc"
+    cp "$ROOT/$_doc" "$APPDIR/usr/share/doc/eli/$_doc"
+done
+
 cat > "$APPDIR/AppRun" <<'EOF'
 #!/bin/bash
 HERE="$(dirname "$(readlink -f "$0")")"

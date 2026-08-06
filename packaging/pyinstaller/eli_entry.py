@@ -13,6 +13,10 @@ Modes:
   --selftest    boot the runtime stack + verify every mutable path resolves
                 OUTSIDE the read-only bundle, then exit 0/1. CI runs this on
                 the built bundle for every platform before anything ships.
+  --license     print the PolyForm Internal Use terms ELI ships under, then
+                exit. The Windows installer has a licence pane of its own; the
+                dmg, AppImage and portable zip do not, so this is how the terms
+                stay reachable from every download.
   -c / -m       python-compatible passthrough. ELI spawns
                 `sys.executable -c "…"` helpers (import smoke tests, sandbox
                 probes); in a frozen app sys.executable is ELI itself, and
@@ -541,6 +545,8 @@ def _mode() -> str:
     argv = sys.argv[1:]
     if "--selftest" in argv:
         return "selftest"
+    if "--license" in argv or "--licence" in argv:
+        return "license"
     if "--install-gpu-pack" in argv:
         return "gpu-pack"
     if "--remove-gpu-pack" in argv:
@@ -561,6 +567,9 @@ if __name__ == "__main__":
     mode = _mode()
     if mode == "selftest":
         sys.exit(_selftest())
+    elif mode == "license":
+        from eli.runtime.license_info import print_license
+        sys.exit(print_license())
     elif mode == "gpu-pack":
         import eli_gpu_pack
         sys.exit(eli_gpu_pack.install([a for a in sys.argv[1:] if a != "--install-gpu-pack"]))
