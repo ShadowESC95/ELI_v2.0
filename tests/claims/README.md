@@ -26,7 +26,7 @@ manifest automatically — no manual step needed on a fresh clone.
 | `test_documented_actions.py` | every action in `capabilities_and_actions.md` is a real, reachable manifest capability | ~328 |
 | `test_activation_phrases.py` | each router-routable action is reachable by ≥1 of its documented activation phrases (or a documented equivalent) | ~120 |
 | `test_blueprint_refs.py` | every `*.py` / `eli.x.y` reference in the blueprints resolves | ~36 |
-| `test_structural_claims.py` | 14 bus agents, 5 reasoning modes, 12 main tabs, 4 SQLite stores, and the load-bearing callables exist + key behavioural claims (netguard fail-closed, evidence channels, pipeline enabled) | ~70 |
+| `test_structural_claims.py` | 14 bus agents, 5 reasoning modes, 13 main tabs, 4 SQLite stores, and the load-bearing callables exist + key behavioural claims (netguard fail-closed, evidence channels, pipeline enabled) | ~70 |
 | `test_no_silent_swallow.py` | Ratchet: silent `except: pass` count in `eli/` must not exceed CEILING (observability) | 1 |
 
 ## Findings surfaced by the examination

@@ -44,12 +44,13 @@ def test_reasoning_mode_display(key, display):
     assert mode_display(key) == display
 
 
-# ── 12 main GUI tabs (static source check — no Qt needed) ────────────────────
+# ── 13 main GUI tabs (static source check — no Qt needed) ────────────────────
 _TAB_CREATORS = [
     "create_chat_tab", "create_proactive_tab", "create_image_tab",
     "create_quick_actions_tab", "create_screen_control_tab", "create_files_tab",
     "create_labs_tab", "create_coding_tab", "create_tasks_tab",
-    "create_report_builder_tab", "create_eli_world_tab", "create_settings_tab",
+    "create_report_builder_tab", "create_experimental_tab",
+    "create_eli_world_tab", "create_settings_tab",
 ]
 _GUI_SRC = (H.REPO / "eli" / "gui" / "eli_pro_audio_gui_v2_0.py").read_text(encoding="utf-8")
 
