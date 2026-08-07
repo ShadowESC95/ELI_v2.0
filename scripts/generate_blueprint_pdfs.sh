@@ -39,6 +39,24 @@ case "$FONTS_AVAILABLE" in
   *DejaVuSerif*) FONT_ARGS+=(-V mainfont="DejaVu Serif" -V mainfontoptions="Scale=0.92") ;;
 esac
 
+# Cover mark. The shipped manuals carried no ELI branding at all — a reader who
+# downloaded one had nothing tying it to the app. pandoc's `titlegraphic` is
+# beamer-only, and prepending to \maketitle silently eats the whole title block, so
+# the working hook is titling's \pretitle/\posttitle. Degrades to the plain title
+# page if the icon is missing rather than failing the build.
+ICON="$ROOT/packaging/desktop/eli-256.png"
+TITLE_ARGS=()
+if [ -f "$ICON" ]; then
+  TITLE_ARGS+=(
+    -V header-includes='\usepackage{graphicx}'
+    -V header-includes='\usepackage{titling}'
+    -V header-includes='\pretitle{\begin{center}\includegraphics[width=2.2cm]{'"$ICON"'}\\[0.9em]\LARGE\bfseries}'
+    -V header-includes='\posttitle{\par\end{center}\vskip 0.3em}'
+  )
+else
+  echo "[WARN] app icon missing, manuals will build unbranded: $ICON" >&2
+fi
+
 # NOTE: '&' is a LaTeX alignment character — never put one in a title string.
 pdf() { # pdf <out-stem> <title> <subtitle> <src.md...>
   local stem="$1" title="$2" subtitle="$3"; shift 3
@@ -47,7 +65,7 @@ pdf() { # pdf <out-stem> <title> <subtitle> <src.md...>
   pandoc "$@" -o "$BP/$stem.pdf" \
     --pdf-engine=xelatex \
     --lua-filter="$ROOT/scripts/pandoc_pdf_glyphs.lua" \
-    "${FONT_ARGS[@]}" \
+    "${FONT_ARGS[@]}" "${TITLE_ARGS[@]}" \
     -V geometry:margin=0.9in -V fontsize=10pt -V documentclass=article \
     -V colorlinks=true -V linkcolor=blue -V urlcolor=blue \
     --toc --toc-depth=2 \

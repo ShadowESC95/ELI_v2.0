@@ -59,6 +59,13 @@ ArchitecturesAllowed=x64compatible
 ArchitecturesInstallIn64BitMode=x64compatible
 SetupIconFile=..\desktop\Eli_Icon.ico
 UninstallDisplayIcon={app}\{#MyAppExeName}
+; Wizard branding. SetupIconFile only dresses the setup .exe itself — without these
+; every page of the installer showed Inno's stock artwork, which is the first thing a
+; new user sees of ELI. Must be 24-bit BMP (Inno rejects .png/.ico here); regenerate
+; from the app icon with packaging\desktop\generate_wizard_images.py. The second entry
+; in each list is the high-DPI variant, picked automatically by display scaling.
+WizardImageFile=..\desktop\wizard_large.bmp,..\desktop\wizard_large_989.bmp
+WizardSmallImageFile=..\desktop\wizard_small.bmp,..\desktop\wizard_small_138.bmp
 VersionInfoVersion={#MyAppVersion}
 VersionInfoCompany={#MyAppPublisher}
 VersionInfoDescription=ELI v2.0 - Local AI Assistant
