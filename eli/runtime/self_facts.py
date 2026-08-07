@@ -131,11 +131,35 @@ def _canon_lines(limit: int = _CANON_MAX) -> List[str]:
         return []
 
 
+def _network_reach() -> str:
+    """What ELI can actually reach right now, read from the live netguard policy.
+
+    This fact existed nowhere in the brief, and its absence was not neutral: told
+    only that it is a local, private assistant, the model concluded it therefore
+    had no internet at all and said so — in the same turn as a WEB_SEARCH that had
+    just come back with five live results and a grounding score of 0.98. Denying a
+    capability you demonstrably have is the same defect as inventing one, so the
+    real state is stated rather than left to inference.
+    """
+    try:
+        from eli.core.netguard import should_block_network
+        if should_block_network():
+            return ("web access is currently OFF (offline-by-default netguard policy); "
+                    "ELI CAN search the web and fetch pages when it is switched on")
+        return ("web access is currently ON — ELI can search the web and fetch pages, "
+                "and every request is routed through the netguard egress ledger")
+    except Exception:
+        log.debug("network reach unavailable", exc_info=True)
+        return ""
+
+
 def get_self_facts() -> Dict[str, Any]:
     """Structured verified self-facts. Missing values are omitted, never guessed."""
     facts: Dict[str, Any] = {}
     if (v := _version()):
         facts["version"] = v
+    if (net := _network_reach()):
+        facts["network"] = net
     if (dbs := _database_paths()):
         facts["databases"] = dbs
     if (caps := _capability_count()):
@@ -151,6 +175,49 @@ def get_self_facts() -> Dict[str, Any]:
         log.debug("install kind unavailable", exc_info=True)
     return facts
 
+
+# Denials of ELI's own web capability. The observed failure was verbatim: "I don't
+# have internet access. I am a local, private AI running on this machine, with no
+# external connectivity or web search capabilities" — emitted immediately after a
+# WEB_SEARCH returned five live results at grounding 0.98. Matching the DENIAL is
+# the point: a truthful "web access is off right now" must survive untouched, so
+# these patterns require the absolute form (no/never/cannot/unable), not a
+# statement about the current toggle.
+_WEB_DENIAL_RX = re.compile(
+    r"(?:I\s+(?:do\s*n[o']t|don'?t|cannot|can'?t|am\s+unable\s+to)\s+"
+    r"(?:have|access|reach|search|browse)[^.!?\n]*"
+    r"(?:internet|web|online|network)"
+    r"|(?:no|without)\s+(?:external\s+)?"
+    r"(?:internet|web|online|network|connectivity)"
+    r"(?:\s+(?:access|connectivity|capabilit\w+|connection|search))?"
+    r"|no\s+web\s+search\s+capabilit\w+)",
+    re.I,
+)
+
+# Sentence splitter for the repair below. Substituting inside a sentence left
+# wreckage ("…egress ledger access.") because a denial is rarely one contiguous
+# span — the observed reply carried two, phrased differently. Replacing the whole
+# sentence is the only version that reads like something a person wrote.
+_SENTENCE_RX = re.compile(r"[^.!?\n]*[.!?\n]|[^.!?\n]+$")
+
+
+def _replace_web_denials(text: str, truth: str) -> Tuple[str, bool]:
+    """Swap every sentence that denies web access for one statement of the truth."""
+    out_parts: List[str] = []
+    replaced = False
+    for chunk in _SENTENCE_RX.findall(text):
+        if not chunk.strip():
+            out_parts.append(chunk)
+            continue
+        if _WEB_DENIAL_RX.search(chunk):
+            if not replaced:            # state it once, not once per denial
+                lead = chunk[: len(chunk) - len(chunk.lstrip())]
+                tail = "." if chunk.rstrip().endswith((".", "!", "?")) else ""
+                out_parts.append(f"{lead}{truth[0].upper()}{truth[1:]}{tail}")
+                replaced = True
+            continue                    # drop any further denials outright
+        out_parts.append(chunk)
+    return "".join(out_parts), replaced
 
 _ABS_PATH_RX = re.compile(r"(?:/home/[^/\s'\"`)]+|~)(?:/[^\s'\"`),]+)+")
 _UPGRADE_SCRIPT_RX = re.compile(
@@ -173,15 +240,26 @@ def repair_self_description(text: str) -> Tuple[str, List[str]]:
     original = str(text or "")
     if not original.strip():
         return original, []
-    # Cheap pre-check so this can sit on every reply: no path and no script
-    # token means there is nothing here that could be a fabricated internal,
+    # Cheap pre-check so this can sit on every reply: no path, no script token and
+    # no web-denial means there is nothing here that could be a fabricated internal,
     # and we skip building the (comparatively expensive) fact set entirely.
-    if "/home/" not in original and "~/" not in original and not _UPGRADE_SCRIPT_RX.search(original):
+    _denies_web = bool(_WEB_DENIAL_RX.search(original))
+    if (not _denies_web and "/home/" not in original and "~/" not in original
+            and not _UPGRADE_SCRIPT_RX.search(original)):
         return original, []
 
     facts = get_self_facts()
     corrections: List[str] = []
     out = original
+
+    # Disowning a real capability misinforms the user exactly as badly as inventing
+    # one, and it is worse in practice: it teaches them not to ask again. Replace
+    # the denial with the live netguard state instead of deleting it, so the reply
+    # still answers the question it was answering.
+    if _denies_web and (real_net := facts.get("network")):
+        out, _did = _replace_web_denials(out, real_net)
+        if _did:
+            corrections.append("web-capability denial corrected to live netguard state")
 
     # Known real paths, by basename, so a fabricated directory can be corrected
     # rather than merely flagged.
@@ -239,6 +317,11 @@ def render_self_facts_block(include_canon: bool = True) -> str:
         lines.append(f"  {db}")
     if facts.get("capabilities"):
         lines.append(f"  capabilities in the manifest: {facts['capabilities']}")
+    if facts.get("network"):
+        # Stated explicitly because its absence was read as an absence of the
+        # capability: given only "local, private assistant", the model concluded it
+        # had no internet and said so — while holding live search results.
+        lines.append(f"  {facts['network']}")
     if facts.get("components"):
         lines.append(f"  real components: {', '.join(facts['components'])}")
     if facts.get("upgrade"):
