@@ -28,7 +28,7 @@ def _probe_device(idx, seconds=0.6):
             reads = max(1, int(seconds * src.SAMPLE_RATE / src.CHUNK))
             rms_vals = []
             for _ in range(reads):
-                buf = src.stream.read(src.CHUNK, exception_on_overflow=False)
+                buf = src.stream.read(src.CHUNK)
                 rms_vals.append(audioop.rms(buf, src.SAMPLE_WIDTH))
             return sum(rms_vals) // len(rms_vals)
     except Exception:
@@ -83,7 +83,7 @@ def run():
         ambient = []
         t0 = time.time()
         while time.time() - t0 < 3.0:
-            buf = src.stream.read(src.CHUNK, exception_on_overflow=False)
+            buf = src.stream.read(src.CHUNK)
             ambient.append(audioop.rms(buf, src.SAMPLE_WIDTH))
         print(f"  Ambient: min={min(ambient)}  avg={sum(ambient)//len(ambient)}  max={max(ambient)}")
         print()
@@ -92,7 +92,7 @@ def run():
         speech = []
         t0 = time.time()
         while time.time() - t0 < 5.0:
-            buf = src.stream.read(src.CHUNK, exception_on_overflow=False)
+            buf = src.stream.read(src.CHUNK)
             e = audioop.rms(buf, src.SAMPLE_WIDTH)
             speech.append(e)
             elapsed = time.time() - t0

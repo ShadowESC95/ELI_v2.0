@@ -3201,34 +3201,102 @@ def play_specific(query: str, target: str | None = None) -> Dict[str, Any]:
         if _by_m else query
     )
 
-    if shutil.which("yt-dlp") and shutil.which("mpv"):
+    _yt_direct_err = ""          # why direct mpv playback failed, if it did
+    _yt_have_tools = bool(shutil.which("yt-dlp") and shutil.which("mpv"))
+    if _yt_have_tools:
+        _mpv_err_log = None
         try:
             ipc = _mpv_socket_path()
             _mpv_quit()                      # stop any previous headless YouTube audio
-            _sp.Popen(
+            # mpv's stderr is the ONLY record of why a play attempt failed (yt-dlp
+            # signature breakage, geo-block, dead network). Sending it to DEVNULL used
+            # to destroy that evidence, so a failure was both unnoticed and
+            # un-diagnosable after the fact. Keep it on disk for the post-mortem.
+            _mpv_err_log = tempfile.NamedTemporaryFile(
+                prefix="eli_mpv_", suffix=".log", delete=False, mode="w+",
+            )
+            proc = _sp.Popen(
                 ["mpv", f"ytdl://ytsearch1:{yt_search}",
                  f"--input-ipc-server={ipc}",
                  "--ytdl-format=bestaudio/best",
                  "--title=ELI-YouTube"],
-                stdout=_sp.DEVNULL, stderr=_sp.DEVNULL, start_new_session=True,
+                stdout=_sp.DEVNULL, stderr=_mpv_err_log, start_new_session=True,
             )
-            _title = (f"{_by_m.group(1).strip()} by {_by_m.group(2).strip()}"
-                      if _by_m else query)
-            _set_now_playing("mpv", _title, mpv_sock=ipc)
-            msg = (f"Playing '{_by_m.group(1).strip()}' by {_by_m.group(2).strip()} on "
-                   f"YouTube (audio, in the background)." if _by_m
-                   else f"Playing '{query}' on YouTube (audio, in the background).")
-            return {"ok": True, "action": "PLAY_MEDIA", "played": True,
-                    "content": msg, "response": msg}
+            # Popen returns as soon as the process is SPAWNED, which says nothing about
+            # whether it plays — that is how "Playing … on YouTube" got reported for a
+            # track that never started. mpv opens its IPC socket within ~0.1s even when
+            # the query is unresolvable, so the socket is not proof either; a genuine
+            # failure exits (rc=2) at ~2s. Waiting for it to still be alive after that
+            # window is what makes "played" an actual claim instead of a guess.
+            _verify_s = float(os.environ.get("ELI_YT_VERIFY_SECONDS", "3.0"))
+            # NB: `_time` is bound only inside the Spotify branch above, which makes it a
+            # function-local Python cannot resolve here — use the module-level `time`.
+            _deadline = time.monotonic() + max(0.0, _verify_s)
+            while time.monotonic() < _deadline and proc.poll() is None:
+                time.sleep(0.1)
+            _rc = proc.poll()
+            if _rc is not None:
+                try:
+                    _mpv_err_log.flush()
+                    _mpv_err_log.seek(0)
+                    _tail = " | ".join(
+                        ln.strip() for ln in _mpv_err_log.read().splitlines()[-4:] if ln.strip()
+                    )
+                except Exception:
+                    _tail = ""
+                log.warning(
+                    f"[MEDIA] direct YouTube playback failed for {yt_search!r} "
+                    f"(mpv rc={_rc}); stderr: {_tail or 'none captured'} "
+                    f"[full log: {_mpv_err_log.name}]"
+                )
+                # The full stderr belongs in the log, NOT in `response` — this string is
+                # spoken by TTS, and reading four lines of ytdl_hook diagnostics aloud is
+                # useless to the user. Give them the one fact that changes what they do next.
+                _yt_direct_err = (
+                    "no match found on YouTube" if "empty playlist" in _tail.lower()
+                    else "mpv could not start playback"
+                )
+                # Fall through to the browser fallback below rather than claiming
+                # playback that demonstrably is not happening.
+            else:
+                try:
+                    _mpv_err_log.close()
+                    os.unlink(_mpv_err_log.name)     # started cleanly, keep no litter
+                except Exception:
+                    log.debug("suppressed exception", exc_info=True)
+                # mpv resolves the real title once yt-dlp returns; prefer it over the
+                # raw query so the confirmation reflects what is actually playing.
+                _title = (f"{_by_m.group(1).strip()} by {_by_m.group(2).strip()}"
+                          if _by_m else query)
+                _set_now_playing("mpv", _title, mpv_sock=ipc)
+                _resolved = _mpv_ipc(["get_property", "media-title"], want_response=True)
+                _what = (_resolved.strip()
+                         if isinstance(_resolved, str) and _resolved.strip()
+                         else (f"'{_by_m.group(1).strip()}' by {_by_m.group(2).strip()}"
+                               if _by_m else f"'{query}'"))
+                msg = f"Playing {_what} on YouTube (audio, in the background)."
+                return {"ok": True, "action": "PLAY_MEDIA", "played": True,
+                        "content": msg, "response": msg}
         except Exception:
             log.debug("suppressed exception", exc_info=True)
+        finally:
+            try:
+                if _mpv_err_log is not None and not _mpv_err_log.closed:
+                    _mpv_err_log.close()
+            except Exception:
+                log.debug("suppressed exception", exc_info=True)
 
-    # ── 4. No yt-dlp/mpv → resolve watch URL and open in browser ─────────────
-    # Direct in-app playback needs yt-dlp + mpv; without them we can only open the
-    # browser. Be HONEST that this is the missing-tools fallback, not real playback
-    # (no-fake-actions) — and tell the user exactly what unlocks "play".
-    _play_hint = (" — for direct playback install mpv + yt-dlp "
-                  "(sudo apt install mpv && pipx install yt-dlp)")
+    # ── 4. No yt-dlp/mpv (or mpv failed) → resolve watch URL and open in browser ─
+    # Direct in-app playback needs yt-dlp + mpv. Be HONEST that this is a fallback,
+    # not real playback (no-fake-actions) — and say what would actually unlock "play"
+    # for THIS user: an install hint is wrong when the tools are present and mpv died,
+    # so report the real reason in that case instead.
+    _play_hint = (
+        f" — direct playback failed ({_yt_direct_err})" if _yt_direct_err
+        else "" if _yt_have_tools
+        else (" — for direct playback install mpv + yt-dlp "
+              "(sudo apt install mpv && pipx install yt-dlp)")
+    )
     watch = _yt_mix_url(_yt_resolve_watch_url(yt_search))
     if watch:
         _open_in_browser(watch)
