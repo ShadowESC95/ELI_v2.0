@@ -3062,6 +3062,52 @@ def _failed_executor_surface(evidence: str, query: str = "", action: str = "") -
 # ── End failed-executor guard helpers ─────────────────────────────────────────
 
 
+def _clarifier_norm(text: str) -> str:
+    """Punctuation- and case-insensitive form, for comparing an utterance to itself.
+
+    Apostrophes are deleted rather than spaced so "what's" and "whats" collapse to
+    the same token; spacing them would leave "what s" and let a contraction slip an
+    otherwise identical replay past the comparison.
+    """
+    lowered = str(text or "").lower().replace("'", "").replace("’", "")
+    return re.sub(r"\s+", " ", re.sub(r"[^\w\s]", " ", lowered)).strip()
+
+
+def _clarifier_is_usable(generated: str, *, user_input: str, context: str) -> bool:
+    """Reject a 'clarifying question' that is not one.
+
+    Two failures in a single live turn, both from the same missing check.
+
+    The generated text was accepted purely on length and then had a '?' *appended*
+    if it lacked one — so "What's the story bud! open spotify please" became
+    "What's the story bud! open spotify please?" and was shown to the user as
+    ELI's reply. Punctuation cannot turn a command into a question: if the model
+    was told to write only a follow-up question and returned something that does
+    not end in one, it did not do the task, and inventing the mark hides that.
+
+    That text was also a verbatim replay of the user's own first message of the
+    session, copied out of the conversation context handed to the clarifier. A
+    reply that quotes the user back at them is never a clarification, so anything
+    already present in the supplied context is refused.
+
+    Rejection is cheap: the caller falls through to deterministic templates that
+    are specific and always well-formed.
+    """
+    text = str(generated or "").strip()
+    if not text.endswith("?"):
+        return False
+    norm = _clarifier_norm(text)
+    if not norm:
+        return False
+    # A restatement of the very thing that could not be answered clarifies nothing.
+    if norm == _clarifier_norm(user_input):
+        return False
+    # Lifted straight out of the conversation/evidence it was given.
+    if norm in _clarifier_norm(context):
+        return False
+    return True
+
+
 class CognitiveEngine:
     def __init__(
         self,
@@ -4960,10 +5006,15 @@ Answer:"""
                 evidence=evidence_block,
             )
             generated = str(generated or "").strip()
-            if generated and len(generated.split()) <= 90:
-                if not generated.endswith("?"):
-                    generated = generated.rstrip(". ") + "?"
+            if generated and len(generated.split()) <= 90 and _clarifier_is_usable(
+                generated, user_input=user_input, context=evidence_block,
+            ):
                 return generated
+            if generated:
+                log.debug(
+                    "[COGNITIVE][FINAL] dynamic clarifier rejected (not a question, or "
+                    f"replayed the conversation): {generated[:120]!r}"
+                )
         except Exception as clarifier_err:
             log.debug(f"[COGNITIVE][FINAL] dynamic clarifier failed: {clarifier_err}")
 

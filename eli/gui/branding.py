@@ -79,10 +79,17 @@ def write_packaged_icons(root: Optional[Path] = None) -> Path:
     ico_path = out_dir / "Eli_Icon.ico"
     from PIL import Image
 
-    imgs = []
-    for size in (16, 24, 32, 48, 64, 128, 256):
-        imgs.append(Image.open(io.BytesIO(_square_png_bytes(src, size))).convert("RGBA"))
-    imgs[0].save(ico_path, format="ICO", sizes=[(im.width, im.height) for im in imgs], append_images=imgs[1:])
+    # Save from the LARGEST frame, and let Pillow derive the rest via `sizes`.
+    # Saving from imgs[0] — the 16x16 — silently produced a single 16x16 frame no
+    # matter what `sizes` asked for, because Pillow's ICO writer clamps every
+    # requested size to the base image. That is a 668-byte one-frame icon instead
+    # of the 95KB seven-frame one, i.e. a fuzzy shortcut at every size above 16px.
+    # It also meant running the release builder silently reverted the committed
+    # icon in the working tree, so the regression could be re-committed by anyone
+    # who staged broadly after a build.
+    _ICO_SIZES = [(16, 16), (24, 24), (32, 32), (48, 48), (64, 64), (128, 128), (256, 256)]
+    master = Image.open(io.BytesIO(_square_png_bytes(src, 256))).convert("RGBA")
+    master.save(ico_path, format="ICO", sizes=_ICO_SIZES)
     sync_runtime_icon_copy(base)
     return ico_path
 
@@ -97,10 +104,14 @@ def install_linux_theme_icon(root: Optional[Path] = None) -> str:
         dest_dir = theme_base / f"{size}x{size}" / "apps"
         dest_dir.mkdir(parents=True, exist_ok=True)
         (dest_dir / f"{ICON_NAME}.png").write_bytes(_square_png_bytes(src, size))
-    # Scalable alias for DEs that prefer it
+    # Scalable alias for DEs that prefer it. This used to copy the source art
+    # straight in, which is 175x157 — not square, and smaller than the 256 slot
+    # right beside it. A desktop that prefers "scalable" therefore got the WORST
+    # icon of the set, letterboxed into a square frame by the shell. Render it
+    # like every other size instead: same padding, same centring, square.
     scalable = theme_base / "scalable" / "apps"
     scalable.mkdir(parents=True, exist_ok=True)
-    shutil.copy2(src, scalable / f"{ICON_NAME}.png")
+    (scalable / f"{ICON_NAME}.png").write_bytes(_square_png_bytes(src, 512))
     return ICON_NAME
 
 

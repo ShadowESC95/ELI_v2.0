@@ -105,6 +105,7 @@ def test_block_never_invents_when_sources_are_missing(monkeypatch):
     monkeypatch.setattr(self_facts, "_capability_count", lambda: "")
     monkeypatch.setattr(self_facts, "_components", lambda: [])
     monkeypatch.setattr(self_facts, "_upgrade_mechanism", lambda: "")
+    monkeypatch.setattr(self_facts, "_network_reach", lambda: "")
     monkeypatch.setattr(self_facts, "_install_kind_safe", lambda: "", raising=False)
 
     import eli.kernel.self_upgrade as su
