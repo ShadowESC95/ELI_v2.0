@@ -23,6 +23,17 @@ PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 DIST="$PROJECT_ROOT/dist"
 VERSION=$(grep -E '^version' "$PROJECT_ROOT/pyproject.toml" | head -1 | awk -F'"' '{print $2}')
 
+# Prefer the project virtualenv interpreter. It carries ELI's full dependency
+# set (fastapi, paho-mqtt, pyflakes, torch…); a bare python3 on PATH is the
+# system interpreter and fails the pre-flight on missing optional deps.
+if [ -x "$PROJECT_ROOT/.venv/bin/python" ]; then
+    PY="$PROJECT_ROOT/.venv/bin/python"
+elif [ -x "$PROJECT_ROOT/.venv/Scripts/python.exe" ]; then
+    PY="$PROJECT_ROOT/.venv/Scripts/python.exe"
+else
+    PY="python3"
+fi
+
 mkdir -p "$DIST"
 
 ALL_TARGETS=("wheel" "wheelhouse" "deb" "appimage" "macos" "windows" "windows-lean")
@@ -183,11 +194,14 @@ if [ -z "${SKIP_TESTS:-}" ]; then
     # tests/claims read it at the project root — generate it there BEFORE pytest, or those
     # four tests error out with FileNotFoundError during collection.
     echo "[pre-flight] Generating capability_manifest.json (gitignored; tests/claims need it)…"
-    ( cd "$PROJECT_ROOT" && PYTHONPATH="$PROJECT_ROOT" python3 -c \
+    # $PY, not python3: importing the capability updater pulls ELI's dependency set,
+    # and on the system interpreter this silently fails, leaving tests/claims to error
+    # on a missing manifest right after.
+    ( cd "$PROJECT_ROOT" && PYTHONPATH="$PROJECT_ROOT" "$PY" -c \
       "from eli.tools.registry.capability_updater import update_capability_manifest; update_capability_manifest()" ) \
       >/dev/null 2>&1 || echo "[pre-flight] (manifest generation skipped — continuing)"
-    echo "[pre-flight] Running pytest (set SKIP_TESTS=1 to skip)…"
-    ( cd "$PROJECT_ROOT" && pytest -q tests/ )
+    echo "[pre-flight] Running pytest via $PY (set SKIP_TESTS=1 to skip)…"
+    ( cd "$PROJECT_ROOT" && "$PY" -m pytest -q tests/ )
 fi
 
 # ── Targets ─────────────────────────────────────────────────────────────
