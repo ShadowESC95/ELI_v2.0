@@ -79,6 +79,14 @@ class _FakeProc:
     def poll(self):
         return self._rc
 
+    # Patching subprocess.Popen globally means subprocess.run() picks this up too
+    # (via _resolve_media_target); support the context manager so it fails quietly.
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *_exc):
+        return False
+
 
 @pytest.fixture
 def _yt_env(monkeypatch):
@@ -127,14 +135,34 @@ def test_failure_message_stays_speakable(monkeypatch, _yt_env):
     assert len(response) < 300
 
 
-def test_surviving_mpv_is_reported_as_playing(monkeypatch, _yt_env):
-    """The happy path must still claim playback — the fix must not make ELI mute."""
+def test_confirmed_load_is_reported_as_playing(monkeypatch, _yt_env):
+    """The happy path must still claim playback — the fix must not make ELI mute.
+
+    "Confirmed" means mpv reported a duration, i.e. yt-dlp resolved the URL and the
+    demuxer opened the stream. That, not mere liveness, is what licenses "Playing".
+    """
     monkeypatch.setattr(subprocess, "Popen", lambda *a, **k: _FakeProc(rc=None))
+    monkeypatch.setattr(ex, "_mpv_load_confirmed", lambda _sock: True)
 
     result = ex.play_specific("some track", target="youtube")
 
     assert result.get("played") is True
     assert "Playing" in (result.get("response") or "")
+
+
+def test_alive_but_unloaded_mpv_is_not_claimed_as_playing(monkeypatch, _yt_env):
+    """The slow-failure gap: a yt-dlp resolve that is still grinding stays ALIVE for
+    seconds before it exits. Liveness alone would report that as playing — the original
+    defect in slower clothing. Nothing loaded means nothing is claimed."""
+    monkeypatch.setattr(subprocess, "Popen", lambda *a, **k: _FakeProc(rc=None))
+    monkeypatch.setattr(ex, "_mpv_load_confirmed", lambda _sock: False)
+
+    result = ex.play_specific("some track", target="youtube")
+
+    assert result.get("played") is not True
+    assert result.get("pending") is True
+    response = result.get("response") or ""
+    assert "not confirmed" in response.lower() or "still resolving" in response.lower()
 
 
 def test_mpv_stderr_is_not_discarded(monkeypatch, _yt_env):
