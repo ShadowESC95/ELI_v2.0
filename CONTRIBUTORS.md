@@ -14,6 +14,15 @@ The following individuals have contributed to ELI's development through code, te
     the low-grounding downgrade, so a state query is answered from the device instead
     of being re-routed to CHAT and guessed at
   - `mic_diag.py` restored to working order on SpeechRecognition 3.16
+  - microphone no longer stays deaf when the room is loud: a mic drowned by speaker
+    bleed is detected and the gate lifted above the noise, then walked back down once
+    it is quiet, plus opt-in acoustic echo cancellation (`ELI_STT_ECHO_CANCEL=1`,
+    measured to cut bleed from 17x to 4x) — the "noise cancellation in the launcher"
+    that this file's comments had long credited was never actually implemented
+  - speech dropped for want of a wake word is now recorded, instead of vanishing
+    without trace and looking exactly like a broken microphone
+  - the Windows setup wizard carries the ELI icon on every page rather than Inno's
+    stock artwork, and the manuals carry it on their title page
 
 ## Non-Code Contributors
 

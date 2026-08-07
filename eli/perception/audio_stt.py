@@ -18,9 +18,11 @@ Key fixes:
 """
 from __future__ import annotations
 
+import atexit
 import os
 import queue
 import re
+import shutil
 import subprocess
 import threading
 import time
@@ -207,6 +209,78 @@ except Exception as e:  # pragma: no cover
 WAKE_WORDS = [
     "hey eli", "hey computer", "eli", "computer",
 ]
+
+
+_ECHO_CANCEL_MODULE_ID: Optional[str] = None
+
+
+def _unload_echo_cancel() -> None:
+    """Unload module-echo-cancel, but only if WE loaded it."""
+    global _ECHO_CANCEL_MODULE_ID
+    mod = _ECHO_CANCEL_MODULE_ID
+    if not mod:
+        return
+    _ECHO_CANCEL_MODULE_ID = None
+    try:
+        subprocess.run(["pactl", "unload-module", mod], capture_output=True, timeout=5)
+        log.debug(f"[AUDIO_AEC] unloaded module-echo-cancel ({mod})")
+    except Exception:
+        log.debug("[AUDIO_AEC] unload failed", exc_info=True)
+
+
+def ensure_echo_cancel() -> bool:
+    """Load PulseAudio/PipeWire acoustic echo cancellation so speaker output is
+    subtracted from the mic signal.
+
+    This is the only real remedy for speaker bleed. Raising the energy threshold (see
+    _adapt_threshold_to_noise) stops the drowning loop and keeps ELI diagnosable, but
+    it cannot let you talk *over* loud music — AEC can, because it removes the known
+    playback signal instead of trying to out-shout it.
+
+    OFF by default, despite a long-standing comment in this file asserting it was
+    "active via module-echo-cancel in the launcher" — no such launcher code has ever
+    existed, so every threshold decision here was tuned against noise cancellation
+    that was not running. It stays opt-in because loading the module rewires the
+    system's default source and sink: getting that wrong costs the user all audio,
+    which is a worse failure than the one being fixed. Set ELI_STT_ECHO_CANCEL=1.
+
+    Idempotent, reversible (unloaded at exit if we loaded it), and a no-op wherever
+    pactl is unavailable. Returns True when AEC is active.
+    """
+    global _ECHO_CANCEL_MODULE_ID
+    if os.environ.get("ELI_STT_ECHO_CANCEL", "0").lower() not in ("1", "true", "yes", "on"):
+        return False
+    if not shutil.which("pactl"):
+        log.debug("[AUDIO_AEC] pactl unavailable — echo cancellation not possible")
+        return False
+    try:
+        listed = subprocess.run(["pactl", "list", "short", "modules"],
+                                capture_output=True, text=True, timeout=5)
+        if "module-echo-cancel" in (listed.stdout or ""):
+            log.debug("[AUDIO_AEC] echo cancellation already active — leaving it alone")
+            return True
+        loaded = subprocess.run(
+            ["pactl", "load-module", "module-echo-cancel",
+             "aec_method=webrtc",
+             "source_name=eli_echo_cancelled",
+             "use_master_format=1"],
+            capture_output=True, text=True, timeout=10,
+        )
+        mod = (loaded.stdout or "").strip()
+        if loaded.returncode != 0 or not mod.isdigit():
+            log.warning(
+                f"[AUDIO_AEC] could not load module-echo-cancel: "
+                f"{(loaded.stderr or '').strip() or 'unknown error'}"
+            )
+            return False
+        _ECHO_CANCEL_MODULE_ID = mod
+        atexit.register(_unload_echo_cancel)
+        log.info(f"[AUDIO_AEC] echo cancellation active (module {mod}) — speaker bleed "
+                 f"is now subtracted from the mic")
+        return True
+    except Exception:
+        log.debug("[AUDIO_AEC] echo-cancel setup failed", exc_info=True)
+        return False
 
 
 def _merge_custom_wake_words() -> None:
@@ -396,6 +470,19 @@ REQUIRE_WAKE_FOR_SAFE_DIRECT = os.environ.get(
 # Hidden unless ELI_STT_VERBOSE=1. Real command-lifecycle events (wake word
 # detected, Command, armed) stay visible regardless.
 _STT_VERBOSE = os.environ.get("ELI_STT_VERBOSE", "0").lower() in ("1", "true", "yes", "on")
+
+# Runtime noise adaptation. Deliberately NOT gated on ELI_STT_CALIBRATE: that switch
+# means "do an ambient measurement at startup", and people turn it off precisely
+# because a noisy launch produced a wild reading. Coupling the two meant the one
+# configuration that most needs runtime adaptation was the one that had it disabled.
+_STT_ADAPTIVE = os.environ.get("ELI_STT_ADAPTIVE", "1").lower() not in ("0", "false", "no", "off")
+# Ceiling for the noise-driven lift. Separate from ELI_STT_CAL_CAP (2000): that caps a
+# STARTUP ambient reading, whereas real speaker bleed measures ~8000 RMS, so a 2000 cap
+# could never gate it out and the mic would stay drowned.
+_STT_ADAPTIVE_CAP = float(os.environ.get("ELI_STT_ADAPTIVE_CAP", "12000"))
+# Consecutive drowned cycles before lifting the gate — one long noise capture can just
+# be a door slamming; three in a row is a room that is not going to get quiet by itself.
+_STT_NOISE_STUCK_CYCLES = int(os.environ.get("ELI_STT_NOISE_STUCK_CYCLES", "3"))
 
 
 def _vprint(*a, **k):
@@ -1016,6 +1103,9 @@ class ELIAudioSTT:
         global _ACTIVE_STT
         _ACTIVE_STT = self
         _merge_custom_wake_words()
+        # Before any device is resolved: AEC publishes its own cleaned-up source, so it
+        # has to exist first or the resolver would pin the raw, bleed-carrying one.
+        ensure_echo_cancel()
 
         # Local Whisper needs a more sensitive capture front-end than Google STT.
         # These values control when SpeechRecognition decides speech has started/stopped.
@@ -1076,11 +1166,14 @@ class ELIAudioSTT:
         self._voice_profile = self._load_voice_profile()
 
         # Ambient calibration: adjusts the energy threshold to sit above the
-        # current room noise floor. With ELI's noise cancellation active (via
-        # module-echo-cancel in the launcher), ambient RMS is ~30-60 so calibration
-        # is safe. Without noise cancel (raw mic + music/HVAC), calibration can
-        # spike to 800-8000 making normal speech undetectable. In that case set
-        # ELI_STT_CALIBRATE=0 to use the fixed ELI_STT_ENERGY_THRESHOLD instead.
+        # current room noise floor. With echo cancellation active (ELI_STT_ECHO_CANCEL=1,
+        # see ensure_echo_cancel) ambient RMS is ~30-60 so calibration is safe. Without
+        # it — the DEFAULT, and for a long time the only reality, since the "launcher"
+        # that this comment used to credit with loading module-echo-cancel never
+        # existed — a raw mic next to speakers reads 800-8000 and calibration spikes,
+        # making normal speech undetectable. Hence ELI_STT_CALIBRATE=0 by default, using
+        # the fixed ELI_STT_ENERGY_THRESHOLD; runtime drift is handled instead by the
+        # noise self-heal in _listen_loop, which does not depend on this switch.
         _do_calibrate = os.environ.get("ELI_STT_CALIBRATE", "0").lower() not in {"0", "false", "no", "off"}
         if _do_calibrate:
             log.debug("[AUDIO] Calibrating microphone for ambient noise...")
@@ -1129,6 +1222,11 @@ class ELIAudioSTT:
             )
         # Bias against picked-up profile, if any history exists.
         self._apply_voice_profile_bias()
+        # Baseline the runtime noise adaptation returns to once a room goes quiet.
+        # Captured AFTER calibration and the profile bias so it reflects the threshold
+        # actually in force, not the raw configured value.
+        self._threshold_base = float(self.recognizer.energy_threshold)
+        self._noise_stuck_streak = 0
         log.debug(
             f"[AUDIO] Microphone ready "
             f"(energy={self.recognizer.energy_threshold:.0f}, "
@@ -1182,6 +1280,54 @@ class ELIAudioSTT:
         # Only apply if it would LOWER the threshold, never raise it.
         if target < ambient_thr:
             self.recognizer.energy_threshold = float(target)
+
+    def _adapt_threshold_to_noise(self, cap_rms: int) -> bool:
+        """Lift energy_threshold above a noise floor that has swallowed the mic.
+
+        The failure this exists for: when the room's noise floor sits ABOVE
+        energy_threshold, `_listen_adaptive_pause` can never observe the silence it
+        needs to END a phrase. Every cycle runs to the phrase cap, captures seconds of
+        noise, transcribes to nothing, and repeats — ELI is stone deaf and says nothing
+        about it. Measured on this machine: speaker bleed from music lifts the mic from
+        456 RMS to 7924, putting 85% of frames over the 1200 threshold.
+
+        Raising the gate above the noise is the only remedy that restores service: the
+        phrase then never STARTS on noise alone, and speech louder than the room (which
+        it has to be anyway, to be intelligible) opens and closes a phrase normally.
+        Returns True when the threshold was changed.
+        """
+        if not _STT_ADAPTIVE or cap_rms <= 0:
+            return False
+        target = min(float(_STT_ADAPTIVE_CAP), cap_rms * 1.2)
+        # Only ever raise here, and only if it is a meaningful move — otherwise a
+        # marginal noise reading would ratchet the gate up on every cycle.
+        if target <= self.recognizer.energy_threshold * 1.1:
+            return False
+        prev = self.recognizer.energy_threshold
+        self.recognizer.energy_threshold = target
+        log.warning(
+            f"[AUDIO_ADAPT] mic drowning (noise rms={cap_rms}, phrases never ending) — "
+            f"energy threshold {prev:.0f} → {target:.0f}. Speak above the background, "
+            f"or silence it, to be heard."
+        )
+        return True
+
+    def _decay_threshold_toward_base(self) -> bool:
+        """Walk the threshold back down once the room goes quiet again.
+
+        Without this, one noisy episode would leave ELI permanently hard of hearing —
+        a self-heal that only ever tightens is just a slower way to go deaf.
+        """
+        if not _STT_ADAPTIVE:
+            return False
+        base = float(getattr(self, "_threshold_base", 0.0) or 0.0)
+        cur = float(self.recognizer.energy_threshold)
+        if base <= 0 or cur <= base * 1.05:
+            return False
+        nxt = max(base, cur * 0.7)
+        self.recognizer.energy_threshold = nxt
+        log.debug(f"[AUDIO_ADAPT] room quiet again — threshold {cur:.0f} → {nxt:.0f} (base {base:.0f})")
+        return True
 
     def _record_voice_sample(self, audio) -> None:
         """Update voice profile statistics from a confirmed user utterance."""
@@ -1412,6 +1558,12 @@ class ELIAudioSTT:
                 # of silence, redo ambient_noise to follow drifting fan/HVAC noise.
                 _recal_every = int(os.environ.get("ELI_STT_RECALIBRATE_EVERY", "60"))
                 _silent_streak = 0
+                # Consecutive listen() timeouts = no phrase even STARTED, which is the
+                # only clean evidence the room is genuinely quiet. (`_silent_streak`
+                # cannot serve here: it also counts the drowning case, where captures
+                # keep arriving and transcribe to nothing.)
+                _quiet_streak = 0
+                _decay_after = int(os.environ.get("ELI_STT_NOISE_DECAY_CYCLES", "10"))
 
                 import tempfile as _tf
                 # Must match tts_router's lock default (same process writes it there,
@@ -1572,6 +1724,7 @@ class ELIAudioSTT:
                         # Flag-gated; falls back to stock listen() on any error.
                         _adaptive = os.environ.get("ELI_STT_ADAPTIVE_PAUSE", "1").lower() not in {"0", "false", "no", "off"}
                         _adaptive_state = self._voice_gate.armed() or _allow_direct_chat()
+                        _used_limit = _active_phrase_limit   # cap the capture ran under
                         if _adaptive and _adaptive_state:
                             _ad_limit = max(_active_phrase_limit, float(os.environ.get("ELI_STT_ADAPTIVE_PHRASE_LIMIT", "45.0")))
                             try:
@@ -1581,6 +1734,7 @@ class ELIAudioSTT:
                                     long_pause=float(os.environ.get("ELI_STT_LONG_PAUSE", "2.0")),
                                     long_after=float(os.environ.get("ELI_STT_LONG_AFTER", "12.0")),
                                 )
+                                _used_limit = _ad_limit
                             except sr.WaitTimeoutError:
                                 raise
                             except Exception as _ad_err:
@@ -1598,6 +1752,14 @@ class ELIAudioSTT:
                                 log.debug("[AUDIO_DUCK] Gate expired (no speech) — volume restored")
                             except Exception as _re:
                                 log.debug(f"[AUDIO_DUCK][RESTORE_ERROR] {_re}")
+                        # Nothing even crossed the gate — the room is quiet. If an
+                        # earlier noise episode lifted the threshold, walk it back down
+                        # so the mic recovers its normal sensitivity instead of staying
+                        # deafened long after the music stopped.
+                        _quiet_streak += 1
+                        if _decay_after > 0 and _quiet_streak >= _decay_after:
+                            self._decay_threshold_toward_base()
+                            _quiet_streak = 0
                         continue
                     except Exception as e:
                         if not self.is_listening or self._stop_event.is_set():
@@ -1636,7 +1798,32 @@ class ELIAudioSTT:
                         time.sleep(0.1)
                         continue
 
+                    _quiet_streak = 0          # a phrase started; room is not quiet
                     transcript = self._recognize(audio)
+
+                    # ── Noise self-heal ──────────────────────────────────────────
+                    # A capture that ran all the way to the phrase cap never saw
+                    # silence, so the noise floor is sitting above energy_threshold
+                    # and the phrase could not finalise. Paired with a transcript
+                    # that came back empty, that is not someone talking for six
+                    # seconds — it is the mic drowning. Left alone this spins
+                    # forever, transcribing background noise into nothing, and the
+                    # only outward sign is that ELI has stopped responding at all.
+                    try:
+                        import audioop as _aop
+                        _raw = audio.get_raw_data()
+                        _cap_dur = len(_raw) / float(audio.sample_width * audio.sample_rate)
+                        _ran_to_cap = _used_limit and _cap_dur >= float(_used_limit) * 0.95
+                        if _ran_to_cap and not (transcript or "").strip():
+                            self._noise_stuck_streak += 1
+                            if self._noise_stuck_streak >= _STT_NOISE_STUCK_CYCLES:
+                                if self._adapt_threshold_to_noise(_aop.rms(_raw, audio.sample_width)):
+                                    self._noise_stuck_streak = 0
+                        elif (transcript or "").strip():
+                            # Real speech got through — the gate is where it should be.
+                            self._noise_stuck_streak = 0
+                    except Exception:
+                        log.debug("[AUDIO_ADAPT] noise check failed", exc_info=True)
 
                     # Acoustic wake-word detector (self-trained, robust over music)
                     # When UNARMED and a local model is trained, score the captured audio
@@ -1835,6 +2022,16 @@ class ELIAudioSTT:
 
                     if action == "ignore_unarmed":
                         _vprint("🫥 [AUDIO] ignored — no wake word", flush=True)
+                        # _vprint is stdout-only and off unless ELI_STT_VERBOSE=1, so a
+                        # correctly-heard command dropped for want of a wake word left
+                        # NO trace anywhere — indistinguishable from a dead microphone,
+                        # which is exactly how a working mic came to be reported broken.
+                        # The logger always records it, so the drop is diagnosable after
+                        # the fact without having to reproduce it with a flag set.
+                        log.debug(
+                            f"[AUDIO] dropped (no wake word; say {primary_wake_word()!r} first, "
+                            f"or enable direct chat): {transcript_display!r}"
+                        )
                         continue
 
                     if action == "ignore_too_short":
