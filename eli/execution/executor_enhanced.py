@@ -3062,6 +3062,56 @@ def _mpv_ipc(command: list, *, want_response: bool = False):
         return None if want_response else False
 
 
+def _mpv_load_confirmed(sock_path: str) -> bool:
+    """True once mpv has actually RESOLVED AND OPENED a media file on `sock_path`.
+
+    Deliberately queries the socket we just spawned rather than going through
+    _mpv_ipc(), which resolves its path from _MEDIA_STATE — during verification that
+    still points at the *previous* track, so it would answer the wrong question.
+
+    `duration` is the honest signal: mpv only knows it after yt-dlp has resolved the
+    URL and the demuxer has opened the stream. Process liveness alone is not enough —
+    a slow yt-dlp failure stays alive for several seconds before exiting, which is
+    exactly how a track that never played got announced as playing.
+    """
+    import json as _json
+    import socket as _sock
+    if not sock_path or not os.path.exists(sock_path):
+        return False
+    try:
+        s = _sock.socket(_sock.AF_UNIX, _sock.SOCK_STREAM)
+        s.settimeout(1.0)
+        s.connect(sock_path)
+        s.sendall((_json.dumps({"command": ["get_property", "duration"]}) + "\n").encode())
+        buf = s.recv(8192).decode("utf-8", "ignore")
+        s.close()
+        for line in buf.splitlines():
+            try:
+                j = _json.loads(line)
+            except Exception:
+                continue
+            if isinstance(j, dict) and isinstance(j.get("data"), (int, float)):
+                return True
+    except Exception:
+        return False
+    return False
+
+
+def _prune_mpv_logs(keep: int = 5) -> None:
+    """Keep only the newest `keep` mpv failure logs so /tmp cannot grow without bound."""
+    import glob as _glob
+    try:
+        logs = sorted(_glob.glob(os.path.join(tempfile.gettempdir(), "eli_mpv_*.log")),
+                      key=os.path.getmtime, reverse=True)
+        for stale in logs[keep:]:
+            try:
+                os.unlink(stale)
+            except OSError:
+                pass
+    except Exception:
+        log.debug("suppressed exception", exc_info=True)
+
+
 def _mpv_quit() -> None:
     """Stop the headless YouTube mpv if it's running."""
     if _mpv_alive():
@@ -3212,43 +3262,66 @@ def play_specific(query: str, target: str | None = None) -> Dict[str, Any]:
             # signature breakage, geo-block, dead network). Sending it to DEVNULL used
             # to destroy that evidence, so a failure was both unnoticed and
             # un-diagnosable after the fact. Keep it on disk for the post-mortem.
-            _mpv_err_log = tempfile.NamedTemporaryFile(
-                prefix="eli_mpv_", suffix=".log", delete=False, mode="w+",
-            )
+            try:
+                _mpv_err_log = tempfile.NamedTemporaryFile(
+                    prefix="eli_mpv_", suffix=".log", delete=False, mode="w+",
+                )
+                _err_target = _mpv_err_log
+            except Exception:
+                # A read-only or full temp dir must not cost us playback entirely —
+                # degrade to DEVNULL (no post-mortem) rather than skipping mpv.
+                log.debug("suppressed exception", exc_info=True)
+                _err_target = _sp.DEVNULL
             proc = _sp.Popen(
                 ["mpv", f"ytdl://ytsearch1:{yt_search}",
                  f"--input-ipc-server={ipc}",
                  "--ytdl-format=bestaudio/best",
                  "--title=ELI-YouTube"],
-                stdout=_sp.DEVNULL, stderr=_mpv_err_log, start_new_session=True,
+                stdout=_sp.DEVNULL, stderr=_err_target, start_new_session=True,
             )
             # Popen returns as soon as the process is SPAWNED, which says nothing about
             # whether it plays — that is how "Playing … on YouTube" got reported for a
-            # track that never started. mpv opens its IPC socket within ~0.1s even when
-            # the query is unresolvable, so the socket is not proof either; a genuine
-            # failure exits (rc=2) at ~2s. Waiting for it to still be alive after that
-            # window is what makes "played" an actual claim instead of a guess.
-            _verify_s = float(os.environ.get("ELI_YT_VERIFY_SECONDS", "3.0"))
+            # track that never started. Neither the IPC socket (mpv opens it within
+            # ~0.1s regardless) nor mere liveness is proof: a slow yt-dlp failure stays
+            # alive for seconds before exiting. Only `duration` becoming known means the
+            # stream was really resolved and opened — measured at ~4s for a normal track
+            # and ~6s for a livestream (which reports 0.0, still numeric, so it counts).
+            # `media-title` is NOT usable here: mpv echoes the raw ytsearch string back
+            # within 0.5s, long before anything is loaded. Poll for a DECISION and never
+            # assert more than was observed:
+            #   died          → report the failure and fall back
+            #   duration known→ genuine playback, return as soon as it lands
+            #   neither       → still resolving; say so rather than claim it plays
+            _verify_s = float(os.environ.get("ELI_YT_VERIFY_SECONDS", "8.0"))
             # NB: `_time` is bound only inside the Spotify branch above, which makes it a
             # function-local Python cannot resolve here — use the module-level `time`.
             _deadline = time.monotonic() + max(0.0, _verify_s)
-            while time.monotonic() < _deadline and proc.poll() is None:
+            _confirmed = False
+            while time.monotonic() < _deadline:
+                if proc.poll() is not None:
+                    break
+                if _mpv_load_confirmed(ipc):
+                    _confirmed = True
+                    break
                 time.sleep(0.1)
             _rc = proc.poll()
             if _rc is not None:
-                try:
-                    _mpv_err_log.flush()
-                    _mpv_err_log.seek(0)
-                    _tail = " | ".join(
-                        ln.strip() for ln in _mpv_err_log.read().splitlines()[-4:] if ln.strip()
-                    )
-                except Exception:
-                    _tail = ""
+                _tail = ""
+                if _mpv_err_log is not None:
+                    try:
+                        _mpv_err_log.flush()
+                        _mpv_err_log.seek(0)
+                        _tail = " | ".join(
+                            ln.strip() for ln in _mpv_err_log.read().splitlines()[-4:] if ln.strip()
+                        )
+                    except Exception:
+                        log.debug("suppressed exception", exc_info=True)
                 log.warning(
                     f"[MEDIA] direct YouTube playback failed for {yt_search!r} "
                     f"(mpv rc={_rc}); stderr: {_tail or 'none captured'} "
-                    f"[full log: {_mpv_err_log.name}]"
+                    f"[full log: {getattr(_mpv_err_log, 'name', 'not captured')}]"
                 )
+                _prune_mpv_logs()
                 # The full stderr belongs in the log, NOT in `response` — this string is
                 # spoken by TTS, and reading four lines of ytdl_hook diagnostics aloud is
                 # useless to the user. Give them the one fact that changes what they do next.
@@ -3259,24 +3332,42 @@ def play_specific(query: str, target: str | None = None) -> Dict[str, Any]:
                 # Fall through to the browser fallback below rather than claiming
                 # playback that demonstrably is not happening.
             else:
-                try:
-                    _mpv_err_log.close()
-                    os.unlink(_mpv_err_log.name)     # started cleanly, keep no litter
-                except Exception:
-                    log.debug("suppressed exception", exc_info=True)
-                # mpv resolves the real title once yt-dlp returns; prefer it over the
-                # raw query so the confirmation reflects what is actually playing.
+                if _mpv_err_log is not None:
+                    try:
+                        _mpv_err_log.close()
+                        os.unlink(_mpv_err_log.name)  # still running, keep no litter
+                    except Exception:
+                        log.debug("suppressed exception", exc_info=True)
+                # Register the source either way: mpv is alive, so NOW_PLAYING can go and
+                # read the real state on demand — and it verifies liveness itself, so a
+                # process that dies after this point still reports honestly.
                 _title = (f"{_by_m.group(1).strip()} by {_by_m.group(2).strip()}"
                           if _by_m else query)
                 _set_now_playing("mpv", _title, mpv_sock=ipc)
-                _resolved = _mpv_ipc(["get_property", "media-title"], want_response=True)
-                _what = (_resolved.strip()
-                         if isinstance(_resolved, str) and _resolved.strip()
-                         else (f"'{_by_m.group(1).strip()}' by {_by_m.group(2).strip()}"
-                               if _by_m else f"'{query}'"))
-                msg = f"Playing {_what} on YouTube (audio, in the background)."
-                return {"ok": True, "action": "PLAY_MEDIA", "played": True,
-                        "content": msg, "response": msg}
+                _fallback_what = (f"'{_by_m.group(1).strip()}' by {_by_m.group(2).strip()}"
+                                  if _by_m else f"'{query}'")
+                if _confirmed:
+                    # mpv resolved the real title; prefer it over the raw query so the
+                    # confirmation reflects what is actually playing.
+                    _resolved = _mpv_ipc(["get_property", "media-title"], want_response=True)
+                    _what = (_resolved.strip()
+                             if isinstance(_resolved, str) and _resolved.strip()
+                             else _fallback_what)
+                    msg = f"Playing {_what} on YouTube (audio, in the background)."
+                    return {"ok": True, "action": "PLAY_MEDIA", "played": True,
+                            "content": msg, "response": msg}
+                # Alive but nothing loaded yet within the window — usually a slow
+                # yt-dlp resolve. Saying "playing" here would be the original defect in
+                # slower clothing, so state exactly what is known and point at the
+                # action that can settle it.
+                log.info(
+                    f"[MEDIA] mpv still resolving {yt_search!r} after {_verify_s:.1f}s "
+                    f"— reporting as unconfirmed rather than claiming playback"
+                )
+                msg = (f"Starting {_fallback_what} on YouTube — it is still resolving, so "
+                       f"I have not confirmed playback yet. Ask what's playing in a moment.")
+                return {"ok": True, "action": "PLAY_MEDIA", "played": False,
+                        "pending": True, "content": msg, "response": msg}
         except Exception:
             log.debug("suppressed exception", exc_info=True)
         finally:
