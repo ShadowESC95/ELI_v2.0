@@ -4588,19 +4588,11 @@ def _spotify_ctl(command: str, auto_launch: bool = True):
 
 
 # --- APP OPENING FUNCTIONS ---
-_APP_ALIASES = {
-    "mail": "thunderbird",
-    "email": "thunderbird",
-    "e-mail": "thunderbird",
-    "thunderbird": "thunderbird",
-    "thunderbirds": "thunderbird",
-    "thunder birds": "thunderbird",
-    "tundra bird": "thunderbird",
-    "tundrabird": "thunderbird",
-    "browser": "firefox",
-    "mozilla": "firefox",
-    "firefox": "firefox",
-}
+# Canonical alias table — see eli/execution/app_aliases.py. This copy held 11
+# names the router had never heard of (thunderbird, mozilla, browser...) while
+# the router held 30 this one lacked (vs code, calculator, files...), so which
+# aliases resolved depended entirely on which layer handled the phrase.
+from eli.execution.app_aliases import APP_ALIASES as _APP_ALIASES
 
 def _normalize_app(spoken: str) -> str:
     """Normalize application names using aliases."""
