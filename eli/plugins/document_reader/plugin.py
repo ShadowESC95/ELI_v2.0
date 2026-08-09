@@ -1,6 +1,7 @@
 # eli/plugins/document_reader/plugin.py
 from __future__ import annotations
 
+from html.parser import HTMLParser
 from pathlib import Path
 from eli.plugins.base import Plugin
 
@@ -10,10 +11,64 @@ _TEXT_SUFFIXES = {
     ".xml", ".toml", ".ini", ".cfg", ".sh", ".bat",
 }
 
+# ODT and EPUB are both zip containers. Neither is in _TEXT_SUFFIXES, so before
+# they were dispatched here any such file under the 2MB threshold fell through
+# to the plain-text branch and came back as decoded zip bytes with ok=True —
+# mojibake presented as the document's contents rather than an honest refusal.
+_MAX_CHARS = 8000
+
+
+def _localname(tag: str) -> str:
+    """`{urn:...:text:1.0}p` -> `p`. ODF tags are always namespaced."""
+    return tag.rsplit("}", 1)[-1]
+
+
+class _TextExtractor(HTMLParser):
+    """Minimal XHTML -> text. stdlib only; ebooklib/bs4 are not on the shipped stack."""
+
+    _SKIP = {"script", "style", "head"}
+    _BREAK = {"p", "div", "br", "li", "h1", "h2", "h3", "h4", "h5", "h6", "tr"}
+
+    def __init__(self):
+        super().__init__(convert_charrefs=True)
+        self._parts: list[str] = []
+        self._depth = 0
+
+    def handle_starttag(self, tag, attrs):
+        if tag in self._SKIP:
+            self._depth += 1
+        elif tag in self._BREAK:
+            self._parts.append("\n")
+
+    def handle_endtag(self, tag):
+        if tag in self._SKIP and self._depth:
+            self._depth -= 1
+        elif tag in self._BREAK:
+            self._parts.append("\n")
+
+    def handle_data(self, data):
+        if not self._depth:
+            self._parts.append(data)
+
+    def text(self) -> str:
+        joined = "".join(self._parts)
+        lines = [ln.strip() for ln in joined.splitlines()]
+        return "\n".join(ln for ln in lines if ln)
+
+
+def _html_to_text(markup: str) -> str:
+    parser = _TextExtractor()
+    try:
+        parser.feed(markup)
+        parser.close()
+    except Exception:
+        pass
+    return parser.text()
+
 
 class DocumentReaderPlugin(Plugin):
     name = "document_reader"
-    description = "Read and optionally index local documents (txt, md, PDF, docx)."
+    description = "Read and optionally index local documents (txt, md, PDF, docx, odt, epub)."
 
     def __init__(self):
         self.actions = {
@@ -40,13 +95,21 @@ class DocumentReaderPlugin(Plugin):
                 return self._read_pdf(p)
             elif suffix in (".docx", ".doc"):
                 return self._read_docx(p)
+            elif suffix == ".odt":
+                return self._read_odt(p)
+            elif suffix == ".epub":
+                return self._read_epub(p)
             elif suffix in _TEXT_SUFFIXES or p.stat().st_size < 2_000_000:
-                text = p.read_text(encoding="utf-8", errors="ignore")
-                truncated = len(text) > 8000
-                return {
-                    "ok": True, "content": text[:8000], "response": text[:8000],
-                    "path": str(p), "length": len(text), "truncated": truncated,
-                }
+                raw = p.read_bytes()
+                # Only known-text suffixes get the benefit of the doubt. Anything
+                # else that carries NULs early is binary, and decoding it would
+                # hand back garbage under ok=True instead of saying so.
+                if suffix not in _TEXT_SUFFIXES and b"\x00" in raw[:4096]:
+                    return {"ok": False, "error": "unsupported_format",
+                            "content": f"Unsupported binary file type: {suffix}",
+                            "response": f"Cannot read {suffix} files.", "path": str(p)}
+                text = raw.decode("utf-8", errors="ignore")
+                return self._text_result(p, text)
             else:
                 return {"ok": False, "error": "unsupported_format",
                         "content": f"Unsupported file type: {suffix}",
@@ -82,6 +145,116 @@ class DocumentReaderPlugin(Plugin):
         return result
 
     # ── Private readers ─────────────────────────────────────────────────────
+
+    def _text_result(self, p: Path, text: str) -> dict:
+        return {
+            "ok": True, "content": text[:_MAX_CHARS], "response": text[:_MAX_CHARS],
+            "path": str(p), "length": len(text), "truncated": len(text) > _MAX_CHARS,
+        }
+
+    def _bad_container(self, p: Path, why: str) -> dict:
+        return {"ok": False, "error": why, "content": why, "response": why, "path": str(p)}
+
+    def _read_odt(self, p: Path) -> dict:
+        """OpenDocument text: a zip whose content.xml carries the body.
+
+        Deliberately stdlib — odfpy would be a new runtime dependency on the
+        shipped stack for what ElementTree does in a dozen lines.
+        """
+        import zipfile
+        from xml.etree import ElementTree as ET
+
+        try:
+            with zipfile.ZipFile(str(p)) as z:
+                xml = z.read("content.xml")
+        except zipfile.BadZipFile:
+            return self._bad_container(p, "Not a valid OpenDocument file (bad zip container).")
+        except KeyError:
+            return self._bad_container(p, "Not a valid OpenDocument file (no content.xml).")
+
+        try:
+            root = ET.fromstring(xml)
+        except ET.ParseError as e:
+            return self._bad_container(p, f"Malformed OpenDocument content.xml: {e}")
+
+        # text:p and text:h are the paragraph/heading elements. They never nest
+        # in each other (lists wrap them in text:list-item), so itertext() on
+        # each cannot double-count.
+        lines = []
+        for el in root.iter():
+            if _localname(el.tag) in ("p", "h"):
+                line = "".join(el.itertext()).strip()
+                if line:
+                    lines.append(line)
+        return self._text_result(p, "\n".join(lines))
+
+    def _read_epub(self, p: Path) -> dict:
+        """EPUB: a zip of XHTML read in spine order, which is reading order.
+
+        Falls back to sorted filenames when the OPF is unreadable — a mangled
+        spine should degrade to out-of-order text, not to no text at all.
+        """
+        import zipfile
+
+        try:
+            with zipfile.ZipFile(str(p)) as z:
+                parts = []
+                for name in self._epub_documents(z)[:50]:
+                    try:
+                        raw = z.read(name)
+                    except KeyError:
+                        continue
+                    chunk = _html_to_text(raw.decode("utf-8", errors="ignore"))
+                    if chunk:
+                        parts.append(chunk)
+                        if sum(len(x) for x in parts) > _MAX_CHARS:
+                            break
+        except zipfile.BadZipFile:
+            return self._bad_container(p, "Not a valid EPUB file (bad zip container).")
+
+        return self._text_result(p, "\n\n".join(parts))
+
+    def _epub_documents(self, z) -> list:
+        """Content document names in spine order, or sorted names as a fallback."""
+        from xml.etree import ElementTree as ET
+
+        def _fallback():
+            return sorted(
+                n for n in z.namelist()
+                if n.lower().endswith((".xhtml", ".html", ".htm"))
+            )
+
+        try:
+            container = ET.fromstring(z.read("META-INF/container.xml"))
+            opf_path = ""
+            for el in container.iter():
+                if _localname(el.tag) == "rootfile":
+                    opf_path = el.get("full-path") or ""
+                    break
+            if not opf_path:
+                return _fallback()
+
+            opf = ET.fromstring(z.read(opf_path))
+            base = opf_path.rsplit("/", 1)[0] if "/" in opf_path else ""
+
+            hrefs, spine = {}, []
+            for el in opf.iter():
+                tag = _localname(el.tag)
+                if tag == "item" and el.get("id"):
+                    hrefs[el.get("id")] = el.get("href") or ""
+                elif tag == "itemref" and el.get("idref"):
+                    spine.append(el.get("idref"))
+
+            names = []
+            for idref in spine:
+                href = hrefs.get(idref)
+                if not href:
+                    continue
+                # OPF hrefs are relative to the OPF's own directory.
+                names.append(f"{base}/{href}" if base else href)
+            return names or _fallback()
+        except Exception:
+            return _fallback()
 
     def _read_pdf(self, p: Path) -> dict:
         try:
