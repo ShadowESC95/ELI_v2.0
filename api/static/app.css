@@ -399,6 +399,13 @@
   .devurl { display:flex; gap:8px; margin-top:10px; flex-wrap:wrap; }
   .devurl input { flex:1; min-width:180px; padding:8px 10px; border:1px solid var(--line); border-radius:8px; background:var(--input); color:var(--fg); font-size:13px; }
   .card.devsel { outline:2px solid rgba(34,211,238,.45); box-shadow:0 0 20px rgba(34,211,238,.2); }
+  /* Drag a device card onto a room to move it. The lifted card has to stay
+     visible while dragging — going fully transparent leaves the user dragging
+     nothing and unsure whether the gesture took. */
+  .grid .card[draggable="true"] { cursor:grab; }
+  .grid .card.drag { opacity:.55; cursor:grabbing; border-color:var(--accent); }
+  .roomsec.dropok { outline:2px dashed rgba(34,211,238,.55); outline-offset:6px; border-radius:12px; }
+  .roomsec.dropok .roomhd .roomnm { color:var(--accent); }
   .card.hubopen { cursor:pointer; }
   /* Driver (media) cards — console transport */
   .card [data-cap] { padding:7px 0; min-width:36px; font-size:14px; border:1px solid var(--line); border-radius:9px; background:rgba(6,11,20,.6); color:var(--fg-dim); transition:var(--fast); }
