@@ -3,11 +3,15 @@ import shutil
 from pathlib import Path
 from time import time
 from typing import Optional
-from eli.world.persistence.storage import STATE_PATH
+from eli.world.persistence.storage import STATE_PATH, world_dir
 
-SNAPSHOT_DIR = Path("artifacts/world/snapshots")
+
+def snapshot_dir() -> Path:
+    """Absolute snapshot directory — see journal.journal_path() for why."""
+    return world_dir() / "snapshots"
 
 def create_snapshot(label: str = "snapshot") -> Optional[Path]:
+    SNAPSHOT_DIR = snapshot_dir()
     SNAPSHOT_DIR.mkdir(parents=True, exist_ok=True)
     if not STATE_PATH.exists():
         return None
@@ -17,6 +21,7 @@ def create_snapshot(label: str = "snapshot") -> Optional[Path]:
     return out
 
 def latest_snapshot() -> Optional[Path]:
+    SNAPSHOT_DIR = snapshot_dir()
     SNAPSHOT_DIR.mkdir(parents=True, exist_ok=True)
     snapshots = sorted(SNAPSHOT_DIR.glob("*.json"))
     return snapshots[-1] if snapshots else None
