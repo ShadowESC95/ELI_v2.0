@@ -151,15 +151,25 @@ def list_clones() -> "list[Dict[str, Any]]":
 
 # ── Synthesis (needs the optional TTS package) ──────────────────────────────────
 def xtts_available() -> bool:
-    # Check for the optional package FIRST. Patching before this ran the shim on every
-    # availability probe — including in shipped builds where `transformers` is not
-    # bundled at all — spraying a ModuleNotFoundError traceback across the console on
-    # a perfectly healthy launch. The shim is only meaningful once TTS is importable.
+    """True when the neural backend can actually be imported. Cheap — no model load.
+
+    The shim MUST run before `import TTS`, because coqui-tts reaches for
+    `transformers.pytorch_utils.isin_mps_friendly` during its own import and
+    transformers>=5 dropped that name. Checking importability first and patching
+    afterwards means the patch is never reached: the import raises, this returns
+    False, and neural voice is silently off on a machine that has torch, coqui-tts
+    AND the 1.8GB XTTS weights all present and working.
+
+    The ordering was swapped to stop a ModuleNotFoundError traceback appearing on
+    launches without the optional extra — a real problem, but one the shim already
+    handles internally by returning quietly when transformers or torch is absent.
+    Quieting the console cost the whole feature.
+    """
+    _patch_transformers_compat()
     try:
         import TTS  # noqa: F401
     except Exception:
         return False
-    _patch_transformers_compat()
     return True
 
 
