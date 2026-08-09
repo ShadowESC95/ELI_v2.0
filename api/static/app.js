@@ -943,12 +943,55 @@
       }
     }
     const dom=card.querySelector('.dom');if(dom){dom.style.cursor='pointer';dom.onclick=()=>moveDevice(dv);}
+    // Drag a device onto a room heading to move it. Mirrors the Overview tab's
+    // widget drag rather than introducing a second pattern. Pointer only — the
+    // room picker above stays the accessible path, and is the ONLY path on
+    // touch, where HTML5 drag events do not fire at all.
+    card.setAttribute('draggable','true');
+    card.addEventListener('dragstart',e=>{
+      _dragDev=dv.id;card.classList.add('drag');
+      try{e.dataTransfer.setData('text/plain',dv.id);e.dataTransfer.effectAllowed='move';}catch(_){}
+    });
+    card.addEventListener('dragend',()=>{
+      _dragDev=null;card.classList.remove('drag');
+      document.querySelectorAll('.roomsec.dropok').forEach(s=>s.classList.remove('dropok'));
+    });
     return card;
   }
+  let _dragDev=null;
+  // Rooms currently in use, so the picker can offer them instead of relying on
+  // the user to retype one exactly. Filled by paneDevices on every render.
+  let _knownRooms=[];
+  function setDeviceRoom(id, room){
+    return api('/v1/devices/room',{method:'POST',body:JSON.stringify({device_id:id,room:(room||'').trim()})})
+      .then(()=>loadDevices());
+  }
+  // A bare prompt() asked the user to TYPE the room name. One typo silently
+  // created a second room ("Kitchen" vs "kitchen") and the device vanished from
+  // where they expected it, with nothing on screen explaining why. Offer the
+  // rooms that already exist and make a new one a deliberate choice.
   function moveDevice(dv){
-    const r=prompt('Room for "'+(dv.name||dv.id)+'" (blank = Unassigned):', dv.room||'');
-    if(r===null)return;
-    api('/v1/devices/room',{method:'POST',body:JSON.stringify({device_id:dv.id,room:r.trim()})}).then(()=>loadDevices());
+    const wrap=document.createElement('div');wrap.className='modal open';
+    const opts=_knownRooms.filter(r=>r&&r!=='Unassigned')
+      .map(r=>'<option value="'+esc(r)+'"'+(r===dv.room?' selected':'')+'>'+esc(r)+'</option>').join('');
+    wrap.innerHTML='<div class="sheet"><h3>Move '+esc(dv.name||dv.id)+'</h3>'
+      +'<div class="sub">Pick a room, or create a new one.</div>'
+      +'<div class="arow"><select id="mv-room" style="flex:1;min-width:0">'
+      +'<option value="">Unassigned</option>'+opts
+      +'<option value="__new">New room…</option></select></div>'
+      +'<div class="arow" id="mv-newwrap" style="display:none"><input id="mv-new" placeholder="Room name" style="flex:1;min-width:0"></div>'
+      +'<div class="mfoot"><button class="mbtn" id="mv-cancel">Cancel</button>'
+      +'<button class="mbtn primary" id="mv-ok">Move</button></div></div>';
+    document.body.appendChild(wrap);
+    const sel=wrap.querySelector('#mv-room'), nw=wrap.querySelector('#mv-newwrap'), ni=wrap.querySelector('#mv-new');
+    sel.onchange=()=>{const isNew=sel.value==='__new';nw.style.display=isNew?'':'none';if(isNew)ni.focus();};
+    const close=()=>wrap.remove();
+    wrap.querySelector('#mv-cancel').onclick=close;
+    wrap.onclick=(e)=>{if(e.target===wrap)close();};
+    wrap.querySelector('#mv-ok').onclick=()=>{
+      const room=sel.value==='__new'?(ni.value||''):sel.value;
+      close();setDeviceRoom(dv.id, room);
+    };
   }
   // ── Generic sub-tab framework (reused across main tabs) ────────────────
   function mountSubtabs(host, tabs, initial, onSwitch){
@@ -1293,6 +1336,7 @@
   }
   function paneDevices(el, rooms, st){
     el.innerHTML='';
+    _knownRooms=rooms.map(r=>r.room).filter(Boolean);
     const all=[];rooms.forEach(rm=>(rm.devices||[]).forEach(d=>all.push(d)));
     if(all.length){
       if(!_devHubId||!all.find(d=>d.id===_devHubId))_devHubId=all[0].id;
@@ -1335,6 +1379,22 @@
       const off=document.createElement('button');off.className='roombtn';off.textContent='All off';off.onclick=()=>ctlRoom(rm.room,'off');
       hd.appendChild(on);hd.appendChild(off);sec.appendChild(hd);
       const grid=document.createElement('div');grid.className='grid';(rm.devices||[]).forEach(dv=>grid.appendChild(devCard(dv)));sec.appendChild(grid);
+      // Drop target for the card drag above. dragover must preventDefault or the
+      // browser refuses the drop entirely and nothing happens on release.
+      sec.addEventListener('dragover',e=>{
+        if(!_dragDev)return;
+        e.preventDefault();
+        try{e.dataTransfer.dropEffect='move';}catch(_){}
+        sec.classList.add('dropok');
+      });
+      sec.addEventListener('dragleave',e=>{ if(!sec.contains(e.relatedTarget)) sec.classList.remove('dropok'); });
+      sec.addEventListener('drop',e=>{
+        e.preventDefault();sec.classList.remove('dropok');
+        const id=_dragDev||(e.dataTransfer&&e.dataTransfer.getData('text/plain'));
+        if(!id)return;
+        const target=(rm.room==='Unassigned')?'':rm.room;
+        setDeviceRoom(id,target);
+      });
       el.appendChild(sec);
     });
     const foot=document.createElement('div');foot.className='afilter';foot.style.marginTop='14px';
@@ -1563,20 +1623,45 @@
   function ctlRoom(room,cmd){
     api('/v1/devices/room/control',{method:'POST',body:JSON.stringify({room:room,command:cmd})}).then(()=>setTimeout(loadDevices,500));
   }
+  // Every field here used to be a bare placeholder of MQTT jargon ("command
+  // topic"), which means nothing to someone who just wants their lamp to work.
+  // Labels, plain-English hints, and rooms offered from the ones that exist.
   function addDevicePrompt(){
-    $('#dev-add').innerHTML='<div class="rsec" style="margin-top:12px"><h4>Register a device</h4>'+
-      '<div class="rrow"><input id="d-id" placeholder="device id (unique)"><input id="d-name" placeholder="name"></div>'+
-      '<div class="rrow"><select id="d-type"><option>light</option><option>switch</option><option>fan</option><option>outlet</option><option>sensor</option></select>'+
-      '<input id="d-room" placeholder="room (optional)"></div>'+
-      '<div class="rrow"><input id="d-cmd" placeholder="command topic (e.g. home/lamp/set)"><input id="d-state" placeholder="state topic (e.g. home/lamp/state)"></div>'+
-      '<div class="rrow"><button onclick="addDevice()">Add</button></div></div>';
+    const rooms=_knownRooms.filter(r=>r&&r!=='Unassigned')
+      .map(r=>'<option value="'+esc(r)+'">').join('');
+    $('#dev-add').innerHTML='<div class="rsec" style="margin-top:12px"><h4>Add a device by hand</h4>'+
+      '<p class="rnote" style="margin:0 0 10px;line-height:1.6">For hardware that does not announce itself on the network — '+
+      'usually an MQTT light, switch or sensor. Anything found by <b>LAN scan</b> can be added from there instead.</p>'+
+      '<div class="rrow"><label style="flex:1;min-width:0">Name<br><input id="d-name" placeholder="Kitchen lamp"></label>'+
+      '<label style="flex:1;min-width:0">Type<br><select id="d-type"><option>light</option><option>switch</option><option>fan</option><option>outlet</option><option>sensor</option></select></label></div>'+
+      '<div class="rrow"><label style="flex:1;min-width:0">Room<br><input id="d-room" list="d-rooms" placeholder="Kitchen"><datalist id="d-rooms">'+rooms+'</datalist></label>'+
+      '<label style="flex:1;min-width:0">Unique ID<br><input id="d-id" placeholder="kitchen_lamp"></label></div>'+
+      '<div class="rrow"><label style="flex:1;min-width:0">Command topic<br><input id="d-cmd" placeholder="home/kitchen/lamp/set"></label>'+
+      '<label style="flex:1;min-width:0">State topic<br><input id="d-state" placeholder="home/kitchen/lamp/state"></label></div>'+
+      '<p class="rnote" style="margin:2px 0 10px;opacity:.8">The two topics come from the device\'s own firmware (ESPHome, Tasmota, Zigbee2MQTT). '+
+      'Leave them blank to register the device now and fill them in later.</p>'+
+      '<div class="rrow"><button class="cbtn pri" onclick="addDevice()">Add device</button>'+
+      '<span id="d-msg" class="rnote" style="align-self:center"></span></div></div>';
   }
   function addDevice(){
-    const body={device_id:($('#d-id').value||'').trim(), name:($('#d-name').value||'').trim(),
-      type:$('#d-type').value, command_topic:($('#d-cmd').value||'').trim(), state_topic:($('#d-state').value||'').trim(),
+    const msg=$('#d-msg'), say=(t,bad)=>{ if(msg){msg.textContent=t;msg.style.color=bad?'#f87171':'';} };
+    const name=($('#d-name').value||'').trim();
+    // Fall back to a slug of the name so "Unique ID" is not a hard requirement
+    // for someone who has no idea what it is meant to be.
+    let id=($('#d-id').value||'').trim() || name.toLowerCase().replace(/[^a-z0-9]+/g,'_').replace(/^_+|_+$/g,'');
+    if(!id){ say('Give the device a name (or an ID) first.', true); return; }
+    const body={device_id:id, name:name||id, type:$('#d-type').value,
+      command_topic:($('#d-cmd').value||'').trim(), state_topic:($('#d-state').value||'').trim(),
       room:($('#d-room').value||'').trim()};
-    if(!body.device_id){return;}
-    api('/v1/devices/register',{method:'POST',body:JSON.stringify(body)}).then(()=>loadDevices());
+    say('Adding…');
+    // The old version dropped both the blank-id case and any backend error on the
+    // floor, so a failed add looked exactly like a successful one: nothing.
+    api('/v1/devices/register',{method:'POST',body:JSON.stringify(body)})
+      .then(r=>{
+        if(r && r.ok===false){ say(r.error||'Could not add that device.', true); return; }
+        say('Added.'); loadDevices();
+      })
+      .catch(e=>say('Could not add that device: '+(e&&e.message||e), true));
   }
   function ctlDev(id,cmd,value){
     const body={device_id:id,command:cmd};if(value!=null)body.value=value;
