@@ -440,9 +440,35 @@ class DeviceServer:
             dev = self._devices.get(device_id)
         if not dev:
             return {"ok": False, "error": f"unknown device: {device_id}"}
+        driver_name = (dev.get("driver") or "mqtt").lower()
+
+        # A BLE bulb is switched by writing a vendor payload to a GATT
+        # characteristic — not by MQTT (no broker knows it) and not by the
+        # bluetooth driver, whose "on" is `connect`, i.e. link management that
+        # leaves the bulb untouched while reporting success. Route lights whose
+        # id is a BLE address to the real GATT writer regardless of the driver
+        # recorded against them: these get hand-registered as "mqtt" constantly,
+        # because the add-device form asks for a topic and a MAC is what people
+        # have to hand.
+        cmd_l = (command or "").lower().strip()
+        if (str(dev.get("type") or "").lower() in ("light", "bulb", "lamp")
+                and cmd_l in ("on", "off", "toggle", "rgb", "colour", "color")):
+            from eli.runtime import ble_light
+            if ble_light.is_ble_address(device_id):
+                if cmd_l in ("rgb", "colour", "color"):
+                    v = value if isinstance(value, (list, tuple)) else (255, 255, 255)
+                    res = ble_light.set_rgb(device_id, *(list(v) + [0, 0, 0])[:3])
+                else:
+                    want_on = cmd_l == "on" or (
+                        cmd_l == "toggle" and str(dev.get("state") or "").upper() != "ON")
+                    res = ble_light.set_power(device_id, want_on)
+                if res.get("ok"):
+                    self._apply_state(device_id, "ON" if cmd_l != "off" else "OFF")
+                    self._record_usage(device_id, cmd_l, dev)
+                return res
+
         # Non-MQTT devices (AirPlay / Fire TV / Cast / UPnP) route to their local driver,
         # which manages its own connection — no broker required.
-        driver_name = (dev.get("driver") or "mqtt").lower()
         if driver_name != "mqtt":
             from eli.runtime import device_drivers
             drv = device_drivers.get_driver(driver_name)
