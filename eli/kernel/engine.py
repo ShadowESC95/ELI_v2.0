@@ -10909,13 +10909,21 @@ Answer:"""
                             and not _bypass_persona
                         )
                         if _is_grounded_control_nonquick:
+                            # Synthesise from the STRUCTURED payload, not just its
+                            # one-line summary. Deliberately a separate variable:
+                            # `_direct_content` is what the quick/verbatim paths
+                            # return word-for-word, and must stay exactly as-is.
+                            _synth_evidence = self._structured_control_evidence(
+                                _chosen_payload, _direct_content,
+                            )
                             log.debug(
                                 f"[COGNITIVE] Non-Quick grounded control action {_action_upper}: "
-                                f"compact synthesis on {len(_direct_content)} chars of evidence",
+                                f"compact synthesis on {len(_synth_evidence)} chars of evidence "
+                                f"({len(_direct_content)} flat + structured)",
                             )
                             _compact_synth = self._compact_grounded_synthesis(
                                 user_input=user_input,
-                                evidence=_direct_content,
+                                evidence=_synth_evidence,
                                 action=_action_upper,
                                 mode=_direct_mode,
                             )
@@ -13539,6 +13547,71 @@ Answer:"""
         except Exception as gov_err:
             log.debug(f"[COGNITIVE] Governor validation failed (non-fatal): {gov_err}")
             return text
+
+    # Payload keys that must never reach the synthesis prompt: `settings` is the
+    # entire settings dict (~4KB of image/vision/gaze/mode-preset knobs) and would
+    # crowd out the parts that answer the question, besides leaking configuration
+    # into prose. The text keys are already carried as the base content.
+    _SYNTH_EVIDENCE_SKIP = frozenset({
+        "settings", "content", "response", "result", "raw_tool_text",
+        "response_contract", "evidence_source", "generation_invoked",
+    })
+
+    def _structured_control_evidence(self, payload: Any, base_content: str,
+                                     *, cap: int = 4000) -> str:
+        """Add the payload's STRUCTURED evidence to a control action's flat text.
+
+        Grounded control actions return both a pre-baked one-line summary and the
+        structured findings behind it. Only the one-liner was being forwarded to
+        synthesis, which is why "who are you — and be in depth?" came back as the
+        same 162-character runtime blurb in every reasoning mode, twice in a row,
+        including immediately after the user asked for more depth. It was not the
+        model refusing to elaborate: it had nothing else in front of it.
+
+        SELF_REPORT alone carries identity, real runtime figures, requested vs
+        effective settings and a runtime_health block naming actual concerns — all
+        discarded before the model ever saw them.
+
+        Bounded on purpose. The flat-text-only design was a fix for a real 35K-char
+        prompt overflow that produced garbage output and CUDA crashes, so this adds
+        a curated slice under a hard cap rather than the whole payload.
+        """
+        base = str(base_content or "").strip()
+        if not isinstance(payload, dict):
+            return base
+
+        import json as _json
+
+        blocks: List[str] = []
+
+        def _render(label: str, value: Any) -> None:
+            if not value or not isinstance(value, dict):
+                return
+            trimmed = {k: v for k, v in value.items() if k not in self._SYNTH_EVIDENCE_SKIP}
+            if not trimmed:
+                return
+            try:
+                blocks.append(f"{label}:\n{_json.dumps(trimmed, indent=2, default=str)}")
+            except Exception:
+                log.debug("suppressed exception", exc_info=True)
+
+        # `evidence` is the action's own curated summary — the intended shape.
+        _render("STRUCTURED EVIDENCE", payload.get("evidence"))
+        # `report.paths` locates the real databases and model; `report.settings` is
+        # deliberately excluded by _SYNTH_EVIDENCE_SKIP.
+        report = payload.get("report")
+        if isinstance(report, dict):
+            _render("PATHS", report.get("paths"))
+            if not payload.get("evidence"):
+                _render("RUNTIME", report.get("runtime"))
+
+        if not blocks:
+            return base
+
+        extra = "\n\n".join(blocks)
+        if len(extra) > cap:
+            extra = extra[:cap].rstrip() + "\n[...structured evidence truncated...]"
+        return f"{base}\n\n{extra}" if base else extra
 
     def _compact_grounded_synthesis(self, user_input: str, evidence: str,
                                      action: str, mode: str) -> str:
