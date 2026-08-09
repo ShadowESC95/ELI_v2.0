@@ -245,39 +245,10 @@ WEBSITE_ALIASES = {
     "weather": "https://weather.com",
 }
 
-APP_ALIASES = {
-    "codes": "code",
-    "code-oss": "code",
-    "vs code": "code",
-    "visual studio code": "code",
-    "term": "x-terminal-emulator",
-    "terminal app": "x-terminal-emulator",
-    "chrome browser": "chrome",
-    "google chrome": "chrome",
-    "chromium browser": "chromium",
-    "firefox browser": "firefox",
-    # Spelling corrections
-    "calender": "gnome-calendar",
-    "calander": "gnome-calendar",
-    "calendar": "gnome-calendar",
-    "calandar": "gnome-calendar",
-    "settings": "gnome-control-center",
-    "setting": "gnome-control-center",
-    "calculator": "gnome-calculator",
-    "calc": "gnome-calculator",
-    "files": "nautilus",
-    "file manager": "nautilus",
-    "text editor": "gedit",
-    "editor": "gedit",
-    "system monitor": "gnome-system-monitor",
-    "monitor": "gnome-system-monitor",
-    "music player": "rhythmbox",
-    "image viewer": "eog",
-    "photos": "eog",
-    "disks": "gnome-disks",
-    "disk usage": "baobab",
-    "screenshot": "gnome-screenshot",
-}
+# Canonical alias table — see eli/execution/app_aliases.py. It used to be
+# duplicated here and in executor_enhanced with ZERO overlap between them,
+# so an alias worked or not depending on which layer saw the word first.
+from eli.execution.app_aliases import APP_ALIASES
 
 MEDIA_APPS = [
     "spotify",
@@ -983,6 +954,41 @@ def _route_set_communication_style(raw: str, low: str) -> Optional[Dict[str, Any
                     matched_by="persona.set_communication_style",
                 )
     return None
+
+
+_NEGATORS = ("not", "n't", "never", "aint", "ain't", "isnt", "isn't", "wasnt", "wasn't",
+             "dont", "don't", "stop", "no")
+
+
+def _tone_is_negated(low: str, tone: str) -> bool:
+    """True when the emotion word is being DENIED rather than requested.
+
+    "i am not sad" must never set the tone to sad. Without this, ELI's own
+    proactive check-in ("you've been reading more sad lately") provoked a reply
+    containing the word, that reply was parsed as an order to BE sad, the sad
+    reading was recorded, and the check-in fired again — a loop that escalated
+    sad×3 to sad×7 in one session, each round telling the user they seemed sad
+    because they had just said they were not.
+
+    Scans a short window before the tone word rather than the whole sentence, so
+    "not really working, sound cheerful" still sets cheerful.
+    """
+    try:
+        from eli.cognition.emotion_palette import resolve_tone as _rt
+    except Exception:
+        return False
+    words = re.findall(r"[a-z']+", low)
+    for i, w in enumerate(words):
+        # Find the token that produced this tone, then look back a few words.
+        try:
+            if _rt(w) != tone:
+                continue
+        except Exception:
+            continue
+        window = words[max(0, i - 4):i]
+        if any(n in window or any(x.endswith("n't") for x in window) for n in _NEGATORS):
+            return True
+    return False
 
 
 def _route_grounded_runtime_intent(
@@ -1878,11 +1884,18 @@ def route(text: str) -> Dict[str, Any]:
     # a tone-setting verb AND the phrase resolving to a real tone, so "be comedic" /
     # "talk street" / "sound more professional" fire, but a passing mention
     # ("that joke was comedic gold") does not.
-    if re.search(r"\b(be|sound|talk|speak|act|go|get|use|make it|keep it|more|less)\b", low):
+    # The gate used to include `more`, `less`, `get` and `go`. Those are not
+    # tone-setting verbs, they are among the commonest words in English, so the
+    # gate passed on ordinary sentences and any emotion word in them became a
+    # command. Observed live: "i am not sad eli, i am just trying to get your
+    # codebas correct" routed to SET_TONE(sad) — the user DENYING an emotion set
+    # ELI to it. "be more cheerful" and "sound less formal" still fire, via `be`
+    # and `sound`; the adverb was never what carried the instruction.
+    if re.search(r"\b(be|sound|talk|speak|act|use|make it|keep it)\b", low):
         try:
             from eli.cognition.emotion_palette import resolve_tone as _rt
             _tone = _rt(raw)
-            if _tone and _tone != "neutral":
+            if _tone and _tone != "neutral" and not _tone_is_negated(low, _tone):
                 return _mk("SET_TONE", {"tone": _tone}, 0.9, matched_by="tone.set")
         except Exception:
             log.debug("tone.set resolve failed", exc_info=True)
@@ -4064,18 +4077,11 @@ def route(text: str) -> Dict[str, Any]:
             "internal ide", "ide tab", "the ide tab",
         }
 
-        app_aliases = {
-            "vscode": "code",
-            "visual studio code": "code",
-            "virtual studio code": "code",
-            "vs code": "code",
-            "code": "code",
-            "gedit": "gedit",
-            "chrome": "chromium",
-            "google chrome": "chromium",
-            "calendar": "gnome-calendar",
-            "camera": "snapshot",
-        }
+        # Canonical table (eli/execution/app_aliases.py). This inline copy also
+        # mapped "chrome" and "google chrome" to `chromium` — a different
+        # browser — which the canonical table resolves against what is
+        # actually installed instead.
+        from eli.execution.app_aliases import APP_ALIASES as app_aliases
 
         def _fs_target(tok: str) -> str:
             """Path for one open-target when it denotes a location, else ""."""
