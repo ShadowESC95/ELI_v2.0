@@ -1,13 +1,31 @@
 name: cross-platform-smoke
 
-#   Manual only — avoids metered Actions on every push. Releases are built locally
-#   via scripts/build_grandma_release.sh (no CI required).
-# imports, the FastAPI server starts headless, and the OS-agnostic code paths load + pass
-# their tests on Linux, macOS, AND Windows. Deliberately LIGHTWEIGHT — it installs the core
-# + server (CPU), not the heavy GPU/image stack, so it stays fast and free.
+# Asserts that ELI imports, the FastAPI server starts headless, and the OS-agnostic code
+# paths load + pass their tests on Linux, macOS, AND Windows. Deliberately LIGHTWEIGHT —
+# it installs the core + server (CPU), not the heavy GPU/image stack, so it stays fast.
+#
+# This ran as workflow_dispatch ONLY, on the reasoning that it "avoids metered Actions on
+# every push". That reasoning does not apply to this repository: ShadowESC95/ELI_v2.0 is
+# PUBLIC, and GitHub Actions on standard runners is free and unmetered for public repos.
+# The cost was therefore zero and the gate was off anyway — nothing verified a merge on
+# Windows or macOS unless somebody remembered to click the button.
+#
+# Scope note, so the claim stays honest: this is a curated cross-platform gate, not the
+# full 8.6k-test suite. Most of that suite needs a GGUF model, a display, or generated
+# artifacts, none of which exist on a runner. What is listed below is what can be
+# meaningfully asserted on all three OSes.
 
 on:
   workflow_dispatch:
+  pull_request:
+    paths-ignore: ['**/*.md', '**/*.pdf', 'blueprints/**', 'docs/**']
+  push:
+    branches: [main]
+    paths-ignore: ['**/*.md', '**/*.pdf', 'blueprints/**', 'docs/**']
+
+concurrency:
+  group: smoke-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
   smoke:
@@ -104,10 +122,12 @@ jobs:
           tests/test_pyproject_packaging.py
           tests/test_device_names.py
           tests/test_install_script.py
+          tests/test_document_formats.py
 
       - name: Claims structural smoke (manifest ↔ executor)
         run: >
           pytest -q -p no:cacheprovider
           tests/claims/test_no_silent_swallow.py
           tests/claims/test_structural_claims.py
+          tests/claims/test_readme_counts.py
           tests/claims/test_capability_manifest.py::test_manifest_total_matches_capability_count
