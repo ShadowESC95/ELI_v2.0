@@ -73,3 +73,54 @@ def test_world_dir_survives_a_broken_paths_module(monkeypatch):
 
     monkeypatch.setattr(paths_mod, "get_paths", boom)
     assert world_dir().is_absolute()
+
+
+# ── append-only logs must not grow forever ──────────────────────────────────
+def test_world_logs_are_trimmed(tmp_path):
+    """actions.jsonl reached 41MB / 80,576 lines and events.jsonl 6.2MB on a
+    normal desktop. Corrupt state backups were pruned; the logs never were, and
+    nothing reads them whole — the panel and journal want the recent tail."""
+    import json as _json
+    from eli.world.persistence import storage as st
+
+    p = tmp_path / "actions.jsonl"
+    p.write_text("".join(_json.dumps({"i": i}) + "\n" for i in range(5000)), encoding="utf-8")
+
+    st._jsonl_since_check[str(p)] = st._JSONL_CHECK_EVERY
+    st._trim_jsonl(p, max_lines=1000)
+
+    lines = p.read_text(encoding="utf-8").splitlines()
+    assert len(lines) == 1000
+    assert _json.loads(lines[-1])["i"] == 4999, "must keep the NEWEST entries"
+    assert all(_json.loads(l) for l in lines), "a size-based trim would split a line"
+
+
+def test_trim_leaves_no_scratch_file(tmp_path):
+    import json as _json
+    from eli.world.persistence import storage as st
+
+    p = tmp_path / "events.jsonl"
+    p.write_text("".join(_json.dumps({"i": i}) + "\n" for i in range(3000)), encoding="utf-8")
+    st._jsonl_since_check[str(p)] = st._JSONL_CHECK_EVERY
+    st._trim_jsonl(p, max_lines=500)
+
+    assert not list(tmp_path.glob("*.trim"))
+
+
+def test_trim_is_not_run_on_every_append(tmp_path):
+    """It rewrites the file, so it must be amortised, not per-write."""
+    import json as _json
+    from eli.world.persistence import storage as st
+
+    p = tmp_path / "a.jsonl"
+    p.write_text("".join(_json.dumps({"i": i}) + "\n" for i in range(3000)), encoding="utf-8")
+    st._jsonl_since_check[str(p)] = 0
+    st._trim_jsonl(p, max_lines=100)
+
+    assert sum(1 for _ in p.open(encoding="utf-8")) == 3000, "trimmed on the very first append"
+
+
+def test_trim_survives_a_missing_file(tmp_path):
+    from eli.world.persistence import storage as st
+    st._jsonl_since_check[str(tmp_path / "nope.jsonl")] = st._JSONL_CHECK_EVERY
+    st._trim_jsonl(tmp_path / "nope.jsonl")   # must not raise

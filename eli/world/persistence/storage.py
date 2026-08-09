@@ -55,6 +55,48 @@ _SAVE_LOCK = threading.RLock()
 def _ensure() -> None:
     WORLD_DIR.mkdir(parents=True, exist_ok=True)
 
+# The world fires an action on every autonomy tick and these files are appended
+# to forever. Nothing rotated them: actions.jsonl reached 41MB / 80,576 lines and
+# events.jsonl 6.2MB on a normal desktop, growing for as long as ELI runs, and
+# nothing ever reads them whole — the panel and the journal want the recent tail.
+# Corrupt state backups were already pruned here; the logs simply were not.
+_JSONL_MAX_LINES = int(os.environ.get("ELI_WORLD_LOG_MAX_LINES", "20000"))
+_JSONL_CHECK_EVERY = 250          # stat() cost, not a rewrite, on most appends
+_jsonl_since_check: Dict[str, int] = {}
+
+
+def _trim_jsonl(path: Path, max_lines: int = 0) -> None:
+    """Keep the newest `max_lines` of an append-only log. Never raises.
+
+    Counted rather than size-capped so a trim never splits a JSON line in half,
+    and checked every N appends so the common path stays a dict increment.
+    """
+    limit = max_lines or _JSONL_MAX_LINES
+    if limit <= 0:
+        return
+    key = str(path)
+    n = _jsonl_since_check.get(key, 0) + 1
+    if n < _JSONL_CHECK_EVERY:
+        _jsonl_since_check[key] = n
+        return
+    _jsonl_since_check[key] = 0
+    try:
+        if not path.exists():
+            return
+        with path.open("r", encoding="utf-8", errors="replace") as f:
+            lines = f.readlines()
+        if len(lines) <= limit:
+            return
+        keep_lines = lines[-limit:]
+        tmp = path.with_suffix(path.suffix + ".trim")
+        with tmp.open("w", encoding="utf-8") as f:
+            f.writelines(keep_lines)
+        os.replace(tmp, path)      # atomic; a crash mid-trim leaves the original
+        log.debug("world log %s trimmed %d → %d lines", path.name, len(lines), len(keep_lines))
+    except Exception:
+        log.debug("world log trim failed for %s", path, exc_info=True)
+
+
 def _prune_corrupt_backups(keep: int = _CORRUPT_BACKUP_KEEP) -> None:
     """Keep only the newest corrupt-state backups to avoid unbounded disk use."""
     try:
@@ -149,8 +191,10 @@ class EliWorldStorage:
         _ensure()
         with EVENTS_PATH.open("a", encoding="utf-8") as f:
             f.write(json.dumps(event.__dict__, ensure_ascii=False) + "\n")
+        _trim_jsonl(EVENTS_PATH)
 
     def append_action(self, action: WorldAction) -> None:
         _ensure()
         with ACTIONS_PATH.open("a", encoding="utf-8") as f:
             f.write(json.dumps(action.__dict__, ensure_ascii=False) + "\n")
+        _trim_jsonl(ACTIONS_PATH)
