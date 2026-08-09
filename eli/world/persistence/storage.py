@@ -33,6 +33,16 @@ def _world_dir() -> Path:
         return Path(__file__).resolve().parents[4] / "artifacts" / "world"
 
 
+def world_dir() -> Path:
+    """Public accessor for the world state directory.
+
+    Exported so journal/provenance/snapshots resolve the same way instead of
+    each hardcoding a relative ``Path("artifacts/world/...")`` — three of them
+    did, and the docstring on _world_dir above already records why that fails.
+    """
+    return _world_dir()
+
+
 WORLD_DIR = _world_dir()
 STATE_PATH = WORLD_DIR / "eli_world_state.json"
 EVENTS_PATH = WORLD_DIR / "events.jsonl"
