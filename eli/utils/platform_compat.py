@@ -121,6 +121,12 @@ COMMON_APP_ALIASES = {
     "photos": "photos",
     "pictures": "photos",
     "music": "music",
+    "system monitor": "system monitor",
+    "task manager": "system monitor",
+    "activity monitor": "system monitor",
+    "screenshot": "screenshot",
+    "disks": "disks",
+    "disk usage": "disk usage",
 }
 
 # Terminal emulators, as (executable, argv-separator flags). The rest of the argv
@@ -179,6 +185,12 @@ LINUX_APP_CANDIDATES: dict[str, tuple[str, ...]] = {
     "codium": ("codium", "vscodium"),
     "sublime": ("subl", "sublime_text"),
     "sublime text": ("subl", "sublime_text"),
+    "system monitor": ("gnome-system-monitor", "ksysguard", "plasma-systemmonitor",
+                       "xfce4-taskmanager", "mate-system-monitor", "htop"),
+    "screenshot": ("gnome-screenshot", "spectacle", "xfce4-screenshooter",
+                   "flameshot", "mate-screenshot"),
+    "disks": ("gnome-disks", "partitionmanager", "gparted"),
+    "disk usage": ("baobab", "filelight", "qdirstat"),
 }
 
 # macOS names are .app bundle names, not PATH executables, and they move between
@@ -208,6 +220,10 @@ MACOS_APP_CANDIDATES: dict[str, tuple[str, ...]] = {
     "codium": ("VSCodium",),
     "sublime": ("Sublime Text",),
     "sublime text": ("Sublime Text",),
+    "system monitor": ("Activity Monitor",),
+    "screenshot": ("Screenshot", "Grab"),
+    "disks": ("Disk Utility",),
+    "disk usage": ("Disk Utility",),
 }
 
 # Windows Terminal (wt.exe) ships with Windows 11 but is absent from a stock
@@ -239,6 +255,10 @@ WINDOWS_APP_CANDIDATES: dict[str, tuple[str, ...]] = {
     "codium": ("codium.cmd", "VSCodium.exe"),
     "sublime": ("subl.exe", "sublime_text.exe"),
     "sublime text": ("subl.exe", "sublime_text.exe"),
+    "system monitor": ("taskmgr.exe", "perfmon.exe"),
+    "screenshot": ("SnippingTool.exe", "ms-screenclip:"),
+    "disks": ("diskmgmt.msc",),
+    "disk usage": ("cleanmgr.exe",),
 }
 
 ANDROID_APP_CANDIDATES: dict[str, tuple[str, ...]] = {
