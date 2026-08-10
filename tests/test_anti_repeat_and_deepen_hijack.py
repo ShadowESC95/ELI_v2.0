@@ -31,6 +31,7 @@ from eli.kernel.engine import (
     _is_repeat_of_recent,
     _repeat_ratio,
     _stream_holding_back_repeats,
+    _user_asked_for_a_repeat,
 )
 
 # The paragraph ELI actually repeated, verbatim from the transcript.
@@ -155,6 +156,34 @@ def test_second_repeat_is_served_rather_than_looping():
     out, retried = _drive_guard(chunks, [SLEEP_REPLY], retry_text=SLEEP_REPLY)
     assert retried
     assert out, "a second repeat must still produce a turn, not silence"
+
+
+# ── 3b. the guard must not become its own bug ───────────────────────────────
+@pytest.mark.parametrize("asked", [
+    "say that again", "repeat that", "repeat it", "come again",
+    "what did you just say?", "what did you say", "one more time",
+    "read that back", "say it once more", "Again please",
+])
+def test_an_explicit_repeat_request_stands_the_guard_down(asked):
+    """"Say that again" is correctly answered with the previous reply. Without this
+    the guard would reject that answer and regenerate something not asked for."""
+    assert _user_asked_for_a_repeat(asked), asked
+
+
+@pytest.mark.parametrize("ordinary", [
+    "Morning Eli",
+    "summary please pal",
+    "keep going haha",
+    "I told you not to worry about my sleep, I will sleep properly tonight.",
+    "Good.. morning report?",
+    "Eli, why the fuck do you keep repeating yourself??",
+    "",
+])
+def test_ordinary_turns_do_not_stand_the_guard_down(ordinary):
+    """Every line here is from the transcript that exposed the bug — if any of them
+    disarmed the guard, the original repeats would still get through. The last one
+    matters most: complaining about repetition must not license more of it."""
+    assert not _user_asked_for_a_repeat(ordinary), ordinary
 
 
 # ── 4. the deepen window is bounded ─────────────────────────────────────────
