@@ -14,6 +14,15 @@ name: cross-platform-smoke
 # full 8.6k-test suite. Most of that suite needs a GGUF model, a display, or generated
 # artifacts, none of which exist on a runner. What is listed below is what can be
 # meaningfully asserted on all three OSes.
+#
+# Every pytest step below MUST be `python -m pytest`, never the bare `pytest` console
+# script. `-m` puts the working directory on sys.path; the console script does not. The
+# top-level `api` package is not installed by `pip install -e .`, so under bare `pytest`
+# `import api.server` fails, tests/test_api_server.py hits its own module-level skip
+# guard, and the step reports "collected 0 items / 1 skipped" — pytest exit code 5. That
+# is what this workflow's first ever run did on all six jobs. The identical mistake once
+# aborted a release from scripts/build_packages.sh; it is easy to reintroduce and it
+# fails in a way that reads like an environment problem rather than a command error.
 
 on:
   workflow_dispatch:
@@ -102,7 +111,7 @@ jobs:
         # --noconftest because the repo conftest mocks pydantic/PySide6 for the fast unit
         # suite, which makes the server un-importable. This is where the home-mesh config
         # merge fix and the orchestration/mesh contracts are actually enforced.
-        run: pytest -q -p no:cacheprovider --noconftest tests/test_api_server.py
+        run: python -m pytest -q -p no:cacheprovider --noconftest tests/test_api_server.py
 
       - name: First-run DB autobuild (cross-platform paths)
         run: python -m eli.core.init_data
@@ -112,7 +121,7 @@ jobs:
 
       - name: Cross-platform unit tests (explicit self-contained files — no GGUF / display / generated artifacts)
         run: >
-          pytest -q -p no:cacheprovider
+          python -m pytest -q -p no:cacheprovider
           tests/test_dual_gpu_settings.py
           tests/test_user_model.py
           tests/test_08_hardware.py
@@ -126,7 +135,7 @@ jobs:
 
       - name: Claims structural smoke (manifest ↔ executor)
         run: >
-          pytest -q -p no:cacheprovider
+          python -m pytest -q -p no:cacheprovider
           tests/claims/test_no_silent_swallow.py
           tests/claims/test_structural_claims.py
           tests/claims/test_readme_counts.py
