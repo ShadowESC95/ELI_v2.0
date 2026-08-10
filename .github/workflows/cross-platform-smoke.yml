@@ -45,6 +45,14 @@ jobs:
         os: [ubuntu-latest, macos-latest, windows-latest]
         python: ["3.10", "3.12"]
     runs-on: ${{ matrix.os }}
+    # Windows runners default to PowerShell, which cannot parse the `python - <<'PY'`
+    # heredoc the dashboard step is built on — it failed with a .ps1 ParserError on both
+    # Windows jobs the first time this workflow ever ran. Pinning bash everywhere also
+    # means a step that passes on Linux is running the identical command on Windows,
+    # which is the entire point of a cross-platform gate.
+    defaults:
+      run:
+        shell: bash
     steps:
       - uses: actions/checkout@v4
 
