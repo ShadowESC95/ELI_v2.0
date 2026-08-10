@@ -17,6 +17,7 @@ from eli.core import config
 from eli.runtime.self_improvement import get_self_improvement
 from eli.memory import Memory, get_memory, get_memory_status, resolve_db_paths
 
+import difflib
 import os
 import re
 import json
@@ -3071,6 +3072,126 @@ def _clarifier_norm(text: str) -> str:
     """
     lowered = str(text or "").lower().replace("'", "").replace("’", "")
     return re.sub(r"\s+", " ", re.sub(r"[^\w\s]", " ", lowered)).strip()
+
+
+# How long after a briefing a bare follow-up ("the first one") still reads as a
+# deepen request. Beyond this the user has moved on, and rewriting their command
+# into CHAT is a misroute rather than a rescue.
+_DEEPEN_WINDOW_SECONDS = float(os.environ.get("ELI_DEEPEN_WINDOW_SECONDS", "300"))
+
+
+# Actions that ARM the news topic-deepen rule. They must never also be its victims:
+# MORNING_REPORT armed the rule and was eligible to be rewritten by it, so asking for
+# a report right after a report could not return a report.
+_DEEPEN_ARMING_ACTIONS = ("NEWS_FETCH", "MORNING_REPORT", "DAILY_REPORT")
+
+
+def _is_explicit_command_match(intent) -> bool:
+    """True when the router named this action outright, rather than guessing.
+
+    The deepen heuristic exists to rescue inputs with no clear intent ("the first
+    one"), which arrive from the LLM resolver as low-confidence fallbacks. A named
+    match at high confidence is a command and must survive: "Good.. morning report?"
+    matched ``self.morning_report`` at 0.95 and was still rewritten into CHAT.
+    """
+    if not isinstance(intent, dict):
+        return False
+    try:
+        meta = intent.get("meta") or {}
+        via = str(meta.get("matched_by") or "")
+        conf = float(intent.get("confidence") or 0.0)
+    except Exception:
+        return False
+    return bool(via) and not via.startswith("fallback.") and conf >= 0.9
+
+
+class _RepeatDetected(Exception):
+    """Raised inside the streaming guard when the opening restates a recent reply.
+
+    An exception rather than a return value because the check lives inside a
+    generator: it has to unwind the partially-consumed stream without having
+    yielded any of it to the caller.
+    """
+
+
+def _stream_holding_back_repeats(stream, recent_replies, *, allow_retry: bool):
+    """Yield `stream`, withholding the opening until it is cleared as non-repeating.
+
+    Module-level and dependency-free so the guard can be driven directly by tests;
+    a closure inside the streaming method could only ever be tested by
+    re-implementing it, which proves nothing.
+
+    Once a chunk is yielded it is on the user's screen, so the check must happen
+    before first paint: the first `_REPEAT_HEAD_CHARS` are buffered, tested, then
+    released untouched in the common case.
+    """
+    head, released = [], False
+    for chunk in stream:
+        piece = str(chunk or "")
+        if not piece:
+            continue
+        if released:
+            yield piece
+            continue
+        head.append(piece)
+        if sum(len(h) for h in head) < _REPEAT_HEAD_CHARS:
+            continue
+        opening = "".join(head)
+        if allow_retry and recent_replies and _is_repeat_of_recent(opening, recent_replies):
+            raise _RepeatDetected(opening)
+        released = True
+        yield opening
+    if not released:
+        # The stream ended inside the buffer: a short reply, still worth checking.
+        opening = "".join(head)
+        if opening:
+            if allow_retry and recent_replies and _is_repeat_of_recent(opening, recent_replies):
+                raise _RepeatDetected(opening)
+            yield opening
+
+
+# ── Anti-repeat: verification, not just instruction ──────────────────────────
+# The prompt-level anti-repeat contract ("YOU HAVE ALREADY SAID THE FOLLOWING — do
+# not repeat any of it") is advisory. In one observed session an 8B model ignored it
+# four times, serving the same 40-word paragraph verbatim at 13:52, 13:52, 13:55 and
+# 13:56 — including immediately after the user said "shut the fuck up about my sleep"
+# and ELI answered "I'll stop". Asking a model not to repeat itself is not a control;
+# checking whether it did is.
+_REPEAT_HEAD_CHARS = 200      # buffered before first paint — see the streaming guard
+_REPEAT_RATIO = 0.86          # difflib ratio over normalised text
+_REPEAT_COMPARE_AGAINST = 4   # how many recent ELI turns to test
+
+
+def _repeat_ratio(a: str, b: str) -> float:
+    """Similarity of two replies, punctuation- and case-insensitive."""
+    na, nb = _clarifier_norm(a), _clarifier_norm(b)
+    if not na or not nb:
+        return 0.0
+    return difflib.SequenceMatcher(None, na, nb).ratio()
+
+
+def _is_repeat_of_recent(candidate: str, prior_replies, *,
+                         ratio: float = _REPEAT_RATIO) -> bool:
+    """True when `candidate` restates something ELI already said.
+
+    Compared head-to-head over the same number of characters: a reply that opens
+    identically and then continues is still a repeat to the reader, and comparing a
+    200-char head against a 600-char prior reply would score low purely on the length
+    difference and let it through.
+    """
+    cand = str(candidate or "").strip()
+    if len(_clarifier_norm(cand)) < 40:
+        return False                      # too short to judge; "Okay." is not a repeat
+    for prior in list(prior_replies or [])[:_REPEAT_COMPARE_AGAINST]:
+        p = str(prior or "").strip()
+        if not p:
+            continue
+        n = min(len(cand), len(p))
+        if n < 40:
+            continue
+        if _repeat_ratio(cand[:n], p[:n]) >= ratio:
+            return True
+    return False
 
 
 def _clarifier_is_usable(generated: str, *, user_input: str, context: str) -> bool:
@@ -10188,6 +10309,13 @@ Answer:"""
             if str(action).upper() not in ("CHAT", "NOOP", "UNKNOWN", ""):
                 self._last_command_action = {
                     "action": action, "args": dict(args or {}), "input": user_input,
+                    # Stamped so consumers that mean "right after X" can actually
+                    # check it. The news topic-deepen rule read this dict as proof a
+                    # briefing had just happened, but CHAT never overwrites it (CHAT
+                    # is excluded above), so one report left the flag set for the
+                    # lifetime of the process and every later short input stayed
+                    # eligible to be rewritten into CHAT.
+                    "ts": time.time(),
                 }
         except Exception:
             log.debug("suppressed exception", exc_info=True)
@@ -10349,6 +10477,11 @@ Answer:"""
                 _lca_direct = getattr(self, "_last_command_action", None) or {}
                 _was_news_direct = str(_lca_direct.get("action") or "").upper() in (
                     "NEWS_FETCH", "MORNING_REPORT", "DAILY_REPORT")
+                # "right after" means within the window, not "at any point since launch".
+                if _was_news_direct:
+                    _lca_ts = float(_lca_direct.get("ts") or 0.0)
+                    if _lca_ts and (time.time() - _lca_ts) > _DEEPEN_WINDOW_SECONDS:
+                        _was_news_direct = False
                 # ACCEPTING a news follow-up offer: right after a briefing ELI asks "want to dive
                 # deeper into X or Y?"; the user's reply ("running local llms please", "the first
                 # one") carries NO explicit deepen verb, so extract_deepen_topic misses it and the
@@ -10368,6 +10501,23 @@ Answer:"""
                     _wc = len(str(user_input or "").split())
                     if _act_up not in _hard and 1 <= _wc <= 7:
                         _deepen_topic = str(user_input or "").strip().rstrip("?.!,;: ").strip()
+                # An EXPLICIT, high-confidence router match is a command, not an
+                # ambiguous follow-up. Observed: "Good.. morning report?" matched
+                # self.morning_report at 0.95 and was still rewritten to CHAT, so the
+                # user asked for a morning report and got small-talk. Two things made
+                # that inevitable and both are guarded here:
+                #   * MORNING_REPORT/DAILY_REPORT are in the _was_news_direct trigger
+                #     set, so a report ARMS the rule that then suppresses the next
+                #     report — the action cancels itself.
+                #   * _last_command_action carries no timestamp and CHAT never
+                #     overwrites it, so "right after a briefing" was never actually
+                #     checked; one report armed the hijack for the rest of the process.
+                # This heuristic exists for inputs with no clear intent ("the first
+                # one"), which arrive via the LLM resolver at low confidence. Leave
+                # those to it; keep your hands off anything the router named outright.
+                if _is_explicit_command_match(intent) or _act_up in _DEEPEN_ARMING_ACTIONS:
+                    _deepen_topic = ""
+
                 if _deepen_topic and _was_news_direct:
                     log.debug(f"[COGNITIVE] news topic-deepen: {action}→CHAT "
                               f"(topic='{_deepen_topic}')")
@@ -12703,13 +12853,54 @@ Answer:"""
                 reasoning_mode=reasoning_mode,
             )
 
-            for chunk in stream:
-                piece = str(chunk or "")
-                if not piece:
-                    continue
-                full_tokens.append(piece)
-                yielded = True
-                yield piece
+            # ── Anti-repeat ENFORCEMENT (see _is_repeat_of_recent) ────────────
+            # The contract injected into situation_brief above only *asks*. This
+            # checks. It has to act on the opening rather than the finished reply:
+            # once a chunk is yielded it is on the user's screen, so a check that
+            # waits for the full text can only report a repeat, never prevent one.
+            # So the first _REPEAT_HEAD_CHARS are buffered, tested against recent
+            # replies, and released untouched in the common case. Cost is a short
+            # delay before first paint on a generation that already takes seconds;
+            # the benefit is that a verbatim re-serve never reaches the user.
+            _recent_eli = []
+            try:
+                for _t in (self.memory.get_recent_conversation(limit=8) or []):
+                    if str((_t or {}).get("role", "")).lower() in ("assistant", "eli"):
+                        _c = str((_t or {}).get("content", "") or "").strip()
+                        if _c:
+                            _recent_eli.append(_c)
+            except Exception:
+                log.debug("[ANTI-REPEAT] recent-reply fetch failed", exc_info=True)
+
+            try:
+                for piece in _stream_holding_back_repeats(
+                        stream, _recent_eli, allow_retry=True):
+                    full_tokens.append(piece)
+                    yielded = True
+                    yield piece
+            except _RepeatDetected:
+                log.debug("[ANTI-REPEAT] opening matched a recent reply — regenerating")
+                # Regenerate ONCE, with the constraint restated as a hard rule rather
+                # than a preamble the model can drift past. A second repeat is served
+                # as-is: an honest duplicate beats an empty turn or an infinite retry.
+                full_tokens.clear()
+                _retry_prompt = (
+                    "The reply you just produced repeated something you had already said. "
+                    "Write a DIFFERENT reply. Do not restate any earlier point, do not "
+                    "re-ask an answered question, and respond only to the user's latest "
+                    "message.\n\n" + prompt
+                )
+                log.debug("[ANTI-REPEAT] retry generation issued")
+                _retry = self.generate_stream_from_assembled_prompt(
+                    _retry_prompt,
+                    working_memory=wm,
+                    reasoning_mode=reasoning_mode,
+                )
+                for piece in _stream_holding_back_repeats(
+                        _retry, _recent_eli, allow_retry=False):
+                    full_tokens.append(piece)
+                    yielded = True
+                    yield piece
 
             if yielded:
                 final_text = "".join(full_tokens).strip()
