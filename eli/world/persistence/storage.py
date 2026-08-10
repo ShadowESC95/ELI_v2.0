@@ -70,15 +70,24 @@ def _trim_jsonl(path: Path, max_lines: int = 0) -> None:
 
     Counted rather than size-capped so a trim never splits a JSON line in half,
     and checked every N appends so the common path stays a dict increment.
+
+    The counter lives in this process only, so "every N appends" alone leaves a
+    hole: a run that appends fewer than N entries never checks at all, and the
+    file grows across restarts untouched. events.jsonl was found at 23,179 lines
+    against a 20,000 cap for exactly that reason while the busier actions.jsonl
+    had been trimmed correctly. So the FIRST append to a path in a given process
+    always checks — one stat at startup — and the amortised counter takes over
+    from there.
     """
     limit = max_lines or _JSONL_MAX_LINES
     if limit <= 0:
         return
     key = str(path)
-    n = _jsonl_since_check.get(key, 0) + 1
-    if n < _JSONL_CHECK_EVERY:
-        _jsonl_since_check[key] = n
-        return
+    if key in _jsonl_since_check:
+        n = _jsonl_since_check[key] + 1
+        if n < _JSONL_CHECK_EVERY:
+            _jsonl_since_check[key] = n
+            return
     _jsonl_since_check[key] = 0
     try:
         if not path.exists():
