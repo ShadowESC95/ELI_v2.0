@@ -66,9 +66,17 @@ artifacts/*
 eli/artifacts/
 .code_monitor_state.json
 
-# ── Blueprints — PDFs only in git; source docs/icons stay local ───────────────
+# ── Blueprints — sources AND PDFs are tracked ────────────────────────────────
+# Previously only 12 customer-facing PDFs were tracked and every markdown source was
+# local-only. The predictable result: sources drifted months behind the code with no
+# reviewable diff — voice_cloning_pipeline.md still described an extra that had gained
+# three dependencies and an AppImage bundling it never mentioned, and the shipped
+# manual sent users to a Settings page that does not exist. Tracking the sources is
+# what makes that visible in review; 39 markdown files are 564K and 29 more PDFs 3.4M.
+# Icons and other blueprint assets stay local.
 blueprints/*
 !blueprints/*.pdf
+!blueprints/*.md
 
 # ── Generated / auto-updated files (manifest tracked; blueprint markdown local) ─
 eli/capability_inventory.generated.json
@@ -184,20 +192,9 @@ eli/.claude/
 # training build cache (never commit)
 models/unsloth_compiled_cache/
 
-# Ship only the main customer-facing PDFs in blueprints/; the rest are internal/local.
-blueprints/*.pdf
-!blueprints/ELI_USER_MANUAL.pdf
-!blueprints/ELI_USER_MANUAL_FULL.pdf
-!blueprints/what_eli_is_and_can_do.pdf
-!blueprints/installation.pdf
-!blueprints/commands_and_installers.pdf
-!blueprints/new_user_install_guide.pdf
-!blueprints/full_setup_guide.pdf
-!blueprints/portable_scripts_guide.pdf
-!blueprints/common_errors_and_fixes.pdf
-!blueprints/ollama_startup_guide.pdf
-!blueprints/ide_guide.pdf
-!blueprints/simulations_and_plots.pdf
+# Every blueprint PDF is tracked (see the blueprints rule above). The 12 customer-facing
+# ones are additionally bundled into the packaged builds by ELI.spec via `git ls-files`;
+# the rest are internal architecture docs that are now versioned rather than local-only.
 
 # Regenerated on every install/run — tracked churn on one timestamp; built fresh into packages.
 /capability_manifest.json
@@ -205,6 +202,11 @@ blueprints/*.pdf
 # private dev handoff — never publish
 blueprints/NEXT_SESSION.md
 blueprints/NEXT_SESSION.pdf
+
+# Stray build output: a duplicate manual render with no .md source. Tracking it would
+# ship an orphan into every package (ELI.spec bundles the blueprints/ prefix from
+# `git ls-files`), and nothing can regenerate or review it.
+blueprints/ELI_USER_MANUAL_#2.pdf
 
 # repomix output + per-user voice presets (runtime)
 repomix-output.xml
