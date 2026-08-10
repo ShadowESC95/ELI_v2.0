@@ -26,7 +26,7 @@ from typing import Any, Dict, List, Optional, Tuple
 from eli.core.paths import project_root as _project_root
 PROJECT_ROOT = _project_root()
 _DEFAULT_RELEASE_REPO = os.environ.get("ELI_RELEASE_REPO", "ShadowESC95/ELI_v2.0")
-_DEFAULT_RELEASE_TAG = os.environ.get("ELI_RELEASE_TAG", "v2.1.61")
+_DEFAULT_RELEASE_TAG = os.environ.get("ELI_RELEASE_TAG", "v2.1.62")
 
 
 def _ver_tuple(v: str) -> Tuple[int, ...]:
