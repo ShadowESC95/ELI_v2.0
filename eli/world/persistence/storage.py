@@ -1,4 +1,5 @@
 from __future__ import annotations
+import dataclasses
 import json
 import os
 import tempfile
@@ -122,17 +123,52 @@ def _prune_corrupt_backups(keep: int = _CORRUPT_BACKUP_KEEP) -> None:
     except Exception:
         pass
 
+def _fit(cls, data: Any):
+    """Build `cls` from a saved dict, ignoring fields it no longer declares.
+
+    ``AwarenessState(**data)`` raises TypeError the moment the state on disk
+    carries a key the dataclass has since dropped or renamed. load() catches
+    every exception, files the state as ".corrupt_*" and hands back a fresh
+    default world — so a single renamed field silently wipes the user's rooms,
+    objects, goals and habits on upgrade. Two of the five corrupt backups on
+    this machine parse as perfectly valid JSON; they were condemned for exactly
+    this and nothing else.
+
+    Forward-compatibility matters more than strictness here: a world that comes
+    back missing one new attribute beats a world that comes back empty.
+    """
+    if not isinstance(data, dict):
+        return cls()
+    known = {f.name for f in dataclasses.fields(cls)}
+    extra = set(data) - known
+    if extra:
+        log.debug("world state: ignoring unknown %s field(s) %s", cls.__name__, sorted(extra))
+    try:
+        return cls(**{k: v for k, v in data.items() if k in known})
+    except TypeError:
+        # A *required* field is missing (schema went the other way). Still
+        # better to lose one record than the whole world.
+        log.debug("world state: could not rebuild %s from %s", cls.__name__, sorted(data), exc_info=True)
+        return None
+
+
+def _fit_all(cls, items) -> list:
+    built = [_fit(cls, i) for i in (items or [])]
+    return [b for b in built if b is not None]
+
+
 def _state_from_dict(data: Dict[str, Any]) -> EliWorldState:
     state = EliWorldState()
     state.world_name = data.get("world_name", state.world_name)
     state.identity = data.get("identity") or get_world_identity()
     state.constitution = data.get("constitution") or get_world_constitution()
-    state.awareness = AwarenessState(**data.get("awareness", {}))
-    state.avatar = AvatarState(**data.get("avatar", {}))
+    state.awareness = _fit(AwarenessState, data.get("awareness", {})) or AwarenessState()
+    state.avatar = _fit(AvatarState, data.get("avatar", {})) or AvatarState()
     state.rooms = data.get("rooms") or get_default_rooms()
-    state.objects = {k: WorldObject(**v) for k, v in data.get("objects", {}).items()}
-    state.events = [WorldEvent(**e) for e in data.get("events", [])[-300:]]
-    state.actions = [WorldAction(**a) for a in data.get("actions", [])[-300:]]
+    objects = {k: _fit(WorldObject, v) for k, v in (data.get("objects") or {}).items()}
+    state.objects = {k: v for k, v in objects.items() if v is not None}
+    state.events = _fit_all(WorldEvent, data.get("events", [])[-300:])
+    state.actions = _fit_all(WorldAction, data.get("actions", [])[-300:])
     state.goals = data.get("goals", [])
     state.habits = data.get("habits", [])
     state.timestamp = data.get("timestamp", time())
@@ -149,18 +185,41 @@ class EliWorldStorage:
             self.save(state)
             return state
         try:
-            data = json.loads(self.state_path.read_text(encoding="utf-8"))
-            return _state_from_dict(data)
-        except Exception:
-            corrupt = self.state_path.with_suffix(f".corrupt_{int(time())}.json")
+            raw = self.state_path.read_text(encoding="utf-8")
+        except OSError:
+            # A transient read failure is not corruption. Condemning the file
+            # here would destroy a healthy world over a momentary EIO/EBUSY.
+            log.warning("world state unreadable; keeping the file", exc_info=True)
+            return EliWorldState(identity=get_world_identity(),
+                                 constitution=get_world_constitution(),
+                                 rooms=get_default_rooms())
+        try:
+            data = json.loads(raw)
+        except ValueError:
+            # Genuinely unparseable. This is the only case that earns a backup.
+            log.warning("world state is not valid JSON; filing it as corrupt")
+            data = None
+        if data is not None:
             try:
-                self.state_path.rename(corrupt)
+                return _state_from_dict(data)
             except Exception:
-                pass
-            _prune_corrupt_backups()
-            state = EliWorldState(identity=get_world_identity(), constitution=get_world_constitution(), rooms=get_default_rooms())
-            self.save(state)
-            return state
+                # The JSON parsed, so the user's data is intact on disk even if
+                # this build cannot map it. Keep the file and start fresh in
+                # memory rather than renaming their world away.
+                log.warning("world state parsed but could not be rebuilt; leaving "
+                            "the file in place", exc_info=True)
+                return EliWorldState(identity=get_world_identity(),
+                                     constitution=get_world_constitution(),
+                                     rooms=get_default_rooms())
+        corrupt = self.state_path.with_suffix(f".corrupt_{int(time())}.json")
+        try:
+            self.state_path.rename(corrupt)
+        except Exception:
+            log.debug("could not file the corrupt world state aside", exc_info=True)
+        _prune_corrupt_backups()
+        state = EliWorldState(identity=get_world_identity(), constitution=get_world_constitution(), rooms=get_default_rooms())
+        self.save(state)
+        return state
 
     def save(self, state: EliWorldState) -> None:
         """Atomically persist the world state.
