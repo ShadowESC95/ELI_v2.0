@@ -23,6 +23,34 @@ def _localname(tag: str) -> str:
     return tag.rsplit("}", 1)[-1]
 
 
+# Paragraph-ish blocks, and what must not be absorbed into one.
+_ODT_BLOCK = ("p", "h")
+_ODT_NESTED = {"p", "h", "note"}
+
+
+def _odt_paragraph_text(el) -> str:
+    """Text of a single ODF paragraph, excluding anything that is its own block.
+
+    A plain ``itertext()`` is wrong here, and silently so. LibreOffice writes a
+    footnote as ``text:note > text:note-body > text:p`` *inside* the paragraph
+    that references it, and puts the marker in ``text:note-citation``; text
+    boxes (``draw:frame``) nest ``text:p`` the same way. itertext() on the outer
+    paragraph swallowed all of that, and the main walk then emitted the very
+    same footnote paragraph again — so footnote text landed in the output twice
+    with the citation number spliced into the middle of the sentence.
+
+    Nested blocks are skipped here and emitted in their own right by the caller.
+    The child's ``tail`` is always kept: that is the sentence continuing after
+    the footnote marker.
+    """
+    parts = [el.text or ""]
+    for child in el:
+        if _localname(child.tag) not in _ODT_NESTED:
+            parts.append(_odt_paragraph_text(child))
+        parts.append(child.tail or "")
+    return "".join(parts)
+
+
 class _TextExtractor(HTMLParser):
     """Minimal XHTML -> text. stdlib only; ebooklib/bs4 are not on the shipped stack."""
 
@@ -177,13 +205,14 @@ class DocumentReaderPlugin(Plugin):
         except ET.ParseError as e:
             return self._bad_container(p, f"Malformed OpenDocument content.xml: {e}")
 
-        # text:p and text:h are the paragraph/heading elements. They never nest
-        # in each other (lists wrap them in text:list-item), so itertext() on
-        # each cannot double-count.
+        # Every paragraph/heading in document order. Footnote and text-box
+        # paragraphs are nested inside others and are emitted once, on their own,
+        # by _odt_paragraph_text skipping them in the parent — see that docstring.
         lines = []
         for el in root.iter():
-            if _localname(el.tag) in ("p", "h"):
-                line = "".join(el.itertext()).strip()
+            if _localname(el.tag) in _ODT_BLOCK:
+                # Collapse the whitespace that pretty-printed XML introduces.
+                line = " ".join(_odt_paragraph_text(el).split())
                 if line:
                     lines.append(line)
         return self._text_result(p, "\n".join(lines))
@@ -215,14 +244,31 @@ class DocumentReaderPlugin(Plugin):
         return self._text_result(p, "\n\n".join(parts))
 
     def _epub_documents(self, z) -> list:
-        """Content document names in spine order, or sorted names as a fallback."""
+        """Content document names in spine order, or sorted names as a fallback.
+
+        Two things real EPUBs do that a naive join gets wrong: hrefs are URL-
+        encoded (``chapter%201.xhtml``), and Calibre routinely puts the OPF in
+        ``OEBPS/`` while pointing at ``../Text/``. Unresolved names then raise
+        KeyError on read, and because the spine list was still non-empty the
+        fallback never fired — the reader returned EMPTY text under ok=True.
+        So resolved names are checked against the archive before being trusted.
+        """
+        import posixpath
+        from urllib.parse import unquote
         from xml.etree import ElementTree as ET
+
+        present = set(z.namelist())
 
         def _fallback():
             return sorted(
-                n for n in z.namelist()
+                n for n in present
                 if n.lower().endswith((".xhtml", ".html", ".htm"))
             )
+
+        def _resolve(base: str, href: str) -> str:
+            # Strip any fragment, decode %XX, then normalise ../ against the OPF dir.
+            href = unquote(href.split("#", 1)[0])
+            return posixpath.normpath(posixpath.join(base, href)) if base else href
 
         try:
             container = ET.fromstring(z.read("META-INF/container.xml"))
@@ -251,7 +297,10 @@ class DocumentReaderPlugin(Plugin):
                 if not href:
                     continue
                 # OPF hrefs are relative to the OPF's own directory.
-                names.append(f"{base}/{href}" if base else href)
+                resolved = _resolve(base, href)
+                if resolved in present:
+                    names.append(resolved)
+            # A spine that resolved to nothing real is no better than no spine.
             return names or _fallback()
         except Exception:
             return _fallback()

@@ -124,3 +124,39 @@ def test_trim_survives_a_missing_file(tmp_path):
     from eli.world.persistence import storage as st
     st._jsonl_since_check[str(tmp_path / "nope.jsonl")] = st._JSONL_CHECK_EVERY
     st._trim_jsonl(tmp_path / "nope.jsonl")   # must not raise
+
+
+def test_first_append_in_a_process_always_checks(tmp_path):
+    """The amortisation counter is per-process, so "every 250 appends" on its own
+    means a run that appends fewer than 250 entries never trims — and the file
+    grows across restarts untouched. events.jsonl was found at 23,179 lines
+    against a 20,000 cap this way, while the busier actions.jsonl was fine."""
+    import json as _json
+    from eli.world.persistence import storage as st
+
+    p = tmp_path / "events.jsonl"
+    p.write_text("".join(_json.dumps({"i": i}) + "\n" for i in range(3000)), encoding="utf-8")
+    st._jsonl_since_check.pop(str(p), None)   # as if this process just started
+
+    st._trim_jsonl(p, max_lines=1000)
+
+    assert sum(1 for _ in p.open(encoding="utf-8")) == 1000, (
+        "an oversized log survived a fresh process untouched"
+    )
+
+
+def test_second_append_does_not_re_trim(tmp_path):
+    """First-append checking must not turn into trimming on every write."""
+    import json as _json
+    from eli.world.persistence import storage as st
+
+    p = tmp_path / "b.jsonl"
+    p.write_text("".join(_json.dumps({"i": i}) + "\n" for i in range(3000)), encoding="utf-8")
+    st._jsonl_since_check.pop(str(p), None)
+
+    st._trim_jsonl(p, max_lines=1000)          # trims to 1000
+    with p.open("a", encoding="utf-8") as f:   # a normal append after it
+        f.write(_json.dumps({"i": "new"}) + "\n")
+    st._trim_jsonl(p, max_lines=1000)          # must NOT rewrite again
+
+    assert sum(1 for _ in p.open(encoding="utf-8")) == 1001
