@@ -3162,6 +3162,24 @@ _REPEAT_RATIO = 0.86          # difflib ratio over normalised text
 _REPEAT_COMPARE_AGAINST = 4   # how many recent ELI turns to test
 
 
+_REPEAT_REQUESTED_RE = re.compile(
+    r"\b(say (that|it) again|repeat (that|it|yourself)|come again|again please"
+    r"|what did you (just )?say|read (that|it) back|one more time"
+    r"|(say|tell) (me )?(that|it) (once )?more)\b",
+    re.I,
+)
+
+
+def _user_asked_for_a_repeat(user_input: str) -> bool:
+    """True when repeating IS the request.
+
+    Without this the anti-repeat guard becomes its own bug: "say that again" would
+    be answered, correctly, with the previous reply — which the guard would then
+    reject as a repeat and regenerate into something the user did not ask for.
+    """
+    return bool(_REPEAT_REQUESTED_RE.search(str(user_input or "")))
+
+
 def _repeat_ratio(a: str, b: str) -> float:
     """Similarity of two replies, punctuation- and case-insensitive."""
     na, nb = _clarifier_norm(a), _clarifier_norm(b)
@@ -12863,14 +12881,17 @@ Answer:"""
             # delay before first paint on a generation that already takes seconds;
             # the benefit is that a verbatim re-serve never reaches the user.
             _recent_eli = []
-            try:
-                for _t in (self.memory.get_recent_conversation(limit=8) or []):
-                    if str((_t or {}).get("role", "")).lower() in ("assistant", "eli"):
-                        _c = str((_t or {}).get("content", "") or "").strip()
-                        if _c:
-                            _recent_eli.append(_c)
-            except Exception:
-                log.debug("[ANTI-REPEAT] recent-reply fetch failed", exc_info=True)
+            if _user_asked_for_a_repeat(user_input):
+                log.debug("[ANTI-REPEAT] user asked for a repeat — guard stood down")
+            else:
+                try:
+                    for _t in (self.memory.get_recent_conversation(limit=8) or []):
+                        if str((_t or {}).get("role", "")).lower() in ("assistant", "eli"):
+                            _c = str((_t or {}).get("content", "") or "").strip()
+                            if _c:
+                                _recent_eli.append(_c)
+                except Exception:
+                    log.debug("[ANTI-REPEAT] recent-reply fetch failed", exc_info=True)
 
             try:
                 for piece in _stream_holding_back_repeats(
