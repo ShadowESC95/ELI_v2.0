@@ -39,6 +39,11 @@ env:
   REQUIRED_EXTRAS: "gui llm server docs analysis extras"
   # Extras bundled when their wheels resolve on the runner; skipped (loudly)
   # otherwise — every optional import in ELI degrades cleanly by design.
+  # NOTE: this list is consumed by ALL THREE build jobs. The XTTS-v2 neural voice engine
+  # (`natural`) is deliberately NOT here — it is added as a job-level override on
+  # build-linux only, which is the one job that installs the CPU torch stack first and
+  # verifies no CUDA wheels crept in. Adding it globally makes windows/macos resolve
+  # torch from PyPI, and their bundles then fail the 2 GiB asset guard below.
   OPTIONAL_EXTRAS: "tts asr image vision web wakeword"
 
 jobs:
@@ -334,6 +339,12 @@ jobs:
       ELI_REQUIRE_VOICES: "1"
       ELI_REQUIRE_EMBEDDER: "1"
       GH_TOKEN: ${{ github.token }}
+      # Linux-only: bundle the XTTS-v2 neural voice engine so cloned/`natural:` voices
+      # actually synthesise instead of silently falling back to Piper. Safe HERE and
+      # only here — this job installs the CPU torch stack from the pytorch CPU index
+      # before the extras loop, and fails the build if any nvidia-* wheel appears.
+      # The ~1.8 GB XTTS weights are NOT bundled; they download on first use.
+      OPTIONAL_EXTRAS: "tts asr image vision web wakeword natural"
     name: linux (AppImage)
     needs: guard
     runs-on: ubuntu-latest
@@ -370,8 +381,11 @@ jobs:
           set -euo pipefail
           python -m pip install --upgrade pip wheel
           pip install -r requirements-build.txt
-          # CPU torch first — default PyPI torch drags ~6 GB of CUDA libs into the bundle.
-          pip install torch --index-url https://download.pytorch.org/whl/cpu
+          # CPU torch stack FIRST — default PyPI torch drags ~6 GB of CUDA libs into the
+          # bundle. torchaudio is included here for the same reason: the `natural`
+          # (XTTS-v2) extra requires it, and resolving it from PyPI afterwards pulls the
+          # CUDA build of torch straight back in.
+          pip install torch torchaudio --index-url https://download.pytorch.org/whl/cpu
           pip install ".[$(echo $REQUIRED_EXTRAS | tr ' ' ',')]"
           pip install llama-cpp-python --prefer-binary \
             --extra-index-url https://abetlen.github.io/llama-cpp-python/whl/cpu \
@@ -380,6 +394,24 @@ jobs:
             pip install ".[$extra]" \
               || echo "::warning::optional extra '$extra' has no installable wheels on linux — shipped build degrades cleanly without it"
           done
+          # An extra that quietly re-resolved torch from PyPI would pull the CUDA build
+          # (~6 GB of nvidia-* wheels) and push the AppImage past GitHub's 2 GB per-asset
+          # limit — the exact failure that kept `natural` out of the bundle before. Fail
+          # here, where the cause is obvious, rather than at upload.
+          if pip list --format=freeze | grep -q '^nvidia-'; then
+            echo "::error::CUDA wheels were pulled in (nvidia-*) — the torch stack is no longer CPU-only:"
+            pip list --format=freeze | grep '^nvidia-' | sed 's/^/  /'
+            exit 1
+          fi
+          python - <<'PY'
+          import importlib
+          for mod, why in (("torch", "neural voice engine"), ("TTS", "XTTS-v2 (coqui-tts)")):
+              try:
+                  importlib.import_module(mod)
+                  print(f"  {mod}: present ({why})")
+              except Exception as e:
+                  print(f"::warning::{mod} unavailable — {why} will degrade to Piper: {e}")
+          PY
 
       - name: Generate capability manifests (bundled introspection data)
         run: |

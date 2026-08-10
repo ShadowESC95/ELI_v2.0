@@ -7813,9 +7813,33 @@ _register()
                         except Exception:
                             log.debug("[TTS] set created voice active failed", exc_info=True)
                         self._reload_voice_selectors()
-                        extra = ("" if res.get("synth_ready") else
-                                 "\n\nInstall the neural voice extra to make it sound like the "
-                                 "recording:\n  pip install -e \".[natural]\"  (from the ELI project root)")
+                        # The remediation has to match the runtime. This used to say
+                        # `pip install -e ".[natural]"  (from the ELI project root)`
+                        # unconditionally — meaningless inside an AppImage, which has
+                        # no project root and no writable site-packages. Worse, the
+                        # voice registers either way, so a user in a packaged build was
+                        # told the voice was "created" and given an impossible fix.
+                        extra = ""
+                        if not res.get("synth_ready"):
+                            try:
+                                from eli.core.paths import is_frozen as _is_frozen
+                                _packaged = bool(_is_frozen())
+                            except Exception:
+                                _packaged = False
+                            if _packaged:
+                                extra = (
+                                    "\n\nNOTE: this build cannot synthesise cloned voices — the "
+                                    "neural engine (coqui-tts + torch) is not included, so "
+                                    f"'{name.strip()}' is saved but ELI will keep speaking in its "
+                                    "Piper voice.\nTo use it, run ELI from the source install "
+                                    "(README ▸ Install) where the neural extra is available."
+                                )
+                            else:
+                                extra = (
+                                    "\n\nInstall the neural voice extra to make it sound like the "
+                                    "recording:\n  pip install -e \".[natural]\"  "
+                                    "(from the ELI project root)"
+                                )
                         QMessageBox.information(self, "Voice created",
                                                f"Created and selected the voice '{name.strip()}'.{extra}")
                     else:
@@ -8558,12 +8582,28 @@ _register()
 
     def _refresh_tts_diagnostics(self):
         try:
-            from eli.perception.tts_router import available_backends, get_active_voice
+            from eli.perception.tts_router import (
+                available_backends, get_active_voice, neural_fallback_state,
+            )
             backends = available_backends()
             active = get_active_voice()
             voices = backends.get("piper_voices", [])
+            # A `natural:`/`clone:` voice that cannot synthesise falls back to Piper.
+            # This panel used to report only the SELECTED voice, so it read
+            # "Active voice: natural:sophia" while every word was spoken by
+            # en_US-amy-medium — and the model-file line showed a third, unrelated
+            # voice. Say plainly what is actually coming out of the speakers.
+            _fb = neural_fallback_state() or {}
             txt_lines = [
                 f"Active voice:       {active}",
+            ]
+            if _fb.get("active"):
+                txt_lines += [
+                    f"  ⚠ NOT IN USE:     '{_fb.get('requested')}' cannot synthesise —",
+                    f"                    {_fb.get('reason')}.",
+                    f"  ▶ Actually speaking: {backends.get('default_voice') or '(piper default)'}",
+                ]
+            txt_lines += [
                 f"Active model file:  {backends.get('active_model') or '(missing)'}",
                 f"Piper binary:       {backends.get('piper_bin') or '(not found)'}",
                 f"Installed voices:   {len(voices)} ({', '.join(voices[:6])}{'…' if len(voices) > 6 else ''})",

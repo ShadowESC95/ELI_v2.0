@@ -782,7 +782,7 @@ class FirstBootWizard(QDialog):
             "   •  Embedder — nomic ~80 MiB (memory / RAG; automatic).\n"
             "   •  Voice — Piper speech out + Whisper listening (automatic). More voices, "
             "accents and character voices (HAL, JARVIS, GLaDOS…) are downloadable later "
-            "in Settings > Voice.\n\n"
+            "in Settings \u25b8 Runtime \u25b8 \"VOICE / TTS\".\n\n"
             "Pick a chat model, confirm hardware, and you're in."
         )
         body.setWordWrap(True)

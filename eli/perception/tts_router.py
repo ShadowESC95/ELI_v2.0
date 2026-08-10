@@ -18,7 +18,7 @@ import subprocess
 import threading
 import tempfile
 from pathlib import Path
-from typing import Optional
+from typing import Any, Dict, Optional
 
 from eli.utils.platform_compat import LINUX, play_sound
 
@@ -477,16 +477,33 @@ def _find_piper_bin() -> Optional[str]:
     return None
 
 
+def _neural_engine_available() -> bool:
+    """True when XTTS-v2 can actually synthesise (coqui-tts + torch present)."""
+    try:
+        from eli.perception import tts_xtts
+        return bool(tts_xtts.xtts_available())
+    except Exception:
+        return False
+
+
 def available_backends() -> dict:
     installed = list_voices()
     active = get_active_voice()
-    active_model = find_voice_model(active)
+    # `natural:`/`clone:`/`char:` voices are not Piper models. find_voice_model()
+    # cannot resolve them and returns whatever its fallback picks — alphabetically
+    # the first installed voice — so the panel showed "Active model file:
+    # cs_CZ-jirka-medium.onnx" for a natural: voice while synthesis actually used
+    # en_US-amy-medium. Report the model that will really be used.
+    _is_neural = str(active).startswith(("natural:", "clone:"))
+    active_model = find_voice_model(_DEFAULT_VOICE if _is_neural else active)
     return {
         "piper_python": True,
         "piper_bin": _find_piper_bin(),
         "piper_voices": installed,
         "system_voices": [v for v in installed if _is_system_voice(v)],
         "active_voice": active,
+        "default_voice": _DEFAULT_VOICE,
+        "neural_available": _neural_engine_available(),
         "active_model": str(active_model) if active_model else None,
         "pyttsx3": True,
         "espeak_ng": shutil.which("espeak-ng") is not None,
@@ -579,6 +596,50 @@ def _find_piper_config(model_path):
 # Set once if the piper binary can't use CUDA (build without GPU / CUDA
 # unavailable). Keeps the session on CPU after a single failed --cuda attempt.
 _PIPER_CUDA_FAILED = False
+
+# ── Neural-voice fallback state (observable, not silent) ─────────────────────
+# A `natural:`/`clone:` voice that cannot synthesise fell through to Piper with no
+# log line at all. Live consequence: Settings reported "Active voice: natural:sophia"
+# while every reply was spoken by en_US-amy-medium, and a user who dropped in a voice
+# clip had no way to learn that the clone was registered but never used — the only
+# hint appeared once, in the creation dialog. Record WHY, so the diagnostics panel and
+# the console agree with what is actually coming out of the speakers.
+_NEURAL_FALLBACK: Dict[str, Any] = {"active": False, "requested": "", "reason": ""}
+
+
+def _neural_unavailable_reason() -> str:
+    """Why a neural voice cannot synthesise right now, in one line."""
+    try:
+        from eli.perception import tts_xtts
+        if not tts_xtts.xtts_available():
+            return ("the neural voice engine (coqui-tts + torch) is not installed in "
+                    "this build")
+    except Exception:
+        return "the neural voice engine could not be loaded"
+    return "the neural engine is present but produced no audio for this voice"
+
+
+def _note_neural_fallback(requested) -> None:
+    """Record (and log once per change) that a neural voice fell back to Piper."""
+    global _NEURAL_FALLBACK
+    if not requested:
+        if _NEURAL_FALLBACK.get("active"):
+            log.debug("[TTS_NEURAL] neural voice is working again")
+        _NEURAL_FALLBACK = {"active": False, "requested": "", "reason": ""}
+        return
+    reason = _neural_unavailable_reason()
+    if (not _NEURAL_FALLBACK.get("active")) or _NEURAL_FALLBACK.get("requested") != requested:
+        log.warning(
+            "[TTS_NEURAL] '%s' could not synthesise — %s. Falling back to the Piper "
+            "voice '%s'. The selected voice is NOT what you are hearing.",
+            requested, reason, _DEFAULT_VOICE,
+        )
+    _NEURAL_FALLBACK = {"active": True, "requested": str(requested), "reason": reason}
+
+
+def neural_fallback_state() -> Dict[str, Any]:
+    """Public read for the diagnostics panel. Empty dict-ish when all is well."""
+    return dict(_NEURAL_FALLBACK)
 
 
 def _speak_piper_cli(text, voice_name=None):
@@ -1080,9 +1141,12 @@ def synthesize_wav(text: str, voice_name: str | None = None) -> Optional[bytes]:
             from eli.perception import tts_xtts
             wav = tts_xtts.synthesize_natural_wav(text, active)
             if wav:
+                _note_neural_fallback(None)
                 return _apply_tone_pitch(wav)
+            _note_neural_fallback(active)
         except Exception:
             log.debug("[TTS_WAV] natural voice resolve failed", exc_info=True)
+            _note_neural_fallback(active)
         active = _DEFAULT_VOICE
     # Cloned voice (clone:<name>): Coqui XTTS-v2 from a reference sample. If the extra
     # isn't installed / no reference, returns None → we fall back to the default voice.
@@ -1091,9 +1155,12 @@ def synthesize_wav(text: str, voice_name: str | None = None) -> Optional[bytes]:
             from eli.perception import tts_xtts
             wav = tts_xtts.synthesize_wav(text, active)
             if wav:
+                _note_neural_fallback(None)
                 return _apply_tone_pitch(wav)
+            _note_neural_fallback(active)
         except Exception:
             log.debug("[TTS_WAV] clone voice resolve failed", exc_info=True)
+            _note_neural_fallback(active)
         active = _DEFAULT_VOICE
     # Character voice (char:hal, char:tars, …): synth the base Piper voice, then run
     # its ffmpeg effect chain over the result. Recurses once with a real base voice.
