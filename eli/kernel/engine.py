@@ -3180,6 +3180,39 @@ def _user_asked_for_a_repeat(user_input: str) -> bool:
     return bool(_REPEAT_REQUESTED_RE.search(str(user_input or "")))
 
 
+# The contract block injected into situation_brief, matched so a retry can remove it.
+_ANTI_REPEAT_BLOCK_RE = re.compile(
+    r"YOU HAVE ALREADY SAID THE FOLLOWING.*?do not describe it again unless asked\.",
+    re.S,
+)
+
+
+def _deprimed_retry_prompt(prompt: str) -> str:
+    """Strip the verbatim prior replies before regenerating.
+
+    Observed live (v2.1.60, 15:13): the guard caught a repeat, retried, and the
+    retry produced the SAME opening — prompt_tokens barely moved, 4501 -> 4495,
+    because the retry was `instruction + prompt` and `prompt` still carried the
+    anti-repeat contract quoting three prior replies at up to 220 chars each.
+
+    So the retry handed the model the exact text it must not produce and asked it
+    not to produce it. For a small model that is priming, not prevention: the
+    surest way to make it say something is to put it in the context window. The
+    remedy is subtraction — remove the quotes, keep a constraint that names no
+    content. (A turn earlier the same guard retried successfully, 'You' -> 'Hello';
+    the failure is not universal, which is why it needed a live session to find.)
+    """
+    stripped = _ANTI_REPEAT_BLOCK_RE.sub(
+        "Do not repeat anything you have already said in this conversation, and do "
+        "not re-ask a question the user has already answered.",
+        str(prompt or ""),
+    )
+    return (
+        "Your previous attempt repeated an earlier reply. Respond only to the user's "
+        "latest message, with different content.\n\n" + stripped
+    )
+
+
 def _repeat_ratio(a: str, b: str) -> float:
     """Similarity of two replies, punctuation- and case-insensitive."""
     na, nb = _clarifier_norm(a), _clarifier_norm(b)
@@ -12905,23 +12938,37 @@ Answer:"""
                 # than a preamble the model can drift past. A second repeat is served
                 # as-is: an honest duplicate beats an empty turn or an infinite retry.
                 full_tokens.clear()
-                _retry_prompt = (
-                    "The reply you just produced repeated something you had already said. "
-                    "Write a DIFFERENT reply. Do not restate any earlier point, do not "
-                    "re-ask an answered question, and respond only to the user's latest "
-                    "message.\n\n" + prompt
-                )
-                log.debug("[ANTI-REPEAT] retry generation issued")
+                _retry_prompt = _deprimed_retry_prompt(prompt)
+                log.debug("[ANTI-REPEAT] retry generation issued (prior replies stripped "
+                          "from prompt: %d -> %d chars)", len(prompt), len(_retry_prompt))
                 _retry = self.generate_stream_from_assembled_prompt(
                     _retry_prompt,
                     working_memory=wm,
                     reasoning_mode=reasoning_mode,
                 )
-                for piece in _stream_holding_back_repeats(
-                        _retry, _recent_eli, allow_retry=False):
-                    full_tokens.append(piece)
-                    yielded = True
-                    yield piece
+                # The de-primed prompt is materially different from the first, so a
+                # second attempt is worth one more generation. Live evidence: attempt
+                # 2 reproduced the opening verbatim when it was still primed. Beyond
+                # this, serve it — an honest duplicate beats silence or a loop.
+                try:
+                    for piece in _stream_holding_back_repeats(
+                            _retry, _recent_eli, allow_retry=True):
+                        full_tokens.append(piece)
+                        yielded = True
+                        yield piece
+                except _RepeatDetected:
+                    log.debug("[ANTI-REPEAT] de-primed retry still repeated — serving it")
+                    full_tokens.clear()
+                    _last = self.generate_stream_from_assembled_prompt(
+                        _retry_prompt,
+                        working_memory=wm,
+                        reasoning_mode=reasoning_mode,
+                    )
+                    for piece in _stream_holding_back_repeats(
+                            _last, _recent_eli, allow_retry=False):
+                        full_tokens.append(piece)
+                        yielded = True
+                        yield piece
 
             if yielded:
                 final_text = "".join(full_tokens).strip()
