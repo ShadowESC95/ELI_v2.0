@@ -10725,7 +10725,7 @@ def _execute_impl(action: str, args: Optional[Dict[str, Any]] = None) -> Dict[st
                         f"Downloadable: {len(dl)} more"
                         + (f" across {len(langs)} languages" if langs else "")
                         + (f" ({len(en)} English accents)" if en else "")
-                        + ". Say e.g. \"download a British voice\", or open Settings > Voice.")
+                        + ". Say e.g. \"download a British voice\", or open Settings \u25b8 Runtime \u25b8 \"VOICE / TTS\".")
             except Exception:
                 log.debug("[LIST_VOICES] catalog summary failed", exc_info=True)
             msg = "\n".join(lines)
@@ -10862,9 +10862,18 @@ def _execute_impl(action: str, args: Optional[Dict[str, Any]] = None) -> Dict[st
             src = (args.get("file") or args.get("path") or args.get("audio")
                    or args.get("source") or "").strip()
             if not src:
+                # The UI path here must match the real GUI. It previously read
+                # 'Settings > Voice > "Create a voice from an audio file…"', and neither
+                # part existed: the settings page is Audio (there is no Voice page), and
+                # the create-voice drop-zone lives on the RUNTIME page under the
+                # "VOICE / TTS" card (_build_settings_runtime_page). A user followed this
+                # instruction, found nothing, said so, and ELI repeated the same wrong
+                # path back — it was reciting a hard-coded string, not hallucinating.
+                # tests/test_create_voice_ui_path.py pins this against the GUI source.
                 msg = ("To make a voice, give me an audio file of it — a .wav, .mp3 or .mp4 "
-                       "(a short, clean ~6–20s clip works best). In the app: Settings > Voice "
-                       "> \"Create a voice from an audio file…\".")
+                       "(a short, clean ~6–20s clip works best). You can also drop the clip "
+                       "straight into the app: Settings ▸ Runtime ▸ \"VOICE / TTS\", where it "
+                       "says \"Drop an audio/video clip here, or click to browse…\".")
                 return {"ok": False, "action": a, "content": msg, "response": msg}
             import os as _os
             src = _os.path.expanduser(src)
