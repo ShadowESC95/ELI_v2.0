@@ -81,7 +81,27 @@ repository is public, and Actions on standard runners is free and unmetered for 
 repos. The cost of the gate was zero and it was switched off anyway.
 
 It now runs on every pull request and every push to `main`, across
-`ubuntu-latest / macos-latest / windows-latest` × Python 3.10 and 3.12.
+`ubuntu-latest / macos-latest / windows-latest` × Python 3.10 and 3.12 — **verified
+green on all six jobs**, not merely configured.
+
+Turning it on immediately paid for itself. The first run failed all six jobs on two
+defects that had been latent for as long as the workflow had existed, invisible
+precisely because nothing ever executed it:
+
+1. **Every pytest step used the bare `pytest` console script.** `-m` puts the working
+   directory on `sys.path`; the console script does not, and the top-level `api` package
+   is not installed by `pip install -e .`. So `import api.server` failed,
+   `tests/test_api_server.py` hit its own module-level skip guard, and the step reported
+   "collected 0 items / 1 skipped" — pytest exit code 5. Locally the two differ starkly:
+   `python -m pytest` → 78 passed; bare `pytest` → exit 5. The identical mistake once
+   aborted a release from `scripts/build_packages.sh`.
+2. **Windows ran a bash heredoc through PowerShell.** The dashboard step is written as
+   `python - <<'PY'`, which PowerShell cannot parse — a `.ps1` `ParserError`. That step
+   could never have passed on Windows. The job now pins `shell: bash` so all three OSes
+   execute identical commands.
+
+Neither was a regression. Both were pre-existing, and both are exactly the class of
+defect a gate that never runs cannot catch.
 
 **Claim it accurately:** this is a curated cross-platform gate — imports, the headless
 FastAPI server, all 16 dashboard read-endpoints, the 78-case API suite, first-run DB
