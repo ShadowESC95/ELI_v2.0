@@ -381,7 +381,22 @@ _IMPERATIVE_RX = re.compile(
     r"|run|remind|turn|mute|unmute|screenshot|take|send|search|find|read|enable"
     r"|disable|update|download|email|message|post)\b", re.I)
 # Don't treat genuine questions as scheduling ("what's on tonight?").
-_QUESTION_RX = re.compile(r"^\s*(what|whats|what's|how|why|who|where|which|whose|tell me|show me what)\b", re.I)
+# Questions must not be scheduled. This matched wh-words ONLY, so every yes/no
+# question fell through: "Do you ever get tired of me asking you the same kinds of
+# questions over and over again every day?" has no wh-word, "every day" satisfied
+# the future-time pattern, and it became a SCHEDULE_TASK at 0.9 — the prepass
+# docstring claims questions are excluded, and for yes/no questions it was not true.
+#
+# Auxiliary openers are split deliberately. "do/does/did/are/is/was/were/have/has/am
+# + pronoun" asks ELI ABOUT something and is conversational. "can/could/would/will
+# you" is a polite REQUEST — "can you open spotify at 8pm?" must still schedule — so
+# those are NOT listed here.
+_QUESTION_RX = re.compile(
+    r"^\s*(what|whats|what's|how|why|who|where|which|whose|tell me|show me what)\b"
+    r"|^\s*(do|does|did|are|is|was|were|have|has|had|am)\s+"
+    r"(you|i|we|it|that|this|there|they)\b",
+    re.I,
+)
 # These have their own dedicated time-aware handlers — never hijack them.
 _DEDICATED_TIME_RX = re.compile(r"\b(alarm|timer|stopwatch|pomodoro)\b", re.I)
 
@@ -1514,7 +1529,28 @@ def _eli_proof_of_reading_challenge(low: str) -> bool:
     return bool(runtime_ref or eli_read_claim)
 
 
-def route(text: str) -> Dict[str, Any]:
+def _trailing_request_clause(raw: str) -> str:
+    """The final sentence of a multi-sentence utterance, if it is a short request.
+
+    The long-question guard measures the whole utterance, but the request often
+    lives in the last clause: "Nope, i don't want to be stuck in that loop anymore
+    than you do, broken now anyway. What's the morning report?" is 20 words, while
+    the thing being asked for is 5. Returns "" when there is no distinct trailing
+    clause, or when it is not short enough to be an unambiguous request — the
+    caller then falls back to CHAT exactly as before.
+    """
+    parts = [p.strip() for p in re.split(r"(?<=[.!?])\s+", str(raw or "").strip()) if p.strip()]
+    if len(parts) < 2:
+        return ""                       # single sentence: nothing to narrow to
+    tail = parts[-1]
+    if len(tail.split()) > 8:
+        return ""                       # still rambling; the guard should handle it
+    return tail
+
+
+def route(text: str, _clause_depth: int = 0) -> Dict[str, Any]:
+    """`_clause_depth` is internal: the long-question guard re-routes a trailing
+    clause through this same function, and must not recurse further than once."""
 
     raw, low = _normalize_text(text)
     text_l = low  # compatibility alias for legacy route guards
@@ -2267,14 +2303,47 @@ def route(text: str) -> Dict[str, Any]:
     ):
         return _mk("CHAT", {"message": raw}, 0.9, matched_by="chat.relational_concern")
 
-    # NOTE: clock questions are exempt. Asking completely ("Eli, what is the
-    # date, the day, and what is the time?" — 12 words) must not be answered
-    # worse than asking tersely ("what is the time" — 4). The TIME/DATE routes
-    # below carry their own conversational guards.
+    # Long-question guard. Keeps a long, rambling question away from the LLM intent
+    # resolver (which mis-maps them to arbitrary actions) by returning CHAT at 0.85 —
+    # confident enough that the engine never calls the resolver.
+    #
+    # It sits above ~300 deterministic keyword routes and shadows all of them, so the
+    # exemption list grew one bug at a time: wallclock questions were carved out after
+    # long clock questions were answered worse than terse ones. The comment stated the
+    # principle generally — "asking completely must not be answered worse than asking
+    # tersely" — while the code applied it to exactly one case.
+    #
+    # Live example that motivated the general fix: "Nope, i don't want to be stuck in
+    # that loop anymore than you do, broken now anyway. What's the morning report?"
+    # — 20 words, so the guard fired and the user got small-talk instead of the report
+    # they asked for in the final clause.
+    #
+    # Deferring the guard until after all the keyword routes was tried and REJECTED:
+    # it let loose routes catch conversational text ("Do you ever get tired of me
+    # asking you the same kinds of questions over and over again every day?" started
+    # routing to SCHEDULE_TASK). The length heuristic is earning its keep against
+    # those.
+    #
+    # What is actually wrong is the unit of measurement. The guard measures the whole
+    # utterance, but the request lives in a CLAUSE. A long preamble followed by a
+    # crisp question should route on the crisp question. So: when the guard would
+    # fire, re-route the trailing sentence alone, and accept that only if it is short
+    # and produces a confident non-CHAT action. Anything vaguer still falls to CHAT.
     if (("?" in raw or "!" in raw) and len(low.split()) >= 12
             and not _is_wallclock_question(low)
             and not re.match(
             r"^(open|access|initiate|fabricate|check|run|execute|type|press|pause|resume|play|next|previous|stop|mute|unmute|read|list|show|write|add|analyse|analyze|improve)\b", low)):
+        _tail = _trailing_request_clause(raw) if _clause_depth == 0 else ""
+        if _tail:
+            _tail_route = route(_tail, _clause_depth=_clause_depth + 1)
+            _tail_action = str((_tail_route or {}).get("action") or "").upper()
+            _tail_conf = float((_tail_route or {}).get("confidence") or 0.0)
+            if _tail_action not in ("CHAT", "", "NOOP", "UNKNOWN") and _tail_conf >= 0.9:
+                _tail_meta = dict((_tail_route or {}).get("meta") or {})
+                _tail_meta["matched_by"] = (
+                    f"{_tail_meta.get('matched_by', '?')}+long_question_clause")
+                _tail_route["meta"] = _tail_meta
+                return _tail_route
         return _mk("CHAT", {"message": raw}, 0.85,
                    matched_by="chat.long_question_guard")
 
