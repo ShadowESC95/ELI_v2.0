@@ -3187,30 +3187,33 @@ _ANTI_REPEAT_BLOCK_RE = re.compile(
 )
 
 
-def _deprimed_retry_prompt(prompt: str) -> str:
-    """Strip the verbatim prior replies before regenerating.
+def _deprimed_persona_brief(situation_brief: str) -> str:
+    """Strip the verbatim prior replies from the PERSONA HANDOFF before regenerating.
 
-    Observed live (v2.1.60, 15:13): the guard caught a repeat, retried, and the
-    retry produced the SAME opening — prompt_tokens barely moved, 4501 -> 4495,
-    because the retry was `instruction + prompt` and `prompt` still carried the
-    anti-repeat contract quoting three prior replies at up to 220 chars each.
+    Named for its argument on purpose. The first version of this took `prompt` and
+    was a no-op: in stream_chat, `prompt` is the user's own message
+    (``prompt = str((args or {}).get("message") or user_input or "").strip()``),
+    while the anti-repeat contract is injected into `situation_brief`, which
+    reaches the model as ``wm.persona_handoff``. Stripping the user's message
+    removed nothing and prepended an instruction to their words instead. The live
+    log said so plainly — "prior replies stripped from prompt: 26 -> 143 chars",
+    and 26 is the length of "fair point pal, fair point".
 
-    So the retry handed the model the exact text it must not produce and asked it
-    not to produce it. For a small model that is priming, not prevention: the
-    surest way to make it say something is to put it in the context window. The
-    remedy is subtraction — remove the quotes, keep a constraint that names no
-    content. (A turn earlier the same guard retried successfully, 'You' -> 'Hello';
-    the failure is not universal, which is why it needed a live session to find.)
+    Why strip at all: the contract quotes up to three prior replies verbatim at 220
+    chars each, so the retry handed the model the exact text it must not produce
+    and asked it not to produce it. For a small model that is priming, not
+    prevention. The remedy is subtraction — remove the quotes, keep a constraint
+    that names no content.
     """
     stripped = _ANTI_REPEAT_BLOCK_RE.sub(
         "Do not repeat anything you have already said in this conversation, and do "
         "not re-ask a question the user has already answered.",
-        str(prompt or ""),
+        str(situation_brief or ""),
     )
     return (
         "Your previous attempt repeated an earlier reply. Respond only to the user's "
         "latest message, with different content.\n\n" + stripped
-    )
+    ).strip()
 
 
 def _repeat_ratio(a: str, b: str) -> float:
@@ -12938,12 +12941,24 @@ Answer:"""
                 # than a preamble the model can drift past. A second repeat is served
                 # as-is: an honest duplicate beats an empty turn or an infinite retry.
                 full_tokens.clear()
-                _retry_prompt = _deprimed_retry_prompt(prompt)
-                log.debug("[ANTI-REPEAT] retry generation issued (prior replies stripped "
-                          "from prompt: %d -> %d chars)", len(prompt), len(_retry_prompt))
+                # De-prime the PERSONA HANDOFF, which is where the contract lives.
+                # `prompt` is the user's message and must reach the model unaltered.
+                _retry_brief = _deprimed_persona_brief(situation_brief)
+                _retry_wm = SimpleNamespace(
+                    user_input=user_input,
+                    assembled_context=memory_context,
+                    persona_handoff=_retry_brief,
+                    final_response="",
+                    trace={},
+                    bus_result=pre_built_bus_result,
+                    short_term_memory=SimpleNamespace(recent_turns=_wm_recent_turns),
+                )
+                log.debug("[ANTI-REPEAT] retry generation issued (persona handoff "
+                          "de-primed: %d -> %d chars)",
+                          len(situation_brief), len(_retry_brief))
                 _retry = self.generate_stream_from_assembled_prompt(
-                    _retry_prompt,
-                    working_memory=wm,
+                    prompt,
+                    working_memory=_retry_wm,
                     reasoning_mode=reasoning_mode,
                 )
                 # The de-primed prompt is materially different from the first, so a
@@ -12960,8 +12975,8 @@ Answer:"""
                     log.debug("[ANTI-REPEAT] de-primed retry still repeated — serving it")
                     full_tokens.clear()
                     _last = self.generate_stream_from_assembled_prompt(
-                        _retry_prompt,
-                        working_memory=wm,
+                        prompt,
+                        working_memory=_retry_wm,
                         reasoning_mode=reasoning_mode,
                     )
                     for piece in _stream_holding_back_repeats(

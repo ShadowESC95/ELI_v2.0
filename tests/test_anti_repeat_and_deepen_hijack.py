@@ -29,7 +29,7 @@ from eli.kernel.engine import (
     _RepeatDetected,
     _is_explicit_command_match,
     _ANTI_REPEAT_BLOCK_RE,
-    _deprimed_retry_prompt,
+    _deprimed_persona_brief,
     _is_repeat_of_recent,
     _repeat_ratio,
     _stream_holding_back_repeats,
@@ -201,44 +201,78 @@ _CONTRACT = (
     "Reply to what the user just said. If you have already described your "
     "own state or mood, do not describe it again unless asked."
 )
-_PROMPT = _CONTRACT + "\n\nPERSONA: terse\nUSER: what's the morning report?"
+# The contract is injected into the PERSONA HANDOFF (situation_brief), which
+# reaches the model as wm.persona_handoff. It is NOT in `prompt` — `prompt` is the
+# user's own message. Getting that wrong made the first fix a silent no-op.
+_BRIEF = _CONTRACT + "\n\nPERSONA: terse\nRECENT: user asked for a report"
 
 
 def test_retry_prompt_no_longer_quotes_the_reply_it_must_avoid():
     """The whole point: stop handing the model the text it must not produce."""
-    out = _deprimed_retry_prompt(_PROMPT)
+    out = _deprimed_persona_brief(_BRIEF)
     assert "recalibrating the quantum model" not in out
     assert "stress tests on your sleep schedule" not in out
 
 
 def test_retry_prompt_keeps_a_constraint_that_names_no_content():
-    out = _deprimed_retry_prompt(_PROMPT).lower()
+    out = _deprimed_persona_brief(_BRIEF).lower()
     assert "not repeat anything you have already said" in out
 
 
 def test_retry_prompt_preserves_the_rest_of_the_prompt():
     """Stripping must remove the quotes, not the persona or the user's question."""
-    out = _deprimed_retry_prompt(_PROMPT)
+    out = _deprimed_persona_brief(_BRIEF)
     assert "PERSONA: terse" in out
-    assert "USER: what's the morning report?" in out
+    assert "RECENT: user asked for a report" in out
 
 
 def test_retry_prompt_is_materially_shorter():
     """4501 -> 4495 tokens was the symptom: the retry was effectively the same
     prompt. It has to actually change."""
-    assert len(_deprimed_retry_prompt(_PROMPT)) < len(_PROMPT)
+    assert len(_deprimed_persona_brief(_BRIEF)) < len(_BRIEF)
 
 
-def test_retry_prompt_survives_a_prompt_with_no_contract():
+def test_retry_prompt_survives_a_brief_with_no_contract():
     """Not every turn injects one (no prior replies on turn 1)."""
-    bare = "PERSONA: terse\nUSER: hello"
-    out = _deprimed_retry_prompt(bare)
-    assert "USER: hello" in out and out != bare   # instruction prepended, nothing lost
+    bare = "PERSONA: terse\nRECENT: nothing yet"
+    out = _deprimed_persona_brief(bare)
+    assert "RECENT: nothing yet" in out and out != bare
+
+
+def test_the_user_message_is_never_the_de_priming_target():
+    """The bug this rename exists to prevent. `prompt` in stream_chat is the user's
+    own message; the contract is in the persona handoff. Passing the user message
+    here strips nothing and prepends an instruction to their words — the live log
+    read "prior replies stripped from prompt: 26 -> 143 chars", and 26 is exactly
+    len("fair point pal, fair point")."""
+    user_message = "fair point pal, fair point"
+    out = _deprimed_persona_brief(user_message)
+    assert len(out) > len(user_message), (
+        "a user message contains no contract, so this can only ever grow it — "
+        "which is why it must never be the argument"
+    )
+    # and the guard that actually matters: the shipped call site passes the brief
+    import inspect
+    from eli.kernel import engine as eng
+    src = inspect.getsource(eng.CognitiveEngine._stream_chat)
+    assert "_deprimed_persona_brief(situation_brief)" in src, (
+        "the retry must de-prime situation_brief, not prompt"
+    )
+
+
+def test_retry_reaches_the_model_with_the_user_message_unaltered():
+    """The first version prepended its instruction to the user's own words."""
+    import inspect
+    from eli.kernel import engine as eng
+    src = inspect.getsource(eng.CognitiveEngine._stream_chat)
+    # the retry generation call must pass `prompt` itself, not a rewritten variant
+    assert "generate_stream_from_assembled_prompt(\n                    prompt," in src \
+        or "generate_stream_from_assembled_prompt(prompt," in src
 
 
 @pytest.mark.parametrize("bad", ["", None])
 def test_retry_prompt_never_raises(bad):
-    assert isinstance(_deprimed_retry_prompt(bad), str)
+    assert isinstance(_deprimed_persona_brief(bad), str)
 
 
 def test_contract_and_stripper_stay_in_sync():
