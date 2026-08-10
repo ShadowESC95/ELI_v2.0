@@ -145,6 +145,93 @@ def test_first_append_in_a_process_always_checks(tmp_path):
     )
 
 
+# ── schema drift must not destroy the world ─────────────────────────────────
+# Five `eli_world_state.corrupt_*` backups accumulated between 2026-07-05 and
+# 2026-08-05. Three carry a complete JSON document followed by a single stray
+# "}" — the signature of two writers sharing one fixed ".tmp" name with
+# independent file offsets, fixed in ee43548 (all five predate it).
+#
+# The other two parse as perfectly valid JSON. Those were not corrupt at all:
+# `AwarenessState(**data)` raises TypeError the instant the saved state carries
+# a field the dataclass no longer declares, load() caught *every* exception,
+# renamed the user's world to ".corrupt_*" and returned an empty default. One
+# renamed attribute in a release would wipe every existing user's rooms,
+# objects, goals and habits on upgrade.
+
+def _drifted(**extra):
+    base = {
+        "awareness": {"focus": 0.9, "curiosity": 0.3},
+        "avatar": {"room": "lab", "posture": "seated"},
+        "objects": {"lamp": {"object_id": "lamp", "name": "lamp",
+                             "object_type": "light", "room": "lab", "x": 3.0}},
+    }
+    for section, fields in extra.items():
+        base[section].update(fields)
+    return base
+
+
+def test_unknown_awareness_field_does_not_wipe_the_world():
+    from eli.world.persistence.storage import _state_from_dict
+    state = _state_from_dict(_drifted(awareness={"retired_field": 1}))
+    assert state.awareness.focus == 0.9, "known values must survive the drop"
+
+
+def test_unknown_avatar_field_keeps_the_room():
+    """The originally reported symptom: room silently reset to core_room."""
+    from eli.world.persistence.storage import _state_from_dict
+    state = _state_from_dict(_drifted(avatar={"gone_field": 2}))
+    assert state.avatar.room == "lab"
+
+
+def test_unknown_object_field_keeps_the_object():
+    from eli.world.persistence.storage import _state_from_dict
+    state = _state_from_dict(_drifted(objects={"lamp": {
+        "object_id": "lamp", "name": "lamp", "object_type": "light",
+        "room": "lab", "x": 3.0, "removed_field": 9}}))
+    assert "lamp" in state.objects and state.objects["lamp"].x == 3.0
+
+
+def test_one_unusable_record_does_not_discard_the_others():
+    """A record missing a *required* field is dropped alone, not with the rest."""
+    from eli.world.persistence.storage import _state_from_dict
+    state = _state_from_dict({"objects": {
+        "good": {"object_id": "good", "name": "g", "object_type": "light", "room": "lab"},
+        "bad": {"name": "no object_id"},
+    }})
+    assert "good" in state.objects and "bad" not in state.objects
+
+
+def test_valid_json_is_never_filed_as_corrupt(tmp_path, monkeypatch):
+    """The exact loss: JSON parsed fine, so the user's data was intact on disk,
+    and load() renamed it away regardless."""
+    import json as _json
+    from eli.world.persistence import storage as st
+
+    p = tmp_path / "eli_world_state.json"
+    p.write_text(_json.dumps({"world_name": "mine", "avatar": {"room": "lab"}}), encoding="utf-8")
+
+    def explode(_data):
+        raise TypeError("a build that cannot map this schema")
+
+    monkeypatch.setattr(st, "_state_from_dict", explode)
+    st.EliWorldStorage(state_path=p).load()
+
+    assert p.exists(), "a parseable world state was renamed away"
+    assert not list(tmp_path.glob("*.corrupt_*")), "parseable state filed as corrupt"
+
+
+def test_unparseable_json_is_still_backed_up(tmp_path):
+    """The salvage path must not swallow real corruption silently."""
+    from eli.world.persistence import storage as st
+
+    p = tmp_path / "eli_world_state.json"
+    p.write_text('{"world_name": "mine"}}', encoding="utf-8")   # the stray-brace signature
+
+    st.EliWorldStorage(state_path=p).load()
+
+    assert list(tmp_path.glob("*.corrupt_*")), "genuinely corrupt state was not preserved"
+
+
 def test_second_append_does_not_re_trim(tmp_path):
     """First-append checking must not turn into trimming on every write."""
     import json as _json
