@@ -3079,6 +3079,12 @@ def _clarifier_norm(text: str) -> str:
 # into CHAT is a misroute rather than a rescue.
 _DEEPEN_WINDOW_SECONDS = float(os.environ.get("ELI_DEEPEN_WINDOW_SECONDS", "300"))
 
+# Tokens reserved for the reply when sizing the evidence budget. `max_tokens` is a
+# ceiling (~3461 in quick mode) and reserving all of it starved the evidence — see
+# the note at the streaming context-size guard. A reply longer than this simply eats
+# into the 20% headroom the budget already keeps.
+_OUTPUT_RESERVE_TOKENS = int(os.environ.get("ELI_OUTPUT_RESERVE_TOKENS", "1024"))
+
 
 # Actions that ARM the news topic-deepen rule. They must never also be its victims:
 # MORNING_REPORT armed the rule and was eligible to be rewritten by it, so asking for
@@ -6123,9 +6129,24 @@ Answer:"""
                 _persona_chars_s = len(_load_persona_text())
                 _query_chars_s = len(prompt or '')
                 _total_char_budget_s = int(_n_ctx * 3.5 * 0.80)
+                # Reserve for OUTPUT realistically. `max_tokens` is a CEILING, not an
+                # expectation: in quick mode it is ~3461, so `_max_tok_s * 4` reserved
+                # ~13.8k chars of a ~29k budget for output that a chat reply never
+                # produces. Observed live: the bus gathered 6,352 chars of evidence for
+                # "are these dynamic and true awareness, not hard-coding?" — including a
+                # 1,415-char introspection result — at grounding 0.98, and this line
+                # trimmed it to 685 chars. The model then answered "let's pretend it
+                # works for now", having been handed almost none of the evidence that
+                # was fetched specifically to answer it.
+                #
+                # The budget already keeps 20% headroom (the 0.80 above), and llama.cpp
+                # enforces n_ctx regardless, so reserving the full ceiling was doubly
+                # conservative. Cap the reservation at a realistic reply length; a longer
+                # generation simply uses the headroom.
+                _out_reserve_tok_s = min(_max_tok_s, _OUTPUT_RESERVE_TOKENS)
                 _mem_char_budget_s = max(
                     400,
-                    _total_char_budget_s - _persona_chars_s - _query_chars_s - (_max_tok_s * 4)
+                    _total_char_budget_s - _persona_chars_s - _query_chars_s - (_out_reserve_tok_s * 4)
                 )
                 _trimmed_mem_s = _eli_sanitize_identity_context_block(memory_context, prompt)
                 if len(memory_context) > _mem_char_budget_s:
