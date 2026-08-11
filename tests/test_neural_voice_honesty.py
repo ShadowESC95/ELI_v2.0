@@ -217,3 +217,38 @@ def test_tts_is_imported_lazily_which_is_why_collection_is_needed():
     assert "\nimport TTS" not in head, (
         "TTS is now a module-level import; update the spec comment accordingly"
     )
+
+
+def test_spec_shims_transformers_before_probing_tts():
+    """v2.1.66 shipped no TTS/ because ELI.spec did a bare `__import__("TTS")`.
+
+    coqui-tts reaches for `transformers.pytorch_utils.isin_mps_friendly`, removed in
+    transformers>=5, so the probe raised, _optional_collect reported "optional
+    dependency not installed", and PyInstaller collected nothing — while pip had
+    installed coqui-tts perfectly well. The shim must run BEFORE the collect, and it
+    must be the project's own (tts_xtts._patch_transformers_compat), not a copy.
+    """
+    spec = (REPO / "ELI.spec").read_text(encoding="utf-8")
+    body = "\n".join(l for l in spec.splitlines() if not l.lstrip().startswith("#"))
+    assert "_patch_transformers_compat" in body, "spec no longer shims transformers"
+    assert body.index("_patch_transformers_compat") < body.index('"TTS", "trainer"'), (
+        "the shim must be applied before TTS is collected"
+    )
+
+
+def test_the_shim_actually_makes_tts_importable():
+    """Not a source assertion — run it. If this breaks, the spec fix is inert.
+
+    Skipped under the repo conftest, which replaces `transformers` with a MagicMock
+    for the fast unit suite: the shim then has nothing real to patch. The binding
+    check that matters happens on the build runner (release.yml asserts TTS/ was
+    collected) and can be run here directly with --noconftest.
+    """
+    import sys
+    from unittest.mock import MagicMock
+    if isinstance(sys.modules.get("transformers"), MagicMock):
+        pytest.skip("conftest mocks transformers; run with --noconftest for the real probe")
+    from eli.perception.tts_xtts import _patch_transformers_compat
+    _patch_transformers_compat()
+    import importlib
+    importlib.import_module("TTS")

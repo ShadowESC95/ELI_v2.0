@@ -191,6 +191,20 @@ for pkg in ("meshio", "matplotlib", "mpl_toolkits", "pandas", "plotly", "scipy")
 # TTS/ package itself was never collected, so `import TTS` failed at runtime and
 # every cloned voice fell back to Piper — with the extra bundled and unusable.
 # `trainer` is imported by coqui-tts at load time and has the same problem.
+# coqui-tts cannot be imported bare: it reaches for
+# `transformers.pytorch_utils.isin_mps_friendly`, which transformers>=5 removed.
+# ELI carries a shim for exactly this (tts_xtts._patch_transformers_compat) and
+# applies it before its own probe. The spec did not, so `__import__("TTS")` raised,
+# _optional_collect reported "optional dependency not installed" and collected
+# nothing — v2.1.66 shipped trainer/ and torch/ but no TTS/, with pip having
+# installed coqui-tts perfectly well. Reuse the project's shim rather than
+# duplicating it; if it is unavailable the collect below simply skips as before.
+try:
+    from eli.perception.tts_xtts import _patch_transformers_compat as _eli_tts_shim
+    _eli_tts_shim()
+    print("[ELI.spec] applied transformers compat shim before collecting TTS")
+except Exception as _e:
+    print(f"[ELI.spec] transformers compat shim unavailable ({_e}); TTS may be skipped")
 for pkg in ("TTS", "trainer"):
     hiddenimports += _optional_collect(pkg)
 if sys.platform == "win32":
