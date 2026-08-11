@@ -451,7 +451,17 @@ jobs:
           echo "embedder: $(( bytes / 1048576 )) MiB at $dest"
 
       - name: PyInstaller build (ELI.spec)
-        run: pyinstaller --noconfirm --clean ELI.spec
+        run: |
+          pyinstaller --noconfirm --clean ELI.spec 2>&1 | tee /tmp/pyi.log
+          # collect_submodules imports the package in an ISOLATED SUBPROCESS, so a
+          # package that only imports with an in-process shim fails collection and
+          # PyInstaller merely WARNS — buried in ~250k log lines. That is how four
+          # releases shipped an AppImage whose neural engine could not load.
+          if grep -q "Failed to collect submodules for 'TTS'" /tmp/pyi.log; then
+            echo "::error::PyInstaller could not collect TTS — the neural engine will not load:"
+            grep -m1 -A2 "Failed to collect submodules for 'TTS'" /tmp/pyi.log
+            exit 1
+          fi
 
       - name: Smoke check — bundle structure + REAL launch selftest (headless + xcb)
         run: |

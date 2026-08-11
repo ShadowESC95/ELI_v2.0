@@ -169,7 +169,14 @@ clone = [
     # module 'GPT2PreTrainedModel'" — three releases shipped an unusable engine
     # before the packaged selftest surfaced it. 5.8.1 is verified working here
     # end-to-end (register a clone, synthesise 24 kHz audio from it).
-    "transformers>=4.40,<5.9",
+    # MUST stay below 5. coqui-tts imports `isin_mps_friendly` from
+    # transformers.pytorch_utils, which 5.x removed. ELI ships a runtime shim for
+    # that, but PyInstaller's collect_submodules imports the package in an ISOLATED
+    # SUBPROCESS where no in-process shim applies — so with transformers 5.x the
+    # build silently logged "Failed to collect submodules for 'TTS'" and produced an
+    # AppImage whose neural engine could not load. Pinning below 5 makes `import
+    # TTS` work unaided, which is what the build-time collection needs.
+    "transformers>=4.40,<5",
 ]
 # Aliases for the same neural-voice dependency (clearer intent at install time).
 natural = [
@@ -184,7 +191,14 @@ natural = [
     # module 'GPT2PreTrainedModel'" — three releases shipped an unusable engine
     # before the packaged selftest surfaced it. 5.8.1 is verified working here
     # end-to-end (register a clone, synthesise 24 kHz audio from it).
-    "transformers>=4.40,<5.9",
+    # MUST stay below 5. coqui-tts imports `isin_mps_friendly` from
+    # transformers.pytorch_utils, which 5.x removed. ELI ships a runtime shim for
+    # that, but PyInstaller's collect_submodules imports the package in an ISOLATED
+    # SUBPROCESS where no in-process shim applies — so with transformers 5.x the
+    # build silently logged "Failed to collect submodules for 'TTS'" and produced an
+    # AppImage whose neural engine could not load. Pinning below 5 makes `import
+    # TTS` work unaided, which is what the build-time collection needs.
+    "transformers>=4.40,<5",
 ]
 voice = [
     "torch>=2.0",
@@ -198,7 +212,14 @@ voice = [
     # module 'GPT2PreTrainedModel'" — three releases shipped an unusable engine
     # before the packaged selftest surfaced it. 5.8.1 is verified working here
     # end-to-end (register a clone, synthesise 24 kHz audio from it).
-    "transformers>=4.40,<5.9",
+    # MUST stay below 5. coqui-tts imports `isin_mps_friendly` from
+    # transformers.pytorch_utils, which 5.x removed. ELI ships a runtime shim for
+    # that, but PyInstaller's collect_submodules imports the package in an ISOLATED
+    # SUBPROCESS where no in-process shim applies — so with transformers 5.x the
+    # build silently logged "Failed to collect submodules for 'TTS'" and produced an
+    # AppImage whose neural engine could not load. Pinning below 5 makes `import
+    # TTS` work unaided, which is what the build-time collection needs.
+    "transformers>=4.40,<5",
 ]
 
 [project.urls]
