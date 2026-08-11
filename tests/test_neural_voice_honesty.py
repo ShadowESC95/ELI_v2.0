@@ -269,3 +269,22 @@ def test_selftest_reports_the_cause_not_just_the_symptom():
     assert "xtts_import_error" in src[i:i + 1200], (
         "a failing build must say WHY the engine could not import"
     )
+
+
+def test_spec_collects_transformers_for_its_lazy_submodules():
+    """v2.1.68's selftest finally named the cause: `Could not import module
+    'GPT2PreTrainedModel'`.
+
+    transformers declares submodules in `_import_structure` and imports them on
+    attribute access, which PyInstaller cannot trace. It reached the bundle only as a
+    traced dependency of something else, so it was partial — and XTTS-v2 uses GPT-2 as
+    its text encoder. Collecting it explicitly is what makes the engine loadable.
+    """
+    spec = (REPO / "ELI.spec").read_text(encoding="utf-8")
+    body = "\n".join(l for l in spec.splitlines() if not l.lstrip().startswith("#"))
+    assert '"TTS", "trainer", "transformers"' in body, (
+        "transformers is not collected; its lazy submodules will be missing"
+    )
+    assert body.count('"TTS", "trainer", "transformers"') >= 2, (
+        "needed for both hiddenimports and datas"
+    )

@@ -205,7 +205,13 @@ try:
     print("[ELI.spec] applied transformers compat shim before collecting TTS")
 except Exception as _e:
     print(f"[ELI.spec] transformers compat shim unavailable ({_e}); TTS may be skipped")
-for pkg in ("TTS", "trainer"):
+# `transformers` uses a LAZY module system: submodules are declared in
+# `_import_structure` and imported on attribute access, which PyInstaller cannot
+# trace. It reached the bundle only as a traced dependency of something else, so it
+# was partial — and XTTS-v2 uses GPT-2 as its text encoder, so importing TTS in the
+# frozen app died with "Could not import module 'GPT2PreTrainedModel'". That error
+# took three releases to surface because xtts_available() discarded it.
+for pkg in ("TTS", "trainer", "transformers"):
     hiddenimports += _optional_collect(pkg)
 if sys.platform == "win32":
     hiddenimports += ["pyttsx3.drivers.sapi5", "comtypes.stream"]
@@ -294,7 +300,7 @@ for pkg in ("llama_cpp", "faster_whisper", "openwakeword", "piper"):
     datas += _optional_collect(pkg, data=True)
 # coqui-tts ships model/config JSON inside the package; submodules alone leave the
 # engine importable but unable to build a model.
-for pkg in ("TTS", "trainer"):
+for pkg in ("TTS", "trainer", "transformers"):
     datas += _optional_collect(pkg, data=True)
 
 excludes = [
