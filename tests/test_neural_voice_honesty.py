@@ -147,15 +147,24 @@ def _release_yaml() -> dict:
     return yaml.safe_load((REPO / ".github" / "workflows" / "release.yml").read_text())
 
 
-def test_linux_bundles_the_neural_extra():
+def test_no_platform_bundles_the_neural_engine():
+    """XTTS shipped in v2.1.72 and was pulled the same day.
+
+    The bundle must use CPU-only torch (a CUDA build blows GitHub's 2 GiB asset
+    limit), so XTTS ran on CPU — and on a GPU machine the startup picker pinned
+    ELI_XTTS_DEVICE=cuda, crashing with "Torch not compiled with CUDA enabled" after
+    loading 1.8 GB of weights. Even working, the cost is out of proportion to a voice.
+    Piper is the shipped engine; cloning works from a source install.
+    """
     d = _release_yaml()
-    extras = (d["jobs"]["build-linux"].get("env") or {}).get(
-        "OPTIONAL_EXTRAS", d["env"]["OPTIONAL_EXTRAS"])
-    assert "natural" in extras.split(), "the AppImage no longer bundles XTTS"
+    for job in ("build-linux", "build-windows", "build-macos"):
+        extras = (d["jobs"][job].get("env") or {}).get(
+            "OPTIONAL_EXTRAS", d["env"]["OPTIONAL_EXTRAS"])
+        assert "natural" not in extras.split(), f"{job} bundles the neural engine again"
 
 
 @pytest.mark.parametrize("job", ["build-windows", "build-macos"])
-def test_other_platforms_do_not_pull_the_torch_stack(job):
+def test_other_platforms_do_not_pull_the_torch_stack(job):  # noqa: D401
     """Only the linux job installs CPU torch first and guards against CUDA wheels.
     Adding `natural` globally makes windows/macos resolve torch from PyPI and blows
     the 2 GiB per-asset limit — which fails the whole release, not just one job."""
@@ -264,11 +273,24 @@ def test_xtts_availability_records_why_it_failed():
 
 
 def test_selftest_reports_the_cause_not_just_the_symptom():
+    """The probe stays in the entry point (gated off by default) so a source-install
+    or future bundled build still fails loudly with a reason rather than silently."""
     src = (REPO / "packaging" / "pyinstaller" / "eli_entry.py").read_text(encoding="utf-8")
     i = src.index("ELI_REQUIRE_NEURAL_VOICE")
     assert "xtts_import_error" in src[i:i + 1200], (
         "a failing build must say WHY the engine could not import"
     )
+
+
+def test_forced_cuda_is_verified_against_the_torch_build():
+    """The crash users actually hit: the startup picker sets ELI_XTTS_DEVICE=cuda from
+    "this machine has a GPU", which is a different question from "this torch build has
+    CUDA". A CPU-only wheel then raised deep inside .to(device)."""
+    src = (REPO / "eli" / "perception" / "tts_xtts.py").read_text(encoding="utf-8")
+    i = src.index("def _select_device")
+    block = src[i:i + 1400]
+    assert "torch.cuda.is_available()" in block
+    assert 'forced == "cuda"' in block, "the forced path no longer verifies the build"
 
 
 def test_spec_collects_transformers_for_its_lazy_submodules():
