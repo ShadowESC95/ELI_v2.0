@@ -358,3 +358,42 @@ def test_engine_still_exposes_process():
     class and this file would still import."""
     from eli.kernel.engine import CognitiveEngine
     assert hasattr(CognitiveEngine, "process")
+
+
+# ── 6. ELI's own output must not be recycled as fact ────────────────────────
+def test_chat_history_labels_elis_own_lines_as_unverified():
+    """A single hallucination became permanent truth.
+
+    ELI invented "you're in the Simulation Lab, the Branch Tree is humming". That turn
+    landed in conversation_turns; on the next session the memory agent retrieved it and
+    ELI restated it verbatim as established fact. `memories` held ZERO rows for those
+    terms and the world state's room was None — recall of its own prior turn was the
+    entire mechanism. memory.py already filters reflections and assistant_insight out
+    of recall for this exact reason; raw chat history bypassed that filter.
+    """
+    import inspect
+    from eli.kernel import engine
+
+    src = inspect.getsource(engine)
+    i = src.index("Active chat history (chronological")
+    header = src[i:i + 400]
+    assert "your own" in header.lower(), "ELI's lines are not marked as its own"
+    assert "not as verified facts" in header.lower() or "NOT as verified" in header, (
+        "the history block still presents ELI's assertions as evidence"
+    )
+
+
+def test_the_retry_is_capped_at_two_generations():
+    """Observed live: 20.1s for one reply (8.4 + 7.9 + 2.9). The handler logged
+    'serving it' while silently generating a third time, because the retry was passed
+    allow_retry=True and raised again."""
+    import inspect
+    from eli.kernel import engine
+
+    src = inspect.getsource(engine.CognitiveEngine._stream_chat)
+    i = src.index("_RepeatDetected")
+    tail = src[i:]
+    # Count real CALLS, not the name appearing inside an error-message string.
+    calls = tail.count("self.generate_stream_from_assembled_prompt(")
+    assert calls <= 1, f"the repeat handler regenerates {calls} times, expected at most 1"
+    assert "allow_retry=False" in tail, "the retry can still raise and trigger a third pass"
