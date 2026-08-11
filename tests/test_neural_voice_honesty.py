@@ -282,11 +282,15 @@ def test_spec_collects_transformers_for_its_lazy_submodules():
     """
     spec = (REPO / "ELI.spec").read_text(encoding="utf-8")
     body = "\n".join(l for l in spec.splitlines() if not l.lstrip().startswith("#"))
-    assert '"TTS", "trainer", "transformers"' in body, (
-        "transformers is not collected; its lazy submodules will be missing"
+    assert "_NEURAL_PKGS" in body, "the neural package set is gone from the spec"
+    for pkg in ('"TTS"', '"transformers"', '"inflect"', '"typeguard"'):
+        assert pkg in body, f"{pkg} is not collected"
+    assert body.count("for pkg in _NEURAL_PKGS") >= 2, (
+        "the set must feed both hiddenimports and datas"
     )
-    assert body.count('"TTS", "trainer", "transformers"') >= 2, (
-        "needed for both hiddenimports and datas"
+    assert "copy_metadata" in body, (
+        "dist-info metadata is not copied — importlib.metadata.version('torchcodec') "
+        "raises inside the bundle and transformers reports it as a missing GPT-2"
     )
 
 

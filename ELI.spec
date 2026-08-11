@@ -34,6 +34,7 @@ from PyInstaller.utils.hooks import (
     collect_data_files,
     collect_dynamic_libs,
     collect_submodules,
+    copy_metadata,
 )
 
 ROOT = Path(SPECPATH).resolve()  # noqa: F821 — SPECPATH is provided by PyInstaller
@@ -211,7 +212,27 @@ except Exception as _e:
 # was partial — and XTTS-v2 uses GPT-2 as its text encoder, so importing TTS in the
 # frozen app died with "Could not import module 'GPT2PreTrainedModel'". That error
 # took three releases to surface because xtts_available() discarded it.
-for pkg in ("TTS", "trainer", "transformers"):
+# Reproduced locally in a minimal frozen probe (six CI releases could not settle it;
+# two local builds did). Four separate things break XTTS in a PyInstaller bundle, and
+# the FIRST one masquerades as the others:
+#
+#  1. `transformers.models.gpt2.modeling_gpt2` calls
+#     importlib.metadata.version("torchcodec"). PyInstaller ships the package but not
+#     its .dist-info, so the lookup raises PackageNotFoundError — and transformers'
+#     lazy loader re-reports it as "Could not import module 'GPT2PreTrainedModel'".
+#     That misleading message sent five releases chasing GPT-2 and transformers pins.
+#     Fixed by copy_metadata below.
+#  2. TTS reads TTS/vocoder/configs/*.py at import → needs include_py_files.
+#  3. coqui-tts pulls transitive packages PyInstaller cannot trace statically.
+#  4. `inflect` decorates with typeguard's @typechecked, which calls
+#     inspect.getsource() at import time — impossible in a frozen app unless the .py
+#     source ships as data so linecache can read it.
+_NEURAL_PKGS = (
+    "TTS", "trainer", "transformers",
+    "ko_speech_tools", "coqpit_config", "monotonic_alignment_search",
+    "num2words", "inflect", "anyascii", "librosa", "soundfile", "typeguard",
+)
+for pkg in _NEURAL_PKGS:
     hiddenimports += _optional_collect(pkg)
 if sys.platform == "win32":
     hiddenimports += ["pyttsx3.drivers.sapi5", "comtypes.stream"]
@@ -300,8 +321,21 @@ for pkg in ("llama_cpp", "faster_whisper", "openwakeword", "piper"):
     datas += _optional_collect(pkg, data=True)
 # coqui-tts ships model/config JSON inside the package; submodules alone leave the
 # engine importable but unable to build a model.
-for pkg in ("TTS", "trainer", "transformers"):
+# (2) and (4): these packages are read as SOURCE at import time, so .py files must
+# ship as data, not only as compiled modules in the PYZ.
+for pkg in _NEURAL_PKGS:
     datas += _optional_collect(pkg, data=True)
+for pkg in ("TTS", "trainer", "inflect", "typeguard"):
+    try:
+        datas += collect_data_files(pkg, include_py_files=True)
+    except Exception as _e:
+        print(f"[ELI.spec] source-data collection skipped for {pkg}: {_e}")
+# (1): dist-info metadata for anything queried via importlib.metadata at import.
+for _m in ("torchcodec", "torch", "torchaudio", "coqui-tts", "transformers", "numpy"):
+    try:
+        datas += copy_metadata(_m)
+    except Exception as _e:
+        print(f"[ELI.spec] no metadata for {_m} (optional): {_e}")
 
 excludes = [
     # PyQt is GPL — the shipped binary must stay PySide6-only (pyproject GUI
