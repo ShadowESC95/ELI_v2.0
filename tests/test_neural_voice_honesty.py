@@ -293,11 +293,17 @@ def test_spec_collects_transformers_for_its_lazy_submodules():
 def test_voice_extras_pin_transformers_below_the_breaking_release():
     """The real cause of four failed neural-voice releases.
 
-    coqui-tts imports `GPT2PreTrainedModel` from the transformers top-level namespace
-    (TTS/tts/layers/tortoise/autoregressive.py) because XTTS-v2 uses GPT-2 as its text
-    encoder. transformers 5.15 stopped exporting it. transformers was pinned only in
-    the `training` extra, so the voice extras resolved it transitively and CI took
-    5.15.0 — the packaged app then died on import while the dev venv (5.8.1) worked.
+    coqui-tts imports `isin_mps_friendly` from transformers.pytorch_utils, removed in
+    transformers 5.x. ELI ships a runtime shim, but PyInstaller's collect_submodules
+    imports the package in an ISOLATED SUBPROCESS where no in-process shim applies —
+    so the build logged "Failed to collect submodules for 'TTS'" as a mere WARNING and
+    produced an AppImage whose neural engine could not load. Four releases shipped
+    that way. Pinning below 5 makes `import TTS` work unaided, which is what the
+    build-time collection needs.
+
+    An earlier pin of `<5.9` was NOT sufficient: CI then installed 5.8.1 — the exact
+    version that works in a dev venv — and the frozen app failed identically, which is
+    what proved the cause was the frozen collection rather than the version.
     """
     import tomllib
     d = tomllib.load(open(REPO / "pyproject.toml", "rb"))
@@ -305,7 +311,7 @@ def test_voice_extras_pin_transformers_below_the_breaking_release():
     for name in ("clone", "natural", "voice"):
         pins = [x for x in extras[name] if x.startswith("transformers")]
         assert pins, f"{name} does not pin transformers — it will resolve transitively"
-        assert "<5.9" in pins[0], f"{name} pin does not exclude the breaking release: {pins}"
+        assert "<5" in pins[0], f"{name} pin does not exclude transformers 5.x: {pins}"
 
 
 def test_the_pinned_transformers_still_provides_what_coqui_needs():
