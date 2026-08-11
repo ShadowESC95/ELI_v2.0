@@ -252,3 +252,20 @@ def test_the_shim_actually_makes_tts_importable():
     _patch_transformers_compat()
     import importlib
     importlib.import_module("TTS")
+
+
+def test_xtts_availability_records_why_it_failed():
+    """`xtts_available()` returned a bare False for the life of the feature, so a
+    bundle whose engine could not import looked identical to one without the extra.
+    Three releases shipped an unusable engine partly because of it."""
+    from eli.perception import tts_xtts
+    assert hasattr(tts_xtts, "xtts_import_error"), "the failure reason is not exposed"
+    assert isinstance(tts_xtts.xtts_import_error(), str)
+
+
+def test_selftest_reports_the_cause_not_just_the_symptom():
+    src = (REPO / "packaging" / "pyinstaller" / "eli_entry.py").read_text(encoding="utf-8")
+    i = src.index("ELI_REQUIRE_NEURAL_VOICE")
+    assert "xtts_import_error" in src[i:i + 1200], (
+        "a failing build must say WHY the engine could not import"
+    )

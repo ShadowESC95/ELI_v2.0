@@ -168,9 +168,32 @@ def xtts_available() -> bool:
     _patch_transformers_compat()
     try:
         import TTS  # noqa: F401
-    except Exception:
+    except Exception as exc:
+        # Log the REASON. This returned a bare False for the whole life of the
+        # feature, so a bundle where the engine could not import was
+        # indistinguishable from one where it was never installed — the packaged
+        # app reported "no natural voices" and nothing, anywhere, said why. Three
+        # releases shipped an unusable engine partly because this line threw the
+        # diagnosis away. Debug level: on a build without the optional extra this
+        # is expected and must stay quiet.
+        global _XTTS_IMPORT_ERROR
+        _XTTS_IMPORT_ERROR = f"{type(exc).__name__}: {exc}"
+        log.debug("tts_xtts: neural backend unavailable — %s", _XTTS_IMPORT_ERROR)
         return False
+    _XTTS_IMPORT_ERROR = ""
     return True
+
+
+_XTTS_IMPORT_ERROR = ""
+
+
+def xtts_import_error() -> str:
+    """Why the neural backend is unavailable, or "" when it is fine.
+
+    Exposed so the packaged selftest and the Settings diagnostics can state the
+    cause instead of only the symptom.
+    """
+    return _XTTS_IMPORT_ERROR
 
 
 _COMPAT_PATCHED = False

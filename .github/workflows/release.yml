@@ -345,6 +345,10 @@ jobs:
       # before the extras loop, and fails the build if any nvidia-* wheel appears.
       # The ~1.8 GB XTTS weights are NOT bundled; they download on first use.
       OPTIONAL_EXTRAS: "tts asr image vision web wakeword natural"
+      # Make the FROZEN app prove it can import the neural engine during --selftest.
+      # A bundled directory listing cannot settle it: collect_submodules puts pure
+      # Python in the PYZ inside the executable, so _internal/TTS/ holds only data.
+      ELI_REQUIRE_NEURAL_VOICE: "1"
     name: linux (AppImage)
     needs: guard
     runs-on: ubuntu-latest
