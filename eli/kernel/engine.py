@@ -4696,8 +4696,21 @@ Answer:"""
         "\n", " ")[
             :200]
                         lines_out.append(f"[{i:03d}] [{ts}] {role}: {content}")
+                    # The `ELI:` lines here are ELI's OWN prior output, not evidence.
+                    # Presented as plain history the model reads them as established
+                    # fact and repeats them — observed live: ELI invented "you're in the
+                    # Simulation Lab, the Branch Tree is humming", that turn landed in
+                    # conversation_turns, memory retrieved it on the next session, and it
+                    # was restated verbatim as though true. `memories` held ZERO rows for
+                    # those terms and the world state's room was None, so recall of its
+                    # own turn was the entire mechanism. memory.py already filters
+                    # reflections and assistant_insight out of recall for exactly this
+                    # reason; raw chat history bypassed that. Label it rather than drop
+                    # it — the history is genuinely needed for continuity.
                     context_parts.append(
-    "Active chat history (chronological, oldest→newest):\n" +
+    "Active chat history (chronological, oldest→newest). Lines marked ELI are your own "
+    "previous statements — treat them as things you said, NOT as verified facts, and do "
+    "not repeat a claim from them unless separate evidence supports it:\n" +
      "\n".join(lines_out))
                     # The model can copy its OWN last line straight out of this history —
                     # observed live across three different phrasings ("still glitchy…",
@@ -12986,25 +12999,16 @@ Answer:"""
                 # second attempt is worth one more generation. Live evidence: attempt
                 # 2 reproduced the opening verbatim when it was still primed. Beyond
                 # this, serve it — an honest duplicate beats silence or a loop.
-                try:
-                    for piece in _stream_holding_back_repeats(
-                            _retry, _recent_eli, allow_retry=True):
-                        full_tokens.append(piece)
-                        yielded = True
-                        yield piece
-                except _RepeatDetected:
-                    log.debug("[ANTI-REPEAT] de-primed retry still repeated — serving it")
-                    full_tokens.clear()
-                    _last = self.generate_stream_from_assembled_prompt(
-                        prompt,
-                        working_memory=_retry_wm,
-                        reasoning_mode=reasoning_mode,
-                    )
-                    for piece in _stream_holding_back_repeats(
-                            _last, _recent_eli, allow_retry=False):
-                        full_tokens.append(piece)
-                        yielded = True
-                        yield piece
+                # allow_retry=False: this IS the second chance. Passing True here
+                # made a repeated retry raise again and trigger a THIRD generation —
+                # observed live at 20.1s for one reply (8.4s + 7.9s + 2.9s), with the
+                # log claiming "serving it" while it silently regenerated instead.
+                # Two generations is the cap; a duplicate beats a third wait.
+                for piece in _stream_holding_back_repeats(
+                        _retry, _recent_eli, allow_retry=False):
+                    full_tokens.append(piece)
+                    yielded = True
+                    yield piece
 
             if yielded:
                 final_text = "".join(full_tokens).strip()
