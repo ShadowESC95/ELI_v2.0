@@ -18,6 +18,10 @@ from pathlib import Path
 from typing import Any, Dict, Iterable, List, Mapping, Optional, Sequence, Tuple
 
 
+from eli.utils.log import get_logger
+
+log = get_logger(__name__)
+
 Box = Dict[str, Any]
 
 
@@ -363,6 +367,53 @@ def locate_on_screen(
     max_matches: int = 8,
     min_score: float = 0.50,
 ) -> Dict[str, Any]:
+    # ── Strategy 1: the accessibility tree (Linux/AT-SPI) ────────────────────
+    # OCR reads pixels, so it cannot tell a BUTTON named "Save" from the word "Save"
+    # in a changelog, cannot see that a control is disabled, and clicks a coordinate
+    # that may have moved. AT-SPI answers with the real widget: role, bounds, state,
+    # and the actions it advertises. Tried first, silently skipped when unavailable
+    # (no AT-SPI, restricted Wayland session, app exposes no tree) — OCR below is
+    # unchanged and remains the fallback, which matters because coverage in the wild
+    # is uneven (Electron often needs --force-renderer-accessibility).
+    try:
+        from eli.perception import ui_tree as _ui
+        if _ui.available():
+            _hits = _ui.find(query, max_matches=max_matches, min_score=min_score)
+            if _hits:
+                _top = _hits[0]
+                _res = {
+                    "ok": True,
+                    "action": "SCREEN_LOCATE",
+                    "query": str(query or "").strip(),
+                    "matches": _ui.public_matches(_hits),
+                    "strategy": "accessibility",
+                    "found": True,
+                    "text": _top.get("text") or "",
+                }
+                if click:
+                    # Invoke the widget's OWN action where it has one: a coordinate
+                    # click races window motion and reports success regardless.
+                    _inv = _ui.invoke(_top)
+                    if _inv.get("ok"):
+                        _res["clicked"] = True
+                        _res["click_method"] = f"atspi:{_inv.get('action_used')}"
+                    else:
+                        from eli.perception.os_controller import mouse_click as _mc
+                        _c = _mc(x=int(_top["cx"]), y=int(_top["cy"]))
+                        _res["clicked"] = bool(_c.get("ok"))
+                        _res["click_method"] = "coordinate"
+                        if not _res["clicked"]:
+                            _res["click_error"] = str(_c.get("error") or "click failed")
+                _desc = _ui.describe(_top)
+                _res["content"] = _res["response"] = (
+                    f"Found {_desc}" + (" and clicked it." if _res.get("clicked") else ".")
+                )
+                return _res
+    except Exception:
+        log.debug("screen_locator: accessibility strategy failed; falling back to OCR",
+                  exc_info=True)
+
+    # ── Strategy 2: OCR (unchanged) ──────────────────────────────────────────
     from eli.perception.os_controller import take_screenshot
 
     screenshot = take_screenshot(region=region)
