@@ -162,6 +162,14 @@ clone = [
     "torchaudio",
     "torchcodec",
     "coqui-tts>=0.24",
+    # coqui-tts imports GPT2PreTrainedModel from the transformers top-level
+    # namespace (TTS/tts/layers/tortoise/autoregressive.py) and XTTS-v2 uses GPT-2
+    # as its text encoder. transformers 5.15 no longer exports it, so an unpinned
+    # resolve took 5.15.0 in CI and the frozen app died with "Could not import
+    # module 'GPT2PreTrainedModel'" — three releases shipped an unusable engine
+    # before the packaged selftest surfaced it. 5.8.1 is verified working here
+    # end-to-end (register a clone, synthesise 24 kHz audio from it).
+    "transformers>=4.40,<5.9",
 ]
 # Aliases for the same neural-voice dependency (clearer intent at install time).
 natural = [
@@ -169,12 +177,28 @@ natural = [
     "torchaudio",
     "torchcodec",
     "coqui-tts>=0.24",
+    # coqui-tts imports GPT2PreTrainedModel from the transformers top-level
+    # namespace (TTS/tts/layers/tortoise/autoregressive.py) and XTTS-v2 uses GPT-2
+    # as its text encoder. transformers 5.15 no longer exports it, so an unpinned
+    # resolve took 5.15.0 in CI and the frozen app died with "Could not import
+    # module 'GPT2PreTrainedModel'" — three releases shipped an unusable engine
+    # before the packaged selftest surfaced it. 5.8.1 is verified working here
+    # end-to-end (register a clone, synthesise 24 kHz audio from it).
+    "transformers>=4.40,<5.9",
 ]
 voice = [
     "torch>=2.0",
     "torchaudio",
     "torchcodec",
     "coqui-tts>=0.24",
+    # coqui-tts imports GPT2PreTrainedModel from the transformers top-level
+    # namespace (TTS/tts/layers/tortoise/autoregressive.py) and XTTS-v2 uses GPT-2
+    # as its text encoder. transformers 5.15 no longer exports it, so an unpinned
+    # resolve took 5.15.0 in CI and the frozen app died with "Could not import
+    # module 'GPT2PreTrainedModel'" — three releases shipped an unusable engine
+    # before the packaged selftest surfaced it. 5.8.1 is verified working here
+    # end-to-end (register a clone, synthesise 24 kHz audio from it).
+    "transformers>=4.40,<5.9",
 ]
 
 [project.urls]

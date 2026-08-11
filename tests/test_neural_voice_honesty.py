@@ -288,3 +288,34 @@ def test_spec_collects_transformers_for_its_lazy_submodules():
     assert body.count('"TTS", "trainer", "transformers"') >= 2, (
         "needed for both hiddenimports and datas"
     )
+
+
+def test_voice_extras_pin_transformers_below_the_breaking_release():
+    """The real cause of four failed neural-voice releases.
+
+    coqui-tts imports `GPT2PreTrainedModel` from the transformers top-level namespace
+    (TTS/tts/layers/tortoise/autoregressive.py) because XTTS-v2 uses GPT-2 as its text
+    encoder. transformers 5.15 stopped exporting it. transformers was pinned only in
+    the `training` extra, so the voice extras resolved it transitively and CI took
+    5.15.0 — the packaged app then died on import while the dev venv (5.8.1) worked.
+    """
+    import tomllib
+    d = tomllib.load(open(REPO / "pyproject.toml", "rb"))
+    extras = d["project"]["optional-dependencies"]
+    for name in ("clone", "natural", "voice"):
+        pins = [x for x in extras[name] if x.startswith("transformers")]
+        assert pins, f"{name} does not pin transformers — it will resolve transitively"
+        assert "<5.9" in pins[0], f"{name} pin does not exclude the breaking release: {pins}"
+
+
+def test_the_pinned_transformers_still_provides_what_coqui_needs():
+    """Runs the actual symbol lookups coqui-tts performs at import time."""
+    import sys
+    from unittest.mock import MagicMock
+    if isinstance(sys.modules.get("transformers"), MagicMock):
+        pytest.skip("conftest mocks transformers; run with --noconftest")
+    from eli.perception.tts_xtts import _patch_transformers_compat
+    _patch_transformers_compat()
+    import transformers
+    for sym in ("GPT2PreTrainedModel", "GPT2Config", "GenerationMixin"):
+        assert getattr(transformers, sym, None) is not None, f"{sym} missing"
