@@ -454,6 +454,18 @@ jobs:
           test -x dist/ELI/ELI || { echo "::error::dist/ELI/ELI missing"; exit 1; }
           test -x dist/ELI/ELI-Server || { echo "::error::dist/ELI/ELI-Server missing"; exit 1; }
           test -d dist/ELI/_internal/eli || { echo "::error::eli source tree missing from bundle"; exit 1; }
+          # The neural voice engine must be COLLECTED, not merely pip-installed.
+          # v2.1.65 and v2.1.66 both shipped coqui_tts-*.dist-info with no TTS/
+          # package: the spec's import probe raised on a transformers incompatibility
+          # and silently skipped collection, so every cloned voice fell back to Piper
+          # with the extra sitting unused in the bundle. Metadata is not the package.
+          if ls dist/ELI/_internal/coqui_tts-*.dist-info >/dev/null 2>&1; then
+            if [ ! -d dist/ELI/_internal/TTS ]; then
+              echo "::error::coqui-tts is installed but the TTS/ package was NOT collected — voice cloning would silently fall back to Piper"
+              exit 1
+            fi
+            echo "TTS/ package collected: $(du -sh dist/ELI/_internal/TTS | cut -f1)"
+          fi
           # Self-containment guard: the Qt xcb plugin (libqxcb.so) links the whole
           # xcb-util family at runtime and resolves them via its RUNPATH from
           # PySide6/Qt/lib. Assert EACH member is bundled IN THAT EXACT DIRECTORY —
