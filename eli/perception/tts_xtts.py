@@ -255,8 +255,23 @@ def _select_device() -> str:
     how the startup picker pins the choice made BEFORE the main model grabs VRAM."""
     import os
     forced = os.environ.get("ELI_XTTS_DEVICE", "").strip().lower()
-    if forced in ("cpu", "cuda"):
-        return forced
+    if forced == "cpu":
+        return "cpu"
+    if forced == "cuda":
+        # Verify torch can actually DO cuda before honouring the force. The startup
+        # picker sets this from "the machine has a GPU", which is a different question
+        # from "this torch build has CUDA" — a CPU-only wheel then raises
+        # "Torch not compiled with CUDA enabled" deep inside .to(device), after the
+        # 1.8GB model has already loaded.
+        try:
+            import torch
+            if torch.cuda.is_available():
+                return "cuda"
+            log.warning("tts_xtts: ELI_XTTS_DEVICE=cuda but this torch build has no "
+                        "CUDA support — using CPU instead")
+        except Exception:
+            log.debug("tts_xtts: cuda force probe failed", exc_info=True)
+        return "cpu"
     try:
         import torch
         if torch.cuda.is_available():

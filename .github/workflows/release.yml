@@ -339,16 +339,13 @@ jobs:
       ELI_REQUIRE_VOICES: "1"
       ELI_REQUIRE_EMBEDDER: "1"
       GH_TOKEN: ${{ github.token }}
-      # Linux-only: bundle the XTTS-v2 neural voice engine so cloned/`natural:` voices
-      # actually synthesise instead of silently falling back to Piper. Safe HERE and
-      # only here — this job installs the CPU torch stack from the pytorch CPU index
-      # before the extras loop, and fails the build if any nvidia-* wheel appears.
-      # The ~1.8 GB XTTS weights are NOT bundled; they download on first use.
-      OPTIONAL_EXTRAS: "tts asr image vision web wakeword natural"
-      # Make the FROZEN app prove it can import the neural engine during --selftest.
-      # A bundled directory listing cannot settle it: collect_submodules puts pure
-      # Python in the PYZ inside the executable, so _internal/TTS/ holds only data.
-      ELI_REQUIRE_NEURAL_VOICE: "1"
+      # The XTTS-v2 neural engine is deliberately NOT bundled. It shipped briefly in
+      # v2.1.72 and was pulled: the CPU-only torch the bundle must use (a CUDA build
+      # blows GitHub's 2 GiB asset limit) means XTTS runs on CPU, and on a GPU machine
+      # the startup picker pinned ELI_XTTS_DEVICE=cuda, so it crashed with "Torch not
+      # compiled with CUDA enabled" — and even working, it costs GPU/CPU far out of
+      # proportion to a voice. Piper is the shipped engine. Cloning still works from a
+      # source install (`pip install -e ".[natural]"`), where torch matches the host.
     name: linux (AppImage)
     needs: guard
     runs-on: ubuntu-latest
