@@ -184,6 +184,15 @@ for pkg in ("pyttsx3", "plyer.platforms", "uvicorn"):
 # graphs and mesh inspection work in the packaged build, not just from source.
 for pkg in ("meshio", "matplotlib", "mpl_toolkits", "pandas", "plotly", "scipy"):
     hiddenimports += _optional_collect(pkg)
+# Coqui XTTS-v2 — the neural voice-clone engine. `eli/perception/tts_xtts.py`
+# imports `TTS` LAZILY, inside xtts_available(), so PyInstaller's static analysis
+# never sees it. The v2.1.65 AppImage proved the consequence: pip installed
+# coqui-tts on the runner (coqui_tts-0.27.5.dist-info is in the bundle) but the
+# TTS/ package itself was never collected, so `import TTS` failed at runtime and
+# every cloned voice fell back to Piper — with the extra bundled and unusable.
+# `trainer` is imported by coqui-tts at load time and has the same problem.
+for pkg in ("TTS", "trainer"):
+    hiddenimports += _optional_collect(pkg)
 if sys.platform == "win32":
     hiddenimports += ["pyttsx3.drivers.sapi5", "comtypes.stream"]
 elif sys.platform == "darwin":
@@ -268,6 +277,10 @@ if sys.platform.startswith("linux"):
                   "libxcb-util1 libxcb-cursor0)")
 
 for pkg in ("llama_cpp", "faster_whisper", "openwakeword", "piper"):
+    datas += _optional_collect(pkg, data=True)
+# coqui-tts ships model/config JSON inside the package; submodules alone leave the
+# engine importable but unable to build a model.
+for pkg in ("TTS", "trainer"):
     datas += _optional_collect(pkg, data=True)
 
 excludes = [

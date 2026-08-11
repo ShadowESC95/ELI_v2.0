@@ -187,3 +187,33 @@ def test_the_two_gib_asset_guard_is_still_in_place():
     """Bundling the engine only stays safe while this guard exists."""
     raw = (REPO / ".github" / "workflows" / "release.yml").read_text()
     assert "2147483648" in raw, "the GitHub 2 GiB asset-size guard is gone"
+
+
+# ── 5. the engine must be COLLECTED, not just installed ─────────────────────
+def test_spec_collects_the_lazy_neural_engine():
+    """v2.1.65 shipped `coqui_tts-0.27.5.dist-info` with no `TTS/` package.
+
+    pip installed it on the runner, but `eli/perception/tts_xtts.py` imports `TTS`
+    lazily inside `xtts_available()`, so PyInstaller's static analysis never saw it
+    and never collected the package. The extra was bundled and unusable: `import
+    TTS` failed at runtime and every cloned voice fell back to Piper. Installing a
+    dependency and shipping it are two different things.
+    """
+    spec = (REPO / "ELI.spec").read_text(encoding="utf-8")
+    body = "\n".join(l for l in spec.splitlines() if not l.lstrip().startswith("#"))
+    assert '"TTS", "trainer"' in body, "the spec no longer collects the clone engine"
+    # both halves: importable submodules AND the package's own config/model JSON
+    assert body.count('"TTS", "trainer"') >= 2, (
+        "TTS must be collected for hiddenimports AND datas — submodules alone leave "
+        "the engine importable but unable to build a model"
+    )
+
+
+def test_tts_is_imported_lazily_which_is_why_collection_is_needed():
+    """Pins the reason. If this import ever moves to module scope the spec entry
+    becomes belt-and-braces rather than load-bearing — worth knowing either way."""
+    src = (REPO / "eli" / "perception" / "tts_xtts.py").read_text(encoding="utf-8")
+    head = src[:src.index("def ")] if "def " in src else src
+    assert "\nimport TTS" not in head, (
+        "TTS is now a module-level import; update the spec comment accordingly"
+    )
