@@ -2884,7 +2884,8 @@ class Memory(metaclass=_MemoryMeta):
         finally:
             conn.close()
 
-    def search_conversations(self, query, user_id=None, limit=10, session_id=None):
+    def search_conversations(self, query, user_id=None, limit=10, session_id=None,
+                             include_assistant=False):
         q = str(query or "").strip()
         if not q:
             return []
@@ -2915,11 +2916,29 @@ class Memory(metaclass=_MemoryMeta):
                 "LOWER(COALESCE(content, '')) LIKE ?" for _ in keywords
             )
             params: list = [f"%{kw}%" for kw in keywords]
+            # Keyword recall must NOT return ELI's own prior statements by default.
+            # A single fabrication otherwise becomes permanent truth: ELI invented
+            # "I've been running stress tests on your sleep schedule and recalibrating
+            # the quantum model of your morning routine", that turn landed here, and
+            # recall served it back on later days as established history — twice, with
+            # two different fabrications, across three sessions. `memories` held ZERO
+            # rows for the text both times; this query was the whole mechanism.
+            #
+            # Labelling it in the prompt ("treat these as things you said, not verified
+            # facts") was tried in v2.1.74 and did NOT hold — an instruction to a model
+            # is not a filter. The sibling search at ~line 2324 already does
+            # `AND role = 'user'`; this one simply never got it.
+            #
+            # User turns stay: what the user said IS evidence. Assistant turns remain
+            # reachable via include_assistant=True and via get_recent_conversation /
+            # EXPLAIN_LAST_RESPONSE, which is where "what did you tell me?" belongs.
             sql = (
                 f"SELECT timestamp, session_id, user_id, role, content, ts "
                 f"FROM conversation_turns "
                 f"WHERE ({conditions})"
             )
+            if not include_assistant:
+                sql += " AND LOWER(COALESCE(role,'')) = 'user'"
             if user_id:
                 sql += " AND user_id = ?"
                 params.append(user_id)
