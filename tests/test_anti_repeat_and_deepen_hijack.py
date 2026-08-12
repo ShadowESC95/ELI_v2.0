@@ -397,3 +397,33 @@ def test_the_retry_is_capped_at_two_generations():
     calls = tail.count("self.generate_stream_from_assembled_prompt(")
     assert calls <= 1, f"the repeat handler regenerates {calls} times, expected at most 1"
     assert "allow_retry=False" in tail, "the retry can still raise and trigger a third pass"
+
+
+def test_keyword_recall_excludes_elis_own_turns_by_default():
+    """The structural fix, after the prompt-level one failed.
+
+    v2.1.74 labelled chat history as "your own previous statements — NOT verified
+    facts". It did not hold: ELI restated a fabrication about "stress tests on your
+    sleep schedule and the quantum model of your morning routine" as history on a
+    later day. An instruction to a model is not a filter — the same lesson as the
+    anti-repeat contract that only asked.
+
+    `search_conversations` is keyword recall across ALL history and had no role
+    filter, so ELI's own assertions came back as evidence. Its sibling search already
+    did `AND role = 'user'`; this one never got it.
+    """
+    import inspect
+    from eli.memory.memory import Memory
+
+    src = inspect.getsource(Memory.search_conversations)
+    assert "include_assistant" in str(inspect.signature(Memory.search_conversations))
+    assert "= 'user'" in src, "keyword recall can still return ELI's own statements"
+
+
+def test_assistant_turns_remain_reachable_when_explicitly_requested():
+    """"What did you tell me about X?" is legitimate — the filter is a default, not a
+    ban."""
+    import inspect
+    from eli.memory.memory import Memory
+    sig = inspect.signature(Memory.search_conversations)
+    assert sig.parameters["include_assistant"].default is False
