@@ -967,7 +967,25 @@ class BusMemoryAgent(_BaseAgent):
                             continue
                     except Exception:
                         _SWLOG.debug("suppressed exception", exc_info=True)
-                    role = "User" if t.get("role") == "user" else "ELI"
+                    # CROSS-SESSION block (get_recent_conversation above is called
+                    # without a session_id — "full history"). ELI's own prior replies
+                    # must NOT appear here: the header below tells the model to use
+                    # this "when asked about past topics", so a single fabrication
+                    # becomes authoritative history. Observed three times across four
+                    # days: ELI invented "you're in the Simulation Lab, the Branch Tree
+                    # is humming", it was recycled verbatim on later days, and purging
+                    # the rows only bought one session before it said it again.
+                    #
+                    # Labelling was tried in v2.1.74 ("treat these as things you said,
+                    # not verified facts") and did NOT hold — an instruction to a model
+                    # is not a filter. Withholding is.
+                    #
+                    # Continuity is not lost: WITHIN-session history comes from the
+                    # session-scoped block in engine.py, and the anti-repeat guard
+                    # fetches ELI's own turns separately and directly.
+                    if str(t.get("role") or "").lower() != "user":
+                        continue
+                    role = "User"
                     text = (t.get("content") or "")[:_tn["cog.mem_recent_chars"]]  # trim each turn
                     line = f"{role}: {text}"
                     char_count += len(line)
@@ -976,7 +994,8 @@ class BusMemoryAgent(_BaseAgent):
                     lines.append(line)
                 if lines:
                     context_parts.append(
-                        f"Recent conversation ({len(lines)} turns — use this when asked about past topics):\n"
+                        f"What the USER said in earlier sessions ({len(lines)} turns — "
+                        f"their words only; use when asked about past topics):\n"
                         + "\n".join(lines)
                     )
 
