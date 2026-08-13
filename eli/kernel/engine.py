@@ -4295,6 +4295,13 @@ class CognitiveEngine:
             ):
                 try:
                     value = getattr(llm, attr_name, None)
+                    # llama_cpp exposes n_ctx as a METHOD, not an attribute — int() on
+                    # the bound method raised TypeError on every single turn, the
+                    # handler below swallowed it, and this preferred path silently
+                    # fell through to the parameter-container guesses underneath. The
+                    # snapshot still reported a number, so nothing looked wrong.
+                    if callable(value):
+                        value = value()
                     if value not in (None, "", 0):
                         snap[key] = int(value)
                 except Exception:
