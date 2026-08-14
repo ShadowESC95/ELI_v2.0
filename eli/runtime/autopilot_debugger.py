@@ -14,6 +14,7 @@ and the real error text — nothing here fabricates a diagnosis. Wired as the
 from __future__ import annotations
 
 import logging
+import os
 import re
 import subprocess
 from pathlib import Path
@@ -140,18 +141,51 @@ def _config_checks(root: Path) -> List[str]:
     return issues
 
 
-def _run_pytest(root: Path, targets: List[str], timeout: int = 300) -> str:
-    """Actually run pytest on the targets and return its output (only when asked)."""
+# pytest colourises when FORCE_COLOR/PY_COLORS is set in the environment, even
+# through capture_output. The escape sequences end in a LETTER, which glues to the
+# text that follows and silently destroys word-boundary matching:
+#
+#     '\x1b[31m\x1b[1m1 failed\x1b[0m'   →  \b\d+\s+failed\b  does NOT match
+#      ...........^ 'm' and '1' are both word chars, so there is no \b before the digit
+#
+# The reproduction of a test that plainly failed was therefore reported as "did not
+# reproduce" — a false negative about a real failure, which is the one answer this
+# function must never give. Colour is turned off in the child and stripped from what
+# it returns, so the captured output is also readable when quoted in a report.
+_ANSI_RE = re.compile(r"\x1b\[[0-9;?]*[ -/]*[@-~]")
+
+
+def _strip_ansi(text: str) -> str:
+    return _ANSI_RE.sub("", str(text or ""))
+
+
+def _run_pytest(root: Path, targets: List[str], timeout: int = 300,
+                with_status: bool = False):
+    """Actually run pytest on the targets and return its output (only when asked).
+
+    `with_status=True` also returns pytest's exit code, which is the one signal that
+    survives any output formatting: 0 = all passed, 1 = tests failed, 2-5 = usage,
+    collection or internal error. A crash that never prints a "N failed" summary is
+    still not a pass, and the text alone cannot tell the difference.
+    """
     try:
         py = str(root / ".venv" / "bin" / "python")
         if not Path(py).is_file():
             py = "python"
-        cmd = [py, "-m", "pytest", "-x", "--tb=short", "-q", "-p", "no:cacheprovider", *targets]
-        out = subprocess.run(cmd, cwd=str(root), capture_output=True, text=True, timeout=timeout)
-        return (out.stdout or "") + "\n" + (out.stderr or "")
+        cmd = [py, "-m", "pytest", "-x", "--tb=short", "-q", "--color=no",
+               "-p", "no:cacheprovider", *targets]
+        env = dict(os.environ)
+        env["NO_COLOR"] = "1"
+        env["PY_COLORS"] = "0"
+        env.pop("FORCE_COLOR", None)
+        out = subprocess.run(cmd, cwd=str(root), capture_output=True, text=True,
+                             timeout=timeout, env=env)
+        text = _strip_ansi((out.stdout or "") + "\n" + (out.stderr or ""))
+        return (text, out.returncode) if with_status else text
     except Exception:
         log.debug("autopilot: pytest run failed", exc_info=True)
-        return ""
+        # No run happened, so there is no verdict to report — None, not 0 ("passed").
+        return ("", None) if with_status else ""
 
 
 def _test_for(rel: str) -> Optional[str]:
@@ -300,9 +334,14 @@ def _run_validation(root: Path, targets: List[str]) -> Dict[str, Any]:
     """Run the validation targets and report whether any FAILED (the bug reproduces)."""
     if not targets:
         return {"ran": False, "failed": False, "output": ""}
-    out = _run_pytest(root, targets)
-    failed = bool(re.search(r"\b\d+\s+failed\b", out) or re.search(r"^(?:FAILED|ERROR)\s", out, re.M))
-    return {"ran": True, "failed": failed, "output": out[-4000:]}
+    out, status = _run_pytest(root, targets, with_status=True)
+    # Exit code first — it cannot be broken by formatting. Text is the fallback for
+    # the case where the run itself could not be started (status None).
+    failed = bool(re.search(r"\b\d+\s+failed\b", out)
+                  or re.search(r"^(?:FAILED|ERROR)\s", out, re.M))
+    if status is not None:
+        failed = status != 0
+    return {"ran": True, "failed": failed, "exit_status": status, "output": out[-4000:]}
 
 
 def verify(error_text: str = "", targets: Optional[List[str]] = None) -> Dict[str, Any]:
