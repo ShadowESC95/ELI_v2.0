@@ -332,7 +332,7 @@ and ELI opens or reports the right thing.
 
 ### 🔧 Asking ELI about itself (honest introspection)
 - "what are you running on?" (model, context, GPU) · "how does your memory work?"
-- "what do you know about me?" · "what have you been working on?" · "status"
+- "what do you know about me?" · "what updates have you made recently?" · "status"
 
 ### 👁️ Eye control (gaze)
 - "calibrate gaze", then "enable gaze". With it on, ELI clicks **where you're looking** when you
@@ -854,7 +854,7 @@ flowchart TD
   "say good morning" · "train my voice"
 
 **Check on ELI**
-- "what are you running on?" · "status" · "what have you been working on?"
+- "what are you running on?" · "status" · "what updates have you made recently?"
 
 **Models (in a terminal)**
 - `python -m eli.core.model_download --list` · `python -m eli.core.model_download --auto`

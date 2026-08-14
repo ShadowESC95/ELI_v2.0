@@ -1690,9 +1690,15 @@ def route(text: str, _clause_depth: int = 0) -> Dict[str, Any]:
     elif re.search(
         r"\b(what|which|any|show|tell|list)\b.{0,80}\b(updates?|checks?|repairs?|changes?|maintenance|work)\b.{0,80}\b(as of late|recently|lately|performed|done|happened|made)\b",
         low,
-    ) or re.search(
-        r"\b(what have you been doing|what have you been working on|what have you checked|what have you updated)\b",
-        low,
+    ) or (
+        re.search(
+            r"\b(what have you been doing|what have you been working on"
+            r"|what have you checked|what have you updated)\b",
+            low,
+        )
+        # A bare "what have you been doing?" in conversation is small talk, not a
+        # request for a git/runtime evidence dump — see the shared disambiguator.
+        and _eli_activity_question_is_about_dev_work(low)
     ):
         return {
             "action": "SELF_REPORT",
@@ -5709,6 +5715,46 @@ def _eli_recent_memory_processing_question(text: object) -> bool:
 # helper-definition failure; that stale diagnostic shell is intentionally retired.
 
 
+# "What have you been doing?" is two different questions wearing the same words.
+# Asked after "what updates have you made to the code", it is the maintenance
+# question this grounded contract exists for. Asked in the middle of a chat about
+# Oblivion and Fallout, it is small talk — and answering it with a git/runtime
+# evidence dump is a worse failure than the invented maintenance activity the
+# contract was built to prevent (observed live at 2.1.81: the reply was the raw
+# evidence block, ending with the model-facing grounding instruction).
+#
+# So the bare activity phrasings need a development subject somewhere in the
+# question; the phrasings that name the subject themselves do not.
+_BARE_ACTIVITY_PHRASES = (
+    "what have you been doing",
+    "what have you been processing",
+    "what have you been working on",
+    "what have you been up to",
+    "what you been doing",
+    "what you been up to",
+)
+
+_DEV_UPDATE_SUBJECT_RE = re.compile(
+    r"\b(code|codebase|repo|repositor\w*|git|commit\w*|version|build|patch\w*|"
+    r"capabilit\w*|module|test\w*|upgrade\w*|check(?:s|ed|ing)?|update(?:s|d)?|"
+    r"maintenance|deploy\w*|repair\w*|refactor\w*|fix(?:es|ed|ing)?|"
+    r"runtime|pipeline|system)\b",
+    re.I,
+)
+
+
+def _eli_activity_question_is_about_dev_work(low: str) -> bool:
+    """True when an activity question names development work as its subject.
+
+    Shared by both routes that can reach the recent-updates report, so the two
+    cannot drift apart and answer the same sentence differently.
+    """
+    text = str(low or "")
+    if not any(p in text for p in _BARE_ACTIVITY_PHRASES):
+        return True          # not a bare activity question; caller's own match governs
+    return bool(_DEV_UPDATE_SUBJECT_RE.search(text))
+
+
 def _eli_self_report_recent_updates_question(text):
     low = str(text or "").strip().lower()
     if not low:
@@ -5735,10 +5781,10 @@ def _eli_self_report_recent_updates_question(text):
         "recent checks",
         "routine updates",
         "recent updates",
-        "what have you been doing",
-        "what have you been processing",
-        "what have you been working on",
-    ))
+    )) or any(p in low for p in _BARE_ACTIVITY_PHRASES)
+
+    if not _eli_activity_question_is_about_dev_work(low):
+        return False
 
     return bool(update_ref and (self_ref or " you " in f" {low} " or " your " in f" {low} "))
 
