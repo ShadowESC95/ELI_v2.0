@@ -975,7 +975,8 @@ def recommend(hw: Optional[HardwareProfile] = None,
     )
     rec.reasoning.append(
         f"mode_presets: 5 reasoning modes derived from base "
-        f"(ctx={rec.n_ctx}, max_tokens_ref={_max_for_derivation})"
+        f"(ctx={rec.n_ctx}, max_tokens_ref={_max_for_derivation}); re-derived at load "
+        f"time from the ctx actually loaded, which may be higher than this estimate"
     )
 
     return rec

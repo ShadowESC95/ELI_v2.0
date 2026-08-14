@@ -1196,6 +1196,22 @@ class LocalModelManager:
                 print("✅ gguf_inference live runtime override published")
             except Exception as e:
                 log.debug(f"[GUI] live runtime override publish failed: {e}")
+
+            # The reasoning-mode budgets were derived from the startup tuner's
+            # recommended ctx, which the attempt list above is free to override —
+            # and did. Re-derive them from the ctx that actually loaded, or every
+            # mode plans against a context the model is not running.
+            try:
+                from eli.core.startup_hardware_optimizer import (
+                    resize_budgets_to_effective_ctx as _resize_budgets,
+                )
+                _budget_delta = _resize_budgets(int(self.n_ctx))
+                if _budget_delta:
+                    log.debug(
+                        f"[GUI][LOAD] mode budgets re-derived from effective ctx={int(self.n_ctx)}: "
+                        f"{sorted(_budget_delta)} (were sized for the tuner's recommendation)")
+            except Exception as _budget_err:
+                log.debug(f"[GUI][LOAD] mode budget re-derivation skipped: {_budget_err}")
             self.load_error = None
             print(f"✅ Model loaded successfully")
             self._write_shared_runtime_snapshot(
@@ -9859,9 +9875,26 @@ _register()
                 _s["cache_type_k"] = _ck
                 _s["cache_type_v"] = _cv
                 _rs_save(_s)
-                self._hardware_tuning_log(
-                    "HW profile applied as canonical settings (calculated for this model)."
-                )
+                # Say what was applied and what was NOT. The previous line claimed
+                # the whole profile had been applied as canonical, directly under a
+                # printed "n_ctx set 10384 → 4096" — and n_ctx is the one value this
+                # block deliberately does not take from the profile (see
+                # _canonical_ctx above). Reading the panel, the tuner's ctx looked
+                # like the live setting; it never was.
+                _applied_desc = (f"gpu_layers={int(rec.n_gpu_layers)} batch={_apply_batch}"
+                                 + (f" threads={int(rec.n_threads)}" if int(rec.n_threads) > 0 else ""))
+                if int(rec.n_ctx) != int(_canonical_ctx):
+                    self._hardware_tuning_log(
+                        f"Applied as canonical: {_applied_desc}. "
+                        f"NOT applied: n_ctx — your pinned {_canonical_ctx} is kept. The "
+                        f"tuner's {int(rec.n_ctx)} is stored as hw_profile_n_ctx, a fallback "
+                        f"used only if your setting fails to load."
+                    )
+                else:
+                    self._hardware_tuning_log(
+                        f"Applied as canonical: n_ctx={_canonical_ctx} {_applied_desc} "
+                        f"(calculated for this model)."
+                    )
             except Exception as _save_err:
                 self._hardware_tuning_log(f"Warning: hw_profile save failed: {_save_err}")
 
