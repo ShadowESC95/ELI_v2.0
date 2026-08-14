@@ -377,16 +377,80 @@ class VectorStore:
 
 def _get_index_paths() -> tuple:
     """
-    Resolve FAISS artifacts into the canonical project-local vector dir.
+    Resolve FAISS artifacts into the vector dir, honouring the standard overrides.
 
     Expected files:
-    - artifacts/vectors/index.faiss
-    - artifacts/vectors/meta.json   (canonical; legacy meta.pkl is migrated)
+    - <artifacts>/vectors/index.faiss
+    - <artifacts>/vectors/meta.json   (canonical; legacy meta.pkl is migrated)
+
+    This used to hardcode `_project_root() / "artifacts" / "vectors"`, which was wrong
+    in two ways:
+
+    * **Installed builds.** `_is_dev_mode()` is False when frozen, so every other
+      store resolves to the platform data dir while this one kept pointing inside the
+      installation — a read-only AppImage mount, where the mkdir below cannot succeed.
+    * **Redirection.** It ignored ELI_ARTIFACTS_DIR/ELI_DATA_DIR, so a run that had
+      redirected every database still wrote its vectors into the real semantic memory.
+      Observed live: a throwaway test session appended five auto-reflections about
+      itself into the user's index (292 -> 297 vectors), and only the absence of faiss
+      in the test environment kept the suite from doing the same.
+
+    Dev-tree behaviour is unchanged: `artifacts_dir()` IS `<project_root>/artifacts`
+    in dev mode, so an existing checkout resolves to exactly the same directory.
     """
     from pathlib import Path
-    vdir = _project_root() / "artifacts" / "vectors"
-    vdir.mkdir(parents=True, exist_ok=True)
-    return str((vdir / "index.faiss").resolve()), str((vdir / "meta.json").resolve())
+    env = os.environ.get("ELI_ARTIFACTS_DIR") or os.environ.get("ELI_DATA_DIR")
+    if env:
+        base = Path(env).expanduser()
+        if not base.is_absolute():
+            base = _project_root() / base
+    else:
+        try:
+            from eli.core.paths import artifacts_dir
+            base = artifacts_dir()
+        except Exception:
+            base = _project_root() / "artifacts"
+
+    vdir = base / "vectors"
+    try:
+        vdir.mkdir(parents=True, exist_ok=True)
+    except OSError:
+        # Read-only or otherwise unwritable target — fall back to the user data dir
+        # rather than letting VectorStore.__init__ raise and take semantic memory
+        # down with it.
+        from eli.core.paths import artifacts_dir
+        vdir = artifacts_dir() / "vectors"
+        vdir.mkdir(parents=True, exist_ok=True)
+        log.warning("[VECTOR_STORE] %s unwritable — using %s", base / "vectors", vdir)
+
+    index_path = (vdir / "index.faiss").resolve()
+    _migrate_legacy_index_location(index_path, vdir)
+    return str(index_path), str((vdir / "meta.json").resolve())
+
+
+def _migrate_legacy_index_location(index_path, vdir) -> None:
+    """Carry a pre-existing index over from the old hardcoded project-local path.
+
+    Only runs when the resolved location has no index yet and the legacy one does, so
+    it cannot clobber a live index, and it copies rather than moves — an installed
+    build sharing a checkout keeps working either way.
+    """
+    from pathlib import Path
+    import shutil
+    try:
+        legacy_dir = _project_root() / "artifacts" / "vectors"
+        if legacy_dir.resolve() == Path(vdir).resolve():
+            return
+        legacy_index = legacy_dir / "index.faiss"
+        if index_path.exists() or not legacy_index.exists():
+            return
+        for name in ("index.faiss", "meta.json", "meta.pkl"):
+            src = legacy_dir / name
+            if src.exists():
+                shutil.copy2(src, Path(vdir) / name)
+        log.info("[VECTOR_STORE] migrated index from %s to %s", legacy_dir, vdir)
+    except Exception:
+        log.debug("[VECTOR_STORE] legacy index migration skipped", exc_info=True)
 
 
 def _legacy_meta_path(meta_path: str) -> str:
