@@ -213,7 +213,12 @@ _add("Grounded introspection", "CODE_CHANGES", "Recent code changes", "“what c
 _add("Grounded introspection", "NAME_SOURCE_AUDIT", "Where ELI's knowledge of your name comes from", "“how do you know my name”")
 _add("Grounded introspection", "REASONING_MODE_STATUS", "Current reasoning mode", "“what reasoning mode are you in”")
 _add("Grounded introspection", "EXPLAIN_ALL_REASONING_MODES", "Describe all 5 reasoning modes", "“explain all your reasoning modes”")
-_add("Grounded introspection", "SELF_REPORT", "What ELI has recently done/worked on", "“what have you been working on”")
+# The documented phrase must be one that actually reaches SELF_REPORT. A bare
+# "what have you been working on" no longer does, deliberately: it is small talk
+# as often as it is a maintenance question, and answering conversation with a
+# git/runtime evidence dump is the worse failure. Naming updates keeps it
+# unambiguous — the claims suite fails if this phrase stops routing here.
+_add("Grounded introspection", "SELF_REPORT", "What ELI has recently done/worked on (code, commits, runtime)", "“what updates have you made recently”")
 
 # ── Memory & profile ────────────────────────────────────────────────────────
 _add("Memory & profile", "MEMORY_STORE", "Store a durable fact", "“remember that my sister's name is Anna”")

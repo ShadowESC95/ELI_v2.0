@@ -203,7 +203,7 @@ evidence-planner first (real code/web/memory analysis) before synthesising.
 | `NAME_SOURCE_AUDIT` | Where ELI's knowledge of your name comes from | “how do you know my name” | Core |
 | `REASONING_MODE_STATUS` | Current reasoning mode | “what reasoning mode are you in” | Core |
 | `EXPLAIN_ALL_REASONING_MODES` | Describe all 5 reasoning modes | “explain all your reasoning modes” | Core |
-| `SELF_REPORT` | What ELI has recently done/worked on | “what have you been working on” | Core |
+| `SELF_REPORT` | What ELI has recently done/worked on (code, commits, runtime) | “what updates have you made recently” | Core |
 
 ## Memory & profile
 
