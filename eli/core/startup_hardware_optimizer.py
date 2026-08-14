@@ -338,6 +338,52 @@ def max_tokens_from_ctx(n_ctx: int) -> int:
     return max(1024, min(8192, n_ctx // 2))
 
 
+def resize_budgets_to_effective_ctx(effective_ctx: int) -> Dict[str, Any]:
+    """Re-derive max_tokens + mode_presets from the context that ACTUALLY loaded.
+
+    `max_tokens` and `mode_presets` are computed here from the tuner's recommended
+    n_ctx and written to the canonical settings keys. But the tuner's n_ctx is only
+    a recommendation — the loader is free to override it and routinely does, because
+    the two use opposite reduction rules: the tuner cuts ctx to fit the KV budget
+    while holding GPU layers, and `smart_fit_config` sheds layers and batch first,
+    cutting ctx last. n_ctx itself is protected from that mismatch (it stays the
+    user's, with the tuner's value filed under hw_profile_n_ctx); the budgets
+    derived FROM it were not.
+
+    Observed live at 2.1.82: the tuner derived the five reasoning modes from
+    ctx=4096 while the model ran at ctx=10384, so every mode planned against less
+    than half the context that was pinned — 2 self-consistency samples and 2 tree
+    branches instead of 3, under a 2048-token ceiling instead of 5192.
+
+    Called after the load settles, when the effective ctx is known. Returns the
+    settings delta actually written; {} when nothing needed to change.
+    """
+    ctx = int(effective_ctx or 0)
+    if ctx <= 0:
+        return {}
+
+    from eli.core.runtime_settings import load_settings as _load, save_settings as _save
+
+    settings = dict(_load() or {})
+    want_max_tokens = max_tokens_from_ctx(ctx)
+    want_presets = mode_presets(ctx, want_max_tokens)
+
+    delta: Dict[str, Any] = {}
+    if int(settings.get("max_tokens") or 0) != int(want_max_tokens):
+        delta["max_tokens"] = want_max_tokens
+    if (settings.get("mode_presets") or {}) != want_presets:
+        delta["mode_presets"] = want_presets
+    if not delta:
+        return {}
+
+    settings.update(delta)
+    # Record what the budgets were sized against, so a later reader can tell
+    # whether they still match the running context without recomputing.
+    settings["mode_presets_ctx"] = ctx
+    _save(settings)
+    return delta
+
+
 def mode_presets(n_ctx: int, max_tokens: int) -> Dict[str, Dict[str, Any]]:
     # MODEL-AGNOSTIC capability scaling: a bigger/smarter model gets MORE samples, wider and
     # deeper search, and larger per-stage budgets instead of staying throttled at the small-
