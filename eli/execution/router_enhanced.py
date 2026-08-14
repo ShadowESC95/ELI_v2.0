@@ -1006,6 +1006,30 @@ def _tone_is_negated(low: str, tone: str) -> bool:
     return False
 
 
+# Technical runtime questions — "what model are you running", "how many gpu
+# layers". The previous version of this matched the bare words `model`, `threads`,
+# `batch` and `provider`, so it fired at confidence 0.99 on any sentence that
+# happened to contain one. Observed live: "what's going on with your world model?"
+# was routed to runtime status, which pre-empted every conversational route below
+# it and asked for hardware telemetry the user had not mentioned. Each alternative
+# below now needs the runtime sense of the word, not just the word.
+_RUNTIME_STATUS_RE = re.compile(
+    r"\bwhat are you actually running on\b"
+    r"|\brunning on right now\b"
+    r"|\b(?:what|which|whats|what's)\s+model\b"
+    r"|\bmodel\s+(?:are|is|do|does)\s+(?:you|it)\b"
+    r"|\bmodel\s+(?:name|path|file|size|id|weights|quant\w*)\b"
+    r"|\b(?:running|loaded|load(?:ing)?|using|swap\w*\s+to)\s+(?:a\s+|the\s+|which\s+|what\s+)?model\b"
+    r"|\bcontext\s+(?:size|window|length)\b|\bn_ctx\b"
+    r"|\bgpu\s+layers?\b|\bn_gpu_layers\b|\boffload(?:ed|ing)?\s+layers?\b"
+    r"|\bbatch\s+size\b|\bn_batch\b"
+    r"|\b(?:how many|number of)\s+threads\b|\bthread\s+count\b|\bn_threads\b"
+    r"|\b(?:inference|model|llm|backend)\s+provider\b"
+    r"|\bwhich\s+provider\b|\bwhat\s+provider\b",
+    re.I,
+)
+
+
 def _route_grounded_runtime_intent(
         raw: str, low: str) -> Optional[Dict[str, Any]]:
     if not raw:
@@ -1026,7 +1050,7 @@ def _route_grounded_runtime_intent(
     _is_identity = any(p in low for p in _identity_phrases)
     _has_system_kw = any(k in low for k in _memory_system_keywords)
 
-    if re.search(r"\b(what are you actually running on|running on right now|model|context size|gpu layers|threads|batch|provider)\b", raw, re.I):
+    if _RUNTIME_STATUS_RE.search(raw):
         return _mk("CHAT", {"message": raw}, 0.99, matched_by="runtime.status.identity_grounded_chat", allow_chat_without_evidence=False)
 
     # identity precedence

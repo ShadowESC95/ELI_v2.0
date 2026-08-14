@@ -3120,7 +3120,8 @@ class _RepeatDetected(Exception):
     """
 
 
-def _stream_holding_back_repeats(stream, recent_replies, *, allow_retry: bool):
+def _stream_holding_back_repeats(stream, recent_replies, *, allow_retry: bool,
+                                 salvage: bool = False):
     """Yield `stream`, withholding the opening until it is cleared as non-repeating.
 
     Module-level and dependency-free so the guard can be driven directly by tests;
@@ -3130,8 +3131,14 @@ def _stream_holding_back_repeats(stream, recent_replies, *, allow_retry: bool):
     Once a chunk is yielded it is on the user's screen, so the check must happen
     before first paint: the first `_REPEAT_HEAD_CHARS` are buffered, tested, then
     released untouched in the common case.
+
+    `allow_retry` raises `_RepeatDetected` so the caller can regenerate. `salvage`
+    is for the final attempt, where raising is no longer useful: the recycled
+    opening sentences are dropped and the remainder is served, buffering on until
+    something novel arrives. A reply that is repeat all the way down still gets
+    served whole — an honest duplicate beats an empty turn.
     """
-    head, released = [], False
+    head, released, salvaging = [], False, False
     for chunk in stream:
         piece = str(chunk or "")
         if not piece:
@@ -3143,16 +3150,44 @@ def _stream_holding_back_repeats(stream, recent_replies, *, allow_retry: bool):
         if sum(len(h) for h in head) < _REPEAT_HEAD_CHARS:
             continue
         opening = "".join(head)
-        if allow_retry and recent_replies and _is_repeat_of_recent(opening, recent_replies):
-            raise _RepeatDetected(opening)
+        if not salvaging and recent_replies and _is_repeat_of_recent(opening, recent_replies):
+            if allow_retry:
+                raise _RepeatDetected(opening)
+            if not salvage:
+                released = True
+                yield opening
+                continue
+            salvaging = True
+        if salvaging:
+            novel = _strip_repeated_opening(opening, recent_replies)
+            if len(_clarifier_norm(novel)) < _REPEAT_MIN_SENTENCE_CHARS:
+                # Still inside the recycled preamble, or holding a fragment too
+                # short to judge — keep buffering rather than paint it. Releasing
+                # on a 3-character tail ("How") would let the rest of a sentence
+                # ELI has already said stream out behind it.
+                continue
+            released = True
+            yield novel
+            continue
         released = True
         yield opening
     if not released:
         # The stream ended inside the buffer: a short reply, still worth checking.
         opening = "".join(head)
         if opening:
-            if allow_retry and recent_replies and _is_repeat_of_recent(opening, recent_replies):
-                raise _RepeatDetected(opening)
+            if salvaging or (recent_replies
+                             and _is_repeat_of_recent(opening, recent_replies)):
+                if allow_retry and not salvaging:
+                    raise _RepeatDetected(opening)
+                if salvage or salvaging:
+                    novel = _strip_repeated_opening(opening, recent_replies)
+                    # Nothing but repeat, and no more stream to wait for: serve the
+                    # duplicate rather than a fragment or an empty turn.
+                    if len(_clarifier_norm(novel)) >= _REPEAT_MIN_SENTENCE_CHARS:
+                        yield novel
+                    else:
+                        yield opening
+                    return
             yield opening
 
 
@@ -3166,6 +3201,7 @@ def _stream_holding_back_repeats(stream, recent_replies, *, allow_retry: bool):
 _REPEAT_HEAD_CHARS = 200      # buffered before first paint — see the streaming guard
 _REPEAT_RATIO = 0.86          # difflib ratio over normalised text
 _REPEAT_COMPARE_AGAINST = 4   # how many recent ELI turns to test
+_REPEAT_RETRY_TEMP_BUMP = 0.35  # widen sampling on the retry — see the retry path
 
 
 _REPEAT_REQUESTED_RE = re.compile(
@@ -3252,6 +3288,124 @@ def _is_repeat_of_recent(candidate: str, prior_replies, *,
         if _repeat_ratio(cand[:n], p[:n]) >= ratio:
             return True
     return False
+
+
+# ── Anti-repeat: salvage instead of serving the duplicate ────────────────────
+# Live evidence (2.1.80): attempt 1 opened "You're not wrong — I'm a bit of a hot
+# mess…", the guard caught it, the retry opened with the SAME two sentences, and
+# the duplicate was served because the retry was the last chance. But the retry
+# was not a total loss: after those two recycled sentences it went on to answer
+# the question that had actually been asked. Serving or discarding the whole
+# reply were both wrong — the repeat was a preamble, not the answer.
+#
+# So the last attempt trims rather than surrenders: leading sentences that
+# restate a recent reply are dropped and the novel remainder is served. Only if
+# nothing novel survives does the honest-duplicate rule still apply.
+_SENTENCE_SPLIT_RE = re.compile(r"(?<=[.!?…])[\"'’”)\]]*\s+")
+_REPEAT_MIN_SENTENCE_CHARS = 12   # below this a sentence carries no content to match on
+_REPEAT_MIN_REDACT_CHARS = 40     # shorter lines are too generic to redact on a match
+
+
+def _split_sentences_with_gaps(text: str):
+    """Sentences paired with the whitespace that followed them.
+
+    Keeping the gaps means a trimmed remainder is the ORIGINAL substring, not a
+    re-joined approximation — no lost line breaks, no invented spaces.
+    """
+    body = str(text or "")
+    out, last = [], 0
+    for m in _SENTENCE_SPLIT_RE.finditer(body):
+        out.append((body[last:m.start()], m.group(0)))
+        last = m.end()
+    out.append((body[last:], ""))
+    return [(s, g) for s, g in out if s or g]
+
+
+def _prior_sentences(prior_replies) -> List[str]:
+    sentences: List[str] = []
+    for prior in list(prior_replies or [])[:_REPEAT_COMPARE_AGAINST]:
+        for s, _gap in _split_sentences_with_gaps(str(prior or "").strip()):
+            s = s.strip()
+            if s:
+                sentences.append(s)
+    return sentences
+
+
+def _sentence_seen_before(sentence: str, prior_sentences, *, partial: bool) -> bool:
+    """True when this sentence restates one ELI already delivered.
+
+    `partial` is for the trailing fragment of a still-streaming buffer: it is
+    compared against the OPENING of each prior sentence, so a repeat that is only
+    half-emitted is recognised as one instead of reading as novel text.
+    """
+    cand = _clarifier_norm(sentence)
+    if len(cand) < _REPEAT_MIN_SENTENCE_CHARS:
+        return False
+    for prior in prior_sentences:
+        pn = _clarifier_norm(prior)
+        if len(pn) < _REPEAT_MIN_SENTENCE_CHARS:
+            continue
+        if partial:
+            if len(pn) < len(cand):
+                continue
+            pn = pn[:len(cand)]
+        if difflib.SequenceMatcher(None, cand, pn).ratio() >= _REPEAT_RATIO:
+            return True
+    return False
+
+
+def _strip_repeated_opening(text: str, prior_replies) -> str:
+    """Return `text` with its recycled opening sentences removed.
+
+    Returns "" when every sentence is one ELI has already said — the caller
+    decides what to do with a reply that is nothing but repeat.
+    """
+    body = str(text or "")
+    priors = _prior_sentences(prior_replies)
+    if not body.strip() or not priors:
+        return body
+    parts = _split_sentences_with_gaps(body)
+    keep = 0
+    for i, (sentence, _gap) in enumerate(parts):
+        stripped = sentence.strip()
+        if not stripped:
+            keep = i + 1
+            continue
+        complete = bool(re.search(r"[.!?…][\"'’”)\]]*$", stripped))
+        is_tail = (i == len(parts) - 1)
+        if _sentence_seen_before(stripped, priors, partial=(is_tail and not complete)):
+            keep = i + 1
+            continue
+        break
+    if keep == 0:
+        return body
+    return "".join(s + g for s, g in parts[keep:]).lstrip()
+
+
+def _redact_prior_replies(text: str, prior_replies) -> str:
+    """Remove ELI's own recent replies from a prompt block before regenerating.
+
+    De-priming the persona brief alone was not enough: the same paragraph also
+    reaches the model through the assembled memory context and the handoff's
+    evidence block, so the retry was still shown the exact text it had just been
+    told not to produce. Matching is line-wise and ratio-based, so unrelated
+    evidence on neighbouring lines survives intact.
+    """
+    body = str(text or "")
+    priors = [str(p or "").strip() for p in list(prior_replies or [])[:_REPEAT_COMPARE_AGAINST]]
+    priors = [p for p in priors if len(_clarifier_norm(p)) >= _REPEAT_MIN_REDACT_CHARS]
+    if not body or not priors:
+        return body
+    kept = []
+    for line in body.splitlines():
+        norm = _clarifier_norm(line)
+        if len(norm) >= _REPEAT_MIN_REDACT_CHARS and any(
+                _repeat_ratio(line, p) >= _REPEAT_RATIO
+                or _clarifier_norm(p) in norm
+                for p in priors):
+            continue
+        kept.append(line)
+    return "\n".join(kept)
 
 
 def _clarifier_is_usable(generated: str, *, user_input: str, context: str) -> bool:
@@ -9203,6 +9357,7 @@ Answer:"""
     def generate_stream_from_assembled_prompt(self, prompt: str,
                                               working_memory=None,
                                               reasoning_mode: Optional[str] = None,
+                                              gen_overrides: Optional[Dict[str, Any]] = None,
                                               **kwargs):
         memory_context = ""
         situation_brief = ""
@@ -9228,6 +9383,12 @@ Answer:"""
                 _rm_gen_overrides = self._chat_generation_overrides(
                     prompt, memory_context, reasoning_mode=_rm_key,
                 )
+                if gen_overrides:
+                    # Caller-supplied sampling wins — this is how the anti-repeat
+                    # retry raises temperature so attempt 2 is not attempt 1 again.
+                    _rm_gen_overrides = dict(_rm_gen_overrides or {})
+                    _rm_gen_overrides.update(
+                        {k: v for k, v in dict(gen_overrides).items() if v is not None})
                 situation_brief_rm = ""
                 try:
                     _stm_rm = getattr(working_memory, "short_term_memory", None)
@@ -9360,6 +9521,7 @@ Answer:"""
                 prompt,
                 memory_context,
                 reasoning_mode=reasoning_mode,
+                gen_overrides=gen_overrides,
                 situation_brief=situation_brief,
             ):
                 piece = str(chunk or "")
@@ -12984,23 +13146,44 @@ Answer:"""
                 full_tokens.clear()
                 # De-prime the PERSONA HANDOFF, which is where the contract lives.
                 # `prompt` is the user's message and must reach the model unaltered.
-                _retry_brief = _deprimed_persona_brief(situation_brief)
+                #
+                # Stripping the contract is necessary but was not sufficient: the
+                # same reply also reaches the model through the assembled memory
+                # context and the handoff's evidence block, so attempt 2 was still
+                # reading its own last paragraph and duly re-emitted it (observed
+                # at 2.1.80 — both attempts opened "You're not wrong — I'm a bit of
+                # a hot mess"). Redact it from every block that feeds the retry.
+                _retry_brief = _redact_prior_replies(
+                    _deprimed_persona_brief(situation_brief), _recent_eli)
+                _retry_context = _redact_prior_replies(memory_context, _recent_eli)
                 _retry_wm = SimpleNamespace(
                     user_input=user_input,
-                    assembled_context=memory_context,
+                    assembled_context=_retry_context,
                     persona_handoff=_retry_brief,
                     final_response="",
                     trace={},
                     bus_result=pre_built_bus_result,
                     short_term_memory=SimpleNamespace(recent_turns=_wm_recent_turns),
                 )
+                # Same prompt at the same temperature is the same reply. A retry
+                # that changes only the prompt's framing leaves the sampler free to
+                # walk the identical path, which is exactly what it did; widen it.
+                _retry_gen = None
+                try:
+                    _base_temp = float(self._generation_settings().get("temperature", 0.7) or 0.7)
+                    _retry_gen = {"temperature": round(min(1.2, _base_temp + _REPEAT_RETRY_TEMP_BUMP), 3)}
+                except Exception:
+                    log.debug("[ANTI-REPEAT] retry temperature bump skipped", exc_info=True)
                 log.debug("[ANTI-REPEAT] retry generation issued (persona handoff "
-                          "de-primed: %d -> %d chars)",
-                          len(situation_brief), len(_retry_brief))
+                          "de-primed: %d -> %d chars, context %d -> %d chars, temp=%s)",
+                          len(situation_brief), len(_retry_brief),
+                          len(memory_context or ""), len(_retry_context or ""),
+                          (_retry_gen or {}).get("temperature", "unchanged"))
                 _retry = self.generate_stream_from_assembled_prompt(
                     prompt,
                     working_memory=_retry_wm,
                     reasoning_mode=reasoning_mode,
+                    gen_overrides=_retry_gen,
                 )
                 # The de-primed prompt is materially different from the first, so a
                 # second attempt is worth one more generation. Live evidence: attempt
@@ -13010,9 +13193,12 @@ Answer:"""
                 # made a repeated retry raise again and trigger a THIRD generation —
                 # observed live at 20.1s for one reply (8.4s + 7.9s + 2.9s), with the
                 # log claiming "serving it" while it silently regenerated instead.
-                # Two generations is the cap; a duplicate beats a third wait.
+                # Two generations is the cap. salvage=True so that a cap is not a
+                # surrender: if attempt 2 opens with the same recycled sentences and
+                # then goes on to answer, the recycled part is dropped and the answer
+                # is served.
                 for piece in _stream_holding_back_repeats(
-                        _retry, _recent_eli, allow_retry=False):
+                        _retry, _recent_eli, allow_retry=False, salvage=True):
                     full_tokens.append(piece)
                     yielded = True
                     yield piece
