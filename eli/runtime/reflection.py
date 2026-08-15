@@ -6,8 +6,31 @@ from __future__ import annotations
 
 import time
 from collections import Counter
-from typing import Dict, Any, List
+from typing import Dict, Any, List, Optional
 from eli.memory import get_memory
+
+
+# Shared so the report header and the daemon's greeting cannot drift apart. The
+# 12/17 boundaries are the ones proactive_daemon already used for its greeting.
+def part_of_day(ts: Optional[float] = None) -> str:
+    """"morning" / "afternoon" / "evening" for a wall-clock time."""
+    hour = time.localtime(ts if ts is not None else time.time()).tm_hour
+    if hour < 12:
+        return "morning"
+    if hour < 17:
+        return "afternoon"
+    return "evening"
+
+
+def report_label(ts: Optional[float] = None) -> str:
+    """Title for the daily report — named for when it is actually produced.
+
+    The header was the fixed string "Morning report", printed beside a timestamp
+    that frequently contradicted it: an 18:16 report read "Morning report —
+    Saturday 15 August 2026, 18:16". The action is still MORNING_REPORT (that is
+    its routing identity); only the words shown to the user follow the clock.
+    """
+    return f"{part_of_day(ts).capitalize()} report"
 
 
 def reflect_on_period(hours: int = 24) -> Dict[str, Any]:
@@ -63,14 +86,42 @@ def reflect_on_period(hours: int = 24) -> Dict[str, Any]:
                 "told", "ask", "asked", "seeing", "want", "need", "make", "made",
                 "using", "use", "used", "lately", "stuff", "things", "thing", "your",
                 "yours", "still", "back", "thats", "whats", "gonna", "wanna", "let",
+                # Filler that reached a live report as "Top topics: doing,
+                # evening, afternoon, head, mean" — none of which was a subject
+                # anyone discussed.
+                "doing", "does", "mean", "means", "meant", "evening", "afternoon",
+                "night", "today", "tomorrow", "yesterday", "sorry", "remember",
+                "again", "sure", "actually", "maybe", "think", "thought", "guess",
+                "looks", "looking", "talking", "discussing", "anything", "everything",
+                "something", "nothing", "another", "though", "each", "every",
             }
+            # Small talk contributes no topics. A greeting is where "evening",
+            # "afternoon" and "head" came from, and no stopword list will ever
+            # anticipate every idiom — so phatic turns are skipped wholesale
+            # rather than word-by-word. Imported lazily: reflection must not take
+            # an import-time dependency on the engine.
+            try:
+                from eli.kernel.engine import _is_brief_phatic_prompt as _phatic
+            except Exception:
+                _phatic = None
+            # Count DISTINCT MESSAGES a word appears in, not raw occurrences: one
+            # message saying "head" twice is not a topic raised twice.
             for msg in user_msgs:
-                words = msg.get("content", "").lower().split()
-                for w in words:
+                content = msg.get("content", "") or ""
+                if _phatic is not None:
+                    try:
+                        if _phatic(content.lower()):
+                            continue
+                    except Exception:
+                        pass
+                seen_here = set()
+                for w in content.lower().split():
                     clean = "".join(c for c in w if c.isalnum())
                     if len(clean) >= 4 and clean not in _stopwords:
-                        all_words[clean] = all_words.get(clean, 0) + 1
-            # Require a topic to appear at least twice to count as a "topic".
+                        seen_here.add(clean)
+                for clean in seen_here:
+                    all_words[clean] = all_words.get(clean, 0) + 1
+            # Require a topic to have been raised in at least two messages.
             top_topics = [(w, c) for w, c in
                           sorted(all_words.items(), key=lambda x: x[1], reverse=True)
                           if c >= 2][:5]
