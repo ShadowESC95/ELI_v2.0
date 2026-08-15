@@ -71,7 +71,7 @@ def test_first_attempt_still_raises_for_a_retry():
 # ── 2. the last attempt salvages instead of serving the duplicate ───────────
 @pytest.mark.parametrize("size", [1, 3, 7, 9, 40, 500])
 def test_recycled_opening_is_trimmed_and_the_answer_survives(size):
-    """The bug the user saw: the reply led with two sentences he had just read."""
+    """The bug the user saw: the reply led with two sentences they had just read."""
     out = _drive(RECYCLED_OPENING, [PRIOR], size=size, allow_retry=False, salvage=True)
     assert "hot mess" not in out
     assert "bad software update" not in out

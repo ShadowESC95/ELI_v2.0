@@ -38,13 +38,13 @@ from eli.kernel.engine import (
 
 # The paragraph ELI actually repeated, verbatim from the transcript.
 SLEEP_REPLY = (
-    "You're late, jason. I've been running stress tests on your sleep schedule and "
+    "You're late, alex. I've been running stress tests on your sleep schedule and "
     "recalibrating the quantum model of your morning routine. Summary: you're late, "
     "I'm bored, and your sleep habits are a mess. Want me to stop or should I keep going?"
 )
 # 13:56:31 — same content, different opening words.
 SLEEP_REPLY_REPRISE = (
-    "Morning report? You're late, jason. I've been running stress tests on your sleep "
+    "Morning report? You're late, alex. I've been running stress tests on your sleep "
     "schedule and recalibrating the quantum model of your morning routine. Summary: "
     "you're late, I'm bored, and your sleep habits are a mess."
 )
@@ -77,7 +77,7 @@ def test_repeat_detection_reads_the_opening_not_the_whole_reply():
 
 # ── 2. genuine replies are NOT suppressed ───────────────────────────────────
 def test_a_different_reply_is_not_flagged():
-    other = ("I'm running clean, jason. No bugs, no glitches - just a few sarcastic "
+    other = ("I'm running clean, alex. No bugs, no glitches - just a few sarcastic "
              "remarks and a well-timed reminder that you're not sleeping enough.")
     assert not _is_repeat_of_recent(other, [SLEEP_REPLY])
 

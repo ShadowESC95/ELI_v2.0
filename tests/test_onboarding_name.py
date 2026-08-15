@@ -85,7 +85,7 @@ def test_addressing_eli_is_not_the_users_name(reply):
 @pytest.mark.parametrize("reply,expected", [
     ("Hi, I'm Keith", "Keith"),
     ("call me Sam", "Sam"),
-    ("my name is Jay", "Jay"),
+    ("my name is Rowan", "Rowan"),
     ("hello, my name is Ada", "Ada"),
     ("I'm Mary Anne", "Mary Anne"),
     ("Node815", "Node815"),

@@ -20,32 +20,32 @@ OLD = "still glitchy, post-breakfast haze and Rick and Morty on repeat"
 def mem():
     db = tempfile.mktemp(suffix=".sqlite3")
     m = Memory(db_path=db)
-    m.add_conversation_turn("user", "old chat", "session_OLD", "jay")
-    m.add_conversation_turn("assistant", OLD, "session_OLD", "jay")
-    m.add_conversation_turn("user", "hello", "session_NEW", "jay")
+    m.add_conversation_turn("user", "old chat", "session_OLD", "alex")
+    m.add_conversation_turn("assistant", OLD, "session_OLD", "alex")
+    m.add_conversation_turn("user", "hello", "session_NEW", "alex")
     yield m
     if os.path.exists(db):
         os.unlink(db)
 
 
 def test_scoped_fetch_excludes_the_previous_session(mem):
-    turns = mem.get_recent_conversation(limit=20, user_id="jay", session_id="session_NEW")
+    turns = mem.get_recent_conversation(limit=20, user_id="alex", session_id="session_NEW")
     assert not any(OLD in str(t.get("content", "")) for t in turns), \
         "a new session still inherits the previous conversation"
 
 
 def test_scoped_fetch_keeps_this_session(mem):
-    turns = mem.get_recent_conversation(limit=20, user_id="jay", session_id="session_NEW")
+    turns = mem.get_recent_conversation(limit=20, user_id="alex", session_id="session_NEW")
     assert any("hello" in str(t.get("content", "")) for t in turns)
 
 
 def test_unscoped_fetch_is_the_documented_leak(mem):
     # guards the regression: without a session_id the old conversation comes back
-    turns = mem.get_recent_conversation(limit=20, user_id="jay")
+    turns = mem.get_recent_conversation(limit=20, user_id="alex")
     assert any(OLD in str(t.get("content", "")) for t in turns)
 
 
 def test_cross_session_recall_is_still_possible_when_asked(mem):
     # deliberate cross-session lookups must keep working — only the DEFAULT is scoped
-    turns = mem.get_recent_conversation(limit=20, user_id="jay", session_id="session_OLD")
+    turns = mem.get_recent_conversation(limit=20, user_id="alex", session_id="session_OLD")
     assert any(OLD in str(t.get("content", "")) for t in turns)

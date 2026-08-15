@@ -38,7 +38,7 @@ def test_the_table_exists_from_first_boot(db):
 
 
 @pytest.mark.parametrize("ptype,fact", [
-    ("identity.name", "User's name is Jason."),
+    ("identity.name", "User's name is Alex."),
     ("identity.role", "User is an independent physicist."),
     ("preference.tone", "Prefers direct, concise answers."),
     ("project.current", "Working on QMSH solar-to-hydrogen."),
@@ -71,17 +71,17 @@ def test_transient_patterns_are_not_promoted(db, ptype, fact):
 def test_a_reaffirmed_fact_is_not_duplicated(db):
     conn, cur = db
     for _ in range(3):
-        pe._insert_user_pattern(cur, "identity.name", "User's name is Jason.")
+        pe._insert_user_pattern(cur, "identity.name", "User's name is Alex.")
     conn.commit()
     n = cur.execute("SELECT COUNT(*) FROM semantic WHERE lower(fact)=lower(?)",
-                    ("User's name is Jason.",)).fetchone()[0]
+                    ("User's name is Alex.",)).fetchone()[0]
     assert n == 1
 
 
 def test_promotion_carries_the_pattern_type_as_a_tag(db):
     """Readers filter on tags like 'user_fact'; the source type is kept too."""
     conn, cur = db
-    pe._insert_user_pattern(cur, "identity.name", "User's name is Jason.")
+    pe._insert_user_pattern(cur, "identity.name", "User's name is Alex.")
     conn.commit()
     tags = cur.execute("SELECT tags FROM semantic LIMIT 1").fetchone()[0]
     assert "user_fact" in tags and "identity.name" in tags
@@ -105,8 +105,8 @@ def test_the_direct_api_also_dedupes(tmp_path, monkeypatch):
     store = Memory.__dict__["store_semantic"]
     stub = _Stub()
 
-    assert store(stub, "User's name is Jason.") is True
-    assert store(stub, "user's NAME is jason.") is False   # case-insensitive
+    assert store(stub, "User's name is Alex.") is True
+    assert store(stub, "user's NAME is alex.") is False   # case-insensitive
     assert store(stub, "") is False
     assert store(stub, "   ") is False
 
