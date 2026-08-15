@@ -1030,6 +1030,28 @@ _RUNTIME_STATUS_RE = re.compile(
 )
 
 
+# The GUI turns a dropped/attached image into a marker in the user's message:
+#     [Attached image: shot.png — path: /home/u/Pictures/shot.png]
+# The generic path extractor took "everything from the first slash to end of
+# string", which swept up that closing bracket. One stray ']' did two things:
+# the path did not exist ("Path not found: …png]"), and `endswith(".png")` was
+# False, so an attached IMAGE was routed to SUMMARIZE_FILE instead of
+# ANALYZE_IMAGE. Parsing the marker the GUI actually writes is exact, and it
+# cannot be confused by paths that legitimately contain spaces or brackets.
+_ATTACHMENT_MARKER_RE = re.compile(
+    r"\[\s*Attached\s+(?:image|file)\s*:[^\]]*?\bpath\s*:\s*(?P<path>[^\]]+?)\s*\]",
+    re.I,
+)
+
+
+def _attachment_marker_path(raw: str) -> Optional[str]:
+    """Path out of the GUI's attachment marker, without its closing bracket."""
+    m = _ATTACHMENT_MARKER_RE.search(str(raw or ""))
+    if not m:
+        return None
+    return (m.group("path") or "").strip() or None
+
+
 def _route_grounded_runtime_intent(
         raw: str, low: str) -> Optional[Dict[str, Any]]:
     if not raw:
@@ -3905,8 +3927,11 @@ def route(text: str, _clause_depth: int = 0) -> Dict[str, Any]:
         target = m.group(1).strip()
         # If target contains an absolute path, extract from the first / or ~/
         # This handles typos, extra verbs, and multi-word prefixes cleanly.
-        _path_hit = re.search(r'[~/].*$', target)
-        if _path_hit:
+        _attached = _attachment_marker_path(raw)
+        _path_hit = None if _attached else re.search(r'[~/].*$', target)
+        if _attached:
+            target = _attached
+        elif _path_hit:
             # Capture the FULL remainder (paths legitimately contain spaces,
             # parens, ×, –, accents — e.g. physics dirs). Then prefer the LONGEST
             # existing prefix so a real spaced path is kept intact while trailing
@@ -3914,6 +3939,15 @@ def route(text: str, _clause_depth: int = 0) -> Dict[str, Any]:
             # first space (old [^\s]+) cut spaced paths and led to phantom paths
             # the model then "summarised" from the name.
             _cand = _path_hit.group(0).strip()
+            if not os.path.exists(os.path.expanduser(_cand)):
+                # A closing delimiter glued to the last token survives the
+                # whole-token walk-back below, because no prefix of the tokens
+                # ever drops it. Only applied when it actually helps, so a real
+                # path ending in ')' — "paper (2).pdf" — is left alone.
+                _untrimmed = _cand
+                _cand = _cand.rstrip("]})>\"'`,;")
+                if _cand != _untrimmed and not os.path.exists(os.path.expanduser(_cand)):
+                    _cand = _untrimmed
             if not os.path.exists(os.path.expanduser(_cand)):
                 _toks = _cand.split()
                 for _k in range(len(_toks), 0, -1):

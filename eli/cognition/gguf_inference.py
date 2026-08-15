@@ -181,6 +181,45 @@ def get_model_path() -> Optional[Path]:
         if p.exists():
             return p
 
+    # Last resort: the model THIS PROCESS is already running. The GUI loads the
+    # GGUF itself and hands it over by assigning gguf_inference._llm and
+    # publishing a live runtime override — it never routes through the settings
+    # keys above, so on a GUI-loaded install every lookup here came back empty
+    # while a model was demonstrably loaded and answering. Vision then swapped
+    # the text model out, asked for its path to put it back, and could not find
+    # the model it had just been using ("No GGUF model path configured", 24
+    # failed load attempts, 27s, chat left unloaded — 2.1.83).
+    #
+    # Deliberately last: explicit configuration always wins over "whatever is
+    # currently loaded".
+    # globals().get, not a bare name: _live_runtime_params is only ever created by
+    # assignment into globals() when a load publishes, so it may not exist yet.
+    for _src in (globals().get("_live_runtime_override"),
+                 globals().get("_live_runtime_params")):
+        try:
+            _p = (_src or {}).get("model_path")
+            if _p:
+                p = resolve_runtime_path(str(_p))
+                if p.exists():
+                    return p
+        except Exception:
+            _SWLOG.debug("suppressed exception", exc_info=True)
+
+    # And the snapshot the loader writes to disk, which survives a reload of this
+    # module when the in-memory override does not.
+    try:
+        import json as _json_rs
+        from eli.core.paths import get_paths as _gp_rs
+        _snap_path = _gp_rs().artifacts_dir / "runtime_snapshot.json"
+        if _snap_path.exists():
+            _p = (_json_rs.loads(_snap_path.read_text(encoding="utf-8")) or {}).get("model_path")
+            if _p:
+                p = resolve_runtime_path(str(_p))
+                if p.exists():
+                    return p
+    except Exception:
+        _SWLOG.debug("suppressed exception", exc_info=True)
+
     return None
 
 
@@ -667,13 +706,18 @@ def load_model(force_reload: bool = False):
     if _llm is not None and not force_reload:
         return _llm
 
-    if force_reload:
-        _llm = None
-
+    # Resolve the path BEFORE dropping the handle. force_reload used to null _llm
+    # first and then raise if no path could be found, so a reload that could never
+    # have succeeded still destroyed a perfectly good loaded model — which is how
+    # one image analysis left chat with no model at all (2.1.83). Failing to
+    # reload must leave you no worse off than not trying.
     settings = _load_runtime_settings()
     model_path = get_model_path()
     if not model_path:
         raise FileNotFoundError("No GGUF model path configured")
+
+    if force_reload:
+        _llm = None
 
     model_path = _Path(model_path).expanduser().resolve()
     if not model_path.exists():
@@ -2400,6 +2444,21 @@ try:
             _force = kwargs.get("force_reload", False) or (args and args[0])
             if _llm is not None and not _force:
                 return _llm
+
+            # A missing model path is not a VRAM-fitting problem, and no candidate
+            # in the list can fix it. Retrying all eight produced eight identical
+            # "No GGUF model path configured" failures — and each one calls
+            # _eli_try_unload_after_failed_load(), so the retries also tore down the
+            # model the caller was trying to keep. Live at 2.1.83: three rounds of
+            # this after one image analysis, 24 failed loads in 27.3 seconds.
+            # Fail once, immediately, without unloading anything.
+            try:
+                if get_model_path() is None:
+                    raise FileNotFoundError("No GGUF model path configured")
+            except FileNotFoundError:
+                raise
+            except Exception:
+                _SWLOG.debug("suppressed exception", exc_info=True)
 
             requested = _eli_requested_runtime_from_kwargs(kwargs)
             gpu = _eli_probe_nvidia_vram()
