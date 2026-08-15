@@ -1006,6 +1006,17 @@ class LocalModelManager:
                             f"[GUI][LOAD] smart-fit reduced ctx {_sf_user_ctx}->{_sf_ctx} to fit "
                             f"{_sf_gpu.free_mb}MB free VRAM (your setting didn't fit — reduced to "
                             f"avoid OOM, not replaced)")
+                    # Layers get the same announcement as ctx. Shedding GPU layers is
+                    # the FIRST thing smart-fit does (ctx is protected to last), so it
+                    # is the reduction users actually hit — and it was near-silent: a
+                    # 99 -> 31 cut showed up only as a number in the parameter list
+                    # while per-turn latency went from ~3s to ~14s (observed 2.1.86).
+                    if _user_gpu_layers and _sf_layers < _user_gpu_layers:
+                        log.debug(
+                            f"[GUI][LOAD] smart-fit reduced GPU layers {_user_gpu_layers}->{_sf_layers} "
+                            f"to fit {_sf_gpu.free_mb}MB free VRAM — your context of {_sf_ctx} was kept "
+                            f"(ctx is reduced last). Expect slower generation: the layers that did not "
+                            f"fit run on CPU. Free VRAM or lower the context to get them back.")
                     _add_attempt("smart-fit", _sf_ctx, _sf_layers, _sf_batch)
             except Exception as _sf_err:
                 log.debug(f"[GUI][LOAD] smart-fit attempt skipped: {_sf_err}")
