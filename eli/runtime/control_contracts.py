@@ -143,7 +143,10 @@ def route_control_text(user_input: Any, current_action: Any = None) -> str | Non
         r"feelings?|personality|opinion|thoughts?|mood)|"
         r"our\s+(?:interactions?|conversations?|chats?|relationship|history|"
         r"discussions?|talks?)|"
-        r"how\s+(?:do\s+)?you\s+feel|what\s+do\s+you\s+(?:like|think|enjoy)|"
+        r"how\s+(?:do\s+|are\s+|r\s+)?you\s+feel(?:ing)?|"
+        r"(?:are|r)\s+you\s+(?:feeling|ok|okay|alright|good|well)\b|"
+        r"you\s+(?:are|re)\s+feeling|"
+        r"what\s+do\s+you\s+(?:like|think|enjoy)|"
         r"about\s+(?:us|me\s+and\s+you|you\s+and\s+(?:me|i)))\b",
         low,
     ))
@@ -160,8 +163,12 @@ def route_control_text(user_input: Any, current_action: Any = None) -> str | Non
         r"|tell me about yourself"
         r"|tell me .{0,40}who you are"
         r"|as (?:a |an )?(?:person|entity)"
-        r"|your identity"
-        r"|your persona"
+        # Asked ABOUT, not merely mentioned. "nice to see your persona" is a
+        # remark; it forced a runtime identity dump over the question that
+        # actually followed it ("so you are feeling, fine?").
+        r"|(?:what(?:'?s| is| are)?|describe|explain|tell me|show me|list)"
+        r"\s+(?:me\s+)?(?:about\s+)?(?:your|the)\s+(?:identity|persona)"
+
         r"|persona evolved"
         r"|identity evolved"
         r"|defined with .{0,80}memories"
