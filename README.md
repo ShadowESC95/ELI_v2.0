@@ -427,12 +427,12 @@ SECURITY.md, not in a public issue.
 
 ## Tested on & known limitations
 
-*Last updated 2026-07-10 (v2.1.9).*
+*Last updated 2026-08-15 (v2.1.88).*
 
 I'd rather tell you exactly what I've run than pretend it's flawless everywhere.
 
 **What I've actually run, end to end:** Linux (x86_64) with an NVIDIA GPU — install, first-run,
-the full test suite (8,100+ tests), voice, vision, the server, the AppImage with the CUDA GPU
+the full test suite (9,000+ tests), voice, vision, the server, the AppImage with the CUDA GPU
 pack, all of it. **The Windows installer has also been field-run on real hardware** — install,
 first-boot GPU + model flow, voice and chat. On top of that, **every release is launch-tested in
 CI on Windows, macOS and Linux**: the pipeline boots each built bundle and verifies the runtime
