@@ -148,8 +148,54 @@ def ensure_profile_tables(db_path: Path | None = None) -> None:
         """
     )
 
+    backfill_semantic_from_patterns(cur)
+
     con.commit()
     con.close()
+
+
+def backfill_semantic_from_patterns(cur: sqlite3.Cursor) -> int:
+    """Seed the semantic tier from user_patterns already on disk.
+
+    The tier only started being written in 2.1.87, so an existing install has a
+    populated user_patterns table and an empty semantic one — every durable fact
+    ELI had already learned stayed invisible to the identity-recall path that
+    reads semantic first.
+
+    Runs only when semantic is EMPTY, which makes it a one-shot: afterwards the
+    extractor keeps it current, and a user who deliberately clears the tier does
+    not get it silently refilled from history on the next start.
+
+    Promotion goes through _promote_to_semantic, so the durable/transient filter
+    and the dedupe are the ones the live path uses — not a second copy that could
+    drift away from it.
+    """
+    try:
+        if not _table_exists(cur, "semantic") or not _table_exists(cur, "user_patterns"):
+            return 0
+        existing = cur.execute("SELECT COUNT(*) FROM semantic").fetchone()
+        if existing and int(existing[0] or 0) > 0:
+            return 0
+        rows = cur.execute(
+            "SELECT pattern_type, pattern_data, COALESCE(ts, timestamp, 0) "
+            "FROM user_patterns ORDER BY COALESCE(ts, timestamp, 0) ASC"
+        ).fetchall()
+    except Exception:
+        log.debug("profile_extractor: semantic backfill query failed", exc_info=True)
+        return 0
+
+    promoted = 0
+    for ptype, pdata, ts_value in rows:
+        try:
+            if _promote_to_semantic(cur, str(ptype or ""), str(pdata or ""),
+                                    float(ts_value or time.time())):
+                promoted += 1
+        except Exception:
+            log.debug("profile_extractor: semantic backfill row failed", exc_info=True)
+    if promoted:
+        log.info("profile_extractor: seeded %d durable fact(s) into the semantic "
+                 "tier from existing user_patterns", promoted)
+    return promoted
 
 
 def _insert_user_pattern(

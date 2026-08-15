@@ -115,3 +115,87 @@ def test_the_direct_api_also_dedupes(tmp_path, monkeypatch):
         assert conn.execute("SELECT COUNT(*) FROM semantic").fetchone()[0] == 1
     finally:
         conn.close()
+
+
+# ── backfill: an existing install must not start with an empty tier ─────────
+def _legacy_install(tmp_path, patterns):
+    """A pre-2.1.87 profile: user_patterns populated, no semantic table at all."""
+    import time as _t
+    path = tmp_path / "user.sqlite3"
+    con = sqlite3.connect(str(path))
+    con.execute("""CREATE TABLE user_patterns (id INTEGER PRIMARY KEY AUTOINCREMENT,
+                   pattern_type TEXT, pattern_data TEXT, timestamp REAL, ts REAL)""")
+    for ptype, pdata in patterns:
+        con.execute("INSERT INTO user_patterns(pattern_type,pattern_data,timestamp,ts) "
+                    "VALUES (?,?,?,?)", (ptype, pdata, _t.time(), _t.time()))
+    con.commit()
+    con.close()
+    return path
+
+
+def _facts(path):
+    con = sqlite3.connect(str(path))
+    try:
+        return [r[0] for r in con.execute("SELECT fact FROM semantic ORDER BY id")]
+    finally:
+        con.close()
+
+
+LEGACY = [
+    ("identity.name", "User's name is Alex."),
+    ("preference.tone", "Prefers direct, concise answers."),
+    ("project.current", "Working on QMSH solar-to-hydrogen."),
+    ("preference.session", "session chatter"),
+    ("mood.transient", "seemed tired"),
+]
+
+
+def test_existing_facts_are_seeded_on_upgrade(tmp_path):
+    path = _legacy_install(tmp_path, LEGACY)
+    pe.ensure_profile_tables(path)
+    facts = _facts(path)
+    assert "User's name is Alex." in facts
+    assert "Working on QMSH solar-to-hydrogen." in facts
+
+
+def test_the_backfill_applies_the_same_transient_filter(tmp_path):
+    path = _legacy_install(tmp_path, LEGACY)
+    pe.ensure_profile_tables(path)
+    facts = _facts(path)
+    assert "session chatter" not in facts
+    assert "seemed tired" not in facts
+
+
+def test_the_backfill_is_one_shot(tmp_path):
+    """Booting repeatedly must not keep re-seeding."""
+    path = _legacy_install(tmp_path, LEGACY)
+    pe.ensure_profile_tables(path)
+    first = _facts(path)
+    pe.ensure_profile_tables(path)
+    pe.ensure_profile_tables(path)
+    assert _facts(path) == first
+
+
+def test_a_cleared_tier_is_not_silently_refilled(tmp_path):
+    """Only an EMPTY tier is seeded — but a user who clears it deliberately is
+    choosing that. Re-seeding is acceptable ONLY because the tier is empty; this
+    test records the behaviour so a future change to it is a decision, not a
+    surprise."""
+    path = _legacy_install(tmp_path, LEGACY)
+    pe.ensure_profile_tables(path)
+    assert _facts(path)
+
+    con = sqlite3.connect(str(path))
+    con.execute("DELETE FROM semantic")
+    con.commit()
+    con.close()
+
+    pe.ensure_profile_tables(path)
+    # Documented consequence: an empty tier IS re-seeded from history.
+    assert _facts(path), "backfill runs whenever the tier is empty"
+
+
+def test_a_fresh_install_seeds_nothing(tmp_path):
+    path = tmp_path / "user.sqlite3"
+    pe.ensure_profile_tables(path)
+    assert _facts(path) == []
