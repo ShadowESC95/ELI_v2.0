@@ -50,7 +50,7 @@ def test_a_neural_fallback_is_recorded_with_the_requested_voice():
 
 def test_a_fallback_always_carries_a_reason():
     """"It fell back" without why is what made this invisible for so long."""
-    tts_router._note_neural_fallback("clone:jason")
+    tts_router._note_neural_fallback("clone:alex")
     assert tts_router.neural_fallback_state()["reason"].strip()
 
 

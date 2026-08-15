@@ -40,8 +40,8 @@ def test_the_exact_multihop_str_chunk_bug():
 
 
 def test_iteration_still_yields_tokens():
-    tokens = list(_stream(["Hey", " Jason"]))
-    assert "".join(tokens) == "Hey Jason"
+    tokens = list(_stream(["Hey", " Alex"]))
+    assert "".join(tokens) == "Hey Alex"
     assert not any("generator object" in t for t in tokens)
 
 

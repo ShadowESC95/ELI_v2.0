@@ -3228,7 +3228,7 @@ def _user_asked_for_a_repeat(user_input: str) -> bool:
 #
 # Live at 2.1.83, 23:10: the first generation opened 'Even…' (right), the guard
 # matched it against a recent reply and regenerated, and the retry — explicitly
-# instructed to produce "different content" — answered with "Aftrnoon, jason",
+# instructed to produce "different content" — echoed the user's own misspelling
 # echoing the user's own typo and then telling him off for it. A correct answer
 # was replaced by a wrong one because it resembled a previous hello.
 #
@@ -8549,8 +8549,8 @@ Answer:"""
         # grounds "what ARE you" — construction, storage, capabilities, upgrade
         # mechanism. Identity questions are deliberately answered in CHAT so the
         # persona stays its own, but CHAT had nothing factual to lean on, so the
-        # model improvised internals: it placed its databases under /home/jason
-        # (inventing a username from the user's first name), wrote agent.sqlite
+        # model improvised internals: it placed its databases under a /home/<name>
+        # path invented from the user's first name, wrote agent.sqlite
         # for agent.sqlite3, and described upgrading itself via "./upgrade.sh" —
         # a script that has never existed here.
         try:
@@ -12658,8 +12658,8 @@ Answer:"""
                 )
         # Fabricated-internals guard: a claim ELI makes about its OWN paths or
         # upgrade mechanism is checkable, so it gets checked. Observed live: it
-        # placed its databases under /home/jason (inventing a username from the
-        # user's first name), wrote agent.sqlite for agent.sqlite3, and described
+        # placed its databases under a /home/<name> path invented from the user's
+        # first name, wrote agent.sqlite for agent.sqlite3, and described
         # upgrading itself via "./upgrade.sh" — a script that has never existed.
         # Prompt-level grounding makes that rare; this makes it correctable.
         # Cheap: returns immediately unless a path or script token is present.

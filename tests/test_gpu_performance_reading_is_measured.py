@@ -31,7 +31,7 @@ from eli.cognition.context_synthesiser import runtime_load_gap
 import eli.execution.executor_enhanced as ex
 
 
-# Jason's live snapshot, verbatim in shape: no "clamped", no "on_gpu".
+# The live snapshot from that session, verbatim in shape: no "clamped", no "on_gpu".
 AS_REQUESTED = {
     "provider": "gguf", "model_name": "Qwen_Qwen3-8B-Q4_K_M.gguf",
     "n_ctx": 10384, "n_gpu_layers": 99, "n_threads": 10, "n_batch": 128,
@@ -45,7 +45,7 @@ CLAMPED = dict(
     effective={"n_ctx": 4096, "n_gpu_layers": 49, "n_threads": 10, "n_batch": 128},
 )
 
-# name, total, used, free, util, temp, power, limit, driver — Jason's actual reading.
+# name, total, used, free, util, temp, power, limit, driver — the reading from that run.
 SMI_TIGHT = "NVIDIA GeForce RTX 2060 SUPER, 8192, 7493, 260, 11, 44, 24.58, 215.00, 595.84"
 SMI_ROOMY = "NVIDIA GeForce RTX 2060 SUPER, 8192, 2048, 6144, 11, 44, 24.58, 215.00, 595.84"
 

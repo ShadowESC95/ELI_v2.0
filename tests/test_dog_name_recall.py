@@ -76,11 +76,11 @@ def test_kg_context_is_query_aware(kg):
 
 def test_kg_context_suppresses_demoted_name(kg):
     # Two conflicting names: the older one is demoted and must not render.
-    kg.extract_from_memory("my name is Jason", source="user")
-    kg.extract_from_memory("my name is Sam", source="user")   # newer wins, Jason demoted
+    kg.extract_from_memory("my name is Alex", source="user")
+    kg.extract_from_memory("my name is Sam", source="user")   # newer wins, Alex demoted
     ctx = kg.context_for_prompt("who am i, what is my name")
     assert "Sam" in ctx
-    assert "Jason" not in ctx, f"retired name leaked into context:\n{ctx}"
+    assert "Alex" not in ctx, f"retired name leaked into context:\n{ctx}"
 
 
 # ── Raw-log recall fallback keys on the distinctive noun ────────────────────

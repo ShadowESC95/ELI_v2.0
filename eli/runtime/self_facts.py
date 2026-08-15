@@ -6,8 +6,8 @@ Asked "what do you know of yourself?", ELI answered in CHAT — correctly, becau
 identity questions are deliberately left conversational so the persona stays its
 own (SELF_REPORT is reserved for technical runtime queries). But CHAT had no
 grounding for *factual* claims about internals, so the model improvised them:
-it reported its databases at ``/home/jason/...`` (the real user is ``jay``, the
-name came from the user's first name), named ``agent.sqlite`` instead of
+it reported its databases at ``/home/<name>/...`` — a path invented from the
+user's first name, not the real account — named ``agent.sqlite`` instead of
 ``agent.sqlite3``, and invented a self-upgrade mechanism — ``./upgrade.sh`` —
 that has never existed in this project.
 
@@ -231,7 +231,7 @@ def repair_self_description(text: str) -> Tuple[str, List[str]]:
 
     Returns (repaired_text, corrections). The prompt block tells the model to use
     real values, but instruction alone is not a guarantee — the observed failure
-    put the databases under ``/home/jason`` and invented ``./upgrade.sh``. A path
+    put the databases under ``/home/<name>`` and invented ``./upgrade.sh``. A path
     or script that ELI states about ITSELF is checkable, so it is checked.
 
     Deliberately narrow: only ELI's own paths and upgrade mechanism are touched.

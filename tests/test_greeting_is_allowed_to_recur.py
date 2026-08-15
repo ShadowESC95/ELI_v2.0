@@ -6,10 +6,10 @@ getting it RIGHT and the guard overruling it:
     [GGUF][RAW_HEAD] 'Even'                                    ← "Evening…", correct at 23:10
     [ANTI-REPEAT] opening matched a recent reply — regenerating
     [ANTI-REPEAT] retry generation issued (… temp=1.2)
-    [GGUF][RAW_HEAD] 'Af'                                      ← "Aftrnoon, jason…"
+    [GGUF][RAW_HEAD] 'Af'                                      ← "Aftrnoon, alex…"
 
-The reply that reached the user echoed his own misspelling, named the wrong time of
-day, and then asked him to explain why he'd spelled it that way. Nothing was wrong
+The reply that reached the user echoed their own misspelling, named the wrong time
+of day, and then asked them to explain why they had spelled it that way. Nothing was wrong
 with ELI's clock — the system prompt carries "CURRENT TIME (authoritative, do not
 approximate)", which is why the first attempt said Evening. The guard matched that
 correct opening against the previous session's greeting, threw it away, and the
@@ -53,7 +53,7 @@ def test_greetings_are_recognised_including_typos(asked):
 
 @pytest.mark.parametrize("asked", [
     "what have you been doing?",
-    "his name is Jay",                      # 'his' scores 0.8 against 'hi'
+    "his name is Sam",                      # 'his' scores 0.8 against 'hi'
     "how do I fix the parser",
     "how is the head",
     "night mode is broken please fix",      # a time word opening a real request

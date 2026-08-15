@@ -27,7 +27,7 @@ def test_command_phrases_are_not_valid_names(command):
 
 
 @pytest.mark.parametrize("name", [
-    "Jason", "Jason Bridgeman", "Mark", "Mary Jane", "Bill", "O'Brien",
+    "Alex", "Alex Bridgeman", "Mark", "Mary Jane", "Bill", "O'Brien",
 ])
 def test_real_names_still_accepted(name):
     assert _norm(name) == name

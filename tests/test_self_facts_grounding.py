@@ -2,8 +2,8 @@
 questions about ELI's own construction.
 
 Asked "what fo you know of yourself?", ELI answered from CHAT with no factual
-grounding and invented its own internals: databases under `/home/jason/...`
-(the real user is `jay`; the name was confabulated from the user's first name),
+grounding and invented its own internals: databases under `/home/alex/...`
+(the real user is `alex`; the name was confabulated from the user's first name),
 `agent.sqlite` instead of `agent.sqlite3`, and a self-upgrade mechanism
 `./upgrade.sh` that has never existed in this project.
 """
@@ -66,7 +66,7 @@ def test_block_states_the_real_database_paths():
     assert str(user_db_path()) in block
     assert str(agent_db_path()) in block
     # The exact fabrications observed live.
-    assert "/home/jason" not in block
+    assert "/home/alex" not in block
     assert not re.search(r"agent\.sqlite\b(?!3)", block)
 
 
@@ -118,12 +118,12 @@ def test_block_never_invents_when_sources_are_missing(monkeypatch):
 
 def test_repairs_the_exact_fabrication_seen_live():
     from eli.core.paths import user_db_path, agent_db_path
-    bad = ("Persistent memory is stored in `/home/jason/.local/share/ELI_v2/artifacts/db/user.sqlite3` "
-           "(user data) and `/home/jason/.local/share/ELI_v2/artifacts/db/agent.sqlite` (system state). "
+    bad = ("Persistent memory is stored in `/home/alex/.local/share/ELI_v2/artifacts/db/user.sqlite3` "
+           "(user data) and `/home/alex/.local/share/ELI_v2/artifacts/db/agent.sqlite` (system state). "
            "Self-upgrades occur through scripts like `./upgrade.sh`.")
     out, fixes = self_facts.repair_self_description(bad)
 
-    assert "/home/jason" not in out
+    assert "/home/alex" not in out
     assert str(user_db_path()) in out and str(agent_db_path()) in out
     assert "upgrade.sh" not in out
     assert len(fixes) >= 3
@@ -149,7 +149,7 @@ def test_real_existing_paths_are_not_rewritten(tmp_path):
 
 def test_single_valued_identity_supersedes_instead_of_accumulating(tmp_path):
     """The live DB held BOTH names, so the persona brief carried
-    "User's name is jason; User's name is darren" into every single turn."""
+    "User's name is alex; User's name is darren" into every single turn."""
     import sqlite3
     from eli.runtime.profile_extractor import ensure_profile_tables
     from eli.runtime.user_model import _read_patterns_grouped
@@ -160,12 +160,12 @@ def test_single_valued_identity_supersedes_instead_of_accumulating(tmp_path):
     con.execute("INSERT INTO user_patterns(pattern_type, pattern_data, timestamp, ts) VALUES(?,?,?,?)",
                 ("identity.name", "User's name is darren.", 1000.0, 1000.0))
     con.execute("INSERT INTO user_patterns(pattern_type, pattern_data, timestamp, ts) VALUES(?,?,?,?)",
-                ("identity.name", "User's name is jason.", 2000.0, 2000.0))
+                ("identity.name", "User's name is alex.", 2000.0, 2000.0))
     con.commit()
     con.close()
 
     identity = _read_patterns_grouped(db)["identity"]
-    assert any("jason" in v.lower() for v in identity), identity
+    assert any("alex" in v.lower() for v in identity), identity
     assert not any("darren" in v.lower() for v in identity), (
         f"superseded name must not survive: {identity}")
 
@@ -192,7 +192,7 @@ def test_multi_valued_facts_still_accumulate(tmp_path):
     ("User prefers no, i said more than software and tech?! i prefer #4 answers by default.", True),
     ("User prefers detailed, thorough responses — willing to engage with depth and complexity.", False),
     ("User prefers executable terminal/Bash commands for repairs.", False),
-    ("User's name is jason.", False),
+    ("User's name is alex.", False),
     ("User's work/role: Software / tech", False),
     ("User wants ELI mainly for: Mix of everything.", False),
     ("User actively engages with dry humor and banter — wit and sarcasm are welcome.", False),

@@ -141,7 +141,7 @@ def _read_patterns_grouped(db_path: Optional[Path | str] = None) -> Dict[str, Li
         # newest-first, so the first one wins and older ones are dropped. Without
         # this, two "identity.name" rows both survived (they differ by value, so
         # the value-dedup below never fired) and the brief read
-        # "User's name is jason; User's name is darren" on every single turn.
+        # "User's name is <first>; User's name is <other>" on every single turn.
         if ptype_l in _SINGLE_VALUED_TYPES:
             if ptype_l in taken_single:
                 continue

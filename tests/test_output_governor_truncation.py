@@ -68,14 +68,14 @@ def test_govern_output_trims_in_every_mode():
 ])
 def test_disowning_real_memory_is_a_violation(denial):
     """Retracting DB-backed recall as a hallucination is as bad as inventing one."""
-    assert output_violates_evidence(denial, "memory_entries: name=jason")
+    assert output_violates_evidence(denial, "memory_entries: name=alex")
 
 
 def test_standing_behind_a_stored_fact_is_allowed():
-    assert not output_violates_evidence("Your stored name is jason.", "name=jason")
+    assert not output_violates_evidence("Your stored name is alex.", "name=alex")
 
 
 def test_correcting_one_field_is_allowed():
     assert not output_violates_evidence(
-        "The name field says jason — if that's wrong, tell me and I'll update it.",
-        "name=jason")
+        "The name field says alex — if that's wrong, tell me and I'll update it.",
+        "name=alex")

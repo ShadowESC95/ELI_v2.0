@@ -22,7 +22,7 @@ from eli.kernel.engine import CognitiveEngine
 ONE_LINER = (
     "I'm ELI (Enhanced Learning Interface), running Qwen_Qwen3-8B-Q4_K_M.gguf "
     "locally on GPU (99 layers offloaded). Context window: 10384 tokens. "
-    "All core systems nominal. You're jason."
+    "All core systems nominal. You're alex."
 )
 
 
@@ -46,7 +46,7 @@ def self_report_payload():
             "runtime": {"model_name": "Qwen_Qwen3-8B-Q4_K_M.gguf"},
         },
         "evidence": {
-            "identity": {"name": "ELI", "active_user_name": "jason"},
+            "identity": {"name": "ELI", "active_user_name": "alex"},
             "runtime": {"effective_context_size": 10384, "effective_gpu_layers": 99},
             "runtime_health": {
                 "recommended_n_ctx": 6144,

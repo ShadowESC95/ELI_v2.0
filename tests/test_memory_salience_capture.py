@@ -41,7 +41,7 @@ def test_questions_are_not_high_salience():
 
 
 @pytest.mark.parametrize("text,memorable", [
-    ("my name is Jason", True),
+    ("my name is Alex", True),
     ("i'm allergic to peanuts", True),
     ("my daughter's birthday is on the 3rd of March", True),
     ("i just started a new job at a robotics lab", True),
