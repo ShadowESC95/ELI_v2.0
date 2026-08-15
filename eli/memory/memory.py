@@ -4433,19 +4433,35 @@ class Memory(metaclass=_MemoryMeta):
         self.add_conversation_turn(role, content, session_id, user_id)
 
     def store_semantic(self, fact, tags="", confidence=0.8):
-        """Store a user fact/preference."""
+        """Store a user fact/preference in the semantic tier.
+
+        The tier's routine writer is profile_extractor._promote_to_semantic, which
+        records a fact as it is learned. This stays as the direct API for callers
+        with a fact already in hand, and dedupes on the fact text so the two paths
+        cannot double-insert the same thing.
+        """
+        fact = str(fact or "").strip()
+        if not fact:
+            return False
         conn = self._get_connection()
         try:
             conn.execute("""CREATE TABLE IF NOT EXISTS semantic (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 user_id TEXT, fact TEXT, tags TEXT,
                 confidence REAL DEFAULT 0.8, created_at REAL)""")
+            if conn.execute(
+                    "SELECT 1 FROM semantic WHERE lower(COALESCE(fact,'')) = lower(?) LIMIT 1",
+                    (fact,)).fetchone():
+                return False
             conn.execute(
                 "INSERT INTO semantic (user_id, fact, tags, confidence, created_at) VALUES (?, ?, ?, ?, ?)",
                 ("default", fact, tags, confidence, time.time()))
             conn.commit()
+            return True
         except Exception:
-            pass
+            # Was a bare `pass`: a tier nothing wrote, failing silently when it did.
+            log.debug("store_semantic failed", exc_info=True)
+            return False
         finally:
             conn.close()
         # Also extract entity/relation triples into the KG so semantic facts are

@@ -7558,11 +7558,23 @@ Answer:"""
             lines.append(
                 f"- distinct_sessions: {snap.get('distinct_sessions') or 0}")
             try:
+                # Check the table exists rather than discovering it via the
+                # exception: on a fresh profile there are no semantic facts yet,
+                # and the old form printed a "no such table: semantic" traceback
+                # on EVERY grounded-evidence build. An empty tier is a normal
+                # state, not an error worth a stack trace.
                 import sqlite3 as _sq3
                 _sconn = _sq3.connect(str(getattr(db_paths, "user_db", "")))
-                _row = _sconn.execute("SELECT COUNT(*) FROM semantic").fetchone()
-                _sem = _row[0] if _row else 0
-                _sconn.close()
+                try:
+                    _has_sem = _sconn.execute(
+                        "SELECT 1 FROM sqlite_master WHERE type='table' AND name='semantic'"
+                    ).fetchone()
+                    _sem = 0
+                    if _has_sem:
+                        _row = _sconn.execute("SELECT COUNT(*) FROM semantic").fetchone()
+                        _sem = _row[0] if _row else 0
+                finally:
+                    _sconn.close()
                 if _sem:
                     lines.append(f"- semantic_user_facts: {_sem}")
             except Exception: log.debug("suppressed exception", exc_info=True)

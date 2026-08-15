@@ -7,6 +7,9 @@ from pathlib import Path
 from typing import Any
 
 from eli.runtime.identity_validation import extract_explicit_identity_facts
+from eli.utils.log import get_logger
+
+log = get_logger(__name__)
 
 
 def _root() -> Path:
@@ -60,6 +63,27 @@ def ensure_profile_tables(db_path: Path | None = None) -> None:
             pattern_data TEXT,
             timestamp REAL,
             ts REAL
+        )
+        """
+    )
+
+    # The semantic tier: durable user facts. Four readers already depend on it —
+    # recall injects these FIRST on identity questions with a +0.5 weight boost,
+    # and two status surfaces count them into memory_entries / processed_memories.
+    # Nothing ever wrote it: the only writer, MemorySystem.store_semantic(), had
+    # zero callers in the entire repo, so the table was never created and every
+    # read threw "no such table: semantic" (visible as a suppressed traceback on
+    # each grounded-evidence build). Created here, alongside the patterns table
+    # it is populated from, so the schema exists from first boot.
+    cur.execute(
+        """
+        CREATE TABLE IF NOT EXISTS semantic (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id TEXT,
+            fact TEXT,
+            tags TEXT,
+            confidence REAL DEFAULT 0.8,
+            created_at REAL
         )
         """
     )
@@ -176,7 +200,57 @@ def _insert_user_pattern(
         """,
         (pattern_type, pattern_data, now, now),
     )
+    _promote_to_semantic(cur, pattern_type, pattern_data, now)
     return True
+
+
+# Which pattern kinds are durable facts ABOUT THE USER rather than transient
+# session state. Only these are promoted: the semantic tier is injected ahead of
+# ordinary recall on identity questions, so filling it with per-session chatter
+# would push real facts down the list it exists to top.
+_SEMANTIC_PATTERN_PREFIXES = ("identity.", "preference.", "project.", "research.", "interest.")
+_SEMANTIC_PATTERN_EXCLUDE = ("preference.session",)
+
+
+def _promote_to_semantic(
+    cur: sqlite3.Cursor,
+    pattern_type: str,
+    pattern_data: str,
+    ts_value: float,
+) -> bool:
+    """Record a newly-learned durable user fact in the semantic tier.
+
+    Called only when _insert_user_pattern actually inserted (it returns False for
+    a reaffirmation), so this inherits that dedupe rather than repeating it — and
+    it checks the semantic table too, since the two can diverge on an existing
+    install whose user_patterns predate this tier being written at all.
+    """
+    ptype = (pattern_type or "").strip().lower()
+    if not ptype.startswith(_SEMANTIC_PATTERN_PREFIXES):
+        return False
+    if ptype.startswith(_SEMANTIC_PATTERN_EXCLUDE):
+        return False
+    fact = _clean(pattern_data, 900)
+    if not fact:
+        return False
+    try:
+        if not _table_exists(cur, "semantic"):
+            return False
+        already = cur.execute(
+            "SELECT 1 FROM semantic WHERE lower(COALESCE(fact,'')) = lower(?) LIMIT 1",
+            (fact,),
+        ).fetchone()
+        if already:
+            return False
+        cur.execute(
+            "INSERT INTO semantic (user_id, fact, tags, confidence, created_at) "
+            "VALUES (?, ?, ?, ?, ?)",
+            ("default", fact, f"semantic,user_fact,{ptype}", 0.8, float(ts_value)),
+        )
+        return True
+    except Exception:
+        log.debug("profile_extractor: semantic promotion failed", exc_info=True)
+        return False
 
 
 def extract_patterns_from_text(text: Any) -> list[tuple[str, str]]:
