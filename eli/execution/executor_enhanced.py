@@ -7941,16 +7941,20 @@ def _execute_impl(action: str, args: Optional[Dict[str, Any]] = None) -> Dict[st
     # ---- MORNING_REPORT ----
     if a == "MORNING_REPORT":
         try:
-            from eli.runtime.reflection import run_reflection
+            from eli.runtime.reflection import run_reflection, report_label
             from datetime import datetime as _dt
             result = run_reflection(hours=24)
             insights = result.get("insights", [])
             _stamp = _dt.now().strftime("%A %d %B %Y, %H:%M")
+            # Named for the hour it is actually produced. "Morning report" was
+            # hardcoded, so an 18:16 report announced itself as a morning one
+            # directly beside the 18:16 it had just printed.
+            _title = report_label()
             if insights:
-                msg = (f"Morning report — {_stamp} (activity over the last 24h):\n"
+                msg = (f"{_title} — {_stamp} (activity over the last 24h):\n"
                        + "\n".join(f"  • {i}" for i in insights))
             else:
-                msg = f"Morning report — {_stamp}: no notable activity in the last 24h."
+                msg = f"{_title} — {_stamp}: no notable activity in the last 24h."
             # Personalised news (ELI-derived interests; network-gated → empty when
             # offline, never fabricated).
             try:

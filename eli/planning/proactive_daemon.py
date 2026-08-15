@@ -703,8 +703,14 @@ class ProactiveDaemon:
           - USER DB: conversations/memories
           - AGENT DB: improvements/errors/observations
         """
-        hour = datetime.now().hour
-        greeting = "Good morning" if hour < 12 else "Good afternoon" if hour < 17 else "Good evening"
+        # Same boundaries as the report header, from one place, so the greeting
+        # and the title can never disagree about what time of day it is.
+        try:
+            from eli.runtime.reflection import part_of_day as _part_of_day
+            greeting = f"Good {_part_of_day()}"
+        except Exception:
+            hour = datetime.now().hour
+            greeting = "Good morning" if hour < 12 else "Good afternoon" if hour < 17 else "Good evening"
 
         user_db = Path(self.user_mem.db_path)
         agent_db = Path(self.agent_mem.db_path)
