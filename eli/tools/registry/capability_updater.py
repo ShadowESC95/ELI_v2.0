@@ -60,6 +60,20 @@ def extract_plugin_actions(plugins_dir: Path) -> dict:
     return plugin_actions
 
 
+def _manifest_matches(path, manifest) -> bool:
+    """True when the manifest on disk differs from `manifest` only by generated_at."""
+    try:
+        if not path.exists():
+            return False
+        existing = json.loads(path.read_text(encoding="utf-8"))
+    except Exception:
+        return False
+    if not isinstance(existing, dict):
+        return False
+    return {k: v for k, v in existing.items() if k != "generated_at"} == \
+           {k: v for k, v in manifest.items() if k != "generated_at"}
+
+
 def update_capability_manifest():
     from eli.runtime.capability_sync import CapabilitySync
 
@@ -88,7 +102,12 @@ def update_capability_manifest():
         "capabilities": capabilities,
     }
 
-    manifest_path.write_text(json.dumps(manifest, indent=2), encoding="utf-8")
+    # Only write when the capabilities themselves changed. A fresh timestamp over
+    # an identical manifest is not an update: this file is tracked, so rewriting
+    # it on every start left it permanently modified in git, and a real
+    # capability change would have been indistinguishable from that noise.
+    if not _manifest_matches(manifest_path, manifest):
+        manifest_path.write_text(json.dumps(manifest, indent=2), encoding="utf-8")
 
     # Keep the human-readable reference table in sync with the manifest. Best-effort:
     # any newly-discovered routable action without a curated activation phrase is
