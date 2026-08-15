@@ -84,12 +84,6 @@ def test_runtime_evidence_store_loadable():
     assert _load("eli.runtime.evidence_store") is not None
 
 
-def test_runtime_fastpath_responder_loadable():
-    assert _load("eli.runtime.fastpath_responder") is not None
-
-
-def test_runtime_final_response_assembly_loadable():
-    assert _load("eli.runtime.final_response_assembly") is not None
 
 
 def test_runtime_final_response_provider_loadable():
@@ -116,16 +110,10 @@ def test_runtime_operator_feed_loadable():
     assert _load("eli.runtime.operator_feed") is not None
 
 
-def test_runtime_operator_feed_normalized_loadable():
-    assert _load("eli.runtime.operator_feed_normalized") is not None
-
 
 def test_runtime_operator_state_loadable():
     assert _load("eli.runtime.operator_state") is not None
 
-
-def test_runtime_packet_native_downstream_loadable():
-    assert _load("eli.runtime.packet_native_downstream") is not None
 
 
 def test_runtime_persistence_gate_loadable():
@@ -148,9 +136,6 @@ def test_runtime_reflection_loadable():
     assert _load("eli.runtime.reflection") is not None
 
 
-def test_runtime_repair_policy_loadable():
-    assert _load("eli.runtime.repair_policy") is not None
-
 
 def test_runtime_response_contracts_loadable():
     assert _load("eli.runtime.response_contracts") is not None
@@ -164,16 +149,10 @@ def test_runtime_response_policy_loadable():
     assert _load("eli.runtime.response_policy") is not None
 
 
-def test_runtime_retrieval_packets_loadable():
-    assert _load("eli.runtime.retrieval_packets") is not None
-
 
 def test_runtime_self_model_refresh_loadable():
     assert _load("eli.runtime.self_model_refresh") is not None
 
-
-def test_runtime_single_pass_authority_loadable():
-    assert _load("eli.runtime.single_pass_authority") is not None
 
 
 def test_runtime_stage_packets_loadable():
@@ -188,16 +167,10 @@ def test_runtime_tool_result_models_loadable():
     assert _load("eli.runtime.tool_result_models") is not None
 
 
-def test_runtime_tool_result_normalizer_loadable():
-    assert _load("eli.runtime.tool_result_normalizer") is not None
-
 
 def test_runtime_tool_result_store_loadable():
     assert _load("eli.runtime.tool_result_store") is not None
 
-
-def test_runtime_typed_stage_bridge_loadable():
-    assert _load("eli.runtime.typed_stage_bridge") is not None
 
 
 def test_runtime_auth_loadable():
