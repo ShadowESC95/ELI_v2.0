@@ -7,11 +7,30 @@ from typing import Any
 
 
 def _root() -> Path:
-    return Path(__file__).resolve().parents[2]
+    """Canonical, environment-honouring root — not this module's own location.
+
+    Path(__file__).parents[2] points INSIDE the read-only bundle in a shipped
+    build, so anything resolved from it reads or writes the wrong tree. Same
+    class as the self-report bug fixed in 2.1.82.
+    """
+    try:
+        from eli.core.paths import project_root as _canonical
+        return Path(_canonical())
+    except Exception:
+        return Path(__file__).resolve().parents[2]
+
+
+def _artifacts_dir() -> Path:
+    """The artifacts dir the loader actually writes to (honours the override)."""
+    try:
+        from eli.core.paths import get_paths as _gp
+        return Path(_gp().artifacts_dir)
+    except Exception:
+        return _root() / "artifacts"
 
 
 def _snapshot() -> dict[str, Any]:
-    path = _root() / "artifacts" / "runtime_snapshot.json"
+    path = _artifacts_dir() / "runtime_snapshot.json"
     try:
         if path.exists():
             data = json.loads(path.read_text(encoding="utf-8"))
