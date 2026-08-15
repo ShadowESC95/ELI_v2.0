@@ -10,11 +10,30 @@ from typing import Any, Dict, List
 
 
 def _root() -> Path:
-    return Path(__file__).resolve().parents[2]
+    """Canonical, environment-honouring root — not this module's own location.
+
+    Path(__file__).parents[2] points INSIDE the read-only bundle in a shipped
+    build, so anything resolved from it reads or writes the wrong tree. Same
+    class as the self-report bug fixed in 2.1.82.
+    """
+    try:
+        from eli.core.paths import project_root as _canonical
+        return Path(_canonical())
+    except Exception:
+        return Path(__file__).resolve().parents[2]
+
+
+def _artifacts_dir() -> Path:
+    """The artifacts dir the loader actually writes to (honours the override)."""
+    try:
+        from eli.core.paths import get_paths as _gp
+        return Path(_gp().artifacts_dir)
+    except Exception:
+        return _root() / "artifacts"
 
 
 def _artifacts() -> Path:
-    return _root() / "artifacts"
+    return _artifacts_dir()
 
 
 def _runtime_dir() -> Path:
@@ -329,7 +348,7 @@ def _paths_core() -> Dict[str, Any]:
     root = _root()
     return {
         "project_root": str(root),
-        "artifacts_dir": str(root / "artifacts"),
+        "artifacts_dir": str(_artifacts_dir()),
         "user_db": str(root / "artifacts/db/user.sqlite3"),
         "agent_db": str(root / "artifacts/db/agent.sqlite3"),
     }

@@ -21,7 +21,26 @@ def _default_db_path() -> Path:
 
 
 def _project_root() -> Path:
-    return Path(__file__).resolve().parents[2]
+    """Canonical, environment-honouring root — not this module's own location.
+
+    Path(__file__).parents[2] points INSIDE the read-only bundle in a shipped
+    build, so anything resolved from it reads or writes the wrong tree. Same
+    class as the self-report bug fixed in 2.1.82.
+    """
+    try:
+        from eli.core.paths import project_root as _canonical
+        return Path(_canonical())
+    except Exception:
+        return Path(__file__).resolve().parents[2]
+
+
+def _artifacts_dir() -> Path:
+    """The artifacts dir the loader actually writes to (honours the override)."""
+    try:
+        from eli.core.paths import get_paths as _gp
+        return Path(_gp().artifacts_dir)
+    except Exception:
+        return _project_root() / "artifacts"
 
 
 def _json(value: Any) -> str:
@@ -473,7 +492,7 @@ def repeated_event_signals(*, limit: int = 8, days: int = 3, db_path: Optional[s
 
 
 def artifact_snapshot(kind: str = "all", limit: int = 12) -> List[Dict[str, Any]]:
-    root = _project_root() / "artifacts"
+    root = _artifacts_dir()
     kind = str(kind or "all").lower()
     dirs: List[Path] = []
     if kind in {"all", "image", "images"}:
