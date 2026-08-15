@@ -385,8 +385,28 @@ class CapabilitySync:
             ],
         }
         try:
+            # A new timestamp on identical capabilities is not a change. This file
+            # is tracked, and rewriting it on every app start and every test run
+            # left it permanently dirty in git — noise that had to be manually
+            # excluded from each release commit, and which would mask a REAL
+            # capability change sitting in the same diff.
+            if self._unchanged_but_for_timestamp(payload):
+                return
             self.inventory_path.write_text(
                 json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8"
             )
         except Exception as exc:
             log.warning("capability_sync: inventory write failed: %s", exc)
+
+    def _unchanged_but_for_timestamp(self, payload: Dict[str, Any]) -> bool:
+        """True when the file on disk matches `payload` apart from generated_at."""
+        try:
+            if not self.inventory_path.exists():
+                return False
+            existing = json.loads(self.inventory_path.read_text(encoding="utf-8"))
+        except Exception:
+            return False
+        if not isinstance(existing, dict):
+            return False
+        return {k: v for k, v in existing.items() if k != "generated_at"} == \
+               {k: v for k, v in payload.items() if k != "generated_at"}
