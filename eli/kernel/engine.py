@@ -954,6 +954,21 @@ def _is_brief_phatic_prompt(text: str) -> bool:
     # still falls through as non-phatic, so it can't swallow a real request.
     _lead = re.sub(r"^(?:good\s+)?(?:morning|afternoon|evening)\b[\s,.]*", "", normalized)
     _lead = re.sub(r"^(?:hi|hey|hello|hiya|howya|yo|sup)\b[\s,.]+", "", _lead).strip()
+    # A LEADING direct-address, mirroring the trailing strip above: "hey buddy,
+    # how's the head" is the same utterance as "how's the head". Without this the
+    # address counted as a content word and pushed the check-in past the ≤5-word
+    # gate on the casual patterns below.
+    _lead = re.sub(
+        r"^(?:pal|bud|buddy|mate|man|dude|bro|lad|friend|eli)\b[\s,.]+", "", _lead
+    ).strip() or _lead
+    # Trailing conversational filler on a check-in — "how's the head doing, now"
+    # is "how's the head". Only stripped after an idiom stem is already present,
+    # so it cannot shorten a substantive request into a phatic one.
+    if re.match(r"^how'?s?\s+(?:is\s+)?(?:the|your)\b", _lead):
+        _lead = re.sub(
+            r"[\s,]+(?:doing|going|keeping|holding up)?[\s,]*"
+            r"(?:now|today|then|at all|so|these days)?[\s,.?!]*$", "", _lead
+        ).strip() or _lead
     if _lead and _lead != normalized and len(_lead.split()) <= 8:
         normalized = _lead
     words = normalized.split()
@@ -1004,7 +1019,16 @@ def _is_brief_phatic_prompt(text: str) -> bool:
         return True
 
     # Short (≤5 word) casual check-in patterns
-    _casual_patterns = (
+    # "how's the X" is a wellbeing idiom — EXCEPT when X is something ELI actually
+    # runs on. "how's the head" is a hello; "how's the GPU" is a real question that
+    # must keep its evidence gathering. Listing the technical nouns is narrower and
+    # safer than trying to guess intent.
+    _technical_subject = re.match(
+        r"^how'?s (?:the|your) (gpu|cpu|ram|vram|server|model|build|tests?|code|api|"
+        r"db|database|memory|disk|network|index|suite|pipeline|daemon|queue|log)\b",
+        normalized,
+    )
+    _casual_patterns = () if _technical_subject else (
         r"^how'?s the \w+(\s+\w+)?$",
         r"^how'?s your \w+(\s+\w+)?$",
         r"^how are (you|things|we)( doing| going)?$",
