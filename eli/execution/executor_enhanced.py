@@ -703,14 +703,54 @@ def _gpu_status_report() -> Dict[str, Any]:
             f"- CPU threads: {runtime_snapshot.get('n_threads', 'unknown')}",
         ])
 
-    _total_gb_txt = f"{total / 1024.0:.0f} GB" if total else "a VRAM-limited"
-    lines.extend([
-        "",
-        "Performance reading:",
-        f"- The live runtime is constrained by available VRAM. On {_total_gb_txt} GPU, large context and high GPU-layer counts can exceed it and force fallback.",
-        "- If ELI booted with lower selected ctx/GPU-layer parameters than requested, the fallback is expected behavior, not a settings lie.",
-        "- Higher free VRAM gives more room for GPU layers or batch size; low free VRAM means slower CPU-heavy inference and longer response times.",
-    ])
+    # Performance reading, derived from THIS load — not boilerplate.
+    #
+    # The previous three lines were fixed strings printed regardless of what was
+    # measured, and the middle one hedged about a fallback that had provably not
+    # happened ("If ELI booted with lower selected ctx/GPU-layer parameters than
+    # requested…") while the proof sat in the same payload: `requested` and
+    # `effective` are both in runtime_snapshot, and on that run they were
+    # identical. A report whose job is telling the user the truth about their
+    # runtime should not speculate about its own state.
+    _reading = []
+    try:
+        from eli.cognition.context_synthesiser import runtime_load_gap as _gap_fn
+        _gap = _gap_fn(runtime_snapshot or None)
+    except Exception:
+        _gap = {"ok": False}
+
+    if _gap.get("ok"):
+        _reduced = _gap.get("reduced") or {}
+        if _reduced:
+            _detail = "; ".join(
+                f"{k} {v['requested']} → {v['effective']}" for k, v in sorted(_reduced.items())
+            )
+            _reading.append(f"- Loaded BELOW request ({_detail}) — reduced to fit "
+                            f"available VRAM, not a settings error.")
+        else:
+            _eff = _gap.get("effective") or {}
+            _reading.append(
+                "- Loaded exactly as requested (ctx="
+                f"{_eff.get('n_ctx', 'unknown')}, gpu_layers={_eff.get('n_gpu_layers', 'unknown')}, "
+                f"batch={_eff.get('n_batch', 'unknown')}) — no fallback occurred."
+            )
+        if not _gap.get("on_gpu"):
+            _reading.append("- Running CPU-only: per-turn latency is significantly "
+                            "higher than GPU mode.")
+
+    if free is not None and total:
+        _free_pct = (float(free) / float(total)) * 100.0
+        if _free_pct < 10:
+            _reading.append(
+                f"- {free:.0f} MiB of {total:.0f} MiB VRAM free ({_free_pct:.1f}%): no headroom "
+                "to raise context or batch without lowering GPU layers.")
+        else:
+            _reading.append(
+                f"- {free:.0f} MiB of {total:.0f} MiB VRAM free ({_free_pct:.1f}%): headroom "
+                "available for a larger context or batch.")
+
+    if _reading:
+        lines.extend(["", "Performance reading:"] + _reading)
     msg = "\n".join(lines)
     return {"ok": True, "gpus": parsed, "runtime_snapshot": runtime_snapshot, "content": msg, "response": msg}
 

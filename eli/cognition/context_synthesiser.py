@@ -197,6 +197,98 @@ from typing import Any, Dict
 from eli.utils.log import get_logger
 log = get_logger(__name__)
 
+def _runtime_snapshot() -> Dict[str, Any]:
+    """The live runtime snapshot: in-memory first, then the file on disk."""
+    try:
+        from eli.cognition import gguf_inference as _gi
+        snap = dict(getattr(_gi, "_live_runtime_params", None) or {})
+        if snap:
+            return snap
+    except Exception:
+        log.debug("[SYNTHESISER] live runtime params unavailable", exc_info=True)
+    try:
+        from eli.core.paths import get_paths as _gp
+        from pathlib import Path as _P
+        import json as _json
+        p = _P(_gp().artifacts_dir) / "runtime_snapshot.json"
+        if p.exists():
+            return _json.loads(p.read_text(encoding="utf-8")) or {}
+    except Exception:
+        log.debug("[SYNTHESISER] runtime snapshot read failed", exc_info=True)
+    return {}
+
+
+# The load parameters worth comparing. n_gpu_layers uses 99 as "all layers", so a
+# straight numeric compare is still correct: 99 vs 99 is not a reduction.
+_LOAD_PARAMS = ("n_ctx", "n_gpu_layers", "n_batch", "n_threads")
+
+
+def runtime_load_gap(snap: Dict[str, Any] | None = None) -> Dict[str, Any]:
+    """What was asked of the loader vs what actually loaded.
+
+    Derived by COMPARING requested against effective, not by trusting a "clamped"
+    flag. The flag exists, and one snapshot writer (eli/gui/app.py) does set it —
+    but the publisher that actually runs in the shipped GUI is the
+    [GGUF][EFFECTIVE] contract in gguf_inference, which writes `requested` and
+    `effective` and no flag at all. So `snap.get("clamped", False)` was False on
+    every real install and the clamp branch of live_runtime_brief() could never
+    fire, however hard the loader had squeezed the model in.
+
+    An explicit flag still wins when a writer provides one; otherwise the numbers
+    decide, which works whichever writer produced the snapshot.
+
+    Returns: ok, on_gpu, clamped, reduced {param: {requested, effective}},
+    plus the raw requested/effective maps.
+    """
+    # `is None` deliberately, not truthiness: a caller passing an EMPTY snapshot is
+    # saying "this is what I have, and it is nothing". Falling back to the live
+    # process state there would answer with facts about a different subject than
+    # the one asked about — the exact failure mode this helper exists to prevent.
+    snap = dict(_runtime_snapshot() if snap is None else snap)
+    if not snap:
+        return {"ok": False, "on_gpu": False, "clamped": False, "reduced": {},
+                "requested": {}, "effective": {}}
+
+    eff = dict(snap.get("effective") or {})
+    req = dict(snap.get("requested") or {})
+    # Legacy/flat snapshots keep the effective values at the top level.
+    for key in _LOAD_PARAMS:
+        if key not in eff and snap.get(key) is not None:
+            eff[key] = snap.get(key)
+        if key not in req and snap.get(f"requested_{key}") is not None:
+            req[key] = snap.get(f"requested_{key}")
+
+    reduced: Dict[str, Dict[str, int]] = {}
+    for key in _LOAD_PARAMS:
+        try:
+            r = int(req.get(key) or 0)
+            e = int(eff.get(key) or 0)
+        except Exception:
+            continue
+        if r > 0 and e > 0 and e < r:
+            reduced[key] = {"requested": r, "effective": e}
+
+    gpu_layers = 0
+    try:
+        gpu_layers = int(eff.get("n_gpu_layers") or 0)
+    except Exception:
+        gpu_layers = 0
+    offload_supported = snap.get("gpu_backend_offload_supported")
+    if offload_supported is None:
+        offload_supported = snap.get("gpu_offload_supported")
+    load_mode = str(snap.get("load_mode") or "").strip().upper()
+    on_gpu = bool(snap.get(
+        "on_gpu",
+        (load_mode == "GPU") or (gpu_layers > 0 and offload_supported is not False),
+    ))
+
+    flag = snap.get("clamped")
+    clamped = bool(flag) if flag is not None else bool(reduced)
+
+    return {"ok": True, "on_gpu": on_gpu, "clamped": clamped, "reduced": reduced,
+            "requested": req, "effective": eff}
+
+
 def live_runtime_brief() -> str:
     """One-line truthful summary of where ELI is actually running.
 
@@ -211,25 +303,11 @@ def live_runtime_brief() -> str:
     Reads the live snapshot from gguf_inference._live_runtime_params
     first; falls back to artifacts/runtime_snapshot.json on disk.
     """
-    snap: Dict[str, Any] = {}
-    try:
-        from eli.cognition import gguf_inference as _gi
-        snap = dict(getattr(_gi, "_live_runtime_params", None) or {})
-    except Exception:
-        snap = {}
-    if not snap:
-        try:
-            from eli.core.paths import get_paths as _gp
-            from pathlib import Path as _P
-            import json as _json
-            p = _P(_gp().artifacts_dir) / "runtime_snapshot.json"
-            if p.exists():
-                snap = _json.loads(p.read_text(encoding="utf-8"))
-        except Exception:
-            snap = {}
+    snap = _runtime_snapshot()
     if not snap:
         return ""
 
+    gap = runtime_load_gap(snap)
     eff = snap.get("effective") or {}
     req = snap.get("requested") or {}
     n_ctx = int(eff.get("n_ctx", snap.get("n_ctx", 0)) or 0)
@@ -245,7 +323,7 @@ def live_runtime_brief() -> str:
             or (gpu_layers > 0 and backend_gpu_offload_supported is not False),
         )
     )
-    clamped = bool(snap.get("clamped", False))
+    clamped = bool(gap.get("clamped"))
     model_name = str(snap.get("model_name") or "").strip()
     head = model_name or "the local model"
 
