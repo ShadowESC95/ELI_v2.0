@@ -134,10 +134,15 @@ class VectorStore:
             self._index.add(vec)
             self._meta.append({"text": text, **(metadata or {})})
             self._adds_since_save += 1
-            if len(self._meta) > MAX_ENTRIES:
-                self._prune()
+            _needs_prune = len(self._meta) > MAX_ENTRIES
             if self._adds_since_save >= SAVE_EVERY:
                 self._save_async()
+        # Prune OUTSIDE the store lock. It re-embeds up to MAX_ENTRIES texts, and
+        # holding the lock across that froze every read and write for the duration
+        # — _prune's own comment said "embed outside the lock", but the call site
+        # was inside it.
+        if _needs_prune:
+            self._prune()
         return True
 
     def search(self, query: str, top_k: int = 5, limit: int | None = None, k: int | None = None) -> List[Dict[str, Any]]:
@@ -330,19 +335,47 @@ class VectorStore:
         threading.Thread(target=_write, daemon=True, name="eli-vs-save").start()
 
     def _prune(self) -> None:
-        keep = self._meta[-MAX_ENTRIES:]
+        """Rebuild the index from the newest MAX_ENTRIES entries.
+
+        The vector and its metadata row must be kept in LOCKSTEP. The previous
+        version skipped the vector when an embed failed but kept the metadata row,
+        so from the first failure onward every FAISS position mapped to the wrong
+        `_meta` entry — search returned a memory whose text did not belong to the
+        matched vector, with a confident score, and the misalignment was flushed
+        to disk. `add()` and `rebuild_full()` both get this right; only this path
+        did not.
+
+        Runs with the lock released around the embedding work (see add()).
+        """
+        with self._lock:
+            keep = list(self._meta[-MAX_ENTRIES:])
+
         new_index = faiss.IndexFlatL2(EMBED_DIM)
-        texts = [entry.get("text", "") for entry in keep]
-        # Embed outside the lock to avoid holding it during inference
-        vecs = []
-        for t in texts:
-            vecs.append(self._embed(t))
-        for entry, vec in zip(keep, vecs):
-            if vec is not None:
-                new_index.add(vec)
-        self._index = new_index
-        self._meta = keep
-        log.debug(f"[VECTOR_STORE] Pruned to {MAX_ENTRIES} entries")
+        new_meta: List[Dict[str, Any]] = []
+        dropped = 0
+        for entry in keep:
+            vec = self._embed(entry.get("text", ""))
+            if vec is None:
+                # Drop the row with its vector rather than desynchronise the two.
+                # The entry survives in the durable stores and a later
+                # rebuild_full() can restore it; a misaligned index cannot be
+                # detected by the caller and silently returns wrong memories.
+                dropped += 1
+                continue
+            new_index.add(vec)
+            new_meta.append(entry)
+
+        with self._lock:
+            self._index = new_index
+            self._meta = new_meta
+            self._adds_since_save = 0
+        if dropped:
+            log.warning(
+                "[VECTOR_STORE] Pruned to %d entries; %d dropped because they could "
+                "not be re-embedded (index and metadata kept in lockstep)",
+                len(new_meta), dropped)
+        else:
+            log.debug(f"[VECTOR_STORE] Pruned to {len(new_meta)} entries")
 
     def flush(self) -> None:
         """Force-save index and metadata to disk."""
