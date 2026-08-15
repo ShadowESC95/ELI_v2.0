@@ -8,6 +8,9 @@ import time
 from collections import Counter
 from typing import Dict, Any, List, Optional
 from eli.memory import get_memory
+from eli.utils.log import get_logger
+
+log = get_logger(__name__)
 
 
 # Shared so the report header and the daemon's greeting cannot drift apart. The
@@ -113,7 +116,7 @@ def reflect_on_period(hours: int = 24) -> Dict[str, Any]:
                         if _phatic(content.lower()):
                             continue
                     except Exception:
-                        pass
+                        log.debug("reflection: phatic check failed", exc_info=True)
                 seen_here = set()
                 for w in content.lower().split():
                     clean = "".join(c for c in w if c.isalnum())

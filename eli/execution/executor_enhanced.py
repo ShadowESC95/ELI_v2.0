@@ -14422,7 +14422,7 @@ try:
             if str(root):
                 return root
         except Exception:
-            pass
+            log.debug("self-report: canonical project_root unavailable", exc_info=True)
         try:
             return _eli_self_Path(__file__).resolve().parents[2]
         except Exception:
