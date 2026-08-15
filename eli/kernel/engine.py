@@ -3222,6 +3222,68 @@ def _user_asked_for_a_repeat(user_input: str) -> bool:
     return bool(_REPEAT_REQUESTED_RE.search(str(user_input or "")))
 
 
+# A greeting is the other case where recurring is correct. "Evening" at 23:00 is
+# ELI reading the authoritative clock in its own system prompt, not recycling a
+# paragraph — but to the guard it looked like the previous session's opener.
+#
+# Live at 2.1.83, 23:10: the first generation opened 'Even…' (right), the guard
+# matched it against a recent reply and regenerated, and the retry — explicitly
+# instructed to produce "different content" — answered with "Aftrnoon, jason",
+# echoing the user's own typo and then telling him off for it. A correct answer
+# was replaced by a wrong one because it resembled a previous hello.
+#
+# Trade-off, stated plainly: greeting turns lose anti-repeat protection, so ELI
+# may open two sessions the same way. That is a far smaller failure than naming
+# the wrong time of day, and it is the same call already made for "say that
+# again" above — when repetition is the correct answer, the guard stands down.
+_GREETING_STEMS = (
+    "hello", "hi", "hey", "hiya", "howya", "howdy", "yo", "sup",
+    "morning", "afternoon", "evening", "night", "nite", "greetings",
+)
+# Words that can precede the greeting itself ("good afternoon", "ah hello").
+_GREETING_LEAD_SKIP = {"good", "a", "the", "well", "ah", "oh", "so", "hows", "how"}
+_GREETING_MAX_WORDS = 6       # beyond this a request is attached, not just a hello
+_GREETING_FUZZ = 0.8          # "aftrnoon" ≈ "afternoon" (0.94)
+_GREETING_FUZZ_MIN_LEN = 4    # below this only exact matches — "his" scores 0.8 vs "hi"
+# A time-of-day word can also open a real request — "night mode is broken please
+# fix". That is not a hello, and it should keep its anti-repeat protection.
+_GREETING_DISQUALIFIER_RE = re.compile(
+    r"\b(fix|broken|error|bug|crash(?:ed|ing)?|fail(?:ed|ing|s)?|please|can you|"
+    r"could you|why|how do|show me|open|run|write|check|make|set|change|update)\b",
+    re.I,
+)
+
+
+def _is_greeting_turn(user_input: str) -> bool:
+    """True when the user is saying hello.
+
+    Typo-tolerant on purpose: the live failure arrived as "Good aftrnoon, Eli", and
+    a check that only recognised correctly-spelled greetings would not have stood
+    down for the very message that exposed the bug.
+    """
+    norm = _clarifier_norm(user_input)
+    if not norm:
+        return False
+    if _GREETING_DISQUALIFIER_RE.search(str(user_input or "")):
+        return False
+    words = norm.split()
+    if len(words) > _GREETING_MAX_WORDS:
+        return False
+    for word in words[:2]:
+        if word in _GREETING_LEAD_SKIP:
+            continue
+        if word in _GREETING_STEMS:
+            return True
+        if len(word) >= _GREETING_FUZZ_MIN_LEN:
+            return any(
+                len(stem) >= _GREETING_FUZZ_MIN_LEN
+                and difflib.SequenceMatcher(None, word, stem).ratio() >= _GREETING_FUZZ
+                for stem in _GREETING_STEMS
+            )
+        return False
+    return False
+
+
 # The contract block injected into situation_brief, matched so a retry can remove it.
 _ANTI_REPEAT_BLOCK_RE = re.compile(
     r"YOU HAVE ALREADY SAID THE FOLLOWING.*?do not describe it again unless asked\.",
@@ -13043,11 +13105,21 @@ Answer:"""
         # rapport/semantic guards are already injected. A constraint, not a scripted line.
         try:
             _prev_eli = []
-            for _t in (self.memory.get_recent_conversation(limit=8) or []):
-                if str((_t or {}).get("role", "")).lower() in ("assistant", "eli"):
-                    _c = str((_t or {}).get("content", "") or "").strip()
-                    if _c:
-                        _prev_eli.append(_c)
+            # Skipped on a greeting for the same reason the enforcement guard is
+            # (see _is_greeting_turn): telling the model "do not repeat any of
+            # this" while it is deciding how to say hello is the pressure that
+            # pushed a correct "Evening" into the user's misspelled "Aftrnoon".
+            # Disarming only the checker while leaving the instruction in place
+            # would have fixed half the problem.
+            _greeting_turn = _is_greeting_turn(user_input)
+            if _greeting_turn:
+                log.debug("[ANTI-REPEAT] greeting — contract not injected")
+            else:
+                for _t in (self.memory.get_recent_conversation(limit=8) or []):
+                    if str((_t or {}).get("role", "")).lower() in ("assistant", "eli"):
+                        _c = str((_t or {}).get("content", "") or "").strip()
+                        if _c:
+                            _prev_eli.append(_c)
             if _prev_eli:
                 _quoted = "\n".join(f"  - {s[:220]}" for s in _prev_eli[:3])
                 _no_repeat = (
@@ -13122,6 +13194,11 @@ Answer:"""
             _recent_eli = []
             if _user_asked_for_a_repeat(user_input):
                 log.debug("[ANTI-REPEAT] user asked for a repeat — guard stood down")
+            elif _is_greeting_turn(user_input):
+                # Leaving _recent_eli empty disarms the guard: both
+                # _stream_holding_back_repeats calls no-op on an empty list.
+                log.debug("[ANTI-REPEAT] greeting — guard stood down "
+                          "(a time-of-day greeting is meant to recur)")
             else:
                 try:
                     for _t in (self.memory.get_recent_conversation(limit=8) or []):
