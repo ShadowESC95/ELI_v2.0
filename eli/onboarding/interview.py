@@ -264,7 +264,32 @@ def _resolve_mc_choice(text: str, options: Dict[str, str]) -> str:
             return options["3"]
         if "balanc" in t:
             return options["2"]
+    # Last resort: store the user's own words as the canonical value. That is
+    # right for a genuine free-text answer ("I do embedded firmware") and wrong
+    # for a correction, which is what produced the durable row
+    #   "User prefers no, i said more than software and tech?! i prefer #4 …"
+    # — the complaint about the previous answer became the new answer. Returning
+    # "" instead makes the caller re-ask, which is what it already does for a
+    # name it could not parse.
+    if _looks_like_a_correction(raw):
+        return ""
     return raw[:200]
+
+
+# A reply that argues with the question rather than answering it. Deliberately
+# narrow: this only suppresses STORING a canonical value, and every phrase here
+# is one that cannot begin a sincere answer to "what do you work on?".
+_CORRECTION_RE = re.compile(
+    r"^\s*(?:no|nope|nah|wrong|incorrect|not\s+(?:that|it|what)|that'?s\s+(?:not|wrong))\b"
+    r"|\bi\s+(?:said|meant|already\s+(?:said|told))\b"
+    r"|\byou\s+(?:got|have)\s+(?:it|that)\s+wrong\b",
+    re.I,
+)
+
+
+def _looks_like_a_correction(text: str) -> bool:
+    """True when the reply is disputing the last answer instead of giving one."""
+    return bool(_CORRECTION_RE.search(text or ""))
 
 
 def _format_options(options: Dict[str, str]) -> str:

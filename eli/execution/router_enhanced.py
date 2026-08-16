@@ -974,6 +974,49 @@ def _route_set_communication_style(raw: str, low: str) -> Optional[Dict[str, Any
 _NEGATORS = ("not", "n't", "never", "aint", "ain't", "isnt", "isn't", "wasnt", "wasn't",
              "dont", "don't", "stop", "no")
 
+# Stems that make a turn a REQUEST rather than a remark. The personal-memory
+# route below is a substring test over a keyword table, and a bare substring
+# cannot tell a question from a passing mention: the statement
+#
+#   "My memory is fine, it is yours that we are concerned about"
+#
+# contains both "memory" and "my memory", so it routed to
+# PERSONAL_MEMORY_DEEP_EXPLAIN at 0.99 and answered a conversational aside with a
+# database report — while "my memory" there meant the USER's, in a sentence
+# explicitly saying the concern was ELI's. Same failure that once forced
+# SELF_REPORT over the question beside it; the fix is the same shape: require
+# that something was actually asked.
+_ASKING_STEMS = (
+    "what", "which", "how", "why", "when", "where", "who", "whose",
+    "can you", "could you", "do you", "did you", "are you", "is your",
+    "have you", "has your", "show me", "tell me", "list", "explain",
+    "describe", "check", "report", "give me", "walk me",
+)
+
+# Word-boundary anchored, because a bare `in` test is the very defect this guard
+# exists to stop: "it is yourS that we are concerned" contains the substring
+# "is your", so the un-anchored version passed the sentence it was written to
+# reject.
+_ASKING_RE = re.compile(
+    r"\b(?:" + "|".join(s.replace(" ", r"\s+") for s in _ASKING_STEMS) + r")\b",
+    re.I,
+)
+
+
+def _pm_asks_something(low: str) -> bool:
+    """True when the turn is a question or an explicit request, not a remark.
+
+    Deliberately generous — a false negative just falls through to CHAT, which
+    still answers the user; a false positive replaces their sentence with a
+    runtime dump, which is the failure being fixed.
+    """
+    t = (low or "").strip()
+    if not t:
+        return False
+    if "?" in t:
+        return True
+    return bool(_ASKING_RE.search(t))
+
 
 def _tone_is_negated(low: str, tone: str) -> bool:
     """True when the emotion word is being DENIED rather than requested.
@@ -1745,7 +1788,8 @@ def route(text: str, _clause_depth: int = 0) -> Dict[str, Any]:
     # This is routing precedence only; final response synthesis remains downstream.
     _pm_text = low  # `low` is always defined: low = raw.lower()
     if (
-        ("memory" in _pm_text)
+        _pm_asks_something(_pm_text)
+        and ("memory" in _pm_text)
         and (
             "personal" in _pm_text
             or "personalised" in _pm_text

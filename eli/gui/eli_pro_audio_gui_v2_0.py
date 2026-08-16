@@ -3420,9 +3420,21 @@ class EliMainWindow(QMainWindow):
         self.mic_device_combo.addItem("System default", ("alsa", None))
 
         # ALSA devices via SpeechRecognition
+        #
+        # list_microphone_names() builds a PyAudio instance, and PortAudio probes
+        # every ALSA plugin and the JACK server on the way — ~28 lines of
+        # "unable to open slave" / "jack server is not running" / JackShmReadWritePtr
+        # straight from C. This populates a Settings dropdown during GUI
+        # construction, so that wall of red was the first thing a user saw on a
+        # completely healthy launch. audio_stt and mic_resolver already wrap their
+        # own PyAudio calls for exactly this; this one was missed, and it is the
+        # only remaining unguarded caller.
         try:
             import speech_recognition as _sr
-            for idx, name in enumerate(_sr.Microphone.list_microphone_names()):
+            from eli.utils.native_io import quiet_native_stderr
+            with quiet_native_stderr():
+                _mic_names = list(_sr.Microphone.list_microphone_names())
+            for idx, name in enumerate(_mic_names):
                 if any(skip in name.lower() for skip in ("monitor", "iec958", "spdif", "a52",
                                                           "speex", "upmix", "vdownmix", "samplerate",
                                                           "lavrate", "hdmi", "nvidia")):
