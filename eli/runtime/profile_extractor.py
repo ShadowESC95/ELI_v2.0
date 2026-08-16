@@ -149,9 +149,85 @@ def ensure_profile_tables(db_path: Path | None = None) -> None:
     )
 
     backfill_semantic_from_patterns(cur)
+    reconcile_single_valued_patterns(cur)
 
     con.commit()
     con.close()
+
+
+def _scrub_onboarding_snapshot(cur: sqlite3.Cursor, stale_values: list) -> None:
+    """Drop the onboarding baseline row when it embeds a value we just retired.
+
+    ``_baseline_report`` writes one composite memory (kind='identity',
+    source='onboarding_interview') that concatenates the same four answers held
+    individually in user_patterns. It is never rewritten, so once a single-valued
+    answer is corrected the snapshot is a duplicate that disagrees with the
+    canonical row — and being in memories_fts, it is the copy recall is most
+    likely to surface. The canonical rows survive; only the stale composite goes.
+    """
+    for value in stale_values:
+        core = (value or "").strip().rstrip(".")
+        # Match on a distinctive middle chunk: the snapshot joins sentences, so
+        # the stored value appears inside it rather than as the whole field.
+        if len(core) < 12:
+            continue
+        try:
+            cur.execute(
+                """
+                DELETE FROM memories
+                 WHERE lower(COALESCE(source,'')) = 'onboarding_interview'
+                   AND instr(lower(COALESCE(text,'')), lower(?)) > 0
+                """,
+                (core,),
+            )
+        except Exception:
+            log.debug("could not scrub onboarding snapshot", exc_info=True)
+
+
+def reconcile_single_valued_patterns(cur: sqlite3.Cursor) -> int:
+    """Collapse pre-existing duplicates of a single-valued key to the newest.
+
+    The write path now supersedes on insert, but databases written before that
+    already carry the contradictions — on the machine this was diagnosed on,
+    preference.style held two mutually exclusive values simultaneously. Newest
+    wins, because for a single-valued field a later answer is a correction.
+
+    Idempotent, and a no-op on a clean database, so it is safe to run on every
+    ensure_profile_tables().
+    """
+    removed = 0
+    for ptype in sorted(_SINGLE_VALUED_PATTERNS):
+        try:
+            rows = cur.execute(
+                """
+                SELECT rowid, pattern_data FROM user_patterns
+                 WHERE lower(COALESCE(pattern_type,'')) = lower(?)
+                 ORDER BY COALESCE(timestamp, ts, 0) DESC, rowid DESC
+                """,
+                (ptype,),
+            ).fetchall()
+        except Exception:
+            log.debug("reconcile: could not read %s", ptype, exc_info=True)
+            continue
+        if len(rows) < 2:
+            continue
+        keep_value = rows[0][1]
+        stale = [r[0] for r in rows[1:]]
+        stale_values = [r[1] for r in rows[1:]]
+        try:
+            cur.executemany(
+                "DELETE FROM user_patterns WHERE rowid = ?", [(r,) for r in stale]
+            )
+            _supersede_single_valued(cur, ptype, keep_value)
+            _scrub_onboarding_snapshot(cur, stale_values)
+            removed += len(stale)
+            log.info(
+                "profile: %s had %d competing values; kept the newest (%s)",
+                ptype, len(rows), str(keep_value)[:80],
+            )
+        except Exception:
+            log.debug("reconcile: could not collapse %s", ptype, exc_info=True)
+    return removed
 
 
 def backfill_semantic_from_patterns(cur: sqlite3.Cursor) -> int:
@@ -198,6 +274,58 @@ def backfill_semantic_from_patterns(cur: sqlite3.Cursor) -> int:
     return promoted
 
 
+# Profile keys that describe ONE thing about the user. A person has one role,
+# one preferred answer style, one primary goal — so a later answer about any of
+# them is a CORRECTION of the earlier one, not an additional fact.
+#
+# The dedupe below keys on (pattern_type, pattern_data), i.e. the value is part
+# of the key, which is right for the open-ended kinds (interests, projects: a
+# second interest is a second fact) and wrong for these. Correcting a single-
+# valued field wrote a SECOND row and both survived, so ELI held mutually
+# exclusive answers to the same question and which one surfaced depended on
+# retrieval order. Observed live: preference.style carried two competing values
+# at once, and identity.role disagreed with the role stated elsewhere.
+_SINGLE_VALUED_PATTERNS = frozenset({
+    "identity.name",
+    "identity.role",
+    "preference.style",
+    "goal.primary",
+})
+
+
+def _supersede_single_valued(cur: sqlite3.Cursor, pattern_type: str, pattern_data: str) -> None:
+    """Retire earlier values of a single-valued key so the correction wins.
+
+    Deletes rather than flags: these rows are read by several independent
+    consumers (persona_updater, the personal-memory report, user_info_builder)
+    and a 'superseded' column every one of them would have to honour is a
+    filter waiting to be forgotten. The semantic mirror is cleared too, or the
+    stale value simply comes back from there.
+    """
+    try:
+        cur.execute(
+            """
+            DELETE FROM user_patterns
+             WHERE lower(COALESCE(pattern_type,'')) = lower(?)
+               AND lower(COALESCE(pattern_data,'')) <> lower(?)
+            """,
+            (pattern_type, pattern_data),
+        )
+    except Exception:
+        log.debug("could not retire earlier %s rows", pattern_type, exc_info=True)
+    try:
+        # _promote_to_semantic stores the key inside tags as
+        # "semantic,user_fact,<pattern_type>" — there is no dedicated column.
+        cur.execute(
+            "DELETE FROM semantic "
+            " WHERE ',' || lower(COALESCE(tags,'')) || ',' LIKE ? "
+            "   AND lower(COALESCE(fact,'')) <> lower(?)",
+            (f"%,{pattern_type.lower()},%", pattern_data),
+        )
+    except Exception:
+        log.debug("could not retire earlier semantic %s rows", pattern_type, exc_info=True)
+
+
 def _insert_user_pattern(
     cur: sqlite3.Cursor,
     pattern_type: str,
@@ -210,6 +338,9 @@ def _insert_user_pattern(
 
     if not pattern_type or not pattern_data:
         return False
+
+    if pattern_type.lower() in _SINGLE_VALUED_PATTERNS:
+        _supersede_single_valued(cur, pattern_type, pattern_data)
 
     exists = cur.execute(
         """

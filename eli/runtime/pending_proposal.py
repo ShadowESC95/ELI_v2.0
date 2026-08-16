@@ -85,8 +85,18 @@ def clear_pending_proposal() -> None:
 # command phrase (first concrete option) or "" if the text contains no offer.
 import re as _re
 
-# STRONG offers are inherently a question the user can affirm ("want me to …",
-# "shall I …"). The captured action phrase STOPS at the first clause/sentence
+# STRONG offer stems. NOT inherently a question, which is what this used to
+# assume: "want me to" also appears in a declarative ABOUT the user, and the
+# stem alone cannot tell the two apart —
+#
+#   "Want me to update the profile?"            <- an offer; "yes" should run it
+#   "You want me to keep a deeper persona."     <- a statement about the user
+#
+# The second form is what ELI produces when it reads a preference back, and it
+# armed the proposal 'keep a deeper' (the lazy capture stopping at the comma) for
+# 300 seconds, so the next "yes" would have routed that fragment as a command.
+# Interrogative form is therefore enforced by the caller, per sentence — see
+# extract_proposal. The captured phrase STOPS at the first clause/sentence
 # boundary so a declarative tail can never run into it (the old regex stopped
 # only at ? , or-end, so "I'll backup my state. You have to deal with …" was
 # swallowed whole and stored as a fake action).
@@ -111,6 +121,10 @@ _WEAK_OFFER_RE = _re.compile(
 # capture is prose, not an offer.
 _MAX_PROPOSAL_WORDS = 12
 
+# Sentence boundaries, so interrogative form is judged per sentence rather than
+# per reply: "Here is the summary. Want me to save it?" must still be caught.
+_SENTENCES_RE = _re.compile(r"(?<=[.!?])\s+")
+
 # Phrases that are conversational, not real actions worth queuing.
 _NON_ACTION = _re.compile(
     r"^(help|assist|explain|tell you|let you know|clarify|answer|continue|"
@@ -129,14 +143,22 @@ def extract_proposal(response_text: str) -> str:
     text = (response_text or "").strip()
     if not text:
         return ""
-    m = _STRONG_OFFER_RE.search(text) or _WEAK_OFFER_RE.search(text)
-    if not m:
-        return ""
-    phrase = " ".join(m.group(1).split()).strip(" .,;:")
-    if not phrase or len(phrase) < 3:
-        return ""
-    if len(phrase.split()) > _MAX_PROPOSAL_WORDS:
-        return ""
-    if _NON_ACTION.match(phrase):
-        return ""
-    return phrase
+    for sentence in _SENTENCES_RE.split(text):
+        sentence = sentence.strip()
+        # Only an interrogative is something the user can answer "yes" to. A
+        # declarative that merely contains an offer stem is ELI describing, not
+        # offering, and queuing it turns the next "yes" into a fabricated action.
+        if not sentence.endswith("?"):
+            continue
+        m = _STRONG_OFFER_RE.search(sentence) or _WEAK_OFFER_RE.search(sentence)
+        if not m:
+            continue
+        phrase = " ".join(m.group(1).split()).strip(" .,;:")
+        if not phrase or len(phrase) < 3:
+            continue
+        if len(phrase.split()) > _MAX_PROPOSAL_WORDS:
+            continue
+        if _NON_ACTION.match(phrase):
+            continue
+        return phrase
+    return ""
