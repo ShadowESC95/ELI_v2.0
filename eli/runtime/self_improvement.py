@@ -1234,7 +1234,15 @@ class SelfImprovementEngine:
 # turn and mentions it — so ELI raises recurring problems with the user himself and
 # reports what he tried, instead of failing silently.
 def _self_heal_notices_path() -> Path:
-    return PROJECT_ROOT / "artifacts" / "runtime" / "self_heal_notices.json"
+    # A WRITE path. PROJECT_ROOT is the install tree, read-only in a packaged
+    # build, so the notice queue could never persist there — ELI would keep
+    # silently failing to raise recurring problems, which is the whole point of
+    # this file. The artifacts dir is user-writable by construction.
+    try:
+        from eli.core.paths import data_dir as _dd
+        return Path(_dd()) / "runtime" / "self_heal_notices.json"
+    except Exception:
+        return PROJECT_ROOT / "artifacts" / "runtime" / "self_heal_notices.json"
 
 
 def _read_notices() -> List[Dict[str, Any]]:

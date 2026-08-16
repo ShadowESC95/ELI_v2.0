@@ -317,10 +317,27 @@ def _read_json(path: Path) -> Dict[str, Any]:
         log.debug("suppressed exception", exc_info=True)
     return {}
 
+def _data_dirs() -> tuple[Path, Path]:
+    """(artifacts, config) as the running install actually uses them.
+
+    The project root is the install tree; in a packaged build it is a read-only
+    AppImage mount holding neither the snapshot nor the live settings, so both
+    reads came back empty. Same defect ce40453 fixed in three sibling modules.
+    """
+    root = _root()
+    try:
+        from eli.core.paths import get_paths as _gp
+        p = _gp()
+        return Path(p.artifacts_dir), Path(p.config_dir)
+    except Exception:
+        return root / "artifacts", root / "config"
+
+
 def runtime_paths() -> Dict[str, Any]:
     root = _root()
-    snap = _read_json(root / "artifacts" / "runtime_snapshot.json")
-    cfg = _read_json(root / "config" / "settings.json")
+    _artifacts, _config = _data_dirs()
+    snap = _read_json(_artifacts / "runtime_snapshot.json")
+    cfg = _read_json(_config / "settings.json")
 
     model_path = str(
         snap.get("model_path")

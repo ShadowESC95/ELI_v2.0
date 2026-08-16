@@ -186,10 +186,31 @@ def _item(table: str, row_id: Any, text: Any, score: int, source_rank: int, ts_v
     }
 
 
+def _artifacts_dir() -> Path:
+    """The artifacts dir ELI actually writes to.
+
+    Resolving this from ``__file__`` is wrong in every shipped build. Inside the
+    AppImage the module lives on a read-only squashfs mount, so "who am I?"
+    answered:
+
+        active user DB does not exist at
+        /tmp/.mount_ELI_v2bIpcAe/usr/app/_internal/artifacts/db/user.sqlite3
+
+    while the daemon in the same process was correctly using
+    ~/.local/share/ELI_v2/artifacts/db/user.sqlite3. Same defect class as
+    ce40453, which swept three modules; this one and its siblings were missed.
+    """
+    try:
+        from eli.core.paths import get_paths as _gp
+        return Path(_gp().artifacts_dir)
+    except Exception:
+        return Path(__file__).resolve().parents[2] / "artifacts"
+
+
 def personal_memory_surface(question: Any = None) -> str:
-    root = Path(__file__).resolve().parents[2]
-    db = root / "artifacts" / "db" / "user.sqlite3"
-    runtime_snapshot = root / "artifacts" / "runtime_snapshot.json"
+    artifacts = _artifacts_dir()
+    db = artifacts / "db" / "user.sqlite3"
+    runtime_snapshot = artifacts / "runtime_snapshot.json"
 
     if not db.exists():
         return f"Personal memory summary unavailable: active user DB does not exist at {db}"

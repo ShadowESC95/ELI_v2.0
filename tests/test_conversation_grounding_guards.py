@@ -108,6 +108,35 @@ def test_final_attempt_salvages_rather_than_serving_the_echo():
     assert "still on loop" not in out.lower()
 
 
+def test_echo_of_a_PAST_user_turn_is_caught():
+    """The guard first shipped comparing only against the CURRENT message, and
+    2.1.97 showed that is not enough. Asked "just checking in on you", ELI opened
+    with a user message from a session three hours earlier, verbatim down to both
+    typos. Past turns reach the model through recalled memory, so they belong in
+    the guard's corpus too."""
+    stale_user_turn = ("Still on loop, seson 3 now. "
+                       "How is your memory after all the codebse changes?")
+    current = "just checking in on you"
+
+    assert not _opens_by_echoing(stale_user_turn, [current]), \
+        "fixture no longer reproduces the original gap"
+    assert _opens_by_echoing(stale_user_turn, [current, stale_user_turn])
+
+
+def test_widened_corpus_does_not_flag_a_normal_reply():
+    history = ["hey", "just checking in on you", "who am i ?",
+               "Still on loop, seson 3 now. How is your memory?"]
+    reply = "I'm in the Simulation Lab, poking at branch trees. What's your move?"
+    assert not _opens_by_echoing(reply, history)
+
+
+def test_source_cap_covers_a_full_recent_window():
+    """Recent user turns are passed alongside the live one; a cap of 4 would
+    silently drop most of them."""
+    from eli.kernel.engine import _ECHO_MAX_SOURCES
+    assert _ECHO_MAX_SOURCES >= 16
+
+
 def test_guard_is_inert_without_echo_sources():
     """Existing callers pass no echo_sources and must be unaffected."""
     echo = "I'm still on loop, season 3 now. Your memory's a bit fuzzy."

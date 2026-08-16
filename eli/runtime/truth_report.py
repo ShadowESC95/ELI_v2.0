@@ -157,8 +157,19 @@ def import_health(modules: list[str] | None = None) -> Dict[str, Any]:
 
 def runtime_truth_report(engine: Any = None) -> Dict[str, Any]:
     root = _project_root()
-    settings_path = root / "config" / "settings.json"
-    snapshot_path = root / "artifacts" / "runtime_snapshot.json"
+    # The install tree is not where a packaged build keeps its data: the code is
+    # on a read-only AppImage mount while settings and the snapshot live under
+    # the user's config/data dirs. Reading them from the project root made this
+    # report describe a runtime that does not exist — the 2.1.82 self-report
+    # failure ce40453 fixed elsewhere.
+    try:
+        from eli.core.paths import get_paths as _gp
+        _p = _gp()
+        settings_path = Path(_p.config_dir) / "settings.json"
+        snapshot_path = Path(_p.artifacts_dir) / "runtime_snapshot.json"
+    except Exception:
+        settings_path = root / "config" / "settings.json"
+        snapshot_path = root / "artifacts" / "runtime_snapshot.json"
     settings = _read_json(settings_path)
     snapshot = _read_json(snapshot_path)
 
