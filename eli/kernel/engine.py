@@ -4005,7 +4005,13 @@ class CognitiveEngine:
             requested = 512
         try:
             from eli.runtime.runtime_policy import budget as _eli_budget
-            requested = _eli_budget("max_tokens", max(512, requested), floor=max(512, requested), ceiling=max(2048, n_ctx // 3))
+            # Ceiling is the WINDOW, not a third of it. The policy hook can still
+            # tune the budget down for a mode or a machine; what it must not do
+            # is refuse to let the user's own max_tokens setting through because
+            # of a fraction picked before the prompt was known.
+            requested = _eli_budget("max_tokens", max(512, requested),
+                                    floor=max(512, requested),
+                                    ceiling=max(2048, int(n_ctx)))
         except Exception:
             logging.getLogger(__name__).debug("suppressed exception", exc_info=True)
 
@@ -4024,12 +4030,29 @@ class CognitiveEngine:
         if requested <= 0:
             # -1 = unlimited: pass through — GGUF backend resolves against remaining ctx window
             safe_max = -1
-        elif cpu_only:
-            safe_max = max(256, min(requested, max(384, n_ctx // 4)))
         else:
-            ctx_derived = max(1024, min(4096, n_ctx // 3))
-            safe_max = min(max(requested, 256), ctx_derived)
-            safe_max = max(128, int(safe_max))
+            # Honour the number, bounded only by what the window actually has left.
+            #
+            # This used to be `min(4096, n_ctx // 3)` on GPU and `n_ctx // 4` on
+            # CPU. Both were guesses about how big the prompt would be, made
+            # before the prompt existed — and the 4096 was an absolute ceiling
+            # regardless of the model, so a 128k-context model could never answer
+            # with more than 4k tokens.
+            #
+            # They also bought nothing. max_tokens is a CEILING, not a target: a
+            # model answering "hello" emits twenty tokens whether the budget is
+            # 1024 or 12000, and stops at EOS either way. The cap therefore only
+            # ever bites when the model genuinely has more to say — exactly the
+            # case where truncating it is wrong. It never made a short reply
+            # faster; it made a long reply incomplete.
+            #
+            # The real constraint (prompt + generation <= n_ctx) is enforced per
+            # call in gguf_inference._fit_generation_budget, from the ACTUAL
+            # prompt, which is the only place that can know it. Runaway output is
+            # bounded by EOS, the stop-token set and repeat_penalty, as it always
+            # was. `cpu_only` is still reported below for callers that want to
+            # warn about speed — it just no longer shortens the answer.
+            safe_max = max(128, int(requested))
 
         return {
             "max_tokens": int(safe_max),

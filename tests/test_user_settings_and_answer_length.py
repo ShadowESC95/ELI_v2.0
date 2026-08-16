@@ -14,19 +14,20 @@ Three separate causes, none of them the model being slow:
    costs two minutes, an instruction to be brief is the wrong instruction.
    "No filler" is worth keeping; "terse" is not.
 
-2. THE BUDGET DID NOT SCALE. mode_presets() documents "MODEL-AGNOSTIC capability
-   scaling ... instead of staying throttled at the small-model defaults", and
-   then capped quick at a flat 1024 and standard at a flat 3072 while every
-   other preset used _tok() and scaled with tier. A 30B model got a 7B budget.
+2. THE ANSWER WAS CAPPED FOR NO REASON. quick was pinned to a flat 1024 and
+   standard to 3072; engine.py capped the whole budget at min(4096, n_ctx // 3)
+   on GPU and n_ctx // 4 on CPU. So a 128k-context model could never answer with
+   more than 4k tokens. None of it bought speed: max_tokens is a ceiling, not a
+   target, so it only ever bit when the model had more to say.
 
 3. THE USER'S SETTINGS WERE NEVER TRIED. smart-fit ran first and its reduced
    result was queued ahead of "requested", so a config the operator explicitly
    chose in the startup dialog sat at position 2 behind one that always loaded.
    The setting was a suggestion, not a setting.
 
-Nothing here hardcodes a new number. (2) applies the module's own existing
-scaling function to the two presets that were skipping it, and is byte-identical
-on a small model.
+Nothing here hardcodes a new number — it removes four. The one real constraint,
+prompt + generation <= n_ctx, is computed per call from the ACTUAL prompt in
+gguf_inference._fit_generation_budget, which is the only place that can know it.
 """
 from pathlib import Path
 
@@ -73,7 +74,21 @@ def test_a_scoped_terse_tone_is_still_allowed():
     assert "terse" in palette.lower(), "the scoped exasperated tone was removed too"
 
 
-# ── 2. budgets scale with the model, and do not shrink small ones ──────────
+# ── 2. no artificial ceiling on the answer ────────────────────────────────
+# These originally asserted a tier-scaled ceiling (1024 small, 4096 frontier).
+# That was still a cap, and the question "why is there a cap in the first
+# place?" has no good answer: max_tokens is a CEILING, not a target, so a short
+# reply is short regardless and the cap only ever bites when the model had more
+# to say. It never made anything faster — it made long answers incomplete.
+#
+# What was removed:
+#   engine.py     min(4096, n_ctx // 3)  on GPU, n_ctx // 4 on CPU, and a
+#                 policy ceiling of n_ctx // 3 above them
+#   optimizer     a flat 1024 (quick) and 3072 (standard)
+#
+# The real constraint is enforced where it can be known: per call, from the
+# actual prompt, in gguf_inference._fit_generation_budget.
+
 def _presets(scale, n_ctx=12192, max_tokens=6000, monkeypatch=None):
     import eli.core.model_tier as MT
     from eli.core.startup_hardware_optimizer import mode_presets
@@ -81,33 +96,60 @@ def _presets(scale, n_ctx=12192, max_tokens=6000, monkeypatch=None):
     return mode_presets(n_ctx, max_tokens)
 
 
-def test_small_model_budgets_are_unchanged(monkeypatch):
-    """Behaviour-preserving where it matters most — modest hardware."""
-    p = _presets(1.0, monkeypatch=monkeypatch)
-    assert p["quick"]["max_tokens"] == 1024
-    assert p["standard"]["max_tokens"] == 3072
-
-
-@pytest.mark.parametrize("scale,expected_quick", [(1.5, 1536), (2.5, 2560), (4.0, 4096)])
-def test_bigger_models_get_bigger_budgets(monkeypatch, scale, expected_quick):
+@pytest.mark.parametrize("scale", [1.0, 1.5, 2.5, 4.0])
+def test_no_mode_truncates_the_answer_below_the_window(monkeypatch, scale):
     p = _presets(scale, monkeypatch=monkeypatch)
-    assert p["quick"]["max_tokens"] == expected_quick
+    assert p["quick"]["max_tokens"] == 6000
+    assert p["standard"]["max_tokens"] == 6000
 
 
-def test_quick_never_exceeds_the_window_budget(monkeypatch):
-    """Scaling must still respect what the context can actually hold."""
-    p = _presets(4.0, max_tokens=800, monkeypatch=monkeypatch)
-    assert p["quick"]["max_tokens"] <= 800
+def test_quick_is_still_quick_by_doing_less_work(monkeypatch):
+    """The mode has to differ SOMEHOW — by passes and retrieval depth, which is
+    what actually costs time, not by cutting the answer off."""
+    p = _presets(1.0, monkeypatch=monkeypatch)
+    assert p["quick"]["passes"] == 1
+    assert p["quick"]["memory_depth"] == "minimal"
+    assert p["standard"]["memory_depth"] != p["quick"]["memory_depth"]
 
 
-def test_no_preset_carries_a_flat_ceiling_any_more():
-    """quick and standard were the only two bypassing _tok(); the docstring
-    claimed all of them scaled."""
+def test_no_flat_ceiling_remains_in_the_presets():
     src = (REPO / "eli/core/startup_hardware_optimizer.py").read_text(encoding="utf-8")
     start = src.index("def mode_presets(")
     body = src[start:src.index("\ndef ", start + 10)]
-    for bad in ("min(max_tokens, 1024)", "min(max_tokens, 3072)"):
+    for bad in ("min(max_tokens, 1024)", "min(max_tokens, 3072)", "min(max_tokens, 1536)"):
         assert bad not in body, f"flat ceiling {bad} is back"
+
+
+def test_engine_no_longer_caps_the_budget_at_a_fraction_of_the_window():
+    """Strip comments first: the note explaining WHY these were removed quotes
+    them verbatim, and matching that would make this test pass on prose."""
+    src = (REPO / "eli/kernel/engine.py").read_text(encoding="utf-8")
+    code = "\n".join(
+        line for line in src.splitlines() if not line.lstrip().startswith("#")
+    )
+    for bad in ("min(4096, n_ctx // 3)", "max(384, n_ctx // 4)"):
+        assert bad not in code, f"{bad} is back — a blind guess at the prompt size"
+
+
+@pytest.mark.parametrize("n_ctx,prompt_tok,at_least", [
+    (12192, 5184, 6000),      # the live session: was capped at 4064
+    (131072, 8000, 100000),   # a large model: was capped at 4096
+    (4096, 3000, 500),        # a small window still gets what is left
+])
+def test_the_budget_is_whatever_the_window_actually_has_left(n_ctx, prompt_tok, at_least, monkeypatch):
+    import eli.cognition.gguf_inference as G
+
+    class FakeLLM:
+        def n_ctx(self):
+            return n_ctx
+
+    monkeypatch.setattr(G, "_estimate_prompt_tokens", lambda llm, p: len(p) // 4)
+    monkeypatch.setattr(G, "_effective_ctx_limit", lambda llm: llm.n_ctx())
+    monkeypatch.setattr(G, "_truncate_prompt_to_tokens", lambda llm, p, b: p[: b * 4])
+
+    _, budget = G._fit_generation_budget(FakeLLM(), "x" * (prompt_tok * 4), n_ctx)
+    assert budget >= at_least
+    assert prompt_tok + budget <= n_ctx
 
 
 # ── 3. the operator's settings are attempted first ────────────────────────
