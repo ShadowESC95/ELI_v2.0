@@ -3237,6 +3237,10 @@ def _stream_holding_back_repeats(stream, recent_replies, *, allow_retry: bool,
 # and ELI answered "I'll stop". Asking a model not to repeat itself is not a control;
 # checking whether it did is.
 _REPEAT_HEAD_CHARS = 200      # buffered before first paint — see the streaming guard
+# How much of a reply the last-response trace keeps. Enough to quote the message
+# back when asked what it was; short enough that a file rewritten every turn does
+# not grow into the largest thing under artifacts/.
+_TRACE_TEXT_CHARS = 1200
 _REPEAT_RATIO = 0.86          # difflib ratio over normalised text
 _REPEAT_COMPARE_AGAINST = 4   # how many recent ELI turns to test
 _REPEAT_RETRY_TEMP_BUMP = 0.35  # widen sampling on the retry — see the retry path
@@ -9003,6 +9007,7 @@ Answer:"""
         grounded: bool = False,
         response: str = "",
         grounding_confidence: Optional[float] = None,
+        user_input: str = "",
     ) -> None:
         try:
             score = None if confidence is None else float(confidence)
@@ -9052,6 +9057,17 @@ Answer:"""
             "evidence_used": bool(evidence_used),
             "grounded": bool(grounded),
             "response_chars": len(str(response or "")),
+            # The MESSAGE, not just how long it was. "What was the last message
+            # you sent?" could not be answered from this trace at all: it carried
+            # response_chars and a confidence score and nothing else, so the only
+            # possible reply was a telemetry dump about a message whose text was
+            # never recorded. Truncated because this file is rewritten every turn
+            # and a full essay would make it the largest thing in artifacts/.
+            "response_text": str(response or "")[:_TRACE_TEXT_CHARS],
+            "response_truncated": len(str(response or "")) > _TRACE_TEXT_CHARS,
+            # What it was answering, so "explain your last response" can say what
+            # the exchange was rather than only how confident it felt.
+            "user_input": str(user_input or "")[:400],
             "grounding_confidence": _grounding_score,
         }
         try:
@@ -13435,15 +13451,30 @@ Answer:"""
                     self._last_request_meta = {
                         "action": "CHAT",
                         "result_action": "CHAT",
+                        "route_action": "CHAT",
+                        "request_id": str(_eli_pipeline_req or ""),
                         "reasoning_mode": str(reasoning_mode or "quick"),
                         "agents_used": _s_agents,
                         "aggregated_confidence": _s_agg,
+                        "confidence": _s_agg,
                         "grounding_confidence": _s_grounding,
                         "confidence_label": _s_label,
                         "evidence_used": bool(pre_built_memory_context),
                         "grounded": bool(pre_built_memory_context),
                         "response_chars": len(final_text),
+                        "response_text": final_text[:_TRACE_TEXT_CHARS],
+                        "response_truncated": len(final_text) > _TRACE_TEXT_CHARS,
+                        "user_input": str(user_input or "")[:400],
                     }
+                    # PERSIST it, not just the in-memory badge. This block already
+                    # existed and only ever set _last_request_meta, so a streamed
+                    # CHAT — which is every ordinary GUI turn — never wrote
+                    # last_trace.json. "What was the last message you sent?" then
+                    # answered from whichever run last wrote the file: observed at
+                    # 2.1.96 reporting a turn from 106 minutes and one restart
+                    # earlier, with full confidence and no indication it was stale.
+                    from eli.runtime.last_trace import save_last_trace as _save_lt
+                    _save_lt(dict(self._last_request_meta))
                 except Exception as _smeta_err:
                     log.debug(f"[PIPELINE] Stream meta publish failed: {_smeta_err}")
                 log.debug(f"[COGNITIVE][TIMING] stream_total={_time.perf_counter() - started:.3f}s")
