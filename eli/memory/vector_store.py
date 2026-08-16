@@ -219,7 +219,16 @@ class VectorStore:
                 def get_llm(self): return self._llm
                 def embed(self, text):
                     pfx = '' if text.startswith(('search_query:', 'search_document:', 'classification:', 'clustering:')) else 'search_query: '
-                    r = self._llm.create_embedding(pfx + text)
+                    # llama.cpp prints "init: embeddings required but some input
+                    # tokens were not marked as outputs -> overriding" from C on
+                    # EVERY embedding, which verbose=False above cannot reach. It
+                    # is a harmless internal note, and memory/RAG embeds many
+                    # times per turn, so it dominated the console at startup and
+                    # made a healthy boot look like it was failing. Narrowly
+                    # scoped to this one call so a real error still surfaces.
+                    from eli.utils.native_io import quiet_native_stderr
+                    with quiet_native_stderr():
+                        r = self._llm.create_embedding(pfx + text)
                     return r['data'][0]['embedding']
             self._embedder = _EmbedShim(_llm)
             log.debug('[VECTOR_STORE] Embedder ready (nomic-embed-text-v1.5.Q4_K_M.gguf)')

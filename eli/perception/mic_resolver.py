@@ -452,29 +452,39 @@ def _run_probe(device_arg: str, source_arg: str) -> int:
         print(f"DEAD import: {e}")
         return 2
 
-    p = pyaudio.PyAudio()
+    # Every other PyAudio construction in this module already runs under
+    # _quiet_alsa(); this one did not, and it is the probe that actually runs at
+    # startup — so the ALSA/JACK enumeration storm (dmix, "Unknown PCM
+    # cards.pcm.rear", "jack server is not running", JackShmReadWritePtr…) landed
+    # on the user's console every launch and made a healthy boot look broken.
+    # The verdict travels on stdout, so silencing fd 2 for the whole probe hides
+    # the noise and nothing else. Construction is inside the try as well: it can
+    # raise, and it used to do so outside any handler.
+    p = None
     try:
-        if device_arg and device_arg != "-":
-            idx: Optional[int] = int(device_arg)
-        else:
-            idx = None
-            if not sys.platform.startswith("linux"):
-                try:
-                    idx = int(p.get_default_input_device_info().get("index"))
-                except Exception:
-                    idx = None
-        st = p.open(
-            format=pyaudio.paInt16,
-            channels=1,
-            rate=16000,
-            input=True,
-            input_device_index=idx,
-            frames_per_buffer=1024,
-        )
-        frames = b""
-        for _ in range(16):  # ~1s at 16 kHz / 1024
-            frames += st.read(1024, exception_on_overflow=False)
-        st.close()
+        with _quiet_alsa():
+            p = pyaudio.PyAudio()
+            if device_arg and device_arg != "-":
+                idx: Optional[int] = int(device_arg)
+            else:
+                idx = None
+                if not sys.platform.startswith("linux"):
+                    try:
+                        idx = int(p.get_default_input_device_info().get("index"))
+                    except Exception:
+                        idx = None
+            st = p.open(
+                format=pyaudio.paInt16,
+                channels=1,
+                rate=16000,
+                input=True,
+                input_device_index=idx,
+                frames_per_buffer=1024,
+            )
+            frames = b""
+            for _ in range(16):  # ~1s at 16 kHz / 1024
+                frames += st.read(1024, exception_on_overflow=False)
+            st.close()
         print(f"LIVE rms={audioop.rms(frames, 2)} bytes={len(frames)}")
         return 0
     except Exception as e:
@@ -482,7 +492,8 @@ def _run_probe(device_arg: str, source_arg: str) -> int:
         return 3
     finally:
         try:
-            p.terminate()
+            if p is not None:
+                p.terminate()
         except Exception:
             log.debug("mic_resolver: PyAudio.terminate() failed", exc_info=True)
 

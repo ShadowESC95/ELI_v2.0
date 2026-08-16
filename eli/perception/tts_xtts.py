@@ -165,6 +165,9 @@ def xtts_available() -> bool:
     handles internally by returning quietly when transformers or torch is absent.
     Quieting the console cost the whole feature.
     """
+    global _XTTS_AVAILABLE
+    if _XTTS_AVAILABLE is not None:
+        return _XTTS_AVAILABLE
     _patch_transformers_compat()
     try:
         import TTS  # noqa: F401
@@ -179,12 +182,28 @@ def xtts_available() -> bool:
         global _XTTS_IMPORT_ERROR
         _XTTS_IMPORT_ERROR = f"{type(exc).__name__}: {exc}"
         log.debug("tts_xtts: neural backend unavailable — %s", _XTTS_IMPORT_ERROR)
+        _XTTS_AVAILABLE = False
         return False
     _XTTS_IMPORT_ERROR = ""
+    _XTTS_AVAILABLE = True
     return True
 
 
 _XTTS_IMPORT_ERROR = ""
+
+# Python does not cache a FAILED import, so every call re-walked sys.path and
+# re-logged the same line. The shipped AppImage deliberately omits coqui-tts
+# (see the build-linux notes in release.yml — Piper is the bundled engine), so on
+# every launch six callers each paid a full failed-import walk and printed
+# "neural backend unavailable" six times, which reads as a crash rather than as
+# the designed fallback. The answer does not change within a process.
+_XTTS_AVAILABLE: "bool | None" = None
+
+
+def _reset_availability_cache() -> None:
+    """Test seam: forget the cached probe result."""
+    global _XTTS_AVAILABLE
+    _XTTS_AVAILABLE = None
 
 
 def xtts_import_error() -> str:
