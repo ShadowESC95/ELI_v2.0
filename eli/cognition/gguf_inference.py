@@ -996,13 +996,85 @@ def _format_prompt(system: Optional[str], user: str) -> str:
     return user + "\n"
 
 
+def _fit_generation_budget(llm, full_prompt: str, max_tokens):
+    """Return (prompt, max_tokens) that fit the model's ACTUAL context window.
+
+    Two independent things have to hold, and previously each was enforced in some
+    call paths and not others:
+
+      1. prompt + generation <= effective n_ctx. If the requested generation does
+         not fit, it is reduced — never the other way around.
+      2. the prompt alone must leave room to say something. A prompt that fills
+         the window is not a small answer, it is no answer: llama.cpp raises and
+         the turn collapses to whatever fallback the caller has.
+
+    The generation floor is derived from the window (n_ctx // 8, bounded), not a
+    constant — on a 4k model that is 512 tokens, on a 128k model 512 as well, and
+    the prompt gives way instead. Nothing here caps how large a context ELI can
+    use: it reads whatever the model actually loaded with, so a 100B model on a
+    128k window gets a 128k budget.
+    """
+    try:
+        n_ctx = int(_effective_ctx_limit(llm))
+    except Exception:
+        return full_prompt, int(max_tokens)
+    if n_ctx <= 0:
+        return full_prompt, int(max_tokens)
+
+    gen_floor = max(96, min(512, n_ctx // 8))
+    reserve = 32                      # BOS/EOS and template slack
+    try:
+        prompt_tokens = int(_estimate_prompt_tokens(llm, full_prompt))
+    except Exception:
+        return full_prompt, int(max_tokens)
+
+    # (2) The prompt has eaten the room to answer — shrink it, keeping the head
+    # (system/persona) and the tail (recent context + the actual user turn).
+    if prompt_tokens > n_ctx - gen_floor - reserve:
+        budget = max(256, n_ctx - gen_floor - reserve)
+        try:
+            full_prompt = _truncate_prompt_to_tokens(llm, full_prompt, budget)
+            after = int(_estimate_prompt_tokens(llm, full_prompt))
+            log.debug("[GGUF][FIT] prompt %d tok > window %d; truncated head+tail to %d",
+                      prompt_tokens, n_ctx, after)
+            prompt_tokens = after
+        except Exception:
+            log.debug("[GGUF][FIT] prompt truncation failed", exc_info=True)
+
+    # (1) Never ask for more than is left.
+    available = max(1, n_ctx - prompt_tokens - reserve)
+    requested = int(max_tokens) if max_tokens and int(max_tokens) > 0 else available
+    fitted = max(1, min(requested, available))
+    if fitted < requested:
+        log.debug("[GGUF][FIT] max_tokens %d -> %d (prompt %d, window %d)",
+                  requested, fitted, prompt_tokens, n_ctx)
+    return full_prompt, fitted
+
+
 def _safe_invoke_llm(llm, full_prompt: str, *, temperature, max_tokens, top_p, top_k, repeat_penalty, stop, stream, grammar):
     """
     Invoke llama.cpp safely:
     - serialize calls via _LLM_CALL_LOCK
     - if requested tokens exceed context window, retry with smaller max_tokens
     """
-    attempt_max = int(max_tokens)
+    # ── Fit the request to the window BEFORE calling, not after it throws ────
+    # Every generation in ELI passes through here, streaming or not, so this is
+    # the one place a budget cannot be bypassed. The callers each had their own
+    # partial version: the chat path clamps (line ~1294), the JSON path clamps,
+    # and the streaming path did neither — it passed max_tokens straight through.
+    #
+    # Live consequence at 2.1.98, after a smart-fit load fell back from ctx=10384
+    # to ctx=4096: a 3,893-token prompt was sent asking for 2,048 more in a 4,096
+    # window. The first reply was cut to "Yes. Here's why." and the next two
+    # raised "Requested tokens (5167) exceed context window of 4096", dropping the
+    # turn to the non-streaming broker at max_tokens=128.
+    #
+    # The retry below still exists for what a static estimate cannot predict, but
+    # it is now the exception rather than the mechanism: reacting to an overflow
+    # mid-stream means the user has already seen a truncated answer.
+    _fit_prompt, attempt_max = _fit_generation_budget(llm, full_prompt, max_tokens)
+    if _fit_prompt is not full_prompt:
+        full_prompt = _fit_prompt
     last_exc = None
     bg = is_background_inference()
     # Every generation carries a cooperative abort: it yields at the next token when

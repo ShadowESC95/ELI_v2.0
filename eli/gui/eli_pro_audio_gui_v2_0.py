@@ -1025,6 +1025,24 @@ class LocalModelManager:
             # detected) or the user's request already fits unchanged.
             _add_attempt("requested", _base_ctx, _base_layers, _base_batch)
 
+            # Graded context step-down, BEFORE the static hw-profile below.
+            #
+            # Ordering bug, seen live at 2.1.98: smart-fit asked for ctx=10384,
+            # llama.cpp said "Failed to create llama_context", and the very next
+            # candidate was hw-profile at ctx=4096 — a 60% cut on the first
+            # stumble, when 8k or 7k would have loaded fine. The whole session
+            # then ran in a window too small for its own prompt: replies were
+            # truncated mid-sentence and later turns fell back to 128 tokens.
+            #
+            # The gradual rungs already existed further down the ladder, but sat
+            # below hw-profile and so were never reached. Trying them first keeps
+            # the largest context this machine will actually accept, which is the
+            # whole point of an adaptive loader.
+            for _pct in (87, 75, 62, 50):
+                _step_ctx = max(2048, (_base_ctx * _pct) // 100)
+                if _step_ctx < _base_ctx:
+                    _add_attempt(f"ctx{_pct}pct", _step_ctx, _base_layers, _base_batch)
+
             # Hardware profile recommendation (legacy static fallback).
             if _hw_profile_ctx is not None:
                 _hw_eff_layers = int(_hw_profile_gpu_layers)
