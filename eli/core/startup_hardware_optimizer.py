@@ -407,12 +407,18 @@ def mode_presets(n_ctx: int, max_tokens: int) -> Dict[str, Dict[str, Any]]:
 
     return {
         "quick": {
-            "max_tokens": min(max_tokens, 1024),
+            # _tok(), not a flat 1024. Every other preset here scales with
+            # tier_scale() — these two did not, so on a 30B model quick mode was
+            # still capped at the small-model budget while a single reply cost
+            # over two minutes of CPU offload. Identical for a small model
+            # (scale 1.0 -> 1024) and lifts with the model, which is what the
+            # "MODEL-AGNOSTIC capability scaling" note above already promised.
+            "max_tokens": _tok(1024),
             "passes": 1,
             "memory_depth": "minimal",
         },
         "standard": {
-            "max_tokens": min(max_tokens, 3072),
+            "max_tokens": _tok(3072),
             "passes": 1,
             "memory_depth": "normal",
         },
