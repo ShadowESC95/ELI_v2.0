@@ -955,8 +955,63 @@ def _eli_memory_internals_v2() -> str:
     return "\n".join(lines)
 
 
-def _eli_cognition_pipeline_v2() -> str:
-    return """Cognition pipeline, input to output:
+def _inference_runtime_lines() -> str:
+    """The live inference parameters, as plain lines of evidence.
+
+    Asked "what is your current context window?", ELI answered "The provided
+    evidence does not specify the current context window size." It was running
+    at n_ctx=12192 and had written that number to runtime_snapshot.json at
+    startup — the evidence bundle for EXPLAIN_COGNITION_RUNTIME simply had no
+    field for it. The action is named for the runtime and described only the
+    architecture: module paths, line numbers and table counts.
+
+    Requested and effective are BOTH reported, because they diverge and the
+    difference is the answer to most questions in this area: on that session the
+    user asked for 99 GPU layers and got 8, which is why replies took minutes.
+    """
+    snap = _runtime_snapshot() or {}
+    req = snap.get("requested") or {}
+    eff = snap.get("effective") or {}
+
+    def pick(key, fallback_top=True):
+        for src in (eff, snap if fallback_top else {}):
+            if src.get(key) not in (None, ""):
+                return src.get(key)
+        return "unknown"
+
+    lines = ["Inference runtime (live, from the loaded model):"]
+    model = snap.get("model_name") or snap.get("model_path") or "unknown"
+    lines.append(f"- model: {model}")
+    lines.append(f"- provider: {snap.get('provider', 'unknown')}")
+    lines.append(f"- context window (n_ctx): {pick('n_ctx')}")
+    if req.get("n_ctx") not in (None, "") and req.get("n_ctx") != eff.get("n_ctx"):
+        lines.append(f"  (requested {req.get('n_ctx')}, reduced to fit VRAM)")
+    lines.append(f"- GPU layers offloaded: {pick('n_gpu_layers')}")
+    if req.get("n_gpu_layers") not in (None, "") and req.get("n_gpu_layers") != eff.get("n_gpu_layers"):
+        lines.append(f"  (requested {req.get('n_gpu_layers')} — the rest run on CPU, which is the "
+                     f"dominant cost of a slow reply)")
+    lines.append(f"- batch: {pick('n_batch')}   threads: {pick('n_threads')}")
+    lines.append(f"- load mode: {snap.get('load_mode', 'unknown')}")
+    return "\n".join(lines)
+
+
+def _eli_cognition_pipeline_v2(focus: str = "") -> str:
+    runtime_block = ""
+    try:
+        runtime_block = _inference_runtime_lines()
+    except Exception:
+        log.debug("inference runtime block unavailable", exc_info=True)
+
+    # A question about the inference runtime gets the NUMBERS, not a code map.
+    # The router already classifies this (diagnostic_focus=inference_runtime) and
+    # the answer ignored it, returning the architecture description regardless.
+    if runtime_block and str(focus or "").strip().lower() == "inference_runtime":
+        return runtime_block + "\n\n" + _COGNITION_PIPELINE_TEXT
+
+    return ((runtime_block + "\n\n") if runtime_block else "") + _COGNITION_PIPELINE_TEXT
+
+
+_COGNITION_PIPELINE_TEXT = """Cognition pipeline, input to output:
 
 1. GUI / voice capture
 - Text input enters through eli/gui/eli_pro_audio_gui_v2_0.py.
@@ -1102,7 +1157,10 @@ def render_action(action: str, args: _EliMapping[str, _EliAny] | None = None, us
         return _eli_runtime_audit_v2()
 
     if a == "EXPLAIN_COGNITION_RUNTIME":
-        return _eli_cognition_pipeline_v2()
+        # The router already decides this ("diagnostic_focus": "inference_runtime"
+        # for a question about the context window / model / GPU) — pass it through
+        # instead of returning the same architecture text for every question.
+        return _eli_cognition_pipeline_v2(str((args or {}).get("diagnostic_focus") or ""))
 
     if a in {"EXPLAIN_MEMORY_RUNTIME", "MEMORY_STATUS", "PERSONAL_MEMORY_DEEP_EXPLAIN"}:
         if _eli_wants_personal_memory_v2(text):
