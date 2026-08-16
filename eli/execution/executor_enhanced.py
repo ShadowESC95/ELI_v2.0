@@ -1688,7 +1688,20 @@ def _explain_cognition_runtime_report() -> Dict[str, Any]:
 def _format_cognition_runtime(report: Dict[str, Any]) -> str:
     if not report.get('ok'):
         return str(report.get('error') or 'Cognition runtime report failed')
-    lines = [
+    lines = []
+    # The live INFERENCE parameters go first. Asked "what is your current context
+    # window?", this report answered with module paths, grep line numbers and
+    # SQLite table counts — and the synthesis on top of it then said "the
+    # provided evidence does not specify the current context window size". It
+    # did not: n_ctx was 12192, written to runtime_snapshot.json at startup, and
+    # this report — named for the runtime — had no field for it.
+    try:
+        from eli.runtime.deterministic_grounding_gate import _inference_runtime_lines
+        lines.append(_inference_runtime_lines())
+        lines.append("")
+    except Exception:
+        log.debug("[EXECUTOR] inference runtime block unavailable", exc_info=True)
+    lines += [
         f"Cognition runtime: {report.get('path')}",
         f"Memory module: {report.get('memory_path')}",
         f"Router module: {report.get('router_path')}",
