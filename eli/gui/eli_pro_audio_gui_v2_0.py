@@ -948,7 +948,8 @@ class LocalModelManager:
                 _sf_gpu = _sf_sg(_sf_dng())
                 if _sf_gpu and _sf_gpu.free_mb > 0:
                     _sf_model_gb = path_obj.stat().st_size / (1024 ** 3)
-                    _sf_reserve = int(_sf_os.environ.get("ELI_VRAM_RESERVE_MB", "700") or "700")
+                    from eli.core.hardware_profile import vram_reserve_mb as _vrm
+                    _sf_reserve = int(_vrm())
                     _sf_kvq = bool(_sf_gpu.total_mb and _sf_gpu.total_mb < 12000)
                     # Anchor the fit on the user's CHOSEN ctx. The startup popup's
                     # "Context target fraction" (ELI_CTX_FRACTION) is the canonical control:
@@ -1025,25 +1026,26 @@ class LocalModelManager:
             # detected) or the user's request already fits unchanged.
             _add_attempt("requested", _base_ctx, _base_layers, _base_batch)
 
-            # Graded context step-down, BEFORE the static hw-profile below.
+            # Hardware profile recommendation (legacy static fallback) — COMPUTED
+            # here, but QUEUED further down, after the reduce-to-fit rungs.
             #
-            # Ordering bug, seen live at 2.1.98: smart-fit asked for ctx=10384,
-            # llama.cpp said "Failed to create llama_context", and the very next
-            # candidate was hw-profile at ctx=4096 — a 60% cut on the first
-            # stumble, when 8k or 7k would have loaded fine. The whole session
-            # then ran in a window too small for its own prompt: replies were
-            # truncated mid-sentence and later turns fell back to 128 tokens.
+            # It used to be inserted right here, as the second candidate, and that
+            # broke the loader's own documented order. hardware_profile.allocate()
+            # reduces "GPU layers -> batch -> shed layers -> ctx LAST", explicitly
+            # so "context (quality) is preserved as long as possible". The rungs
+            # that implement that (live-tuner, lower-batch-half/qtr at the user's
+            # FULL ctx) all sit below — so a single smart-fit failure skipped every
+            # one of them and landed on this static number instead.
             #
-            # The gradual rungs already existed further down the ladder, but sat
-            # below hw-profile and so were never reached. Trying them first keeps
-            # the largest context this machine will actually accept, which is the
-            # whole point of an adaptive loader.
-            for _pct in (87, 75, 62, 50):
-                _step_ctx = max(2048, (_base_ctx * _pct) // 100)
-                if _step_ctx < _base_ctx:
-                    _add_attempt(f"ctx{_pct}pct", _step_ctx, _base_layers, _base_batch)
-
-            # Hardware profile recommendation (legacy static fallback).
+            # Live at 2.1.98: smart-fit asked for ctx=10384, llama.cpp refused
+            # once, and the next thing tried was this profile at ctx=4096 — the
+            # user's context cut 60% before batch or layers had been touched at
+            # all. The session then ran in a window smaller than its own prompt.
+            #
+            # A static file written by an earlier optimiser run is the LEAST
+            # informed candidate here: the live tuner re-measures actual free VRAM
+            # and the batch rungs cost nothing but speed. This belongs after them.
+            _hw_profile_attempt = None
             if _hw_profile_ctx is not None:
                 _hw_eff_layers = int(_hw_profile_gpu_layers)
                 if gpu_offload_supported is False:
@@ -1051,7 +1053,7 @@ class LocalModelManager:
                 _hw_eff_batch = int(_hw_profile_batch)
                 if _hw_eff_layers <= 0 and _hw_eff_batch > 128:
                     _hw_eff_batch = 128
-                _add_attempt("hw-profile", _hw_profile_ctx, _hw_eff_layers, _hw_eff_batch)
+                _hw_profile_attempt = ("hw-profile", _hw_profile_ctx, _hw_eff_layers, _hw_eff_batch)
 
             if _base_layers > 0:
                 # Live-tuner FIRST (hardware-measured): re-run allocate() against the GPU's
@@ -1091,6 +1093,13 @@ class LocalModelManager:
                 _b_min  = max(32, _base_batch // 8)
                 _add_attempt("lower-batch-half",   _base_ctx,                       _base_layers,               _b_half)
                 _add_attempt("lower-batch-qtr",    _base_ctx,                       _base_layers,               _b_qtr)
+                # Static profile lands HERE — after every rung that keeps the
+                # user's ctx (live-tuner above, batch reductions just now), and
+                # before the rungs that finally start cutting context. See the
+                # note where it is computed.
+                if _hw_profile_attempt is not None:
+                    _add_attempt(*_hw_profile_attempt)
+                    _hw_profile_attempt = None
                 _add_attempt("ctx75pct-batch-qtr", max(2048, _base_ctx * 3 // 4),   _base_layers,               _b_qtr)
                 _add_attempt("ctx50pct-half-gpu",  max(2048, _base_ctx // 2),        max(1, _base_layers // 2),  _b_qtr)
                 _add_attempt("ctx37pct-half-gpu",  max(2048, _base_ctx * 3 // 8),   max(1, _base_layers // 2),  _b_min)
@@ -1135,6 +1144,13 @@ class LocalModelManager:
                 _add_attempt("cpu-ctx-ram-cap", _cpu_base_ctx,                      0, _b_half)
                 _add_attempt("cpu-ctx-half",    max(1024, _cpu_base_ctx // 2),      0, _b_qtr)
                 _add_attempt("cpu-ctx-quarter", max(1024, _cpu_base_ctx // 4),      0, _b_min)
+
+            # Flush the deferred static profile if no branch above queued it (the
+            # CPU-only path skips the GPU rungs entirely). Deferring it must never
+            # mean losing it — it is a weak candidate, not a discardable one.
+            if _hw_profile_attempt is not None:
+                _add_attempt(*_hw_profile_attempt)
+                _hw_profile_attempt = None
 
             _applied = None
             _last_error = ""

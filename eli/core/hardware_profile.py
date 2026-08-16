@@ -46,6 +46,45 @@ from typing import Any, Dict, List, Optional
 _KV_BYTES_PER_TOKEN_PER_LAYER = 6_000
 _CUDA_OVERHEAD_MB = 350
 
+# Headroom left unallocated on the GPU, and the ONE default for it.
+#
+# This knob had two different defaults in four places: the startup dialog's
+# spin box and the startup optimizer said 250, while the loader and
+# gguf_inference said 700. The dialog exports its value into
+# ELI_VRAM_RESERVE_MB, so the 250 always won — and 250 is on the wrong side of
+# a cliff. Measured on a 2060 SUPER with 6,346MB free and a 4.68GB model at
+# ctx=10384:
+#
+#     reserve=250MB -> "all 99 layers fit"   <- llama.cpp then REFUSED to
+#                                               create the context
+#     reserve=400MB -> reduce to 31 layers
+#     reserve=700MB -> reduce to 29 layers   <- loads
+#
+# A 150MB swing flips the answer from 99 layers to 31, so at 250 the fit sits
+# exactly on the boundary and whether it loads depends on fragmentation. It had
+# been loading; on 2.1.98 it did not, the loader fell through to a static 4,096
+# profile, and the whole session ran in a window smaller than its own prompt.
+#
+# 700MB is the value the loader already trusted. Anyone who wants the layers
+# back can lower the spin box deliberately — that is what it is for; it just
+# must not DEFAULT to the edge of what the driver will allocate.
+DEFAULT_VRAM_RESERVE_MB = 700
+
+
+def vram_reserve_mb() -> int:
+    """The VRAM headroom to keep free, honouring ELI_VRAM_RESERVE_MB.
+
+    Single source of truth: the startup spin box, the startup optimizer and both
+    loader paths all resolve through here, so they cannot disagree again.
+    """
+    import os as _os
+    raw = (_os.environ.get("ELI_VRAM_RESERVE_MB") or "").strip()
+    try:
+        value = int(raw) if raw else DEFAULT_VRAM_RESERVE_MB
+    except ValueError:
+        return DEFAULT_VRAM_RESERVE_MB
+    return value if value > 0 else DEFAULT_VRAM_RESERVE_MB
+
 
 def _kv_cache_mb(n_ctx: int, n_layers: int = 32, quant: bool = False) -> float:
     raw = n_ctx * n_layers * _KV_BYTES_PER_TOKEN_PER_LAYER / 1_048_576

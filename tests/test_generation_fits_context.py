@@ -147,12 +147,10 @@ def test_every_generation_path_goes_through_the_fit():
     assert "_fit_generation_budget" in src
 
 
-def test_the_loader_steps_down_gradually_before_the_static_profile():
-    """smart-fit failing at 10384 jumped straight to hw-profile's 4096. The
-    graded rungs existed but sat below it and were never reached."""
-    from pathlib import Path
-    src = (Path(__file__).resolve().parents[1] /
-           "eli" / "gui" / "eli_pro_audio_gui_v2_0.py").read_text(encoding="utf-8")
-    step = src.index('f"ctx{_pct}pct"')
-    static = src.index('_add_attempt("hw-profile"')
-    assert step < static, "the static profile is still tried before the graded step-down"
+# NOTE: the loader's candidate ORDER is asserted in
+# tests/test_vram_reserve_single_default.py, alongside the reserve default that
+# is the actual reason the first attempt failed. An earlier version of this file
+# asserted a ctx-percentage step-down inserted straight after the user's
+# settings — that was the wrong fix and was reverted: it cut context FIRST,
+# inverting hardware_profile.allocate()'s documented "layers -> batch -> ctx
+# LAST" order, which exists so the user's context survives.
