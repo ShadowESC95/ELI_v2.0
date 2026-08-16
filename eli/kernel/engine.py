@@ -3389,6 +3389,11 @@ def _repeat_ratio(a: str, b: str) -> float:
 # serves a sane reply, so the threshold favours catching the echo.
 _ECHO_MIN_SENTENCE_CHARS = 18     # shorter than this, agreement is not plagiarism
 _ECHO_RATIO = 0.80
+# The corpus is the current message PLUS recent user turns, because the echo that
+# prompted this widening came from a session three hours earlier, reintroduced
+# through recalled memory. Comparing a single opening sentence against ~17 short
+# strings is trivial next to the generation it guards.
+_ECHO_MAX_SOURCES = 20
 
 
 def _first_sentence(text: str) -> str:
@@ -3406,7 +3411,7 @@ def _opens_by_echoing(opening: str, sources) -> bool:
     first = _first_sentence(opening)
     if len(_clarifier_norm(first)) < _ECHO_MIN_SENTENCE_CHARS:
         return False
-    for src in list(sources or [])[:4]:
+    for src in list(sources or [])[:_ECHO_MAX_SOURCES]:
         for sentence in _SENTENCE_SPLIT_RE.split(str(src or "").strip()):
             sentence = sentence.strip()
             if len(_clarifier_norm(sentence)) < _ECHO_MIN_SENTENCE_CHARS:
@@ -13304,6 +13309,26 @@ Answer:"""
             # delay before first paint on a generation that already takes seconds;
             # the benefit is that a verbatim re-serve never reaches the user.
             _recent_eli = []
+            # Recent USER turns, as anti-echo sources. The guard originally
+            # compared only against the CURRENT message, which was not enough:
+            # at 2.1.97 ELI opened a turn with
+            #   "Still on loop, seson 3 now. How is your memory after all the
+            #    codebse changes?"
+            # — a user message from a session three hours earlier, replayed
+            # verbatim down to both typos, in reply to "just checking in on you".
+            # Past user turns reach the model through recalled memory, so they
+            # have to be in the guard's corpus too, not just the live input.
+            _recent_user: list = []
+            try:
+                for _t in (self.memory.get_recent_conversation(limit=16) or []):
+                    if str((_t or {}).get("role", "")).lower() == "user":
+                        _c = str((_t or {}).get("content", "") or "").strip()
+                        if _c:
+                            _recent_user.append(_c)
+            except Exception:
+                log.debug("[ANTI-ECHO] recent-user fetch failed", exc_info=True)
+            _echo_sources = [user_input] + _recent_user
+
             if _user_asked_for_a_repeat(user_input):
                 log.debug("[ANTI-REPEAT] user asked for a repeat — guard stood down")
             elif _is_greeting_turn(user_input):
@@ -13324,7 +13349,7 @@ Answer:"""
             try:
                 for piece in _stream_holding_back_repeats(
                         stream, _recent_eli, allow_retry=True,
-                        echo_sources=[user_input]):
+                        echo_sources=_echo_sources):
                     full_tokens.append(piece)
                     yielded = True
                     yield piece
@@ -13389,7 +13414,7 @@ Answer:"""
                 # is served.
                 for piece in _stream_holding_back_repeats(
                         _retry, _recent_eli, allow_retry=False, salvage=True,
-                        echo_sources=[user_input]):
+                        echo_sources=_echo_sources):
                     full_tokens.append(piece)
                     yielded = True
                     yield piece

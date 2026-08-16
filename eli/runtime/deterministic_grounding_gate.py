@@ -88,8 +88,25 @@ def _db_count(db: Path, table: str) -> str:
         return f"error:{type(e).__name__}"
 
 
+def _artifacts_dir() -> Path:
+    """Where the runtime snapshot is actually written.
+
+    The project root and the artifacts dir are the same directory in a source
+    checkout and different ones in a shipped build — the code sits on the
+    read-only AppImage mount while data lives under ~/.local/share/ELI_v2. So
+    `PROJECT_ROOT / "artifacts"` reads a tree that is not there and the snapshot
+    silently comes back empty, which is precisely the 2.1.82 self-report failure
+    ce40453 fixed in three sibling modules. This is a fourth.
+    """
+    try:
+        from eli.core.paths import data_dir as _dd
+        return Path(_dd())
+    except Exception:
+        return PROJECT_ROOT / "artifacts"
+
+
 def _runtime_snapshot() -> dict[str, Any]:
-    return _read_json(PROJECT_ROOT / "artifacts" / "runtime_snapshot.json")
+    return _read_json(_artifacts_dir() / "runtime_snapshot.json")
 
 
 def _settings() -> dict[str, Any]:

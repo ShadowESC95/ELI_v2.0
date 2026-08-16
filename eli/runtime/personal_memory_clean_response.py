@@ -18,8 +18,29 @@ def _eli_canonical_root_ROOT() -> Path:
 
 
 ROOT = _eli_canonical_root_ROOT()
-USER_DB = ROOT / "artifacts" / "db" / "user.sqlite3"
-AGENT_DB = ROOT / "artifacts" / "db" / "agent.sqlite3"
+
+
+def _db_paths() -> tuple[Path, Path]:
+    """(user_db, agent_db) as the running install actually uses them.
+
+    project_root() and the artifacts dir are the SAME directory in a source
+    checkout and different ones in a shipped build: the code lives on the
+    read-only AppImage mount while the databases live under
+    ~/.local/share/ELI_v2/artifacts. Deriving the DB path from the project root
+    therefore pointed at a tree that does not exist — see the identical failure
+    fixed in personal_memory_surface, where "who am I?" reported the user DB
+    missing at a /tmp/.mount_* path.
+    """
+    try:
+        from eli.core.paths import get_paths as _gp
+        p = _gp()
+        return Path(p.user_db), Path(p.agent_db)
+    except Exception:
+        base = ROOT / "artifacts" / "db"
+        return base / "user.sqlite3", base / "agent.sqlite3"
+
+
+USER_DB, AGENT_DB = _db_paths()
 
 _POISON_PATTERNS = [
     r"Reflection \(24h\)",

@@ -18,7 +18,16 @@ def _project_root() -> Path:
 
 
 def tool_result_store_path() -> Path:
-    p = _project_root() / "artifacts" / "runtime" / "tool_results.jsonl"
+    # This WRITES, so resolving it under the project root is worse than a stale
+    # read: in a packaged build that root is a read-only AppImage mount and the
+    # mkdir below fails outright. Data belongs in the artifacts dir, which is
+    # user-writable by construction.
+    try:
+        from eli.core.paths import data_dir as _dd
+        base = Path(_dd())
+    except Exception:
+        base = _project_root() / "artifacts"
+    p = base / "runtime" / "tool_results.jsonl"
     p.parent.mkdir(parents=True, exist_ok=True)
     return p
 

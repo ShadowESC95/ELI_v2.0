@@ -22,8 +22,19 @@ def _eli_canonical_root_PROJECT_ROOT() -> Path:
 PROJECT_ROOT = _eli_canonical_root_PROJECT_ROOT()
 
 
+def _artifacts_dir() -> Path:
+    """Where the runtime snapshot is actually written — see the note in
+    deterministic_grounding_gate. PROJECT_ROOT is the install tree, which in a
+    packaged build is read-only and holds no artifacts at all."""
+    try:
+        from eli.core.paths import data_dir as _dd
+        return Path(_dd())
+    except Exception:
+        return PROJECT_ROOT / "artifacts"
+
+
 def _runtime_snapshot() -> dict[str, Any]:
-    snap = PROJECT_ROOT / "artifacts" / "runtime_snapshot.json"
+    snap = _artifacts_dir() / "runtime_snapshot.json"
     if snap.exists():
         try:
             return json.loads(snap.read_text(encoding="utf-8"))

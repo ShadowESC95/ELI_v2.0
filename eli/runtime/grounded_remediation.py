@@ -88,7 +88,15 @@ def _q(value: str) -> str:
     return shlex.quote(str(value))
 
 def _pending_file() -> Path:
-    path = _root() / "artifacts" / "pending_remediation.json"
+    # A WRITE path: under a packaged build the project root is a read-only
+    # AppImage mount, so this mkdir fails and remediation silently never
+    # persists. The artifacts dir is user-writable by construction.
+    try:
+        from eli.core.paths import data_dir as _dd
+        base = Path(_dd())
+    except Exception:
+        base = _root() / "artifacts"
+    path = base / "pending_remediation.json"
     path.parent.mkdir(parents=True, exist_ok=True)
     return path
 
