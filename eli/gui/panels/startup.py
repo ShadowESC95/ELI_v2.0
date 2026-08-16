@@ -305,7 +305,11 @@ class StartupModelSelectionDialog(QDialog):
         self.vram_reserve_spin = QSpinBox()
         self.vram_reserve_spin.setRange(0, 16384)
         self.vram_reserve_spin.setSingleStep(128)
-        self.vram_reserve_spin.setValue(int(os.environ.get("ELI_VRAM_RESERVE_MB", "250")))
+        # One default, from hardware_profile — this spin box exports its value into
+        # ELI_VRAM_RESERVE_MB, so a low default here silently overrode the loader's
+        # own 700 and produced a fit llama.cpp refused. See DEFAULT_VRAM_RESERVE_MB.
+        from eli.core.hardware_profile import vram_reserve_mb as _vrm
+        self.vram_reserve_spin.setValue(int(_vrm()))
         form.addRow("VRAM reserve MB", self.vram_reserve_spin)
 
         self.model_train_ctx_spin = QSpinBox()

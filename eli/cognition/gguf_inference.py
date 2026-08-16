@@ -778,7 +778,8 @@ def load_model(force_reload: bool = False):
             if _sf_gpu and _sf_gpu.free_mb > 0 and _mp and os.path.exists(str(_mp)):
                 _mgb = os.path.getsize(str(_mp)) / (1024 ** 3)
                 _frac = float(os.environ.get("ELI_CTX_FRACTION", "0.9") or "0.9")
-                _res = int(os.environ.get("ELI_VRAM_RESERVE_MB", "700") or "700")
+                from eli.core.hardware_profile import vram_reserve_mb as _vrm
+                _res = int(_vrm())
                 _kvq = bool(_sf_gpu.total_mb and _sf_gpu.total_mb < 12000)
                 _want = max(2048, (int(int(_sf_tc(str(_mp))) * _frac) // 2048) * 2048)
                 _min_batch = int(os.environ.get("ELI_MIN_BATCH", "128") or "128")
