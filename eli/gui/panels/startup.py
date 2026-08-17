@@ -261,23 +261,41 @@ class StartupModelSelectionDialog(QDialog):
         # settings n_ctx (your last choice, persisted) → DEFAULT_N_CTX (true first-run
         # fallback only, when no choice has ever been made). 0 = auto (fraction/VRAM
         # sizing). Applied as ELI_FORCE_CTX, the optimizer's highest-priority override.
-        try:
-            from eli.core.runtime_settings import DEFAULT_N_CTX as _DEFAULT_CTX
-        except Exception:
-            _DEFAULT_CTX = 16384
-        _saved_ctx = 0
+        # A saved context belongs to the MODEL it was chosen for. Carrying it to a
+        # different model is wrong in both directions: a 12,192 picked for an 8B
+        # with a 32k training length was still showing after switching to a
+        # 30B whose trained context is 1,048,576 — the operator's "setting" was a
+        # number computed for a model they were no longer running. Nothing here
+        # invents a value: when the model has changed, it falls back to 0, which
+        # this box already documents as "auto" and which the optimizer resolves
+        # as fraction x THAT model's trained length, fitted to real VRAM.
+        _saved_ctx, _saved_for = 0, ""
         try:
             from eli.core.runtime_settings import load_settings as _rs_load
-            _saved_ctx = int((_rs_load() or {}).get("n_ctx", 0) or 0)
+            _s = _rs_load() or {}
+            _saved_ctx = int(_s.get("n_ctx", 0) or 0)
+            # ONLY the explicit association counts. settings["model_path"] is
+            # rewritten whenever a model loads, while n_ctx is not — so comparing
+            # against it would always look like a match and the stale context
+            # would survive exactly the switch this is meant to catch.
+            _saved_for = str(_s.get("n_ctx_model") or "")
         except Exception:
-            _saved_ctx = 0
+            _saved_ctx, _saved_for = 0, ""
+
+        _selected_model = str(current_model_path or "")
+        _same_model = bool(_saved_for) and bool(_selected_model) and (
+            Path(_saved_for).name == Path(_selected_model).name
+        )
+
         _env_ctx = (os.environ.get("ELI_FORCE_CTX") or "").strip()
         if _env_ctx.isdigit() and int(_env_ctx) >= 2048:
             _initial_ctx = int(_env_ctx)            # explicit in-session override
-        elif _saved_ctx >= 2048:
-            _initial_ctx = _saved_ctx               # your last chosen value
+        elif _saved_ctx >= 2048 and _same_model:
+            _initial_ctx = _saved_ctx               # your last choice, for THIS model
         else:
-            _initial_ctx = int(_DEFAULT_CTX)        # first-run fallback only
+            # Auto. Deliberately not a constant: 16384 was as arbitrary for a 1M
+            # model as for a 4k one, and "auto" already derives per model.
+            _initial_ctx = 0
         self.ctx_window_spin = QSpinBox()
         self.ctx_window_spin.setRange(0, 262144)
         self.ctx_window_spin.setSingleStep(2048)
@@ -299,7 +317,24 @@ class StartupModelSelectionDialog(QDialog):
         self.target_batch_spin = QSpinBox()
         self.target_batch_spin.setRange(16, 4096)
         self.target_batch_spin.setSingleStep(16)
-        self.target_batch_spin.setValue(int(os.environ.get("ELI_TARGET_BATCH", "256")))
+        # Default from the hardware, not a constant. 256 was the same number on
+        # every machine and for every model; hardware_profile.recommend() already
+        # derives a batch from the detected GPU/VRAM (128 on the card this was
+        # diagnosed on). An explicit ELI_TARGET_BATCH still wins.
+        _env_batch = (os.environ.get("ELI_TARGET_BATCH") or "").strip()
+        if _env_batch.isdigit() and int(_env_batch) > 0:
+            _initial_batch = int(_env_batch)
+        else:
+            try:
+                from eli.core.hardware_profile import detect_hardware as _dh, recommend as _rec
+                _initial_batch = int(getattr(_rec(_dh()), "batch_size", 0) or 0)
+            except Exception:
+                _initial_batch = 0
+            if _initial_batch <= 0:
+                # No hardware read — leave the box at its own minimum rather than
+                # asserting a number for a machine we could not inspect.
+                _initial_batch = self.target_batch_spin.minimum()
+        self.target_batch_spin.setValue(_initial_batch)
         form.addRow("Target batch", self.target_batch_spin)
 
         self.vram_reserve_spin = QSpinBox()
@@ -333,6 +368,20 @@ class StartupModelSelectionDialog(QDialog):
                 os.environ["ELI_FORCE_CTX"] = str(_ctx_window)
             else:
                 os.environ.pop("ELI_FORCE_CTX", None)
+            # Record WHICH model this context was chosen for, so the next launch
+            # can tell a deliberate setting from a leftover. Without it there is
+            # no way to distinguish "the operator wants 12192 for this model"
+            # from "12192 is what the last, different model happened to use".
+            try:
+                from eli.core.runtime_settings import update_settings as _rs_update
+                _chosen_for = (self.model_path_input.text().strip()
+                               or str(current_model_path or ""))
+                if _ctx_window > 0 and _chosen_for:
+                    _rs_update(n_ctx_model=str(Path(_chosen_for).name))
+                elif _ctx_window <= 0:
+                    _rs_update(n_ctx_model="")     # back to auto — no association
+            except Exception:
+                pass
             os.environ["ELI_CTX_FRACTION"] = str(float(self.ctx_fraction_spin.value()))
             os.environ["ELI_TARGET_BATCH"]  = str(int(self.target_batch_spin.value()))
             os.environ["ELI_VRAM_RESERVE_MB"] = str(int(self.vram_reserve_spin.value()))
@@ -370,7 +419,19 @@ class StartupModelSelectionDialog(QDialog):
                 # Whisper is on CUDA — even if ELI_TARGET_BATCH is already set
                 # (prior sessions may have left "256" in the env).
                 if _whisper_on_cuda:
-                    _existing_batch = int(os.environ.get("ELI_TARGET_BATCH", "256") or "256")
+                    # Fall back to the HARDWARE-derived batch, not a flat 256 —
+                    # same source the spin box uses. (The 128 cap below stays: it
+                    # is an empirical co-residency limit with a measured failure
+                    # behind it, not a default.)
+                    try:
+                        from eli.core.hardware_profile import (
+                            detect_hardware as _wb_dh, recommend as _wb_rec,
+                        )
+                        _default_batch = int(getattr(_wb_rec(_wb_dh()), "batch_size", 0) or 0)
+                    except Exception:
+                        _default_batch = 0
+                    _env_b = (os.environ.get("ELI_TARGET_BATCH") or "").strip()
+                    _existing_batch = int(_env_b) if _env_b.isdigit() else max(0, _default_batch)
                     if _existing_batch > 128:
                         os.environ["ELI_TARGET_BATCH"] = "128"
                         log.debug("[STARTUP_DIALOG][AUDIO_PRELOAD] Whisper on CUDA → capping batch to 128")
