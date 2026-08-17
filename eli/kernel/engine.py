@@ -8992,12 +8992,70 @@ Answer:"""
         except Exception:
             _corr_target = user_input
 
+        # The exchange being repaired. Without it this path was asked to fix an
+        # answer it could not see: the call passed the user's words and nothing
+        # else (prompt_tokens=111 on a live turn), so "what are you talking
+        # about, now?" — which is ONLY answerable by reference to what ELI just
+        # said — produced "I'm sorry for the confusion. Could you please clarify
+        # what you're asking about?". The user's next message was "what the fuck
+        # are you talking about?".
+        #
+        # The scope guard below is still right: a repair must not wander into
+        # diagnostics. But scope is not the same as amnesia — it needs the
+        # referent to repair.
+        _prior = ""
+        try:
+            _turns = self.memory.get_recent_conversation(
+                limit=6, user_id=self.user_id) or []
+            _prev_user, _prev_eli = "", ""
+            for _t in reversed(_turns):
+                _role = str(_t.get("role") or "").strip().lower()
+                _content = str(_t.get("content") or "").strip()
+                if not _content:
+                    continue
+                if not _prev_eli and _role in ("assistant", "eli"):
+                    _prev_eli = _content
+                    continue
+                if _prev_eli and not _prev_user and _role == "user":
+                    _prev_user = _content
+                    break
+            if _prev_eli:
+                _prior = (
+                    "The exchange you are correcting:\n"
+                    + (f"User: {_prev_user[:600]}\n" if _prev_user else "")
+                    + f"You: {_prev_eli[:900]}\n\n"
+                )
+        except Exception:
+            log.debug("[COGNITIVE] correction: prior turn lookup failed", exc_info=True)
+
         _corr_system = (
             "You are ELI. Current speech act: CORRECTION_REPAIR. "
             "The user is correcting your previous answer. Answer only the corrected request. "
             "Do not introduce memory, runtime, files, diagnostics, identity, projects, or specifications unless the corrected request explicitly asks for them. "
-            "Keep the reply direct, natural, and concise."
+            "Keep the reply direct and natural. "
+            "If the user is asking what you meant, say what you meant in plain terms — "
+            "do not ask them to clarify a question about your own previous answer."
         )
+        if _prior:
+            _corr_system = _prior + _corr_system
+
+        # Budget comes from the user's own mode preset, like every other
+        # generation path. A fixed 160 here was one of the output caps that
+        # truncated real answers regardless of the operator's settings.
+        # -1 is the "no cap, fill the context" value and several presets use it
+        # (self_consistency ships as -1). It must pass through untouched: a
+        # `<= 0` fallback would quietly convert the operator's "unlimited" into
+        # a number, which is the class of silent cap this path already had.
+        try:
+            _corr_preset = self._mode_profile(
+                (trace or {}).get("reasoning_mode")) or {}
+            _corr_max = _corr_preset.get("max_tokens")
+            _corr_max = int(_corr_max) if _corr_max is not None else 0
+        except Exception:
+            _corr_max = 0
+        if _corr_max == 0:
+            # No preset written yet (pre-first-run / corrupted settings).
+            _corr_max = 512
 
         _corr_response = None
         if not self._gguf_available and gguf_inference is not None:
@@ -9012,7 +9070,7 @@ Answer:"""
                     _corr_response = broker.infer(
                         _corr_target,
                         system=_corr_system,
-                        max_tokens=160,
+                        max_tokens=_corr_max,
                         temperature=0.35,
                     )
                 else:
@@ -9020,7 +9078,7 @@ Answer:"""
                         _corr_response = gguf_inference.chat_completion(
                             _corr_target,
                             system=_corr_system,
-                            max_tokens=160,
+                            max_tokens=_corr_max,
                             temperature=0.35,
                         )
             except Exception as _ce:
@@ -14167,22 +14225,15 @@ Answer:"""
                 insights = result.get("insights", [])
                 if insights:
                     log.debug(f"[COGNITIVE] eli-reflection: {len(insights)} insights generated")
-                    # Store individual insights as searchable "insight" memories.
-                    # NOT tagged "reflection" — that tag is noise-filtered in recall.
-                    for _ins in insights[:5]:
-                        _ins_text = str(_ins or "").strip()
-                        if not _ins_text or len(_ins_text) < 15:
-                            continue
-                        try:
-                            self.memory.store_memory(
-                                _ins_text,
-                                tags=["eli_insight", "auto"],
-                                kind="insight",
-                                source="eli_reflection",
-                                importance=0.68,
-                            )
-                        except Exception:
-                            log.debug("suppressed exception", exc_info=True)
+                    # Persisting them here as well was a DOUBLE write:
+                    # run_reflection -> reflect_on_period already stores each
+                    # insight, and this loop stored the same rows again with no
+                    # duplicate check of any kind. Every reflection cycle
+                    # therefore appended two copies of every insight, which is
+                    # how one machine reached 135 reflection rows with 34 exact
+                    # duplicates — six identical copies of a single row — all of
+                    # them ranking in recall by weight of numbers.
+                    # reflect_on_period owns this; do not write it twice.
             except Exception as e:
                 log.debug(f"[COGNITIVE] Reflection failed: {e}")
         finally:
