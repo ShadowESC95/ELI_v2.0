@@ -4,8 +4,8 @@ Written because a set of marketing claims about ELI was checked line-by-line aga
 the tree and a third of them described something other than what is here. This file is
 the corrected version: every row is either verified against a file:line or struck.
 
-Audited at `3025c43` (baseline suite: 8,630 passed). Current suite after the fixes this
-audit prompted: **8,654 passed / 51 skipped / 2 xfailed**, 276 test files.
+Audited at `3025c43` (baseline suite: 8,630 passed). Current suite at **v2.2.4**:
+**9,262 passed / 53 skipped / 2 xfailed**, 308 test files.
 Re-run the checks with `.venv/bin/python -m pytest tests/claims/ -q`.
 
 > Rule of thumb this file exists to enforce: **a capability ELI has, described by a
@@ -30,7 +30,7 @@ Re-run the checks with `.venv/bin/python -m pytest tests/claims/ -q`.
 | Drop-in plugin architecture with auto-discovery | `eli/plugins/base/base.py:20` — subclass `Plugin`, implement actions, `execute()`; `load_plugins()` discovers the package |
 | Self-healing rollback after a bad self-applied patch | `eli/runtime/self_improvement.py:1019 revert_patch()`, `:979 _rollback_all()` (atomic across files) |
 | 216 capabilities | `capability_manifest.json` (`total`), enforced by `tests/claims/test_capability_manifest.py` |
-| 8,100+ tests across 245+ files | Actual: 8,654 tests, 276 files. Stated as a floor, so it stays true. |
+| 9,262+ tests across 308+ files | Verified at v2.2.4: 9,262 passing, 308 files. Stated as a floor, so ordinary growth keeps it true. |
 | Reads txt, md, PDF, docx, **odt, epub** | `eli/plugins/document_reader/plugin.py`. `.odt`/`.epub` were advertised but not dispatched until this audit — see below. |
 
 ---
@@ -105,12 +105,12 @@ defect a gate that never runs cannot catch.
 
 **Claim it accurately:** this is a curated cross-platform gate — imports, the headless
 FastAPI server, all 16 dashboard read-endpoints, the 78-case API suite, first-run DB
-build, and ten self-contained unit/claims files. It is **not** the full 8,630-test
+build, and ten self-contained unit/claims files. It is **not** the full 9,262-test
 suite, because most of that suite needs a GGUF model, a display, or generated artifacts
 that do not exist on a runner. The honest sentence is:
 
 > Every change is gated on Linux, macOS and Windows across two Python versions; the
-> full 8,600-test suite runs locally against the packaged environment.
+> full 9,200-test suite runs locally against the packaged environment.
 
 ---
 
