@@ -13,13 +13,13 @@ with the commands in [Keeping this honest](#keeping-this-honest).
 
 | | |
 |---|---|
-| Tracked Python (excl. tests/build) | **175,780 lines** across **473 modules** |
+| Tracked Python (excl. tests/build) | **179,187 lines** across **468 modules** |
 | Test files | **272** |
 | Actions in `capability_manifest.json` | **216** |
 | Live SQLite stores | **4** (`user` 39 tables · `agent` 26 · `system_index` 4 · `coding_memory` 2) |
 | GGUF models on disk | 6 (~12 GB) |
 
-The sibling repo **ELI v3** is 184,505 lines / 639 modules — the same system with
+The sibling repo **ELI v3** is 186,996 lines / 631 modules — the same system with
 the god-files decomposed further. They share no git history; port by content
 diff (`tools/repo_parity.py` shows drift).
 
