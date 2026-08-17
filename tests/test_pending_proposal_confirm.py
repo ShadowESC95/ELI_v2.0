@@ -131,3 +131,40 @@ def test_expired_proposal_not_returned(monkeypatch):
     # Advance the clock past the TTL window (patch the module's own time ref).
     monkeypatch.setattr(pp.time, "time", lambda: real_now + pp._TTL_SECONDS + 10.0)
     assert pp.get_pending_proposal() is None
+
+
+# ── the weak-offer capture must stop at its own clause ─────────────────────
+# The "?" that qualifies an "I can …" offer has to close THAT clause. With a
+# lazy `(.+?)\?` the capture ran across a comma to find a question mark
+# belonging to a different sentence half, so a live reply —
+#
+#   "Now that we've established I can finish a sentence again, what do you
+#    actually want to work on?"
+#
+# — armed the proposal 'finish a sentence again, what do you actually want to
+# work on'. Eleven words of narrative, stored for 300 seconds, ready for the
+# next "yes" to route as a command. That is the no-fake-actions violation the
+# offer layer exists to prevent, so it is locked here.
+@pytest.mark.parametrize("reply", [
+    "Now that we've established I can finish a sentence again, "
+    "what do you actually want to work on?",
+    "I'll be here, so what shall we do next?",
+    "I can see the appeal, but what would you actually like?",
+])
+def test_narrative_running_into_a_later_question_is_not_an_offer(reply):
+    assert pp.extract_proposal(reply) == ""
+
+
+@pytest.mark.parametrize("reply,expected", [
+    ("I can run the test suite for you?", "run the test suite for you"),
+    ("I'll open the report?", "open the report"),
+    ("Here is the summary. Want me to save it?", "save it"),
+])
+def test_genuine_offers_are_still_captured(reply, expected):
+    assert pp.extract_proposal(reply) == expected
+
+
+def test_a_declarative_offer_stem_is_still_ignored():
+    """Interrogative form is what makes it answerable with "yes"."""
+    assert pp.extract_proposal("You want me to keep a deeper persona.") == ""
+    assert pp.extract_proposal("I can appreciate the absurdity of existence.") == ""
