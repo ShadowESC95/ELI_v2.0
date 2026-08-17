@@ -495,7 +495,29 @@ def allocate(
     # ---- Dialog / env fallbacks (3rd priority) ----
     # ELI_CTX_FRACTION and ELI_TARGET_BATCH are set by the startup dialog
     # spinboxes and propagated as env vars — this is the normal user path.
-    target_batch  = int(os.environ.get("ELI_TARGET_BATCH",  "512"))
+    # Fallback derived from THIS machine, not a constant. This said 512 while the
+    # startup dialog said 256 and its Whisper-cap path said 256 again — three
+    # defaults for one knob, and whichever ran last won. Same shape as the VRAM
+    # reserve, where a low default in the dialog silently overrode the loader's.
+    # An explicit ELI_TARGET_BATCH (the dialog's own export) still takes priority.
+    _tb_env = (os.environ.get("ELI_TARGET_BATCH") or "").strip()
+    if _tb_env.isdigit() and int(_tb_env) > 0:
+        target_batch = int(_tb_env)
+    else:
+        try:
+            from eli.core.hardware_profile import detect_hardware as _tb_dh, recommend as _tb_rec
+            target_batch = int(getattr(_tb_rec(_tb_dh()), "batch_size", 0) or 0)
+        except Exception:
+            target_batch = 0
+        if target_batch <= 0:
+            # Hardware unreadable — fall back to the user's PINNED batch only.
+            # Deliberately not n_batch / batch_size: those are optimizer OUTPUTS
+            # (see the note above), so feeding them back in would make this run's
+            # reduction next run's "preference" — a one-way ratchet downward.
+            try:
+                target_batch = int((settings or {}).get("user_preferred_batch") or 0)
+            except Exception:
+                target_batch = 0
     ctx_fraction  = float(os.environ.get("ELI_CTX_FRACTION", "0.9"))
 
     # ---- CPU-only path ----
