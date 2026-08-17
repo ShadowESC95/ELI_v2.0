@@ -13,6 +13,49 @@ from eli.utils.log import get_logger
 log = get_logger(__name__)
 
 
+def _already_stored(mem, text: str) -> bool:
+    """True when this exact reflection text is already in the store.
+
+    The previous check asked ``recall_memory("reflection", limit=5)`` whether the
+    new text appeared among the five rows it returned. That is a relevance query,
+    not an existence query: once the store held a hundred reflections the five it
+    chose were almost never the one being written, the check passed, and the row
+    was appended again. A live machine accumulated 135 reflection rows, 34 of them
+    exact duplicates — six identical copies of one of them — which then dominated
+    retrieval by sheer count.
+
+    An exact match on the text column answers the question that was actually
+    being asked. Falls back to the old behaviour only if the table cannot be
+    queried directly, so a schema change degrades to "store it" rather than
+    silently dropping reflections.
+    """
+    text = str(text or "").strip()
+    if not text:
+        return True
+    try:
+        import sqlite3
+
+        path = getattr(mem, "db_path", None)
+        if not path:
+            return False
+        con = sqlite3.connect(f"file:{path}?mode=ro", uri=True, timeout=5)
+        try:
+            cols = {r[1] for r in con.execute("PRAGMA table_info(memories)")}
+            targets = [c for c in ("text", "content") if c in cols]
+            if not targets:
+                return False
+            where = " OR ".join(f"{c} = ?" for c in targets)
+            row = con.execute(
+                f"SELECT 1 FROM memories WHERE {where} LIMIT 1", [text] * len(targets)
+            ).fetchone()
+            return row is not None
+        finally:
+            con.close()
+    except Exception:
+        log.debug("reflection: duplicate check failed", exc_info=True)
+        return False
+
+
 # Shared so the report header and the daemon's greeting cannot drift apart. The
 # 12/17 boundaries are the ones proactive_daemon already used for its greeting.
 def part_of_day(ts: Optional[float] = None) -> str:
@@ -205,30 +248,34 @@ def reflect_on_period(hours: int = 24) -> Dict[str, Any]:
     # Store reflection as a memory for future context
     if insights:
         reflection_text = f"Reflection ({hours}h): " + "; ".join(insights)
-        try:
-            existing = mem.recall_memory("reflection", limit=5)
-            if not any(reflection_text[:50] in str(m.get("text", "")) for m in existing):
+        if not _already_stored(mem, reflection_text):
+            try:
                 mem.store_memory(reflection_text, tags=["reflection", "auto"])
-        except Exception:
-            pass
-        # Also store each individual insight as a searchable "insight" memory.
-        # "reflection" kind/tag is noise-filtered in recall — "insight" kind surfaces.
+            except Exception:
+                log.debug("reflection: aggregate store failed", exc_info=True)
+        # Also store each individual insight so the reflection surfaces can cite
+        # it. These are TELEMETRY, not facts about anyone: recall filters them by
+        # source ('eli_reflection') so they cannot compete with real user memories
+        # — see the note on _noise_sources in memory.recall_memory. They were
+        # previously written under a kind/tag combination picked to dodge that
+        # filter, which is how 83% of everything ELI could recall came to be its
+        # own failure counts and keyword tallies.
         for _ins in insights[:6]:
             _ins_text = str(_ins or "").strip()
             if not _ins_text or len(_ins_text) < 15:
                 continue
+            if _already_stored(mem, _ins_text):
+                continue
             try:
-                _existing = mem.recall_memory(_ins_text[:40], limit=2)
-                if not any(_ins_text[:30].lower() in str(m.get("text", "")).lower() for m in _existing):
-                    mem.store_memory(
-                        _ins_text,
-                        tags=["eli_insight", "auto"],
-                        kind="insight",
-                        source="eli_reflection",
-                        importance=0.65,
-                    )
+                mem.store_memory(
+                    _ins_text,
+                    tags=["eli_insight", "auto"],
+                    kind="insight",
+                    source="eli_reflection",
+                    importance=0.65,
+                )
             except Exception:
-                pass
+                log.debug("reflection: insight store failed", exc_info=True)
 
     if not insights:
         insights.append("No evidence-backed activity signals recorded for this period.")

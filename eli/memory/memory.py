@@ -2005,8 +2005,28 @@ class Memory(metaclass=_MemoryMeta):
             _noise_kinds = (
                 "assistant_insight", "episodic", "reflection",
             )
+            # ELI's own reflection telemetry. The aggregate "Reflection (24h): …"
+            # row is caught by the tag clause below, but reflection also re-stores
+            # each individual insight under kind='insight' / tags=['eli_insight',
+            # 'auto'] — a combination chosen, in a comment, precisely BECAUSE it
+            # dodges every clause here. The effect on a real machine:
+            #
+            #   memories reaching recall            257
+            #   ...that were reflection telemetry   214   (83%)
+            #   "Recent issues: 4 failure-related memories stored"  importance 1.0
+            #
+            # So the highest-ranked thing ELI could remember about itself was a
+            # row counting its own failures, and a greeting came back "I'm a patch
+            # job, a walking glitch" — the model reciting keyword statistics
+            # ("Top topics: stop, glitchy, …") as autobiography.
+            #
+            # Filtering by SOURCE is the narrow cut: it catches exactly the two
+            # reflection writers and leaves ambient-vision and world/autonomy
+            # notes (different sources) recallable. Nothing legitimate is lost —
+            # "what patterns have you noticed" is served by ReflectionAgent, which
+            # reads the observations and session_summaries tables, not this one.
             _noise_sources = (
-                "orchestrator",
+                "orchestrator", "eli_reflection",
             )
             # Noise tag patterns (covers kind='memory' entries that are
             # actually reflections or assistant responses by their tags)
