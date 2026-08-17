@@ -381,7 +381,10 @@ class StartupModelSelectionDialog(QDialog):
                 elif _ctx_window <= 0:
                     _rs_update(n_ctx_model="")     # back to auto — no association
             except Exception:
-                pass
+                # Observable, not swallowed: if this never lands the context
+                # silently stops being remembered per model and the staleness
+                # this fixes comes straight back, with nothing to show why.
+                log.debug("could not record the context/model association", exc_info=True)
             os.environ["ELI_CTX_FRACTION"] = str(float(self.ctx_fraction_spin.value()))
             os.environ["ELI_TARGET_BATCH"]  = str(int(self.target_batch_spin.value()))
             os.environ["ELI_VRAM_RESERVE_MB"] = str(int(self.vram_reserve_spin.value()))
