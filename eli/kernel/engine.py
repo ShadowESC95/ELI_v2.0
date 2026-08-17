@@ -1023,14 +1023,27 @@ def _is_brief_phatic_prompt(text: str) -> bool:
     # runs on. "how's the head" is a hello; "how's the GPU" is a real question that
     # must keep its evidence gathering. Listing the technical nouns is narrower and
     # safer than trying to guess intent.
+    # "how IS the x" as well as "how's the x" — the strip above already accepts
+    # both, so the patterns below have to as well or the longer form falls through
+    # to the LLM resolver (46s on a CPU-offloaded model, to answer "CHAT").
     _technical_subject = re.match(
-        r"^how'?s (?:the|your) (gpu|cpu|ram|vram|server|model|build|tests?|code|api|"
+        r"^how'?s? (?:is )?(?:the|your) (gpu|cpu|ram|vram|server|model|build|tests?|code|api|"
         r"db|database|memory|disk|network|index|suite|pipeline|daemon|queue|log)\b",
         normalized,
     )
     _casual_patterns = () if _technical_subject else (
-        r"^how'?s the \w+(\s+\w+)?$",
-        r"^how'?s your \w+(\s+\w+)?$",
+        r"^how'?s? (?:is )?the \w+(\s+\w+)?$",
+        r"^how'?s? (?:is )?your \w+(\s+\w+)?$",
+        # A second-person STATE check aimed at ELI: "are you ok", "you better now".
+        # Pronoun + state adjective + optional temporal tail, anchored end-to-end,
+        # so there is no verb-plus-object slot for a real request to hide in
+        # ("fix the router" cannot match). "you ok" was already in the phrase set;
+        # the natural forms around it were not, and each one cost a full
+        # intent-classification generation.
+        r"^(?:are |r )?you "
+        r"(?:ok|okay|alright|allright|good|well|better|fine|right|sorted|sound|normal"
+        r"|back(?: to (?:normal|yourself|form))?)"
+        r"(?: now| yet| today| again| then)?$",
         r"^how are (you|things|we)( doing| going)?$",
         r"^what'?s (up|good|new|happening)(\s+\w+)?$",
         r"^\w+ \w+ buddy$",

@@ -112,8 +112,19 @@ _STRONG_OFFER_RE = _re.compile(
 # capturing them let a later "yes" trigger a bogus command (no-fake-actions
 # violation). Requiring the trailing ? keeps genuine "I can run that for you?"
 # offers while dropping declaratives.
+# The capture must stop at a clause boundary, and the "?" has to close THAT
+# clause. `(.+?)\?` ran across a comma to find a question mark belonging to a
+# different sentence half, so
+#
+#   "Now that we've established I can finish a sentence again,
+#    what do you actually want to work on?"
+#
+# armed the proposal 'finish a sentence again, what do you actually want to work
+# on' — an eleven-word fragment of narrative, ready for the next "yes" to
+# execute as a command. Requiring the "?" immediately after an unbroken clause
+# keeps "I can run that for you?" and drops that.
 _WEAK_OFFER_RE = _re.compile(
-    r"\b(?:i can|i could|i'?ll|i'd be happy to|happy to)\s+(.+?)\?",
+    r"\b(?:i can|i could|i'?ll|i'd be happy to|happy to)\s+([^,;?!.]+)\?",
     _re.I,
 )
 
