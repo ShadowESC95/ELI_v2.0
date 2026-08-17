@@ -711,10 +711,15 @@ def get_pending_fix() -> Optional[Dict[str, Any]]:
 
 
 def clear_pending_fix() -> None:
+    # missing_ok: "clear" on a file that is already absent is the SUCCESS case,
+    # not an error. The except branch below caught it correctly but logged a full
+    # traceback with exc_info, so every EXAMINE_CODE that had no pending fix —
+    # i.e. the normal one — printed a FileNotFoundError stack to the console and
+    # looked like a crash.
     try:
-        _pending_file().unlink()
-    except FileNotFoundError:
-        log.debug("suppressed exception", exc_info=True)
+        _pending_file().unlink(missing_ok=True)
+    except OSError:
+        log.debug("could not clear the pending code fix", exc_info=True)
 
 
 # --------------------------------------------------------------------------- #

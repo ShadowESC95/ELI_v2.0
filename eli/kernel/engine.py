@@ -6373,6 +6373,29 @@ Answer:"""
                         log.debug(
     f"[COGNITIVE] Prompt capped to {_max_prompt_chars}chars "
     f"(head+tail; n_ctx={_n_ctx_pf1}, qcap={_qcap})")
+
+                    # Re-fit the answer budget to the prompt ACTUALLY being sent.
+                    #
+                    # _avail_pf1 above was computed from the prompt BEFORE the
+                    # truncation that just ran, and it floors at 128. So a large
+                    # pre-truncation prompt drove the estimate past n_ctx, the
+                    # floor engaged, the prompt was then cut down to fit — and the
+                    # answer was still capped at the 128 chosen when the prompt was
+                    # twice its final size. Observed at 2.2.2: prompt_tokens=5693
+                    # in a 10384 window (≈4,600 free) generating with max_tokens=128,
+                    # cutting the reply mid-word.
+                    #
+                    # Estimate → clamp → truncate is the wrong order. Truncating
+                    # frees room; the budget has to be recomputed once it has.
+                    _pt_final = max(1, int((len(enhanced_system) + len(prompt)) / 3.5))
+                    _avail_final = max(128, _n_ctx_pf1 - _pt_final - 64)
+                    if _avail_final > _safe_max_pf1:
+                        _req_ok = _req_pf1 if _req_pf1 > 0 else _avail_final
+                        _safe_max_pf1 = max(_safe_max_pf1, min(_req_ok, _avail_final))
+                        log.debug(
+    f"[COGNITIVE] Budget re-fitted after prompt truncation: "
+    f"max_tokens→{_safe_max_pf1} (prompt≈{_pt_final} tok, n_ctx={_n_ctx_pf1})")
+
                     response = broker.infer(
                         prompt,
                         system=enhanced_system,
