@@ -76,6 +76,65 @@ def _round_ctx(x: int) -> int:
     return max(c for c in choices if c <= max(2048, x))
 
 
+
+_MIN_CTX = 4096
+_MIN_BATCH = 128
+# A proportion of measured memory, not a size band: a machine with twice the
+# RAM gets twice the allowance, with no thresholds to fall between.
+_RAM_FRACTION_FOR_CTX = 0.25
+# Nothing sensible can be inferred above a model's own training window, and a
+# context beyond it degrades quality — llama.cpp warns "n_ctx_seq > n_ctx_train".
+_ABSOLUTE_CTX_CAP = 32768
+
+
+
+# Generated-output share of the context window. The rest is prompt headroom:
+# persona brief, memory context and evidence all have to fit alongside it.
+_OUTPUT_SHARE_OF_CTX = 0.375
+_MAX_OUTPUT_TOKENS = 4096
+
+
+def _output_budget_for_ctx(n_ctx: int) -> int:
+    """Generated-token budget as a proportion of the window, not a band."""
+    return max(512, min(_MAX_OUTPUT_TOKENS, int(int(n_ctx) * _OUTPUT_SHARE_OF_CTX)))
+
+
+def _ctx_ceiling_for_ram(ram_gb: float, size_gb: float) -> int:
+    """Largest context this machine's RAM can hold for a model this size.
+
+    Replaces `if ram_gb >= 48 ... 16384 / elif >= 32 ... 12288 / ...`.
+
+    The per-token cost comes from hardware_profile._kv_cache_mb — the same
+    measured KV arithmetic the loader uses — rather than a constant invented
+    here. An earlier draft of this function DID invent one, and it implied an
+    18k context on an 8GB machine, which is exactly the class of number this
+    change exists to remove.
+    """
+    try:
+        from eli.core.hardware_profile import _kv_cache_mb, _layers_for_size
+        layers = _layers_for_size(float(size_gb))
+        mb_per_token = _kv_cache_mb(1, layers, quant=False)
+    except Exception:
+        return _MIN_CTX
+    if mb_per_token <= 0:
+        return _MIN_CTX
+    allowance_mb = max(0.0, float(ram_gb)) * 1024.0 * _RAM_FRACTION_FOR_CTX
+    return max(_MIN_CTX, min(_ABSOLUTE_CTX_CAP, int(allowance_mb / mb_per_token)))
+
+
+def _batch_ceiling_for_vram(usable_vram_mb: float) -> int:
+    """Batch scales with the VRAM actually free, in powers of two.
+
+    Replaces `if usable_vram >= 10000 ... 512 / elif >= 7000 ... 384 / ...`.
+    smart_fit_config halves this toward its own floor when it does not fit, so
+    this only needs to be an honest starting point.
+    """
+    b = _MIN_BATCH
+    while b < 512 and usable_vram_mb >= (b * 16):
+        b *= 2
+    return int(b)
+
+
 def derive_budget(model_path: str | Path = "") -> DynamicRuntimeBudget:
     gpu_name, vram_total, vram_free = detect_gpu()
     ram_gb = detect_ram_gb()
@@ -84,61 +143,44 @@ def derive_budget(model_path: str | Path = "") -> DynamicRuntimeBudget:
 
     usable_vram = max(0, vram_free - 900)
 
-    # GPU layers: model-size aware, not just VRAM aware.
+    # ── ctx / gpu_layers / batch come from the MEASURED fit ────────────────
+    #
+    # This used to be three ladders of hardcoded buckets — ctx picked from
+    # {16384, 12288, 8192, 6144, 4096} by RAM band, gpu_layers from
+    # {99, 35, 24, 16, 8, 4} by model-size band, batch from
+    # {512, 384, 256, 128} by VRAM band. Nothing measured the KV cache or the
+    # compute graph, so the numbers disagreed with what the loader actually
+    # did: on one live 2.3.0 launch this table's ctx and the resident ctx were
+    # 6144 and 10384, on the same machine, at the same moment.
+    #
+    # hardware_profile.smart_fit_config is the real arithmetic — KV cache per
+    # token, compute-graph reserve, MB per layer from the model's own size —
+    # and it is what the loader uses. Deriving from it keeps one answer in the
+    # process instead of two that drift apart.
+    ctx_target = _ctx_ceiling_for_ram(ram_gb, size_gb)
+    try:
+        from eli.core.hardware_profile import smart_fit_config
+        n_ctx, gpu_layers, batch = smart_fit_config(
+            model_size_gb=size_gb,
+            free_vram_mb=int(vram_free),
+            user_ctx=ctx_target,
+            user_batch=_batch_ceiling_for_vram(usable_vram),
+        )
+    except Exception:
+        # The fit is unavailable (no hardware_profile on this build). Fall back
+        # to the smallest safe window rather than to invented buckets.
+        n_ctx, gpu_layers, batch = _MIN_CTX, (0 if vram_total <= 0 else 4), _MIN_BATCH
+
     if vram_total <= 0:
         gpu_layers = 0
-    elif size_gb <= 2.5 and usable_vram >= 3500:
-        gpu_layers = 99
-    elif size_gb <= 5.0 and usable_vram >= 5500:
-        gpu_layers = 35
-    elif size_gb <= 8.0 and usable_vram >= 6500:
-        gpu_layers = 24
-    elif size_gb <= 12.0 and usable_vram >= 6500:
-        gpu_layers = 16
-    elif size_gb <= 18.0 and usable_vram >= 6500:
-        gpu_layers = 8
-    else:
-        gpu_layers = 4 if usable_vram >= 3500 else 0
-
-    # Context: constrained by RAM + model size.
-    if ram_gb >= 48 and size_gb <= 8:
-        n_ctx = 16384
-    elif ram_gb >= 32 and size_gb <= 16:
-        n_ctx = 12288
-    elif ram_gb >= 24:
-        n_ctx = 8192
-    elif ram_gb >= 16:
-        n_ctx = 6144
-    else:
-        n_ctx = 4096
-
-    # Very large models on modest machines should not start at huge ctx.
-    if size_gb >= 14 and ram_gb < 48:
-        n_ctx = min(n_ctx, 8192)
 
     n_ctx = _round_ctx(n_ctx)
 
-    # Batch: primarily VRAM pressure.
-    if usable_vram >= 10000 and size_gb <= 8:
-        batch = 512
-    elif usable_vram >= 7000 and size_gb <= 12:
-        batch = 384
-    elif usable_vram >= 5500:
-        batch = 256
-    else:
-        batch = 128
-
-    if size_gb >= 14:
-        batch = min(batch, 128)
-
-    # Output budget: prefer 4096, but maintain prompt headroom.
-    # This is generated-token budget, not context.
-    if n_ctx >= 8192:
-        max_tokens = 4096
-    elif n_ctx >= 6144:
-        max_tokens = 3072
-    else:
-        max_tokens = 2048
+    # Output budget: a share of the window, so prompt headroom is preserved at
+    # every size instead of jumping between three fixed values. The last of the
+    # bands lived here (4096 / 3072 / 2048 by ctx), which meant a ctx of 6143
+    # and 6144 got budgets 1024 tokens apart for no measured reason.
+    max_tokens = _output_budget_for_ctx(n_ctx)
 
     # Mode-specific budgets.
     mode_presets = {
