@@ -897,6 +897,68 @@ def _jsonify_contract_value(v):
     except Exception:
         return str(v)
 
+
+# ── observation retention ──────────────────────────────────────────────────
+# The proactive daemon appends one observation per tick, forever. They are
+# filtered out of every reasoning path (see eli/core/self_provenance), so their
+# only remaining cost is unbounded growth: a live machine reached 220 rows of
+# which 104 were `proactive_pattern_tick` and 104 `runtime`, and nothing ever
+# removed one.
+#
+# Pruning is per CATEGORY, so a flood of daemon ticks can never evict a genuine
+# observation, and it keeps the newest rows. Throttled per process: the first
+# insert for a category prunes (so an already-bloated store is trimmed at
+# startup), then once every _OBS_PRUNE_EVERY inserts.
+_OBS_PRUNE_EVERY = 50
+_obs_insert_counts: Dict[str, int] = {}
+
+
+def _prune_observations(conn, category: str) -> int:
+    """Trim `category` down to its retention limit. Returns rows deleted."""
+    try:
+        from eli.core.self_provenance import observation_retention_limit
+    except Exception:
+        return 0
+    key = str(category or "").strip().lower()
+    n = _obs_insert_counts.get(key, 0)
+    _obs_insert_counts[key] = n + 1
+    # n == 0 is the first insert this process: always check.
+    if n != 0 and (n % _OBS_PRUNE_EVERY) != 0:
+        return 0
+    limit = int(observation_retention_limit(key))
+    try:
+        cols = _memory_table_columns(conn, "observations")
+        cat_col = "category" if "category" in cols else ("source" if "source" in cols else None)
+        if not cat_col:
+            return 0
+        order = "COALESCE(timestamp, ts, id)" if {"timestamp", "ts"} & set(cols) else "id"
+        total = conn.execute(
+            f"SELECT COUNT(*) FROM observations WHERE LOWER(COALESCE({cat_col}, '')) = ?",
+            (key,),
+        ).fetchone()[0]
+        if total <= limit:
+            return 0
+        cur = conn.execute(
+            f"""DELETE FROM observations WHERE id IN (
+                    SELECT id FROM observations
+                    WHERE LOWER(COALESCE({cat_col}, '')) = ?
+                    ORDER BY {order} DESC
+                    LIMIT -1 OFFSET ?
+                )""",
+            (key, limit),
+        )
+        conn.commit()
+        deleted = int(cur.rowcount or 0)
+        if deleted:
+            log.debug("[MEMORY] pruned %d '%s' observations (kept %d)",
+                      deleted, key, limit)
+        return deleted
+    except Exception:
+        log.debug("observation prune failed", exc_info=True)
+        return 0
+
+
+
 def _now_ts():
     return float(time.time())
 
@@ -1998,65 +2060,17 @@ class Memory(metaclass=_MemoryMeta):
             # importance column present in schema — use it in ordering
             imp_expr = "COALESCE(importance, 0.5)" if "importance" in cols else "0.5"
 
-            # Kinds/tags that are noise for recall: ELI's old responses,
-            # conversation blobs, and auto-generated meta-commentary.
-            # These are stored for audit/self-improvement but must NOT
-            # surface as user-facing recalled memories.
-            _noise_kinds = (
-                "assistant_insight", "episodic", "reflection",
-            )
-            # ELI's own reflection telemetry. The aggregate "Reflection (24h): …"
-            # row is caught by the tag clause below, but reflection also re-stores
-            # each individual insight under kind='insight' / tags=['eli_insight',
-            # 'auto'] — a combination chosen, in a comment, precisely BECAUSE it
-            # dodges every clause here. The effect on a real machine:
-            #
-            #   memories reaching recall            257
-            #   ...that were reflection telemetry   214   (83%)
-            #   "Recent issues: 4 failure-related memories stored"  importance 1.0
-            #
-            # So the highest-ranked thing ELI could remember about itself was a
-            # row counting its own failures, and a greeting came back "I'm a patch
-            # job, a walking glitch" — the model reciting keyword statistics
-            # ("Top topics: stop, glitchy, …") as autobiography.
-            #
-            # Filtering by SOURCE is the narrow cut: it catches exactly the two
-            # reflection writers and leaves ambient-vision and world/autonomy
-            # notes (different sources) recallable. Nothing legitimate is lost —
-            # "what patterns have you noticed" is served by ReflectionAgent, which
-            # reads the observations and session_summaries tables, not this one.
-            _noise_sources = (
-                "orchestrator", "eli_reflection",
-            )
-            # Noise tag patterns (covers kind='memory' entries that are
-            # actually reflections or assistant responses by their tags)
-            _tags_col   = "LOWER(COALESCE(m.tags, ''))" if "tags" in cols else "''"
-            _tags_col_t = "LOWER(COALESCE(tags, ''))"   if "tags" in cols else "''"
+            # What counts as ELI's own record-keeping is decided in ONE place —
+            # eli/core/self_provenance.py — because it used to be decided in four,
+            # with four different mechanisms, and each new reader inherited the
+            # bug by default. This fragment was also written out twice here, once
+            # aliased and once not, and the two had to be kept in step by hand.
+            from eli.core.self_provenance import memory_exclusion_sql
 
-            # kind/source filter expression — works even when the column is NULL
-            _kind_col   = "COALESCE(m.kind, '')"   if "kind"   in cols else "''"
-            _source_col = "COALESCE(m.source, '')" if "source" in cols else "''"
-            _kind_filter = (
-                f"AND {_kind_col} NOT IN ({', '.join('?' * len(_noise_kinds))}) "
-                f"AND {_source_col} NOT IN ({', '.join('?' * len(_noise_sources))}) "
-                f"AND {_tags_col} NOT LIKE '%reflection%' "
-                f"AND {_tags_col} NOT LIKE '%assistant_insight%' "
-                f"AND {_tags_col} NOT LIKE '%session_summary%' "
-                f"AND LENGTH(COALESCE(m.text, m.content, '')) <= 1500"
-            )
-            _kind_params = list(_noise_kinds) + list(_noise_sources)
-
-            # Same filter for plain-table queries (no 'm.' alias)
-            _kind_col_t   = "COALESCE(kind, '')"   if "kind"   in cols else "''"
-            _source_col_t = "COALESCE(source, '')" if "source" in cols else "''"
-            _kind_filter_t = (
-                f"AND {_kind_col_t} NOT IN ({', '.join('?' * len(_noise_kinds))}) "
-                f"AND {_source_col_t} NOT IN ({', '.join('?' * len(_noise_sources))}) "
-                f"AND {_tags_col_t} NOT LIKE '%reflection%' "
-                f"AND {_tags_col_t} NOT LIKE '%assistant_insight%' "
-                f"AND {_tags_col_t} NOT LIKE '%session_summary%' "
-                f"AND LENGTH(COALESCE(text, content, '')) <= 1500"
-            )
+            # Both forms bind the same parameters — same kinds, same sources —
+            # so the aliased list is the one every query below uses.
+            _kind_filter, _kind_params = memory_exclusion_sql(cols, alias="m.")
+            _kind_filter_t, _ = memory_exclusion_sql(cols, alias="")
 
             # --- Stage 5: Vector semantic search (primary path) ---
             # FAISS runs first.  FTS5/LIKE only runs as a supplementary
@@ -4017,6 +4031,7 @@ class Memory(metaclass=_MemoryMeta):
             }
             rid = _insert_payload(conn, "observations", payload)
             conn.commit()
+            _prune_observations(conn, category)
             return rid
         finally:
             conn.close()

@@ -298,7 +298,7 @@ class ProactiveDaemon:
         # self-reinforcing loop (observed: volume/messages/topics/recent/
         # conversation dominating ×100+). User conversation turns have empty
         # tags, so skipping auto-tagged rows keeps real topics and drops the echo.
-        _AUTO_TAG_MARKERS = ("auto", "insight", "reflection", "proactive", "news", "briefing")
+        from eli.core.self_provenance import has_auto_tag as _has_auto_tag
         # Topic extraction is SHARED with the reflection report. This loop used to
         # apply `self._STOPWORDS`, a second ~180-word list that never received the
         # fixes the reflection one did and had no notion of small talk at all. On a
@@ -318,7 +318,7 @@ class ProactiveDaemon:
             if not text:
                 continue
             _tg = str(_tags or "").lower()
-            if any(_k in _tg for _k in _AUTO_TAG_MARKERS):
+            if _has_auto_tag(_tags):
                 continue
             if _topic_words is not None:
                 for w in _topic_words(str(text)):

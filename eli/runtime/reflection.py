@@ -214,16 +214,12 @@ def reflect_on_period(hours: int = 24) -> Dict[str, Any]:
             # Internal/meta actions are not meaningful "patterns" for a human
             # report — they're just the assistant's own plumbing. Drop them, and
             # dedup by label so the same action isn't listed twice.
-            _NOISE_ACTIONS = {
-                "CHAT", "NOOP", "CHECK_JOB", "BACKGROUND_JOBS", "HABIT_RUN",
-                "MORNING_REPORT", "DATE", "TIME", "SELF_REPORT", "RUNTIME_AUDIT",
-                "GUI_RUNTIME_AUDIT", "MEMORY_STATUS", "MEMORY_RECALL", "SELF_ANALYZE",
-            }
+            from eli.core.self_provenance import is_meta_action
             parts = []
             seen = set()
             for item in repeated:
                 label = str(item.get("action") or item.get("event_type") or "event").strip()
-                if label.upper() in _NOISE_ACTIONS:
+                if is_meta_action(label):
                     continue
                 subject = item.get("subject") or ""
                 key = (label.lower(), str(subject).lower())
