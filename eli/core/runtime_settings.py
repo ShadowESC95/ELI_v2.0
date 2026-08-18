@@ -436,6 +436,10 @@ def _load_settings_unsanitized() -> Dict[str, Any]:
             settings[key] = _coerce_value(key, val)
 
     # Canonical coercion (no more dual-key fallbacks)
+    # Anything the operator has NOT pinned comes from THIS machine's measured
+    # profile rather than the shipped defaults — see _apply_hardware_derived_defaults.
+    settings = _apply_hardware_derived_defaults(settings)
+
     settings["n_threads"] = int(settings.get("n_threads", DEFAULTS["n_threads"]))
     settings["n_gpu_layers"] = int(settings.get("n_gpu_layers", DEFAULTS["n_gpu_layers"]))
     settings["gpu_layers"] = settings["n_gpu_layers"]
@@ -525,9 +529,65 @@ def save_settings(settings: Dict[str, Any]) -> None:
     _secure_write(settings_file, json.dumps(existing, indent=2, ensure_ascii=False), mode=0o600)
 
 
+# ── Provenance: which hardware settings the OPERATOR actually chose ──────────
+#
+# n_ctx / n_gpu_layers / batch_size are documented as "the user's" and are never
+# rewritten by the profiler. But nothing recorded whether the operator ever
+# chose them, so the shipped DEFAULTS (n_ctx=16384, n_gpu_layers=0,
+# batch_size=512 — the same numbers on a 4 GB laptop and a 24 GB workstation)
+# became "the user's explicit choice" on first run and won attempt 1 of the load
+# ladder for ever after, on any machine.
+#
+# Live consequence: a persisted n_ctx=10384 / n_gpu_layers=99 loaded full offload
+# on a 6.2 GB card, past the 29 layers the fit measured, and generation came back
+# empty. Changing hardware did not help — the profiler deliberately refreshes
+# hw_profile_* and deliberately leaves these alone.
+#
+# So: a value the operator has not pinned is DERIVED from this machine (the
+# hw_profile_* keys, which the profiler already recomputes when the hardware
+# fingerprint changes). An explicit edit pins the key and is honoured for ever.
+OPERATOR_PINNED_KEY = "operator_pinned"
+HARDWARE_DERIVED_KEYS = ("n_ctx", "n_gpu_layers", "batch_size")
+
+
+def operator_pinned_keys(settings: Dict[str, Any]) -> set:
+    """Canonical keys the operator has explicitly set."""
+    raw = settings.get(OPERATOR_PINNED_KEY) or []
+    return {str(k) for k in raw} if isinstance(raw, (list, tuple, set)) else set()
+
+
+def _apply_hardware_derived_defaults(settings: Dict[str, Any]) -> Dict[str, Any]:
+    """Use this machine's measured profile for any key the operator has not pinned.
+
+    Does nothing when the profile has not been computed yet, so a first run
+    before profiling still falls back to DEFAULTS rather than to zero.
+    """
+    pinned = operator_pinned_keys(settings)
+    for key in HARDWARE_DERIVED_KEYS:
+        if key in pinned:
+            continue
+        try:
+            derived = int(settings.get(f"hw_profile_{key}", 0) or 0)
+        except Exception:
+            continue
+        if derived > 0 and int(settings.get(key, 0) or 0) != derived:
+            settings[key] = derived
+    return settings
+
+
 def update_settings(**kwargs: Any) -> Dict[str, Any]:
-    """Convenience: save specific keys, return the full new state."""
-    save_settings(kwargs)
+    """Convenience: save specific keys, return the full new state.
+
+    This is the operator-facing write path (settings pages, the startup dialog,
+    the API), so a hardware key set through it is PINNED: from here on it is the
+    operator's choice and is never re-derived from the machine.
+    """
+    delta = dict(kwargs)
+    touched = [k for k in HARDWARE_DERIVED_KEYS if k in delta]
+    if touched:
+        current = operator_pinned_keys(_load_settings_unsanitized())
+        delta[OPERATOR_PINNED_KEY] = sorted(current | set(touched))
+    save_settings(delta)
     return load_settings()
 
 

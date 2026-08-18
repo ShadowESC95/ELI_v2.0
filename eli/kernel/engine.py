@@ -4936,7 +4936,7 @@ class CognitiveEngine:
         # Per-block byte budgets (Phase 6). Total evidence ceiling ≈ 14 KB; with
         # persona (~2 KB) and instructions (~0.5 KB) the assembled prompt stays
         # comfortably under 16 KB on a 16384-ctx model.
-        BUDGET_MEMORY = 4096
+        BUDGET_MEMORY = ELI_BUDGET_MEMORY_CHARS
         BUDGET_SNIPPETS = 2048
         BUDGET_REFLECTIONS = 1024
         BUDGET_HABITS = 512
@@ -14905,6 +14905,29 @@ def set_engine(engine: "CognitiveEngine") -> None:
     global _engine
     with _engine_lock:
         _engine = engine
+
+
+
+# ── What ELI's prompt actually needs, in TOKENS ──────────────────────────────
+#
+# The GUI loader sized the requested context from a flat `ELI_CTX_BRIEF_FLOOR`
+# of 12288 "so the persona/memory brief is never chopped". 12288 is the brief's
+# budget in CHARACTERS (persona 8192 + memory 4096) — it was being spent as
+# TOKENS, demanding four times the context the brief can ever occupy, on every
+# machine. On a small card that difference is decisive: smart_fit honours the
+# requested context by shedding GPU layers, so an inflated floor pushes the
+# whole model onto the CPU to reserve room nothing will use.
+#
+# Derived here, from the same budgets the assembler actually enforces, so the
+# two cannot drift apart again.
+ELI_BUDGET_MEMORY_CHARS = 4096
+ELI_CHARS_PER_TOKEN = 4
+
+
+def eli_brief_budget_tokens() -> int:
+    """Context (tokens) ELI's persona + memory brief can actually occupy."""
+    chars = int(CognitiveEngine._PERSONA_MAX_CHARS) + int(ELI_BUDGET_MEMORY_CHARS)
+    return max(1024, chars // ELI_CHARS_PER_TOKEN)
 
 
 def get_engine() -> CognitiveEngine:
