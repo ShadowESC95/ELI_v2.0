@@ -912,7 +912,8 @@ class LocalModelManager:
             _seen: set[Tuple[int, int, int]] = set()
             _attempts: List[Dict[str, Any]] = []
 
-            def _add_attempt(label: str, ctx: int, layers: int, batch: int):
+            def _add_attempt(label: str, ctx: int, layers: int, batch: int,
+                             front: bool = False, verify: bool = False):
                 _ctx = max(1024, int(ctx))
                 _layers = max(0, int(layers))
                 _batch = max(32, int(batch))
@@ -922,31 +923,31 @@ class LocalModelManager:
                 if key in _seen:
                     return
                 _seen.add(key)
-                _attempts.append({
+                # `verify` marks a candidate that must be PROVEN before it is
+                # loaded in this process, because a lazy CUDA allocation makes a
+                # bad one look like a success and then aborts mid-generation.
+                # Only the operator's own settings carry it: ELI's calculated
+                # rungs are derived from measured free VRAM and are the fallback
+                # the proof falls back TO.
+                _entry = {
                     "label": str(label),
                     "n_ctx": _ctx,
                     "n_gpu_layers": _layers,
                     "n_batch": _batch,
-                })
+                    "verify": bool(verify),
+                }
+                if front:
+                    _attempts.insert(0, _entry)
+                else:
+                    _attempts.append(_entry)
 
             _base_ctx = _user_ctx
             _base_layers = int(effective_n_gpu_layers)
             _base_batch = int(effective_n_batch)
-            # ── The user's OWN settings, first ────────────────────────────
-            #
-            # What the operator chose in the startup dialog is attempted before
-            # anything ELI calculates. smart-fit used to run first and its result
-            # was queued ahead of this, so on a machine where the fit reduced
-            # anything the user's actual choice was never tried at all — it sat
-            # at position 2 behind a config that always loaded. Someone who sets
-            # 99 GPU layers has said what they want; if the hardware refuses,
-            # the smart fit below is the answer, but the refusal should come from
-            # the driver, not from ELI pre-emptively overruling them.
-            #
-            # This costs one failed load attempt on hardware that genuinely
-            # cannot honour the request. That is the price of treating the
-            # setting as a setting rather than a suggestion.
-            _add_attempt("requested", _base_ctx, _base_layers, _base_batch)
+            # The user's OWN settings are queued FIRST — but below, once the fit
+            # has measured free VRAM, because the layer count has to be clamped
+            # against it. See the note at the insertion point.
+            _sf_fit_layers = None
 
             # ── Smart loader (fit-to-hardware fallback) ───────────────────
             # Anchor on the user's preferred ctx/batch, then fit into the VRAM
@@ -1034,13 +1035,59 @@ class LocalModelManager:
                             f"to fit {_sf_gpu.free_mb}MB free VRAM — your context of {_sf_ctx} was kept "
                             f"(ctx is reduced last). Expect slower generation: the layers that did not "
                             f"fit run on CPU. Free VRAM or lower the context to get them back.")
+                    _sf_fit_layers = int(_sf_layers)
                     _add_attempt("smart-fit", _sf_ctx, _sf_layers, _sf_batch)
             except Exception as _sf_err:
                 log.debug(f"[GUI][LOAD] smart-fit attempt skipped: {_sf_err}")
 
-            # (The user's exact settings are queued ABOVE, ahead of smart-fit —
-            # see the note there. _add_attempt dedupes, so if the fit returned
-            # the same numbers this is already covered.)
+            # ── The user's OWN settings, first ────────────────────────────
+            #
+            # What the operator chose in the startup dialog is attempted before
+            # anything ELI calculates: their ctx and their batch, exactly as set.
+            #
+            # Nothing here is clamped and nothing is assumed. The operator's
+            # numbers go to llama.cpp exactly as entered; ELI's own calculations
+            # are only ever a FALLBACK, used when the request is PROVEN not to
+            # work on this machine.
+            #
+            # Proving it is the part that was missing. An earlier note here
+            # reasoned that "the refusal should come from the driver, not from
+            # ELI pre-emptively overruling them", and that queuing the raw
+            # request "costs one failed load attempt on hardware that genuinely
+            # cannot honour it". The intent was right; the mechanism does not
+            # exist. llama.cpp/CUDA allocate LAZILY: asking for more than fits
+            # does not fail at load — it reports success, wins
+            # `selected=requested`, and then aborts the whole PROCESS on the
+            # first generation large enough to touch the buffers. Live at 2.2.7:
+            #
+            #   smart-fit ... : ctx=10384 gpu_layers=28
+            #   smart-fit reduced GPU layers 99->28 to fit 6268MB free VRAM
+            #   attempt 1/13: requested (ctx=10384 gpu_layers=99 batch=128)
+            #   selected=requested (ctx=10384 gpu_layers=99 batch=128)
+            #   ...
+            #   prompt_tokens=5189
+            #   ggml-cuda.cu:98: CUDA error → Aborted (core dumped)
+            #
+            # There is no failed attempt to fall back FROM, so none of the twelve
+            # rungs below can ever run. It had survived only because earlier
+            # sessions' first turn was a short greeting whose KV cache stayed
+            # small; the first big prompt killed it.
+            #
+            # So the request is VERIFIED instead of guessed at. eli/core/
+            # load_probe.py loads these exact numbers in a SEPARATE PROCESS and
+            # drives a real decode through them. A process can survive a child's
+            # abort(); it cannot survive its own. If the probe comes back clean
+            # the operator's settings are used verbatim — which is now a fact
+            # about this machine rather than an assumption. If the probe proves
+            # they abort, that is the "cannot be honoured" signal the ladder
+            # below was always meant to receive, and the fallbacks take over.
+            #
+            # No value is reduced, capped or substituted here. Nothing is
+            # hardcoded: the probe's own sizes derive from the operator's ctx,
+            # and the verdict is cached per (model, params, GPU) so this costs
+            # one probe per configuration, not one per startup.
+            _add_attempt("requested", _base_ctx, _base_layers, _base_batch,
+                         front=True, verify=True)
 
             # Hardware profile recommendation (legacy static fallback) — COMPUTED
             # here, but QUEUED further down, after the reduce-to-fit rungs.
@@ -1175,6 +1222,33 @@ class LocalModelManager:
                     f"[GUI][LOAD] attempt {i}/{len(_attempts)}: {_cand['label']} "
                     f"(ctx={_cand['n_ctx']} gpu_layers={_cand['n_gpu_layers']} batch={_cand['n_batch']})",
                 )
+                # A candidate marked for verification is proven in a separate
+                # process before it is loaded here. `except Exception` below
+                # cannot catch what this is guarding against: the CUDA backend
+                # calls abort(), which takes the interpreter with it, so a bad
+                # configuration would never reach the next rung at all.
+                if _cand.get("verify"):
+                    try:
+                        from eli.core.load_probe import probe_config
+                        _ok, _why = probe_config(
+                            str(path_obj), int(_cand["n_ctx"]),
+                            int(_cand["n_gpu_layers"]), int(_cand["n_batch"]),
+                        )
+                    except Exception as _probe_err:
+                        # The check itself is unavailable. That is not evidence
+                        # against the operator's settings, so they stand.
+                        _ok, _why = True, f"probe unavailable: {_probe_err}"
+                    if not _ok:
+                        log.warning(
+                            f"[GUI][LOAD] your settings (ctx={_cand['n_ctx']} "
+                            f"gpu_layers={_cand['n_gpu_layers']} batch={_cand['n_batch']}) "
+                            f"were tested on this machine and could not be honoured "
+                            f"({_why}). They are not being altered — falling through "
+                            f"to the calculated fallbacks below. Free VRAM, or lower "
+                            f"the context or GPU layers, to have them used as entered.")
+                        _last_error = f"requested settings failed verification: {_why}"
+                        continue
+                    log.debug(f"[GUI][LOAD] requested settings verified ({_why})")
                 llama_kwargs: Dict[str, Any] = dict(
                     model_path=str(path_obj),
                     n_ctx=int(_cand["n_ctx"]),

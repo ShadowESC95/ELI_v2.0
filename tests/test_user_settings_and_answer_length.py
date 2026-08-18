@@ -155,11 +155,21 @@ def test_the_budget_is_whatever_the_window_actually_has_left(n_ctx, prompt_tok, 
 # ── 3. the operator's settings are attempted first ────────────────────────
 def test_the_users_own_settings_are_the_first_load_attempt():
     """smart-fit's reduced result used to be queued ahead of them, so a config
-    the operator explicitly chose was never tried."""
+    the operator explicitly chose was never tried.
+
+    This asserted SOURCE ORDER as a proxy for attempt order, with the rationale
+    that ELI must not "overrule the user before the driver does". The driver
+    never does: CUDA allocates lazily, so an over-committed layer count loads
+    cleanly and aborts the process mid-generation instead (2.2.7, core dumped).
+    The settings are therefore VERIFIED rather than assumed or reduced: they go
+    to llama.cpp exactly as entered, proven first in a separate process that can
+    take the abort in their place. Position in the ladder is the real invariant;
+    line number never was.
+    """
     src = (REPO / "eli/gui/eli_pro_audio_gui_v2_0.py").read_text(encoding="utf-8")
-    requested = src.index('_add_attempt("requested"')
-    smartfit = src.index('_add_attempt("smart-fit"')
-    assert requested < smartfit, "ELI still overrules the user before the driver does"
+    assert '_add_attempt("requested", _base_ctx, _base_layers, _base_batch,' in src
+    assert "verify=True" in src
+    assert "_attempts.insert(0, _entry)" in src
 
 
 def test_the_calculated_fit_is_still_the_fallback():
