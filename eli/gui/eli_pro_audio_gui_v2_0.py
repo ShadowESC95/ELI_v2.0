@@ -1082,12 +1082,31 @@ class LocalModelManager:
             # they abort, that is the "cannot be honoured" signal the ladder
             # below was always meant to receive, and the fallbacks take over.
             #
-            # No value is reduced, capped or substituted here. Nothing is
-            # hardcoded: the probe's own sizes derive from the operator's ctx,
-            # and the verdict is cached per (model, params, GPU) so this costs
-            # one probe per configuration, not one per startup.
+            # No value is reduced, capped or substituted here.
+            #
+            # The proof is only spent where there is something to doubt. When the
+            # request sits INSIDE what the fit just measured, the hardware has
+            # already been shown to have room and a probe would cost a full cold
+            # load to confirm what is not in question — so it is skipped and the
+            # settings load immediately. Shipped without this, 2.2.8 probed every
+            # GPU start, including the ones certain to pass.
+            #
+            # Only a request that EXCEEDS the measured capacity is proven, which
+            # is the case that silently aborts the process mid-generation. The
+            # verdict is cached per (model, params, GPU), so even that is paid
+            # once per configuration rather than once per startup.
+            _needs_proof = (
+                _sf_fit_layers is not None
+                and int(_base_layers) > int(_sf_fit_layers)
+            )
+            if _needs_proof:
+                log.debug(
+                    f"[GUI][LOAD] your {_base_layers} GPU layers exceed the "
+                    f"{_sf_fit_layers} measured to fit — verifying them on this "
+                    f"machine before loading (one-off, then cached; set "
+                    f"ELI_LOAD_PROBE=0 to skip)")
             _add_attempt("requested", _base_ctx, _base_layers, _base_batch,
-                         front=True, verify=True)
+                         front=True, verify=_needs_proof)
 
             # Hardware profile recommendation (legacy static fallback) — COMPUTED
             # here, but QUEUED further down, after the reduce-to-fit rungs.
@@ -1228,6 +1247,15 @@ class LocalModelManager:
                 # calls abort(), which takes the interpreter with it, so a bad
                 # configuration would never reach the next rung at all.
                 if _cand.get("verify"):
+                    # Say so BEFORE blocking. Shipped without this line, a live
+                    # 2.2.8 launch sat on "attempt 1/13" for three and a half
+                    # minutes with nothing on screen, and looked hung.
+                    log.info(
+                        f"[GUI][LOAD] verifying your settings on this machine "
+                        f"(ctx={_cand['n_ctx']} gpu_layers={_cand['n_gpu_layers']} "
+                        f"batch={_cand['n_batch']}) — up to "
+                        f"{int(float(os.environ.get('ELI_LOAD_PROBE_TIMEOUT', '') or 60))}s "
+                        f"this once, then remembered…")
                     try:
                         from eli.core.load_probe import probe_config
                         _ok, _why = probe_config(

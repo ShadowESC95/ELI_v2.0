@@ -91,15 +91,18 @@ def test_the_request_is_still_the_first_attempt(loader_src):
 
 
 def test_the_request_is_marked_for_verification(loader_src):
+    """Conditionally: only when it exceeds what the fit measured. An
+    unconditional verify=True is what made 2.2.8 probe every GPU start."""
     code = _code(loader_src)
-    assert "verify=True" in code
+    assert "verify=_needs_proof" in code
 
 
 def test_only_the_request_is_verified(loader_src):
     """ELI's own calculated rungs are the fallback; verifying them would just
     spend probes on the thing being fallen back to."""
     code = _code(loader_src)
-    assert code.count("verify=True") == 1
+    assert code.count("verify=_needs_proof") == 1, "exactly one attempt is verified"
+    assert "verify: bool = False" in code, "every other attempt defaults to unverified"
 
 
 # ── the loader acts on the verdict ─────────────────────────────────────────
@@ -330,3 +333,85 @@ def test_the_calculated_fallbacks_are_still_there(loader_src):
     assert '_add_attempt("smart-fit"' in src
     for rung in ('"live-tuner-gpu"', '"lower-batch-half"', '"cpu-fallback"'):
         assert rung in src, f"lost the {rung} fallback"
+
+# ── the proof is only spent where there is doubt ───────────────────────────
+def test_a_request_inside_the_measured_fit_is_not_probed(loader_src):
+    """Shipped without this, 2.2.8 probed every GPU start — including the ones
+    certain to pass — and a live launch sat on "attempt 1/13" for 3m29s."""
+    code = _code(loader_src)
+    assert "_needs_proof" in code
+    assert "int(_base_layers) > int(_sf_fit_layers)" in code
+    assert "verify=_needs_proof" in code
+
+
+def test_the_probe_is_announced_before_it_blocks():
+    """The silent gap is what made it look hung."""
+    src = LOADER.read_text(encoding="utf-8")
+    i = src.index('if _cand.get("verify"):')
+    j = src.index("probe_config", i)
+    window = src[i:j]
+    assert "verifying your settings" in window, \
+        "the probe still blocks startup with nothing on screen"
+
+
+def test_the_timeout_is_a_wait_an_operator_would_tolerate():
+    from eli.core import load_probe as lp
+
+    assert lp._DEFAULT_TIMEOUT_S <= 90, \
+        "a startup probe must not block for minutes"
+
+
+def test_an_external_termination_is_not_a_verdict(monkeypatch, tmp_path):
+    """SIGTERM says nothing about the configuration; caching it as a failure
+    would condemn settings that were never actually tested."""
+    class _R:
+        returncode = -15
+        stdout = ""
+        stderr = ""
+
+    monkeypatch.setattr(load_probe, "_cache_path", lambda: tmp_path / "p.json")
+    monkeypatch.setattr(load_probe, "_gpu_identity", lambda: "TestCard|8192")
+    monkeypatch.setattr(load_probe.subprocess, "run", lambda *a, **k: _R())
+    ok, why = load_probe.probe_config("/x.gguf", 4096, 99, 128, use_cache=False)
+    assert ok is True
+    assert "unproven" in why
+    assert load_probe.cached_verdict("/x.gguf", 4096, 99, 128) is None
+
+
+def test_an_abort_is_still_a_verdict(monkeypatch, tmp_path):
+    """SIGABRT is the CUDA backend crash this exists to catch."""
+    class _R:
+        returncode = -6
+        stdout = ""
+        stderr = ""
+
+    monkeypatch.setattr(load_probe, "_cache_path", lambda: tmp_path / "p.json")
+    monkeypatch.setattr(load_probe, "_gpu_identity", lambda: "TestCard|8192")
+    monkeypatch.setattr(load_probe.subprocess, "run", lambda *a, **k: _R())
+    ok, _ = load_probe.probe_config("/x.gguf", 4096, 99, 128, use_cache=False)
+    assert ok is False
+
+
+def test_the_probe_prompt_stays_realistic(monkeypatch, tmp_path):
+    """A cheaper probe (a few batches) was tried and reverted: the operator's
+    own logs show ~2147-token prompts passing on a configuration that aborted
+    at 5189, so a short probe would have passed every startup before the crash."""
+    import json as _json
+
+    seen = {}
+
+    class _R:
+        returncode = 0
+        stdout = "PROBE_OK"
+        stderr = ""
+
+    def _capture(cmd, **k):
+        seen.update(_json.loads(cmd[-1]))
+        return _R()
+
+    monkeypatch.setattr(load_probe, "_cache_path", lambda: tmp_path / "p.json")
+    monkeypatch.setattr(load_probe, "_gpu_identity", lambda: "TestCard|8192")
+    monkeypatch.setattr(load_probe.subprocess, "run", _capture)
+    load_probe.probe_config("/x.gguf", 10384, 99, 128, use_cache=False)
+    assert seen["probe_tokens"] >= 4000, \
+        "the probe prompt is too small to reach the allocation that crashes"

@@ -46,10 +46,14 @@ from eli.utils.log import get_logger
 
 log = get_logger(__name__)
 
-# A probe that has not answered by now is not going to. Generous: a cold load of
-# a large model from disk is slow on the machines that most need the check.
+# A probe blocks startup, so it gets a budget an operator would tolerate rather
+# than one that is certain to finish. 300s was the first value shipped and it was
+# wrong: on a configuration whose layers spill to CPU the probe decode runs at
+# CPU speed, and a live 2.2.8 launch sat at "attempt 1/13" for three and a half
+# minutes with nothing on screen explaining why. Past this budget the answer is
+# "unproven", the operator's settings stand, and startup continues.
 # Override with ELI_LOAD_PROBE_TIMEOUT.
-_DEFAULT_TIMEOUT_S = 300.0
+_DEFAULT_TIMEOUT_S = 60.0
 
 # Verdicts older than this are re-proven — drivers, other GPU tenants and
 # resident models all move. Override with ELI_LOAD_PROBE_TTL.
@@ -211,11 +215,21 @@ def probe_config(model_path: str, n_ctx: int, n_gpu_layers: int, n_batch: int,
     if n_gpu_layers <= 0:
         return True, "cpu-only: no GPU allocation to prove"
 
-    # Probe sizes derive from the caller's own context — no magic numbers. Push
-    # a prompt large enough to force the compute buffers the crash was in,
-    # while leaving generation room inside the same window.
+    # Probe sizes derive from the caller's own parameters — no magic numbers.
+    #
+    # It must be a prompt of the size ELI will really send. A cheaper probe was
+    # tried — four batches instead of a fraction of the window — on the theory
+    # that llama.cpp reaches its peak allocation on the first decode regardless
+    # of prompt length. Measurement says otherwise, and the operator's own logs
+    # are the proof: on one unchanged configuration, 2.2.4-2.2.6 ran first
+    # prompts of ~2147 tokens without trouble and 2.2.7 aborted at 5189. A short
+    # probe would have passed every one of those startups and the crash would
+    # have shipped anyway.
+    #
+    # So the cost is accepted where it buys an answer, and bounded by the
+    # timeout above rather than by making the question easier.
     probe_tokens = max(256, int(n_ctx * 0.45))
-    probe_gen = max(16, min(64, int(n_ctx * 0.02)))
+    probe_gen = max(8, min(32, int(n_ctx * 0.01)))
 
     timeout = float(timeout_s if timeout_s is not None
                     else (os.environ.get("ELI_LOAD_PROBE_TIMEOUT", "")
@@ -273,6 +287,17 @@ def probe_config(model_path: str, n_ctx: int, n_gpu_layers: int, n_batch: int,
     if rc == 3:
         # llama_cpp missing in the child — the check could not run.
         return True, "llama_cpp unavailable in probe (unproven)"
+
+    if rc == -15:
+        # SIGTERM: something outside asked the probe to stop. That says nothing
+        # about the configuration, so it must not be recorded as a verdict —
+        # otherwise a shutdown, a supervisor, or an operator killing a slow
+        # probe would permanently condemn settings that were never tested.
+        # SIGABRT/SIGSEGV/SIGKILL are left below as genuine failures: the CUDA
+        # backend's abort() is exactly what this exists to catch, and an
+        # OOM-kill is a real answer about this configuration's footprint.
+        log.debug("[LOAD_PROBE] terminated externally — unproven, not recorded")
+        return True, "probe terminated externally (unproven)"
 
     # rc 4/5 are honest Python-level failures; a negative rc is a signal
     # (SIGABRT is what the CUDA backend raises), which is the case this exists

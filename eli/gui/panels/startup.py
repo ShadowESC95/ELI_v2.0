@@ -385,6 +385,18 @@ class StartupModelSelectionDialog(QDialog):
                 # silently stops being remembered per model and the staleness
                 # this fixes comes straight back, with nothing to show why.
                 log.debug("could not record the context/model association", exc_info=True)
+            # Commit whatever is still being TYPED before reading it. A Qt spin
+            # box holds the editor's text until it is interpreted, so a value
+            # typed and then followed straight by a click on Start can be read
+            # back as the previous one — the operator sets 256 and the settings
+            # file records 128. interpretText() is the documented remedy and is
+            # a no-op when nothing is pending, so it costs nothing to always do.
+            for _spin in (self.ctx_fraction_spin, self.target_batch_spin,
+                          self.vram_reserve_spin, self.model_train_ctx_spin):
+                try:
+                    _spin.interpretText()
+                except Exception:
+                    log.debug("spin box interpretText failed", exc_info=True)
             os.environ["ELI_CTX_FRACTION"] = str(float(self.ctx_fraction_spin.value()))
             os.environ["ELI_TARGET_BATCH"]  = str(int(self.target_batch_spin.value()))
             os.environ["ELI_VRAM_RESERVE_MB"] = str(int(self.vram_reserve_spin.value()))
