@@ -16,6 +16,12 @@ VALID_STATES = {
 }
 
 
+def _artifacts_dir() -> Path:
+    """The user data dir on a packaged install; the source tree in dev."""
+    from eli.core.paths import artifacts_dir
+    return artifacts_dir()
+
+
 def _project_root() -> Path:
     try:
         from eli.core.paths import get_paths
@@ -27,7 +33,10 @@ def _project_root() -> Path:
 def queue_path(path: Optional[str] = None) -> Path:
     if path:
         return Path(path)
-    return _project_root() / "artifacts" / "proactive" / "proposal_queue.jsonl"
+    # artifacts_dir() rather than project_root()/artifacts: identical under the
+    # frozen rthook (both pin the same user root) and correct for a bare pip
+    # install, where the project root is the package directory.
+    return _artifacts_dir() / "proactive" / "proposal_queue.jsonl"
 
 
 def _read_jsonl(path: Path) -> List[Dict[str, Any]]:

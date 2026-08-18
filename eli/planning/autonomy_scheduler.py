@@ -10,6 +10,12 @@ from eli.runtime.operator_state import safe_proposal_summary, safe_goal_summary
 from eli.planning.attention_queue import append_attention, recent_attention, summarize_attention
 
 
+def _artifacts_dir() -> Path:
+    """The user data dir on a packaged install; the source tree in dev."""
+    from eli.core.paths import artifacts_dir
+    return artifacts_dir()
+
+
 def _project_root() -> Path:
     try:
         from eli.core.paths import get_paths
@@ -19,7 +25,10 @@ def _project_root() -> Path:
 
 
 def scheduler_state_path() -> Path:
-    return _project_root() / "artifacts" / "runtime" / "autonomy_scheduler.json"
+    # artifacts_dir() rather than project_root()/artifacts: identical under the
+    # frozen rthook (both pin the same user root) and correct for a bare pip
+    # install, where the project root is the package directory.
+    return _artifacts_dir() / "runtime" / "autonomy_scheduler.json"
 
 
 def load_scheduler_state() -> Dict[str, Any]:

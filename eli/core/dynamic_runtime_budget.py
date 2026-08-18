@@ -82,9 +82,10 @@ _MIN_BATCH = 128
 # A proportion of measured memory, not a size band: a machine with twice the
 # RAM gets twice the allowance, with no thresholds to fall between.
 _RAM_FRACTION_FOR_CTX = 0.25
-# Nothing sensible can be inferred above a model's own training window, and a
-# context beyond it degrades quality — llama.cpp warns "n_ctx_seq > n_ctx_train".
-_ABSOLUTE_CTX_CAP = 32768
+# A model's own trained window is the only honest ceiling. An earlier draft of
+# this used a flat 32768, which silently clamped every 128k-context model to a
+# quarter of its window — ELI runs 1B to 100B+, so no fixed number belongs here.
+# 0 means "unknown", and then the ceiling comes from RAM alone.
 
 
 
@@ -99,7 +100,7 @@ def _output_budget_for_ctx(n_ctx: int) -> int:
     return max(512, min(_MAX_OUTPUT_TOKENS, int(int(n_ctx) * _OUTPUT_SHARE_OF_CTX)))
 
 
-def _ctx_ceiling_for_ram(ram_gb: float, size_gb: float) -> int:
+def _ctx_ceiling_for_ram(ram_gb: float, size_gb: float, train_ctx: int = 0) -> int:
     """Largest context this machine's RAM can hold for a model this size.
 
     Replaces `if ram_gb >= 48 ... 16384 / elif >= 32 ... 12288 / ...`.
@@ -119,7 +120,9 @@ def _ctx_ceiling_for_ram(ram_gb: float, size_gb: float) -> int:
     if mb_per_token <= 0:
         return _MIN_CTX
     allowance_mb = max(0.0, float(ram_gb)) * 1024.0 * _RAM_FRACTION_FOR_CTX
-    return max(_MIN_CTX, min(_ABSOLUTE_CTX_CAP, int(allowance_mb / mb_per_token)))
+    ceiling = max(_MIN_CTX, int(allowance_mb / mb_per_token))
+    train = int(train_ctx or 0)
+    return min(ceiling, train) if train > 0 else ceiling
 
 
 def _batch_ceiling_for_vram(usable_vram_mb: float) -> int:
@@ -157,7 +160,12 @@ def derive_budget(model_path: str | Path = "") -> DynamicRuntimeBudget:
     # token, compute-graph reserve, MB per layer from the model's own size —
     # and it is what the loader uses. Deriving from it keeps one answer in the
     # process instead of two that drift apart.
-    ctx_target = _ctx_ceiling_for_ram(ram_gb, size_gb)
+    try:
+        from eli.core.startup_hardware_optimizer import train_ctx_for_model
+        _train = int(train_ctx_for_model(str(model_path)) or 0)
+    except Exception:
+        _train = 0
+    ctx_target = _ctx_ceiling_for_ram(ram_gb, size_gb, _train)
     try:
         from eli.core.hardware_profile import smart_fit_config
         n_ctx, gpu_layers, batch = smart_fit_config(

@@ -14,6 +14,12 @@ _SEVERITY_SCORE = {
     "info": 10,
 }
 
+def _artifacts_dir() -> Path:
+    """The user data dir on a packaged install; the source tree in dev."""
+    from eli.core.paths import artifacts_dir
+    return artifacts_dir()
+
+
 def _project_root() -> Path:
     try:
         from eli.core.paths import get_paths
@@ -22,10 +28,13 @@ def _project_root() -> Path:
         return Path(__file__).resolve().parents[3]
 
 def attention_path() -> Path:
-    return _project_root() / "artifacts" / "runtime" / "attention_queue.jsonl"
+    # artifacts_dir() rather than project_root()/artifacts: identical under the
+    # frozen rthook (both pin the same user root) and correct for a bare pip
+    # install, where the project root is the package directory.
+    return _artifacts_dir() / "runtime" / "attention_queue.jsonl"
 
 def suppression_path() -> Path:
-    return _project_root() / "artifacts" / "runtime" / "attention_suppression.json"
+    return _artifacts_dir() / "runtime" / "attention_suppression.json"
 
 def _read_jsonl(path: Path) -> List[Dict[str, Any]]:
     if not path.exists():
