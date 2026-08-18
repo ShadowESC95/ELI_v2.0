@@ -1058,8 +1058,8 @@ def apply_recommendation(rec: ModelRecommendation) -> Dict[str, Any]:
         # optimizer run, making it look like the profile wasn't updated.
         try:
             import json as _json
-            from eli.core.paths import project_root as _project_root
-            _art_path = _project_root() / "artifacts" / "runtime_hardware_profile.json"
+            from eli.core.paths import artifacts_dir as _artifacts_dir
+            _art_path = _artifacts_dir() / "runtime_hardware_profile.json"
             _art_path.parent.mkdir(parents=True, exist_ok=True)
             _art_path.write_text(
                 _json.dumps(

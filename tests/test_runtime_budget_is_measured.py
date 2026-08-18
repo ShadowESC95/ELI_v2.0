@@ -54,8 +54,13 @@ def test_a_heavier_model_gets_a_smaller_ceiling():
 
 
 def test_the_ceiling_never_exceeds_the_training_window():
-    """llama.cpp warns `n_ctx_seq > n_ctx_train`; beyond it quality degrades."""
-    assert drb._ctx_ceiling_for_ram(1024, 4.68) <= drb._ABSOLUTE_CTX_CAP
+    """llama.cpp warns `n_ctx_seq > n_ctx_train`; beyond it quality degrades.
+
+    The ceiling is bounded by the MODEL's own trained window, not by a constant
+    — ELI runs 1B to 100B+, so a fixed cap would clamp a 128k model.
+    """
+    assert drb._ctx_ceiling_for_ram(1024, 4.68, 32768) <= 32768
+    assert drb._ctx_ceiling_for_ram(1024, 4.68, 131072) <= 131072
 
 
 def test_the_ceiling_has_a_floor():

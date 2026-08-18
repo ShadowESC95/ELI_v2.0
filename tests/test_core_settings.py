@@ -38,7 +38,7 @@ def test_defaults_has_model_path():
 
 def test_defaults_has_n_ctx():
     assert "n_ctx" in DEFAULTS
-    assert DEFAULTS["n_ctx"] == 16384
+    assert DEFAULTS["n_ctx"] == 12288
 
 def test_defaults_has_max_tokens():
     assert "max_tokens" in DEFAULTS
