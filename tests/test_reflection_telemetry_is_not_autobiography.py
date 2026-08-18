@@ -107,14 +107,14 @@ def test_the_source_is_what_is_filtered(mem):
 
 
 def test_noise_sources_names_the_reflection_writer():
-    import inspect
+    """The vocabulary now lives at the choke point (eli/core/self_provenance),
+    not inline in the recall query — this asserts the invariant rather than the
+    shape of the code that enforces it."""
+    from eli.core.self_provenance import MEMORY_SOURCES, memory_exclusion_sql
 
-    from eli.memory import memory as _m
-
-    src = inspect.getsource(_m)
-    i = src.index("_noise_sources = (")
-    block = src[i:i + 200]
-    assert "eli_reflection" in block
+    assert "eli_reflection" in MEMORY_SOURCES
+    _, params = memory_exclusion_sql({"kind", "source", "tags"}, alias="")
+    assert "eli_reflection" in params
 
 
 # ── duplicate suppression must be an existence check ───────────────────────
