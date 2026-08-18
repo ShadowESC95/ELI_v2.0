@@ -56,6 +56,72 @@ def _already_stored(mem, text: str) -> bool:
         return False
 
 
+
+# Canonical topic-noise vocabulary. Shared, because it was NOT: the proactive
+# daemon carried its own ~180-word list that never received the fixes this one
+# did, and on a live overnight run it reported the user's "Current focus areas"
+# as `afternoon (x11), doing (x10), today (x10), memory (x9), world (x7)` —
+# four of those five are in this set and would have been dropped.
+TOPIC_STOPWORDS = frozenset({
+            "i", "me", "my", "the", "a", "an", "is", "was", "it", "to", "do",
+            "you", "your", "and", "or", "of", "in", "on", "for", "what", "how",
+            "can", "that", "this", "with", "not", "are", "have", "has", "be",
+            # high-frequency conversational filler — never a meaningful topic
+            "about", "just", "know", "like", "really", "there", "here", "they",
+            "them", "then", "than", "some", "any", "get", "got", "one", "out",
+            "now", "but", "so", "we", "us", "our", "dont", "cant", "yeah", "okay",
+            "good", "morning", "hey", "eli", "thanks", "thank", "please", "going",
+            "fine", "been", "were", "will", "would", "could", "should", "also",
+            "very", "much", "more", "most", "into", "over", "from", "when", "who",
+            "why", "which", "because", "while", "said", "say", "says", "tell",
+            "told", "ask", "asked", "seeing", "want", "need", "make", "made",
+            "using", "use", "used", "lately", "stuff", "things", "thing", "your",
+            "yours", "still", "back", "thats", "whats", "gonna", "wanna", "let",
+            # Filler that reached a live report as "Top topics: doing,
+            # evening, afternoon, head, mean" — none of which was a subject
+            # anyone discussed.
+            "doing", "does", "mean", "means", "meant", "evening", "afternoon",
+            "night", "today", "tomorrow", "yesterday", "sorry", "remember",
+            "again", "sure", "actually", "maybe", "think", "thought", "guess",
+            "looks", "looking", "talking", "discussing", "anything", "everything",
+            "something", "nothing", "another", "though", "each", "every",
+})
+
+
+def contributes_topics(text: str) -> bool:
+    """False for small talk, which contributes no subjects.
+
+    No stopword list anticipates every idiom, so phatic turns are skipped
+    wholesale rather than word-by-word — "afternoon, Eli" is a greeting, not an
+    interest in afternoons. Imported lazily: reflection must not take an
+    import-time dependency on the engine.
+    """
+    text = str(text or "").strip()
+    if not text:
+        return False
+    try:
+        from eli.kernel.engine import _is_brief_phatic_prompt as _phatic
+    except Exception:
+        return True
+    try:
+        return not _phatic(text.lower())
+    except Exception:
+        log.debug("reflection: phatic check failed", exc_info=True)
+        return True
+
+
+def topic_words(text: str) -> set:
+    """Distinct topic-bearing words in one message ('' when it is small talk)."""
+    if not contributes_topics(text):
+        return set()
+    out = set()
+    for w in str(text).lower().split():
+        clean = "".join(c for c in w if c.isalnum())
+        if len(clean) >= 4 and clean not in TOPIC_STOPWORDS:
+            out.add(clean)
+    return out
+
+
 # Shared so the report header and the daemon's greeting cannot drift apart. The
 # 12/17 boundaries are the ones proactive_daemon already used for its greeting.
 def part_of_day(ts: Optional[float] = None) -> str:
@@ -117,55 +183,10 @@ def reflect_on_period(hours: int = 24) -> Dict[str, Any]:
             # a minimum frequency so the report shows real subjects, not
             # conversational filler ("about", "just", "know", "going", etc.).
             all_words: Dict[str, int] = {}
-            _stopwords = {
-                "i", "me", "my", "the", "a", "an", "is", "was", "it", "to", "do",
-                "you", "your", "and", "or", "of", "in", "on", "for", "what", "how",
-                "can", "that", "this", "with", "not", "are", "have", "has", "be",
-                # high-frequency conversational filler — never a meaningful topic
-                "about", "just", "know", "like", "really", "there", "here", "they",
-                "them", "then", "than", "some", "any", "get", "got", "one", "out",
-                "now", "but", "so", "we", "us", "our", "dont", "cant", "yeah", "okay",
-                "good", "morning", "hey", "eli", "thanks", "thank", "please", "going",
-                "fine", "been", "were", "will", "would", "could", "should", "also",
-                "very", "much", "more", "most", "into", "over", "from", "when", "who",
-                "why", "which", "because", "while", "said", "say", "says", "tell",
-                "told", "ask", "asked", "seeing", "want", "need", "make", "made",
-                "using", "use", "used", "lately", "stuff", "things", "thing", "your",
-                "yours", "still", "back", "thats", "whats", "gonna", "wanna", "let",
-                # Filler that reached a live report as "Top topics: doing,
-                # evening, afternoon, head, mean" — none of which was a subject
-                # anyone discussed.
-                "doing", "does", "mean", "means", "meant", "evening", "afternoon",
-                "night", "today", "tomorrow", "yesterday", "sorry", "remember",
-                "again", "sure", "actually", "maybe", "think", "thought", "guess",
-                "looks", "looking", "talking", "discussing", "anything", "everything",
-                "something", "nothing", "another", "though", "each", "every",
-            }
-            # Small talk contributes no topics. A greeting is where "evening",
-            # "afternoon" and "head" came from, and no stopword list will ever
-            # anticipate every idiom — so phatic turns are skipped wholesale
-            # rather than word-by-word. Imported lazily: reflection must not take
-            # an import-time dependency on the engine.
-            try:
-                from eli.kernel.engine import _is_brief_phatic_prompt as _phatic
-            except Exception:
-                _phatic = None
             # Count DISTINCT MESSAGES a word appears in, not raw occurrences: one
             # message saying "head" twice is not a topic raised twice.
             for msg in user_msgs:
-                content = msg.get("content", "") or ""
-                if _phatic is not None:
-                    try:
-                        if _phatic(content.lower()):
-                            continue
-                    except Exception:
-                        log.debug("reflection: phatic check failed", exc_info=True)
-                seen_here = set()
-                for w in content.lower().split():
-                    clean = "".join(c for c in w if c.isalnum())
-                    if len(clean) >= 4 and clean not in _stopwords:
-                        seen_here.add(clean)
-                for clean in seen_here:
+                for clean in topic_words(msg.get("content", "") or ""):
                     all_words[clean] = all_words.get(clean, 0) + 1
             # Require a topic to have been raised in at least two messages.
             top_topics = [(w, c) for w, c in

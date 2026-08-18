@@ -299,12 +299,30 @@ class ProactiveDaemon:
         # conversation dominating ×100+). User conversation turns have empty
         # tags, so skipping auto-tagged rows keeps real topics and drops the echo.
         _AUTO_TAG_MARKERS = ("auto", "insight", "reflection", "proactive", "news", "briefing")
+        # Topic extraction is SHARED with the reflection report. This loop used to
+        # apply `self._STOPWORDS`, a second ~180-word list that never received the
+        # fixes the reflection one did and had no notion of small talk at all. On a
+        # live overnight run it reported the operator's focus areas as
+        #
+        #   afternoon (x11), doing (x10), today (x10), memory (x9), world (x7)
+        #
+        # after the operator had said "afternoon, Eli" — four of those five are in
+        # the shared set, and the greeting that produced them is now skipped whole.
+        # Imported lazily, matching the existing part_of_day() import below.
+        try:
+            from eli.runtime.reflection import topic_words as _topic_words
+        except Exception:
+            _topic_words = None
         word_counts: Dict[str, int] = {}
         for _ts, text, _tags in rows:
             if not text:
                 continue
             _tg = str(_tags or "").lower()
             if any(_k in _tg for _k in _AUTO_TAG_MARKERS):
+                continue
+            if _topic_words is not None:
+                for w in _topic_words(str(text)):
+                    word_counts[w] = word_counts.get(w, 0) + 1
                 continue
             for w in str(text).lower().split():
                 w = w.strip('.,!?;:\'"()[]{}')
@@ -504,7 +522,20 @@ class ProactiveDaemon:
                 if "topic_focus" in _obs_content:
                     try:
                         _obs_data = json.loads(_obs_content) if _obs_content.startswith("{") else {}
-                        for _t in _obs_data.get("topics", []):
+                        # The payload written below nests the topics inside
+                        # `patterns[]`; reading a TOP-LEVEL "topics" key found
+                        # nothing, ever. _past_topics stayed empty, so every
+                        # topic looked new on every tick and the daemon reported
+                        # the same five words as "not seen in prior ticks" all
+                        # night — while trend_fading, which is gated on
+                        # _past_topics being non-empty, could never fire at all.
+                        for _p in _obs_data.get("patterns", []) or []:
+                            if str((_p or {}).get("type") or "") != "topic_focus":
+                                continue
+                            for _t in (_p or {}).get("topics", []) or []:
+                                _past_topics.add(str(_t).lower())
+                        # Tolerate the flat shape in case an older row is read.
+                        for _t in _obs_data.get("topics", []) or []:
                             _past_topics.add(str(_t).lower())
                     except Exception:
                         _SWLOG.debug("suppressed exception", exc_info=True)
