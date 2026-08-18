@@ -981,7 +981,19 @@ class LocalModelManager:
                     # FLOOR, not just a target: any model that CAN hold the brief is never asked
                     # for less, so the brief is never chopped. Both terms are env-tunable, and an
                     # explicit user n_ctx still overrides — fully alterable.
-                    _sf_brief_floor = int(_sf_os.environ.get("ELI_CTX_BRIEF_FLOOR", "12288") or "12288")
+                    # DERIVED, not a flat 12288. That literal is the brief's budget in
+                    # CHARACTERS and was being spent as TOKENS, so every machine was asked
+                    # for four times the context the brief can occupy — and smart_fit pays
+                    # for context by shedding GPU layers, so on a small card it moved the
+                    # whole model to the CPU to reserve room nothing would use. Same source
+                    # as the assembler's own budgets, so the two cannot drift.
+                    try:
+                        from eli.kernel.engine import eli_brief_budget_tokens as _sf_brief_fn
+                        _sf_brief_default = _sf_brief_fn()
+                    except Exception:
+                        _sf_brief_default = 3072
+                    _sf_brief_floor = int(_sf_os.environ.get("ELI_CTX_BRIEF_FLOOR", "")
+                                          or _sf_brief_default)
                     _sf_gen_reserve = int(_sf_os.environ.get("ELI_CTX_GEN_RESERVE", "4096") or "4096")
                     _eli_need = _sf_brief_floor + _sf_gen_reserve            # ~16k: brief + generation
                     # Target defaults to ELI's need; never below it. A bigger ctx just costs VRAM
@@ -989,15 +1001,34 @@ class LocalModelManager:
                     # model's full trained length — keeps layers on the GPU AND fits the brief.
                     _sf_target = int(_sf_os.environ.get("ELI_CTX_TARGET", str(_eli_need)) or str(_eli_need))
                     _sf_target = max(_sf_target, _eli_need)
-                    _sf_user_ctx = max(2048, (min(_sf_target, _sf_train) // 2048) * 2048)
+                    # Round the grain UP, not down: the target is a NEED (brief +
+                    # generation reserve), and flooring it hands back part of the very
+                    # reserve it exists to guarantee — 7168 became 6144, 1024 tokens
+                    # short. Still capped by the model's trained length.
+                    _sf_grain_ctx = -(-int(_sf_target) // 2048) * 2048
+                    _sf_user_ctx = max(2048, min(_sf_grain_ctx, _sf_train))
                     # No-chop floor: if the model's trained context can hold ELI's brief, request
                     # at least that — even when VRAM is tight (smart_fit sheds layers→batch→ctx,
                     # so ctx is preserved). Guarantees the persona/memory brief is never truncated
                     # on a capable model. (A model below the need — e.g. the 4k phi-3 — can't be
                     # raised past its trained length, so it's flagged incompatible below instead.)
                     if _sf_train >= _eli_need:
-                        _sf_user_ctx = max(_sf_user_ctx, (_eli_need // 2048) * 2048)
-                    if _user_ctx and 2048 <= int(_user_ctx) <= _sf_train:
+                        _sf_user_ctx = max(_sf_user_ctx, -(-_eli_need // 2048) * 2048)
+                    # A settings n_ctx wins ONLY when the operator actually chose it.
+                    # Unpinned values are this machine's derived profile (see
+                    # runtime_settings._apply_hardware_derived_defaults), and letting a
+                    # derived number override the need reintroduced the chop it exists to
+                    # prevent: a profile computed at ctx=4096 would be honoured as an
+                    # "explicit choice", cutting ELI's own brief in half. Pinned means the
+                    # operator typed it, and then it is theirs.
+                    try:
+                        from eli.core.runtime_settings import (
+                            operator_pinned_keys as _sf_pinned, load_settings as _sf_ls)
+                        _sf_ctx_is_operators = "n_ctx" in _sf_pinned(_sf_ls())
+                    except Exception:
+                        _sf_ctx_is_operators = True   # unknown provenance → honour it
+                    if (_user_ctx and 2048 <= int(_user_ctx) <= _sf_train
+                            and (_sf_ctx_is_operators or int(_user_ctx) >= _sf_user_ctx)):
                         _sf_user_ctx = int(_user_ctx)  # explicit user ctx wins (capped to real ctx)
                     # Incompatibility guard: a model whose ENTIRE trained context is smaller than
                     # ELI's prompt budget can't run without truncating persona/memory — warn loudly
