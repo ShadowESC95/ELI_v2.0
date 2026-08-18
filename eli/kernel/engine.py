@@ -14806,13 +14806,35 @@ Answer:"""
 
 
 _engine: Optional[CognitiveEngine] = None
+_engine_lock = threading.Lock()
+
+
+def set_engine(engine: "CognitiveEngine") -> None:
+    """Register an already-built engine as the process-wide one.
+
+    The GUI builds its engine directly, with auto_init_gguf=False (the model is
+    loaded later, by the startup dialog, with the operator's own parameters). It
+    never registered that instance here, so the first background caller of
+    get_engine() — habits_scheduler on its own thread — constructed a SECOND
+    CognitiveEngine with auto_init_gguf defaulting to True. Live at 2.2.5 that
+    meant a second GGUF load, a second habit scheduler, a second
+    self-improvement loop, "Signal handler registration failed ... signal only
+    works in main thread" (proof it was off-thread), and two shutdown sequences
+    ending in "native teardown already done by another instance".
+    """
+    global _engine
+    with _engine_lock:
+        _engine = engine
 
 
 def get_engine() -> CognitiveEngine:
     global _engine
-    if _engine is None:
-        _engine = CognitiveEngine()
-    return _engine
+    # Locked: two background threads racing here would each build an engine and
+    # one would be silently discarded, having already started its own daemons.
+    with _engine_lock:
+        if _engine is None:
+            _engine = CognitiveEngine()
+        return _engine
 
 # REASONING_STATUS body block removed (Phase 2c — helpers relocated above class CognitiveEngine)
 
