@@ -397,8 +397,27 @@ _QUESTION_RX = re.compile(
     r"(you|i|we|it|that|this|there|they)\b",
     re.I,
 )
+# Asking WHETHER ELI can see, rather than asking it to look. Subject-first
+# ("you can see ...") and explicit confirmation openers; the modal-first request
+# form ("can you see ...") is deliberately NOT matched so it still triggers a glance.
+_SCREEN_CAPABILITY_QUESTION_RX = re.compile(
+    r"\b(?:just\s+(?:confirming|checking|making\s+sure)|"
+    r"(?<!can\s)you\s+can\s+(?:actually\s+|really\s+)?(?:see|read|view)\b|"
+    r"(?:are|so)\s+you\s+saying|"
+    r"you\s+(?:are|can)\s+able\s+to\s+see)\b",
+    re.I,
+)
+
 # These have their own dedicated time-aware handlers — never hijack them.
 _DEDICATED_TIME_RX = re.compile(r"\b(alarm|timer|stopwatch|pomodoro)\b", re.I)
+
+
+def _eli_final_clause(text: str) -> str:
+    """The last sentence of an utterance, for tests that must not only see the
+    opening. Splits on sentence punctuation and returns the final non-empty part."""
+    parts = [p.strip() for p in re.split(r"[.!?;]+", str(text or "")) if p.strip()]
+    return parts[-1] if parts else str(text or "").strip()
+
 
 
 def _eli_schedule_prepass(user_text: str):
@@ -419,6 +438,18 @@ def _eli_schedule_prepass(user_text: str):
     if _DEDICATED_TIME_RX.search(t):
         return None
     if _QUESTION_RX.search(t):
+        return None
+    # _QUESTION_RX is ^-anchored, so it only ever saw the START of the utterance.
+    # An imperative opener followed by a question sailed past it: live at 2.3.0,
+    #   "Stop talking about reactors and coffee.. How is the head, this evening?"
+    # matched the time marker ("this evening"), matched _IMPERATIVE_RX ("Stop"),
+    # failed the question test on the whole string — and silently created a
+    # background research task for +21247s from a line of conversation.
+    #
+    # Test the closing sentence too. _QUESTION_RX deliberately excludes polite
+    # requests ("can/could/would you ..."), so "can you open spotify at 8pm?"
+    # still schedules; only a genuine trailing question is refused.
+    if _QUESTION_RX.search(_eli_final_clause(t)):
         return None
     m_action = _SCHEDULE_ACTION_RX.search(t)
     if not (_SCHEDULE_VERB_RX.search(t) or m_action or _IMPERATIVE_RX.search(t)):
@@ -4700,6 +4731,20 @@ def route(text: str, _clause_depth: int = 0) -> Dict[str, Any]:
 
     if re.search(r"\bscreen\s*(?:read|analyse?|analyze|ocr)\b", raw, re.I):
         return _mk("SCREEN_READ_ANALYZE", {}, 0.93, matched_by="screen.read_ocr")
+
+    # A question ABOUT the capability is not a request to use it. Live at 2.3.0
+    # the user asked "So, you can see my screen?" and then "just confirming that
+    # you can actually see what i see" — both fired another SCREEN_READ_ANALYZE,
+    # each costing ~20s and a fresh screenshot, and neither answered the yes/no
+    # that was actually asked. By the third one: "STOP reading the fucking
+    # screen, and answer my question!".
+    #
+    # The split is syntactic and reliable: a REQUEST puts the modal first
+    # ("can you see my screen?"), a CONFIRMATION puts the subject first
+    # ("so you can see my screen?"). Falling through here lets normal CHAT
+    # routing answer the question instead of taking another glance.
+    if _SCREEN_CAPABILITY_QUESTION_RX.search(raw):
+        return None
 
     # Conversational vision: "what do you see", "can you see this/my screen",
     # "look at my screen", "what am I looking at", "see what I see".

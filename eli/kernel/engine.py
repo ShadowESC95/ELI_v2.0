@@ -3487,6 +3487,12 @@ def _first_sentence(text: str) -> str:
     return (parts[0] if parts else "").strip()
 
 
+# Reproducing a whole message back is an echo however its first sentence
+# tokenises. Long enough that a short shared phrase ("yeah, fair enough") is
+# not mistaken for one.
+_ECHO_MIN_HEAD_CHARS = 40
+
+
 def _opens_by_echoing(opening: str, sources) -> bool:
     """True when the reply's first sentence restates a sentence the USER wrote.
 
@@ -3494,6 +3500,22 @@ def _opens_by_echoing(opening: str, sources) -> bool:
     that's why…") is legitimate and common. Leading with their sentence as your
     own is the failure.
     """
+    # WHOLE-HEAD test first. Judging only the opening sentence meant a SHORT
+    # opening sentence disabled the guard entirely — live at 2.3.0 ELI replied
+    # with the user's own message reproduced verbatim (ratio 1.000), and this
+    # returned False because its first sentence, "You're not wrong.", is 15
+    # normalised characters against the 18-character minimum below. The reply
+    # was a perfect copy and the guard never looked past the full stop.
+    _head = _clarifier_norm(opening)
+    if len(_head) >= _ECHO_MIN_HEAD_CHARS:
+        for src in list(sources or [])[:_ECHO_MAX_SOURCES]:
+            _src = _clarifier_norm(src)
+            if len(_src) < _ECHO_MIN_HEAD_CHARS:
+                continue
+            n = min(len(_head), len(_src))
+            if _repeat_ratio(_head[:n], _src[:n]) >= _ECHO_RATIO:
+                return True
+
     first = _first_sentence(opening)
     if len(_clarifier_norm(first)) < _ECHO_MIN_SENTENCE_CHARS:
         return False
@@ -3505,6 +3527,19 @@ def _opens_by_echoing(opening: str, sources) -> bool:
             if _repeat_ratio(first, sentence) >= _ECHO_RATIO:
                 return True
     return False
+
+
+# A stock opener repeated across replies reads as a tic even when the rest differs.
+# Short openers ("Yes.", "Okay.") are exempt — they are not a stylistic rut.
+_REPEAT_OPENING_MIN_CHARS = 12
+_REPEAT_OPENING_RATIO = 0.92
+
+
+def _first_sentence(text) -> str:
+    """The opening sentence of a reply, for the opener-repeat test."""
+    parts = [p.strip() for p in re.split(r"(?<=[.!?])\s+", str(text or "").strip()) if p.strip()]
+    return parts[0] if parts else str(text or "").strip()
+
 
 
 def _is_repeat_of_recent(candidate: str, prior_replies, *,
@@ -3519,6 +3554,24 @@ def _is_repeat_of_recent(candidate: str, prior_replies, *,
     cand = str(candidate or "").strip()
     if len(_clarifier_norm(cand)) < 40:
         return False                      # too short to judge; "Okay." is not a repeat
+
+    # A recycled OPENING SENTENCE is a repeat to the reader even when everything
+    # after it is new — and the head-to-head ratio below cannot see it, because
+    # the differing remainder drags the score under the threshold. Live at 2.3.0
+    # seven consecutive replies opened "You're not wrong." while the rest varied;
+    # the guard fired on only two of them, and by the seventh the user was asking
+    # "WHAT THE FUCK ARE YOU TALKING ABOUT?!".
+    #
+    # Compare first sentence to first sentence, exactly, as its own test.
+    _cand_open = _clarifier_norm(_first_sentence(cand))
+    if len(_cand_open) >= _REPEAT_OPENING_MIN_CHARS:
+        for prior in list(prior_replies or [])[:_REPEAT_COMPARE_AGAINST]:
+            _prior_open = _clarifier_norm(_first_sentence(prior))
+            if len(_prior_open) < _REPEAT_OPENING_MIN_CHARS:
+                continue
+            if _repeat_ratio(_cand_open, _prior_open) >= _REPEAT_OPENING_RATIO:
+                return True
+
     for prior in list(prior_replies or [])[:_REPEAT_COMPARE_AGAINST]:
         p = str(prior or "").strip()
         if not p:
@@ -4146,6 +4199,24 @@ class CognitiveEngine:
             "n_ctx": int(n_ctx),
             "cpu_only": bool(cpu_only),
         }
+
+    # Roughly four characters per token, and at most a quarter of the window for
+    # who ELI is — the rest belongs to what the user said and what was retrieved.
+    _PERSONA_SHARE_OF_CTX = 0.25
+    _PERSONA_CHARS_PER_TOKEN = 4
+    _PERSONA_MIN_CHARS = 2048
+    _PERSONA_MAX_CHARS = 8192
+
+    def _persona_handoff_budget(self) -> int:
+        """Character budget for the persona brief, derived from the live window."""
+        try:
+            ctx = int(self._effective_n_ctx() or 0)
+        except Exception:
+            ctx = 0
+        if ctx <= 0:
+            return self._PERSONA_MIN_CHARS
+        share = int(ctx * self._PERSONA_CHARS_PER_TOKEN * self._PERSONA_SHARE_OF_CTX)
+        return max(self._PERSONA_MIN_CHARS, min(self._PERSONA_MAX_CHARS, share))
 
     def _effective_n_ctx(self) -> int:
         """Best-known context window (tokens). Live runtime params → snapshot →
@@ -8879,7 +8950,16 @@ Answer:"""
         if _extra_blocks:
             brief = "\n\n".join(filter(None, [brief] + _extra_blocks))
         # Phase 6: single 8 KB ceiling for the full assembled handoff.
-        brief = self._cap_text(brief, 8192, "persona_handoff")
+        # The cap is a SHARE of the live window, not a fixed 8192. Its docstring
+        # already says the accessor exists "to budget the persona against
+        # evidence" — but the number it was budgeted against was a constant, so
+        # the persona claimed the same 8192 characters at ctx=4096 as it does at
+        # ctx=32768. Live at 2.3.0 a 69-character message produced a 24,195-char
+        # prompt (persona 6541 + memory 5250 + the rest) and the log carried
+        # "Stream overflow: truncated to fit n_ctx" on turn after turn — the
+        # evidence was being squeezed by a persona sized for a window it did not
+        # have. Reuses _cap_text; no second trimming path.
+        brief = self._cap_text(brief, self._persona_handoff_budget(), "persona_handoff")
         # Real self-status rides ABOVE the cap — if the user asked how ELI is doing,
         # the measured telemetry must never be the thing truncation drops (that's
         # what made the model fall back to fabricating CPU/GPU temperatures).

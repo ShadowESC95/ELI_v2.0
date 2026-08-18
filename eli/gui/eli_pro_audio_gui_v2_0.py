@@ -10056,17 +10056,35 @@ _register()
             for line in list(getattr(rec, "reasoning", []) or []):
                 self._hardware_tuning_log(str(line))
 
-            # HW Profile is AUTHORITATIVE — these values are freshly computed
-            # for THIS model + THIS hardware's current free VRAM on every load.
-            # They become the primary load parameters (attempt 1), not advisory.
-            # Stale per-model values must never drive the load: switching from a
-            # 7B to a 24B model needs a fully recalculated profile, not the 7B's
-            # gpu_layers/ctx/batch left over in settings.json.
+            # These are a RECOMMENDATION, not what will load. The comment here
+            # used to say "AUTHORITATIVE ... the primary load parameters
+            # (attempt 1)", which stopped being true when the operator's own
+            # settings were moved to the front of the ladder: attempt 1 is now
+            # `requested`, and the value that actually loads is whichever rung
+            # `selected=` reports. Displaying a recommendation as authoritative
+            # is how the panel came to read "ctx=6144 gpu_layers=31" while the
+            # session was running at ctx=10384 gpu_layers=28 — three different
+            # numbers on screen at once, none of them labelled.
+            #
+            # Show the recommendation AS a recommendation, and show what is
+            # actually resident beside it when the model is loaded.
             summary = (
-                f"HW Profile: ctx={int(rec.n_ctx)} gpu_layers={int(rec.n_gpu_layers)} "
+                f"HW Profile (recommended): ctx={int(rec.n_ctx)} "
+                f"gpu_layers={int(rec.n_gpu_layers)} "
                 f"threads={int(rec.n_threads)} batch={int(rec.batch_size)} "
                 f"kv={_ck or 'fp16'}"
             )
+            try:
+                from eli.cognition import gguf_inference as _ggi_live
+                _live = _ggi_live.get_runtime_snapshot() or {}
+                _eff = (_live.get("effective") or _live) if isinstance(_live, dict) else {}
+                _lc, _lg = _eff.get("n_ctx"), _eff.get("n_gpu_layers")
+                if _lc and _lg is not None:
+                    summary += (f"  |  loaded: ctx={int(_lc)} gpu_layers={int(_lg)}"
+                                f" batch={int(_eff.get('n_batch') or 0)}")
+            except Exception:
+                log.debug("[GUI] live runtime snapshot unavailable for the tuning panel",
+                          exc_info=True)
             self.system_recommendation_label.setText(summary)
             if dock is not None:
                 dock.set_status("Tuning complete")

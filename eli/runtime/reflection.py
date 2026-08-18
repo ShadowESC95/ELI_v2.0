@@ -63,6 +63,16 @@ def _already_stored(mem, text: str) -> bool:
 # as `afternoon (x11), doing (x10), today (x10), memory (x9), world (x7)` —
 # four of those five are in this set and would have been dropped.
 TOPIC_STOPWORDS = frozenset({
+            # topic_words() strips apostrophes ("you're" -> "youre"), so the
+            # contraction forms must be listed WITHOUT them or they survive the
+            # filter and get counted as subjects. Live at 2.3.0 the Proactive tab
+            # reported "Current focus areas: open (x10), youre (x9), memory (x9),
+            # yourself (x7)" — "youre" was the second-strongest topic of the day.
+            "youre", "im", "wont", "isnt", "didnt", "theres", "ive", "youve",
+            "hes", "shes", "doesnt", "couldnt", "wouldnt", "havent", "wasnt",
+            "arent", "werent", "hasnt", "hadnt", "youll", "theyre", "weve",
+            "thats", "dont", "cant", "whats", "lets", "gonna", "wanna",
+            "yourself", "myself", "itself", "something", "anything", "nothing",
             "i", "me", "my", "the", "a", "an", "is", "was", "it", "to", "do",
             "you", "your", "and", "or", "of", "in", "on", "for", "what", "how",
             "can", "that", "this", "with", "not", "are", "have", "has", "be",
