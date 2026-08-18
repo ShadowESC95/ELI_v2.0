@@ -1012,6 +1012,13 @@ def _is_brief_phatic_prompt(text: str) -> bool:
         # Sign-offs / closers — purely phatic; a substantive remainder is caught
         # by the follow-up guard or falls through as non-phatic.
         "night", "good night", "goodnight", "gnight", "night night", "nighty night",
+        # Bare time-of-day greetings. "good morning" was here and "morning" was
+        # not, so "afternoon, Eli" — which the ROUTER classifies as
+        # chat.greeting at 0.90 — was not phatic to this detector, and the two
+        # disagreed about the same utterance. The trailing/leading address strip
+        # above already reduces "afternoon, Eli" to "afternoon".
+        "morning", "afternoon", "evening",
+        "mornin", "evenin", "good evening", "good day", "gday", "g'day",
         "see ya", "see you", "see you later", "see ya later", "talk later",
         "talk soon", "catch you later", "goodbye", "bye", "bye bye", "cya",
     }

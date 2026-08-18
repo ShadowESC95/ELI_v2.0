@@ -16,6 +16,49 @@ from typing import Any
 
 _MIN_REFRESH_INTERVAL = 1800.0  # 30 min — don't re-synthesise more often than this
 
+# ELI's own plumbing. The observation stores are DOMINATED by it — measured on a
+# live machine, agent.sqlite3 held 220 observations of which 104 were
+# `proactive_pattern_tick` and 104 `runtime`, and the ten most recent rows in
+# user.sqlite3 were "Proactive daemon started" repeated.
+#
+# So `get_recent_observations(limit=10)` handed this synthesiser ten rows of its
+# own bookkeeping, the prompt asked it to "reflect on your OWN recent activity",
+# and it correctly answered the question it was given — every 30 minutes, all
+# night, in almost the same words:
+#
+#   "Repeatedly starting the proactive daemon may indicate a need for more
+#    stable initialization or resource management."
+#
+# That is not an insight about the user or the work; it is the daemon noticing
+# itself. Those rows are worth keeping for audit, but they are not material for
+# reflection, and when nothing else remains there is nothing to synthesise —
+# so no inference call is made at all.
+_PLUMBING_CATEGORIES = frozenset({
+    "proactive_pattern_tick", "runtime", "world_autonomy", "system",
+})
+_PLUMBING_PREFIXES = (
+    "proactive daemon started", "proactive daemon stopped", "pattern_summary",
+    "persona auto-overlay cleaned", "[world_suggestion]", "[auto] world awareness",
+    "daemon initialized", "habit scheduler started", "self-improvement loop started",
+)
+
+
+def _observation_text(row: Any) -> str:
+    """Text of an observation, or '' when the row is ELI's own bookkeeping."""
+    row = row or {}
+    category = str(row.get("category") or "").strip().lower()
+    source = str(row.get("source") or "").strip().lower()
+    if category in _PLUMBING_CATEGORIES or source in _PLUMBING_CATEGORIES:
+        return ""
+    text = str(row.get("observation") or row.get("content") or "").strip()
+    low = text.lower()
+    if any(low.startswith(p) for p in _PLUMBING_PREFIXES):
+        return ""
+    # A serialised pattern tick is machine bookkeeping whatever it is filed under.
+    if low.startswith("{") and '"patterns"' in low:
+        return ""
+    return text
+
 
 def _cache_path() -> Path:
     from eli.core.paths import get_paths
@@ -73,8 +116,8 @@ def refresh_insight(memory: Any = None, force: bool = False) -> str:
             from eli.memory import get_memory
             memory = get_memory()
         try:
-            obs = [str((r or {}).get("observation") or (r or {}).get("content") or "").strip()
-                   for r in (memory.get_recent_observations(limit=10) or [])]
+            obs = [_observation_text(r)
+                   for r in (memory.get_recent_observations(limit=40) or [])]
         except Exception:
             obs = []
         obs = [o for o in obs if o][:10]
@@ -85,7 +128,10 @@ def refresh_insight(memory: Any = None, force: bool = False) -> str:
             sums = []
         sums = [s for s in sums if s][:3]
         if not obs and not sums:
-            return ""
+            # Nothing but plumbing to reflect on. Keep the last real insight
+            # rather than burning an inference call to restate the daemon's
+            # own start-up history back at the user.
+            return get_cached_insight()
 
         material = "OBSERVATIONS:\n" + "\n".join(f"- {o[:200]}" for o in obs)
         if sums:
