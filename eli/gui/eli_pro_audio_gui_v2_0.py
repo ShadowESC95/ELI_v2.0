@@ -1019,11 +1019,18 @@ class LocalModelManager:
                         f"[GUI][LOAD] smart-fit (post-init free={_sf_gpu.free_mb}MB "
                         f"reserve={_sf_reserve}MB kvq={_sf_kvq}): "
                         f"ctx={_sf_ctx} gpu_layers={_sf_layers} batch={_sf_batch}")
+                    # Say what this IS: a measurement and a queued fallback. It is
+                    # NOT a change that has been applied — the operator's own
+                    # numbers are attempted first (see the ladder below), so a line
+                    # reading "reduced ctx 10384->6144" while the very next line
+                    # loads 10384 describes an action that did not happen. Whether
+                    # the reduction is really used is settled by `selected=` later.
                     if _sf_ctx < _sf_user_ctx:
                         log.debug(
-                            f"[GUI][LOAD] smart-fit reduced ctx {_sf_user_ctx}->{_sf_ctx} to fit "
-                            f"{_sf_gpu.free_mb}MB free VRAM (your setting didn't fit — reduced to "
-                            f"avoid OOM, not replaced)")
+                            f"[GUI][LOAD] smart-fit measured ctx {_sf_ctx} as the fit for "
+                            f"{_sf_gpu.free_mb}MB free VRAM (your {_sf_user_ctx} is tried first; "
+                            f"this is the fallback if it cannot be honoured — reduced to avoid "
+                            f"OOM, never replaced)")
                     # Layers get the same announcement as ctx. Shedding GPU layers is
                     # the FIRST thing smart-fit does (ctx is protected to last), so it
                     # is the reduction users actually hit — and it was near-silent: a
@@ -1031,10 +1038,12 @@ class LocalModelManager:
                     # while per-turn latency went from ~3s to ~14s (observed 2.1.86).
                     if _user_gpu_layers and _sf_layers < _user_gpu_layers:
                         log.debug(
-                            f"[GUI][LOAD] smart-fit reduced GPU layers {_user_gpu_layers}->{_sf_layers} "
-                            f"to fit {_sf_gpu.free_mb}MB free VRAM — your context of {_sf_ctx} was kept "
-                            f"(ctx is reduced last). Expect slower generation: the layers that did not "
-                            f"fit run on CPU. Free VRAM or lower the context to get them back.")
+                            f"[GUI][LOAD] smart-fit measured {_sf_layers} GPU layers as the fit for "
+                            f"{_sf_gpu.free_mb}MB free VRAM (your {_user_gpu_layers} is tried first; "
+                            f"this is the fallback). Your context of {_sf_ctx} is kept either way "
+                            f"(ctx is reduced last). If the fallback is used, expect slower "
+                            f"generation: the layers that did not fit run on CPU. Free VRAM or lower "
+                            f"the context to get them back.")
                     _sf_fit_layers = int(_sf_layers)
                     _add_attempt("smart-fit", _sf_ctx, _sf_layers, _sf_batch)
             except Exception as _sf_err:
@@ -1257,15 +1266,40 @@ class LocalModelManager:
                         f"{int(float(os.environ.get('ELI_LOAD_PROBE_TIMEOUT', '') or 60))}s "
                         f"this once, then remembered…")
                     try:
-                        from eli.core.load_probe import probe_config
-                        _ok, _why = probe_config(
+                        from eli.core import load_probe as _lp
+                        _verdict, _why = _lp.probe_verdict(
                             str(path_obj), int(_cand["n_ctx"]),
                             int(_cand["n_gpu_layers"]), int(_cand["n_batch"]),
                         )
                     except Exception as _probe_err:
                         # The check itself is unavailable. That is not evidence
                         # against the operator's settings, so they stand.
-                        _ok, _why = True, f"probe unavailable: {_probe_err}"
+                        _verdict, _why = "unavailable", f"probe unavailable: {_probe_err}"
+                    # A TIMEOUT is not a pass. 2.2.9 logged "requested settings
+                    # verified (probe timed out after 60s (unproven))" and then
+                    # loaded ctx=10384 gpu_layers=99 against a measured fit of
+                    # 28 — CUDA allocates lazily, so the load looked clean and
+                    # the process died with `ggml-cuda.cu:98: CUDA error` /
+                    # SIGABRT on the first real prompt. The probe only runs when
+                    # the request already exceeds the measured fit, so here
+                    # "could not prove it" is a reason to use the measured rungs
+                    # below, not a reason to gamble the process on it.
+                    #
+                    # An UNAVAILABLE probe still leaves the operator's settings
+                    # alone: that is no information at all, and a machine that
+                    # can never run the probe must not be permanently capped.
+                    if _verdict == "timeout":
+                        log.warning(
+                            f"[GUI][LOAD] could not verify your settings in time "
+                            f"({_why}) — they exceed the {_sf_fit_layers} GPU layers "
+                            f"measured to fit, and loading them unproven is what "
+                            f"aborts mid-generation. Falling through to the measured "
+                            f"fallbacks; raise ELI_LOAD_PROBE_TIMEOUT to allow the "
+                            f"check more time, or set ELI_LOAD_PROBE=0 to load them "
+                            f"as entered without proof.")
+                        _last_error = f"requested settings unproven: {_why}"
+                        continue
+                    _ok = _verdict != "bad"
                     if not _ok:
                         log.warning(
                             f"[GUI][LOAD] your settings (ctx={_cand['n_ctx']} "
@@ -1276,7 +1310,12 @@ class LocalModelManager:
                             f"the context or GPU layers, to have them used as entered.")
                         _last_error = f"requested settings failed verification: {_why}"
                         continue
-                    log.debug(f"[GUI][LOAD] requested settings verified ({_why})")
+                    if _verdict == "ok":
+                        log.debug(f"[GUI][LOAD] requested settings verified ({_why})")
+                    else:
+                        # Never call an unproven config "verified" — that line is
+                        # what made the 2.2.9 crash look like a checked launch.
+                        log.debug(f"[GUI][LOAD] proceeding unproven ({_why})")
                 llama_kwargs: Dict[str, Any] = dict(
                     model_path=str(path_obj),
                     n_ctx=int(_cand["n_ctx"]),
@@ -2939,11 +2978,17 @@ class EliMainWindow(QMainWindow):
         # ---------- COGNITIVE ENGINE SINGLETON ----------
         self._cognitive_engine = None
         try:
-            from eli.kernel.engine import CognitiveEngine
+            from eli.kernel.engine import CognitiveEngine, set_engine
             self._cognitive_engine = CognitiveEngine(
                 auto_init_gguf=False,
                 enforce_hardware_authority=False,
             )
+            # Register it as THE engine. This block was already called the
+            # singleton, but nothing published the instance, so the first
+            # background caller of get_engine() built a second one — with
+            # auto_init_gguf defaulting to True, so it loaded the model again
+            # and started a duplicate habit scheduler and self-improvement loop.
+            set_engine(self._cognitive_engine)
             log.debug("[GUI] CognitiveEngine singleton ready (reflection/habit/awareness active)")
         except Exception as _ce_init_err:
             log.debug(f"[GUI] CognitiveEngine init skipped (non-fatal): {_ce_init_err}")
