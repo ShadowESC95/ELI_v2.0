@@ -10,7 +10,7 @@ The matrix below is **code coverage** — how each capability is *implemented* p
 separate and more honest: what I've genuinely **run**.
 
 - **Run-verified, end to end:** **Linux (x86_64) + NVIDIA.** Install, first-run, the full test
-  suite (9,291+ passing), voice, vision, the server — all of it. This is the tested path.
+  suite (9,322+ passing), voice, vision, the server — all of it. This is the tested path.
 - **AppImage engine run-verified across the mainstream distros (2026-07-18, v2.1.18):** the shipped
   `.AppImage` was extracted and driven through a **real chat turn** (full router → agent bus →
   memory → persona → streaming pipeline, bundled embedder loaded) in fresh containers of
