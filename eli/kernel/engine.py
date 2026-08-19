@@ -13610,12 +13610,26 @@ Answer:"""
 
             if _user_asked_for_a_repeat(user_input):
                 log.debug("[ANTI-REPEAT] user asked for a repeat — guard stood down")
-            elif _is_greeting_turn(user_input):
-                # Leaving _recent_eli empty disarms the guard: both
-                # _stream_holding_back_repeats calls no-op on an empty list.
-                log.debug("[ANTI-REPEAT] greeting — guard stood down "
-                          "(a time-of-day greeting is meant to recur)")
             else:
+                # A greeting turn used to disarm this guard completely, on the
+                # reasoning that "a time-of-day greeting is meant to recur". It
+                # disarmed it for the WHOLE reply, so a 120-character paragraph
+                # could be served back verbatim — live at 2.3.5, "HELLO ELI" was
+                # classed a greeting and ELI answered with a near-copy of its
+                # previous reply, twice, and the user asked what it was talking
+                # about.
+                #
+                # The exemption is unnecessary: _is_repeat_of_recent already
+                # returns False for anything under 40 normalised characters, so a
+                # real greeting ("Morning, Jason.") still recurs freely while a
+                # recycled paragraph does not.
+                #
+                # Note the pairing with the anti-repeat CONTRACT above, which is
+                # still skipped on greetings: injecting "do not repeat any of
+                # this" while the model decides how to say hello is what pushed a
+                # correct "Evening" into the user's misspelled "Aftrnoon". So the
+                # instruction stays off and the check comes back on — which is the
+                # project's rule anyway: guards verify, they do not instruct.
                 try:
                     for _t in (self.memory.get_recent_conversation(limit=8) or []):
                         if str((_t or {}).get("role", "")).lower() in ("assistant", "eli"):
