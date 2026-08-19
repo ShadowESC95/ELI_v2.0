@@ -845,78 +845,45 @@ def recommend(hw: Optional[HardwareProfile] = None,
     rec.model_size_gb = chosen["size_gb"]
     rec.n_gpu_layers = chosen_layers
 
-    # Refine n_ctx now that we know the model and GPU offload level.
-    # For GPU systems, cap ctx at what the remaining VRAM can hold for KV cache.
-    # Without this the RAM-based formula over-allocates on VRAM-limited machines
-    # and causes OOM on the first load attempt.
+    # ONE fit, not two. This recommendation is shown to the operator and stored
+    # as the hw_profile_* fallback, so it must predict what the loader will do —
+    # and it did the opposite. Three blocks here picked layers first and then cut
+    # CONTEXT to pay for them ("n_ctx set 12288 -> 8192", "n_gpu_layers adjusted
+    # 28->30 after ctx settled", "n_ctx-> to reach 10 GPU layers"), while
+    # smart_fit_config — the function the load ladder actually runs — keeps the
+    # context and sheds LAYERS, reducing ctx only as a last resort.
+    #
+    # Same machine, same model, one second apart, the two disagreed in the
+    # Hardware Tuning tab: the tuner reported ctx=8192 gpu_layers=30 while the
+    # load selected ctx=12288 gpu_layers=27.
+    #
+    # smart_fit_config is the authority because it is what runs. Calling it here
+    # means the recommendation is a prediction of the load rather than a second
+    # opinion about it.
     if hw.has_gpu and hw.free_vram_mb > 0 and chosen_layers > 0:
         _total_layers_est = _layers_for_size(chosen["size_gb"])
-        _model_vram_mb = chosen["size_gb"] * 1024.0
-        # In partial offload only the GPU-resident fraction of the model occupies
-        # VRAM. Subtracting the full model size when layers < total causes
-        # vram_for_kv to go negative (→ 0 → ctx=2048) even when KV fits fine.
-        _offload_frac = min(1.0, chosen_layers / max(1, _total_layers_est))
-        _gpu_model_mb = _model_vram_mb * _offload_frac
-        # All layers' KV cache lives on GPU by default in llama.cpp (even for
-        # CPU-resident layers). Reserve only the fixed CUDA overhead here; the
-        # old +1500 "runtime headroom" double-counted the batch/compute reserve
-        # already accounted for during layer selection above.
-        # Reserve the decode-time compute/graph buffer alongside model+overhead
-        # so the chosen ctx is safe at FIRST GENERATION, not merely at load.
-        _compute_mb = _compute_graph_reserve_mb(rec.n_ctx, 256)
-        _vram_for_kv = max(0.0, hw.free_vram_mb - _gpu_model_mb - float(_CUDA_OVERHEAD_MB) - _compute_mb)
-        _kv_factor = 4 if kv_q else 1
-        _kv_per_token_mb = (_total_layers_est * _KV_BYTES_PER_TOKEN_PER_LAYER / 1_048_576) / _kv_factor
-        if _kv_per_token_mb > 0:
-            _max_ctx_vram = max(2048, int(_vram_for_kv / _kv_per_token_mb))
-            _ctx_grain = 2048
-            # Cap at the initial estimate (model training ctx); never inflate beyond it.
-            _vram_ctx = max(2048, min(rec.n_ctx, (_max_ctx_vram // _ctx_grain) * _ctx_grain))
-            _old = rec.n_ctx
-            rec.n_ctx = _vram_ctx
-            rec.reasoning.append(
-                f"n_ctx set {_old} → {rec.n_ctx} from VRAM budget "
-                f"(vram_for_kv={_vram_for_kv:.0f}MB kv/tok={_kv_per_token_mb:.3f}MB "
-                f"gpu_model={_gpu_model_mb:.0f}MB offload={_offload_frac:.2f})"
-            )
-
-    # Layer count was computed at the pre-refinement ctx; recompute once ctx settles.
-    if hw.has_gpu and hw.free_vram_mb > 0 and rec.n_gpu_layers > 0:
-        _settled = _gpu_layers_for_model(
-            chosen["size_gb"], hw.free_vram_mb, rec.n_ctx, kv_quantized=kv_q,
+        # Mirror the loader's own batch floor so the compute-graph reserve — and
+        # therefore the layer count — is costed against the same batch it will use.
+        import os as _os_fit
+        _fit_batch_in = max(128, int(_os_fit.environ.get("ELI_MIN_BATCH", "128") or "128"))
+        _fit_ctx, _fit_layers, _ = smart_fit_config(
+            chosen["size_gb"], hw.free_vram_mb,
+            user_ctx=rec.n_ctx, user_batch=_fit_batch_in,
+            reserve_mb=vram_reserve_mb(), kv_quantized=kv_q,
+            total_layers=_total_layers_est, min_batch=_fit_batch_in,
         )
-        if _settled != rec.n_gpu_layers:
-            rec.reasoning.append(
-                f"n_gpu_layers adjusted {rec.n_gpu_layers}→{_settled} "
-                f"after ctx settled to {rec.n_ctx}"
-            )
-            rec.n_gpu_layers = _settled
-            chosen_layers = _settled
-
-    # Partial offload on a real GPU: prefer at least 10 layers by trimming ctx
-    # before we hand the profile to the user (8 GB cards + 20 GB MoE, etc.).
-    _MIN_GPU_LAYERS = 10
-    if (hw.has_gpu and hw.free_vram_mb >= 4096
-            and 0 < rec.n_gpu_layers < _MIN_GPU_LAYERS):
-        _ctx_try = rec.n_ctx
-        while _ctx_try > 2048 and rec.n_gpu_layers < _MIN_GPU_LAYERS:
-            _ctx_try = max(2048, _ctx_try - 2048)
-            _try_layers = _gpu_layers_for_model(
-                chosen["size_gb"], hw.free_vram_mb, _ctx_try, kv_quantized=kv_q,
-            )
-            if _try_layers >= _MIN_GPU_LAYERS:
-                rec.n_ctx = _ctx_try
-                rec.n_gpu_layers = _try_layers
-                chosen_layers = _try_layers
-                rec.reasoning.append(
-                    f"n_ctx→{rec.n_ctx} to reach {rec.n_gpu_layers} GPU layers "
-                    f"(target min {_MIN_GPU_LAYERS})"
-                )
-                break
-            if _try_layers > rec.n_gpu_layers:
-                rec.n_ctx = _ctx_try
-                rec.n_gpu_layers = _try_layers
-                chosen_layers = _try_layers
+        # 99 is the "all layers" sentinel; this profile reports a real count.
+        _fit_layers_real = _total_layers_est if int(_fit_layers) >= 99 else int(_fit_layers)
+        _old_ctx, _old_layers = rec.n_ctx, rec.n_gpu_layers
+        rec.n_ctx = int(_fit_ctx)
+        rec.n_gpu_layers = _fit_layers_real
+        chosen_layers = _fit_layers_real
+        rec.reasoning.append(
+            f"Fit (same calculation the loader runs): ctx={rec.n_ctx} "
+            f"gpu_layers={rec.n_gpu_layers} for {hw.free_vram_mb:.0f}MB free VRAM "
+            f"(reserve {vram_reserve_mb()}MB, kv={'q4_0' if kv_q else 'fp16'}) "
+            f"— was ctx={_old_ctx} gpu_layers={_old_layers} before the fit"
+        )
 
     total_layers = _layers_for_size(chosen["size_gb"])
     _full_offload = chosen_layers >= total_layers  # 99 >= actual layer count → all layers on GPU
