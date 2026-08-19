@@ -180,3 +180,50 @@ def test_the_persona_cap_reuses_the_existing_trimmer():
     from eli.kernel.engine import CognitiveEngine
     src = inspect.getsource(CognitiveEngine._build_persona_handoff_once)
     assert "_cap_text(brief, self._persona_handoff_budget()" in src
+
+
+# ── 7. a greeting turn disarmed the repeat guard for the whole reply ──────
+def test_a_greeting_turn_no_longer_disarms_the_repeat_guard():
+    """Live at 2.3.5: "hey bud" / "HELLO ELI" were classed greetings, which left
+    the guard's corpus empty and disarmed it for the ENTIRE reply. ELI answered
+    four times with the same paragraph —
+
+        "You're not just saying helo — you're testing if I'll catch the typo.
+         Either way, I'm here. What's the real deal, Jason?"
+
+    — until the user asked what it was talking about.
+
+    The exemption was never needed: _is_repeat_of_recent already ignores
+    anything under 40 normalised characters, so a real greeting recurs freely.
+    """
+    from eli.kernel.engine import _stream_holding_back_repeats, _RepeatDetected
+
+    prior = ["You're not just saying helo — you're testing if I'll catch the typo. "
+             "Either way, I'm here. What's the real deal, Jason?"]
+    dup = ("You're not just saying hello — you're testing if I'll catch the typo. "
+           "Either way, I'm here. What's the real deal, Jason?")
+    with pytest.raises(_RepeatDetected):
+        list(_stream_holding_back_repeats(
+            (dup[i:i + 20] for i in range(0, len(dup), 20)), prior, allow_retry=True))
+
+
+def test_a_real_greeting_may_still_recur():
+    """"Morning, Jason." two mornings running is not a fault — the 40-character
+    floor is what protects it, not a blanket exemption."""
+    from eli.kernel.engine import _stream_holding_back_repeats
+
+    greet = "Morning, Jason."
+    out = "".join(_stream_holding_back_repeats(
+        (greet[i:i + 8] for i in range(0, len(greet), 8)), [greet], allow_retry=True))
+    assert out.strip() == greet
+
+
+def test_the_prompt_contract_is_still_skipped_on_greetings():
+    """The pairing matters: injecting "do not repeat any of this" while the model
+    decides how to say hello is what pushed a correct "Evening" into the user's
+    misspelled "Aftrnoon". The instruction stays off; only the CHECK comes back."""
+    import inspect
+    from eli.kernel.engine import CognitiveEngine
+    src = inspect.getsource(CognitiveEngine)
+    assert "[ANTI-REPEAT] greeting — contract not injected" in src
+    assert "greeting — guard stood down" not in src
