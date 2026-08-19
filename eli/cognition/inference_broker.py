@@ -84,7 +84,10 @@ class InferenceBroker:
             return False
         try:
             if hasattr(self._gguf, "is_loaded"):
-                return bool(self._gguf.is_loaded)
+                _probe = self._gguf.is_loaded
+                # is_loaded is a FUNCTION here; bool() of it is always True, so
+                # this reported "ready" whether or not a model was resident.
+                return bool(_probe() if callable(_probe) else _probe)
             if hasattr(self._gguf, "model"):
                 return self._gguf.model is not None
             return True
@@ -104,21 +107,28 @@ class InferenceBroker:
     ) -> str:
         if not self.gguf_ready:
             raise RuntimeError("GGUF model not ready")
-        # During shutdown, don't START a new generation — return empty immediately so a
-        # background self-improvement/codegen loop stops paying prompt-eval cost on each
-        # remaining item and teardown isn't held up. In-flight calls abort via the
-        # gguf stopping-criteria; this just prevents new ones from queueing.
-        try:
-            if self._gguf.is_shutting_down():
-                return ""
-        except Exception:
-            pass
         global _last_foreground_ts, _last_foreground_duration
         # A call is background if the caller said so OR it runs on a thread already marked
         # background (the proactive daemon marks its loop thread, so all its work qualifies).
         gi = self._gguf
         try:
             background = bool(background) or bool(gi.is_background_inference())
+        except Exception:
+            pass
+        # During shutdown, don't START a new BACKGROUND generation — a
+        # self-improvement/codegen loop would otherwise pay prompt-eval cost on
+        # each remaining item and hold up teardown. In-flight calls abort via the
+        # gguf stopping-criteria; this just prevents new ones queueing.
+        #
+        # It used to short-circuit EVERY call, foreground included, which killed
+        # the one generation shutdown deliberately makes: the end-of-session
+        # summary (engine shutdown step 3.5, after signal_shutdown at step 2). So
+        # every session logged "summary written (llm=False)" and ELI's hand-off
+        # note to its next session was always the heuristic fallback, never the
+        # LLM one the feature exists to produce.
+        try:
+            if background and self._gguf.is_shutting_down():
+                return ""
         except Exception:
             pass
         # A foreground turn is live or just ran: don't let background work grab the shared model

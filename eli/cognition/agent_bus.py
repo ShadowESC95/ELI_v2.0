@@ -743,6 +743,23 @@ def _eli_memory_should_run(user_input: str, action: str) -> bool:
     if any(m in low for m in memory_markers):
         return True
 
+    # Accepting what ELI just offered is the SHORTEST possible message and the
+    # one that most needs the previous turn. Live at 2.3.6: ELI asked "Want to
+    # know how it compares to other setups?", the user said "yeah, why not"
+    # (3 words), memory was skipped as a tiny fragment, and ELI answered with no
+    # idea what it had offered — the user had to quote the offer back to get it.
+    _continuation = re.fullmatch(
+        r"(?:yes|yeah|yeh|yep|yup|sure|ok|okay|k|alright|aight|aye|please|"
+        r"go|go on|go ahead|do it|why not|sounds good|tell me|carry on|"
+        r"continue|and|both|either|the (?:first|second|latter|former)|"
+        r"i said yes|yes please|please do)"
+        r"[\s,.!?]*(?:yes|yeah|sure|ok|okay|please|why not|go on|do it|"
+        r"go ahead|tell me|then|man|pal|mate|bud)?[\s,.!?]*",
+        low,
+    )
+    if _continuation:
+        return True
+
     # Tiny fragments after wake, e.g. "here i will", should not drag in memory.
     if len(words) < 4:
         return False

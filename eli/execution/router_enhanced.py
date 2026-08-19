@@ -408,6 +408,21 @@ _SCREEN_CAPABILITY_QUESTION_RX = re.compile(
     re.I,
 )
 
+def _eli_outside_quotes(text: str) -> str:
+    """The utterance with quoted passages removed — what the user actually asked.
+
+    Quoting ELI's own words back is a conversational move, not a request to run
+    whatever those words mention. Anything left empty (the message was ONLY a
+    quote) falls back to the whole text so a bare quote still routes as before.
+    """
+    # DOUBLE quotes only. An apostrophe is not a quote mark in English, and
+    # including it made "you're building..." look like a quoted span, eating half
+    # the sentence including the words that mattered.
+    stripped = re.sub(r"[\"\u201c\u201d][^\"\u201c\u201d]{12,}?[\"\u201c\u201d]",
+                      " ", str(text or ""))
+    return stripped if stripped.strip() else str(text or "")
+
+
 # These have their own dedicated time-aware handlers — never hijack them.
 _DEDICATED_TIME_RX = re.compile(r"\b(alarm|timer|stopwatch|pomodoro)\b", re.I)
 
@@ -5559,6 +5574,18 @@ def _eli_self_improvement_phrase_guard(text):
 def _eli_runtime_cognition_failure_guard(text):
     raw = str(text or "")
     low = raw.lower().strip()
+    # Route on what the USER asked, not on words they are quoting back. The
+    # _explain_prior_claim guard already states this principle — "even when it
+    # quotes ELI's own words back, which may incidentally contain 'context
+    # window', 'confidence', 'max_tokens'" — but it never reached this trigger.
+    #
+    # Live at 2.3.6, the user quoted ELI's own sentence:
+    #   "...you might push toward more layers. But if it's about speed or
+    #    resource usage, 26 is a smart middle ground." -- is that not
+    #    counterintuitive?
+    # "layers" + "you" inside the QUOTE fired GPU_STATUS at 0.995, and a
+    # conversational challenge was answered with a VRAM dump.
+    _asked = _eli_outside_quotes(low)
 
     # "how many layers are you using?" means GPU offload layers in ELI's own
     # runtime — n_gpu_layers is live in the GPU_STATUS snapshot. Left to CHAT it
@@ -5566,16 +5593,16 @@ def _eli_runtime_cognition_failure_guard(text):
     # advice), and "are you using the gpu?" drew "I am running on CPU, not GPU"
     # while 11 layers were offloaded. Grounded report, not a guess.
     _gpu_layer_question = (
-        re.search(r"\blayers?\b", low)
-        and re.search(r"\b(you|your|offload\w*|gpu|vram|cuda|model|running|loaded|use|using)\b", low)
+        re.search(r"\blayers?\b", _asked)
+        and re.search(r"\b(you|your|offload\w*|gpu|vram|cuda|model|running|loaded|use|using)\b", _asked)
         and not re.search(r"\b(image|photo|photoshop|after\s?effects|composit\w*|design|"
-                          r"canvas|css|z-index|onion\s?skin)\b", low)
+                          r"canvas|css|z-index|onion\s?skin)\b", _asked)
     )
-    if re.search(r"\bnvidia-smi\b", low) or _gpu_layer_question or (
-        re.search(r"\b(gpu|vram|cuda|nvidia)\b", low)
+    if re.search(r"\bnvidia-smi\b", _asked) or _gpu_layer_question or (
+        re.search(r"\b(gpu|vram|cuda|nvidia)\b", _asked)
         and re.search(r"\b(stat|stats|status|diagnostic|diagnostics|usage|using|use|memory|"
                       r"performance|running on|running|offload\w*|accelerat\w*|"
-                      r"tell me what it means|temp|temperature|how hot)\b", low)
+                      r"tell me what it means|temp|temperature|how hot)\b", _asked)
     ):
         return {
             "action": "GPU_STATUS",
