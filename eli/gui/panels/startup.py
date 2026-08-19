@@ -7,6 +7,7 @@ Contains:
 """
 from __future__ import annotations
 
+import logging
 import os
 from pathlib import Path
 from typing import Any, Dict, List, Optional
@@ -104,9 +105,78 @@ def _ollama_unreachable_message(host: str, err) -> str:
 
 # ── HardwareTuningDock ────────────────────────────────────────────────────────
 
+# Markers for the hardware/load story ELI already writes to the terminal. The
+# Hardware Tuning dock showed only the TUNER's own lines, so the panel reported a
+# recommendation computed before the model loaded while the load ladder went on to
+# select something else — a user comparing the tab against the terminal saw two
+# different sets of numbers for the same launch.
+#
+# These are the prefixes the loader, the fit and the probe already emit. Routing
+# them into the dock means the tab shows the same calculation the terminal does,
+# as it happens, before and during the load — no second source of truth, and no
+# figure computed twice.
+HARDWARE_LOG_MARKERS = (
+    "[STARTUP_DIALOG][HW_OPT]",
+    "[GUI][HW_PROFILE]",
+    "[GUI][GPU]",
+    "[GUI][LOAD]",
+    "[LOAD_PROBE]",
+    "[GGUF][ADAPTIVE]",
+    "[GGUF][EFFECTIVE]",
+    "[HW_AUTHORITY]",
+)
+
+
+class HardwareTuningLogRelay(logging.Handler):
+    """Forward ELI's hardware/load log records into the Hardware Tuning dock.
+
+    A handler rather than call sites: the loader, the fit, the probe and the
+    optimizer all already log these lines, and duplicating each call would mean
+    the tab and the terminal could drift apart. This subscribes to what is
+    already written.
+
+    Emits through the dock's signal so the append happens on the GUI thread —
+    these records originate on worker threads.
+    """
+
+    def __init__(self, dock: "HardwareTuningDock"):
+        super().__init__(level=logging.DEBUG)
+        self._dock = dock
+
+    def emit(self, record: logging.LogRecord) -> None:
+        try:
+            msg = record.getMessage()
+        except Exception:
+            return
+        if not any(marker in msg for marker in HARDWARE_LOG_MARKERS):
+            return
+        dock = self._dock
+        if dock is None:
+            return
+        try:
+            dock.log_line.emit(msg)
+        except RuntimeError:
+            # Dock destroyed (window closed) — detach so we stop trying.
+            self._dock = None
+            try:
+                logging.getLogger().removeHandler(self)
+            except Exception:
+                pass
+        except Exception:
+            pass
+
+
 class HardwareTuningDock(QDockWidget):
+    # The hardware/load story is written by code running on worker threads (the
+    # tuner, the load ladder, the subprocess probe). A QPlainTextEdit may only be
+    # touched on the GUI thread, so lines arrive as a signal and are appended in
+    # the slot. Writing the widget directly from the loader is the Qt bug this
+    # avoids.
+    log_line = pyqtSignal(str)
+
     def __init__(self, parent=None):
         super().__init__("Hardware Tuning", parent)
+        self.log_line.connect(self.append_log)
         self.setAllowedAreas(
             Qt.DockWidgetArea.LeftDockWidgetArea
             | Qt.DockWidgetArea.RightDockWidgetArea
