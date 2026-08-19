@@ -125,13 +125,28 @@ def test_a_clamped_load_names_what_was_reduced(gpu_report):
 
 
 def test_headroom_is_read_from_the_measured_vram(gpu_report):
+    """Still read from measured VRAM — and now net of what generation will take.
+
+    nvidia-smi "free" is not spare: llama.cpp allocates the compute/graph buffer
+    LAZILY at the first decode, so the reserve the loader kept back still reads
+    as free. Reporting it as headroom told the operator to raise settings into
+    memory already committed — the over-commit that aborted the process at
+    2.2.7 and 2.2.9. The measured figure is unchanged; the advice is now honest.
+    """
     tight = gpu_report(AS_REQUESTED, SMI_TIGHT)
-    assert "260 MiB of 8192 MiB VRAM free (3.2%)" in tight
-    assert "no headroom" in tight
+    assert "260 MiB of 8192 MiB VRAM reads free (3.2%)" in tight
+    assert "none to speak of" in tight
 
     roomy = gpu_report(AS_REQUESTED, SMI_ROOMY)
-    assert "6144 MiB of 8192 MiB VRAM free (75.0%)" in roomy
-    assert "headroom available" in roomy
+    assert "6144 MiB of 8192 MiB VRAM reads free (75.0%)" in roomy
+    assert "Genuinely spare:" in roomy
+
+
+def test_committed_memory_is_named_not_hidden(gpu_report):
+    """The operator should be able to see WHY the free figure is not spare."""
+    txt = gpu_report(AS_REQUESTED, SMI_ROOMY)
+    assert "already committed to generation" in txt
+    assert "allocates it lazily at the first decode" in txt
 
 
 def test_cpu_only_is_called_out(gpu_report):

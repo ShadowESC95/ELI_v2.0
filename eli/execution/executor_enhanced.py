@@ -740,7 +740,44 @@ def _gpu_status_report() -> Dict[str, Any]:
 
     if free is not None and total:
         _free_pct = (float(free) / float(total)) * 100.0
-        if _free_pct < 10:
+        # "Free" from nvidia-smi is NOT spare. llama.cpp allocates its compute/graph
+        # buffer LAZILY, at the first decode — so the reserve the loader deliberately
+        # kept back still reads as free until a generation touches it. Reporting it as
+        # headroom told the operator to raise settings into memory that is already
+        # committed, which is precisely the over-commit that aborted the process
+        # mid-generation at 2.2.7 and 2.2.9 (ggml-cuda.cu:98: CUDA error).
+        #
+        # Live at 2.3.6: 1493 MiB read as free while the compute buffer (736 MB at
+        # ctx=12288 batch=128), CUDA overhead (350 MB) and the kept reserve (700 MB)
+        # already accounted for more than that. Subtract what generation will take
+        # and report what is genuinely spare.
+        _committed = 0.0
+        try:
+            from eli.core.hardware_profile import (_compute_graph_reserve_mb,
+                                                   _CUDA_OVERHEAD_MB, vram_reserve_mb)
+            _eff_r = (runtime_snapshot or {}).get("effective") or runtime_snapshot or {}
+            _c = int(_eff_r.get("n_ctx") or 0)
+            _b = int(_eff_r.get("n_batch") or 0)
+            if _c > 0 and _b > 0:
+                _committed = (float(_compute_graph_reserve_mb(_c, _b))
+                              + float(_CUDA_OVERHEAD_MB) + float(vram_reserve_mb()))
+        except Exception:
+            _committed = 0.0
+        _spare = float(free) - _committed
+        if _committed > 0:
+            _reading.append(
+                f"- {free:.0f} MiB of {total:.0f} MiB VRAM reads free ({_free_pct:.1f}%), but "
+                f"{_committed:.0f} MiB is already committed to generation (compute buffer, "
+                f"CUDA overhead and the kept reserve) — llama.cpp allocates it lazily at the "
+                f"first decode.")
+            if _spare >= 512:
+                _reading.append(
+                    f"- Genuinely spare: {_spare:.0f} MiB — room to raise context or batch.")
+            else:
+                _reading.append(
+                    "- Genuinely spare: none to speak of. Raising context, batch or GPU "
+                    "layers from here is what aborts mid-generation.")
+        elif _free_pct < 10:
             _reading.append(
                 f"- {free:.0f} MiB of {total:.0f} MiB VRAM free ({_free_pct:.1f}%): no headroom "
                 "to raise context or batch without lowering GPU layers.")
