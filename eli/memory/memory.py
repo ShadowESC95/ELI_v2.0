@@ -3106,8 +3106,55 @@ class Memory(metaclass=_MemoryMeta):
                 write_patterns_from_turn(content, db_path=self.db_path, ts_value=now)
             except Exception as e:
                 log.debug(f"[MEMORY] profile extraction failed: {e}")
+        else:
+            # Notice when ELI has committed to a position, so it outlives the
+            # conversation that produced it. Without this a stance exists only in
+            # the scrollback: ELI could argue a line for an hour, be right, and
+            # take the opposite line tomorrow without ever knowing it had.
+            # Detection is narrow and regex-only — this is on every reply.
+            self._capture_stance(content, session_id, user_id)
 
         return rid
+
+    def _capture_stance(self, reply, session_id=None, user_id=None) -> None:
+        """Record a position ELI just took, keyed on what the user asked.
+
+        The topic comes from the preceding USER turn because the user frames the
+        subject, and that framing is more stable across sessions than whatever
+        wording ELI happened to reach for.
+        """
+        try:
+            from eli.cognition.stance_capture import capture
+        except Exception:
+            return
+        conn = None
+        try:
+            conn = self._get_connection()
+            row = conn.execute(
+                "SELECT content FROM conversation_turns "
+                " WHERE lower(COALESCE(role,'')) = 'user' "
+                + ("  AND session_id = ? " if session_id else "") +
+                # id, not timestamp: turns written in the same second tie on
+                # timestamp and the winner is then arbitrary, so a reply could be
+                # keyed to the wrong question. id is autoincrement and IS
+                # insertion order.
+                " ORDER BY id DESC LIMIT 1",
+                ((session_id,) if session_id else ()),
+            ).fetchone()
+            if not row or not row[0]:
+                return
+            topic = capture(conn.cursor(), str(row[0]), str(reply or ""))
+            if topic:
+                conn.commit()
+                log.debug("[MEMORY] stance recorded on %r", topic)
+        except Exception:
+            log.debug("[MEMORY] stance capture failed", exc_info=True)
+        finally:
+            if conn is not None:
+                try:
+                    conn.close()
+                except Exception:
+                    pass
 
     def store_conversation(self, session_id, role, content, user_id=None):
         return self.add_conversation_turn(

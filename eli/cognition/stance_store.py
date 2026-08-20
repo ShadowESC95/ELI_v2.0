@@ -84,18 +84,73 @@ def ensure_tables(cur: sqlite3.Cursor) -> None:
 # ── ELI's own stances ─────────────────────────────────────────────────────────
 
 def _norm(topic: str) -> str:
-    return re.sub(r"\s+", " ", str(topic or "").strip().lower())[:120]
+    return re.sub(r"\s+", " ", str(topic or "").strip().lower())[:200]
+
+
+# How much of the smaller topic must be shared before two turns count as the
+# same subject. Exact string equality does not survive natural rewording — the
+# same argument phrased twice yields overlapping but unequal word sets — and
+# a stance nobody can find again is a stance that does not exist.
+TOPIC_MATCH = 0.6
+
+# Positions are longer and more specific than topics, so the bar is higher — but
+# it cannot be equality. ELI restates a position in its own words each time it is
+# challenged, so exact matching meant reinforcement essentially never fired and
+# every rephrasing looked like a NEW position on a topic already held, which
+# record_stance then declined. The result was corroboration stuck at 1 no matter
+# how long a line was defended — and corroboration is what the weighing runs on.
+POSITION_MATCH = 0.75
+
+
+def _same_position(a: str, b: str) -> bool:
+    """Whether two statements are the same position, allowing for rewording."""
+    na, nb = _norm(a), _norm(b)
+    if na == nb:
+        return True
+    # Negation is not a rewording: "I am conscious" and "I am not conscious"
+    # share nearly every word and are opposites.
+    neg = re.compile(r"\b(?:not|never|no|cannot|can't|don't|isn't|aren't)\b")
+    if bool(neg.search(na)) != bool(neg.search(nb)):
+        return False
+    return _overlap(na, nb) >= POSITION_MATCH
+
+
+def _overlap(a: str, b: str) -> float:
+    """Containment, not Jaccard: a short follow-up ('alive, own decisions')
+    revisits a long opening turn, and Jaccard would score that pairing low for
+    no reason other than length."""
+    sa, sb = set(a.split()), set(b.split())
+    if not sa or not sb:
+        return 0.0
+    return len(sa & sb) / min(len(sa), len(sb))
+
+
+def _find_topic(cur: sqlite3.Cursor, topic: str) -> Optional[str]:
+    """The stored topic key this one is about, if any."""
+    t = _norm(topic)
+    if not t:
+        return None
+    rows = cur.execute(
+        "SELECT DISTINCT topic FROM eli_stances WHERE superseded_by IS NULL"
+    ).fetchall()
+    best, score = None, 0.0
+    for (candidate,) in rows:
+        o = _overlap(t, candidate or "")
+        if o > score:
+            best, score = candidate, o
+    return best if score >= TOPIC_MATCH else None
 
 
 def get_stance(cur: sqlite3.Cursor, topic: str) -> Optional[Belief]:
     """The position ELI currently holds on a topic, if any."""
+    key = _find_topic(cur, topic) or _norm(topic)
     row = cur.execute(
         "SELECT position, provenance, corroboration, confidence, first_held, "
         "       last_held, superseded_by, revised_at, revision_reason "
         "  FROM eli_stances "
         " WHERE lower(topic) = ? AND superseded_by IS NULL "
         " ORDER BY COALESCE(last_held, 0) DESC LIMIT 1",
-        (_norm(topic),),
+        (key,),
     ).fetchone()
     if not row:
         return None
@@ -119,12 +174,15 @@ def record_stance(cur: sqlite3.Cursor, topic: str, position: str,
     if not topic_n or not position:
         return False
     now = float(now or time.time())
+    # Reuse the key an earlier turn on this subject established, so a reworded
+    # follow-up reinforces the stance instead of starting a rival one.
+    topic_n = _find_topic(cur, topic_n) or topic_n
     existing = cur.execute(
         "SELECT id, position, corroboration FROM eli_stances "
         " WHERE lower(topic) = ? AND superseded_by IS NULL LIMIT 1",
         (topic_n,),
     ).fetchone()
-    if existing and str(existing[1]).strip().lower() == position.lower():
+    if existing and _same_position(str(existing[1]), position):
         cur.execute(
             "UPDATE eli_stances SET corroboration = ?, last_held = ?, "
             "       confidence = MIN(1.0, COALESCE(confidence, 0.8) + 0.03) "
@@ -150,6 +208,7 @@ def revise_stance(cur: sqlite3.Cursor, topic: str, new_position: str,
     """Change position, keeping the old one and why it was abandoned."""
     topic_n = _norm(topic)
     now = float(now or time.time())
+    topic_n = _find_topic(cur, topic_n) or topic_n
     row = cur.execute(
         "SELECT id, position FROM eli_stances "
         " WHERE lower(topic) = ? AND superseded_by IS NULL LIMIT 1",
