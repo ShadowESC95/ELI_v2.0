@@ -303,6 +303,20 @@ def notes_dir() -> Path:
     """User notes directory."""
     return data_dir() / "notes"
 
+def learning_dir() -> Path:
+    """LoRA training state: candidate datasets, run logs, guard plans.
+
+    Follows the models_dir() pattern — the source tree in dev so the existing
+    training/ layout keeps working, the user data dir on a packaged install where
+    project_root() is a read-only mount.
+    """
+    override = os.environ.get("ELI_LEARNING_DIR")
+    if override:
+        return resolve_runtime_path(override)
+    if _is_dev_mode():
+        return project_root() / "training"
+    return data_dir() / "training"
+
 
 # ── Database paths ──
 

@@ -103,3 +103,49 @@ platformdirs. One import surface (`get_paths`) so nothing hardcodes locations.
   reclaims the GPU — `gpu_layers=99 / ctx=20480` with free_vram ~7 GB, turns back to 1–12 s.
   `ELI_WHISPER_DEVICE` overrides; `ELI_WHISPER_GPU_MIN_MB` tunes the threshold. See
   `perception.md`.
+
+
+## Update — 2.3.7 (vendor parity, stated honestly)
+
+### Where parity already held
+
+`hardware_profile.py` is genuinely cross-vendor and always was: NVIDIA via
+`nvidia-smi`, then a kernel-driver fallback, then **AMD via `rocm-smi`**, then **AMD
+via the stock `amdgpu` sysfs** (`/sys/class/drm/card*/device/mem_info_vram_*`, the
+common desktop case where ROCm is absent), then **discrete Intel Arc**. All of them
+populate the *same* `HardwareProfile` fields, so smart-fit GPU-layer allocation is
+identical whatever the card. `install.sh` builds llama-cpp with ROCm/hipBLAS, falling
+back to Vulkan, falling back to CPU. KV cache and GPU offload are at parity.
+
+### Where it leaked
+
+The leak is not the profiler — it is the **~15 sites that bypass it** and re-implement
+`nvidia-smi` directly. Consequences on an AMD or Intel box:
+
+- `perception/local_whisper_stt.py` — `_gpu_total_mb()` shells to `nvidia-smi`, gets
+  0, and pins Whisper to CPU regardless of the card. (CTranslate2 has no ROCm
+  backend, so the *outcome* is currently correct, but the reasoning is not, and the
+  user is told nothing.)
+- `runtime/self_status.py`, `runtime/truth_report.py`, the executor's GPU report —
+  all report "GPU telemetry unavailable", i.e. **ELI disowning hardware it has**.
+  That is the same failure family as the false-self-denial guards elsewhere in the
+  codebase: fabricating a capability and denying a real one are both dishonesty.
+
+The fix direction is to route those sites through `hardware_profile`, which already
+knows the answer, rather than adding more vendor detection.
+
+### Piper
+
+Worth knowing because it is often assumed otherwise: Piper is a **subprocess binary**
+(`tts_piper/piper`), not onnxruntime-in-Python, and the shipped build is CPU-only —
+for every vendor. There is no NVIDIA advantage to close there; parity already holds,
+at CPU.
+
+### LoRA training device selection
+
+`eli/learning/lora_trainer._accelerator()` is the model for how the rest should read.
+torch routes ROCm through the `torch.cuda` API — a HIP build answers
+`torch.cuda.is_available()` — so one code path serves NVIDIA and AMD, and the vendor
+is read from `torch.version.hip` and reported as what it is rather than as "CUDA on a
+Radeon". Apple (mps) and Intel (xpu) are detected and honestly marked as unable to
+run that trainer. See `learning.md`.

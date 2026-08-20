@@ -323,3 +323,67 @@ broad enough to be a daily companion, not a demo.
 *Honest companion reading (the limits + engineering verdict, deliberately kept
 separate from this capability showcase): `project_overview.md`. Exhaustive
 technical map: `capability_catalogue.md`.*
+
+
+## New in 2.3.7 — train it, extend it, and see what it checked
+
+### Train your own model (Labs ▸ 🎓 Training)
+
+ELI can fine-tune a model on **your own conversations with it**, entirely on your
+machine. A four-step wizard: it checks whether your hardware can do it and says so
+plainly, you point it at any Hugging Face base model you have downloaded, you review
+which of your exchanges are worth learning from, and it trains — with live progress
+and a cancel button.
+
+The review step is the point. **Nothing trains on anything you have not personally
+approved.** ELI removes the obviously broken exchanges for you and flags the
+questionable ones, so you are reading the ~40% that need judgement rather than all of
+them.
+
+Works on NVIDIA and AMD. If your card is too small, it tells you exactly how much it
+needed and what would fix it, instead of silently falling back to a CPU run that
+takes days.
+
+### Community plugins (Settings ▸ 🛒 Marketplace)
+
+ELI ships the client for a marketplace the **community** owns — anyone can host a
+registry and anyone can publish to it. ELI takes no cut, holds no keys, and vets
+nothing, so it never tells you a plugin is safe. What it does instead, before a
+single file reaches your disk:
+
+- confirms the download matches the checksum in the listing;
+- checks the signature, if the publisher signed it and you trust their key;
+- reads the code and refuses anything using a capability it did not declare;
+- runs **eleven malware scanners** — reverse shells, credential theft, rootkit
+  persistence, obfuscated payloads, crypto miners, typosquatted dependencies, plus
+  ClamAV and YARA if you have them;
+- shows you the result and lets you decide.
+
+Anything that installs arrives **switched off, with no permissions**.
+
+### Permissions you actually control
+
+Like a phone. When a plugin first wants to reach the internet, read your files, or
+use your microphone, ELI asks — naming the plugin, saying what it can do to you, and
+why that is risky. You answer **Allow once**, **Always allow**, **Not now**, or
+**Never allow**. "Never" means never: it cannot ask again.
+
+Every decision is logged, and you can revoke any of them at any time.
+
+If nobody is there to ask — a scheduled overnight task, the API server — the answer
+is automatically **no**. A plugin cannot get a permission by waiting until you are
+asleep.
+
+### Custom agents that can be judged
+
+Creating an agent now means writing a small specification: what it is **for**, the
+instruction it runs on, **when** it should fire, and **how you would know it
+worked**. That last part is checks ELI can actually run, so an agent that fails its
+own test contributes nothing instead of quietly producing noise. Agents can be
+created, edited and reloaded without restarting ELI.
+
+### One honest limitation, stated plainly
+
+MCP servers run as their own programs, outside ELI. ELI's offline switch cannot stop
+them reaching the internet and ELI cannot see what they send. That is a property of
+how MCP works, not a bug, and every screen that installs one says so.

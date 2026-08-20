@@ -737,6 +737,62 @@
       "source": "executor"
     },
     {
+      "action": "MCP_ADD",
+      "in_dispatch": true,
+      "in_supported_list": true,
+      "plugin": null,
+      "routable": true,
+      "source": "executor+router"
+    },
+    {
+      "action": "MCP_CALL",
+      "in_dispatch": true,
+      "in_supported_list": true,
+      "plugin": null,
+      "routable": true,
+      "source": "executor+router"
+    },
+    {
+      "action": "MCP_DOCTOR",
+      "in_dispatch": true,
+      "in_supported_list": true,
+      "plugin": null,
+      "routable": true,
+      "source": "executor+router"
+    },
+    {
+      "action": "MCP_LIST",
+      "in_dispatch": true,
+      "in_supported_list": true,
+      "plugin": null,
+      "routable": true,
+      "source": "executor+router"
+    },
+    {
+      "action": "MCP_REMOVE",
+      "in_dispatch": true,
+      "in_supported_list": true,
+      "plugin": null,
+      "routable": true,
+      "source": "executor+router"
+    },
+    {
+      "action": "MCP_STATUS",
+      "in_dispatch": true,
+      "in_supported_list": true,
+      "plugin": null,
+      "routable": true,
+      "source": "executor+router"
+    },
+    {
+      "action": "MCP_TOOLS",
+      "in_dispatch": true,
+      "in_supported_list": true,
+      "plugin": null,
+      "routable": true,
+      "source": "executor+router"
+    },
+    {
       "action": "MEDIA_CONTROL",
       "in_dispatch": true,
       "in_supported_list": true,
@@ -1729,7 +1785,7 @@
       "source": "executor"
     }
   ],
-  "count": 216,
-  "generated_at": 1786698549.1429703,
+  "count": 223,
+  "generated_at": 1787197298.3142743,
   "generator": "brain.awareness.capability_sync"
 }

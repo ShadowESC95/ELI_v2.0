@@ -53,6 +53,74 @@ def _run_case(case):
     return D.run_engine(prompt, network=net, reasoning_mode=str(case.get("mode") or "quick"))
 
 
+def run_board(target: str = "router", *, cases_path=None, case_filter: str = "",
+              smoke: bool = False, on_case=None) -> dict:
+    """Run the eval board and RETURN the results instead of printing them.
+
+    Extracted verbatim from main() so the harness has a programmatic entry point —
+    main() now calls this and does the printing. The GUI needs it in-process: the
+    rubric assertions are graded by ELI's own loaded model, and running the board in
+    a subprocess would load a second copy of the chat model into the same VRAM.
+    """
+    os.environ.setdefault("ELI_HEADLESS", "1")
+    cases = _load_cases(Path(cases_path or Path(__file__).with_name("cases.yaml")))
+    if case_filter:
+        cases = [c for c in cases if case_filter.lower() in str(c.get("id", "")).lower()]
+
+    want = {"router", "executor", "engine"} if target == "all" else {target}
+    cases = [c for c in cases if str(c.get("target", "router")).lower() in want]
+
+    if smoke:
+        cases = [c for c in cases
+                 if str(c.get("target", "router")).lower() in ("router", "executor")
+                 or c.get("smoke") is True]
+
+    passed = failed = skipped = 0
+    records = []
+    for c in cases:
+        cid = str(c.get("id") or "?")
+        if on_case is not None:
+            try:
+                on_case(cid, len(records), len(cases))
+            except Exception:
+                pass
+        try:
+            res = _run_case(c)
+        except Exception as e:
+            failed += 1
+            records.append({"id": cid, "status": "error", "error": str(e),
+                            "prompt": str(c.get("prompt") or "")})
+            continue
+
+        if res.get("skipped"):
+            skipped += 1
+            records.append({"id": cid, "status": "skip", "reason": res.get("reason"),
+                            "prompt": str(c.get("prompt") or "")})
+            continue
+
+        res.setdefault("prompt", str(c.get("prompt") or ""))
+        details, ok_all = [], True
+        for a in (c.get("assert") or []):
+            ok, detail = A.check(a, res)
+            ok_all = ok_all and ok
+            details.append(("\u2713" if ok else "\u2717") + " " + detail)
+
+        passed += ok_all
+        failed += (not ok_all)
+        records.append({"id": cid, "status": "pass" if ok_all else "fail",
+                        "prompt": str(c.get("prompt") or ""),
+                        "answer": (res.get("text") or "")[:600],
+                        "latency_s": res.get("latency_s"),
+                        "result": {k: res.get(k) for k in
+                                   ("action", "matched_by", "grounding",
+                                    "response_mode", "latency_s")},
+                        "checks": details})
+
+    return {"ok": failed == 0, "target": target, "passed": passed, "failed": failed,
+            "skipped": skipped, "total": len(cases), "records": records,
+            "model": _loaded_model_name()}
+
+
 def main(argv=None) -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--target", choices=["router", "executor", "engine", "all"], default="router")
@@ -66,68 +134,32 @@ def main(argv=None) -> int:
                          "and write artifacts/eval/regressions.json on any failure")
     args = ap.parse_args(argv)
 
-    os.environ.setdefault("ELI_HEADLESS", "1")
-    cases = _load_cases(Path(args.cases))
-    if args.filter:
-        cases = [c for c in cases if args.filter.lower() in str(c.get("id", "")).lower()]
+    board = run_board(args.target, cases_path=args.cases, case_filter=args.filter,
+                      smoke=args.smoke)
+    records = board["records"]
+    passed, failed, skipped = board["passed"], board["failed"], board["skipped"]
 
-    want = {"router", "executor", "engine"} if args.target == "all" else {args.target}
-    cases = [c for c in cases if str(c.get("target", "router")).lower() in want]
-
-    # Smoke subset: the full (instant, model-free) router + executor boards + only
-    # the engine cases tagged 'smoke: true' — a per-change board that runs in seconds
-    # plus a few quick model sanity gens, instead of the full slow engine set.
-    if args.smoke:
-        cases = [c for c in cases
-                 if str(c.get("target", "router")).lower() in ("router", "executor")
-                 or c.get("smoke") is True]
-
-    passed = failed = skipped = 0
-    records = []
-    print(f"\n  ELI eval — {len(cases)} case(s) [{args.target}]\n  " + "─" * 46)
-    for c in cases:
-        cid = str(c.get("id") or "?")
-        try:
-            res = _run_case(c)
-        except Exception as e:
-            print(f"  {_R}ERR {_X} {cid}: driver raised {e}")
-            failed += 1
-            records.append({"id": cid, "status": "error", "error": str(e)})
+    print(f"\n  ELI eval — {board['total']} case(s) [{args.target}]\n  " + "\u2500" * 46)
+    for rec in records:
+        cid = rec["id"]
+        if rec["status"] == "error":
+            print(f"  {_R}ERR {_X} {cid}: driver raised {rec.get('error')}")
             continue
-
-        if res.get("skipped"):
-            print(f"  {_Y}SKIP{_X} {cid}  ({res.get('reason')})")
-            skipped += 1
-            records.append({"id": cid, "status": "skip", "reason": res.get("reason")})
+        if rec["status"] == "skip":
+            print(f"  {_Y}SKIP{_X} {cid}  ({rec.get('reason')})")
             continue
-
-        # Carry the prompt so model-graded (rubric) assertions can judge Q+A.
-        res.setdefault("prompt", str(c.get("prompt") or ""))
-        details, ok_all = [], True
-        for a in (c.get("assert") or []):
-            ok, detail = A.check(a, res)
-            ok_all = ok_all and ok
-            details.append(("✓" if ok else "✗") + " " + detail)
-
-        lat = res.get("latency_s")
+        ok_all = rec["status"] == "pass"
         tag = f"{_G}PASS{_X}" if ok_all else f"{_R}FAIL{_X}"
-        print(f"  {tag} {cid}  ({lat}s)")
+        print(f"  {tag} {cid}  ({rec.get('latency_s')}s)")
         if not ok_all:
-            for d in details:
-                if d.startswith("✗"):
+            for d in rec.get("checks") or []:
+                if d.startswith("\u2717"):
                     print(f"        {_R}{d}{_X}")
-            ans = (res.get("text") or "").replace("\n", " ")[:120]
+            ans = (rec.get("answer") or "").replace("\n", " ")[:120]
             if ans:
-                print(f"        ↳ answer: {ans!r}")
-        passed += ok_all
-        failed += (not ok_all)
-        records.append({"id": cid, "status": "pass" if ok_all else "fail",
-                        "result": {k: res.get(k) for k in
-                                   ("action", "matched_by", "grounding",
-                                    "response_mode", "latency_s")},
-                        "checks": details})
+                print(f"        \u21b3 answer: {ans!r}")
 
-    print("  " + "─" * 46)
+    print("  " + "\u2500" * 46)
     print(f"  {_G}{passed} passed{_X}  {_R}{failed} failed{_X}  {_Y}{skipped} skipped{_X}\n")
     if args.json:
         Path(args.json).write_text(json.dumps(records, indent=2), encoding="utf-8")

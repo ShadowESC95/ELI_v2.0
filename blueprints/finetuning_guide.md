@@ -262,3 +262,62 @@ export BASE_LOCAL="training/base/$(basename "$BASE")"
 3. **Smoke-run**, then watch the **loss**; stop before it memorizes.
 4. Base model must have the **context** to hold ELI's brief (≥16k).
 5. **Verify on real prompts** (voice + contracts + dynamic-persona + no-regression), not on loss.
+
+
+---
+
+## Appendix — the guided path (2.3.7)
+
+Everything above remains the rigorous manual route, and it is still the one to read
+if you want to understand what is happening. Since 2.3.7 the same pipeline is also
+driven from **Labs ▸ 🎓 Training**, which is the recommended path on an unfamiliar
+machine because it *reports* rather than assumes.
+
+**Step 1 — Hardware.** Accelerator and vendor (NVIDIA / AMD ROCm / Apple MPS /
+Intel XPU), free VRAM, whether `bitsandbytes` is present for 4-bit, which of
+`torch / transformers / peft / accelerate / datasets` are missing, and every
+trainable Hugging Face base directory it can find with its family and size. If the
+machine cannot train, it says so in a sentence instead of starting a job that never
+finishes.
+
+**Step 2 — Target.** Declare a target against any local HF base. The family is read
+from the model's own `config.json`; you do not have to know it. Built-in targets are
+listed and cannot be deleted. This replaces editing `ALLOWED_TARGETS` in source.
+
+**Step 3 — Data.** The review queue — the step that was previously impossible.
+Candidates are mined from your own stored conversations, triaged (obvious rejects
+removed, questionable rows flagged), and then approved, edited or rejected by you.
+"Approve all clean rows" handles the bulk; the flagged remainder is the part that
+actually needs judgement. Saving writes the reviewed, target-scoped rows the trainer
+demands.
+
+**Step 4 — Train.** Pick a recipe:
+
+| Recipe | Steps | Seq len | Accum | LR | Rough time |
+|---|---|---|---|---|---|
+| Light | 60 | 256 | 4 | 2e-4 | minutes |
+| Standard | 300 | 512 | 8 | 1e-4 | tens of minutes |
+| Deep | 1200 | 1024 | 16 | 5e-5 | hours |
+
+Raw parameters stay available under **Advanced**. "Check readiness" runs the whole
+DAG as a dry-run and prints every blocker. "Start training" runs it for real with
+live step and loss, and a cancel that stops at a step boundary so the adapter
+directory is left sane.
+
+### What the wizard does NOT do
+
+Merge the adapter into the base and convert to GGUF. That is still
+`training/merge_and_convert.py`, and it still needs `unsloth`, which is in no
+requirements file. Until you run it, the new adapter is not the model ELI is serving
+— and the wizard says exactly that when a run finishes rather than implying
+otherwise.
+
+### If it refuses
+
+- *"dataset has no usable rows"* — nothing is approved yet. Step 3.
+- *"base model is GGUF"* — a `.gguf` is an inference artifact. You need a Hugging
+  Face model **directory**; see §3 above.
+- *"base_family mismatch"* — the target says one family, the checkpoint on disk says
+  another. Re-declare the target against the right folder.
+- *"needs ~N GiB, you have M"* — free VRAM, shorten the sequence length, or install
+  `bitsandbytes` for 4-bit.

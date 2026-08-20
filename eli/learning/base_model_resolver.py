@@ -3,6 +3,7 @@ from __future__ import annotations
 import os
 from pathlib import Path
 from typing import Any
+from eli.utils.log import get_logger
 
 
 def _eli_canonical_root_PROJECT_ROOT() -> Path:
@@ -16,6 +17,8 @@ def _eli_canonical_root_PROJECT_ROOT() -> Path:
 
 
 PROJECT_ROOT = _eli_canonical_root_PROJECT_ROOT()
+
+log = get_logger(__name__)
 
 DEFAULT_PHI3_BASE_CANDIDATES = [
     PROJECT_ROOT / "phi-3-mini-base",
@@ -113,6 +116,70 @@ def inspect_base_candidate(path: Any, *, source: str = "candidate") -> dict[str,
     return item
 
 
+def base_search_roots() -> list[Path]:
+    """Where a trainable Hugging Face base model may live on any install.
+
+    Deliberately not Phi-specific: a redistributed copy has whatever the operator
+    downloaded, and the layout differs between a dev checkout (models/hf) and a
+    packaged install (data dir).
+    """
+    roots: list[Path] = [PROJECT_ROOT / "models" / "hf", PROJECT_ROOT / "models", PROJECT_ROOT]
+    try:
+        from eli.core.paths import models_dir, data_dir
+        roots.insert(0, Path(models_dir()) / "hf")
+        roots.append(Path(data_dir()) / "models" / "hf")
+    except Exception:
+        log.debug("[lora] eli.core.paths unavailable; using project-relative roots only",
+                  exc_info=True)
+    override = os.environ.get("ELI_HF_BASE_DIR")
+    if override:
+        roots.insert(0, Path(override).expanduser())
+    seen: set[str] = set()
+    out: list[Path] = []
+    for r in roots:
+        key = str(r)
+        if key not in seen:
+            seen.add(key)
+            out.append(r)
+    return out
+
+
+def discover_base_models(roots: list[Path] | None = None) -> list[dict[str, Any]]:
+    """Every trainable HF base directory found under the search roots, any family.
+
+    Each entry carries the family the model declares for itself (config.json
+    model_type), so the caller never has to guess from the folder name.
+    """
+    found: list[dict[str, Any]] = []
+    seen: set[str] = set()
+    for root in (roots if roots is not None else base_search_roots()):
+        try:
+            if not root.is_dir():
+                continue
+            children = sorted(root.iterdir())
+        except Exception:
+            continue
+        for child in children:
+            if not child.is_dir() or str(child.resolve()) in seen:
+                continue
+            item = inspect_base_candidate(child, source="discovered")
+            seen.add(str(child.resolve()))
+            if not item.get("ok"):
+                continue
+            try:
+                from eli.learning.target_registry import detect_family
+                item["family"] = detect_family(child)
+            except Exception:
+                item["family"] = None
+            try:
+                item["size_gb"] = round(
+                    sum(f.stat().st_size for f in child.rglob("*") if f.is_file()) / 1024 ** 3, 2)
+            except Exception:
+                item["size_gb"] = None
+            found.append(item)
+    return found
+
+
 def resolve_base_model_path(
     path: Any = None,
     *,
@@ -136,6 +203,11 @@ def resolve_base_model_path(
     if allow_default_candidates:
         for candidate in DEFAULT_PHI3_BASE_CANDIDATES:
             checked.append(inspect_base_candidate(candidate, source="default_candidate"))
+
+    if allow_default_candidates and not any(i.get("ok") for i in checked):
+        # No Phi-3 in the known spots. Before refusing, look for ANY trainable base
+        # the operator has downloaded — the point of a redistributed trainer.
+        checked.extend(discover_base_models())
 
     for item in checked:
         if item.get("ok"):

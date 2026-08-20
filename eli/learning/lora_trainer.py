@@ -8,6 +8,7 @@ from pathlib import Path
 from typing import Any
 
 from eli.learning.dataset_filters import is_bad_response, load_jsonl, row_is_reviewed
+from eli.utils.log import get_logger
 from eli.learning.training_preflight import preflight_target
 
 
@@ -22,6 +23,8 @@ def _eli_canonical_root_PROJECT_ROOT() -> Path:
 
 
 PROJECT_ROOT = _eli_canonical_root_PROJECT_ROOT()
+
+log = get_logger(__name__)
 RUNS_DIR = PROJECT_ROOT / "training/runs"
 
 ALLOWED_TARGETS = {"eli_phi", "eli_phi_ultra"}
@@ -128,81 +131,213 @@ def _dataset_report(path: Path, target: str) -> dict[str, Any]:
     }
 
 
-def _pick_device(requested: str = "auto") -> dict[str, Any]:
-    requested = requested.lower().strip()
-    if requested not in {"auto", "cpu", "cuda"}:
-        return {
-            "requested": requested,
-            "selected": "cpu",
-            "cuda_available": False,
-            "reason": "invalid device request; using cpu",
-        }
+def _as_gb(value: Any) -> float:
+    """Bytes → GiB, but only for a real number.
 
-    if requested == "cpu":
-        return {
-            "requested": requested,
-            "selected": "cpu",
-            "cuda_available": False,
-            "reason": "cpu explicitly requested",
-        }
+    torch is stubbed in the test suite and mocked attributes return Mock objects,
+    not ints. Comparing one of those against a VRAM threshold raises TypeError deep
+    inside job building, which the pipeline then swallows as a failed stage.
+    """
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        return 0.0
+    try:
+        return round(float(value) / 1024 ** 3, 2)
+    except Exception:
+        return 0.0
 
+
+def _accelerator() -> dict[str, Any]:
+    """What this machine can actually train on, named honestly.
+
+    torch reports ROCm through the `torch.cuda` API — a HIP build answers
+    `torch.cuda.is_available()` with True — so the same code path serves NVIDIA and
+    AMD. The vendor is read from the device name so the operator is told which one is
+    in use rather than being shown "CUDA" on a Radeon. Apple (mps) and Intel (xpu)
+    are reported too, and both are honestly marked as unable to run this trainer.
+    """
+    info = {"kind": "cpu", "vendor": "cpu", "name": "CPU", "free_gb": 0.0,
+            "total_gb": 0.0, "trainable": False, "note": ""}
     try:
         import torch
     except Exception as exc:
-        return {
-            "requested": requested,
-            "selected": "cpu",
-            "cuda_available": False,
-            "reason": f"torch unavailable: {exc}",
-        }
+        info["note"] = f"torch unavailable: {exc}"
+        return info
 
-    cuda_available = bool(torch.cuda.is_available())
-    if requested == "cuda":
-        return {
-            "requested": requested,
-            "selected": "cuda" if cuda_available else "cpu",
-            "cuda_available": cuda_available,
-            "reason": "cuda explicitly requested" if cuda_available else "cuda requested but unavailable",
-        }
+    if torch.cuda.is_available():
+        try:
+            name = torch.cuda.get_device_name(0)
+            name = name if isinstance(name, str) else "GPU"
+        except Exception:
+            name = "GPU"
+        is_rocm = bool(getattr(torch.version, "hip", None))
+        info.update({
+            "kind": "cuda",
+            "vendor": "amd" if is_rocm else "nvidia",
+            "name": name,
+            "trainable": True,
+            "note": "ROCm/HIP build" if is_rocm else "CUDA build",
+        })
+        try:
+            free_b, total_b = torch.cuda.mem_get_info()
+            info["free_gb"] = _as_gb(free_b)
+            info["total_gb"] = _as_gb(total_b)
+        except Exception:
+            log.debug("[lora] torch.cuda.mem_get_info unavailable", exc_info=True)
+        if not info["total_gb"]:
+            # ROCm on some cards has no mem_get_info; fall back to the card total.
+            try:
+                total = torch.cuda.get_device_properties(0).total_memory
+                info["total_gb"] = _as_gb(total)
+                info["free_gb"] = _as_gb(total) * 0.85 if info["total_gb"] else 0.0
+                if info["total_gb"]:
+                    info["note"] += " (free VRAM unavailable; estimated)"
+            except Exception:
+                log.debug("[lora] could not read device properties", exc_info=True)
+        return info
 
-    if not cuda_available:
-        return {
-            "requested": requested,
-            "selected": "cpu",
-            "cuda_available": False,
-            "reason": "cuda unavailable",
-        }
+    if getattr(getattr(torch, "backends", None), "mps", None) and torch.backends.mps.is_available():
+        info.update({"kind": "mps", "vendor": "apple", "name": "Apple Silicon (MPS)",
+                     "trainable": False,
+                     "note": "MPS cannot run 4-bit quantised LoRA; training would fall to CPU"})
+        return info
 
+    if hasattr(torch, "xpu") and torch.xpu.is_available():
+        info.update({"kind": "xpu", "vendor": "intel", "name": "Intel GPU (XPU)",
+                     "trainable": False,
+                     "note": "Intel XPU is not supported by the LoRA training stack"})
+        return info
+
+    info["note"] = "no GPU visible to torch"
+    return info
+
+
+def bitsandbytes_available() -> bool:
+    """4-bit quantised training. NVIDIA-only in practice: AMD needs a ROCm build of
+    bitsandbytes that ships separately, and there is none for macOS."""
     try:
-        free_bytes, total_bytes = torch.cuda.mem_get_info()
-        free_gb = free_bytes / 1024**3
-        total_gb = total_bytes / 1024**3
+        import bitsandbytes  # noqa: F401
+        return True
     except Exception:
-        free_gb = 0.0
-        total_gb = 0.0
+        return False
 
-    # Phi-3 full HF LoRA can OOM on 8 GB cards. Default to CPU unless enough
-    # free VRAM is available. User can still force --device cuda.
-    if free_gb >= 10.0:
-        selected = "cuda"
-        reason = f"auto selected cuda; free VRAM {free_gb:.2f} GiB"
-    else:
-        selected = "cpu"
-        reason = f"auto selected cpu; free VRAM {free_gb:.2f} GiB below 10 GiB safety floor"
 
-    return {
+def estimate_vram_gb(base_model_path: Any = None, *, four_bit: bool = False,
+                     seq_len: int = 384, batch_size: int = 1) -> float:
+    """Rough VRAM needed to LoRA-tune the base model at these settings.
+
+    Derived from the checkpoint's real size on disk rather than a hardcoded figure,
+    so it holds for a 1B and for a 35B. Deliberately generous — telling someone it
+    will fit and then OOMing forty minutes in is the worse failure.
+    """
+    weights_gb = 3.8  # fallback ~ a 2B fp16 checkpoint
+    try:
+        p = Path(str(base_model_path))
+        if p.is_dir():
+            total = sum(f.stat().st_size for f in p.rglob("*")
+                        if f.is_file() and f.suffix in (".safetensors", ".bin"))
+            if isinstance(total, (int, float)) and total > 0:
+                weights_gb = float(total) / 1024 ** 3
+    except Exception:
+        log.debug("[lora] could not size the checkpoint; using the default estimate",
+                  exc_info=True)
+    resident = weights_gb * (0.30 if four_bit else 1.0)
+    activations = 0.5 + (seq_len / 1024.0) * 0.6 * max(1, batch_size)
+    overhead = 1.2  # optimiser states for the adapter, cuda context, fragmentation
+    return round(resident + activations + overhead, 2)
+
+
+def _pick_device(requested: str = "auto", *, base_model_path: Any = None,
+                 four_bit: bool | None = None, seq_len: int = 384,
+                 batch_size: int = 1) -> dict[str, Any]:
+    """Choose the training device and say why, in terms the operator can act on.
+
+    The old rule was a flat `free_vram >= 10 GiB` floor written for a Phi-3 on an
+    8 GB card. It refused a 1B model on a 6 GB card that would have fit easily, and
+    silently selected CPU — where a run takes days and looks like a hang. The floor
+    is now the model's own estimated requirement.
+    """
+    requested = str(requested or "auto").lower().strip()
+    if requested not in {"auto", "cpu", "cuda", "gpu"}:
+        requested = "auto"
+    if requested == "gpu":
+        requested = "cuda"
+
+    acc = _accelerator()
+    if four_bit is None:
+        four_bit = bool(acc["kind"] == "cuda" and acc["vendor"] == "nvidia" and bitsandbytes_available())
+    need_gb = estimate_vram_gb(base_model_path, four_bit=four_bit,
+                               seq_len=seq_len, batch_size=batch_size)
+
+    out = {
         "requested": requested,
-        "selected": selected,
-        "cuda_available": cuda_available,
-        "free_vram_gb": round(free_gb, 3),
-        "total_vram_gb": round(total_gb, 3),
-        "reason": reason,
+        "selected": "cpu",
+        "cuda_available": acc["kind"] == "cuda",
+        "accelerator": acc,
+        "vendor": acc["vendor"],
+        "gpu_name": acc["name"],
+        "free_vram_gb": acc["free_gb"],
+        "total_vram_gb": acc["total_gb"],
+        "four_bit": bool(four_bit),
+        "estimated_need_gb": need_gb,
+        "reason": "",
     }
 
+    if requested == "cpu":
+        out["reason"] = "cpu explicitly requested"
+        out["four_bit"] = False
+        return out
 
-def _format_example(row: dict[str, Any]) -> str:
+    if acc["kind"] != "cuda":
+        out["reason"] = acc["note"] or "no trainable GPU detected; using cpu"
+        out["four_bit"] = False
+        return out
+
+    fits = acc["free_gb"] <= 0 or acc["free_gb"] >= need_gb
+    if requested == "cuda":
+        out["selected"] = "cuda"
+        out["reason"] = (f"gpu explicitly requested ({acc['name']}); "
+                         f"{acc['free_gb']} GiB free vs ~{need_gb} GiB needed")
+        if not fits:
+            out["reason"] += " — this may run out of memory"
+        return out
+
+    if fits:
+        out["selected"] = "cuda"
+        out["reason"] = (f"{acc['name']} — {acc['free_gb']} GiB free covers the "
+                         f"~{need_gb} GiB this run needs"
+                         + (" (4-bit)" if four_bit else ""))
+    else:
+        out["reason"] = (f"{acc['name']} has {acc['free_gb']} GiB free but this run "
+                         f"needs ~{need_gb} GiB. CPU training is possible but takes "
+                         f"hours to days — free VRAM, shorten the sequence length, "
+                         f"or install bitsandbytes for 4-bit training.")
+        out["four_bit"] = False
+    return out
+
+
+def _format_example(row: dict[str, Any], tokenizer: Any = None) -> str:
+    """Render one row in the base model's OWN prompt format.
+
+    The literal `<|user|>/<|assistant|>` below is Phi-3's. Training a Qwen or Llama
+    checkpoint on Phi-3 turn markers teaches it tokens its chat template never uses,
+    so the adapter degrades the model instead of tuning it. When the tokenizer
+    carries a chat template — nearly all instruct checkpoints do — that template is
+    the source of truth; the literal stays as the fallback for base models without one.
+    """
     instruction = str(row.get("instruction", "")).strip()
     response = str(row.get("response", "")).strip()
+
+    if tokenizer is not None and getattr(tokenizer, "chat_template", None):
+        try:
+            return tokenizer.apply_chat_template(
+                [{"role": "user", "content": instruction},
+                 {"role": "assistant", "content": response}],
+                tokenize=False,
+            )
+        except Exception:
+            log.debug("[lora] chat template failed; using the fallback prompt format",
+                      exc_info=True)
+
     return (
         "<|user|>\n"
         f"{instruction}\n"
@@ -224,7 +359,8 @@ def build_training_job(
     output_dir: str | None = None,
     overwrite: bool = False,
 ) -> dict[str, Any]:
-    if target not in ALLOWED_TARGETS:
+    from eli.learning.lora_trainer_guard import allowed_targets as _allowed
+    if target not in _allowed():
         return {
             "ok": False,
             "execute": execute,
@@ -271,7 +407,8 @@ def build_training_job(
         "problems": ["dataset path missing from guard plan"],
     }
 
-    device_plan = _pick_device(device)
+    device_plan = _pick_device(
+        device, base_model_path=base_model_path, seq_len=seq_len, batch_size=batch_size)
 
     problems: list[str] = []
     warnings: list[str] = []
@@ -470,7 +607,7 @@ def _training_args_kwargs(cls, raw: dict[str, Any]) -> dict[str, Any]:
 # ELI_PHI3_NATIVE_TRANSFORMERS_LOAD_V1
 # Phi-3 must load through native transformers code here. The downloaded
 # remote modeling_phi3.py path rejects default RoPE in this environment.
-def run_training(job: dict[str, Any]) -> dict[str, Any]:
+def run_training(job: dict[str, Any], on_event=None) -> dict[str, Any]:
     if not job.get("execute"):
         job["result"] = {"skipped": True, "reason": "dry-run; pass --execute to train"}
         return job
@@ -495,16 +632,16 @@ def run_training(job: dict[str, Any]) -> dict[str, Any]:
     output_dir = Path(job["output_dir"])
     output_dir.mkdir(parents=True, exist_ok=True)
 
-    rows = _load_rows(dataset_path)
-    texts = [_format_example(row) for row in rows]
-    ds = Dataset.from_list([{"text": t} for t in texts])
-
     tokenizer = AutoTokenizer.from_pretrained(
         str(base_model_path),
         trust_remote_code=False,
     )
     if tokenizer.pad_token is None:
         tokenizer.pad_token = tokenizer.eos_token
+
+    rows = _load_rows(dataset_path)
+    texts = [_format_example(row, tokenizer) for row in rows]
+    ds = Dataset.from_list([{"text": t} for t in texts])
 
     seq_len = int(job["seq_len"])
 
@@ -531,16 +668,41 @@ def run_training(job: dict[str, Any]) -> dict[str, Any]:
         "attn_implementation": "eager",
     }
 
+    four_bit = bool((job.get("device") or {}).get("four_bit"))
+
     if selected_device == "cuda" and torch.cuda.is_available():
         dtype = torch.float16
         model_kwargs["dtype"] = dtype
     else:
         model_kwargs["dtype"] = dtype
 
+    # QLoRA — load the frozen base in 4-bit so a card that cannot hold the fp16
+    # weights can still train the adapter. Only the base is quantised; the adapter
+    # itself trains in fp16, so quality is close to a full-precision LoRA.
+    if four_bit and selected_device == "cuda":
+        try:
+            from transformers import BitsAndBytesConfig
+            model_kwargs["quantization_config"] = BitsAndBytesConfig(
+                load_in_4bit=True,
+                bnb_4bit_quant_type="nf4",
+                bnb_4bit_use_double_quant=True,
+                bnb_4bit_compute_dtype=torch.float16,
+            )
+            model_kwargs["device_map"] = {"": 0}
+        except Exception as _q_err:
+            print(f"[lora] 4-bit unavailable ({_q_err}); loading in fp16")
+            four_bit = False
+
     model = AutoModelForCausalLM.from_pretrained(str(base_model_path), **model_kwargs)
     model.config.use_cache = False
 
-    if selected_device == "cuda" and torch.cuda.is_available():
+    if four_bit:
+        try:
+            from peft import prepare_model_for_kbit_training
+            model = prepare_model_for_kbit_training(model)
+        except Exception as _k_err:
+            print(f"[lora] prepare_model_for_kbit_training failed: {_k_err}")
+    elif selected_device == "cuda" and torch.cuda.is_available():
         model.to("cuda")
 
     if hasattr(model, "gradient_checkpointing_enable"):
@@ -576,7 +738,7 @@ def run_training(job: dict[str, Any]) -> dict[str, Any]:
         "save_total_limit": 1,
         "report_to": [],
         "remove_unused_columns": False,
-        "optim": "adamw_torch",
+        "optim": "paged_adamw_8bit" if four_bit else "adamw_torch",
         "fp16": bool(selected_device == "cuda"),
         "use_cpu": bool(selected_device == "cpu"),
         "no_cuda": bool(selected_device == "cpu"),
@@ -591,6 +753,26 @@ def run_training(job: dict[str, Any]) -> dict[str, Any]:
         data_collator=DataCollatorForLanguageModeling(tokenizer=tokenizer, mlm=False),
     )
 
+    # Live progress for the Training tab. A LoRA run is minutes to hours; without
+    # per-step feedback the window is indistinguishable from a hang.
+    if on_event is not None:
+        try:
+            from transformers import TrainerCallback
+
+            class _EliProgress(TrainerCallback):
+                def on_log(self, args, state, control, logs=None, **kw):
+                    if not logs:
+                        return
+                    on_event({"type": "step",
+                              "step": int(getattr(state, "global_step", 0) or 0),
+                              "max_steps": int(getattr(state, "max_steps", 0) or 0),
+                              "loss": logs.get("loss"),
+                              "learning_rate": logs.get("learning_rate")})
+
+            trainer.add_callback(_EliProgress())
+        except Exception as _cb_err:
+            print(f"[lora] progress callback unavailable: {_cb_err}")
+
     train_result = trainer.train()
     model.save_pretrained(str(output_dir))
     tokenizer.save_pretrained(str(output_dir))
@@ -601,6 +783,8 @@ def run_training(job: dict[str, Any]) -> dict[str, Any]:
         "output_dir": str(output_dir),
         "metrics": getattr(train_result, "metrics", {}),
         "trainable_parameters": trainable_parameter_report,
+        "device": selected_device,
+        "four_bit": bool(four_bit),
     }
     return job
 

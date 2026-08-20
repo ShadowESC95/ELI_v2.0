@@ -147,7 +147,13 @@ def _normalize_rows(rows: List[Any], method: str, source_kind: str, base_score: 
     return out
 
 
-def collect_memory_evidence(query: str | None = None, limit: int = 12) -> Dict[str, Any]:
+# Upper bound on how much recent history one evidence pull may draw. Generous —
+# the prompt assembler does the real budgeting downstream — but not unbounded, so a
+# caller passing a huge limit cannot drag the whole conversation table into a turn.
+RECENT_HISTORY_CAP = 40
+
+
+def collect_memory_evidence(query: str | None = None, limit: int = 32) -> Dict[str, Any]:
     mem = _memory_instance()
     q = (query or infer_current_query() or "").strip()
 
@@ -177,10 +183,15 @@ def collect_memory_evidence(query: str | None = None, limit: int = 12) -> Dict[s
                 collected.extend(_normalize_rows(rows, name, source_kind, base_score))
                 break
 
+    # Recent-history pull. The cap was 8, which threw away continuity the caller had
+    # explicitly asked for: `min(limit, 8)` silently ignored any larger limit, so a
+    # request for 40 recent turns still returned 8. The ceiling now follows the
+    # caller, bounded only by a sane upper limit.
+    _recent = max(4, min(int(limit), RECENT_HISTORY_CAP))
     recent_specs = [
-        ("get_recent_processed_memories", {"limit": max(4, min(limit, 8))}, "processed", 0.62),
-        ("get_recent_observations", {"limit": max(4, min(limit, 8))}, "observations", 0.58),
-        ("get_recent_conversation", {"limit": max(4, min(limit, 8))}, "conversation", 0.48),
+        ("get_recent_processed_memories", {"limit": _recent}, "processed", 0.62),
+        ("get_recent_observations", {"limit": _recent}, "observations", 0.58),
+        ("get_recent_conversation", {"limit": _recent}, "conversation", 0.48),
     ]
     for name, kwargs, source_kind, base_score in recent_specs:
         raw = _safe_call(mem, name, **kwargs)
@@ -210,7 +221,7 @@ def collect_memory_evidence(query: str | None = None, limit: int = 12) -> Dict[s
     }
 
 
-def build_memory_evidence_text(limit: int = 8, query: str | None = None) -> str:
+def build_memory_evidence_text(limit: int = 32, query: str | None = None) -> str:
     bundle = collect_memory_evidence(query=query, limit=limit)
     lines = ["Memory evidence:"]
     for i, item in enumerate(bundle.get("items", [])[:limit], start=1):

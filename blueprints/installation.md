@@ -174,3 +174,39 @@ if no chat GGUF is present. Wizard also verifies embedder + voice and can fetch 
 
 Chat model: `python -m eli.core.model_download --auto` (or `--list`, or a named model).
 ELI stays offline by default; downloads are deliberate one-time actions.
+
+
+## Update — 2.3.7 (training dependencies now ship)
+
+`peft` and `datasets` were previously only in `requirements.lock.txt`, so a plain
+`pip install -r requirements.txt` produced an install whose Training tab could never
+leave preflight — it reported the packages missing and stopped. Both are now in
+`requirements.txt`, alongside:
+
+```
+peft==0.19.1
+datasets==4.8.5
+bitsandbytes>=0.43; platform_system != "Darwin"
+```
+
+`bitsandbytes` enables 4-bit (QLoRA) training, which lets a card too small for the
+full-precision weights train an adapter anyway. It is **optional everywhere** and the
+trainer falls back to fp16 without it: there is no macOS wheel, and AMD needs a
+separate ROCm build. `install.sh` is unchanged — it already installs from the frozen
+lock, which carried both packages.
+
+### Optional scanners for the plugin marketplace
+
+Neither is required, and their absence is reported rather than silently ignored:
+
+- **ClamAV** (`clamscan` / `clamdscan` on PATH) — full antivirus over plugin sources.
+- **yara-python** plus a ruleset at `<config dir>/plugin_yara_rules.yar`.
+
+Without them the marketplace still runs its nine built-in engines and states that
+coverage was partial.
+
+### Optional runtimes for MCP servers
+
+MCP servers are separate programs. `npx` (Node.js) and `uvx` (uv) cover almost all
+published servers. ELI checks for the required runtime **before** writing anything to
+its MCP config and names the install command for your platform if it is missing.

@@ -2673,6 +2673,40 @@ def route(text: str, _clause_depth: int = 0) -> Dict[str, Any]:
                        entities={'query': _mq})
 
 # ---- PLUGINS ----
+    # MCP runtime — what the configured servers expose right now.
+    if re.search(r"\b(?:mcp|external\s+tool)\s+(?:server\s+)?status\b", low) or \
+       re.search(r"\bwhat\s+mcp\s+servers?\b", low):
+        return _mk("MCP_STATUS", {}, 0.95, matched_by="mcp.status")
+    _mcpm = re.search(r"\b(?:run|call|use|invoke)\s+(?:the\s+)?mcp\s+tool\s+(?P<t>[\w.\-]+)", low)
+    if _mcpm:
+        return _mk("MCP_CALL", {"tool": _mcpm.group("t")}, 0.94, matched_by="mcp.call")
+    if re.search(r"\b(?:list|show|what)\s+(?:are\s+)?(?:my\s+|the\s+)?mcp\s+tools?\b", low) or \
+       re.search(r"\bmcp\s+tools?\b", low):
+        return _mk("MCP_TOOLS", {}, 0.94, matched_by="mcp.tools")
+
+    # MCP servers — a different kind of thing from a plugin: a separate process ELI
+    # configures rather than code it loads. Matched before the generic plugin
+    # patterns, and ordered verb-first, because "remove the mcp server X" contains
+    # the literal "mcp server" that a list pattern would otherwise claim.
+    _mcp_rm = re.search(r"\b(?:remove|uninstall|delete|drop)\s+(?:the\s+)?"
+                        r"mcp(?:\s+server)?\s+['\"]?([a-z0-9._@/-]+)", low)
+    if _mcp_rm:
+        sid = _mcp_rm.group(1)
+        return _mk("MCP_REMOVE", {"server": sid}, 0.96, matched_by="mcp.remove",
+                   entities={"server": sid}, task_family="plugin")
+    _mcp_add = re.search(r"\b(?:add|install|set\s*up|connect)\s+(?:an?\s+|the\s+)?"
+                         r"mcp(?:\s+server)?(?:\s+['\"]?([a-z0-9._@/-]+))?", low)
+    if _mcp_add:
+        name = (_mcp_add.group(1) or "").strip()
+        return _mk("MCP_ADD", {"server": name}, 0.96, matched_by="mcp.add",
+                   entities={"server": name}, task_family="plugin")
+    if re.search(r"\bmcp\b", low) and re.search(
+            r"\b(?:doctor|diagnos\w*|not\s+work\w*|broken|failing|check|test|"
+            r"trouble\w*|debug)\b", low):
+        return _mk("MCP_DOCTOR", {}, 0.96, matched_by="mcp.doctor", task_family="plugin")
+    if re.search(r"\b(?:list|show|what)\b.*\bmcp\b", low) \
+            or re.search(r"\bmcp\s+(?:status|servers?)\b", low):
+        return _mk("MCP_LIST", {}, 0.95, matched_by="mcp.list", task_family="plugin")
     if re.search(
             r"\b(?:install|download|get)\s+(?:a\s+|the\s+)?plugin\s+(?:for\s+)?(.+)", low):
         m = re.search(

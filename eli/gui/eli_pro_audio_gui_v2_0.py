@@ -7687,6 +7687,15 @@ _register()
 
         self.tabs.addTab(root, "⚙️ Settings")
 
+        # Register the plugin consent dialog. Until this runs, permissions.check()
+        # denies everything — which is correct for headless/API processes, and is
+        # why a GUI must opt in explicitly rather than the default being "allow".
+        try:
+            from eli.gui.panels.permission_dialog import install_consent_ui
+            self._consent_bridge = install_consent_ui(self)
+        except Exception as _perm_err:
+            log.debug(f"[GUI] plugin consent UI unavailable: {_perm_err}")
+
     # ── Per-page builders ──────────────────────────────────────────────────────
 
     def _settings_page(self, title: str, subtitle: str = "") -> tuple:

@@ -372,3 +372,101 @@ from `https://download.pytorch.org/whl/<your-cuda-tag>` — same pattern as the 
 
 *House rule: when a new error bites, add it here — symptom, cause, and the **exact** commands
 that fixed it. Future-you will thank present-you.*
+
+
+## A community plugin won't install
+
+ELI refuses at the first stage that fails, and the dialog names it:
+
+| Stage | Meaning | What to do |
+|---|---|---|
+| `listing` | the registry entry is malformed | the publisher must fix their manifest |
+| `payment` | paid plugin, no licence key stored | buy from the publisher, then enter the key |
+| `download` | source URL unreachable | check the URL, and that networking is on |
+| `integrity` | **checksum or signature mismatch** | do not retry — the file does not match what the listing described |
+| `code` | uses a capability it never declared | the publisher must declare it; do not force this |
+| `malware` | a scanner found malicious indicators | do not install |
+| `dependencies` | wants PyPI packages | approve separately with the pip-inclusive button |
+| `consent` | nothing was available to ask you | install from the GUI, not headless |
+
+An `integrity` or `malware` refusal is not a bug to work around. Both mean the file
+on the server is not the file the listing promised, or is actively hostile.
+
+## A plugin is installed but does nothing
+
+Installed plugins arrive **switched off with no permissions granted** — that is
+deliberate. Enable it in Settings ▸ Marketplace ▸ Installed. It will then ask, one
+capability at a time, the first time it needs each one.
+
+If you chose **Never allow** for a capability, the plugin is never asked again and
+will keep failing silently at that step. Revoke the decision in Settings ▸
+Marketplace ▸ Permissions to be asked afresh.
+
+## A plugin asked for nothing and was denied anyway
+
+Permission requests **fail closed** when there is nothing to ask: a headless run, the
+API server, or a scheduled overnight task. That is intended — a plugin must not gain
+a capability by running at 3am. Run it once from the desktop GUI and choose
+**Always allow** if you want it to work unattended.
+
+## An MCP server was added but has no tools
+
+Run the doctor (Settings ▸ Marketplace, or `eli.plugins.mcp.doctor()`). It reports
+each configured server with the exact fault:
+
+- **runtime missing** — `npx`/`uvx` is not installed or not on PATH. The message
+  names the install command for your platform.
+- **handshake timeout** — the process started but never answered MCP `initialize`.
+  Usually the wrong command, a missing argument, or a required environment variable.
+
+Note that installing already runs a real handshake, so a server that was accepted
+did answer at least once. There is exactly one config file —
+`mcp.config_path()` — and ELI reads no other; a previous config from a different
+host will not be picked up.
+
+## "ELI is offline" but a plugin still reached the internet
+
+Expected, and important to understand. `netguard` patches Python's socket layer
+**inside ELI's process**. An MCP server, a `pip` install, or any other child process
+has its own network stack and is not affected. ELI's offline switch does not stop
+them and ELI cannot see what they send. Only install MCP servers you trust with
+that. See `security.md` §17.
+
+## Training says my GPU can't do it
+
+Read the sentence — it names the shortfall and the fix, e.g. *"6.37 GiB free but
+this run needs ~9.04 GiB."* Options, in order of effort: close what is using VRAM,
+lower the sequence length in Advanced, install `bitsandbytes` for 4-bit training, or
+pick a smaller base model. CPU training works but takes hours to days, which is why
+it is never selected silently.
+
+
+## "Install" opened a review dialog instead of just installing
+
+That is the design. The one-click path proceeds only when there is nothing to decide.
+It stops, and names the reason, when: the scan is not clean, the listing has no
+checksum, the plugin wants permissions, it installs PyPI packages, it costs money, or
+its download URL is plain `http`. Missing optional scanners and an unsigned plugin do
+**not** stop it — they are reported afterwards.
+
+## A plugin is enabled but raises PermissionError
+
+Runtime enforcement is doing its job. `eli/plugins/sandbox.py` blocks an operation
+whose capability the plugin's manifest never declared — including one made by
+importing `socket` or `subprocess` directly rather than through ELI's API. The message
+names the plugin, the operation and the missing capability.
+
+If the plugin genuinely needs it, the publisher must declare it in the manifest; there
+is deliberately no way for you to grant a capability the plugin never asked for.
+`ELI_PLUGIN_SANDBOX=0` disables enforcement entirely and should only be used to
+confirm that this is what is happening.
+
+## A registry or download was "refused for safety"
+
+`netguard.safe_fetch` refuses URLs that are not http(s), and hosts that resolve to
+loopback, private, link-local or reserved addresses — including after a redirect.
+This stops a listing you do not control from pointing ELI at your own machine or LAN.
+
+If it is your own registry on your own network, add it as a source: `add_registry`
+detects a local address, records the exception explicitly, and warns you. A public
+registry that then redirects somewhere private is still refused.

@@ -302,3 +302,26 @@ delete the `.desktop` files from `~/.local/share/applications/`.
 
 *ELI v2.0 — © 2026 Jason Fitzgibbon Bridgeman. Source-available under the PolyForm Internal
 Use License 1.0.0. Questions: jaybridgeman0095@gmail.com*
+
+
+## Update — 2.3.7
+
+### New CLI-reachable surfaces
+
+| Module | `python -m` entry | What it does |
+|---|---|---|
+| `eli.learning.target_registry` | — | declare/list/delete LoRA training targets |
+| `eli.learning.review_queue` | — | mine + review training candidates |
+| `eli.plugins.security_scan` | — | `scan_file(path)` — 11-engine malware scan |
+| `eli.plugins.mcp` | — | `doctor()` — diagnose every configured MCP server |
+| `eli.cognition.agent_trust` | — | `grant` / `revoke` / `inspect` custom agent code |
+| `tools/eval/run_eval.py` | `--target router\|engine\|all` | eval board; now delegates to `run_board()` |
+
+`tools/eval/run_eval.py` output is unchanged — `main()` now calls `run_board()` and
+does the printing, so the CLI behaves exactly as before while the GUI can drive the
+same code in-process.
+
+### Requirements
+
+`requirements.txt` gained `peft`, `datasets` and (non-macOS) `bitsandbytes`. See
+`installation.md`.

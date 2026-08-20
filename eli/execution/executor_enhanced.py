@@ -2299,6 +2299,13 @@ SUPPORTED_ACTIONS = [
     'PERSONA_LOCK_SET',
     'PERSONA_LOCK_STATUS',
     'PLAY_MEDIA',
+    'MCP_ADD',
+    'MCP_CALL',
+    'MCP_DOCTOR',
+    'MCP_LIST',
+    'MCP_REMOVE',
+    'MCP_STATUS',
+    'MCP_TOOLS',
     'PLUGIN_DISABLE',
     'PLUGIN_ENABLE',
     'PLUGIN_INSTALL',
@@ -5183,6 +5190,150 @@ _GENERATIVE_EVIDENCE_ACTIONS = {
 # Dispatcher
 # ----------------------------
 
+def _eli_marketplace_install(query: str):
+    """Install a community listing through the verified path, or None if not one.
+
+    Returns None when the query does not match anything in a configured community
+    registry, so the caller falls through to the bundled-plugin path. Chat can
+    trigger a verified install but NEVER a permissioned one: anything that would
+    open the consent dialog is reported back as needing the desktop screen, because
+    a chat message cannot carry informed consent for granting capabilities.
+    """
+    try:
+        from eli.plugins.marketplace import needs_review, preview_install, search
+    except Exception:
+        return None
+    try:
+        matches = search(query)
+    except Exception:
+        return None
+    exact = [m for m in matches if str(m.get("id", "")).lower() == query.lower()]
+    candidates = exact or matches
+    if not candidates:
+        return None
+    if len(candidates) > 1 and not exact:
+        listing = None
+    else:
+        listing = candidates[0]
+    if listing is None:
+        names = ", ".join(str(m.get("id")) for m in candidates[:5])
+        return {"ok": True,
+                "message": f"Several community listings match '{query}': {names}. "
+                           f"Name one exactly and I'll check it."}
+
+    if str(listing.get("kind")) == "mcp":
+        from eli.plugins.mcp import network_caveat
+        return {"ok": True,
+                "message": (f"'{listing.get('name')}' is an MCP server, which runs as a "
+                            f"separate program.\n\n{network_caveat()}\n\n"
+                            f"Add it from Settings > Marketplace > MCP servers.")}
+
+    preview = preview_install(listing)
+    reasons = needs_review(preview)
+    if reasons:
+        scan = (preview.get("scan") or {})
+        detail = "; ".join(reasons)
+        verdict = scan.get("verdict")
+        head = (f"I checked '{listing.get('name')}' and will not install it from chat: "
+                if verdict == "malicious" else
+                f"I checked '{listing.get('name')}'. It needs your decision: ")
+        return {"ok": verdict != "malicious",
+                "message": head + detail +
+                           "\n\nOpen Settings > Marketplace to see the full report and "
+                           "decide."}
+
+    from eli.plugins.marketplace import install
+    result = install(listing, confirm=lambda _p: True)
+    if not result.get("ok"):
+        return {"ok": False,
+                "message": "Install failed: " + "; ".join(result.get("problems") or [])}
+    return {"ok": True,
+            "message": (f"Installed '{listing.get('name')}' — it matched the checksum in "
+                        f"its listing, scanned clean, and asks for no permissions. "
+                        f"It is switched OFF; say 'enable plugin "
+                        f"{listing.get('id')}' when you want it.")}
+
+
+def _eli_mcp_client():
+    """MCP runtime client — ported from v3, which had the calling half while v2 had
+    only the lifecycle half. Same config file and same `mcpServers` shape, so the
+    two halves compose: eli.plugins.mcp installs and verifies a server,
+    eli.integrations.mcp.client connects to it and calls its tools."""
+    from eli.integrations.mcp import client
+    return client
+
+
+def _h_mcp_status(a: str, args: Dict[str, Any]) -> Dict[str, Any]:
+    try:
+        st = _eli_mcp_client().status()
+    except Exception as e:
+        msg = f"Couldn't read the MCP configuration: {e}"
+        return {"ok": False, "action": a, "error": str(e), "content": msg, "response": msg}
+
+    if not st["configured"]:
+        msg = ("No MCP servers are configured yet, so I have no external tools beyond my own. "
+               f"Add them to {st['config_path']} and I'll pick them up.")
+        return {"ok": True, "action": a, "content": msg, "response": msg, **st}
+
+    lines = [f"{st['configured']} MCP server(s) configured:"]
+    for s in st["servers"]:
+        if s["connected"]:
+            tools = ", ".join(s["tools"]) or "no tools"
+            lines.append(f"  {s['name']} — connected ({tools})")
+        elif s["error"]:
+            lines.append(f"  {s['name']} — not working: {s['error']}")
+        else:
+            lines.append(f"  {s['name']} — configured, not started yet")
+    body = "\n".join(lines)
+    return {"ok": True, "action": a, "content": body, "response": body, **st}
+
+
+def _h_mcp_tools(a: str, args: Dict[str, Any]) -> Dict[str, Any]:
+    try:
+        tools = _eli_mcp_client().list_tools(refresh=bool(args.get("refresh")))
+    except Exception as e:
+        msg = f"Couldn't list MCP tools: {e}"
+        return {"ok": False, "action": a, "error": str(e), "content": msg, "response": msg}
+
+    if not tools:
+        msg = ("I can't see any MCP tools right now — either nothing is configured, "
+               "or the configured servers didn't start. Ask me for MCP status for the reason.")
+        return {"ok": True, "action": a, "tools": [], "content": msg, "response": msg}
+
+    lines = [f"{len(tools)} MCP tool(s) available:"]
+    for t in tools:
+        desc = (t["description"] or "").strip().splitlines()[0][:110] if t["description"] else ""
+        lines.append(f"  {t['qualified']}" + (f" — {desc}" if desc else ""))
+    body = "\n".join(lines)
+    return {"ok": True, "action": a, "tools": tools, "content": body, "response": body}
+
+
+def _h_mcp_call(a: str, args: Dict[str, Any]) -> Dict[str, Any]:
+    tool = str(args.get("tool") or args.get("name") or args.get("qualified") or "").strip()
+    if not tool:
+        msg = "Tell me which MCP tool to call — ask for MCP tools to see what's available."
+        return {"ok": False, "action": a, "error": "missing tool", "content": msg, "response": msg}
+
+    arguments = args.get("arguments") or args.get("args") or {}
+    if not isinstance(arguments, dict):
+        arguments = {"input": arguments}
+
+    try:
+        res = _eli_mcp_client().call_tool(tool, arguments)
+    except Exception as e:
+        msg = f"MCP call failed: {e}"
+        return {"ok": False, "action": a, "error": str(e), "content": msg, "response": msg}
+
+    if not res.get("ok"):
+        reason = str(res.get("error") or "the tool call failed")
+        hint = res.get("hint")
+        msg = f"{tool} didn't run: {reason}" + (f" ({hint})" if hint else "")
+        return {"ok": False, "action": a, "error": reason, "content": msg, "response": msg}
+
+    body = str(res.get("text") or "").strip() or f"{tool} ran and returned nothing to show."
+    return {"ok": True, "action": a, "tool": tool, "content": body, "response": body}
+
+
 def _execute_impl(action: str, args: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     args = args or {}
     # Normalize action for dispatch (accept open_app, OPEN_APP, open-app, etc.)
@@ -7458,7 +7609,16 @@ def _execute_impl(action: str, args: Optional[Dict[str, Any]] = None) -> Dict[st
                         "content": json.dumps({"missing_arg": "plugin", "action": a}, ensure_ascii=False),
                         "response": json.dumps({"missing_arg": "plugin", "action": a}, ensure_ascii=False)}
 
-            # Try exact match first
+            # Community listings go through the marketplace path — checksum,
+            # signature, static check, eleven scanners, consent — not the old
+            # manager.install(), which downloaded over raw urllib and executed the
+            # result. A bundled built-in still uses the manager: it shipped with ELI.
+            market = _eli_marketplace_install(query)
+            if market is not None:
+                return {"ok": market["ok"], "action": a,
+                        "content": market["message"], "response": market["message"]}
+
+            # Try exact match first (bundled/built-in plugins)
             entry = mgr.get_registry_entry(query.lower().replace(" ", "_"))
             if entry:
                 result = mgr.install(entry["id"])
@@ -7487,6 +7647,87 @@ def _execute_impl(action: str, args: Optional[Dict[str, Any]] = None) -> Dict[st
             return {"ok": True, "action": a, "content": msg, "response": msg}
         except Exception as e:
             return {"ok": False, "action": a, "error": str(e), "content": str(e), "response": str(e)}
+
+
+    # ---- MCP_STATUS / MCP_TOOLS / MCP_CALL — the runtime half ----
+    # What a live server exposes right now, as opposed to what is configured
+    # (MCP_LIST below). Kept distinct so "what did I install" and "what can it do"
+    # stay separate questions.
+    if a in ("MCP_STATUS", "MCP_TOOLS", "MCP_CALL"):
+        return {"MCP_STATUS": _h_mcp_status, "MCP_TOOLS": _h_mcp_tools,
+                "MCP_CALL": _h_mcp_call}[a](a, args or {})
+
+    # ---- MCP_LIST / MCP_ADD / MCP_REMOVE / MCP_DOCTOR ----
+    # MCP servers are separate processes ELI configures rather than code it loads, so
+    # they get their own actions instead of being squeezed into the plugin ones.
+    if a in ("MCP_LIST", "MCP_STATUS"):
+        try:
+            from eli.plugins.mcp import config_path, list_servers
+            servers = list_servers()
+            if not servers:
+                msg = ("No MCP servers are configured. Add one from Settings > "
+                       "Marketplace > MCP servers, or ask me to add one by name.")
+                return {"ok": True, "action": a, "content": msg, "response": msg}
+            lines = [f"{len(servers)} MCP server(s) — config: {config_path()}"]
+            for srv in servers:
+                state = "on" if srv.get("enabled") else "off"
+                tools = len(srv.get("tools") or [])
+                lines.append(f"  - {srv['id']} [{state}] {tools} tool(s)"
+                             + ("" if srv.get("verified") else "  (unverified)"))
+            msg = "\n".join(lines)
+            return {"ok": True, "action": a, "content": msg, "response": msg}
+        except Exception as e:
+            return {"ok": False, "action": a, "error": str(e),
+                    "content": str(e), "response": str(e)}
+
+    if a == "MCP_DOCTOR":
+        try:
+            from eli.plugins.mcp import doctor
+            report = doctor()
+            lines = [report["summary"]]
+            for srv in report.get("servers", []):
+                lines.append(f"  - {srv['id']}: "
+                             + (f"ok, {srv['tools']} tool(s)" if srv["ok"]
+                                else srv["problem"]))
+            msg = "\n".join(lines)
+            return {"ok": report.get("ok", False), "action": a,
+                    "content": msg, "response": msg}
+        except Exception as e:
+            return {"ok": False, "action": a, "error": str(e),
+                    "content": str(e), "response": str(e)}
+
+    if a == "MCP_REMOVE":
+        try:
+            from eli.plugins.mcp import remove_server
+            sid = (args.get("server") or args.get("id") or args.get("name") or "").strip()
+            if not sid:
+                msg = json.dumps({"missing_arg": "server", "action": a}, ensure_ascii=False)
+                return {"ok": False, "action": a, "error": "No server specified",
+                        "content": msg, "response": msg}
+            result = remove_server(sid)
+            msg = (f"Removed MCP server '{sid}'." if result["ok"]
+                   else "; ".join(result["problems"]))
+            return {"ok": result["ok"], "action": a, "content": msg, "response": msg}
+        except Exception as e:
+            return {"ok": False, "action": a, "error": str(e),
+                    "content": str(e), "response": str(e)}
+
+    if a == "MCP_ADD":
+        # Deliberately NOT installable from chat without the desktop consent screen:
+        # adding an MCP server means running a program outside ELI's process, and the
+        # containment that applies is machine-dependent. Chat points at the UI.
+        try:
+            from eli.plugins.mcp import network_caveat
+            name = (args.get("server") or args.get("name") or "").strip()
+            msg = ("Adding an MCP server runs a separate program on this machine, so it "
+                   "needs the confirmation screen rather than a chat message.\n\n"
+                   + network_caveat()
+                   + "\n\nOpen Settings > Marketplace > MCP servers"
+                   + (f" and search for '{name}'." if name else " to add one."))
+            return {"ok": True, "action": a, "content": msg, "response": msg}
+        except Exception as e:
+            return {"ok": False, "action": a, "error": str(e),
+                    "content": str(e), "response": str(e)}
 
     # ---- PLUGIN_UNINSTALL ----
     if a == "PLUGIN_UNINSTALL":

@@ -11,7 +11,7 @@ from eli.gui.panels._qt import (
     QPushButton, QScrollArea, QSpinBox, QTabWidget, QTableWidget,
     QTableWidgetItem, QTextEdit, QTimer, QVBoxLayout, QWidget, Qt, pyqtSignal,
 )
-from eli.gui.panels.agent_wizard import AgentEditDialog
+from eli.gui.panels.agent_wizard import AgentCreateDialog, AgentEditDialog
 
 
 class AdvancedSettingsDialog(QDialog):
@@ -51,6 +51,16 @@ class AdvancedSettingsDialog(QDialog):
         self.inner_tabs.addTab(self._build_models_tab(),  "\U0001f9e0 Models")
         self.inner_tabs.addTab(self._build_cognition_tab(), "\U0001f9e0 Cognition")
         self.inner_tabs.addTab(self._build_plugins_tab(), "\U0001f50c Plugins")
+        # Community marketplace. Separate from the Plugins tab above, which manages
+        # what is already here — this one is the door strangers' code comes through,
+        # so it carries its own verification, scanning and consent surface.
+        try:
+            from eli.gui.tabs.marketplace_tab import MarketplaceTab
+            self._marketplace_tab = MarketplaceTab(parent_window=self)
+            self.inner_tabs.addTab(self._marketplace_tab, "\U0001f6d2 Marketplace")
+        except Exception as _mk_err:
+            from eli.utils.log import get_logger
+            get_logger(__name__).debug(f"[Settings] Marketplace tab unavailable: {_mk_err}")
         self.inner_tabs.addTab(self._build_upgrade_tab(), "\U0001f504 Self-Upgrade")
 
         close_btn = QPushButton("Close")
@@ -210,6 +220,11 @@ class AdvancedSettingsDialog(QDialog):
         self._populate_agents_table()
 
         btn_row = QHBoxLayout()
+        create_btn = QPushButton("\u2795 Create agent")
+        create_btn.setToolTip("Author a new custom agent: objective, instruction, "
+                              "triggers, and how you'd know it worked.")
+        create_btn.clicked.connect(self._create_agent)
+        btn_row.addWidget(create_btn)
         refresh_btn = QPushButton("\U0001f504 Refresh")
         refresh_btn.clicked.connect(self._populate_agents_table)
         btn_row.addWidget(refresh_btn)
@@ -267,6 +282,12 @@ class AdvancedSettingsDialog(QDialog):
             self.agents_table.setCellWidget(row, 4, edit_btn)
 
         self.agents_table.resizeRowsToContents()
+
+    def _create_agent(self):
+        """Author a new agent. Saving registers it live — no restart."""
+        dlg = AgentCreateDialog(parent=self)
+        if dlg.exec() == QDialog.DialogCode.Accepted:
+            self._populate_agents_table()
 
     def _edit_agent(self, row: int, agent_info: dict):
         dlg = AgentEditDialog(agent_info, parent=self)

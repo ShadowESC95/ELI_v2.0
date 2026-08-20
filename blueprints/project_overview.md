@@ -189,3 +189,50 @@ Ranked by effect-per-effort:
 Do 1–3 and the engineering would match the ideas — which is the only thing
 standing between ELI and the label "frontier, ground-breaking software people
 can rely on."
+
+
+## Update — 2.3.7
+
+Four subsystems moved from "present but unreachable" to "usable", which is the theme
+of this release rather than new invention:
+
+1. **LoRA training** had a complete trainer, guard, eval suite and DAG, whose own
+   docstring said it was driven by "the GUI / scheduled task". The GUI half was never
+   built, and the human review gate the trainer requires had no interface — 615
+   candidate rows, 0 trainable, `will_train` permanently false. Labs ▸ Training now
+   closes that, and the Phi-3 lock is replaced by an operator-declared target
+   registry.
+
+2. **The eval harness** under `tools/eval/` — including rubric assertions graded by
+   ELI's own local model — was terminal-only. `run_board()` extracted a programmatic
+   entry point and Labs ▸ Test & Review gained two buttons. It runs **in-process**
+   deliberately: the judge asks the already-loaded model, so a subprocess would pull
+   a second copy of the chat model into the same VRAM.
+
+3. **Plugins** were arbitrary Python `exec_module`'d in ELI's process with no
+   declaration, no checksum, no scan and no consent. They now carry a manifest, are
+   verified and scanned before touching disk, and ask permission per capability.
+
+4. **Custom agents** had no objective, no prompt structure, no triggers and no
+   success measure, loaded from a read-only install path, and registered only at
+   import. They now have a real specification, a provenance-carrying trust chain, and
+   live reload.
+
+### On honesty as a design constraint
+
+The recurring pattern in this release is refusing to claim more than was checked:
+
+- a scanner engine that could not run **never** counts as a pass, and the verdict
+  says coverage was partial;
+- an unsigned plugin is reported as unverified rather than treated as fine;
+- ELI never says a community plugin is safe, because nobody vetted it;
+- the training tab says the live model has *not* changed until the adapter is merged;
+- the MCP screens state that netguard cannot contain a child process, rather than
+  implying a sandbox that does not exist.
+
+That last one is worth being explicit about at the overview level: **there is no
+eBPF, seccomp, landlock, network-namespace or firewall integration in ELI.** Network
+gating is a Python-level socket guard, which covers in-process code and nothing else.
+Anything that spawns a subprocess — MCP servers, `pip`, generated scripts — is
+outside it. Closing that would need per-platform kernel egress control routed through
+an ELI-owned proxy, and that work has not been done.

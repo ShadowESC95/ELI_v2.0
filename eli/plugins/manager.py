@@ -48,10 +48,50 @@ def _eli_src() -> Path:
     return Path(__file__).resolve().parent.parent
 
 
+def _bundled_plugins_dir() -> Path:
+    """Plugins that ship inside ELI. Read-only on a packaged install."""
+    return _eli_src() / "plugins"
+
+
 def _plugins_dir() -> Path:
-    d = _eli_src() / "plugins"
-    d.mkdir(parents=True, exist_ok=True)
+    """Where DOWNLOADED plugins are written.
+
+    Was `_eli_src()/plugins` — inside the installation. That works in a dev checkout
+    and fails on a packaged build, where project_root() is a read-only mount (the
+    same class of bug as test_runtime_paths_follow_the_data_dir). It also mixes a
+    stranger's downloaded code in with ELI's own shipped plugins, which makes
+    "what did I install" unanswerable.
+
+    Falls back to the bundled directory only if the paths module is unavailable, so
+    a dev checkout with no data dir configured still behaves as before.
+    """
+    override = os.environ.get("ELI_PLUGINS_DIR")
+    if override:
+        d = Path(override).expanduser()
+    else:
+        try:
+            from eli.core.paths import plugins_dir as _pd
+            d = Path(_pd())
+        except Exception:
+            d = _bundled_plugins_dir()
+    try:
+        d.mkdir(parents=True, exist_ok=True)
+    except Exception:
+        log.debug("[PLUGIN] could not create the plugin directory", exc_info=True)
+        d = _bundled_plugins_dir()
+        d.mkdir(parents=True, exist_ok=True)
     return d
+
+
+def _plugin_search_dirs() -> List[Path]:
+    """Both places a plugin can live: shipped built-ins and user installs."""
+    seen, out = set(), []
+    for d in (_bundled_plugins_dir(), _plugins_dir()):
+        key = str(d.resolve()) if d.exists() else str(d)
+        if key not in seen:
+            seen.add(key)
+            out.append(d)
+    return out
 
 
 def _state_file() -> Path:
@@ -149,6 +189,14 @@ class PluginManager:
         self._loaded: Dict[str, Plugin] = {}
         self._registry_cache: Optional[List[Dict]] = None
         self._state: Dict[str, Any] = _load_state()
+        # Runtime capability enforcement goes in BEFORE the first plugin is
+        # exec_module'd. A plugin loaded ahead of the audit hook would have a window
+        # in which its module-level code ran unrestricted.
+        try:
+            from eli.plugins.sandbox import install_plugin_sandbox
+            install_plugin_sandbox()
+        except Exception:
+            log.debug("[PLUGIN] runtime sandbox unavailable", exc_info=True)
         self._auto_load()
 
     # ------------------------------------------------------------------
@@ -176,12 +224,26 @@ class PluginManager:
     # Discovery & loading
     # ------------------------------------------------------------------
 
+    @staticmethod
+    def _all_plugin_dirs() -> List[Path]:
+        """Every candidate plugin package across both search directories. A user
+        install of the same id shadows the bundled one (last writer wins)."""
+        found: Dict[str, Path] = {}
+        for root in _plugin_search_dirs():
+            try:
+                if not root.is_dir():
+                    continue
+                for child in sorted(root.iterdir()):
+                    if child.is_dir() and child.name not in ("base", "registry", "__pycache__"):
+                        found[child.name] = child
+            except Exception:
+                log.debug(f"[PLUGIN] could not scan {root}", exc_info=True)
+        return list(found.values())
+
     def _auto_load(self) -> None:
         """Load all enabled plugins from disk at startup."""
         enabled = set(self._state.get("enabled", []))
-        for pkg_dir in _plugins_dir().iterdir():
-            if not pkg_dir.is_dir():
-                continue
+        for pkg_dir in self._all_plugin_dirs():
             plugin_py = pkg_dir / "plugin.py"
             if not plugin_py.exists():
                 continue
@@ -220,9 +282,7 @@ class PluginManager:
     def list_installed(self) -> List[Dict]:
         """Plugins with a local plugin.py file."""
         result = []
-        for pkg_dir in _plugins_dir().iterdir():
-            if not pkg_dir.is_dir():
-                continue
+        for pkg_dir in self._all_plugin_dirs():
             plugin_py = pkg_dir / "plugin.py"
             if not plugin_py.exists():
                 continue
@@ -320,6 +380,12 @@ class PluginManager:
         _save_state(state)
         self._state = state
 
+        try:
+            from eli.plugins.sandbox import refresh as _sandbox_refresh
+            _sandbox_refresh()
+        except Exception:
+            log.debug("[PLUGIN] sandbox refresh failed", exc_info=True)
+
         # 5. Load into memory
         loaded = self._load_plugin_from_file(plugin_id, plugin_py)
         if loaded is None:
@@ -340,6 +406,8 @@ class PluginManager:
         import shutil
 
         plugin_dir = _plugins_dir() / plugin_id
+        if not plugin_dir.exists():
+            plugin_dir = _bundled_plugins_dir() / plugin_id
         if plugin_dir.exists():
             shutil.rmtree(plugin_dir)
 
@@ -358,6 +426,12 @@ class PluginManager:
             if key.startswith(f"plugins.{plugin_id}"):
                 del sys.modules[key]
 
+        try:
+            from eli.plugins.sandbox import refresh as _sandbox_refresh
+            _sandbox_refresh()
+        except Exception:
+            log.debug("[PLUGIN] sandbox refresh failed", exc_info=True)
+
         return {
             "ok": True,
             "content": f"🗑️ Plugin '{plugin_id}' uninstalled.",
@@ -370,6 +444,8 @@ class PluginManager:
 
     def enable(self, plugin_id: str) -> Dict[str, Any]:
         plugin_py = _plugins_dir() / plugin_id / "plugin.py"
+        if not plugin_py.exists():
+            plugin_py = _bundled_plugins_dir() / plugin_id / "plugin.py"
         if not plugin_py.exists():
             return {"ok": False, "error": f"Plugin '{plugin_id}' not installed"}
 
