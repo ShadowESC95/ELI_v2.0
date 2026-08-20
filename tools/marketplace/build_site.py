@@ -145,114 +145,139 @@ def build(index_path: str, out_dir: str, name: str, domain: str, submit_url: str
 <title>{e(name)}</title>
 <meta name="description" content="Plugins and MCP servers for ELI. Every listing is reviewed and signed before it appears.">
 <style>
+/* Same visual language as geteli.tech: cyan #22d3ee with a magenta counterpoint
+   and a violet mid-stop, layered blooms over a 34px grid, glass panels, film
+   grain. Kept in step deliberately — the store is a room in ELI's house, and a
+   different palette makes it read as somebody else's site. */
 :root {{
-  /* Sampled from ELI's mark: canvas #001015, ring #00fefe -> #00d1fd,
-     wordmark #f8f9f9. The store should look like the icon in its nav. */
-  --bg:#00080b; --bg-card:#04141b; --bg-raise:#00131a;
-  --line:#0d2b34; --line-soft:#071e25;
-  --fg:#f2f6f7; --fg-dim:#8fa5ab; --fg-faint:#5e777e;
-  --cyan:#00fefe; --blue:#00d1fd; --glow:rgba(0,209,253,.16); --danger:#ff8a7a;
+  --bg:#04060c; --bg2:#070a12; --grid:rgba(34,211,238,.045);
+  --card:rgba(12,19,32,.58); --card2:rgba(20,28,44,.5);
+  --line:rgba(64,224,255,.14); --line-str:rgba(64,224,255,.34);
+  --fg:#e3edfb; --fg-dim:#8aa4c8; --mut:#5b6b86;
+  --accent:#22d3ee; --accent2:#f637ec; --violet:#7c5cff; --press:#06b6d4;
+  --ok:#34f5c5; --warn:#ffd166; --bad:#ff5d73;
+  --glow:0 0 0 1px rgba(34,211,238,.3), 0 0 18px rgba(34,211,238,.2);
+  --shadow:0 2px 10px rgba(0,0,0,.5), 0 18px 54px rgba(0,0,0,.45);
+  --radius:16px; --fast:.2s cubic-bezier(.4,0,.2,1);
+  --mono:ui-monospace,"JetBrains Mono",Menlo,Consolas,monospace;
 }}
-*{{box-sizing:border-box}}
-html{{scroll-behavior:smooth}}
-body{{margin:0;background:var(--bg);color:var(--fg);-webkit-font-smoothing:antialiased;
-  font:16px/1.65 ui-sans-serif,-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif}}
+*{{box-sizing:border-box}} html{{scroll-behavior:smooth}}
+body{{margin:0;color:var(--fg);-webkit-font-smoothing:antialiased;
+  font:16px/1.65 ui-sans-serif,-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+  background:
+    radial-gradient(1200px 620px at 78% -14%, rgba(34,211,238,.11), transparent 62%),
+    radial-gradient(1000px 560px at -14% 106%, rgba(246,55,236,.075), transparent 62%),
+    linear-gradient(var(--grid) 1px,transparent 1px) 0 0/34px 34px,
+    linear-gradient(90deg,var(--grid) 1px,transparent 1px) 0 0/34px 34px,
+    var(--bg);
+  background-attachment:fixed;}}
+body::after{{content:"";position:fixed;inset:0;pointer-events:none;z-index:1;opacity:.035;
+  mix-blend-mode:overlay;
+  background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='200' height='200'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.85' numOctaves='3'/%3E%3C/filter%3E%3Crect width='200' height='200' filter='url(%23n)'/%3E%3C/svg%3E");}}
 a{{color:inherit;text-decoration:none}}
-.wrap{{max-width:1120px;margin:0 auto;padding:0 24px}}
+.wrap{{max-width:1180px;margin:0 auto;padding:0 24px;position:relative;z-index:2}}
 
-/* nav — the way back to the rest of ELI */
-nav.top{{position:sticky;top:0;z-index:50;background:rgba(8,9,11,.85);
-  backdrop-filter:blur(12px);border-bottom:1px solid var(--line)}}
-nav.top .inner{{max-width:1120px;margin:0 auto;padding:0 24px;height:64px;
+nav.top{{position:sticky;top:0;z-index:50;background:rgba(4,6,12,.72);
+  backdrop-filter:blur(18px);-webkit-backdrop-filter:blur(18px);
+  border-bottom:1px solid var(--line)}}
+nav.top .inner{{max-width:1180px;margin:0 auto;padding:0 24px;height:64px;
   display:flex;align-items:center;justify-content:space-between}}
-.brand{{display:flex;align-items:center;gap:10px;font-weight:600;font-size:1.05rem}}
-.mark{{height:24px;width:24px;border-radius:6px;
-  box-shadow:0 0 18px rgba(0,209,253,.35);object-fit:cover}}
-.brand .sub{{color:var(--fg-faint);font-weight:400}}
+.brand{{display:flex;align-items:center;gap:10px;font-weight:700;font-size:1.05rem}}
+.mark{{height:28px;width:28px;border-radius:8px;object-fit:cover;
+  filter:drop-shadow(0 0 14px rgba(34,211,238,.6))}}
+.brandtext{{letter-spacing:.16em;background:linear-gradient(100deg,var(--accent),var(--violet) 55%,var(--accent2));
+  -webkit-background-clip:text;background-clip:text;-webkit-text-fill-color:transparent;color:transparent}}
+.brand .sub{{color:var(--mut);font-weight:400;letter-spacing:0;-webkit-text-fill-color:var(--mut)}}
 .navlinks{{display:flex;gap:24px;align-items:center;font-size:.92rem}}
-.navlinks a{{color:var(--fg-dim)}} .navlinks a:hover{{color:var(--fg)}}
-.btn{{display:inline-flex;align-items:center;gap:.5rem;padding:.55rem 1rem;border-radius:9px;
-  font-weight:600;font-size:.9rem;border:1px solid transparent;transition:all .18s ease}}
-.btn-primary{{background:linear-gradient(135deg,var(--cyan),var(--blue));color:#001015}}
-.btn-primary:hover{{filter:brightness(1.12)}}
-.btn-ghost{{border-color:var(--line);color:var(--fg)}}
-.btn-ghost:hover{{border-color:var(--fg-faint);background:var(--bg-raise)}}
+.navlinks a{{color:var(--fg-dim);transition:var(--fast)}} .navlinks a:hover{{color:var(--accent)}}
+.btn{{display:inline-flex;align-items:center;gap:.5rem;padding:.6rem 1.1rem;border-radius:11px;
+  font-weight:600;font-size:.9rem;border:1px solid transparent;transition:var(--fast)}}
+.btn-primary{{background:linear-gradient(135deg,var(--accent),var(--press));color:#03121a;
+  box-shadow:0 0 0 1px rgba(34,211,238,.4),0 0 30px rgba(34,211,238,.34)}}
+.btn-primary:hover{{filter:brightness(1.1);transform:translateY(-2px)}}
+.btn-ghost{{border-color:var(--line);color:var(--fg);background:var(--card2)}}
+.btn-ghost:hover{{border-color:var(--accent);color:var(--accent);box-shadow:var(--glow)}}
 
-/* hero */
-header.hero{{position:relative;overflow:hidden;border-bottom:1px solid var(--line)}}
+header.hero{{position:relative;overflow:hidden}}
 header.hero .bg{{position:absolute;inset:0;pointer-events:none}}
-header.hero .bg::before{{content:"";position:absolute;inset:-1px;
-  background-image:linear-gradient(to right,var(--line-soft) 1px,transparent 1px),
-    linear-gradient(to bottom,var(--line-soft) 1px,transparent 1px);
-  background-size:56px 56px;
-  -webkit-mask-image:radial-gradient(ellipse 80% 70% at 50% 0%,#000 40%,transparent 100%);
-  mask-image:radial-gradient(ellipse 80% 70% at 50% 0%,#000 40%,transparent 100%)}}
-header.hero .bg::after{{content:"";position:absolute;left:50%;top:-240px;width:820px;height:480px;
+header.hero .bg::before{{content:"";position:absolute;left:62%;top:-300px;width:900px;height:600px;
   transform:translateX(-50%);
-  background:radial-gradient(ellipse at center,var(--glow),transparent 68%);filter:blur(30px)}}
-header.hero .inner{{position:relative;padding:72px 0 56px}}
-.kicker{{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:.72rem;
-  letter-spacing:.16em;text-transform:uppercase;color:var(--cyan);margin:0 0 18px}}
-h1{{margin:0;font-size:2.6rem;line-height:1.08;letter-spacing:-.03em;font-weight:600;max-width:18ch}}
-h1 .accent{{color:var(--cyan)}}
-.tagline{{margin:22px 0 0;color:var(--fg-dim);font-size:1.08rem;max-width:60ch}}
+  background:radial-gradient(ellipse at center,rgba(34,211,238,.15),transparent 66%);filter:blur(36px)}}
+header.hero .inner{{position:relative;padding:76px 0 52px;z-index:2}}
+.kicker{{font-family:var(--mono);font-size:.7rem;letter-spacing:.2em;text-transform:uppercase;
+  color:var(--accent);text-shadow:0 0 14px rgba(34,211,238,.5);margin:0 0 22px;
+  display:inline-flex;align-items:center;gap:.7rem}}
+.kicker::before{{content:"";width:26px;height:1px;background:var(--accent);box-shadow:0 0 8px var(--accent)}}
+h1{{margin:0;font-size:clamp(2.1rem,5.4vw,3.7rem);line-height:.98;letter-spacing:-.035em;
+  font-weight:800;text-transform:uppercase;max-width:17ch}}
+.grad{{background:linear-gradient(100deg,var(--accent),var(--violet) 55%,var(--accent2));
+  -webkit-background-clip:text;background-clip:text;-webkit-text-fill-color:transparent;color:transparent}}
+.tagline{{margin:26px 0 0;color:var(--fg-dim);font-size:1.06rem;max-width:60ch}}
 
-/* controls */
-.controls{{display:flex;gap:12px;flex-wrap:wrap;padding:28px 0 0}}
-input[type=search],select{{padding:.7rem 1rem;border:1px solid var(--line);border-radius:9px;
-  background:var(--bg-card);color:var(--fg);font-size:.95rem;font-family:inherit}}
-input[type=search]{{flex:1;min-width:220px}}
-input[type=search]:focus,select:focus{{outline:none;border-color:var(--blue)}}
+.controls{{display:flex;gap:12px;flex-wrap:wrap;padding:34px 0 0}}
+input[type=search],select{{padding:.75rem 1.1rem;border:1px solid var(--line);border-radius:11px;
+  background:var(--card);backdrop-filter:blur(18px);color:var(--fg);font-size:.95rem;font-family:inherit}}
+input[type=search]{{flex:1;min-width:230px}}
+input[type=search]:focus,select:focus{{outline:none;border-color:var(--accent);box-shadow:var(--glow)}}
 
-/* grid */
-.grid{{display:grid;gap:18px;grid-template-columns:repeat(auto-fill,minmax(330px,1fr));padding:36px 0 8px}}
-.card{{background:var(--bg-card);border:1px solid var(--line);border-radius:14px;padding:22px;
-  transition:border-color .18s ease,transform .18s ease}}
-.card:hover{{border-color:var(--blue);transform:translateY(-2px)}}
+.grid{{display:grid;gap:18px;grid-template-columns:repeat(auto-fill,minmax(340px,1fr));padding:40px 0 8px}}
+.card{{position:relative;background:var(--card);border:1px solid var(--line);border-radius:var(--radius);
+  padding:24px;backdrop-filter:blur(18px);-webkit-backdrop-filter:blur(18px);
+  box-shadow:var(--shadow);transition:var(--fast)}}
+.card::before{{content:"";position:absolute;inset-inline:18%;top:-1px;height:1px;
+  background:linear-gradient(90deg,transparent,var(--accent),transparent);opacity:0;transition:var(--fast)}}
+.card:hover{{border-color:var(--line-str);transform:translateY(-4px);box-shadow:var(--shadow),var(--glow)}}
+.card:hover::before{{opacity:1}}
 .card header{{display:flex;align-items:baseline;justify-content:space-between;gap:10px}}
-.card h3{{margin:0;font-size:1.1rem;letter-spacing:-.01em}}
-.kind{{color:var(--fg-faint);font-size:.7rem;text-transform:uppercase;letter-spacing:.1em;
-  font-family:ui-monospace,monospace;white-space:nowrap}}
-.desc{{margin:12px 0 16px;color:var(--fg-dim);font-size:.95rem}}
-.perms{{list-style:none;margin:0 0 16px;padding:0;display:flex;flex-wrap:wrap;gap:6px}}
-.perm{{font-size:.78rem;padding:3px 10px;border-radius:999px;background:var(--bg-raise);
+.card h3{{margin:0;font-size:1.12rem;letter-spacing:-.015em;font-weight:650}}
+.kind{{color:var(--mut);font-size:.68rem;text-transform:uppercase;letter-spacing:.12em;
+  font-family:var(--mono);white-space:nowrap}}
+.desc{{margin:13px 0 17px;color:var(--fg-dim);font-size:.95rem}}
+.perms{{list-style:none;margin:0 0 17px;padding:0;display:flex;flex-wrap:wrap;gap:7px}}
+.perm{{font-size:.77rem;padding:4px 11px;border-radius:999px;background:rgba(20,28,44,.6);
   border:1px solid var(--line);color:var(--fg-dim)}}
-.perm-hi{{color:var(--danger);border-color:#3a2320}}
-.perms-none{{margin:0 0 16px;color:var(--cyan);font-size:.86rem}}
-.tags{{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:14px}}
-.risk,.badge,.price{{font-size:.72rem;padding:3px 10px;border-radius:999px;border:1px solid var(--line);
-  font-family:ui-monospace,monospace}}
-.risk-low{{color:var(--cyan)}} .risk-medium{{color:var(--blue)}} .risk-high{{color:var(--danger)}}
-.badge-ok{{color:var(--cyan)}} .badge-warn{{color:var(--blue)}} .price{{color:var(--fg-faint)}}
-.card footer{{border-top:1px solid var(--line);padding-top:12px}}
-.meta{{color:var(--fg-faint);font-size:.8rem}}
-details{{margin-top:12px}}
-summary{{cursor:pointer;color:var(--fg-faint);font-size:.85rem}}
-summary:hover{{color:var(--fg-dim)}}
+.perm-hi{{color:var(--bad);border-color:rgba(255,93,115,.32);background:rgba(255,93,115,.06)}}
+.perms-none{{margin:0 0 17px;color:var(--ok);font-size:.86rem}}
+.tags{{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:15px}}
+.risk,.badge,.price{{font-size:.7rem;padding:3px 11px;border-radius:999px;border:1px solid var(--line);
+  font-family:var(--mono);letter-spacing:.06em;text-transform:uppercase}}
+.risk-low{{color:var(--ok);border-color:rgba(52,245,197,.3)}}
+.risk-medium{{color:var(--warn);border-color:rgba(255,209,102,.3)}}
+.risk-high{{color:var(--bad);border-color:rgba(255,93,115,.32)}}
+.badge-ok{{color:var(--accent);border-color:rgba(34,211,238,.32)}}
+.badge-warn{{color:var(--warn);border-color:rgba(255,209,102,.3)}}
+.price{{color:var(--mut)}}
+.card footer{{border-top:1px solid var(--line);padding-top:13px}}
+.meta{{color:var(--mut);font-size:.79rem;font-family:var(--mono)}}
+details{{margin-top:13px}}
+summary{{cursor:pointer;color:var(--mut);font-size:.85rem;transition:var(--fast)}}
+summary:hover{{color:var(--accent)}}
 details p{{font-size:.88rem;color:var(--fg-dim)}}
-.muted{{color:var(--fg-faint)}}
-code{{background:var(--bg-raise);border:1px solid var(--line);padding:1px 6px;border-radius:5px;
-  font-size:.88em;font-family:ui-monospace,monospace}}
-.empty{{color:var(--fg-dim);padding:56px 0;text-align:center}}
+.muted{{color:var(--mut)}}
+code{{background:rgba(20,28,44,.7);border:1px solid var(--line);padding:2px 7px;border-radius:6px;
+  font-size:.88em;font-family:var(--mono);color:var(--accent)}}
+.empty{{color:var(--fg-dim);padding:72px 0;text-align:center;font-size:1.02rem}}
 
-/* notes */
-section.note{{border-top:1px solid var(--line);margin-top:48px;padding:48px 0}}
-section.note h2{{font-size:1.35rem;margin:0 0 16px;letter-spacing:-.02em}}
-section.note h2:not(:first-child){{margin-top:40px}}
-section.note li,section.note p{{color:var(--fg-dim);margin-bottom:10px}}
+hr.fade{{height:1px;border:0;margin:0;
+  background:linear-gradient(90deg,transparent,var(--line-str),transparent)}}
+section.note{{padding:52px 0}}
+section.note h2{{font-size:1.5rem;margin:0 0 18px;letter-spacing:-.02em;font-weight:700}}
+section.note h2:not(:first-of-type){{margin-top:44px}}
+section.note li,section.note p{{color:var(--fg-dim);margin-bottom:11px}}
 section.note strong{{color:var(--fg)}}
-footer.foot{{border-top:1px solid var(--line);padding:28px 0 48px;color:var(--fg-faint);font-size:.85rem;
-  display:flex;flex-wrap:wrap;gap:16px;justify-content:space-between}}
-footer.foot a{{color:var(--fg-dim)}} footer.foot a:hover{{color:var(--fg)}}
-@media (max-width:640px){{ h1{{font-size:2rem}} .navlinks .hide-sm{{display:none}} }}
-@media (prefers-reduced-motion:reduce){{ html{{scroll-behavior:auto}} .card{{transition:none}} }}
+footer.foot{{padding:30px 0 56px;color:var(--mut);font-size:.85rem;
+  display:flex;flex-wrap:wrap;gap:16px;justify-content:space-between;align-items:center}}
+footer.foot a{{color:var(--fg-dim);transition:var(--fast)}} footer.foot a:hover{{color:var(--accent)}}
+@media (max-width:640px){{ .navlinks .hide-sm{{display:none}} }}
+@media (prefers-reduced-motion:reduce){{ html{{scroll-behavior:auto}} .card,.btn{{transition:none}}
+  .card:hover,.btn-primary:hover{{transform:none}} }}
 </style>
 </head><body>
 
 <nav class="top"><div class="inner">
   <a class="brand" href="{e(home_url)}">
     {logo_tag}
-    <span>ELI <span class="sub">/ Marketplace</span></span>
+    <span class="brandtext">ELI <span class="sub">/ Marketplace</span></span>
   </a>
   <div class="navlinks">
     <a class="hide-sm" href="{e(home_url)}#what">What ELI does</a>
@@ -264,7 +289,7 @@ footer.foot a{{color:var(--fg-dim)}} footer.foot a:hover{{color:var(--fg)}}
 <header class="hero"><div class="bg" aria-hidden></div>
   <div class="wrap inner">
     <p class="kicker">Reviewed &middot; Signed &middot; Sandboxed</p>
-    <h1>Tools for ELI, <span class="accent">read by a person</span> first.</h1>
+    <h1>Tools for ELI,<br><span class="grad">read by a person first.</span></h1>
     <p class="tagline">Plugins and MCP servers built by the community. Every listing
        here was reviewed and signed before it appeared &mdash; and ELI still asks you
        about each permission before it installs anything.</p>
@@ -284,6 +309,7 @@ footer.foot a{{color:var(--fg-dim)}} footer.foot a:hover{{color:var(--fg)}}
 {cards}
 </main>
 
+<hr class="fade">
 <section class="note" id="submit">
   <h2>What review means &mdash; and what it doesn&rsquo;t</h2>
   <ul>
@@ -299,8 +325,8 @@ footer.foot a{{color:var(--fg-dim)}} footer.foot a:hover{{color:var(--fg)}}
   <h2>Submitting a plugin</h2>
   <p>Open a pull request against the registry. Automated checks run the same
      scanners a user&rsquo;s machine runs, then a maintainer reads it. Nothing goes
-     live because a timer expired.
-     {'<a class="btn btn-primary" style="margin-top:12px" href="' + e(submit_url) + '">Submit a plugin</a>' if submit_url else ''}</p>
+     live because a timer expired.</p>
+  {'<p><a class="btn btn-primary" href="' + e(submit_url) + '">Submit a plugin</a></p>' if submit_url else ''}
   <h2>For the technically minded</h2>
   <p>The registry is a static JSON index at <code>{e(registry_url)}</code> &mdash;
      the same file this page was built from, so nothing here can be advertised that
@@ -309,6 +335,7 @@ footer.foot a{{color:var(--fg-dim)}} footer.foot a:hover{{color:var(--fg)}}
      outright.</p>
 </section>
 
+<hr class="fade">
 <footer class="foot">
   <span>Built {built} &middot; {len(plugins)} listing{'' if len(plugins)==1 else 's'}</span>
   <span><a href="{e(home_url)}">geteli.tech</a> &middot; <a href="{e(home_url)}#private">Privacy</a>{' &middot; <a href="' + e(submit_url) + '">Registry</a>' if submit_url else ''}</span>
