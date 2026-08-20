@@ -15,6 +15,7 @@ If RECENT DIALOGUE shows the same failed path/command/topic recurring, notice it
 """
 
 import re
+import datetime as _dt
 import textwrap, threading
 from typing import Any, Dict, List, Optional
 
@@ -195,6 +196,12 @@ from typing import Any, Dict
 
 
 from eli.utils.log import get_logger
+
+
+class _SkipWorldState(Exception):
+    """Not a world question. Distinct from a real error so the handler below can
+    stay silent for the normal case and still log genuine failures."""
+
 log = get_logger(__name__)
 
 def _runtime_snapshot() -> Dict[str, Any]:
@@ -432,12 +439,34 @@ def build_persona_handoff(
     # exactly as requested on GPU. Non-empty when on CPU or when the
     # load was clamped, so persona-bound replies don't claim "all
     # cylinders" while running CPU-only because Fallout 4 took the GPU.
+    # Wall-clock time. ELI had no idea what time it was: `part_of_day()` existed in
+    # eli/runtime/reflection.py and was correct, but only the proactive daemon's
+    # greeting and the daily-report title ever called it — nothing put the clock in
+    # the chat prompt. Live at 2.3.8, at 10:47: "Morning's barely past noon", which
+    # the user had to correct.
+    #
+    # The three blocklists that strip "current time (authoritative" from OUTPUT
+    # (output_governor, persistence_gate, engine) were already there, filtering a
+    # string nothing produced — leftovers from a producer that no longer existed.
+    # This restores the producer they were written for.
+    try:
+        from eli.runtime.reflection import part_of_day as _part_of_day
+        _now = _dt.datetime.now()
+        parts.append(
+            "CURRENT TIME (authoritative — trust this over any assumption about the "
+            f"time of day): {_now.strftime('%A %d %B %Y, %H:%M')} "
+            f"({_part_of_day()}). Morning is before 12:00, afternoon 12:00-17:00, "
+            f"evening after 17:00. Do not guess the time or the part of day."
+        )
+    except Exception:
+        log.debug("current-time context unavailable", exc_info=True)
+
     try:
         _runtime_line = live_runtime_brief()
         if _runtime_line:
             parts.append(f"LIVE RUNTIME: {_runtime_line}")
     except Exception:
-        pass
+        log.debug("live runtime brief unavailable", exc_info=True)
 
     # ELI's World — full 9-room topology + current embodied state. Injected so
     # ELI can answer "what are you doing in the anomaly room?" or "what is the
@@ -460,8 +489,31 @@ def build_persona_handoff(
             obj for obj in (_wstate.objects or {}).values()
             if getattr(obj, "room", "") == _room_id
         ]
+        # Is the user actually asking about the world? Computed FIRST, because the
+        # whole block is gated on it — not just the room layout.
+        #
+        # The bug this fixes: only the 9-room layout was gated. The current room, its
+        # purpose, the current activity and the objects in it were appended on EVERY
+        # turn, with a prose note saying they were "available for direct questions,
+        # not for proactive narration". That note is advisement the model ignores.
+        # Live at 2.3.8: "What's up bud, good morning!" was answered with "I'm still in
+        # the Reflection Chamber, staring at the Synthesis Draft like it's some kind of
+        # holy text" — Synthesis Draft being an object in that room, handed to the model
+        # unasked. The user then asked "synthesis draft?" and got a paragraph of
+        # invented struggle with it. A guard has to withhold the material, not request
+        # restraint.
+        _world_query_terms = (
+            "room", "world", "anomaly", "archive", "workshop",
+            "basement", "upgrade", "simulation", "evidence", "what are you doing",
+            "where are you", "decorate", "symbolic", "avatar",
+        )
+        _user_input_low = (user_input or "").lower()
+        _is_world_query = any(t in _user_input_low for t in _world_query_terms)
+        if not _is_world_query:
+            raise _SkipWorldState()
+
         _world_parts: list[str] = []
-        # Current location — available for direct questions, not for proactive narration
+        # Current location — only reaches the model when the user asked about it.
         if _room_name:
             _world_parts.append(
                 f"current room: {_room_name} — this is your ACTUAL current room right "
@@ -478,16 +530,8 @@ def build_persona_handoff(
         if _room_objects:
             _obj_names = [getattr(o, "name", str(o)) for o in _room_objects[:4]]
             _world_parts.append(f"objects present: {', '.join(_obj_names)}")
-        # Full world layout — only injected when the user is asking about the world/rooms
-        # Injecting all 9 rooms every turn primes the model to narrate room names unprompted.
-        _world_query_terms = (
-            "room", "world", "anomaly", "reflection", "archive", "workshop",
-            "basement", "upgrade", "simulation", "evidence", "what are you doing",
-            "where are you", "decorate", "symbolic",
-        )
-        _user_input_low = (user_input or "").lower()
-        _is_world_query = any(t in _user_input_low for t in _world_query_terms)
-        if _is_world_query and _all_rooms:
+        # Full world layout — the whole block is already world-gated above.
+        if _all_rooms:
             _layout_lines: list[str] = []
             for _rid, _rdata in _all_rooms.items():
                 _rn = _rdata.get("name", _rid.replace("_", " ").title())
@@ -501,8 +545,10 @@ def build_persona_handoff(
                 "ELI WORLD STATE (ELI has a symbolic 9-room internal world — these are cognitive/virtual rooms, not physical locations):\n"
                 + "\n".join(f"  {p}" for p in _world_parts)
             )
+    except _SkipWorldState:
+        pass          # not a world question — nothing about rooms reaches the model
     except Exception:
-        pass
+        log.debug("world state context skipped", exc_info=True)
 
     # Placeholder non-answers from deterministic lookup paths must not appear
     # in the dialogue context injected into the LLM — they cause the model to
