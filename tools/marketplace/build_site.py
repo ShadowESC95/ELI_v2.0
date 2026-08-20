@@ -336,6 +336,13 @@ footer.foot a{{color:var(--fg-dim)}} footer.foot a:hover{{color:var(--fg)}}
     out.mkdir(parents=True, exist_ok=True)
     page_path = out / "index.html"
     page_path.write_text(page, encoding="utf-8")
+    # GitHub Pages reads the custom domain from a CNAME file inside the PUBLISHED
+    # artifact, not from the repository root. A CNAME sitting beside the workflow
+    # is invisible to the deployment: the domain binding never completes and no
+    # certificate is ever issued, so the site answers on http and hangs on https
+    # with no error anywhere to explain it.
+    if domain:
+        (out / "CNAME").write_text(domain.strip() + "\n", encoding="utf-8")
     # The client fetches the same file the page was built from.
     (out / "index.json").write_text(json.dumps(data, indent=2), encoding="utf-8")
     return page_path
