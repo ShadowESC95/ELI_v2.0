@@ -95,6 +95,26 @@ TOPIC_STOPWORDS = frozenset({
             "again", "sure", "actually", "maybe", "think", "thought", "guess",
             "looks", "looking", "talking", "discussing", "anything", "everything",
             "something", "nothing", "another", "though", "each", "every",
+            # Expletives and intensifiers. NOT a content filter — ELI still hears
+            # these, still answers them, and still swears back if that is its voice.
+            # `tone_analyzer._FRUSTRATION` reads the raw text and matches
+            # "what the f[a-z]*" ON PURPOSE, which is how ELI knows the operator is
+            # annoyed; that path is untouched.
+            #
+            # The bug is narrower: topic_focus answers "what SUBJECTS does this
+            # person care about", and an intensifier is not a subject. Live at 2.3.9
+            # the Proactive tab reported "Current focus areas: fuck (x8), memory
+            # (x8), world (x7), self (x5), screen (x5)" — joint top, then fed into
+            # persona updates and proactive suggestions as an interest to help with.
+            # Same shape as "youre" at 2.3.0 and "afternoon" on the overnight run:
+            # a word that clears the 4-character bar and carries no subject matter.
+            "fuck", "fucking", "fucked", "fucks", "shit", "shite", "shitty",
+            "crap", "damn", "damned", "bloody", "bollocks", "arse", "ass",
+            "bastard", "bugger", "feck", "fecking", "wtf", "christ", "jesus",
+            "hell", "goddamn", "piss", "pissed", "sucks", "sucked",
+            # Non-expletive intensifiers in the same category — emphasis, not topic.
+            "literally", "totally", "absolutely", "completely", "utterly",
+            "seriously", "honestly", "basically", "obviously", "definitely",
 })
 
 

@@ -893,11 +893,21 @@ def recommend(hw: Optional[HardwareProfile] = None,
             f"all layers on GPU (free VRAM sufficient)"
         )
     elif chosen_layers > 0:
+        # Report the KV size actually being BUDGETED, which means honouring kv_q —
+        # every fit call above already passes it. This line did not, so on a card
+        # using q4_0 it printed the fp16 figure: 1901MB where the loader had
+        # reserved 475MB, four lines under "KV cache: q4_0 (4x more ctx for the same
+        # VRAM)". Overstating KV fourfold makes context look like the lever for
+        # winning back GPU layers when it is nearly the weakest one — on a 5GB/32
+        # layer model at q4_0, cutting 1900 tokens frees 87MB against a 161MB layer,
+        # i.e. half a layer, while the panel implied roughly two.
         rec.reasoning.append(
             f"Model: {chosen['name']} ({chosen['size_gb']:.2f}GB) — "
             f"{chosen_layers}/{total_layers} layers on GPU "
-            f"(KV {_kv_cache_mb(rec.n_ctx, total_layers):.0f}MB + "
-            f"{_CUDA_OVERHEAD_MB}MB CUDA overhead)"
+            f"(KV {_kv_cache_mb(rec.n_ctx, total_layers, quant=kv_q):.0f}MB "
+            f"{'q4_0' if kv_q else 'fp16'} + "
+            f"{_CUDA_OVERHEAD_MB}MB CUDA overhead, "
+            f"~{_kv_cache_mb(1024, total_layers, quant=kv_q):.0f}MB per 1k ctx)"
         )
     else:
         rec.reasoning.append(
