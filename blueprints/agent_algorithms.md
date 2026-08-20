@@ -177,3 +177,44 @@ step away from:
 5. **Orchestrator stage-dict → typed `ExecutionPlan` DAG.** Fold the engine's rich
    stage plan into `ExecutionPlan.steps` as a true DAG so one plan type drives the
    whole pipeline end-to-end.
+
+
+## Update — 2.3.7: `SpecAgent` and the measurable-agent contract
+
+A new agent class joins the fourteen built-ins. `SpecAgent` is not hand-written
+Python — it is an interpreter for an `AgentSpec` (see `orchestration_and_agents.md`),
+and its algorithm is deliberately small:
+
+```
+run(user_input, intent):
+    if not spec.should_run(user_input, intent.action):     # trigger gate
+        return skipped                                     # costs one regex/substring
+    for cap in spec.permissions:                           # capability gate
+        if not permissions.check(agent, cap).allowed:
+            return denied
+    output = broker.infer(prompt=user_input,
+                          system=spec.system_prompt,
+                          max_tokens=spec.max_tokens,
+                          temperature=spec.temperature,
+                          background=True)
+    verdict = spec.evaluate(output)                        # the measure
+    return AgentResult(ok=verdict.ok,
+                       confidence=verdict.score,
+                       data={"content": output if verdict.ok else ""})
+```
+
+Three properties worth stating:
+
+- **The trigger gate runs first and is cheap.** An untriggered turn costs a substring
+  or regex test, not an inference call.
+- **Confidence is earned, not asserted.** Every other agent picks its own confidence
+  number. A `SpecAgent`'s confidence *is* its score against its own declared success
+  criteria — the fraction of checks its output actually passed.
+- **Failing its own test yields no evidence.** `data["content"]` is emptied when the
+  verdict fails, so a misbehaving custom agent cannot feed unchecked text into the
+  bus's evidence fusion. This directly addresses the long-standing weakness that
+  evidence density "only counts known keys", by making the agent's own contract the
+  arbiter.
+
+Because a spec contains no code, `SpecAgent` bypasses the custom-agent trust chain
+entirely — there is nothing to hash, scan or approve.

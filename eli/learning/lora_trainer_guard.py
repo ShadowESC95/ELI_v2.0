@@ -8,6 +8,7 @@ from pathlib import Path
 from typing import Any
 
 from eli.learning.dataset_filters import is_bad_response, load_jsonl, row_is_reviewed
+from eli.utils.log import get_logger
 from eli.learning.base_model_resolver import resolve_base_model_path
 
 
@@ -22,10 +23,31 @@ def _eli_canonical_root_PROJECT_ROOT() -> Path:
 
 
 PROJECT_ROOT = _eli_canonical_root_PROJECT_ROOT()
-REGISTRY_PATH = PROJECT_ROOT / "models/lora/registry/eli_phi_targets.json"
-RUNS_DIR = PROJECT_ROOT / "training/runs"
 
+log = get_logger(__name__)
+REGISTRY_PATH = PROJECT_ROOT / "models/lora/registry/eli_phi_targets.json"
+def _runs_dir() -> Path:
+    try:
+        from eli.core.paths import learning_dir
+        return Path(learning_dir()) / "runs"
+    except Exception:
+        return PROJECT_ROOT / "training" / "runs"
+
+
+RUNS_DIR = _runs_dir()
+
+# Built-ins. `allowed_targets()` is the live allowlist — built-ins PLUS whatever the
+# operator declared in the registry. The contract is unchanged (nothing trains unless
+# it was explicitly declared); what changed is that declaring is no longer a source edit.
 ALLOWED_TARGETS = {"eli_phi", "eli_phi_ultra"}
+
+
+def allowed_targets() -> set[str]:
+    try:
+        from eli.learning.target_registry import allowed_target_names
+        return allowed_target_names() | set(ALLOWED_TARGETS)
+    except Exception:
+        return set(ALLOWED_TARGETS)
 
 DEFAULTS = {
     "eli_phi": {
@@ -103,12 +125,19 @@ def resolve_target(
 ) -> TrainerTarget:
     target = str(target or "").strip()
 
-    if target not in ALLOWED_TARGETS:
+    known = allowed_targets()
+    if target not in known:
         raise ValueError(
-            f"Refusing target={target!r}. Allowed targets: {sorted(ALLOWED_TARGETS)}"
+            f"Refusing target={target!r}. Allowed targets: {sorted(known)}"
         )
 
-    cfg = dict(DEFAULTS[target])
+    cfg = dict(DEFAULTS.get(target) or {})
+    try:
+        from eli.learning.target_registry import get_target
+        cfg.update(get_target(target) or {})
+    except Exception:
+        log.debug("[lora] target registry unavailable; built-in defaults only",
+                  exc_info=True)
     reg = _load_registry(registry_path)
     cfg.update(_target_from_registry(reg, target))
 
@@ -120,28 +149,28 @@ def resolve_target(
         cfg.get("base_model_path")
         or cfg.get("base_model")
         or cfg.get("base")
-        or DEFAULTS[target]["base_model_path"]
+        or DEFAULTS.get(target, {}).get("base_model_path", "")
     )
     adapter_path = (
         cfg.get("adapter_path")
         or cfg.get("adapter")
-        or DEFAULTS[target]["adapter_path"]
+        or DEFAULTS.get(target, {}).get("adapter_path", "")
     )
     trainable_dataset = (
         cfg.get("dataset_path")
         or cfg.get("trainable_dataset")
         or cfg.get("dataset")
-        or DEFAULTS[target]["dataset_path"]
+        or DEFAULTS.get(target, {}).get("dataset_path", "")
     )
     output_dir = (
         cfg.get("output_dir")
         or cfg.get("output_adapter")
-        or DEFAULTS[target]["output_dir"]
+        or DEFAULTS.get(target, {}).get("output_dir", "")
     )
 
     return TrainerTarget(
         target=target,
-        base_family=str(cfg.get("base_family") or "phi3"),
+        base_family=str(cfg.get("base_family") or ""),
         base_model_path=str(base_model_path),
         adapter_path=str(adapter_path),
         dataset_path=str(trainable_dataset),
@@ -175,6 +204,13 @@ def _row_targets(row: dict[str, Any]) -> set[str]:
 
 def _validate_dataset_rows(rows: list[dict[str, Any]], target: str) -> tuple[list[str], dict[str, int]]:
     problems: list[str] = []
+    # A row tagged for a *declared* target is legitimate however it is named — the
+    # leak this catches is a row aimed at some generic/inference artifact that was
+    # never declared for training (a raw GGUF above all).
+    try:
+        _declared = allowed_targets()
+    except Exception:
+        _declared = set(ALLOWED_TARGETS)
     counts = {
         "rows": len(rows),
         "reviewed_rows": 0,
@@ -204,9 +240,11 @@ def _validate_dataset_rows(rows: list[dict[str, Any]], target: str) -> tuple[lis
             counts["wrong_target_rows"] += 1
             problems.append(f"row {i}: missing required target={target}")
 
-        if any(t.lower() in FORBIDDEN_TARGET_TERMS for t in targets):
+        leaked = [t for t in targets
+                  if t.lower() in FORBIDDEN_TARGET_TERMS and t != target and t not in _declared]
+        if leaked:
             counts["generic_target_leak_rows"] += 1
-            problems.append(f"row {i}: forbidden non-Phi target marker {sorted(targets)}")
+            problems.append(f"row {i}: undeclared target marker {sorted(leaked)}")
 
         if is_bad_response(row.get("response", "")):
             counts["bad_response_rows"] += 1
@@ -238,14 +276,29 @@ def build_training_plan(
     problems: list[str] = []
     warnings: list[str] = []
 
-    if cfg.base_family != "phi3":
-        problems.append(f"base_family must be phi3, got {cfg.base_family!r}")
+    # Family is validated against what the base model declares for itself
+    # (config.json model_type) instead of being hardcoded to one family. A target
+    # that says "qwen3" over a Llama checkpoint is still refused — the check moved
+    # from "is it Phi" to "is it what you said it was".
+    actual_family = None
+    try:
+        from eli.learning.target_registry import detect_family, family_matches
+        actual_family = detect_family(base_path)
+        if not family_matches(cfg.base_family, actual_family):
+            problems.append(
+                f"base_family mismatch: target declares {cfg.base_family!r} but "
+                f"{base_path} declares {actual_family!r}")
+    except Exception as _fam_err:
+        warnings.append(f"could not read base model family: {_fam_err}")
 
     if not base_path.exists():
         warnings.append(f"base model path missing: {base_path}")
 
-    if not adapter_path.exists():
-        problems.append(f"adapter path missing: {adapter_path}")
+    # A target that has never trained has no adapter yet — that is the normal first
+    # run, not a fault. Only a *malformed* adapter is a problem (checked below).
+    first_run = not adapter_path.exists()
+    if first_run:
+        warnings.append(f"no existing adapter at {adapter_path} (first run for this target)")
 
     if not dataset_file.exists():
         problems.append(f"dataset missing: {dataset_file}")
@@ -258,8 +311,16 @@ def build_training_plan(
             problems.append("adapter_config task_type is not CAUSAL_LM")
 
         declared_base = str(adapter_config.get("base_model_name_or_path") or "")
-        if declared_base and "phi" not in declared_base.lower():
-            problems.append(f"adapter declares non-Phi base model: {declared_base}")
+        if declared_base and cfg.base_family:
+            # The existing adapter must belong to the same family we are about to
+            # continue training, whatever that family is.
+            from eli.learning.target_registry import detect_family as _df, family_matches as _fm
+            adapter_family = _df(declared_base) or ""
+            token_match = cfg.base_family.lower() in declared_base.lower()
+            if not (token_match or _fm(cfg.base_family, adapter_family)):
+                problems.append(
+                    f"adapter declares a base model outside the {cfg.base_family!r} "
+                    f"family: {declared_base}")
     elif adapter_path.exists():
         problems.append(f"adapter_config.json missing under {adapter_path}")
 
@@ -279,7 +340,7 @@ def build_training_plan(
         row_problems, row_counts = _validate_dataset_rows(rows, cfg.target)
         problems.extend(row_problems)
 
-    train_ready = not problems and base_path.exists()
+    train_ready = not problems and base_path.exists() and dataset_file.exists()
 
     plan = {
         "ok": True,
@@ -287,7 +348,10 @@ def build_training_plan(
         "will_train": bool(execute and train_ready),
         "train_ready": bool(train_ready),
         "target": cfg.target,
-        "allowed_targets": sorted(ALLOWED_TARGETS),
+        "first_run": bool(first_run),
+        "base_family_declared": cfg.base_family,
+        "base_family_actual": actual_family,
+        "allowed_targets": sorted(allowed_targets()),
         "config": asdict(cfg),
         "resolved_paths": {
             "base_model_path": str(base_path),
@@ -309,10 +373,11 @@ def build_training_plan(
         "warnings": warnings,
         "safety_contract": [
             "Default mode is dry-run only.",
-            "Only eli_phi and eli_phi_ultra targets are allowed.",
+            "Only targets the operator has explicitly declared are allowed.",
             "GGUF files are inference artifacts and are never trained directly.",
             "Rows must be reviewed/approved and explicitly scoped to the selected target.",
-            "Real training requires an existing trainable Phi-3 base model path.",
+            "Real training requires a local trainable Hugging Face base model directory.",
+            "The base model must belong to the family the target declares.",
         ],
     }
 

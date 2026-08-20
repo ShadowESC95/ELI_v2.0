@@ -159,3 +159,22 @@ gap ELI's own grounding admits.
   Both write sites now use the canonical `_dump_meta` (JSON); the index re-syncs cleanly to the
   memory count. (This also closes a pickle-RCE-on-load vector the codebase had deliberately
   retired.) KG populator enriched (broader, clean entity extraction from `user_patterns`).
+
+
+## Update — 2.3.7 (recent-history window widened)
+
+`runtime/memory_evidence.py` capped every recent-history pull at
+`max(4, min(limit, 8))`. The cap **silently ignored a larger limit**: a caller asking
+for 40 recent turns still received 8, so continuity was being thrown away by a
+constant nobody could see or configure.
+
+- `RECENT_HISTORY_CAP = 40` — the ceiling now follows the caller, bounded only by a
+  sane upper limit so a huge `limit` cannot drag the whole conversation table into a
+  single turn.
+- `collect_memory_evidence(limit=32)` and `build_memory_evidence_text(limit=32)` —
+  defaults raised from 12 and 8.
+
+This is separate from `cog.mem_recent_turns` (default 24, max 80), the user-facing
+tunable in Settings ▸ Cognition that governs how many recent turns enter the prompt.
+The prompt assembler still does the real budgeting downstream; this change only stops
+the evidence layer discarding history before the budgeter ever sees it.

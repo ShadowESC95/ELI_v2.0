@@ -77,17 +77,32 @@ def test_custom_agent_included_in_dispatch_selection(custom_agent_dir):
 
 
 def test_trust_round_trip(tmp_path, monkeypatch):
-    # _trust_custom_agent records a sha into config_dir/trusted_agents.json.
-    import types
-    fake_cfg = tmp_path / "config"
-    fake_cfg.mkdir()
-    # _trust_custom_agent + the registry read both call eli.core.paths.get_paths;
-    # point config_dir at a temp dir so the real config isn't touched.
-    import eli.core.paths as P
-    monkeypatch.setattr(P, "get_paths", lambda: types.SimpleNamespace(config_dir=fake_cfg))
+    """Approving an agent records a path-keyed grant with provenance.
+
+    The registry used to be `{basename: sha256}`, so two files with the same name
+    shared one entry and approving either authorised both. It is now keyed on the
+    resolved path and carries who approved it, when, and what the scan found.
+    `_trust_custom_agent` is kept as a shim over the real chain.
+    """
+    from eli.cognition import agent_trust
+
+    # agent_trust honours ELI_AGENT_TRUST_FILE — isolate through that rather than
+    # patching get_paths, which the new code does not use.
+    monkeypatch.setenv("ELI_AGENT_TRUST_FILE", str(tmp_path / "trusted_agents.json"))
 
     f = tmp_path / "myagent.py"
     f.write_text("# agent\n", encoding="utf-8")
     AB._trust_custom_agent(f)
-    reg = AB._get_trusted_agents_registry()
-    assert "myagent.py" in reg
+
+    verdict = agent_trust.inspect(f)
+    assert verdict["ok"] is True
+    assert verdict["status"] == agent_trust.TRUSTED
+    assert verdict["granted_at"]
+
+    grants = agent_trust.list_grants()
+    assert [g["basename"] for g in grants] == ["myagent.py"]
+    assert grants[0]["identity"] == str(f.resolve())
+
+    # Editing the file withdraws the approval automatically.
+    f.write_text("# agent\nimport os\n", encoding="utf-8")
+    assert agent_trust.inspect(f)["status"] == agent_trust.MODIFIED

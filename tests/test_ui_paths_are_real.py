@@ -47,8 +47,24 @@ EXECUTOR = _without_comments(_read("eli", "execution", "executor_enhanced.py"))
 STARTUP = _without_comments(_read("eli", "gui", "panels", "startup.py"))
 
 # The settings pages that actually exist, derived from the builders themselves.
+#
+# There are TWO settings surfaces and a user can legitimately be sent to either:
+# the main window's Settings tab (Model / Runtime / Generation / …), built by
+# `_build_settings_<name>_page` in the GUI god-file, and the Settings *dialog*
+# (Agents / Models / Cognition / Plugins / Marketplace / Self-Upgrade), whose pages
+# are inner tabs registered in panels/settings.py. Discovering only the first made
+# a correct instruction — "Settings > Marketplace" — look like a broken one.
+SETTINGS_PANEL = _without_comments(_read("eli", "gui", "panels", "settings.py"))
+
 REAL_PAGES = {
     m.group(1) for m in re.finditer(r"_build_settings_([a-z_]+)_page", GUI)
+} | {
+    m.group(1) for m in re.finditer(r"_build_([a-z_]+)_tab", SETTINGS_PANEL)
+} | {
+    # Inner-tab labels carry an emoji prefix; take the trailing word.
+    m.group(1).lower()
+    for m in re.finditer(r'inner_tabs\.addTab\([^,]+,\s*"[^"]*?([A-Za-z-]+)"',
+                         SETTINGS_PANEL)
 }
 
 

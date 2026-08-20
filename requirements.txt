@@ -72,6 +72,18 @@ python-docx>=1.1
 torch==2.11.0
 # Install with: pip install torch --index-url https://download.pytorch.org/whl/cu121
 
+# ── LoRA training (Labs ▸ Training) ──────────────────────────────────────────
+# torch / transformers / accelerate are already pulled in above; these complete the
+# trainer. Both were previously only in requirements.lock.txt, so a plain
+# `pip install -r requirements.txt` produced an install whose Training tab could
+# never leave preflight.
+peft==0.19.1
+datasets==4.8.5
+# 4-bit (QLoRA) — lets a card too small for fp16 weights still train the adapter.
+# NVIDIA/Linux+Windows only: there is no macOS wheel and AMD needs a separate ROCm
+# build, so it is optional everywhere and the trainer falls back to fp16 without it.
+bitsandbytes>=0.43; platform_system != "Darwin"
+
 # ── Utilities ─────────────────────────────────────────────────────────────────
 python-dateutil==2.9.0.post0
 six==1.17.0

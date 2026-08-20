@@ -1,0 +1,37 @@
+{
+  "version": "1",
+  "name": "Example ELI registry",
+  "updated": "2026-01-01",
+  "plugins": [
+    {
+      "id": "unit_converter",
+      "name": "Unit Converter",
+      "version": "1.0.0",
+      "description": "Convert between units, entirely offline.",
+      "author": "community.example",
+      "license": "MIT",
+      "permissions": [],
+      "pip": [],
+      "sha256": "REPLACE — generate with tools/marketplace/publish.py",
+      "source": "https://example.github.io/eli-registry/plugins/unit_converter.py",
+      "price": 0
+    },
+    {
+      "id": "filesystem_mcp",
+      "kind": "mcp",
+      "name": "Filesystem (MCP)",
+      "version": "1.0.0",
+      "description": "Read and write files under a directory you choose.",
+      "author": "community.example",
+      "license": "MIT",
+      "permissions": ["filesystem_read", "filesystem_write"],
+      "mcp": {
+        "transport": "stdio",
+        "command": "npx",
+        "args": ["-y", "@modelcontextprotocol/server-filesystem", "/path/you/choose"],
+        "read_paths": ["/path/you/choose"],
+        "write_paths": ["/path/you/choose"]
+      }
+    }
+  ]
+}

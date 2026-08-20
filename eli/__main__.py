@@ -3,7 +3,7 @@
 Flags:
   --headless, -H   Run as a terminal REPL without any GUI.  Useful for
                    scripting, servers, and headless environments.
-  --trust-agent <path>
+  --trust-agent <path> [--force]
                    Register a custom agent file as trusted (adds its SHA-256
                    hash to config/trusted_agents.json) then exit.
   --license, --licence
@@ -29,12 +29,27 @@ def main() -> int:
         idx = args.index("--trust-agent")
         if idx + 1 < len(args):
             from pathlib import Path
-            from eli.cognition.agent_bus import _trust_custom_agent
+            from eli.cognition import agent_trust
             target = Path(args[idx + 1]).expanduser().resolve()
             if not target.exists():
                 print(f"Error: file not found: {target}", file=sys.stderr)
                 return 1
-            _trust_custom_agent(target)
+            # Goes through agent_trust so the CLI and the GUI write the SAME
+            # provenance-carrying grant. It also scans first: approving code
+            # without looking at it is what the old path did.
+            force = "--force" in args
+            result = agent_trust.grant(target, approved_by="cli", force=force)
+            if not result.get("ok"):
+                print(f"Refused to approve {target.name}:", file=sys.stderr)
+                for problem in result.get("problems", []):
+                    print(f"  - {problem}", file=sys.stderr)
+                print("\nRe-run with --force if you wrote this code and understand "
+                      "the findings.", file=sys.stderr)
+                return 1
+            scan = result.get("scan") or {}
+            print(result.get("response", f"{target.name} approved."))
+            print(f"  scan: {scan.get('verdict', '?')} (score {scan.get('score', 0)}/100)"
+                  + ("" if scan.get("complete") else " — coverage partial"))
             return 0
         else:
             print("Error: --trust-agent requires a file path argument", file=sys.stderr)

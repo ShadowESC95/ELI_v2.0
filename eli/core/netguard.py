@@ -306,6 +306,165 @@ def guarded_urlopen(url, *args, timeout: float = 20, **kwargs):
     return urllib.request.urlopen(url, *args, timeout=timeout, **kwargs)
 
 
+# --------------------------------------------------------------------------- #
+# Hardened fetch — for content fetched from sources the operator does not own   #
+#                                                                               #
+# `guarded_urlopen` answers one question: is the network switch on? That is the #
+# right question for ELI's own outbound calls, and the wrong one for a URL that #
+# came from a community plugin registry. urllib follows redirects silently, and #
+# the socket guard always permits loopback, so a hostile listing could redirect  #
+# a marketplace fetch into ELI's own API server or a LAN device — server-side    #
+# request forgery, using ELI as the confused deputy.                            #
+#                                                                               #
+# `safe_fetch` is the fetch to use for anything third-party. It pins the scheme, #
+# resolves and rejects non-public addresses, re-validates EVERY redirect hop,    #
+# caps redirects, and caps the response while reading rather than after.         #
+# --------------------------------------------------------------------------- #
+
+_SAFE_SCHEMES = ("http", "https")
+MAX_FETCH_BYTES = 32 * 1024 * 1024      # 32 MiB — far above any plugin, far below OOM
+MAX_REDIRECTS = 5
+
+
+class UnsafeURLError(RuntimeError):
+    """The URL, or somewhere it redirected to, is not a safe fetch target."""
+
+
+class UnresolvableHostError(UnsafeURLError):
+    """The host does not resolve.
+
+    A distinct type because "does not resolve" and "resolves somewhere private" are
+    different facts with different responses. Conflating them made an unreachable
+    public registry look like a deliberate LAN one.
+    """
+
+
+def _addresses_for(host: str) -> list:
+    import socket as _s
+    try:
+        infos = _s.getaddrinfo(host, None)
+    except Exception as exc:
+        raise UnresolvableHostError(f"could not resolve {host!r}: {exc}") from None
+    return sorted({i[4][0] for i in infos})
+
+
+def _is_public_address(ip: str) -> bool:
+    import ipaddress
+    try:
+        addr = ipaddress.ip_address(ip)
+    except ValueError:
+        return False
+    # link_local covers 169.254.0.0/16, which is where cloud metadata services live.
+    return not (addr.is_private or addr.is_loopback or addr.is_link_local
+                or addr.is_multicast or addr.is_reserved or addr.is_unspecified)
+
+
+def assert_safe_url(url: str, *, allow_private: bool = False) -> str:
+    """Raise UnsafeURLError unless `url` is a plain http(s) URL to a public host.
+
+    `allow_private=True` is for URLs the operator typed themselves (their own LAN
+    registry). It is never inferred from the URL itself, because that is exactly
+    what an attacker controls.
+    """
+    from urllib.parse import urlsplit
+    parts = urlsplit(str(url or ""))
+    if parts.scheme.lower() not in _SAFE_SCHEMES:
+        raise UnsafeURLError(
+            f"refusing {parts.scheme or 'empty'}: URL — only http and https are fetched "
+            f"from untrusted sources (file:, ftp: and data: can read local resources)")
+    host = _norm_host(parts.hostname)
+    if not host:
+        raise UnsafeURLError("URL has no host")
+    if allow_private:
+        return url
+    for ip in _addresses_for(host):
+        if not _is_public_address(ip):
+            raise UnsafeURLError(
+                f"{host} resolves to {ip}, which is a loopback, private, link-local or "
+                f"reserved address. Refusing so a third-party URL cannot be used to "
+                f"reach this machine or your local network.")
+    return url
+
+
+class _ValidatingRedirectHandler(urllib.request.HTTPRedirectHandler):
+    """Re-run the safety check on every hop.
+
+    Validating only the URL the caller passed is worth very little: the interesting
+    address is the last one, and the server chooses it.
+    """
+
+    def __init__(self, allow_private: bool = False):
+        self.allow_private = allow_private
+
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        assert_safe_url(newurl, allow_private=self.allow_private)
+        return super().redirect_request(req, fp, code, msg, headers, newurl)
+
+
+def safe_fetch(url, *, headers: Optional[Dict[str, str]] = None, timeout: float = 20,
+               max_bytes: int = MAX_FETCH_BYTES, allow_private: bool = False) -> bytes:
+    """Fetch third-party content with the network switch, SSRF and size guards on.
+
+    Returns the body as bytes. Raises OfflineError when networking is off,
+    UnsafeURLError for a refused target, and ValueError when the response exceeds
+    `max_bytes`.
+
+    Known residual risk, stated rather than papered over: the host is resolved for
+    validation and resolved again by the connection, so a DNS entry that changes
+    between the two (rebinding) can still land on a private address. Closing that
+    needs connecting to the validated IP directly while preserving SNI, which the
+    stdlib opener does not expose cleanly.
+    """
+    request = url if isinstance(url, urllib.request.Request) else None
+    target = request.full_url if request is not None else str(url)
+    assert_safe_url(target, allow_private=allow_private)
+
+    if should_block_network():
+        raise OfflineError(f"network disabled (offline mode): blocked request to {target}")
+
+    if request is None:
+        request = urllib.request.Request(target, headers=headers or {"User-Agent": "ELI/1.0"})
+    elif headers:
+        for k, v in headers.items():
+            request.add_header(k, v)
+    # Ask for an undecoded body so a compressed response cannot expand past the cap.
+    request.add_header("Accept-Encoding", "identity")
+
+    import ssl
+    context = ssl.create_default_context()
+    context.check_hostname = True
+    context.verify_mode = ssl.CERT_REQUIRED
+
+    opener = urllib.request.build_opener(
+        _ValidatingRedirectHandler(allow_private),
+        urllib.request.HTTPSHandler(context=context),
+    )
+
+    with opener.open(request, timeout=timeout) as response:
+        final = response.geturl()
+        if final != target:
+            assert_safe_url(final, allow_private=allow_private)
+        declared = response.headers.get("Content-Length")
+        if declared and declared.isdigit() and int(declared) > max_bytes:
+            raise ValueError(
+                f"response is {int(declared)} bytes, over the {max_bytes} byte limit")
+        # Read with a cap rather than read() then check — the point is not to
+        # allocate the oversized body in the first place.
+        body = response.read(max_bytes + 1)
+        if len(body) > max_bytes:
+            raise ValueError(f"response exceeded the {max_bytes} byte limit")
+        return body
+
+
+def safe_get_json(url: str, *, headers: Optional[Dict[str, str]] = None,
+                  timeout: float = 20, max_bytes: int = 8 * 1024 * 1024,
+                  allow_private: bool = False) -> dict:
+    """safe_fetch + JSON parse, for third-party index/manifest endpoints."""
+    raw = safe_fetch(url, headers=headers, timeout=timeout, max_bytes=max_bytes,
+                     allow_private=allow_private)
+    return json.loads(raw.decode("utf-8"))
+
+
 def http_get_json(url: str, headers: Optional[Dict[str, str]] = None, timeout: float = 20) -> dict:
     """GET a URL and parse JSON, gated through guarded_urlopen."""
     req = urllib.request.Request(url, headers=headers or {"User-Agent": "ELI/1.0"})

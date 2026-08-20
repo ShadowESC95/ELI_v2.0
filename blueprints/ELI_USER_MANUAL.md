@@ -42,10 +42,12 @@ How to read this manual:
 17. [Privacy & staying offline](#17-privacy--staying-offline)
 18. [Troubleshooting](#18-troubleshooting)
 19. [Quick phrasebook (cheat sheet)](#19-quick-phrasebook-cheat-sheet)
-20. [Glossary](#20-glossary)
-21. [Appendix A — Under the hood: how ELI thinks (the full pipeline)](#21-appendix-a--under-the-hood-how-eli-thinks-the-full-pipeline)
-22. [Appendix B — Under the hood: how ELI remembers (the full memory system)](#22-appendix-b--under-the-hood-how-eli-remembers-the-full-memory-system)
-23. [Appendix C — Under the hood: how ELI stays safe and yours (security)](#23-appendix-c--under-the-hood-how-eli-stays-safe-and-yours-security)
+20. [Add-ons: plugins & the community marketplace](#20-add-ons-plugins--the-community-marketplace)
+21. [Making ELI your own: custom agents](#21-making-eli-your-own-custom-agents)
+22. [Glossary](#22-glossary)
+23. [Appendix A — Under the hood: how ELI thinks (the full pipeline)](#23-appendix-a--under-the-hood-how-eli-thinks-the-full-pipeline)
+24. [Appendix B — Under the hood: how ELI remembers (the full memory system)](#24-appendix-b--under-the-hood-how-eli-remembers-the-full-memory-system)
+25. [Appendix C — Under the hood: how ELI stays safe and yours (security)](#25-appendix-c--under-the-hood-how-eli-stays-safe-and-yours-security)
 
 ---
 
@@ -272,8 +274,8 @@ terms:
 | **Self-Improve** | What ELI is proposing to improve in *itself* — approval-gated. |
 | **Report Builder** | Generate longer documents/reports with sources (evidence → outline → draft → revise). |
 | **Elis World** | ELI's own world-model view. |
-| **Labs** | Power-user workshop — notebook, Jupyter, calculator, physics, file-chat, **projects/workspaces**, sim-IDE, orchestration, test review. |
-| **Settings** | Model (incl. the model-switch dropdown), hardware, voice, and privacy options (§16). |
+| **Labs** | Power-user workshop — notebook, Jupyter, calculator, physics, file-chat, **projects/workspaces**, sim-IDE, orchestration, test review, **training** (§14). |
+| **Settings** | Model (incl. the model-switch dropdown), hardware, voice, privacy options (§16), plugins and the **Marketplace** (§20). |
 
 You rarely need the tabs directly — almost everything is reachable by **asking** in Chat:
 "show my habits", "what do you remember about me", "show background jobs", "make an image of …",
@@ -755,6 +757,48 @@ of speech.
 
 ---
 
+### Training ELI on your own conversations
+
+🟡 ELI can fine-tune a model on **the way you actually talk to it** — all on your
+computer, nothing uploaded. **Labs ▸ 🎓 Training**, four steps.
+
+**1. Can this machine do it?** ELI checks your graphics card, how much memory is
+free, and whether the training software is installed — then tells you plainly. If
+your card is too small it says how much it needed and what would fix it, rather than
+starting something that runs for days.
+
+Works with NVIDIA and AMD cards. Apple and Intel graphics are detected but cannot run
+training; ELI says so instead of pretending.
+
+**2. What are you training?** You need a **Hugging Face model folder**, which is a
+different thing from the `.gguf` file ELI chats with. ELI lists every one it can find
+on your computer. Pick one, give it a name, done.
+
+**3. Which conversations should it learn from?** This is the important step. ELI
+gathers your past exchanges and sorts them for you:
+
+- exchanges that were clearly broken are **removed automatically**;
+- exchanges that look odd are **flagged for you to read**;
+- the rest are shown as clean.
+
+You approve the clean batch in one click and then read the flagged ones. **Nothing
+trains on anything you have not approved.** Typically that means reading a few hundred
+rather than every single exchange.
+
+You can also edit an exchange — fix ELI's answer to what it *should* have said — and
+train on the corrected version.
+
+**4. Train.** Pick Light (minutes), Standard, or Deep (hours). "Check readiness" runs
+every check without training. "Start training" runs it, showing progress and loss, and
+you can cancel.
+
+> **After training finishes**, the result is a small "adapter" file, not a new brain.
+> To actually chat with it, the adapter has to be merged into the base model and
+> converted to `.gguf`. ELI tells you this when the run ends — it will not pretend the
+> model has changed when it hasn't. See the fine-tuning guide for that step.
+
+---
+
 ## 15. How hard ELI thinks (reasoning modes)
 
 🟢 ELI has five effort levels. Faster modes answer quickly; deeper modes think longer and use more
@@ -861,7 +905,105 @@ flowchart TD
 
 ---
 
-## 20. Glossary
+## 20. Add-ons: plugins & the community marketplace
+
+🟡 **Settings ▸ 🛒 Marketplace.** Plugins add abilities to ELI. Some ship with it;
+others are written by **other people in the community**.
+
+### The honest bit, first
+
+The marketplace belongs to the community, not to ELI's author. Anyone can host one
+and anyone can publish to it. **Nobody vets what goes in**, so ELI will never tell you
+a plugin is safe — it isn't in a position to know.
+
+What it does instead, before a single file lands on your computer:
+
+- **Checks the file is the file.** The listing publishes a fingerprint; ELI checks the
+  download against it. If it doesn't match, it refuses — that means the file was
+  changed somewhere between the publisher and you.
+- **Checks who wrote it**, if they signed it and you have chosen to trust their key.
+  Unsigned isn't blocked — it's clearly labelled *unverified*.
+- **Reads the code.** If it uses an ability it never declared, ELI refuses.
+- **Scans it for malware** — eleven different checks, looking for things like remote
+  access backdoors, password stealing, hidden start-up entries, disguised code, and
+  crypto miners. If you have ClamAV or YARA installed, those run too.
+- **Shows you everything it found**, then asks.
+
+If a scanner couldn't run, ELI says the check was **partial**. It won't call something
+clean that it didn't fully check.
+
+### Permissions — like your phone
+
+A newly installed plugin arrives **switched off with no permissions at all**.
+
+When you enable it and it first wants to do something — reach the internet, read your
+files, use your microphone — ELI asks. The message names the plugin, says what it can
+do to you, and how risky that is. Four answers:
+
+| Answer | What happens |
+|---|---|
+| **Allow once** | Allowed now. You'll be asked again next time. |
+| **Always allow** | Allowed from now on, no more asking. |
+| **Not now** | Refused this time. You'll be asked again. |
+| **Never allow** | Refused permanently. It can never ask again. |
+
+Every answer is recorded, and you can take any of them back in **Marketplace ▸
+Permissions**.
+
+If a plugin asks while nobody's there — an overnight scheduled job, or the phone
+server — the answer is automatically **no**. A plugin can't get permission by waiting
+until you're asleep.
+
+### Paid plugins
+
+Some publishers charge. You buy from **them**, not from ELI, and paste the licence key
+in. ELI has no payment system, takes no cut, and **cannot confirm a purchase happened
+or that a refund is possible**. Treat it exactly like buying software from a stranger's
+website — because that's what it is.
+
+### MCP servers — one thing to know
+
+MCP servers are add-ons that run as **their own separate program** alongside ELI. That
+means ELI's "stay offline" switch **cannot stop them** reaching the internet, and ELI
+can't see what they send. This isn't a flaw in ELI — it's how MCP works. Only add MCP
+servers you'd trust with that.
+
+ELI does make sure they actually work: it checks the required software is installed,
+then genuinely starts the server and talks to it before saving anything. If it can't
+answer, it isn't added.
+
+---
+
+## 21. Making ELI your own: custom agents
+
+🔴 An **agent** is a small specialist that runs alongside ELI's main reply — one that
+watches for a certain kind of request and contributes something extra.
+
+You can write your own. A custom agent needs four things, and ELI won't accept it
+without them:
+
+| | |
+|---|---|
+| **Objective** | One sentence: what is this agent responsible for? |
+| **Instruction** | What it should actually do — the prompt it runs on. |
+| **Triggers** | When it should wake up (a keyword, a pattern, or a type of request). |
+| **How you'd know it worked** | Checks ELI can run on the answer — must mention X, must not say Y, must be at least N characters, must be valid JSON. |
+
+That last one is the part people skip, and it's the reason it's required. Without it,
+an agent either seems fine or doesn't, and you can never tell which. With it, ELI
+**tests** the agent and an agent that fails its own test contributes nothing rather
+than quietly adding noise to your answers.
+
+Agents are created switched off. You can edit one and reload without restarting ELI.
+
+> If you write an agent as actual Python code rather than a specification, ELI treats
+> it as untrusted until you approve it — and it scans the code first, recording what it
+> found and when you approved it. Editing the file afterwards cancels the approval
+> automatically.
+
+---
+
+## 22. Glossary
 
 | Term | Plain meaning |
 |---|---|
@@ -878,7 +1020,7 @@ flowchart TD
 
 ---
 
-## 21. Appendix A — Under the hood: how ELI thinks (the full pipeline)
+## 23. Appendix A — Under the hood: how ELI thinks (the full pipeline)
 
 🔴 *For the curious / technical. You never need this to use ELI — but here is the complete,
 verified path from your words to ELI's reply.*
@@ -1010,7 +1152,7 @@ Every path, no matter which, ends at:
 
 ---
 
-## 22. Appendix B — Under the hood: how ELI remembers (the full memory system)
+## 24. Appendix B — Under the hood: how ELI remembers (the full memory system)
 
 🔴 *For the curious / technical. ELI's memory is a genuine hybrid — relational + full-text +
 vector + graph — all local. This is the complete input → storage → recall path (verified against
@@ -1132,7 +1274,7 @@ slate.
 
 ---
 
-## 23. Appendix C — Under the hood: how ELI stays safe and yours (security)
+## 25. Appendix C — Under the hood: how ELI stays safe and yours (security)
 
 🔴 *For the curious / technical. ELI is meant to be safe by construction, not by good
 intentions — every guard below is enforced in code, not left to a setting you might forget to

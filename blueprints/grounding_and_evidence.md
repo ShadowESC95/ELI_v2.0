@@ -162,3 +162,16 @@ recoverable instead of dead ends.
 - **Routing:** "is there any issues with the files?" / "check the code for bugs" now route to
   EXAMINE_CODE (the real examiner), not FILE_AUDIT; fix-intent ("fix the bugs in foo.py") stays
   FIX_FILE.
+
+
+## Update — 2.3.7 (evidence layer stopped discarding history)
+
+`runtime/memory_evidence.collect_memory_evidence` pulled recent processed memories,
+observations and conversation turns with `limit = max(4, min(limit, 8))`. The inner
+`min` meant a caller asking for 40 recent turns silently received 8 — history was
+being dropped *before* the prompt budgeter ever saw it, by a constant with no setting
+attached.
+
+`RECENT_HISTORY_CAP = 40` now bounds it, and the defaults rose (`collect_*` 12 → 32,
+`build_memory_evidence_text` 8 → 32). The budgeting still happens downstream; this
+change only stops the evidence layer pre-empting it.

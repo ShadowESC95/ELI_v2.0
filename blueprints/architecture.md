@@ -446,3 +446,52 @@ voices/  Piper ONNX
 | the GUI | `eli/gui/eli_pro_audio_gui_v2_0.py`, `gui/panels/` |
 | eval / regression board | `tools/eval/` (+ `tools/eval/README.md`) |
 ```
+
+
+## Update — 2.3.7 (new subsystems)
+
+### `eli/plugins/` — from a loader to a gated marketplace client
+
+| Module | LOC | Role |
+|---|---|---|
+| `manager.py` | 616 | discovery, enable/disable, install/uninstall (pre-existing, now data-dir aware) |
+| `permissions.py` | 395 | capability vocabulary, consent decisions, grants, audit ledger |
+| `manifest.py` | 302 | manifest schema + static capability verification against source |
+| `integrity.py` | 237 | sha256 pinning, ed25519 signatures, operator-trusted publishers |
+| `security_scan.py` | 547 | 11-engine malware scanner |
+| `marketplace.py` | 487 | federated registries, preview/install, licence keys |
+| `mcp.py` | 440 | MCP server config + runtime preflight + handshake verification |
+
+`_plugins_dir()` now resolves through `paths.plugins_dir()` rather than returning the
+source tree; `_plugin_search_dirs()` scans bundled built-ins **and** user installs, so
+a downloaded plugin never has to be written into a read-only installation.
+
+### `eli/cognition/` — agents get a specification
+
+| Module | LOC | Role |
+|---|---|---|
+| `agent_spec.py` | 372 | `AgentSpec`: objective, prompt, triggers, success criteria, examples |
+| `agent_trust.py` | 262 | path-keyed trust with provenance, scanning, revocation |
+
+`agent_bus.SpecAgent` runs a spec against the local model and scores the output
+against the spec's own criteria. Spec agents execute no arbitrary code and therefore
+bypass the trust chain entirely.
+
+### `eli/learning/` — the LoRA pipeline becomes usable
+
+| Module | LOC | Role |
+|---|---|---|
+| `target_registry.py` | 266 | operator-declared targets, any model family |
+| `review_queue.py` | 270 | the human review gate the trainer always required |
+
+### `eli/gui/` — three new surfaces
+
+`tabs/training_tab.py` (Labs ▸ Training), `tabs/marketplace_tab.py`
+(Settings ▸ Marketplace), `panels/permission_dialog.py` (consent dialog + worker
+→ GUI-thread bridge).
+
+### Paths
+
+`paths.learning_dir()` joins `models_dir()` / `voices_dir()` / `plugins_dir()` in the
+dev-vs-data-dir pattern. The rule this all follows: **runtime state never lives in the
+installation**, because `project_root()` is a read-only mount on a packaged build.

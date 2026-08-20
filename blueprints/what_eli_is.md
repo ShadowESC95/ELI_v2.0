@@ -267,3 +267,22 @@ inherits every one of those gains — for free, forever, in private.**
 `grounding_and_evidence.md` (the self-honesty layer), `coding_agent.md` (the
 frontier coder), `memory.md`, `security.md`, `inference_and_hardware.md`,
 `learning.md`, `perception.md`.*
+
+
+## 2.3.7 in one paragraph
+
+This release is about **reach, not invention**: four subsystems that already existed
+in full became usable. The LoRA trainer gained the GUI its own code always said it
+had, plus the review interface its safety contract required — it had never been able
+to train, because 615 candidate rows sat at 0 approved with no way to approve one. The
+eval harness, previously terminal-only, appeared in the app. Plugins stopped being
+arbitrary Python executed in ELI's process and became declared, verified, scanned and
+permission-gated, behind a marketplace the community owns rather than one ELI's author
+controls. And custom agents stopped being a name plus a free-text persona and became a
+specification with an objective, a prompt, triggers and success criteria that can
+actually be measured.
+
+The through-line is refusing to overstate: a scanner that could not run never counts
+as a pass, an unsigned plugin is called unverified rather than fine, the training tab
+says the live model has not changed until you merge the adapter, and the MCP screens
+state outright that ELI's offline switch cannot contain a child process.

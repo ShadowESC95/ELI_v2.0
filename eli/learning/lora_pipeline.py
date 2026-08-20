@@ -34,11 +34,25 @@ def run_pipeline(
     device: str = "auto",
     output_dir: Optional[str] = None,
     overwrite: bool = False,
+    on_event=None,
 ) -> Dict[str, Any]:
     """Run the LoRA DAG end to end. Returns {ok, executed, target, stages:[...],
     summary}. Stops at the first stage that makes training impossible (dry-run still
     reports every reachable gate)."""
     stages: List[Dict[str, Any]] = []
+
+    def _emit(kind: str, message: str) -> None:
+        # A progress listener must never be able to fail the run it is watching,
+        # but a listener that is throwing is worth knowing about.
+        if on_event is not None:
+            try:
+                on_event({"type": kind, "message": message})
+            except Exception:
+                import logging
+                logging.getLogger(__name__).debug(
+                    "lora progress listener raised", exc_info=True)
+
+    _emit("stage", f"Preflight for '{target}'…")
 
     # 1) PREFLIGHT — modules present + base model resolvable + reviewed rows.
     try:
@@ -54,6 +68,8 @@ def run_pipeline(
     except Exception as e:
         stages.append(_stage("preflight", False, {"error": str(e)}))
         return _finish(target, execute, stages)
+
+    _emit("stage", "Validating dataset and base model…")
 
     # 2) BUILD JOB — validate dataset + base + output (dry-run unless execute).
     try:
@@ -80,7 +96,8 @@ def run_pipeline(
     if execute and job.get("will_train"):
         try:
             from eli.learning.lora_trainer import run_training
-            trained = run_training(job)
+            _emit("stage", "Training…")
+            trained = run_training(job, on_event=on_event)
             res = trained.get("result") or {}
             executed_training = bool(res.get("ok"))
             stages.append(_stage("train", executed_training, {
@@ -96,6 +113,8 @@ def run_pipeline(
             "skipped": True,
             "reason": "dry-run (execute=False)" if not execute else "job failed safety validation",
         }))
+
+    _emit("stage", "Evaluating…")
 
     # 4) EVAL — inspect the eval suite + the (new or active) adapter.
     try:

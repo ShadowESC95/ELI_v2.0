@@ -3216,43 +3216,208 @@ def _get_trusted_agents_registry() -> dict:
 
 
 def _trust_custom_agent(py_file: Path) -> None:
-    """Register a custom agent file as trusted by recording its SHA-256 hash.
+    """Deprecated shim — delegates to `eli.cognition.agent_trust.grant`.
 
-    Call this once per file to add it to the trust registry so it can be
-    loaded in future sessions.  Use `eli --trust-agent <path>` from the CLI.
+    The original wrote `{basename: sha256}` into the v1 registry with no provenance
+    and no look at the code. Kept so any remaining caller keeps working, but it now
+    produces a proper grant rather than a legacy entry the loader has to tolerate.
     """
-    import hashlib as _hl_ta, json as _json_ta
-    from eli.core.paths import get_paths as _get_paths_ta
-    sha = _hl_ta.sha256(py_file.read_bytes()).hexdigest()
-    registry_path = _get_paths_ta().config_dir / "trusted_agents.json"
     try:
-        existing: dict = {}
-        if registry_path.exists():
-            existing = _json_ta.loads(registry_path.read_text(encoding="utf-8"))
-        existing[py_file.name] = sha
-        # Integrity anchor for the agent-trust gate (hashes, not secrets) — write
-        # it 0600/atomic so it can't be tampered or partially written by others.
-        from eli.core.secure_io import secure_write_text as _secure_write_ta
-        _secure_write_ta(registry_path, _json_ta.dumps(existing, indent=2), mode=0o600)
-        log.debug(f"[AGENTBUS] Trusted agent registered: {py_file.name} ({sha[:12]}…)")
+        from eli.cognition import agent_trust
+        result = agent_trust.grant(py_file, approved_by="legacy-api")
+        if not result.get("ok"):
+            log.warning(f"[AGENTBUS] Refused to approve {py_file.name}: "
+                        + "; ".join(result.get("problems", [])))
     except Exception as _e:
         log.debug(f"[AGENTBUS] Failed to register agent trust for {py_file.name}: {_e}")
 
 
-def _load_custom_agents() -> None:
-    import importlib.util as _ilu, hashlib as _hl
-    project_root = Path(__file__).resolve().parents[1]
-    candidate_dirs = [
-        Path(__file__).resolve().parent / "custom",
-        project_root / "brain" / "agents" / "custom",
-    ]
-    extra = (
-        os.environ.get("ELI_CUSTOM_AGENTS_DIR", "") or ""
-    ).strip()
-    if extra:
-        candidate_dirs.append(Path(extra).expanduser().resolve())
+class SpecAgent(_BaseAgent):
+    """An agent defined entirely by an AgentSpec — no code, so nothing to trust.
 
-    trusted = _get_trusted_agents_registry()
+    This is the shape most custom agents should take. A spec is data: an objective,
+    a system prompt, triggers, and success criteria. Running one means calling the
+    local model with that prompt and scoring the answer against the criteria, so
+    there is no arbitrary code to review, hash, or sandbox, and no reason for the
+    trust gate to be involved at all.
+
+    Code agents still exist for the cases a prompt genuinely cannot cover; those go
+    through `eli.cognition.agent_trust`.
+    """
+
+    _custom = True
+
+    def __init__(self, spec):
+        self.spec = spec
+        self.name = spec.id
+        self.timeout_s = float(spec.timeout_s or 8.0)
+        self._enabled = bool(spec.enabled)
+
+    def run(self, user_input: str, intent: Dict[str, Any],
+            session_id: str, user_id: str) -> AgentResult:
+        t0 = time.perf_counter()
+        action = str((intent or {}).get("action") or "")
+
+        if not self.spec.should_run(user_input, action):
+            return AgentResult(agent=self.name, ok=True, confidence=0.0,
+                               data={"skipped": True, "reason": "no trigger matched"})
+
+        # Declared capabilities are gated like a plugin's. An agent that never
+        # declared model_access does not silently get to spend the GPU.
+        for cap in (self.spec.permissions or []):
+            try:
+                from eli.plugins.permissions import check as _check
+                verdict = _check(self.name, cap, f"custom agent '{self.spec.name}'")
+                if not verdict["allowed"]:
+                    return AgentResult(agent=self.name, ok=False, confidence=0.0,
+                                       data={"denied": cap},
+                                       error=verdict["reason"],
+                                       elapsed_ms=(time.perf_counter() - t0) * 1000)
+            except ImportError:
+                break
+
+        try:
+            from eli.cognition.inference_broker import get_inference_broker
+            broker = get_inference_broker()
+            if broker is None or not broker.gguf_ready:
+                return AgentResult(agent=self.name, ok=False, confidence=0.0, data={},
+                                   error="no local model loaded",
+                                   elapsed_ms=(time.perf_counter() - t0) * 1000)
+            output = broker.infer(
+                prompt=user_input,
+                system=self.spec.system_prompt,
+                max_tokens=int(self.spec.max_tokens or 512),
+                temperature=float(self.spec.temperature or 0.4),
+                background=True,
+            )
+        except Exception as exc:
+            return AgentResult(agent=self.name, ok=False, confidence=0.0, data={},
+                               error=f"{type(exc).__name__}: {exc}",
+                               elapsed_ms=(time.perf_counter() - t0) * 1000)
+
+        # The spec's own criteria decide whether this counts as evidence. An agent
+        # that fails its own success test contributes nothing rather than polluting
+        # the bus with output nobody checked.
+        verdict = self.spec.evaluate(output)
+        elapsed = (time.perf_counter() - t0) * 1000
+        return AgentResult(
+            agent=self.name,
+            ok=bool(verdict["ok"]),
+            confidence=float(verdict["score"]),
+            data={"content": output if verdict["ok"] else "",
+                  "objective": self.spec.objective,
+                  "evaluation": verdict},
+            elapsed_ms=elapsed,
+            error=None if verdict["ok"] else
+            f"failed {verdict['total'] - verdict['passed']} of "
+            f"{verdict['total']} success criteria",
+        )
+
+
+# Populated by the loaders so the GUI can show WHY an agent did not load, instead
+# of the failure existing only as a debug line nobody reads.
+_AGENT_LOAD_REPORT: List[Dict[str, Any]] = []
+
+
+def agent_load_report() -> List[Dict[str, Any]]:
+    """Per-agent load outcome from the last scan."""
+    return list(_AGENT_LOAD_REPORT)
+
+
+def _custom_agent_dirs() -> List[Path]:
+    """Where custom agents may live.
+
+    The data dir comes FIRST and is the one anything writes to: the previous list
+    was `eli/cognition/custom` and `eli/brain/agents/custom`, both inside the
+    installation, which is a read-only mount on a packaged build. An agent created
+    through the GUI had nowhere valid to be saved.
+    """
+    dirs: List[Path] = []
+    extra = (os.environ.get("ELI_CUSTOM_AGENTS_DIR", "") or "").strip()
+    if extra:
+        dirs.append(Path(extra).expanduser())
+    try:
+        from eli.core.paths import data_dir
+        dirs.append(Path(data_dir()) / "agents" / "custom")
+    except Exception:
+        log.debug("[AGENTBUS] data dir unavailable for custom agents", exc_info=True)
+    project_root = Path(__file__).resolve().parents[1]
+    dirs.append(Path(__file__).resolve().parent / "custom")
+    dirs.append(project_root / "brain" / "agents" / "custom")
+
+    seen, out = set(), []
+    for d in dirs:
+        key = str(d)
+        if key not in seen:
+            seen.add(key)
+            out.append(d)
+    return out
+
+
+def _load_spec_agents() -> None:
+    """Register every saved AgentSpec. No code is executed, so no trust gate."""
+    try:
+        from eli.cognition.agent_spec import list_specs, validate
+    except Exception as exc:
+        log.debug(f"[AGENTBUS] agent specs unavailable: {exc}")
+        return
+
+    # Drop previously-registered spec agents first. A reload must REPLACE them —
+    # skipping "already registered" would mean an edited spec never takes effect,
+    # which is the same restart-required problem this function exists to remove.
+    for _old in [a for a in _ALL_AGENTS if isinstance(a, SpecAgent)]:
+        try:
+            _ALL_AGENTS.remove(_old)
+        except ValueError:
+            log.debug(f"[AGENTBUS] spec agent {getattr(_old, 'name', '?')} was already "
+                      f"deregistered", exc_info=True)
+
+    existing = {getattr(a, "name", None) for a in _ALL_AGENTS}
+    for spec in list_specs():
+        entry = {"kind": "spec", "id": spec.id, "name": spec.name, "loaded": False,
+                 "reason": ""}
+        try:
+            check = validate(spec)
+            if not check["ok"]:
+                entry["reason"] = "invalid spec: " + "; ".join(check["problems"][:3])
+                _AGENT_LOAD_REPORT.append(entry)
+                continue
+            if spec.id in existing:
+                entry["reason"] = f"an agent named {spec.id!r} is already registered"
+                _AGENT_LOAD_REPORT.append(entry)
+                continue
+            _ALL_AGENTS.append(SpecAgent(spec))
+            existing.add(spec.id)
+            entry["loaded"] = True
+            entry["reason"] = ("registered"
+                               + ("" if spec.enabled else " (disabled — enable it in Settings)"))
+        except Exception as exc:
+            entry["reason"] = f"{type(exc).__name__}: {exc}"
+        _AGENT_LOAD_REPORT.append(entry)
+
+
+def reload_custom_agents() -> List[Dict[str, Any]]:
+    """Re-scan specs and code agents without a restart.
+
+    Live registration was the missing half of "create an agent": the loader ran once
+    at import, so a newly created agent did nothing until ELI was restarted, with no
+    message explaining why.
+    """
+    global _AGENT_LOAD_REPORT
+    _AGENT_LOAD_REPORT = []
+    _load_spec_agents()
+    _load_custom_agents()
+    try:
+        _apply_runtime_policy_timeouts()
+    except Exception:
+        log.debug("[AGENTBUS] could not re-apply timeouts after reload", exc_info=True)
+    return agent_load_report()
+
+
+def _load_custom_agents() -> None:
+    import importlib.util as _ilu
+    candidate_dirs = _custom_agent_dirs()
+
     # Bypass trust check in dev/test mode
     trust_bypass = os.environ.get("ELI_TRUST_ALL_AGENTS", "").strip().lower() in ("1", "true", "yes")
 
@@ -3269,21 +3434,25 @@ def _load_custom_agents() -> None:
                 seen.add(py_file.name)
 
                 # ── Trust verification ──────────────────────────────────────
+                # Keyed on the resolved path with recorded provenance, not on the
+                # basename alone — two files called `helper.py` used to share one
+                # entry, so approving either authorised both.
+                entry = {"kind": "code", "id": py_file.stem, "name": py_file.name,
+                         "path": str(py_file), "loaded": False, "reason": ""}
                 if not trust_bypass:
-                    file_hash = _hl.sha256(py_file.read_bytes()).hexdigest()
-                    trusted_hash = trusted.get(py_file.name)
-                    if trusted_hash is None:
-                        log.debug(
-                            f"[AGENTBUS] SECURITY: Custom agent '{py_file.name}' is not trusted. "
-                            f"Run `eli --trust-agent {py_file}` to approve it before loading."
-                        )
-                        continue
-                    if file_hash != trusted_hash:
-                        log.debug(
-                            f"[AGENTBUS] SECURITY: Custom agent '{py_file.name}' hash mismatch — "
-                            f"file may have been modified. Re-run `eli --trust-agent {py_file}` "
-                            f"to re-approve after reviewing the changes."
-                        )
+                    try:
+                        from eli.cognition import agent_trust
+                        verdict = agent_trust.inspect(py_file)
+                    except Exception as _te:
+                        verdict = {"ok": False, "status": "untrusted",
+                                   "reason": f"trust check unavailable: {_te}"}
+                    if not verdict["ok"]:
+                        entry["reason"] = verdict["reason"]
+                        entry["status"] = verdict.get("status")
+                        _AGENT_LOAD_REPORT.append(entry)
+                        log.info(
+                            f"[AGENTBUS] Custom agent '{py_file.name}' not loaded — "
+                            f"{verdict['reason']}")
                         continue
                 # ── Load ────────────────────────────────────────────────────
                 try:
@@ -3300,13 +3469,19 @@ def _load_custom_agents() -> None:
                                 _na._custom = True
                             except Exception:
                                 _SWLOG.debug("suppressed exception", exc_info=True)
+                    entry["loaded"] = True
+                    entry["reason"] = f"loaded from {custom_dir}"
+                    _AGENT_LOAD_REPORT.append(entry)
                     log.debug(f"[AGENTBUS] Loaded custom agent: {py_file.name} from {custom_dir}")
                 except Exception as _e:
-                    log.debug(f"[AGENTBUS] Failed to load custom agent {py_file.name}: {_e}")
+                    entry["reason"] = f"{type(_e).__name__}: {_e}"
+                    _AGENT_LOAD_REPORT.append(entry)
+                    log.warning(f"[AGENTBUS] Failed to load custom agent {py_file.name}: {_e}")
         except Exception as _e:
             log.debug(f"[AGENTBUS] Custom agent dir scan failed for {custom_dir}: {_e}")
 
 
+_load_spec_agents()
 _load_custom_agents()
 # Re-apply so custom agents registered into _ALL_AGENTS also get hardware-adapted timeouts.
 _apply_runtime_policy_timeouts()

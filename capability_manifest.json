@@ -1,6 +1,6 @@
 {
-  "generated_at": "2026-08-14T10:09:08",
-  "total": 216,
+  "generated_at": "2026-08-20T04:41:51",
+  "total": 223,
   "capabilities": [
     {
       "action": "ADD_EVENT",
@@ -827,6 +827,69 @@
       "active": true,
       "plugin": null,
       "routable": false,
+      "in_dispatch": true,
+      "in_supported_list": true
+    },
+    {
+      "action": "MCP_ADD",
+      "source": "executor+router",
+      "active": true,
+      "plugin": null,
+      "routable": true,
+      "in_dispatch": true,
+      "in_supported_list": true
+    },
+    {
+      "action": "MCP_CALL",
+      "source": "executor+router",
+      "active": true,
+      "plugin": null,
+      "routable": true,
+      "in_dispatch": true,
+      "in_supported_list": true
+    },
+    {
+      "action": "MCP_DOCTOR",
+      "source": "executor+router",
+      "active": true,
+      "plugin": null,
+      "routable": true,
+      "in_dispatch": true,
+      "in_supported_list": true
+    },
+    {
+      "action": "MCP_LIST",
+      "source": "executor+router",
+      "active": true,
+      "plugin": null,
+      "routable": true,
+      "in_dispatch": true,
+      "in_supported_list": true
+    },
+    {
+      "action": "MCP_REMOVE",
+      "source": "executor+router",
+      "active": true,
+      "plugin": null,
+      "routable": true,
+      "in_dispatch": true,
+      "in_supported_list": true
+    },
+    {
+      "action": "MCP_STATUS",
+      "source": "executor+router",
+      "active": true,
+      "plugin": null,
+      "routable": true,
+      "in_dispatch": true,
+      "in_supported_list": true
+    },
+    {
+      "action": "MCP_TOOLS",
+      "source": "executor+router",
+      "active": true,
+      "plugin": null,
+      "routable": true,
       "in_dispatch": true,
       "in_supported_list": true
     },

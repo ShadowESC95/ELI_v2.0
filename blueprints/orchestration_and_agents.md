@@ -181,3 +181,77 @@ confidence math and timeout enforcement are already good and don't need work.
   is now consistent across the chat agent, `HABIT_STATUS`, and the persona overlay.
 - **Goal autogenesis** (`planning/goal_autogenesis.py`) feeds the autonomy/goal-tick stack from
   ELI's own signals — see `runtime_planning_world.md`.
+
+
+## Update — 2.3.7 (custom agents get a specification, and a real trust chain)
+
+### The problem
+
+A custom agent was a `.py` file dropped in a directory, `exec_module`'d at import,
+carrying a `name`, a `timeout_s` and an optional free-text "persona". Nothing
+recorded what the agent was **for**, nothing defined **when** it should fire, and
+nothing could tell whether it **worked**. An agent you cannot evaluate is an agent
+you cannot trust, improve or debug — it either seems fine or it does not.
+
+Four concrete failures followed from that:
+
+1. **No objective, prompt, triggers or measures.** "Persona" was the only steering
+   available, and it was optional.
+2. **Loaded from the installation.** The search paths were
+   `eli/cognition/custom` and `eli/brain/agents/custom` — both inside the install
+   tree, which is a read-only mount on a packaged build. An agent created through
+   the GUI had nowhere valid to be saved.
+3. **Load failures were invisible.** An untrusted or broken agent was skipped with a
+   `log.debug` line, so the operator saw nothing at all.
+4. **Registration was import-time only.** A newly created agent did nothing until
+   ELI was restarted, with no message explaining why.
+
+### `AgentSpec` (`eli/cognition/agent_spec.py`)
+
+An agent is now **data, not code**:
+
+| Field | Required | Purpose |
+|---|---|---|
+| `objective` | yes | one sentence on what this agent is responsible for |
+| `system_prompt` | yes | the actual instruction the model receives |
+| `triggers` | ≥1 | `keyword` · `regex` · `action` · `always` |
+| `success_criteria` | ≥1 | runnable checks: contains, not_contains, regex, min/max length, non_empty, is_json |
+| `examples` | no | input + expected checks, so the agent can be tested before going live |
+| `permissions` | no | capabilities from the plugin vocabulary, gated at run time |
+
+`validate()` refuses vagueness rather than accepting it: an objective under 25
+characters or matching a placeholder list (`todo`, `does stuff`, `helper`, …) is
+rejected, as is a system prompt under 40 characters. An agent with no trigger is
+refused because it would register and silently never run; an agent with no success
+criterion is refused because nothing could tell whether it worked. An `always`
+trigger is allowed but warned about — it costs latency on every turn.
+
+`evaluate(output)` runs the criteria and returns a score. That is the **measure**
+the wizard's test step uses and the value `SpecAgent` reports as its confidence.
+
+`content_hash()` deliberately excludes `created` and `enabled`, so re-saving a spec
+does not invalidate a trust grant while a real edit does.
+
+### `SpecAgent` (`agent_bus.py`)
+
+Runs a spec: check triggers → check declared permissions → call the local model with
+the spec's system prompt → score the output against the criteria. **An agent that
+fails its own success test contributes nothing** rather than polluting the bus with
+output nobody checked.
+
+Because a spec executes no arbitrary code, spec agents need **no trust grant at
+all** — the whole hash/scan/provenance chain is only for the code agents that a
+prompt genuinely cannot cover.
+
+### Loader fixes
+
+- `_custom_agent_dirs()` puts the **data dir first** (`<data>/agents/custom`), so a
+  created agent has somewhere valid to live on any install.
+- Trust is checked through `agent_trust.inspect()` (see `security.md` §5), which
+  reports *why* an agent was not loaded.
+- `agent_load_report()` records the per-agent outcome so the GUI can show the reason
+  instead of it existing only as a debug line nobody reads.
+- `reload_custom_agents()` re-scans specs and code **without a restart**, and
+  *replaces* previously-registered spec agents rather than skipping them — skipping
+  would mean an edited spec never takes effect, which is the same restart-required
+  problem the function exists to remove.
