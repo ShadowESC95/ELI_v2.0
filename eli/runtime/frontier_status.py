@@ -8,6 +8,10 @@ import time
 from pathlib import Path
 from typing import Any, Dict, Iterable, List, Tuple
 
+from eli.utils.log import get_logger
+
+log = get_logger(__name__)
+
 
 def _project_root() -> Path:
     try:
@@ -143,7 +147,21 @@ def _proactive_status() -> Dict[str, Any]:
             pid = int(pid_file.read_text(encoding="utf-8").strip() or 0)
         except Exception:
             pid = 0
-    if pid > 0:
+    # In-process first. The GUI runs the daemon as a thread in its own process, so
+    # there is no pid file to find — checking only the file reported "not running"
+    # for the normal desktop case, contradicting the startup log and the daemon's
+    # own visible output in the same session.
+    mode = "pid_file"
+    try:
+        from eli.planning.proactive_daemon import is_running as _in_process
+        live = _in_process()
+        if live.get("mode") == "in_process":
+            running = bool(live.get("running"))
+            mode = "in_process"
+    except Exception:
+        log.debug("in-process daemon check unavailable", exc_info=True)
+
+    if not running and pid > 0:
         try:
             import psutil as _psutil
             running = _psutil.pid_exists(int(pid))
@@ -171,6 +189,7 @@ def _proactive_status() -> Dict[str, Any]:
         "dir": str(pro_dir),
         "pid_file": str(pid_file),
         "running": running,
+        "detected_via": mode,
         "pid": pid,
         "summary": summary,
     }

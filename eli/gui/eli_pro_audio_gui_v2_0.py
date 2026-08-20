@@ -1263,7 +1263,7 @@ class LocalModelManager:
                         f"[GUI][LOAD] verifying your settings on this machine "
                         f"(ctx={_cand['n_ctx']} gpu_layers={_cand['n_gpu_layers']} "
                         f"batch={_cand['n_batch']}) — up to "
-                        f"{int(float(os.environ.get('ELI_LOAD_PROBE_TIMEOUT', '') or 60))}s "
+                        f"{int(float(os.environ.get('ELI_LOAD_PROBE_TIMEOUT', '') or 30))}s "
                         f"this once, then remembered…")
                     try:
                         from eli.core import load_probe as _lp
@@ -1276,7 +1276,7 @@ class LocalModelManager:
                         # against the operator's settings, so they stand.
                         _verdict, _why = "unavailable", f"probe unavailable: {_probe_err}"
                     # A TIMEOUT is not a pass. 2.2.9 logged "requested settings
-                    # verified (probe timed out after 60s (unproven))" and then
+                    # verified (probe timed out after 30s (unproven))" and then
                     # loaded ctx=10384 gpu_layers=99 against a measured fit of
                     # 28 — CUDA allocates lazily, so the load looked clean and
                     # the process died with `ggml-cuda.cu:98: CUDA error` /

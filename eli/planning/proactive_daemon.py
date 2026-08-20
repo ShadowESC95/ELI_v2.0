@@ -1400,7 +1400,36 @@ Date: {datetime.now().strftime("%A %B %d %H:%M")} | Interactions last 24h: {inte
 # Singleton instance
 _daemon = None
 _daemon_started = False
+_daemon_thread = None
 _daemon_start_lock = threading.Lock()
+
+
+def is_running() -> dict:
+    """Whether a proactive daemon is live IN THIS PROCESS.
+
+    The GUI starts the daemon as a thread inside its own process, so no pid file is
+    ever written. `frontier_status` only checked `proactive/daemon.pid`, and
+    therefore reported `daemon_running=False pid=0` while the daemon was demonstrably
+    working — in the same session it produced world suggestions, a news digest and a
+    pattern analysis. ELI disowning a capability it is actively using is the same
+    class of fault as fabricating one.
+
+    Deliberately does NOT call get_daemon(): that constructs an instance on demand,
+    so a status check would create the very thing it is reporting on.
+    """
+    daemon = _daemon
+    if daemon is None:
+        return {"running": False, "mode": "none", "thread_alive": False}
+    thread = _daemon_thread
+    alive = bool(thread.is_alive()) if thread is not None else False
+    return {
+        # The flag alone is not enough: it stays True if the thread died without
+        # calling stop(). Both must hold.
+        "running": bool(getattr(daemon, "running", False)) and (alive or thread is None),
+        "mode": "in_process",
+        "thread_alive": alive,
+        "flag": bool(getattr(daemon, "running", False)),
+    }
 
 def get_daemon() -> ProactiveDaemon:
     global _daemon
@@ -1444,6 +1473,8 @@ def start_daemon():
         daemon=True, name="eli-proactive-daemon",
     )
     thread.start()
+    global _daemon_thread
+    _daemon_thread = thread
     return daemon
 
 
