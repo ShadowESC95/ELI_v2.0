@@ -150,3 +150,22 @@ def test_a_missing_logo_falls_back_rather_than_failing(tmp_path, capsys):
                      str(tmp_path / "nope.png"))
     html = (out / "index.html").read_text(encoding="utf-8")
     assert '<span class="mark"' in html, "should fall back to the plain mark"
+
+
+def test_cname_is_written_into_the_published_artifact(site):
+    """GitHub Pages reads the custom domain from a CNAME inside the DEPLOYED
+    artifact, not the repo root. A CNAME beside the workflow is invisible to the
+    deployment: the binding never completes, no certificate is issued, and the
+    site answers on http while hanging on https with nothing explaining why."""
+    _, out = site
+    cname = out / "CNAME"
+    assert cname.is_file(), "no CNAME in the build output"
+    assert cname.read_text(encoding="utf-8").strip() == "plugins.geteli.tech"
+
+
+def test_no_cname_when_no_domain_is_configured(tmp_path):
+    idx = tmp_path / "index.json"
+    idx.write_text(json.dumps(REGISTRY), encoding="utf-8")
+    out = tmp_path / "site"
+    build_site.build(str(idx), str(out), "ELI Marketplace", "", "", "https://geteli.tech")
+    assert not (out / "CNAME").exists()
