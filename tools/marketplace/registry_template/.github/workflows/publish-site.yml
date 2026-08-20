@@ -1,0 +1,83 @@
+# Rebuild and publish the marketplace shopfront.
+#
+# Runs only on the default branch — a pull request must never be able to publish,
+# or "submission" and "approval" would be the same act. Merging is the approval;
+# this is what happens afterwards.
+#
+# The site and the client read the SAME index.json, so the page cannot advertise a
+# plugin the client would refuse, or show permissions that differ from the ones the
+# consent dialog will ask for.
+name: Publish site
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "index.json"
+      - "plugins/**"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Check out ELI (for the site builder)
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ vars.ELI_REPO }}
+          path: .eli
+          ref: ${{ vars.ELI_REF || 'main' }}
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Refuse to publish an unsigned listing
+        # The client hard-refuses these, so publishing one would put a listing in
+        # the shop window that no user could install. Catch it here instead.
+        run: |
+          python - <<'EOF'
+          import json, sys
+          data = json.load(open("index.json"))
+          bad = [p.get("id") for p in data.get("plugins") or []
+                 if not (p.get("signature") and p.get("publisher_id"))]
+          if bad:
+              print("unsigned listings in index.json: " + ", ".join(map(str, bad)))
+              print("sign them with tools/marketplace/publish.py --sign-key")
+              sys.exit(1)
+          print(f"{len(data.get('plugins') or [])} listing(s), all signed")
+          EOF
+
+      - name: Build the shopfront
+        run: |
+          python .eli/tools/marketplace/build_site.py index.json \
+            --out site \
+            --name "${{ vars.MARKETPLACE_NAME || 'ELI Marketplace' }}" \
+            --domain "${{ vars.MARKETPLACE_DOMAIN }}" \
+            --submit-url "https://github.com/${{ github.repository }}"
+
+      - uses: actions/configure-pages@v5
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: site
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4

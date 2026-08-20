@@ -1,23 +1,29 @@
 """ELI's plugin marketplace client — federated, community-hosted, consent-gated.
 
-ELI ships the *client*. The marketplace itself belongs to whoever runs it: there is
-no registry the ELI author controls, no upload endpoint they hold the keys to, and
-no cut of anything sold. That is a deliberate architecture, and it drives three
-decisions that would otherwise look odd:
+There are two kinds of registry here, and they are held to different standards.
 
-  * **Registries are a list, not a constant.** Operators add the community
-    registries they want, and can remove any of them. The only entry that ships is
-    the bundled offline index of ELI's own built-in plugins. A single hardcoded URL
-    would make the author the gatekeeper of a marketplace that is not theirs.
+  * **The official registry is CURATED.** It is ELI's own marketplace, publicly
+    browsable, and every listing on it was submitted, quarantined, evaluated and
+    then signed by the maintainer before it appeared. Because that review is the
+    product, a listing from the official registry that is *not* validly signed by
+    the official key is a hard refusal — not a warning. An unsigned listing there
+    does not mean "unreviewed", it means the index or the artifact was tampered
+    with between the maintainer and this machine.
 
-  * **ELI never says a plugin is safe.** Nothing is curated, so every listing is
-    reported with exactly what was checkable — the checksum matched, the signature
-    was from a publisher you trust, or nothing was verifiable at all — and never
-    with a verdict ELI has not earned.
+  * **Community registries are NOT curated.** Operators may add any registry they
+    like, and ELI says about those listings exactly what was checkable — the
+    checksum matched, the signature was from a publisher you trust, or nothing was
+    verifiable at all — and never a verdict it has not earned. Adding one is
+    itself a trust decision, and ELI cannot make it for you.
 
-  * **Selling is the seller's problem.** A listing may carry a price, a purchase
-    URL, and require a licence key that the client passes to the seller's own
-    server. ELI does not take payment, cannot confirm one happened, and says so.
+Keeping both is the point. Curation gives most users a store where someone is
+accountable for what is on the shelf; federation means that person cannot become
+the only door, and cannot quietly delist a competitor. The official registry is
+enabled by default and can be disabled; community registries are opt-in.
+
+  * **Selling is still the seller's problem.** Review is not escrow: a listing may
+    carry a price and a purchase URL, and ELI neither takes payment nor can confirm
+    one happened.
 
 Everything that touches the network goes through `eli.core.netguard`, so an
 offline-by-default install stays offline and every fetch is audited.
@@ -38,6 +44,41 @@ log = get_logger(__name__)
 _lock = threading.RLock()
 
 BUNDLED_REGISTRY_ID = "builtin"
+OFFICIAL_REGISTRY_ID = "eli-official"
+
+# ELI's own curated marketplace. Empty until it is stood up — see docs/MARKETPLACE.md
+# — and overridable so anyone can run their own curated registry from an ELI build.
+# The client half is complete either way; this is only the address it points at.
+OFFICIAL_REGISTRY_URL = "https://plugins.geteli.tech/index.json"
+OFFICIAL_REGISTRY_LABEL = "ELI Marketplace"
+
+
+def official_registry_url() -> str:
+    return (os.environ.get("ELI_MARKETPLACE_URL", "").strip()
+            or OFFICIAL_REGISTRY_URL).strip()
+
+
+def _official() -> Optional[Dict[str, Any]]:
+    """The curated registry entry, when this build has an address for one."""
+    url = official_registry_url()
+    if not url:
+        return None
+    return {
+        "id": OFFICIAL_REGISTRY_ID,
+        "label": OFFICIAL_REGISTRY_LABEL,
+        "url": url,
+        "enabled": True,
+        "curated": True,
+        "official": True,
+    }
+
+
+def is_curated(registry_id: str) -> bool:
+    """True when listings from this registry must carry a valid official signature."""
+    for reg in _load_registries():
+        if reg.get("id") == registry_id:
+            return bool(reg.get("curated"))
+    return False
 
 
 def _registries_path() -> Path:
@@ -65,12 +106,25 @@ def _bundled() -> Dict[str, Any]:
 def _load_registries() -> List[Dict[str, Any]]:
     p = _registries_path()
     out = [_bundled()]
+    official = _official()
+    if official:
+        out.append(official)
+    reserved = {BUNDLED_REGISTRY_ID, OFFICIAL_REGISTRY_ID}
     if p.is_file():
         try:
             data = json.loads(p.read_text(encoding="utf-8"))
+            disabled = set(data.get("disabled") or [])
+            if official and OFFICIAL_REGISTRY_ID in disabled:
+                official["enabled"] = False
             for r in (data.get("registries") or []):
-                if isinstance(r, dict) and r.get("id") != BUNDLED_REGISTRY_ID:
-                    out.append(dict(r))
+                # A stored entry may not claim a reserved id, and may not claim to be
+                # curated: `curated` is what makes a signature mandatory, so a config
+                # file that could set it could also grant itself the official badge.
+                if isinstance(r, dict) and r.get("id") not in reserved:
+                    entry = dict(r)
+                    entry.pop("curated", None)
+                    entry.pop("official", None)
+                    out.append(entry)
         except Exception:
             log.debug("[MARKET] unreadable registry list", exc_info=True)
     return out
@@ -436,6 +490,32 @@ def preview_install(listing: Dict[str, Any], *, timeout: float = 30) -> Dict[str
         return {"ok": False, "stage": "integrity", "integrity": verdict,
                 "problems": verdict["warnings"], "warnings": []}
 
+    # A curated listing MUST carry a valid signature from the registry's own key.
+    # On a community registry an unsigned plugin is ordinary and gets a warning; on
+    # the official one it is evidence of tampering, because nothing reaches that
+    # index without being signed at approval time. Treating it as a warning there
+    # would let an attacker who can rewrite the index — or sit in the middle of the
+    # download — strip the signature and be waved through with a yellow badge.
+    if is_curated(str(listing.get("registry") or "")):
+        sig = verdict.get("signature") or {}
+        expected = integrity.OFFICIAL_PUBLISHER_ID
+        if verdict.get("status") != integrity.VERIFIED_SIGNED:
+            return {
+                "ok": False, "stage": "curation", "integrity": verdict, "warnings": [],
+                "problems": [
+                    f"'{m['name']}' is listed on a curated registry but its signature "
+                    f"did not verify. Every plugin on {listing.get('registry_label') or 'that store'} "
+                    f"is signed when it is approved, so an unsigned or unverifiable one "
+                    f"means the listing or the file was altered after approval. Refused.",
+                    sig.get("reason") or "No valid signature was present."]}
+        if str(listing.get("publisher_id") or "") != expected:
+            return {
+                "ok": False, "stage": "curation", "integrity": verdict, "warnings": [],
+                "problems": [
+                    f"'{m['name']}' is signed by '{listing.get('publisher_id')}', not by "
+                    f"the curated registry's own key ('{expected}'). A valid signature "
+                    f"from the wrong signer is still the wrong signer. Refused."]}
+
     try:
         source = raw.decode("utf-8")
     except Exception:
@@ -708,5 +788,6 @@ __all__ = [
     "browse", "search", "preview_install", "install",
     "marketplace_home", "set_marketplace_home",
     "quick_install", "needs_review", "review_notes", "install_mcp",
+    "is_curated", "official_registry_url", "OFFICIAL_REGISTRY_ID",
     "set_licence_key", "licence_key",
 ]

@@ -442,6 +442,78 @@ class PluginManager:
     # Enable / disable
     # ------------------------------------------------------------------
 
+    def dispatch(self, action: str, args: Optional[Dict[str, Any]] = None) -> Optional[Dict[str, Any]]:
+        """Run an installed plugin's own action, or None if no plugin claims it.
+
+        This is the step that was missing, and without it the marketplace stopped
+        one move short of useful: a plugin could be downloaded, verified, scanned,
+        consented to, written to disk, enabled and imported — and then nothing
+        could call it. `Plugin.register()` did publish actions into
+        `capability_registry`, but that registry is a CATALOGUE (`list_capabilities`
+        backs the docs and compatibility surfaces); nothing ever looked a `handler`
+        back up and invoked it. And `base.load_plugins()`, which drove registration,
+        enumerates the `eli.plugins` **source package**, so a plugin installed into
+        the user's plugins directory was never among the ones it registered.
+
+        Resolution happens against `self._loaded` at call time rather than through a
+        table built at startup, so a plugin enabled mid-session is callable
+        immediately — no restart, which is what "as easy as clicking install"
+        requires.
+
+        Action names follow `Plugin.register`'s convention, `<PLUGIN>_<ACTION>`, and
+        a bare action name is accepted when exactly one enabled plugin offers it.
+        Ambiguity is reported rather than guessed: silently picking one of two
+        plugins that both define `SEARCH` is how a plugin ends up shadowing another.
+        """
+        name = str(action or "").strip().upper()
+        if not name:
+            return None
+
+        enabled = set(_load_state().get("enabled", []))
+        candidates = []
+        for pid, inst in list(self._loaded.items()):
+            if pid not in enabled:
+                continue
+            for act in (getattr(inst, "actions", {}) or {}):
+                qualified = f"{str(getattr(inst, 'name', pid)).upper()}_{str(act).upper()}"
+                if name == qualified or name == str(act).upper():
+                    candidates.append((pid, inst, act))
+
+        if not candidates:
+            return None
+        if len(candidates) > 1:
+            exact = [c for c in candidates
+                     if name == f"{str(getattr(c[1], 'name', c[0])).upper()}_{str(c[2]).upper()}"]
+            if len(exact) == 1:
+                candidates = exact
+            else:
+                names = ", ".join(f"{c[0]}_{c[2]}".upper() for c in candidates[:5])
+                msg = (f"'{name}' is offered by more than one enabled plugin ({names}). "
+                       f"Use the full <PLUGIN>_<ACTION> name.")
+                return {"ok": False, "action": name, "error": msg,
+                        "content": msg, "response": msg}
+
+        pid, inst, act = candidates[0]
+        try:
+            result = inst.execute(act, dict(args or {}))
+        except Exception as exc:
+            log.debug(f"[PLUGIN] {pid}.{act} raised", exc_info=True)
+            msg = f"Plugin '{pid}' failed running {act}: {exc}"
+            return {"ok": False, "action": name, "plugin": pid,
+                    "error": str(exc), "content": msg, "response": msg}
+
+        if not isinstance(result, dict):
+            text = str(result)
+            return {"ok": True, "action": name, "plugin": pid,
+                    "content": text, "response": text}
+        result.setdefault("ok", True)
+        result.setdefault("action", name)
+        result["plugin"] = pid
+        text = result.get("content") or result.get("response") or ""
+        result.setdefault("content", text)
+        result.setdefault("response", text)
+        return result
+
     def enable(self, plugin_id: str) -> Dict[str, Any]:
         plugin_py = _plugins_dir() / plugin_id / "plugin.py"
         if not plugin_py.exists():

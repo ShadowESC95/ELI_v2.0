@@ -108,6 +108,12 @@ TOPIC_STOPWORDS = frozenset({
             # persona updates and proactive suggestions as an interest to help with.
             # Same shape as "youre" at 2.3.0 and "afternoon" on the overnight run:
             # a word that clears the 4-character bar and carries no subject matter.
+            # Auxiliary//past-tense verbs. "did" survived into an FTS5 query as a
+            # search term ("what did I say about fallout" -> "did" OR "fallout"),
+            # matching any memory containing "did". The list had "doing" and "does"
+            # but not "did", "had", "been" as query noise.
+            "did", "had", "has", "was", "were", "am", "are", "be", "being",
+            "come", "came", "goes", "went", "gets", "getting", "put", "puts",
             "fuck", "fucking", "fucked", "fucks", "shit", "shite", "shitty",
             "crap", "damn", "damned", "bloody", "bollocks", "arse", "ass",
             "bastard", "bugger", "feck", "fecking", "wtf", "christ", "jesus",
