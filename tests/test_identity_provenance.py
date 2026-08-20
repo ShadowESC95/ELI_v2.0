@@ -39,18 +39,23 @@ def test_profile_extractor_tracks_anti_stub_persona_preferences():
         "Bring back the full persona with more depth and character."
     )
 
-    assert (
-        "preference.output_quality",
-        "User rejects stubs, templates, placeholders, and boilerplate as generated output.",
-    ) in patterns
-    assert (
-        "preference.style",
-        "User rejects generic, repetitive, shallow, customer-service style responses.",
-    ) in patterns
-    assert (
-        "preference.persona",
-        "User wants ELI to keep a deeper, more characterful persona while staying technically grounded.",
-    ) in patterns
+    # Match on the LABEL, not the whole row. Each rule now appends the user's own
+    # words ('… Said: "…"') because the fixed label alone was byte-identical
+    # whatever was said, so dedupe folded hundreds of turns into ten rows. The
+    # labels below are still the thing persona and proactive surfaces read, and
+    # they must keep being emitted for this text.
+    def _label(ptype: str) -> str:
+        for t, d in patterns:
+            if t == ptype:
+                return d
+        raise AssertionError(f"{ptype} was not extracted from this text")
+
+    assert _label("preference.output_quality").startswith(
+        "User rejects stubs, templates, placeholders, and boilerplate as generated output.")
+    assert _label("preference.style").startswith(
+        "User rejects generic, repetitive, shallow, customer-service style responses.")
+    assert _label("preference.persona").startswith(
+        "User wants ELI to keep a deeper, more characterful persona while staying technically grounded.")
 
 
 def test_eli_identity_questions_route_to_self_report():
