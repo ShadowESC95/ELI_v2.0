@@ -148,12 +148,19 @@ def ensure_profile_tables(db_path: Path | None = None) -> None:
         """
     )
 
+    # Belief storage and the corroboration/provenance columns the weighing needs.
+    # Before the backfill, so those passes see the migrated shape.
+    try:
+        from eli.cognition.stance_store import ensure_tables as _ensure_belief
+        _ensure_belief(cur)
+    except Exception:
+        log.debug("belief tables unavailable", exc_info=True)
+
     backfill_semantic_from_patterns(cur)
     reconcile_single_valued_patterns(cur)
 
     con.commit()
     con.close()
-
 
 def _scrub_onboarding_snapshot(cur: sqlite3.Cursor, stale_values: list) -> None:
     """Drop the onboarding baseline row when it embeds a value we just retired.
@@ -293,15 +300,75 @@ _SINGLE_VALUED_PATTERNS = frozenset({
 })
 
 
-def _supersede_single_valued(cur: sqlite3.Cursor, pattern_type: str, pattern_data: str) -> None:
-    """Retire earlier values of a single-valued key so the correction wins.
+def _supersede_single_valued(cur: sqlite3.Cursor, pattern_type: str,
+                            pattern_data: str,
+                            provenance: str = "user_passing") -> bool:
+    """Weigh a replacement for a single-valued key, and retire the old value only
+    if it actually loses.
 
-    Deletes rather than flags: these rows are read by several independent
-    consumers (persona_updater, the personal-memory report, user_info_builder)
-    and a 'superseded' column every one of them would have to honour is a
-    filter waiting to be forgotten. The semantic mirror is cleared too, or the
-    stale value simply comes back from there.
+    This used to delete unconditionally: whoever wrote last won. That is the
+    yes-man mechanism sitting in the data layer — it makes ASSERTION equal to
+    EVIDENCE, so a passing mention could overwrite something the user had stated
+    outright and reaffirmed a dozen times, silently and with no record.
+
+    Now the standing value is weighed against the new one (see
+    `eli.cognition.belief`). Returns True when the replacement should proceed.
+    False means the standing value held and the CALLER MUST NOT INSERT — an
+    unweighed insert would leave both values present, which is worse than either
+    outcome.
+
+    Retiring still DELETES rather than flagging, for the original reason: several
+    consumers read these rows and a 'superseded' column each would have to honour
+    is a filter waiting to be forgotten. What is new is that the retired value is
+    written to `belief_revisions` first, so it is recoverable and ELI can say what
+    it used to hold and why that changed.
     """
+    now = time.time()
+    try:
+        from eli.cognition.belief import (
+            Belief, HOLD, assess_claim,
+        )
+        from eli.cognition.stance_store import ensure_tables, record_revision
+        ensure_tables(cur)
+        row = cur.execute(
+            "SELECT pattern_data, COALESCE(corroboration, 1), "
+            "       COALESCE(provenance, 'user_passing'), "
+            "       COALESCE(timestamp, ts, 0) "
+            "  FROM user_patterns "
+            " WHERE lower(COALESCE(pattern_type,'')) = lower(?) "
+            "   AND lower(COALESCE(pattern_data,'')) <> lower(?) "
+            " ORDER BY COALESCE(timestamp, ts, 0) DESC LIMIT 1",
+            (pattern_type, pattern_data),
+        ).fetchone()
+        if row:
+            standing = Belief(statement=row[0], corroboration=int(row[1] or 1),
+                              provenance=row[2], last_seen=float(row[3] or now))
+            challenger = Belief(statement=pattern_data, corroboration=1,
+                                provenance=provenance, last_seen=now)
+            verdict = assess_claim(standing, challenger, now)
+            # Refuse only on HOLD. A QUESTION means the evidence genuinely does
+            # not settle it, and on a SINGLE-VALUED key there is no third option
+            # — something has to be stored. Deferring to the newer statement when
+            # nothing distinguishes them is not caving: caving is yielding when
+            # you hold the better evidence, which is exactly what HOLD catches.
+            # Refusing here instead would resurrect the original defect this key
+            # exists to prevent, where a correction left two mutually exclusive
+            # values and retrieval order decided which one ELI believed.
+            if verdict.action == HOLD:
+                log.debug("profile_extractor: keeping %s=%r over %r (%s)",
+                          pattern_type, row[0], pattern_data, verdict.action)
+                return False
+            record_revision(cur, "user_pattern", pattern_type, row[0], pattern_data,
+                            reason="; ".join(verdict.reasons),
+                            standing_weight=verdict.standing_weight,
+                            challenger_weight=verdict.challenger_weight, now=now)
+    except Exception:
+        # Never block a write on the belief layer. Falling back to the old
+        # last-writer-wins is worse than weighing, but far better than losing
+        # the correction entirely.
+        log.debug("belief assessment unavailable; superseding unweighed",
+                  exc_info=True)
+
     try:
         cur.execute(
             """
@@ -324,6 +391,7 @@ def _supersede_single_valued(cur: sqlite3.Cursor, pattern_type: str, pattern_dat
         )
     except Exception:
         log.debug("could not retire earlier semantic %s rows", pattern_type, exc_info=True)
+    return True
 
 
 def _insert_user_pattern(
@@ -331,6 +399,7 @@ def _insert_user_pattern(
     pattern_type: str,
     pattern_data: str,
     ts_value: float | None = None,
+    provenance: str = "user_passing",
 ) -> bool:
     pattern_type = _clean(pattern_type, 120)
     pattern_data = _clean(pattern_data, 900)
@@ -340,7 +409,11 @@ def _insert_user_pattern(
         return False
 
     if pattern_type.lower() in _SINGLE_VALUED_PATTERNS:
-        _supersede_single_valued(cur, pattern_type, pattern_data)
+        # A refusal means the standing value won. Inserting anyway would leave
+        # both values present on a key that is single-valued by definition.
+        if not _supersede_single_valued(cur, pattern_type, pattern_data,
+                                        provenance=provenance):
+            return False
 
     exists = cur.execute(
         """
@@ -357,26 +430,72 @@ def _insert_user_pattern(
         # MOST RECENT mention, not the first. Projects and interests are dynamic —
         # an active one stays fresh, an abandoned one ages out (see staleness
         # filters in persona_updater + personal_memory_clean_response).
+        # Reaffirmation also CORROBORATES. Without this the belief layer has
+        # nothing to weigh with: a fact stated once and a fact stated twenty
+        # times looked identically supported, so a passing correction could
+        # overturn either. Provenance is upgraded but never downgraded — a
+        # passing mention must not weaken something said outright.
         try:
             cur.execute(
                 """
-                UPDATE user_patterns SET timestamp = ?, ts = ?
+                UPDATE user_patterns
+                   SET timestamp = ?, ts = ?,
+                       corroboration = COALESCE(corroboration, 1) + 1
                 WHERE lower(COALESCE(pattern_type, '')) = lower(?)
                   AND lower(COALESCE(pattern_data, '')) = lower(?)
                 """,
                 (now, now, pattern_type, pattern_data),
             )
         except Exception:
-            pass
+            # Pre-migration database without the column — recency alone.
+            try:
+                cur.execute(
+                    """
+                    UPDATE user_patterns SET timestamp = ?, ts = ?
+                    WHERE lower(COALESCE(pattern_type, '')) = lower(?)
+                      AND lower(COALESCE(pattern_data, '')) = lower(?)
+                    """,
+                    (now, now, pattern_type, pattern_data),
+                )
+            except Exception:
+                log.debug("could not refresh %s", pattern_type, exc_info=True)
+        try:
+            from eli.cognition.belief import PROVENANCE_WEIGHT
+            cur.execute(
+                "UPDATE user_patterns SET provenance = ? "
+                " WHERE lower(COALESCE(pattern_type,'')) = lower(?) "
+                "   AND lower(COALESCE(pattern_data,'')) = lower(?) "
+                "   AND COALESCE(?, 0) > COALESCE("
+                "        (SELECT ? ), 0)",
+                (provenance, pattern_type, pattern_data,
+                 PROVENANCE_WEIGHT.get(provenance, 0.0),
+                 PROVENANCE_WEIGHT.get(provenance, 0.0)),
+            )
+        except Exception:
+            log.debug("could not upgrade provenance", exc_info=True)
         return False
 
-    cur.execute(
-        """
-        INSERT INTO user_patterns(pattern_type, pattern_data, timestamp, ts)
-        VALUES (?, ?, ?, ?)
-        """,
-        (pattern_type, pattern_data, now, now),
-    )
+    try:
+        cur.execute(
+            "INSERT INTO user_patterns(pattern_type, pattern_data, timestamp, ts, "
+            "                          corroboration, provenance) "
+            "VALUES (?, ?, ?, ?, 1, ?)",
+            (pattern_type, pattern_data, now, now, provenance),
+        )
+    except Exception:
+        # Pre-migration database without the belief columns.
+        log.debug("insert with provenance failed; using the legacy shape",
+                  exc_info=True)
+        cur.execute(
+            """
+            INSERT INTO user_patterns(pattern_type, pattern_data, timestamp, ts)
+            VALUES (?, ?, ?, ?)
+            """,
+            (pattern_type, pattern_data, now, now),
+        )
+
+    # Must run on BOTH insert paths. An earlier cut returned straight after the
+    # new insert and skipped it, so nothing reached the semantic tier at all.
     _promote_to_semantic(cur, pattern_type, pattern_data, now)
     return True
 
