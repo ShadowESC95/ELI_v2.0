@@ -122,12 +122,50 @@ legacy pickle. Backs `truth_report` and the memory-status surfaces.
 
 ## Weight decay & consolidation
 
-`apply_weight_decay(decay_factor=0.98, min_weight=0.05, older_than_days=7)` —
-a multiplicative SQL update (`weight = MAX(min, weight*factor)` for old,
-low-importance rows). **There is no real episodic→semantic→KG consolidation**:
-decay is the only forgetting mechanism, and promotion across stores is manual
-(`store_episodic`/`store_semantic` are aliases, not a pipeline). This is a known
-gap ELI's own grounding admits.
+`apply_weight_decay(min_weight=0.05, older_than_days=7, half_life_days=30)` —
+recomputes `weight` as `2 ** (-age_days / half_life)`, with the half-life
+stretched by importance (`DECAY_IMPORTANCE_STRETCH`) and rows at or above
+`DECAY_PIN_IMPORTANCE` (0.85) pinned at 1.0. Because it is a pure function of
+age and importance it is idempotent — its caller samples ~1% of responses, and a
+missed tick cannot leave a memory over-weighted.
+
+It previously multiplied the stored weight by a constant on each call, which
+measured how often the function ran rather than how old a memory was. On a live
+441-memory store every row was still at exactly 1.0, and since `weight` carries
+15% of the recall fusion score (`scoring.RERANK_W_WEIGHT`) that term was a
+constant contributing no ranking signal at all.
+
+`consolidate_memories(dry_run=False)` — folds exact-duplicate memory text down
+to one canonical row per group, keeping the group's best importance, newest
+timestamp and unioned tags. Reflection's dedupe guard was fixed to do an
+existence check rather than a relevance query, but nothing retired what had
+already accumulated: the same live store held 169 exact-text duplicates across
+66 groups — 38% of everything — one insight repeated 28 times. It also rebuilds
+`memories_fts` after deleting, because **the FTS triggers declared in the schema
+do not exist on any database, fresh or live** — the index is maintained by an
+explicit INSERT in the store path and nothing had ever deleted from it. Note
+that orphaned index entries cannot be detected from SQL: on an external-content
+FTS5 table any query without a `MATCH` reads through to the content table, so
+`COUNT(*)` and `SELECT rowid` only ever report live rows.
+
+**Promotion across tiers is automatic, not manual.** It is a fan-out from
+`user_patterns` rather than the linear chain the name suggests:
+
+    turns ──▶ user_patterns ──┬──▶ semantic   (profile_extractor._promote_to_semantic)
+                              └──▶ KG entities/relations
+                                   (persona_updater._populate_kg_from_user_patterns)
+
+`_promote_to_semantic` applies a durable/transient prefix filter, dedupes
+against the `semantic` table, and only fires when `_insert_user_pattern`
+actually inserted, so reaffirmations do not re-promote.
+`_populate_kg_from_user_patterns` maps six pattern prefixes to typed relations
+off the `User` node. `store_episodic`/`store_semantic` are indeed thin aliases,
+but they are not the promotion path and never were.
+
+The real weakness is the **width of the funnel, not its absence**: 619 turns and
+441 memories yielded only 10 `user_patterns`, and everything downstream inherits
+that — 6 semantic facts, 27 KG entities. Extraction is regex-driven, and three
+of those ten patterns are `app_cmd` JSON blobs the KG mapper discards.
 
 ## Honest assessment
 

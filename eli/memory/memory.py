@@ -310,6 +310,61 @@ def _add_column_if_missing(conn, table, name, decl):
         _validate_identifier(name, "column")
         conn.execute(f"ALTER TABLE {t} ADD COLUMN {name} {decl}")
 
+def _ensure_memory_indexes(conn) -> None:
+    """Create the recall indexes. Called LAST, after every table exists.
+
+    This used to sit in the middle of schema creation, four statements sharing one
+    `try` that ended in `except Exception: pass`. Two faults compounded:
+
+      * `CREATE INDEX ... ON conversation_turns(...)` ran roughly twenty lines
+        BEFORE `CREATE TABLE ... conversation_turns`, so on a fresh database it
+        raised "no such table";
+      * because all four shared one try, that exception abandoned the rest, and the
+        bare `pass` meant nothing was ever reported.
+
+    Net effect, verified on a live 2.3.10 database: `memories` (441 rows),
+    `conversation_turns` (617) and `observations` (114) carried NO indexes at all,
+    while kg_entities, runtime_events and emotion_events — indexed elsewhere — had
+    theirs. Every recall was `SCAN` + `USE TEMP B-TREE FOR ORDER BY`, several times
+    per turn. Invisible at a few hundred rows and linear from there.
+
+    Each statement now gets its own try so one failure cannot take the others, and
+    failures are logged rather than swallowed.
+    """
+    indexes = [
+        # ORDER BY COALESCE(timestamp, ts) in every recall query
+        ("idx_memories_ts", "CREATE INDEX IF NOT EXISTS idx_memories_ts ON memories(ts DESC)"),
+        ("idx_memories_timestamp",
+         "CREATE INDEX IF NOT EXISTS idx_memories_timestamp ON memories(timestamp DESC)"),
+        ("idx_memories_importance",
+         "CREATE INDEX IF NOT EXISTS idx_memories_importance ON memories(importance DESC)"),
+        # WHERE clause in search_conversations
+        ("idx_conversations_user_session",
+         "CREATE INDEX IF NOT EXISTS idx_conversations_user_session "
+         "ON conversations(user_id, session_id)"),
+        # get_recent_conversation: filter by session, order by time
+        ("idx_conversation_turns_session",
+         "CREATE INDEX IF NOT EXISTS idx_conversation_turns_session "
+         "ON conversation_turns(session_id, timestamp DESC)"),
+        ("idx_conversation_turns_ts",
+         "CREATE INDEX IF NOT EXISTS idx_conversation_turns_ts "
+         "ON conversation_turns(timestamp DESC)"),
+        # get_recent_observations — was scanning the whole table
+        ("idx_observations_timestamp",
+         "CREATE INDEX IF NOT EXISTS idx_observations_timestamp ON observations(timestamp DESC)"),
+    ]
+    created = 0
+    for name, ddl in indexes:
+        try:
+            conn.execute(ddl)
+            created += 1
+        except Exception as exc:
+            # A missing table or column is worth knowing about; it is why these
+            # indexes were absent for so long.
+            log.debug("[MEMORY] index %s not created: %s", name, exc)
+    log.debug("[MEMORY] recall indexes ensured (%d/%d)", created, len(indexes))
+
+
 def _ensure_memory_schema(conn):
     conn.execute(
         """
@@ -408,28 +463,6 @@ def _ensure_memory_schema(conn):
         ("title", "TEXT"),
     ]:
         _add_column_if_missing(conn, "conversations", name, decl)
-
-    # ── Performance indexes ─────────────────────────────────────────────────
-    # memories(ts) — ORDER BY COALESCE(timestamp, ts) used in every recall query
-    # conversations(user_id, session_id) — WHERE clause in search_conversations
-    # conversation_turns(session_id, timestamp) — ORDER BY in deep history fallback
-    try:
-        conn.execute(
-            "CREATE INDEX IF NOT EXISTS idx_memories_ts ON memories(ts DESC)"
-        )
-        conn.execute(
-            "CREATE INDEX IF NOT EXISTS idx_memories_importance ON memories(importance DESC)"
-        )
-        conn.execute(
-            "CREATE INDEX IF NOT EXISTS idx_conversations_user_session "
-            "ON conversations(user_id, session_id)"
-        )
-        conn.execute(
-            "CREATE INDEX IF NOT EXISTS idx_conversation_turns_session "
-            "ON conversation_turns(session_id, timestamp DESC)"
-        )
-    except Exception:
-        pass
 
     conn.execute(
         """
@@ -784,6 +817,8 @@ def _ensure_memory_schema(conn):
     )
     for name, decl in [("session_id", "TEXT"), ("summary", "TEXT"), ("content", "TEXT"), ("timestamp", "REAL"), ("ts", "REAL")]:
         _add_column_if_missing(conn, "session_summaries", name, decl)
+
+    _ensure_memory_indexes(conn)
 
 def _table_columns(conn, table):
     try:
@@ -1608,6 +1643,61 @@ def _eli_table_exists(conn, table_name):
         return False
 
 
+def _fts_delete(conn, rowid: int, text: str, tags: str) -> None:
+    """Remove one row from memories_fts.
+
+    External-content FTS5 cannot look the old terms up itself — the 'delete'
+    command has to be given the exact text and tags the row was indexed with, and
+    a mismatch corrupts the index rather than erroring. Callers therefore pass the
+    values read from the row BEFORE any update.
+    """
+    try:
+        conn.execute(
+            "INSERT INTO memories_fts(memories_fts, rowid, text, tags) "
+            "VALUES('delete', ?, ?, ?)",
+            (int(rowid), text or "", tags or ""),
+        )
+    except Exception:
+        log.debug("[MEMORY] fts delete failed for rowid %s", rowid, exc_info=True)
+
+
+def _fts_rebuild(conn) -> bool:
+    """Regenerate memories_fts from the `memories` table.
+
+    Called after a consolidation pass removes rows, to clear index entries that
+    point at rowids which no longer exist. A stale entry makes keyword recall —
+    now half of hybrid retrieval — return a memory that cannot be read back, so
+    the join drops it and the result slot is wasted.
+
+    This rebuilds unconditionally rather than checking for orphans first, because
+    on an external-content FTS5 table there is no way to ask. Any query without a
+    MATCH reads *through* to the content table, so `SELECT rowid FROM memories_fts`
+    and `COUNT(*)` both report the live rows and can never reveal a stale one — a
+    live database with three known orphans (rowids 2, 34 and 36, drift from some
+    removal that predates any delete path existing) reports zero by that route.
+
+    Only reachable from the consolidation tick, which is sampled at 0.1% of
+    responses, so the O(rows) cost is paid rarely.
+    """
+    try:
+        conn.execute("INSERT INTO memories_fts(memories_fts) VALUES('rebuild')")
+        return True
+    except Exception:
+        log.debug("[MEMORY] fts rebuild failed", exc_info=True)
+        return False
+
+
+def _fts_reindex(conn, rowid: int, text: str, tags: str) -> None:
+    """Re-insert a row into memories_fts after its indexed columns changed."""
+    try:
+        conn.execute(
+            "INSERT INTO memories_fts(rowid, text, tags) VALUES (?, ?, ?)",
+            (int(rowid), text or "", tags or ""),
+        )
+    except Exception:
+        log.debug("[MEMORY] fts reindex failed for rowid %s", rowid, exc_info=True)
+
+
 class Memory(metaclass=_MemoryMeta):
     """
     SQLite-backed memory store with optional secondary writes.
@@ -2105,16 +2195,48 @@ class Memory(metaclass=_MemoryMeta):
                 except Exception:
                     pass
 
-            # --- Stage 6: FTS5 keyword search (supplementary / fallback) ---
-            # Always run in keyword_only mode. Otherwise run when vector returned
-            # fewer than limit//2 results or the index is empty.
-            _need_keyword = keyword_only or (not _vector_index_populated) or (len(vector_results) < max(1, limit // 2))
+            # --- Stage 6: FTS5 keyword search (CO-EQUAL channel) ---
+            # This used to be a fallback:
+            #     _need_keyword = keyword_only or (not populated) or
+            #                     (len(vector_results) < max(1, limit // 2))
+            # FAISS IndexFlat applies no similarity threshold — it returns top_k
+            # nearest for ANY query — so with 442 vectors and limit=10 the count was
+            # always 10, `10 < 5` was never true, and the branch was unreachable in
+            # normal operation. A fully populated, trigger-maintained `memories_fts`
+            # (441 rows, one per memory) was built on every write and never read.
+            #
+            # Live cost: asked "what did I say about fallout", recall returned seven
+            # semantically-near rows and NOT the two turns containing the literal
+            # word — they were never looked for.
+            #
+            # Both channels now always run and are fused by rank (see Stage 8).
+            _need_keyword = True
             fts_rows = []
             if _need_keyword and _has_table(conn, "memories_fts"):
                 try:
-                    fts_q = " OR ".join(
-                        f'"{t}"' for t in re.split(r"[^a-zA-Z0-9_]+", q) if len(t) > 1
-                    )
+                    # Content terms only. This was every token OR'd together, so
+                    # "what did I say about fallout" became
+                    #     "what" OR "did" OR "say" OR "about" OR "fallout"
+                    # and matched any memory containing "what" or "say". The branch
+                    # had been unreachable since FAISS became primary, so the naive
+                    # query was never exercised; making the channels co-equal
+                    # surfaced it immediately as a flood of noise ranked first.
+                    #
+                    # The LIKE fallback below already filtered stopwords — the FTS5
+                    # path simply never got the same treatment.
+                    try:
+                        from eli.runtime.reflection import TOPIC_STOPWORDS as _STOP
+                    except Exception:
+                        _STOP = frozenset()
+                    _terms = [
+                        t for t in re.split(r"[^a-zA-Z0-9_]+", q)
+                        if len(t) > 1 and t.lower() not in _STOP
+                    ]
+                    # Every token was noise (e.g. "what about that?") — fall back to
+                    # the raw tokens rather than searching for nothing.
+                    if not _terms:
+                        _terms = [t for t in re.split(r"[^a-zA-Z0-9_]+", q) if len(t) > 1]
+                    fts_q = " OR ".join(f'"{t}"' for t in _terms)
                     if fts_q:
                         fts_rows = conn.execute(
                             f"""
@@ -2192,18 +2314,36 @@ class Memory(metaclass=_MemoryMeta):
                 for r in (fts_rows or like_rows)[:limit]
             ]
 
-            # --- Stage 8: Hybrid Merge — deduplicate and combine ---
-            seen_texts: set = set()
-            out: List[Dict] = []
-            # Interleave: prefer vector hits (semantic) then keyword hits
-            for result_list in (vector_results, keyword_results):
-                for r in result_list:
-                    txt = (r.get("text") or "").strip()[:120]
-                    if txt and txt not in seen_texts:
-                        seen_texts.add(txt)
-                        out.append(r)
-                    elif not txt:
-                        out.append(r)
+            # --- Stage 8: Hybrid Merge — Reciprocal Rank Fusion ---
+            # Was an interleave: every vector hit, then every keyword hit, deduped by
+            # the first 120 characters. That makes the channels ordered rather than
+            # combined — a memory both retrievers rank first is indistinguishable
+            # from one only FAISS found, and vector always won on position alone.
+            #
+            # RRF scores each candidate by 1/(k+rank) summed over the channels that
+            # found it, so agreement between the two beats a strong showing in
+            # either. It fuses by POSITION, which matters here because the scores are
+            # not comparable: FAISS similarity is 1/(1+L2) — 0.559 for a real query
+            # against 0.524 for gibberish — and FTS5 emits BM25. Any weighted sum of
+            # those two is arbitrary; ranks need no shared scale.
+            try:
+                from eli.cognition.reranker import fuse_ranked_lists
+                out: List[Dict] = fuse_ranked_lists({
+                    "vector": vector_results,
+                    "keyword": keyword_results,
+                })
+            except Exception:
+                log.debug("[MEMORY] rank fusion unavailable — interleaving", exc_info=True)
+                seen_texts: set = set()
+                out = []
+                for result_list in (vector_results, keyword_results):
+                    for r in result_list:
+                        txt = (r.get("text") or "").strip()[:120]
+                        if txt and txt not in seen_texts:
+                            seen_texts.add(txt)
+                            out.append(r)
+                        elif not txt:
+                            out.append(r)
             # Sort merged results by composite score:
             #   importance × 0.5 + weight × 0.3 + recency × 0.2 + preference boost
             # importance already encodes preference/identity/user-authored salience
@@ -2547,29 +2687,96 @@ class Memory(metaclass=_MemoryMeta):
     def search_memories(self, query: str, limit: int = 10) -> List[Dict[str, Any]]:
         return self.search_memory(query, limit=limit)
 
+    # ------------------------------------------------------------------
+    # Decay and consolidation
+    # ------------------------------------------------------------------
+
+    # Half-life in days for a memory of importance 0. Importance stretches it:
+    # a fact ELI keeps recalling (importance is reinforced +0.02 per recall in
+    # recall_memory) survives far longer than one nothing ever asked for.
+    DECAY_HALF_LIFE_DAYS = 30.0
+    DECAY_IMPORTANCE_STRETCH = 3.0
+    DECAY_PIN_IMPORTANCE = 0.85
+    # Smallest weight change worth a write. `now` advances between calls, so every
+    # row's ideal weight drifts a hair on each run; without a floor the UPDATE
+    # rewrites the whole table every time and "rows updated" always equals "rows
+    # eligible", which hides whether decay is actually doing anything.
+    DECAY_MIN_DELTA = 0.005
+
     def apply_weight_decay(
         self,
         decay_factor: float = 0.98,
         min_weight: float = 0.05,
         older_than_days: int = 7,
+        half_life_days: Optional[float] = None,
     ) -> int:
+        """Recompute `weight` as a function of a memory's AGE and importance.
+
+        This used to multiply the stored weight by `decay_factor` on every call,
+        which made the result depend on how many times the function happened to
+        run rather than on how old the memory was. Its one caller fires on ~1% of
+        responses (engine.py, post-response), so on a live 441-memory store the
+        column was still 1.0 on every single row — 174 of them over a week old.
+        `weight` carries 15% of the recall fusion score (scoring.RERANK_W_WEIGHT),
+        so that entire term was a constant and contributed no ranking signal at
+        all.
+
+        It is now an idempotent exponential decay: running it once and running it
+        a thousand times give the same answer, so a stochastic caller is fine and
+        a missed run cannot leave a memory permanently over-weighted.
+
+            weight = 2 ** (-age_days / half_life)
+
+        with the half-life stretched by importance, so recall reinforcement
+        translates into survival. Memories at or above DECAY_PIN_IMPORTANCE are
+        pinned at 1.0 — the previous version also exempted them, and that is worth
+        keeping: an explicitly important fact should not fade just by sitting.
+
+        `decay_factor` is accepted and ignored; it is retained so the existing
+        call sites and tests keep working. Returns the number of rows updated.
         """
-        Blueprint Stage Post-Response: Weight Decay.
-        Reduce weight on memories older than `older_than_days` by `decay_factor`.
-        Entries below `min_weight` are set to min_weight (not deleted).
-        Returns number of rows updated.
-        """
-        cutoff_ts = time.time() - (older_than_days * 86400)
+        base = float(half_life_days if half_life_days is not None
+                     else self.DECAY_HALF_LIFE_DAYS)
+        if base <= 0:
+            base = self.DECAY_HALF_LIFE_DAYS
+        min_weight = max(0.0, min(1.0, float(min_weight)))
+        cutoff_ts = time.time() - (max(0, int(older_than_days)) * 86400)
+        now = time.time()
+
+        def _decayed(ts_value, importance) -> float:
+            """Age + importance -> weight in [min_weight, 1.0]."""
+            try:
+                age_days = max(0.0, (now - float(ts_value or 0.0)) / 86400.0)
+            except (TypeError, ValueError):
+                return 1.0
+            imp = 0.5
+            try:
+                if importance is not None:
+                    imp = max(0.0, min(1.0, float(importance)))
+            except (TypeError, ValueError):
+                imp = 0.5
+            if imp >= self.DECAY_PIN_IMPORTANCE:
+                return 1.0
+            half_life = base * (1.0 + self.DECAY_IMPORTANCE_STRETCH * imp)
+            return max(min_weight, min(1.0, 2.0 ** (-age_days / half_life)))
+
         conn = self._get_connection()
         try:
+            # Registered rather than computed in Python over fetched rows: this
+            # stays one set-based UPDATE, so a store with 100k memories does not
+            # become 100k round trips.
+            conn.create_function("eli_memory_decay", 2, _decayed, deterministic=True)
             conn.execute(
                 """
                 UPDATE memories
-                SET weight = MAX(?, COALESCE(weight, 1.0) * ?)
+                SET weight = eli_memory_decay(
+                        COALESCE(timestamp, ts, 0), COALESCE(importance, 0.5))
                 WHERE COALESCE(timestamp, ts, 0) < ?
-                AND COALESCE(importance, 0.5) < 0.85
+                  AND ABS(COALESCE(weight, 1.0) - eli_memory_decay(
+                        COALESCE(timestamp, ts, 0), COALESCE(importance, 0.5)))
+                      > ?
                 """,
-                (min_weight, decay_factor, cutoff_ts),
+                (cutoff_ts, self.DECAY_MIN_DELTA),
             )
             updated = conn.execute("SELECT changes()").fetchone()[0]
             conn.commit()
@@ -2577,6 +2784,113 @@ class Memory(metaclass=_MemoryMeta):
         except Exception as e:
             log.debug(f"[MEMORY] weight_decay failed: {e}")
             return 0
+        finally:
+            conn.close()
+
+    def consolidate_memories(self, dry_run: bool = False) -> Dict[str, Any]:
+        """Fold exact-duplicate memory text down to one canonical row each.
+
+        Reflection used to check "have I stored this already?" with a relevance
+        query instead of an existence query, so the same insight was appended
+        every cycle. That writer was fixed (reflection._already_stored now does an
+        exact match), but nothing ever retired what had already piled up: a live
+        store held 441 memories of which 169 — 38% — were exact-text duplicates in
+        66 groups, one of them repeated 28 times. They are near-identical in
+        importance too, so they crowd recall by sheer count.
+
+        The survivor is the highest-importance row of each group, tie-broken on
+        the lowest id so the choice is stable across runs. It inherits the group's
+        maximum importance and weight and its most recent timestamp — a repeated
+        observation is a reaffirmed one, and should rank as recent.
+
+        `memories_fts` has to be maintained by hand here. The schema declares
+        AFTER INSERT/UPDATE/DELETE triggers, but they are created by a branch that
+        does not run — neither a fresh database nor the live one has a single
+        trigger on `memories`. The index is populated by an explicit INSERT in
+        `_store_memory_row` and nothing in the codebase has ever deleted from it,
+        so dropping rows without the matching FTS5 'delete' would strand index
+        entries pointing at rowids that no longer exist, and keyword recall (now
+        half of hybrid retrieval) would resurrect deleted memories.
+
+        The FAISS index is append-only with no delete, so stale vectors are left
+        alone deliberately: they point at text the survivor still holds, which
+        costs a redundant candidate that RRF fusion collapses, whereas rebuilding
+        the index here would re-embed the whole store on a maintenance tick.
+
+        Returns a summary; with dry_run=True it reports without deleting.
+        """
+        summary: Dict[str, Any] = {
+            "groups": 0, "removed": 0, "scanned": 0, "dry_run": bool(dry_run),
+        }
+        conn = self._get_connection()
+        try:
+            summary["scanned"] = int(
+                conn.execute("SELECT COUNT(*) FROM memories").fetchone()[0] or 0)
+            groups = conn.execute(
+                """
+                SELECT lower(trim(COALESCE(text, content, value, ''))) AS norm,
+                       COUNT(*) AS n
+                FROM memories
+                WHERE length(trim(COALESCE(text, content, value, ''))) > 0
+                GROUP BY norm
+                HAVING n > 1
+                """
+            ).fetchall()
+            for norm, _n in groups:
+                rows = conn.execute(
+                    """
+                    SELECT id,
+                           COALESCE(importance, 0.5),
+                           COALESCE(weight, 1.0),
+                           COALESCE(timestamp, ts, 0),
+                           COALESCE(tags, ''),
+                           COALESCE(text, '')
+                    FROM memories
+                    WHERE lower(trim(COALESCE(text, content, value, ''))) = ?
+                    ORDER BY COALESCE(importance, 0.5) DESC, id ASC
+                    """,
+                    (norm,),
+                ).fetchall()
+                if len(rows) < 2:
+                    continue
+                keep_id = rows[0][0]
+                best_importance = max(r[1] for r in rows)
+                best_weight = max(r[2] for r in rows)
+                newest_ts = max(r[3] for r in rows)
+                tags: List[str] = []
+                for r in rows:
+                    for tag in str(r[4] or "").split(","):
+                        tag = tag.strip()
+                        if tag and tag not in tags:
+                            tags.append(tag)
+                doomed = [r[0] for r in rows[1:]]
+                summary["groups"] += 1
+                summary["removed"] += len(doomed)
+                if dry_run:
+                    continue
+                merged_tags = ",".join(tags)
+                # FTS5 'delete' must be handed the values the row was INDEXED
+                # with, not the new ones, or the index silently desynchronises.
+                for row in rows[1:]:
+                    _fts_delete(conn, row[0], row[5], row[4])
+                _fts_delete(conn, keep_id, rows[0][5], rows[0][4])
+                conn.execute(
+                    "UPDATE memories SET importance = ?, weight = ?, "
+                    "timestamp = ?, tags = ? WHERE id = ?",
+                    (best_importance, best_weight, newest_ts, merged_tags, keep_id),
+                )
+                _fts_reindex(conn, keep_id, rows[0][5], merged_tags)
+                conn.executemany(
+                    "DELETE FROM memories WHERE id = ?", [(i,) for i in doomed])
+            if not dry_run:
+                if summary["removed"]:
+                    summary["fts_rebuilt"] = _fts_rebuild(conn)
+                conn.commit()
+            return summary
+        except Exception as e:
+            log.debug(f"[MEMORY] consolidate_memories failed: {e}")
+            summary["error"] = str(e)
+            return summary
         finally:
             conn.close()
 

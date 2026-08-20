@@ -17,6 +17,77 @@ def _as_float(v: Any, default: float = 0.0) -> float:
     except Exception:
         return float(default)
 
+# Reciprocal Rank Fusion constant. 60 is the value from the original Cormack et al.
+# paper and the de-facto default in production hybrid search (Elasticsearch, Vespa,
+# Weaviate) — large enough that the top few ranks are not winner-take-all, small
+# enough that deep ranks stop mattering.
+RRF_K = 60
+
+
+def fuse_ranked_lists(lists: "dict[str, list]", *, k: int = RRF_K,
+                      key=None) -> "list[dict]":
+    """Merge several ranked candidate lists by RANK, not by score.
+
+    Why rank fusion rather than blending the scores: the two retrievers produce
+    numbers that are not comparable and, in ELI's case, barely discriminate. FAISS
+    similarity here is `1/(1+L2)`, which compressed a real query to 0.559 and pure
+    gibberish to 0.524 — 0.035 of separation, with no threshold that could
+    separate them. FTS5 emits BM25, an unbounded negative. Any weighted sum of the
+    two is arbitrary and needs retuning whenever either side changes.
+
+    RRF sidesteps that entirely: a document scores `sum(1 / (k + rank))` over the
+    lists it appears in. Only its POSITION in each list matters, so the scales never
+    have to agree — and a document found by both channels naturally outranks one
+    found by either alone, which is the property a hybrid retriever exists for.
+
+    `lists` maps a channel name to its ranked candidates (best first). The channel
+    each document came from is recorded on the result as `_channels`, so a caller
+    can tell a both-channels agreement from a single-channel guess.
+    """
+    if key is None:
+        def key(c):
+            text = str((c or {}).get("text") or (c or {}).get("content") or "")
+            return text[:220].strip().lower()
+
+    fused: dict = {}
+    for channel, items in (lists or {}).items():
+        for rank, cand in enumerate(items or []):
+            if not isinstance(cand, dict):
+                continue
+            ident = key(cand)
+            if not ident:
+                continue
+            slot = fused.get(ident)
+            if slot is None:
+                slot = {"candidate": dict(cand), "rrf": 0.0, "channels": [],
+                        "ranks": {}}
+                fused[ident] = slot
+            slot["rrf"] += 1.0 / (k + rank + 1)
+            slot["channels"].append(channel)
+            slot["ranks"][channel] = rank
+            # Union the metadata when the same memory arrives from both channels.
+            # A vector hit typically lacks the id/tags/kind the SQL row carries, and
+            # comparing text length missed that entirely when both texts matched —
+            # the field-poor record simply won on arrival order.
+            for field, value in cand.items():
+                if value in (None, "", []):
+                    continue
+                if slot["candidate"].get(field) in (None, "", []):
+                    slot["candidate"][field] = value
+
+    out = []
+    for slot in fused.values():
+        row = dict(slot["candidate"])
+        # 9dp, not 6: at k=60 adjacent ranks differ in the 7th place, and
+        # rounding to 6 collapsed distinct ranks into equal scores.
+        row["rrf_score"] = round(slot["rrf"], 9)
+        row["_channels"] = sorted(set(slot["channels"]))
+        row["_channel_ranks"] = slot["ranks"]
+        out.append(row)
+    out.sort(key=lambda r: r.get("rrf_score", 0.0), reverse=True)
+    return out
+
+
 def rerank_candidates(query: str, candidates: Iterable[Dict[str, Any]], limit: int = 8) -> List[Dict[str, Any]]:
     """
     Dependency-free fallback reranker.
@@ -63,6 +134,17 @@ def rerank_candidates(query: str, candidates: Iterable[Dict[str, Any]], limit: i
             + recency * _W_RECENCY
             + source_bonus
         )
+
+        # Retrieval agreement. When the candidate came through fuse_ranked_lists,
+        # rrf_score already encodes "how highly did each retriever rank this, and
+        # did more than one find it at all". Content signals above still decide
+        # ordering; this tips ties toward documents both channels agreed on, which
+        # is the signal a single retriever cannot produce.
+        rrf = _as_float(c.get("rrf_score", 0.0), 0.0)
+        if rrf:
+            score += min(rrf, 0.05) * 2.0          # bounded: never dominates overlap
+            if len(c.get("_channels") or []) > 1:
+                score += 0.05                       # found by keyword AND vector
 
         row = dict(c)
         row["rerank_score"] = round(score, 6)

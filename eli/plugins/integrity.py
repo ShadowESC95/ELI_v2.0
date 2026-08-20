@@ -25,6 +25,7 @@ from __future__ import annotations
 import base64
 import hashlib
 import json
+import os
 import threading
 import time
 from pathlib import Path
@@ -99,9 +100,56 @@ def _save_publishers(pubs: Dict[str, Dict[str, Any]]) -> None:
     tmp.replace(p)
 
 
+# ── the marketplace's own signing identity ─────────────────────────────────────
+# ELI's official marketplace is CURATED: submissions are reviewed and only listed
+# once the maintainer signs them, and this is the key that signature is checked
+# against. It ships with ELI rather than being added by the operator, because a
+# key the user has to install by hand is a key most users will never install —
+# and an unverifiable curated registry is just an uncurated one with a badge.
+#
+# Empty until the marketplace is stood up; see docs/MARKETPLACE.md. Overridable
+# via ELI_MARKETPLACE_PUBLISHER_KEY for testing and for anyone running their own
+# curated registry from an ELI build.
+OFFICIAL_PUBLISHER_ID = "eli-marketplace"
+OFFICIAL_PUBLISHER_KEY = "EDziNM24LH45Cn8OzuKS2SJQJp3QiT8B7DWXQX17hVY="
+
+
+def _builtin_publishers() -> Dict[str, Dict[str, Any]]:
+    """The shipped official key, if this build has one."""
+    key = (os.environ.get("ELI_MARKETPLACE_PUBLISHER_KEY", "").strip()
+           or OFFICIAL_PUBLISHER_KEY).strip()
+    if not key:
+        return {}
+    try:
+        raw = base64.b64decode(key, validate=True)
+        if len(raw) != 32:
+            log.warning("[INTEGRITY] official marketplace key is %d bytes, not 32 — ignored",
+                        len(raw))
+            return {}
+    except Exception:
+        log.warning("[INTEGRITY] official marketplace key is not valid base64 — ignored")
+        return {}
+    return {OFFICIAL_PUBLISHER_ID: {
+        "public_key": base64.b64encode(raw).decode("ascii"),
+        "label": "ELI Marketplace (official)",
+        "added": "shipped",
+        "fingerprint": hashlib.sha256(raw).hexdigest()[:16],
+        "builtin": True,
+    }}
+
+
 def trusted_publishers() -> Dict[str, Dict[str, Any]]:
+    """Operator-trusted publishers, plus the shipped official marketplace key.
+
+    The builtin entry is merged LAST so an operator file cannot shadow it. Letting
+    a local edit replace the official key would turn "reviewed and signed by the
+    maintainer" into "signed by whoever wrote your config", which is exactly the
+    claim curation is supposed to make unforgeable.
+    """
     with _lock:
-        return {k: dict(v) for k, v in _load_publishers().items()}
+        out = {k: dict(v) for k, v in _load_publishers().items()}
+    out.update(_builtin_publishers())
+    return out
 
 
 def trust_publisher(publisher_id: str, public_key_b64: str, label: str = "") -> Dict[str, Any]:
@@ -136,6 +184,11 @@ def trust_publisher(publisher_id: str, public_key_b64: str, label: str = "") -> 
 
 
 def untrust_publisher(publisher_id: str) -> Dict[str, Any]:
+    if publisher_id in _builtin_publishers():
+        return {"ok": False, "problems": [
+            f"{publisher_id!r} is the official marketplace's own key and ships with ELI; "
+            f"it cannot be removed. Removing it would not stop curated installs, it "
+            f"would only stop them being verified. Disable the registry instead."]}
     with _lock:
         pubs = _load_publishers()
         if publisher_id not in pubs:
@@ -233,5 +286,6 @@ def status_summary(status: str) -> str:
 __all__ = [
     "sha256_of", "verify_hash", "verify_signature", "assess", "status_summary",
     "trust_publisher", "untrust_publisher", "trusted_publishers", "signing_available",
+    "OFFICIAL_PUBLISHER_ID", "OFFICIAL_PUBLISHER_KEY",
     "VERIFIED_SIGNED", "VERIFIED_HASH_ONLY", "UNVERIFIED", "FAILED",
 ]

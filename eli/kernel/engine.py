@@ -8383,13 +8383,23 @@ Answer:"""
         except Exception:
             log.debug("suppressed exception", exc_info=True)
 
-        # Blueprint Post-Response: Weight Decay (runs ~1% of responses to amortise cost)
+        # Blueprint Post-Response: memory maintenance (sampled, to amortise cost).
+        # Decay is a pure function of a memory's age and importance, so sampling it
+        # is safe — a missed tick changes nothing, and the next one lands on the
+        # same answer. Consolidation deletes rows, so it runs an order of magnitude
+        # more rarely and only ever merges text that is already byte-identical.
         try:
             import random as _random
-            if _random.random() < 0.01:
+            _roll = _random.random()
+            if _roll < 0.01:
                 _decayed = self.memory.apply_weight_decay()
                 if _decayed:
                     log.debug(f"[MEMORY] Weight decay applied to {_decayed} old memories")
+            if _roll < 0.001:
+                _merged = self.memory.consolidate_memories()
+                if _merged.get("removed"):
+                    log.info("[MEMORY] consolidated %d duplicate memories into %d "
+                             "canonical rows", _merged["removed"], _merged["groups"])
         except Exception:
             log.debug("suppressed exception", exc_info=True)
 

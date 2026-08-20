@@ -367,6 +367,43 @@ class SelfImprovementEngine:
     # Analysis
     # ─────────────────────────────────────────────────────────────────────────
 
+    def failures_outside_window(self, days: int = 7) -> Dict[str, Any]:
+        """Open failures OLDER than the analysis window.
+
+        `analyze_failures` looks back `days` and says nothing about what it did not
+        look at. Live at 2.3.10 that produced two self-reports contradicting each
+        other seconds apart: `self improve` reported "failures_inspected: 3" and
+        printed the newest error, while `analyse yourself` reported "0 recent
+        issues — No recent failures found." Both were correct — the seven stored
+        failures were 9.8 to 15.1 days old, outside SELF_ANALYZE's 7-day window —
+        and together they read as ELI contradicting itself.
+
+        Saying "none in the last 7 days" is true. Saying "no failures found" when
+        seven are open is not.
+        """
+        conn = self.memory._get_connection()
+        try:
+            since = time.time() - (days * 86400)
+            row = conn.execute(
+                """SELECT COUNT(*), MIN(timestamp)
+                   FROM failures
+                   WHERE timestamp < ?
+                     AND COALESCE(status, 'open') NOT IN ('resolved', 'closed')""",
+                (since,),
+            ).fetchone()
+            count = int((row or [0])[0] or 0)
+            oldest_ts = (row or [0, None])[1]
+            oldest_days = ((time.time() - oldest_ts) / 86400.0) if oldest_ts else 0.0
+            return {"count": count, "oldest_days": round(oldest_days, 1)}
+        except Exception as exc:
+            log.debug("[SELF_IMPROVE] could not count older failures: %s", exc)
+            return {"count": 0, "oldest_days": 0.0}
+        finally:
+            try:
+                conn.close()
+            except Exception:
+                log.debug("suppressed exception", exc_info=True)
+
     def analyze_failures(self, limit: int = 50, days: int = 7, min_cluster_size: int = 3) -> List[Dict[str, Any]]:
         conn = self.memory._get_connection()
         try:

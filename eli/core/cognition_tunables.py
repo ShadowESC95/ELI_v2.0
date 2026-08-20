@@ -67,9 +67,16 @@ TUNABLES: List[Tunable] = [
     Tunable("cog.mem_recent_chars", "Memory · characters per recent turn",
             "Truncation length per recent turn.", 140, 60, 600, 10, "Memory gathering"),
     Tunable("cog.mem_summaries_recall", "Memory · session summaries recalled",
-            "Search pool of prior-session summaries.", 6, 0, 40, 1, "Memory gathering"),
+            "Search pool of prior-session summaries. This is a SEARCH pool, not a "
+            "prompt budget — only 'summaries shown' reaches the model, so a wide "
+            "pool costs a ranking pass rather than context. At 6 the pool held "
+            "barely a week of sessions, so asking about a conversation from a "
+            "fortnight ago could not match one no matter how well it scored.",
+            25, 0, 40, 1, "Memory gathering"),
     Tunable("cog.mem_summaries_shown", "Memory · session summaries shown",
-            "How many session summaries go into the prompt.", 5, 0, 40, 1, "Memory gathering"),
+            "How many session summaries go into the prompt. Kept well below the "
+            "search pool deliberately: the pool decides what is REACHABLE, this "
+            "decides what is spent on it.", 8, 0, 40, 1, "Memory gathering"),
     Tunable("cog.mem_summary_chars", "Memory · characters per summary",
             "Truncation length per session summary.", 260, 80, 800, 10, "Memory gathering"),
     Tunable("cog.mem_hop2_recall", "Memory · multi-hop deepen pool",

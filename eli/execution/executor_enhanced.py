@@ -7935,8 +7935,15 @@ def _execute_impl(action: str, args: Optional[Dict[str, Any]] = None) -> Dict[st
         try:
             from eli.runtime.self_improvement import get_self_improvement
             engine = get_self_improvement()
-            failures = engine.analyze_failures(limit=10, days=7, min_cluster_size=1)
-            lines = [f"Self-Analysis Report ({len(failures)} recent issues):"]
+            _window_days = int((args or {}).get("days") or 7)
+            failures = engine.analyze_failures(limit=10, days=_window_days,
+                                               min_cluster_size=1)
+            # State the window. Without it "0 recent issues" reads as "nothing is
+            # wrong", while SELF_IMPROVE — which uses a different lookback — reports
+            # failures in the same breath. Live at 2.3.10 the two contradicted each
+            # other seconds apart; both were right, neither said what it had looked at.
+            lines = [f"Self-Analysis Report ({len(failures)} open issue(s) "
+                     f"in the last {_window_days} day(s)):"]
 
             def _short(value, limit=220):
                 text = " ".join(str(value or "").split())
@@ -8023,8 +8030,30 @@ def _execute_impl(action: str, args: Optional[Dict[str, Any]] = None) -> Dict[st
                     f"  occurrences: {int(f.get('occurrence_count') or 1)}\n"
                     f"  actual_root_cause: {_root_cause_for(f)}"
                 )
+            _older = {}
+            try:
+                _older = engine.failures_outside_window(days=_window_days) or {}
+            except Exception as _ow_err:
+                log.debug(f"[SELF_ANALYZE] older-failure count unavailable: {_ow_err}")
+            _older_n = int(_older.get("count") or 0)
+
             if not failures:
-                lines.append("  No recent failures found.")
+                if _older_n:
+                    lines.append(
+                        f"  Nothing in the last {_window_days} day(s) — but "
+                        f"{_older_n} open failure(s) are older than that "
+                        f"(oldest {_older.get('oldest_days')} days). "
+                        f"Ask for a longer window to see them, e.g. "
+                        f"\"analyse my failures over 30 days\"."
+                    )
+                else:
+                    lines.append(
+                        f"  No open failures in the last {_window_days} day(s), "
+                        f"and none older either.")
+            elif _older_n:
+                lines.append(
+                    f"  ({_older_n} further open failure(s) predate this window, "
+                    f"oldest {_older.get('oldest_days')} days.)")
             if (args or {}).get("suggest"):
                 result = engine.analyze_and_improve()
                 imps = result.get("improvements", [])
@@ -11513,6 +11542,18 @@ def _execute_impl(action: str, args: Optional[Dict[str, Any]] = None) -> Dict[st
                     "mode": canonical, "mode_display": _md(canonical)}
         except Exception as _sme:
             return {"ok": False, "action": a, "error": str(_sme), "content": str(_sme), "response": str(_sme)}
+
+    # Last stop before "unsupported": an installed plugin may own this action.
+    # Checked here rather than earlier so a plugin can never shadow a built-in —
+    # a marketplace listing that declared SHUTDOWN or SEND_EMAIL would otherwise
+    # take over that verb for the whole assistant.
+    try:
+        from eli.plugins.manager import get_manager
+        _plugin_result = get_manager().dispatch(a, args)
+        if _plugin_result is not None:
+            return _plugin_result
+    except Exception:
+        log.debug("[EXECUTOR] plugin dispatch failed", exc_info=True)
 
     return {"ok": False, "action": a, "error": f"Unsupported executor action: {a}", "content": f"Unsupported executor action: {a}", "response": f"Unsupported executor action: {a}"}
 
