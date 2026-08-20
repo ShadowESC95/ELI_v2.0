@@ -2742,17 +2742,33 @@ def _eli_mc_counts_v4():
     return str(db_path), counts
 
 
+# Whole words only. These were substring tests, and "count" is inside
+# "encountered" while "total" is inside "totally" — so pasting a paragraph that
+# happened to contain both "memory" and "encountered" and asking what ELI thought
+# of it was classified as "how many memories do you have?" and answered with a
+# row count. Live, that fired three times on the same paste before the user gave
+# up, and ELI then said it could not see the text at all.
+_MC_COUNT_WORDS = re.compile(r"\b(?:how many|number of|counts?|totals?)\b")
+_MC_MEMORY_WORDS = re.compile(r"\bmemor(?:y|ies)\b")
+
+# A question ABOUT a quoted passage is not a question about ELI's row counts.
+# Anything that hands ELI someone else's text to react to is asking for a view,
+# not a statistic.
+_MC_QUOTED_PROMPT = re.compile(
+    r"\bwhat (?:do|did) you (?:think|make) of\b|\byour (?:opinion|view|take|read) on\b"
+    r"|\bthoughts on\b|\bhow would you respond\b|\bwhat'?s your take\b",
+    re.I,
+)
+
+
 def _eli_mc_is_memory_count_question_v4(text):
     q = str(text or "").strip().lower()
     if not q:
         return False
-    has_memory = "memory" in q or "memories" in q
-    asks_count = (
-        "how many" in q
-        or "number of" in q
-        or "count" in q
-        or "total" in q
-    )
+    if _MC_QUOTED_PROMPT.search(q):
+        return False
+    has_memory = bool(_MC_MEMORY_WORDS.search(q))
+    asks_count = bool(_MC_COUNT_WORDS.search(q))
     if not (has_memory and asks_count):
         return False
     broader = (
