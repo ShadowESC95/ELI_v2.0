@@ -430,6 +430,41 @@ def _promote_to_semantic(
         return False
 
 
+def _evidence(raw: str, match: "re.Match[str] | None", width: int = 120) -> str:
+    """The user's own words around a match, for appending to a canned label.
+
+    Every rule below emits a FIXED sentence, which is why hundreds of turns
+    collapsed into ten rows: "User prefers in-depth, meticulous, thorough
+    responses." is byte-identical whether the user wrote 'be thorough' or three
+    paragraphs about how they work, so `_insert_user_pattern`'s dedupe folds them
+    all into one. The label is still worth keeping — it is what the persona and
+    proactive surfaces read — so the quote is appended rather than replacing it.
+    Two different statements now produce two different rows, both traceable to
+    what was actually said.
+    """
+    if match is None:
+        return ""
+    start = max(0, match.start() - width // 3)
+    end = min(len(raw), match.end() + width)
+    quote = raw[start:end].strip()
+    # Snap to word boundaries so the quote does not start or end mid-word.
+    if start > 0 and " " in quote:
+        quote = quote.split(" ", 1)[1]
+    if end < len(raw) and " " in quote:
+        quote = quote.rsplit(" ", 1)[0]
+    quote = " ".join(quote.split())
+    if len(quote) < 8:
+        return ""
+    return f' Said: "{quote}"'
+
+
+def _pref(out: list, raw: str, low: str, pattern: str, ptype: str, label: str) -> None:
+    """Emit a preference rule with the user's own phrasing attached."""
+    m = re.search(pattern, low)
+    if m:
+        out.append((ptype, label + _evidence(raw, m)))
+
+
 def extract_patterns_from_text(text: Any) -> list[tuple[str, str]]:
     raw = _clean(text, 1600)
     low = raw.lower()
@@ -449,38 +484,38 @@ def extract_patterns_from_text(text: Any) -> list[tuple[str, str]]:
         out.append(("identity.nickname", f"User uses {identity_facts['nickname']} as a nickname."))
 
     # Communication / collaboration preferences.
-    if re.search(r"\bin depth\b|\bin-depth\b|\bdetailed\b|\bmeticulous\b|\bthorough\b", low):
-        out.append(("preference.detail", "User prefers in-depth, meticulous, thorough responses."))
+    _pref(out, raw, low, r"\bin depth\b|\bin-depth\b|\bdetailed\b|\bmeticulous\b|\bthorough\b", "preference.detail",
+          "User prefers in-depth, meticulous, thorough responses.")
 
-    if re.search(r"\bno vague descriptions\b|\bno vague\b|\bnot vague\b", low):
-        out.append(("preference.style", "User dislikes vague descriptions and wants concrete detail."))
+    _pref(out, raw, low, r"\bno vague descriptions\b|\bno vague\b|\bnot vague\b", "preference.style",
+          "User dislikes vague descriptions and wants concrete detail.")
 
-    if re.search(r"\bno bias\b|\bwithout bias\b|\bno bullshit\b|\bbullshit-free\b", low):
-        out.append(("preference.style", "User prefers direct, low-bias, bullshit-free analysis."))
+    _pref(out, raw, low, r"\bno bias\b|\bwithout bias\b|\bno bullshit\b|\bbullshit-free\b", "preference.style",
+          "User prefers direct, low-bias, bullshit-free analysis.")
 
-    if re.search(r"\bbrutally honest\b|\bchallenge\b|\bcorrect me\b|\btell me.*wrong\b", low):
-        out.append(("preference.style", "User wants assumptions challenged and errors corrected directly."))
+    _pref(out, raw, low, r"\bbrutally honest\b|\bchallenge\b|\bcorrect me\b|\btell me.*wrong\b", "preference.style",
+          "User wants assumptions challenged and errors corrected directly.")
 
-    if re.search(r"\bgeneric\b|\brepetitive\b|\bshallow\b|\bunhelpful\b|\bfiller\b|\bhr[- ]?speak\b|\bcustomer[- ]?service\b", low):
-        out.append(("preference.style", "User rejects generic, repetitive, shallow, customer-service style responses."))
+    _pref(out, raw, low, r"\bgeneric\b|\brepetitive\b|\bshallow\b|\bunhelpful\b|\bfiller\b|\bhr[- ]?speak\b|\bcustomer[- ]?service\b", "preference.style",
+          "User rejects generic, repetitive, shallow, customer-service style responses.")
 
-    if re.search(r"\bstubs?\b|\btemplates?\b|\bplaceholder\b|\bboilerplate\b", low):
-        out.append(("preference.output_quality", "User rejects stubs, templates, placeholders, and boilerplate as generated output."))
+    _pref(out, raw, low, r"\bstubs?\b|\btemplates?\b|\bplaceholder\b|\bboilerplate\b", "preference.output_quality",
+          "User rejects stubs, templates, placeholders, and boilerplate as generated output.")
 
-    if re.search(r"\bmore depth\b|\bdeeper\b|\bcharacter\b|\bfull persona\b|\bpersonality\b", low):
-        out.append(("preference.persona", "User wants ELI to keep a deeper, more characterful persona while staying technically grounded."))
+    _pref(out, raw, low, r"\bmore depth\b|\bdeeper\b|\bcharacter\b|\bfull persona\b|\bpersonality\b", "preference.persona",
+          "User wants ELI to keep a deeper, more characterful persona while staying technically grounded.")
 
-    if re.search(r"\bfull runtime audit\b|\bfull audit\b|\bdiagnostic\b|\bwhat'?s actually broken\b|\bwhat has changed\b", low):
-        out.append(("preference.debugging", "User prefers full diagnostics/audits with explicit broken/missing components."))
+    _pref(out, raw, low, r"\bfull runtime audit\b|\bfull audit\b|\bdiagnostic\b|\bwhat'?s actually broken\b|\bwhat has changed\b", "preference.debugging",
+          "User prefers full diagnostics/audits with explicit broken/missing components.")
 
-    if re.search(r"\bevery step\b|\bstep by step\b", low):
-        out.append(("preference.process", "User prefers step-by-step technical explanations."))
+    _pref(out, raw, low, r"\bevery step\b|\bstep by step\b", "preference.process",
+          "User prefers step-by-step technical explanations.")
 
-    if re.search(r"\bcommands\b|\bbash\b|\bsed\b|\bterminal\b", low):
-        out.append(("preference.commands", "User prefers executable terminal/Bash commands for repairs."))
+    _pref(out, raw, low, r"\bcommands\b|\bbash\b|\bsed\b|\bterminal\b", "preference.commands",
+          "User prefers executable terminal/Bash commands for repairs.")
 
-    if re.search(r"\bdrop[- ]?in python\b", low):
-        out.append(("preference.commands", "User does not want vague drop-in Python snippets; prefers complete command workflows."))
+    _pref(out, raw, low, r"\bdrop[- ]?in python\b", "preference.commands",
+          "User does not want vague drop-in Python snippets; prefers complete command workflows.")
 
     # NOTE (2026-06-09 refactor): the hard-coded keyword→canned-phrase "project facts"
     # were REMOVED. They emitted frozen sentences ("User is actively developing ELI…")
@@ -734,10 +769,95 @@ def write_session_summary_from_recent(
 
 
 _SUMMARY_SECTION_RE = re.compile(
-    r"^\s*(SUMMARY|DECISIONS|OPEN\s+THREADS|USER\s+PREFERENCES|CURRENT\s+WORK)\s*:\s*"
-    r"([\s\S]*?)(?=^\s*(?:SUMMARY|DECISIONS|OPEN\s+THREADS|USER\s+PREFERENCES|CURRENT\s+WORK)\s*:|\Z)",
+    r"^\s*(SUMMARY|DECISIONS|OPEN\s+THREADS|USER\s+PREFERENCES|CURRENT\s+WORK|USER\s+FACTS)\s*:\s*"
+    r"([\s\S]*?)(?=^\s*(?:SUMMARY|DECISIONS|OPEN\s+THREADS|USER\s+PREFERENCES|CURRENT\s+WORK|USER\s+FACTS)\s*:|\Z)",
     re.I | re.M,
 )
+
+# A durable fact line -> the pattern type it becomes. Order matters: the first
+# match wins, so the more specific verbs are listed before the general ones.
+# Every prefix here is one _promote_to_semantic accepts, so a fact captured
+# tonight is in the semantic tier and the knowledge graph by morning.
+_FACT_ROUTES: tuple[tuple[str, str], ...] = (
+    (r"\b(?:is called|goes by|name is|prefers to be called)\b", "identity.name"),
+    (r"\b(?:works as|is an? |their role|job title|employed as)\b", "identity.role"),
+    (r"\b(?:lives in|based in|is from|located in|timezone)\b", "identity.location"),
+    (r"\b(?:studies|researches|research(?:es|ing)?|specialis|specializ|"
+     r"phd|thesis|dissertation|field is)\b", "research.field"),
+    (r"\b(?:is (?:building|developing|working on)|project|prototype|"
+     r"is writing|is designing)\b", "project.named"),
+    (r"\b(?:prefers|wants|likes it when|dislikes|hates|expects|always asks)\b",
+     "preference.stated"),
+    (r"\b(?:is interested in|cares about|enjoys|is a fan of|follows)\b", "interest.explicit"),
+)
+
+# A "fact" that is really ELI talking about itself is not a fact about the user.
+# Recall already filters ELI's own telemetry at read time; keeping it out of
+# user_patterns stops it reaching the semantic tier and the KG in the first place.
+_FACT_REJECT = re.compile(
+    r"\b(?:eli|the assistant|the model|the system)\b\s+(?:is|was|has|had|will|can|"
+    r"logged|recorded|stored|generated|failed|reported)\b|"
+    r"\b(?:reflection|telemetry|failure count|token|gpu layers|vram|"
+    r"session summary|conversation volume)\b",
+    re.I,
+)
+
+
+def _fact_pattern_type(line: str) -> str:
+    """Classify a durable user fact into a promotable pattern type.
+
+    Defaults to `identity.fact` rather than dropping the line: an unclassified
+    durable fact is still worth remembering, and `identity.` is a prefix
+    _promote_to_semantic accepts. It is deliberately NOT one of the
+    _SINGLE_VALUED_PATTERNS, so facts accumulate instead of overwriting.
+    """
+    low = (line or "").lower()
+    for pattern, ptype in _FACT_ROUTES:
+        if re.search(pattern, low):
+            return ptype
+    return "identity.fact"
+
+
+def _route_facts_to_patterns(cur: "sqlite3.Cursor", facts_text: str) -> int:
+    """Write each durable fact the model found as its own accumulating pattern.
+
+    This is the width of the funnel. The regex extractor upstream recognises about
+    twenty fixed phrasings and most of them emit a CANNED sentence — the same
+    string whatever the user actually said — so on a live machine 619 turns and
+    441 memories produced only 10 user_patterns, 6 semantic facts and 27 KG
+    entities. Everything downstream inherits that.
+
+    The session summariser already reads the whole transcript; it just had nowhere
+    to put anything except two single-slot rows (`project.current`,
+    `preference.session`) that are deleted and rewritten every session. Facts go
+    to accumulating types instead, and `_insert_user_pattern` dedupes them and
+    refreshes recency on reaffirmation, so a fact repeated across sessions stays
+    fresh rather than duplicating.
+
+    Returns the number of facts written.
+    """
+    if not _summary_section_meaningful(facts_text):
+        return 0
+    written = 0
+    seen: set[str] = set()
+    for raw_line in (facts_text or "").splitlines():
+        line = _clean(raw_line, 300).strip().lstrip("-•*0123456789. ").strip()
+        # Too short to be a fact, or no letters at all.
+        if len(line) < 12 or not re.search(r"[A-Za-z]", line):
+            continue
+        if _FACT_REJECT.search(line):
+            log.debug("profile_extractor: dropped self-referential 'fact': %s", line[:80])
+            continue
+        key = line.lower()
+        if key in seen:
+            continue
+        seen.add(key)
+        try:
+            if _insert_user_pattern(cur, _fact_pattern_type(line), line):
+                written += 1
+        except Exception:
+            log.debug("profile_extractor: fact insert failed", exc_info=True)
+    return written
 
 
 def _summary_section_meaningful(s: str) -> bool:
@@ -777,6 +897,15 @@ def _route_summary_to_profile(cur: "sqlite3.Cursor", llm_summary: str) -> None:
         except Exception:
             pass
         _insert_user_pattern(cur, "preference.session", prefs)
+
+    # Durable facts accumulate. CURRENT_WORK and USER_PREFERENCES above are both
+    # single-slot by design — they answer "what now?" and are rewritten each
+    # session — which is exactly why they could never widen the funnel.
+    facts = sections.get("USER_FACTS", "")
+    if facts:
+        n = _route_facts_to_patterns(cur, facts)
+        if n:
+            log.debug("profile_extractor: %d durable user fact(s) captured", n)
 
 
 def _build_transcript(rows: list[Any], max_chars: int = 6000) -> str:
@@ -829,7 +958,13 @@ def _llm_summarise_session(transcript: str, broker: Any = None) -> str:
             "DECISIONS: concrete decisions that were made.\n"
             "OPEN THREADS: unfinished work or agreed next steps.\n"
             "USER PREFERENCES: how the user wants things done.\n"
-            "CURRENT WORK: what the user is actively working on.\n\n"
+            "CURRENT WORK: what the user is actively working on.\n"
+            "USER FACTS: durable facts about the USER that would still be true "
+            "next month — who they are, what they work on, what they care about. "
+            "One per line, in your own words, drawn ONLY from what the USER said "
+            "about themselves. Omit anything about ELI, this software, or this "
+            "session's mechanics. If the user stated nothing durable, write "
+            "'none'.\n\n"
             f"TRANSCRIPT:\n{transcript}"
         )
         out = (broker.infer(prompt, system=system, max_tokens=420,

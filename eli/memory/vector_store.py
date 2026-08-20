@@ -55,6 +55,51 @@ def get_vector_store() -> Optional["VectorStore"]:
 
 
 
+# Relative, never absolute. Measured against a real 449-vector index: the WORST
+# real query's best hit scored 0.5294 while the BEST nonsense query's best hit
+# scored 0.5377 — the two bands overlap, so any absolute floor that rejects
+# gibberish also rejects genuine questions. There is no constant that separates
+# them, and shipping one would only look like a relevance check.
+#
+# Within a single query there IS structure: the tenth result sits at roughly 0.84
+# of the first. So the cutoff is expressed against each query's own best hit,
+# which is self-normalising and needs no calibration per corpus. Sweeping the
+# real index, 0.94 is the knee — it trims a weak tail where one exists and leaves
+# a genuinely uniform result set untouched; 0.96 starts cutting good results.
+#
+# Be clear about what this does: it TIGHTENS THE CANDIDATE POOL so weak matches
+# stop diluting the rank fusion. It does not detect nonsense, and nothing at this
+# embedder and corpus size can.
+SIM_RELATIVE_FLOOR = 0.94
+SIM_MIN_KEEP = 3
+
+
+def _trim_weak_tail(results, min_ratio=None):
+    """Drop candidates far below the best hit for this query.
+
+    Keeps at least SIM_MIN_KEEP so a thin-but-valid result set is never starved —
+    recall now fuses these with FTS5 by rank, and an empty vector side would hand
+    the whole answer to keyword matching.
+    """
+    if not results:
+        return results
+    ratio = SIM_RELATIVE_FLOOR if min_ratio is None else float(min_ratio)
+    if ratio <= 0:
+        return results
+    try:
+        best = max(float(r.get("score") or 0.0) for r in results)
+    except (TypeError, ValueError):
+        return results
+    if best <= 0:
+        return results
+    floor = best * ratio
+    kept = [r for r in results if float(r.get("score") or 0.0) >= floor]
+    if len(kept) < SIM_MIN_KEEP:
+        kept = sorted(results, key=lambda r: float(r.get("score") or 0.0),
+                      reverse=True)[:SIM_MIN_KEEP]
+    return kept
+
+
 class VectorStore:
     @property
     def ntotal(self) -> int:
@@ -145,7 +190,8 @@ class VectorStore:
             self._prune()
         return True
 
-    def search(self, query: str, top_k: int = 5, limit: int | None = None, k: int | None = None) -> List[Dict[str, Any]]:
+    def search(self, query: str, top_k: int = 5, limit: int | None = None,
+               k: int | None = None, min_ratio: float | None = None) -> List[Dict[str, Any]]:
         vec = self._embed(query)
         if limit is not None:
             top_k = int(limit)
@@ -166,7 +212,7 @@ class VectorStore:
             entry = dict(self._meta[idx])
             entry["score"] = score
             results.append(entry)
-        return results
+        return _trim_weak_tail(results, min_ratio=min_ratio)
 
     def _get_embedder(self):
         if self._embedder is None:
