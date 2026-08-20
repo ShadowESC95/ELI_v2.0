@@ -467,7 +467,35 @@ class SelfImprovementEngine:
             desc = f"Investigate failure: {ui} → {err}".strip()
             if desc.lower() in existing_descs:
                 continue
-            improvements.append({"category": "stability", "area": "runtime", "description": desc})
+            # Classified from the failure itself. This was a hardcoded
+            # stability/runtime for every proposal, whatever had failed, so the
+            # improvements table carried no signal to prioritise or filter on —
+            # a CUDA OOM and a wrong dict key were indistinguishable.
+            try:
+                from eli.runtime.failure_taxonomy import classify
+                tags = classify(err, _safe_str(f.get("command")), ui)
+            except Exception:
+                log.debug("failure classification unavailable", exc_info=True)
+                tags = {"category": "stability", "area": "runtime",
+                        "severity": "unknown", "exception": ""}
+            improvements.append({
+                "category": tags["category"],
+                "area": tags["area"],
+                "severity": tags["severity"],
+                "exception": tags.get("exception", ""),
+                "description": desc,
+            })
+
+        # Real defects before environmental noise. Only five are logged per pass,
+        # and a machine that is deliberately offline can produce enough network
+        # failures to fill that slice on its own — burying the TypeError that is
+        # an actual bug. Order is stable within each group, so the newest
+        # actionable failure still leads.
+        try:
+            from eli.runtime.failure_taxonomy import is_actionable
+            improvements.sort(key=lambda i: not is_actionable(i.get("category", "")))
+        except Exception:
+            log.debug("could not prioritise improvements", exc_info=True)
 
         for imp in improvements[:5]:
             try:
