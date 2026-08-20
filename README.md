@@ -1,6 +1,7 @@
 <div align="center">
 
 # ELI v2.0
+Website: https://geteli.tech
 
 **A strictly local, private AI assistant and cognitive runtime.**
 
