@@ -5626,16 +5626,54 @@ def _eli_runtime_cognition_failure_guard(text):
     # confabulated (a real session answered with After Effects compositing
     # advice), and "are you using the gpu?" drew "I am running on CPU, not GPU"
     # while 11 layers were offloaded. Grounded report, not a guess.
+    # It must actually ASK. The trigger was `layers` + any of you/your/gpu/…,
+    # which is satisfied by ordinary conversation about layers and fired at
+    # 0.995 — overriding everything. Live at 2.3.13 two consecutive turns were
+    # answered with the same VRAM dump:
+    #
+    #   "yeah you aree right about the layers, we need to claw some back"
+    #   "i don't care about that, I was talking about incrasing your layers"
+    #
+    # Neither requested a status report. The second says outright that the first
+    # report was unwanted, and got it again verbatim. A previous fix taught this
+    # guard to ignore words inside QUOTES; these were not quotes, they were the
+    # user talking.
+    _is_request = bool(
+        _asked.rstrip().endswith("?")
+        or re.match(r"^\s*(?:how|what|which|why|is|are|am|do|does|did|can|could|"
+                    r"should|show|tell|check|report|give|list|status)\b", _asked)
+        or re.search(r"\b(?:show me|tell me|check|report on|how many|how much|"
+                     r"what(?:'s| is| are)|status of)\b", _asked)
+        # A bare noun-phrase command is still a request: "gpu status", "vram
+        # usage", "gpu stats" are the documented activation phrases and carry no
+        # interrogative at all. Length is what separates them from conversation —
+        # nobody chats in four words about their offload layers.
+        or (len(_asked.split()) <= 5
+            and re.search(r"\b(?:status|stats|usage|diagnostics?|temp|temperature)\b", _asked))
+    )
+    # An explicit brush-off is not a request, whatever else the sentence contains.
+    _dismissed = bool(re.search(
+        r"\b(?:i don'?t care|don'?t care about|not asking about|forget (?:that|it)|"
+        r"never ?mind|stop (?:that|it)|i know that|not what i (?:asked|meant|said))\b",
+        _asked))
+
     _gpu_layer_question = (
-        re.search(r"\blayers?\b", _asked)
+        _is_request and not _dismissed
+        and re.search(r"\blayers?\b", _asked)
         and re.search(r"\b(you|your|offload\w*|gpu|vram|cuda|model|running|loaded|use|using)\b", _asked)
         and not re.search(r"\b(image|photo|photoshop|after\s?effects|composit\w*|design|"
                           r"canvas|css|z-index|onion\s?skin)\b", _asked)
     )
     if re.search(r"\bnvidia-smi\b", _asked) or _gpu_layer_question or (
-        re.search(r"\b(gpu|vram|cuda|nvidia)\b", _asked)
+        _is_request and not _dismissed
+        and re.search(r"\b(gpu|vram|cuda|nvidia)\b", _asked)
+        # "free/available/left/spare" were missing, so "how much vram is free"
+        # — an unambiguous status question — fell through to CHAT and was
+        # answered from the model's imagination rather than the live snapshot.
+        # Safe to widen now that the branch requires an actual request.
         and re.search(r"\b(stat|stats|status|diagnostic|diagnostics|usage|using|use|memory|"
                       r"performance|running on|running|offload\w*|accelerat\w*|"
+                      r"free|available|left|spare|"
                       r"tell me what it means|temp|temperature|how hot)\b", _asked)
     ):
         return {
