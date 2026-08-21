@@ -137,7 +137,7 @@ and gets out of your way.**
 ~156,000 lines of Python across 392 files. A real cognitive runtime — not an API
 wrapper:
 
-- **Request pipeline.** A deterministic **router** (180 executor actions, 208
+- **Request pipeline.** A deterministic **router** (201 executor actions, 208
   declared capabilities) backed by a **model-grounded intent resolver** that
   resolves anything the rules miss against that same catalogue (so near-miss
   phrasings reach real actions instead of a blind chat) → a **14-agent bus** that runs on a *dependency DAG*

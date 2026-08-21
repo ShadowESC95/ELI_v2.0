@@ -1195,7 +1195,7 @@ flowchart TD
 
     subgraph MECH[UPKEEP MECHANISMS]
       direction LR
-      M1[Weight decay<br/>old, low-importance rows fade ×0.98]
+      M1[Weight decay<br/>fades by AGE, half-life stretched by importance]
       M2[Embedder lock<br/>one-at-a-time embedding]
       M3[recall_log<br/>records what was recalled]
     end
@@ -1205,7 +1205,10 @@ flowchart TD
 **Why it's trustworthy:** the **noise filter** stops ELI's own past replies and reflections from
 resurfacing as if they were *your* facts; the **embedder lock** keeps the vector engine from
 crashing under concurrent use; and **weight decay** is the gentle "forgetting" that lets stale
-topics fade while active ones stay fresh. Nothing here leaves your computer.
+topics fade while active ones stay fresh — a memory fades with its age, and every time one is
+recalled its half-life stretches, so what you keep coming back to keeps its place. Nothing is
+ever deleted by fading, and **consolidation** folds duplicate entries into one rather than
+letting the same thought accumulate. Nothing here leaves your computer.
 
 ### B.1 — What ELI writes (the inputs)
 Everything that flows into memory passes through one **Memory** module, which decides where each
