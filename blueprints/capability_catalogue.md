@@ -6,7 +6,7 @@
 > persisted, exhaustive map. Built in committed batches.
 >
 > **Method.** Action list comes from the live `capability_manifest.json` (**209**
-> entries as of 2026-07-22; 190 routable + plugin-backed),
+> entries as of 2026-08-21; 206 routable + plugin-backed),
 > verified against the `executor_enhanced.py` dispatch. **The always-current,
 > auto-generated action list with activation phrases is
 > `capabilities_and_actions.md`** — this catalogue is the deeper module-level read.
@@ -19,9 +19,9 @@
 
 ---
 
-## Headline finding: 208 (190 routable) is real but aliased
+## Headline finding: 208 (206 routable) is real but aliased
 
-The manifest's 209 entries (190 routable) are honest (*measured* by `capability_sync`, not asserted)
+The manifest's 209 entries (206 routable) are honest (*measured* by `capability_sync`, not asserted)
 but inflated by **alias families** — multiple action names routing to one
 behaviour. Collapsed, there are roughly **~110 distinct capabilities**. Alias
 families are grouped below so the real surface is visible.
@@ -452,7 +452,7 @@ The thinking layer: agents, orchestration, inference, persona, reasoning, govern
 ## `gui/` (PySide6 desktop) — ~20.3k LOC
 | Module | LOC | Role |
 |---|---|---|
-| `eli_pro_audio_gui_v2_0.py` | 12100 | Main window: 12 tabs + adapters (CentralMemory/LocalModel/Ollama/Executor bridges, the `_GUIEngineAdapter`), chat, drag-drop, reasoning-mode auto-select, all toggles. |
+| `eli_pro_audio_gui_v2_0.py` | 12100 | Main window: 13 tabs + adapters (CentralMemory/LocalModel/Ollama/Executor bridges, the `_GUIEngineAdapter`), chat, drag-drop, reasoning-mode auto-select, all toggles. |
 | `labs_tab.py` | 5694 | Labs workspace: Notebook, Memory browser, Jupyter launcher, Calculator(+constants), Physics tables, **Report Builder** (evidence-grounded docs), File-Chat, Workspaces, Sim-IDE. |
 | `app.py` | 817 | Launcher / first-boot auto-tune / `main()`. |
 | `panels/startup.py` | 1305 |

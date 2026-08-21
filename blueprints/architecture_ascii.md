@@ -61,7 +61,7 @@ pipeline/memory/gating close-ups). Every layer and box maps to a real path.
         │              └────────────────────────────┬─────────────────────────────────────┘
         ▼                                           ▼
 ┌─ EXECUTION ───────────────────────────────────────────────────────────────────────┐
-│  execution/executor_enhanced.py  216 dispatch actions / 216 capabilities (live)    │
+│  execution/executor_enhanced.py  223 dispatch actions / 223 capabilities (live)    │
 │  media_runtime · operator_actions · tool_execution_authority · background_tasks     │
 │  PLUGINS(10): calendar document_reader media notes pomodoro weather                 │
 │              system_stats tts web web_automation        eli/coding :: CodeAgent     │
@@ -142,7 +142,7 @@ eli/  (~156k LOC, 392 files)  ·  api/server.py  (FastAPI web app + dashboard)
 │   ├── task_bus.py · pipeline.py · state.py · world_model.py · self_upgrade.py
 │
 ├── execution/         20.5k ─── route → act
-│   ├── executor_enhanced.py   15.0k   216 actions ★god-file
+│   ├── executor_enhanced.py   15.0k   223 actions ★god-file
 │   ├── router_enhanced.py      6.1k   priority pipeline ★god-file
 │   ├── execution_planner.py · route_authority.py · route_contracts.py
 │   ├── tool_execution_authority.py · operator_actions.py · operator_policy.py

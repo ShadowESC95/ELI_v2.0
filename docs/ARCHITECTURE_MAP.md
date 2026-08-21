@@ -30,7 +30,7 @@ diff (`tools/repo_parity.py` shows drift).
 | package | files | lines | what lives there |
 |---|---:|---:|---|
 | `eli/runtime/` | 98 | 31,781 | grounding, evidence, self-model, devices, policy, scheduling |
-| `eli/execution/` | 15 | 24,653 | router + executor — all 216 actions |
+| `eli/execution/` | 15 | 24,653 | router + executor — all 223 actions |
 | `eli/gui/` | 24 | 23,041 | PySide6 desktop app |
 | `eli/cognition/` | 31 | 15,594 | agent bus, persona, inference, tone, scoring |
 | `eli/kernel/` | 8 | 15,411 | the 12-stage engine |

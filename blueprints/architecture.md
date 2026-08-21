@@ -7,7 +7,7 @@ is observed-at-runtime rather than read-from-code it is marked *(runtime)*.
 > ELI is a **local-first, offline-by-default, model-agnostic** cognitive runtime
 > + assistant GUI (and, as of 2026-06-28, a self-hosted web app — `api/server.py`,
 > documented in `ELI_USER_MANUAL.md`). No cloud, no APIs on the inference path, no hardcoded
-> model. ~160k LOC across 397 Python files (+ `api/server.py`); 216 capabilities (2026-08-06).
+> model. ~160k LOC across 397 Python files (+ `api/server.py`); 223 capabilities (2026-08-21).
 
 ---
 
@@ -252,8 +252,8 @@ frontier (see §20).
 
 ## 10. Execution layer  (`eli/execution/executor_enhanced.py`)
 
-- `execute(action, args) -> dict` — **216 dispatch actions**; runtime capability
-  manifest reports **216 capabilities, 199 of them routable** *(live, read from the
+- `execute(action, args) -> dict` — **223 dispatch actions**; runtime capability
+  manifest reports **223 capabilities, 199 of them routable** *(live, read from the
   manifest each boot)*.
 - **PHASE45 fast-path** (`engine.py`) — deterministic OS/media/status/job actions
   (`VOLUME`, `MEDIA_CONTROL`, `NEXT_MEDIA`, `OPEN_APP`, `DATE`, `SHELL_EXEC`,

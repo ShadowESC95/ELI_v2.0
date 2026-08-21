@@ -76,7 +76,7 @@ wrapper.
   (filename→ctx table; VRAM compute-buffer reservation). Model-agnostic.
 - **Routing** — `execution/router_enhanced.py`: regex-first with LLM-intent
   fallback + an explicit priority pipeline → one of **215 manifest capabilities**
-  (**190 routable**; 180 executor `SUPPORTED_ACTIONS`). Full reference with activation
+  (**206 routable**; 201 executor `SUPPORTED_ACTIONS`). Full reference with activation
   phrases: `capabilities_and_actions.md`.
 - **Orchestration** — `kernel/engine.py` gates between the 12-stage
   `cognition/orchestrator.py` `AgentOrchestrator` (non-quick modes) and the

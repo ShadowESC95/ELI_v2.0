@@ -173,14 +173,21 @@ of those ten patterns are `app_cmd` JSON blobs the KG mapper discards.
   foundation; the noise-filtering in `recall_memory` is the right instinct and
   fixed real contamination; embedder serialization correctly avoids the segfault.
 - **Weak:**
-  1. `memory.py` is a **4.5k-line god-class** spanning ~8 unrelated concerns
+  1. `memory.py` is a **5.1k-line god-class** spanning ~8 unrelated concerns
      (semantic, conversation, habits, learning, failures, capabilities, system
      index). Wants to be split along those seams.
   2. **Schema sprawl / redundancy** — `memories` *and* `memory`, `conversations`
      *and* `conversation_turns`, plus a standalone `semantic` table. The inline
      column-detection everywhere is compensating for schema instability.
-  3. **No consolidation pipeline** — only multiplicative decay; memories don't
-     graduate into the KG automatically.
+  3. **The intake is narrow.** Promotion itself works (see above), but it is fed
+     by regex extraction plus one LLM pass per session: a live store of 619 turns
+     and 441 memories produced only 10 `user_patterns`, and the semantic tier and
+     KG inherit that. Widening the extractor, not the pipeline, is the work.
+  4. **Retrieval cannot detect nonsense.** Measured on a real 449-vector index,
+     the worst genuine query's best hit scored 0.5294 and the best gibberish
+     query's scored 0.5377 — the bands overlap, so no absolute similarity floor
+     can separate them. The relative cutoff in `vector_store` tightens the
+     candidate pool; it is not a relevance oracle.
 
 ---
 

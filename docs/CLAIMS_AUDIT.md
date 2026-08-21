@@ -29,7 +29,7 @@ Re-run the checks with `.venv/bin/python -m pytest tests/claims/ -q`.
 | Scheduled jobs in natural language ("at 9am", "overnight"), surviving restarts | `eli/runtime/scheduled_tasks.py:112` (am/pm parser), nightly re-arm at `:336` |
 | Drop-in plugin architecture with auto-discovery | `eli/plugins/base/base.py:20` — subclass `Plugin`, implement actions, `execute()`; `load_plugins()` discovers the package |
 | Self-healing rollback after a bad self-applied patch | `eli/runtime/self_improvement.py:1019 revert_patch()`, `:979 _rollback_all()` (atomic across files) |
-| 216 capabilities | `capability_manifest.json` (`total`), enforced by `tests/claims/test_capability_manifest.py` |
+| 223 capabilities | `capability_manifest.json` (`total`), enforced by `tests/claims/test_capability_manifest.py` |
 | 9,400+ tests across 313+ files | Verified at v2.2.9: 9,400 passing, 313 files. Stated as a floor, so ordinary growth keeps it true. |
 | Reads txt, md, PDF, docx, **odt, epub** | `eli/plugins/document_reader/plugin.py`. `.odt`/`.epub` were advertised but not dispatched until this audit — see below. |
 

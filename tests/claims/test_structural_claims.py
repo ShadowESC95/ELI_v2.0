@@ -1,5 +1,5 @@
 """CLAIM: the headline structural facts hold — the 14-agent bus, 5 reasoning
-modes, 12 main GUI tabs, 4 SQLite stores, and the load-bearing callables the
+modes, 13 main GUI tabs, 4 SQLite stores, and the load-bearing callables the
 blueprints describe (netguard, evidence-planner, report-pipeline, autonomy ticks,
 grounding gate, etc.) all actually exist and are wired.
 """
