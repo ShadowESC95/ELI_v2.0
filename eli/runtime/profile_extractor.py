@@ -1215,6 +1215,173 @@ def write_llm_session_summary(
         con.close()
 
 
+def _mark_backfilled(db: Path, session_id: str) -> None:
+    """Record that a session has been mined, so a resumed run skips it."""
+    try:
+        con = sqlite3.connect(str(db))
+        try:
+            con.execute(
+                "INSERT OR REPLACE INTO fact_backfill_log (session_id, ts) VALUES (?, ?)",
+                (str(session_id), time.time()),
+            )
+            con.commit()
+        finally:
+            con.close()
+    except Exception:
+        log.debug("could not mark session %s backfilled", session_id, exc_info=True)
+
+
+def backfill_facts_from_sessions(
+    db_path: Path | None = None,
+    limit: int | None = None,
+    broker: Any = None,
+    progress: Any = None,
+) -> dict[str, Any]:
+    """Mine durable user facts out of conversations that predate fact extraction.
+
+    The live path only runs at session end, so everything said before it existed
+    stays unmined. On a real install that is 64 sessions and 353 user turns
+    producing **10** `user_patterns` — and because promotion fans out from that
+    table, the semantic tier (6 rows) and the knowledge graph inherit the same
+    starvation.
+
+    The 59 summaries already on disk cannot simply be re-routed: they were
+    written by the older prompt and contain no USER FACTS section at all. The
+    sessions have to be re-read.
+
+    So this walks them through the SAME path that works live —
+    `write_llm_session_summary`, which builds the transcript, asks the local
+    model, and routes the result through `_route_summary_to_profile`. No second
+    extractor to keep in step with the first.
+
+    Four properties matter more here than the extraction does:
+
+      * **Never cold-loads.** Same rule `_llm_summarise_session` enforces: if no
+        model is resident this returns immediately rather than pulling gigabytes
+        off disk to mine history. Mining is never worth a cold load.
+      * **Resumable.** Measured against a real 64-session store, the summariser
+        makes TWO inference calls per session, so a full history is closer to an
+        hour than the half hour a single-call estimate suggests. That cannot be a
+        startup task or a modal dialog. Every session considered is written to
+        `fact_backfill_log`, so an interrupted run continues instead of
+        restarting.
+      * **Idempotent.** `_insert_user_pattern` dedupes and refreshes recency on
+        reaffirmation, so a repeat pass costs time and changes nothing. That is
+        what makes interrupting it safe.
+      * **Oldest first.** If it is stopped halfway you have mined the history you
+        would otherwise never revisit; recent sessions are covered by the live
+        path anyway.
+
+    `progress` is an optional callable(done, total, session_id) for a UI.
+    Returns a summary; `reason` explains any early return.
+    """
+    ensure_profile_tables(db_path)
+    db = db_path or _user_db()
+    out: dict[str, Any] = {
+        "sessions_seen": 0, "sessions_processed": 0, "skipped_done": 0,
+        "skipped_thin": 0, "failed": 0, "patterns_before": 0,
+        "patterns_after": 0, "reason": "",
+    }
+
+    # Gate BEFORE touching anything: a cold load to mine history is never worth it.
+    if broker is None:
+        try:
+            import eli.cognition.gguf_inference as _gi
+            if not getattr(_gi, "is_loaded", lambda: False)():
+                out["reason"] = "no model resident — load one, then run this again"
+                return out
+        except Exception:
+            out["reason"] = "inference unavailable"
+            return out
+
+    con = sqlite3.connect(str(db))
+    con.row_factory = sqlite3.Row
+    cur = con.cursor()
+    try:
+        if not _table_exists(cur, "conversation_turns"):
+            out["reason"] = "conversation_turns missing"
+            return out
+        out["patterns_before"] = cur.execute(
+            "SELECT COUNT(*) FROM user_patterns").fetchone()[0]
+
+        # Oldest first, and only sessions with enough turns to carry a fact.
+        rows = cur.execute(
+            """
+            SELECT session_id, COUNT(*) AS n, MIN(COALESCE(timestamp, ts, 0)) AS first_ts
+              FROM conversation_turns
+             WHERE COALESCE(session_id, '') <> ''
+             GROUP BY session_id
+             ORDER BY first_ts ASC
+            """
+        ).fetchall()
+
+        # An explicit log, not an inference. The obvious marker — "does the stored
+        # summary contain a USER FACTS section" — does not work:
+        # write_llm_session_summary persists a PROCESSED summary, not the raw
+        # sectioned model output, so that test never matches and every run
+        # re-summarised the whole history from scratch.
+        cur.execute("""
+            CREATE TABLE IF NOT EXISTS fact_backfill_log (
+                session_id TEXT PRIMARY KEY,
+                ts REAL
+            )""")
+        con.commit()
+        done: set = set()
+        try:
+            done = {str(r[0]) for r in
+                    cur.execute("SELECT session_id FROM fact_backfill_log").fetchall()
+                    if r[0]}
+        except Exception:
+            log.debug("could not read the backfill log", exc_info=True)
+    finally:
+        con.close()
+
+    out["sessions_seen"] = len(rows)
+    todo = [r for r in rows if str(r["session_id"]) not in done]
+    out["skipped_done"] = len(rows) - len(todo)
+    if limit:
+        todo = todo[: int(limit)]
+
+    for i, r in enumerate(todo, 1):
+        sid = str(r["session_id"])
+        thin = int(r["n"] or 0) < 4        # too short to carry a durable fact
+        if not thin:
+            try:
+                write_llm_session_summary(db_path=db, session_id=sid, broker=broker,
+                                          max_turns=60)
+                out["sessions_processed"] += 1
+            except Exception:
+                out["failed"] += 1
+                log.debug("backfill: session %s failed", sid, exc_info=True)
+        else:
+            out["skipped_thin"] += 1
+
+        # Mark it either way: a session too thin to carry a fact is still one
+        # this pass has considered, and re-reading it on every future run costs
+        # time to reach the same conclusion.
+        _mark_backfilled(db, sid)
+
+        # Reported for EVERY session, skips included — a progress bar that never
+        # reaches its total because thin sessions were passed over silently reads
+        # as a hung job.
+        if callable(progress):
+            try:
+                progress(i, len(todo), sid)
+            except Exception:
+                pass
+
+    con = sqlite3.connect(str(db))
+    try:
+        out["patterns_after"] = con.execute(
+            "SELECT COUNT(*) FROM user_patterns").fetchone()[0]
+    finally:
+        con.close()
+    out["patterns_added"] = out["patterns_after"] - out["patterns_before"]
+    log.info("backfill: %d/%d sessions mined, %d new user_patterns",
+             out["sessions_processed"], out["sessions_seen"], out["patterns_added"])
+    return out
+
+
 def after_process_hook(engine: Any, user_input: Any, output: Any = None) -> dict[str, Any]:
     db = _user_db()
     ensure_profile_tables(db)
