@@ -24,12 +24,15 @@ which are window/app scoped and never reach this module.
 
 from __future__ import annotations
 
+import logging
 import os
 import re
 import shutil
 import subprocess
 from dataclasses import dataclass, field
 from typing import Optional
+
+log = logging.getLogger(__name__)
 
 # Signalling more processes than this is never "close an app" — a desktop
 # app is a handful of processes, a runaway pattern is dozens.
@@ -143,7 +146,7 @@ def _own_pids() -> set[int]:
         try:
             pids.add(int(getter()))
         except Exception:
-            pass
+            log.debug("process_guard: pid probe failed", exc_info=True)
     for getter in ("getpgrp", "getsid"):
         fn = getattr(os, getter, None)
         if fn is None:
@@ -151,7 +154,7 @@ def _own_pids() -> set[int]:
         try:
             pids.add(int(fn(0) if getter == "getsid" else fn()))
         except Exception:
-            pass
+            log.debug("process_guard: pid probe failed", exc_info=True)
     pids.discard(0)
     return pids
 
@@ -164,7 +167,7 @@ def _process_name(pid: int) -> str:
         if name:
             return name
     except Exception:
-        pass
+        log.debug("process_guard: name lookup failed", exc_info=True)
     ps = shutil.which("ps")
     if ps:
         try:
