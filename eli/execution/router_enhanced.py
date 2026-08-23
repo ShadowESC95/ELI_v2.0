@@ -5608,9 +5608,29 @@ def _eli_self_improvement_phrase_guard(text):
             # NOT a fix request — "fix the bugs in foo.py" is FIX_FILE's job; this is the
             # diagnose-only "is there any issues with the files?" form.
             not re.search(r"\b(fix|repair|correct|patch|solve|resolve|debug|rewrite)\b", low)
-            and re.search(r"\b(issues?|errors?|bugs?|problems?|mistakes?|wrong|broken|faults?)\b", low)
-            and re.search(r"\b(file|files|code|codebase|module|modules|script|scripts|"
-                          r"function|functions|class|classes|\.py)\b", low)
+            # The issue word and the code word must be ABOUT each other. They
+            # previously only had to co-occur ANYWHERE in the sentence, so
+            #   "i am not saying close files (the name of the app) ...
+            #    this is the issue"
+            # was routed to a code examination at 0.96 and answered with lint
+            # warnings about unused imports. The user was describing a bug in
+            # ELI, not asking it to audit itself. Requiring the two to sit
+            # within a few words of each other keeps the real form
+            # ("any issues with the files?", "the code has bugs") and drops
+            # incidental co-occurrence.
+            and re.search(
+                r"\b(issues?|errors?|bugs?|problems?|mistakes?|faults?)\b\s+"
+                r"(?:\w+\s+){0,3}?(?:with|in|inside|across|throughout|within)\s+"
+                r"(?:the\s+|my\s+|your\s+|our\s+|any\s+|these\s+|those\s+|that\s+|this\s+)?"
+                r"(?:file|files|code|codebase|module|modules|script|scripts|"
+                # "code of conduct" is a document in this very repo, not code.
+                r"function|functions|class|classes)\b(?!\s+of\s+conduct)"
+                r"|\b(?:file|files|code|codebase|module|modules|script|scripts|"
+                r"function|functions|class|classes)\b\s+"
+                r"(?:\w+\s+){0,2}?\b(issues?|errors?|bugs?|problems?|mistakes?|faults?)\b"
+                r"|\.py\b",
+                low,
+            )
         )
         or re.search(r"\b(check|look\s+(?:at|over|through)|go\s+through)\b[^.?!]*"
                      r"\b(file|files|code|codebase|module|modules|script|scripts)\b[^.?!]*"
@@ -7108,19 +7128,28 @@ def _eli_phase38_tiny_fragment_post(raw, result):
                             matched_by="window.grid_followup",
                         )
 
-                msg = _json.dumps(
-                    {
-                        "event": "input_fragment_guard",
-                        "heard": str(raw or "").strip(),
-                        "routed_to_cognition": False,
-                        "reason": "fragmentary_input",
-                    },
-                    ensure_ascii=False,
-                )
+                # The structured record belongs in the log and in meta, NOT in
+                # `response`/`content` -- those are what the user reads and
+                # what TTS speaks. Setting them to a JSON blob is why a
+                # mistyped "ply" was answered with
+                #   {"event": "input_fragment_guard", "heard": "ply", ...}
+                # on screen. diagnostic_patterns.py and memory.py both already
+                # carry filters for this exact string, which is a workaround
+                # for a leak that should not happen at source.
+                _heard = str(raw or "").strip()
+                _diag = {
+                    "event": "input_fragment_guard",
+                    "heard": _heard,
+                    "routed_to_cognition": False,
+                    "reason": "fragmentary_input",
+                }
+                msg = (f"I only caught \u201c{_heard}\u201d \u2014 could you say that again?"
+                       if _heard else "I didn't catch that \u2014 could you say it again?")
 
                 return _mk(
                     "NOOP",
-                    {"message": msg, "response": msg, "content": msg},
+                    {"message": msg, "response": msg, "content": msg,
+                     "diagnostic": _diag},
                     0.999,
                     matched_by="eli.tiny_chat_fragment_guard",
                 )
