@@ -54,8 +54,12 @@ def test_shipped_ps1_uses_crlf_throughout():
     mixed = {}
     for p in _ps1_files():
         raw = p.read_bytes()
-        if raw.count(b"\n") != raw.count(b"\r\n"):
-            mixed[p.name] = f"{raw.count(b'\\n')} LF vs {raw.count(b'\\r\\n')} CRLF"
+        # Counted outside the f-string on purpose: a backslash inside an
+        # f-string expression is a SyntaxError before Python 3.12 (PEP 701),
+        # and this project still supports 3.10.
+        lf, crlf = raw.count(b"\n"), raw.count(b"\r\n")
+        if lf != crlf:
+            mixed[p.name] = f"{lf} LF vs {crlf} CRLF"
     assert not mixed, f"PowerShell files with mixed line endings: {mixed}"
 
 
