@@ -506,7 +506,7 @@ def _eli_multi_command_prepass(user_text: str):
                 and (_whole.get("args") or {}).get("query")):
             return None
     except Exception:
-        pass
+        log.debug("multi_command: browser-request probe failed", exc_info=True)
     return {
         "action": "MULTI_COMMAND",
         "args": {"commands": segs, "raw": str(user_text or "")},

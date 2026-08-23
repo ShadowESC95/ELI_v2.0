@@ -325,7 +325,7 @@ def discover_brokers_mdns(timeout: float = 2.5) -> List[Dict[str, Any]]:
             if zc is not None:
                 zc.close()
         except Exception:
-            pass
+            log.debug("mqtt_setup: zeroconf close failed", exc_info=True)
     # De-duplicate on host:port, preserving discovery order.
     seen, unique = set(), []
     for b in found:
