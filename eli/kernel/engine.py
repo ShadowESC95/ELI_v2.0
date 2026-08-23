@@ -3170,11 +3170,18 @@ def _failed_executor_surface(evidence: str, query: str = "", action: str = "") -
     paths = _failed_executor_paths(block, query)
     errors = _failed_executor_errors(block)
 
-    lines = (
-        ["I did not successfully analyse the PDF request."]
-        if act == "ANALYZE_PDF"
-        else [f"I did not successfully complete `{act}`."]
-    )
+    # "ACTION" is the sentinel _failed_executor_action_name() returns when it
+    # cannot recover a real name from the evidence. Interpolating it produced
+    # the literal line "I did not successfully complete `ACTION`" in front of
+    # the user -- a template placeholder presented as a fact, on a turn that
+    # named no action at all. If we cannot say WHAT failed, say that, rather
+    # than inventing a name for it.
+    if act == "ANALYZE_PDF":
+        lines = ["I did not successfully analyse the PDF request."]
+    elif act and act != "ACTION":
+        lines = [f"I did not successfully complete `{act}`."]
+    else:
+        lines = ["That did not complete successfully."]
     if errors:
         lines += ["", "What failed:"] + [f"- {e}" for e in errors]
     if paths:

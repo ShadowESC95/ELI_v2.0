@@ -3217,10 +3217,9 @@ def _mpv_alive() -> bool:
     if not os.path.exists(p):
         return False
     try:
-        s = _sock.socket(_sock.AF_UNIX, _sock.SOCK_STREAM)
-        s.settimeout(1.0)
-        s.connect(p)
-        s.close()
+        with _sock.socket(_sock.AF_UNIX, _sock.SOCK_STREAM) as s:
+            s.settimeout(1.0)
+            s.connect(p)
         return True
     except Exception:
         return False
@@ -3235,22 +3234,21 @@ def _mpv_ipc(command: list, *, want_response: bool = False):
     if not os.path.exists(p):
         return None if want_response else False
     try:
-        s = _sock.socket(_sock.AF_UNIX, _sock.SOCK_STREAM)
-        s.settimeout(2.0)
-        s.connect(p)
-        s.sendall((_json.dumps({"command": command}) + "\n").encode())
-        out = None
-        if want_response:
-            buf = s.recv(8192).decode("utf-8", "ignore")
-            for line in buf.splitlines():
-                try:
-                    j = _json.loads(line)
-                    if isinstance(j, dict) and "data" in j:
-                        out = j["data"]
-                        break
-                except Exception:
-                    log.debug("suppressed exception", exc_info=True)
-        s.close()
+        with _sock.socket(_sock.AF_UNIX, _sock.SOCK_STREAM) as s:
+            s.settimeout(2.0)
+            s.connect(p)
+            s.sendall((_json.dumps({"command": command}) + "\n").encode())
+            out = None
+            if want_response:
+                buf = s.recv(8192).decode("utf-8", "ignore")
+                for line in buf.splitlines():
+                    try:
+                        j = _json.loads(line)
+                        if isinstance(j, dict) and "data" in j:
+                            out = j["data"]
+                            break
+                    except Exception:
+                        log.debug("suppressed exception", exc_info=True)
         return out if want_response else True
     except Exception:
         return None if want_response else False
@@ -3273,12 +3271,11 @@ def _mpv_load_confirmed(sock_path: str) -> bool:
     if not sock_path or not os.path.exists(sock_path):
         return False
     try:
-        s = _sock.socket(_sock.AF_UNIX, _sock.SOCK_STREAM)
-        s.settimeout(1.0)
-        s.connect(sock_path)
-        s.sendall((_json.dumps({"command": ["get_property", "duration"]}) + "\n").encode())
-        buf = s.recv(8192).decode("utf-8", "ignore")
-        s.close()
+        with _sock.socket(_sock.AF_UNIX, _sock.SOCK_STREAM) as s:
+            s.settimeout(1.0)
+            s.connect(sock_path)
+            s.sendall((_json.dumps({"command": ["get_property", "duration"]}) + "\n").encode())
+            buf = s.recv(8192).decode("utf-8", "ignore")
         for line in buf.splitlines():
             try:
                 j = _json.loads(line)

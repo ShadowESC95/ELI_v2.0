@@ -1574,8 +1574,35 @@ class VoiceAgent(_BaseAgent):
         t0 = time.perf_counter()
         try:
             import os
-            engine = os.environ.get("ELI_TTS_ENGINE", "espeak").strip().lower()
-            model  = os.environ.get("ELI_PIPER_MODEL", "").strip()
+            # Ask the TTS layer what is actually loaded; do NOT read an env
+            # var and call it a diagnostic. ELI_TTS_ENGINE is almost never
+            # set, so this defaulted to the literal string "espeak" and
+            # reported engine=espeak while Piper was demonstrably speaking
+            # (the same session logged TTS_FINAL_PIPER_ONLY
+            # voice=en_US-amy-medium for every utterance). The model then
+            # repeated that as fact and told the user Piper was missing.
+            # Reporting configuration instead of reality is worse than
+            # reporting nothing.
+            engine, model, voice = "", "", ""
+            backends = {}
+            try:
+                from eli.perception import tts_router as _tts
+                backends = _tts.available_backends() or {}
+                voice = str(backends.get("active_voice") or "").strip()
+                model = str(backends.get("active_model") or "").strip()
+                if model:
+                    engine = "piper"
+                elif backends.get("espeak_ng"):
+                    engine = "espeak-ng"
+                elif backends.get("espeak"):
+                    engine = "espeak"
+            except Exception:
+                _SWLOG.debug("suppressed exception", exc_info=True)
+            if not engine:
+                # Only now fall back to the declared value, and say that is
+                # what it is rather than presenting it as observed.
+                engine = (os.environ.get("ELI_TTS_ENGINE", "").strip().lower()
+                          or "none resolved")
             mute   = os.environ.get("ELI_MUTE", "0") == "1"
             stt_avail = False
             try:
@@ -1586,12 +1613,15 @@ class VoiceAgent(_BaseAgent):
             elapsed = (time.perf_counter() - t0) * 1000
             info = {
                 "tts_engine": engine,
+                "active_voice": voice or "(none)",
                 "piper_model": model or "(not configured)",
+                "piper_available": bool(backends.get("piper_bin") or model),
                 "muted": mute,
                 "stt_available": stt_avail,
                 "content": (
-                    f"TTS: {engine}"
-                    + (f" model={model}" if model else "")
+                    f"TTS engine: {engine}"
+                    + (f", voice: {voice}" if voice else "")
+                    + (f", model: {model}" if model else "")
                     + (" [muted]" if mute else "")
                     + (", STT: faster-whisper available" if stt_avail
                        else ", STT: faster-whisper not installed")
