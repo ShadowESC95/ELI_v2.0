@@ -1,6 +1,6 @@
-# Install Start Menu shortcuts (Windows) for BOTH ELI surfaces, so they launch like any app:
-#   • ELI v2.0           -> the desktop GUI
-#   • ELI Server (Web App) -> the self-hosted web app for phone/tablet (LAN + token)
+﻿# Install Start Menu shortcuts (Windows) for BOTH ELI surfaces, so they launch like any app:
+#   - ELI v2.0           -> the desktop GUI
+#   - ELI Server (Web App) -> the self-hosted web app for phone/tablet (LAN + token)
 # Run:  powershell -ExecutionPolicy Bypass -File scripts\install_desktop_apps.ps1
 $ErrorActionPreference = "Stop"
 $Root = Split-Path -Parent (Split-Path -Parent $MyInvocation.MyCommand.Path)
@@ -57,6 +57,6 @@ Write-Host "       - ELI Uninstall        (remove ELI)"
 if ($icon) {
     Write-Host "     Icon: $($icon.Split(',')[0])"
 } else {
-    Write-Host "     Icon: (default — run scripts/generate_branding_icons.py to add Eli_Icon.ico)" -ForegroundColor Yellow
+    Write-Host "     Icon: (default -- run scripts/generate_branding_icons.py to add Eli_Icon.ico)" -ForegroundColor Yellow
 }
 Write-Host "     Find them in the Start Menu. Inference stays 100% local."

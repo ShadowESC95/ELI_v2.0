@@ -3043,6 +3043,60 @@ def _spotify_search(query: str, prefer: str | None = None) -> bool:
     return _spotify_open_uri(f"spotify:search:{_up2.quote(query)}")
 
 
+_PLAYLIST_RE = re.compile(
+    r"^\s*(?:my|the|a)?\s*(?P<name>.+?)\s*(?:play\s*list|playlist)\s*$", re.I
+)
+
+
+def _spotify_playlist_name(query: str) -> str:
+    """The playlist name in "play my workout playlist", else "".
+
+    A song request and a playlist request need different Spotify contexts: a
+    track plays once and stops, a playlist keeps going. There was no way to
+    ask for the second one at all.
+    """
+    m = _PLAYLIST_RE.match(str(query or ""))
+    if not m:
+        return ""
+    name = (m.group("name") or "").strip(" .,:;-")
+    # "play my playlist" names nothing; treat it as no playlist rather than
+    # searching Spotify for the empty string.
+    return name if len(name) >= 2 else ""
+
+
+def _spotify_loop_status() -> str:
+    """MPRIS LoopStatus: "None", "Track", "Playlist", or "" when unknown."""
+    import subprocess as _sp2
+    try:
+        cp = _sp2.run(["playerctl", "-p", "spotify", "loop"],
+                      capture_output=True, text=True, timeout=5)
+        if cp.returncode == 0:
+            return (cp.stdout or "").strip()
+    except Exception:
+        log.debug("suppressed exception", exc_info=True)
+    return ""
+
+
+def _spotify_clear_track_repeat() -> bool:
+    """Turn repeat-one off so a track can advance. True when a change was made.
+
+    Repeat-one makes every request look like "it just repeats the same song".
+    It was NOT the cause on the reporting machine (LoopStatus read back as
+    None), so this only ever acts when repeat-one is genuinely set — it never
+    changes a setting the user chose for a playlist.
+    """
+    if _spotify_loop_status() != "Track":
+        return False
+    import subprocess as _sp2
+    try:
+        _sp2.run(["playerctl", "-p", "spotify", "loop", "None"],
+                 capture_output=True, timeout=5)
+    except Exception:
+        log.debug("suppressed exception", exc_info=True)
+        return False
+    return _spotify_loop_status() != "Track"
+
+
 def _spotify_play() -> bool:
     """Start/resume Spotify playback (no Web API). After a spotify:search: OpenUri
     the search results are the active context, so Play starts the top match.
@@ -3112,6 +3166,49 @@ def _mpv_socket_path() -> str:
         log.debug("suppressed exception", exc_info=True)
     import tempfile
     return os.path.join(tempfile.gettempdir(), "eli_youtube_mpv.sock")
+
+
+def _yt_player_clients() -> list:
+    """yt-dlp YouTube clients to try, in order.
+
+    A googlevideo "HTTP error 403 Forbidden" during playback does not mean the
+    video is unavailable — it means yt-dlp resolved a stream URL that is bound
+    to the client which requested it, and ffmpeg (inside mpv) cannot reproduce
+    that request. The live failure carried `c=ANDROID_VR`, whose URLs are tied
+    to the requesting client and reliably 403 when handed to another fetcher.
+
+    The empty string means "whatever yt-dlp picks by default" and it goes
+    FIRST, deliberately. Measured against live YouTube on yt-dlp 2026.03.17,
+    the default client resolved and fetched (HTTP 206) while web_safari, tv,
+    ios, mweb and web_embedded did not resolve at all — pinning a "preferred"
+    client would have broken working playback for everyone to chase an
+    intermittent failure. So the default path is never altered; the ladder is
+    only ever walked after a 403 has actually happened, and it lists the
+    clients that were observed to resolve.
+
+    Which clients work shifts as YouTube changes, so the order is overridable
+    with ELI_YT_PLAYER_CLIENTS (comma-separated) without touching code. A
+    stale yt-dlp is the other common cause and no client can compensate for
+    it, which is why the failure message says so.
+    """
+    raw = (os.environ.get("ELI_YT_PLAYER_CLIENTS") or "").strip()
+    if raw:
+        return [("" if c.strip().lower() == "default" else c.strip())
+                for c in raw.split(",") if c.strip()]
+    return ["", "android", "android_vr"]
+
+
+def _yt_is_client_bound_failure(stderr_tail: str) -> bool:
+    """True when the failure is the kind a different client can fix.
+
+    A 403 is worth retrying with another client. "Video unavailable", a
+    geo-block or an empty search result are not — retrying those just burns
+    seconds before the browser fallback the user was always going to get.
+    """
+    low = str(stderr_tail or "").lower()
+    if "empty playlist" in low or "unavailable" in low or "private video" in low:
+        return False
+    return "403" in low or "forbidden" in low
 
 
 def _mpv_alive() -> bool:
@@ -3291,6 +3388,14 @@ def play_specific(query: str, target: str | None = None) -> Dict[str, Any]:
     is_yt_web  = is_youtube and bool(_re.search(r"\bweb(?:site)?\b", t))
     is_yt_browser = is_yt_web or bool(_re.search(r"youtube\.com", t, _re.I))
 
+    # "play my workout playlist" with no platform named would be searched for
+    # on YouTube as if it were a song title. A playlist request belongs to the
+    # music player that is actually running. This only fires when NO platform
+    # was named, so an explicit target is still never overridden.
+    if (not is_spotify and not is_youtube
+            and _spotify_playlist_name(query) and _spotify_running()):
+        is_spotify = True
+
     if is_spotify and not is_youtube:
         import time as _time
         search_q = (
@@ -3301,6 +3406,50 @@ def play_specific(query: str, target: str | None = None) -> Dict[str, Any]:
         # starts. Playing the specific requested song is the intended behaviour — the
         # earlier 'playlists' filter approach opened a LIST of playlists where Play
         # had nothing to start, which is why playback failed.
+        # A playlist request needs a different Spotify context from a song
+        # request: a track plays once and stops (which is what "it just repeats
+        # instead of going onto similar songs" describes), while a playlist
+        # keeps going on its own. There was previously no way to ask for one.
+        # play_specific() receives (query, target) only -- there is no args dict
+        # in this scope, so the request is read from the phrasing, which is how
+        # users say it anyway ("play my workout playlist").
+        _pl_name = "" if _by_m else _spotify_playlist_name(search_q)
+        if _pl_name:
+            _pl_opened = _spotify_search(_pl_name, prefer="playlists")
+            if not _pl_opened:
+                try:
+                    _open_in_browser(
+                        f"spotify:search:{urllib.parse.quote(_pl_name)}")
+                    for _ in range(8):
+                        _time.sleep(1.0)
+                        if _spotify_running():
+                            break
+                    _pl_opened = _spotify_search(_pl_name, prefer="playlists")
+                except Exception:
+                    _pl_opened = False
+            if _pl_opened:
+                _time.sleep(1.8)     # the playlists tab is slower than tracks
+                _spotify_clear_track_repeat()
+                if _spotify_play():
+                    _set_now_playing("spotify", f"{_pl_name} (playlist)")
+                    msg = f"Playing the \u201c{_pl_name}\u201d playlist on Spotify."
+                    return {"ok": True, "action": "PLAY_MEDIA", "played": True,
+                            "kind": "playlist", "content": msg, "response": msg}
+                # Opened but nothing started: the playlists tab is a LIST of
+                # playlists, and Play has nothing to start until one is opened.
+                # Say that rather than claiming playback.
+                msg = (f"I opened Spotify's playlist results for \u201c{_pl_name}\u201d but "
+                       f"playback didn't start \u2014 the results are a list of playlists, so "
+                       f"open one and I'll take it from there.")
+                return {"ok": True, "action": "PLAY_MEDIA", "played": False,
+                        "search_only": True, "kind": "playlist",
+                        "content": msg, "response": msg}
+            msg = (f"I couldn't reach Spotify to play the \u201c{_pl_name}\u201d playlist \u2014 "
+                   f"is it installed and running?")
+            return {"ok": False, "action": "PLAY_MEDIA", "played": False,
+                    "search_only": True, "target": "spotify", "kind": "playlist",
+                    "content": msg, "response": msg}
+
         _opened = _spotify_search(search_q)
         if not _opened:
             # Spotify not running yet — launch with the search URI, wait, retry.
@@ -3315,6 +3464,9 @@ def play_specific(query: str, target: str | None = None) -> Dict[str, Any]:
                 _opened = False
         if _opened:
             _time.sleep(1.6)            # let the results view populate
+            # Repeat-one turns every request into "it plays the same song over
+            # and over". Only touched when it is actually set.
+            _spotify_clear_track_repeat()
             if _spotify_play():
                 _set_now_playing("spotify", search_q)
                 msg = f"Playing “{search_q}” on Spotify."
@@ -3369,13 +3521,13 @@ def play_specific(query: str, target: str | None = None) -> Dict[str, Any]:
                 # degrade to DEVNULL (no post-mortem) rather than skipping mpv.
                 log.debug("suppressed exception", exc_info=True)
                 _err_target = _sp.DEVNULL
-            proc = _sp.Popen(
-                ["mpv", f"ytdl://ytsearch1:{yt_search}",
-                 f"--input-ipc-server={ipc}",
-                 "--ytdl-format=bestaudio/best",
-                 "--title=ELI-YouTube"],
-                stdout=_sp.DEVNULL, stderr=_err_target, start_new_session=True,
-            )
+            # One shot with whatever client yt-dlp chose is what produced the
+            # 403: mpv exited rc=3 and the user got the browser fallback with
+            # no explanation. Walk the ladder instead, and only re-try when the
+            # failure is actually client-bound.
+            _yt_clients = _yt_player_clients()
+            _yt_used_client = ""
+            proc = None
             # Popen returns as soon as the process is SPAWNED, which says nothing about
             # whether it plays — that is how "Playing … on YouTube" got reported for a
             # track that never started. Neither the IPC socket (mpv opens it within
@@ -3390,18 +3542,53 @@ def play_specific(query: str, target: str | None = None) -> Dict[str, Any]:
             #   duration known→ genuine playback, return as soon as it lands
             #   neither       → still resolving; say so rather than claim it plays
             _verify_s = float(os.environ.get("ELI_YT_VERIFY_SECONDS", "8.0"))
-            # NB: `_time` is bound only inside the Spotify branch above, which makes it a
-            # function-local Python cannot resolve here — use the module-level `time`.
-            _deadline = time.monotonic() + max(0.0, _verify_s)
             _confirmed = False
-            while time.monotonic() < _deadline:
-                if proc.poll() is not None:
+            _rc = None
+            for _yt_client in _yt_clients:
+                _yt_cmd = ["mpv", f"ytdl://ytsearch1:{yt_search}",
+                           f"--input-ipc-server={ipc}",
+                           "--ytdl-format=bestaudio/best"]
+                if _yt_client:
+                    # mpv splits --ytdl-raw-options on commas, so exactly one
+                    # client per attempt — a comma-joined list would be parsed
+                    # as a second, unknown option and mpv would refuse to start.
+                    _yt_cmd.append(
+                        f"--ytdl-raw-options=extractor-args=youtube:player_client={_yt_client}"
+                    )
+                _yt_cmd.append("--title=ELI-YouTube")
+                _yt_used_client = _yt_client or "yt-dlp default"
+                proc = _sp.Popen(
+                    _yt_cmd,
+                    stdout=_sp.DEVNULL, stderr=_err_target, start_new_session=True,
+                )
+                # NB: `_time` is bound only inside the Spotify branch above, which makes it a
+                # function-local Python cannot resolve here — use the module-level `time`.
+                _deadline = time.monotonic() + max(0.0, _verify_s)
+                while time.monotonic() < _deadline:
+                    if proc.poll() is not None:
+                        break
+                    if _mpv_load_confirmed(ipc):
+                        _confirmed = True
+                        break
+                    time.sleep(0.1)
+                _rc = proc.poll()
+                if _confirmed or _rc is None:
+                    break        # playing, or still resolving — either way, stop trying
+                # Died. Only another client can fix a client-bound refusal.
+                _probe = ""
+                if _mpv_err_log is not None:
+                    try:
+                        _mpv_err_log.flush()
+                        _mpv_err_log.seek(0)
+                        _probe = _mpv_err_log.read()
+                    except Exception:
+                        log.debug("suppressed exception", exc_info=True)
+                if not _yt_is_client_bound_failure(_probe):
                     break
-                if _mpv_load_confirmed(ipc):
-                    _confirmed = True
-                    break
-                time.sleep(0.1)
-            _rc = proc.poll()
+                log.info(
+                    f"[MEDIA] YouTube client {_yt_used_client!r} was refused (403) "
+                    f"for {yt_search!r} — retrying with the next client"
+                )
             if _rc is not None:
                 _tail = ""
                 if _mpv_err_log is not None:
@@ -3424,6 +3611,9 @@ def play_specific(query: str, target: str | None = None) -> Dict[str, Any]:
                 # useless to the user. Give them the one fact that changes what they do next.
                 _yt_direct_err = (
                     "no match found on YouTube" if "empty playlist" in _tail.lower()
+                    else "YouTube refused the stream for every player client I tried "
+                         "(this usually means yt-dlp is out of date — `pipx upgrade yt-dlp`)"
+                    if _yt_is_client_bound_failure(_tail)
                     else "mpv could not start playback"
                 )
                 # Fall through to the browser fallback below rather than claiming
@@ -6425,7 +6615,16 @@ def _execute_impl(action: str, args: Optional[Dict[str, Any]] = None) -> Dict[st
             q = (args.get("query") or "").strip()
             if q:
                 import urllib.parse as _up
-                url = "https://duckduckgo.com/?q=" + _up.quote_plus(q)
+                # Safe search applies here too. The API path is filtered in
+                # eli/plugins/web/plugin.py, but this opens a real search page
+                # in the user's browser, which that filter never sees — kp=1
+                # is DuckDuckGo's strict setting.
+                try:
+                    from eli.plugins.web.plugin import _safe_search_enabled as _sse
+                    _kp = "&kp=1" if _sse() else ""
+                except Exception:
+                    _kp = "&kp=1"
+                url = "https://duckduckgo.com/?q=" + _up.quote_plus(q) + _kp
             else:
                 url = "https://duckduckgo.com"
         return open_browser(url)
@@ -7434,62 +7633,213 @@ def _execute_impl(action: str, args: Optional[Dict[str, Any]] = None) -> Dict[st
 
     # ---- MOUSE_CONTROL ----
     if a == "MOUSE_CONTROL":
+        # Rewritten after a live session in which "click enter", "click enter
+        # button" and "move cursor right" moved nothing at all while the
+        # executor reported every one of them as a success. Four faults:
+        #   * an unrecognised action fell into an `else` that set
+        #     "Mouse action '<x>' performed" and returned ok=True having
+        #     touched nothing;
+        #   * both click branches required x AND y, so a click without
+        #     coordinates matched nothing and hit that same else;
+        #   * relative movement was never implemented, so a direction-only
+        #     request ("move cursor right") had no branch to land in;
+        #   * "enter" arrived in the *button* slot. A key is not a mouse
+        #     button and can never be clicked, so it could only ever fail.
+        # Nothing below reports success unless a backend actually acted.
+        import subprocess as _sp
+
+        _mc_action = str(args.get("action") or args.get("command") or "").strip().lower()
+        _mc_x, _mc_y = args.get("x"), args.get("y")
+        _mc_button = str(args.get("button") or "left").strip().lower()
+        _mc_double = bool(args.get("double", False))
+        _mc_dir = str(args.get("direction") or "").strip().lower()
         try:
-            import subprocess as _sp
-            mouse_action = str(args.get("action") or "move").lower()
-            x = args.get("x")
-            y = args.get("y")
-            button = str(args.get("button") or "left").lower()
-            double = bool(args.get("double", False))
-            direction = str(args.get("direction") or "down").lower()
-            amount = int(args.get("amount", 3))
-            # Try pyautogui
+            _mc_amount = int(args.get("amount") or args.get("distance") or args.get("pixels") or 0)
+        except Exception:
+            _mc_amount = 0
+
+        # Keys that turn up in the button/action slot when the user says
+        # "click enter" — route them to the keyboard instead of failing.
+        _MC_KEYNAMES = {
+            "enter", "return", "escape", "esc", "space", "spacebar", "tab",
+            "backspace", "delete", "del", "insert", "home", "end",
+            "pageup", "page up", "pagedown", "page down", "capslock",
+            "f1", "f2", "f3", "f4", "f5", "f6", "f7", "f8", "f9", "f10", "f11", "f12",
+        }
+        _mc_key = None
+        if _mc_button in _MC_KEYNAMES:
+            _mc_key = _mc_button
+        elif _mc_action in _MC_KEYNAMES:
+            _mc_key = _mc_action
+        if _mc_key:
+            from eli.perception.os_controller import press_key
+            _kr = press_key(_mc_key)
+            if isinstance(_kr, dict):
+                _kr.setdefault("action", "KEYBOARD")
+                _kr["rerouted_from"] = "MOUSE_CONTROL"
+                if _kr.get("ok"):
+                    _km = f"Pressed {_mc_key} (that is a key, not a mouse button)."
+                    _kr["content"] = _kr["response"] = _km
+                return _kr
+
+        if _mc_button not in {"left", "right", "middle"}:
+            _mm = (f"'{_mc_button}' is not a mouse button. Use left, right or middle — "
+                   f"or name a key and I will press it instead.")
+            return {"ok": False, "action": a, "error": _mm, "content": _mm, "response": _mm}
+
+        if not _mc_action:
+            _mc_action = "move" if (_mc_dir or _mc_x is not None) else ""
+        if _mc_action in {"move", "click"} and not _mc_dir and _mc_x is None and _mc_action == "move":
+            _mm = "Tell me where to move the pointer — coordinates, or a direction like 'right'."
+            return {"ok": False, "action": a, "error": _mm, "content": _mm, "response": _mm}
+        if _mc_action not in {"move", "click", "scroll"}:
+            _mm = (f"I don't have a mouse action called '{_mc_action or 'nothing'}'. "
+                   f"I can move, click or scroll.")
+            return {"ok": False, "action": a, "error": _mm, "content": _mm, "response": _mm}
+
+        # Relative movement: a direction plus a step, defaulting to 100px.
+        _mc_step = _mc_amount if _mc_amount > 0 else 100
+        _mc_dx = {"right": _mc_step, "left": -_mc_step}.get(_mc_dir, 0)
+        _mc_dy = {"down": _mc_step, "up": -_mc_step}.get(_mc_dir, 0)
+        if _mc_action == "move" and _mc_x is None and not (_mc_dx or _mc_dy):
+            _mm = f"I don't know which way '{_mc_dir}' is — try left, right, up or down."
+            return {"ok": False, "action": a, "error": _mm, "content": _mm, "response": _mm}
+        if _mc_action == "scroll" and _mc_dir not in {"up", "down"}:
+            _mc_dir = "down"
+        _mc_scroll_n = _mc_amount if _mc_amount > 0 else 3
+
+        def _mc_run(cmd) -> bool:
+            try:
+                return _sp.run(cmd, stdout=_sp.DEVNULL, stderr=_sp.DEVNULL,
+                               timeout=8, check=False).returncode == 0
+            except Exception:
+                return False
+
+        def _mc_native():
+            """xdotool (X11) / ydotool (Wayland). Subprocesses, so no X11
+            display handles are leaked the way the pyautogui path leaks them."""
+            tool = ("ydotool" if shutil.which("ydotool")
+                    else ("xdotool" if shutil.which("xdotool") else None))
+            if tool is None:
+                return None
+            wayland = tool == "ydotool"
+            if _mc_action == "move":
+                if _mc_x is not None and _mc_y is not None:
+                    cmd = ([tool, "mousemove", "-a", "--", str(int(_mc_x)), str(int(_mc_y))]
+                           if wayland else
+                           [tool, "mousemove", str(int(_mc_x)), str(int(_mc_y))])
+                    ok = _mc_run(cmd)
+                    return (ok, f"Moved the pointer to ({int(_mc_x)}, {int(_mc_y)})." if ok
+                            else "The pointer did not move.")
+                cmd = ([tool, "mousemove", "--", str(_mc_dx), str(_mc_dy)] if wayland
+                       else [tool, "mousemove_relative", "--", str(_mc_dx), str(_mc_dy)])
+                ok = _mc_run(cmd)
+                return (ok, f"Moved the pointer {_mc_dir} by {_mc_step}px." if ok
+                        else "The pointer did not move.")
+            if _mc_action == "click":
+                if _mc_x is not None and _mc_y is not None:
+                    _mc_run([tool, "mousemove", "-a", "--", str(int(_mc_x)), str(int(_mc_y))]
+                            if wayland else
+                            [tool, "mousemove", str(int(_mc_x)), str(int(_mc_y))])
+                if wayland:
+                    # ydotool click takes <flags|button>: 0x40 down, 0x80 up,
+                    # buttons left/right/middle = 0/1/2. The previous codes
+                    # (0x40001, 0x40002) sent a press with no release — a
+                    # stuck mouse button — and named the wrong buttons.
+                    code = {"left": "0xC0", "right": "0xC1", "middle": "0xC2"}[_mc_button]
+                    cmd = [tool, "click", code]
+                else:
+                    num = {"left": "1", "middle": "2", "right": "3"}[_mc_button]
+                    cmd = [tool, "click", "--clearmodifiers"]
+                    if _mc_double:
+                        cmd += ["--repeat", "2", "--repeat-delay", "80"]
+                    cmd += [num]
+                ok = _mc_run(cmd)
+                if ok and wayland and _mc_double:
+                    _mc_run(cmd)
+                where = (f" at ({int(_mc_x)}, {int(_mc_y)})"
+                         if _mc_x is not None and _mc_y is not None else " where the pointer is")
+                return (ok, (f"{'Double-c' if _mc_double else 'C'}licked {_mc_button}{where}."
+                             if ok else "The click did not register."))
+            # scroll
+            if wayland:
+                cmd = [tool, "scroll", "--", "0",
+                       str(-_mc_scroll_n if _mc_dir == "down" else _mc_scroll_n)]
+            else:
+                cmd = [tool, "click", "--clearmodifiers", "--repeat", str(_mc_scroll_n),
+                       "--repeat-delay", "50", "4" if _mc_dir == "up" else "5"]
+            ok = _mc_run(cmd)
+            return (ok, f"Scrolled {_mc_dir} by {_mc_scroll_n}." if ok else "The scroll did not register.")
+
+        def _mc_pyautogui():
+            """Cross-platform path — the only one available on Windows/macOS."""
             try:
                 import pyautogui
-                if mouse_action == "move" and x is not None and y is not None:
-                    pyautogui.moveTo(int(x), int(y), duration=0.2)
-                    msg = f"Mouse moved to ({x}, {y})"
-                elif mouse_action == "click" and x is not None and y is not None:
-                    pyautogui.moveTo(int(x), int(y), duration=0.1)
-                    if double:
-                        pyautogui.doubleClick(button=button)
+            except Exception:
+                return None
+            try:
+                if _mc_action == "move":
+                    if _mc_x is not None and _mc_y is not None:
+                        pyautogui.moveTo(int(_mc_x), int(_mc_y), duration=0.2)
+                        return (True, f"Moved the pointer to ({int(_mc_x)}, {int(_mc_y)}).")
+                    pyautogui.moveRel(_mc_dx, _mc_dy, duration=0.15)
+                    return (True, f"Moved the pointer {_mc_dir} by {_mc_step}px.")
+                if _mc_action == "click":
+                    if _mc_x is not None and _mc_y is not None:
+                        pyautogui.moveTo(int(_mc_x), int(_mc_y), duration=0.1)
+                        where = f" at ({int(_mc_x)}, {int(_mc_y)})"
                     else:
-                        pyautogui.click(button=button)
-                    msg = f"{'Double-c' if double else 'C'}licked {button} at ({x}, {y})"
-                elif mouse_action == "scroll":
-                    delta = amount if direction == "up" else -amount
-                    pyautogui.scroll(delta)
-                    msg = f"Scrolled {direction} by {amount}"
-                else:
-                    msg = f"Mouse action '{mouse_action}' performed"
-                return {"ok": True, "action": a, "content": msg, "response": msg}
-            except ImportError:
-                log.debug("suppressed exception", exc_info=True)
-            # Fallback: ydotool (Wayland) or xdotool (X11)
-            tool = "ydotool" if shutil.which("ydotool") else ("xdotool" if shutil.which("xdotool") else None)
-            if tool is None:
-                return {"ok": False, "action": a,
-                        "error": "No mouse control tool found. Install: pip install pyautogui  OR  apt install ydotool",
-                        "content": "No mouse tool available.", "response": "No mouse tool available."}
-            if mouse_action == "move" and x is not None:
-                cmd = [tool, "mousemove", "--", str(x), str(y)] if tool == "ydotool" else [tool, "mousemove", str(x), str(y)]
-            elif mouse_action == "click":
-                btn_flag = "0x40002" if button == "right" else "0x40001"
-                cmd = [tool, "click", btn_flag] if tool == "ydotool" else [tool, "click", "--clearmodifiers", "--button", "3" if button == "right" else "1"]
-            elif mouse_action == "scroll":
-                if tool == "xdotool":
-                    btn = "4" if direction == "up" else "5"
-                    cmd = [tool, "click", "--clearmodifiers", "--repeat", str(amount), "--repeat-delay", "50", btn]
-                else:
-                    cmd = [tool, "scroll", "--", "0", str(-amount if direction == "down" else amount)]
+                        where = " where the pointer is"
+                    if _mc_double:
+                        pyautogui.doubleClick(button=_mc_button)
+                    else:
+                        pyautogui.click(button=_mc_button)
+                    return (True, f"{'Double-c' if _mc_double else 'C'}licked {_mc_button}{where}.")
+                pyautogui.scroll(_mc_scroll_n if _mc_dir == "up" else -_mc_scroll_n)
+                return (True, f"Scrolled {_mc_dir} by {_mc_scroll_n}.")
+            except Exception as _pe:
+                return (False, f"Pointer control failed: {_pe}")
+
+        # On Linux the native tools are both more reliable and leak-free; the
+        # pyautogui/Xlib path left unclosed display sockets and file handles
+        # behind on every single call. Elsewhere pyautogui is the only option.
+        _mc_order = ((_mc_native, _mc_pyautogui) if sys.platform.startswith("linux")
+                     else (_mc_pyautogui, _mc_native))
+
+        _mc_last = ""
+        for _backend in _mc_order:
+            _res = _backend()
+            if _res is None:          # backend unavailable — try the next
+                continue
+            _ok, _msg = _res
+            if _ok:
+                return {"ok": True, "action": a, "content": _msg, "response": _msg}
+            _mc_last = _msg
+
+        if not _mc_last:
+            # Advice has to match the machine it is printed on. This used to
+            # tell Windows and macOS users to `apt install xdotool`.
+            if sys.platform.startswith("win"):
+                _mc_last = ("No pointer-control backend is available. Install one with "
+                            "`pip install pyautogui`.")
+            elif sys.platform == "darwin":
+                _mc_last = ("No pointer-control backend is available. Install one with "
+                            "`pip install pyautogui`, then allow ELI under System Settings ▸ "
+                            "Privacy & Security ▸ Accessibility — macOS blocks synthetic "
+                            "input until that is granted.")
             else:
-                cmd = []
-            if cmd:
-                _sp.run(cmd, check=True)
-            msg = f"Mouse {mouse_action} executed"
-            return {"ok": True, "action": a, "content": msg, "response": msg}
-        except Exception as e:
-            return {"ok": False, "action": a, "error": str(e), "content": str(e), "response": str(e)}
+                from eli.system.portable_app_control import display_server as _ds
+                if _ds() == "wayland":
+                    _mc_last = ("No pointer-control backend is available for this Wayland "
+                                "session. xdotool and pyautogui drive X11 only and cannot "
+                                "reach native Wayland windows; install ydotool (and run "
+                                "ydotoold with access to /dev/uinput), or log in on X11.")
+                else:
+                    _mc_last = ("No pointer-control backend is available. Install one: "
+                                "`pip install pyautogui`, or your distribution's xdotool "
+                                "package (X11) / ydotool (Wayland).")
+        return {"ok": False, "action": a, "error": _mc_last,
+                "content": _mc_last, "response": _mc_last}
 
     # ---- SET_CLIPBOARD / GET_CLIPBOARD ----
     if a == "SET_CLIPBOARD":
@@ -10162,6 +10512,26 @@ def _execute_impl(action: str, args: Optional[Dict[str, Any]] = None) -> Dict[st
                 "response": "wmctrl required to restore windows."}
 
     if a == "MAXIMISE_WINDOW":
+        # The router extracts the target correctly ("maximise prime video" →
+        # window_name="prime video"); this branch used to discard it and
+        # maximise :ACTIVE: regardless, so it always acted on whatever window
+        # happened to be focused. A named target is now honoured, and when the
+        # named window cannot be found we say so instead of falling back to
+        # the active window — acting on a different window than the one asked
+        # for is the defect, not a graceful degradation.
+        _mx_name = str(
+            args.get("name") or args.get("target") or args.get("app")
+            or args.get("window_name") or args.get("window") or ""
+        ).strip()
+        from eli.system.portable_app_control import BARE_WINDOW_TARGETS as _BWT
+        if _mx_name.lower() in _BWT:
+            _mx_name = ""
+        if _mx_name:
+            from eli.system.portable_app_control import maximize_app
+            _mx = maximize_app(_mx_name)
+            _mx.setdefault("action", a)
+            return _mx
+
         if shutil.which("wmctrl"):
             ok = _run_ok(["wmctrl", "-r", ":ACTIVE:", "-b", "add,maximized_vert,maximized_horz"])
             msg = "Maximised current window." if ok else "Failed to maximise window."
@@ -10264,18 +10634,43 @@ def _execute_impl(action: str, args: Optional[Dict[str, Any]] = None) -> Dict[st
 
     # ---- CLOSE_APP ----
     if a == "CLOSE_APP":
-        name = str(args.get("name") or args.get("app") or "").strip()
+        # This is the fallback path: portable_app_control.close_app runs first
+        # and only reaches here when it could not find a matching window. It
+        # used to end in a bare `pkill -f <name>` loop, which matches the full
+        # command line of every process as a regex — "close file" matched
+        # `dbus-daemon --session ... --nopidfile` and logged the user out of
+        # their desktop, while still reporting the close as a success.
+        # Every kill now goes through the verified guard, which dry-runs the
+        # pattern and refuses anything that would signal a protected process.
+        from eli.system.process_guard import safe_pkill
+
+        name = str(args.get("name") or args.get("app") or args.get("target") or "").strip()
         if not name:
             return {"ok": False, "action": a, "error": "missing app name", "content": "Specify app to close.", "response": "Specify app to close."}
-        tried = []
-        for cmd in [["wmctrl", "-c", name], ["pkill", "-f", name], ["pkill", name], ["killall", name]]:
-            if shutil.which(cmd[0]):
-                tried.append(cmd[0])
-                if _run_ok(cmd):
-                    msg = f"Closed {name} via {cmd[0]}."
-                    return {"ok": True, "action": a, "content": msg, "response": msg}
-        msg = f"Could not close {name}. Tried: {', '.join(tried) or 'no tools found'}."
-        return {"ok": False, "action": a, "error": msg, "content": msg, "response": msg}
+
+        # Window-scoped close first — it can only ever affect a real window.
+        if shutil.which("wmctrl") and _run_ok(["wmctrl", "-c", name]):
+            msg = f"Closed {name} via wmctrl."
+            return {"ok": True, "action": a, "content": msg, "response": msg}
+
+        # Then process kills, exact name before command line, both verified.
+        refusals = []
+        for full_cmdline in (False, True):
+            res = safe_pkill(name, full_cmdline=full_cmdline)
+            if res.get("ok"):
+                how = "command-line match" if full_cmdline else "process name"
+                msg = f"Closed {name} ({res.get('killed')} process(es), matched by {how})."
+                return {"ok": True, "action": a, "content": msg, "response": msg,
+                        "kill_plan": res.get("plan")}
+            reason = str(res.get("reason") or "").strip()
+            if reason and reason not in refusals:
+                refusals.append(reason)
+
+        # Nothing was closed. Say why, rather than reporting a phantom success.
+        detail = f" ({refusals[0]})" if refusals else ""
+        msg = f"Could not close {name}{detail}."
+        return {"ok": False, "action": a, "error": msg, "content": msg, "response": msg,
+                "refusals": refusals}
 
     # ---- ANALYZE_IMAGE (metadata + OCR; never confabulate visual content) ----
     if a == "ANALYZE_IMAGE":
@@ -13010,6 +13405,27 @@ except NameError:
             _r = minimize_app(data.get("name") or data.get("target") or data.get("app") or "")
             if isinstance(_r, dict) and _r.get("ok"):
                 return _r
+            return None
+
+        # Maximise was missing from this table while minimise was present,
+        # which is how the two halves of window control drifted apart. Only a
+        # *named* target is handled here; a bare "maximise" still means the
+        # active window and belongs to the executor branch.
+        # Only the existing capability name. Adding US/APP aliases here would
+        # register three new capabilities in the manifest and put every
+        # documented capability count out of date, which is not what a
+        # window-targeting fix should cost.
+        if action_name == "MAXIMISE_WINDOW":
+            from eli.system.portable_app_control import BARE_WINDOW_TARGETS as _BWT
+            _mx_target = (data.get("name") or data.get("target") or data.get("app")
+                          or data.get("window_name") or data.get("window") or "")
+            # A deictic target is not a named window; it must reach the
+            # executor's active-window branch, not maximize_app.
+            if str(_mx_target).strip() and str(_mx_target).strip().lower() not in _BWT:
+                from eli.system.portable_app_control import maximize_app
+                _r = maximize_app(str(_mx_target).strip())
+                if isinstance(_r, dict) and _r.get("ok"):
+                    return _r
             return None
 
         return None

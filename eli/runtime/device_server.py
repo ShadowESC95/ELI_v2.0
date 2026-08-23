@@ -283,10 +283,29 @@ class DeviceServer:
             return {"ok": False, "error": str(e)}
         return {"ok": True, "status": self.status()}
 
-    def connect(self) -> Dict[str, Any]:
+    def connect(self, autodetect: bool = True) -> Dict[str, Any]:
         cfg = _cfg()
+        if not cfg["host"] and autodetect:
+            # "no MQTT broker configured (set mqtt_host)" was a dead end for
+            # anyone who does not know what MQTT is, and nothing ever called
+            # the host suggestions that already existed. Look for a broker
+            # (mDNS first, then the conventional local names) and save what
+            # actually answers, so the common case needs no configuration.
+            try:
+                from eli.runtime.mqtt_setup import autodetect_broker
+                det = autodetect_broker(timeout=2.0)
+                if det.get("ok"):
+                    b = det["broker"]
+                    self.configure(host=b["host"], port=b["port"], tls=bool(b.get("tls")))
+                    log.info("device_server: auto-configured broker %s:%s (%s)",
+                             b["host"], b["port"], b.get("source"))
+                    cfg = _cfg()
+            except Exception:
+                log.debug("device_server: broker autodetect failed", exc_info=True)
         if not cfg["host"]:
-            return {"ok": False, "error": "no MQTT broker configured (set mqtt_host)"}
+            return {"ok": False, "error": "no MQTT broker found on this network",
+                    "hint": "ask ELI to set up devices, or install a broker "
+                            "(see mqtt_setup.broker_install_guide)"}
         try:
             import paho.mqtt.client as mqtt
         except Exception:

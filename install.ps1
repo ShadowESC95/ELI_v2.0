@@ -89,7 +89,31 @@ if (Get-Command nvidia-smi -ErrorAction SilentlyContinue) {
         $HasNvidia = $true
     }
 }
-if (-not $HasNvidia) { Write-Host "[WARN] GPU       none detected - ELI will run on CPU (slower)" -ForegroundColor Yellow }
+if (-not $HasNvidia) {
+    # nvidia-smi was the ONLY detector here, so an AMD or Intel Arc machine was
+    # told it had no GPU at all and silently dropped to a CPU-only build with
+    # no explanation. Enumerate every adapter and say what is actually present.
+    $OtherGpus = @()
+    try {
+        $OtherGpus = @(Get-CimInstance Win32_VideoController -ErrorAction Stop |
+            Where-Object { $_.Name -and $_.Name -notmatch '(?i)nvidia' -and
+                           $_.Name -notmatch '(?i)microsoft basic display' } |
+            ForEach-Object { $_.Name.Trim() })
+    } catch { $OtherGpus = @() }
+
+    if ($OtherGpus.Count -ge 1) {
+        Write-Host "[OK] GPU         $($OtherGpus[0])" -ForegroundColor Green
+        $vendor = if ($OtherGpus[0] -match '(?i)amd|radeon') { "AMD" }
+                  elseif ($OtherGpus[0] -match '(?i)intel|arc') { "Intel" }
+                  else { "this vendor" }
+        Write-Host "[WARN] GPU       $vendor GPU found, but no prebuilt GPU-accelerated" -ForegroundColor Yellow
+        Write-Host "                 llama-cpp-python wheel is published for it on Windows." -ForegroundColor Yellow
+        Write-Host "                 ELI will use the CPU build (it still runs, just slower)." -ForegroundColor Yellow
+        Write-Host "                 A Vulkan build can be compiled manually - see docs." -ForegroundColor Yellow
+    } else {
+        Write-Host "[WARN] GPU       none detected - ELI will run on CPU (slower)" -ForegroundColor Yellow
+    }
+}
 
 # Default the build to the hardware unless forced.
 if ((-not $CpuOnly) -and (-not $Gpu) -and (-not $HasNvidia)) { $CpuOnly = $true }
@@ -153,7 +177,12 @@ if ($CpuOnly) {
     Invoke-Pip (@("install") + $PipFindLinksArgs + @("torch", "--index-url", "https://download.pytorch.org/whl/cpu", "--quiet"))
 } else {
     Write-Host "[..] Installing PyTorch (CUDA $CudaVersion)..."
-    Invoke-Pip @("install", "torch", "--index-url", "https://download.pytorch.org/whl/$CudaVersion", "--prefer-binary", "--quiet")
+    try {
+        Invoke-Pip @("install", "torch", "--index-url", "https://download.pytorch.org/whl/$CudaVersion", "--only-binary=:all:", "--quiet")
+    } catch {
+        Write-Host "[WARN] No CUDA $CudaVersion PyTorch wheel for Python $pyVer - using the CPU build." -ForegroundColor Yellow
+        Invoke-Pip (@("install") + $PipFindLinksArgs + @("torch", "--index-url", "https://download.pytorch.org/whl/cpu", "--only-binary=:all:", "--quiet"))
+    }
 }
 
 # llama-cpp-python
@@ -162,7 +191,31 @@ if ($CpuOnly) {
     Invoke-Pip (@("install") + $PipFindLinksArgs + @("llama-cpp-python", "--quiet"))
 } else {
     Write-Host "[..] Installing llama-cpp-python (CUDA $CudaVersion)..."
-    Invoke-Pip @("install", "llama-cpp-python", "--prefer-binary", "--extra-index-url", "https://abetlen.github.io/llama-cpp-python/whl/$CudaVersion", "--quiet")
+    # --only-binary=:all: is the important part. With --prefer-binary, pip
+    # falls back to building from source when the CUDA index has no wheel for
+    # this Python version; that needs the MSVC toolchain, and its failure
+    # aborted the whole installer at the last step, right after "GPU
+    # accelerator". Forbid the source build, then fall back to the CPU wheel
+    # so the install always completes with a working ELI.
+    $llamaCudaOk = $false
+    try {
+        Invoke-Pip @("install", "llama-cpp-python", "--only-binary=:all:", "--extra-index-url", "https://abetlen.github.io/llama-cpp-python/whl/$CudaVersion", "--quiet")
+        $llamaCudaOk = $true
+    } catch {
+        Write-Host "[WARN] No prebuilt CUDA $CudaVersion wheel for llama-cpp-python on Python $pyVer." -ForegroundColor Yellow
+        Write-Host "       Installing the CPU build instead so the install completes." -ForegroundColor Yellow
+        Write-Host "       ELI will run without GPU offload. Options:" -ForegroundColor Yellow
+        Write-Host "         - re-run with -CudaVersion cu124 (or another published version)" -ForegroundColor Yellow
+        Write-Host "         - re-run with -InstallCuda to build with CUDA locally" -ForegroundColor Yellow
+        Write-Host "         - use Python 3.11, which has the widest wheel coverage" -ForegroundColor Yellow
+    }
+    if (-not $llamaCudaOk) {
+        Invoke-Pip (@("install") + $PipFindLinksArgs + @("llama-cpp-python", "--only-binary=:all:", "--quiet"))
+        # Keep the rest of the run honest: the offload verify below and the
+        # summary must not claim a GPU build that was not installed.
+        $CpuOnly = $true
+        $BuildLabel = "CPU-only (CUDA wheel unavailable)"
+    }
 }
 
 # Verify llama-cpp GPU offload actually compiled in (catch a silent CPU-only wheel).

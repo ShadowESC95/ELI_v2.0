@@ -6,6 +6,23 @@ def _eli_phase10_blocks_media_intent(text: str) -> bool:
     """
     s = str(text or "").lower().strip()
 
+    # This blocker exists to stop long academic prompts being heard as song
+    # requests, but try_route applies it as an early return for the WHOLE
+    # contract — app, window, browser and shell routes included. So a single
+    # word was enough to disable all of them: "open a browser on quantum field
+    # theory" was blocked by "theory" and fell through to a plain web search.
+    # An utterance that opens with an explicit app/window verb is not a play
+    # request, whatever subject follows it.
+    import re as _re10
+    if _re10.match(
+        r"^(?:please\s+|pls\s+|kindly\s+)?"
+        r"(?:(?:could|can|would|will)\s+you(?:\s+please)?\s+)?"
+        r"(?:open|opens|launch|close|closed|quit|exit|"
+        r"minimi[sz]e|maximi[sz]e|hide|focus)\b",
+        s,
+    ):
+        return False
+
     if len(s) > 260:
         return True
 
@@ -85,7 +102,50 @@ _APP_TAIL_REJECT_TOKENS = frozenset({
     "please", "thanks", "thank", "to", "for", "about", "regarding", "if",
     "whether", "could", "would", "should", "can", "may", "might", "do",
     "does", "did", "is", "are", "was", "were", "the",
+    # Prepositions and search verbs: "open a browser on qft" was accepted
+    # whole as an app named "a browser on qft" and offered to install it,
+    # because none of its four tokens was on this list. "of" is deliberately
+    # absent — plenty of real applications are named "<x> of <y>".
+    "on", "in", "into", "onto", "with", "from", "via", "using",
+    "search", "searching", "find", "google", "lookup",
 })
+
+
+# A generic browser request is a browser request, not an app called
+# "browser qft". OPEN_BROWSER already accepts a query and turns it into a
+# search page, so the capability existed — it was simply shadowed by this
+# contract matching first at confidence 0.995.
+_BROWSER_HEAD_RE = re.compile(r"^(?:(?:a|an|the)\s+)?(?:(?:web|internet)\s+)?browsers?\b", re.I)
+_BROWSER_JOINER_RE = re.compile(r"^(?:on|for|about|to|at|with|and|then|showing)\s+", re.I)
+_BROWSER_VERB_RE = re.compile(r"^(?:search(?:\s+for)?|look\s*up|lookup|find|google|browse)\s+", re.I)
+
+
+def _browser_open_target(target: str):
+    """Return the search query for a generic browser request, else None.
+
+    ""   -> open the browser with no query
+    "qft"-> open the browser on a search for qft
+    None -> not a browser request at all
+    """
+    s = str(target or "").strip()
+    m = _BROWSER_HEAD_RE.match(s)
+    if not m:
+        return None
+    rest = s[m.end():].strip(" .,:;-")
+    # The query ends at the first sentence break: "…search for qft. open a
+    # browser search page" is one subject followed by a restated instruction,
+    # and the instruction is not part of what to search for.
+    rest = re.split(r"(?<=\w)[.!?](?:\s|$)", rest, maxsplit=1)[0].strip()
+    rest = re.sub(r"\s*(?:,|and)?\s*(?:then\s+)?open\s+(?:a|an|the)?\s*"
+                  r"(?:web\s+)?browser(?:\s+search)?(?:\s+page)?\s*$",
+                  "", rest, flags=re.I).strip()
+    for _ in range(3):
+        before = rest
+        rest = _BROWSER_JOINER_RE.sub("", rest).strip()
+        rest = _BROWSER_VERB_RE.sub("", rest).strip()
+        if rest == before:
+            break
+    return rest.strip(" .,:;-")
 
 
 def _looks_like_app_target(target: str) -> bool:
@@ -294,7 +354,13 @@ def try_route(text: str) -> Optional[dict]:
                 "meta": {"matched_by": "portable_intent_contract.shell_exec"},
             }
 
-    m = re.fullmatch(r"(?:open|opens|launch|start|run)\s+(.+)", norm)
+    # "please open the browser and search for QFT" never reached this matcher
+    # because of the leading politeness marker, so it fell through to a plain
+    # web search and opened nothing — twice, while the user was shouting for a
+    # browser page. Stripped for this match only, to keep the blast radius small.
+    _norm_cmd = re.sub(r"^(?:please|pls|kindly|(?:could|can|would|will)\s+you(?:\s+please)?)\s+",
+                       "", norm, flags=re.I).strip() or norm
+    m = re.fullmatch(r"(?:open|opens|launch|start|run)\s+(.+)", _norm_cmd)
     if m:
         target = _clean_target(m.group(1))
         # Deictic targets ("open it / that / this / here / there") mean "open
@@ -340,6 +406,14 @@ def try_route(text: str) -> Optional[dict]:
                 "args": {"url": _WEB_SITE_OPEN_ALIASES[target.lower().strip()]},
                 "confidence": 0.97,
                 "meta": {"matched_by": "portable_intent_contract.open_named_site"},
+            }
+        elif _browser_open_target(target) is not None:
+            _bq = _browser_open_target(target)
+            return {
+                "action": "OPEN_BROWSER",
+                "args": ({"query": _bq} if _bq else {}),
+                "confidence": 0.98,
+                "meta": {"matched_by": "portable_intent_contract.open_browser"},
             }
         elif _looks_like_app_target(target):
             return {

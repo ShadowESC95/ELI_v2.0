@@ -1,4 +1,4 @@
-# ELI uninstaller (Windows) — removes Start Menu shortcuts and, optionally, the whole
+﻿# ELI uninstaller (Windows) -- removes Start Menu shortcuts and, optionally, the whole
 # install folder. ELI is portable: all data lives under the install folder, so there is
 # nothing in the registry or the cloud to clean up.
 $ErrorActionPreference = "SilentlyContinue"

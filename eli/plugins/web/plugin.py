@@ -158,6 +158,136 @@ def _open_in_browser(url: str) -> bool:
         return False
 
 
+# ─────────────────────────── SAFE SEARCH ───────────────────────────────────
+# Live at 2.3.15 an ordinary technical query returned adult results. None of
+# the seven providers below was sent a safe-search parameter, so ELI inherited
+# whatever the installed client happened to default to — a value this project
+# neither sets nor pins. Two layers now apply: every provider is asked for
+# strict filtering, and the merged results are screened again at the single
+# choke point in _web_search_results, because a scraped endpoint can ignore
+# the request entirely.
+#
+# Screening is deliberately host-based rather than body-keyword based. A
+# keyword blocklist over snippets would suppress legitimate medical,
+# anatomical and biological results, which is precisely the kind of query
+# this assistant exists to answer.
+
+def _safe_search_enabled() -> bool:
+    try:
+        from eli.core.config import get as _cfg_get
+        return bool(_cfg_get("web_safe_search", True))
+    except Exception:
+        return True
+
+
+# Host *labels* (split on dots/hyphens) that identify adult sites. Matching
+# whole labels rather than substrings keeps "essex.ac.uk", "sussex.gov.uk"
+# and "cambridge.org" out of the filter.
+_ADULT_LABELS = frozenset({
+    "porn", "porno", "pornos", "xxx", "sex", "sexy", "nsfw", "hentai",
+    "nude", "nudes", "camgirl", "camgirls", "escort", "escorts", "fetish",
+    "milf", "boobs", "tits", "adultfilm", "cumshots",
+})
+# Label prefixes — "pornhub", "xhamster", "hentaihaven" are single labels.
+_ADULT_LABEL_PREFIXES = ("porn", "hentai", "xxx", "camgirl", "sexcam", "nsfw")
+_ADULT_TLDS = (".xxx", ".adult", ".porn", ".sex")
+_ADULT_HOSTS = frozenset({
+    "pornhub.com", "xvideos.com", "xnxx.com", "redtube.com", "youporn.com",
+    "xhamster.com", "spankbang.com", "eporner.com", "tube8.com",
+    "motherless.com", "chaturbate.com", "stripchat.com", "bongacams.com",
+    "onlyfans.com", "fansly.com", "brazzers.com", "nhentai.net",
+    "e-hentai.org", "rule34.xxx", "erome.com", "fapello.com", "thothub.to",
+})
+
+
+def _is_adult_result(item: Dict[str, Any]) -> bool:
+    """True when a result's URL identifies an adult site."""
+    import urllib.parse as _up
+    href = str((item or {}).get("href") or (item or {}).get("url") or "").strip()
+    if not href:
+        return False
+    try:
+        host = (_up.urlparse(href).hostname or "").lower()
+    except Exception:
+        return False
+    if not host:
+        return False
+    if host.startswith("www."):
+        host = host[4:]
+    if host in _ADULT_HOSTS:
+        return True
+    if any(host.endswith(tld) for tld in _ADULT_TLDS):
+        return True
+    import re as _re
+    for label in _re.split(r"[.\-_]", host):
+        if not label:
+            continue
+        if label in _ADULT_LABELS:
+            return True
+        if any(label.startswith(p) for p in _ADULT_LABEL_PREFIXES):
+            return True
+    return False
+
+
+def _filter_results(results: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    """Backstop screen applied to whatever a provider actually returned."""
+    if not _safe_search_enabled():
+        return results
+    return [r for r in (results or []) if not _is_adult_result(r)]
+
+
+# Command wrappers the router leaves attached to the query. Live examples:
+#   "please open the browser and search for QFT. OPEN A BROWSER SEARCH PAGE"
+#   "on QFT and open the browser"
+# were sent verbatim to the search engine as the query text.
+_QUERY_LEAD_PATTERNS = (
+    r"^(?:hey\s+)?(?:eli|assistant)[,\s]+",
+    r"^(?:please|pls|kindly)\s+",
+    r"^(?:can|could|would|will)\s+you\s+(?:please\s+)?",
+    r"^(?:go\s+)?(?:and\s+)?(?:do|run|perform|make|start)\s+(?:a|an|the)?\s*",
+    r"^(?:open|launch|start)\s+(?:up\s+)?(?:a|an|the)?\s*(?:web\s+)?browser\s*"
+    r"(?:and\s+)?(?:search|look\s*up|find)?\s*(?:for|about|on)?\s*",
+    r"^(?:web|google|internet|online|duckduckgo|ddg)\s+",
+    r"^(?:search|look\s*up|lookup|find|google|browse)\s+",
+    r"^(?:for|about|on|the\s+web\s+for)\s+",
+)
+_QUERY_TAIL_PATTERNS = (
+    r"\s*(?:,|\.|and)?\s*(?:then\s+)?open\s+(?:a|an|the)?\s*(?:web\s+)?browser"
+    r"(?:\s+search)?(?:\s+page)?\s*\.?$",
+    r"\s*(?:,|\.|and)?\s*(?:then\s+)?(?:show|display)\s+(?:it|them|the\s+results)"
+    r"(?:\s+in\s+(?:a|the)\s+browser)?\s*\.?$",
+    r"\s*(?:please|thanks|thank\s+you|ta)\s*[.!]*$",
+)
+
+
+def _clean_search_query(text: str) -> str:
+    """Strip the instruction wrapper so the engine receives the actual subject.
+
+    Falls back to the original whenever cleaning would leave nothing useful —
+    a short query is worth more than an empty one.
+    """
+    import re as _re
+    original = str(text or "").strip()
+    if not original:
+        return ""
+    q = original
+    # A shouted restatement tacked onto the end ("… OPEN A BROWSER SEARCH PAGE")
+    # is an instruction to ELI, not part of the subject.
+    q = _re.sub(r"[.!?]\s+[A-Z][A-Z\s]{6,}$", "", q).strip()
+    for _ in range(4):
+        before = q
+        for pat in _QUERY_LEAD_PATTERNS:
+            q = _re.sub(pat, "", q, flags=_re.I).strip()
+        for pat in _QUERY_TAIL_PATTERNS:
+            q = _re.sub(pat, "", q, flags=_re.I).strip()
+        if q == before:
+            break
+    q = _re.sub(r"\s+", " ", q).strip(" \t\n,.;:!?-").strip()
+    if len(q) < 2:
+        return original
+    return q
+
+
 def _duckduckgo_search(query: str, max_results: int = 5) -> List[Dict[str, Any]]:
     """
     Supports both newer and older duckduckgo-search package layouts.
@@ -172,8 +302,15 @@ def _duckduckgo_search(query: str, max_results: int = 5) -> List[Dict[str, Any]]
 
     out: List[Dict[str, Any]] = []
 
+    safe = "on" if _safe_search_enabled() else "off"
     with DDGS() as ddgs:
-        for item in ddgs.text(query, max_results=max_results):
+        try:
+            items = ddgs.text(query, max_results=max_results, safesearch=safe)
+        except TypeError:
+            # Older/newer layouts that do not expose the keyword — the
+            # choke-point filter in _web_search_results still applies.
+            items = ddgs.text(query, max_results=max_results)
+        for item in items:
             out.append(dict(item))
 
     return out
@@ -202,7 +339,8 @@ def _searxng_search(query: str, max_results: int = 5) -> List[Dict[str, Any]]:
         return []
 
     url = base.rstrip("/") + "/search?" + urllib.parse.urlencode(
-        {"q": query, "format": "json"}
+        {"q": query, "format": "json",
+         "safesearch": "2" if _safe_search_enabled() else "0"}
     )
     req = urllib.request.Request(
         url, headers={"User-Agent": "ELI-AI-Assistant/1.0 (local; educational)"}
@@ -236,7 +374,8 @@ def _duckduckgo_html_search(query: str, max_results: int = 5) -> List[Dict[str, 
     except Exception:
         _open = lambda req, timeout=10: _ur.urlopen(req, timeout=timeout)
 
-    url = "https://html.duckduckgo.com/html/?q=" + _up.quote(query)
+    url = ("https://html.duckduckgo.com/html/?q=" + _up.quote(query)
+           + ("&kp=1" if _safe_search_enabled() else ""))
     req = _ur.Request(url, headers={
         "User-Agent": "Mozilla/5.0 (X11; Linux x86_64; rv:124.0) Gecko/20100101 Firefox/124.0",
     })
@@ -306,7 +445,10 @@ def _ddg_lite_search(query: str, max_results: int = 5) -> List[Dict[str, Any]]:
     """lite.duckduckgo.com — a stripped endpoint that survives when the main DDG is
     rate-limited. Independent enough to be worth trying before non-DDG engines."""
     import re as _re, html as _html, urllib.parse as _up
-    page = _http_get("https://lite.duckduckgo.com/lite/", data=_up.urlencode({"q": query}).encode())
+    _form = {"q": query}
+    if _safe_search_enabled():
+        _form["kp"] = "1"
+    page = _http_get("https://lite.duckduckgo.com/lite/", data=_up.urlencode(_form).encode())
     out: List[Dict[str, Any]] = []
     for m in _re.finditer(r'<a[^>]+class="result-link"[^>]+href="([^"]+)"[^>]*>(.*?)</a>', page, _re.S):
         href = _html.unescape(m.group(1)); _mu = _re.search(r"uddg=([^&]+)", href)
@@ -323,7 +465,8 @@ def _bing_html_search(query: str, max_results: int = 5) -> List[Dict[str, Any]]:
     blocks the IP. Bing wraps real URLs in a /ck/a?…&u=a1<base64url> redirect, which we
     decode back to the destination. Titles come from the result <h2>."""
     import re as _re, urllib.parse as _up, base64 as _b64, html as _html
-    page = _http_get("https://www.bing.com/search?q=" + _up.quote(query) + "&setlang=en")
+    page = _http_get("https://www.bing.com/search?q=" + _up.quote(query) + "&setlang=en"
+                     + ("&adlt=strict" if _safe_search_enabled() else ""))
     def _real(href: str) -> str:
         mu = _re.search(r'[?&]u=a1([^&]+)', href)
         if not mu:
@@ -437,6 +580,10 @@ def _web_search_results(query: str, max_results: int = 5) -> List[Dict[str, Any]
         ("bing",      _bing_html_search),         # independent index (best-effort scrape)
         ("wikipedia", _wikipedia_search),         # factual safety net (never rate-limited)
     )
+    # The router hands through whatever the user said, wrapper and all, so the
+    # instruction is stripped here — once, for every provider and every caller.
+    query = _clean_search_query(query)
+
     import time as _t
     # Two passes: first quick sweep, then a single retry of the transient engines with a
     # short backoff (covers momentary rate-limit blips) before giving up.
@@ -446,6 +593,9 @@ def _web_search_results(query: str, max_results: int = 5) -> List[Dict[str, Any]
                 results = _fn(query, max_results=max_results)
             except Exception:
                 results = []
+            # Screen before accepting: a provider that ignored the safe-search
+            # request must not be able to short-circuit the remaining engines.
+            results = _filter_results(results)
             if results:
                 return results
         if _attempt == 0:

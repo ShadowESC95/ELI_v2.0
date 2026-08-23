@@ -5,8 +5,11 @@ connection probe that works on Linux, Windows, macOS, and headless servers.
 """
 from __future__ import annotations
 
+import logging
 import socket
 from typing import Any, Dict, List, Optional
+
+log = logging.getLogger(__name__)
 
 DISCOVERY_PRESETS: List[Dict[str, str]] = [
     {
@@ -251,3 +254,164 @@ def suggest_local_hosts() -> List[str]:
     except Exception:
         pass
     return hosts
+
+
+# ── One-click setup ─────────────────────────────────────────────────────────
+# Connecting used to require the user to already know their broker's hostname
+# and type it into settings; with nothing configured, connect() returned
+# "no MQTT broker configured (set mqtt_host)" and that was the whole story.
+# suggest_local_hosts() existed but nothing ever called it, and there was no
+# mDNS at all even though zeroconf is already a dependency. The result is that
+# an average user had no route from "install ELI" to "my devices work".
+
+_MDNS_MQTT_SERVICES = ("_mqtt._tcp.local.", "_secure-mqtt._tcp.local.")
+
+
+def discover_brokers_mdns(timeout: float = 2.5) -> List[Dict[str, Any]]:
+    """Brokers advertising themselves on the LAN over mDNS.
+
+    Mosquitto, EMQX, Zigbee2MQTT bridges and most consumer hubs announce
+    _mqtt._tcp, so this finds the broker without the user knowing its address.
+    Returns [] when zeroconf is unavailable or nothing answers — never raises.
+    """
+    found: List[Dict[str, Any]] = []
+    try:
+        from zeroconf import ServiceBrowser, ServiceListener, Zeroconf
+    except Exception:
+        return found
+
+    import time as _t
+
+    class _Listener(ServiceListener):
+        def add_service(self, zc, type_, name):
+            try:
+                info = zc.get_service_info(type_, name, timeout=int(timeout * 1000))
+            except Exception:
+                return
+            if not info:
+                return
+            for raw in (info.parsed_addresses() or []):
+                if not raw:
+                    continue
+                found.append({
+                    "host": raw,
+                    "port": int(info.port or 1883),
+                    "name": str(name).split(".")[0],
+                    "tls": "secure-mqtt" in str(type_),
+                    "source": "mdns",
+                })
+                break
+
+        def update_service(self, *a, **k):
+            pass
+
+        def remove_service(self, *a, **k):
+            pass
+
+    zc = None
+    try:
+        zc = Zeroconf()
+        listener = _Listener()
+        for svc in _MDNS_MQTT_SERVICES:
+            try:
+                ServiceBrowser(zc, svc, listener)
+            except Exception:
+                continue
+        _t.sleep(max(0.5, float(timeout)))
+    except Exception:
+        log.debug("mqtt_setup: mDNS discovery failed", exc_info=True)
+    finally:
+        try:
+            if zc is not None:
+                zc.close()
+        except Exception:
+            pass
+    # De-duplicate on host:port, preserving discovery order.
+    seen, unique = set(), []
+    for b in found:
+        key = (b["host"], b["port"])
+        if key not in seen:
+            seen.add(key)
+            unique.append(b)
+    return unique
+
+
+def autodetect_broker(timeout: float = 2.0) -> Dict[str, Any]:
+    """Find a reachable MQTT broker without asking the user anything.
+
+    Order: whatever announces itself over mDNS, then the conventional local
+    names. Each candidate is *probed*, so a hit means a broker actually
+    accepted a connection, not merely that a port looked open.
+    """
+    candidates: List[Dict[str, Any]] = list(discover_brokers_mdns(timeout=timeout))
+    for host in suggest_local_hosts():
+        if not any(c["host"] == host for c in candidates):
+            candidates.append({"host": host, "port": 1883, "name": host,
+                               "tls": False, "source": "local"})
+
+    tried: List[Dict[str, Any]] = []
+    for cand in candidates:
+        res = probe_broker_connection(
+            host=cand["host"], port=cand["port"], tls=bool(cand.get("tls")),
+            timeout=max(1.0, float(timeout)),
+        )
+        tried.append({"host": cand["host"], "port": cand["port"],
+                      "ok": bool(res.get("ok")), "error": res.get("error", "")})
+        if res.get("ok"):
+            return {"ok": True, "broker": cand, "tried": tried}
+        if res.get("need_install"):
+            return {"ok": False, "need_install": True,
+                    "error": res.get("error", ""), "tried": tried}
+    return {"ok": False, "error": "no MQTT broker answered on this network",
+            "tried": tried}
+
+
+def one_click_setup(timeout: float = 2.0) -> Dict[str, Any]:
+    """Find a broker, save it, connect, and report in plain language.
+
+    This is the whole setup flow for someone who does not know what MQTT is:
+    one call, no fields to fill in. When no broker exists on the network the
+    result carries the platform-specific install guide, because "install a
+    broker" is then genuinely the one remaining step.
+    """
+    det = autodetect_broker(timeout=timeout)
+    if not det.get("ok"):
+        guide = broker_install_guide()
+        msg = (
+            "I could not find an MQTT broker on this network. A broker is the "
+            "small service smart devices talk through - ELI runs its own device "
+            "server on top of one. Install it with:\n"
+            f"  {guide.get('install_command') or guide.get('command') or 'see the guide below'}\n"
+            "then ask me to set up devices again and I will do the rest."
+        )
+        return {"ok": False, "found": False, "guide": guide,
+                "tried": det.get("tried", []), "content": msg, "response": msg}
+
+    broker = det["broker"]
+    try:
+        from eli.runtime.device_server import get_server
+        server = get_server()
+    except Exception as e:
+        msg = f"Found a broker at {broker['host']}:{broker['port']} but could not start the device server: {e}"
+        return {"ok": False, "found": True, "broker": broker,
+                "content": msg, "response": msg}
+
+    server.configure(host=broker["host"], port=broker["port"], tls=bool(broker.get("tls")))
+    conn = server.connect()
+    if not conn.get("ok"):
+        msg = (f"Found a broker at {broker['host']}:{broker['port']} "
+               f"({broker.get('source')}) but connecting failed: {conn.get('error')}")
+        return {"ok": False, "found": True, "broker": broker, "connect": conn,
+                "content": msg, "response": msg}
+
+    devices = []
+    try:
+        devices = server.list_devices()
+    except Exception:
+        log.debug("mqtt_setup: list_devices failed", exc_info=True)
+    where = "on this machine" if broker["host"] in ("127.0.0.1", "localhost") else f"at {broker['host']}"
+    msg = (f"Connected to the MQTT broker {where} (port {broker['port']}). "
+           f"{len(devices)} device(s) known so far - anything that announces itself "
+           f"will appear automatically.")
+    return {"ok": True, "found": True, "broker": broker, "connected": True,
+            "devices": len(devices), "content": msg, "response": msg}
