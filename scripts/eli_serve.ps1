@@ -1,4 +1,4 @@
-# ELI API / web-app server launcher (Windows). Mirrors scripts/eli_serve.sh.
+﻿# ELI API / web-app server launcher (Windows). Mirrors scripts/eli_serve.sh.
 #   Safe by default: binds 127.0.0.1 (this machine only), tokenless. Inference runs HERE;
 #   nothing reaches the cloud.
 #   -Lan         expose to your local network for a phone/tablet browser (binds 0.0.0.0

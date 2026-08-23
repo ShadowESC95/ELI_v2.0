@@ -492,6 +492,21 @@ def _eli_multi_command_prepass(user_text: str):
         segs = None
     if not segs:
         return None
+    # "open the browser and search QFT" is ONE browser request, not two
+    # commands. Splitting it opened the browser at its home page and then
+    # answered the search in chat — the exact complaint that "you can open a
+    # browser home page, but not run an actual search AND open the browser".
+    # Only decline to split when the whole phrase resolves to a browser search
+    # carrying a query; every other chained utterance still splits.
+    try:
+        from eli.execution.portable_intent_contract import try_route as _pic_route
+        _whole = _pic_route(user_text or "")
+        if (isinstance(_whole, dict)
+                and _whole.get("action") == "OPEN_BROWSER"
+                and (_whole.get("args") or {}).get("query")):
+            return None
+    except Exception:
+        pass
     return {
         "action": "MULTI_COMMAND",
         "args": {"commands": segs, "raw": str(user_text or "")},
@@ -4352,6 +4367,10 @@ def route(text: str, _clause_depth: int = 0) -> Dict[str, Any]:
     _open_m = re.match(r"^\s*(open|run|launch|start)\s+(.+?)\s*$", raw, re.I)
     if _open_m:
         target = re.sub(r"\s+app$", "", _open_m.group(2).strip(), flags=re.I)
+        # An article is never part of the target. Without this, "open the
+        # trash" missed the filesystem branch (which knows "trash") and fell
+        # all the way through to OPEN_APP with the literal name "the trash".
+        target = re.sub(r"^(?:a|an|the)\s+", "", target, flags=re.I).strip() or target
         target_low = target.lower()
 
         generic_ide = {
@@ -4413,6 +4432,17 @@ def route(text: str, _clause_depth: int = 0) -> Dict[str, Any]:
                 0.99,
                 matched_by="open.website.literal_preempt",
             )
+
+        # "open a web browser on quantum field theory" was captured whole as
+        # an app name and offered for installation. It is a browser request
+        # with a search query; OPEN_BROWSER has taken a query all along. The
+        # detector is shared with portable_intent_contract rather than
+        # duplicated, so the two matchers cannot drift apart again.
+        from eli.execution.portable_intent_contract import _browser_open_target
+        _bq = _browser_open_target(target)
+        if _bq is not None:
+            return _mk("OPEN_BROWSER", ({"query": _bq} if _bq else {}), 0.98,
+                       matched_by="open.browser.literal_preempt")
 
         canonical = app_aliases.get(target_low, target)
         return _mk("OPEN_APP", {"name": canonical, "target": canonical}, 0.99,
@@ -6865,6 +6895,14 @@ def _eli_media_contract_post(raw, result):
                 or name in {"browser", "youtube"}
             )
             if known:
+                # "open browser" listed "browser" as a known app name, so it
+                # tried to launch a program called browser instead of opening
+                # the user's default one.
+                if verb in {"open", "launch", "start"} and name in {
+                    "browser", "web browser", "internet browser",
+                }:
+                    return _mk("OPEN_BROWSER", {}, 0.98,
+                               matched_by="app.wake_prefix_contract.browser")
                 if verb in {"open", "launch", "start"} and name in WEBSITE_ALIASES:
                     return _mk(
                         "OPEN_URL",

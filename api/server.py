@@ -1054,6 +1054,18 @@ def devices_connect():
     """Connect to the configured MQTT broker."""
     return _device_server().connect()
 
+@app.post("/v1/devices/setup", tags=["Devices"], dependencies=[Depends(require_member)])
+def devices_setup():
+    """One-click device setup: find a broker, save it, connect, report.
+
+    The previous flow required the user to already know their broker's
+    hostname and enter it by hand. This finds it over mDNS or on the local
+    machine, and when there genuinely is no broker it returns the
+    platform-specific install guide as the single remaining step.
+    """
+    from eli.runtime.mqtt_setup import one_click_setup
+    return one_click_setup()
+
 @app.post("/v1/devices/disconnect", tags=["Devices"], dependencies=[Depends(require_member)])
 def devices_disconnect():
     return _device_server().disconnect()
