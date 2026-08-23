@@ -251,10 +251,24 @@ def close_app(name: str, force: bool = False) -> dict:
                     rc = _run([wmctrl, "-i", "-c", win_id]).returncode
                     if rc == 0:
                         return _result(True, "CLOSE_APP", f"Closed app/window: {target.name}", resolved=target.__dict__)
-        if force and shutil.which("pkill"):
-            cp = _run(["pkill", "-f", target.name])
-            if cp.returncode in (0, 1):
-                return _result(True, "CLOSE_APP", f"Force-close attempted for: {target.name}", resolved=target.__dict__)
+        if force:
+            # `pkill -f` matches the full command line of every process as a
+            # regex, so a short target signals unrelated infrastructure — a
+            # "file" target matches `dbus-daemon --session ... --nopidfile`
+            # and ends the login session. The guard dry-runs the pattern and
+            # only signals processes it has verified are ordinary apps.
+            # The old code also treated pkill's "nothing matched" exit status
+            # as success, so a no-op reported a force-close that never happened.
+            from eli.system.process_guard import safe_pkill
+
+            res = safe_pkill(target.name, full_cmdline=True)
+            if res.get("ok"):
+                return _result(True, "CLOSE_APP",
+                               f"Force-closed {target.name} ({res.get('killed')} process(es)).",
+                               resolved=target.__dict__, kill_plan=res.get("plan"))
+            return _result(False, "CLOSE_APP",
+                           f"Did not force-close {target.name}: {res.get('reason')}",
+                           resolved=target.__dict__, kill_plan=res.get("plan"))
 
     if sysname == "darwin":
         osascript = shutil.which("osascript")
@@ -336,3 +350,143 @@ def minimize_app(name: str) -> dict:
             return _result(True, "MINIMIZE_APP", "Sent current Android app to background/home.", resolved=target.__dict__)
 
     return _result(False, "MINIMIZE_APP", f"Could not minimize app/window: {name}", resolved=target.__dict__)
+
+
+def display_server() -> str:
+    """"wayland", "x11", or "" when neither can be determined.
+
+    Window control on Linux is not one problem but two. wmctrl and xdotool
+    speak the X11 protocol: under Wayland they see only XWayland clients, so a
+    native Wayland window is invisible to them and every command silently does
+    nothing. Reporting that honestly is worth more than a generic failure.
+    """
+    if _system() != "linux":
+        return ""
+    sess = (os.environ.get("XDG_SESSION_TYPE") or "").strip().lower()
+    if sess in {"wayland", "x11"}:
+        return sess
+    if os.environ.get("WAYLAND_DISPLAY"):
+        return "wayland"
+    if os.environ.get("DISPLAY"):
+        return "x11"
+    return ""
+
+
+def _wayland_window_tools() -> list[str]:
+    """Compositor-specific window tools that do work under Wayland."""
+    return [t for t in ("kdotool", "wlrctl") if shutil.which(t)]
+
+
+def _wayland_window_advice(what: str) -> str:
+    """Explain the limitation instead of returning a bare failure."""
+    tools = _wayland_window_tools()
+    if tools:
+        return (f"Could not {what} — this is a Wayland session and neither "
+                f"{'/'.join(tools)} nor XWayland could reach that window.")
+    return (
+        f"Could not {what}: this is a Wayland session, where wmctrl and xdotool "
+        f"can only see XWayland windows, not native Wayland ones. Wayland has no "
+        f"general window-control protocol by design. On KDE, installing kdotool "
+        f"gives ELI window control; on wlroots compositors, wlrctl does. "
+        f"Logging in on X11 restores full window control everywhere."
+    )
+
+
+# Phrases that mean "the window I am looking at", not a window called "it".
+# Shared so the executor branch and the dispatch middleware cannot disagree
+# about what counts as a named target — they already did once, which is how
+# "maximise" ended up with two different notions of a bare request.
+BARE_WINDOW_TARGETS = frozenset({
+    "", "it", "this", "that", "current", "active", "window", "screen",
+    "current window", "this window", "that window", "active window",
+    "the current window", "the active window", "the window",
+    "current one", "this one",
+})
+
+
+def maximize_app(name: str) -> dict:
+    """Maximise a *named* window, on every platform.
+
+    This exists because the executor's MAXIMISE_WINDOW branch had no target
+    handling at all: it ran `wmctrl -r :ACTIVE: -b add,maximized_*`
+    unconditionally, so "maximise prime video" maximised whatever window
+    happened to be focused — the router extracted the window name correctly
+    and the executor discarded it. Mirrors minimize_app so the two halves of
+    window control behave the same way.
+
+    Returns ok=False when the named window cannot be found. Callers must NOT
+    fall back to the active window: silently acting on a different window than
+    the one the user named is the defect this function was written to remove.
+    """
+    target = resolve_app(name)
+    sysname = _system()
+    if not target.name:
+        return _result(False, "MAXIMIZE_APP", "No app name supplied.")
+
+    if sysname == "linux":
+        wmctrl = shutil.which("wmctrl")
+        if wmctrl:
+            cp = _run([wmctrl, "-lx"])
+            q = target.name.lower()
+            for line in cp.stdout.splitlines():
+                if q in line.lower():
+                    win_id = line.split(None, 1)[0]
+                    # Raise it before resizing — maximising a window that stays
+                    # behind another one looks like nothing happened.
+                    _run([wmctrl, "-i", "-a", win_id])
+                    rc = _run([wmctrl, "-i", "-r", win_id, "-b",
+                               "add,maximized_vert,maximized_horz"]).returncode
+                    if rc == 0:
+                        return _result(True, "MAXIMIZE_APP", f"Maximised app/window: {target.name}", resolved=target.__dict__)
+
+        # kdotool mirrors xdotool's CLI but drives KWin, so it reaches native
+        # Wayland windows on KDE. Try whichever of the two is present.
+        for tool in [t for t in ("xdotool", *_wayland_window_tools()) if shutil.which(t)]:
+            if tool == "wlrctl":
+                if _run([tool, "toplevel", "maximize", target.name]).returncode == 0:
+                    return _result(True, "MAXIMIZE_APP", f"Maximised app/window: {target.name}", resolved=target.__dict__)
+                continue
+            cp = _run([tool, "search", "--name", target.name])
+            ids = [x.strip() for x in cp.stdout.splitlines() if x.strip()]
+            if ids:
+                _run([tool, "windowactivate", ids[0]])
+                if _run([tool, "windowsize", ids[0], "100%", "100%"]).returncode == 0:
+                    return _result(True, "MAXIMIZE_APP", f"Maximised app/window: {target.name}", resolved=target.__dict__)
+
+        if display_server() == "wayland":
+            return _result(False, "MAXIMIZE_APP",
+                           _wayland_window_advice(f"maximise {target.name}"),
+                           resolved=target.__dict__, display_server="wayland")
+
+    if sysname == "darwin":
+        osascript = shutil.which("osascript")
+        if osascript:
+            script = (
+                f'tell application "System Events" to tell process "{target.name}" to '
+                f'click (first button whose subrole is "AXZoomButton") of window 1'
+            )
+            cp = _run([osascript, "-e", script])
+            if cp.returncode == 0:
+                return _result(True, "MAXIMIZE_APP", f"Maximised app/window: {target.name}", resolved=target.__dict__)
+
+    if sysname == "windows":
+        powershell = shutil.which("powershell") or shutil.which("pwsh")
+        if powershell:
+            safe = target.name.replace("'", "''")
+            cmd = (
+                "$sig='[DllImport(\"user32.dll\")] public static extern bool ShowWindowAsync(IntPtr hWnd, int nCmdShow);'; "
+                "Add-Type -MemberDefinition $sig -Name Win32ShowWindowMax -Namespace Win32; "
+                "$q='" + safe + "'; "
+                "$p=Get-Process | Where-Object { $_.MainWindowHandle -ne 0 -and ($_.MainWindowTitle -like \"*$q*\" -or $_.ProcessName -like \"*$q*\") } | Select-Object -First 1; "
+                # 3 = SW_MAXIMIZE (minimize_app uses 6 = SW_MINIMIZE)
+                "if($p){ [Win32.Win32ShowWindowMax]::ShowWindowAsync($p.MainWindowHandle, 3) | Out-Null; exit 0 } else { exit 2 }"
+            )
+            cp = _run([powershell, "-NoProfile", "-Command", cmd])
+            if cp.returncode == 0:
+                return _result(True, "MAXIMIZE_APP", f"Maximised app/window: {target.name}", resolved=target.__dict__)
+
+    if sysname == "android":
+        return _result(False, "MAXIMIZE_APP", "Android apps are always full-screen; nothing to maximise.",
+                       resolved=target.__dict__)
+
+    return _result(False, "MAXIMIZE_APP", f"Could not find a window for: {name}", resolved=target.__dict__)

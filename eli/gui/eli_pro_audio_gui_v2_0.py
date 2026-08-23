@@ -9508,6 +9508,25 @@ _register()
         self.log_to_file_checkbox.setStyleSheet("color:#c8d0e0;")
         form.addRow("", self.log_to_file_checkbox)
 
+        form_web = self._section_card(vbox, "WEB SEARCH")
+
+        self.web_safe_search_checkbox = QCheckBox("Filter adult content from web results")
+        self.web_safe_search_checkbox.setChecked(True)
+        self.web_safe_search_checkbox.setStyleSheet("color:#c8d0e0;")
+        self.web_safe_search_checkbox.setToolTip(
+            "Asks every search provider for strict filtering (DuckDuckGo kp=1,\n"
+            "SearXNG safesearch=2, Bing adlt=strict) and screens the results\n"
+            "again by host before ELI sees them, in case a provider ignores it.\n"
+            "Screening is by site, not by keyword, so medical, anatomical and\n"
+            "biological results are never suppressed.\n"
+            "Applies to searches ELI reads out AND to search pages it opens\n"
+            "in your browser. Setting: web_safe_search"
+        )
+        self.web_safe_search_checkbox.stateChanged.connect(
+            lambda _: self._apply_web_safe_search()
+        )
+        form_web.addRow("", self.web_safe_search_checkbox)
+
         form2 = self._section_card(vbox, "APPEARANCE")
         theme_btn = QPushButton("🌗  Toggle Dark / Light Theme")
         theme_btn.clicked.connect(self.toggle_theme)
@@ -9515,6 +9534,19 @@ _register()
 
         vbox.addStretch()
         return page
+
+    def _apply_web_safe_search(self):
+        """Persist the toggle the moment it changes.
+
+        Search runs from the plugin choke point, which reads this setting per
+        call, so writing it here takes effect on the next search without a
+        restart or a Save.
+        """
+        try:
+            from eli.core import config as _cfg
+            _cfg.set("web_safe_search", bool(self.web_safe_search_checkbox.isChecked()))
+        except Exception:
+            log.debug("[GUI] web_safe_search write failed", exc_info=True)
 
     # ── Page 4 — Agents ───────────────────────────────────────────────────────
     def _build_settings_agents_page(self) -> QWidget:
@@ -11803,6 +11835,8 @@ _register()
         try:
             self.auto_save_checkbox.setChecked(bool(s.get("auto_save", True)))
             self.log_to_file_checkbox.setChecked(bool(s.get("log_to_file", False)))
+            if hasattr(self, "web_safe_search_checkbox"):
+                self.web_safe_search_checkbox.setChecked(bool(s.get("web_safe_search", True)))
             self.auto_load_checkbox.setChecked(bool(s.get("auto_load", True)))
             self._show_startup_model_picker = bool(s.get("show_startup_model_picker", True))
             if hasattr(self, "startup_model_picker_checkbox"):
@@ -11902,6 +11936,7 @@ _register()
             "cache_type_v": self.cache_type_v_combo.currentText().strip(),
             "auto_save": bool(self.auto_save_checkbox.isChecked()),
             "log_to_file": bool(self.log_to_file_checkbox.isChecked()),
+            "web_safe_search": bool(self.web_safe_search_checkbox.isChecked()) if hasattr(self, "web_safe_search_checkbox") else True,
             "auto_load": bool(self.auto_load_checkbox.isChecked()),
             "show_startup_model_picker": bool(getattr(self, "startup_model_picker_checkbox", None).isChecked()) if hasattr(self, "startup_model_picker_checkbox") else bool(getattr(self, "_show_startup_model_picker", True)),
             "first_run_complete": bool(getattr(self, "_first_run_complete", False)),
