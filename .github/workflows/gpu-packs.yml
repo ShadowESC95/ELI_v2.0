@@ -143,6 +143,16 @@ jobs:
           method: 'network'
           sub-packages: '["nvcc", "cudart", "cublas", "cublas_dev", "thrust", "visual_studio_integration"]'
 
+      # CMake's default Windows generator is MSBuild, which needs CUDA's
+      # .props/.targets copied into the Visual Studio BuildCustomizations
+      # folder; the toolkit action does not do that, so the build dies with
+      # "No CUDA toolset found" even though it just reported "CUDA Toolkit
+      # found". Using Ninja with the MSVC environment loaded sidesteps the
+      # MSBuild integration entirely (and builds faster).
+      - name: MSVC environment (Windows)
+        if: runner.os == 'Windows'
+        uses: ilammy/msvc-dev-cmd@v1
+
       - name: Free disk space (Linux)
         if: runner.os == 'Linux'
         run: |
@@ -156,6 +166,7 @@ jobs:
           # An explicit list keeps the build finite; "all" times the runner out.
           CMAKE_ARGS: "-DGGML_CUDA=on -DCMAKE_CUDA_ARCHITECTURES=61;70;75;80;86;89;90"
           CMAKE_BUILD_PARALLEL_LEVEL: "4"
+          CMAKE_GENERATOR: "Ninja"
         run: |
           set -euo pipefail
           nvcc --version
