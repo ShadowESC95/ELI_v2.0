@@ -114,7 +114,14 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, windows-latest]
+        # windows-2022, NOT windows-latest: the latest image ships Visual
+        # Studio 2025, and CUDA 12.6's host_config.h hard-errors on it --
+        # "unsupported Microsoft Visual Studio version! Only the versions
+        # between 2017 and 2022 (inclusive) are supported". Pinning the runner
+        # keeps a supported host compiler instead of forcing nvcc past its own
+        # check with -allow-unsupported-compiler, which would build a wheel
+        # nobody has validated.
+        os: [ubuntu-latest, windows-2022]
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/setup-python@v6
