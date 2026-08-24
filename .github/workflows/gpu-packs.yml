@@ -121,14 +121,26 @@ jobs:
         with:
           python-version: ${{ env.PYTHON_VERSION }}
 
-      - name: CUDA toolkit
+      # The sub-package names differ per OS and the action does not normalise
+      # them: on Linux cuBLAS ships as libcublas/libcublas-dev with no "cuda-"
+      # prefix (hence non-cuda-sub-packages), and visual_studio_integration
+      # exists only on Windows. A single shared list fails with
+      # "Unable to locate package cuda-cublas-12-6".
+      - name: CUDA toolkit (Linux)
+        if: runner.os == 'Linux'
         uses: Jimver/cuda-toolkit@v0.2.29
-        id: cuda
         with:
           cuda: '12.6.3'
           method: 'network'
-          # Only what nvcc needs to compile ggml-cuda; the full toolkit does
-          # not fit in a runner's disk budget.
+          sub-packages: '["nvcc", "cudart", "thrust", "nvtx"]'
+          non-cuda-sub-packages: '["libcublas", "libcublas-dev"]'
+
+      - name: CUDA toolkit (Windows)
+        if: runner.os == 'Windows'
+        uses: Jimver/cuda-toolkit@v0.2.29
+        with:
+          cuda: '12.6.3'
+          method: 'network'
           sub-packages: '["nvcc", "cudart", "cublas", "cublas_dev", "thrust", "visual_studio_integration"]'
 
       - name: Free disk space (Linux)
