@@ -46,8 +46,12 @@ jobs:
         if: runner.os == 'Linux'
         run: |
           sudo apt-get update
-          sudo apt-get install -y libvulkan-dev glslc || {
-            echo "::error::libvulkan-dev/glslc unavailable — Vulkan build cannot proceed"; exit 1; }
+          # spirv-headers/glslang-tools became REQUIRED by llama.cpp's Vulkan
+          # backend after 0.3.19 (cmake fails with: Could not find a package
+          # configuration file provided by "SPIRV-Headers"). The old pin hid
+          # that, so bumping the version broke this step.
+          sudo apt-get install -y libvulkan-dev glslc spirv-headers spirv-tools glslang-tools || {
+            echo "::error::Vulkan build deps unavailable - Vulkan build cannot proceed"; exit 1; }
           glslc --version
 
       - name: Vulkan SDK (Windows)
@@ -99,4 +103,82 @@ jobs:
             (AMD / Intel Arc). Installed automatically by
             `ELI --install-gpu-pack`; not meant for manual pip use.
           files: wheelhouse/vulkan-*.whl
+          fail_on_unmatched_files: true
+
+  build-cuda:
+    # NVIDIA packs. Previously NVIDIA relied entirely on the abetlen wheel
+    # index, which stops at 0.3.19 for several interpreters -- so a machine
+    # with a perfectly good GPU ended up on a runtime that cannot read hybrid
+    # attention+SSM GGUFs (qwen35, nemotron-h). Building here removes that
+    # ceiling; the Vulkan pack stays as the fallback for AMD/Intel Arc.
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/setup-python@v6
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: CUDA toolkit
+        uses: Jimver/cuda-toolkit@v0.2.29
+        id: cuda
+        with:
+          cuda: '12.6.3'
+          method: 'network'
+          # Only what nvcc needs to compile ggml-cuda; the full toolkit does
+          # not fit in a runner's disk budget.
+          sub-packages: '["nvcc", "cudart", "cublas", "cublas_dev", "thrust", "visual_studio_integration"]'
+
+      - name: Free disk space (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          sudo rm -rf /usr/share/dotnet /opt/ghc /usr/local/share/boost || true
+          df -h /
+
+      - name: Build CUDA wheel
+        shell: bash
+        env:
+          # 61=Pascal 70/75=Volta/Turing 80/86=Ampere 89=Ada 90=Hopper.
+          # An explicit list keeps the build finite; "all" times the runner out.
+          CMAKE_ARGS: "-DGGML_CUDA=on -DCMAKE_CUDA_ARCHITECTURES=61;70;75;80;86;89;90"
+          CMAKE_BUILD_PARALLEL_LEVEL: "4"
+        run: |
+          set -euo pipefail
+          nvcc --version
+          python -m pip install --upgrade pip wheel cmake ninja
+          python -m pip wheel "llama-cpp-python==${{ inputs.llama_version }}" \
+            --no-deps --no-binary llama-cpp-python -w wheelhouse
+          for f in wheelhouse/llama_cpp_python-*.whl; do
+            mv "$f" "wheelhouse/cuda-$(basename "$f")"
+          done
+          ls -lh wheelhouse
+
+      - name: Sanity - wheel contains the CUDA backend
+        shell: bash
+        run: |
+          python - <<'EOF'
+          import glob, sys, zipfile
+          whl = glob.glob("wheelhouse/cuda-*.whl")[0]
+          names = zipfile.ZipFile(whl).namelist()
+          hits = [n for n in names if "cuda" in n.lower() and n.lower().endswith((".so", ".dll"))]
+          print("cuda artifacts in wheel:", hits or "NONE")
+          # A wheel without the CUDA backend library is a CPU build wearing a
+          # cuda- prefix; publishing it would silently disable acceleration.
+          sys.exit(0 if hits else 1)
+          EOF
+
+      - name: Publish to the gpu-packs pre-release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: gpu-packs
+          name: "ELI GPU packs (llama.cpp GPU builds)"
+          prerelease: true
+          body: >
+            CI-built GPU wheels of llama-cpp-python for the ELI GPU pack:
+            cuda-* for NVIDIA, vulkan-* for AMD / Intel Arc. Installed
+            automatically by `ELI --install-gpu-pack`; not meant for manual
+            pip use.
+          files: wheelhouse/cuda-*.whl
           fail_on_unmatched_files: true
