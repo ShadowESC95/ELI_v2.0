@@ -392,8 +392,49 @@ elif [ "$HAS_AMD" -eq 1 ]; then
         "$PIP" install llama-cpp-python --prefer-binary --quiet
     fi
 else
-    "$PIP" install llama-cpp-python --prefer-binary \
-        --extra-index-url https://abetlen.github.io/llama-cpp-python/whl/cu121 --quiet || true
+    # NVIDIA. The prebuilt CUDA wheel index is fast but STALE: it stops at
+    # 0.3.19 for cp312, and anything below 0.3.30 cannot read hybrid
+    # attention+SSM GGUFs (qwen35, nemotron-h) -- they fail with a missing
+    # ssm_conv1d tensor that surfaces as a spurious "sampler" error. Taking the
+    # wheel unconditionally is what left NVIDIA users on a runtime too old for
+    # modern models, so: take a wheel only if it is new enough, else build with
+    # CUDA from source.
+    echo "     (NVIDIA — CUDA)"
+    LLAMA_MIN="0.3.30"
+    if "$PIP" install "llama-cpp-python>=$LLAMA_MIN" --only-binary=:all: \
+            --extra-index-url https://abetlen.github.io/llama-cpp-python/whl/cu121 --quiet 2>/dev/null; then
+        echo "[OK] llama-cpp-python CUDA wheel installed."
+    else
+        warn "No CUDA wheel >= $LLAMA_MIN for this python — building from source with CUDA."
+        warn "This takes several minutes but yields a runtime that can read current GGUFs."
+        ensure_build_toolchain
+        # Locate nvcc: the CUDA toolkit is frequently installed but not on PATH.
+        _NVCC="$(command -v nvcc || true)"
+        if [ -z "$_NVCC" ]; then
+            for _c in /usr/local/cuda/bin/nvcc /usr/local/cuda-*/bin/nvcc; do
+                [ -x "$_c" ] && { _NVCC="$_c"; break; }
+            done
+        fi
+        if [ -n "$_NVCC" ]; then
+            export PATH="$(dirname "$_NVCC"):$PATH"
+            export CUDACXX="$_NVCC"
+            # Build only for the GPUs actually present; "all" multiplies build time.
+            _ARCHS="$(nvidia-smi --query-gpu=compute_cap --format=csv,noheader 2>/dev/null \
+                      | tr -d '.' | sort -u | paste -sd';' -)"
+            [ -z "$_ARCHS" ] && _ARCHS="native"
+            if CMAKE_ARGS="-DGGML_CUDA=on -DCMAKE_CUDA_ARCHITECTURES=$_ARCHS" \
+                    "$PIP" install "llama-cpp-python>=$LLAMA_MIN" --no-cache-dir --quiet; then
+                echo "[OK] llama-cpp-python built with CUDA (arch $_ARCHS)."
+            else
+                warn "CUDA source build failed — installing the CPU build so ELI still runs."
+                "$PIP" install "llama-cpp-python>=$LLAMA_MIN" --prefer-binary --quiet || true
+            fi
+        else
+            warn "CUDA toolkit (nvcc) not found — installing the CPU build."
+            warn "  Install the CUDA toolkit and re-run to get GPU acceleration."
+            "$PIP" install "llama-cpp-python>=$LLAMA_MIN" --prefer-binary --quiet || true
+        fi
+    fi
 fi
 
 # llama-cpp IS the inference engine — without it ELI has no local model at all, so

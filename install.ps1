@@ -199,18 +199,24 @@ if ($CpuOnly) {
     # so the install always completes with a working ELI.
     $llamaCudaOk = $false
     try {
-        Invoke-Pip @("install", "llama-cpp-python", "--only-binary=:all:", "--extra-index-url", "https://abetlen.github.io/llama-cpp-python/whl/$CudaVersion", "--quiet")
+        # The CUDA wheel index is stale: it stops at 0.3.19 for cp312, and
+        # anything below 0.3.30 cannot read hybrid attention+SSM GGUFs
+        # (qwen35, nemotron-h) - they fail on a missing ssm_conv1d tensor.
+        # Require a version that can, rather than silently taking an old wheel.
+        Invoke-Pip @("install", "llama-cpp-python>=0.3.30", "--only-binary=:all:", "--extra-index-url", "https://abetlen.github.io/llama-cpp-python/whl/$CudaVersion", "--quiet")
         $llamaCudaOk = $true
     } catch {
         Write-Host "[WARN] No prebuilt CUDA $CudaVersion wheel for llama-cpp-python on Python $pyVer." -ForegroundColor Yellow
         Write-Host "       Installing the CPU build instead so the install completes." -ForegroundColor Yellow
+        Write-Host "       (The CUDA wheel index tops out at 0.3.19 for some Python versions;" -ForegroundColor Yellow
+        Write-Host "        ELI needs >=0.3.30 to read current GGUF architectures.)" -ForegroundColor Yellow
         Write-Host "       ELI will run without GPU offload. Options:" -ForegroundColor Yellow
         Write-Host "         - re-run with -CudaVersion cu124 (or another published version)" -ForegroundColor Yellow
         Write-Host "         - re-run with -InstallCuda to build with CUDA locally" -ForegroundColor Yellow
         Write-Host "         - use Python 3.11, which has the widest wheel coverage" -ForegroundColor Yellow
     }
     if (-not $llamaCudaOk) {
-        Invoke-Pip (@("install") + $PipFindLinksArgs + @("llama-cpp-python", "--only-binary=:all:", "--quiet"))
+        Invoke-Pip (@("install") + $PipFindLinksArgs + @("llama-cpp-python>=0.3.30", "--only-binary=:all:", "--quiet"))
         # Keep the rest of the run honest: the offload verify below and the
         # summary must not claim a GPU build that was not installed.
         $CpuOnly = $true

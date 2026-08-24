@@ -110,3 +110,77 @@ def test_windows_installer_explains_the_fallback():
     text = _ps1_text()
     assert "No prebuilt CUDA" in text
     assert "-InstallCuda" in text and "cu124" in text, "no remedy offered"
+
+
+# ── the CUDA wheel index is stale; installers must not silently take it ────
+def _sh_text() -> str:
+    return (Path(__file__).resolve().parents[1] / "install.sh").read_text(encoding="utf-8")
+
+
+LLAMA_MIN_FOR_MODERN_GGUF = "0.3.30"
+
+
+def test_requirements_demand_a_runtime_that_reads_current_ggufs():
+    """Below 0.3.30 a hybrid attention+SSM GGUF (qwen35, nemotron-h) fails with
+    a missing ssm_conv1d tensor, which surfaced to the user as a bogus 'llama
+    sampler' error."""
+    root = Path(__file__).resolve().parents[1]
+    seen = 0
+    for name in ("requirements-full.txt", "requirements-macos.txt", "requirements-windows.txt"):
+        p = root / name
+        if not p.exists():
+            continue
+        text = p.read_text(encoding="utf-8")
+        if "llama-cpp-python" not in text:
+            continue
+        seen += 1
+        assert LLAMA_MIN_FOR_MODERN_GGUF in text, f"{name} allows a runtime too old for current GGUFs"
+    assert seen, "no requirements file pins llama-cpp-python at all"
+
+
+def test_linux_nvidia_path_does_not_take_a_stale_cuda_wheel():
+    """The abetlen CUDA index stops at 0.3.19 for cp312. Installing from it with
+    --prefer-binary is what left NVIDIA users unable to load modern models."""
+    text = _sh_text()
+    nvidia = text[text.index("# NVIDIA."):]
+    assert LLAMA_MIN_FOR_MODERN_GGUF in nvidia, "no minimum enforced on the CUDA path"
+    assert "--prefer-binary \\\n        --extra-index-url" not in nvidia, \
+        "the unbounded --prefer-binary CUDA install is back"
+    assert "GGML_CUDA=on" in nvidia, "no CUDA source-build fallback when no wheel qualifies"
+
+
+def test_linux_nvidia_build_finds_nvcc_off_path():
+    """The CUDA toolkit is routinely installed without being on PATH."""
+    text = _sh_text()
+    nvidia = text[text.index("# NVIDIA."):]
+    assert "/usr/local/cuda" in nvidia, "does not look for nvcc where the toolkit installs it"
+    assert "CUDACXX" in nvidia
+
+
+def test_windows_cuda_wheel_is_version_bounded():
+    text = _ps1_text()
+    llama = text[text.index("llama-cpp-python (CUDA"):]
+    assert f"llama-cpp-python>={LLAMA_MIN_FOR_MODERN_GGUF}" in llama, \
+        "Windows still accepts any CUDA wheel version"
+
+
+def test_ddgs_replaces_the_deprecated_package_name():
+    """duckduckgo-search was renamed; the old name installs a shim that warns on
+    every search and will stop being published."""
+    root = Path(__file__).resolve().parents[1]
+    for name in ("requirements.txt", "requirements-full.txt",
+                 "requirements-macos.txt", "requirements-windows.txt"):
+        p = root / name
+        if not p.exists():
+            continue
+        text = p.read_text(encoding="utf-8")
+        assert "duckduckgo-search>=" not in text, f"{name} still pins the renamed package"
+        if "ddgs" in text:
+            assert "ddgs>=" in text
+
+
+def test_yt_dlp_is_declared():
+    """Undeclared, so a fresh install had no direct YouTube playback on any OS."""
+    root = Path(__file__).resolve().parents[1]
+    text = (root / "requirements.txt").read_text(encoding="utf-8")
+    assert "yt-dlp" in text, "yt-dlp is still undeclared; playback would be browser-only"

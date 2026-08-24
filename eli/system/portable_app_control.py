@@ -7,9 +7,13 @@ import re
 import shlex
 import shutil
 import subprocess
+import threading
+import logging
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Iterable, Optional
+
+log = logging.getLogger(__name__)
 
 
 @dataclass
@@ -39,11 +43,53 @@ def _run(args: list[str], timeout: float = 8.0) -> subprocess.CompletedProcess:
     )
 
 
+# Launched children we deliberately do not wait for. Dropping the Popen object
+# while its child is alive is what produced "ResourceWarning: subprocess <pid>
+# is still running" on every app launch -- and, worse, left the finished child
+# unreaped as a zombie because nobody ever called wait(). Holding the handle
+# until the process actually exits fixes both: the warning is legitimate (we
+# WERE discarding a live handle) and the reap is what stops the zombie.
+_LAUNCHED: list = []
+_LAUNCH_LOCK = threading.Lock()
+# An app launcher is a handful of processes; this cap only bounds a pathological
+# loop, and reaping runs first so a normal session never approaches it.
+_MAX_TRACKED_LAUNCHES = 64
+
+
+def _reap_launched() -> int:
+    """Drop handles whose child has exited, reaping the zombie in the process.
+
+    poll() collects the exit status, which is the call that lets the kernel
+    release the process-table entry. Returns how many are still running.
+    """
+    with _LAUNCH_LOCK:
+        alive = []
+        for proc in _LAUNCHED:
+            try:
+                if proc.poll() is None:
+                    alive.append(proc)
+            except Exception:
+                continue          # handle already invalid; drop it
+        _LAUNCHED[:] = alive
+        if len(_LAUNCHED) > _MAX_TRACKED_LAUNCHES:
+            # Keep the newest; the oldest are long-lived apps (a browser, an
+            # editor) that will be reaped when they exit or when ELI does.
+            del _LAUNCHED[:-_MAX_TRACKED_LAUNCHES]
+        return len(_LAUNCHED)
+
+
 def _popen(args: list[str]) -> bool:
     try:
-        subprocess.Popen(args, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, start_new_session=True)
+        _reap_launched()
+        proc = subprocess.Popen(
+            args, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+            start_new_session=True,
+        )
+        with _LAUNCH_LOCK:
+            _LAUNCHED.append(proc)
         return True
     except Exception:
+        log.debug("app launch failed: %s", args, exc_info=True)
         return False
 
 

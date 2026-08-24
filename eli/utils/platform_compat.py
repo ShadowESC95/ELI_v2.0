@@ -950,12 +950,80 @@ def user_pictures_dir() -> Path:
         return Path.home() / "Pictures"
 
 
+# X11 key names for the keys people actually ask for by word. xdotool and
+# ydotool take X keysyms, not the lowercase words pyautogui accepts.
+_XKEY_MAP = {
+    "enter": "Return", "return": "Return", "tab": "Tab", "space": "space",
+    "backspace": "BackSpace", "delete": "Delete", "del": "Delete",
+    "escape": "Escape", "esc": "Escape", "insert": "Insert",
+    "up": "Up", "down": "Down", "left": "Left", "right": "Right",
+    "home": "Home", "end": "End", "pageup": "Page_Up", "pagedown": "Page_Down",
+    "ctrl": "ctrl", "control": "ctrl", "alt": "alt", "shift": "shift",
+    "super": "super", "win": "super", "cmd": "super", "command": "super",
+    "capslock": "Caps_Lock", "printscreen": "Print", "menu": "Menu",
+}
+
+
+def _xkey(key: str) -> str:
+    k = str(key or "").strip()
+    return _XKEY_MAP.get(k.lower(), k)
+
+
+def _native_input_tool() -> "tuple[str, str] | None":
+    """(tool, protocol) for the best native input tool, or None.
+
+    Linux-only. ydotool drives the kernel uinput device so it works under
+    Wayland; xdotool speaks X11. Both are subprocesses, so unlike the
+    pyautogui/Xlib path they leak no display handles or file descriptors --
+    that leak is the source of the ResourceWarnings seen on every keystroke.
+    """
+    if not LINUX:
+        return None
+    wayland = bool(os.environ.get("WAYLAND_DISPLAY")) or \
+        (os.environ.get("XDG_SESSION_TYPE", "").lower() == "wayland")
+    order = ("ydotool", "xdotool") if wayland else ("xdotool", "ydotool")
+    for tool in order:
+        if shutil.which(tool):
+            return tool, ("wayland" if tool == "ydotool" else "x11")
+    return None
+
+
+def _run_native(args: list) -> bool:
+    try:
+        return subprocess.run(args, stdout=subprocess.DEVNULL,
+                              stderr=subprocess.DEVNULL, timeout=8,
+                              check=False).returncode == 0
+    except Exception:
+        log.debug("native input tool failed: %s", args, exc_info=True)
+        return False
+
+
 def key_press(key: str) -> bool:
-    """Best-effort cross-platform key press using pyautogui when available."""
+    """Press one key. Native tools first on Linux, pyautogui elsewhere.
+
+    pyautogui used to be tried FIRST on every platform with no native
+    fallback in this function at all, which meant two things on Linux: every
+    keystroke went through Xlib and leaked a display socket and two file
+    handles (the ResourceWarnings in the session logs), and a Wayland session
+    -- where pyautogui cannot inject input -- had no working path whatsoever.
+    Mirrors the ordering MOUSE_CONTROL already uses, so the two halves of
+    desktop input no longer disagree about which backend to prefer.
+    """
+    k = str(key or "").strip()
+    if not k:
+        return False
+
+    native = _native_input_tool()
+    if native:
+        tool, _proto = native
+        if _run_native([tool, "key", _xkey(k)] if tool == "ydotool"
+                       else [tool, "key", "--clearmodifiers", _xkey(k)]):
+            return True
+
     try:
         import pyautogui  # type: ignore
 
-        pyautogui.press(key)
+        pyautogui.press(k)
         return True
     except Exception as e:
         log.debug(f"pyautogui key press failed: {e}")
@@ -963,11 +1031,22 @@ def key_press(key: str) -> bool:
 
 
 def type_text(text: str) -> bool:
-    """Best-effort cross-platform text entry using pyautogui when available."""
+    """Type a string. Native tools first on Linux, pyautogui elsewhere."""
+    s = str(text or "")
+    if not s:
+        return False
+
+    native = _native_input_tool()
+    if native:
+        tool, _proto = native
+        if _run_native([tool, "type", s] if tool == "ydotool"
+                       else [tool, "type", "--clearmodifiers", "--delay", "12", s]):
+            return True
+
     try:
         import pyautogui  # type: ignore
 
-        pyautogui.write(text)
+        pyautogui.write(s)
         return True
     except Exception as e:
         log.debug(f"pyautogui type failed: {e}")
