@@ -371,6 +371,31 @@ def _pick_wheel(cuda_idx: str) -> tuple[str, str] | None:
     return version, urllib.request.urljoin(url, href)
 
 
+# Below this, llama.cpp cannot read hybrid attention+SSM GGUFs (qwen35,
+# nemotron-h): they fail with a missing ssm_conv1d tensor. The abetlen CUDA
+# index stops at 0.3.19 for several interpreters, so an NVIDIA machine could
+# end up with a GPU-accelerated runtime that cannot open current models --
+# while the AppImage it came from bundles a newer one that can. Measured on a
+# live 2.3.17 install: pack 0.3.19 failed, the bundled 0.3.35 loaded the same
+# file fine.
+MIN_MODERN_ARCH_VERSION = (0, 3, 30)
+
+
+def _ver_tuple(v: str) -> tuple:
+    out = []
+    for part in str(v or "").split("."):
+        try:
+            out.append(int(part))
+        except ValueError:
+            break
+    return tuple(out)
+
+
+def _too_old_for_modern_archs(version: str) -> bool:
+    t = _ver_tuple(version)
+    return bool(t) and t < MIN_MODERN_ARCH_VERSION
+
+
 def _pick_vulkan_wheel() -> tuple[str, str] | None:
     """Return (version, url) of the CI-built Vulkan wheel for this python/platform."""
     try:
@@ -447,6 +472,26 @@ def _install(argv: list[str] | None = None) -> int:
         if not picked:
             return _fail("no CUDA wheel found for this python/platform in the llama-cpp-python index")
         backend, version, url = picked
+
+        # The CUDA index is frequently far behind. When the best CUDA wheel is
+        # too old to read current architectures, prefer the CI-built Vulkan
+        # pack: it is built from CURRENT llama-cpp-python source by
+        # .github/workflows/gpu-packs.yml, and every NVIDIA driver ships the
+        # Vulkan loader it needs. That keeps GPU acceleration AND gains the
+        # newer architectures, instead of trading one for the other.
+        if _too_old_for_modern_archs(version):
+            _say(f"newest CUDA wheel is {version}, which cannot read current model "
+                 f"architectures (needs >= {'.'.join(map(str, MIN_MODERN_ARCH_VERSION))})")
+            vk = _pick_vulkan_wheel()
+            if vk and not _too_old_for_modern_archs(vk[0]) and _vulkan_loader_present():
+                _say(f"using the CI-built Vulkan pack {vk[0]} instead — GPU-accelerated "
+                     f"on NVIDIA via the driver's Vulkan loader, and current enough "
+                     f"for hybrid attention+SSM models")
+                backend, version, url = "vulkan", vk[0], vk[1]
+            else:
+                _say("no newer Vulkan pack available — installing the CUDA wheel. "
+                     "Models with newer architectures will not load under it; run "
+                     "with ELI_DISABLE_GPU_PACK=1 to use the bundled runtime instead.")
     elif want_vulkan or amd_present or intel_arc_present:
         # AMD / Intel Arc (or forced): CI-built Vulkan backend. The GPU
         # driver already ships the Vulkan loader the wheel needs.

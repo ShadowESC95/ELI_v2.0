@@ -217,6 +217,58 @@ def is_retryable_load_failure(log_lines) -> bool:
     return True
 
 
+# A model too new for the runtime is usually "upgrade llama-cpp-python". In a
+# frozen build it is more specific than that: the GPU pack shadows the bundled
+# runtime, and the pack comes from an index that stops at 0.3.19 while the
+# bundle is current. So the app can be carrying a runtime that WOULD read the
+# model while a newer-model-incapable one is active. Say that, because the
+# remedy is a switch rather than an install.
+MIN_MODERN_ARCH_VERSION = (0, 3, 30)
+
+
+def _active_llama_is_gpu_pack() -> "tuple[bool, str]":
+    """(is_the_gpu_pack, version) for the llama_cpp actually imported."""
+    try:
+        import llama_cpp
+        path = str(getattr(llama_cpp, "__file__", "") or "")
+    except Exception:
+        return False, ""
+    ver = ""
+    try:
+        import importlib.metadata as _md
+        ver = _md.version("llama-cpp-python")
+    except Exception:
+        # Not fatal: a GPU pack is a plain directory on sys.path and may carry
+        # no installed-distribution metadata at all, which is exactly why the
+        # dist-info path regex below exists as the fallback.
+        log.debug("llama-cpp-python version not readable from metadata", exc_info=True)
+    if not ver:
+        import re as _re
+        m = _re.search(r"llama_cpp_python-([0-9.]+)\.dist-info", path)
+        if m:
+            ver = m.group(1)
+    return ("runtime/gpu" in path.replace("\\", "/")), ver
+
+
+def _version_tuple(ver: str) -> tuple:
+    out = []
+    for part in str(ver or "").split("."):
+        try:
+            out.append(int(part))
+        except ValueError:
+            break
+    return tuple(out)
+
+
+def gpu_pack_is_too_old() -> bool:
+    """True when the ACTIVE runtime is the GPU pack and it predates the
+    architectures current models use."""
+    is_pack, ver = _active_llama_is_gpu_pack()
+    if not is_pack or not ver:
+        return False
+    return _version_tuple(ver) < MIN_MODERN_ARCH_VERSION
+
+
 def _runtime_note() -> str:
     """The installed llama-cpp-python version, so a version-shaped failure names
     the version. Architecture support moves with the runtime, and "upgrade it"
@@ -262,6 +314,19 @@ def explain_load_failure(exc: BaseException, log_lines, model_path,
         if any(k in missing.lower() for k in ("ssm_", "mamba", "conv1d")):
             hint = (" The missing tensor is a state-space (Mamba/SSM) layer, so this is a "
                     "hybrid attention+SSM model whose tensor layout this build predates.")
+        if gpu_pack_is_too_old():
+            _is_pack, _pv = _active_llama_is_gpu_pack()
+            return _msg(
+                "could not load: the active runtime is the downloaded GPU pack "
+                f"(llama-cpp-python {_pv}), which predates this model's tensor "
+                f"layout.{hint} This build also ships a NEWER runtime that can "
+                "read it, so the quickest fix is to run once with the pack "
+                "disabled:\n"
+                "    ELI_DISABLE_GPU_PACK=1 <the ELI command you used>\n"
+                "  That runs on CPU (slower) but loads the model. For GPU speed "
+                "on this architecture the pack itself has to be rebuilt against "
+                "a newer llama.cpp."
+            )
         return _msg(
             "could not load: this llama.cpp build knows the architecture but expects a "
             f"different tensor set, so the file is newer than the runtime.{hint} "
@@ -294,5 +359,6 @@ def explain_load_failure(exc: BaseException, log_lines, model_path,
 
 
 __all__ = ["ModelLoadError", "harden_llama_destructor", "gguf_architecture",
+           "gpu_pack_is_too_old", "MIN_MODERN_ARCH_VERSION",
            "capture_llama_log", "explain_load_failure",
            "is_retryable_load_failure"]
