@@ -586,9 +586,16 @@ def _install(argv: list[str] | None = None) -> int:
     ok, detail = _verify(dest)
     if not ok:
         shutil.rmtree(dest, ignore_errors=True)
+        _no_offload = "gpu-pack-verify-no-offload" in (detail or "")
         return _fail(
-            "the downloaded GPU build failed to load on this machine — removed it; "
-            f"ELI stays on CPU (fully functional).\nLoader said: {detail}"
+            ("the downloaded GPU build loaded but reports NO GPU offload on this "
+             "machine — removed it rather than letting it shadow the bundled "
+             "runtime, which is newer and reads more model architectures. "
+             "ELI stays on CPU (fully functional)."
+             if _no_offload else
+             "the downloaded GPU build failed to load on this machine — removed it; "
+             "ELI stays on CPU (fully functional).")
+            + f"\nLoader said: {detail}"
         )
 
     (dest / ".gpu_pack.json").write_text(
@@ -663,8 +670,17 @@ def _verify(dest: Path) -> tuple[bool, str]:
     """Import llama_cpp from the pack in a throwaway ELI subprocess."""
     # Self-contained probe (no eli_gpu_pack import — must also work when the
     # verifier runs outside the frozen bundle, e.g. in tests).
+    # The probe must do BOTH things the old one skipped:
+    #   * preload the VULKAN loader, not only the CUDA libs -- a vulkan pack
+    #     needs libvulkan.so.1, which the pack does not ship because it belongs
+    #     to the GPU driver;
+    #   * assert the pack can actually OFFLOAD, not merely that it imports.
+    # A pack that imports but reports llama_supports_gpu_offload() == False is
+    # worse than no pack: it shadows the bundled runtime with something slower
+    # AND older. That combination shipped, and reported
+    # "llama.cpp GPU offload support: False" on a machine with a working GPU.
     probe = (
-        "import sys, os, ctypes\n"
+        "import sys, os, ctypes, ctypes.util\n"
         "from pathlib import Path\n"
         f"dest = Path({str(dest)!r})\n"
         "sys.path.insert(0, str(dest))\n"
@@ -672,14 +688,31 @@ def _verify(dest: Path) -> tuple[bool, str]:
         "if lib.is_dir():\n"
         "    if sys.platform == 'win32':\n"
         "        os.add_dll_directory(str(lib))\n"
-        "        pats = ('cudart64*.dll', 'cublasLt64*.dll', 'cublas64*.dll')\n"
+        "        pats = ('cudart64*.dll', 'cublasLt64*.dll', 'cublas64*.dll', 'vulkan-1.dll')\n"
         "    else:\n"
         "        pats = ('libcudart.so*', 'libcublasLt.so*', 'libcublas.so*')\n"
         "    for p in pats:\n"
         "        for f in sorted(lib.glob(p)):\n"
         "            try: ctypes.CDLL(str(f))\n"
         "            except Exception: pass\n"
+        "    if sys.platform != 'win32' and any(lib.glob('libggml-vulkan.so*')):\n"
+        "        cands = [c for c in [ctypes.util.find_library('vulkan')] if c]\n"
+        "        cands += ['/usr/lib/x86_64-linux-gnu/libvulkan.so.1',\n"
+        "                  '/lib/x86_64-linux-gnu/libvulkan.so.1',\n"
+        "                  '/usr/lib64/libvulkan.so.1', 'libvulkan.so.1']\n"
+        "        for c in cands:\n"
+        "            try:\n"
+        "                ctypes.CDLL(c, mode=ctypes.RTLD_GLOBAL); break\n"
+        "            except Exception: pass\n"
+        "    if sys.platform != 'win32':\n"
+        "        for p in ('libggml-base.so*', 'libggml-cpu.so*',\n"
+        "                  'libggml-vulkan.so*', 'libggml-cuda.so*'):\n"
+        "            for f in sorted(lib.glob(p)):\n"
+        "                try: ctypes.CDLL(str(f), mode=ctypes.RTLD_GLOBAL)\n"
+        "                except Exception: pass\n"
         "import llama_cpp\n"
+        "if not llama_cpp.llama_supports_gpu_offload():\n"
+        "    print('gpu-pack-verify-no-offload'); raise SystemExit(2)\n"
         "print('gpu-pack-verify-ok', llama_cpp.__version__)\n"
     )
     try:
@@ -708,7 +741,7 @@ def preload_native_libs(pack_dir: str | Path) -> None:
             os.add_dll_directory(str(lib))
         except Exception:
             pass
-        patterns = ("cudart64*.dll", "cublasLt64*.dll", "cublas64*.dll")
+        patterns = ("cudart64*.dll", "cublasLt64*.dll", "cublas64*.dll", "vulkan-1.dll")
     else:
         patterns = ("libcudart.so*", "libcublasLt.so*", "libcublas.so*")
     for pat in patterns:
@@ -717,3 +750,45 @@ def preload_native_libs(pack_dir: str | Path) -> None:
                 ctypes.CDLL(str(f))
             except Exception:
                 pass
+
+    # A VULKAN pack needs the system Vulkan LOADER (libvulkan.so.1), which the
+    # pack does not ship -- it belongs to the GPU driver. Only the CUDA libs
+    # were preloaded here, so inside the frozen app, whose LD_LIBRARY_PATH
+    # points at its own bundled libraries, libggml-vulkan.so could not bind the
+    # loader; ggml then dropped the Vulkan backend and
+    # llama_supports_gpu_offload() returned False. Live symptom, on a machine
+    # whose GPU worked minutes earlier outside the bundle:
+    #     llama.cpp GPU offload support: False
+    #     GPU offload unavailable at runtime -> forcing CPU-safe tuning
+    # Loading the loader by absolute path, before llama_cpp is imported, is
+    # what makes the Vulkan backend resolvable from inside the bundle.
+    if sys.platform != "win32" and any(lib.glob("libggml-vulkan.so*")):
+        import ctypes.util
+        candidates = []
+        found = ctypes.util.find_library("vulkan")
+        if found:
+            candidates.append(found)
+        candidates += [
+            "/usr/lib/x86_64-linux-gnu/libvulkan.so.1",
+            "/lib/x86_64-linux-gnu/libvulkan.so.1",
+            "/usr/lib64/libvulkan.so.1",
+            "/usr/lib/libvulkan.so.1",
+            "libvulkan.so.1",
+        ]
+        for cand in candidates:
+            try:
+                ctypes.CDLL(cand, mode=getattr(ctypes, "RTLD_GLOBAL", 0))
+                break
+            except Exception:
+                continue
+
+    # Then the pack's own ggml backends, base first: a backend that cannot find
+    # libggml-base is silently skipped, which looks identical to "no GPU".
+    if sys.platform != "win32":
+        for pat in ("libggml-base.so*", "libggml-cpu.so*",
+                    "libggml-vulkan.so*", "libggml-cuda.so*"):
+            for f in sorted(lib.glob(pat)):
+                try:
+                    ctypes.CDLL(str(f), mode=getattr(ctypes, "RTLD_GLOBAL", 0))
+                except Exception:
+                    pass
