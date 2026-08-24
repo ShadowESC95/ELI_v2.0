@@ -27,11 +27,38 @@ _CONJ_RX = re.compile(
     r"\s+(?:and then|and also|;|,\s*then\s+|\bthen\b|\band\b)\s+", re.I)
 
 # Imperative action verbs a real command starts with.
+#
+# This vocabulary IS the splitter's model of what ELI can be told to do, and it
+# had drifted badly from the capability manifest: of the 122 distinct verbs in
+# ELI's own action names, 99 were unknown here. Two live consequences:
+#
+#   "do a web search on QFT and open the browser"
+#       -> "do" was not a verb, so nothing split and the whole tail was
+#          swallowed into the search query as "on QFT and open the browser".
+#   "open firefox then maximise it"
+#       -> split fine, but "maximise" was not a verb so the split was rejected
+#          and the app name became "firefox then maximise it".
+#
+# Only genuine IMPERATIVES are added. Most manifest verbs are nouns lifted from
+# action names (AMBIENT_VISION, GPU_STATUS, CODEBASE_GRAPH); admitting those
+# would split ordinary phrases, because the guard below only holds while a
+# non-verb second segment can still fail the all() check. The companion test
+# locks both directions: the multi-tool cases must split, and the documented
+# false-split cases must not.
 _IMP_START = re.compile(
     r"^\s*(open|launch|start|play|pause|stop|close|quit|kill|set|get|fetch|show"
     r"|check|run|remind|turn|mute|unmute|screenshot|take|send|search|find|read"
     r"|generate|create|write|build|schedule|update|download|enable|disable|email"
-    r"|message|post|analyse|analyze|examine|review|make|give me|tell me to)\b", re.I)
+    r"|message|post|analyse|analyze|examine|review|make|give me|tell me to"
+    # capability-derived imperatives
+    r"|do|add|cancel|clear|confirm|convert|decline|design|diagnose|dictate"
+    r"|execute|exit|explain|fix|focus|help|hide|import|list|listen"
+    r"|maximise|maximize|minimise|minimize|next|previous|prepare|refresh"
+    r"|remove|rename|repeat|resolve|restore|resume|say|shuffle|skip|speak"
+    r"|summarise|summarize|switch|test|tile|train|transcribe"
+    # desktop-control imperatives
+    r"|click|press|type|copy|paste|scroll|move|select|record|toggle"
+    r"|install|uninstall|connect|disconnect|increase|decrease|lower|raise)\b", re.I)
 
 
 def _trim_trailing_chatter(seg: str) -> str:

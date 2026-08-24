@@ -562,6 +562,10 @@ _SETTINGS_SCHEMA = {
     "user_name":              ("str",  "General",    "Your name", "What ELI calls you"),
     "auto_save":              ("bool", "General",    "Auto-save conversations", ""),
     "log_to_file":            ("bool", "General",    "Write logs to file", ""),
+    "web_safe_search":        ("bool", "General",    "Filter adult content from web results",
+                               "Asks every search provider for strict filtering and screens "
+                               "results by site before ELI sees them. Screening is by host, "
+                               "not keyword, so medical and biological results are kept."),
     "temperature":            ("float","Generation", "Temperature", "Higher = more creative", 0.0, 2.0, 0.05),
     "top_p":                  ("float","Generation", "Top-p", "Nucleus sampling", 0.0, 1.0, 0.01),
     "top_k":                  ("int",  "Generation", "Top-k", "0 = disabled", 0, 200, 1),

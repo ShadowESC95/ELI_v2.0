@@ -107,7 +107,7 @@ def _nvidia_driver_version() -> tuple[int, int] | None:
     ``/proc/driver/nvidia/version``, which the kernel module writes on EVERY
     distro whenever it is loaded. Neither depends on the CUDA-header line that
     Node's Optimus + driver-610 setup didn't emit."""
-    smi = shutil.which("nvidia-smi")
+    smi = _smi()
     if smi:
         try:
             out = subprocess.run([smi, "--query-gpu=driver_version", "--format=csv,noheader"],
@@ -124,6 +124,29 @@ def _nvidia_driver_version() -> tuple[int, int] | None:
             return int(m.group(1)), int(m.group(2))
     except Exception:
         pass
+    # Windows has no /proc; the driver records its version in the display-class
+    # registry key. Without this the driver version was unknowable off Linux
+    # whenever nvidia-smi was unavailable, and no CUDA build could be chosen.
+    if sys.platform == "win32":
+        ps = shutil.which("powershell") or shutil.which("pwsh")
+        if ps:
+            try:
+                q = (
+                    "$ErrorActionPreference='SilentlyContinue';"
+                    "(Get-ItemProperty 'HKLM:\\SYSTEM\\CurrentControlSet\\Control\\Class\\"
+                    "{4d36e968-e325-11ce-bfc1-08002be10318}\\*' |"
+                    " Where-Object { $_.ProviderName -like '*NVIDIA*' } |"
+                    " Select-Object -First 1).DriverVersion"
+                )
+                out = subprocess.run([ps, "-NoProfile", "-Command", q],
+                                     capture_output=True, text=True, timeout=25)
+                # Windows reports e.g. 32.0.15.6094 -> NVIDIA driver 560.94
+                m = re.search(r"(\d+)\.(\d+)\.(\d+)\.(\d+)", out.stdout or "")
+                if m:
+                    digits = (m.group(3) + m.group(4))[-5:]
+                    return int(digits[:3]), int(digits[3:])
+            except Exception:
+                pass
     return None
 
 
@@ -144,7 +167,7 @@ def _driver_cuda_version() -> tuple[int, int] | None:
     it from the driver version. The header is a display string that some drivers/
     configs (Optimus, headless, very new drivers) omit or garble — deriving from
     the driver version makes wheel selection work regardless, on every distro."""
-    smi = shutil.which("nvidia-smi")
+    smi = _smi()
     if smi:
         for args in ([smi], [smi, "-q"]):
             try:
@@ -167,6 +190,39 @@ _PCI_VENDOR = {"nvidia": "0x10de", "amd": "0x1002", "intel": "0x8086"}
 # Used so an Intel iGPU (same 0x8086 vendor, but Vulkan offload rarely beats CPU)
 # is NOT auto-routed to a GPU pack, while a real discrete Arc is.
 _INTEL_ARC_DEVICE_RANGES = ((0x4F80, 0x4F8F), (0x5690, 0x56BF), (0xE200, 0xE21F))
+
+
+def _smi() -> str | None:
+    """nvidia-smi by absolute path, PATH or not.
+
+    On Windows the driver installs nvidia-smi into System32 and the CUDA
+    toolkit into its own directory; a frozen app can inherit an environment
+    where neither is on PATH. shutil.which() then returns None and the GPU
+    pack concludes "no NVIDIA GPU" on a machine that has one -- which is how a
+    working card ended up running on CPU with 0 offloaded layers.
+    """
+    found = shutil.which("nvidia-smi")
+    if found:
+        return found
+    import os
+    if sys.platform == "win32":
+        cands = [
+            Path(os.environ.get("SystemRoot", r"C:\Windows")) / "System32" / "nvidia-smi.exe",
+            Path(os.environ.get("ProgramFiles", r"C:\Program Files"))
+            / "NVIDIA Corporation" / "NVSMI" / "nvidia-smi.exe",
+            Path(os.environ.get("ProgramW6432", r"C:\Program Files"))
+            / "NVIDIA Corporation" / "NVSMI" / "nvidia-smi.exe",
+        ]
+    else:
+        cands = [Path("/usr/bin/nvidia-smi"), Path("/usr/local/bin/nvidia-smi"),
+                 Path("/opt/nvidia/bin/nvidia-smi")]
+    for c in cands:
+        try:
+            if c.is_file():
+                return str(c)
+        except Exception:
+            continue
+    return None
 
 
 def _sysfs_pci_vendor_present(vendor_hex: str) -> bool:
@@ -195,7 +251,7 @@ def _has_nvidia_gpu() -> bool:
     working 1660 Ti onto CPU. Probe presence with the most robust signals, on every
     OS: the driver's device list (``nvidia-smi -L``), the proven ``--query-gpu``
     call, the PCI vendor id in sysfs (Linux), then the driver DLLs (Windows)."""
-    smi = shutil.which("nvidia-smi")
+    smi = _smi()
     if smi:
         for args in ([smi, "-L"], [smi, "--query-gpu=name", "--format=csv,noheader"]):
             try:

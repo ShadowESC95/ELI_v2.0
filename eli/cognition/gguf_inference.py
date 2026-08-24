@@ -885,8 +885,34 @@ def load_model(force_reload: bool = False):
         + ")"
     )
 
+    # A failed load used to surface as "AttributeError: 'LlamaModel' object has
+    # no attribute 'sampler'" -- llama-cpp-python's destructor tripping over an
+    # attribute __init__ never reached -- while the one line that says WHY was
+    # thrown away, because Llama(verbose=False) silences llama.cpp entirely.
+    # Harden the destructor, capture llama.cpp's own log for the duration of the
+    # load, and translate whatever it reports into something actionable. None of
+    # this knows any model by name; it works for any GGUF.
+    from eli.cognition.model_load_diagnostics import (
+        ModelLoadError,
+        harden_llama_destructor as _harden,
+        capture_llama_log as _cap_log,
+        explain_load_failure as _explain,
+        is_retryable_load_failure as _retryable,
+    )
+
+    def _model_load_error(err, lines, layers):
+        """Build the error and record whether retrying could ever help, so the
+        adaptive ladder above can stop instead of repeating an identical
+        failure through every ctx/layer/batch combination it knows."""
+        _e = ModelLoadError(_explain(err, lines, model_path, gpu_layers=layers))
+        _e.retryable = _retryable(lines)
+        return _e
+    _harden()
+    _load_log: list = []
+
     try:
-        _llm = Llama(**kwargs)
+        with _cap_log() as _load_log:
+            _llm = Llama(**kwargs)
     except TypeError as e:
         _msg = str(e)
         _popped = False
@@ -902,9 +928,19 @@ def load_model(force_reload: bool = False):
             log.debug("[GGUF][GPU] llama-cpp build lacks multi-GPU kwargs; loading single-GPU")
             _popped = True
         if _popped:
-            _llm = Llama(**kwargs)
+            try:
+                with _cap_log() as _load_log:
+                    _llm = Llama(**kwargs)
+            except Exception as _retry_err:
+                raise _model_load_error(
+                    _retry_err, _load_log, effective_n_gpu_layers) from _retry_err
         else:
             raise
+    except Exception as _load_err:
+        # Everything else: bad tensor set, unknown architecture, OOM, truncated
+        # download. Report the real cause with the remedy attached.
+        raise _model_load_error(
+            _load_err, _load_log, effective_n_gpu_layers) from _load_err
 
     globals()["_live_runtime_params"] = {
         "provider": "gguf",
@@ -2606,6 +2642,18 @@ try:
                     )
 
                     _eli_try_unload_after_failed_load()
+
+                    if not getattr(e, "retryable", True):
+                        # A missing tensor / unknown architecture / corrupt file
+                        # is a property of the model and this build. Every
+                        # remaining candidate would fail identically -- and each
+                        # one used to print its own phantom sampler traceback.
+                        log.warning(
+                            "[GGUF][ADAPTIVE] unrecoverable on attempt %d; "
+                            "skipping the remaining %d candidate(s): %s",
+                            idx, max(0, len(candidates) - idx), e,
+                        )
+                        break
 
             _ELI_ADAPTIVE_LOAD_REPORT["finished_at"] = _eli_adapt_time.time()
 
