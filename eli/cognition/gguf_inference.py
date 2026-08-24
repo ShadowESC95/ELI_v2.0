@@ -942,6 +942,15 @@ def load_model(force_reload: bool = False):
         raise _model_load_error(
             _load_err, _load_log, effective_n_gpu_layers) from _load_err
 
+    # Keep get_last_load_params() truthful: same values, same moment.
+    globals()["_last_params"] = {
+        "n_ctx": int(n_ctx),
+        "n_gpu_layers": int(effective_n_gpu_layers),
+        "n_threads": int(n_threads),
+        "n_batch": int(n_batch),
+        "model_path": str(model_path),
+        "load_mode": "GPU" if int(effective_n_gpu_layers) > 0 else "CPU",
+    }
     globals()["_live_runtime_params"] = {
         "provider": "gguf",
         "model_path": str(model_path),
@@ -1821,7 +1830,18 @@ def get_last_error() -> Optional[str]:
 
 
 def get_last_load_params() -> Dict[str, Any]:
-    return dict(_last_params)
+    """Parameters the model was last loaded with.
+
+    `_last_params` was declared at module level and never assigned, so this
+    returned {} after every successful load and callers read None for every
+    field. The load path does populate `_live_runtime_params`, so fall back to
+    it rather than reporting nothing about a model that is demonstrably
+    loaded.
+    """
+    if _last_params:
+        return dict(_last_params)
+    live = globals().get("_live_runtime_params") or {}
+    return dict(live)
 
 
 import atexit as _atexit
@@ -2047,6 +2067,40 @@ def _stream_clean(text: str) -> str:
         return text
 
 
+def _stream_chunk_text(tok) -> str:
+    """Text of one streamed chunk, whatever shape it arrives in.
+
+    The legacy generator yields dicts -- {"response": "..."} -- not strings.
+    The buffer only appended `isinstance(tok, str)`, so every dict contributed
+    nothing and str() of a stream that had really produced text came back
+    empty: `generate("Say hello")` logged RAW_TEXT 'Hello! How can I help you
+    today' and stringified to ''. Silently returning nothing for a call that
+    succeeded is the same failure class as the generator-repr leak this class
+    was written to stop.
+    """
+    if isinstance(tok, str):
+        return tok
+    if isinstance(tok, dict):
+        for key in ("response", "text", "content", "delta"):
+            val = tok.get(key)
+            if isinstance(val, str) and val:
+                return val
+        # OpenAI-shaped: {"choices": [{"text": ...}]}
+        try:
+            choice = (tok.get("choices") or [{}])[0]
+            for key in ("text", "content"):
+                val = choice.get(key)
+                if isinstance(val, str) and val:
+                    return val
+            delta = choice.get("delta") or {}
+            val = delta.get("content")
+            if isinstance(val, str) and val:
+                return val
+        except Exception:
+            log.debug("stream chunk shape not recognised", exc_info=True)
+    return ""
+
+
 class _CleanTokenStream:
     """Iterator over cleaned streaming tokens whose ``str()``/``repr()`` NEVER
     expose the default ``<generator object ...>`` text.
@@ -2076,14 +2130,12 @@ class _CleanTokenStream:
 
     def __next__(self):
         tok = next(self._it)
-        if isinstance(tok, str):
-            self._buf.append(tok)
+        self._buf.append(_stream_chunk_text(tok))
         return tok
 
     def _drain(self) -> str:
         for tok in self._it:
-            if isinstance(tok, str):
-                self._buf.append(tok)
+            self._buf.append(_stream_chunk_text(tok))
         return "".join(self._buf)
 
     def __str__(self) -> str:
@@ -2863,9 +2915,15 @@ try:
                 previous_value = previous_effective.get(key)
                 legacy_value = existing.get(key)
 
+                # The LIVE object outranks the selected candidate. `selected`
+                # is the plan the loader intended; `live` is what llama.cpp was
+                # actually constructed with. When smart-fit reduced 28 layers to
+                # 16 and loaded 16, this reported "effective gpu_layers=28"
+                # because the plan won -- a diagnostic contradicting llama.cpp's
+                # own "offloaded 16/66" in the same log. Effective means real.
                 effective[key] = _eli_eff_int(
-                    selected_value if selected_value not in (None, "") else
                     live_value if live_value not in (None, "") else
+                    selected_value if selected_value not in (None, "") else
                     previous_value if previous_value not in (None, "") else
                     legacy_value if legacy_value not in (None, "") else
                     0
