@@ -269,3 +269,46 @@ def test_capture_then_inference_does_not_segfault():
         "held its function pointer"
     )
     assert proc.returncode == 0, proc.stderr.decode("utf-8", "replace")[-500:]
+
+
+# ── the frozen build's GPU pack can be older than what it bundles ──────────
+def test_minimum_modern_arch_version_is_declared():
+    assert mld.MIN_MODERN_ARCH_VERSION >= (0, 3, 30), \
+        "below 0.3.30 a hybrid attention+SSM GGUF cannot be read"
+
+
+def test_stale_gpu_pack_is_detected(monkeypatch):
+    """Measured on the real 2.3.17 AppImage: it BUNDLES llama-cpp-python 0.3.35
+    (which loads Qwen3.8-27B-Uncensored fine), but the downloaded CUDA GPU pack
+    is 0.3.19 and shadows it via sys.path, so the model could not load. The
+    capable runtime was present the whole time."""
+    monkeypatch.setattr(mld, "_active_llama_is_gpu_pack", lambda: (True, "0.3.19"))
+    assert mld.gpu_pack_is_too_old() is True
+
+
+def test_current_gpu_pack_is_not_flagged(monkeypatch):
+    monkeypatch.setattr(mld, "_active_llama_is_gpu_pack", lambda: (True, "0.3.35"))
+    assert mld.gpu_pack_is_too_old() is False
+
+
+def test_non_pack_runtime_is_never_flagged(monkeypatch):
+    """A plain pip install is not the pack; the remedy would be wrong there."""
+    monkeypatch.setattr(mld, "_active_llama_is_gpu_pack", lambda: (False, "0.3.19"))
+    assert mld.gpu_pack_is_too_old() is False
+
+
+def test_stale_pack_failure_names_the_switch(monkeypatch, tmp_path):
+    monkeypatch.setattr(mld, "_active_llama_is_gpu_pack", lambda: (True, "0.3.19"))
+    monkeypatch.setattr(mld, "gpu_pack_is_too_old", lambda: True)
+    p = tmp_path / "hybrid.gguf"; p.write_bytes(b"GGUF")
+    msg = mld.explain_load_failure(
+        ValueError("x"), ["error loading model: missing tensor 'blk.64.ssm_conv1d.weight'"], p)
+    assert "ELI_DISABLE_GPU_PACK=1" in msg, "the working remedy is not offered"
+    assert "0.3.19" in msg, "the actual pack version is not named"
+
+
+def test_runtime_hook_honours_the_opt_out():
+    src = Path("packaging/pyinstaller/rthook_eli_frozen_paths.py").read_text(encoding="utf-8")
+    code = "\n".join(l for l in src.splitlines() if not l.strip().startswith("#"))
+    assert "ELI_DISABLE_GPU_PACK" in code, "there is no way to bypass a stale GPU pack"
+    assert "not _pack_off" in code, "the opt-out does not actually gate activation"

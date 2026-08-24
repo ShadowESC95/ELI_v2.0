@@ -203,7 +203,20 @@ def _pin_frozen_root() -> None:
     # never brick the app (v2.1.4 crashed at every boot when a CUDA pack
     # missing its runtime libs shadowed the working CPU copy).
     gpu_dir = root / "runtime" / "gpu"
-    if (gpu_dir / "llama_cpp").is_dir():
+    # The pack is CUDA-accelerated but comes from an index that stops at
+    # 0.3.19, while the BUNDLED copy is current. A model whose architecture
+    # only the newer runtime understands (hybrid attention+SSM: qwen35,
+    # nemotron-h) therefore cannot load while the pack is active, even though
+    # the AppImage ships a runtime that could read it. This switch lets the
+    # user take the bundled runtime instead -- slower, but it loads the model.
+    _pack_off = str(os.environ.get("ELI_DISABLE_GPU_PACK", "")).strip().lower() \
+        in {"1", "true", "yes", "on"}
+    if _pack_off and (gpu_dir / "llama_cpp").is_dir():
+        _warn(
+            "[ELI] GPU pack disabled by ELI_DISABLE_GPU_PACK - using the bundled "
+            "runtime (CPU, but supports newer model architectures).\n"
+        )
+    if (gpu_dir / "llama_cpp").is_dir() and not _pack_off:
         if (gpu_dir / ".gpu_pack_ok").is_file():
             sys.path.insert(0, str(gpu_dir))
             try:

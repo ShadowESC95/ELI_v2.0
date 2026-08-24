@@ -16,7 +16,12 @@ on:
     inputs:
       llama_version:
         description: "llama-cpp-python version to build"
-        default: "0.3.19"
+        # Must stay >= 0.3.30. Below that llama.cpp cannot read hybrid
+        # attention+SSM GGUFs (qwen35, nemotron-h) -- they fail on a missing
+        # ssm_conv1d tensor. The packs built here are what NVIDIA falls back to
+        # when the abetlen CUDA index is too old (it stops at 0.3.19), so a
+        # stale default here silently caps what the shipped app can load.
+        default: "0.3.35"
         required: true
 
 permissions:
