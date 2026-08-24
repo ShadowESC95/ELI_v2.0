@@ -399,6 +399,17 @@ def _too_old_for_modern_archs(version: str) -> bool:
     return bool(t) and t < MIN_MODERN_ARCH_VERSION
 
 
+def pack_backend_from_url(url: str) -> str:
+    """Name the backend a gpu-packs asset actually contains.
+
+    The gpu-packs release carries both cuda- and vulkan- built wheels and the
+    picker prefers cuda- on NVIDIA. Labelling every CI-built pack "vulkan"
+    recorded a CUDA pack as Vulkan in .gpu_pack.json, so the installed backend
+    could not be read back from disk.
+    """
+    return "cuda" if "/cuda-" in str(url) else "vulkan"
+
+
 def _pick_vulkan_wheel() -> tuple[str, str] | None:
     """Return (version, url) of the CI-built Vulkan wheel for this python/platform."""
     try:
@@ -501,11 +512,24 @@ def _install(argv: list[str] | None = None) -> int:
             _say(f"newest CUDA wheel is {version}, which cannot read current model "
                  f"architectures (needs >= {'.'.join(map(str, MIN_MODERN_ARCH_VERSION))})")
             vk = _pick_vulkan_wheel()
-            if vk and not _too_old_for_modern_archs(vk[0]) and _vulkan_loader_present():
-                _say(f"using the CI-built Vulkan pack {vk[0]} instead — GPU-accelerated "
-                     f"on NVIDIA via the driver's Vulkan loader, and current enough "
-                     f"for hybrid attention+SSM models")
-                backend, version, url = "vulkan", vk[0], vk[1]
+            # _pick_vulkan_wheel() ranks cuda- assets above vulkan- ones at the
+            # same version, so on NVIDIA this normally returns the CI-built CUDA
+            # pack. Two things follow from that, and both used to be wrong here:
+            #
+            #  * Label the pack by what was actually chosen. Recording a CUDA
+            #    pack as "vulkan" in .gpu_pack.json made the installed backend
+            #    unreadable -- the file said vulkan while libggml-cuda.so sat in
+            #    the pack -- so nobody could tell which backend was live.
+            #  * Only demand the Vulkan loader when the pick really is a Vulkan
+            #    build. Gating a CUDA pack on libvulkan.so.1 denied CUDA to
+            #    NVIDIA machines that have no Vulkan loader installed at all.
+            _bk = pack_backend_from_url(vk[1]) if vk else "vulkan"
+            if vk and not _too_old_for_modern_archs(vk[0]) and (
+                    _bk == "cuda" or _vulkan_loader_present()):
+                _say(f"using the CI-built {_bk.upper()} pack {vk[0]} instead — "
+                     f"GPU-accelerated on NVIDIA and current enough for hybrid "
+                     f"attention+SSM models")
+                backend, version, url = _bk, vk[0], vk[1]
             else:
                 _say("no newer Vulkan pack available — installing the CUDA wheel. "
                      "Models with newer architectures will not load under it; run "
