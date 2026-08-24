@@ -1331,20 +1331,43 @@ class LocalModelManager:
                     llama_kwargs["cache_type_k"] = str(cache_type_k)
                 if cache_type_v:
                     llama_kwargs["cache_type_v"] = str(cache_type_v)
+                # Capture llama.cpp's own log for this attempt: verbose=False
+                # silences it, and without it the only thing the user sees is
+                # the destructor's phantom "no attribute 'sampler'".
+                from eli.cognition.model_load_diagnostics import (
+                    harden_llama_destructor as _harden,
+                    capture_llama_log as _cap_log,
+                    explain_load_failure as _explain,
+                    is_retryable_load_failure as _retryable,
+                )
+                _harden()
+                _attempt_log: list = []
                 try:
-                    try:
-                        self.model = Llama(**llama_kwargs)
-                    except TypeError:
-                        llama_kwargs.pop("cache_type_k", None)
-                        llama_kwargs.pop("cache_type_v", None)
-                        self.model = Llama(**llama_kwargs)
+                    with _cap_log() as _attempt_log:
+                        try:
+                            self.model = Llama(**llama_kwargs)
+                        except TypeError:
+                            llama_kwargs.pop("cache_type_k", None)
+                            llama_kwargs.pop("cache_type_v", None)
+                            self.model = Llama(**llama_kwargs)
                     _applied = dict(_cand)
                     break
                 except Exception as _attempt_err:
-                    _last_error = str(_attempt_err)
-                    log.debug(f"[GUI][LOAD] attempt failed: {_last_error}")
                     self.model = None
                     gc.collect()
+                    if not _retryable(_attempt_log):
+                        # A missing tensor or unknown architecture is a property
+                        # of the file and this build. Thirteen more attempts
+                        # would fail identically; say why and stop.
+                        _last_error = _explain(
+                            _attempt_err, _attempt_log, path_obj,
+                            gpu_layers=_cand.get("n_gpu_layers"))
+                        log.warning("[GUI][LOAD] unrecoverable: %s", _last_error)
+                        break
+                    _last_error = _explain(
+                        _attempt_err, _attempt_log, path_obj,
+                        gpu_layers=_cand.get("n_gpu_layers"))
+                    log.debug(f"[GUI][LOAD] attempt failed: {_last_error}")
                     continue
 
             if self.model is None or _applied is None:

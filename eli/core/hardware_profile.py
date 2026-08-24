@@ -300,6 +300,125 @@ def _derive_mode_presets(_base_n_ctx: int, base_max_tokens: int,
     }
 
 
+def nvidia_smi_path() -> Optional[str]:
+    """Absolute path to nvidia-smi, PATH or not.
+
+    On Windows nvidia-smi is frequently NOT on PATH: the driver drops it in
+    System32 and the CUDA toolkit in its own directory, and a frozen
+    PyInstaller app inherits a different environment again. Calling it by bare
+    name therefore fails on machines that have a perfectly good GPU -- which
+    is precisely how a working NVIDIA card ended up reported as absent.
+    """
+    found = shutil.which("nvidia-smi")
+    if found:
+        return found
+    if os.name == "nt":
+        candidates = [
+            Path(os.environ.get("SystemRoot", r"C:\Windows")) / "System32" / "nvidia-smi.exe",
+            Path(os.environ.get("ProgramFiles", r"C:\Program Files"))
+            / "NVIDIA Corporation" / "NVSMI" / "nvidia-smi.exe",
+            Path(os.environ.get("ProgramW6432", r"C:\Program Files"))
+            / "NVIDIA Corporation" / "NVSMI" / "nvidia-smi.exe",
+        ]
+    else:
+        candidates = [
+            Path("/usr/bin/nvidia-smi"), Path("/usr/local/bin/nvidia-smi"),
+            Path("/opt/nvidia/bin/nvidia-smi"),
+        ]
+    for c in candidates:
+        try:
+            if c.is_file():
+                return str(c)
+        except Exception:
+            log.debug("nvidia-smi probe failed", exc_info=True)
+    return None
+
+
+def _windows_gpus() -> List[tuple]:
+    """[(name, vram_mb)] for every adapter on Windows, any vendor.
+
+    Uses CIM for the names and the driver registry for VRAM: WMI's AdapterRAM
+    is a signed 32-bit value and saturates at 4 GB, so an 8 GB card reports
+    4095 MB and the loader then under-provisions it. qwMemorySize in
+    HardwareInformation is 64-bit and correct.
+    """
+    if os.name != "nt":
+        return []
+    ps = shutil.which("powershell") or shutil.which("pwsh")
+    if not ps:
+        return []
+    script = (
+        "$ErrorActionPreference='SilentlyContinue';"
+        "Get-CimInstance Win32_VideoController | ForEach-Object {"
+        "  $n=$_.Name; $ram=0;"
+        "  $k=Get-ItemProperty -Path ('HKLM:\\SYSTEM\\CurrentControlSet\\Control\\Class\\'"
+        "    +'{4d36e968-e325-11ce-bfc1-08002be10318}\\*') |"
+        "    Where-Object { $_.'HardwareInformation.qwMemorySize' -and $_.DriverDesc -eq $n } |"
+        "    Select-Object -First 1;"
+        "  if($k){ $ram=[int64]$k.'HardwareInformation.qwMemorySize' }"
+        "  elseif($_.AdapterRAM){ $ram=[int64]$_.AdapterRAM }"
+        "  '{0}|{1}' -f $n, $ram }"
+    )
+    try:
+        out = subprocess.check_output([ps, "-NoProfile", "-Command", script],
+                                      stderr=subprocess.DEVNULL, timeout=25)
+        text = out.decode("utf-8", "replace")
+    except Exception:
+        log.debug("windows GPU enumeration failed", exc_info=True)
+        return []
+    gpus = []
+    for line in text.splitlines():
+        if "|" not in line:
+            continue
+        name, _, ram = line.rpartition("|")
+        name = name.strip()
+        if not name or "microsoft basic display" in name.lower():
+            continue
+        try:
+            mb = int(int(ram.strip()) / (1024 * 1024))
+        except Exception:
+            mb = 0
+        gpus.append((name, mb))
+    return gpus
+
+
+def _macos_gpus() -> List[tuple]:
+    """[(name, vram_mb)] on macOS. Apple Silicon reports unified memory."""
+    if sys.platform != "darwin":
+        return []
+    sp = shutil.which("system_profiler")
+    if not sp:
+        return []
+    try:
+        raw = subprocess.check_output([sp, "-json", "SPDisplaysDataType"],
+                                      stderr=subprocess.DEVNULL, timeout=30)
+        import json as _json
+        data = _json.loads(raw.decode("utf-8", "replace"))
+    except Exception:
+        log.debug("macOS GPU enumeration failed", exc_info=True)
+        return []
+    gpus = []
+    for item in (data.get("SPDisplaysDataType") or []):
+        name = str(item.get("sppci_model") or item.get("_name") or "").strip()
+        if not name:
+            continue
+        mb = 0
+        # Discrete cards report VRAM directly; Apple Silicon does not, because
+        # the GPU shares system memory. Report 0 and let the caller decide.
+        for key in ("spdisplays_vram_shared", "spdisplays_vram", "sppci_vram"):
+            val = str(item.get(key) or "").strip()
+            if not val:
+                continue
+            try:
+                num = float(val.split()[0])
+                mb = int(num * 1024) if "gb" in val.lower() else int(num)
+                break
+            except Exception:
+                continue
+        gpus.append((name, mb))
+    return gpus
+
+
 def _nvidia_driver_loaded() -> bool:
     """True when the NVIDIA kernel driver is loaded — using kernel-provided signals
     that exist identically on every Linux distro (Ubuntu/Debian/Arch/Fedora/RHEL/
@@ -346,11 +465,14 @@ def detect_hardware() -> HardwareProfile:
     # games, etc all consume VRAM before ELI launches. Total VRAM
     # oversubscribes and OOMs.
     try:
+        _smi = nvidia_smi_path()
+        if not _smi:
+            raise FileNotFoundError("nvidia-smi not found")
         out = subprocess.check_output(
-            ["nvidia-smi",
+            [_smi,
              "--query-gpu=memory.free,memory.total,name",
              "--format=csv,noheader,nounits"],
-            stderr=subprocess.DEVNULL, timeout=5
+            stderr=subprocess.DEVNULL, timeout=15
         ).decode().strip().splitlines()
         if out:
             # Sum across ALL GPUs (readiness #5: multi-GPU was under-counted by
@@ -389,6 +511,41 @@ def detect_hardware() -> HardwareProfile:
         hw.gpu_name = "NVIDIA GPU"
         hw.vram_gb = hw.free_vram_mb / 1024.0
         hw.has_gpu = True
+
+    # Windows / macOS fallback. This block used to be Linux-only -- the whole
+    # fallback was gated on sys.platform.startswith("linux") -- so on Windows a
+    # machine whose nvidia-smi was simply not on PATH reported NO GPU AT ALL and
+    # loaded with 0 offloaded layers. The kernel-signal rewrite made Linux robust
+    # and left the other two platforms with nothing behind nvidia-smi.
+    if not hw.has_gpu:
+        _native = _windows_gpus() or _macos_gpus()
+        if _native:
+            # Prefer a discrete card over an integrated one when both exist.
+            def _rank(g):
+                n = g[0].lower()
+                disc = any(k in n for k in ("nvidia", "geforce", "rtx", "gtx", "quadro",
+                                            "tesla", "radeon", "rx ", "arc"))
+                return (disc, g[1])
+            name, vram_mb = sorted(_native, key=_rank, reverse=True)[0]
+            hw.gpu_name = name
+            if vram_mb > 0:
+                hw.total_vram_mb = vram_mb
+                # No free-VRAM API here, so assume the desktop already holds
+                # some. The smart loader's reduce-to-fit corrects downward on
+                # OOM; over-reporting is the only unsafe direction.
+                hw.free_vram_mb = int(vram_mb * 0.80)
+            elif sys.platform == "darwin":
+                # Apple Silicon shares system memory with the GPU; Metal can
+                # address a large fraction of it. Base the budget on RAM.
+                hw.total_vram_mb = int(max(2048, (hw.ram_gb or 8) * 1024 * 0.65))
+                hw.free_vram_mb = int(hw.total_vram_mb * 0.85)
+            else:
+                hw.total_vram_mb = 4096
+                hw.free_vram_mb = int(hw.total_vram_mb * 0.85)
+            hw.vram_gb = hw.free_vram_mb / 1024.0
+            hw.has_gpu = True
+            log.info("[HW] GPU detected without nvidia-smi: %s (%d MB usable)",
+                     hw.gpu_name, hw.free_vram_mb)
 
     # AMD ROCm fallback — nvidia-smi doesn't exist on AMD GPUs, so the block above finds
     # nothing there. Read free/total VRAM from rocm-smi so the smart loader can size GPU

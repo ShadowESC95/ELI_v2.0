@@ -92,8 +92,15 @@ def detect_cpu_name() -> str:
 def detect_nvidia_gpus() -> List[GPUInfo]:
     out: List[GPUInfo] = []
     try:
+        # Resolved path, not a bare name: on Windows nvidia-smi lives in
+        # System32 or the NVSMI directory and is often not on PATH, so calling
+        # it by name reported "no GPU" on machines that plainly had one.
+        from eli.core.hardware_profile import nvidia_smi_path as _smi_path
+        _smi = _smi_path()
+        if not _smi:
+            raise FileNotFoundError("nvidia-smi not found")
         raw = run([
-            "nvidia-smi",
+            _smi,
             "--query-gpu=index,name,memory.total,memory.free",
             "--format=csv,noheader,nounits",
         ])
@@ -148,9 +155,33 @@ def detect_other_gpus() -> List[GPUInfo]:
     return out
 
 
+def detect_native_gpus() -> List[GPUInfo]:
+    """Windows/macOS adapters. detect_other_gpus() reads lspci and rocm-smi,
+    neither of which exists off Linux, so without this the non-Linux path had
+    no enumeration at all once nvidia-smi was unavailable."""
+    out: List[GPUInfo] = []
+    try:
+        from eli.core.hardware_profile import _windows_gpus, _macos_gpus
+        native = _windows_gpus() or _macos_gpus()
+    except Exception:
+        return out
+    for i, (name, vram_mb) in enumerate(native):
+        low = name.lower()
+        vendor = ("nvidia" if any(k in low for k in ("nvidia", "geforce", "rtx", "gtx", "quadro", "tesla"))
+                  else "amd" if any(k in low for k in ("amd", "radeon", "rx "))
+                  else "intel" if "intel" in low or "arc" in low
+                  else "unknown")
+        free = int(vram_mb * 0.80) if vram_mb else 0
+        out.append(GPUInfo(i, name, vendor, int(vram_mb), free))
+    return out
+
+
 def detect_gpus() -> List[GPUInfo]:
     nvidia = detect_nvidia_gpus()
-    return nvidia if nvidia else detect_other_gpus()
+    if nvidia:
+        return nvidia
+    other = detect_other_gpus()
+    return other if other else detect_native_gpus()
 
 
 def select_gpu(gpus: List[GPUInfo]) -> Optional[GPUInfo]:
