@@ -134,6 +134,7 @@ _CLARIFY_PHRASES = re.compile(
 # Sentence splitter that keeps the terminator, so a dropped sentence leaves the
 # surrounding text intact.
 _SENTENCE_RE = re.compile(r"[^.!?\n]*[.!?]+[\s]*|[^.!?\n]+$")
+_SENTENCE_PARTS = _SENTENCE_RE   # shared by the self-status guard
 
 
 def asks_user_to_restate(text: str) -> bool:
@@ -186,6 +187,152 @@ def drop_repeated_clarification(text: str, history=None) -> str:
     return stripped
 
 
+# ── unverified self-status claims ─────────────────────────────────────────
+# Live opening line, on a turn where nothing was checked:
+#     "evening, jason. all systems nominal - no glitches detected in the last
+#      12 hours."
+# There is no twelve-hour glitch check. Nothing ran. The user's next message
+# was "well that is not entirely true, we just sorted out an issue with your
+# gpu acceleration".
+#
+# Every existing guard fires on TASK turns, where an action routes and evidence
+# is gathered. Small talk routes to CHAT with no evidence, so it was the one
+# surface with nothing watching -- and that is exactly where a confident
+# invented status report appeared. A claim about ELI's own health is checkable
+# (RUNTIME_AUDIT, SELF_TEST, the failures table), so making it WITHOUT checking
+# is the no-fake-actions rule broken in the most casual possible voice.
+#
+# This removes the unsupported sentence. It never substitutes a fabricated
+# "actually there are N errors" -- the governor has not run a check either.
+
+_SELF_STATUS_CLAIM = re.compile(
+    r"(?i)\b(?:"
+    r"all (?:systems|subsystems) (?:are )?(?:nominal|operational|green|fine|healthy)"
+    r"|(?:no|zero) (?:glitches|errors|faults|issues|problems|anomalies|failures)"
+    r"\s+(?:were\s+|have\s+been\s+)?(?:detected|found|logged|recorded|reported|observed)"
+    r"|everything(?:'s| is) (?:running )?(?:fine|smooth|smoothly|nominal|green|healthy)"
+    r"|(?:diagnostics|self[- ]tests?|health checks?) (?:show|report|came back|are)\b"
+    r"|(?:my )?(?:systems|subsystems) (?:are )?(?:all )?(?:running )?(?:fine|clean|nominal)"
+    r"|running (?:at )?(?:full|peak|optimal) (?:capacity|performance|efficiency)"
+    r"|no (?:issues|problems|errors) (?:in|over|during) the (?:last|past)\b"
+    r")"
+)
+
+# ELI telling the user to run a check ELI itself exposes. It has RUNTIME_AUDIT,
+# SELF_TEST, SELF_ANALYZE and EXPLAIN_COGNITION_RUNTIME; asking the operator to
+# go and run diagnostics is passing its own job across the table. Deliberately
+# narrow -- only self-diagnostics, so "run your backup" or "run the installer"
+# are untouched.
+_SELF_DIAGNOSTIC_DEFLECTION = re.compile(
+    r"(?i)\b(?:you (?:should|can|could|might want to)\s+)?"
+    r"(?:re-?)?run(?:ning)?\s+(?:the\s+|a\s+|your\s+|full\s+)*"
+    r"(?:\w+\s+){0,2}?"
+    r"(?:diagnostics?|self[- ]tests?|runtime audits?|health checks?|system checks?)\b"
+)
+
+
+def claims_unverified_self_status(text: str) -> bool:
+    """True when the reply asserts ELI's own operational health."""
+    return bool(_SELF_STATUS_CLAIM.search(str(text or "")))
+
+
+def defers_own_diagnostic_to_user(text: str) -> bool:
+    """True when the reply tells the user to run a self-check ELI can run."""
+    return bool(_SELF_DIAGNOSTIC_DEFLECTION.search(str(text or "")))
+
+
+def drop_unverified_self_status(text: str, *, is_grounded: bool = False) -> str:
+    """Strip self-status claims made without any evidence behind them.
+
+    `is_grounded` is the engine's own signal that this turn gathered evidence.
+    When it did, a status claim is legitimate and is left alone -- the point is
+    not to forbid ELI from reporting its health, only from inventing it.
+    """
+    body = str(text or "")
+    if is_grounded or not body.strip():
+        return body
+    if not (claims_unverified_self_status(body) or defers_own_diagnostic_to_user(body)):
+        return body
+    kept = [
+        s for s in _SENTENCE_PARTS.findall(body)
+        if not (_SELF_STATUS_CLAIM.search(s) or _SELF_DIAGNOSTIC_DEFLECTION.search(s))
+    ]
+    stripped = re.sub(r"\s{2,}", " ", "".join(kept))
+    stripped = re.sub(r"\n{3,}", "\n\n", stripped).strip()
+    # Never empty the reply: a greeting that was ONLY an invented status line
+    # has nothing left, and silence is worse than an over-claim.
+    if len(stripped.split()) < 3:
+        return body
+    return stripped
+
+
+# ── ELI claiming the user's life as its own ───────────────────────────────
+# Live: asked what it was doing this evening, ELI answered
+#     "the plan for the evening is to chill out, get some weed, and maybe play
+#      Fallout 4 while watching The Walking Dead"
+# Every one of those is the USER's, read back out of memory in the first
+# person ("i got way too high last night, never actually ended up playing
+# fallout"). Two turns later it correctly said "I'm not planning anything",
+# contradicting itself.
+#
+# repair_self_user_confusion() already covers first-person FACTS that belong to
+# the user (a GitHub handle, a name). This is the other half: first-person
+# INTENTIONS to do things in the physical world, which ELI cannot do at all.
+#
+# Deliberately narrow. It targets stated plans to physically consume, ingest or
+# sleep -- claims that are simply false for software -- and leaves the voice
+# alone. ELI joking, teasing, having opinions, saying it will play music (it
+# can) or open a game (it can) are all untouched; the persona is not the bug.
+
+_EMBODIED_PLAN = re.compile(
+    r"(?i)\b(?:"
+    # a stated intention ...
+    r"(?:my |the )?plan (?:for (?:the |this )?(?:evening|night|day|weekend)\s*)?is to"
+    r"|i(?:'m| am) (?:going to|gonna|planning to|off to)"
+    # No trailing literal space here: the shared `\s+` below supplies it, and
+    # having both required TWO spaces, so "I'll crash out" never matched.
+    r"|i(?:'ll| will)(?:\s+(?:probably|maybe|just|only|then|later))*"
+    r")\s+(?:\w+[, ]+){0,6}?"
+    # ... to do something only a body can do
+    r"(?:smoke|vape|get (?:some )?(?:weed|beer|booze|food)|buy (?:some )?(?:weed|beer)"
+    r"|eat|drink|sleep|nap|lie down|crash out|get (?:some )?(?:sleep|rest))\b"
+)
+
+# Bodily states ELI does not have. A stated PLAN is the failure being fixed;
+# these are the same confusion in the present tense.
+_EMBODIED_STATE = re.compile(
+    r"(?i)\bmy (?:head|headache|hands?|eyes|stomach|body|legs?|back)\s+"
+    r"(?:is|are|'s|feels?|hurts?|aches?)\b"
+)
+
+
+def claims_embodied_activity(text: str) -> bool:
+    """True when the reply claims ELI will do, or is doing, something physical."""
+    body = str(text or "")
+    return bool(_EMBODIED_PLAN.search(body) or _EMBODIED_STATE.search(body))
+
+
+def repair_embodied_self_claims(text: str) -> str:
+    """Drop first-person claims of physical activity ELI cannot perform.
+
+    Removes only the offending sentence, and never empties the reply -- the
+    same rule the other governor guards follow, because a silent turn is a
+    worse failure than an odd one.
+    """
+    body = str(text or "")
+    if not body.strip() or not claims_embodied_activity(body):
+        return body
+    kept = [
+        s for s in _SENTENCE_PARTS.findall(body)
+        if not (_EMBODIED_PLAN.search(s) or _EMBODIED_STATE.search(s))
+    ]
+    stripped = re.sub(r"\s{2,}", " ", "".join(kept))
+    stripped = re.sub(r"\n{3,}", "\n\n", stripped).strip()
+    if len(stripped.split()) < 3:
+        return body
+    return stripped
+
+
 def govern_output(text: str, is_grounded: bool = False,
                   evidence: Optional[str] = None, history=None) -> str:
     result = apply_final_reasoning_contract(text).strip()
@@ -193,6 +340,10 @@ def govern_output(text: str, is_grounded: bool = False,
     # drop_repeated_clarification). No-op when no history is supplied, so every
     # existing caller behaves exactly as before.
     result = drop_repeated_clarification(result, history).strip()
+    # An invented health report is the same class of fault as a fabricated
+    # action claim, so it is governed at the same choke point.
+    result = drop_unverified_self_status(result, is_grounded=is_grounded).strip()
+    result = repair_embodied_self_claims(result).strip()
     result = _strip_placeholder_identity(result).strip()
     if not result:
         return ""

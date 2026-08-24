@@ -354,8 +354,11 @@ def _pick_wheel(cuda_idx: str) -> tuple[str, str] | None:
         return None
     py = f"cp{sys.version_info.major}{sys.version_info.minor}"
     plat = _platform_tag()
+    # Two ABI shapes: the old cpXY-cpXY tag, and the py3-none tag that
+    # scikit-build-core produces for current releases. Matching only the first
+    # made every 0.3.3x pack invisible to the installer.
     pat = re.compile(
-        r'href="([^"]*llama_cpp_python-(\d+(?:\.\d+)+)[^"]*-%s-%s-[^"]*%s\.whl[^"]*)"'
+        r'href="([^"]*llama_cpp_python-(\d+(?:\.\d+)+)[^"]*-(?:%s-%s|py3-none)-[^"]*%s\.whl[^"]*)"'
         % (py, py, plat)
     )
     hits = pat.findall(html)
@@ -406,12 +409,27 @@ def _pick_vulkan_wheel() -> tuple[str, str] | None:
         return None
     py = f"cp{sys.version_info.major}{sys.version_info.minor}"
     plat = _platform_tag()
-    pat = re.compile(r"vulkan-llama_cpp_python-(\d+(?:\.\d+)+)-%s-%s-.*%s\.whl" % (py, py, plat))
+    # Same two ABI shapes as the CUDA index (see _pick_wheel).
+    pat = re.compile(
+        r"(?:vulkan|cuda)-llama_cpp_python-(\d+(?:\.\d+)+)-(?:%s-%s|py3-none)-.*%s\.whl"
+        % (py, py, plat)
+    )
+    # Several versions coexist on the tag (an old 0.3.19 pack alongside a
+    # current one), and the asset order is not version order -- taking the
+    # first match would happily reinstall the stale pack this whole change
+    # exists to get away from. Pick the newest, and prefer a cuda- build over
+    # a vulkan- one at the same version, since it is the native backend.
+    best = None
     for a in assets:
-        m = pat.fullmatch(a.get("name", ""))
-        if m:
-            return m.group(1), a["browser_download_url"]
-    return None
+        name = a.get("name", "")
+        m = pat.fullmatch(name)
+        if not m:
+            continue
+        ver = _ver_tuple(m.group(1))
+        rank = (ver, 1 if name.startswith("cuda-") else 0)
+        if best is None or rank > best[0]:
+            best = (rank, m.group(1), a["browser_download_url"])
+    return (best[1], best[2]) if best else None
 
 
 def install(argv: list[str] | None = None) -> int:
