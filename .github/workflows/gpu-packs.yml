@@ -169,9 +169,17 @@ jobs:
       - name: Build CUDA wheel
         shell: bash
         env:
-          # 61=Pascal 70/75=Volta/Turing 80/86=Ampere 89=Ada 90=Hopper.
-          # An explicit list keeps the build finite; "all" times the runner out.
-          CMAKE_ARGS: "-DGGML_CUDA=on -DCMAKE_CUDA_ARCHITECTURES=61;70;75;80;86;89;90"
+          # The 7-architecture list built fine but produced a wheel over 2 GB,
+          # which GitHub refuses as a release asset ("size must be less than
+          # 2147483648"). Two changes bring it under: drop the datacenter-only
+          # architectures (70=V100, 80=A100, 90=Hopper) that ELI's desktop
+          # audience does not run, and use `-real` so each kept architecture
+          # embeds cubin only rather than cubin PLUS PTX. One trailing
+          # `-virtual` keeps forward compatibility: a future card with no cubin
+          # JITs from that PTX instead of failing outright.
+          #   61=Pascal (GTX 10xx)  75=Turing (RTX 20xx/GTX 16xx)
+          #   86=Ampere (RTX 30xx)  89=Ada (RTX 40xx)
+          CMAKE_ARGS: "-DGGML_CUDA=on -DCMAKE_CUDA_ARCHITECTURES=61-real;75-real;86-real;89-real;89-virtual"
           CMAKE_BUILD_PARALLEL_LEVEL: "4"
           CMAKE_GENERATOR: "Ninja"
         run: |
@@ -185,12 +193,20 @@ jobs:
           done
           ls -lh wheelhouse
 
-      - name: Sanity - wheel contains the CUDA backend
+      - name: Sanity - wheel contains the CUDA backend and fits the asset limit
         shell: bash
         run: |
           python - <<'EOF'
-          import glob, sys, zipfile
+          import glob, os, sys, zipfile
           whl = glob.glob("wheelhouse/cuda-*.whl")[0]
+          size = os.path.getsize(whl)
+          print(f"wheel size: {size/1e9:.2f} GB")
+          # GitHub rejects release assets >= 2 GiB. Catching it here names the
+          # cause; catching it at publish just says "Validation Failed".
+          if size >= 2_147_483_648:
+              print("::error::wheel exceeds the 2 GiB GitHub release-asset limit "
+                    "- trim CMAKE_CUDA_ARCHITECTURES")
+              sys.exit(1)
           names = zipfile.ZipFile(whl).namelist()
           hits = [n for n in names if "cuda" in n.lower() and n.lower().endswith((".so", ".dll"))]
           print("cuda artifacts in wheel:", hits or "NONE")
