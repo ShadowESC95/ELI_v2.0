@@ -8236,7 +8236,16 @@ Answer:"""
 
     def _finalize_chat_result(self, user_input: str, response: str, trace: Dict[str, Any], score: Optional[float] = None, threshold: Optional[
                               float] = None, clarified: bool = False, evidence_used: bool = False, reasoning_mode: Optional[str] = None) -> Dict[str, Any]:
-        response = govern_output(response, is_grounded=evidence_used)
+        # Recent turns let the governor drop an intent question the user has
+        # already answered. Cheap (8 rows) and fully optional: any failure here
+        # leaves the reply exactly as it was.
+        _gov_hist = None
+        try:
+            from eli.memory.memory import get_memory as _gm
+            _gov_hist = _gm().get_recent_conversation(limit=8)
+        except Exception:
+            log.debug("[GOVERNOR] recent-turn lookup skipped", exc_info=True)
+        response = govern_output(response, is_grounded=evidence_used, history=_gov_hist)
         response = str(response or "").strip()
         # ── Anti-echo: never serve ELI's own previous reply back to the user ──
         # ELI's replies are stored and later recalled as context, so on a short turn the

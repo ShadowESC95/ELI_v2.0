@@ -2976,6 +2976,26 @@ def _yt_resolve_watch_url(query: str) -> str | None:
     return None
 
 
+def _yt_autoplay_enabled() -> bool:
+    """Whether direct YouTube playback should continue into related tracks.
+
+    On by default -- a single track that stops dead is what was reported. The
+    setting exists so someone who wants exactly one track can say so, and so
+    the scrape can be skipped entirely when it is not wanted.
+    """
+    import os as _os
+    env = (_os.environ.get("ELI_YT_AUTOPLAY") or "").strip().lower()
+    if env in {"0", "false", "off", "no"}:
+        return False
+    if env in {"1", "true", "on", "yes"}:
+        return True
+    try:
+        from eli.core.config import get as _cfg_get
+        return bool(_cfg_get("youtube_autoplay", True))
+    except Exception:
+        return True
+
+
 def _yt_mix_url(watch_url: str | None) -> str | None:
     """Turn a plain YouTube watch URL into a Mix/radio URL so playback AUTOPLAYS
     related songs continuously instead of stopping after one video. YouTube's
@@ -3542,9 +3562,25 @@ def play_specific(query: str, target: str | None = None) -> Dict[str, Any]:
             _confirmed = False
             _rc = None
             for _yt_client in _yt_clients:
-                _yt_cmd = ["mpv", f"ytdl://ytsearch1:{yt_search}",
+                # ytsearch1: resolves exactly ONE result and mpv stops when it
+                # ends -- "youtube does not play automatically" is that. The
+                # browser fallback already turns a watch URL into a Mix
+                # (&list=RD<id>, YouTube's auto-generated song radio); do the
+                # same for direct playback so mpv is handed a playlist and keeps
+                # going. Falls back to ytsearch1 when the video id cannot be
+                # resolved, so playback never depends on the scrape succeeding.
+                _yt_target = f"ytdl://ytsearch1:{yt_search}"
+                if _yt_autoplay_enabled():
+                    _mix = _yt_mix_url(_yt_resolve_watch_url(yt_search))
+                    if _mix and "list=RD" in _mix:
+                        _yt_target = _mix
+                _yt_cmd = ["mpv", _yt_target,
                            f"--input-ipc-server={ipc}",
                            "--ytdl-format=bestaudio/best"]
+                if "list=RD" in _yt_target:
+                    # Without this mpv takes only the first entry of a playlist
+                    # URL, which would reproduce the very problem being fixed.
+                    _yt_cmd.append("--ytdl-raw-options=yes-playlist=")
                 if _yt_client:
                     # mpv splits --ytdl-raw-options on commas, so exactly one
                     # client per attempt — a comma-joined list would be parsed

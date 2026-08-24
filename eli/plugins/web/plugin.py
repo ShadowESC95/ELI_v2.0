@@ -293,10 +293,14 @@ def _duckduckgo_search(query: str, max_results: int = 5) -> List[Dict[str, Any]]
     Supports both newer and older duckduckgo-search package layouts.
     """
     try:
-        from duckduckgo_search import DDGS
+        # `ddgs` is the current package; `duckduckgo_search` is the old name and
+        # now installs a shim that prints a deprecation warning on every single
+        # search (visible in live session logs). Prefer the real package, and
+        # keep the old name as the fallback so existing installs still work.
+        from ddgs import DDGS
     except Exception as first_exc:
         try:
-            from ddgs import DDGS
+            from duckduckgo_search import DDGS
         except Exception:
             raise first_exc
 

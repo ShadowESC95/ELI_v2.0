@@ -25,7 +25,11 @@ PySide6>=6.11
 # LLM — install separately with CUDA or CPU wheel:
 # GPU:  pip install llama-cpp-python --prefer-binary --extra-index-url https://abetlen.github.io/llama-cpp-python/whl/cu121
 # CPU:  pip install llama-cpp-python --prefer-binary
-llama-cpp-python>=0.3
+llama-cpp-python>=0.3.30  # <0.3.30 cannot read hybrid attention+SSM GGUFs
+                          # (qwen35, nemotron-h): they fail with a missing
+                          # ssm_conv1d tensor. NOTE: the abetlen CUDA wheel
+                          # index stops at 0.3.19 for cp312 - a CUDA build
+                          # needs compiling from source (install.sh does this).
 
 # Vector store
 faiss-cpu>=1.7
@@ -97,7 +101,8 @@ bleak>=0.21
 # ── Optional feature deps (web search/automation, calendar, notifications) ──
 # Match pyproject [full] so requirements installs are equivalent. All degrade
 # gracefully if absent; playwright also needs `playwright install` for browsers.
-duckduckgo-search>=6.0
+ddgs>=9.0            # renamed from duckduckgo-search; the old name is a deprecated shim
+yt-dlp>=2025.1       # direct YouTube playback (with mpv); without it playback is browser-only
 playwright>=1.40
 plyer>=2.1
 ics>=0.7

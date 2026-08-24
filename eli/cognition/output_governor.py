@@ -99,9 +99,100 @@ def strip_fabricated_action_claims(text: str) -> str:
     return _FAKE_TOOL_CONFIRMATION_RE.sub("", str(text or ""))
 
 
+# ── repeated clarification ────────────────────────────────────────────────
+# Live session: the user said "I am making a list of things that need fixing in
+# your codebase and testing edge cases", and over the next six turns ELI asked
+# "what exactly are you trying to do here?" four separate times, until the user
+# wrote in capitals that they had already answered. The anti-repeat guard did
+# fire, but it only compares the OPENING of a reply, so each ask started with a
+# different word and sailed through while the question underneath stayed
+# identical.
+#
+# Asking a question the user has already answered is not a phrasing problem, so
+# it is not fixed by rephrasing. This checks the conversation itself: if ELI has
+# already asked for the user's intent, and the user has said anything since,
+# then asking again is a defect and the sentence is dropped.
+
+# The phrases that ask the user to restate their intent. Matched against each
+# SENTENCE rather than the whole reply: the offending question is usually the
+# tail of a longer, otherwise-fine answer ("You're right. I'm sorry. So what
+# exactly are you trying to do here?"), and only that sentence should go.
+_CLARIFY_PHRASES = re.compile(
+    r"(?i)\b(?:"
+    r"what (?:exactly )?(?:are|were) you (?:trying|hoping|aiming) to"
+    r"|what (?:exactly )?(?:do|did) you (?:mean|want|need)"
+    r"|what (?:exactly )?(?:is|was) (?:it )?you(?:'re| are)"
+    r"|what (?:exactly )?are you (?:doing|after|looking for)"
+    r"|(?:could|can) you (?:please )?(?:clarify|explain|tell me) what"
+    r"|what (?:would|do) you (?:like|want) me to do"
+    r"|let me know what (?:you|exactly)"
+    r"|what (?:exactly )?(?:did|do) you (?:actually )?(?:say|ask)"
+    r"|tell me what you (?:actually )?(?:meant|mean|want)"
+    r")\b"
+)
+
+# Sentence splitter that keeps the terminator, so a dropped sentence leaves the
+# surrounding text intact.
+_SENTENCE_RE = re.compile(r"[^.!?\n]*[.!?]+[\s]*|[^.!?\n]+$")
+
+
+def asks_user_to_restate(text: str) -> bool:
+    """True when the reply asks the user what they are trying to do."""
+    return bool(_CLARIFY_PHRASES.search(str(text or "")))
+
+
+def _user_answered_since_last_ask(history) -> bool:
+    """True when ELI already asked for intent and the user has spoken since.
+
+    `history` is the recent turn list, oldest first, each item either a
+    (role, text) pair or a mapping with 'role'/'content'. Anything else is
+    ignored rather than guessed at.
+    """
+    asked = False
+    answered_after_ask = False
+    for turn in (history or []):
+        if isinstance(turn, dict):
+            role = str(turn.get("role") or turn.get("speaker") or "").lower()
+            text = str(turn.get("content") or turn.get("text") or "")
+        elif isinstance(turn, (list, tuple)) and len(turn) >= 2:
+            role, text = str(turn[0]).lower(), str(turn[1])
+        else:
+            continue
+        if role.startswith(("assistant", "eli", "ai")):
+            if asks_user_to_restate(text):
+                asked = True
+        elif role.startswith("user"):
+            # A substantive reply, not "ok" / "yes".
+            if asked and len(text.split()) >= 3:
+                answered_after_ask = True
+    return asked and answered_after_ask
+
+
+def drop_repeated_clarification(text: str, history=None) -> str:
+    """Remove an intent question the user has already answered.
+
+    Only ever removes the offending SENTENCE. If that empties the reply the
+    original is returned untouched -- suppressing the whole answer would be a
+    worse failure than repeating the question.
+    """
+    body = str(text or "")
+    if not body.strip() or not _user_answered_since_last_ask(history):
+        return body
+    kept = [s for s in _SENTENCE_RE.findall(body) if not _CLARIFY_PHRASES.search(s)]
+    stripped = re.sub(r"\s{2,}", " ", "".join(kept))
+    stripped = re.sub(r"\n{3,}", "\n\n", stripped).strip()
+    if len(stripped.split()) < 3:
+        return body
+    return stripped
+
+
 def govern_output(text: str, is_grounded: bool = False,
-                  evidence: Optional[str] = None) -> str:
+                  evidence: Optional[str] = None, history=None) -> str:
     result = apply_final_reasoning_contract(text).strip()
+    # Drop an intent question the user has already answered (see
+    # drop_repeated_clarification). No-op when no history is supplied, so every
+    # existing caller behaves exactly as before.
+    result = drop_repeated_clarification(result, history).strip()
     result = _strip_placeholder_identity(result).strip()
     if not result:
         return ""
