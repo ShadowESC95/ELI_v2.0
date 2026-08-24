@@ -10090,7 +10090,10 @@ _register()
                             "No GPU backend is active - this runtime will use CPU only."
                         )
                 except Exception:
-                    pass
+                    # Provenance is a diagnostic extra: never let it break tuning.
+                    # Observable rather than silent -- a swallowed failure here
+                    # would hide why the runtime line is missing.
+                    log.debug("runtime provenance probe failed", exc_info=True)
             except Exception as _gpu_probe_err:
                 self._hardware_tuning_log(f"llama.cpp GPU offload probe failed: {_gpu_probe_err}")
 
