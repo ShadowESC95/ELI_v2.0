@@ -706,7 +706,8 @@ def _verify(dest: Path) -> tuple[bool, str]:
         "            except Exception: pass\n"
         "    if sys.platform != 'win32':\n"
         "        for p in ('libggml-base.so*', 'libggml-cpu.so*',\n"
-        "                  'libggml-vulkan.so*', 'libggml-cuda.so*'):\n"
+        "                  'libggml-vulkan.so*', 'libggml-cuda.so*',\n"
+        "                  'libggml.so*'):\n"
         "            for f in sorted(lib.glob(p)):\n"
         "                try: ctypes.CDLL(str(f), mode=ctypes.RTLD_GLOBAL)\n"
         "                except Exception: pass\n"
@@ -782,11 +783,28 @@ def preload_native_libs(pack_dir: str | Path) -> None:
             except Exception:
                 continue
 
-    # Then the pack's own ggml backends, base first: a backend that cannot find
-    # libggml-base is silently skipped, which looks identical to "no GPU".
+    # Then the pack's own libraries, in dependency order.
+    #
+    # These MUST all be preloaded, not just the backends. The frozen app keeps
+    # its own CPU-only libggml.so.0 / libggml-base.so.0 / libllama.so.0 at the
+    # top of _internal, which is on LD_LIBRARY_PATH. The pack's libllama.so
+    # records "NEEDED libggml.so.0", so if the pack's own libggml.so has not
+    # already been loaded under that SONAME, the dynamic linker satisfies it
+    # from the bundle instead -- the pack's Vulkan/CUDA backend never registers
+    # and llama_supports_gpu_offload() reports False on a working GPU. Loading
+    # each of the pack's libraries by absolute path with RTLD_GLOBAL registers
+    # it under its SONAME first, so every later NEEDED resolves inside the pack.
+    # Order matters: dependencies before dependents.
+    #
+    # libllama.so and libmtmd.so are deliberately NOT in this list. llama_cpp
+    # loads libllama itself by absolute path, so preloading it RTLD_GLOBAL as
+    # well produced "double free or corruption (!prev)" at interpreter exit --
+    # offload reported True and then the process died on the way out. Only the
+    # ggml libraries, which nothing else loads by absolute path, belong here.
     if sys.platform != "win32":
         for pat in ("libggml-base.so*", "libggml-cpu.so*",
-                    "libggml-vulkan.so*", "libggml-cuda.so*"):
+                    "libggml-vulkan.so*", "libggml-cuda.so*",
+                    "libggml.so*"):
             for f in sorted(lib.glob(pat)):
                 try:
                     ctypes.CDLL(str(f), mode=getattr(ctypes, "RTLD_GLOBAL", 0))

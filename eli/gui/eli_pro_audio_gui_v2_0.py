@@ -10073,6 +10073,24 @@ _register()
                 _supports_fn = getattr(_llama_native, "llama_supports_gpu_offload", None)
                 _gpu_support = bool(_supports_fn()) if callable(_supports_fn) else None
                 self._hardware_tuning_log(f"llama.cpp GPU offload support: {_gpu_support}")
+                # A bare "False" here used to be a dead end: it gave no way to tell
+                # whether a GPU pack was live, stale, or had been torn out for not
+                # reaching a backend. Report which runtime answered the probe.
+                try:
+                    import llama_cpp as _llama_pkg
+
+                    _rt_path = str(getattr(_llama_pkg, "__file__", "") or "").replace("\\", "/")
+                    _rt_src = "GPU pack" if "runtime/gpu" in _rt_path else "bundled runtime"
+                    _rt_ver = getattr(_llama_pkg, "__version__", "unknown")
+                    self._hardware_tuning_log(
+                        f"llama.cpp runtime: {_rt_ver} ({_rt_src})"
+                    )
+                    if _gpu_support is False:
+                        self._hardware_tuning_log(
+                            "No GPU backend is active - this runtime will use CPU only."
+                        )
+                except Exception:
+                    pass
             except Exception as _gpu_probe_err:
                 self._hardware_tuning_log(f"llama.cpp GPU offload probe failed: {_gpu_probe_err}")
 
