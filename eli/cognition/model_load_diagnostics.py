@@ -41,6 +41,22 @@ log = get_logger(__name__)
 _HARDENED = False
 _hard_lock = threading.Lock()
 
+# ctypes callbacks passed to C MUST outlive the C side's use of them. llama.cpp
+# stores the raw function pointer; when the Python object backing it is garbage
+# collected, the next log line calls freed memory and the process dies with a
+# segfault that no Python handler can catch.
+#
+# This is not theoretical: a previous version of capture_llama_log() restored
+# the log sink with `llama_log_set(llama_log_callback(lambda *a: None), ...)`,
+# constructing the callback INLINE so it was freed the moment the statement
+# finished. The next llama.cpp log line -- the first inference after a model
+# load -- crashed the process. Both callbacks are therefore module-level and
+# permanent, never rebuilt per call.
+_LOG_SINK_LOCK = threading.Lock()
+_LOG_CAPTURE_CB = None          # our capturing callback (installed while capturing)
+_LOG_NULL_CB = None             # the no-op we restore to (never garbage collected)
+_LOG_BUFFER: list = []          # capture target; swapped, never reallocated by C
+
 
 class ModelLoadError(RuntimeError):
     """A GGUF could not be loaded, carrying the real reason and a remedy.
@@ -122,55 +138,58 @@ def capture_llama_log():
     llama.cpp writes through its own C log callback, so redirecting Python's
     stderr does not see it and ``verbose=False`` throws it away. Installing a
     callback for the duration of the load is the only way to keep the one line
-    that explains a failure. Restores the previous state on exit, including
-    when the body raises.
+    that explains a failure.
+
+    The callbacks are created once at module level and kept forever. A ctypes
+    callback handed to C must never be garbage collected while C can still call
+    it -- doing so is a use-after-free that segfaults the process. Only the
+    BUFFER is swapped per call; the function pointers C sees never change.
     """
+    global _LOG_CAPTURE_CB, _LOG_NULL_CB
+
     lines: list = []
     installed = False
-    cb_ref = None
-    try:
-        import llama_cpp
-        proto = getattr(llama_cpp, "llama_log_callback", None)
-        setter = getattr(llama_cpp, "llama_log_set", None)
-        if proto is not None and setter is not None:
-            def _cb(level, text, user_data):        # noqa: ARG001
-                # Runs inside llama.cpp's C callback. Logging from here could
-                # re-enter the very callback being installed, so the failure is
-                # recorded in the buffer itself rather than through `log` --
-                # observable, and safe from recursion.
-                try:
-                    s = text.decode("utf-8", "replace") if isinstance(text, bytes) else str(text)
-                    if s:
-                        lines.append(s)
-                except Exception as _cb_err:      # pragma: no cover - defensive
-                    lines.append(f"<log callback error: {type(_cb_err).__name__}>")
-            cb_ref = proto(_cb)                      # keep a reference alive
-            setter(cb_ref, ctypes.c_void_p(0))
-            installed = True
-    except Exception:
-        log.debug("llama log capture unavailable", exc_info=True)
+    with _LOG_SINK_LOCK:
+        try:
+            import llama_cpp
+            proto = getattr(llama_cpp, "llama_log_callback", None)
+            setter = getattr(llama_cpp, "llama_log_set", None)
+            if proto is not None and setter is not None:
+                if _LOG_CAPTURE_CB is None:
+                    def _cb(level, text, user_data):        # noqa: ARG001
+                        # Runs inside llama.cpp's C callback. Logging from here
+                        # could re-enter the callback being installed, so the
+                        # failure is recorded in the buffer itself rather than
+                        # through `log` -- observable, and safe from recursion.
+                        try:
+                            s = (text.decode("utf-8", "replace")
+                                 if isinstance(text, bytes) else str(text))
+                            if s:
+                                _LOG_BUFFER.append(s)
+                        except Exception as _cb_err:   # pragma: no cover
+                            _LOG_BUFFER.append(
+                                f"<log callback error: {type(_cb_err).__name__}>")
+                    _LOG_CAPTURE_CB = proto(_cb)
+                if _LOG_NULL_CB is None:
+                    _LOG_NULL_CB = proto(lambda *_a: None)
+                _LOG_BUFFER.clear()
+                setter(_LOG_CAPTURE_CB, ctypes.c_void_p(0))
+                installed = True
+        except Exception:
+            log.debug("llama log capture unavailable", exc_info=True)
     try:
         yield lines
     finally:
         if installed:
-            try:
-                import llama_cpp
-                llama_cpp.llama_log_set(
-                    llama_cpp.llama_log_callback(lambda *a: None), ctypes.c_void_p(0)
-                )
-            except Exception:
-                log.debug("could not restore llama log callback", exc_info=True)
-
-
-def _runtime_note() -> str:
-    """The installed llama-cpp-python version, so a version-shaped failure names
-    the version. Architecture support moves with the runtime, and "upgrade it"
-    is not actionable without knowing what is installed."""
-    try:
-        import importlib.metadata as _md
-        return f", llama-cpp-python {_md.version('llama-cpp-python')}"
-    except Exception:
-        return ""
+            with _LOG_SINK_LOCK:
+                try:
+                    import llama_cpp
+                    # Restore the PERMANENT no-op, never a fresh temporary.
+                    llama_cpp.llama_log_set(_LOG_NULL_CB, ctypes.c_void_p(0))
+                except Exception:
+                    log.debug("could not restore llama log callback", exc_info=True)
+                lines.extend(_LOG_BUFFER)
+                _LOG_BUFFER.clear()
 
 
 def is_retryable_load_failure(log_lines) -> bool:
@@ -196,6 +215,18 @@ def is_retryable_load_failure(log_lines) -> bool:
     if any(k in text for k in terminal):
         return False
     return True
+
+
+def _runtime_note() -> str:
+    """The installed llama-cpp-python version, so a version-shaped failure names
+    the version. Architecture support moves with the runtime, and "upgrade it"
+    is not actionable without knowing what is installed."""
+    try:
+        import importlib.metadata as _md
+        return f", llama-cpp-python {_md.version('llama-cpp-python')}"
+    except Exception:
+        log.debug("could not read llama-cpp-python version", exc_info=True)
+        return ""
 
 
 def explain_load_failure(exc: BaseException, log_lines, model_path,

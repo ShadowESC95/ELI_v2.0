@@ -197,3 +197,75 @@ def test_model_load_error_carries_retryability():
     err.retryable = False
     assert isinstance(err, RuntimeError), "broad handlers must still catch it"
     assert err.retryable is False
+
+
+# ── the ctypes callback must outlive C's use of it ─────────────────────────
+# A segfault cannot be caught in-process (see the native-crash rule): the only
+# honest test is to run the pattern in a subprocess and check the exit code.
+import subprocess
+import sys as _sys
+import textwrap
+
+
+def _run_isolated(body: str, timeout: int = 300):
+    return subprocess.run(
+        [_sys.executable, "-c", textwrap.dedent(body)],
+        cwd=str(Path(__file__).resolve().parents[1]),
+        capture_output=True, timeout=timeout,
+    )
+
+
+def test_callbacks_are_module_level_and_permanent():
+    """Shipped in 2.3.17 and crashed the app: capture_llama_log() restored the
+    log sink with `llama_log_set(llama_log_callback(lambda *a: None), ...)`,
+    building the callback INLINE so Python freed it the instant the statement
+    finished. llama.cpp kept the raw function pointer; the next log line -- the
+    first inference after a model load -- called freed memory and the process
+    died with SIGSEGV, which no Python handler can catch."""
+    src = Path("eli/cognition/model_load_diagnostics.py").read_text(encoding="utf-8")
+    start = src.index("def capture_llama_log():")
+    code = "\n".join(l for l in src[start:src.index("def _runtime_note(")].splitlines()
+                     if not l.strip().startswith("#"))
+    assert "_LOG_NULL_CB" in code, "the restore callback is not the permanent one"
+    # The killer construct must not reappear anywhere in the restore path.
+    assert "llama_log_callback(lambda" not in code, \
+        "restore builds a throwaway ctypes callback again — this is the segfault"
+    assert hasattr(mld, "_LOG_CAPTURE_CB")
+    assert hasattr(mld, "_LOG_NULL_CB")
+
+
+def test_repeated_capture_reuses_one_callback_object():
+    """Rebuilding the callback per call would let an older one be collected
+    while llama.cpp still points at it."""
+    with mld.capture_llama_log():
+        first = mld._LOG_CAPTURE_CB
+    with mld.capture_llama_log():
+        second = mld._LOG_CAPTURE_CB
+    if first is not None:
+        assert first is second, "a new ctypes callback was built for the second capture"
+
+
+@pytest.mark.timeout(400)
+def test_capture_then_inference_does_not_segfault():
+    """The exact live sequence: capture around a load, then llama.cpp logs
+    again during inference. Exit 139 (SIGSEGV) is the failure being locked."""
+    model = Path("models/SmolLM2-1.7B-Instruct-Q4_K_M.gguf")
+    if not model.exists():
+        pytest.skip("no small test model available")
+    proc = _run_isolated(f"""
+        from eli.cognition.model_load_diagnostics import capture_llama_log
+        import llama_cpp, gc
+        with capture_llama_log() as lines:
+            m = llama_cpp.Llama(model_path={str(model)!r},
+                                n_ctx=256, n_gpu_layers=0, n_batch=32, verbose=True)
+        for _ in range(3):
+            m.create_completion("Hi", max_tokens=4)
+        del m
+        gc.collect()
+        print("OK")
+    """)
+    assert proc.returncode != -11 and proc.returncode != 139, (
+        "SIGSEGV: the log callback was garbage collected while llama.cpp still "
+        "held its function pointer"
+    )
+    assert proc.returncode == 0, proc.stderr.decode("utf-8", "replace")[-500:]
