@@ -269,6 +269,39 @@ def gpu_pack_is_too_old() -> bool:
     return _version_tuple(ver) < MIN_MODERN_ARCH_VERSION
 
 
+def deactivate_gpu_pack() -> bool:
+    """Unload the GPU pack so the BUNDLED llama_cpp is used instead.
+
+    Returns True when a pack was active and has been removed. The caller is
+    expected to retry the load immediately: the bundled runtime is newer than
+    any pack the wheel indexes publish, so it reads architectures the pack
+    cannot.
+
+    Removing it from sys.path is not enough on its own -- the already-imported
+    module object would keep serving from sys.modules -- so both are cleared.
+    """
+    import sys as _sys
+
+    pack_paths = [q for q in _sys.path
+                  if "runtime/gpu" in str(q).replace("\\", "/")]
+    if not pack_paths:
+        return False
+    for q in pack_paths:
+        try:
+            _sys.path.remove(q)
+        except ValueError:
+            continue
+    for name in [k for k in list(_sys.modules)
+                 if k == "llama_cpp" or k.startswith("llama_cpp.")]:
+        _sys.modules.pop(name, None)
+    log.warning(
+        "[GPU-PACK] deactivated for this process: it cannot read this model's "
+        "architecture. Falling back to the bundled runtime (CPU) so the model "
+        "loads."
+    )
+    return True
+
+
 def _runtime_note() -> str:
     """The installed llama-cpp-python version, so a version-shaped failure names
     the version. Architecture support moves with the runtime, and "upgrade it"
@@ -358,7 +391,8 @@ def explain_load_failure(exc: BaseException, log_lines, model_path,
     return _msg(f"could not load. Underlying error: {type(exc).__name__}: {exc}")
 
 
-__all__ = ["ModelLoadError", "harden_llama_destructor", "gguf_architecture",
+__all__ = ["ModelLoadError", "deactivate_gpu_pack", "harden_llama_destructor",
+           "gguf_architecture",
            "gpu_pack_is_too_old", "MIN_MODERN_ARCH_VERSION",
            "capture_llama_log", "explain_load_failure",
            "is_retryable_load_failure"]

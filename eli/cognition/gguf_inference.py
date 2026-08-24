@@ -937,10 +937,36 @@ def load_model(force_reload: bool = False):
         else:
             raise
     except Exception as _load_err:
-        # Everything else: bad tensor set, unknown architecture, OOM, truncated
-        # download. Report the real cause with the remedy attached.
-        raise _model_load_error(
-            _load_err, _load_log, effective_n_gpu_layers) from _load_err
+        # A GPU pack that cannot READ this model must not end the attempt. The
+        # bundled runtime ships newer than any pack the wheel indexes publish,
+        # so when the failure is "this build does not understand the file" AND
+        # the pack is the thing in the way, drop the pack and load again on the
+        # bundle. The user gets the model instead of an instruction to set an
+        # environment variable by hand -- ELI ships to people who will never
+        # read that message.
+        from eli.cognition.model_load_diagnostics import (
+            gpu_pack_is_too_old as _pack_old,
+            deactivate_gpu_pack as _drop_pack,
+        )
+        if not _retryable(_load_log) and _pack_old() and _drop_pack():
+            import importlib as _il
+            globals()["Llama"] = _il.import_module("llama_cpp").Llama
+            try:
+                with _cap_log() as _load_log:
+                    _llm = globals()["Llama"](**kwargs)
+                log.warning(
+                    "[GGUF] loaded on the bundled runtime after the GPU pack "
+                    "could not read this model. Generation will be slower; "
+                    "reinstall the pack (ELI --install-gpu-pack --force) once a "
+                    "build supporting this architecture is published."
+                )
+            except Exception as _bundle_err:
+                raise _model_load_error(
+                    _bundle_err, _load_log, effective_n_gpu_layers) from _bundle_err
+        else:
+            # Everything else: OOM, truncated download, genuinely unsupported.
+            raise _model_load_error(
+                _load_err, _load_log, effective_n_gpu_layers) from _load_err
 
     # Keep get_last_load_params() truthful: same values, same moment.
     globals()["_last_params"] = {

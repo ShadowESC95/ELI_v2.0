@@ -132,6 +132,24 @@ def _selftest() -> int:
             )
         _assert_paths_outside_bundle()
         print(f"selftest OK — ELI {gui.APP_VERSION}, python {sys.version.split()[0]}")
+
+        # Report the inference runtime and whether it can actually reach a GPU.
+        # A user whose GPU silently stopped working had no single command to
+        # ask; the answer was buried in a Hardware Tuning panel. This is also
+        # how a GPU pack regression gets caught before it ships.
+        try:
+            _from_pack = "runtime/gpu" in str(llama_cpp.__file__).replace("\\", "/")
+            _offload = bool(llama_cpp.llama_supports_gpu_offload())
+            print(f"  llama-cpp-python : {llama_cpp.__version__} "
+                  f"({'GPU pack' if _from_pack else 'bundled'})")
+            print(f"  GPU offload      : {'YES' if _offload else 'NO (CPU only)'}")
+            if _from_pack and not _offload:
+                # The pack is the thing in the way; the bundle would be better.
+                print("  WARNING: the GPU pack is active but cannot reach a GPU "
+                      "backend. Reinstall it (ELI --install-gpu-pack --force) "
+                      "or remove it (ELI --remove-gpu-pack).")
+        except Exception as _gpu_probe_err:
+            print(f"  GPU offload      : could not determine ({_gpu_probe_err})")
         return 0
     except Exception:
         tb = traceback.format_exc()
