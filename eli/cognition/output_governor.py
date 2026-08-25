@@ -333,6 +333,45 @@ def repair_embodied_self_claims(text: str) -> str:
     return stripped
 
 
+# Questions that ask the USER for something ELI reads from the system clock.
+# Deliberately narrow: only the current local time/date, only as a question.
+# "what time do you want the alarm" or "what time did you get in" are real
+# questions about the user's intent or past and must survive untouched.
+_ASKS_FOR_CLOCK = re.compile(
+    r"(?i)\b(?:"
+    r"what(?:'s|s| is) the (?:current |right )?time"
+    r"|what time is it(?: (?:now|there|over there))?"
+    r"|do you know what (?:the )?time it is"
+    r"|what(?:'s|s| is) (?:today'?s |the )?date"
+    r"|what day is it(?: today)?"
+    r")\b[^.?!]*\?"
+)
+
+
+def drop_questions_for_facts_already_held(text: str) -> str:
+    """Drop questions asking the user for the time or date.
+
+    ELI is given the wall clock as authoritative context on every turn, so
+    asking the user for it is not a clarifying question -- it is handing back
+    work it had already been given. Live: it replied "You're awake now? What
+    time is it?" while CURRENT TIME sat in its own context, and when told to
+    check for itself answered correctly in 0.077s via the TIME action.
+
+    A prompt instruction would not fix this (the model is already told not to
+    guess the time); the output has to be checked. Only the offending sentence
+    is removed, and never the whole reply.
+    """
+    body = str(text or "")
+    if not body.strip() or not _ASKS_FOR_CLOCK.search(body):
+        return body
+    kept = [s for s in _SENTENCE_PARTS.findall(body) if not _ASKS_FOR_CLOCK.search(s)]
+    stripped = re.sub(r"\s{2,}", " ", "".join(kept))
+    stripped = re.sub(r"\n{3,}", "\n\n", stripped).strip()
+    if len(stripped.split()) < 3:
+        return body
+    return stripped
+
+
 def govern_output(text: str, is_grounded: bool = False,
                   evidence: Optional[str] = None, history=None) -> str:
     result = apply_final_reasoning_contract(text).strip()
@@ -344,6 +383,8 @@ def govern_output(text: str, is_grounded: bool = False,
     # action claim, so it is governed at the same choke point.
     result = drop_unverified_self_status(result, is_grounded=is_grounded).strip()
     result = repair_embodied_self_claims(result).strip()
+    # ELI holds the clock; asking the user for it is handing back work it had.
+    result = drop_questions_for_facts_already_held(result).strip()
     result = _strip_placeholder_identity(result).strip()
     if not result:
         return ""
