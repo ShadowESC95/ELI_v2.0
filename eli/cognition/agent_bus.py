@@ -1042,11 +1042,27 @@ class BusMemoryAgent(_BaseAgent):
                         _SWLOG.debug("suppressed exception", exc_info=True)
                     txt = (h.get("content") or "")[:_tn["cog.mem_conv_chars"]]
                     role = h.get("role", "?")
+                    # Date recalled dialogue the way stored memories directly above
+                    # already are. Undated, a snippet from an earlier session reads
+                    # as part of THIS exchange: last night's sign-off ("Sleep tight",
+                    # the film they were watching) came back at 14:39 the next day as
+                    # "Night's still young" and "I'll be here when you finally wake
+                    # up". The clock line was correct the whole time -- the model was
+                    # not misreading the time, it was reading yesterday as now.
+                    _raw_ts = h.get("ts") or h.get("timestamp") or 0
+                    try:
+                        _ts_str = (time.strftime("%Y-%m-%d %H:%M", time.localtime(float(_raw_ts)))
+                                   if _raw_ts else "")
+                    except Exception:
+                        _ts_str = str(_raw_ts or "")
                     if txt:
-                        conv_text.append(f"  {role}: {txt}")
+                        conv_text.append(f"  [{_ts_str}] {role}: {txt}" if _ts_str
+                                         else f"  {role}: {txt}")
                 if conv_text:
                     context_parts.append(
-                        "Related conversation snippets:\n" + "\n".join(conv_text))
+                        "Related conversation snippets from EARLIER sessions "
+                        "(timestamps shown; these are past turns, not the current "
+                        "exchange):\n" + "\n".join(conv_text))
 
             if summaries:
                 sum_text = []
