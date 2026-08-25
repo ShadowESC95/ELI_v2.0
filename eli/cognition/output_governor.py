@@ -231,9 +231,59 @@ _SELF_DIAGNOSTIC_DEFLECTION = re.compile(
 )
 
 
+# ELI asserting its own RUNTIME state -- the accelerator, the offload, the
+# layers. Live at 2.3.26, ungrounded, while 28 of the 99 requested layers were
+# on the card and the user had just said so:
+#     "The GPU's back to full offload"
+# Health claims were already covered above; hardware claims were not, so this
+# one passed every guard untouched and read as a flat lie. Same rule as the
+# rest: when the turn IS grounded -- GPU_STATUS reads nvidia-smi and the live
+# runtime snapshot -- the claim is legitimate and nothing here fires.
+_SELF_RUNTIME_CLAIM = re.compile(
+    r"(?i)\b(?:"
+    r"(?:the )?gpu(?:'s| is)?\s+(?:back (?:to|on)|now (?:at|on)|at)\s+full\b"
+    r"|back to full (?:gpu )?offload\w*"
+    r"|full(?:y)?[- ]offload(?:ed|ing)\b"
+    r"|(?:is |are )?fully offloaded\b"
+    r"|all (?:my |the )?layers (?:are )?(?:on|loaded on|running on) the gpu"
+    r"|(?:i(?:'m| am)) (?:now )?(?:fully )?(?:running|offloading) (?:on|to) (?:the )?gpu"
+    r"|offload(?:ing)? is (?:back|full|fine|working|restored)"
+    r")"
+)
+
+
+# ELI explaining its OWN internals -- why a guard fired, why a route was taken.
+# It has no introspective access to any of that: routing happens before the
+# model is called, and no record of the decision reaches the prompt. Asked at
+# 2.3.26 why a guard had not caught a data dump, it answered:
+#     "I didn't have a chance to activate the guard - and honestly, I'm still
+#      figuring out why it's not triggering"
+# Both halves are invented. The mechanism is real, the account of it is not,
+# which is the most convincing kind of confabulation and the hardest for the
+# user to check. Grounded turns are exempt: EXPLAIN_COGNITION_RUNTIME and the
+# introspection agent read the live pipeline, and may describe it freely.
+_SELF_MECHANISM_CLAIM = re.compile(
+    r"(?i)(?:"
+    r"(?:my|the)\s+(?:\w+\s+){0,3}?"
+    r"(?:guard|guardrail|filter|router|routing|classifier|heuristic|matcher|threshold)\b"
+    r"[^.?!]{0,60}?"
+    r"(?:did\s?n[o']?t|failed to|was\s?n[o']?t|never|has\s?n[o']?t)\s+"
+    r"(?:fire|fired|trigger|triggered|kick(?:ed)? in|activate|activated|apply|applied|catch|caught|run)"
+    r"|\bi\s+(?:did\s?n[o']?t|never)\s+(?:have\s+(?:a|the)\s+chance\s+to\s+)?"
+    r"(?:activate|trigger|apply|engage|run)\s+(?:the|my)\s+(?:\w+\s+){0,2}?"
+    r"(?:guard|filter|check|router)"
+    r"|\b(?:i'?m|i am)\s+still\s+(?:figuring out|trying to work out|not sure)\s+why\s+"
+    r"(?:it|that|the\s+\w+)\s+(?:is\s?n[o']?t|did\s?n[o']?t|was\s?n[o']?t)\s*"
+    r"(?:trigger\w*|fir\w+|kick\w*|work\w*|catch\w*)"
+    r")"
+)
+
+
 def claims_unverified_self_status(text: str) -> bool:
-    """True when the reply asserts ELI's own operational health."""
-    return bool(_SELF_STATUS_CLAIM.search(str(text or "")))
+    """True when the reply asserts ELI's own operational health or runtime state."""
+    body = str(text or "")
+    return bool(_SELF_STATUS_CLAIM.search(body) or _SELF_RUNTIME_CLAIM.search(body)
+                or _SELF_MECHANISM_CLAIM.search(body))
 
 
 def defers_own_diagnostic_to_user(text: str) -> bool:
@@ -255,7 +305,8 @@ def drop_unverified_self_status(text: str, *, is_grounded: bool = False) -> str:
         return body
     kept = [
         s for s in _SENTENCE_PARTS.findall(body)
-        if not (_SELF_STATUS_CLAIM.search(s) or _SELF_DIAGNOSTIC_DEFLECTION.search(s))
+        if not (_SELF_STATUS_CLAIM.search(s) or _SELF_DIAGNOSTIC_DEFLECTION.search(s)
+                or _SELF_RUNTIME_CLAIM.search(s) or _SELF_MECHANISM_CLAIM.search(s))
     ]
     stripped = re.sub(r"\s{2,}", " ", "".join(kept))
     stripped = re.sub(r"\n{3,}", "\n\n", stripped).strip()

@@ -5688,8 +5688,33 @@ def _eli_runtime_cognition_failure_guard(text):
     # report was unwanted, and got it again verbatim. A previous fix taught this
     # guard to ignore words inside QUOTES; these were not quotes, they were the
     # user talking.
-    _is_request = bool(
+    # A trailing "?" made the WHOLE turn a request, however long it was and
+    # however many subjects it had moved through. Live at 2.3.26 a fifty-word
+    # turn that corrected ELI's layer count, changed subject to a film, and
+    # ended "...so i cn get some weed, you?" was routed to GPU_STATUS at 0.995
+    # and answered with a VRAM dump -- the "?" belonged to the weed, not the
+    # GPU. The mark only counts when the question could plausibly BE about the
+    # runtime: either the turn is short, or its last sentence mentions it.
+    _last_sentence = (re.split(r"(?<=[.!?])\s+", _asked.strip()) or [""])[-1]
+    _ends_in_relevant_question = bool(
         _asked.rstrip().endswith("?")
+        and (len(_asked.split()) <= 25
+             or re.search(r"\b(?:gpu|vram|cuda|nvidia|layers?|offload\w*|batch|"
+                          r"context|ctx|memory|model)\b", _last_sentence))
+    )
+    # The user STATING ELI's runtime state already knows it: that is a
+    # correction, not a request for a report. Answering it with the same report
+    # is what made a challenge ("you are on 28 layers - why are you still
+    # lying?") come back as a telemetry dump.
+    _asserts_state = bool(re.search(
+        r"\b(?:you(?:'re| are) (?:only )?(?:on|at|running|using)\s+\d+"
+        r"|(?:the )?gpu is (?:not|n'?t)\b"
+        r"|(?:is )?not back to full"
+        r"|you(?:'re| are) (?:still )?(?:lying|wrong|mistaken|not right))\b",
+        _asked))
+
+    _is_request = bool(
+        _ends_in_relevant_question
         or re.match(r"^\s*(?:how|what|which|why|is|are|am|do|does|did|can|could|"
                     r"should|show|tell|check|report|give|list|status)\b", _asked)
         or re.search(r"\b(?:show me|tell me|check|report on|how many|how much|"
@@ -5708,14 +5733,14 @@ def _eli_runtime_cognition_failure_guard(text):
         _asked))
 
     _gpu_layer_question = (
-        _is_request and not _dismissed
+        _is_request and not _dismissed and not _asserts_state
         and re.search(r"\blayers?\b", _asked)
         and re.search(r"\b(you|your|offload\w*|gpu|vram|cuda|model|running|loaded|use|using)\b", _asked)
         and not re.search(r"\b(image|photo|photoshop|after\s?effects|composit\w*|design|"
                           r"canvas|css|z-index|onion\s?skin)\b", _asked)
     )
     if re.search(r"\bnvidia-smi\b", _asked) or _gpu_layer_question or (
-        _is_request and not _dismissed
+        _is_request and not _dismissed and not _asserts_state
         and re.search(r"\b(gpu|vram|cuda|nvidia)\b", _asked)
         # "free/available/left/spare" were missing, so "how much vram is free"
         # — an unambiguous status question — fell through to CHAT and was
@@ -5723,6 +5748,10 @@ def _eli_runtime_cognition_failure_guard(text):
         # Safe to widen now that the branch requires an actual request.
         and re.search(r"\b(stat|stats|status|diagnostic|diagnostics|usage|using|use|memory|"
                       r"performance|running on|running|offload\w*|accelerat\w*|"
+                      # "used" was absent, so "is the gpu being used?" -- as
+                      # plain a status question as exists -- fell through to
+                      # CHAT and got answered from imagination.
+                      "used|"
                       r"free|available|left|spare|"
                       r"tell me what it means|temp|temperature|how hot)\b", _asked)
     ):
