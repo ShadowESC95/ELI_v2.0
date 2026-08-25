@@ -161,8 +161,19 @@ def topic_words(text: str) -> set:
 # Shared so the report header and the daemon's greeting cannot drift apart. The
 # 12/17 boundaries are the ones proactive_daemon already used for its greeting.
 def part_of_day(ts: Optional[float] = None) -> str:
-    """"morning" / "afternoon" / "evening" for a wall-clock time."""
+    """"night" / "morning" / "afternoon" / "evening" for a wall-clock time.
+
+    NIGHT WRAPS around midnight, and leaving it out is not a cosmetic gap. With
+    only three bands, `hour < 12` claimed "morning" for every hour after
+    midnight, so at 00:21 the context synthesiser told the model -- as
+    authoritative fact, under "Do not guess the time or the part of day" --
+    that it was morning, and ELI duly opened with "Morning, Jason." It was
+    obeying a wrong fact, not hallucinating, which is why the prose in
+    context_synthesiser.py must be kept in step with these boundaries.
+    """
     hour = time.localtime(ts if ts is not None else time.time()).tm_hour
+    if hour < 5 or hour >= 21:
+        return "night"
     if hour < 12:
         return "morning"
     if hour < 17:

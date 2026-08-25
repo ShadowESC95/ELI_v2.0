@@ -452,11 +452,22 @@ def build_persona_handoff(
     try:
         from eli.runtime.reflection import part_of_day as _part_of_day
         _now = _dt.datetime.now()
+        # Bands MUST match eli/runtime/reflection.py:part_of_day(). They drifted
+        # once already: the prose said "morning is before 12:00" while the model
+        # was handed 00:21, so it greeted the user with "Morning" at twenty past
+        # midnight and was right to -- the instruction it was given said so.
+        # The timezone is named because it was not: when the user mistyped their
+        # own timezone in passing, the model had no authoritative value to weigh
+        # that against and reasoned from the typo instead.
+        _tz = _now.astimezone().tzname() or ""
         parts.append(
-            "CURRENT TIME (authoritative — trust this over any assumption about the "
-            f"time of day): {_now.strftime('%A %d %B %Y, %H:%M')} "
-            f"({_part_of_day()}). Morning is before 12:00, afternoon 12:00-17:00, "
-            f"evening after 17:00. Do not guess the time or the part of day."
+            "CURRENT TIME (authoritative — trust this over any assumption about "
+            "the time of day, and over any timezone mentioned in passing by the "
+            f"user): {_now.strftime('%A %d %B %Y, %H:%M')}"
+            f"{(' ' + _tz) if _tz else ''} ({_part_of_day()}). "
+            "Night is 21:00-05:00, morning 05:00-12:00, afternoon 12:00-17:00, "
+            "evening 17:00-21:00. Do not guess the time, the timezone, or the "
+            "part of day."
         )
     except Exception:
         log.debug("current-time context unavailable", exc_info=True)

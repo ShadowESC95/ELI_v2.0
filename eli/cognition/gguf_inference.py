@@ -744,7 +744,20 @@ def load_model(force_reload: bool = False):
 
     n_gpu_layers = _env_int("ELI_GGUF_N_GPU_LAYERS", None)
     if n_gpu_layers is None:
-        n_gpu_layers = _as_int(_runtime_value(settings, "gpu_layers", "n_gpu_layers"), config.get_gguf_n_gpu_layers())
+        # A pinned layer count only counts for the model it was pinned FOR. The
+        # GUI tuner applies the same rule; this is the path the server/API and
+        # any headless loader take, and it needs the same answer or a stale pin
+        # from a previous model still strands this one on the CPU.
+        _pinned = None
+        try:
+            from eli.core.runtime_settings import pinned_gpu_layers_for_model as _pin4
+            _pinned = _pin4(model_path, settings)
+        except Exception:
+            log.debug("[GGUF] gpu-layer pin provenance unavailable", exc_info=True)
+        if _pinned is not None:
+            n_gpu_layers = int(_pinned)
+        else:
+            n_gpu_layers = _as_int(_runtime_value(settings, "gpu_layers", "n_gpu_layers"), config.get_gguf_n_gpu_layers())
 
     n_batch = _env_int("ELI_GGUF_N_BATCH", None)
     if n_batch is None:

@@ -445,16 +445,36 @@ class Orchestrator:
                     _emit(o)
                     had_failure = had_failure or (o.status in ("failed", "timeout") and task.critical)
             else:
+                _late: Dict[Any, "Task"] = {}
                 with ThreadPoolExecutor(max_workers=max(workers, 1)) as ex:
                     futs = {ex.submit(self._run_one, t, snapshot, shared): t for t in runnable}
                     for fut, task in futs.items():
                         try:
                             o = fut.result(timeout=task.timeout)
                         except _FTimeout:
-                            o = NodeOutcome(task.id, "timeout",
-                                            error=f"exceeded {task.timeout}s", attempts=1)
+                            _late[fut] = task
+                            continue
                         _emit(o)
                         had_failure = had_failure or (o.status in ("failed", "timeout") and task.critical)
+                # Leaving the `with` above runs shutdown(wait=True), which blocks
+                # until every submitted task has finished. So by the time execution
+                # reaches here the slow ones are DONE and their answers are already
+                # sitting in the futures -- writing them off as timeouts pays the
+                # full wall-clock cost and then throws the work away. Live on a
+                # CPU-offloaded 27B: a memory node needing 121.4s against a ~121s
+                # ceiling was recorded "timeout" while the bus still waited 121.5s
+                # for it, so the reply was built with memory_chars=0 and grounding
+                # fell to 0.30 (low) after two minutes of retrieval. Harvesting here
+                # adds NO waiting -- the wait already happened -- it just stops the
+                # result being discarded at the finish line.
+                for fut, task in _late.items():
+                    try:
+                        o = fut.result(timeout=0)
+                    except Exception:
+                        o = NodeOutcome(task.id, "timeout",
+                                        error=f"exceeded {task.timeout}s", attempts=1)
+                    _emit(o)
+                    had_failure = had_failure or (o.status in ("failed", "timeout") and task.critical)
 
         ok = not any(o.status in ("failed", "timeout") and task_map[i].critical
                      for i, o in outcomes.items())

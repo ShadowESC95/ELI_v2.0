@@ -699,6 +699,28 @@ _TOT_SCAFFOLDING_RXES = (
     re.compile(r"^\s*The\s+highest[-\s]?scoring\s+approach\s+is\b", re.IGNORECASE | re.MULTILINE),
 )
 
+# Section labels the context synthesiser writes into the PROMPT. A weak model
+# can echo one straight back: live on eli-finetuned-phi3, an entire reply was
+# the two literal lines "FINAL INSTRUCTION:" / "I am operating as intended.",
+# exposing ELI's internal prompt structure as if it were speech. Only the label
+# line is removed -- whatever the model actually said after it is left alone for
+# the ordinary guards to judge. Keep in step with context_synthesiser.py.
+_PROMPT_SECTION_LABELS = (
+    "AGENT BUS NOTES",
+    "FINAL INSTRUCTION",
+    "GROUNDED FACTS",
+    "ORCHESTRATOR OBSERVATIONS",
+    "RECENT DIALOGUE",
+    "RERANKED HITS",
+)
+_PROMPT_SECTION_LABEL_RX = re.compile(
+    # \r is matched explicitly: with CRLF text the carriage return sits between
+    # the colon and the line end, so a \n-only pattern silently stops stripping.
+    r"^[ \t]*(?:%s)[ \t]*:[ \t\r]*$\r?\n?"
+    % "|".join(re.escape(_l) for _l in _PROMPT_SECTION_LABELS),
+    re.MULTILINE,
+)
+
 _PASS_FAIL_AUDIT_RX = re.compile(
     r"(?:^|\n)\s*(PASS|FAIL)\s+([\w./\-]+\.(?:py|json|sqlite3|so|sh))",
     re.IGNORECASE,
@@ -955,6 +977,16 @@ def validate_against_evidence(
             })
             sanitized = rx.sub("", sanitized)
             catastrophic = True
+
+    # 2b. Prompt SECTION LABELS echoed back verbatim
+    _label_m = _PROMPT_SECTION_LABEL_RX.search(out)
+    if _label_m:
+        violations.append({
+            "kind": "prompt_label_leakage",
+            "value": _label_m.group(0).strip()[:80],
+            "reason": "a context-synthesiser section label was spoken as output",
+        })
+        sanitized = _PROMPT_SECTION_LABEL_RX.sub("", sanitized).lstrip()
 
     # 3. Filesystem paths
     seen_paths = set()
