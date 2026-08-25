@@ -3571,6 +3571,30 @@ def _first_sentence(text) -> str:
 
 
 
+# How many leading words make an opening recognisable as the SAME opening.
+# "You're not wrong" is three; the fourth catches "you're not wrong but".
+_REPEAT_STEM_WORDS = 4
+_REPEAT_STEM_MIN_CHARS = 12
+
+
+def _opening_stem(text: str) -> str:
+    """The first few words of the opening, before any continuation clause.
+
+    The 2.3.0 fix compared whole first sentences and worked while the tic WAS
+    the whole sentence ("You're not wrong."). The model since learned to append
+    an em-dash clause, and because the clause varies every time, first-sentence
+    similarity drops to ~0.5 against a 0.92 threshold -- so four replies in one
+    session opened "You're not wrong -" and the guard fired on none of them,
+    while reading to the user as exactly the tic it was written to stop.
+
+    Cutting at the first dash/comma leaves the stem, which is what repeats.
+    """
+    raw = _first_sentence(str(text or "")).strip()
+    stem_raw = re.split(r"[-\u2013\u2014,;:]", raw, 1)[0].strip() or raw
+    stem = _clarifier_norm(stem_raw)
+    return " ".join(stem.split()[:_REPEAT_STEM_WORDS])
+
+
 def _is_repeat_of_recent(candidate: str, prior_replies, *,
                          ratio: float = _REPEAT_RATIO) -> bool:
     """True when `candidate` restates something ELI already said.
@@ -3591,6 +3615,15 @@ def _is_repeat_of_recent(candidate: str, prior_replies, *,
     # the guard fired on only two of them, and by the seventh the user was asking
     # "WHAT THE FUCK ARE YOU TALKING ABOUT?!".
     #
+    # Same OPENING STEM is a repeat however the sentence continues (see
+    # _opening_stem). Checked before the whole-sentence test below, which the
+    # varying continuation defeats.
+    _cand_stem = _opening_stem(cand)
+    if len(_cand_stem) >= _REPEAT_STEM_MIN_CHARS and len(_cand_stem.split()) >= 3:
+        for prior in list(prior_replies or [])[:_REPEAT_COMPARE_AGAINST]:
+            if _opening_stem(prior) == _cand_stem:
+                return True
+
     # Compare first sentence to first sentence, exactly, as its own test.
     _cand_open = _clarifier_norm(_first_sentence(cand))
     if len(_cand_open) >= _REPEAT_OPENING_MIN_CHARS:
@@ -7109,6 +7142,30 @@ Answer:"""
     situation_brief=situation_brief)
             elapsed = time.perf_counter() - started
             log.debug(f'[COGNITIVE][TIMING] chat_pass_{pass_no}={elapsed:.3f}s')
+            # Govern HERE, once, before scoring and before any of this
+            # function's four return paths. The streaming path is governed at
+            # its own choke point, but this non-streaming loop was not: it
+            # served roughly a third of live turns straight out of
+            # _get_chat_response, so every output guard -- invented health,
+            # invented runtime state, invented internals, leaked prompt
+            # labels -- was simply absent from those replies. Live at 2.3.27
+            # "I'm still running on fumes" reached the user this way while the
+            # MEMORY side correctly refused to store the same sentence.
+            #
+            # It cannot go inside _get_chat_response: that helper also produces
+            # private reasoning and internal summaries, which are not speech
+            # and must not be governed as if they were.
+            #
+            # Scoring runs on the governed text deliberately -- confidence
+            # should describe the reply the user actually receives.
+            try:
+                response = govern_output(
+                    response,
+                    is_grounded=bool(evidence),
+                    evidence=evidence if isinstance(evidence, str) else None,
+                )
+            except Exception:
+                log.debug("[COGNITIVE] output governor skipped", exc_info=True)
             score = self._score_response_confidence(
     user_input, response, working_context, intent_conf, evidence)
             log.debug(
