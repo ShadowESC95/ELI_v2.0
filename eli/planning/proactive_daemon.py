@@ -46,6 +46,24 @@ from eli.memory import (
 from eli.utils.log import get_logger
 log = get_logger(__name__)
 
+def _foreground_busy(window: float = 45.0) -> bool:
+    """True when a user turn is running, or ran recently enough to defer chores.
+
+    Re-queried at EVERY guard rather than snapshotted once per tick. The blocks
+    this gates each run multi-minute LLM work, so a reading taken at the top of
+    the tick is already stale by the time the later guards consult it. Observed
+    live on a CPU-offloaded 27B: one foreground turn waited behind BOTH a 241s
+    news synthesis and a 156s self-improvement pass, which started from a single
+    reading taken seconds before the user typed. The in-flight abort can yield a
+    generation already running; only a fresh reading stops the NEXT one starting.
+    """
+    try:
+        from eli.cognition.inference_broker import foreground_recently_active as _fra
+        return bool(_fra(window))
+    except Exception:
+        return False
+
+
 class ProactiveDaemon:
     """
     Self-improving proactive intelligence daemon
@@ -738,7 +756,10 @@ class ProactiveDaemon:
         # and the title can never disagree about what time of day it is.
         try:
             from eli.runtime.reflection import part_of_day as _part_of_day
-            greeting = f"Good {_part_of_day()}"
+            # "Good night" is a farewell, not a greeting -- so the night band
+            # cannot be dropped into this template the way the other three can.
+            _pod = _part_of_day()
+            greeting = "Hello" if _pod == "night" else f"Good {_pod}"
         except Exception:
             hour = datetime.now().hour
             greeting = "Good morning" if hour < 12 else "Good afternoon" if hour < 17 else "Good evening"
@@ -940,11 +961,6 @@ Date: {datetime.now().strftime("%A %B %d %H:%M")} | Interactions last 24h: {inte
                 # multi-minute background generations BETWEEN the user's turns (a 643s news synth
                 # ran mid-conversation). The blocks below are time-gated, so they simply retry on
                 # the next 5s tick once the foreground goes idle — nothing is dropped.
-                try:
-                    from eli.cognition.inference_broker import foreground_recently_active as _fra
-                    _fg_busy = _fra(45.0)
-                except Exception:
-                    _fg_busy = False
 
                 # ── Autonomy / self-awareness tick (every 30 min) ─────────────────
                 # ELI's self-directed loop, finally wired to actually RUN (it was
@@ -954,7 +970,7 @@ Date: {datetime.now().strftime("%A %B %d %H:%M")} | Interactions last 24h: {inte
                 # controller to observe-only / memory-write, and goal/scheduler ticks
                 # produce PROPOSALS that still need user approval, so nothing
                 # destructive runs unattended. Kill switch: ELI_AUTONOMY_TICK=0.
-                if (not _fg_busy
+                if (not _foreground_busy()
                         and time.time() - last_autonomy > 1800
                         and os.environ.get("ELI_AUTONOMY_TICK", "1").strip().lower()
                         not in ("0", "false", "no", "off")):
@@ -974,7 +990,7 @@ Date: {datetime.now().strftime("%A %B %d %H:%M")} | Interactions last 24h: {inte
 
                 # Run analysis every 10 minutes (deferred while the user is mid-request — this
                 # block contains refresh_insight AND the 3h news synthesis, both LLM-heavy).
-                if not _fg_busy and time.time() - last_analysis > 600:
+                if not _foreground_busy() and time.time() - last_analysis > 600:
                     patterns = self.analyze_user_patterns()
                     improvements = self.analyze_code_quality()
 
@@ -1353,7 +1369,7 @@ Date: {datetime.now().strftime("%A %B %d %H:%M")} | Interactions last 24h: {inte
                 # Generate morning report once per day between 6-10
                 current_date = datetime.now().date()
                 current_hour = datetime.now().hour
-                if not _fg_busy and current_date > last_report and 6 <= current_hour <= 10:
+                if not _foreground_busy() and current_date > last_report and 6 <= current_hour <= 10:
                     report = self.generate_morning_report()
                     if report:
                         # Print to CLI

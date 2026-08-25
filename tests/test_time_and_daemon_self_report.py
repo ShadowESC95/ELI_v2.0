@@ -51,9 +51,15 @@ def test_the_part_of_day_matches_the_hour():
 
 
 @pytest.mark.parametrize("hour,expected", [
-    (0, "morning"), (9, "morning"), (11, "morning"),
+    # Night was added after ELI opened with "Morning, Jason" at 00:21: with
+    # only three bands, `hour < 12` claimed morning for every hour past
+    # midnight and the model was handed that as authoritative fact. 18:16
+    # stays "evening" below -- the case these tests were written for.
+    (0, "night"), (4, "night"),
+    (5, "morning"), (9, "morning"), (11, "morning"),
     (12, "afternoon"), (16, "afternoon"),
-    (17, "evening"), (23, "evening"),
+    (17, "evening"), (20, "evening"),
+    (21, "night"), (23, "night"),
 ])
 def test_part_of_day_boundaries(hour, expected):
     """10:47 is morning. The reply that started this said otherwise."""

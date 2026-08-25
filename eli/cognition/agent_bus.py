@@ -2305,8 +2305,24 @@ class AgentBus:
         except FuturesTimeout:
             _SWLOG.debug("suppressed exception", exc_info=True)  # outer wait elapsed; fill stragglers below
         for fut, agent in futures.items():
-            if agent.name not in done:
-                results.append(AgentResult(agent=agent.name, ok=False, confidence=0.0, data={}, error="timeout"))
+            if agent.name in done:
+                continue
+            # The outer wait elapsed -- but a straggler may have FINISHED in the
+            # meantime, and recording a timeout without looking throws away work
+            # that has already been paid for. Live on a CPU-offloaded 27B: the
+            # memory agent returned 6,279 chars of context 1.4s past its ~121s
+            # deadline, this loop discarded it unread, the bus logged mem=0ch,
+            # and the reply was generated with memory_chars=0 -- grounding 0.30
+            # (low) after two minutes of retrieval. Collect only what is ALREADY
+            # done; this never waits, so a genuinely hung agent still times out.
+            if fut.done():
+                try:
+                    results.append(fut.result(timeout=0))
+                    continue
+                except Exception as _late_err:
+                    log.debug("[AGENTBUS] %s finished after the deadline with an error: %s",
+                              agent.name, _late_err)
+            results.append(AgentResult(agent=agent.name, ok=False, confidence=0.0, data={}, error="timeout"))
         return results
 
     def _run_agents_layered(self, active_agents: List["_BaseAgent"], user_input: str,

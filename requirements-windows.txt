@@ -16,7 +16,11 @@ python-dotenv>=1.0
 PyYAML>=6.0
 tqdm>=4.67
 psutil>=7.0
-numpy>=2.0
+# Capped below 2.5: numba (pulled in transitively by coqui-tts -> librosa)
+# refuses NumPy 2.5 -- "Numba needs NumPy 2.4 or less. Got NumPy 2.5" -- which
+# silently disables the neural voice backend. requirements.txt pins 2.4.4; an
+# unbounded >=2.0 here let the resolver override that pin and break XTTS.
+numpy>=2.0,<2.5
 packaging>=26
 
 # GUI

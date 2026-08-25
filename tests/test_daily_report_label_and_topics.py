@@ -27,9 +27,15 @@ def _at(hour, minute=0):
 
 
 @pytest.mark.parametrize("hour,expected", [
-    (0, "morning"), (7, "morning"), (11, "morning"),
+    # Night was added after ELI opened with "Morning, Jason" at 00:21: with
+    # only three bands, `hour < 12` claimed morning for every hour past
+    # midnight and the model was handed that as authoritative fact. 18:16
+    # stays "evening" below -- the case these tests were written for.
+    (0, "night"), (4, "night"),
+    (7, "morning"), (11, "morning"),
     (12, "afternoon"), (14, "afternoon"), (16, "afternoon"),
-    (17, "evening"), (18, "evening"), (23, "evening"),
+    (17, "evening"), (18, "evening"), (20, "evening"),
+    (21, "night"), (23, "night"),
 ])
 def test_part_of_day_follows_the_clock(hour, expected):
     assert part_of_day(_at(hour)) == expected
@@ -41,7 +47,8 @@ def test_the_reported_18_16_case():
 
 
 @pytest.mark.parametrize("hour,expected", [
-    (9, "Morning report"), (14, "Afternoon report"), (23, "Evening report"),
+    (9, "Morning report"), (14, "Afternoon report"),
+    (18, "Evening report"), (23, "Night report"),
 ])
 def test_report_label_is_named_for_when_it_runs(hour, expected):
     assert report_label(_at(hour)) == expected

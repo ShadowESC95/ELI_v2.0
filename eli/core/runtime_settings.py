@@ -107,6 +107,12 @@ DEFAULTS: Dict[str, Any] = {
     "top_k": 40,
     "repeat_penalty": 1.1,
     "n_gpu_layers": 0,
+    # Which model the pinned n_gpu_layers was chosen for. A layer count is
+    # ABSOLUTE, so it means something different on every model -- 7 layers is
+    # a sensible slice of a 15.66GB 27B on 8GB of VRAM and a crippling one
+    # for a 4GB model whose 32 layers all fit. Empty means "provenance
+    # unknown", which is treated as not-pinned-for-this-model.
+    "n_gpu_layers_model": "",
     "n_threads": max(1, os.cpu_count() or 8),
     "batch_size": 512,
     "use_mmap": True,
@@ -202,6 +208,67 @@ DEFAULTS: Dict[str, Any] = {
     # habits); set false to block shell execution from an untrusted/imported habit DB.
     "habit_shell_enabled": True,
 }
+
+# The codebase's "offload everything" idiom (see vision_n_gpu_layers = 99 above);
+# llama.cpp itself also accepts -1 for the same thing.
+ALL_GPU_LAYERS_MIN = 99
+
+
+def pinned_gpu_layers_for_model(model_path, settings=None):
+    """The user's pinned n_gpu_layers -- but only if it applies to THIS model.
+
+    n_gpu_layers is an ABSOLUTE count, so a number chosen for one model means
+    something entirely different on the next: 7 layers is a reasonable slice of a
+    15.66GB 27B on 8GB of VRAM, and a crippling one for a 4GB model whose 32
+    layers all fit in VRAM. Nothing recorded which model a pin came from, so it
+    followed the user across model swaps and silently stranded them on the CPU
+    while the tuner -- which had measured the right answer -- stood down.
+
+    Returns None when the pin does not apply, meaning "let the tuner measure".
+
+    "All layers" (>= ALL_GPU_LAYERS_MIN, or negative for llama.cpp's -1) is
+    deliberately exempt: it is a POLICY rather than a measurement, it is correct
+    on every model, and the loader already reduces it to fit. Treating it as
+    stale would quietly downgrade "try them all, then fall back" into "use the
+    fallback", which is a different and worse behaviour on capable hardware.
+
+    Lives here, not in the GUI, because the desktop app is not the only loader:
+    the server/API path (and the mobile client riding the same /v1) resolves the
+    same setting and needs the same answer.
+    """
+    s = settings if settings is not None else (load_settings() or {})
+    try:
+        pin = int(s.get("n_gpu_layers") or 0)
+    except Exception:
+        return None
+    if not pin:
+        return None
+    if pin < 0 or pin >= ALL_GPU_LAYERS_MIN:
+        return pin
+    recorded = model_identity_key(s.get("n_gpu_layers_model"))
+    current = model_identity_key(model_path)
+    if recorded and current and recorded == current:
+        return pin
+    return None
+
+
+def model_identity_key(model_path) -> str:
+    """Comparable identity for a model file, portable across the three OSes.
+
+    os.path.basename alone was wrong twice over for a redistributed app:
+
+      * It splits on the HOST separator, so a Windows path that reached a POSIX
+        reader (a synced settings file, a config written elsewhere) came back
+        whole and never matched. Both separators are handled here regardless of
+        the running OS.
+      * It is case-SENSITIVE, while NTFS and the default macOS filesystem are
+        not. "Phi3.gguf" and "phi3.gguf" are the same file to those users, and
+        comparing them exactly silently discarded a pin the user had just set --
+        on every single load.
+    """
+    raw = str(model_path or "").strip().replace("\\", "/")
+    return raw.rsplit("/", 1)[-1].strip().casefold()
+
 
 ENV_TO_KEY = {
     "ELI_PROVIDER": "provider",
