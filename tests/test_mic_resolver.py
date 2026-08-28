@@ -15,7 +15,7 @@ def _reset(monkeypatch):
     # Fresh module-level cache and clean env for every test.
     mr._CACHED = None
     for var in ("ELI_MIC_DEVICE_INDEX", "ELI_MIC_AUTORESOLVE", "PULSE_SOURCE",
-                "ELI_MIC_PROBE_TIMEOUT", "ELI_MIC_PROBE_MAX"):
+                "ELI_MIC_PULSE_SOURCE", "ELI_MIC_PROBE_TIMEOUT", "ELI_MIC_PROBE_MAX"):
         monkeypatch.delenv(var, raising=False)
     yield
     mr._CACHED = None
@@ -61,16 +61,15 @@ def test_picks_first_live_candidate(monkeypatch):
     assert "alsa_input.built_in" in c.reason
 
 
-def test_bluetooth_default_is_used_when_live(monkeypatch):
-    # When the default route (no pin) is already live — e.g. a working BT mic —
-    # it is chosen first and no PULSE_SOURCE pin is applied.
-    cands = [(20, None, "pulse:default-source", "pulse"),
-             (20, "alsa_input.built_in", "pulse:alsa_input.built_in", "pulse")]
+def test_default_source_is_pinned_when_live(monkeypatch):
+    # Explicit default-source pin is tried before the unpinned default route.
+    cands = [(20, "bluez_input.default", "pulse:bluez_input.default", "pulse"),
+             (20, None, "pulse:default-source", "pulse")]
     monkeypatch.setattr(mr, "_candidates", lambda: cands)
-    monkeypatch.setattr(mr, "_probe", lambda idx, src, t: src is None)
+    monkeypatch.setattr(mr, "_probe", lambda idx, src, t: src == "bluez_input.default")
     c = mr.resolve_capture()
     assert c.device_index == 20
-    assert c.pulse_source is None
+    assert c.pulse_source == "bluez_input.default"
 
 
 def test_fallback_when_nothing_live(monkeypatch):
@@ -142,3 +141,72 @@ def test_diagnostics_shape_without_probe():
 
 def test_module_imports_clean():
     importlib.reload(mr)
+
+
+def test_rank_usb_before_analog():
+    assert mr._rank_hardware_name("Trust GXT USB Audio")[0] < mr._rank_hardware_name("HDA Analog")[0]
+
+
+def test_linux_hardware_usb_before_pulse(monkeypatch):
+    monkeypatch.setattr(mr.sys, "platform", "linux")
+    devices = [
+        (0, "default"),
+        (3, "Trust GXT 232 Microphone: USB Audio (hw:1,0)"),
+        (5, "pulse"),
+    ]
+    monkeypatch.setattr(mr, "_input_device_indices", lambda: devices)
+    monkeypatch.setattr(mr, "_pulse_device_index", lambda: 5)
+    monkeypatch.setattr(
+        mr,
+        "_pulse_sources",
+        lambda: (["alsa_input.usb-trust"], "alsa_input.usb-trust"),
+    )
+    cands = mr._candidates()
+    labels = [c[2] for c in cands]
+    assert labels[0] == "portaudio:3:Trust GXT 232 Microphone: USB Audio (hw:1,0)"
+    usb_pos = next(i for i, l in enumerate(labels) if l.startswith("portaudio:3:"))
+    pulse_pos = next(i for i, l in enumerate(labels) if l.startswith("pulse:"))
+    assert usb_pos < pulse_pos
+
+
+def test_usb_hardware_wins_over_silent_pulse(monkeypatch):
+    cands = [
+        (3, None, "portaudio:3:Trust USB", "Trust USB"),
+        (5, "alsa_input.default", "pulse:alsa_input.default", "pulse"),
+    ]
+    monkeypatch.setattr(mr, "_candidates", lambda: cands)
+
+    def probe(idx, src, t):
+        return idx == 3
+
+    monkeypatch.setattr(mr, "_probe", probe)
+    c = mr.resolve_capture()
+    assert c.device_index == 3
+    assert c.pulse_source is None
+    assert c.device_name == "Trust USB"
+    assert "probed live" in c.reason
+
+
+def test_eli_mic_pulse_source_falls_back_to_hardware(monkeypatch):
+    monkeypatch.setenv("ELI_MIC_PULSE_SOURCE", "dead.source")
+    monkeypatch.setattr(mr, "_pulse_device_index", lambda: 5)
+    monkeypatch.setattr(mr, "_candidates", lambda: [(3, None, "portaudio:3:USB", "USB")])
+    calls = []
+
+    def probe(idx, src, t):
+        calls.append((idx, src))
+        return idx == 3
+
+    monkeypatch.setattr(mr, "_probe", probe)
+    c = mr.resolve_capture()
+    assert calls[0] == (5, "dead.source")
+    assert c.device_index == 3
+    assert c.device_name == "USB"
+
+
+def test_explicit_override_records_device_name(monkeypatch):
+    monkeypatch.setenv("ELI_MIC_DEVICE_INDEX", "7")
+    monkeypatch.setattr(mr, "_device_name_at", lambda idx: "Mock USB Mic" if idx == 7 else None)
+    c = mr.resolve_capture()
+    assert c.device_index == 7
+    assert c.device_name == "Mock USB Mic"

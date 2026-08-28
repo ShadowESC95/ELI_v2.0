@@ -193,9 +193,9 @@ def _probe_timeout() -> float:
 
 def _max_candidates() -> int:
     try:
-        return max(1, int(os.environ.get("ELI_MIC_PROBE_MAX", "8")))
+        return max(1, int(os.environ.get("ELI_MIC_PROBE_MAX", "16")))
     except (TypeError, ValueError):
-        return 8
+        return 16
 
 
 # ── PortAudio enumeration (in-process: enumeration is safe; opening is not) ──
@@ -356,6 +356,30 @@ def _probe(device_index: Optional[int], pulse_source: Optional[str], timeout: fl
         return False
 
 
+def _rank_hardware_name(name: str) -> tuple:
+    """USB / default ALSA inputs before virtual resamplers (lavrate, speexrate, …)."""
+    low = (name or "").lower()
+    if "usb" in low:
+        return (0, name)
+    if name == "default":
+        return (1, name)
+    if low.startswith("hw:") or "hw:" in low:
+        return (2, name)
+    if "analog" in low or "mic" in low:
+        return (3, name)
+    # pulse-adjacent resamplers sit above bare HDA outputs but below real mics
+    if low in {"lavrate", "samplerate", "speexrate", "upmix", "vdownmix", "iec958", "spdif", "a52", "speex"}:
+        return (9, name)
+    return (5, name)
+
+
+def _hardware_portaudio_candidates() -> List[Tuple[Optional[int], Optional[str], str, Optional[str]]]:
+    """Direct PortAudio inputs (ALSA/USB), best-first — not the pulse wrapper."""
+    items = [(idx, nm) for idx, nm in _input_device_indices() if nm not in ("pulse", "")]
+    items.sort(key=lambda t: _rank_hardware_name(t[1]))
+    return [(idx, None, f"portaudio:{idx}:{nm}", nm) for idx, nm in items]
+
+
 def _candidates() -> List[Tuple[Optional[int], Optional[str], str, Optional[str]]]:
     """Ordered (device_index, pulse_source, label, device_name) candidates to probe.
 
@@ -364,15 +388,21 @@ def _candidates() -> List[Tuple[Optional[int], Optional[str], str, Optional[str]
     """
     cands: List[Tuple[Optional[int], Optional[str], str, Optional[str]]] = []
     if sys.platform.startswith("linux"):
+        # Hardware ALSA/USB first — closer to v2.1.x behaviour and avoids pulse
+        # wrapper streams that probe LIVE at 16 kHz yet stay silent under sr's
+        # native sample rate in AppImage builds.
+        cands.extend(_hardware_portaudio_candidates())
         pulse_idx = _pulse_device_index()
+        sources, default = _pulse_sources()
         if pulse_idx is not None:
-            # Default route first (no pin), then each real source explicitly.
+            if default:
+                cands.append((pulse_idx, default, f"pulse:{default}", "pulse"))
             cands.append((pulse_idx, None, "pulse:default-source", "pulse"))
-            sources, default = _pulse_sources()
             for s in sources:
                 if default and s == default:
-                    continue  # already covered by the default-route probe
+                    continue
                 cands.append((pulse_idx, s, f"pulse:{s}", "pulse"))
+        if cands:
             return cands
     # Generic (macOS/Windows, or Linux without a Pulse route): PortAudio devices.
     for idx, nm in _input_device_indices():
@@ -388,11 +418,34 @@ def resolve_capture(force: bool = False) -> CaptureChoice:
     if _CACHED is not None and not force:
         return _CACHED
 
-    # 1) Explicit override — honoured verbatim, no probing.
+    explicit_pulse = os.environ.get("ELI_MIC_PULSE_SOURCE", "").strip()
+    if explicit_pulse:
+        pulse_idx = _pulse_device_index()
+        choice = CaptureChoice(
+            pulse_idx,
+            explicit_pulse,
+            f"ELI_MIC_PULSE_SOURCE override ({explicit_pulse})",
+            "pulse" if pulse_idx is not None else None,
+        )
+        if _probe(pulse_idx, explicit_pulse, _probe_timeout()):
+            _CACHED = choice
+            return _CACHED
+        log.warning(
+            "[MIC] ELI_MIC_PULSE_SOURCE=%r did not deliver audio during probe — falling back",
+            explicit_pulse,
+        )
+
+    # 1) Explicit PortAudio index — honoured verbatim, no probing.
     explicit = os.environ.get("ELI_MIC_DEVICE_INDEX")
     if explicit is not None:
         try:
-            _CACHED = CaptureChoice(int(explicit), None, "ELI_MIC_DEVICE_INDEX override")
+            idx = int(explicit)
+            _CACHED = CaptureChoice(
+                idx,
+                None,
+                "ELI_MIC_DEVICE_INDEX override",
+                device_name=_device_name_at(idx),
+            )
             return _CACHED
         except (TypeError, ValueError):
             log.debug("mic_resolver: invalid ELI_MIC_DEVICE_INDEX=%r, ignoring", explicit, exc_info=True)
@@ -412,8 +465,13 @@ def resolve_capture(force: bool = False) -> CaptureChoice:
             # re-looking it up here would race the very instability we guard against.
             _CACHED = CaptureChoice(device_index, pulse_source, f"probed live: {label}",
                                     device_name=device_name)
-            log.debug(f"[MIC] resolved capture → {_CACHED.reason} "
-                      f"(index={device_index}, name={_CACHED.device_name!r})")
+            log.info(
+                "[MIC] Auto-selected input: %s (index=%s, name=%r%s)",
+                label,
+                device_index,
+                device_name,
+                f", pulse={pulse_source!r}" if pulse_source else "",
+            )
             return _CACHED
 
     # 4) Nothing probed live — fall back to OS default; the STT calibration
@@ -452,6 +510,16 @@ def _run_probe(device_arg: str, source_arg: str) -> int:
         print(f"DEAD import: {e}")
         return 2
 
+    def _native_rate(p, idx: Optional[int]) -> int:
+        try:
+            info = p.get_device_info_by_index(idx) if idx is not None else p.get_default_input_device_info()
+            rate = int(float(info.get("defaultSampleRate") or 16000))
+            return max(8000, min(rate, 48000))
+        except Exception:
+            return 16000
+
+    min_rms = int(os.environ.get("ELI_MIC_PROBE_MIN_RMS", "50"))
+
     # Every other PyAudio construction in this module already runs under
     # _quiet_alsa(); this one did not, and it is the probe that actually runs at
     # startup — so the ALSA/JACK enumeration storm (dmix, "Unknown PCM
@@ -473,19 +541,24 @@ def _run_probe(device_arg: str, source_arg: str) -> int:
                         idx = int(p.get_default_input_device_info().get("index"))
                     except Exception:
                         idx = None
+            rate = _native_rate(p, idx)
             st = p.open(
                 format=pyaudio.paInt16,
                 channels=1,
-                rate=16000,
+                rate=rate,
                 input=True,
                 input_device_index=idx,
                 frames_per_buffer=1024,
             )
             frames = b""
-            for _ in range(16):  # ~1s at 16 kHz / 1024
+            for _ in range(16):  # ~1s
                 frames += st.read(1024, exception_on_overflow=False)
             st.close()
-        print(f"LIVE rms={audioop.rms(frames, 2)} bytes={len(frames)}")
+        rms = audioop.rms(frames, 2) if frames else 0
+        if len(frames) < 512 or rms < min_rms:
+            print(f"DEAD silent rms={rms} rate={rate} bytes={len(frames)}")
+            return 3
+        print(f"LIVE rms={rms} rate={rate} bytes={len(frames)}")
         return 0
     except Exception as e:
         print(f"DEAD open/read: {e}")
