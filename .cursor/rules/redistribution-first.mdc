@@ -1,0 +1,26 @@
+---
+description: ELI is redistributed software — every change must work for varied users, OS, and hardware
+alwaysApply: true
+---
+
+# Redistribution-first engineering
+
+ELI ships to **many different users** on **different machines**, **operating systems**, **hardware**, and **software stacks**. Every feature must work to the **full extent of its abilities** on each target — not just on the developer's box.
+
+## Non-negotiables
+
+- **No personal hacks in product code or docs.** Never hardcode a device index, mic name, GPU layer count, path, or env var that only worked on one machine. Your debug workaround (`ELI_MIC_DEVICE_INDEX=3`, etc.) is not the shipping design.
+- **Auto-detect, probe, rank, then fall back.** Prefer runtime discovery (PortAudio enumeration, live probes, OS APIs, `platform_compat`) over assumptions about what the user has plugged in.
+- **Cross-platform by default.** Linux, macOS, and Windows (and headless/Android where applicable) get the same *policy*; platform-specific code lives in one place (`platform_compat`, `mic_resolver`, per-OS backends), not copy-pasted forks.
+- **Graceful degradation, not silent failure.** If a capability cannot run on this OS/hardware, fail loudly with a clear reason and a generic diagnostic (`mic_diag`, logs), not a dead mic with no feedback.
+- **Docs and examples are generic.** Show `python -m eli.tools.mic_diag` → use **that user's** index. Example device names (AirPods, Turtle Beach Chat, USB headset) illustrate *types*, not required hardware.
+
+## When implementing or reviewing
+
+Ask: *Would this work unchanged for a user on Windows + Turtle Beach, macOS + AirPods, Linux + USB mic, or built-in only — without reading our chat history?*
+
+If no, fix the code — do not document a manual override as the primary path.
+
+## v2 and v3
+
+Apply the same redistribution standard to **ELI_v2.0** and **ELI_v3.0**. Port cross-cutting fixes (audio, platform, security) to both when they share behavior.
