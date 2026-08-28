@@ -763,7 +763,7 @@ def _get_current_volume() -> Optional[str]:
         if vol is not None:
             return f"{int(vol)}%"
     except Exception:
-        pass
+        log.debug("[AUDIO] platform volume read failed", exc_info=True)
     if _pc.LINUX:
         try:
             out = subprocess.check_output(
@@ -775,7 +775,7 @@ def _get_current_volume() -> Optional[str]:
             if m:
                 return f"{m.group(1)}%"
         except Exception:
-            pass
+            log.debug("[AUDIO] pactl volume read failed", exc_info=True)
     return None
 
 
@@ -786,7 +786,7 @@ def _set_volume(level: str) -> None:
         if pct.isdigit() and _pc.set_volume(int(pct)):
             return
     except Exception:
-        pass
+        log.debug("[AUDIO] platform volume set failed", exc_info=True)
     if _pc.LINUX:
         try:
             subprocess.Popen(
@@ -795,7 +795,7 @@ def _set_volume(level: str) -> None:
                 stderr=subprocess.DEVNULL,
             )
         except Exception:
-            pass
+            log.debug("[AUDIO] pactl volume set failed", exc_info=True)
 
 
 def _duck(prev_vol: Optional[str]) -> None:

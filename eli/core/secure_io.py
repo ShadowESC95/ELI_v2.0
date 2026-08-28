@@ -26,6 +26,10 @@ import tempfile
 from pathlib import Path
 from typing import Union
 
+from eli.utils.log import get_logger
+
+log = get_logger(__name__)
+
 __all__ = ["secure_write_text", "secure_write_bytes"]
 
 
@@ -46,7 +50,7 @@ def _apply_private_acl(path: Path) -> None:
             timeout=10,
         )
     except Exception:
-        pass
+        log.debug("[SECURE_IO] Windows private ACL apply failed", exc_info=True)
 
 
 def secure_write_bytes(path: Union[str, "os.PathLike[str]"], data: bytes,
