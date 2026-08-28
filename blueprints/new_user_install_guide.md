@@ -1,19 +1,14 @@
 # ELI v2.0 — New User Installation Guide
 
-> **Updated for v2.3.30 (August 2026).** The primary way to install ELI is now the
-> **prebuilt installers on GitHub Releases** — `ELI-Setup-<v>.exe` (Windows),
-> the `.dmg` (macOS, Apple Silicon), the `.AppImage` (Linux). The Linux AppImage and
-> Windows installer are built and launch-tested in CI; the macOS `.dmg` is built on a
-> Mac and provided best-effort (not verified in CI). First launch offers GPU acceleration (NVIDIA CUDA /
-> AMD Vulkan; Apple Metal is built in) and a starter model sized to your
-> hardware. Data lives in a per-user `ELI_v2` folder and survives upgrades;
-> `--fresh-start` resets it. Everything below remains valid for
-> **source installs** (clone + `install.sh`) and the classic portable tarball.
+> **Updated for v2.3.32 (August 2026).** **AUDIO IS BACK** — cross-platform microphone
+> auto-resolve (no env vars on Linux/macOS/Windows). Primary install: prebuilt installers on
+> [GitHub Releases](https://github.com/ShadowESC95/ELI_v2.0/releases/tag/v2.3.32) —
+> `ELI-Setup-<v>.exe` (Windows), `.dmg` (macOS Apple Silicon), `.AppImage` (Linux).
 
 
-**Version:** 2.3.30  
+**Version:** 2.3.32  
 **Audience:** First-time users on Linux, Windows, or macOS  
-**Release page:** https://github.com/ShadowESC95/ELI_v2.0/releases/tag/v2.3.30
+**Release page:** https://github.com/ShadowESC95/ELI_v2.0/releases/tag/v2.3.32
 
 ---
 
@@ -62,9 +57,9 @@ ELI is a **local-first AI assistant**. Everything runs on your computer:
 
 ```bash
 cd ~/Desktop
-wget https://github.com/ShadowESC95/ELI_v2.0/releases/download/v2.3.30/ELI_v2-2.3.30-linux-portable.tar.gz
-tar -xzf ELI_v2-2.3.30-linux-portable.tar.gz
-cd ELI_v2-2.3.30-linux-portable
+wget https://github.com/ShadowESC95/ELI_v2.0/releases/download/v2.3.32/ELI_v2-2.3.32-linux-portable.tar.gz
+tar -xzf ELI_v2-2.3.32-linux-portable.tar.gz
+cd ELI_v2-2.3.32-linux-portable
 ```
 
 ### 4.2 First-time setup (run once)
@@ -120,7 +115,7 @@ chmod +x INSTALL_ELI.sh RUN_ELI.sh install.sh
 ### 4.4 Daily use (after setup)
 
 ```bash
-cd ~/Desktop/ELI_v2-2.3.30-linux-portable
+cd ~/Desktop/ELI_v2-2.3.32-linux-portable
 
 # Desktop GUI
 ./RUN_ELI.sh
@@ -172,9 +167,9 @@ sudo ufw allow from 192.168.1.0/24 to any port 8443 proto tcp
 
 ```bash
 cd ~/Desktop
-wget https://github.com/ShadowESC95/ELI_v2.0/releases/download/v2.3.30/ELI_v2-2.3.30-x86_64.AppImage
-chmod +x ELI_v2-2.3.30-x86_64.AppImage
-./ELI_v2-2.3.30-x86_64.AppImage
+wget https://github.com/ShadowESC95/ELI_v2.0/releases/download/v2.3.32/ELI_v2-2.3.32-x86_64.AppImage
+chmod +x ELI_v2-2.3.32-x86_64.AppImage
+./ELI_v2-2.3.32-x86_64.AppImage
 ```
 
 **What happens on first launch:**
@@ -210,10 +205,10 @@ Or use the app-menu icons installed during first run.
 
 ### 5.1 Download
 
-From https://github.com/ShadowESC95/ELI_v2.0/releases/tag/v2.3.30:
+From https://github.com/ShadowESC95/ELI_v2.0/releases/tag/v2.3.32:
 
-- **Portable:** `ELI_v2-2.3.30-windows-x64.zip` — extract anywhere
-- **Installer:** `ELI-Setup-2.3.30.exe` — graphical install (per-user, no admin; shows the licence first)
+- **Portable:** `ELI_v2-2.3.32-windows-x64.zip` — extract anywhere
+- **Installer:** `ELI-Setup-2.3.32.exe` — graphical install (per-user, no admin; shows the licence first)
 
 ### 5.2 First-time setup
 
@@ -295,9 +290,9 @@ macOS uses the same `install.sh` as Linux (Metal GPU instead of CUDA).
 
 ```bash
 cd ~/Desktop
-curl -LO https://github.com/ShadowESC95/ELI_v2.0/releases/download/v2.3.30/ELI_v2-2.3.30-linux-portable.tar.gz
-tar -xzf ELI_v2-2.3.30-linux-portable.tar.gz
-cd ELI_v2-2.3.30-linux-portable
+curl -LO https://github.com/ShadowESC95/ELI_v2.0/releases/download/v2.3.32/ELI_v2-2.3.32-linux-portable.tar.gz
+tar -xzf ELI_v2-2.3.32-linux-portable.tar.gz
+cd ELI_v2-2.3.32-linux-portable
 chmod +x ELI_Setup.sh
 ./ELI_Setup.sh
 ```
@@ -347,7 +342,7 @@ After install, ELI opens a setup window. Complete these steps:
 **If you answered onboarding wrong**, reset and start over:
 
 ```bash
-cd /path/to/ELI_v2-2.3.30-linux-portable   # or your install root
+cd /path/to/ELI_v2-2.3.32-linux-portable   # or your install root
 export ELI_PROJECT_ROOT="$PWD" PYTHONPATH="$PWD"
 .venv/bin/python <<'PY'
 from pathlib import Path
@@ -377,7 +372,7 @@ PY
 ## 8. Folder layout (where your data lives)
 
 ```
-ELI_v2-2.3.30-linux-portable/
+ELI_v2-2.3.32-linux-portable/
   .venv/                  Python environment (created by install)
   models/
     gguf/                 Chat models you download
@@ -447,14 +442,14 @@ Open the `https://` URL on the phone and accept the certificate warning.
 You are in the wrong directory. Either:
 
 ```bash
-cd /path/to/ELI_v2-2.3.30-linux-portable
+cd /path/to/ELI_v2-2.3.32-linux-portable
 ./scripts/eli_serve.sh --lan --https
 ```
 
 Or use the full path:
 
 ```bash
-/home/you/Desktop/ELI_v2-2.3.30-linux-portable/scripts/eli_serve.sh --lan --https
+/home/you/Desktop/ELI_v2-2.3.32-linux-portable/scripts/eli_serve.sh --lan --https
 ```
 
 ### Only 9–10 GPU layers on 8 GB card
@@ -483,22 +478,22 @@ Safe to run multiple times — idempotent.
 ### Linux portable — full first install
 
 ```bash
-wget https://github.com/ShadowESC95/ELI_v2.0/releases/download/v2.3.30/ELI_v2-2.3.30-linux-portable.tar.gz
-tar -xzf ELI_v2-2.3.30-linux-portable.tar.gz
-cd ELI_v2-2.3.30-linux-portable
+wget https://github.com/ShadowESC95/ELI_v2.0/releases/download/v2.3.32/ELI_v2-2.3.32-linux-portable.tar.gz
+tar -xzf ELI_v2-2.3.32-linux-portable.tar.gz
+cd ELI_v2-2.3.32-linux-portable
 chmod +x ELI_Setup.sh && ./ELI_Setup.sh
 ```
 
 ### Linux — daily desktop
 
 ```bash
-cd ELI_v2-2.3.30-linux-portable && ./RUN_ELI.sh
+cd ELI_v2-2.3.32-linux-portable && ./RUN_ELI.sh
 ```
 
 ### Linux — phone server with voice
 
 ```bash
-cd ELI_v2-2.3.30-linux-portable && ./scripts/eli_serve.sh --lan --https
+cd ELI_v2-2.3.32-linux-portable && ./scripts/eli_serve.sh --lan --https
 ```
 
 ### Windows — first install
@@ -523,8 +518,8 @@ eli.bat
 ### macOS — first install
 
 ```bash
-tar -xzf ELI_v2-2.3.30-linux-portable.tar.gz
-cd ELI_v2-2.3.30-linux-portable
+tar -xzf ELI_v2-2.3.32-linux-portable.tar.gz
+cd ELI_v2-2.3.32-linux-portable
 chmod +x ELI_Setup.sh && ./ELI_Setup.sh
 ```
 
@@ -555,4 +550,4 @@ After install, ELI runs **offline by default**. Only deliberate actions (web sea
 
 ---
 
-*ELI v2.0 — local, private, yours. This guide matches release v2.3.30.*
+*ELI v2.0 — local, private, yours. This guide matches release v2.3.32.*

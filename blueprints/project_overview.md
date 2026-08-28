@@ -1,10 +1,8 @@
 # ELI MKXI — Full Project Breakdown & Assessment
 
-> **Updated for v2.3.30 (August 2026).** The primary install path is now the
-> prebuilt, CI-launch-tested installers on GitHub Releases (Windows Setup.exe,
-> macOS dmg, Linux AppImage) with first-boot GPU (CUDA/Vulkan/Metal) and
-> starter-model offers; data lives in a per-user `ELI_v2` folder that survives
-> upgrades. Source installs below remain fully supported.
+> **Updated for v2.3.32 (August 2026).** v2.3.32 restores cross-platform microphone
+> auto-resolve (USB / Bluetooth / headset before built-in; live subprocess probes; Linux
+> PipeWire/Pulse pin). Primary install: CI-launch-tested installers on GitHub Releases.
 
 
 A grounded, total-project read: what ELI is, its scale and shape, the
@@ -43,7 +41,7 @@ wrapper.
 
 ## 2. Scale & shape
 
-**180,100 LOC across 421 Python files** (`eli/`), plus the FastAPI web server
+**180,364 LOC across 421 Python files** (`eli/`), plus the FastAPI web server
 (`api/server.py`, ~2,309 lines with an embedded dashboard PWA) and 389 test files.
 *(measured 2026-08-28.)*
 
@@ -64,9 +62,9 @@ wrapper.
 | `world/` | 1.8k | 26 | world event bus, local world bridge |
 | `integrations/`,`utils/`,`contracts/`,`system/`,`cli/` | ~5.5k | — | misc |
 
-**Four files carry ~⅓ of the codebase:** `executor_enhanced.py` (15.9k LOC),
-`engine.py` (15.2k), `gui/eli_pro_audio_gui_v2_0.py` (12.6k),
-`router_enhanced.py` (8.2k). Next tier: `labs_tab.py` (5.7k),
+**Four files carry ~⅓ of the codebase:** `executor_enhanced.py` (~15.9k LOC),
+`engine.py` (~15.2k), `gui/eli_pro_audio_gui_v2_0.py` (~12.6k),
+`router_enhanced.py` (~8.2k). Next tier: `labs_tab.py` (5.7k),
 `memory.py` (4.5k), `deterministic_grounding_gate.py` (4.3k).
 
 ## 3. Architecture, layer by layer
@@ -147,7 +145,7 @@ wrapper.
    `experimental/*.zip` binaries. Makes the repo look less serious than the code
    is.
 5. **Tests are GREEN (measured 2026-08-28).** 389 test files; `pytest tests/` =
-   **10,894 passed / 54 skipped / 2 xfailed** (~13.5 min on the `.venv`/GPU). The 5
+   **10,970 collected / 10,900+ passed / 54 skipped / 2 xfailed** (~13.5 min on the `.venv`/GPU). The 5
    former reds (deprecated `smart_home` plugin, silent-swallow ratchet, stale blueprint
    ref) were all cleared 2026-07-03. The
    `tests/claims/` contract layer makes it a real safety net.
