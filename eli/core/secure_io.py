@@ -29,6 +29,26 @@ from typing import Union
 __all__ = ["secure_write_text", "secure_write_bytes"]
 
 
+def _apply_private_acl(path: Path) -> None:
+    """Best-effort owner-only ACL on Windows; POSIX mode already set on tmp."""
+    if os.name != "nt":
+        return
+    user = os.environ.get("USERNAME") or os.environ.get("USER")
+    if not user:
+        return
+    try:
+        import subprocess
+
+        subprocess.run(
+            ["icacls", str(path), "/inheritance:r", "/grant:r", f"{user}:(F)"],
+            capture_output=True,
+            check=False,
+            timeout=10,
+        )
+    except Exception:
+        pass
+
+
 def secure_write_bytes(path: Union[str, "os.PathLike[str]"], data: bytes,
                        *, mode: int = 0o600) -> Path:
     """Atomically write ``data`` to ``path`` such that the file is never
@@ -54,6 +74,7 @@ def secure_write_bytes(path: Union[str, "os.PathLike[str]"], data: bytes,
         except OSError:
             pass
         os.replace(tmp, dest)  # atomic on the same filesystem
+        _apply_private_acl(dest)
     except Exception:
         try:
             os.unlink(tmp)

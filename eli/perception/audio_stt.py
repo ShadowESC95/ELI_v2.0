@@ -297,6 +297,9 @@ _ECHO_CANCEL_MODULE_ID: Optional[str] = None
 
 def _unload_echo_cancel() -> None:
     """Unload module-echo-cancel, but only if WE loaded it."""
+    from eli.utils import platform_compat as _pc
+    if not _pc.LINUX:
+        return
     global _ECHO_CANCEL_MODULE_ID
     mod = _ECHO_CANCEL_MODULE_ID
     if not mod:
@@ -329,6 +332,9 @@ def ensure_echo_cancel() -> bool:
     pactl is unavailable. Returns True when AEC is active.
     """
     global _ECHO_CANCEL_MODULE_ID
+    from eli.utils import platform_compat as _pc
+    if not _pc.LINUX:
+        return False
     if os.environ.get("ELI_STT_ECHO_CANCEL", "0").lower() not in ("1", "true", "yes", "on"):
         return False
     if not shutil.which("pactl"):
@@ -744,29 +750,45 @@ _VOL_RE = re.compile(r"(\d+)%")
 
 
 def _get_current_volume() -> Optional[str]:
+    from eli.utils import platform_compat as _pc
     try:
-        out = subprocess.check_output(
-            ["pactl", "get-sink-volume", "@DEFAULT_SINK@"],
-            stderr=subprocess.DEVNULL,
-            text=True,
-        )
-        m = _VOL_RE.search(out)
-        if m:
-            return f"{m.group(1)}%"
+        vol = _pc.get_volume()
+        if vol is not None:
+            return f"{int(vol)}%"
     except Exception:
         pass
+    if _pc.LINUX:
+        try:
+            out = subprocess.check_output(
+                ["pactl", "get-sink-volume", "@DEFAULT_SINK@"],
+                stderr=subprocess.DEVNULL,
+                text=True,
+            )
+            m = _VOL_RE.search(out)
+            if m:
+                return f"{m.group(1)}%"
+        except Exception:
+            pass
     return None
 
 
 def _set_volume(level: str) -> None:
+    from eli.utils import platform_compat as _pc
     try:
-        subprocess.Popen(
-            ["pactl", "set-sink-volume", "@DEFAULT_SINK@", str(level)],
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
-        )
+        pct = str(level).strip().rstrip("%")
+        if pct.isdigit() and _pc.set_volume(int(pct)):
+            return
     except Exception:
         pass
+    if _pc.LINUX:
+        try:
+            subprocess.Popen(
+                ["pactl", "set-sink-volume", "@DEFAULT_SINK@", str(level)],
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+            )
+        except Exception:
+            pass
 
 
 def _duck(prev_vol: Optional[str]) -> None:

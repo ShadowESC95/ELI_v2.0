@@ -127,6 +127,9 @@ jobs:
       - name: Bootstrap claims artifacts (manifest + blueprints — fresh-clone path)
         run: python tools/bootstrap_claims_artifacts.py
 
+      - name: Cross-platform audit (Linux-only path / subprocess patterns)
+        run: python tools/audit_cross_platform.py
+
       - name: Cross-platform unit tests (explicit self-contained files — no GGUF / display / generated artifacts)
         run: >
           python -m pytest -q -p no:cacheprovider
@@ -140,6 +143,8 @@ jobs:
           tests/test_device_names.py
           tests/test_install_script.py
           tests/test_document_formats.py
+          tests/test_cross_platform_apps.py
+          tests/test_gpu_detection_cross_platform.py
 
       - name: Claims structural smoke (manifest ↔ executor)
         run: >

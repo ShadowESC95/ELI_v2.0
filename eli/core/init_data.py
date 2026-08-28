@@ -34,6 +34,14 @@ def init_all_data(verbose: bool = False) -> List[Tuple[str, bool, str]]:
     fatal, so the installer/boot continues."""
     results: List[Tuple[str, bool, str]] = []
 
+    try:
+        from eli.utils.platform_compat import musl_libc_hint
+        hint = musl_libc_hint()
+        if hint:
+            results.append(("platform_hint", True, hint))
+    except Exception:
+        pass
+
     def _step(name: str, fn) -> None:
         try:
             detail = fn() or ""

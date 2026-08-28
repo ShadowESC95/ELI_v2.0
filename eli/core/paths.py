@@ -433,6 +433,40 @@ def project_root() -> Path:
         return found
     return Path(__file__).resolve().parents[2]
 
+
+def bundled_asset_path(*relative_parts: str) -> Path | None:
+    """Resolve a shipped asset under ``artifacts/`` (frozen bundle or source tree)."""
+    rel = Path(*relative_parts)
+    roots: list[Path] = []
+    if is_frozen():
+        roots.append(_frozen_base())
+    roots.append(project_root())
+    for root in roots:
+        candidate = (root / "artifacts" / rel).resolve()
+        try:
+            if candidate.is_file():
+                return candidate
+        except OSError:
+            continue
+    return None
+
+
+def bundled_asset_path(*relative_parts: str) -> Path | None:
+    """Resolve a shipped asset under ``artifacts/`` (frozen bundle or source tree)."""
+    rel = Path(*relative_parts)
+    roots: list[Path] = []
+    if is_frozen():
+        roots.append(_frozen_base())
+    roots.append(project_root())
+    for root in roots:
+        candidate = (root / "artifacts" / rel).resolve()
+        try:
+            if candidate.is_file():
+                return candidate
+        except OSError:
+            continue
+    return None
+
 def models_root() -> Path:
     return models_dir()
 

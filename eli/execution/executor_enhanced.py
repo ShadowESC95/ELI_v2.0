@@ -2812,29 +2812,26 @@ def _get_active_player() -> Optional[str]:
 
 
 def _playerctl(cmd: str, player: Optional[str] = None) -> Dict[str, Any]:
-    """Run a targeted playerctl command. Self-contained, no external imports."""
-    pass  # shutil already imported at module level
-    if not shutil.which("playerctl"):
-        return {"ok": False, "error": "playerctl not installed — run: sudo apt install playerctl",
-                "content": "playerctl not installed", "response": "playerctl not installed"}
-    p = player or _get_active_player()
-    if not p:
-        return {"ok": False, "error": "No media player running",
-                "content": "No media player running", "response": "No media player running"}
-    try:
-        r = subprocess.run(["playerctl", "-p", p, cmd], capture_output=True, text=True, timeout=3)
-        if r.returncode == 0:
-            labels = {"play": "▶ Playing", "pause": "⏸ Paused", "stop": "⏹ Stopped",
-                      "next": "⏭ Next track", "previous": "⏮ Previous track"}
-            msg = f"{labels.get(cmd, cmd)} — {p}"
-            return {"ok": True, "player": p, "content": msg, "response": msg}
-        else:
-            msg = f"playerctl {cmd} failed: {r.stderr.strip() or 'unknown error'}"
-            return {"ok": False, "player": p, "error": r.stderr.strip(), "content": msg, "response": msg}
-    except subprocess.TimeoutExpired:
-        return {"ok": False, "error": f"playerctl {cmd} timed out", "content": "Command timed out", "response": "Command timed out"}
-    except Exception as e:
-        return {"ok": False, "error": str(e), "content": str(e), "response": str(e)}
+    """Run a media control command via the shared playerctl_backend."""
+    from eli.integrations.mpris import playerctl_backend as pb
+
+    dispatch = {
+        "play": pb.play,
+        "pause": pb.pause,
+        "stop": pb.stop,
+        "next": pb.next_track,
+        "previous": pb.previous_track,
+        "play-pause": pb.play_pause,
+    }
+    fn = dispatch.get(cmd)
+    if not fn:
+        return {
+            "ok": False,
+            "error": f"unsupported media command: {cmd}",
+            "content": f"unsupported media command: {cmd}",
+            "response": f"unsupported media command: {cmd}",
+        }
+    return fn(player)
 
 
 # ── Browser/streaming service → MPRIS player alias map ──────────────────────
@@ -4544,7 +4541,7 @@ def _speak_legacy(text: str):
 
 # --- TTS PATCH ---
 import tempfile
-from eli.utils.platform_compat import open_url, open_file, notify, play_sound, WINDOWS
+from eli.utils.platform_compat import open_url, open_file, notify, play_sound, play_alarm_sound, WINDOWS
 
 # ---- Ollama host canonical config ----
 OLLAMA_HOST = (os.environ.get("ELI_OLLAMA_HOST") or os.environ.get("OLLAMA_HOST") or "http://127.0.0.1:11434").rstrip("/")
@@ -6025,21 +6022,19 @@ def _execute_impl(action: str, args: Optional[Dict[str, Any]] = None) -> Dict[st
                 token = str(app_label or "").strip().lower()
                 if not token:
                     return False
+                from eli.utils.platform_compat import LINUX
+                if not LINUX:
+                    from eli.system.portable_app_control import resolve_app
+                    return resolve_app(app_label).source != "unknown"
 
-                roots = [
-                    Path("/usr/share/applications"),
-                    Path.home() / ".local/share/applications",
-                    Path("/var/lib/snapd/desktop/applications"),
-                ]
-
-                for root in roots:
+                from eli.system.portable_app_control import _linux_desktop_dirs
+                for root in _linux_desktop_dirs():
                     try:
                         if root.exists():
                             for _ in root.glob(f"*{token}*.desktop"):
                                 return True
                     except Exception:
                         log.debug("suppressed exception", exc_info=True)
-
                 return False
 
             # Web apps: open in browser rather than trying to install a package
@@ -8780,7 +8775,7 @@ def _execute_impl(action: str, args: Optional[Dict[str, Any]] = None) -> Dict[st
                     except Exception:
                         log.debug("suppressed exception", exc_info=True)
                     try:
-                        play_sound("/usr/share/sounds/freedesktop/stereo/alarm-clock-elapsed.oga")
+                        play_alarm_sound()
                     except Exception:
                         log.debug("suppressed exception", exc_info=True)
                 t = threading.Thread(target=_timer_fire, daemon=True)
@@ -8831,7 +8826,7 @@ def _execute_impl(action: str, args: Optional[Dict[str, Any]] = None) -> Dict[st
                         except Exception:
                             log.debug("suppressed exception", exc_info=True)
                         try:
-                            play_sound("/usr/share/sounds/freedesktop/stereo/alarm-clock-elapsed.oga")
+                            play_alarm_sound()
                         except Exception:
                             log.debug("suppressed exception", exc_info=True)
                     t = threading.Thread(target=_alarm_fire, daemon=True)
@@ -10486,88 +10481,30 @@ def _execute_impl(action: str, args: Optional[Dict[str, Any]] = None) -> Dict[st
         
 
     # ---- Window management (screen control) ────────────────────────────
-    # Tile / arrange windows so all are visible side-by-side. Linux-first.
     if a == "TILE_WINDOWS":
-        if shutil.which("wmctrl"):
-            try:
-                listing = subprocess.run(
-                    ["wmctrl", "-l"], capture_output=True, text=True, timeout=4
-                )
-                window_ids = [line.split()[0] for line in (listing.stdout or "").splitlines() if line.strip()]
-                count = len(window_ids)
-                if count == 0:
-                    msg = "No visible windows to tile."
-                    return {"ok": False, "action": a, "content": msg, "response": msg}
-                geom = subprocess.run(
-                    ["xdpyinfo"], capture_output=True, text=True, timeout=4
-                ).stdout if shutil.which("xdpyinfo") else ""
-                m = re.search(r"dimensions:\s*(\d+)x(\d+)", geom or "")
-                if m:
-                    sw, sh = int(m.group(1)), int(m.group(2))
-                else:
-                    sw, sh = 1920, 1080
-                cols = 2 if count <= 4 else 3
-                rows = (count + cols - 1) // cols
-                cw = sw // cols
-                rh = sh // rows
-                for i, wid in enumerate(window_ids):
-                    row = i // cols
-                    col = i % cols
-                    x, y = col * cw, row * rh
-                    subprocess.run([
-                        "wmctrl", "-i", "-r", wid, "-b", "remove,maximized_vert,maximized_horz"
-                    ], check=False, capture_output=True, timeout=4)
-                    subprocess.run([
-                        "wmctrl", "-i", "-r", wid, "-e", f"0,{x},{y},{cw},{rh}"
-                    ], check=False, capture_output=True, timeout=4)
-                msg = f"Tiled {count} window{'s' if count != 1 else ''} into a {cols}×{rows} grid."
-                return {"ok": True, "action": a, "content": msg, "response": msg,
-                        "count": count, "grid": [cols, rows]}
-            except Exception as e:
-                return {"ok": False, "action": a, "error": str(e),
-                        "content": str(e), "response": str(e)}
-        return {"ok": False, "action": a, "error": "wmctrl not installed",
-                "content": "wmctrl not installed; cannot tile windows.",
-                "response": "wmctrl not installed; cannot tile windows."}
+        from eli.system.portable_app_control import tile_windows
+        out = tile_windows()
+        out.setdefault("action", a)
+        return out
 
     if a == "MINIMISE_ALL":
-        if shutil.which("wmctrl"):
-            ok = _run_ok(["wmctrl", "-k", "on"])
-            msg = "Showed desktop." if ok else "Failed to minimise all windows."
-            return {"ok": ok, "action": a, "content": msg, "response": msg}
-        if shutil.which("xdotool"):
-            ok = _run_ok(["xdotool", "key", "super+d"])
-            msg = "Triggered show-desktop shortcut." if ok else "Failed to minimise all windows."
-            return {"ok": ok, "action": a, "content": msg, "response": msg}
-        return {"ok": False, "action": a, "error": "wmctrl/xdotool not installed",
-                "content": "wmctrl or xdotool required to minimise all windows.",
-                "response": "wmctrl or xdotool required to minimise all windows."}
+        from eli.system.portable_app_control import minimise_all
+        out = minimise_all()
+        out.setdefault("action", a)
+        return out
 
     if a in ("MINIMIZE_APP", "MINIMISE_APP", "HIDE_APP", "MINIMIZE_WINDOW", "MINIMISE_WINDOW"):
-        # Per-app minimise. Delegates to the cross-platform window controller
-        # (Linux wmctrl/xdotool, macOS osascript, Windows ShowWindowAsync,
-        # Android home key). Mirrors the CLOSE_APP branch.
         from eli.system.portable_app_control import minimize_app
         name = str(args.get("name") or args.get("target") or args.get("app") or "").strip()
         return minimize_app(name)
 
     if a == "RESTORE_WINDOWS":
-        if shutil.which("wmctrl"):
-            ok = _run_ok(["wmctrl", "-k", "off"])
-            msg = "Restored windows." if ok else "Failed to restore windows."
-            return {"ok": ok, "action": a, "content": msg, "response": msg}
-        return {"ok": False, "action": a, "error": "wmctrl not installed",
-                "content": "wmctrl required to restore windows.",
-                "response": "wmctrl required to restore windows."}
+        from eli.system.portable_app_control import restore_windows
+        out = restore_windows()
+        out.setdefault("action", a)
+        return out
 
     if a == "MAXIMISE_WINDOW":
-        # The router extracts the target correctly ("maximise prime video" →
-        # window_name="prime video"); this branch used to discard it and
-        # maximise :ACTIVE: regardless, so it always acted on whatever window
-        # happened to be focused. A named target is now honoured, and when the
-        # named window cannot be found we say so instead of falling back to
-        # the active window — acting on a different window than the one asked
-        # for is the defect, not a graceful degradation.
         _mx_name = str(
             args.get("name") or args.get("target") or args.get("app")
             or args.get("window_name") or args.get("window") or ""
@@ -10580,74 +10517,39 @@ def _execute_impl(action: str, args: Optional[Dict[str, Any]] = None) -> Dict[st
             _mx = maximize_app(_mx_name)
             _mx.setdefault("action", a)
             return _mx
-
-        if shutil.which("wmctrl"):
-            ok = _run_ok(["wmctrl", "-r", ":ACTIVE:", "-b", "add,maximized_vert,maximized_horz"])
-            msg = "Maximised current window." if ok else "Failed to maximise window."
-            return {"ok": ok, "action": a, "content": msg, "response": msg}
-        if shutil.which("xdotool"):
-            ok = _run_ok(["xdotool", "key", "super+Up"])
-            msg = "Triggered maximise shortcut." if ok else "Failed to maximise window."
-            return {"ok": ok, "action": a, "content": msg, "response": msg}
-        return {"ok": False, "action": a, "error": "wmctrl/xdotool not installed",
-                "content": "wmctrl or xdotool required to maximise.",
-                "response": "wmctrl or xdotool required to maximise."}
+        from eli.system.portable_app_control import maximise_active_window
+        out = maximise_active_window()
+        out.setdefault("action", a)
+        return out
 
     if a == "NEXT_WINDOW":
-        if shutil.which("xdotool"):
-            ok = _run_ok(["xdotool", "key", "alt+Tab"])
-            msg = "Switched to next window." if ok else "Failed to switch window."
-            return {"ok": ok, "action": a, "content": msg, "response": msg}
-        return {"ok": False, "action": a, "error": "xdotool not installed",
-                "content": "xdotool required to cycle windows.",
-                "response": "xdotool required to cycle windows."}
+        from eli.system.portable_app_control import next_window
+        out = next_window()
+        out.setdefault("action", a)
+        return out
 
     if a == "PREVIOUS_WINDOW":
-        if shutil.which("xdotool"):
-            ok = _run_ok(["xdotool", "key", "alt+shift+Tab"])
-            msg = "Switched to previous window." if ok else "Failed to switch window."
-            return {"ok": ok, "action": a, "content": msg, "response": msg}
-        return {"ok": False, "action": a, "error": "xdotool not installed",
-                "content": "xdotool required to cycle windows.",
-                "response": "xdotool required to cycle windows."}
+        from eli.system.portable_app_control import previous_window
+        out = previous_window()
+        out.setdefault("action", a)
+        return out
 
     if a == "SWITCH_WORKSPACE":
+        from eli.system.portable_app_control import switch_workspace
         direction = str(args.get("direction") or "right").lower()
-        if shutil.which("xdotool"):
-            key = "ctrl+alt+Right" if direction == "right" else "ctrl+alt+Left"
-            ok = _run_ok(["xdotool", "key", key])
-            msg = f"Switched workspace {direction}." if ok else "Failed to switch workspace."
-            return {"ok": ok, "action": a, "content": msg, "response": msg}
-        return {"ok": False, "action": a, "error": "xdotool not installed",
-                "content": "xdotool required to switch workspaces.",
-                "response": "xdotool required to switch workspaces."}
+        out = switch_workspace(direction)
+        out.setdefault("action", a)
+        return out
 
     if a == "FOCUS_APP":
         name = str(args.get("name") or args.get("app") or "").strip()
         if not name:
             return {"ok": False, "action": a, "error": "missing app name",
                     "content": "Specify app to focus.", "response": "Specify app to focus."}
-        if shutil.which("wmctrl"):
-            ok = _run_ok(["wmctrl", "-a", name])
-            msg = f"Focused {name}." if ok else f"Could not focus {name} — window not found."
-            return {"ok": ok, "action": a, "content": msg, "response": msg}
-        if shutil.which("xdotool"):
-            try:
-                proc = subprocess.run(
-                    ["xdotool", "search", "--name", name],
-                    capture_output=True, text=True, timeout=4
-                )
-                ids = [w for w in (proc.stdout or "").split() if w.strip()]
-                if ids:
-                    ok = _run_ok(["xdotool", "windowactivate", ids[0]])
-                    msg = f"Focused {name}." if ok else f"Could not focus {name}."
-                    return {"ok": ok, "action": a, "content": msg, "response": msg}
-            except Exception as e:
-                return {"ok": False, "action": a, "error": str(e),
-                        "content": str(e), "response": str(e)}
-        return {"ok": False, "action": a, "error": "wmctrl/xdotool not installed",
-                "content": "wmctrl or xdotool required to focus apps.",
-                "response": "wmctrl or xdotool required to focus apps."}
+        from eli.system.portable_app_control import focus_app
+        out = focus_app(name)
+        out.setdefault("action", a)
+        return out
 
     # ---- SCREEN_LOCATE — find/click visible UI text via OCR ─────────────
     if a == "SCREEN_LOCATE":
@@ -13304,14 +13206,21 @@ except NameError:
         }
 
     def _eli_voice_contract_set_volume(percent):
-        import platform
-        import shutil
-        import subprocess
+        from eli.utils import platform_compat as _pc
 
         level = max(0, min(100, int(percent)))
-        system = platform.system().lower()
+        if _pc.set_volume(level):
+            return {
+                "ok": True,
+                "action": "VOLUME",
+                "content": f"Volume set to {level}%",
+                "response": f"Volume set to {level}%",
+            }
 
-        if system == "linux":
+        if _pc.LINUX:
+            import shutil
+            import subprocess
+
             pactl = shutil.which("pactl")
             if pactl:
                 subprocess.run(
@@ -13349,21 +13258,6 @@ except NameError:
                         "content": f"Volume set to {level}%",
                         "response": f"Volume set to {level}%",
                     }
-
-        if system == "darwin":
-            rc = subprocess.run(
-                ["osascript", "-e", f"set volume output volume {level}"],
-                stdout=subprocess.DEVNULL,
-                stderr=subprocess.DEVNULL,
-                check=False,
-            ).returncode
-            if rc == 0:
-                return {
-                    "ok": True,
-                    "action": "VOLUME",
-                    "content": f"Volume set to {level}%",
-                    "response": f"Volume set to {level}%",
-                }
 
         return None
 

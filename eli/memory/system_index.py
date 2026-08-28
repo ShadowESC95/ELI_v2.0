@@ -59,9 +59,12 @@ class SystemIndex:
         self.conn.commit()
     
     def scan_desktop_files(self):
-        """Scan all .desktop files in standard locations."""
+        """Scan all .desktop files in standard locations (Linux only)."""
+        from eli.utils.platform_compat import LINUX
+        if not LINUX:
+            return
         paths = [
-            "/usr/share/applications"  # Linux-only,
+            "/usr/share/applications",
             "/usr/local/share/applications",
             str(Path.home() / ".local/share/applications"),
             str(Path.home() / ".local/share/flatpak/exports/share/applications"),
