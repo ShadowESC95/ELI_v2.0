@@ -2,7 +2,7 @@
 
 > **Purpose.** A systematic, ground-truth catalogue built by reading the real
 > handlers and modules — not summarised from memory. It exists because
-> conversational summaries of a 180k-LOC project keep undershooting; this is the
+> conversational summaries of a ~180k-LOC (`eli/`, 180,364 measured 2026-08-28) project keep undershooting; this is the
 > persisted, exhaustive map. Built in committed batches.
 >
 > **Method.** Action list comes from the live `capability_manifest.json` (**225**

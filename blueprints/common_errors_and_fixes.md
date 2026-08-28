@@ -1,6 +1,6 @@
 # ELI — Common Errors & Fixes
 
-> **Updated for v2.3.30 (August 2026).** The primary install path is now the
+> **Updated for v2.3.32 (August 2026).** The primary install path is now the
 > prebuilt, CI-launch-tested installers on GitHub Releases (Windows Setup.exe,
 > macOS dmg, Linux AppImage) with first-boot GPU (CUDA/Vulkan/Metal) and
 > starter-model offers; data lives in a per-user `ELI_v2` folder that survives
@@ -9,6 +9,31 @@
 
 A quick reference for the gremlins that actually come up when running ELI. Each one is
 symptom → cause → the exact fix. Add new ones as they surface.
+
+---
+
+## Microphone / voice input silent or "ELI can't hear me" (desktop)
+
+**Symptom:** ELI starts, `[AUDIO] Listening...` appears, but nothing is transcribed — or
+you had to set `ELI_MIC_DEVICE_INDEX` manually on v2.3.30.
+**Cause (v2.3.30 regression):** on Linux/PipeWire, PortAudio's `pulse` wrapper often passed a
+short probe yet stayed silent during real STT; on all platforms a webcam or virtual "Stereo Mix"
+default could win over a connected USB/Bluetooth headset.
+**Fix (v2.3.32+):** upgrade to **v2.3.32** — cross-platform ranked auto-resolve probes USB,
+headset/Chat, and Bluetooth endpoints before built-in/webcam/virtual routes, at each device's
+native sample rate. No env vars required on Linux, macOS, or Windows.
+**Diagnostics:**
+```bash
+python -m eli.tools.mic_diag          # lists devices + measures speech vs ambient
+```
+**Manual override (only if auto-resolve picks the wrong endpoint):**
+```bash
+export ELI_MIC_DEVICE_INDEX=3         # PortAudio index from mic_diag
+# Linux PipeWire/Pulse pin (optional):
+export ELI_MIC_PULSE_SOURCE="$(pactl get-default-source)"
+```
+On Windows gaming headsets, set the **Chat** mic (not Game) as the default recording device in
+Sound settings.
 
 ---
 
@@ -158,10 +183,10 @@ The **AppImage** is the easiest path: it bundles its own **Python 3.11**, so Arc
 Python 3.14 (which has no `llama-cpp-python` wheel) is irrelevant, and as of **v2.1.21** it
 bundles every Qt xcb library too. Download and run:
 ```bash
-U=https://github.com/ShadowESC95/ELI_v2.0/releases/download/v2.3.30
-wget "$U/ELI_v2-2.3.30-x86_64.AppImage"
-chmod +x ELI_v2-2.3.30-x86_64.AppImage
-./ELI_v2-2.3.30-x86_64.AppImage
+U=https://github.com/ShadowESC95/ELI_v2.0/releases/download/v2.3.32
+wget "$U/ELI_v2-2.3.32-x86_64.AppImage"
+chmod +x ELI_v2-2.3.32-x86_64.AppImage
+./ELI_v2-2.3.32-x86_64.AppImage
 ```
 **Run it directly** (as above) so it FUSE-mounts in place — `--appimage-extract-and-run`
 unpacks ~4 GB into `/tmp`, which fails with `libz.so.1: file too short` when `/tmp` is a small

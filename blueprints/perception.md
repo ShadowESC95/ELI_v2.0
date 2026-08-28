@@ -8,6 +8,7 @@ subsystem, and OS control. All local, no APIs, no third-party accounts.
 
 | File | LOC | Role |
 |---|---|---|
+| `mic_resolver.py` | ~580 | **cross-platform mic auto-resolve** — ranked PortAudio candidates, isolated live probes, Linux `PULSE_SOURCE` pin |
 | `audio_stt.py` | ~1.6k | STT + mic capture + ducking + adaptive pause + wake/voice capture |
 | `wakeword.py` | ~450 | **self-trained, music-robust wake-word detector** (openWakeWord features + custom head) |
 | `voice_profile.py` | ~420 | **prosody + labelled-emotion** (tone/question detection) |
@@ -43,7 +44,15 @@ The working local-vision stack (see memory `eli-image-analysis`):
   whenever the shared LLM lock is busy** (so it never steals the model
   mid-reply). Stores a short description as memory for rolling awareness.
 
-## Speech-to-text (`audio_stt.py`, `local_whisper_stt.py`)
+## Speech-to-text (`audio_stt.py`, `local_whisper_stt.py`, `mic_resolver.py`)
+
+**Microphone selection (`mic_resolver.py`, v2.3.32).** On every OS, ELI builds a ranked list of
+PortAudio inputs — USB and headset/Bluetooth (AirPods, Turtle Beach Chat, Trust USB, …) before
+built-in, webcam, and virtual loopback routes — and probes each in an isolated subprocess at the
+device's native sample rate until one delivers live audio. Linux additionally tries
+PipeWire/Pulse sources with a process-local `PULSE_SOURCE` pin after direct hardware. Honours
+`ELI_MIC_DEVICE_INDEX` (explicit override) and `ELI_MIC_AUTORESOLVE=0` (OS default only).
+Diagnostic: `python -m eli.tools.mic_diag`.
 
 A large, feature-dense STT module:
 - Mic capture + Whisper transcription (`local_whisper_stt`).

@@ -7,7 +7,7 @@ is observed-at-runtime rather than read-from-code it is marked *(runtime)*.
 > ELI is a **local-first, offline-by-default, model-agnostic** cognitive runtime
 > + assistant GUI (and, as of 2026-06-28, a self-hosted web app — `api/server.py`,
 > documented in `ELI_USER_MANUAL.md`). No cloud, no APIs on the inference path, no hardcoded
-> model. ~180k LOC across 421 Python files (`eli/`) (+ `api/server.py`); 225 capabilities (2026-08-28).
+> model. ~180,364 LOC across 421 Python files (`eli/`) (+ `api/server.py`); 225 capabilities (2026-08-28).
 
 ---
 
@@ -50,7 +50,7 @@ is observed-at-runtime rather than read-from-code it is marked *(runtime)*.
 | `eli/contracts` | 0.7k | 3 | typed pipeline contracts |
 | `eli/system` | 0.3k | 2 | system-level helpers |
 | `eli/cli` | 0.1k | 2 | headless REPL |
-| **total (listed)** | **~180k** | **421** | full `eli/` tree |
+| **total (listed)** | **~180,364** | **421** | full `eli/` tree |
 
 ### The four god-files (refactor targets — see §20)
 | File | LOC |
