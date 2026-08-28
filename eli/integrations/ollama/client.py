@@ -313,7 +313,7 @@ def set_active_model(model: str) -> None:
         from eli.core import config
         config.set("ollama_model", model)
     except Exception:
-        pass
+        _log.debug("ollama_model config write failed", exc_info=True)
 
 
 def set_active_host(host: str) -> None:
@@ -322,7 +322,7 @@ def set_active_host(host: str) -> None:
         from eli.core import config
         config.set("ollama_host", normalise_host(host))
     except Exception:
-        pass
+        _log.debug("ollama_host config write failed", exc_info=True)
 
 
 def get_active_host() -> str:
