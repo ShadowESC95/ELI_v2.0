@@ -1,3 +1,8 @@
+"""Standalone REPL helper for manual agent stepping (dev/diagnostics).
+
+Not wired into ``CognitiveEngine.process()`` — production paths use
+``AgentOrchestrator`` + ``AgentBus``. Run directly: ``python -m eli.planning.agent_loop``.
+"""
 from __future__ import annotations
 
 import json

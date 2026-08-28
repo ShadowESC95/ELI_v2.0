@@ -52,8 +52,13 @@ def test_qt_compat_binding_resolved():
     import eli.gui.qt_compat as qc
     assert qc.QT_API in {"PySide6", "PyQt6", "PyQt5", "headless"}
     # Core symbols are re-exported under one name regardless of binding.
-    for name in ("Qt", "QTimer", "QWidget", "QVBoxLayout", "Signal"):
+    for name in ("Qt", "QTimer", "QWidget", "QVBoxLayout", "Signal", "QDialogButtonBox"):
         assert hasattr(qc, name) or name == "Signal"  # Signal aliased as pyqtSignal
+
+
+def test_ollama_model_selector_imports():
+    from eli.gui.widgets.ollama_model_selector import OllamaModelSelector
+    assert OllamaModelSelector is not None
 
 
 # --------------------------------------------------------------------------- #

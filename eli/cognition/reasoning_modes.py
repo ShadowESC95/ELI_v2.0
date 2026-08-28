@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 import re
-from typing import Any, Dict, Iterable, List
+from typing import Any, Dict, Iterable, List, Optional, Set
 
 PRIVATE_REASONING_MODES = {
     "chain_of_thought",
@@ -629,3 +629,46 @@ def mode_budget_multiplier(mode: object) -> float:
         return max(0.25, float(pct) / 100.0)
     except Exception:
         return 1.0
+
+
+def orchestrator_planner_mode(mode: object) -> str:
+    """Map public/canonical reasoning mode → orchestrator planner profile (fast/balanced/deep)."""
+    key = canonical_mode(mode)
+    return {
+        "quick": "fast",
+        "chain_of_thought": "balanced",
+        "self_consistency": "balanced",
+        "tree_of_thoughts": "deep",
+        "constitutional_ai": "deep",
+    }.get(key, "balanced")
+
+
+def mode_orchestrator_depth(mode: object) -> str:
+    """Gradient depth for CHAT orchestrator: light → standard → full (not a binary cliff)."""
+    key = canonical_mode(mode)
+    if key == "quick":
+        return "light"
+    if key in {"chain_of_thought", "self_consistency"}:
+        return "standard"
+    return "full"
+
+
+def mode_chat_agent_profile(mode: object, *, code_query: bool = False) -> Optional[Set[str]]:
+    """Return agent names for CHAT fan-out, or None for broad (all enabled).
+
+    Quick stays lean; deeper modes widen the specialist set progressively.
+    """
+    key = canonical_mode(mode)
+    if key == "quick":
+        names = {"memory", "system", "orchestrator"}
+        if code_query:
+            names.add("file_code")
+        return names
+    if key == "chain_of_thought":
+        names = {"memory", "system", "orchestrator", "file_code", "capability", "knowledge_graph"}
+        return names
+    if key == "self_consistency":
+        return None  # broad fan-out
+    # research / expert — broad + ensure critic runs via DAG
+    return None
+

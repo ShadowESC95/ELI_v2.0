@@ -70,19 +70,37 @@ class PlannerAgent:
         deep     — full HyDE, large result sets, full ReAct loop
         """
         low = (user_input or "").lower()
-        mode = (reasoning_mode or "balanced").lower()
+        try:
+            from eli.cognition.reasoning_modes import orchestrator_planner_mode as _opm
+            mode = _opm(reasoning_mode or "balanced")
+        except Exception:
+            mode = (reasoning_mode or "balanced").lower()
+            if mode in {"quick", "fast"}:
+                mode = "fast"
+            elif mode in {"research", "expert", "tree_of_thoughts", "constitutional_ai", "deep"}:
+                mode = "deep"
+            else:
+                mode = "balanced"
+
+        # Scale retrieval limits by mode budget (same knob as agent timeouts).
+        try:
+            from eli.cognition.reasoning_modes import mode_budget_multiplier as _mbm
+            _budget = float(_mbm(reasoning_mode or "balanced"))
+        except Exception:
+            _budget = 1.0
 
         doc_query = any(k in low for k in ("document", "file", "pdf", "notes", "codebase"))
         identity  = any(k in low for k in ("who am i", "my name", "remember me"))
         runtime   = any(k in low for k in ("memory function", "memory work", "cognition", "how do you work"))
 
         if mode == "fast":
+            _kw = max(4, int(round(6 * _budget)))
             return {
                 "need_keyword":   True,
                 "need_semantic":  False,      # skip FAISS embedding (saves one LLM call)
                 "need_rag":       False,
                 "need_kg":        identity,
-                "keyword_limit":  6,
+                "keyword_limit":  _kw,
                 "semantic_limit": 0,
                 "rag_limit":      0,
                 "prefer_identity": identity,
@@ -91,14 +109,16 @@ class PlannerAgent:
                 "max_react_iter":  1,
             }
         elif mode == "deep":
+            _kw = max(8, int(round(20 * _budget)))
+            _sem = max(8, int(round(20 * _budget)))
             return {
                 "need_keyword":   True,
                 "need_semantic":  True,
                 "need_rag":       doc_query,
                 "need_kg":        True,
-                "keyword_limit":  20,
-                "semantic_limit": 20,
-                "rag_limit":      15,
+                "keyword_limit":  _kw,
+                "semantic_limit": _sem,
+                "rag_limit":      max(4, int(round(15 * _budget))),
                 "prefer_identity": identity,
                 "prefer_runtime":  runtime,
                 "skip_hyde":       False,
@@ -111,9 +131,9 @@ class PlannerAgent:
                 "need_semantic":  True,
                 "need_rag":       doc_query,
                 "need_kg":        True,
-                "keyword_limit":  _cog_get("cog.orch_keyword_limit"),
-                "semantic_limit": _cog_get("cog.orch_semantic_limit"),
-                "rag_limit":      _cog_get("cog.orch_rag_limit"),
+                "keyword_limit":  max(4, int(round(_cog_get("cog.orch_keyword_limit") * _budget))),
+                "semantic_limit": max(4, int(round(_cog_get("cog.orch_semantic_limit") * _budget))),
+                "rag_limit":      max(2, int(round(_cog_get("cog.orch_rag_limit") * _budget))),
                 "prefer_identity": identity,
                 "prefer_runtime":  runtime,
                 "skip_hyde":       False,
@@ -174,10 +194,9 @@ class OrchestratorMemoryAgent:
             log.debug(f"[ORCHESTRATOR] Error: {e}")
             return q
 
-    def parallel_retrieve(self, user_input: str, hyde_query: str,
+    def sequential_retrieve(self, user_input: str, hyde_query: str,
                           retrieval_plan: Dict[str, Any], ltm: LongTermMemoryRefs):
-        # Sequential — llama_cpp (nomic embedder) is not thread-safe across threads;
-        # concurrent calls from daemon threads segfault the process.
+        """Run retrieval channels in series (embedder is not thread-safe across threads)."""
         keyword_hits: List[Dict[str, Any]] = []
         semantic_hits: List[Dict[str, Any]] = []
         rag_hits: List[Dict[str, Any]] = []
@@ -195,13 +214,16 @@ class OrchestratorMemoryAgent:
             rag_hits = self.document_rag_search(
                 user_input, retrieval_plan.get("rag_limit", 8))
 
-        # KG: always query when planner flagged identity preference, or as a
-        # low-cost default (SQLite lookup, no embedding, no LLM).
         if retrieval_plan.get("prefer_identity") or retrieval_plan.get("need_kg", True):
             kg_hits = self.kg_search(
                 user_input, retrieval_plan.get("kg_limit", 8))
 
         return keyword_hits, semantic_hits, rag_hits, kg_hits
+
+    def parallel_retrieve(self, user_input: str, hyde_query: str,
+                          retrieval_plan: Dict[str, Any], ltm: LongTermMemoryRefs):
+        """Backward-compatible alias — retrieval is sequential (see sequential_retrieve)."""
+        return self.sequential_retrieve(user_input, hyde_query, retrieval_plan, ltm)
 
     def kg_search(self, query: str, limit: int) -> List[Dict[str, Any]]:
         """Query the knowledge graph directly — no recall_memory pass-through.
@@ -582,6 +604,7 @@ class AgentOrchestrator:
                     intent,
                     session_id=self.engine.session_id,
                     user_id=self.engine.user_id,
+                    reasoning_mode=reasoning_mode,
                 )
                 wm.bus_result = bus_result
                 # Mirror the CHAT path's rotation. Non-CHAT turns
@@ -781,8 +804,8 @@ class AgentOrchestrator:
         log.debug(f"[ORCHESTRATOR] Stage 3: HyDE Query → {hyde_preview}")
         _eli_pipe_orch("stage_3", hyde_chars=len(wm.hyde_query or ""))
 
-        wm.trace["stage_5_6_7"] = "parallel_retrieval"
-        keyword_hits, semantic_hits, rag_hits, kg_hits = self.memory_agent.parallel_retrieve(
+        wm.trace["stage_5_6_7"] = "sequential_retrieval"
+        keyword_hits, semantic_hits, rag_hits, kg_hits = self.memory_agent.sequential_retrieve(
             user_input=user_input,
             hyde_query=wm.hyde_query,
             retrieval_plan=retrieval_plan,
@@ -792,7 +815,7 @@ class AgentOrchestrator:
         wm.semantic_hits = semantic_hits
         wm.rag_hits = rag_hits
         wm.kg_hits = kg_hits
-        log.debug(f"[ORCHESTRATOR] Stage 5/6/7: Parallel Retrieval → keyword: {len(keyword_hits)} semantic: {len(semantic_hits)} rag: {len(rag_hits)} kg: {len(kg_hits)}")
+        log.debug(f"[ORCHESTRATOR] Stage 5/6/7: Sequential Retrieval → keyword: {len(keyword_hits)} semantic: {len(semantic_hits)} rag: {len(rag_hits)} kg: {len(kg_hits)}")
         _eli_pipe_orch("stage_5_6_7", keyword=len(keyword_hits), semantic=len(semantic_hits), rag=len(rag_hits), kg=len(kg_hits))
 
         wm.trace["stage_8"] = "hybrid_merge"
@@ -801,12 +824,49 @@ class AgentOrchestrator:
         log.debug(f"[ORCHESTRATOR] Stage 8: Hybrid Merge → {len(wm.merged_hits)} items")
         _eli_pipe_orch("stage_8", merged=len(wm.merged_hits))
 
-        wm.trace["stage_9"] = "cross_encoder_rerank"
+        wm.trace["stage_9"] = "heuristic_rerank"
         from eli.core.cognition_tunables import get_tunable as _cog_get
-        wm.reranked_hits = self.memory_agent.rerank(
-            user_input, wm.merged_hits, top_k=_cog_get("cog.rerank_top_k"))
-        log.debug(f"[ORCHESTRATOR] Stage 9: Rerank → {len(wm.reranked_hits)} items")
-        _eli_pipe_orch("stage_9", reranked=len(wm.reranked_hits))
+        from eli.cognition.reranker import rerank_candidates as _rerank
+        _top_k = int(_cog_get("cog.rerank_top_k"))
+        wm.reranked_hits = _rerank(user_input, wm.merged_hits, limit=_top_k)
+        log.debug(f"[ORCHESTRATOR] Stage 9: Heuristic Rerank → {len(wm.reranked_hits)} items")
+        _eli_pipe_orch("stage_9", reranked=len(wm.reranked_hits), method="heuristic_rerank")
+
+        # Specialist AgentBus (memory prefetched above — no duplicate recall).
+        try:
+            from eli.cognition.agent_bus import (
+                dispatch_specialists as _dispatch_spec,
+                _ALL_AGENTS as _bus_agents,
+                _query_mentions_code_or_architecture as _code_q,
+            )
+            from eli.cognition.reasoning_modes import mode_chat_agent_profile as _mcp
+            _profile = _mcp(reasoning_mode, code_query=_code_q(user_input))
+            if _profile is None:
+                _spec_names = {
+                    a.name for a in _bus_agents
+                    if getattr(a, "_enabled", True) and a.name != "memory"
+                }
+            else:
+                _spec_names = {n for n in _profile if n != "memory"}
+                _spec_names.add("critic")
+            wm.bus_result = _dispatch_spec(
+                user_input, intent,
+                session_id=self.engine.session_id,
+                user_id=self.engine.user_id,
+                reasoning_mode=reasoning_mode,
+                skip_memory=True,
+                agent_names=_spec_names,
+            )
+            wm.trace["agent_bus_specialists"] = {
+                "agents_used": list(getattr(wm.bus_result, "agents_used", []) or []),
+                "aggregated_confidence": float(
+                    getattr(wm.bus_result, "aggregated_confidence", 0.0) or 0.0),
+            }
+            _eli_pipe_orch("agent_bus_specialists",
+                           agents=len(wm.trace["agent_bus_specialists"]["agents_used"]))
+        except Exception as _spec_err:
+            wm.trace["agent_bus_specialists"] = {"error": str(_spec_err)}
+            log.debug(f"[ORCHESTRATOR] specialist bus failed (non-fatal): {_spec_err}")
 
         wm.trace["stage_10"] = "context_assembly"
         wm.assembled_context, wm.final_prompt = self.engine.assemble_precise_context(

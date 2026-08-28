@@ -129,8 +129,10 @@ class VectorStore:
         self._adds_since_save = 0
         self._save_generation = 0
         self._needs_rebuild = False
+        self._tombstone_ids: set[int] = set()
         self._index_path, self._meta_path = _get_index_paths()
         self._load()
+        self._load_tombstones()
         self._init_embedder()
         # Check for divergence between loaded index and SQLite memories count.
         # If >20% of memories are missing from FAISS, schedule a rebuild so
@@ -208,11 +210,81 @@ class VectorStore:
         for dist, idx in zip(distances[0], indices[0]):
             if idx < 0 or idx >= len(self._meta):
                 continue
-            score = float(1.0 / (1.0 + dist))
             entry = dict(self._meta[idx])
+            _mid = entry.get("id")
+            if _mid is not None:
+                try:
+                    if int(_mid) in self._tombstone_ids:
+                        continue
+                except (TypeError, ValueError):
+                    pass
+            score = float(1.0 / (1.0 + dist))
             entry["score"] = score
             results.append(entry)
         return _trim_weak_tail(results, min_ratio=min_ratio)
+
+    def mark_memory_deleted(self, memory_id: int) -> bool:
+        """Tombstone a memory id so search skips stale vectors without full rebuild."""
+        try:
+            mid = int(memory_id)
+        except (TypeError, ValueError):
+            return False
+        with self._lock:
+            self._tombstone_ids.add(mid)
+            self._persist_tombstones()
+        return True
+
+    def mark_memories_deleted(self, memory_ids) -> int:
+        count = 0
+        for mid in memory_ids or []:
+            if self.mark_memory_deleted(mid):
+                count += 1
+        return count
+
+    def _tombstone_path(self) -> str:
+        return self._meta_path[:-5] + ".tombstones.json" if self._meta_path.endswith(".json") else self._meta_path + ".tombstones.json"
+
+    def _load_tombstones(self) -> None:
+        import json as _json
+        path = self._tombstone_path()
+        try:
+            if os.path.exists(path):
+                data = _json.loads(open(path, "r", encoding="utf-8").read())
+                if isinstance(data, list):
+                    self._tombstone_ids = {int(x) for x in data}
+        except Exception:
+            self._tombstone_ids = set()
+
+    def _persist_tombstones(self) -> None:
+        import json as _json
+        path = self._tombstone_path()
+        try:
+            with open(path, "w", encoding="utf-8") as f:
+                _json.dump(sorted(self._tombstone_ids), f)
+        except Exception as e:
+            log.debug(f"[VECTOR_STORE] tombstone persist failed: {e}")
+
+    def compact_tombstones(self, live_memory_ids: set[int] | None = None) -> int:
+        """Rebuild index excluding tombstoned rows; clears tombstones on success."""
+        live = live_memory_ids
+        if live is None:
+            live = set()
+            for entry in self._meta:
+                try:
+                    live.add(int(entry.get("id")))
+                except (TypeError, ValueError):
+                    pass
+        keep = [
+            e for e in self._meta
+            if int(e.get("id", -1)) in live and int(e.get("id", -1)) not in self._tombstone_ids
+        ]
+        if len(keep) == len(self._meta) and not self._tombstone_ids:
+            return 0
+        self.rebuild_full(keep)
+        with self._lock:
+            self._tombstone_ids.clear()
+            self._persist_tombstones()
+        return len(self._meta) - len(keep)
 
     def _get_embedder(self):
         if self._embedder is None:
