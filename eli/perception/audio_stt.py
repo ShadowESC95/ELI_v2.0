@@ -18,8 +18,15 @@ Key fixes:
 """
 from __future__ import annotations
 
-import atexit
 import os
+
+# libpulse reads PULSE_SOURCE, not ELI_MIC_PULSE_SOURCE — map early so frozen
+# builds and v2.3.30 docs that used the ELI_* name still work.
+_ps = os.environ.get("ELI_MIC_PULSE_SOURCE", "").strip()
+if _ps and not os.environ.get("PULSE_SOURCE", "").strip():
+    os.environ["PULSE_SOURCE"] = _ps
+
+import atexit
 import queue
 import re
 import shutil
@@ -1177,10 +1184,15 @@ def _resolve_input_device_index() -> Optional[int]:
     except Exception as e:  # never let mic resolution break STT construction
         log.debug(f"[AUDIO] mic resolver failed ({e}); using OS default device")
         return None
-    if choice.pulse_source:
+    pulse_override = os.environ.get("ELI_MIC_PULSE_SOURCE", "").strip()
+    if pulse_override:
+        os.environ["PULSE_SOURCE"] = pulse_override
+        log.debug(f"[AUDIO] PULSE_SOURCE override → {pulse_override}")
+    elif choice.pulse_source:
         # Pin this process (and the PortAudio stream it opens) to the chosen
         # source without touching the system-wide default.
         os.environ["PULSE_SOURCE"] = choice.pulse_source
+        log.debug(f"[AUDIO] PULSE_SOURCE pinned → {choice.pulse_source}")
     # Re-resolve by NAME against the enumeration this process will actually open with:
     # PortAudio indices shift between PyAudio instances, so the probed index can be out
     # of range here (and silently fall back to a DIFFERENT microphone). See
@@ -1193,7 +1205,7 @@ def _resolve_input_device_index() -> Optional[int]:
     if index != choice.device_index:
         log.debug(f"[AUDIO] device index re-resolved {choice.device_index} → {index} "
                   f"(name={choice.device_name!r})")
-    log.debug(f"[AUDIO] capture resolved: {choice.reason}")
+    log.info(f"[AUDIO] capture resolved: {choice.reason}")
     return index
 
 
@@ -1255,7 +1267,7 @@ class ELIAudioSTT:
             if device_index is not None:
                 try:
                     self.microphone = sr.Microphone(device_index=device_index)
-                    log.debug(f"[AUDIO] Using microphone device index {device_index}")
+                    log.info(f"[AUDIO] Using microphone device index {device_index}")
                 except Exception as e:
                     log.debug(f"[AUDIO] Failed to use device {device_index}: {e}. Falling back to default mic.")
                     self.microphone = sr.Microphone()
@@ -1338,6 +1350,7 @@ class ELIAudioSTT:
                 f"[AUDIO] Ambient calibration skipped (ELI_STT_CALIBRATE=0). "
                 f"Fixed threshold={self.recognizer.energy_threshold:.0f}",
             )
+            self._probe_startup_threshold()
         # Bias against picked-up profile, if any history exists.
         self._apply_voice_profile_bias()
         # Baseline the runtime noise adaptation returns to once a room goes quiet.
@@ -1350,6 +1363,35 @@ class ELIAudioSTT:
             f"(energy={self.recognizer.energy_threshold:.0f}, "
             f"voice_profile_n={self._voice_profile.get('count', 0)})"
         )
+        self._verify_mic_delivers_audio()
+
+    def _verify_mic_delivers_audio(self) -> None:
+        """One-chunk sanity check — catches pulse/speexrate devices that open but stay silent."""
+        try:
+            import audioop as _aop
+
+            _suppress_alsa()
+            try:
+                with self.microphone as source:
+                    if getattr(source, "stream", None) is None:
+                        return
+                    buf = source.stream.read(source.CHUNK)
+            finally:
+                _restore_stderr()
+            rms = _aop.rms(buf, source.SAMPLE_WIDTH) if buf else 0
+            log.info(
+                f"[AUDIO] Mic verify: device_index={getattr(self.microphone, 'device_index', '?')} "
+                f"rate={getattr(source, 'SAMPLE_RATE', '?')} peek_rms={rms} "
+                f"threshold={self.recognizer.energy_threshold:.0f}",
+            )
+            if not buf or rms < 30:
+                log.warning(
+                    "[AUDIO] Microphone opened but delivered silence on the first read. "
+                    "Try: ELI_MIC_DEVICE_INDEX=3 ELI_MIC_AUTORESOLVE=0 "
+                    "(Trust/USB) or export PULSE_SOURCE=\"$(pactl get-default-source)\"",
+                )
+        except Exception:
+            log.debug("[AUDIO] Mic verify failed", exc_info=True)
 
     # ── Voice profile learning ───────────────────────────────────────────
     def _voice_profile_path(self):
@@ -1398,6 +1440,62 @@ class ELIAudioSTT:
         # Only apply if it would LOWER the threshold, never raise it.
         if target < ambient_thr:
             self.recognizer.energy_threshold = float(target)
+
+    def _probe_startup_threshold(self, duration: float = 0.4) -> None:
+        """Brief ambient read when full calibration is off.
+
+        A fixed ELI_STT_ENERGY_THRESHOLD (default 1200) is too high for many quiet
+        mics — speech never crosses the gate and the listener spins silently on
+        WaitTimeoutError. Full adjust_for_ambient_noise is off by default because
+        without echo cancellation a raw mic next to speakers can read 800–8000 RMS
+        and spike the threshold instead. This probe is capped like calibration so
+        it helps quiet mics without the loud-room failure mode.
+        """
+        if os.environ.get("ELI_STT_STARTUP_PROBE", "1").lower() in {"0", "false", "no", "off"}:
+            return
+        try:
+            import audioop as _audioop
+
+            floor = int(os.environ.get("ELI_STT_ENERGY_FLOOR", "300"))
+            cap = float(os.environ.get("ELI_STT_CAL_CAP", "2000"))
+            _suppress_alsa()
+            try:
+                with self.microphone as source:
+                    reads = max(1, int(duration * source.SAMPLE_RATE / source.CHUNK))
+                    vals: list[int] = []
+                    for _ in range(reads):
+                        buf = source.stream.read(source.CHUNK)
+                        if len(buf) == 0:
+                            break
+                        vals.append(_audioop.rms(buf, source.SAMPLE_WIDTH))
+            finally:
+                _restore_stderr()
+            if not vals:
+                log.warning(
+                    "[AUDIO] Mic probe returned no audio frames — the capture device "
+                    "may be silent or misconfigured. Check the system default input "
+                    "(pactl get-default-source) or run eli/tools/mic_diag.py.",
+                )
+                return
+            ambient_avg = sum(vals) // len(vals)
+            ambient_max = max(vals)
+            configured = float(self.recognizer.energy_threshold)
+            target = max(float(floor), ambient_max * 1.5)
+            target = min(target, cap, configured)  # never raise above configured default
+            if target < configured - 1:
+                log.info(
+                    f"[AUDIO] Startup mic probe: ambient_avg={ambient_avg} "
+                    f"ambient_max={ambient_max} → energy_threshold={target:.0f} "
+                    f"(was {configured:.0f})",
+                )
+                self.recognizer.energy_threshold = target
+            else:
+                log.debug(
+                    f"[AUDIO] Startup mic probe: ambient_avg={ambient_avg} "
+                    f"ambient_max={ambient_max} — keeping threshold={configured:.0f}",
+                )
+        except Exception:
+            log.debug("[AUDIO] Startup mic probe failed", exc_info=True)
 
     def _adapt_threshold_to_noise(self, cap_rms: int) -> bool:
         """Lift energy_threshold above a noise floor that has swallowed the mic.
@@ -1870,6 +1968,35 @@ class ELIAudioSTT:
                                 log.debug("[AUDIO_DUCK] Gate expired (no speech) — volume restored")
                             except Exception as _re:
                                 log.debug(f"[AUDIO_DUCK][RESTORE_ERROR] {_re}")
+                        if _STT_VERBOSE and getattr(source, "stream", None) is not None:
+                            try:
+                                import audioop as _aop
+                                _peek = source.stream.read(source.CHUNK)
+                                _prms = _aop.rms(_peek, source.SAMPLE_WIDTH) if _peek else 0
+                                if self._listen_count % 10 == 0:
+                                    print(
+                                        f"🔇 [AUDIO] listen timeout — peek RMS={_prms} "
+                                        f"threshold={self.recognizer.energy_threshold:.0f}",
+                                        flush=True,
+                                    )
+                                if not _peek or _prms == 0:
+                                    self._dead_stream_streak = getattr(self, "_dead_stream_streak", 0) + 1
+                                else:
+                                    self._dead_stream_streak = 0
+                                if self._dead_stream_streak >= 5:
+                                    print(
+                                        "⚠️ [AUDIO] Mic stream is silent — re-opening capture. "
+                                        "Try: export ELI_MIC_PULSE_SOURCE=\"$(pactl get-default-source)\"",
+                                        flush=True,
+                                    )
+                                    try:
+                                        source.__exit__(None, None, None)
+                                        source.__enter__()
+                                        self._dead_stream_streak = 0
+                                    except Exception as _reopen_err:
+                                        log.debug(f"[AUDIO] mic re-open failed: {_reopen_err}")
+                            except Exception:
+                                pass
                         # Nothing even crossed the gate — the room is quiet. If an
                         # earlier noise episode lifted the threshold, walk it back down
                         # so the mic recovers its normal sensitivity instead of staying
@@ -2145,8 +2272,16 @@ class ELIAudioSTT:
                         # correctly-heard command dropped for want of a wake word left
                         # NO trace anywhere — indistinguishable from a dead microphone,
                         # which is exactly how a working mic came to be reported broken.
-                        # The logger always records it, so the drop is diagnosable after
-                        # the fact without having to reproduce it with a flag set.
+                        _now_hint = time.monotonic()
+                        if _now_hint - getattr(self, "_last_wake_hint_ts", 0.0) >= 45.0:
+                            _pw = primary_wake_word()
+                            print(
+                                f"💡 [AUDIO] Heard speech but no wake word — say "
+                                f"{_pw!r} first (e.g. \"{_pw}, pause music\"). "
+                                f"Set ELI_DISABLE_WAKE_WORD=1 to disable.",
+                                flush=True,
+                            )
+                            self._last_wake_hint_ts = _now_hint
                         log.debug(
                             f"[AUDIO] dropped (no wake word; say {primary_wake_word()!r} first, "
                             f"or enable direct chat): {transcript_display!r}"

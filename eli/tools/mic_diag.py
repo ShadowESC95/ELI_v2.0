@@ -36,13 +36,14 @@ def _probe_device(idx, seconds=0.6):
 
 
 def _resolve_device():
-    """Prefer the 'pulse' device by name (PulseAudio/PipeWire); fall back to the
-    first input device that opens. Returns (index, name) or (None, None)."""
+    """Prefer USB hardware, then pulse — matches mic_resolver ordering."""
     names = sr.Microphone.list_microphone_names()
+    for i, n in enumerate(names):
+        if "usb" in (n or "").lower():
+            return i, n
     pulse = next((i for i, n in enumerate(names) if n == "pulse"), None)
     if pulse is not None:
         return pulse, names[pulse]
-    # Otherwise probe in order for the first device that yields a reading.
     for i, n in enumerate(names):
         if _probe_device(i, seconds=0.3) is not None:
             return i, n
