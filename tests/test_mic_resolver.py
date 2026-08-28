@@ -144,17 +144,45 @@ def test_module_imports_clean():
 
 
 def test_rank_usb_before_analog():
-    assert mr._rank_hardware_name("Trust GXT USB Audio")[0] < mr._rank_hardware_name("HDA Analog")[0]
+    assert mr._rank_capture_name("Trust GXT USB Audio")[0] < mr._rank_capture_name("HDA Analog")[0]
+
+
+def test_rank_airpods_before_builtin():
+    assert mr._rank_capture_name("Jay's AirPods Pro")[0] < mr._rank_capture_name(
+        "MacBook Pro Microphone"
+    )[0]
+
+
+def test_rank_turtle_beach_chat_before_game():
+    chat = mr._rank_capture_name("Headset Microphone (Turtle Beach Recon Chat)")
+    game = mr._rank_capture_name("Headset (Turtle Beach Recon Game)")
+    assert chat[0] < game[0]
+
+
+def test_rank_headset_before_webcam():
+    assert mr._rank_capture_name("USB Headset Microphone")[0] < mr._rank_capture_name(
+        "Logitech Webcam C920"
+    )[0]
+
+
+def test_os_default_breaks_ties_not_beats_usb():
+    assert mr._rank_capture_name("Built-in Microphone", is_os_default=True)[0] > \
+        mr._rank_capture_name("USB Audio Device", is_os_default=False)[0]
+    # Same tier: default wins tie-break (secondary key)
+    a = mr._rank_capture_name("Line In", is_os_default=True)
+    b = mr._rank_capture_name("Aux Port", is_os_default=False)
+    assert a[0] == b[0] and a[1] < b[1]
 
 
 def test_linux_hardware_usb_before_pulse(monkeypatch):
     monkeypatch.setattr(mr.sys, "platform", "linux")
+    default_idx = 0
     devices = [
         (0, "default"),
         (3, "Trust GXT 232 Microphone: USB Audio (hw:1,0)"),
         (5, "pulse"),
     ]
-    monkeypatch.setattr(mr, "_input_device_indices", lambda: devices)
+    monkeypatch.setattr(mr, "_enumerate_input_devices", lambda: (default_idx, devices))
     monkeypatch.setattr(mr, "_pulse_device_index", lambda: 5)
     monkeypatch.setattr(
         mr,
@@ -167,6 +195,34 @@ def test_linux_hardware_usb_before_pulse(monkeypatch):
     usb_pos = next(i for i, l in enumerate(labels) if l.startswith("portaudio:3:"))
     pulse_pos = next(i for i, l in enumerate(labels) if l.startswith("pulse:"))
     assert usb_pos < pulse_pos
+
+
+def test_windows_ranked_portaudio_candidates(monkeypatch):
+    monkeypatch.setattr(mr.sys, "platform", "win32")
+    devices = [
+        (0, "Microphone Array (Realtek Audio)"),
+        (1, "Microsoft Sound Mapper - Input"),
+        (2, "Headset Microphone (Turtle Beach Recon Chat)"),
+        (3, "Headset (Turtle Beach Recon Game)"),
+    ]
+    monkeypatch.setattr(mr, "_enumerate_input_devices", lambda: (0, devices))
+    labels = [c[2] for c in mr._portaudio_candidates()]
+    assert labels[0].startswith("portaudio:2:")
+    assert labels.index("portaudio:2:Headset Microphone (Turtle Beach Recon Chat)") < \
+        labels.index("portaudio:3:Headset (Turtle Beach Recon Game)")
+    assert labels[-1].startswith("portaudio:1:")  # Sound Mapper last
+
+
+def test_macos_ranked_portaudio_candidates(monkeypatch):
+    monkeypatch.setattr(mr.sys, "platform", "darwin")
+    devices = [
+        (0, "MacBook Pro Microphone"),
+        (1, "Jay's AirPods Pro"),
+    ]
+    monkeypatch.setattr(mr, "_enumerate_input_devices", lambda: (0, devices))
+    labels = [c[2] for c in mr._portaudio_candidates()]
+    assert labels[0].startswith("portaudio:1:")
+    assert "AirPods" in labels[0]
 
 
 def test_usb_hardware_wins_over_silent_pulse(monkeypatch):

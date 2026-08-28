@@ -36,7 +36,21 @@ def _probe_device(idx, seconds=0.6):
 
 
 def _resolve_device():
-    """Prefer USB hardware, then pulse — matches mic_resolver ordering."""
+    """Prefer ranked USB/headset/Bluetooth hardware — matches mic_resolver on every OS."""
+    try:
+        from eli.perception.mic_resolver import _enumerate_input_devices, _rank_capture_name
+
+        default_idx, devices = _enumerate_input_devices()
+        ranked = sorted(
+            devices,
+            key=lambda t: _rank_capture_name(t[1], is_os_default=(t[0] == default_idx)),
+        )
+        for idx, name in ranked:
+            if _probe_device(idx, seconds=0.3) is not None:
+                return idx, name
+        return None, None
+    except Exception:
+        pass
     names = sr.Microphone.list_microphone_names()
     for i, n in enumerate(names):
         if "usb" in (n or "").lower():

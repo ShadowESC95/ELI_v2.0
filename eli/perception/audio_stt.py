@@ -1387,8 +1387,9 @@ class ELIAudioSTT:
             if not buf or rms < 30:
                 log.warning(
                     "[AUDIO] Microphone opened but delivered silence on the first read. "
-                    "Try: ELI_MIC_DEVICE_INDEX=3 ELI_MIC_AUTORESOLVE=0 "
-                    "(Trust/USB) or export PULSE_SOURCE=\"$(pactl get-default-source)\"",
+                    "Run: python -m eli.tools.mic_diag — then set ELI_MIC_DEVICE_INDEX "
+                    "to a live device, or on Linux: "
+                    "export PULSE_SOURCE=\"$(pactl get-default-source)\"",
                 )
         except Exception:
             log.debug("[AUDIO] Mic verify failed", exc_info=True)
