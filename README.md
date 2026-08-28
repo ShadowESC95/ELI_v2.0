@@ -428,7 +428,7 @@ SECURITY.md, not in a public issue.
 
 ## Tested on & known limitations
 
-*Last updated 2026-08-18 (v2.2.9).*
+*Last updated 2026-08-28 (v2.3.30).*
 
 I'd rather tell you exactly what I've run than pretend it's flawless everywhere.
 
@@ -484,7 +484,7 @@ touches real hardware. I'd rather you know them going in.
 - `eli/gui` — PySide6 GUI launcher and `EliMainWindow`
 - `eli/cli` — headless REPL (`eli --headless`)
 - `config` — portable default settings · `models` — local GGUF payloads (gitignored)
-- `tests` — a large pytest suite (9,400+ tests across 313+ files, including a `claims/` layer that
+- `tests` — a large pytest suite (10,950+ tests across 389+ files, including a `claims/` layer that
   checks the project against its own documentation); the full suite runs locally, while CI gates a
   cross-platform portable subset (no GGUF/display/GPU) on Linux, macOS, and Windows
 

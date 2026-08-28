@@ -65,7 +65,7 @@ consumes VRAM before ELI launches, so free ≠ total), `_auto_tune(model_path, h
 
 ## Main window (`eli_pro_audio_gui_v2_0.py`)
 
-A 11.0k-line module holding the window **and** a stack of embedded classes that
+A 12.6k-line module holding the window **and** a stack of embedded classes that
 are really application logic, not just UI:
 - `CentralMemoryAdapter` — bridges the GUI to the memory subsystem.
 - `LocalModelManager` (708) — discover/load/swap local GGUF models.
@@ -155,7 +155,7 @@ fail-closed rule true even when the UI is what failed.
   full scientific workspace. Cross-binding (PyQt/PySide) compat is handled. Most
   local-LLM projects ship a chat box; this is an application.
 - **Weak / watch:**
-  1. **God-file #3** — `eli_pro_audio_gui_v2_0.py` (11.0k) mixes UI with core
+  1. **God-file #3** — `eli_pro_audio_gui_v2_0.py` (12.6k) mixes UI with core
      logic (`LocalModelManager`, `ExecutorBridge`, `CentralMemoryAdapter`,
      `_GUIEngineAdapter`). The model/executor/memory bridges should live outside
      the window module so the UI isn't coupled to core internals (and so they're

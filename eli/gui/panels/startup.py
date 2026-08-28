@@ -931,7 +931,7 @@ class FirstBootWizard(QDialog):
             "on step 2. Ollama works on Windows, macOS and Linux, local or on your LAN.\n"
             "   •  Embedder — nomic ~80 MiB (memory / RAG; automatic).\n"
             "   •  Voice — Piper speech out + Whisper listening (automatic). More voices, "
-            "accents and character voices (HAL, JARVIS, GLaDOS…) are downloadable later "
+            "accents and generic voice styles (calm, robotic, synthetic…) are downloadable later "
             "in Settings \u25b8 Runtime \u25b8 \"VOICE / TTS\".\n\n"
             "Pick a chat model, confirm hardware, and you're in."
         )

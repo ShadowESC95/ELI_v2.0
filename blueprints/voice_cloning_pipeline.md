@@ -12,7 +12,7 @@ trade off very differently:
 
 | | Character presets (`voice_fx.py`) | Voice cloning (`tts_xtts.py`) |
 |---|---|---|
-| Built-in | HAL, TARS, Rick, GLaDOS, JARVIS | none — always from *your* clip |
+| Built-in styles | calm, robotic, energetic, synthetic, refined | none — always from *your* clip |
 | How it works | base Piper voice + an ffmpeg `-af` effect chain (pitch/speed/filters) | Coqui XTTS-v2 zero-shot cloning from a ~6–20s reference clip |
 | Fidelity | an approximation / vibe | reproduces the actual voice characteristics |
 | Cost | free, instant, always available | opt-in ~1.8GB neural model, GPU preferred |

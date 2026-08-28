@@ -1,12 +1,14 @@
 """Character-voice effects layer.
 
-A "character voice" (HAL, TARS, Rick, GLaDOS, JARVIS, or a user's own) is a base
-Piper voice plus a DSP effect chain applied to the synthesized WAV via ffmpeg —
-so it needs no extra ML model, just ffmpeg (already required for media/TTS).
+A "character voice" (`char:<name>`) is a base Piper voice plus a DSP effect chain
+applied to the synthesized WAV via ffmpeg — so it needs no extra ML model, just
+ffmpeg (already required for media/TTS).
 
-A preset is: {base, pitch (semitones), speed (tempo x), filters (raw ffmpeg -af),
-desc}. Presets live in ``config/voices/characters.json`` and are seeded with the
-built-ins below on first use; users add/edit their own (see save_preset).
+Built-in presets are generic voice **styles** (calm, robotic, energetic, synthetic,
+refined) — not named fictional characters. A preset is: {base, pitch (semitones),
+speed (tempo x), filters (raw ffmpeg -af), desc}. Presets live in
+``config/voices/characters.json`` and are seeded with the built-ins below on first
+use; users add/edit their own (see save_preset).
 
 tts_router resolves a voice named ``char:<name>`` through here.
 """
