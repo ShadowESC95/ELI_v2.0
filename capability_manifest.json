@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-08-28T14:04:02",
+  "generated_at": "2026-08-28T15:59:02",
   "total": 225,
   "capabilities": [
     {
@@ -472,10 +472,10 @@
     },
     {
       "action": "EXPLAIN_LAST_FAILURE",
-      "source": "executor",
+      "source": "executor+router",
       "active": true,
       "plugin": null,
-      "routable": false,
+      "routable": true,
       "in_dispatch": true,
       "in_supported_list": true
     },
@@ -1840,10 +1840,10 @@
     },
     {
       "action": "STT_DIAGNOSTICS",
-      "source": "executor",
+      "source": "executor+router",
       "active": true,
       "plugin": null,
-      "routable": false,
+      "routable": true,
       "in_dispatch": true,
       "in_supported_list": true
     },
@@ -1939,10 +1939,10 @@
     },
     {
       "action": "VOICE_DIAGNOSTICS",
-      "source": "executor+router",
+      "source": "executor",
       "active": true,
       "plugin": null,
-      "routable": true,
+      "routable": false,
       "in_dispatch": true,
       "in_supported_list": false
     },

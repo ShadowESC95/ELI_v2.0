@@ -67,6 +67,26 @@ def whisper_cache_ready(
     return False
 
 
+def whisper_status() -> dict:
+    """Lightweight STT runtime snapshot — does not load the model."""
+    try:
+        model, model_dir, device, compute_type, local_only = _model_settings()
+        return {
+            "model": model,
+            "model_dir": model_dir,
+            "device_configured": device,
+            "compute_type": compute_type,
+            "local_only": local_only,
+            "cache_ready": whisper_cache_ready(model_dir, model),
+            "loaded": _MODEL is not None,
+            "loading": _MODEL_LOADING,
+            "cuda_failed": _CUDA_FAILED,
+            "gpu_total_mb": _gpu_total_mb(),
+        }
+    except Exception as exc:
+        return {"error": repr(exc)}
+
+
 def _offline_whisper_missing_message() -> str:
     return (
         "Whisper STT model not installed locally. ELI is offline-by-default, so "

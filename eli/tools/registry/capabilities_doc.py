@@ -146,7 +146,6 @@ _add("Voice", "CREATE_VOICE", "Make a new ELI voice from a recording (wav/mp3/mp
 _add("Conversation & persona", "SET_TONE", "Shade ELI's expressed tone/emotion (words+voice+face) without changing his core personality", "“be comedic”", "“talk street”", "“sound more professional”", "“use a deadpan tone”")
 _add("Conversation & persona", "CLEAR_TONE", "Drop a pinned tone — back to autonomous, situation-adaptive delivery", "“go back to normal”", "“be yourself”", "“drop the tone”")
 _add("Voice", "LISTEN_FOR_COMMAND", "Start listening for a voice command", "“listen” / the wake word “computer”")
-_add("Voice", "VOICE_DIAGNOSTICS", "Run voice/STT diagnostics", "“run voice diagnostics”", "“stt diagnostics”")
 
 # ── Files & notes ───────────────────────────────────────────────────────────
 _add("Files & notes", "CREATE_FILE", "Create a file", "“create a file notes.txt”")
@@ -250,6 +249,7 @@ _add("Voice", "WAKE_SET", "Set your own wake word (any phrase); ELI persists it 
 _add("Voice", "WAKE_TRAIN", "Train the local, self-supervised wake-word model (Piper-synth + noise/music augmentation; robust over background music)", "“train the wake word”")
 _add("Voice", "WAKE_ENROLL", "Record your voice saying the wake word and retrain (personalisation, over music)", "“enroll my wake word”")
 _add("Voice", "TRAIN_VOICE", "Learn your voice + tone — pitch/energy/rate, happy/angry/excited, and question-vs-statement; ELI then adapts its delivery to how you sound", "“train my voice”", "“learn how I speak”")
+_add("Voice", "STT_DIAGNOSTICS", "Mic/STT/TTS diagnostics (Whisper, wake word, ducking, Piper)", "“run voice diagnostics”", "“voice diagnostics”", "“check the microphone”", "“stt diagnostics”")
 _add("Conversation & persona", "MULTI_COMMAND", "Run several chained commands from one utterance, in order", "“close steam and set an alarm for 7am”", "“open spotify then play X”")
 
 # ── Tasks, time & planning ──────────────────────────────────────────────────

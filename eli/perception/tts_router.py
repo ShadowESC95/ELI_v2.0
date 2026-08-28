@@ -20,7 +20,7 @@ import tempfile
 from pathlib import Path
 from typing import Any, Dict, Optional
 
-from eli.utils.platform_compat import LINUX, play_sound
+from eli.utils.platform_compat import LINUX
 
 
 from eli.utils.log import get_logger
@@ -169,27 +169,113 @@ def _has_piper_config(model: Path) -> bool:
     )
 
 
+def _play_wav_blocking(wav_path, *, fallback_players=None, post_play_tail: float | None = None) -> bool:
+    """Blocking WAV playback; feeds expression_state amplitude when sounddevice is available."""
+    import os as _os
+    import subprocess as _subprocess
+    import time as _time
+    from pathlib import Path as _Path
+
+    path = _Path(wav_path)
+    if not path.is_file() or path.stat().st_size < 100:
+        return False
+
+    _es = None
+    try:
+        from eli.cognition import expression_state as _es_mod
+        _es = _es_mod
+    except Exception:
+        log.debug("[TTS] expression_state unavailable for amplitude lip-sync", exc_info=True)
+
+    try:
+        import numpy as _np
+        import sounddevice as _sd
+        import soundfile as _sf
+
+        data, sr = _sf.read(str(path), dtype="float32")
+        if getattr(data, "ndim", 1) > 1:
+            data = data.mean(axis=1)
+        data = _np.asarray(data, dtype="float32").reshape(-1)
+        if data.size == 0:
+            raise ValueError("empty wav")
+
+        pos = 0
+        block = max(512, int(sr * 0.04))
+
+        def _callback(outdata, frames, _time_info, status):
+            nonlocal pos
+            if status:
+                log.debug(f"[TTS] sounddevice status: {status}")
+            end = min(pos + frames, data.size)
+            chunk = data[pos:end]
+            if chunk.size == 0:
+                outdata.fill(0)
+                raise _sd.CallbackStop()
+            outdata[:chunk.size, 0] = chunk
+            if chunk.size < frames:
+                outdata[chunk.size:, 0] = 0
+                pos = data.size
+                raise _sd.CallbackStop()
+            pos = end
+            if _es is not None:
+                rms = float(_np.sqrt(_np.mean(chunk ** 2)))
+                _es.set_amplitude(min(1.0, rms * 4.0))
+
+        with _sd.OutputStream(samplerate=int(sr), channels=1, callback=_callback):
+            _sd.sleep(int((data.size / float(sr)) * 1000) + 80)
+        if _es is not None:
+            _es.set_amplitude(0.0)
+        tail = post_play_tail
+        if tail is None:
+            tail = float(_os.environ.get("ELI_TTS_POST_PLAY_TAIL_SEC", "0.35"))
+        if tail > 0:
+            _time.sleep(tail)
+        return True
+    except Exception:
+        log.debug("[TTS] amplitude-aware playback unavailable; falling back to CLI player", exc_info=True)
+
+    players = list(fallback_players or [])
+    for player in players:
+        player_name = _Path(player).name.lower()
+        if player_name == "aplay":
+            play_cmd = [player, "-q", str(path)]
+        elif player_name in ("powershell", "pwsh", "powershell.exe", "pwsh.exe"):
+            _safe_wav = str(path).replace("'", "''")
+            play_cmd = [
+                player, "-NoProfile", "-Command",
+                f"(New-Object Media.SoundPlayer '{_safe_wav}').PlaySync()",
+            ]
+        else:
+            play_cmd = [player, str(path)]
+
+        play_proc = _subprocess.run(
+            play_cmd,
+            stdout=_subprocess.PIPE,
+            stderr=_subprocess.PIPE,
+            text=True,
+            check=False,
+        )
+        log.debug(f"[TTS_PLAY] player={player_name} rc={play_proc.returncode}")
+        if play_proc.returncode == 0:
+            tail = post_play_tail
+            if tail is None:
+                tail = float(_os.environ.get("ELI_TTS_POST_PLAY_TAIL_SEC", "0.35"))
+            if tail > 0:
+                _time.sleep(tail)
+            return True
+    return False
+
+
 def _play_wav_bytes(wav_bytes: bytes) -> bool:
     """Play WAV bytes on any supported OS without requiring Linux audio CLIs."""
     if not wav_bytes:
         return False
-    try:
-        import sounddevice as sd  # type: ignore
-        import soundfile as sf  # type: ignore
-
-        data, sample_rate = sf.read(io.BytesIO(wav_bytes), dtype="float32")
-        sd.play(data, int(sample_rate))
-        sd.wait()
-        return True
-    except Exception:
-        pass
-
     suffix = ".wav"
     try:
         with tempfile.NamedTemporaryFile(prefix="eli_tts_", suffix=suffix, delete=False) as f:
             f.write(wav_bytes)
             path = f.name
-        return play_sound(path)
+        return _play_wav_blocking(path)
     except Exception:
         return False
 
@@ -753,41 +839,8 @@ def _speak_piper_cli(text, voice_name=None):
             f"[TTS_FINAL_PIPER_ONLY] voice={active} model={_Path(model).name} bytes={wav.stat().st_size}",
         )
 
-        for player in players:
-            player_name = _Path(player).name.lower()
-            if player_name == "aplay":
-                play_cmd = [player, "-q", str(wav)]
-            elif player_name in ("powershell", "pwsh", "powershell.exe", "pwsh.exe"):
-                # Blocking playback on Windows via .NET SoundPlayer.
-                _safe_wav = str(wav).replace("'", "''")
-                play_cmd = [
-                    player, "-NoProfile", "-Command",
-                    f"(New-Object Media.SoundPlayer '{_safe_wav}').PlaySync()",
-                ]
-            else:
-                # paplay (Linux) / afplay (macOS) and other simple players.
-                play_cmd = [player, str(wav)]
-
-            play_proc = _subprocess.run(
-                play_cmd,
-                stdout=_subprocess.PIPE,
-                stderr=_subprocess.PIPE,
-                text=True,
-                check=False,
-            )
-
-            log.debug(
-                f"[TTS_FINAL_PIPER_ONLY_PLAY] player={player_name} rc={play_proc.returncode}",
-            )
-
-            if play_proc.returncode == 0:
-                _time.sleep(float(_os.environ.get("ELI_TTS_POST_PLAY_TAIL_SEC", "0.35")))
-                return True
-
-            if play_proc.stderr:
-                log.debug(
-                    f"[TTS_FINAL_PIPER_ONLY_PLAY] stderr={play_proc.stderr[-800:]}",
-                )
+        if _play_wav_blocking(wav, fallback_players=players):
+            return True
 
         return False
 
