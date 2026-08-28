@@ -316,6 +316,58 @@ def set_active_model(model: str) -> None:
         pass
 
 
+def set_active_host(host: str) -> None:
+    """Persist Ollama host URL to ELI config."""
+    try:
+        from eli.core import config
+        config.set("ollama_host", normalise_host(host))
+    except Exception:
+        pass
+
+
+def get_active_host() -> str:
+    """Return the configured Ollama base URL."""
+    return _host()
+
+
+def ollama_models_dir() -> "Path":
+    """Return the OS-default Ollama model storage directory."""
+    from pathlib import Path
+    import sys as _sys
+    env = os.environ.get("OLLAMA_MODELS")
+    if env:
+        return Path(env).expanduser().resolve()
+    if _sys.platform == "win32":
+        base = os.environ.get("LOCALAPPDATA", str(Path.home() / "AppData" / "Local"))
+        return Path(base) / "ollama" / "models"
+    return Path.home() / ".ollama" / "models"
+
+
+def open_models_folder() -> bool:
+    """Open the Ollama models directory in the system file manager."""
+    try:
+        from eli.utils.platform_compat import open_file
+        d = ollama_models_dir()
+        d.mkdir(parents=True, exist_ok=True)
+        return bool(open_file(d))
+    except Exception:
+        _log.debug("open_models_folder failed", exc_info=True)
+        return False
+
+
+# Popular registry tags for one-click pull in the GUI.
+POPULAR_OLLAMA_MODELS = (
+    "llama3.2:3b",
+    "llama3.2:1b",
+    "mistral",
+    "gemma3:4b",
+    "qwen2.5:7b",
+    "phi3:mini",
+    "codellama",
+    "deepseek-r1:7b",
+)
+
+
 def get_active_model() -> Optional[str]:
     """
     Return the currently selected Ollama model.
