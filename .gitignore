@@ -21,6 +21,7 @@ build/
 eli.zip
 /sd
 *.wav
+!artifacts/sounds/alarm.wav
 
 # ── Virtual environment ──────────────────────────────────────────────────────
 .venv/
@@ -63,6 +64,8 @@ models/.goutputstream*
 # ── Runtime artefacts & user data ────────────────────────────────────────────
 artifacts/*
 !artifacts/README.md
+!artifacts/sounds/
+!artifacts/sounds/alarm.wav
 eli/artifacts/
 .code_monitor_state.json
 

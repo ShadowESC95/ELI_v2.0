@@ -906,6 +906,141 @@ def play_sound(path: str | Path) -> bool:
     return False
 
 
+def play_alarm_sound() -> bool:
+    """Play the bundled timer/alarm sound cross-platform."""
+    from eli.core.paths import bundled_asset_path
+
+    path = bundled_asset_path("sounds", "alarm.wav")
+    if path:
+        return play_wav_blocking(path, post_play_tail=0.0) or play_sound(path)
+
+    # Dev/fresh clone before `tools/gen_alarm_wav.py` — synthetic beep, no OS paths.
+    import io
+    import math
+    import struct
+    import tempfile
+    import wave
+
+    sr = 22050
+    duration = 0.35
+    freq = 880.0
+    samples = [
+        int(32767 * 0.4 * math.sin(2 * math.pi * freq * i / sr))
+        for i in range(int(sr * duration))
+    ]
+    buf = io.BytesIO()
+    with wave.open(buf, "w") as wf:
+        wf.setnchannels(1)
+        wf.setsampwidth(2)
+        wf.setframerate(sr)
+        wf.writeframes(b"".join(struct.pack("<h", s) for s in samples))
+    try:
+        with tempfile.NamedTemporaryFile(prefix="eli_alarm_", suffix=".wav", delete=False) as f:
+            f.write(buf.getvalue())
+            tmp = f.name
+        return play_wav_blocking(tmp, post_play_tail=0.0)
+    except Exception:
+        log.debug("synthetic alarm playback failed", exc_info=True)
+        return False
+
+
+def wav_player_candidates() -> list[str]:
+    """Blocking WAV player executables for this platform, in preference order."""
+    found: list[str] = []
+    if ANDROID:
+        p = shutil.which("termux-media-player")
+        if p:
+            found.append(p)
+        return found
+    if WINDOWS:
+        for name in ("powershell", "pwsh"):
+            p = shutil.which(name)
+            if p:
+                found.append(p)
+                break
+        return found
+    if MACOS:
+        p = shutil.which("afplay")
+        if p:
+            found.append(p)
+        return found
+    for name in ("aplay", "paplay"):
+        p = shutil.which(name)
+        if p:
+            found.append(p)
+    return found
+
+
+def _wav_player_cmd(player: str, path: Path) -> list[str]:
+    """Build a blocking play command for a discovered player binary."""
+    name = Path(player).name.lower()
+    if name == "aplay":
+        return [player, "-q", str(path)]
+    if name in ("powershell", "pwsh", "powershell.exe", "pwsh.exe"):
+        safe = str(path).replace("'", "''")
+        return [
+            player,
+            "-NoProfile",
+            "-Command",
+            f"(New-Object Media.SoundPlayer '{safe}').PlaySync()",
+        ]
+    if name == "termux-media-player":
+        return [player, "play", str(path)]
+    return [player, str(path)]
+
+
+def play_wav_blocking(path: str | Path, *, post_play_tail: float | None = None) -> bool:
+    """Play a WAV file and block until playback completes.
+
+    Unlike ``play_sound`` (fire-and-forget for notifications/alarms), TTS needs
+    synchronous playback so chunk order, STT echo-guard locks, and post-play
+    tails are honoured on every OS.
+    """
+    import time
+
+    wav = Path(path).expanduser()
+    try:
+        if not wav.is_file() or wav.stat().st_size < 100:
+            return False
+    except OSError:
+        return False
+
+    if post_play_tail is None:
+        try:
+            post_play_tail = float(os.environ.get("ELI_TTS_POST_PLAY_TAIL_SEC", "0.35"))
+        except ValueError:
+            post_play_tail = 0.35
+
+    if WINDOWS:
+        try:
+            import winsound
+
+            winsound.PlaySound(str(wav), winsound.SND_FILENAME | winsound.SND_SYNC)
+            if post_play_tail > 0:
+                time.sleep(post_play_tail)
+            return True
+        except Exception:
+            log.debug("winsound blocking playback failed", exc_info=True)
+
+    for player in wav_player_candidates():
+        try:
+            proc = subprocess.run(
+                _wav_player_cmd(player, wav),
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+                check=False,
+                timeout=max(30, int(wav.stat().st_size / 8000) + 10),
+            )
+            if proc.returncode == 0:
+                if post_play_tail > 0:
+                    time.sleep(post_play_tail)
+                return True
+        except Exception:
+            log.debug("WAV player %s failed", player, exc_info=True)
+    return False
+
+
 def find_executable(name: str, extra_paths: list[str] | None = None) -> str | None:
     """Find an executable on PATH, with optional extra search directories."""
     result = shutil.which(name)
@@ -1086,6 +1221,23 @@ def is_mac() -> bool:
 def get_platform() -> str:
     """Return current canonical platform name."""
     return normalize_platform()
+
+
+def musl_libc_hint() -> str | None:
+    """Return an actionable hint on musl/Alpine, else None."""
+    if not LINUX:
+        return None
+    for candidate in (
+        Path("/lib/ld-musl-x86_64.so.1"),
+        Path("/lib/ld-musl-aarch64.so.1"),
+        Path("/lib/ld-musl.so.1"),
+    ):
+        if candidate.exists():
+            return (
+                "musl/Alpine libc detected — the glibc-linked AppImage needs gcompat, "
+                "or run ELI from source in a glibc Python 3.11 environment."
+            )
+    return None
 
 # --- Added for audit compatibility ---
 def open_file_manager(path: str = None) -> bool:

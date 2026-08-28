@@ -20,8 +20,7 @@ import tempfile
 from pathlib import Path
 from typing import Any, Dict, Optional
 
-from eli.utils.platform_compat import LINUX
-
+from eli.utils.platform_compat import play_wav_blocking as _platform_play_wav_blocking
 
 from eli.utils.log import get_logger
 log = get_logger(__name__)
@@ -169,10 +168,9 @@ def _has_piper_config(model: Path) -> bool:
     )
 
 
-def _play_wav_blocking(wav_path, *, fallback_players=None, post_play_tail: float | None = None) -> bool:
+def _play_wav_blocking(wav_path, *, post_play_tail: float | None = None) -> bool:
     """Blocking WAV playback; feeds expression_state amplitude when sounddevice is available."""
     import os as _os
-    import subprocess as _subprocess
     import time as _time
     from pathlib import Path as _Path
 
@@ -232,38 +230,9 @@ def _play_wav_blocking(wav_path, *, fallback_players=None, post_play_tail: float
             _time.sleep(tail)
         return True
     except Exception:
-        log.debug("[TTS] amplitude-aware playback unavailable; falling back to CLI player", exc_info=True)
+        log.debug("[TTS] amplitude-aware playback unavailable; falling back to platform player", exc_info=True)
 
-    players = list(fallback_players or [])
-    for player in players:
-        player_name = _Path(player).name.lower()
-        if player_name == "aplay":
-            play_cmd = [player, "-q", str(path)]
-        elif player_name in ("powershell", "pwsh", "powershell.exe", "pwsh.exe"):
-            _safe_wav = str(path).replace("'", "''")
-            play_cmd = [
-                player, "-NoProfile", "-Command",
-                f"(New-Object Media.SoundPlayer '{_safe_wav}').PlaySync()",
-            ]
-        else:
-            play_cmd = [player, str(path)]
-
-        play_proc = _subprocess.run(
-            play_cmd,
-            stdout=_subprocess.PIPE,
-            stderr=_subprocess.PIPE,
-            text=True,
-            check=False,
-        )
-        log.debug(f"[TTS_PLAY] player={player_name} rc={play_proc.returncode}")
-        if play_proc.returncode == 0:
-            tail = post_play_tail
-            if tail is None:
-                tail = float(_os.environ.get("ELI_TTS_POST_PLAY_TAIL_SEC", "0.35"))
-            if tail > 0:
-                _time.sleep(tail)
-            return True
-    return False
+    return _platform_play_wav_blocking(path, post_play_tail=post_play_tail)
 
 
 def _play_wav_bytes(wav_bytes: bytes) -> bool:
@@ -551,16 +520,15 @@ def _find_piper_bin() -> Optional[str]:
         except Exception:
             pass
 
-    for guess in (
+    from eli.utils.platform_compat import find_executable
+
+    return find_executable(
         "piper",
-        str(Path.cwd() / ".venv" / "bin" / "piper"),
-        str(Path.home() / ".local" / "bin" / "piper"),
-        "/usr/local/bin/piper",
-        "/usr/bin/piper",
-    ):
-        if shutil.which(guess) or Path(guess).exists():
-            return guess
-    return None
+        extra_paths=[
+            str(Path.cwd() / ".venv" / "bin"),
+            str(Path.home() / ".local" / "bin"),
+        ],
+    )
 
 
 def _neural_engine_available() -> bool:
@@ -676,8 +644,9 @@ def _find_piper_config(model_path):
     return None
 
 # ── Piper CLI synthesise + play, with speaking-lock for STT echo guard ────
-# Final authoritative TTS path: Piper CLI only, aplay first, blocking playback,
-# explicit rc logging, and lock held through playback tail.
+# Final authoritative TTS path: Piper CLI only, blocking playback via sounddevice
+# (lip-sync) with platform_compat.play_wav_blocking fallback, explicit rc logging,
+# and lock held through playback tail.
 
 # Set once if the piper binary can't use CUDA (build without GPU / CUDA
 # unavailable). Keeps the session on CPU after a single failed --cuda attempt.
@@ -755,34 +724,11 @@ def _speak_piper_cli(text, voice_name=None):
         _os.environ.get("ELI_PIPER_BINARY", "").strip().strip('"')
         or _os.environ.get("ELI_PIPER_BIN", "").strip()
         or _eli_packaged_cli_bin
-        or _shutil.which("piper")
-        or str(_Path.cwd() / ".venv" / "bin" / "piper")
+        or _find_piper_bin()
     )
 
-    if not (_Path(piper_bin).exists() or _shutil.which(piper_bin)):
+    if not piper_bin or not (_Path(piper_bin).exists() or _shutil.which(piper_bin)):
         log.debug(f"[TTS_FINAL_PIPER_ONLY] missing piper binary: {piper_bin}")
-        return False
-
-    # Blocking WAV players, chosen per platform. Linux: ALSA/Pulse. macOS: afplay.
-    # Windows: PowerShell's SoundPlayer.PlaySync (blocking).
-    from eli.utils import platform_compat as _pc
-    players = []
-    if _pc.WINDOWS:
-        ps = _shutil.which("powershell") or _shutil.which("pwsh")
-        if ps:
-            players.append(ps)
-    elif _pc.MACOS:
-        found = _shutil.which("afplay")
-        if found:
-            players.append(found)
-    else:
-        for cand in ("aplay", "paplay"):
-            found = _shutil.which(cand)
-            if found:
-                players.append(found)
-
-    if not players:
-        log.debug("[TTS_FINAL_PIPER_ONLY] no blocking WAV player found for this platform")
         return False
 
     cfg = _find_piper_config(model)
@@ -839,7 +785,7 @@ def _speak_piper_cli(text, voice_name=None):
             f"[TTS_FINAL_PIPER_ONLY] voice={active} model={_Path(model).name} bytes={wav.stat().st_size}",
         )
 
-        if _play_wav_blocking(wav, fallback_players=players):
+        if _play_wav_blocking(wav):
             return True
 
         return False

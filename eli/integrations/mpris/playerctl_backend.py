@@ -251,6 +251,90 @@ def _is_pause_only(player: str) -> bool:
     return any(player.lower().startswith(name) for name in PAUSE_ONLY_PLAYERS)
 
 
+def _portable_media_key(cmd: str) -> Dict[str, Any]:
+    """Best-effort media control when MPRIS/playerctl is unavailable."""
+    if platform.WINDOWS:
+        return _windows_media_vk(cmd)
+    if platform.MACOS:
+        return _macos_media(cmd)
+    return _err("No media player is currently running")
+
+
+def _windows_media_vk(cmd: str) -> Dict[str, Any]:
+    ps = shutil.which("powershell") or shutil.which("pwsh")
+    if not ps:
+        return _err("PowerShell required for Windows media control")
+    vk = {
+        "play": 0xB3,
+        "pause": 0xB3,
+        "play-pause": 0xB3,
+        "stop": 0xB2,
+        "next": 0xB0,
+        "previous": 0xB1,
+    }.get(cmd)
+    if vk is None:
+        return _err(f"Unsupported media command: {cmd}")
+    script = (
+        "Add-Type @'\n"
+        "using System;\n"
+        "using System.Runtime.InteropServices;\n"
+        "public class MediaKey {\n"
+        "  [DllImport(\"user32.dll\")] public static extern void keybd_event(byte bVk, byte bScan, uint dwFlags, UIntPtr dwExtraInfo);\n"
+        "  public const uint KEYEVENTF_EXTENDEDKEY = 0x1;\n"
+        "  public const uint KEYEVENTF_KEYUP = 0x2;\n"
+        "  public static void Send(byte vk) {\n"
+        "    keybd_event(vk, 0, KEYEVENTF_EXTENDEDKEY, UIntPtr.Zero);\n"
+        "    keybd_event(vk, 0, KEYEVENTF_EXTENDEDKEY | KEYEVENTF_KEYUP, UIntPtr.Zero);\n"
+        "  }\n"
+        "}\n"
+        "'@; "
+        f"[MediaKey]::Send({vk})"
+    )
+    ok, _, err = _run([ps, "-NoProfile", "-Command", script])
+    if ok:
+        labels = {
+            "play": "▶ Play (system media key)",
+            "pause": "⏸ Pause (system media key)",
+            "stop": "⏹ Stop (system media key)",
+            "next": "⏭ Next (system media key)",
+            "previous": "⏮ Previous (system media key)",
+            "play-pause": "⏯ Toggle (system media key)",
+        }
+        msg = labels.get(cmd, cmd)
+        return {"ok": True, "cmd": cmd, "method": "windows_media_key", "content": msg, "response": msg}
+    return _err(f"Windows media key failed: {err or 'unknown error'}")
+
+
+def _macos_media(cmd: str) -> Dict[str, Any]:
+    osascript = shutil.which("osascript")
+    if not osascript:
+        return _err("osascript required for macOS media control")
+    spotify_cmds = {
+        "play": 'tell application "Spotify" to play',
+        "pause": 'tell application "Spotify" to pause',
+        "stop": 'tell application "Spotify" to pause',
+        "next": 'tell application "Spotify" to next track',
+        "previous": 'tell application "Spotify" to previous track',
+        "play-pause": 'tell application "Spotify" to playpause',
+    }
+    if cmd in spotify_cmds:
+        ok, _, err = _run([osascript, "-e", spotify_cmds[cmd]])
+        if ok:
+            msg = f"{cmd} — Spotify"
+            return {"ok": True, "cmd": cmd, "method": "spotify_applescript", "content": msg, "response": msg}
+    key_codes = {
+        "play-pause": 16,
+        "next": 17,
+        "previous": 18,
+    }
+    code = key_codes.get(cmd)
+    if code is not None:
+        ok, _, err = _run([osascript, "-e", f'tell application "System Events" to key code {code}'])
+        if ok:
+            return {"ok": True, "cmd": cmd, "method": "macos_media_key", "content": cmd, "response": cmd}
+    return _err(f"macOS media control unavailable for {cmd}")
+
+
 # ──────────────────────────────────────────────────────────────
 # Status / metadata
 # ──────────────────────────────────────────────────────────────
@@ -298,7 +382,7 @@ def _playerctl(cmd: str, player: Optional[str] = None, extra: Optional[List[str]
     """Run a playerctl command. Returns normalized result dict."""
     if not _has("playerctl"):
         if not platform.LINUX:
-            return _err("MPRIS/playerctl media control is Linux-only on this backend")
+            return _portable_media_key(cmd)
         return _err(
             "playerctl not installed — run: sudo apt install playerctl",
             install_hint="sudo apt install playerctl",
@@ -309,6 +393,8 @@ def _playerctl(cmd: str, player: Optional[str] = None, extra: Optional[List[str]
     else:
         p = get_active_player(command=cmd)
     if not p:
+        if not platform.LINUX:
+            return _portable_media_key(cmd)
         suffix = f" matching '{player}'" if player else ""
         return _err(f"No media player{suffix} is currently running")
 

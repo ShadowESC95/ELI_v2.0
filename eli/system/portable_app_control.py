@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import difflib
 import os
-import platform
 import re
 import shlex
 import shutil
@@ -27,9 +26,15 @@ class AppCandidate:
 
 
 def _system() -> str:
-    if os.environ.get("TERMUX_VERSION") or "com.termux" in os.environ.get("PREFIX", "").lower():
+    from eli.utils import platform_compat as _pc
+
+    if _pc.ANDROID:
         return "android"
-    return platform.system().lower()
+    if _pc.WINDOWS:
+        return "windows"
+    if _pc.MACOS:
+        return "darwin"
+    return "linux"
 
 
 def _run(args: list[str], timeout: float = 8.0) -> subprocess.CompletedProcess:
@@ -536,3 +541,207 @@ def maximize_app(name: str) -> dict:
                        resolved=target.__dict__)
 
     return _result(False, "MAXIMIZE_APP", f"Could not find a window for: {name}", resolved=target.__dict__)
+
+
+def _linux_only(action: str, detail: str) -> dict:
+    return _result(
+        False,
+        action,
+        f"{detail} (Linux desktop window tools required on this platform).",
+        platform=_system(),
+    )
+
+
+def _xdotool_key(keys: str) -> bool:
+    xdotool = shutil.which("xdotool")
+    return bool(xdotool and _run([xdotool, "key", keys]).returncode == 0)
+
+
+def _windows_send_keys(keys: str) -> bool:
+    ps = shutil.which("powershell") or shutil.which("pwsh")
+    if not ps:
+        return False
+    safe = keys.replace("'", "''")
+    cmd = (
+        "Add-Type -AssemblyName System.Windows.Forms; "
+        f"[System.Windows.Forms.SendKeys]::SendWait('{safe}')"
+    )
+    return _run([ps, "-NoProfile", "-Command", cmd]).returncode == 0
+
+
+def _macos_keystroke(keys: str) -> bool:
+    osascript = shutil.which("osascript")
+    if not osascript:
+        return False
+    mapping = {
+        "%{TAB}": 'tell application "System Events" to keystroke tab using {option down}',
+        "%+{TAB}": 'tell application "System Events" to keystroke tab using {option down, shift down}',
+        "^{Left}": 'tell application "System Events" to key code 123 using {control down}',
+        "^{Right}": 'tell application "System Events" to key code 124 using {control down}',
+        "super+Up": 'tell application "System Events" to key code 126 using {command down}',
+        "super+d": 'tell application "System Events" to keystroke "d" using {command down}',
+    }
+    script = mapping.get(keys)
+    if not script:
+        return False
+    return _run([osascript, "-e", script]).returncode == 0
+
+
+def focus_app(name: str) -> dict:
+    target = resolve_app(name)
+    if not target.name:
+        return _result(False, "FOCUS_APP", "No app name supplied.")
+    sysname = _system()
+    if sysname == "linux":
+        wmctrl = shutil.which("wmctrl")
+        if wmctrl and _run([wmctrl, "-a", target.name]).returncode == 0:
+            return _result(True, "FOCUS_APP", f"Focused {target.name}.", resolved=target.__dict__)
+        xdotool = shutil.which("xdotool")
+        if xdotool:
+            cp = _run([xdotool, "search", "--name", target.name])
+            ids = [x.strip() for x in cp.stdout.splitlines() if x.strip()]
+            if ids and _run([xdotool, "windowactivate", ids[0]]).returncode == 0:
+                return _result(True, "FOCUS_APP", f"Focused {target.name}.", resolved=target.__dict__)
+    if sysname == "darwin":
+        osascript = shutil.which("osascript")
+        if osascript and _run([osascript, "-e", f'tell application "{target.name}" to activate']).returncode == 0:
+            return _result(True, "FOCUS_APP", f"Focused {target.name}.", resolved=target.__dict__)
+    if sysname == "windows":
+        ps = shutil.which("powershell") or shutil.which("pwsh")
+        if ps:
+            safe = target.name.replace("'", "''")
+            cmd = (
+                "$sig='[DllImport(\"user32.dll\")] public static extern bool SetForegroundWindow(IntPtr hWnd);'; "
+                "Add-Type -MemberDefinition $sig -Name Win32FG -Namespace Win32; "
+                f"$q='{safe}'; "
+                "$p=Get-Process | Where-Object { $_.MainWindowHandle -ne 0 -and ($_.MainWindowTitle -like \"*$q*\" -or $_.ProcessName -like \"*$q*\") } | Select-Object -First 1; "
+                "if($p){ [Win32.Win32FG]::SetForegroundWindow($p.MainWindowHandle) | Out-Null; exit 0 } else { exit 2 }"
+            )
+            if _run([ps, "-NoProfile", "-Command", cmd]).returncode == 0:
+                return _result(True, "FOCUS_APP", f"Focused {target.name}.", resolved=target.__dict__)
+    return _result(False, "FOCUS_APP", f"Could not focus {name}.", resolved=target.__dict__)
+
+
+def tile_windows() -> dict:
+    if _system() != "linux":
+        return _linux_only("TILE_WINDOWS", "Window tiling")
+    wmctrl = shutil.which("wmctrl")
+    if not wmctrl:
+        return _result(False, "TILE_WINDOWS", "wmctrl not installed; cannot tile windows.")
+    try:
+        listing = _run([wmctrl, "-l"])
+        window_ids = [line.split()[0] for line in (listing.stdout or "").splitlines() if line.strip()]
+        count = len(window_ids)
+        if count == 0:
+            return _result(False, "TILE_WINDOWS", "No visible windows to tile.")
+        geom = ""
+        xdpy = shutil.which("xdpyinfo")
+        if xdpy:
+            geom = _run([xdpy]).stdout
+        m = re.search(r"dimensions:\s*(\d+)x(\d+)", geom or "")
+        sw, sh = (int(m.group(1)), int(m.group(2))) if m else (1920, 1080)
+        cols = 2 if count <= 4 else 3
+        rows = (count + cols - 1) // cols
+        cw, rh = sw // cols, sh // rows
+        for i, wid in enumerate(window_ids):
+            row, col = divmod(i, cols)
+            x, y = col * cw, row * rh
+            _run([wmctrl, "-i", "-r", wid, "-b", "remove,maximized_vert,maximized_horz"])
+            _run([wmctrl, "-i", "-r", wid, "-e", f"0,{x},{y},{cw},{rh}"])
+        msg = f"Tiled {count} window{'s' if count != 1 else ''} into a {cols}×{rows} grid."
+        return _result(True, "TILE_WINDOWS", msg, count=count, grid=[cols, rows])
+    except Exception as e:
+        return _result(False, "TILE_WINDOWS", str(e))
+
+
+def minimise_all() -> dict:
+    sysname = _system()
+    if sysname == "linux":
+        wmctrl = shutil.which("wmctrl")
+        if wmctrl and _run([wmctrl, "-k", "on"]).returncode == 0:
+            return _result(True, "MINIMISE_ALL", "Showed desktop.")
+        if _xdotool_key("super+d"):
+            return _result(True, "MINIMISE_ALL", "Triggered show-desktop shortcut.")
+        return _result(False, "MINIMISE_ALL", "wmctrl or xdotool required to minimise all windows.")
+    if sysname == "windows" and _windows_send_keys("#d"):
+        return _result(True, "MINIMISE_ALL", "Showed desktop.")
+    if sysname == "darwin" and _macos_keystroke("super+d"):
+        return _result(True, "MINIMISE_ALL", "Showed desktop.")
+    return _linux_only("MINIMISE_ALL", "Show desktop / minimise all")
+
+
+def restore_windows() -> dict:
+    sysname = _system()
+    if sysname == "linux":
+        wmctrl = shutil.which("wmctrl")
+        if wmctrl and _run([wmctrl, "-k", "off"]).returncode == 0:
+            return _result(True, "RESTORE_WINDOWS", "Restored windows.")
+        return _result(False, "RESTORE_WINDOWS", "wmctrl required to restore windows.")
+    return _linux_only("RESTORE_WINDOWS", "Restore minimised windows")
+
+
+def maximise_active_window() -> dict:
+    sysname = _system()
+    if sysname == "linux":
+        wmctrl = shutil.which("wmctrl")
+        if wmctrl and _run([wmctrl, "-r", ":ACTIVE:", "-b", "add,maximized_vert,maximized_horz"]).returncode == 0:
+            return _result(True, "MAXIMISE_WINDOW", "Maximised current window.")
+        if _xdotool_key("super+Up"):
+            return _result(True, "MAXIMISE_WINDOW", "Triggered maximise shortcut.")
+        return _result(False, "MAXIMISE_WINDOW", "wmctrl or xdotool required to maximise.")
+    if sysname == "windows":
+        ps = shutil.which("powershell") or shutil.which("pwsh")
+        if ps:
+            cmd = (
+                "$sig='[DllImport(\"user32.dll\")] public static extern IntPtr GetForegroundWindow(); "
+                "[DllImport(\"user32.dll\")] public static extern bool ShowWindowAsync(IntPtr hWnd, int nCmdShow);'; "
+                "Add-Type -MemberDefinition $sig -Name Win32Max -Namespace Win32; "
+                "$h=[Win32.Win32Max]::GetForegroundWindow(); "
+                "if($h -ne [IntPtr]::Zero){ [Win32.Win32Max]::ShowWindowAsync($h, 3) | Out-Null; exit 0 } else { exit 2 }"
+            )
+            if _run([ps, "-NoProfile", "-Command", cmd]).returncode == 0:
+                return _result(True, "MAXIMISE_WINDOW", "Maximised current window.")
+    if sysname == "darwin" and _macos_keystroke("super+Up"):
+        return _result(True, "MAXIMISE_WINDOW", "Maximised current window.")
+    return _linux_only("MAXIMISE_WINDOW", "Maximise the active window")
+
+
+def next_window() -> dict:
+    sysname = _system()
+    if sysname == "linux" and _xdotool_key("alt+Tab"):
+        return _result(True, "NEXT_WINDOW", "Switched to next window.")
+    if sysname == "windows" and _windows_send_keys("%{TAB}"):
+        return _result(True, "NEXT_WINDOW", "Switched to next window.")
+    if sysname == "darwin" and _macos_keystroke("%{TAB}"):
+        return _result(True, "NEXT_WINDOW", "Switched to next window.")
+    return _linux_only("NEXT_WINDOW", "Cycle windows")
+
+
+def previous_window() -> dict:
+    sysname = _system()
+    if sysname == "linux" and _xdotool_key("alt+shift+Tab"):
+        return _result(True, "PREVIOUS_WINDOW", "Switched to previous window.")
+    if sysname == "windows" and _windows_send_keys("%+{TAB}"):
+        return _result(True, "PREVIOUS_WINDOW", "Switched to previous window.")
+    if sysname == "darwin" and _macos_keystroke("%+{TAB}"):
+        return _result(True, "PREVIOUS_WINDOW", "Switched to previous window.")
+    return _linux_only("PREVIOUS_WINDOW", "Cycle windows backward")
+
+
+def switch_workspace(direction: str = "right") -> dict:
+    sysname = _system()
+    if sysname == "linux":
+        key = "ctrl+alt+Right" if str(direction).lower() == "right" else "ctrl+alt+Left"
+        if _xdotool_key(key):
+            return _result(True, "SWITCH_WORKSPACE", f"Switched workspace {direction}.")
+        return _result(False, "SWITCH_WORKSPACE", "xdotool required to switch workspaces.")
+    if sysname == "windows":
+        arrow = "^{Right}" if str(direction).lower() == "right" else "^{Left}"
+        if _windows_send_keys(arrow):
+            return _result(True, "SWITCH_WORKSPACE", f"Switched virtual desktop {direction}.")
+    if sysname == "darwin":
+        arrow = "^{Right}" if str(direction).lower() == "right" else "^{Left}"
+        if _macos_keystroke(arrow):
+            return _result(True, "SWITCH_WORKSPACE", f"Switched workspace {direction}.")
+    return _linux_only("SWITCH_WORKSPACE", "Switch workspace / virtual desktop")
+
