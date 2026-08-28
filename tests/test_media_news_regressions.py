@@ -160,6 +160,30 @@ def test_play_specific_video_provider_targets_are_normalized():
     assert prime["args"]["target"] == "primevideo"
 
 
+def test_play_specific_streaming_target_never_falls_through_to_youtube(monkeypatch):
+    """Executor must honour netflix/prime targets — not silently route to YouTube."""
+    calls = []
+
+    def _fake_streaming(target, query):
+        calls.append((target, query))
+        return f"Opened {target.title()} and searched for '{query}'. Pick it from the results to play."
+
+    monkeypatch.setattr("eli.execution.media_runtime._play_on_streaming", _fake_streaming)
+
+    from eli.execution.executor_enhanced import play_specific
+
+    for target, query in (("netflix", "rick and morty"), ("primevideo", "the walking dead")):
+        result = play_specific(query, target)
+        assert "YouTube" not in (result.get("response") or "")
+        assert result.get("target") == target
+        assert query in (result.get("response") or "")
+
+    assert calls == [
+        ("netflix", "rick and morty"),
+        ("primevideo", "the walking dead"),
+    ]
+
+
 def test_find_text_on_screen_routes_to_screen_locator():
     result = route("find status label on the screen")
     assert result["action"] == "SCREEN_LOCATE"

@@ -3447,6 +3447,7 @@ def play_specific(query: str, target: str | None = None) -> Dict[str, Any]:
     """Play a specific song/artist/genre.
 
     Dispatch priority:
+      0. Explicit streaming platform (netflix/prime/disney/…) → browser deep-link search
       1. Explicit spotify target  → Spotify (dbus if open, else xdg-open URI)
       2. Explicit youtube target  → yt-dlp+mpv if available, else browser watch URL
       3. "youtube web/website"    → browser watch URL (never mpv)
@@ -3458,6 +3459,28 @@ def play_specific(query: str, target: str | None = None) -> Dict[str, Any]:
     import re as _re
 
     t = (target or "").lower().strip()
+
+    # ── 0. Named streaming platform — never fall through to YouTube ───────────
+    try:
+        from eli.execution.media_runtime import (
+            _play_on_streaming,
+            normalize_streaming_target,
+            _streaming_display_name,
+        )
+        canon = normalize_streaming_target(target or t)
+        if canon:
+            msg = _play_on_streaming(target or t, query)
+            if msg:
+                return {"ok": True, "action": "PLAY_MEDIA", "played": False,
+                        "search_only": True, "target": canon,
+                        "content": msg, "response": msg}
+            label = _streaming_display_name(canon)
+            fail = f"Couldn't open {label}."
+            return {"ok": False, "action": "PLAY_MEDIA", "played": False,
+                    "target": canon, "content": fail, "response": fail}
+    except Exception:
+        log.debug("[MEDIA] streaming platform dispatch failed", exc_info=True)
+
     player = _resolve_media_target(target) or _get_active_player()
 
     def _clean(q: str) -> str:
@@ -5757,7 +5780,7 @@ def _execute_impl(action: str, args: Optional[Dict[str, Any]] = None) -> Dict[st
 
     if a == "PLAY_MEDIA":
         query = (args.get("query") or args.get("song") or args.get("artist") or "").strip()
-        target = (args.get("target") or "").strip() or None
+        target = (args.get("target") or args.get("service") or "").strip() or None
         if query:
             return play_specific(query, target)
         return play_media(target)
@@ -13007,6 +13030,7 @@ def _eli_is_identity_memory_query(_args):
 try:
     from eli.execution.media_runtime import install_media_executor as _install_media_executor
     execute_action = _install_media_executor(execute_action)
+    execute = execute_action  # late wrappers delegate to `execute`, not `execute_action`
 except Exception as _media_runtime_error:
     log.debug(f"[MEDIA_RUNTIME] failed to install media executor wrapper: {_media_runtime_error}")
 
