@@ -612,6 +612,7 @@ def _stream_clean_chunks(chunks):
 _llm: Optional[Llama] = None
 _live_runtime_override: Optional[Dict[str, Any]] = None
 _load_failed: bool = False  # sentinel: don't retry after a confirmed failure
+_last_load_error: Optional[str] = None
 try:
     from eli.runtime.native_locks import LLAMA_CPP_NATIVE_LOCK as _LLM_CALL_LOCK
 except Exception:
@@ -722,6 +723,17 @@ def load_model(force_reload: bool = False):
     model_path = _Path(model_path).expanduser().resolve()
     if not model_path.exists():
         raise FileNotFoundError(f"GGUF model not found: {model_path}")
+
+    from eli.cognition.model_load_diagnostics import (
+        ModelLoadError as _ModelLoadError,
+        preflight_gguf_model as _preflight_gguf_model,
+    )
+    _preflight_msg = _preflight_gguf_model(model_path)
+    if _preflight_msg:
+        globals()["_last_load_error"] = _preflight_msg
+        _pe = _ModelLoadError(_preflight_msg)
+        _pe.retryable = False
+        raise _pe
 
     n_ctx = _env_int("ELI_GGUF_N_CTX", None)
     if n_ctx is None:
@@ -917,7 +929,9 @@ def load_model(force_reload: bool = False):
         """Build the error and record whether retrying could ever help, so the
         adaptive ladder above can stop instead of repeating an identical
         failure through every ctx/layer/batch combination it knows."""
-        _e = ModelLoadError(_explain(err, lines, model_path, gpu_layers=layers))
+        msg = _explain(err, lines, model_path, gpu_layers=layers)
+        globals()["_last_load_error"] = msg
+        _e = ModelLoadError(msg)
         _e.retryable = _retryable(lines)
         return _e
     _harden()
@@ -1007,6 +1021,7 @@ def load_model(force_reload: bool = False):
         "pid": os.getpid(),
         "ts": _time.time(),
     }
+    globals()["_last_load_error"] = None
 
     try:
         snap_path = _Path(_gp().artifacts_dir) / "runtime_snapshot.json"

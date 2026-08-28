@@ -1774,6 +1774,54 @@ def route(text: str, _clause_depth: int = 0) -> Dict[str, Any]:
         )
 
     if not _explain_prior_claim and re.search(
+        r"\b(gguf\s+(?:error|issue|fail|problem)|empty response|returned empty|"
+        r"nemotron.*(?:not|fail|error|work|load)|model not (?:load|work)|"
+        r"unknown model architecture|why.*nemotron|analyse?.*gguf)\b",
+        low,
+    ):
+        return _mk(
+            "EXPLAIN_GGUF_DIAGNOSTICS",
+            {"question": raw},
+            0.995,
+            matched_by="router.primary_contract_diagnostics.gguf_runtime",
+            need_grounding=True,
+            allow_chat_without_evidence=False,
+            task_family="grounded_audit",
+        )
+
+    if not _explain_prior_claim and re.search(
+        r"\b(?:(?:what was|show|explain)\s+(?:the\s+)?(?:last|most recent|latest)\s+failure|"
+        r"why did (?:that|it) fail)\b",
+        low,
+    ):
+        return _mk(
+            "EXPLAIN_LAST_FAILURE",
+            {"question": raw},
+            0.995,
+            matched_by="router.primary_contract_diagnostics.last_failure",
+            need_grounding=True,
+            allow_chat_without_evidence=False,
+            task_family="grounded_audit",
+        )
+
+    if not _explain_prior_claim and re.search(
+        r"\b(what (?:are|have been|is)|show|list|get).{0,40}\b(failures?|failed)\b",
+        low,
+    ) or re.search(
+        r"\b(tripping up|failure log|executor failures?|\d+\s+failures?)\b",
+        low,
+    ):
+        return _mk(
+            "EXPLAIN_FAILURE_LOG",
+            {"question": raw, "limit": 50},
+            0.995,
+            matched_by="router.primary_contract_diagnostics.failure_log",
+            need_grounding=True,
+            allow_chat_without_evidence=False,
+            task_family="grounded_audit",
+        )
+
+    if not _explain_prior_claim and re.search(
         r"\b(current inference|inference issues|gguf issues|prompt overflow|context overflow|context window|sacrificing reasoning|sacrifice reasoning|model slow|llama slow|gpu_layers|gpu layers|max_tokens|n_ctx|batch size|llama_context)\b",
         low,
     ):
@@ -3853,7 +3901,7 @@ def route(text: str, _clause_depth: int = 0) -> Dict[str, Any]:
                    0.98, matched_by="audio.mute")
 
     _vol_up_m = re.search(
-        r"\b(?:volume\s+up|turn\s+up\s+(?:the\s+)?(?:volume|sound|audio)|"
+        r"\b(?:vol(?:ume)?\s+up|turn\s+up\s+(?:the\s+)?(?:volume|sound|audio)|"
         r"increase\s+(?:the\s+)?(?:volume|sound|audio)|"
         r"raise\s+(?:the\s+)?(?:volume|sound|audio)|louder)\b",
         low,
@@ -3864,7 +3912,7 @@ def route(text: str, _clause_depth: int = 0) -> Dict[str, Any]:
         return _mk("VOLUME", {"direction": "up", "delta": delta},
                    0.95, matched_by="audio.volume_up")
 
-    if re.search(r"\b(lower|decrease|volume\s+down)\b", low):
+    if re.search(r"\b(?:vol(?:ume)?\s+down|lower|decrease)\b", low):
         return _mk("VOLUME", {"direction": "down", "delta": 15},
                    0.95, matched_by="audio.volume_down")
 

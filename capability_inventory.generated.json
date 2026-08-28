@@ -401,9 +401,25 @@
       "source": "executor+router"
     },
     {
+      "action": "EXPLAIN_FAILURE_LOG",
+      "in_dispatch": true,
+      "in_supported_list": true,
+      "plugin": null,
+      "routable": true,
+      "source": "executor+router"
+    },
+    {
+      "action": "EXPLAIN_GGUF_DIAGNOSTICS",
+      "in_dispatch": true,
+      "in_supported_list": true,
+      "plugin": null,
+      "routable": true,
+      "source": "executor+router"
+    },
+    {
       "action": "EXPLAIN_LAST_FAILURE",
       "in_dispatch": true,
-      "in_supported_list": false,
+      "in_supported_list": true,
       "plugin": null,
       "routable": false,
       "source": "executor"
@@ -1785,7 +1801,7 @@
       "source": "executor"
     }
   ],
-  "count": 223,
-  "generated_at": 1787197298.3142743,
+  "count": 225,
+  "generated_at": 1787922242.757994,
   "generator": "brain.awareness.capability_sync"
 }

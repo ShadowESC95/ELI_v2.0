@@ -1,6 +1,6 @@
 {
-  "generated_at": "2026-08-20T04:41:51",
-  "total": 223,
+  "generated_at": "2026-08-28T14:04:02",
+  "total": 225,
   "capabilities": [
     {
       "action": "ADD_EVENT",
@@ -453,13 +453,31 @@
       "in_supported_list": true
     },
     {
+      "action": "EXPLAIN_FAILURE_LOG",
+      "source": "executor+router",
+      "active": true,
+      "plugin": null,
+      "routable": true,
+      "in_dispatch": true,
+      "in_supported_list": true
+    },
+    {
+      "action": "EXPLAIN_GGUF_DIAGNOSTICS",
+      "source": "executor+router",
+      "active": true,
+      "plugin": null,
+      "routable": true,
+      "in_dispatch": true,
+      "in_supported_list": true
+    },
+    {
       "action": "EXPLAIN_LAST_FAILURE",
       "source": "executor",
       "active": true,
       "plugin": null,
       "routable": false,
       "in_dispatch": true,
-      "in_supported_list": false
+      "in_supported_list": true
     },
     {
       "action": "EXPLAIN_LAST_RESPONSE",
