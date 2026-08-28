@@ -421,8 +421,8 @@
       "in_dispatch": true,
       "in_supported_list": true,
       "plugin": null,
-      "routable": false,
-      "source": "executor"
+      "routable": true,
+      "source": "executor+router"
     },
     {
       "action": "EXPLAIN_LAST_RESPONSE",
@@ -1637,8 +1637,8 @@
       "in_dispatch": true,
       "in_supported_list": true,
       "plugin": null,
-      "routable": false,
-      "source": "executor"
+      "routable": true,
+      "source": "executor+router"
     },
     {
       "action": "SUMMARIZE_FILE",
@@ -1725,8 +1725,8 @@
       "in_dispatch": true,
       "in_supported_list": false,
       "plugin": null,
-      "routable": true,
-      "source": "executor+router"
+      "routable": false,
+      "source": "executor"
     },
     {
       "action": "VOLUME",
@@ -1802,6 +1802,6 @@
     }
   ],
   "count": 225,
-  "generated_at": 1787922242.757994,
+  "generated_at": 1787929138.4736607,
   "generator": "brain.awareness.capability_sync"
 }

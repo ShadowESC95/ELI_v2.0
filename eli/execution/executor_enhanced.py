@@ -4408,25 +4408,20 @@ def _playerctl_p(*args):
     return _playerctl_run(["playerctl", *args])
 
 def _duck_media_pause():
-    # Pause ONLY if it was actually playing; remember we ducked it.
-    global _DUCKED_MEDIA
-    if not MEDIA_DUCK:
-        return
-    if _DUCKED_MEDIA:
-        return
-    rc, out, _ = _playerctl_p("status")
-    if rc == 0 and out.lower() == "playing":
-        _playerctl_p("pause")
-        _DUCKED_MEDIA = True
+    # Canonical implementation lives in audio_stt (shared with wake-word ducking).
+    try:
+        from eli.perception.audio_stt import media_player_duck_pause
+        media_player_duck_pause()
+    except Exception:
+        log.debug("[MEDIA_DUCK] pause skipped", exc_info=True)
+
 
 def _duck_media_resume():
-    global _DUCKED_MEDIA
-    if not MEDIA_DUCK:
-        return
-    if not _DUCKED_MEDIA:
-        return
-    _playerctl_p("play")
-    _DUCKED_MEDIA = False
+    try:
+        from eli.perception.audio_stt import media_player_duck_resume
+        media_player_duck_resume()
+    except Exception:
+        log.debug("[MEDIA_DUCK] resume skipped", exc_info=True)
 
 def _duck_schedule_resume(deadline_s: float):
     # Reset timer each time wake window is extended.
@@ -9274,10 +9269,18 @@ def _execute_impl(action: str, args: Optional[Dict[str, Any]] = None) -> Dict[st
             diag = stt_diagnostics()
             tts = available_backends()
             combined = {**diag, "tts_backends": tts}
+            wh = combined.get("whisper") or {}
             lines = [
                 f"STT — speech_recognition: {'✅' if combined.get('speech_recognition_imported') else '❌'}",
                 f"STT — wake word disabled: {combined.get('wake_word_disabled')}",
                 f"STT — direct chat: {combined.get('allow_direct_chat_without_wake')}",
+                f"STT — wake model trained: {'✅' if combined.get('wake_model_trained') else '❌'} "
+                f"(phrase: {combined.get('wake_phrase', '?')})",
+                f"STT — whisper cache: {'✅' if wh.get('cache_ready') else '❌'} "
+                f"loaded: {'✅' if wh.get('loaded') else '❌'} "
+                f"model: {wh.get('model', '?')} device: {wh.get('device_configured', '?')}",
+                f"STT — output duck: {'✅' if combined.get('wake_duck_enabled') else 'off'} "
+                f"media pause duck: {'✅' if combined.get('media_duck_enabled') else 'off'}",
                 f"TTS — piper: {'✅' if tts.get('piper_bin') else '❌'} model: {'✅' if tts.get('piper_model') else '❌'}",
                 f"TTS — espeak-ng: {'✅' if tts.get('espeak_ng') else '❌'}",
                 f"TTS — espeak: {'✅' if tts.get('espeak') else '❌'}",

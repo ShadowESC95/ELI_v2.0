@@ -78,6 +78,15 @@ def _eli_get_sink_volume_snapshot():
     if ok and out:
         return ("pactl", out)
 
+    # Windows / macOS / Linux without wpctl+pactl — use platform_compat.
+    try:
+        from eli.utils import platform_compat as _pc
+        vol = _pc.get_volume()
+        if vol is not None:
+            return ("platform", str(int(vol)))
+    except Exception:
+        log.debug("[AUDIO_DUCK] platform volume snapshot unavailable", exc_info=True)
+
     return None
 
 
@@ -110,6 +119,17 @@ def _eli_duck_output():
         log.debug(f"[AUDIO_DUCK] ducked output to {_ELI_DUCK_LEVEL}; snapshot=pactl")
         return snap
 
+    if snap and snap[0] == "platform":
+        try:
+            from eli.utils import platform_compat as _pc
+            # Match the ~18% spirit of _ELI_DUCK_LEVEL on a 0-100 scale.
+            target = max(5, min(30, int(str(_ELI_DUCK_LEVEL).rstrip("%") or "18")))
+            if _pc.set_volume(target):
+                log.debug(f"[AUDIO_DUCK] platform volume ducked to {target}; snapshot={snap[1]!r}")
+                return snap
+        except Exception:
+            log.debug("[AUDIO_DUCK] platform duck failed", exc_info=True)
+
     return None
 
 
@@ -126,8 +146,69 @@ def _eli_restore_output(snapshot):
             log.debug(f"[AUDIO_DUCK] restored output volume to {vol}")
         return
 
+    if backend == "platform":
+        try:
+            from eli.utils import platform_compat as _pc
+            _pc.set_volume(int(raw))
+            log.debug(f"[AUDIO_DUCK] restored platform volume to {raw}")
+        except Exception:
+            log.debug("[AUDIO_DUCK] platform restore failed", exc_info=True)
+        return
+
     # pactl output is messier. Avoid unsafe parsing. Best effort only.
     log.debug("[AUDIO_DUCK] pactl restore snapshot present; wpctl restore unavailable")
+
+
+_MEDIA_DUCKED = False
+_MEDIA_DUCK_LOCK = threading.Lock()
+
+
+def _media_duck_enabled() -> bool:
+    return os.environ.get("ELI_MEDIA_DUCK", "1").strip().lower() not in ("0", "false", "no", "off")
+
+
+def media_player_duck_pause() -> None:
+    """Pause the active MPRIS player while ELI listens (Linux desktop media)."""
+    global _MEDIA_DUCKED
+    if not _media_duck_enabled():
+        return
+    with _MEDIA_DUCK_LOCK:
+        if _MEDIA_DUCKED:
+            return
+        try:
+            from eli.integrations.mpris.playerctl_backend import get_player_status, pause
+            st = get_player_status()
+            if isinstance(st, dict) and st.get("ok") and str(st.get("status", "")).lower() == "playing":
+                pause(st.get("player"))
+                _MEDIA_DUCKED = True
+                log.debug("[AUDIO_DUCK] paused active media player for wake-word listen")
+        except Exception:
+            log.debug("[AUDIO_DUCK] media player pause skipped", exc_info=True)
+
+
+def media_player_duck_resume() -> None:
+    """Resume media paused by media_player_duck_pause()."""
+    global _MEDIA_DUCKED
+    if not _media_duck_enabled():
+        return
+    with _MEDIA_DUCK_LOCK:
+        if not _MEDIA_DUCKED:
+            return
+        try:
+            from eli.integrations.mpris.playerctl_backend import play
+            play(None)
+            log.debug("[AUDIO_DUCK] resumed paused media player")
+        except Exception:
+            log.debug("[AUDIO_DUCK] media player resume skipped", exc_info=True)
+        finally:
+            _MEDIA_DUCKED = False
+
+
+def _eli_restore_duck(snapshot) -> None:
+    """Restore system volume and any paused media after a wake-word listen window."""
+    media_player_duck_resume()
+    if snapshot:
+        _eli_restore_output(snapshot)
 
 
 def _eli_echo_like_assistant_output(text):
@@ -711,7 +792,7 @@ def _mic_resolver_diagnostics() -> dict:
 
 
 def stt_diagnostics() -> dict:
-    return {
+    out = {
         "speech_recognition_imported": sr is not None,
         "speech_recognition_error": repr(_SR_IMPORT_ERROR) if _SR_IMPORT_ERROR else None,
         "mic_device_index_env": os.environ.get("ELI_MIC_DEVICE_INDEX"),
@@ -720,7 +801,22 @@ def stt_diagnostics() -> dict:
         "allow_direct_chat_without_wake": ALLOW_DIRECT_CHAT_WITHOUT_WAKE,
         "min_direct_chat_words": MIN_DIRECT_CHAT_WORDS,
         "wake_arm_timeout": WAKE_ARM_TIMEOUT,
+        "wake_duck_enabled": _ELI_DUCK_ENABLED,
+        "media_duck_enabled": _media_duck_enabled(),
     }
+    try:
+        from eli.perception.local_whisper_stt import whisper_status
+        out["whisper"] = whisper_status()
+    except Exception as exc:
+        out["whisper"] = {"error": repr(exc)}
+    try:
+        from eli.perception.wakeword import is_trained, primary_wake_word
+        out["wake_model_trained"] = is_trained()
+        out["wake_phrase"] = primary_wake_word()
+    except Exception as exc:
+        out["wake_model_trained"] = False
+        out["wake_phrase_error"] = repr(exc)
+    return out
 
 
 def process_transcript(text: str):
@@ -1533,7 +1629,7 @@ class ELIAudioSTT:
         try:
             snap = getattr(self, "_eli_duck_snapshot", None)
             if snap is not None:
-                _eli_restore_output(snap)
+                _eli_restore_duck(snap)
                 self._eli_duck_snapshot = None
         except Exception as e:
             log.debug(f"[AUDIO_DUCK][RESTORE_ERROR] {e}")
@@ -1747,7 +1843,7 @@ class ELIAudioSTT:
                         # for the user to speak (covers arm_incomplete → silence → timeout).
                         if self._eli_duck_snapshot is not None and not self._voice_gate.armed():
                             try:
-                                _eli_restore_output(self._eli_duck_snapshot)
+                                _eli_restore_duck(self._eli_duck_snapshot)
                                 self._eli_duck_snapshot = None
                                 log.debug("[AUDIO_DUCK] Gate expired (no speech) — volume restored")
                             except Exception as _re:
@@ -1988,7 +2084,7 @@ class ELIAudioSTT:
                     # arm_incomplete → user went silent → gate timed out).
                     if self._eli_duck_snapshot is not None and not self._voice_gate.armed():
                         try:
-                            _eli_restore_output(self._eli_duck_snapshot)
+                            _eli_restore_duck(self._eli_duck_snapshot)
                             self._eli_duck_snapshot = None
                             log.debug("[AUDIO_DUCK] Gate expired without dispatch — volume restored")
                         except Exception as _re:
@@ -2005,6 +2101,7 @@ class ELIAudioSTT:
                             # the original pre-duck volume with the ducked level.
                             if self._eli_duck_snapshot is None:
                                 self._eli_duck_snapshot = _eli_duck_output()
+                                media_player_duck_pause()
                             else:
                                 log.debug("[AUDIO_DUCK] Already ducked — keeping existing snapshot")
                         except Exception as e:

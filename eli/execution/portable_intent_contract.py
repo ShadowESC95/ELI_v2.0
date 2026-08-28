@@ -354,6 +354,16 @@ def try_route(text: str) -> Optional[dict]:
                 "meta": {"matched_by": "portable_intent_contract.shell_exec"},
             }
 
+    # Voice/STT diagnostics — defer to core_router (STT_DIAGNOSTICS), not OPEN_APP.
+    if re.search(
+        r"\b(voice|stt|speech|whisper|microphone|mic)\s+diagnostics?\b"
+        r"|\bdiagnostics?\s+(voice|stt|speech|whisper|microphone|mic)\b"
+        r"|\brun\s+voice\s+diagnostics?\b"
+        r"|\bcheck\s+(the\s+)?(microphone|mic)\b",
+        norm,
+    ):
+        return None
+
     # "please open the browser and search for QFT" never reached this matcher
     # because of the leading politeness marker, so it fell through to a plain
     # web search and opened nothing — twice, while the user was shouting for a

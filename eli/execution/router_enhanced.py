@@ -2108,9 +2108,11 @@ def route(text: str, _clause_depth: int = 0) -> Dict[str, Any]:
     # swallows "voice diagnostics", "mic diagnostics", etc.
     if re.search(r"\b(voice|stt|speech[- ]to[- ]text|whisper|microphone|mic)\s+"
                  r"(diagnostic|diagnostics|status|test|check|health)\b"
-                 r"|\b(diagnostic|diagnostics|status|test|check|health)\s+(voice|stt|speech|whisper|mic)\b",
+                 r"|\b(diagnostic|diagnostics|status|test|check|health)\s+(voice|stt|speech|whisper|mic)\b"
+                 r"|\bcheck\s+(the\s+)?(microphone|mic)\b"
+                 r"|\bstt\s+diagnostics?\b",
                  low):
-        return _mk("VOICE_DIAGNOSTICS", {}, 0.93, matched_by="voice.diagnostics.preempt")
+        return _mk("STT_DIAGNOSTICS", {}, 0.93, matched_by="voice.diagnostics.preempt")
 
     # ── Wake-word + voice-profile management ───────────────────────────────────
     # Deterministic because these are explicitly-named commands the LLM resolver
@@ -2234,7 +2236,8 @@ def route(text: str, _clause_depth: int = 0) -> Dict[str, Any]:
     # A bare install/download of a named voice id/accent with NO "voice" word,
     # e.g. "install en_US-amy-medium" or "download en_GB-alan". Gated on the query
     # actually resolving to a catalog voice, so "install firefox" is unaffected.
-    if re.search(r"\b(download|install|fetch|add|get)\b", low):
+    # Skip news intents — "get news about X" must not match et_EE-news-medium.
+    if re.search(r"\b(download|install|fetch|add|get)\b", low) and not re.search(r"\bnews\b", low):
         try:
             from eli.runtime.voice_assets import resolve_voice_query
             _vr = resolve_voice_query(raw)
