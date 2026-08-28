@@ -334,8 +334,29 @@ def _data_dirs() -> tuple[Path, Path]:
 
 
 def runtime_paths() -> Dict[str, Any]:
-    root = _root()
-    _artifacts, _config = _data_dirs()
+    """Return canonical runtime paths for the active install (source, wheel, or AppImage).
+
+    User databases, snapshots, and settings live under the per-user data/config
+    dirs from ``get_paths()`` — never under the read-only AppImage mount.
+    """
+    import sys as _sys
+
+    try:
+        from eli.core.paths import get_paths as _gp
+        p = _gp()
+        root = Path(p.project_root).expanduser().resolve()
+        _artifacts = Path(p.artifacts_dir).expanduser().resolve()
+        _config = Path(p.config_dir).expanduser().resolve()
+        _models = Path(p.models_dir).expanduser().resolve()
+        _user_db = Path(p.user_db).expanduser().resolve()
+        _agent_db = Path(p.agent_db).expanduser().resolve()
+    except Exception:
+        root = _root()
+        _artifacts, _config = _data_dirs()
+        _models = root / "models"
+        _user_db = _artifacts / "db" / "user.sqlite3"
+        _agent_db = _artifacts / "db" / "agent.sqlite3"
+
     snap = _read_json(_artifacts / "runtime_snapshot.json")
     cfg = _read_json(_config / "settings.json")
 
@@ -350,20 +371,27 @@ def runtime_paths() -> Dict[str, Any]:
     if model_path and not Path(model_path).expanduser().is_absolute():
         candidates = [
             (root / model_path).resolve(),
+            (_models / model_path).resolve(),
+            (_models / "gguf" / "base" / Path(model_path).name).resolve(),
             (root / "models" / model_path).resolve(),
             (root / "models" / "gguf" / "base" / Path(model_path).name).resolve(),
         ]
-        model_path = str(next((p for p in candidates if p.exists()), candidates[0]))
+        model_path = str(next((c for c in candidates if c.exists()), candidates[0]))
+
+    _venv_py = root / ".venv" / "bin" / "python3"
+    _python = str(_venv_py.resolve()) if _venv_py.exists() else _sys.executable
 
     return {
         "project_root": str(root),
-        "python": str((root / ".venv" / "bin" / "python3").resolve()),
-        "runtime_snapshot": str(root / "artifacts" / "runtime_snapshot.json"),
-        "config_settings": str(root / "config" / "settings.json"),
+        "data_dir": str(_artifacts),
+        "config_dir": str(_config),
+        "python": _python,
+        "runtime_snapshot": str(_artifacts / "runtime_snapshot.json"),
+        "config_settings": str(_config / "settings.json"),
         "model_path": model_path,
-        "models_dir": str(root / "models"),
-        "user_db": str(root / "artifacts" / "db" / "user.sqlite3"),
-        "agent_db": str(root / "artifacts" / "db" / "agent.sqlite3"),
+        "models_dir": str(_models),
+        "user_db": str(_user_db),
+        "agent_db": str(_agent_db),
         "persona_base": str(root / "eli" / "cognition" / "persona.txt"),
         "persona_auto": str(root / "eli" / "cognition" / "persona.auto.txt"),
         "snapshot": snap,

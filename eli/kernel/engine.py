@@ -153,6 +153,7 @@ _DIRECT_FINAL_ACTIONS = frozenset({
     "SELF_REPORT", "USER_IDENTITY_SUMMARY", "PERSONAL_MEMORY_SUMMARY",
     "PERSONAL_MEMORY_DEEP_EXPLAIN", "ROUTING_FAULT_EXPLAIN", "NAME_SOURCE_AUDIT",
     "SELF_ANALYZE", "SELF_IMPROVE", "SELF_IMPROVEMENT_LOG", "SELF_UPDATE",
+    "SELF_TEST",
     "SELF_UPGRADE", "SELF_PATCH",
     "EXAMINE_CODE", "CONFIRM_CODE_FIX", "CANCEL_CODE_FIX",
     "CONFIRM_HABIT", "DECLINE_HABIT",
@@ -11933,6 +11934,7 @@ Answer:"""
                             "SELF_ANALYZE",
                             "SELF_IMPROVE",
                             "SELF_IMPROVEMENT_LOG",
+                            "SELF_TEST",
                         }
                         # Quick mode bypasses synthesis for grounded control actions
                         # (returns deterministic evidence directly — fast, no GGUF).

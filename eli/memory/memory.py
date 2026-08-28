@@ -4254,6 +4254,10 @@ class Memory(metaclass=_MemoryMeta):
         "cannot search the web", "path not found", "file not found",
         "no location match", "missing_location", "missing path", "missing folder",
         "is not installed", "could not open", "could not close",
+        # Empty/malformed user commands — validation outcomes, not code bugs.
+        "missing topic", "missing app name", "specify app", "unsupported executor action",
+        "couldn't tell which voice", "give the voice a name", "missing required",
+        "validation failed", "empty args", "no topic", "no app name",
     )
 
     def log_failure(self, user_input, error="", confidence=0.0, context=None, details=None, source="manual", **kwargs):

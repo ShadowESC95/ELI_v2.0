@@ -2663,8 +2663,8 @@ def self_test() -> Dict[str, Any]:
     """
     Runs a deterministic suite:
       - persona lock status
-      - minimal chat handshake (Ollama or GGUF fallback)
-      - consistency probe (temperature=0 twice) and compare
+      - minimal chat handshake (GGUF when that is the active provider, else Ollama)
+      - consistency probe (temperature=0 twice) and compare — Ollama only
     """
     import socket
 
@@ -2676,6 +2676,72 @@ def self_test() -> Dict[str, Any]:
         except OSError:
             return False
 
+    def _resolve_backend() -> tuple[str, str]:
+        """Return (backend, model_label) — 'gguf' or 'ollama'."""
+        provider = ""
+        model_label = ""
+        try:
+            from eli.core import config
+            provider = str(config.get("provider") or "").strip().lower()
+            if provider == "ollama":
+                model_label = str(config.get("ollama_model") or "").strip()
+        except Exception:
+            log.debug("self_test config read failed", exc_info=True)
+        try:
+            from eli.core.paths import get_paths
+            snap_path = Path(get_paths().artifacts_dir) / "runtime_snapshot.json"
+            if snap_path.exists():
+                snap = json.loads(snap_path.read_text(encoding="utf-8"))
+                if isinstance(snap, dict):
+                    if not provider:
+                        provider = str(snap.get("provider") or "").strip().lower()
+                    mp = str(snap.get("model_name") or snap.get("model_path") or "").strip()
+                    if mp and not model_label:
+                        model_label = Path(mp).name if "/" in mp or "\\" in mp else mp
+        except Exception:
+            log.debug("self_test snapshot read failed", exc_info=True)
+
+        gguf_providers = {"bundled_gguf", "custom_gguf", "gguf"}
+        if provider in gguf_providers:
+            return "gguf", model_label or "gguf"
+        if provider == "ollama":
+            return "ollama", model_label or "ollama"
+
+        # When both backends exist, prefer GGUF if it is loaded (typical AppImage path).
+        try:
+            from eli.cognition.gguf_inference import is_loaded, get_model_path
+            if is_loaded():
+                mp = get_model_path()
+                label = mp.name if mp else (model_label or "gguf")
+                return "gguf", label
+        except Exception:
+            log.debug("self_test gguf probe failed", exc_info=True)
+
+        if _ollama_reachable():
+            return "ollama", model_label or "ollama"
+        return "gguf", model_label or "gguf"
+
+    def _self_test_gguf(model_label: str) -> Dict[str, Any]:
+        try:
+            from eli.cognition.gguf_inference import chat_completion
+            resp = chat_completion("Reply with exactly these 2 words: persona ok", max_tokens=16)
+            gguf_ok = bool(resp and resp.strip())
+        except Exception as exc:
+            gguf_ok = False
+            resp = str(exc)
+        content = (resp or "").strip()
+        tests = [
+            {"name": "handshake", "ok": gguf_ok, "model": model_label or "gguf",
+             "content": content, "response": content},
+            {"name": "consistency_probe_1", "ok": gguf_ok, "model": model_label or "gguf",
+             "content": "skipped (GGUF active)", "response": "skipped (GGUF active)"},
+            {"name": "consistency_probe_2", "ok": gguf_ok, "model": model_label or "gguf",
+             "content": "skipped (GGUF active)", "response": "skipped (GGUF active)"},
+            {"name": "consistency_equal", "ok": gguf_ok,
+             "content": "skipped (GGUF active)", "response": "skipped (GGUF active)"},
+        ]
+        return {"tests": tests, "handshake_ok": gguf_ok}
+
     st = _load_state()
     lock = st.get("persona_lock") or {}
     if lock.get("model") == "test":
@@ -2686,42 +2752,37 @@ def self_test() -> Dict[str, Any]:
             log.debug("suppressed exception", exc_info=True)
     ok_lock, reason, details = _verify_persona_lock(st)
 
+    backend, model_label = _resolve_backend()
     results: Dict[str, Any] = {
         "persona_lock": {"ok": ok_lock, "reason": reason, "details": details},
+        "active_backend": backend,
+        "active_model": model_label,
         "tests": []
     }
 
-    # ── GGUF-only fallback when Ollama is not running ──
-    if not _ollama_reachable():
-        try:
-            from eli.cognition.gguf_inference import chat_completion
-            resp = chat_completion("Reply with exactly these 2 words: persona ok", max_tokens=16)
-            gguf_ok = bool(resp and resp.strip())
-        except Exception as exc:
-            gguf_ok = False
-            resp = str(exc)
-        results["tests"].append({
-            "name": "handshake", "ok": gguf_ok, "model": "gguf",
-            "content": (resp or "").strip(), "response": (resp or "").strip(),
-        })
-        # Consistency probes skipped — GGUF has no temp=0 determinism guarantee
-        results["tests"].append({"name": "consistency_probe_1", "ok": gguf_ok, "model": "gguf",
-                                  "content": "skipped (no Ollama)", "response": "skipped (no Ollama)"})
-        results["tests"].append({"name": "consistency_probe_2", "ok": gguf_ok, "model": "gguf",
-                                  "content": "skipped (no Ollama)", "response": "skipped (no Ollama)"})
-        results["tests"].append({"name": "consistency_equal", "ok": gguf_ok,
-                                  "content": "skipped (no Ollama)", "response": "skipped (no Ollama)"})
-        overall_ok = bool(ok_lock) and gguf_ok
-        msg = "SELF_TEST OK (GGUF)" if overall_ok else "SELF_TEST FAIL (GGUF)"
-        return {"ok": overall_ok, "action": "SELF_TEST", "results": results, "content": msg, "response": msg}
+    if backend == "gguf":
+        gguf_run = _self_test_gguf(model_label)
+        results["tests"] = gguf_run["tests"]
+        overall_ok = bool(ok_lock) and bool(gguf_run["handshake_ok"])
+        detail = f"GGUF: {model_label}" if model_label else "GGUF"
+        msg = f"SELF_TEST OK ({detail})" if overall_ok else f"SELF_TEST FAIL ({detail})"
+        return {"ok": overall_ok, "action": "SELF_TEST", "results": results,
+                "content": msg, "response": msg, "evidence_source": "self_test"}
 
-    # ── Standard Ollama path ──
-    # 1) Handshake: "Reply with exactly: persona_ok"
+    if not _ollama_reachable():
+        gguf_run = _self_test_gguf(model_label)
+        results["tests"] = gguf_run["tests"]
+        results["active_backend"] = "gguf"
+        overall_ok = bool(ok_lock) and bool(gguf_run["handshake_ok"])
+        msg = "SELF_TEST OK (GGUF fallback)" if overall_ok else "SELF_TEST FAIL (GGUF fallback)"
+        return {"ok": overall_ok, "action": "SELF_TEST", "results": results,
+                "content": msg, "response": msg, "evidence_source": "self_test"}
+
+    # ── Ollama path (explicit provider or no GGUF loaded) ──
     handshake_prompt = "Reply with exactly these 2 words: persona ok"
     h1 = _ollama_chat_raw(handshake_prompt, temperature=0.0, num_predict=16)
     results["tests"].append({"name": "handshake", **h1})
 
-    # 2) Consistency probe: same prompt twice with temp=0
     probe = "Reply with exactly 4 words: consistency test passed."
     p1 = _ollama_chat_raw(probe, temperature=0.0, num_predict=16)
     p2 = _ollama_chat_raw(probe, temperature=0.0, num_predict=16)
@@ -2730,10 +2791,11 @@ def self_test() -> Dict[str, Any]:
     results["tests"].append({"name": "consistency_probe_2", **p2})
     results["tests"].append({"name": "consistency_equal", "ok": same, "content": str(same), "response": str(same)})
 
-    # overall ok
     overall_ok = bool(ok_lock) and bool(h1.get("ok")) and bool(p1.get("ok")) and bool(p2.get("ok"))
-    msg = "SELF_TEST OK" if overall_ok else "SELF_TEST FAIL"
-    return {"ok": overall_ok, "action": "SELF_TEST", "results": results, "content": msg, "response": msg}
+    detail = f"Ollama: {h1.get('model') or model_label or 'ollama'}"
+    msg = f"SELF_TEST OK ({detail})" if overall_ok else f"SELF_TEST FAIL ({detail})"
+    return {"ok": overall_ok, "action": "SELF_TEST", "results": results,
+            "content": msg, "response": msg, "evidence_source": "self_test"}
 
 
 def _ollama_chat_raw(user_text: str, temperature: float = 0.7, num_predict: int = 80) -> Dict[str, Any]:
