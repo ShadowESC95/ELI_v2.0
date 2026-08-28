@@ -4,7 +4,7 @@ From a live 2.2.3 session on a 20.71GB model with 9 GPU layers:
 
     user> hey buddy, you better now?
     [GGUF][TIMING] prompt_tokens=1162  nonstream_call_total=45.898s
-    llm_intent: grammar-constrained decode over 187 actions
+    llm_intent: grammar-constrained decode over manifest actions
     [COGNITIVE][TIMING] route=46.884s
 
 Forty-six seconds of inference to conclude "CHAT". The deterministic router

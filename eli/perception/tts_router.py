@@ -381,7 +381,7 @@ def list_voices() -> list[str]:
                     voices.append(name)
         except Exception:
             pass
-    # Character voices (char:hal, char:tars, …) — base voice + ffmpeg effect chain.
+    # Character voices (char:calm, char:robotic, …) — base voice + ffmpeg effect chain.
     try:
         from eli.perception import voice_fx
         for c in voice_fx.list_characters():
@@ -1161,7 +1161,7 @@ def synthesize_wav(text: str, voice_name: str | None = None) -> Optional[bytes]:
             log.debug("[TTS_WAV] clone voice resolve failed", exc_info=True)
             _note_neural_fallback(active)
         active = _DEFAULT_VOICE
-    # Character voice (char:hal, char:tars, …): synth the base Piper voice, then run
+    # Character voice (char:calm, char:robotic, …): synth the base Piper voice, then run
     # its ffmpeg effect chain over the result. Recurses once with a real base voice.
     if str(active).startswith("char:"):
         try:

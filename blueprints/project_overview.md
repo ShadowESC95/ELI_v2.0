@@ -1,6 +1,6 @@
 # ELI MKXI — Full Project Breakdown & Assessment
 
-> **Updated for v2.1.51 (August 2026).** The primary install path is now the
+> **Updated for v2.3.30 (August 2026).** The primary install path is now the
 > prebuilt, CI-launch-tested installers on GitHub Releases (Windows Setup.exe,
 > macOS dmg, Linux AppImage) with first-boot GPU (CUDA/Vulkan/Metal) and
 > starter-model offers; data lives in a per-user `ELI_v2` folder that survives
@@ -43,30 +43,30 @@ wrapper.
 
 ## 2. Scale & shape
 
-**143,432 LOC across 392 Python files** (`eli/`), plus the FastAPI web server
-(`api/server.py`, ~3,884 lines with an embedded dashboard PWA) and 205 test files.
-*(measured 2026-06-28.)*
+**180,100 LOC across 421 Python files** (`eli/`), plus the FastAPI web server
+(`api/server.py`, ~2,309 lines with an embedded dashboard PWA) and 389 test files.
+*(measured 2026-08-28.)*
 
 | Subsystem | LOC | Files | Role |
 |---|---|---|---|
-| `execution/` | 23.1k | 14 | router + executor (action dispatch) |
-| `runtime/` | 22.6k | 80 | grounding, evidence, introspection, surfaces |
-| `gui/` | 20.3k | 20 | PySide6 desktop app |
-| `kernel/` | 14.5k | 8 | the engine (pipeline driver) |
-| `cognition/` | 14.0k | 27 | agent bus, orchestrator, inference, persona, modes |
-| `tools/` | 8.9k | 30 | image engine, news, etc. |
-| `memory/` | 7.0k | 13 | SQLite/FTS5 + FAISS + KG |
-| `perception/` | 6.8k | 20 | vision, STT, TTS, OS control |
-| `core/` | 6.6k | 24 | paths, settings, hardware profile |
-| `planning/` | 3.9k | 24 | proactive daemon, task planning |
-| `learning/` | 3.3k | 12 | LoRA self-training |
-| `plugins/` | 1.9k | 28 | runtime plugin manager |
-| `world/` | 1.5k | 26 | world event bus, local world bridge |
+| `runtime/` | 33.6k | 93 | grounding, evidence, introspection, surfaces |
+| `execution/` | 26.2k | 16 | router + executor (action dispatch) |
+| `gui/` | 26.1k | 27 | PySide6 desktop app |
+| `cognition/` | 18.5k | 37 | agent bus, orchestrator, inference, persona, modes |
+| `kernel/` | 16.7k | 8 | the engine (pipeline driver) |
+| `perception/` | 9.5k | 24 | vision, STT, TTS, OS control |
+| `core/` | 9.4k | 30 | paths, settings, hardware profile |
+| `memory/` | 8.0k | 13 | SQLite/FTS5 + FAISS + KG |
+| `tools/` | 7.5k | 29 | image engine, news, etc. |
+| `plugins/` | 5.9k | 34 | runtime plugin manager |
+| `learning/` | 4.3k | 14 | LoRA self-training |
+| `planning/` | 4.2k | 24 | proactive daemon, task planning |
+| `world/` | 1.8k | 26 | world event bus, local world bridge |
 | `integrations/`,`utils/`,`contracts/`,`system/`,`cli/` | ~5.5k | — | misc |
 
-**Four files carry ~⅓ of the codebase:** `executor_enhanced.py` (15.0k LOC),
-`engine.py` (13.4k), `gui/eli_pro_audio_gui_v2_0.py` (11.0k),
-`router_enhanced.py` (7.1k). Next tier: `labs_tab.py` (5.7k),
+**Four files carry ~⅓ of the codebase:** `executor_enhanced.py` (15.9k LOC),
+`engine.py` (15.2k), `gui/eli_pro_audio_gui_v2_0.py` (12.6k),
+`router_enhanced.py` (8.2k). Next tier: `labs_tab.py` (5.7k),
 `memory.py` (4.5k), `deterministic_grounding_gate.py` (4.3k).
 
 ## 3. Architecture, layer by layer
@@ -75,8 +75,8 @@ wrapper.
   adapt n_ctx / gpu_layers / batch to whatever model + GPU are present
   (filename→ctx table; VRAM compute-buffer reservation). Model-agnostic.
 - **Routing** — `execution/router_enhanced.py`: regex-first with LLM-intent
-  fallback + an explicit priority pipeline → one of **215 manifest capabilities**
-  (**206 routable**; 201 executor `SUPPORTED_ACTIONS`). Full reference with activation
+  fallback + an explicit priority pipeline → one of **225 manifest capabilities**
+  (**208 routable**; 204 executor `SUPPORTED_ACTIONS`). Full reference with activation
   phrases: `capabilities_and_actions.md`.
 - **Orchestration** — `kernel/engine.py` gates between the 12-stage
   `cognition/orchestrator.py` `AgentOrchestrator` (non-quick modes) and the
@@ -136,7 +136,7 @@ wrapper.
    an 11k GUI. The executor is a giant if/elif action ladder. High regression
    surface, hard to hold in the head, painful to unit-test.
 3. **Duplication & overlap.** The shadowed standalone image-engine module (1.75k LOC) was
-   removed, leaving the single `eli/tools/image_engine/` package. `runtime/` (80 files) has
+   removed, leaving the single `eli/tools/image_engine/` package. `runtime/` (93 files) has
    many near-duplicate `personal_memory_*` /
    `*_surface` / `*_response` modules doing overlapping grounding work. Several
    plan representations coexisted (partly consolidated). Fingerprint of fast solo
@@ -146,8 +146,8 @@ wrapper.
    `verify_eli_claims*.sh` versions, diag outputs, `.coverage`, and
    `experimental/*.zip` binaries. Makes the repo look less serious than the code
    is.
-5. **Tests are GREEN (measured 2026-07-01).** 205 test files; `pytest tests/` =
-   **7,348 passed / 0 failed / 45 skipped / 2 xfailed** (~8m16s on the `.venv`/GPU). The 5
+5. **Tests are GREEN (measured 2026-08-28).** 389 test files; `pytest tests/` =
+   **10,894 passed / 54 skipped / 2 xfailed** (~13.5 min on the `.venv`/GPU). The 5
    former reds (deprecated `smart_home` plugin, silent-swallow ratchet, stale blueprint
    ref) were all cleared 2026-07-03. The
    `tests/claims/` contract layer makes it a real safety net.

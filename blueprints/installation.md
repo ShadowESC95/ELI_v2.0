@@ -1,6 +1,6 @@
 # Installation — one-click setup, cross-platform (2026-07-05)
 
-> **Updated for v2.1.51 (August 2026).** The primary install path is now the
+> **Updated for v2.3.30 (August 2026).** The primary install path is now the
 > prebuilt installers on GitHub Releases — the Windows Setup.exe and Linux
 > AppImage are CI-launch-tested; the macOS dmg is built on a Mac, best-effort (not CI-verified) with first-boot GPU (CUDA/Vulkan/Metal) and
 > starter-model offers; data lives in a per-user `ELI_v2` folder that survives
@@ -22,7 +22,7 @@ slate — schema only, no personal data), the **nomic embedder**, and the defaul
 
 Every release ships **five downloads plus a checksum file** — one per platform, with a
 second option on Windows (installer vs. unzip-and-run) and on Linux (frozen app vs.
-source). Sizes below are the real v2.1.51 assets.
+source). Sizes below are the real v2.3.30 assets.
 
 | Download | Size | Platform | What's inside | First run needs internet for | Best for |
 |---|---|---|---|---|---|
@@ -63,10 +63,10 @@ Arch's system Python 3.14, which has no `llama-cpp-python` wheel, is irrelevant)
 packages. Download and run it **directly**:
 
 ```bash
-U=https://github.com/ShadowESC95/ELI_v2.0/releases/download/v2.1.51
-wget "$U/ELI_v2-2.1.51-x86_64.AppImage"
-chmod +x ELI_v2-2.1.51-x86_64.AppImage
-./ELI_v2-2.1.51-x86_64.AppImage
+U=https://github.com/ShadowESC95/ELI_v2.0/releases/download/v2.3.30
+wget "$U/ELI_v2-2.3.30-x86_64.AppImage"
+chmod +x ELI_v2-2.3.30-x86_64.AppImage
+./ELI_v2-2.3.30-x86_64.AppImage
 ```
 
 Two fixes worth knowing, both resolved in current builds and verified on a clean Arch VM:
@@ -99,8 +99,8 @@ This works when you run the **`.AppImage` directly** *or* via `--appimage-extrac
 set the `APPIMAGE` path the launcher needs. Force it any time with:
 
 ```bash
-./ELI_v2-2.1.51-x86_64.AppImage --integrate      # add/refresh menu entries
-./ELI_v2-2.1.51-x86_64.AppImage --uninstall       # remove them
+./ELI_v2-2.3.30-x86_64.AppImage --integrate      # add/refresh menu entries
+./ELI_v2-2.3.30-x86_64.AppImage --uninstall       # remove them
 ```
 
 Running the **manually extracted `./squashfs-root/AppRun`** does *not* create menu icons — there's

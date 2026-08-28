@@ -13,9 +13,10 @@ with the commands in [Keeping this honest](#keeping-this-honest).
 
 | | |
 |---|---|
-| Tracked Python (excl. tests/build) | **179,187 lines** across **468 modules** |
-| Test files | **272** |
-| Actions in `capability_manifest.json` | **216** |
+| Tracked Python (excl. tests/build) | **196,905 lines** across **502 modules** |
+| `eli/` Python | **180,100 lines** across **421 modules** |
+| Test files | **389** (46,037 lines) |
+| Actions in `capability_manifest.json` | **225** (184 router-routable; 204 executor `SUPPORTED_ACTIONS`) |
 | Live SQLite stores | **4** (`user` 39 tables · `agent` 26 · `system_index` 4 · `coding_memory` 2) |
 | GGUF models on disk | 6 (~12 GB) |
 
@@ -29,27 +30,27 @@ diff (`tools/repo_parity.py` shows drift).
 
 | package | files | lines | what lives there |
 |---|---:|---:|---|
-| `eli/runtime/` | 98 | 31,781 | grounding, evidence, self-model, devices, policy, scheduling |
-| `eli/execution/` | 15 | 24,653 | router + executor — all 223 actions |
-| `eli/gui/` | 24 | 23,041 | PySide6 desktop app |
-| `eli/cognition/` | 31 | 15,594 | agent bus, persona, inference, tone, scoring |
-| `eli/kernel/` | 8 | 15,411 | the 12-stage engine |
-| `eli/perception/` | 23 | 8,859 | STT, TTS, vision, gaze, screen OCR |
-| `eli/core/` | 28 | 8,138 | config, paths, netguard, DAG orchestrator |
-| `eli/memory/` | 13 | 7,393 | SQLite + vector store + knowledge graph |
-| `eli/tools/` | 29 | 7,424 | image engine, capability registry, diagnostics |
-| `eli/planning/` | 24 | 4,040 | proactive daemon, habits, scheduled tasks |
-| `eli/learning/` | 12 | 3,435 | LoRA pipeline, feedback |
-| `eli/plugins/` | 26 | 1,989 | calendar, media, notes, weather, web, pomodoro… |
-| `eli/world/` | 26 | 1,642 | autonomy engine, goal ecology, world constitution |
+| `eli/runtime/` | 93 | 33,576 | grounding, evidence, self-model, devices, policy, scheduling |
+| `eli/execution/` | 16 | 26,191 | router + executor — all 225 manifest actions |
+| `eli/gui/` | 27 | 26,087 | PySide6 desktop app |
+| `eli/cognition/` | 37 | 18,520 | agent bus, persona, inference, tone, scoring |
+| `eli/kernel/` | 8 | 16,659 | the 12-stage engine |
+| `eli/perception/` | 24 | 9,487 | STT, TTS, vision, gaze, screen OCR |
+| `eli/core/` | 30 | 9,363 | config, paths, netguard, DAG orchestrator |
+| `eli/memory/` | 13 | 7,979 | SQLite + vector store + knowledge graph |
+| `eli/tools/` | 29 | 7,451 | image engine, capability registry, diagnostics |
+| `eli/plugins/` | 34 | 5,913 | calendar, media, notes, weather, web, pomodoro… |
+| `eli/learning/` | 14 | 4,311 | LoRA pipeline, feedback |
+| `eli/planning/` | 24 | 4,154 | proactive daemon, habits, scheduled tasks |
+| `eli/world/` | 26 | 1,785 | autonomy engine, goal ecology, world constitution |
 
 Five modules carry roughly a third of the codebase:
 
 ```
-15,102  eli/execution/executor_enhanced.py
-13,992  eli/kernel/engine.py
-12,100  eli/gui/eli_pro_audio_gui_v2_0.py
- 7,627  eli/execution/router_enhanced.py
+15,923  eli/execution/executor_enhanced.py
+15,240  eli/kernel/engine.py
+12,605  eli/gui/eli_pro_audio_gui_v2_0.py
+ 8,161  eli/execution/router_enhanced.py
  5,694  eli/gui/labs_tab.py
 ```
 
@@ -62,7 +63,7 @@ user text
    │
    ▼
 router_enhanced ── deterministic contracts first
-   │               then a grammar-constrained LLM resolver over 187 actions
+   │               then a grammar-constrained LLM resolver over 225 manifest actions
    ▼
 kernel/engine.py — 12 stages
    1  Intent

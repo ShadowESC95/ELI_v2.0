@@ -15,9 +15,9 @@ builds documents, creates images, looks after itself, and learns you over time �
 and **nothing leaves your device unless you explicitly allow it.**
 
 Here's the part most "AI assistants" can't say: it's *yours*. A fully local,
-embodied desktop AI you actually own — **223 capabilities** (199 of them routable
+embodied desktop AI you actually own — **225 capabilities** (208 of them routable
 by voice or text), a 14-agent reasoning bus, persistent memory, and full
-voice/vision/gaze control, in ~160,000 lines of Python. One machine, your data, no landlord. (The
+voice/vision/gaze control, in ~180,000 lines of Python in `eli/`. One machine, your data, no landlord. (The
 capability count is read live from the manifest each boot, so it grows as ELI
 does.)
 
@@ -159,8 +159,7 @@ Do it by voice or text — *"what voices do you have"*, *"download a British voi
 accents..."**; either way it downloads (checksum-verified) and becomes selectable
 straight away. A handful of voices carry non-commercial licences, so ELI doesn't
 bundle them — the list says so plainly and still lets you fetch them for personal use.
-**Character voices** — HAL, TARS, Rick, GLaDOS,
-JARVIS — built as a base voice plus a real-time ffmpeg effect chain (no extra
+**Character voices** — calm, robotic, energetic, synthetic, and refined — built as a base voice plus a real-time ffmpeg effect chain (no extra
 model), and you can **create your own** (`char:<name>`) by choosing a base voice
 and tuning pitch / speed / effects. Pick any of them from the voice selector, or
 just tell ELI *"speak to me like HAL."* Optional **voice cloning** (`clone:<name>`)

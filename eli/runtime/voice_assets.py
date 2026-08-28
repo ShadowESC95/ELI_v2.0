@@ -414,7 +414,7 @@ def resolve_voice_query(text: str) -> Dict[str, Any]:
     Returns ``{"voice": <id or "">, "matches": [ids…], "kind": ...}``. Resolution:
     an exact/loose voice-name or character-name match wins; else an accent/language
     word narrows the catalog; else empty (caller lists options). Character voices
-    (``char:hal``) are matched too, so "the HAL voice" works.
+    (``char:calm``) are matched too, so "the calm voice" works.
     """
     raw = str(text or "").strip().lower()
     if not raw:

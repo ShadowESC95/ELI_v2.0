@@ -7,7 +7,7 @@ is observed-at-runtime rather than read-from-code it is marked *(runtime)*.
 > ELI is a **local-first, offline-by-default, model-agnostic** cognitive runtime
 > + assistant GUI (and, as of 2026-06-28, a self-hosted web app — `api/server.py`,
 > documented in `ELI_USER_MANUAL.md`). No cloud, no APIs on the inference path, no hardcoded
-> model. ~160k LOC across 397 Python files (+ `api/server.py`); 223 capabilities (2026-08-21).
+> model. ~180k LOC across 421 Python files (`eli/`) (+ `api/server.py`); 225 capabilities (2026-08-28).
 
 ---
 
@@ -27,38 +27,38 @@ is observed-at-runtime rather than read-from-code it is marked *(runtime)*.
 
 ## 1. Repository map (recursive LOC, role)
 
-*Per-package files / LOC measured 2026-07-28.*
+*Per-package files / LOC measured 2026-08-28.*
 
 | Package | LOC | Files | Role |
 |---|---:|---:|---|
-| `eli/runtime` | 30.4k | 94 | Grounding spine, evidence, response/introspection surfaces, daemons, self-improvement |
-| `eli/execution` | 24.2k | 15 | Router + executor: intent → action → side effects (executor god-file) |
-| `eli/gui` | 22.7k | 24 | PySide6 desktop app, panels, startup/first-boot wizard, animated face |
-| `eli/cognition` | 15.4k | 31 | Agent bus, 12-stage orchestrator, inference, persona, reasoning, tone/emotion adaptor, emotional timeline |
-| `eli/kernel` | 14.7k | 8 | `CognitiveEngine` (the orchestrating core), scheduler, task bus |
-| `eli/perception` | 8.3k | 23 | Vision (VL), STT (whisper), TTS, **wake word**, **voice/tone**, OS control, gaze |
-| `eli/core` | 8.1k | 28 | netguard, paths, settings, hardware profile, model download, **full_control** |
-| `eli/tools` | 7.4k | 29 | Image engine, news, registry/capabilities, document tools |
-| `eli/memory` | 7.4k | 13 | SQLite + FTS5 + FAISS + knowledge graph + working memory |
-| `eli/planning` | 4.0k | 24 | Proactive daemon, habit scheduler, job/proposal/attention queues |
-| `eli/learning` | 3.4k | 12 | LoRA self-training pipeline (Phi-3 base), dataset build/eval |
+| `eli/runtime` | 33.6k | 93 | Grounding spine, evidence, response/introspection surfaces, daemons, self-improvement |
+| `eli/execution` | 26.2k | 16 | Router + executor: intent → action → side effects (executor god-file) |
+| `eli/gui` | 26.1k | 27 | PySide6 desktop app, panels, startup/first-boot wizard, animated face |
+| `eli/cognition` | 18.5k | 37 | Agent bus, 12-stage orchestrator, inference, persona, reasoning, tone/emotion adaptor, emotional timeline |
+| `eli/kernel` | 16.7k | 8 | `CognitiveEngine` (the orchestrating core), scheduler, task bus |
+| `eli/perception` | 9.5k | 24 | Vision (VL), STT (whisper), TTS, **wake word**, **voice/tone**, OS control, gaze |
+| `eli/core` | 9.4k | 30 | netguard, paths, settings, hardware profile, model download, **full_control** |
+| `eli/memory` | 8.0k | 13 | SQLite + FTS5 + FAISS + knowledge graph + working memory |
+| `eli/tools` | 7.5k | 29 | Image engine, news, registry/capabilities, document tools |
+| `eli/plugins` | 5.9k | 34 | Plugin manager + bundled plugins |
+| `eli/learning` | 4.3k | 14 | LoRA self-training pipeline (Phi-3 base), dataset build/eval |
+| `eli/planning` | 4.2k | 24 | Proactive daemon, habit scheduler, job/proposal/attention queues |
 | `eli/coding` | 2.1k | 12 | `CodeAgent` — plan→search→verify→repair coding pipeline |
-| `eli/plugins` | 2.0k | 26 | Plugin manager + bundled plugins |
-| `eli/world` | 1.6k | 26 | EliWorld event bus, local world bridge, avatar/ontology/face |
-| `eli/integrations` | 1.1k | 9 | Optional Ollama client + integration adapters (not on the default path) |
+| `eli/world` | 1.8k | 26 | EliWorld event bus, local world bridge, avatar/ontology/face |
+| `eli/integrations` | 1.8k | 9 | Optional Ollama client + integration adapters (not on the default path) |
 | `eli/utils` | 1.0k | 3 | logging, shared helpers |
 | `eli/contracts` | 0.7k | 3 | typed pipeline contracts |
 | `eli/system` | 0.3k | 2 | system-level helpers |
 | `eli/cli` | 0.1k | 2 | headless REPL |
-| **total (listed)** | **~155k** | **383** | full `eli/` tree: ~160k / 397 incl. small top-level pkgs |
+| **total (listed)** | **~180k** | **421** | full `eli/` tree |
 
 ### The four god-files (refactor targets — see §20)
 | File | LOC |
 |---|---:|
-| `eli/execution/executor_enhanced.py` | 14951 |
-| `eli/kernel/engine.py` | 13841 |
-| `eli/gui/eli_pro_audio_gui_v2_0.py` | 12100 |
-| `eli/execution/router_enhanced.py` | 7621 |
+| `eli/execution/executor_enhanced.py` | 15923 |
+| `eli/kernel/engine.py` | 15240 |
+| `eli/gui/eli_pro_audio_gui_v2_0.py` | 12605 |
+| `eli/execution/router_enhanced.py` | 8161 |
 | `eli/runtime/deterministic_grounding_gate.py` | 4301 |
 | `eli/memory/memory.py` | 4734 |
 
@@ -252,8 +252,8 @@ frontier (see §20).
 
 ## 10. Execution layer  (`eli/execution/executor_enhanced.py`)
 
-- `execute(action, args) -> dict` — **223 dispatch actions**; runtime capability
-  manifest reports **223 capabilities, 199 of them routable** *(live, read from the
+- `execute(action, args) -> dict` — **204 dispatch actions (225 manifest)**; runtime capability
+  manifest reports **225 capabilities, 208 of them routable** *(live, read from the
   manifest each boot)*.
 - **PHASE45 fast-path** (`engine.py`) — deterministic OS/media/status/job actions
   (`VOLUME`, `MEDIA_CONTROL`, `NEXT_MEDIA`, `OPEN_APP`, `DATE`, `SHELL_EXEC`,

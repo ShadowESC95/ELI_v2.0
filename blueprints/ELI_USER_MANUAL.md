@@ -528,7 +528,7 @@ flowchart LR
   languages** — 38 of them English (US, British, Scottish, Northern and Southern English). Each is
   verified, installed, and selectable immediately. A few voices are marked *personal use only*:
   their licences don't allow ELI to bundle them, but you can still download them yourself.
-- **Character voices:** choose `char:hal`, `char:tars`, `char:rick`, `char:glados` or `char:jarvis`
+- **Character voices:** choose `char:calm`, `char:robotic`, `char:energetic`, `char:synthetic`, or `char:refined`
   from the same dropdown — each is a real voice plus a live effect chain. You can make your own,
   and downloading a character's "ideal base" voice (flagged in the voice library) sharpens it.
 - **Make your own voice:** **Settings ▸ Runtime ▸ "VOICE / TTS"** — either **drop in a clip** (a short, clean

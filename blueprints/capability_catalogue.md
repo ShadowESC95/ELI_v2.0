@@ -2,11 +2,11 @@
 
 > **Purpose.** A systematic, ground-truth catalogue built by reading the real
 > handlers and modules — not summarised from memory. It exists because
-> conversational summaries of a 126k-LOC project keep undershooting; this is the
+> conversational summaries of a 180k-LOC project keep undershooting; this is the
 > persisted, exhaustive map. Built in committed batches.
 >
-> **Method.** Action list comes from the live `capability_manifest.json` (**209**
-> entries as of 2026-08-21; 206 routable + plugin-backed),
+> **Method.** Action list comes from the live `capability_manifest.json` (**225**
+> entries as of 2026-08-28; 208 routable or executor-backed),
 > verified against the `executor_enhanced.py` dispatch. **The always-current,
 > auto-generated action list with activation phrases is
 > `capabilities_and_actions.md`** — this catalogue is the deeper module-level read.
@@ -19,9 +19,9 @@
 
 ---
 
-## Headline finding: 208 (206 routable) is real but aliased
+## Headline finding: 225 (208 routable) is real but aliased
 
-The manifest's 209 entries (206 routable) are honest (*measured* by `capability_sync`, not asserted)
+The manifest's 225 entries (208 routable) are honest (*measured* by `capability_sync`, not asserted)
 but inflated by **alias families** — multiple action names routing to one
 behaviour. Collapsed, there are roughly **~110 distinct capabilities**. Alias
 families are grouped below so the real surface is visible.
@@ -202,7 +202,7 @@ voice, coding, memory, introspection, autonomy, remediation, and plugins.
 
 ---
 
-# Part 2 — `runtime/` module catalogue (80 files, ~22.6k LOC)
+# Part 2 — `runtime/` module catalogue (93 files, ~33.6k LOC)
 
 The largest package. It's the **grounding/governance + introspection + plumbing**
 layer that wraps the probabilistic model. Grouped by function:
@@ -353,7 +353,7 @@ The thinking layer: agents, orchestration, inference, persona, reasoning, govern
 ## `kernel/` (the engine + boot) — 14.5k LOC
 | Module | LOC | Role |
 |---|---|---|
-| `engine.py` | 13841 | `CognitiveEngine` — the conductor: persona, generation settings, the 5 `_run_*` reasoning passes, grounding overrides, synthesis prompt build + the context-bloat cap, fragment/placeholder guards, dispatch gate to bus vs orchestrator, startup loops (reflection/habit/scheduler/self-improve/proactive). |
+| `engine.py` | 15240 | `CognitiveEngine` — the conductor: persona, generation settings, the 5 `_run_*` reasoning passes, grounding overrides, synthesis prompt build + the context-bloat cap, fragment/placeholder guards, dispatch gate to bus vs orchestrator, startup loops (reflection/habit/scheduler/self-improve/proactive). |
 | `world_model.py` | 252 | Symbolic self-model: Identity/Runtime/Memory/Goal/Capability states + snapshot/merge. |
 | `state.py` | 367 | User/runtime state + profile (active user id, name, profile text). |
 | `self_upgrade.py` | 535 | Self-upgrade orchestrator (git pull, pip, rebuild FAISS/KG, manifest, system index). |
@@ -452,7 +452,7 @@ The thinking layer: agents, orchestration, inference, persona, reasoning, govern
 ## `gui/` (PySide6 desktop) — ~20.3k LOC
 | Module | LOC | Role |
 |---|---|---|
-| `eli_pro_audio_gui_v2_0.py` | 12100 | Main window: 13 tabs + adapters (CentralMemory/LocalModel/Ollama/Executor bridges, the `_GUIEngineAdapter`), chat, drag-drop, reasoning-mode auto-select, all toggles. |
+| `eli_pro_audio_gui_v2_0.py` | 12605 | Main window: 13 tabs + adapters (CentralMemory/LocalModel/Ollama/Executor bridges, the `_GUIEngineAdapter`), chat, drag-drop, reasoning-mode auto-select, all toggles. |
 | `labs_tab.py` | 5694 | Labs workspace: Notebook, Memory browser, Jupyter launcher, Calculator(+constants), Physics tables, **Report Builder** (evidence-grounded docs), File-Chat, Workspaces, Sim-IDE. |
 | `app.py` | 817 | Launcher / first-boot auto-tune / `main()`. |
 | `panels/startup.py` | 1305 |
@@ -486,8 +486,8 @@ Read end-to-end this session. The real entry flow, in order:
 
 Note: `engine.py` carries **51 `PHASE…` markers** — the same "added beside, not
 folded in" accretion as the grounding gate. It works and is well-guarded, but the
-interior is layered patches; that residue (engine 13.4k / executor 14.3k / GUI
-11.0k) is documented here at behavioural level, not line-by-line.
+interior is layered patches; that residue (engine 15.2k / executor 15.9k / GUI
+12.6k) is documented here at behavioural level, not line-by-line.
 
 ---
 

@@ -12,7 +12,7 @@ pipeline/memory/gating close-ups). Every layer and box maps to a real path.
 ╔══════════════════════════════════════════════════════════════════════════════════╗
 ║                            ELI MKXI — FULL ARCHITECTURE                            ║
 ║                100% local  ·  offline-by-default  ·  model-agnostic                ║
-║                  ~156k LOC · 392 files · desktop GUI + web app server                ║
+║                  ~180k LOC · 421 files · desktop GUI + web app server                ║
 ╚══════════════════════════════════════════════════════════════════════════════════╝
 
 ┌─ PRESENTATION ────────────────────────────────────────────────────────────────────┐
@@ -30,7 +30,7 @@ pipeline/memory/gating close-ups). Every layer and box maps to a real path.
 └────────────────────────────────────────┬───────────────────────────────────────────┘
                                           ▼  {action, args, confidence, matched_by}
 ┌─ KERNEL ──────────────────────────────────────────────────────────────────────────┐
-│  kernel/engine.py :: CognitiveEngine.process()   ← the orchestrating core (12k LOC) │
+│  kernel/engine.py :: CognitiveEngine.process()   ← the orchestrating core (~15k LOC) │
 │  scheduler · task_bus · pipeline · state · world_model · self_upgrade               │
 └──────┬──────────────────────────────┬───────────────────────────────┬───────────────┘
        ▼                              ▼                               ▼
@@ -61,7 +61,7 @@ pipeline/memory/gating close-ups). Every layer and box maps to a real path.
         │              └────────────────────────────┬─────────────────────────────────────┘
         ▼                                           ▼
 ┌─ EXECUTION ───────────────────────────────────────────────────────────────────────┐
-│  execution/executor_enhanced.py  223 dispatch actions / 223 capabilities (live)    │
+│  execution/executor_enhanced.py  204 dispatch actions (225 manifest) / 225 capabilities (live)    │
 │  media_runtime · operator_actions · tool_execution_authority · background_tasks     │
 │  PLUGINS(10): calendar document_reader media notes pomodoro weather                 │
 │              system_stats tts web web_automation        eli/coding :: CodeAgent     │
@@ -132,24 +132,24 @@ pipeline/memory/gating close-ups). Every layer and box maps to a real path.
 ## C. Module tree (LOC · key files · role)
 
 ```
-eli/  (~156k LOC, 392 files)  ·  api/server.py  (FastAPI web app + dashboard)
+eli/  (~180k LOC, 421 files)  ·  api/server.py  (FastAPI web app + dashboard)
 │
 ├── __main__.py ················ entry dispatch (GUI | --headless)
 │
-├── kernel/            13.1k ─── the core
-│   ├── engine.py      12.0k     CognitiveEngine.process() — the spine ★god-file
+├── kernel/            16.7k ─── the core
+│   ├── engine.py      15.2k     CognitiveEngine.process() — the spine ★god-file
 │   ├── scheduler.py             timed jobs
 │   ├── task_bus.py · pipeline.py · state.py · world_model.py · self_upgrade.py
 │
-├── execution/         20.5k ─── route → act
-│   ├── executor_enhanced.py   15.0k   223 actions ★god-file
-│   ├── router_enhanced.py      6.1k   priority pipeline ★god-file
+├── execution/         26.2k ─── route → act
+│   ├── executor_enhanced.py   15.9k   204 dispatch / 225 manifest ★god-file
+│   ├── router_enhanced.py      8.2k   priority pipeline ★god-file
 │   ├── execution_planner.py · route_authority.py · route_contracts.py
 │   ├── tool_execution_authority.py · operator_actions.py · operator_policy.py
 │   ├── media_runtime.py · router_plugin_intents.py · executor_plugin_handlers.py
 │   └── portable_intent_contract.py · execution_intent_packets.py
 │
-├── cognition/         12.3k ─── think
+├── cognition/         18.5k ─── think
 │   ├── agent_bus.py    2.4k   15 agents + dispatch ★
 │   ├── orchestrator.py        12-stage deep retrieval
 │   ├── gguf_inference.py 2.1k · inference_broker.py   model-agnostic inference
@@ -159,7 +159,7 @@ eli/  (~156k LOC, 392 files)  ·  api/server.py  (FastAPI web app + dashboard)
 │   ├── output_governor.py · response_governance.py · response_sanitizer.py
 │   └── grounded_status.py · introspection_agent.py · tone_analyzer.py · chat_model.py
 │
-├── runtime/           18.0k ─── grounding spine + daemons (68 files)
+├── runtime/           33.6k ─── grounding spine + daemons (93 files)
 │   ├── deterministic_grounding_gate.py 4.3k ★ · grounding_escalation.py
 │   ├── evidence_ledger/store/arbitration.py · memory_evidence.py
 │   ├── persistence_gate.py · truth_report.py · control_contracts.py
@@ -168,42 +168,42 @@ eli/  (~156k LOC, 392 files)  ·  api/server.py  (FastAPI web app + dashboard)
 │   ├── background_tasks.py · self_improvement.py · code_monitor.py
 │   └── capability_sync.py · pending_proposal.py · runtime_policy.py
 │
-├── memory/             6.6k ─── remember (13 files)
+├── memory/             8.0k ─── remember (13 files)
 │   ├── memory.py       4.5k   Memory · SQLite + FTS5 ★god-file
 │   └── vector_store.py        FAISS index
 │
-├── perception/         5.4k ─── sense (18 files)
+├── perception/         9.5k ─── sense (24 files)
 │   ├── vision.py · analyze_image/csv/pdfs/mesh.py · ambient_vision.py
 │   ├── audio_stt.py · local_whisper_stt.py · voice_worker(_streaming).py · eli_listen.py
 │   ├── tts_router.py · os_controller.py · screen_locator.py · gaze_engine.py
 │
-├── planning/           3.1k ─── proactivity (21 files)
+├── planning/           4.2k ─── proactivity (24 files)
 │   ├── proactive_daemon.py · habits_scheduler.py · habits.py · jobqueue_cli.py
 │
-├── coding/             1.5k ─── CodeAgent (plan→search→verify→repair, 9 files)
+├── coding/             2.1k ─── CodeAgent (plan→search→verify→repair, 12 files)
 │
-├── learning/           3.1k ─── LoRA self-training (11 files)
+├── learning/           4.3k ─── LoRA self-training (14 files)
 │   ├── lora_trainer/eval/guard.py · dataset_builder/filters.py
 │   ├── bootstrap_phi3_base.py · base_model_resolver.py · training_preflight.py
 │
-├── plugins/            1.9k ─── manager + 10 plugins
+├── plugins/            5.9k ─── manager + bundled plugins (34 files)
 │   └── calendar · document_reader · media · notes · pomodoro · weather ·
 │       system_stats · tts · web · web_automation
 │
-├── world/              1.5k ─── EliWorld (world_event_bus, local_world_bridge)
+├── world/              1.8k ─── EliWorld (world_event_bus, local_world_bridge)
 │
-├── core/               4.9k ─── infra
+├── core/               9.4k ─── infra
 │   ├── netguard.py            offline failsafe + allow_network()
 │   ├── paths.py · portable_paths.py · legacy_paths.py · db_paths.py
 │   ├── runtime_settings.py · config.py · grounding.py
 │   ├── hardware_profile.py · startup_hardware_optimizer.py · dynamic_runtime_budget.py
 │   ├── model_download.py · first_run.py · first_run_wizard.py
 │
-├── gui/               18.7k ─── PySide6 desktop
-│   ├── eli_pro_audio_gui_v2_0.py 11.0k ★god-file · app.py · labs_tab.py 5.7k
+├── gui/               26.1k ─── PySide6 desktop
+│   ├── eli_pro_audio_gui_v2_0.py 12.6k ★god-file · app.py · labs_tab.py 5.7k
 │   └── panels/  (startup.py: model picker + FirstBootWizard, HardwareTuningDock)
 │
-├── tools/              8.1k ─── image_engine · news · document tools
+├── tools/              7.5k ─── image_engine · news · document tools
 ├── contracts/ 0.7k · cli/ 0.1k · system/ 0.3k · utils/ 0.9k
 ```
 

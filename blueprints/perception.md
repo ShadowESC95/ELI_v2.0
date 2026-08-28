@@ -12,7 +12,7 @@ subsystem, and OS control. All local, no APIs, no third-party accounts.
 | `wakeword.py` | ~450 | **self-trained, music-robust wake-word detector** (openWakeWord features + custom head) |
 | `voice_profile.py` | ~420 | **prosody + labelled-emotion** (tone/question detection) |
 | `tts_router.py` | 1195 | Piper/pyttsx3/espeak router + `char:`/`clone:`/`natural:` voice resolution; `neural_fallback_state()` makes a neural→Piper fallback observable |
-| `voice_fx.py` | 257 | **character voices** (HAL/TARS/Rick/GLaDOS/JARVIS) — base voice + ffmpeg effect chain; user preset store |
+| `voice_fx.py` | 257 | **voice styles** (calm / robotic / energetic / synthetic / refined) — base voice + ffmpeg effect chain; user preset store |
 | `tts_xtts.py` | 351 | **voice cloning** from a reference sample (Coqui XTTS-v2). Zero-shot: `add_clone()` only registers a reference clip, conditioning happens at synthesis. Bundled in the Linux AppImage from v2.1.65; when absent the voice still registers and synthesis falls back to Piper — **loudly**, not silently, which was a live fault |
 | `vision.py` | 692 |
 | `os_controller.py` | 573 |
@@ -229,7 +229,7 @@ these and `repair_voice_configs()` fetches just the missing ~5 KB config.
 `tests/test_voice_library.py` guards against shipping the broken state again.
 
 **Character voices** (`voice_fx.py`) are a base voice + an ffmpeg effect chain (pitch /
-speed / filters) — HAL, TARS, Rick, GLaDOS, JARVIS built in, and users create their own
+speed / filters) — calm, robotic, energetic, synthetic, and refined styles built in, and users create their own
 (`char:<name>`, preset store at `config/voices/characters.json`). Because the ideal bases
 for HAL/TARS/Rick (lessac/joe/ryan) are restricted or unbundled, each preset carries an
 **ordered, gender-matched `fallback` chain**; `resolve_base_voice()` walks base →

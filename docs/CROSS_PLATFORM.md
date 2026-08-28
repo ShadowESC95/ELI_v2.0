@@ -4,13 +4,13 @@ ELI is **model-, user-, and hardware-agnostic** and runs on **Linux, macOS, Wind
 Android/Termux**, plus **headless / via the web server (FastAPI)**. This document is the honest
 map of how each capability family behaves on each target.
 
-## Tested on — what's actually been run (2026-07-04)
+## Tested on — what's actually been run (2026-08-28)
 
 The matrix below is **code coverage** — how each capability is *implemented* per OS. This bit is
 separate and more honest: what I've genuinely **run**.
 
 - **Run-verified, end to end:** **Linux (x86_64) + NVIDIA.** Install, first-run, the full test
-  suite (9,400+ passing), voice, vision, the server — all of it. This is the tested path.
+  suite (10,894+ passing), voice, vision, the server — all of it. This is the tested path.
 - **AppImage engine run-verified across the mainstream distros (2026-07-18, v2.1.18):** the shipped
   `.AppImage` was extracted and driven through a **real chat turn** (full router → agent bus →
   memory → persona → streaming pipeline, bundled embedder loaded) in fresh containers of
