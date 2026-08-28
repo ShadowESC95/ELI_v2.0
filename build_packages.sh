@@ -193,6 +193,8 @@ if [ -z "${SKIP_TESTS:-}" ]; then
     # capability_manifest.json is gitignored, so a git-archive / release tree carries none.
     # tests/claims read it at the project root — generate it there BEFORE pytest, or those
     # four tests error out with FileNotFoundError during collection.
+    echo "[pre-flight] Installing test-suite deps (API drivers, pyflakes, paho-mqtt)…"
+    "$PY" -m pip install -q -r "$PROJECT_ROOT/requirements-test.txt" 2>/dev/null || true
     echo "[pre-flight] Generating capability_manifest.json (gitignored; tests/claims need it)…"
     # $PY, not python3: importing the capability updater pulls ELI's dependency set,
     # and on the system interpreter this silently fails, leaving tests/claims to error

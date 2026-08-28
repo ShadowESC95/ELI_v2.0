@@ -134,6 +134,53 @@ def broker_install_guide(platform: Optional[str] = None) -> Dict[str, Any]:
     }
 
 
+def _connection_hint(error: str, host: str, port: int) -> str:
+    low = (error or "").lower()
+    if "111" in low or "connection refused" in low or "actively refused" in low:
+        return (
+            f"Nothing is listening on {host}:{port}. "
+            "Start Mosquitto (or your broker), confirm the port (usually 1883), "
+            "and check firewall rules on private/LAN networks."
+        )
+    if "name or service not known" in low or "getaddrinfo" in low or "nodename" in low:
+        return f"Could not resolve hostname '{host}'. Try the broker's IP address instead."
+    if "timed out" in low or "timeout" in low:
+        return (
+            f"Broker at {host}:{port} did not answer in time. "
+            "Ensure this machine and the broker are on the same network/VLAN."
+        )
+    if "not authorised" in low or "bad username" in low or "rc=4" in low or "rc=5" in low:
+        return "Check MQTT username and password — leave both blank if your broker has no auth."
+    return "Verify host, port, firewall, and that the broker allows connections from this machine."
+
+
+def _probe_broker_tcp(host: str, port: int, timeout: float) -> Dict[str, Any]:
+    """TCP reachability probe — works without paho-mqtt (redistribution fallback)."""
+    try:
+        with socket.create_connection(
+            (host, int(port)), timeout=max(0.5, float(timeout))
+        ):
+            return {
+                "ok": True,
+                "message": (
+                    f"TCP port {port} on {host} is open "
+                    "(install paho-mqtt for a full MQTT handshake)."
+                ),
+                "host": host,
+                "port": port,
+                "tcp_only": True,
+            }
+    except Exception as exc:
+        err = str(exc)
+        return {
+            "ok": False,
+            "error": err,
+            "hint": _connection_hint(err, host, port),
+            "host": host,
+            "port": port,
+        }
+
+
 def probe_broker_connection(
     *,
     host: str,
@@ -155,11 +202,14 @@ def probe_broker_connection(
     try:
         import paho.mqtt.client as mqtt
     except Exception:
-        return {
-            "ok": False,
-            "error": "paho-mqtt not installed — run: pip install paho-mqtt",
-            "need_install": True,
-        }
+        out = _probe_broker_tcp(host, port, timeout)
+        out["need_install"] = True
+        if not out.get("hint"):
+            out["hint"] = (
+                "Install paho-mqtt for full MQTT auth/TLS probing: pip install paho-mqtt "
+                "(bundled in ELI's [server] extra)."
+            )
+        return out
 
     result: Dict[str, Any] = {"ok": False, "host": host, "port": port}
     done = {"finished": False, "rc": -1, "error": ""}
@@ -214,26 +264,6 @@ def probe_broker_connection(
         "host": host,
         "port": port,
     }
-
-
-def _connection_hint(error: str, host: str, port: int) -> str:
-    low = (error or "").lower()
-    if "111" in low or "connection refused" in low or "actively refused" in low:
-        return (
-            f"Nothing is listening on {host}:{port}. "
-            "Start Mosquitto (or your broker), confirm the port (usually 1883), "
-            "and check firewall rules on private/LAN networks."
-        )
-    if "name or service not known" in low or "getaddrinfo" in low or "nodename" in low:
-        return f"Could not resolve hostname '{host}'. Try the broker's IP address instead."
-    if "timed out" in low or "timeout" in low:
-        return (
-            f"Broker at {host}:{port} did not answer in time. "
-            "Ensure this machine and the broker are on the same network/VLAN."
-        )
-    if "not authorised" in low or "bad username" in low or "rc=4" in low or "rc=5" in low:
-        return "Check MQTT username and password — leave both blank if your broker has no auth."
-    return "Verify host, port, firewall, and that the broker allows connections from this machine."
 
 
 def suggest_local_hosts() -> List[str]:

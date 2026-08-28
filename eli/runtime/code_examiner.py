@@ -251,6 +251,19 @@ def _tier2_pyflakes(path: Path, src: str) -> Optional[List[Finding]]:
     return findings
 
 
+def _tier2_ast_undefined_names(path: Path, src: str) -> List[Finding]:
+    """Conservative symtable fallback when pyflakes is unavailable."""
+    from eli.coding.verification import _symtable_undefined_lines
+
+    rel = _rel(path)
+    findings: List[Finding] = []
+    for lineno, name in _symtable_undefined_lines(src):
+        findings.append(
+            Finding(rel, 2, TIER_CONF[2], "lint", f"undefined name '{name}'", line=lineno)
+        )
+    return findings
+
+
 def _tier2_ast_unused_imports(path: Path, src: str) -> List[Finding]:
     """Conservative fallback: flag imports whose bound name is never referenced."""
     rel = _rel(path)
@@ -303,7 +316,9 @@ def _tier2(path: Path) -> List[Finding]:
     pf = _tier2_pyflakes(path, src)
     if pf is not None:
         return pf
-    return _tier2_ast_unused_imports(path, src)
+    findings = _tier2_ast_unused_imports(path, src)
+    findings.extend(_tier2_ast_undefined_names(path, src))
+    return findings
 
 
 # --------------------------------------------------------------------------- #

@@ -14,8 +14,10 @@ feedback for the next generation.
 from __future__ import annotations
 
 import ast
+import builtins as _builtins_mod
 import itertools
 import re
+import symtable
 from dataclasses import dataclass, field
 from typing import Any, Callable, Dict, List, Optional
 
@@ -85,17 +87,60 @@ def _quality_signals(code: str) -> float:
     return min(1.0, s)
 
 
+def _symtable_undefined_lines(code: str) -> list[tuple[int, str]]:
+    """Conservative stdlib fallback when pyflakes is not installed."""
+    _builtins = set(dir(_builtins_mod))
+    try:
+        mod = symtable.symtable(code, "<candidate>", "exec")
+        tree = ast.parse(code)
+    except Exception:
+        return []
+
+    undefined: set[str] = set()
+
+    def _walk(table: symtable.SymbolTable, mod_table: symtable.SymbolTable) -> None:
+        for name in table.get_identifiers():
+            try:
+                loc = table.lookup(name)
+            except KeyError:
+                if name not in _builtins and not name.startswith("_"):
+                    undefined.add(name)
+                continue
+            if loc.is_parameter() or loc.is_local() or loc.is_imported():
+                continue
+            if loc.is_global():
+                try:
+                    mod_table.lookup(name)
+                except KeyError:
+                    if name not in _builtins and not name.startswith("_"):
+                        undefined.add(name)
+        for child in table.get_children():
+            _walk(child, mod_table)
+
+    _walk(mod, mod)
+    if not undefined:
+        return []
+    hits: list[tuple[int, str]] = []
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Name) and isinstance(node.ctx, ast.Load) and node.id in undefined:
+            hits.append((int(node.lineno), node.id))
+    return sorted(set(hits))
+
+
 def _static_lint(code: str) -> tuple[list[str], list[str]]:
     """Run pyflakes on `code` → (errors, warnings). 'errors' are correctness problems
     (undefined name, redefinition, duplicate arg, bad f-string) that PASS syntax AND run
     clean in isolation but break callers — the bad-patch class execution alone misses
-    (e.g. `import tempfile as t` then using `tempfile`). Empty if pyflakes unavailable.
+    (e.g. `import tempfile as t` then using `tempfile`). Falls back to symtable when
+    pyflakes is unavailable so redistribution installs still catch the bad-patch class.
     Same invocation as code_examiner._tier2_pyflakes (Advancement B)."""
     try:
         from pyflakes.api import check as _pf_check
         from pyflakes.reporter import Reporter
     except Exception:
-        return [], []
+        fallback = [f"line {ln}: undefined name '{name}'"
+                    for ln, name in _symtable_undefined_lines(code)]
+        return fallback, []
     import io as _io
     out, err = _io.StringIO(), _io.StringIO()
     try:
