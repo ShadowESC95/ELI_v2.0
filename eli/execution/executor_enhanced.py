@@ -1698,7 +1698,7 @@ def _format_all_reasoning_modes(report: Dict[str, Any]) -> str:
     return "\n".join(lines)
 
 
-def _explain_cognition_runtime_report() -> Dict[str, Any]:
+def _explain_cognition_runtime_report(args: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     files = _canonical_runtime_file_map()
     cog_path = files['cognitive_engine']
     mem_path = files['memory']
@@ -1722,10 +1722,12 @@ def _explain_cognition_runtime_report() -> Dict[str, Any]:
         out[key] = [i for i, line in enumerate(text.splitlines(), 1) if needle in line]
     return {'ok': True, 'path': str(cog_path), 'memory_path': str(mem_path), 'router_path': str(router_path), 'executor_path': str(executor_path), 'checks': out}
 
-def _format_cognition_runtime(report: Dict[str, Any]) -> str:
+def _format_cognition_runtime(report: Dict[str, Any], args: Optional[Dict[str, Any]] = None) -> str:
     if not report.get('ok'):
         return str(report.get('error') or 'Cognition runtime report failed')
     lines = []
+    _args = args if isinstance(args, dict) else {}
+    _focus = str(_args.get("diagnostic_focus") or "").strip().lower()
     # The live INFERENCE parameters go first. Asked "what is your current context
     # window?", this report answered with module paths, grep line numbers and
     # SQLite table counts — and the synthesis on top of it then said "the
@@ -1738,6 +1740,14 @@ def _format_cognition_runtime(report: Dict[str, Any]) -> str:
         lines.append("")
     except Exception:
         log.debug("[EXECUTOR] inference runtime block unavailable", exc_info=True)
+    if _focus in ("inference_runtime", "gguf", "gguf_runtime"):
+        try:
+            from eli.runtime.gguf_runtime_report import format_gguf_diagnostics_report
+            lines.append(format_gguf_diagnostics_report(
+                question=str(_args.get("question") or "")))
+            lines.append("")
+        except Exception:
+            log.debug("[EXECUTOR] gguf diagnostics block unavailable", exc_info=True)
     lines += [
         f"Cognition runtime: {report.get('path')}",
         f"Memory module: {report.get('memory_path')}",
@@ -2229,6 +2239,9 @@ SUPPORTED_ACTIONS = [
     'EXECUTE_GOAL',
     'EXPLAIN_ALL_REASONING_MODES',
     'EXPLAIN_COGNITION_RUNTIME',
+    'EXPLAIN_FAILURE_LOG',
+    'EXPLAIN_GGUF_DIAGNOSTICS',
+    'EXPLAIN_LAST_FAILURE',
     'EXPLAIN_LAST_RESPONSE',
     'EXPLAIN_MEMORY_RUNTIME',
     'FILE_AUDIT',
@@ -12559,8 +12572,32 @@ def execute(action: str, args: Optional[Dict[str, Any]] = None, **kwargs) -> Dic
     if a == 'EXPLAIN_MEMORY_RUNTIME':
         rep = _explain_memory_runtime_report(); txt = _format_memory_runtime(rep)
         return {'ok': True, 'action': a, 'report': rep, 'content': txt, 'response': txt}
+    if a == 'EXPLAIN_GGUF_DIAGNOSTICS':
+        from eli.runtime.gguf_runtime_report import format_gguf_diagnostics_report
+        _q = str((args or {}).get("question") or (args or {}).get("message") or "")
+        _mp = (args or {}).get("model_path")
+        txt = format_gguf_diagnostics_report(question=_q, model_path=_mp)
+        return {'ok': True, 'action': a, 'content': txt, 'response': txt, 'grounded': True}
+    if a == 'EXPLAIN_FAILURE_LOG':
+        from eli.runtime.gguf_runtime_report import format_failure_log_report
+        _lim = int((args or {}).get("limit") or 50)
+        txt = format_failure_log_report(limit=_lim, last_only=False)
+        return {'ok': True, 'action': a, 'content': txt, 'response': txt, 'grounded': True}
+    if a == 'EXPLAIN_LAST_FAILURE':
+        from eli.runtime.gguf_runtime_report import format_failure_log_report
+        try:
+            from eli.runtime import grounded_remediation as _gr
+            _subj = str((args or {}).get("subject") or (args or {}).get("query") or "")
+            _gr_msg = _gr.explain_last_failure(_subj or None)
+            if _gr_msg and "no grounded failure record" not in _gr_msg.lower():
+                return _gr.as_executor_result(_gr_msg, ok=True)
+        except Exception:
+            log.debug("grounded_remediation explain_last_failure unavailable", exc_info=True)
+        txt = format_failure_log_report(limit=10, last_only=True)
+        return {'ok': True, 'action': a, 'content': txt, 'response': txt, 'grounded': True}
     if a == 'EXPLAIN_COGNITION_RUNTIME':
-        rep = _explain_cognition_runtime_report(); txt = _format_cognition_runtime(rep)
+        rep = _explain_cognition_runtime_report(args if isinstance(args, dict) else {})
+        txt = _format_cognition_runtime(rep, args if isinstance(args, dict) else {})
         return {'ok': bool(rep.get('ok', True)), 'action': a, 'report': rep, 'content': txt, 'response': txt}
     if a == 'RUNTIME_STATUS':
         rep = _runtime_status_report(); txt = _format_runtime_status(rep)

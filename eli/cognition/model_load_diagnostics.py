@@ -226,6 +226,64 @@ def is_retryable_load_failure(log_lines) -> bool:
 MIN_MODERN_ARCH_VERSION = (0, 3, 30)
 
 
+def installed_llama_version() -> str:
+    try:
+        import importlib.metadata as _md
+        return str(_md.version("llama-cpp-python"))
+    except Exception:
+        log.debug("llama-cpp-python version unreadable from metadata", exc_info=True)
+    try:
+        import llama_cpp
+        return str(getattr(llama_cpp, "__version__", "") or "")
+    except Exception:
+        return ""
+
+
+def installed_llama_version_tuple() -> tuple:
+    return _version_tuple(installed_llama_version())
+
+
+def architecture_requires_modern_runtime(arch: str) -> bool:
+    """True when this GGUF architecture needs llama-cpp-python >= MIN_MODERN_ARCH_VERSION.
+
+    Classification is by architecture string from the file header — not by
+    filename — so redistribution to unknown future models stays honest.
+    """
+    if not arch or arch == "unknown":
+        return False
+    low = arch.lower()
+    legacy = (
+        "llama", "llama2", "llama3", "mistral", "gemma", "gemma2", "phi", "phi3",
+        "qwen2", "qwen2vl", "stablelm", "gpt2", "falcon", "starcoder", "gptneox",
+        "mpt", "bert", "nomic-bert",
+    )
+    if low in legacy or any(low.startswith(p + "-") for p in legacy):
+        return False
+    modern_markers = (
+        "nemotron", "mamba", "ssm", "qwen3", "qwen35", "deepseek_v3", "gemma3n",
+        "ernie4", "granitehybrid",
+    )
+    if any(m in low for m in modern_markers):
+        return True
+    if "moe" in low and "llama" not in low:
+        return True
+    return False
+
+
+def preflight_gguf_model(model_path) -> Optional[str]:
+    """Return a user-facing load failure message before calling llama.cpp, else None."""
+    p = Path(str(model_path))
+    if not p.is_file():
+        return None
+    arch = gguf_architecture(p) or "unknown"
+    if installed_llama_version_tuple() >= MIN_MODERN_ARCH_VERSION:
+        return None
+    if not architecture_requires_modern_runtime(arch):
+        return None
+    fake_log = [f"error loading model: unknown model architecture: '{arch}'"]
+    return explain_load_failure(ValueError("preflight"), fake_log, p)
+
+
 def _active_llama_is_gpu_pack() -> "tuple[bool, str]":
     """(is_the_gpu_pack, version) for the llama_cpp actually imported."""
     try:
@@ -392,7 +450,9 @@ def explain_load_failure(exc: BaseException, log_lines, model_path,
 
 
 __all__ = ["ModelLoadError", "deactivate_gpu_pack", "harden_llama_destructor",
-           "gguf_architecture",
+           "gguf_architecture", "architecture_requires_modern_runtime",
+           "installed_llama_version", "installed_llama_version_tuple",
+           "preflight_gguf_model",
            "gpu_pack_is_too_old", "MIN_MODERN_ARCH_VERSION",
            "capture_llama_log", "explain_load_failure",
            "is_retryable_load_failure"]

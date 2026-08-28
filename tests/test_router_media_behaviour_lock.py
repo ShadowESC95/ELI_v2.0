@@ -30,6 +30,8 @@ def test_direct_media_controls_do_not_need_wake_word():
     _assert_action("previous", "PREVIOUS_MEDIA")
     _assert_action("volume up", "VOLUME")
     _assert_action("volume down", "VOLUME")
+    _assert_action("vol up", "VOLUME")
+    _assert_action("vol down", "VOLUME")
 
 
 def test_bare_or_incomplete_play_does_not_launch_garbage():

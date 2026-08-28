@@ -61,7 +61,7 @@ leaving your hardware.** Point your phone at it over your own Wi-Fi and it's the
 Under that simple surface it's a **local cognitive runtime**, not a chatbot bolted onto someone
 else's API: a 12-stage reasoning pipeline, a fleet of specialist agents on a DAG orchestrator,
 layered memory (SQLite + a FAISS vector index + a knowledge graph), local voice and vision, and its
-own smart-home server — all behind a single typed or spoken interface with **223 capabilities**.
+own smart-home server — all behind a single typed or spoken interface with **225 capabilities**.
 You bring your own GGUF model; ELI is model-, user-, and hardware-agnostic by design.
 
 I built it on one conviction: **your AI should belong to you — the person using it — not the
@@ -121,7 +121,7 @@ day:
 Asking *"what can you do?"* lists the full surface.
 
 <details>
-<summary><b>Full capability breadth — 223 capabilities across 17 areas</b></summary>
+<summary><b>Full capability breadth — 225 capabilities across 17 areas</b></summary>
 
 | Area | What's in it |
 |---|---|

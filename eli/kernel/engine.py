@@ -149,6 +149,7 @@ _DIRECT_FINAL_ACTIONS = frozenset({
     "GUI_RUNTIME_AUDIT", "RUNTIME_AUDIT", "IMPORT_AUDIT",
     "RESOLVE_RUNTIME_PATHS", "EXPLAIN_LAST_RESPONSE",
     "EXPLAIN_LAST_FAILURE", "EXPLAIN_MEMORY_RUNTIME", "EXPLAIN_COGNITION_RUNTIME",
+    "EXPLAIN_GGUF_DIAGNOSTICS", "EXPLAIN_FAILURE_LOG",
     "SELF_REPORT", "USER_IDENTITY_SUMMARY", "PERSONAL_MEMORY_SUMMARY",
     "PERSONAL_MEMORY_DEEP_EXPLAIN", "ROUTING_FAULT_EXPLAIN", "NAME_SOURCE_AUDIT",
     "SELF_ANALYZE", "SELF_IMPROVE", "SELF_IMPROVEMENT_LOG", "SELF_UPDATE",
@@ -6691,12 +6692,56 @@ Answer:"""
                         )
                 if response:
                     return _normalize_assistant_text(prompt, response)
-                raise RuntimeError("GGUF returned empty response")
+                # Empty after broker's own retry — usually a thinking model that burned
+                # its budget inside a hidden reasoning block. One more pass with think
+                # suppressed; do NOT mark the whole GGUF backend unavailable.
+                log.debug("[COGNITIVE] GGUF empty response — retrying with force_no_think")
+                _retry_tokens = max(256, min(int(locals().get("_safe_max_pf1", 512) or 512), 1024))
+                try:
+                    from eli.cognition.gguf_inference import force_no_think as _fnt
+                    with _fnt():
+                        if broker and broker.gguf_ready:
+                            response = broker.infer(
+                                prompt,
+                                system=enhanced_system,
+                                max_tokens=_retry_tokens,
+                                temperature=gen["temperature"],
+                                retry=False,
+                            )
+                        elif gguf_inference is not None:
+                            with self._gguf_lock:
+                                response = gguf_inference.chat_completion(
+                                    prompt,
+                                    system=enhanced_system,
+                                    max_tokens=_retry_tokens,
+                                    temperature=gen["temperature"],
+                                )
+                except Exception as _empty_retry_err:
+                    log.debug(f"[COGNITIVE] force_no_think empty retry failed: {_empty_retry_err}")
+                    response = ""
+                if response:
+                    return _normalize_assistant_text(prompt, response)
+                raise RuntimeError("GGUF returned empty response after retry")
             except Exception as e:
-                self._gguf_available = False
-                self._gguf_load_error = str(e)
+                _emsg = str(e)
+                _empty = "empty response" in _emsg.lower()
+                _ctx_overflow = (
+                    "context window" in _emsg.lower()
+                    or "requested tokens" in _emsg.lower()
+                )
+                if not _empty and not _ctx_overflow:
+                    self._gguf_available = False
+                self._gguf_load_error = _emsg
                 log.debug(f"[COGNITIVE] GGUF chat failed: {e}")
                 if provider not in ("ollama",):
+                    if _empty:
+                        return (
+                            "The local model returned an empty answer after retry. "
+                            "Common causes: a thinking model spent its token budget in a "
+                            "hidden reasoning block; generation was interrupted during shutdown; "
+                            "or the prompt was too large for the effective GPU offload. "
+                            "Try again, use quick mode, or ask for a GGUF diagnostics report."
+                        )
                     return f"[ELI] GGUF error: {e}"
         if provider not in ("ollama",):
             detail = self._gguf_load_error or "GGUF model unavailable"
@@ -6937,13 +6982,14 @@ Answer:"""
                 _emsg = str(e)
                 _ctx_overflow = ("context window" in _emsg.lower()
                                  or "requested tokens" in _emsg.lower())
+                _empty = "empty response" in _emsg.lower()
                 log.debug(f"[COGNITIVE] GGUF streaming failed: {_emsg}")
                 # A context-window overflow is RECOVERABLE — it does not mean the GGUF
                 # backend is dead. Don't flip _gguf_available (that poisons every later
                 # turn), and never surface the raw exception text as ELI's reply. Retry
                 # once via the non-streaming path: generate() now truncates an over-ctx
                 # prompt to the model's real n_ctx_train instead of failing.
-                if not _ctx_overflow:
+                if not _ctx_overflow and not _empty:
                     self._gguf_available = False
                 self._gguf_load_error = _emsg
                 if provider != "ollama":
@@ -6970,6 +7016,11 @@ Answer:"""
                                "context window is smaller than the prompt I need to reason over. "
                                "Load a model with a larger context (e.g. Qwen3-8B) and I'll be back "
                                "to normal.")
+                    elif _empty:
+                        yield ("The local model returned an empty answer after retry. "
+                               "Common causes: a thinking model spent its token budget in a "
+                               "hidden reasoning block; generation was interrupted during shutdown. "
+                               "Try again, use quick mode, or ask for a GGUF diagnostics report.")
                     else:
                         yield ("Something went wrong reaching the local model just now. The error "
                                "was logged — try again, and if it persists, reload the model.")
