@@ -14,6 +14,10 @@ import time
 
 import speech_recognition as sr
 
+from eli.utils.log import get_logger
+
+log = get_logger(__name__)
+
 
 def _probe_device(idx, seconds=0.6):
     """Open a device briefly and return its mean RMS, or None if it can't read.
@@ -50,7 +54,7 @@ def _resolve_device():
                 return idx, name
         return None, None
     except Exception:
-        pass
+        log.debug("[MIC_DIAG] ranked device resolve failed", exc_info=True)
     names = sr.Microphone.list_microphone_names()
     for i, n in enumerate(names):
         if "usb" in (n or "").lower():
