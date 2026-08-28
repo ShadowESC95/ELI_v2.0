@@ -2882,6 +2882,13 @@ class Memory(metaclass=_MemoryMeta):
                 _fts_reindex(conn, keep_id, rows[0][5], merged_tags)
                 conn.executemany(
                     "DELETE FROM memories WHERE id = ?", [(i,) for i in doomed])
+                try:
+                    from eli.memory.vector_store import get_vector_store
+                    _vs = get_vector_store()
+                    if _vs is not None and doomed:
+                        _vs.mark_memories_deleted(doomed)
+                except Exception:
+                    log.debug("suppressed exception", exc_info=True)
             if not dry_run:
                 if summary["removed"]:
                     summary["fts_rebuilt"] = _fts_rebuild(conn)

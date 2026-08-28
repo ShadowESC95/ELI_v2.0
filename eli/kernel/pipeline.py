@@ -133,6 +133,11 @@ def _get_source_location(module_name: str, func_name: str = None) -> str:
 def get_pipeline_description() -> List[str]:
     """Return a list of lines describing the full cognition pipeline."""
     lines = []
+    lines.append(
+        "Runtime logs use canonical stage IDs S01–S12 via "
+        "`eli.kernel.pipeline_trace` (orchestrator sub-steps map through "
+        "`ORCH_KEY_TO_STAGE`)."
+    )
     for step in STEPS:
         name = step['name']
         desc = step['desc']

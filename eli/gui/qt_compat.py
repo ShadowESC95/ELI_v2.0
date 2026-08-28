@@ -53,6 +53,7 @@ try:
         QGraphicsTextItem, QGraphicsLineItem,
         QMenuBar, QMenu, QToolBar, QStatusBar, QSystemTrayIcon,
         QFileDialog, QMessageBox, QInputDialog, QColorDialog, QFontDialog,
+        QDialogButtonBox,
         QSizePolicy, QStyle, QProgressDialog,
     )
     QT_API = "PySide6"
@@ -75,6 +76,7 @@ except Exception:
             QGraphicsTextItem, QGraphicsLineItem,
             QMenuBar, QMenu, QToolBar, QStatusBar, QSystemTrayIcon,
             QFileDialog, QMessageBox, QInputDialog, QColorDialog, QFontDialog,
+            QDialogButtonBox,
             QSizePolicy, QStyle,
         )
         QT_API = "PyQt6"
@@ -97,6 +99,7 @@ except Exception:
                 QGraphicsTextItem, QGraphicsLineItem,
                 QMenuBar, QMenu, QToolBar, QStatusBar, QSystemTrayIcon,
                 QFileDialog, QMessageBox, QInputDialog, QColorDialog, QFontDialog,
+                QDialogButtonBox,
                 QSizePolicy, QAction, QStyle,
             )
             QT_API = "PyQt5"
@@ -132,6 +135,7 @@ except Exception:
             QGraphicsEllipseItem = QGraphicsTextItem = QGraphicsLineItem = _Stub
             QMenuBar = QMenu = QToolBar = QStatusBar = QSystemTrayIcon = _Stub
             QFileDialog = QMessageBox = QInputDialog = QColorDialog = QFontDialog = _Stub
+            QDialogButtonBox = _Stub
             QSizePolicy = QAction = QStyle = _Stub
 
 __all__ = [k for k in globals().keys() if not k.startswith("_")]

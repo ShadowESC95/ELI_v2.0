@@ -673,11 +673,7 @@ def _select_agents_for_intent(user_input: str, action: str) -> Optional[Set[str]
 # express further dependencies; cycles are rejected at build time.
 _AGENT_DEPENDENCIES: Dict[str, Set[str]] = {
     "knowledge_graph": {"memory"},
-    # critic is the second-tier verifier: it must run AFTER the retrievers it
-    # cross-checks so their results are in intent["_upstream"]. Deps are
-    # intersected with the active set, so on a narrow turn it simply runs after
-    # whichever of these are active (and self-gates if <2 grounded sources).
-    "critic": {"memory", "system", "knowledge_graph"},
+    "critic": {"memory", "system", "knowledge_graph", "file_code"},
 }
 
 
@@ -859,6 +855,14 @@ class BusMemoryAgent(_BaseAgent):
             mem = get_memory()
 
             action = str((intent or {}).get("action") or "CHAT").upper().strip()
+            if (intent or {}).get("_skip_memory_agent"):
+                elapsed = (time.perf_counter() - t0) * 1000
+                return AgentResult(
+                    agent=self.name, ok=True, confidence=0.0,
+                    data={"skipped": True, "memory_context": "", "results": [],
+                            "conv_hits": [], "hit_count": 0, "reason": "prefetched"},
+                    elapsed_ms=elapsed,
+                )
             if not _eli_memory_should_run(user_input, action):
                 elapsed = (time.perf_counter() - t0) * 1000
                 log.debug(f"[AGENT:memory] skipped action={action} short_or_irrelevant elapsed={elapsed:.0f}ms")
@@ -896,63 +900,26 @@ class BusMemoryAgent(_BaseAgent):
                     except Exception:
                         _SWLOG.debug("suppressed exception", exc_info=True)
             limit = _tn["cog.mem_semantic_recall"]  # semantic hits
-            raw_hits = mem.recall_memory(user_input, limit=limit)
-            conv_hits = []
-            try:
-                conv_hits = mem.search_conversations(user_input, user_id=user_id, limit=_tn["cog.mem_conv_recall"])
-            except Exception:
-                _SWLOG.debug("suppressed exception", exc_info=True)
-            recent = mem.get_recent_conversation(limit=_tn["cog.mem_recent_turns"], user_id=user_id)  # full history, char-budgeted below
-            summaries = []
-            try:
-                summaries = mem.get_session_summaries(user_id=user_id, limit=_tn["cog.mem_summaries_recall"])
-            except Exception:
-                _SWLOG.debug("suppressed exception", exc_info=True)
-
-            # Multi-hop deepen (#2): when hop-1 recall is THIN, take the strongest
-            # hit's salient terms and re-query — surfaces facts connected to the
-            # first result that the bare user query missed. Gated on a thin first
-            # hop so rich queries don't pay the extra recall cost.
-            if 0 < len(raw_hits) < 5:
-                try:
-                    _seed = (raw_hits[0].get("text") or raw_hits[0].get("content") or "")
-                    _seed_terms = _memory_seed_terms(_seed, k=5)
-                    if _seed_terms:
-                        _seen_ids = {h.get("id") for h in raw_hits if h.get("id")}
-                        _seen_txt = {(h.get("text") or h.get("content") or "")[:80] for h in raw_hits}
-                        _hop2 = mem.recall_memory(" ".join(_seed_terms), limit=_tn["cog.mem_hop2_recall"]) or []
-                        _added = 0
-                        for _h in _hop2:
-                            _hid = _h.get("id")
-                            _ht = (_h.get("text") or _h.get("content") or "")[:80]
-                            if (_hid and _hid in _seen_ids) or _ht in _seen_txt:
-                                continue
-                            raw_hits.append(_h)
-                            _seen_ids.add(_hid)
-                            _seen_txt.add(_ht)
-                            _added += 1
-                            if len(raw_hits) >= _tn["cog.mem_merge_cap"]:
-                                break
-                        if _added:
-                            log.debug(f"[AGENT:memory] hop-2 deepen: +{_added} hits from {_seed_terms}")
-                except Exception:
-                    _SWLOG.debug("suppressed exception", exc_info=True)
-
-            # Rerank via the CANONICAL reranker (eli.cognition.reranker — same owner Stage 9
-            # uses) so the strongest, freshest evidence leads instead of raw semantic order.
-            # Quick mode has no orchestrator Stage 9, so this is where its hits get ranked.
-            # Then flag contradictions so synthesis resolves them, not asserts both.
-            try:
-                from eli.cognition.reranker import rerank_candidates
-                if raw_hits:
-                    raw_hits = rerank_candidates(user_input, raw_hits, limit=len(raw_hits))
-            except Exception:
-                _SWLOG.debug("suppressed exception", exc_info=True)
-            contradictions: List[Dict[str, Any]] = []
-            try:
-                contradictions = _detect_contradictions(raw_hits)
-            except Exception:
-                contradictions = []
+            from eli.memory.retrieval import retrieve_for_turn as _retrieve
+            _tr = _retrieve(
+                mem, user_input,
+                user_id=user_id,
+                session_id=session_id,
+                semantic_limit=limit,
+                conv_limit=_tn["cog.mem_conv_recall"],
+                recent_limit=_tn["cog.mem_recent_turns"],
+                summary_limit=_tn["cog.mem_summaries_recall"],
+                hop2_limit=_tn["cog.mem_hop2_recall"],
+                merge_cap=_tn["cog.mem_merge_cap"],
+                enable_hop2=True,
+                rerank=True,
+                use_cache=not bool((intent or {}).get("_skip_memory_cache")),
+            )
+            raw_hits = list(_tr.semantic_hits)
+            conv_hits = list(_tr.conv_hits)
+            recent = list(_tr.recent_turns)
+            summaries = list(_tr.summaries)
+            contradictions = list(_tr.contradictions)
 
             total_hits = len(raw_hits) + len(conv_hits)
             local_conf = conf_from_count(total_hits, base=0.3, step=0.04, cap=0.9)
@@ -2020,6 +1987,8 @@ class AgentBus:
             _mode_mult = 1.0
         if _mode_mult and _mode_mult != 1.0:
             intent = {**(intent or {}), "_mode_budget_mult": _mode_mult}
+        elif isinstance(intent, dict):
+            intent = {**intent, "_mode_budget_mult": _mode_mult}
 
         # ── Tiny-query gate ────────────────────────────────────────────────
         # Short filler inputs ("ok", "yes", "sure", "thanks") routed to CHAT
@@ -2049,8 +2018,20 @@ class AgentBus:
             _force_broad = False
         if _force_broad:
             selected_names = None  # None → broad fan-out over all enabled agents
+        elif (intent or {}).get("_force_agent_names"):
+            selected_names = set((intent or {}).get("_force_agent_names") or [])
         elif _is_tiny_chat:
             selected_names = {"memory", "orchestrator"}
+        elif action == "CHAT":
+            try:
+                from eli.cognition.reasoning_modes import mode_chat_agent_profile as _mcp
+                selected_names = _mcp(
+                    reasoning_mode if reasoning_mode is not None
+                    else (intent or {}).get("reasoning_mode"),
+                    code_query=_query_mentions_code_or_architecture(user_input),
+                )
+            except Exception:
+                selected_names = None
         else:
             selected_names = _select_agents_for_intent(user_input, action)
 
@@ -2096,6 +2077,8 @@ class AgentBus:
             if getattr(a, "_enabled", True)
             and a.name in plan_names
         ]
+        if (intent or {}).get("_skip_memory_agent"):
+            active_agents = [a for a in active_agents if a.name != "memory"]
         # Execute on the dependency DAG (topological layers, upstream → downstream),
         # falling back to flat parallel dispatch. When no dependency edges apply to
         # the selected set, the DAG collapses to a single layer = identical to the
@@ -2313,7 +2296,8 @@ class AgentBus:
                 try:
                     results.append(future.result(timeout=_eff_to(agent)))
                 except FuturesTimeout:
-                    log.debug(f"[AGENTBUS] {agent.name} timed out after {agent.timeout_s}s")
+                    _eff = _eff_to(agent)
+                    log.debug(f"[AGENTBUS] {agent.name} timed out after {_eff:.1f}s (base={agent.timeout_s}s)")
                     results.append(AgentResult(agent=agent.name, ok=False, confidence=0.0, data={}, error="timeout"))
                 except Exception as e:
                     log.debug(f"[AGENTBUS] {agent.name} raised: {e}")
@@ -2374,6 +2358,31 @@ class AgentBus:
 # Module-level singleton — shared across the process
 _bus: Optional[AgentBus] = None
 _bus_lock = threading.Lock()
+
+
+def dispatch_specialists(
+    user_input: str,
+    intent: Dict[str, Any],
+    *,
+    session_id: str = "",
+    user_id: str = "",
+    reasoning_mode: Optional[str] = None,
+    skip_memory: bool = False,
+    agent_names: Optional[Set[str]] = None,
+) -> "DispatchResult":
+    """Run specialist agents after orchestrator retrieval (memory prefetched elsewhere)."""
+    _intent = dict(intent or {})
+    if skip_memory:
+        _intent["_skip_memory_agent"] = True
+        _intent["_skip_memory_cache"] = True
+    if agent_names is not None:
+        _intent["_force_agent_names"] = sorted(agent_names)
+    return get_bus().dispatch(
+        user_input, _intent,
+        session_id=session_id,
+        user_id=user_id,
+        reasoning_mode=reasoning_mode,
+    )
 
 
 def get_bus() -> AgentBus:

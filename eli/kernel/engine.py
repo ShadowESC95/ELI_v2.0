@@ -11588,10 +11588,9 @@ Answer:"""
                 },
             }
 
-        # Orchestrator-first non-Quick path:
-        # stage_1..stage_12 lifecycle should be exercised end-to-end for deep
-        # reasoning modes. Stages that are not required for a plan are marked
-        # skipped by the orchestrator trace, but the final stage still closes.
+        # Gradient orchestrator path: every CHAT mode runs the orchestrator with
+        # mode-scaled depth (Quick=light/fast planner, Expert=full/deep). Non-CHAT
+        # still uses executor-first orchestrator branch. AgentBus remains fallback.
         try:
             from eli.cognition.reasoning_modes import canonical_mode as _eli_mode_key
             _eli_proc_mode = _eli_mode_key(reasoning_mode)
@@ -11602,22 +11601,27 @@ Answer:"""
         _eli_is_chat_action = str(action or "").upper() == "CHAT"
         _eli_orch_should_run = (
             not bool(kwargs.get("disable_orchestrator"))
-            and (_eli_proc_mode != "quick" or _eli_force_orch_all)
             and not getattr(self, "_orchestrator_active", False)
-            and (_eli_is_chat_action or _eli_force_orch_all_actions)
+            and (_eli_is_chat_action or _eli_force_orch_all_actions or _eli_force_orch_all)
             and (
                 not _eli_is_chat_action
                 or not _is_brief_phatic_prompt(user_input)
             )
         )
+        try:
+            from eli.kernel.pipeline_trace import log_pipeline_stage as _log_stage
+        except Exception:
+            _log_stage = None
         if not _eli_orch_should_run:
-            # Quick/fast mode: the full 12-stage orchestrator is bypassed.
-            # Log stages 2-4 here so the pipeline is always traceable.
-            log.debug(f"[PIPELINE] Stage 2: Persona Lock → deferred (quick path)")
-            log.debug(f"[PIPELINE] Stage 3: HyDE → skipped ({_eli_proc_mode} mode)")
-            log.debug(f"[PIPELINE] Stage 4: Planner → {_eli_proc_mode} [kw:6 sem:8 rag:skip kg:identity-only]")
+            if _log_stage:
+                _log_stage(5, component="engine", detail=f"orchestrator_deferred mode={_eli_proc_mode}")
+            else:
+                log.debug(f"[PIPELINE] S05 PLANNER orchestrator deferred mode={_eli_proc_mode}")
         if _eli_orch_should_run:
-            log.debug(f"[PIPELINE] Stage 2-11: Orchestrator → {_eli_proc_mode} mode (full 12-stage)")
+            if _log_stage:
+                _log_stage(5, component="orchestrator", detail=f"dispatch mode={_eli_proc_mode}")
+            else:
+                log.debug(f"[PIPELINE] S05 PLANNER orchestrator dispatch mode={_eli_proc_mode}")
             _eli_pipe("orchestrator_dispatch", mode=_eli_proc_mode, stream=stream)
             try:
                 _orch_result = self._run_internal_orchestrator(
@@ -11627,6 +11631,8 @@ Answer:"""
                 )
                 if _orch_result is not None:
                     _eli_pipe("orchestrator_return", mode=_eli_proc_mode, stream=stream)
+                    if _log_stage:
+                        _log_stage(6, component="orchestrator", detail="returned_before_legacy_bus")
                     return _orch_result
             except Exception as _orch_err:
                 log.debug(f"[COGNITIVE] internal orchestrator failed, falling back to legacy pipeline: {_orch_err}")
@@ -11651,7 +11657,23 @@ Answer:"""
             _pipe_bus_grounding = float(getattr(bus_result, "grounding_confidence", 0.0) or 0.0)
             _pipe_bus_label = str(getattr(bus_result, "confidence_label", "?") or "?")
             _pipe_bus_mem = len(str(bus_memory_context or ""))
-            log.debug(f"[PIPELINE] Stage 5-9: AgentBus → agents={_pipe_bus_agents} mem={_pipe_bus_mem}ch conf={_pipe_bus_conf:.2f} grounding={_pipe_bus_grounding:.2f} ({_pipe_bus_label})")
+            if _log_stage:
+                _log_stage(
+                    6,
+                    component="agent_bus",
+                    detail="dispatch",
+                    agents=_pipe_bus_agents,
+                    mem_chars=_pipe_bus_mem,
+                    conf=f"{_pipe_bus_conf:.2f}",
+                    grounding=f"{_pipe_bus_grounding:.2f}",
+                    label=_pipe_bus_label,
+                )
+            else:
+                log.debug(
+                    f"[PIPELINE] S06 AGENT_BUS dispatch agents={_pipe_bus_agents} "
+                    f"mem={_pipe_bus_mem}ch conf={_pipe_bus_conf:.2f} "
+                    f"grounding={_pipe_bus_grounding:.2f} ({_pipe_bus_label})"
+                )
 
             # ── World awareness feed (non-blocking) ───────────────────────────
             try:
@@ -13262,8 +13284,23 @@ Answer:"""
                     "I don't have solid evidence gathered to answer that accurately yet — "
                     "ask me to check the specific source (e.g. your habits, memory, or runtime state) and I'll pull the real data."
                 )
-        self._store_assistant_turn(final_response)
-        self._learn_from_result(intent, result)
+        try:
+            from eli.cognition.learning_coordinator import finalize_turn as _finalize_turn
+            _finalize_turn(
+                self,
+                user_input=user_input,
+                response=final_response,
+                intent=intent,
+                result=result,
+                trace=trace,
+                confidence=float(trace.get("agent_confidence") or 0.0),
+                grounding_confidence=float(trace.get("grounding_confidence") or 0.0),
+                agents_used=list(trace.get("agents_used") or []),
+                req_id=str(getattr(self, "_pipeline_req_id", "") or ""),
+            )
+        except Exception:
+            self._store_assistant_turn(final_response)
+            self._learn_from_result(intent, result)
         result["content"] = final_response
         result["response"] = final_response
         result["trace"] = trace
