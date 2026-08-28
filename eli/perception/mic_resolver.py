@@ -23,11 +23,11 @@ bounded by a timeout (so a dead device cannot stall startup). An active read is
 both the correct liveness signal (a suspended PipeWire source resumes within
 ~1s when actually read) and far faster than recording-to-file.
 
-* Linux + Pulse/PipeWire: candidates are Pulse *sources* (the default route
-  first, then every non-monitor source — wired before Bluetooth before the
-  rest). The winner is pinned for ELI's process only via ``PULSE_SOURCE`` — the
-  system default is never modified.
-* Everywhere else: candidates are PortAudio input devices (default first).
+On **every** platform, PortAudio inputs are ranked before probing: USB and
+headset/Bluetooth mics (AirPods, Turtle Beach Chat, Trust USB, …) ahead of
+built-in/webcam/virtual routes; the OS default breaks ties but does not override
+a better-ranked live device. Linux additionally tries Pulse/PipeWire sources
+(``PULSE_SOURCE`` pin) after direct hardware when the ``pulse`` wrapper is needed.
 
 Result is cached for the process. Honors ``ELI_MIC_DEVICE_INDEX`` (explicit
 override, no probing) and ``ELI_MIC_AUTORESOLVE=0`` (disable, use OS default).
@@ -228,49 +228,56 @@ def _pulse_device_index() -> Optional[int]:
 
 
 def _input_device_indices() -> List[Tuple[int, str]]:
-    """All PortAudio input devices as (index, name), default first.
+    """All PortAudio input devices as (index, name), default first (legacy helper)."""
+    default_idx, devices = _enumerate_input_devices()
+    if default_idx is None:
+        return devices
+    out: List[Tuple[int, str]] = []
+    default_name = next((nm for i, nm in devices if i == default_idx), "")
+    out.append((default_idx, default_name))
+    for idx, nm in devices:
+        if idx != default_idx:
+            out.append((idx, nm))
+    return out
 
-    The NAME is captured here, inside the very enumeration that produced the index —
-    the only place the two are guaranteed to correspond (indices shift between
-    PyAudio instances; see live_device_index).
+
+def _enumerate_input_devices() -> Tuple[Optional[int], List[Tuple[int, str]]]:
+    """All PortAudio input devices as (index, name), plus the OS default index.
+
+    The NAME is captured inside the enumeration that produced the index — the only
+    place the two are guaranteed to correspond (indices shift between PyAudio
+    instances; see live_device_index).
     """
     try:
         import pyaudio
     except Exception:
-        return []
+        return None, []
     p = None
-    out: List[Tuple[int, str]] = []
+    devices: List[Tuple[int, str]] = []
+    default_idx: Optional[int] = None
     try:
         with _quiet_alsa():
             p = pyaudio.PyAudio()
-        default_idx: Optional[int] = None
         try:
             default_idx = int(p.get_default_input_device_info().get("index"))
         except Exception:
             default_idx = None
-        _seen: set = set()
-        if default_idx is not None:
-            try:
-                _dn = str(p.get_device_info_by_index(default_idx).get("name") or "")
-            except Exception:
-                _dn = ""
-            out.append((default_idx, _dn)); _seen.add(default_idx)
         for i in range(p.get_device_count()):
             try:
                 info = p.get_device_info_by_index(i)
             except Exception:
                 continue
-            if info.get("maxInputChannels", 0) > 0 and i not in _seen:
-                out.append((i, str(info.get("name") or ""))); _seen.add(i)
+            if info.get("maxInputChannels", 0) > 0:
+                devices.append((i, str(info.get("name") or "")))
     except Exception:
-        return out
+        return default_idx, devices
     finally:
         if p is not None:
             try:
                 p.terminate()
             except Exception:
                 log.debug("mic_resolver: PyAudio.terminate() failed", exc_info=True)
-    return out
+    return default_idx, devices
 
 
 # ── PulseAudio/PipeWire source enumeration (subprocess, isolated) ──
@@ -356,27 +363,64 @@ def _probe(device_index: Optional[int], pulse_source: Optional[str], timeout: fl
         return False
 
 
-def _rank_hardware_name(name: str) -> tuple:
-    """USB / default ALSA inputs before virtual resamplers (lavrate, speexrate, …)."""
+def _rank_capture_name(name: str, *, is_os_default: bool = False) -> tuple:
+    """Cross-platform probe priority — lower tuple sorts earlier.
+
+    USB / headset / Bluetooth before built-in and webcam; virtual loopback
+    wrappers (pulse, Stereo Mix, Sound Mapper, …) last. ``is_os_default`` only
+    breaks ties so a user's chosen default wins among peers, never ahead of a
+    clearly better-ranked external mic.
+    """
     low = (name or "").lower()
+    n = name or ""
+    tie = 0 if is_os_default else 1
+
+    _VIRTUAL = (
+        "sound mapper", "stereo mix", "loopback", ".monitor",
+        "lavrate", "samplerate", "speexrate", "upmix", "vdownmix",
+        "what u hear", "wave out mix", "secondary sound capture",
+        "iec958", "spdif", "a52", "speex",
+    )
+    if low == "pulse" or any(v in low for v in _VIRTUAL):
+        return (9, tie, n)
+    if any(v in low for v in ("webcam", "camera", "facetime hd camera", "c920", "c922")):
+        return (8, tie, n)
+    # Gaming headsets often expose a stereo "Game" endpoint with no mic.
+    if "game" in low and "chat" not in low and "mic" not in low:
+        return (7, tie, n)
     if "usb" in low:
-        return (0, name)
-    if name == "default":
-        return (1, name)
+        return (0, tie, n)
+    if any(v in low for v in ("airpod", "airpods", "bluetooth", "bluez")):
+        return (1, tie, n)
+    if "headset" in low or " chat" in f" {low}" or low.endswith(" chat"):
+        return (2, tie, n)
+    if "mic" in low or "microphone" in low:
+        return (3, tie, n)
+    if n == "default":
+        return (4, tie, n)
     if low.startswith("hw:") or "hw:" in low:
-        return (2, name)
-    if "analog" in low or "mic" in low:
-        return (3, name)
-    # pulse-adjacent resamplers sit above bare HDA outputs but below real mics
-    if low in {"lavrate", "samplerate", "speexrate", "upmix", "vdownmix", "iec958", "spdif", "a52", "speex"}:
-        return (9, name)
-    return (5, name)
+        return (5, tie, n)
+    if any(v in low for v in ("analog", "built-in", "built in", "internal", "array")):
+        return (6, tie, n)
+    return (5, tie, n)
 
 
-def _hardware_portaudio_candidates() -> List[Tuple[Optional[int], Optional[str], str, Optional[str]]]:
-    """Direct PortAudio inputs (ALSA/USB), best-first — not the pulse wrapper."""
-    items = [(idx, nm) for idx, nm in _input_device_indices() if nm not in ("pulse", "")]
-    items.sort(key=lambda t: _rank_hardware_name(t[1]))
+def _rank_hardware_name(name: str) -> tuple:
+    """Backward-compatible alias for Linux-focused tests."""
+    return _rank_capture_name(name)
+
+
+def _portaudio_candidates(*, exclude_pulse_wrapper: bool = True) -> List[Tuple[Optional[int], Optional[str], str, Optional[str]]]:
+    """Ranked PortAudio inputs on every OS — USB/headset/Bluetooth before built-in/webcam/virtual."""
+    default_idx, devices = _enumerate_input_devices()
+    items = [
+        (idx, nm)
+        for idx, nm in devices
+        if nm and (not exclude_pulse_wrapper or nm != "pulse")
+    ]
+    items.sort(
+        key=lambda t: _rank_capture_name(t[1], is_os_default=(t[0] == default_idx))
+    )
     return [(idx, None, f"portaudio:{idx}:{nm}", nm) for idx, nm in items]
 
 
@@ -387,11 +431,10 @@ def _candidates() -> List[Tuple[Optional[int], Optional[str], str, Optional[str]
     stays consistent even though the index alone would not be.
     """
     cands: List[Tuple[Optional[int], Optional[str], str, Optional[str]]] = []
+    cands.extend(_portaudio_candidates())
     if sys.platform.startswith("linux"):
-        # Hardware ALSA/USB first — closer to v2.1.x behaviour and avoids pulse
-        # wrapper streams that probe LIVE at 16 kHz yet stay silent under sr's
-        # native sample rate in AppImage builds.
-        cands.extend(_hardware_portaudio_candidates())
+        # Pulse/PipeWire routes after direct hardware — the pulse wrapper can probe
+        # LIVE at 16 kHz yet stay silent under sr's native sample rate.
         pulse_idx = _pulse_device_index()
         sources, default = _pulse_sources()
         if pulse_idx is not None:
@@ -402,11 +445,6 @@ def _candidates() -> List[Tuple[Optional[int], Optional[str], str, Optional[str]
                 if default and s == default:
                     continue
                 cands.append((pulse_idx, s, f"pulse:{s}", "pulse"))
-        if cands:
-            return cands
-    # Generic (macOS/Windows, or Linux without a Pulse route): PortAudio devices.
-    for idx, nm in _input_device_indices():
-        cands.append((idx, None, f"portaudio:{idx}", nm))
     if not cands:
         cands.append((None, None, "portaudio:default", None))
     return cands
