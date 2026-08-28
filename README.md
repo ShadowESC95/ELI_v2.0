@@ -441,8 +441,8 @@ SECURITY.md, not in a public issue.
 I'd rather tell you exactly what I've run than pretend it's flawless everywhere.
 
 **What I've actually run, end to end:** Linux (x86_64) with an NVIDIA GPU — install, first-run,
-the full test suite (**10,970 tests collected**, 10,900+ passing), voice (including Trust USB
-mic auto-resolve verified on v2.3.32), vision, the server, the AppImage with the CUDA GPU
+the full test suite (**10,970 tests collected**, 10,900+ passing), voice (USB/Bluetooth headset
+auto-resolve verified on Linux), vision, the server, the AppImage with the CUDA GPU
 pack, all of it. **The Windows installer has also been field-run on real hardware** — install,
 first-boot GPU + model flow, voice and chat. On top of that, **every release is launch-tested in
 CI on Windows, macOS and Linux**: the pipeline boots each built bundle and verifies the runtime

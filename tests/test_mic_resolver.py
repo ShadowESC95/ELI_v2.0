@@ -144,7 +144,7 @@ def test_module_imports_clean():
 
 
 def test_rank_usb_before_analog():
-    assert mr._rank_capture_name("Trust GXT USB Audio")[0] < mr._rank_capture_name("HDA Analog")[0]
+    assert mr._rank_capture_name("Example USB Audio")[0] < mr._rank_capture_name("HDA Analog")[0]
 
 
 def test_rank_airpods_before_builtin():
@@ -179,20 +179,20 @@ def test_linux_hardware_usb_before_pulse(monkeypatch):
     default_idx = 0
     devices = [
         (0, "default"),
-        (3, "Trust GXT 232 Microphone: USB Audio (hw:1,0)"),
-        (5, "pulse"),
+        (5, "Example USB Microphone: USB Audio (hw:1,0)"),
+        (8, "pulse"),
     ]
     monkeypatch.setattr(mr, "_enumerate_input_devices", lambda: (default_idx, devices))
-    monkeypatch.setattr(mr, "_pulse_device_index", lambda: 5)
+    monkeypatch.setattr(mr, "_pulse_device_index", lambda: 8)
     monkeypatch.setattr(
         mr,
         "_pulse_sources",
-        lambda: (["alsa_input.usb-trust"], "alsa_input.usb-trust"),
+        lambda: (["alsa_input.usb-example"], "alsa_input.usb-example"),
     )
     cands = mr._candidates()
     labels = [c[2] for c in cands]
-    assert labels[0] == "portaudio:3:Trust GXT 232 Microphone: USB Audio (hw:1,0)"
-    usb_pos = next(i for i, l in enumerate(labels) if l.startswith("portaudio:3:"))
+    assert labels[0] == "portaudio:5:Example USB Microphone: USB Audio (hw:1,0)"
+    usb_pos = next(i for i, l in enumerate(labels) if l.startswith("portaudio:5:"))
     pulse_pos = next(i for i, l in enumerate(labels) if l.startswith("pulse:"))
     assert usb_pos < pulse_pos
 
@@ -227,36 +227,36 @@ def test_macos_ranked_portaudio_candidates(monkeypatch):
 
 def test_usb_hardware_wins_over_silent_pulse(monkeypatch):
     cands = [
-        (3, None, "portaudio:3:Trust USB", "Trust USB"),
-        (5, "alsa_input.default", "pulse:alsa_input.default", "pulse"),
+        (5, None, "portaudio:5:Example USB", "Example USB"),
+        (8, "alsa_input.default", "pulse:alsa_input.default", "pulse"),
     ]
     monkeypatch.setattr(mr, "_candidates", lambda: cands)
 
     def probe(idx, src, t):
-        return idx == 3
+        return idx == 5
 
     monkeypatch.setattr(mr, "_probe", probe)
     c = mr.resolve_capture()
-    assert c.device_index == 3
+    assert c.device_index == 5
     assert c.pulse_source is None
-    assert c.device_name == "Trust USB"
+    assert c.device_name == "Example USB"
     assert "probed live" in c.reason
 
 
 def test_eli_mic_pulse_source_falls_back_to_hardware(monkeypatch):
     monkeypatch.setenv("ELI_MIC_PULSE_SOURCE", "dead.source")
-    monkeypatch.setattr(mr, "_pulse_device_index", lambda: 5)
-    monkeypatch.setattr(mr, "_candidates", lambda: [(3, None, "portaudio:3:USB", "USB")])
+    monkeypatch.setattr(mr, "_pulse_device_index", lambda: 8)
+    monkeypatch.setattr(mr, "_candidates", lambda: [(5, None, "portaudio:5:USB", "USB")])
     calls = []
 
     def probe(idx, src, t):
         calls.append((idx, src))
-        return idx == 3
+        return idx == 5
 
     monkeypatch.setattr(mr, "_probe", probe)
     c = mr.resolve_capture()
-    assert calls[0] == (5, "dead.source")
-    assert c.device_index == 3
+    assert calls[0] == (8, "dead.source")
+    assert c.device_index == 5
     assert c.device_name == "USB"
 
 

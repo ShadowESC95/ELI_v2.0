@@ -51,7 +51,7 @@ ELI is a **local cognitive assistant**: chat, voice, memory, tools, and a deskto
 
 ## Honest limits (say these upfront)
 
-- Best human-run-tested: **Linux + NVIDIA** (voice verified on Trust USB mic, v2.3.32)
+- Best human-run-tested: **Linux + NVIDIA** (cross-platform mic auto-resolve, v2.3.32+)
 - **Every release** is launch-tested in CI on Linux, Windows, and macOS before publish
 - macOS needs Screen Recording + Accessibility permissions for desktop control
 - AMD speech-to-text stays on CPU (CTranslate2 has no ROCm path)

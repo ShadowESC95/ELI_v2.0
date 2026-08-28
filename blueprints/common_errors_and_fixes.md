@@ -28,12 +28,13 @@ python -m eli.tools.mic_diag          # lists devices + measures speech vs ambie
 ```
 **Manual override (only if auto-resolve picks the wrong endpoint):**
 ```bash
-export ELI_MIC_DEVICE_INDEX=3         # PortAudio index from mic_diag
+python -m eli.tools.mic_diag   # note the [N] of your working device
+export ELI_MIC_DEVICE_INDEX=N  # use YOUR index from mic_diag — not a fixed number
 # Linux PipeWire/Pulse pin (optional):
 export ELI_MIC_PULSE_SOURCE="$(pactl get-default-source)"
 ```
 On Windows gaming headsets, set the **Chat** mic (not Game) as the default recording device in
-Sound settings.
+Sound settings. On macOS, pick your AirPods or headset under System Settings → Sound → Input.
 
 ---
 
