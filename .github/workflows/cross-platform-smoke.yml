@@ -159,3 +159,10 @@ jobs:
           python -m pytest -q -p no:cacheprovider
           tests/test_eval_cases.py
           tests/test_netguard_socket_guard.py
+          tests/test_media_news_regressions.py::test_stt_streaming_play_with_named_service_is_complete
+          tests/test_media_news_regressions.py::test_stt_wake_streaming_play_dispatches_immediately
+
+      - name: Public marketing claims (README/persona ↔ code mechanisms)
+        run: >
+          python -m pytest -q -p no:cacheprovider
+          tests/claims/test_public_marketing_claims.py
