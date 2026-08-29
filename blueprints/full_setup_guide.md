@@ -1,15 +1,11 @@
 # ELI v2.0 — The Complete Setup Guide (Plain English)
 
-> **Updated for v2.3.32 (August 2026).** The primary way to install ELI is now the
-> **prebuilt installers on GitHub Releases** — `ELI-Setup-<v>.exe` (Windows),
-> the `.dmg` (macOS, Apple Silicon), the `.AppImage` (Linux). The Linux AppImage and
-> Windows installer are built and launch-tested in CI; the macOS `.dmg` is built on a
-> Mac and provided best-effort (not verified in CI). First launch offers GPU acceleration (NVIDIA CUDA /
-> AMD Vulkan; Apple Metal is built in) and a starter model sized to your
-> hardware. Data lives in a per-user `ELI_v2` folder and survives upgrades;
-> `--fresh-start` resets it. Everything below remains valid for
-> **source installs** (clone + `install.sh`) and the classic portable tarball.
-
+> **Updated for v2.3.39 (August 2026).** Release **v2.3.39** on GitHub; cognition
+> pipeline unified (gradient orchestrator, shared retrieval, S01–S12 tracing).
+> Primary install: **prebuilt installers on GitHub Releases** — `ELI-Setup-<v>.exe`
+> (Windows), the `.dmg` (macOS, Apple Silicon), the `.AppImage` (Linux). The Linux
+> AppImage and Windows installer are CI-launch-tested. Data lives in a per-user
+> `ELI_v2` folder and survives upgrades; `--fresh-start` resets it.
 
 *Everything you need to install, set up, and run ELI — written for a person, not a programmer.
 If you can copy and paste, you can do this.*

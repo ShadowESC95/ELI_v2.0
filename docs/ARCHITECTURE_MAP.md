@@ -56,7 +56,7 @@ Five modules carry roughly a third of the codebase:
 
 ---
 
-## 3. How one turn flows
+## 3. How one turn flows (v2.3.37+)
 
 ```
 user text
@@ -65,23 +65,30 @@ user text
 router_enhanced ── deterministic contracts first
    │               then a grammar-constrained LLM resolver over 225 manifest actions
    ▼
-kernel/engine.py — 12 stages
-   1  Intent
-   2  Persona lock          (deferred on the quick path)
-   3  HyDE                  (skipped in quick mode)
-   4  Planner               (keyword / semantic / RAG / KG budgets)
-   5-9 AGENT BUS  ──────────┐  parallel: memory · knowledge_graph · orchestrator
-   10 Context assembly      │            critic · system · file_code · habit
-   10.5 Persona handoff     │            voice · reflection · introspection
-   11 LLM generation        │            proactive · self_improvement
-   12 Confidence ───────────┘
+kernel/engine.py — canonical S01–S12 (pipeline_trace.py)
+   S01 PERCEIVE_INGEST
+   S02 INPUT_GUARDS
+   S03 ROUTER
+   S04 GROUNDING_GATE
+   S05 PLANNER              (mode-aware: fast → deep)
+   S06 AGENT_BUS            retrieve_for_turn() + dispatch_specialists()
+   S07 CONTEXT_ASSEMBLY     heuristic rerank
+   S08 INFERENCE_BROKER
+   S09 REASONING_SYNTHESIS  (private mode algo)
+   S10 OUTPUT_GOVERNOR
+   S11 RESPONSE_DELIVERY
+   S12 LEARNING_STATE_UPDATE  (learning_coordinator.finalize_turn)
    ▼
 output governor → response
 ```
 
-**Reasoning modes:** `quick`, `chain_of_thought`, `self_consistency`,
-`tree_of_thoughts`, `constitutional_ai` — each with its own token budget,
-temperature and confidence threshold.
+**All CHAT modes** (Quick … Expert) run the orchestrator at scaled depth — Quick no
+longer skips to a bare bus dispatch. The bus is composed inside S06 or used as a
+fallback if orchestration fails.
+
+**Reasoning modes:** `quick`, `chain_of_thought` (Normal), `self_consistency`
+(Advanced), `tree_of_thoughts` (Research), `constitutional_ai` (Expert) — each
+with its own token budget, temperature and confidence threshold.
 
 **Entry points:** `eli.gui.app:main` (desktop, the `eli` command) and
 `api/server.py` (FastAPI; the web UI and the v3 mobile app both ride `/v1`).

@@ -1,5 +1,8 @@
 # ELI Memory Subsystem
 
+> **Updated for v2.3.39.** Turn retrieval is unified in `eli/memory/retrieval.py`;
+> FAISS deletes use tombstones (`mark_memory_deleted`).
+
 `eli/memory/` — 7.0k LOC, 13 files. The persistent substrate: relational +
 full-text + vector + graph, all local SQLite/FAISS. Companion to
 `project_overview.md`.
@@ -11,7 +14,8 @@ full-text + vector + graph, all local SQLite/FAISS. Companion to
 | `memory.py` | 4.7k | the `Memory` god-class + `DBPaths` + module facade |
 | `knowledge_graph.py` | 643 | entity/relation graph (KG) |
 | `habits_memory_db.py` | 470 |
-| `vector_store.py` | 430 | FAISS vector index + embedder |
+| `vector_store.py` | 430 | FAISS vector index + embedder + tombstones |
+| `retrieval.py` | ~150 | shared turn retrieval (`retrieve_for_turn`) + 8 s cache |
 | `__init__.py` | 0 |
 | `system_index.py` | 278 | indexed apps/executables/files |
 | `memory_truth.py` | 190 |
@@ -75,10 +79,20 @@ Indexed on `ts` and `(user_id, ts)`. Reads come back `ORDER BY ts DESC, id DESC`
 counting would otherwise mis-order. See `blueprints/perception.md` for the assessment
 gates and the proactive surfacing path.
 
+## Shared turn retrieval (`retrieval.py`, v2.3.37+)
+
+**Single owner** for semantic + conversation recall on one turn. Both
+`BusMemoryAgent` and `OrchestratorMemoryAgent` call `retrieve_for_turn()` so the
+same query is not searched twice with divergent budgets. Features:
+
+- 8 s per-process turn cache (`invalidate_turn_cache()` on session change)
+- Optional hop-2 deepening when initial hits are sparse
+- Heuristic rerank via `rerank_candidates()` when enabled
+- Contradiction detection hook from the bus
+
 ## `recall_memory` — the hybrid retriever (memory.py:1722)
 
-The shared retrieval foundation (see `orchestration_and_agents.md` for the two
-strategies on top):
+The low-level primitive that `retrieve_for_turn()` builds on:
 
 1. **FAISS first** (Stage 5 vector primary). FTS5/LIKE runs only as a
    *supplement* when the vector index is empty/cold or returns `< limit//2`
@@ -104,6 +118,9 @@ FAISS `IndexFlat`, embeddings via a local nomic embedder (llama_cpp). Notable:
 - Metadata canonicalized to **`meta.json`** (migrated from legacy `meta.pkl`).
 - Singleton via `get_vector_store()`; shutdown-aware (skips embedding during
   teardown); `reset_vector_store()` for rebuilds.
+- **Tombstones (v2.3.37):** `mark_memory_deleted(id)` writes to
+  `.tombstones.json`; search skips tombstoned rows without a full rebuild.
+  `compact_tombstones(live_ids)` reclaims index space when needed.
 
 ## Knowledge graph (`knowledge_graph.py`)
 

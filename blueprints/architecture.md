@@ -1,3 +1,9 @@
+> **Updated for v2.3.39 (August 2026).** v2.3.37+ unified the cognition pipeline:
+> all CHAT modes run a **gradient orchestrator** (Quick = light/fast planner;
+> Expert = full/deep); shared turn retrieval (`eli/memory/retrieval.py`); FAISS
+> tombstones on delete; canonical S01–S12 logging (`pipeline_trace.py`); Stage 12
+> learning via `learning_coordinator.py`.
+
 # Blueprint — ELI MKXI Architecture
 
 The full structural/architectural map of ELI MKXI. Every claim here is grounded
@@ -85,7 +91,10 @@ starts daemons.
 ## 3. The request lifecycle (the spine)
 
 Everything funnels through **`CognitiveEngine.process()`** (`eli/kernel/engine.py`).
-Two paths diverge by reasoning mode:
+Since **v2.3.37**, CHAT no longer splits into “Quick = bus only / deep =
+orchestrator only”. Every CHAT turn runs the orchestrator at a **mode-scaled
+depth**; the parallel specialist bus is **composed inside** the orchestrator
+(after shared retrieval) or used as a **fallback** if orchestration fails.
 
 ```
 user input
@@ -99,22 +108,22 @@ CognitiveEngine.process(action, args, ...)
    ├─ PHASE45 fast-path?  (deterministic OS/media/status/job actions)
    │      → execute_action() → return VERBATIM (no LLM)         [§10]
    │
-   ├─ non-quick mode OR forced → Internal Orchestrator (full 12-stage)  [§7]
+   ├─ CHAT (any reasoning mode: Quick … Expert)
+   │      → AgentOrchestrator.run() at mode depth               [§7]
+   │         S05 planner (fast/balanced/deep) → shared retrieval [§8]
+   │         → dispatch_specialists() (mode-aware fan-out)      [§6]
+   │         → context assembly → broker.infer() → governor
    │
-   └─ quick mode (default) →
-          AgentBus.dispatch()   [§6]  → bus_result {grounding, agents, ctx}
-              │
-              ├─ Grounding escalation hook  [§9]  (CHAT + low grounding + factual)
-              │      → web tier / local tier / hedge → may RETURN here
-              │
-              ├─ self-contained action? → return executor result verbatim
-              ├─ grounded control action? → grounded synthesis
-              └─ CHAT → _build_enhanced_system() → broker.infer()/stream
-                         → output_governor → response
+   ├─ Non-CHAT action
+   │      → AgentOrchestrator → bus + ReAct tool loop
+   │
+   └─ Orchestrator None / raises → AgentBus.dispatch() fallback
 ```
 
-Pipeline stages logged at runtime: `Stage 1 Intent → … → Stage 12 Confidence`.
-Quick mode short-circuits stages 2–4/HyDE; the orchestrator runs all 12.
+Pipeline stages are logged canonically via `eli/kernel/pipeline_trace.py`:
+**S01 PERCEIVE_INGEST → … → S12 LEARNING_STATE_UPDATE** (mirrors
+`eli/kernel/pipeline.py` STEPS). Enable with `ELI_PIPELINE_TRACE=1` or
+`scripts/eli_startup.sh --trace`.
 
 ---
 
@@ -178,23 +187,39 @@ GENERATE_SCRIPT, not a bus agent.
 
 ## 7. The Orchestrator — full 12-stage  (`eli/cognition/orchestrator.py`)
 
-Runs for non-quick modes (and forced cases). Stages (as logged):
+Runs for **all CHAT modes** (gradient depth) and for non-CHAT actions. Canonical
+stage names (`pipeline_trace.STAGE_NAMES`):
 
-1. **Intent Routing** → action
-2. **Persona Lock** → persona/identity fixed for the turn
-3. **HyDE** → hypothetical-doc query expansion (`cognition/hyde.py`)
-4. **Planner** → which retrieval channels + limits for the mode
-5/6/7. **Parallel Retrieval** → keyword + **FTS5** (conversation_turns) + **FAISS**
-   vector + RAG + **KG**
-8. **Hybrid Merge** → combine channel hits
-9. **Rerank** → `cognition/reranker.py`
-10. **Context Assembly** → assembled grounded context
-10.5. **Persona Handoff** → persona brief built for generation
-11. **LLM Generation** → stream/oneshot via the broker
-12. **Confidence** → score vs threshold (PASS/repair)
+| Stage | Name | What happens |
+|---|---|---|
+| S01 | PERCEIVE_INGEST | input normalised |
+| S02 | INPUT_GUARDS | safety / policy gates |
+| S03 | ROUTER | intent → action |
+| S04 | GROUNDING_GATE | grounding pre-check |
+| S05 | PLANNER | mode-aware retrieval plan (`PlannerAgent.plan_retrieval`) |
+| S06 | AGENT_BUS | shared `retrieve_for_turn()` + `dispatch_specialists()` fan-out |
+| S07 | CONTEXT_ASSEMBLY | merge retrieval + specialist evidence |
+| S08 | INFERENCE_BROKER | broker.infer() / stream |
+| S09 | REASONING_SYNTHESIS | mode-specific private reasoning (CoT/ToT/…) |
+| S10 | OUTPUT_GOVERNOR | post-generation policy |
+| S11 | RESPONSE_DELIVERY | user-visible reply |
+| S12 | LEARNING_STATE_UPDATE | `learning_coordinator.finalize_turn()` |
 
-Quick mode (default) skips 2–4/HyDE and uses the AgentBus directly; the
-orchestrator is the "deep" path.
+Retrieval details:
+- **Shared owner:** `eli/memory/retrieval.py` — `retrieve_for_turn()` with an
+  8 s per-process turn cache; both `BusMemoryAgent` and the orchestrator call
+  here so the same turn is not searched twice with divergent budgets.
+- **Sequential by design** — the llama_cpp embedder is not thread-safe.
+- **Heuristic rerank** — `cognition/reranker.py` scores lexical overlap ×
+  recency × importance (`scoring.py`); a neural cross-encoder remains a future
+  upgrade, not the current path.
+- **FAISS tombstones** — `vector_store.mark_memory_deleted()` marks stale
+  vectors without a full rebuild; `compact_tombstones()` reclaims space.
+
+Mode scaling (`reasoning_modes.py`): Quick → `fast` planner + lean specialist
+profile; Normal/Advanced/Research/Expert → progressively deeper planner budgets
+and broader `mode_chat_agent_profile()` fan-out. Quick still runs the
+orchestrator — it does **not** bypass it for a bare bus dispatch.
 
 ---
 

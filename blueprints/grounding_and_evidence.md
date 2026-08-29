@@ -1,5 +1,8 @@
 # ELI Grounding & Evidence Layer
 
+> **Updated for v2.3.39.** Quick mode still returns verbatim for deterministic
+> introspection; all CHAT modes now pass through the gradient orchestrator first.
+
 The anti-confabulation system — a deterministic evidence scaffold wrapped around
 the probabilistic model. This is ELI's most distinctive subsystem and the part
 closest to genuinely frontier. Spans `eli/runtime/` and `eli/cognition/`.

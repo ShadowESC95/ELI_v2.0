@@ -1,5 +1,8 @@
 # ELI Learning — LoRA Self-Training Pipeline
 
+> **Updated for v2.3.39.** Stage 12 learning hooks for chat turns are centralized in
+> `eli/cognition/learning_coordinator.py` (`finalize_turn()`).
+
 `eli/learning/` — 4.3k LOC, 14 files. ELI's self-improvement-via-fine-tuning
 path. **Important framing:** this is a *curated, human-gated, operator-invoked*
 training pipeline — **not** an autonomous self-modifying loop, and it targets a

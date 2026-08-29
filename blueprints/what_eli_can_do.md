@@ -1,5 +1,9 @@
 # ELI — What It Can Actually Do
 
+> **Updated for v2.3.39.** All CHAT modes run the gradient orchestrator; 15 specialist
+> agents; 225 capabilities (208 routable). Regenerate the action list with
+> `python -m eli.tools.registry.capability_updater`.
+
 *A complete capability showcase, for the layman and the tech-savvy alike. Every
 capability listed here is real and present in the code — nothing is aspirational
 or embellished. This is the "what you get" document.*
@@ -19,7 +23,7 @@ embodied desktop AI you actually own — **225 capabilities** (208 of them routa
 by voice or text), a 14-agent reasoning bus, persistent memory, and full
 voice/vision/gaze control, in ~180,364 lines of Python in `eli/`. One machine, your data, no landlord. (The
 capability count is read live from the manifest each boot, so it grows as ELI
-does.)
+does. Auto-generated action reference: `capabilities_and_actions.md`.)
 
 And as of **2026-06-28** it has a **second face**: a self-hosted **web app + dashboard**
 you can open from any browser on your network — chat, a live system dashboard, **ELI's own
@@ -76,13 +80,13 @@ device on your network:
 These are real, verified mechanisms — the parts that put ELI ahead of typical
 local assistants:
 
-- **A 14-agent reasoning bus on a dependency DAG** with *calibrated, weight-free*
+- **A 15-agent reasoning bus on a dependency DAG** (composed inside the gradient
+  orchestrator after shared retrieval) with *calibrated, weight-free*
   confidence fusion — each agent's contribution is weighted by evidence quality ×
   payload density × a calibration value *learned from its own track record*.
-- **A 12-stage retrieval pipeline** — HyDE query expansion → vector (FAISS) +
-  keyword (FTS5) + knowledge-graph multi-hop + RAG → hybrid merge → a heuristic
-  rerank (lexical-overlap × recency × importance; a neural cross-encoder is the
-  designed upgrade point) → context assembly.
+- **A unified 12-stage pipeline (S01–S12)** — all CHAT modes run the orchestrator
+  at scaled depth (Quick = light/fast; Expert = full/deep): shared
+  `retrieve_for_turn()` → specialist fan-out → heuristic rerank → synthesis.
 - **5 genuinely multi-pass reasoning modes** — chain-of-thought, self-consistency
   (N samples + consensus), tree-of-thoughts (branch/prune), constitutional
   (draft→critique→revise), and quick — and it **auto-escalates** through them as a

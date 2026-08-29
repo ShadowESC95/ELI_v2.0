@@ -1,5 +1,8 @@
 # ELI Runtime Surfaces, Planning, World, Tools & Plugins
 
+> **Updated for v2.3.39.** Stage 12 learning via `learning_coordinator.py`; goal
+> autogenesis feeds the proactive stack.
+
 The remaining subsystems: the `runtime/` response/introspection surfaces, the
 proactive planning layer, the "world"/autonomy model, and the tools + plugin
 system.
