@@ -269,6 +269,48 @@ def test_stt_wake_word_still_allows_freeform_chat():
     assert wake == "computer"
 
 
+def test_text_route_streaming_play_on_prime_and_netflix():
+    """Text chat path — streaming play must route to PLAY_MEDIA (not voice gate)."""
+    prime = route("play the walking dead on prime")
+    netflix = route("play the tree body problem on netflix")
+    assert prime["action"] == "PLAY_MEDIA"
+    assert prime["args"]["query"] == "the walking dead"
+    assert prime["args"]["target"] == "primevideo"
+    assert netflix["action"] == "PLAY_MEDIA"
+    assert netflix["args"]["target"] == "netflix"
+
+
+def test_stt_streaming_play_with_named_service_is_complete():
+    from eli.perception.audio_stt import VoiceGate, _is_potentially_incomplete_media_play
+
+    assert not _is_potentially_incomplete_media_play("play the walking dead on prime")
+    assert not _is_potentially_incomplete_media_play("play the walking dead on prime video")
+    assert not _is_potentially_incomplete_media_play("play the tree body problem on netflix")
+    # Ambiguous play-without-service should still wait for completion.
+    assert _is_potentially_incomplete_media_play("play blood runs cold")
+
+
+def test_stt_wake_streaming_play_dispatches_immediately():
+    from eli.perception.audio_stt import VoiceGate
+
+    gate = VoiceGate()
+    state, command, wake = gate.classify("computer play the walking dead on prime")
+    assert state == "dispatch"
+    assert command == "play the walking dead on prime"
+    assert wake == "computer"
+
+
+def test_stt_armed_streaming_play_dispatches_without_rewait():
+    from eli.perception.audio_stt import VoiceGate
+
+    gate = VoiceGate()
+    gate.classify("computer")
+    state, command, wake = gate.classify("play the tree body problem on netflix")
+    assert state == "dispatch"
+    assert command == "play the tree body problem on netflix"
+    assert wake is None
+
+
 def test_stt_preserves_punctuation_for_chat_display():
     from eli.perception.audio_stt import _collapse_repeated_phrase
 
