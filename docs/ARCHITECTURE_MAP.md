@@ -13,9 +13,9 @@ with the commands in [Keeping this honest](#keeping-this-honest).
 
 | | |
 |---|---|
-| Tracked Python (excl. tests/build) | **196,905 lines** across **502 modules** |
-| `eli/` Python | **180,364 lines** across **421 modules** |
-| Test files | **389** (10,970 tests collected; 10,900+ passing locally) |
+| Tracked Python (excl. tests/build) | **198,422 lines** across **506 modules** |
+| `eli/` Python | **181,530 lines** across **424 modules** |
+| Test files | **393** (11,067 tests collected; 11,000+ passing locally) |
 | Actions in `capability_manifest.json` | **225** (184 router-routable; 208 routable or executor-backed; 204 `SUPPORTED_ACTIONS`) |
 | Live SQLite stores | **4** (`user` 39 tables · `agent` 26 · `system_index` 4 · `coding_memory` 2) |
 | GGUF models on disk | 6 (~12 GB) |
@@ -30,14 +30,14 @@ diff (`tools/repo_parity.py` shows drift).
 
 | package | files | lines | what lives there |
 |---|---:|---:|---|
-| `eli/runtime/` | 93 | 33,576 | grounding, evidence, self-model, devices, policy, scheduling |
-| `eli/execution/` | 16 | 26,191 | router + executor — all 225 manifest actions |
-| `eli/gui/` | 27 | 26,087 | PySide6 desktop app |
-| `eli/cognition/` | 37 | 18,520 | agent bus, persona, inference, tone, scoring |
-| `eli/kernel/` | 8 | 16,659 | the 12-stage engine |
-| `eli/perception/` | 24 | 9,487 | STT, TTS, vision, gaze, screen OCR |
+| `eli/runtime/` | 93 | 33,650 | grounding, evidence, self-model, devices, policy, scheduling |
+| `eli/execution/` | 16 | 26,419 | router + executor — all 225 manifest actions |
+| `eli/gui/` | 27 | 26,242 | PySide6 desktop app |
+| `eli/cognition/` | 38 | 18,714 | agent bus, persona, inference, tone, scoring |
+| `eli/kernel/` | 9 | 16,788 | the 12-stage engine |
+| `eli/perception/` | 24 | 9,783 | STT, TTS, vision, gaze, screen OCR |
 | `eli/core/` | 30 | 9,363 | config, paths, netguard, DAG orchestrator |
-| `eli/memory/` | 13 | 7,979 | SQLite + vector store + knowledge graph |
+| `eli/memory/` | 14 | 8,213 | SQLite + vector store + knowledge graph |
 | `eli/tools/` | 29 | 7,451 | image engine, capability registry, diagnostics |
 | `eli/plugins/` | 34 | 5,913 | calendar, media, notes, weather, web, pomodoro… |
 | `eli/learning/` | 14 | 4,311 | LoRA pipeline, feedback |

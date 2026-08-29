@@ -1,6 +1,6 @@
 # ELI v2.0 — The Complete Setup Guide (Plain English)
 
-> **Updated for v2.3.39 (August 2026).** Release **v2.3.39** on GitHub; cognition
+> **Updated for v2.3.44 (August 2026).** Release **v2.3.44** on GitHub; cognition
 > pipeline unified (gradient orchestrator, shared retrieval, S01–S12 tracing).
 > Primary install: **prebuilt installers on GitHub Releases** — `ELI-Setup-<v>.exe`
 > (Windows), the `.dmg` (macOS, Apple Silicon), the `.AppImage` (Linux). The Linux

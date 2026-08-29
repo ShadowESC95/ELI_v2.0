@@ -1,6 +1,6 @@
 # ELI Orchestration & Agents — Full Topology
 
-> **Updated for v2.3.39.** v2.3.37 eliminated the Quick-mode cliff: all CHAT
+> **Updated for v2.3.44.** v2.3.37 eliminated the Quick-mode cliff: all CHAT
 > modes run the orchestrator at scaled depth; retrieval is unified in
 > `eli/memory/retrieval.py`; Stage 12 learning is centralized in
 > `learning_coordinator.py`.

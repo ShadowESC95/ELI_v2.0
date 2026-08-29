@@ -4,8 +4,8 @@ Written because a set of marketing claims about ELI was checked line-by-line aga
 the tree and a third of them described something other than what is here. This file is
 the corrected version: every row is either verified against a file:line or struck.
 
-Audited at `55acf3e` (v2.3.32 release). Current suite at **v2.3.32**:
-**10,970 tests collected**, **10,900+ passed / 54 skipped / 2 xfailed**, 389 test files.
+Audited at v2.3.44 (August 2026). Current suite at **v2.3.44**:
+**11,067 tests collected**, **11,000+ passed / 54 skipped / 2 xfailed**, 393 test files.
 Re-run the checks with `.venv/bin/python -m pytest tests/claims/ -q`.
 
 > Rule of thumb this file exists to enforce: **a capability ELI has, described by a
@@ -31,7 +31,7 @@ Re-run the checks with `.venv/bin/python -m pytest tests/claims/ -q`.
 | Self-healing rollback after a bad self-applied patch | `eli/runtime/self_improvement.py:1019 revert_patch()`, `:979 _rollback_all()` (atomic across files) |
 | Cross-platform mic auto-resolve (USB/Bluetooth/headset before built-in; live probe; Linux `PULSE_SOURCE` pin) | `eli/perception/mic_resolver.py`, `audio_stt.py`; `python -m eli.tools.mic_diag` |
 | 225 capabilities | `capability_manifest.json` (`total`), enforced by `tests/claims/test_capability_manifest.py` |
-| 10,970 tests collected across 389 files | Verified at v2.3.32: 10,970 collected / 10,900+ passing, 389 files. Stated as a floor, so ordinary growth keeps it true. |
+| 11,067 tests collected across 393 files | Verified at v2.3.44: 11,067 collected / 11,000+ passing, 393 files. Stated as a floor, so ordinary growth keeps it true. |
 | Reads txt, md, PDF, docx, **odt, epub** | `eli/plugins/document_reader/plugin.py`. `.odt`/`.epub` were advertised but not dispatched until this audit — see below. |
 
 ---
@@ -106,7 +106,7 @@ defect a gate that never runs cannot catch.
 
 **Claim it accurately:** this is a curated cross-platform gate — imports, the headless
 FastAPI server, all 16 dashboard read-endpoints, the 78-case API suite, first-run DB
-build, and ten self-contained unit/claims files. It is **not** the full 10,970 test
+build, and ten self-contained unit/claims files. It is **not** the full 11,067 test
 suite, because most of that suite needs a GGUF model, a display, or generated artifacts
 that do not exist on a runner. The honest sentence is:
 

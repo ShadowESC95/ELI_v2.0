@@ -27,9 +27,9 @@ like and it tunes itself to the hardware you've got, from a laptop to a multi-GP
 <img src=".github/screenshots/gui-onboarding.png" alt="ELI desktop app — first-run onboarding conversation with a local 35B model" width="880">
 </div>
 
-> **v2.3.32 — AUDIO IS BACK.** Cross-platform microphone auto-resolve (USB, Bluetooth/AirPods,
+> **v2.3.44 — AUDIO IS BACK.** Cross-platform microphone auto-resolve (USB, Bluetooth/AirPods,
 > gaming headsets, built-in) — no env vars required on Linux, macOS, or Windows.
-> Grab it from **[Releases](https://github.com/ShadowESC95/ELI_v2.0/releases/tag/v2.3.32)**.
+> Grab it from **[Releases](https://github.com/ShadowESC95/ELI_v2.0/releases/tag/v2.3.44)**.
 >
 > **v2 is live software, not a polished product drop.** ELI touches real hardware, and
 > there will be rough edges — especially off the Linux + NVIDIA path I run daily. I'd rather get a
@@ -315,7 +315,7 @@ installed, ELI offers to install it (real `apt` / `snap` / `flatpak`, on your co
 
 **Voice, hands-free.** Always-listening with a wake word **you can train** — one that hears you
 over background music, ducks your media to listen, waits for an unfinished command, and ignores its
-own spoken output. **Microphone auto-resolve (v2.3.32)** probes ranked inputs on every OS — USB,
+own spoken output. **Microphone auto-resolve (v2.3.44)** probes ranked inputs on every OS — USB,
 Bluetooth/AirPods, and headset Chat endpoints before built-in/webcam/virtual routes — with live
 subprocess probes at native sample rates so silent false positives are rejected; Linux additionally
 pins live PipeWire/Pulse sources when needed. Run `python -m eli.tools.mic_diag` if you need to
@@ -436,12 +436,12 @@ SECURITY.md, not in a public issue.
 
 ## Tested on & known limitations
 
-*Last updated 2026-08-28 (v2.3.32).*
+*Last updated 2026-08-29 (v2.3.44).*
 
 I'd rather tell you exactly what I've run than pretend it's flawless everywhere.
 
 **What I've actually run, end to end:** Linux (x86_64) with an NVIDIA GPU — install, first-run,
-the full test suite (**10,970 tests collected**, 10,900+ passing), voice (USB/Bluetooth headset
+the full test suite (**11,067 tests collected**, 11,000+ passing), voice (USB/Bluetooth headset
 auto-resolve verified on Linux), vision, the server, the AppImage with the CUDA GPU
 pack, all of it. **The Windows installer has also been field-run on real hardware** — install,
 first-boot GPU + model flow, voice and chat. On top of that, **every release is launch-tested in
@@ -493,7 +493,7 @@ touches real hardware. I'd rather you know them going in.
 - `eli/gui` — PySide6 GUI launcher and `EliMainWindow`
 - `eli/cli` — headless REPL (`eli --headless`)
 - `config` — portable default settings · `models` — local GGUF payloads (gitignored)
-- `tests` — a large pytest suite (**10,970 tests collected** across 389 files, 10,900+ passing;
+- `tests` — a large pytest suite (**11,067 tests collected** across 393 files, 11,000+ passing;
   including a `claims/` layer that checks the project against its own documentation); the full
   suite runs locally, while CI gates a cross-platform portable subset (no GGUF/display/GPU) on
   Linux, macOS, and Windows
