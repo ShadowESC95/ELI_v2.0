@@ -296,12 +296,15 @@ The tiny **embedder** (memory/RAG) installs automatically with `install.sh` unle
 ## Features
 
 **Conversation and reasoning.** Five reasoning modes — Quick, Normal, Advanced, Research, Expert.
-Normal through Expert are genuinely multi-pass (self-consistency sampling, tree-of-thoughts
-branches, draft → critique); Quick is a single-pass fast path. The mode auto-selects by question
-depth, and when supporting evidence is weak ELI deepens on its own — re-gathering harder and
-escalating a tier *before* answering. A 12-stage retrieval pipeline (HyDE query expansion → vector
-+ full-text + knowledge-graph retrieval → re-rank → synthesis) sits underneath, run by a 15-agent
-dependency-DAG orchestrator with parallelism, retries, caching, and fallback.
+Quick uses a **single-pass reasoning algorithm** at **light orchestrator depth**; Normal through
+Expert use genuinely multi-pass strategies (self-consistency sampling, tree-of-thoughts branches,
+draft → critique). **Every CHAT mode — including Quick — runs the gradient orchestrator and
+15-agent bus** at a depth scaled to the mode; Quick is faster, not a bypass. The mode auto-selects
+by question depth, and when supporting evidence is weak ELI deepens on its own — re-gathering
+harder and escalating a tier *before* answering (with optional **background deepening** after a
+Quick reply). Underneath, retrieval combines HyDE query expansion (when eligible), vector +
+full-text + knowledge-graph search, re-rank, and synthesis — inside the **12-stage cognition
+pipeline** (S01–S12 in `eli/kernel/pipeline_trace.py`).
 
 **Memory that persists.** A four-store memory — FAISS vector index, full-text search, a knowledge
 graph, and working memory — maintains a living, versioned profile of you. Active projects stay

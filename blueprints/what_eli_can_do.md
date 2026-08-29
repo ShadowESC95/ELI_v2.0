@@ -126,13 +126,13 @@ local assistants:
 
 ### 🗣️ Talk & think
 Natural conversation with persistent memory of you. **Five reasoning modes —
-Quick · Normal · Advanced · Research · Expert** — each genuinely multi-pass
-(self-consistency samples, tree-of-thoughts branches, draft→critique), with the
-mode **auto-selected by how deep the conversation gets**. When evidence is weak,
-ELI **autonomously deepens**: it re-gathers harder and escalates the mode one
-tier at a time to raise its confidence *before* answering — and for a Quick reply
-it can keep working in the **background** and surface a better, more-grounded
-answer afterwards in the Proactive panel. Plus an emergent, consistent persona;
+Quick · Normal · Advanced · Research · Expert** — with deeper modes genuinely multi-pass
+(self-consistency samples, tree-of-thoughts branches, draft→critique). **Quick still runs the
+gradient orchestrator and 15-agent bus at light depth** — it is not a bypass. The mode
+**auto-selected by how deep the conversation gets**. When evidence is weak, ELI **autonomously
+deepens**: it re-gathers harder and escalates the mode one tier at a time to raise its confidence
+*before* answering — and for a Quick reply it can keep working in the **background** and surface a
+better, more-grounded answer afterwards in the Proactive panel. Plus an emergent, consistent persona;
 multi-part questions answered as multiple answers; tone that adapts over time.
 
 ### 🖥️ Run your computer
