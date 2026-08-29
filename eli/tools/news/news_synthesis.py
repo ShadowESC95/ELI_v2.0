@@ -26,6 +26,10 @@ import time
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
+from eli.utils.log import get_logger
+
+log = get_logger(__name__)
+
 
 WINDOW_SECONDS = 3 * 3600  # 3 hours
 DAY_SECONDS = 24 * 3600
@@ -350,7 +354,7 @@ def _conversation_focus_terms(user_id=None, limit: int = 5, min_count: int = 2) 
             )
             rows.extend(cur.fetchall())
         except Exception:
-            pass
+            log.debug("suppressed exception", exc_info=True)
         try:
             cur.execute(
                 "SELECT timestamp, content, '' FROM conversation_turns "
@@ -359,7 +363,7 @@ def _conversation_focus_terms(user_id=None, limit: int = 5, min_count: int = 2) 
             )
             rows.extend(cur.fetchall())
         except Exception:
-            pass
+            log.debug("suppressed exception", exc_info=True)
         con.close()
     except Exception:
         return []
