@@ -87,19 +87,19 @@ def retrieve_for_turn(
             mem.search_conversations(q, user_id=user_id, limit=int(conv_limit)) or []
         )
     except Exception:
-        pass
+        log.debug("suppressed exception", exc_info=True)
 
     recent: List[Dict[str, Any]] = []
     try:
         recent = list(mem.get_recent_conversation(limit=int(recent_limit), user_id=user_id) or [])
     except Exception:
-        pass
+        log.debug("suppressed exception", exc_info=True)
 
     summaries: List[Dict[str, Any]] = []
     try:
         summaries = list(mem.get_session_summaries(user_id=user_id, limit=int(summary_limit)) or [])
     except Exception:
-        pass
+        log.debug("suppressed exception", exc_info=True)
 
     if enable_hop2 and 0 < len(raw_hits) < 5:
         try:
@@ -121,7 +121,7 @@ def retrieve_for_turn(
                     if len(raw_hits) >= int(merge_cap):
                         break
         except Exception:
-            pass
+            log.debug("suppressed exception", exc_info=True)
 
     contradictions: List[Dict[str, Any]] = []
     if rerank and raw_hits:
@@ -129,7 +129,7 @@ def retrieve_for_turn(
             from eli.cognition.reranker import rerank_candidates
             raw_hits = rerank_candidates(q, raw_hits, limit=len(raw_hits))
         except Exception:
-            pass
+            log.debug("suppressed exception", exc_info=True)
     try:
         from eli.cognition.agent_bus import _detect_contradictions
         contradictions = _detect_contradictions(raw_hits)
