@@ -46,7 +46,7 @@ The working local-vision stack (see memory `eli-image-analysis`):
 
 ## Speech-to-text (`audio_stt.py`, `local_whisper_stt.py`, `mic_resolver.py`)
 
-**Microphone selection (`mic_resolver.py`, v2.3.32).** On every OS, ELI builds a ranked list of
+**Microphone selection (`mic_resolver.py`, v2.3.44).** On every OS, ELI builds a ranked list of
 PortAudio inputs — USB and headset/Bluetooth (AirPods, Turtle Beach Chat, Trust USB, …) before
 built-in, webcam, and virtual loopback routes — and probes each in an isolated subprocess at the
 device's native sample rate until one delivers live audio. Linux additionally tries

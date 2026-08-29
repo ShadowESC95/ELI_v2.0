@@ -1,6 +1,6 @@
 # Adaptive Inference Governor — Plan
 
-> **Updated for v2.3.39 context.** CHAT now runs gradient orchestrator for all modes;
+> **Updated for v2.3.44 context.** CHAT now runs gradient orchestrator for all modes;
 > token budgets still come from `reasoning_modes.py` + `dynamic_runtime_budget.py`.
 > This proposal doc is unchanged in status (no governor code yet).
 

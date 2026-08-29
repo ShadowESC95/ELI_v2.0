@@ -1,6 +1,6 @@
 # Blueprint — ELI MKXI ASCII Diagrams
 
-> **Updated for v2.3.39.** CHAT uses a gradient orchestrator for all modes; retrieval
+> **Updated for v2.3.44.** CHAT uses a gradient orchestrator for all modes; retrieval
 > is unified in `eli/memory/retrieval.py`; Stage 12 = learning/state commit.
 
 Visual companion to `architecture.md`. Three views: the full request pipeline,

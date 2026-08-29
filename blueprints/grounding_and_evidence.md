@@ -1,6 +1,6 @@
 # ELI Grounding & Evidence Layer
 
-> **Updated for v2.3.39.** Quick mode still returns verbatim for deterministic
+> **Updated for v2.3.44.** Quick mode still returns verbatim for deterministic
 > introspection; all CHAT modes now pass through the gradient orchestrator first.
 
 The anti-confabulation system — a deterministic evidence scaffold wrapped around

@@ -1,6 +1,6 @@
 # ELI Inference & Hardware Boot
 
-> **Updated for v2.3.39.** Optional Ollama backend; GGUF path remains canonical.
+> **Updated for v2.3.44.** Optional Ollama backend; GGUF path remains canonical.
 > Token budgets scale by reasoning mode via `reasoning_modes.py`.
 
 How ELI loads a model, talks to it, and adapts to whatever machine it's on. The
