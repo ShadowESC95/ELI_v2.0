@@ -879,6 +879,36 @@ def _is_incomplete_command(text: str) -> bool:
     return t in _INCOMPLETE_COMMAND_VERBS
 
 
+# "play … on <service>" — when the service is named, dispatch immediately (router handles it).
+_MEDIA_PLAY_ON_SERVICE_RE = re.compile(
+    r"\s+on\s+(?:"
+    r"spotify|youtube|yt|mpv|soundcloud|"
+    r"netflix|net\s*flix|"
+    r"prime(?:\s+video)?|primevideo|amazon\s+prime|"
+    r"disney(?:\+|\s*plus)?|disneyplus|"
+    r"hulu|twitch|"
+    r"max|hbo\s+max|paramount(?:\+|\s*plus)?|paramountplus|"
+    r"peacock|apple\s+tv|appletv|plex|crunchyroll|discovery\+|discoveryplus|"
+    r"tubi|pluto(?:\s+tv)?"
+    r")\s*$",
+    re.I,
+)
+
+_BARE_MEDIA_SERVICE_FRAGMENTS = {
+    "spotify", "youtube", "yt", "mpv", "netflix",
+    "on spotify", "on youtube", "on yt", "on mpv", "on netflix",
+    "prime", "prime video", "on prime", "on prime video",
+    "disney", "disney plus", "disney+", "on disney plus",
+    "hulu", "on hulu", "twitch", "on twitch", "soundcloud", "on soundcloud",
+}
+
+_BARE_MEDIA_SERVICE_PLAY_FRAGMENTS = {
+    "spotify play", "youtube play", "yt play", "mpv play", "netflix play",
+    "on spotify play", "on youtube play", "on yt play", "on mpv play", "on netflix play",
+    "prime play", "on prime play", "on prime video play",
+}
+
+
 # Media phrases often arrive split across STT chunks:
 #   "play blood runs cold" + "by jedi mind tricks on spotify"
 # Do not dispatch ambiguous play-search fragments immediately.
@@ -888,16 +918,16 @@ def _is_potentially_incomplete_media_play(text: str) -> bool:
         return False
 
     # Service-first fragments are incomplete without a query.
-    if t in {"spotify", "youtube", "yt", "mpv", "on spotify", "on youtube", "on yt", "on mpv"}:
+    if t in _BARE_MEDIA_SERVICE_FRAGMENTS:
         return True
-    if t in {"spotify play", "youtube play", "yt play", "mpv play", "on spotify play", "on youtube play", "on yt play", "on mpv play"}:
+    if t in _BARE_MEDIA_SERVICE_PLAY_FRAGMENTS:
         return True
 
     if not t.startswith("play "):
         return False
 
-    # Explicit service means complete enough for router.
-    if any(x in t for x in (" on spotify", " on youtube", " on yt", " on mpv")):
+    # Explicit service means complete enough for router (incl. Netflix/Prime/etc.).
+    if _MEDIA_PLAY_ON_SERVICE_RE.search(t):
         return False
 
     # Dangling connectors are definitely incomplete.
@@ -991,6 +1021,14 @@ def _media_voice_alias_legacy(text: str) -> str:
         return "on youtube"
     if t in {"spot", "spott", "spot of", "spot of f", "spot if i", "spotify", "spodify", "spotif"}:
         return "on spotify"
+    if t in {"netflix", "net flix"}:
+        return "on netflix"
+    if t in {"prime", "prime video", "on prime", "on prime video", "amazon prime"}:
+        return "on prime video"
+    if t in {"disney", "disney plus", "disney+", "on disney plus"}:
+        return "on disney plus"
+    if t in {"hulu", "on hulu"}:
+        return "on hulu"
 
     return re.sub(r"\s+", " ", t).strip()
 
@@ -1001,11 +1039,20 @@ def _eli_pending_media_can_complete(prefix: str, fragment: str) -> bool:
 
     # Media play fragments may only be completed by explicit service/artist/service text.
     if p.startswith("play "):
-        if re.search(r"\bon\s+(spotify|youtube|yt|mpv)\b", f):
+        if re.search(
+            r"\bon\s+(?:spotify|youtube|yt|mpv|soundcloud|netflix|net\s*flix|"
+            r"prime(?:\s+video)?|primevideo|amazon\s+prime|"
+            r"disney(?:\+|\s*plus)?|disneyplus|hulu|twitch)\b",
+            f,
+        ):
             return True
-        if f in {"spotify", "youtube", "yt", "mpv", "on spotify", "on youtube", "on yt", "on mpv"}:
+        if f in _BARE_MEDIA_SERVICE_FRAGMENTS:
             return True
-        if re.search(r"\bby\s+.+\s+on\s+(spotify|youtube|yt|mpv)\b", f):
+        if re.search(
+            r"\bby\s+.+\s+on\s+(?:spotify|youtube|yt|mpv|soundcloud|netflix|"
+            r"prime(?:\s+video)?|primevideo|disney(?:\+|\s*plus)?|disneyplus|hulu|twitch)\b",
+            f,
+        ):
             return True
         return False
 
