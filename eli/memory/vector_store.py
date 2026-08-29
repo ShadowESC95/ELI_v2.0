@@ -217,7 +217,7 @@ class VectorStore:
                     if int(_mid) in self._tombstone_ids:
                         continue
                 except (TypeError, ValueError):
-                    pass
+                    log.debug("suppressed exception", exc_info=True)
             score = float(1.0 / (1.0 + dist))
             entry["score"] = score
             results.append(entry)
@@ -273,7 +273,7 @@ class VectorStore:
                 try:
                     live.add(int(entry.get("id")))
                 except (TypeError, ValueError):
-                    pass
+                    log.debug("suppressed exception", exc_info=True)
         keep = [
             e for e in self._meta
             if int(e.get("id", -1)) in live and int(e.get("id", -1)) not in self._tombstone_ids
