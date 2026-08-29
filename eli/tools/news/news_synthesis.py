@@ -304,31 +304,130 @@ _INTEREST_NOISE = {
 }
 
 
-def _derive_interest_terms(user_id=None, limit: int = 5) -> list:
-    """Distinctive interest keywords derived from the user's OWN profile
-    (research + active projects). No hardcoded topics — per-user, per-machine.
+def _conversation_focus_terms(user_id=None, limit: int = 5, min_count: int = 2) -> list:
+    """Topic keywords from recent genuine user conversation (shared logic with proactive).
+
+    Uses the same de-noising as proactive_daemon topic_focus: skips auto-tagged
+    ELI memories, filters small talk via reflection.topic_words, and drops
+    self-referential noise so news interest reflects what the user actually talks
+    about (physics, streaming, research tools) — not meta vocabulary.
+    """
+    import sqlite3
+    import time as _time
+    from collections import Counter
+    from pathlib import Path
+
+    try:
+        from eli.memory import get_memory
+        user_db = Path(get_memory(user_id).db_path)
+    except Exception:
+        return []
+    if not user_db.exists():
+        return []
+
+    try:
+        from eli.core.self_provenance import has_auto_tag as _has_auto_tag
+    except Exception:
+        def _has_auto_tag(_tags):
+            return False
+
+    try:
+        from eli.runtime.reflection import topic_words as _topic_words
+    except Exception:
+        _topic_words = None
+
+    rows: list = []
+    try:
+        con = sqlite3.connect(str(user_db))
+        cur = con.cursor()
+        _cutoff = _time.time() - 14 * 24 * 3600
+        try:
+            cur.execute(
+                "SELECT ts, text, tags FROM memories "
+                "WHERE kind NOT IN ('reflection','assistant_insight','session_summary','conversation') "
+                "AND ts > ? ORDER BY ts DESC LIMIT 200",
+                (_cutoff,),
+            )
+            rows.extend(cur.fetchall())
+        except Exception:
+            pass
+        try:
+            cur.execute(
+                "SELECT timestamp, content, '' FROM conversation_turns "
+                "WHERE role='user' AND timestamp > ? ORDER BY timestamp DESC LIMIT 150",
+                (_cutoff,),
+            )
+            rows.extend(cur.fetchall())
+        except Exception:
+            pass
+        con.close()
+    except Exception:
+        return []
+
+    counts: Counter = Counter()
+    for _ts, text, tags in rows:
+        if not text:
+            continue
+        if _has_auto_tag(tags):
+            continue
+        if _topic_words is not None:
+            for w in _topic_words(str(text)):
+                if w not in _INTEREST_NOISE:
+                    counts[w] += 1
+            continue
+        import re as _re
+        for w in _re.findall(r"[a-z][a-z\-]{3,}", str(text).lower()):
+            if w not in _INTEREST_NOISE:
+                counts[w] += 1
+
+    ranked = [(w, c) for w, c in counts.most_common(limit * 3) if c >= min_count]
+    return [w for w, _ in ranked[:limit]]
+
+
+def _derive_interest_terms(user_id=None, limit: int = 8) -> list:
+    """Distinctive interest keywords for news matching — profile + live conversation.
+
+    Sources (merged, de-duplicated, profile-first for stability):
+      1. user_profile.research + active_projects + preferences + goals
+      2. recent conversation topic_focus (what they actually talk about)
+    No hardcoded topics — per-user, per-machine.
     """
     import re as _re
     from collections import Counter
+
     try:
         from eli.kernel.state import load_user_profile
         prof = load_user_profile(user_id) or {}
     except Exception:
         prof = {}
-    parts = []
-    for key in ("research", "active_projects"):
+
+    profile_terms: list = []
+    parts: list = []
+    for key in ("research", "active_projects", "preferences", "goals", "current_focus"):
         v = prof.get(key)
         if isinstance(v, list):
             parts += [str(x) for x in v]
         elif v:
             parts.append(str(v))
-    if not parts:
-        return []
-    blob = " ".join(parts).lower()
-    words = _re.findall(r"[a-z][a-z\-]{3,}", blob)
-    counts = Counter(w for w in words if w not in _INTEREST_NOISE)
-    # Preserve first-seen order among the most common to keep it stable.
-    return [w for w, _ in counts.most_common(limit)]
+    if parts:
+        blob = " ".join(parts).lower()
+        words = _re.findall(r"[a-z][a-z\-]{3,}", blob)
+        profile_terms = [w for w in words if w not in _INTEREST_NOISE]
+
+    conv_terms = _conversation_focus_terms(user_id, limit=limit)
+
+    # Profile terms rank first (stable research identity), then live conversation.
+    seen: set = set()
+    merged: list = []
+    for w in profile_terms + conv_terms:
+        wl = w.lower().strip()
+        if not wl or wl in seen or wl in _INTEREST_NOISE:
+            continue
+        seen.add(wl)
+        merged.append(wl)
+        if len(merged) >= limit:
+            break
+    return merged
 
 
 def _article_age_days(art):
@@ -694,7 +793,10 @@ def build_news_briefing(user_id=None, topic: str = "", top_n: int = 5,
             "matches, add one short transition like \"A couple more in your wheelhouse:\" "
             "then cover them the same way.\n"
             "- Close with EXACTLY ONE sharp, single-sentence follow-up question tied to a "
-            "specific story — not a multi-part question — then offer to go deeper on any of them.\n"
+            "specific story — prefer an INTEREST-MATCHED story when one exists, and say "
+            "briefly why it connects to their focus "
+            f"({', '.join(interest_terms[:3]) or 'their work'}) — not a multi-part question — "
+            "then offer to go deeper on any of them.\n"
             "- Read like a sharp human editor briefing a busy person: tight, concrete, no waffle.\n\n"
             f"TOP STORIES (across domains):\n{_block(top) or '(none available)'}\n\n"
             f"MATCHED TO THEIR INTERESTS ({', '.join(interest_terms[:3]) or 'n/a'}):\n"

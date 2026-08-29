@@ -381,7 +381,13 @@ def test_agent_bus_preserves_failed_direct_media_result():
     assert result.action_result["response"] == "No media player running"
 
 
-def test_command_action_result_is_synthesized_in_nonquick_mode():
+def test_news_fetch_is_verbatim_even_in_nonquick_mode():
+    # The executor builds a complete briefing with source tags. Compact synthesis
+    # in non-Quick stripped citations and collapsed depth (live dry-run, 2026-08-29).
+    briefing = (
+        "SiFive unveiled its first server platform [HackerNews — 25 Aug]. "
+        "GLM-5.3 is now open-source [HackerNews — 28 Aug]."
+    )
     with ExitStack() as stack:
         eng = _prepare_engine_for_synthesis_test(
             stack,
@@ -389,16 +395,27 @@ def test_command_action_result_is_synthesized_in_nonquick_mode():
             {
                 "ok": True,
                 "action": "NEWS_FETCH",
-                "content": "Live news raw executor evidence about physics.",
-                "response": "Live news raw executor evidence about physics.",
+                "content": briefing,
+                "response": briefing,
+                "meta": {"response_mode": "news_briefing"},
             },
         )
 
-        eng._synthesize_answer = lambda *_a, **_k: "I checked the live news evidence about physics."
-        result = eng.process("what's the latest news in physics", reasoning_mode="chain_of_thought")
+        def _no_synth(*_a, **_k):
+            raise AssertionError("NEWS_FETCH must not be synthesized")
 
-    content = result.get("content") if isinstance(result, dict) else result
-    assert content == "I checked the live news evidence about physics."
+        eng._synthesize_answer = _no_synth
+        eng._compact_grounded_synthesis = _no_synth
+        eng._run_chat_reasoning_loop = _no_synth
+
+        result = eng.process(
+            "what's the latest news in physics",
+            reasoning_mode="chain_of_thought",
+        )
+
+    assert isinstance(result, dict)
+    assert result.get("content") == briefing
+    assert "[HackerNews" in result.get("content", "")
 
 
 def test_control_action_result_uses_full_pipeline_in_nonquick_mode():

@@ -28,6 +28,13 @@ def refresh_all_overlays_nonfatal(reason: str = "manual") -> Dict[str, Any]:
         out["ok"] = False
         out["errors"].append(f"user_info_refresh:{exc}")
 
+    try:
+        from eli.tools.registry.capability_updater import update_capability_manifest
+        out["capability_manifest"] = update_capability_manifest()
+    except Exception as exc:
+        out["ok"] = False
+        out["errors"].append(f"capability_manifest:{exc}")
+
     return out
 
 

@@ -671,7 +671,9 @@ def build_control_evidence(engine: Any, action: Any, args: Dict[str, Any] | None
 
         try:
             from eli.runtime.self_model_refresh import refresh_all_overlays_nonfatal, refresh_world_model_runtime
-            report["changed"]["overlays"] = refresh_all_overlays_nonfatal(reason="user_self_update")
+            overlay = refresh_all_overlays_nonfatal(reason="user_self_update")
+            report["changed"]["overlays"] = overlay
+            report["changed"]["capability_manifest"] = overlay.get("capability_manifest")
             report["changed"]["world_model_runtime"] = bool(refresh_world_model_runtime())
         except Exception as exc:
             report["ok"] = False
@@ -940,8 +942,10 @@ def compact_evidence_answer(action: str, evidence_result: Dict[str, Any]) -> str
             f"- persona_auto: {paths.get('persona_auto', '')}",
             f"- overlay_refresh: {changed.get('overlays', {})}",
             f"- world_model_runtime_refreshed: {changed.get('world_model_runtime', False)}",
+            f"- capability_manifest: {changed.get('capability_manifest', 'unchanged')}",
             f"- errors: {errors}",
-            "No model path, runtime path, or configuration value is reported as changed unless the evidence above says so.",
+            "Persona overlay, user profile overlay, user-info snapshot, capability "
+            "manifest, and world-model runtime were refreshed from live state.",
         ]
         return "\n".join(lines)
 
