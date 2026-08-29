@@ -153,6 +153,19 @@ def init_all_data(verbose: bool = False) -> List[Tuple[str, bool, str]]:
         return "runtime_events"
     _step("user.runtime_events", _events)
 
+    # 9) persona.auto.txt — runtime overlay seeded from template when absent.
+    #    Git ignores the live file; CI and fresh clones need it for router/eval
+    #    cases that resolve known ELI cognition files (persona.auto.txt).
+    def _persona_overlay():
+        from eli.core.paths import persona_auto_path
+        dest = persona_auto_path()
+        if dest.exists():
+            return "persona.auto.txt present"
+        from eli.core.memory_reset import reset_persona_overlay
+        reset_persona_overlay()
+        return "persona.auto.txt seeded from template"
+    _step("persona.overlay", _persona_overlay)
+
     if verbose:
         for name, ok, detail in results:
             mark = "OK " if ok else "ERR"
