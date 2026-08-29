@@ -812,6 +812,7 @@ def load_model(force_reload: bool = False):
                     _mgb, _sf_gpu.free_mb, user_ctx=min(int(n_ctx), _want),
                     user_batch=max(int(n_batch), _min_batch), reserve_mb=_res,
                     kv_quantized=_kvq, min_batch=_min_batch,
+                    model_path=str(model_path),
                 )
                 log.debug(f"[GGUF] smart-fit (free={_sf_gpu.free_mb}MB reserve={_res} "
                           f"coresident={_co_resident_active}): ctx {n_ctx}->{_fc} "

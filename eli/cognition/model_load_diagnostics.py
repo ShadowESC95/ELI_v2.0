@@ -31,8 +31,9 @@ import ctypes
 import struct
 import threading
 from contextlib import contextmanager
+from dataclasses import dataclass
 from pathlib import Path
-from typing import Optional
+from typing import Any, Optional
 
 from eli.utils.log import get_logger
 
@@ -92,43 +93,185 @@ def harden_llama_destructor() -> bool:
             return False
 
 
+_SCALAR_SIZES = {0: 1, 1: 1, 2: 2, 3: 2, 4: 4, 5: 4, 6: 4, 7: 1, 10: 8, 11: 8, 12: 8}
+_PROFILE_CACHE: dict[str, "GGUFModelProfile"] = {}
+_METADATA_CACHE: dict[str, dict[str, Any]] = {}
+
+
+def _read_gguf_string(f) -> str:
+    n = struct.unpack("<Q", f.read(8))[0]
+    return f.read(n).decode("utf-8", "replace")
+
+
+def _skip_gguf_value(f, vtype: int) -> None:
+    if vtype == 8:
+        n = struct.unpack("<Q", f.read(8))[0]
+        f.read(n)
+        return
+    if vtype == 9:
+        etype = struct.unpack("<I", f.read(4))[0]
+        ln = struct.unpack("<Q", f.read(8))[0]
+        if etype == 8:
+            for _ in range(ln):
+                n = struct.unpack("<Q", f.read(8))[0]
+                f.read(n)
+        else:
+            esz = _SCALAR_SIZES.get(etype, 4)
+            f.read(esz * ln)
+        return
+    sz = _SCALAR_SIZES.get(vtype)
+    if sz:
+        f.read(sz)
+
+
+def _read_gguf_value(f, vtype: int) -> Any:
+    if vtype == 8:
+        return _read_gguf_string(f)
+    if vtype == 9:
+        _skip_gguf_value(f, 9)
+        return None
+    if vtype == 0:
+        return struct.unpack("<?", f.read(1))[0]
+    if vtype == 4:
+        return struct.unpack("<I", f.read(4))[0]
+    if vtype == 5:
+        return struct.unpack("<i", f.read(4))[0]
+    if vtype == 6:
+        return struct.unpack("<f", f.read(4))[0]
+    if vtype == 10:
+        return struct.unpack("<Q", f.read(8))[0]
+    if vtype == 11:
+        return struct.unpack("<q", f.read(8))[0]
+    if vtype == 12:
+        return struct.unpack("<d", f.read(8))[0]
+    _skip_gguf_value(f, vtype)
+    return None
+
+
+def gguf_metadata(path) -> dict[str, Any]:
+    """Read scalar/string GGUF header metadata. No weights, no llama.cpp."""
+    key = str(Path(path).expanduser().resolve())
+    if key in _METADATA_CACHE:
+        return dict(_METADATA_CACHE[key])
+    out: dict[str, Any] = {}
+    try:
+        with open(key, "rb") as f:
+            if f.read(4) != b"GGUF":
+                _METADATA_CACHE[key] = out
+                return dict(out)
+            struct.unpack("<I", f.read(4))[0]          # version
+            struct.unpack("<Q", f.read(8))[0]          # tensor count
+            n_kv = struct.unpack("<Q", f.read(8))[0]
+            for _ in range(n_kv):
+                k = _read_gguf_string(f)
+                vtype = struct.unpack("<I", f.read(4))[0]
+                val = _read_gguf_value(f, vtype)
+                if val is not None:
+                    out[k] = val
+    except Exception:
+        log.debug("gguf metadata read failed for %s", path, exc_info=True)
+    _METADATA_CACHE[key] = out
+    return dict(out)
+
+
+@dataclass(frozen=True)
+class GGUFModelProfile:
+    """Model-agnostic dimensions read from a GGUF header."""
+
+    path: str = ""
+    architecture: Optional[str] = None
+    block_count: Optional[int] = None
+    context_length: Optional[int] = None
+    expert_count: Optional[int] = None
+    expert_used_count: Optional[int] = None
+    sliding_window: Optional[int] = None
+
+    def layer_count(self, size_gb: float = 0.0) -> int:
+        if self.block_count and self.block_count > 0:
+            return int(self.block_count)
+        from eli.core.hardware_profile import _layers_for_size
+        return _layers_for_size(size_gb)
+
+    @property
+    def is_moe(self) -> bool:
+        if (self.expert_count or 0) > 1:
+            return True
+        return "moe" in (self.architecture or "").lower()
+
+    @property
+    def uses_swa_kv(self) -> bool:
+        if self.sliding_window and self.sliding_window > 0:
+            return True
+        arch = (self.architecture or "").lower().replace("_", "-")
+        return arch in ("gpt-oss",)
+
+
+def _meta_int(meta: dict[str, Any], *keys: str) -> Optional[int]:
+    for key in keys:
+        if not key:
+            continue
+        raw = meta.get(key)
+        if raw is None:
+            continue
+        try:
+            val = int(raw)
+        except (TypeError, ValueError):
+            continue
+        if val > 0:
+            return val
+    return None
+
+
+def gguf_model_profile(path) -> GGUFModelProfile:
+    """Architecture + layer/context counts from the GGUF header only."""
+    resolved = str(Path(path).expanduser().resolve())
+    if resolved in _PROFILE_CACHE:
+        return _PROFILE_CACHE[resolved]
+    meta = gguf_metadata(resolved)
+    arch_raw = meta.get("general.architecture")
+    arch = str(arch_raw).strip() if arch_raw is not None else None
+    if not arch:
+        arch = None
+    prefix = f"{arch}." if arch else ""
+    profile = GGUFModelProfile(
+        path=resolved,
+        architecture=arch,
+        block_count=_meta_int(
+            meta,
+            f"{prefix}block_count",
+            "block_count",
+            f"{prefix}n_layer",
+            "llama.block_count",
+        ),
+        context_length=_meta_int(
+            meta,
+            f"{prefix}context_length",
+            "context_length",
+            f"{prefix}n_ctx",
+        ),
+        expert_count=_meta_int(meta, f"{prefix}expert_count", "expert_count"),
+        expert_used_count=_meta_int(
+            meta, f"{prefix}expert_used_count", "expert_used_count"
+        ),
+        sliding_window=_meta_int(
+            meta,
+            f"{prefix}attention.sliding_window",
+            f"{prefix}sliding_window",
+            "sliding_window",
+        ),
+    )
+    _PROFILE_CACHE[resolved] = profile
+    return profile
+
+
 def gguf_architecture(path) -> Optional[str]:
     """``general.architecture`` from a GGUF header. Reads bytes only — no
     weights, no llama.cpp, no allocation. Returns None if unreadable."""
     try:
-        with open(str(path), "rb") as f:
-            if f.read(4) != b"GGUF":
-                return None
-            struct.unpack("<I", f.read(4))[0]          # version
-            struct.unpack("<Q", f.read(8))[0]          # tensor count
-            n_kv = struct.unpack("<Q", f.read(8))[0]
-
-            def _str() -> str:
-                n = struct.unpack("<Q", f.read(8))[0]
-                return f.read(n).decode("utf-8", "replace")
-
-            scalar = {0: "B", 1: "b", 2: "H", 3: "h", 4: "I", 5: "i",
-                      6: "f", 7: "?", 10: "Q", 11: "q", 12: "d"}
-            for _ in range(n_kv):
-                key = _str()
-                vtype = struct.unpack("<I", f.read(4))[0]
-                if vtype == 8:
-                    val = _str()
-                    if key == "general.architecture":
-                        return val
-                elif vtype == 9:                        # array
-                    etype = struct.unpack("<I", f.read(4))[0]
-                    ln = struct.unpack("<Q", f.read(8))[0]
-                    if etype == 8:
-                        for _i in range(ln):
-                            _str()
-                    else:
-                        f.read(struct.calcsize(scalar.get(etype, "I")) * ln)
-                else:
-                    f.read(struct.calcsize(scalar.get(vtype, "I")))
+        return gguf_model_profile(path).architecture
     except Exception:
         log.debug("gguf header read failed", exc_info=True)
-    return None
+        return None
 
 
 @contextmanager
@@ -261,7 +404,7 @@ def architecture_requires_modern_runtime(arch: str) -> bool:
         return False
     modern_markers = (
         "nemotron", "mamba", "ssm", "qwen3", "qwen35", "deepseek_v3", "gemma3n",
-        "ernie4", "granitehybrid",
+        "ernie4", "granitehybrid", "gpt-oss", "gpt_oss", "gptoss", "mxfp4",
     )
     if any(m in low for m in modern_markers):
         return True
@@ -450,7 +593,8 @@ def explain_load_failure(exc: BaseException, log_lines, model_path,
 
 
 __all__ = ["ModelLoadError", "deactivate_gpu_pack", "harden_llama_destructor",
-           "gguf_architecture", "architecture_requires_modern_runtime",
+           "GGUFModelProfile", "gguf_architecture", "gguf_metadata",
+           "gguf_model_profile", "architecture_requires_modern_runtime",
            "installed_llama_version", "installed_llama_version_tuple",
            "preflight_gguf_model",
            "gpu_pack_is_too_old", "MIN_MODERN_ARCH_VERSION",

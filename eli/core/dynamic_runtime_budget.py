@@ -173,6 +173,7 @@ def derive_budget(model_path: str | Path = "") -> DynamicRuntimeBudget:
             free_vram_mb=int(vram_free),
             user_ctx=ctx_target,
             user_batch=_batch_ceiling_for_vram(usable_vram),
+            model_path=str(model_path),
         )
     except Exception:
         # The fit is unavailable (no hardware_profile on this build). Fall back
