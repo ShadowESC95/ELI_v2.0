@@ -1135,7 +1135,7 @@ class SystemAgent(_BaseAgent):
         "PERSONA_LOCK_SET", "PERSONA_LOCK_STATUS", "PERSONA_LOCK_CLEAR",
         "CHECK_CHRONAL_ALIGNMENT",
         # ── Self-awareness / self-improvement (read-only or DB-only, no GGUF) ─
-        "SELF_ANALYZE", "SELF_IMPROVE", "SELF_PATCH",
+        "SELF_ANALYZE", "SELF_IMPROVE", "SELF_PATCH", "SELF_UPGRADE", "SELF_UPDATE",
         "HABIT_STATUS",
         # ── Sequencing ───────────────────────────────────────────────────────
         "SEQUENCE",

@@ -11925,13 +11925,19 @@ Answer:"""
                         # "memory.sqlite3 for temporary storage" and miscounted the
                         # databases. These return verbatim in EVERY reasoning mode.
                         #
-                        # Scope is deliberately TIGHT to the explain-internals pair:
-                        # RUNTIME_STATUS / RUNTIME_AUDIT / MEMORY_STATUS / NEWS_FETCH
-                        # have an explicit V19 "synthesise in non-Quick" contract
-                        # (tested) and a conversational synthesis genuinely reads
-                        # better for them — they are NOT here. Persona-narrative
-                        # actions (PERSONAL_MEMORY_DEEP_EXPLAIN) also synthesise.
+                        # Scope is deliberately TIGHT: RUNTIME_STATUS / RUNTIME_AUDIT /
+                        # MEMORY_STATUS still synthesise in non-Quick (V19 contract).
+                        # NEWS_FETCH / MORNING_REPORT / DAILY_REPORT are NOT here —
+                        # the executor already builds a complete persona-voiced briefing
+                        # with source tags ([HackerNews — 25 Aug], etc.). Re-running that
+                        # through compact synthesis strips citations, collapses depth, and
+                        # can contradict the evidence ("no morning report" when the
+                        # afternoon report is right there). Return verbatim in every mode.
+                        # Persona-narrative actions (PERSONAL_MEMORY_DEEP_EXPLAIN) synthesise.
                         _verbatim_always_actions = {
+                            "NEWS_FETCH",
+                            "MORNING_REPORT",
+                            "DAILY_REPORT",
                             # NOTE (2026-06-08): EXPLAIN_MEMORY_RUNTIME and
                             # EXPLAIN_COGNITION_RUNTIME were moved OUT of this set at the
                             # user's request — in non-quick modes they now SYNTHESISE the
@@ -11957,6 +11963,8 @@ Answer:"""
                             "SELF_IMPROVE",
                             "SELF_IMPROVEMENT_LOG",
                             "SELF_TEST",
+                            "SELF_UPGRADE",
+                            "SELF_UPDATE",
                         }
                         # Quick mode bypasses synthesis for grounded control actions
                         # (returns deterministic evidence directly — fast, no GGUF).
@@ -12252,7 +12260,14 @@ Answer:"""
                 except Exception:
                     _ctrl_mode = "quick" if not reasoning_mode else str(reasoning_mode)
 
-                if _ctrl_mode == "quick":
+                # Maintenance/control actions whose evidence packet IS the user-facing
+                # answer — never run them through CoT (which invents generic plans).
+                _ctrl_direct_finalise = {
+                    "SELF_UPDATE",
+                    "SELF_ANALYZE",
+                    "EXPLAIN_LAST_RESPONSE",
+                }
+                if _ctrl_mode == "quick" or str(action or "").upper() in _ctrl_direct_finalise:
                     return _finalise_control_result(
                         self,
                         user_input=user_input,

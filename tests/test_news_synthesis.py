@@ -119,7 +119,52 @@ def test_offline_briefing_flags_stale_and_discloses(monkeypatch):
     assert "MUST NOT imply any story is from today" in prompt
 
 
-def test_online_fresh_cache_has_no_offline_flag(monkeypatch):
+def test_derive_interest_terms_merges_profile_and_conversation(monkeypatch):
+    import eli.kernel.state as st
+    monkeypatch.setattr(st, "load_user_profile", lambda user_id=None: {
+        "research": ["quantum computing and photonics"],
+    })
+    monkeypatch.setattr(
+        ns,
+        "_conversation_focus_terms",
+        lambda user_id=None, limit=5, min_count=2: ["netflix", "streaming"],
+    )
+    terms = ns._derive_interest_terms(limit=8)
+    assert any(t in terms for t in ("quantum", "computing", "photonics"))
+    assert any(t in terms for t in ("netflix", "streaming"))
+
+
+def test_conversation_focus_terms_filters_noise(monkeypatch, tmp_path):
+    import sqlite3
+    import time as _time
+
+    db = tmp_path / "user.sqlite3"
+    con = sqlite3.connect(str(db))
+    con.execute(
+        "CREATE TABLE conversation_turns (timestamp REAL, role TEXT, content TEXT)"
+    )
+    now = _time.time()
+    con.execute(
+        "INSERT INTO conversation_turns VALUES (?, 'user', ?)",
+        (now - 60, "tell me about astrophysics and dark matter please"),
+    )
+    con.execute(
+        "INSERT INTO conversation_turns VALUES (?, 'user', ?)",
+        (now - 30, "more on astrophysics and dark matter"),
+    )
+    con.commit()
+    con.close()
+
+    class _Mem:
+        db_path = db
+
+    monkeypatch.setattr("eli.memory.get_memory", lambda user_id=None: _Mem())
+    monkeypatch.setattr(
+        "eli.runtime.reflection.topic_words",
+        lambda text: {"astrophysics", "dark", "matter"} if "astrophysics" in text else set(),
+    )
+    terms = ns._conversation_focus_terms(limit=5, min_count=2)
+    assert "astrophysics" in terms
     import eli.core.config as cfg
     monkeypatch.setattr(cfg, "network_allowed", lambda: True)
     b = ns.build_news_briefing(refresh=False, top_n=3, interest_n=2)

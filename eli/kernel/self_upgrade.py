@@ -26,7 +26,7 @@ from typing import Any, Dict, List, Optional, Tuple
 from eli.core.paths import project_root as _project_root
 PROJECT_ROOT = _project_root()
 _DEFAULT_RELEASE_REPO = os.environ.get("ELI_RELEASE_REPO", "ShadowESC95/ELI_v2.0")
-_DEFAULT_RELEASE_TAG = os.environ.get("ELI_RELEASE_TAG", "v2.3.46")
+_DEFAULT_RELEASE_TAG = os.environ.get("ELI_RELEASE_TAG", "v2.3.47")
 
 
 def _ver_tuple(v: str) -> Tuple[int, ...]:
@@ -153,7 +153,15 @@ class SelfUpgrader:
             summary = ("New build installed — restart ELI to run it. "
                        f"({succeeded}/{len(results)} steps succeeded.)")
         elif self.upgrade_state == "current":
-            summary = f"Already on the latest version ({self._local_version()}); nothing to install."
+            have = self._local_version()
+            want = self._latest_tag().lstrip("v")
+            if _ver_tuple(have) > _ver_tuple(want):
+                summary = (
+                    f"Already on {have} (newer than latest published {want}); "
+                    "maintenance steps ran — nothing to install."
+                )
+            else:
+                summary = f"Already on the latest version ({have}); nothing to install."
         else:
             summary = (f"NOT upgraded — still running {self._local_version()}. The maintenance "
                        "steps below do not change the installed version.")
@@ -240,14 +248,41 @@ class SelfUpgrader:
                 f"{tag or _DEFAULT_RELEASE_TAG}/{filename}")
 
     def _latest_tag(self) -> str:
-        """The newest published release tag, falling back to the pinned default.
+        """Newest published release tag by semver, falling back to pinned default.
 
-        _DEFAULT_RELEASE_TAG is bumped to the version of the build it ships
-        inside, so comparing against it would make every build conclude it is
-        already current and never upgrade anything. Ask the API what the latest
-        release actually is.
+        GitHub's /releases/latest can lag behind a just-published tag or point at
+        a non-semver asset. Scan recent releases and pick the highest vX.Y.Z so a
+        local build ahead of /latest is not misread as "behind".
         """
         from eli.core import netguard
+
+        def _tag_ver(t: str) -> Tuple[int, ...]:
+            return _ver_tuple(str(t or "").lstrip("v"))
+
+        best_tag = ""
+        best_ver: Tuple[int, ...] = (0,)
+
+        try:
+            with netguard.allow_network("self-upgrade"):
+                page = netguard.http_get_json(
+                    f"https://api.github.com/repos/{_DEFAULT_RELEASE_REPO}/releases?per_page=15",
+                    timeout=30,
+                )
+            if isinstance(page, list):
+                for rel in page:
+                    tag = str((rel or {}).get("tag_name") or "").strip()
+                    if not tag.startswith("v"):
+                        continue
+                    ver = _tag_ver(tag)
+                    if ver > best_ver:
+                        best_ver = ver
+                        best_tag = tag
+        except Exception as e:
+            self._log(f"     could not list recent releases ({str(e)[:80]}); trying /latest")
+
+        if best_tag:
+            return best_tag
+
         url = f"https://api.github.com/repos/{_DEFAULT_RELEASE_REPO}/releases/latest"
         try:
             with netguard.allow_network("self-upgrade"):
@@ -338,6 +373,10 @@ class SelfUpgrader:
         # Never move backwards: a mis-tagged or yanked release must not be able
         # to talk a newer install into downgrading itself.
         if _ver_tuple(want) <= _ver_tuple(have):
+            if _ver_tuple(have) > _ver_tuple(want):
+                return None, (
+                    f"already on {have} (newer than latest published {want}) — nothing to fetch."
+                )
             return None, f"already on {have} (latest published is {want}) — nothing to fetch."
 
         expected, err = self._expected_sha(asset, tag)
@@ -383,6 +422,10 @@ class SelfUpgrader:
         want = tag.lstrip("v")
         have = self._local_version()
         if _ver_tuple(want) <= _ver_tuple(have):
+            if _ver_tuple(have) > _ver_tuple(want):
+                return None, (
+                    f"already on {have} (newer than latest published {want}) — nothing to fetch."
+                )
             return None, f"already on {have} (latest published is {want}) — nothing to fetch."
         url = f"https://github.com/{_DEFAULT_RELEASE_REPO}/releases/tag/{tag}"
         return False, (f"this packaged build cannot replace itself in place. Download {want} "
