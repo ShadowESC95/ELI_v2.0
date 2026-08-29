@@ -16,8 +16,11 @@ from dataclasses import dataclass, asdict
 from pathlib import Path
 from typing import Any, Mapping
 import json
+import logging
 import os
 import re
+
+log = logging.getLogger(__name__)
 
 
 RUNTIME_STATUS_ACTION = "RUNTIME_STATUS"
@@ -121,7 +124,7 @@ def _project_root_from_cwd() -> Path:
         from eli.core.paths import project_root as _canonical_root
         return Path(_canonical_root()).expanduser().resolve()
     except Exception:
-        pass
+        log.debug("suppressed exception", exc_info=True)
     p = Path.cwd().resolve()
     if (p / "eli").exists():
         return p
