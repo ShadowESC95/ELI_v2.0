@@ -15,7 +15,7 @@ from . import _helpers as H
 _EXPECTED_AGENTS = [
     "memory", "knowledge_graph", "system", "habit", "self_improvement",
     "proactive", "frontier", "plugin", "capability", "voice", "orchestrator",
-    "file_code", "introspection", "reflection",
+    "file_code", "introspection", "reflection", "critic",
 ]
 
 
@@ -26,9 +26,9 @@ def test_bus_agent_registered(name):
     assert name in names, f"bus agent '{name}' not registered"
 
 
-def test_bus_has_at_least_14_agents():
+def test_bus_has_at_least_15_agents():
     from eli.cognition.agent_bus import _ALL_AGENTS
-    assert len(_ALL_AGENTS) >= 14
+    assert len(_ALL_AGENTS) >= 15
 
 
 # ── 5 reasoning modes ────────────────────────────────────────────────────────

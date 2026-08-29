@@ -22,7 +22,7 @@ Re-run the checks with `.venv/bin/python -m pytest tests/claims/ -q`.
 | Layered memory: SQLite + FAISS vector index + knowledge graph | `eli/memory/vector_store.py`, `eli/memory/knowledge_graph.py`, 4 SQLite stores |
 | Tamper-evident audit ledger — HMAC-SHA256 keyed hash chain | `eli/runtime/evidence_ledger.py`, `verify_chain()`; key at `config/.audit_hmac_key` (0600) or `$ELI_AUDIT_HMAC_KEY` |
 | Offline by default; network access fails **closed** | `eli/core/netguard`, `should_block_network()` |
-| Shell command allowlist fails **closed** | `eli/runtime/security.py:61` |
+| Shell command gate (`RUN_CMD`) | **Denylist** of destructive patterns and dangerous executables — not an allowlist | `eli/execution/shell_gate.py` |
 | `rm -rf /` and similar destructive patterns are blocked | `eli/execution/shell_gate.py:26` |
 | Turnkey installers: Windows `.exe`, macOS `.dmg`, Linux AppImage | `.github/workflows/release.yml` orchestrates; the `.dmg` is `hdiutil create -format UDZO` + ad-hoc `codesign` in `packaging/macos/build-dmg.sh:32,53` |
 | Guided first run: scans for GGUF models, suggests one that fits your VRAM, downloads in-app | `eli/core/hardware_profile.py:523` + `recommend()`; wired at `eli/gui/panels/startup.py:376`; `eli/core/model_download.py:361` |
@@ -47,6 +47,9 @@ These were the dangerous ones: each names an implementation ELI does not contain
 | Inherit `BaseTool`, implement `execute()`, drop into `tools/` | Inherit `Plugin` from `eli.plugins.base`, drop into `eli/plugins/`. `execute()` and auto-discovery are real; the class and directory names were not. |
 | Dependencies pinned with `poetry.lock` / `uv.lock` | `requirements.lock.txt`, frozen and verified by `install.sh`. Neither Poetry nor uv is used. |
 | The 12-stage pipeline is parallelised across the DAG | The pipeline is **sequential**; `eli/kernel/` never imports `eli.core.dag`. The DAG is real and drives the **agent bus** (`eli/cognition/agent_bus.py:689, 2150`) plus the coding and self-improvement paths — 8 modules. Claim the agent fleet, not the pipeline. |
+| Quick mode skips the orchestrator / agent bus | Since **v2.3.37**, **all CHAT modes** including Quick run the gradient orchestrator + 15-agent bus at scaled depth. Quick uses a **single-pass reasoning algorithm**, not a pipeline bypass. |
+| "12-stage retrieval pipeline" | The **12 stages are cognition** (S01–S12 in `pipeline_trace.py`). Retrieval (HyDE, vector, FTS, KG, re-rank) is work **inside** those stages — usually S06–S07 — not a separate 12-step retrieval pipeline. |
+| "Each reasoning mode is genuinely multi-pass" (including Quick) | **Normal–Expert** are multi-pass (CoT, self-consistency, ToT, constitutional). **Quick** is single-pass reasoning at light orchestrator depth, with optional **background deepening** after the fact. |
 
 ---
 
@@ -120,5 +123,7 @@ that do not exist on a runner. The honest sentence is:
 `tests/claims/` is the enforcement layer — it examines the project against its own
 claims rather than trusting prose. `tests/claims/test_readme_counts.py` fails the build
 if the README's capability count drifts from the manifest, or if a document format is
-advertised that the reader cannot actually open. Add a test there before adding a claim
-here.
+advertised that the reader cannot actually open. `tests/claims/test_public_marketing_claims.py`
+locks mechanism claims (15 agents, 12-stage cognition pipeline, shell denylist, port 8081,
+Quick-not-bypass prose, etc.) to the code that implements them. Add a test there before
+adding a claim here.
