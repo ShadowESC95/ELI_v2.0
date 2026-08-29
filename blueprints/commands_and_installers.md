@@ -1,13 +1,14 @@
 # ELI v2.0 — Commands & Installers Reference
 
-> **Updated for v2.3.32 (August 2026).** The primary way to install ELI is now the
+> **Updated for v2.3.39 (August 2026).** The primary way to install ELI is now the
 > **prebuilt installers on GitHub Releases** — `ELI-Setup-<v>.exe` (Windows),
 > the `.dmg` (macOS, Apple Silicon), the `.AppImage` (Linux). The Linux AppImage and
-> Windows installer are built and launch-tested in CI; the macOS `.dmg` is built on a
-> Mac and provided best-effort (not verified in CI). First launch offers GPU acceleration (NVIDIA CUDA /
-> AMD Vulkan; Apple Metal is built in) and a starter model sized to your
+> portable tarball are **CI-launch-tested** on every release; the macOS `.dmg` is
+> built on a Mac (best-effort, not verified in CI). First launch offers GPU acceleration
+> (NVIDIA CUDA / AMD Vulkan; Apple Metal is built in) and a starter model sized to your
 > hardware. Data lives in a per-user `ELI_v2` folder and survives upgrades;
-> `--fresh-start` resets it. Everything below remains valid for
+> `--fresh-start` resets it. Regenerate the live capability doc:
+> `python -m eli.tools.registry.capability_updater`. Everything below remains valid for
 > **source installs** (clone + `install.sh`) and the classic portable tarball.
 
 
@@ -26,12 +27,12 @@ more than once.
 
 ### From a downloaded release (no git, no build)
 
-Get `ELI_v2-2.3.32-linux-portable.tar.gz` from
+Get `ELI_v2-2.3.39-linux-portable.tar.gz` from
 [GitHub Releases](https://github.com/ShadowESC95/ELI_v2.0/releases), then:
 
 ```bash
-tar -xzf ELI_v2-2.3.32-linux-portable.tar.gz
-cd ELI_v2-2.3.32-linux-portable
+tar -xzf ELI_v2-2.3.39-linux-portable.tar.gz
+cd ELI_v2-2.3.39-linux-portable
 chmod +x ELI_Setup.sh
 ./ELI_Setup.sh
 ```
@@ -57,11 +58,11 @@ cd ELI_v2.0
 
 ### The absolute-easiest Linux path: the AppImage
 
-Get `ELI_v2-2.3.32-x86_64.AppImage` from Releases:
+Get `ELI_v2-2.3.39-x86_64.AppImage` from Releases:
 
 ```bash
-chmod +x ELI_v2-2.3.32-x86_64.AppImage
-./ELI_v2-2.3.32-x86_64.AppImage
+chmod +x ELI_v2-2.3.39-x86_64.AppImage
+./ELI_v2-2.3.39-x86_64.AppImage
 ```
 
 First double-click installs ELI to `~/.local/share/ELI_v2` and runs setup once; every

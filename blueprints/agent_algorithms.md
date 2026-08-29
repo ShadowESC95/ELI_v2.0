@@ -1,6 +1,6 @@
 # ELI Agent Algorithms — what each of the 15 (+1) agents actually computes
 
-> Created 2026-06-01.
+> **Updated for v2.3.39.** Orchestrator runs for all CHAT modes; bus composed at S06.
 
 Your framing is the right lens: **the DAG structures the reasoning steps; RAG is
 the engine that pulls the raw information during those steps.** ELI maps onto
@@ -137,9 +137,9 @@ calibration`, single-agent-capped, corroboration-bonused.
 ## How the DAG sequences the RAG (your "search → summarize → check")
 
 1. **Route** → action + reasoning mode.
-2. **`AgentOrchestrator`** (non-quick) runs the staged pipeline; for non-CHAT it
-   dispatches the **bus** then runs a **ReAct loop** (tool → observe → decide →
-   next tool) — the executing DAG of steps.
+2. **`AgentOrchestrator`** runs for **all CHAT modes** (gradient depth) and for non-CHAT
+   actions; for non-CHAT it dispatches the **bus** then runs a **ReAct loop** (tool → observe →
+   decide → next tool) — the executing DAG of steps.
 3. **`AgentBus`** builds the **agent DAG** (`_AGENT_DEPENDENCIES`), runs agents in
    **topological layers**, passing each layer's results downstream
    (`memory` → `knowledge_graph`). Retrievers pull evidence; reporters ground it;

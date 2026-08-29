@@ -1,5 +1,7 @@
 # Blueprint — ELI MKXI Full Architecture (ASCII)
 
+> **Updated for v2.3.39.** All CHAT modes → gradient orchestrator; bus composed at S06.
+
 The entire system in one drawing, plus the module tree and data layout. Grounded
 in the real source (see `architecture.md` for prose, `diagrams.md` for the
 pipeline/memory/gating close-ups). Every layer and box maps to a real path.
@@ -33,16 +35,15 @@ pipeline/memory/gating close-ups). Every layer and box maps to a real path.
 │  kernel/engine.py :: CognitiveEngine.process()   ← the orchestrating core (~15k LOC) │
 │  scheduler · task_bus · pipeline · state · world_model · self_upgrade               │
 └──────┬──────────────────────────────┬───────────────────────────────┬───────────────┘
-       ▼                              ▼                               ▼
- ╔═════════════╗            ╔════════════════════╗          ╔═══════════════════════╗
- ║[A] FAST-PATH ║            ║[B] ORCHESTRATOR     ║          ║[C] QUICK PATH (default)║
- ║ PHASE45      ║            ║ 12-stage (deep)     ║          ║ AgentBus.dispatch()    ║
- ║ verbatim,    ║            ║ cognition/          ║          ║                        ║
- ║ NO LLM       ║            ║ orchestrator.py     ║          ║                        ║
- ╚══════╤══════╝            ╚═════════╤══════════╝          ╚═══════════╤═══════════╝
-        │                             │                                  │
-        │              ┌─ COGNITION ──┴──────────────────────────────────┴──────────────┐
-        │              │  AgentBus (15 agents)  +  CodeAgent (16th, eli/coding)          │
+       ▼                              ▼
+ ╔═════════════╗            ╔════════════════════════════════════════╗
+ ║[A] FAST-PATH ║            ║[B] CHAT + NON-CHAT (gradient orchestrator)║
+ ║ PHASE45      ║            ║ all modes · retrieve_for_turn → bus     ║
+ ║ verbatim,    ║            ║ cognition/orchestrator.py · pipeline_trace║
+ ║ NO LLM       ║            ╚═════════════════╤══════════════════════╝
+ ╚══════╤══════╝                              │
+        │              ┌─ COGNITION ──────────┴──────────────────────────┐
+        │              │  AgentBus (15 agents, composed at S06) + CodeAgent │
         │              │  ─────────────────────────────────────────────────────────────  │
         │              │  inference_broker ─► gguf_inference  (MODEL-AGNOSTIC GGUF)        │
         │              │  reasoning_modes: quick · CoT · self-consistency · ToT · const.  │
@@ -240,10 +241,11 @@ models/   <your>.gguf · embeddings/ · whisper/ · image/        voices/  *.onn
 
 ```
 INPUT → ROUTER → ENGINE ─┬─ FAST-PATH ──────────────────────────► OUTPUT (verbatim)
-                         ├─ ORCHESTRATOR ─► retrieval ─┐
-                         └─ QUICK ─► AGENT BUS ─────────┤
-   MEMORY (SQL/FTS5/FAISS/KG/WM) ─► context ◄───────────┘
-   GATES: netguard · persistence · grounding · escalation · confidence · governor
+                         └─ ORCHESTRATOR (all CHAT modes, gradient)
+                                ├─ retrieve_for_turn() ──► MEMORY
+                                ├─ dispatch_specialists() ──► 15-agent BUS
+                                └─ broker.infer() → finalize_turn() (S12)
+   GATES: netguard · persistence · grounding · escalation · governor
    INFERENCE (broker → gguf, model-agnostic) → OUTPUT → TTS/GUI
    BACKGROUND: proactive · self-improve · habits · learning(LoRA) · world · scheduler
 ```

@@ -1,5 +1,8 @@
 # ELI Security Posture
 
+> **Updated for v2.3.39.** Fail-closed shell gate, path allow-roots, custom-agent
+> SHA-256 trust registry, prompt-injection sanitisation at engine entry (S02).
+
 ELI runs locally with real OS reach (shell, file, app control) plus a
 user-extensible agent/plugin system — so the security model matters. It is
 **fail-closed** by design. Spans `eli/runtime/security.py`, the executor gate,

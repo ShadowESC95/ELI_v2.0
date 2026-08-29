@@ -1,5 +1,8 @@
 # Blueprint — ELI MKXI ASCII Diagrams
 
+> **Updated for v2.3.39.** CHAT uses a gradient orchestrator for all modes; retrieval
+> is unified in `eli/memory/retrieval.py`; Stage 12 = learning/state commit.
+
 Visual companion to `architecture.md`. Three views: the full request pipeline,
 the memory subsystem, and the gating stack. All grounded in the real modules
 (file paths are clickable).
@@ -24,60 +27,35 @@ the memory subsystem, and the gating stack. All grounded in the real modules
             └───────────────┬─────────────────┘
         ┌───────────────────┼────────────────────────────────┐
         ▼                   ▼                                 ▼
- ╔══════════════╗  ╔═════════════════════╗          ╔══════════════════════╗
- ║ [A] PHASE45  ║  ║ [B] ORCHESTRATOR     ║          ║ [C] QUICK PATH        ║
- ║ FAST-PATH    ║  ║ (deep, non-quick)    ║          ║ (default, CHAT)       ║
- ║ OS/media/    ║  ║ full 12-stage        ║          ║                       ║
- ║ status/job   ║  ║ (see §1b)            ║          ║   AgentBus.dispatch() ║
- ╚══════╤═══════╝  ╚═══════════╤══════════╝          ╚═══════════╤══════════╝
-        │ execute_action()     │ assembled context               │ DispatchResult
-        │ VERBATIM (no LLM)    │                                 │  • grounding_confidence
-        │ can't confabulate    │                                 │  • memory_context
-        ▼                      │                                 ▼
-     return                    │                    ┌────────────────────────────┐
-        ▲                      │                    │  GROUNDING ESCALATION       │  (CHAT only)
-        │                      │                    │  factual? + low grounding?  │  runtime/grounding_escalation.py
-        │                      │                    └───────┬───────────┬────────┘
-        │                      │                       yes  │           │ no
-        │                      │            external→WEB / local→agents │ proceed
-        │                      │            else → HEDGE ("won't guess")│
-        │                      │                        │  return       ▼
-        │                      │                        │      ┌────────────────────┐
-        │                      │                        │      │ self-contained?    │─► return executor verbatim
-        │                      │                        │      │ grounded control?  │─► grounded synthesis
-        │                      │                        │      │ plain CHAT         │
-        │                      │                        │      └─────────┬──────────┘
-        │                      ▼                        │                ▼
-        │            _build_enhanced_system()  ◄────────┘     persona(budget-trimmed)
-        │            (persona + evidence + brief, n_ctx budget)   + situation brief
-        │                      │                                       │
-        │                      ▼                                       ▼
-        │             inference_broker.infer() / stream  ── gguf_inference (model-agnostic)
-        │                      │                                       │
-        │                      ▼                                       ▼
-        │            CONFIDENCE GATE (Stage 12)  ── score vs threshold → PASS / repair
-        │                      │
-        │                      ▼
-        └────────────►  OUTPUT GOVERNOR / sanitiser ── cognition/output_governor.py
-                               │   (strip leaks, persona hygiene, no raw packets)
+ ╔══════════════╗  ╔══════════════════════════════════════════════╗
+ ║ [A] PHASE45  ║  ║ [B] CHAT + NON-CHAT COGNITION PATH            ║
+ ║ FAST-PATH    ║  ║ AgentOrchestrator (gradient by mode)          ║
+ ║ OS/media/    ║  ║ Quick→light · Expert→full  (see §1b)         ║
+ ║ status/job   ║  ║ shared retrieval → dispatch_specialists()     ║
+ ╚══════╤═══════╝  ╚═══════════╤══════════════════════════════════╝
+        │ execute_action()     │ assembled context
+        │ VERBATIM (no LLM)    │
+        ▼                      ▼
+     return          _build_enhanced_system() / broker.infer()
+                               │
                                ▼
-                        response ──► TTS (Piper)  /  GUI
+                    OUTPUT GOVERNOR / sanitiser
+                               ▼
+                        response ──► TTS / GUI
+
+        Orchestrator None/raises ──► AgentBus.dispatch() fallback
 ```
 
-### 1b. Orchestrator — the 12 stages (path [B])  `cognition/orchestrator.py`
+### 1b. Orchestrator — canonical S01–S12  (`pipeline_trace.py`)
 
 ```
- 1 Intent ─► 2 Persona Lock ─► 3 HyDE ─► 4 Planner
-                                              │
-        ┌─────────────────────────────────────┘
-        ▼     5/6/7  PARALLEL RETRIEVAL
-   ┌─────────┬─────────┬─────────┬─────────┬─────────┐
-   │ keyword │  FTS5   │  FAISS  │   RAG   │   KG    │
-   └────┬────┴────┬────┴────┬────┴────┬────┴────┬────┘
-        └─────────┴────┬────┴─────────┴─────────┘
-                       ▼
-        8 Hybrid Merge ─► 9 Rerank ─► 10 Context Assembly
-                       ─► 10.5 Persona Handoff ─► 11 LLM Generation ─► 12 Confidence
+ S01 PERCEIVE ─► S02 INPUT_GUARDS ─► S03 ROUTER ─► S04 GROUNDING_GATE
+        ─► S05 PLANNER (mode-aware budgets)
+        ─► S06 AGENT_BUS: retrieve_for_turn() + dispatch_specialists()
+        ─► S07 CONTEXT_ASSEMBLY (merge + heuristic rerank)
+        ─► S08 INFERENCE_BROKER ─► S09 REASONING_SYNTHESIS (mode algo)
+        ─► S10 OUTPUT_GOVERNOR ─► S11 RESPONSE_DELIVERY
+        ─► S12 LEARNING_STATE_UPDATE (learning_coordinator.finalize_turn)
 ```
 
 ---
@@ -101,9 +79,10 @@ the memory subsystem, and the gating stack. All grounded in the real modules
                              nomic-embed-…Q4_K_M.gguf
         └──────────┴────┬─────┴───────────┴───────────┘
                         ▼
-              HYBRID MERGE ─► RERANK ─► assembled context
+              HYBRID MERGE ─► HEURISTIC RERANK ─► assembled context
                         │
-              + working-memory pins (session-pinned, junk-guarded)
+              retrieve_for_turn() — shared bus + orchestrator owner
+              FAISS tombstones skip deleted vectors without full rebuild
                         ▼
                  situation brief ─► generation (persona handoff)
 
@@ -152,8 +131,8 @@ the memory subsystem, and the gating stack. All grounded in the real modules
   │        exhausted / offline ──────────┘─► HEDGE  ("I won't guess")            │
   │      (trigger = GROUNDING, not the response score — which lies when wrong)   │
   ├──────────────────────────────────────────────────────────────────────────┤
-  │ 6 ░ CONFIDENCE GATE  (Stage 12)                kernel/engine.py             │
-  │      response score vs threshold ──► PASS  /  repair pass                    │
+  │ 6 ░ LEARNING / STATE COMMIT  (S12)             learning_coordinator.py      │
+  │      finalize_turn(): store assistant turn · publish meta · learn from result │
   ├──────────────────────────────────────────────────────────────────────────┤
   │ 7 ░ OUTPUT GOVERNOR / SANITISER                cognition/output_governor.py │
   │      final text ──► strip leaks, persona hygiene, no raw JSON ──► user       │
@@ -169,15 +148,15 @@ the memory subsystem, and the gating stack. All grounded in the real modules
 
 ```
   INPUT ─► ROUTER ─► ENGINE ─┬─ FAST-PATH ─────────────► (verbatim) ─► OUTPUT
-                             ├─ ORCHESTRATOR ─► retrieval ┐
-                             └─ QUICK ─► AGENT BUS ───────┤
+                             └─ ORCHESTRATOR (all CHAT modes, gradient depth)
+                                    │
+                                    ├─ retrieve_for_turn() ──► memory/FAISS/KG
+                                    ├─ dispatch_specialists() ──► 15-agent bus
+                                    └─ broker.infer() ──► finalize_turn() (S12)
                                                           ▼
-                          MEMORY (SQL/FTS5/FAISS/KG/WM) ─► context
+                          GATES: netguard · persistence · grounding · governor
                                                           ▼
-                          GATES: netguard · persistence · grounding ·
-                                 escalation · confidence · governor
-                                                          ▼
-                          INFERENCE (broker → gguf, model-agnostic) ─► OUTPUT
+                                                    OUTPUT
                                                           ▼
                           background: proactive · self-improve · habits ·
                                       learning(LoRA) · world · scheduler

@@ -1,35 +1,45 @@
 # ELI Orchestration & Agents — Full Topology
 
+> **Updated for v2.3.39.** v2.3.37 eliminated the Quick-mode cliff: all CHAT
+> modes run the orchestrator at scaled depth; retrieval is unified in
+> `eli/memory/retrieval.py`; Stage 12 learning is centralized in
+> `learning_coordinator.py`.
+
 Supersedes the earlier `agent_bus.md`, which only documented the parallel
 specialist bus and missed the real `AgentOrchestrator`. Read-only reference;
 nothing here changes behaviour.
 
 Source files:
 - `eli/cognition/orchestrator.py` — the real orchestrator (12-stage pipeline)
-- `eli/cognition/agent_bus.py` — the parallel 14-specialist bus
+- `eli/cognition/agent_bus.py` — the parallel 15-specialist bus
+- `eli/memory/retrieval.py` — shared turn retrieval (bus + orchestrator)
+- `eli/cognition/learning_coordinator.py` — Stage 12 `finalize_turn()`
+- `eli/kernel/pipeline_trace.py` — canonical S01–S12 logging
 - `eli/kernel/engine.py` — wiring / dispatch gate
 - `eli/execution/execution_planner.py` — declarative plan model (UNUSED)
 - `eli/planning/task_planner.py` — planner shim (stub)
 
 ## Two agent stacks (this is the key thing to understand)
 
-ELI does **not** have one agent system. It has two, selected by reasoning mode
-and action type:
+ELI has **one primary cognition path** for CHAT and a **parallel specialist bus**
+that the orchestrator **composes** (or that the engine falls back to):
 
 ### 1. `AgentOrchestrator` — the real orchestrator (`orchestrator.py`)
 
-The 12-stage cognitive pipeline. The engine calls it via
-`_run_internal_orchestrator` (engine.py:7265, 8982). Components:
+The 12-stage cognitive pipeline. The engine calls it for **every CHAT mode**
+(Quick through Expert) at a depth chosen by `mode_orchestrator_depth()` and
+`orchestrator_planner_mode()` (`reasoning_modes.py`). Components:
 
 - **`PlannerAgent.plan_retrieval()`** (orchestrator.py:53) — produces a
   **mode-aware retrieval plan**:
   - `fast`: keyword only, no FAISS/RAG, KG only if identity, 1 ReAct iter, skip HyDE
   - `balanced` (default): keyword + semantic + KG, RAG if doc query, 3 ReAct iters
   - `deep`: everything, large budgets, full HyDE, 3 ReAct iters
-- **`OrchestratorMemoryAgent`** (orchestrator.py:131) — performs the retrieval:
+- **`OrchestratorMemoryAgent`** (orchestrator.py:131) — delegates to
+  **`retrieve_for_turn()`** in `eli/memory/retrieval.py` (shared with the bus).
   HyDE expansion → keyword/FTS5 + FAISS semantic + document RAG + KG →
-  `hybrid_merge` → `rerank`. **Sequential** by design — the llama_cpp embedder
-  is not thread-safe and segfaults under concurrent daemon-thread calls.
+  `hybrid_merge` → **heuristic rerank** (`rerank_candidates`). **Sequential**
+  by design — the llama_cpp embedder is not thread-safe.
 - **`ExecutorAgent`** (orchestrator.py:119) — thin wrapper over
   `executor_enhanced.execute`.
 
@@ -41,15 +51,14 @@ Flow inside `AgentOrchestrator.run()`:
   mode, up to 3 otherwise. For "grounded synthesis" actions the observations are
   assembled into context and passed to the LLM; for direct actions the executor
   result is returned as-is.
-- **CHAT** (orchestrator.py:742–897): Stage 3 HyDE → Stage 4 planner → Stage
-  5/6/7 retrieval → Stage 8 merge → Stage 9 rerank → Stage 10 context assembly →
-  Stage 10.5 persona handoff → Stage 11 generation. Private reasoning modes
-  (chain_of_thought, self_consistency, tree_of_thoughts, constitutional_ai) hand
-  off to `engine._run_chat_reasoning_loop` so the mode-specific algorithm runs.
-  **Note: the AgentBus is NOT called on the CHAT path** — the orchestrator uses
-  its own `OrchestratorMemoryAgent` retrieval instead.
+- **CHAT** (orchestrator.py:742–897): planner → shared retrieval →
+  **`dispatch_specialists()`** (mode-aware fan-out; memory skipped when already
+  prefetched) → context assembly → persona handoff → generation. Private
+  reasoning modes (Normal/Advanced/Research/Expert) hand off to
+  `engine._run_chat_reasoning_loop`. **The AgentBus is composed on the CHAT
+  path** — not bypassed in Quick mode.
 
-### 2. `AgentBus` — the parallel 14-specialist fan-out (`agent_bus.py`)
+### 2. `AgentBus` — the parallel 15-specialist fan-out (`agent_bus.py`)
 
 15 agents in `_ALL_AGENTS` (agent_bus.py:3071), each a `_BaseAgent` subclass
 with `name` + `timeout_s`:
@@ -84,14 +93,17 @@ Execution (`AgentBus.dispatch`, agent_bus.py:1533):
   single-agent cap; empty-bus ceiling; corroboration bonus at ≥3 contributors.
   This part is genuinely solid.
 
-### When each runs (engine gate `_eli_orch_should_run`, engine.py:8962)
+### When each runs (engine gate, v2.3.37+)
 
 | Situation | Path |
 |---|---|
-| Quick-mode CHAT, or phatic | **AgentBus directly** (engine.py:8994) |
-| Balanced/deep CHAT | **AgentOrchestrator** — own retrieval; bus *not* used |
-| Non-CHAT action (any mode) | **AgentOrchestrator** → calls bus + ReAct loop |
-| Orchestrator returns None / raises | Falls back to **AgentBus directly** |
+| CHAT (Quick / Normal / Advanced / Research / Expert) | **AgentOrchestrator** at mode depth → shared retrieval → `dispatch_specialists()` |
+| Non-CHAT action (any mode) | **AgentOrchestrator** → bus + ReAct loop |
+| Orchestrator returns None / raises | Falls back to **AgentBus.dispatch()** directly |
+| Phatic / ultra-short filler (engine heuristic) | May use lean bus profile inside orchestrator |
+
+Stage 12 side effects (store turn, publish meta, `_learn_from_result`) run through
+**`learning_coordinator.finalize_turn()`** — one entry point for all CHAT exits.
 
 ## Planning artifacts — 4 of them, only 1 drives execution
 
@@ -114,16 +126,12 @@ Execution (`AgentBus.dispatch`, agent_bus.py:1533):
 
 ## Where it is actually weak (corrected)
 
-1. **Two retrieval strategies — but NOT a real weakness (corrected).** Earlier
-   framed as duplicate engines; on proper reading both bottom out on the *same*
-   `eli/memory/memory.py` primitives (`recall_memory:1722`,
-   `search_conversations:2533`). The bus's `BusMemoryAgent` is a thin wrapper
-   over the all-in-one `recall_memory` (lightweight, for quick/parallel); the
-   orchestrator's `OrchestratorMemoryAgent` decomposes the same primitives
-   (`keyword_only=True`) + adds RAG + rerank (heavyweight, for deep). A core
-   retrieval bug is fixed once in `memory.py` for both. The fast/deep split is
-   deliberate; forcibly unifying would collapse it for no gain. Left as-is.
-2. **The bus is still a single isolated round.** Within one `dispatch`, the 14
+1. **Retrieval unified (v2.3.37 — DONE).** `eli/memory/retrieval.py`
+   `retrieve_for_turn()` is the single owner for semantic + conversation recall
+   on a turn; 8 s turn cache prevents duplicate searches when orchestrator and
+   bus both need evidence. FAISS deletes use **tombstones** (`mark_memory_deleted`)
+   instead of silent stale vectors.
+2. **The bus is still a single isolated round.** Within one `dispatch`, the 15
    agents cannot consume each other's output. The ReAct loop chains *executor
    tool actions*, not bus agents — so a bus-level dependency (e.g. KG seeded by
    memory's entities) still cannot be expressed.
@@ -156,18 +164,15 @@ Execution (`AgentBus.dispatch`, agent_bus.py:1533):
 
 | Priority | Fix | Why |
 |---|---|---|
-| **High** | Unify retrieval: have the bus `BusMemoryAgent`/`KnowledgeGraphAgent` and the orchestrator's `OrchestratorMemoryAgent` call **one** shared retrieval module. | Kills the dual-stack divergence (#1) — the single biggest source of mode-dependent bugs. |
-| **High** | Move `_load_custom_agents()` above the runtime-policy timeout loop (or re-apply the override after loading). | One-line fix for the redistribution timeout gap (#5). |
-| **High** | Harden the ReAct loop: validate `<action>` against the known action set before chaining; merge (not overwrite) `intent["args"]`; cap/parse defensively. | Closes silent-break + arg-loss (#4). |
+| **Med** | Move `_load_custom_agents()` above the runtime-policy timeout loop (or re-apply the override after loading). | One-line fix for the redistribution timeout gap (#5). |
 | **Med** | Make the bus optionally two-round for dependent agents (round-1 results passed into round-2 `run()`), gated by a real plan. | Enables KG-seeded-by-memory etc. (#2). |
 | **Med** | Either wire `execution_planner.ExecutionPlan` in as the bus's selection/sequencing source, or delete it + the shim `task_planner` to cut dead surface. | Resolves the 5-planner fragmentation (#3). |
 | **Med** | Generic evidence-density floor: count any non-empty payload at low weight so unknown-key/custom agents aren't zeroed. | Makes custom agents first-class to confidence (#7). |
 | **Med** | Cooperative-cancel token checked before write-capable agents commit. | Closes the late-write hole (#6). |
 | **Low** | Early-return once a direct `action_result` exists; surface agent health (timeout rate, p95) from `agent_metrics` in RUNTIME_STATUS. | Latency + observability (#8). |
 
-Highest leverage: **#1 (unify the two retrieval stacks)** and **#4 (harden the
-ReAct loop)** — those are where correctness actually drifts today. The bus's
-confidence math and timeout enforcement are already good and don't need work.
+Highest leverage now: **two-round bus composition (#2)** and **observability
+via `pipeline_trace` + agent health surfaces (#8)**.
 
 ---
 

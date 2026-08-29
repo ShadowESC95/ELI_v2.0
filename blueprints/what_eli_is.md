@@ -140,7 +140,8 @@ wrapper:
 - **Request pipeline.** A deterministic **router** (204 executor dispatch actions, 225
   declared capabilities) backed by a **model-grounded intent resolver** that
   resolves anything the rules miss against that same catalogue (so near-miss
-  phrasings reach real actions instead of a blind chat) → a **14-agent bus** that runs on a *dependency DAG*
+  phrasings reach real actions instead of a blind chat) → a **gradient orchestrator**
+  (all CHAT modes) that composes a **15-agent bus** on a *dependency DAG*
   (topological layers, parallel where independent) with a **calibrated,
   weight-free confidence aggregator** (each agent's contribution = evidence
   quality × payload density × a *learned* per-agent calibration) → a **12-stage
@@ -202,7 +203,7 @@ wrapper:
 
 **Fully real, load-bearing today:** local model-agnostic inference; offline-by-
 default socket enforcement; persistent adaptive memory (vector + FTS + graph);
-the 14-agent calibrated ensemble; the 5 multi-pass reasoning modes; OS control;
+the 15-agent calibrated ensemble; the 5 multi-pass reasoning modes; OS control;
 vision; gaze; STT/TTS; the deterministic self-introspection layer; the coding
 agent (plan → search → verify → repair → bug-memory); safe self-patching; the
 evidence-disciplined Report Builder; proactive briefings + habit offers; plugins

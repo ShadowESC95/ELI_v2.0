@@ -1,3 +1,6 @@
+> **Updated for v2.3.39.** Gradient orchestrator for all CHAT modes; shared
+> `memory/retrieval.py`; canonical S01–S12 via `pipeline_trace.py`.
+
 # ELI Capability Catalogue — every action & module, what it actually does
 
 > **Purpose.** A systematic, ground-truth catalogue built by reading the real
@@ -31,7 +34,7 @@ families are grouped below so the real surface is visible.
 ## 1. Conversation & reasoning
 | Action(s) | What it does |
 |---|---|
-| `CHAT` | The default — full cognitive pipeline (router→agents→orchestrator→reasoning mode→governed output). |
+| `CHAT` | The default — full cognitive pipeline (router → gradient orchestrator → mode algo → governed output). |
 | `ANSWER`, `DIRECT_RESPONSE`, `SAY` | Direct/short response surfaces (lighter than CHAT). *(inferred for some)* |
 | `SET_AI_MODE` | Set the reasoning mode (Quick / Normal / Advanced / Research / Expert). Legacy names still accepted as input. |
 | `SEQUENCE`, `SEQUENCE_STEP` | Multi-step action chaining (run a sequence of actions). *(inferred)* |
@@ -299,7 +302,10 @@ The thinking layer: agents, orchestration, inference, persona, reasoning, govern
 | Module | LOC | Role |
 |---|---|---|
 | `agent_bus.py` | 3276 | 15 specialist agents on a dependency DAG (topological layers) + calibrated weight-free confidence aggregation + per-action agent selection. |
-| `orchestrator.py` | 928 | The 12-stage retrieval pipeline: HyDE → FAISS + FTS5 + KG-BFS + RAG → hybrid merge → heuristic rerank (lexical × recency × importance; cross-encoder is the designed upgrade) → context assembly. |
+| `orchestrator.py` | 928 | Gradient 12-stage pipeline (all CHAT modes): planner → `retrieve_for_turn()` → `dispatch_specialists()` → heuristic rerank → context assembly. Composes the specialist bus; no longer Quick-only bypass. |
+| `retrieval.py` | ~150 | Shared turn retrieval + 8 s cache — single owner for bus and orchestrator memory search. |
+| `learning_coordinator.py` | ~80 | Stage 12 `finalize_turn()` — store assistant turn, publish meta, `_learn_from_result()`. |
+| `pipeline_trace.py` | ~85 | Canonical S01–S12 names + `log_pipeline_stage()` observability. |
 | `hyde.py` | 69 | Hypothetical-document-embedding query expansion. |
 | `reranker.py` | 79 | Candidate reranking (token overlap + source priority). |
 | `introspection_agent.py` | 173 | Wraps introspection for the bus (pipeline/memory/runtime/audit). |
@@ -481,8 +487,9 @@ Read end-to-end this session. The real entry flow, in order:
    has >1 `?` **and** >25 words, it splits into standalone sub-questions (cap 4)
    and answers each; a second pass splits single-`?` compounds like "who are you,
    and who am I". So genuinely multi-part asks get multiple grounded answers.
-4. Router → agent bus / orchestrator gate → reasoning mode → executor → governed
-   output (Parts 1–4).
+4. Router → **gradient orchestrator** (all CHAT modes, depth by reasoning mode) →
+   shared retrieval → specialist bus composition → governed output (Parts 1–4).
+   Fallback: direct `AgentBus.dispatch()` if orchestration fails.
 
 Note: `engine.py` carries **51 `PHASE…` markers** — the same "added beside, not
 folded in" accretion as the grounding gate. It works and is well-guarded, but the

@@ -1,9 +1,10 @@
 # ELI MKXI — Full Project Breakdown & Assessment
 
-> **Updated for v2.3.32 (August 2026).** v2.3.32 restores cross-platform microphone
-> auto-resolve (USB / Bluetooth / headset before built-in; live subprocess probes; Linux
-> PipeWire/Pulse pin). Primary install: CI-launch-tested installers on GitHub Releases.
-
+> **Updated for v2.3.39 (August 2026).** Cognition pipeline unified: gradient
+> orchestrator for all CHAT modes, shared retrieval, canonical S01–S12 tracing.
+> v2.3.32+ restores cross-platform microphone auto-resolve (USB / Bluetooth /
+> headset before built-in; live subprocess probes). Primary install: CI-launch-tested
+> installers on [GitHub Releases](https://github.com/ShadowESC95/ELI_v2.0/releases).
 
 A grounded, total-project read: what ELI is, its scale and shape, the
 architecture layer by layer, what's strong, where it's weak (with numbers), an
@@ -76,20 +77,16 @@ wrapper.
   fallback + an explicit priority pipeline → one of **225 manifest capabilities**
   (**208 routable**; 204 executor `SUPPORTED_ACTIONS`). Full reference with activation
   phrases: `capabilities_and_actions.md`.
-- **Orchestration** — `kernel/engine.py` gates between the 12-stage
-  `cognition/orchestrator.py` `AgentOrchestrator` (non-quick modes) and the
-  parallel 14-agent `cognition/agent_bus.py` `AgentBus` (quick / fallback). ReAct
-  tool-chaining for non-CHAT actions. Selection now flows through one typed
-  `ExecutionPlan` (`execution/execution_planner.py`). See
-  `orchestration_and_agents.md` for full detail.
+- **Orchestration** — `kernel/engine.py` runs **gradient orchestrator** for all
+  CHAT modes (Quick = light/fast; Expert = full/deep); `dispatch_specialists()`
+  composes the 15-agent `cognition/agent_bus.py` after shared retrieval
+  (`memory/retrieval.py`). AgentBus remains a **fallback** if orchestration fails.
+  ReAct tool-chaining for non-CHAT actions. See `orchestration_and_agents.md`.
 - **Inference** — `cognition/gguf_inference.py`: model-path resolved from env /
   settings (no baked model); RLock-serialized; live runtime override; hot-swap
   with vision models.
-- **Memory** — `memory/memory.py` is the shared foundation (FTS5 + FAISS + KG via
-  `recall_memory`); two deliberate retrieval strategies sit on top (lightweight
-  bus `BusMemoryAgent` vs heavyweight orchestrator `OrchestratorMemoryAgent` with
-  HyDE + RAG + rerank). `memory/knowledge_graph.py`, `memory/vector_store.py`
-  (FAISS, JSON meta).
+- **Memory** — `memory/retrieval.py` owns turn retrieval; `memory/memory.py` is
+  the SQLite/FTS5/FAISS/KG foundation; FAISS tombstones on delete.
 - **Grounding / evidence (the crown jewel)** — `runtime/deterministic_grounding_gate.py`
   (4.3k), `runtime/evidence_ledger.py`, `runtime/evidence_arbitration.py`,
   `runtime/control_contracts.py`, `runtime/grounded_remediation.py` (1.6k),

@@ -1038,36 +1038,24 @@ flowchart TD
     FP -->|Yes · PHASE45 fast-path| FX[execute_action] --> VERB([Reply returned verbatim<br/>no LLM, instant])
     FP -->|No| MODE{Reasoning mode}
 
-    MODE -->|quick · default| BUS[Agent Bus dispatch]
-    BUS --> AG[15 specialist agents run over a DAG<br/>memory · knowledge-graph · system · file-code<br/>introspection · capability · habit · proactive<br/>reflection · self-improve · plugin · voice · frontier · orchestrator · critic]
-    AG --> DR[DispatchResult<br/>grounding_confidence · agents_used · memory_context]
-    DR --> GE{Low grounding on a<br/>factual question?}
-    GE -->|Yes| ESC[Escalate: web tier / local tier / honest hedge] --> GOV
-    GE -->|No| KIND{What kind of result?}
-    KIND -->|self-contained action| GOV
-    KIND -->|grounded control| GSYN[Grounded synthesis] --> GOV
-    KIND -->|conversation / CHAT| SYS[Build enhanced system prompt<br/>persona + memory brief + context] --> GEN
+    MODE -->|Quick · Normal · Advanced · Research · Expert| ORCH[Gradient Orchestrator<br/>depth scales with mode]
 
-    MODE -->|normal/advanced/research/expert · deep| ORCH[12-stage Orchestrator]
-
-    subgraph DEEP[The 12-stage Orchestrator]
+    subgraph DEEP[Orchestrator pipeline — S01–S12]
       direction TB
-      O1[1 · Intent routing] --> O2[2 · Persona lock]
-      O2 --> O3[3 · HyDE query expansion]
-      O3 --> O4[4 · Planner — channels + budgets for the mode]
-      O4 --> O5[5-7 · Parallel retrieval<br/>keyword · FTS5 turns · FAISS vector · RAG · KG]
-      O5 --> O8[8 · Hybrid merge]
-      O8 --> O9[9 · Cross-encoder rerank]
-      O9 --> O10[10 · Context assembly]
-      O10 --> O105[10.5 · Persona handoff]
-      O105 --> O11[11 · LLM generation]
+      O1[S05 · Planner — mode-aware budgets] --> O6[S06 · Shared retrieval + specialist bus]
+      O6 --> O7[S07 · Context assembly + heuristic rerank]
+      O7 --> O8[S08 · LLM generation via broker]
+      O8 --> O9[S09 · Private reasoning algo for mode]
+      O9 --> O12[S12 · Learning / state commit]
     end
     ORCH --> O1
-    O11 --> O12{12 · Confidence vs threshold}
-    O12 -->|pass| GOV
-    O12 -->|too low| REPAIR[Repair / regenerate] --> GOV
+    O12 --> GOV
 
-    GEN[LLM generation<br/>broker.infer / stream] --> GOV[Output governor<br/>+ No-Fake-Actions guard<br/>never claims an action it didn't do]
+    ORCH -.->|fallback if orchestrator fails| BUS[Agent Bus dispatch]
+    BUS --> AG[15 specialist agents over a DAG]
+    AG --> GOV
+
+    GEN[LLM generation<br/>broker.infer / stream] --> GOV[Output governor<br/>+ No-Fake-Actions guard]
     GOV --> OUT([Reply to you])
     VERB --> OUT
 ```
@@ -1085,24 +1073,21 @@ intent classifier** is the fallback. The router emits `{action, args, confidence
 to `CognitiveEngine.process()`. The router also remembers the *last used path* so follow-ups
 ("do it again", "the second one") resolve correctly.
 
-### A.2 — The three paths, and when each is taken
+### A.2 — The paths, and when each is taken (v2.3.37+)
 - **Fast-path (PHASE45) — no AI involved.** Plain, deterministic actions (open an app, pause
   music, set volume, report status, check a job) are executed directly and the result is returned
-  **verbatim**. There's no model call, so these are instant and can't be "hallucinated". This is
-  why "pause" never produces a chatty paragraph.
-- **Quick path (the default) — the Agent Bus.** Conversational and lightly-grounded requests go
-  to the **Agent Bus**, which runs up to **15 specialist agents** in parallel over a dependency
-  graph, each contributing evidence (memory hits, knowledge-graph facts, system readings, code
-  search, capability info, …). Their combined result carries a **grounding confidence** — an
-  honest "is this actually backed by anything?" score.
-- **Deep path — the 12-stage Orchestrator.** When you ask for depth (advanced/research/expert
-  modes, or a hard question), ELI runs the full pipeline below: more retrieval, reranking, and a
-  confidence check with automatic repair.
+  **verbatim**. There's no model call, so these are instant and can't be "hallucinated".
+- **CHAT path — gradient orchestrator for every mode.** Quick, Normal, Advanced, Research, and
+  Expert **all** run `AgentOrchestrator` at a depth chosen for that mode: Quick uses a **fast
+  planner** and a **lean specialist fan-out**; Expert uses full retrieval budgets and the broadest
+  agent profile. Quick no longer bypasses the orchestrator for a bare bus dispatch.
+- **Fallback — Agent Bus.** If orchestration fails, the engine falls back to a direct
+  `AgentBus.dispatch()` — the same 15-agent parallel fan-out documented below.
 
-### A.3 — The Agent Bus, in full
-The bus **selects a relevant subset** of agents for your intent (or fans out broadly when
-unsure), runs them concurrently, and **aggregates** their findings into a `DispatchResult`. Key
-agents and what they bring:
+### A.3 — The specialist bus (composed inside orchestration)
+The bus runs **`dispatch_specialists()`** after shared retrieval on CHAT turns (memory agent
+skipped when evidence was already prefetched). It selects a mode-aware subset of agents, runs
+them concurrently over a dependency DAG, and aggregates into context. Key agents:
 
 | Agent | Contributes |
 |---|---|
@@ -1122,26 +1107,24 @@ result is finalised: a self-contained action returns directly, a grounded contro
 short grounded synthesis, and a conversation goes to generation with the full persona + memory
 context.
 
-### A.4 — The 12 stages, one by one (the deep path)
-1. **Intent routing** — settle exactly what you're asking for.
-2. **Persona lock** — fix ELI's identity/voice for this turn so it stays consistent.
-3. **HyDE query expansion** — ELI drafts a *hypothetical answer* and searches with **that** too,
-   which dramatically improves what memory retrieves (you find better matches by searching with an
-   answer-shaped query, not just the bare question). Skipped for very short queries.
-4. **Planner** — decide *which* retrieval channels to use and how big the budgets are, tuned to
-   the reasoning mode (fast / balanced / deep).
-5–7. **Parallel retrieval** — several searches run at once: keyword, **full-text (FTS5)** over your
-   conversation history, **FAISS vector** (semantic) search, optional RAG, and the **knowledge
-   graph**. (This is the seam where Appendix B's memory system feeds in.)
-8. **Hybrid merge** — combine the hits from every channel into one candidate set.
-9. **Cross-encoder rerank** — a smarter model re-scores the merged candidates for true relevance
-   to your question, and the best rise to the top. (Skipped for non-conversational asks.)
-10. **Context assembly** — build the grounded context block that will inform the answer.
-10.5. **Persona handoff** — wrap that context with ELI's live persona brief for generation.
-11. **LLM generation** — the model writes the reply (streaming or one-shot). For the deepest
-   modes this is a two-part private-reasoning-then-condense step.
-12. **Confidence check** — score the answer against a threshold; if it's too low, ELI
-   **repairs/regenerates** rather than shipping a weak answer.
+### A.4 — The 12 stages, one by one (canonical S01–S12)
+Logged via `pipeline_trace.py`; enable with `ELI_PIPELINE_TRACE=1`.
+
+1. **S01 PERCEIVE_INGEST** — normalise voice/text input.
+2. **S02 INPUT_GUARDS** — safety and policy gates.
+3. **S03 ROUTER** — intent → action.
+4. **S04 GROUNDING_GATE** — pre-generation grounding check.
+5. **S05 PLANNER** — mode-aware retrieval budgets (fast / balanced / deep).
+6. **S06 AGENT_BUS** — `retrieve_for_turn()` (shared, 8 s turn cache) then
+   `dispatch_specialists()` fan-out.
+7. **S07 CONTEXT_ASSEMBLY** — merge channels + **heuristic rerank** (lexical × recency ×
+   importance; not a neural cross-encoder today).
+8. **S08 INFERENCE_BROKER** — model generation (stream or one-shot).
+9. **S09 REASONING_SYNTHESIS** — private mode algorithm (CoT / self-consistency / ToT / …).
+10. **S10 OUTPUT_GOVERNOR** — post-generation policy and sanitisation.
+11. **S11 RESPONSE_DELIVERY** — user-visible reply.
+12. **S12 LEARNING_STATE_UPDATE** — `learning_coordinator.finalize_turn()`: store the
+    assistant turn, publish meta, and run `_learn_from_result()`.
 
 ### A.5 — The two end-of-path guarantees
 Every path, no matter which, ends at:

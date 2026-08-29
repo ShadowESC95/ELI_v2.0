@@ -1,5 +1,8 @@
 # ELI Inference & Hardware Boot
 
+> **Updated for v2.3.39.** Optional Ollama backend; GGUF path remains canonical.
+> Token budgets scale by reasoning mode via `reasoning_modes.py`.
+
 How ELI loads a model, talks to it, and adapts to whatever machine it's on. The
 inference path is model-agnostic (see memory `eli-model-agnostic`); the boot path
 is hardware-adaptive. Files in `eli/cognition/` and `eli/core/`.
