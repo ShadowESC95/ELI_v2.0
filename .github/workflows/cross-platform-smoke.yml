@@ -153,3 +153,9 @@ jobs:
           tests/claims/test_structural_claims.py
           tests/claims/test_readme_counts.py
           tests/claims/test_capability_manifest.py::test_manifest_total_matches_capability_count
+
+      - name: Eval router cases (tools/eval mirror)
+        run: >
+          python -m pytest -q -p no:cacheprovider
+          tests/test_eval_cases.py
+          tests/test_netguard_socket_guard.py
