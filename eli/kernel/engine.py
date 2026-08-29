@@ -2681,14 +2681,6 @@ def _eli_recent_mem_v3_execute(user_input):
 
 # -- Memory-count v4/v5 helpers (used by MEMORY_COUNT_V5 inline middleware) ---
 
-def _eli_mc_project_root_v4():
-    from pathlib import Path as _Path
-    try:
-        return _Path(__file__).resolve().parents[2]
-    except Exception:
-        return _Path.cwd()
-
-
 def _eli_mc_table_count_v4(conn, table):
     try:
         row = conn.execute(
@@ -2702,8 +2694,17 @@ def _eli_mc_table_count_v4(conn, table):
         return 0
 
 
-def _eli_mc_faiss_count_v4(root):
-    index_path = root / "artifacts" / "vectors" / "index.faiss"
+def _eli_mc_faiss_count_v4():
+    from pathlib import Path as _Path
+    try:
+        from eli.core.paths import data_dir as _data_dir
+        artifacts = _Path(_data_dir())
+    except Exception:
+        try:
+            artifacts = _Path(__file__).resolve().parents[2] / "artifacts"
+        except Exception:
+            artifacts = _Path.cwd() / "artifacts"
+    index_path = artifacts / "vectors" / "index.faiss"
     if not index_path.exists():
         return 0
     try:
@@ -2715,12 +2716,20 @@ def _eli_mc_faiss_count_v4(root):
 
 def _eli_mc_counts_v4():
     import sqlite3 as _sqlite3
-    root = _eli_mc_project_root_v4()
-    db_path = root / "artifacts" / "db" / "user.sqlite3"
+    from pathlib import Path as _Path
+    try:
+        from eli.core.paths import user_db_path as _user_db_path
+        db_path = _Path(_user_db_path())
+    except Exception:
+        try:
+            root = _Path(__file__).resolve().parents[2]
+        except Exception:
+            root = _Path.cwd()
+        db_path = root / "artifacts" / "db" / "user.sqlite3"
     counts = {
         "long_term_memory_rows": 0,
         "memory_fts_rows": 0,
-        "faiss_vector_entries": _eli_mc_faiss_count_v4(root),
+        "faiss_vector_entries": _eli_mc_faiss_count_v4(),
         "conversation_turns": 0,
         "conversation_records": 0,
         "learning_replay_rows": 0,

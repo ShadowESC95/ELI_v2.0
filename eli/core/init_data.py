@@ -68,6 +68,43 @@ def init_all_data(verbose: bool = False) -> List[Tuple[str, bool, str]]:
         return "; ".join(fixed) if fixed else "all stores writable"
     _step("writability", _repair)
 
+    # 0c) Blank DB templates — schema-only SQLite files shipped in git (and in
+    #     frozen bundles under config/templates/db/). When artifacts/db/ is empty,
+    #     copy them before live schema init so source, portable, Windows, and
+    #     AppImage installs all follow the same path as install.sh. Personal
+    #     rows are never in templates (seed_template_dbs.py clears content tables).
+    def _seed_templates():
+        import shutil
+        from pathlib import Path
+        import sys as _sys
+        from eli.core.paths import db_dir, project_root
+
+        dest = Path(db_dir())
+        dest.mkdir(parents=True, exist_ok=True)
+        if any(dest.glob("*.sqlite3")):
+            return "existing db files present — skipped template copy"
+
+        candidates: list[Path] = []
+        if getattr(_sys, "frozen", False):
+            meipass = getattr(_sys, "_MEIPASS", None)
+            if meipass:
+                candidates.append(Path(meipass) / "config" / "templates" / "db")
+        candidates.append(project_root() / "config" / "templates" / "db")
+
+        for template_dir in candidates:
+            if not template_dir.is_dir():
+                continue
+            sources = sorted(template_dir.glob("*.sqlite3"))
+            if not sources:
+                continue
+            copied = 0
+            for src in sources:
+                shutil.copy2(src, dest / src.name)
+                copied += 1
+            return f"seeded {copied} blank template DB(s) from {template_dir}"
+        return "no template dir found — schema will be built live"
+    _step("db.templates", _seed_templates)
+
     # 1) user.sqlite3 — core memory schema (memories, conversations, habits, ...).
     def _memory():
         from eli.memory import get_memory

@@ -124,6 +124,9 @@ jobs:
       - name: First-run DB autobuild (cross-platform paths)
         run: python -m eli.core.init_data
 
+      - name: Verify blank DB templates match live schema
+        run: python tools/seed_template_dbs.py --check
+
       - name: Bootstrap claims artifacts (manifest + blueprints — fresh-clone path)
         run: python tools/bootstrap_claims_artifacts.py
 

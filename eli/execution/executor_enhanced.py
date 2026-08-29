@@ -14657,8 +14657,12 @@ try:
         try:
             import faiss
             from pathlib import Path
-            root = Path(__file__).resolve().parents[2]
-            idx = root / "artifacts" / "vectors" / "index.faiss"
+            try:
+                from eli.core.paths import data_dir
+                idx = Path(data_dir()) / "vectors" / "index.faiss"
+            except Exception:
+                root = Path(__file__).resolve().parents[2]
+                idx = root / "artifacts" / "vectors" / "index.faiss"
             if not idx.exists():
                 return 0
             return int(getattr(faiss.read_index(str(idx)), "ntotal", 0) or 0)

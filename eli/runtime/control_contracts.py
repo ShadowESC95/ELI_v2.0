@@ -94,6 +94,10 @@ _BAD_PHRASES = (
     "i don't have any memory of you",
     "i have no memory of previous conversations",
     "i can't remember anything between sessions",
+    "i don't store personal information about users",
+    "i do not store personal information about users",
+    "there's no way for me to know who you are",
+    "there is no way for me to know who you are",
 )
 
 def normalise_action(action: Any) -> str:
@@ -679,7 +683,12 @@ def build_control_evidence(engine: Any, action: Any, args: Dict[str, Any] | None
             report["ok"] = False
             report["errors"].append(repr(exc))
 
-        text = _json_block("Self-update evidence packet:", report)
+        evidence_payload = {
+            "ok": bool(report.get("ok")),
+            "action": act,
+            "report": report,
+        }
+        text = compact_evidence_answer(act, evidence_payload)
         return {
             "ok": bool(report.get("ok")),
             "action": act,
@@ -887,6 +896,22 @@ def output_violates_evidence(text: Any, evidence_text: Any = "") -> bool:
         return True
 
     if (
+        "memory records" in ev_low
+        or "active user profile" in ev_low
+        or "confirmed active-user" in ev_low
+    ) and re.search(
+        r"(?is)\b(?:don'?t|do not)\s+store\s+personal\b",
+        out,
+    ):
+        return True
+
+    if "memory records" in ev_low and re.search(
+        r"(?is)\b(?:by design|no way for me to know)\b",
+        out,
+    ):
+        return True
+
+    if (
         "i am eli" in ev_low
         or '"name": "eli"' in ev_low
         or "'name': 'eli'" in ev_low
@@ -930,23 +955,49 @@ def compact_evidence_answer(action: str, evidence_result: Dict[str, Any]) -> str
         paths = report.get("paths") or {}
         changed = report.get("changed") or {}
         errors = report.get("errors") or []
+        overlay = changed.get("overlays") or {}
+        manifest = changed.get("capability_manifest")
         lines = [
             "Self-update result:",
             f"- ok: {bool(report.get('ok'))}",
             f"- project_root: {paths.get('project_root', '')}",
             f"- model_path: {paths.get('model_path', '')}",
-            f"- runtime_snapshot: {paths.get('runtime_snapshot', '')}",
             f"- user_db: {paths.get('user_db', '')}",
             f"- agent_db: {paths.get('agent_db', '')}",
-            f"- persona_base: {paths.get('persona_base', '')}",
-            f"- persona_auto: {paths.get('persona_auto', '')}",
-            f"- overlay_refresh: {changed.get('overlays', {})}",
-            f"- world_model_runtime_refreshed: {changed.get('world_model_runtime', False)}",
-            f"- capability_manifest: {changed.get('capability_manifest', 'unchanged')}",
-            f"- errors: {errors}",
-            "Persona overlay, user profile overlay, user-info snapshot, capability "
-            "manifest, and world-model runtime were refreshed from live state.",
         ]
+        if isinstance(manifest, dict):
+            summary = manifest.get("summary") or manifest.get("changed")
+            total = manifest.get("total")
+            if summary:
+                lines.append(f"- capability_manifest: {summary}")
+            elif total is not None:
+                lines.append(f"- capability_manifest: {total} capabilities")
+        elif manifest:
+            lines.append(f"- capability_manifest: {manifest}")
+        lines.append(
+            f"- world_model_runtime_refreshed: {bool(changed.get('world_model_runtime', False))}"
+        )
+        if overlay.get("ok"):
+            po = overlay.get("persona_overlay") or {}
+            pu = overlay.get("user_profile_overlay") or {}
+            ui = overlay.get("user_info_snapshot") or {}
+            refresh_bits = []
+            if not po.get("skipped"):
+                refresh_bits.append("persona overlay")
+            if not pu.get("skipped"):
+                refresh_bits.append("user profile overlay")
+            if ui.get("refreshed"):
+                refresh_bits.append("user-info snapshot")
+            if refresh_bits:
+                lines.append(f"- refreshed: {', '.join(refresh_bits)}")
+            elif po.get("skipped") or pu.get("skipped"):
+                lines.append("- overlays: checked (debounced — no rewrite needed)")
+        if errors:
+            lines.append(f"- errors: {errors}")
+        lines.append(
+            "Persona overlay, user profile overlay, user-info snapshot, capability "
+            "manifest, and world-model runtime were refreshed from live state."
+        )
         return "\n".join(lines)
 
     if act == "EXPLAIN_LAST_RESPONSE" and isinstance(report, dict):
