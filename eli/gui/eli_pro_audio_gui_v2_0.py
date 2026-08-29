@@ -1014,6 +1014,7 @@ class LocalModelManager:
                         user_ctx=_sf_user_ctx, user_batch=max(_user_batch, _sf_min_batch),
                         reserve_mb=_sf_reserve, kv_quantized=_sf_kvq,
                         min_batch=_sf_min_batch,
+                        model_path=str(path_obj),
                     )
                     log.debug(
                         f"[GUI][LOAD] smart-fit (post-init free={_sf_gpu.free_mb}MB "

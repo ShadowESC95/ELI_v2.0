@@ -27,9 +27,10 @@ like and it tunes itself to the hardware you've got, from a laptop to a multi-GP
 <img src=".github/screenshots/gui-onboarding.png" alt="ELI desktop app — first-run onboarding conversation with a local 35B model" width="880">
 </div>
 
-> **v2.3.44 — AUDIO IS BACK.** Cross-platform microphone auto-resolve (USB, Bluetooth/AirPods,
-> gaming headsets, built-in) — no env vars required on Linux, macOS, or Windows.
-> Grab it from **[Releases](https://github.com/ShadowESC95/ELI_v2.0/releases/tag/v2.3.44)**.
+> **v2.3.51 — model-agnostic VRAM fit + AppImage path fixes.** GGUF `block_count` drives GPU
+> layer tuning (fixes gpt-oss/MoE OOM fallbacks); blank-slate bootstrap on every OS; self-update
+> and memory paths resolve correctly from frozen installs.
+> Grab it from **[Releases](https://github.com/ShadowESC95/ELI_v2.0/releases/latest)**.
 >
 > **v2 is live software, not a polished product drop.** ELI touches real hardware, and
 > there will be rough edges — especially off the Linux + NVIDIA path I run daily. I'd rather get a
@@ -439,7 +440,7 @@ SECURITY.md, not in a public issue.
 
 ## Tested on & known limitations
 
-*Last updated 2026-08-29 (v2.3.44).*
+*Last updated 2026-08-30 (v2.3.51).*
 
 I'd rather tell you exactly what I've run than pretend it's flawless everywhere.
 

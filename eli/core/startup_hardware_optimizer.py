@@ -259,19 +259,27 @@ def _gguf_metadata_ctx(model_path: str) -> int:
         return _TRAIN_CTX_CACHE[key]
     val = 0
     try:
-        from llama_cpp import Llama
-        _m = Llama(model_path=str(model_path), vocab_only=True, verbose=False)
-        md = getattr(_m, "metadata", None) or {}
-        arch = str(md.get("general.architecture") or "").strip()
-        raw = md.get(f"{arch}.context_length") or md.get("context_length")
-        if raw is not None:
-            val = int(str(raw).strip())
-        try:
-            del _m
-        except Exception:
-            pass
+        from eli.cognition.model_load_diagnostics import gguf_model_profile
+        prof = gguf_model_profile(model_path)
+        if prof.context_length and prof.context_length > 0:
+            val = int(prof.context_length)
     except Exception:
         val = 0
+    if not val:
+        try:
+            from llama_cpp import Llama
+            _m = Llama(model_path=str(model_path), vocab_only=True, verbose=False)
+            md = getattr(_m, "metadata", None) or {}
+            arch = str(md.get("general.architecture") or "").strip()
+            raw = md.get(f"{arch}.context_length") or md.get("context_length")
+            if raw is not None:
+                val = int(str(raw).strip())
+            try:
+                del _m
+            except Exception:
+                pass
+        except Exception:
+            val = 0
     _TRAIN_CTX_CACHE[key] = val
     return val
 
@@ -319,16 +327,9 @@ def train_ctx_for_model(model_path: str) -> int:
     return 32768
 
 
-def estimate_layers(model_gb: float) -> int:
-    if model_gb <= 2.5:
-        return 24
-    if model_gb <= 9:
-        return 32
-    if model_gb <= 18:
-        return 40
-    if model_gb <= 35:
-        return 60
-    return 80
+def estimate_layers(model_gb: float, model_path: str = "") -> int:
+    from eli.core.hardware_profile import layers_for_model
+    return layers_for_model(model_path or None, model_gb)
 
 
 def layer_mb(model_gb: float, layers: int) -> float:
@@ -506,7 +507,7 @@ def allocate(
     notes: List[str] = []
 
     train_ctx    = train_ctx_for_model(profile_model)
-    layers_total = estimate_layers(model_gb)
+    layers_total = estimate_layers(model_gb, profile_model)
     per_layer    = layer_mb(model_gb, layers_total)
 
     # ---- Explicit overrides (highest priority) ----

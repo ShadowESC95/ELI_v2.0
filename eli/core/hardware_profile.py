@@ -126,6 +126,21 @@ def _layers_for_size(size_gb: float) -> int:
     return 96                       # 100B+
 
 
+def layers_for_model(model_path: Optional[str] = None, size_gb: Optional[float] = None) -> int:
+    """Layer count for VRAM fit — GGUF ``block_count`` when readable, else size heuristic."""
+    if model_path:
+        try:
+            from eli.cognition.model_load_diagnostics import gguf_model_profile
+            prof = gguf_model_profile(model_path)
+            if prof.block_count and prof.block_count > 0:
+                return int(prof.block_count)
+        except Exception:
+            log.debug("gguf layer count unavailable for %s", model_path, exc_info=True)
+    if size_gb is not None and size_gb > 0:
+        return _layers_for_size(float(size_gb))
+    return 32
+
+
 @dataclass
 class HardwareProfile:
     cpu_threads: int = 1
@@ -749,7 +764,8 @@ def discover_models(models_dir: Optional[Path] = None,
 
 
 def _gpu_layers_for_model(size_gb: float, free_vram_mb: int, n_ctx: int,
-                          kv_quantized: bool = False) -> int:
+                          kv_quantized: bool = False,
+                          model_path: Optional[str] = None) -> int:
     """Compute n_gpu_layers from FREE VRAM minus KV-cache and CUDA overhead.
 
     When kv_quantized=True, the KV cache uses ~25% of fp16 size (q4_0 K
@@ -763,7 +779,7 @@ def _gpu_layers_for_model(size_gb: float, free_vram_mb: int, n_ctx: int,
     """
     if free_vram_mb <= 0:
         return 0
-    total_layers = _layers_for_size(size_gb)
+    total_layers = layers_for_model(model_path, size_gb)
     kv_mb = _kv_cache_mb(n_ctx, total_layers, quant=kv_quantized)
     # Reserve the decode-time compute/graph buffer too, not just model+KV+overhead.
     # Without this, full offload (99) gets chosen at max ctx, loads fine, then
@@ -788,6 +804,7 @@ def smart_fit_config(
     reserve_mb: int = 700,
     kv_quantized: bool = False,
     total_layers: Optional[int] = None,
+    model_path: Optional[str] = None,
     ctx_grain: int = 2048,
     min_ctx: int = 2048,
     min_batch: int = 128,
@@ -815,7 +832,7 @@ def smart_fit_config(
     Returns (n_ctx, n_gpu_layers, n_batch). n_gpu_layers is the 99 sentinel when
     all layers fit, 0 for CPU-only. Pure/deterministic — no hardware calls.
     """
-    total = int(total_layers or _layers_for_size(model_size_gb))
+    total = int(total_layers or layers_for_model(model_path, model_size_gb))
     budget = max(0, int(free_vram_mb) - int(reserve_mb))
     mb_per_layer = (model_size_gb * 1024.0) / max(1, total + 2)
 
@@ -972,6 +989,7 @@ def recommend(hw: Optional[HardwareProfile] = None,
         if hw.has_gpu:
             layers = _gpu_layers_for_model(
                 m["size_gb"], hw.free_vram_mb, rec.n_ctx, kv_quantized=kv_q,
+                model_path=m["path"],
             )
             if layers > 0:
                 chosen = m
@@ -987,6 +1005,7 @@ def recommend(hw: Optional[HardwareProfile] = None,
         chosen = models_sorted[0]
         chosen_layers = (_gpu_layers_for_model(
             chosen["size_gb"], hw.free_vram_mb, rec.n_ctx, kv_quantized=kv_q,
+            model_path=chosen["path"],
         ) if hw.has_gpu else 0)
         rec.reasoning.append(
             f"Falling back to smallest: {chosen['name']} ({chosen['size_gb']:.1f}GB)"
@@ -1018,7 +1037,7 @@ def recommend(hw: Optional[HardwareProfile] = None,
     # means the recommendation is a prediction of the load rather than a second
     # opinion about it.
     if hw.has_gpu and hw.free_vram_mb > 0 and chosen_layers > 0:
-        _total_layers_est = _layers_for_size(chosen["size_gb"])
+        _total_layers_est = layers_for_model(chosen["path"], chosen["size_gb"])
         # Mirror the loader's own batch floor so the compute-graph reserve — and
         # therefore the layer count — is costed against the same batch it will use.
         import os as _os_fit
@@ -1027,7 +1046,8 @@ def recommend(hw: Optional[HardwareProfile] = None,
             chosen["size_gb"], hw.free_vram_mb,
             user_ctx=rec.n_ctx, user_batch=_fit_batch_in,
             reserve_mb=vram_reserve_mb(), kv_quantized=kv_q,
-            total_layers=_total_layers_est, min_batch=_fit_batch_in,
+            model_path=chosen["path"], total_layers=_total_layers_est,
+            min_batch=_fit_batch_in,
         )
         # 99 is the "all layers" sentinel; this profile reports a real count.
         _fit_layers_real = _total_layers_est if int(_fit_layers) >= 99 else int(_fit_layers)
@@ -1042,7 +1062,7 @@ def recommend(hw: Optional[HardwareProfile] = None,
             f"— was ctx={_old_ctx} gpu_layers={_old_layers} before the fit"
         )
 
-    total_layers = _layers_for_size(chosen["size_gb"])
+    total_layers = layers_for_model(chosen["path"], chosen["size_gb"])
     _full_offload = chosen_layers >= total_layers  # 99 >= actual layer count → all layers on GPU
     if _full_offload:
         rec.reasoning.append(
