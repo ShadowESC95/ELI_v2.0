@@ -55,8 +55,12 @@ if [ ! -f "$SETTINGS" ] && [ -f "$TEMPLATE" ]; then
     mkdir -p "$SCRIPT_DIR/config"; cp "$TEMPLATE" "$SETTINGS"
 fi
 mkdir -p "$SCRIPT_DIR/models"
-"$PYV" -c "from eli.core.paths import get_paths; get_paths()" 2>/dev/null && \
-    echo "[OK] Data dirs ready." || echo "[WARN] data dir init deferred."
+echo "[..] Initialising full database architecture (blank slate)..."
+if "$PYV" -m eli.core.init_data; then
+    echo "[OK] Full database architecture ready (no personal data)."
+else
+    echo "[WARN] Some stores deferred to first launch."
+fi
 
 echo ""
 echo "=================================="

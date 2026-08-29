@@ -117,6 +117,11 @@ def _as_mapping(obj: Any) -> Mapping[str, Any]:
 
 
 def _project_root_from_cwd() -> Path:
+    try:
+        from eli.core.paths import project_root as _canonical_root
+        return Path(_canonical_root()).expanduser().resolve()
+    except Exception:
+        pass
     p = Path.cwd().resolve()
     if (p / "eli").exists():
         return p
@@ -124,6 +129,29 @@ def _project_root_from_cwd() -> Path:
         if (parent / "eli").exists() and (parent / "artifacts").exists():
             return parent
     return p
+
+
+def _canonical_runtime_paths() -> dict[str, Path]:
+    try:
+        from eli.core.paths import get_paths
+        p = get_paths()
+        return {
+            "project_root": Path(p.project_root).expanduser().resolve(),
+            "artifacts": Path(p.artifacts_dir).expanduser().resolve(),
+            "config": Path(p.config_dir).expanduser().resolve(),
+            "user_db": Path(p.user_db).expanduser().resolve(),
+            "agent_db": Path(p.agent_db).expanduser().resolve(),
+        }
+    except Exception:
+        root = _project_root_from_cwd()
+        artifacts = root / "artifacts"
+        return {
+            "project_root": root,
+            "artifacts": artifacts,
+            "config": root / "config",
+            "user_db": artifacts / "db" / "user.sqlite3",
+            "agent_db": artifacts / "db" / "agent.sqlite3",
+        }
 
 
 def _read_json(path: Path) -> dict[str, Any]:
@@ -191,10 +219,21 @@ def build_live_evidence(
     settings: Mapping[str, Any] | None = None,
     runtime_snapshot: Mapping[str, Any] | None = None,
 ) -> RuntimeStatusEvidence:
-    root = Path(project_root).resolve() if project_root else _project_root_from_cwd()
+    paths = _canonical_runtime_paths()
+    root = Path(project_root).resolve() if project_root else paths["project_root"]
+    artifacts = paths["artifacts"]
 
-    snapshot = dict(runtime_snapshot or _read_runtime_snapshot(root))
-    cfg = dict(settings or _read_settings(root))
+    snapshot = dict(runtime_snapshot or {})
+    if not snapshot:
+        snapshot = _read_json(artifacts / "runtime_snapshot.json")
+    if not snapshot:
+        snapshot = _read_runtime_snapshot(root)
+
+    cfg = dict(settings or {})
+    if not cfg:
+        cfg = _read_json(paths["config"] / "settings.json")
+    if not cfg:
+        cfg = _read_settings(root)
 
     # Some snapshots are flat; some use {"runtime": {...}}.
     runtime = _as_mapping(snapshot.get("runtime") or snapshot)
@@ -268,9 +307,9 @@ def build_live_evidence(
         gpu_name=_first(gpu_probe.get("name")),
         gpu_total_mib=_first(gpu_probe.get("total_mib")),
         gpu_free_mib=_first(gpu_probe.get("free_mib")),
-        project_root=str(root),
-        user_db=str(root / "artifacts" / "db" / "user.sqlite3"),
-        agent_db=str(root / "artifacts" / "db" / "agent.sqlite3"),
+        project_root=str(paths["project_root"]),
+        user_db=str(paths["user_db"]),
+        agent_db=str(paths["agent_db"]),
         max_tokens=_first(cfg.get("max_tokens"), runtime.get("max_tokens")),
         temperature=_first(cfg.get("temperature"), runtime.get("temperature")),
         use_mmap=_first(cfg.get("use_mmap"), runtime.get("use_mmap")),

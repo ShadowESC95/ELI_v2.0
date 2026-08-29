@@ -15,7 +15,12 @@ artifacts/
   logs/
 ```
 
-Portable package: lives inside the extracted folder. Installed copy: `~/.local/share/eli/`.
+Portable package: lives inside the extracted folder.
+
+Installed / frozen copy (AppImage, Setup.exe, .dmg): `~/.local/share/ELI_v2/` on Linux,
+`%LOCALAPPDATA%\\ELI_v2` on Windows, `~/Library/Application Support/ELI_v2` on macOS.
+
+Source dev checkout: `<project_root>/artifacts/` when launched from the repo tree.
 
 Factory reset (GUI Advanced → Clear Memory, or `python tools/clear_memory.py`) wipes
 all learned state, resets `persona.auto.txt`, clears identity from settings, and
