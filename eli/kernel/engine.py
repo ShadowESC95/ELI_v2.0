@@ -1291,6 +1291,14 @@ def _eli_phase19_rebind_grounded_followup(engine, user_input: str, intent: Dict[
     if not low:
         return current
 
+    # Self-repair requests must reach SELF_PATCH — not rebound to the prior audit dump.
+    if re.search(
+        r"\b(?:self[- ]?fix|fix\s+yourself|fix\s+your\s+code|"
+        r"fix\s+(?:those|the|these)\s+(?:errors?|issues?|bugs?))\b",
+        low,
+    ):
+        return current
+
     contextual_detail = bool(_ELI_PHASE19_DETAIL_FOLLOWUP_RX.search(low))
     challenge = bool(_ELI_PHASE19_CHALLENGE_FOLLOWUP_RX.search(low))
     if not contextual_detail and not challenge:
@@ -12033,6 +12041,7 @@ Answer:"""
                             "SELF_IMPROVEMENT_LOG",
                             "SELF_TEST",
                             "SELF_UPGRADE",
+                            "SELF_PATCH",
                             "SELF_UPDATE",
                         }
                         # Quick mode bypasses synthesis for grounded control actions

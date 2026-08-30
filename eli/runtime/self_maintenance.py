@@ -28,6 +28,7 @@ from eli.runtime.self_maintenance_config import (
     ANALYSIS_MIN_CLUSTER,
     DEFAULT_ANALYSIS_DAYS,
     PATCH_MIN_CLUSTER,
+    USER_PATCH_MIN_CLUSTER,
 )
 
 # Canonical maintenance verbs → internal mode
@@ -100,7 +101,7 @@ def run_maintenance_cycle(
             max_patches=max_patches,
             dry_run=bool(dry_run),
             days=window_days,
-            min_cluster_size=PATCH_MIN_CLUSTER,
+            min_cluster_size=USER_PATCH_MIN_CLUSTER,
         )
         result["patch_cycle"] = patch_result
         result["proposal_count"] = int(patch_result.get("patches_generated") or 0)
@@ -163,6 +164,7 @@ def maintenance_surface_help() -> str:
         "  self analyse   — failure report + root causes (grounded, no GGUF)\n"
         "  self improve   — analyse failures, log improvements, queue proposals\n"
         "  self fix/patch — deterministic rules → LLM patch → guarded apply\n"
+        "  (set ELI_SOURCE_ROOT=/path/to/git/checkout to patch dev tree from AppImage)\n"
         "  self upgrade   — install update (AppImage/git/pip) + index rebuild\n"
         "  self update    — refresh overlays/manifest (not a version bump)\n"
         "  examine code   — tiered scan; confirm to apply a pending fix\n"

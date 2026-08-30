@@ -1,6 +1,6 @@
 # Which script do I run? — ELI v2.0 portable
 
-> **Updated for v2.3.53 (August 2026).** The primary way to install ELI is now the
+> **Updated for v2.3.54 (August 2026).** The primary way to install ELI is now the
 > **prebuilt installers on GitHub Releases** — `ELI-Setup-<v>.exe` (Windows),
 > the `.dmg` (macOS, Apple Silicon), the `.AppImage` (Linux). The Linux AppImage and
 > Windows installer are built and launch-tested in CI; the macOS `.dmg` is built on a
@@ -11,7 +11,7 @@
 > **source installs** (clone + `install.sh`) and the classic portable tarball.
 
 
-You have just extracted **`ELI_v2-2.3.53-linux-portable`** and you are looking at a
+You have just extracted **`ELI_v2-2.3.54-linux-portable`** and you are looking at a
 folder full of scripts. This guide explains **every launcher in plain language**: what
 it is, when to use it, the exact command to type, and what it actually does under the
 hood. No prior knowledge assumed.
@@ -192,7 +192,7 @@ expanded, friendly version of it.
 - **Your data lives here** (created automatically on first run):
   `artifacts/db/` (memories & conversations), `artifacts/runtime/`, and `config/`.
   Because this is a *portable* copy, everything stays inside this folder — you can move or
-  back up the whole `ELI_v2-2.3.53-linux-portable` folder and nothing is lost.
+  back up the whole `ELI_v2-2.3.54-linux-portable` folder and nothing is lost.
 
 ## If something goes wrong
 

@@ -1,6 +1,6 @@
 # ELI v2.0 — Commands & Installers Reference
 
-> **Updated for v2.3.53 (August 2026).** The primary way to install ELI is now the
+> **Updated for v2.3.54 (August 2026).** The primary way to install ELI is now the
 > **prebuilt installers on GitHub Releases** — `ELI-Setup-<v>.exe` (Windows),
 > the `.dmg` (macOS, Apple Silicon), the `.AppImage` (Linux). The Linux AppImage and
 > portable tarball are **CI-launch-tested** on every release; the macOS `.dmg` is
@@ -27,12 +27,12 @@ more than once.
 
 ### From a downloaded release (no git, no build)
 
-Get `ELI_v2-2.3.53-linux-portable.tar.gz` from
+Get `ELI_v2-2.3.54-linux-portable.tar.gz` from
 [GitHub Releases](https://github.com/ShadowESC95/ELI_v2.0/releases), then:
 
 ```bash
-tar -xzf ELI_v2-2.3.53-linux-portable.tar.gz
-cd ELI_v2-2.3.53-linux-portable
+tar -xzf ELI_v2-2.3.54-linux-portable.tar.gz
+cd ELI_v2-2.3.54-linux-portable
 chmod +x ELI_Setup.sh
 ./ELI_Setup.sh
 ```
@@ -58,11 +58,11 @@ cd ELI_v2.0
 
 ### The absolute-easiest Linux path: the AppImage
 
-Get `ELI_v2-2.3.53-x86_64.AppImage` from Releases:
+Get `ELI_v2-2.3.54-x86_64.AppImage` from Releases:
 
 ```bash
-chmod +x ELI_v2-2.3.53-x86_64.AppImage
-./ELI_v2-2.3.53-x86_64.AppImage
+chmod +x ELI_v2-2.3.54-x86_64.AppImage
+./ELI_v2-2.3.54-x86_64.AppImage
 ```
 
 First double-click installs ELI to `~/.local/share/ELI_v2` and runs setup once; every

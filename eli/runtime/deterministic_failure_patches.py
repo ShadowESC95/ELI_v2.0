@@ -11,11 +11,8 @@ from typing import Any, Dict, List, Optional
 
 
 def _project_root() -> Path:
-    try:
-        from eli.runtime.self_improvement import PROJECT_ROOT
-        return Path(PROJECT_ROOT)
-    except Exception:
-        return Path(__file__).resolve().parents[2]
+    from eli.core.paths import source_root
+    return source_root()
 
 
 def _safe_str(v: Any) -> str:
@@ -30,7 +27,18 @@ def propose_deterministic_patch(failure: dict) -> Optional[Dict[str, Any]]:
 
     patches: List[Dict[str, str]] = []
 
-    if "missing topic for document generation" in err_low or cmd == "CREATE_DOCUMENT":
+    if "missing topic for document generation" in err_low or cmd.startswith("CREATE_DOCUMENT"):
+        doc_path = _project_root() / "eli/execution/executor_enhanced.py"
+        if doc_path.is_file():
+            doc_src = doc_path.read_text(encoding="utf-8")
+            if 'args.get("name")' in doc_src and 'args.get("target")' in doc_src:
+                return {
+                    "ok": True,
+                    "already_applied": True,
+                    "file": "eli/execution/executor_enhanced.py",
+                    "description": "CREATE_DOCUMENT accepts name/target/title/query topic aliases",
+                    "deterministic": True,
+                }
         patches.append(
             {
                 "file": "eli/execution/executor_enhanced.py",
@@ -50,7 +58,18 @@ def propose_deterministic_patch(failure: dict) -> Optional[Dict[str, Any]]:
             }
         )
 
-    if "unsupported executor action: create_doc" in err_low or cmd == "CREATE_DOC":
+    if "unsupported executor action: create_doc" in err_low or cmd.startswith("CREATE_DOC"):
+        alias_path = _project_root() / "eli/execution/executor_enhanced.py"
+        if alias_path.is_file():
+            alias_src = alias_path.read_text(encoding="utf-8")
+            if '"CREATE_DOC": "CREATE_DOCUMENT"' in alias_src:
+                return {
+                    "ok": True,
+                    "already_applied": True,
+                    "file": "eli/execution/executor_enhanced.py",
+                    "description": "CREATE_DOC aliased to CREATE_DOCUMENT",
+                    "deterministic": True,
+                }
         patches.append(
             {
                 "file": "eli/execution/executor_enhanced.py",
@@ -70,7 +89,13 @@ def propose_deterministic_patch(failure: dict) -> Optional[Dict[str, Any]]:
             continue
         src = path.read_text(encoding="utf-8")
         if spec["new"] in src:
-            continue
+            return {
+                "ok": True,
+                "already_applied": True,
+                "file": spec["file"],
+                "description": spec["description"],
+                "deterministic": True,
+            }
         if spec["old"] not in src:
             continue
         return {

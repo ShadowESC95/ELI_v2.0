@@ -40,6 +40,12 @@ def _eli_canonical_root_PROJECT_ROOT() -> Path:
 PROJECT_ROOT = _eli_canonical_root_PROJECT_ROOT()
 
 
+def _patch_root() -> Path:
+    """Tree where self-improvement may read/write Python source."""
+    from eli.core.paths import source_root
+    return source_root()
+
+
 def _safe_str(x: Any) -> str:
     try:
         return "" if x is None else str(x)
@@ -51,7 +57,7 @@ def _dotted_module_for_path(p: Path) -> Optional[str]:
     """Return the importable dotted module name for a project .py file, or None
     if it isn't an importable module under the `eli` package."""
     try:
-        rel = p.resolve().relative_to(PROJECT_ROOT)
+        rel = p.resolve().relative_to(_patch_root())
     except Exception:
         return None
     parts = list(rel.parts)
@@ -61,6 +67,24 @@ def _dotted_module_for_path(p: Path) -> Optional[str]:
     if parts[-1] == "__init__":
         parts = parts[:-1]
     return ".".join(parts) if parts else None
+
+
+def _reload_patched_module(dotted: Optional[str]) -> bool:
+    """Evict cached module(s) and re-import so disk patches affect this process."""
+    if not dotted:
+        return False
+    import importlib
+
+    prefix = dotted + "."
+    for name in list(sys.modules):
+        if name == dotted or name.startswith(prefix):
+            sys.modules.pop(name, None)
+    try:
+        importlib.import_module(dotted)
+        return True
+    except Exception as exc:
+        log.debug("[SELF-IMPROVE] post-patch reload failed for %s: %s", dotted, exc)
+        return False
 
 
 def _smoke_import_module(dotted: str, timeout: float = 30.0) -> Tuple[bool, str]:
@@ -594,10 +618,10 @@ class SelfImprovementEngine:
         if m:
             cand = Path(m.group(1))
             try:
-                cand.relative_to(PROJECT_ROOT)
+                cand.relative_to(_patch_root())
                 if cand.exists() and cand.stat().st_size < max_file_chars * 3:
                     file_content = cand.read_text(encoding="utf-8")[:max_file_chars]
-                    file_ref = str(cand.relative_to(PROJECT_ROOT))
+                    file_ref = str(cand.relative_to(_patch_root()))
             except Exception:
                 log.debug("suppressed exception", exc_info=True)
         parts = [f"Fix the bug that causes this failure: {err[:500]}"]
@@ -682,10 +706,10 @@ class SelfImprovementEngine:
         if file_match:
             candidate = Path(file_match.group(1))
             try:
-                candidate.relative_to(PROJECT_ROOT)
+                candidate.relative_to(_patch_root())
                 if candidate.exists() and candidate.stat().st_size < max_file_chars * 3:
                     full_src = candidate.read_text(encoding="utf-8")
-                    file_ref = str(candidate.relative_to(PROJECT_ROOT))
+                    file_ref = str(candidate.relative_to(_patch_root()))
                     # Give the model the ENCLOSING SCOPE around the failing line (+ the file's
                     # imports) instead of just the head — the same scope-aware context the code
                     # examiner uses, so it can produce a verbatim, in-scope fix. The deepest
@@ -829,15 +853,16 @@ class SelfImprovementEngine:
 
         # Resolve path
         p = Path(file_str)
+        _root = _patch_root()
         if not p.is_absolute():
-            p = PROJECT_ROOT / p
+            p = _root / p
         p = p.resolve()
 
-        # Safety guard — only patch files inside project
+        # Safety guard — only patch files inside source root
         try:
-            p.relative_to(PROJECT_ROOT)
+            p.relative_to(_root)
         except ValueError:
-            return {"ok": False, "applied": False, "message": f"Refused: {p} is outside project root"}
+            return {"ok": False, "applied": False, "message": f"Refused: {p} is outside source root"}
 
         # Protected-path guard — the self-improver must NEVER auto-patch the safety
         # guardrails (or itself): a faulty or adversarial patch to these would disable
@@ -845,7 +870,7 @@ class SelfImprovementEngine:
         # Control, grounding, the patcher). Env-extensible via ELI_PROTECTED_PATCH_PATHS
         # (comma-separated project-relative posix paths).
         try:
-            _rel = p.relative_to(PROJECT_ROOT).as_posix()
+            _rel = p.relative_to(_root).as_posix()
         except Exception:
             _rel = p.as_posix()
         _protected = {
@@ -954,7 +979,7 @@ class SelfImprovementEngine:
 
         # Log the applied patch
         try:
-            rel_path = str(p.relative_to(PROJECT_ROOT))
+            rel_path = str(p.relative_to(_root))
             self.log_improvement(
                 "code_patch",
                 f"Patched {rel_path}: {description}",
@@ -978,13 +1003,15 @@ class SelfImprovementEngine:
         except Exception:
             log.debug("suppressed exception", exc_info=True)
 
-        rel = str(p.relative_to(PROJECT_ROOT))
+        rel = str(p.relative_to(_root))
+        reloaded = _reload_patched_module(verify_dotted) if verify_dotted else False
         log.debug(f"[SELF-IMPROVE] Patch applied: {rel} — {description}")
         return {
             "ok": True,
             "applied": True,
             "file": rel,
             "backup": str(backup),
+            "reloaded": reloaded,
             "message": f"Patch applied to {p.name}: {description}",
         }
 
@@ -1017,11 +1044,12 @@ class SelfImprovementEngine:
             if not file_str or not old_code or not new_code:
                 return {"ok": False, "applied": False, "message": f"patch {i}: missing file/old/new"}
             p = Path(file_str)
-            p = (PROJECT_ROOT / p if not p.is_absolute() else p).resolve()
+            _root = _patch_root()
+            p = (_root / p if not p.is_absolute() else p).resolve()
             try:
-                p.relative_to(PROJECT_ROOT)
+                p.relative_to(_root)
             except ValueError:
-                return {"ok": False, "applied": False, "message": f"patch {i}: {p} outside project root"}
+                return {"ok": False, "applied": False, "message": f"patch {i}: {p} outside source root"}
             if not p.exists() or p.suffix != ".py":
                 return {"ok": False, "applied": False, "message": f"patch {i}: {p} is not an existing .py file"}
             try:
@@ -1097,16 +1125,22 @@ class SelfImprovementEngine:
                         return {"ok": False, "applied": False,
                                 "message": f"import broke in {p.name} (all reverted): {detail}"}
 
-        files = [str(p.relative_to(PROJECT_ROOT)) for p in order]
+        files = [str(p.relative_to(_patch_root())) for p in order]
+        reloaded: List[str] = []
+        if verify:
+            for p in order:
+                d = dotted.get(p)
+                if d and _reload_patched_module(d):
+                    reloaded.append(d)
         log.debug(f"[SELF-IMPROVE] Patch set applied atomically across {len(files)} file(s): {files}")
-        return {"ok": True, "applied": True, "files": files,
+        return {"ok": True, "applied": True, "files": files, "reloaded": reloaded,
                 "message": f"Applied {len(patches)} patch(es) across {len(files)} file(s)"}
 
     def revert_patch(self, file_path: str) -> dict:
         """Restore the most recent .eli_bak backup for a file."""
         p = Path(file_path)
         if not p.is_absolute():
-            p = PROJECT_ROOT / p
+            p = _patch_root() / p
         p = p.resolve()
         backup = p.with_suffix(".py.eli_bak")
         if not backup.exists():
@@ -1147,10 +1181,20 @@ class SelfImprovementEngine:
             "dry_run": dry_run,
             "details": [],
         }
+        try:
+            from eli.core.paths import patch_capability
+            results["patch_capability"] = patch_capability()
+        except Exception:
+            log.debug("patch_capability unavailable", exc_info=True)
 
         if not failures:
-            results["summary"] = "No recurring failures found (need ≥2 occurrences). System appears stable."
+            _need = "≥1 occurrence" if int(min_cluster_size) <= 1 else f"≥{int(min_cluster_size)} occurrences"
+            results["summary"] = f"No failures in the analysis window ({_need}). System appears stable."
             return results
+
+        _cap = results.get("patch_capability") or {}
+        if _cap.get("install_kind") in {"frozen", "packaged"}:
+            results["packaged_install"] = True
 
         for failure in failures[:max_patches]:
             err_preview = (failure.get("error") or failure.get("user_input") or "?")[:80]
@@ -1182,7 +1226,16 @@ class SelfImprovementEngine:
 
             try:
                 patch = self._try_deterministic_patch(failure)
-                if not patch:
+                if patch.get("already_applied"):
+                    results["patches_skipped"] += 1
+                    results["details"].append({
+                        "failure": err_preview,
+                        "count": count,
+                        "status": "already_fixed_in_codebase",
+                        "reason": patch.get("description") or "fix already present",
+                    })
+                    continue
+                if not patch or not patch.get("ok"):
                     patch = self.generate_code_patch(failure)
                 if not patch.get("ok"):
                     reason = patch.get("error") or patch.get("reason") or "unknown"
@@ -1256,6 +1309,14 @@ class SelfImprovementEngine:
             f"({results['patches_failed']} failed, {results['patches_skipped']} skipped). "
             f"Analyzed {len(failures)} recurring failures."
         )
+        if results.get("packaged_install") and applied == 0:
+            _cap = results.get("patch_capability") or {}
+            _hint = _cap.get("hint") or ""
+            results["summary"] += (
+                " Packaged install — patches write to the user eli/ tree when runtime overlay is active."
+            )
+            if _hint:
+                results["summary"] += f" {_hint}"
         log.debug(f"[SELF-IMPROVE] {results['summary']}")
         return results
 

@@ -15245,6 +15245,46 @@ try:
         lines = [x.rstrip() for x in str(text or "").splitlines() if x.strip()]
         return lines[:limit]
 
+    def _eli_self_installed_version():
+        try:
+            from importlib.metadata import version as _pkg_version
+            return str(_pkg_version("eli"))
+        except Exception:
+            pass
+        try:
+            import tomllib as _toml
+            pp = _eli_self_Path(__file__).resolve().parents[2] / "pyproject.toml"
+            if pp.is_file():
+                return str(_toml.loads(pp.read_text(encoding="utf-8")).get("project", {}).get("version") or "")
+        except Exception:
+            pass
+        return ""
+
+    def _eli_self_packaged_update_summary(report, *, question=""):
+        """Short conversational answer when git history is unavailable (AppImage/portable)."""
+        ver = _eli_self_installed_version() or "unknown"
+        caps = (report.get("capabilities") or {}).get("manifest_total")
+        rt = report.get("runtime") or {}
+        model = rt.get("model_name") or rt.get("model_path") or "unknown model"
+        q = str(question or "").lower()
+        if any(w in q for w in ("notice", "feel", "sense", "changes")):
+            lead = (
+                f"Yeah — I'm on v{ver} in this packaged build. I can't read git commits from "
+                f"{report.get('project_root')}, but this install includes the v{ver} fixes "
+                f"(cross-model output cleaning, memory-compliment routing, correction repair)."
+            )
+        else:
+            lead = (
+                f"I'm running ELI v{ver} as a packaged install — no git repo at "
+                f"{report.get('project_root')}, so commit history isn't visible from here."
+            )
+        tail = f"Loaded: {model}"
+        if caps:
+            tail += f", {caps} capabilities."
+        else:
+            tail += "."
+        return f"{lead} {tail}"
+
     def _eli_self_build_recent_updates_report(question=""):
         root = _eli_self_project_root()
 
@@ -15413,7 +15453,11 @@ try:
         else:
             lines.append("- clean according to git status --short")
 
-        content = "\n".join(lines)
+        audit_content = "\n".join(lines)
+        if not _git_available:
+            content = _eli_self_packaged_update_summary(report, question=question)
+        else:
+            content = audit_content
 
         # The grounding rule is an instruction TO THE MODEL and must never be part
         # of the visible answer. It was appended to `content`, which is returned as
@@ -15423,6 +15467,7 @@ try:
         report["policy"]["grounding_rule"] = (
             "If an update/check is not listed in this report, ELI must not claim it happened."
         )
+        report["audit_content"] = audit_content
 
         return {
             "ok": True,
