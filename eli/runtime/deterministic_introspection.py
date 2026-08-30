@@ -4,6 +4,10 @@ import json
 import re
 from typing import Any, Dict, Optional
 
+from eli.utils.log import get_logger
+
+log = get_logger(__name__)
+
 
 DIAGNOSTIC_ACTIONS = {
     "SELF_REPORT",
@@ -97,7 +101,7 @@ def _last_trace(engine: Any) -> Dict[str, Any]:
         if meta:
             return meta
     except Exception:
-        pass
+        log.debug("suppressed exception", exc_info=True)
     for name in ("_last_trace", "last_trace", "_last_response_trace", "last_response_trace"):
         try:
             val = getattr(engine, name, None)
@@ -109,7 +113,7 @@ def _last_trace(engine: Any) -> Dict[str, Any]:
         from eli.runtime.last_trace import load_last_trace
         return dict(load_last_trace() or {})
     except Exception:
-        pass
+        log.debug("suppressed exception", exc_info=True)
     return {}
 
 
