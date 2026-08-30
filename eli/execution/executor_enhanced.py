@@ -15250,14 +15250,14 @@ try:
             from importlib.metadata import version as _pkg_version
             return str(_pkg_version("eli"))
         except Exception:
-            pass
+            log.debug("suppressed exception", exc_info=True)
         try:
             import tomllib as _toml
             pp = _eli_self_Path(__file__).resolve().parents[2] / "pyproject.toml"
             if pp.is_file():
                 return str(_toml.loads(pp.read_text(encoding="utf-8")).get("project", {}).get("version") or "")
         except Exception:
-            pass
+            log.debug("suppressed exception", exc_info=True)
         return ""
 
     def _eli_self_packaged_update_summary(report, *, question=""):
