@@ -1862,6 +1862,11 @@ def route(text: str, _clause_depth: int = 0) -> Dict[str, Any]:
     if _introspective_subject and not _dev_update_subject:
         pass  # fall through to reflective CHAT / introspection routing
     elif re.search(
+        r"\b(?:notice|sense|feel)\b.{0,60}\b(?:any\s+)?changes?\b.{0,60}\b(?:in|to)\s+your\s+code\b",
+        low,
+    ) and not re.search(r"\b(?:git|commit|changelog|diff|show me|list|which)\b", low):
+        pass  # casual rapport ("notice any changes in your code?") → CHAT, not audit dump
+    elif re.search(
         r"\b(what|which|any|show|tell|list)\b.{0,80}\b(updates?|checks?|repairs?|changes?|maintenance|work)\b.{0,80}\b(as of late|recently|lately|performed|done|happened|made)\b",
         low,
     ) or (
@@ -2711,6 +2716,14 @@ def route(text: str, _clause_depth: int = 0) -> Dict[str, Any]:
 
     if re.search(r"\bself[- ]?fix\b|\bfix\s+yourself\b", low):
         return _mk("SELF_PATCH", {}, 0.96, matched_by="self.fix")
+
+    if re.search(
+        r"\bfix\s+(?:those|the|these)\s+(?:errors?|issues?|bugs?|findings?)\b"
+        r"|\b(?:can you|could you|please)\s+fix\b.{0,50}\b(?:your\s+)?(?:code|errors?|issues?|bugs?)\b"
+        r"|\bfix\s+your\s+code\b",
+        low,
+    ):
+        return _mk("SELF_PATCH", {}, 0.97, matched_by="self.fix_errors_or_code")
 
     # ── SELF_TEST (before generic 'test' routes) ──────────────────────────────
     if re.search(r"\b(run\s+)?self.?test\b|\btest\s+yourself\b|\brun\s+tests?\b", low):

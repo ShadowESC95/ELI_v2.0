@@ -434,6 +434,69 @@ def project_root() -> Path:
     return Path(__file__).resolve().parents[2]
 
 
+@lru_cache(maxsize=1)
+def source_root() -> Path:
+    """Writable ELI source tree used for self-patching and code examination.
+
+    Priority:
+      1. ELI_SOURCE_ROOT — explicit dev checkout (AppImage can patch a git tree)
+      2. project_root() when it looks like a runnable ELI tree
+
+    Packaged/frozen installs seed eli/ under the user ELI_v2 root; the frozen
+    runtime hook prepends that root to sys.path so patches there affect imports.
+    """
+    explicit = os.environ.get("ELI_SOURCE_ROOT", "").strip()
+    if explicit:
+        p = Path(explicit).expanduser()
+        if not p.is_absolute():
+            p = (Path.cwd() / p).resolve()
+        else:
+            p = p.resolve()
+        if _is_eli_root(p):
+            return p
+    root = project_root()
+    if _is_eli_root(root):
+        return root
+    return root
+
+
+def patch_capability() -> dict:
+    """Honest report of whether this install can alter live Python source."""
+    root = source_root()
+    eli_pkg = root / "eli"
+    has_git = (root / ".git").is_dir()
+    frozen = is_frozen()
+    writable = bool(eli_pkg.is_dir() and os.access(eli_pkg, os.W_OK))
+    explicit_src = bool(os.environ.get("ELI_SOURCE_ROOT", "").strip())
+    runtime_overlay = frozen and str(root) in [str(x) for x in sys.path[:4]]
+    kind = "source" if has_git else ("frozen" if frozen else "packaged")
+    can_patch = writable and (has_git or frozen or explicit_src)
+    hint = ""
+    if not can_patch:
+        hint = (
+            "Set ELI_SOURCE_ROOT to a writable git checkout, or run from a dev tree, "
+            "to patch source. AppImage installs patch the seeded user eli/ tree when "
+            "the runtime overlay is active."
+        )
+    elif frozen and not explicit_src and not has_git:
+        hint = (
+            "Patching the seeded user eli/ tree — takes effect on next import after "
+            "apply (runtime overlay). Ship fixes to others via self upgrade / new release."
+        )
+    elif explicit_src:
+        hint = f"Patching explicit source root via ELI_SOURCE_ROOT."
+    return {
+        "source_root": str(root),
+        "install_kind": kind,
+        "writable": writable,
+        "has_git": has_git,
+        "runtime_overlay": runtime_overlay,
+        "explicit_source_root": explicit_src,
+        "can_patch_live": can_patch,
+        "hint": hint,
+    }
+
+
 def bundled_asset_path(*relative_parts: str) -> Path | None:
     """Resolve a shipped asset under ``artifacts/`` (frozen bundle or source tree)."""
     rel = Path(*relative_parts)

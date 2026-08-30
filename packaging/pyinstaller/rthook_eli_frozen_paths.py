@@ -282,5 +282,12 @@ def _pin_frozen_root() -> None:
     os.environ.setdefault("ELI_ROOT", str(root))                      # habits_memory_db
     os.environ.setdefault("ELI_DOC_DIR", str(root / "eli_docs"))      # executor document actions
 
+    # Shadow the bundled eli/ package with the user-seeded (patchable) tree —
+    # same mechanism as the GPU pack. Self-improvement writes to root/eli/;
+    # without this, imports keep serving the read-only bundle copy.
+    _root_str = str(root)
+    if _root_str not in sys.path:
+        sys.path.insert(0, _root_str)
+
 
 _pin_frozen_root()
