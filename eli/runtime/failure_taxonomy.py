@@ -42,6 +42,7 @@ CORRECTNESS = "correctness"      # ran fine, produced the wrong answer
 INTERFACE = "interface"          # called with the wrong shape — a real code bug
 CONCURRENCY = "concurrency"      # deadlock, race, locked database
 STABILITY = "stability"          # genuinely unclassified
+USER_INPUT = "user_input"        # validation / missing args — not a code defect
 
 # Exception type -> category. The strongest signal available, so it wins.
 _BY_EXCEPTION: Dict[str, str] = {
@@ -100,6 +101,8 @@ _BY_MESSAGE: Tuple[Tuple[str, str], ...] = (
      r"\bdid not match\b|\bassertion\b", CORRECTNESS),
     (r"\bmalformed\b|\binvalid json\b|\bcould not parse\b|\bunexpected token\b",
      DATA),
+    (r"\bmissing app name\b|\bmissing topic\b|\bspecify app\b|"
+     r"\bgive the voice a name\b|\bcouldn'?t tell which voice\b", USER_INPUT),
 )
 
 # Subsystem -> area. Matched against the traceback's module path first (evidence),
@@ -150,6 +153,7 @@ _SEVERITY: Dict[str, str] = {
     RESOURCE: "capacity",
     TIMEOUT: "capacity",
     NETWORK: "external",
+    USER_INPUT: "user",
     STABILITY: "unknown",
 }
 
@@ -220,5 +224,5 @@ __all__ = [
     "classify", "classify_category", "classify_area", "exception_name",
     "is_actionable", "RESOURCE", "TIMEOUT", "NETWORK", "PERMISSION",
     "DEPENDENCY", "MISSING", "DATA", "CORRECTNESS", "INTERFACE",
-    "CONCURRENCY", "STABILITY",
+    "CONCURRENCY", "STABILITY", "USER_INPUT",
 ]

@@ -183,6 +183,13 @@ def _pin_frozen_root() -> None:
     if not getattr(sys, "frozen", False):
         return
     if os.environ.get("ELI_PROJECT_ROOT"):
+        try:
+            _root = Path(os.environ["ELI_PROJECT_ROOT"]).expanduser()
+            _root_str = str(_root)
+            if _root_str not in sys.path:
+                sys.path.insert(0, _root_str)
+        except Exception:
+            pass
         return  # launcher/user already decided — respect it
 
     root = _user_root()

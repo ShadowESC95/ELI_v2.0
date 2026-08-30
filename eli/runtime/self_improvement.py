@@ -1214,11 +1214,17 @@ class SelfImprovementEngine:
                     log.debug("failure classify skipped", exc_info=True)
                 if tags and not is_actionable(tags.get("category", "")):
                     results["patches_skipped"] += 1
+                    _cat = tags.get("category", "network/resource")
+                    _reason = (
+                        "user_input_validation"
+                        if _cat == "user_input"
+                        else tags.get("category", "network/resource")
+                    )
                     results["details"].append({
                         "failure": err_preview,
                         "count": count,
                         "status": "skipped_non_actionable",
-                        "reason": tags.get("category", "network/resource"),
+                        "reason": _reason,
                     })
                     continue
             except Exception:

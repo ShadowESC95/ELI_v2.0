@@ -2714,7 +2714,7 @@ def route(text: str, _clause_depth: int = 0) -> Dict[str, Any]:
     if re.search(r"\bpatch\s+yourself\b|\bself.?patch\b|\bapply.*patch\b|\bfix\s+your\s+own\s+code\b", low):
         return _mk("SELF_PATCH", {}, 0.95, matched_by="self.patch_cycle")
 
-    if re.search(r"\bself[- ]?fix\b|\bfix\s+yourself\b", low):
+    if re.search(r"\bself[- ]?fix\w*\b|\bfix\s+yourself\b", low):
         return _mk("SELF_PATCH", {}, 0.96, matched_by="self.fix")
 
     if re.search(

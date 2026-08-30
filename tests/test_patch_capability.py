@@ -21,6 +21,23 @@ def test_source_root_prefers_eli_source_root_env(monkeypatch, tmp_path):
         paths.source_root.cache_clear()
 
 
+def test_patch_capability_frozen_overlay_when_writable(tmp_path, monkeypatch):
+    eli = tmp_path / "eli"
+    (eli / "cognition").mkdir(parents=True)
+    (eli / "gui").mkdir(parents=True)
+    monkeypatch.setenv("ELI_PROJECT_ROOT", str(tmp_path))
+    import sys
+    monkeypatch.setattr(sys, "frozen", True, raising=False)
+    paths.source_root.cache_clear()
+    try:
+        cap = paths.patch_capability()
+        assert cap["install_kind"] == "frozen"
+        assert cap["runtime_overlay"] is True
+        assert cap["can_patch_live"] is True
+    finally:
+        paths.source_root.cache_clear()
+
+
 def test_patch_capability_reports_git_source():
     cap = paths.patch_capability()
     assert "source_root" in cap

@@ -27,9 +27,9 @@ like and it tunes itself to the hardware you've got, from a laptop to a multi-GP
 <img src=".github/screenshots/gui-onboarding.png" alt="ELI desktop app — first-run onboarding conversation with a local 35B model" width="880">
 </div>
 
-> **v2.3.54 — self-maintenance that works on packaged builds.** Live patching via runtime
-> overlay on AppImage/portable; repair phrases route to `SELF_PATCH` (no CoT hallucinations);
-> deterministic patches detect already-fixed code; `ELI_SOURCE_ROOT` for dev-tree patching.
+> **v2.3.55 — self-maintenance polish on packaged builds.** Honest overlay detection;
+> validation failures classified as user-input (not patchable); fast deterministic
+> self-analyse root causes; typo-tolerant `self fix` routing.
 > Grab it from **[Releases](https://github.com/ShadowESC95/ELI_v2.0/releases/latest)**.
 >
 > **v2 is live software, not a polished product drop.** ELI touches real hardware, and
