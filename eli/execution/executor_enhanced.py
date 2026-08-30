@@ -576,13 +576,23 @@ def _runtime_health_probes() -> List[Dict[str, Any]]:
     # out by get_recent_failures, so the audit and the panel agree.
     def _failures():
         from eli.runtime.self_improvement import get_self_improvement
-        rows = get_self_improvement().memory.get_recent_failures(limit=5)
-        if not rows:
+        from eli.runtime.failure_taxonomy import classify, is_actionable
+        rows = get_self_improvement().memory.get_recent_failures(limit=20)
+        actionable = []
+        for r in rows or []:
+            err = str(r.get("error") or r.get("user_input") or "")
+            info = classify(err, command=str(r.get("command") or ""))
+            if not is_actionable(info.get("category", "")):
+                continue
+            actionable.append(r)
+            if len(actionable) >= 5:
+                break
+        if not actionable:
             return True, "no live failures logged"
         summary = "; ".join(
             f"{(r.get('error') or r.get('user_input') or '')[:70]} (×{r.get('occurrence_count', 1)})"
-            for r in rows)
-        return False, f"{len(rows)} recent live failure(s): {summary}"
+            for r in actionable)
+        return False, f"{len(actionable)} recent live failure(s): {summary}"
     _probe("recent_failures", _failures)
 
     return probes
@@ -2353,6 +2363,7 @@ SUPPORTED_ACTIONS = [
     'SELF_IMPROVE',
     'SELF_IMPROVEMENT_LOG',
     'SELF_PATCH',
+    'SELF_REPAIR_PLAYBOOK',
     'SELF_REPORT',
     'SELF_TEST',
     'RUN_TESTS',
@@ -8697,6 +8708,23 @@ def _execute_impl(action: str, args: Optional[Dict[str, Any]] = None) -> Dict[st
             return _si_result
         except Exception as e:
             return {"ok": False, "action": a, "error": str(e), "content": str(e), "response": str(e)}
+
+    # ---- SELF_REPAIR_PLAYBOOK ----
+    if a == "SELF_REPAIR_PLAYBOOK":
+        try:
+            from eli.runtime.repair_playbook import build_repair_playbook_report
+            q = str((args or {}).get("question") or (args or {}).get("query") or "")
+            report = build_repair_playbook_report(q, live=True)
+            return {
+                "ok": True,
+                "action": a,
+                "content": report,
+                "response": report,
+                "evidence_source": "repair_playbook",
+            }
+        except Exception as e:
+            msg = f"Repair playbook unavailable: {e}"
+            return {"ok": False, "action": a, "error": str(e), "content": msg, "response": msg}
 
     # ---- SELF_PATCH ----
     if a == "SELF_PATCH":

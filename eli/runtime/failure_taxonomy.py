@@ -103,6 +103,8 @@ _BY_MESSAGE: Tuple[Tuple[str, str], ...] = (
      DATA),
     (r"\bmissing app name\b|\bmissing topic\b|\bspecify app\b|"
      r"\bgive the voice a name\b|\bcouldn'?t tell which voice\b", USER_INPUT),
+    (r"\bwhich job\b|\bmouse action called\b|\bdon'?t know which way\b|"
+     r"\btell me where to move the pointer\b|\bcoordinates, or a direction\b", USER_INPUT),
 )
 
 # Subsystem -> area. Matched against the traceback's module path first (evidence),

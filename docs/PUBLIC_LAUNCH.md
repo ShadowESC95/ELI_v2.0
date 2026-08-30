@@ -1,9 +1,8 @@
 # ELI v2 — public launch copy-paste
 
-> **Current release: v2.3.55 (August 2026).** Self-maintenance polish: honest runtime
-> overlay detection on AppImage; user-input validation failures skipped (not patchable);
-> fast deterministic self-analyse root causes; typo-tolerant self-fix routing. Builds on
-> v2.3.54 live patching and repair routing fixes.
+> **Current release: v2.3.56 (August 2026).** Repair playbook (`self help`); dry-run routing/trace fixes;
+> GUI-scoped examine; Tier 3 false-positive labeling; USER_INPUT filtered from audit failures.
+> Builds on v2.3.55 self-maintenance polish.
 
 ## Links (share these)
 
@@ -45,7 +44,7 @@ chmod +x ELI_Setup.sh && ./ELI_Setup.sh
 
 ## Hacker News / Reddit one-liner
 
-> **ELI v2.3.55.** Local-first AI assistant (~181k LOC, 225 capabilities, GGUF, PySide6 GUI, offline-by-default). Self-maintenance on AppImage/portable; live patch overlay; repair routing without CoT hallucinations. CI-built AppImage + Windows installer + macOS dmg. Source-available (PolyForm Internal Use). https://github.com/ShadowESC95/ELI_v2.0/releases/tag/v2.3.55
+> **ELI v2.3.56.** Local-first AI assistant (~181k LOC, 225 capabilities, GGUF, PySide6 GUI, offline-by-default). Repair playbook + dry-run routing/trace fixes; GUI-scoped code examine. CI-built AppImage + Windows installer + macOS dmg. Source-available (PolyForm Internal Use). https://github.com/ShadowESC95/ELI_v2.0/releases/tag/v2.3.56
 
 ## What to say it is
 

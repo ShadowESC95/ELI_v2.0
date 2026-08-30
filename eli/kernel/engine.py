@@ -154,7 +154,7 @@ _DIRECT_FINAL_ACTIONS = frozenset({
     "PERSONAL_MEMORY_DEEP_EXPLAIN", "ROUTING_FAULT_EXPLAIN", "NAME_SOURCE_AUDIT",
     "SELF_ANALYZE", "SELF_IMPROVE", "SELF_IMPROVEMENT_LOG", "SELF_UPDATE",
     "SELF_TEST",
-    "SELF_UPGRADE", "SELF_PATCH",
+    "SELF_UPGRADE", "SELF_PATCH", "SELF_REPAIR_PLAYBOOK",
     "EXAMINE_CODE", "CONFIRM_CODE_FIX", "CANCEL_CODE_FIX",
     "CONFIRM_HABIT", "DECLINE_HABIT",
     "MORNING_REPORT", "PROACTIVE_STATUS", "HABIT_STATUS", "LIST_CAPABILITIES",
@@ -2996,6 +2996,7 @@ _REPORTS_ABOUT_STATE = frozenset({
     "SELF_ANALYZE", "SELF_IMPROVEMENT_LOG", "EXPLAIN_LAST_RESPONSE",
     "EXPLAIN_MEMORY_RUNTIME", "EXPLAIN_COGNITION_RUNTIME", "ROUTING_FAULT_EXPLAIN",
     "PERSONAL_MEMORY_DEEP_EXPLAIN", "PERSONAL_MEMORY_SUMMARY", "EXAMINE_CODE",
+    "SELF_REPAIR_PLAYBOOK",
 })
 
 
@@ -10985,6 +10986,20 @@ Answer:"""
                     self._store_assistant_turn(final_response)
                 except Exception:
                     log.debug("suppressed exception", exc_info=True)
+                try:
+                    self._publish_last_response_meta(
+                        {"request_id": getattr(self, "_current_request_id", "")},
+                        action="PERSONA_STATUS",
+                        result_action="PERSONA_STATUS",
+                        confidence=0.90,
+                        confidence_label="high",
+                        evidence_used=True,
+                        grounded=True,
+                        response=final_response,
+                        user_input=str(user_input or ""),
+                    )
+                except Exception:
+                    log.debug("suppressed exception", exc_info=True)
                 if stream:
                     def _eli_direct_persona_stream():
                         for piece in self._yield_text_chunks(final_response, chunk_size=24):
@@ -11929,6 +11944,7 @@ Answer:"""
                             "SELF_UPGRADE",
                             "SELF_IMPROVE",
                             "SELF_PATCH",
+                            "SELF_REPAIR_PLAYBOOK",
                             "EXPLAIN_FAILURE_LOG",
                             "EXPLAIN_GGUF_DIAGNOSTICS",
                             "EXPLAIN_LAST_FAILURE",

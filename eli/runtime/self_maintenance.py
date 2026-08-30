@@ -159,14 +159,17 @@ def fire_maintenance_world_event(cycle_result: Dict[str, Any]) -> None:
 
 def maintenance_surface_help() -> str:
     """User-facing map of the self-maintenance verbs."""
+    try:
+        from eli.runtime.repair_playbook import maintenance_help_short
+        return maintenance_help_short()
+    except Exception:
+        log.debug("repair_playbook help unavailable", exc_info=True)
     return (
         "ELI self-maintenance (unified):\n"
         "  self analyse   — failure report + root causes (grounded, no GGUF)\n"
         "  self improve   — analyse failures, log improvements, queue proposals\n"
         "  self fix/patch — deterministic rules → LLM patch → guarded apply\n"
-        "  (set ELI_SOURCE_ROOT=/path/to/git/checkout to patch dev tree from AppImage)\n"
-        "  self upgrade   — install update (AppImage/git/pip) + index rebuild\n"
-        "  self update    — refresh overlays/manifest (not a version bump)\n"
+        "  self upgrade   — install update\n"
         "  examine code   — tiered scan; confirm to apply a pending fix\n"
-        f"Analysis window: {DEFAULT_ANALYSIS_DAYS} days (override: \"analyse failures over 30 days\")."
+        f'Analysis window: {DEFAULT_ANALYSIS_DAYS} days.'
     )
