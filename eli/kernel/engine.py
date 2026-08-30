@@ -1210,6 +1210,9 @@ _ELI_PHASE19_GROUNDED_FOLLOWUP_ACTIONS = {
     "RUNTIME_STATUS",
     "EXPLAIN_MEMORY_RUNTIME",
     "EXPLAIN_COGNITION_RUNTIME",
+    "EXPLAIN_FAILURE_LOG",
+    "EXPLAIN_GGUF_DIAGNOSTICS",
+    "EXPLAIN_LAST_FAILURE",
     "EXPLAIN_LAST_RESPONSE",
     "SELF_REPORT",
     "USER_IDENTITY_SUMMARY",
@@ -1222,6 +1225,8 @@ _ELI_PHASE19_GROUNDED_FOLLOWUP_ACTIONS = {
 _ELI_PHASE19_DETAIL_FOLLOWUP_RX = re.compile(
     r"(?:"
     r"^\s*please\s+do\b"
+    r"|\b(?:finish|complete|continue)\s+(?:it|that|this|the\s+(?:list|answer|response))\b"
+    r"|\bplease\s+(?:finish|complete|continue)\b"
     r"|\b(?:exact|where|which|what|show|tell|give|can\s+you|could\s+you)\b.{0,100}"
     r"\b(?:line|lines|file|files|path|paths|issue|issues|duplicate|duplicates|finding|findings|report|result|results|fix|repair|remove|delete)\b"
     r"|\b(?:issue|issues|duplicate|duplicates|finding|findings)\b.{0,100}"
@@ -1343,7 +1348,8 @@ def _classify_query(text: str, action: str) -> str:
     _grounded_actions = {
         "RUNTIME_AUDIT", "IMPORT_AUDIT", "RESOLVE_RUNTIME_PATHS",
         "GUI_RUNTIME_AUDIT", "MEMORY_STATUS", "COGNITION_STATUS",
-        "RUNTIME_STATUS", "EXPLAIN_MEMORY_RUNTIME", "EXPLAIN_LAST_RESPONSE",
+        "RUNTIME_STATUS", "EXPLAIN_MEMORY_RUNTIME", "EXPLAIN_FAILURE_LOG",
+        "EXPLAIN_GGUF_DIAGNOSTICS", "EXPLAIN_LAST_FAILURE", "EXPLAIN_LAST_RESPONSE",
         "SELF_REPORT",
         "USER_IDENTITY_SUMMARY",
         "LAST_TRACE_REPORT",
@@ -11851,6 +11857,9 @@ Answer:"""
                             "GET_PROPOSALS",
                             "EXPLAIN_LAST_RESPONSE",
                             "EXPLAIN_ALL_REASONING_MODES",
+                            "EXPLAIN_FAILURE_LOG",
+                            "EXPLAIN_GGUF_DIAGNOSTICS",
+                            "EXPLAIN_LAST_FAILURE",
                             "SELF_UPDATE",
                             # Self-maintenance actions (upgrade/improve/patch)
                             # produce a complete, authoritative step-by-step
@@ -11864,6 +11873,9 @@ Answer:"""
                             "SELF_UPGRADE",
                             "SELF_IMPROVE",
                             "SELF_PATCH",
+                            "EXPLAIN_FAILURE_LOG",
+                            "EXPLAIN_GGUF_DIAGNOSTICS",
+                            "EXPLAIN_LAST_FAILURE",
                             # Code examiner: tiered error report + per-step patch
                             # outcomes are grounded fact — surface verbatim, never
                             # re-narrated (a weak model would corrupt the findings).

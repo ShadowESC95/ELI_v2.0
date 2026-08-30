@@ -665,12 +665,25 @@ class ProactiveDaemon:
             except Exception as e:
                 log.debug(f"[PROACTIVE] Code analysis error for {file_path.name}: {e}")
 
-        # Store improvements summary into AGENT DB
         for item in improvements:
             try:
                 self.agent_mem.log_improvement("code_quality", json.dumps(item)[:4000])
             except Exception:
                 _SWLOG.debug("suppressed exception", exc_info=True)
+
+        # Primary self-maintenance: unified failure analysis (propose-only from daemon).
+        try:
+            from eli.runtime.self_improvement import get_self_improvement
+            _si = get_self_improvement()
+            _model_ready = False
+            try:
+                from eli.cognition import gguf_inference as _gi
+                _model_ready = bool(getattr(_gi, "is_loaded", lambda: False)())
+            except Exception:
+                log.debug("model readiness check skipped", exc_info=True)
+            _si.analyze_and_improve(propose=_model_ready)
+        except Exception as _si_err:
+            log.debug(f"[PROACTIVE] unified self-maintenance tick skipped: {_si_err}")
 
         return improvements
 

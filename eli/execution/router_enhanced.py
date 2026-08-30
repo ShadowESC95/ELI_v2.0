@@ -2699,10 +2699,13 @@ def route(text: str, _clause_depth: int = 0) -> Dict[str, Any]:
         return _mk("SELF_UPGRADE", {"request": raw}, 0.96, matched_by="self.upgrade")
 
     if re.search(r"\b(generate|create)\s+patch\b|\bpatch\s+(eli|system)\b", low):
-        return _mk("SELF_UPGRADE", {"request": "generate_patch"}, 0.93, matched_by="self.patch")
+        return _mk("SELF_IMPROVE", {"mode": "propose"}, 0.93, matched_by="self.patch_propose")
 
     if re.search(r"\bpatch\s+yourself\b|\bself.?patch\b|\bapply.*patch\b|\bfix\s+your\s+own\s+code\b", low):
         return _mk("SELF_PATCH", {}, 0.95, matched_by="self.patch_cycle")
+
+    if re.search(r"\bself[- ]?fix\b|\bfix\s+yourself\b", low):
+        return _mk("SELF_PATCH", {}, 0.96, matched_by="self.fix")
 
     # ── SELF_TEST (before generic 'test' routes) ──────────────────────────────
     if re.search(r"\b(run\s+)?self.?test\b|\btest\s+yourself\b|\brun\s+tests?\b", low):
@@ -2965,7 +2968,7 @@ def route(text: str, _clause_depth: int = 0) -> Dict[str, Any]:
                        matched_by="self.morning_report")
 
     if any(p in low for p in ["apply self-improvement patch", "apply patch", "run patch cycle",
-                              "patch yourself", "fix your own code", "self-patch"]):
+                              "patch yourself", "fix your own code", "self-patch", "self fix"]):
         return _mk("SELF_PATCH", {}, 0.95, matched_by="self.patch")
 
     # "improve / enhance / refactor / optimise / clean up <a NAMED .py file>" → the verified
@@ -5581,6 +5584,19 @@ def _eli_self_improvement_phrase_guard(text):
             "confidence": 0.99,
             "meta": {
                 "matched_by": "eli.self_improvement_cycle_guard",
+                "need_grounding": True,
+                "allow_chat_without_evidence": False,
+                "task_family": "self_improvement",
+            },
+        }
+
+    if re.search(r"\bself[- ]?fix\b|\bfix\s+yourself\b", low):
+        return {
+            "action": "SELF_PATCH",
+            "args": {},
+            "confidence": 0.96,
+            "meta": {
+                "matched_by": "eli.self_fix_guard",
                 "need_grounding": True,
                 "allow_chat_without_evidence": False,
                 "task_family": "self_improvement",
