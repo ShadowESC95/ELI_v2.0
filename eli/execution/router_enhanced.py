@@ -23,9 +23,9 @@ def _eli_pipeline_trace(stage: str, **data):
         # Set ELI_PIPELINE_TRACE_VERBOSE=1 to restore the per-call print.
         if os.environ.get("ELI_PIPELINE_TRACE_VERBOSE", "0").lower() in {"1", "true", "yes", "on"}:
             _preview = {k: (v[:60] + "..." if isinstance(v, str) and len(v) > 60 else v) for k, v in data.items()}
-            log.debug(f"[PIPELINE_TRACE] {stage} {_preview}")
+            _SWLOG.debug(f"[PIPELINE_TRACE] {stage} {_preview}")
     except Exception as _e:
-        log.debug(f"[PIPELINE_TRACE_ERR] {stage}: {_e}")
+        _SWLOG.debug(f"[PIPELINE_TRACE_ERR] {stage}: {_e}")
 
 def _eli_phase10_is_codebase_audit_request(text: str) -> bool:
     """
@@ -1898,11 +1898,14 @@ def route(text: str, _clause_depth: int = 0) -> Dict[str, Any]:
     # --- end primary contract diagnostics: self-report recent updates ---
 
     # --- strict control actions: never fall through to generic CHAT ---    # ELI_PATCH_PERSONAL_MEMORY_ROUTE_PRECEDENCE_20260511
-    # Personalised/internal-memory questions must beat the generic memory-runtime route.
-    # This is routing precedence only; final response synthesis remains downstream.
+    # Personalised-memory questions must beat the generic memory-runtime route.
+    # System architecture ("your memory system … which files/db tables/functions")
+    # is EXPLAIN_MEMORY_RUNTIME — the old block also matched architecture keywords
+    # alone and stole that route (live v2.3.55 dry-run).
     _pm_text = low  # `low` is always defined: low = raw.lower()
     if (
-        _pm_asks_something(_pm_text)
+        not _eli_memory_runtime_route_lock_should_trigger(_pm_text)
+        and _pm_asks_something(_pm_text)
         and ("memory" in _pm_text)
         and (
             "personal" in _pm_text
@@ -1910,12 +1913,10 @@ def route(text: str, _clause_depth: int = 0) -> Dict[str, Any]:
             or "personalized" in _pm_text
             or "about me" in _pm_text
             or "my memory" in _pm_text
-            or "internals" in _pm_text
-            or "internally" in _pm_text
-            or "which files" in _pm_text
-            or "which db" in _pm_text
-            or "which tables" in _pm_text
-            or "which functions" in _pm_text
+            or (
+                ("internals" in _pm_text or "internally" in _pm_text)
+                and re.search(r"\b(my|me|about me|stored about me)\b", _pm_text)
+            )
         )
     ):
         return {
@@ -2707,6 +2708,14 @@ def route(text: str, _clause_depth: int = 0) -> Dict[str, Any]:
     if re.search(r"\b(upgrade|update)\s+(yourself|eli|the\s+system)\b"
                  r"|\bself.?upgrade\b|\brun\s+upgrade\b", low):
         return _mk("SELF_UPGRADE", {"request": raw}, 0.96, matched_by="self.upgrade")
+
+    if re.search(
+        r"\b(self help|repair playbook|maintenance playbook|fix playbook|"
+        r"how do i fix eli|which self command|self maintenance help|"
+        r"how should i fix|what self command)\b",
+        low,
+    ):
+        return _mk("SELF_REPAIR_PLAYBOOK", {"question": raw}, 0.99, matched_by="self.repair_playbook")
 
     if re.search(r"\b(generate|create)\s+patch\b|\bpatch\s+(eli|system)\b", low):
         return _mk("SELF_IMPROVE", {"mode": "propose"}, 0.93, matched_by="self.patch_propose")
@@ -5608,6 +5617,23 @@ def _eli_self_improvement_phrase_guard(text):
             },
         }
 
+    if re.search(
+        r"\b(self help|repair playbook|maintenance playbook|fix playbook|"
+        r"how do i fix|which self command|self maintenance help)\b",
+        low,
+    ):
+        return {
+            "action": "SELF_REPAIR_PLAYBOOK",
+            "args": {"question": raw},
+            "confidence": 0.99,
+            "meta": {
+                "matched_by": "eli.self_repair_playbook_guard",
+                "need_grounding": True,
+                "allow_chat_without_evidence": False,
+                "task_family": "self_improvement",
+            },
+        }
+
     if re.search(r"\bself[- ]?fix\b|\bfix\s+yourself\b", low):
         return {
             "action": "SELF_PATCH",
@@ -6011,7 +6037,22 @@ def _eli_is_generic_profile_inventory(low):
 
 def _eli_is_full_profile_dump(low):
     import re as _re
-    return bool(_re.search(r"\b(dump|show|print|read|display)\b.{0,80}\b(full|complete|entire|all)\b.{0,80}\b(profile|personal memory|memory profile)\b", low))
+    if _re.search(
+        r"\b(dump|show|print|read|display)\b.{0,80}\b(full|complete|entire|all)\b.{0,80}\b(profile|personal memory|memory profile)\b",
+        low,
+    ):
+        return True
+    if _re.search(
+        r"\b(give me everything|everything you know|don'?t summarise|don'?t summarize|"
+        r"do not summarise|do not summarize|without summar(?:y|ies|izing|ising)|"
+        r"no summary|not summarise|not summarize)\b",
+        low,
+    ) and _re.search(
+        r"\b(about me|from memory|what you know|what you remember|my memory|personal memory|who am i)\b",
+        low,
+    ):
+        return True
+    return False
 # =============================================================================
 
 # =============================================================================

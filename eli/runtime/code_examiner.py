@@ -62,6 +62,11 @@ _MODULE_ALIASES = {
     "self upgrade": "eli/kernel/self_upgrade.py",
     "self-upgrade": "eli/kernel/self_upgrade.py",
     "self improvement": "eli/runtime/self_improvement.py",
+    "gui file": "eli/gui/eli_pro_audio_gui_v2_0.py",
+    "the gui file": "eli/gui/eli_pro_audio_gui_v2_0.py",
+    "your gui file": "eli/gui/eli_pro_audio_gui_v2_0.py",
+    "pro audio gui": "eli/gui/eli_pro_audio_gui_v2_0.py",
+    "eli pro audio gui": "eli/gui/eli_pro_audio_gui_v2_0.py",
 }
 
 # Curated fallback set when no files are named and git gives us nothing.
@@ -133,10 +138,16 @@ def _extract_named_paths(request: str) -> List[Path]:
     for tok in re.findall(r"\beli(?:\.\w+)+\b", raw):
         _add(PROJECT_ROOT / (tok.replace(".", "/") + ".py"))
 
-    # 3) aliases ("the orchestrator", "the router")
+    # 3) aliases ("the orchestrator", "the router", "your gui file")
     for alias, rel in _MODULE_ALIASES.items():
         if re.search(rf"\b{re.escape(alias)}\b", low):
             _add(PROJECT_ROOT / rel)
+
+    # 4) bare "gui" when the user is auditing wiring (not "gui runtime audit proof")
+    if re.search(r"\b(gui|gui file|your gui)\b", low) and re.search(
+        r"\b(audit|examine|review|inspect|scan|check|wired|wiring)\b", low
+    ):
+        _add(PROJECT_ROOT / "eli/gui/eli_pro_audio_gui_v2_0.py")
 
     return out
 
@@ -456,6 +467,19 @@ def is_real_breakage(f: "Finding") -> bool:
     return False
 
 
+def _tier3_syntax_false_positive(path: Path, message: str) -> bool:
+    """Tier 3 often hallucinates SyntaxError on files that parse cleanly."""
+    msg = str(message or "").lower()
+    if "syntaxerror" not in msg and "unterminated" not in msg and "missing closing" not in msg:
+        return False
+    try:
+        import ast
+        ast.parse(path.read_text(encoding="utf-8"))
+        return True
+    except Exception:
+        return False
+
+
 def format_report(paths: List[Path], findings: List[Finding], *, allow_fix: bool = False) -> str:
     """Render the tiered report. `allow_fix` is True only when the user named specific files —
     a broad/sweep audit is REPORT-ONLY and never offers to patch."""
@@ -484,13 +508,26 @@ def format_report(paths: List[Path], findings: List[Finding], *, allow_fix: bool
         lines.append(f"\n{headers[tier]}")
         for f in items:
             loc = f" (line {f.line})" if f.line else ""
-            lines.append(f"  - [{f.file}{loc}] {f.message}  (conf {f.confidence:.2f})")
+            note = ""
+            if tier == 3 and f.line:
+                try:
+                    p = (PROJECT_ROOT / f.file).resolve()
+                    if _tier3_syntax_false_positive(p, f.message):
+                        note = "  [AST: file parses OK — likely false positive]"
+                except Exception:
+                    log.debug("tier3 fp check skipped", exc_info=True)
+            lines.append(f"  - [{f.file}{loc}] {f.message}  (conf {f.confidence:.2f}){note}")
 
     # Only genuine breakage is offered for fixing, and only when specific files were named.
     fixable = [f for f in findings if is_real_breakage(f)]
     cosmetic = [f for f in findings
                 if f.tier in (1, 2) and not is_real_breakage(f)]
     lines.append("")
+    if by_tier[3]:
+        lines.append(
+            "Tier 3 uses local LLM review — syntax/logic claims marked "
+            "[AST: file parses OK] are false positives; do not self-patch from Tier 3 alone."
+        )
     if cosmetic:
         lines.append(f"{len(cosmetic)} cosmetic lint finding(s) (unused imports/variables, "
                      "style) are REPORT-ONLY — I won't auto-edit working code for those.")

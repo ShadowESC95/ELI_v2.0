@@ -92,17 +92,32 @@ def _route_action(text: str) -> Optional[str]:
 
 
 def _last_trace(engine: Any) -> Dict[str, Any]:
+    try:
+        meta = dict(getattr(engine, "_last_request_meta", {}) or {}) if engine is not None else {}
+        if meta:
+            return meta
+    except Exception:
+        pass
     for name in ("_last_trace", "last_trace", "_last_response_trace", "last_response_trace"):
         try:
             val = getattr(engine, name, None)
-            if isinstance(val, dict):
+            if isinstance(val, dict) and val:
                 return val
         except Exception:
             pass
+    try:
+        from eli.runtime.last_trace import load_last_trace
+        return dict(load_last_trace() or {})
+    except Exception:
+        pass
     return {}
 
 
 def _last_response(engine: Any) -> str:
+    trace = _last_trace(engine)
+    txt = str(trace.get("response_text") or "").strip()
+    if txt:
+        return txt
     for name in ("_last_response", "last_response", "_last_answer", "last_answer"):
         try:
             val = getattr(engine, name, None)
