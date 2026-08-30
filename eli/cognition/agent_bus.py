@@ -641,6 +641,25 @@ def _select_agents_for_intent(user_input: str, action: str) -> Optional[Set[str]
         return selected
 
     if action in {
+        "EXPLAIN_FAILURE_LOG",
+        "EXPLAIN_GGUF_DIAGNOSTICS",
+        "EXPLAIN_LAST_FAILURE",
+    }:
+        return {"system"}
+
+    if action in {
+        "SELF_ANALYZE",
+        "SELF_IMPROVE",
+        "SELF_PATCH",
+        "SELF_UPGRADE",
+        "SELF_TEST",
+        "SELF_IMPROVEMENT_LOG",
+        "SELF_UPDATE",
+        "EXAMINE_CODE",
+    }:
+        return {"system", "self_improvement", "orchestrator", "introspection"}
+
+    if action in {
         "MEMORY_STATUS",
         "MEMORY_RECALL",
         "EXPLAIN_MEMORY_RUNTIME",
@@ -1130,6 +1149,7 @@ class SystemAgent(_BaseAgent):
         "PERSONAL_MEMORY_SUMMARY", "PERSONAL_MEMORY_DEEP_EXPLAIN",
         "RUNTIME_AUDIT", "IMPORT_AUDIT", "RESOLVE_RUNTIME_PATHS", "GUI_RUNTIME_AUDIT",
         "EXPLAIN_MEMORY_RUNTIME", "EXPLAIN_COGNITION_RUNTIME", "EXPLAIN_ALL_REASONING_MODES",
+        "EXPLAIN_FAILURE_LOG", "EXPLAIN_GGUF_DIAGNOSTICS", "EXPLAIN_LAST_FAILURE",
         "NAME_SOURCE_AUDIT", "ROUTING_FAULT_EXPLAIN", "FRONTIER_STATUS", "ELI_IDENTITY_AUDIT",
         "LIST_CAPABILITIES", "AWARENESS_STATUS", "CODE_CHANGES", "SELF_TEST",
         "PERSONA_LOCK_SET", "PERSONA_LOCK_STATUS", "PERSONA_LOCK_CLEAR",
@@ -1267,8 +1287,9 @@ class SelfImprovementAgent(_BaseAgent):
                                data={"skipped": True})
         try:
             from eli.runtime.self_improvement import get_self_improvement
+            from eli.runtime.self_maintenance_config import DEFAULT_ANALYSIS_DAYS
             engine = get_self_improvement()
-            failures = engine.analyze_failures(limit=10, days=7, min_cluster_size=1)
+            failures = engine.analyze_failures(limit=10, days=DEFAULT_ANALYSIS_DAYS, min_cluster_size=1)
             proposals = []
             try:
                 from eli.memory import get_memory
@@ -1794,6 +1815,10 @@ class OrchestratorAgent(_BaseAgent):
         "SELF_IMPROVE",
         "SELF_IMPROVEMENT_LOG",
         "SELF_UPDATE",
+        "SELF_PATCH",
+        "SELF_UPGRADE",
+        "SELF_TEST",
+        "EXAMINE_CODE",
         "META_DIAGNOSTIC",
         "IMAGE_STATUS",
         "FRONTIER_STATUS",

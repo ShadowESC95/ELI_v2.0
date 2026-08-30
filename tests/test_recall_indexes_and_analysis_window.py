@@ -175,6 +175,6 @@ def test_a_wider_window_finds_them(engine_with_old_failures):
 def test_the_report_states_its_window_and_the_backlog(engine_with_old_failures):
     from eli.execution.executor_enhanced import execute
     text = execute("SELF_ANALYZE", {}).get("response") or ""
-    assert "last 7 day" in text, "the window is still unstated"
-    assert "7 open failure" in text, "the older backlog is still hidden"
+    assert "last 14 day" in text, "the unified 14-day window should be stated"
+    assert "7 open issue" in text, "the older backlog is still hidden"
     assert "No recent failures found." not in text, "the misleading phrasing survives"

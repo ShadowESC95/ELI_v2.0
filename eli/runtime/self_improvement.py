@@ -21,6 +21,12 @@ from eli.memory import get_memory, Memory
 from eli.utils.log import get_logger
 log = get_logger(__name__)
 
+from eli.runtime.self_maintenance_config import (
+    ANALYSIS_MIN_CLUSTER,
+    DEFAULT_ANALYSIS_DAYS,
+    PATCH_MIN_CLUSTER,
+)
+
 def _eli_canonical_root_PROJECT_ROOT() -> Path:
     # Canonical env-honoring root — __file__ resolves into the read-only
     # bundle in frozen builds (identical to this path in source installs).
@@ -404,7 +410,12 @@ class SelfImprovementEngine:
             except Exception:
                 log.debug("suppressed exception", exc_info=True)
 
-    def analyze_failures(self, limit: int = 50, days: int = 7, min_cluster_size: int = 3) -> List[Dict[str, Any]]:
+    def analyze_failures(
+        self,
+        limit: int = 50,
+        days: int = DEFAULT_ANALYSIS_DAYS,
+        min_cluster_size: int = ANALYSIS_MIN_CLUSTER,
+    ) -> List[Dict[str, Any]]:
         conn = self.memory._get_connection()
         try:
             since = time.time() - (days * 86400)
@@ -640,6 +651,16 @@ class SelfImprovementEngine:
     # ─────────────────────────────────────────────────────────────────────────
     # Code Patching — generate → validate → apply
     # ─────────────────────────────────────────────────────────────────────────
+
+    def _try_deterministic_patch(self, failure: dict) -> dict:
+        """Apply a known rule-based fix when the failure pattern is unambiguous."""
+        try:
+            from eli.runtime.deterministic_failure_patches import propose_deterministic_patch
+            patch = propose_deterministic_patch(failure)
+            return patch if patch else {"ok": False}
+        except Exception as exc:
+            log.debug("[SELF-IMPROVE] deterministic patch lookup failed: %s", exc)
+            return {"ok": False, "error": str(exc)}
 
     def generate_code_patch(self, failure: dict, max_file_chars: int = 5000) -> dict:
         """
@@ -1096,17 +1117,26 @@ class SelfImprovementEngine:
         except Exception as exc:
             return {"ok": False, "message": f"Revert failed: {exc}"}
 
-    def run_patch_cycle(self, max_patches: int = 3, dry_run: bool = False) -> dict:
+    def run_patch_cycle(
+        self,
+        max_patches: int = 3,
+        dry_run: bool = False,
+        *,
+        days: int = DEFAULT_ANALYSIS_DAYS,
+        min_cluster_size: int = PATCH_MIN_CLUSTER,
+    ) -> dict:
         """
         Full automated patch cycle:
-        1. Analyze recurring failures (min 2 occurrences)
-        2. For each, ask LLM to generate a specific code fix
+        1. Analyze recurring failures (default ≥2 occurrences for auto-apply)
+        2. For each, try deterministic rules then LLM code fix
         3. Validate syntax and apply the fix
         4. Report results
 
         Returns a detailed dict with per-patch outcomes.
         """
-        failures = self.analyze_failures(limit=20, days=14, min_cluster_size=2)
+        failures = self.analyze_failures(
+            limit=20, days=int(days), min_cluster_size=int(min_cluster_size),
+        )
 
         results: Dict[str, Any] = {
             "failures_analyzed": len(failures),
@@ -1127,16 +1157,49 @@ class SelfImprovementEngine:
             count = failure.get("occurrence_count", 1)
 
             try:
-                patch = self.generate_code_patch(failure)
-                if not patch.get("ok"):
-                    reason = patch.get("error", "unknown")
+                from eli.runtime.failure_taxonomy import is_actionable
+                tags = {}
+                try:
+                    from eli.runtime.failure_taxonomy import classify
+                    tags = classify(
+                        _safe_str(failure.get("error")),
+                        _safe_str(failure.get("command")),
+                        _safe_str(failure.get("user_input")),
+                    )
+                except Exception:
+                    log.debug("failure classify skipped", exc_info=True)
+                if tags and not is_actionable(tags.get("category", "")):
                     results["patches_skipped"] += 1
                     results["details"].append({
                         "failure": err_preview,
                         "count": count,
+                        "status": "skipped_non_actionable",
+                        "reason": tags.get("category", "network/resource"),
+                    })
+                    continue
+            except Exception:
+                log.debug("actionable filter skipped", exc_info=True)
+
+            try:
+                patch = self._try_deterministic_patch(failure)
+                if not patch:
+                    patch = self.generate_code_patch(failure)
+                if not patch.get("ok"):
+                    reason = patch.get("error") or patch.get("reason") or "unknown"
+                    results["patches_skipped"] += 1
+                    detail = {
+                        "failure": err_preview,
+                        "count": count,
                         "status": "patch_generation_failed",
                         "reason": reason,
-                    })
+                    }
+                    if reason == "no_groundable_file":
+                        detail["hint"] = (
+                            "No Python traceback in this failure — it is a parameter or "
+                            "routing bug, not a crash. Deterministic patches are tried first; "
+                            "if none matched, say which failure to fix or run EXAMINE_CODE."
+                        )
+                    results["details"].append(detail)
                     log.debug(f"[SELF-IMPROVE] Skipped (generation failed): {err_preview[:60]} — {reason}")
                     continue
 

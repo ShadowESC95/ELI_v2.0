@@ -5674,6 +5674,8 @@ def _execute_impl(action: str, args: Optional[Dict[str, Any]] = None) -> Dict[st
         "LIST_DIRECTORY": "LIST_DIR",
         "LIST_CONTENTS": "LIST_DIR",
         "LS": "LIST_DIR",
+        "CREATE_DOC": "CREATE_DOCUMENT",
+        "WRITE_DOCUMENT": "CREATE_DOCUMENT",
     }
     a = _ACTION_ALIASES.get(a, a)
 
@@ -6815,7 +6817,11 @@ def _execute_impl(action: str, args: Optional[Dict[str, Any]] = None) -> Dict[st
             return {"ok": False, "action": a, "error": str(e), "content": str(e), "response": str(e)}
 
     if a == "CREATE_DOCUMENT":
-        topic = (args.get("topic") or args.get("text") or args.get("description") or args.get("prompt") or "").strip()
+        topic = (
+            args.get("topic") or args.get("text") or args.get("description")
+            or args.get("prompt") or args.get("name") or args.get("target")
+            or args.get("title") or args.get("query") or ""
+        ).strip()
         if not topic:
             msg = "Missing topic for document generation"
             return {"ok": False, "action": a, "error": msg, "content": msg, "response": msg}
@@ -8405,8 +8411,9 @@ def _execute_impl(action: str, args: Optional[Dict[str, Any]] = None) -> Dict[st
     if a == "SELF_ANALYZE":
         try:
             from eli.runtime.self_improvement import get_self_improvement
+            from eli.runtime.self_maintenance_config import DEFAULT_ANALYSIS_DAYS
             engine = get_self_improvement()
-            _window_days = int((args or {}).get("days") or 7)
+            _window_days = int((args or {}).get("days") or DEFAULT_ANALYSIS_DAYS)
             failures = engine.analyze_failures(limit=10, days=_window_days,
                                                min_cluster_size=1)
             # State the window. Without it "0 recent issues" reads as "nothing is
@@ -8638,75 +8645,32 @@ def _execute_impl(action: str, args: Optional[Dict[str, Any]] = None) -> Dict[st
         if mode == "analyze" and any(k in _raw_si for k in (
                 "propose", "verified fix", "fix the fail", "coding agent", "fix the failing")):
             mode = "propose"
+        if mode == "analyze" and any(k in _raw_si for k in ("self fix", "apply patch", "patch cycle")):
+            mode = "patch"
         try:
-            from eli.runtime.self_improvement import get_self_improvement
-            engine = get_self_improvement()
+            from eli.runtime.self_maintenance import (
+                fire_maintenance_world_event,
+                run_maintenance_cycle,
+            )
+            from eli.runtime.self_maintenance_config import DEFAULT_ANALYSIS_DAYS
+            cycle = run_maintenance_cycle(
+                mode=str(mode),
+                days=int((args or {}).get("days")) if (args or {}).get("days") else DEFAULT_ANALYSIS_DAYS,
+                max_patches=int((args or {}).get("max_patches", 3) or 3),
+                max_proposals=int((args or {}).get("max_items", 3) or 3),
+                dry_run=bool(dry_run),
+            )
+            msg = str(cycle.get("content") or cycle.get("summary") or "Improvement cycle complete.")
+            fire_maintenance_world_event(cycle)
+            _si_result = {
+                "ok": True,
+                "action": a,
+                "content": msg,
+                "response": msg,
+                "result": cycle,
+            }
             if mode == "propose":
-                # Route through the coding agent (decompose→solve→verify), propose-only.
-                res = engine.propose_via_agent(max_items=int((args or {}).get("max_items", 3) or 3))
-                props = res.get("proposals", [])
-                msg_lines = [f"Coding-agent fix proposals (verified, not applied): {len(props)}"]
-                for p in props:
-                    msg_lines.append(
-                        f"  - {p.get('failure')}: "
-                        f"{'VERIFIED' if p.get('verified') else 'best-effort'} "
-                        f"(score {p.get('score')}) — {p.get('approach') or p.get('message')}")
-                if not props:
-                    msg_lines.append(f"  ({res.get('reason') or res.get('error') or 'nothing to propose'})")
-                msg_lines.append("Say \"apply self-improvement patch\" to apply fixes (gated).")
-                msg = "\n".join(msg_lines)
-                return {"ok": True, "action": a, "content": msg, "response": msg,
-                        "evidence_source": "coding_agent", "result": res}
-            if mode == "patch":
-                result = engine.run_patch_cycle(max_patches=3, dry_run=bool(dry_run))
-                details = result.get("details", [])
-                changed = [
-                    d for d in details
-                    if str(d.get("status", "")).lower() in {"applied", "patched", "changed"}
-                ]
-                msg_lines = [
-                    "Patch improvement cycle complete.",
-                    f"- code_changes_made: {len(changed)}",
-                    f"- failures_analyzed: {result.get('failures_analyzed', 0)}",
-                    f"- dry_run: {bool(dry_run)}",
-                    f"- summary: {result.get('summary', 'Patch cycle complete.')}",
-                ]
-                if details:
-                    msg_lines.append("- patch_details:")
-                    for d in details[:5]:
-                        msg_lines.append(
-                            f"  [{d.get('status','?')}] "
-                            f"{str(d.get('failure',''))[:90]}"
-                        )
-                msg = "\n".join(msg_lines)
-            else:
-                failures = engine.analyze_failures(limit=10, days=14, min_cluster_size=1)
-                result = engine.analyze_and_improve()
-                imps = result.get("improvements", [])
-                msg_lines = [
-                    "Improvement cycle complete.",
-                    "- code_changes_made: 0",
-                    f"- failures_inspected: {len(failures)}",
-                    f"- new_improvement_records: {len(imps)}",
-                    "- patch_cycle_run: false",
-                ]
-                if failures:
-                    last = failures[0]
-                    err = " ".join(str(last.get("error") or "").split())
-                    ui = " ".join(str(last.get("user_input") or "").split())
-                    msg_lines.append(f"- last_failure_error: {err[:220] or '-'}")
-                    msg_lines.append(f"- last_failure_input: {ui[:160] or '-'}")
-                if imps:
-                    msg_lines.append("- logged_improvements:")
-                    msg_lines.extend(f"  - {i.get('description', '')}" for i in imps[:5])
-                msg_lines.append("To modify code, run/apply self-improvement patches.")
-                msg = "\n".join(msg_lines)
-            _si_result = {"ok": True, "action": a, "content": msg, "response": msg}
-            try:
-                from eli.world.world_event_bus import fire_improvement_event as _wfie
-                _wfie(proposal_count=len(imps), failure_count=len(failures))
-            except Exception:
-                log.debug("suppressed exception", exc_info=True)
+                _si_result["evidence_source"] = "coding_agent"
             return _si_result
         except Exception as e:
             return {"ok": False, "action": a, "error": str(e), "content": str(e), "response": str(e)}
@@ -8716,16 +8680,20 @@ def _execute_impl(action: str, args: Optional[Dict[str, Any]] = None) -> Dict[st
         dry_run = (args or {}).get("dry_run", False)
         max_patches = int((args or {}).get("max_patches", 3))
         try:
-            from eli.runtime.self_improvement import get_self_improvement
-            result = get_self_improvement().run_patch_cycle(max_patches=max_patches, dry_run=bool(dry_run))
-            msg = result.get("summary", "Patch cycle complete.")
-            details = result.get("details", [])
-            if details:
-                msg += "\n" + "\n".join(
-                    f"  [{d.get('status','?')}] {d.get('failure','')[:70]}"
-                    for d in details[:5]
-                )
-            return {"ok": True, "action": a, "content": msg, "response": msg}
+            from eli.runtime.self_maintenance import (
+                fire_maintenance_world_event,
+                run_maintenance_cycle,
+            )
+            from eli.runtime.self_maintenance_config import DEFAULT_ANALYSIS_DAYS
+            cycle = run_maintenance_cycle(
+                mode="patch",
+                max_patches=max_patches,
+                dry_run=bool(dry_run),
+                days=int((args or {}).get("days")) if (args or {}).get("days") else DEFAULT_ANALYSIS_DAYS,
+            )
+            msg = str(cycle.get("content") or cycle.get("summary") or "Patch cycle complete.")
+            fire_maintenance_world_event(cycle)
+            return {"ok": True, "action": a, "content": msg, "response": msg, "result": cycle}
         except Exception as e:
             return {"ok": False, "action": a, "error": str(e), "content": str(e), "response": str(e)}
 
@@ -10973,7 +10941,13 @@ def _execute_impl(action: str, args: Optional[Dict[str, Any]] = None) -> Dict[st
         try:
             from eli.kernel.self_upgrade import SelfUpgrader
             inst = SelfUpgrader()
-            result = inst.upgrade(request)
+            _req_low = str(request or "").strip().lower()
+            if _req_low in ("generate_patch", "generate patch") or re.search(
+                r"\b(generate|create)\s+patch\b", _req_low
+            ):
+                result = inst.generate_patch(request)
+            else:
+                result = inst.upgrade(request)
             # If the upgrade request also named files / asked to check/examine/
             # review, run the code examiner and append a tiered report + fix offer.
             try:
