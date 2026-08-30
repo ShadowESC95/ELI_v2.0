@@ -460,6 +460,28 @@ def source_root() -> Path:
     return root
 
 
+def _runtime_overlay_active(root: Path) -> bool:
+    """True when the seeded user tree can shadow bundled eli/ imports."""
+    if not is_frozen():
+        return False
+    try:
+        resolved = root.expanduser().resolve()
+    except Exception:
+        resolved = root
+    root_s = str(resolved)
+    for entry in list(sys.path[:8]):
+        try:
+            if Path(entry).expanduser().resolve() == resolved:
+                return True
+        except Exception:
+            if str(entry).rstrip("/") == root_s.rstrip("/"):
+                return True
+    # Patches write under source_root/eli/ even when eli was first imported from the
+    # bundle; post-apply reload picks up the user copy. Writable tree = overlay-capable.
+    eli_pkg = resolved / "eli"
+    return eli_pkg.is_dir() and os.access(eli_pkg, os.W_OK)
+
+
 def patch_capability() -> dict:
     """Honest report of whether this install can alter live Python source."""
     root = source_root()
@@ -468,7 +490,7 @@ def patch_capability() -> dict:
     frozen = is_frozen()
     writable = bool(eli_pkg.is_dir() and os.access(eli_pkg, os.W_OK))
     explicit_src = bool(os.environ.get("ELI_SOURCE_ROOT", "").strip())
-    runtime_overlay = frozen and str(root) in [str(x) for x in sys.path[:4]]
+    runtime_overlay = _runtime_overlay_active(root)
     kind = "source" if has_git else ("frozen" if frozen else "packaged")
     can_patch = writable and (has_git or frozen or explicit_src)
     hint = ""

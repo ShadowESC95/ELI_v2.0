@@ -29,6 +29,19 @@ def test_fix_those_issues_routes_self_patch():
     assert out["action"] == "SELF_PATCH"
 
 
+def test_self_fix_typo_routes_self_patch():
+    out = route("well do self fixx")
+    assert out["action"] == "SELF_PATCH"
+
+
+def test_close_app_empty_args_not_actionable():
+    from eli.runtime.failure_taxonomy import classify, is_actionable
+
+    tags = classify("missing app name", "CLOSE_APP {}")
+    assert tags["category"] == "user_input"
+    assert not is_actionable(tags["category"])
+
+
 def test_deterministic_patch_already_applied():
     from eli.runtime.deterministic_failure_patches import propose_deterministic_patch
 

@@ -8432,6 +8432,12 @@ def _execute_impl(action: str, args: Optional[Dict[str, Any]] = None) -> Dict[st
             def _llm_root_cause(ui, err):
                 # Infer a real cause for failures the hardcoded signatures don't cover —
                 # reuses the inference broker (which auto-yields on background threads).
+                low = f"{ui}\n{err}".lower()
+                if any(x in low for x in (
+                    "missing app name", "missing topic", "give the voice a name",
+                    "couldn't tell which voice", "specify app",
+                )):
+                    return None
                 if _rc_llm_budget[0] <= 0:
                     return None
                 try:
@@ -8465,6 +8471,23 @@ def _execute_impl(action: str, args: Optional[Dict[str, Any]] = None) -> Dict[st
                 ui = str(failure.get("user_input") or "")
                 err = str(failure.get("error") or "")
                 low = f"{ui}\n{err}".lower()
+                if "missing topic for document generation" in low:
+                    return (
+                        "CREATE_DOCUMENT was called without topic/name/target — "
+                        "fixed in current builds via alias fallbacks."
+                    )
+                if "missing app name" in low:
+                    return (
+                        "CLOSE_APP ran with empty args; the app name must be supplied "
+                        "by the user or router."
+                    )
+                if "give the voice a name" in low or "couldn't tell which voice" in low:
+                    return _descriptive_cause(err)
+                if "no such file or directory" in low and re.search(r"['\"]engine['\"]", low):
+                    return (
+                        "SHELL_EXEC tried to run a command not on PATH — likely a user "
+                        "typo, not an ELI code defect."
+                    )
                 if "path not found" in low and "artifacts/scripts" in low:
                     return (
                         "Path resolution selected a project-root/basename target before the "
