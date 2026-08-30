@@ -1979,7 +1979,12 @@ def route(text: str, _clause_depth: int = 0) -> Dict[str, Any]:
 
     # --- explicit grounded speech-act route authority ---
     # This is routing authority, not a canned response layer.
-    if re.search(r"\b(i did not ask|i didn't ask|not what i asked|that's not what i asked|that is not what i asked)\b", low):
+    if re.search(
+        r"\b(i did not ask|i didn't ask|not what i asked|that's not what i asked|that is not what i asked|"
+        r"answer properly|did not ask for a data dump|data dump|what are you talking about|"
+        r"why did you send|stop giving me data)\b",
+        low,
+    ):
         return _mk("CHAT", {"message": raw}, 0.92, matched_by="router.correction_chat", allow_chat_without_evidence=True)
 
     if re.search(r"\b(who are you|what are you|what is your name|what's your name)\b", low) and re.search(
@@ -6574,7 +6579,20 @@ def _eli_phase38_final_memory_question_contract(raw):
     low = _re.sub(r"\s+", " ", str(raw or "").lower()).strip()
 
     _mem_kw = ("memory" in low or "memori" in low)
+    # Compliments ("how well your memory is working") are casual CHAT — not
+    # requests for the memory-internals audit (which dumps grounded counts).
+    _memory_compliment = bool(
+        _re.search(
+            r"\b(how well|scary how well|pretty well|so well|working well|works well|"
+            r"working great|memory is working|remembering well)\b",
+            low,
+        )
+        or _re.search(r"\b(good job|well done|impressive|scary)\b.{0,40}\b(memory|remembering)\b", low)
+        or _re.search(r"\bhow\s+well\b.{0,40}\b(memory|remembering)\b", low)
+    )
     asks_memory_internals = (
+        not _memory_compliment
+        and (
         "memory system" in low
         or "memory internals" in low
         or "memory pipeline" in low
@@ -6586,10 +6604,11 @@ def _eli_phase38_final_memory_question_contract(raw):
         or (
             _mem_kw
             and _re.search(r"\b(how|explain|describe|walk me through|break ?down|outline|detail)\b", low)
+            and not _re.search(r"\bhow\s+well\b", low)
             and _re.search(
                 r"\b(work|works|working|function|functions|operate|store|storage|stored|"
                 r"recall|retriev|pipeline|architecture|internal|internally|flow|mechanism|"
-                r"start to finish|end to end)\b", low)
+                r"start to finish|end to finish|end to end)\b", low)
         )
         # Mechanism / recall+storage phrasing — common as a follow-up that omits
         # the word "memory" entirely ("the full info, all paths, databases,
@@ -6602,6 +6621,7 @@ def _eli_phase38_final_memory_question_contract(raw):
         # Explicit mechanism names → unmistakably about the retrieval/storage stack.
         or _re.search(r"\b(faiss|fts5?|knowledge graph|kg|hyde|rag|vector store|embedder|"
                       r"vector index|dag pipeline)\b", low)
+        )
     )
 
     asks_personal_memory = (

@@ -556,14 +556,19 @@ def _strip_reasoning_scaffold(text: str) -> str:
 
 
 def _strip_special_tokens(text: str) -> str:
-    t = text or ""
-    for tok in ("[INST]", "[/INST]", "<s>", "</s>",
-                "<|im_start|>", "<|im_end|>", "<|endoftext|>"):
-        t = t.replace(tok, "")
-    # Strip ChatML role lines leaked into the response
-    # e.g. "user\nHey eli...\nassistant\n" or "system\n...\nuser\n"
-    t = re.sub(r"^(?:system|user|assistant)\n", "", t, flags=re.I)
-    return t.strip()
+    try:
+        from eli.cognition.model_output_tokens import strip_special_tokens as _strip_all
+        return _strip_all(text)
+    except Exception:
+        t = text or ""
+        for tok in ("[INST]", "[/INST]", "<s>", "</s>",
+                    "<|im_start|>", "<|im_end|>", "<|endoftext|>",
+                    "<|end_of_turn|>", "<end_of_turn>", "<start_of_turn>", "</start_of_turn>"):
+            t = t.replace(tok, "")
+        t = re.sub(r"<\|end_of_turn\|>", "", t, flags=re.I)
+        t = re.sub(r"</?start_of_turn>", "", t, flags=re.I)
+        t = re.sub(r"^(?:system|user|assistant)\n", "", t, flags=re.I)
+        return t.strip()
 
 
 _ELI_MAX_INPUT_LEN = int(__import__("os").environ.get("ELI_MAX_INPUT_LEN", "8192"))
@@ -1360,7 +1365,11 @@ def _classify_query(text: str, action: str) -> str:
         return "GROUNDED"
 
     # CORRECTION: user is correcting the previous answer; answer the corrected request only.
-    if re.search(r"\b(i did not ask|i didn't ask|not what i asked|that's not what i asked|that is not what i asked|what are you talking about)\b", low):
+    if re.search(
+        r"\b(i did not ask|i didn't ask|not what i asked|that's not what i asked|that is not what i asked|"
+        r"what are you talking about|answer properly|data dump|stop giving me data|why did you send)\b",
+        low,
+    ):
         return "CORRECTION"
 
     # PHATIC: greetings, check-ins, and short acknowledgements
@@ -9301,10 +9310,10 @@ Answer:"""
         # diagnostics. But scope is not the same as amnesia — it needs the
         # referent to repair.
         _prior = ""
+        _prev_user, _prev_eli = "", ""
         try:
             _turns = self.memory.get_recent_conversation(
                 limit=6, user_id=self.user_id) or []
-            _prev_user, _prev_eli = "", ""
             for _t in reversed(_turns):
                 _role = str(_t.get("role") or "").strip().lower()
                 _content = str(_t.get("content") or "").strip()
@@ -9325,6 +9334,17 @@ Answer:"""
         except Exception:
             log.debug("[COGNITIVE] correction: prior turn lookup failed", exc_info=True)
 
+        _low_corr = (user_input or "").lower()
+        _reject_data_dump = bool(
+            re.search(
+                r"\b(data dump|did not ask for|didn't ask for|not what i asked|"
+                r"answer properly|stop giving me data|why did you send)\b",
+                _low_corr,
+            )
+        )
+        if _reject_data_dump and _prev_user:
+            _corr_target = _prev_user
+
         _corr_system = (
             "You are ELI. Current speech act: CORRECTION_REPAIR. "
             "The user is correcting your previous answer. Answer only the corrected request. "
@@ -9333,6 +9353,12 @@ Answer:"""
             "If the user is asking what you meant, say what you meant in plain terms — "
             "do not ask them to clarify a question about your own previous answer."
         )
+        if _reject_data_dump:
+            _corr_system += (
+                " Your last reply wrongly dumped memory/runtime statistics or internal diagnostics. "
+                "Re-answer the user's ORIGINAL message conversationally, in ELI's voice. "
+                "No counts, no bullet lists of stores, no 'as an AI' or 'language model' disclaimers."
+            )
         if _prior:
             _corr_system = _prior + _corr_system
 
@@ -9362,28 +9388,50 @@ Answer:"""
                 self._gguf_load_error = None
         if self._gguf_available and gguf_inference is not None:
             try:
+                from eli.cognition.gguf_inference import force_no_think as _fnt_corr
                 broker = _get_inference_broker() if _get_inference_broker else None
-                if broker and broker.gguf_ready:
-                    _corr_response = broker.infer(
-                        _corr_target,
-                        system=_corr_system,
-                        max_tokens=_corr_max,
-                        temperature=0.35,
-                    )
-                else:
-                    with self._gguf_lock:
-                        _corr_response = gguf_inference.chat_completion(
+                with _fnt_corr():
+                    if broker and broker.gguf_ready:
+                        _corr_response = broker.infer(
                             _corr_target,
                             system=_corr_system,
                             max_tokens=_corr_max,
                             temperature=0.35,
                         )
+                    else:
+                        with self._gguf_lock:
+                            _corr_response = gguf_inference.chat_completion(
+                                _corr_target,
+                                system=_corr_system,
+                                max_tokens=_corr_max,
+                                temperature=0.35,
+                            )
             except Exception as _ce:
                 log.debug(f"[COGNITIVE] Correction GGUF call failed: {_ce}")
                 _corr_response = None
 
         if _corr_response:
-            _corr_response = _normalize_assistant_text(_corr_target, _corr_response.strip())
+            try:
+                from eli.cognition.gguf_inference import _clean_eli_output as _clean_corr
+                _corr_response = _clean_corr(_corr_response.strip())
+            except Exception:
+                _corr_response = (_corr_response or "").strip()
+            _corr_response = _normalize_assistant_text(_corr_target, (_corr_response or "").strip())
+            try:
+                from eli.cognition.model_output_tokens import is_persona_drift
+                if is_persona_drift(_corr_response or ""):
+                    log.debug("[COGNITIVE] Correction: persona drift after repair, escalating")
+                    return None
+            except Exception:
+                _drift_heads = (
+                    "i'm just a large language model",
+                    "i am just a large language model",
+                    "as a large language model",
+                    "how can you help me today",
+                )
+                if (_corr_response or "").lower().strip().startswith(_drift_heads):
+                    log.debug("[COGNITIVE] Correction: persona drift after repair, escalating")
+                    return None
             try:
                 _corr_response = govern_output(_corr_response or "", is_grounded=False).strip()
             except Exception:

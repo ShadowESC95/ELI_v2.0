@@ -27,9 +27,9 @@ like and it tunes itself to the hardware you've got, from a laptop to a multi-GP
 <img src=".github/screenshots/gui-onboarding.png" alt="ELI desktop app — first-run onboarding conversation with a local 35B model" width="880">
 </div>
 
-> **v2.3.52 — unified self-maintenance + grounded failure reports.** One orchestrator for
-> self analyse/improve/fix/patch; failure logs return verbatim (no GGUF truncation); deterministic
-> patches for alias/parameter bugs; 14-day analysis window aligned across all self-* verbs.
+> **v2.3.53 — cross-model GGUF voice + conversational routing fixes.** Canonical output
+> cleaning for every chat template (ChatML, Llama-3, Mistral, Gemma, Phi, GLM); memory
+> compliments stay chat (no stats dump); correction repair re-answers your actual question.
 > Grab it from **[Releases](https://github.com/ShadowESC95/ELI_v2.0/releases/latest)**.
 >
 > **v2 is live software, not a polished product drop.** ELI touches real hardware, and
@@ -440,7 +440,7 @@ SECURITY.md, not in a public issue.
 
 ## Tested on & known limitations
 
-*Last updated 2026-08-30 (v2.3.52).*
+*Last updated 2026-08-30 (v2.3.53).*
 
 I'd rather tell you exactly what I've run than pretend it's flawless everywhere.
 

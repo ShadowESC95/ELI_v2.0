@@ -19,7 +19,9 @@ def test_tier_from_env_override(monkeypatch):
 
 
 def test_embedded_template_family_detection():
-    cases = {"<|im_start|>": "chatml", "<|start_header_id|>": "llama",
+    cases = {"<|im_start|>": "chatml", "[gMASK]<|user|>": "glm",
+             "<|observation|>": "glm",
+             "<|start_header_id|>": "llama",
              "<start_of_turn>": "gemma", "[INST]": "mistral",
              "<|assistant|>": "phi", "novel{{x}}": None}
     for tmpl, expect in cases.items():
