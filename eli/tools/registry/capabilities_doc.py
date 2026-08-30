@@ -235,6 +235,7 @@ _add("Memory & profile", "SET_USER_NAME", "Set/correct the user's name", "“my 
 _add("Self-maintenance", "SELF_ANALYZE", "Analyse own failures/metrics", "“analyse your failures”")
 _add("Self-maintenance", "SELF_IMPROVE", "Run a self-improvement patch cycle", "“improve yourself”")
 _add("Self-maintenance", "SELF_PATCH", "Apply a self-improvement patch", "“patch yourself”")
+_add("Self-maintenance", "SELF_REPAIR_PLAYBOOK", "Grounded repair decision guide (self help)", "“self help”", "“repair playbook”", "“maintenance playbook”")
 _add("Self-maintenance", "SELF_IMPROVEMENT_LOG", "Show the self-improvement log", "“show your self-improvement log”")
 _add("Self-maintenance", "SELF_UPGRADE", "git pull → deps → rebuild indexes", "“upgrade yourself”")
 _add("Self-maintenance", "SELF_UPDATE", "Self-update (control-contract)", "“update yourself”")

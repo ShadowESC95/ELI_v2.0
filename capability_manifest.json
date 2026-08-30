@@ -1,6 +1,6 @@
 {
-  "generated_at": "2026-08-28T15:59:02",
-  "total": 225,
+  "generated_at": "2026-08-31T00:49:25",
+  "total": 226,
   "capabilities": [
     {
       "action": "ADD_EVENT",
@@ -1651,6 +1651,15 @@
     },
     {
       "action": "SELF_PATCH",
+      "source": "executor+router",
+      "active": true,
+      "plugin": null,
+      "routable": true,
+      "in_dispatch": true,
+      "in_supported_list": true
+    },
+    {
+      "action": "SELF_REPAIR_PLAYBOOK",
       "source": "executor+router",
       "active": true,
       "plugin": null,
