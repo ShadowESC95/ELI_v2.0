@@ -25,10 +25,10 @@ def test_force_no_think_forces_closed_think_on_a_reasoning_model(monkeypatch):
     assert ggi._no_think_prefill(structured=False, max_tokens=4096) == ""
 
 
-def test_force_no_think_is_a_noop_for_non_reasoning_models(monkeypatch):
+def test_force_no_think_applies_prefill_even_on_unknown_reasoning_models(monkeypatch):
     monkeypatch.setattr(ggi, "_is_thinking_model", lambda: False)
     with ggi.force_no_think():
-        assert ggi._no_think_prefill(structured=False, max_tokens=4096) == ""
+        assert ggi._no_think_prefill(structured=False, max_tokens=512) == "<think>\n\n</think>\n\n"
 
 
 class _StubEngine:

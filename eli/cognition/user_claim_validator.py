@@ -21,6 +21,7 @@ _USER_ATTRIBUTION_RXES: List[tuple[re.Pattern[str], str]] = [
     (re.compile(r"\byou (?:like|love|prefer|hate|enjoy)\b", re.I), "preference"),
     (re.compile(r"\byour (?:favourite|favorite|preferred)\b", re.I), "preference"),
     (re.compile(r"\bwhen you (?:said|mentioned|told)\b", re.I), "user_fact"),
+    (re.compile(r"\byou (?:said|told me).{0,40}\blast week\b", re.I), "user_fact"),
     (re.compile(r"\bback when you\b", re.I), "life_event"),
     (re.compile(r"\byou(?:'ve| have) been (?:working|dealing|struggling)\b", re.I), "life_event"),
 ]

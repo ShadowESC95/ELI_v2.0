@@ -293,7 +293,9 @@ def _is_thinking_model(model_path: Optional[Path] = None) -> bool:
         name = str(_ov.get("model_name") or _ov.get("model_path") or "").lower()
         if not name:
             name = str(get_model_path() or "").lower()
-    return any(k in name for k in ("qwen3", "deepseek-r1", "r1-distill", "qwq", "-r1-", "glm-4", "glm4"))
+    return any(k in name for k in (
+        "qwen3", "deepseek-r1", "r1-distill", "qwq", "-r1-", "glm-4", "glm4", "ornith",
+    ))
 
 
 # Thread-local "force no-think" scope. Some large-budget calls (e.g. grounded-evidence
@@ -333,13 +335,16 @@ def _no_think_prefill(*, structured: bool, max_tokens) -> str:
     judge / summary / quick utility), and any call inside a `force_no_think()` scope. The
     MAIN answer call (large budget) keeps thinking unless ELI_MODEL_THINK=0. '' (no-op)
     for non-reasoning models or when thinking is wanted."""
-    if not _is_thinking_model():
-        return ""
     _glm = _is_glm_model(None)
     _closed_think = "<think>\n\n</think>\n\n"
     _open_think = "<think>\n\n"
+    # Utility scopes (correction repair, routing, summaries) must suppress thinking
+    # even on models not yet in the name heuristic (e.g. Ornith) — otherwise the
+    # whole budget burns inside an unclosed  block and cleaning returns empty.
     if _force_no_think_active():
         return _closed_think if _glm else "<think>\n\n</think>\n\n"
+    if not _is_thinking_model():
+        return ""
     try:
         _small = 0 < int(max_tokens or 0) < 1024
     except Exception:
@@ -443,19 +448,33 @@ def _canonical_eli_persona() -> str:
     return "You are ELI, a local reasoning and automation assistant. Be direct, accurate, grounded, privacy-preserving, and useful."
 
 def _strip_think_text(t: str) -> str:
-    """Remove a <think>…</think> reasoning block (or an unterminated one) from text.
-    Reasoning models (Qwen3 / Qwen3.x-A3B, DeepSeek-R1, …) emit a PRIVATE
-    chain-of-thought before the answer that must never surface. Keeps whatever
-    follows the last </think>; drops a never-closed think outright. Model-agnostic —
-    a no-op for models that don't think."""
-    if "<think" not in (t or "").lower():
+    """Remove a reasoning block from text before user-visible cleaning.
+
+    Handles ``<think>``, ``<think>``, and unclosed blocks. Model-agnostic —
+    no-op when no thinking markers are present."""
+    t = str(t or "")
+    if not t.strip():
         return t
-    t = re.sub(r"(?is)<think\s*>.*?</think\s*>", "", t)
-    if "</think>" in t.lower():
+    low = t.lower()
+    if "<think" not in low and "redacted_thinking" not in low:
+        return t
+    # Closed blocks first (both common tag spellings).
+    t = re.sub(r"(?is)<redacted_thinking\b[^>]*>.*?</redacted_thinking\s*>", "", t)
+    t = re.sub(r"(?is)<think\b[^>]*>.*?</think\s*>", "", t)
+    # Unclosed / truncated: keep whatever follows the last close tag.
+    if re.search(r"(?i)</redacted_thinking\s*>", t):
+        t = re.split(r"(?i)</redacted_thinking\s*>", t)[-1]
+    elif re.search(r"(?i)</think\s*>", t):
         t = re.split(r"(?i)</think\s*>", t)[-1]
-    elif "<think" in t.lower():
-        t = re.split(r"(?i)<think\s*>", t)[0]
-    return re.sub(r"(?i)</?think\s*>", "", t).strip()
+    elif re.search(r"(?i)<redacted_thinking\b", t):
+        t = re.split(r"(?i)<redacted_thinking\b[^>]*>", t)[0]
+    elif re.search(r"(?i)<think\b", t):
+        t = re.split(r"(?i)<think\b[^>]*>", t)[0]
+    return re.sub(
+        r"(?i)</?redacted_thinking\b[^>]*>|</?think\b[^>]*>",
+        "",
+        t,
+    ).strip()
 
 
 def _clean_eli_output(text: str) -> str:
@@ -528,24 +547,23 @@ def _strip_think_stream(chunks):
         buf += raw
         low = buf.lstrip().lower()
         if mode == "suppress":
-            if "</think>" in low:
-                after = re.split(r"(?i)</think\s*>", buf, maxsplit=1)[-1]
+            if re.search(r"(?i)</(?:redacted_thinking|think)\s*>", buf):
+                after = re.split(r"(?i)</(?:redacted_thinking|think)\s*>", buf, maxsplit=1)[-1]
                 buf, mode = "", "pass"
                 if after.strip():
                     yield {"response": after}
             continue
-        # detect: is this a thinking model emitting <think> first?
-        if low.startswith("<think"):
+        # detect: is this a thinking model emitting a reasoning block first?
+        if low.startswith("<think") or low.startswith("<redacted_thinking"):
             mode = "suppress"
-            if "</think>" in low:
-                after = re.split(r"(?i)</think\s*>", buf, maxsplit=1)[-1]
+            if re.search(r"(?i)</(?:redacted_thinking|think)\s*>", buf):
+                after = re.split(r"(?i)</(?:redacted_thinking|think)\s*>", buf, maxsplit=1)[-1]
                 buf, mode = "", "pass"
                 if after.strip():
                     yield {"response": after}
             continue
-        # still undecided (leading whitespace, or a partial prefix of "<think")?
-        # keep buffering up to a small cap; otherwise it's not a thinker → flush.
-        if (low == "" or "<think".startswith(low)) and len(buf) < 12:
+        # still undecided (leading whitespace, or a partial prefix)?
+        if (low == "" or "<think".startswith(low) or "<redacted_thinking".startswith(low)) and len(buf) < 24:
             continue
         mode = "pass"
         yield {"response": buf}
