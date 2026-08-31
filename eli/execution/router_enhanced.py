@@ -339,7 +339,7 @@ def _eli_shell_prepass(user_text: str):
                 "meta": {"matched_by": "shell.prior_block_followup"},
             }
     except Exception:
-        pass
+        _SWLOG.debug("suppressed exception", exc_info=True)
     # Timestamp investigation — run real clock diagnostics, never fake bash in CHAT.
     _low = _re.sub(r"\s+", " ", text.lower())
     if _re.search(
