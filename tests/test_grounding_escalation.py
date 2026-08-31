@@ -259,3 +259,12 @@ def test_orchestrator_has_pre_generation_escalation():
     from eli.cognition.orchestrator import AgentOrchestrator
     src = inspect.getsource(AgentOrchestrator.run)
     assert "_maybe_grounding_escalate" in src
+
+
+def test_correction_turn_with_pop_culture_does_not_web_escalate(monkeypatch):
+    """User correcting ELI's recency must not trigger Spider-Man web lookup."""
+    monkeypatch.setattr(C, "network_allowed", lambda: True)
+    q = "spider man was today, can you not read a fucking timestamp?!"
+    assert G.classify_web_candidate(q) is False
+    assert G.classify_factual(q) == (False, "none")
+    assert G.escalate(_FakeEngine(), q, {"action": "CHAT"}, _FakeBus(0.18)) is None

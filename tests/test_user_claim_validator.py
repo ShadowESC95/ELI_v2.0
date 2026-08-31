@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 from eli.cognition.user_claim_validator import (
+    extract_current_user_activity,
     extract_user_attribution_sentences,
     validate_user_claims_against_evidence,
 )
@@ -64,3 +65,20 @@ def test_wrong_show_when_user_watching_spiderman():
         user_input=user,
     )
     assert verdict["unsafe"] is True
+
+
+def test_temporal_anchor_from_was_today():
+    assert "spider man" in extract_current_user_activity(
+        "spider man was today, can you not read a timestamp?!"
+    ).lower()
+
+
+def test_stale_last_week_stripped_when_user_said_today():
+    user = "spider man was today, can you not read a timestamp?!"
+    out = (
+        "Yeah — I checked the session logs, and last week you were genuinely "
+        "concerned about my sanity."
+    )
+    verdict = validate_user_claims_against_evidence(out, evidence="", user_input=user)
+    assert verdict["unsafe"] is True
+    assert "last week" not in verdict["sanitized"].lower()

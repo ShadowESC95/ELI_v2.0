@@ -281,11 +281,16 @@ def classify_factual(text: str) -> Tuple[bool, str]:
     # cleaned text; keep `low` for the fact patterns (which are profanity-neutral).
     low_clean = _INTENSIFIER_STRIP_RE.sub(" ", low)
     low_clean = re.sub(r"\s+", " ", low_clean).strip()
+    try:
+        from eli.cognition.correction_patterns import is_correction_query as _is_corr
+        _dispute_turn = _is_corr(raw)
+    except Exception:
+        _dispute_turn = False
     if (_BANTER_RE.search(low_clean) or _OPINION_RE.search(low_clean)
             or _ADVICE_RE.search(low_clean)
             or _COMMAND_RE.search(low_clean) or _META_SELF_RE.search(low_clean)
             or _RELATIONAL_VENT_RE.search(low_clean)
-            or _CONV_META_RE.search(low_clean)):
+            or _CONV_META_RE.search(low_clean) or _dispute_turn):
         return (False, "none")
 
     is_fact = bool(
@@ -313,6 +318,12 @@ def classify_web_candidate(text: str) -> bool:
         return False
     low_clean = _INTENSIFIER_STRIP_RE.sub(" ", low)
     low_clean = re.sub(r"\s+", " ", low_clean).strip()
+    try:
+        from eli.cognition.correction_patterns import is_correction_query as _is_corr_wc
+        if _is_corr_wc(raw):
+            return False
+    except Exception:
+        log.debug("suppressed exception", exc_info=True)
     if (_BANTER_RE.search(low_clean) or _OPINION_RE.search(low_clean)
             or _ADVICE_RE.search(low_clean) or _COMMAND_RE.search(low_clean)
             or _META_SELF_RE.search(low_clean) or _RELATIONAL_VENT_RE.search(low_clean)

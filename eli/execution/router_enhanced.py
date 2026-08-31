@@ -2156,9 +2156,20 @@ def route(text: str, _clause_depth: int = 0) -> Dict[str, Any]:
     # "train my voice" and "voice diagnostics" have already returned.
     # ── Tone / emotion register (shades ELI's delivery; core personality unchanged) ──
     # CLEAR first ("back to normal", "be yourself", "drop the tone").
+    # "are you back to normal yet?" is a rapport check-in (CHAT), not a command
+    # to drop a pinned tone — live: that phrasing routed to CLEAR_TONE and skipped
+    # the orchestrator entirely.
     if re.search(r"\b(back to (normal|yourself)|be yourself|normal tone|drop the (tone|act|voice)"
                  r"|stop (that|the tone|acting)|reset your tone|clear (the )?tone)\b", low):
-        return _mk("CLEAR_TONE", {}, 0.9, matched_by="tone.clear")
+        _tone_status_q = (
+            re.search(r"\b(?:are you|is it|have you)\b.*\bback to (?:normal|yourself)\b", low)
+            or (
+                re.search(r"\bback to (?:normal|yourself)\b", low)
+                and ("?" in (raw or "") or re.search(r"\b(?:yet|or not)\b", low))
+            )
+        )
+        if not _tone_status_q:
+            return _mk("CLEAR_TONE", {}, 0.9, matched_by="tone.clear")
     # SET — an explicit tone directive that names a palette tone/alias. Gated on BOTH
     # a tone-setting verb AND the phrase resolving to a real tone, so "be comedic" /
     # "talk street" / "sound more professional" fire, but a passing mention

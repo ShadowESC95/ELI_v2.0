@@ -1067,6 +1067,12 @@ def _is_brief_phatic_prompt(text: str) -> bool:
         for pat in _casual_patterns:
             if re.match(pat, normalized):
                 return True
+    # Longer check-ins: "are you back to normal yet, or not?" — still rapport, not CLEAR_TONE.
+    if n <= 10 and re.match(
+        r"^(?:are |r )?you back to (?:normal|yourself)(?: yet|, or not)?(?:\?)?$",
+        normalized,
+    ):
+        return True
 
     # Identity/self-awareness questions — phatic if combined with a greeting
     _identity_only = {
@@ -9027,8 +9033,9 @@ Answer:"""
                 _extra_blocks.append(
                     "[CURRENT TURN — authoritative] The user just said they are "
                     f"{_turn_activity}. Do NOT substitute a different show, movie, "
-                    "game, or hobby from memory or profile. Respond to what they "
-                    "actually said they are doing right now."
+                    "game, or hobby from memory or profile, and do NOT say 'last week' "
+                    "when they said today/yesterday/just now. Respond to what they "
+                    "actually said this turn."
                 )
         except Exception:
             log.debug("suppressed exception", exc_info=True)
@@ -9431,6 +9438,7 @@ Answer:"""
             "The user is correcting your previous answer. Answer only the corrected request. "
             "Do not introduce memory, runtime, files, diagnostics, identity, projects, or specifications unless the corrected request explicitly asks for them. "
             "Never attribute quotes or past statements to the user unless they appear verbatim in the exchange below. "
+            "Do not output shell commands or pretend to run journalctl/diagnostics unless explicitly asked. "
             "Keep the reply direct and natural. "
             "If the user is asking what you meant, say what you meant in plain terms — "
             "do not ask them to clarify a question about your own previous answer."

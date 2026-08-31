@@ -20,6 +20,23 @@ CORRECTION_QUERY_RE = re.compile(
     re.IGNORECASE,
 )
 
+# User correcting ELI's recency ("that was today", "not last week").
+TEMPORAL_CORRECTION_RE = re.compile(
+    r"\b(?:was|is)\s+(?:today|yesterday|this morning|this evening|just now|earlier today)\b"
+    r"|\bnot\s+last\s+week\b"
+    r"|\bthat\s+was\s+(?:today|yesterday)\b",
+    re.I,
+)
+
+# Complaints that ELI failed to read time/timestamps in the conversation.
+META_CAPABILITY_COMPLAINT_RE = re.compile(
+    r"\b(?:can(?:'t| not)|cannot|won't|will not)\s+(?:you\s+)?(?:read|parse|see|get)\b"
+    r".{0,50}\b(?:timestamp|time|date|clock)\b"
+    r"|\b(?:read|parse)\s+(?:a\s+)?(?:fucking\s+)?timestamp\b"
+    r"|\bcan you not read\b",
+    re.I,
+)
+
 BIOGRAPHICAL_DISPUTE_RE = re.compile(
     r"\b("
     r"what do you mean|what wild night|what night|i never|didn't have|"
@@ -33,7 +50,16 @@ BIOGRAPHICAL_DISPUTE_RE = re.compile(
 
 
 def is_correction_query(text: str) -> bool:
-    return bool(CORRECTION_QUERY_RE.search(str(text or "")))
+    s = str(text or "")
+    if CORRECTION_QUERY_RE.search(s):
+        return True
+    if META_CAPABILITY_COMPLAINT_RE.search(s):
+        return True
+    if TEMPORAL_CORRECTION_RE.search(s) and re.search(
+        r"\b(?:you|eli|wrong|not|can(?:'t| not)|cannot)\b", s, re.I
+    ):
+        return True
+    return False
 
 
 def is_biographical_dispute(text: str) -> bool:

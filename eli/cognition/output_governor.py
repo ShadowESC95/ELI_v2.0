@@ -99,6 +99,45 @@ def strip_fabricated_action_claims(text: str) -> str:
     return _FAKE_TOOL_CONFIRMATION_RE.sub("", str(text or ""))
 
 
+_DIAG_SHELL_CMD_RE = re.compile(
+    r"\b(journalctl|systemctl|grep\s+-[a-z]*i\b|/var/log|~/?\.eli/logs)\b",
+    re.I,
+)
+_CODE_FENCE_RE = re.compile(r"```(?:[\w+-]*)\n[\s\S]*?```", re.MULTILINE)
+
+
+def strip_fabricated_diagnostic_shell(text: str) -> str:
+    """Drop invented bash blocks (journalctl/grep) on conversational turns."""
+    body = str(text or "")
+    if "```" not in body:
+        return body
+    stripped_any = False
+
+    def _repl(m: re.Match[str]) -> str:
+        nonlocal stripped_any
+        block = m.group(0)
+        if _DIAG_SHELL_CMD_RE.search(block):
+            stripped_any = True
+            return ""
+        return block
+
+    cleaned = _CODE_FENCE_RE.sub(_repl, body)
+    cleaned = re.sub(r"\n{3,}", "\n\n", cleaned).strip()
+    if not stripped_any:
+        return body
+    if len(cleaned.split()) >= 3:
+        return cleaned
+    cleaned = re.sub(
+        r"(?im)^.*(?:let me check|i'll (?:check|run|look at)|check the actual).*?\n+",
+        "",
+        body,
+    )
+    cleaned = _CODE_FENCE_RE.sub(_repl, cleaned).strip()
+    if len(cleaned.split()) >= 3:
+        return cleaned
+    return "You're right — I got the timing wrong. My mistake."
+
+
 # ── repeated clarification ────────────────────────────────────────────────
 # Live session: the user said "I am making a list of things that need fixing in
 # your codebase and testing edge cases", and over the next six turns ELI asked
@@ -452,6 +491,7 @@ def govern_output(text: str, is_grounded: bool = False,
     # No-Fake-Actions: drop fabricated "[… command executed …]" tool-confirmations the model
     # invents when narrating an action that never actually ran (model-agnostic guard).
     result = strip_fabricated_action_claims(result).strip()
+    result = strip_fabricated_diagnostic_shell(result).strip()
     # A token-capped answer must not ship an empty trailing bullet. The engine's
     # re-generation repair is deliberately non-quick only (a second inference
     # would defeat quick mode's latency), so quick answers reached the user
