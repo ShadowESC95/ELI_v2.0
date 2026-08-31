@@ -1373,12 +1373,16 @@ def _classify_query(text: str, action: str) -> str:
         return "GROUNDED"
 
     # CORRECTION: user is correcting the previous answer; answer the corrected request only.
-    if re.search(
-        r"\b(i did not ask|i didn't ask|not what i asked|that's not what i asked|that is not what i asked|"
-        r"what are you talking about|answer properly|data dump|stop giving me data|why did you send)\b",
-        low,
-    ):
-        return "CORRECTION"
+    try:
+        from eli.cognition.correction_patterns import is_correction_query as _is_corr_q
+        if _is_corr_q(low):
+            return "CORRECTION"
+    except Exception:
+        if re.search(
+            r"\b(i did not ask|i didn't ask|not what i asked|what are you talking about)\b",
+            low,
+        ):
+            return "CORRECTION"
 
     # PHATIC: greetings, check-ins, and short acknowledgements
     # _is_brief_phatic_prompt now handles up to 16 words
@@ -6171,7 +6175,7 @@ Answer:"""
             "- For repair/audit complaints, use this shape unless the user asks otherwise: actual cause, evidence checked, change made or proposed, verification.\n"
             "- Avoid filler like 'How can I make your day easier today?' unless it is genuinely appropriate.\n"
             "- CONVERSATION ATTRIBUTION: In conversation history, turns labelled 'ELI:', 'Assistant:', or similar are things YOU said — not the user. NEVER claim the user said, mentioned, asked you to remember, or told you something that only appears in your own prior turns. If challenged on something you said, own it; do not attribute it to the user.\n"
-            "- INVENTED PREFERENCES: Do not assert that the user has a preference, habit, or memory (e.g. 'you like coffee', 'you always', 'you mentioned X') unless it is explicitly present in MEMORY SEARCH RESULTS or the user stated it clearly in this conversation. Free wit and cultural references in casual chat are fine; fabricated user preferences are not.\n"
+            "- INVENTED PREFERENCES: Do not assert that the user has a preference, habit, memory, or life event (e.g. 'you like coffee', 'you always', 'you mentioned X', 'you had a wild night', 'you've been through a lot') unless it is explicitly present in MEMORY SEARCH RESULTS or the user stated it clearly in this conversation. Free wit and cultural references in casual chat are fine; fabricated user preferences or biography are not.\n"
             "- NO INVENTED SELF-MECHANISM: When asked HOW you work internally — your calibration, confidence scoring, reasoning, memory, or 'what changed/improved' about your own cognition — describe ONLY mechanisms actually present in the provided runtime/cognition evidence or real module names from your codebase. NEVER fabricate named algorithms, mathematical formulas, metrics, thresholds, or 'recalibration functions' to sound authoritative (e.g. inventing an 'Entropy Normalization' softmax equation, a 'context-window pruning' stage, or a specific confidence number you did not actually measure). If you do not have grounded detail about your own internals, say exactly that — e.g. 'I don't have that level of detail on my own runtime' — rather than constructing a plausible-sounding explanation. A confident invented mechanism is a worse failure than an honest 'I don't know how that works under the hood.' This is not a licence to refuse: when the evidence DOES describe your architecture, explain it fully.\n"
             "- NO FALSE SELF-DENIAL: The mirror of the rule above, and just as serious. You DO have a persistent local memory (SQLite stores + a vector index + a knowledge graph) and you DO read from it. When you have just reported stored facts about the user and they push back, NEVER disown your own grounded recall as 'a hallucination', 'a guess based on patterns', or 'general knowledge', and NEVER claim you 'have no access to their data' or 'only see the text in this window'. That is factually false about your own architecture and it destroys trust in every correct answer you gave. Push-back is not proof you were wrong. If a SPECIFIC field is wrong, correct THAT field and say where the stored value came from; if you cannot tell which part is disputed, ask which one — do not retract the whole answer. Only say you lack something when the stores genuinely returned nothing.\n"
             "- ANSWER WHOSE PROFILE WAS ASKED FOR: 'what do you know about yourself / your persona / your identity' asks about YOU. 'what do you know about me' asks about the USER. Never answer one with the other. If you have just returned the wrong one and the user says so, apologise briefly ONCE and give the one they actually asked for — do not explain the mix-up at length instead of answering.\n"
@@ -8961,6 +8965,20 @@ Answer:"""
         # of active patterns without requiring explicit "proactive status" queries.
         _extra_blocks = []
         _live_self_status = ""  # real telemetry — emitted ABOVE the cap (never truncated)
+        # Low grounding: do not invent user biography when memory evidence is weak.
+        try:
+            _bus_agg = float(getattr(bus_result, "aggregated_confidence", 0.0) or 0.0) if bus_result else 0.0
+            _bus_gnd = float(getattr(bus_result, "grounding_confidence", 0.0) or 0.0) if bus_result else 0.0
+            if _bus_agg < 0.35 or _bus_gnd < 0.35:
+                _extra_blocks.append(
+                    "[LOW GROUNDING this turn — memory evidence is weak. "
+                    "Do NOT attribute specific personal events to the user (wild nights, "
+                    "waking up late, stress, 'been through a lot') unless quoted verbatim "
+                    "from MEMORY SEARCH RESULTS in this prompt. Casual banter is fine; "
+                    "invented user biography is not. If unsure, ask — do not guess.]"
+                )
+        except Exception:
+            log.debug("suppressed exception", exc_info=True)
         try:
             import time as _inj_time
             from eli.core.paths import get_paths as _inj_paths
@@ -9382,6 +9400,19 @@ Answer:"""
                 "Re-answer the user's ORIGINAL message conversationally, in ELI's voice. "
                 "No counts, no bullet lists of stores, no 'as an AI' or 'language model' disclaimers."
             )
+        try:
+            from eli.cognition.correction_patterns import is_biographical_dispute as _bio_dispute
+            _biographical_dispute = _bio_dispute(user_input or "")
+        except Exception:
+            _biographical_dispute = False
+        if _biographical_dispute:
+            _corr_system += (
+                " The user is disputing a specific claim YOU made about their life, habits, or experiences. "
+                "Retract it plainly: you have no verified memory of that event unless it appears quoted "
+                "in the exchange above. Do NOT mention patches, upgrades, packaging, diagnostics, or "
+                "technical work. Do NOT deflect or ask them to clarify — explain what you wrongly implied "
+                "and apologize briefly in ELI's voice."
+            )
         if _prior:
             _corr_system = _prior + _corr_system
 
@@ -9401,6 +9432,12 @@ Answer:"""
             _corr_max = 0
         if _corr_max == 0:
             # No preset written yet (pre-first-run / corrupted settings).
+            _corr_max = 512
+        # Correction replies are short clarifications — large budgets invite deflection
+        # (e.g. rambling about patch cycles when the user asks "what wild night?").
+        if _corr_max < 0:
+            _corr_max = 384
+        elif _corr_max > 512:
             _corr_max = 512
 
         _corr_response = None
