@@ -931,6 +931,8 @@ class BusMemoryAgent(_BaseAgent):
                         _SWLOG.debug("suppressed exception", exc_info=True)
             limit = _tn["cog.mem_semantic_recall"]  # semantic hits
             from eli.memory.retrieval import retrieve_for_turn as _retrieve
+            from eli.runtime.memory_provenance import is_explicit_memory_audit_query
+            _verified_only = not is_explicit_memory_audit_query(user_input)
             _tr = _retrieve(
                 mem, user_input,
                 user_id=user_id,
@@ -944,6 +946,7 @@ class BusMemoryAgent(_BaseAgent):
                 enable_hop2=True,
                 rerank=True,
                 use_cache=not bool((intent or {}).get("_skip_memory_cache")),
+                verified_only=_verified_only,
             )
             raw_hits = list(_tr.semantic_hits)
             conv_hits = list(_tr.conv_hits)
@@ -1015,7 +1018,24 @@ class BusMemoryAgent(_BaseAgent):
 
             if raw_hits:
                 hits_text = []
+                try:
+                    from eli.runtime.memory_provenance import format_grounding_memory_line
+                except Exception:
+                    format_grounding_memory_line = None  # type: ignore
                 for h in raw_hits[:_tn["cog.mem_semantic_shown"]]:
+                    if format_grounding_memory_line:
+                        line = format_grounding_memory_line(h)
+                        raw_ts = h.get("ts") or h.get("timestamp") or 0
+                        try:
+                            ts_str = time.strftime(
+                                "%Y-%m-%d %H:%M", time.localtime(float(raw_ts)),
+                            ) if raw_ts else ""
+                        except Exception:
+                            ts_str = str(raw_ts)
+                        if ts_str:
+                            line = line.replace("] ", f"] [{ts_str}] ", 1)
+                        hits_text.append(line)
+                        continue
                     txt = (h.get("text") or h.get("content") or "")[:_tn["cog.mem_fact_chars"]]
                     raw_ts = h.get("ts") or h.get("timestamp") or 0
                     try:
@@ -1026,7 +1046,9 @@ class BusMemoryAgent(_BaseAgent):
                         hits_text.append(f"  - [{ts_str}] {txt}")
                 if hits_text:
                     context_parts.append(
-                        f"Relevant stored memories ({len(raw_hits)} found):\n" + "\n".join(hits_text))
+                        f"Verified stored memories ({len(raw_hits)} found — "
+                        f"ground user-specific claims ONLY from these rows):\n"
+                        + "\n".join(hits_text))
 
             if conv_hits:
                 conv_text = []

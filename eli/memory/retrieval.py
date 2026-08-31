@@ -65,6 +65,7 @@ def retrieve_for_turn(
     enable_hop2: bool = True,
     rerank: bool = True,
     use_cache: bool = True,
+    verified_only: bool = True,
 ) -> TurnRetrievalResult:
     """Retrieve, optionally deepen, rerank, and dedupe memory evidence for one turn."""
     t0 = time.perf_counter()
@@ -77,7 +78,9 @@ def retrieve_for_turn(
 
     raw_hits: List[Dict[str, Any]] = []
     try:
-        raw_hits = list(mem.recall_memory(q, limit=int(semantic_limit)) or [])
+        raw_hits = list(
+            mem.recall_memory(q, limit=int(semantic_limit), verified_only=verified_only) or []
+        )
     except Exception as exc:
         log.debug(f"[RETRIEVAL] recall_memory failed: {exc}")
 
@@ -109,7 +112,9 @@ def retrieve_for_turn(
             if _terms:
                 _seen_ids = {h.get("id") for h in raw_hits if h.get("id")}
                 _seen_txt = {(h.get("text") or h.get("content") or "")[:80] for h in raw_hits}
-                _hop2 = mem.recall_memory(" ".join(_terms), limit=int(hop2_limit)) or []
+                _hop2 = mem.recall_memory(
+                    " ".join(_terms), limit=int(hop2_limit), verified_only=verified_only,
+                ) or []
                 for _h in _hop2:
                     _hid = _h.get("id")
                     _ht = (_h.get("text") or _h.get("content") or "")[:80]

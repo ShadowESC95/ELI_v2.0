@@ -310,6 +310,27 @@ def _add_column_if_missing(conn, table, name, decl):
         _validate_identifier(name, "column")
         conn.execute(f"ALTER TABLE {t} ADD COLUMN {name} {decl}")
 
+
+def _migrate_memory_provenance(conn) -> None:
+    """One-time alignment: auto_extracted rows are hypothesis tier, not grounding."""
+    try:
+        cols = _table_columns(conn, "memories")
+        if "verification_status" not in cols:
+            return
+        conn.execute(
+            """
+            UPDATE memories
+            SET verification_status = 'hypothesis',
+                provenance_kind = 'auto_extract'
+            WHERE LOWER(COALESCE(tags, '')) LIKE '%auto_extracted%'
+              AND COALESCE(verification_status, 'verified') = 'verified'
+              AND COALESCE(provenance_kind, 'user_verbatim') = 'user_verbatim'
+            """
+        )
+    except Exception:
+        log.debug("suppressed exception", exc_info=True)
+
+
 def _ensure_memory_indexes(conn) -> None:
     """Create the recall indexes. Called LAST, after every table exists.
 
@@ -396,8 +417,12 @@ def _ensure_memory_schema(conn):
         ("confidence", "REAL DEFAULT 1.0"),
         ("weight", "REAL DEFAULT 1.0"),
         ("importance", "REAL DEFAULT 0.5"),
+        ("verification_status", "TEXT DEFAULT 'verified'"),
+        ("provenance_kind", "TEXT DEFAULT 'user_verbatim'"),
     ]:
         _add_column_if_missing(conn, "memories", name, decl)
+
+    _migrate_memory_provenance(conn)
 
     try:
         conn.execute(
@@ -1028,9 +1053,13 @@ def _ensure_full_memory_schema(conn):
         ("content", "TEXT"), ("timestamp", "REAL"), ("source", "TEXT"),
         ("status", "TEXT"), ("weight", "REAL DEFAULT 1.0"), ("confidence", "REAL DEFAULT 1.0"),
         ("kind", "TEXT"), ("tags", "TEXT"), ("text", "TEXT"), ("ts", "REAL"),
-        ("importance", "REAL DEFAULT 0.5")
+        ("importance", "REAL DEFAULT 0.5"),
+        ("verification_status", "TEXT DEFAULT 'verified'"),
+        ("provenance_kind", "TEXT DEFAULT 'user_verbatim'"),
     ]:
         _add_memory_column(conn, "memories", n, d)
+
+    _migrate_memory_provenance(conn)
 
     try:
         conn.execute("""
@@ -1778,7 +1807,9 @@ class Memory(metaclass=_MemoryMeta):
 
     def _store_to_db(self, conn: sqlite3.Connection, text: str, tags: Optional[List[str]] = None,
                      source: str = "user", kind: str = "memory", confidence: float = 1.0,
-                     ts: float = None, importance: float = 0.5) -> int:
+                     ts: float = None, importance: float = 0.5,
+                     verification_status: str = "verified",
+                     provenance_kind: str = "user_verbatim") -> int:
         """Internal method to write a memory to a single DB connection."""
         t = (text or "").strip()
         if not t:
@@ -1788,11 +1819,21 @@ class Memory(metaclass=_MemoryMeta):
         tag_blob = ",".join([x.strip() for x in (tags or []) if x.strip()])
         if ts is None:
             ts = time.time()
-        cur = conn.execute(
-            "INSERT INTO memories (ts, timestamp, kind, text, value, tags, source, confidence, weight, importance) "
-            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-            (ts, ts, kind, t, t, tag_blob, source, float(confidence), 1.0, float(importance)),
-        )
+        cols = _memory_table_columns(conn, "memories")
+        if "verification_status" in cols and "provenance_kind" in cols:
+            cur = conn.execute(
+                "INSERT INTO memories (ts, timestamp, kind, text, value, tags, source, "
+                "confidence, weight, importance, verification_status, provenance_kind) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                (ts, ts, kind, t, t, tag_blob, source, float(confidence), 1.0,
+                 float(importance), verification_status, provenance_kind),
+            )
+        else:
+            cur = conn.execute(
+                "INSERT INTO memories (ts, timestamp, kind, text, value, tags, source, confidence, weight, importance) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                (ts, ts, kind, t, t, tag_blob, source, float(confidence), 1.0, float(importance)),
+            )
         rowid = cur.lastrowid
         try:
             conn.execute(
@@ -1999,13 +2040,25 @@ class Memory(metaclass=_MemoryMeta):
         if importance is None:
             importance = self._score_importance(t, tags, source, kind)
 
+        try:
+            from eli.runtime.memory_provenance import resolve_write_provenance
+            verification_status, provenance_kind = resolve_write_provenance(
+                source=source, kind=kind, tags=tags, metadata=meta,
+            )
+        except Exception:
+            verification_status, provenance_kind = "verified", "user_verbatim"
+
         ts = time.time()
 
         # Write to primary
         conn_primary = self._get_connection()
         try:
-            rowid = self._store_to_db(conn_primary, t, tags, source, kind, confidence, ts,
-                                       importance=importance)
+            rowid = self._store_to_db(
+                conn_primary, t, tags, source, kind, confidence, ts,
+                importance=importance,
+                verification_status=verification_status,
+                provenance_kind=provenance_kind,
+            )
             conn_primary.commit()
         finally:
             conn_primary.close()
@@ -2014,7 +2067,7 @@ class Memory(metaclass=_MemoryMeta):
             from eli.memory.vector_store import get_vector_store
             vs = get_vector_store()
             if vs is not None:
-                added_to_vector_store = vs.add(
+                added_to_vector_store =                 vs.add(
                     t,
                     metadata={
                         "memory_id": rowid,
@@ -2022,6 +2075,8 @@ class Memory(metaclass=_MemoryMeta):
                         "source": source,
                         "tags": tags if isinstance(tags, str) else ",".join(tags or []),
                         "importance": importance,
+                        "verification_status": verification_status,
+                        "provenance_kind": provenance_kind,
                     },
                 )
                 if added_to_vector_store and hasattr(vs, "flush"):
@@ -2134,7 +2189,8 @@ class Memory(metaclass=_MemoryMeta):
         finally:
             conn.close()
 
-    def recall_memory(self, query, limit=10, keyword_only: bool = False):
+    def recall_memory(self, query, limit=10, keyword_only: bool = False,
+                      verified_only: bool = False):
         q = _norm_text(query).strip()
         if not q:
             return []
@@ -2156,11 +2212,21 @@ class Memory(metaclass=_MemoryMeta):
             # bug by default. This fragment was also written out twice here, once
             # aliased and once not, and the two had to be kept in step by hand.
             from eli.core.self_provenance import memory_exclusion_sql
+            from eli.runtime.memory_provenance import (
+                filter_grounding_hits,
+                verification_filter_sql,
+            )
 
             # Both forms bind the same parameters — same kinds, same sources —
             # so the aliased list is the one every query below uses.
             _kind_filter, _kind_params = memory_exclusion_sql(cols, alias="m.")
             _kind_filter_t, _ = memory_exclusion_sql(cols, alias="")
+            _verify_filter, _verify_params = verification_filter_sql(
+                cols, alias="m.", verified_only=verified_only,
+            )
+            _verify_filter_t, _ = verification_filter_sql(
+                cols, alias="", verified_only=verified_only,
+            )
 
             # --- Stage 5: Vector semantic search (primary path) ---
             # FAISS runs first.  FTS5/LIKE only runs as a supplementary
@@ -2246,7 +2312,7 @@ class Memory(metaclass=_MemoryMeta):
                             FROM memories m
                             JOIN memories_fts f ON m.id = f.rowid
                             WHERE memories_fts MATCH ?
-                            {_kind_filter}
+                            {_kind_filter}{_verify_filter}
                             ORDER BY ({imp_expr} * 0.6 + {time_expr} * 0.0000001) DESC
                             LIMIT ?
                             """,
@@ -2266,7 +2332,7 @@ class Memory(metaclass=_MemoryMeta):
                                COALESCE(weight, 1.0), {imp_expr}
                         FROM memories
                         WHERE ({text_expr} LIKE ? OR {tags_expr} LIKE ?)
-                        {_kind_filter_t}
+                        {_kind_filter_t}{_verify_filter_t}
                         ORDER BY ({imp_expr} * 0.6 + {time_expr} * 0.0000001) DESC
                         LIMIT ?
                         """,
@@ -2299,7 +2365,7 @@ class Memory(metaclass=_MemoryMeta):
                                COALESCE(weight, 1.0), {imp_expr}
                         FROM memories
                         WHERE ({' OR '.join(clauses)})
-                        {_kind_filter_t}
+                        {_kind_filter_t}{_verify_filter_t}
                         ORDER BY ({imp_expr} * 0.6 + {time_expr} * 0.0000001) DESC
                         LIMIT ?
                         """,
@@ -2410,6 +2476,9 @@ class Memory(metaclass=_MemoryMeta):
                 _seen_filtered.add(_key)
                 _filtered.append(_r)
             out = _filtered
+
+            if verified_only:
+                out = filter_grounding_hits(out)
 
             _q_low = q.lower()
             _identity_query = bool(re.search(

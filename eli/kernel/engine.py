@@ -10093,6 +10093,27 @@ Answer:"""
             except Exception:
                 log.debug("suppressed exception", exc_info=True)
         response = govern_output(response, is_grounded=is_grounded, evidence=memory_context)
+        if not is_grounded:
+            try:
+                from eli.cognition.user_claim_validator import (
+                    validate_user_claims_against_evidence,
+                )
+                _claim_verdict = validate_user_claims_against_evidence(
+                    response,
+                    memory_context,
+                    user_input=user_input,
+                )
+                if _claim_verdict.get("unsafe") or _claim_verdict.get("violations"):
+                    _san = str(_claim_verdict.get("sanitized") or "").strip()
+                    if _san:
+                        response = _san
+                    log.debug(
+                        "[COGNITIVE] user-claim validator: violations=%s unsafe=%s",
+                        len(_claim_verdict.get("violations") or []),
+                        _claim_verdict.get("unsafe"),
+                    )
+            except Exception as _ucv_err:
+                log.debug(f"[COGNITIVE] user-claim validator skipped: {_ucv_err}")
         try:
             from eli.cognition.reasoning_modes import apply_final_reasoning_contract as _rm_final
             response = _rm_final(response)
