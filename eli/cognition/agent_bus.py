@@ -521,6 +521,17 @@ class DispatchResult:
                 parts.append(f"ELI architecture/pipeline (grounded):\n{str(d['content'])[:1000]}")
             elif r.agent == "voice" and d.get("content"):
                 parts.append(f"Voice/TTS status:\n{str(d['content'])[:300]}")
+            else:
+                # Spec agents and trusted code agents use the same evidence keys as
+                # built-ins but are not hard-coded by name — inject generically.
+                content = d.get("content") or d.get("memory_context")
+                if content and str(content).strip() and not d.get("skipped"):
+                    label = str(r.agent).replace("_", " ")
+                    objective = str(d.get("objective") or "").strip()
+                    header = f"Custom agent ({label})"
+                    if objective:
+                        header += f" — {objective[:120]}"
+                    parts.append(f"{header}:\n{str(content)[:1200]}")
         return "\n\n".join(p for p in parts if p.strip())
 
 

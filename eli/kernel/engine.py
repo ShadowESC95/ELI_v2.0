@@ -4031,6 +4031,14 @@ class CognitiveEngine:
             log.debug(
     f"[COGNITIVE] Capability manifest update failed (non-fatal): {_cap_err}")
 
+    def cancel_generation(self) -> None:
+        """Stop the in-flight chat generation at the next token (GUI Stop button)."""
+        try:
+            from eli.cognition import gguf_inference as _ggi
+            _ggi.request_cancel_generation()
+        except Exception:
+            log.debug("[COGNITIVE] cancel_generation failed", exc_info=True)
+
     def shutdown(self) -> None:
         """
         Graceful session shutdown.
@@ -6971,6 +6979,12 @@ Answer:"""
                             temperature=gen["temperature"],
                             stream=True,
                         ):
+                            try:
+                                from eli.cognition import gguf_inference as _ggi_abort
+                                if _ggi_abort.is_cancel_requested():
+                                    break
+                            except Exception:
+                                pass
                             if isinstance(chunk, dict):
                                 token = str(
     chunk.get("response") or chunk.get("token") or "")

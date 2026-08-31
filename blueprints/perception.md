@@ -237,19 +237,7 @@ is invisible to `list_voices()` while still occupying ~60 MB. `incomplete_voices
 these and `repair_voice_configs()` fetches just the missing ~5 KB config.
 `tests/test_voice_library.py` guards against shipping the broken state again.
 
-**Character voices** (`voice_fx.py`) are a base voice + an ffmpeg effect chain (pitch /
-speed / filters) — calm, robotic, energetic, synthetic, and refined styles built in, and users create their own
-(`char:<name>`, preset store at `config/voices/characters.json`). Because the ideal bases
-for HAL/TARS/Rick (lessac/joe/ryan) are restricted or unbundled, each preset carries an
-**ordered, gender-matched `fallback` chain**; `resolve_base_voice()` walks base →
-fallbacks → default against the *installed* set, so a character can never fall through to
-an unusable or foreign-language voice (it previously landed on a Czech voice and garbled
-the speech). Download the ideal base and it is used automatically. **Voice cloning**
-(`tts_xtts.py`, `clone:<name>`) reproduces a voice from a short reference clip via Coqui
-XTTS-v2 — an opt-in extra (`eli-v2.0[clone]`) that falls back to a normal voice when the
-model isn't installed rather than going silent. Both `char:` and `clone:` resolve through
-`synthesize_wav` (browser voice) and `_run_tts` (host playback), and appear in the GUI
-voice picker.
+**Style presets** (`voice_fx.py`, `char:calm`, `char:robotic`, …) are a redistributable Piper base voice plus an ffmpeg effect chain (pitch / speed / filters). They are **generic sound styles**, not bundled impersonations of copyrighted characters. Ideal Piper bases for some historical presets (lessac, joe, ryan) are excluded from the public bundle over dataset licensing; each preset carries an **ordered, gender-matched `fallback` chain** against installed voices only. **Voice cloning** (`tts_xtts.py`, `clone:<name>`) reproduces a voice from a short reference clip via Coqui XTTS-v2 — an opt-in extra (`eli-v2.0[clone]`) that falls back to a normal voice when the model isn't installed rather than going silent. Both `char:` and `clone:` resolve through `synthesize_wav` (browser voice) and `_run_tts` (host playback), and appear in the GUI voice picker.
 
 ## OS control (`os_controller.py`)
 

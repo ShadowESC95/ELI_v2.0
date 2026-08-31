@@ -62,9 +62,11 @@ class VoiceDownloadDialog(QDialog):
 
         root = QVBoxLayout(self)
         blurb = QLabel(
-            "Voices are downloaded from the Piper voice library and stored locally. "
-            "Character voices (HAL, TARS, …) layer effects on top of a base voice, "
-            "so adding the ideal base improves them automatically."
+            "Voices download from the Piper library (redistributable accents). "
+            "Style presets (calm, robotic, …) layer ffmpeg effects on those Piper "
+            "bases — they are generic sound styles, not copyrighted character clones. "
+            "For a custom timbre, use voice cloning from your own reference clip "
+            "(optional XTTS extra in Settings)."
         )
         blurb.setWordWrap(True)
         blurb.setStyleSheet("color:#8eaac8;")
@@ -142,8 +144,7 @@ class VoiceDownloadDialog(QDialog):
         threading.Thread(target=work, daemon=True).start()
 
     def _character_bases(self) -> Dict[str, List[str]]:
-        """{base voice id: [character names]} so the table can point out which
-        download upgrades HAL/TARS/Rick from their shipped fallback."""
+        """{base voice id: [style preset names]} — table hint when a download improves a preset base."""
         out: Dict[str, List[str]] = {}
         try:
             from eli.perception import voice_fx

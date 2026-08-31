@@ -21,9 +21,9 @@ trade off very differently:
 | Cost | free, instant, always available | opt-in ~1.8GB neural model, GPU preferred |
 | Covers characters with no preset (Cartman, Vader, …) | no | yes |
 
-Cloning a real clip of HAL or Rick will sound closer to the source than the
-built-in ffmpeg preset — the presets exist so *something* is available with zero
-extra install; cloning is the accurate path once you have real audio.
+Cloning a reference clip **you have rights to use** will sound closer than a
+built-in ffmpeg preset — presets exist so *something* is available with zero
+extra install; cloning is the accurate path for a specific timbre.
 
 ## End-to-end flow
 

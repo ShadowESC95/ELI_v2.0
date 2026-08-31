@@ -11566,9 +11566,18 @@ def _execute_impl(action: str, args: Optional[Dict[str, Any]] = None) -> Dict[st
             r = resolve_voice_query(q)
             vid = r.get("voice") or ""
             if vid.startswith("char:"):
-                # Character voices are effect chains — nothing to fetch; just switch.
+                # Character presets are effect chains — nothing to fetch; just switch.
                 set_active_voice(vid)
-                msg = f"Switched to the {vid.replace('char:', '').upper()} character voice."
+                try:
+                    from eli.perception import voice_fx
+                    spec = voice_fx.get_preset(vid) or {}
+                    label = spec.get("label") or vid.replace("char:", "")
+                    desc = (spec.get("desc") or "").strip()
+                    msg = f"Switched to style preset «{label}» ({vid})."
+                    if desc:
+                        msg += f" {desc}"
+                except Exception:
+                    msg = f"Switched to style preset {vid}."
                 return {"ok": True, "action": a, "voice": vid, "content": msg, "response": msg}
             if not vid:
                 try:

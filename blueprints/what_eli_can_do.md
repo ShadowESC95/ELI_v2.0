@@ -163,13 +163,7 @@ Do it by voice or text — *"what voices do you have"*, *"download a British voi
 accents..."**; either way it downloads (checksum-verified) and becomes selectable
 straight away. A handful of voices carry non-commercial licences, so ELI doesn't
 bundle them — the list says so plainly and still lets you fetch them for personal use.
-**Character voices** — calm, robotic, energetic, synthetic, and refined — built as a base voice plus a real-time ffmpeg effect chain (no extra
-model), and you can **create your own** (`char:<name>`) by choosing a base voice
-and tuning pitch / speed / effects. Pick any of them from the voice selector, or
-just tell ELI *"speak to me like HAL."* Optional **voice cloning** (`clone:<name>`)
-reproduces a voice from a short audio sample via Coqui XTTS-v2 — an opt-in extra
-(`pip install "eli-v2.0[clone]"`, ~1.8 GB model downloaded on first use); without
-it, a cloned voice falls back to a normal voice rather than going silent.
+**Character voices** — calm, robotic, energetic, synthetic, and refined — are **generic style presets** built as a redistributable Piper base voice plus a real-time ffmpeg effect chain (no extra model). They are **not** impersonations of movie or TV characters (HAL, JARVIS, Rick, TARS, etc.) — those cannot be bundled in a public release. Pick a style from the voice selector (`Style: Robotic assistant`, …), or **create your own** (`char:<name>`) by choosing a base voice and tuning pitch / speed / effects. For a close match to a specific timbre you already have rights to use, **voice cloning** (`clone:<name>`) reproduces from **your** short audio sample via Coqui XTTS-v2 — an opt-in extra (`pip install "eli-v2.0[clone]"`, ~1.8 GB model downloaded on first use); without it, a cloned voice falls back to a normal Piper voice rather than going silent. Persona tone (*"be funnier"*, *"respond as a terse engineer"*) changes **wording**, not the speaker timbre.
 
 ### 👁️ See & understand
 Local vision-language models describe any image or your live screen; OCR pulls

@@ -121,7 +121,7 @@ day:
 | Memory | "remember that…"; "what do you know about me?" — a private profile that updates as you talk |
 | Planning & automation | alarms, timers, calendar, overnight / scheduled jobs; learns routines and offers to automate them |
 | Information | news synthesis, weather, web search — network-gated, and it tells you when it goes online |
-| Voice | configurable wake word, dictation, text-to-speech; adapts to your voice and tone |
+| Voice | configurable wake word, dictation, Piper TTS accents, **style presets** (ffmpeg), optional **local voice cloning** from your clips |
 
 Asking *"what can you do?"* lists the full surface.
 
@@ -144,7 +144,7 @@ Asking *"what can you do?"* lists the full surface.
 | **Self-maintenance** | analyse failures, self-patch (with rollback), run tests, **LoRA fine-tune itself** |
 | **Tasks, time & planning** | alarms, timers, calendar, pomodoro, overnight/scheduled background jobs |
 | **Proactive & goals** | morning briefing, learned habits it offers to automate, self-generated proposals |
-| **Voice** | wake word (set your own), dictation, TTS, learns your voice & tone |
+| **Voice** | wake word (set your own), dictation, Piper TTS, **style presets** (not character clones), optional local cloning |
 | **Plugins** | install / enable / disable tools at runtime |
 | **System & web** | CPU/RAM/GPU status, time/date, weather, news synthesis, web search (net-gated) |
 

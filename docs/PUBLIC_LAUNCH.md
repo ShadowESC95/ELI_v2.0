@@ -1,6 +1,6 @@
 # ELI v2 — public launch copy-paste
 
-> **Current release: v2.3.57 (August 2026).** Repair playbook (`self help`); dry-run routing/trace fixes;
+> **Current release: v2.3.58 (August 2026).** AgentSpec wizard, Stop generation, honest voice presets, STT/media fixes;
 > GUI-scoped examine; Tier 3 false-positive labeling; CI/manifest alignment (226 capabilities).
 > Builds on v2.3.56.
 
@@ -44,7 +44,7 @@ chmod +x ELI_Setup.sh && ./ELI_Setup.sh
 
 ## Hacker News / Reddit one-liner
 
-> **ELI v2.3.57.** Local-first AI assistant (~181k LOC, 226 capabilities, GGUF, PySide6 GUI, offline-by-default). Repair playbook + CI-green release. https://github.com/ShadowESC95/ELI_v2.0/releases/tag/v2.3.57
+> **ELI v2.3.58.** Local-first AI assistant (~181k LOC, 226 capabilities, GGUF, PySide6 GUI, offline-by-default). AgentSpec agents, Stop button, voice-preset accuracy. https://github.com/ShadowESC95/ELI_v2.0/releases/tag/v2.3.58
 
 ## What to say it is
 
