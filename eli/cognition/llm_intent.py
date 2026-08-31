@@ -68,6 +68,8 @@ _FEW_SHOT = (
     '{"q":"i am so happy to be alive","action":"CHAT","args":{},"confidence":0.95}\n'
     '{"q":"good morning","action":"CHAT","args":{},"confidence":0.95}\n'
     '{"q":"hey eli","action":"CHAT","args":{},"confidence":0.95}\n'
+    '{"q":"do you remember what we talked about last week","action":"MEMORY_RECALL",'
+    '"args":{"query":"last week conversation topics"},"confidence":0.9}\n'
 )
 
 
@@ -229,6 +231,9 @@ def parse_with_llm(text: str) -> Dict[str, Any]:
         conf = max(0.0, min(1.0, conf))
         if action == "CHAT":
             args = {"message": text}
+        elif action == "MEMORY_RECALL" and not str(args.get("query") or "").strip():
+            # Grammar allows {} but MEMORY_RECALL requires a query — use the user turn.
+            args["query"] = text
         return {"action": action, "args": args, "confidence": conf,
                 "meta": {"matched_by": "llm_intent.resolver"}}
     except Exception as e:

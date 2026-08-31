@@ -2743,8 +2743,25 @@ def route(text: str, _clause_depth: int = 0) -> Dict[str, Any]:
         r'^(?:search|check|look\s+in|query)\s+(?:your\s+)?memor(?:y|ies)$', low
     )
     if _bare_mem:
-        return _mk('MEMORY_RECALL', {'query': ''},
+        return _mk('MEMORY_RECALL', {'query': 'recent conversations'},
                    0.95, matched_by='memory.search_bare')
+    # Conversation recall — "do you remember what we were talking about last week?"
+    if re.search(
+        r"\b(?:do you|can you|did you)\s+remember\b",
+        low,
+    ) or re.search(
+        r"\bwhat\s+(?:were|was)\s+we\s+(?:talking|discussing|chatting)\s+about\b",
+        low,
+    ) or re.search(
+        r"\bremember\s+what\s+we\s+(?:were\s+)?(?:talking|discussing)\b",
+        low,
+    ):
+        return _mk(
+            "MEMORY_RECALL",
+            {"query": text.strip()},
+            0.93,
+            matched_by="memory.recall_conversation",
+        )
     # Explicit "what do you know about me" → MEMORY_RECALL
     if re.search(r"\bwhat\s+do\s+you\s+know\s+about\s+me\b", low):
         return _mk("MEMORY_RECALL", {"query": "information about user"},
