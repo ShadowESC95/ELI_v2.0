@@ -194,6 +194,20 @@ _FACT_CLAIM_RE = re.compile(
     r"\b[\w.''-]+(?:'s)?\s+(?:real\s+)?name\s+is\b"          # "X's real name is Y"
     r"|\bit (?:was|is)\s+[\w.''-]+,?\s+not\s+[\w.''-]+",     # "it was X not Y"
     re.I)
+# Pop-culture / release-date / review lookups — not always caught by strict fact Q patterns.
+_REALTIME_LOOKUP_RE = re.compile(
+    r"\b(came out|come out|release date|released|premiered|premiere|in theaters|in cinemas"
+    r"|box office|review score|rotten tomatoes|metacritic|streaming on|now playing)\b"
+    r"|\b(is it|is that|is this|are they)\s+(?:a\s+|the\s+)?classic\b"
+    r"|\bhow (?:new|recent|old|good|popular)\s+(?:is|was|are|were)\b"
+    r"|\bwhen did .{2,80} (?:come out|release|premiere|debut)\b",
+    re.I)
+# External-topic question markers for very-low-grounding auto-web (broader safety net).
+_EXTERNAL_TOPIC_RE = re.compile(
+    r"\b(movie|film|show|series|season|episode|album|song|artist|band|game|marvel|mcu"
+    r"|spider[- ]?man|batman|director|actor|actress|oscar|grammy|emmy|premiere|trailer"
+    r"|franchise|sequel|prequel|soundtrack|chart|billboard|stream(?:ing)?)\b",
+    re.I)
 # ELI's OWN action / artifact / job STATE — "did you save/create/generate X", "is it
 # done", "check job N", "where did you save it", "what's the status/result of the job".
 # Asserting any of these without grounding is the worst confabulation (the transcript
@@ -217,6 +231,30 @@ def _self_claim_floor() -> float:
         return float(os.environ.get("ELI_SELF_CLAIM_FLOOR", "0.25"))
     except Exception:
         return 0.25
+
+
+def _very_low_grounding_floor() -> float:
+    """Below this, external/web-candidate turns MUST try web before LLM guessing."""
+    try:
+        return float(os.environ.get("ELI_VERY_LOW_GROUNDING", "0.35"))
+    except Exception:
+        return 0.35
+
+
+def effective_grounding_score(bus_result: Any) -> float:
+    """Single score for escalation — worst of agent grounding and bus aggregate."""
+    gnd = agg = 0.0
+    try:
+        gnd = float(getattr(bus_result, "grounding_confidence", 0.0) or 0.0)
+    except Exception:
+        gnd = 0.0
+    try:
+        agg = float(getattr(bus_result, "aggregated_confidence", 0.0) or 0.0)
+    except Exception:
+        agg = 0.0
+    if gnd > 0.0 and agg > 0.0:
+        return min(gnd, agg)
+    return gnd or agg
 
 
 def _is_degenerate(text: str) -> bool:
@@ -260,6 +298,37 @@ def classify_factual(text: str) -> Tuple[bool, str]:
     if _LOCAL_RE.search(low) or _LOCAL_PATH_RE.search(raw):
         return (True, "local")
     return (True, "external")
+
+
+def classify_web_candidate(text: str) -> bool:
+    """Broader external lookup signal for very-low-grounding auto-web.
+
+    Catches pop-culture / release-date questions that strict ``classify_factual``
+    misses (e.g. "is it a classic", "when did X come out") without web-searching
+    banter, meta, or advice/how-to turns.
+    """
+    raw = (text or "").strip()
+    low = raw.lower()
+    if len(low.split()) < 3:
+        return False
+    low_clean = _INTENSIFIER_STRIP_RE.sub(" ", low)
+    low_clean = re.sub(r"\s+", " ", low_clean).strip()
+    if (_BANTER_RE.search(low_clean) or _OPINION_RE.search(low_clean)
+            or _ADVICE_RE.search(low_clean) or _COMMAND_RE.search(low_clean)
+            or _META_SELF_RE.search(low_clean) or _RELATIONAL_VENT_RE.search(low_clean)
+            or _CONV_META_RE.search(low_clean) or _LOCAL_RE.search(low)):
+        return False
+    if _REALTIME_LOOKUP_RE.search(low_clean):
+        return True
+    if "?" in raw and _EXTERNAL_TOPIC_RE.search(low_clean):
+        return True
+    try:
+        from eli.cognition.correction_patterns import explicit_web_search_request
+        if explicit_web_search_request(raw):
+            return True
+    except Exception:
+        pass
+    return False
 
 
 # --------------------------------------------------------------------------- #
@@ -348,11 +417,9 @@ def escalate(
     None to let normal CHAT synthesis proceed."""
     if not _enabled():
         return None
-    try:
-        grounding = float(getattr(bus_result, "grounding_confidence", 0.0) or 0.0)
-    except Exception:
-        grounding = 0.0
+    grounding = effective_grounding_score(bus_result)
     target = _mode_target(reasoning_mode)
+    very_low = grounding < _very_low_grounding_floor()
 
     # ── Self-action / artifact-state confabulation floor ──────────────────────
     # ELI asserting it performed an action or produced an artifact it has NO grounding
@@ -373,7 +440,13 @@ def escalate(
                        mode=_canon_mode(reasoning_mode), trace=trace)
 
     is_fact, domain = classify_factual(user_input)
-    if not is_fact:
+    web_candidate = classify_web_candidate(user_input)
+
+    if not is_fact and web_candidate and very_low:
+        # Pop-culture / realtime lookup the strict classifier missed — still web.
+        is_fact, domain = True, "external"
+        log.debug("[ESCALATION] web-candidate override (very low grounding)")
+    elif not is_fact:
         return None  # banter/opinion/command/chitchat — never escalate
 
     try:
@@ -390,8 +463,10 @@ def escalate(
     # exists to prevent; the burkina-faso "third largest city's capital" case scored
     # "grounded" and was guessed instead of hedged). Local facts and online externals
     # still trust a sufficient grounding score.
+    # Very-low grounding on external/web-candidate turns always tries web (if online).
     if grounding >= target and not (domain == "external" and not online):
-        return None
+        if not (domain == "external" and web_candidate and very_low and online):
+            return None
 
     # Per-mode iterative-deepening budget. Quick = 0 (stays fast).
     max_iters = _mode_max_iters(reasoning_mode)
@@ -405,8 +480,8 @@ def escalate(
         return None
 
     tiers = (["web", "hedge"] if domain == "external" else ["local_deepen", "hedge"])
-    log.debug(f"[ESCALATION] factual={is_fact} domain={domain} grounding={grounding:.2f} "
-              f"online={online} tiers={tiers}")
+    log.debug(f"[ESCALATION] factual={is_fact} web_candidate={web_candidate} domain={domain} "
+              f"grounding={grounding:.2f} very_low={very_low} online={online} tiers={tiers}")
 
     web_searched = False  # did the web tier actually run? → hedge wording below
     for tier in tiers:
@@ -432,6 +507,10 @@ def escalate(
                             action="WEB_SEARCH")
                         if answer and not _is_degenerate(answer):
                             return _result(answer, grounded=True, mode="escalation_web", trace=trace)
+                        # Synthesis failed — surface raw web results rather than guessing.
+                        _raw = str(res.get("response") or res.get("content") or "").strip()
+                        if _raw and not _is_degenerate(_raw):
+                            return _result(_raw, grounded=True, mode="escalation_web_raw", trace=trace)
                     else:
                         log.debug(f"[ESCALATION] web results off-topic (relevance={rel:.2f} "
                                   f"< floor {_web_relevance_floor():.2f}) → honest hedge")

@@ -116,3 +116,44 @@ def orchestrator_retrieve(
         })
 
     return keyword_hits[:kw_limit], semantic_hits[:sem_limit], tr
+
+
+def format_verified_memory_block(
+    tr: TurnRetrievalResult,
+    *,
+    shown: int = 6,
+) -> str:
+    """Format verified semantic hits the same way BusMemoryAgent does."""
+    hits = list(getattr(tr, "semantic_hits", None) or [])
+    if not hits:
+        return ""
+    lines: List[str] = []
+    try:
+        from eli.runtime.memory_provenance import format_grounding_memory_line
+    except Exception:
+        format_grounding_memory_line = None  # type: ignore
+    import time as _time
+    for h in hits[:shown]:
+        if format_grounding_memory_line:
+            line = format_grounding_memory_line(h)
+            raw_ts = h.get("ts") or h.get("timestamp") or 0
+            try:
+                ts_str = _time.strftime(
+                    "%Y-%m-%d %H:%M", _time.localtime(float(raw_ts)),
+                ) if raw_ts else ""
+            except Exception:
+                ts_str = str(raw_ts or "")
+            if ts_str:
+                line = line.replace("] ", f"] [{ts_str}] ", 1)
+            lines.append(line)
+            continue
+        txt = (h.get("text") or h.get("content") or "").strip()
+        if txt:
+            lines.append(f"  - {txt[:240]}")
+    if not lines:
+        return ""
+    return (
+        f"Verified stored memories ({len(hits)} found — "
+        f"ground user-specific claims ONLY from these rows):\n"
+        + "\n".join(lines)
+    )

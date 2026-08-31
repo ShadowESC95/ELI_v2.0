@@ -213,6 +213,11 @@ class OrchestratorMemoryAgent:
                     session_id=str(getattr(self.engine, "session_id", "") or ""),
                     user_id=str(getattr(self.engine, "user_id", "") or ""),
                 )
+                self._last_turn_retrieval = _tr
+                try:
+                    setattr(self.engine, "_last_turn_retrieval", _tr)
+                except Exception:
+                    pass
                 log.debug(
                     "[ORCHESTRATOR] unified retrieval → keyword=%d semantic=%d elapsed=%.0fms",
                     len(keyword_hits), len(semantic_hits), float(getattr(_tr, "elapsed_ms", 0.0) or 0.0),
@@ -489,6 +494,66 @@ class AgentOrchestrator:
         self.executor_agent = ExecutorAgent(engine)
         self.memory_agent = OrchestratorMemoryAgent(engine)
         self.planner_agent = PlannerAgent(engine)
+
+    def _bus_result_for_escalation(self, wm) -> Any:
+        br = getattr(wm, "bus_result", None)
+        if br is not None:
+            return br
+        spec = (getattr(wm, "trace", None) or {}).get("agent_bus_specialists") or {}
+        agg = float(spec.get("aggregated_confidence") or 0.0)
+        class _Synth:
+            grounding_confidence = agg
+            aggregated_confidence = agg
+        return _Synth()
+
+    def _maybe_grounding_escalate(
+        self,
+        wm,
+        user_input: str,
+        intent: Dict[str, Any],
+        *,
+        stream: bool,
+        reasoning_mode: Optional[str],
+    ) -> Any:
+        """Web/local escalation before LLM — orchestrator path must not skip this."""
+        if getattr(self.engine, "_crisis_steering", None):
+            return None
+        try:
+            from eli.runtime.grounding_escalation import escalate as _escalate
+            _esc = _escalate(
+                self.engine,
+                user_input,
+                intent,
+                self._bus_result_for_escalation(wm),
+                reasoning_mode=reasoning_mode,
+                trace=getattr(wm, "trace", None),
+            )
+            if _esc is None:
+                return None
+            _text = str(_esc.get("response") or _esc.get("content") or "").strip()
+            if _text:
+                try:
+                    self.engine._store_assistant_turn(_text)
+                except Exception:
+                    log.debug("suppressed exception", exc_info=True)
+            wm.trace["grounding_escalation"] = dict(_esc.get("meta") or {})
+            log.debug(
+                "[ORCHESTRATOR] grounding escalation short-circuit mode=%s",
+                ( _esc.get("meta") or {}).get("response_mode"),
+            )
+            self.engine._in_orchestrator = False
+            if stream and _text:
+                def _esc_stream():
+                    try:
+                        for piece in self.engine._yield_text_chunks(_text, chunk_size=12):
+                            yield piece
+                    except Exception:
+                        yield _text
+                return _esc_stream()
+            return _esc
+        except Exception as _esc_err:
+            log.debug(f"[ORCHESTRATOR] grounding escalation skipped: {_esc_err}")
+            return None
 
     def run(self, user_input: Optional[str] = None, *, stream: bool = False,
             reasoning_mode: Optional[str] = None, **kwargs) -> Any:
@@ -892,6 +957,25 @@ class AgentOrchestrator:
             intent=intent,
             reasoning_mode=reasoning_mode,
         )
+        try:
+            from eli.memory.unified_retrieval import format_verified_memory_block
+            _tr = getattr(self.memory_agent, "_last_turn_retrieval", None)
+            _verified = format_verified_memory_block(_tr) if _tr else ""
+            if _verified and _verified not in (wm.assembled_context or ""):
+                wm.assembled_context = (
+                    _verified + "\n\n" + str(wm.assembled_context or "").strip()
+                ).strip()
+                wm.verified_memory_block = _verified
+        except Exception as _vmb_err:
+            log.debug(f"[ORCHESTRATOR] verified memory block inject skipped: {_vmb_err}")
+        try:
+            setattr(
+                self.engine,
+                "_last_orchestrator_memory_context",
+                str(getattr(wm, "assembled_context", "") or ""),
+            )
+        except Exception:
+            pass
         log.debug(f"[ORCHESTRATOR] Stage 10: Context Assembly → {len(wm.assembled_context)} chars")
         _eli_pipe_orch("stage_10", assembled_chars=len(wm.assembled_context or ""))
 
@@ -963,6 +1047,12 @@ class AgentOrchestrator:
             except Exception as _priv_err:
                 log.debug(f"[ORCHESTRATOR] private reasoning loop failed -> falling back to single-shot: {_priv_err}")
         # ELI_PRIVATE_REASONING_DISPATCH_V1_END
+
+        _esc_early = self._maybe_grounding_escalate(
+            wm, user_input, intent, stream=stream, reasoning_mode=reasoning_mode,
+        )
+        if _esc_early is not None:
+            return _esc_early
 
         wm.trace["stage_11"] = "llm_generation"
         log.debug(f"[ORCHESTRATOR] Stage 11: LLM Generation → {'streaming' if stream else 'oneshot'}")

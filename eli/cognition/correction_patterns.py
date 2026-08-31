@@ -38,3 +38,31 @@ def is_correction_query(text: str) -> bool:
 
 def is_biographical_dispute(text: str) -> bool:
     return bool(BIOGRAPHICAL_DISPUTE_RE.search(str(text or "")))
+
+
+WEB_SEARCH_REQUEST_RE = re.compile(
+    r"\b("
+    r"search the web|search online|look it up|google it|check online|"
+    r"go search|web search|search for|look online|find online"
+    r")\b",
+    re.I,
+)
+
+# Routed executor actions must not be overridden by the CORRECTION repair shortcut.
+_CORRECTION_BYPASS_ACTIONS = frozenset({
+    "WEB_SEARCH", "WEB_FETCH", "WEB_LEARN", "SEARCH_WEB",
+    "NEWS_FETCH", "GET_WEATHER",
+})
+
+
+def explicit_web_search_request(text: str) -> bool:
+    return bool(WEB_SEARCH_REQUEST_RE.search(str(text or "")))
+
+
+def correction_shortcut_allowed(text: str, action: str) -> bool:
+    """True when the kernel may run _correction_repair before the main pipeline."""
+    if str(action or "").upper() in _CORRECTION_BYPASS_ACTIONS:
+        return False
+    if explicit_web_search_request(text):
+        return False
+    return True
