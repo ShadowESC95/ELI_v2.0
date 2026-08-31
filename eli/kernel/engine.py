@@ -112,6 +112,7 @@ _PHASE45_DIRECT_FAST_ACTIONS = {
     'SPEAK',
     'STOP_MEDIA',
     'TIME',
+    'TIMESTAMP_DIAG',  # wall clock + stored conversation turn timestamps
     'UNMUTE',
     'VOLUME'
 }
@@ -1004,7 +1005,8 @@ def _is_brief_phatic_prompt(text: str) -> bool:
         "how are you", "how you doing", "how ya doing", "hows things", "how's things",
         "how is things", "how are things", "hows everything", "how's everything",
         "hows it going", "how's it going", "hows it", "how's it",
-        "all good", "you good", "you ok", "you okay",
+        "all good", "you good",         "you ok", "you okay",
+        "you any better", "any better",
         "good morning", "good afternoon", "good evening", "morning eli", "evening eli",
         # Irish / colloquial check-ins (idiom for "how are things", NOT a request for a story)
         "whats the story", "what's the story", "what is the story", "story bud", "story pal",
@@ -1054,7 +1056,7 @@ def _is_brief_phatic_prompt(text: str) -> bool:
         # ("fix the router" cannot match). "you ok" was already in the phrase set;
         # the natural forms around it were not, and each one cost a full
         # intent-classification generation.
-        r"^(?:are |r )?you "
+        r"^(?:are |r )?you(?:\s+any)?\s+"
         r"(?:ok|okay|alright|allright|good|well|better|fine|right|sorted|sound|normal"
         r"|back(?: to (?:normal|yourself|form))?)"
         r"(?: now| yet| today| again| then)?$",

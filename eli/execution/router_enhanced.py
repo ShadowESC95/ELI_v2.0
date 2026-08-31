@@ -326,7 +326,34 @@ _SHELL_PREPASS_CMDS = {
 def _eli_shell_prepass(user_text: str):
     """Early-stage shell command detector — fires before OPEN_APP can steal 'run X'."""
     import re as _re
-    m = _re.match(r"^\s*(?:run|execute)\s+(\S+(?:\s+.*)?)$", user_text.strip(), _re.I)
+    text = str(user_text or "").strip()
+    # Deictic follow-up: "run that command" after ELI showed a shell block.
+    try:
+        from eli.runtime.shell_followup import resolve_run_prior_shell
+        _follow = resolve_run_prior_shell(text)
+        if _follow:
+            return {
+                "action": "SHELL_EXEC",
+                "args": {"cmd": _follow},
+                "confidence": 0.97,
+                "meta": {"matched_by": "shell.prior_block_followup"},
+            }
+    except Exception:
+        pass
+    # Timestamp investigation — run real clock diagnostics, never fake bash in CHAT.
+    _low = _re.sub(r"\s+", " ", text.lower())
+    if _re.search(
+        r"\b(?:dig(?:\s+in)?to|look(?:ing)?\s+(?:into|at)|check|investigate|trace|examine|fix)"
+        r".{0,60}\btimestamp",
+        _low,
+    ) or _re.search(r"\btimestamp.{0,40}\b(?:dig|check|investigate|trace|fix)\b", _low):
+        return {
+            "action": "TIMESTAMP_DIAG",
+            "args": {},
+            "confidence": 0.96,
+            "meta": {"matched_by": "shell.timestamp_diag"},
+        }
+    m = _re.match(r"^\s*(?:run|execute)\s+(\S+(?:\s+.*)?)$", text, _re.I)
     if m:
         parts = m.group(1).strip().split()
         if parts and parts[0].lower() in _SHELL_PREPASS_CMDS:
@@ -8080,6 +8107,17 @@ try:
                     _SWLOG.debug("suppressed exception", exc_info=True)
                 return None
 
+            def _stage_timestamp_and_shell_followup(text, *_a, **_k):
+                """Real timestamp diagnostics and deictic shell follow-ups before
+                pending-proposal 'yes' hijacks or OPEN_APP steals 'that command'."""
+                try:
+                    routed = _eli_shell_prepass(str(text or ""))
+                    if isinstance(routed, dict) and routed.get("action"):
+                        return routed
+                except Exception:
+                    _SWLOG.debug("suppressed exception", exc_info=True)
+                return None
+
             def _stage_pending_proposal_confirm(text, *_a, **_k):
                 """If ELI offered to do something ("Want me to set a reminder?")
                 and the user now affirms, re-route the stored proposal phrase
@@ -8108,6 +8146,13 @@ try:
                         clear_pending_proposal()
                         return None
                     if is_affirmation(low):
+                        # "yes please dig into the timestamps" is a new request,
+                        # not consent to a stale install/download proposal.
+                        if len(low.split()) > 4 or _re.search(
+                            r"\b(?:dig|timestamp|investigate|check|trace|fix)\b", low
+                        ):
+                            clear_pending_proposal()
+                            return None
                         cmd = str(prop.get("command") or "").strip()
                         clear_pending_proposal()
                         if cmd:
@@ -8136,6 +8181,7 @@ try:
                 ("pending_habit_confirm", _stage_pending_habit_confirm),
                 ("pending_code_fix_confirm", _stage_pending_code_fix_confirm),
                 ("pending_remediation_confirm", _stage_pending_remediation_confirm),
+                ("timestamp_and_shell_followup", _stage_timestamp_and_shell_followup),
                 ("pending_proposal_confirm", _stage_pending_proposal_confirm),
                 ("react_to_pasted_content", _stage_react_to_pasted_content),
                 ("precedence", _stage_precedence),
@@ -8167,9 +8213,11 @@ try:
                 ("schedule_prepass", lambda t, *a, **k: _eli_schedule_prepass(t)),
                 ("set_user_name", _stage_set_user_name),
                 ("set_communication_style", _stage_set_communication_style),
+                # shell_prepass BEFORE portable_route so "run that command" and
+                # "run date" are not misread as OPEN_APP ("that command").
+                ("shell_prepass",   lambda t, *a, **k: _eli_shell_prepass(t)),
                 ("portable_route", _stage_portable_route),
                 ("weather_prepass", lambda t, *a, **k: _eli_weather_prepass(t)),
-                ("shell_prepass",   lambda t, *a, **k: _eli_shell_prepass(t)),
                 ("voice_contract", _stage_voice_contract),
                 ("persona_override", _stage_persona_override),
                 ("followup_passthrough", _stage_followup_passthrough),

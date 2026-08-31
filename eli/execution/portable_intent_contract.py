@@ -132,6 +132,8 @@ _APP_TAIL_REJECT_TOKENS = frozenset({
     # absent — plenty of real applications are named "<x> of <y>".
     "on", "in", "into", "onto", "with", "from", "via", "using",
     "search", "searching", "find", "google", "lookup",
+    # Deictic / meta words — "run that command" is not an app named "that command".
+    "that", "this", "it", "command",
 })
 
 
@@ -403,7 +405,7 @@ def try_route(text: str) -> Optional[dict]:
         # literally named "it".
         if target.lower().strip() in {
             "it", "that", "this", "these", "those", "here", "there", "them",
-        }:
+        } or re.fullmatch(r"(?:that|this|the|it)\s+command", target.lower().strip()):
             pass
         elif (
             target.lower().strip() in {

@@ -38,6 +38,8 @@ from eli.kernel.engine import _is_brief_phatic_prompt as phatic
     "hey buddy, how is the head?",
     "how is the head",
     "are you back to normal",
+    "you any better?",
+    "you any better",
     "you sorted yet?",
 ])
 def test_conversational_check_ins_skip_the_resolver(text):

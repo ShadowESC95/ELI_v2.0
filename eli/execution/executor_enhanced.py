@@ -5824,6 +5824,38 @@ def _execute_impl(action: str, args: Optional[Dict[str, Any]] = None) -> Dict[st
             default_date=False, default_time=True,
         )
         return {"ok": True, "action": a, "content": now_str, "response": now_str}
+    if a == "TIMESTAMP_DIAG":
+        import datetime as _dt_diag
+        from eli.core.worldclock import describe as _wc_describe
+        lines = [
+            "TIMESTAMP DIAGNOSTIC",
+            "",
+            "Wall clock (authoritative):",
+            _wc_describe("", default_date=True, default_time=True),
+        ]
+        try:
+            from eli.memory.memory import get_memory as _gm_diag
+            turns = _gm_diag().get_recent_conversation(limit=8) or []
+            if turns:
+                lines.append("")
+                lines.append("Recent conversation turns (stored timestamps):")
+                for t in turns[-6:]:
+                    ts = float((t or {}).get("timestamp") or 0)
+                    when = (
+                        _dt_diag.datetime.fromtimestamp(ts).astimezone().strftime(
+                            "%A %d %b %Y %H:%M:%S %Z"
+                        )
+                        if ts > 0
+                        else "no timestamp stored"
+                    )
+                    role = str((t or {}).get("role") or "?")
+                    content = str((t or {}).get("content") or "").replace("\n", " ")[:120]
+                    lines.append(f"  [{when}] {role}: {content}")
+        except Exception as _td_err:
+            lines.append("")
+            lines.append(f"(conversation log unavailable: {_td_err})")
+        msg = "\n".join(lines)
+        return {"ok": True, "action": a, "content": msg, "response": msg}
     if a == "GET_TIME":
         return _execute_impl("TIME", args)
 
