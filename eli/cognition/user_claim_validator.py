@@ -56,6 +56,15 @@ _CURRENT_ACTIVITY_RE = re.compile(
     re.I,
 )
 
+# User stating when something happened this turn ("spider man was today").
+_TEMPORAL_ANCHOR_RE = re.compile(
+    r"\b(.{2,80}?)\s+was\s+"
+    r"(today|yesterday|this morning|this evening|just now|earlier today)\b",
+    re.I,
+)
+
+_STALE_RECENCY_RE = re.compile(r"\blast week\b", re.I)
+
 # Assistant inventing a different show/movie/game than the user just named.
 _ENTERTAINMENT_MENTION_RE = re.compile(
     r"\b(?:watching|watch(?:ed|ing)?|listening to|reading|playing|"
@@ -113,10 +122,16 @@ def _user_negated_wild_nights(user_input: str, recent_user_turns: Optional[List[
 
 
 def _extract_current_user_activity(user_input: str) -> str:
-    m = _CURRENT_ACTIVITY_RE.search(str(user_input or ""))
-    if not m:
-        return ""
-    return m.group(1).strip().rstrip(".,!? ")
+    raw = str(user_input or "")
+    m = _CURRENT_ACTIVITY_RE.search(raw)
+    if m:
+        return m.group(1).strip().rstrip(".,!? ")
+    m2 = _TEMPORAL_ANCHOR_RE.search(raw)
+    if m2:
+        topic = m2.group(1).strip().rstrip(".,!? ")
+        when = m2.group(2).strip()
+        return f"referring to {topic} as happening {when}"
+    return ""
 
 
 def extract_current_user_activity(user_input: str) -> str:
@@ -190,6 +205,18 @@ def validate_user_claims_against_evidence(
                     sanitized = sanitized.replace(m.group(0), "").strip()
                     unverified += 1
 
+    # User corrected recency ("was today") — drop assistant "last week" claims.
+    if _TEMPORAL_ANCHOR_RE.search(str(user_input or "")):
+        for sentence in _split_sentences(out):
+            if _STALE_RECENCY_RE.search(sentence):
+                violations.append({
+                    "kind": "stale_recency",
+                    "value": sentence[:160],
+                    "reason": "user said the topic was today/recent — not last week",
+                })
+                sanitized = sanitized.replace(sentence, "").strip()
+                unverified += 1
+
     for claim in attributions:
         sentence = claim["sentence"]
         if _sentence_supported(sentence, ev):
@@ -207,7 +234,7 @@ def validate_user_claims_against_evidence(
     total = len(attributions)
     ratio = (unverified / total) if total else 0.0
     unsafe = bool(unverified > 0 and (ratio >= 0.5 or not sanitized.strip()))
-    if any(v.get("kind") in ("wild_night_bait", "wrong_current_activity") for v in violations):
+    if any(v.get("kind") in ("wild_night_bait", "wrong_current_activity", "stale_recency") for v in violations):
         unsafe = True
         if not sanitized.strip() or sanitized == out:
             sanitized = _RETRACTION

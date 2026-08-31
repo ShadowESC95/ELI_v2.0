@@ -81,3 +81,13 @@ def test_sound_less_formal_still_fires():
 
 def test_clearing_the_tone_still_works():
     assert _action("back to normal") == "CLEAR_TONE"
+
+
+@pytest.mark.parametrize("text", [
+    "are you back to normal yet, or not?",
+    "are you back to normal yet?",
+    "are you back to normal",
+    "you back to normal yet?",
+])
+def test_status_check_in_is_not_clear_tone(text):
+    assert _action(text) != "CLEAR_TONE", f"status question routed to CLEAR_TONE: {text!r}"
