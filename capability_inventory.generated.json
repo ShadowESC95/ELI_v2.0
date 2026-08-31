@@ -1473,6 +1473,14 @@
       "source": "executor+router"
     },
     {
+      "action": "SELF_REPAIR_PLAYBOOK",
+      "in_dispatch": true,
+      "in_supported_list": true,
+      "plugin": null,
+      "routable": true,
+      "source": "executor+router"
+    },
+    {
       "action": "SELF_REPORT",
       "in_dispatch": true,
       "in_supported_list": true,
@@ -1801,7 +1809,7 @@
       "source": "executor"
     }
   ],
-  "count": 225,
-  "generated_at": 1787929138.4736607,
+  "count": 226,
+  "generated_at": 1788133765.9777522,
   "generator": "brain.awareness.capability_sync"
 }
