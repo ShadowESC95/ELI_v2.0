@@ -4,6 +4,10 @@ from __future__ import annotations
 import re
 from typing import Optional
 
+from eli.utils.log import get_logger
+
+log = get_logger(__name__)
+
 _RUN_PRIOR_SHELL_RE = re.compile(
     r"^\s*(?:please\s+)?(?:run|execute)\s+(?:that|this|the|it)(?:\s+command)?\s*\.?\s*$",
     re.I,
@@ -52,7 +56,7 @@ def _last_assistant_text() -> str:
                 if content:
                     return content
     except Exception:
-        pass
+        log.debug("suppressed exception", exc_info=True)
     return ""
 
 
