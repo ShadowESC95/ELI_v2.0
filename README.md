@@ -126,7 +126,7 @@ day:
 Asking *"what can you do?"* lists the full surface.
 
 <details>
-<summary><b>Full capability breadth — 225 capabilities across 17 areas</b></summary>
+<summary><b>Full capability breadth — 226 capabilities across 17 areas</b></summary>
 
 | Area | What's in it |
 |---|---|
