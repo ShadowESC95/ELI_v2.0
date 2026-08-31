@@ -327,7 +327,7 @@ def classify_web_candidate(text: str) -> bool:
         if explicit_web_search_request(raw):
             return True
     except Exception:
-        pass
+        log.debug("suppressed exception", exc_info=True)
     return False
 
 
