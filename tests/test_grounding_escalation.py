@@ -227,3 +227,35 @@ def test_degenerate_answer_falls_through_to_hedge(monkeypatch):
                    {"action": "CHAT"}, _FakeBus(0.30))
     assert r is not None and r["meta"]["response_mode"] == "ungrounded_hedge"
     assert G._is_degenerate("-") and G._is_degenerate(". . .") and not G._is_degenerate("Detroit")
+
+
+def test_web_candidate_classic_question():
+    assert G.classify_web_candidate("is it a classic ? it is barely out a month...")
+    assert G.classify_web_candidate("when did spider-man brand new day come out?")
+
+
+def test_web_candidate_escalates_on_very_low_grounding(monkeypatch):
+    monkeypatch.setattr(C, "network_allowed", lambda: True)
+    import eli.execution.executor_enhanced as E
+    monkeypatch.setattr(
+        E, "execute",
+        lambda a, args=None: ({"web_grounded": True,
+                               "results": [{"title": "Spider-Man: Brand New Day - Wikipedia",
+                                            "body": "Released July 31, 2026 in the United States."}],
+                               "content": "Wikipedia: released July 31, 2026"}
+                              if a == "WEB_SEARCH" else {}))
+    r = G.escalate(
+        _FakeEngine(),
+        "is spider-man brand new day a classic yet?",
+        {"action": "CHAT"},
+        _FakeBus(0.18),
+        reasoning_mode="quick",
+    )
+    assert r is not None and r["meta"]["response_mode"] == "escalation_web"
+
+
+def test_orchestrator_has_pre_generation_escalation():
+    import inspect
+    from eli.cognition.orchestrator import AgentOrchestrator
+    src = inspect.getsource(AgentOrchestrator.run)
+    assert "_maybe_grounding_escalate" in src

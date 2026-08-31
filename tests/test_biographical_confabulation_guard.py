@@ -6,6 +6,8 @@ import inspect
 import pytest
 
 from eli.cognition.correction_patterns import (
+    correction_shortcut_allowed,
+    explicit_web_search_request,
     is_biographical_dispute,
     is_correction_query,
 )
@@ -54,6 +56,14 @@ def test_correction_repair_has_biographical_dispute_steering():
 def test_correction_repair_caps_long_budget():
     src = inspect.getsource(engine.CognitiveEngine._correction_repair)
     assert "_corr_max > 512" in src or "512" in src
+
+
+def test_web_search_request_not_hijacked_by_correction_shortcut():
+    msg = 'what are you talking about? go search the web and tell me how "classic" it is'
+    assert is_correction_query(msg)
+    assert explicit_web_search_request(msg)
+    assert not correction_shortcut_allowed(msg, "WEB_SEARCH")
+    assert not correction_shortcut_allowed(msg, "CHAT")
 
 
 def test_persona_handoff_has_low_grounding_guard():

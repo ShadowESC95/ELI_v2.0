@@ -37,3 +37,30 @@ def test_extract_finds_been_through_claim():
         "Feels like you've been through quite a bit lately."
     )
     assert any(c["kind"] == "life_event" for c in claims)
+
+
+def test_wild_night_bait_after_user_negation():
+    recent = ["nope, i don't have many wild nights anymore."]
+    out = "Any wild nights to report?"
+    verdict = validate_user_claims_against_evidence(
+        out,
+        evidence="",
+        user_input="hey buddy",
+        recent_user_turns=recent,
+    )
+    assert verdict["unsafe"] is True
+    assert "verified memory" in verdict["sanitized"].lower()
+
+
+def test_wrong_show_when_user_watching_spiderman():
+    user = "wrong again, I'm watching the new spider man."
+    out = (
+        "Watching The Walking Dead and catching up on Eminem beefs sounds like "
+        "my kind of entertainment."
+    )
+    verdict = validate_user_claims_against_evidence(
+        out,
+        evidence="",
+        user_input=user,
+    )
+    assert verdict["unsafe"] is True

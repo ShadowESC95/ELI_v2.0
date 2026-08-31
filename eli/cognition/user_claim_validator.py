@@ -37,6 +37,31 @@ _RETRACTION = (
     "have implied it. My mistake, buddy."
 )
 
+_WILD_NIGHT_BAIT_RE = re.compile(
+    r"\b(?:any|got any)\s+wild\s+nights?\b|\bwild\s+nights?\s+to\s+report\b",
+    re.I,
+)
+
+_USER_NEGATED_WILD_NIGHT_RE = re.compile(
+    r"\b(?:don'?t|do not|never)\s+(?:have|get)\s+(?:many\s+)?wild\s+nights?\b"
+    r"|\bno\s+(?:more\s+)?wild\s+nights?\b",
+    re.I,
+)
+
+_CURRENT_ACTIVITY_RE = re.compile(
+    r"\b(?:i(?:'m| am)|we(?:'re| are))\s+"
+    r"(?:watching|reading|listening to|playing|binge(?:ing)?)\s+"
+    r"(.+?)(?:[.?!]|$)",
+    re.I,
+)
+
+# Assistant inventing a different show/movie/game than the user just named.
+_ENTERTAINMENT_MENTION_RE = re.compile(
+    r"\b(?:watching|watch(?:ed|ing)?|listening to|reading|playing|"
+    r"catching up on)\s+(?:the\s+)?([a-z0-9][a-z0-9\s'\-:]{2,60})",
+    re.I,
+)
+
 
 def _significant_tokens(text: str) -> Set[str]:
     words = re.findall(r"[a-zA-Z']{3,}", str(text or "").lower())
@@ -61,6 +86,42 @@ def _split_sentences(text: str) -> List[str]:
     return [p.strip() for p in parts if p.strip()]
 
 
+def _activity_tokens(text: str) -> Set[str]:
+    words = re.findall(r"[a-z0-9]{3,}", str(text or "").lower())
+    skip = _STOP | {
+        "watching", "reading", "listening", "playing", "movie", "film", "show",
+        "series", "episode", "season", "new", "the", "and", "for", "with",
+    }
+    return {w for w in words if w not in skip}
+
+
+def _activities_conflict(stated: str, mentioned: str) -> bool:
+    stated_t = _activity_tokens(stated)
+    mentioned_t = _activity_tokens(mentioned)
+    if not stated_t or not mentioned_t:
+        return False
+    overlap = stated_t & mentioned_t
+    if overlap:
+        return False
+    return True
+
+
+def _user_negated_wild_nights(user_input: str, recent_user_turns: Optional[List[str]] = None) -> bool:
+    corpus = " ".join([str(user_input or "")] + list(recent_user_turns or []))
+    return bool(_USER_NEGATED_WILD_NIGHT_RE.search(corpus))
+
+
+def _extract_current_user_activity(user_input: str) -> str:
+    m = _CURRENT_ACTIVITY_RE.search(str(user_input or ""))
+    if not m:
+        return ""
+    return m.group(1).strip().rstrip(".,!? ")
+
+
+def extract_current_user_activity(user_input: str) -> str:
+    return _extract_current_user_activity(user_input)
+
+
 def extract_user_attribution_sentences(text: str) -> List[Dict[str, str]]:
     claims: List[Dict[str, str]] = []
     for sentence in _split_sentences(text):
@@ -77,6 +138,7 @@ def validate_user_claims_against_evidence(
     *,
     user_input: str = "",
     mode: str = "strip_unsupported",
+    recent_user_turns: Optional[List[str]] = None,
 ) -> Dict[str, Any]:
     """Validate assistant output against verified memory evidence.
 
@@ -102,6 +164,31 @@ def validate_user_claims_against_evidence(
     sanitized = out
     unverified = 0
 
+    if _WILD_NIGHT_BAIT_RE.search(out) and _user_negated_wild_nights(
+            user_input, recent_user_turns):
+        violations.append({
+            "kind": "wild_night_bait",
+            "value": "wild night follow-up",
+            "reason": "user recently said they do not have wild nights",
+        })
+        sanitized = _RETRACTION
+
+    _current_activity = _extract_current_user_activity(user_input)
+    if _current_activity:
+        for m in _ENTERTAINMENT_MENTION_RE.finditer(out):
+            mentioned = str(m.group(1) or "").strip().rstrip(".,!? ")
+            if mentioned and _activities_conflict(_current_activity, mentioned):
+                if not _sentence_supported(m.group(0), ev):
+                    violations.append({
+                        "kind": "wrong_current_activity",
+                        "value": mentioned[:120],
+                        "reason": (
+                            f"user said they are {_current_activity[:80]!r} this turn"
+                        ),
+                    })
+                    sanitized = sanitized.replace(m.group(0), "").strip()
+                    unverified += 1
+
     for claim in attributions:
         sentence = claim["sentence"]
         if _sentence_supported(sentence, ev):
@@ -119,6 +206,10 @@ def validate_user_claims_against_evidence(
     total = len(attributions)
     ratio = (unverified / total) if total else 0.0
     unsafe = bool(unverified > 0 and (ratio >= 0.5 or not sanitized.strip()))
+    if any(v.get("kind") in ("wild_night_bait", "wrong_current_activity") for v in violations):
+        unsafe = True
+        if not sanitized.strip() or sanitized == out:
+            sanitized = _RETRACTION
 
     if unsafe and not sanitized.strip():
         sanitized = _RETRACTION

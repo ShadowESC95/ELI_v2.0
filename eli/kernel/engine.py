@@ -9019,6 +9019,20 @@ Answer:"""
         # anti-confabulation guard.
         _ui_low = str(user_input or "").lower()
 
+        # Current-turn activity anchor — overrides stale profile/memory entertainment hits.
+        try:
+            from eli.cognition.user_claim_validator import extract_current_user_activity
+            _turn_activity = extract_current_user_activity(user_input or "")
+            if _turn_activity:
+                _extra_blocks.append(
+                    "[CURRENT TURN — authoritative] The user just said they are "
+                    f"{_turn_activity}. Do NOT substitute a different show, movie, "
+                    "game, or hobby from memory or profile. Respond to what they "
+                    "actually said they are doing right now."
+                )
+        except Exception:
+            log.debug("suppressed exception", exc_info=True)
+
         # ── World awareness state injection ──────────────────────────────────
         # Inject ELI's live AwarenessState so synthesis knows its own internal
         # confidence / uncertainty / focus. Only injected when world state
@@ -9171,11 +9185,18 @@ Answer:"""
             # A greeting gets a greeting; the name alone is enough. Substantive turns still
             # get the full recall.
             _phatic_turn = False
+            _low_grounding_casual = False
             try:
                 _phatic_turn = _is_brief_phatic_prompt(str(user_input or "").strip().lower())
             except Exception:
                 _phatic_turn = False
-            if not _phatic_turn:
+            try:
+                _bus_agg_pf = float(getattr(bus_result, "aggregated_confidence", 0.0) or 0.0) if bus_result else 0.0
+                _bus_gnd_pf = float(getattr(bus_result, "grounding_confidence", 0.0) or 0.0) if bus_result else 0.0
+                _low_grounding_casual = (_bus_agg_pf < 0.35 or _bus_gnd_pf < 0.35)
+            except Exception:
+                _low_grounding_casual = False
+            if not _phatic_turn and not _low_grounding_casual:
                 for _label, _key in (("project", "active_projects"),
                                       ("research", "research"),
                                       ("preference", "preferences")):
@@ -9740,7 +9761,22 @@ Answer:"""
                 final = "".join(parts).strip()
                 if final:
                     try:
-                        self.enqueue_post_response_storage(user_input, final, {"action": "CHAT"}, command=False)
+                        _wm_ctx = ""
+                        try:
+                            _wm_ctx = str(getattr(self, "_last_orchestrator_memory_context", "") or "")
+                        except Exception:
+                            _wm_ctx = ""
+                        final = self._govern_visible_response(
+                            user_input,
+                            final,
+                            memory_context=_wm_ctx,
+                            is_grounded=bool(_wm_ctx),
+                        )
+                    except Exception as _gov_err:
+                        log.debug(f"[COGNITIVE] orchestrator stream governance skipped: {_gov_err}")
+                    try:
+                        self.enqueue_post_response_storage(
+                            user_input, final, {"action": "CHAT"}, command=False)
                     except Exception as _store_err:
                         log.debug(f"[COGNITIVE] orchestrator stream storage failed: {_store_err}")
             return _wrapped()
@@ -10128,10 +10164,20 @@ Answer:"""
                 from eli.cognition.user_claim_validator import (
                     validate_user_claims_against_evidence,
                 )
+                _recent_user_turns: List[str] = []
+                try:
+                    for _t in (self.memory.get_recent_conversation(limit=8, user_id=self.user_id) or []):
+                        if str((_t or {}).get("role", "")).lower() == "user":
+                            _c = str((_t or {}).get("content", "") or "").strip()
+                            if _c:
+                                _recent_user_turns.append(_c)
+                except Exception:
+                    _recent_user_turns = []
                 _claim_verdict = validate_user_claims_against_evidence(
                     response,
                     memory_context,
                     user_input=user_input,
+                    recent_user_turns=_recent_user_turns,
                 )
                 if _claim_verdict.get("unsafe") or _claim_verdict.get("violations"):
                     _san = str(_claim_verdict.get("sanitized") or "").strip()
@@ -11655,10 +11701,19 @@ Answer:"""
         # CORRECTION shortcut: the user is correcting the previous answer
         # ("that's not what I asked"). Try a direct steered repair before the
         # heavy pipeline; on failure fall through as GENERAL.
+        # Never hijack explicit executor routes (WEB_SEARCH when user says "search
+        # the web") — observed: correction repair returned patch-cycle deflection
+        # instead of running DuckDuckGo.
         if _qclass == 'CORRECTION':
-            _corr_result = self._correction_repair(user_input, trace)
-            if _corr_result is not None:
-                return _corr_result
+            try:
+                from eli.cognition.correction_patterns import correction_shortcut_allowed
+                _corr_ok = correction_shortcut_allowed(user_input, action)
+            except Exception:
+                _corr_ok = str(action or "").upper() == "CHAT"
+            if _corr_ok:
+                _corr_result = self._correction_repair(user_input, trace)
+                if _corr_result is not None:
+                    return _corr_result
             _qclass = 'GENERAL'
         # Router-owned RUNTIME_STATUS must not be rewritten into SELF_REPORT.
         # SELF_REPORT is identity/persona evidence; RUNTIME_STATUS is live runtime evidence.
@@ -12907,6 +12962,11 @@ Answer:"""
                         "2) You MAY add a brief comment or piece of context if it genuinely helps.\n"
                         "3) You MAY end with ONE short, relevant follow-up question or proposal "
                         "for what the user might want next — only when it adds real value.\n"
+                        "4) If the user asks whether something IS a 'classic', distinguish that "
+                        "from quotes about 'classic elements' or 'classic Spidey' — a release "
+                        "only weeks or months old is too new to call an established classic; "
+                        "cite the release date and say the 'classic' label is premature unless "
+                        "results explicitly use it that way.\n"
                         "Keep it tight and conversational. Never state facts not present in the "
                         "results below.]\n\n"
                         + evidence
@@ -14217,7 +14277,12 @@ Answer:"""
                     yield piece
 
             if yielded:
-                final_text = "".join(full_tokens).strip()
+                final_text = self._govern_visible_response(
+                    prompt,
+                    "".join(full_tokens).strip(),
+                    memory_context=memory_context or situation_brief,
+                    is_grounded=bool(memory_context or situation_brief),
+                )
                 if final_text:
                     try:
                         self._store_assistant_turn(final_text)
