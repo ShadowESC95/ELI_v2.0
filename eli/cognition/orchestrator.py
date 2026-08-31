@@ -217,7 +217,7 @@ class OrchestratorMemoryAgent:
                 try:
                     setattr(self.engine, "_last_turn_retrieval", _tr)
                 except Exception:
-                    pass
+                    log.debug("suppressed exception", exc_info=True)
                 log.debug(
                     "[ORCHESTRATOR] unified retrieval → keyword=%d semantic=%d elapsed=%.0fms",
                     len(keyword_hits), len(semantic_hits), float(getattr(_tr, "elapsed_ms", 0.0) or 0.0),
@@ -975,7 +975,7 @@ class AgentOrchestrator:
                 str(getattr(wm, "assembled_context", "") or ""),
             )
         except Exception:
-            pass
+            log.debug("suppressed exception", exc_info=True)
         log.debug(f"[ORCHESTRATOR] Stage 10: Context Assembly → {len(wm.assembled_context)} chars")
         _eli_pipe_orch("stage_10", assembled_chars=len(wm.assembled_context or ""))
 
