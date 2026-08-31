@@ -624,6 +624,9 @@ _FG_PRIORITY = threading.Event()
 # the shared lock) blocked for 20-30 min. This cooperative abort lets any in-flight call
 # yield at the next token so teardown proceeds immediately.
 _SHUTDOWN = threading.Event()
+# Set when the user clicks Stop during chat generation. Cooperative abort at the
+# next token — same mechanism as shutdown, without tearing down the model.
+_USER_CANCEL = threading.Event()
 _bg_tls = threading.local()
 
 
@@ -635,6 +638,19 @@ def signal_shutdown() -> None:
 
 def clear_shutdown() -> None:
     _SHUTDOWN.clear()
+
+
+def request_cancel_generation() -> None:
+    """Abort the current user-facing generation at the next token."""
+    _USER_CANCEL.set()
+
+
+def clear_cancel_generation() -> None:
+    _USER_CANCEL.clear()
+
+
+def is_cancel_requested() -> bool:
+    return _USER_CANCEL.is_set()
 
 
 def is_shutting_down() -> bool:
@@ -657,9 +673,10 @@ def _fg_preempt_enabled() -> bool:
 
 def _should_abort_generation(background: bool) -> bool:
     """True when an in-flight generation should yield at the next token: shutdown is
-    signalled (aborts ANY call) or — for BACKGROUND calls with preemption enabled — a
-    foreground turn is waiting on the shared lock."""
-    if _SHUTDOWN.is_set():
+    signalled (aborts ANY call), the user clicked Stop (aborts ANY call), or — for
+    BACKGROUND calls with preemption enabled — a foreground turn is waiting on the
+    shared lock."""
+    if _SHUTDOWN.is_set() or _USER_CANCEL.is_set():
         return True
     return bool(background) and _fg_preempt_enabled() and _FG_PRIORITY.is_set()
 

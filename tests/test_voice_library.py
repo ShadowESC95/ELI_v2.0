@@ -212,6 +212,14 @@ def test_resolve_accepts_legacy_string_fallback():
 
 
 # ── shipped-asset integrity ─────────────────────────────────────────────────
+def test_voice_display_name_labels_styles_not_characters():
+    from eli.perception.tts_router import voice_display_name, resolve_voice_id
+
+    assert voice_display_name("char:robotic") == "Style: Robotic assistant"
+    assert voice_display_name("en_US-amy-medium") == "en_US-amy-medium"
+    assert resolve_voice_id("Style: Robotic assistant") == "char:robotic"
+
+
 def test_no_voice_ships_without_its_config():
     """A .onnx with no .onnx.json is unusable — Piper can't load it, so it is
     ~60 MB of dead weight invisible to list_voices(). Guards a real regression:

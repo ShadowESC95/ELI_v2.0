@@ -118,6 +118,18 @@ Weight files for Phi-3 are **not** committed; download separately under Microsof
 
 ---
 
+## Style presets vs character impersonation (public releases)
+
+ELI ships **five built-in style presets** (`char:calm`, `char:robotic`, `char:energetic`, `char:synthetic`, `char:refined`): redistributable Piper voices + ffmpeg effects. We **do not** bundle neural clones or marketing labels for copyrighted characters (HAL 9000, JARVIS, Rick Sanchez, TARS, GLaDOS, etc.) in GitHub releases or installers — that would be legally unsafe and technically misleading (the old named presets used unshippable base voices and sounded identical anyway).
+
+Users who want a specific timbre may:
+- tune or add their own `char:<name>` preset in `config/voices/characters.json`, or
+- use **local voice cloning** (XTTS-v2 opt-in) from **reference audio they have rights to use**.
+
+Persona / communication-style commands change **wording**, not the TTS timbre.
+
+---
+
 ## Maintainer release checklist
 
 1. Attach **this file** to every model/voice GitHub Release (`MODEL_LICENSES.md`).

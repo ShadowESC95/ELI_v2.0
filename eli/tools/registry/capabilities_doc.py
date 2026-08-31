@@ -141,7 +141,7 @@ _add("Voice", "TRANSCRIBE", "Transcribe an audio file", "“transcribe audio.wav
 _add("Voice", "SPEAK", "Speak text aloud (TTS)", "“say good morning”")
 _add("Voice", "LIST_VOICES", "List installed voices and what's downloadable (166 across 45 languages)", "“what voices do you have”", "“list voices”", "“which accents can I get”")
 _add("Voice", "DOWNLOAD_VOICE", "Download a voice/accent from the Piper library and switch to it", "“download a British voice”", "“get me a Scottish accent”", "“install en_US-amy-medium”")
-_add("Voice", "SET_VOICE", "Switch the active TTS voice/accent (distinct from persona tone)", "“use the alan voice”", "“switch your voice to amy”", "“use the HAL voice”", "“use the natural voice”")
+_add("Voice", "SET_VOICE", "Switch the active TTS voice/accent (distinct from persona tone)", "“use the alan voice”", "“switch your voice to amy”", "“use the robotic style voice”", "“use the natural voice”")
 _add("Voice", "CREATE_VOICE", "Make a new ELI voice from a recording (wav/mp3/mp4 drop-in; XTTS-v2 clone)", "“create a voice called Nova from clip.mp4”", "“make an ELI voice from recording.wav”")
 _add("Conversation & persona", "SET_TONE", "Shade ELI's expressed tone/emotion (words+voice+face) without changing his core personality", "“be comedic”", "“talk street”", "“sound more professional”", "“use a deadpan tone”")
 _add("Conversation & persona", "CLEAR_TONE", "Drop a pinned tone — back to autonomous, situation-adaptive delivery", "“go back to normal”", "“be yourself”", "“drop the tone”")

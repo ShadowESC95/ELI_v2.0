@@ -95,22 +95,35 @@ from eli.gui.panels._qt import (  # noqa: E402
 class AgentCreateDialog(QDialog):
     """Author a new custom agent as a specification."""
 
-    def __init__(self, parent=None, existing: dict | None = None):
+    def __init__(self, parent=None, existing: dict | None = None, *, prefill: dict | None = None):
         super().__init__(parent)
-        self.setWindowTitle("Create agent" if existing is None else "Edit agent spec")
+        self._existing = existing or prefill or {}
+        self._is_edit = bool(existing)
+        self.setWindowTitle("Create agent" if not self._is_edit else "Edit agent spec")
         self.setMinimumSize(680, 640)
-        self._existing = existing or {}
         self._build_ui()
         if existing:
-            self._load(existing)
+            self._load(existing, lock_id=True)
+        elif prefill:
+            self._load(prefill, lock_id=False)
+
+    @staticmethod
+    def prefill_from_legacy_wizard(
+        name_purpose: str,
+        triggers_data: str,
+        persona_output: str,
+    ) -> dict:
+        from eli.cognition.agent_spec import prefill_from_legacy_wizard
+        return prefill_from_legacy_wizard(name_purpose, triggers_data, persona_output)
 
     # ── ui ───────────────────────────────────────────────────────────────────
     def _build_ui(self):
         root = QVBoxLayout(self)
         root.addWidget(QLabel(
             "<b>A custom agent runs alongside ELI's main reply.</b><br>"
-            "<span style='color:#6c7086'>Everything below is a specification, not code — "
-            "so it runs no program on your machine and needs no security approval.</span>"))
+            "<span style='color:#6c7086'>Author as many agents as you need — each is a "
+            "specification (not code), saved under your ELI data directory, validated, and "
+            "registered on the agent bus. No built-in limit on count; IDs must be unique.</span>"))
 
         tabs = QTabWidget()
         tabs.addTab(self._page_identity(), "1 · What it is")
@@ -134,9 +147,11 @@ class AgentCreateDialog(QDialog):
         cancel.clicked.connect(self.reject)
         row.addWidget(cancel)
         save = QPushButton("\U0001f4be Create agent")
+        save.setObjectName("save_btn")
         save.clicked.connect(self._save)
         row.addWidget(save)
         root.addLayout(row)
+        self._save_btn = save
 
     def _page_identity(self) -> QWidget:
         w = QWidget()
@@ -251,6 +266,10 @@ class AgentCreateDialog(QDialog):
         self.author_edit = QLineEdit()
         form.addRow("Author:", self.author_edit)
 
+        self.enabled_chk = QCheckBox("Enabled (runs when triggers match)")
+        self.enabled_chk.setChecked(False)
+        form.addRow(self.enabled_chk)
+
         self.perm_box = QGroupBox("Capabilities this agent may use")
         pv = QVBoxLayout(self.perm_box)
         pv.addWidget(QLabel(
@@ -308,9 +327,9 @@ class AgentCreateDialog(QDialog):
         return [widget.item(i).data(Qt.ItemDataRole.UserRole)
                 for i in range(widget.count())]
 
-    def _load(self, data: dict):
+    def _load(self, data: dict, *, lock_id: bool = False):
         self.id_edit.setText(data.get("id", ""))
-        self.id_edit.setReadOnly(True)
+        self.id_edit.setReadOnly(lock_id)
         self.name_edit.setText(data.get("name", ""))
         self.objective_edit.setPlainText(data.get("objective", ""))
         self.prompt_edit.setPlainText(data.get("system_prompt", ""))
@@ -318,6 +337,9 @@ class AgentCreateDialog(QDialog):
         self.timeout_spin.setValue(float(data.get("timeout_s", 8.0)))
         self.tokens_spin.setValue(int(data.get("max_tokens", 512)))
         self.temp_spin.setValue(float(data.get("temperature", 0.4)))
+        self.enabled_chk.setChecked(bool(data.get("enabled", False)))
+        if self._is_edit:
+            self._save_btn.setText("\U0001f4be Save changes")
         for t in data.get("triggers", []):
             item = QListWidgetItem(f"{t['kind']}: {t.get('value', '')}")
             item.setData(Qt.ItemDataRole.UserRole, t)
@@ -331,6 +353,7 @@ class AgentCreateDialog(QDialog):
 
     def build_spec(self):
         from eli.cognition.agent_spec import AgentSpec, SuccessCheck, Trigger
+        created = str(self._existing.get("created") or "")
         return AgentSpec(
             id=self.id_edit.text().strip(),
             name=self.name_edit.text().strip(),
@@ -343,6 +366,8 @@ class AgentCreateDialog(QDialog):
             timeout_s=self.timeout_spin.value(),
             max_tokens=self.tokens_spin.value(),
             temperature=self.temp_spin.value(),
+            enabled=self.enabled_chk.isChecked(),
+            created=created,
         )
 
     def _check(self) -> bool:
@@ -379,9 +404,11 @@ class AgentCreateDialog(QDialog):
         except Exception as exc:
             registered = f"\n\nSaved, but live registration failed: {exc}"
         QMessageBox.information(
-            self, "Agent created",
+            self, "Agent saved" if self._is_edit else "Agent created",
             f"Saved to {result['path']}.{registered}\n\n"
-            f"It is created switched OFF. Enable it in Settings ▸ Agents.")
+            + ("Enable it here or in Settings ▸ Agents."
+               if not self.enabled_chk.isChecked()
+               else "It is enabled and will run when its triggers match."))
         self.accept()
 
 

@@ -434,8 +434,9 @@ GUARDED_EXACT = {
 DUCK_LEVEL = os.environ.get("ELI_STT_DUCK_LEVEL", "15%")
 RESTORE_DELAY_S = float(os.environ.get("ELI_STT_RESTORE_DELAY", "0.20"))
 MAIN_TIMEOUT = float(os.environ.get("ELI_STT_MAIN_TIMEOUT", "1.2"))
+ARMED_MAIN_TIMEOUT = float(os.environ.get("ELI_STT_ARMED_MAIN_TIMEOUT", "4.0"))
 PHRASE_TIME_LIMIT = float(os.environ.get("ELI_STT_PHRASE_TIME_LIMIT", "6.0"))
-WAKE_ARM_TIMEOUT = float(os.environ.get("ELI_STT_WAKE_ARM_TIMEOUT", "12.0"))
+WAKE_ARM_TIMEOUT = float(os.environ.get("ELI_STT_WAKE_ARM_TIMEOUT", "18.0"))
 # Shorter pause when unarmed — wake word is one word, safe-direct is 1-3 words.
 # 0.20s of silence is enough to know a short command ended.
 UNARMED_PAUSE_S = float(os.environ.get("ELI_STT_UNARMED_PAUSE", "0.20"))
@@ -659,6 +660,9 @@ def _eli_fast_command_alias(text: str) -> str:
         "volume down": "volume down",
         "vol up": "volume up",
         "vol down": "volume down",
+        "find him down": "volume down",
+        "turn him down": "volume down",
+        "fin him down": "volume down",
         "mute": "mute",
         "unmute": "unmute",
         "play": "play",
@@ -712,11 +716,27 @@ _SAFE_FAST_APP_TARGETS = {
 
 _SAFE_FAST_CLOSE_TARGETS = _SAFE_FAST_APP_TARGETS | {"tab", "window"}
 
+_VOLUME_PERCENT_RE = re.compile(
+    r"^(?:set\s+)?volume\s+(?:to\s+)?(\d{1,3})\s*%?$"
+)
+
+
+def _is_volume_percent_command(text: str) -> bool:
+    t = _collapse_repeated_phrase(text)
+    if not t:
+        return False
+    m = _VOLUME_PERCENT_RE.fullmatch(t.replace(" percent", "%").replace(" per cent", "%"))
+    return bool(m and 0 <= int(m.group(1)) <= 100)
+
+
 def _is_safe_direct(text: str) -> bool:
     t = _collapse_repeated_phrase(text)
 
     # Existing bare deterministic controls.
     if t in SAFE_DIRECT_COMMANDS:
+        return True
+
+    if _is_volume_percent_command(t):
         return True
 
     # Use media/app alias normalizer if later patches installed it.
@@ -1108,6 +1128,13 @@ class VoiceGate:
     def armed(self) -> bool:
         return time.monotonic() < self._guarded_until
 
+    def touch_arm(self, extra_sec: float = 4.0) -> None:
+        """Extend the armed window while the user is still in a ducked wake session."""
+        if not self.armed():
+            return
+        cap = getattr(self, "_armed_at", 0.0) + (self.wake_timeout_sec * 1.5)
+        self._guarded_until = min(time.monotonic() + max(1.0, float(extra_sec)), cap)
+
     def _strip_leading_wake(self, text: str) -> tuple[Optional[str], str]:
         t = _collapse_repeated_phrase(text)
         for wake in sorted(WAKE_WORDS, key=len, reverse=True):
@@ -1185,12 +1212,13 @@ class VoiceGate:
             self.clear()
             return "dispatch", text, None
 
-        # Safe direct commands (play/pause/next/volume/etc.) always dispatch without
-        # wake word. REQUIRE_WAKE_FOR_SAFE_DIRECT is an opt-in hard override
-        # (default off) — set ELI_STT_REQUIRE_WAKE_FOR_SAFE_DIRECT=1 only if you
-        # want wake-word-always mode for debugging.
+        # Safe direct commands (play/pause/next/volume/etc.) dispatch without wake
+        # when the room is quiet. When media is playing, speaker bleed from Netflix
+        # / Spotify lyrics can trigger false pauses — require wake (or armed window).
         if _is_safe_direct(text):
             if REQUIRE_WAKE_FOR_SAFE_DIRECT:
+                return "ignore_unarmed", None, None
+            if _eli_media_probably_audible() and not self.armed():
                 return "ignore_unarmed", None, None
             return "dispatch", text, None
 
@@ -1979,6 +2007,9 @@ class ELIAudioSTT:
                             _silent_streak = 0  # reset counter even when calibration is off
 
                         _listen_start = time.monotonic()
+                        _active_main_timeout = (
+                            ARMED_MAIN_TIMEOUT if self._voice_gate.armed() else MAIN_TIMEOUT
+                        )
                         # Duration-adaptive end-of-phrase pause for command/dictation
                         # states (NOT the unarmed wake-word window, which stays tight
                         # for fast wake detection): short commands finalise after
@@ -1993,7 +2024,7 @@ class ELIAudioSTT:
                             _ad_limit = max(_active_phrase_limit, float(os.environ.get("ELI_STT_ADAPTIVE_PHRASE_LIMIT", "45.0")))
                             try:
                                 audio = self._listen_adaptive_pause(
-                                    source, timeout=MAIN_TIMEOUT, phrase_time_limit=_ad_limit,
+                                    source, timeout=_active_main_timeout, phrase_time_limit=_ad_limit,
                                     short_pause=float(os.environ.get("ELI_STT_SHORT_PAUSE", "0.5")),
                                     long_pause=float(os.environ.get("ELI_STT_LONG_PAUSE", "2.0")),
                                     long_after=float(os.environ.get("ELI_STT_LONG_AFTER", "12.0")),
@@ -2003,10 +2034,18 @@ class ELIAudioSTT:
                                 raise
                             except Exception as _ad_err:
                                 log.debug(f"[AUDIO] adaptive listen failed, using stock listen(): {_ad_err}")
-                                audio = self.recognizer.listen(source, timeout=MAIN_TIMEOUT, phrase_time_limit=_active_phrase_limit)
+                                audio = self.recognizer.listen(
+                                    source, timeout=_active_main_timeout,
+                                    phrase_time_limit=_active_phrase_limit,
+                                )
                         else:
-                            audio = self.recognizer.listen(source, timeout=MAIN_TIMEOUT, phrase_time_limit=_active_phrase_limit)
+                            audio = self.recognizer.listen(
+                                source, timeout=_active_main_timeout,
+                                phrase_time_limit=_active_phrase_limit,
+                            )
                     except sr.WaitTimeoutError:
+                        if self._voice_gate.armed() and self._eli_duck_snapshot is not None:
+                            self._voice_gate.touch_arm()
                         # Restore duck if the gate expired while we were waiting
                         # for the user to speak (covers arm_incomplete → silence → timeout).
                         if self._eli_duck_snapshot is not None and not self._voice_gate.armed():

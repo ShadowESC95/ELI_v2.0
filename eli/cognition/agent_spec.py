@@ -307,6 +307,61 @@ def validate(spec: AgentSpec) -> Dict[str, Any]:
     return {"ok": not problems, "problems": problems, "warnings": warnings}
 
 
+def prefill_from_legacy_wizard(
+    name_purpose: str,
+    triggers_data: str,
+    persona_output: str,
+) -> dict:
+    """Map the old three-question chat wizard into an AgentSpec-shaped dict."""
+    raw_name = re.split(r"[—\-]", str(name_purpose or ""), maxsplit=1)[0].strip()
+    slug = re.sub(r"[^a-z0-9]+", "_", raw_name.lower()).strip("_")
+    if not slug or len(slug) < 3:
+        slug = "custom_agent"
+    if len(slug) > 40:
+        slug = slug[:40].rstrip("_")
+
+    purpose = str(name_purpose or "").strip()
+    objective = purpose if len(purpose) >= 25 else (
+        f"Assist the user with {raw_name or 'custom tasks'} using focused, "
+        f"evidence-grounded replies."
+    )
+
+    triggers_part = str(triggers_data or "")
+    if triggers_part.lower().startswith("keywords:"):
+        triggers_part = triggers_part.split(":", 1)[1]
+    trigger_words = [
+        w.strip().lower()
+        for w in re.split(r"[,;]", triggers_part.replace(" ", ","))
+        if len(w.strip()) > 2
+    ]
+    triggers = [{"kind": "keyword", "value": w} for w in trigger_words[:8]]
+    if not triggers:
+        triggers = [{"kind": "keyword", "value": slug.replace("_", " ")}]
+
+    persona = str(persona_output or "concise, helpful, plain text").strip()
+    system_prompt = (
+        f"You are a specialist assistant for: {objective}\n\n"
+        f"Output style: {persona}\n\n"
+        "Stay inside what the user asked. Be concrete. Do not invent facts."
+    )
+
+    return {
+        "id": slug,
+        "name": raw_name or slug.replace("_", " ").title(),
+        "objective": objective,
+        "system_prompt": system_prompt,
+        "triggers": triggers,
+        "success_criteria": [
+            {"kind": "non_empty"},
+            {"kind": "min_length", "value": "40"},
+        ],
+        "permissions": ["model_access"],
+        "timeout_s": 8.0,
+        "max_tokens": 512,
+        "temperature": 0.4,
+    }
+
+
 # ── storage ────────────────────────────────────────────────────────────────────
 
 def specs_dir() -> Path:
@@ -343,6 +398,13 @@ def load_spec(path: Any) -> Optional[AgentSpec]:
         return None
 
 
+def load_spec_by_id(agent_id: str) -> Optional[AgentSpec]:
+    """Load one saved spec by its id (filename stem)."""
+    if not str(agent_id or "").strip():
+        return None
+    return load_spec(specs_dir() / f"{agent_id}.agent.json")
+
+
 def list_specs() -> List[AgentSpec]:
     d = specs_dir()
     if not d.is_dir():
@@ -365,7 +427,8 @@ def delete_spec(agent_id: str) -> Dict[str, Any]:
 
 __all__ = [
     "AgentSpec", "Trigger", "SuccessCheck", "Example", "validate",
-    "save_spec", "load_spec", "list_specs", "delete_spec", "specs_dir",
+    "save_spec", "load_spec", "load_spec_by_id", "list_specs", "delete_spec", "specs_dir",
+    "prefill_from_legacy_wizard",
     "TRIGGER_KINDS", "CHECK_KINDS", "SPEC_VERSION",
     "TRIGGER_KEYWORD", "TRIGGER_REGEX", "TRIGGER_ACTION", "TRIGGER_ALWAYS",
     "CHECK_CONTAINS", "CHECK_NOT_CONTAINS", "CHECK_REGEX", "CHECK_MIN_LENGTH",

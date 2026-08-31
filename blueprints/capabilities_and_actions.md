@@ -117,7 +117,7 @@ evidence-planner first (real code/web/memory analysis) before synthesising.
 | `SPEAK` | Speak text aloud (TTS) | “say good morning” | Plugin |
 | `LIST_VOICES` | List installed voices and what's downloadable (166 across 45 languages) | “what voices do you have” · “list voices” · “which accents can I get” | Core |
 | `DOWNLOAD_VOICE` | Download a voice/accent from the Piper library and switch to it | “download a British voice” · “get me a Scottish accent” · “install en_US-amy-medium” | Core |
-| `SET_VOICE` | Switch the active TTS voice/accent (distinct from persona tone) | “use the alan voice” · “switch your voice to amy” · “use the HAL voice” · “use the natural voice” | Core |
+| `SET_VOICE` | Switch the active TTS voice/accent (distinct from persona tone) | “use the alan voice” · “switch your voice to amy” · “use the robotic style voice” · “use the natural voice” | Core |
 | `CREATE_VOICE` | Make a new ELI voice from a recording (wav/mp3/mp4 drop-in; XTTS-v2 clone) | “create a voice called Nova from clip.mp4” · “make an ELI voice from recording.wav” | Core |
 | `LISTEN_FOR_COMMAND` | Start listening for a voice command | “listen” / the wake word “computer” | Core |
 | `WAKE_SET` | Set your own wake word (any phrase); ELI persists it and trains the detector on it | “change the wake word to athena” · “set my wake word to atlas” | Core |

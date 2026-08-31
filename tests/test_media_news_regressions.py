@@ -311,6 +311,41 @@ def test_stt_armed_streaming_play_dispatches_without_rewait():
     assert wake is None
 
 
+def test_stt_volume_percent_is_safe_direct_when_quiet(monkeypatch):
+    from eli.perception.audio_stt import VoiceGate, _is_safe_direct
+
+    monkeypatch.setattr(
+        "eli.perception.audio_stt._eli_media_probably_audible", lambda: False
+    )
+    assert _is_safe_direct("volume 50%")
+    gate = VoiceGate()
+    state, command, _wake = gate.classify("volume 50%")
+    assert state == "dispatch"
+    assert command == "volume 50%"
+
+
+def test_stt_safe_direct_requires_wake_when_media_playing(monkeypatch):
+    from eli.perception.audio_stt import VoiceGate
+
+    monkeypatch.setattr(
+        "eli.perception.audio_stt._eli_media_probably_audible", lambda: True
+    )
+    gate = VoiceGate()
+    state, command, _wake = gate.classify("pause")
+    assert state == "ignore_unarmed"
+    assert command is None
+    gate.classify("computer")
+    state, command, _wake = gate.classify("pause")
+    assert state == "dispatch"
+    assert command == "pause"
+
+
+def test_stt_mishear_volume_down_alias():
+    from eli.perception.audio_stt import _eli_fast_command_alias
+
+    assert _eli_fast_command_alias("find him down") == "volume down"
+
+
 def test_stt_preserves_punctuation_for_chat_display():
     from eli.perception.audio_stt import _collapse_repeated_phrase
 

@@ -46,44 +46,45 @@ _MALE_FALLBACKS = ["en_GB-northern_english_male-medium", "en_GB-alan-medium",
                    "en_US-hfc_male-medium", "en_US-joe-medium", "en_US-kusal-medium"]
 _FEMALE_FALLBACKS = ["en_US-amy-medium", "en_US-hfc_female-medium",
                      "en_GB-jenny_dioco-medium", "en_US-kathleen-low"]
-# Built-in voice STYLES. Deliberately generic: these describe a sound (calm, robotic,
-# bright…), not a named character. Earlier builds shipped presets imitating HAL 9000,
-# TARS, Rick Sanchez, GLaDOS and JARVIS — copyrighted characters, which is a real
-# liability in a product that is sold, and they did not even work: their defining base
-# voices (lessac, ryan, joe) are excluded from the shipped bundle over dataset licensing,
-# so every one of them silently fell back to the same generic male voice. A style that
-# promises "a calm, smooth delivery" is honest about what it is; one that promises "HAL"
-# and delivers a Yorkshire narrator is not. Users build their own via save_preset.
+# Built-in voice STYLES — redistributable only. Each preset is Piper (MIT/CC-BY
+# bundled voices) + an ffmpeg effect chain. We do NOT ship impersonations of
+# copyrighted characters (HAL, JARVIS, Rick, TARS, …); users may clone locally
+# from their own reference clips via XTTS (opt-in extra).
 _BUILTIN: Dict[str, Dict[str, Any]] = {
     "calm": {
+        "label": "Calm & measured",
         "base": "en_GB-alan-medium", "fallback": _MALE_FALLBACKS,
-        "pitch": -1.0, "speed": 0.93,
-        "filters": "aecho=0.8:0.88:55:0.28,lowpass=f=3200,acompressor=threshold=-18dB:ratio=3",
-        "desc": "Calm and smooth — measured, unhurried, slightly warm",
+        "pitch": -1.5, "speed": 0.92,
+        "filters": "aecho=0.8:0.88:60:0.32,lowpass=f=3000,acompressor=threshold=-20dB:ratio=3",
+        "desc": "Calm and smooth — measured, unhurried, slightly warm (style preset, not a character impersonation)",
     },
     "robotic": {
+        "label": "Robotic assistant",
         "base": "en_GB-northern_english_male-medium", "fallback": _MALE_FALLBACKS,
-        "pitch": -2.0, "speed": 0.98,
-        "filters": "tremolo=f=55:d=0.35,aphaser=type=t:speed=0.5,highpass=f=120,acompressor=threshold=-16dB:ratio=4",
-        "desc": "Robotic — deadpan, metallic buzz",
+        "pitch": -2.5, "speed": 0.96,
+        "filters": "tremolo=f=48:d=0.42,aphaser=type=t:speed=0.45,highpass=f=140,lowpass=f=4200,acompressor=threshold=-14dB:ratio=5",
+        "desc": "Robotic — deadpan, metallic, assistant-like (style preset; not HAL/TARS/JARVIS)",
     },
     "energetic": {
+        "label": "Energetic / animated",
         "base": "en_GB-northern_english_male-medium", "fallback": _MALE_FALLBACKS,
-        "pitch": 1.0, "speed": 1.03,
+        "pitch": 1.0, "speed": 1.04,
         "filters": "vibrato=f=6.5:d=0.35,tremolo=f=8:d=0.2,acompressor=threshold=-12dB:ratio=6,treble=g=4",
-        "desc": "Energetic — animated, a little frayed at the edges",
+        "desc": "Energetic — animated, a little frayed at the edges (style preset)",
     },
     "synthetic": {
+        "label": "Synthetic / machine",
         "base": "en_US-amy-medium", "fallback": _FEMALE_FALLBACKS,
-        "pitch": -1.0, "speed": 0.97,
-        "filters": "aphaser=type=t:speed=0.3,flanger=depth=4:speed=0.2,lowpass=f=3500,highpass=f=180",
-        "desc": "Synthetic — flat, processed, machine-like",
+        "pitch": -1.5, "speed": 0.95,
+        "filters": "aphaser=type=t:speed=0.35,flanger=depth=5:speed=0.25,lowpass=f=3200,highpass=f=200,acompressor=threshold=-16dB:ratio=4",
+        "desc": "Synthetic — flat, processed, machine-like (style preset)",
     },
     "refined": {
+        "label": "Refined British",
         "base": "en_GB-alan-medium", "fallback": ["en_GB-alan-medium"] + _MALE_FALLBACKS,
-        "pitch": 0.0, "speed": 0.98,
-        "filters": "treble=g=3,aecho=0.9:0.9:40:0.15,highpass=f=90",
-        "desc": "Refined British — crisp, with a subtle sheen",
+        "pitch": 0.0, "speed": 0.97,
+        "filters": "treble=g=3,aecho=0.9:0.9:45:0.18,highpass=f=90,acompressor=threshold=-18dB:ratio=2.5",
+        "desc": "Refined British — crisp, with a subtle sheen (style preset; not a butler/AI character clone)",
     },
 }
 
@@ -128,6 +129,7 @@ def list_characters() -> "list[Dict[str, Any]]":
         log.debug('voice_fx: user presets unreadable — using built-ins', exc_info=True)
     for name, spec in _load_all().items():
         out.append({"name": name, "id": CHAR_PREFIX + name,
+                    "label": spec.get("label") or name.replace("_", " ").title(),
                     "builtin": name in _BUILTIN and name not in user,
                     "base": spec.get("base"), "desc": spec.get("desc", "")})
     return out

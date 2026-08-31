@@ -420,6 +420,45 @@ def list_voices() -> list[str]:
     return voices
 
 
+def voice_display_name(voice_id: str) -> str:
+    """Human label for UI/docs. ``char:`` presets are style names, not characters."""
+    vid = str(voice_id or "").strip()
+    if not vid:
+        return vid
+    if vid.startswith("char:"):
+        try:
+            from eli.perception import voice_fx
+            spec = voice_fx.get_preset(vid) or {}
+            label = spec.get("label") or vid.replace("char:", "").replace("_", " ").title()
+            return f"Style: {label}"
+        except Exception:
+            return vid
+    if vid.startswith("clone:"):
+        return f"Clone: {vid[6:]}"
+    if vid.startswith("natural:"):
+        return f"Neural: {vid[8:]}"
+    if vid.startswith("sys:"):
+        return f"System: {vid[4:]}"
+    return vid
+
+
+def resolve_voice_id(selection: str) -> str:
+    """Map a combo display string or raw id back to the stored voice id."""
+    sel = str(selection or "").strip()
+    if not sel:
+        return sel
+    if sel.startswith(("char:", "clone:", "natural:", "sys:")) or "/" not in sel:
+        # Raw id or piper voice name (no path)
+        if sel.startswith("Style:") or sel.startswith("Clone:") or sel.startswith("Neural:"):
+            pass  # display label — fall through to scan
+        else:
+            return sel
+    for vid in list_voices():
+        if sel == vid or sel == voice_display_name(vid):
+            return vid
+    return sel
+
+
 def _is_system_voice(name: str) -> bool:
     return str(name or "").startswith(_SYSTEM_VOICE_PREFIX)
 
