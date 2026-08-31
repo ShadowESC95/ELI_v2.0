@@ -9417,10 +9417,20 @@ Answer:"""
         if _reject_data_dump and _prev_user:
             _corr_target = _prev_user
 
+        import datetime as _dt_corr
+        _now_corr = _dt_corr.datetime.now().astimezone()
+        _tz_corr = _now_corr.tzname() or ""
+        _time_line = (
+            f"CURRENT TIME (authoritative): {_now_corr.strftime('%A %d %B %Y, %H:%M')}"
+            f"{(' ' + _tz_corr) if _tz_corr else ''}. "
+            "When the user corrects the clock, use this value — do not guess.\n\n"
+        )
+
         _corr_system = (
             "You are ELI. Current speech act: CORRECTION_REPAIR. "
             "The user is correcting your previous answer. Answer only the corrected request. "
             "Do not introduce memory, runtime, files, diagnostics, identity, projects, or specifications unless the corrected request explicitly asks for them. "
+            "Never attribute quotes or past statements to the user unless they appear verbatim in the exchange below. "
             "Keep the reply direct and natural. "
             "If the user is asking what you meant, say what you meant in plain terms — "
             "do not ask them to clarify a question about your own previous answer."
@@ -9446,6 +9456,7 @@ Answer:"""
             )
         if _prior:
             _corr_system = _prior + _corr_system
+        _corr_system = _time_line + _corr_system
 
         # Budget comes from the user's own mode preset, like every other
         # generation path. A fixed 160 here was one of the output caps that
