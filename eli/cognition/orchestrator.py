@@ -202,13 +202,29 @@ class OrchestratorMemoryAgent:
         rag_hits: List[Dict[str, Any]] = []
         kg_hits: List[Dict[str, Any]] = []
 
-        if retrieval_plan.get("need_keyword"):
-            keyword_hits = self.keyword_search(
-                user_input, retrieval_plan.get("keyword_limit", 12))
-
-        if retrieval_plan.get("need_semantic"):
-            semantic_hits = self.semantic_search(
-                hyde_query or user_input, retrieval_plan.get("semantic_limit", 12))
+        if retrieval_plan.get("need_keyword") or retrieval_plan.get("need_semantic"):
+            try:
+                from eli.memory.unified_retrieval import orchestrator_retrieve
+                keyword_hits, semantic_hits, _tr = orchestrator_retrieve(
+                    self.engine,
+                    user_input,
+                    hyde_query,
+                    retrieval_plan,
+                    session_id=str(getattr(self.engine, "session_id", "") or ""),
+                    user_id=str(getattr(self.engine, "user_id", "") or ""),
+                )
+                log.debug(
+                    "[ORCHESTRATOR] unified retrieval → keyword=%d semantic=%d elapsed=%.0fms",
+                    len(keyword_hits), len(semantic_hits), float(getattr(_tr, "elapsed_ms", 0.0) or 0.0),
+                )
+            except Exception as _ur_err:
+                log.debug(f"[ORCHESTRATOR] unified retrieval failed, falling back: {_ur_err}")
+                if retrieval_plan.get("need_keyword"):
+                    keyword_hits = self.keyword_search(
+                        user_input, retrieval_plan.get("keyword_limit", 12))
+                if retrieval_plan.get("need_semantic"):
+                    semantic_hits = self.semantic_search(
+                        hyde_query or user_input, retrieval_plan.get("semantic_limit", 12))
 
         if retrieval_plan.get("need_rag") and ltm.rag_ready:
             rag_hits = self.document_rag_search(

@@ -8802,6 +8802,7 @@ Answer:"""
 
         try:
             agent_bus_context = ""
+            _verified_evidence_packet = ""
             if bus_result is not None:
                 try:
                     if hasattr(bus_result, "to_context_block"):
@@ -8817,6 +8818,12 @@ Answer:"""
                 agent_bus_context = _eli_sanitize_identity_context_block(str(memory_context or "").strip(), user_input)
         except Exception:
             agent_bus_context = _eli_sanitize_identity_context_block(str(memory_context or "").strip(), user_input)
+        try:
+            from eli.memory.unified_retrieval import split_verified_evidence_packet
+            _verified_evidence_packet, agent_bus_context = split_verified_evidence_packet(
+                agent_bus_context)
+        except Exception:
+            log.debug("suppressed exception", exc_info=True)
         def _normalise_handoff(result) -> str:
             if result is None:
                 return ""
@@ -9209,22 +9216,25 @@ Answer:"""
         # truncated mid-sentence by a per-injection cap.
         if _extra_blocks:
             brief = "\n\n".join(filter(None, [brief] + _extra_blocks))
-        # Phase 6: single 8 KB ceiling for the full assembled handoff.
-        # The cap is a SHARE of the live window, not a fixed 8192. Its docstring
-        # already says the accessor exists "to budget the persona against
-        # evidence" — but the number it was budgeted against was a constant, so
-        # the persona claimed the same 8192 characters at ctx=4096 as it does at
-        # ctx=32768. Live at 2.3.0 a 69-character message produced a 24,195-char
-        # prompt (persona 6541 + memory 5250 + the rest) and the log carried
-        # "Stream overflow: truncated to fit n_ctx" on turn after turn — the
-        # evidence was being squeezed by a persona sized for a window it did not
-        # have. Reuses _cap_text; no second trimming path.
-        brief = self._cap_text(brief, self._persona_handoff_budget(), "persona_handoff")
+        _persona_budget = self._persona_handoff_budget()
+        if _verified_evidence_packet:
+            _persona_budget = max(
+                self._PERSONA_MIN_CHARS // 2,
+                _persona_budget - min(len(_verified_evidence_packet), _persona_budget // 2),
+            )
+        brief = self._cap_text(brief, _persona_budget, "persona_handoff")
         # Real self-status rides ABOVE the cap — if the user asked how ELI is doing,
         # the measured telemetry must never be the thing truncation drops (that's
         # what made the model fall back to fabricating CPU/GPU temperatures).
         if _live_self_status:
             brief = brief + "\n\n" + _live_self_status
+        if _verified_evidence_packet:
+            brief = (
+                brief
+                + "\n\n[VERIFIED MEMORY EVIDENCE — authoritative for user-specific claims; "
+                "never truncated]\n"
+                + _verified_evidence_packet
+            )
         # Safety steering rides above the cap so it is never truncated.
         brief = self._prepend_crisis_steering(brief)
         # Execution grounding rides above the cap too — it must never be dropped,
@@ -10072,6 +10082,26 @@ Answer:"""
         except Exception as _replan_err:
             log.debug(f"[REPLAN] Re-plan attempt failed: {_replan_err}")
             return failed_result
+
+    def _maybe_fail_closed_chat(
+        self,
+        user_input: str,
+        *,
+        query_class: str = "",
+        memory_context: str = "",
+        bus_result: Any = None,
+    ) -> Optional[str]:
+        try:
+            from eli.cognition.chat_grounding_gate import evaluate_chat_grounding_gate
+            return evaluate_chat_grounding_gate(
+                user_input,
+                query_class=query_class,
+                memory_context=memory_context,
+                bus_result=bus_result,
+            )
+        except Exception as _fc_err:
+            log.debug(f"[COGNITIVE] chat fail-closed gate skipped: {_fc_err}")
+            return None
 
     def _govern_visible_response(
         self,
@@ -13006,6 +13036,19 @@ Answer:"""
                 }
 
             if stream:
+                _fc_hedge = self._maybe_fail_closed_chat(
+                    user_input,
+                    query_class=str(_qclass or ""),
+                    memory_context=bus_memory_context or "",
+                    bus_result=bus_result,
+                )
+                if _fc_hedge:
+                    def _fail_closed_stream():
+                        yield _fc_hedge
+                    self._store_assistant_turn(_fc_hedge)
+                    return self._stream_with_followthrough(
+                        _fail_closed_stream(),
+                        user_input, reasoning_mode)
                 # Pass the bus memory context and bus_result already built above
                 # so _stream_chat does NOT fire a second agent bus dispatch, and
                 # the synthesiser has the full bus_result to work with.
@@ -13059,6 +13102,22 @@ Answer:"""
                             memory_context + "\n\n" + _bus_block
                         ).strip() if memory_context else _bus_block
                 log.debug(f"[COGNITIVE][TIMING] memory_context={time.perf_counter() -t_mem:.3f}s")
+
+                _fc_hedge = self._maybe_fail_closed_chat(
+                    user_input,
+                    query_class=str(_qclass or ""),
+                    memory_context=memory_context,
+                    bus_result=bus_result,
+                )
+                if _fc_hedge:
+                    self._store_assistant_turn(_fc_hedge)
+                    return self._finalize_chat_result(
+                        user_input=user_input,
+                        response=_fc_hedge,
+                        trace=trace,
+                        evidence_used=bool(memory_context),
+                        reasoning_mode=reasoning_mode,
+                    )
 
                 # ── SYNTHESISE: build situation brief from all gathered data ─
                 # Agents (bus) supply context. Synthesiser distils it.
@@ -13793,6 +13852,19 @@ Answer:"""
             f"prebuilt_ctx={bool(pre_built_memory_context)} "
             f"prebuilt_bus={bool(pre_built_bus_result)}"
         )
+
+        if pre_built_bus_result is not None or pre_built_memory_context:
+            _qclass = str(getattr(self, "_last_request_meta", {}).get("query_class") or "")
+            _fc_stream = self._maybe_fail_closed_chat(
+                prompt,
+                query_class=_qclass,
+                memory_context=pre_built_memory_context or "",
+                bus_result=pre_built_bus_result,
+            )
+            if _fc_stream:
+                yield _fc_stream
+                return
+
         _eli_pipe_stream(
             "begin",
             mode=(reasoning_mode or "quick"),
