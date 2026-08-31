@@ -57,6 +57,24 @@ export ELI_MODELS_DIR="${ELI_MODELS_DIR:-$INSTALL_ROOT/models}"
 export ELI_CACHE_DIR="${ELI_CACHE_DIR:-$HOME/.cache/ELI_v2}"
 export PYTHONPATH="$INSTALL_ROOT${PYTHONPATH:+:$PYTHONPATH}"
 
+_bundle_version() {
+  grep -E '^version' "$HERE/pyproject.toml" 2>/dev/null | head -1 | awk -F'"' '{print $2}'
+}
+
+_installed_version() {
+  [ -f "$MARKER" ] && cat "$MARKER" || true
+}
+
+_sync_app_tree() {
+  rsync -a --delete \
+    --exclude=.venv \
+    --exclude=models \
+    --exclude='artifacts/db/*.sqlite3' \
+    --exclude='artifacts/db/*.sqlite3-wal' \
+    --exclude='artifacts/db/*.sqlite3-shm' \
+    "$HERE/" "$INSTALL_ROOT/" 2>&1 || cp -a "$HERE/." "$INSTALL_ROOT/"
+}
+
 _notify() {
   command -v zenity >/dev/null 2>&1 || return 0
   zenity --info --title="ELI Setup" --width=420 --text="$1" 2>/dev/null || true
@@ -67,13 +85,16 @@ _progress() {
   zenity --progress --pulsate --auto-close --title="ELI Setup" --text="$1" 2>/dev/null || true
 }
 
+_BUNDLE_VER="$(_bundle_version)"
+_INSTALLED_VER="$(_installed_version)"
+_FORCE_SYNC="${ELI_APPIMAGE_FORCE_SYNC:-0}"
+
 if [ ! -f "$MARKER" ]; then
   _progress "First launch — preparing ELI on your computer (a few minutes)…" &
   _ZPID=$!
   {
     echo "=== ELI AppImage first-run setup $(date -Iseconds) ==="
-    rsync -a --delete --exclude=.venv --exclude='artifacts/db/*.sqlite3' \
-      "$HERE/" "$INSTALL_ROOT/" 2>&1 || cp -a "$HERE/." "$INSTALL_ROOT/"
+    _sync_app_tree
     if [ -x "$INSTALL_ROOT/ELI_Setup.sh" ]; then
       bash "$INSTALL_ROOT/ELI_Setup.sh" >>"$LOG" 2>&1
     elif [ -x "$INSTALL_ROOT/INSTALL_ELI.sh" ]; then
@@ -81,7 +102,7 @@ if [ ! -f "$MARKER" ]; then
     else
       bash "$INSTALL_ROOT/install.sh" --yes >>"$LOG" 2>&1
     fi
-    touch "$MARKER"
+    printf '%s\n' "$_BUNDLE_VER" >"$MARKER"
   } || {
     kill "$_ZPID" 2>/dev/null || true
     _notify "ELI setup failed.\n\nSee log:\n$LOG"
@@ -90,6 +111,20 @@ if [ ! -f "$MARKER" ]; then
   kill "$_ZPID" 2>/dev/null || true
   wait "$_ZPID" 2>/dev/null || true
   _notify "ELI is ready.\n\nNext launches open ELI directly.\nSetup log: $LOG"
+elif [ "$_FORCE_SYNC" = "1" ] || { [ -n "$_BUNDLE_VER" ] && [ "$_INSTALLED_VER" != "$_BUNDLE_VER" ]; }; then
+  _progress "Updating ELI to v${_BUNDLE_VER:-unknown}…" &
+  _ZPID=$!
+  {
+    echo "=== ELI AppImage upgrade $(date -Iseconds) $_INSTALLED_VER -> $_BUNDLE_VER ==="
+    _sync_app_tree
+    printf '%s\n' "$_BUNDLE_VER" >"$MARKER"
+  } || {
+    kill "$_ZPID" 2>/dev/null || true
+    _notify "ELI update failed.\n\nSee log:\n$LOG"
+    exit 1
+  }
+  kill "$_ZPID" 2>/dev/null || true
+  wait "$_ZPID" 2>/dev/null || true
 fi
 
 cd "$INSTALL_ROOT"

@@ -184,3 +184,23 @@ def test_yt_dlp_is_declared():
     root = Path(__file__).resolve().parents[1]
     text = (root / "requirements.txt").read_text(encoding="utf-8")
     assert "yt-dlp" in text, "yt-dlp is still undeclared; playback would be browser-only"
+
+
+def test_linux_installer_smoke_tests_llama_runtime_not_just_import():
+    """CUDA wheels import fine then SIGILL in ggml_cpu_init on CPUs without VNNI."""
+    text = _sh_text()
+    assert "_llama_runtime_smoke" in text
+    assert "llama_backend_init" in text
+    assert "_llama_rebuild_for_this_cpu" in text
+    assert "_cpu_trusts_prebuilt_llama_wheel" in text
+    assert "x86-64-v3" in text
+
+
+def test_appimage_syncs_when_bundled_version_changes():
+    text = (Path(__file__).resolve().parents[1]
+            / "packaging" / "linux" / "build-appimage.sh").read_text(encoding="utf-8")
+    apprun = text[text.index("cat > \"$APPDIR/AppRun\" <<'APPRUN_EOF'"):]
+    assert "_bundle_version" in apprun
+    assert "_installed_version" in apprun
+    assert 'printf \'%s\\n\' "$_BUNDLE_VER" >"$MARKER"' in apprun
+    assert "touch \"$MARKER\"" not in apprun, "marker must store version, not just exist"

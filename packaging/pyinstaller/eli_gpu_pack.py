@@ -736,6 +736,8 @@ def _verify(dest: Path) -> tuple[bool, str]:
         "                try: ctypes.CDLL(str(f), mode=ctypes.RTLD_GLOBAL)\n"
         "                except Exception: pass\n"
         "import llama_cpp\n"
+        "from llama_cpp import llama_cpp as _lc\n"
+        "_lc.llama_backend_init()\n"
         "if not llama_cpp.llama_supports_gpu_offload():\n"
         "    print('gpu-pack-verify-no-offload'); raise SystemExit(2)\n"
         "print('gpu-pack-verify-ok', llama_cpp.__version__)\n"

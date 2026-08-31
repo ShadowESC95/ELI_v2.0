@@ -108,6 +108,22 @@ if [ ! -x "$PY" ]; then
   exit 1
 fi
 
+# llama-cpp: import succeeding is NOT enough — prebuilt wheels SIGILL in
+# ggml_cpu_init on CPUs without AVX-VNNI. Same probe policy as GPU offload.
+if ! "$PY" -c "from llama_cpp import llama_cpp as _lc; _lc.llama_backend_init()" >/dev/null 2>&1; then
+  echo "[startup] llama-cpp runtime probe failed (Illegal instruction?) — repairing CPU backend…" >&2
+  _REPAIR_LOG_DIR="$ROOT/artifacts/startup/logs"
+  mkdir -p "$_REPAIR_LOG_DIR"
+  if [ -x "$ROOT/install.sh" ]; then
+    bash "$ROOT/install.sh" --yes >>"$_REPAIR_LOG_DIR/llama_repair.log" 2>&1 \
+      || echo "[startup] automatic llama-cpp repair failed — see $_REPAIR_LOG_DIR/llama_repair.log" >&2
+  fi
+  if ! "$PY" -c "from llama_cpp import llama_cpp as _lc; _lc.llama_backend_init()" >/dev/null 2>&1; then
+    echo "[startup] llama-cpp still cannot initialize on this CPU — run: bash install.sh" >&2
+    exit 132
+  fi
+fi
+
 if [ "$RESTORE_ASSETS" -eq 1 ] && [ "$need_setup" -eq 0 ]; then
   echo "[startup] restoring GitHub model/voice assets from $REPO@$TAG"
   "$PY" "$ROOT/scripts/restore_github_asset_files.py" --repo "$REPO" --tag "$TAG"

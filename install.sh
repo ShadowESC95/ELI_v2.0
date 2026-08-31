@@ -336,6 +336,91 @@ _llama_wheel_available() {
     "$PIP" install --only-binary=:all: --dry-run llama-cpp-python >/dev/null 2>&1
 }
 
+# Prebuilt CUDA wheels ship a libggml-cpu.so tuned for newer CPUs (AVX-VNNI and
+# friends). Importing llama_cpp succeeds, but llama_backend_init() SIGILLs on
+# older chips (e.g. Intel 8th-gen). Measure init, not import — same policy as GPU.
+_cpu_trusts_prebuilt_llama_wheel() {
+    local _m
+    _m="$(uname -m 2>/dev/null || echo unknown)"
+    case "$_m" in
+        x86_64|amd64) ;;
+        *) return 1 ;;
+    esac
+    if [ -r /proc/cpuinfo ]; then
+        grep -qE '(^|[[:space:]])(avx_vnni|avx512vnni|avx512_vnni)([[:space:]]|$)' /proc/cpuinfo
+        return $?
+    fi
+    # Unknown CPU feature set — allow wheel attempt; smoke test is the backstop.
+    return 0
+}
+
+_llama_runtime_smoke() {
+    "$PYTHON_VENV" -c "
+from llama_cpp import llama_cpp as _lc
+_lc.llama_backend_init()
+print('llama-runtime-smoke-ok')
+" >/dev/null 2>&1
+}
+
+_llama_safe_cpu_cmake_flags() {
+    # x86-64-v3 = AVX2/FMA — covers most 2013+ desktops; avoids VNNI-only wheels.
+    if [ -r /proc/cpuinfo ] && grep -qE '(^|[[:space:]])avx2([[:space:]]|$)' /proc/cpuinfo; then
+        echo "-DGGML_NATIVE=OFF -DCMAKE_C_FLAGS=-march=x86-64-v3 -DCMAKE_CXX_FLAGS=-march=x86-64-v3"
+    elif [ -r /proc/cpuinfo ] && grep -qE '(^|[[:space:]])sse4_2([[:space:]]|$)' /proc/cpuinfo; then
+        echo "-DGGML_NATIVE=OFF -DCMAKE_C_FLAGS=-march=x86-64-v2 -DCMAKE_CXX_FLAGS=-march=x86-64-v2"
+    else
+        echo "-DGGML_NATIVE=OFF -DCMAKE_C_FLAGS=-march=x86-64 -DCMAKE_CXX_FLAGS=-march=x86-64"
+    fi
+}
+
+_llama_rebuild_for_this_cpu() {
+    local _min="${LLAMA_MIN:-0.3.30}"
+    warn "llama-cpp runtime failed on this CPU (Illegal instruction in ggml_cpu_init)."
+    warn "Rebuilding llama-cpp-python from source with CPU-safe flags…"
+    ensure_build_toolchain
+    local _safe
+    _safe="$(_llama_safe_cpu_cmake_flags)"
+    if [ "$OS" = "Darwin" ]; then
+        CMAKE_ARGS="-DLLAMA_METAL=on $_safe" \
+            "$PIP" install --force-reinstall --no-cache-dir "llama-cpp-python>=$_min" --quiet || return 1
+    elif [ "$CPU_ONLY" -eq 1 ]; then
+        CMAKE_ARGS="$_safe" \
+            "$PIP" install --force-reinstall --no-cache-dir "llama-cpp-python>=$_min" --quiet || return 1
+    elif [ "$HAS_AMD" -eq 1 ]; then
+        if CMAKE_ARGS="-DGGML_HIPBLAS=on $_safe" \
+            "$PIP" install --force-reinstall --no-cache-dir "llama-cpp-python>=$_min" --quiet 2>/dev/null; then
+            :
+        elif CMAKE_ARGS="-DGGML_VULKAN=on $_safe" \
+            "$PIP" install --force-reinstall --no-cache-dir "llama-cpp-python>=$_min" --quiet 2>/dev/null; then
+            :
+        else
+            CMAKE_ARGS="$_safe" \
+                "$PIP" install --force-reinstall --no-cache-dir "llama-cpp-python>=$_min" --quiet || return 1
+        fi
+    else
+        local _NVCC _ARCHS
+        _NVCC="$(command -v nvcc || true)"
+        if [ -z "$_NVCC" ]; then
+            for _c in /usr/local/cuda/bin/nvcc /usr/local/cuda-*/bin/nvcc; do
+                [ -x "$_c" ] && { _NVCC="$_c"; break; }
+            done
+        fi
+        if [ -n "$_NVCC" ]; then
+            export PATH="$(dirname "$_NVCC"):$PATH"
+            export CUDACXX="$_NVCC"
+            _ARCHS="$(nvidia-smi --query-gpu=compute_cap --format=csv,noheader 2>/dev/null \
+                      | tr -d '.' | sort -u | paste -sd';' -)"
+            [ -z "$_ARCHS" ] && _ARCHS="native"
+            CMAKE_ARGS="-DGGML_CUDA=on -DCMAKE_CUDA_ARCHITECTURES=$_ARCHS $_safe" \
+                "$PIP" install --force-reinstall --no-cache-dir "llama-cpp-python>=$_min" --quiet || return 1
+        else
+            CMAKE_ARGS="$_safe" \
+                "$PIP" install --force-reinstall --no-cache-dir "llama-cpp-python>=$_min" --quiet || return 1
+        fi
+    fi
+    _llama_runtime_smoke
+}
+
 ensure_build_toolchain() {
     # pip's cmake/ninja wheels need no sudo and cover the build system; only the
     # C++ compiler has to come from the OS.
@@ -377,7 +462,14 @@ if [ "$OS" = "Darwin" ]; then
     echo "     (with Metal GPU acceleration)"
     CMAKE_ARGS="-DLLAMA_METAL=on" "$PIP" install llama-cpp-python --prefer-binary --quiet || true
 elif [ "$CPU_ONLY" -eq 1 ]; then
-    "$PIP" install llama-cpp-python --prefer-binary --quiet || true
+    if _cpu_trusts_prebuilt_llama_wheel; then
+        "$PIP" install llama-cpp-python --prefer-binary --quiet || true
+    else
+        warn "CPU lacks AVX-VNNI — skipping prebuilt llama-cpp wheel (SIGILL risk); building from source."
+        ensure_build_toolchain
+        CMAKE_ARGS="$(_llama_safe_cpu_cmake_flags)" \
+            "$PIP" install "llama-cpp-python>=0.3.30" --no-cache-dir --quiet || true
+    fi
 elif [ "$HAS_AMD" -eq 1 ]; then
     echo "     (AMD — ROCm/hipBLAS, then Vulkan, then CPU)"
     if CMAKE_ARGS="-DGGML_HIPBLAS=on" "$PIP" install llama-cpp-python --no-cache-dir --quiet 2>/dev/null; then
@@ -401,11 +493,18 @@ else
     # CUDA from source.
     echo "     (NVIDIA — CUDA)"
     LLAMA_MIN="0.3.30"
-    if "$PIP" install "llama-cpp-python>=$LLAMA_MIN" --only-binary=:all: \
-            --extra-index-url https://abetlen.github.io/llama-cpp-python/whl/cu121 --quiet 2>/dev/null; then
-        echo "[OK] llama-cpp-python CUDA wheel installed."
+    _LLAMA_WHEEL_OK=0
+    if _cpu_trusts_prebuilt_llama_wheel; then
+        if "$PIP" install "llama-cpp-python>=$LLAMA_MIN" --only-binary=:all: \
+                --extra-index-url https://abetlen.github.io/llama-cpp-python/whl/cu121 --quiet 2>/dev/null; then
+            echo "[OK] llama-cpp-python CUDA wheel installed."
+            _LLAMA_WHEEL_OK=1
+        fi
     else
-        warn "No CUDA wheel >= $LLAMA_MIN for this python — building from source with CUDA."
+        warn "CPU lacks AVX-VNNI — skipping prebuilt CUDA llama-cpp wheel (libggml-cpu SIGILL risk)."
+    fi
+    if [ "$_LLAMA_WHEEL_OK" -eq 0 ]; then
+        warn "Building llama-cpp-python from source with CUDA + CPU-safe flags for this machine."
         warn "This takes several minutes but yields a runtime that can read current GGUFs."
         ensure_build_toolchain
         # Locate nvcc: the CUDA toolkit is frequently installed but not on PATH.
@@ -415,6 +514,7 @@ else
                 [ -x "$_c" ] && { _NVCC="$_c"; break; }
             done
         fi
+        _safe="$(_llama_safe_cpu_cmake_flags)"
         if [ -n "$_NVCC" ]; then
             export PATH="$(dirname "$_NVCC"):$PATH"
             export CUDACXX="$_NVCC"
@@ -422,17 +522,19 @@ else
             _ARCHS="$(nvidia-smi --query-gpu=compute_cap --format=csv,noheader 2>/dev/null \
                       | tr -d '.' | sort -u | paste -sd';' -)"
             [ -z "$_ARCHS" ] && _ARCHS="native"
-            if CMAKE_ARGS="-DGGML_CUDA=on -DCMAKE_CUDA_ARCHITECTURES=$_ARCHS" \
+            if CMAKE_ARGS="-DGGML_CUDA=on -DCMAKE_CUDA_ARCHITECTURES=$_ARCHS $_safe" \
                     "$PIP" install "llama-cpp-python>=$LLAMA_MIN" --no-cache-dir --quiet; then
                 echo "[OK] llama-cpp-python built with CUDA (arch $_ARCHS)."
             else
-                warn "CUDA source build failed — installing the CPU build so ELI still runs."
-                "$PIP" install "llama-cpp-python>=$LLAMA_MIN" --prefer-binary --quiet || true
+                warn "CUDA source build failed — installing CPU-safe source build so ELI still runs."
+                CMAKE_ARGS="$_safe" \
+                    "$PIP" install "llama-cpp-python>=$LLAMA_MIN" --no-cache-dir --quiet || true
             fi
         else
-            warn "CUDA toolkit (nvcc) not found — installing the CPU build."
+            warn "CUDA toolkit (nvcc) not found — installing CPU-safe source build."
             warn "  Install the CUDA toolkit and re-run to get GPU acceleration."
-            "$PIP" install "llama-cpp-python>=$LLAMA_MIN" --prefer-binary --quiet || true
+            CMAKE_ARGS="$_safe" \
+                "$PIP" install "llama-cpp-python>=$LLAMA_MIN" --no-cache-dir --quiet || true
         fi
     fi
 fi
@@ -457,6 +559,15 @@ if ! "$PYTHON_VENV" -c "import llama_cpp" 2>/dev/null; then
 else
     ok "llama-cpp-python ready ($("$PYTHON_VENV" -c 'import llama_cpp;print(llama_cpp.__version__)' 2>/dev/null))."
     VERIFY_LLAMA=1
+    if ! _llama_runtime_smoke; then
+        if _llama_rebuild_for_this_cpu; then
+            ok "llama-cpp-python rebuilt for this CPU ($("$PYTHON_VENV" -c 'import llama_cpp;print(llama_cpp.__version__)' 2>/dev/null))."
+        else
+            warn "llama-cpp-python imports but crashes at runtime — ELI cannot load models."
+            warn "Install a C++ toolchain and re-run install.sh, or run: bash install.sh"
+            VERIFY_LLAMA=0
+        fi
+    fi
 fi
 
 # Verify GPU offload actually compiled into llama-cpp (catch a silent CPU-only wheel —
