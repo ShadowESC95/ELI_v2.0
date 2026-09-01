@@ -1,28 +1,27 @@
 # ELI v2 — public launch copy-paste
 
-> **Current release: v2.3.72 (September 2026).** News topic deepen re-fetches live stories (no LLM guessing);
-> news-fetch complaint auto-redo; mounted-model authority every turn; phatic fast path for greetings.
-> Builds on v2.3.71 (model identity + phatic pipeline fixes).
+> **Current release: v2.3.73 (September 2026).** Thread-aware web grounding: conversation topics expand underspecified queries; proactive web on corrections; orchestrator reuses engine intent; consolidated factual gates.
+> Builds on v2.3.72 (news deepen + live-session honesty).
 
 ## Links (share these)
 
 - **Repo:** https://github.com/ShadowESC95/ELI_v2.0
-- **Release v2.3.72:** https://github.com/ShadowESC95/ELI_v2.0/releases/tag/v2.3.72
+- **Release v2.3.72:** https://github.com/ShadowESC95/ELI_v2.0/releases/tag/v2.3.73
 - **License:** PolyForm Internal Use (source-available, personal use — not OSI open source)
 
 ## Easiest install — Linux
 
 ```bash
 # AppImage (recommended)
-wget https://github.com/ShadowESC95/ELI_v2.0/releases/download/v2.3.72/ELI_v2-2.3.72-x86_64.AppImage
-chmod +x ELI_v2-2.3.72-x86_64.AppImage
-./ELI_v2-2.3.72-x86_64.AppImage
+wget https://github.com/ShadowESC95/ELI_v2.0/releases/download/v2.3.73/ELI_v2-2.3.73-x86_64.AppImage
+chmod +x ELI_v2-2.3.73-x86_64.AppImage
+./ELI_v2-2.3.73-x86_64.AppImage
 ```
 
 ```bash
 # Portable tarball (source + voices)
-wget https://github.com/ShadowESC95/ELI_v2.0/releases/download/v2.3.72/ELI_v2-2.3.72-linux-portable.tar.gz
-tar -xzf ELI_v2-2.3.72-linux-portable.tar.gz && cd ELI_v2-2.3.72-linux-portable
+wget https://github.com/ShadowESC95/ELI_v2.0/releases/download/v2.3.73/ELI_v2-2.3.73-linux-portable.tar.gz
+tar -xzf ELI_v2-2.3.73-linux-portable.tar.gz && cd ELI_v2-2.3.73-linux-portable
 chmod +x ELI_Setup.sh && ./ELI_Setup.sh
 ```
 
@@ -32,19 +31,19 @@ chmod +x ELI_Setup.sh && ./ELI_Setup.sh
 
 ## Easiest install — Windows
 
-1. Download `ELI-Setup-2.3.72.exe` or `ELI_v2-2.3.72-windows-x64.zip` from the release page
+1. Download `ELI-Setup-2.3.73.exe` or `ELI_v2-2.3.73-windows-x64.zip` from the release page
 2. Install or extract → run **ELI**
 3. Set your headset **Chat** mic as the default recording device if voice input is silent
 
 ## Easiest install — macOS (Apple Silicon)
 
-1. Download `ELI_v2-2.3.72-macos-arm64.dmg`
+1. Download `ELI_v2-2.3.73-macos-arm64.dmg`
 2. Drag to Applications → right-click → Open (unsigned)
 3. Grant mic access when prompted; AirPods work when set as system input
 
 ## Hacker News / Reddit one-liner
 
-> **ELI v2.3.72.** Local-first AI assistant (~166k LOC, 226 capabilities, GGUF, PySide6 GUI, offline-by-default). Grounded news deepens, honest model identity, phatic fast path. https://github.com/ShadowESC95/ELI_v2.0/releases/tag/v2.3.72
+> **ELI v2.3.73.** Local-first AI assistant (~166k LOC, 226 capabilities, GGUF, PySide6 GUI, offline-by-default). Grounded news deepens, honest model identity, phatic fast path. https://github.com/ShadowESC95/ELI_v2.0/releases/tag/v2.3.73
 
 ## What to say it is
 

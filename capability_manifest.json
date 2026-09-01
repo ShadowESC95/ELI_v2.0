@@ -1,6 +1,6 @@
 {
-  "generated_at": "2026-08-31T00:49:25",
-  "total": 226,
+  "generated_at": "2026-09-01T20:54:42",
+  "total": 227,
   "capabilities": [
     {
       "action": "ADD_EVENT",
@@ -1909,6 +1909,15 @@
       "routable": true,
       "in_dispatch": true,
       "in_supported_list": true
+    },
+    {
+      "action": "TIMESTAMP_DIAG",
+      "source": "executor+router",
+      "active": true,
+      "plugin": null,
+      "routable": true,
+      "in_dispatch": true,
+      "in_supported_list": false
     },
     {
       "action": "TRAIN_VOICE",

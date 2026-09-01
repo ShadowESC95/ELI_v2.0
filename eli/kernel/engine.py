@@ -9276,6 +9276,20 @@ Answer:"""
         except Exception:
             log.debug("suppressed exception", exc_info=True)
 
+        try:
+            from eli.runtime.conversation_thread import (
+                ambient_vision_context_block,
+                conversation_grounding_rule,
+            )
+            _av_block = ambient_vision_context_block()
+            if _av_block:
+                _extra_blocks.append(_av_block)
+            _cg_rule = conversation_grounding_rule(user_input, recent_turns)
+            if _cg_rule:
+                _extra_blocks.append(_cg_rule)
+        except Exception:
+            log.debug("suppressed exception", exc_info=True)
+
         # ── World awareness state injection ──────────────────────────────────
         # Inject ELI's live AwarenessState so synthesis knows its own internal
         # confidence / uncertainty / focus. Only injected when world state
@@ -10025,7 +10039,13 @@ Answer:"""
         if isinstance(result, (_types.GeneratorType,)) or hasattr(result, '__next__'):
             def _wrapped():
                 parts = []
-                for token in result:
+                try:
+                    stream_iter = self._stream_with_followthrough(
+                        result, user_input, reasoning_mode=reasoning_mode)
+                except Exception as _ft_wrap_err:
+                    log.debug(f"[COGNITIVE] orchestrator followthrough wrap failed: {_ft_wrap_err}")
+                    stream_iter = result
+                for token in stream_iter:
                     token = str(token or "")
                     if token:
                         parts.append(token)
@@ -11351,6 +11371,7 @@ Answer:"""
         # Always clear stale per-turn diagnostic evidence before we decide.
         self._diagnostic_evidence_block = ""
         self._diagnostic_action_hint = ""
+        self._turn_resolved_intent = None
 
         try:
             _eli_diag_text = str(user_input or "")
@@ -11591,10 +11612,33 @@ Answer:"""
         except Exception:
             log.debug("suppressed exception", exc_info=True)
 
-        context = self.memory.get_recent_conversation(5, user_id=getattr(self, "user_id", None))
+        context = self.memory.get_recent_conversation(8, user_id=getattr(self, "user_id", None))
+
+        # Thread-aware routing context for web prepass + proactive grounding.
+        try:
+            from eli.runtime.conversation_thread import (
+                extract_thread_topic,
+                proactive_web_intent,
+                recent_turns_from_context,
+                set_route_context,
+            )
+            _thread_turns = recent_turns_from_context(context)
+            set_route_context(thread_topic=extract_thread_topic(_thread_turns))
+            _proactive_intent = proactive_web_intent(user_input, _thread_turns)
+        except Exception as _thread_err:
+            log.debug(f"[COGNITIVE] conversation thread context skipped: {_thread_err}")
+            _proactive_intent = None
+            _thread_turns = []
 
         t_route = time.perf_counter()
-        intent = self._parse_intent(user_input, context)
+        if _proactive_intent:
+            intent = _proactive_intent
+            log.debug(
+                "[COGNITIVE] proactive conversation grounding → WEB_SEARCH "
+                f"(query={(intent.get('args') or {}).get('query', '')!r})"
+            )
+        else:
+            intent = self._parse_intent(user_input, context)
         _eli_pipe(
             "intent_routed",
             action=str((intent or {}).get("action") or "CHAT"),
@@ -12086,6 +12130,7 @@ Answer:"""
             else:
                 log.debug(f"[PIPELINE] S05 PLANNER orchestrator dispatch mode={_eli_proc_mode}")
             _eli_pipe("orchestrator_dispatch", mode=_eli_proc_mode, stream=stream)
+            self._turn_resolved_intent = {"text": user_input, "intent": dict(intent or {})}
             try:
                 _orch_result = self._run_internal_orchestrator(
                     user_input,
@@ -12221,6 +12266,7 @@ Answer:"""
                     _esc = _grounding_escalate(
                         self, user_input, intent, bus_result,
                         reasoning_mode=reasoning_mode, trace=trace,
+                        recent_turns=context,
                     )
                     if _esc is not None:
                         try:

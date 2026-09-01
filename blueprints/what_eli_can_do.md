@@ -1,6 +1,6 @@
 # ELI — What It Can Actually Do
 
-> **Updated for v2.3.72.** All CHAT modes run the gradient orchestrator; 15 specialist
+> **Updated for v2.3.73.** All CHAT modes run the gradient orchestrator; 15 specialist
 > agents; 225 capabilities (208 routable). Regenerate the action list with
 > `python -m eli.tools.registry.capability_updater`.
 
@@ -324,6 +324,15 @@ broad enough to be a daily companion, not a demo.
 separate from this capability showcase): `project_overview.md`. Exhaustive
 technical map: `capability_catalogue.md`.*
 
+
+## New in 2.3.73 — conversation grounding
+
+- **Thread-aware web queries:** underspecified follow-ups (“reviews for season 3”) expand with the active show/topic before search.
+- **Proactive web on corrections:** grounding demands and explicit search requests route to `WEB_SEARCH` with a distilled query, not CHAT confabulation.
+- **Single intent path:** orchestrator reuses the engine’s resolved intent — no second parse that disagrees with Phase-13 vetoes or proactive routing.
+- **Consolidated escalation gates:** shared factual exclusion logic across `classify_factual` and `classify_web_candidate`.
+
+---
 
 ## New in 2.3.72 — live-session honesty
 
