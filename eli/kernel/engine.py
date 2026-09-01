@@ -1162,6 +1162,38 @@ def _is_brief_phatic_prompt(text: str) -> bool:
     return False
 
 
+def _phatic_rapport_style_rule() -> str:
+    """Steering block for greetings/check-ins — keeps ELI's voice without memory dumps."""
+    return (
+        "SMALLTALK / RAPPORT MODE:\n"
+        "- Treat the latest user message as a chemistry-building moment, not as a task ticket.\n"
+        "- Reply AS ELI with your full voice: local, dry, direct, lightly sarcastic when it fits, "
+        "and alive in tone — not a stripped-down echo of their words.\n"
+        "- Give a real greeting: 2–4 sentences with personality. Mirror their energy (morning warmth, "
+        "casual banter, check-in warmth). A dry observation, gentle wit, or natural follow-up is welcome.\n"
+        "- FORBIDDEN: telegraphic parroting ('It's morning.' after 'good morning'), weather-report "
+        "minimalism, or empty mirroring. You are ELI, not a notification banner.\n"
+        "- Do not say the prompt is a common greeting, or use 'functioning as intended', "
+        "'ready to assist', 'queries or tasks', 'how can I help', 'happy to help', or customer-service filler.\n"
+        "- Do NOT resume old projects, invent user preferences/habits, or dump runtime stats unprompted.\n"
+        "- It is fine to ask one natural follow-up about mood or what they're up to — but never as "
+        "a substitute for actually greeting them.\n"
+        "- CRITICAL: Do NOT assert that the user has a preference, habit, or memory unless it "
+        "appears in verified profile or this conversation. Wit and cultural references are fine; "
+        "invented user biography is not.\n"
+        "- Humour must not replace warmth; if there is an actual runtime issue, mention it plainly.\n\n"
+    )
+
+
+def _phatic_generation_budget() -> int:
+    """Enough room for a voiced greeting; not a full essay."""
+    try:
+        _raw = str(os.environ.get("ELI_PHATIC_MAX_TOKENS", "256") or "256").strip()
+        _n = int(_raw)
+        return max(128, min(_n, 384))
+    except Exception:
+        return 256
+
 
 def _eli_is_fragment_output(text) -> bool:
     """True for a degenerate model fragment that must never be surfaced as an
@@ -6116,36 +6148,9 @@ Answer:"""
 
 
         # Smalltalk/phatic prompts are not "nothing"; they are rapport, tone,
-        # chemistry, and local-user preference signals. Keep this source
-        # user-neutral: no shipped personal names or machine paths.
+        # chemistry, and local-user preference signals.
         try:
-            import re as _eli_re_phatic
-            _phatic_norm = _eli_re_phatic.sub(r"[^a-z0-9' ]+", "", str(user_input or "").lower()).strip()
-            _phatic_norm = _eli_re_phatic.sub(r"\s+", " ", _phatic_norm)
-            _is_phatic_smalltalk = (
-                _phatic_norm in {
-                    "hi", "hello", "hey", "yo", "hiya", "alright",
-                    "you there", "are you there", "whats up", "what's up",
-                    "whats up buddy", "what's up buddy", "whats up bud", "what's up bud",
-                    "how are you", "how is the head", "hows the head", "how's the head",
-                    "we back", "are we back", "back to normal", "back to our normal self yet",
-                    "whats the story", "what's the story", "what is the story",
-                }
-                or (
-                    re.search(r"\b(?:whats|what'?s|what is) the story\b", _phatic_norm)
-                    and re.search(
-                        r"\b(?:you good|you ok|you okay|you alright|you better)\b", _phatic_norm
-                    )
-                )
-                or (
-                    len(_phatic_norm.split()) <= 14
-                    and any(x in _phatic_norm for x in (
-                        "whats up", "what's up", "how are you", "how is the head",
-                        "hows the head", "back to normal", "normal self", "you alive",
-                        "you there", "buddy", "bud"
-                    ))
-                )
-            )
+            _is_phatic_smalltalk = _is_brief_phatic_prompt(str(user_input or "").strip().lower())
         except Exception:
             _is_phatic_smalltalk = False
 
@@ -6154,20 +6159,7 @@ Answer:"""
         except Exception:
             _is_subjective_opinion = False
 
-        _phatic_style_rule = ""
-        if _is_phatic_smalltalk:
-            _phatic_style_rule = (
-                "SMALLTALK / RAPPORT MODE:\n"
-                "- Treat the latest user message as a chemistry-building moment, not as a task ticket.\n"
-                "- Reply like ELI: local, dry, direct, lightly sarcastic if useful, and alive in tone.\n"
-                "- Do not say the prompt is a common greeting.\n"
-                "- Do not say 'functioning as intended', 'ready to assist', 'queries or tasks', "
-                "'how can I help', 'happy to help', or other customer-service filler.\n"
-                "- Keep it brief: one to three sentences unless the user asks for depth.\n"
-                "- It is acceptable to ask one natural follow-up that helps learn the user's preference, mood, or next move.\n"
-                "- Humour must not replace useful information; if there is an actual runtime issue, mention it plainly.\n"
-                "- CRITICAL: Do NOT assert that the user has a preference, habit, or memory (e.g. 'you like coffee', 'you always', 'you mentioned X'). You may use cultural references, wit, or dry observations — but keep them about the world, not invented user preferences. If you haven't been told the user likes something, do not claim they do.\n\n"
-            )
+        _phatic_style_rule = _phatic_rapport_style_rule() if _is_phatic_smalltalk else ""
 
         _opinion_style_rule = ""
         if _is_subjective_opinion:
@@ -6849,6 +6841,15 @@ Answer:"""
             gen.update({k: v for k, v in dict(
                 gen_overrides).items() if v is not None})
 
+        _is_phatic_stream = False
+        try:
+            _is_phatic_stream = _is_brief_phatic_prompt(str(prompt or "").strip().lower())
+        except Exception:
+            _is_phatic_stream = False
+        if _is_phatic_stream:
+            gen["max_tokens"] = min(int(gen.get("max_tokens") or 256), _phatic_generation_budget())
+            gen["temperature"] = max(float(gen.get("temperature") or 0.7), 0.72)
+
         # Self-heal: GUI loads model via live override without setting _gguf_available
         if not self._gguf_available and gguf_inference is not None:
             _ovr = gguf_inference.get_live_runtime_override() or {}
@@ -6971,8 +6972,11 @@ Answer:"""
 
                 enhanced_system = self._build_enhanced_system(
                     _trimmed_mem_s,
-                    compact=self._use_compact_system(
-                        prompt, _trimmed_mem_s, reasoning_mode=reasoning_mode),
+                    compact=(
+                        _is_phatic_stream
+                        or self._use_compact_system(
+                            prompt, _trimmed_mem_s, reasoning_mode=reasoning_mode)
+                    ),
                     user_input=prompt,
                     reasoning_mode=reasoning_mode,
                     situation_brief=situation_brief,
@@ -7000,7 +7004,13 @@ Answer:"""
                 if callable(generate):
                     log.debug("[COGNITIVE] Stream: using generate() with stream=True")
                     _yielded = False
-                    with self._gguf_lock:
+                    try:
+                        from eli.cognition.gguf_inference import force_no_think as _fnt_stream
+                        from contextlib import nullcontext as _nullctx_stream
+                    except Exception:
+                        from contextlib import nullcontext as _fnt_stream, nullcontext as _nullctx_stream  # type: ignore
+                    _stream_think_ctx = _fnt_stream() if _is_phatic_stream else _nullctx_stream()
+                    with self._gguf_lock, _stream_think_ctx:
                         for chunk in generate(
                             prompt,
                             system=enhanced_system,
@@ -7025,6 +7035,36 @@ Answer:"""
                     if _yielded:
                         return
                     log.debug("[COGNITIVE] Stream: generate() produced zero visible tokens; falling back to non-streaming Stage 11")
+                    if _is_phatic_stream:
+                        try:
+                            from eli.cognition.gguf_inference import force_no_think as _fnt_ph_fallback
+                            _phatic_sys = self._build_enhanced_system(
+                                "",
+                                compact=True,
+                                user_input=prompt,
+                                reasoning_mode=reasoning_mode or "quick",
+                                situation_brief=self._build_phatic_handoff_brief(prompt),
+                            )
+                            with _fnt_ph_fallback():
+                                with self._gguf_lock:
+                                    _ph_raw = generate(
+                                        prompt,
+                                        system=_phatic_sys,
+                                        max_tokens=min(_phatic_generation_budget(), _safe_max),
+                                        temperature=gen["temperature"],
+                                        stream=False,
+                                    )
+                            _ph_text = ""
+                            if isinstance(_ph_raw, dict):
+                                _ph_text = str(_ph_raw.get("response") or _ph_raw.get("content") or "").strip()
+                            else:
+                                _ph_text = str(_ph_raw or "").strip()
+                            if _ph_text:
+                                for token in self._yield_text_chunks(_ph_text, chunk_size=12):
+                                    yield token
+                                return
+                        except Exception as _ph_fb_err:
+                            log.debug(f"[COGNITIVE] phatic zero-token fallback failed: {_ph_fb_err}")
                     response = self._get_chat_response(
                         prompt,
                         memory_context,
@@ -8777,6 +8817,38 @@ Answer:"""
             "yet — do not pretend it did.")
         return "\n".join(lines)
 
+    def _build_phatic_handoff_brief(self, user_input: str) -> str:
+        """Lightweight rapport brief: ELI voice + user name + recent thread — no memory dump."""
+        parts = [_phatic_rapport_style_rule().strip()]
+        try:
+            from eli.kernel.state import get_user_name as _gun_phatic
+            _ph_name = (_gun_phatic("") or "").strip()
+            if _ph_name:
+                parts.append(
+                    f"USER (verified name — use naturally if it fits): {_ph_name}"
+                )
+        except Exception:
+            log.debug("suppressed exception", exc_info=True)
+        try:
+            _recent = self.memory.get_recent_conversation(limit=4) or []
+            _thread = []
+            for _t in _recent[-3:]:
+                _role = str((_t or {}).get("role", "") or "").lower()
+                _content = str((_t or {}).get("content", "") or "").strip().replace("\n", " ")
+                if not _content:
+                    continue
+                _label = "User" if _role == "user" else "ELI"
+                _thread.append(f"  {_label}: {_content[:160]}")
+            if _thread:
+                parts.append(
+                    "[Recent exchange — continuity only; do not resume old projects from it]\n"
+                    + "\n".join(_thread)
+                )
+        except Exception:
+            log.debug("suppressed exception", exc_info=True)
+        brief = "\n\n".join(p for p in parts if p).strip()
+        return self._cap_text(brief, 1800, "phatic_handoff")
+
     def _build_persona_handoff_once(self, user_input: str, memory_context: str = "",
                                     bus_result=None, recent_turns=None, working_memory=None) -> str:
         try:
@@ -8794,6 +8866,14 @@ Answer:"""
 
         if cached is not None:
             return cached
+
+        # Greetings/check-ins: skip the 10k+ synthesiser handoff (memory, runtime blocks,
+        # project recall) but keep ELI's rapport steering + name + recent thread.
+        try:
+            if _is_brief_phatic_prompt(str(user_input or "").strip().lower()):
+                return self._build_phatic_handoff_brief(user_input)
+        except Exception:
+            log.debug("suppressed exception", exc_info=True)
 
         try:
             _recent_turns = list(recent_turns or [])
@@ -11919,50 +11999,77 @@ Answer:"""
                 log.debug(f"[COGNITIVE] internal orchestrator failed, falling back to legacy pipeline: {_orch_err}")
 
         try:
-            from eli.cognition.agent_bus import get_bus
-            _bus = get_bus()
-            bus_result = _bus.dispatch(
-                user_input, intent,
-                session_id=self.session_id,
-                user_id=self.user_id,
-                reasoning_mode=reasoning_mode,
-            )
-            bus_memory_context = bus_result.memory_context or ""
+            from eli.cognition.agent_bus import DispatchResult as _DispatchResult
+            if _qclass == "PHATIC":
+                bus_result = _DispatchResult(
+                    intent_action=str(action or "CHAT"),
+                    intent_confidence=float(intent.get("confidence") or 0.6),
+                    memory_context="",
+                    aggregated_confidence=0.0,
+                    grounding_confidence=0.0,
+                    confidence_label="phatic_skip",
+                    agents_used=[],
+                )
+                bus_memory_context = ""
+                if _log_stage:
+                    _log_stage(
+                        6,
+                        component="agent_bus",
+                        detail="skipped_phatic",
+                        agents=[],
+                        mem_chars=0,
+                        conf="0.00",
+                        grounding="0.00",
+                        label="phatic_skip",
+                    )
+                else:
+                    log.debug("[PIPELINE] S06 AGENT_BUS skipped (PHATIC — no memory/evidence dispatch)")
+            else:
+                from eli.cognition.agent_bus import get_bus
+                _bus = get_bus()
+                bus_result = _bus.dispatch(
+                    user_input, intent,
+                    session_id=self.session_id,
+                    user_id=self.user_id,
+                    reasoning_mode=reasoning_mode,
+                )
+                bus_memory_context = bus_result.memory_context or ""
             trace["agent_confidence"] = bus_result.aggregated_confidence
             trace["grounding_confidence"] = float(getattr(bus_result, "grounding_confidence", 0.0) or 0.0)
             trace["confidence_label"] = bus_result.confidence_label
             trace["agents_used"] = bus_result.agents_used
             # ── Always-visible Stage 5-9 summary ─────────────────────────────
-            _pipe_bus_agents = list(getattr(bus_result, "agents_used", []) or [])
-            _pipe_bus_conf = float(getattr(bus_result, "aggregated_confidence", 0.0) or 0.0)
-            _pipe_bus_grounding = float(getattr(bus_result, "grounding_confidence", 0.0) or 0.0)
-            _pipe_bus_label = str(getattr(bus_result, "confidence_label", "?") or "?")
-            _pipe_bus_mem = len(str(bus_memory_context or ""))
-            if _log_stage:
-                _log_stage(
-                    6,
-                    component="agent_bus",
-                    detail="dispatch",
-                    agents=_pipe_bus_agents,
-                    mem_chars=_pipe_bus_mem,
-                    conf=f"{_pipe_bus_conf:.2f}",
-                    grounding=f"{_pipe_bus_grounding:.2f}",
-                    label=_pipe_bus_label,
-                )
-            else:
-                log.debug(
-                    f"[PIPELINE] S06 AGENT_BUS dispatch agents={_pipe_bus_agents} "
-                    f"mem={_pipe_bus_mem}ch conf={_pipe_bus_conf:.2f} "
-                    f"grounding={_pipe_bus_grounding:.2f} ({_pipe_bus_label})"
-                )
+            if _qclass != "PHATIC":
+                _pipe_bus_agents = list(getattr(bus_result, "agents_used", []) or [])
+                _pipe_bus_conf = float(getattr(bus_result, "aggregated_confidence", 0.0) or 0.0)
+                _pipe_bus_grounding = float(getattr(bus_result, "grounding_confidence", 0.0) or 0.0)
+                _pipe_bus_label = str(getattr(bus_result, "confidence_label", "?") or "?")
+                _pipe_bus_mem = len(str(bus_memory_context or ""))
+                if _log_stage:
+                    _log_stage(
+                        6,
+                        component="agent_bus",
+                        detail="dispatch",
+                        agents=_pipe_bus_agents,
+                        mem_chars=_pipe_bus_mem,
+                        conf=f"{_pipe_bus_conf:.2f}",
+                        grounding=f"{_pipe_bus_grounding:.2f}",
+                        label=_pipe_bus_label,
+                    )
+                else:
+                    log.debug(
+                        f"[PIPELINE] S06 AGENT_BUS dispatch agents={_pipe_bus_agents} "
+                        f"mem={_pipe_bus_mem}ch conf={_pipe_bus_conf:.2f} "
+                        f"grounding={_pipe_bus_grounding:.2f} ({_pipe_bus_label})"
+                    )
 
             # ── World awareness feed (non-blocking) ───────────────────────────
             try:
                 from eli.world.world_event_bus import fire_confidence_event as _wfce
                 _wfce(
-                    grounding_confidence=_pipe_bus_grounding,
-                    aggregated_confidence=_pipe_bus_conf,
-                    agents_used=_pipe_bus_agents,
+                    grounding_confidence=float(getattr(bus_result, "grounding_confidence", 0.0) or 0.0),
+                    aggregated_confidence=float(getattr(bus_result, "aggregated_confidence", 0.0) or 0.0),
+                    agents_used=list(getattr(bus_result, "agents_used", []) or []),
                     action=action,
                 )
             except Exception:
@@ -13974,13 +14081,7 @@ Answer:"""
         _rapport_mode = _eli_is_rapport_prompt(prompt)
 
         try:
-            import re as _re
-            _phatic_low = _re.sub(r"[^a-z0-9\' ]+", "", prompt.lower()).strip()
-            _phatic_stream = _phatic_low in {
-                "hi", "hello", "hey", "yo", "hiya", "how are you",
-                "whats up", "what\'s up", "whats up pal", "what\'s up pal",
-                "alright", "you there", "are you there"
-            }
+            _phatic_stream = _is_brief_phatic_prompt(str(user_input or prompt or "").strip().lower())
         except Exception:
             _phatic_stream = False
 
