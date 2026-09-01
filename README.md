@@ -27,9 +27,10 @@ like and it tunes itself to the hardware you've got, from a laptop to a multi-GP
 <img src=".github/screenshots/gui-onboarding.png" alt="ELI desktop app — first-run onboarding conversation with a local 35B model" width="880">
 </div>
 
-> **v2.3.72 — honest news deepens and live-session reliability.** After a news briefing,
-> “go deeper into X” re-fetches that topic (no LLM guessing); news-fetch complaints auto-redo;
-> mounted-model authority on every turn; phatic greetings skip the heavy pipeline.
+> **v2.3.73 — thread-aware grounding and honest web follow-through.** Conversation threads
+> carry topic into web queries (“season 3 reviews” → Dead City, not random hits); proactive
+> web on corrections and grounding demands; orchestrator reuses engine-resolved intent (no
+> double routing); shared factual gates across escalation paths.
 > Grab it from **[Releases](https://github.com/ShadowESC95/ELI_v2.0/releases/latest)**.
 >
 > **v2 is live software, not a polished product drop.** ELI touches real hardware, and
@@ -440,12 +441,12 @@ SECURITY.md, not in a public issue.
 
 ## Tested on & known limitations
 
-*Last updated 2026-09-01 (v2.3.72).*
+*Last updated 2026-09-01 (v2.3.73).*
 
 I'd rather tell you exactly what I've run than pretend it's flawless everywhere.
 
 **What I've actually run, end to end:** Linux (x86_64) with an NVIDIA GPU — install, first-run,
-the full test suite (**11,351 tests collected**, 11,300+ passing), voice (USB/Bluetooth headset
+the full test suite (**11,358 tests collected**, 11,300+ passing), voice (USB/Bluetooth headset
 auto-resolve verified on Linux), vision, the server, the AppImage with the CUDA GPU
 pack, all of it. **The Windows installer has also been field-run on real hardware** — install,
 first-boot GPU + model flow, voice and chat. On top of that, **every release is launch-tested in
@@ -497,7 +498,7 @@ touches real hardware. I'd rather you know them going in.
 - `eli/gui` — PySide6 GUI launcher and `EliMainWindow`
 - `eli/cli` — headless REPL (`eli --headless`)
 - `config` — portable default settings · `models` — local GGUF payloads (gitignored)
-- `tests` — a large pytest suite (**11,351 tests collected** across 412 files, 11,300+ passing;
+- `tests` — a large pytest suite (**11,358 tests collected** across 413 files, 11,300+ passing;
   including a `claims/` layer that checks the project against its own documentation); the full
   suite runs locally, while CI gates a cross-platform portable subset (no GGUF/display/GPU) on
   Linux, macOS, and Windows

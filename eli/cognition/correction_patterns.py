@@ -64,7 +64,8 @@ NEWS_FETCH_COMPLAINT_RE = re.compile(
     r"\b(?:"
     r"guessing|guess(?:ing)?|made\s+up|hallucin(?:at(?:e|ing|ed))?|"
     r"didn't\s+fetch|did\s+not\s+fetch|not\s+fetch(?:ing)?\s+(?:the\s+)?(?:actual|real)|"
-    r"fake\s+story|invented|you\s+made\s+that\s+up"
+    r"fake\s+story|invented|you\s+made\s+that\s+up|getting\s+ahead\s+of\s+yourself|"
+    r"come\s+with\s+(?:some\s+)?(?:facts?|info)|at\s+least\s+come\s+with"
     r")\b",
     re.I,
 )

@@ -1,4 +1,4 @@
-> **Updated for v2.3.72.** Gradient orchestrator for all CHAT modes; shared
+> **Updated for v2.3.73.** Gradient orchestrator for all CHAT modes; shared
 > `memory/retrieval.py`; canonical S01–S12 via `pipeline_trace.py`.
 
 # ELI Capability Catalogue — every action & module, what it actually does

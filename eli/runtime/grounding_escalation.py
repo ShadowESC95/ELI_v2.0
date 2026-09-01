@@ -269,36 +269,50 @@ def _is_degenerate(text: str) -> bool:
     return False
 
 
+def _clean_turn_text(raw: str) -> Tuple[str, str]:
+    """Return (lowercase, intensifier-stripped lowercase) for gate matching."""
+    low = str(raw or "").strip().lower()
+    low_clean = _INTENSIFIER_STRIP_RE.sub(" ", low)
+    low_clean = re.sub(r"\s+", " ", low_clean).strip()
+    return low, low_clean
+
+
+def _turn_excluded_from_factual(raw: str, *, include_local: bool = False) -> bool:
+    """Shared banter/meta/dispute gates for factual and web-candidate classifiers."""
+    raw = str(raw or "").strip()
+    if not raw:
+        return True
+    low, low_clean = _clean_turn_text(raw)
+    try:
+        from eli.cognition.correction_patterns import is_correction_query as _is_corr
+        if _is_corr(raw):
+            return True
+    except Exception:
+        log.debug("suppressed exception", exc_info=True)
+    if (_BANTER_RE.search(low_clean) or _OPINION_RE.search(low_clean)
+            or _ADVICE_RE.search(low_clean) or _COMMAND_RE.search(low_clean)
+            or _META_SELF_RE.search(low_clean) or _RELATIONAL_VENT_RE.search(low_clean)
+            or _CONV_META_RE.search(low_clean)):
+        return True
+    if re.search(
+        r"\b(?:you(?:'re| are)|you are not|you're not)\b.{0,50}\b(?:glm|qwen|ornith|llama|mistral|model)\b",
+        low_clean, re.I,
+    ):
+        return True
+    if include_local and _LOCAL_RE.search(low):
+        return True
+    return False
+
+
 def classify_factual(text: str) -> Tuple[bool, str]:
     """Return (is_checkable_fact, domain) where domain ∈ {"external","local","none"}."""
     raw = (text or "").strip()
     low = raw.lower()
     if len(low.split()) < 2:
         return (False, "none")
-    # Strip injected intensifiers/profanity so frustration phrased as a question
-    # ("what the fuck are you talking about") still matches the meta/banter gates
-    # instead of leaking into the factual classifier. Run the gates on the
-    # cleaned text; keep `low` for the fact patterns (which are profanity-neutral).
-    low_clean = _INTENSIFIER_STRIP_RE.sub(" ", low)
-    low_clean = re.sub(r"\s+", " ", low_clean).strip()
-    try:
-        from eli.cognition.correction_patterns import is_correction_query as _is_corr
-        _dispute_turn = _is_corr(raw)
-    except Exception:
-        _dispute_turn = False
-    if (_BANTER_RE.search(low_clean) or _OPINION_RE.search(low_clean)
-            or _ADVICE_RE.search(low_clean)
-            or _COMMAND_RE.search(low_clean) or _META_SELF_RE.search(low_clean)
-            or _RELATIONAL_VENT_RE.search(low_clean)
-            or _CONV_META_RE.search(low_clean) or _dispute_turn):
+    if _turn_excluded_from_factual(raw):
         return (False, "none")
-
-    # "what ... you are GLM" is a model-identity dispute, not a web fact query.
-    if re.search(
-        r"\b(?:you(?:'re| are)|you are not|you're not)\b.{0,50}\b(?:glm|qwen|ornith|llama|mistral|model)\b",
-        low_clean, re.I,
-    ):
-        return (False, "none")
+    low_clean = _clean_turn_text(raw)[1]
 
     is_fact = bool(
         _FACT_Q_RE.search(low_clean) or _FACT_KW_RE.search(low_clean)
@@ -323,19 +337,9 @@ def classify_web_candidate(text: str) -> bool:
     low = raw.lower()
     if len(low.split()) < 3:
         return False
-    low_clean = _INTENSIFIER_STRIP_RE.sub(" ", low)
-    low_clean = re.sub(r"\s+", " ", low_clean).strip()
-    try:
-        from eli.cognition.correction_patterns import is_correction_query as _is_corr_wc
-        if _is_corr_wc(raw):
-            return False
-    except Exception:
-        log.debug("suppressed exception", exc_info=True)
-    if (_BANTER_RE.search(low_clean) or _OPINION_RE.search(low_clean)
-            or _ADVICE_RE.search(low_clean) or _COMMAND_RE.search(low_clean)
-            or _META_SELF_RE.search(low_clean) or _RELATIONAL_VENT_RE.search(low_clean)
-            or _CONV_META_RE.search(low_clean) or _LOCAL_RE.search(low)):
+    if _turn_excluded_from_factual(raw, include_local=True):
         return False
+    low_clean = _clean_turn_text(raw)[1]
     if _REALTIME_LOOKUP_RE.search(low_clean):
         return True
     if "?" in raw and _EXTERNAL_TOPIC_RE.search(low_clean):
@@ -358,7 +362,18 @@ _PROFANITY_FILLER_RE = re.compile(
     r"|you|use the web to|do a|confirm|verify|search( for)?)\b", re.I)
 
 
-def distill_query(text: str) -> str:
+def distill_query(text: str, recent_turns: Optional[Any] = None) -> str:
+    try:
+        from eli.runtime.conversation_thread import (
+            build_thread_aware_query,
+            recent_turns_from_context,
+        )
+        turns = recent_turns if isinstance(recent_turns, list) else recent_turns_from_context(recent_turns)
+        thread_q = build_thread_aware_query(text, turns)
+        if thread_q and len(thread_q.split()) >= 2:
+            return thread_q[:160]
+    except Exception:
+        log.debug("suppressed exception", exc_info=True)
     q = re.sub(r"[^\w\s'’.-]", " ", text or "")
     q = _PROFANITY_FILLER_RE.sub(" ", q)
     q = re.sub(r"\s+", " ", q).strip(" .?!")
@@ -430,6 +445,7 @@ def escalate(
     bus_result: Any,
     reasoning_mode: Optional[str] = None,
     trace: Optional[Dict[str, Any]] = None,
+    recent_turns: Optional[Any] = None,
 ) -> Optional[Dict[str, Any]]:
     """Return a grounded/hedged result dict to short-circuit the CHAT answer, or
     None to let normal CHAT synthesis proceed."""
@@ -459,6 +475,25 @@ def escalate(
 
     is_fact, domain = classify_factual(user_input)
     web_candidate = classify_web_candidate(user_input)
+
+    # Entertainment-thread continuation: user is discussing a show/film and the
+    # bus grounded poorly — prefer web over plot confabulation.
+    if not is_fact and not web_candidate and very_low:
+        try:
+            from eli.runtime.conversation_thread import (
+                extract_thread_topic,
+                recent_turns_from_context,
+            )
+            turns = recent_turns_from_context(recent_turns)
+            topic = extract_thread_topic(turns)
+            if topic and (
+                _EXTERNAL_TOPIC_RE.search(user_input.lower())
+                or _REALTIME_LOOKUP_RE.search(user_input.lower())
+            ):
+                is_fact, domain, web_candidate = True, "external", True
+                log.debug("[ESCALATION] entertainment-thread override (very low grounding)")
+        except Exception:
+            log.debug("suppressed exception", exc_info=True)
 
     if not is_fact and web_candidate and very_low:
         # Pop-culture / realtime lookup the strict classifier missed — still web.
@@ -508,7 +543,7 @@ def escalate(
                 if not online:
                     continue  # can't reach the web — fall to hedge
                 from eli.execution.executor_enhanced import execute as _execute
-                q = distill_query(user_input)
+                q = distill_query(user_input, recent_turns)
                 res = _execute("WEB_SEARCH", {"query": q})
                 web_searched = True
                 if isinstance(res, dict) and res.get("web_grounded") and res.get("results"):

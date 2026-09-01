@@ -527,6 +527,8 @@ class AgentOrchestrator:
                 self._bus_result_for_escalation(wm),
                 reasoning_mode=reasoning_mode,
                 trace=getattr(wm, "trace", None),
+                recent_turns=getattr(self.engine, "memory", None)
+                and self.engine.memory.get_recent_conversation(8) or None,
             )
             if _esc is None:
                 return None
@@ -632,7 +634,18 @@ class AgentOrchestrator:
         )
 
         wm.trace["stage_1"] = "intent_routing"
-        intent = self.engine.parse_intent(user_input, stm.recent_turns)
+        _cached = getattr(self.engine, "_turn_resolved_intent", None)
+        if (isinstance(_cached, dict) and _cached.get("text") == user_input
+                and isinstance(_cached.get("intent"), dict)
+                and _cached["intent"].get("action")):
+            intent = dict(_cached["intent"])
+            try:
+                self.engine._turn_resolved_intent = None
+            except Exception:
+                pass
+            log.debug(f"[ORCHESTRATOR] Stage 1: reusing engine-resolved intent → {intent.get('action')}")
+        else:
+            intent = self.engine.parse_intent(user_input, stm.recent_turns)
         # Honour the engine's Phase-13 META_DIAGNOSTIC→CHAT veto: a status/diagnostic action
         # the user didn't explicitly ask for was already downgraded to CHAT in process(); the
         # orchestrator re-resolves intent fresh, so without this it would run the original
