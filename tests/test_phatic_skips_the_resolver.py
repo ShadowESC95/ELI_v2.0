@@ -41,6 +41,8 @@ from eli.kernel.engine import _is_brief_phatic_prompt as phatic
     "you any better?",
     "you any better",
     "you sorted yet?",
+    "hey bud. good morning",
+    "hey bud, good morning",
 ])
 def test_conversational_check_ins_skip_the_resolver(text):
     assert phatic(text)
@@ -104,3 +106,38 @@ def test_the_fast_path_can_be_disabled():
 
     src = inspect.getsource(engine)
     assert "ELI_PHATIC_FASTPATH" in src
+
+
+def test_phatic_query_class_skips_agent_bus_dispatch():
+    import inspect
+
+    from eli.kernel import engine
+
+    src = inspect.getsource(engine)
+    assert '_qclass == "PHATIC"' in src
+    assert "skipped_phatic" in src or "skipped (PHATIC" in src
+
+
+def test_phatic_rapport_rule_demands_voice_not_telegraphic_echo():
+    from eli.kernel.engine import _phatic_rapport_style_rule as rule
+
+    text = rule()
+    assert "2" in text and "4" in text  # 2–4 sentences
+    assert "telegraphic" in text.lower() or "parrot" in text.lower()
+    assert "functioning as intended" in text
+
+
+def test_phatic_generation_budget_allows_personality():
+    from eli.kernel.engine import _phatic_generation_budget
+
+    assert _phatic_generation_budget() >= 128
+
+
+def test_stream_chat_uses_brief_phatic_detector_not_exact_match_set():
+    import inspect
+
+    from eli.kernel import engine
+
+    src = inspect.getsource(engine.CognitiveEngine._stream_chat)
+    assert "_is_brief_phatic_prompt" in src
+    assert "_phatic_stream = _phatic_low in {" not in src
