@@ -2013,9 +2013,16 @@ def route(text: str, _clause_depth: int = 0) -> Dict[str, Any]:
     # --- explicit grounded speech-act route authority ---
     # This is routing authority, not a canned response layer.
     try:
-        from eli.cognition.correction_patterns import is_correction_query as _is_corr_q
+        from eli.cognition.correction_patterns import (
+            is_correction_query as _is_corr_q,
+            is_model_identity_dispute as _is_model_dispute,
+        )
     except Exception:
         _is_corr_q = lambda t: False  # noqa: E731
+        _is_model_dispute = lambda t: False  # noqa: E731
+    if _is_model_dispute(low):
+        return _mk("RUNTIME_STATUS", {}, 0.98, matched_by="router.model_identity_dispute",
+                   allow_chat_without_evidence=False)
     if _is_corr_q(low):
         return _mk("CHAT", {"message": raw}, 0.92, matched_by="router.correction_chat", allow_chat_without_evidence=True)
 
