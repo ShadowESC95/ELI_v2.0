@@ -138,6 +138,21 @@ def extract_deepen_topic(text: str) -> str:
     return topic
 
 
+def recover_recent_deepen_topic(memory) -> str:
+    """Best-effort topic from a recent 'go deeper into …' user turn."""
+    try:
+        turns = memory.get_recent_conversation(limit=12) or []
+    except Exception:
+        return ""
+    for _t in reversed(turns):
+        if str((_t or {}).get("role") or "").lower() != "user":
+            continue
+        topic = extract_deepen_topic(str((_t or {}).get("content") or ""))
+        if topic:
+            return topic
+    return ""
+
+
 def detect_action_commitment(text: str) -> Optional[Dict[str, str]]:
     """Return {clause, matched} if `text` promises/fakes an action, else None.
 

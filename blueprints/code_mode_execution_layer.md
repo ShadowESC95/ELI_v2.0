@@ -1,6 +1,6 @@
 # Blueprint — Code-Mode Execution Layer for ELI (gap analysis)
 
-> **Updated for v2.3.44.** Restricted exec gated on Full Control; `api.call()` facade.
+> **Updated for v2.3.72.** Restricted exec gated on Full Control; `api.call()` facade.
 
 *Status: draft. Date: 2026-06-11.*
 *REVISED after auditing the codebase: an earlier version of this doc proposed building

@@ -60,8 +60,28 @@ BIOGRAPHICAL_DISPUTE_RE = re.compile(
 )
 
 
+NEWS_FETCH_COMPLAINT_RE = re.compile(
+    r"\b(?:"
+    r"guessing|guess(?:ing)?|made\s+up|hallucin(?:at(?:e|ing|ed))?|"
+    r"didn't\s+fetch|did\s+not\s+fetch|not\s+fetch(?:ing)?\s+(?:the\s+)?(?:actual|real)|"
+    r"fake\s+story|invented|you\s+made\s+that\s+up"
+    r")\b",
+    re.I,
+)
+
+
+def is_news_fetch_complaint(text: str) -> bool:
+    s = str(text or "")
+    if not NEWS_FETCH_COMPLAINT_RE.search(s):
+        return False
+    return bool(re.search(
+        r"\b(?:news|story|stories|article|headline|fetch|deeper|briefing)\b", s, re.I))
+
+
 def is_correction_query(text: str) -> bool:
     s = str(text or "")
+    if is_news_fetch_complaint(s):
+        return True
     if CORRECTION_QUERY_RE.search(s):
         return True
     if META_CAPABILITY_COMPLAINT_RE.search(s):

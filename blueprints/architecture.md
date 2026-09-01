@@ -1,4 +1,4 @@
-> **Updated for v2.3.44 (August 2026).** v2.3.37+ unified the cognition pipeline:
+> **Updated for v2.3.72 (September 2026).** v2.3.37+ unified the cognition pipeline:
 > all CHAT modes run a **gradient orchestrator** (Quick = light/fast planner;
 > Expert = full/deep); shared turn retrieval (`eli/memory/retrieval.py`); FAISS
 > tombstones on delete; canonical S01–S12 logging (`pipeline_trace.py`); Stage 12

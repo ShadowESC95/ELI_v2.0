@@ -5,48 +5,53 @@ Run from repo root after releases:  python tools/refresh_doc_metrics.py
 """
 from __future__ import annotations
 
-import re
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 TARGETS = list(ROOT.glob("**/*.md")) + [ROOT / "eli/gui/panels/startup.py"]
-SKIP_PARTS = ("/.venv/", "/models/", "/.claude/", "/node_modules/")
+SKIP_PARTS = ("/.venv/", "/models/", "/.claude/", "/node_modules/", "/build/")
 
 # Order matters — longer / more specific patterns first.
 REPLACEMENTS: list[tuple[str, str]] = [
-    ("Updated for v2.3.30 (August 2026)", "Updated for v2.3.32 (August 2026)"),
-    ("Updated for v2.3.31 (August 2026)", "Updated for v2.3.32 (August 2026)"),
-    ("Last updated 2026-08-28 (v2.3.30)", "Last updated 2026-08-28 (v2.3.32)"),
-    ("Audited at `34e7a22` (v2.3.30 release)", "Audited at `55acf3e` (v2.3.32 release)"),
-    ("Current suite at **v2.3.30**", "Current suite at **v2.3.32**"),
-    ("Verified at v2.3.30:", "Verified at v2.3.32:"),
-    ("releases/tag/v2.3.30", "releases/tag/v2.3.32"),
-    ("releases/download/v2.3.30/", "releases/download/v2.3.32/"),
-    ("releases/download/v2.3.30", "releases/download/v2.3.32"),
-    ("**Version:** 2.3.30", "**Version:** 2.3.32"),
-    ("ELI-Setup-2.3.30", "ELI-Setup-2.3.32"),
-    ("ELI_v2-2.3.30-", "ELI_v2-2.3.32-"),
-    ("release v2.3.30", "release v2.3.32"),
-    ("real v2.3.30 assets", "real v2.3.32 assets"),
-    ("180,100 LOC", "180,364 LOC"),
-    ("180,098 LOC", "180,364 LOC"),
-    ("~180,000 lines of Python across 421 files (`eli/`)", "~180,364 lines of Python across 421 files (`eli/`)"),
-    ("~180,000 lines of Python in `eli/`", "~180,364 lines of Python in `eli/`"),
-    ("It is ~180,000 lines of Python in `eli/`", "It is ~180,364 lines of Python in `eli/`"),
-    ("180k-LOC project", "~180k-LOC project"),
-    ("10,950+ tests across 389+ files", "10,970 tests collected across 389 files"),
-    ("10,894+ passing", "10,900+ passing"),
-    ("10,894 passed", "10,900+ passed"),
-    ("10,894+ tests", "10,970 tests"),
-    ("Verified at v2.3.32: 10,900+ passing, 389 files", "Verified at v2.3.32: 10,970 collected / 10,900+ passing, 389 files"),
-    ("10,950+ test", "10,970 test"),
-    ("executor_enhanced.py` (15.9k LOC)", "executor_enhanced.py` (~15.9k LOC)"),
-    ("`engine.py` (15.2k)", "`engine.py` (~15.2k)"),
-    ("`gui/eli_pro_audio_gui_v2_0.py` (12.6k)", "`gui/eli_pro_audio_gui_v2_0.py` (~12.6k)"),
-    ("`router_enhanced.py` (8.2k)", "`router_enhanced.py` (~8.2k)"),
-    ("v2.3.30 AppImage", "v2.3.32 AppImage"),
-    ("v2.3.30 release", "v2.3.32 release"),
-    ("_DEFAULT_RELEASE_TAG", "_DEFAULT_RELEASE_TAG"),  # no-op anchor
+    ("Updated for v2.3.55 (August 2026)", "Updated for v2.3.72 (September 2026)"),
+    ("Updated for v2.3.44 (August 2026)", "Updated for v2.3.72 (September 2026)"),
+    ("Updated for v2.3.55.", "Updated for v2.3.72."),
+    ("Updated for v2.3.44.", "Updated for v2.3.72."),
+    ("Release **v2.3.44** on GitHub", "Release **v2.3.72** on GitHub"),
+    ("Current release: v2.3.58 (August 2026)", "Current release: v2.3.72 (September 2026)"),
+    ("Builds on v2.3.56.", "Builds on v2.3.71."),
+    ("Last updated 2026-08-30 (v2.3.53)", "Last updated 2026-09-01 (v2.3.72)"),
+    ("Last updated 2026-08-28 (v2.3.32)", "Last updated 2026-09-01 (v2.3.72)"),
+    ("Audited at v2.3.44 (August 2026)", "Audited at v2.3.72 (September 2026)"),
+    ("Current suite at **v2.3.44**", "Current suite at **v2.3.72**"),
+    ("Verified at v2.3.44:", "Verified at v2.3.72:"),
+    ("Verified at v2.3.44: 11,067 collected", "Verified at v2.3.72: 11,351 collected"),
+    ("11,067 tests collected across 393 files", "11,351 tests collected across 412 files"),
+    ("11,067 tests collected", "11,351 tests collected"),
+    ("11,067 collected / 11,000+", "11,351 collected / 11,300+"),
+    ("11,067 collected", "11,351 collected"),
+    ("11,000+ passing", "11,300+ passing"),
+    ("11,000+ passed", "11,300+ passed"),
+    ("393 files", "412 files"),
+    ("393 test files", "412 test files"),
+    ("~181k LOC", "~166k LOC"),
+    ("181k-LOC", "~166k-LOC"),
+    ("181,530 measured 2026-08-29", "166,397 measured 2026-09-01"),
+    ("releases/tag/v2.3.55", "releases/tag/v2.3.72"),
+    ("releases/tag/v2.3.58", "releases/tag/v2.3.72"),
+    ("releases/download/v2.3.55/", "releases/download/v2.3.72/"),
+    ("releases/download/v2.3.58/", "releases/download/v2.3.72/"),
+    ("**Version:** 2.3.55", "**Version:** 2.3.72"),
+    ("ELI-Setup-2.3.55", "ELI-Setup-2.3.72"),
+    ("ELI_v2-2.3.55-", "ELI_v2-2.3.72-"),
+    ("release v2.3.55", "release v2.3.72"),
+    ("real v2.3.55 assets", "real v2.3.72 assets"),
+    ("v2.3.55 AppImage", "v2.3.72 AppImage"),
+    ("v2.3.55 release", "v2.3.72 release"),
+    ("v2.3.55+", "v2.3.72+"),
+    ("upgrade to **v2.3.55**", "upgrade to **v2.3.72**"),
+    ("Fix (v2.3.55+):", "Fix (v2.3.72+):"),
+    ("ELI v2.3.58.", "ELI v2.3.72."),
 ]
 
 
