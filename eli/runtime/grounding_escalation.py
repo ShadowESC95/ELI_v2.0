@@ -199,6 +199,7 @@ _REALTIME_LOOKUP_RE = re.compile(
     r"\b(came out|come out|release date|released|premiered|premiere|in theaters|in cinemas"
     r"|box office|review score|rotten tomatoes|metacritic|streaming on|now playing)\b"
     r"|\b(is it|is that|is this|are they)\s+(?:a\s+|the\s+)?classic\b"
+    r"|\b(?:is|are)\s+.{2,80}\s+a\s+classic\b"
     r"|\bhow (?:new|recent|old|good|popular)\s+(?:is|was|are|were)\b"
     r"|\bwhen did .{2,80} (?:come out|release|premiere|debut)\b",
     re.I)
@@ -208,6 +209,33 @@ _EXTERNAL_TOPIC_RE = re.compile(
     r"|spider[- ]?man|batman|director|actor|actress|oscar|grammy|emmy|premiere|trailer"
     r"|franchise|sequel|prequel|soundtrack|chart|billboard|stream(?:ing)?)\b",
     re.I)
+# Rapport about ELI's state — not a third-party fact lookup.
+_RAPPORT_EL_STATE_RE = re.compile(
+    r"\b(?:are|re)\s+you\s+(?:feeling\s+)?(?:fresh|good|ok|okay|alright|better|fine)\b"
+    r"|\bi take it you(?:'re|\s+are)\s+(?:feeling\s+)?(?:fresh|good|ok|okay)\b"
+    r"|\byou\s+feeling\s+(?:fresh|good|ok|okay)\b"
+    r"|\bwhat(?:'?s|\s+is)\s+the\s+story\b",
+    re.I,
+)
+# User telling ELI where they are in a show — "season 3, episode 6 now".
+_WATCH_PROGRESS_RE = re.compile(
+    r"\b(?:season|s)\s*\d+\s*,?\s*(?:episode|ep)\.?\s*\d+\b"
+    r"|\b(?:episode|ep)\.?\s*\d+\s+now\b"
+    r"|\bon\s+(?:season|s)\s*\d+(?:\s*,?\s*(?:episode|ep)\.?\s*\d+)?\b",
+    re.I,
+)
+# Compliment / rapport that may mention a show in passing — not a lookup.
+_RAPPORT_COMPLIMENT_RE = re.compile(
+    r"\b(?:wasn'?t expecting|fair play|fair ply|pretty\s+(?:solid|good|fucking\s+solid)"
+    r"|solid\s+memory|nice\s+one|well\s+done|good\s+memory)\b",
+    re.I,
+)
+# Explicit plot/recap/review asks — still web-candidates when grounding is low.
+_ENTERTAINMENT_LOOKUP_RE = re.compile(
+    r"\b(?:what\s+happened|what\s+(?:goes|went)\s+on|recap|summary|spoiler|reviews?"
+    r"|worth watching|any good|who dies|who died|plot of)\b",
+    re.I,
+)
 # ELI's OWN action / artifact / job STATE — "did you save/create/generate X", "is it
 # done", "check job N", "where did you save it", "what's the status/result of the job".
 # Asserting any of these without grounding is the worst confabulation (the transcript
@@ -277,6 +305,23 @@ def _clean_turn_text(raw: str) -> Tuple[str, str]:
     return low, low_clean
 
 
+def _is_conversational_watch_turn(raw: str) -> bool:
+    """True when the user is chatting or updating watch progress — not asking for facts."""
+    low_clean = _clean_turn_text(raw)[1]
+    if _RAPPORT_EL_STATE_RE.search(low_clean):
+        return True
+    if _WATCH_PROGRESS_RE.search(low_clean) and not (
+            _FACT_Q_RE.search(low_clean)
+            or _REALTIME_LOOKUP_RE.search(low_clean)
+            or _ENTERTAINMENT_LOOKUP_RE.search(low_clean)):
+        return True
+    if (_RAPPORT_COMPLIMENT_RE.search(low_clean)
+            and not (_FACT_Q_RE.search(low_clean) or _REALTIME_LOOKUP_RE.search(low_clean)
+                     or _ENTERTAINMENT_LOOKUP_RE.search(low_clean))):
+        return True
+    return False
+
+
 def _turn_excluded_from_factual(raw: str, *, include_local: bool = False) -> bool:
     """Shared banter/meta/dispute gates for factual and web-candidate classifiers."""
     raw = str(raw or "").strip()
@@ -339,11 +384,15 @@ def classify_web_candidate(text: str) -> bool:
         return False
     if _turn_excluded_from_factual(raw, include_local=True):
         return False
+    if _is_conversational_watch_turn(raw):
+        return False
     low_clean = _clean_turn_text(raw)[1]
     if _REALTIME_LOOKUP_RE.search(low_clean):
         return True
-    if "?" in raw and _EXTERNAL_TOPIC_RE.search(low_clean):
-        return True
+    if _EXTERNAL_TOPIC_RE.search(low_clean):
+        if (_FACT_Q_RE.search(low_clean) or _REALTIME_LOOKUP_RE.search(low_clean)
+                or _ENTERTAINMENT_LOOKUP_RE.search(low_clean)):
+            return True
     try:
         from eli.cognition.correction_patterns import explicit_web_search_request
         if explicit_web_search_request(raw):
@@ -486,10 +535,12 @@ def escalate(
             )
             turns = recent_turns_from_context(recent_turns)
             topic = extract_thread_topic(turns)
-            if topic and (
+            if (topic
+                    and not _is_conversational_watch_turn(user_input)
+                    and (
                 _EXTERNAL_TOPIC_RE.search(user_input.lower())
                 or _REALTIME_LOOKUP_RE.search(user_input.lower())
-            ):
+            )):
                 is_fact, domain, web_candidate = True, "external", True
                 log.debug("[ESCALATION] entertainment-thread override (very low grounding)")
         except Exception:
