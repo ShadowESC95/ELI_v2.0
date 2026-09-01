@@ -3370,6 +3370,97 @@ def _is_explicit_command_match(intent) -> bool:
     return bool(via) and not via.startswith("fallback.") and conf >= 0.9
 
 
+def _news_deepen_news_fetch_args(topic: str, user_input: str) -> dict:
+    return {
+        "topic": str(topic or "").strip(),
+        "mode": "fetch_and_show",
+        "sources": ["all"],
+        "_raw_user_text": str(user_input or ""),
+    }
+
+
+def _try_news_topic_deepen_reroute(
+    user_input: str,
+    action: str,
+    args: dict,
+    intent: dict,
+    last_command_action: dict | None,
+) -> tuple[str, dict, dict]:
+    """After a news briefing, 'go deeper into X' must re-fetch — not CHAT guesswork."""
+    try:
+        from eli.runtime.action_commitment import extract_deepen_topic as _edt
+    except Exception:
+        return action, args, intent
+
+    _act_up = str(action or "").upper()
+    if _act_up in _DEEPEN_ARMING_ACTIONS:
+        return action, args, intent
+
+    _lca = dict(last_command_action or {})
+    _was_news = str(_lca.get("action") or "").upper() in _DEEPEN_ARMING_ACTIONS
+    if _was_news:
+        _lca_ts = float(_lca.get("ts") or 0.0)
+        if _lca_ts and (time.time() - _lca_ts) > _DEEPEN_WINDOW_SECONDS:
+            _was_news = False
+
+    _deepen_topic = _edt(user_input)
+    if (not _deepen_topic) and _was_news:
+        _hard = {
+            "OPEN_APP", "CLOSE_APP", "FOCUS_APP", "SWITCH_WINDOW", "PLAY_MEDIA",
+            "PLAY_SPECIFIC", "MEDIA_CONTROL", "VOLUME_CONTROL", "MUTE", "CREATE_FILE",
+            "CREATE_FOLDER", "DELETE_FILE", "SCREENSHOT", "TYPE_TEXT", "MOUSE_CONTROL",
+            "KEY_PRESS", "SET_ALARM", "SET_TIMER", "SHELL_EXEC", "OPEN_URL",
+            "GAZE_CLICK", "START_POMODORO", "ADD_EVENT", "SEARCH_NOTES",
+        }
+        _wc = len(str(user_input or "").split())
+        if _act_up not in _hard and 1 <= _wc <= 7:
+            _deepen_topic = str(user_input or "").strip().rstrip("?.!,;: ").strip()
+
+    if _is_explicit_command_match(intent) or _act_up in _DEEPEN_ARMING_ACTIONS:
+        _deepen_topic = ""
+
+    if not (_deepen_topic and _was_news):
+        return action, args, intent
+
+    log.debug(f"[COGNITIVE] news topic-deepen: →NEWS_FETCH (topic='{_deepen_topic}')")
+    _out_intent = dict(intent or {})
+    _out_intent["action"] = "NEWS_FETCH"
+    _out_intent["args"] = _news_deepen_news_fetch_args(_deepen_topic, user_input)
+    _out_intent["_deepen_topic"] = _deepen_topic
+    _meta = dict(_out_intent.get("meta") or {})
+    _meta["matched_by"] = "news.topic_deepen"
+    _out_intent["meta"] = _meta
+    return "NEWS_FETCH", dict(_out_intent["args"]), _out_intent
+
+
+def _try_news_fetch_complaint_redo(
+    user_input: str,
+    action: str,
+    args: dict,
+    intent: dict,
+    memory,
+) -> tuple[str, dict, dict]:
+    """User called out a guessed news deepen — re-fetch the topic they asked for."""
+    try:
+        from eli.cognition.correction_patterns import is_news_fetch_complaint
+        from eli.runtime.action_commitment import recover_recent_deepen_topic
+    except Exception:
+        return action, args, intent
+    if not is_news_fetch_complaint(user_input):
+        return action, args, intent
+    _topic = recover_recent_deepen_topic(memory)
+    if not _topic:
+        return action, args, intent
+    log.debug(f"[COGNITIVE] news fetch complaint → NEWS_FETCH redo (topic='{_topic}')")
+    _out_intent = dict(intent or {})
+    _out_intent["action"] = "NEWS_FETCH"
+    _out_intent["args"] = _news_deepen_news_fetch_args(_topic, user_input)
+    _meta = dict(_out_intent.get("meta") or {})
+    _meta["matched_by"] = "news.fetch_complaint_redo"
+    _out_intent["meta"] = _meta
+    return "NEWS_FETCH", dict(_out_intent["args"]), _out_intent
+
+
 class _RepeatDetected(Exception):
     """Raised inside the streaming guard when the opening restates a recent reply.
 
@@ -11785,71 +11876,16 @@ Answer:"""
                       f"{action!r} — degrading open (non-fatal): {_gate_err}")
 
 
-        # News topic-deepen (USER's own follow-up): the deepen detector + last-action-news
-        # check that the followthrough path already uses (extract_deepen_topic) was never
-        # applied to the user's DIRECT request, so "look into the magnetic fields" right after
-        # a news briefing hit the LLM resolver and was mis-routed (BACKGROUND_JOBS dump, fake
-        # DISCUSS_ARTICLE). Reuse that SAME detector here: if the user is going deeper on a
-        # topic just after news, answer it as a substantive grounded discussion (CHAT), not a
-        # mis-guessed command. CHAT/NEWS_FETCH left alone (already conversational / re-fetch).
+        # News topic-deepen: after a briefing, "go deeper into X" must re-fetch that
+        # story — not route to CHAT and let the model guess from weights.
         try:
-            _act_up = str(action or "").upper()
-            if _act_up not in ("CHAT", "NEWS_FETCH"):
-                from eli.runtime.action_commitment import extract_deepen_topic as _edt_direct
-                _deepen_topic = _edt_direct(user_input)
-                _lca_direct = getattr(self, "_last_command_action", None) or {}
-                _was_news_direct = str(_lca_direct.get("action") or "").upper() in (
-                    "NEWS_FETCH", "MORNING_REPORT", "DAILY_REPORT")
-                # "right after" means within the window, not "at any point since launch".
-                if _was_news_direct:
-                    _lca_ts = float(_lca_direct.get("ts") or 0.0)
-                    if _lca_ts and (time.time() - _lca_ts) > _DEEPEN_WINDOW_SECONDS:
-                        _was_news_direct = False
-                # ACCEPTING a news follow-up offer: right after a briefing ELI asks "want to dive
-                # deeper into X or Y?"; the user's reply ("running local llms please", "the first
-                # one") carries NO explicit deepen verb, so extract_deepen_topic misses it and the
-                # LLM resolver mis-routes it to a canned how-to / code dump (the observed bug). If
-                # we're right after news and the reply is SHORT and NOT a hard OS command, read it
-                # as the picked topic → grounded discussion. Gated tight: worst case a short
-                # question becomes a conversational answer (better than a misroute), never a
-                # hijacked hard action.
-                if (not _deepen_topic) and _was_news_direct:
-                    _hard = {
-                        "OPEN_APP", "CLOSE_APP", "FOCUS_APP", "SWITCH_WINDOW", "PLAY_MEDIA",
-                        "PLAY_SPECIFIC", "MEDIA_CONTROL", "VOLUME_CONTROL", "MUTE", "CREATE_FILE",
-                        "CREATE_FOLDER", "DELETE_FILE", "SCREENSHOT", "TYPE_TEXT", "MOUSE_CONTROL",
-                        "KEY_PRESS", "SET_ALARM", "SET_TIMER", "SHELL_EXEC", "OPEN_URL",
-                        "GAZE_CLICK", "START_POMODORO", "ADD_EVENT", "SEARCH_NOTES",
-                    }
-                    _wc = len(str(user_input or "").split())
-                    if _act_up not in _hard and 1 <= _wc <= 7:
-                        _deepen_topic = str(user_input or "").strip().rstrip("?.!,;: ").strip()
-                # An EXPLICIT, high-confidence router match is a command, not an
-                # ambiguous follow-up. Observed: "Good.. morning report?" matched
-                # self.morning_report at 0.95 and was still rewritten to CHAT, so the
-                # user asked for a morning report and got small-talk. Two things made
-                # that inevitable and both are guarded here:
-                #   * MORNING_REPORT/DAILY_REPORT are in the _was_news_direct trigger
-                #     set, so a report ARMS the rule that then suppresses the next
-                #     report — the action cancels itself.
-                #   * _last_command_action carries no timestamp and CHAT never
-                #     overwrites it, so "right after a briefing" was never actually
-                #     checked; one report armed the hijack for the rest of the process.
-                # This heuristic exists for inputs with no clear intent ("the first
-                # one"), which arrive via the LLM resolver at low confidence. Leave
-                # those to it; keep your hands off anything the router named outright.
-                if _is_explicit_command_match(intent) or _act_up in _DEEPEN_ARMING_ACTIONS:
-                    _deepen_topic = ""
-
-                if _deepen_topic and _was_news_direct:
-                    log.debug(f"[COGNITIVE] news topic-deepen: {action}→CHAT "
-                              f"(topic='{_deepen_topic}')")
-                    action = "CHAT"
-                    args = {"message": user_input}
-                    if isinstance(intent, dict):
-                        intent["action"] = "CHAT"
-                        intent["allow_chat_without_evidence"] = True
-                        intent["_deepen_topic"] = _deepen_topic
+            action, args, intent = _try_news_topic_deepen_reroute(
+                user_input, action, args, intent,
+                getattr(self, "_last_command_action", None),
+            )
+            action, args, intent = _try_news_fetch_complaint_redo(
+                user_input, action, args, intent, self.memory,
+            )
         except Exception:
             log.debug("suppressed exception", exc_info=True)
 

@@ -1,6 +1,6 @@
 # Blueprint — ELI MKXI Full Architecture (ASCII)
 
-> **Updated for v2.3.44.** All CHAT modes → gradient orchestrator; bus composed at S06.
+> **Updated for v2.3.72.** All CHAT modes → gradient orchestrator; bus composed at S06.
 
 The entire system in one drawing, plus the module tree and data layout. Grounded
 in the real source (see `architecture.md` for prose, `diagrams.md` for the

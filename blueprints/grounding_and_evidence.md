@@ -1,6 +1,6 @@
 # ELI Grounding & Evidence Layer
 
-> **Updated for v2.3.44.** Quick mode still returns verbatim for deterministic
+> **Updated for v2.3.72.** Quick mode still returns verbatim for deterministic
 > introspection; all CHAT modes now pass through the gradient orchestrator first.
 
 The anti-confabulation system — a deterministic evidence scaffold wrapped around
@@ -166,6 +166,20 @@ recoverable instead of dead ends.
   EXAMINE_CODE (the real examiner), not FILE_AUDIT; fix-intent ("fix the bugs in foo.py") stays
   FIX_FILE.
 
+
+## New in 2.3.72 — news topic deepen (grounded, not guessed)
+
+After a `NEWS_FETCH` briefing, a follow-up like **“go deeper into the transformer
+story”** must not route to open `CHAT` and let the model invent details. The engine
+(`_try_news_topic_deepen_reroute` in `engine.py`) detects `extract_deepen_topic()`
+within a short window of the last news command and **re-routes to `NEWS_FETCH` with
+that topic** — same live fetch path as the original briefing.
+
+If the user complains that ELI guessed (`is_news_fetch_complaint`), the kernel
+recovers the deepen topic from recent conversation (`recover_recent_deepen_topic`)
+and runs `NEWS_FETCH` again instead of falling through to web-escalation hedge.
+
+---
 
 ## Update — 2.3.7 (evidence layer stopped discarding history)
 

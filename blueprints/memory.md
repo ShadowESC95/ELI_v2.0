@@ -1,6 +1,6 @@
 # ELI Memory Subsystem
 
-> **Updated for v2.3.44.** Turn retrieval is unified in `eli/memory/retrieval.py`;
+> **Updated for v2.3.72.** Turn retrieval is unified in `eli/memory/retrieval.py`;
 > FAISS deletes use tombstones (`mark_memory_deleted`).
 
 `eli/memory/` — 7.0k LOC, 13 files. The persistent substrate: relational +

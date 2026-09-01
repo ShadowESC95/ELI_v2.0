@@ -1,6 +1,6 @@
 # ELI — What It Can Actually Do
 
-> **Updated for v2.3.44.** All CHAT modes run the gradient orchestrator; 15 specialist
+> **Updated for v2.3.72.** All CHAT modes run the gradient orchestrator; 15 specialist
 > agents; 225 capabilities (208 routable). Regenerate the action list with
 > `python -m eli.tools.registry.capability_updater`.
 
@@ -185,6 +185,9 @@ to another.
 ### 🌐 Web & news (toggle-gated)
 Flip the Net switch on and ELI fetches web answers, weather, and **synthesised
 news** (a rolling 3-hourly digest matched to your interests — not raw headlines).
+After a briefing, **“go deeper into …”** re-runs a **topic-scoped `NEWS_FETCH`**
+from live feeds — it does not guess from model weights. If you call out a guessed
+story, ELI recovers the topic from recent chat and fetches again.
 Switch it off and it's sealed at the network socket.
 
 ### 📁 Files & documents
@@ -321,6 +324,15 @@ broad enough to be a daily companion, not a demo.
 separate from this capability showcase): `project_overview.md`. Exhaustive
 technical map: `capability_catalogue.md`.*
 
+
+## New in 2.3.72 — live-session honesty
+
+- **News topic deepen:** “go deeper into X” after a briefing → topic-scoped `NEWS_FETCH`, not CHAT guesswork.
+- **News complaint redo:** calling out a guessed story recovers the topic and re-fetches.
+- **Mounted-model authority:** every turn’s system prompt states the loaded GGUF; model-identity disputes route to `RUNTIME_STATUS`.
+- **Phatic fast path:** greetings/check-ins skip agent bus and heavy persona handoff (seconds, not minutes).
+
+---
 
 ## New in 2.3.7 — train it, extend it, and see what it checked
 

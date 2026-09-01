@@ -79,7 +79,63 @@ def test_deepen_query_routes_to_topic_news():
     assert r["args"].get("topic") == "hubble"
 
 
-def test_relational_going_on_is_not_news():
+def test_news_topic_deepen_reroutes_chat_to_news_fetch():
+    import time
+    from eli.kernel.engine import _try_news_topic_deepen_reroute
+
+    user = "go deeper into the transformer trained in 1.5 hours please"
+    action, args, intent = _try_news_topic_deepen_reroute(
+        user,
+        "CHAT",
+        {"message": user},
+        {"action": "CHAT", "confidence": 0.6, "meta": {"matched_by": "fallback.chat"}},
+        {"action": "NEWS_FETCH", "ts": time.time()},
+    )
+    assert action == "NEWS_FETCH"
+    assert "transformer trained in 1.5 hours" in (args.get("topic") or "")
+    assert intent.get("meta", {}).get("matched_by") == "news.topic_deepen"
+
+
+def test_news_fetch_complaint_redo_recovers_topic():
+    from eli.kernel.engine import _try_news_fetch_complaint_redo
+
+    class _Mem:
+        def get_recent_conversation(self, limit=12):
+            return [
+                {"role": "assistant", "content": "briefing…"},
+                {"role": "user", "content": "go deeper into Hubble please"},
+            ]
+
+    user = "you are guessing, why did you not fetch the actual real news story?"
+    action, args, intent = _try_news_fetch_complaint_redo(
+        user, "CHAT", {}, {"action": "CHAT"}, _Mem(),
+    )
+    assert action == "NEWS_FETCH"
+    assert args.get("topic") == "Hubble"
+    assert intent.get("meta", {}).get("matched_by") == "news.fetch_complaint_redo"
+
+
+def test_news_fetch_complaint_pattern():
+    from eli.cognition.correction_patterns import is_news_fetch_complaint, is_correction_query
+
+    msg = "you are guessing, why did you not fetch the actual real news story?"
+    assert is_news_fetch_complaint(msg)
+    assert is_correction_query(msg)
+
+
+def test_recover_recent_deepen_topic():
+    from eli.runtime.action_commitment import recover_recent_deepen_topic
+
+    class _Mem:
+        def get_recent_conversation(self, limit=12):
+            return [
+                {"role": "user", "content": "what is the latest news?"},
+                {"role": "assistant", "content": "headlines…"},
+                {"role": "user", "content": "go deeper into magnetic fields please"},
+            ]
+
+    assert recover_recent_deepen_topic(_Mem()) == "magnetic fields"
+
     # Regression: "what's going on" aimed at ELI/the user must NOT detonate a
     # news fetch mid-conversation. (Live bug: "are you blaming that on me or
     # what's going on" → 55s NEWS_FETCH dump.)
