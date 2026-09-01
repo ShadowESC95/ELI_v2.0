@@ -1147,7 +1147,7 @@ def _tone_is_negated(low: str, tone: str) -> bool:
 _RUNTIME_STATUS_RE = re.compile(
     r"\bwhat are you actually running on\b"
     r"|\brunning on right now\b"
-    r"|\b(?:what|which|whats|what's)\s+model\b"
+    r"|\b(?:what|which|whats|what's)(?:\s+\w+){0,4}\s+model\b"
     r"|\bmodel\s+(?:are|is|do|does)\s+(?:you|it)\b"
     r"|\bmodel\s+(?:name|path|file|size|id|weights|quant\w*)\b"
     r"|\b(?:running|loaded|load(?:ing)?|using|swap\w*\s+to)\s+(?:a\s+|the\s+|which\s+|what\s+)?model\b"
@@ -1204,7 +1204,8 @@ def _route_grounded_runtime_intent(
     _has_system_kw = any(k in low for k in _memory_system_keywords)
 
     if _RUNTIME_STATUS_RE.search(raw):
-        return _mk("CHAT", {"message": raw}, 0.99, matched_by="runtime.status.identity_grounded_chat", allow_chat_without_evidence=False)
+        return _mk("RUNTIME_STATUS", {"question": raw}, 0.99,
+                   matched_by="runtime.status.identity_grounded_chat", allow_chat_without_evidence=False)
 
     # identity precedence
     # Pure persona/character questions go to CHAT so ELI answers from its own
@@ -2035,6 +2036,14 @@ def route(text: str, _clause_depth: int = 0) -> Dict[str, Any]:
     if re.search(r"\b(what are you actually running on|running on right now|context size|gpu layers|threads|batch|provider|runtime status)\b", low):
         return _mk("RUNTIME_STATUS", {}, 0.99, matched_by="router.runtime_status", allow_chat_without_evidence=False)
 
+    if re.search(r"\bwhat(?:'s|\s+is)\s+(?:your\s+)?model\b", low):
+        return _mk("RUNTIME_STATUS", {"question": raw}, 0.99,
+                   matched_by="router.runtime_status_model_query", allow_chat_without_evidence=False)
+
+    if re.search(r"\bcheck(?:\s+the|\s+your)?\s+model\b|\blook at (?:the|your) model\b", low):
+        return _mk("RUNTIME_STATUS", {"question": raw}, 0.98,
+                   matched_by="router.runtime_status_model_check", allow_chat_without_evidence=False)
+
     # Self-referential temperature: "what's your temperature", "your temperature out now",
     # "what is your inference temperature", "what temp are you running at" etc.
     # Must fire BEFORE the weather prepass which also matches "temperature".
@@ -2092,9 +2101,9 @@ def route(text: str, _clause_depth: int = 0) -> Dict[str, Any]:
     # its own character and memory, not a raw JSON spec dump.
     if re.search(r"\b(who are you|what are you(?!\s+\w)|what is your name|what's your name|tell me about yourself|what is your purpose)\b", low) and not re.search(r"\b(model|running on|provider|context|gpu|llm|specs?|technical|runtime|layers|threads|batch)\b", low):
         return _mk("CHAT", {"message": raw}, 0.99, matched_by="router.identity_persona_chat", allow_chat_without_evidence=True)
-    # Technical model/runtime queries → SELF_REPORT (actual spec evidence needed)
+    # Technical model/runtime queries → RUNTIME_STATUS (live mounted model evidence).
     if re.search(r"\b(what model(?: are you| do you use| is this)?|which model(?: are you| do you use| is this)?|what llm|which llm|what are you running on|what are you actually)\b", low):
-        return _mk("SELF_REPORT", {}, 0.99, matched_by="router.self_report", allow_chat_without_evidence=False)
+        return _mk("RUNTIME_STATUS", {"question": raw}, 0.99, matched_by="router.runtime_status_model_query", allow_chat_without_evidence=False)
     # --- end explicit grounded speech-act route authority ---
 
     # --- dynamic evidence preempts ---

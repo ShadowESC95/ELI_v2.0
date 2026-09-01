@@ -1,7 +1,7 @@
 """Model identity disputes and compound phatic detection."""
 from __future__ import annotations
 
-from eli.cognition.correction_patterns import is_model_identity_dispute
+from eli.cognition.correction_patterns import is_correction_query, is_model_identity_dispute
 from eli.execution.router_enhanced import route
 from eli.kernel.engine import _is_brief_phatic_prompt as phatic
 from eli.runtime import grounding_escalation as G
@@ -15,6 +15,21 @@ def test_model_dispute_routes_runtime_status():
     r = route("What the fuck, no you are not, you are GLM!!!!!!!!")
     assert r["action"] == "RUNTIME_STATUS"
     assert r["meta"]["matched_by"] == "router.model_identity_dispute"
+
+
+def test_what_is_your_model_routes_runtime_status():
+    r = route("what is your model??")
+    assert r["action"] == "RUNTIME_STATUS"
+    assert "model" in r["meta"]["matched_by"]
+
+
+def test_check_model_again_routes_runtime_status():
+    r = route("no you are not you fucking clown!! check the model again!!!!")
+    assert r["action"] == "RUNTIME_STATUS"
+
+
+def test_why_did_you_lie_is_correction():
+    assert is_correction_query("why did you lie earlier then ?")
 
 
 def test_model_dispute_not_web_factual():

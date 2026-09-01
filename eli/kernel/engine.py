@@ -1181,7 +1181,9 @@ def _phatic_rapport_style_rule() -> str:
         "- CRITICAL: Do NOT assert that the user has a preference, habit, or memory unless it "
         "appears in verified profile or this conversation. Wit and cultural references are fine; "
         "invented user biography is not.\n"
-        "- Humour must not replace warmth; if there is an actual runtime issue, mention it plainly.\n\n"
+        "- Humour must not replace warmth; if there is an actual runtime issue, mention it plainly.\n"
+        "- If you already greeted with the same opener this session (e.g. 'Hey bud'), vary it — "
+        "do not open twice in a row with the identical phrase.\n\n"
     )
 
 
@@ -1193,6 +1195,45 @@ def _phatic_generation_budget() -> int:
         return max(128, min(_n, 384))
     except Exception:
         return 256
+
+
+def _mounted_model_authority_line() -> str:
+    """Authoritative mounted-model line — injected every turn so memory cannot lie."""
+    _mounted = ""
+    try:
+        from eli.runtime.live_introspection import _runtime_core as _rc
+        _core = _rc()
+        _mname = _core.get("model_name") or _core.get("model_path")
+        if _mname and str(_mname) not in ("", "unknown") and _core.get("loaded"):
+            from pathlib import Path as _P_mm
+            _mounted = _P_mm(str(_mname)).name
+    except Exception:
+        log.debug("suppressed exception", exc_info=True)
+    if not _mounted:
+        try:
+            import json as _j_mm
+            from eli.core.paths import artifacts_dir as _art_mm
+            _snap = _art_mm() / "runtime_snapshot.json"
+            if _snap.exists():
+                _s = _j_mm.loads(_snap.read_text(encoding="utf-8"))
+                _mn = (
+                    ((_s.get("effective") or {}).get("model_name") or "")
+                    or _s.get("model_name")
+                    or ""
+                )
+                if _mn:
+                    from pathlib import Path as _P_mm2
+                    _mounted = _P_mm2(str(_mn)).name
+        except Exception:
+            log.debug("suppressed exception", exc_info=True)
+    if not _mounted:
+        return ""
+    return (
+        "[MOUNTED MODEL — authoritative] Currently loaded in this process: "
+        f"'{_mounted}'. When you state which model you run, use ONLY this name. "
+        "Stale memory, prior turns, or family guesses (GLM, Qwen, Ornith, etc.) are "
+        "wrong unless they match this filename exactly."
+    )
 
 
 def _eli_is_fragment_output(text) -> bool:
@@ -6177,7 +6218,12 @@ Answer:"""
             _user_context_rule
             + _phatic_style_rule
             + _opinion_style_rule
-            + "GROUNDING RULE:\n"
+        )
+        _mounted_auth = _mounted_model_authority_line()
+        if _mounted_auth:
+            base_rules += _mounted_auth + "\n\n"
+        base_rules += (
+            "GROUNDING RULE:\n"
             "For factual, diagnostic, runtime, memory, file, or project claims, rely only on provided evidence. "
             "For greetings, casual chat, callbacks, cultural references, jokes, opinion prompts, tone-setting, or social openers, answer naturally as ELI. "
             "For subjective judgement, use persona-bound reasoning and separate facts from opinion. "
@@ -9561,6 +9607,23 @@ Answer:"""
                 "technical work. Do NOT deflect or ask them to clarify — explain what you wrongly implied "
                 "and apologize briefly in ELI's voice."
             )
+        try:
+            from eli.cognition.correction_patterns import is_model_identity_dispute as _mid_corr
+            _model_lie_corr = _mid_corr(user_input or "") or bool(
+                re.search(r"\b(?:why did you lie|you lied|that was a lie|wrong model)\b", _low_corr)
+            )
+        except Exception:
+            _model_lie_corr = bool(re.search(r"\bwhy did you lie\b", _low_corr))
+        if _model_lie_corr:
+            _mm_corr = _mounted_model_authority_line()
+            _corr_system += (
+                " The user is calling out a WRONG model name or a fabricated runtime claim you made. "
+                "Own the mistake plainly: cite ONLY the mounted model evidence below, retract any "
+                "other model name (GLM, Qwen, Ornith, guessed param counts from memory), and do not "
+                "invent backstory about pausing models or watching videos.\n"
+            )
+            if _mm_corr:
+                _corr_system += _mm_corr + "\n"
         if _prior:
             _corr_system = _prior + _corr_system
         _corr_system = _time_line + _corr_system
@@ -11673,7 +11736,10 @@ Answer:"""
             action = "EXPLAIN_LAST_RESPONSE"
             args = {}
 
-        if str(action).upper() == "CHAT" and _matched_by == "runtime.status.grounded_chat":
+        if str(action).upper() == "CHAT" and _matched_by in {
+            "runtime.status.grounded_chat",
+            "runtime.status.identity_grounded_chat",
+        }:
             intent = dict(intent or {})
             intent["action"] = "RUNTIME_STATUS"
             intent["args"] = {}
@@ -14084,11 +14150,17 @@ Answer:"""
             _phatic_stream = _is_brief_phatic_prompt(str(user_input or prompt or "").strip().lower())
         except Exception:
             _phatic_stream = False
+        if _phatic_stream:
+            _rapport_mode = False
 
         # 1. Memory / evidence context. Reuse process()-built context when present.
         # Rapport prompts deliberately skip deep memory/HyDE retrieval: casual banter should not be
         # converted into a corporate status query or safety lecture.
-        if _rapport_mode:
+        if _phatic_stream:
+            memory_context = ""
+            log.debug("[COGNITIVE] Stream: phatic prompt — skipping memory/evidence context")
+            _eli_pipe_stream("context_mode", mode="phatic_skip")
+        elif _rapport_mode:
             # Skip deep memory/HyDE retrieval but inject the user profile so
             # ELI knows who it's talking to and can respond personally rather
             # than with generic chatbot filler.
@@ -14102,10 +14174,6 @@ Answer:"""
                 log.debug("suppressed exception", exc_info=True)
             log.debug("[COGNITIVE] Stream: rapport prompt — lightweight profile context only")
             _eli_pipe_stream("context_mode", mode="rapport_profile_only")
-        elif _phatic_stream:
-            memory_context = ""
-            log.debug("[COGNITIVE] Stream: phatic prompt — skipping memory/evidence context")
-            _eli_pipe_stream("context_mode", mode="phatic_skip")
         elif pre_built_memory_context and not any(p in prompt.lower() for p in (
             # Force a fresh cross-session fetch for memory/recall queries — the
             # prebuilt context was built for the *prior* turn without cross-session
