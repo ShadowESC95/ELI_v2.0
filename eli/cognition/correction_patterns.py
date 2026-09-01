@@ -15,7 +15,8 @@ CORRECTION_QUERY_RE = re.compile(
     r"what do you mean|what wild night|what night|i never|didn't have|"
     r"did not have|that's not true|that is not true|i didn't say|"
     r"i did not say|where did you get|why do you say|never said|"
-    r"never told you|didn't mention|did not mention"
+    r"never told you|didn't mention|did not mention|"
+    r"why did you lie|you lied|that was a lie|why did you say"
     r")\b",
     re.IGNORECASE,
 )
@@ -41,7 +42,9 @@ META_CAPABILITY_COMPLAINT_RE = re.compile(
 MODEL_IDENTITY_DISPUTE_RE = re.compile(
     r"\b(?:no you are not|you are not|you're not|not what i said)\b"
     r"|\byou(?:'re| are)\s+(?:glm|qwen|ornith|llama|mistral|claude)\b"
-    r"|\b(?:wrong model|not ornith|not glm|not qwen)\b",
+    r"|\b(?:wrong model|not ornith|not glm|not qwen)\b"
+    r"|\bcheck(?:\s+the|\s+your)?\s+model\s+again\b"
+    r"|\blook at (?:the|your) model\b",
     re.I,
 )
 
