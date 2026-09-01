@@ -1034,6 +1034,12 @@ def _is_brief_phatic_prompt(text: str) -> bool:
     if normalized in phrases:
         return True
 
+    # Compound phatic: "what's the story? you good?" — Irish greeting + check-in.
+    if re.search(r"\b(?:whats|what'?s|what is) the story\b", normalized) and re.search(
+        r"\b(?:you good|you ok|you okay|you alright|you better|you sorted)\b", normalized
+    ):
+        return True
+
     # Short (≤5 word) casual check-in patterns
     # "how's the X" is a wellbeing idiom — EXCEPT when X is something ELI actually
     # runs on. "how's the head" is a hello; "how's the GPU" is a real question that
@@ -6043,14 +6049,22 @@ Answer:"""
         except Exception:
             log.debug("suppressed exception", exc_info=True)
 
-        # Grounded runtime identity. When the user asks what/which model you're
-        # running (or "are you running a 7b/70b"), answer from the LIVE loaded
-        # model — do NOT philosophise from the abstract "model-agnostic" trait.
-        # That trait produced ELI flatly denying it runs a model and treating
-        # "are you on a 7B?" as a hypothetical, while Qwen2.5-7B was loaded in
-        # this very process. Model-agnostic means the inference path hardcodes no
-        # model; a concrete model is ALWAYS mounted and ELI must report it.
+        # Grounded runtime identity. ALWAYS inject the mounted model name so stale
+        # memory cannot cite a prior session's model (live: GLM loaded, memory said Ornith).
         try:
+            from eli.runtime.live_introspection import _runtime_core as _rc_id
+            _core_id = _rc_id()
+            _mname_id = _core_id.get("model_name") or _core_id.get("model_path")
+            if _mname_id and str(_mname_id) not in ("", "unknown") and _core_id.get("loaded"):
+                from pathlib import Path as _P_id
+                _mounted = _P_id(str(_mname_id)).name
+                _rt_line = (
+                    "[MOUNTED MODEL — authoritative] Currently loaded in this process: "
+                    f"'{_mounted}'. When you state which model you run, use ONLY this name. "
+                    "Stale memory or prior turns naming a different model are wrong — trust "
+                    "this block over retrieved memory."
+                )
+                situation_brief = (_rt_line + "\n\n" + (situation_brief or "")).strip()
             _ui_low = str(user_input or "").lower()
             if re.search(
                 r"\b(?:what|which|your)\b[^.?!]{0,40}\bmodel\b"
@@ -6058,15 +6072,11 @@ Answer:"""
                 r"|\b\d{1,3}\s*\+?\s*b\b|\bbillion\b|\bparameters?\b|\bmodel.?agnostic\b",
                 _ui_low,
             ):
-                from eli.runtime.live_introspection import _runtime_core as _rc_id
-                _core_id = _rc_id()
-                _mname_id = _core_id.get("model_name") or _core_id.get("model_path")
                 if _mname_id and str(_mname_id) not in ("", "unknown") and _core_id.get("loaded"):
-                    from pathlib import Path as _P_id
                     _rt_line = (
                         "LIVE RUNTIME FACT (authoritative — if asked about your model, "
                         f"state this plainly): the model currently loaded in this process is "
-                        f"'{_P_id(str(_mname_id)).name}'. You are model-agnostic — the inference "
+                        f"'{_mounted}'. You are model-agnostic — the inference "
                         "path hardcodes no model and you can run anything from small to 70B+ — but a "
                         "concrete model is ALWAYS mounted, and right now it is the one named above. "
                         "Do NOT deny running a model or treat it as hypothetical; report it, then "
@@ -6119,7 +6129,14 @@ Answer:"""
                     "whats up buddy", "what's up buddy", "whats up bud", "what's up bud",
                     "how are you", "how is the head", "hows the head", "how's the head",
                     "we back", "are we back", "back to normal", "back to our normal self yet",
+                    "whats the story", "what's the story", "what is the story",
                 }
+                or (
+                    re.search(r"\b(?:whats|what'?s|what is) the story\b", _phatic_norm)
+                    and re.search(
+                        r"\b(?:you good|you ok|you okay|you alright|you better)\b", _phatic_norm
+                    )
+                )
                 or (
                     len(_phatic_norm.split()) <= 14
                     and any(x in _phatic_norm for x in (

@@ -37,6 +37,14 @@ META_CAPABILITY_COMPLAINT_RE = re.compile(
     re.I,
 )
 
+# User correcting ELI's claimed model identity ("you are GLM", "no you are not Ornith").
+MODEL_IDENTITY_DISPUTE_RE = re.compile(
+    r"\b(?:no you are not|you are not|you're not|not what i said)\b"
+    r"|\byou(?:'re| are)\s+(?:glm|qwen|ornith|llama|mistral|claude)\b"
+    r"|\b(?:wrong model|not ornith|not glm|not qwen)\b",
+    re.I,
+)
+
 BIOGRAPHICAL_DISPUTE_RE = re.compile(
     r"\b("
     r"what do you mean|what wild night|what night|i never|didn't have|"
@@ -55,11 +63,17 @@ def is_correction_query(text: str) -> bool:
         return True
     if META_CAPABILITY_COMPLAINT_RE.search(s):
         return True
+    if MODEL_IDENTITY_DISPUTE_RE.search(s):
+        return True
     if TEMPORAL_CORRECTION_RE.search(s) and re.search(
         r"\b(?:you|eli|wrong|not|can(?:'t| not)|cannot)\b", s, re.I
     ):
         return True
     return False
+
+
+def is_model_identity_dispute(text: str) -> bool:
+    return bool(MODEL_IDENTITY_DISPUTE_RE.search(str(text or "")))
 
 
 def is_biographical_dispute(text: str) -> bool:

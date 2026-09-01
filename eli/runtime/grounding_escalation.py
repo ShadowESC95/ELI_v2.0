@@ -293,6 +293,13 @@ def classify_factual(text: str) -> Tuple[bool, str]:
             or _CONV_META_RE.search(low_clean) or _dispute_turn):
         return (False, "none")
 
+    # "what ... you are GLM" is a model-identity dispute, not a web fact query.
+    if re.search(
+        r"\b(?:you(?:'re| are)|you are not|you're not)\b.{0,50}\b(?:glm|qwen|ornith|llama|mistral|model)\b",
+        low_clean, re.I,
+    ):
+        return (False, "none")
+
     is_fact = bool(
         _FACT_Q_RE.search(low_clean) or _FACT_KW_RE.search(low_clean)
         or _FACT_CLAIM_RE.search(raw)
