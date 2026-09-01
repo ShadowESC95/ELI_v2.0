@@ -642,7 +642,7 @@ class AgentOrchestrator:
             try:
                 self.engine._turn_resolved_intent = None
             except Exception:
-                pass
+                log.debug("suppressed exception", exc_info=True)
             log.debug(f"[ORCHESTRATOR] Stage 1: reusing engine-resolved intent → {intent.get('action')}")
         else:
             intent = self.engine.parse_intent(user_input, stm.recent_turns)
