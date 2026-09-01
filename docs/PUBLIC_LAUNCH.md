@@ -43,7 +43,7 @@ chmod +x ELI_Setup.sh && ./ELI_Setup.sh
 
 ## Hacker News / Reddit one-liner
 
-> **ELI v2.3.73.** Local-first AI assistant (~166k LOC, 226 capabilities, GGUF, PySide6 GUI, offline-by-default). Grounded news deepens, honest model identity, phatic fast path. https://github.com/ShadowESC95/ELI_v2.0/releases/tag/v2.3.73
+> **ELI v2.3.73.** Local-first AI assistant (~166k LOC, 227 capabilities, GGUF, PySide6 GUI, offline-by-default). Thread-aware web grounding, honest model identity, phatic fast path. https://github.com/ShadowESC95/ELI_v2.0/releases/tag/v2.3.73
 
 ## What to say it is
 

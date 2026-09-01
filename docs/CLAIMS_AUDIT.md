@@ -30,7 +30,7 @@ Re-run the checks with `.venv/bin/python -m pytest tests/claims/ -q`.
 | Drop-in plugin architecture with auto-discovery | `eli/plugins/base/base.py:20` — subclass `Plugin`, implement actions, `execute()`; `load_plugins()` discovers the package |
 | Self-healing rollback after a bad self-applied patch | `eli/runtime/self_improvement.py:1019 revert_patch()`, `:979 _rollback_all()` (atomic across files) |
 | Cross-platform mic auto-resolve (USB/Bluetooth/headset before built-in; live probe; Linux `PULSE_SOURCE` pin) | `eli/perception/mic_resolver.py`, `audio_stt.py`; `python -m eli.tools.mic_diag` |
-| 226 capabilities | `capability_manifest.json` (`total`), enforced by `tests/claims/test_capability_manifest.py` |
+| 227 capabilities | `capability_manifest.json` (`total`), enforced by `tests/claims/test_capability_manifest.py` |
 | 11,358 tests collected across 413 files | Verified at v2.3.73: 11,358 collected / 11,300+ passing, 413 files. Stated as a floor, so ordinary growth keeps it true. |
 | Reads txt, md, PDF, docx, **odt, epub** | `eli/plugins/document_reader/plugin.py`. `.odt`/`.epub` were advertised but not dispatched until this audit — see below. |
 
