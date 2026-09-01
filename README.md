@@ -27,10 +27,9 @@ like and it tunes itself to the hardware you've got, from a laptop to a multi-GP
 <img src=".github/screenshots/gui-onboarding.png" alt="ELI desktop app — first-run onboarding conversation with a local 35B model" width="880">
 </div>
 
-> **v2.3.73 — thread-aware grounding and honest web follow-through.** Conversation threads
-> carry topic into web queries (“season 3 reviews” → Dead City, not random hits); proactive
-> web on corrections and grounding demands; orchestrator reuses engine-resolved intent (no
-> double routing); shared factual gates across escalation paths.
+> **v2.3.75 — anti-repeat on every streaming path.** Orchestrator CHAT now gets the same
+> repeat contract, enforcement, and memory redaction as the phatic path — no more echoing
+> yesterday's "patched and grounded" opener when you ask about Dead City.
 > Grab it from **[Releases](https://github.com/ShadowESC95/ELI_v2.0/releases/latest)**.
 >
 > **v2 is live software, not a polished product drop.** ELI touches real hardware, and

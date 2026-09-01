@@ -10514,6 +10514,126 @@ Answer:"""
         return response.strip()
 
 
+    def _inject_anti_repeat_contract(self, user_input: str, situation_brief: str) -> str:
+        """Prepend the anti-repeat contract to a persona handoff when ELI has spoken."""
+        brief = str(situation_brief or "").strip()
+        if _ANTI_REPEAT_BLOCK_RE.search(brief):
+            return brief
+        try:
+            if _is_greeting_turn(user_input):
+                log.debug("[ANTI-REPEAT] greeting — contract not injected")
+                return brief
+            _prev_eli = []
+            for _t in (self.memory.get_recent_conversation(limit=8) or []):
+                if str((_t or {}).get("role", "")).lower() in ("assistant", "eli"):
+                    _c = str((_t or {}).get("content", "") or "").strip()
+                    if _c:
+                        _prev_eli.append(_c)
+            if not _prev_eli:
+                return brief
+            _quoted = "\n".join(f"  - {s[:220]}" for s in _prev_eli[:3])
+            _no_repeat = (
+                "YOU HAVE ALREADY SAID THE FOLLOWING — do not repeat any of it, and do "
+                "not re-ask a question the user has already answered:\n" + _quoted +
+                "\nReply to what the user just said. If you have already described your "
+                "own state or mood, do not describe it again unless asked."
+            )
+            log.debug(f"[ANTI-REPEAT] contract injected ({len(_prev_eli[:3])} prior replies)")
+            return (_no_repeat + "\n\n" + brief).strip()
+        except Exception:
+            log.debug("[ANTI-REPEAT] contract skipped", exc_info=True)
+            return brief
+
+    def _redact_recent_eli_from_context(self, memory_context: str) -> str:
+        """Strip ELI's own recent replies from retrieved memory before generation."""
+        ctx = str(memory_context or "")
+        if not ctx:
+            return ctx
+        try:
+            _prev_eli = []
+            for _t in (self.memory.get_recent_conversation(limit=8) or []):
+                if str((_t or {}).get("role", "")).lower() in ("assistant", "eli"):
+                    _c = str((_t or {}).get("content", "") or "").strip()
+                    if _c:
+                        _prev_eli.append(_c)
+            if _prev_eli:
+                return _redact_prior_replies(ctx, _prev_eli)
+        except Exception:
+            log.debug("[ANTI-REPEAT] memory redact skipped", exc_info=True)
+        return ctx
+
+    def _yield_with_anti_repeat_guard(
+        self,
+        prompt: str,
+        stream_factory,
+        *,
+        memory_context: str = "",
+        situation_brief: str = "",
+        reasoning_mode: Optional[str] = None,
+        working_memory: Any = None,
+        bus_result: Any = None,
+        recent_turns: Optional[Any] = None,
+    ):
+        """Wrap a live token stream with anti-repeat enforcement and one retry."""
+        from types import SimpleNamespace
+
+        _recent_eli: List[str] = []
+        _recent_user: List[str] = []
+        try:
+            for _t in (self.memory.get_recent_conversation(limit=16) or []):
+                _role = str((_t or {}).get("role", "")).lower()
+                _c = str((_t or {}).get("content", "") or "").strip()
+                if not _c:
+                    continue
+                if _role == "user":
+                    _recent_user.append(_c)
+                elif _role in ("assistant", "eli"):
+                    _recent_eli.append(_c)
+        except Exception:
+            log.debug("[ANTI-REPEAT] recent-reply fetch failed", exc_info=True)
+        _echo_sources = [prompt] + _recent_user
+
+        if _user_asked_for_a_repeat(prompt):
+            log.debug("[ANTI-REPEAT] user asked for a repeat — guard stood down")
+            yield from stream_factory(situation_brief, memory_context, None)
+            return
+
+        try:
+            yield from _stream_holding_back_repeats(
+                stream_factory(situation_brief, memory_context, None),
+                _recent_eli,
+                allow_retry=True,
+                echo_sources=_echo_sources,
+            )
+            return
+        except _RepeatDetected:
+            log.debug("[ANTI-REPEAT] opening matched a recent reply — regenerating")
+
+        _retry_brief = _redact_prior_replies(
+            _deprimed_persona_brief(situation_brief), _recent_eli)
+        _retry_context = _redact_prior_replies(memory_context, _recent_eli)
+        _retry_gen = None
+        try:
+            _base_temp = float(self._generation_settings().get("temperature", 0.7) or 0.7)
+            _retry_gen = {"temperature": round(min(1.2, _base_temp + _REPEAT_RETRY_TEMP_BUMP), 3)}
+        except Exception:
+            log.debug("[ANTI-REPEAT] retry temperature bump skipped", exc_info=True)
+        log.debug(
+            "[ANTI-REPEAT] retry generation issued (persona handoff "
+            "de-primed: %d -> %d chars, context %d -> %d chars, temp=%s)",
+            len(situation_brief), len(_retry_brief),
+            len(memory_context or ""), len(_retry_context or ""),
+            (_retry_gen or {}).get("temperature", "unchanged"),
+        )
+        yield from _stream_holding_back_repeats(
+            stream_factory(_retry_brief, _retry_context, _retry_gen),
+            _recent_eli,
+            allow_retry=False,
+            salvage=True,
+            echo_sources=_echo_sources,
+        )
+
+
     def generate_stream_from_assembled_prompt(self, prompt: str,
                                               working_memory=None,
                                               reasoning_mode: Optional[str] = None,
@@ -10635,23 +10755,21 @@ Answer:"""
                 log.debug(f"[COGNITIVE] generate_stream_from_assembled_prompt handoff failed: {e}")
                 situation_brief = ""
 
-        def _live_stream() -> Generator[str, None, None]:
-            """
-            True GUI streaming path.
+        situation_brief = self._inject_anti_repeat_contract(prompt, situation_brief)
+        memory_context = self._redact_recent_eli_from_context(memory_context)
+        try:
+            if working_memory is not None:
+                working_memory.persona_handoff = situation_brief
+                working_memory.assembled_context = memory_context
+        except Exception:
+            log.debug("suppressed exception", exc_info=True)
 
-            Important:
-            - Yield model chunks as they arrive.
-            - Do not wait for full completion before yielding.
-            - Do only tiny prefix cleanup at stream start.
-            - Full final governance/storage happens outside this generator.
-            """
+        def _live_stream_factory(brief: str, ctx: str, overrides: Optional[Dict[str, Any]] = None):
+            """True GUI streaming path with optional brief/context overrides for retry."""
             import re as _re
 
             raw_parts: List[str] = []
             yielded_any = False
-
-            # Small start buffer prevents leaking "ELI:" / "Assistant:" prefixes
-            # without destroying real streaming.
             start_buffer = ""
             prefix_resolved = False
 
@@ -10677,12 +10795,16 @@ Answer:"""
                 )
                 return stripped in prefixes and len(low) < 24
 
+            _merged_overrides = dict(gen_overrides or {})
+            if overrides:
+                _merged_overrides.update({k: v for k, v in dict(overrides).items() if v is not None})
+
             for chunk in self._stream_model_response(
                 prompt,
-                memory_context,
+                ctx,
                 reasoning_mode=reasoning_mode,
-                gen_overrides=gen_overrides,
-                situation_brief=situation_brief,
+                gen_overrides=_merged_overrides or None,
+                situation_brief=brief,
             ):
                 piece = str(chunk or "")
                 if not piece:
@@ -10693,7 +10815,6 @@ Answer:"""
                 if not prefix_resolved:
                     start_buffer += piece
 
-                    # Hold only while the model is clearly spelling a role prefix.
                     if _still_possible_role_prefix(start_buffer):
                         continue
 
@@ -10707,28 +10828,33 @@ Answer:"""
                 yielded_any = True
                 yield piece
 
-            # If the model only emitted a tiny prefix buffer, flush a cleaned version.
             if not prefix_resolved and start_buffer:
                 cleaned = _clean_start(start_buffer)
                 if cleaned:
                     yielded_any = True
                     yield cleaned
 
-            # Emergency fallback only. Normal path should already have yielded live.
             if not yielded_any:
                 final_text = self._govern_visible_response(
                     prompt,
                     "".join(raw_parts),
-                    memory_context=memory_context or situation_brief,
-                    is_grounded=bool(memory_context or situation_brief),
+                    memory_context=ctx or brief,
+                    is_grounded=bool(ctx or brief),
                 )
                 if final_text:
                     for token in self._yield_text_chunks(final_text, chunk_size=12):
                         yield token
 
-        # Streaming generator handoff must yield sub-generator tokens live.
-        # Returning the generator object here can collapse visible streaming.
-        yield from _live_stream()
+        yield from self._yield_with_anti_repeat_guard(
+            prompt,
+            _live_stream_factory,
+            memory_context=memory_context,
+            situation_brief=situation_brief,
+            reasoning_mode=reasoning_mode,
+            working_memory=working_memory,
+            bus_result=_bus_result,
+            recent_turns=recent_turns,
+        )
         return
 
     def process(self, user_input: str, source: str = "user", stream: bool = False,
@@ -14342,45 +14468,7 @@ Answer:"""
             else:
                 situation_brief = semantic_guard
 
-        # ── Anti-repeat contract (streaming) ──
-        # ELI kept re-serving its own last reply verbatim across turns — three different
-        # phrasings, still re-asking "How are you?" after the user answered and told it to
-        # stop. Earlier attempts failed because they sat on paths this one never uses: an
-        # output guard in _finalize_chat_result (streaming never reaches it) and a block in
-        # the memory-context builder (turn 1 discarded it — memory_chars=0 — and turn 2
-        # skipped the builder entirely, "reusing pre-built bus memory context"). This spot
-        # is the one that provably reaches the model: situation_brief IS the prompt
-        # (stage_11_enter logs ctx_chars=len(situation_brief)), and it is where the
-        # rapport/semantic guards are already injected. A constraint, not a scripted line.
-        try:
-            _prev_eli = []
-            # Skipped on a greeting for the same reason the enforcement guard is
-            # (see _is_greeting_turn): telling the model "do not repeat any of
-            # this" while it is deciding how to say hello is the pressure that
-            # pushed a correct "Evening" into the user's misspelled "Aftrnoon".
-            # Disarming only the checker while leaving the instruction in place
-            # would have fixed half the problem.
-            _greeting_turn = _is_greeting_turn(user_input)
-            if _greeting_turn:
-                log.debug("[ANTI-REPEAT] greeting — contract not injected")
-            else:
-                for _t in (self.memory.get_recent_conversation(limit=8) or []):
-                    if str((_t or {}).get("role", "")).lower() in ("assistant", "eli"):
-                        _c = str((_t or {}).get("content", "") or "").strip()
-                        if _c:
-                            _prev_eli.append(_c)
-            if _prev_eli:
-                _quoted = "\n".join(f"  - {s[:220]}" for s in _prev_eli[:3])
-                _no_repeat = (
-                    "YOU HAVE ALREADY SAID THE FOLLOWING — do not repeat any of it, and do "
-                    "not re-ask a question the user has already answered:\n" + _quoted +
-                    "\nReply to what the user just said. If you have already described your "
-                    "own state or mood, do not describe it again unless asked."
-                )
-                situation_brief = (_no_repeat + "\n\n" + situation_brief).strip()
-                log.debug(f"[ANTI-REPEAT] contract injected ({len(_prev_eli[:3])} prior replies)")
-        except Exception:
-            log.debug("[ANTI-REPEAT] contract skipped", exc_info=True)
+        situation_brief = self._inject_anti_repeat_contract(user_input, situation_brief)
 
         # Do not promote raw memory_context into situation_brief.
         # Raw context is private evidence, not answer text.
@@ -14425,145 +14513,14 @@ Answer:"""
                 memory_chars=len(pre_built_memory_context or str()),
                 bus_result=bool(pre_built_bus_result),
             )
-            stream = self.generate_stream_from_assembled_prompt(
+            for piece in self.generate_stream_from_assembled_prompt(
                 prompt,
                 working_memory=wm,
                 reasoning_mode=reasoning_mode,
-            )
-
-            # ── Anti-repeat ENFORCEMENT (see _is_repeat_of_recent) ────────────
-            # The contract injected into situation_brief above only *asks*. This
-            # checks. It has to act on the opening rather than the finished reply:
-            # once a chunk is yielded it is on the user's screen, so a check that
-            # waits for the full text can only report a repeat, never prevent one.
-            # So the first _REPEAT_HEAD_CHARS are buffered, tested against recent
-            # replies, and released untouched in the common case. Cost is a short
-            # delay before first paint on a generation that already takes seconds;
-            # the benefit is that a verbatim re-serve never reaches the user.
-            _recent_eli = []
-            # Recent USER turns, as anti-echo sources. The guard originally
-            # compared only against the CURRENT message, which was not enough:
-            # at 2.1.97 ELI opened a turn with
-            #   "Still on loop, seson 3 now. How is your memory after all the
-            #    codebse changes?"
-            # — a user message from a session three hours earlier, replayed
-            # verbatim down to both typos, in reply to "just checking in on you".
-            # Past user turns reach the model through recalled memory, so they
-            # have to be in the guard's corpus too, not just the live input.
-            _recent_user: list = []
-            try:
-                for _t in (self.memory.get_recent_conversation(limit=16) or []):
-                    if str((_t or {}).get("role", "")).lower() == "user":
-                        _c = str((_t or {}).get("content", "") or "").strip()
-                        if _c:
-                            _recent_user.append(_c)
-            except Exception:
-                log.debug("[ANTI-ECHO] recent-user fetch failed", exc_info=True)
-            _echo_sources = [user_input] + _recent_user
-
-            if _user_asked_for_a_repeat(user_input):
-                log.debug("[ANTI-REPEAT] user asked for a repeat — guard stood down")
-            else:
-                # A greeting turn used to disarm this guard completely, on the
-                # reasoning that "a time-of-day greeting is meant to recur". It
-                # disarmed it for the WHOLE reply, so a 120-character paragraph
-                # could be served back verbatim — live at 2.3.5, "HELLO ELI" was
-                # classed a greeting and ELI answered with a near-copy of its
-                # previous reply, twice, and the user asked what it was talking
-                # about.
-                #
-                # The exemption is unnecessary: _is_repeat_of_recent already
-                # returns False for anything under 40 normalised characters, so a
-                # real greeting ("Morning, Jason.") still recurs freely while a
-                # recycled paragraph does not.
-                #
-                # Note the pairing with the anti-repeat CONTRACT above, which is
-                # still skipped on greetings: injecting "do not repeat any of
-                # this" while the model decides how to say hello is what pushed a
-                # correct "Evening" into the user's misspelled "Aftrnoon". So the
-                # instruction stays off and the check comes back on — which is the
-                # project's rule anyway: guards verify, they do not instruct.
-                try:
-                    for _t in (self.memory.get_recent_conversation(limit=8) or []):
-                        if str((_t or {}).get("role", "")).lower() in ("assistant", "eli"):
-                            _c = str((_t or {}).get("content", "") or "").strip()
-                            if _c:
-                                _recent_eli.append(_c)
-                except Exception:
-                    log.debug("[ANTI-REPEAT] recent-reply fetch failed", exc_info=True)
-
-            try:
-                for piece in _stream_holding_back_repeats(
-                        stream, _recent_eli, allow_retry=True,
-                        echo_sources=_echo_sources):
-                    full_tokens.append(piece)
-                    yielded = True
-                    yield piece
-            except _RepeatDetected:
-                log.debug("[ANTI-REPEAT] opening matched a recent reply — regenerating")
-                # Regenerate ONCE, with the constraint restated as a hard rule rather
-                # than a preamble the model can drift past. A second repeat is served
-                # as-is: an honest duplicate beats an empty turn or an infinite retry.
-                full_tokens.clear()
-                # De-prime the PERSONA HANDOFF, which is where the contract lives.
-                # `prompt` is the user's message and must reach the model unaltered.
-                #
-                # Stripping the contract is necessary but was not sufficient: the
-                # same reply also reaches the model through the assembled memory
-                # context and the handoff's evidence block, so attempt 2 was still
-                # reading its own last paragraph and duly re-emitted it (observed
-                # at 2.1.80 — both attempts opened "You're not wrong — I'm a bit of
-                # a hot mess"). Redact it from every block that feeds the retry.
-                _retry_brief = _redact_prior_replies(
-                    _deprimed_persona_brief(situation_brief), _recent_eli)
-                _retry_context = _redact_prior_replies(memory_context, _recent_eli)
-                _retry_wm = SimpleNamespace(
-                    user_input=user_input,
-                    assembled_context=_retry_context,
-                    persona_handoff=_retry_brief,
-                    final_response="",
-                    trace={},
-                    bus_result=pre_built_bus_result,
-                    short_term_memory=SimpleNamespace(recent_turns=_wm_recent_turns),
-                )
-                # Same prompt at the same temperature is the same reply. A retry
-                # that changes only the prompt's framing leaves the sampler free to
-                # walk the identical path, which is exactly what it did; widen it.
-                _retry_gen = None
-                try:
-                    _base_temp = float(self._generation_settings().get("temperature", 0.7) or 0.7)
-                    _retry_gen = {"temperature": round(min(1.2, _base_temp + _REPEAT_RETRY_TEMP_BUMP), 3)}
-                except Exception:
-                    log.debug("[ANTI-REPEAT] retry temperature bump skipped", exc_info=True)
-                log.debug("[ANTI-REPEAT] retry generation issued (persona handoff "
-                          "de-primed: %d -> %d chars, context %d -> %d chars, temp=%s)",
-                          len(situation_brief), len(_retry_brief),
-                          len(memory_context or ""), len(_retry_context or ""),
-                          (_retry_gen or {}).get("temperature", "unchanged"))
-                _retry = self.generate_stream_from_assembled_prompt(
-                    prompt,
-                    working_memory=_retry_wm,
-                    reasoning_mode=reasoning_mode,
-                    gen_overrides=_retry_gen,
-                )
-                # The de-primed prompt is materially different from the first, so a
-                # second attempt is worth one more generation. Live evidence: attempt
-                # 2 reproduced the opening verbatim when it was still primed. Beyond
-                # this, serve it — an honest duplicate beats silence or a loop.
-                # allow_retry=False: this IS the second chance. Passing True here
-                # made a repeated retry raise again and trigger a THIRD generation —
-                # observed live at 20.1s for one reply (8.4s + 7.9s + 2.9s), with the
-                # log claiming "serving it" while it silently regenerated instead.
-                # Two generations is the cap. salvage=True so that a cap is not a
-                # surrender: if attempt 2 opens with the same recycled sentences and
-                # then goes on to answer, the recycled part is dropped and the answer
-                # is served.
-                for piece in _stream_holding_back_repeats(
-                        _retry, _recent_eli, allow_retry=False, salvage=True,
-                        echo_sources=_echo_sources):
-                    full_tokens.append(piece)
-                    yielded = True
-                    yield piece
+            ):
+                full_tokens.append(piece)
+                yielded = True
+                yield piece
 
             if yielded:
                 final_text = self._govern_visible_response(

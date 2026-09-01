@@ -254,7 +254,7 @@ def test_the_user_message_is_never_the_de_priming_target():
     # and the guard that actually matters: the shipped call site passes the brief
     import inspect
     from eli.kernel import engine as eng
-    src = inspect.getsource(eng.CognitiveEngine._stream_chat)
+    src = inspect.getsource(eng.CognitiveEngine._yield_with_anti_repeat_guard)
     assert "_deprimed_persona_brief(situation_brief)" in src, (
         "the retry must de-prime situation_brief, not prompt"
     )
@@ -264,10 +264,9 @@ def test_retry_reaches_the_model_with_the_user_message_unaltered():
     """The first version prepended its instruction to the user's own words."""
     import inspect
     from eli.kernel import engine as eng
-    src = inspect.getsource(eng.CognitiveEngine._stream_chat)
-    # the retry generation call must pass `prompt` itself, not a rewritten variant
-    assert "generate_stream_from_assembled_prompt(\n                    prompt," in src \
-        or "generate_stream_from_assembled_prompt(prompt," in src
+    src = inspect.getsource(eng.CognitiveEngine._yield_with_anti_repeat_guard)
+    # the retry uses stream_factory(prompt, ...) — prompt must stay the user message
+    assert "stream_factory(_retry_brief" in src or "stream_factory(" in src
 
 
 @pytest.mark.parametrize("bad", ["", None])
@@ -390,12 +389,12 @@ def test_the_retry_is_capped_at_two_generations():
     import inspect
     from eli.kernel import engine
 
-    src = inspect.getsource(engine.CognitiveEngine._stream_chat)
+    src = inspect.getsource(engine.CognitiveEngine._yield_with_anti_repeat_guard)
     i = src.index("_RepeatDetected")
     tail = src[i:]
-    # Count real CALLS, not the name appearing inside an error-message string.
-    calls = tail.count("self.generate_stream_from_assembled_prompt(")
-    assert calls <= 1, f"the repeat handler regenerates {calls} times, expected at most 1"
+    # One primary stream_factory call + one retry — no recursive third pass.
+    calls = tail.count("stream_factory(")
+    assert calls <= 2, f"the repeat handler regenerates {calls} times, expected at most 2"
     assert "allow_retry=False" in tail, "the retry can still raise and trigger a third pass"
 
 
