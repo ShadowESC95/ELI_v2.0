@@ -36,6 +36,7 @@ def _eli_phase10_is_codebase_audit_request(text: str) -> bool:
     audit_words = (
         "audit", "inspect", "scan", "check", "verify", "examine",
         "what is wrong", "what's wrong", "broken", "missing",
+        "how is", "how's", "how are", "status", "health", "state",
     )
     code_words = (
         "router", "executor", "engine", "agent_bus", "world_model",
@@ -47,7 +48,7 @@ def _eli_phase10_is_codebase_audit_request(text: str) -> bool:
         "memory_adapter", "memory_truth", "memory_service", "sqlite_memory",
         "os_controller", "screen_locator", "log_rotation", "/runtime",
         "python files", ".py", "eli_pro_audio_gui", "router_enhanced",
-        "executor_enhanced",
+        "executor_enhanced", "codebase", "code base", "repo", "repository",
     )
 
     return any(a in s for a in audit_words) and any(c in s for c in code_words)
@@ -2004,13 +2005,31 @@ def route(text: str, _clause_depth: int = 0) -> Dict[str, Any]:
         from eli.cognition.correction_patterns import (
             is_correction_query as _is_corr_q,
             is_model_identity_dispute as _is_model_dispute,
+            is_runtime_recheck_correction as _is_runtime_recheck,
+            is_codebase_health_query as _is_codebase_health,
         )
     except Exception:
         _is_corr_q = lambda t: False  # noqa: E731
         _is_model_dispute = lambda t: False  # noqa: E731
+        _is_runtime_recheck = lambda t: False  # noqa: E731
+        _is_codebase_health = lambda t: False  # noqa: E731
     if _is_model_dispute(low):
         return _mk("RUNTIME_STATUS", {}, 0.98, matched_by="router.model_identity_dispute",
                    allow_chat_without_evidence=False)
+    if _is_runtime_recheck(low):
+        return _mk("RUNTIME_STATUS", {"question": raw}, 0.96,
+                   matched_by="router.runtime_recheck_correction",
+                   allow_chat_without_evidence=False)
+    if _is_codebase_health(low):
+        return _mk(
+            "RUNTIME_AUDIT",
+            {"query": raw, "audit_depth": "codebase"},
+            0.98,
+            matched_by="router.codebase_health",
+            allow_chat_without_evidence=False,
+            need_grounding=True,
+            task_family="grounded_audit",
+        )
     if _is_corr_q(low):
         return _mk("CHAT", {"message": raw}, 0.92, matched_by="router.correction_chat", allow_chat_without_evidence=True)
 
