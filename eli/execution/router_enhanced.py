@@ -1219,7 +1219,13 @@ def _route_grounded_runtime_intent(
         return _mk("CHAT", {"message": raw}, 0.96,
                    matched_by="identity.relational_both", allow_chat_without_evidence=True)
 
-    if re.search(r"\b(who are you|what are you(?!\s+\w)|what is your name|what's your name|tell me about yourself)\b", raw, re.I):
+    if re.search(
+        r"\b(?:who are you|what are you(?!\s+\w)|what is your name|what's your name|"
+        r"tell me about yourself|what do you know about yourself|"
+        r"what do you know of yourself|what else can you tell me about yourself|"
+        r"describe yourself)\b",
+        raw, re.I
+    ):
         return _mk("CHAT", {"message": raw}, 0.99, matched_by="identity.persona_chat", allow_chat_without_evidence=True)
 
     if re.search(
@@ -6908,6 +6914,10 @@ def _eli_phase38_followup_passthrough_contract(raw):
         "go",
         "proceed",
         "keep going",
+        "be more in depth",
+        "more in depth",
+        "go deeper",
+        "be more detailed",
     }:
         return _mk(
             "CHAT",
@@ -6915,6 +6925,20 @@ def _eli_phase38_followup_passthrough_contract(raw):
             0.90,
             matched_by="eli.followup.short_contextual",
             allow_chat_without_evidence=False,
+        )
+
+    if _re.search(
+        r"\b(?:be (?:more )?(?:in depth|detailed|specific)|"
+        r"(?:go |be )?(?:more )?(?:in depth|deeper)|"
+        r"what else(?:\s+can you tell me)?)\b",
+        low,
+    ) and not _re.search(r"\b(?:reasoning modes?|all modes|every mode)\b", low):
+        return _mk(
+            "CHAT",
+            {"message": str(raw or "")},
+            0.92,
+            matched_by="eli.followup.identity_depth",
+            allow_chat_without_evidence=True,
         )
 
     return None
@@ -6947,7 +6971,10 @@ def _eli_phase38_identity_contract(raw):
         )
 
     if _re.search(
-        r"\b(who are you|what are you(?!\s+\w)|what is your name|what's your name|tell me about yourself)\b",
+        r"\b(?:who are you|what are you(?!\s+\w)|what is your name|what's your name|"
+        r"tell me about yourself|what do you know about yourself|"
+        r"what do you know of yourself|what else can you tell me about yourself|"
+        r"describe yourself)\b",
         low,
     ):
         # Persona/identity questions answered from ELI's character + memory.

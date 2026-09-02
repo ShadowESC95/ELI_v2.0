@@ -61,13 +61,16 @@ def test_conversational_turns_stay_in_chat(said):
     "describe your persona",
     "explain your persona",
     "tell me about your identity",
-    "tell me about yourself",
     "who are you",
     "how has your persona evolved",
 ])
 def test_real_identity_requests_still_reach_self_report(asked):
     """The contract exists for a reason — narrowing it must not disarm it."""
     assert route_control_text(asked, "CHAT") == "SELF_REPORT", asked
+
+
+def test_tell_me_about_yourself_stays_chat_not_runtime_blurb():
+    assert route_control_text("tell me about yourself", "CHAT") is None
 
 
 def test_the_other_control_routes_are_untouched():

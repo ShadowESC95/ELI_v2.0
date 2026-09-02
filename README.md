@@ -27,8 +27,8 @@ like and it tunes itself to the hardware you've got, from a laptop to a multi-GP
 <img src=".github/screenshots/gui-onboarding.png" alt="ELI desktop app — first-run onboarding conversation with a local 35B model" width="880">
 </div>
 
-> **v2.3.79 — session thread memory.** The last 12 turns ride above the persona cap and inline
-> on every CHAT prompt, so ELI stays aware of what you said last message or ten turns back.
+> **v2.3.80 — persona self-knowledge routing.** “What do you know about yourself?” and depth
+> follow-ups stay in CHAT with verified self-facts instead of repeating the SELF_REPORT runtime blurb.
 > Grab it from **[Releases](https://github.com/ShadowESC95/ELI_v2.0/releases/latest)**.
 >
 > **v2 is live software, not a polished product drop.** ELI touches real hardware, and
@@ -441,7 +441,7 @@ SECURITY.md, not in a public issue.
 
 ## Tested on & known limitations
 
-*Last updated 2026-09-02 (v2.3.79).*
+*Last updated 2026-09-02 (v2.3.80).*
 
 I'd rather tell you exactly what I've run than pretend it's flawless everywhere.
 
