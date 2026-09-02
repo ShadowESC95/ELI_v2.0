@@ -32,11 +32,6 @@ like and it tunes itself to the hardware you've got, from a laptop to a multi-GP
 > "like what?") route through correction repair instead of pulling random profile memory.
 > Grab it from **[Releases](https://github.com/ShadowESC95/ELI_v2.0/releases/latest)**.
 >
-> **v2.3.76 — stop hedging on Dead City chat.** Rapport and watch-progress updates
-> ("feeling fresh? season 3 episode 6 now") no longer trigger web escalation and the
-> "I searched but couldn't find anything" hedge.
-> Grab it from **[Releases](https://github.com/ShadowESC95/ELI_v2.0/releases/latest)**.
->
 > **v2 is live software, not a polished product drop.** ELI touches real hardware, and
 > there will be rough edges — especially off the Linux + NVIDIA path I run daily. I'd rather get a
 > bug report than a compliment: **[open an issue](https://github.com/ShadowESC95/ELI_v2.0/issues)**.
@@ -361,7 +356,9 @@ PyQt6 install with `PyQt6-QScintilla` present it upgrades to QScintilla automati
 
 **Scheduling and automation.** Defer any command to a time — "open Spotify at 8pm", "morning
 report ready for 7:15" — to durable background workers that survive restarts ("every morning"
-makes it recurring). Chain several commands in one sentence. Alarms, timers, pomodoro included.
+makes it recurring). Catch-up jobs **wait until you finish a live conversation** before running,
+so a missed overnight task cannot hijack an active chat stream. Chain several commands in one
+sentence. Alarms, timers, pomodoro included.
 
 **Proactive and self-maintaining.** A background daemon notices your patterns and *offers* (never
 silently) to automate routines, builds your morning briefing, and surfaces things worth your
@@ -445,12 +442,12 @@ SECURITY.md, not in a public issue.
 
 ## Tested on & known limitations
 
-*Last updated 2026-09-01 (v2.3.73).*
+*Last updated 2026-09-02 (v2.3.77).*
 
 I'd rather tell you exactly what I've run than pretend it's flawless everywhere.
 
 **What I've actually run, end to end:** Linux (x86_64) with an NVIDIA GPU — install, first-run,
-the full test suite (**11,358 tests collected**, 11,300+ passing), voice (USB/Bluetooth headset
+the full test suite (**11,390 tests collected**, 11,350+ passing), voice (USB/Bluetooth headset
 auto-resolve verified on Linux), vision, the server, the AppImage with the CUDA GPU
 pack, all of it. **The Windows installer has also been field-run on real hardware** — install,
 first-boot GPU + model flow, voice and chat. On top of that, **every release is launch-tested in
@@ -502,7 +499,7 @@ touches real hardware. I'd rather you know them going in.
 - `eli/gui` — PySide6 GUI launcher and `EliMainWindow`
 - `eli/cli` — headless REPL (`eli --headless`)
 - `config` — portable default settings · `models` — local GGUF payloads (gitignored)
-- `tests` — a large pytest suite (**11,358 tests collected** across 413 files, 11,300+ passing;
+- `tests` — a large pytest suite (**11,390 tests collected** across 413 files, 11,350+ passing;
   including a `claims/` layer that checks the project against its own documentation); the full
   suite runs locally, while CI gates a cross-platform portable subset (no GGUF/display/GPU) on
   Linux, macOS, and Windows
