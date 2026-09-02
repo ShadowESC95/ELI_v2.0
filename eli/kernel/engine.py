@@ -9732,6 +9732,23 @@ Answer:"""
             if _mm_corr:
                 _corr_system += _mm_corr + "\n"
         try:
+            from eli.cognition.correction_patterns import is_runtime_recheck_correction as _rt_recheck
+            _runtime_recheck = _rt_recheck(user_input or "")
+        except Exception:
+            _runtime_recheck = bool(re.search(
+                r"\b(not true|check again)\b", _low_corr,
+            ))
+        if _runtime_recheck:
+            _mm_re = _mounted_model_authority_line()
+            _corr_system += (
+                " The user is saying your PREVIOUS answer invented or mis-stated runtime facts "
+                "(GPU layers, memory, diagnostics, codebase health). Retract those claims plainly. "
+                "Re-answer using ONLY live runtime evidence below — do NOT say you have no memory "
+                "of the user's life; this is about YOUR OWN wrong technical report.\n"
+            )
+            if _mm_re:
+                _corr_system += _mm_re + "\n"
+        try:
             from eli.cognition.correction_patterns import is_meta_conversation as _meta_conv
             _meta_turn = _meta_conv(user_input or "")
         except Exception:

@@ -113,11 +113,45 @@ def is_correction_query(text: str) -> bool:
     return False
 
 
+RUNTIME_RECHECK_CORRECTION_RE = re.compile(
+    r"\b(?:that(?:'s| is| was)?\s+not\s+true|not\s+true|that(?:'s| is)\s+wrong|you'?re\s+wrong)\b",
+    re.I,
+)
+
+CODEBASE_HEALTH_RE = re.compile(
+    r"\bhow(?:'?s|\s+is|\s+are)\s+(?:the\s+)?(?:codebase|code\s*base|repo|repository|project|code)\b",
+    re.I,
+)
+
+
+def is_runtime_recheck_correction(text: str) -> bool:
+    """User disputing ELI's prior factual/runtime claim and asking for a re-check."""
+    s = str(text or "")
+    if not RUNTIME_RECHECK_CORRECTION_RE.search(s):
+        return False
+    return bool(re.search(
+        r"\b(check again|try again|look again|verify|recheck|re-check|check(?:\s+it)?\s+again)\b",
+        s,
+        re.I,
+    ))
+
+
+def is_codebase_health_query(text: str) -> bool:
+    s = str(text or "")
+    if CODEBASE_HEALTH_RE.search(s):
+        return True
+    return bool(re.search(
+        r"\b(?:codebase|code\s*base|repo|repository)\b", s, re.I
+    ) and re.search(r"\b(?:health|status|state|holding up|doing)\b", s, re.I))
+
+
 def is_model_identity_dispute(text: str) -> bool:
     return bool(MODEL_IDENTITY_DISPUTE_RE.search(str(text or "")))
 
 
 def is_biographical_dispute(text: str) -> bool:
+    if is_runtime_recheck_correction(text):
+        return False
     return bool(BIOGRAPHICAL_DISPUTE_RE.search(str(text or "")))
 
 

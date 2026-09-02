@@ -27,9 +27,9 @@ like and it tunes itself to the hardware you've got, from a laptop to a multi-GP
 <img src=".github/screenshots/gui-onboarding.png" alt="ELI desktop app — first-run onboarding conversation with a local 35B model" width="880">
 </div>
 
-> **v2.3.77 — scheduled tasks wait for you.** Catch-up jobs like "open spotify" no longer
-> fire mid-conversation and hijack the chat stream. Meta follow-ups ("that was a question",
-> "like what?") route through correction repair instead of pulling random profile memory.
+> **v2.3.78 — grounded codebase check-ins.** "How is the codebase?" routes to a live runtime
+> audit instead of free-form chat confabulation. "That is not true, check again" re-checks runtime
+> facts instead of falling back to the biographical-memory disclaimer.
 > Grab it from **[Releases](https://github.com/ShadowESC95/ELI_v2.0/releases/latest)**.
 >
 > **v2 is live software, not a polished product drop.** ELI touches real hardware, and
@@ -442,7 +442,7 @@ SECURITY.md, not in a public issue.
 
 ## Tested on & known limitations
 
-*Last updated 2026-09-02 (v2.3.77).*
+*Last updated 2026-09-02 (v2.3.78).*
 
 I'd rather tell you exactly what I've run than pretend it's flawless everywhere.
 
