@@ -9959,7 +9959,7 @@ Answer:"""
             if _is_brief_phatic_prompt(_orig.lower()):
                 return _orig
         except Exception:
-            pass
+            log.debug("[COGNITIVE] phatic check skipped in prepend", exc_info=True)
         try:
             from eli.runtime.session_continuity import (
                 build_inline_exchange_block,
