@@ -184,7 +184,7 @@ def _worker_research(request: str):
                 _gi.set_background_inference(True)
                 _armed = True
         except Exception:
-            pass
+            log.debug("suppressed exception", exc_info=True)
         try:
             res = eng.process(request, source="scheduled_task", reasoning_mode="research")
         finally:
@@ -193,7 +193,7 @@ def _worker_research(request: str):
                     from eli.cognition import gguf_inference as _gi
                     _gi.set_background_inference(False)
                 except Exception:
-                    pass
+                    log.debug("suppressed exception", exc_info=True)
         text = res.get("response") or res.get("content") if isinstance(res, dict) else str(res)
         return {"ok": True, "answer": str(text or "")}
     except Exception as e:
