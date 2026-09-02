@@ -441,7 +441,7 @@ SECURITY.md, not in a public issue.
 
 ## Tested on & known limitations
 
-*Last updated 2026-09-02 (v2.3.78).*
+*Last updated 2026-09-02 (v2.3.79).*
 
 I'd rather tell you exactly what I've run than pretend it's flawless everywhere.
 
