@@ -41,6 +41,12 @@ _CATCHUP_DELAY = 180.0  # missed one-shot tasks run this many seconds after boot
 # before doing heavy work, so it shares that model instead of cold-loading another.
 _MODEL_WAIT_TIMEOUT = 900.0  # wait up to 15 min for the main model, then skip (re-arms nightly)
 _MODEL_WAIT_POLL = 15.0      # poll interval while waiting
+# Foreground interlock — a scheduled job must never call eng.process() (OPEN_APP, etc.)
+# while the user is mid-turn or streaming. Observed live: catch-up "open spotify" fired
+# during an active chat stream, opened Spotify, and the model confabulated about it.
+_FOREGROUND_WAIT_TIMEOUT = 600.0  # wait up to 10 min for the user turn to finish
+_FOREGROUND_WAIT_POLL = 5.0
+_FOREGROUND_DEFER_SEC = 90.0      # re-arm this many seconds later if still busy
 _STORE_LOCK = threading.RLock()
 _RESTORED = False
 
@@ -171,7 +177,23 @@ def _worker_research(request: str):
         eng = get_engine()
         if eng is None:
             return {"ok": False, "error": "engine unavailable"}
-        res = eng.process(request, source="scheduled_task", reasoning_mode="research")
+        _armed = False
+        try:
+            from eli.cognition import gguf_inference as _gi
+            if not _gi.is_background_inference():
+                _gi.set_background_inference(True)
+                _armed = True
+        except Exception:
+            pass
+        try:
+            res = eng.process(request, source="scheduled_task", reasoning_mode="research")
+        finally:
+            if _armed:
+                try:
+                    from eli.cognition import gguf_inference as _gi
+                    _gi.set_background_inference(False)
+                except Exception:
+                    pass
         text = res.get("response") or res.get("content") if isinstance(res, dict) else str(res)
         return {"ok": True, "answer": str(text or "")}
     except Exception as e:
@@ -328,6 +350,28 @@ def _surface(request: str, kind: str):
     return _cb
 
 
+def _wait_foreground_idle() -> Optional[Dict[str, Any]]:
+    """Block until no user-facing turn is active, or return a defer dict."""
+    try:
+        from eli.cognition.inference_broker import foreground_recently_active as _fra
+    except Exception:
+        return None
+    _waited = 0.0
+    while _waited < _FOREGROUND_WAIT_TIMEOUT:
+        try:
+            if not _fra(45.0):
+                return None
+        except Exception:
+            return None
+        time.sleep(_FOREGROUND_WAIT_POLL)
+        _waited += _FOREGROUND_WAIT_POLL
+    log.info(
+        f"[SCHEDULED] deferred: foreground still active after "
+        f"{int(_FOREGROUND_WAIT_TIMEOUT)}s — will re-arm"
+    )
+    return {"ok": False, "skipped": True, "reason": "foreground_busy"}
+
+
 # ── Arming (shared by new schedules + boot restore) ──────────────────────────
 def _arm(pid: str, request: str, when_ts: float, when_spec: str, kind: str,
          catchup: bool = False, project: str = "", recurring: bool = False) -> int:
@@ -337,6 +381,10 @@ def _arm(pid: str, request: str, when_ts: float, when_spec: str, kind: str,
     from eli.runtime.background_tasks import get_background_tasks
     _inner_worker = _WORKERS.get(kind, _worker_research)
     surface = _surface(request + (" (catch-up: missed while offline)" if catchup else ""), kind)
+    meta = {"request": request, "when_spec": when_spec, "kind": kind, "pid": pid,
+            "recurring": bool(recurring)}
+    if project:
+        meta["project"] = project  # Phase 3: the project that owns this task
 
     def worker(req, *a, **k):
         # ── VRAM interlock ──
@@ -365,9 +413,31 @@ def _arm(pid: str, request: str, when_ts: float, when_spec: str, kind: str,
                     f"{int(_MODEL_WAIT_TIMEOUT)}s — VRAM interlock (won't cold-load a second model)"
                 )
                 return {"ok": False, "skipped": True, "reason": "model_not_loaded_vram_interlock"}
+        _fg = _wait_foreground_idle()
+        if _fg is not None:
+            return _fg
         return _inner_worker(req, *a, **k)
 
     def _on_done(task) -> None:
+        res = getattr(task, "result", None)
+        if isinstance(res, dict) and res.get("reason") == "foreground_busy":
+            try:
+                get_background_tasks().schedule(
+                    f"{kind}: {request[:50]} (deferred)",
+                    worker,
+                    request,
+                    when=time.time() + _FOREGROUND_DEFER_SEC,
+                    kind=kind,
+                    on_done=_on_done,
+                    meta=meta,
+                )
+                log.info(
+                    f"[SCHEDULED] re-armed {kind} in {int(_FOREGROUND_DEFER_SEC)}s "
+                    f"(foreground busy)"
+                )
+            except Exception as ex:
+                log.debug(f"[SCHEDULED] foreground defer re-arm failed: {ex}")
+            return
         forget(pid)
         try:
             surface(task)
@@ -379,10 +449,6 @@ def _arm(pid: str, request: str, when_ts: float, when_spec: str, kind: str,
             except Exception as _rec_err:
                 log.debug(f"[SCHEDULED] recurring re-arm failed: {_rec_err}")
 
-    meta = {"request": request, "when_spec": when_spec, "kind": kind, "pid": pid,
-            "recurring": bool(recurring)}
-    if project:
-        meta["project"] = project  # Phase 3: the project that owns this task
     return get_background_tasks().schedule(
         f"{kind}: {request[:50]}", worker, request,
         when=when_ts, kind=kind, on_done=_on_done, meta=meta,

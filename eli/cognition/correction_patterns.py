@@ -10,14 +10,29 @@ import re
 CORRECTION_QUERY_RE = re.compile(
     r"\b("
     r"i did not ask|i didn't ask|not what i asked|that's not what i asked|"
-    r"that is not what i asked|what are you talking about|answer properly|"
+    r"that is not what i asked|what are you talking about|what are you talking bout|"
+    r"answer properly|"
     r"data dump|stop giving me data|why did you send|did not ask for|"
     r"what do you mean|what wild night|what night|i never|didn't have|"
     r"did not have|that's not true|that is not true|i didn't say|"
     r"i did not say|where did you get|why do you say|never said|"
     r"never told you|didn't mention|did not mention|"
-    r"why did you lie|you lied|that was a lie|why did you say"
+    r"why did you lie|you lied|that was a lie|why did you say|"
+    r"that was a question|that is a question|that's a question|"
+    r"what is your problem|what's your problem"
     r")\b",
+    re.IGNORECASE,
+)
+
+# Meta-conversation: user is challenging ELI's prior reply or asking ELI to
+# elaborate on something ELI just said (not a new factual lookup).
+META_CONVERSATION_RE = re.compile(
+    r"(?:^|\b)("
+    r"like what\??|"
+    r"you asked me\b|"
+    r"i responded with|"
+    r"no you (?:were not|wasn't|didn't|did not|fucking were not)"
+    r")(?:\b|$)",
     re.IGNORECASE,
 )
 
@@ -85,6 +100,8 @@ def is_correction_query(text: str) -> bool:
         return True
     if CORRECTION_QUERY_RE.search(s):
         return True
+    if META_CONVERSATION_RE.search(s):
+        return True
     if META_CAPABILITY_COMPLAINT_RE.search(s):
         return True
     if MODEL_IDENTITY_DISPUTE_RE.search(s):
@@ -121,6 +138,16 @@ _CORRECTION_BYPASS_ACTIONS = frozenset({
 
 def explicit_web_search_request(text: str) -> bool:
     return bool(WEB_SEARCH_REQUEST_RE.search(str(text or "")))
+
+
+def is_meta_conversation(text: str) -> bool:
+    """True when the user is asking about ELI's own prior reply, not a new topic."""
+    s = str(text or "")
+    if META_CONVERSATION_RE.search(s):
+        return True
+    return bool(re.search(
+        r"\b(that(?:'s| is| was) a question|like what\??)\b", s, re.I
+    ))
 
 
 def correction_shortcut_allowed(text: str, action: str) -> bool:

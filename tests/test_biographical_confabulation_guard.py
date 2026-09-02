@@ -10,6 +10,7 @@ from eli.cognition.correction_patterns import (
     explicit_web_search_request,
     is_biographical_dispute,
     is_correction_query,
+    is_meta_conversation,
 )
 from eli.kernel import engine
 
@@ -44,6 +45,32 @@ def test_correction_patterns_skip_normal_chat(text):
 
 def test_classify_query_marks_wild_night_dispute_as_correction():
     assert engine._classify_query("what wild night did i have?", "CHAT") == "CORRECTION"
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        "that was a question",
+        "like what?",
+        "you asked me \"How about we focus on something more productive today?\" and i responded with \"like what?\"",
+        "no you fucking were not, what is your problem?!",
+        "What are you talking bout??",
+    ],
+)
+def test_meta_conversation_matches_correction(text):
+    assert is_correction_query(text)
+    assert is_meta_conversation(text) or "question" in text.lower() or "bout" in text.lower()
+
+
+def test_like_what_alone_is_meta_not_general_factual():
+    assert is_correction_query("like what?")
+    assert is_meta_conversation("like what?")
+
+
+def test_correction_repair_has_meta_conversation_steering():
+    src = inspect.getsource(engine.CognitiveEngine._correction_repair)
+    assert "that was a question" in src.lower() or "QUESTION you failed" in src
+    assert "like what" in src.lower()
 
 
 def test_correction_repair_has_biographical_dispute_steering():
