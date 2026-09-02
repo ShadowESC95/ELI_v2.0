@@ -27,9 +27,8 @@ like and it tunes itself to the hardware you've got, from a laptop to a multi-GP
 <img src=".github/screenshots/gui-onboarding.png" alt="ELI desktop app — first-run onboarding conversation with a local 35B model" width="880">
 </div>
 
-> **v2.3.78 — grounded codebase check-ins.** "How is the codebase?" routes to a live runtime
-> audit instead of free-form chat confabulation. "That is not true, check again" re-checks runtime
-> facts instead of falling back to the biographical-memory disclaimer.
+> **v2.3.79 — session thread memory.** The last 12 turns ride above the persona cap and inline
+> on every CHAT prompt, so ELI stays aware of what you said last message or ten turns back.
 > Grab it from **[Releases](https://github.com/ShadowESC95/ELI_v2.0/releases/latest)**.
 >
 > **v2 is live software, not a polished product drop.** ELI touches real hardware, and
