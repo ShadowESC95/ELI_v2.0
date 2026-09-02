@@ -1319,6 +1319,9 @@ _ELI_PHASE19_DETAIL_FOLLOWUP_RX = re.compile(
     r"^\s*please\s+do\b"
     r"|\b(?:finish|complete|continue)\s+(?:it|that|this|the\s+(?:list|answer|response))\b"
     r"|\bplease\s+(?:finish|complete|continue)\b"
+    r"|\b(?:be (?:more )?(?:in depth|detailed|specific)|"
+    r"(?:go |be )?(?:more )?(?:in depth|deeper)|"
+    r"what else(?:\s+can you tell me)?|tell me more|elaborate|expand)\b"
     r"|\b(?:exact|where|which|what|show|tell|give|can\s+you|could\s+you)\b.{0,100}"
     r"\b(?:line|lines|file|files|path|paths|issue|issues|duplicate|duplicates|finding|findings|report|result|results|fix|repair|remove|delete)\b"
     r"|\b(?:issue|issues|duplicate|duplicates|finding|findings)\b.{0,100}"
@@ -1352,8 +1355,7 @@ def _eli_phase19_followup_task_family(action: str) -> str:
 
 def _eli_phase19_rebind_grounded_followup(engine, user_input: str, intent: Dict[str, Any]) -> Dict[str, Any]:
     current = dict(intent or {})
-    if str(current.get("action") or "CHAT").upper() != "CHAT":
-        return current
+    current_action = str(current.get("action") or "CHAT").upper()
 
     try:
         prior = dict(getattr(engine, "_last_request_meta", {}) or {})
@@ -1389,6 +1391,33 @@ def _eli_phase19_rebind_grounded_followup(engine, user_input: str, intent: Dict[
     contextual_detail = bool(_ELI_PHASE19_DETAIL_FOLLOWUP_RX.search(low))
     challenge = bool(_ELI_PHASE19_CHALLENGE_FOLLOWUP_RX.search(low))
     if not contextual_detail and not challenge:
+        return current
+
+    # Depth follow-ups after identity answers belong in CHAT (persona + self-facts),
+    # not a repeated SELF_REPORT one-liner or a reasoning-modes dump.
+    try:
+        from eli.runtime.control_contracts import is_identity_depth_followup as _id_depth
+        if _id_depth(raw) and prior_action in {"SELF_REPORT", "USER_IDENTITY_SUMMARY"}:
+            meta = dict(current.get("meta") or {})
+            meta.update({
+                "matched_by": "eli.phase19.identity_depth_followup_chat",
+                "upgraded_from": current_action,
+                "upgraded_reason": "prior_identity_depth_followup",
+                "prior_grounded_action": prior_action,
+                "prior_request_id": str(prior.get("request_id") or ""),
+                "grounded_followup": True,
+                "grounded_followup_kind": "detail",
+                "allow_chat_without_evidence": True,
+            })
+            current["meta"] = meta
+            current["action"] = "CHAT"
+            current["args"] = {"message": raw}
+            current["confidence"] = 0.98
+            return current
+    except Exception:
+        log.debug("suppressed exception", exc_info=True)
+
+    if current_action != "CHAT":
         return current
 
     meta = dict(current.get("meta") or {})
@@ -12699,6 +12728,11 @@ Answer:"""
                             or intent.get("force_persona_synthesis")
                             or (intent.get("meta") or {}).get("force_persona_synthesis")
                         )
+                        _followup_kind = str((args or {}).get("followup_kind") or "").strip().lower()
+                        _self_report_depth_followup = (
+                            _action_upper == "SELF_REPORT"
+                            and _followup_kind in {"detail", "challenge"}
+                        )
                         # Deep technical introspection — "explain exactly how your
                         # memory/cognition pipeline works: files, folders, tables,
                         # processes". The executor builds a complete, sanitised LIVE
@@ -12767,6 +12801,7 @@ Answer:"""
                             or (
                                 _direct_mode == "quick"
                                 and _action_upper in _deterministic_direct_payload_actions
+                                and not _self_report_depth_followup
                             )
                         )
                         # For non-Quick grounded control actions: synthesize the
@@ -14224,6 +14259,34 @@ Answer:"""
                             li = {"action": "CHAT", "args": {"message": text}, "confidence": 0.6}
                     except Exception:
                         log.debug("[COGNITIVE] follow-up guard skipped", exc_info=True)
+            # Persona self-knowledge must not collapse to the SELF_REPORT runtime blurb.
+            try:
+                from eli.runtime.control_contracts import (
+                    is_persona_self_knowledge_query as _persona_self,
+                    is_identity_depth_followup as _identity_depth,
+                )
+                _li_act = str((li or {}).get("action") or "").upper()
+                if _li_act == "SELF_REPORT" and _persona_self(text):
+                    log.debug("[COGNITIVE] persona self-knowledge → CHAT (was SELF_REPORT)")
+                    li = {
+                        "action": "CHAT",
+                        "args": {"message": text},
+                        "confidence": 0.92,
+                        "meta": {"matched_by": "engine.persona_self_knowledge_veto"},
+                    }
+                elif _li_act == "EXPLAIN_ALL_REASONING_MODES" and _identity_depth(text):
+                    log.debug(
+                        "[COGNITIVE] identity depth follow-up → CHAT "
+                        f"(was {_li_act})",
+                    )
+                    li = {
+                        "action": "CHAT",
+                        "args": {"message": text},
+                        "confidence": 0.92,
+                        "meta": {"matched_by": "engine.identity_depth_followup_veto"},
+                    }
+            except Exception:
+                log.debug("[COGNITIVE] persona self-knowledge veto skipped", exc_info=True)
             if (li and li.get("action") and li.get("action") != "CHAT"
                     and li.get("confidence", 0) >= 0.6):
                 log.debug(f"[COGNITIVE] LLM intent resolved: {li.get('action')} "

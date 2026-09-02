@@ -111,6 +111,63 @@ def normalise_action(action: Any) -> str:
 def is_control_action(action: Any) -> bool:
     return normalise_action(action) in CONTROL_ACTIONS
 
+
+def is_persona_self_knowledge_query(user_input: Any) -> bool:
+    """Conversational self-description — CHAT + verified self-facts, not the runtime one-liner."""
+    low = re.sub(r"\s+", " ", str(user_input or "").strip().lower())
+    if not low:
+        return False
+    if re.search(
+        r"\b(model|running on|provider|context|gpu|llm|specs?|technical|runtime|"
+        r"layers|threads|batch|offload)\b",
+        low,
+    ):
+        return False
+    return bool(
+        re.search(
+            r"\b(?:what (?:else )?(?:do you )?know (?:about|of) yourself|"
+            r"what else (?:can you )?tell me about yourself|"
+            r"what (?:else )?can you tell me about yourself|"
+            r"tell me more about yourself|"
+            r"describe yourself|"
+            r"be (?:more )?(?:in depth|detailed|specific)|"
+            r"(?:go |be )?(?:more )?(?:in depth|deeper)|"
+            r"what are you(?:\s|$))\b",
+            low,
+        )
+        or (
+            re.search(r"\byoursel(?:f|ves)\b", low)
+            and re.search(
+                r"\b(know|knew|tell|telling|describe|description|explain|"
+                r"detail|detailed|about|of|else)\b",
+                low,
+            )
+        )
+    )
+
+
+def is_identity_depth_followup(user_input: Any) -> bool:
+    """Short depth/elaboration requests after an identity answer — stay conversational."""
+    low = re.sub(r"\s+", " ", str(user_input or "").strip().lower())
+    if not low:
+        return False
+    if re.search(r"\b(?:reasoning modes?|all modes|every mode)\b", low):
+        return False
+    return bool(re.search(
+        r"\b(?:"
+        r"be (?:more )?(?:in depth|detailed|specific)"
+        r"|(?:go |be )?(?:more )?(?:in depth|deeper)"
+        r"|more detail"
+        r"|tell me more"
+        r"|what else"
+        r"|go on"
+        r"|elaborate"
+        r"|expand"
+        r")\b",
+        low,
+    ))
+
+
 def route_control_text(user_input: Any, current_action: Any = None) -> str | None:
     low = re.sub(r"\s+", " ", str(user_input or "").strip().lower())
     act = normalise_action(current_action)
@@ -159,6 +216,12 @@ def route_control_text(user_input: Any, current_action: Any = None) -> str | Non
         r"about\s+(?:us|me\s+and\s+you|you\s+and\s+(?:me|i)))\b",
         low,
     ))
+    # Persona self-knowledge and depth follow-ups belong in CHAT (persona handoff
+    # injects verified self-facts). SELF_REPORT's quick-path one-liner repeats the
+    # same 162-char runtime blurb on every follow-up.
+    if is_persona_self_knowledge_query(user_input) or is_identity_depth_followup(user_input):
+        return None
+
     if not _is_change_query and not _is_conversational_persona and re.search(
         r"\b("
         r"who are you"
