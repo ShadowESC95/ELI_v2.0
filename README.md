@@ -27,6 +27,11 @@ like and it tunes itself to the hardware you've got, from a laptop to a multi-GP
 <img src=".github/screenshots/gui-onboarding.png" alt="ELI desktop app — first-run onboarding conversation with a local 35B model" width="880">
 </div>
 
+> **v2.3.77 — scheduled tasks wait for you.** Catch-up jobs like "open spotify" no longer
+> fire mid-conversation and hijack the chat stream. Meta follow-ups ("that was a question",
+> "like what?") route through correction repair instead of pulling random profile memory.
+> Grab it from **[Releases](https://github.com/ShadowESC95/ELI_v2.0/releases/latest)**.
+>
 > **v2.3.76 — stop hedging on Dead City chat.** Rapport and watch-progress updates
 > ("feeling fresh? season 3 episode 6 now") no longer trigger web escalation and the
 > "I searched but couldn't find anything" hedge.

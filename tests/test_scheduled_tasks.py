@@ -210,3 +210,23 @@ def test_state_providers_isolate_failures():
         assert "bad" not in snap          # failed capture is skipped
     finally:
         SP.unregister("bad")
+
+
+def test_wait_foreground_idle_returns_none_when_idle(monkeypatch):
+    import eli.runtime.scheduled_tasks as ST
+    monkeypatch.setattr(
+        "eli.cognition.inference_broker.foreground_recently_active",
+        lambda window=45.0: False,
+    )
+    assert ST._wait_foreground_idle() is None
+
+
+def test_wait_foreground_idle_defers_when_busy(monkeypatch):
+    import eli.runtime.scheduled_tasks as ST
+    monkeypatch.setattr(ST, "_FOREGROUND_WAIT_TIMEOUT", 0.0)
+    monkeypatch.setattr(
+        "eli.cognition.inference_broker.foreground_recently_active",
+        lambda window=45.0: True,
+    )
+    out = ST._wait_foreground_idle()
+    assert out == {"ok": False, "skipped": True, "reason": "foreground_busy"}

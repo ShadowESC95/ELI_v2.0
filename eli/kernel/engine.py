@@ -7069,10 +7069,12 @@ Answer:"""
                     r"are you (?:talking about|on about|referring to)|"
                     r"you keep (?:saying|asking)|"
                     r"that'?s not what i|i didn'?t ask|"
+                    r"that was a question|that is a question|that'?s a question|"
+                    r"you asked me\b|like what\b|"
                     r"you'?re (?:slack(?:ing)?|drift(?:ing)?|repeating|looping)|"
                     r"starting to (?:slack|drift|loop|repeat))\b",
                     _low_msg,
-                )) or _low_msg.rstrip("?!. ") in {"what", "huh", "eh", "sorry", "pardon", "you what"}
+                )) or _low_msg.rstrip("?!. ") in {"what", "huh", "eh", "sorry", "pardon", "you what", "like what"}
                 _short_followup = len(_orig_msg.split()) <= 6
                 if _confusion or _short_followup:
                     try:
@@ -9729,6 +9731,34 @@ Answer:"""
             )
             if _mm_corr:
                 _corr_system += _mm_corr + "\n"
+        try:
+            from eli.cognition.correction_patterns import is_meta_conversation as _meta_conv
+            _meta_turn = _meta_conv(user_input or "")
+        except Exception:
+            _meta_turn = bool(re.search(
+                r"\b(that(?:'s| is| was) a question|like what\??|you asked me)\b",
+                _low_corr,
+            ))
+        if re.search(r"\bthat(?:'s| is| was) a question\b", _low_corr):
+            _corr_system += (
+                " The user is pointing out that their prior message was a QUESTION you failed to "
+                "answer properly. Re-read the exchange: identify their actual question and answer "
+                "it directly — do not moralize, deflect, or change topic."
+            )
+        elif re.search(r"^like what\??$", _low_corr.strip()) or (
+            _meta_turn and re.search(r"\blike what\b", _low_corr)
+        ):
+            _corr_system += (
+                " The user is asking you to elaborate on a specific suggestion YOU just made. "
+                "Paraphrase what you offered, then give 2-3 concrete examples — do not pull "
+                "unrelated topics from memory, their profile, or past research interests."
+            )
+        elif _meta_turn and re.search(r"\byou asked me\b", _low_corr):
+            _corr_system += (
+                " The user is quoting the conversation back to you to show you lost the thread. "
+                "Re-read the exchange above and answer the question they actually asked — do not "
+                "invent actions you did not take (opening apps, playing music, etc.)."
+            )
         if _prior:
             _corr_system = _prior + _corr_system
         _corr_system = _time_line + _corr_system
