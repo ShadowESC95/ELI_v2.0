@@ -7,9 +7,9 @@
 set -euo pipefail
 msg_file="${1:?}"
 tmp="$(mktemp)"
-grep -viE '^(co-authored-by:|claude-session:|claude-code-session:|codex-session:|cursor-session:|generated[- ]with:|assisted[- ]by:|signed-off-by: .*(claude|cursor|copilot|chatgpt))' "$msg_file" > "$tmp" || true
+grep -viE '^(co-authored-by:|claude-session:|claude-code-session:|codex-session:|generated[- ]with:|assisted[- ]by:|signed-off-by: .*(claude|copilot|chatgpt))' "$msg_file" > "$tmp" || true
 # Drop a trailing "🤖 Generated with …" credit line and any blank run it leaves.
-grep -viE '^[[:space:]]*(🤖[[:space:]]*)?generated with \[?(claude|cursor|copilot|chatgpt)' "$tmp" > "$tmp.2" || true
+grep -viE '^[[:space:]]*(🤖[[:space:]]*)?generated with \[?(claude|copilot|chatgpt)' "$tmp" > "$tmp.2" || true
 mv "$tmp.2" "$tmp"
 sed -i -e :a -e '/^\n*$/{$d;N;ba' -e '}' "$tmp" 2>/dev/null || sed -i '' -e :a -e '/^\n*$/{$d;N;ba' -e '}' "$tmp" 2>/dev/null || true
 mv "$tmp" "$msg_file"
