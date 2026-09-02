@@ -1,6 +1,9 @@
 # ── Not for the repo (local only) ───────────────────────────────────────────
 WHAT_ELI_IS.md
 
+# ── Local IDE / editor config (never ship) ───────────────────────────────────
+.cursor/
+
 # ── Python / build artefacts ────────────────────────────────────────────────
 __pycache__/
 *.pyc
