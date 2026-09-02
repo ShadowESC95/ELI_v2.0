@@ -6662,6 +6662,8 @@ Answer:"""
                 int(gen_overrides.get("max_tokens", 96)), 96)
             gen_overrides["temperature"] = 0.0
 
+        prompt = self._prepend_recent_exchange(prompt)
+
         provider = self._current_provider()
         gen = self._generation_settings()
         if gen_overrides:
@@ -7075,27 +7077,40 @@ Answer:"""
                     r"starting to (?:slack|drift|loop|repeat))\b",
                     _low_msg,
                 )) or _low_msg.rstrip("?!. ") in {"what", "huh", "eh", "sorry", "pardon", "you what", "like what"}
-                _short_followup = len(_orig_msg.split()) <= 6
-                if _confusion or _short_followup:
+                _inject_session = False
+                if not _is_phatic_stream:
                     try:
-                        _session_cutoff = time.time() - 1800  # 30 minutes
+                        from eli.runtime.session_continuity import session_has_prior_turns
                         _recent = self.memory.get_recent_conversation(
-                            limit=8, user_id=self.user_id)
-                        _prompt_key = _orig_msg[:80]
-                        _thread = [
-                            t for t in _recent
-                            if float(t.get("timestamp") or 0) >= _session_cutoff
-                            and not (t.get("role") == "user"
-                                     and (t.get("content") or "").strip()[:80] == _prompt_key)
-                        ]
+                            limit=14, user_id=getattr(self, "user_id", None)) or []
+                        _inject_session = session_has_prior_turns(_recent, _orig_msg)
+                    except Exception:
+                        _inject_session = False
+                if _confusion or _inject_session:
+                    try:
+                        from eli.runtime.session_continuity import build_inline_exchange_block
+                        if not _inject_session:
+                            _session_cutoff = time.time() - 1800  # 30 minutes
+                            _recent = self.memory.get_recent_conversation(
+                                limit=14, user_id=self.user_id)
+                            _prompt_key = _orig_msg[:80]
+                            _thread = [
+                                t for t in _recent
+                                if float(t.get("timestamp") or 0) >= _session_cutoff
+                                and not (t.get("role") == "user"
+                                         and (t.get("content") or "").strip()[:80] == _prompt_key)
+                            ]
+                        else:
+                            _thread = list(_recent)
                         if len(_thread) >= 2:
-                            _n = 5 if _confusion else 3
-                            _thread_lines = []
-                            for _t in _thread[-_n:]:
-                                _r = "You" if _t.get("role") == "user" else "ELI"
-                                _c = (_t.get("content") or "").replace("\n", " ")[:180]
-                                _thread_lines.append(f"{_r}: {_c}")
-                            _block = "[Recent exchange]\n" + "\n".join(_thread_lines)
+                            _block = build_inline_exchange_block(_thread, user_input=_orig_msg)
+                            if not _block:
+                                _thread_lines = []
+                                for _t in _thread[-12:]:
+                                    _r = "You" if _t.get("role") == "user" else "ELI"
+                                    _c = (_t.get("content") or "").replace("\n", " ")[:280]
+                                    _thread_lines.append(f"{_r}: {_c}")
+                                _block = "[Recent session]\n" + "\n".join(_thread_lines)
                             if _confusion:
                                 _block += (
                                     "\n\n[The user is signalling confusion or asking you to clarify. "
@@ -9018,6 +9033,13 @@ Answer:"""
             _recent_turns = list(recent_turns or [])
         except Exception:
             _recent_turns = []
+        if not _recent_turns:
+            try:
+                _recent_turns = list(
+                    self.memory.get_recent_conversation(14, user_id=getattr(self, "user_id", None)) or []
+                )
+            except Exception:
+                _recent_turns = []
 
         try:
             wm_intent = None
@@ -9503,6 +9525,13 @@ Answer:"""
                 _persona_budget - min(len(_verified_evidence_packet), _persona_budget // 2),
             )
         brief = self._cap_text(brief, _persona_budget, "persona_handoff")
+        try:
+            from eli.runtime.session_continuity import build_session_thread_block
+            _session_thread = build_session_thread_block(_recent_turns, user_input=user_input)
+            if _session_thread:
+                brief = brief + "\n\n" + _session_thread
+        except Exception:
+            log.debug("[COGNITIVE] session thread inject skipped", exc_info=True)
         # Real self-status rides ABOVE the cap — if the user asked how ELI is doing,
         # the measured telemetry must never be the thing truncation drops (that's
         # what made the model fall back to fabricating CPU/GPU temperatures).
@@ -9776,6 +9805,20 @@ Answer:"""
                 "Re-read the exchange above and answer the question they actually asked — do not "
                 "invent actions you did not take (opening apps, playing music, etc.)."
             )
+        try:
+            from eli.cognition.correction_patterns import is_continuity_complaint
+            _continuity_turn = is_continuity_complaint(user_input or "")
+        except Exception:
+            _continuity_turn = bool(re.search(
+                r"\b(not paying attention|previous answers?|we just established|rolling summary)\b",
+                _low_corr,
+            ))
+        if _continuity_turn:
+            _corr_system += (
+                " The user says you lost track of this session. Re-read the exchange above "
+                "and answer with full awareness of what was already said — last turn or "
+                "several turns back."
+            )
         if _prior:
             _corr_system = _prior + _corr_system
         _corr_system = _time_line + _corr_system
@@ -9906,6 +9949,33 @@ Answer:"""
             self.memory.add_conversation_turn("user", text, self.session_id, self.user_id)
         except Exception as e:
             log.debug(f"[COGNITIVE] User turn store failed: {e}")
+
+    def _prepend_recent_exchange(self, user_input: str) -> str:
+        """Prepend live session thread to the user prompt whenever the session has history."""
+        _orig = str(user_input or "").strip()
+        if not _orig:
+            return _orig
+        try:
+            if _is_brief_phatic_prompt(_orig.lower()):
+                return _orig
+        except Exception:
+            pass
+        try:
+            from eli.runtime.session_continuity import (
+                build_inline_exchange_block,
+                session_has_prior_turns,
+            )
+            _recent = self.memory.get_recent_conversation(
+                limit=14, user_id=getattr(self, "user_id", None)) or []
+            if not session_has_prior_turns(_recent, _orig):
+                return _orig
+            _block = build_inline_exchange_block(_recent, user_input=_orig)
+            if not _block:
+                return _orig
+            return _block + "\n\nYou: " + _orig
+        except Exception:
+            log.debug("[COGNITIVE] recent exchange prepend skipped", exc_info=True)
+            return _orig
 
     def _store_assistant_turn(self, text: str) -> None:
         if not text:
@@ -11785,7 +11855,7 @@ Answer:"""
         except Exception:
             log.debug("suppressed exception", exc_info=True)
 
-        context = self.memory.get_recent_conversation(8, user_id=getattr(self, "user_id", None))
+        context = self.memory.get_recent_conversation(14, user_id=getattr(self, "user_id", None))
 
         # Thread-aware routing context for web prepass + proactive grounding.
         try:

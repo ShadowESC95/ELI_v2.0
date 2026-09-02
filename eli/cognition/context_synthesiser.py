@@ -592,7 +592,7 @@ def build_persona_handoff(
 
     dialogue_lines: list[str] = []
     try:
-        for turn in list(recent_turns or [])[-8:]:
+        for turn in list(recent_turns or [])[-12:]:
             role = "?"
             content = ""
 

@@ -31,10 +31,25 @@ META_CONVERSATION_RE = re.compile(
     r"like what\??|"
     r"you asked me\b|"
     r"i responded with|"
+    r"not paying attention|paying attention to|previous answers?|"
+    r"we just established|rolling summary|labs tab|"
     r"no you (?:were not|wasn't|didn't|did not|fucking were not)"
     r")(?:\b|$)",
     re.IGNORECASE,
 )
+
+CONTINUITY_COMPLAINT_RE = re.compile(
+    r"\b(?:"
+    r"not paying attention|paying attention to|previous answers?|"
+    r"we just established|rolling summary|labs tab|lost the thread"
+    r")\b",
+    re.I,
+)
+
+
+def is_continuity_complaint(text: str) -> bool:
+    return bool(CONTINUITY_COMPLAINT_RE.search(str(text or "")))
+
 
 # User correcting ELI's recency ("that was today", "not last week").
 TEMPORAL_CORRECTION_RE = re.compile(
@@ -101,6 +116,8 @@ def is_correction_query(text: str) -> bool:
     if CORRECTION_QUERY_RE.search(s):
         return True
     if META_CONVERSATION_RE.search(s):
+        return True
+    if is_continuity_complaint(s):
         return True
     if META_CAPABILITY_COMPLAINT_RE.search(s):
         return True
