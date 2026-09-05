@@ -86,3 +86,31 @@ def test_yt_mix_url_adds_radio_playlist():
     # non-watch URLs and None pass through unchanged
     assert _yt_mix_url(None) is None
     assert "list=RD" not in _yt_mix_url("https://www.youtube.com/results?search_query=x")
+
+
+def test_yt_apply_browser_autoplay_adds_start_params():
+    from eli.execution.executor_enhanced import _yt_apply_browser_autoplay, _yt_mix_url
+    mix = _yt_mix_url("https://www.youtube.com/watch?v=dQw4w9WgXcQ")
+    url = _yt_apply_browser_autoplay(mix)
+    assert "autoplay=1" in url
+    assert "start_radio=1" in url
+
+
+def test_youtube_dot_com_uses_autoplay_mix_in_browser(monkeypatch):
+    opened = []
+    monkeypatch.setattr(
+        ex,
+        "_yt_resolve_watch_url",
+        lambda q: "https://www.youtube.com/watch?v=dQw4w9WgXcQ",
+    )
+    monkeypatch.setattr(ex, "_open_in_browser", lambda url: opened.append(url))
+    monkeypatch.setattr(ex, "_yt_autoplay_enabled", lambda: True)
+
+    res = ex.play_specific("real slim shady", "youtube website")
+
+    assert res["action"] == "PLAY_MEDIA"
+    assert opened, "browser was not opened"
+    url = opened[0]
+    assert "list=RD" in url
+    assert "autoplay=1" in url
+    assert "start_radio=1" in url

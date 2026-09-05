@@ -344,6 +344,26 @@ def get_player_status(player: Optional[str] = None) -> Dict[str, Any]:
     Return current playback status and track info.
     """
     if not _has("playerctl"):
+        if platform.MACOS and (not player or "spotify" in str(player).lower()):
+            try:
+                from eli.integrations.media.cross_platform import spotify_live_meta
+                head, artist, title = spotify_live_meta("spotify")
+                if title:
+                    status = "playing" if "Playing" in head else (
+                        "paused" if "Paused" in head else "unknown"
+                    )
+                    return {
+                        "ok": True,
+                        "player": "spotify",
+                        "status": status,
+                        "title": title,
+                        "artist": artist,
+                        "album": "",
+                        "content": f"{artist} — {title}" if artist else title,
+                        "response": f"{artist} — {title}" if artist else title,
+                    }
+            except Exception:
+                log.debug("suppressed exception", exc_info=True)
         if not platform.LINUX:
             return _err("MPRIS/playerctl media status is Linux-only on this backend")
         return _err("playerctl not installed — run: sudo apt install playerctl")

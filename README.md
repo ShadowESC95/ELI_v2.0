@@ -27,6 +27,11 @@ like and it tunes itself to the hardware you've got, from a laptop to a multi-GP
 <img src=".github/screenshots/gui-onboarding.png" alt="ELI desktop app — first-run onboarding conversation with a local 35B model" width="880">
 </div>
 
+> **v2.3.82 — cross-platform media control.** Spotify/YouTube/mpv now route through
+> `eli/integrations/media/cross_platform.py` (Linux MPRIS, macOS AppleScript, Windows
+> media keys/URI, Android termux-open). Ported to v3 effectors + media_runtime.
+> Grab it from **[Releases](https://github.com/ShadowESC95/ELI_v2.0/releases/latest)**.
+>
 > **v2.3.80 — persona self-knowledge routing.** “What do you know about yourself?” and depth
 > follow-ups stay in CHAT with verified self-facts instead of repeating the SELF_REPORT runtime blurb.
 > Grab it from **[Releases](https://github.com/ShadowESC95/ELI_v2.0/releases/latest)**.
@@ -441,7 +446,7 @@ SECURITY.md, not in a public issue.
 
 ## Tested on & known limitations
 
-*Last updated 2026-09-02 (v2.3.80).*
+*Last updated 2026-09-05 (v2.3.82).*
 
 I'd rather tell you exactly what I've run than pretend it's flawless everywhere.
 

@@ -126,11 +126,25 @@ def _mpv_socket() -> str:
 
 
 def _mpv_ipc(command: str) -> bool:
+    from eli.integrations.media.cross_platform import mpv_alive, mpv_ipc_send
+
     sock = _mpv_socket()
-    if not sock or not os.path.exists(sock) or not shutil.which("socat"):
+    if not mpv_alive(sock):
+        if shutil.which("playerctl"):
+            player_cmd = {
+                "pause": "pause",
+                "play": "play",
+                "resume": "play",
+                "stop": "stop",
+                "next": "next",
+                "previous": "previous",
+                "prev": "previous",
+            }.get(_lower(command))
+            if player_cmd:
+                ok, _, _ = _run(["playerctl", "-p", "mpv", player_cmd], timeout=2)
+                return ok
         return False
 
-    cmd = _lower(command)
     payloads = {
         "pause": {"command": ["set_property", "pause", True]},
         "play": {"command": ["set_property", "pause", False]},
@@ -141,22 +155,10 @@ def _mpv_ipc(command: str) -> bool:
         "previous": {"command": ["playlist-prev", "weak"]},
         "prev": {"command": ["playlist-prev", "weak"]},
     }
-
-    payload = payloads.get(cmd)
+    payload = payloads.get(_lower(command))
     if not payload:
         return False
-
-    try:
-        r = subprocess.run(
-            ["socat", "-", sock],
-            input=json.dumps(payload) + "\n",
-            capture_output=True,
-            text=True,
-            timeout=2,
-        )
-        return r.returncode == 0
-    except Exception:
-        return False
+    return bool(mpv_ipc_send(payload["command"], sock_path=sock))
 
 
 def _mpv_control(command: str) -> str:
@@ -507,9 +509,19 @@ def _play_on_streaming(target: str, query: str) -> str:
         return f"Couldn't open {label}."
 
 
+_MEDIA_DELEGATE_ACTIONS = (
+    PLAY_ACTIONS | PAUSE_ACTIONS | STOP_ACTIONS | NEXT_ACTIONS | PREVIOUS_ACTIONS
+)
+
+
 def install_media_executor(original_execute_action: Callable[..., Any]) -> Callable[..., Any]:
     """
     Return execute_action wrapper preserving current ELI media behaviour.
+
+    YouTube and Spotify play/transport delegate to executor_enhanced (play_specific,
+    pause_media, …) so production gets mpv verification, Mix autoplay, playlist
+    resolution, and honest playback status — not the legacy youtube_play /
+    spotify_query shortcuts.
     """
 
     def execute_action(action: Any, args: Any = None, *a: Any, **kw: Any) -> Any:
@@ -524,26 +536,8 @@ def install_media_executor(original_execute_action: Callable[..., Any]) -> Calla
         if act == "OPEN_APP" and _lower(data.get("name")) == "spotify":
             return open_spotify()
 
-        if target in YOUTUBE_TARGETS:
-            if act in PLAY_ACTIONS:
-                if query:
-                    return youtube_play(query)
-                return _mpv_control("play")
-
-            if act in PAUSE_ACTIONS:
-                return _mpv_control("pause")
-
-            if act in STOP_ACTIONS:
-                return _mpv_control("stop")
-
-            if act in NEXT_ACTIONS:
-                return _mpv_control("next")
-
-            if act in PREVIOUS_ACTIONS:
-                return _mpv_control("previous")
-
-        if target in SPOTIFY_TARGETS and act in PLAY_ACTIONS and query:
-            return spotify_query(query)
+        if target in YOUTUBE_TARGETS | SPOTIFY_TARGETS and act in _MEDIA_DELEGATE_ACTIONS:
+            return original_execute_action(action, args, *a, **kw)
 
         # Explicit streaming platform (netflix/prime/disney/plex/...) → deep-link its search.
         # Honours the media-target contract: a named platform NEVER falls through to YouTube.

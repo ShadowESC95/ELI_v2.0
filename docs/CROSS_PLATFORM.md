@@ -107,9 +107,12 @@ input) — not on a headless server or Android · ➖ N/A on that platform
 | LoRA fine-tuning (`training/`) | ✅ | ⚠️ (CPU/MPS) | ✅ | ➖ | ✅ |
 
 ## Notes on the ⚠️ rows (honest limitations)
-- **Media control** uses `playerctl` (MPRIS) on Linux; on macOS/Windows/Android it falls back to
-  best-effort and may report "no player" rather than controlling a specific app. (Media *playback*
-  via `play_sound` is fully cross-platform.)
+- **Media control** uses `playerctl` (MPRIS) on Linux; macOS uses AppleScript + URI
+  schemes for Spotify and virtual media keys for transport; Windows uses URI schemes +
+  virtual media keys; Android/Termux uses `termux-open-url` / intents for Spotify and
+  browser YouTube. Deep playlist control is best on Linux; other platforms open the
+  correct Spotify context and nudge play via native hooks. (Media *playback* via
+  `play_sound` is fully cross-platform.)
 - **Window management** (`wmctrl`/`xdotool`) is X11/Linux-centric; on macOS/Windows these actions
   degrade gracefully (return "not available") — they don't crash.
 - **Gaze/AR** needs a camera + display and `opencv`; desktop-only, Linux-tested.

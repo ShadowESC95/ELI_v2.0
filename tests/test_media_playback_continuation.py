@@ -99,10 +99,10 @@ def test_repeat_one_is_only_cleared_when_actually_set(monkeypatch):
     assert ex._spotify_clear_track_repeat() is False
 
 
-def test_playlist_path_uses_the_playlists_filter():
+def test_playlist_path_resolves_concrete_uri_before_search_tab():
     from pathlib import Path
     src = Path("eli/execution/executor_enhanced.py").read_text(encoding="utf-8")
-    assert '_spotify_search(_pl_name, prefer="playlists")' in src
+    assert "_spotify_resolve_playlist_uri(_pl_name)" in src
 
 
 def test_playlist_without_a_platform_does_not_go_to_youtube():
