@@ -20,7 +20,6 @@ import glob
 import os
 
 # Current count of silent `except: pass` handlers across eli/. Ratchet DOWN only.
-# v2.3.84: bulk conversion removed 469 handlers (646 → 177).
 # v2.3.85 prep: memory + redistributability fixes (177 → 172).
 CEILING = 172
 

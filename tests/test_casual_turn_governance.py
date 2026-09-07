@@ -99,10 +99,10 @@ def test_other_run_instructions_are_left_alone(legitimate):
 
 
 # ── 3. a promised check must report what it found ──────────────────────────
-REAL_AUDIT = """FAIL /home/jay/.local/share/ELI_v2/eli/kernel/engine.py
+REAL_AUDIT = """FAIL /tmp/eli_portable/eli/kernel/engine.py
   - line 3561 [duplicate_top_level_symbol] _first_sentence also defined at lines [3508, 3561]
-PASS /home/jay/.local/share/ELI_v2/eli/cognition/gguf_inference.py
-PASS /home/jay/.local/share/ELI_v2/eli/memory/memory.py
+PASS /tmp/eli_portable/eli/cognition/gguf_inference.py
+PASS /tmp/eli_portable/eli/memory/memory.py
 
 Live health probes:
   ✅ plugin_manager: OK - 10 plugin(s) installed

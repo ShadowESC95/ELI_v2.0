@@ -27,6 +27,14 @@ like and it tunes itself to the hardware you've got, from a laptop to a multi-GP
 <img src=".github/screenshots/gui-onboarding.png" alt="ELI desktop app — first-run onboarding conversation with a local 35B model" width="880">
 </div>
 
+> **v2.3.85 — redistributability + observability.** Removed Linux-only TILE_WINDOWS override
+> (uses cross-platform `portable_app_control`); international crisis resources; gated
+> CLOSE_APP wmctrl; cross-platform file open in experimental tab; canonical SQLite paths
+> in generated scripts. Silent passes: **646 → 172**. Full private inventory:
+> `blueprints/SILENT_EXCEPTION_FULL_REPORT.md` (gitignored). Public summary:
+> [`docs/SILENT_EXCEPTION_AUDIT.md`](docs/SILENT_EXCEPTION_AUDIT.md).
+> Grab it from **[Releases](https://github.com/ShadowESC95/ELI_v2.0/releases/latest)**.
+>
 > **v2.3.84 — observability hardening + release fix.** Removed **469 silent `except: pass`**
 > handlers (646 → 177) across runtime, media, memory, perception, and GUI paths — failures
 > now log at debug instead of vanishing. Full inventory:

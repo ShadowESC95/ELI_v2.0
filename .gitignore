@@ -208,6 +208,9 @@ models/unsloth_compiled_cache/
 # private dev handoff — never publish
 blueprints/NEXT_SESSION.md
 blueprints/NEXT_SESSION.pdf
+# Internal engineering reports — not for release bundles or git
+blueprints/SILENT_EXCEPTION_FULL_REPORT.md
+blueprints/SILENT_EXCEPTION_FULL_REPORT.pdf
 
 # Stray build output: a duplicate manual render with no .md source. Tracking it would
 # ship an orphan into every package (ELI.spec bundles the blueprints/ prefix from
