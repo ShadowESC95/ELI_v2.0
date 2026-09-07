@@ -13690,6 +13690,11 @@ except Exception:
 
 
 
+# ELI_TILE_WINDOWS_PORTABLE_FIX — chain to prior wrapper after TILE_WINDOWS override.
+_ELI_SECOND_ORIG_EXECUTE = globals().get("execute")
+_ELI_SECOND_ORIG_EXECUTE_ACTION = globals().get("execute_action")
+
+
 def _eli_second_execute(action, args=None, *pargs, **kwargs):
     action_name = str(action or "").upper()
     args = args or {}
@@ -13708,10 +13713,12 @@ def _eli_second_execute(action, args=None, *pargs, **kwargs):
         out.setdefault("action", action_name)
         return out
 
-    if callable(_ELI_TILE_ORIG_EXECUTE):
-        return _ELI_TILE_ORIG_EXECUTE(action, args, *pargs, **kwargs)
-    if callable(_ELI_TILE_ORIG_EXECUTE_ACTION):
-        return _ELI_TILE_ORIG_EXECUTE_ACTION(action, args, *pargs, **kwargs)
+    orig = _ELI_SECOND_ORIG_EXECUTE
+    if callable(orig) and orig is not _eli_second_execute:
+        return orig(action, args, *pargs, **kwargs)
+    orig_action = _ELI_SECOND_ORIG_EXECUTE_ACTION
+    if callable(orig_action) and orig_action is not _eli_second_execute:
+        return orig_action(action, args, *pargs, **kwargs)
 
     msg = f"No executor available for {action_name}"
     return {"ok": False, "action": action_name, "content": msg, "response": msg}
