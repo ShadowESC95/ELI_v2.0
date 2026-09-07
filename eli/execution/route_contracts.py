@@ -50,7 +50,32 @@ def wants_personal_memory(text: Any) -> bool:
 
 
 def wants_personal_memory_deep_explain(text: Any) -> bool:
-    return wants_memory_internals(text) and wants_personal_memory(text)
+    if wants_memory_internals(text) and wants_personal_memory(text):
+        return True
+    return wants_user_model_provenance(text)
+
+
+def wants_user_model_provenance(text: Any) -> bool:
+    """Static template vs dynamic/evolving understanding of the user."""
+    low = _low(text)
+    if not low:
+        return False
+    static_markers = (
+        "hardcoded", "hard coded", "hard-coded", "template", "stub", "static info",
+        "static profile", "about me section",
+    )
+    dynamic_markers = (
+        "dynamic", "emergent", "evolving", "evolve", "update these preference",
+        "actually remember", "not updating",
+    )
+    subject_markers = (
+        "about me", "profile", "preference", "memory", "user info", "understanding",
+        "who i am", "what you know about me",
+    )
+    has_static = any(m in low for m in static_markers)
+    has_dynamic = any(m in low for m in dynamic_markers)
+    has_subject = any(m in low for m in subject_markers)
+    return has_subject and (has_static or has_dynamic)
 
 
 def personal_memory_deep_route(text: Any) -> Dict[str, Any]:
@@ -92,6 +117,7 @@ __all__ = [
     "wants_memory_internals",
     "wants_personal_memory",
     "wants_personal_memory_deep_explain",
+    "wants_user_model_provenance",
     "personal_memory_deep_route",
     "classify_precedence_route",
 ]

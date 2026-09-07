@@ -101,6 +101,22 @@ def test_the_refit_never_lowers_the_budget():
         "the re-fit is not guarded against reducing the budget"
 
 
+def test_the_stream_path_also_refits_after_truncation():
+    code = _engine_code()
+    assert "Stream budget re-fitted after truncation" in code
+    overflow = code.index("Stream overflow: truncated to fit")
+    refit = code.index("Stream budget re-fitted after truncation")
+    assert refit > overflow, "stream re-fit must follow stream truncation"
+
+
+def test_the_stream_path_keeps_head_and_tail():
+    code = _engine_code()
+    refit = code.index("Stream budget re-fitted after truncation")
+    block = code[refit - 1200:refit]
+    assert "context trimmed to fit the model" in block
+    assert "enhanced_system[:_head]" in block
+
+
 def test_an_explicit_request_is_still_respected():
     """Reclaiming room must not override a smaller number the caller asked for."""
     code = _engine_code()

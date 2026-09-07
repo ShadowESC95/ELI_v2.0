@@ -2114,6 +2114,22 @@ def route(text: str, _clause_depth: int = 0) -> Dict[str, Any]:
     if re.search(r"\b(what do you know about me from memory|what do you know about me|what do you remember of me|who am i|what is my name|do you remember me|do you know me|my preferences|my persona|my ethos)\b", low):
         return _mk("USER_IDENTITY_SUMMARY", {}, 0.99, matched_by="router.user_identity_summary", allow_chat_without_evidence=False)
 
+    # Meta-questions about static profile files vs live/evolving memory — must not
+    # fall through long_question_guard → generic CHAT with a 128-token answer cap.
+    if re.search(
+        r"\b(?:hard[\s-]?coded|template|stub|static)\b.{0,80}\b(?:profile|preference|about me|memory|user info)\b"
+        r"|\b(?:dynamic|emergent|evolv\w+)\b.{0,80}\b(?:understand\w*|profile|preference|memory|you)\b"
+        r"|\babout me section\b.{0,80}\b(?:static|dynamic|template|stub|hard[\s-]?coded)\b",
+        low,
+    ):
+        return _mk(
+            "USER_IDENTITY_SUMMARY",
+            {"question": raw, "detail": "full", "include_memory_provenance": True},
+            0.99,
+            matched_by="router.user_identity_dynamic_vs_static",
+            allow_chat_without_evidence=False,
+        )
+
     # Pure persona questions (no runtime keywords) → CHAT so ELI answers from
     # its own character and memory, not a raw JSON spec dump.
     if re.search(r"\b(who are you|what are you(?!\s+\w)|what is your name|what's your name|tell me about yourself|what is your purpose)\b", low) and not re.search(r"\b(model|running on|provider|context|gpu|llm|specs?|technical|runtime|layers|threads|batch)\b", low):

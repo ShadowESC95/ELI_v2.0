@@ -1112,6 +1112,8 @@ def _is_brief_phatic_prompt(text: str) -> bool:
         _task_words_check = (
             "help", "fix", "write", "create", "open", "run", "search", "find",
             "explain", "tell me", "show me", "generate", "code", "script",
+            "gimme", "give me", "lowdown", "stats", "stat", "report", "rundown",
+            "summary", "capabilities", "inventory", "update me", "status report",
         )
         if not any(t in normalized for t in _task_words_check):
             return True
@@ -1145,6 +1147,9 @@ def _is_brief_phatic_prompt(text: str) -> bool:
         "help", "fix", "write", "create", "open", "run", "search", "find",
         "what is", "explain", "tell me", "show me", "can you", "could you",
         "why", "when", "where", "which", "generate", "code", "script",
+        "gimme", "give me", "lowdown", "stats", "stat", "report", "rundown",
+        "summary", "capabilities", "inventory", "update me", "status report",
+        "hardcoded", "template", "stub", "static info", "dynamic",
     )
     has_task = any(t in normalized for t in _task_words)
 
@@ -7187,12 +7192,33 @@ Answer:"""
                 # before calling generate() — an oversized prompt causes segfault.
                 _max_stream_chars = max(400, (_n_ctx - _safe_max - 64) * 3)
                 if len(enhanced_system) + len(prompt) > _max_stream_chars:
-                    _sys_bud = min(len(enhanced_system), _max_stream_chars // 2)
-                    _prm_bud = _max_stream_chars - _sys_bud
-                    enhanced_system = enhanced_system[-_sys_bud:]
-                    prompt = prompt[-_prm_bud:]
+                    # Keep persona HEAD + evidence TAIL (same as non-stream path).
+                    # Tail-only truncation was dropping voice/constraints and leaving
+                    # a raw memory dump the model could not finish within max_tokens.
+                    _prompt_budget = max(200, min(len(prompt), _max_stream_chars // 4))
+                    _sys_budget = max(200, _max_stream_chars - _prompt_budget)
+                    if len(enhanced_system) > _sys_budget:
+                        _head = max(200, int(_sys_budget * 0.5))
+                        _tail = max(200, _sys_budget - _head)
+                        enhanced_system = (
+                            enhanced_system[:_head].rstrip()
+                            + "\n\n…[context trimmed to fit the model]…\n\n"
+                            + enhanced_system[-_tail:].lstrip()
+                        )
+                    prompt = prompt[-_prompt_budget:]
                     log.debug(
     f"[COGNITIVE] Stream overflow: truncated to fit n_ctx={_n_ctx}")
+                    # Re-fit answer budget against the prompt actually sent (see non-stream
+                    # path: estimate→clamp→truncate pins max_tokens=128 when the pre-cut
+                    # prompt was huge, then truncation frees thousands of tokens).
+                    _pt_final = max(1, int((len(enhanced_system) + len(prompt)) / 3.5))
+                    _avail_final = max(128, _n_ctx - _pt_final - 64)
+                    if _avail_final > _safe_max:
+                        _req_ok = _req_s if _req_s > 0 else _avail_final
+                        _safe_max = max(_safe_max, min(_req_ok, _avail_final))
+                        log.debug(
+    f"[COGNITIVE] Stream budget re-fitted after truncation: "
+    f"max_tokens→{_safe_max} (prompt≈{_pt_final} tok, n_ctx={_n_ctx})")
 
                 generate = getattr(gguf_inference, "generate", None)
                 if callable(generate):
@@ -9030,12 +9056,23 @@ Answer:"""
             "yet — do not pretend it did.")
         return "\n".join(lines)
 
-    def _build_phatic_handoff_brief(self, user_input: str) -> str:
+    def _build_phatic_handoff_brief(self, user_input: str, working_memory=None) -> str:
         """Lightweight rapport brief: ELI voice + user name + recent thread — no memory dump."""
         parts = [_phatic_rapport_style_rule().strip()]
         _mm = _mounted_model_authority_line()
         if _mm:
             parts.append(_mm)
+        try:
+            from eli.cognition.turn_dossier import handoff_blocks_from_dossier
+            _dossier = None
+            if working_memory is not None:
+                _dossier = getattr(working_memory, "turn_dossier", None)
+            if _dossier is None:
+                _dossier = getattr(self, "_last_turn_dossier", None)
+            for _block in handoff_blocks_from_dossier(_dossier, phatic=True, max_chars=1400):
+                parts.append(_block)
+        except Exception:
+            log.debug("suppressed exception", exc_info=True)
         try:
             from eli.kernel.state import get_user_name as _gun_phatic
             _ph_name = (_gun_phatic("") or "").strip()
@@ -9088,7 +9125,7 @@ Answer:"""
         # project recall) but keep ELI's rapport steering + name + recent thread.
         try:
             if _is_brief_phatic_prompt(str(user_input or "").strip().lower()):
-                return self._build_phatic_handoff_brief(user_input)
+                return self._build_phatic_handoff_brief(user_input, working_memory=working_memory)
         except Exception:
             log.debug("suppressed exception", exc_info=True)
 
@@ -9330,6 +9367,17 @@ Answer:"""
         # of active patterns without requiring explicit "proactive status" queries.
         _extra_blocks = []
         _live_self_status = ""  # real telemetry — emitted ABOVE the cap (never truncated)
+        # Turn dossier awareness (session opener, insight, deepening, light memory).
+        try:
+            from eli.cognition.turn_dossier import handoff_blocks_from_dossier
+            _dossier = None
+            if working_memory is not None:
+                _dossier = getattr(working_memory, "turn_dossier", None)
+            if _dossier is None:
+                _dossier = getattr(self, "_last_turn_dossier", None)
+            _extra_blocks.extend(handoff_blocks_from_dossier(_dossier, phatic=False, max_chars=3200))
+        except Exception:
+            log.debug("suppressed exception", exc_info=True)
         # Low grounding: do not invent user biography when memory evidence is weak.
         try:
             _bus_agg = float(getattr(bus_result, "aggregated_confidence", 0.0) or 0.0) if bus_result else 0.0
@@ -9348,7 +9396,11 @@ Answer:"""
             import time as _inj_time
             from eli.core.paths import get_paths as _inj_paths
             _pro_ctx_file = _inj_paths().artifacts_dir / "proactive" / "latest_context.txt"
-            if _pro_ctx_file.exists():
+            _has_proactive_dossier = any(
+                str(b or "").startswith("[PROACTIVE AWARENESS]")
+                for b in (_extra_blocks or [])
+            )
+            if _pro_ctx_file.exists() and not _has_proactive_dossier:
                 _pro_age = _inj_time.time() - _pro_ctx_file.stat().st_mtime
                 if _pro_age < 1800:  # only inject if written within last 30 min
                     _pro_text = _pro_ctx_file.read_text(encoding="utf-8").strip()
@@ -11982,6 +12034,43 @@ Answer:"""
 
         context = self.memory.get_recent_conversation(14, user_id=getattr(self, "user_id", None))
 
+        # Turn dossier: assemble awareness + memory before routing consumes skips.
+        try:
+            from eli.cognition.turn_dossier import (
+                assemble_turn_dossier,
+                attach_dossier_to_working_memory,
+            )
+            _dossier_qclass = "GENERAL"
+            try:
+                if _is_brief_phatic_prompt(str(user_input or "").strip().lower()):
+                    _dossier_qclass = "PHATIC"
+            except Exception:
+                pass
+            _session_opener = False
+            try:
+                if not getattr(self, "_session_opener_shown", False):
+                    from eli.runtime.session_continuity import session_has_prior_turns
+                    if not session_has_prior_turns(context, user_input):
+                        _session_opener = True
+                        self._session_opener_shown = True
+            except Exception:
+                pass
+            _turn_dossier = assemble_turn_dossier(
+                self,
+                user_input,
+                query_class=_dossier_qclass,
+                reasoning_mode=str(reasoning_mode or "quick"),
+                session_id=str(getattr(self, "session_id", "") or ""),
+                user_id=str(getattr(self, "user_id", "") or ""),
+                working_memory=self._working_memory,
+                include_session_opener=_session_opener,
+            )
+            attach_dossier_to_working_memory(self._working_memory, _turn_dossier)
+            self._last_turn_dossier = _turn_dossier
+        except Exception as _dossier_err:
+            log.debug("[COGNITIVE] turn dossier assembly skipped: %s", _dossier_err)
+            self._last_turn_dossier = None
+
         # Thread-aware routing context for web prepass + proactive grounding.
         try:
             from eli.runtime.conversation_thread import (
@@ -12486,7 +12575,7 @@ Answer:"""
             and (_eli_is_chat_action or _eli_force_orch_all_actions or _eli_force_orch_all)
             and (
                 not _eli_is_chat_action
-                or (_qclass != "PHATIC" and not _is_brief_phatic_prompt(user_input) and not _eli_meta_turn)
+                or (not _eli_meta_turn)
             )
         )
         try:
@@ -12522,29 +12611,38 @@ Answer:"""
         try:
             from eli.cognition.agent_bus import DispatchResult as _DispatchResult
             if _qclass == "PHATIC":
+                _phatic_mem = ""
+                try:
+                    _phatic_mem = str(getattr(self._working_memory, "dossier_context", "") or "").strip()
+                except Exception:
+                    _phatic_mem = ""
                 bus_result = _DispatchResult(
                     intent_action=str(action or "CHAT"),
                     intent_confidence=float(intent.get("confidence") or 0.6),
-                    memory_context="",
-                    aggregated_confidence=0.0,
-                    grounding_confidence=0.0,
-                    confidence_label="phatic_skip",
-                    agents_used=[],
+                    memory_context=_phatic_mem,
+                    aggregated_confidence=0.45 if _phatic_mem else 0.0,
+                    grounding_confidence=0.35 if _phatic_mem else 0.0,
+                    confidence_label="phatic_light",
+                    agents_used=["memory"] if _phatic_mem else [],
                 )
-                bus_memory_context = ""
+                bus_memory_context = _phatic_mem
                 if _log_stage:
                     _log_stage(
                         6,
                         component="agent_bus",
-                        detail="skipped_phatic",
-                        agents=[],
-                        mem_chars=0,
-                        conf="0.00",
-                        grounding="0.00",
-                        label="phatic_skip",
+                        detail="phatic_light" if _phatic_mem else "skipped_phatic",
+                        agents=(["memory"] if _phatic_mem else []),
+                        mem_chars=len(_phatic_mem),
+                        conf=f"{0.45 if _phatic_mem else 0.0:.2f}",
+                        grounding=f"{0.35 if _phatic_mem else 0.0:.2f}",
+                        label="phatic_light" if _phatic_mem else "phatic_skip",
                     )
                 else:
-                    log.debug("[PIPELINE] S06 AGENT_BUS skipped (PHATIC — no memory/evidence dispatch)")
+                    log.debug(
+                        "[PIPELINE] S06 AGENT_BUS %s (PHATIC — %s)",
+                        "light dossier memory" if _phatic_mem else "skipped",
+                        f"{len(_phatic_mem)} chars" if _phatic_mem else "no dossier context",
+                    )
             else:
                 from eli.cognition.agent_bus import get_bus
                 _bus = get_bus()
@@ -14281,9 +14379,18 @@ Answer:"""
         return result
 
     def _parse_intent(self, text: str, context: list) -> Dict[str, Any]:
-        # Phatic fast-path runs BEFORE the router so a compound greeting like
-        # "hey pal, you good? notice any changes recently?" is rapport CHAT,
-        # not a SELF_REPORT git dump (router regex matches "any…changes…recently").
+        # Canonical precedence: memory meta / deep personal explain before phatic
+        # or long-question guards can swallow structured identity routes.
+        try:
+            from eli.execution.route_contracts import classify_precedence_route
+            _prec = classify_precedence_route(text)
+            if _prec:
+                log.debug("[COGNITIVE] precedence route → %s", _prec.get("action"))
+                return _prec
+        except Exception:
+            log.debug("suppressed exception", exc_info=True)
+        # Phatic fast-path runs AFTER precedence so compound greeting + substantive
+        # request still reaches structured routes; pure greetings stay fast.
         try:
             if (os.environ.get("ELI_PHATIC_FASTPATH", "1").strip().lower()
                     not in ("0", "false", "no", "off")

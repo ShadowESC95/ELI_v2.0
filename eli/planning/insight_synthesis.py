@@ -118,6 +118,11 @@ def refresh_insight(memory: Any = None, force: bool = False) -> str:
                          encoding="utf-8")
         except Exception:
             pass
+        try:
+            from eli.world.agency.reflection_bridge import send_reflection_to_world
+            send_reflection_to_world(out, depth=0.7, source="insight_synthesis")
+        except Exception:
+            pass
         return out
     except Exception:
         return get_cached_insight()

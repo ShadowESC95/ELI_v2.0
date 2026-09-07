@@ -33,3 +33,18 @@ def test_pure_personal_memory_not_stolen_by_hybrid_contract():
     )
 
     assert r is None
+
+
+def test_user_model_provenance_static_vs_dynamic():
+    from eli.execution.route_contracts import (
+        classify_precedence_route,
+        wants_user_model_provenance,
+    )
+
+    text = (
+        "Is the about me section hardcoded or does your understanding of me evolve?"
+    )
+    assert wants_user_model_provenance(text)
+    r = classify_precedence_route(text)
+    assert r is not None
+    assert r["action"] == "PERSONAL_MEMORY_DEEP_EXPLAIN"
