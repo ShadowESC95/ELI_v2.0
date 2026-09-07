@@ -52,6 +52,61 @@ MIN_VECTOR_SCORE   = 0.35
 MAX_MEMORY_ITEMS   = _budget("context_memory_items", 6, 4, 18)
 
 
+def _handoff_budgets(reasoning_mode: str | None = None) -> dict[str, int]:
+    """Mode-scaled limits for persona handoff evidence sections.
+
+    Quick mode keeps tight caps for latency. Normal/Research/Expert modes must
+    carry the FULL agent evidence package into synthesis — not bullet snippets.
+    """
+    try:
+        from eli.cognition.reasoning_modes import canonical_mode as _cm
+        mode = _cm(reasoning_mode or "quick")
+    except Exception:
+        mode = "quick"
+    if mode == "quick":
+        return {
+            "grounded_max_lines": 10,
+            "grounded_max_chars": 1_200,
+            "bus_max_lines": 6,
+            "bus_max_chars": 700,
+            "hit_max": 4,
+            "hit_chars": 280,
+            "obs_max_lines": 6,
+            "obs_item_max_chars": 260,
+            "dialogue_turn_chars": 220,
+            "line_max": 220,
+            "full_synthesis": 0,
+        }
+    if mode in {"chain_of_thought", "self_consistency"}:
+        return {
+            "grounded_max_lines": 48,
+            "grounded_max_chars": 8_000,
+            "bus_max_lines": 32,
+            "bus_max_chars": 6_000,
+            "hit_max": 12,
+            "hit_chars": 720,
+            "obs_max_lines": 12,
+            "obs_item_max_chars": 900,
+            "dialogue_turn_chars": 420,
+            "line_max": 480,
+            "full_synthesis": 1,
+        }
+    # research / expert / tree / constitutional — deepest evidence carry
+    return {
+        "grounded_max_lines": 64,
+        "grounded_max_chars": 12_000,
+        "bus_max_lines": 40,
+        "bus_max_chars": 9_000,
+        "hit_max": 16,
+        "hit_chars": 900,
+        "obs_max_lines": 16,
+        "obs_item_max_chars": 1_200,
+        "dialogue_turn_chars": 520,
+        "line_max": 600,
+        "full_synthesis": 1,
+    }
+
+
 
 # ELI_CONTEXT_VECTOR_GUARD_20260502
 def _eli_skip_vector_recall_for_query(query: str) -> bool:
@@ -364,12 +419,14 @@ def build_persona_handoff(
     agent_bus_context: str | None = None,
     working_memory: Any = None,
     recent_turns: Any = None,
+    reasoning_mode: str | None = None,
 ) -> Dict[str, Any]:
     """
     Compile grounded evidence into the package handed to ELI's persona-bound LLM.
     """
     intent = intent or {}
     orchestrator_result = orchestrator_result or {}
+    budgets = _handoff_budgets(reasoning_mode)
 
     def _clean(text: Any) -> str:
         return re.sub(r"\s+", " ", str(text or "")).strip()
@@ -378,6 +435,7 @@ def build_persona_handoff(
         lines: list[str] = []
         seen: set[str] = set()
         used = 0
+        _line_cap = budgets.get("line_max", 220)
         for raw in str(text or "").splitlines():
             line = _clean(raw)
             if not line:
@@ -387,8 +445,8 @@ def build_persona_handoff(
                 continue
             if line in seen:
                 continue
-            if len(line) > 220:
-                line = line[:217].rstrip() + "..."
+            if len(line) > _line_cap:
+                line = line[: _line_cap - 3].rstrip() + "..."
             seen.add(line)
             lines.append(f"- {line}")
             used += len(line)
@@ -616,7 +674,9 @@ def build_persona_handoff(
                 continue
 
             if content:
-                short = textwrap.shorten(content, width=220, placeholder="...")
+                short = textwrap.shorten(
+                    content, width=budgets.get("dialogue_turn_chars", 220), placeholder="..."
+                )
                 dialogue_lines.append(f"- {role}: {short}")
     except Exception:
         dialogue_lines = []
@@ -632,13 +692,20 @@ def build_persona_handoff(
     observations = orchestrator_result.get("observation_chain") or []
     if observations:
         observation_lines: list[str] = []
-        for item in observations[:6]:
-            observation_lines.extend(_bulletise(item, max_lines=2, max_chars=260))
-            if len(observation_lines) >= 6:
+        _obs_cap = budgets.get("obs_max_lines", 6)
+        for item in observations[:_obs_cap]:
+            observation_lines.extend(
+                _bulletise(
+                    item,
+                    max_lines=3 if budgets.get("full_synthesis") else 2,
+                    max_chars=budgets.get("obs_item_max_chars", 260),
+                )
+            )
+            if len(observation_lines) >= _obs_cap:
                 break
         if observation_lines:
             parts.append("\nORCHESTRATOR OBSERVATIONS:")
-            parts.extend(observation_lines[:6])
+            parts.extend(observation_lines[:_obs_cap])
 
     grounded_result = ""
     for key in ("content", "response", "result"):
@@ -650,12 +717,20 @@ def build_persona_handoff(
     if not grounded_result:
         grounded_result = str(orchestrator_result.get("assembled_context") or "").strip()
 
-    grounded_lines = _bulletise(grounded_result, max_lines=10, max_chars=1200)
+    grounded_lines = _bulletise(
+        grounded_result,
+        max_lines=budgets.get("grounded_max_lines", 10),
+        max_chars=budgets.get("grounded_max_chars", 1200),
+    )
     if grounded_lines:
         parts.append("\nGROUNDED FACTS:")
         parts.extend(grounded_lines)
 
-    bus_lines = _bulletise(agent_bus_context, max_lines=6, max_chars=700)
+    bus_lines = _bulletise(
+        agent_bus_context,
+        max_lines=budgets.get("bus_max_lines", 6),
+        max_chars=budgets.get("bus_max_chars", 700),
+    )
     if bus_lines:
         parts.append("\nAGENT BUS NOTES:")
         parts.extend(bus_lines)
@@ -665,10 +740,11 @@ def build_persona_handoff(
             hits = getattr(working_memory, "reranked_hits", None) or []
             if hits:
                 parts.append("\nRERANKED HITS:")
-                for hit in hits[:4]:
+                for hit in hits[: budgets.get("hit_max", 4)]:
                     txt = str((hit.get("text") if isinstance(hit, dict) else "") or "").strip()
                     if txt:
-                        parts.append(f"- {txt[:280]}")
+                        _hc = budgets.get("hit_chars", 280)
+                        parts.append(f"- {txt[:_hc]}")
         except Exception:
             log.debug("suppressed exception", exc_info=True)
 
@@ -688,6 +764,14 @@ def build_persona_handoff(
         "pattern and name the next concrete check. "
         "Do not dump raw tool output. Do not expose internal stage labels."
     )
+    if budgets.get("full_synthesis"):
+        parts.append(
+            "SYNTHESIS MODE (non-Quick): Agents gathered evidence above on purpose. "
+            "Weave ALL relevant grounded facts, agent notes, and reranked hits into "
+            "ONE complete answer — do not reply with bullet snippets, partial summaries, "
+            "or 'based on the provided evidence' hedging. If multiple evidence items "
+            "apply, integrate them; do not drop agent work on the floor."
+        )
     if action == "RUNTIME_STATUS":
         parts.append(
             "For runtime status replies: use exact grounded values, stay concise, "

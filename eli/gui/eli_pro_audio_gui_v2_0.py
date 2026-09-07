@@ -10827,7 +10827,9 @@ class EliMainWindow(QMainWindow):
             lbl = meta.get("confidence_label", "")
             action = meta.get("result_action") or meta.get("action") or ""
             parts = []
-            if agg is not None:
+            if lbl == "phatic_skip":
+                parts.append("phatic (no retrieval)")
+            if agg is not None and lbl != "phatic_skip":
                 try:
                     _a = float(agg)
                     parts.append(f"conf {_a:.2f}" + (f" ({lbl})" if lbl else ""))

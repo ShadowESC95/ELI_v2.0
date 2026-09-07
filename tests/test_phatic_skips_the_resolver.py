@@ -94,7 +94,7 @@ def test_the_resolver_is_skipped_when_the_prompt_is_phatic():
     from eli.kernel import engine
 
     src = inspect.getsource(engine)
-    idx = src.index("phatic fast-path → CHAT (skipped LLM intent resolver)")
+    idx = src.index("phatic fast-path → CHAT (skipped router + LLM intent resolver)")
     window = src[max(0, idx - 600):idx]
     assert "_is_brief_phatic_prompt" in window, \
         "the fast-path no longer consults the detector"
@@ -120,7 +120,21 @@ def test_phatic_query_class_skips_agent_bus_dispatch():
     assert "skipped_phatic" in src or "skipped (PHATIC" in src
 
 
-def test_phatic_rapport_rule_demands_voice_not_telegraphic_echo():
+def test_compound_phatic_beats_self_report_router():
+    """Greeting + casual 'notice changes recently' must stay CHAT, not SELF_REPORT."""
+    from eli.kernel.engine import CognitiveEngine, _is_brief_phatic_prompt as phatic
+    text = "hey pal, you good? notice any changes recently?"
+    assert phatic(text)
+    ce = CognitiveEngine.__new__(CognitiveEngine)
+    intent = ce._parse_intent(text, [])
+    assert intent.get("action") == "CHAT"
+    assert (intent.get("meta") or {}).get("matched_by") == "phatic.fastpath"
+
+
+def test_casual_notice_changes_recently_not_self_report():
+    from eli.execution.router_enhanced import route_intent
+    r = route_intent("notice any changes recently?", context=[])
+    assert r.get("action") != "SELF_REPORT", r
     from eli.kernel.engine import _phatic_rapport_style_rule as rule
 
     text = rule()

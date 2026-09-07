@@ -33,6 +33,10 @@ META_CONVERSATION_RE = re.compile(
     r"i responded with|"
     r"not paying attention|paying attention to|previous answers?|"
     r"we just established|rolling summary|labs tab|"
+    r"not answering my question|answering my question properly|"
+    r"personal response|more of a personal|"
+    r"why (?:is|are) my gui|gui not showing|grounding and agent|agent scores?|"
+    r"what the fuck are you talking about|where are you getting|"
     r"no you (?:were not|wasn't|didn't|did not|fucking were not)"
     r")(?:\b|$)",
     re.IGNORECASE,

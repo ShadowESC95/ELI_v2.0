@@ -1889,6 +1889,11 @@ def route(text: str, _clause_depth: int = 0) -> Dict[str, Any]:
     ) and not re.search(r"\b(?:git|commit|changelog|diff|show me|list|which)\b", low):
         pass  # casual rapport ("notice any changes in your code?") → CHAT, not audit dump
     elif re.search(
+        r"\b(?:notice|sense|feel)\b.{0,40}\b(?:any\s+)?changes?\b.{0,40}\b(?:recently|lately|as of late)\b",
+        low,
+    ) and not re.search(r"\b(?:git|commit|changelog|diff|show me|list|which|updates?\s+and\s+checks?)\b", low):
+        pass  # casual check-in ("notice any changes recently?") → CHAT, not git dump
+    elif re.search(
         r"\b(what|which|any|show|tell|list)\b.{0,80}\b(updates?|checks?|repairs?|changes?|maintenance|work)\b.{0,80}\b(as of late|recently|lately|performed|done|happened|made)\b",
         low,
     ) or (

@@ -4558,17 +4558,25 @@ class CognitiveEngine:
     _PERSONA_CHARS_PER_TOKEN = 4
     _PERSONA_MIN_CHARS = 2048
     _PERSONA_MAX_CHARS = 8192
+    _PERSONA_MAX_CHARS_DEEP = 14_000
 
-    def _persona_handoff_budget(self) -> int:
+    def _persona_handoff_budget(self, reasoning_mode: str | None = None) -> int:
         """Character budget for the persona brief, derived from the live window."""
         try:
             ctx = int(self._effective_n_ctx() or 0)
         except Exception:
             ctx = 0
+        _cap = self._PERSONA_MAX_CHARS
+        try:
+            from eli.cognition.reasoning_modes import canonical_mode as _cm
+            if _cm(reasoning_mode or getattr(self, "_last_orchestrator_reasoning_mode", "quick")) != "quick":
+                _cap = self._PERSONA_MAX_CHARS_DEEP
+        except Exception:
+            log.debug("suppressed exception", exc_info=True)
         if ctx <= 0:
-            return self._PERSONA_MIN_CHARS
+            return max(self._PERSONA_MIN_CHARS, min(_cap, self._PERSONA_MIN_CHARS))
         share = int(ctx * self._PERSONA_CHARS_PER_TOKEN * self._PERSONA_SHARE_OF_CTX)
-        return max(self._PERSONA_MIN_CHARS, min(self._PERSONA_MAX_CHARS, share))
+        return max(self._PERSONA_MIN_CHARS, min(_cap, share))
 
     def _effective_n_ctx(self) -> int:
         """Best-known context window (tokens). Live runtime params → snapshot →
@@ -8758,11 +8766,30 @@ Answer:"""
                         f"USER REQUEST:\n{user_input}\n\nTRUNCATED DRAFT:\n{response}\n\nCOMPLETED ANSWER:"
                     )
                     _wc = len(str(response or "").split())
+                    _expand_tokens = 512
+                    try:
+                        from eli.cognition.reasoning_modes import (
+                            canonical_mode as _cm_exp,
+                            _base_tokens_from_profile as _btfp,
+                        )
+                        _expand_tokens = max(
+                            512,
+                            min(
+                                2048,
+                                _btfp(
+                                    _cm_exp(reasoning_mode),
+                                    self._mode_profile(reasoning_mode),
+                                )
+                                // 2,
+                            ),
+                        )
+                    except Exception:
+                        log.debug("suppressed exception", exc_info=True)
                     _expanded = self._get_chat_response(
                         _expand_prompt,
                         "",
                         reasoning_mode=reasoning_mode,
-                        gen_overrides={"max_tokens": 512, "temperature": 0.25},
+                        gen_overrides={"max_tokens": _expand_tokens, "temperature": 0.25},
                     )
                     _expanded = str(_expanded or "").strip()
                     _expanded_low = _expanded.lower()
@@ -9006,6 +9033,9 @@ Answer:"""
     def _build_phatic_handoff_brief(self, user_input: str) -> str:
         """Lightweight rapport brief: ELI voice + user name + recent thread — no memory dump."""
         parts = [_phatic_rapport_style_rule().strip()]
+        _mm = _mounted_model_authority_line()
+        if _mm:
+            parts.append(_mm)
         try:
             from eli.kernel.state import get_user_name as _gun_phatic
             _ph_name = (_gun_phatic("") or "").strip()
@@ -9036,7 +9066,8 @@ Answer:"""
         return self._cap_text(brief, 1800, "phatic_handoff")
 
     def _build_persona_handoff_once(self, user_input: str, memory_context: str = "",
-                                    bus_result=None, recent_turns=None, working_memory=None) -> str:
+                                    bus_result=None, recent_turns=None, working_memory=None,
+                                    reasoning_mode: str | None = None) -> str:
         try:
             # Use None as the "not yet computed" sentinel, not "".
             # Previously: getattr(..., "persona_handoff", "") returned "" for both
@@ -9103,8 +9134,17 @@ Answer:"""
             _verified_evidence_packet = ""
             if bus_result is not None:
                 try:
+                    _bus_char_cap = 1200
+                    try:
+                        from eli.cognition.reasoning_modes import canonical_mode as _cm_bus
+                        if _cm_bus(reasoning_mode or "quick") != "quick":
+                            _bus_char_cap = 6000
+                    except Exception:
+                        log.debug("suppressed exception", exc_info=True)
                     if hasattr(bus_result, "to_context_block"):
-                        agent_bus_context = str(bus_result.to_context_block() or "").strip()
+                        agent_bus_context = str(
+                            bus_result.to_context_block(max_content_chars=_bus_char_cap) or ""
+                        ).strip()
                 except Exception:
                     agent_bus_context = ""
                 if not agent_bus_context:
@@ -9242,6 +9282,25 @@ Answer:"""
         except Exception as _lt_err:
             log.debug(f"[COGNITIVE] last-turn trace inject skipped: {_lt_err}")
 
+        # Meta-conversation: inject the ACTUAL prior response text so ELI can
+        # explain/correct instead of returning "text: (none recorded)".
+        try:
+            from eli.cognition.correction_patterns import is_meta_conversation as _is_meta_conv
+            if _is_meta_conv(user_input):
+                _lm = dict(getattr(self, "_last_request_meta", {}) or {})
+                _prev_txt = str(_lm.get("response_text") or "").strip()
+                if _prev_txt:
+                    _meta_block = (
+                        "PRIOR ELI RESPONSE (grounded — quote/repair THIS, do not invent):\n"
+                        + _prev_txt
+                    )
+                    agent_bus_context = (
+                        (_meta_block + "\n\n" + agent_bus_context).strip()
+                        if agent_bus_context else _meta_block
+                    )
+        except Exception as _meta_inj_err:
+            log.debug(f"[COGNITIVE] meta-conversation prior-response inject skipped: {_meta_inj_err}")
+
         try:
             try:
                 recent_turns = _eli_scrub_recent_turns_for_identity(
@@ -9258,6 +9317,7 @@ Answer:"""
                 agent_bus_context=agent_bus_context,
                 working_memory=working_memory,
                 recent_turns=recent_turns,
+                reasoning_mode=reasoning_mode,
             )
             brief = _normalise_handoff(handoff_obj)
         except Exception as e:
@@ -9550,7 +9610,7 @@ Answer:"""
         # truncated mid-sentence by a per-injection cap.
         if _extra_blocks:
             brief = "\n\n".join(filter(None, [brief] + _extra_blocks))
-        _persona_budget = self._persona_handoff_budget()
+        _persona_budget = self._persona_handoff_budget(reasoning_mode)
         if _verified_evidence_packet:
             _persona_budget = max(
                 self._PERSONA_MIN_CHARS // 2,
@@ -10173,6 +10233,7 @@ Answer:"""
 
         self._orchestrator_active = True
         try:
+            self._last_orchestrator_reasoning_mode = str(reasoning_mode or "quick")
             result = AgentOrchestrator(self).run(
                 user_input,
                 stream=stream,
@@ -10215,6 +10276,38 @@ Answer:"""
                         )
                     except Exception as _gov_err:
                         log.debug(f"[COGNITIVE] orchestrator stream governance skipped: {_gov_err}")
+                    try:
+                        _bus = getattr(self, "_last_bus_result", None)
+                        _trace = dict(getattr(self, "_last_orchestrator_trace", {}) or {})
+                        if _bus is not None:
+                            _trace["agent_confidence"] = float(
+                                getattr(_bus, "aggregated_confidence", 0.0) or 0.0
+                            )
+                            _trace["grounding_confidence"] = float(
+                                getattr(_bus, "grounding_confidence", 0.0) or 0.0
+                            )
+                            _trace["agents_used"] = list(getattr(_bus, "agents_used", []) or [])
+                        self._publish_last_response_meta(
+                            _trace,
+                            action="CHAT",
+                            result_action="CHAT",
+                            response=final,
+                            agents_used=list(getattr(_bus, "agents_used", []) or []) if _bus else [],
+                            confidence=float(
+                                getattr(_bus, "aggregated_confidence", 0.0) or 0.0
+                            ) if _bus else None,
+                            grounding_confidence=float(
+                                getattr(_bus, "grounding_confidence", 0.0) or 0.0
+                            ) if _bus else None,
+                            confidence_label=str(
+                                getattr(_bus, "confidence_label", "") or ""
+                            ) if _bus else "",
+                            user_input=user_input,
+                            evidence_used=bool(_wm_ctx),
+                            grounded=bool(_wm_ctx),
+                        )
+                    except Exception as _meta_err:
+                        log.debug(f"[COGNITIVE] orchestrator stream meta publish failed: {_meta_err}")
                     try:
                         self.enqueue_post_response_storage(
                             user_input, final, {"action": "CHAT"}, command=False)
@@ -12381,13 +12474,19 @@ Answer:"""
         _eli_force_orch_all = str(__import__("os").environ.get("ELI_FORCE_ORCHESTRATOR_ALL_MODES", "")).strip().lower() in {"1", "true", "yes", "on"}
         _eli_force_orch_all_actions = str(__import__("os").environ.get("ELI_FORCE_ORCHESTRATOR_ALL_ACTIONS", "")).strip().lower() in {"1", "true", "yes", "on"}
         _eli_is_chat_action = str(action or "").upper() == "CHAT"
+        _eli_meta_turn = False
+        try:
+            from eli.cognition.correction_patterns import is_meta_conversation as _is_meta
+            _eli_meta_turn = _is_meta(user_input)
+        except Exception:
+            log.debug("suppressed exception", exc_info=True)
         _eli_orch_should_run = (
             not bool(kwargs.get("disable_orchestrator"))
             and not getattr(self, "_orchestrator_active", False)
             and (_eli_is_chat_action or _eli_force_orch_all_actions or _eli_force_orch_all)
             and (
                 not _eli_is_chat_action
-                or (_qclass != "PHATIC" and not _is_brief_phatic_prompt(user_input))
+                or (_qclass != "PHATIC" and not _is_brief_phatic_prompt(user_input) and not _eli_meta_turn)
             )
         )
         try:
@@ -14182,6 +14281,20 @@ Answer:"""
         return result
 
     def _parse_intent(self, text: str, context: list) -> Dict[str, Any]:
+        # Phatic fast-path runs BEFORE the router so a compound greeting like
+        # "hey pal, you good? notice any changes recently?" is rapport CHAT,
+        # not a SELF_REPORT git dump (router regex matches "any…changes…recently").
+        try:
+            if (os.environ.get("ELI_PHATIC_FASTPATH", "1").strip().lower()
+                    not in ("0", "false", "no", "off")
+                    and _is_brief_phatic_prompt(text)):
+                log.debug("[COGNITIVE] phatic fast-path → CHAT (skipped router + LLM intent resolver)")
+                return {"action": "CHAT", "args": {"message": text},
+                        "confidence": 0.6,
+                        "meta": {"matched_by": "phatic.fastpath",
+                                 "allow_chat_without_evidence": True}}
+        except Exception:
+            log.debug("suppressed exception", exc_info=True)
         router_intent = None
         try:
             router_intent = route_intent(text)
@@ -14197,23 +14310,6 @@ Answer:"""
                 and _matched_by != "fallback.chat"):
             log.debug(f"[COGNITIVE] Router parsed: {router_intent}")
             return router_intent
-        # Phatic fast-path: a brief greeting/thanks/check-in never needs LLM intent
-        # resolution — it is always conversation. When no deterministic rule fired,
-        # short-circuit to CHAT and SKIP the resolver model call entirely. This saves
-        # one full generation per phatic turn on ANY model/hardware (a greeting was
-        # paying for a needless intent-classification pass); it is purely a logic
-        # win, not a latency hack tuned to one device. Off: ELI_PHATIC_FASTPATH=0.
-        try:
-            if (os.environ.get("ELI_PHATIC_FASTPATH", "1").strip().lower()
-                    not in ("0", "false", "no", "off")
-                    and _is_brief_phatic_prompt(text)):
-                log.debug("[COGNITIVE] phatic fast-path → CHAT (skipped LLM intent resolver)")
-                return {"action": "CHAT", "args": {"message": text},
-                        "confidence": 0.6,
-                        "meta": {"matched_by": "phatic.fastpath",
-                                 "allow_chat_without_evidence": True}}
-        except Exception:
-            log.debug("suppressed exception", exc_info=True)
         # Unmatched → grounded LLM intent resolver (real catalogue, cached). Only
         # adopt a confident, actionable result; otherwise fall through to chat.
         try:

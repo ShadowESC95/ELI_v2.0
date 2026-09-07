@@ -467,8 +467,8 @@ class DispatchResult:
     orchestrator_plan: Optional[Dict[str, Any]] = None  # multi-step plan from OrchestratorAgent
     execution_plan: Optional[Dict[str, Any]] = None  # canonical typed ExecutionPlan (execution_planner) that drove selection
 
-    def to_context_block(self) -> str:
-        """Serialise agent evidence into a compact text block for LLM injection."""
+    def to_context_block(self, *, max_content_chars: int = 1200) -> str:
+        """Serialise agent evidence into a text block for LLM injection."""
         parts: List[str] = []
         if self.memory_context:
             parts.append(self.memory_context)
@@ -497,9 +497,10 @@ class DispatchResult:
                 lines = [f"  - {i}" for i in insights]
                 parts.append("Recent ELI reflections/observations:\n" + "\n".join(lines))
             elif r.agent == "system" and d.get("content"):
-                parts.append(f"Runtime/system evidence:\n{str(d['content'])[:1200]}")
+                parts.append(f"Runtime/system evidence:\n{str(d['content'])[:max_content_chars]}")
             elif r.agent == "capability" and d.get("content"):
-                parts.append(f"Capability evidence:\n{str(d['content'])[:600]}")
+                _cap = max(600, max_content_chars // 2)
+                parts.append(f"Capability evidence:\n{str(d['content'])[:_cap]}")
             elif r.agent == "habit" and d.get("rules"):
                 rules = d["rules"][:5]
                 lines = [f"  - {rule.get('name', '')} @ {rule.get('hour', 0):02d}:{rule.get('minute', 0):02d}"
@@ -514,11 +515,14 @@ class DispatchResult:
                 lines = [f"  - {i}" for i in insights]
                 parts.append("Proactive insights:\n" + "\n".join(lines))
             elif r.agent == "frontier" and d.get("content"):
-                parts.append(f"Frontier system matrix:\n{str(d['content'])[:1200]}")
+                parts.append(f"Frontier system matrix:\n{str(d['content'])[:max_content_chars]}")
             elif r.agent == "plugin" and d.get("content"):
-                parts.append(f"Plugin result:\n{str(d['content'])[:600]}")
+                parts.append(f"Plugin result:\n{str(d['content'])[:max(600, max_content_chars // 2)]}")
             elif r.agent == "introspection" and d.get("content"):
-                parts.append(f"ELI architecture/pipeline (grounded):\n{str(d['content'])[:1000]}")
+                parts.append(
+                    f"ELI architecture/pipeline (grounded):\n"
+                    f"{str(d['content'])[:max(1000, max_content_chars)]}"
+                )
             elif r.agent == "voice" and d.get("content"):
                 parts.append(f"Voice/TTS status:\n{str(d['content'])[:300]}")
             else:
@@ -531,7 +535,7 @@ class DispatchResult:
                     header = f"Custom agent ({label})"
                     if objective:
                         header += f" — {objective[:120]}"
-                    parts.append(f"{header}:\n{str(content)[:1200]}")
+                    parts.append(f"{header}:\n{str(content)[:max_content_chars]}")
         return "\n\n".join(p for p in parts if p.strip())
 
 

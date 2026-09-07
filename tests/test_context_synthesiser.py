@@ -44,5 +44,30 @@ def test_intent_is_threaded_through():
     assert isinstance(h["intent"], dict)
 
 
+def test_nonquick_handoff_carries_more_agent_evidence():
+    from eli.cognition.context_synthesiser import _handoff_budgets
+
+    quick = _handoff_budgets("quick")
+    normal = _handoff_budgets("chain_of_thought")
+    assert normal["bus_max_chars"] > quick["bus_max_chars"]
+    assert normal["grounded_max_chars"] > quick["grounded_max_chars"]
+    long_evidence = "EVIDENCE: " + ("detail line about runtime and agents. " * 80)
+    h_quick = build_persona_handoff(
+        "explain the last failure",
+        agent_bus_context=long_evidence,
+        reasoning_mode="quick",
+    )
+    h_normal = build_persona_handoff(
+        "explain the last failure",
+        agent_bus_context=long_evidence,
+        reasoning_mode="chain_of_thought",
+    )
+    ctx_normal = str(h_normal["assembled_context"])
+    ctx_quick = str(h_quick["assembled_context"])
+    assert "SYNTHESIS MODE (non-Quick)" in ctx_normal
+    assert len(ctx_normal) > len(ctx_quick)
+    assert ctx_normal.count("detail line") > ctx_quick.count("detail line")
+
+
 def test_live_runtime_brief_is_str():
     assert isinstance(live_runtime_brief(), str)

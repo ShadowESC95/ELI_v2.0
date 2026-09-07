@@ -830,6 +830,7 @@ class AgentOrchestrator:
                             bus_result=getattr(wm, "bus_result", None),
                             recent_turns=getattr(stm, "recent_turns", []),
                             working_memory=wm,
+                            reasoning_mode=reasoning_mode,
                         )
                     _ph = str(getattr(wm, "persona_handoff", "") or "")
                     log.debug(f"[ORCHESTRATOR] Stage 10.5: Persona Handoff → {len(_ph)} chars")
@@ -951,6 +952,11 @@ class AgentOrchestrator:
                 skip_memory=True,
                 agent_names=_spec_names,
             )
+            try:
+                self.engine._last_bus_result = wm.bus_result
+                self.engine._last_orchestrator_trace = dict(getattr(wm, "trace", {}) or {})
+            except Exception:
+                log.debug("suppressed exception", exc_info=True)
             wm.trace["agent_bus_specialists"] = {
                 "agents_used": list(getattr(wm.bus_result, "agents_used", []) or []),
                 "aggregated_confidence": float(
@@ -1001,6 +1007,7 @@ class AgentOrchestrator:
                     bus_result=getattr(wm, "bus_result", None),
                     recent_turns=getattr(stm, "recent_turns", []),
                     working_memory=wm,
+                    reasoning_mode=reasoning_mode,
                 )
             _ph = str(getattr(wm, "persona_handoff", "") or "")
             log.debug(f"[ORCHESTRATOR] Stage 10.5: Persona Handoff → {len(_ph)} chars")

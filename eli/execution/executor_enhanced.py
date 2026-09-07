@@ -15001,8 +15001,8 @@ try:
         if any(w in q for w in ("notice", "feel", "sense", "changes")):
             lead = (
                 f"Yeah — I'm on v{ver} in this packaged build. I can't read git commits from "
-                f"{report.get('project_root')}, but this install includes the v{ver} fixes "
-                f"(cross-model output cleaning, memory-compliment routing, correction repair)."
+                f"{report.get('project_root')} (packaged install — no trustworthy git repo). "
+                f"This build is ELI v{ver}."
             )
         else:
             lead = (
@@ -15019,25 +15019,58 @@ try:
     def _eli_self_build_recent_updates_report(question=""):
         root = _eli_self_project_root()
 
-        head = _eli_self_run_git(root, ["log", "--oneline", "--decorate", "-8"])
-        status = _eli_self_run_git(root, ["status", "--short"])
-        branch = _eli_self_run_git(root, ["branch", "--show-current"])
-        tags = _eli_self_run_git(
-            root,
-            [
-                "tag",
-                "--list",
-                "--sort=-creatordate",
-                "identity_scope_clean_*",
-                "runtime_identity_media_learning_*",
-                "wip_runtime_gui_memory_*",
-                "wip_first_run_policy_tracking_*",
-                "memory_count_grounded_*",
-                "adaptive_cold_gguf_loader_*",
-                "effective_runtime_*",
-                "recent_memory_processing_*",
-            ],
-        )
+        # Packaged AppImage/portable runs anchor project_root at ~/.local/share/ELI_v2.
+        # That directory often contains an OLD extracted source tree with a stale .git
+        # checkout (observed: v2.3.89 AppImage reporting v2.3.62 commits). Never trust
+        # git there unless we are in a genuine dev checkout of the running version.
+        _installed_ver = _eli_self_installed_version()
+        _trust_git = True
+        try:
+            from eli.core.paths import is_frozen as _eli_is_frozen
+            if _eli_is_frozen():
+                _trust_git = False
+        except Exception:
+            log.debug("self-report: is_frozen check failed", exc_info=True)
+        if _trust_git and _installed_ver:
+            try:
+                import tomllib as _toml_git
+                _pp = root / "pyproject.toml"
+                if _pp.is_file():
+                    _root_ver = str(
+                        _toml_git.loads(_pp.read_text(encoding="utf-8"))
+                        .get("project", {})
+                        .get("version") or ""
+                    )
+                    if _root_ver and _root_ver != _installed_ver:
+                        _trust_git = False
+            except Exception:
+                log.debug("self-report: pyproject version cross-check failed", exc_info=True)
+
+        if _trust_git:
+            head = _eli_self_run_git(root, ["log", "--oneline", "--decorate", "-8"])
+            status = _eli_self_run_git(root, ["status", "--short"])
+            branch = _eli_self_run_git(root, ["branch", "--show-current"])
+            tags = _eli_self_run_git(
+                root,
+                [
+                    "tag",
+                    "--list",
+                    "--sort=-creatordate",
+                    "identity_scope_clean_*",
+                    "runtime_identity_media_learning_*",
+                    "wip_runtime_gui_memory_*",
+                    "wip_first_run_policy_tracking_*",
+                    "memory_count_grounded_*",
+                    "adaptive_cold_gguf_loader_*",
+                    "effective_runtime_*",
+                    "recent_memory_processing_*",
+                ],
+            )
+        else:
+            head = {"ok": False, "stdout": "", "stderr": "packaged_install_no_git", "returncode": -1}
+            status = {"ok": False, "stdout": "", "stderr": "", "returncode": -1}
+            branch = {"ok": False, "stdout": "", "stderr": "", "returncode": -1}
+            tags = {"ok": False, "stdout": "", "stderr": "", "returncode": -1}
 
         # Read the snapshot where the loader WRITES it — get_paths().artifacts_dir,
         # which honours the artifacts override. `root / "artifacts"` guessed at the
