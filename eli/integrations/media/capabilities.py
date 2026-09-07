@@ -10,6 +10,9 @@ import shutil
 from typing import Any
 
 from eli.utils import platform_compat as pc
+from eli.utils.log import get_logger
+
+log = get_logger(__name__)
 
 
 def _which(name: str) -> bool:
@@ -85,7 +88,7 @@ def detect_hardware_capabilities() -> dict[str, Any]:
             "vram_mb": (hw.get("gpus") or [{}])[0].get("vram_mb") if hw.get("gpus") else None,
         }
     except Exception:
-        pass
+        log.debug("[MEDIA] hardware capability probe failed", exc_info=True)
     return out
 
 

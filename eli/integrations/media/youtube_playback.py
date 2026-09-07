@@ -230,7 +230,7 @@ def attempt_youtube_mpv(
                 from eli.integrations.media.cross_platform import mpv_ipc_send
                 mpv_ipc_send(["quit"], sock_path=ipc_path, want_response=False)
             except Exception:
-                pass
+                log.debug("[MEDIA] mpv quit between client attempts failed", exc_info=True)
             if not yt_is_client_bound_failure(probe):
                 break
         elif time.monotonic() >= deadline:
@@ -254,7 +254,7 @@ def attempt_youtube_mpv(
                 err_log.close()
                 os.unlink(err_log.name)
             except Exception:
-                pass
+                log.debug("[MEDIA] mpv err log cleanup failed", exc_info=True)
         return {
             "ok": True,
             "played": True,

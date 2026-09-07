@@ -3695,9 +3695,8 @@ def play_specific(query: str, target: str | None = None) -> Dict[str, Any]:
                         "pending": True, "content": msg, "response": msg}
             _yt_direct_err = str(_yt_result.get("error") or "mpv could not start playback")
         except Exception:
-            log.debug("suppressed exception", exc_info=True)
-
-    # ── 4. No yt-dlp/mpv (or mpv failed) → resolve watch URL and open in browser ─
+            log.warning("[MEDIA] YouTube mpv path raised unexpectedly", exc_info=True)
+            _yt_direct_err = "internal error during YouTube playback"
     # Direct in-app playback needs yt-dlp + mpv. Be HONEST that this is a fallback,
     # not real playback (no-fake-actions) — and say what would actually unlock "play"
     # for THIS user: an install hint is wrong when the tools are present and mpv died,
