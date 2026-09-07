@@ -29,6 +29,9 @@ from eli.kernel.engine import _is_brief_phatic_prompt as phatic
     "how are you",
     "what's the story",
     "hows things",
+    "Afternoon Eli, how's tricks?",
+    "how's tricks",
+    "hows tricks bud",
 ])
 def test_wellbeing_check_ins_are_phatic(asked):
     assert phatic(asked.lower()), asked

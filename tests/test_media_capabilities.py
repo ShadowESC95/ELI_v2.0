@@ -21,6 +21,18 @@ def test_media_capability_summary_non_empty():
     assert "platform=" in s
 
 
+def test_detect_hardware_capabilities_uses_hardware_profile():
+    from eli.integrations.media.capabilities import detect_hardware_capabilities
+    hw = detect_hardware_capabilities()
+    assert hw.get("ok") is True
+    assert isinstance(hw.get("cpu_cores"), int)
+    assert hw.get("cpu_cores", 0) >= 1
+    assert isinstance(hw.get("ram_gb"), (int, float))
+    if hw.get("has_gpu"):
+        assert hw.get("primary_gpu")
+        assert isinstance(hw.get("vram_mb"), int)
+
+
 def test_yt_player_clients_default_order():
     from eli.integrations.media.youtube_playback import yt_player_clients
     os.environ.pop("ELI_YT_PLAYER_CLIENTS", None)

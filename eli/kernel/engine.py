@@ -1013,6 +1013,9 @@ def _is_brief_phatic_prompt(text: str) -> bool:
         "whats the story", "what's the story", "what is the story", "story bud", "story pal",
         "whats the craic", "what's the craic", "hows the craic", "how's the craic", "any craic",
         "whats new", "what's new", "whats happening", "what's happening",
+        # Irish / colloquial — same rapport class as "how's things"
+        "hows tricks", "how's tricks", "how are tricks",
+        "hows the form", "how's the form", "hows the head", "how's the head",
         # Gratitude / closers — purely phatic, never an action (a substantive remainder
         # like "thanks, now fix X" is caught by the follow-up guard / falls through).
         "thanks", "thank you", "thanks a lot", "thanks so much", "thank you so much",
@@ -4278,18 +4281,6 @@ class CognitiveEngine:
 
         log.debug("[COGNITIVE] Shutdown: flushing session state…")
 
-        # 0. Signal shutdown to the inference layer FIRST. A background self-improvement
-        # /codegen call can be mid-flight in a single 10+ minute native llm() call holding
-        # the shared lock; the OS can't kill it, so step 8 (unload_model) would block for
-        # 20-30 minutes. This makes any in-flight generation yield at the next token and
-        # short-circuits new background calls, so teardown proceeds immediately.
-        try:
-            from eli.cognition import gguf_inference as _ggi_sd
-            _ggi_sd.signal_shutdown()
-            log.debug("[COGNITIVE] Shutdown: inference abort signalled")
-        except Exception as _sd_err:
-            log.debug(f"[COGNITIVE] Shutdown: inference abort signal failed (non-fatal): {_sd_err}")
-
         # 1. Stop the proactive daemon FIRST so no more writes happen
         # during the rest of teardown.
         try:
@@ -4329,9 +4320,8 @@ class CognitiveEngine:
             log.debug(f"[COGNITIVE] Shutdown: engagement flush failed (non-fatal): {_eng_err}")
 
         # 3.5 In-depth, LLM-generated end-of-session summary → session_summaries.
-        # Runs while the GGUF is still loaded (unload is step 8). 100% local; on
-        # any failure it falls back to a heuristic summary internally, and the
-        # whole step is guarded so it can never block or break shutdown.
+        # Must run BEFORE signal_shutdown(): aborting inference first made the
+        # summary LLM return empty (llm=False) even when the model was loaded.
         try:
             from eli.runtime.profile_extractor import write_llm_session_summary
             _ss = write_llm_session_summary(
@@ -4343,6 +4333,18 @@ class CognitiveEngine:
                           f"(llm={_ss.get('llm')}, turns={_ss.get('turns_count')})")
         except Exception as _ss_err:
             log.debug(f"[COGNITIVE] Shutdown: session summary failed (non-fatal): {_ss_err}")
+
+        # 4. Signal shutdown to the inference layer. A background self-improvement
+        # /codegen call can be mid-flight in a single 10+ minute native llm() call holding
+        # the shared lock; the OS can't kill it, so unload_model would block for
+        # 20-30 minutes. This makes any in-flight generation yield at the next token and
+        # short-circuits new background calls, so teardown proceeds immediately.
+        try:
+            from eli.cognition import gguf_inference as _ggi_sd
+            _ggi_sd.signal_shutdown()
+            log.debug("[COGNITIVE] Shutdown: inference abort signalled")
+        except Exception as _sd_err:
+            log.debug(f"[COGNITIVE] Shutdown: inference abort signal failed (non-fatal): {_sd_err}")
 
         # Steps 4-8 touch process-global singletons (memory store, vector
         # embedder, GGUF model). Run them AT MOST ONCE per process — a second
@@ -12385,7 +12387,7 @@ Answer:"""
             and (_eli_is_chat_action or _eli_force_orch_all_actions or _eli_force_orch_all)
             and (
                 not _eli_is_chat_action
-                or not _is_brief_phatic_prompt(user_input)
+                or (_qclass != "PHATIC" and not _is_brief_phatic_prompt(user_input))
             )
         )
         try:

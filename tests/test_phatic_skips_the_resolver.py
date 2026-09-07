@@ -43,6 +43,8 @@ from eli.kernel.engine import _is_brief_phatic_prompt as phatic
     "you sorted yet?",
     "hey bud. good morning",
     "hey bud, good morning",
+    "Afternoon Eli, how's tricks?",
+    "how's tricks",
 ])
 def test_conversational_check_ins_skip_the_resolver(text):
     assert phatic(text)

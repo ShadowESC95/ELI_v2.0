@@ -34,6 +34,9 @@ from pathlib import Path
 
 multiprocessing.freeze_support()
 
+# GNOME/KDE set QT_STYLE_OVERRIDE=adwaita; PySide6 only ships Fusion/Windows.
+os.environ.pop("QT_STYLE_OVERRIDE", None)
+
 # python -c / -m passthrough for self-spawned helpers (see module docstring).
 if len(sys.argv) >= 2 and sys.argv[1] == "-c":
     _code = sys.argv[2] if len(sys.argv) >= 3 else ""

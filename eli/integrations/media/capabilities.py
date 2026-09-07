@@ -79,13 +79,25 @@ def detect_hardware_capabilities() -> dict[str, Any]:
     try:
         from eli.core.hardware_profile import detect_hardware
         hw = detect_hardware()
+        d = hw.to_dict()
+        gpus = []
+        if d.get("has_gpu") and d.get("gpu_name"):
+            gpus.append({
+                "name": d.get("gpu_name"),
+                "free_vram_mb": d.get("free_vram_mb"),
+                "total_vram_mb": d.get("total_vram_mb"),
+            })
         out = {
             "ok": True,
-            "cpu_cores": hw.get("cpu_cores"),
-            "ram_gb": hw.get("ram_gb"),
-            "gpus": hw.get("gpus") or [],
-            "primary_gpu": (hw.get("gpus") or [{}])[0].get("name") if hw.get("gpus") else None,
-            "vram_mb": (hw.get("gpus") or [{}])[0].get("vram_mb") if hw.get("gpus") else None,
+            "cpu_cores": d.get("cpu_threads"),
+            "ram_gb": d.get("ram_gb"),
+            "available_ram_gb": d.get("available_ram_gb"),
+            "has_gpu": bool(d.get("has_gpu")),
+            "gpus": gpus,
+            "primary_gpu": d.get("gpu_name") if d.get("has_gpu") else None,
+            "vram_mb": d.get("free_vram_mb") if d.get("has_gpu") else None,
+            "free_vram_mb": d.get("free_vram_mb"),
+            "total_vram_mb": d.get("total_vram_mb"),
         }
     except Exception:
         log.debug("[MEDIA] hardware capability probe failed", exc_info=True)

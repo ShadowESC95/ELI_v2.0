@@ -11,6 +11,9 @@ import re
 from typing import Any, Optional
 
 from eli.runtime.memory_provenance import is_explicit_memory_audit_query
+from eli.utils.log import get_logger
+
+log = get_logger(__name__)
 
 # Kill-switch for redistribution debugging only — default ON.
 _FAIL_CLOSED_ENABLED = os.environ.get("ELI_CHAT_FAIL_CLOSED", "1").strip().lower() not in (
@@ -44,6 +47,12 @@ def is_phatic_turn(user_input: str) -> bool:
     text = str(user_input or "").strip()
     if not text:
         return True
+    try:
+        from eli.kernel.engine import _is_brief_phatic_prompt
+        if _is_brief_phatic_prompt(text):
+            return True
+    except Exception:
+        log.debug("phatic detector import failed", exc_info=True)
     if _PHATIC_RE.match(text):
         return True
     if len(text.split()) <= 4:
