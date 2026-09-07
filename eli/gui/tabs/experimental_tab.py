@@ -79,8 +79,11 @@ class ExperimentalTab(QWidget):
             self.status.setText("Path unavailable")
             return
         try:
-            subprocess.Popen(["xdg-open", str(path)])
-            self.status.setText(f"Opened {path.name}")
+            from eli.utils.platform_compat import open_file
+            if open_file(path):
+                self.status.setText(f"Opened {path.name}")
+            else:
+                self.status.setText(f"Open failed: no handler for {path.name}")
         except Exception as exc:
             self.status.setText(f"Open failed: {type(exc).__name__}: {exc}")
 

@@ -847,6 +847,7 @@ def _eli_write_sqlite_table_count_script_late() -> dict[str, Any]:
 from __future__ import annotations
 
 import argparse
+import os
 import sqlite3
 from pathlib import Path
 
@@ -856,10 +857,17 @@ def resolve_db_path(raw: str | None) -> Path:
         return Path(raw).expanduser().resolve()
 
     candidates = [
-        Path("~/eli/artifacts/user.sqlite3").expanduser(),
+        Path(os.environ.get("ELI_USER_DB", "")).expanduser() if os.environ.get("ELI_USER_DB") else None,
         Path("artifacts/db/user.sqlite3").resolve(),
         Path("artifacts/user.sqlite3").resolve(),
     ]
+    candidates = [c for c in candidates if c is not None]
+
+    try:
+        from eli.core.paths import user_db_path
+        candidates.insert(0, Path(user_db_path()))
+    except Exception:
+        pass
 
     for candidate in candidates:
         if candidate.exists():

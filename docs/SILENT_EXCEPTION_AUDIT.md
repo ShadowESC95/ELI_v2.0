@@ -1,6 +1,6 @@
 # Silent `except: pass` audit
 
-**Remaining count: 177** (CEILING ratchet target for v2.3.84)
+**Remaining count: 172** (CEILING ratchet target for v2.3.84)
 
 v2.3.84 converted **469** handlers (where `log = get_logger(__name__)` was already in scope or safely added). This document lists **remaining** handlers still using bare `pass`.
 
@@ -9,7 +9,6 @@ v2.3.84 converted **469** handlers (where `log = get_logger(__name__)` was alrea
 | File | Count |
 |------|------:|
 | `eli/gui/eli_pro_audio_gui_v2_0.py` | 12 |
-| `eli/memory/memory.py` | 6 |
 | `eli/core/model_download.py` | 5 |
 | `eli/cognition/output_governor.py` | 4 |
 | `eli/perception/vision.py` | 4 |
@@ -74,6 +73,7 @@ v2.3.84 converted **469** handlers (where `log = get_logger(__name__)` was alrea
 | `eli/kernel/engine.py` | 1 |
 | `eli/kernel/scheduler.py` | 1 |
 | `eli/learning/dataset_builder.py` | 1 |
+| `eli/memory/memory.py` | 1 |
 | `eli/memory/memory_truth.py` | 1 |
 | `eli/memory/sqlite_memory.py` | 1 |
 | `eli/perception/analyze_image.py` | 1 |
@@ -1113,84 +1113,19 @@ v2.3.84 converted **469** handlers (where `log = get_logger(__name__)` was alrea
   377|             pass
 ```
 
-## `eli/memory/memory.py` (6)
+## `eli/memory/memory.py` (1)
 
-### Line 46 — `def _resolve_project_artifacts_dir()`
-
-- **Except:** `Exception`
-- **Why it exists / risk:** Try/return fallback — exception swallowed to return None/False/default.
-- **Action:** Convert to `log.debug(..., exc_info=True)` when logger is in scope; never add new silent passes.
-
-```python
-   44|             return Path(core_paths.get_artifact_dir()).expanduser().resolve()
-   45|         return core_paths.get_paths().artifacts_dir.resolve()
-   46|     except Exception:
-   47|         pass
-```
-
-### Line 154 — `def _clear_memory_singletons()`
+### Line 4552 — `def get_dashboard_counts()`
 
 - **Except:** `Exception`
 - **Why it exists / risk:** Optional import or platform module — failure means feature degrades; should log at debug (converted where safe).
 - **Action:** Convert to `log.debug(..., exc_info=True)` when logger is in scope; never add new silent passes.
 
 ```python
-  152| 
-  153|         _si._self_engine = None
-  154|     except Exception:
-  155|         pass
-```
-
-### Line 136 — `def _flush_recall_writes_locked()`
-
-- **Except:** `Exception`
-- **Why it exists / risk:** Best-effort teardown (close socket/file/mpv) — non-fatal but should log for diagnosis.
-- **Action:** Convert to `log.debug(..., exc_info=True)` when logger is in scope; never add new silent passes.
-
-```python
-  134|             finally:
-  135|                 conn.close()
-  136|         except Exception:
-  137|             pass
-```
-
-### Line 76 — `def _pick()`
-
-- **Except:** `Exception`
-- **Why it exists / risk:** Try/return fallback — exception swallowed to return None/False/default.
-- **Action:** Convert to `log.debug(..., exc_info=True)` when logger is in scope; never add new silent passes.
-
-```python
-   74|             try:
-   75|                 return Path(fn()).expanduser().resolve()
-   76|             except Exception:
-   77|                 pass
-```
-
-### Line 4559 — `def get_dashboard_counts()`
-
-- **Except:** `Exception`
-- **Why it exists / risk:** Optional import or platform module — failure means feature degrades; should log at debug (converted where safe).
-- **Action:** Convert to `log.debug(..., exc_info=True)` when logger is in scope; never add new silent passes.
-
-```python
- 4557|             if _eli_table_exists(conn, "semantic"):
- 4558|                 try: semantic_count = conn.execute("SELECT COUNT(*) FROM semantic").fetchone()[0] or 0
- 4559|                 except Exception: pass
- 4560| 
-```
-
-### Line 131 — `def _flush_recall_writes_locked()`
-
-- **Except:** `Exception`
-- **Why it exists / risk:** Unclassified best-effort block — review whether failure should surface to operator logs.
-- **Action:** Convert to `log.debug(..., exc_info=True)` when logger is in scope; never add new silent passes.
-
-```python
-  129|                     try:
-  130|                         fn(conn)
-  131|                     except Exception:
-  132|                         pass
+ 4550|             if _eli_table_exists(conn, "semantic"):
+ 4551|                 try: semantic_count = conn.execute("SELECT COUNT(*) FROM semantic").fetchone()[0] or 0
+ 4552|                 except Exception: pass
+ 4553| 
 ```
 
 ## `eli/memory/memory_service.py` (3)

@@ -24,6 +24,9 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional, Union
 
 from eli.core import paths as core_paths
+from eli.utils.log import get_logger
+
+log = get_logger(__name__)
 
 
 # ---------------------------------------------------------------------
@@ -44,9 +47,7 @@ def _resolve_project_artifacts_dir() -> Path:
             return Path(core_paths.get_artifact_dir()).expanduser().resolve()
         return core_paths.get_paths().artifacts_dir.resolve()
     except Exception:
-        pass
-
-    v = os.environ.get("ELI_ARTIFACTS_DIR") or os.environ.get("ELI_ARTIFACTS")
+        log.debug("[MEMORY] core_paths artifact dir lookup failed", exc_info=True)
     if v:
         return Path(v).expanduser().resolve()
 
@@ -74,8 +75,7 @@ def resolve_db_paths() -> DBPaths:
             try:
                 return Path(fn()).expanduser().resolve()
             except Exception:
-                pass
-        return Path(fallback).expanduser().resolve()
+                log.debug("[MEMORY] path resolver %s failed", name, exc_info=True)
 
     return DBPaths(
         user_db=_pick("get_user_db_path", _path_value(paths, 'user_db')),
@@ -129,15 +129,11 @@ def _flush_recall_writes_locked() -> None:
                     try:
                         fn(conn)
                     except Exception:
-                        pass
-                conn.commit()
+                        log.debug("[MEMORY] recall write callback failed", exc_info=True)
             finally:
                 conn.close()
         except Exception:
-            pass
-
-
-def flush_recall_writes() -> None:
+            log.debug("[MEMORY] recall write batch flush failed", exc_info=True)
     """Public flush — call on idle or shutdown to drain the queue."""
     with _recall_write_lock:
         _flush_recall_writes_locked()
@@ -152,7 +148,7 @@ def _clear_memory_singletons() -> None:
 
         _si._self_engine = None
     except Exception:
-        pass
+        log.debug("[MEMORY] self_improvement singleton reset failed", exc_info=True)
 
 
 _this_module = _sys.modules[__name__]
@@ -222,9 +218,6 @@ def get_memory_authority() -> Dict[str, str]:
 
 import re as _re_sql
 
-
-from eli.utils.log import get_logger
-log = get_logger(__name__)
 
 # Allowlist of known table names used in schema migrations.
 _KNOWN_TABLES: frozenset = frozenset({
