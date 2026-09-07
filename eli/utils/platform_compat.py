@@ -529,18 +529,193 @@ def known_user_dir(name: str) -> str:
     return ""
 
 
-def open_url(url: str) -> bool:
-    """Open a URL in the default browser. Cross-platform."""
-    import webbrowser
-    try:
-        if ANDROID and shutil.which("termux-open-url"):
-            subprocess.Popen(["termux-open-url", url], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+def _executable_paths(name: str) -> list[str]:
+    """Resolve an executable — PATH first, then common install locations."""
+    found: list[str] = []
+    w = shutil.which(name)
+    if w:
+        found.append(w)
+    if LINUX and not ANDROID:
+        extras = {
+            "chromium": ("/snap/bin/chromium", "/usr/bin/chromium", "/usr/bin/chromium-browser"),
+            "chromium-browser": ("/usr/bin/chromium-browser", "/snap/bin/chromium"),
+            "firefox": ("/snap/bin/firefox", "/usr/bin/firefox", "/usr/lib/firefox/firefox"),
+            "google-chrome": ("/usr/bin/google-chrome", "/usr/bin/google-chrome-stable"),
+            "google-chrome-stable": ("/usr/bin/google-chrome-stable",),
+        }.get(name, ())
+        for path in extras:
+            if path not in found and os.path.isfile(path) and os.access(path, os.X_OK):
+                found.append(path)
+    return found
+
+
+def _browser_override_argv(url: str) -> list[str] | None:
+    """Build argv from ELI_BROWSER (all OSes). Returns None if unset/invalid."""
+    override = (os.environ.get("ELI_BROWSER") or "").strip()
+    if not override:
+        return None
+    parts = override.split()
+    exe = _executable_paths(parts[0])
+    if not exe:
+        exe = [parts[0]] if os.path.isfile(parts[0]) else []
+    if not exe:
+        return None
+    return [exe[0], *parts[1:], url]
+
+
+def _macos_open_url(url: str) -> bool:
+    override = _browser_override_argv(url)
+    if override:
+        try:
+            subprocess.Popen(override, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
             return True
-        webbrowser.open(url)
+        except Exception:
+            log.debug("suppressed browser override exception", exc_info=True)
+    for app in MACOS_APP_CANDIDATES.get("browser", ()):
+        try:
+            subprocess.Popen(
+                ["open", "-a", app, url],
+                stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+            )
+            return True
+        except Exception:
+            continue
+    try:
+        subprocess.Popen(["open", url], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         return True
     except Exception as e:
-        log.warning(f"Failed to open URL: {e}")
+        log.warning("Failed to open URL on macOS: %s", e)
         return False
+
+
+def _windows_open_url(url: str) -> bool:
+    override = _browser_override_argv(url)
+    if override:
+        try:
+            subprocess.Popen(override, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            return True
+        except Exception:
+            log.debug("suppressed browser override exception", exc_info=True)
+    for browser, flag in (
+        ("chrome", "--new-tab"),
+        ("msedge", "--new-tab"),
+        ("firefox", "-new-tab"),
+        ("brave", "--new-tab"),
+    ):
+        for exe in _executable_paths(browser):
+            try:
+                subprocess.Popen(
+                    [exe, flag, url],
+                    stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                )
+                return True
+            except Exception:
+                continue
+    try:
+        os.startfile(url)
+        return True
+    except Exception:
+        return False
+
+
+def open_url(url: str) -> bool:
+    """Open a URL in the default browser. Cross-platform."""
+    u = str(url or "").strip()
+    if not u:
+        return False
+
+    if LINUX and not ANDROID:
+        if _linux_open_url(u):
+            return True
+
+    if ANDROID and shutil.which("termux-open-url"):
+        try:
+            subprocess.Popen(
+                ["termux-open-url", u],
+                stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+            )
+            return True
+        except Exception as e:
+            log.warning("Failed to open URL via termux-open-url: %s", e)
+            return False
+
+    if MACOS:
+        return _macos_open_url(u)
+
+    if WINDOWS:
+        if _windows_open_url(u):
+            return True
+
+    import webbrowser
+    try:
+        return bool(webbrowser.open(u))
+    except Exception as e:
+        log.warning("Failed to open URL: %s", e)
+        return False
+
+
+def _linux_open_url(url: str) -> bool:
+    """Open a URL on Linux without tripping Firefox's 'already running' dialog.
+
+    Prefer ``firefox -new-tab`` (remote to a live instance) over launching a
+    second profile. When Firefox is hung, fall through to Chromium/Brave/etc.
+    """
+    override = (os.environ.get("ELI_BROWSER") or "").strip()
+    if override:
+        parts = override.split()
+        for exe in _executable_paths(parts[0]):
+            argv = [exe, *parts[1:], url]
+            if _linux_try_browser(argv):
+                return True
+        if os.path.isfile(parts[0]):
+            argv = [parts[0], *parts[1:], url]
+            if _linux_try_browser(argv):
+                return True
+
+    argv_list: list[list[str]] = []
+    for name in (
+        "google-chrome", "google-chrome-stable", "chromium", "chromium-browser",
+        "brave-browser", "microsoft-edge", "opera", "vivaldi",
+    ):
+        for exe in _executable_paths(name):
+            argv_list.append([exe, "--new-tab", url])
+    for exe in _executable_paths("firefox"):
+        argv_list.append([exe, "-new-tab", url])
+    if shutil.which("xdg-open"):
+        argv_list.append(["xdg-open", url])
+    if shutil.which("gio"):
+        argv_list.append(["gio", "open", url])
+
+    for argv in argv_list:
+        if _linux_try_browser(argv):
+            return True
+    return False
+
+
+def _linux_try_browser(argv: list[str]) -> bool:
+    if not argv or not argv[0]:
+        return False
+    base = os.path.basename(argv[0])
+    timeout = 4.0 if base == "firefox" else 8.0
+    try:
+        r = subprocess.run(
+            argv, capture_output=True, text=True, timeout=timeout, check=False,
+        )
+        err = f"{r.stderr or ''}{r.stdout or ''}".lower()
+        if "already running" in err and "not responding" in err:
+            return False
+        if r.returncode == 0:
+            return True
+        if base in {"xdg-open", "gio"}:
+            return True
+    except subprocess.TimeoutExpired:
+        # Only treat a timeout as success for detached launchers, not Firefox.
+        if base in {"xdg-open", "gio", "google-chrome", "chromium", "chromium-browser",
+                    "brave-browser", "microsoft-edge", "opera", "vivaldi"}:
+            return True
+    except Exception:
+        log.debug("suppressed browser launch exception", exc_info=True)
+    return False
 
 
 def open_file(path: str | Path) -> bool:
@@ -721,20 +896,146 @@ def get_clipboard() -> str:
     return ""
 
 
+def _linux_get_volume() -> int | None:
+    import re
+    if shutil.which("wpctl"):
+        try:
+            out = subprocess.check_output(
+                ["wpctl", "get-volume", "@DEFAULT_AUDIO_SINK@"],
+                text=True, stderr=subprocess.DEVNULL,
+            )
+            m = re.search(r"(\d+(?:\.\d+)?)", out)
+            if m:
+                return int(round(float(m.group(1)) * (100 if float(m.group(1)) <= 1.0 else 1)))
+        except Exception:
+            log.debug("wpctl get-volume failed", exc_info=True)
+    if shutil.which("pactl"):
+        try:
+            out = subprocess.check_output(
+                ["pactl", "get-sink-volume", "@DEFAULT_SINK@"],
+                text=True, stderr=subprocess.DEVNULL,
+            )
+            m = re.search(r"(\d+)%", out)
+            return int(m.group(1)) if m else None
+        except Exception:
+            log.debug("pactl get-sink-volume failed", exc_info=True)
+    if shutil.which("amixer"):
+        try:
+            out = subprocess.check_output(
+                ["amixer", "get", "Master"],
+                text=True, stderr=subprocess.DEVNULL,
+            )
+            m = re.search(r"(\d+)%", out)
+            return int(m.group(1)) if m else None
+        except Exception:
+            log.debug("amixer get Master failed", exc_info=True)
+    return None
+
+
+def _linux_set_volume(level: int) -> bool:
+    level = max(0, min(100, int(level)))
+    if shutil.which("wpctl"):
+        try:
+            subprocess.run(
+                ["wpctl", "set-volume", "@DEFAULT_AUDIO_SINK@", f"{level}%"],
+                check=True, capture_output=True,
+            )
+            return True
+        except Exception:
+            log.debug("wpctl set-volume failed", exc_info=True)
+    if shutil.which("pactl"):
+        try:
+            subprocess.run(
+                ["pactl", "set-sink-volume", "@DEFAULT_SINK@", f"{level}%"],
+                check=True, capture_output=True,
+            )
+            return True
+        except Exception:
+            log.debug("pactl set-sink-volume failed", exc_info=True)
+    if shutil.which("amixer"):
+        try:
+            subprocess.run(
+                ["amixer", "sset", "Master", f"{level}%"],
+                check=True, capture_output=True,
+            )
+            return True
+        except Exception:
+            log.debug("amixer sset failed", exc_info=True)
+    return False
+
+
+def _linux_adjust_volume(delta: int) -> bool:
+    sign = "+" if delta > 0 else "-"
+    mag = abs(int(delta))
+    if shutil.which("wpctl"):
+        try:
+            subprocess.run(
+                ["wpctl", "set-volume", "@DEFAULT_AUDIO_SINK@", f"{mag}%{sign}"],
+                check=True, capture_output=True,
+            )
+            return True
+        except Exception:
+            log.debug("wpctl adjust-volume failed", exc_info=True)
+    if shutil.which("pactl"):
+        try:
+            subprocess.run(
+                ["pactl", "set-sink-volume", "@DEFAULT_SINK@", f"{sign}{mag}%"],
+                check=True, capture_output=True,
+            )
+            return True
+        except Exception:
+            log.debug("pactl adjust-volume failed", exc_info=True)
+    if shutil.which("amixer"):
+        try:
+            subprocess.run(
+                ["amixer", "sset", "Master", f"{mag}%{sign}"],
+                check=True, capture_output=True,
+            )
+            return True
+        except Exception:
+            log.debug("amixer adjust failed", exc_info=True)
+    return False
+
+
+def _linux_set_muted(muted: bool) -> bool:
+    flag = "1" if muted else "0"
+    if shutil.which("wpctl"):
+        try:
+            subprocess.run(
+                ["wpctl", "set-mute", "@DEFAULT_AUDIO_SINK@", flag],
+                check=True, capture_output=True,
+            )
+            return True
+        except Exception:
+            log.debug("wpctl set-mute failed", exc_info=True)
+    if shutil.which("pactl"):
+        try:
+            subprocess.run(
+                ["pactl", "set-sink-mute", "@DEFAULT_SINK@", flag],
+                check=True, capture_output=True,
+            )
+            return True
+        except Exception:
+            log.debug("pactl set-sink-mute failed", exc_info=True)
+    if shutil.which("amixer"):
+        try:
+            subprocess.run(
+                ["amixer", "sset", "Master", "mute" if muted else "unmute"],
+                check=True, capture_output=True,
+            )
+            return True
+        except Exception:
+            log.debug("amixer mute failed", exc_info=True)
+    return False
+
+
 def get_volume() -> int | None:
     """Get current system volume (0-100). Returns None if unavailable."""
     try:
         if ANDROID:
             return None
         if LINUX:
-            if shutil.which("pactl"):
-                out = subprocess.check_output(
-                    ["pactl", "get-sink-volume", "@DEFAULT_SINK@"],
-                    text=True, stderr=subprocess.DEVNULL
-                )
-                import re
-                m = re.search(r"(\d+)%", out)
-                return int(m.group(1)) if m else None
+            return _linux_get_volume()
         elif MACOS:
             out = subprocess.check_output(
                 ["osascript", "-e", "output volume of (get volume settings)"],
@@ -755,12 +1056,7 @@ def set_volume(level: int) -> bool:
         if ANDROID:
             return False
         if LINUX:
-            if shutil.which("pactl"):
-                subprocess.run(
-                    ["pactl", "set-sink-volume", "@DEFAULT_SINK@", f"{level}%"],
-                    check=True, capture_output=True
-                )
-                return True
+            return _linux_set_volume(level)
         elif MACOS:
             subprocess.run(
                 ["osascript", "-e", f"set volume output volume {level}"],
@@ -779,13 +1075,8 @@ def adjust_volume(delta: int) -> bool:
     try:
         if ANDROID:
             return False
-        if LINUX and shutil.which("pactl"):
-            sign = "+" if delta > 0 else "-"
-            subprocess.run(
-                ["pactl", "set-sink-volume", "@DEFAULT_SINK@", f"{sign}{abs(delta)}%"],
-                check=True, capture_output=True
-            )
-            return True
+        if LINUX:
+            return _linux_adjust_volume(delta)
         elif MACOS:
             current = get_volume()
             if current is not None:
@@ -845,12 +1136,7 @@ def set_muted(muted: bool) -> bool:
         if ANDROID:
             return False
         if LINUX:
-            if shutil.which("pactl"):
-                subprocess.run(
-                    ["pactl", "set-sink-mute", "@DEFAULT_SINK@", "1" if muted else "0"],
-                    check=True, capture_output=True
-                )
-                return True
+            return _linux_set_muted(muted)
         elif MACOS:
             subprocess.run(
                 ["osascript", "-e", f"set volume output muted {'true' if muted else 'false'}"],

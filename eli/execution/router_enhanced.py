@@ -3495,6 +3495,7 @@ def route(text: str, _clause_depth: int = 0) -> Dict[str, Any]:
         "play": ("PLAY_MEDIA", 0.88),
         "resume": ("PLAY_MEDIA", 0.88),
         "stop": ("STOP_MEDIA", 0.85),
+        "top": ("STOP_MEDIA", 0.82),
         "next": ("NEXT_MEDIA", 0.88),
         "next song": ("NEXT_MEDIA", 0.88),
         "next track": ("NEXT_MEDIA", 0.88),
@@ -3502,6 +3503,8 @@ def route(text: str, _clause_depth: int = 0) -> Dict[str, Any]:
         "prev": ("PREVIOUS_MEDIA", 0.88),
         "previous song": ("PREVIOUS_MEDIA", 0.88),
         "previous track": ("PREVIOUS_MEDIA", 0.88),
+        "shuffle": ("SHUFFLE_MEDIA", 0.9),
+        "repeat": ("REPEAT_MEDIA", 0.9),
     }
     if low in exact_bare_media:
         action, conf = exact_bare_media[low]
@@ -3533,11 +3536,11 @@ def route(text: str, _clause_depth: int = 0) -> Dict[str, Any]:
                        entities={"query": query, "target": target})
 
     # "shuffle" / "shuffle music" / "shuffle on"
-    if re.match(r"^shuffle\b", low):
+    if re.match(r"^shuffle(?:\s+(?:on|off|music))?\b", low):
         return _mk("SHUFFLE_MEDIA", {}, 0.95, matched_by="media.shuffle")
 
-    # "repeat" / "repeat track" / "loop"
-    if re.match(r"^(?:repeat|loop)\b", low):
+    # "repeat" / "repeat track" / "loop" / "repeat all"
+    if re.match(r"^(?:repeat|loop)(?:\s+(?:one|track|all|playlist|off))?\b", low):
         return _mk("REPEAT_MEDIA", {}, 0.95, matched_by="media.repeat")
 
     # ------------------------------------------------------------

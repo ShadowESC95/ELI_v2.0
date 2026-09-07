@@ -21,6 +21,8 @@ PATTERNS = (
     (re.compile(r'subprocess\.(run|Popen|call)\(\[\s*"wmctrl"'), "direct wmctrl call — prefer portable_app_control"),
     (re.compile(r'subprocess\.(run|Popen|call)\(\[\s*"xdotool"'), "direct xdotool call — gate with LINUX or use portable_app_control"),
     (re.compile(r'subprocess\.(run|Popen|call)\(\[\s*"pactl"'), "direct pactl call — prefer platform_compat"),
+    (re.compile(r'from eli\.tools\.media\.youtube import'), "missing YouTubeController module — use eli.integrations.media.youtube_playback"),
+    (re.compile(r'"browser"\s*:\s*"chromium"'), "hardcoded chromium browser — use platform_compat.open_url or ELI_BROWSER"),
 )
 
 ALLOWLIST = (
@@ -29,11 +31,13 @@ ALLOWLIST = (
     "eli/perception/os_controller.py",
     "eli/perception/audio_stt.py",
     "eli/utils/platform_compat.py",
+    "eli/execution/effectors/system_helpers.py",
     "eli/memory/system_index.py",
     "eli/plugins/security_scan.py",
     "eli/runtime/grounded_remediation.py",
     "eli/cognition/persona_updater.py",
     "eli/cognition/output_governor.py",
+    "eli/execution/effectors/system_open.py",
 )
 
 

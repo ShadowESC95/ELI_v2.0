@@ -93,7 +93,8 @@ input) — not on a headless server or Android · ➖ N/A on that platform
 | Open URL / file / app | ✅ | ✅ | ✅ | ✅ (termux) | ✅ (URL/file) |
 | Desktop notifications | ✅ | ✅ | ✅ (plyer) | ✅ (termux) | ➖ |
 | Clipboard get/set | ✅ | ✅ | ✅ | ✅ (termux) | ➖ |
-| Volume / mute | ✅ (pactl) | ✅ (osascript) | ✅ (pycaw) | ➖ | ➖ |
+| Volume / mute | ✅ (wpctl/pactl/amixer) | ✅ (osascript) | ✅ (pycaw) | ➖ | ➖ |
+| YouTube background (mpv+yt-dlp) | ✅ | ⚠️ (needs mpv) | ⚠️ (needs mpv) | ➖ | ➖ |
 | Play sound | ✅ | ✅ | ✅ | ✅ (termux) | ➖ |
 | Screenshot | ✅ | ✅ | ✅ | 🖥️ | ➖ |
 | Type text / key press | ✅ | ✅ (pyautogui) | ✅ (pyautogui) | 🖥️ | ➖ |
@@ -107,6 +108,10 @@ input) — not on a headless server or Android · ➖ N/A on that platform
 | LoRA fine-tuning (`training/`) | ✅ | ⚠️ (CPU/MPS) | ✅ | ➖ | ✅ |
 
 ## Notes on the ⚠️ rows (honest limitations)
+- **Startup capability report** — at boot, ELI logs what works on *this* machine (GPU,
+  YouTube mpv readiness, browsers found, volume backend, window-control tools). Visible
+  in logs and via `SELF_TEST` / awareness briefing. Configure media with `ELI_BROWSER`,
+  `ELI_YT_PLAYER_CLIENTS`, etc. (see `.env.full.example`).
 - **Media control** uses `playerctl` (MPRIS) on Linux; macOS uses AppleScript + URI
   schemes for Spotify and virtual media keys for transport; Windows uses URI schemes +
   virtual media keys; Android/Termux uses `termux-open-url` / intents for Spotify and

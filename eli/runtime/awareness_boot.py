@@ -41,6 +41,9 @@ class AwarenessState:
         self.code_report_briefing: str = ""
         self.persona_cleaned: bool = False
         self.boot_time: float = 0.0
+        self.platform_report: str = ""
+        self.media_capabilities: Dict[str, Any] = {}
+        self.hardware_capabilities: Dict[str, Any] = {}
         self._cap_sync = None
         self._code_mon = None
 
@@ -139,6 +142,9 @@ class AwarenessState:
             lines.append("No code changes detected since last check.")
         if self.persona_cleaned:
             lines.append("\nPersona auto-overlay was cleaned (duplicates/noise pruned).")
+        if self.platform_report:
+            lines.append("\nPlatform capabilities:")
+            lines.append(self.platform_report)
         lines.append(f"\nBoot time: {self.boot_time:.2f}s")
         return "\n".join(lines)
 
@@ -234,6 +240,22 @@ def boot_awareness(
         update_persona_overlay(memory=memory)
     except Exception as exc:
         log.warning("awareness: persona update failed: %s", exc)
+
+    # 5. Platform / media / hardware capability probe
+    try:
+        from eli.integrations.media.capabilities import (
+            detect_hardware_capabilities,
+            detect_media_capabilities,
+            platform_capability_report,
+        )
+        state.media_capabilities = detect_media_capabilities()
+        state.hardware_capabilities = detect_hardware_capabilities()
+        state.platform_report = platform_capability_report(verbose=True)
+        if not quiet:
+            for line in state.platform_report.splitlines():
+                log.info("awareness: %s", line)
+    except Exception as exc:
+        log.warning("awareness: platform capability probe failed: %s", exc)
 
     state.boot_time = time.time() - t0
 

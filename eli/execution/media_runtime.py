@@ -214,37 +214,26 @@ def youtube_play(query: str) -> str:
 
     if not shutil.which("mpv"):
         return "mpv is not installed; cannot play YouTube locally."
+    if not shutil.which("yt-dlp"):
+        return "yt-dlp is not installed; cannot play YouTube locally."
+
+    from eli.integrations.media.youtube_playback import attempt_youtube_mpv
+    from eli.integrations.media.cross_platform import mpv_socket_path
 
     sock = _mpv_socket()
-
-    # Stop previous ELI-controlled mpv instance if possible.
     try:
         _mpv_ipc("close")
         time.sleep(0.15)
     except Exception:
         pass
 
-    volume = os.environ.get("ELI_YOUTUBE_MPV_VOLUME", "35").strip() or "35"
-
-    argv = [
-        "mpv",
-        "--no-terminal",
-        "--force-window=yes",
-        f"--input-ipc-server={sock}",
-        f"--volume={volume}",
-        "ytdl://ytsearch1:" + q,
-    ]
-
-    try:
-        subprocess.Popen(
-            argv,
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
-            start_new_session=True,
-        )
-        return f"YouTube: playing first result via mpv: {q}"
-    except Exception as e:
-        return f"Could not start YouTube/mpv playback: {e}"
+    result = attempt_youtube_mpv(q, ipc_path=sock)
+    if result.get("played"):
+        return f"YouTube: playing via mpv: {q}"
+    if result.get("pending"):
+        return f"YouTube: starting {q} on mpv — still resolving."
+    err = result.get("error") or "playback failed"
+    return f"Could not play YouTube via mpv: {err}"
 
 
 def open_spotify() -> str:

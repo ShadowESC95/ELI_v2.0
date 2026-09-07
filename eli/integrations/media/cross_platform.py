@@ -192,7 +192,143 @@ def spotify_search(query: str, prefer: str | None = None) -> bool:
     if prefer in ("playlist", "playlists"):
         if spotify_open_uri(f"https://open.spotify.com/search/{q}/playlists"):
             return True
+    if prefer in ("album", "albums"):
+        if spotify_open_uri(f"https://open.spotify.com/search/{q}/albums"):
+            return True
+    if prefer in ("artist", "artists"):
+        if spotify_open_uri(f"https://open.spotify.com/search/{q}/artists"):
+            return True
+    if prefer in ("track", "tracks"):
+        if spotify_open_uri(f"https://open.spotify.com/search/{q}/tracks"):
+            return True
     return spotify_open_uri(f"spotify:search:{q}")
+
+
+def _spotify_scrape_uri(name: str, kind: str) -> str | None:
+    """Resolve a playlist/album/artist name to spotify:<kind>:<id> via search HTML."""
+    import re as _re
+    import urllib.request as _ureq
+
+    q = str(name or "").strip()
+    if not q:
+        return None
+    plural = {"playlist": "playlists", "album": "albums", "artist": "artists"}.get(kind, kind)
+    url = f"https://open.spotify.com/search/{urllib.parse.quote(q)}/{plural}"
+    patterns = {
+        "playlist": (
+            r'"uri"\s*:\s*"spotify:playlist:([A-Za-z0-9]+)"',
+            r'spotify:playlist:([A-Za-z0-9]+)',
+        ),
+        "album": (
+            r'"uri"\s*:\s*"spotify:album:([A-Za-z0-9]+)"',
+            r'spotify:album:([A-Za-z0-9]+)',
+        ),
+        "artist": (
+            r'"uri"\s*:\s*"spotify:artist:([A-Za-z0-9]+)"',
+            r'spotify:artist:([A-Za-z0-9]+)',
+        ),
+    }.get(kind, ())
+    try:
+        req = _ureq.Request(
+            url,
+            headers={"User-Agent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36"},
+        )
+        with _ureq.urlopen(req, timeout=8) as resp:
+            html = resp.read().decode("utf-8", errors="ignore")
+        for pat in patterns:
+            m = _re.search(pat, html)
+            if m:
+                return f"spotify:{kind}:{m.group(1)}"
+    except Exception:
+        log.debug("suppressed exception", exc_info=True)
+    return None
+
+
+def spotify_resolve_playlist_uri(name: str) -> str | None:
+    return _spotify_scrape_uri(name, "playlist")
+
+
+def spotify_resolve_album_uri(name: str, artist: str | None = None) -> str | None:
+    query = f"{name} {artist}".strip() if artist else name
+    return _spotify_scrape_uri(query, "album")
+
+
+def spotify_resolve_artist_uri(name: str) -> str | None:
+    return _spotify_scrape_uri(name, "artist")
+
+
+def spotify_open_liked_songs() -> bool:
+    """Open the user's Liked Songs collection — try every URI form Spotify accepts."""
+    uris = (
+        "spotify:collection:tracks",
+        "https://open.spotify.com/collection/tracks",
+    )
+    for uri in uris:
+        if spotify_open_uri(uri):
+            return True
+    if pc.LINUX and shutil.which("playerctl"):
+        ok, _, _ = _run(["playerctl", "-p", "spotify", "open", "spotify:collection:tracks"])
+        if ok:
+            return True
+    return False
+
+
+def spotify_shuffle(player: str | None = None, mode: str = "Toggle") -> dict[str, Any]:
+    """Toggle or set shuffle via playerctl."""
+    p = (player or "spotify").strip() or "spotify"
+    if pc.LINUX and shutil.which("playerctl"):
+        ok, out, err = _run(["playerctl", "-p", p, "shuffle", mode], timeout=5)
+        if ok:
+            state = out or mode
+            msg = f"🔀 Shuffle {state.lower()} — {p}"
+            return {"ok": True, "player": p, "content": msg, "response": msg}
+        return {"ok": False, "player": p, "error": err or "shuffle failed",
+                "content": f"Couldn't toggle shuffle on {p}.",
+                "response": f"Couldn't toggle shuffle on {p}."}
+    if pc.MACOS:
+        ok, _ = _macos_osascript(
+            'tell application "Spotify"\n'
+            '  if not running then return "off"\n'
+            '  set shuffling to not shuffling\n'
+            '  return shuffling as string\n'
+            'end tell'
+        )
+        if ok:
+            msg = f"🔀 Shuffle toggled — Spotify"
+            return {"ok": True, "player": "spotify", "content": msg, "response": msg}
+    return {"ok": False, "error": "shuffle unavailable",
+            "content": "Shuffle control isn't available on this system.",
+            "response": "Shuffle control isn't available on this system."}
+
+
+def spotify_set_loop(player: str | None = None, mode: str | None = None) -> dict[str, Any]:
+    """Set or cycle repeat/loop mode (None, Track, Playlist)."""
+    p = (player or "spotify").strip() or "spotify"
+    current = spotify_loop_status()
+    if mode is None:
+        mode = {"None": "Track", "Track": "Playlist", "Playlist": "None"}.get(current, "Track")
+    if pc.LINUX and shutil.which("playerctl"):
+        ok, out, err = _run(["playerctl", "-p", p, "loop", mode], timeout=5)
+        if ok:
+            state = out or mode
+            msg = f"🔁 Repeat {state.lower()} — {p}"
+            return {"ok": True, "player": p, "content": msg, "response": msg}
+        return {"ok": False, "player": p, "error": err or "loop failed",
+                "content": f"Couldn't set repeat on {p}.",
+                "response": f"Couldn't set repeat on {p}."}
+    if pc.MACOS:
+        script = {
+            "None": 'set repeating to false',
+            "Track": 'set repeating to true',
+            "Playlist": 'set repeating to true',
+        }.get(mode, 'set repeating to false')
+        ok, _ = _macos_osascript(f'tell application "Spotify" to {script}')
+        if ok:
+            msg = f"🔁 Repeat {mode.lower()} — Spotify"
+            return {"ok": True, "player": "spotify", "content": msg, "response": msg}
+    return {"ok": False, "error": "repeat unavailable",
+            "content": "Repeat control isn't available on this system.",
+            "response": "Repeat control isn't available on this system."}
 
 
 def spotify_play() -> bool:
@@ -412,6 +548,7 @@ def mpv_ipc_send(
                                 return j["data"]
                         except Exception:
                             log.debug("suppressed exception", exc_info=True)
+                    return None
                 return True
         except Exception:
             return None if want_response else False
@@ -434,6 +571,7 @@ def mpv_ipc_send(
                             return j["data"]
                     except Exception:
                         log.debug("suppressed exception", exc_info=True)
+                return None
         return True
     except Exception:
         return None if want_response else False

@@ -47,6 +47,13 @@ mkdir -p "$HOME/.local/bin"
 ln -sfn "$ROOT/bin/elix" "$HOME/.local/bin/elix"
 
 echo
+echo "=== Optional media playback (YouTube background audio, Spotify transport) ==="
+echo "Linux:   sudo apt install mpv yt-dlp playerctl  # or your distro equivalent"
+echo "macOS:   brew install mpv yt-dlp"
+echo "Windows: install mpv + yt-dlp and add to PATH"
+echo "Set ELI_BROWSER=chromium (or firefox, msedge, etc.) if the default browser fails."
+
+echo
 echo "=== Installer complete ==="
 echo "Run:"
 echo "  cd \"$ROOT\""

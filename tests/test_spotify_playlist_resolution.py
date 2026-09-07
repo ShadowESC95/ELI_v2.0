@@ -19,7 +19,26 @@ def test_resolve_playlist_uri_from_search_html(monkeypatch):
             return False
 
     monkeypatch.setattr("urllib.request.urlopen", lambda *a, **k: _Resp())
-    assert ex._spotify_resolve_playlist_uri("workout") == "spotify:playlist:37i9dQZF1DX0XUsuxWHRQd"
+    from eli.integrations.media.cross_platform import spotify_resolve_playlist_uri
+    assert spotify_resolve_playlist_uri("workout") == "spotify:playlist:37i9dQZF1DX0XUsuxWHRQd"
+
+
+def test_resolve_album_uri_from_search_html(monkeypatch):
+    html = '{"uri":"spotify:album:4cQZRveqW4purQgPiE8xNK"}'
+
+    class _Resp:
+        def read(self):
+            return html.encode()
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *a):
+            return False
+
+    monkeypatch.setattr("urllib.request.urlopen", lambda *a, **k: _Resp())
+    from eli.integrations.media.cross_platform import spotify_resolve_album_uri
+    assert spotify_resolve_album_uri("marshall mathers lp", "eminem") == "spotify:album:4cQZRveqW4purQgPiE8xNK"
 
 
 def test_wait_playing_returns_true_when_status_flips(monkeypatch):
