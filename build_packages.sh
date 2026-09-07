@@ -177,6 +177,7 @@ EOF
 }
 
 # ── Pre-flight: tests must pass before producing artifacts ──────────────
+if [ -z "${SKIP_TESTS:-}" ] && [ -z "${SKIP_COMPILE:-}" ]; then
 echo ""
 echo "[pre-flight] Compiling the codebase…"
 # This is a MAINTAINER build tool. If it's run from an unpacked release (no .git),
@@ -187,6 +188,7 @@ else
     echo "[pre-flight] not a git checkout — this is the maintainer release builder;"
     echo "             to USE ELI run ./ELI_Setup.sh (or ./RUN_ELI.sh). Skipping compile."
     ( cd "$PROJECT_ROOT" && find eli api -name '*.py' -print0 2>/dev/null | xargs -0 python3 -m py_compile 2>/dev/null || true )
+fi
 fi
 
 if [ -z "${SKIP_TESTS:-}" ]; then

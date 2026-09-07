@@ -23,12 +23,15 @@ on:
         # stale default here silently caps what the shipped app can load.
         default: "0.3.35"
         required: true
+  push:
+    tags: ["v*"]
 
 permissions:
   contents: write
 
 env:
   PYTHON_VERSION: "3.11"   # must match the frozen app's interpreter
+  LLAMA_VERSION: ${{ github.event.inputs.llama_version || '0.3.35' }}
 
 jobs:
   build:
@@ -72,7 +75,7 @@ jobs:
         run: |
           set -euo pipefail
           python -m pip install --upgrade pip wheel cmake ninja
-          python -m pip wheel "llama-cpp-python==${{ inputs.llama_version }}" \
+          python -m pip wheel "llama-cpp-python==${LLAMA_VERSION}" \
             --no-deps --no-binary llama-cpp-python -w wheelhouse
           ls -lh wheelhouse
           for f in wheelhouse/llama_cpp_python-*.whl; do
@@ -186,7 +189,7 @@ jobs:
           set -euo pipefail
           nvcc --version
           python -m pip install --upgrade pip wheel cmake ninja
-          python -m pip wheel "llama-cpp-python==${{ inputs.llama_version }}" \
+          python -m pip wheel "llama-cpp-python==${LLAMA_VERSION}" \
             --no-deps --no-binary llama-cpp-python -w wheelhouse
           for f in wheelhouse/llama_cpp_python-*.whl; do
             mv "$f" "wheelhouse/cuda-$(basename "$f")"

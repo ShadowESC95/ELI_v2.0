@@ -8,8 +8,10 @@
 # Builds in parallel and uploads to the GitHub Release for that tag:
 #   Windows : ELI-Setup-<v>.exe (Inno Setup) + ELI_v2-<v>-windows-x64.zip (portable, ELI.exe inside)
 #   macOS   : ELI_v2-<v>-macos-arm64.dmg (drag-to-Applications, ad-hoc signed)
-#   Linux   : ELI_v2-<v>-x86_64.AppImage
-# plus SHA256SUMS.txt.
+#   Linux   : ELI_v2-<v>-x86_64.AppImage + ELI_v2-<v>-linux-portable.tar.gz
+#   Source  : eli_v2_0-<v>.whl + sdist .tar.gz + .deb + windows-portable.zip
+#             + windows-portable-full.zip + wheelhouse.tar.gz + WHEELHOUSE.txt
+# plus SHA256SUMS.txt + RELEASE_NOTES.md.
 #
 # Piper TTS voices ARE bundled (pulled from the project's local-assets-v2.1
 # release — same set previous full tarballs shipped). GGUF model weights are
@@ -541,10 +543,108 @@ jobs:
             dist/SHA256SUMS-linux.txt
           if-no-files-found: error
 
+  build-source-artifacts:
+    name: source packages (wheel, sdist, deb, wheelhouse, win-portable)
+    needs: guard
+    runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: Set SOURCE_DATE_EPOCH (reproducible timestamps)
+        run: echo "SOURCE_DATE_EPOCH=$(git log -1 --format=%ct)" >> "$GITHUB_ENV"
+
+      - name: Install build tooling
+        run: |
+          python -m pip install --upgrade pip build wheel zip
+          sudo apt-get update
+          sudo apt-get install -y dpkg-dev zip
+
+      - name: Bootstrap claims artifacts (manifest for wheel integrity)
+        run: |
+          pip install tomli
+          pip install -e ".[server]" --quiet
+          python -m eli.core.init_data
+          python tools/bootstrap_claims_artifacts.py
+
+      - name: Build Python wheel + sdist
+        run: python -m build --wheel --sdist --outdir dist/
+
+      - name: Build Debian package
+        run: |
+          bash packaging/debian/build-deb.sh "${{ needs.guard.outputs.version }}"
+          cp dist/app_packages/*.deb dist/
+
+      - name: Build Windows wheelhouse + lean/full portable zips
+        env:
+          SKIP_TESTS: "1"
+          SKIP_COMPILE: "1"
+        run: |
+          bash build_packages.sh wheelhouse windows-lean windows
+          if [ -d dist/wheelhouse ]; then
+            tar -czf "dist/ELI_v2-${{ needs.guard.outputs.version }}-wheelhouse.tar.gz" -C dist wheelhouse
+            ls -1 dist/wheelhouse > dist/WHEELHOUSE.txt
+          else
+            echo "::error::wheelhouse directory missing after build_packages.sh wheelhouse"
+            exit 1
+          fi
+          test -f "dist/ELI_v2-${{ needs.guard.outputs.version }}-windows-portable.zip" \
+            || { echo "::error::windows lean portable zip missing"; exit 1; }
+          test -f "dist/ELI_v2-${{ needs.guard.outputs.version }}-windows-portable-full.zip" \
+            || { echo "::error::windows full offline portable zip missing"; exit 1; }
+
+      - name: Write release notes stub
+        run: |
+          V=${{ needs.guard.outputs.version }}
+          cat > dist/RELEASE_NOTES.md <<EOF
+          # ELI v2 ${V}
+
+          Full release: frozen bundles (AppImage / dmg / exe) plus pip-installable wheel,
+          source tarball, Debian package, Windows lean portable (source + wheel), and an
+          offline Windows wheelhouse archive. GPU acceleration packs refresh on the
+          \`gpu-packs\` pre-release when this tag is pushed.
+
+          Verify: \`sha256sum -c SHA256SUMS.txt\`
+          EOF
+
+      - name: Checksums + GitHub 2 GiB asset-size guard
+        run: |
+          cd dist
+          for f in *.whl *.deb *.zip *wheelhouse*.tar.gz eli_v2_0-*.tar.gz RELEASE_NOTES.md WHEELHOUSE.txt; do
+            [ -e "$f" ] || continue
+            sha256sum "$f" >> SHA256SUMS-source.txt
+            size=$(stat -c%s "$f")
+            if [ "$size" -ge 2147483648 ]; then
+              echo "::error::$f is $size bytes — over GitHub's 2 GiB release-asset limit."
+              exit 1
+            fi
+          done
+          cat SHA256SUMS-source.txt
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: eli-source
+          retention-days: 3
+          path: |
+            dist/*.whl
+            dist/eli_v2_0-*.tar.gz
+            dist/*.deb
+            dist/*windows-portable.zip
+            dist/*windows-portable-full.zip
+            dist/*wheelhouse.tar.gz
+            dist/WHEELHOUSE.txt
+            dist/RELEASE_NOTES.md
+            dist/SHA256SUMS-source.txt
+          if-no-files-found: error
+
   release:
     name: publish GitHub Release
     if: startsWith(github.ref, 'refs/tags/')
-    needs: [guard, build-windows, build-macos, build-linux]
+    needs: [guard, build-windows, build-macos, build-linux, build-source-artifacts]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/download-artifact@v4
@@ -570,5 +670,9 @@ jobs:
             dist/*.dmg
             dist/*.AppImage
             dist/*.tar.gz
+            dist/*.whl
+            dist/*.deb
+            dist/WHEELHOUSE.txt
+            dist/RELEASE_NOTES.md
             dist/SHA256SUMS.txt
           fail_on_unmatched_files: true

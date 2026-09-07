@@ -1,8 +1,9 @@
 # ELI v2 — Release Pipeline
 
-Tag-triggered, three-OS release automation built on PyInstaller. Pushing a
-version tag builds everything in parallel on GitHub Actions and attaches the
-artifacts to the GitHub Release for that tag.
+Tag-triggered release automation built on PyInstaller. Pushing a version tag
+builds frozen bundles (Windows/macOS/Linux) and source packages (wheel, sdist,
+deb, Windows portables, wheelhouse) in parallel on GitHub Actions and attaches
+everything to the GitHub Release for that tag.
 
 ```
 git tag v2.1.0
@@ -18,7 +19,18 @@ produces on the Release page:
 | `ELI_v2-<v>-macos-arm64.dmg` | macOS Apple Silicon — drag ELI.app to Applications |
 | `ELI_v2-<v>-x86_64.AppImage` | Linux — `chmod +x` and run (needs libfuse2, or `--appimage-extract-and-run`) |
 | `ELI_v2-<v>-linux-portable.tar.gz` | classic source tarball incl. voices (previous-release format) |
+| `eli_v2_0-<v>-py3-none-any.whl` | pip-installable wheel (`pip install eli_v2_0-*.whl[full]`) |
+| `eli_v2_0-<v>.tar.gz` | Python sdist for source installs |
+| `ELI_v2-<v>-amd64.deb` | Debian package (`eli-v2` launcher) |
+| `ELI_v2-<v>-windows-portable.zip` | Windows lean portable (source + wheel + install scripts) |
+| `ELI_v2-<v>-windows-portable-full.zip` | Windows full offline portable (source + wheel + wheelhouse) |
+| `ELI_v2-<v>-wheelhouse.tar.gz` | Offline Windows dependency wheels (cp311/cp312) |
+| `WHEELHOUSE.txt` | Manifest of wheels inside the wheelhouse archive |
+| `RELEASE_NOTES.md` | Release summary stub |
 | `SHA256SUMS.txt` | checksums for all of the above |
+
+Pushing a version tag also refreshes the **`gpu-packs`** pre-release (CUDA +
+Vulkan llama-cpp-python wheels used by `ELI --install-gpu-pack`).
 
 All frozen bundles include the full Piper voice set (pulled at build time from
 the project's `local-assets-v2.1` release) and a second `ELI-Server`
