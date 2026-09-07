@@ -14,6 +14,10 @@ import time
 from pathlib import Path
 from typing import Any
 
+from eli.utils.log import get_logger
+
+log = get_logger(__name__)
+
 _MIN_REFRESH_INTERVAL = 1800.0  # 30 min — don't re-synthesise more often than this
 
 # What counts as ELI's own record-keeping lives in ONE place. This module used
@@ -122,7 +126,7 @@ def refresh_insight(memory: Any = None, force: bool = False) -> str:
             from eli.world.agency.reflection_bridge import send_reflection_to_world
             send_reflection_to_world(out, depth=0.7, source="insight_synthesis")
         except Exception:
-            pass
+            log.debug("suppressed exception", exc_info=True)
         return out
     except Exception:
         return get_cached_insight()

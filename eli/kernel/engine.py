@@ -12045,7 +12045,7 @@ Answer:"""
                 if _is_brief_phatic_prompt(str(user_input or "").strip().lower()):
                     _dossier_qclass = "PHATIC"
             except Exception:
-                pass
+                log.debug("suppressed exception", exc_info=True)
             _session_opener = False
             try:
                 if not getattr(self, "_session_opener_shown", False):
@@ -12054,7 +12054,7 @@ Answer:"""
                         _session_opener = True
                         self._session_opener_shown = True
             except Exception:
-                pass
+                log.debug("suppressed exception", exc_info=True)
             _turn_dossier = assemble_turn_dossier(
                 self,
                 user_input,
