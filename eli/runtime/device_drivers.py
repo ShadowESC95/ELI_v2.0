@@ -38,7 +38,7 @@ def _creds_dir() -> Path:
     try:
         p.chmod(0o700)
     except Exception:
-        pass
+        log.debug("suppressed exception", exc_info=True)
     return p
 
 
@@ -255,7 +255,7 @@ class CastDriver(Driver):
                     if browser:
                         browser.stop_discovery()
                 except Exception:
-                    pass
+                    log.debug("suppressed exception", exc_info=True)
         except Exception as e:
             return {"ok": False, "error": f"cast: {e}"}
         return {"ok": True, "device": dev.get("id"), "command": cmd}
@@ -273,7 +273,7 @@ class CastDriver(Driver):
                     if browser:
                         browser.stop_discovery()
                 except Exception:
-                    pass
+                    log.debug("suppressed exception", exc_info=True)
         except Exception as e:
             return {"ok": False, "error": f"cast: {e}"}
         return {"ok": True, "device": dev.get("id"), "url": url, "content_type": ct}
@@ -655,7 +655,7 @@ class BluetoothDriver(Driver):
                 timeout=8,
             )
         except Exception:
-            pass
+            log.debug("suppressed exception", exc_info=True)
 
     @classmethod
     def _device_in_cache(cls, addr: str) -> bool:

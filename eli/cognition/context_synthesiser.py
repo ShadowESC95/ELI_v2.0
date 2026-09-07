@@ -433,7 +433,7 @@ def build_persona_handoff(
                 f"Always address them as {_bph_name}. Never say you do not know their name."
             )
     except Exception:
-        pass
+        log.debug("suppressed exception", exc_info=True)
 
     # Truthful one-line runtime status — empty when the model loaded
     # exactly as requested on GPU. Non-empty when on CPU or when the
@@ -670,7 +670,7 @@ def build_persona_handoff(
                     if txt:
                         parts.append(f"- {txt[:280]}")
         except Exception:
-            pass
+            log.debug("suppressed exception", exc_info=True)
 
     parts.append(
         "\nFINAL INSTRUCTION:\n"

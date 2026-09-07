@@ -1008,13 +1008,13 @@ def _route_summary_to_profile(cur: "sqlite3.Cursor", llm_summary: str) -> None:
                 "WHERE pattern_type = 'project.current' OR pattern_type LIKE 'project.eli%'"
             )
         except Exception:
-            pass
+            log.debug("suppressed exception", exc_info=True)
         _insert_user_pattern(cur, "project.current", work)
     if _summary_section_meaningful(prefs):
         try:
             cur.execute("DELETE FROM user_patterns WHERE pattern_type = 'preference.session'")
         except Exception:
-            pass
+            log.debug("suppressed exception", exc_info=True)
         _insert_user_pattern(cur, "preference.session", prefs)
 
     # Durable facts accumulate. CURRENT_WORK and USER_PREFERENCES above are both
@@ -1159,7 +1159,7 @@ def write_llm_session_summary(
             try:
                 _route_summary_to_profile(cur, llm_summary)
             except Exception:
-                pass
+                log.debug("suppressed exception", exc_info=True)
         else:
             user_msgs = [_clean(r["content"], 220) for r in rows
                          if str(r["role"]).lower() == "user"]
@@ -1202,7 +1202,7 @@ def write_llm_session_summary(
             synthesize_user_model(user_id=uid, session_summary=str(content or ""),
                                   db_path=db, broker=broker)
         except Exception:
-            pass
+            log.debug("suppressed exception", exc_info=True)
         return {
             "inserted": True,
             "session_id": sid,
@@ -1368,7 +1368,7 @@ def backfill_facts_from_sessions(
             try:
                 progress(i, len(todo), sid)
             except Exception:
-                pass
+                log.debug("suppressed exception", exc_info=True)
 
     con = sqlite3.connect(str(db))
     try:

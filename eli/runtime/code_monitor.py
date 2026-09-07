@@ -240,7 +240,7 @@ class CodeMonitor:
             try:
                 report.changes = _git_diff(self.repo_root, "HEAD~1")
             except Exception:
-                pass
+                log.debug("suppressed exception", exc_info=True)
 
         self._save_state({"git_ref": report.git_ref, "timestamp": report.timestamp})
         return report

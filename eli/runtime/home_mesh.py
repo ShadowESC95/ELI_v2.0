@@ -258,7 +258,7 @@ def _set_mode(mode: str, acting: str = "", reason: str = "") -> None:
             from eli.runtime.device_server import get_server
             get_server().maybe_auto_connect()
         except Exception:
-            pass
+            log.debug("suppressed exception", exc_info=True)
 
 
 def _watch_primary(cfg: Dict[str, Any]) -> None:
@@ -398,7 +398,7 @@ def update_config(patch: Dict[str, Any]) -> Dict[str, Any]:
             try:
                 cfg[key] = float(patch[key])
             except Exception:
-                pass
+                log.debug("suppressed exception", exc_info=True)
     if "peers" in patch and isinstance(patch["peers"], list):
         cfg["peers"] = patch["peers"]
     res = save_config(cfg)

@@ -105,19 +105,19 @@ def _persist_turns(user_text: str, assistant_text: str, *, model: str) -> None:
     try:
         add_memory(f"USER: {user_text}", tags=_normalize_tags("chat,user"))
     except Exception:
-        pass
+        log.debug("suppressed exception", exc_info=True)
 
     try:
         add_memory(f"ASSISTANT: {assistant_text}", tags=_normalize_tags("chat,assistant"))
     except Exception:
-        pass
+        log.debug("suppressed exception", exc_info=True)
 
     # Optional metadata breadcrumb
     try:
         # Some variants use log_event(name, **kwargs); others may not exist.
         log_event("chat_turn", {"model": model})
     except Exception:
-        pass
+        log.debug("suppressed exception", exc_info=True)
 
 
 # ----------------------------
@@ -190,7 +190,7 @@ def chat_response(user: str, *, model: Optional[str] = None, host: Optional[str]
         from eli.runtime.visible_output import visible_text as _eli_visible_text
         out = _eli_visible_text(out, user_input=user)
     except Exception:
-        pass
+        log.debug("suppressed exception", exc_info=True)
 
     _persist_turns(user, out, model=mdl)
     return out

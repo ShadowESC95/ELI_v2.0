@@ -129,7 +129,7 @@ def _call_sites(name: str, max_hits: int = 5) -> List[str]:
             if len(hits) >= max_hits:
                 break
     except Exception:
-        pass
+        log.debug("suppressed exception", exc_info=True)
     return hits
 
 
@@ -141,7 +141,7 @@ def build_prompt(t: Target) -> str:
     try:
         sig = str(inspect.signature(t.func))
     except (ValueError, TypeError):
-        pass
+        log.debug("suppressed exception", exc_info=True)
     sites = _call_sites(t.name)
     return (
         f"Write a single pytest test module for the function `{t.name}` from "
@@ -202,7 +202,7 @@ def verify_test(code: str) -> Dict[str, Any]:
         try:
             os.unlink(path)
         except Exception:
-            pass
+            log.debug("suppressed exception", exc_info=True)
 
 
 # --------------------------------------------------------------------------- #

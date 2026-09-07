@@ -9,6 +9,10 @@ from typing import Any, Dict
 from eli.core.paths import get_paths
 from eli.runtime.identity_validation import normalize_identity_candidate
 
+from eli.utils.log import get_logger
+
+log = get_logger(__name__)
+
 
 _BAD_NAMES = {
     "asking", "[user]", "<user>", "<username>", "<local_user>", "unknown", "none",
@@ -41,7 +45,7 @@ def _read_json(path: Path, default: Dict[str, Any]) -> Dict[str, Any]:
             if isinstance(obj, dict):
                 return obj
     except Exception:
-        pass
+        log.debug("suppressed exception", exc_info=True)
     return dict(default)
 
 
@@ -158,7 +162,7 @@ def set_user_name(name: str, user_id: str | None = None) -> str:
                 _s["user_name"] = n
                 _cfg.write_text(_json.dumps(_s, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
     except Exception:
-        pass
+        log.debug("suppressed exception", exc_info=True)
 
     return n
 
@@ -262,12 +266,12 @@ def set_communication_style(style: str, user_id: str | None = None) -> str:
         st["communication_style"] = s
         save_settings(st)
     except Exception:
-        pass
+        log.debug("suppressed exception", exc_info=True)
     try:
         from eli.cognition.persona_updater import update_persona_overlay
         update_persona_overlay()
     except Exception:
-        pass
+        log.debug("suppressed exception", exc_info=True)
     return s
 
 
@@ -295,7 +299,7 @@ def sync_identity_to_world_model(user_id: str | None = None) -> None:
         wm.identity.updated_at = time.time()
         save_world_model(wm)
     except Exception:
-        pass
+        log.debug("suppressed exception", exc_info=True)
 
 
 def repair_identity_state() -> Dict[str, Any]:

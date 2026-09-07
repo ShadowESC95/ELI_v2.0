@@ -159,7 +159,7 @@ class TasksTab(QWidget):
             self.summary.setText(
                 "  ".join(f"{k}:{v}" for k, v in (st.get("by_status") or {}).items()))
         except Exception:
-            pass
+            log.debug("suppressed exception", exc_info=True)
 
     def _on_select(self):
         jid = self._selected_jid()
@@ -188,7 +188,7 @@ class TasksTab(QWidget):
                 from eli.runtime.scheduled_tasks import forget
                 forget(pid)
         except Exception:
-            pass
+            log.debug("suppressed exception", exc_info=True)
 
     def _cancel_selected(self):
         jid = self._selected_jid()

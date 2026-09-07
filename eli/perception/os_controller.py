@@ -135,7 +135,7 @@ def take_screenshot(region: str = "full") -> Dict[str, Any]:
             if result.returncode == 0:
                 return {"ok": True, "path": path, "content": f"Screenshot saved: {path}", "response": f"Screenshot saved: {path}"}
         except Exception:
-            pass
+            log.debug("suppressed exception", exc_info=True)
 
     # Try generic Wayland tools (grim + slurp)
     if IS_WAYLAND:
@@ -304,7 +304,7 @@ def press_key(key: str) -> Dict[str, Any]:
             pyautogui.hotkey(*pyautogui_parts)
             return {"ok": True, "content": f"Pressed {key_raw}", "response": f"Pressed {key_raw}"}
         except Exception:
-            pass
+            log.debug("suppressed exception", exc_info=True)
 
         xdotool_map = {
             "ctrl": "ctrl",
@@ -329,7 +329,7 @@ def press_key(key: str) -> Dict[str, Any]:
                 subprocess.run(["xdotool", "key", "--clearmodifiers", keyname], check=True, capture_output=True)
                 return {"ok": True, "content": f"Pressed {key_raw}", "response": f"Pressed {key_raw}"}
             except Exception:
-                pass
+                log.debug("suppressed exception", exc_info=True)
         return {
             "ok": False,
             "error": "Keyboard shortcut simulation requires pyautogui or xdotool.",
@@ -361,13 +361,13 @@ def press_key(key: str) -> Dict[str, Any]:
             subprocess.run(["ydotool", "key", f"{keyname}:1", f"{keyname}:0"], check=True, capture_output=True)
             return {"ok": True, "content": f"Pressed {key}", "response": f"Pressed {key}"}
         except Exception as e:
-            pass
+            log.debug("suppressed exception", exc_info=True)
     if _check_tool("xdotool"):
         try:
             subprocess.run(["xdotool", "key", keyname], check=True, capture_output=True)
             return {"ok": True, "content": f"Pressed {key}", "response": f"Pressed {key}"}
         except Exception as e:
-            pass
+            log.debug("suppressed exception", exc_info=True)
     return {"ok": False, "error": "No keyboard simulation tool found (install ydotool or xdotool)", "content": f"Failed to press {key}", "response": f"Failed to press {key}"}
 
 def move_mouse(x: int, y: int) -> Dict[str, Any]:
@@ -378,20 +378,20 @@ def move_mouse(x: int, y: int) -> Dict[str, Any]:
         pyautogui.moveTo(x, y)
         return {"ok": True, "content": f"Moved cursor to ({x},{y})", "response": f"Moved cursor to ({x},{y})"}
     except Exception:
-        pass
+        log.debug("suppressed exception", exc_info=True)
     if IS_WAYLAND and _check_tool("ydotool"):
         try:
             subprocess.run(["ydotool", "mousemove", "--absolute", "-x", str(x), "-y", str(y)],
                            check=True, capture_output=True)
             return {"ok": True, "content": f"Moved cursor to ({x},{y})", "response": f"Moved cursor to ({x},{y})"}
         except Exception:
-            pass
+            log.debug("suppressed exception", exc_info=True)
     if LINUX and _check_tool("xdotool"):
         try:
             subprocess.run(["xdotool", "mousemove", str(x), str(y)], check=True, capture_output=True)
             return {"ok": True, "content": f"Moved cursor to ({x},{y})", "response": f"Moved cursor to ({x},{y})"}
         except Exception:
-            pass
+            log.debug("suppressed exception", exc_info=True)
     return {"ok": False, "error": "No mouse tool (install xdotool or ydotool, or pyautogui).",
             "content": "Couldn't move the cursor.", "response": "Couldn't move the cursor."}
 
@@ -409,7 +409,7 @@ def mouse_click(button: str = "left", x: Optional[int] = None, y: Optional[int] 
                         clicks=2 if double else 1)
         return {"ok": True, "content": f"Performed {_label}", "response": f"Performed {_label}"}
     except Exception:
-        pass
+        log.debug("suppressed exception", exc_info=True)
     _xbtn = {"left": "1", "middle": "2", "right": "3"}.get(btn, "1")
     if LINUX and _check_tool("xdotool"):
         try:
@@ -417,7 +417,7 @@ def mouse_click(button: str = "left", x: Optional[int] = None, y: Optional[int] 
                            check=True, capture_output=True)
             return {"ok": True, "content": f"Performed {_label}", "response": f"Performed {_label}"}
         except Exception:
-            pass
+            log.debug("suppressed exception", exc_info=True)
     if IS_WAYLAND and _check_tool("ydotool"):
         _ybtn = {"left": "0xC0", "right": "0xC1", "middle": "0xC2"}.get(btn, "0xC0")
         try:
@@ -425,7 +425,7 @@ def mouse_click(button: str = "left", x: Optional[int] = None, y: Optional[int] 
             subprocess.run(args, check=True, capture_output=True)
             return {"ok": True, "content": f"Performed {_label}", "response": f"Performed {_label}"}
         except Exception:
-            pass
+            log.debug("suppressed exception", exc_info=True)
     return {"ok": False, "error": "No mouse tool (install xdotool or ydotool, or pyautogui).",
             "content": f"Couldn't {_label}.", "response": f"Couldn't {_label}."}
 
@@ -476,13 +476,13 @@ def type_text(text: str) -> Dict[str, Any]:
             subprocess.run(["ydotool", "type", text], check=True, capture_output=True)
             return {"ok": True, "content": f"Typed: {text}", "response": f"Typed: {text}"}
         except Exception as e:
-            pass
+            log.debug("suppressed exception", exc_info=True)
     if _check_tool("xdotool"):
         try:
             subprocess.run(["xdotool", "type", text], check=True, capture_output=True)
             return {"ok": True, "content": f"Typed: {text}", "response": f"Typed: {text}"}
         except Exception as e:
-            pass
+            log.debug("suppressed exception", exc_info=True)
     return {"ok": False, "error": "No keyboard simulation tool found", "content": f"Failed to type", "response": f"Failed to type"}
 
 # ----------------------------------------------------------------------
@@ -569,5 +569,5 @@ def get_clipboard() -> Optional[str]:
             if proc.returncode == 0:
                 return proc.stdout.strip()
         except Exception:
-            pass
+            log.debug("suppressed exception", exc_info=True)
     return None

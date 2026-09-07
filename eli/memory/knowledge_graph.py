@@ -376,7 +376,7 @@ class KnowledgeGraph:
                     ).fetchall()
                     return [dict(r) for r in rows]
             except Exception:
-                pass
+                log.debug("suppressed exception", exc_info=True)
             # LIKE fallback
             like = f"%{q.lower()}%"
             rows = conn.execute(
@@ -566,7 +566,7 @@ class KnowledgeGraph:
                                     finally:
                                         conn.close()
                             except Exception:
-                                pass
+                                log.debug("suppressed exception", exc_info=True)
                         if self.add_relation("User", predicate, obj, source=source):
                             added += 1
                 elif len(groups) >= 2:

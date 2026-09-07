@@ -380,7 +380,7 @@ def list_voices() -> list[str]:
                 else:
                     voices.append(name)
         except Exception:
-            pass
+            log.debug("suppressed exception", exc_info=True)
     # Character voices (char:calm, char:robotic, …) — base voice + ffmpeg effect chain.
     try:
         from eli.perception import voice_fx
@@ -389,7 +389,7 @@ def list_voices() -> list[str]:
                 seen.add(c["id"])
                 voices.append(c["id"])
     except Exception:
-        pass
+        log.debug("suppressed exception", exc_info=True)
     # Cloned / natural neural voices (clone:<name>) — XTTS-v2.
     try:
         from eli.perception import tts_xtts
@@ -398,7 +398,7 @@ def list_voices() -> list[str]:
                 seen.add(c["id"])
                 voices.append(c["id"])
     except Exception:
-        pass
+        log.debug("suppressed exception", exc_info=True)
     # Natural neural built-in voices (natural:<speaker>) — XTTS-v2, no clone needed.
     try:
         from eli.perception import tts_xtts
@@ -407,7 +407,7 @@ def list_voices() -> list[str]:
                 seen.add(nid)
                 voices.append(nid)
     except Exception:
-        pass
+        log.debug("suppressed exception", exc_info=True)
     sys_voices = [sv for sv in _list_system_voices() if sv not in seen]
     if allow_robotic:
         voices.extend(sys_voices)
@@ -484,7 +484,7 @@ def find_voice_model(voice_name: str) -> Optional[Path]:
             if candidate.exists() and _has_piper_config(candidate):
                 return candidate.resolve()
         except Exception:
-            pass
+            log.debug("suppressed exception", exc_info=True)
 
     # Fallback: any runnable .onnx in search dirs
     for d in _voice_search_dirs():
@@ -493,7 +493,7 @@ def find_voice_model(voice_name: str) -> Optional[Path]:
             if hits:
                 return hits[0].resolve()
         except Exception:
-            pass
+            log.debug("suppressed exception", exc_info=True)
     return None
 
 
@@ -509,7 +509,7 @@ def get_active_voice() -> str:
         if v:
             return v
     except Exception:
-        pass
+        log.debug("suppressed exception", exc_info=True)
     installed = list_voices()
     if _DEFAULT_VOICE in installed:
         return _DEFAULT_VOICE
@@ -528,7 +528,7 @@ def set_active_voice(voice_name: str) -> None:
         from eli.core.runtime_settings import save_settings
         save_settings({"tts_voice": voice_name})
     except Exception:
-        pass
+        log.debug("suppressed exception", exc_info=True)
     # (Piper Python API voice cache was removed; nothing to clear here)
 
 
@@ -557,7 +557,7 @@ def _find_piper_bin() -> Optional[str]:
             if packaged.exists() and packaged.is_file():
                 return str(packaged.resolve())
         except Exception:
-            pass
+            log.debug("suppressed exception", exc_info=True)
 
     from eli.utils.platform_compat import find_executable
 
@@ -800,7 +800,7 @@ def _speak_piper_cli(text, voice_name=None):
         try:
             lock_path.write_text(str(_os.getpid()), encoding="utf-8")
         except Exception:
-            pass
+            log.debug("suppressed exception", exc_info=True)
 
         proc = _run_piper(_want_cuda)
         # GPU not supported by this piper build / CUDA unavailable → remember and
@@ -833,11 +833,11 @@ def _speak_piper_cli(text, voice_name=None):
         try:
             wav.unlink(missing_ok=True)
         except Exception:
-            pass
+            log.debug("suppressed exception", exc_info=True)
         try:
             lock_path.unlink(missing_ok=True)
         except Exception:
-            pass
+            log.debug("suppressed exception", exc_info=True)
 
 
 def _eli_tts_visible_text(text) -> str:
@@ -889,7 +889,7 @@ def _speak_pyttsx3(text: str, voice_name: str) -> bool:
         try:
             eng.stop()
         except Exception:
-            pass
+            log.debug("suppressed exception", exc_info=True)
         return True
     except Exception:
         log.debug("[TTS] pyttsx3 speak failed", exc_info=True)
@@ -964,7 +964,7 @@ def _run_tts_impl(text: str, voice_name: str | None = None) -> bool:
                 reusable=True,
             )
         except Exception:
-            pass
+            log.debug("suppressed exception", exc_info=True)
         # The default is unlimited. If the operator explicitly sets a cap, log it
         # but do not silently pretend the spoken response was complete.
         chunks = chunks[:max_chunks]
@@ -999,7 +999,7 @@ def _run_tts_impl(text: str, voice_name: str | None = None) -> bool:
             reusable=True,
         )
     except Exception:
-        pass
+        log.debug("suppressed exception", exc_info=True)
 
     return ok_all
 
@@ -1091,7 +1091,7 @@ def _piper_render_wav(text: str, model, cfg, piper_bin: str) -> Optional[bytes]:
         try:
             wav.unlink(missing_ok=True)
         except Exception:
-            pass
+            log.debug("suppressed exception", exc_info=True)
 
 
 def _concat_wavs(wavs: list[bytes]) -> Optional[bytes]:

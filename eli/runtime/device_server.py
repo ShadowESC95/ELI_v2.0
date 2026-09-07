@@ -258,7 +258,7 @@ class DeviceServer:
             if config.get("mqtt_auto_connect") is False:
                 return
         except Exception:
-            pass
+            log.debug("suppressed exception", exc_info=True)
 
         def _run():
             try:
@@ -320,7 +320,7 @@ class DeviceServer:
                 import socket as _s
                 hosts.append(_s.gethostbyname(cfg["host"]))
             except Exception:
-                pass
+                log.debug("suppressed exception", exc_info=True)
             netguard.register_local_service(*hosts)
         except Exception:
             log.debug("device_server: netguard registration skipped", exc_info=True)
@@ -331,7 +331,7 @@ class DeviceServer:
                     self._client.loop_stop()
                     self._client.disconnect()
                 except Exception:
-                    pass
+                    log.debug("suppressed exception", exc_info=True)
             # paho 2.x requires a callback API version; fall back to the 1.x signature.
             try:
                 client = mqtt.Client(callback_api_version=mqtt.CallbackAPIVersion.VERSION1)
@@ -359,7 +359,7 @@ class DeviceServer:
                 self._client.loop_stop()
                 self._client.disconnect()
         except Exception:
-            pass
+            log.debug("suppressed exception", exc_info=True)
         self._connected = False
         return {"ok": True}
 
@@ -437,7 +437,7 @@ class DeviceServer:
                 obj = json.loads(state)
                 state = str(obj.get("state", obj.get("value", state)))
             except Exception:
-                pass
+                log.debug("suppressed exception", exc_info=True)
         changed = False
         with self._lock:
             dev = self._devices.get(device_id)
@@ -557,7 +557,7 @@ class DeviceServer:
             from eli.runtime import home_intel
             home_intel.note_usage(row)
         except Exception:
-            pass
+            log.debug("suppressed exception", exc_info=True)
 
     def usage_summary(self, days: int = 14) -> Dict[str, Any]:
         """Aggregate recent device usage into preference signals: per-device counts and
@@ -924,9 +924,9 @@ def _mdns_discover(timeout: float, found: List[dict], errors: List[str]) -> None
                             props[k.decode(errors="ignore")] = (v.decode(errors="ignore")
                                                                 if isinstance(v, (bytes, bytearray)) else v)
                         except Exception:
-                            pass
+                            log.debug("suppressed exception", exc_info=True)
                 except Exception:
-                    pass
+                    log.debug("suppressed exception", exc_info=True)
                 found.append({
                     "name": (name.split("." + type_)[0] or name),
                     "service": type_, "via": "mdns",
@@ -936,7 +936,7 @@ def _mdns_discover(timeout: float, found: List[dict], errors: List[str]) -> None
                     "props": props,
                 })
             except Exception:
-                pass
+                log.debug("suppressed exception", exc_info=True)
         def add_service(self, zc, type_, name): self._grab(zc, type_, name)
         def update_service(self, zc, type_, name): self._grab(zc, type_, name)
         def remove_service(self, zc, type_, name): pass
@@ -955,7 +955,7 @@ def _mdns_discover(timeout: float, found: List[dict], errors: List[str]) -> None
         try:
             zc.close()
         except Exception:
-            pass
+            log.debug("suppressed exception", exc_info=True)
 
 
 # Rolling discovery cache: devices answer at different moments (mDNS especially is bursty),
@@ -999,7 +999,7 @@ def _quick_bt_discover(found: List[dict], errors: List[str]) -> None:
         from eli.runtime.device_drivers import BluetoothDriver
         BluetoothDriver.ensure_adapter_alias()
     except Exception:
-        pass
+        log.debug("suppressed exception", exc_info=True)
     ok, msg = bp.ensure_radio()
     if not ok:
         errors.append(f"Bluetooth radio unavailable — {msg}")
@@ -1144,7 +1144,7 @@ def _enrich_bt_discover_results(found: List[dict]) -> None:
                 seen_names.add(nm)
                 known_by_name[nm] = bp._best_address_for_name(d["name"]) or d["address"]
     except Exception:
-        pass
+        log.debug("suppressed exception", exc_info=True)
 
     for row in found:
         if row.get("kind") != "bluetooth":
@@ -1171,7 +1171,7 @@ def _enrich_bt_discover_results(found: List[dict]) -> None:
                 if k:
                     apply_name(row, k, str(row.get("name") or ""))
             except Exception:
-                pass
+                log.debug("suppressed exception", exc_info=True)
         except Exception:
             continue
     deduped = _dedupe_bluetooth_entries(found)
@@ -1291,12 +1291,12 @@ def bluetooth_control_by_name(name: str, command: str, scan_timeout: float = 3.0
         cands += [d for d in srv.list_devices()
                   if (d.get("driver") == "bluetooth" or d.get("kind") == "bluetooth")]
     except Exception:
-        pass
+        log.debug("suppressed exception", exc_info=True)
     try:
         cands += [d for d in discover(timeout=scan_timeout, include_bluetooth=True).get("found", [])
                   if d.get("kind") == "bluetooth"]
     except Exception:
-        pass
+        log.debug("suppressed exception", exc_info=True)
 
     # Dedupe by address.
     seen: set = set()

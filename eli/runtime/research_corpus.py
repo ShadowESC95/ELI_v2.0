@@ -305,7 +305,7 @@ def _read_metas(corpus: str) -> List[dict]:
             try:
                 out.append(json.loads(line))
             except Exception:
-                pass
+                log.debug("suppressed exception", exc_info=True)
     return out
 
 
@@ -400,7 +400,7 @@ def corpora() -> List[Dict[str, Any]]:
                         srcs.add(row.get("source"))
                         who.add(row.get("added_by") or "anon")
                     except Exception:
-                        pass
+                        log.debug("suppressed exception", exc_info=True)
             out.append({"corpus": d.name, "chunks": n, "documents": len(srcs),
                         "members": len(who)})
     except Exception:

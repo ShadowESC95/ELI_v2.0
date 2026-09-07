@@ -474,7 +474,7 @@ def detect_hardware() -> HardwareProfile:
                     elif line.startswith("MemAvailable:"):
                         hw.available_ram_gb = int(line.split()[1]) / 1_048_576
         except Exception:
-            pass
+            log.debug("suppressed exception", exc_info=True)
 
     # FREE VRAM — critical for GPU layer counts. Display server, browser,
     # games, etc all consume VRAM before ELI launches. Total VRAM
@@ -512,7 +512,7 @@ def detect_hardware() -> HardwareProfile:
             hw.vram_gb = hw.free_vram_mb / 1024.0
             hw.has_gpu = True
     except Exception:
-        pass
+        log.debug("suppressed exception", exc_info=True)
 
     # NVIDIA driver-loaded fallback — if nvidia-smi is missing or its query failed
     # (a broken/partial userspace, an Optimus card the tool couldn't read) but the
@@ -605,7 +605,7 @@ def detect_hardware() -> HardwareProfile:
                 hw.vram_gb = hw.free_vram_mb / 1024.0
                 hw.has_gpu = True
         except Exception:
-            pass
+            log.debug("suppressed exception", exc_info=True)
 
     # AMD without ROCm (the common desktop case, and what the Vulkan GPU pack
     # targets) — rocm-smi rarely exists there. Read VRAM from the stock
@@ -1288,7 +1288,7 @@ def _settings_out_of_bounds(settings: Dict[str, Any],
         if int(settings.get("n_ctx", 0)) > int(rec.n_ctx):
             reasons.append(f"n_ctx {settings.get('n_ctx')} > recommended {rec.n_ctx}")
     except Exception:
-        pass
+        log.debug("suppressed exception", exc_info=True)
     try:
         # n_gpu_layers: -1 / 99 / 9999 sentinels mean "all layers". Compare raw.
         s_layers = int(settings.get("n_gpu_layers", 0))
@@ -1297,12 +1297,12 @@ def _settings_out_of_bounds(settings: Dict[str, Any],
         if 0 < r_layers < 99 and s_layers > r_layers:
             reasons.append(f"n_gpu_layers {s_layers} > recommended {r_layers}")
     except Exception:
-        pass
+        log.debug("suppressed exception", exc_info=True)
     try:
         if int(settings.get("batch_size", 0)) > int(rec.batch_size):
             reasons.append(f"batch_size {settings.get('batch_size')} > recommended {rec.batch_size}")
     except Exception:
-        pass
+        log.debug("suppressed exception", exc_info=True)
     return reasons
 
 
@@ -1394,7 +1394,7 @@ def enforce_hardware_authority(*, force: bool = False) -> Dict[str, Any]:
                 f"Re-run the profiler or choose a different model to apply."
             )
     except Exception:
-        pass
+        log.debug("suppressed exception", exc_info=True)
 
     # _settings_out_of_bounds is advisory only — it no longer triggers a
     # rewrite.  The user's n_ctx / n_gpu_layers / batch_size are theirs to set
@@ -1407,7 +1407,7 @@ def enforce_hardware_authority(*, force: bool = False) -> Dict[str, Any]:
                 "[HW_AUTHORITY] advisory (not enforced): %s", ", ".join(_oob)
             )
         except Exception:
-            pass
+            log.debug("suppressed exception", exc_info=True)
 
     fingerprint_changed = (previous_fp is not None and previous_fp != fingerprint)
     model_invalid = not _user_model_path_is_valid(settings)

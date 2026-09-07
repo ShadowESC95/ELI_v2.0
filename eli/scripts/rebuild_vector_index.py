@@ -27,7 +27,7 @@ def _resolve_db_path(explicit: str | None) -> Path:
         from eli.core.paths import user_db_path
         return Path(user_db_path()).expanduser().resolve()
     except Exception:
-        pass
+        log.debug("suppressed exception", exc_info=True)
     return Path.home() / ".eli" / "user.sqlite3"
 
 def main(argv: list[str] | None = None) -> int:

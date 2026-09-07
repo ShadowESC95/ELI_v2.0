@@ -310,7 +310,7 @@ def _transcribe_path_with_fallback(wav_path: str, language: str | None) -> str:
             import torch
             torch.cuda.empty_cache()
         except Exception:
-            pass
+            log.debug("suppressed exception", exc_info=True)
         _reload_model_on_cpu()
         return _do_transcribe(_MODEL, wav_path, language)
 

@@ -595,7 +595,7 @@ class AgentOrchestrator:
                     parts.append(f"{k}={v}")
                 log.debug("[PIPELINE][ORCH] " + " ".join(parts))
             except Exception:
-                pass
+                log.debug("suppressed exception", exc_info=True)
 
         _eli_pipe_orch("begin", mode=(reasoning_mode or "quick"), stream=stream, chars=len(str(user_input or "")))
 
@@ -654,7 +654,7 @@ class AgentOrchestrator:
             try:
                 self.engine._eli_phase13_chat_override = False
             except Exception:
-                pass
+                log.debug("suppressed exception", exc_info=True)
             if str(intent.get("action", "")).upper() != "CHAT":
                 log.debug(f"[ORCHESTRATOR] Phase-13 veto honoured → CHAT (was {intent.get('action')})")
                 intent = {"action": "CHAT", "args": {"message": user_input},
@@ -710,7 +710,7 @@ class AgentOrchestrator:
                         self.engine, "_last_bus_result", None)
                     self.engine._last_bus_result = bus_result
                 except Exception:
-                    pass
+                    log.debug("suppressed exception", exc_info=True)
                 bus_context = (
                     bus_result.to_context_block()
                     if hasattr(bus_result, "to_context_block")
@@ -741,7 +741,7 @@ class AgentOrchestrator:
                     try:
                         self.engine.memory.add_observation("executor", obs_text[:400])
                     except Exception:
-                        pass
+                        log.debug("suppressed exception", exc_info=True)
 
                 if _react_i < MAX_REACT_ITER - 1 and obs_text:
                     _obs_ctx = "\n".join(observations)

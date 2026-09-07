@@ -171,7 +171,7 @@ def run_and_review(target: str = "tests/", *, timeout: int = 3600,
             try:
                 on_progress(m)
             except Exception:
-                pass
+                log.debug("suppressed exception", exc_info=True)
 
     # 1) Back up the previous report before it is overwritten.
     prev = art / "test_report.md"

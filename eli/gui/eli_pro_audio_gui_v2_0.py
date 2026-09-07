@@ -258,7 +258,7 @@ def _eli_app_version() -> str:
         if v:
             return v
     except Exception:
-        pass
+        log.debug("suppressed exception", exc_info=True)
     try:
         from importlib.metadata import version, PackageNotFoundError
         for _pkg in ("eli-v2.0", "eli_v2_0", "eli-mkxi", "eli"):
@@ -267,7 +267,7 @@ def _eli_app_version() -> str:
             except PackageNotFoundError:
                 continue
     except Exception:
-        pass
+        log.debug("suppressed exception", exc_info=True)
     return "2.0"
 APP_VERSION = _eli_app_version()
 
@@ -297,7 +297,7 @@ if CENTRAL_IMPORTS_AVAILABLE and get_paths:
                     if p.is_file():
                         return str(p)
         except Exception:
-            pass
+            log.debug("suppressed exception", exc_info=True)
         return ""
     DEFAULT_MODEL_PATH = str(_paths.model) if _paths.model and _paths.model.exists() else _eli_pick_any_bundled_model()
     BUNDLED_MODEL_DIR = PROJECT_ROOT / "models"
@@ -314,7 +314,7 @@ else:
                     if p.is_file():
                         return str(p)
         except Exception:
-            pass
+            log.debug("suppressed exception", exc_info=True)
         return ""
     DEFAULT_MODEL_PATH = _eli_pick_any_bundled_model()
     BUNDLED_MODEL_DIR = PROJECT_ROOT / "models"
@@ -512,7 +512,7 @@ def classify_gguf_source(path: str) -> str:
             # Models dropped directly into project `models/` are user-managed.
             return "custom"
     except Exception:
-        pass
+        log.debug("suppressed exception", exc_info=True)
     return "custom"
 
 def recommend_model_setup(models, sysinfo, ollama_models=None):
@@ -575,7 +575,7 @@ def recommend_model_setup(models, sysinfo, ollama_models=None):
                     "reason": f"Fallback selection: {Path(chosen_path).name}",
                 }
         except Exception:
-            pass
+            log.debug("suppressed exception", exc_info=True)
 
     if ollama_models:
         return {
@@ -647,7 +647,7 @@ def detect_system_capabilities() -> Dict[str, Any]:
         info['total_ram_gb'] = vm.total / (1024 ** 3)
         info['available_ram_gb'] = vm.available / (1024 ** 3)
     except Exception:
-        pass
+        log.debug("suppressed exception", exc_info=True)
     try:
         import shutil
         info['ollama_cli'] = shutil.which('ollama') is not None
@@ -671,7 +671,7 @@ def detect_system_capabilities() -> Dict[str, Any]:
             info['has_gpu'] = True
             info['gpu_name'] = "ROCm GPU"
     except Exception:
-        pass
+        log.debug("suppressed exception", exc_info=True)
     return info
 
 def recommend_optimal_settings(sysinfo: Dict[str, Any]) -> Dict[str, Any]:
@@ -1177,7 +1177,7 @@ class LocalModelManager:
                             # CPU path at live-tuner ctx
                             _add_attempt("live-tuner-cpu", _lt_ctx, 0, max(32, _lt_batch // 2))
                 except Exception:
-                    pass
+                    log.debug("suppressed exception", exc_info=True)
                 # Generic fallback rungs (deeper fallback) — fractions of user's settings;
                 # tried only after the live-tuner. No hardcoded values.
                 _b_half = max(64, _base_batch // 2)
@@ -2266,7 +2266,7 @@ class _GUIEngineAdapter:
             if uid_file.exists():
                 return uid_file.read_text(encoding="utf-8", errors="ignore").strip()
         except Exception:
-            pass
+            log.debug("suppressed exception", exc_info=True)
         return "local-user"
 
     def _compact_persona(self) -> str:
@@ -2388,7 +2388,7 @@ class _GUIEngineAdapter:
             from eli.kernel.state import get_user_profile_text as _gup
             _user_block = _gup().strip()
         except Exception:
-            pass
+            log.debug("suppressed exception", exc_info=True)
         if not _user_block:
             try:
                 from eli.kernel.state import get_user_name as _gun
@@ -2396,7 +2396,7 @@ class _GUIEngineAdapter:
                 if _n:
                     _user_block = f"Name: {_n}"
             except Exception:
-                pass
+                log.debug("suppressed exception", exc_info=True)
 
         # 3. Retrieved + reranked memory hits (most valuable context)
         hit_lines = []
@@ -2595,7 +2595,7 @@ class _GUIEngineAdapter:
                 if decayed:
                     log.debug(f"[MEMORY] Weight decay: {decayed} entries aged")
         except Exception:
-            pass
+            log.debug("suppressed exception", exc_info=True)
 
 
 # ============================================================
@@ -2648,7 +2648,7 @@ class _GlobalScrollZoom(QObject):
                                     cf.setPointSize(new_size)
                                     child.setFont(cf)
                         except Exception:
-                            pass
+                            log.debug("suppressed exception", exc_info=True)
                         # Dark theme's stylesheet pins font sizes; regenerate it
                         # at the new size so zoom works on BOTH themes.
                         try:
@@ -2659,7 +2659,7 @@ class _GlobalScrollZoom(QObject):
             event.accept()
             return True
         except Exception:
-            pass
+            log.debug("suppressed exception", exc_info=True)
         return False
 
 
@@ -3111,7 +3111,7 @@ class EliMainWindow(QMainWindow):
                 if lines:
                     context_parts.append("Known facts about the user:\n" + "\n".join(lines))
         except Exception:
-            pass
+            log.debug("suppressed exception", exc_info=True)
 
         # 2. Semantic search for the query
         lowered = query.lower()
@@ -3148,7 +3148,7 @@ class EliMainWindow(QMainWindow):
                     lines.append(f"  [{role}]: {snippet}")
                 context_parts.append("Recent conversation history:\n" + "\n".join(lines))
         except Exception:
-            pass
+            log.debug("suppressed exception", exc_info=True)
 
         return "\n\n".join(context_parts)
 
@@ -3162,7 +3162,7 @@ class EliMainWindow(QMainWindow):
             from eli.cognition.reasoning_modes import apply_final_reasoning_contract as _rm_final
             text = _rm_final(text)
         except Exception:
-            pass
+            log.debug("suppressed exception", exc_info=True)
         clean = _re.sub(r'[*_`#>|\[\]~]', '', text)
         clean = _re.sub(r'\s+', ' ', clean).strip()
         try:
@@ -3206,16 +3206,16 @@ class EliMainWindow(QMainWindow):
             import os as _os
             _os.environ["ELI_MODEL_THINK"] = "1" if checked else "0"
         except Exception:
-            pass
+            log.debug("suppressed exception", exc_info=True)
         try:
             self.thinking_btn.setText('🧠 Think: ON' if checked else '🧠 Think: OFF')
         except Exception:
-            pass
+            log.debug("suppressed exception", exc_info=True)
         try:
             from eli.core.runtime_settings import update_settings as _us
             _us(model_thinking=bool(checked))
         except Exception:
-            pass
+            log.debug("suppressed exception", exc_info=True)
 
     def _on_full_control_toggled(self, checked: bool):
         """Master override — lifts ALL of ELI's safety barriers. Confirms on enable."""
@@ -3239,16 +3239,16 @@ class EliMainWindow(QMainWindow):
                     self.full_control_btn.blockSignals(False)
                     return
             except Exception:
-                pass
+                log.debug("suppressed exception", exc_info=True)
         try:
             from eli.core.full_control import set_full_control
             set_full_control(checked)
         except Exception:
-            pass
+            log.debug("suppressed exception", exc_info=True)
         try:
             self.full_control_btn.setText("🔓 Full Control: ON" if checked else "🔒 Full Control: OFF")
         except Exception:
-            pass
+            log.debug("suppressed exception", exc_info=True)
         try:
             colour = "#ff5252" if checked else "#88c0d0"
             note = ("🔓 ELI Full Control ENABLED — all safety barriers lifted."
@@ -3257,7 +3257,7 @@ class EliMainWindow(QMainWindow):
                 f'<span style="color:{colour};font-size:11px;">{note}</span><br>'
             )
         except Exception:
-            pass
+            log.debug("suppressed exception", exc_info=True)
 
     def _on_network_toggled(self, checked: bool):
         try:
@@ -3277,7 +3277,7 @@ class EliMainWindow(QMainWindow):
                     payload={"enabled": bool(checked)},
                 )
             except Exception:
-                pass
+                log.debug("suppressed exception", exc_info=True)
         except Exception as e:
             log.debug(f"[GUI] network toggle failed: {e}")
 
@@ -3296,7 +3296,7 @@ class EliMainWindow(QMainWindow):
                             f"Ambient watch ON, but vision can't run yet: {reason}"
                         )
                 except Exception:
-                    pass
+                    log.debug("suppressed exception", exc_info=True)
             log.debug(f"[GUI] ambient vision toggled -> {checked} ({st})")
         except Exception as e:
             log.debug(f"[GUI] ambient vision toggle failed: {e}")
@@ -3328,7 +3328,7 @@ class EliMainWindow(QMainWindow):
                         self.status_signal.emit(
                             "🎯 Gaze ON — look at something and say 'left click' / 'open it'.")
                 except Exception:
-                    pass
+                    log.debug("suppressed exception", exc_info=True)
             else:
                 from eli.perception.gaze_engine import stop_gaze_engine
                 stop_gaze_engine()
@@ -3343,7 +3343,7 @@ class EliMainWindow(QMainWindow):
                 self.gaze_btn.blockSignals(False)
                 self.gaze_btn.setText("🎯 Gaze: OFF")
             except Exception:
-                pass
+                log.debug("suppressed exception", exc_info=True)
 
     def _on_voice_changed(self, name: str):
         if not name or name == "(no voices)":
@@ -3491,7 +3491,7 @@ class EliMainWindow(QMainWindow):
                     _session_id = str(getattr(_ce, "session_id", "") or _session_id)
                     _user_id = str(getattr(_ce, "user_id", "") or _user_id)
                 except Exception:
-                    pass
+                    log.debug("suppressed exception", exc_info=True)
                 try:
                     if _user_voice_text:
                         _uc = getattr(self, '_user_text_color', '#a3be8c')
@@ -3612,7 +3612,7 @@ class EliMainWindow(QMainWindow):
                             if _parts:
                                 _speak_text = ". ".join(_parts)
                         except Exception:
-                            pass
+                            log.debug("suppressed exception", exc_info=True)
                     # else: synthesised briefing — leave _speak_text full
                 # For remediation previews, drop the bash script body before TTS
                 # so the mic doesn't pick up hundreds of chars of shell code.
@@ -3638,7 +3638,7 @@ class EliMainWindow(QMainWindow):
                         try:
                             QApplication.processEvents()
                         except Exception:
-                            pass
+                            log.debug("suppressed exception", exc_info=True)
                     except Exception as _ui_e:
                         log.debug(f"[GUI_DIRECT_EXEC][UI_APPEND_FAIL] {_ui_e}")
 
@@ -3665,7 +3665,7 @@ class EliMainWindow(QMainWindow):
                     log.debug("[STT→GUI] deferred — inference busy (short utterance dropped)")
                     return
         except Exception:
-            pass
+            log.debug("suppressed exception", exc_info=True)
         self.chat_input.setPlainText(text)
         self.send_message()
 
@@ -3701,7 +3701,7 @@ class EliMainWindow(QMainWindow):
                     continue
                 self.mic_device_combo.addItem(f"{name}", ("alsa", idx))
         except Exception:
-            pass
+            log.debug("suppressed exception", exc_info=True)
 
         # PulseAudio / PipeWire sources (catches BT headsets)
         try:
@@ -3724,7 +3724,7 @@ class EliMainWindow(QMainWindow):
                     continue  # already covered by ALSA list above
                 self.mic_device_combo.addItem(label, ("pulse", src_name))
         except Exception:
-            pass
+            log.debug("suppressed exception", exc_info=True)
 
         self.mic_device_combo.blockSignals(False)
 
@@ -3752,7 +3752,7 @@ class EliMainWindow(QMainWindow):
                 if not dynamic:
                     rec.energy_threshold = float(threshold)
         except Exception:
-            pass
+            log.debug("suppressed exception", exc_info=True)
         if getattr(self, "_first_run_complete", False):
             self.save_settings(silent=True)
 
@@ -3862,7 +3862,7 @@ class EliMainWindow(QMainWindow):
                 f'<span style="color:#88c0d0;font-size:11px;">⚙️ Mode: {label}</span><br>'
             )
         except Exception:
-            pass
+            log.debug("suppressed exception", exc_info=True)
 
     def _on_auto_mode_toggled(self, checked: bool):
         self._auto_reasoning_mode = bool(checked)
@@ -3874,7 +3874,7 @@ class EliMainWindow(QMainWindow):
                 f'<span style="color:#88c0d0;font-size:11px;">⚙️ {note}</span><br>'
             )
         except Exception:
-            pass
+            log.debug("suppressed exception", exc_info=True)
 
     # ─── Keyword → reasoning mode auto-detection ─────────────────────────
     # Tuples of (canonical_mode_id, list of regex patterns). First match wins.
@@ -3937,7 +3937,7 @@ class EliMainWindow(QMainWindow):
                         f'🤖 Auto-mode → {label}</span><br>'
                     )
                 except Exception:
-                    pass
+                    log.debug("suppressed exception", exc_info=True)
                 break
 
     def _get_mode_prefix(self) -> str:
@@ -4141,7 +4141,7 @@ class EliMainWindow(QMainWindow):
             if idx >= 0:
                 self.tabs.setCurrentIndex(idx)
         except Exception:
-            pass
+            log.debug("suppressed exception", exc_info=True)
 
     def _resolve_image_seed(self) -> int:
         """Seed for the next generation. Random each time unless the user locked
@@ -4158,7 +4158,7 @@ class EliMainWindow(QMainWindow):
             if idx >= 0:
                 self.tabs.setCurrentIndex(idx)
         except Exception:
-            pass
+            log.debug("suppressed exception", exc_info=True)
 
     def _toggle_proactive_dock(self, checked: bool = None):
         """Show or hide the Proactive Dock. Wired to View → Proactive Dock
@@ -4183,7 +4183,7 @@ class EliMainWindow(QMainWindow):
             try:
                 self._toggle_proactive_action.setChecked(bool(checked))
             except Exception:
-                pass
+                log.debug("suppressed exception", exc_info=True)
         except Exception as _e:
             log.debug(f"[GUI] toggle proactive dock failed: {_e}")
 
@@ -4209,7 +4209,7 @@ class EliMainWindow(QMainWindow):
             try:
                 self._toggle_operator_console_action.setChecked(bool(checked))
             except Exception:
-                pass
+                log.debug("suppressed exception", exc_info=True)
         except Exception as _e:
             log.debug(f"[GUI] toggle operator console dock failed: {_e}")
 
@@ -4270,7 +4270,7 @@ class EliMainWindow(QMainWindow):
         try:
             self._toggle_hardware_dock_action.setChecked(bool(checked))
         except Exception:
-            pass
+            log.debug("suppressed exception", exc_info=True)
 
     def _hardware_tuning_log(self, text: str):
         dock = self._ensure_hardware_tuning_dock()
@@ -4620,7 +4620,7 @@ class EliMainWindow(QMainWindow):
             import os as _os_think
             _os_think.environ["ELI_MODEL_THINK"] = "1" if _think_on else "0"
         except Exception:
-            pass
+            log.debug("suppressed exception", exc_info=True)
         self.thinking_btn.toggled.connect(self._on_thinking_toggled)
         btn_layout.addWidget(self.thinking_btn)
 
@@ -4629,7 +4629,7 @@ class EliMainWindow(QMainWindow):
             from eli.core import config as _cfg
             _net_on = bool(_cfg.get("network_enabled", False))
         except Exception:
-            pass
+            log.debug("suppressed exception", exc_info=True)
         self.net_btn = QPushButton("🌐 Net: ON" if _net_on else "🌐 Net: OFF")
         self.net_btn.setCheckable(True)
         self.net_btn.setChecked(_net_on)
@@ -4656,7 +4656,7 @@ class EliMainWindow(QMainWindow):
             from eli.core.full_control import is_full_control as _ifc
             _fc_on = bool(_ifc())
         except Exception:
-            pass
+            log.debug("suppressed exception", exc_info=True)
         self.full_control_btn = QPushButton("🔓 Full Control: ON" if _fc_on else "🔒 Full Control: OFF")
         self.full_control_btn.setCheckable(True)
         self.full_control_btn.setChecked(_fc_on)
@@ -4684,7 +4684,7 @@ class EliMainWindow(QMainWindow):
             from eli.core import config as _cfg
             _watch_on = bool(_cfg.get("ambient_vision_enabled", False))
         except Exception:
-            pass
+            log.debug("suppressed exception", exc_info=True)
         self.ambient_vision_btn = QPushButton("👁 Watch: ON" if _watch_on else "👁 Watch: OFF")
         self.ambient_vision_btn.setCheckable(True)
         self.ambient_vision_btn.setChecked(_watch_on)
@@ -4713,7 +4713,7 @@ class EliMainWindow(QMainWindow):
             from eli.perception.gaze_engine import is_gaze_running as _igr
             _gaze_on = bool(_igr())
         except Exception:
-            pass
+            log.debug("suppressed exception", exc_info=True)
         self.gaze_btn = QPushButton("🎯 Gaze: ON" if _gaze_on else "🎯 Gaze: OFF")
         self.gaze_btn.setCheckable(True)
         self.gaze_btn.setChecked(_gaze_on)
@@ -5013,7 +5013,7 @@ class EliMainWindow(QMainWindow):
                     }
                     break
         except Exception:
-            pass
+            log.debug("suppressed exception", exc_info=True)
         vals = self._habit_rule_dialog("Edit Habit Rule", prefill)
         if not vals:
             return
@@ -5820,7 +5820,7 @@ class EliMainWindow(QMainWindow):
             )
             self.suggestions_display.append(note)
         except Exception:
-            pass
+            log.debug("suppressed exception", exc_info=True)
 
     def _image_generation_failed(self, error_text: str):
         self.image_generate_btn.setEnabled(True)
@@ -5927,14 +5927,14 @@ class EliMainWindow(QMainWindow):
                             "SELECT category, description, status FROM improvements ORDER BY timestamp DESC LIMIT 20"
                         ).fetchall()
                     except Exception:
-                        pass
+                        log.debug("suppressed exception", exc_info=True)
                     fails = []
                     try:
                         fails = con.execute(
                             "SELECT user_input, error, occurrence_count FROM failures ORDER BY timestamp DESC LIMIT 6"
                         ).fetchall()
                     except Exception:
-                        pass
+                        log.debug("suppressed exception", exc_info=True)
                     con.close()
                 except Exception as _db_err:
                     imps, fails = [], []
@@ -6418,12 +6418,12 @@ class EliMainWindow(QMainWindow):
             try:
                 btn.setChecked(label == name)
             except Exception:
-                pass
+                log.debug("suppressed exception", exc_info=True)
         # Re-run the existing filter (which now considers the active category).
         try:
             self._qa_filter(self._qa_search.text())
         except Exception:
-            pass
+            log.debug("suppressed exception", exc_info=True)
 
     def _qa_category_for(self, action: str) -> str:
         for cat, members in self._QA_CATEGORIES.items():
@@ -6444,7 +6444,7 @@ class EliMainWindow(QMainWindow):
             from eli.execution.executor_enhanced import SUPPORTED_ACTIONS
             caps.update(a.upper() for a in SUPPORTED_ACTIONS)
         except Exception:
-            pass
+            log.debug("suppressed exception", exc_info=True)
 
         # 2. CapabilitySync — only keep executor-backed entries
         try:
@@ -6455,7 +6455,7 @@ class EliMainWindow(QMainWindow):
                 if meta.get("source", "").startswith("executor"):
                     caps.add(action.upper())
         except Exception:
-            pass
+            log.debug("suppressed exception", exc_info=True)
 
         if not caps:
             # Hard fallback — always-available no-arg actions
@@ -6569,7 +6569,7 @@ class EliMainWindow(QMainWindow):
                 encoding="utf-8",
             )
         except Exception:
-            pass
+            log.debug("suppressed exception", exc_info=True)
 
     def _qa_load_buttons(self):
         """Restore previously pinned actions."""
@@ -6580,7 +6580,7 @@ class EliMainWindow(QMainWindow):
                 for name in _j.loads(f.read_text(encoding="utf-8")):
                     self._qa_board.add_card(str(name))
         except Exception:
-            pass
+            log.debug("suppressed exception", exc_info=True)
         self._qa_on_board_changed()
 
     # ══════════════════════════════════════════════════════════════════════════
@@ -6684,7 +6684,7 @@ class EliMainWindow(QMainWindow):
                         self._sc_capture_sig.emit(cap_path)
                         return
                 except Exception:
-                    pass
+                    log.debug("suppressed exception", exc_info=True)
                 # Try mss (fast), fall back to scrot/gnome-screenshot
                 try:
                     import mss, mss.tools
@@ -6715,7 +6715,7 @@ class EliMainWindow(QMainWindow):
         try:
             self._sc_capture_sig.disconnect()
         except Exception:
-            pass
+            log.debug("suppressed exception", exc_info=True)
         self._sc_capture_sig.connect(self._sc_on_capture, Qt.ConnectionType.QueuedConnection)
         threading.Thread(target=worker, daemon=True).start()
 
@@ -6762,7 +6762,7 @@ class EliMainWindow(QMainWindow):
                 except subprocess.TimeoutExpired:
                     text = "(tesseract timed out)"
                 except Exception:
-                    pass
+                    log.debug("suppressed exception", exc_info=True)
 
             # ── 2. pytesseract binding (also calls tesseract binary) ────────
             if not text:
@@ -6777,7 +6777,7 @@ class EliMainWindow(QMainWindow):
                         img = img.resize((int(w * scale), int(h * scale)))
                     text = pytesseract.image_to_string(img, config="--psm 11").strip()
                 except Exception:
-                    pass
+                    log.debug("suppressed exception", exc_info=True)
 
             # ── 3. Not installed ────────────────────────────────────────────
             if not text:
@@ -6970,7 +6970,7 @@ class EliMainWindow(QMainWindow):
                 if text:
                     return text
         except Exception:
-            pass
+            log.debug("suppressed exception", exc_info=True)
 
         backend = getattr(self, "active_backend", None)
         try:
@@ -6980,7 +6980,7 @@ class EliMainWindow(QMainWindow):
                 if text:
                     return text
         except Exception:
-            pass
+            log.debug("suppressed exception", exc_info=True)
 
         try:
             from eli.cognition import gguf_inference
@@ -6989,7 +6989,7 @@ class EliMainWindow(QMainWindow):
             if text:
                 return text
         except Exception:
-            pass
+            log.debug("suppressed exception", exc_info=True)
 
         return ""
 
@@ -7744,7 +7744,7 @@ class EliMainWindow(QMainWindow):
                             _vid = str(_data)
                     _set_active_voice(_vid)
                 except Exception:
-                    pass
+                    log.debug("suppressed exception", exc_info=True)
 
             self._voice_selector.currentTextChanged.connect(_on_voice_changed)
 
@@ -8014,7 +8014,7 @@ class EliMainWindow(QMainWindow):
             import psutil
             psutil.cpu_percent(interval=None)
         except Exception:
-            pass
+            log.debug("suppressed exception", exc_info=True)
 
         self._runtime_stats_timer = QTimer(self)
         self._runtime_stats_timer.setInterval(2000)
@@ -8082,7 +8082,7 @@ class EliMainWindow(QMainWindow):
             stats["ram_free_gb"] = vm.available / (1024 ** 3)
             stats["ram_percent"] = float(vm.percent)
         except Exception:
-            pass
+            log.debug("suppressed exception", exc_info=True)
 
         if shutil.which("nvidia-smi"):
             try:
@@ -8518,7 +8518,7 @@ class EliMainWindow(QMainWindow):
             self._stt_diag_timer.timeout.connect(self._refresh_stt_diagnostics)
             self._stt_diag_timer.start()
         except Exception:
-            pass
+            log.debug("suppressed exception", exc_info=True)
         return page
 
     def _refresh_stt_diagnostics(self):
@@ -8561,7 +8561,7 @@ class EliMainWindow(QMainWindow):
                         live_pause = f"{getattr(rec, 'pause_threshold', '?')}"
                         live_dynamic = str(getattr(rec, 'dynamic_energy_threshold', '?'))
             except Exception:
-                pass
+                log.debug("suppressed exception", exc_info=True)
 
             text = (
                 f"Voice profile file: {vp_path}\n"
@@ -8801,13 +8801,13 @@ class EliMainWindow(QMainWindow):
         try:
             cands.append(socket.gethostbyname(socket.gethostname()))
         except Exception:
-            pass
+            log.debug("suppressed exception", exc_info=True)
         try:
             import subprocess as _sp
             out = _sp.run(["hostname", "-I"], capture_output=True, text=True, timeout=2)
             cands += (out.stdout or "").split()
         except Exception:
-            pass
+            log.debug("suppressed exception", exc_info=True)
         try:
             import subprocess as _sp  # macOS
             for ifc in ("en0", "en1"):
@@ -8815,7 +8815,7 @@ class EliMainWindow(QMainWindow):
                 if out.stdout.strip():
                     cands.append(out.stdout.strip())
         except Exception:
-            pass
+            log.debug("suppressed exception", exc_info=True)
 
         def _score(ip: str) -> int:
             if not ip or ip.startswith("127.") or ":" in ip:
@@ -8863,7 +8863,7 @@ class EliMainWindow(QMainWindow):
                     "and allow incoming connections for Python / ELI on port 8081."
                 )
         except Exception:
-            pass
+            log.debug("suppressed exception", exc_info=True)
 
     def _eli_server_copy_firewall_cmd(self) -> None:
         cmd = (self._srv_fw_cmd.text() or "").strip()
@@ -8874,7 +8874,7 @@ class EliMainWindow(QMainWindow):
             self._srv_status.setText("● Firewall command copied — paste into Terminal")
             self._srv_status.setStyleSheet("font-size:12px;font-weight:700;color:#ebcb8b;")
         except Exception:
-            pass
+            log.debug("suppressed exception", exc_info=True)
 
     def _eli_server_open_firewall_terminal(self) -> None:
         import shlex
@@ -8898,7 +8898,7 @@ class EliMainWindow(QMainWindow):
                 subprocess.Popen(term_cmd)
                 return
             except Exception:
-                pass
+                log.debug("suppressed exception", exc_info=True)
         QMessageBox.information(
             self,
             "Firewall",
@@ -9011,7 +9011,7 @@ class EliMainWindow(QMainWindow):
             try:
                 uv.should_exit = True
             except Exception:
-                pass
+                log.debug("suppressed exception", exc_info=True)
         self._srv_https_uv = None
         self._srv_https_thread = None
         import os
@@ -9020,7 +9020,7 @@ class EliMainWindow(QMainWindow):
             self._srv_https_url.clear()
             self._eli_server_refresh_qr()
         except Exception:
-            pass
+            log.debug("suppressed exception", exc_info=True)
 
     def _eli_server_start(self, lan: bool) -> None:
         # Run the web server IN-PROCESS (a background thread) so it shares this app's
@@ -9040,7 +9040,7 @@ class EliMainWindow(QMainWindow):
                         self._eli_server_refresh_firewall_hint()
                     return
         except Exception:
-            pass
+            log.debug("suppressed exception", exc_info=True)
         if lan:
             # Stable, persisted token — reused across restarts so an already-paired
             # phone is NOT stranded (a fresh token every start meant its saved URL
@@ -9099,7 +9099,7 @@ class EliMainWindow(QMainWindow):
                     from PySide6.QtCore import QUrl
                     QDesktopServices.openUrl(QUrl(url))
                 except Exception:
-                    pass
+                    log.debug("suppressed exception", exc_info=True)
         except Exception as e:
             err = str(e)
             if "98" in err or "already in use" in err.lower() or "address already in use" in err.lower():
@@ -9111,7 +9111,7 @@ class EliMainWindow(QMainWindow):
                             self._eli_server_refresh_firewall_hint()
                         return
                 except Exception:
-                    pass
+                    log.debug("suppressed exception", exc_info=True)
             self._eli_server_update_ui("error", err)
 
     def _eli_server_stop(self) -> None:
@@ -9121,14 +9121,14 @@ class EliMainWindow(QMainWindow):
             try:
                 uv.should_exit = True
             except Exception:
-                pass
+                log.debug("suppressed exception", exc_info=True)
         self._srv_uv = None
         self._srv_thread = None
         self._srv_url.clear()
         try:
             self._eli_server_refresh_qr()
         except Exception:
-            pass
+            log.debug("suppressed exception", exc_info=True)
         self._eli_server_update_ui("stopped")
 
     def _eli_server_rotate_token(self) -> None:
@@ -9166,13 +9166,13 @@ class EliMainWindow(QMainWindow):
                 self._srv_status.setText("● Token rotated — re-open the new link on each phone")
                 self._srv_status.setStyleSheet("font-size:12px;font-weight:700;color:#ebcb8b;")
             except Exception:
-                pass
+                log.debug("suppressed exception", exc_info=True)
         else:
             try:
                 self._srv_status.setText("● Token rotated — applies on next phone/Wi-Fi launch")
                 self._srv_status.setStyleSheet("font-size:12px;font-weight:700;color:#ebcb8b;")
             except Exception:
-                pass
+                log.debug("suppressed exception", exc_info=True)
 
     def _eli_server_poll(self) -> None:
         th = getattr(self, "_srv_thread", None)
@@ -9193,7 +9193,7 @@ class EliMainWindow(QMainWindow):
                             self._eli_server_refresh_firewall_hint()
                         return
                 except Exception:
-                    pass
+                    log.debug("suppressed exception", exc_info=True)
             if not err:
                 self._srv_url.clear()
             self._eli_server_update_ui("error" if err else "stopped", err[:160])
@@ -9218,7 +9218,7 @@ class EliMainWindow(QMainWindow):
             self._srv_btn_lan.setEnabled(not running)
             self._srv_btn_stop.setEnabled(running)
         except Exception:
-            pass
+            log.debug("suppressed exception", exc_info=True)
         text, colour = {
             "stopped": ("● Stopped", "#bf616a"),
             "starting": ("● Starting…", "#ebcb8b"),
@@ -9229,7 +9229,7 @@ class EliMainWindow(QMainWindow):
             self._srv_status.setText(text)
             self._srv_status.setStyleSheet(f"font-size:12px;font-weight:700;color:{colour};")
         except Exception:
-            pass
+            log.debug("suppressed exception", exc_info=True)
 
     # ── Page 3 — Application ──────────────────────────────────────────────────
     def _build_settings_app_page(self) -> QWidget:
@@ -9653,7 +9653,7 @@ class EliMainWindow(QMainWindow):
         try:
             self.status_label.setText("🧹 Memory cleared — restart ELI for a clean slate")
         except Exception:
-            pass
+            log.debug("suppressed exception", exc_info=True)
 
     # ---------- Settings helpers ----------
     def current_provider(self) -> str:
@@ -10133,7 +10133,7 @@ class EliMainWindow(QMainWindow):
                             "Model load was cancelled.",
                         )
                     except Exception:
-                        pass
+                        log.debug("suppressed exception", exc_info=True)
                     return False
 
         self._first_run_complete = True
@@ -10234,13 +10234,13 @@ class EliMainWindow(QMainWindow):
             use_mmap = bool(_s.get("use_mmap", True))
             use_mlock = bool(_s.get("use_mlock", False))
         except Exception:
-            pass
+            log.debug("suppressed exception", exc_info=True)
         self.status_signal.emit("🔄 Loading model...")
         self.status_signal.emit("Send disabled")
         try:
             self.send_btn.setText("Loading...")
         except Exception:
-            pass
+            log.debug("suppressed exception", exc_info=True)
 
         def load_worker():
             self._model_loading = True
@@ -10294,7 +10294,7 @@ class EliMainWindow(QMainWindow):
                             _ce._ctx = int(getattr(model_manager, "n_ctx", 0) or 0)
                             _ce._gpu_layers = int(getattr(model_manager, "n_gpu_layers", 0) or 0)
                         except Exception:
-                            pass
+                            log.debug("suppressed exception", exc_info=True)
                     try:
                         if provider != "ollama":
                             _requested_gpu = int(getattr(model_manager, "requested_n_gpu_layers", 0) or 0)
@@ -10306,7 +10306,7 @@ class EliMainWindow(QMainWindow):
                                     "Check NVIDIA driver/CUDA runtime."
                                 )
                     except Exception:
-                        pass
+                        log.debug("suppressed exception", exc_info=True)
                     self.status_signal.emit("Send enabled")
                 else:
                     err = getattr(backend, 'load_error', None) or 'Unknown error'
@@ -10607,7 +10607,7 @@ class EliMainWindow(QMainWindow):
                     from eli.cognition.reasoning_modes import apply_final_reasoning_contract as _rm_final
                     response = _rm_final(response)
                 except Exception:
-                    pass
+                    log.debug("suppressed exception", exc_info=True)
 
                 _hist = (
                     (response.rstrip() + "\n\n[Generation stopped.]")
@@ -10624,7 +10624,7 @@ class EliMainWindow(QMainWindow):
                         # GUI direct SQLite fallback disabled to prevent duplicate rows.
                         pass
                     except Exception:
-                        pass
+                        log.debug("suppressed exception", exc_info=True)
 
                 if not _response_streamed:
                     self.chat_response_signal.emit(response)
@@ -10640,7 +10640,7 @@ class EliMainWindow(QMainWindow):
                 try:
                     self._conf_meta_update_sig.emit()
                 except Exception:
-                    pass
+                    log.debug("suppressed exception", exc_info=True)
 
             except Exception as e:
                 self.chat_response_signal.emit(f"❌ Error: {str(e)}")
@@ -10657,7 +10657,7 @@ class EliMainWindow(QMainWindow):
                          str(e)[:500], _tb2.format_exc()[:1000]))
                     _c2.commit(); _c2.close()
                 except Exception:
-                    pass
+                    log.debug("suppressed exception", exc_info=True)
             finally:
                 self.is_generating = False
                 self._cancel_stream_requested = False
@@ -10797,7 +10797,7 @@ class EliMainWindow(QMainWindow):
                     self.tabs.setTabText(_i, f"🎯 Proactive ({event_no})")
                     break
         except Exception:
-            pass
+            log.debug("suppressed exception", exc_info=True)
         self._update_proactive_status_label()
 
         # Forward to ProactiveDock (hidden by default — don't auto-show or auto-speak)
@@ -10809,7 +10809,7 @@ class EliMainWindow(QMainWindow):
                     from eli.perception.tts_router import maybe_speak
                     maybe_speak(plain, enabled=True)
                 except Exception:
-                    pass
+                    log.debug("suppressed exception", exc_info=True)
 
     def _update_confidence_meta_label(self):
         """Refresh the status-bar confidence/grounding badge from engine._last_request_meta."""
@@ -10832,14 +10832,14 @@ class EliMainWindow(QMainWindow):
                     _a = float(agg)
                     parts.append(f"conf {_a:.2f}" + (f" ({lbl})" if lbl else ""))
                 except Exception:
-                    pass
+                    log.debug("suppressed exception", exc_info=True)
             if grnd is not None:
                 try:
                     _g = float(grnd)
                     grnd_tag = "✓" if _g >= 0.40 else ("~" if _g >= 0.10 else "⚠")
                     parts.append(f"grounding {grnd_tag}{_g:.2f}")
                 except Exception:
-                    pass
+                    log.debug("suppressed exception", exc_info=True)
             if action:
                 parts.append(action)
             label.setText("  " + "  |  ".join(parts) + "  " if parts else "")
@@ -10848,7 +10848,7 @@ class EliMainWindow(QMainWindow):
                 + "\n".join(f"  {k}: {v}" for k, v in sorted(meta.items()))
             )
         except Exception:
-            pass
+            log.debug("suppressed exception", exc_info=True)
 
     def _update_proactive_status_label(self):
         """Refresh the status-bar proactive indicator."""
@@ -10891,11 +10891,11 @@ class EliMainWindow(QMainWindow):
                 try:
                     label.mousePressEvent = lambda _e: self._restart_proactive_daemon()
                 except Exception:
-                    pass
+                    log.debug("suppressed exception", exc_info=True)
 
             log.debug(f"[GUI] Proactive daemon crash detected: {crash_msg[:200]}")
         except Exception:
-            pass
+            log.debug("suppressed exception", exc_info=True)
 
     def _restart_proactive_daemon(self):
         """Attempt to restart the proactive daemon after a crash."""
@@ -11241,7 +11241,7 @@ class EliMainWindow(QMainWindow):
             if idx >= 0:
                 self.tabs.setCurrentIndex(idx)
         except Exception:
-            pass
+            log.debug("suppressed exception", exc_info=True)
 
     def _load_path_into_main_ide(self, path: Path) -> bool:
         try:
@@ -11280,7 +11280,7 @@ class EliMainWindow(QMainWindow):
                 sim._current_file = path
                 sim._file_label.setText(str(path))
             except Exception:
-                pass
+                log.debug("suppressed exception", exc_info=True)
             try:
                 inner = getattr(labs, "_inner_tabs", None)
                 if inner is not None:
@@ -11288,7 +11288,7 @@ class EliMainWindow(QMainWindow):
                     if idx >= 0:
                         inner.setCurrentIndex(idx)
             except Exception:
-                pass
+                log.debug("suppressed exception", exc_info=True)
             self._focus_tab_widget(labs)
             self.status_signal.emit(f"Opened in Labs Sim/IDE: {path.name}")
             return True
@@ -11526,7 +11526,7 @@ class EliMainWindow(QMainWindow):
             if self._load_into_labs_file_chat(tmp_path):
                 return
         except Exception:
-            pass
+            log.debug("suppressed exception", exc_info=True)
         # Fallback: floating viewer
         dlg = QDialog(self)
         dlg.setWindowTitle(str(path.name))
@@ -11616,7 +11616,7 @@ class EliMainWindow(QMainWindow):
                 if _vidx >= 0:
                     self.cache_type_v_combo.setCurrentIndex(_vidx)
             except Exception:
-                pass
+                log.debug("suppressed exception", exc_info=True)
         except Exception as e:
             print(f"⚠️ Failed to apply numeric settings to widgets: {e}")
 
@@ -11643,7 +11643,7 @@ class EliMainWindow(QMainWindow):
                 self._saved_mic_device = tuple(_mic) if isinstance(_mic, list) else _mic
                 self._on_mic_device_changed(_save=False)
         except Exception:
-            pass
+            log.debug("suppressed exception", exc_info=True)
 
         # STT sensitivity (energy threshold)
         try:
@@ -11659,7 +11659,7 @@ class EliMainWindow(QMainWindow):
             _os_e.environ["ELI_STT_DYNAMIC_ENERGY"] = "1" if _dynamic else "0"
             _os_e.environ["ELI_STT_ENERGY_THRESHOLD"] = str(_threshold)
         except Exception:
-            pass
+            log.debug("suppressed exception", exc_info=True)
 
         # STT behaviour flags
         try:
@@ -11675,7 +11675,7 @@ class EliMainWindow(QMainWindow):
                 self.wake_word_btn.setText("Wake: ON" if not _direct else "Wake: OFF")
                 self.wake_word_btn.blockSignals(False)
         except Exception:
-            pass
+            log.debug("suppressed exception", exc_info=True)
 
         # Gaze engine
         try:
@@ -11696,7 +11696,7 @@ class EliMainWindow(QMainWindow):
                 except Exception as _ge:
                     log.debug(f"[GUI] Gaze engine auto-start failed: {_ge}")
         except Exception:
-            pass
+            log.debug("suppressed exception", exc_info=True)
 
         # GUI-local flags + theme
         try:
@@ -11723,7 +11723,7 @@ class EliMainWindow(QMainWindow):
                     from eli.kernel.state import get_user_name as _gun
                     _gui_user_name = _gun() or ""
                 except Exception:
-                    pass
+                    log.debug("suppressed exception", exc_info=True)
             self.user_name_input.setText(_gui_user_name)
             if hasattr(self, "communication_style_combo"):
                 _cs = str(s.get("communication_style", "") or "")
@@ -11731,7 +11731,7 @@ class EliMainWindow(QMainWindow):
                     from eli.kernel.state import get_communication_style as _gcs
                     _cs = _gcs() or _cs
                 except Exception:
-                    pass
+                    log.debug("suppressed exception", exc_info=True)
                 self.communication_style_combo.setCurrentText(_cs)
             self.image_profile_notes_input.setPlainText(str(s.get("image_profile_notes", "") or ""))
             self.image_style_profile_combo.setCurrentText(str(s.get("image_style_profile", "auto") or "auto"))
@@ -12228,7 +12228,7 @@ class EliMainWindow(QMainWindow):
                         if not isinstance(_r, str):
                             _r = str(_r)
             except Exception:
-                pass
+                log.debug("suppressed exception", exc_info=True)
 
         ts = datetime.now().strftime("%H:%M:%S")
         cursor = self.chat_display.textCursor()
@@ -12254,7 +12254,7 @@ class EliMainWindow(QMainWindow):
             try:
                 event.accept()
             except Exception:
-                pass
+                log.debug("suppressed exception", exc_info=True)
             return
 
         self._eli_shutdown_started = True
@@ -12266,18 +12266,18 @@ class EliMainWindow(QMainWindow):
             if _uv is not None:
                 _uv.should_exit = True
         except Exception:
-            pass
+            log.debug("suppressed exception", exc_info=True)
 
         try:
             self._cancel_stream_requested = True
         except Exception:
-            pass
+            log.debug("suppressed exception", exc_info=True)
 
         try:
             if self._runtime_stats_timer is not None:
                 self._runtime_stats_timer.stop()
         except Exception:
-            pass
+            log.debug("suppressed exception", exc_info=True)
 
         # Phase 7: stop the live-data timers too so they don't fire
         # mid-shutdown and try to read a closed memory/database handle.
@@ -12287,7 +12287,7 @@ class EliMainWindow(QMainWindow):
                 if _t is not None:
                     _t.stop()
             except Exception:
-                pass
+                log.debug("suppressed exception", exc_info=True)
 
         try:
             _ce = getattr(self, '_cognitive_engine', None)
@@ -12305,7 +12305,7 @@ class EliMainWindow(QMainWindow):
         try:
             event.accept()
         except Exception:
-            pass
+            log.debug("suppressed exception", exc_info=True)
 
 # ============================================================
 # MAIN ENTRY POINT
@@ -12321,7 +12321,7 @@ def main():
         if _app_icon is not None:
             app.setWindowIcon(_app_icon)
     except Exception:
-        pass
+        log.debug("suppressed exception", exc_info=True)
     app.setApplicationName(APP_NAME)
 
     # ── First-boot check: show wizard if no models are installed ─────────────
@@ -12397,11 +12397,11 @@ def main():
         import atexit as _atexit
         _atexit._run_exitfuncs()   # flush memory + session summary + unload model first
     except Exception:
-        pass
+        log.debug("suppressed exception", exc_info=True)
     try:
         sys.stdout.flush(); sys.stderr.flush()
     except Exception:
-        pass
+        log.debug("suppressed exception", exc_info=True)
     os._exit(_rc if isinstance(_rc, int) else 0)
 
 if __name__ == "__main__":

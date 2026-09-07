@@ -190,7 +190,7 @@ def ocr_text_from_image(path: str | Path, lang: str = "eng", psm: int = 11) -> s
             if result.returncode == 0 and result.stdout.strip():
                 return result.stdout.strip()
         except Exception:
-            pass
+            log.debug("suppressed exception", exc_info=True)
     try:
         import pytesseract  # type: ignore
         from PIL import Image  # type: ignore

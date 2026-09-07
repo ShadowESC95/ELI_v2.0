@@ -46,7 +46,7 @@ def _detect_hardware() -> dict:
         }
     except Exception:
         # Fall through to the legacy inline implementation below.
-        pass
+        log.debug("suppressed exception", exc_info=True)
     hw = {
         "cpu_cores":       multiprocessing.cpu_count(),
         "total_ram_gb":    8.0,
@@ -70,7 +70,7 @@ def _detect_hardware() -> dict:
                     elif line.startswith("MemAvailable:"):
                         hw["available_ram_gb"] = int(line.split()[1]) / 1_048_576
         except Exception:
-            pass
+            log.debug("suppressed exception", exc_info=True)
 
     # Query FREE VRAM — critical: display server consumes VRAM before ELI launches
     try:
@@ -87,7 +87,7 @@ def _detect_hardware() -> dict:
         hw["gpu_name"]      = parts[2] if len(parts) > 2 else "NVIDIA GPU"
         hw["has_gpu"]       = True
     except Exception:
-        pass
+        log.debug("suppressed exception", exc_info=True)
     return hw
 
 
@@ -157,7 +157,7 @@ def _auto_tune(model_path: Path, hw: dict) -> dict:
             "cache_type_v": rec.cache_type_v,
         }
     except Exception:
-        pass
+        log.debug("suppressed exception", exc_info=True)
     # Legacy fallback (used only if canonical helper unavailable):
     size_bytes     = model_path.stat().st_size
     size_gb        = size_bytes / 1e9
@@ -295,7 +295,7 @@ def _confirm_params(model_path: Path, params: dict, hw: dict) -> dict:
                 if new_val:
                     params[key] = type(params[key])(new_val)
         except (ValueError, KeyboardInterrupt):
-            pass
+            log.debug("suppressed exception", exc_info=True)
 
     print("  ✓  Parameters confirmed.\n")
     return params
@@ -311,7 +311,7 @@ def _load_config() -> dict:
             try:
                 return json.loads(CFG_PATH.read_text())
             except Exception:
-                pass
+                log.debug("suppressed exception", exc_info=True)
         return {}
 
 
@@ -345,7 +345,7 @@ def main():
             _os.environ["ELI_CONFIG_DIR"] = str(_root / "config")
             _os.environ["ELI_MODELS_DIR"] = str(_root / "models")
     except Exception:
-        pass
+        log.debug("suppressed exception", exc_info=True)
     # ── First-run/boot DB + machine-inventory bootstrap (idempotent) ─────────
     # The `eli`/`eli-gui` console scripts enter here directly (bypassing
     # eli.__main__), so ensure the full schema + app index exist even when ELI
@@ -541,7 +541,7 @@ def main():
                                 print(f"     {_line}")
                             print("   Kill the relevant PID(s) with `kill <PID>` to free GPU memory.")
                     except Exception:
-                        pass
+                        log.debug("suppressed exception", exc_info=True)
 
                 # Critical-VRAM CPU fallback: only when the GPU literally
                 # cannot host the model file at all. Threshold is now

@@ -602,7 +602,7 @@ def _populate_kg_from_user_patterns(memory: Any) -> None:
             kg.upsert_entity(name, "person")
             kg.add_relation("User", "has_name", name, source="user_profile")
     except Exception:
-        pass
+        log.debug("suppressed exception", exc_info=True)
 
     # Broad, clean extraction: every structured pattern type becomes a node + a typed
     # relation off the User, so the graph actually grows from what the user tells ELI
@@ -728,7 +728,7 @@ def update_user_profile_overlay(memory: Any = None) -> Dict[str, Any]:
                         set_user_name(recovered)  # write to user_profile.json
                         log.info("persona_updater: recovered name %r from user_patterns", recovered)
                     except Exception:
-                        pass
+                        log.debug("suppressed exception", exc_info=True)
                     updates["name"] = recovered
             if "nickname" in item.lower() or "nick" in item.lower() or "alias" in item.lower():
                 if "nickname" not in updates:

@@ -401,7 +401,7 @@ def build_training_job(
             from eli.learning.dataset_builder import build_dataset
             build_dataset(out_path=dataset_path)
         except Exception:
-            pass
+            log.debug("suppressed exception", exc_info=True)
     dataset = _dataset_report(dataset_path, target) if dataset_path else {
         "ok": False,
         "problems": ["dataset path missing from guard plan"],
@@ -567,7 +567,7 @@ def _resolve_target_modules(model: Any, adapter_cfg: dict[str, Any]) -> Any:
                 if leaf in _LORA_PROJ_LEAVES:
                     found.add(leaf)
     except Exception:
-        pass
+        log.debug("suppressed exception", exc_info=True)
     return sorted(found) if found else "all-linear"
 
 

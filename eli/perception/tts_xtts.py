@@ -404,5 +404,5 @@ def synthesize_wav(text: str, clone_name: str) -> Optional[bytes]:
             try:
                 Path(outpath).unlink(missing_ok=True)
             except OSError:
-                pass
+                log.debug("suppressed exception", exc_info=True)
     return None

@@ -32,7 +32,7 @@ def expand_query_hyde(
             if hyp and len(hyp.strip()) > 10:
                 hypotheticals.append(hyp.strip())
         except Exception:
-            pass
+            log.debug("suppressed exception", exc_info=True)
     return hypotheticals
 
 

@@ -58,7 +58,7 @@ def _settings_file() -> Path:
     try:
         return (get_paths().config_dir / "settings.json").resolve()
     except Exception:
-        pass
+        log.debug("suppressed exception", exc_info=True)
 
     # 4. Final fallback.
     return (PROJECT_ROOT / "config" / "settings.json").resolve()
@@ -468,7 +468,7 @@ def _load_settings_unsanitized() -> Dict[str, Any]:
             if isinstance(parsed, dict):
                 raw = parsed
         except Exception:
-            pass
+            log.debug("suppressed exception", exc_info=True)
 
     # Migrate legacy keys in-memory AND persist the cleaned file
     migrated_data, migrated_keys = _migrate_legacy_keys(raw)
@@ -495,7 +495,7 @@ def _load_settings_unsanitized() -> Dict[str, Any]:
             # Persist healed paths back so next launch is instant
             _persist_healed_paths(settings, settings_file)
         except Exception:
-            pass
+            log.debug("suppressed exception", exc_info=True)
 
     for env_name, key in ENV_TO_KEY.items():
         val = os.environ.get(env_name)
@@ -526,7 +526,7 @@ def _persist_healed_paths(settings: Dict[str, Any], settings_file: Path) -> None
             if isinstance(parsed, dict):
                 existing = parsed
         except Exception:
-            pass
+            log.debug("suppressed exception", exc_info=True)
     for key in _MODEL_PATH_KEYS:
         if key in settings:
             existing[key] = settings[key]
@@ -544,7 +544,7 @@ def _harden_perms(path) -> None:
     try:
         os.chmod(path, 0o600)
     except OSError:
-        pass
+        log.debug("suppressed exception", exc_info=True)
 
 
 def save_settings(settings: Dict[str, Any]) -> None:
@@ -560,7 +560,7 @@ def save_settings(settings: Dict[str, Any]) -> None:
             if isinstance(parsed, dict):
                 existing = parsed
         except Exception:
-            pass
+            log.debug("suppressed exception", exc_info=True)
 
     # Migrate anything legacy in existing first
     existing, _ = _migrate_legacy_keys(existing)
@@ -583,7 +583,7 @@ def save_settings(settings: Dict[str, Any]) -> None:
         try:
             existing["n_gpu_layers"] = int(existing["n_gpu_layers"])
         except Exception:
-            pass
+            log.debug("suppressed exception", exc_info=True)
 
     settings_file.parent.mkdir(parents=True, exist_ok=True)
     # settings may hold secrets (broker passwords, tokens) — born-0600 atomic
@@ -697,7 +697,7 @@ def _resolve_gpu_split(s):
                         return _ts.strip(), prof.get("main_gpu", main_gpu), str(prof.get("split_mode", sm) or "").strip()
                 break
     except Exception:
-        pass
+        log.debug("suppressed exception", exc_info=True)
     return ts, main_gpu, sm
 
 
@@ -1078,7 +1078,7 @@ def _eli_portability_load_settings(*args, **kwargs):
                 if k in settings:
                     settings[k] = str(root)
     except Exception:
-        pass
+        log.debug("suppressed exception", exc_info=True)
 
     return settings
 # --- ELI portability runtime path guard: END ---

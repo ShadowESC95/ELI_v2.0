@@ -87,7 +87,7 @@ class AwarenessState:
             from eli.cognition.agent_bus import _ALL_AGENTS
             bits.append(f"{len(_ALL_AGENTS)} specialist agents")
         except Exception:
-            pass
+            log.debug("suppressed exception", exc_info=True)
         bits.append("4 local SQLite stores")
         try:
             from eli.runtime.live_introspection import _runtime_core
@@ -97,7 +97,7 @@ class AwarenessState:
                 from pathlib import Path as _P
                 bits.append(f"running '{_P(str(_m)).name}'")
         except Exception:
-            pass
+            log.debug("suppressed exception", exc_info=True)
         head = "[Live self-model: " + ", ".join(bits) + "]" if bits else "[Live self-model: ready]"
         # Current symbolic-world room, if the world model is active (cheap dict read).
         try:
@@ -107,7 +107,7 @@ class AwarenessState:
             if room:
                 head += f" You are presently in your {room}."
         except Exception:
-            pass
+            log.debug("suppressed exception", exc_info=True)
         return head
 
     def codebase_graph_summary(self) -> str:

@@ -49,7 +49,7 @@ def detect_platform() -> str:
         if LINUX:
             return "linux"
     except Exception:
-        pass
+        log.debug("suppressed exception", exc_info=True)
     import sys
     p = sys.platform.lower()
     if p.startswith("win"):
@@ -220,7 +220,7 @@ def probe_broker_connection(
         try:
             client.disconnect()
         except Exception:
-            pass
+            log.debug("suppressed exception", exc_info=True)
 
     try:
         try:
@@ -241,7 +241,7 @@ def probe_broker_connection(
         try:
             client.loop_stop()
         except Exception:
-            pass
+            log.debug("suppressed exception", exc_info=True)
     except Exception as exc:
         hint = _connection_hint(str(exc), host, port)
         return {"ok": False, "error": str(exc), "hint": hint, "host": host, "port": port}
@@ -274,7 +274,7 @@ def suggest_local_hosts() -> List[str]:
         if hostname:
             hosts.append(hostname)
     except Exception:
-        pass
+        log.debug("suppressed exception", exc_info=True)
     try:
         import socket as _s
         _, _, addrs = _s.gethostbyname_ex(_s.gethostname())
@@ -282,7 +282,7 @@ def suggest_local_hosts() -> List[str]:
             if a and a not in hosts:
                 hosts.append(a)
     except Exception:
-        pass
+        log.debug("suppressed exception", exc_info=True)
     return hosts
 
 

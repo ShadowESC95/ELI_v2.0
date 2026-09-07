@@ -59,7 +59,7 @@ def get_wake_phrases() -> List[str]:
         if ph:
             return [str(p).strip().lower() for p in ph if str(p).strip()]
     except Exception:
-        pass
+        log.debug("suppressed exception", exc_info=True)
     return list(_DEFAULT_PHRASES)
 
 
@@ -110,9 +110,9 @@ def _load_enrolled() -> List[np.ndarray]:
                     data = data.mean(axis=1)
                 out.append(_fix_len(_resample(data, sr, SR)))
             except Exception:
-                pass
+                log.debug("suppressed exception", exc_info=True)
     except Exception:
-        pass
+        log.debug("suppressed exception", exc_info=True)
     return out
 
 
@@ -288,9 +288,9 @@ def _noise_beds() -> List[np.ndarray]:
                         data = data.mean(axis=1)
                     beds.append(_resample(data, sr, SR))
                 except Exception:
-                    pass
+                    log.debug("suppressed exception", exc_info=True)
         except Exception:
-            pass
+            log.debug("suppressed exception", exc_info=True)
     # synthetic noise (always available)
     rng = np.random.default_rng(0)
     white = rng.standard_normal(SR * 4).astype(np.float32) * 0.3

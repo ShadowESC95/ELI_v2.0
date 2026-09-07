@@ -9,6 +9,10 @@ from dataclasses import dataclass, asdict
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
+from eli.utils.log import get_logger
+
+log = get_logger(__name__)
+
 
 def _eli_canonical_root_ROOT() -> Path:
     # Canonical env-honoring root — __file__ resolves into the read-only
@@ -67,14 +71,14 @@ def detect_ram_gb() -> float:
         import psutil
         return round(psutil.virtual_memory().total / 1e9, 2)
     except Exception:
-        pass
+        log.debug("suppressed exception", exc_info=True)
     try:
         txt = Path("/proc/meminfo").read_text()
         m = re.search(r"MemTotal:\s+(\d+)\s+kB", txt)
         if m:
             return round(int(m.group(1)) / 1024 / 1024, 2)
     except Exception:
-        pass
+        log.debug("suppressed exception", exc_info=True)
     return 8.0
 
 
@@ -85,7 +89,7 @@ def detect_cpu_name() -> str:
         if m:
             return m.group(1).strip()
     except Exception:
-        pass
+        log.debug("suppressed exception", exc_info=True)
     return platform.processor() or "unknown"
 
 
@@ -108,7 +112,7 @@ def detect_nvidia_gpus() -> List[GPUInfo]:
             idx, name, total, free = [x.strip() for x in line.split(",")[:4]]
             out.append(GPUInfo(int(idx), name, "nvidia", int(total), int(free)))
     except Exception:
-        pass
+        log.debug("suppressed exception", exc_info=True)
     return out
 
 
@@ -136,7 +140,7 @@ def detect_other_gpus() -> List[GPUInfo]:
                 amd_total += _tot // (1024 * 1024)
                 amd_free += max(0, _tot - _used) // (1024 * 1024)
     except Exception:
-        pass
+        log.debug("suppressed exception", exc_info=True)
     try:
         raw = run(["lspci"])
         for i, line in enumerate(raw.splitlines()):
@@ -151,7 +155,7 @@ def detect_other_gpus() -> List[GPUInfo]:
                 else:
                     out.append(GPUInfo(i, line.strip(), vendor, 0, 0))
     except Exception:
-        pass
+        log.debug("suppressed exception", exc_info=True)
     return out
 
 
@@ -277,7 +281,7 @@ def _gguf_metadata_ctx(model_path: str) -> int:
             try:
                 del _m
             except Exception:
-                pass
+                log.debug("suppressed exception", exc_info=True)
         except Exception:
             val = 0
     _TRAIN_CTX_CACHE[key] = val
@@ -300,7 +304,7 @@ def train_ctx_for_model(model_path: str) -> int:
         if _meta_ctx and _meta_ctx > 0:
             return int(_meta_ctx)
     except Exception:
-        pass
+        log.debug("suppressed exception", exc_info=True)
 
     name = Path(model_path).name.lower()
 

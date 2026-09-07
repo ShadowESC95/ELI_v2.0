@@ -20,7 +20,8 @@ import glob
 import os
 
 # Current count of silent `except: pass` handlers across eli/. Ratchet DOWN only.
-CEILING = 646
+# v2.3.84: bulk conversion removed 469 handlers (646 → 177).
+CEILING = 177
 
 _ELI_ROOT = os.path.normpath(os.path.join(os.path.dirname(__file__), "..", "..", "eli"))
 

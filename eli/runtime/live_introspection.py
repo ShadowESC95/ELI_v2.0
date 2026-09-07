@@ -8,6 +8,10 @@ import time
 from pathlib import Path
 from typing import Any, Dict, List
 
+from eli.utils.log import get_logger
+
+log = get_logger(__name__)
+
 
 def _root() -> Path:
     """Canonical, environment-honouring root — not this module's own location.
@@ -51,7 +55,7 @@ def _read_json(path: Path) -> Dict[str, Any]:
             if isinstance(data, dict):
                 return data
     except Exception:
-        pass
+        log.debug("suppressed exception", exc_info=True)
     return {}
 
 
@@ -79,7 +83,7 @@ def _state_profile() -> tuple[Dict[str, Any], Dict[str, Any]]:
         state = dict(load_state() or {})
         profile = dict(load_user_profile() or {})
     except Exception:
-        pass
+        log.debug("suppressed exception", exc_info=True)
     return state, profile
 
 
@@ -118,7 +122,7 @@ def _count(conn: sqlite3.Connection, table: str) -> int:
         if _table_exists(conn, table):
             return int(conn.execute(f"SELECT count(*) FROM {table}").fetchone()[0] or 0)
     except Exception:
-        pass
+        log.debug("suppressed exception", exc_info=True)
     return 0
 
 
@@ -127,7 +131,7 @@ def _columns(conn: sqlite3.Connection, table: str) -> List[str]:
         if _table_exists(conn, table):
             return [str(r[1]) for r in conn.execute(f"PRAGMA table_info({table})").fetchall()]
     except Exception:
-        pass
+        log.debug("suppressed exception", exc_info=True)
     return []
 
 
@@ -659,7 +663,7 @@ def build_report(action: str, user_input: str = "") -> Dict[str, Any]:
                     "_orchestrator" in _engine_src or "self.orchestrator" in _engine_src
                 )
             except Exception:
-                pass
+                log.debug("suppressed exception", exc_info=True)
         report = {
             "ok": True,
             "live_orchestration_surface": str(_engine_path),

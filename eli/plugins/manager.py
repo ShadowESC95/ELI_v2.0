@@ -130,7 +130,7 @@ def _load_state() -> Dict[str, Any]:
         try:
             return json.loads(p.read_text())
         except Exception:
-            pass
+            log.debug("suppressed exception", exc_info=True)
     return {"enabled": [], "disabled": [], "installed": {}}
 
 
@@ -160,7 +160,7 @@ def _fetch_registry(timeout: int = 8) -> List[Dict[str, Any]]:
         )
         return data.get("plugins", [])
     except Exception:
-        pass
+        log.debug("suppressed exception", exc_info=True)
 
     # Fallback: bundled registry
     p = _local_registry()
@@ -168,7 +168,7 @@ def _fetch_registry(timeout: int = 8) -> List[Dict[str, Any]]:
         try:
             return json.loads(p.read_text()).get("plugins", [])
         except Exception:
-            pass
+            log.debug("suppressed exception", exc_info=True)
     return []
 
 

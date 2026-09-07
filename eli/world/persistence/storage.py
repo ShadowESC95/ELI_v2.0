@@ -119,9 +119,9 @@ def _prune_corrupt_backups(keep: int = _CORRUPT_BACKUP_KEEP) -> None:
             try:
                 old.unlink()
             except Exception:
-                pass
+                log.debug("suppressed exception", exc_info=True)
     except Exception:
-        pass
+        log.debug("suppressed exception", exc_info=True)
 
 def _fit(cls, data: Any):
     """Build `cls` from a saved dict, ignoring fields it no longer declares.

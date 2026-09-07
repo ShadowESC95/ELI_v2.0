@@ -168,7 +168,7 @@ class _GazeEngineService:
             try:
                 last = json.loads(state_path.read_text(encoding="utf-8"))
             except Exception:
-                pass
+                log.debug("suppressed exception", exc_info=True)
         return {
             "running": self.is_running(),
             "calibrated": cal_path.exists(),
@@ -320,7 +320,7 @@ class _GazeEngineService:
                     try:
                         state_path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
                     except Exception:
-                        pass
+                        log.debug("suppressed exception", exc_info=True)
                     last_write = now
 
         finally:

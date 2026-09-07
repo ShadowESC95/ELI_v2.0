@@ -161,7 +161,7 @@ class VectorStore:
                         )
                         self._needs_rebuild = True
             except Exception:
-                pass
+                log.debug("suppressed exception", exc_info=True)
         if self._needs_rebuild and self._embedder is not None:
             threading.Thread(target=self._auto_rebuild, daemon=True, name="eli-vs-rebuild").start()
 
@@ -172,7 +172,7 @@ class VectorStore:
                 log.debug('[VECTOR_STORE][PHASE43] skipping embedding during shutdown')
                 return False
         except Exception:
-            pass
+            log.debug("suppressed exception", exc_info=True)
         # === END PHASE43_SKIP_VECTOR_EMBED_DURING_SHUTDOWN ===
         vec = self._embed(text)
         if vec is None:
@@ -651,4 +651,4 @@ def _dump_meta(meta_path: str, meta) -> None:
         if os.path.exists(legacy):
             os.remove(legacy)
     except Exception:
-        pass
+        log.debug("suppressed exception", exc_info=True)

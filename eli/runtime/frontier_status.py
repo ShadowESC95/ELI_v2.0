@@ -38,7 +38,7 @@ def _read_json(path: Path) -> Dict[str, Any]:
             if isinstance(data, dict):
                 return data
     except Exception:
-        pass
+        log.debug("suppressed exception", exc_info=True)
     return {}
 
 
@@ -274,7 +274,7 @@ def _chatflow_wiring_status() -> Dict[str, Any]:
         stages = getattr(router, "_ELI_ROUTE_PRIORITY_STAGES", ()) or ()
         result["router_priority_stage_count"] = len(stages)
     except Exception:
-        pass
+        log.debug("suppressed exception", exc_info=True)
 
     try:
         from eli.execution import executor_enhanced as executor
@@ -285,7 +285,7 @@ def _chatflow_wiring_status() -> Dict[str, Any]:
         mws = getattr(executor, "_ELI_EXECUTOR_MIDDLEWARE_TABLE", ()) or ()
         result["executor_middleware_count"] = len(mws)
     except Exception:
-        pass
+        log.debug("suppressed exception", exc_info=True)
 
     try:
         from eli.runtime import deterministic_grounding_gate as gate
@@ -294,7 +294,7 @@ def _chatflow_wiring_status() -> Dict[str, Any]:
             getattr(gate, "_ELI_DETERMINISTIC_GROUNDING_POLICY_ENGINE_V1", False)
         )
     except Exception:
-        pass
+        log.debug("suppressed exception", exc_info=True)
 
     try:
         from eli.kernel.pipeline import STEPS

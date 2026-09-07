@@ -148,7 +148,7 @@ def generate_document(
             try:
                 on_progress(msg)
             except Exception:
-                pass
+                log.debug("suppressed exception", exc_info=True)
 
     try:
         # Confidence-retry tier 0→1: if the gathered evidence is thin, RE-GATHER

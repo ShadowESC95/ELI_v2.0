@@ -252,7 +252,7 @@ def _worker_eval(request: str):
                 out["regression_count"] = int(_reg.get("count", 0) or 0)
                 out["regressions"] = [x.get("id") for x in (_reg.get("regressions") or [])]
         except Exception:
-            pass
+            log.debug("suppressed exception", exc_info=True)
     except Exception as e:
         out["ok"] = False
         out["engine_error"] = str(e)
@@ -442,7 +442,7 @@ def _arm(pid: str, request: str, when_ts: float, when_spec: str, kind: str,
         try:
             surface(task)
         except Exception:
-            pass
+            log.debug("suppressed exception", exc_info=True)
         if recurring:
             try:
                 schedule_request(request, when_spec=when_spec, kind=kind, recurring=True)
@@ -492,7 +492,7 @@ def schedule_request(request: str, when_spec: str = "", kind: Optional[str] = No
                 if len(_kept) != len(_existing):
                     _save_store(_kept)
         except Exception:
-            pass
+            log.debug("suppressed exception", exc_info=True)
 
     try:
         _persist_add({"pid": pid, "request": request, "when_spec": when_spec,

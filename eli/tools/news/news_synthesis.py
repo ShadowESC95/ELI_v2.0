@@ -195,7 +195,7 @@ def synthesise_window(force: bool = False) -> Dict[str, Any]:
                 kind="news_reflection",
             )
     except Exception:
-        pass
+        log.debug("suppressed exception", exc_info=True)
 
     return {
         "ok": True,
@@ -490,7 +490,7 @@ def interest_news_block(user_id=None, max_items: int = 4) -> str:
         try:
             fetch_news(topic=term)          # populate store (gated; no-op offline)
         except Exception:
-            pass
+            log.debug("suppressed exception", exc_info=True)
         # Prefer get_recent (fetched_at-DESC = current) over search_stored_news, which
         # orders by FTS rank and reliably returned week-old items — the exact staleness
         # in the interest ("relevant to you") surface.
@@ -624,7 +624,7 @@ def build_news_briefing(user_id=None, topic: str = "", top_n: int = 5,
             if isinstance(_fr, dict):
                 _fetched_new = int(_fr.get("stored_new") or 0)
         except Exception:
-            pass
+            log.debug("suppressed exception", exc_info=True)
 
     import datetime as _dt
     _today = _dt.date.today()
@@ -639,7 +639,7 @@ def build_news_briefing(user_id=None, topic: str = "", top_n: int = 5,
             return _dt.datetime.fromisoformat(
                 s.replace("Z", "+00:00").replace("z", "+00:00")).replace(tzinfo=None)
         except Exception:
-            pass
+            log.debug("suppressed exception", exc_info=True)
         try:
             from email.utils import parsedate_to_datetime as _pdt
             d = _pdt(s)
@@ -759,7 +759,7 @@ def build_news_briefing(user_id=None, topic: str = "", top_n: int = 5,
                 if refresh:
                     fetcher.fetch(sources=None, topic=term)
             except Exception:
-                pass
+                log.debug("suppressed exception", exc_info=True)
             try:
                 hits = fetcher.get_recent(limit=8, topic=term) or []
             except Exception:

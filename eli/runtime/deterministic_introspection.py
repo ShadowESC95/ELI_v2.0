@@ -91,7 +91,7 @@ def _route_action(text: str) -> Optional[str]:
             if action in DIAGNOSTIC_ACTIONS:
                 return action
     except Exception:
-        pass
+        log.debug("suppressed exception", exc_info=True)
     return classify_diagnostic_action(text)
 
 
@@ -108,7 +108,7 @@ def _last_trace(engine: Any) -> Dict[str, Any]:
             if isinstance(val, dict) and val:
                 return val
         except Exception:
-            pass
+            log.debug("suppressed exception", exc_info=True)
     try:
         from eli.runtime.last_trace import load_last_trace
         return dict(load_last_trace() or {})
@@ -128,7 +128,7 @@ def _last_response(engine: Any) -> str:
             if val is not None and str(val).strip():
                 return str(val)
         except Exception:
-            pass
+            log.debug("suppressed exception", exc_info=True)
     return ""
 
 
@@ -199,7 +199,7 @@ def _cognition_report(engine: Any) -> str:
             if hasattr(engine, attr):
                 lines.append(f"{attr}: {getattr(engine, attr)}")
         except Exception:
-            pass
+            log.debug("suppressed exception", exc_info=True)
     return "\n".join(lines)
 
 

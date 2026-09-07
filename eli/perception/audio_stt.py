@@ -388,7 +388,7 @@ def _merge_custom_wake_words() -> None:
             if p and p not in WAKE_WORDS:
                 WAKE_WORDS.append(p)
     except Exception:
-        pass
+        log.debug("suppressed exception", exc_info=True)
 
 
 def primary_wake_word() -> str:
@@ -400,7 +400,7 @@ def primary_wake_word() -> str:
         if ph:
             return ph[0]
     except Exception:
-        pass
+        log.debug("suppressed exception", exc_info=True)
     return "computer"
 
 SAFE_DIRECT_COMMANDS = {
@@ -482,7 +482,7 @@ def begin_wake_enrollment(n: int = 5) -> dict:
             stt._speak_prompt("Your wake word is trained and ready."
                               if r.get("ok") else "Wake-word training could not finish.")
         except Exception:
-            pass
+            log.debug("suppressed exception", exc_info=True)
 
     n = max(1, min(20, int(n)))
     steps = [{"prompt": (f"Say your wake word, {ph}." if i == 0 else f"{ph}, again."),
@@ -543,7 +543,7 @@ def begin_voice_training(per_emotion: int = 2, wake_reps: int = 3) -> dict:
             stt._speak_prompt("Done — I've learned your wake word, your voice, and your tone."
                               if ok else "Voice setup finished — wake word and baseline are set.")
         except Exception:
-            pass
+            log.debug("suppressed exception", exc_info=True)
 
     stt.begin_capture_script(steps, _done,
                              prompt_start=("Let's set up your voice. I'll cue you each time — "
@@ -745,7 +745,7 @@ def _is_safe_direct(text: str) -> bool:
         try:
             t = alias(t)
         except Exception:
-            pass
+            log.debug("suppressed exception", exc_info=True)
 
     # Known local app opens may bypass wake.
     # Arbitrary "open X" stays guarded, because ambient media can say "open ...".
@@ -1485,7 +1485,7 @@ class ELIAudioSTT:
             if p.exists():
                 return json.loads(p.read_text(encoding="utf-8"))
         except Exception:
-            pass
+            log.debug("suppressed exception", exc_info=True)
         return {"count": 0, "energy_mean": 0.0, "energy_min": 0.0,
                 "energy_max": 0.0, "duration_mean_s": 0.0}
 
@@ -1496,7 +1496,7 @@ class ELIAudioSTT:
             p.parent.mkdir(parents=True, exist_ok=True)
             p.write_text(json.dumps(self._voice_profile, indent=2), encoding="utf-8")
         except Exception:
-            pass
+            log.debug("suppressed exception", exc_info=True)
 
     def _apply_voice_profile_bias(self) -> None:
         """Bias energy_threshold toward the user's known speech volume range.
@@ -1648,7 +1648,7 @@ class ELIAudioSTT:
             if n % 5 == 0:
                 self._save_voice_profile()
         except Exception:
-            pass
+            log.debug("suppressed exception", exc_info=True)
 
     def start_listening(self, callback=None):
         with self._state_lock:
@@ -1763,7 +1763,7 @@ class ELIAudioSTT:
             from eli.perception import tts_router
             tts_router.speak(text)
         except Exception:
-            pass
+            log.debug("suppressed exception", exc_info=True)
 
     def begin_capture_script(self, steps: list, done=None, *, prompt_start: str = "") -> dict:
         """Run a capture SCRIPT through the running mic loop: each captured clean clip
@@ -1880,7 +1880,7 @@ class ELIAudioSTT:
                                 p.unlink(missing_ok=True)
                                 return False
                         except Exception:
-                            pass
+                            log.debug("suppressed exception", exc_info=True)
                         return True
                     except Exception:
                         return False
@@ -1907,7 +1907,7 @@ class ELIAudioSTT:
                             if _eli_is_speaking():
                                 _tts_mon_last[0] = time.monotonic()
                         except Exception:
-                            pass
+                            log.debug("suppressed exception", exc_info=True)
                         time.sleep(0.1)
 
                 _tts_mon_thread = _threading.Thread(
@@ -2083,7 +2083,7 @@ class ELIAudioSTT:
                                     except Exception as _reopen_err:
                                         log.debug(f"[AUDIO] mic re-open failed: {_reopen_err}")
                             except Exception:
-                                pass
+                                log.debug("suppressed exception", exc_info=True)
                         # Nothing even crossed the gate — the room is quiet. If an
                         # earlier noise episode lifted the threshold, walk it back down
                         # so the mic recovers its normal sensitivity instead of staying
@@ -2183,7 +2183,7 @@ class ELIAudioSTT:
                                             transcript = (primary_wake_word() + " " + (transcript or "")).strip()
                                             _vprint("🔊 [AUDIO] acoustic wake-word detected (over noise/music)", flush=True)
                         except Exception:
-                            pass
+                            log.debug("suppressed exception", exc_info=True)
 
                     if not transcript:
                         _silent_streak += 1
@@ -2261,7 +2261,7 @@ class ELIAudioSTT:
                                 if _tone.get("ok"):
                                     _vp.set_last_tone(_tone)
                         except Exception:
-                            pass
+                            log.debug("suppressed exception", exc_info=True)
 
                     # Update user voice profile for next time's threshold bias.
                     self._record_voice_sample(audio)
@@ -2284,7 +2284,7 @@ class ELIAudioSTT:
                                 )
                                 continue
                     except Exception:
-                        pass
+                        log.debug("suppressed exception", exc_info=True)
                     _heard_preview = (
                         transcript_display if len(transcript_display) <= 80
                         else (transcript_display[:77] + "...")
@@ -2303,7 +2303,7 @@ class ELIAudioSTT:
                             )
                             continue
                     except Exception:
-                        pass
+                        log.debug("suppressed exception", exc_info=True)
 
                     # Drop obvious assistant/TTS echo.
                     try:
@@ -2311,7 +2311,7 @@ class ELIAudioSTT:
                             _vprint(f"🛡️ [AUDIO_ECHO_GATE] ignored assistant echo: {transcript_display!r}", flush=True)
                             continue
                     except Exception:
-                        pass
+                        log.debug("suppressed exception", exc_info=True)
 
                     self.audio_queue.put(transcript_display)
 
@@ -2393,7 +2393,7 @@ class ELIAudioSTT:
             try:
                 _tts_mon_stop.set()
             except Exception:
-                pass
+                log.debug("suppressed exception", exc_info=True)
             with self._state_lock:
                 self.is_listening = False
                 self._thread = None

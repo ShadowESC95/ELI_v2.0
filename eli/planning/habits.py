@@ -69,7 +69,7 @@ def clear_pending_habit() -> None:
     try:
         _pending_habit_file().unlink()
     except FileNotFoundError:
-        pass
+        log.debug("suppressed exception", exc_info=True)
 
 
 def _offered_ids() -> set:
@@ -92,7 +92,7 @@ def mark_offered(rule_id: int) -> None:
     try:
         _offered_file().write_text(json.dumps(sorted(ids)), encoding="utf-8")
     except Exception:
-        pass
+        log.debug("suppressed exception", exc_info=True)
 
 def log_event(event_type: str, data: dict):
     """Log an event for habit analysis."""
@@ -187,7 +187,7 @@ def detect_habits(days: int = 14, min_occurrences: int = 3, min_days: int = 3):
         if hasattr(mem, "purge_invalid_habit_rules"):
             mem.purge_invalid_habit_rules()
     except Exception:
-        pass
+        log.debug("suppressed exception", exc_info=True)
     events = mem.get_habit_events(event_type=None, days=days)
 
     clusters = defaultdict(list)
@@ -329,7 +329,7 @@ def _write_behavior_observations(mem, counts: Counter, examples: dict, min_occur
         try:
             mem.add_observation("habit", observation, source="habit_detector", category="behavior_pattern")
         except Exception:
-            pass
+            log.debug("suppressed exception", exc_info=True)
 
 
 def schedule_detection_loop(interval_hours: int = 12):

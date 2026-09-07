@@ -114,7 +114,7 @@ class InferenceBroker:
         try:
             background = bool(background) or bool(gi.is_background_inference())
         except Exception:
-            pass
+            log.debug("suppressed exception", exc_info=True)
         # During shutdown, don't START a new BACKGROUND generation — a
         # self-improvement/codegen loop would otherwise pay prompt-eval cost on
         # each remaining item and hold up teardown. In-flight calls abort via the
@@ -130,7 +130,7 @@ class InferenceBroker:
             if background and self._gguf.is_shutting_down():
                 return ""
         except Exception:
-            pass
+            log.debug("suppressed exception", exc_info=True)
         # A foreground turn is live or just ran: don't let background work grab the shared model
         # lock and stall the user (prompt-eval can't be token-preempted once it starts). Skip this
         # cycle — the daemon re-runs the chore on a later idle tick. Best-effort; model/hardware
@@ -169,7 +169,7 @@ class InferenceBroker:
                 gi.set_background_inference(True)
                 _armed = True
         except Exception:
-            pass
+            log.debug("suppressed exception", exc_info=True)
         try:
             with self._lock:
                 response = self._call(prompt, system, max_tokens, temperature, top_p)
@@ -191,7 +191,7 @@ class InferenceBroker:
                 try:
                     gi.set_background_inference(False)
                 except Exception:
-                    pass
+                    log.debug("suppressed exception", exc_info=True)
             if not background:
                 _now = _time.monotonic()
                 if _fg_start:

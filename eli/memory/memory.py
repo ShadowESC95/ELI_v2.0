@@ -458,7 +458,7 @@ def _ensure_memory_schema(conn):
             """
         )
     except Exception:
-        pass
+        log.debug("suppressed exception", exc_info=True)
 
     conn.execute(
         """
@@ -1067,7 +1067,7 @@ def _ensure_full_memory_schema(conn):
             USING fts5(text, tags, content='memories', content_rowid='id')
         """)
     except Exception:
-        pass
+        log.debug("suppressed exception", exc_info=True)
 
     conn.execute("""
         CREATE TABLE IF NOT EXISTS conversations (
@@ -1841,7 +1841,7 @@ class Memory(metaclass=_MemoryMeta):
                 (rowid, t, tag_blob),
             )
         except Exception:
-            pass
+            log.debug("suppressed exception", exc_info=True)
         return rowid
 
     @staticmethod
@@ -2017,7 +2017,7 @@ class Memory(metaclass=_MemoryMeta):
                 try:
                     importance = float(meta["importance"])
                 except Exception:
-                    pass
+                    log.debug("suppressed exception", exc_info=True)
         if isinstance(tags, str):
             tags = [t.strip() for t in tags.split(",") if t.strip()]
 
@@ -2034,7 +2034,7 @@ class Memory(metaclass=_MemoryMeta):
                     if _ptag not in tags:
                         tags.append(_ptag)
             except Exception:
-                pass
+                log.debug("suppressed exception", exc_info=True)
 
         # Auto-score importance when not explicitly provided
         if importance is None:
@@ -2082,7 +2082,7 @@ class Memory(metaclass=_MemoryMeta):
                 if added_to_vector_store and hasattr(vs, "flush"):
                     vs.flush()
         except Exception:
-            pass
+            log.debug("suppressed exception", exc_info=True)
 
         # Extract entity-relation triples into knowledge graph (fire-and-forget)
         try:
@@ -2090,7 +2090,7 @@ class Memory(metaclass=_MemoryMeta):
             kg = get_knowledge_graph()
             kg.extract_from_memory(t, source=source)
         except Exception:
-            pass
+            log.debug("suppressed exception", exc_info=True)
 
         # Write to secondaries
         from eli.core.sqlite_util import apply_pragmas
@@ -2154,7 +2154,7 @@ class Memory(metaclass=_MemoryMeta):
             try:
                 conn.close()
             except Exception:
-                pass
+                log.debug("suppressed exception", exc_info=True)
 
 
     def get_recent_semantic_memories(self, limit=20):
@@ -2259,7 +2259,7 @@ class Memory(metaclass=_MemoryMeta):
                                 '_source': 'vector',
                             })
                 except Exception:
-                    pass
+                    log.debug("suppressed exception", exc_info=True)
 
             # --- Stage 6: FTS5 keyword search (CO-EQUAL channel) ---
             # This used to be a fallback:
@@ -2506,7 +2506,7 @@ class Memory(metaclass=_MemoryMeta):
                                 "source": "semantic",
                             })
                 except Exception:
-                    pass
+                    log.debug("suppressed exception", exc_info=True)
             # --- Knowledge Graph enrichment ---
             # Skipped when keyword_only=True — the orchestrator runs its own
             # kg_search() step and manages KG insertion into hybrid_merge()
@@ -2531,7 +2531,7 @@ class Memory(metaclass=_MemoryMeta):
                             "_source": "kg",
                         })
                 except Exception:
-                    pass
+                    log.debug("suppressed exception", exc_info=True)
             # --- Deep history fallback: search conversation_turns when memories sparse ---
             # This surfaces things the user said that were never extracted as facts.
             if len(out) < 2 and _has_table(conn, "conversation_turns"):
@@ -2597,7 +2597,7 @@ class Memory(metaclass=_MemoryMeta):
                                 "_source": "conversation_turns",
                             })
                 except Exception:
-                    pass
+                    log.debug("suppressed exception", exc_info=True)
 
             # --- Recall frequency learning: boost importance of top recalled memories ---
             # Queued and flushed in background to keep the read path write-free.
@@ -2617,7 +2617,7 @@ class Memory(metaclass=_MemoryMeta):
                         ),
                     )
             except Exception:
-                pass
+                log.debug("suppressed exception", exc_info=True)
 
             try:
                 _now = _now_ts()
@@ -2632,7 +2632,7 @@ class Memory(metaclass=_MemoryMeta):
                     ),
                 )
             except Exception:
-                pass
+                log.debug("suppressed exception", exc_info=True)
             # Enforce the caller's limit on the final merged list.
             # conversation_turns fallback uses max(3, limit-len) which can push
             # total above `limit` when the initial result set is small.
@@ -3100,7 +3100,7 @@ class Memory(metaclass=_MemoryMeta):
                 from eli.memory.knowledge_graph import get_knowledge_graph
                 get_knowledge_graph().extract_from_memory(_content_s, source="user")
             except Exception:
-                pass
+                log.debug("suppressed exception", exc_info=True)
             try:
                 if Memory._is_memorable_statement(_content_s) and not self._memory_text_exists(_content_s):
                     _imp = Memory._score_importance(_content_s, None, "user", "fact")
@@ -3112,7 +3112,7 @@ class Memory(metaclass=_MemoryMeta):
                         importance=_imp,
                     )
             except Exception:
-                pass
+                log.debug("suppressed exception", exc_info=True)
 
         try:
             self.log_learning_event(
@@ -3130,7 +3130,7 @@ class Memory(metaclass=_MemoryMeta):
                 timestamp=now,
             )
         except Exception:
-            pass
+            log.debug("suppressed exception", exc_info=True)
 
         try:
             from eli.runtime.diagnostic_patterns import (
@@ -3174,7 +3174,7 @@ class Memory(metaclass=_MemoryMeta):
                     },
                 )
         except Exception:
-            pass
+            log.debug("suppressed exception", exc_info=True)
 
         if str(role or "").lower() == "user":
             try:
@@ -3230,7 +3230,7 @@ class Memory(metaclass=_MemoryMeta):
                 try:
                     conn.close()
                 except Exception:
-                    pass
+                    log.debug("suppressed exception", exc_info=True)
 
     def store_conversation(self, session_id, role, content, user_id=None):
         return self.add_conversation_turn(
@@ -3436,7 +3436,7 @@ class Memory(metaclass=_MemoryMeta):
                 from eli.runtime.persistence_gate import is_recall_narration as _is_narr
                 result = [h for h in result if not _is_narr(h.get("content"))]
             except Exception:
-                pass
+                log.debug("suppressed exception", exc_info=True)
             # B2: bias to the ACTIVE session — current-session turns first, so the
             # live conversation outranks days-old matches (stable; recency order
             # preserved within each group).
@@ -3766,12 +3766,12 @@ class Memory(metaclass=_MemoryMeta):
                 out.append(dict(r))
                 continue
             except Exception:
-                pass
+                log.debug("suppressed exception", exc_info=True)
             try:
                 out.append({k: r[k] for k in r.keys()})
                 continue
             except Exception:
-                pass
+                log.debug("suppressed exception", exc_info=True)
             out.append(r)
         return out
 
@@ -3797,7 +3797,7 @@ class Memory(metaclass=_MemoryMeta):
                     try:
                         cols.append(r[1])
                     except Exception:
-                        pass
+                        log.debug("suppressed exception", exc_info=True)
             return cols
         except Exception:
             return []
@@ -3927,7 +3927,7 @@ class Memory(metaclass=_MemoryMeta):
                 try:
                     names.append(r[0])
                 except Exception:
-                    pass
+                    log.debug("suppressed exception", exc_info=True)
 
         preferred = [
             "conversation_history",
@@ -4048,7 +4048,7 @@ class Memory(metaclass=_MemoryMeta):
         try:
             conn.commit()
         except Exception:
-            pass
+            log.debug("suppressed exception", exc_info=True)
 
 
     # Meta/introspection/system actions that land in the `habits` table because the
@@ -4226,7 +4226,7 @@ class Memory(metaclass=_MemoryMeta):
                     timestamp=now,
                 )
             except Exception:
-                pass
+                log.debug("suppressed exception", exc_info=True)
             return int(rid or 0)
         finally:
             conn.close()
@@ -4420,7 +4420,7 @@ class Memory(metaclass=_MemoryMeta):
                     timestamp=now,
                 )
             except Exception:
-                pass
+                log.debug("suppressed exception", exc_info=True)
             return int(cur.lastrowid)
         finally:
             conn.close()
@@ -4947,7 +4947,7 @@ class Memory(metaclass=_MemoryMeta):
             from eli.memory.knowledge_graph import get_knowledge_graph
             get_knowledge_graph().extract_from_memory(str(fact or ""), source="user")
         except Exception:
-            pass
+            log.debug("suppressed exception", exc_info=True)
 
     def recall_semantic(self, query="", limit=10):
         """Recall user facts from semantic table."""
@@ -5043,7 +5043,7 @@ def _eli_sync_world_model_from_memory(mem_obj, *, kind: str, role: str = "", tex
                 },
             )
     except Exception:
-        pass
+        log.debug("suppressed exception", exc_info=True)
 
 
 # Explicit FAISS persistence helper.
@@ -5187,7 +5187,7 @@ def rebuild_vector_index_from_search_db() -> Dict[str, Any]:
             vs._meta = []
             vs._adds_since_save = 0
     except Exception:
-        pass
+        log.debug("suppressed exception", exc_info=True)
 
     source_count = 0
     indexed = 0
@@ -5215,7 +5215,7 @@ def rebuild_vector_index_from_search_db() -> Dict[str, Any]:
     try:
         vs.flush()
     except Exception:
-        pass
+        log.debug("suppressed exception", exc_info=True)
 
     # vs.flush() should persist, but explicit persistence keeps rebuilds
     # durable through canonical artifacts/vectors paths.

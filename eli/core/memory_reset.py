@@ -31,6 +31,10 @@ import time
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
+from eli.utils.log import get_logger
+
+log = get_logger(__name__)
+
 _NAME_KEYS = {"name", "preferred_name", "user_name", "nickname", "alias", "first_name"}
 _IDENTITY_SETTINGS = {
     "user_name": "",
@@ -72,7 +76,7 @@ def _persona_overlay_paths(config: Path) -> List[Path]:
         if p.exists():
             paths.append(p)
     except Exception:
-        pass
+        log.debug("suppressed exception", exc_info=True)
     alt = config / "persona.auto.txt"
     if alt.exists() and alt not in paths:
         paths.append(alt)
@@ -132,7 +136,7 @@ def clear_db(path: Path, keep_tables: "frozenset[str] | set[str] | None" = None)
             try:
                 before += c.execute(f'SELECT COUNT(*) FROM "{n}"').fetchone()[0]
             except Exception:
-                pass
+                log.debug("suppressed exception", exc_info=True)
         for n in base:
             if n == "sqlite_sequence":
                 continue
@@ -144,7 +148,7 @@ def clear_db(path: Path, keep_tables: "frozenset[str] | set[str] | None" = None)
                 try:
                     c.execute(f'DELETE FROM "{n}"')
                 except Exception:
-                    pass
+                    log.debug("suppressed exception", exc_info=True)
         try:
             if keep:
                 qs = ",".join("?" * len(keep))
@@ -152,11 +156,11 @@ def clear_db(path: Path, keep_tables: "frozenset[str] | set[str] | None" = None)
             else:
                 c.execute("DELETE FROM sqlite_sequence")
         except Exception:
-            pass
+            log.debug("suppressed exception", exc_info=True)
         try:
             c.execute("VACUUM")
         except Exception:
-            pass
+            log.debug("suppressed exception", exc_info=True)
         return before
     finally:
         c.close()
@@ -248,7 +252,7 @@ def rebuild_after_reset(verbose: bool = False) -> Dict[str, Any]:
         from eli.memory import _clear_memory_singletons
         _clear_memory_singletons()
     except Exception:
-        pass
+        log.debug("suppressed exception", exc_info=True)
     try:
         from eli.core.init_data import init_all_data
         results = init_all_data(verbose=verbose)
@@ -271,7 +275,7 @@ def backup(t: Dict[str, List[Path]], base: Path) -> Path:
             try:
                 shutil.copy2(p, dest)
             except Exception:
-                pass
+                log.debug("suppressed exception", exc_info=True)
     return bk
 
 
@@ -302,7 +306,7 @@ def run_reset(keep_profile: bool = False, keep_conversations: bool = False,
         try:
             p.unlink()
         except Exception:
-            pass
+            log.debug("suppressed exception", exc_info=True)
 
     try:
         from eli.memory.vector_store import reset_vector_store

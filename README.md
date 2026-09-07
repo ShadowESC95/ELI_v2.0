@@ -27,6 +27,12 @@ like and it tunes itself to the hardware you've got, from a laptop to a multi-GP
 <img src=".github/screenshots/gui-onboarding.png" alt="ELI desktop app — first-run onboarding conversation with a local 35B model" width="880">
 </div>
 
+> **v2.3.84 — observability hardening + release fix.** Removed **469 silent `except: pass`**
+> handlers (646 → 177) across runtime, media, memory, perception, and GUI paths — failures
+> now log at debug instead of vanishing. Full inventory:
+> [`docs/SILENT_EXCEPTION_AUDIT.md`](docs/SILENT_EXCEPTION_AUDIT.md). CI ratchet lowered to 177.
+> Grab it from **[Releases](https://github.com/ShadowESC95/ELI_v2.0/releases/latest)**.
+>
 > **v2.3.83 — cross-platform media foundation.** Shared YouTube/mpv core, startup
 > capability report, wpctl/pactl/amixer volume chain, ELI_BROWSER on all OSes, v3
 > effector decomposition for browser/volume helpers.

@@ -70,20 +70,20 @@ def secure_write_bytes(path: Union[str, "os.PathLike[str]"], data: bytes,
             try:
                 os.fsync(f.fileno())
             except OSError:
-                pass
+                log.debug("suppressed exception", exc_info=True)
         # Make the intended mode explicit (e.g. callers asking for 0o600 vs a
         # looser mode) rather than relying solely on mkstemp's default.
         try:
             os.chmod(tmp, mode)
         except OSError:
-            pass
+            log.debug("suppressed exception", exc_info=True)
         os.replace(tmp, dest)  # atomic on the same filesystem
         _apply_private_acl(dest)
     except Exception:
         try:
             os.unlink(tmp)
         except OSError:
-            pass
+            log.debug("suppressed exception", exc_info=True)
         raise
     return dest
 

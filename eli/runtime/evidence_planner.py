@@ -147,7 +147,7 @@ def _gather_code(query: str, mode: str, session_id: str, user_id: str) -> Tuple[
             blocks.append("ELI failure / improvement signals (self-improvement engine):\n" + "\n".join(fl))
             src.append("self_improvement")
     except Exception:
-        pass
+        log.debug("suppressed exception", exc_info=True)
     # (c) file_code repo scan — real source lines from core subsystems.
     try:
         from eli.cognition.agent_bus import FileCodeAgent
@@ -162,7 +162,7 @@ def _gather_code(query: str, mode: str, session_id: str, user_id: str) -> Tuple[
                           + "\n".join(str(s) for s in snips[:10]))
             src.append("file_code")
     except Exception:
-        pass
+        log.debug("suppressed exception", exc_info=True)
     # (d) latest test-suite report — so upgrade proposals cite real correctness state.
     try:
         from pathlib import Path as _P
@@ -173,7 +173,7 @@ def _gather_code(query: str, mode: str, session_id: str, user_id: str) -> Tuple[
                 blocks.append("Latest test-suite report (artifacts/test_report.md):\n" + txt[:1200])
                 src.append("test_report")
     except Exception:
-        pass
+        log.debug("suppressed exception", exc_info=True)
     # (e) architecture grounding (concise; last).
     try:
         from eli.execution.executor_enhanced import _eli_self_description_block
@@ -182,7 +182,7 @@ def _gather_code(query: str, mode: str, session_id: str, user_id: str) -> Tuple[
             blocks.append("ELI architecture (blueprints/what_eli_is.md):\n" + arch)
             src.append("blueprints")
     except Exception:
-        pass
+        log.debug("suppressed exception", exc_info=True)
     return _join(blocks), src
 
 
@@ -193,7 +193,7 @@ def _gather_web(query: str) -> Tuple[str, List[str]]:
         if isinstance(res, dict) and res.get("web_grounded") and res.get("results"):
             return str(res.get("content") or "").strip(), ["web_search"]
     except Exception:
-        pass
+        log.debug("suppressed exception", exc_info=True)
     return "", []
 
 
@@ -209,7 +209,7 @@ def _gather_memory(query: str) -> Tuple[str, List[str]]:
         if ml:
             return "Relevant stored memories:\n" + "\n".join(ml), ["memory.recall"]
     except Exception:
-        pass
+        log.debug("suppressed exception", exc_info=True)
     return "", []
 
 
@@ -221,7 +221,7 @@ def _gather_runtime(query: str) -> Tuple[str, List[str]]:
         if body:
             return "ELI live runtime status:\n" + body[:1400], ["runtime_status"]
     except Exception:
-        pass
+        log.debug("suppressed exception", exc_info=True)
     return "", []
 
 

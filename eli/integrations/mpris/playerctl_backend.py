@@ -26,6 +26,10 @@ from typing import Any, Dict, List, Optional, Tuple
 
 from eli.utils import platform_compat as platform
 
+from eli.utils.log import get_logger
+
+log = get_logger(__name__)
+
 
 # ──────────────────────────────────────────────────────────────
 # Internal subprocess helpers
@@ -690,7 +694,7 @@ def clipboard_set(text: str) -> Dict[str, Any]:
             if p.returncode == 0:
                 return _ok("📋 Clipboard set")
         except Exception:
-            pass
+            log.debug("suppressed exception", exc_info=True)
 
     if backend in ("xclip", "qt"):  # try xclip even as fallback
         if _has("xclip"):
@@ -703,7 +707,7 @@ def clipboard_set(text: str) -> Dict[str, Any]:
                 if p.returncode == 0:
                     return _ok("📋 Clipboard set (xclip)")
             except Exception:
-                pass
+                log.debug("suppressed exception", exc_info=True)
 
     if _has("xsel"):
         try:
@@ -715,7 +719,7 @@ def clipboard_set(text: str) -> Dict[str, Any]:
             if p.returncode == 0:
                 return _ok("📋 Clipboard set (xsel)")
         except Exception:
-            pass
+            log.debug("suppressed exception", exc_info=True)
 
     # Qt fallback (must be called from GUI thread)
     try:
@@ -725,7 +729,7 @@ def clipboard_set(text: str) -> Dict[str, Any]:
             app.clipboard().setText(text)
             return _ok("📋 Clipboard set (Qt)")
     except Exception:
-        pass
+        log.debug("suppressed exception", exc_info=True)
 
     return _err(
         "No clipboard backend available. "
@@ -763,6 +767,6 @@ def clipboard_get() -> Dict[str, Any]:
             text = app.clipboard().text()
             return {"ok": True, "text": text, "content": text, "response": text}
     except Exception:
-        pass
+        log.debug("suppressed exception", exc_info=True)
 
     return {"ok": False, "text": "", "content": "", "response": "", "error": "No clipboard backend"}

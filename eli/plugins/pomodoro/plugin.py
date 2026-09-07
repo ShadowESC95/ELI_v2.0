@@ -89,4 +89,4 @@ class PomodoroTimerPlugin(Plugin):
             from eli.perception.tts_router import maybe_speak
             maybe_speak(f"Pomodoro {session} session complete!", enabled=True)
         except Exception:
-            pass
+            log.debug("suppressed exception", exc_info=True)

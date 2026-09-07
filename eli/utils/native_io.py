@@ -42,7 +42,7 @@ def quiet_native_stderr(enabled: bool = True):
     try:
         sys.stderr.flush()
     except Exception:
-        pass
+        log.debug("suppressed exception", exc_info=True)
     try:
         saved = os.dup(2)
         devnull = os.open(os.devnull, os.O_WRONLY)
@@ -71,4 +71,4 @@ def _close(*fds) -> None:
         try:
             os.close(fd)
         except Exception:
-            pass
+            log.debug("suppressed exception", exc_info=True)

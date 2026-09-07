@@ -22,7 +22,7 @@ def main(argv=None) -> int:
         if hasattr(jobqueue_cli, "main"):
             return int(jobqueue_cli.main(argv) or 0)
     except Exception:
-        pass
+        log.debug("suppressed exception", exc_info=True)
 
     # Fallback: run worker directly from jobqueue.py if available
     try:

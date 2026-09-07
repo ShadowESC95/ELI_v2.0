@@ -19,6 +19,10 @@ import time
 import urllib.parse
 from typing import Any, Callable, Mapping
 
+from eli.utils.log import get_logger
+
+log = get_logger(__name__)
+
 
 PLAY_ACTIONS = {"PLAY_MEDIA", "MEDIA_PLAY", "PLAY"}
 PAUSE_ACTIONS = {"PAUSE_MEDIA", "MEDIA_PAUSE", "PAUSE"}
@@ -120,7 +124,7 @@ def _mpv_socket() -> str:
             # mpv on Windows exposes IPC over a named pipe, not a filesystem socket.
             return r"\\.\pipe\eli_youtube_mpv"
     except Exception:
-        pass
+        log.debug("suppressed exception", exc_info=True)
     import tempfile
     return os.path.join(tempfile.gettempdir(), "eli_youtube_mpv.sock")
 
@@ -225,7 +229,7 @@ def youtube_play(query: str) -> str:
         _mpv_ipc("close")
         time.sleep(0.15)
     except Exception:
-        pass
+        log.debug("suppressed exception", exc_info=True)
 
     result = attempt_youtube_mpv(q, ipc_path=sock)
     if result.get("played"):
@@ -266,7 +270,7 @@ def open_spotify() -> str:
             if _pc.open_url("spotify:"):
                 return "Opened app: spotify"
         except Exception:
-            pass
+            log.debug("suppressed exception", exc_info=True)
         return "Could not open spotify. Tried: spotify, flatpak com.spotify.Client, snap spotify, gtk-launch, xdg-open spotify:"
 
     # macOS / Windows: reuse the cross-platform app launcher (open -a / Start-Apps),
@@ -275,7 +279,7 @@ def open_spotify() -> str:
         if _pc.open_app("spotify") or _pc.open_url("spotify:"):
             return "Opened app: spotify"
     except Exception:
-        pass
+        log.debug("suppressed exception", exc_info=True)
     return "Could not open spotify."
 
 
@@ -294,7 +298,7 @@ def spotify_query(query: str) -> str:
         open_spotify()
         time.sleep(0.35)
     except Exception:
-        pass
+        log.debug("suppressed exception", exc_info=True)
 
     if _pc.LINUX:
         # Linux: drive Spotify over MPRIS (D-Bus), then nudge play via playerctl.
@@ -314,7 +318,7 @@ def spotify_query(query: str) -> str:
                     timeout=3,
                 )
             except Exception:
-                pass
+                log.debug("suppressed exception", exc_info=True)
 
         if shutil.which("playerctl"):
             try:
@@ -325,7 +329,7 @@ def spotify_query(query: str) -> str:
                     timeout=2,
                 )
             except Exception:
-                pass
+                log.debug("suppressed exception", exc_info=True)
 
     elif _pc.MACOS and shutil.which("osascript"):
         # macOS: open the search URI then ask Spotify (AppleScript) to play.
@@ -337,14 +341,14 @@ def spotify_query(query: str) -> str:
                 capture_output=True, text=True, timeout=3,
             )
         except Exception:
-            pass
+            log.debug("suppressed exception", exc_info=True)
 
     else:
         # Windows / other: open the search URI; the client surfaces results.
         try:
             _pc.open_url(uri)
         except Exception:
-            pass
+            log.debug("suppressed exception", exc_info=True)
 
     return f"Searching Spotify for: {q}"
 
@@ -490,7 +494,7 @@ def _play_on_streaming(target: str, query: str) -> str:
         if _pc.open_url(url):
             return msg
     except Exception:
-        pass
+        log.debug("suppressed exception", exc_info=True)
     try:
         import webbrowser
         return msg if webbrowser.open(url, new=2) else f"Couldn't open {label}."

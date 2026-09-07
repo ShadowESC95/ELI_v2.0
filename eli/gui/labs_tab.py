@@ -1574,7 +1574,7 @@ class _ReportTab(QWidget):
             try:
                 w.textChanged.connect(self._refresh_prompt_preview)
             except Exception:
-                pass
+                log.debug("suppressed exception", exc_info=True)
         for combo in (
             self._template_combo,
             self._grade_combo,
@@ -1586,20 +1586,20 @@ class _ReportTab(QWidget):
             try:
                 combo.currentIndexChanged.connect(self._refresh_prompt_preview)
             except Exception:
-                pass
+                log.debug("suppressed exception", exc_info=True)
         for check in (self._auto_review_check, self._autosave_check):
             try:
                 check.stateChanged.connect(self._refresh_prompt_preview)
             except Exception:
-                pass
+                log.debug("suppressed exception", exc_info=True)
         try:
             self._abstract.textChanged.connect(self._refresh_prompt_preview)
         except Exception:
-            pass
+            log.debug("suppressed exception", exc_info=True)
         try:
             self._editor.cursorPositionChanged.connect(self._refresh_prompt_preview)
         except Exception:
-            pass
+            log.debug("suppressed exception", exc_info=True)
 
         # First paint.
         self._refresh_prompt_preview()
@@ -1735,7 +1735,7 @@ class _ReportTab(QWidget):
                     stats_lines.append("Numeric summary:")
                     stats_lines.append(num.describe().round(4).to_string())
             except Exception:
-                pass
+                log.debug("suppressed exception", exc_info=True)
             return "\n".join(stats_lines)
         except Exception as ex:
             return f"[Table parse failed: {ex}]"
@@ -1768,7 +1768,7 @@ class _ReportTab(QWidget):
         try:
             self._refresh_prompt_preview()
         except Exception:
-            pass
+            log.debug("suppressed exception", exc_info=True)
 
     def _on_source_selected(self):
         idx = self._sources_list.currentRow()
@@ -2231,7 +2231,7 @@ class _ReportTab(QWidget):
             if hasattr(self, "_preview_detail_combo"):
                 detail = self._preview_detail_combo.currentText()
         except Exception:
-            pass
+            log.debug("suppressed exception", exc_info=True)
 
         if detail != "Raw Debug Prompt":
             self._prompt_preview.setPlainText(self._build_prompt_plan_summary(mode, text))
@@ -2519,7 +2519,7 @@ class _ReportTab(QWidget):
                 if value > 0:
                     return value
         except Exception:
-            pass
+            log.debug("suppressed exception", exc_info=True)
         return -1
 
     @staticmethod
@@ -3854,13 +3854,13 @@ class _ReportTab(QWidget):
             try:
                 self._status_sig.emit(message)
             except Exception:
-                pass
+                log.debug("suppressed exception", exc_info=True)
 
         def _set_editor(text: str) -> None:
             try:
                 self._editor_sig.emit(text)
             except Exception:
-                pass
+                log.debug("suppressed exception", exc_info=True)
 
         self._draft_running = True
         _set_status(
@@ -4268,7 +4268,7 @@ class _ReportTab(QWidget):
                 if p.exists():
                     p.unlink()
             except Exception:
-                pass
+                log.debug("suppressed exception", exc_info=True)
 
     @staticmethod
     def _md_to_html(md: str) -> str:
@@ -4325,7 +4325,7 @@ class _ReportTab(QWidget):
                 if proc.returncode == 0 and proc.stdout.strip():
                     return proc.stdout
             except Exception:
-                pass
+                log.debug("suppressed exception", exc_info=True)
 
         out = md
         out = re.sub(r"^### (.*)$", r"\\subsubsection{\1}", out, flags=re.M)
@@ -4473,7 +4473,7 @@ class _FileChatTab(QWidget):
         try:
             self._chat_history.append(f"**ELI:** {text}\n")
         except Exception:
-            pass
+            log.debug("suppressed exception", exc_info=True)
 
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -4675,7 +4675,7 @@ class _WorkspacesTab(QWidget):
             from eli.runtime.active_project import clear_active
             clear_active()
         except Exception:
-            pass
+            log.debug("suppressed exception", exc_info=True)
         item = self._ws_list.currentItem()
         self._refresh_active_label(item.text() if item else "")
 
@@ -4746,7 +4746,7 @@ class _WorkspacesTab(QWidget):
                         self._activate_log.append(f"  ✓ restored tab: {tabname}")
                         break
                 except Exception:
-                    pass
+                    log.debug("suppressed exception", exc_info=True)
         # 4) restore component state (Sim-IDE code buffer, etc.)
         try:
             from eli.runtime.state_providers import restore_all
@@ -4754,7 +4754,7 @@ class _WorkspacesTab(QWidget):
             if n:
                 self._activate_log.append(f"  ✓ restored {n} component state(s)")
         except Exception:
-            pass
+            log.debug("suppressed exception", exc_info=True)
         # 5) relaunch its apps (commands) — _activate has its own confirm gate
         self._activate()
 
@@ -4988,7 +4988,7 @@ class _SimIDETab(QWidget):
             from eli.runtime.state_providers import register as _reg_state
             _reg_state("sim_ide_code", self._get_code, self._set_code)
         except Exception:
-            pass
+            log.debug("suppressed exception", exc_info=True)
 
     def _build_ui(self):
         layout = QVBoxLayout(self)
@@ -5126,7 +5126,7 @@ class _SimIDETab(QWidget):
                 self._fig.clear()
                 self._canvas.draw()
             except Exception:
-                pass
+                log.debug("suppressed exception", exc_info=True)
         # Delete cached plot files so "Refresh plot" doesn't show the old image
         try:
             from pathlib import Path as _P
@@ -5135,7 +5135,7 @@ class _SimIDETab(QWidget):
                 if _fp.exists():
                     _fp.unlink(missing_ok=True)
         except Exception:
-            pass
+            log.debug("suppressed exception", exc_info=True)
 
     def _load_starter(self, name: str):
         code = self._STARTERS.get(name, "")
@@ -5210,7 +5210,7 @@ class _SimIDETab(QWidget):
                     self._canvas.draw()
                     return
                 except Exception:
-                    pass
+                    log.debug("suppressed exception", exc_info=True)
 
     def _ask_eli_fix(self):
         code = self._get_code().strip()
@@ -5248,7 +5248,7 @@ class _SimIDETab(QWidget):
             if hasattr(self, "_eli_panel"):
                 self._eli_panel.setPlainText(text)
         except Exception:
-            pass
+            log.debug("suppressed exception", exc_info=True)
 
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -5291,7 +5291,7 @@ class _OrchestrationTab(QWidget):
             self._timer.timeout.connect(self.refresh)
             self._timer.start(3000)
         except Exception:
-            pass
+            log.debug("suppressed exception", exc_info=True)
         self.refresh()
 
     def _chip(self, label, color):
@@ -5428,7 +5428,7 @@ class _TestReviewTab(QWidget):
         try:
             self._table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
         except Exception:
-            pass
+            log.debug("suppressed exception", exc_info=True)
         self._table.itemSelectionChanged.connect(self._on_row_selected)
         split.addWidget(self._table)
 
@@ -5611,7 +5611,7 @@ class _TestReviewTab(QWidget):
                 self._chat(cmd)
                 return
             except Exception:
-                pass
+                log.debug("suppressed exception", exc_info=True)
         if callable(self._eli):
             w = _BgWorker(lambda: (self._eli(cmd) or ""))
             w.done.connect(self._on_summary)
@@ -5652,7 +5652,7 @@ class LabsTab(QWidget):
                 from eli.cognition.output_governor import govern_output, normalize_assistant_text
                 text = govern_output(normalize_assistant_text(prompt, text), is_grounded=False)
             except Exception:
-                pass
+                log.debug("suppressed exception", exc_info=True)
             return text
         except Exception as ex:
             return f"[ELI inference error: {ex}]"

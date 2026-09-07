@@ -78,7 +78,7 @@ def clear_pending_proposal() -> None:
         if p.exists():
             p.unlink()
     except Exception:
-        pass
+        log.debug("suppressed exception", exc_info=True)
 
 
 # Offer / proposal extraction from an ELI response. Returns the proposed

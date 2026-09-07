@@ -216,7 +216,7 @@ def propose_goals_from_signals(
                         content=c["objective"],
                     )
                 except Exception:
-                    pass
+                    log.debug("suppressed exception", exc_info=True)
     except Exception as exc:
         log.debug("[GOAL_AUTOGENESIS] failed: %s", exc)
     return created

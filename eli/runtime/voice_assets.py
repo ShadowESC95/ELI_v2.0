@@ -152,12 +152,12 @@ def _voice_present_strict(voice_id: str) -> bool:
         from eli.perception.tts_router import _voice_search_dirs
         dirs += list(_voice_search_dirs())
     except Exception:
-        pass
+        log.debug("suppressed exception", exc_info=True)
     try:
         from eli.core.paths import project_root
         dirs.append(Path(project_root()) / "tts_piper" / "piper")
     except Exception:
-        pass
+        log.debug("suppressed exception", exc_info=True)
     for d in dirs:
         onnx = Path(d) / f"{voice_id}.onnx"
         cfg = Path(d) / f"{voice_id}.onnx.json"

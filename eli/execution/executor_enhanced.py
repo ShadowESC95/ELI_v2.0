@@ -3393,7 +3393,7 @@ def _prune_mpv_logs(keep: int = 5) -> None:
             try:
                 os.unlink(stale)
             except OSError:
-                pass
+                log.debug("suppressed exception", exc_info=True)
     except Exception:
         log.debug("suppressed exception", exc_info=True)
 
@@ -4148,7 +4148,7 @@ def set_communication_style_action(style: str) -> Dict[str, Any]:
             from eli.kernel.state import set_communication_style as _set
             _set("")
         except Exception:
-            pass
+            log.debug("suppressed exception", exc_info=True)
         msg = "Tone reset — back to my default voice."
         return {"ok": True, "action": "SET_COMMUNICATION_STYLE", "communication_style": "", "content": msg, "response": msg}
     if not s:
@@ -11524,7 +11524,7 @@ def _execute_impl(action: str, args: Optional[Dict[str, Any]] = None) -> Dict[st
                     try:
                         spec[k] = max(lo, min(hi, float(args.get(k))))
                     except (TypeError, ValueError):
-                        pass
+                        log.debug("suppressed exception", exc_info=True)
             if args.get("filters"):
                 spec["filters"] = str(args.get("filters"))
             res = voice_fx.save_preset(name, spec)

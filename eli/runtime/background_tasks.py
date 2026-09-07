@@ -87,7 +87,7 @@ class BackgroundTasks:
             from eli.cognition.gguf_inference import set_background_inference as _set_bg
             _set_bg(True)
         except Exception:
-            pass
+            log.debug("suppressed exception", exc_info=True)
         try:
             res = fn(*args, **kwargs)
             with self._lock:
@@ -109,7 +109,7 @@ class BackgroundTasks:
                 try:
                     on_done(self._tasks.get(jid))
                 except Exception:
-                    pass
+                    log.debug("suppressed exception", exc_info=True)
 
     def submit(self, name: str, fn: Callable[..., Any], *args,
                on_done: Optional[Callable[[Task], None]] = None,
@@ -188,7 +188,7 @@ class BackgroundTasks:
                     try:
                         timer.cancel()
                     except Exception:
-                        pass
+                        log.debug("suppressed exception", exc_info=True)
                 t.status = "cancelled"
                 t.finished = time.time()
                 return True
@@ -210,7 +210,7 @@ class BackgroundTasks:
             try:
                 fut.result(timeout=timeout)
             except Exception:
-                pass
+                log.debug("suppressed exception", exc_info=True)
         return self.get(jid)
 
     def stats(self) -> Dict[str, Any]:
@@ -225,7 +225,7 @@ class BackgroundTasks:
         try:
             self._pool.shutdown(wait=False)
         except Exception:
-            pass
+            log.debug("suppressed exception", exc_info=True)
 
 
 def _summarize_result(res: Any) -> str:
