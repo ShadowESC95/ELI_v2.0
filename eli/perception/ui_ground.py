@@ -72,7 +72,7 @@ def configured_precision_backend() -> str:
             if ok or fok:
                 return "local_gguf"
         except Exception:
-            pass
+            log.debug("vision availability probe failed during auto backend pick", exc_info=True)
         return ""
     return resolved if resolved in _PRECISION_BACKENDS else ""
 

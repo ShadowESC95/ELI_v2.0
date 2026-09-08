@@ -8,13 +8,13 @@ v2.3.84 converted **469** handlers (where `log = get_logger(__name__)` was alrea
 
 | File | Count |
 |------|------:|
-| `eli/gui/eli_pro_audio_gui_v2_0.py` | 12 |
+| `eli/gui/eli_pro_audio_gui_v2_0.py` | 13 |
 | `eli/core/model_download.py` | 5 |
+| `eli/runtime/grounded_remediation.py` | 5 |
 | `eli/cognition/output_governor.py` | 4 |
 | `eli/perception/vision.py` | 4 |
 | `eli/planning/insight_synthesis.py` | 4 |
 | `eli/runtime/device_names.py` | 4 |
-| `eli/runtime/grounded_remediation.py` | 4 |
 | `eli/cognition/context_synthesiser.py` | 3 |
 | `eli/cognition/grounded_status.py` | 3 |
 | `eli/cognition/user_info_builder.py` | 3 |
@@ -78,6 +78,7 @@ v2.3.84 converted **469** handlers (where `log = get_logger(__name__)` was alrea
 | `eli/memory/sqlite_memory.py` | 1 |
 | `eli/perception/analyze_image.py` | 1 |
 | `eli/perception/os_controller.py` | 1 |
+| `eli/perception/ui_ground.py` | 1 |
 | `eli/runtime/api_users.py` | 1 |
 | `eli/runtime/approval_engine.py` | 1 |
 | `eli/runtime/evidence_ledger.py` | 1 |
@@ -113,43 +114,43 @@ v2.3.84 converted **469** handlers (where `log = get_logger(__name__)` was alrea
 
 ## `eli/cognition/context_synthesiser.py` (3)
 
-### Line 559 — `def build_persona_handoff()`
+### Line 617 — `def build_persona_handoff()`
 
 - **Except:** `_SkipWorldState`
 - **Why it exists / risk:** Optional import or platform module — failure means feature degrades; should log at debug (converted where safe).
 - **Action:** Convert to `log.debug(..., exc_info=True)` when logger is in scope; never add new silent passes.
 
 ```python
-  557|                 + "\n".join(f"  {p}" for p in _world_parts)
-  558|             )
-  559|     except _SkipWorldState:
-  560|         pass          # not a world question — nothing about rooms reaches the model
+  615|                 + "\n".join(f"  {p}" for p in _world_parts)
+  616|             )
+  617|     except _SkipWorldState:
+  618|         pass          # not a world question — nothing about rooms reaches the model
 ```
 
-### Line 96 — `def synthesise()`
+### Line 151 — `def synthesise()`
 
 - **Except:** `Exception`
 - **Why it exists / risk:** Optional import or platform module — failure means feature degrades; should log at debug (converted where safe).
 - **Action:** Convert to `log.debug(..., exc_info=True)` when logger is in scope; never add new silent passes.
 
 ```python
-   94|             if _uname:
-   95|                 sections.append(f'USER:\nName: {_uname}')
-   96|         except Exception:
-   97|             pass
+  149|             if _uname:
+  150|                 sections.append(f'USER:\nName: {_uname}')
+  151|         except Exception:
+  152|             pass
 ```
 
-### Line 158 — `def _build_turns_block()`
+### Line 213 — `def _build_turns_block()`
 
 - **Except:** `Exception`
 - **Why it exists / risk:** Optional import or platform module — failure means feature degrades; should log at debug (converted where safe).
 - **Action:** Convert to `log.debug(..., exc_info=True)` when logger is in scope; never add new silent passes.
 
 ```python
-  156|                 if should_exclude_turn_from_prompt(role, content):
-  157|                     continue
-  158|             except Exception:
-  159|                 pass
+  211|                 if should_exclude_turn_from_prompt(role, content):
+  212|                     continue
+  213|             except Exception:
+  214|                 pass
 ```
 
 ## `eli/cognition/grounded_status.py` (3)
@@ -615,17 +616,17 @@ v2.3.84 converted **469** handlers (where `log = get_logger(__name__)` was alrea
 
 ## `eli/core/runtime_settings.py` (1)
 
-### Line 581 — `def save_settings()`
+### Line 594 — `def save_settings()`
 
 - **Except:** `Exception`
 - **Why it exists / risk:** Invalid env override — falls back to default; silent pass hides misconfiguration.
 - **Action:** Convert to `log.debug(..., exc_info=True)` when logger is in scope; never add new silent passes.
 
 ```python
-  579|     if "n_threads" in existing:
-  580|         try: existing["n_threads"] = int(existing["n_threads"])
-  581|         except Exception: pass
-  582|     if "n_gpu_layers" in existing:
+  592|     if "n_threads" in existing:
+  593|         try: existing["n_threads"] = int(existing["n_threads"])
+  594|         except Exception: pass
+  595|     if "n_gpu_layers" in existing:
 ```
 
 ## `eli/core/startup_hardware_optimizer.py` (2)
@@ -742,7 +743,7 @@ v2.3.84 converted **469** handlers (where `log = get_logger(__name__)` was alrea
   281|                 pass
 ```
 
-## `eli/gui/eli_pro_audio_gui_v2_0.py` (12)
+## `eli/gui/eli_pro_audio_gui_v2_0.py` (13)
 
 ### Line 3197 — `def _on_auto_speak_toggled()`
 
@@ -757,147 +758,160 @@ v2.3.84 converted **469** handlers (where `log = get_logger(__name__)` was alrea
  3198| 
 ```
 
-### Line 10995 — `def _build_proactive_ground_truth()`
+### Line 6761 — `def _sc_load_settings()`
+
+- **Except:** `Exception`
+- **Why it exists / risk:** Invalid env override — falls back to default; silent pass hides misconfiguration.
+- **Action:** Convert to `log.debug(..., exc_info=True)` when logger is in scope; never add new silent passes.
+
+```python
+ 6759|         try:
+ 6760|             self._sc_interval_spin.setValue(int(s.get("ambient_vision_interval", 300) or 300))
+ 6761|         except Exception:
+ 6762|             pass
+```
+
+### Line 11129 — `def _build_proactive_ground_truth()`
 
 - **Except:** `Exception`
 - **Why it exists / risk:** Optional import or platform module — failure means feature degrades; should log at debug (converted where safe).
 - **Action:** Convert to `log.debug(..., exc_info=True)` when logger is in scope; never add new silent passes.
 
 ```python
-10993|             except Exception: pass
-10994|             _acon.close()
-10995|         except Exception: pass
-10996| 
+11127|             except Exception: pass
+11128|             _acon.close()
+11129|         except Exception: pass
+11130| 
 ```
 
-### Line 11006 — `def _build_proactive_ground_truth()`
+### Line 11140 — `def _build_proactive_ground_truth()`
 
 - **Except:** `Exception`
 - **Why it exists / risk:** Optional import or platform module — failure means feature degrades; should log at debug (converted where safe).
 - **Action:** Convert to `log.debug(..., exc_info=True)` when logger is in scope; never add new silent passes.
 
 ```python
-11004|                                  session_id="proactive-gui", user_id="local-user")
-11005|             ground["bus_context"] = (_dr.memory_context or "")[:1200]
-11006|         except Exception: pass
-11007| 
+11138|                                  session_id="proactive-gui", user_id="local-user")
+11139|             ground["bus_context"] = (_dr.memory_context or "")[:1200]
+11140|         except Exception: pass
+11141| 
 ```
 
-### Line 10945 — `def _build_proactive_ground_truth()`
+### Line 11079 — `def _build_proactive_ground_truth()`
 
 - **Except:** `Exception`
 - **Why it exists / risk:** Unclassified best-effort block — review whether failure should surface to operator logs.
 - **Action:** Convert to `log.debug(..., exc_info=True)` when logger is in scope; never add new silent passes.
 
 ```python
-10943|             try:
-10944|                 ground["memories"] = self._central_memory.recall_memory(_q[:300], limit=10) or []
-10945|             except Exception: pass
-10946|             try:
+11077|             try:
+11078|                 ground["memories"] = self._central_memory.recall_memory(_q[:300], limit=10) or []
+11079|             except Exception: pass
+11080|             try:
 ```
 
-### Line 10948 — `def _build_proactive_ground_truth()`
+### Line 11082 — `def _build_proactive_ground_truth()`
 
 - **Except:** `Exception`
 - **Why it exists / risk:** Unclassified best-effort block — review whether failure should surface to operator logs.
 - **Action:** Convert to `log.debug(..., exc_info=True)` when logger is in scope; never add new silent passes.
 
 ```python
-10946|             try:
-10947|                 ground["recent_conv"] = self._central_memory.get_recent_conversation(limit=20) or []
-10948|             except Exception: pass
-10949|             try:
+11080|             try:
+11081|                 ground["recent_conv"] = self._central_memory.get_recent_conversation(limit=20) or []
+11082|             except Exception: pass
+11083|             try:
 ```
 
-### Line 10951 — `def _build_proactive_ground_truth()`
+### Line 11085 — `def _build_proactive_ground_truth()`
 
 - **Except:** `Exception`
 - **Why it exists / risk:** Unclassified best-effort block — review whether failure should surface to operator logs.
 - **Action:** Convert to `log.debug(..., exc_info=True)` when logger is in scope; never add new silent passes.
 
 ```python
-10949|             try:
-10950|                 ground["memory_stats"] = memory_system.get_stats() if memory_system else {}
-10951|             except Exception: pass
-10952|             try:
+11083|             try:
+11084|                 ground["memory_stats"] = memory_system.get_stats() if memory_system else {}
+11085|             except Exception: pass
+11086|             try:
 ```
 
-### Line 10956 — `def _build_proactive_ground_truth()`
+### Line 11090 — `def _build_proactive_ground_truth()`
 
 - **Except:** `Exception`
 - **Why it exists / risk:** Unclassified best-effort block — review whether failure should surface to operator logs.
 - **Action:** Convert to `log.debug(..., exc_info=True)` when logger is in scope; never add new silent passes.
 
 ```python
-10954|                 if vs:
-10955|                     ground["faiss_count"] = vs.ntotal
-10956|             except Exception: pass
-10957| 
+11088|                 if vs:
+11089|                     ground["faiss_count"] = vs.ntotal
+11090|             except Exception: pass
+11091| 
 ```
 
-### Line 10962 — `def _build_proactive_ground_truth()`
+### Line 11096 — `def _build_proactive_ground_truth()`
 
 - **Except:** `Exception`
 - **Why it exists / risk:** Unclassified best-effort block — review whether failure should surface to operator logs.
 - **Action:** Convert to `log.debug(..., exc_info=True)` when logger is in scope; never add new silent passes.
 
 ```python
-10960|             try:
-10961|                 ground["daemon_patterns"] = self._proactive_daemon.analyze_user_patterns() or []
-10962|             except Exception: pass
-10963|             try:
+11094|             try:
+11095|                 ground["daemon_patterns"] = self._proactive_daemon.analyze_user_patterns() or []
+11096|             except Exception: pass
+11097|             try:
 ```
 
-### Line 10967 — `def _build_proactive_ground_truth()`
+### Line 11101 — `def _build_proactive_ground_truth()`
 
 - **Except:** `Exception`
 - **Why it exists / risk:** Unclassified best-effort block — review whether failure should surface to operator logs.
 - **Action:** Convert to `log.debug(..., exc_info=True)` when logger is in scope; never add new silent passes.
 
 ```python
-10965|                 if mem_h and hasattr(mem_h, "get_habit_rules"):
-10966|                     ground["habit_rules"] = mem_h.get_habit_rules(enabled_only=True) or []
-10967|             except Exception: pass
-10968| 
+11099|                 if mem_h and hasattr(mem_h, "get_habit_rules"):
+11100|                     ground["habit_rules"] = mem_h.get_habit_rules(enabled_only=True) or []
+11101|             except Exception: pass
+11102| 
 ```
 
-### Line 10978 — `def _build_proactive_ground_truth()`
+### Line 11112 — `def _build_proactive_ground_truth()`
 
 - **Except:** `Exception`
 - **Why it exists / risk:** Optional import or platform module — failure means feature degrades; should log at debug (converted where safe).
 - **Action:** Convert to `log.debug(..., exc_info=True)` when logger is in scope; never add new silent passes.
 
 ```python
-10976|                     "SELECT user_input, error, occurrence_count FROM failures "
-10977|                     "ORDER BY timestamp DESC LIMIT 8").fetchall()]
-10978|             except Exception: pass
-10979|             try:
+11110|                     "SELECT user_input, error, occurrence_count FROM failures "
+11111|                     "ORDER BY timestamp DESC LIMIT 8").fetchall()]
+11112|             except Exception: pass
+11113|             try:
 ```
 
-### Line 10983 — `def _build_proactive_ground_truth()`
+### Line 11117 — `def _build_proactive_ground_truth()`
 
 - **Except:** `Exception`
 - **Why it exists / risk:** Optional import or platform module — failure means feature degrades; should log at debug (converted where safe).
 - **Action:** Convert to `log.debug(..., exc_info=True)` when logger is in scope; never add new silent passes.
 
 ```python
-10981|                     "SELECT category, detail FROM improvements "
-10982|                     "ORDER BY timestamp DESC LIMIT 8").fetchall()]
-10983|             except Exception: pass
-10984|             try:
+11115|                     "SELECT category, detail FROM improvements "
+11116|                     "ORDER BY timestamp DESC LIMIT 8").fetchall()]
+11117|             except Exception: pass
+11118|             try:
 ```
 
-### Line 10993 — `def _build_proactive_ground_truth()`
+### Line 11127 — `def _build_proactive_ground_truth()`
 
 - **Except:** `Exception`
 - **Why it exists / risk:** Optional import or platform module — failure means feature degrades; should log at debug (converted where safe).
 - **Action:** Convert to `log.debug(..., exc_info=True)` when logger is in scope; never add new silent passes.
 
 ```python
-10991|                     except Exception:
-10992|                         ground["agent_obs"].append({"raw": str(content)[:150]})
-10993|             except Exception: pass
-10994|             _acon.close()
+11125|                     except Exception:
+11126|                         ground["agent_obs"].append({"raw": str(content)[:150]})
+11127|             except Exception: pass
+11128|             _acon.close()
 ```
 
 ## `eli/gui/panels/settings.py` (2)
@@ -945,17 +959,17 @@ v2.3.84 converted **469** handlers (where `log = get_logger(__name__)` was alrea
 
 ## `eli/kernel/engine.py` (1)
 
-### Line 716 — `def _eli_bad_identity_self_report_output()`
+### Line 717 — `def _eli_bad_identity_self_report_output()`
 
 - **Except:** `(ValueError, TypeError)`
 - **Why it exists / risk:** Settings read/write — silent pass can leave stale config or failed deletes unnoticed.
 - **Action:** Convert to `log.debug(..., exc_info=True)` when logger is in scope; never add new silent passes.
 
 ```python
-  714|             ):
-  715|                 return False
-  716|     except (ValueError, TypeError):
-  717|         pass  # a plain-text reply isn't JSON — expected, fall through to the text checks
+  715|             ):
+  716|                 return False
+  717|     except (ValueError, TypeError):
+  718|         pass  # a plain-text reply isn't JSON — expected, fall through to the text checks
 ```
 
 ## `eli/kernel/scheduler.py` (1)
@@ -1298,6 +1312,21 @@ v2.3.84 converted **469** handlers (where `log = get_logger(__name__)` was alrea
   263|             pass  # fall through to wpctl
 ```
 
+## `eli/perception/ui_ground.py` (1)
+
+### Line 74 — `def configured_precision_backend()`
+
+- **Except:** `Exception`
+- **Why it exists / risk:** Optional import or platform module — failure means feature degrades; should log at debug (converted where safe).
+- **Action:** Convert to `log.debug(..., exc_info=True)` when logger is in scope; never add new silent passes.
+
+```python
+   72|             if ok or fok:
+   73|                 return "local_gguf"
+   74|         except Exception:
+   75|             pass
+```
+
 ## `eli/perception/vision.py` (4)
 
 ### Line 126 — `def _candidate_model_dirs()`
@@ -1438,56 +1467,56 @@ v2.3.84 converted **469** handlers (where `log = get_logger(__name__)` was alrea
 
 ## `eli/planning/insight_synthesis.py` (4)
 
-### Line 41 — `def get_cached_insight()`
-
-- **Except:** `Exception`
-- **Why it exists / risk:** Settings read/write — silent pass can leave stale config or failed deletes unnoticed.
-- **Action:** Convert to `log.debug(..., exc_info=True)` when logger is in scope; never add new silent passes.
-
-```python
-   39|             d = json.loads(p.read_text(encoding="utf-8"))
-   40|             return str(d.get("insight") or "").strip()
-   41|     except Exception:
-   42|         pass
-```
-
-### Line 119 — `def refresh_insight()`
-
-- **Except:** `Exception`
-- **Why it exists / risk:** Settings read/write — silent pass can leave stale config or failed deletes unnoticed.
-- **Action:** Convert to `log.debug(..., exc_info=True)` when logger is in scope; never add new silent passes.
-
-```python
-  117|             p.write_text(json.dumps({"insight": out, "ts": time.time()}, indent=2),
-  118|                          encoding="utf-8")
-  119|         except Exception:
-  120|             pass
-```
-
-### Line 57 — `def refresh_insight()`
+### Line 51 — `def get_cached_insight()`
 
 - **Except:** `Exception`
 - **Why it exists / risk:** Invalid env override — falls back to default; silent pass hides misconfiguration.
 - **Action:** Convert to `log.debug(..., exc_info=True)` when logger is in scope; never add new silent passes.
 
 ```python
-   55|                 if time.time() - float(d.get("ts", 0)) < _MIN_REFRESH_INTERVAL:
-   56|                     return str(d.get("insight") or "")
-   57|             except Exception:
-   58|                 pass
+   49|                 return ""
+   50|             return str(d.get("insight") or "").strip()
+   51|     except Exception:
+   52|         pass
+```
+
+### Line 129 — `def refresh_insight()`
+
+- **Except:** `Exception`
+- **Why it exists / risk:** Settings read/write — silent pass can leave stale config or failed deletes unnoticed.
+- **Action:** Convert to `log.debug(..., exc_info=True)` when logger is in scope; never add new silent passes.
+
+```python
+  127|             p.write_text(json.dumps({"insight": out, "ts": time.time()}, indent=2),
+  128|                          encoding="utf-8")
+  129|         except Exception:
+  130|             pass
 ```
 
 ### Line 67 — `def refresh_insight()`
+
+- **Except:** `Exception`
+- **Why it exists / risk:** Invalid env override — falls back to default; silent pass hides misconfiguration.
+- **Action:** Convert to `log.debug(..., exc_info=True)` when logger is in scope; never add new silent passes.
+
+```python
+   65|                 if time.time() - float(d.get("ts", 0)) < _MIN_REFRESH_INTERVAL:
+   66|                     return str(d.get("insight") or "")
+   67|             except Exception:
+   68|                 pass
+```
+
+### Line 77 — `def refresh_insight()`
 
 - **Except:** `Exception`
 - **Why it exists / risk:** Optional import or platform module — failure means feature degrades; should log at debug (converted where safe).
 - **Action:** Convert to `log.debug(..., exc_info=True)` when logger is in scope; never add new silent passes.
 
 ```python
-   65|                 if foreground_recently_active():
-   66|                     return get_cached_insight()
-   67|             except Exception:
-   68|                 pass
+   75|                 if foreground_recently_active():
+   76|                     return get_cached_insight()
+   77|             except Exception:
+   78|                 pass
 ```
 
 ## `eli/plugins/document_reader/plugin.py` (3)
@@ -1800,7 +1829,7 @@ v2.3.84 converted **469** handlers (where `log = get_logger(__name__)` was alrea
   782|         pass
 ```
 
-## `eli/runtime/grounded_remediation.py` (4)
+## `eli/runtime/grounded_remediation.py` (5)
 
 ### Line 168 — `def remember_failure()`
 
@@ -1839,6 +1868,19 @@ v2.3.84 converted **469** handlers (where `log = get_logger(__name__)` was alrea
   116|             path.unlink()
   117|         except FileNotFoundError:
   118|             pass
+```
+
+### Line 736 — `def build_install_candidates()`
+
+- **Except:** `Exception`
+- **Why it exists / risk:** Optional import or platform module — failure means feature degrades; should log at debug (converted where safe).
+- **Action:** Convert to `log.debug(..., exc_info=True)` when logger is in scope; never add new silent passes.
+
+```python
+  734|                 "label": "Install yt-dlp into ELI's Python environment (no admin password)",
+  735|             })
+  736|         except Exception:
+  737|             pass
 ```
 
 ### Line 148 — `def get_pending()`

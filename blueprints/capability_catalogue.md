@@ -1,15 +1,15 @@
-> **Updated for v2.3.92.** Gradient orchestrator for all CHAT modes; shared
+> **Updated for v2.3.93.** Gradient orchestrator for all CHAT modes; shared
 > `memory/retrieval.py`; canonical S01–S12 via `pipeline_trace.py`.
 
 # ELI Capability Catalogue — every action & module, what it actually does
 
 > **Purpose.** A systematic, ground-truth catalogue built by reading the real
 > handlers and modules — not summarised from memory. It exists because
-> conversational summaries of a ~~166k-LOC (`eli/`, 166,397 measured 2026-09-01) project keep undershooting; this is the
+> conversational summaries of a ~~166k-LOC (`eli/`, 190,338 measured 2026-09-08) project keep undershooting; this is the
 > persisted, exhaustive map. Built in committed batches.
 >
 > **Method.** Action list comes from the live `capability_manifest.json` (**225**
-> entries as of 2026-08-28; 208 routable or executor-backed),
+> entries as of 2026-08-28; 210 routable or executor-backed),
 > verified against the `executor_enhanced.py` dispatch. **The always-current,
 > auto-generated action list with activation phrases is
 > `capabilities_and_actions.md`** — this catalogue is the deeper module-level read.
@@ -22,9 +22,9 @@
 
 ---
 
-## Headline finding: 225 (208 routable) is real but aliased
+## Headline finding: 227 (210 routable or executor-backed) is real but aliased
 
-The manifest's 225 entries (208 routable) are honest (*measured* by `capability_sync`, not asserted)
+The manifest's 227 entries (210 routable or executor-backed) are honest (*measured* by `capability_sync`, not asserted)
 but inflated by **alias families** — multiple action names routing to one
 behaviour. Collapsed, there are roughly **~110 distinct capabilities**. Alias
 families are grouped below so the real surface is visible.

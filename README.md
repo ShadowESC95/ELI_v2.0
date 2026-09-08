@@ -27,6 +27,11 @@ like and it tunes itself to the hardware you've got, from a laptop to a multi-GP
 <img src=".github/screenshots/gui-onboarding.png" alt="ELI desktop app — first-run onboarding conversation with a local 35B model" width="880">
 </div>
 
+> **v2.3.93 — CI green + docs/metrics accuracy.** Fixes silent-swallow ratchet (172 ceiling);
+> router gaps for `MINIMIZE_WINDOW` / `FIX_FILE`; live-refreshed docs, blueprints, and
+> capability manifest (11,711 tests, 227 capabilities, ~190k LOC). Grab it from
+> **[Releases](https://github.com/ShadowESC95/ELI_v2.0/releases/latest)**.
+>
 > **v2.3.92 — cross-OS media + local screen intelligence.** YouTube visible mpv playback;
 > bundled-python `yt-dlp` discovery; grounded install offers for mpv/tesseract/ydotool per OS;
 > local UI-grounding hooks (Phi-Ground/OS-Atlas/UGround/UI-TARS via GGUF in `models/`, no URLs);
@@ -42,7 +47,7 @@ like and it tunes itself to the hardware you've got, from a laptop to a multi-GP
 > Grab it from **[Releases](https://github.com/ShadowESC95/ELI_v2.0/releases/latest)**.
 >
 > **v2.3.84 — observability hardening + release fix.** Removed **469 silent `except: pass`**
-> handlers (646 → 177) across runtime, media, memory, perception, and GUI paths — failures
+> handlers (646 → 172) across runtime, media, memory, perception, and GUI paths — failures
 > now log at debug instead of vanishing. Full inventory:
 > [`docs/SILENT_EXCEPTION_AUDIT.md`](docs/SILENT_EXCEPTION_AUDIT.md). CI ratchet lowered to 177.
 > Grab it from **[Releases](https://github.com/ShadowESC95/ELI_v2.0/releases/latest)**.
@@ -468,12 +473,12 @@ SECURITY.md, not in a public issue.
 
 ## Tested on & known limitations
 
-*Last updated 2026-09-05 (v2.3.82).*
+*Last updated 2026-09-08 (v2.3.93).*
 
 I'd rather tell you exactly what I've run than pretend it's flawless everywhere.
 
 **What I've actually run, end to end:** Linux (x86_64) with an NVIDIA GPU — install, first-run,
-the full test suite (**11,390 tests collected**, 11,350+ passing), voice (USB/Bluetooth headset
+the full test suite (**11,711 tests collected**, 11,700+ passing), voice (USB/Bluetooth headset
 auto-resolve verified on Linux), vision, the server, the AppImage with the CUDA GPU
 pack, all of it. **The Windows installer has also been field-run on real hardware** — install,
 first-boot GPU + model flow, voice and chat. On top of that, **every release is launch-tested in
@@ -525,7 +530,7 @@ touches real hardware. I'd rather you know them going in.
 - `eli/gui` — PySide6 GUI launcher and `EliMainWindow`
 - `eli/cli` — headless REPL (`eli --headless`)
 - `config` — portable default settings · `models` — local GGUF payloads (gitignored)
-- `tests` — a large pytest suite (**11,390 tests collected** across 413 files, 11,350+ passing;
+- `tests` — a large pytest suite (**11,711 tests collected** across 434 files, 11,700+ passing;
   including a `claims/` layer that checks the project against its own documentation); the full
   suite runs locally, while CI gates a cross-platform portable subset (no GGUF/display/GPU) on
   Linux, macOS, and Windows

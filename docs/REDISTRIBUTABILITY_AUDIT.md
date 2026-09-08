@@ -1,6 +1,6 @@
-# Redistributability Audit — v2.3.85 prep
+# Redistributability Audit — v2.3.92
 
-**Date:** 2026-09-07  
+**Date:** 2026-09-08  
 **Scope:** `eli/`, `api/`, `config/templates/`, `scripts/` (tracked source only)  
 **Goal:** 100% redistributable across OSes, hardware tiers, and user locales without personal paths or silent Linux-only regressions.
 

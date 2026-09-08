@@ -1,6 +1,6 @@
 # ELI MKXI — Full Project Breakdown & Assessment
 
-> **Updated for v2.3.92 (September 2026).** Cognition pipeline unified: gradient
+> **Updated for v2.3.93 (September 2026).** Cognition pipeline unified: gradient
 > orchestrator for all CHAT modes, shared retrieval, canonical S01–S12 tracing.
 > v2.3.44+ restores cross-platform microphone auto-resolve (USB / Bluetooth /
 > headset before built-in; live subprocess probes). Primary install: CI-launch-tested
@@ -42,8 +42,8 @@ wrapper.
 
 ## 2. Scale & shape
 
-**181,530 LOC across 424 Python files** (`eli/`), plus the FastAPI web server
-(`api/server.py`, ~2,309 lines with an embedded dashboard PWA) and 389 test files.
+**190,338 LOC across 449 Python files** (`eli/`), plus the FastAPI web server
+(`api/server.py`, ~2,309 lines with an embedded dashboard PWA) and 434 test files.
 *(measured 2026-08-28.)*
 
 | Subsystem | LOC | Files | Role |
@@ -75,7 +75,7 @@ wrapper.
   (filename→ctx table; VRAM compute-buffer reservation). Model-agnostic.
 - **Routing** — `execution/router_enhanced.py`: regex-first with LLM-intent
   fallback + an explicit priority pipeline → one of **225 manifest capabilities**
-  (**208 routable**; 204 executor `SUPPORTED_ACTIONS`). Full reference with activation
+  (**210 routable or executor-backed**; 205 executor `SUPPORTED_ACTIONS`). Full reference with activation
   phrases: `capabilities_and_actions.md`.
 - **Orchestration** — `kernel/engine.py` runs **gradient orchestrator** for all
   CHAT modes (Quick = light/fast; Expert = full/deep); `dispatch_specialists()`
@@ -141,8 +141,8 @@ wrapper.
    `verify_eli_claims*.sh` versions, diag outputs, `.coverage`, and
    `experimental/*.zip` binaries. Makes the repo look less serious than the code
    is.
-5. **Tests are GREEN (measured 2026-08-28).** 389 test files; `pytest tests/` =
-   **11,358 collected / 11,300+ passed / 54 skipped / 2 xfailed** (~13.5 min on the `.venv`/GPU). The 5
+5. **Tests are GREEN (measured 2026-09-08).** 434 test files; `pytest tests/` =
+   **11,711 collected / 11,700+ passed / 54 skipped / 2 xfailed** (~13.5 min on the `.venv`/GPU). The 5
    former reds (deprecated `smart_home` plugin, silent-swallow ratchet, stale blueprint
    ref) were all cleared 2026-07-03. The
    `tests/claims/` contract layer makes it a real safety net.

@@ -13,6 +13,10 @@ import threading
 from datetime import datetime, timezone
 from pathlib import Path
 
+from eli.utils.log import get_logger
+
+log = get_logger(__name__)
+
 try:
     from .incident_log import write_incident
 except Exception:  # pragma: no cover
@@ -734,7 +738,7 @@ def build_install_candidates(name: str) -> list[dict]:
                 "label": "Install yt-dlp into ELI's Python environment (no admin password)",
             })
         except Exception:
-            pass
+            log.debug("yt-dlp pip install candidate unavailable", exc_info=True)
 
     if norm == "pyautogui":
         candidates.append({

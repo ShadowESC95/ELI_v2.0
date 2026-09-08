@@ -1,4 +1,4 @@
-> **Updated for v2.3.92 (September 2026).** v2.3.37+ unified the cognition pipeline:
+> **Updated for v2.3.93 (September 2026).** v2.3.37+ unified the cognition pipeline:
 > all CHAT modes run a **gradient orchestrator** (Quick = light/fast planner;
 > Expert = full/deep); shared turn retrieval (`eli/memory/retrieval.py`); FAISS
 > tombstones on delete; canonical S01–S12 logging (`pipeline_trace.py`); Stage 12
@@ -13,7 +13,7 @@ is observed-at-runtime rather than read-from-code it is marked *(runtime)*.
 > ELI is a **local-first, offline-by-default, model-agnostic** cognitive runtime
 > + assistant GUI (and, as of 2026-06-28, a self-hosted web app — `api/server.py`,
 > documented in `ELI_USER_MANUAL.md`). No cloud, no APIs on the inference path, no hardcoded
-> model. ~181,530 LOC across 424 Python files (`eli/`) (+ `api/server.py`); 225 capabilities (2026-08-29).
+> model. ~190,338 LOC across 449 Python files (`eli/`) (+ `api/server.py`); 227 capabilities (2026-09-08).
 
 ---
 
@@ -56,7 +56,7 @@ is observed-at-runtime rather than read-from-code it is marked *(runtime)*.
 | `eli/contracts` | 0.7k | 3 | typed pipeline contracts |
 | `eli/system` | 0.3k | 2 | system-level helpers |
 | `eli/cli` | 0.1k | 2 | headless REPL |
-| **total (listed)** | **~181,530** | **424** | full `eli/` tree |
+| **total (listed)** | **~190,338** | **449** | full `eli/` tree |
 
 ### The four god-files (refactor targets — see §20)
 | File | LOC |
@@ -277,8 +277,8 @@ frontier (see §20).
 
 ## 10. Execution layer  (`eli/execution/executor_enhanced.py`)
 
-- `execute(action, args) -> dict` — **204 dispatch actions (225 manifest)**; runtime capability
-  manifest reports **225 capabilities, 208 of them routable** *(live, read from the
+- `execute(action, args) -> dict` — **205 dispatch actions (227 manifest)**; runtime capability
+  manifest reports **227 capabilities, 210 routable or executor-backed** *(live, read from the
   manifest each boot)*.
 - **PHASE45 fast-path** (`engine.py`) — deterministic OS/media/status/job actions
   (`VOLUME`, `MEDIA_CONTROL`, `NEXT_MEDIA`, `OPEN_APP`, `DATE`, `SHELL_EXEC`,

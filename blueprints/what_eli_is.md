@@ -17,7 +17,7 @@ your own evidence, and — uniquely — **improves its own source code and can e
 re-train its own brain on your conversations.** Unlike Siri, Alexa, or
 ChatGPT, nothing you say to ELI has to leave your house: it is **offline by
 default, enforced at the network socket itself**, with a switch *you* control.
-It is not a chatbot bolted onto a cloud API. It is ~181,530 lines of Python in `eli/` that
+It is not a chatbot bolted onto a cloud API. It is ~190,338 lines of Python in `eli/` that
 form a complete **cognitive operating system for one person and one machine** — and, as of
 2026-06-28, a self-hosted **web app** that brings the same local brain (chat, a live
 dashboard, ELI's own smart-home, multi-user accounts, a tamper-evident audit trail, shared
@@ -134,10 +134,10 @@ and gets out of your way.**
 
 ## For the tech head: the architecture, accurately
 
-~181,530 lines of Python across 424 files (`eli/`). A real cognitive runtime — not an API
+~190,338 lines of Python across 449 files (`eli/`). A real cognitive runtime — not an API
 wrapper:
 
-- **Request pipeline.** A deterministic **router** (204 executor dispatch actions, 225
+- **Request pipeline.** A deterministic **router** (205 executor dispatch actions, 227
   declared capabilities) backed by a **model-grounded intent resolver** that
   resolves anything the rules miss against that same catalogue (so near-miss
   phrasings reach real actions instead of a blind chat) → a **gradient orchestrator**

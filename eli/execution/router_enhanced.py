@@ -2809,6 +2809,17 @@ def route(text: str, _clause_depth: int = 0) -> Dict[str, Any]:
     if re.search(r"\bpatch\s+yourself\b|\bself.?patch\b|\bapply.*patch\b|\bfix\s+your\s+own\s+code\b", low):
         return _mk("SELF_PATCH", {}, 0.95, matched_by="self.patch_cycle")
 
+    # User file fix — must beat the generic "fix the bugs/errors" self-patch guard.
+    m = re.search(
+        r"\b(fix|debug|repair|correct|patch)\s+(?:the\s+)?(?:bugs?|errors?|issues?)\s+(?:in\s+)?([\w./~-]+\.py)\b",
+        raw,
+        re.I,
+    )
+    if m:
+        path = m.group(2).strip()
+        return _mk("FIX_FILE", {"path": path}, 0.98,
+                   matched_by="file.fix_python_early", entities={"path": path})
+
     if re.search(r"\bself[- ]?fix\w*\b|\bfix\s+yourself\b", low):
         return _mk("SELF_PATCH", {}, 0.96, matched_by="self.fix")
 
@@ -3409,6 +3420,9 @@ def route(text: str, _clause_depth: int = 0) -> Dict[str, Any]:
         (r"\bminimi[sz]e\s+(?:all|everything)\b|\bshow\s+(?:my\s+)?desktop\b|"
          r"\bclear\s+(?:my\s+)?screen\b|\bhide\s+all\s+windows?\b",
          "MINIMISE_ALL"),
+        (r"\bminimi[sz]e\s+(?:this|the|current)\s+window\b|"
+         r"\bminimi[sz]e\s+this\b|\bminimi[sz]e\s+the\s+window\b",
+         "MINIMIZE_APP"),
         (r"\bmaximi[sz]e\s+(?:current|this|the\s+window|window)\b|"
          r"\bfullscreen\s+(?:current|this|the\s+window|window)?\b|"
          r"\bmake\s+(?:this|current|window)\s+fullscreen\b",

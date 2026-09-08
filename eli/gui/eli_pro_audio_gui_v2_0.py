@@ -6759,7 +6759,7 @@ class EliMainWindow(QMainWindow):
         try:
             self._sc_interval_spin.setValue(int(s.get("ambient_vision_interval", 300) or 300))
         except Exception:
-            pass
+            log.debug("invalid ambient_vision_interval in settings; using spin default", exc_info=True)
 
     def _sc_save_settings(self):
         try:

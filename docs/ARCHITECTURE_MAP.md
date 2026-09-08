@@ -14,9 +14,9 @@ with the commands in [Keeping this honest](#keeping-this-honest).
 | | |
 |---|---|
 | Tracked Python (excl. tests/build) | **198,422 lines** across **506 modules** |
-| `eli/` Python | **181,530 lines** across **424 modules** |
-| Test files | **393** (11,358 tests collected; 11,300+ passing locally) |
-| Actions in `capability_manifest.json` | **225** (184 router-routable; 208 routable or executor-backed; 204 `SUPPORTED_ACTIONS`) |
+| `eli/` Python | **190,338 lines** across **449 modules** |
+| Test files | **393** (11,711 tests collected; 11,700+ passing locally) |
+| Actions in `capability_manifest.json` | **227** (186 router-routable; 210 routable or executor-backed; 205 `SUPPORTED_ACTIONS`) |
 | Live SQLite stores | **4** (`user` 39 tables · `agent` 26 · `system_index` 4 · `coding_memory` 2) |
 | GGUF models on disk | 6 (~12 GB) |
 
@@ -31,7 +31,7 @@ diff (`tools/repo_parity.py` shows drift).
 | package | files | lines | what lives there |
 |---|---:|---:|---|
 | `eli/runtime/` | 93 | 33,650 | grounding, evidence, self-model, devices, policy, scheduling |
-| `eli/execution/` | 16 | 26,419 | router + executor — all 225 manifest actions |
+| `eli/execution/` | 16 | 26,419 | router + executor — all 227 manifest actions |
 | `eli/gui/` | 27 | 26,242 | PySide6 desktop app |
 | `eli/cognition/` | 38 | 18,714 | agent bus, persona, inference, tone, scoring |
 | `eli/kernel/` | 9 | 16,788 | the 12-stage engine |
@@ -63,7 +63,7 @@ user text
    │
    ▼
 router_enhanced ── deterministic contracts first
-   │               then a grammar-constrained LLM resolver over 225 manifest actions
+   │               then a grammar-constrained LLM resolver over 227 manifest actions
    ▼
 kernel/engine.py — canonical S01–S12 (pipeline_trace.py)
    S01 PERCEIVE_INGEST
