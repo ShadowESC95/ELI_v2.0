@@ -38,7 +38,7 @@ env:
   PIP_DISABLE_PIP_VERSION_CHECK: "1"
   PIP_NO_CACHE_DIR: "1"
   # Extras that MUST be in the frozen app; the build fails if any is missing.
-  REQUIRED_EXTRAS: "gui llm server docs analysis extras"
+  REQUIRED_EXTRAS: "gui llm server docs analysis extras media"
   # Extras bundled when their wheels resolve on the runner; skipped (loudly)
   # otherwise — every optional import in ELI degrades cleanly by design.
   # NOTE: this list is consumed by ALL THREE build jobs. The XTTS-v2 neural voice engine

@@ -6601,6 +6601,75 @@ class EliMainWindow(QMainWindow):
         sub.setStyleSheet("font-size:11px; color:#8899aa; padding-bottom:6px;")
         layout.addWidget(sub)
 
+        # ── Screen analysis settings (all local — no URLs) ─────────────────
+        cfg_box = QGroupBox("Screen analysis settings")
+        cfg_box.setStyleSheet(
+            "QGroupBox { color:#8eaac8; font-weight:bold; border:1px solid #2a2d3a; "
+            "border-radius:6px; margin-top:8px; padding-top:8px; }"
+            "QGroupBox::title { subcontrol-origin: margin; left:10px; padding:0 4px; }"
+        )
+        cfg_form = QFormLayout(cfg_box)
+
+        self._sc_depth_combo = QComboBox()
+        self._sc_depth_combo.addItem("Quick glance", "quick")
+        self._sc_depth_combo.addItem("Standard", "standard")
+        self._sc_depth_combo.addItem("Deep / full audit", "deep")
+        self._sc_depth_combo.setToolTip(
+            "Quick = fast Moondream glance. Standard = VL + OCR fusion. "
+            "Deep = thorough audit with full OCR + text-model fusion."
+        )
+        cfg_form.addRow("Analysis depth", self._sc_depth_combo)
+
+        self._sc_use_memory_cb = QCheckBox("Include prior screen memories when relevant")
+        self._sc_use_memory_cb.setStyleSheet("color:#c8d0e0;")
+        cfg_form.addRow("", self._sc_use_memory_cb)
+
+        self._sc_use_research_cb = QCheckBox("Relate to my research/projects when asked")
+        self._sc_use_research_cb.setStyleSheet("color:#c8d0e0;")
+        cfg_form.addRow("", self._sc_use_research_cb)
+
+        self._sc_ground_combo = QComboBox()
+        for label, val in [
+            ("Off — AT-SPI + OCR only", "none"),
+            ("Auto — local VL when available", "auto"),
+            ("Local GGUF (Phi-Ground / OS-Atlas / UGround)", "local_gguf"),
+        ]:
+            self._sc_ground_combo.addItem(label, val)
+        self._sc_ground_combo.setToolTip(
+            "Precision click for icons/non-text UI. 100% local GGUF — "
+            "drop a grounding model into models/ or pick Auto."
+        )
+        cfg_form.addRow("Precision UI click", self._sc_ground_combo)
+
+        self._sc_agent_combo = QComboBox()
+        for label, val in [
+            ("Off", "none"),
+            ("Auto — UI-TARS-style GGUF if present", "auto"),
+            ("Local GGUF (UI-TARS / computer-use)", "local_gguf"),
+        ]:
+            self._sc_agent_combo.addItem(label, val)
+        self._sc_agent_combo.setToolTip(
+            "Multi-step desktop agent (local only). Requires a computer-use GGUF in models/."
+        )
+        cfg_form.addRow("Computer-use agent", self._sc_agent_combo)
+
+        self._sc_ambient_cb = QCheckBox("Ambient screen watch (periodic local glances → memory)")
+        self._sc_ambient_cb.setStyleSheet("color:#c8d0e0;")
+        cfg_form.addRow("", self._sc_ambient_cb)
+
+        self._sc_interval_spin = QSpinBox()
+        self._sc_interval_spin.setRange(60, 3600)
+        self._sc_interval_spin.setSingleStep(60)
+        self._sc_interval_spin.setSuffix(" s")
+        cfg_form.addRow("Glance interval", self._sc_interval_spin)
+
+        _sc_save_btn = QPushButton("💾 Save screen settings")
+        _sc_save_btn.clicked.connect(self._sc_save_settings)
+        cfg_form.addRow("", _sc_save_btn)
+
+        layout.addWidget(cfg_box)
+        self._sc_load_settings()
+
         # ── Screenshot + OCR row ──────────────────────────────────────────
         btn_row = QHBoxLayout()
         self._sc_capture_btn = QPushButton("📸 Capture Full Screen")
@@ -6616,6 +6685,12 @@ class EliMainWindow(QMainWindow):
         self._sc_analyse_btn.setEnabled(False)
         self._sc_analyse_btn.clicked.connect(self._sc_ask_eli)
         btn_row.addWidget(self._sc_analyse_btn)
+
+        self._sc_deep_btn = QPushButton("🔬 Deep audit")
+        self._sc_deep_btn.setEnabled(False)
+        self._sc_deep_btn.setToolTip("Full local screen audit — VL + OCR + text-model fusion")
+        self._sc_deep_btn.clicked.connect(lambda: self._sc_ask_eli(deep=True))
+        btn_row.addWidget(self._sc_deep_btn)
 
         self._sc_clear_btn = QPushButton("🗑️ Clear")
         self._sc_clear_btn.clicked.connect(self._sc_clear)
@@ -6661,6 +6736,59 @@ class EliMainWindow(QMainWindow):
         self._sc_screenshot_path: str = ""
 
         self.tabs.addTab(widget, "🖥️ Screen")
+
+    def _sc_load_settings(self):
+        try:
+            from eli.core.runtime_settings import load_settings as _ls
+            s = _ls() or {}
+        except Exception:
+            s = {}
+        depth = str(s.get("screen_analysis_depth", "standard") or "standard")
+        idx = self._sc_depth_combo.findData(depth)
+        if idx >= 0:
+            self._sc_depth_combo.setCurrentIndex(idx)
+        self._sc_use_memory_cb.setChecked(bool(s.get("screen_analysis_use_memory", True)))
+        self._sc_use_research_cb.setChecked(bool(s.get("screen_analysis_use_research", True)))
+        gidx = self._sc_ground_combo.findData(str(s.get("ui_ground_backend", "none") or "none"))
+        if gidx >= 0:
+            self._sc_ground_combo.setCurrentIndex(gidx)
+        aidx = self._sc_agent_combo.findData(str(s.get("computer_use_backend", "none") or "none"))
+        if aidx >= 0:
+            self._sc_agent_combo.setCurrentIndex(aidx)
+        self._sc_ambient_cb.setChecked(bool(s.get("ambient_vision_enabled", False)))
+        try:
+            self._sc_interval_spin.setValue(int(s.get("ambient_vision_interval", 300) or 300))
+        except Exception:
+            pass
+
+    def _sc_save_settings(self):
+        try:
+            from eli.core.runtime_settings import save_settings as _ss
+            _ss({
+                "screen_analysis_depth": self._sc_depth_combo.currentData() or "standard",
+                "screen_analysis_use_memory": bool(self._sc_use_memory_cb.isChecked()),
+                "screen_analysis_use_research": bool(self._sc_use_research_cb.isChecked()),
+                "ui_ground_backend": self._sc_ground_combo.currentData() or "none",
+                "computer_use_backend": self._sc_agent_combo.currentData() or "none",
+                "ambient_vision_enabled": bool(self._sc_ambient_cb.isChecked()),
+                "ambient_vision_interval": int(self._sc_interval_spin.value()),
+            })
+            try:
+                from eli.perception.ambient_vision import set_ambient_vision
+                set_ambient_vision(bool(self._sc_ambient_cb.isChecked()))
+            except Exception:
+                log.debug("ambient vision sync failed", exc_info=True)
+            if hasattr(self, "ambient_vision_btn"):
+                on = bool(self._sc_ambient_cb.isChecked())
+                self.ambient_vision_btn.blockSignals(True)
+                self.ambient_vision_btn.setChecked(on)
+                self.ambient_vision_btn.setText("👁 Watch: ON" if on else "👁 Watch: OFF")
+                self.ambient_vision_btn.blockSignals(False)
+            from eli.gui.panels._qt import QMessageBox
+            QMessageBox.information(self, "Screen settings", "Saved — all local, no network required.")
+        except Exception as e:
+            from eli.gui.panels._qt import QMessageBox
+            QMessageBox.warning(self, "Screen settings", f"Could not save: {e}")
 
     # ── Screen control helpers ─────────────────────────────────────────────────
     def _sc_capture(self):
@@ -6737,6 +6865,8 @@ class EliMainWindow(QMainWindow):
         self._sc_ocr_btn.setEnabled(True)
         # A screenshot alone is enough for vision analysis (no OCR needed first).
         self._sc_analyse_btn.setEnabled(True)
+        if hasattr(self, "_sc_deep_btn"):
+            self._sc_deep_btn.setEnabled(True)
 
     def _sc_run_ocr(self):
         if not self._sc_screenshot_path:
@@ -6800,7 +6930,7 @@ class EliMainWindow(QMainWindow):
         self._sc_ocr_text.setPlainText(text.strip() or "(no text detected)")
         self._sc_analyse_btn.setEnabled(bool(text.strip()))
 
-    def _sc_ask_eli(self):
+    def _sc_ask_eli(self, deep: bool = False):
         backend = self._text_backend_ready(notify=False)
         if backend is None:
             self._sc_response.setPlainText("⚠️ Load a model first.")
@@ -6814,32 +6944,32 @@ class EliMainWindow(QMainWindow):
             return
         self._sc_analyse_btn.setEnabled(False)
         self._sc_analyse_btn.setText("Analysing…")
+        if hasattr(self, "_sc_deep_btn"):
+            self._sc_deep_btn.setEnabled(False)
         self._sc_response.setPlainText(
-            "🤖 ELI is looking at the screen…" if _has_shot
-            else "🤖 ELI is analysing the text…")
+            "🤖 ELI is performing a deep local screen audit…" if deep
+            else ("🤖 ELI is looking at the screen…" if _has_shot
+                  else "🤖 ELI is analysing the text…"))
 
         def worker():
             try:
-                # Treat OCR text as ground truth, drop the "no OCR engine" notice.
                 _ocr = ocr_text
                 if _ocr.startswith("⚠") or "No OCR engine" in _ocr:
                     _ocr = ""
                 if _has_shot:
-                    # Use the VISION model (Moondream/Qwen-VL) to actually SEE the
-                    # screenshot — hot-swap + OCR fusion via ANALYZE_IMAGE. This
-                    # is the grounded screen pipeline; OCR-only text-model analysis
-                    # could not read images, charts, or UI layout.
                     from eli.execution.executor_enhanced import execute as _vexec
-                    _prompt = (
-                        "You are ELI looking at the user's screen. Describe what's on screen — "
-                        "the focused app, what the user is doing, and any important text, code, "
-                        "errors, or UI state — then give a short, helpful summary and flag "
-                        "anything that needs attention. Be specific; never invent."
+                    from eli.perception.screen_analysis import build_screen_analysis_prompt
+                    depth = "deep" if deep else str(
+                        getattr(self, "_sc_depth_combo", None) and self._sc_depth_combo.currentData() or "standard"
                     )
+                    _prompt = build_screen_analysis_prompt("", depth=depth)
                     if _ocr:
                         _prompt += f"\n\nOCR text already extracted (use as ground truth):\n{_ocr[:2500]}"
-                    res = _vexec("ANALYZE_IMAGE",
-                                 {"path": ss_path, "prompt": _prompt, "prefer_fast": True}) or {}
+                    res = _vexec("ANALYZE_IMAGE", {
+                        "path": ss_path,
+                        "prompt": _prompt,
+                        "prefer_fast": depth == "quick",
+                    }) or {}
                     resp = str(res.get("content") or res.get("response") or "").strip()
                     if not resp:
                         resp = "I captured the screen but couldn't produce a description."
@@ -6863,6 +6993,8 @@ class EliMainWindow(QMainWindow):
     def _sc_eli_done(self, text: str):
         self._sc_analyse_btn.setEnabled(True)
         self._sc_analyse_btn.setText("🤖 Ask ELI")
+        if hasattr(self, "_sc_deep_btn"):
+            self._sc_deep_btn.setEnabled(True)
         self._sc_response.setPlainText(text)
 
     def _sc_clear(self):
@@ -11772,6 +11904,11 @@ class EliMainWindow(QMainWindow):
             print(f"⚠️ Failed to apply identity/image settings: {e}")
 
         self.apply_theme()
+        if hasattr(self, "_sc_load_settings"):
+            try:
+                self._sc_load_settings()
+            except Exception:
+                log.debug("screen settings load failed", exc_info=True)
 
     def save_settings(self, silent: bool = False):
         """Save settings via runtime_settings — single canonical merge-write."""
@@ -11838,6 +11975,16 @@ class EliMainWindow(QMainWindow):
             "gaze_engine_enabled": bool(getattr(self, "gaze_enabled_checkbox", None) and self.gaze_enabled_checkbox.isChecked()),
             "gaze_camera": str(self.gaze_camera_input.text().strip() if hasattr(self, "gaze_camera_input") else "auto"),
         }
+        if hasattr(self, "_sc_depth_combo"):
+            updates.update({
+                "screen_analysis_depth": self._sc_depth_combo.currentData() or "standard",
+                "screen_analysis_use_memory": bool(self._sc_use_memory_cb.isChecked()),
+                "screen_analysis_use_research": bool(self._sc_use_research_cb.isChecked()),
+                "ui_ground_backend": self._sc_ground_combo.currentData() or "none",
+                "computer_use_backend": self._sc_agent_combo.currentData() or "none",
+                "ambient_vision_enabled": bool(self._sc_ambient_cb.isChecked()),
+                "ambient_vision_interval": int(self._sc_interval_spin.value()),
+            })
 
         try:
             from eli.core.runtime_settings import save_settings as _rs_save

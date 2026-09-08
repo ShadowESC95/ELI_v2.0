@@ -1,8 +1,25 @@
 # Installation — one-click setup, cross-platform (2026-07-05)
 
-> **Updated for v2.3.73 (September 2026).** **AUDIO IS BACK** — cross-platform microphone
+> **Updated for v2.3.92 (September 2026).** **AUDIO IS BACK** — cross-platform microphone
 > auto-resolve. Primary install: prebuilt GitHub Releases (Windows Setup.exe, Linux AppImage,
 > macOS dmg); CI launch-tested on all three platforms. Source installs below remain supported.
+
+## Runtime OS tools (installed best-effort by `install.sh` / `install.ps1`)
+
+These are **not** Python packages — ELI installs them when a package manager is available, or offers the exact command after a failed action:
+
+| Tool | Purpose | Linux | macOS | Windows |
+|---|---|---|---|---|
+| `mpv` + `yt-dlp` | YouTube visible playback | apt/dnf/pacman + pip | brew + pip | winget mpv + pip |
+| `tesseract` | Screen OCR | apt/dnf/pacman | brew | winget |
+| `xdotool` / `ydotool` | Mouse/keyboard (X11 / Wayland) | apt/dnf/pacman | — | PyAutoGUI (pip) |
+| `grim`/`slurp` | Wayland screenshots | apt/dnf/pacman | — | native |
+| `playerctl` | Media transport (MPRIS) | apt/dnf/pacman | brew | media keys |
+| `ffmpeg` | Media/Whisper | apt/dnf/pacman | brew | winget |
+
+**Wayland:** `ydotool` needs the `ydotoold` daemon (uinput). `xdotool` only reaches XWayland clients.
+
+See `docs/CROSS_PLATFORM.md` for the full per-OS desktop matrix.
 
 
 One command per platform sets up Python deps, the **full SQLite architecture** (blank

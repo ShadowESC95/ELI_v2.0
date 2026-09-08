@@ -209,6 +209,41 @@ def test_wayland_click_releases_the_button():
     assert "0xC0" in branch, "left click should be 0xC0 (down+up) for ydotool"
 
 
+@pytest.mark.parametrize("phrase,direction,amount", [
+    ("move cursor right", "right", 100),
+    ("move the mouse left 50 pixels", "left", 50),
+    ("nudge pointer down by 25 px", "down", 25),
+    ("move mouse up 200", "up", 200),
+])
+def test_relative_mouse_movement_routes(phrase, direction, amount):
+    out = _route(phrase)
+    assert out["action"] == "MOUSE_CONTROL", f"{phrase!r} -> {out['action']}"
+    args = out.get("args") or {}
+    assert args.get("action") == "move"
+    assert args.get("direction") == direction
+    assert int(args.get("amount") or args.get("pixels") or 0) == amount
+
+
+@pytest.mark.parametrize("phrase,query", [
+    ("click the submit button", "submit"),
+    ("click submit button", "submit"),
+    ("press the cancel button", "cancel"),
+    ("tap the ok button", "ok"),
+])
+def test_click_named_button_routes_to_screen_locate(phrase, query):
+    out = _route(phrase)
+    assert out["action"] == "SCREEN_LOCATE", f"{phrase!r} -> {out['action']}"
+    args = out.get("args") or {}
+    assert args.get("click") is True
+    assert query in str(args.get("query") or "").lower()
+
+
+def test_click_at_cursor_routes_mouse_control():
+    out = _route("click at cursor")
+    assert out["action"] == "MOUSE_CONTROL"
+    assert (out.get("args") or {}).get("action") == "click"
+
+
 # ── Linux is two platforms: X11 and Wayland ────────────────────────────────
 def test_display_server_is_detected():
     ds = pac.display_server()

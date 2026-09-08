@@ -1,6 +1,6 @@
 # ELI v2.0 — Commands & Installers Reference
 
-> **Updated for v2.3.73 (September 2026).** The primary way to install ELI is now the
+> **Updated for v2.3.92 (September 2026).** The primary way to install ELI is now the
 > **prebuilt installers on GitHub Releases** — `ELI-Setup-<v>.exe` (Windows),
 > the `.dmg` (macOS, Apple Silicon), the `.AppImage` (Linux). The Linux AppImage and
 > portable tarball are **CI-launch-tested** on every release; the macOS `.dmg` is

@@ -43,30 +43,48 @@ def test_normalize_streaming_target_aliases(spoken, canonical, query):
 
 @pytest.mark.parametrize("spoken,canonical,query", _STREAMING_CASES)
 def test_play_specific_streaming_never_youtube(spoken, canonical, query, monkeypatch):
-    opened: list[str] = []
+    app_uri_calls: list[str] = []
+    native_calls: list[str] = []
+    browser_calls: list[str] = []
 
-    def _fake_open(url: str) -> bool:
-        opened.append(url)
-        return True
-
-    monkeypatch.setattr("eli.utils.platform_compat.open_url", _fake_open)
+    monkeypatch.setattr(
+        "eli.execution.media_runtime.open_streaming_app",
+        lambda c: native_calls.append(c) or True,
+    )
+    monkeypatch.setattr(
+        "eli.utils.platform_compat.open_app_uri",
+        lambda u: app_uri_calls.append(u) or True,
+    )
+    monkeypatch.setattr(
+        "eli.utils.platform_compat.open_url",
+        lambda u: browser_calls.append(u) or True,
+    )
 
     from eli.execution.executor_enhanced import play_specific
 
     result = play_specific(query, spoken)
     assert result.get("target") == canonical
     assert "YouTube" not in (result.get("response") or "")
-    assert opened
-    assert "youtube.com" not in opened[0].lower()
+    assert native_calls == [canonical]
+    assert not browser_calls
+    assert app_uri_calls
     expected_host = _STREAMING_CANONICAL_URLS[canonical].split("/")[2]
-    assert expected_host in opened[0]
+    assert expected_host in app_uri_calls[0]
 
 
 @pytest.mark.parametrize("spoken,canonical,query", _STREAMING_CASES[:6])
 def test_execute_play_media_honours_streaming_target(spoken, canonical, query, monkeypatch):
-    opened: list[str] = []
+    app_uri_calls: list[str] = []
+    native_calls: list[str] = []
 
-    monkeypatch.setattr("eli.utils.platform_compat.open_url", lambda u: opened.append(u) or True)
+    monkeypatch.setattr(
+        "eli.execution.media_runtime.open_streaming_app",
+        lambda c: native_calls.append(c) or True,
+    )
+    monkeypatch.setattr(
+        "eli.utils.platform_compat.open_app_uri",
+        lambda u: app_uri_calls.append(u) or True,
+    )
 
     from eli.execution.executor_enhanced import execute_action
 
@@ -77,7 +95,8 @@ def test_execute_play_media_honours_streaming_target(spoken, canonical, query, m
     assert isinstance(result, dict)
     assert result.get("target") == canonical
     assert "YouTube" not in (result.get("response") or "")
-    assert opened
+    assert native_calls == [canonical]
+    assert app_uri_calls
 
 
 def test_all_canonical_streaming_platforms_have_aliases():

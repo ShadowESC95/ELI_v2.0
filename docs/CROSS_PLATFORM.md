@@ -146,6 +146,40 @@ OS-level binaries; the installers handle these best-effort:
 | Web automation | playwright browsers | `playwright install` | `playwright install` | `playwright install` |
 | Volume / clipboard / notifications | — | system tools above | native (osascript/pbcopy) | native (pycaw/clip/plyer) |
 
+## Desktop control — every OS (honest matrix)
+
+ELI never assumes one Linux stack. Each platform gets the tools that actually work there; missing tools are detected **after** a failed attempt and offered for install — never as a manual prerequisite.
+
+| Capability | Linux X11 | Linux Wayland | Windows | macOS | Android/Termux |
+|---|:---:|:---:|:---:|:---:|:---:|
+| Mouse / keyboard inject | xdotool → PyAutoGUI | **ydotool + ydotoold** → xdotool (XWayland only) → PyAutoGUI | PyAutoGUI | PyAutoGUI (+ Accessibility permission) | ➖ (intents only) |
+| Screenshot | scrot / PyAutoGUI | **grim** (+ slurp for region) | Pillow ImageGrab | screencapture | ➖ |
+| Click by **text label** | AT-SPI → OCR (tesseract) | same | OCR (tesseract) | OCR (tesseract) | ➖ |
+| Click **icon / non-text UI** | optional **VL ground** (Phi-Ground/OS-Atlas/UGround/HTTP) | same | same | same | ➖ |
+| Multi-step “use app like a human” | optional **UI-TARS-2** agent HTTP | same | same | same | ➖ |
+| Window focus / tile | wmctrl / xdotool | partial (XWayland); kdotool/wlrctl best-effort | PowerShell focus | osascript | ➖ |
+
+**Wayland note:** `xdotool` does **not** drive native Wayland windows. Use `ydotool` with the `ydotoold` daemon, or rely on AT-SPI/OCR/VL-grounding.
+
+**Vision split (by design):**
+- **Moondream / Qwen-VL** — describe what's on screen (fast glance, fusion with OCR).
+- **Phi-Ground / OS-Atlas / UGround** — optional precision `(x,y)` grounding for “click the blue icon” via **local GGUF** (`ui_ground_backend=local_gguf` or `auto`).
+- **UI-TARS-2** — optional computer-use agent loop for arbitrary software (`computer_use_backend=local_gguf` or `auto`).
+
+Configure on the **Screen tab** (🖥️ Screen) or in `settings.json`: `ui_ground_backend`, `computer_use_backend`, `screen_analysis_depth`, `screen_analysis_use_memory`, `screen_analysis_use_research`. **100% local** — no HTTP endpoints, no cloud; inference stays on-device.
+
+## Distribution — no user-managed virtualenvs
+
+End users should **never** create or manage a Python virtualenv manually:
+
+| Install path | What the user sees |
+|---|---|
+| **AppImage / PyInstaller** | Self-contained bundled Python — double-click and run |
+| **One-click archive** | `install.sh` / `install.ps1` creates an isolated Python env automatically |
+| **Developers** | Optional `.venv` in source tree only |
+
+Python packages (`yt-dlp`, `pyautogui`, etc.) install into **ELI's bundled interpreter** via pip during first-run setup. OS binaries (`mpv`, `tesseract`, `ydotool`, …) are installed by the system package manager when admin is available, or offered via grounded remediation after ELI tries and fails.
+
 The installer installs these **when a package manager + sudo/admin is available**; otherwise it
 **prints the exact command** so you can run it. None are required for ELI to start — missing ones
 only disable that one optional feature (gracefully).

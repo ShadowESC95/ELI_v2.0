@@ -18,6 +18,20 @@ from eli.utils.log import get_logger
 log = get_logger(__name__)
 
 
+def yt_mpv_headless() -> bool:
+    """True → audio-only background mpv. Default False → visible video window."""
+    env = (os.environ.get("ELI_YOUTUBE_HEADLESS") or "").strip().lower()
+    if env in {"1", "true", "on", "yes"}:
+        return True
+    if env in {"0", "false", "off", "no"}:
+        return False
+    try:
+        from eli.core.config import get as _cfg_get
+        return bool(_cfg_get("youtube_mpv_headless", False))
+    except Exception:
+        return False
+
+
 def yt_autoplay_enabled() -> bool:
     env = (os.environ.get("ELI_YT_AUTOPLAY") or "").strip().lower()
     if env in {"0", "false", "off", "no"}:
@@ -83,12 +97,16 @@ def yt_resolve_watch_url(query: str) -> str | None:
 
 
 def yt_resolve_watch_url_ytdlp(query: str) -> str | None:
-    if not shutil.which("yt-dlp"):
+    from eli.integrations.media.media_deps import path_env_for_subprocess, yt_dlp_argv
+
+    argv = yt_dlp_argv()
+    if not argv:
         return None
     try:
         r = subprocess.run(
-            ["yt-dlp", "--flat-playlist", "--print", "url", f"ytsearch1:{query}"],
+            [*argv, "--flat-playlist", "--print", "url", f"ytsearch1:{query}"],
             capture_output=True, text=True, timeout=15,
+            env=path_env_for_subprocess(),
         )
         if r.returncode == 0:
             for line in (r.stdout or "").splitlines():
@@ -142,26 +160,45 @@ def build_mpv_youtube_argv(
     *,
     ipc_path: str,
     client: str = "",
+    headless: bool | None = None,
 ) -> tuple[list[str], str]:
-    """Build mpv argv for one YouTube play attempt. Returns (argv, target_label)."""
+    """Build mpv argv for one YouTube play attempt. Returns (argv, target_label).
+
+    Default (headless=False): visible mpv window with video+audio.
+    headless=True: audio-only background playback (legacy behaviour).
+    """
+    from eli.integrations.media.media_deps import resolve_binary
+
+    if headless is None:
+        headless = yt_mpv_headless()
+
+    mpv_bin = resolve_binary("mpv") or "mpv"
+
     target = f"ytdl://ytsearch1:{yt_search}"
     if yt_autoplay_enabled():
         mix = yt_mix_url(yt_resolve_watch_url(yt_search))
         if mix and "list=RD" in mix:
             target = mix
+
     cmd = [
-        "mpv", target,
+        mpv_bin, target,
         f"--input-ipc-server={ipc_path}",
-        "--no-video", "--really-quiet",
-        "--ytdl-format=bestaudio/best",
+        "--title=ELI-YouTube",
     ]
+    if headless:
+        cmd.extend(["--no-video", "--really-quiet", "--ytdl-format=bestaudio/best"])
+    else:
+        cmd.extend([
+            "--force-window=immediate",
+            "--ytdl-format=bestvideo+bestaudio/best",
+        ])
+
     if "list=RD" in target:
         cmd.append("--ytdl-raw-options=yes-playlist=")
     if client:
         cmd.append(
             f"--ytdl-raw-options=extractor-args=youtube:player_client={client}"
         )
-    cmd.append("--title=ELI-YouTube")
     label = client or "yt-dlp default"
     return cmd, label
 
@@ -171,14 +208,22 @@ def attempt_youtube_mpv(
     *,
     ipc_path: str,
     verify_seconds: float | None = None,
+    headless: bool | None = None,
 ) -> dict[str, Any]:
     """Try mpv playback with the yt-dlp client ladder. Returns a result dict."""
-    if not (shutil.which("yt-dlp") and shutil.which("mpv")):
+    from eli.integrations.media.media_deps import (
+        missing_youtube_tools,
+        path_env_for_subprocess,
+    )
+
+    missing = missing_youtube_tools()
+    if missing:
         return {
             "ok": False,
             "played": False,
             "reason": "missing_tools",
-            "error": "mpv or yt-dlp not installed",
+            "missing_tools": missing,
+            "error": f"Missing: {', '.join(missing)}",
         }
 
     verify_s = float(verify_seconds if verify_seconds is not None
@@ -201,10 +246,11 @@ def attempt_youtube_mpv(
 
     for client in yt_player_clients():
         argv, used_client = build_mpv_youtube_argv(
-            yt_search, ipc_path=ipc_path, client=client,
+            yt_search, ipc_path=ipc_path, client=client, headless=headless,
         )
         proc = subprocess.Popen(
             argv, stdout=subprocess.DEVNULL, stderr=err_target, start_new_session=True,
+            env=path_env_for_subprocess(),
         )
         deadline = time.monotonic() + max(0.0, verify_s)
         while time.monotonic() < deadline:
@@ -261,6 +307,7 @@ def attempt_youtube_mpv(
             "confirmed": True,
             "client": used_client,
             "ipc_path": ipc_path,
+            "headless": headless if headless is not None else yt_mpv_headless(),
         }
 
     if rc is not None:

@@ -204,6 +204,19 @@ DEFAULTS: Dict[str, Any] = {
     # model, so keep the interval generous (seconds).
     "ambient_vision_enabled": False,
     "ambient_vision_interval": 300,
+
+    # Optional UI grounding — 100% local GGUF (Phi-Ground/OS-Atlas/UGround/UI-TARS).
+    "ui_ground_backend": "none",
+    "ui_ground_model_path": "",
+    "computer_use_backend": "none",
+    "computer_use_model_path": "",
+    "allow_remote_grounding": False,
+    "screen_locate_backends": ["atspi", "vl_ground", "ocr"],
+    # Screen analysis depth + context fusion (all local).
+    "screen_analysis_depth": "standard",
+    "screen_analysis_use_memory": True,
+    "screen_analysis_use_research": True,
+    "screen_analysis_always_memory": False,
     # Allow proactive habit rules to run shell commands. On by default (your own
     # habits); set false to block shell execution from an untrusted/imported habit DB.
     "habit_shell_enabled": True,

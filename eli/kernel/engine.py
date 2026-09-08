@@ -106,6 +106,7 @@ _PHASE45_DIRECT_FAST_ACTIONS = {
     'PAUSE_MEDIA',
     'PLAY_MEDIA',
     'PREVIOUS_MEDIA',
+    'REPEAT_MEDIA',
     'SCREEN_LOCATE',
     'SCREEN_READ_ANALYZE',  # vision/OCR result is authoritative — never re-narrate the screen
     'SHELL_EXEC',  # executor result is authoritative — never let model contradict it
@@ -14257,7 +14258,7 @@ Answer:"""
                 if _bus_ok is not None:
                     log.debug(f"[REPLAN] reusing bus success for {action}; skipping replan")
                     result = _bus_ok
-        if action in ("SELF_IMPROVE", "SELF_PATCH", "SELF_ANALYZE", "CODE_CHANGES") and hasattr(
+        if action in ("SELF_IMPROVE", "SELF_PATCH", "SELF_ANALYZE", "CODE_CHANGES", "SELF_UPGRADE") and hasattr(
             self, '_awareness') and self._awareness:
             try:
                 self._awareness.refresh()

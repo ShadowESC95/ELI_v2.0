@@ -1,14 +1,14 @@
 # ELI v2.0 — New User Installation Guide
 
-> **Updated for v2.3.73 (September 2026).** **AUDIO IS BACK** — cross-platform microphone
+> **Updated for v2.3.92 (September 2026).** **AUDIO IS BACK** — cross-platform microphone
 > auto-resolve (no env vars on Linux/macOS/Windows). Primary install: prebuilt installers on
-> [GitHub Releases](https://github.com/ShadowESC95/ELI_v2.0/releases/tag/v2.3.73) —
+> [GitHub Releases](https://github.com/ShadowESC95/ELI_v2.0/releases/tag/v2.3.92) —
 > `ELI-Setup-<v>.exe` (Windows), `.dmg` (macOS Apple Silicon), `.AppImage` (Linux).
 
 
-**Version:** 2.3.73  
+**Version:** 2.3.92  
 **Audience:** First-time users on Linux, Windows, or macOS  
-**Release page:** https://github.com/ShadowESC95/ELI_v2.0/releases/tag/v2.3.73
+**Release page:** https://github.com/ShadowESC95/ELI_v2.0/releases/tag/v2.3.92
 
 ---
 
@@ -49,6 +49,20 @@ ELI is a **local-first AI assistant**. Everything runs on your computer:
 | **GPU** | NVIDIA recommended; CPU-only works but slower |
 | **Network** | Required once during install (model + voice downloads) |
 
+### Runtime tools (optional — ELI installs best-effort)
+
+Some features need OS binaries pip cannot provide. `install.sh` / `install.ps1` install these when admin is available; otherwise ELI offers the exact command **after** a failed action:
+
+| Feature | Tools |
+|---|---|
+| YouTube in mpv (visible video) | `mpv` + `yt-dlp` (yt-dlp via pip into ELI's Python) |
+| Screen OCR / click by text | `tesseract` |
+| Wayland mouse control | `ydotool` + `ydotoold` |
+| X11 mouse control | `xdotool` |
+| Media pause/skip (Linux) | `playerctl` |
+
+No manual virtualenv — AppImage and installers bundle Python; source `install.sh` creates an isolated env automatically.
+
 ---
 
 ## 4. Linux — Portable folder (recommended for control)
@@ -57,7 +71,7 @@ ELI is a **local-first AI assistant**. Everything runs on your computer:
 
 ```bash
 cd ~/Desktop
-wget https://github.com/ShadowESC95/ELI_v2.0/releases/download/v2.3.73/ELI_v2-2.3.73-linux-portable.tar.gz
+wget https://github.com/ShadowESC95/ELI_v2.0/releases/download/v2.3.92/ELI_v2-2.3.73-linux-portable.tar.gz
 tar -xzf ELI_v2-2.3.73-linux-portable.tar.gz
 cd ELI_v2-2.3.73-linux-portable
 ```
@@ -167,7 +181,7 @@ sudo ufw allow from 192.168.1.0/24 to any port 8443 proto tcp
 
 ```bash
 cd ~/Desktop
-wget https://github.com/ShadowESC95/ELI_v2.0/releases/download/v2.3.73/ELI_v2-2.3.73-x86_64.AppImage
+wget https://github.com/ShadowESC95/ELI_v2.0/releases/download/v2.3.92/ELI_v2-2.3.73-x86_64.AppImage
 chmod +x ELI_v2-2.3.73-x86_64.AppImage
 ./ELI_v2-2.3.73-x86_64.AppImage
 ```
@@ -205,7 +219,7 @@ Or use the app-menu icons installed during first run.
 
 ### 5.1 Download
 
-From https://github.com/ShadowESC95/ELI_v2.0/releases/tag/v2.3.73:
+From https://github.com/ShadowESC95/ELI_v2.0/releases/tag/v2.3.92:
 
 - **Portable:** `ELI_v2-2.3.73-windows-x64.zip` — extract anywhere
 - **Installer:** `ELI-Setup-2.3.73.exe` — graphical install (per-user, no admin; shows the licence first)
@@ -290,7 +304,7 @@ macOS uses the same `install.sh` as Linux (Metal GPU instead of CUDA).
 
 ```bash
 cd ~/Desktop
-curl -LO https://github.com/ShadowESC95/ELI_v2.0/releases/download/v2.3.73/ELI_v2-2.3.73-linux-portable.tar.gz
+curl -LO https://github.com/ShadowESC95/ELI_v2.0/releases/download/v2.3.92/ELI_v2-2.3.73-linux-portable.tar.gz
 tar -xzf ELI_v2-2.3.73-linux-portable.tar.gz
 cd ELI_v2-2.3.73-linux-portable
 chmod +x ELI_Setup.sh
@@ -478,7 +492,7 @@ Safe to run multiple times — idempotent.
 ### Linux portable — full first install
 
 ```bash
-wget https://github.com/ShadowESC95/ELI_v2.0/releases/download/v2.3.73/ELI_v2-2.3.73-linux-portable.tar.gz
+wget https://github.com/ShadowESC95/ELI_v2.0/releases/download/v2.3.92/ELI_v2-2.3.73-linux-portable.tar.gz
 tar -xzf ELI_v2-2.3.73-linux-portable.tar.gz
 cd ELI_v2-2.3.73-linux-portable
 chmod +x ELI_Setup.sh && ./ELI_Setup.sh
@@ -550,4 +564,4 @@ After install, ELI runs **offline by default**. Only deliberate actions (web sea
 
 ---
 
-*ELI v2.0 — local, private, yours. This guide matches release v2.3.73.*
+*ELI v2.0 — local, private, yours. This guide matches release v2.3.92.*

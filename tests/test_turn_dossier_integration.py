@@ -64,6 +64,24 @@ def test_handoff_blocks_from_dossier_phatic_caps_and_trims_heavy_retrieval():
     assert len(joined) <= 420
 
 
+@patch("eli.runtime.self_facts.get_self_facts", return_value={"version": "2.3.92", "capabilities": 180})
+@patch("eli.runtime.user_model.get_user_brief", return_value="likes thorough answers")
+@patch("eli.kernel.state.get_user_name", return_value="Jay")
+@patch("eli.kernel.state.get_user_profile_text", return_value="")
+def test_assemble_turn_dossier_includes_machine_block(_profile, _name, _brief, _facts):
+    from eli.cognition.turn_dossier import assemble_turn_dossier
+
+    engine = MagicMock()
+    engine.memory = None
+    engine._awareness = MagicMock()
+    engine._awareness.context_block.return_value = "Live: 180 capabilities"
+
+    dossier = assemble_turn_dossier(engine, "hello", query_class="GENERAL")
+    assert "2.3.92" in dossier.machine_block
+    assert "180 capabilities" in dossier.machine_block
+    assert "machine_runtime" in dossier.provenance
+
+
 @patch("eli.memory.retrieval.retrieve_for_turn")
 @patch("eli.runtime.user_model.get_user_brief", return_value="likes thorough answers")
 @patch("eli.kernel.state.get_user_name", return_value="Jay")

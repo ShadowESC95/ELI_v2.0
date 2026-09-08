@@ -3000,13 +3000,14 @@ def play_media(target: str | None = None) -> Dict[str, Any]:
     return result
 
 
-def next_media() -> Dict[str, Any]:
+def next_media(target: str | None = None) -> Dict[str, Any]:
     """Skip to next track."""
-    if _targets_mpv(None):
+    if _targets_mpv(target):
         _mpv_ipc(["playlist-next", "weak"])
         return {"ok": True, "action": "NEXT_MEDIA", "content": "⏭ Next — YouTube",
                 "response": "⏭ Next — YouTube"}
-    result = _playerctl("next")
+    p = _resolve_media_target(target) or _get_active_player()
+    result = _playerctl("next", p)
     result["action"] = "NEXT_MEDIA"
     return result
 
@@ -3130,12 +3131,15 @@ def _yt_apply_browser_autoplay(url: str) -> str:
 
 def _yt_resolve_watch_url_ytdlp(query: str) -> str | None:
     """Fallback resolver when the lightweight HTML scrape finds nothing."""
-    if not shutil.which("yt-dlp"):
+    from eli.integrations.media.media_deps import path_env_for_subprocess, yt_dlp_argv
+    argv = yt_dlp_argv()
+    if not argv:
         return None
     try:
         r = subprocess.run(
-            ["yt-dlp", "--flat-playlist", "--print", "url", f"ytsearch1:{query}"],
+            [*argv, "--flat-playlist", "--print", "url", f"ytsearch1:{query}"],
             capture_output=True, text=True, timeout=15,
+            env=path_env_for_subprocess(),
         )
         if r.returncode == 0:
             for line in (r.stdout or "").splitlines():
@@ -3272,7 +3276,7 @@ def _spotify_try_open_and_play(uri: str, *, label: str, kind: str) -> Dict[str, 
     if not uri:
         return None
     if not _spotify_running():
-        _open_in_browser("spotify:")
+        _ensure_spotify_running()
         _spotify_wait_running(timeout=8.0)
     if not _spotify_open_uri(uri):
         return None
@@ -3295,12 +3299,19 @@ def _spotify_running() -> bool:
     return _cp_running()
 
 
-# ── Now-playing state + headless-mpv (YouTube) control ───────────────────────
-# "Play on YouTube" launches a HEADLESS mpv (audio only, no window) with a JSON IPC
-# control socket. playerctl can't see that mpv (no MPRIS), so pause/stop/resume must
-# talk to the socket directly. We also remember the last source + title so ELI can
-# answer "what's playing?" and aim controls at the right player.
-_MEDIA_STATE: Dict[str, Any] = {"source": None, "title": None, "mpv_sock": None}
+def _ensure_spotify_running() -> bool:
+    """Launch the native Spotify app — never a browser tab."""
+    from eli.integrations.media.cross_platform import spotify_launch_if_needed
+    return spotify_launch_if_needed()
+
+
+# ── Now-playing state + mpv (YouTube) control ───────────────────────────────
+# "Play on YouTube" launches mpv with a visible video window by default (yt-dlp).
+# Set ELI_YOUTUBE_HEADLESS=1 for audio-only background playback. playerctl can't
+# see mpv (no MPRIS), so pause/stop/resume talk to the IPC socket directly.
+_MEDIA_STATE: Dict[str, Any] = {
+    "source": None, "title": None, "mpv_sock": None, "mpv_headless": False,
+}
 
 
 def _mpv_socket_path() -> str:
@@ -3404,12 +3415,23 @@ def _mpv_quit() -> None:
         _mpv_ipc(["quit"])
 
 
-def _set_now_playing(source: str, title: str | None, *, mpv_sock: str | None = None) -> None:
-    # Switching to a different source: stop the old headless mpv so two things don't
-    # play at once (e.g. YouTube audio + Spotify).
+def _set_now_playing(
+    source: str,
+    title: str | None,
+    *,
+    mpv_sock: str | None = None,
+    mpv_headless: bool = False,
+) -> None:
+    # Switching to a different source: stop the old mpv so two things don't
+    # play at once (e.g. YouTube + Spotify).
     if _MEDIA_STATE.get("source") == "mpv" and source != "mpv":
         _mpv_quit()
-    _MEDIA_STATE.update({"source": source, "title": title, "mpv_sock": mpv_sock})
+    _MEDIA_STATE.update({
+        "source": source,
+        "title": title,
+        "mpv_sock": mpv_sock,
+        "mpv_headless": bool(mpv_headless),
+    })
 
 
 def now_playing() -> Dict[str, Any]:
@@ -3423,7 +3445,8 @@ def now_playing() -> Dict[str, Any]:
             title = mt.strip()
         paused = _mpv_ipc(["get_property", "pause"], want_response=True)
         head = "⏸ Paused" if paused is True else "▶ Playing"
-        msg = f"{head}: {title} — YouTube audio (headless mpv)."
+        mode = "audio (background)" if _MEDIA_STATE.get("mpv_headless") else "mpv video"
+        msg = f"{head}: {title} — YouTube ({mode})."
         return {"ok": True, "action": "NOW_PLAYING", "content": msg, "response": msg}
 
     # Live playerctl metadata beats the cached _MEDIA_STATE title — the cache
@@ -3445,14 +3468,14 @@ def now_playing() -> Dict[str, Any]:
     return {"ok": True, "action": "NOW_PLAYING", "content": msg, "response": msg}
 
 
-def play_specific(query: str, target: str | None = None) -> Dict[str, Any]:
+def play_specific(query: str, target: str | None = None, *, browser: bool = False) -> Dict[str, Any]:
     """Play a specific song/artist/genre.
 
     Dispatch priority:
-      0. Explicit streaming platform (netflix/prime/disney/…) → browser deep-link search
-      1. Explicit spotify target  → Spotify (dbus if open, else xdg-open URI)
-      2. Explicit youtube target  → yt-dlp+mpv if available, else browser watch URL
-      3. "youtube web/website"    → browser watch URL (never mpv)
+      0. Explicit streaming platform (netflix/prime/disney/…) → native app (browser only if browser=True)
+      1. Explicit spotify target  → Spotify native app (dbus/URI, never web)
+      2. Explicit youtube target  → yt-dlp+mpv (visible video window by default)
+      3. "youtube web/website/.com"    → browser watch URL (never mpv)
       4. "X by Y" (no target)     → yt-dlp+mpv
       5. Generic fallback         → browser watch URL
     """
@@ -3471,7 +3494,7 @@ def play_specific(query: str, target: str | None = None) -> Dict[str, Any]:
         )
         canon = normalize_streaming_target(target or t)
         if canon:
-            msg = _play_on_streaming(target or t, query)
+            msg = _play_on_streaming(target or t, query, browser=browser)
             if msg:
                 return {"ok": True, "action": "PLAY_MEDIA", "played": False,
                         "search_only": True, "target": canon,
@@ -3502,7 +3525,10 @@ def play_specific(query: str, target: str | None = None) -> Dict[str, Any]:
     is_spotify = "spotify" in t or (player and "spotify" in (player or "").lower())
     is_youtube = "youtube" in t or t in ("yt",)
     is_yt_web  = is_youtube and bool(_re.search(r"\bweb(?:site)?\b", t))
-    is_yt_browser = is_yt_web or bool(_re.search(r"youtube\.com", t, _re.I))
+    is_yt_browser = (
+        is_yt_web
+        or bool(_re.search(r"youtube\s*(?:\.com|\s+com)\b", t, _re.I))
+    )
 
     if (not is_spotify and not is_youtube
             and _spotify_running()
@@ -3551,7 +3577,7 @@ def play_specific(query: str, target: str | None = None) -> Dict[str, Any]:
                 return _hit
             # Fall back to album search tab + play top result
             if not _spotify_running():
-                _open_in_browser("spotify:")
+                _ensure_spotify_running()
                 _spotify_wait_running(timeout=8.0)
             if _spotify_search(f"{_album} {_album_artist or ''}".strip(), prefer="albums"):
                 _time.sleep(2.4)
@@ -3584,7 +3610,8 @@ def play_specific(query: str, target: str | None = None) -> Dict[str, Any]:
             _pl_opened = _spotify_search(_pl_name, prefer="playlists")
             if not _pl_opened:
                 try:
-                    _open_in_browser(f"spotify:search:{urllib.parse.quote(_pl_name)}")
+                    _ensure_spotify_running()
+                    _spotify_open_uri(f"spotify:search:{_pl_name}/playlists")
                     for _ in range(8):
                         _time.sleep(1.0)
                         if _spotify_running():
@@ -3615,12 +3642,12 @@ def play_specific(query: str, target: str | None = None) -> Dict[str, Any]:
         # ── Track / generic search (tracks tab, not playlists) ──
         _track_q = search_q
         if not _spotify_running():
-            _open_in_browser("spotify:")
+            _ensure_spotify_running()
             _spotify_wait_running(timeout=8.0)
         _opened = _spotify_search(_track_q, prefer="tracks")
         if not _opened:
             try:
-                _open_in_browser(f"spotify:search:{urllib.parse.quote(_track_q)}")
+                _spotify_open_uri(f"spotify:search:{_track_q}")
                 for _ in range(8):
                     _time.sleep(1.0)
                     if _spotify_running():
@@ -3672,38 +3699,78 @@ def play_specific(query: str, target: str | None = None) -> Dict[str, Any]:
     yt_search = _yt_mpv_q(query, by_artist=_by_pair)
 
     _yt_direct_err = ""
-    _yt_have_tools = bool(shutil.which("yt-dlp") and shutil.which("mpv"))
+    _yt_have_tools = False
+    _missing_yt: list[str] = []
+    try:
+        from eli.integrations.media.media_deps import youtube_mpv_ready, missing_youtube_tools
+        _yt_have_tools = youtube_mpv_ready()
+        _missing_yt = missing_youtube_tools()
+    except Exception:
+        _missing_yt = ["mpv", "yt-dlp"]
     if _yt_have_tools:
         try:
-            from eli.integrations.media.youtube_playback import attempt_youtube_mpv
+            from eli.integrations.media.youtube_playback import (
+                attempt_youtube_mpv,
+                yt_mpv_headless,
+            )
             ipc = _mpv_socket_path()
             _mpv_quit()
-            _yt_result = attempt_youtube_mpv(yt_search, ipc_path=ipc)
+            _headless = yt_mpv_headless()
+            _yt_result = attempt_youtube_mpv(
+                yt_search, ipc_path=ipc, headless=_headless,
+            )
             _fallback_what = (f"'{_by_m.group(1).strip()}' by {_by_m.group(2).strip()}"
                               if _by_m else f"'{query}'")
             if _yt_result.get("played"):
                 _title = (f"{_by_m.group(1).strip()} by {_by_m.group(2).strip()}"
                           if _by_m else query)
-                _set_now_playing("mpv", _title, mpv_sock=ipc)
+                _set_now_playing(
+                    "mpv", _title, mpv_sock=ipc,
+                    mpv_headless=_yt_result.get("headless", _headless),
+                )
                 _resolved = _mpv_ipc(["get_property", "media-title"], want_response=True)
                 _what = (_resolved.strip()
                          if isinstance(_resolved, str) and _resolved.strip()
                          else _fallback_what)
-                msg = f"Playing {_what} on YouTube (audio, in the background)."
+                if _yt_result.get("headless", _headless):
+                    msg = f"Playing {_what} on YouTube (audio, in the background)."
+                else:
+                    msg = f"Playing {_what} on YouTube in mpv — video on screen."
                 return {"ok": True, "action": "PLAY_MEDIA", "played": True,
                         "content": msg, "response": msg}
             if _yt_result.get("pending"):
                 _title = (f"{_by_m.group(1).strip()} by {_by_m.group(2).strip()}"
                           if _by_m else query)
-                _set_now_playing("mpv", _title, mpv_sock=ipc)
-                msg = (f"Starting {_fallback_what} on YouTube — it is still resolving, so "
+                _set_now_playing(
+                    "mpv", _title, mpv_sock=ipc,
+                    mpv_headless=_yt_result.get("headless", _headless),
+                )
+                msg = (f"Starting {_fallback_what} on YouTube in mpv — it is still resolving, so "
                        f"I have not confirmed playback yet. Ask what's playing in a moment.")
                 return {"ok": True, "action": "PLAY_MEDIA", "played": False,
                         "pending": True, "content": msg, "response": msg}
             _yt_direct_err = str(_yt_result.get("error") or "mpv could not start playback")
+            if _yt_result.get("reason") == "missing_tools":
+                _missing_yt = list(_yt_result.get("missing_tools") or _missing_yt)
         except Exception:
             log.warning("[MEDIA] YouTube mpv path raised unexpectedly", exc_info=True)
             _yt_direct_err = "internal error during YouTube playback"
+    elif _missing_yt and is_youtube:
+        names = " and ".join(_missing_yt)
+        msg = (
+            f"I can't play that on YouTube yet — {names} "
+            f"{'is' if len(_missing_yt) == 1 else 'are'} not available on this machine."
+        )
+        return {
+            "ok": False,
+            "action": "PLAY_MEDIA",
+            "played": False,
+            "target": "youtube",
+            "reason": "missing_tools",
+            "missing_tools": _missing_yt,
+            "content": msg,
+            "response": msg,
+        }
     # Direct in-app playback needs yt-dlp + mpv. Be HONEST that this is a fallback,
     # not real playback (no-fake-actions) — and say what would actually unlock "play"
     # for THIS user: an install hint is wrong when the tools are present and mpv died,
@@ -3711,8 +3778,7 @@ def play_specific(query: str, target: str | None = None) -> Dict[str, Any]:
     _play_hint = (
         f" — direct playback failed ({_yt_direct_err})" if _yt_direct_err
         else "" if _yt_have_tools
-        else (" — for direct playback install mpv + yt-dlp "
-              "(sudo apt install mpv && pipx install yt-dlp)")
+        else (" — say yes if I offer to install mpv or yt-dlp")
     )
     watch = _yt_browser_play_url(yt_search)
     if "watch?v=" in watch:
@@ -5630,12 +5696,13 @@ def _execute_impl(action: str, args: Optional[Dict[str, Any]] = None) -> Dict[st
     if a == "PLAY_MEDIA":
         query = (args.get("query") or args.get("song") or args.get("artist") or "").strip()
         target = _media_target
+        browser = bool(args.get("browser"))
         if query:
-            return play_specific(query, target)
+            return play_specific(query, target, browser=browser)
         return play_media(target)
     
     if a == "NEXT_MEDIA":
-        return next_media()
+        return next_media(_media_target)
     
     if a == "PREVIOUS_MEDIA":
         return previous_media(_media_target)
@@ -7335,19 +7402,26 @@ def _execute_impl(action: str, args: Optional[Dict[str, Any]] = None) -> Dict[st
             "play": "PLAY_MEDIA", "resume": "PLAY_MEDIA",
             "next": "NEXT_MEDIA", "skip": "NEXT_MEDIA",
             "previous": "PREVIOUS_MEDIA", "prev": "PREVIOUS_MEDIA",
+            "shuffle": "SHUFFLE_MEDIA", "repeat": "REPEAT_MEDIA", "loop": "REPEAT_MEDIA",
         }
         mapped = cmd_map.get(cmd)
         if mapped:
-            # Forward target into sub-handler args
             forwarded = dict(args)
             forwarded["_target"] = target
-            # Call targeted versions directly when target present
             if target and mapped == "PAUSE_MEDIA":
                 return pause_media(target=target)
             if target and mapped in ("PLAY_MEDIA",):
                 return play_media(target=target)
             if target and mapped == "STOP_MEDIA":
                 return stop_media(target=target)
+            if target and mapped == "NEXT_MEDIA":
+                return next_media(target=target)
+            if target and mapped == "PREVIOUS_MEDIA":
+                return previous_media(target=target)
+            if mapped == "SHUFFLE_MEDIA":
+                return shuffle_media(target=target)
+            if mapped == "REPEAT_MEDIA":
+                return repeat_media(target=target)
             return _execute_impl(mapped, forwarded)
         # Fallback: playerctl generic
         try:
@@ -7459,12 +7533,24 @@ def _execute_impl(action: str, args: Optional[Dict[str, Any]] = None) -> Dict[st
     if a == "SCREEN_READ_ANALYZE":
         try:
             import tempfile
+            from eli.perception.screen_analysis import (
+                analysis_depth_from_text,
+                build_screen_analysis_prompt,
+                prefer_fast_for_depth,
+            )
+            user_q = str(args.get("query") or args.get("text") or args.get("instruction") or "").strip()
+            depth = str(args.get("depth") or analysis_depth_from_text(user_q) or "").strip()
+            if not depth:
+                try:
+                    from eli.core.runtime_settings import load_settings
+                    depth = str(load_settings().get("screen_analysis_depth", "standard") or "standard")
+                except Exception:
+                    depth = "standard"
             # 1. Take screenshot
             from eli.perception.os_controller import take_screenshot
-            ss_result = take_screenshot(region="full")
+            ss_result = take_screenshot(region=str(args.get("area") or args.get("region") or "full"))
             ss_path = ss_result.get("path") or ss_result.get("file") or ""
             if not ss_path or not Path(ss_path).exists():
-                # Try PIL fallback
                 try:
                     import subprocess as _sp
                     tmp = tempfile.NamedTemporaryFile(suffix=".png", delete=False)
@@ -7475,15 +7561,21 @@ def _execute_impl(action: str, args: Optional[Dict[str, Any]] = None) -> Dict[st
                     return {"ok": False, "action": a,
                             "error": "Screenshot failed — no screenshot path returned.",
                             "content": "Screenshot failed.", "response": "Screenshot failed."}
-            # 2. Analyse the screenshot with real vision (VL model) + OCR.
-            #    ANALYZE_IMAGE does the hot-swap vision call and falls back to
-            #    OCR-only honestly when no vision model is installed.
-            _sra_prompt = str(args.get("prompt") or args.get("instruction") or "").strip() or (
-                "You are ELI looking at the user's screen right now. Describe what is on "
-                "screen: the focused application, what the user appears to be doing, and any "
-                "important text, code, errors, or UI state. Be specific; never invent."
+            _sra_prompt = build_screen_analysis_prompt(
+                user_q,
+                explicit_prompt=str(args.get("prompt") or args.get("instruction") or "").strip(),
+                depth=depth,
             )
-            _sra = _execute_impl("ANALYZE_IMAGE", {"path": ss_path, "prompt": _sra_prompt, "prefer_fast": True})
+            _prefer_fast = bool(args.get("prefer_fast")) if "prefer_fast" in (args or {}) else prefer_fast_for_depth(depth)
+            _sra = _execute_impl(
+                "ANALYZE_IMAGE",
+                {
+                    "path": ss_path,
+                    "prompt": _sra_prompt,
+                    "prefer_fast": _prefer_fast and depth == "quick",
+                    "fuse_with_text": depth in ("standard", "deep"),
+                },
+            )
             _sra_body = str(_sra.get("content") or _sra.get("response") or "").strip()
             if not _sra_body:
                 _sra_body = "I captured the screen but couldn't produce a description."
@@ -7491,7 +7583,7 @@ def _execute_impl(action: str, args: Optional[Dict[str, Any]] = None) -> Dict[st
                     "content": _sra_body, "response": _sra_body,
                     "vision_text": _sra.get("vision_text", ""),
                     "ocr_text": _sra.get("ocr_text", ""),
-                    "screenshot_path": ss_path}
+                    "screenshot_path": ss_path, "depth": depth}
         except Exception as e:
             return {"ok": False, "action": a, "error": str(e), "content": str(e), "response": str(e)}
 

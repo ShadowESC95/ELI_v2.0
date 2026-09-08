@@ -1,6 +1,6 @@
 # ELI — What It Can Actually Do
 
-> **Updated for v2.3.73.** All CHAT modes run the gradient orchestrator; 15 specialist
+> **Updated for v2.3.92.** All CHAT modes run the gradient orchestrator; 15 specialist
 > agents; 225 capabilities (208 routable). Regenerate the action list with
 > `python -m eli.tools.registry.capability_updater`.
 
@@ -324,6 +324,16 @@ broad enough to be a daily companion, not a demo.
 separate from this capability showcase): `project_overview.md`. Exhaustive
 technical map: `capability_catalogue.md`.*
 
+
+## New in 2.3.92 — cross-OS media + local screen intelligence
+
+- **YouTube visible playback:** plain “play X on YouTube” → local mpv window (not headless audio-only); `youtube.com` still opens the browser when asked.
+- **Native streaming apps:** Spotify/Netflix/etc. launch native apps, not browser tabs, unless you explicitly ask for the website.
+- **Bundled-python deps:** `yt-dlp` ships via pip into ELI's interpreter — users never manage a venv manually; AppImage/PyInstaller bundles Python outright.
+- **Grounded install offers:** missing mpv, tesseract, ydotool, etc. → ELI tries first, then offers apt/brew/winget/pip install via remediation (cross-OS).
+- **Local UI grounding:** optional Phi-Ground/OS-Atlas/UGround/UI-TARS via GGUF in `models/` — no HTTP URLs, no cloud.
+- **Deep screen audit:** “analyze my screen in depth”, research-linked and prior-session memory fusion on `SCREEN_READ_ANALYZE`.
+- **Screen tab settings:** one-click depth, ambient watch, precision click, computer-use agent — all local.
 
 ## New in 2.3.73 — conversation grounding
 

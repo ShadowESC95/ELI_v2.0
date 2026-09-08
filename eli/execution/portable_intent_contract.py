@@ -527,6 +527,16 @@ def try_route(text: str) -> Optional[dict]:
             "meta": {"matched_by": "portable_intent_contract.play_query_on_target"},
         }
 
+    # Desktop control — defer to core router (MOUSE_CONTROL / SCREEN_LOCATE).
+    if re.search(
+        r"\b(?:move|nudge|shift|scroll|click|tap|press)\b.*\b(?:mouse|cursor|pointer)\b"
+        r"|\b(?:mouse|cursor|pointer)\b.*\b(?:move|nudge|shift|click|scroll)\b"
+        r"|\bscroll\s+(?:up|down)\b"
+        r"|\b(?:click|tap|press)\s+(?:the\s+)?\w+\s+button\b",
+        norm,
+    ):
+        return None
+
     m = re.fullmatch(r"(.+?)\s+by\s+(.+)", norm)
     if m and len(norm.split()) >= 4:
         # Guard against conversational sentences where "by" is a preposition,

@@ -44,6 +44,12 @@ def _browser_candidates() -> list[str]:
 
 def detect_media_capabilities() -> dict[str, Any]:
     """Return a snapshot of media-related tools on the host."""
+    from eli.integrations.media.media_deps import (
+        mpv_available,
+        youtube_mpv_ready,
+        yt_dlp_available,
+    )
+
     browsers = _browser_candidates()
     override = (os.environ.get("ELI_BROWSER") or "").strip()
     vol_backend = None
@@ -51,24 +57,25 @@ def detect_media_capabilities() -> dict[str, Any]:
         if _which(tool):
             vol_backend = tool
             break
+    yt_ok = youtube_mpv_ready()
     return {
         "platform": pc.normalize_platform(),
         "browser_override": override or None,
         "browsers_found": browsers,
         "browser_available": bool(override or browsers or pc.ANDROID),
-        "mpv": _which("mpv"),
-        "yt_dlp": _which("yt-dlp"),
+        "mpv": mpv_available(),
+        "yt_dlp": yt_dlp_available(),
         "playerctl": _which("playerctl"),
         "spotify_cli": _which("spotify") or _which("flatpak") or _which("snap"),
         "volume_backend": vol_backend,
         "wmctrl": _which("wmctrl"),
         "xdotool": _which("xdotool"),
         "ydotool": _which("ydotool"),
-        "youtube_mpv_ready": _which("mpv") and _which("yt-dlp"),
+        "youtube_mpv_ready": yt_ok,
         "youtube_direct_note": (
-            "YouTube background audio needs mpv + yt-dlp installed and on PATH."
-            if not (_which("mpv") and _which("yt-dlp"))
-            else None
+            "YouTube play needs mpv + yt-dlp on PATH."
+            if not yt_ok
+            else "YouTube opens in mpv with video on screen (ELI_YOUTUBE_HEADLESS=1 for audio-only)."
         ),
     }
 
@@ -117,7 +124,7 @@ def platform_capability_report(*, verbose: bool = False) -> str:
         ram = hw.get("ram_gb")
         lines.append(f"Hardware: {gpu}" + (f", {vram} MiB VRAM" if vram else "") +
                      (f", {ram:.0f} GB RAM" if isinstance(ram, (int, float)) else ""))
-    yt = "ready" if media["youtube_mpv_ready"] else "browser-only (install mpv + yt-dlp for background audio)"
+    yt = "ready" if media["youtube_mpv_ready"] else "browser-only (install mpv + yt-dlp for on-screen playback)"
     lines.append(f"YouTube: {yt}")
     if media["browsers_found"]:
         lines.append(f"Browsers: {', '.join(media['browsers_found'][:4])}")

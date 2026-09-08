@@ -34,6 +34,7 @@ class TurnDossier:
     deepening_block: str = ""
     session_opener: str = ""
     emotion_trend: str = ""
+    machine_block: str = ""
     working_memory_block: str = ""
     provenance: List[str] = field(default_factory=list)
 
@@ -44,6 +45,8 @@ class TurnDossier:
             out.append(self.session_opener)
         if self.identity_block:
             out.append(self.identity_block)
+        if self.machine_block:
+            out.append(self.machine_block)
         if self.user_brief:
             out.append(self.user_brief)
         if self.working_memory_block:
@@ -114,6 +117,55 @@ def build_session_opener(engine: Any) -> str:
     return ""
 
 
+def _build_machine_block(engine: Any) -> str:
+    """Compact verified machine + runtime facts for turn awareness."""
+    chunks: List[str] = []
+    headline: List[str] = []
+    try:
+        from eli.runtime.self_facts import get_self_facts
+        facts = get_self_facts() or {}
+        if facts.get("version"):
+            headline.append(f"ELI v{facts['version']}")
+        if facts.get("install_kind"):
+            headline.append(f"install={facts['install_kind']}")
+        if facts.get("capabilities"):
+            headline.append(f"{facts['capabilities']} capabilities")
+        net = str(facts.get("network") or "").strip()
+        if net:
+            headline.append(net[:120])
+    except Exception:
+        log.debug("suppressed exception", exc_info=True)
+
+    try:
+        from eli.runtime.live_introspection import _runtime_core
+        core = _runtime_core() or {}
+        model = core.get("model_name") or core.get("model_path")
+        if model:
+            from pathlib import Path
+            loaded = "loaded" if core.get("loaded") else "not loaded"
+            headline.append(f"model={Path(str(model)).name} ({loaded})")
+        plat = str(core.get("platform") or core.get("os") or "").strip()
+        if plat:
+            headline.append(f"host={plat[:80]}")
+    except Exception:
+        log.debug("suppressed exception", exc_info=True)
+
+    if headline:
+        chunks.append("[MACHINE & ELI RUNTIME — verified]\n" + " | ".join(headline))
+
+    try:
+        aw = getattr(engine, "_awareness", None)
+        if aw is not None:
+            block = aw.context_block()
+            live = block.strip() if isinstance(block, str) else str(block or "").strip()
+            if live and "MagicMock" not in live:
+                chunks.append(live[:700])
+    except Exception:
+        log.debug("suppressed exception", exc_info=True)
+
+    return "\n\n".join(chunks).strip()
+
+
 def assemble_turn_dossier(
     engine: Any,
     query: str,
@@ -167,6 +219,11 @@ def assemble_turn_dossier(
                 dossier.provenance.append("working_memory")
         except Exception:
             log.debug("suppressed exception", exc_info=True)
+
+    machine = _build_machine_block(engine)
+    if machine:
+        dossier.machine_block = machine
+        dossier.provenance.append("machine_runtime")
 
     # Shared retrieval (light for phatic, full otherwise)
     mem = getattr(engine, "memory", None)
@@ -275,6 +332,7 @@ def handoff_blocks_from_dossier(
         _keep_prefixes = (
             "[SESSION OPENER",
             "[BACKGROUND REFLECTION",
+            "[MACHINE & ELI RUNTIME",
         )
         trimmed = [
             b for b in blocks

@@ -96,9 +96,18 @@ def _windows_powershell(script: str) -> tuple[bool, str]:
 
 
 def _open_uri_fallback(uri: str) -> bool:
+    u = str(uri or "").strip()
+    if not u:
+        return False
     try:
-        from eli.utils.platform_compat import open_url
-        return bool(open_url(uri))
+        from eli.utils.platform_compat import open_app_uri, open_url
+        if u.startswith("spotify:") or "open.spotify.com" in u.lower():
+            if spotify_launch_if_needed():
+                time.sleep(0.6)
+            return bool(open_app_uri(u))
+        if open_app_uri(u):
+            return True
+        return bool(open_url(u))
     except Exception:
         log.debug("suppressed exception", exc_info=True)
     return False
@@ -186,21 +195,25 @@ def spotify_open_uri(uri: str) -> bool:
 
 
 def spotify_search(query: str, prefer: str | None = None) -> bool:
-    q = urllib.parse.quote(str(query or "").strip())
-    if not q:
+    raw = str(query or "").strip()
+    if not raw:
         return False
-    if prefer in ("playlist", "playlists"):
-        if spotify_open_uri(f"https://open.spotify.com/search/{q}/playlists"):
+    spotify_launch_if_needed()
+    time.sleep(0.4)
+    q = urllib.parse.quote(raw)
+    tab = {
+        "playlist": "playlists", "playlists": "playlists",
+        "album": "albums", "albums": "albums",
+        "artist": "artists", "artists": "artists",
+        "track": "tracks", "tracks": "tracks",
+    }.get(prefer or "")
+    if tab:
+        if spotify_open_uri(f"spotify:search:{raw}/{tab}"):
             return True
-    if prefer in ("album", "albums"):
-        if spotify_open_uri(f"https://open.spotify.com/search/{q}/albums"):
+        if spotify_open_uri(f"https://open.spotify.com/search/{q}/{tab}"):
             return True
-    if prefer in ("artist", "artists"):
-        if spotify_open_uri(f"https://open.spotify.com/search/{q}/artists"):
-            return True
-    if prefer in ("track", "tracks"):
-        if spotify_open_uri(f"https://open.spotify.com/search/{q}/tracks"):
-            return True
+    if spotify_open_uri(f"spotify:search:{raw}"):
+        return True
     return spotify_open_uri(f"spotify:search:{q}")
 
 

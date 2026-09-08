@@ -18,8 +18,17 @@ def test_youtube_com_not_spotify_for_song_by_artist():
     out = _route("play lion and thief by diabolic on youtube com")
     assert out["action"] == "PLAY_MEDIA"
     args = out.get("args") or {}
-    assert args.get("target") == "youtube"
+    assert args.get("target") == "youtube website"
+    assert args.get("browser") is True
     assert "diabolic" in str(args.get("query") or "").lower()
+
+
+def test_play_on_spotify_does_not_set_browser_flag():
+    out = _route("play the watcher by dr dre on spotify")
+    assert out["action"] == "PLAY_MEDIA"
+    args = out.get("args") or {}
+    assert args.get("target") == "spotify"
+    assert not args.get("browser")
 
 
 def test_lp_album_request_detected():

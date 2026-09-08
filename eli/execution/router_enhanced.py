@@ -3543,16 +3543,33 @@ def route(text: str, _clause_depth: int = 0) -> Dict[str, Any]:
 
     # "play X by Y" / "play X from Z" / "play some jazz" / "play movie soundtrack"
     _play_specific_m = re.match(
-        r"^play\s+(?:me\s+|some\s+)?(.+?)(?:\s+on\s+([\w.]+))?$", raw, re.I
+        r"^play\s+(?:me\s+|my\s+|some\s+|the\s+)?(.+?)(?:\s+on\s+(.+))?$", raw, re.I
     )
     if _play_specific_m:
         query = _play_specific_m.group(1).strip()
         target = (_play_specific_m.group(2) or "").strip() or None
-        if target and re.search(r"youtube\.com", target, re.I):
-            target = "youtube website"
+        browser = False
+        if target:
+            browser = bool(re.search(
+                r"\.com|\s+com\b|\bwebsite\b|\bweb(?:site)?\b", target, re.I
+            ))
+            if re.search(r"youtube\s*(?:\.com|\s+com|website|web)\b", target, re.I):
+                target = "youtube website"
+                browser = True
+            else:
+                try:
+                    from eli.execution.media_runtime import normalize_streaming_target
+                    _canon = normalize_streaming_target(target)
+                    if _canon:
+                        target = _canon
+                except Exception:
+                    log.debug("suppressed exception", exc_info=True)
         # Only route as specific if it's not a bare "play" or "play media"
         if query and query.lower() not in ("media", "music", "audio", ""):
-            return _mk("PLAY_MEDIA", {"query": query, "target": target}, 0.92,
+            _args = {"query": query, "target": target}
+            if browser:
+                _args["browser"] = True
+            return _mk("PLAY_MEDIA", _args, 0.92,
                        matched_by="media.play_specific",
                        entities={"query": query, "target": target})
 
@@ -4076,12 +4093,38 @@ def route(text: str, _clause_depth: int = 0) -> Dict[str, Any]:
         if query:
             return _mk("SCREEN_LOCATE", {"query": query}, 0.93,
                        matched_by="screen.locate", entities={"query": query})
-    m = re.search(r"\b(?:click|tap|press)\s+(?:on\s+)?(?:the\s+)?(.+?)\s+on\s+(?:the\s+)?screen\b", low)
+    if re.search(r"\b(?:click|tap|press)\s+(?:on\s+)?(?:the\s+)?play\s+button\b", low):
+        return _mk("SCREEN_LOCATE", {"query": "Play", "click": True}, 0.95,
+                   matched_by="screen.click_play_button", entities={"query": "Play"})
+    m = re.search(
+        r"\b(?:click|tap|press)\s+(?:on\s+)?(?:the\s+)?(.+?)\s+button\b", low
+    )
+    if m:
+        query = (m.group(1) or "").strip(" .,:;-")
+        if query and query.lower() not in {"play", "a", "the"}:
+            return _mk("SCREEN_LOCATE", {"query": query, "click": True}, 0.94,
+                       matched_by="screen.click_named_button", entities={"query": query})
+    m = re.search(
+        r"\b(?:click|tap|press)\s+(?:on\s+)?(?:the\s+)?(.+?)\s+on\s+(?:the\s+)?screen\b", low
+    )
     if m:
         query = m.group(1).strip()
         if query:
             return _mk("SCREEN_LOCATE", {"query": query, "click": True}, 0.94,
                        matched_by="screen.locate_click", entities={"query": query})
+    m = re.search(
+        r"\b(?:click|tap|press)\s+(?:on\s+)?(?:the\s+)?(.+?)\s+(?:link|tab|icon|menu|item)\b",
+        low,
+    )
+    if m:
+        query = (m.group(1) or "").strip(" .,:;-")
+        if query and len(query) >= 2:
+            return _mk("SCREEN_LOCATE", {"query": query, "click": True}, 0.91,
+                       matched_by="screen.click_ui_element", entities={"query": query})
+    if re.search(r"\b(?:click|tap|press)\s+play\b", low):
+        return _mk("MEDIA_CONTROL", {"command": "play", "target": "browser", "type": "browser"},
+                   0.92, matched_by="media.click_play_mpris",
+                   entities={"command": "play", "target": "browser"})
 
     # Keyboard typing/press
     m = re.match(r"^type\s+(.+)$", raw, re.I)
@@ -4993,7 +5036,26 @@ def route(text: str, _clause_depth: int = 0) -> Dict[str, Any]:
     if re.search(
             r"\b(?:read|analyse?|analyze|describe|interpret|look\s+at|what(?:'s|\s+is)\s+on)\s+"
             r"(?:the|my)\s+(?:screen|display|monitor|desktop)\b", raw, re.I):
-        return _mk("SCREEN_READ_ANALYZE", {}, 0.95, matched_by="screen.read_analyze")
+        _depth = "deep" if re.search(r"\b(in\s+depth|deep(?:ly)?|full(?:y)?|exact(?:ly)?|comprehensive)\b", raw, re.I) else ""
+        return _mk("SCREEN_READ_ANALYZE", {"query": raw, **({"depth": _depth} if _depth else {})},
+                   0.95, matched_by="screen.read_analyze")
+
+    if re.search(
+            r"\b(?:analyse?|analyze)\s+(?:my|the)\s+screen\s+(?:in\s+depth|deep(?:ly)?|fully|completely)\b",
+            raw, re.I):
+        return _mk("SCREEN_READ_ANALYZE", {"query": raw, "depth": "deep"},
+                   0.96, matched_by="screen.read_deep")
+
+    if re.search(r"\bexactly\s+what(?:'s|\s+is)\s+on\s+(?:my|the)\s+(?:screen|display)\b", raw, re.I):
+        return _mk("SCREEN_READ_ANALYZE", {"query": raw, "depth": "deep"},
+                   0.96, matched_by="screen.read_exact")
+
+    if re.search(
+            r"\b(?:what(?:'s|\s+is)\s+on\s+(?:my|the)\s+screen).*\b(research|relate|remember|previous\s+session)\b",
+            raw, re.I) or re.search(
+            r"\b(?:remember|recall).*\b(?:screen|seeing\s+this|saw\s+this)\b", raw, re.I):
+        return _mk("SCREEN_READ_ANALYZE", {"query": raw, "depth": "deep"},
+                   0.94, matched_by="screen.read_memory_research")
 
     if re.search(r"\bscreen\s*(?:read|analyse?|analyze|ocr)\b", raw, re.I):
         return _mk("SCREEN_READ_ANALYZE", {}, 0.93, matched_by="screen.read_ocr")
@@ -5108,6 +5170,52 @@ def route(text: str, _clause_depth: int = 0) -> Dict[str, Any]:
         x, y = int(mm.group(1)), int(mm.group(2))
         return _mk("MOUSE_CONTROL", {"action": "move", "x": x, "y": y},
                    0.95, matched_by="ui.mouse_move", entities={"x": x, "y": y})
+
+    m = re.search(
+        r"\b(?:move|nudge|shift)\s+(?:the\s+)?(?:mouse|cursor|pointer)\s+"
+        r"(left|right|up|down)(?:\s+(?:by\s+)?(\d+)\s*(?:pixels?|px)?)?\b",
+        raw, re.I,
+    )
+    if m:
+        direction = m.group(1).lower()
+        amount = int(m.group(2) or 100)
+        return _mk(
+            "MOUSE_CONTROL",
+            {"action": "move", "direction": direction, "amount": amount, "pixels": amount},
+            0.94,
+            matched_by="ui.mouse_move_relative",
+            entities={"direction": direction, "amount": amount},
+        )
+
+    if re.search(r"\b(?:mouse|cursor|pointer)\b", low):
+        m = re.search(
+            r"\b(?:move|nudge|shift)\s+(left|right|up|down)"
+            r"(?:\s+(?:by\s+)?(\d+)\s*(?:pixels?|px)?)?\b",
+            raw, re.I,
+        )
+        if m:
+            direction = m.group(1).lower()
+            amount = int(m.group(2) or 100)
+            return _mk(
+                "MOUSE_CONTROL",
+                {"action": "move", "direction": direction, "amount": amount, "pixels": amount},
+                0.91,
+                matched_by="ui.mouse_move_relative_implicit",
+                entities={"direction": direction, "amount": amount},
+            )
+
+    if re.search(
+        r"\b(?:click|left\s+click|right\s+click|double\s+click)\s+(?:here|at\s+(?:the\s+)?cursor)\b",
+        low,
+    ):
+        btn = "right" if "right" in low else "left"
+        dbl = "double" in low
+        return _mk(
+            "MOUSE_CONTROL",
+            {"action": "click", "button": btn, "double": dbl},
+            0.9,
+            matched_by="ui.mouse_click_at_cursor",
+        )
 
     if re.search(r"\bscroll\s+(up|down)(?:\s+(\d+))?\b", raw, re.I):
         sm = re.search(r"\bscroll\s+(up|down)(?:\s+(\d+))?\b", raw, re.I)
@@ -7116,19 +7224,37 @@ def _eli_media_contract_post(raw, result):
 
         def _target(value: str) -> str:
             target = re.sub(r"^(?:the|a|an)\s+", "", str(value or "").strip(" .,!?:;"))
+            target = re.sub(r"(?:\s+com|\.com)\s*$", "", target, flags=re.I).strip()
             target = target.replace("prime video", "primevideo")
             target = target.replace("disney plus", "disneyplus")
+            if re.search(r"youtube\s*(?:\.com|\s+com|website|web)\b", target, re.I):
+                return "youtube website"
             if target in {"tv", "and tv", "television", "the tv"}:
                 return "mpv"
+            try:
+                from eli.execution.media_runtime import normalize_streaming_target
+                canon = normalize_streaming_target(target)
+                if canon:
+                    return canon
+            except Exception:
+                log.debug("suppressed exception", exc_info=True)
             return target
 
+        def _wants_browser_target(value: str) -> bool:
+            return bool(re.search(
+                r"\.com|\s+com\b|\bwebsite\b|\bweb(?:site)?\b", str(value or ""), re.I
+            ))
+
         def _play(target: str, query: str, matched_by: str):
+            args = {"target": _target(target), "query": str(query or "").strip()}
+            if _wants_browser_target(target):
+                args["browser"] = True
             return _mk(
                 "PLAY_MEDIA",
-                {"target": _target(target), "query": str(query or "").strip()},
+                args,
                 0.97,
                 matched_by=matched_by,
-                entities={"target": _target(target), "query": str(query or "").strip()},
+                entities=dict(args),
             )
 
         if (
@@ -7180,15 +7306,31 @@ def _eli_media_contract_post(raw, result):
         if m:
             return _play("youtube website", m.group(1), "media.play_on_youtube_dot_com_contract")
 
-        _yt_com = r"youtube(?:\s+com|\.com)"
+        _yt_com = r"youtube(?:\s+com|\.com|website|web(?:site)?)?"
         m = re.match(rf"^play\s+(.+?)\s+by\s+(.+?)\s+on\s+({_yt_com})\s*$", text)
         if m:
-            return _play("youtube", f"{m.group(1).strip()} by {m.group(2).strip()}",
+            return _play("youtube website", f"{m.group(1).strip()} by {m.group(2).strip()}",
                           "media.play_by_artist_on_youtube_com_contract")
 
         m = re.match(rf"^play\s+(.+?)\s+on\s+({_yt_com})\s*$", text)
         if m:
-            return _play("youtube", m.group(1).strip(), "media.play_on_youtube_com_contract")
+            tgt = m.group(2).strip()
+            if re.search(r"youtube\s*(?:\.com|\s+com|website|web)", tgt, re.I):
+                return _play("youtube website", m.group(1).strip(),
+                            "media.play_on_youtube_com_contract")
+            return _play(m.group(2), m.group(1).strip(), "media.play_query_on_target_contract")
+
+        _streaming = (
+            r"netflix(?:\.com|\s+com)?|prime(?:\s+video)?(?:\.com|\s+com)?|primevideo|amazon\s+prime|"
+            r"disney(?:\+|\s*plus)?(?:\.com|\s+com)?|disneyplus|hulu(?:\.com|\s+com)?|"
+            r"max(?:\.com|\s+com)?|paramount(?:\+|\s*plus)?(?:\.com|\s+com)?|"
+            r"peacock(?:\.com|\s+com)?|appletv|apple\s+tv|plex(?:\.com|\s+com)?|"
+            r"crunchyroll(?:\.com|\s+com)?|discovery(?:\+|\s*plus)?(?:\.com|\s+com)?|"
+            r"tubi(?:\.com|\s+com)?|pluto(?:\.com|\s+com)?|twitch(?:\.com|\s+com)?"
+        )
+        m = re.match(rf"^play\s+(.+?)\s+on\s+({_streaming})\s*$", text)
+        if m:
+            return _play(m.group(2), m.group(1), "media.play_on_streaming_contract")
 
         m = re.match(r"^play\s+(.+\s+by\s+.+)$", text)
         if m and not re.search(r"\bon\s+(?:youtube|spotify|soundcloud|mpv)\b", text):

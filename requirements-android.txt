@@ -49,3 +49,4 @@ urllib3>=2.6
 fastapi>=0.110
 uvicorn>=0.27
 segno>=1.5        # pure-python QR codes (web app's "Connect a phone" tab) — no deps
+yt-dlp>=2025.1    # URL resolution / metadata even when mpv is unavailable on-device

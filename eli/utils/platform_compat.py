@@ -618,11 +618,91 @@ def _windows_open_url(url: str) -> bool:
         return False
 
 
+_APP_URI_PREFIXES = (
+    "spotify:", "netflix:", "nflx:", "vlc:", "steam:", "mailto:", "tel:",
+)
+
+
+def _is_app_handled_uri(url: str) -> bool:
+    """True when the URI should go to a native app handler, not a browser tab."""
+    u = str(url or "").strip().lower()
+    if not u:
+        return False
+    if any(u.startswith(p) for p in _APP_URI_PREFIXES):
+        return True
+    if "open.spotify.com" in u:
+        return True
+    # Custom schemes (not http/https/file) → OS default handler.
+    if "://" in u and not u.startswith(("http://", "https://", "file://")):
+        return True
+    return False
+
+
+def open_app_uri(uri: str) -> bool:
+    """Open a URI via the OS default handler (xdg-open/gio/open), not a browser tab."""
+    u = str(uri or "").strip()
+    if not u:
+        return False
+
+    if LINUX and not ANDROID:
+        for argv in ([["xdg-open", u]] if shutil.which("xdg-open") else []):
+            try:
+                subprocess.Popen(
+                    argv, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                    start_new_session=True,
+                )
+                return True
+            except Exception:
+                log.debug("suppressed open_app_uri exception", exc_info=True)
+        for argv in ([["gio", "open", u]] if shutil.which("gio") else []):
+            try:
+                subprocess.Popen(
+                    argv, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                    start_new_session=True,
+                )
+                return True
+            except Exception:
+                log.debug("suppressed open_app_uri exception", exc_info=True)
+        return False
+
+    if ANDROID and shutil.which("termux-open-url"):
+        try:
+            subprocess.Popen(
+                ["termux-open-url", u],
+                stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+            )
+            return True
+        except Exception as e:
+            log.warning("Failed to open app URI via termux-open-url: %s", e)
+            return False
+
+    if MACOS:
+        try:
+            subprocess.Popen(["open", u], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            return True
+        except Exception as e:
+            log.warning("Failed to open app URI on macOS: %s", e)
+            return False
+
+    if WINDOWS:
+        try:
+            os.startfile(u)
+            return True
+        except Exception as e:
+            log.warning("Failed to open app URI on Windows: %s", e)
+            return False
+
+    return False
+
+
 def open_url(url: str) -> bool:
     """Open a URL in the default browser. Cross-platform."""
     u = str(url or "").strip()
     if not u:
         return False
+
+    if _is_app_handled_uri(u):
+        return open_app_uri(u)
 
     if LINUX and not ANDROID:
         if _linux_open_url(u):

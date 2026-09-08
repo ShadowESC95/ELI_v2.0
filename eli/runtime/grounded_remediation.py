@@ -570,10 +570,20 @@ def _brew_candidate(name: str) -> str:
 def _winget_candidate(name: str) -> str:
     """Windows winget. No pre-verification: _run uses POSIX shell quoting that does
     not hold on cmd, so we gate on tool presence only and let the visible terminal
-    surface winget's own resolution/failure. Structurally verified only."""
+    surface winget's own resolution/failure. Known package IDs are preferred."""
     if not shutil.which("winget"):
         return ""
-    return str(name or "").strip()
+    app = str(name or "").strip().lower()
+    winget_ids = {
+        "mpv": "mpv.MPV",
+        "ffmpeg": "Gyan.FFmpeg",
+        "tesseract": "UB-Mannheim.TesseractOCR",
+        "tesseract-ocr": "UB-Mannheim.TesseractOCR",
+        "yt-dlp": "yt-dlp.yt-dlp",
+        "playerctl": "playerctl.playerctl",
+        "scrot": "scrot.scrot",
+    }
+    return winget_ids.get(app, str(name or "").strip())
 
 def _choco_candidate(name: str) -> str:
     """Windows Chocolatey. Tool-presence gated only (see _winget_candidate)."""
@@ -706,6 +716,32 @@ def build_install_candidates(name: str) -> list[dict]:
     list only ever contains options that can actually run here."""
     candidates = []
     plat = _platform()
+    norm = str(name or "").strip().lower()
+    norm = {
+        "ytdlp": "yt-dlp",
+        "yt_dlp": "yt-dlp",
+        "youtube-dl": "yt-dlp",
+        "tesseract-ocr": "tesseract",
+    }.get(norm, norm)
+    name = norm
+
+    if norm == "yt-dlp":
+        try:
+            from eli.integrations.media.media_deps import pip_install_yt_dlp_command
+            candidates.append({
+                "source": "pip",
+                "command": pip_install_yt_dlp_command(),
+                "label": "Install yt-dlp into ELI's Python environment (no admin password)",
+            })
+        except Exception:
+            pass
+
+    if norm == "pyautogui":
+        candidates.append({
+            "source": "pip",
+            "command": f"{sys.executable} -m pip install -U pyautogui",
+            "label": "Install PyAutoGUI into ELI's Python environment (Windows/macOS input)",
+        })
 
     if plat == "linux":
         apt_pkg = _apt_candidate(name)
@@ -802,6 +838,7 @@ def build_install_candidates(name: str) -> list[dict]:
 
     # Native package managers first; app-store style layers (snap/flatpak) last.
     order = {
+        "pip": -1,
         "apt": 0, "dnf": 0, "zypper": 0, "pacman": 0, "brew": 0, "winget": 0,
         "choco": 1, "snap": 2, "flatpak": 3,
     }
@@ -902,6 +939,38 @@ def diagnose_ide_generic() -> dict:
                         evidence=evidence, repairable=True, repair_options=candidates)
     remember_failure(result)
     return result
+
+
+def diagnose_media_tool(name: str) -> dict:
+    """Grounded check for mpv, yt-dlp, playerctl, etc."""
+    from eli.integrations.media.media_deps import (
+        media_tool_installed,
+        normalize_media_tool_name,
+        resolve_binary,
+    )
+
+    tool = normalize_media_tool_name(name)
+    if not tool:
+        return _mk_result(
+            False, "media_tool", "", "status", "EMPTY_SUBJECT",
+            evidence=["No media tool name was provided."], repairable=False,
+        )
+    path = resolve_binary(tool) if tool != "yt-dlp" else ""
+    if media_tool_installed(tool):
+        ev = [f"{tool} -> available"]
+        if path:
+            ev.append(f"path -> {path}")
+        return _mk_result(
+            True, "media_tool", tool, "status", "INSTALLED",
+            evidence=ev, repairable=False,
+        )
+    candidates = build_install_candidates(tool)
+    return _mk_result(
+        False, "media_tool", tool, "install", "NOT_INSTALLED",
+        evidence=[f"{tool} -> not found on PATH or in ELI's Python environment"],
+        repairable=bool(candidates),
+        repair_options=candidates,
+    )
 
 
 def build_repair_plan(result: dict) -> dict | None:
@@ -1105,7 +1174,7 @@ done
             }
         return None
 
-    if result.get("domain") in ("browser", "ide") and result.get("repairable"):
+    if result.get("domain") in ("browser", "ide", "media_tool") and result.get("repairable"):
         candidates = result.get("repair_options") or []
         if not candidates:
             return None
@@ -1123,7 +1192,11 @@ done
                 f"Verify that it becomes available after install",
             ],
             "commands": [chosen["command"]],
-            "verification_steps": [f"command -v {subj}"],
+            "verification_steps": [
+                f"verify {subj} via media_deps"
+                if result.get("domain") == "media_tool"
+                else f"command -v {subj}"
+            ],
             "source": chosen.get("source", "auto"),
             "label": chosen.get("label", f"Install {subj}"),
         }
@@ -1136,7 +1209,19 @@ def render_failure_message(result: dict) -> str:
 
     rc = result.get("reason_code")
 
-    if rc == "NOT_INSTALLED":
+    if rc == "NOT_INSTALLED" and result.get("domain") == "media_tool":
+        subj = result.get("subject") or ""
+        lead = f"Missing tool: {subj}."
+        reason = (
+            f"Verified reason: {subj} is required for direct media playback "
+            f"or desktop control and is not installed on this machine."
+        )
+        if str(subj).lower() == "ydotool":
+            reason += (
+                " On Wayland, ydotool also needs the ydotoold daemon running "
+                "(usually `ydotoold &` with access to /dev/uinput)."
+            )
+    elif rc == "NOT_INSTALLED":
         lead = f"Could not open {result['subject']}."
         reason = f"Verified reason: {result['subject']} is not installed on this machine."
     elif rc == "PACKAGE_MANAGER_LOCKED":
@@ -1336,7 +1421,9 @@ def execute_pending_plan() -> str:
             clear_pending()
             return render_failure_message(lock_result)
 
-    if plan.get("domain") in {"application", "package"} and plan.get("subject"):
+    if plan.get("domain") == "media_tool" and plan.get("subject"):
+        verify = diagnose_media_tool(plan["subject"])
+    elif plan.get("domain") in {"application", "package"} and plan.get("subject"):
         verify = diagnose_app(plan["subject"])
     else:
         verify = _mk_result(
@@ -1484,12 +1571,25 @@ def capture_executor_failure(action: str, args: dict | None, result) -> str | No
             return offer_for_result(diag)
         return None
 
-    if a in ("OPEN_BROWSER", "OPEN_URL"):
+    if a == "OPEN_BROWSER" or a == "OPEN_URL":
         target = str(args.get("url") or args.get("target") or args.get("name") or "")
         diag = diagnose_browser(target)
         if not diag.get("ok"):
             remember_failure(diag)
             return offer_for_result(diag)
+        return None
+
+    if a == "PLAY_MEDIA" and str(result.get("reason") or "") == "missing_tools":
+        missing = list(result.get("missing_tools") or [])
+        if not missing and "mpv" in message.lower():
+            missing = ["mpv"]
+        if not missing and "yt-dlp" in message.lower():
+            missing = ["yt-dlp"]
+        for tool in missing:
+            diag = diagnose_media_tool(tool)
+            if not diag.get("ok"):
+                remember_failure(diag)
+                return offer_for_result(diag)
         return None
 
     remember_failure(_mk_result(

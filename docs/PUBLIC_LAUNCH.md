@@ -1,27 +1,27 @@
 # ELI v2 — public launch copy-paste
 
-> **Current release: v2.3.73 (September 2026).** Thread-aware web grounding: conversation topics expand underspecified queries; proactive web on corrections; orchestrator reuses engine intent; consolidated factual gates.
+> **Current release: v2.3.92 (September 2026).** Thread-aware web grounding: conversation topics expand underspecified queries; proactive web on corrections; orchestrator reuses engine intent; consolidated factual gates.
 > Builds on v2.3.72 (news deepen + live-session honesty).
 
 ## Links (share these)
 
 - **Repo:** https://github.com/ShadowESC95/ELI_v2.0
-- **Release v2.3.72:** https://github.com/ShadowESC95/ELI_v2.0/releases/tag/v2.3.73
+- **Release v2.3.92:** https://github.com/ShadowESC95/ELI_v2.0/releases/tag/v2.3.92
 - **License:** PolyForm Internal Use (source-available, personal use — not OSI open source)
 
 ## Easiest install — Linux
 
 ```bash
 # AppImage (recommended)
-wget https://github.com/ShadowESC95/ELI_v2.0/releases/download/v2.3.73/ELI_v2-2.3.73-x86_64.AppImage
-chmod +x ELI_v2-2.3.73-x86_64.AppImage
-./ELI_v2-2.3.73-x86_64.AppImage
+wget https://github.com/ShadowESC95/ELI_v2.0/releases/download/v2.3.92/ELI_v2-2.3.92-x86_64.AppImage
+chmod +x ELI_v2-2.3.92-x86_64.AppImage
+./ELI_v2-2.3.92-x86_64.AppImage
 ```
 
 ```bash
 # Portable tarball (source + voices)
-wget https://github.com/ShadowESC95/ELI_v2.0/releases/download/v2.3.73/ELI_v2-2.3.73-linux-portable.tar.gz
-tar -xzf ELI_v2-2.3.73-linux-portable.tar.gz && cd ELI_v2-2.3.73-linux-portable
+wget https://github.com/ShadowESC95/ELI_v2.0/releases/download/v2.3.92/ELI_v2-2.3.92-linux-portable.tar.gz
+tar -xzf ELI_v2-2.3.92-linux-portable.tar.gz && cd ELI_v2-2.3.92-linux-portable
 chmod +x ELI_Setup.sh && ./ELI_Setup.sh
 ```
 

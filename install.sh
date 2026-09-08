@@ -100,11 +100,10 @@ attempt_cuda_toolkit() {
 attempt_runtime_tools() {
     # Desktop-control + media-playback tools ELI uses at runtime. Best-effort: uses
     # the system package manager when sudo is available, else prints the command.
-    # yt-dlp goes in the venv (cross-distro) so "play X" can actually play audio
-    # (mpv finds the venv's yt-dlp on PATH at runtime). Also installs the clipboard
-    # backends (xclip / wl-clipboard) so GET_CLIPBOARD has a working fallback.
+    # yt-dlp goes into ELI's bundled Python (pip) so "play X" works without a
+    # separate user-managed virtualenv. Also installs clipboard backends.
     echo "[..] Installing runtime tools (media + desktop control + OCR + audio)..."
-    "$PIP" install --quiet yt-dlp 2>/dev/null && echo "[OK] yt-dlp (venv)" \
+    "$PIP" install --quiet yt-dlp 2>/dev/null && echo "[OK] yt-dlp (bundled Python)" \
         || echo "     pip install yt-dlp   (direct media playback)"
     # Per-manager package names differ. tesseract = OCR (screen reading); portaudio = mic
     # (voice input); ffmpeg = media + whisper; libnotify = notifications; xclip/wl-clipboard
@@ -116,10 +115,10 @@ attempt_runtime_tools() {
     #   • grim + slurp are the Wayland screenshot path (os_controller uses them).
     #     Wayland is the default on Arch/Hyprland and modern GNOME, so without
     #     these, screenshots fail on a stock install.
-    local APT="mpv playerctl wmctrl xdotool scrot grim slurp ffmpeg xclip wl-clipboard tesseract-ocr portaudio19-dev libnotify-bin"
-    local DNF="mpv playerctl wmctrl xdotool scrot grim slurp ffmpeg xclip wl-clipboard tesseract tesseract-langpack-eng portaudio-devel libnotify"
-    local PAC="mpv playerctl wmctrl xdotool scrot grim slurp ffmpeg xclip wl-clipboard tesseract tesseract-data-eng portaudio libnotify"
-    local ZYP="mpv playerctl wmctrl xdotool scrot grim slurp ffmpeg xclip wl-clipboard tesseract-ocr tesseract-ocr-traineddata-english portaudio-devel libnotify-tools"
+    local APT="mpv playerctl wmctrl xdotool ydotool scrot grim slurp ffmpeg xclip wl-clipboard tesseract-ocr at-spi2-core libatspi2.0-0 portaudio19-dev libnotify-bin"
+    local DNF="mpv playerctl wmctrl xdotool ydotool scrot grim slurp ffmpeg xclip wl-clipboard tesseract tesseract-langpack-eng at-spi2-core portaudio-devel libnotify"
+    local PAC="mpv playerctl wmctrl xdotool ydotool scrot grim slurp ffmpeg xclip wl-clipboard tesseract tesseract-data-eng at-spi at-spi2-core portaudio libnotify"
+    local ZYP="mpv playerctl wmctrl xdotool ydotool scrot grim slurp ffmpeg xclip wl-clipboard tesseract-ocr tesseract-ocr-traineddata-english at-spi2-core portaudio-devel libnotify-tools"
     local BREW="mpv playerctl ffmpeg tesseract portaudio"
     if [ "$OS" = "Darwin" ]; then
         if command -v brew &>/dev/null; then brew install $BREW 2>/dev/null || true; echo "[OK] runtime tools (brew)"

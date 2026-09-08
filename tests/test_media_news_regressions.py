@@ -209,10 +209,10 @@ def test_play_specific_video_provider_targets_are_normalized():
     prime = route("play Oppenheimer on prime")
 
     assert netflix["action"] == "PLAY_MEDIA"
-    assert netflix["args"]["query"] == "Oppenheimer"
+    assert netflix["args"]["query"].lower() == "oppenheimer"
     assert netflix["args"]["target"] == "netflix"
     assert prime["action"] == "PLAY_MEDIA"
-    assert prime["args"]["query"] == "Oppenheimer"
+    assert prime["args"]["query"].lower() == "oppenheimer"
     assert prime["args"]["target"] == "primevideo"
 
 
@@ -220,8 +220,8 @@ def test_play_specific_streaming_target_never_falls_through_to_youtube(monkeypat
     """Executor must honour netflix/prime targets — not silently route to YouTube."""
     calls = []
 
-    def _fake_streaming(target, query):
-        calls.append((target, query))
+    def _fake_streaming(target, query, *, browser=False):
+        calls.append((target, query, browser))
         return f"Opened {target.title()} and searched for '{query}'. Pick it from the results to play."
 
     monkeypatch.setattr("eli.execution.media_runtime._play_on_streaming", _fake_streaming)
@@ -235,8 +235,8 @@ def test_play_specific_streaming_target_never_falls_through_to_youtube(monkeypat
         assert query in (result.get("response") or "")
 
     assert calls == [
-        ("netflix", "rick and morty"),
-        ("primevideo", "the walking dead"),
+        ("netflix", "rick and morty", False),
+        ("primevideo", "the walking dead", False),
     ]
 
 

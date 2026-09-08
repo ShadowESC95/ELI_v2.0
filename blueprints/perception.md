@@ -17,7 +17,11 @@ subsystem, and OS control. All local, no APIs, no third-party accounts.
 | `tts_xtts.py` | 351 | **voice cloning** from a reference sample (Coqui XTTS-v2). Zero-shot: `add_clone()` only registers a reference clip, conditioning happens at synthesis. Bundled in the Linux AppImage from v2.1.65; when absent the voice still registers and synthesis falls back to Piper — **loudly**, not silently, which was a live fault |
 | `vision.py` | 692 |
 | `os_controller.py` | 573 |
-| `screen_locator.py` | 410 | locate UI elements on screen |
+| `screen_locator.py` | 410 | locate UI elements on screen (AT-SPI → local VL-ground → OCR) |
+| `screen_analysis.py` | ~180 | depth modes, prior-screen memory, research-context prompts |
+| `ui_ground.py` | ~320 | local GGUF precision click + computer-use agent (no HTTP) |
+| `desktop_capabilities.py` | ~170 | cross-OS input/screenshot/locate probe for dossier/SELF_TEST |
+| `media_deps.py` | ~140 | bundled-python + PATH discovery for yt-dlp/mpv/desktop CLIs |
 | `gaze_engine.py` | 358 |
 | `log_rotation.py` | 225 | log housekeeping |
 | `analyze_pdfs/image/mesh/csv.py` | ~600 | file-type analysers |
@@ -43,6 +47,48 @@ The working local-vision stack (see memory `eli-image-analysis`):
   guarded daemon re-reads the toggle/interval each cycle and **skips a glance
   whenever the shared LLM lock is busy** (so it never steals the model
   mid-reply). Stores a short description as memory for rolling awareness.
+
+## Screen locate & click (`screen_locator.py` + `ui_ground.py`)
+
+Three-strategy chain for “find/click X on screen” — all local:
+
+1. **AT-SPI** (Linux) — real widget tree: role, bounds, invoke action. Best for
+   labelled buttons and accessible apps.
+2. **Local VL-ground** (optional) — `ui_ground_backend=auto|local_gguf` runs a
+   local GGUF (Phi-Ground / OS-Atlas / UGround naming in `models/`) or the
+   primary VL with a JSON box prompt. For icon-only or non-text UI.
+3. **OCR** — Tesseract word boxes + fuzzy match; click centre coordinate.
+
+**Computer-use agent** (`computer_use_backend=auto|local_gguf`) — optional
+UI-TARS-style GGUF in `models/` for multi-step screenshot→action loops. Off by
+default.
+
+Configure on GUI **Screen tab** or `settings.json`: `ui_ground_backend`,
+`computer_use_backend`, `screen_analysis_depth` (`quick`|`standard`|`deep`).
+
+## Deep screen analysis (`screen_analysis.py` + `SCREEN_READ_ANALYZE`)
+
+Voice examples that route to a real screenshot + VL + OCR (+ text-model fusion):
+
+- “What's on my screen?” — standard depth
+- “Analyze my screen in depth / exactly what's on my screen” — deep audit
+- “How does this relate to my research?” — pulls local memory + KG context
+- “Do you remember seeing this in previous sessions?” — prior `screen_awareness` glances
+
+No network. Missing OS tools (mpv, tesseract, ydotool) are offered via
+`grounded_remediation` **after** a failed attempt — never as a pre-install gate.
+
+## Cross-OS desktop input (`desktop_capabilities.py` + `platform_compat.py`)
+
+| OS | Mouse/keyboard | Screenshot |
+|---|---|---|
+| Linux X11 | xdotool → PyAutoGUI | scrot |
+| Linux Wayland | ydotool+ydotoold → xdotool (XWayland) → PyAutoGUI | grim+slurp |
+| Windows | PyAutoGUI | Pillow ImageGrab |
+| macOS | PyAutoGUI (+ Accessibility permission) | screencapture |
+| Android/Termux | intents only | N/A |
+
+See `docs/CROSS_PLATFORM.md` for the full matrix and install commands per OS.
 
 ## Speech-to-text (`audio_stt.py`, `local_whisper_stt.py`, `mic_resolver.py`)
 

@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "eli-v2.0"
-version = "2.3.91"
+version = "2.3.92"
 description = "ELI v2.0 — Local cognitive runtime, assistant GUI, memory, tools, and GGUF inference"
 readme = "README.md"
 requires-python = ">=3.10"
@@ -42,6 +42,7 @@ dependencies = [
     "python-dotenv>=1.0",
     "numpy>=1.24,<2.5",  # numba (coqui-tts -> librosa) rejects NumPy 2.5
     "faiss-cpu>=1.7",
+    "yt-dlp>=2025.1",
     "tomli>=2.0.1; python_version<'3.11'",
     "comtypes>=1.2; sys_platform == 'win32'",
     "pycaw; sys_platform == 'win32'",
@@ -130,6 +131,12 @@ extras = [
     "plyer>=2.1",
     "ics>=0.7",
     "pyflakes>=3.0",
+    "yt-dlp>=2025.1",
+]
+# YouTube direct playback (Python side). mpv remains an OS package — install via
+# install.sh / grounded remediation when missing.
+media = [
+    "yt-dlp>=2025.1",
 ]
 # Test-suite drivers (API subprocess tests, lint gates, MQTT probe). Cross-platform.
 test = [
@@ -142,7 +149,7 @@ test = [
 ]
 # Everything ELI uses at runtime — the one-click "complete" install.
 full = [
-    "eli-v2.0[gui,tts,asr,llm,image,docs,server,vision,web,analysis,wakeword,extras]",
+    "eli-v2.0[gui,tts,asr,llm,image,docs,server,vision,web,analysis,wakeword,extras,media]",
 ]
 # LoRA fine-tuning (heavy, opt-in — NOT part of full). See training/README.md.
 training = [

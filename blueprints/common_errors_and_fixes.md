@@ -1,6 +1,6 @@
 # ELI — Common Errors & Fixes
 
-> **Updated for v2.3.73 (September 2026).** The primary install path is now the
+> **Updated for v2.3.92 (September 2026).** The primary install path is now the
 > prebuilt, CI-launch-tested installers on GitHub Releases (Windows Setup.exe,
 > macOS dmg, Linux AppImage) with first-boot GPU (CUDA/Vulkan/Metal) and
 > starter-model offers; data lives in a per-user `ELI_v2` folder that survives
@@ -35,6 +35,37 @@ export ELI_MIC_PULSE_SOURCE="$(pactl get-default-source)"
 ```
 On Windows gaming headsets, set the **Chat** mic (not Game) as the default recording device in
 Sound settings. On macOS, pick your AirPods or headset under System Settings → Sound → Input.
+
+---
+
+## YouTube won't play / "mpv is not installed" / no video window
+
+**Symptom:** “play X on YouTube” fails, opens browser only, or plays audio with no video.
+**Cause:** `mpv` and/or `yt-dlp` missing. `yt-dlp` is a Python package (installed into ELI's bundled interpreter); `mpv` is an OS package.
+**Fix:** Say **yes** when ELI offers to install after a failed attempt, or run manually:
+```bash
+# Linux
+sudo apt install mpv   # or dnf/pacman equivalent
+# yt-dlp is installed by install.sh into ELI's Python — or: python -m pip install yt-dlp
+# macOS
+brew install mpv
+# Windows
+winget install mpv.MPV
+```
+**Note:** Plain “play X on youtube” uses **visible mpv**. “play X on youtube.com” opens the browser.
+
+---
+
+## Wayland: mouse clicks do nothing / ydotool errors
+
+**Symptom:** MOUSE_CONTROL or screen locate clicks fail on GNOME/KDE Wayland; error mentions `ydotoold`.
+**Cause:** `xdotool` only reaches XWayland windows. Native Wayland needs `ydotool` + the `ydotoold` daemon with `/dev/uinput` access.
+**Fix:**
+```bash
+sudo apt install ydotool    # or your distro equivalent
+ydotoold &                  # run daemon (may need uinput group)
+```
+Or use AT-SPI/OCR click paths for labelled controls. See `docs/CROSS_PLATFORM.md`.
 
 ---
 

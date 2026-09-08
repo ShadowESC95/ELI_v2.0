@@ -16,6 +16,9 @@ _ALBUM_RE = re.compile(
 _LP_RE = re.compile(
     r"^\s*(?:the\s+)?(?P<name>.+?)\s+lp\s*$", re.I
 )
+_ALBUM_CMD_RE = re.compile(
+    r"^(?:the\s+)?album\s+(.+)$", re.I
+)
 _ARTIST_SONGS_RE = re.compile(
     r"^(?:songs?|tracks?|music)\s+by\s+(?P<artist>.+)$", re.I
 )
@@ -70,6 +73,11 @@ def album_request(query: str) -> tuple[str, str | None]:
             name = (am.group("name") or "").strip(" .,:;-")
             if len(name) >= 2:
                 return name, None
+    cmd_m = _ALBUM_CMD_RE.match(q)
+    if cmd_m:
+        name = (cmd_m.group(1) or "").strip(" .,:;-")
+        if len(name) >= 2:
+            return name, None
     return "", None
 
 

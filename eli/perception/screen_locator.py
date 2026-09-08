@@ -413,6 +413,47 @@ def locate_on_screen(
         log.debug("screen_locator: accessibility strategy failed; falling back to OCR",
                   exc_info=True)
 
+    # ── Strategy 1.5: precision VL grounding (optional) ───────────────────────
+    # Phi-Ground / OS-Atlas / UGround / HTTP endpoint — returns pixel boxes for
+    # icon-only or non-AT-SPI UI. Skipped silently when not configured.
+    try:
+        from eli.perception.ui_ground import configured_precision_backend, locate_with_precision_backend
+        if configured_precision_backend():
+            from eli.perception.os_controller import take_screenshot as _ts
+            _shot = _ts(region=region)
+            _path = _shot.get("path") or _shot.get("file") or ""
+            if _shot.get("ok") and _path:
+                _vg = locate_with_precision_backend(str(query or "").strip(), _path)
+                if _vg.get("ok"):
+                    _matches = _vg.get("matches") or []
+                    _top = _vg.get("best") or (_matches[0] if _matches else None)
+                    _res = {
+                        "ok": True,
+                        "action": "SCREEN_LOCATE",
+                        "query": str(query or "").strip(),
+                        "matches": _matches,
+                        "strategy": "vl_ground",
+                        "backend": _vg.get("backend"),
+                        "found": True,
+                        "text": (_top or {}).get("text") or "",
+                    }
+                    if click and _top:
+                        from eli.perception.os_controller import mouse_click as _mc
+                        _c = _mc(x=int(_top["cx"]), y=int(_top["cy"]))
+                        _res["clicked"] = bool(_c.get("ok"))
+                        _res["click_method"] = f"vl_ground:{_vg.get('backend')}"
+                        if not _res["clicked"]:
+                            _res["click_error"] = str(_c.get("error") or "click failed")
+                    _label = _res.get("text") or str(query or "").strip()
+                    _res["content"] = _res["response"] = (
+                        f"Found {_label} via visual grounding"
+                        + (" and clicked it." if _res.get("clicked") else ".")
+                    )
+                    return _res
+    except Exception:
+        log.debug("screen_locator: vl_ground strategy failed; falling back to OCR",
+                  exc_info=True)
+
     # ── Strategy 2: OCR (unchanged) ──────────────────────────────────────────
     from eli.perception.os_controller import take_screenshot
 

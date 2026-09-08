@@ -27,6 +27,12 @@ like and it tunes itself to the hardware you've got, from a laptop to a multi-GP
 <img src=".github/screenshots/gui-onboarding.png" alt="ELI desktop app — first-run onboarding conversation with a local 35B model" width="880">
 </div>
 
+> **v2.3.92 — cross-OS media + local screen intelligence.** YouTube visible mpv playback;
+> bundled-python `yt-dlp` discovery; grounded install offers for mpv/tesseract/ydotool per OS;
+> local UI-grounding hooks (Phi-Ground/OS-Atlas/UGround/UI-TARS via GGUF in `models/`, no URLs);
+> deep screen audit with memory/research fusion; Screen tab one-click settings. Ported to v3.
+> Grab it from **[Releases](https://github.com/ShadowESC95/ELI_v2.0/releases/latest)**.
+>
 > **v2.3.85 — redistributability + observability.** Removed Linux-only TILE_WINDOWS override
 > (uses cross-platform `portable_app_control`); international crisis resources; gated
 > CLOSE_APP wmctrl; cross-platform file open in experimental tab; canonical SQLite paths

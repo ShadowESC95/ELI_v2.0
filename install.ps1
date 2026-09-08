@@ -307,7 +307,7 @@ if ($LASTEXITCODE -ne 0) {
 # Non-fatal. Windows uses native APIs for volume/clipboard/notifications, so only these help.
 if (Get-Command winget -ErrorAction SilentlyContinue) {
     Write-Host "[..] Installing optional system tools (ffmpeg, tesseract) via winget..."
-    foreach ($id in @("Gyan.FFmpeg", "UB-Mannheim.TesseractOCR")) {
+    foreach ($id in @("Gyan.FFmpeg", "UB-Mannheim.TesseractOCR", "mpv.MPV")) {
         winget install --id $id --silent --accept-package-agreements --accept-source-agreements 2>$null
     }
     Write-Host "[OK] Optional system tools step done (skips any already present)." -ForegroundColor Green

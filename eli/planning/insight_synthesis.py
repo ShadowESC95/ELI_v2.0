@@ -35,12 +35,18 @@ def _cache_path() -> Path:
     return Path(get_paths().artifacts_dir) / "runtime" / "reflection_insight.json"
 
 
-def get_cached_insight() -> str:
-    """Return the most recently synthesised insight (fast, no LLM). '' if none."""
+_INSIGHT_MAX_AGE_S = 4 * 3600  # stale insight must not drive greetings
+
+
+def get_cached_insight(max_age_s: float = _INSIGHT_MAX_AGE_S) -> str:
+    """Return the most recently synthesised insight (fast, no LLM). '' if none/stale."""
     try:
         p = _cache_path()
         if p.exists():
             d = json.loads(p.read_text(encoding="utf-8"))
+            ts = float(d.get("ts") or 0)
+            if max_age_s and ts and (time.time() - ts) > float(max_age_s):
+                return ""
             return str(d.get("insight") or "").strip()
     except Exception:
         pass
