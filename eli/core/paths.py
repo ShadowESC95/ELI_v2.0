@@ -452,7 +452,7 @@ def project_root() -> Path:
                 if os.access(p, os.W_OK):
                     return p
             except Exception:
-                pass
+                log.debug("suppressed exception", exc_info=True)
             return _frozen_user_root()
         return p
     if is_frozen():

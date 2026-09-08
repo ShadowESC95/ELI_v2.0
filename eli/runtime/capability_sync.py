@@ -250,7 +250,7 @@ class CapabilitySync:
                 p.mkdir(parents=True, exist_ok=True)
                 return p
         except Exception:
-            pass
+            log.debug("suppressed exception", exc_info=True)
         return self.repo_root
 
     # ---- public ----------------------------------------------------------
