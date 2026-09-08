@@ -140,6 +140,38 @@ def _user_root() -> Path:
     return base / "ELI_v2"
 
 
+def _is_writable_dir(path: Path) -> bool:
+    try:
+        path = path.expanduser().resolve()
+        path.mkdir(parents=True, exist_ok=True)
+        probe = path / ".eli_write_probe"
+        probe.write_text("ok", encoding="utf-8")
+        probe.unlink(missing_ok=True)
+        return True
+    except Exception:
+        return False
+
+
+def _safe_copy_file(src: Path, dst: Path) -> None:
+    """Byte copy that works from read-only AppImage FUSE mounts (no reflink)."""
+    dst.parent.mkdir(parents=True, exist_ok=True)
+    with open(src, "rb") as sf, open(dst, "wb") as df:
+        shutil.copyfileobj(sf, df, length=1024 * 1024)
+
+
+def _safe_copy_tree(src: Path, dst: Path) -> None:
+    if dst.exists():
+        shutil.rmtree(dst, ignore_errors=True)
+    dst.mkdir(parents=True, exist_ok=True)
+    for f in src.rglob("*"):
+        if not f.is_file():
+            continue
+        rel = f.relative_to(src)
+        target = dst / rel
+        target.parent.mkdir(parents=True, exist_ok=True)
+        _safe_copy_file(f, target)
+
+
 def _seed(bundle: Path, root: Path) -> None:
     version = _app_version(bundle)
     marker = root / ".eli_frozen_seed_version"
@@ -161,16 +193,16 @@ def _seed(bundle: Path, root: Path) -> None:
                     target = dst / f.relative_to(src)
                     if not target.exists():
                         target.parent.mkdir(parents=True, exist_ok=True)
-                        shutil.copy2(f, target)
+                        _safe_copy_file(f, target)
         else:
             if dst.exists():
                 shutil.rmtree(dst, ignore_errors=True)
-            shutil.copytree(src, dst, dirs_exist_ok=True)
+            _safe_copy_tree(src, dst)
     for rel in _SEED_FILES:
         src = bundle / rel
         if src.is_file():
             (root / rel).parent.mkdir(parents=True, exist_ok=True)
-            shutil.copy2(src, root / rel)
+            _safe_copy_file(src, root / rel)
     for rel in ("models", "artifacts"):
         (root / rel).mkdir(parents=True, exist_ok=True)
     try:
@@ -179,28 +211,60 @@ def _seed(bundle: Path, root: Path) -> None:
         pass
 
 
+def _pin_env_for_root(root: Path) -> None:
+    os.environ["ELI_PROJECT_ROOT"] = str(root)
+    os.environ.setdefault("ELI_HOME", str(root))
+    os.environ.setdefault("ELI_DATA_DIR", str(root / "artifacts"))
+    os.environ.setdefault("ELI_ARTIFACTS_DIR", str(root / "artifacts"))
+    os.environ.setdefault("ELI_CONFIG_DIR", str(root / "config"))
+    os.environ.setdefault("ELI_MODELS_DIR", str(root / "models"))
+    os.environ.setdefault("ELI_CUSTOM_AGENTS_DIR", str(root / "eli" / "brain" / "agents" / "custom"))
+    os.environ.setdefault("ELI_ROOT", str(root))
+    os.environ.setdefault("ELI_DOC_DIR", str(root / "eli_docs"))
+    _root_str = str(root)
+    if _root_str not in sys.path:
+        sys.path.insert(0, _root_str)
+
+
 def _pin_frozen_root() -> None:
     if not getattr(sys, "frozen", False):
         return
-    if os.environ.get("ELI_PROJECT_ROOT"):
+
+    explicit = os.environ.get("ELI_PROJECT_ROOT", "").strip()
+    if explicit:
         try:
-            _root = Path(os.environ["ELI_PROJECT_ROOT"]).expanduser()
-            _root_str = str(_root)
-            if _root_str not in sys.path:
-                sys.path.insert(0, _root_str)
+            explicit_root = Path(explicit).expanduser()
+            if _is_writable_dir(explicit_root):
+                _pin_env_for_root(explicit_root.resolve())
+                return
         except Exception:
             pass
-        return  # launcher/user already decided — respect it
+        _warn(
+            f"[ELI] ignoring read-only ELI_PROJECT_ROOT ({explicit}); "
+            f"using the per-user data directory instead.\n"
+        )
+        os.environ.pop("ELI_PROJECT_ROOT", None)
 
     root = _user_root()
+    seed_errors: list[str] = []
     try:
         _seed(_bundle_dir(), root)
     except Exception as exc:  # pragma: no cover — first-run disk issues
+        seed_errors.append(str(exc))
+
+    if not _is_writable_dir(root):
         _warn(
-            f"[ELI] could not prepare user data root {root}: {exc}\n"
+            f"[ELI] could not prepare user data root {root}: "
+            f"{'; '.join(seed_errors) or 'not writable'}\n"
             f"[ELI] set ELI_PROJECT_ROOT to a writable ELI directory and relaunch.\n"
         )
         return
+
+    if seed_errors:
+        _warn(
+            f"[ELI] partial seed into {root} (some bundled assets could not copy): "
+            f"{seed_errors[0]}\n"
+        )
 
     # GPU pack (see eli_gpu_pack.py): a downloaded CUDA/Vulkan build of
     # llama_cpp in the user root shadows the bundled CPU build. llama_cpp is
@@ -272,29 +336,7 @@ def _pin_frozen_root() -> None:
                 "running on CPU; reinstall with: ELI --install-gpu-pack --force\n"
             )
 
-    os.environ["ELI_PROJECT_ROOT"] = str(root)
-    os.environ.setdefault("ELI_HOME", str(root))
-    os.environ.setdefault("ELI_DATA_DIR", str(root / "artifacts"))
-    # Some subsystems (image engine runtime_paths) key on ELI_ARTIFACTS_DIR
-    # rather than ELI_DATA_DIR — export both names for the same directory.
-    os.environ.setdefault("ELI_ARTIFACTS_DIR", str(root / "artifacts"))
-    os.environ.setdefault("ELI_CONFIG_DIR", str(root / "config"))
-    os.environ.setdefault("ELI_MODELS_DIR", str(root / "models"))
-    # Custom agents are created at runtime; both the GUI writer and the
-    # agent-bus loader honor this variable (module-relative default is
-    # read-only in frozen builds).
-    os.environ.setdefault("ELI_CUSTOM_AGENTS_DIR", str(root / "eli" / "brain" / "agents" / "custom"))
-    # Additional env names honored by individual subsystems whose defaults
-    # are module-relative (read-only when frozen).
-    os.environ.setdefault("ELI_ROOT", str(root))                      # habits_memory_db
-    os.environ.setdefault("ELI_DOC_DIR", str(root / "eli_docs"))      # executor document actions
-
-    # Shadow the bundled eli/ package with the user-seeded (patchable) tree —
-    # same mechanism as the GPU pack. Self-improvement writes to root/eli/;
-    # without this, imports keep serving the read-only bundle copy.
-    _root_str = str(root)
-    if _root_str not in sys.path:
-        sys.path.insert(0, _root_str)
+    _pin_env_for_root(root)
 
 
 _pin_frozen_root()

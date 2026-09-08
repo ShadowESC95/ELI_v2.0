@@ -48,8 +48,10 @@ def _resolve_project_artifacts_dir() -> Path:
         return core_paths.get_paths().artifacts_dir.resolve()
     except Exception:
         log.debug("[MEMORY] core_paths artifact dir lookup failed", exc_info=True)
-    if v:
-        return Path(v).expanduser().resolve()
+    for env_name in ("ELI_DATA_DIR", "ELI_ARTIFACTS_DIR"):
+        raw = os.environ.get(env_name, "").strip()
+        if raw:
+            return Path(raw).expanduser().resolve()
 
     here = Path(__file__).resolve()
     eli_root = here.parents[1]
@@ -76,6 +78,9 @@ def resolve_db_paths() -> DBPaths:
                 return Path(fn()).expanduser().resolve()
             except Exception:
                 log.debug("[MEMORY] path resolver %s failed", name, exc_info=True)
+        if fallback is not None:
+            return Path(fallback).expanduser().resolve()
+        return _resolve_project_artifacts_dir() / "db" / "user.sqlite3"
 
     return DBPaths(
         user_db=_pick("get_user_db_path", _path_value(paths, 'user_db')),
@@ -403,6 +408,7 @@ def _ensure_memory_schema(conn):
         ("timestamp", "REAL"),
         ("kind", "TEXT"),
         ("text", "TEXT"),
+        ("value", "TEXT"),
         ("content", "TEXT"),
         ("tags", "TEXT"),
         ("source", "TEXT"),
@@ -657,6 +663,7 @@ def _ensure_memory_schema(conn):
         ("name", "TEXT"),
         ("improvement", "TEXT"),
         ("text", "TEXT"),
+        ("value", "TEXT"),
         ("content", "TEXT"),
         ("details", "TEXT"),
         ("description", "TEXT"),
@@ -717,6 +724,7 @@ def _ensure_memory_schema(conn):
         ("failure", "TEXT"),
         ("name", "TEXT"),
         ("text", "TEXT"),
+        ("value", "TEXT"),
         ("content", "TEXT"),
         ("details", "TEXT"),
         ("description", "TEXT"),
@@ -1045,7 +1053,7 @@ def _ensure_full_memory_schema(conn):
     for n, d in [
         ("content", "TEXT"), ("timestamp", "REAL"), ("source", "TEXT"),
         ("status", "TEXT"), ("weight", "REAL DEFAULT 1.0"), ("confidence", "REAL DEFAULT 1.0"),
-        ("kind", "TEXT"), ("tags", "TEXT"), ("text", "TEXT"), ("ts", "REAL"),
+        ("kind", "TEXT"), ("tags", "TEXT"), ("text", "TEXT"), ("value", "TEXT"), ("ts", "REAL"),
         ("importance", "REAL DEFAULT 0.5"),
         ("verification_status", "TEXT DEFAULT 'verified'"),
         ("provenance_kind", "TEXT DEFAULT 'user_verbatim'"),

@@ -482,27 +482,34 @@ def _first_run_gpu_offer() -> None:
             marker.write_text("cpu-no-gpu-hardware", encoding="utf-8")
             return
         # Vendor from the (cross-OS) HardwareProfile name. NVIDIA → CUDA;
-        # AMD and discrete Intel Arc → Vulkan. Intel iGPUs ("Iris"/"UHD") are
-        # deliberately NOT offered — Vulkan offload to an iGPU rarely beats CPU;
-        # a power user can still force it with `--install-gpu-pack --vulkan`.
+        # AMD and discrete Intel Arc → Vulkan. Intel iGPUs (Iris Xe / UHD) may
+        # try Vulkan but CPU is recommended — never report them as "no GPU".
         name_l = (hp.gpu_name or "").lower()
         nvidia = "nvidia" in name_l or "geforce" in name_l or "rtx" in name_l or "gtx" in name_l
         amd = (not nvidia) and ("amd" in name_l or "radeon" in name_l)
         intel_arc = (not nvidia and not amd) and "arc" in name_l
-        if not (nvidia or amd or intel_arc):
+        intel_igpu = bool(getattr(hp, "gpu_integrated", False)) and not intel_arc
+        if intel_igpu:
+            vendor = (
+                f"{hp.gpu_name} — shared system RAM "
+                f"(~{max(hp.total_vram_mb, hp.free_vram_mb) / 1024:.1f} GB budgeted)"
+            )
+            backend = "Intel Vulkan (experimental — CPU is recommended on Iris Xe)"
+            size = "roughly 90 MB"
+            gp_args = "['--vulkan']"
+        elif not (nvidia or amd or intel_arc):
             marker.write_text(f"cpu-unsupported-gpu:{hp.gpu_name}", encoding="utf-8")
             return
-        vendor = f"{hp.gpu_name} — {max(hp.total_vram_mb, hp.free_vram_mb) / 1024:.0f} GB VRAM"
-        backend = "NVIDIA CUDA" if nvidia else ("AMD Vulkan" if amd else "Intel Arc Vulkan")
+        else:
+            vendor = f"{hp.gpu_name} — {max(hp.total_vram_mb, hp.free_vram_mb) / 1024:.0f} GB VRAM"
+            backend = "NVIDIA CUDA" if nvidia else ("AMD Vulkan" if amd else "Intel Arc Vulkan")
+            size = "roughly 1.6 GB" if nvidia else "roughly 90 MB"
+            gp_args = "[]" if nvidia else "['--vulkan']"
         # Measured, not estimated: the CUDA wheel is ~1.3 GB and the NVIDIA
         # runtime redistributables (cudart + cublas) add ~350 MB on top; the
-        # Vulkan pack (AMD / Intel Arc) is ~90 MB.
-        size = "roughly 1.6 GB" if nvidia else "roughly 90 MB"
-        # Drive the pack directly from the vendor we classified here, so it works
-        # the same on every OS without the installer having to re-detect (Windows
-        # Arc, for instance, has no simple driver-DLL probe): NVIDIA → auto (CUDA),
-        # AMD/Intel Arc → force Vulkan.
-        gp_args = "[]" if nvidia else "['--vulkan']"
+        # Vulkan pack (AMD / Intel Arc / experimental Intel iGPU) is ~90 MB.
+        gpu_btn = "Try Vulkan (experimental)" if intel_igpu else "Enable GPU (recommended)"
+        cpu_btn = "Use CPU (recommended)" if intel_igpu else "Use CPU"
         ask = f"""
 import sys
 from PySide6.QtWidgets import QApplication, QMessageBox
@@ -513,8 +520,8 @@ m.setText("ELI detected: {vendor}")
 m.setInformativeText("Enable {backend} acceleration now? This downloads the GPU "
                      "inference engine once ({size}). CPU mode always works; "
                      "you can enable GPU later by running ELI with --install-gpu-pack.")
-yes = m.addButton("Enable GPU (recommended)", QMessageBox.AcceptRole)
-m.addButton("Use CPU", QMessageBox.RejectRole)
+yes = m.addButton("{gpu_btn}", QMessageBox.AcceptRole)
+m.addButton("{cpu_btn}", QMessageBox.RejectRole)
 m.exec()
 sys.exit(0 if m.clickedButton() is yes else 3)
 """

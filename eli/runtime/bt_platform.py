@@ -93,7 +93,7 @@ def _linux_kernel_adapters() -> List[BtAdapter]:
             with open(os.path.join(path, "address"), encoding="utf-8") as f:
                 addr = f.read().strip().upper()
         except Exception:
-            log.debug("suppressed exception", exc_info=True)
+            pass
         state = "unknown"
         if shutil.which("hciconfig"):
             _, out = _sh(["hciconfig", name], timeout=4)

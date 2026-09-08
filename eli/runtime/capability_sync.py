@@ -238,8 +238,20 @@ class CapabilitySync:
             except Exception:
                 repo_root = Path(__file__).resolve().parents[3]
         self.repo_root = Path(repo_root)
-        self.inventory_path = self.repo_root / self.INVENTORY_FILE
-        self.snapshot_path = self.repo_root / self.SNAPSHOT_FILE
+        self.inventory_path = self._state_dir() / self.INVENTORY_FILE
+        self.snapshot_path = self._state_dir() / self.SNAPSHOT_FILE
+
+    def _state_dir(self) -> Path:
+        """Writable dir for runtime capability state (never the read-only bundle)."""
+        try:
+            from eli.core.paths import data_dir, is_frozen
+            if is_frozen():
+                p = data_dir() / "runtime"
+                p.mkdir(parents=True, exist_ok=True)
+                return p
+        except Exception:
+            pass
+        return self.repo_root
 
     # ---- public ----------------------------------------------------------
 

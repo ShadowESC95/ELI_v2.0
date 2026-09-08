@@ -69,7 +69,7 @@ sounddevice
 soundfile
 SpeechRecognition
 sympy>=1.14
-tokenizers>=0.22
+tokenizers>=0.22,<=0.23.0
 torch
 tqdm
 transformers

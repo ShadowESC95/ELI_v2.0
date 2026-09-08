@@ -75,17 +75,19 @@ def _detect_hardware() -> dict:
     # Query FREE VRAM — critical: display server consumes VRAM before ELI launches
     try:
         import subprocess
-        out = subprocess.check_output(
-            ["nvidia-smi",
-             "--query-gpu=memory.free,memory.total,name",
-             "--format=csv,noheader,nounits"],
-            stderr=subprocess.DEVNULL, timeout=5
-        ).decode().strip().splitlines()[0]
-        parts = [p.strip() for p in out.split(",")]
-        hw["vram_mb"]       = int(parts[0])   # FREE VRAM
-        hw["vram_total_mb"] = int(parts[1])
-        hw["gpu_name"]      = parts[2] if len(parts) > 2 else "NVIDIA GPU"
-        hw["has_gpu"]       = True
+        import shutil as _shutil
+        if _shutil.which("nvidia-smi"):
+            out = subprocess.check_output(
+                ["nvidia-smi",
+                 "--query-gpu=memory.free,memory.total,name",
+                 "--format=csv,noheader,nounits"],
+                stderr=subprocess.DEVNULL, timeout=5
+            ).decode().strip().splitlines()[0]
+            parts = [p.strip() for p in out.split(",")]
+            hw["vram_mb"]       = int(parts[0])   # FREE VRAM
+            hw["vram_total_mb"] = int(parts[1])
+            hw["gpu_name"]      = parts[2] if len(parts) > 2 else "NVIDIA GPU"
+            hw["has_gpu"]       = True
     except Exception:
         log.debug("suppressed exception", exc_info=True)
     return hw

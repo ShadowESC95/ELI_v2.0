@@ -210,6 +210,12 @@ exec "$APP_ROOT/scripts/eli_setup.sh" "$@"
 SETUP_EOF
 chmod +x "$STAGING/ELI_Setup.sh"
 
+# Every shell helper must be executable out of the tarball (Permission denied
+# on eli_diagnose.sh was a real fresh-install failure on jess@blue).
+while IFS= read -r -d '' _sh; do
+  chmod +x "$_sh"
+done < <(find "$STAGING" -type f \( -name '*.sh' -o -name 'eli_diagnose.sh' \) -print0)
+
 cat > "$STAGING/packaging/desktop/ELI_v2.desktop.template" <<'DESKTOP_EOF'
 [Desktop Entry]
 Name=ELI v2.0

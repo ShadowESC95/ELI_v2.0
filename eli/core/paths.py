@@ -42,6 +42,17 @@ def is_frozen() -> bool:
     """True if running as a frozen (PyInstaller/cx_Freeze) bundle."""
     return getattr(sys, 'frozen', False)
 
+def _frozen_user_root() -> Path:
+    """Per-user ELI_v2 root — must match packaging/pyinstaller/rthook_eli_frozen_paths.py."""
+    if sys.platform == "win32":
+        base = Path(os.environ.get("LOCALAPPDATA", Path.home() / "AppData" / "Local"))
+    elif sys.platform == "darwin":
+        base = Path.home() / "Library" / "Application Support"
+    else:
+        base = Path(os.environ.get("XDG_DATA_HOME", Path.home() / ".local" / "share"))
+    return (base / "ELI_v2").expanduser().resolve()
+
+
 def _frozen_base() -> Path:
     """Base directory for frozen app resources."""
     if hasattr(sys, '_MEIPASS'):
@@ -174,6 +185,9 @@ def data_dir() -> Path:
     override = os.environ.get("ELI_DATA_DIR")
     if override:
         return Path(override).expanduser().resolve()
+
+    if is_frozen():
+        return _frozen_user_root() / "artifacts"
     
     if _is_dev_mode():
         return project_root() / "artifacts"
@@ -201,6 +215,9 @@ def config_dir() -> Path:
     override = os.environ.get("ELI_CONFIG_DIR")
     if override:
         return Path(override).expanduser().resolve()
+
+    if is_frozen():
+        return _frozen_user_root() / "config"
     
     if _is_dev_mode():
         return project_root() / "config"
@@ -371,7 +388,9 @@ def persona_path() -> Path:
 
 def persona_auto_path() -> Path:
     """Canonical auto-updating persona overlay."""
-    return project_root() / "eli" / "cognition" / "persona.auto.txt"
+    if _is_dev_mode():
+        return project_root() / "eli" / "cognition" / "persona.auto.txt"
+    return config_dir() / "persona.auto.txt"
 
 
 def notebook_dir() -> Path:
@@ -427,7 +446,17 @@ _gguf_model_path: str | None = None
 def project_root() -> Path:
     env = os.environ.get("ELI_PROJECT_ROOT")
     if env:
-        return resolve_runtime_path(env, base=Path.cwd()) if not Path(env).expanduser().is_absolute() else Path(env).expanduser().resolve()
+        p = resolve_runtime_path(env, base=Path.cwd()) if not Path(env).expanduser().is_absolute() else Path(env).expanduser().resolve()
+        if is_frozen():
+            try:
+                if os.access(p, os.W_OK):
+                    return p
+            except Exception:
+                pass
+            return _frozen_user_root()
+        return p
+    if is_frozen():
+        return _frozen_user_root()
     found = _find_project_root()
     if found is not None:
         return found

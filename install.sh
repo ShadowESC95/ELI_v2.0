@@ -22,6 +22,7 @@ FETCH_MODEL=""   # --model=KEY or --auto-model: download a model after install
 NO_MODEL=0       # --no-model: never download a model
 HAS_NVIDIA=0     # set by the system report below
 HAS_AMD=0        # set by the system report below (AMD ROCm/HIP GPUs)
+HAS_INTEL_IGPU=0 # Intel Iris Xe / UHD integrated graphics (Vulkan path)
 
 for arg in "$@"; do
     case "$arg" in
@@ -178,8 +179,11 @@ fi
 ok "CPU         ${B}${_CPUS}${R} cores      RAM ${B}${_RAMGB:-?} GB${R}"
 ok "Disk free   ${B}$(df -h "$SCRIPT_DIR" 2>/dev/null | awk 'NR==2{print $4}')${R}   ${D}(a model is ~2-5 GB)${R}"
 if command -v nvidia-smi &>/dev/null; then
-    _NGPU="$(nvidia-smi --query-gpu=name --format=csv,noheader 2>/dev/null | grep -c . || echo 0)"
-    if [ "${_NGPU:-0}" -ge 1 ]; then
+    _NGPU="$(nvidia-smi --query-gpu=name --format=csv,noheader 2>/dev/null | grep -c . || true)"
+    _NGPU="${_NGPU//$'\r'/}"
+    _NGPU="${_NGPU//$'\n'/}"
+    _NGPU="${_NGPU:-0}"
+    if [ "${_NGPU}" -ge 1 ] 2>/dev/null; then
         _GPU0="$(nvidia-smi --query-gpu=name --format=csv,noheader 2>/dev/null | head -1)"
         _VRAMTOT="$(nvidia-smi --query-gpu=memory.total --format=csv,noheader,nounits 2>/dev/null | awk '{s+=$1} END{printf "%d", s}')"
         if [ "$_NGPU" -gt 1 ]; then
@@ -200,19 +204,43 @@ if [ "$HAS_NVIDIA" -eq 0 ] && [ "$OS" != "Darwin" ]; then
         HAS_AMD=1
     fi
 fi
-if [ "$HAS_NVIDIA" -eq 0 ] && [ "$HAS_AMD" -eq 0 ]; then
+# Intel integrated graphics (Iris Xe / UHD) — no nvidia-smi or rocm-smi, but Vulkan
+# offload is available via llama.cpp when drivers are present.
+if [ "$HAS_NVIDIA" -eq 0 ] && [ "$HAS_AMD" -eq 0 ] && [ "$OS" != "Darwin" ]; then
+    _INTEL_NAME=""
+    for _drm in /sys/class/drm/card[0-9]/device/vendor; do
+        [ -r "$_drm" ] || continue
+        [ "$(cat "$_drm" 2>/dev/null | tr 'A-F' 'a-f')" = "0x8086" ] || continue
+        _pci="$(readlink -f "$(dirname "$_drm")" 2>/dev/null | xargs basename 2>/dev/null || true)"
+        if [ -n "$_pci" ] && command -v lspci &>/dev/null; then
+            _INTEL_NAME="$(lspci -s "$_pci" -nn 2>/dev/null | sed 's/^[^:]*: //' | head -1)"
+        fi
+        [ -n "$_INTEL_NAME" ] && break
+    done
+    if [ -n "$_INTEL_NAME" ]; then
+        if echo "$_INTEL_NAME" | grep -qiE 'arc (a|pro|b)[0-9]'; then
+            ok "GPU         ${B}${GRN}Intel Arc${R}  ${D}${_INTEL_NAME}${R}"
+        else
+            ok "GPU         ${B}${GRN}Intel integrated${R}  ${D}${_INTEL_NAME}${R}"
+            ok "            ${D}shared system RAM — Vulkan offload optional; CPU recommended on Iris Xe${R}"
+            HAS_INTEL_IGPU=1
+        fi
+    fi
+fi
+if [ "$HAS_NVIDIA" -eq 0 ] && [ "$HAS_AMD" -eq 0 ] && [ "$HAS_INTEL_IGPU" -eq 0 ]; then
     if [ "$OS" = "Darwin" ]; then ok "GPU         ${B}Apple Metal${R} ${D}(unified memory)${R}"
     else warn "GPU         none detected — ELI will run on ${B}CPU${R} (much slower)"; fi
 fi
 
-# Default the build to the hardware unless the user forced it. AMD boxes now get a ROCm build
-# instead of being silently dropped to CPU.
-if [ "$CPU_ONLY" -eq 0 ] && [ "$HAS_NVIDIA" -eq 0 ] && [ "$HAS_AMD" -eq 0 ] && [ "$OS" != "Darwin" ]; then
+# Default the build to the hardware unless the user forced it. AMD / Intel iGPU boxes
+# get a Vulkan build attempt instead of being silently dropped to CPU.
+if [ "$CPU_ONLY" -eq 0 ] && [ "$HAS_NVIDIA" -eq 0 ] && [ "$HAS_AMD" -eq 0 ] && [ "$HAS_INTEL_IGPU" -eq 0 ] && [ "$OS" != "Darwin" ]; then
     CPU_ONLY=1
 fi
 if   [ "$CPU_ONLY" -eq 1 ]; then BUILD_LABEL="CPU-only"
 elif [ "$OS" = "Darwin" ];  then BUILD_LABEL="GPU (Metal)"
 elif [ "$HAS_AMD" -eq 1 ];  then BUILD_LABEL="GPU (AMD ROCm)"
+elif [ "$HAS_INTEL_IGPU" -eq 1 ]; then BUILD_LABEL="GPU (Intel Vulkan)"
 else                             BUILD_LABEL="GPU (CUDA)"; fi
 
 # ── Plan — what is about to happen ───────────────────────────────────────────
@@ -480,6 +508,17 @@ elif [ "$HAS_AMD" -eq 1 ]; then
         echo "       Installing CPU build. For AMDGPU later:"
         echo "         ROCm:  CMAKE_ARGS=\"-DGGML_HIPBLAS=on\" \"$PIP\" install --force-reinstall --no-cache-dir llama-cpp-python"
         echo "         Vulkan: CMAKE_ARGS=\"-DGGML_VULKAN=on\" \"$PIP\" install --force-reinstall --no-cache-dir llama-cpp-python"
+        "$PIP" install llama-cpp-python --prefer-binary --quiet
+    fi
+elif [ "$HAS_INTEL_IGPU" -eq 1 ]; then
+    echo "     (Intel iGPU — Vulkan offload, then CPU)"
+    if CMAKE_ARGS="-DGGML_VULKAN=on" "$PIP" install llama-cpp-python --no-cache-dir --quiet 2>/dev/null; then
+        echo "[OK] llama-cpp built with Vulkan (Intel integrated GPU via Mesa/Vulkan)."
+        echo "       Tip: if output looks garbled on Iris Xe, set GGML_VK_DISABLE_F16=1 before launch."
+    else
+        echo "[WARN] Intel Vulkan build failed (install libvulkan-dev / mesa-vulkan-drivers)."
+        echo "       Installing CPU build — reliable on Iris Xe laptops."
+        echo "         Retry: CMAKE_ARGS=\"-DGGML_VULKAN=on\" \"$PIP\" install --force-reinstall --no-cache-dir llama-cpp-python"
         "$PIP" install llama-cpp-python --prefer-binary --quiet
     fi
 else

@@ -37,6 +37,7 @@ from eli.runtime.self_improvement import (
     _dotted_module_for_path,
     PROJECT_ROOT,
 )
+from eli.core.paths import artifacts_dir
 
 log = get_logger(__name__)
 
@@ -718,7 +719,7 @@ _PENDING_TTL_SECONDS = 600
 
 
 def _pending_file() -> Path:
-    path = PROJECT_ROOT / "artifacts" / "pending_code_fix.json"
+    path = artifacts_dir() / "pending_code_fix.json"
     path.parent.mkdir(parents=True, exist_ok=True)
     return path
 
@@ -781,7 +782,7 @@ def clear_pending_fix() -> None:
 # of the last audit is the whole point.                                       #
 # --------------------------------------------------------------------------- #
 def _last_audit_file() -> Path:
-    path = PROJECT_ROOT / "artifacts" / "code_exam_last.json"
+    path = artifacts_dir() / "code_exam_last.json"
     path.parent.mkdir(parents=True, exist_ok=True)
     return path
 

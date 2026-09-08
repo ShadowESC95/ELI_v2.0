@@ -76,12 +76,21 @@ def output_dir() -> Path:
 
 
 def discover_local_image_models() -> List[Path]:
-    project_root = Path(__file__).resolve().parents[3]
+    try:
+        from eli.core.paths import models_dir, project_root
+        project_root_path = project_root()
+    except Exception:
+        project_root_path = Path(__file__).resolve().parents[3]
+        models_root = project_root_path / "models"
+    else:
+        models_root = models_dir()
     candidate_roots = [
-        project_root / "models" / "image",
-        project_root / "models" / "diffusion",
-        project_root / "models" / "sd",
-        project_root / "models",
+        models_root / "image",
+        models_root / "diffusion",
+        models_root / "sd",
+        models_root,
+        project_root_path / "models" / "image",
+        project_root_path / "models",
         Path.home() / "models",
     ]
     allowed_suffixes = {".safetensors", ".ckpt"}
