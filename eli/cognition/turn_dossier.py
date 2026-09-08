@@ -62,6 +62,8 @@ class TurnDossier:
 
     def memory_context(self) -> str:
         """Compact memory string for bus/orchestrator fallback."""
+        if str(self.query_class or "").upper() == "PHATIC":
+            return ""
         parts = [p for p in (
             self.user_brief,
             self.working_memory_block,
@@ -269,13 +271,34 @@ def handoff_blocks_from_dossier(
     if not blocks:
         return []
     if phatic:
-        # Keep rapport-oriented awareness; full retrieval dump stays in dossier_context.
-        trimmed: List[str] = []
-        for block in blocks:
-            if block.startswith("[MEMORY — retrieved for this turn]"):
-                continue
-            trimmed.append(block)
-        blocks = trimmed or blocks[:4]
+        # Rapport only — no biography, retrieval, or proactive dumps on hello turns.
+        _keep_prefixes = (
+            "[SESSION OPENER",
+            "[BACKGROUND REFLECTION",
+        )
+        trimmed = [
+            b for b in blocks
+            if any(str(b or "").startswith(p) for p in _keep_prefixes)
+        ]
+        blocks = trimmed
+    else:
+        # Full handoff path: orchestrator already assembles memory — avoid duplicate dumps.
+        _skip_prefixes = (
+            "[USER PROFILE",
+            "[USER MODEL",
+            "[MEMORY —",
+            "[USER IDENTITY",
+            "[PROACTIVE AWARENESS]",
+            "[EMOTION TREND",
+        )
+        trimmed = [
+            b for b in blocks
+            if not any(str(b or "").startswith(p) for p in _skip_prefixes)
+        ]
+        blocks = trimmed or [
+            b for b in blocks
+            if str(b or "").startswith(("[SESSION OPENER", "[BACKGROUND REFLECTION", "[PRIOR DEEPENING"))
+        ]
     if max_chars <= 0:
         return blocks
     out: List[str] = []

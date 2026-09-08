@@ -7180,8 +7180,18 @@ def _eli_media_contract_post(raw, result):
         if m:
             return _play("youtube website", m.group(1), "media.play_on_youtube_dot_com_contract")
 
-        m = re.match(r"^play\s+(.+\s+by\s+.+)$", text)
+        _yt_com = r"youtube(?:\s+com|\.com)"
+        m = re.match(rf"^play\s+(.+?)\s+by\s+(.+?)\s+on\s+({_yt_com})\s*$", text)
         if m:
+            return _play("youtube", f"{m.group(1).strip()} by {m.group(2).strip()}",
+                          "media.play_by_artist_on_youtube_com_contract")
+
+        m = re.match(rf"^play\s+(.+?)\s+on\s+({_yt_com})\s*$", text)
+        if m:
+            return _play("youtube", m.group(1).strip(), "media.play_on_youtube_com_contract")
+
+        m = re.match(r"^play\s+(.+\s+by\s+.+)$", text)
+        if m and not re.search(r"\bon\s+(?:youtube|spotify|soundcloud|mpv)\b", text):
             return _play("spotify", m.group(1), "media.play_song_by_artist_contract")
 
         # Implied song request — "title by artist" with no "play" verb.

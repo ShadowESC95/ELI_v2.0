@@ -1171,6 +1171,24 @@ def _is_brief_phatic_prompt(text: str) -> bool:
     return False
 
 
+def _phatic_time_authority_block() -> str:
+    """Wall-clock anchor for greetings — prevents 'night here' timezone confabulation."""
+    try:
+        import datetime as _dt
+        from eli.runtime.reflection import part_of_day as _part_of_day
+        _now = _dt.datetime.now()
+        _tz = _now.astimezone().tzname() or ""
+        return (
+            "CURRENT TIME (authoritative — the USER's local clock, not ELI's server clock; "
+            "never invent a different timezone or say it is night/day elsewhere): "
+            f"{_now.strftime('%A %d %B %Y, %H:%M')}"
+            f"{(' ' + _tz) if _tz else ''} ({_part_of_day()}). "
+            "Morning 05:00-12:00, afternoon 12:00-17:00, evening 17:00-21:00, night 21:00-05:00."
+        )
+    except Exception:
+        return ""
+
+
 def _phatic_rapport_style_rule() -> str:
     """Steering block for greetings/check-ins — keeps ELI's voice without memory dumps."""
     return (
@@ -1190,6 +1208,8 @@ def _phatic_rapport_style_rule() -> str:
         "- CRITICAL: Do NOT assert that the user has a preference, habit, or memory unless it "
         "appears in verified profile or this conversation. Wit and cultural references are fine; "
         "invented user biography is not.\n"
+        "- Do NOT claim a different local time, timezone, or weather than CURRENT TIME above.\n"
+        "- Do NOT invent model names, GPU stats, or runtime telemetry — use MOUNTED MODEL only.\n"
         "- Humour must not replace warmth; if there is an actual runtime issue, mention it plainly.\n"
         "- If you already greeted with the same opener this session (e.g. 'Hey bud'), vary it — "
         "do not open twice in a row with the identical phrase.\n\n"
@@ -9058,7 +9078,10 @@ Answer:"""
 
     def _build_phatic_handoff_brief(self, user_input: str, working_memory=None) -> str:
         """Lightweight rapport brief: ELI voice + user name + recent thread — no memory dump."""
-        parts = [_phatic_rapport_style_rule().strip()]
+        parts = []
+        _time_block = _phatic_time_authority_block()
+        if _time_block:
+            parts.append(_time_block)
         _mm = _mounted_model_authority_line()
         if _mm:
             parts.append(_mm)
@@ -9069,10 +9092,11 @@ Answer:"""
                 _dossier = getattr(working_memory, "turn_dossier", None)
             if _dossier is None:
                 _dossier = getattr(self, "_last_turn_dossier", None)
-            for _block in handoff_blocks_from_dossier(_dossier, phatic=True, max_chars=1400):
+            for _block in handoff_blocks_from_dossier(_dossier, phatic=True, max_chars=400):
                 parts.append(_block)
         except Exception:
             log.debug("suppressed exception", exc_info=True)
+        parts.append(_phatic_rapport_style_rule().strip())
         try:
             from eli.kernel.state import get_user_name as _gun_phatic
             _ph_name = (_gun_phatic("") or "").strip()
@@ -9367,7 +9391,7 @@ Answer:"""
         # of active patterns without requiring explicit "proactive status" queries.
         _extra_blocks = []
         _live_self_status = ""  # real telemetry — emitted ABOVE the cap (never truncated)
-        # Turn dossier awareness (session opener, insight, deepening, light memory).
+        # Turn dossier awareness — insight/deepening only; orchestrator already retrieved memory.
         try:
             from eli.cognition.turn_dossier import handoff_blocks_from_dossier
             _dossier = None
@@ -9375,7 +9399,16 @@ Answer:"""
                 _dossier = getattr(working_memory, "turn_dossier", None)
             if _dossier is None:
                 _dossier = getattr(self, "_last_turn_dossier", None)
-            _extra_blocks.extend(handoff_blocks_from_dossier(_dossier, phatic=False, max_chars=3200))
+            _orch_ctx_len = 0
+            try:
+                if working_memory is not None:
+                    _orch_ctx_len = len(str(getattr(working_memory, "assembled_context", "") or ""))
+            except Exception:
+                _orch_ctx_len = 0
+            if _orch_ctx_len < 2500:
+                _extra_blocks.extend(
+                    handoff_blocks_from_dossier(_dossier, phatic=False, max_chars=900)
+                )
         except Exception:
             log.debug("suppressed exception", exc_info=True)
         # Low grounding: do not invent user biography when memory evidence is weak.
@@ -12575,7 +12608,11 @@ Answer:"""
             and (_eli_is_chat_action or _eli_force_orch_all_actions or _eli_force_orch_all)
             and (
                 not _eli_is_chat_action
-                or (not _eli_meta_turn)
+                or (
+                    _qclass != "PHATIC"
+                    and not _is_brief_phatic_prompt(user_input)
+                    and not _eli_meta_turn
+                )
             )
         )
         try:

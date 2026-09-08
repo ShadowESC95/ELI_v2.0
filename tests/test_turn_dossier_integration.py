@@ -58,8 +58,8 @@ def test_handoff_blocks_from_dossier_phatic_caps_and_trims_heavy_retrieval():
     )
     blocks = handoff_blocks_from_dossier(dossier, phatic=True, max_chars=400)
     joined = "\n".join(blocks)
-    assert "Name: Jay" in joined
     assert "Pattern noted" in joined
+    assert "Name: Jay" not in joined
     assert "[MEMORY — retrieved for this turn]" not in joined
     assert len(joined) <= 420
 
@@ -98,6 +98,8 @@ def test_assemble_turn_dossier_phatic_light_retrieval(_profile, _name, _brief, _
 
 
 def test_phatic_handoff_includes_dossier_blocks():
+    from unittest.mock import MagicMock
+
     from eli.kernel.engine import CognitiveEngine
     from eli.cognition.turn_dossier import TurnDossier
 
@@ -107,6 +109,9 @@ def test_phatic_handoff_includes_dossier_blocks():
     wm = MagicMock()
     wm.turn_dossier = TurnDossier(
         insight_block="[BACKGROUND REFLECTION — synthesised insight]\nCached insight here.",
+        user_brief="[USER MODEL — dynamic brief]\nShould not appear in phatic handoff.",
     )
     brief = ce._build_phatic_handoff_brief("hey pal", working_memory=wm)
     assert "Cached insight here" in brief
+    assert "Should not appear" not in brief
+    assert "CURRENT TIME" in brief

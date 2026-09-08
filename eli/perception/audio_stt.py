@@ -1144,6 +1144,20 @@ class VoiceGate:
                 return wake, _cleanup(t[len(wake):])
         return None, t
 
+    def _strip_trailing_wake(self, text: str) -> tuple[str, Optional[str]]:
+        """Detect wake word after a command — e.g. 'pause. computer.' while music is up."""
+        t = _collapse_repeated_phrase(text)
+        for wake in sorted(WAKE_WORDS, key=len, reverse=True):
+            for sep in (" ", ". ", ", "):
+                suffix = sep + wake
+                if t.endswith(suffix) or t.rstrip(".,!?") == wake:
+                    if t.rstrip(".,!?") == wake:
+                        return "", wake
+                    cmd = _cleanup(t[: -len(suffix)])
+                    if cmd:
+                        return cmd, wake
+        return t, None
+
     def classify(self, raw_text: str) -> tuple[str, Optional[str], Optional[str]]:
         text = _eli_media_voice_alias(_collapse_repeated_phrase(raw_text))
         if not text:
@@ -1157,6 +1171,13 @@ class VoiceGate:
             return "dispatch", text, None
 
         wake, remainder = self._strip_leading_wake(text)
+
+        # Trailing wake with a safe-direct command ("pause. computer." over music).
+        if not wake:
+            _cmd, _trail_wake = self._strip_trailing_wake(text)
+            if _trail_wake and _cmd and _is_safe_direct(_cmd):
+                self.arm()
+                return "dispatch", _cmd, _trail_wake
 
         # Bare wake word: arm guarded window; do not emit to callback.
         if wake and not remainder:

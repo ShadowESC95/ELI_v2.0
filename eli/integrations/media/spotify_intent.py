@@ -13,6 +13,9 @@ _LIKED_SONGS_RE = re.compile(
 _ALBUM_RE = re.compile(
     r"^\s*(?:the\s+)?(?P<name>.+?)\s+album\s*$", re.I
 )
+_LP_RE = re.compile(
+    r"^\s*(?:the\s+)?(?P<name>.+?)\s+lp\s*$", re.I
+)
 _ARTIST_SONGS_RE = re.compile(
     r"^(?:songs?|tracks?|music)\s+by\s+(?P<artist>.+)$", re.I
 )
@@ -55,16 +58,18 @@ def album_request(query: str) -> tuple[str, str | None]:
     if by_m:
         left = (by_m.group(1) or "").strip()
         artist = (by_m.group(2) or "").strip()
-        am = _ALBUM_RE.match(left)
+        for _pat in (_ALBUM_RE, _LP_RE):
+            am = _pat.match(left)
+            if am:
+                name = (am.group("name") or "").strip(" .,:;-")
+                if len(name) >= 2:
+                    return name, artist if len(artist) >= 2 else None
+    for _pat in (_ALBUM_RE, _LP_RE):
+        am = _pat.match(q)
         if am:
             name = (am.group("name") or "").strip(" .,:;-")
             if len(name) >= 2:
-                return name, artist if len(artist) >= 2 else None
-    am = _ALBUM_RE.match(q)
-    if am:
-        name = (am.group("name") or "").strip(" .,:;-")
-        if len(name) >= 2:
-            return name, None
+                return name, None
     return "", None
 
 

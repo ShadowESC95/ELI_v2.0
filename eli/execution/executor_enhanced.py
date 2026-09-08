@@ -3554,8 +3554,15 @@ def play_specific(query: str, target: str | None = None) -> Dict[str, Any]:
                 _open_in_browser("spotify:")
                 _spotify_wait_running(timeout=8.0)
             if _spotify_search(f"{_album} {_album_artist or ''}".strip(), prefer="albums"):
-                _time.sleep(1.8)
+                _time.sleep(2.4)
                 _spotify_clear_track_repeat()
+                if _spotify_play():
+                    _set_now_playing("spotify", f"{_album} (album)")
+                    msg = f"Playing the “{_album}” album on Spotify."
+                    return {"ok": True, "action": "PLAY_MEDIA", "played": True,
+                            "kind": "album", "content": msg, "response": msg}
+                # Retry play once after album search UI settles
+                _time.sleep(1.2)
                 if _spotify_play():
                     _set_now_playing("spotify", f"{_album} (album)")
                     msg = f"Playing the “{_album}” album on Spotify."
