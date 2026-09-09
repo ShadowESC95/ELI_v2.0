@@ -129,7 +129,7 @@ def detect_nvidia_gpus() -> List[GPUInfo]:
             idx, name, total, free = [x.strip() for x in line.split(",")[:4]]
             out.append(GPUInfo(int(idx), name, "nvidia", int(total), int(free)))
     except Exception:
-        pass  # nvidia-smi absent or unreadable — normal on iGPU/AMD/CPU machines
+        log.debug("nvidia-smi probe unavailable (expected on non-NVIDIA hosts)")
     return out
 
 
@@ -161,7 +161,7 @@ def detect_other_gpus() -> List[GPUInfo]:
                 amd_total += _tot // (1024 * 1024)
                 amd_free += max(0, _tot - _used) // (1024 * 1024)
     except Exception:
-        pass  # rocm-smi absent — normal on non-AMD machines
+        log.debug("rocm-smi probe unavailable (expected on non-AMD hosts)")
     try:
         raw = run(["lspci"])
         for i, line in enumerate(raw.splitlines()):
