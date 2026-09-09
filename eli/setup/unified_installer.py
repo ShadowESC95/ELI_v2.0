@@ -46,6 +46,9 @@ from eli.setup.status import (
     venv_python,
 )
 from eli.setup.wizard import _SetupWorker, _WIZARD_QSS
+from eli.utils.log import get_logger
+
+log = get_logger(__name__)
 
 try:
     from PySide6.QtWidgets import QGraphicsOpacityEffect
@@ -534,7 +537,7 @@ def ensure_qt_for_installer() -> bool:
         from eli.gui.qt_compat import QApplication  # noqa: F401
         return True
     except Exception:
-        pass
+        log.debug("Qt import unavailable before bootstrap install", exc_info=True)
     import shutil
     import subprocess as _sp
     py = shutil.which("python3") or shutil.which("python")

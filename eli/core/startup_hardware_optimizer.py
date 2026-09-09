@@ -144,11 +144,15 @@ def detect_other_gpus() -> List[GPUInfo]:
             for k, v in _i.items():
                 kl = str(k).lower()
                 if "vram" in kl and "total" in kl and "memory" in kl and "used" not in kl:
-                    try: _tot = int(v)
-                    except Exception: pass
+                    try:
+                        _tot = int(v)
+                    except Exception:
+                        log.debug("rocm-smi VRAM total parse failed for %r", k, exc_info=True)
                 elif "vram" in kl and "used" in kl and "memory" in kl:
-                    try: _used = int(v)
-                    except Exception: pass
+                    try:
+                        _used = int(v)
+                    except Exception:
+                        log.debug("rocm-smi VRAM used parse failed for %r", k, exc_info=True)
             if _tot > 0:
                 amd_total += _tot // (1024 * 1024)
                 amd_free += max(0, _tot - _used) // (1024 * 1024)
