@@ -1248,6 +1248,7 @@ def smart_fit_config(
         return gpu_model + kv + compute + _CUDA_OVERHEAD_MB
 
     ctx = max(min_ctx, int(user_ctx))
+    _target_ctx = int(ctx)
     batch = max(min_batch, int(user_batch))
     layers = total  # start fully offloaded
 
@@ -1283,12 +1284,11 @@ def smart_fit_config(
     while layers < total and _needed(ctx, layers + 1, batch) <= budget:
         layers += 1
 
-    # Step 3 can shed every layer to preserve a large ctx, then step 4 stops as soon
-    # as CPU-only (0 layers) fits — leaving partial offload on the table. Integrated
-    # GPUs (~1.4GB shared) hit this often: ctx=6144 + 0 layers fits, but ctx=2048 +
-    # 8 layers also fits and is what the operator expects to see. Re-probe from the
-    # minimum ctx/batch floor when we ended CPU-only despite a non-zero budget.
-    if layers <= 0 and budget > 0:
+    # When ctx had to be reduced (step 4) and we still ended CPU-only, re-probe at
+    # min_ctx/min_batch for partial offload. Do NOT collapse ctx when CPU-only already
+    # fits at the user's requested window — that trade (16384 ctx + 0 layers) is
+    # intentional ("ctx last, quality over speed").
+    if layers <= 0 and budget > 0 and ctx < _target_ctx:
         probe_layers = 0
         while probe_layers < total and _needed(min_ctx, probe_layers + 1, min_batch) <= budget:
             probe_layers += 1
