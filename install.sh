@@ -199,7 +199,7 @@ fi
 if [ "$HAS_NVIDIA" -eq 0 ] && [ "$OS" != "Darwin" ]; then
     if command -v rocminfo &>/dev/null || command -v rocm-smi &>/dev/null || [ -e /dev/kfd ]; then
         _AGPU="$(rocm-smi --showproductname 2>/dev/null | grep -m1 -iE 'series|card' | sed 's/.*: *//' || true)"
-        [ -z "$_AGPU" ] && _AGPU="$(lspci 2>/dev/null | grep -iE 'vga|display|3d' | grep -iE 'amd|radeon|advanced micro' | head -1 | sed 's/.*: //')"
+        [ -z "$_AGPU" ] && _AGPU="$(lspci 2>/dev/null | grep -iE 'vga|display|3d' | grep -iE 'amd|radeon|advanced micro' | head -1 | sed 's/.*: //' || true)"
         ok "GPU         ${B}${GRN}AMD ROCm${R}  ${D}${_AGPU:-detected}${R}"
         HAS_AMD=1
     fi
@@ -213,7 +213,8 @@ if [ "$HAS_NVIDIA" -eq 0 ] && [ "$HAS_AMD" -eq 0 ] && [ "$OS" != "Darwin" ]; the
         [ "$(cat "$_drm" 2>/dev/null | tr 'A-F' 'a-f')" = "0x8086" ] || continue
         _pci="$(readlink -f "$(dirname "$_drm")" 2>/dev/null | xargs basename 2>/dev/null || true)"
         if [ -n "$_pci" ] && command -v lspci &>/dev/null; then
-            _INTEL_NAME="$(lspci -s "$_pci" -nn 2>/dev/null | sed 's/^[^:]*: //' | head -1)"
+            # pipefail + set -e: lspci exits 1 when the slot is unknown — must not abort install
+            _INTEL_NAME="$(lspci -s "$_pci" -nn 2>/dev/null | sed 's/^[^:]*: //' | head -1 || true)"
         fi
         [ -n "$_INTEL_NAME" ] && break
     done

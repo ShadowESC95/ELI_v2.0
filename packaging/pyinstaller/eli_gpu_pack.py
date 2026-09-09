@@ -607,7 +607,8 @@ def _install(argv: list[str] | None = None) -> int:
     # VERIFY before activation — a pack that cannot load must never be able
     # to brick the app (activation requires the .gpu_pack_ok marker).
     _say("verifying the GPU pack loads on this machine…")
-    ok, detail = _verify(dest)
+    relax_offload = backend == "vulkan" and _intel_integrated_gpu()
+    ok, detail = _verify(dest, require_offload=not relax_offload)
     if not ok:
         shutil.rmtree(dest, ignore_errors=True)
         _no_offload = "gpu-pack-verify-no-offload" in (detail or "")
@@ -690,7 +691,16 @@ def _vendor_cuda_runtime(libdir: Path, tmp: Path, cuda_idx: str = "cu124") -> No
                         shutil.copyfileobj(src, dst)
 
 
-def _verify(dest: Path) -> tuple[bool, str]:
+def _intel_integrated_gpu() -> bool:
+    try:
+        from eli.core.hardware_profile import detect_hardware
+        hw = detect_hardware()
+        return bool(getattr(hw, "gpu_integrated", False))
+    except Exception:
+        return False
+
+
+def _verify(dest: Path, *, require_offload: bool = True) -> tuple[bool, str]:
     """Import llama_cpp from the pack in a throwaway ELI subprocess."""
     # Self-contained probe (no eli_gpu_pack import — must also work when the
     # verifier runs outside the frozen bundle, e.g. in tests).
@@ -738,7 +748,7 @@ def _verify(dest: Path) -> tuple[bool, str]:
         "import llama_cpp\n"
         "from llama_cpp import llama_cpp as _lc\n"
         "_lc.llama_backend_init()\n"
-        "if not llama_cpp.llama_supports_gpu_offload():\n"
+        f"if {require_offload!r} and not llama_cpp.llama_supports_gpu_offload():\n"
         "    print('gpu-pack-verify-no-offload'); raise SystemExit(2)\n"
         "print('gpu-pack-verify-ok', llama_cpp.__version__)\n"
     )

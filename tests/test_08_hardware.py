@@ -16,7 +16,11 @@ def test_detect_hardware_no_gpu(mock_subprocess):
     # driver (the driver-loaded fallback must also see nothing). Otherwise this
     # test detects the real GPU on a developer's NVIDIA box via /proc//sys.
     import eli.core.hardware_profile as hp
-    with patch.object(hp, "_nvidia_driver_loaded", return_value=False):
+    with patch.object(hp, "_nvidia_driver_loaded", return_value=False), \
+         patch.object(hp, "nvidia_smi_path", lambda: None), \
+         patch.object(hp, "_windows_gpus", lambda: []), \
+         patch.object(hp, "_macos_gpus", lambda: []), \
+         patch.object(hp, "_linux_intel_display_adapters", lambda: []):
         hw = detect_hardware()
     assert hw.has_gpu is False
 

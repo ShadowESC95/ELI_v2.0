@@ -244,11 +244,10 @@ class CapabilitySync:
     def _state_dir(self) -> Path:
         """Writable dir for runtime capability state (never the read-only bundle)."""
         try:
-            from eli.core.paths import data_dir, is_frozen
-            if is_frozen():
-                p = data_dir() / "runtime"
-                p.mkdir(parents=True, exist_ok=True)
-                return p
+            from eli.core.paths import data_dir
+            p = data_dir() / "runtime"
+            p.mkdir(parents=True, exist_ok=True)
+            return p
         except Exception:
             log.debug("suppressed exception", exc_info=True)
         return self.repo_root
