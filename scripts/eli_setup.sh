@@ -12,6 +12,8 @@ export ELI_CONFIG_DIR="${ELI_CONFIG_DIR:-$ROOT/config}"
 export ELI_MODELS_DIR="${ELI_MODELS_DIR:-$ROOT/models}"
 export ELI_CACHE_DIR="${ELI_CACHE_DIR:-$ROOT/cache}"
 export PYTHONPATH="$ROOT${PYTHONPATH:+:$PYTHONPATH}"
+# GNOME/KDE often set QT_STYLE_OVERRIDE=adwaita — PySide6 only ships Fusion/Windows.
+unset QT_STYLE_OVERRIDE 2>/dev/null || true
 
 cd "$ROOT"
 
@@ -31,23 +33,31 @@ _try_gui_installer() {
   local _py=""
   local _log="$ROOT/artifacts/setup_gui.log"
   mkdir -p "$ROOT/artifacts"
-  for _py in python3 python; do
-    if command -v "$_py" >/dev/null 2>&1; then
-      if "$_py" -c "import sys; sys.exit(0 if sys.version_info[:2] >= (3,10) else 1)" 2>/dev/null; then
-        if ! "$_py" -c "from eli.gui.qt_compat import QApplication" 2>/dev/null; then
-          "$_py" -m pip install --user 'PySide6>=6.6.0' >>"$ROOT/artifacts/setup_gui_fallback.log" 2>&1 || true
-        fi
-        if [ -t 1 ]; then
-          echo "  [setup] GUI installer running — live output below (also saved to $_log)"
-          if "$_py" -m eli.setup --full-install --launch 2>&1 | tee -a "$_log"; then
-            return 0
-          fi
-        elif "$_py" -m eli.setup --full-install --launch >>"$_log" 2>&1; then
-          return 0
-        fi
-      fi
+  # One interpreter only — never retry python3 then python (that booted ELI twice).
+  if [ -x "$PY" ]; then
+    _py="$PY"
+  elif command -v python3 >/dev/null 2>&1; then
+    _py="python3"
+  else
+    return 1
+  fi
+  if ! "$_py" -c "import sys; sys.exit(0 if sys.version_info[:2] >= (3,10) else 1)" 2>/dev/null; then
+    return 1
+  fi
+  if ! "$_py" -c "from eli.gui.qt_compat import QApplication" 2>/dev/null; then
+    "$_py" -m pip install --user 'PySide6>=6.6.0' >>"$ROOT/artifacts/setup_gui_fallback.log" 2>&1 || true
+  fi
+  if [ -t 1 ]; then
+    echo "  [setup] GUI installer running — live output below (also saved to $_log)"
+    echo "  [setup] Install only — launch afterward with: bash \"$ROOT/RUN_ELI.sh\""
+    if "$_py" -m eli.setup --full-install 2>&1 | tee -a "$_log"; then
+      echo ""
+      echo "  [OK] Setup complete. Launch ELI with: bash \"$ROOT/RUN_ELI.sh\""
+      return 0
     fi
-  done
+  elif "$_py" -m eli.setup --full-install >>"$_log" 2>&1; then
+    return 0
+  fi
   return 1
 }
 
@@ -83,4 +93,5 @@ if [ ! -x "$PY" ]; then
   exit 1
 fi
 
-exec "$PY" -m eli.setup --run-remaining --launch
+echo "  [OK] Launch ELI with: bash \"$ROOT/RUN_ELI.sh\""
+exec "$PY" -m eli.setup --run-remaining

@@ -429,10 +429,22 @@ class UnifiedInstallWizard(QDialog):
             os.pathsep + env["PYTHONPATH"] if env.get("PYTHONPATH") else ""
         )
         mod = self._platform.launch_command[-1] if self._headless_only else "eli"
-        if self._headless_only:
-            subprocess.Popen([str(py), "-m", mod], cwd=str(self._root), env=env)
-        else:
-            subprocess.Popen([str(py), "-m", "eli"], cwd=str(self._root), env=env)
+        log_dir = self._root / "artifacts" / "startup" / "logs"
+        log_dir.mkdir(parents=True, exist_ok=True)
+        log_path = log_dir / "eli_setup_launch.log"
+        # Detach from the installing terminal — shared stdin/stdout caused the
+        # shell to hang after GUI close and made setup look like it launched ELI
+        # multiple times when output was tee'd through the installer.
+        with open(log_path, "a", encoding="utf-8") as log_fh:
+            subprocess.Popen(
+                [str(py), "-m", mod],
+                cwd=str(self._root),
+                env=env,
+                stdin=subprocess.DEVNULL,
+                stdout=log_fh,
+                stderr=subprocess.STDOUT,
+                start_new_session=True,
+            )
         self.accept()
 
 
@@ -514,13 +526,24 @@ def run_terminal_headless_installer(*, launch_after: bool = False) -> int:
     if launch_after:
         py = venv_python()
         if py.exists():
-            print(f"     Launch: {py} -m {info.launch_command[-1]}")
+            print(f"     Launch: bash \"{root / 'RUN_ELI.sh'}\"")
             env = os.environ.copy()
             env["ELI_PROJECT_ROOT"] = str(root)
             env["PYTHONPATH"] = str(root) + (
                 os.pathsep + env["PYTHONPATH"] if env.get("PYTHONPATH") else ""
             )
-            subprocess.Popen([str(py), "-m", info.launch_command[-1]], cwd=str(root), env=env)
+            log_dir = root / "artifacts" / "startup" / "logs"
+            log_dir.mkdir(parents=True, exist_ok=True)
+            with open(log_dir / "eli_setup_launch.log", "a", encoding="utf-8") as log_fh:
+                subprocess.Popen(
+                    [str(py), "-m", info.launch_command[-1]],
+                    cwd=str(root),
+                    env=env,
+                    stdin=subprocess.DEVNULL,
+                    stdout=log_fh,
+                    stderr=subprocess.STDOUT,
+                    start_new_session=True,
+                )
     else:
         py = venv_python()
         print(f"     Run headless: {py} -m eli.cli.headless")

@@ -1075,12 +1075,14 @@ class LocalModelManager:
             # laptops — they block for minutes per reply (observed on Iris Xe).
             if gpu_offload_supported is False:
                 _cpu_cap_ctx = None
-                if _hw_profile_ctx is not None:
-                    _cpu_cap_ctx = int(_hw_profile_ctx)
-                elif _sf_ctx is not None:
+                # Smart-fit measures free RAM/VRAM NOW — prefer it over a static
+                # hw-profile file (4096) that ignored embedder/vision preload.
+                if _sf_ctx is not None:
                     _cpu_cap_ctx = int(_sf_ctx)
+                elif _hw_profile_ctx is not None:
+                    _cpu_cap_ctx = int(_hw_profile_ctx)
                 elif getattr(self, "gpu_integrated", False):
-                    _cpu_cap_ctx = 8192
+                    _cpu_cap_ctx = 2048
                 if _cpu_cap_ctx is not None and int(_base_ctx) > int(_cpu_cap_ctx):
                     log.debug(
                         f"[GUI][CPU] GPU backend unavailable — preferring measured "
@@ -12513,6 +12515,14 @@ class EliMainWindow(QMainWindow):
 
         try:
             self._cancel_stream_requested = True
+        except Exception:
+            log.debug("suppressed exception", exc_info=True)
+
+        # Abort in-flight generation before CognitiveEngine.shutdown() — otherwise
+        # session-summary LLM work deadlocks on the broker lock (15+ min on CPU).
+        try:
+            from eli.cognition import gguf_inference as _ggi_close
+            _ggi_close.signal_shutdown()
         except Exception:
             log.debug("suppressed exception", exc_info=True)
 

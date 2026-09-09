@@ -1086,6 +1086,12 @@ def _llm_summarise_session(transcript: str, broker: Any = None) -> str:
             "'none'.\n\n"
             f"TRANSCRIPT:\n{transcript}"
         )
+        try:
+            from eli.cognition import gguf_inference as _gi_sum
+            if _gi_sum.is_shutting_down():
+                return ""
+        except Exception:
+            log.debug("suppressed exception", exc_info=True)
         out = (broker.infer(prompt, system=system, max_tokens=420,
                             temperature=0.3) or "").strip()
         # Reject degenerate output (a lone '-', whitespace, no letters).

@@ -4345,9 +4345,19 @@ class CognitiveEngine:
         except Exception as _eng_err:
             log.debug(f"[COGNITIVE] Shutdown: engagement flush failed (non-fatal): {_eng_err}")
 
+        # 3.4 Abort in-flight generation FIRST. closeEvent can arrive while a slow
+        # CPU/iGPU stream still holds the broker lock; running session-summary LLM
+        # work before abort deadlocked shutdown for 15+ minutes (Ctrl+C in closeEvent).
+        try:
+            from eli.cognition import gguf_inference as _ggi_sd
+            _ggi_sd.signal_shutdown()
+            log.debug("[COGNITIVE] Shutdown: inference abort signalled")
+        except Exception as _sd_err:
+            log.debug(f"[COGNITIVE] Shutdown: inference abort signal failed (non-fatal): {_sd_err}")
+
         # 3.5 In-depth, LLM-generated end-of-session summary → session_summaries.
-        # Must run BEFORE signal_shutdown(): aborting inference first made the
-        # summary LLM return empty (llm=False) even when the model was loaded.
+        # Runs after abort so the lock is free; if the model is still busy, the
+        # extractor falls back to heuristic text instead of blocking teardown.
         try:
             from eli.runtime.profile_extractor import write_llm_session_summary
             _ss = write_llm_session_summary(
@@ -4359,18 +4369,6 @@ class CognitiveEngine:
                           f"(llm={_ss.get('llm')}, turns={_ss.get('turns_count')})")
         except Exception as _ss_err:
             log.debug(f"[COGNITIVE] Shutdown: session summary failed (non-fatal): {_ss_err}")
-
-        # 4. Signal shutdown to the inference layer. A background self-improvement
-        # /codegen call can be mid-flight in a single 10+ minute native llm() call holding
-        # the shared lock; the OS can't kill it, so unload_model would block for
-        # 20-30 minutes. This makes any in-flight generation yield at the next token and
-        # short-circuits new background calls, so teardown proceeds immediately.
-        try:
-            from eli.cognition import gguf_inference as _ggi_sd
-            _ggi_sd.signal_shutdown()
-            log.debug("[COGNITIVE] Shutdown: inference abort signalled")
-        except Exception as _sd_err:
-            log.debug(f"[COGNITIVE] Shutdown: inference abort signal failed (non-fatal): {_sd_err}")
 
         # Steps 4-8 touch process-global singletons (memory store, vector
         # embedder, GGUF model). Run them AT MOST ONCE per process — a second
@@ -14872,6 +14870,19 @@ Answer:"""
                     continue
 
             if situation_brief:
+                # CPU-only / iGPU-without-offload: keep phatic prompts tiny — a 3k+
+                # token eval on CPU made "hello" take 15+ minutes on Iris Xe.
+                if _phatic_stream:
+                    try:
+                        from eli.cognition import gguf_inference as _gi_ph
+                        _lp = getattr(_gi_ph, "_live_runtime_params", None) or {}
+                        _eff = _lp.get("effective") or _lp
+                        if int(_eff.get("n_gpu_layers", _lp.get("n_gpu_layers", 1)) or 0) <= 0:
+                            situation_brief = self._cap_text(
+                                situation_brief, 480, "phatic_handoff_cpu",
+                            )
+                    except Exception:
+                        log.debug("suppressed exception", exc_info=True)
                 log.debug(f"[COGNITIVE] Persona handoff → {len(situation_brief)} char brief")
                 log.debug(f"[PIPELINE] Stage 10: Context → {len(memory_context)}ch  Stage 10.5: Persona Handoff → {len(situation_brief)}ch")
                 _eli_pipe_stream("persona_handoff", chars=len(situation_brief))
@@ -14938,10 +14949,21 @@ Answer:"""
                 memory_chars=len(pre_built_memory_context or str()),
                 bus_result=bool(pre_built_bus_result),
             )
+            _phatic_gen: Dict[str, Any] = {}
+            if _phatic_stream:
+                try:
+                    from eli.cognition import gguf_inference as _gi_ph2
+                    _lp2 = getattr(_gi_ph2, "_live_runtime_params", None) or {}
+                    _eff2 = _lp2.get("effective") or _lp2
+                    if int(_eff2.get("n_gpu_layers", _lp2.get("n_gpu_layers", 1)) or 0) <= 0:
+                        _phatic_gen["max_tokens"] = min(96, _phatic_generation_budget())
+                except Exception:
+                    log.debug("suppressed exception", exc_info=True)
             for piece in self.generate_stream_from_assembled_prompt(
                 prompt,
                 working_memory=wm,
                 reasoning_mode=reasoning_mode,
+                gen_overrides=_phatic_gen or None,
             ):
                 full_tokens.append(piece)
                 yielded = True
