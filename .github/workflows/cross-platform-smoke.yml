@@ -145,6 +145,8 @@ jobs:
           tests/test_pyproject_packaging.py
           tests/test_device_names.py
           tests/test_install_script.py
+          tests/test_platform_profile.py
+          tests/test_intel_igpu_detection.py
           tests/test_document_formats.py
           tests/test_cross_platform_apps.py
           tests/test_gpu_detection_cross_platform.py

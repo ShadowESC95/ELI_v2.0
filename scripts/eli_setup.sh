@@ -15,6 +15,11 @@ export PYTHONPATH="$ROOT${PYTHONPATH:+:$PYTHONPATH}"
 
 cd "$ROOT"
 
+# Android / Termux — unified installer routes to headless profile (install_android.sh).
+if python3 -c "from eli.setup.platform_profile import is_android_headless; import sys; sys.exit(0 if is_android_headless() else 1)" 2>/dev/null; then
+  exec python3 -m eli.setup --full-install --launch
+fi
+
 _gui_available() {
   if [ -n "${DISPLAY:-}${WAYLAND_DISPLAY:-}" ]; then
     return 0

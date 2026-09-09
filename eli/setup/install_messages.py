@@ -64,6 +64,13 @@ INSTALL_MESSAGES: Dict[str, List[str]] = {
         "All first-run stages checked. Launch when ready — the wizard will confirm.",
         "If something failed, the log below says what — no silent exceptions, no mystery.",
     ],
+    "android": [
+        "Termux detected — headless runtime only. No PySide6 circus, no CUDA cosplay.",
+        "Android profile skips desktop GUI, voice packs, and global screen control.",
+        "CPU llama-cpp builds from source here — grab a coffee, clang is doing honest work.",
+        "Use a small model (qwen2.5-3b class). Your phone is brave, not infinite.",
+        "Run with: python -m eli.cli.headless — local AI in your pocket, offline.",
+    ],
     "witty": [
         "Still here? Good. Abandoned installers are how projects die.",
         "ELI does not confabulate your shower habits. That was a bug, not a feature.",

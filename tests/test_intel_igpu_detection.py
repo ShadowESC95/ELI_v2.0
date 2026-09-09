@@ -78,3 +78,46 @@ def test_install_script_reports_intel_integrated():
     assert "HAS_INTEL_IGPU" in text
     assert "Intel integrated" in text
     assert "GGML_VULKAN=on" in text
+
+
+def test_qualcomm_integrated_profile_fields():
+    hw = hp.HardwareProfile(ram_gb=32.0, available_ram_gb=24.0)
+    hp._apply_integrated_gpu_profile(hw, "Qualcomm Adreno X1-85 GPU", "qualcomm")
+    assert hw.has_gpu is True
+    assert hw.gpu_vendor == "qualcomm"
+    assert hw.gpu_integrated is True
+    assert hw.free_vram_mb > 0
+
+
+def test_qualcomm_name_heuristics():
+    assert hp._is_integrated_gpu_name("Qualcomm Adreno X1-85 GPU", "qualcomm") is True
+    assert "Adreno" in hp.integrated_gpu_label("Qualcomm Adreno X1-85 GPU", "qualcomm")
+    assert hp.format_gpu_layers_status(
+        0, fitted_layers=8, gpu_integrated=True,
+        gpu_name="Qualcomm Adreno X1-85 GPU", gpu_vendor="qualcomm",
+    ).endswith("fit, CPU active)")
+
+
+def test_detect_hardware_falls_back_to_qualcomm_adreno(monkeypatch):
+    monkeypatch.setattr(hp, "nvidia_smi_path", lambda: None)
+    monkeypatch.setattr(hp, "_nvidia_driver_loaded", lambda: False)
+    monkeypatch.setattr(hp, "_windows_gpus", lambda: [])
+    monkeypatch.setattr(hp, "_macos_gpus", lambda: [])
+    monkeypatch.setattr(hp, "_linux_intel_display_adapters", lambda: [])
+    monkeypatch.setattr(
+        hp,
+        "_linux_qualcomm_display_adapters",
+        lambda: ["Qualcomm Adreno X1-85 GPU"],
+    )
+
+    hw = hp.detect_hardware()
+    assert hw.has_gpu is True
+    assert hw.gpu_integrated is True
+    assert hw.gpu_vendor == "qualcomm"
+    assert "adreno" in hw.gpu_name.lower()
+
+
+def test_install_script_reports_qualcomm_integrated():
+    text = Path("install.sh").read_text(encoding="utf-8")
+    assert "HAS_QUALCOMM_IGPU" in text
+    assert "Qualcomm Adreno" in text

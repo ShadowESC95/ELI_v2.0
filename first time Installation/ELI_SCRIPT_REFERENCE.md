@@ -1,6 +1,6 @@
 # ELI v2 Script & Setup Reference
 
-**Version:** 2.3.96 (unified GUI installer, integrated GPU layer display)  
+**Version:** 2.3.97 (platform matrix, Android headless profile, WoA arm64 scoping)  
 **Repository:** ELI_MKXI / ELI v2.0  
 **Last updated:** September 2026
 
@@ -22,6 +22,14 @@ ELI v2 is **local-first, offline-by-default**. A fresh install creates a project
 | **Windows one-click** | Windows | `ELI_Setup.bat` (in release zip) | Tries GUI installer; falls back to `install.ps1 -Yes -AutoModel`, then `--run-remaining --launch`. |
 | **Grandparent / AppImage** | Linux x86_64 | `ELI_v2-*-x86_64.AppImage` | First double-click copies to `~/.local/share/ELI_v2`, runs setup once, then launches. |
 | **Developer checkout** | Linux/macOS | `bash install.sh` | Full-featured installer with hardware report, interactive model choice, GPU/CUDA/ROCm/Vulkan paths. |
+| **Android / Termux (headless)** | Android arm64 | `bash scripts/install_android.sh` or `python -m eli.setup --full-install` | Detected automatically as **headless-only profile** — CPU llama-cpp, `requirements-android.txt`, no PySide6/GUI/CUDA. Launch: `python -m eli.cli.headless`. |
+| **Windows on ARM (WoA)** | Windows arm64 | `ELI_v2-*-windows-arm64-portable.zip` (experimental) | Same unified installer entry (`ELI_Setup.bat` / `python -m eli.setup --full-install`). CPU build default; Adreno Vulkan experimental; batch ≤ 32. |
+
+### v2.3.97 highlights
+
+- **Platform matrix** (§1.1): single reference for GPU detection, installer path, release artifact, and known limits per OS.
+- **Android headless profile** (`eli.setup.platform_profile`): unified installer routes Termux to `scripts/install_android.sh` with terminal progress UI.
+- **WoA arm64 release scoping** (`build_packages.sh`): `windows-arm64-lean`, `windows-arm64`, `wheelhouse-arm64` targets for Snapdragon laptops.
 
 ### v2.3.96 highlights
 
@@ -34,6 +42,54 @@ After install, daily use:
 - **Desktop GUI:** `./scripts/eli_launch.sh` or `./eli.sh`
 - **Web/phone server:** `./scripts/eli_launch.sh serve --lan --https`
 - **Terminal command:** `eli` (after `scripts/install_eli_command.sh`)
+- **Android headless:** `.venv/bin/python -m eli.cli.headless`
+
+---
+
+## 1.1 Platform Support Matrix
+
+Authoritative map of what ELI v2 supports today on each host class. Use this when triaging field reports (“0 GPU layers”, “install aborted”, “wrong installer”).
+
+| Platform | CPU arch | Install profile | Entry command | GPU / inference | Layer display | Release artifact |
+|----------|----------|-----------------|---------------|-----------------|---------------|------------------|
+| **Linux desktop** | x86_64, arm64 | `desktop` | `scripts/eli_setup.sh` → unified GUI | NVIDIA CUDA, AMD ROCm/Vulkan, Intel iGPU Vulkan, Qualcomm Adreno Vulkan (Linux ARM) | Shared-memory fit for iGPU/APU/Adreno | `ELI_v2-*-x86_64.AppImage`, `.deb`, portable tar |
+| **macOS Apple Silicon** | arm64 | `desktop` | `bash install.sh` (Metal auto) | Apple Metal / unified memory | “Apple unified memory” label | `ELI_v2-*-macos-arm64.dmg` |
+| **macOS Intel** | x86_64 | `desktop` | `bash install.sh` | CPU; discrete AMD/NVIDIA partial via `_macos_gpus()` | Discrete VRAM when reported | Build on Mac host (`build_packages.sh macos`) |
+| **Windows x64** | x86_64 | `desktop` | `ELI_Setup.bat` / `install.ps1` | CUDA when NVIDIA + wheel available; AMD/Intel → CPU or manual Vulkan build | Registry/CIM GPU names | `ELI_v2-*-windows-portable.zip`, `-Setup.exe` |
+| **Windows on ARM (WoA)** | arm64 | `windows_woa` | Same as Windows; lean arm64 zip | **No CUDA wheels** on arm64; Qualcomm Adreno unified memory; Vulkan experimental | “Snapdragon Adreno” + batch ≤ 32 | `ELI_v2-*-windows-arm64-portable.zip` (**experimental**, `build_packages.sh windows-arm64-lean`) |
+| **Qualcomm Snapdragon laptop** | arm64 | `windows_woa` or Linux ARM | Per OS row above | Adreno via Vulkan (llama.cpp); **not** Hexagon NPU/QNN | Shared RAM budget, integrated flag | WoA zip or Linux source install |
+| **Intel Iris Xe / UHD** | x86_64 | `desktop` | `install.sh` | Vulkan offload optional; CPU reliable | “Intel Iris Xe” / fit count, not 0 | Any desktop release |
+| **AMD APU** | x86_64 | `desktop` | `install.sh` | ROCm if `/dev/kfd`, else Vulkan via amdgpu | “AMD APU” shared-memory fit | Any desktop release |
+| **Android / Termux** | arm64 | `android` (headless) | `python -m eli.setup --full-install` or `scripts/install_android.sh` | **CPU only** — source-build llama-cpp | N/A (no GPU layers) | No store bundle; clone + Termux script |
+| **Raspberry Pi / SBC** | arm64 | `desktop` (CPU) | `bash install.sh --cpu-only` | CPU only unless vendor adds detection | CPU-only | No dedicated Pi artifact |
+| **Hexagon NPU / QNN** | any | — | — | **Not supported** in ELI GGUF stack | — | Requires separate Qualcomm SDK path |
+
+### Profile routing (`eli.setup.platform_profile`)
+
+| `InstallProfile` | Detected when | Installer script | GUI wizard | Post-install launch |
+|------------------|---------------|------------------|------------|---------------------|
+| `desktop` | Default Linux/macOS/Windows x64 | `install.sh` / `install.ps1` | Yes (Qt) | `python -m eli` |
+| `android` | Termux / `platform_compat.is_android()` | `scripts/install_android.sh` | Terminal progress only | `python -m eli.cli.headless` |
+| `windows_woa` | `win32` + `platform.machine()` arm64 | `install.ps1` | Yes (Qt) when display available | `python -m eli` |
+
+Detection module: `eli/setup/platform_profile.py`. Backend command resolution: `eli/setup/install_backend.py` → `install_script_for_profile()`.
+
+### WoA / arm64 release build targets
+
+```bash
+bash build_packages.sh windows-arm64-lean      # source + wheel, online pip (recommended)
+bash build_packages.sh wheelhouse-arm64        # prefetch win_arm64 wheels (gaps logged)
+bash build_packages.sh windows-arm64           # full offline zip (experimental)
+```
+
+**CI note:** v2.3.97 scopes artifacts locally; add a `windows-2022-arm64` job to `.github/workflows/release.yml` to publish WoA zips on tag push.
+
+### Explicitly out of scope (today)
+
+- Qualcomm **Hexagon NPU** via QNN/QAIRT (not llama.cpp GGUF)
+- Google TPU, Apple Neural Engine, Intel NPU as inference backends
+- Full **PySide6 desktop GUI** on Android (headless by design)
+- Prebuilt **CUDA** on Windows arm64 or Android
 
 ---
 
@@ -41,7 +97,11 @@ After install, daily use:
 
 ```mermaid
 flowchart TD
-    A[New user — choose platform] --> B{Has graphical desktop?}
+    A[New user — choose platform] --> A1{Android / Termux?}
+    A1 -->|Yes| A2[python -m eli.setup --full-install]
+    A2 --> A3[Headless profile → install_android.sh]
+    A3 --> A4[python -m eli.cli.headless]
+    A1 -->|No| B{Has graphical desktop?}
     B -->|Yes| C[Run scripts/eli_setup.sh or ELI Setup icon]
     B -->|No / SSH| D[bash install.sh --yes --auto-model]
     C --> E{Qt / PySide6 available?}
@@ -357,6 +417,8 @@ Build wheel/sdist via `python -m build`.
 ### `scripts/install_android.sh`
 
 Termux headless install: pkg deps, CPU llama-cpp source build, `requirements-android.txt`, no GUI/CUDA.
+
+Also invoked automatically when `eli.setup.platform_profile` detects Android (`python -m eli.setup --full-install`). Emits `[ELI-PROGRESS]` markers for the unified installer's terminal UI.
 
 ---
 

@@ -217,9 +217,23 @@ def test_install_backend_parses_progress_lines():
 
 def test_install_messages_have_all_phases():
     from eli.setup.install_messages import INSTALL_MESSAGES, messages_for_phase
-    for phase in ("welcome", "system", "venv", "torch", "llama", "eli", "finish"):
+    for phase in ("welcome", "system", "venv", "torch", "llama", "eli", "finish", "android"):
         assert phase in INSTALL_MESSAGES
         assert messages_for_phase(phase)
+
+
+def test_install_backend_routes_android_profile(monkeypatch, tmp_path):
+    from eli.setup import install_backend as ib
+    script = tmp_path / "scripts" / "install_android.sh"
+    script.parent.mkdir(parents=True)
+    script.write_text("#!/bin/bash\n", encoding="utf-8")
+    monkeypatch.setattr(ib, "project_root", lambda: tmp_path)
+    monkeypatch.setattr(
+        "eli.setup.platform_profile.is_android_headless",
+        lambda: True,
+    )
+    assert ib.install_script_path() == script
+    assert ib.build_install_command()[0] == "bash"
 
 
 def test_appimage_syncs_when_bundled_version_changes():

@@ -33,6 +33,11 @@ from eli.setup.install_backend import (
     run_install_streaming,
 )
 from eli.setup.install_messages import messages_for_phase, phase_label
+from eli.setup.platform_profile import (
+    InstallProfile,
+    detect_install_profile,
+    get_platform_info,
+)
 from eli.setup.status import (
     has_chat_model,
     has_venv,
@@ -149,6 +154,8 @@ class UnifiedInstallWizard(QDialog):
         super().__init__(parent)
         self._launch_after = launch_after
         self._root = project_root()
+        self._platform = get_platform_info()
+        self._headless_only = self._platform.profile == InstallProfile.ANDROID_HEADLESS
         self._started = time.monotonic()
         self._step_labels: Dict[str, QLabel] = {}
         self._install_worker: Optional[_InstallShellWorker] = None
@@ -175,10 +182,22 @@ class UnifiedInstallWizard(QDialog):
         title.setObjectName("title")
         layout.addWidget(title)
 
-        sub = QLabel(
-            "One-click install for every platform. Backend work runs here — "
-            "no terminal juggling, no silent failures."
-        )
+        if self._headless_only:
+            sub_text = (
+                "Android / Termux — headless runtime only. No desktop GUI, no CUDA, "
+                "no global screen control. CPU inference with a small model."
+            )
+        elif self._platform.profile == InstallProfile.WINDOWS_WOA:
+            sub_text = (
+                "Windows on ARM (Snapdragon) — unified installer. Adreno GPU uses "
+                "shared memory; Vulkan offload is experimental on WoA."
+            )
+        else:
+            sub_text = (
+                "One-click install for every platform. Backend work runs here — "
+                "no terminal juggling, no silent failures."
+            )
+        sub = QLabel(sub_text)
         sub.setObjectName("subtitle")
         sub.setWordWrap(True)
         layout.addWidget(sub)
@@ -219,7 +238,9 @@ class UnifiedInstallWizard(QDialog):
         layout.addWidget(self._log)
 
         btn_row = QHBoxLayout()
-        self._launch_btn = QPushButton("Launch ELI")
+        self._launch_btn = QPushButton(
+            "Run headless CLI" if self._headless_only else "Launch ELI"
+        )
         self._launch_btn.setObjectName("primary")
         self._launch_btn.setEnabled(False)
         self._retry_btn = QPushButton("Retry install")
@@ -347,11 +368,11 @@ class UnifiedInstallWizard(QDialog):
         from eli.setup.status import has_embedder, has_voice_assets, has_desktop_launcher
         if not has_embedder():
             pending.append("embedder")
-        if not has_voice_assets():
+        if not has_voice_assets() and not self._headless_only:
             pending.append("voice")
         if not has_chat_model():
             pending.append("chat_model")
-        if not has_desktop_launcher():
+        if not has_desktop_launcher() and not self._headless_only:
             pending.append("desktop")
         return [s for s in order if s in pending]
 
@@ -402,11 +423,105 @@ class UnifiedInstallWizard(QDialog):
         env["PYTHONPATH"] = str(self._root) + (
             os.pathsep + env["PYTHONPATH"] if env.get("PYTHONPATH") else ""
         )
-        subprocess.Popen([str(py), "-m", "eli"], cwd=str(self._root), env=env)
+        mod = self._platform.launch_command[-1] if self._headless_only else "eli"
+        if self._headless_only:
+            subprocess.Popen([str(py), "-m", mod], cwd=str(self._root), env=env)
+        else:
+            subprocess.Popen([str(py), "-m", "eli"], cwd=str(self._root), env=env)
         self.accept()
 
 
+def _render_terminal_progress(prog: InstallProgress, *, width: int = 40) -> None:
+    pct = max(0, min(100, int(prog.percent or 0)))
+    filled = int(width * pct / 100)
+    bar = "#" * filled + "-" * (width - filled)
+    label = phase_label(prog.phase) if prog.phase else "Working"
+    detail = (prog.message or label).strip()
+    print(f"\r[{bar}] {pct:3d}%  {label}: {detail[:72]:<72}", end="", flush=True)
+
+
+def run_terminal_headless_installer(*, launch_after: bool = False) -> int:
+    """Android / no-display path — same backend as the GUI wizard, terminal UI."""
+    info = get_platform_info()
+    root = project_root()
+    ok, ver = python3_available()
+    if not ok:
+        print(f"[ERROR] Python 3.10+ required (detected: {ver or 'none'})")
+        return 1
+    try:
+        install_script_path(root)
+    except FileNotFoundError as exc:
+        print(f"[ERROR] {exc}")
+        return 1
+
+    print()
+    print("=" * 60)
+    print(f"  ELI v2.0 — {info.label}")
+    print("=" * 60)
+    print(f"  {info.gpu_note}")
+    print(f"  Python {ver}")
+    print()
+
+    last_phase = "welcome"
+    pool = messages_for_phase("android" if info.profile == InstallProfile.ANDROID_HEADLESS else "welcome")
+    if pool:
+        print(f"  “{pool[0]}”")
+        print()
+
+    def _on_progress(prog: InstallProgress) -> None:
+        nonlocal last_phase
+        if prog.phase:
+            last_phase = prog.phase
+        _render_terminal_progress(prog)
+
+    def _on_line(line: str) -> None:
+        if line.startswith("[ERROR]") or line.startswith("[WARN]"):
+            print()
+            print(line)
+
+    print("Starting install…")
+    try:
+        code, log_path = run_install_streaming(
+            root=root,
+            on_line=_on_line,
+            on_progress=_on_progress,
+        )
+    except Exception as exc:
+        print()
+        print(f"[ERROR] Install subprocess failed: {exc}")
+        return 1
+
+    print()
+    if code != 0:
+        print(f"[ERROR] Install failed (exit {code}). Log: {log_path}")
+        return code
+    if not has_venv():
+        print(f"[ERROR] Install reported success but .venv is missing. Log: {log_path}")
+        return 1
+
+    print("[OK] Core install complete.")
+    print(f"     Log: {log_path}")
+    if launch_after:
+        py = venv_python()
+        if py.exists():
+            print(f"     Launch: {py} -m {info.launch_command[-1]}")
+            env = os.environ.copy()
+            env["ELI_PROJECT_ROOT"] = str(root)
+            env["PYTHONPATH"] = str(root) + (
+                os.pathsep + env["PYTHONPATH"] if env.get("PYTHONPATH") else ""
+            )
+            subprocess.Popen([str(py), "-m", info.launch_command[-1]], cwd=str(root), env=env)
+    else:
+        py = venv_python()
+        print(f"     Run headless: {py} -m eli.cli.headless")
+    return 0
+
+
 def run_unified_installer(*, launch_after: bool = False) -> int:
+    profile = detect_install_profile()
+    if profile == InstallProfile.ANDROID_HEADLESS and not gui_install_available():
+        return run_terminal_headless_installer(launch_after=launch_after)
+
     app = QApplication.instance() or QApplication(sys.argv)
     dlg = UnifiedInstallWizard(launch_after=launch_after)
     dlg.run_auto()
@@ -442,6 +557,8 @@ def ensure_qt_for_installer() -> bool:
 
 def gui_install_available() -> bool:
     """True when a graphical session and Qt import are plausible."""
+    if detect_install_profile() == InstallProfile.ANDROID_HEADLESS:
+        return False
     if sys.platform == "win32":
         return ensure_qt_for_installer()
     if os.environ.get("DISPLAY") or os.environ.get("WAYLAND_DISPLAY"):

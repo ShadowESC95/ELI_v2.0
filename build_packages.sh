@@ -15,8 +15,10 @@
 #   deb      Debian .deb       (requires dpkg-deb; runs build-deb.sh)
 #   appimage Linux AppImage    (requires appimagetool; falls back to tar.gz)
 #   macos    macOS .app/.dmg   (use on macOS for the .dmg; tar.gz elsewhere)
-#   windows      Windows portable zip with offline wheelhouse (large)
-#   windows-lean Windows portable zip — source + wheel only (online pip install)
+#   windows          Windows x64 portable zip with offline wheelhouse (large)
+#   windows-lean     Windows x64 portable zip — source + wheel only (online pip install)
+#   windows-arm64        Windows on ARM (WoA/Snapdragon) full offline portable (experimental)
+#   windows-arm64-lean   Windows on ARM lean portable — source + wheel (online pip install)
 set -euo pipefail
 
 PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -36,7 +38,7 @@ fi
 
 mkdir -p "$DIST"
 
-ALL_TARGETS=("wheel" "wheelhouse" "deb" "appimage" "macos" "windows" "windows-lean")
+ALL_TARGETS=("wheel" "wheelhouse" "wheelhouse-arm64" "deb" "appimage" "macos" "windows" "windows-lean" "windows-arm64" "windows-arm64-lean")
 if [ "$#" -eq 0 ]; then
     TARGETS=("${ALL_TARGETS[@]}")
 else
@@ -57,16 +59,18 @@ build_python_artifacts() {
     fi
 }
 
-build_windows_wheelhouse() {
-    echo "[wheelhouse] Building Windows dependency wheelhouse..."
-    WHEELHOUSE="$DIST/wheelhouse"
-    WHEELHOUSE_PLATFORM="${WHEELHOUSE_PLATFORM:-win_amd64}"
-    WHEELHOUSE_PYTHON_VERSIONS="${WHEELHOUSE_PYTHON_VERSIONS:-311 312}"
-    mkdir -p "$WHEELHOUSE"
+build_windows_wheelhouse_for() {
+    local PLATFORM="${1:-win_amd64}"
+    local OUT_DIR="${2:-$DIST/wheelhouse}"
+    local MANIFEST="${3:-$DIST/WHEELHOUSE.txt}"
+    local PYVERS="${WHEELHOUSE_PYTHON_VERSIONS:-311 312}"
+    echo "[wheelhouse] Building Windows dependency wheelhouse for ${PLATFORM}…"
+    mkdir -p "$OUT_DIR"
+    local missing=0
 
-    for pyver in $WHEELHOUSE_PYTHON_VERSIONS; do
+    for pyver in $PYVERS; do
         abi="cp${pyver}"
-        echo "[wheelhouse] Target: ${WHEELHOUSE_PLATFORM} cp${pyver}"
+        echo "[wheelhouse] Target: ${PLATFORM} cp${pyver}"
         while IFS= read -r req; do
             [ -n "$req" ] || continue
             extra_download_args=()
@@ -75,8 +79,8 @@ build_windows_wheelhouse() {
                 accelerate*) extra_download_args=(--no-deps) ;;
             esac
             if ! python3 -m pip download \
-                    --dest "$WHEELHOUSE" \
-                    --platform "$WHEELHOUSE_PLATFORM" \
+                    --dest "$OUT_DIR" \
+                    --platform "$PLATFORM" \
                     --python-version "$pyver" \
                     --implementation cp \
                     --abi "$abi" \
@@ -84,7 +88,8 @@ build_windows_wheelhouse() {
                     --prefer-binary \
                     "${extra_download_args[@]}" \
                     "$req"; then
-                echo "[wheelhouse] Missing binary wheel for cp${pyver}: $req"
+                echo "[wheelhouse] Missing binary wheel for ${PLATFORM} cp${pyver}: $req"
+                missing=$((missing + 1))
             fi
         done < <(
             sed -e 's/[[:space:]]#.*$//' "$PROJECT_ROOT/requirements-windows.txt" |
@@ -92,8 +97,8 @@ build_windows_wheelhouse() {
         )
 
         if ! python3 -m pip download \
-                --dest "$WHEELHOUSE" \
-                --platform "$WHEELHOUSE_PLATFORM" \
+                --dest "$OUT_DIR" \
+                --platform "$PLATFORM" \
                 --python-version "$pyver" \
                 --implementation cp \
                 --abi "$abi" \
@@ -101,22 +106,40 @@ build_windows_wheelhouse() {
                 --prefer-binary \
                 torch \
                 --index-url https://download.pytorch.org/whl/cpu; then
-            echo "[wheelhouse] Missing CPU PyTorch wheel for cp${pyver}."
+            echo "[wheelhouse] Missing CPU PyTorch wheel for ${PLATFORM} cp${pyver}."
+            missing=$((missing + 1))
         fi
     done
 
-    echo "[wheelhouse] Building pure-Python automation wheels..."
-    if ! python3 -m pip wheel \
-            --wheel-dir "$WHEELHOUSE" \
-            "PyAutoGUI>=0.9.54"; then
-        echo "[wheelhouse] Missing pure-Python automation wheels for PyAutoGUI."
+    if [ "$PLATFORM" = "win_amd64" ]; then
+        echo "[wheelhouse] Building pure-Python automation wheels (x64)…"
+        if ! python3 -m pip wheel \
+                --wheel-dir "$OUT_DIR" \
+                "PyAutoGUI>=0.9.54"; then
+            echo "[wheelhouse] Missing pure-Python automation wheels for PyAutoGUI."
+            missing=$((missing + 1))
+        fi
+    else
+        echo "[wheelhouse] Skipping PyAutoGUI wheel build on ${PLATFORM} (desktop automation N/A on WoA)."
     fi
 
-    ( cd "$WHEELHOUSE" && ls -1 > "$DIST/WHEELHOUSE.txt" 2>/dev/null || true )
+    ( cd "$OUT_DIR" && ls -1 > "$MANIFEST" 2>/dev/null || true )
+    if [ "$missing" -gt 0 ]; then
+        echo "[wheelhouse] ${PLATFORM}: ${missing} wheel(s) missing — lean/online install may still work."
+    fi
+}
+
+build_windows_wheelhouse() {
+    build_windows_wheelhouse_for "win_amd64" "$DIST/wheelhouse" "$DIST/WHEELHOUSE.txt"
+}
+
+build_windows_arm64_wheelhouse() {
+    build_windows_wheelhouse_for "win_arm64" "$DIST/wheelhouse-arm64" "$DIST/WHEELHOUSE-arm64.txt"
 }
 
 _stage_windows_common() {
     local STAGING="$1"
+    local ARCH_LABEL="${3:-x64}"
     rm -rf "$STAGING"
     mkdir -p "$STAGING/dist"
     (cd "$PROJECT_ROOT" && git archive --format=tar HEAD -- ':!:models/**' ':!:tts_piper/**') | tar -xf - -C "$STAGING"
@@ -148,7 +171,7 @@ python -m eli.setup --run-remaining --launch
 pause
 BAT_EOF
     cat > "$STAGING/README_INSTALL.txt" <<EOF
-ELI v2 — Windows portable (${2:-lean})
+ELI v2 — Windows ${ARCH_LABEL} portable (${2:-lean})
 
 1. Extract this folder
 2. Run install.bat  (or: powershell -ExecutionPolicy Bypass -File install.ps1)
@@ -156,6 +179,15 @@ ELI v2 — Windows portable (${2:-lean})
 
 Model pack: GitHub release tag local-assets-v2.1 or python scripts/restore_github_asset_files.py
 EOF
+    if [ "$ARCH_LABEL" = "arm64" ]; then
+        cat >> "$STAGING/README_INSTALL.txt" <<'WOA_EOF'
+
+Windows on ARM (Snapdragon / WoA) notes:
+- Prebuilt CUDA wheels are not published for arm64 — ELI uses CPU or experimental Vulkan.
+- Qualcomm Adreno uses unified memory; keep batch_size <= 32 if using Vulkan offload.
+- Full offline wheelhouse may be incomplete; lean + online pip install is the supported path.
+WOA_EOF
+    fi
 
     # cmd.exe's goto-label lookup fails intermittently on LF-only .bat (byte-offset
     # dependent), so force CRLF on every Windows script in the staged package.
@@ -231,6 +263,10 @@ for target in "${TARGETS[@]}"; do
             echo ""
             build_windows_wheelhouse
             ;;
+        wheelhouse-arm64)
+            echo ""
+            build_windows_arm64_wheelhouse
+            ;;
         deb)
             echo ""
             if [ -f "$PROJECT_ROOT/packaging/debian/build-deb.sh" ]; then
@@ -266,11 +302,48 @@ for target in "${TARGETS[@]}"; do
                 build_python_artifacts
             fi
             STAGING="$PROJECT_ROOT/build/win-portable/ELI_v2-${VERSION}-windows-portable"
-            _stage_windows_common "$STAGING" "lean"
+            _stage_windows_common "$STAGING" "lean" "x64"
             ZIP="$DIST/ELI_v2-${VERSION}-windows-portable.zip"
             rm -f "$ZIP"
             ( cd "$(dirname "$STAGING")" && zip -r -q "$ZIP" "$(basename "$STAGING")" )
             echo "[windows-lean] Portable zip: $ZIP"
+            ;;
+        windows-arm64-lean)
+            echo ""
+            echo "[windows-arm64-lean] Producing WoA lean portable zip (source + wheel, experimental)…"
+            if ! ls "$DIST"/eli_v2_0-*.whl >/dev/null 2>&1; then
+                build_python_artifacts
+            fi
+            STAGING="$PROJECT_ROOT/build/win-portable/ELI_v2-${VERSION}-windows-arm64-portable"
+            _stage_windows_common "$STAGING" "lean WoA" "arm64"
+            ZIP="$DIST/ELI_v2-${VERSION}-windows-arm64-portable.zip"
+            rm -f "$ZIP"
+            ( cd "$(dirname "$STAGING")" && zip -r -q "$ZIP" "$(basename "$STAGING")" )
+            echo "[windows-arm64-lean] Portable zip: $ZIP"
+            echo "[windows-arm64-lean] CI note: add a windows-2022-arm64 release job to publish this artifact."
+            ;;
+        windows-arm64)
+            echo ""
+            if [ "$(uname -s)" = "Darwin" ] || [ "$(uname -s)" = "Linux" ]; then
+                echo "[windows-arm64] Producing WoA full offline portable zip on $(uname -s)…"
+                if ! ls "$DIST"/eli_v2_0-*.whl >/dev/null 2>&1; then
+                    build_python_artifacts
+                fi
+                if ! find "$DIST/wheelhouse-arm64" -maxdepth 1 -name '*.whl' -print -quit 2>/dev/null | grep -q .; then
+                    build_windows_arm64_wheelhouse
+                fi
+                STAGING="$PROJECT_ROOT/build/win-portable/ELI_v2-${VERSION}-windows-arm64-portable-full"
+                _stage_windows_common "$STAGING" "full offline WoA" "arm64"
+                if [ -d "$DIST/wheelhouse-arm64" ]; then
+                    cp -r "$DIST/wheelhouse-arm64" "$STAGING/wheelhouse"
+                fi
+                ZIP="$DIST/ELI_v2-${VERSION}-windows-arm64-portable-full.zip"
+                rm -f "$ZIP"
+                ( cd "$(dirname "$STAGING")" && zip -r -q "$ZIP" "$(basename "$STAGING")" )
+                echo "[windows-arm64] Full portable zip: $ZIP"
+            else
+                echo "[windows-arm64] Run on Linux/macOS cross-build host, or add CI on windows-2022-arm64."
+            fi
             ;;
         windows)
             echo ""
@@ -283,7 +356,7 @@ for target in "${TARGETS[@]}"; do
                     build_windows_wheelhouse
                 fi
                 STAGING="$PROJECT_ROOT/build/win-portable/ELI_v2-${VERSION}-windows-portable-full"
-                _stage_windows_common "$STAGING" "full offline"
+                _stage_windows_common "$STAGING" "full offline" "x64"
                 if [ -d "$DIST/wheelhouse" ]; then
                     cp -r "$DIST/wheelhouse" "$STAGING/wheelhouse"
                 fi
@@ -308,6 +381,9 @@ echo ""
 if [ -d "$DIST/wheelhouse" ]; then
     ( cd "$DIST/wheelhouse" && ls -1 > "$DIST/WHEELHOUSE.txt" 2>/dev/null || true )
 fi
+if [ -d "$DIST/wheelhouse-arm64" ]; then
+    ( cd "$DIST/wheelhouse-arm64" && ls -1 > "$DIST/WHEELHOUSE-arm64.txt" 2>/dev/null || true )
+fi
 
 echo "[finalise] Computing SHA-256 checksums…"
 ( cd "$DIST" && sha256sum eli_v2_0-*.whl 2>/dev/null \
@@ -317,6 +393,7 @@ echo "[finalise] Computing SHA-256 checksums…"
                           ELI_v2-*-Setup.exe 2>/dev/null \
                           eli-v2.0_*_amd64.deb 2>/dev/null \
                           ELI_v2-*-windows-portable*.zip 2>/dev/null \
+                          ELI_v2-*-windows-arm64-portable*.zip 2>/dev/null \
                           ELI_v2-*-linux-portable.tar.gz 2>/dev/null \
                           ELI_v2-*-macos-app.tar.gz 2>/dev/null > SHA256SUMS.txt || true )
 
@@ -338,9 +415,12 @@ $(cat "$DIST/SHA256SUMS.txt" 2>/dev/null || echo "(checksum file missing)")
 - **pip / wheel**: \`pip install dist/eli_v2_0-${VERSION}-py3-none-any.whl[full]\`
 - **Debian/Ubuntu**: \`sudo dpkg -i dist/eli-v2.0_${VERSION}_amd64.deb && sudo apt -f install\`
 - **Linux portable**: extract \`dist/ELI_v2-${VERSION}-linux-portable.tar.gz\`, run \`./INSTALL_ELI.sh\`
-- **Windows lean**: extract \`dist/ELI_v2-${VERSION}-windows-portable.zip\`, run \`install.bat\`
-- **Windows full offline**: extract \`dist/ELI_v2-${VERSION}-windows-portable-full.zip\`, run \`install.bat\`
+- **Windows x64 lean**: extract \`dist/ELI_v2-${VERSION}-windows-portable.zip\`, run \`install.bat\`
+- **Windows x64 full offline**: extract \`dist/ELI_v2-${VERSION}-windows-portable-full.zip\`, run \`install.bat\`
+- **Windows on ARM (WoA) lean**: extract \`dist/ELI_v2-${VERSION}-windows-arm64-portable.zip\`, run \`install.bat\` (experimental)
+- **Windows on ARM full offline**: extract \`dist/ELI_v2-${VERSION}-windows-arm64-portable-full.zip\` (wheel gaps expected)
 - **macOS**: build on a Mac host with \`bash build_packages.sh macos\`
+- **Android / Termux**: \`bash scripts/install_android.sh\` or \`python -m eli.setup --full-install\` (headless profile)
 
 EOF
 

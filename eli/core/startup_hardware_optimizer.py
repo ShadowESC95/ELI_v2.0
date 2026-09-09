@@ -161,7 +161,12 @@ def detect_other_gpus() -> List[GPUInfo]:
             if "vga" in low or "3d controller" in low:
                 if "nvidia" in low:
                     continue
-                vendor = "amd" if ("amd" in low or "advanced micro" in low) else ("intel" if "intel" in low else "unknown")
+                vendor = (
+                    "amd" if ("amd" in low or "advanced micro" in low)
+                    else "intel" if "intel" in low
+                    else "qualcomm" if any(k in low for k in ("qualcomm", "adreno", "snapdragon", "5143"))
+                    else "unknown"
+                )
                 if vendor == "amd" and amd_total > 0:
                     out.append(GPUInfo(i, line.strip(), vendor, amd_total, amd_free))
                     amd_total = amd_free = 0  # assign the summed VRAM once
@@ -196,6 +201,7 @@ def detect_native_gpus() -> List[GPUInfo]:
         vendor = ("nvidia" if any(k in low for k in ("nvidia", "geforce", "rtx", "gtx", "quadro", "tesla"))
                   else "amd" if any(k in low for k in ("amd", "radeon", "rx "))
                   else "intel" if "intel" in low or "arc" in low
+                  else "qualcomm" if any(k in low for k in ("qualcomm", "adreno", "snapdragon"))
                   else "unknown")
         try:
             from eli.core.hardware_profile import _is_integrated_gpu_name

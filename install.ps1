@@ -108,9 +108,15 @@ if (-not $HasNvidia) {
 
     if ($OtherGpus.Count -ge 1) {
         Write-Host "[OK] GPU         $($OtherGpus[0])" -ForegroundColor Green
+        $isQualcomm = $OtherGpus[0] -match '(?i)qualcomm|adreno|snapdragon'
         $vendor = if ($OtherGpus[0] -match '(?i)amd|radeon') { "AMD" }
                   elseif ($OtherGpus[0] -match '(?i)intel|arc') { "Intel" }
+                  elseif ($isQualcomm) { "Qualcomm Snapdragon" }
                   else { "this vendor" }
+        if ($isQualcomm) {
+            Write-Host "            Snapdragon unified memory - layer fit uses shared RAM budget." -ForegroundColor DarkGray
+            Write-Host "            Vulkan offload is experimental on Adreno; keep batch_size <= 32." -ForegroundColor DarkGray
+        }
         Write-Host "[WARN] GPU       $vendor GPU found, but no prebuilt GPU-accelerated" -ForegroundColor Yellow
         Write-Host "                 llama-cpp-python wheel is published for it on Windows." -ForegroundColor Yellow
         Write-Host "                 ELI will use the CPU build (it still runs, just slower)." -ForegroundColor Yellow

@@ -7,6 +7,7 @@
 #
 # Builds in parallel and uploads to the GitHub Release for that tag:
 #   Windows : ELI-Setup-<v>.exe (Inno Setup) + ELI_v2-<v>-windows-x64.zip (portable, ELI.exe inside)
+#   WoA     : ELI_v2-<v>-windows-arm64-portable.zip (lean, experimental — cross-built on ubuntu)
 #   macOS   : ELI_v2-<v>-macos-arm64.dmg (drag-to-Applications, ad-hoc signed)
 #   Linux   : ELI_v2-<v>-x86_64.AppImage + ELI_v2-<v>-linux-portable.tar.gz
 #   Source  : eli_v2_0-<v>.whl + sdist .tar.gz + .deb + windows-portable.zip
@@ -579,12 +580,12 @@ jobs:
           bash packaging/debian/build-deb.sh "${{ needs.guard.outputs.version }}"
           cp dist/app_packages/*.deb dist/
 
-      - name: Build Windows wheelhouse + lean/full portable zips
+      - name: Build Windows wheelhouse + lean/full portable zips (x64 + WoA arm64)
         env:
           SKIP_TESTS: "1"
           SKIP_COMPILE: "1"
         run: |
-          bash build_packages.sh wheelhouse windows-lean windows
+          bash build_packages.sh wheelhouse windows-lean windows wheelhouse-arm64 windows-arm64-lean
           if [ -d dist/wheelhouse ]; then
             tar -czf "dist/ELI_v2-${{ needs.guard.outputs.version }}-wheelhouse.tar.gz" -C dist wheelhouse
             ls -1 dist/wheelhouse > dist/WHEELHOUSE.txt
@@ -592,10 +593,18 @@ jobs:
             echo "::error::wheelhouse directory missing after build_packages.sh wheelhouse"
             exit 1
           fi
+          if [ -d dist/wheelhouse-arm64 ]; then
+            tar -czf "dist/ELI_v2-${{ needs.guard.outputs.version }}-wheelhouse-arm64.tar.gz" -C dist wheelhouse-arm64
+            ls -1 dist/wheelhouse-arm64 > dist/WHEELHOUSE-arm64.txt
+          else
+            echo "::warning::wheelhouse-arm64 directory missing — WoA offline install may be incomplete"
+          fi
           test -f "dist/ELI_v2-${{ needs.guard.outputs.version }}-windows-portable.zip" \
             || { echo "::error::windows lean portable zip missing"; exit 1; }
           test -f "dist/ELI_v2-${{ needs.guard.outputs.version }}-windows-portable-full.zip" \
             || { echo "::error::windows full offline portable zip missing"; exit 1; }
+          test -f "dist/ELI_v2-${{ needs.guard.outputs.version }}-windows-arm64-portable.zip" \
+            || { echo "::error::windows-arm64 lean portable zip missing"; exit 1; }
 
       - name: Write release notes stub
         run: |
@@ -604,9 +613,10 @@ jobs:
           # ELI v2 ${V}
 
           Full release: frozen bundles (AppImage / dmg / exe) plus pip-installable wheel,
-          source tarball, Debian package, Windows lean portable (source + wheel), and an
-          offline Windows wheelhouse archive. GPU acceleration packs refresh on the
-          \`gpu-packs\` pre-release when this tag is pushed.
+          source tarball, Debian package, Windows lean portable (source + wheel),
+          Windows on ARM (WoA) lean portable (experimental), and offline Windows wheelhouse
+          archives (x64 + arm64). GPU acceleration packs refresh on the \`gpu-packs\`
+          pre-release when this tag is pushed.
 
           Verify: \`sha256sum -c SHA256SUMS.txt\`
           EOF
@@ -614,7 +624,7 @@ jobs:
       - name: Checksums + GitHub 2 GiB asset-size guard
         run: |
           cd dist
-          for f in *.whl *.deb *.zip *wheelhouse*.tar.gz eli_v2_0-*.tar.gz RELEASE_NOTES.md WHEELHOUSE.txt; do
+          for f in *.whl *.deb *.zip *wheelhouse*.tar.gz eli_v2_0-*.tar.gz RELEASE_NOTES.md WHEELHOUSE*.txt; do
             [ -e "$f" ] || continue
             sha256sum "$f" >> SHA256SUMS-source.txt
             size=$(stat -c%s "$f")
@@ -635,8 +645,9 @@ jobs:
             dist/*.deb
             dist/*windows-portable.zip
             dist/*windows-portable-full.zip
-            dist/*wheelhouse.tar.gz
-            dist/WHEELHOUSE.txt
+            dist/*windows-arm64-portable.zip
+            dist/*wheelhouse*.tar.gz
+            dist/WHEELHOUSE*.txt
             dist/RELEASE_NOTES.md
             dist/SHA256SUMS-source.txt
           if-no-files-found: error

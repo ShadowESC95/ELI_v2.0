@@ -23,6 +23,7 @@ NO_MODEL=0       # --no-model: never download a model
 HAS_NVIDIA=0     # set by the system report below
 HAS_AMD=0        # set by the system report below (AMD ROCm/HIP GPUs)
 HAS_INTEL_IGPU=0 # Intel Iris Xe / UHD integrated graphics (Vulkan path)
+HAS_QUALCOMM_IGPU=0 # Qualcomm Adreno / Snapdragon (Vulkan path, shared memory)
 
 for arg in "$@"; do
     case "$arg" in
@@ -231,20 +232,42 @@ if [ "$HAS_NVIDIA" -eq 0 ] && [ "$HAS_AMD" -eq 0 ] && [ "$OS" != "Darwin" ]; the
         fi
     fi
 fi
-if [ "$HAS_NVIDIA" -eq 0 ] && [ "$HAS_AMD" -eq 0 ] && [ "$HAS_INTEL_IGPU" -eq 0 ]; then
+# Qualcomm Adreno (Snapdragon X Elite / Linux ARM) — unified memory, Vulkan offload.
+if [ "$HAS_NVIDIA" -eq 0 ] && [ "$HAS_AMD" -eq 0 ] && [ "$HAS_INTEL_IGPU" -eq 0 ] && [ "$OS" != "Darwin" ]; then
+    _QCOM_NAME=""
+    for _drm in /sys/class/drm/card[0-9]/device/vendor; do
+        [ -r "$_drm" ] || continue
+        [ "$(cat "$_drm" 2>/dev/null | tr 'A-F' 'a-f')" = "0x5143" ] || continue
+        _pci="$(readlink -f "$(dirname "$_drm")" 2>/dev/null | xargs basename 2>/dev/null || true)"
+        if [ -n "$_pci" ] && command -v lspci &>/dev/null; then
+            _QCOM_NAME="$(lspci -s "$_pci" -nn 2>/dev/null | sed 's/^[^:]*: //' | head -1 || true)"
+        fi
+        [ -n "$_QCOM_NAME" ] && break
+    done
+    if [ -z "$_QCOM_NAME" ] && command -v lspci &>/dev/null; then
+        _QCOM_NAME="$(lspci 2>/dev/null | grep -iE 'qualcomm|adreno|snapdragon' | head -1 | sed 's/^[^:]*: //' || true)"
+    fi
+    if [ -n "$_QCOM_NAME" ]; then
+        ok "GPU         ${B}${GRN}Qualcomm Adreno${R}  ${D}${_QCOM_NAME}${R}"
+        ok "            ${D}Snapdragon unified memory — Vulkan offload optional; batch≤32 recommended${R}"
+        HAS_QUALCOMM_IGPU=1
+    fi
+fi
+if [ "$HAS_NVIDIA" -eq 0 ] && [ "$HAS_AMD" -eq 0 ] && [ "$HAS_INTEL_IGPU" -eq 0 ] && [ "$HAS_QUALCOMM_IGPU" -eq 0 ]; then
     if [ "$OS" = "Darwin" ]; then ok "GPU         ${B}Apple Metal${R} ${D}(unified memory)${R}"
     else warn "GPU         none detected — ELI will run on ${B}CPU${R} (much slower)"; fi
 fi
 
 # Default the build to the hardware unless the user forced it. AMD / Intel iGPU boxes
 # get a Vulkan build attempt instead of being silently dropped to CPU.
-if [ "$CPU_ONLY" -eq 0 ] && [ "$HAS_NVIDIA" -eq 0 ] && [ "$HAS_AMD" -eq 0 ] && [ "$HAS_INTEL_IGPU" -eq 0 ] && [ "$OS" != "Darwin" ]; then
+if [ "$CPU_ONLY" -eq 0 ] && [ "$HAS_NVIDIA" -eq 0 ] && [ "$HAS_AMD" -eq 0 ] && [ "$HAS_INTEL_IGPU" -eq 0 ] && [ "$HAS_QUALCOMM_IGPU" -eq 0 ] && [ "$OS" != "Darwin" ]; then
     CPU_ONLY=1
 fi
 if   [ "$CPU_ONLY" -eq 1 ]; then BUILD_LABEL="CPU-only"
 elif [ "$OS" = "Darwin" ];  then BUILD_LABEL="GPU (Metal)"
 elif [ "$HAS_AMD" -eq 1 ];  then BUILD_LABEL="GPU (AMD ROCm)"
 elif [ "$HAS_INTEL_IGPU" -eq 1 ]; then BUILD_LABEL="GPU (Intel Vulkan)"
+elif [ "$HAS_QUALCOMM_IGPU" -eq 1 ]; then BUILD_LABEL="GPU (Qualcomm Vulkan)"
 else                             BUILD_LABEL="GPU (CUDA)"; fi
 
 # ── Plan — what is about to happen ───────────────────────────────────────────
@@ -525,6 +548,17 @@ elif [ "$HAS_INTEL_IGPU" -eq 1 ]; then
     else
         echo "[WARN] Intel Vulkan build failed (install libvulkan-dev / mesa-vulkan-drivers)."
         echo "       Installing CPU build — reliable on Iris Xe laptops."
+        echo "         Retry: CMAKE_ARGS=\"-DGGML_VULKAN=on\" \"$PIP\" install --force-reinstall --no-cache-dir llama-cpp-python"
+        "$PIP" install llama-cpp-python --prefer-binary --quiet
+    fi
+elif [ "$HAS_QUALCOMM_IGPU" -eq 1 ]; then
+    echo "     (Qualcomm Adreno — Vulkan offload, then CPU)"
+    if CMAKE_ARGS="-DGGML_VULKAN=on" "$PIP" install llama-cpp-python --no-cache-dir --quiet 2>/dev/null; then
+        echo "[OK] llama-cpp built with Vulkan (Qualcomm Adreno / Snapdragon unified memory)."
+        echo "       Tip: keep batch_size ≤ 32 on Adreno — higher values can crash the Vulkan driver."
+    else
+        echo "[WARN] Adreno Vulkan build failed (install libvulkan-dev and Adreno ICD drivers)."
+        echo "       Installing CPU build — reliable fallback on Snapdragon laptops."
         echo "         Retry: CMAKE_ARGS=\"-DGGML_VULKAN=on\" \"$PIP\" install --force-reinstall --no-cache-dir llama-cpp-python"
         "$PIP" install llama-cpp-python --prefer-binary --quiet
     fi

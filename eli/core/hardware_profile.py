@@ -462,6 +462,7 @@ def _nvidia_driver_loaded() -> bool:
 
 
 _PCI_VENDOR_INTEL = "0x8086"
+_PCI_VENDOR_QUALCOMM = "0x5143"
 _INTEL_ARC_DEVICE_RANGES = ((0x4F80, 0x4F8F), (0x5690, 0x56BF), (0xE200, 0xE21F))
 
 
@@ -531,6 +532,8 @@ def _is_integrated_gpu_name(name: str, vendor: str = "") -> bool:
         return "arc" not in low
     if v == "amd" or any(k in low for k in ("amd", "radeon", "ati", "vega")):
         return not _is_discrete_gpu_name(name)
+    if v == "qualcomm" or any(k in low for k in ("qualcomm", "adreno", "snapdragon", "hexagon")):
+        return True
     return False
 
 
@@ -550,6 +553,12 @@ def integrated_gpu_label(name: str = "", vendor: str = "") -> str:
         return "AMD APU"
     if v == "amd" or "radeon" in low:
         return "AMD integrated GPU"
+    if "adreno" in low or v == "qualcomm":
+        if "snapdragon" in low or "x elite" in low or "x1" in low:
+            return "Snapdragon Adreno"
+        return "Qualcomm Adreno"
+    if "snapdragon" in low:
+        return "Snapdragon"
     return "integrated GPU"
 
 
@@ -631,6 +640,28 @@ def _linux_intel_display_adapters() -> List[tuple[str, bool]]:
             if not name:
                 name = "Intel Arc" if is_arc else "Intel integrated graphics (Iris Xe / UHD)"
             out.append((name, is_arc))
+        except Exception:
+            continue
+    return out
+
+
+def _linux_qualcomm_display_adapters() -> List[str]:
+    """Return human-readable names for Qualcomm Adreno DRM adapters (Linux ARM)."""
+    out: List[str] = []
+    seen: set[str] = set()
+    for vendor_file in Path("/sys/class/drm").glob("card[0-9]*/device/vendor"):
+        try:
+            if vendor_file.read_text().strip().lower() != _PCI_VENDOR_QUALCOMM:
+                continue
+            dev = vendor_file.parent
+            card = vendor_file.parents[1].name
+            if card in seen:
+                continue
+            seen.add(card)
+            name = _lspci_name_for_pci_addr(_pci_addr_from_drm_device(dev))
+            if not name:
+                name = "Qualcomm Adreno (Snapdragon)"
+            out.append(name)
         except Exception:
             continue
     return out
@@ -768,6 +799,10 @@ def detect_hardware() -> HardwareProfile:
                 if _is_integrated_gpu_name(name, "intel"):
                     hw.gpu_integrated = True
                     hw.vulkan_available = _vulkan_loader_present()
+            elif any(k in name_l for k in ("qualcomm", "adreno", "snapdragon")):
+                hw.gpu_vendor = "qualcomm"
+                hw.gpu_integrated = True
+                hw.vulkan_available = _vulkan_loader_present()
             elif sys.platform == "darwin":
                 hw.gpu_vendor = "apple"
                 hw.gpu_integrated = True
@@ -972,6 +1007,19 @@ def detect_hardware() -> HardwareProfile:
                     hw.gpu_name, hw.free_vram_mb, hw.vulkan_available,
                 )
                 break
+        except Exception:
+            log.debug("suppressed exception", exc_info=True)
+
+    # Qualcomm Adreno (Snapdragon X Elite laptops, Linux ARM) — unified memory.
+    if not hw.has_gpu and sys.platform.startswith("linux"):
+        try:
+            qualcomm = _linux_qualcomm_display_adapters()
+            if qualcomm:
+                _apply_integrated_gpu_profile(hw, qualcomm[0], "qualcomm")
+                log.info(
+                    "[HW] Qualcomm Adreno detected: %s (~%d MB shared-memory budget, Vulkan=%s)",
+                    hw.gpu_name, hw.free_vram_mb, hw.vulkan_available,
+                )
         except Exception:
             log.debug("suppressed exception", exc_info=True)
 
@@ -1187,6 +1235,11 @@ def recommend(hw: Optional[HardwareProfile] = None,
                 rec.reasoning.append(
                     "Apple unified memory — Metal backend when available; "
                     "layer count reflects shared-memory fit"
+                )
+            elif hw.gpu_vendor == "qualcomm":
+                rec.reasoning.append(
+                    "Snapdragon / Adreno unified memory — Vulkan offload is "
+                    "experimental; batch capped at 32 for driver stability"
                 )
             elif hw.vulkan_available:
                 rec.reasoning.append(
@@ -1455,6 +1508,11 @@ def recommend(hw: Optional[HardwareProfile] = None,
     if 0 < _env_batch_cap < rec.batch_size:
         rec.batch_size = max(128, (_env_batch_cap // 64) * 64)
         rec.reasoning.append(f"batch capped to {rec.batch_size} by ELI_TARGET_BATCH={_env_batch_cap}")
+
+    # Adreno Vulkan in llama.cpp is unstable above batch 32 on Snapdragon laptops.
+    if hw.gpu_vendor == "qualcomm" and chosen_layers > 0 and rec.batch_size > 32:
+        rec.reasoning.append(f"batch capped {rec.batch_size}→32 — Adreno Vulkan stability limit")
+        rec.batch_size = 32
 
     rec.use_mmap = True
     rec.use_mlock = (hw.available_ram_gb >= 16)

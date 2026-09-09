@@ -34,6 +34,11 @@ _LINE_HINTS: Tuple[Tuple[str, str, int], ...] = (
     ("voice", "assets", 90),
     ("Import verify", "finish", 95),
     ("Summary", "finish", 98),
+    ("Android / Termux setup", "welcome", 5),
+    ("Android setup complete", "finish", 100),
+    ("Termux build packages", "system", 10),
+    ("llama-cpp-python (CPU", "llama", 40),
+    ("Initialising full database", "database", 75),
 )
 
 
@@ -84,29 +89,16 @@ def parse_install_line(line: str) -> Optional[InstallProgress]:
 
 def install_script_path(root: Optional[Path] = None) -> Path:
     root = root or project_root()
-    if sys.platform == "win32":
-        ps1 = root / "install.ps1"
-        if ps1.is_file():
-            return ps1
-        raise FileNotFoundError(f"install.ps1 not found under {root}")
-    sh = root / "install.sh"
-    if not sh.is_file():
-        raise FileNotFoundError(f"install.sh not found under {root}")
-    return sh
+    from eli.setup.platform_profile import install_script_for_profile
+    script, _cmd = install_script_for_profile(root)
+    return script
 
 
 def build_install_command(root: Optional[Path] = None) -> List[str]:
     root = root or project_root()
-    script = install_script_path(root)
-    if sys.platform == "win32":
-        pwsh = shutil_which("pwsh") or shutil_which("powershell")
-        if not pwsh:
-            raise RuntimeError("PowerShell not found — cannot run install.ps1")
-        return [
-            pwsh, "-NoProfile", "-ExecutionPolicy", "Bypass",
-            "-File", str(script), "-Yes", "-AutoModel",
-        ]
-    return ["bash", str(script), "--yes", "--auto-model"]
+    from eli.setup.platform_profile import install_script_for_profile
+    _script, cmd = install_script_for_profile(root)
+    return cmd
 
 
 def shutil_which(name: str) -> Optional[str]:
