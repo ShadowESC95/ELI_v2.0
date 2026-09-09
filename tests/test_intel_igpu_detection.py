@@ -1,9 +1,14 @@
 """Integrated / unified-memory GPUs must not be reported as 'no GPU'."""
 from __future__ import annotations
 
+import sys
 from pathlib import Path
 
+import pytest
+
 from eli.core import hardware_profile as hp
+
+requires_linux = pytest.mark.skipif(sys.platform != "linux", reason="Linux sysfs PCI probes")
 
 
 def test_intel_integrated_profile_fields():
@@ -40,22 +45,25 @@ def test_integrated_name_heuristics():
     assert hp._is_integrated_gpu_name("NVIDIA GeForce RTX 2060 SUPER") is False
 
 
+@requires_linux
 def test_discrete_arc_device_ids_are_not_treated_as_igpu(tmp_path):
-    dev = tmp_path / "0000:03:00.0"
+    dev = tmp_path / "pci0000_03_00_0"
     dev.mkdir()
     (dev / "vendor").write_text("0x8086", encoding="utf-8")
     (dev / "device").write_text("0x56a0", encoding="utf-8")  # Arc A770 family
     assert hp._intel_pci_device_is_discrete_arc(dev) is True
 
 
+@requires_linux
 def test_integrated_intel_device_is_not_arc(tmp_path):
-    dev = tmp_path / "0000:00:02.0"
+    dev = tmp_path / "pci0000_00_02_0"
     dev.mkdir()
     (dev / "vendor").write_text("0x8086", encoding="utf-8")
     (dev / "device").write_text("0x9a49", encoding="utf-8")  # typical Iris Xe
     assert hp._intel_pci_device_is_discrete_arc(dev) is False
 
 
+@requires_linux
 def test_detect_hardware_falls_back_to_intel_igpu(monkeypatch):
     monkeypatch.setattr(hp, "nvidia_smi_path", lambda: None)
     monkeypatch.setattr(hp, "_nvidia_driver_loaded", lambda: False)
@@ -98,6 +106,7 @@ def test_qualcomm_name_heuristics():
     ).endswith("fit, CPU active)")
 
 
+@requires_linux
 def test_detect_hardware_falls_back_to_qualcomm_adreno(monkeypatch):
     monkeypatch.setattr(hp, "nvidia_smi_path", lambda: None)
     monkeypatch.setattr(hp, "_nvidia_driver_loaded", lambda: False)

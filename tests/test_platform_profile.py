@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+from types import SimpleNamespace
 
 from eli.setup.platform_profile import (
     InstallProfile,
@@ -32,6 +33,10 @@ def test_desktop_profile_routes_to_install_sh(monkeypatch, tmp_path):
     monkeypatch.setattr(
         "eli.setup.platform_profile.is_windows_on_arm",
         lambda: False,
+    )
+    monkeypatch.setattr(
+        "eli.setup.platform_profile.sys",
+        SimpleNamespace(platform="linux"),
     )
     sh = tmp_path / "install.sh"
     sh.write_text("#!/bin/bash\n", encoding="utf-8")
