@@ -126,9 +126,19 @@ jobs:
         shell: bash
         run: |
           mkdir -p tts_piper/piper
-          gh release download local-assets-v2.1 --repo "$GITHUB_REPOSITORY" --clobber \
-            --pattern "*.onnx" --pattern "*.onnx.json" --dir tts_piper/piper \
-            || { echo "::error::could not download voices from the local-assets-v2.1 release"; exit 1; }
+          # GitHub release asset API occasionally 5xx mid-release (macOS job hit HTTP 500
+          # on a single .onnx asset). Retry with backoff — same pattern as vc_redist below.
+          _voice_ok=0
+          for _attempt in 1 2 3 4 5; do
+            if gh release download local-assets-v2.1 --repo "$GITHUB_REPOSITORY" --clobber \
+                --pattern "*.onnx" --pattern "*.onnx.json" --dir tts_piper/piper; then
+              _voice_ok=1
+              break
+            fi
+            echo "::warning::voice asset download attempt ${_attempt}/5 failed — retrying in $((_attempt * 5))s"
+            sleep $((_attempt * 5))
+          done
+          [ "$_voice_ok" -eq 1 ] || { echo "::error::could not download voices from the local-assets-v2.1 release after 5 attempts"; exit 1; }
           count=$(ls tts_piper/piper/*.onnx 2>/dev/null | wc -l)
           echo "voices downloaded: $count"
           [ "$count" -ge 1 ] || { echo "::error::no .onnx voices present after download"; exit 1; }
@@ -273,9 +283,19 @@ jobs:
       - name: Bundle Piper voices (from the project's local-assets release)
         run: |
           mkdir -p tts_piper/piper
-          gh release download local-assets-v2.1 --repo "$GITHUB_REPOSITORY" --clobber \
-            --pattern "*.onnx" --pattern "*.onnx.json" --dir tts_piper/piper \
-            || { echo "::error::could not download voices from the local-assets-v2.1 release"; exit 1; }
+          # GitHub release asset API occasionally 5xx mid-release (macOS job hit HTTP 500
+          # on a single .onnx asset). Retry with backoff — same pattern as vc_redist below.
+          _voice_ok=0
+          for _attempt in 1 2 3 4 5; do
+            if gh release download local-assets-v2.1 --repo "$GITHUB_REPOSITORY" --clobber \
+                --pattern "*.onnx" --pattern "*.onnx.json" --dir tts_piper/piper; then
+              _voice_ok=1
+              break
+            fi
+            echo "::warning::voice asset download attempt ${_attempt}/5 failed — retrying in $((_attempt * 5))s"
+            sleep $((_attempt * 5))
+          done
+          [ "$_voice_ok" -eq 1 ] || { echo "::error::could not download voices from the local-assets-v2.1 release after 5 attempts"; exit 1; }
           count=$(ls tts_piper/piper/*.onnx 2>/dev/null | wc -l)
           echo "voices downloaded: $count"
           [ "$count" -ge 1 ] || { echo "::error::no .onnx voices present after download"; exit 1; }
@@ -425,9 +445,19 @@ jobs:
       - name: Bundle Piper voices (from the project's local-assets release)
         run: |
           mkdir -p tts_piper/piper
-          gh release download local-assets-v2.1 --repo "$GITHUB_REPOSITORY" --clobber \
-            --pattern "*.onnx" --pattern "*.onnx.json" --dir tts_piper/piper \
-            || { echo "::error::could not download voices from the local-assets-v2.1 release"; exit 1; }
+          # GitHub release asset API occasionally 5xx mid-release (macOS job hit HTTP 500
+          # on a single .onnx asset). Retry with backoff — same pattern as vc_redist below.
+          _voice_ok=0
+          for _attempt in 1 2 3 4 5; do
+            if gh release download local-assets-v2.1 --repo "$GITHUB_REPOSITORY" --clobber \
+                --pattern "*.onnx" --pattern "*.onnx.json" --dir tts_piper/piper; then
+              _voice_ok=1
+              break
+            fi
+            echo "::warning::voice asset download attempt ${_attempt}/5 failed — retrying in $((_attempt * 5))s"
+            sleep $((_attempt * 5))
+          done
+          [ "$_voice_ok" -eq 1 ] || { echo "::error::could not download voices from the local-assets-v2.1 release after 5 attempts"; exit 1; }
           count=$(ls tts_piper/piper/*.onnx 2>/dev/null | wc -l)
           echo "voices downloaded: $count"
           [ "$count" -ge 1 ] || { echo "::error::no .onnx voices present after download"; exit 1; }
