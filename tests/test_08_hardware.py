@@ -20,8 +20,10 @@ def test_detect_hardware_no_gpu(mock_subprocess):
          patch.object(hp, "nvidia_smi_path", lambda: None), \
          patch.object(hp, "_windows_gpus", lambda: []), \
          patch.object(hp, "_macos_gpus", lambda: []), \
-         patch.object(hp, "_linux_intel_display_adapters", lambda: []):
-        hw = detect_hardware()
+         patch.object(hp, "_linux_intel_display_adapters", lambda: []), \
+         patch.object(hp, "_linux_qualcomm_display_adapters", lambda: []):
+        hp._DETECT_HW_CACHE = None
+        hw = detect_hardware(force=True)
     assert hw.has_gpu is False
 
 def test_recommend_no_models():

@@ -39,7 +39,7 @@ def test_resolver_checks_windows_install_locations():
 
 
 def test_detect_hardware_uses_the_resolver_not_a_bare_name():
-    src = inspect.getsource(hp.detect_hardware)
+    src = inspect.getsource(hp._detect_hardware_impl)
     assert "nvidia_smi_path()" in src
     assert '["nvidia-smi",' not in src, "still invokes nvidia-smi by bare name"
 
@@ -53,7 +53,7 @@ def test_startup_optimizer_uses_the_resolver_too():
 # ── the fallback must not be Linux-only ────────────────────────────────────
 def test_gpu_fallback_is_not_gated_to_linux_alone():
     """The exact defect: every fallback sat behind a linux-only condition."""
-    src = inspect.getsource(hp.detect_hardware)
+    src = inspect.getsource(hp._detect_hardware_impl)
     tail = src[src.index("_nvidia_driver_loaded()"):]
     assert "_windows_gpus()" in tail, "no Windows fallback after nvidia-smi fails"
     assert "_macos_gpus()" in tail, "no macOS fallback after nvidia-smi fails"
@@ -78,7 +78,7 @@ def test_windows_enumeration_reads_64bit_vram():
 
 def test_macos_handles_unified_memory():
     """Apple Silicon reports no discrete VRAM; a 0 there must not mean 'no GPU'."""
-    src = inspect.getsource(hp.detect_hardware)
+    src = inspect.getsource(hp._detect_hardware_impl)
     assert "darwin" in src and "ram_gb" in src
 
 

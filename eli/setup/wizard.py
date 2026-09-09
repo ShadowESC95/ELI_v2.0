@@ -80,14 +80,37 @@ class _SetupWorker(QThread):
         except Exception as exc:
             self.finished_all.emit(False, str(exc))
 
-    def _py(self, *args: str) -> bool:
+    def _resolve_python(self) -> Optional[Path]:
         py = venv_python()
-        if not py.exists():
-            return False
+        if py.exists():
+            return py
+        import shutil
+        for name in ("python3", "python"):
+            found = shutil.which(name)
+            if found:
+                return Path(found)
+        return None
+
+    def _run_env(self) -> dict:
         env = os.environ.copy()
         env["ELI_PROJECT_ROOT"] = str(self._root)
-        env["PYTHONPATH"] = str(self._root) + (os.pathsep + env["PYTHONPATH"] if env.get("PYTHONPATH") else "")
-        proc = subprocess.run([str(py), *args], cwd=str(self._root), env=env)
+        env.setdefault("ELI_DATA_DIR", str(self._root / "artifacts"))
+        env.setdefault("ELI_CONFIG_DIR", str(self._root / "config"))
+        env.setdefault("ELI_MODELS_DIR", str(self._root / "models"))
+        env["PYTHONPATH"] = str(self._root) + (
+            os.pathsep + env["PYTHONPATH"] if env.get("PYTHONPATH") else ""
+        )
+        return env
+
+    def _py(self, *args: str) -> bool:
+        py = self._resolve_python()
+        if py is None:
+            return False
+        proc = subprocess.run(
+            [str(py), *args],
+            cwd=str(self._root),
+            env=self._run_env(),
+        )
         return proc.returncode == 0
 
     def _run_stage(self, sid: str) -> bool:

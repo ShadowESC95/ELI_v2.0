@@ -227,8 +227,19 @@ def detect_native_gpus() -> List[GPUInfo]:
 
 def gpu_budget_for_fit() -> Optional[GPUInfo]:
     """Best GPU budget for smart-fit — NVIDIA, AMD, Intel iGPU, Apple, etc."""
+    return resolve_gpu_for_allocate()
+
+
+def resolve_gpu_for_allocate() -> Optional[GPUInfo]:
+    """Single GPU selection for allocate()/build_profile() and smart-fit.
+
+    ``detect_gpus()`` (nvidia-smi / lspci / rocm-smi) can miss Intel iGPU and
+    other shared-memory GPUs that ``detect_hardware()`` finds via DRM/sysfs.
+    Always fall back to the canonical hardware profile so layer sizing uses the
+    same VRAM budget everywhere.
+    """
     gpu = select_gpu(detect_gpus())
-    if gpu and gpu.free_mb > 0:
+    if gpu and gpu.total_mb > 0 and gpu.free_mb > 0:
         return gpu
     try:
         from eli.core.hardware_profile import detect_hardware
@@ -242,7 +253,9 @@ def gpu_budget_for_fit() -> Optional[GPUInfo]:
                 int(hw.free_vram_mb),
             )
     except Exception:
-        log.debug("gpu_budget_for_fit fallback failed", exc_info=True)
+        log.debug("resolve_gpu_for_allocate fallback failed", exc_info=True)
+    if gpu and gpu.total_mb > 0:
+        return gpu
     return None
 
 
@@ -622,6 +635,9 @@ def allocate(
                 target_batch = 0
     ctx_fraction  = float(os.environ.get("ELI_CTX_FRACTION", "0.9"))
 
+    if gpu is None or gpu.total_mb <= 0:
+        gpu = resolve_gpu_for_allocate()
+
     # ---- CPU-only path ----
     if gpu is None or gpu.total_mb <= 0:
         _raw = int(train_ctx * ctx_fraction)
@@ -757,7 +773,9 @@ def build_profile() -> HardwareProfile:
     model_gb = size_gb(model)
 
     gpus = detect_gpus()
-    gpu = select_gpu(gpus)
+    gpu = resolve_gpu_for_allocate()
+    if gpu is None:
+        gpu = select_gpu(gpus)
 
     ram = detect_ram_gb()
     cpu_threads = os.cpu_count() or 4

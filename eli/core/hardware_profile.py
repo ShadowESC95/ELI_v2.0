@@ -27,6 +27,7 @@ writes mode_profiles or active_mode.
 """
 from __future__ import annotations
 
+import copy
 import os
 import re
 import sys
@@ -34,6 +35,7 @@ import json
 import shutil
 import subprocess
 import multiprocessing
+import time
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -70,21 +72,45 @@ _CUDA_OVERHEAD_MB = 350
 # back can lower the spin box deliberately — that is what it is for; it just
 # must not DEFAULT to the edge of what the driver will allocate.
 DEFAULT_VRAM_RESERVE_MB = 700
+# Integrated / unified-memory GPUs (Intel Iris Xe, AMD APU, Adreno) share RAM with
+# the display stack but do not hit the same CUDA lazy-allocation cliff as discrete
+# cards. Reserving 700MB on a ~1.4GB budget left zero room for even partial layer
+# offload — every iGPU machine reported gpu_layers=0 despite a usable budget.
+DEFAULT_IGPU_VRAM_RESERVE_MB = 400
 
 
-def vram_reserve_mb() -> int:
+def vram_reserve_mb(*, gpu_integrated: Optional[bool] = None) -> int:
     """The VRAM headroom to keep free, honouring ELI_VRAM_RESERVE_MB.
 
     Single source of truth: the startup spin box, the startup optimizer and both
     loader paths all resolve through here, so they cannot disagree again.
+
+    Integrated GPUs use a lower default reserve unless ELI_IGPU_VRAM_RESERVE_MB or
+    ELI_VRAM_RESERVE_MB overrides it.
     """
     import os as _os
     raw = (_os.environ.get("ELI_VRAM_RESERVE_MB") or "").strip()
     try:
         value = int(raw) if raw else DEFAULT_VRAM_RESERVE_MB
     except ValueError:
-        return DEFAULT_VRAM_RESERVE_MB
-    return value if value > 0 else DEFAULT_VRAM_RESERVE_MB
+        value = DEFAULT_VRAM_RESERVE_MB
+    if value <= 0:
+        value = DEFAULT_VRAM_RESERVE_MB
+
+    if gpu_integrated is None:
+        try:
+            gpu_integrated = bool(getattr(detect_hardware(), "gpu_integrated", False))
+        except Exception:
+            gpu_integrated = False
+
+    if gpu_integrated and not raw:
+        igpu_raw = (_os.environ.get("ELI_IGPU_VRAM_RESERVE_MB") or "").strip()
+        try:
+            igpu_val = int(igpu_raw) if igpu_raw else DEFAULT_IGPU_VRAM_RESERVE_MB
+        except ValueError:
+            igpu_val = DEFAULT_IGPU_VRAM_RESERVE_MB
+        return min(value, igpu_val) if igpu_val > 0 else min(value, DEFAULT_IGPU_VRAM_RESERVE_MB)
+    return value
 
 
 def _kv_cache_mb(n_ctx: int, n_layers: int = 32, quant: bool = False) -> float:
@@ -692,8 +718,74 @@ def _llama_gpu_offload_available() -> bool:
         return False
 
 
-def detect_hardware() -> HardwareProfile:
-    """Probe the host for CPU/RAM/free-VRAM. Reads FREE VRAM from nvidia-smi."""
+_DETECT_HW_CACHE: Optional[tuple[float, HardwareProfile]] = None
+_DETECT_HW_CACHE_TTL_S = 30.0
+
+
+def detect_hardware(*, force: bool = False) -> HardwareProfile:
+    """Probe the host for CPU/RAM/free-VRAM. Reads FREE VRAM from nvidia-smi.
+
+    Results are cached briefly so repeated startup probes (startup dialog,
+    smart-fit, status bar) do not re-run nvidia-smi/lspci/sysfs or spam logs.
+    Pass ``force=True`` to bypass the cache.
+    """
+    global _DETECT_HW_CACHE
+    now = time.monotonic()
+    if not force and _DETECT_HW_CACHE is not None:
+        ts, cached = _DETECT_HW_CACHE
+        if now - ts < _DETECT_HW_CACHE_TTL_S:
+            return copy.deepcopy(cached)
+    hw = _detect_hardware_impl()
+    _DETECT_HW_CACHE = (now, copy.deepcopy(hw))
+    return hw
+
+
+def gpu_offload_unavailable_message(
+    *,
+    gpu_vendor: str = "",
+    gpu_integrated: bool = False,
+    vulkan_available: bool = False,
+) -> str:
+    """User-facing hint when llama.cpp reports no active GPU backend."""
+    vendor = (gpu_vendor or "").lower()
+    if gpu_integrated:
+        kind = integrated_gpu_label("", vendor)
+        if vendor == "qualcomm":
+            return (
+                f"⚠️ GPU offload unavailable; running CPU-only. "
+                f"{kind} detected — install the Vulkan GPU pack "
+                f"(ELI --install-gpu-pack --vulkan) and keep batch ≤ 32."
+            )
+        if vendor in ("intel", "amd", "apple"):
+            hint = (
+                "install the Vulkan GPU pack (ELI --install-gpu-pack --vulkan)"
+                if vulkan_available or vendor != "apple"
+                else "install GPU drivers / vulkan-icd, then the Vulkan GPU pack"
+            )
+            return (
+                f"⚠️ GPU offload unavailable; running CPU-only. "
+                f"{kind} budget is still used for layer sizing — {hint} to offload."
+            )
+    if vendor == "nvidia":
+        return (
+            "⚠️ GPU offload unavailable; running CPU-only. "
+            "Check NVIDIA driver/CUDA runtime or reinstall the GPU pack "
+            "(ELI --install-gpu-pack --force)."
+        )
+    if vendor == "amd":
+        return (
+            "⚠️ GPU offload unavailable; running CPU-only. "
+            "Install AMD GPU drivers or the Vulkan GPU pack "
+            "(ELI --install-gpu-pack --vulkan)."
+        )
+    return (
+        "⚠️ GPU offload unavailable; running CPU-only. "
+        "Install the GPU pack for your vendor (ELI --install-gpu-pack)."
+    )
+
+
+def _detect_hardware_impl() -> HardwareProfile:
+    """Uncached hardware probe — use detect_hardware() instead."""
     hw = HardwareProfile()
     hw.cpu_threads = multiprocessing.cpu_count()
 
@@ -1191,6 +1283,18 @@ def smart_fit_config(
     while layers < total and _needed(ctx, layers + 1, batch) <= budget:
         layers += 1
 
+    # Step 3 can shed every layer to preserve a large ctx, then step 4 stops as soon
+    # as CPU-only (0 layers) fits — leaving partial offload on the table. Integrated
+    # GPUs (~1.4GB shared) hit this often: ctx=6144 + 0 layers fits, but ctx=2048 +
+    # 8 layers also fits and is what the operator expects to see. Re-probe from the
+    # minimum ctx/batch floor when we ended CPU-only despite a non-zero budget.
+    if layers <= 0 and budget > 0:
+        probe_layers = 0
+        while probe_layers < total and _needed(min_ctx, probe_layers + 1, min_batch) <= budget:
+            probe_layers += 1
+        if probe_layers > 0:
+            ctx, batch, layers = min_ctx, min_batch, probe_layers
+
     n_layers = 99 if layers >= total else layers
     return ctx, n_layers, batch
 
@@ -1398,28 +1502,34 @@ def recommend(hw: Optional[HardwareProfile] = None,
     # smart_fit_config is the authority because it is what runs. Calling it here
     # means the recommendation is a prediction of the load rather than a second
     # opinion about it.
-    if hw.has_gpu and hw.free_vram_mb > 0 and chosen_layers > 0:
+    if hw.has_gpu and hw.free_vram_mb > 0:
         _total_layers_est = layers_for_model(chosen["path"], chosen["size_gb"])
         # Mirror the loader's own batch floor so the compute-graph reserve — and
         # therefore the layer count — is costed against the same batch it will use.
         import os as _os_fit
         _fit_batch_in = max(128, int(_os_fit.environ.get("ELI_MIN_BATCH", "128") or "128"))
-        _fit_ctx, _fit_layers, _ = smart_fit_config(
+        _igpu_min_batch = 32 if hw.gpu_integrated else 128
+        if hw.gpu_integrated:
+            _fit_batch_in = min(_fit_batch_in, _igpu_min_batch)
+        _fit_ctx, _fit_layers, _fit_batch = smart_fit_config(
             chosen["size_gb"], hw.free_vram_mb,
             user_ctx=rec.n_ctx, user_batch=_fit_batch_in,
-            reserve_mb=vram_reserve_mb(), kv_quantized=kv_q,
+            reserve_mb=vram_reserve_mb(gpu_integrated=hw.gpu_integrated),
+            kv_quantized=kv_q,
             model_path=chosen["path"], total_layers=_total_layers_est,
-            min_batch=_fit_batch_in,
+            min_batch=_igpu_min_batch,
         )
         # 99 is the "all layers" sentinel; this profile reports a real count.
         _fit_layers_real = _total_layers_est if int(_fit_layers) >= 99 else int(_fit_layers)
         _old_ctx, _old_layers = rec.n_ctx, rec.n_gpu_layers
         rec.n_ctx = int(_fit_ctx)
         rec.n_gpu_layers = _fit_layers_real
+        rec.batch_size = max(rec.batch_size, int(_fit_batch))
         chosen_layers = _fit_layers_real
         rec.reasoning.append(
             f"Fit (same calculation the loader runs): ctx={rec.n_ctx} "
-            f"gpu_layers={rec.n_gpu_layers} for {hw.free_vram_mb:.0f}MB free VRAM "
+            f"gpu_layers={rec.n_gpu_layers} batch={rec.batch_size} "
+            f"for {hw.free_vram_mb:.0f}MB free VRAM "
             f"(reserve {vram_reserve_mb()}MB, kv={'q4_0' if kv_q else 'fp16'}) "
             f"— was ctx={_old_ctx} gpu_layers={_old_layers} before the fit"
         )
@@ -1449,9 +1559,17 @@ def recommend(hw: Optional[HardwareProfile] = None,
             f"~{_kv_cache_mb(1024, total_layers, quant=kv_q):.0f}MB per 1k ctx)"
         )
     else:
-        rec.reasoning.append(
-            f"Model: {chosen['name']} ({chosen['size_gb']:.2f}GB) — CPU only"
-        )
+        if hw.has_gpu and hw.gpu_integrated and rec.n_gpu_layers > 0:
+            _igpu_kind = integrated_gpu_label(hw.gpu_name, hw.gpu_vendor)
+            rec.reasoning.append(
+                f"Model: {chosen['name']} ({chosen['size_gb']:.2f}GB) — "
+                f"{rec.n_gpu_layers}/{total_layers} layers fit {_igpu_kind} budget "
+                f"(CPU active until GPU backend is installed)"
+            )
+        else:
+            rec.reasoning.append(
+                f"Model: {chosen['name']} ({chosen['size_gb']:.2f}GB) — CPU only"
+            )
 
     # Batch size: scales linearly with GPU offload ratio.
     # Partial offload → interpolate 128..512 by actual offload fraction.

@@ -848,10 +848,12 @@ class LocalModelManager:
                 self.gpu_integrated = bool(getattr(_hw, "gpu_integrated", False))
                 self.gpu_name = str(getattr(_hw, "gpu_name", "") or "")
                 self.gpu_vendor = str(getattr(_hw, "gpu_vendor", "") or "")
+                self.vulkan_available = bool(getattr(_hw, "vulkan_available", False))
             except Exception:
                 self.gpu_integrated = False
                 self.gpu_name = ""
                 self.gpu_vendor = ""
+                self.vulkan_available = False
             # Preserve user's explicit settings — attempt 1 always honours these exactly.
             # The hardware profile is read separately and inserted as a fallback candidate
             # so it never overrides deliberate user choices.
@@ -878,6 +880,8 @@ class LocalModelManager:
                         f"(user: ctx={_user_ctx} gpu_layers={_user_gpu_layers} "
                         f"batch={_user_batch})"
                     )
+                    if int(_hw_profile_gpu_layers or 0) > 0:
+                        self.fitted_gpu_layers = int(_hw_profile_gpu_layers)
             except Exception as _eli_hw_err:
                 log.debug(f"[GUI][HW_PROFILE] profile read failed: {_eli_hw_err}")
 
@@ -974,7 +978,8 @@ class LocalModelManager:
                 if _sf_gpu and _sf_gpu.free_mb > 0:
                     _sf_model_gb = path_obj.stat().st_size / (1024 ** 3)
                     from eli.core.hardware_profile import vram_reserve_mb as _vrm
-                    _sf_reserve = int(_vrm())
+                    _sf_igpu = bool(getattr(self, "gpu_integrated", False))
+                    _sf_reserve = int(_vrm(gpu_integrated=_sf_igpu))
                     _sf_kvq = bool(_sf_gpu.total_mb and _sf_gpu.total_mb < 12000)
                     # Anchor the fit on the user's CHOSEN ctx. The startup popup's
                     # "Context target fraction" (ELI_CTX_FRACTION) is the canonical control:
@@ -1017,9 +1022,14 @@ class LocalModelManager:
                             f"will suffer. Choose a model with >= {_sf_brief_floor} context "
                             f"(e.g. Qwen3-8B = 40960).")
                     _sf_min_batch = int(_sf_os.environ.get("ELI_MIN_BATCH", "128") or "128")
+                    if _sf_igpu:
+                        _sf_min_batch = min(_sf_min_batch, 32)
+                    _sf_user_batch = max(_user_batch, _sf_min_batch)
+                    if _sf_igpu:
+                        _sf_user_batch = min(_sf_user_batch, 32)
                     _sf_ctx, _sf_layers, _sf_batch = _sf_fit(
                         _sf_model_gb, _sf_gpu.free_mb,
-                        user_ctx=_sf_user_ctx, user_batch=max(_user_batch, _sf_min_batch),
+                        user_ctx=_sf_user_ctx, user_batch=_sf_user_batch,
                         reserve_mb=_sf_reserve, kv_quantized=_sf_kvq,
                         min_batch=_sf_min_batch,
                         model_path=str(path_obj),
@@ -1165,13 +1175,12 @@ class LocalModelManager:
                 try:
                     import os as _os
                     from eli.core.startup_hardware_optimizer import (
-                        detect_nvidia_gpus as _dng, select_gpu as _sg,
+                        gpu_budget_for_fit as _lt_budget,
                         allocate as _hw_alloc, find_model as _fm,
                         load_settings as _hls, size_gb as _sgb,
                         detect_ram_gb as _drg,
                     )
-                    _lt_gpus = _dng()
-                    _lt_gpu = _sg(_lt_gpus)
+                    _lt_gpu = _lt_budget()
                     if _lt_gpu and _lt_gpu.free_mb > 0:
                         _lt_settings = _hls()
                         _lt_model = _fm(_lt_settings)
@@ -10475,9 +10484,19 @@ class EliMainWindow(QMainWindow):
                             _effective_gpu = int(getattr(model_manager, "n_gpu_layers", 0) or 0)
                             _gpu_supported = getattr(model_manager, "gpu_offload_supported", None)
                             if _requested_gpu > 0 and (_gpu_supported is False or _effective_gpu <= 0):
+                                from eli.core.hardware_profile import (
+                                    gpu_offload_unavailable_message as _gpu_msg,
+                                )
                                 self.status_signal.emit(
-                                    "⚠️ GPU offload unavailable; running CPU-only. "
-                                    "Check NVIDIA driver/CUDA runtime."
+                                    _gpu_msg(
+                                        gpu_vendor=str(getattr(model_manager, "gpu_vendor", "") or ""),
+                                        gpu_integrated=bool(
+                                            getattr(model_manager, "gpu_integrated", False)
+                                        ),
+                                        vulkan_available=bool(
+                                            getattr(model_manager, "vulkan_available", False)
+                                        ),
+                                    )
                                 )
                     except Exception:
                         log.debug("suppressed exception", exc_info=True)

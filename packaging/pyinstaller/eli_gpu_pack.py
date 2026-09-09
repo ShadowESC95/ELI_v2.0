@@ -296,9 +296,28 @@ def _has_amd_gpu() -> bool:
     return False
 
 
+def _has_intel_igpu() -> bool:
+    """Intel Iris Xe / UHD integrated graphics (shared memory)."""
+    try:
+        from eli.core.hardware_profile import detect_hardware
+        hw = detect_hardware()
+        return bool(hw.gpu_integrated and hw.gpu_vendor == "intel")
+    except Exception:
+        return False
+
+
+def _has_qualcomm_igpu() -> bool:
+    """Qualcomm Adreno / Snapdragon unified-memory GPU."""
+    try:
+        from eli.core.hardware_profile import detect_hardware
+        hw = detect_hardware()
+        return bool(hw.gpu_integrated and hw.gpu_vendor == "qualcomm")
+    except Exception:
+        return False
+
+
 def _has_intel_arc_gpu() -> bool:
-    """True for a DISCRETE Intel Arc GPU (NOT an integrated iGPU — Vulkan offload to
-    an iGPU rarely beats CPU, so those stay on CPU unless the user forces --vulkan).
+    """True for a DISCRETE Intel Arc GPU (NOT an integrated iGPU).
 
     Linux: the newer ``xe`` kernel driver is discrete-only, or a PCI device id in a
     known Arc family range. Windows: detect_hardware's registry scan surfaces the
@@ -479,6 +498,8 @@ def _install(argv: list[str] | None = None) -> int:
     nvidia_present = (not want_vulkan) and (drv is not None or _has_nvidia_gpu())
     amd_present = (not want_vulkan) and _has_amd_gpu()
     intel_arc_present = (not want_vulkan) and _has_intel_arc_gpu()
+    intel_igpu_present = (not want_vulkan) and _has_intel_igpu()
+    qualcomm_igpu_present = (not want_vulkan) and _has_qualcomm_igpu()
     if nvidia_present:
         if drv is not None:
             _say(f"NVIDIA driver supports CUDA {drv[0]}.{drv[1]}")
@@ -534,10 +555,19 @@ def _install(argv: list[str] | None = None) -> int:
                 _say("no newer Vulkan pack available — installing the CUDA wheel. "
                      "Models with newer architectures will not load under it; run "
                      "with ELI_DISABLE_GPU_PACK=1 to use the bundled runtime instead.")
-    elif want_vulkan or amd_present or intel_arc_present:
-        # AMD / Intel Arc (or forced): CI-built Vulkan backend. The GPU
-        # driver already ships the Vulkan loader the wheel needs.
-        _vendor = "AMD" if amd_present else ("Intel Arc" if intel_arc_present else "GPU")
+    elif want_vulkan or amd_present or intel_arc_present or intel_igpu_present or qualcomm_igpu_present:
+        # AMD / Intel (Arc or iGPU) / Qualcomm Adreno (or forced): CI-built Vulkan backend.
+        # The GPU driver already ships the Vulkan loader the wheel needs.
+        if amd_present:
+            _vendor = "AMD"
+        elif intel_arc_present:
+            _vendor = "Intel Arc"
+        elif intel_igpu_present:
+            _vendor = "Intel integrated (Iris Xe / UHD)"
+        elif qualcomm_igpu_present:
+            _vendor = "Qualcomm Adreno"
+        else:
+            _vendor = "GPU"
         _say(f"using the Vulkan backend ({_vendor})" if not want_vulkan
              else "Vulkan backend forced (--vulkan)")
         # Vulkan is llama.cpp's universal AMD/Intel path: works on every card
