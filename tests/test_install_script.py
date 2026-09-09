@@ -196,6 +196,32 @@ def test_linux_installer_smoke_tests_llama_runtime_not_just_import():
     assert "x86-64-v3" in text
 
 
+def test_install_sh_emits_gui_progress_markers():
+    text = (Path(__file__).resolve().parents[1] / "install.sh").read_text(encoding="utf-8")
+    assert "eli_progress()" in text
+    assert "[ELI-PROGRESS]" in text
+    assert 'eli_progress finish 100' in text
+
+
+def test_install_backend_parses_progress_lines():
+    from eli.setup.install_backend import parse_install_line
+    p = parse_install_line("[ELI-PROGRESS] phase=venv pct=12 msg=Virtual environment ready")
+    assert p is not None
+    assert p.phase == "venv"
+    assert p.percent == 12
+    assert "Virtual" in p.message
+    hint = parse_install_line("[..] Installing PyTorch (CUDA 12.1)...")
+    assert hint is not None
+    assert hint.phase == "torch"
+
+
+def test_install_messages_have_all_phases():
+    from eli.setup.install_messages import INSTALL_MESSAGES, messages_for_phase
+    for phase in ("welcome", "system", "venv", "torch", "llama", "eli", "finish"):
+        assert phase in INSTALL_MESSAGES
+        assert messages_for_phase(phase)
+
+
 def test_appimage_syncs_when_bundled_version_changes():
     text = (Path(__file__).resolve().parents[1]
             / "packaging" / "linux" / "build-appimage.sh").read_text(encoding="utf-8")

@@ -55,6 +55,8 @@ ok(){   echo "${GRN}[OK]${R} $*"; }
 info(){ echo "${CYN}[..]${R} $*"; }
 warn(){ echo "${YEL}[WARN]${R} $*"; }
 section(){ echo; echo "${B}${MAG}━━━ $* ━━━${R}"; }
+# Machine-readable progress for the GUI installer (eli.setup.unified_installer).
+eli_progress(){ echo "[ELI-PROGRESS] phase=$1 pct=$2 msg=${*:3}"; }
 
 # Best-effort CUDA toolkit (nvcc) install — for non-technical users who have an NVIDIA
 # GPU but no toolkit. Tries the no-sudo pip nvcc first, then the system package
@@ -167,6 +169,7 @@ OS="$(uname -s)"
 
 # ── System report — full info BEFORE we touch anything ───────────────────────
 section "Your system"
+eli_progress system 5 "Scanning hardware"
 ok "Python      ${B}$("$PYTHON" --version 2>&1)${R}"
 ok "Platform    ${B}${OS}${R} ($(uname -m 2>/dev/null || echo '?'))"
 if [ "$OS" = "Darwin" ]; then
@@ -283,6 +286,7 @@ else
     fi
     "$PYTHON" -m venv "$VENV"
 fi
+eli_progress venv 12 "Virtual environment ready"
 
 PIP="$VENV/bin/pip"
 PYTHON_VENV="$VENV/bin/python"
@@ -336,6 +340,7 @@ _install_pytorch_cuda() {
 
 # Install PyTorch
 if [ "$SKIP_TORCH" -eq 0 ]; then
+    eli_progress torch 20 "Installing PyTorch"
     echo ""
     if [ "$CPU_ONLY" -eq 1 ]; then
         echo "[..] Installing PyTorch (CPU)..."
@@ -478,6 +483,7 @@ ensure_build_toolchain() {
 }
 
 # Install llama-cpp-python
+eli_progress llama 30 "Building inference engine (llama-cpp-python)"
 echo "[..] Installing llama-cpp-python..."
 if ! _llama_wheel_available; then
     warn "No prebuilt llama-cpp-python wheel for $("$PYTHON_VENV" -V 2>&1) — building from source."
@@ -644,6 +650,8 @@ fi
 # and can take several minutes. Suppressing output made it look frozen, so users killed
 # it here — before the requirements install below (which brings in PySide6) ever ran,
 # leaving a GUI-less venv ("please install PySide6"). Show progress instead.
+eli_progress llama 50 "Inference engine ready"
+eli_progress eli 55 "Installing ELI core package"
 echo "[..] Installing ELI v2.0 (editable) — resolving dependencies, this can take a few minutes..."
 WHEEL=""
 # Pick the HIGHEST version wheel (sort -V), not the first — a plain glob returns the
@@ -670,6 +678,7 @@ else
     REQ="$SCRIPT_DIR/requirements.txt"
 fi
 
+eli_progress eli 62 "Installing locked dependencies"
 echo "[..] Installing dependencies from $(basename "$REQ")$([ "$REQ" = "$SCRIPT_DIR/requirements.lock.txt" ] && echo ' (frozen, reproducible)')..."
 # ${_PIP_LINKS[@]} points pip at the bundled wheelhouse (--find-links) when the release
 # shipped one, so a full-wheelhouse build installs with zero network; otherwise it's empty.
@@ -780,6 +789,7 @@ if ls "$SCRIPT_DIR"/models/*.gguf >/dev/null 2>&1; then
     MODEL_STATUS="already present"
 elif [ "$NO_MODEL" -eq 0 ] && [ -n "$FETCH_MODEL" ]; then
     section "Model download"
+    eli_progress model 85 "Downloading starter chat model"
     info "Fetching a model (${FETCH_MODEL}) — the one online step, sized to your VRAM..."
     if "$PYTHON_VENV" -m eli.core.model_download $FETCH_MODEL; then
         MODEL_STATUS="downloaded"
@@ -793,6 +803,7 @@ fi
 # (~85 MB) and not optional, so fetch it whenever we're allowed online — even if a
 # chat model was already present or skipped. (download_aux is idempotent.)
 if [ "$NO_MODEL" -eq 0 ]; then
+    eli_progress assets 88 "Fetching memory embedder"
     info "Ensuring the text embedder (required for memory/RAG) is present..."
     if "$PYTHON_VENV" -m eli.core.model_download --aux; then
         EMB_PATH="$SCRIPT_DIR/models/embeddings/nomic-embed-text-v1.5.Q4_K_M.gguf"
@@ -811,6 +822,7 @@ fi
 # voice. Required for web-server mic (phone/PC browser) — always fetch, not gated
 # on chat-model download. Best-effort + idempotent — never fatal.
 VOICE_STATUS="skipped"
+eli_progress assets 90 "Fetching voice models"
 info "Ensuring voice models (local STT + TTS, for browser/desktop voice) are present..."
 if "$PYTHON_VENV" -m eli.runtime.voice_assets; then
     ok "Voice models ready."
@@ -831,6 +843,7 @@ else
     echo "${B}${YEL}╚══════════════════════════════════════════════╝${R}"
 fi
 
+eli_progress finish 100 "Installation complete"
 section "Summary"
 ok "Build       ${B}llama-cpp ${BUILD_LABEL}${R}"
 ok "Model       ${B}${MODEL_STATUS}${R}   ${D}(${SCRIPT_DIR}/models/)${R}"

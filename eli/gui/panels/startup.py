@@ -1402,19 +1402,34 @@ class FirstBootWizard(QDialog):
             _hp_apply(_rec)
             _style = "color:#a3be8c;font-size:12px;"
             _extra = ""
+            from eli.core.hardware_profile import format_gpu_layers_status as _fmt_layers
+            _layer_disp = _fmt_layers(
+                int(_rec.n_gpu_layers or 0),
+                gpu_integrated=bool(getattr(_hw, "gpu_integrated", False)),
+                gpu_name=str(getattr(_hw, "gpu_name", "") or ""),
+                gpu_vendor=str(getattr(_hw, "gpu_vendor", "") or ""),
+            )
             if _hw.has_gpu and _rec.n_gpu_layers == 0:
                 _style = "color:#ebcb8b;font-size:12px;"
-                _extra = (
-                    "\n⚠ This model is too large for comfortable GPU offload on your card. "
-                    "Try Qwen2.5-7B (recommended for 8 GB GPUs)."
-                )
+                if getattr(_hw, "gpu_integrated", False):
+                    from eli.core.hardware_profile import integrated_gpu_label as _igpu_lbl
+                    _kind = _igpu_lbl(_hw.gpu_name, getattr(_hw, "gpu_vendor", ""))
+                    _extra = (
+                        f"\n⚠ {_kind} detected — install the GPU pack to "
+                        "offload layers; CPU mode works until then."
+                    )
+                else:
+                    _extra = (
+                        "\n⚠ This model is too large for comfortable GPU offload on your card. "
+                        "Try Qwen2.5-7B (recommended for 8 GB GPUs)."
+                    )
             elif _hw.has_gpu and 0 < _rec.n_gpu_layers < 10:
                 _extra = (
                     "\n⚠ Partial GPU offload — consider a smaller model for faster replies."
                 )
             self._hw_result_label.setStyleSheet(_style)
             self._hw_result_label.setText(
-                f"GPU: {_hw.gpu_name}  |  GPU layers: {_rec.n_gpu_layers}  "
+                f"GPU: {_hw.gpu_name}  |  GPU layers: {_layer_disp}  "
                 f"|  Context: {_rec.n_ctx}  |  Batch: {_rec.batch_size}  "
                 f"|  Free VRAM: {_hw.free_vram_mb}MB{_extra}"
             )

@@ -15,6 +15,11 @@ param(
 
 $ErrorActionPreference = "Stop"
 
+function Eli-Progress {
+    param([string]$Phase, [int]$Pct, [string]$Msg)
+    Write-Host "[ELI-PROGRESS] phase=$Phase pct=$Pct msg=$Msg"
+}
+
 $ScriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
 $Venv = Join-Path $ScriptDir ".venv"
 $env:ELI_PROJECT_ROOT = $ScriptDir
@@ -172,6 +177,7 @@ Invoke-Pip @("install", "--quiet", "--upgrade", "pip", "wheel")
 Invoke-Pip @("install", "--quiet", "setuptools>=68,<82")
 
 # PyTorch
+Eli-Progress -Phase torch -Pct 20 -Msg "Installing PyTorch"
 if ($CpuOnly) {
     Write-Host "[..] Installing PyTorch (CPU)..."
     Invoke-Pip (@("install") + $PipFindLinksArgs + @("torch", "--index-url", "https://download.pytorch.org/whl/cpu", "--quiet"))
@@ -186,6 +192,7 @@ if ($CpuOnly) {
 }
 
 # llama-cpp-python
+Eli-Progress -Phase llama -Pct 35 -Msg "Installing inference engine"
 if ($CpuOnly) {
     Write-Host "[..] Installing llama-cpp-python (CPU)..."
     Invoke-Pip (@("install") + $PipFindLinksArgs + @("llama-cpp-python", "--quiet"))
@@ -247,6 +254,7 @@ if (-not $CpuOnly) {
 }
 
 # ELI v2.0 wheel
+Eli-Progress -Phase eli -Pct 55 -Msg "Installing ELI core"
 Write-Host "[..] Installing ELI v2.0..."
 $Wheel = Get-ChildItem (Join-Path $ScriptDir "dist") -Filter "eli_v2_0-*.whl" -ErrorAction SilentlyContinue | Select-Object -First 1
 if ($Wheel) {
@@ -343,6 +351,7 @@ Write-Host "[..] Ensuring voice models (local STT + TTS, for browser/desktop voi
 if ($LASTEXITCODE -eq 0) { Write-Host "[OK] Voice models ready." -ForegroundColor Green; $VoiceStatus = "ready" }
 else { Write-Host "[WARN] Voice models deferred (run: .venv\Scripts\python -m eli.runtime.voice_assets)" -ForegroundColor Yellow; $VoiceStatus = "deferred (fetch later)" }
 
+Eli-Progress -Phase finish -Pct 100 -Msg "Installation complete"
 Write-Host ""
 Write-Host "==================================================" -ForegroundColor Green
 Write-Host "  ELI v2.0 - installation complete" -ForegroundColor Green

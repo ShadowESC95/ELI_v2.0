@@ -607,7 +607,7 @@ def _install(argv: list[str] | None = None) -> int:
     # VERIFY before activation — a pack that cannot load must never be able
     # to brick the app (activation requires the .gpu_pack_ok marker).
     _say("verifying the GPU pack loads on this machine…")
-    relax_offload = backend == "vulkan" and _intel_integrated_gpu()
+    relax_offload = backend == "vulkan" and _shared_memory_gpu()
     ok, detail = _verify(dest, require_offload=not relax_offload)
     if not ok:
         shutil.rmtree(dest, ignore_errors=True)
@@ -691,13 +691,18 @@ def _vendor_cuda_runtime(libdir: Path, tmp: Path, cuda_idx: str = "cu124") -> No
                         shutil.copyfileobj(src, dst)
 
 
-def _intel_integrated_gpu() -> bool:
+def _shared_memory_gpu() -> bool:
+    """True for iGPU / APU / Apple unified memory (shared RAM, not discrete VRAM)."""
     try:
         from eli.core.hardware_profile import detect_hardware
         hw = detect_hardware()
         return bool(getattr(hw, "gpu_integrated", False))
     except Exception:
         return False
+
+
+def _intel_integrated_gpu() -> bool:
+    return _shared_memory_gpu()
 
 
 def _verify(dest: Path, *, require_offload: bool = True) -> tuple[bool, str]:

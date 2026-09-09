@@ -2605,7 +2605,7 @@ class Memory(metaclass=_MemoryMeta):
             try:
                 _boost_ids = [
                     int(_h["id"]) for _h in out[:3]
-                    if not str(_h.get("id", "")).startswith(("kg:", "sem:", "conv"))
+                    if not str(_h.get("id", "")).startswith(("kg:", "sem:", "conv", "vec:"))
                     and _h.get("id") is not None
                 ]
                 for _bid in _boost_ids:

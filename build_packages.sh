@@ -137,10 +137,14 @@ _stage_windows_common() {
 @echo off
 title ELI Setup
 cd /d "%~dp0"
-echo ELI v2.0 setup — first run may take several minutes.
-powershell -NoProfile -ExecutionPolicy Bypass -File "%~dp0install.ps1" -Yes
+set ELI_PROJECT_ROOT=%~dp0
+set PYTHONPATH=%~dp0;%PYTHONPATH%
+python -m eli.setup --full-install --launch
+if not errorlevel 1 exit /b 0
+echo GUI installer unavailable — running PowerShell install...
+powershell -NoProfile -ExecutionPolicy Bypass -File "%~dp0install.ps1" -Yes -AutoModel
 if errorlevel 1 ( echo Setup failed. & pause & exit /b 1 )
-echo Setup complete. Run eli.bat to launch ELI.
+python -m eli.setup --run-remaining --launch
 pause
 BAT_EOF
     cat > "$STAGING/README_INSTALL.txt" <<EOF

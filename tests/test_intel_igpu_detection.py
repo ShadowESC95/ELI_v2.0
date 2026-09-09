@@ -1,4 +1,4 @@
-"""Intel Iris Xe / UHD laptops must not be reported as 'no GPU'."""
+"""Integrated / unified-memory GPUs must not be reported as 'no GPU'."""
 from __future__ import annotations
 
 from pathlib import Path
@@ -15,6 +15,29 @@ def test_intel_integrated_profile_fields():
     assert hw.gpu_name == "Intel Iris Xe Graphics"
     assert hw.free_vram_mb > 0
     assert hw.total_vram_mb >= hw.free_vram_mb
+
+
+def test_amd_apu_integrated_profile_fields():
+    hw = hp.HardwareProfile(ram_gb=32.0, available_ram_gb=20.0)
+    hp._apply_integrated_gpu_profile(hw, "AMD Radeon Graphics", "amd")
+    assert hw.has_gpu is True
+    assert hw.gpu_vendor == "amd"
+    assert hw.gpu_integrated is True
+    assert hw.free_vram_mb > 0
+
+
+def test_apple_unified_memory_label():
+    assert "Apple" in hp.integrated_gpu_label("Apple M2", "apple")
+    assert hp.format_gpu_layers_status(
+        0, fitted_layers=12, gpu_integrated=True, gpu_name="Apple M2", gpu_vendor="apple",
+    ).endswith("fit, CPU active)")
+
+
+def test_integrated_name_heuristics():
+    assert hp._is_integrated_gpu_name("Intel Iris Xe Graphics", "intel") is True
+    assert hp._is_integrated_gpu_name("AMD Radeon Graphics", "amd") is True
+    assert hp._is_discrete_gpu_name("NVIDIA GeForce RTX 2060 SUPER") is True
+    assert hp._is_integrated_gpu_name("NVIDIA GeForce RTX 2060 SUPER") is False
 
 
 def test_discrete_arc_device_ids_are_not_treated_as_igpu(tmp_path):

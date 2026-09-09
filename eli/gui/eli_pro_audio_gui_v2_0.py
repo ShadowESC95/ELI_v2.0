@@ -737,6 +737,10 @@ class LocalModelManager:
         self.model_path = None
         self.is_loaded = False
         self.load_error = None
+        self.fitted_gpu_layers = 0
+        self.gpu_integrated = False
+        self.gpu_name = ""
+        self.gpu_vendor = ""
     def _write_shared_runtime_snapshot(
         self,
         model_path: str,
@@ -837,6 +841,17 @@ class LocalModelManager:
                 return False
             print(f"🔄 Loading model: {path_obj.name}")
             print(f"   Size: {path_obj.stat().st_size / (1024**3):.2f} GB")
+            self.fitted_gpu_layers = 0
+            try:
+                from eli.core.hardware_profile import detect_hardware as _hw_load
+                _hw = _hw_load()
+                self.gpu_integrated = bool(getattr(_hw, "gpu_integrated", False))
+                self.gpu_name = str(getattr(_hw, "gpu_name", "") or "")
+                self.gpu_vendor = str(getattr(_hw, "gpu_vendor", "") or "")
+            except Exception:
+                self.gpu_integrated = False
+                self.gpu_name = ""
+                self.gpu_vendor = ""
             # Preserve user's explicit settings — attempt 1 always honours these exactly.
             # The hardware profile is read separately and inserted as a fallback candidate
             # so it never overrides deliberate user choices.
@@ -951,11 +966,11 @@ class LocalModelManager:
             import os as _sf_os
             try:
                 from eli.core.startup_hardware_optimizer import (
-                    detect_nvidia_gpus as _sf_dng, select_gpu as _sf_sg,
+                    gpu_budget_for_fit as _sf_budget,
+                    train_ctx_for_model as _sf_train_ctx,
                 )
                 from eli.core.hardware_profile import smart_fit_config as _sf_fit
-                from eli.core.startup_hardware_optimizer import train_ctx_for_model as _sf_train_ctx
-                _sf_gpu = _sf_sg(_sf_dng())
+                _sf_gpu = _sf_budget()
                 if _sf_gpu and _sf_gpu.free_mb > 0:
                     _sf_model_gb = path_obj.stat().st_size / (1024 ** 3)
                     from eli.core.hardware_profile import vram_reserve_mb as _vrm
@@ -1039,6 +1054,7 @@ class LocalModelManager:
                             f"generation: the layers that did not fit run on CPU. Free VRAM or lower "
                             f"the context to get them back.")
                     _sf_fit_layers = int(_sf_layers)
+                    self.fitted_gpu_layers = int(_sf_layers)
                     _add_attempt("smart-fit", _sf_ctx, _sf_layers, _sf_batch)
             except Exception as _sf_err:
                 log.debug(f"[GUI][LOAD] smart-fit attempt skipped: {_sf_err}")
@@ -2883,8 +2899,19 @@ class EliMainWindow(QMainWindow):
                 log.debug(f"[GUI] preloaded runtime snapshot write failed: {_pre_snap_err}")
 
             self.active_backend = model_manager
+            from eli.core.hardware_profile import format_gpu_layers_status as _fmt_gpu_pre
+            _pre_gpu = _fmt_gpu_pre(
+                int(getattr(model_manager, 'n_gpu_layers', 0) or 0),
+                fitted_layers=int(getattr(model_manager, 'fitted_gpu_layers', 0) or 0),
+                gpu_integrated=bool(getattr(model_manager, 'gpu_integrated', False)),
+                gpu_name=str(getattr(model_manager, 'gpu_name', '') or ''),
+                gpu_vendor=str(getattr(model_manager, 'gpu_vendor', '') or ''),
+            )
             self.status_signal.emit(
-                f"🟢 Model ready: {Path(model_manager.model_path).name}"
+                f"🟢 Model ready: {Path(model_manager.model_path).name} "
+                f"(ctx={int(getattr(model_manager, 'n_ctx', 0) or 0)} "
+                f"gpu={_pre_gpu} "
+                f"batch={int(getattr(model_manager, 'n_batch', 0) or 0)})"
             )
         # Runtime handoff from launcher/model picker. Portable: no absolute source paths.
         _PRELOADED_PARAMS = globals().get("_PRELOADED_PARAMS", {})
@@ -3699,7 +3726,7 @@ class EliMainWindow(QMainWindow):
         # PulseAudio / PipeWire sources (catches BT headsets)
         try:
             import subprocess as _sp
-            if _sp.which("pactl"):
+            if shutil.which("pactl"):
                 _out = _sp.check_output(["pactl", "list", "sources", "short"],
                                         text=True, timeout=3)
                 for line in _out.strip().splitlines():
@@ -9985,15 +10012,26 @@ class EliMainWindow(QMainWindow):
             }], user_ctx=_user_pinned_ctx)
 
             # Runtime CUDA/backend may be unavailable even if VRAM probe reports
-            # a GPU. In that case force CPU-safe values so the GUI does not keep
-            # applying aggressive GPU-centric params.
+            # a GPU. Keep the measured layer fit for display; clamp batch for CPU load.
             if _gpu_support is False:
-                rec.n_gpu_layers = 0
+                _fit_layers = int(rec.n_gpu_layers or 0)
                 rec.batch_size = min(int(getattr(rec, "batch_size", 128) or 128), 128)
-                self._hardware_tuning_log(
-                    "GPU offload unavailable at runtime -> forcing CPU-safe tuning "
-                    "(gpu_layers=0, batch<=128)."
-                )
+                if _fit_layers > 0 and getattr(hw, "gpu_integrated", False):
+                    self._hardware_tuning_log(
+                        f"GPU backend inactive — {_fit_layers} layers fit integrated "
+                        f"graphics ({hw.gpu_name}); load uses CPU until a GPU backend "
+                        f"is active."
+                    )
+                elif _fit_layers > 0:
+                    self._hardware_tuning_log(
+                        f"GPU backend inactive — {_fit_layers} layers fit VRAM; "
+                        f"load uses CPU until a GPU backend is active."
+                    )
+                else:
+                    self._hardware_tuning_log(
+                        "GPU offload unavailable at runtime -> CPU-safe tuning "
+                        "(gpu_layers=0, batch<=128)."
+                    )
 
             # KV-cache quantization: hardware fact — safe to update in the combo
             # (affects how VRAM is used, not a user performance preference).
@@ -10397,10 +10435,20 @@ class EliMainWindow(QMainWindow):
                     self.active_backend = backend
                     memory_system.log_event('model_load', f"Loaded {model_name_display} via {provider}")
                     if provider != "ollama":
+                        from eli.core.hardware_profile import format_gpu_layers_status as _fmt_gpu
+                        _active_gpu = int(getattr(model_manager, 'n_gpu_layers', 0) or 0)
+                        _fitted_gpu = int(getattr(model_manager, 'fitted_gpu_layers', 0) or 0)
+                        _gpu_disp = _fmt_gpu(
+                            _active_gpu,
+                            fitted_layers=_fitted_gpu,
+                            gpu_integrated=bool(getattr(model_manager, 'gpu_integrated', False)),
+                            gpu_name=str(getattr(model_manager, 'gpu_name', '') or ''),
+                            gpu_vendor=str(getattr(model_manager, 'gpu_vendor', '') or ''),
+                        )
                         self.status_signal.emit(
                             f"🟢 Model ready: {model_name_display} "
                             f"(ctx={int(getattr(model_manager, 'n_ctx', 0) or 0)} "
-                            f"gpu={int(getattr(model_manager, 'n_gpu_layers', 0) or 0)} "
+                            f"gpu={_gpu_disp} "
                             f"batch={int(getattr(model_manager, 'n_batch', 0) or 0)})"
                         )
                     else:
@@ -12270,8 +12318,19 @@ class EliMainWindow(QMainWindow):
             self.send_btn.setEnabled(False)
             return
         if message.startswith('🟢 Model ready:'):
-            model_name = message.split(':', 1)[1].strip()
-            self.model_info_label.setText(f"🟢 {model_name}")
+            rest = message.split(':', 1)[1].strip()
+            import re as _re_status
+            _m = _re_status.match(
+                r'^(.+?)\s*\(ctx=(\d+)\s+gpu=([^)]+?)\s+batch=(\d+)\)\s*$',
+                rest,
+            )
+            if _m:
+                _name, _ctx, _gpu, _batch = _m.groups()
+                self.model_info_label.setText(
+                    f"🟢 {_name.strip()} | ctx={_ctx} | gpu={_gpu.strip()} | batch={_batch}"
+                )
+            else:
+                self.model_info_label.setText(f"🟢 {rest}")
             self.send_btn.setEnabled(True)
             self.status_label.setText("🟢 Ready")
             return

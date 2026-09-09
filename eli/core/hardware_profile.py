@@ -28,6 +28,7 @@ writes mode_profiles or active_mode.
 from __future__ import annotations
 
 import os
+import re
 import sys
 import json
 import shutil
@@ -149,7 +150,7 @@ class HardwareProfile:
     has_gpu: bool = False
     gpu_name: str = ""
     gpu_vendor: str = ""          # nvidia, amd, intel, apple, unknown
-    gpu_integrated: bool = False  # True for Intel Iris/UHD and other shared-memory GPUs
+    gpu_integrated: bool = False  # True for iGPU / APU / Apple unified-memory (shared RAM)
     vulkan_available: bool = False
     free_vram_mb: int = 0       # FREE VRAM, not total
     total_vram_mb: int = 0
@@ -493,11 +494,98 @@ def _vulkan_loader_present() -> bool:
 
 
 def _estimate_integrated_vram_mb(ram_gb: float, available_ram_gb: float) -> tuple[int, int]:
-    """Conservative shared-memory budget for Intel iGPU / unified-memory GPUs."""
+    """Conservative shared-memory budget for iGPU / APU / unified-memory systems."""
     base = max(float(ram_gb or 0), float(available_ram_gb or 0), 1.0)
     total_mb = int(min(8192, max(2048, base * 1024 * 0.40)))
     free_mb = int(min(total_mb, max(1024, float(available_ram_gb or base) * 1024 * 0.30)))
     return free_mb, total_mb
+
+
+def _is_discrete_gpu_name(name: str) -> bool:
+    """True for discrete GPUs with dedicated VRAM (not iGPU/APU/unified)."""
+    low = (name or "").lower()
+    if any(k in low for k in ("geforce", "quadro", "tesla", "rtx ", "gtx ", "nvidia")):
+        return True
+    if any(k in low for k in ("radeon pro", "instinct", "firepro")):
+        return True
+    if "arc" in low and "intel" in low:
+        return True
+    if re.search(r"\brx\s*\d", low):
+        return True
+    if re.search(r"\brx\s*\d{3,4}\b", low):
+        return True
+    return False
+
+
+def _is_integrated_gpu_name(name: str, vendor: str = "") -> bool:
+    """True when the adapter shares system RAM (Intel iGPU, AMD APU, Apple Silicon)."""
+    if _is_discrete_gpu_name(name):
+        return False
+    low = (name or "").lower()
+    v = (vendor or "").lower()
+    if v == "apple" or any(k in low for k in ("apple m1", "apple m2", "apple m3", "apple m4")):
+        return True
+    if sys.platform == "darwin" and any(k in low for k in ("apple", "m1", "m2", "m3", "m4")):
+        return True
+    if v == "intel" or any(k in low for k in ("intel", "iris", "uhd")):
+        return "arc" not in low
+    if v == "amd" or any(k in low for k in ("amd", "radeon", "ati", "vega")):
+        return not _is_discrete_gpu_name(name)
+    return False
+
+
+def integrated_gpu_label(name: str = "", vendor: str = "") -> str:
+    """Short label for status bars — Intel iGPU, AMD APU, Apple unified memory, etc."""
+    low = (name or "").lower()
+    v = (vendor or "").lower()
+    if v == "apple" or sys.platform == "darwin" and "apple" in low:
+        return "Apple unified memory"
+    if "iris" in low:
+        return "Intel Iris Xe"
+    if "uhd" in low:
+        return "Intel UHD"
+    if v == "intel" or "intel" in low:
+        return "Intel iGPU"
+    if any(k in low for k in ("apu", "vega", "raphael", "phoenix", "renoir", "cezanne")):
+        return "AMD APU"
+    if v == "amd" or "radeon" in low:
+        return "AMD integrated GPU"
+    return "integrated GPU"
+
+
+def format_gpu_layers_status(
+    active_layers: int,
+    *,
+    fitted_layers: int = 0,
+    gpu_integrated: bool = False,
+    gpu_name: str = "",
+    gpu_vendor: str = "",
+) -> str:
+    """Human-readable GPU layer count for status bars and hardware panels.
+
+    Always reflects how many layers fit the hardware budget. When the runtime
+    is CPU-only but integrated/discrete VRAM can hold partial offload, report
+    the fit count instead of a misleading zero.
+    """
+    active = max(0, int(active_layers or 0))
+    fitted = max(0, int(fitted_layers or 0))
+    show = active if active > 0 else fitted
+    igpu_label = integrated_gpu_label(gpu_name, gpu_vendor) if gpu_integrated else ""
+
+    if show <= 0:
+        if gpu_integrated:
+            return f"0 ({igpu_label or 'integrated'}, CPU)"
+        return "0"
+    if gpu_integrated:
+        label = igpu_label or "integrated GPU"
+        if active > 0:
+            return f"{active} ({label})"
+        return f"{show} ({label} fit, CPU active)"
+    if active > 0:
+        return str(active)
+    if fitted > 0:
+        return f"{fitted} (CPU active)"
+    return str(show)
 
 
 def _pci_addr_from_drm_device(dev: Path) -> str:
@@ -548,9 +636,10 @@ def _linux_intel_display_adapters() -> List[tuple[str, bool]]:
     return out
 
 
-def _apply_intel_integrated_profile(hw: HardwareProfile, name: str) -> None:
+def _apply_integrated_gpu_profile(hw: HardwareProfile, name: str, vendor: str) -> None:
+    """Mark a shared-memory GPU (Intel iGPU, AMD APU, Apple unified memory)."""
     hw.has_gpu = True
-    hw.gpu_vendor = "intel"
+    hw.gpu_vendor = vendor or "unknown"
     hw.gpu_integrated = True
     hw.gpu_name = name
     hw.vulkan_available = _vulkan_loader_present()
@@ -558,6 +647,10 @@ def _apply_intel_integrated_profile(hw: HardwareProfile, name: str) -> None:
     hw.free_vram_mb = free_mb
     hw.total_vram_mb = total_mb
     hw.vram_gb = hw.free_vram_mb / 1024.0
+
+
+def _apply_intel_integrated_profile(hw: HardwareProfile, name: str) -> None:
+    _apply_integrated_gpu_profile(hw, name, "intel")
 
 
 def _llama_gpu_offload_available() -> bool:
@@ -665,23 +758,27 @@ def detect_hardware() -> HardwareProfile:
             name_l = name.lower()
             if any(k in name_l for k in ("nvidia", "geforce", "rtx", "gtx", "quadro", "tesla")):
                 hw.gpu_vendor = "nvidia"
-            elif any(k in name_l for k in ("amd", "radeon", "rx ")):
+            elif any(k in name_l for k in ("amd", "radeon", "rx ", "ati", "vega")):
                 hw.gpu_vendor = "amd"
+                if _is_integrated_gpu_name(name, "amd"):
+                    hw.gpu_integrated = True
+                    hw.vulkan_available = _vulkan_loader_present()
             elif "intel" in name_l or "iris" in name_l or "uhd" in name_l:
                 hw.gpu_vendor = "intel"
-                if "arc" not in name_l:
+                if _is_integrated_gpu_name(name, "intel"):
                     hw.gpu_integrated = True
                     hw.vulkan_available = _vulkan_loader_present()
             elif sys.platform == "darwin":
                 hw.gpu_vendor = "apple"
-            if vram_mb > 0:
+                hw.gpu_integrated = True
+            if vram_mb > 0 and not hw.gpu_integrated:
                 hw.total_vram_mb = vram_mb
                 # No free-VRAM API here, so assume the desktop already holds
                 # some. The smart loader's reduce-to-fit corrects downward on
                 # OOM; over-reporting is the only unsafe direction.
                 hw.free_vram_mb = int(vram_mb * 0.80)
             elif hw.gpu_integrated or sys.platform == "darwin":
-                # Apple Silicon and Intel iGPUs share system RAM with the GPU.
+                # iGPU / APU / Apple unified memory share system RAM with the GPU.
                 free_mb, total_mb = _estimate_integrated_vram_mb(hw.ram_gb, hw.available_ram_gb)
                 hw.total_vram_mb = total_mb
                 hw.free_vram_mb = free_mb
@@ -840,17 +937,41 @@ def detect_hardware() -> HardwareProfile:
         except Exception:
             log.debug("suppressed exception", exc_info=True)
 
-    # Intel integrated graphics (Iris Xe, UHD) — common on laptops like the XPS 13.
-    # nvidia-smi and rocm-smi do not apply; detect via DRM sysfs / lspci instead.
+    # Integrated graphics (Intel iGPU, AMD APU) — shared system RAM, no nvidia-smi.
     if not hw.has_gpu and sys.platform.startswith("linux"):
         try:
             integrated = [name for name, is_arc in _linux_intel_display_adapters() if not is_arc]
             if integrated:
-                _apply_intel_integrated_profile(hw, integrated[0])
+                _apply_integrated_gpu_profile(hw, integrated[0], "intel")
                 log.info(
                     "[HW] Intel iGPU detected: %s (~%d MB shared-memory budget, Vulkan=%s)",
                     hw.gpu_name, hw.free_vram_mb, hw.vulkan_available,
                 )
+        except Exception:
+            log.debug("suppressed exception", exc_info=True)
+    if not hw.has_gpu and sys.platform.startswith("linux"):
+        try:
+            _AMD = "0x1002"
+            for vendor_file in Path("/sys/class/drm").glob("card[0-9]*/device/vendor"):
+                if vendor_file.read_text().strip().lower() != _AMD:
+                    continue
+                dev = vendor_file.parent
+                dedicated = 0
+                try:
+                    dedicated = int((dev / "mem_info_vram_total").read_text().strip())
+                except Exception:
+                    pass
+                if dedicated > 64 * 1024 * 1024:
+                    continue
+                name = _lspci_name_for_pci_addr(_pci_addr_from_drm_device(dev))
+                if not name:
+                    name = "AMD integrated graphics (APU)"
+                _apply_integrated_gpu_profile(hw, name, "amd")
+                log.info(
+                    "[HW] AMD iGPU/APU detected: %s (~%d MB shared-memory budget, Vulkan=%s)",
+                    hw.gpu_name, hw.free_vram_mb, hw.vulkan_available,
+                )
+                break
         except Exception:
             log.debug("suppressed exception", exc_info=True)
 
@@ -1057,24 +1178,30 @@ def recommend(hw: Optional[HardwareProfile] = None,
     )
     if hw.has_gpu:
         if hw.gpu_integrated:
+            _igpu_kind = integrated_gpu_label(hw.gpu_name, hw.gpu_vendor)
             rec.reasoning.append(
-                f"GPU: {hw.gpu_name} — integrated graphics using shared system RAM "
+                f"GPU: {hw.gpu_name} — {_igpu_kind} using shared system RAM "
                 f"(~{hw.free_vram_mb/1024.0:.1f}GB budgeted, not dedicated VRAM)"
             )
-            if hw.vulkan_available:
+            if hw.gpu_vendor == "apple":
+                rec.reasoning.append(
+                    "Apple unified memory — Metal backend when available; "
+                    "layer count reflects shared-memory fit"
+                )
+            elif hw.vulkan_available:
                 rec.reasoning.append(
                     "Vulkan loader present — optional GPU offload via "
-                    "ELI --install-gpu-pack --vulkan (experimental on Iris Xe)"
+                    "ELI --install-gpu-pack --vulkan (experimental on shared-memory GPUs)"
                 )
             else:
                 rec.reasoning.append(
-                    "Vulkan loader not found — CPU mode recommended until Intel "
-                    "GPU drivers / vulkan-icd are installed"
+                    "Vulkan loader not found — CPU mode until GPU drivers / "
+                    "vulkan-icd are installed"
                 )
             if not _llama_gpu_offload_available():
                 rec.reasoning.append(
                     "llama-cpp has no active GPU backend — CPU inference for now "
-                    "(reliable on Intel iGPU laptops; install the Vulkan pack to try offload)"
+                    f"(reliable on {_igpu_kind}; install the GPU pack to try offload)"
                 )
         else:
             rec.reasoning.append(
@@ -1085,8 +1212,14 @@ def recommend(hw: Optional[HardwareProfile] = None,
         rec.reasoning.append("GPU: none detected (CPU-only mode)")
 
     use_gpu_layers = bool(hw.has_gpu and hw.free_vram_mb > 0)
-    if hw.gpu_integrated and not _llama_gpu_offload_available():
-        use_gpu_layers = False
+    _backend_ready = _llama_gpu_offload_available()
+    if hw.gpu_integrated and not _backend_ready:
+        _igpu_kind = integrated_gpu_label(hw.gpu_name, hw.gpu_vendor)
+        rec.reasoning.append(
+            f"{_igpu_kind} layer count below reflects shared-memory fit; "
+            "install the GPU pack to offload them (CPU remains reliable "
+            "when no GPU backend is active)"
+        )
 
     if not models:
         rec.reasoning.append("No GGUF models found. Consider Ollama.")

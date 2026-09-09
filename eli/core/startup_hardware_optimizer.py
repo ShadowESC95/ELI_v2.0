@@ -5,6 +5,7 @@ import os
 import platform
 import re
 import subprocess
+import sys
 from dataclasses import dataclass, asdict
 from pathlib import Path
 from typing import Any, Dict, List, Optional
@@ -62,6 +63,18 @@ class HardwareProfile:
 
 def run(cmd: List[str]) -> str:
     return subprocess.check_output(cmd, text=True, stderr=subprocess.DEVNULL).strip()
+
+
+def _integrated_vram_estimate() -> tuple[int, int]:
+    """Shared-memory VRAM budget for iGPU / APU / Apple unified-memory systems."""
+    from eli.core.hardware_profile import _estimate_integrated_vram_mb
+    ram_gb = detect_ram_gb()
+    try:
+        import psutil
+        avail_gb = psutil.virtual_memory().available / 1e9
+    except Exception:
+        avail_gb = ram_gb * 0.5
+    return _estimate_integrated_vram_mb(ram_gb, avail_gb)
 
 
 def detect_ram_gb() -> float:
@@ -153,6 +166,15 @@ def detect_other_gpus() -> List[GPUInfo]:
                     out.append(GPUInfo(i, line.strip(), vendor, amd_total, amd_free))
                     amd_total = amd_free = 0  # assign the summed VRAM once
                 else:
+                    try:
+                        from eli.core.hardware_profile import _is_integrated_gpu_name
+                        _name = line.strip()
+                        if _is_integrated_gpu_name(_name, vendor):
+                            free_mb, total_mb = _integrated_vram_estimate()
+                            out.append(GPUInfo(i, _name, vendor, total_mb, free_mb))
+                            continue
+                    except Exception:
+                        log.debug("integrated GPU lspci classify failed", exc_info=True)
                     out.append(GPUInfo(i, line.strip(), vendor, 0, 0))
     except Exception:
         log.debug("suppressed exception", exc_info=True)
@@ -175,9 +197,43 @@ def detect_native_gpus() -> List[GPUInfo]:
                   else "amd" if any(k in low for k in ("amd", "radeon", "rx "))
                   else "intel" if "intel" in low or "arc" in low
                   else "unknown")
-        free = int(vram_mb * 0.80) if vram_mb else 0
+        try:
+            from eli.core.hardware_profile import _is_integrated_gpu_name
+            _integrated = _is_integrated_gpu_name(name, vendor)
+        except Exception:
+            _integrated = vendor == "intel" and "arc" not in low
+        if vram_mb <= 0 and _integrated:
+            free_mb, total_mb = _integrated_vram_estimate()
+            vram_mb, free = total_mb, free_mb
+        elif sys.platform == "darwin" and vram_mb <= 0:
+            free_mb, total_mb = _integrated_vram_estimate()
+            vram_mb, free = total_mb, free_mb
+            vendor = vendor if vendor != "unknown" else "apple"
+        else:
+            free = int(vram_mb * 0.80) if vram_mb else 0
         out.append(GPUInfo(i, name, vendor, int(vram_mb), free))
     return out
+
+
+def gpu_budget_for_fit() -> Optional[GPUInfo]:
+    """Best GPU budget for smart-fit — NVIDIA, AMD, Intel iGPU, Apple, etc."""
+    gpu = select_gpu(detect_gpus())
+    if gpu and gpu.free_mb > 0:
+        return gpu
+    try:
+        from eli.core.hardware_profile import detect_hardware
+        hw = detect_hardware()
+        if hw.has_gpu and hw.free_vram_mb > 0:
+            return GPUInfo(
+                0,
+                hw.gpu_name or "GPU",
+                hw.gpu_vendor or "unknown",
+                int(hw.total_vram_mb or hw.free_vram_mb),
+                int(hw.free_vram_mb),
+            )
+    except Exception:
+        log.debug("gpu_budget_for_fit fallback failed", exc_info=True)
+    return None
 
 
 def detect_gpus() -> List[GPUInfo]:
