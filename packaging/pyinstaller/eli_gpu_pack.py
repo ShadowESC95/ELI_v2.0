@@ -836,6 +836,7 @@ def preload_native_libs(pack_dir: str | Path) -> None:
     # what makes the Vulkan backend resolvable from inside the bundle.
     if sys.platform != "win32" and any(lib.glob("libggml-vulkan.so*")):
         import ctypes.util
+        import os
         candidates = []
         found = ctypes.util.find_library("vulkan")
         if found:
@@ -845,8 +846,19 @@ def preload_native_libs(pack_dir: str | Path) -> None:
             "/lib/x86_64-linux-gnu/libvulkan.so.1",
             "/usr/lib64/libvulkan.so.1",
             "/usr/lib/libvulkan.so.1",
+            "/usr/lib/i386-linux-gnu/libvulkan.so.1",
             "libvulkan.so.1",
         ]
+        # Intel/Mesa ICD paths — without these, llama_supports_gpu_offload()
+        # can report False inside AppImage even when Vulkan works outside it.
+        for _icd in (
+            "/usr/share/vulkan/icd.d/intel_icd.x86_64.json",
+            "/usr/share/vulkan/icd.d/intel_hasvk_icd.x86_64.json",
+            "/usr/share/vulkan/icd.d/lvp_icd.x86_64.json",
+        ):
+            if Path(_icd).is_file():
+                os.environ.setdefault("VK_ICD_FILENAMES", _icd)
+                break
         for cand in candidates:
             try:
                 ctypes.CDLL(cand, mode=getattr(ctypes, "RTLD_GLOBAL", 0))

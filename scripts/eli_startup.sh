@@ -138,6 +138,8 @@ if [ "$LOG_TO_FILE" -eq 1 ]; then
   "$PY" -m eli "${APP_ARGS[@]}" 2>&1 | tee -a "$LOG_FILE"
   status=${PIPESTATUS[0]}
   set -e
+  # Ensure the shell prompt returns immediately after GUI exit (no stray wait).
+  printf '\n'
   exit "$status"
 fi
 

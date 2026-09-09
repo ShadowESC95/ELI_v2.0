@@ -2191,7 +2191,7 @@ class Memory(metaclass=_MemoryMeta):
             conn.close()
 
     def recall_memory(self, query, limit=10, keyword_only: bool = False,
-                      verified_only: bool = False):
+                      verified_only: bool = False, tags=None):
         q = _norm_text(query).strip()
         if not q:
             return []
@@ -2634,6 +2634,26 @@ class Memory(metaclass=_MemoryMeta):
                 )
             except Exception:
                 log.debug("suppressed exception", exc_info=True)
+            # Optional tag filter — callers (e.g. turn_dossier morning_report) may
+            # request memories tagged with specific labels without a separate API.
+            if tags:
+                _want = {str(t).strip().lower() for t in tags if str(t).strip()}
+                if _want:
+                    def _hit_has_tag(hit: dict) -> bool:
+                        raw = hit.get("tags", "")
+                        if isinstance(raw, (list, tuple, set)):
+                            blob = " ".join(str(x) for x in raw)
+                        else:
+                            blob = str(raw or "")
+                        parts = {
+                            p.strip().lower()
+                            for p in re.split(r"[,;\s]+", blob)
+                            if p.strip()
+                        }
+                        return bool(_want & parts) or any(w in blob.lower() for w in _want)
+
+                    out = [h for h in out if _hit_has_tag(h)]
+
             # Enforce the caller's limit on the final merged list.
             # conversation_turns fallback uses max(3, limit-len) which can push
             # total above `limit` when the initial result set is small.

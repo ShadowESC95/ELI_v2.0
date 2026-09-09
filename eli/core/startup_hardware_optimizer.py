@@ -62,7 +62,11 @@ class HardwareProfile:
 
 
 def run(cmd: List[str]) -> str:
-    return subprocess.check_output(cmd, text=True, stderr=subprocess.DEVNULL).strip()
+    """Run a probe command; return stdout or empty string on expected failure."""
+    try:
+        return subprocess.check_output(cmd, text=True, stderr=subprocess.DEVNULL).strip()
+    except (FileNotFoundError, subprocess.CalledProcessError, OSError):
+        return ""
 
 
 def _integrated_vram_estimate() -> tuple[int, int]:
@@ -115,7 +119,7 @@ def detect_nvidia_gpus() -> List[GPUInfo]:
         from eli.core.hardware_profile import nvidia_smi_path as _smi_path
         _smi = _smi_path()
         if not _smi:
-            raise FileNotFoundError("nvidia-smi not found")
+            return out
         raw = run([
             _smi,
             "--query-gpu=index,name,memory.total,memory.free",
@@ -125,7 +129,7 @@ def detect_nvidia_gpus() -> List[GPUInfo]:
             idx, name, total, free = [x.strip() for x in line.split(",")[:4]]
             out.append(GPUInfo(int(idx), name, "nvidia", int(total), int(free)))
     except Exception:
-        log.debug("suppressed exception", exc_info=True)
+        pass  # nvidia-smi absent or unreadable — normal on iGPU/AMD/CPU machines
     return out
 
 
@@ -157,7 +161,7 @@ def detect_other_gpus() -> List[GPUInfo]:
                 amd_total += _tot // (1024 * 1024)
                 amd_free += max(0, _tot - _used) // (1024 * 1024)
     except Exception:
-        log.debug("suppressed exception", exc_info=True)
+        pass  # rocm-smi absent — normal on non-AMD machines
     try:
         raw = run(["lspci"])
         for i, line in enumerate(raw.splitlines()):

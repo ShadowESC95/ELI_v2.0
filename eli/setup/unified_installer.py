@@ -326,6 +326,8 @@ class UnifiedInstallWizard(QDialog):
 
     def _on_install_line(self, line: str) -> None:
         clean = line.strip()
+        if clean and sys.stdout.isatty():
+            print(clean, flush=True)
         if len(clean) > 120:
             clean = clean[:117] + "…"
         self._log.setText(clean)
@@ -478,7 +480,12 @@ def run_terminal_headless_installer(*, launch_after: bool = False) -> int:
         _render_terminal_progress(prog)
 
     def _on_line(line: str) -> None:
-        if line.startswith("[ERROR]") or line.startswith("[WARN]"):
+        clean = line.strip()
+        if not clean:
+            return
+        if sys.stdout.isatty():
+            print(clean, flush=True)
+        elif line.startswith("[ERROR]") or line.startswith("[WARN]"):
             print()
             print(line)
 

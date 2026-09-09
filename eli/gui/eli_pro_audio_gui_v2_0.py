@@ -956,6 +956,7 @@ class LocalModelManager:
             _base_ctx = _user_ctx
             _base_layers = int(effective_n_gpu_layers)
             _base_batch = int(effective_n_batch)
+            _sf_ctx = None
             # The user's OWN settings are queued FIRST — but below, once the fit
             # has measured free VRAM, because the layer count has to be clamped
             # against it. See the note at the insertion point.
@@ -1068,6 +1069,27 @@ class LocalModelManager:
                     _add_attempt("smart-fit", _sf_ctx, _sf_layers, _sf_batch)
             except Exception as _sf_err:
                 log.debug(f"[GUI][LOAD] smart-fit attempt skipped: {_sf_err}")
+
+            # GPU pack missing or backend unreachable: stale settings that assume
+            # GPU offload (ctx=12288 + layers>0) must not queue first on iGPU/CPU
+            # laptops — they block for minutes per reply (observed on Iris Xe).
+            if gpu_offload_supported is False:
+                _cpu_cap_ctx = None
+                if _hw_profile_ctx is not None:
+                    _cpu_cap_ctx = int(_hw_profile_ctx)
+                elif _sf_ctx is not None:
+                    _cpu_cap_ctx = int(_sf_ctx)
+                elif getattr(self, "gpu_integrated", False):
+                    _cpu_cap_ctx = 8192
+                if _cpu_cap_ctx is not None and int(_base_ctx) > int(_cpu_cap_ctx):
+                    log.debug(
+                        f"[GUI][CPU] GPU backend unavailable — preferring measured "
+                        f"ctx {_cpu_cap_ctx} over stale settings ctx={_base_ctx}"
+                    )
+                    _base_ctx = int(_cpu_cap_ctx)
+                _base_layers = 0
+                if int(_base_batch) > 128:
+                    _base_batch = min(int(_base_batch), int(_hw_profile_batch or 128))
 
             # ── The user's OWN settings, first ────────────────────────────
             #
@@ -12620,7 +12642,11 @@ def main():
     except Exception:
         log.debug("suppressed exception", exc_info=True)
     try:
-        sys.stdout.flush(); sys.stderr.flush()
+        sys.stdout.flush()
+        sys.stderr.flush()
+        if sys.stdout.isatty():
+            print("\n[ELI] Shutdown complete.")
+            sys.stdout.flush()
     except Exception:
         log.debug("suppressed exception", exc_info=True)
     os._exit(_rc if isinstance(_rc, int) else 0)

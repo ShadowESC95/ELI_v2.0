@@ -226,9 +226,32 @@ def _pin_env_for_root(root: Path) -> None:
         sys.path.insert(0, _root_str)
 
 
+def _ensure_safe_cwd() -> None:
+    """AppImage launches from a deleted extract folder break getcwd() and torch."""
+    try:
+        os.getcwd()
+        return
+    except OSError:
+        pass
+    for candidate in (
+        os.environ.get("HOME", ""),
+        os.environ.get("TMPDIR", ""),
+        "/tmp",
+    ):
+        if not candidate:
+            continue
+        try:
+            os.chdir(candidate)
+            return
+        except OSError:
+            continue
+
+
 def _pin_frozen_root() -> None:
     if not getattr(sys, "frozen", False):
         return
+
+    _ensure_safe_cwd()
 
     explicit = os.environ.get("ELI_PROJECT_ROOT", "").strip()
     if explicit:
@@ -325,10 +348,16 @@ def _pin_frozen_root() -> None:
                 for _m in [k for k in list(sys.modules) if k == "llama_cpp"
                            or k.startswith("llama_cpp.")]:
                     sys.modules.pop(_m, None)
+                # Invalidate the install marker so a broken pack does not shadow
+                # the bundled runtime on every subsequent boot.
+                try:
+                    (gpu_dir / ".gpu_pack_ok").unlink(missing_ok=True)
+                except Exception:
+                    pass
                 _warn(
                     "[ELI] GPU pack cannot reach a GPU backend in this build - "
                     "falling back to the bundled runtime (CPU). Reinstall the "
-                    "pack with: ELI --install-gpu-pack --force\n"
+                    "pack with: ELI --install-gpu-pack --vulkan --force\n"
                 )
         else:
             _warn(

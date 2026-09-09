@@ -29,6 +29,7 @@ _gui_available() {
 
 _try_gui_installer() {
   local _py=""
+  local _log="$ROOT/artifacts/setup_gui.log"
   mkdir -p "$ROOT/artifacts"
   for _py in python3 python; do
     if command -v "$_py" >/dev/null 2>&1; then
@@ -36,7 +37,12 @@ _try_gui_installer() {
         if ! "$_py" -c "from eli.gui.qt_compat import QApplication" 2>/dev/null; then
           "$_py" -m pip install --user 'PySide6>=6.6.0' >>"$ROOT/artifacts/setup_gui_fallback.log" 2>&1 || true
         fi
-        if "$_py" -m eli.setup --full-install --launch >>"$ROOT/artifacts/setup_gui.log" 2>&1; then
+        if [ -t 1 ]; then
+          echo "  [setup] GUI installer running — live output below (also saved to $_log)"
+          if "$_py" -m eli.setup --full-install --launch 2>&1 | tee -a "$_log"; then
+            return 0
+          fi
+        elif "$_py" -m eli.setup --full-install --launch >>"$_log" 2>&1; then
           return 0
         fi
       fi

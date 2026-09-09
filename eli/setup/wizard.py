@@ -117,7 +117,10 @@ class _SetupWorker(QThread):
         if sid == "database":
             return self._py("-m", "eli.core.init_data")
         if sid == "embedder":
-            return self._py("-c", "from eli.core.model_download import download_aux; download_aux(required_only=True)")
+            return self._py(
+                "-c",
+                "from eli.core.model_download import download_aux; download_aux(required_only=False)",
+            )
         if sid == "voice":
             return self._py("-m", "eli.runtime.voice_assets")
         if sid == "chat_model":
