@@ -151,8 +151,9 @@ else:
     print("[ELI.spec] WARNING: no embedder in models/embeddings — packaged memory "
           "will fall back to keyword recall until the model is downloaded at runtime")
 
-# GPU acceleration packs (CUDA/Vulkan llama-cpp wheels) — bundled for offline-first
-# install on frozen builds. CI downloads these into gpu-packs/ before PyInstaller.
+# GPU acceleration packs (CUDA/Vulkan llama-cpp wheels) — bundled when present in
+# gpu-packs/ before PyInstaller. CI deliberately omits them from the AppImage build
+# (GitHub 2 GiB asset cap); portable tarballs bundle via package_desktop_app.sh.
 _gpu_pack_dir = ROOT / "gpu-packs"
 _gpu_pack_files = sorted(_gpu_pack_dir.glob("*.whl")) if _gpu_pack_dir.is_dir() else []
 if _gpu_pack_files:

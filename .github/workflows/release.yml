@@ -462,26 +462,10 @@ jobs:
           echo "voices downloaded: $count"
           [ "$count" -ge 1 ] || { echo "::error::no .onnx voices present after download"; exit 1; }
 
-      - name: Bundle GPU acceleration packs (offline-first CUDA/Vulkan)
-        run: |
-          mkdir -p gpu-packs
-          _gpu_ok=0
-          for _attempt in 1 2 3 4 5; do
-            if gh release download gpu-packs --repo "$GITHUB_REPOSITORY" --clobber \
-                --pattern "vulkan-*linux_x86_64*.whl" \
-                --pattern "cuda-*linux_x86_64*.whl" \
-                --dir gpu-packs; then
-              _gpu_ok=1
-              break
-            fi
-            echo "::warning::gpu-packs download attempt ${_attempt}/5 failed — retrying"
-            sleep $((_attempt * 5))
-          done
-          if [ "$_gpu_ok" -eq 1 ]; then
-            ls -lh gpu-packs/
-          else
-            echo "::warning::gpu-packs unavailable — AppImage will download GPU pack at first launch"
-          fi
+      # GPU packs are NOT embedded in the AppImage — three linux_x86_64 wheels push
+      # the frozen bundle past GitHub's 2 GiB per-asset limit (~2.26 GiB observed at
+      # v2.4.6). ensure_gpu_pack_for_hardware() downloads the right pack at first
+      # launch instead. The portable tarball below still bundles gpu-packs offline.
 
       - name: Bundle text embedder (nomic-embed, required for memory/RAG)
         shell: bash

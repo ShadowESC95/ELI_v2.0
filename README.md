@@ -27,9 +27,14 @@ like and it tunes itself to the hardware you've got, from a laptop to a multi-GP
 <img src=".github/screenshots/gui-onboarding.png" alt="ELI desktop app — first-run onboarding conversation with a local 35B model" width="880">
 </div>
 
-> **v2.4.6 — GPU pack auto-install, CPU/RAM tuning, installer UX.** AppImage/portable
-> bundles detect NVIDIA/AMD/Intel GPU and install a verified llama-cpp pack from bundled
-> wheels (`packaging/pyinstaller/eli_gpu_pack.py`); startup dialog adds **Compute mode**
+> **v2.4.7 — AppImage 2 GiB fix.** GPU packs stay bundled in the portable tarball; the
+> AppImage downloads the right CUDA/Vulkan pack at first launch (GitHub asset cap).
+> Same v2.4.6 features below.
+>
+> **v2.4.6 — GPU pack auto-install, CPU/RAM tuning, installer UX.** Portable builds detect
+> NVIDIA/AMD/Intel GPU and install a verified llama-cpp pack from bundled wheels
+> (`packaging/pyinstaller/eli_gpu_pack.py`); AppImage uses first-launch download when packs
+> are not embedded. Startup dialog adds **Compute mode**
 > (auto / GPU / CPU) and sizes ctx/layers from live RAM when no GPU offload is active
 > (`cpu_ram_fit_config`, `effective_use_gpu_layers`). Unified installer no longer double-launches
 > or pre-runs `install.sh` before the GUI wizard; shutdown aborts GGUF prefill immediately
