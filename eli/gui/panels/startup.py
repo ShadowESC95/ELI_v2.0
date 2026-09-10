@@ -466,7 +466,7 @@ class StartupModelSelectionDialog(QDialog):
             _initial_ram_pct = int((_ls_ram() or {}).get(
                 "ram_budget_percent", RAM_BUDGET_PERCENT_DEFAULT))
         except Exception:
-            pass
+            log.debug("ram_budget_percent preselect failed", exc_info=True)
         _env_ram = (os.environ.get("ELI_RAM_BUDGET_PERCENT") or "").strip()
         if _env_ram.isdigit():
             _initial_ram_pct = int(_env_ram)
@@ -842,7 +842,7 @@ class StartupModelSelectionDialog(QDialog):
                     _pack_backend = str(
                         _json.loads((dest / ".gpu_pack.json").read_text()).get("backend") or "")
             except Exception:
-                pass
+                log.debug("gpu pack status probe failed", exc_info=True)
             if _pack_ok and _backend:
                 self.gpu_pack_status_label.setText(
                     f"Active ({_pack_backend or 'GPU'}) — layer offload available.")
