@@ -553,9 +553,11 @@ def ram_budget_fraction() -> float:
 def _estimate_integrated_vram_mb(ram_gb: float, available_ram_gb: float) -> tuple[int, int]:
     """Shared-memory budget for iGPU / APU / unified-memory systems."""
     frac = ram_budget_fraction()
-    avail_gb = max(float(available_ram_gb or 0), float(ram_gb or 0), 1.0)
+    # Budget from AVAILABLE RAM (same basis as cpu_ram_budget_mb), not installed RAM.
+    avail_gb = max(float(available_ram_gb or 0), 1.0)
     free_mb = int(max(512, avail_gb * 1024.0 * frac))
     total_mb = int(min(8192, max(2048, free_mb)))
+    free_mb = min(free_mb, total_mb)
     return free_mb, total_mb
 
 
