@@ -1139,7 +1139,7 @@ def activate_gpu_pack_runtime(dest: str | Path, *, verify: bool = True) -> bool:
             try:
                 sys.path.remove(q)
             except ValueError:
-                pass
+                continue
     if pack_s not in sys.path:
         sys.path.insert(0, pack_s)
 
@@ -1171,7 +1171,7 @@ def deactivate_gpu_pack_runtime(dest: str | Path | None = None) -> None:
             try:
                 sys.path.remove(q)
             except ValueError:
-                pass
+                continue
     for name in [k for k in list(sys.modules)
                  if k == "llama_cpp" or k.startswith("llama_cpp.")]:
         sys.modules.pop(name, None)

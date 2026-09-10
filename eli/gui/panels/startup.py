@@ -45,7 +45,7 @@ def _import_eli_gpu_pack():
         import eli_gpu_pack
         return eli_gpu_pack
     except ImportError:
-        pass
+        log.debug("eli_gpu_pack not importable as frozen module", exc_info=True)
     candidates = []
     meipass = getattr(sys, "_MEIPASS", "")
     if meipass:
