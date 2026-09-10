@@ -21,7 +21,7 @@ ROOT = Path(__file__).resolve().parents[1]
 SKIP_PARTS = ("/.venv/", "/models/", "/.claude/", "/node_modules/", "/build/", "/clearbuild/")
 
 # Current release — keep in sync with pyproject.toml.
-VERSION = "2.4.3"
+VERSION = "2.4.4"
 VERSION_TAG = f"v{VERSION}"
 
 
