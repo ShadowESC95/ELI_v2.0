@@ -69,10 +69,11 @@ fi
 
 cat > "$TARGET" <<EOF_LAUNCHER
 #!/usr/bin/env bash
-# ELI Pro terminal launcher.
+# ELI v2 terminal launcher — installed by scripts/install_eli_command.sh
 set -euo pipefail
 APP_ROOT="$ROOT"
-exec "\$APP_ROOT/scripts/eli_startup.sh" "\$@"
+unset ELI_PROJECT_ROOT ELI_DATA_DIR ELI_CONFIG_DIR ELI_MODELS_DIR ELI_CACHE_DIR
+exec "\$APP_ROOT/eli.sh" "\$@"
 EOF_LAUNCHER
 chmod +x "$TARGET"
 

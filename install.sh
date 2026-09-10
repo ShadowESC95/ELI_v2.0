@@ -831,7 +831,7 @@ if ! "$PYTHON_VENV" -c "import eli.gui.app" 2>/dev/null; then
     else
         _pip install "${_PIP_LINKS[@]}" 'PySide6>=6.6.0' || true
     fi
-    if ! "$PYTHON_VENV" -c "from eli.gui.qt_compat import QApplication" 2>/dev/null; then
+    if ! "$PYTHON_VENV" -c "from eli.gui.qt_compat import real_qt_available; import sys; sys.exit(0 if real_qt_available() else 1)" 2>/dev/null; then
         echo "[WARN] PySide6 still not importable — run install again with network, or use terminal mode."
     else
         echo "[OK] GUI bindings (PySide6) installed."
@@ -909,6 +909,20 @@ ok "Build       ${B}llama-cpp ${BUILD_LABEL}${R}"
 ok "Model       ${B}${MODEL_STATUS}${R}   ${D}(${SCRIPT_DIR}/models/)${R}"
 ok "Voice       ${B}${VOICE_STATUS}${R}   ${D}(local STT + TTS weights)${R}"
 ok "Data        ${B}fresh local databases${R}, offline-by-default"
+
+section "Shell command"
+if [ "$ASSUME_YES" -eq 1 ]; then
+    bash "$SCRIPT_DIR/scripts/fix_eli_shell_env.sh" --yes 2>/dev/null || warn "Shell fix deferred — run: bash scripts/fix_eli_shell_env.sh"
+elif [ -t 0 ]; then
+    printf "  Install 'eli' command and fix stale shell alias? [Y/n]  "
+    read -r _shell_fix </dev/tty || _shell_fix=y
+    case "${_shell_fix:-y}" in
+        [Yy]*) bash "$SCRIPT_DIR/scripts/fix_eli_shell_env.sh" --yes 2>/dev/null || warn "Shell fix failed" ;;
+        *) info "Skipped — run later: bash scripts/fix_eli_shell_env.sh" ;;
+    esac
+else
+    info "Run after install: bash scripts/fix_eli_shell_env.sh"
+fi
 
 section "Launch"
 if [ "$OS" = "Linux" ] && [ -x "$PYTHON_VENV" ]; then

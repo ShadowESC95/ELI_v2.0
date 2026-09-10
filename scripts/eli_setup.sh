@@ -47,9 +47,18 @@ _venv_python() {
   return 1
 }
 
-_gui_import_ok() {
+_real_qt_ok() {
   _venv_python || return 1
-  "$PY" -c "from eli.gui.qt_compat import QApplication" >/dev/null 2>&1
+  "$PY" -c "from eli.gui.qt_compat import real_qt_available; import sys; sys.exit(0 if real_qt_available() else 1)" 2>/dev/null
+}
+
+_install_complete() {
+  _venv_python || return 1
+  "$PY" -c "import eli" 2>/dev/null
+}
+
+_gui_import_ok() {
+  _real_qt_ok
 }
 
 _ensure_minimal_venv() {
@@ -69,14 +78,25 @@ _ensure_gui_in_venv() {
   fi
   _pip_wheelhouse_args
   "$PY" -m pip install --upgrade pip wheel >/dev/null 2>&1 || true
+  _qt_install_ok=0
   if [ -f "$ROOT/requirements-portable-bootstrap.txt" ]; then
-    "$PY" -m pip install "${PIP_WH_ARGS[@]}" -r "$ROOT/requirements-portable-bootstrap.txt" \
-      || "$PY" -m pip install "${PIP_WH_ARGS[@]}" 'PySide6>=6.6.0' \
-      || return 1
-  else
-    "$PY" -m pip install "${PIP_WH_ARGS[@]}" 'PySide6>=6.6.0' \
-      || "$PY" -m pip install -e "$ROOT[gui]" \
-      || return 1
+    if "$PY" -m pip install "${PIP_WH_ARGS[@]}" -r "$ROOT/requirements-portable-bootstrap.txt"; then
+      _qt_install_ok=1
+    elif "$PY" -m pip install "${PIP_WH_ARGS[@]}" 'PySide6>=6.6.0'; then
+      _qt_install_ok=1
+    fi
+  elif "$PY" -m pip install "${PIP_WH_ARGS[@]}" 'PySide6>=6.6.0'; then
+    _qt_install_ok=1
+  elif "$PY" -m pip install -e "$ROOT[gui]"; then
+    _qt_install_ok=1
+  fi
+  if [ "$_qt_install_ok" -eq 0 ] && [ -t 1 ]; then
+    echo "  [setup] PySide6 bootstrap failed for $($PY --version 2>&1)."
+    if [ -d "$ROOT/wheelhouse" ]; then
+      echo "  [setup] Bundled wheelhouse may lack wheels for this Python — install.sh will try next."
+    else
+      echo "  [setup] No wheelhouse/ in this package — install.sh needs network for PySide6."
+    fi
   fi
   _gui_import_ok
 }
@@ -130,14 +150,21 @@ if ! command -v python3 >/dev/null 2>&1; then
   exit 1
 fi
 
-if ! _venv_python; then
+if ! _install_complete; then
   echo "  Installing core environment (install.sh)…"
   bash "$ROOT/install.sh" --yes --auto-model \
     || bash "$ROOT/install.sh" --yes --cpu-only --auto-model
 fi
 
-if ! _venv_python; then
-  echo "${YEL}[!]${R} Virtual environment could not be created."
+if ! _install_complete; then
+  echo "${YEL}[!]${R} Install did not finish — check output above or run: bash \"$ROOT/install.sh\" --yes"
+  exit 1
+fi
+
+if ! _real_qt_ok; then
+  echo "${YEL}[!]${R} PySide6 is not installed for $($PY --version 2>&1)."
+  echo "  Re-run with network: bash \"$ROOT/install.sh\" --yes"
+  echo "  Or use the AppImage (no venv build): see GitHub Releases → ELI_v2-*-x86_64.AppImage"
   exit 1
 fi
 

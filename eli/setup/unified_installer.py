@@ -596,8 +596,10 @@ def run_unified_installer(*, launch_after: bool = False) -> int:
 def ensure_qt_for_installer() -> bool:
     """Ensure PySide6 is importable in the project venv (not --user on system python)."""
     try:
-        from eli.gui.qt_compat import QApplication  # noqa: F401
-        return True
+        from eli.gui.qt_compat import real_qt_available
+
+        if real_qt_available():
+            return True
     except Exception:
         log.debug("Qt import unavailable before bootstrap install", exc_info=True)
     py = venv_python()
@@ -620,8 +622,9 @@ def ensure_qt_for_installer() -> bool:
     except Exception:
         return False
     try:
-        from eli.gui.qt_compat import QApplication  # noqa: F401
-        return True
+        from eli.gui.qt_compat import real_qt_available
+
+        return bool(real_qt_available())
     except Exception:
         return False
 

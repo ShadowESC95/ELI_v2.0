@@ -1,6 +1,6 @@
 # ELI MKXI — Full Project Breakdown & Assessment
 
-> **Updated for v2.4.6 (September 2026).** Cognition pipeline unified: gradient
+> **Updated for v2.4.8 (September 2026).** Cognition pipeline unified: gradient
 > orchestrator for all CHAT modes, shared retrieval, canonical S01–S12 tracing.
 > v2.3.44+ restores cross-platform microphone auto-resolve (USB / Bluetooth /
 > headset before built-in; live subprocess probes). Primary install: CI-launch-tested

@@ -138,4 +138,9 @@ except Exception:
             QDialogButtonBox = _Stub
             QSizePolicy = QAction = QStyle = _Stub
 
+def real_qt_available() -> bool:
+    """True when a real Qt binding loaded (PySide6/PyQt6/PyQt5), not headless stubs."""
+    return QT_API is not None
+
+
 __all__ = [k for k in globals().keys() if not k.startswith("_")]

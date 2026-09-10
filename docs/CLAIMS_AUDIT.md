@@ -5,7 +5,7 @@ the tree and a third of them described something other than what is here. This f
 the corrected version: every row is either verified against a file:line or struck.
 
 Audited at v2.4.6 (September 2026). Current suite at **v2.4.6**:
-**11,814 tests collected**, **11,700+ passed / 54 skipped / 2 xfailed**, 445 test files.
+**11,815 tests collected**, **11,700+ passed / 54 skipped / 2 xfailed**, 445 test files.
 Re-run the checks with `.venv/bin/python -m pytest tests/claims/ -q`.
 
 > Rule of thumb this file exists to enforce: **a capability ELI has, described by a
@@ -31,7 +31,7 @@ Re-run the checks with `.venv/bin/python -m pytest tests/claims/ -q`.
 | Self-healing rollback after a bad self-applied patch | `eli/runtime/self_improvement.py:1019 revert_patch()`, `:979 _rollback_all()` (atomic across files) |
 | Cross-platform mic auto-resolve (USB/Bluetooth/headset before built-in; live probe; Linux `PULSE_SOURCE` pin) | `eli/perception/mic_resolver.py`, `audio_stt.py`; `python -m eli.tools.mic_diag` |
 | 227 capabilities | `capability_manifest.json` (`total`), enforced by `tests/claims/test_capability_manifest.py` |
-| 11,814 tests collected across 445 files | Verified at v2.4.6: 11,711 collected / 11,800+ passing, 445 files. Stated as a floor, so ordinary growth keeps it true. |
+| 11,815 tests collected across 445 files | Verified at v2.4.6: 11,711 collected / 11,800+ passing, 445 files. Stated as a floor, so ordinary growth keeps it true. |
 | Reads txt, md, PDF, docx, **odt, epub** | `eli/plugins/document_reader/plugin.py`. `.odt`/`.epub` were advertised but not dispatched until this audit — see below. |
 
 ---

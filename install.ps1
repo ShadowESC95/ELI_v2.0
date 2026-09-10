@@ -284,7 +284,7 @@ Write-Host "[..] Verifying installation..."
 if ($LASTEXITCODE -ne 0) {
     throw "'import eli' failed in the virtual environment - the package did not install."
 }
-& $PythonVenv -c "from eli.gui.qt_compat import QApplication" 2>$null
+& $PythonVenv -c "from eli.gui.qt_compat import real_qt_available; import sys; sys.exit(0 if real_qt_available() else 1)" 2>$null
 if ($LASTEXITCODE -ne 0) {
     Write-Host "[WARN] GUI bindings not importable - installing portable bootstrap into .venv..." -ForegroundColor Yellow
     $Bootstrap = Join-Path $ScriptDir "requirements-portable-bootstrap.txt"
@@ -293,11 +293,11 @@ if ($LASTEXITCODE -ne 0) {
     } else {
         Invoke-Pip (@("install") + $PipFindLinksArgs + @("PySide6>=6.6.0"))
     }
-    & $PythonVenv -c "from eli.gui.qt_compat import QApplication" 2>$null
+    & $PythonVenv -c "from eli.gui.qt_compat import real_qt_available; import sys; sys.exit(0 if real_qt_available() else 1)" 2>$null
     if ($LASTEXITCODE -eq 0) {
         Write-Host "[OK] GUI bindings (PySide6) installed in .venv." -ForegroundColor Green
     } else {
-        Write-Host "[WARN] PySide6 still not importable - terminal mode remains available." -ForegroundColor Yellow
+        Write-Host "[WARN] PySide6 still not importable - re-run install.ps1 -Yes or use wheelhouse/ offline wheels." -ForegroundColor Yellow
     }
 }
 

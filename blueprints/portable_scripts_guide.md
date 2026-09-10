@@ -1,6 +1,6 @@
 # Which script do I run? — ELI v2.0 portable
 
-> **Updated for v2.4.6 (September 2026).** The primary way to install ELI is now the
+> **Updated for v2.4.8 (September 2026).** The primary way to install ELI is now the
 > **prebuilt installers on GitHub Releases** — `ELI-Setup-<v>.exe` (Windows),
 > the `.dmg` (macOS, Apple Silicon), the `.AppImage` (Linux). The Linux AppImage and
 > Windows installer are built and launch-tested in CI; the macOS `.dmg` is built on a
@@ -11,7 +11,7 @@
 > **source installs** (clone + `install.sh`) and the classic portable tarball.
 
 
-You have just extracted **`ELI_v2-2.4.6-linux-portable`** and you are looking at a
+You have just extracted **`ELI_v2-2.4.8-linux-portable`** and you are looking at a
 folder full of scripts. This guide explains **every launcher in plain language**: what
 it is, when to use it, the exact command to type, and what it actually does under the
 hood. No prior knowledge assumed.
@@ -44,6 +44,7 @@ that you should ignore.
 | Your situation | Run this |
 |---|---|
 | "Just make it work." | `./ELI_Setup.sh` |
+| `ELI_Setup.sh` says **Please install PySide6** | `bash install.sh --yes --auto-model` then `./RUN_ELI.sh` |
 | I want to install now and launch later, separately | `./INSTALL_ELI.sh` then `./RUN_ELI.sh` |
 | My computer has **no NVIDIA graphics card** | `./INSTALL_ELI.sh --cpu-only` then `./RUN_ELI.sh` |
 | I want ELI's AI model + voices too (big download) | `./RUN_ELI.sh --with-github-assets` |
@@ -86,12 +87,11 @@ fetches the model/voice pack, installs the `eli` terminal command and a desktop 
 opens a small graphical wizard (using pop-up dialogs if your system has them), and finally
 launches ELI. **To you:** the "do everything for me" button.
 
-### `INSTALL_ELI.sh` — install only (no launch)
-**What it is:** a thin wrapper around `scripts/eli_one_click_setup.sh`.
-**When to use:** you want to set ELI up now and start it yourself later.
-**Command:** `./INSTALL_ELI.sh`  (add `--cpu-only` if you have no NVIDIA GPU)
-**What it does:** builds the `.venv`, installs dependencies (GPU/CUDA build by default),
-initialises the databases, and installs the `eli` command + desktop launcher. It does
+### `INSTALL_ELI.sh` — same as ELI_Setup.sh (legacy name)
+**What it is:** a thin wrapper around `scripts/eli_setup.sh` (identical to `ELI_Setup.sh`).
+**When to use:** same as `ELI_Setup.sh`; name kept for older docs.
+**Command:** `./INSTALL_ELI.sh`
+**What it does:** opens the unified GUI installer when possible; otherwise runs `install.sh --yes --auto-model`. It does
 **not** open ELI — that's what `RUN_ELI.sh` is for.
 **Useful options:** `--cpu-only` (no graphics card), `--skip-torch` (don't install the
 heavy PyTorch library), `--with-github-assets` (also grab the model/voice pack).
@@ -192,7 +192,7 @@ expanded, friendly version of it.
 - **Your data lives here** (created automatically on first run):
   `artifacts/db/` (memories & conversations), `artifacts/runtime/`, and `config/`.
   Because this is a *portable* copy, everything stays inside this folder — you can move or
-  back up the whole `ELI_v2-2.4.6-linux-portable` folder and nothing is lost.
+  back up the whole `ELI_v2-2.4.8-linux-portable` folder and nothing is lost.
 
 ## If something goes wrong
 

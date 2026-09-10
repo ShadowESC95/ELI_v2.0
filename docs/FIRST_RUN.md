@@ -29,9 +29,13 @@ Download **ELI v2.0 — Linux portable** from [GitHub Releases](https://github.c
 
 ```bash
 tar -xzf ELI_v2-*-linux-portable.tar.gz && cd ELI_v2-*-linux-portable
-chmod +x ELI_Setup.sh && ./ELI_Setup.sh   # guided (recommended since v2.4.6)
-# or: ./INSTALL_ELI.sh && ./RUN_ELI.sh --with-github-assets && ./RUN_ELI.sh
+chmod +x ELI_Setup.sh install.sh && ./ELI_Setup.sh   # guided (recommended)
+# If PySide6 error: bash install.sh --yes --auto-model && ./RUN_ELI.sh
 ```
+
+**Full beginner guide:** [`first time Installation/INSTALLATION_GUIDE.md`](../first%20time%20Installation/INSTALLATION_GUIDE.md)
+
+**AppImage (easier on Linux):** no `.venv` build — GPU pack downloads on first launch; see Releases → `ELI_v2-*-x86_64.AppImage`.
 
 ## Regenerate capability docs (maintainers)
 

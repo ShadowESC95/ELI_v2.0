@@ -142,7 +142,7 @@ if [ "${ELI_PORTABLE_WHEELHOUSE:-1}" = "1" ]; then
       -d "$STAGING/wheelhouse" --prefer-binary -q 2>/dev/null || true
   fi
   for _plat in manylinux2014_x86_64 manylinux2014_aarch64; do
-    for _pv in 311 312; do
+    for _pv in 310 311 312 313; do
       "$PYTHON" -m pip download -d "$STAGING/wheelhouse" \
         --platform "$_plat" --python-version "$_pv" --implementation cp \
         --abi "cp${_pv}" --only-binary=:all: --prefer-binary \
@@ -301,7 +301,13 @@ Hardware (honest):
 
 Quick start (easiest):
   chmod +x ELI_Setup.sh && ./ELI_Setup.sh          # guided one-click setup (recommended)
+  # If you see "Please install PySide6": bash install.sh --yes --auto-model
+  # Full beginner guide: first time Installation/INSTALLATION_GUIDE.md
   # picks chat models from full catalog + installs voice/embedder
+
+Why is this tarball larger than the AppImage?
+  This package bundles offline gpu-packs/ (CUDA + Vulkan llama-cpp wheels).
+  The AppImage downloads GPU packs on first launch to stay under GitHub's 2 GiB limit.
 
 Chat models (7 in catalog):
   qwen2.5-3b, qwen2.5-7b, qwen3-8b, falcon3-10b, phi-4, qwen3.6-35b-a3b, falcon-h1-34b
