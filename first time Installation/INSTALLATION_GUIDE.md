@@ -1,6 +1,6 @@
 # ELI v2 — Installation Guide (Complete Beginner)
 
-**Version:** 2.4.8 · **Updated:** 2026-09-10
+**Version:** 2.4.12 · **Updated:** 2026-09-10
 
 This guide answers one question: **“Which file do I run, in what order, on my machine?”**
 
@@ -127,8 +127,8 @@ Think of install scripts in **layers**. Only go to the next layer if the previou
 ### A. Linux AppImage (recommended for NVIDIA)
 
 ```bash
-chmod +x ELI_v2-2.4.8-x86_64.AppImage
-./ELI_v2-2.4.8-x86_64.AppImage
+chmod +x ELI_v2-2.4.12-x86_64.AppImage
+./ELI_v2-2.4.12-x86_64.AppImage
 ```
 
 First launch downloads the GPU pack (~800 MB) if not bundled. Data lives in `~/.local/share/ELI_v2/`.
@@ -136,8 +136,8 @@ First launch downloads the GPU pack (~800 MB) if not bundled. Data lives in `~/.
 ### B. Linux portable tarball
 
 ```bash
-tar -xzf ELI_v2-2.4.8-linux-portable.tar.gz
-cd ELI_v2-2.4.8-linux-portable
+tar -xzf ELI_v2-2.4.12-linux-portable.tar.gz
+cd ELI_v2-2.4.12-linux-portable
 chmod +x ELI_Setup.sh RUN_ELI.sh install.sh
 ./ELI_Setup.sh
 ```

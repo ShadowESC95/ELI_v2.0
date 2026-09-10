@@ -560,7 +560,7 @@ def run_terminal_headless_installer(*, launch_after: bool = False) -> int:
 
 
 def _core_install_complete(root: Path) -> bool:
-    """True when .venv exists and the ELI package is importable (not just PySide6)."""
+    """True when .venv has ELI plus inference/runtime deps (not bootstrap-only Qt)."""
     if not has_venv():
         return False
     py = venv_python()
@@ -568,7 +568,7 @@ def _core_install_complete(root: Path) -> bool:
         return False
     try:
         subprocess.run(
-            [str(py), "-c", "import eli"],
+            [str(py), "-c", "import eli, llama_cpp, requests"],
             cwd=str(root),
             env={**os.environ, "ELI_PROJECT_ROOT": str(root),
                  "PYTHONPATH": str(root)},

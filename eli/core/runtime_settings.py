@@ -120,6 +120,8 @@ DEFAULTS: Dict[str, Any] = {
     "batch_size": 512,
     # Fraction of available RAM for model weights + KV (startup dialog, 10–75%).
     "ram_budget_percent": 60,
+    # Hardware fit priority: balanced | max_gpu | max_ctx (startup dialog).
+    "fit_priority": "balanced",
     "use_mmap": True,
     "use_mlock": False,
     # Multi-GPU split (optional; empty = single-GPU). tensor_split is a comma list of
@@ -318,6 +320,8 @@ ENV_TO_KEY = {
     "ELI_GGUF_MAIN_GPU": "main_gpu",
     "ELI_SPLIT_MODE": "split_mode",
     "ELI_GGUF_SPLIT_MODE": "split_mode",
+    "ELI_RAM_BUDGET_PERCENT": "ram_budget_percent",
+    "ELI_FIT_PRIORITY": "fit_priority",
     "ELI_GPU_PROFILES_FILE": "gpu_profiles_file",
     "ELI_AUTO_SPEAK": "auto_speak",
     "ELI_MIC_ENABLED": "mic_enabled",

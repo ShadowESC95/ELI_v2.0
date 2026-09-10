@@ -36,7 +36,7 @@ class _FakeBroker:
     def __init__(self, text):
         self._text = text
 
-    def infer(self, prompt, system="", max_tokens=512, temperature=0.7, top_p=0.9, retry=True):
+    def infer(self, prompt, system="", max_tokens=512, temperature=0.7, top_p=0.9, retry=True, **kwargs):
         return self._text
 
 

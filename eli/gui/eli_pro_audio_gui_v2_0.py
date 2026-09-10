@@ -985,7 +985,7 @@ class LocalModelManager:
                     detect_available_ram_gb as _sf_avail_ram,
                     cpu_ctx_ceiling_from_ram as _sf_ram_ceil,
                 )
-                from eli.core.hardware_profile import smart_fit_config as _sf_fit
+                from eli.core.hardware_profile import unified_fit_config as _sf_fit
                 _sf_model_gb = path_obj.stat().st_size / (1024 ** 3)
                 _sf_train = int(_sf_train_ctx(str(path_obj)))
                 _sf_igpu = bool(getattr(self, "gpu_integrated", False))
@@ -1012,24 +1012,26 @@ class LocalModelManager:
                         f"~{int(_sf_os.environ.get('ELI_CTX_BRIEF_FLOOR', '12288'))}: persona/memory "
                         f"will be truncated. Choose a model with a larger trained context.")
 
+                _avail_gb = float(_sf_avail_ram())
                 if gpu_offload_supported is False:
                     # CPU-only: size from AVAILABLE RAM, not iGPU shared-memory VRAM.
                     # VRAM smart-fit on Iris Xe returned ctx=3996 from ~1.5GB budget while
                     # the model + KV actually live in system RAM, not iGPU VRAM budget.
-                    _avail_gb = float(_sf_avail_ram())
                     _ram_ceiling = int(_sf_ram_ceil(_sf_model_gb, _sf_train))
                     _sf_user_ctx = min(int(_sf_user_ctx), _ram_ceiling) if _ram_ceiling > 0 else int(_sf_user_ctx)
                     from eli.core.hardware_profile import cpu_ram_budget_mb as _cpu_ram_budget
                     _ram_budget_mb = _cpu_ram_budget(_avail_gb)
                     _sf_ctx, _sf_layers, _sf_batch = _sf_fit(
                         _sf_model_gb,
-                        _ram_budget_mb,
+                        0,
+                        _avail_gb,
                         user_ctx=_sf_user_ctx,
                         user_batch=_sf_user_batch,
                         reserve_mb=512,
                         kv_quantized=False,
                         min_batch=_sf_min_batch,
                         model_path=str(path_obj),
+                        force_cpu=True,
                     )
                     _sf_layers = 0
                     _sf_ctx = min(int(_sf_ctx), _ram_ceiling) if _ram_ceiling > 0 else int(_sf_ctx)
@@ -1049,11 +1051,12 @@ class LocalModelManager:
                         _sf_reserve = int(_vrm(gpu_integrated=_sf_igpu))
                         _sf_kvq = bool(_sf_gpu.total_mb and _sf_gpu.total_mb < 12000)
                         _sf_ctx, _sf_layers, _sf_batch = _sf_fit(
-                            _sf_model_gb, _sf_gpu.free_mb,
+                            _sf_model_gb, _sf_gpu.free_mb, _avail_gb,
                             user_ctx=_sf_user_ctx, user_batch=_sf_user_batch,
                             reserve_mb=_sf_reserve, kv_quantized=_sf_kvq,
                             min_batch=_sf_min_batch,
                             model_path=str(path_obj),
+                            gpu_integrated=_sf_igpu,
                         )
                         log.debug(
                             f"[GUI][LOAD] smart-fit (post-init free={_sf_gpu.free_mb}MB "

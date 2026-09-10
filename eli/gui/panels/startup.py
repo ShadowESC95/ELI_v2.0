@@ -39,8 +39,13 @@ MODEL_PROVIDER_LABELS = {
 
 
 def _import_eli_gpu_pack():
-    """Load packaging/pyinstaller/eli_gpu_pack in dev or frozen builds."""
+    """Load eli_gpu_pack in AppImage/portable (hiddenimport) or dev tree."""
     import sys
+    try:
+        import eli_gpu_pack
+        return eli_gpu_pack
+    except ImportError:
+        pass
     candidates = []
     meipass = getattr(sys, "_MEIPASS", "")
     if meipass:
@@ -66,6 +71,10 @@ class _GpuPackInstallThread(QThread):
         try:
             gp = _import_eli_gpu_pack()
             rc = int(gp.install(self._argv) or 0)
+            if rc == 0:
+                dest = gp._eli_root() / "runtime" / "gpu"
+                if not gp.activate_gpu_pack_runtime(dest, verify=True):
+                    rc = 2
             msg = gp.last_failure() if rc != 0 else "GPU pack installed."
             self.finished_result.emit(rc, str(msg or ""))
         except Exception as exc:
@@ -481,6 +490,36 @@ class StartupModelSelectionDialog(QDialog):
         )
         form.addRow("RAM for model (max 75%)", self.ram_budget_spin)
 
+        from eli.core.hardware_profile import fit_priority as _default_fit_priority
+        self.fit_priority_combo = QComboBox()
+        self.fit_priority_combo.addItem(
+            "Balanced — preserve context, trade GPU speed", "balanced")
+        self.fit_priority_combo.addItem(
+            "Max GPU — fill VRAM with layers first", "max_gpu")
+        self.fit_priority_combo.addItem(
+            "Max context — use RAM spill for larger windows", "max_ctx")
+        _initial_fit = _default_fit_priority()
+        try:
+            from eli.core.runtime_settings import load_settings as _ls_fit
+            _initial_fit = str((_ls_fit() or {}).get("fit_priority") or _initial_fit)
+        except Exception:
+            log.debug("fit_priority preselect failed", exc_info=True)
+        _env_fit = (os.environ.get("ELI_FIT_PRIORITY") or "").strip().lower()
+        if _env_fit:
+            _initial_fit = _env_fit
+        _fit_idx = self.fit_priority_combo.findData(_initial_fit.replace("-", "_"))
+        if _fit_idx < 0:
+            _fit_idx = self.fit_priority_combo.findData("balanced")
+        if _fit_idx >= 0:
+            self.fit_priority_combo.setCurrentIndex(_fit_idx)
+        self.fit_priority_combo.setToolTip(
+            "How ELI trades VRAM vs system RAM on discrete GPUs. Balanced keeps "
+            "your context and sheds GPU layers first. Max GPU shrinks context "
+            "before dropping layers. Max context spills weights to RAM for the "
+            "largest window your RAM slider allows."
+        )
+        form.addRow("Hardware fit profile", self.fit_priority_combo)
+
         self.gpu_pack_status_label = QLabel("")
         self.gpu_pack_status_label.setWordWrap(True)
         self.gpu_pack_status_label.setStyleSheet("color:#9aa5b5;font-size:11px;")
@@ -503,6 +542,11 @@ class StartupModelSelectionDialog(QDialog):
         self.hw_summary_label.setStyleSheet("color:#9aa5b5;font-size:11px;")
         form.addRow("This machine", self.hw_summary_label)
         self.ram_budget_spin.valueChanged.connect(self._on_ram_budget_changed)
+        self.fit_priority_combo.currentIndexChanged.connect(self._on_fit_profile_changed)
+        self.ctx_window_spin.valueChanged.connect(lambda _v: self._refresh_hw_summary())
+        self.target_batch_spin.valueChanged.connect(lambda _v: self._refresh_hw_summary())
+        self.model_path_input.textChanged.connect(lambda _t: self._refresh_hw_summary())
+        self.gguf_combo.currentIndexChanged.connect(lambda _i: self._refresh_hw_summary())
         self._refresh_hw_summary()
         self._refresh_gpu_pack_controls()
 
@@ -569,9 +613,11 @@ class StartupModelSelectionDialog(QDialog):
                     log.debug("spin box interpretText failed", exc_info=True)
             _ram_pct = int(self.ram_budget_spin.value())
             os.environ["ELI_RAM_BUDGET_PERCENT"] = str(_ram_pct)
+            _fit_mode = str(self.fit_priority_combo.currentData() or "balanced")
+            os.environ["ELI_FIT_PRIORITY"] = _fit_mode
             try:
                 from eli.core.runtime_settings import update_settings as _rs_ram
-                _rs_ram(ram_budget_percent=_ram_pct)
+                _rs_ram(ram_budget_percent=_ram_pct, fit_priority=_fit_mode)
             except Exception:
                 log.debug("ram_budget_percent persist failed", exc_info=True)
             os.environ["ELI_CTX_FRACTION"] = str(float(self.ctx_fraction_spin.value()))
@@ -784,22 +830,63 @@ class StartupModelSelectionDialog(QDialog):
         os.environ["ELI_RAM_BUDGET_PERCENT"] = str(int(self.ram_budget_spin.value()))
         self._refresh_hw_summary()
 
+    def _on_fit_profile_changed(self, _index: int) -> None:
+        _mode = str(self.fit_priority_combo.currentData() or "balanced")
+        os.environ["ELI_FIT_PRIORITY"] = _mode
+        self._refresh_hw_summary()
+
     def _refresh_hw_summary(self) -> None:
         try:
             from eli.core.hardware_profile import (
                 cpu_ram_budget_mb,
                 detect_hardware,
+                effective_use_gpu_layers,
                 _llama_gpu_offload_available,
                 integrated_gpu_label,
+                unified_fit_config,
+                vram_reserve_mb,
             )
             _hw = detect_hardware(force=True)
             _backend = _llama_gpu_offload_available()
-            _ram_budget = cpu_ram_budget_mb(_hw.available_ram_gb)
+            _ram_pct = int(self.ram_budget_spin.value())
+            os.environ["ELI_RAM_BUDGET_PERCENT"] = str(_ram_pct)
+            _fit_mode = str(self.fit_priority_combo.currentData() or "balanced")
+            os.environ["ELI_FIT_PRIORITY"] = _fit_mode
+            _ram_budget = cpu_ram_budget_mb(
+                _hw.available_ram_gb, fraction=_ram_pct / 100.0)
+            _fit_line = ""
+            _model_path = self.model_path_input.text().strip()
+            if _model_path and Path(_model_path).is_file():
+                try:
+                    _mp = Path(_model_path)
+                    _size_gb = _mp.stat().st_size / 1e9
+                    _ctx = int(self.ctx_window_spin.value()) or 12288
+                    _batch = int(self.target_batch_spin.value()) or 256
+                    _kvq = bool(_hw.total_vram_mb and _hw.total_vram_mb < 12000)
+                    _use_gpu = effective_use_gpu_layers(_hw)
+                    _fc, _fl, _fb = unified_fit_config(
+                        _size_gb,
+                        _hw.free_vram_mb if _use_gpu else 0,
+                        _hw.available_ram_gb,
+                        user_ctx=max(2048, _ctx),
+                        user_batch=max(128, _batch),
+                        reserve_mb=vram_reserve_mb(gpu_integrated=_hw.gpu_integrated),
+                        kv_quantized=_kvq,
+                        model_path=str(_mp),
+                        fit_priority_mode=_fit_mode,
+                        gpu_integrated=_hw.gpu_integrated,
+                        force_cpu=not _use_gpu,
+                    )
+                    _fit_line = (
+                        f"  |  fit ({_fit_mode}): ctx={_fc} gpu={_fl} batch={_fb}"
+                    )
+                except Exception:
+                    log.debug("startup fit preview failed", exc_info=True)
             if not _hw.has_gpu:
                 txt = (
                     f"CPU: {_hw.cpu_threads} threads  |  "
                     f"RAM: {_hw.ram_gb:.1f} GB ({_hw.available_ram_gb:.1f} GB free)  |  "
-                    f"model budget ~{_ram_budget} MB"
+                    f"model budget ~{_ram_budget} MB{_fit_line}"
                 )
             elif _hw.gpu_integrated:
                 _kind = integrated_gpu_label(_hw.gpu_name, _hw.gpu_vendor)
@@ -808,13 +895,15 @@ class StartupModelSelectionDialog(QDialog):
                     f"shared budget ~{_hw.free_vram_mb} MB  |  "
                     f"model RAM cap ~{_ram_budget} MB  |  "
                     f"GPU backend: {'active' if _backend else 'not installed (CPU until GPU pack)'}"
+                    f"{_fit_line}"
                 )
             else:
                 txt = (
                     f"{_hw.gpu_name}  |  "
                     f"VRAM {_hw.free_vram_mb}/{_hw.total_vram_mb} MB  |  "
-                    f"CPU RAM cap ~{_ram_budget} MB  |  "
+                    f"RAM spill budget ~{_ram_budget} MB ({_ram_pct}%)  |  "
                     f"GPU backend: {'active' if _backend else 'not installed'}"
+                    f"{_fit_line}"
                 )
             self.hw_summary_label.setText(txt)
         except Exception as exc:
@@ -886,7 +975,8 @@ class StartupModelSelectionDialog(QDialog):
 
     def _on_gpu_pack_install_done(self, rc: int, message: str) -> None:
         if rc == 0:
-            self.gpu_pack_status_label.setText("GPU pack installed — restart load to use GPU layers.")
+            self.gpu_pack_status_label.setText(
+                "GPU pack active — Vulkan/CUDA offload enabled for this session.")
             try:
                 from eli.core.runtime_settings import update_settings as _rs_gp
                 _rs_gp(compute_mode="gpu")
@@ -895,6 +985,7 @@ class StartupModelSelectionDialog(QDialog):
                     self.compute_mode_combo.setCurrentIndex(_gpu_idx)
             except Exception:
                 log.debug("compute_mode gpu persist failed", exc_info=True)
+            self._refresh_hw_summary()
         else:
             self.gpu_pack_status_label.setText(f"GPU pack install failed: {message}")
             QMessageBox.warning(

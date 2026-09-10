@@ -4345,19 +4345,10 @@ class CognitiveEngine:
         except Exception as _eng_err:
             log.debug(f"[COGNITIVE] Shutdown: engagement flush failed (non-fatal): {_eng_err}")
 
-        # 3.4 Abort in-flight generation FIRST. closeEvent can arrive while a slow
-        # CPU/iGPU stream still holds the broker lock; running session-summary LLM
-        # work before abort deadlocked shutdown for 15+ minutes (Ctrl+C in closeEvent).
-        try:
-            from eli.cognition import gguf_inference as _ggi_sd
-            _ggi_sd.signal_shutdown()
-            log.debug("[COGNITIVE] Shutdown: inference abort signalled")
-        except Exception as _sd_err:
-            log.debug(f"[COGNITIVE] Shutdown: inference abort signal failed (non-fatal): {_sd_err}")
-
-        # 3.5 In-depth, LLM-generated end-of-session summary → session_summaries.
-        # Runs after abort so the lock is free; if the model is still busy, the
-        # extractor falls back to heuristic text instead of blocking teardown.
+        # 3.4 In-depth, LLM-generated end-of-session summary → session_summaries,
+        # user_patterns, semantic tier, and memories FTS BEFORE aborting inference.
+        # Must run while shutdown is not yet signalled — otherwise _llm_summarise_session
+        # bails and every session logs llm=False despite depth >= 0.25.
         try:
             from eli.runtime.profile_extractor import write_llm_session_summary
             _ss = write_llm_session_summary(
@@ -4369,6 +4360,16 @@ class CognitiveEngine:
                           f"(llm={_ss.get('llm')}, turns={_ss.get('turns_count')})")
         except Exception as _ss_err:
             log.debug(f"[COGNITIVE] Shutdown: session summary failed (non-fatal): {_ss_err}")
+
+        # 3.5 Abort in-flight generation after the hand-off note. closeEvent can arrive
+        # while a slow CPU/iGPU stream still holds the broker lock; the summary above
+        # only runs when the model is idle (falls back to heuristic if not).
+        try:
+            from eli.cognition import gguf_inference as _ggi_sd
+            _ggi_sd.signal_shutdown()
+            log.debug("[COGNITIVE] Shutdown: inference abort signalled")
+        except Exception as _sd_err:
+            log.debug(f"[COGNITIVE] Shutdown: inference abort signal failed (non-fatal): {_sd_err}")
 
         # Steps 4-8 touch process-global singletons (memory store, vector
         # embedder, GGUF model). Run them AT MOST ONCE per process — a second
@@ -8946,6 +8947,27 @@ Answer:"""
         try:
             if self._engagement:
                 self._engagement.update_confidence(score)
+        except Exception:
+            log.debug("suppressed exception", exc_info=True)
+
+        # Rolling session consolidation when depth >= 0.25 (background LLM hand-off).
+        try:
+            if self._engagement:
+                _depth = self._engagement.session_depth()
+                _n_turns = len(self._engagement._turns)
+                if _depth >= 0.25 and _n_turns >= 4 and (_n_turns % 4 == 0):
+                    from eli.runtime.profile_extractor import maybe_rolling_session_consolidation
+                    _ck = maybe_rolling_session_consolidation(
+                        session_id=str(getattr(self, "session_id", "") or "") or None,
+                        user_id=str(getattr(self, "user_id", "") or "") or None,
+                        turn_count=_n_turns,
+                        session_depth=_depth,
+                    )
+                    if _ck.get("inserted") and _ck.get("llm"):
+                        log.debug(
+                            "[COGNITIVE] Rolling session checkpoint stored "
+                            f"(depth={_depth:.2f}, turns={_n_turns})"
+                        )
         except Exception:
             log.debug("suppressed exception", exc_info=True)
 

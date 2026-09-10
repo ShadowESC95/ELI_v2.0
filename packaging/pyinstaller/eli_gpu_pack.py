@@ -1115,3 +1115,63 @@ def preload_native_libs(pack_dir: str | Path) -> None:
                     ctypes.CDLL(str(f), mode=getattr(ctypes, "RTLD_GLOBAL", 0))
                 except Exception:
                     pass
+
+
+def activate_gpu_pack_runtime(dest: str | Path, *, verify: bool = True) -> bool:
+    """Make an installed GPU pack the active llama_cpp in THIS process.
+
+    Install-time verification runs in a throwaway subprocess; the live GUI
+    process may already have imported the bundled CPU runtime, or may need
+    ``llama_backend_init()`` before ``llama_supports_gpu_offload()`` is true
+    (common for Vulkan on Intel iGPU inside AppImage/portable builds).
+    """
+    import sys
+
+    pack = Path(dest)
+    if not (pack / "llama_cpp").is_dir():
+        return False
+    if not (pack / ".gpu_pack_ok").is_file() and not gpu_pack_operational(pack):
+        return False
+
+    pack_s = str(pack.resolve())
+    for q in list(sys.path):
+        if "runtime/gpu" in str(q).replace("\\", "/") and q != pack_s:
+            try:
+                sys.path.remove(q)
+            except ValueError:
+                pass
+    if pack_s not in sys.path:
+        sys.path.insert(0, pack_s)
+
+    preload_native_libs(pack)
+
+    for name in [k for k in list(sys.modules)
+                 if k == "llama_cpp" or k.startswith("llama_cpp.")]:
+        sys.modules.pop(name, None)
+
+    try:
+        import llama_cpp
+        from llama_cpp import llama_cpp as _lc
+
+        _lc.llama_backend_init()
+        if verify and not bool(llama_cpp.llama_supports_gpu_offload()):
+            return False
+        return True
+    except Exception:
+        return False
+
+
+def deactivate_gpu_pack_runtime(dest: str | Path | None = None) -> None:
+    """Drop the GPU pack from sys.path and unload llama_cpp (bundled CPU resumes)."""
+    import sys
+
+    pack_s = str(Path(dest).resolve()) if dest else ""
+    for q in list(sys.path):
+        if "runtime/gpu" in str(q).replace("\\", "/") or (pack_s and q == pack_s):
+            try:
+                sys.path.remove(q)
+            except ValueError:
+                pass
+    for name in [k for k in list(sys.modules)
+                 if k == "llama_cpp" or k.startswith("llama_cpp.")]:
+        sys.modules.pop(name, None)

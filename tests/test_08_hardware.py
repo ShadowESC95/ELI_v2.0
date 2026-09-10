@@ -57,7 +57,7 @@ def test_recommend_matches_the_load_for_a_large_model_on_a_small_card():
     now 9 layers at the full context rather than 10 at a reduced one — which is
     what the loader was going to do regardless.
     """
-    from eli.core.hardware_profile import (HardwareProfile, smart_fit_config,
+    from eli.core.hardware_profile import (HardwareProfile, unified_fit_config,
                                            _layers_for_size, vram_reserve_mb)
     hw = HardwareProfile(
         has_gpu=True,
@@ -77,10 +77,16 @@ def test_recommend_matches_the_load_for_a_large_model_on_a_small_card():
     }]
     rec = recommend(hw, models)
     total = _layers_for_size(20.61)
-    _ctx, _layers, _ = smart_fit_config(
-        20.61, 6635, user_ctx=rec.n_ctx, user_batch=128,
+    try:
+        from eli.core.runtime_settings import DEFAULT_N_CTX as _target_ctx
+    except Exception:
+        _target_ctx = 12288
+    _ctx, _layers, _ = unified_fit_config(
+        20.61, 6635, hw.available_ram_gb,
+        user_ctx=int(_target_ctx), user_batch=128,
         reserve_mb=vram_reserve_mb(), kv_quantized=True,
         total_layers=total, min_batch=128,
+        gpu_integrated=False,
     )
     expected_layers = total if int(_layers) >= 99 else int(_layers)
     assert (rec.n_ctx, rec.n_gpu_layers) == (_ctx, expected_layers)

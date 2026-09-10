@@ -92,18 +92,23 @@ def test_a_pack_that_cannot_offload_is_removed_and_explained():
 # ── layer 2: every start must re-prove it, in THIS environment ─────────────
 def test_activation_verifies_offload_in_this_environment():
     code = _code(HOOK)
-    assert "llama_supports_gpu_offload()" in code, \
+    assert "activate_gpu_pack_runtime" in code, \
         "the pack is activated on an install-time marker alone"
     assert "_pack_live" in code
+    pack_code = PACK.read_text(encoding="utf-8")
+    assert "llama_supports_gpu_offload()" in pack_code
+    assert "llama_backend_init()" in pack_code
 
 
 def test_a_dead_pack_is_removed_from_path_and_module_cache():
     """Dropping it from sys.path is not enough: the already-imported copy would
     keep serving from sys.modules."""
     code = _code(HOOK)
-    assert "sys.path.remove" in code
-    assert "sys.modules.pop" in code
-    assert 'k.startswith("llama_cpp.")' in code
+    assert "deactivate_gpu_pack_runtime" in code
+    pack_code = PACK.read_text(encoding="utf-8")
+    assert "sys.path.remove" in pack_code
+    assert "sys.modules.pop" in pack_code
+    assert 'k.startswith("llama_cpp.")' in pack_code
 
 
 def test_fallback_tells_the_user_what_happened():

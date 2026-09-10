@@ -1,6 +1,6 @@
 # ELI Inference & Hardware Boot
 
-> **Updated for v2.4.8.** Optional Ollama backend; GGUF path remains canonical.
+> **Updated for v2.4.12.** Optional Ollama backend; GGUF path remains canonical.
 > VRAM fit reads `{arch}.block_count` from the GGUF header (model-agnostic) with a
 > size heuristic fallback only when metadata is unreadable.
 > Token budgets scale by reasoning mode via `reasoning_modes.py`.
@@ -105,6 +105,27 @@ First-run / model-load dialog exposes **Auto / GPU / CPU** combo; persisted as
 
 Shutdown and cancel register `llama_set_abort_callback` so long prompt prefills stop
 immediately — `StoppingCriteria` alone only runs between output tokens.
+
+## Update — v2.4.12 (fit profiles, joint planner, GPU pack activation)
+
+### Hardware fit profiles (`core/hardware_profile.py`)
+
+Startup exposes **Balanced / Max GPU / Max context** (`fit_priority` in settings,
+`ELI_FIT_PRIORITY` env):
+
+- **Balanced** — preserve context; shed GPU layers → batch → ctx (default).
+- **Max GPU** — shrink ctx/batch before dropping layers; fill VRAM with layers.
+- **Max context** — spill weights to RAM for larger windows.
+
+`unified_fit_config()` is the joint VRAM+RAM planner used by `recommend()`, the GUI
+load ladder, and `gguf_inference` smart-fit. On discrete GPUs the RAM slider budget
+limits CPU spill from partial offload.
+
+### GPU pack in-process activation (`packaging/pyinstaller/eli_gpu_pack.py`)
+
+`activate_gpu_pack_runtime()` preloads native libs, purges cached `llama_cpp`,
+calls `llama_backend_init()`, and verifies offload — so a pack that verified in a
+subprocess actually works in the AppImage GUI process (Intel Iris Xe Vulkan).
 
 ---
 

@@ -54,7 +54,7 @@ _real_qt_ok() {
 
 _install_complete() {
   _venv_python || return 1
-  "$PY" -c "import eli" 2>/dev/null
+  "$PY" -c "import eli, llama_cpp, requests" 2>/dev/null
 }
 
 _gui_import_ok() {
@@ -151,13 +151,15 @@ if ! command -v python3 >/dev/null 2>&1; then
 fi
 
 if ! _install_complete; then
-  echo "  Installing core environment (install.sh)…"
+  echo "  Installing core environment (install.sh) — llama_cpp + runtime deps…"
   bash "$ROOT/install.sh" --yes --auto-model \
     || bash "$ROOT/install.sh" --yes --cpu-only --auto-model
 fi
 
 if ! _install_complete; then
-  echo "${YEL}[!]${R} Install did not finish — check output above or run: bash \"$ROOT/install.sh\" --yes"
+  echo "${YEL}[!]${R} Core install incomplete (need llama_cpp + requests in .venv)."
+  echo "  Run: bash \"$ROOT/install.sh\" --yes"
+  echo "  Or use the AppImage (no venv build): GitHub Releases → ELI_v2-*-x86_64.AppImage"
   exit 1
 fi
 

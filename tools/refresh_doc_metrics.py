@@ -21,7 +21,7 @@ ROOT = Path(__file__).resolve().parents[1]
 SKIP_PARTS = ("/.venv/", "/models/", "/.claude/", "/node_modules/", "/build/", "/clearbuild/")
 
 # Current release — keep in sync with pyproject.toml.
-VERSION = "2.4.8"
+VERSION = "2.4.12"
 VERSION_TAG = f"v{VERSION}"
 
 
@@ -101,7 +101,7 @@ def build_replacements() -> list[tuple[str, str]]:
     tests = _test_stats()
     loc = _loc_stats()
     swallows = _count_silent_swallows()
-    today = "2026-09-10"
+    today = "2026-09-11"
 
     test_floor = _floor(tests["collected"], 50)
     file_floor = _floor(tests["files"], 5)
@@ -110,23 +110,41 @@ def build_replacements() -> list[tuple[str, str]]:
     # Order: longer / more specific first.
     pairs: list[tuple[str, str]] = [
         # Asset filenames (any stale release suffix)
+        ("ELI_v2-2.4.11-", f"ELI_v2-{ver}-"),
+        ("ELI_v2-2.4.8-", f"ELI_v2-{ver}-"),
         ("ELI_v2-2.4.7-", f"ELI_v2-{ver}-"),
         ("ELI_v2-2.4.6-", f"ELI_v2-{ver}-"),
         ("ELI_v2-2.4.5-", f"ELI_v2-{ver}-"),
+        ("ELI-Setup-2.4.11", f"ELI-Setup-{ver}"),
+        ("ELI-Setup-2.4.8", f"ELI-Setup-{ver}"),
         ("ELI-Setup-2.4.7", f"ELI-Setup-{ver}"),
         ("ELI-Setup-2.4.6", f"ELI-Setup-{ver}"),
+        (f"releases/download/v2.4.11/", f"releases/download/{tag}/"),
+        (f"releases/download/v2.4.8/", f"releases/download/{tag}/"),
         (f"releases/download/v2.4.7/", f"releases/download/{tag}/"),
         (f"releases/download/v2.4.6/", f"releases/download/{tag}/"),
+        (f"releases/tag/v2.4.11", f"releases/tag/{tag}"),
+        (f"releases/tag/v2.4.8", f"releases/tag/{tag}"),
         (f"releases/tag/v2.4.7", f"releases/tag/{tag}"),
         (f"releases/tag/v2.4.6", f"releases/tag/{tag}"),
+        (f"Current release: v2.4.11 (September 2026)", f"Current release: {tag} (September 2026)"),
+        (f"Current release: v2.4.8 (September 2026)", f"Current release: {tag} (September 2026)"),
         (f"Current release: v2.4.7 (September 2026)", f"Current release: {tag} (September 2026)"),
         (f"Current release: v2.4.6 (September 2026)", f"Current release: {tag} (September 2026)"),
+        (f"Updated for v2.4.11 (September 2026)", f"Updated for {tag} (September 2026)"),
+        (f"Updated for v2.4.8 (September 2026)", f"Updated for {tag} (September 2026)"),
         (f"Updated for v2.4.7 (September 2026)", f"Updated for {tag} (September 2026)"),
         (f"Updated for v2.4.6 (September 2026)", f"Updated for {tag} (September 2026)"),
+        (f"Updated for v2.4.11.", f"Updated for {tag}."),
+        (f"Updated for v2.4.8.", f"Updated for {tag}."),
         (f"Updated for v2.4.7.", f"Updated for {tag}."),
         (f"Updated for v2.4.6.", f"Updated for {tag}."),
+        (f"**Version:** 2.4.11", f"**Version:** {ver}"),
+        (f"**Version:** 2.4.8", f"**Version:** {ver}"),
         (f"**Version:** 2.4.7", f"**Version:** {ver}"),
         (f"**Version:** 2.4.6", f"**Version:** {ver}"),
+        (f"Canonical version: **2.4.11**", f"Canonical version: **{ver}**"),
+        (f"Canonical version: **2.4.8**", f"Canonical version: **{ver}**"),
         (f"Canonical version: **2.4.7**", f"Canonical version: **{ver}**"),
         (f"Canonical version: **2.4.6**", f"Canonical version: **{ver}**"),
         (f"Current releases:** v2.4.7 / v3.0.106", f"Current releases:** {tag} / v3.0.108"),

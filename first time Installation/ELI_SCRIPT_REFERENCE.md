@@ -1,8 +1,8 @@
 # ELI v2 Script & Setup Reference
 
-**Version:** 2.4.8 (portable PySide6 fix, shell env fix, installation docs)  
+**Version:** 2.4.12 (hardware fit profiles, GPU pack activation, portable install completeness)  
 **Repository:** ELI_MKXI / ELI v2.0  
-**Last updated:** 2026-09-10
+**Last updated:** 2026-09-11
 
 This document is the authoritative reference for every bash/shell script in the ELI v2 repository, install-related Python entry points, packaging builders, and a structured map of the `eli/` Python package. It is written for maintainers, packagers, and advanced users performing first-time installation or field troubleshooting.
 
@@ -14,7 +14,7 @@ This document is the authoritative reference for every bash/shell script in the 
 
 ELI v2 is **local-first, offline-by-default**. A fresh install creates a project-local `.venv`, builds or installs `llama-cpp-python` matched to your hardware, seeds blank SQLite databases, and optionally downloads models and voice assets in a deliberate online window.
 
-### Recommended paths (v2.4.8)
+### Recommended paths (v2.4.12)
 
 | Path | Platform | Entry | What happens |
 |------|----------|-------|--------------|
@@ -27,6 +27,13 @@ ELI v2 is **local-first, offline-by-default**. A fresh install creates a project
 | **Developer checkout** | Linux/macOS | `bash install.sh` | Full-featured installer with hardware report, interactive model choice, GPU/CUDA/ROCm/Vulkan paths. |
 | **Android / Termux (headless)** | Android arm64 | `bash scripts/install_android.sh` or `python -m eli.setup --full-install` | Detected automatically as **headless-only profile** — CPU llama-cpp, `requirements-android.txt`, no PySide6/GUI/CUDA. Launch: `python -m eli.cli.headless`. |
 | **Windows on ARM (WoA)** | Windows arm64 | `ELI_v2-*-windows-arm64-portable.zip` (experimental) | Same unified installer entry (`ELI_Setup.bat` / `python -m eli.setup --full-install`). CPU build default; Adreno Vulkan experimental; batch ≤ 32. |
+
+### v2.4.12 highlights
+
+- **Hardware fit profiles** (`eli.core.hardware_profile`): Balanced / Max GPU / Max context; `unified_fit_config()` joint VRAM+RAM planner; startup RAM slider re-fits discrete GPUs; persisted as `fit_priority`.
+- **GPU pack activation** (`eli_gpu_pack.activate_gpu_pack_runtime`): Vulkan/CUDA pack loads in the live process after install (fixes Iris Xe AppImage stuck CPU-only); startup panel imports frozen `eli_gpu_pack`.
+- **Portable install completeness** (`eli.setup.unified_installer`, `scripts/eli_setup.sh`): core install requires `llama_cpp` + `requests`, not just `import eli`.
+- **Session memory** (`eli.runtime.profile_extractor`, `eli.kernel.engine`): LLM session summaries at engagement depth ≥ 0.25 with rolling checkpoints.
 
 ### v2.4.8 highlights
 

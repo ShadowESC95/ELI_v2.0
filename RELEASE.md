@@ -3,13 +3,13 @@
 > Maintainer walkthrough: **`blueprints/v2_release.pdf`** (local markdown also under `blueprints/`)  
 > **New users:** **`blueprints/new_user_install_guide.pdf`** — full install commands for Linux, Windows, and macOS.
 
-Current semver: **`pyproject.toml`** → **2.4.8** (tag **`v2.4.8`**).
+Current semver: **`pyproject.toml`** → **2.4.12** (tag **`v2.4.12`**).
 
 ## 1. Build packages
 
 **CI / tag push (recommended):**
 
-Push tag `v2.4.8` — `.github/workflows/release.yml` builds AppImage, portable tar, Windows zip/Setup, and uploads to GitHub Releases.
+Push tag `v2.4.12` — `.github/workflows/release.yml` builds AppImage, portable tar, Windows zip/Setup, and uploads to GitHub Releases.
 
 **Grandma-friendly (Linux AppImage + portable, local):**
 
@@ -24,7 +24,7 @@ bash scripts/build_grandma_release.sh
 
 ```bash
 bash scripts/build_v2_release.sh
-# Output: dist/app_packages/ELI_v2-2.4.8-linux-portable.tar.gz
+# Output: dist/app_packages/ELI_v2-2.4.12-linux-portable.tar.gz
 ```
 
 **Windows Setup.exe** (run on a Windows PC with [Inno Setup 6](https://jrsoftware.org/isinfo.php)):
@@ -32,7 +32,7 @@ bash scripts/build_v2_release.sh
 ```powershell
 bash build_packages.sh windows-lean
 powershell -ExecutionPolicy Bypass -File packaging/windows/build-windows.ps1 -Version 2.4.6
-# Output: dist/ELI_v2-2.4.8-Setup.exe
+# Output: dist/ELI_v2-2.4.12-Setup.exe
 ```
 
 Optional full bundle (local models — very large):
@@ -64,9 +64,9 @@ python3 scripts/upload_github_asset_files.py --repo ShadowESC95/ELI_v2.0 --tag l
 1. [New release](https://github.com/ShadowESC95/ELI_v2.0/releases/new) (or let CI create it on tag push)
 2. Tag: `v2.4.6` (semver matches `pyproject.toml`)
 3. Attach (CI produces these):
-   - `ELI_v2-2.4.8-linux-portable.tar.gz`
-   - `ELI_v2-2.4.8-x86_64.AppImage` (grandma-friendly)
-   - `ELI-Setup-2.4.8.exe` / Windows portable zip (if built)
+   - `ELI_v2-2.4.12-linux-portable.tar.gz`
+   - `ELI_v2-2.4.12-x86_64.AppImage` (grandma-friendly)
+   - `ELI-Setup-2.4.12.exe` / Windows portable zip (if built)
    - `.sha256` sidecars
    - Model pack assets (optional separate tag)
 
@@ -81,14 +81,14 @@ chmod +x ELI_v2-*-x86_64.AppImage
 
 First launch installs to `~/.local/share/ELI_v2`, auto-installs a GPU pack when hardware is detected, and opens the unified setup wizard (single dialog — no double launch).
 
-**Easiest Windows:** download `ELI-Setup-2.4.8.exe`, run it, click through the installer.
+**Easiest Windows:** download `ELI-Setup-2.4.12.exe`, run it, click through the installer.
 Or extract the zip and double-click `ELI_Setup.bat`.
 
 **Classic portable:**
 
 ```bash
-tar -xzf ELI_v2-2.4.8-linux-portable.tar.gz
-cd ELI_v2-2.4.8-linux-portable
+tar -xzf ELI_v2-2.4.12-linux-portable.tar.gz
+cd ELI_v2-2.4.12-linux-portable
 chmod +x ELI_Setup.sh && ./ELI_Setup.sh    # guided (recommended)
 # or: ./INSTALL_ELI.sh && ./RUN_ELI.sh
 ```

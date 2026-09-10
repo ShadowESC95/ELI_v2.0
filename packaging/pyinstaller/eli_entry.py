@@ -485,8 +485,11 @@ def _first_run_gpu_offer() -> None:
         _gp = _gpu_pack_module()
 
         if _gp.gpu_pack_operational(dest):
-            sys.path.insert(0, str(dest))
-            _gp.preload_native_libs(dest)
+            if not _gp.activate_gpu_pack_runtime(dest, verify=True):
+                try:
+                    (dest / ".gpu_pack_ok").unlink(missing_ok=True)
+                except Exception:
+                    pass
             return
         if (dest / ".gpu_pack_ok").is_file():
             try:
@@ -575,8 +578,11 @@ sys.exit(rc["v"])
         rc = subprocess.run([sys.executable, "-c", download]).returncode
         if rc == 0 and _gp.gpu_pack_operational(dest):
             marker.write_text("gpu-vulkan" if (vulkan and not nvidia) else "gpu", encoding="utf-8")
-            sys.path.insert(0, str(dest))
-            _gp.preload_native_libs(dest)
+            if not _gp.activate_gpu_pack_runtime(dest, verify=True):
+                try:
+                    (dest / ".gpu_pack_ok").unlink(missing_ok=True)
+                except Exception:
+                    pass
         elif rc != 0:
             try:
                 reason = _gp.last_failure()

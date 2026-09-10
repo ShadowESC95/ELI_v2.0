@@ -318,42 +318,18 @@ def _pin_frozen_root() -> None:
         )
     if (gpu_dir / "llama_cpp").is_dir() and not _pack_off:
         if (gpu_dir / ".gpu_pack_ok").is_file():
-            sys.path.insert(0, str(gpu_dir))
             _pack_live = False
             try:
                 import eli_gpu_pack
-                eli_gpu_pack.preload_native_libs(gpu_dir)
-                # VERIFY IN THIS ENVIRONMENT, not just at install time.
-                #
-                # The install-time check runs in the installing shell; the app
-                # runs inside the bundle, where LD_LIBRARY_PATH points at its
-                # own libraries. A pack can therefore verify clean on install
-                # and still be unable to reach its backend here -- a Vulkan
-                # pack whose loader (libvulkan.so.1, owned by the GPU driver)
-                # could not be bound reported
-                #     llama.cpp GPU offload support: False
-                # while shadowing a BUNDLED runtime that was both newer and
-                # perfectly able to run the model on CPU. The user was left
-                # worse off than with no pack at all: no GPU, and an older
-                # llama.cpp that could not read current architectures.
-                #
-                # So the pack has to earn its place at every start. If it
-                # cannot offload here, it is unloaded and the bundle takes
-                # over. Costs one import that the app performs anyway.
-                import llama_cpp as _probe
-                _pack_live = bool(_probe.llama_supports_gpu_offload())
+                _pack_live = eli_gpu_pack.activate_gpu_pack_runtime(gpu_dir, verify=True)
             except Exception:
                 _pack_live = False
             if not _pack_live:
-                # Drop the pack from the path AND from the module cache, or the
-                # already-imported copy would keep serving despite the fallback.
                 try:
-                    sys.path.remove(str(gpu_dir))
-                except ValueError:
+                    import eli_gpu_pack as _gp_deact
+                    _gp_deact.deactivate_gpu_pack_runtime(gpu_dir)
+                except Exception:
                     pass
-                for _m in [k for k in list(sys.modules) if k == "llama_cpp"
-                           or k.startswith("llama_cpp.")]:
-                    sys.modules.pop(_m, None)
                 # Invalidate the install marker so a broken pack does not shadow
                 # the bundled runtime on every subsequent boot.
                 try:

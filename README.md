@@ -27,10 +27,15 @@ like and it tunes itself to the hardware you've got, from a laptop to a multi-GP
 <img src=".github/screenshots/gui-onboarding.png" alt="ELI desktop app — first-run onboarding conversation with a local 35B model" width="880">
 </div>
 
+> **v2.4.12 — hardware fit profiles + GPU pack activation fix.** Startup adds **Balanced /
+> Max GPU / Max context** fit profiles with a joint VRAM+RAM planner; RAM slider re-fits
+> on discrete GPUs. AppImage/portable now **activates** the Vulkan/CUDA pack in-process
+> after install (Intel Iris Xe no longer stuck CPU-only). Portable setup requires
+> `llama_cpp`+`requests` before declaring install complete. **[Releases](https://github.com/ShadowESC95/ELI_v2.0/releases/latest)**.
+>
 > **v2.4.8 — portable install fix + installation docs.** Setup no longer skips `install.sh`
 > when PySide6 is missing (headless Qt stub trap fixed); shell alias fix script; complete
-> beginner guide in **`first time Installation/INSTALLATION_GUIDE.md`**. Grab it from
-> **[Releases](https://github.com/ShadowESC95/ELI_v2.0/releases/latest)**.
+> beginner guide in **`first time Installation/INSTALLATION_GUIDE.md`**.
 >
 > **v2.4.7 — AppImage 2 GiB fix.** GPU packs stay bundled in the portable tarball; the
 > AppImage downloads the right CUDA/Vulkan pack at first launch (GitHub asset cap).

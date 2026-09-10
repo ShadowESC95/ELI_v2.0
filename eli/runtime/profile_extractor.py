@@ -1043,7 +1043,33 @@ def _build_transcript(rows: list[Any], max_chars: int = 6000) -> str:
     return transcript
 
 
-def _llm_summarise_session(transcript: str, broker: Any = None) -> str:
+def _sync_summary_to_memory_store(headline: str, source: str) -> None:
+    """Mirror a session summary headline into memories (FTS + vector index)."""
+    text = _clean(headline, 600)
+    if len(text) < 20:
+        return
+    try:
+        from eli.memory.memory import get_memory
+        mem = get_memory()
+        if mem is None:
+            return
+        mem.store_memory(
+            text,
+            tags=["session_summary", "continuity", source],
+            source="session_consolidation",
+            kind="reflection",
+            importance=0.72,
+        )
+    except Exception:
+        log.debug("profile_extractor: memory sync for session summary failed", exc_info=True)
+
+
+def _llm_summarise_session(
+    transcript: str,
+    broker: Any = None,
+    *,
+    background: bool = False,
+) -> str:
     """In-depth, 100%-local session summary via the already-loaded GGUF (no
     network). Returns "" on ANY failure so the caller falls back to the
     heuristic topic summary — this must never block or break shutdown."""
@@ -1086,14 +1112,13 @@ def _llm_summarise_session(transcript: str, broker: Any = None) -> str:
             "'none'.\n\n"
             f"TRANSCRIPT:\n{transcript}"
         )
-        try:
-            from eli.cognition import gguf_inference as _gi_sum
-            if _gi_sum.is_shutting_down():
-                return ""
-        except Exception:
-            log.debug("suppressed exception", exc_info=True)
-        out = (broker.infer(prompt, system=system, max_tokens=420,
-                            temperature=0.3) or "").strip()
+        out = (broker.infer(
+            prompt,
+            system=system,
+            max_tokens=420,
+            temperature=0.3,
+            background=background,
+        ) or "").strip()
         # Reject degenerate output (a lone '-', whitespace, no letters).
         if len(out) < 20 or not re.search(r"[A-Za-z]", out):
             return ""
@@ -1108,6 +1133,9 @@ def write_llm_session_summary(
     user_id: str | None = None,
     max_turns: int = 60,
     broker: Any = None,
+    *,
+    background: bool = False,
+    checkpoint: bool = False,
 ) -> dict[str, Any]:
     """SESSION-END hand-off: generate an in-depth summary of the FULL session and
     UPSERT it into session_summaries (source='session_end'). 100% local — uses
@@ -1151,7 +1179,7 @@ def write_llm_session_summary(
         now = time.time()
 
         transcript = _build_transcript(rows)
-        llm_summary = _llm_summarise_session(transcript, broker)
+        llm_summary = _llm_summarise_session(transcript, broker, background=background)
         if llm_summary:
             # First line (the SUMMARY:) is the short headline; full sectioned
             # text goes in `content` for deep recall.
@@ -1159,7 +1187,7 @@ def write_llm_session_summary(
             _head = re.sub(r"^\s*SUMMARY:\s*", "", _head, flags=re.I).strip()
             summary = _clean(_head or llm_summary, 600)
             content = llm_summary
-            source = "session_end"
+            source = "session_checkpoint" if checkpoint else "session_end"
             # Route the dynamically-inferred CURRENT WORK / USER PREFERENCES into fresh
             # user_patterns so the proactive 'active_project' signal is live, not canned.
             try:
@@ -1180,15 +1208,23 @@ def write_llm_session_summary(
                 summary = (f"Session {sid}: {len(rows)} turns. "
                            f"Recent: {'; '.join(user_msgs[:4])}")
             content = summary
-            source = "session_end_heuristic"
+            source = (
+                "session_checkpoint_heuristic" if checkpoint else "session_end_heuristic"
+            )
 
-        # UPSERT — replace any prior end-of-session summary for this session so
-        # re-running shutdown doesn't accumulate duplicates.
-        cur.execute(
-            "DELETE FROM session_summaries WHERE session_id = ? "
-            "AND source IN ('session_end', 'session_end_heuristic')",
-            (sid,),
-        )
+        # UPSERT — replace prior row for this session + source class.
+        if checkpoint:
+            cur.execute(
+                "DELETE FROM session_summaries WHERE session_id = ? "
+                "AND source IN ('session_checkpoint', 'session_checkpoint_heuristic')",
+                (sid,),
+            )
+        else:
+            cur.execute(
+                "DELETE FROM session_summaries WHERE session_id = ? "
+                "AND source IN ('session_end', 'session_end_heuristic')",
+                (sid,),
+            )
         cur.execute(
             """
             INSERT INTO session_summaries(
@@ -1209,6 +1245,8 @@ def write_llm_session_summary(
                                   db_path=db, broker=broker)
         except Exception:
             log.debug("suppressed exception", exc_info=True)
+        if llm_summary or source.endswith("_heuristic"):
+            _sync_summary_to_memory_store(summary, source)
         return {
             "inserted": True,
             "session_id": sid,
@@ -1219,6 +1257,32 @@ def write_llm_session_summary(
         }
     finally:
         con.close()
+
+
+def maybe_rolling_session_consolidation(
+    session_id: str | None = None,
+    user_id: str | None = None,
+    *,
+    turn_count: int = 0,
+    session_depth: float = 0.0,
+    min_depth: float = 0.25,
+    min_turns: int = 4,
+    every_n_turns: int = 4,
+) -> dict[str, Any]:
+    """Mid-session rolling hand-off when engagement depth crosses the casual threshold.
+
+    Runs in the background so chat stays responsive. Routes USER FACTS / CURRENT WORK /
+    preferences into user_patterns + semantic tier; mirrors headline to memories FTS."""
+    if session_depth < min_depth or turn_count < min_turns:
+        return {"inserted": False, "reason": "below_depth_threshold"}
+    if turn_count % every_n_turns != 0:
+        return {"inserted": False, "reason": "not_checkpoint_turn"}
+    return write_llm_session_summary(
+        session_id=session_id,
+        user_id=user_id,
+        background=True,
+        checkpoint=True,
+    )
 
 
 def _mark_backfilled(db: Path, session_id: str) -> None:

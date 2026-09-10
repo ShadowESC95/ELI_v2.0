@@ -842,7 +842,10 @@ def load_model(force_reload: bool = False):
                 detect_nvidia_gpus as _sf_dng, select_gpu as _sf_sg,
                 train_ctx_for_model as _sf_tc,
             )
-            from eli.core.hardware_profile import smart_fit_config as _sf_fit
+            from eli.core.hardware_profile import (
+                detect_hardware as _sf_hw,
+                unified_fit_config as _sf_fit,
+            )
             _sf_gpu = _sf_sg(_sf_dng())
             _mp = _runtime_value(settings, "model_path", "model") or ""
             if _sf_gpu and _sf_gpu.free_mb > 0 and _mp and os.path.exists(str(_mp)):
@@ -853,11 +856,14 @@ def load_model(force_reload: bool = False):
                 _kvq = bool(_sf_gpu.total_mb and _sf_gpu.total_mb < 12000)
                 _want = max(2048, (int(int(_sf_tc(str(_mp))) * _frac) // 2048) * 2048)
                 _min_batch = int(os.environ.get("ELI_MIN_BATCH", "128") or "128")
+                _hw = _sf_hw()
                 _fc, _fl, _fb = _sf_fit(
-                    _mgb, _sf_gpu.free_mb, user_ctx=min(int(n_ctx), _want),
+                    _mgb, _sf_gpu.free_mb, _hw.available_ram_gb,
+                    user_ctx=min(int(n_ctx), _want),
                     user_batch=max(int(n_batch), _min_batch), reserve_mb=_res,
                     kv_quantized=_kvq, min_batch=_min_batch,
                     model_path=str(model_path),
+                    gpu_integrated=bool(getattr(_hw, "gpu_integrated", False)),
                 )
                 log.debug(f"[GGUF] smart-fit (free={_sf_gpu.free_mb}MB reserve={_res} "
                           f"coresident={_co_resident_active}): ctx {n_ctx}->{_fc} "

@@ -550,6 +550,48 @@ def ram_budget_fraction() -> float:
     return max(lo, min(hi, pct / 100.0))
 
 
+FIT_PRIORITY_BALANCED = "balanced"
+FIT_PRIORITY_MAX_GPU = "max_gpu"
+FIT_PRIORITY_MAX_CTX = "max_ctx"
+FIT_PRIORITIES = (
+    FIT_PRIORITY_BALANCED,
+    FIT_PRIORITY_MAX_GPU,
+    FIT_PRIORITY_MAX_CTX,
+)
+
+
+def normalize_fit_priority(value: Optional[str] = None) -> str:
+    """Return a valid fit priority token."""
+    raw = (value or "").strip().lower().replace("-", "_")
+    aliases = {
+        "balance": FIT_PRIORITY_BALANCED,
+        "gpu": FIT_PRIORITY_MAX_GPU,
+        "maxgpu": FIT_PRIORITY_MAX_GPU,
+        "max_gpu_layers": FIT_PRIORITY_MAX_GPU,
+        "ctx": FIT_PRIORITY_MAX_CTX,
+        "maxcontext": FIT_PRIORITY_MAX_CTX,
+        "max_context": FIT_PRIORITY_MAX_CTX,
+    }
+    if raw in FIT_PRIORITIES:
+        return raw
+    return aliases.get(raw, FIT_PRIORITY_BALANCED)
+
+
+def fit_priority() -> str:
+    """User-chosen fit priority from settings or ELI_FIT_PRIORITY."""
+    chosen: Optional[str] = None
+    try:
+        from eli.core.runtime_settings import load_settings
+        raw = (load_settings() or {}).get("fit_priority")
+        if raw is not None:
+            chosen = str(raw)
+    except Exception:
+        log.debug("fit_priority settings read failed", exc_info=True)
+    if not chosen:
+        chosen = (os.environ.get("ELI_FIT_PRIORITY") or "").strip()
+    return normalize_fit_priority(chosen)
+
+
 def _estimate_integrated_vram_mb(ram_gb: float, available_ram_gb: float) -> tuple[int, int]:
     """Shared-memory budget for iGPU / APU / unified-memory systems."""
     frac = ram_budget_fraction()
@@ -1313,6 +1355,259 @@ def _gpu_layers_for_model(size_gb: float, free_vram_mb: int, n_ctx: int,
     return max(0, n)
 
 
+def _fit_needed_mb(
+    model_size_gb: float,
+    total_layers: int,
+    ctx: int,
+    layers: int,
+    batch: int,
+    *,
+    kv_quantized: bool,
+) -> float:
+    """VRAM bytes for GPU-resident weights + KV + compute graph."""
+    mb_per_layer = (model_size_gb * 1024.0) / max(1, total_layers + 2)
+    gpu_model = mb_per_layer * layers
+    kv = _kv_cache_mb(ctx, total_layers, quant=kv_quantized)
+    compute = _compute_graph_reserve_mb(ctx, batch)
+    return gpu_model + kv + compute + _CUDA_OVERHEAD_MB
+
+
+def _fit_layers_real(layers: int, total_layers: int) -> int:
+    if int(layers) >= 99:
+        return int(total_layers)
+    return max(0, min(int(layers), int(total_layers)))
+
+
+def _estimate_cpu_spill_mb(
+    model_size_gb: float,
+    total_layers: int,
+    gpu_layers_real: int,
+    ctx: int,
+    batch: int,
+    *,
+    kv_quantized: bool = False,
+) -> float:
+    """System RAM for CPU-resident weights and KV when running CPU-only."""
+    mb_per_layer = (model_size_gb * 1024.0) / max(1, total_layers + 2)
+    cpu_layers = max(0, int(total_layers) - int(gpu_layers_real))
+    spill = mb_per_layer * cpu_layers
+    if gpu_layers_real <= 0:
+        spill += _kv_cache_mb(ctx, total_layers, quant=kv_quantized)
+        spill += _compute_graph_reserve_mb(ctx, batch) * 0.25
+    spill += 256.0
+    return spill
+
+
+def _smart_fit_balanced(
+    model_size_gb: float,
+    budget: int,
+    *,
+    user_ctx: int,
+    user_batch: int,
+    kv_quantized: bool,
+    total: int,
+    ctx_grain: int,
+    min_ctx: int,
+    min_batch: int,
+    min_gpu_fraction: float,
+) -> tuple[int, int, int]:
+    """Balanced: shed GPU layers → batch → ctx (context preserved as long as possible)."""
+    ctx = max(min_ctx, int(user_ctx))
+    _target_ctx = int(ctx)
+    batch = max(min_batch, int(user_batch))
+    layers = total
+
+    if budget <= 0:
+        return ctx, 0, batch
+
+    floor = max(0, int(total * min_gpu_fraction))
+    step = max(1, total // 10)
+
+    while layers > floor and _fit_needed_mb(
+            model_size_gb, total, ctx, layers, batch, kv_quantized=kv_quantized) > budget:
+        layers = max(floor, layers - step)
+    while batch > min_batch and _fit_needed_mb(
+            model_size_gb, total, ctx, layers, batch, kv_quantized=kv_quantized) > budget:
+        batch = max(min_batch, batch // 2)
+    while layers > 0 and _fit_needed_mb(
+            model_size_gb, total, ctx, layers, batch, kv_quantized=kv_quantized) > budget:
+        layers = max(0, layers - step)
+    while ctx > min_ctx and _fit_needed_mb(
+            model_size_gb, total, ctx, layers, batch, kv_quantized=kv_quantized) > budget:
+        ctx = max(min_ctx, ctx - ctx_grain)
+
+    while layers < total and _fit_needed_mb(
+            model_size_gb, total, ctx, layers + 1, batch, kv_quantized=kv_quantized) <= budget:
+        layers += 1
+
+    if layers <= 0 and budget > 0 and ctx < _target_ctx:
+        probe_layers = 0
+        while probe_layers < total and _fit_needed_mb(
+                model_size_gb, total, min_ctx, probe_layers + 1, min_batch,
+                kv_quantized=kv_quantized) <= budget:
+            probe_layers += 1
+        if probe_layers > 0:
+            ctx, batch, layers = min_ctx, min_batch, probe_layers
+
+    n_layers = 99 if layers >= total else layers
+    return ctx, n_layers, batch
+
+
+def _smart_fit_max_gpu(
+    model_size_gb: float,
+    budget: int,
+    *,
+    user_ctx: int,
+    user_batch: int,
+    kv_quantized: bool,
+    total: int,
+    ctx_grain: int,
+    min_ctx: int,
+    min_batch: int,
+) -> tuple[int, int, int]:
+    """Max GPU: shrink ctx/batch before shedding layers; pack VRAM with layers."""
+    ctx = max(min_ctx, int(user_ctx))
+    batch = max(min_batch, int(user_batch))
+    layers = total
+
+    if budget <= 0:
+        return ctx, 0, batch
+
+    step = max(1, total // 10)
+
+    while layers == total and _fit_needed_mb(
+            model_size_gb, total, ctx, layers, batch, kv_quantized=kv_quantized) > budget:
+        if ctx > min_ctx:
+            ctx = max(min_ctx, ctx - ctx_grain)
+        elif batch > min_batch:
+            batch = max(min_batch, batch // 2)
+        else:
+            break
+
+    while layers > 0 and _fit_needed_mb(
+            model_size_gb, total, ctx, layers, batch, kv_quantized=kv_quantized) > budget:
+        layers = max(0, layers - step)
+
+    while layers < total and _fit_needed_mb(
+            model_size_gb, total, ctx, layers + 1, batch, kv_quantized=kv_quantized) <= budget:
+        layers += 1
+
+    n_layers = 99 if layers >= total else layers
+    return ctx, n_layers, batch
+
+
+def _smart_fit_max_ctx(
+    model_size_gb: float,
+    budget: int,
+    *,
+    user_ctx: int,
+    user_batch: int,
+    kv_quantized: bool,
+    total: int,
+    ctx_grain: int,
+    min_ctx: int,
+    min_batch: int,
+) -> tuple[int, int, int]:
+    """Max context: preserve ctx via CPU/RAM spill; add GPU layers only if ctx stays."""
+    ctx = max(min_ctx, int(user_ctx))
+    batch = max(min_batch, int(user_batch))
+    layers = total
+
+    if budget <= 0:
+        return ctx, 0, batch
+
+    if _fit_needed_mb(model_size_gb, total, ctx, layers, batch, kv_quantized=kv_quantized) > budget:
+        layers = 0
+        while batch > min_batch and _fit_needed_mb(
+                model_size_gb, total, ctx, 0, batch, kv_quantized=kv_quantized) > budget:
+            batch = max(min_batch, batch // 2)
+        while ctx > min_ctx and _fit_needed_mb(
+                model_size_gb, total, ctx, 0, batch, kv_quantized=kv_quantized) > budget:
+            ctx = max(min_ctx, ctx - ctx_grain)
+
+    while layers < total and _fit_needed_mb(
+            model_size_gb, total, ctx, layers + 1, batch, kv_quantized=kv_quantized) <= budget:
+        layers += 1
+
+    n_layers = 99 if layers >= total else layers
+    return ctx, n_layers, batch
+
+
+def _clamp_fit_to_ram_budget(
+    model_size_gb: float,
+    vram_budget: int,
+    ram_budget_mb: int,
+    ctx: int,
+    layers: int,
+    batch: int,
+    *,
+    user_ctx: int,
+    kv_quantized: bool,
+    total: int,
+    ctx_grain: int,
+    min_ctx: int,
+    min_batch: int,
+    priority: str,
+) -> tuple[int, int, int]:
+    """Joint planner: CPU spill from partial offload must fit the RAM slider budget."""
+    if ram_budget_mb <= 0:
+        return ctx, layers, batch
+
+    priority = normalize_fit_priority(priority)
+    step = max(1, total // 10)
+
+    for _ in range(128):
+        real = _fit_layers_real(layers, total)
+        spill = _estimate_cpu_spill_mb(
+            model_size_gb, total, real, ctx, batch, kv_quantized=kv_quantized)
+        if spill <= ram_budget_mb:
+            break
+
+        if real < total and _fit_needed_mb(
+                model_size_gb, total, ctx, real + 1, batch,
+                kv_quantized=kv_quantized) <= vram_budget:
+            real += 1
+            layers = 99 if real >= total else real
+            continue
+
+        moved = False
+        if priority == FIT_PRIORITY_MAX_GPU and ctx > min_ctx:
+            ctx = max(min_ctx, ctx - ctx_grain)
+            moved = True
+        elif batch > min_batch:
+            batch = max(min_batch, batch // 2)
+            moved = True
+        elif ctx > min_ctx:
+            ctx = max(min_ctx, ctx - ctx_grain)
+            moved = True
+        elif real > 0:
+            real = max(0, real - step)
+            layers = 99 if real >= total else real
+            moved = True
+        if not moved:
+            break
+
+    if priority == FIT_PRIORITY_MAX_GPU and vram_budget > 0:
+        real = _fit_layers_real(layers, total)
+        if 0 < real < total:
+            probe = ctx
+            target = max(min_ctx, int(user_ctx))
+            while probe + ctx_grain <= target:
+                probe += ctx_grain
+                if _fit_needed_mb(
+                        model_size_gb, total, probe, real, batch,
+                        kv_quantized=kv_quantized) > vram_budget:
+                    break
+                spill = _estimate_cpu_spill_mb(
+                    model_size_gb, total, real, probe, batch, kv_quantized=kv_quantized)
+                if spill > ram_budget_mb:
+                    break
+                ctx = probe
+
+    n_layers = 99 if _fit_layers_real(layers, total) >= total else _fit_layers_real(layers, total)
+    return ctx, n_layers, batch
+
+
 def smart_fit_config(
     model_size_gb: float,
     free_vram_mb: int,
@@ -1327,89 +1622,149 @@ def smart_fit_config(
     min_ctx: int = 2048,
     min_batch: int = 128,
     min_gpu_fraction: float = 0.25,
+    fit_priority: Optional[str] = None,
 ) -> tuple[int, int, int]:
-    """Smart loader fit.
+    """VRAM-only smart loader fit (backward compatible).
 
-    Starts from the user's preferred ctx/batch with FULL GPU offload, then — if
-    that won't fit in the VRAM left after the required models (vision + nomic)
-    are resident — reduces to fit in this order:
-
-        1. GPU layers — first, in ~10% increments, down to a floor
-           (min_gpu_fraction of total); we don't strip the GPU entirely just to
-           keep a big ctx.
-        2. batch — halved toward min_batch.
-        3. ctx — last, in ctx_grain steps toward min_ctx, so context (quality)
-           is preserved as long as possible. ("Quality over speed".)
-        4. Only if it STILL won't fit: shed the remaining GPU layers to 0
-           (CPU offload) as a last resort.
-
-    KV cache for ALL layers lives on GPU in llama.cpp, so it scales with ctx
-    regardless of offload — only ctx reduction frees it. Compute/graph buffer
-    (the lazy first-decode allocation that OOMs) scales with ctx and batch.
-
-    Returns (n_ctx, n_gpu_layers, n_batch). n_gpu_layers is the 99 sentinel when
-    all layers fit, 0 for CPU-only. Pure/deterministic — no hardware calls.
+    Dispatches to balanced / max_gpu / max_ctx reduction order. For joint
+    VRAM+RAM planning on discrete GPUs, use ``unified_fit_config``.
     """
     total = int(total_layers or layers_for_model(model_path, model_size_gb))
     budget = max(0, int(free_vram_mb) - int(reserve_mb))
-    mb_per_layer = (model_size_gb * 1024.0) / max(1, total + 2)
+    priority = normalize_fit_priority(fit_priority or FIT_PRIORITY_BALANCED)
+    common = dict(
+        user_ctx=user_ctx,
+        user_batch=user_batch,
+        kv_quantized=kv_quantized,
+        total=total,
+        ctx_grain=ctx_grain,
+        min_ctx=min_ctx,
+        min_batch=min_batch,
+    )
+    if priority == FIT_PRIORITY_MAX_GPU:
+        return _smart_fit_max_gpu(model_size_gb, budget, **common)
+    if priority == FIT_PRIORITY_MAX_CTX:
+        return _smart_fit_max_ctx(model_size_gb, budget, **common)
+    return _smart_fit_balanced(
+        model_size_gb, budget, min_gpu_fraction=min_gpu_fraction, **common)
 
-    def _needed(ctx: int, layers: int, batch: int) -> float:
-        gpu_model = mb_per_layer * layers
-        kv = _kv_cache_mb(ctx, total, quant=kv_quantized)
-        compute = _compute_graph_reserve_mb(ctx, batch)
-        return gpu_model + kv + compute + _CUDA_OVERHEAD_MB
 
-    ctx = max(min_ctx, int(user_ctx))
-    _target_ctx = int(ctx)
-    batch = max(min_batch, int(user_batch))
-    layers = total  # start fully offloaded
+def unified_fit_config(
+    model_size_gb: float,
+    free_vram_mb: int,
+    available_ram_gb: float,
+    *,
+    user_ctx: int,
+    user_batch: int,
+    reserve_mb: int = 700,
+    kv_quantized: bool = False,
+    total_layers: Optional[int] = None,
+    model_path: Optional[str] = None,
+    ctx_grain: int = 2048,
+    min_ctx: int = 2048,
+    min_batch: int = 128,
+    min_gpu_fraction: float = 0.25,
+    fit_priority_mode: Optional[str] = None,
+    gpu_integrated: bool = False,
+    force_cpu: bool = False,
+) -> tuple[int, int, int]:
+    """Joint VRAM + RAM planner for every OS and GPU class.
 
-    if budget <= 0:
-        return ctx, 0, batch  # no GPU budget → CPU-only
+    • Discrete GPU — sizes layers from free VRAM, then verifies CPU spill fits
+      the RAM budget (startup slider). Raising RAM % allows more CPU spill so
+      mid-tier cards can supercharge context without OOM.
+    • Integrated / CPU-only — budgets from available RAM (same math as before).
+    """
+    total = int(total_layers or layers_for_model(model_path, model_size_gb))
+    priority = (
+        normalize_fit_priority(fit_priority_mode)
+        if fit_priority_mode is not None
+        else fit_priority()
+    )
+    ram_budget_mb = cpu_ram_budget_mb(available_ram_gb)
 
-    floor = max(0, int(total * min_gpu_fraction))
-    step = max(1, total // 10)
+    if force_cpu or int(free_vram_mb) <= 0:
+        ctx, layers, batch = smart_fit_config(
+            model_size_gb,
+            ram_budget_mb,
+            user_ctx=user_ctx,
+            user_batch=user_batch,
+            reserve_mb=512,
+            kv_quantized=kv_quantized,
+            total_layers=total,
+            model_path=model_path,
+            ctx_grain=ctx_grain,
+            min_ctx=min_ctx,
+            min_batch=min_batch,
+            min_gpu_fraction=0.0,
+            fit_priority=priority,
+        )
+        return ctx, 0, batch
 
-    # 1) GPU layers, in increments, down to the floor.
-    while layers > floor and _needed(ctx, layers, batch) > budget:
-        layers = max(floor, layers - step)
-    # 2) batch.
-    while batch > min_batch and _needed(ctx, layers, batch) > budget:
-        batch = max(min_batch, batch // 2)
-    # 3) Shed the REMAINING GPU layers (below the floor, toward CPU-only) to PRESERVE
-    #    the user's requested ctx — context is quality, and a big-model-on-small-VRAM
-    #    KV cache needs the room. This is what "ctx last, quality over speed" means:
-    #    honour the requested context by trading GPU offload, NOT by crushing ctx while
-    #    keeping layers (which forced a 20GB model to ctx=6144 at 12 layers when 8 layers
-    #    would have held ~22k). The fraction spinbox is the user's speed↔context dial.
-    while layers > 0 and _needed(ctx, layers, batch) > budget:
-        layers = max(0, layers - step)
-    # 4) ctx — true last resort, only when even CPU-only (0 layers) can't hold it.
-    while ctx > min_ctx and _needed(ctx, layers, batch) > budget:
-        ctx = max(min_ctx, ctx - ctx_grain)
+    if gpu_integrated:
+        shared_budget = min(int(free_vram_mb), ram_budget_mb)
+        ctx, layers, batch = smart_fit_config(
+            model_size_gb,
+            shared_budget,
+            user_ctx=user_ctx,
+            user_batch=user_batch,
+            reserve_mb=reserve_mb,
+            kv_quantized=kv_quantized,
+            total_layers=total,
+            model_path=model_path,
+            ctx_grain=ctx_grain,
+            min_ctx=min_ctx,
+            min_batch=min_batch,
+            min_gpu_fraction=min_gpu_fraction,
+            fit_priority=priority,
+        )
+        return _clamp_fit_to_ram_budget(
+            model_size_gb,
+            max(0, shared_budget - int(reserve_mb)),
+            ram_budget_mb,
+            ctx,
+            layers,
+            batch,
+            user_ctx=user_ctx,
+            kv_quantized=kv_quantized,
+            total=total,
+            ctx_grain=ctx_grain,
+            min_ctx=min_ctx,
+            min_batch=min_batch,
+            priority=priority,
+        )
 
-    # Fine pack: the coarse 10%-step reduction above can leave VRAM unused (e.g. it
-    # stopped at 8 layers with ~1.5GB still free). Greedily add layers back one at a
-    # time while they still fit, so GPU offload FILLS the remaining budget — "give
-    # the leftover VRAM to the layers". Strictly bounded by budget, so it can never
-    # reintroduce an OOM; a no-op when already fully offloaded or CPU-only-by-necessity.
-    while layers < total and _needed(ctx, layers + 1, batch) <= budget:
-        layers += 1
-
-    # When ctx had to be reduced (step 4) and we still ended CPU-only, re-probe at
-    # min_ctx/min_batch for partial offload. Do NOT collapse ctx when CPU-only already
-    # fits at the user's requested window — that trade (16384 ctx + 0 layers) is
-    # intentional ("ctx last, quality over speed").
-    if layers <= 0 and budget > 0 and ctx < _target_ctx:
-        probe_layers = 0
-        while probe_layers < total and _needed(min_ctx, probe_layers + 1, min_batch) <= budget:
-            probe_layers += 1
-        if probe_layers > 0:
-            ctx, batch, layers = min_ctx, min_batch, probe_layers
-
-    n_layers = 99 if layers >= total else layers
-    return ctx, n_layers, batch
+    vram_budget = max(0, int(free_vram_mb) - int(reserve_mb))
+    ctx, layers, batch = smart_fit_config(
+        model_size_gb,
+        free_vram_mb,
+        user_ctx=user_ctx,
+        user_batch=user_batch,
+        reserve_mb=reserve_mb,
+        kv_quantized=kv_quantized,
+        total_layers=total,
+        model_path=model_path,
+        ctx_grain=ctx_grain,
+        min_ctx=min_ctx,
+        min_batch=min_batch,
+        min_gpu_fraction=min_gpu_fraction,
+        fit_priority=priority,
+    )
+    return _clamp_fit_to_ram_budget(
+        model_size_gb,
+        vram_budget,
+        ram_budget_mb,
+        ctx,
+        layers,
+        batch,
+        user_ctx=user_ctx,
+        kv_quantized=kv_quantized,
+        total=total,
+        ctx_grain=ctx_grain,
+        min_ctx=min_ctx,
+        min_batch=min_batch,
+        priority=priority,
+    )
 
 
 def recommend(hw: Optional[HardwareProfile] = None,
@@ -1612,13 +1967,14 @@ def recommend(hw: Optional[HardwareProfile] = None,
 
     if use_gpu_layers:
         _total_layers_est = layers_for_model(chosen["path"], chosen["size_gb"])
-        _fit_ctx, _fit_layers, _fit_batch = smart_fit_config(
-            chosen["size_gb"], hw.free_vram_mb,
+        _fit_ctx, _fit_layers, _fit_batch = unified_fit_config(
+            chosen["size_gb"], hw.free_vram_mb, hw.available_ram_gb,
             user_ctx=rec.n_ctx, user_batch=_fit_batch_in,
             reserve_mb=vram_reserve_mb(gpu_integrated=hw.gpu_integrated),
             kv_quantized=kv_q,
             model_path=chosen["path"], total_layers=_total_layers_est,
             min_batch=_igpu_min_batch,
+            gpu_integrated=hw.gpu_integrated,
         )
         _fit_layers_real = _total_layers_est if int(_fit_layers) >= 99 else int(_fit_layers)
         _old_ctx, _old_layers = rec.n_ctx, rec.n_gpu_layers
@@ -1626,10 +1982,12 @@ def recommend(hw: Optional[HardwareProfile] = None,
         rec.n_gpu_layers = _fit_layers_real
         rec.batch_size = max(rec.batch_size, int(_fit_batch))
         chosen_layers = _fit_layers_real
+        _fp = fit_priority()
         rec.reasoning.append(
-            f"Fit (same calculation the loader runs): ctx={rec.n_ctx} "
+            f"Fit ({_fp}, joint VRAM+RAM): ctx={rec.n_ctx} "
             f"gpu_layers={rec.n_gpu_layers} batch={rec.batch_size} "
-            f"for {hw.free_vram_mb:.0f}MB free VRAM "
+            f"for {hw.free_vram_mb:.0f}MB free VRAM + "
+            f"{cpu_ram_budget_mb(hw.available_ram_gb)}MB RAM spill budget "
             f"(reserve {vram_reserve_mb()}MB, kv={'q4_0' if kv_q else 'fp16'}) "
             f"— was ctx={_old_ctx} gpu_layers={_old_layers} before the fit"
         )
