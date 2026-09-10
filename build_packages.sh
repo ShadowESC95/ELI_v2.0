@@ -162,12 +162,17 @@ title ELI Setup
 cd /d "%~dp0"
 set ELI_PROJECT_ROOT=%~dp0
 set PYTHONPATH=%~dp0;%PYTHONPATH%
-python -m eli.setup --full-install --launch
+if not exist ".venv\Scripts\python.exe" (
+    echo [setup] Preparing core environment...
+    powershell -NoProfile -ExecutionPolicy Bypass -File "%~dp0install.ps1" -Yes -AutoModel
+    if errorlevel 1 ( echo Setup failed. & pause & exit /b 1 )
+)
+".venv\Scripts\python.exe" -m eli.setup --full-install --launch
 if not errorlevel 1 exit /b 0
-echo GUI installer unavailable — running PowerShell install...
-powershell -NoProfile -ExecutionPolicy Bypass -File "%~dp0install.ps1" -Yes -AutoModel
+echo GUI installer unavailable — repairing environment...
+powershell -NoProfile -ExecutionPolicy Bypass -File "%~dp0install.ps1" -Yes
 if errorlevel 1 ( echo Setup failed. & pause & exit /b 1 )
-python -m eli.setup --run-remaining --launch
+".venv\Scripts\python.exe" -m eli.setup --run-remaining --launch
 pause
 BAT_EOF
     cat > "$STAGING/README_INSTALL.txt" <<EOF
@@ -210,6 +215,22 @@ WOA_EOF
     ( cd "$STAGING" && PYTHONPATH="$STAGING" python3 -c \
       "from eli.tools.registry.capability_updater import update_capability_manifest; update_capability_manifest()" ) \
       >/dev/null 2>&1 || true
+
+    # Offline GUI bootstrap — PySide6 must not depend on a pre-existing venv or --user pip.
+    if [ "${ELI_PORTABLE_WHEELHOUSE:-1}" = "1" ] && [ -f "$PROJECT_ROOT/requirements-portable-bootstrap.txt" ]; then
+        mkdir -p "$STAGING/wheelhouse"
+        cp "$PROJECT_ROOT/requirements-portable-bootstrap.txt" "$STAGING/"
+        for _plat in win_amd64 win_arm64; do
+            for _pv in 311 312; do
+                python3 -m pip download -r "$PROJECT_ROOT/requirements-portable-bootstrap.txt" \
+                    -d "$STAGING/wheelhouse" \
+                    --platform "$_plat" --python-version "$_pv" --implementation cp \
+                    --abi "cp${_pv}" --only-binary=:all: --prefer-binary -q 2>/dev/null || true
+            done
+        done
+        python3 -m pip download -r "$PROJECT_ROOT/requirements-portable-bootstrap.txt" \
+            -d "$STAGING/wheelhouse" --prefer-binary -q 2>/dev/null || true
+    fi
 }
 
 # ── Pre-flight: tests must pass before producing artifacts ──────────────

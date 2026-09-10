@@ -1,6 +1,6 @@
 """Regression locks for AppImage/portable install failures (v2.3.94).
 
-Failures observed on a fresh Linux install (jess@blue, Dell-class laptop):
+Failures observed on fresh Linux portable/AppImage installs (low-RAM laptops):
   - read-only writes under AppImage mount
   - DB at ~/.local/share/eli/ instead of ELI_v2
   - memories.value column missing on upgraded DBs

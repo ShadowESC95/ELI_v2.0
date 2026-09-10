@@ -278,6 +278,29 @@ if ($Wheel) {
 Write-Host "[..] Installing dependencies from $(Split-Path $RequirementsFile -Leaf)..."
 Invoke-Pip (@("install") + $PipFindLinksArgs + @("-r", $RequirementsFile, "--quiet"))
 
+# Verify core + GUI imports in the project venv (GUI wheels belong in .venv only).
+Write-Host "[..] Verifying installation..."
+& $PythonVenv -c "import eli" 2>$null
+if ($LASTEXITCODE -ne 0) {
+    throw "'import eli' failed in the virtual environment — the package did not install."
+}
+& $PythonVenv -c "from eli.gui.qt_compat import QApplication" 2>$null
+if ($LASTEXITCODE -ne 0) {
+    Write-Host "[WARN] GUI bindings not importable — installing portable bootstrap into .venv..." -ForegroundColor Yellow
+    $Bootstrap = Join-Path $ScriptDir "requirements-portable-bootstrap.txt"
+    if (Test-Path $Bootstrap) {
+        Invoke-Pip (@("install") + $PipFindLinksArgs + @("-r", $Bootstrap))
+    } else {
+        Invoke-Pip (@("install") + $PipFindLinksArgs + @("PySide6>=6.6.0"))
+    }
+    & $PythonVenv -c "from eli.gui.qt_compat import QApplication" 2>$null
+    if ($LASTEXITCODE -eq 0) {
+        Write-Host "[OK] GUI bindings (PySide6) installed in .venv." -ForegroundColor Green
+    } else {
+        Write-Host "[WARN] PySide6 still not importable — terminal mode remains available." -ForegroundColor Yellow
+    }
+}
+
 # Seed a clean offline config (never overwrite) + init data dirs/databases.
 $Settings = Join-Path $ScriptDir "config\settings.json"
 $Template = Join-Path $ScriptDir "config\templates\settings.template.json"

@@ -43,6 +43,24 @@ def tmp_module(request):
     CE.clear_pending_fix()
 
 
+def test_is_fix_recall_request():
+    assert CE.is_fix_recall_request("how did you fix that file/LOC?")
+    assert CE.is_fix_recall_request("which line did you change?")
+    assert CE.is_fix_recall_request("is that fix still there?")
+    assert not CE.is_fix_recall_request("examine eli/memory/memory.py for errors")
+
+
+def test_format_fix_provenance(monkeypatch):
+    CE.set_last_file("")
+    monkeypatch.setattr(
+        "eli.runtime.self_improvement.get_self_improvement",
+        lambda: type("_E", (), {"list_applied_patches": lambda self, limit=10: []})(),
+    )
+    text = CE.format_fix_provenance("how did you fix it?")
+    assert "patch log" in text.lower()
+    assert "no applied patches" in text.lower()
+
+
 def test_resolve_targets_named_and_alias():
     named = CE.resolve_targets("examine eli/runtime/grounding_escalation.py for errors")
     assert any(p.name == "grounding_escalation.py" for p in named)

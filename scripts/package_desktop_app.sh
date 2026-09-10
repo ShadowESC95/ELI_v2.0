@@ -126,15 +126,27 @@ fi
   "from eli.tools.registry.capability_updater import update_capability_manifest; update_capability_manifest()" ) \
   >/dev/null 2>&1 || echo "[package] (manifest pre-gen skipped — installer will regenerate)"
 
-# Offline wheelhouse — set ELI_FULL_WHEELHOUSE=1 to bundle EVERY pinned wheel so the app
-# installs with ZERO network (install.sh points pip at this dir). Default: just the CPU
-# torch fallback wheel (keeps the download small). Best-effort: whatever pip can't fetch
-# a wheel for (source-only or CUDA llama-cpp) simply falls back to the normal install path.
-# We bundle a real ~1.7GB starter model (Qwen2.5-3B) below, so bundling the 766MB torch
-# wheel too would push a single release asset over GitHub's 2GB cap. Torch is therefore
-# OPT-IN (ELI_BUNDLE_TORCH=1); by default it's fetched at install time (small, quick).
-echo "[package] wheelhouse (torch=${ELI_BUNDLE_TORCH:-0}, full=${ELI_FULL_WHEELHOUSE:-0})"
+# Offline wheelhouse — portable packages must install the GUI offline on first run.
+# ELI_PORTABLE_WHEELHOUSE=1 (default for release builds): PySide6 + bootstrap deps.
+# ELI_FULL_WHEELHOUSE=1: entire pinned lock (large; may exceed GitHub 2 GiB cap).
+# ELI_BUNDLE_TORCH=1: optional CPU torch wheel (opt-in — size budget).
+echo "[package] wheelhouse (portable=${ELI_PORTABLE_WHEELHOUSE:-1}, torch=${ELI_BUNDLE_TORCH:-0}, full=${ELI_FULL_WHEELHOUSE:-0})"
 mkdir -p "$STAGING/wheelhouse"
+if [ "${ELI_PORTABLE_WHEELHOUSE:-1}" = "1" ]; then
+  echo "[package]   bundling portable GUI bootstrap wheels (offline-first install)…"
+  if [ -f "$ROOT/requirements-portable-bootstrap.txt" ]; then
+    "$PYTHON" -m pip download -r "$ROOT/requirements-portable-bootstrap.txt" \
+      -d "$STAGING/wheelhouse" --prefer-binary -q 2>/dev/null || true
+  fi
+  for _plat in manylinux2014_x86_64 manylinux2014_aarch64; do
+    for _pv in 311 312; do
+      "$PYTHON" -m pip download -d "$STAGING/wheelhouse" \
+        --platform "$_plat" --python-version "$_pv" --implementation cp \
+        --abi "cp${_pv}" --only-binary=:all: --prefer-binary \
+        'PySide6>=6.6.0' 'shiboken6>=6.6.0' -q 2>/dev/null || true
+    done
+  done
+fi
 if [ "${ELI_BUNDLE_TORCH:-0}" = "1" ]; then
   "$PYTHON" -m pip download torch -d "$STAGING/wheelhouse" \
       --platform manylinux2014_x86_64 --python-version 312 --implementation cp \
@@ -146,10 +158,20 @@ if [ "${ELI_FULL_WHEELHOUSE:-0}" = "1" ] && [ -f "$ROOT/requirements.lock.txt" ]
       --prefer-binary -q 2>/dev/null || echo "[package]   (some wheels unavailable — install will fetch those)"
 fi
 if [ -n "$(ls -A "$STAGING/wheelhouse" 2>/dev/null)" ]; then
-  echo "[package] wheelhouse: $(ls -1 "$STAGING/wheelhouse"/*.whl 2>/dev/null | wc -l) wheel(s)"
+  _wh_count="$(ls -1 "$STAGING/wheelhouse"/*.whl 2>/dev/null | wc -l)"
+  echo "[package] wheelhouse: ${_wh_count} wheel(s)"
+  if [ "${ELI_PORTABLE_WHEELHOUSE:-1}" = "1" ] && [ "${_wh_count:-0}" -lt 1 ]; then
+    echo "[package] ERROR: portable wheelhouse is empty — offline GUI install will fail." >&2
+    exit 1
+  fi
 else
+  if [ "${ELI_PORTABLE_WHEELHOUSE:-1}" = "1" ]; then
+    echo "[package] ERROR: portable wheelhouse missing — offline GUI install will fail." >&2
+    exit 1
+  fi
   rmdir "$STAGING/wheelhouse" 2>/dev/null || true
 fi
+cp "$ROOT/requirements-portable-bootstrap.txt" "$STAGING/" 2>/dev/null || true
 
 # Starter model — bundle a genuinely usable small GGUF so a fresh install answers well
 # out of the box. Default: Qwen2.5-3B-Instruct (great on 4GB+ GPUs / CPU). Override with
@@ -211,7 +233,7 @@ SETUP_EOF
 chmod +x "$STAGING/ELI_Setup.sh"
 
 # Every shell helper must be executable out of the tarball (Permission denied
-# on eli_diagnose.sh was a real fresh-install failure on jess@blue).
+# on diagnose scripts was a real fresh-install failure on some portable extracts).
 while IFS= read -r -d '' _sh; do
   chmod +x "$_sh"
 done < <(find "$STAGING" -type f \( -name '*.sh' -o -name 'eli_diagnose.sh' \) -print0)

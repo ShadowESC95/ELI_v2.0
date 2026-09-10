@@ -2152,6 +2152,97 @@ def _maybe_background_codegen(action, args):
         return None
 
 
+def _maybe_background_code_work(action, args):
+    """Route FIX_FILE / EXAMINE_CODE to the in-process background job queue when
+    they would monopolize the shared model lock (CodeAgent, tier-3 review, sweeps).
+    Returns None to run inline. The worker carries `_no_background` so it doesn't
+    re-queue."""
+    try:
+        args = args or {}
+        if args.get("_no_background"):
+            return None
+        a = str(action or "").upper()
+        if a not in ("FIX_FILE", "EXAMINE_CODE"):
+            return None
+        _env_key = "ELI_FIX_FILE_BACKGROUND" if a == "FIX_FILE" else "ELI_EXAMINE_CODE_BACKGROUND"
+        if os.environ.get(_env_key, "1").strip().lower() in ("0", "false", "no", "off"):
+            return None
+
+        from eli.coding.cost import should_background, explicit_foreground
+
+        if a == "FIX_FILE":
+            path = str(args.get("path") or "").strip()
+            desc = f"fix file {path or 'unknown'}"
+            if extra := str(args.get("error") or args.get("stderr") or "").strip():
+                desc += f" ({extra[:120]})"
+            if explicit_foreground(desc):
+                return None
+            bg, reason = True, "verified file repair pipeline"
+        else:
+            request = (args.get("request") or args.get("query") or "").strip()
+            from eli.runtime import code_examiner as _ce
+            if _ce.is_recall_request(request) or _ce.is_fix_recall_request(request):
+                return None
+            named = _ce._extract_named_paths(request)
+            if explicit_foreground(request):
+                return None
+            if not named:
+                bg, reason = True, "codebase sweep (no single file named)"
+            elif len(named) > 1:
+                bg, reason = True, f"{len(named)} files named"
+            else:
+                decision = should_background(request)
+                try:
+                    from eli.core.hardware_profile import runtime_cpu_only as _rco
+                    _cpu = _rco()
+                except Exception:
+                    _cpu = False
+                if decision.get("background") or _cpu:
+                    bg = True
+                    reason = (
+                        decision.get("reason")
+                        if decision.get("background")
+                        else "tier-3 logic review on CPU-only runtime"
+                    )
+                else:
+                    return None
+
+        if not bg:
+            return None
+
+        from eli.runtime.background_tasks import get_background_tasks
+        bt = get_background_tasks()
+        _bg_args = dict(args)
+        _bg_args["_no_background"] = True
+        _label = (
+            str(_bg_args.get("path") or "")[:60]
+            if a == "FIX_FILE"
+            else (str(_bg_args.get("request") or _bg_args.get("query") or "")[:60])
+        )
+        jid = bt.submit(
+            f"{a}: {_label}",
+            lambda: execute(a, _bg_args),
+            kind="code",
+            meta={"action": a, "request": _label},
+        )
+        msg = (
+            f"That's a heavier code task ({reason}). I've started it in the "
+            f"background as job #{jid} — say \"check job {jid}\" for the result, or "
+            f"\"background jobs\" to list them."
+        )
+        return {
+            "ok": True,
+            "action": a,
+            "background": True,
+            "job_id": jid,
+            "content": msg,
+            "response": msg,
+        }
+    except Exception as _bg_e:
+        log.debug(f"[CODE_BG] background decision failed: {_bg_e}")
+        return None
+
+
 def _maybe_background_file_analysis(action, args):
     """Heavy folder/PDF analysis (many PDFs → extract + summarise) is slow and
     would block the UI. Run it on a background thread and return a job-id message
@@ -10167,6 +10258,9 @@ def _execute_impl(action: str, args: Optional[Dict[str, Any]] = None) -> Dict[st
 
     # ---- FIX_FILE ----
     if a == "FIX_FILE":
+        _bg = _maybe_background_code_work(a, args)
+        if _bg is not None:
+            return _bg
         from pathlib import Path as _Path
         import re as _re_ff
         path = str(args.get("path") or "").strip()
@@ -10994,6 +11088,15 @@ def _execute_impl(action: str, args: Optional[Dict[str, Any]] = None) -> Dict[st
         request = (args or {}).get('request') or (args or {}).get('query') or ''
         try:
             from eli.runtime import code_examiner as _ce
+            # Fix provenance: "how did you fix that file/LOC?" — answer from the
+            # verified patch log, not a multi-minute Think-mode CHAT stream.
+            if _ce.is_fix_recall_request(request):
+                report = _ce.format_fix_provenance(request)
+                return {'ok': True, 'action': a, 'content': report, 'response': report,
+                        'evidence_source': 'code_examiner_fix_provenance'}
+            _bg = _maybe_background_code_work(a, args)
+            if _bg is not None:
+                return _bg
             # Cross-turn recall: "list the errors you found" replays the persisted
             # last audit verbatim instead of re-scanning (or the model improvising).
             if _ce.is_recall_request(request):

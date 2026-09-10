@@ -885,10 +885,6 @@ class LocalModelManager:
             except Exception as _eli_hw_err:
                 log.debug(f"[GUI][HW_PROFILE] profile read failed: {_eli_hw_err}")
 
-            print(f"   GPU-layer load parameter: {n_gpu_layers}")
-            print(f"   Batch size: {n_batch}")
-            if cache_type_k or cache_type_v:
-                print(f"   KV cache: K={cache_type_k or 'default'} V={cache_type_v or 'default'}")
             requested_n_gpu_layers = int(n_gpu_layers)
             gpu_offload_supported = None
             try:
@@ -915,6 +911,19 @@ class LocalModelManager:
                 f"effective_layers={effective_n_gpu_layers} "
                 f"offload_supported={gpu_offload_supported}",
             )
+            print(f"   GPU-layer load parameter: {effective_n_gpu_layers}")
+            if (
+                requested_n_gpu_layers > 0
+                and effective_n_gpu_layers == 0
+                and gpu_offload_supported is False
+            ):
+                print(
+                    f"   (hardware profile suggested {requested_n_gpu_layers} layers — "
+                    f"this runtime is CPU-only; 0 active)",
+                )
+            print(f"   Batch size: {effective_n_batch}")
+            if cache_type_k or cache_type_v:
+                print(f"   KV cache: K={cache_type_k or 'default'} V={cache_type_v or 'default'}")
             self.n_ctx = int(n_ctx)
             self.n_threads = int(n_threads)
             self.n_gpu_layers = int(effective_n_gpu_layers)
@@ -1006,7 +1015,7 @@ class LocalModelManager:
                 if gpu_offload_supported is False:
                     # CPU-only: size from AVAILABLE RAM, not iGPU shared-memory VRAM.
                     # VRAM smart-fit on Iris Xe returned ctx=3996 from ~1.5GB budget while
-                    # the model + KV actually live in system RAM (observed 2.4.2).
+                    # the model + KV actually live in system RAM, not iGPU VRAM budget.
                     _avail_gb = float(_sf_avail_ram())
                     _ram_ceiling = int(_sf_ram_ceil(_sf_model_gb, _sf_train))
                     _sf_user_ctx = min(int(_sf_user_ctx), _ram_ceiling) if _ram_ceiling > 0 else int(_sf_user_ctx)
@@ -1029,7 +1038,9 @@ class LocalModelManager:
                         f"ctx={_sf_ctx} gpu_layers=0 batch={_sf_batch}")
                     _sf_fit_layers = 0
                     self.fitted_gpu_layers = 0
-                    _add_attempt("ram-smart-fit", _sf_ctx, 0, _sf_batch)
+                    # CPU-only: RAM fit is attempt 1 — user ctx that exceeds measured
+                    # headroom stalls for minutes on low-RAM CPU-only hosts.
+                    _add_attempt("ram-smart-fit", _sf_ctx, 0, _sf_batch, front=True)
                 else:
                     _sf_gpu = _sf_budget()
                     if _sf_gpu and _sf_gpu.free_mb > 0:
@@ -1135,8 +1146,12 @@ class LocalModelManager:
                     f"{_sf_fit_layers} measured to fit — verifying them on this "
                     f"machine before loading (one-off, then cached; set "
                     f"ELI_LOAD_PROBE=0 to skip)")
-            _add_attempt("requested", _base_ctx, _base_layers, _base_batch,
-                         front=True, verify=_needs_proof)
+            if gpu_offload_supported is False:
+                # Honour user settings as a fallback rung, not attempt 1 — RAM fit leads.
+                _add_attempt("requested", _base_ctx, 0, _base_batch, front=False)
+            else:
+                _add_attempt("requested", _base_ctx, _base_layers, _base_batch,
+                             front=True, verify=_needs_proof)
 
             # Hardware profile recommendation (legacy static fallback) — COMPUTED
             # here, but QUEUED further down, after the reduce-to-fit rungs.

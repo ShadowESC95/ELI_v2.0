@@ -81,6 +81,37 @@ def test_cost_open_ended_backgrounds():
     assert should_background("write a function to add two numbers")["background"] is False
 
 
+def test_fix_file_backgrounds_by_default():
+    from eli.execution.executor_enhanced import _maybe_background_code_work
+    from eli.runtime.background_tasks import get_background_tasks
+    result = _maybe_background_code_work("FIX_FILE", {"path": "eli/memory/memory.py"})
+    assert result is not None
+    assert result.get("background") is True
+    assert "job #" in result["content"].lower()
+    jid = result.get("job_id")
+    if jid:
+        get_background_tasks().cancel(jid)
+
+
+def test_examine_sweep_backgrounds():
+    from eli.execution.executor_enhanced import _maybe_background_code_work
+    from eli.runtime.background_tasks import get_background_tasks
+    result = _maybe_background_code_work(
+        "EXAMINE_CODE", {"request": "examine the codebase for bugs"})
+    assert result is not None
+    assert result.get("background") is True
+    jid = result.get("job_id")
+    if jid:
+        get_background_tasks().cancel(jid)
+
+
+def test_examine_recall_skips_background():
+    from eli.execution.executor_enhanced import _maybe_background_code_work
+    result = _maybe_background_code_work(
+        "EXAMINE_CODE", {"request": "list the errors you found earlier"})
+    assert result is None
+
+
 # ── executor job-inspection actions ─────────────────────────────────────────
 
 def test_executor_check_and_list_jobs():

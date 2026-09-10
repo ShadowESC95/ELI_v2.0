@@ -304,3 +304,13 @@ def test_runtime_audit_proof_not_stolen_by_examine_code(text):
 ])
 def test_code_examination_still_routes_to_examine_code(text):
     assert action(text) == "EXAMINE_CODE"
+
+
+def test_hardcoded_provenance_routes_explain_last_response():
+    assert action("is that hardcoded?") == "EXPLAIN_LAST_RESPONSE"
+    assert action("was that response deterministic?") == "EXPLAIN_LAST_RESPONSE"
+
+
+def test_fix_recall_routes_examine_code():
+    assert action("how did you fix that file/LOC?") == "EXAMINE_CODE"
+    assert action("which line did you change?") == "EXAMINE_CODE"

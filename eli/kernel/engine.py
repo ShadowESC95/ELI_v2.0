@@ -6124,6 +6124,18 @@ Answer:"""
     def _build_enhanced_system(self, memory_context: str = "", compact: bool = False,
                                user_input: str = "", reasoning_mode: Optional[str] = None,
                                situation_brief: str = "") -> str:
+        # Phatic greetings bypass the full persona/awareness/timeline stack — it
+        # ballooned prompt eval on CPU-only laptops for a simple hello.
+        try:
+            if _is_brief_phatic_prompt(str(user_input or "").strip().lower()):
+                return self._build_phatic_minimal_system(
+                    user_input,
+                    situation_brief=situation_brief,
+                    reasoning_mode=reasoning_mode,
+                )
+        except Exception:
+            log.debug("suppressed exception", exc_info=True)
+
         # ── Real-time speaker tone (from the user's VOICE this turn) ──
         # Published by the STT loop (eli/perception/voice_profile). When a fresh,
         # confident read exists, prepend a concise cue so ELI adapts its delivery to
@@ -9124,6 +9136,34 @@ Answer:"""
             log.debug("suppressed exception", exc_info=True)
         brief = "\n\n".join(p for p in parts if p).strip()
         return self._cap_text(brief, 1800, "phatic_handoff")
+
+    def _build_phatic_minimal_system(self, user_input: str, situation_brief: str = "",
+                                     reasoning_mode: Optional[str] = None) -> str:
+        """Tiny system prompt for greetings/check-ins — no 11k persona dump.
+
+        A phatic hello through the full compact system still shipped ~3k prompt
+        tokens on CPU-only hosts. This path
+        keeps voice + name + brief only."""
+        parts: List[str] = []
+        _tb = _phatic_time_authority_block()
+        if _tb:
+            parts.append(_tb)
+        parts.append(_phatic_rapport_style_rule().strip())
+        try:
+            from eli.kernel.state import get_user_name as _gun_ph
+            _nm = (_gun_ph("") or "").strip()
+            if _nm:
+                parts.append(f"USER (verified name — use naturally if it fits): {_nm}")
+        except Exception:
+            log.debug("suppressed exception", exc_info=True)
+        brief = str(situation_brief or "").strip()
+        if brief:
+            parts.append(brief)
+        parts.append(
+            "Reply in one or two short sentences. No capability/status report, "
+            "no project recap, no 'How about you?' deflection."
+        )
+        return "\n\n".join(p for p in parts if p)
 
     def _build_persona_handoff_once(self, user_input: str, memory_context: str = "",
                                     bus_result=None, recent_turns=None, working_memory=None,
@@ -14871,7 +14911,7 @@ Answer:"""
 
             if situation_brief:
                 # CPU-only / iGPU-without-offload: keep phatic prompts tiny — a 3k+
-                # token eval on CPU made "hello" take 15+ minutes on Iris Xe.
+                # token eval on CPU-only hosts made short greetings take many minutes.
                 if _phatic_stream:
                     try:
                         from eli.core.hardware_profile import runtime_cpu_only as _cpu_only

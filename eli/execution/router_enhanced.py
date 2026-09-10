@@ -2614,6 +2614,33 @@ def route(text: str, _clause_depth: int = 0) -> Dict[str, Any]:
     # like AWARENESS_STATUS / REASONING_MODE_STATUS / META_DIAGNOSTIC). These are
     # conversational — the user checking in on ELI — and the LLM intent resolver otherwise
     # mis-maps them to status actions ("what is happening with you" → AWARENESS_STATUS).
+    # Meta-provenance about a PRIOR reply ("is that hardcoded / deterministic / canned")
+    # → EXPLAIN_LAST_RESPONSE with real trace telemetry, NOT a Think-mode CHAT stream
+    # that blocks the UI for tens of minutes on CPU.
+    if re.search(
+        r"\b(?:is|was|are|were)\s+(?:that|this|it|those|the\s+(?:answer|response|reply)|you)\b"
+        r"[^?.!]*\b(?:hard[\s-]?coded|deterministic|scripted|canned|pre[\s-]?written|"
+        r"a\s+canned\s+response|templated|generated\s+(?:live|on\s+the\s+fly))\b",
+        low,
+    ):
+        return _mk("EXPLAIN_LAST_RESPONSE", {}, 0.95,
+                   matched_by="router.explain_last_response.provenance_style",
+                   need_grounding=True, allow_chat_without_evidence=False)
+
+    # Fix provenance follow-ups ("how did you fix that file/LOC?") → deterministic
+    # patch log via EXAMINE_CODE, not an open-ended reasoning stream.
+    if re.search(
+        r"\bhow\s+(?:did|do)\s+you\s+fix\b"
+        r"|\b(?:which|what)\s+(?:line|loc|lines?)\s+(?:did\s+you|was|were)\s+(?:fix|change|patch|edit)"
+        r"|\bhow\s+did\s+you\s+(?:change|patch|edit)\s+(?:that|the|this)\s+file\b"
+        r"|\b(?:show|explain|tell\s+me)\s+(?:how|what)\s+you\s+(?:fix|change|patch)\b"
+        r"|\b(?:is|was)\s+(?:that|it|the)\s+fix\s+(?:still\s+)?(?:there|gone|applied|in\s+place)\b",
+        low,
+    ):
+        return _mk("EXAMINE_CODE", {"request": raw}, 0.95,
+                   matched_by="router.code_fix_recall",
+                   allow_chat_without_evidence=False)
+
     if re.search(
         r"\bare\s+you\s+(?:ok|okay|alright|all\s+right|good|fine|well)\b"
         r"|\bis\s+everything\s+(?:ok|okay|alright|all\s+right|fine)\b"
@@ -2623,13 +2650,7 @@ def route(text: str, _clause_depth: int = 0) -> Dict[str, Any]:
         r"|\beli[,\s]+what(?:'?s?|\s+is)\s+(?:happening|going\s+on|wrong)\b"
         r"|\bwhat(?:'?s?|\s+is)\s+(?:happening|going\s+on)\b(?=.*\byou\b)"
         # "what's going on/happening, eli" — vocative anywhere (incl. trailing).
-        r"|\bwhat(?:'?s?|\s+is)\s+(?:happening|going\s+on)\b(?=.*\beli\b)"
-        # Meta-provenance about a PRIOR reply ("is that hardcoded / deterministic / canned /
-        # scripted / pre-written / did you generate that") → conversational, NOT a full
-        # EXPLAIN_COGNITION_RUNTIME pipeline dump. ('explain how you work' is unaffected.)
-        r"|\b(?:is|was|are|were)\s+(?:that|this|it|those|the\s+(?:answer|response|reply)|you)\b"
-        r"[^?.!]*\b(?:hard[\s-]?coded|deterministic|scripted|canned|pre[\s-]?written|"
-        r"a\s+canned\s+response|templated|generated\s+(?:live|on\s+the\s+fly))\b",
+        r"|\bwhat(?:'?s?|\s+is)\s+(?:happening|going\s+on)\b(?=.*\beli\b)",
         low,
     ):
         return _mk("CHAT", {"message": raw}, 0.9, matched_by="chat.relational_concern")

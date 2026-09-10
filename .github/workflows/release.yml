@@ -542,10 +542,10 @@ jobs:
       - name: Build AppImage
         run: bash packaging/linux/build-appimage-pyinstaller.sh
 
-      - name: Classic portable tarball (source + voices — parity with previous releases)
+      - name: Classic portable tarball (source + voices + offline GUI wheelhouse)
         run: |
           pip install build
-          SKIP_TESTS=1 bash scripts/package_desktop_app.sh --with-assets
+          ELI_PORTABLE_WHEELHOUSE=1 SKIP_TESTS=1 bash scripts/package_desktop_app.sh --with-assets
           mv dist/app_packages/ELI_v2-*-linux-portable.tar.gz dist/
           ls -lh dist/*.tar.gz
 

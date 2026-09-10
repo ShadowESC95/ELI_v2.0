@@ -830,6 +830,65 @@ def is_recall_request(request: str) -> bool:
     return bool(_RECALL_RE.search(str(request or "")))
 
 
+_FIX_RECALL_RE = re.compile(
+    r"\b(?:"
+    r"how\s+(?:did|do)\s+you\s+fix\b"
+    r"|(?:which|what)\s+(?:line|loc|lines?)\s+(?:did\s+you|was|were)\s+(?:fix|change|patch|edit)"
+    r"|how\s+did\s+you\s+(?:change|patch|edit)\s+(?:that|the|this)\s+file\b"
+    r"|(?:show|explain|tell\s+me)\s+(?:how|what)\s+you\s+(?:fix|change|patch)\b"
+    r"|(?:is|was)\s+(?:that|it|the)\s+fix\s+(?:still\s+)?(?:there|gone|applied|in\s+place)\b"
+    r")",
+    re.I | re.S,
+)
+
+
+def is_fix_recall_request(request: str) -> bool:
+    """True when the user asks how/where ELI patched code — answer from patch log."""
+    return bool(_FIX_RECALL_RE.search(str(request or "")))
+
+
+def format_fix_provenance(request: str) -> str:
+    """Deterministic answer for fix-provenance follow-ups (no LLM stream)."""
+    from eli.runtime.self_improvement import get_self_improvement
+
+    patches: List[Dict[str, Any]] = []
+    try:
+        patches = get_self_improvement().list_applied_patches(limit=10) or []
+    except Exception:
+        log.debug("suppressed exception", exc_info=True)
+
+    last_file = get_last_file()
+    lines = ["Code-fix provenance (verified patch log):"]
+    if last_file:
+        lines.append(f"- Last file referenced this session: {last_file}")
+
+    if not patches:
+        lines.append("- No applied patches are recorded in the agent database for this install.")
+        lines.append(
+            "  If I described a fix earlier it may have been guidance only, or the repair "
+            "is still running — say \"background jobs\" or \"check job N\"."
+        )
+        return "\n".join(lines)
+
+    for p in patches[:8]:
+        ts = p.get("timestamp")
+        when = ""
+        try:
+            when = time.strftime("%Y-%m-%d %H:%M", time.localtime(float(ts))) if ts else ""
+        except Exception:
+            when = str(ts or "")
+        desc = str(p.get("description") or "").strip()[:240]
+        lines.append(
+            f"- [{when}] {p.get('file')}: {desc or '(no description)'} "
+            f"[{p.get('status', '?')}]"
+        )
+    lines.append(
+        "\nThis is the authoritative record — not a re-generated explanation. "
+        "For a fresh scan say \"examine <file> for errors\"."
+    )
+    return "\n".join(lines)
+
+
 def format_saved_audit(payload: Dict[str, Any]) -> str:
     """Enumerate EVERY persisted finding — file, line, kind, message — grouped
     by file. This answers "list all of them" exactly; no summarising."""

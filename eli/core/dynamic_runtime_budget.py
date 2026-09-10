@@ -119,7 +119,13 @@ def _ctx_ceiling_for_ram(ram_gb: float, size_gb: float, train_ctx: int = 0) -> i
         return _MIN_CTX
     if mb_per_token <= 0:
         return _MIN_CTX
-    allowance_mb = max(0.0, float(ram_gb)) * 1024.0 * _RAM_FRACTION_FOR_CTX
+    # ram_gb is AVAILABLE headroom — subtract model weights + runtime reserve first,
+    # then size KV from what remains. Ignoring model size over-estimates ctx on
+    # low-RAM CPU-only hosts (e.g. integrated-GPU laptops with ~4–8 GB RAM).
+    _model_mb = max(0.0, float(size_gb)) * 1024.0 * 1.08
+    _runtime_mb = 512.0
+    _net_mb = max(0.0, float(ram_gb) * 1024.0 - _model_mb - _runtime_mb)
+    allowance_mb = _net_mb * _RAM_FRACTION_FOR_CTX
     ceiling = max(_MIN_CTX, int(allowance_mb / mb_per_token))
     train = int(train_ctx or 0)
     return min(ceiling, train) if train > 0 else ceiling

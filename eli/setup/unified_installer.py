@@ -562,23 +562,29 @@ def run_unified_installer(*, launch_after: bool = False) -> int:
 
 
 def ensure_qt_for_installer() -> bool:
-    """Ensure PySide6 is importable (bootstrap with system python before venv exists)."""
+    """Ensure PySide6 is importable in the project venv (not --user on system python)."""
     try:
         from eli.gui.qt_compat import QApplication  # noqa: F401
         return True
     except Exception:
         log.debug("Qt import unavailable before bootstrap install", exc_info=True)
-    import shutil
-    import subprocess as _sp
-    py = shutil.which("python3") or shutil.which("python")
-    if not py:
+    py = venv_python()
+    if not py or not Path(py).is_file():
         return False
+    root = project_root()
+    links: List[str] = []
+    for wh in (root / "wheelhouse", root / "dist" / "wheelhouse"):
+        if wh.is_dir() and any(wh.glob("*.whl")):
+            links = ["--find-links", str(wh), "--prefer-binary"]
+            break
+    bootstrap = root / "requirements-portable-bootstrap.txt"
+    cmd: List[str] = [str(py), "-m", "pip", "install", *links]
+    if bootstrap.is_file():
+        cmd.extend(["-r", str(bootstrap)])
+    else:
+        cmd.append("PySide6>=6.6.0")
     try:
-        _sp.check_call(
-            [py, "-m", "pip", "install", "--user", "PySide6>=6.6.0"],
-            stdout=_sp.DEVNULL,
-            stderr=_sp.DEVNULL,
-        )
+        subprocess.run(cmd, check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
     except Exception:
         return False
     try:
