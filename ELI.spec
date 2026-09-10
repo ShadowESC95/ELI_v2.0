@@ -151,6 +151,20 @@ else:
     print("[ELI.spec] WARNING: no embedder in models/embeddings — packaged memory "
           "will fall back to keyword recall until the model is downloaded at runtime")
 
+# GPU acceleration packs (CUDA/Vulkan llama-cpp wheels) — bundled for offline-first
+# install on frozen builds. CI downloads these into gpu-packs/ before PyInstaller.
+_gpu_pack_dir = ROOT / "gpu-packs"
+_gpu_pack_files = sorted(_gpu_pack_dir.glob("*.whl")) if _gpu_pack_dir.is_dir() else []
+if _gpu_pack_files:
+    for f in _gpu_pack_files:
+        datas.append((str(f), "gpu-packs"))
+    print(f"[ELI.spec] bundling {len(_gpu_pack_files)} GPU pack wheel(s)")
+elif os.environ.get("ELI_REQUIRE_GPU_PACKS") == "1":
+    _fail("ELI_REQUIRE_GPU_PACKS=1 but gpu-packs/*.whl missing — "
+          "run: gh release download gpu-packs --pattern '*.whl' --dir gpu-packs")
+else:
+    print("[ELI.spec] WARNING: no gpu-packs/*.whl — AppImage will download GPU pack at first launch")
+
 
 # ── Hidden imports ───────────────────────────────────────────────────────────
 def _optional_collect(package: str, *, data: bool = False, libs: bool = False):

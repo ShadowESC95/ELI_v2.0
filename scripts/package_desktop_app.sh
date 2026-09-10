@@ -176,6 +176,27 @@ else
 fi
 cp "$ROOT/requirements-portable-bootstrap.txt" "$STAGING/" 2>/dev/null || true
 
+# GPU acceleration packs — offline install for AppImage-style frozen builds and as a
+# fallback when install.sh cannot compile CUDA (e.g. rolling distros). Vulkan ~90MB;
+# CUDA wheel is larger but included when present in the build tree or gpu-packs release.
+echo "[package] bundling GPU acceleration packs (offline-first)…"
+mkdir -p "$STAGING/gpu-packs"
+if [ -d "$ROOT/gpu-packs" ] && compgen -G "$ROOT/gpu-packs/*.whl" >/dev/null 2>&1; then
+  cp "$ROOT/gpu-packs/"*.whl "$STAGING/gpu-packs/" 2>/dev/null || true
+elif command -v gh >/dev/null 2>&1; then
+  _gpu_repo="${GITHUB_REPOSITORY:-ShadowESC95/ELI_v2.0}"
+  gh release download gpu-packs --repo "$_gpu_repo" --clobber \
+    --pattern "vulkan-*linux_x86_64*.whl" --dir "$STAGING/gpu-packs" 2>/dev/null || true
+  gh release download gpu-packs --repo "$_gpu_repo" --clobber \
+    --pattern "cuda-*linux_x86_64*.whl" --dir "$STAGING/gpu-packs" 2>/dev/null || true
+fi
+if compgen -G "$STAGING/gpu-packs/*.whl" >/dev/null 2>&1; then
+  echo "[package] gpu-packs: $(ls -1 "$STAGING/gpu-packs"/*.whl | wc -l) wheel(s)"
+else
+  echo "[package] (no gpu-packs bundled — frozen/AppImage builds will download at first launch)"
+  rmdir "$STAGING/gpu-packs" 2>/dev/null || true
+fi
+
 # Starter model — bundle a genuinely usable small GGUF so a fresh install answers well
 # out of the box. Default: Qwen2.5-3B-Instruct (great on 4GB+ GPUs / CPU). Override with
 # ELI_STARTER_MODEL=<filename in models/>. Users can still download any other model from

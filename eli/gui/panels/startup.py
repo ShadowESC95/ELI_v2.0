@@ -407,6 +407,22 @@ class StartupModelSelectionDialog(QDialog):
         self.target_batch_spin.setValue(_initial_batch)
         form.addRow("Target batch", self.target_batch_spin)
 
+        self.compute_mode_combo = QComboBox()
+        self._populate_compute_mode_combo()
+        self.compute_mode_combo.setToolTip(
+            "Auto uses GPU when a backend is installed. GPU tries layer offload "
+            "(install the GPU pack on AppImage/portable if needed). CPU keeps all "
+            "inference on the processor — recommended on integrated-GPU laptops until "
+            "the Vulkan pack is installed."
+        )
+        form.addRow("Compute mode", self.compute_mode_combo)
+
+        self.hw_summary_label = QLabel("")
+        self.hw_summary_label.setWordWrap(True)
+        self.hw_summary_label.setStyleSheet("color:#9aa5b5;font-size:11px;")
+        form.addRow("This machine", self.hw_summary_label)
+        self._refresh_hw_summary()
+
         self.vram_reserve_spin = QSpinBox()
         self.vram_reserve_spin.setRange(0, 16384)
         self.vram_reserve_spin.setSingleStep(128)
@@ -470,6 +486,18 @@ class StartupModelSelectionDialog(QDialog):
             os.environ["ELI_CTX_FRACTION"] = str(float(self.ctx_fraction_spin.value()))
             os.environ["ELI_TARGET_BATCH"]  = str(int(self.target_batch_spin.value()))
             os.environ["ELI_VRAM_RESERVE_MB"] = str(int(self.vram_reserve_spin.value()))
+            _cmode = str(self.compute_mode_combo.currentData() or "auto")
+            try:
+                from eli.core.runtime_settings import update_settings as _rs_cm
+                _cm_updates: Dict[str, Any] = {"compute_mode": _cmode}
+                if _cmode == "cpu":
+                    os.environ["ELI_FORCE_GPU_LAYERS"] = "0"
+                    _cm_updates["n_gpu_layers"] = 0
+                else:
+                    os.environ.pop("ELI_FORCE_GPU_LAYERS", None)
+                _rs_cm(**_cm_updates)
+            except Exception:
+                log.debug("compute_mode persist failed", exc_info=True)
             if int(self.model_train_ctx_spin.value()) > 0:
                 os.environ["ELI_MODEL_TRAIN_CTX"] = str(int(self.model_train_ctx_spin.value()))
             else:
@@ -636,6 +664,62 @@ class StartupModelSelectionDialog(QDialog):
             idx = self.provider_combo.findData("custom_gguf")
             if idx >= 0:
                 self.provider_combo.setCurrentIndex(idx)
+
+    def _populate_compute_mode_combo(self) -> None:
+        self.compute_mode_combo.clear()
+        self.compute_mode_combo.addItem("Auto — GPU when available, else CPU", "auto")
+        self.compute_mode_combo.addItem("GPU acceleration (CUDA / Vulkan pack)", "gpu")
+        self.compute_mode_combo.addItem("CPU only — no GPU layers", "cpu")
+        _saved = "auto"
+        try:
+            from eli.core.runtime_settings import load_settings as _ls_cm
+            _saved = str((_ls_cm() or {}).get("compute_mode") or "auto").lower()
+        except Exception:
+            pass
+        _idx = self.compute_mode_combo.findData(_saved if _saved in ("auto", "gpu", "cpu") else "auto")
+        if _idx >= 0:
+            self.compute_mode_combo.setCurrentIndex(_idx)
+        try:
+            from eli.core.hardware_profile import detect_hardware, _llama_gpu_offload_available
+            _hw = detect_hardware()
+            if _hw.has_gpu and not _llama_gpu_offload_available() and _saved == "auto":
+                _cpu_idx = self.compute_mode_combo.findData("cpu")
+                if _cpu_idx >= 0:
+                    self.compute_mode_combo.setCurrentIndex(_cpu_idx)
+        except Exception:
+            log.debug("compute_mode default probe failed", exc_info=True)
+
+    def _refresh_hw_summary(self) -> None:
+        try:
+            from eli.core.hardware_profile import (
+                detect_hardware, _llama_gpu_offload_available, integrated_gpu_label,
+            )
+            _hw = detect_hardware()
+            _backend = _llama_gpu_offload_available()
+            if not _hw.has_gpu:
+                txt = (
+                    f"CPU: {_hw.cpu_threads} threads  |  "
+                    f"RAM: {_hw.ram_gb:.1f} GB ({_hw.available_ram_gb:.1f} GB free)"
+                )
+            elif _hw.gpu_integrated:
+                _kind = integrated_gpu_label(_hw.gpu_name, _hw.gpu_vendor)
+                txt = (
+                    f"{_kind}  |  RAM: {_hw.ram_gb:.1f} GB  |  "
+                    f"shared budget ~{_hw.free_vram_mb} MB  |  "
+                    f"GPU backend: {'active' if _backend else 'not installed (CPU until GPU pack)'}"
+                )
+            else:
+                txt = (
+                    f"{_hw.gpu_name}  |  "
+                    f"VRAM {_hw.free_vram_mb}/{_hw.total_vram_mb} MB  |  "
+                    f"GPU backend: {'active' if _backend else 'not installed'}"
+                )
+            self.hw_summary_label.setText(txt)
+        except Exception as exc:
+            self.hw_summary_label.setText(f"Hardware probe pending ({exc})")
+
+    def selected_compute_mode(self) -> str:
+        return str(self.compute_mode_combo.currentData() or "auto")
 
     def _sync_provider_controls(self):
         provider = self.selected_provider()
@@ -1398,40 +1482,52 @@ class FirstBootWizard(QDialog):
                 )
                 self._hw_result_label.setStyleSheet("color:#ebcb8b;font-size:12px;")
                 return
+            from eli.core.hardware_profile import (
+                effective_use_gpu_layers as _use_gpu,
+                format_gpu_layers_status as _fmt_layers,
+            )
             _rec = _hp_recommend(_hw, _mods)
             _hp_apply(_rec)
             _style = "color:#a3be8c;font-size:12px;"
             _extra = ""
-            from eli.core.hardware_profile import format_gpu_layers_status as _fmt_layers
             _layer_disp = _fmt_layers(
                 int(_rec.n_gpu_layers or 0),
                 gpu_integrated=bool(getattr(_hw, "gpu_integrated", False)),
                 gpu_name=str(getattr(_hw, "gpu_name", "") or ""),
                 gpu_vendor=str(getattr(_hw, "gpu_vendor", "") or ""),
             )
-            if _hw.has_gpu and _rec.n_gpu_layers == 0:
+            _cpu_path = not _use_gpu(_hw)
+            if _cpu_path:
                 _style = "color:#ebcb8b;font-size:12px;"
                 if getattr(_hw, "gpu_integrated", False):
                     from eli.core.hardware_profile import integrated_gpu_label as _igpu_lbl
                     _kind = _igpu_lbl(_hw.gpu_name, getattr(_hw, "gpu_vendor", ""))
                     _extra = (
-                        f"\n⚠ {_kind} detected — install the GPU pack to "
-                        "offload layers; CPU mode works until then."
+                        f"\n⚠ {_kind} — sizing from system RAM (CPU inference). "
+                        "Install the GPU pack for optional Vulkan offload."
                     )
                 else:
-                    _extra = (
-                        "\n⚠ This model is too large for comfortable GPU offload on your card. "
-                        "Try Qwen2.5-7B (recommended for 8 GB GPUs)."
-                    )
+                    _extra = "\n⚠ CPU/RAM sizing — no active GPU backend."
+            elif _hw.has_gpu and _rec.n_gpu_layers == 0:
+                _style = "color:#ebcb8b;font-size:12px;"
+                _extra = (
+                    "\n⚠ This model is too large for comfortable GPU offload on your card. "
+                    "Try a smaller quant or Qwen2.5-7B on 8 GB GPUs."
+                )
             elif _hw.has_gpu and 0 < _rec.n_gpu_layers < 10:
                 _extra = (
                     "\n⚠ Partial GPU offload — consider a smaller model for faster replies."
                 )
             self._hw_result_label.setStyleSheet(_style)
+            _ram_line = (
+                f"RAM: {_hw.ram_gb:.1f}GB ({_hw.available_ram_gb:.1f}GB free)  |  "
+                if _cpu_path else
+                f"Free VRAM: {_hw.free_vram_mb}MB  |  "
+            )
             self._hw_result_label.setText(
                 f"GPU: {_hw.gpu_name}  |  GPU layers: {_layer_disp}  "
                 f"|  Context: {_rec.n_ctx}  |  Batch: {_rec.batch_size}  "
-                f"|  Free VRAM: {_hw.free_vram_mb}MB{_extra}"
+                f"|  {_ram_line}{_extra}"
             )
         except Exception as exc:
             self._hw_result_label.setStyleSheet("color:#bf616a;font-size:12px;")

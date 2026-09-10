@@ -668,9 +668,33 @@ def allocate(
 
     # ---- CPU-only path ----
     if gpu is None or gpu.total_mb <= 0:
+        try:
+            from eli.core.hardware_profile import (
+                cpu_ram_fit_config,
+                detect_hardware,
+                effective_use_gpu_layers,
+            )
+            from eli.core.runtime_settings import DEFAULT_N_CTX as _DEF_CTX
+            _hw = detect_hardware()
+            if not effective_use_gpu_layers(_hw):
+                _target = int(forced_ctx or user_ctx or _DEF_CTX)
+                _batch_in = int(forced_batch or user_batch or 128)
+                _cpu_ctx, _cpu_batch = cpu_ram_fit_config(
+                    model_gb, _hw.available_ram_gb,
+                    user_ctx=_target, user_batch=_batch_in,
+                    model_path=profile_model, kv_quantized=(ram_gb <= 16),
+                    min_batch=32 if getattr(_hw, "gpu_integrated", False) else 128,
+                )
+                notes.append(
+                    f"CPU/RAM fit: gpu_layers=0 ctx={_cpu_ctx} batch={_cpu_batch} "
+                    f"(available={_hw.available_ram_gb:.1f}GB)."
+                )
+                return _cpu_ctx, 0, _cpu_batch, max_tokens_from_ctx(_cpu_ctx), ctx_fraction, notes
+        except Exception:
+            log.debug("cpu_ram_fit_config unavailable in allocate", exc_info=True)
         _raw = int(train_ctx * ctx_fraction)
         _cpu_ctx = int(forced_ctx or user_ctx or round_ctx(min(_raw, ram_ctx_cap(ram_gb, model_gb))))
-        _cpu_batch = int(forced_batch or user_batch or 256)
+        _cpu_batch = int(forced_batch or user_batch or 128)
         notes.append(f"CPU/no measurable GPU: gpu_layers=0. ctx={_cpu_ctx} batch={_cpu_batch}.")
         return _cpu_ctx, 0, _cpu_batch, max_tokens_from_ctx(_cpu_ctx), ctx_fraction, notes
 

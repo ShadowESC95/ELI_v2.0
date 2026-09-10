@@ -297,6 +297,12 @@ def _pin_frozen_root() -> None:
     # never brick the app (v2.1.4 crashed at every boot when a CUDA pack
     # missing its runtime libs shadowed the working CPU copy).
     gpu_dir = root / "runtime" / "gpu"
+    if not (gpu_dir / ".gpu_pack_ok").is_file():
+        try:
+            import eli_gpu_pack
+            eli_gpu_pack.ensure_gpu_pack_for_hardware(bundle_only=True)
+        except Exception:
+            pass
     # The pack is CUDA-accelerated but comes from an index that stops at
     # 0.3.19, while the BUNDLED copy is current. A model whose architecture
     # only the newer runtime understands (hybrid attention+SSM: qwen35,

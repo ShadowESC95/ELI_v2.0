@@ -155,7 +155,8 @@ def test_detect_hardware_is_cached(monkeypatch):
     assert c.gpu_name == a.gpu_name
 
 
-def test_recommend_igpu_reports_fitted_layers_when_backend_cpu_only(monkeypatch):
+def test_recommend_igpu_cpu_only_sizes_from_ram_not_shared_vram(monkeypatch):
+    """Without an active GPU backend, recommend() must not plan iGPU layers."""
     monkeypatch.setattr(hp, "_llama_gpu_offload_available", lambda: False)
     hw = hp.HardwareProfile(
         ram_gb=16.0,
@@ -175,8 +176,10 @@ def test_recommend_igpu_reports_fitted_layers_when_backend_cpu_only(monkeypatch)
         "size_gb": 2.0,
     }]
     rec = hp.recommend(hw, models)
-    assert rec.n_gpu_layers > 0, "integrated GPU with ~1.4GB budget must report fitted layers"
-    assert "fit" in " ".join(rec.reasoning).lower() or rec.n_gpu_layers > 0
+    assert rec.n_gpu_layers == 0
+    joined = " ".join(rec.reasoning).lower()
+    assert "cpu/ram" in joined or "cpu inference" in joined
+    assert rec.n_ctx >= 4096
 
 
 def test_detect_available_ram_gb_positive():

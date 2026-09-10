@@ -17,8 +17,18 @@ cosmetic problem.
 """
 import pytest
 
+from eli.core import hardware_profile as hp
 from eli.core.hardware_profile import (HardwareProfile, _layers_for_size, recommend,
                                        smart_fit_config, vram_reserve_mb)
+
+
+@pytest.fixture(autouse=True)
+def _gpu_backend_active(monkeypatch):
+    """These cases simulate discrete-GPU hosts where the CUDA/Vulkan pack is active."""
+    monkeypatch.setattr(hp, "_llama_gpu_offload_available", lambda: True)
+    monkeypatch.delenv("ELI_VRAM_RESERVE_MB", raising=False)
+    monkeypatch.delenv("ELI_FORCE_GPU_LAYERS", raising=False)
+    monkeypatch.delenv("ELI_MIN_BATCH", raising=False)
 
 
 def _hw(free_mb: int, total_mb: int = 7752) -> HardwareProfile:
@@ -33,9 +43,14 @@ def _models(size_gb: float):
 
 def _loader_fit(size_gb: float, free_mb: int, ctx: int, kv_q: bool):
     total = _layers_for_size(size_gb)
-    _c, layers, _b = smart_fit_config(size_gb, free_mb, user_ctx=ctx, user_batch=128,
-                                      reserve_mb=vram_reserve_mb(), kv_quantized=kv_q,
-                                      total_layers=total, min_batch=128)
+    _c, layers, _b = smart_fit_config(
+        size_gb, free_mb, user_ctx=ctx, user_batch=128,
+        reserve_mb=vram_reserve_mb(gpu_integrated=False),
+        kv_quantized=kv_q,
+        model_path="/tmp/test.gguf",
+        total_layers=total,
+        min_batch=128,
+    )
     return _c, (total if int(layers) >= 99 else int(layers))
 
 

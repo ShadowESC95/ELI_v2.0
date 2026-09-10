@@ -742,6 +742,61 @@ def _llama_gpu_offload_available() -> bool:
         return False
 
 
+def effective_use_gpu_layers(hw: HardwareProfile, *, force_cpu: bool = False) -> bool:
+    """True when GPU layer offload should be planned (backend active, not CPU-forced).
+
+    iGPU machines without a GPU pack report has_gpu=True but llama-cpp is CPU-only —
+    sizing ctx/layers from shared-memory VRAM then misleads the startup dialog (e.g.
+    ctx=3996 gpu_layers=2 on Iris Xe while the loader runs CPU-only at ctx=8092).
+    """
+    if force_cpu:
+        return False
+    if (os.environ.get("ELI_FORCE_GPU_LAYERS") or "").strip() == "0":
+        return False
+    try:
+        from eli.core.runtime_settings import load_settings
+        if str((load_settings() or {}).get("compute_mode") or "auto").lower() == "cpu":
+            return False
+    except Exception:
+        log.debug("suppressed exception", exc_info=True)
+    return bool(hw.has_gpu and hw.free_vram_mb > 0 and _llama_gpu_offload_available())
+
+
+def cpu_ram_budget_mb(available_ram_gb: float, *, fraction: float = 0.85) -> int:
+    """RAM budget (MB) for cpu_ram_fit — same shape as free VRAM for smart_fit_config."""
+    return int(max(512.0, float(available_ram_gb) * 1024.0 * fraction))
+
+
+def cpu_ram_fit_config(
+    model_size_gb: float,
+    available_ram_gb: float,
+    *,
+    user_ctx: int,
+    user_batch: int,
+    model_path: Optional[str] = None,
+    kv_quantized: bool = False,
+    min_batch: int = 128,
+) -> tuple[int, int]:
+    """Fit n_ctx and batch for CPU-only inference from live RAM.
+
+    Uses the same smart_fit_config arithmetic as GPU systems so recommendations
+    match what the loader's RAM smart-fit produces — one calculation, not two.
+    """
+    budget = cpu_ram_budget_mb(available_ram_gb)
+    ctx, _layers, batch = smart_fit_config(
+        model_size_gb,
+        budget,
+        user_ctx=max(2048, int(user_ctx)),
+        user_batch=max(min_batch, int(user_batch)),
+        reserve_mb=512,
+        kv_quantized=kv_quantized,
+        model_path=model_path,
+        min_batch=min_batch,
+        min_gpu_fraction=0.0,
+    )
+    return int(ctx), max(min_batch, int(batch))
+
+
 _DETECT_HW_CACHE: Optional[tuple[float, HardwareProfile]] = None
 _DETECT_HW_CACHE_TTL_S = 30.0
 
@@ -1392,9 +1447,9 @@ def recommend(hw: Optional[HardwareProfile] = None,
     else:
         rec.reasoning.append("GPU: none detected (CPU-only mode)")
 
-    use_gpu_layers = bool(hw.has_gpu and hw.free_vram_mb > 0)
+    use_gpu_layers = effective_use_gpu_layers(hw)
     _backend_ready = _llama_gpu_offload_available()
-    if hw.gpu_integrated and not _backend_ready:
+    if hw.has_gpu and not _backend_ready:
         _igpu_kind = integrated_gpu_label(hw.gpu_name, hw.gpu_vendor)
         rec.reasoning.append(
             f"{_igpu_kind} layer count below reflects shared-memory fit; "
@@ -1410,11 +1465,12 @@ def recommend(hw: Optional[HardwareProfile] = None,
         return rec
 
     # KV-cache quantization decision. q4_0 K + q4_0 V cuts KV memory ~75%
-    # with negligible quality loss for chat workloads. We enable it
-    # automatically when the GPU is small enough that fp16 KV would
-    # squeeze GPU layers below useful counts. On a 4 GB card this is
-    # always; on a 12+ GB card, fp16 is fine.
-    rec.cache_type_k = "q4_0" if (hw.has_gpu and hw.total_vram_mb < 12000) else ""
+    # with negligible quality loss for chat workloads. Enable on small GPUs
+    # and on CPU-only hosts with <=16 GB RAM (integrated-GPU laptops).
+    rec.cache_type_k = "q4_0" if (
+        (hw.has_gpu and hw.total_vram_mb < 12000)
+        or (not use_gpu_layers and hw.ram_gb <= 16)
+    ) else ""
     rec.cache_type_v = rec.cache_type_k  # match K and V quantization
     kv_q = bool(rec.cache_type_k)
     if kv_q:
@@ -1431,36 +1487,22 @@ def recommend(hw: Optional[HardwareProfile] = None,
     #   ceiling after model selection.
     # • CPU-only     — RAM is the binding constraint; use available RAM.
     _ctx_grain = 2048
-    if hw.has_gpu and hw.free_vram_mb > 0:
-        # Default target context window for ALL models (overridable by the user in
-        # the GUI startup loader / user_preferred_ctx). 16384 fits typical prompts
-        # and, on VRAM-limited GPUs, leaves room for more GPU layers than a
-        # train-ctx-sized window would. VRAM refinement below only REDUCES this.
-        if user_ctx and int(user_ctx) >= 2048:
-            rec.n_ctx = int(user_ctx)
-            rec.reasoning.append(
-                f"n_ctx={rec.n_ctx} (user-pinned — reduced to fit only if VRAM is tight)"
-            )
-        else:
-            try:
-                from eli.core.runtime_settings import DEFAULT_N_CTX as _DEF_CTX
-            except Exception:
-                _DEF_CTX = 16384
-            rec.n_ctx = int(_DEF_CTX)
-            rec.reasoning.append(
-                f"n_ctx default={rec.n_ctx} (GPU system — reduced to fit if VRAM is tight)"
-            )
-    elif user_ctx and int(user_ctx) >= 2048:
+    try:
+        from eli.core.runtime_settings import DEFAULT_N_CTX as _DEF_CTX
+    except Exception:
+        _DEF_CTX = 12288
+    if user_ctx and int(user_ctx) >= 2048:
         rec.n_ctx = max(2048, (int(user_ctx) // _ctx_grain) * _ctx_grain)
-        rec.reasoning.append(
-            f"n_ctx={rec.n_ctx} (user-pinned, 2048-grain; CPU-only)"
-        )
+        _ctx_note = "user-pinned — reduced to fit only if memory is tight"
     else:
-        _raw_ctx = int(hw.available_ram_gb * 1024)
-        rec.n_ctx = max(2048, (max(2048, min(131072, _raw_ctx)) // _ctx_grain) * _ctx_grain)
+        rec.n_ctx = int(_DEF_CTX)
+        _ctx_note = f"default {_DEF_CTX} — reduced to fit if memory is tight"
+    if use_gpu_layers:
+        rec.reasoning.append(f"n_ctx={rec.n_ctx} (GPU — {_ctx_note})")
+    else:
         rec.reasoning.append(
-            f"n_ctx={rec.n_ctx} "
-            f"(CPU-only: available_ram={hw.available_ram_gb:.1f}GB × 1024, 2048-grain)"
+            f"n_ctx={rec.n_ctx} (CPU/RAM — {_ctx_note}; "
+            f"ram={hw.ram_gb:.1f}GB available={hw.available_ram_gb:.1f}GB)"
         )
 
     # Pick the largest model that actually fits, given the chosen ctx and
@@ -1526,15 +1568,16 @@ def recommend(hw: Optional[HardwareProfile] = None,
     # smart_fit_config is the authority because it is what runs. Calling it here
     # means the recommendation is a prediction of the load rather than a second
     # opinion about it.
-    if hw.has_gpu and hw.free_vram_mb > 0:
+    import os as _os_fit
+    _fit_batch_in = max(128, int(_os_fit.environ.get("ELI_MIN_BATCH", "128") or "128"))
+    _igpu_min_batch = 32 if hw.gpu_integrated else 128
+    if hw.gpu_integrated:
+        _fit_batch_in = min(_fit_batch_in, _igpu_min_batch)
+    if not _fit_batch_in:
+        _fit_batch_in = max(128, (max(1, hw.cpu_threads) - 2) * 32)
+
+    if use_gpu_layers:
         _total_layers_est = layers_for_model(chosen["path"], chosen["size_gb"])
-        # Mirror the loader's own batch floor so the compute-graph reserve — and
-        # therefore the layer count — is costed against the same batch it will use.
-        import os as _os_fit
-        _fit_batch_in = max(128, int(_os_fit.environ.get("ELI_MIN_BATCH", "128") or "128"))
-        _igpu_min_batch = 32 if hw.gpu_integrated else 128
-        if hw.gpu_integrated:
-            _fit_batch_in = min(_fit_batch_in, _igpu_min_batch)
         _fit_ctx, _fit_layers, _fit_batch = smart_fit_config(
             chosen["size_gb"], hw.free_vram_mb,
             user_ctx=rec.n_ctx, user_batch=_fit_batch_in,
@@ -1543,7 +1586,6 @@ def recommend(hw: Optional[HardwareProfile] = None,
             model_path=chosen["path"], total_layers=_total_layers_est,
             min_batch=_igpu_min_batch,
         )
-        # 99 is the "all layers" sentinel; this profile reports a real count.
         _fit_layers_real = _total_layers_est if int(_fit_layers) >= 99 else int(_fit_layers)
         _old_ctx, _old_layers = rec.n_ctx, rec.n_gpu_layers
         rec.n_ctx = int(_fit_ctx)
@@ -1557,6 +1599,39 @@ def recommend(hw: Optional[HardwareProfile] = None,
             f"(reserve {vram_reserve_mb()}MB, kv={'q4_0' if kv_q else 'fp16'}) "
             f"— was ctx={_old_ctx} gpu_layers={_old_layers} before the fit"
         )
+    else:
+        try:
+            from eli.core.startup_hardware_optimizer import cpu_ctx_ceiling_from_ram as _ram_ceil
+            from eli.core.startup_hardware_optimizer import train_ctx_for_model as _train_ctx
+            _train = int(_train_ctx(chosen["path"]) or 0)
+            _ceil = int(_ram_ceil(chosen["size_gb"], _train))
+        except Exception:
+            _ceil = 0
+        _target_ctx = min(rec.n_ctx, _ceil) if _ceil > 0 else rec.n_ctx
+        _fit_ctx, _fit_batch = cpu_ram_fit_config(
+            chosen["size_gb"], hw.available_ram_gb,
+            user_ctx=_target_ctx, user_batch=_fit_batch_in,
+            model_path=chosen["path"], kv_quantized=kv_q,
+            min_batch=_igpu_min_batch,
+        )
+        _old_ctx = rec.n_ctx
+        rec.n_ctx = int(_fit_ctx)
+        rec.n_gpu_layers = 0
+        rec.batch_size = max(128, int(_fit_batch))
+        chosen_layers = 0
+        rec.reasoning.append(
+            f"Fit (CPU/RAM — same calculation the loader runs): ctx={rec.n_ctx} "
+            f"gpu_layers=0 batch={rec.batch_size} "
+            f"for {hw.available_ram_gb:.1f}GB available RAM "
+            f"(total {hw.ram_gb:.1f}GB, kv={'q4_0' if kv_q else 'fp16'}) "
+            f"— was ctx={_old_ctx} before the fit"
+        )
+        if hw.has_gpu and not _backend_ready:
+            _igpu_kind = integrated_gpu_label(hw.gpu_name, hw.gpu_vendor)
+            rec.reasoning.append(
+                f"GPU pack not active — {_igpu_kind or hw.gpu_name} will stay CPU-only "
+                f"until ELI --install-gpu-pack is run (optional Vulkan offload)"
+            )
 
     total_layers = layers_for_model(chosen["path"], chosen["size_gb"])
     _full_offload = chosen_layers >= total_layers  # 99 >= actual layer count → all layers on GPU
@@ -1583,12 +1658,11 @@ def recommend(hw: Optional[HardwareProfile] = None,
             f"~{_kv_cache_mb(1024, total_layers, quant=kv_q):.0f}MB per 1k ctx)"
         )
     else:
-        if hw.has_gpu and hw.gpu_integrated and rec.n_gpu_layers > 0:
+        if hw.has_gpu and hw.gpu_integrated and not _backend_ready:
             _igpu_kind = integrated_gpu_label(hw.gpu_name, hw.gpu_vendor)
             rec.reasoning.append(
                 f"Model: {chosen['name']} ({chosen['size_gb']:.2f}GB) — "
-                f"{rec.n_gpu_layers}/{total_layers} layers fit {_igpu_kind} budget "
-                f"(CPU active until GPU backend is installed)"
+                f"CPU inference ({_igpu_kind}; install GPU pack to try offload)"
             )
         else:
             rec.reasoning.append(

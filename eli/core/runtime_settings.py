@@ -107,6 +107,9 @@ DEFAULTS: Dict[str, Any] = {
     "top_k": 40,
     "repeat_penalty": 1.1,
     "n_gpu_layers": 0,
+    # auto | gpu | cpu — operator choice from the startup dialog. CPU forces
+    # zero GPU layers; GPU tries offload when a backend is present.
+    "compute_mode": "auto",
     # Which model the pinned n_gpu_layers was chosen for. A layer count is
     # ABSOLUTE, so it means something different on every model -- 7 layers is
     # a sensible slice of a 15.66GB 27B on 8GB of VRAM and a crippling one

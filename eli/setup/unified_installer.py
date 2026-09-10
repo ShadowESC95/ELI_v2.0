@@ -20,6 +20,7 @@ from eli.gui.qt_compat import (
     QHBoxLayout,
     QLabel,
     QMessageBox,
+    QPlainTextEdit,
     QProgressBar,
     QPushButton,
     QVBoxLayout,
@@ -167,6 +168,7 @@ class UnifiedInstallWizard(QDialog):
         self._post_base = 85
         self._post_total = 1
         self._post_done = 0
+        self._install_succeeded = False
 
         self.setWindowTitle("ELI Setup")
         self.setMinimumSize(720, 520)
@@ -235,9 +237,14 @@ class UnifiedInstallWizard(QDialog):
             self._step_labels[sid] = row_lbl
             layout.addWidget(row_lbl)
 
-        self._log = QLabel("")
-        self._log.setWordWrap(True)
-        self._log.setStyleSheet("color:#5c6a7a;font-size:10px;")
+        self._log = QPlainTextEdit()
+        self._log.setReadOnly(True)
+        self._log.setMaximumBlockCount(4000)
+        self._log.setPlaceholderText("Install output appears here and in the terminal…")
+        self._log.setStyleSheet(
+            "color:#9aa5b5;font-size:10px;background:#12151c;border:1px solid #2a2e38;"
+        )
+        self._log.setMinimumHeight(140)
         layout.addWidget(self._log)
 
         btn_row = QHBoxLayout()
@@ -308,8 +315,8 @@ class UnifiedInstallWizard(QDialog):
         self._fade_msg.start()
         self._set_phase("welcome", 2, f"Python {ver} OK")
 
-        if has_venv():
-            self._set_phase("core_install", 40, "Environment present — checking remaining stages")
+        if has_venv() and _core_install_complete(self._root):
+            self._set_phase("core_install", 40, "Core install present — checking remaining stages")
             self._run_post_install_stages()
         else:
             self._start_full_install()
@@ -325,12 +332,13 @@ class UnifiedInstallWizard(QDialog):
         self._install_worker.start()
 
     def _on_install_line(self, line: str) -> None:
-        clean = line.strip()
+        clean = line.rstrip()
         if clean and sys.stdout.isatty():
             print(clean, flush=True)
-        if len(clean) > 120:
-            clean = clean[:117] + "…"
-        self._log.setText(clean)
+        if clean:
+            self._log.appendPlainText(clean)
+            sb = self._log.verticalScrollBar()
+            sb.setValue(sb.maximum())
 
     def _on_install_progress(self, prog: InstallProgress) -> None:
         pct = prog.percent if prog.percent > 0 else self._progress.value()
@@ -409,6 +417,7 @@ class UnifiedInstallWizard(QDialog):
         self._fade_msg.stop()
         self._refresh_steps()
         if ok:
+            self._install_succeeded = True
             self._set_phase("finish", 100, message)
             self._launch_btn.setEnabled(has_venv() and has_chat_model())
             if self._launch_after and has_chat_model():
@@ -550,6 +559,28 @@ def run_terminal_headless_installer(*, launch_after: bool = False) -> int:
     return 0
 
 
+def _core_install_complete(root: Path) -> bool:
+    """True when .venv exists and the ELI package is importable (not just PySide6)."""
+    if not has_venv():
+        return False
+    py = venv_python()
+    if not py.exists():
+        return False
+    try:
+        subprocess.run(
+            [str(py), "-c", "import eli"],
+            cwd=str(root),
+            env={**os.environ, "ELI_PROJECT_ROOT": str(root),
+                 "PYTHONPATH": str(root)},
+            check=True,
+            capture_output=True,
+            timeout=120,
+        )
+        return True
+    except Exception:
+        return False
+
+
 def run_unified_installer(*, launch_after: bool = False) -> int:
     profile = detect_install_profile()
     if profile == InstallProfile.ANDROID_HEADLESS and not gui_install_available():
@@ -558,7 +589,8 @@ def run_unified_installer(*, launch_after: bool = False) -> int:
     app = QApplication.instance() or QApplication(sys.argv)
     dlg = UnifiedInstallWizard(launch_after=launch_after)
     dlg.run_auto()
-    return dlg.exec()
+    dlg.exec()
+    return 0 if dlg._install_succeeded else 1
 
 
 def ensure_qt_for_installer() -> bool:

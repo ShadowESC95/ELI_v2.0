@@ -215,6 +215,7 @@ class GrandparentSetupWizard(QDialog):
         self._close_btn.clicked.connect(self.reject)
 
         self._worker: Optional[_SetupWorker] = None
+        self._install_succeeded = False
         if auto_run and not all(ok for _, _, ok in stage_checks()):
             self._start_setup()
 
@@ -272,6 +273,7 @@ class GrandparentSetupWizard(QDialog):
         self._refresh_labels()
         self._log.setText(message)
         if ok:
+            self._install_succeeded = True
             self._launch_btn.setEnabled(True)
             if self._launch_after and has_chat_model():
                 self._launch_eli()
@@ -292,4 +294,5 @@ class GrandparentSetupWizard(QDialog):
 def run_wizard(*, auto_run: bool = True, launch_after: bool = False) -> int:
     app = QApplication.instance() or QApplication(sys.argv)
     dlg = GrandparentSetupWizard(auto_run=auto_run, launch_after=launch_after)
-    return dlg.exec()
+    dlg.exec()
+    return 0 if dlg._install_succeeded else 1

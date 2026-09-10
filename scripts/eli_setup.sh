@@ -52,12 +52,13 @@ _gui_import_ok() {
   "$PY" -c "from eli.gui.qt_compat import QApplication" >/dev/null 2>&1
 }
 
-_install_core_env() {
-  if [ -t 1 ]; then
-    echo "  [setup] Preparing core environment (install.sh)…"
+_ensure_minimal_venv() {
+  if ! _venv_python; then
+    if [ -t 1 ]; then
+      echo "  [setup] Creating virtual environment for the GUI installer…"
+    fi
+    python3 -m venv "$VENV"
   fi
-  bash "$ROOT/install.sh" --yes --auto-model \
-    || bash "$ROOT/install.sh" --yes --cpu-only --auto-model
 }
 
 _ensure_gui_in_venv() {
@@ -81,18 +82,8 @@ _ensure_gui_in_venv() {
 }
 
 _ensure_ready_for_gui() {
-  if ! _venv_python; then
-    _install_core_env
-  elif ! "$PY" -c "import eli" >/dev/null 2>&1; then
-    _install_core_env
-  fi
-  _ensure_gui_in_venv || {
-    if [ -t 1 ]; then
-      echo "  [setup] GUI bindings still unavailable — retrying full install.sh…"
-    fi
-    _install_core_env
-    _ensure_gui_in_venv
-  }
+  _ensure_minimal_venv
+  _ensure_gui_in_venv || return 1
 }
 
 _try_gui_installer() {
@@ -102,13 +93,16 @@ _try_gui_installer() {
     return 1
   fi
   if [ -t 1 ]; then
-    echo "  [setup] GUI installer running — live output below (also saved to $_log)"
-    echo "  [setup] Install only — launch afterward with: bash \"$ROOT/RUN_ELI.sh\""
-    if "$PY" -m eli.setup --full-install 2>&1 | tee -a "$_log"; then
+    echo "  [setup] GUI installer — full install runs in the wizard below."
+    echo "  [setup] Live output is mirrored here and saved to $_log"
+    "$PY" -m eli.setup --full-install 2>&1 | tee -a "$_log"
+    _code=${PIPESTATUS[0]}
+    if [ "$_code" -eq 0 ]; then
       echo ""
       echo "  [OK] Setup complete. Launch ELI with: bash \"$ROOT/RUN_ELI.sh\""
       return 0
     fi
+    return 1
   elif "$PY" -m eli.setup --full-install >>"$_log" 2>&1; then
     return 0
   fi

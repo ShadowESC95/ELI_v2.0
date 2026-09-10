@@ -636,6 +636,8 @@ except Exception:
 # so every generation it triggers is abortable regardless of the call path.
 # Kill switch: ELI_FG_PREEMPT=0.
 _FG_PRIORITY = threading.Event()
+# Keep the ctypes abort callback alive for the process lifetime.
+_LLAMA_ABORT_CB = None
 # Set at shutdown to abort EVERY in-flight generation at the next token. A background
 # self-improvement/codegen call can sit in a single native llm() call for 10+ minutes;
 # the OS can't kill a thread mid-native-call, so shutdown's unload_model() (which needs
@@ -697,6 +699,28 @@ def _should_abort_generation(background: bool) -> bool:
     if _SHUTDOWN.is_set() or _USER_CANCEL.is_set():
         return True
     return bool(background) and _fg_preempt_enabled() and _FG_PRIORITY.is_set()
+
+
+def _install_llama_abort_callback(llm) -> None:
+    """Abort prompt prefill and token generation when shutdown/cancel is signalled.
+
+    StoppingCriteria only runs between output tokens; llama_set_abort_callback
+    interrupts llama_decode during the prompt prefill as well — so closing the
+    GUI during a 1000+ token CPU prefill returns promptly instead of hanging.
+    """
+    global _LLAMA_ABORT_CB
+    try:
+        import ctypes
+        from llama_cpp import llama_cpp as _lc
+
+        @_lc.ggml_abort_callback
+        def _abort_cb(_data):
+            return bool(_should_abort_generation(is_background_inference()))
+
+        _LLAMA_ABORT_CB = _abort_cb
+        _lc.llama_set_abort_callback(llm.ctx, _abort_cb, ctypes.c_void_p(None))
+    except Exception:
+        _SWLOG.debug("llama abort callback install failed", exc_info=True)
 
 
 def _make_stopping_criteria(background: bool):
@@ -1053,7 +1077,10 @@ def load_model(force_reload: bool = False):
     except Exception as e:
         log.debug(f"[GGUF] shared runtime snapshot write failed: {e}")
 
+    _install_llama_abort_callback(_llm)
     return _llm
+
+
 def _format_prompt(system: Optional[str], user: str) -> str:
     """Format a prompt using the model-appropriate chat template."""
     system = (system or "").strip()

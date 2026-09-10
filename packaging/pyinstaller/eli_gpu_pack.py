@@ -429,6 +429,221 @@ def pack_backend_from_url(url: str) -> str:
     return "cuda" if "/cuda-" in str(url) else "vulkan"
 
 
+def _bundled_gpu_dir() -> Path | None:
+    """Directory of GPU-pack wheels shipped inside the bundle or portable tar."""
+    candidates: list[Path] = []
+    if getattr(sys, "frozen", False):
+        meipass = getattr(sys, "_MEIPASS", "")
+        if meipass:
+            candidates.append(Path(meipass) / "gpu-packs")
+    try:
+        root = _eli_root()
+        candidates.append(root / "gpu-packs")
+    except RuntimeError:
+        pass
+    for d in candidates:
+        try:
+            if d.is_dir() and any(d.glob("*.whl")):
+                return d
+        except Exception:
+            continue
+    return None
+
+
+def _wheel_name_matches_platform(name: str) -> bool:
+    py = f"cp{sys.version_info.major}{sys.version_info.minor}"
+    plat = _platform_tag()
+    if py in name or "py3-none" in name:
+        if plat in name or (plat.startswith("linux") and "linux" in name):
+            return True
+        if sys.platform == "win32" and "win" in name.lower():
+            return True
+    return False
+
+
+def _pick_bundled_wheel(*, prefer_cuda: bool = True) -> tuple[str, str, Path] | None:
+    """Return (backend, version, local_wheel_path) for the best bundled wheel."""
+    d = _bundled_gpu_dir()
+    if not d:
+        return None
+    best_cuda: tuple[tuple, str, str, Path] | None = None
+    best_vulkan: tuple[tuple, str, str, Path] | None = None
+    for whl in sorted(d.glob("*.whl")):
+        if not _wheel_name_matches_platform(whl.name):
+            continue
+        m = re.match(
+            r"^(cuda|vulkan)-llama_cpp_python-(\d+(?:\.\d+)+).*\.whl$",
+            whl.name,
+        )
+        if not m:
+            continue
+        backend, version = m.group(1), m.group(2)
+        rank = (_ver_tuple(version), 1 if backend == "cuda" else 0)
+        entry = (rank, backend, version, whl)
+        if backend == "cuda":
+            if best_cuda is None or entry[0] > best_cuda[0]:
+                best_cuda = entry
+        else:
+            if best_vulkan is None or entry[0] > best_vulkan[0]:
+                best_vulkan = entry
+    pick = None
+    if prefer_cuda and best_cuda is not None:
+        pick = best_cuda
+    elif best_vulkan is not None:
+        pick = best_vulkan
+    elif best_cuda is not None:
+        pick = best_cuda
+    if not pick:
+        return None
+    return pick[1], pick[2], pick[3]
+
+
+def _activate_staged_gpu_pack(
+    staging: Path,
+    *,
+    dest: Path,
+    backend: str,
+    version: str,
+    source: str,
+    cuda_idx: str = "cu124",
+) -> int:
+    """Vendor CUDA runtimes if needed, move into dest, verify, write markers."""
+    if not (staging / "llama_cpp").is_dir():
+        return _fail("wheel did not contain a llama_cpp package")
+
+    if backend != "vulkan":
+        libdir = staging / "llama_cpp" / "lib"
+        try:
+            with tempfile.TemporaryDirectory() as td:
+                _vendor_cuda_runtime(libdir, Path(td), cuda_idx if backend.startswith("cu") else backend)
+        except Exception as exc:
+            return _fail(f"could not fetch the CUDA runtime libraries: {exc}")
+
+    if dest.exists():
+        shutil.rmtree(dest, ignore_errors=True)
+    dest.mkdir(parents=True, exist_ok=True)
+    for item in staging.iterdir():
+        shutil.move(str(item), str(dest / item.name))
+
+    _say("verifying the GPU pack loads on this machine…")
+    relax_offload = backend == "vulkan" and _shared_memory_gpu()
+    ok, detail = _verify(dest, require_offload=not relax_offload)
+    if not ok:
+        shutil.rmtree(dest, ignore_errors=True)
+        _no_offload = "gpu-pack-verify-no-offload" in (detail or "")
+        return _fail(
+            ("the GPU build loaded but reports NO GPU offload on this machine — "
+             "removed it rather than letting it shadow the bundled CPU runtime. "
+             "ELI stays on CPU (fully functional)."
+             if _no_offload else
+             "the GPU build failed to load on this machine — removed it; "
+             "ELI stays on CPU (fully functional).")
+            + f"\nLoader said: {detail}"
+        )
+
+    (dest / ".gpu_pack.json").write_text(
+        json.dumps({"version": version, "backend": backend, "source": source}, indent=2),
+        encoding="utf-8",
+    )
+    (dest / ".gpu_pack_ok").write_text("verified", encoding="utf-8")
+    _say(f"installed and verified at {dest}")
+    _say("done — the model loader will now offload layers to the GPU.")
+    return 0
+
+
+def _install_from_local_wheel(
+    whl_path: Path,
+    backend: str,
+    version: str,
+    *,
+    force: bool = False,
+    cuda_idx: str = "cu124",
+) -> int:
+    """Install a GPU pack from a wheel already on disk (bundled asset)."""
+    try:
+        root = _eli_root()
+    except RuntimeError as exc:
+        return _fail(str(exc))
+    dest = root / "runtime" / "gpu"
+    if (dest / "llama_cpp").is_dir() and (dest / ".gpu_pack_ok").is_file() and not force:
+        _say(f"GPU pack already installed at {dest}")
+        return 0
+    with tempfile.TemporaryDirectory() as td:
+        staging = Path(td) / "unpacked"
+        try:
+            with zipfile.ZipFile(whl_path) as z:
+                z.extractall(staging)
+        except Exception as exc:
+            return _fail(f"wheel unpack failed: {exc}")
+        return _activate_staged_gpu_pack(
+            staging,
+            dest=dest,
+            backend=backend,
+            version=version,
+            source=str(whl_path),
+            cuda_idx=cuda_idx,
+        )
+
+
+def ensure_gpu_pack_for_hardware(*, bundle_only: bool = False) -> int:
+    """Detect hardware and install a verified GPU pack (bundled first, then network).
+
+    Safe to call before llama_cpp is imported. Returns 0 when GPU offload is ready
+    or when no GPU is present; non-zero only on an explicit install failure.
+    """
+    try:
+        root = _eli_root()
+    except RuntimeError:
+        return 0
+
+    dest = root / "runtime" / "gpu"
+    if (dest / ".gpu_pack_ok").is_file() and (dest / "llama_cpp").is_dir():
+        return 0
+
+    runtime = root / "runtime"
+    marker = runtime / ".gpu_choice"
+    try:
+        from eli.core.hardware_profile import detect_hardware
+        hp = detect_hardware()
+    except Exception:
+        return 0
+
+    runtime.mkdir(parents=True, exist_ok=True)
+    if not hp.has_gpu:
+        marker.write_text("cpu-no-gpu-hardware", encoding="utf-8")
+        return 0
+
+    # A stale cpu-user-choice marker must not block reinstall when the pack is gone.
+    if marker.is_file():
+        choice = marker.read_text(encoding="utf-8", errors="replace").strip()
+        if choice == "cpu-no-gpu-hardware":
+            return 0
+
+    name_l = (hp.gpu_name or "").lower()
+    nvidia = "nvidia" in name_l or "geforce" in name_l or "rtx" in name_l or "gtx" in name_l
+    bundled = _pick_bundled_wheel(prefer_cuda=nvidia)
+    if bundled:
+        bk, ver, path = bundled
+        _say(f"hardware={hp.gpu_name!r} — installing bundled {bk} pack ({path.name})")
+        rc = _install_from_local_wheel(path, bk, ver)
+        if rc == 0:
+            marker.write_text("gpu-bundled", encoding="utf-8")
+        return rc
+
+    if bundle_only:
+        return 1
+
+    _say(f"hardware={hp.gpu_name!r} — no bundled GPU pack; downloading for this machine…")
+    argv: list[str] = []
+    if not nvidia and ("amd" in name_l or "radeon" in name_l or "arc" in name_l
+                       or getattr(hp, "gpu_integrated", False)):
+        argv.append("--vulkan")
+    rc = install(argv)
+    if rc == 0:
+        marker.write_text("gpu-download", encoding="utf-8")
+    return rc
+
+
 def _pick_vulkan_wheel() -> tuple[str, str] | None:
     """Return (version, url) of the CI-built Vulkan wheel for this python/platform."""
     try:
@@ -597,6 +812,24 @@ def _install(argv: list[str] | None = None) -> int:
             "CPU inference keeps working either way."
         )
 
+    prefer_cuda = nvidia_present and not want_vulkan
+    bundled = _pick_bundled_wheel(prefer_cuda=prefer_cuda)
+    if bundled:
+        bk, bver, bpath = bundled
+        if want_vulkan and bk == "cuda":
+            alt = _pick_bundled_wheel(prefer_cuda=False)
+            if alt:
+                bk, bver, bpath = alt
+        elif prefer_cuda and bk == "vulkan":
+            alt = _pick_bundled_wheel(prefer_cuda=True)
+            if alt and alt[0] == "cuda":
+                bk, bver, bpath = alt
+        _say(f"using bundled GPU pack {bpath.name} ({bk})")
+        cuda_idx = backend if str(backend).startswith("cu") else "cu124"
+        return _install_from_local_wheel(
+            bpath, bk, bver, force=force, cuda_idx=cuda_idx,
+        )
+
     _say(f"downloading llama-cpp-python {version} ({backend}, {_platform_tag()}) — several hundred MB…")
     with tempfile.TemporaryDirectory() as td:
         whl = Path(td) / "pack.whl"
@@ -612,55 +845,16 @@ def _install(argv: list[str] | None = None) -> int:
         except Exception as exc:
             return _fail(f"wheel unpack failed: {exc}")
 
-        if not (staging / "llama_cpp").is_dir():
-            return _fail("wheel did not contain a llama_cpp package")
-
-        if backend != "vulkan":
-            # The CUDA wheels do NOT vendor the CUDA runtime (cudart/cublas):
-            # NVIDIA ships those separately, CI runners have them system-wide,
-            # end-user machines usually don't — v2.1.4 crashed at boot on
-            # exactly this. Pull NVIDIA's official PyPI redistributables and
-            # drop their libraries next to llama.dll (the llama loader adds
-            # that directory to the DLL search path; rthook preloads them too).
-            libdir = staging / "llama_cpp" / "lib"
-            try:
-                _vendor_cuda_runtime(libdir, Path(td), backend)
-            except Exception as exc:
-                return _fail(f"could not fetch the CUDA runtime libraries: {exc}")
-
-        if dest.exists():
-            shutil.rmtree(dest, ignore_errors=True)
-        dest.mkdir(parents=True, exist_ok=True)
-        for item in staging.iterdir():
-            shutil.move(str(item), str(dest / item.name))
-
-    # VERIFY before activation — a pack that cannot load must never be able
-    # to brick the app (activation requires the .gpu_pack_ok marker).
-    _say("verifying the GPU pack loads on this machine…")
-    relax_offload = backend == "vulkan" and _shared_memory_gpu()
-    ok, detail = _verify(dest, require_offload=not relax_offload)
-    if not ok:
-        shutil.rmtree(dest, ignore_errors=True)
-        _no_offload = "gpu-pack-verify-no-offload" in (detail or "")
-        return _fail(
-            ("the downloaded GPU build loaded but reports NO GPU offload on this "
-             "machine — removed it rather than letting it shadow the bundled "
-             "runtime, which is newer and reads more model architectures. "
-             "ELI stays on CPU (fully functional)."
-             if _no_offload else
-             "the downloaded GPU build failed to load on this machine — removed it; "
-             "ELI stays on CPU (fully functional).")
-            + f"\nLoader said: {detail}"
+        pack_backend = backend if backend in ("cuda", "vulkan") else pack_backend_from_url(url)
+        cuda_idx = backend if str(backend).startswith("cu") else "cu124"
+        return _activate_staged_gpu_pack(
+            staging,
+            dest=dest,
+            backend=pack_backend,
+            version=version,
+            source=url,
+            cuda_idx=cuda_idx,
         )
-
-    (dest / ".gpu_pack.json").write_text(
-        json.dumps({"version": version, "backend": backend, "url": url}, indent=2),
-        encoding="utf-8",
-    )
-    (dest / ".gpu_pack_ok").write_text("verified", encoding="utf-8")
-    _say(f"installed and verified at {dest}")
-    _say("done — the model loader will now offload layers to the GPU.")
-    return 0
 
 
 def _download(url: str, path: Path) -> None:
