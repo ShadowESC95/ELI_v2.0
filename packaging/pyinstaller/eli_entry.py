@@ -450,12 +450,27 @@ QMessageBox.warning(None, "ELI - first model",
         pass  # never block the GUI boot
 
 
-def _first_run_gpu_offer() -> None:
-    """Auto-install a verified GPU pack before llama_cpp is imported (AppImage/exe).
+def _gpu_pack_module():
+    sys.path.insert(0, str(Path(__file__).resolve().parent))
+    import eli_gpu_pack
+    return eli_gpu_pack
 
-    Uses bundled gpu-packs/ wheels when present (offline-first), otherwise
-    downloads the correct CUDA/Vulkan pack for the detected hardware. Runs
-    BEFORE the GUI imports llama_cpp so offload works on the first boot.
+
+def _gpu_vendor_flags(hp) -> tuple[bool, bool, bool]:
+    """Return (nvidia_discrete, vulkan_recommended, intel_integrated)."""
+    name_l = (hp.gpu_name or "").lower()
+    nvidia = any(k in name_l for k in ("nvidia", "geforce", "rtx", "gtx", "quadro"))
+    intel_igpu = bool(getattr(hp, "gpu_integrated", False)) and "intel" in name_l and "arc" not in name_l
+    amd = (not nvidia) and any(k in name_l for k in ("amd", "radeon"))
+    vulkan = amd or intel_igpu or (hp.has_gpu and not nvidia)
+    return nvidia, vulkan, intel_igpu
+
+
+def _first_run_gpu_offer() -> None:
+    """First-launch GPU chooser (frozen GUI builds, Windows/Linux).
+
+    Offers NVIDIA→CUDA or AMD/Intel→Vulkan (user confirms), or CPU-only. Runs
+    BEFORE llama_cpp is imported so an installed pack takes effect the same boot.
     """
     if not getattr(sys, "frozen", False) or sys.platform == "darwin":
         return
@@ -465,62 +480,91 @@ def _first_run_gpu_offer() -> None:
         if not str(root):
             return
         runtime = root / "runtime"
-        if (runtime / "gpu" / ".gpu_pack_ok").is_file():
-            gpu_dir = runtime / "gpu"
-            sys.path.insert(0, str(gpu_dir))
-            import eli_gpu_pack as _gp
-            _gp.preload_native_libs(gpu_dir)
-            return
+        dest = runtime / "gpu"
+        marker = runtime / ".gpu_choice"
+        _gp = _gpu_pack_module()
 
-        bundled = None
-        try:
-            sys.path.insert(0, str(Path(__file__).resolve().parent))
-            import eli_gpu_pack as _gp
-            from eli.core.hardware_profile import detect_hardware
-            hp = detect_hardware()
-            if not hp.has_gpu:
-                runtime.mkdir(parents=True, exist_ok=True)
-                (runtime / ".gpu_choice").write_text("cpu-no-gpu-hardware", encoding="utf-8")
+        if _gp.gpu_pack_operational(dest):
+            sys.path.insert(0, str(dest))
+            _gp.preload_native_libs(dest)
+            return
+        if (dest / ".gpu_pack_ok").is_file():
+            try:
+                (dest / ".gpu_pack_ok").unlink(missing_ok=True)
+            except Exception:
+                pass
+
+        if marker.is_file():
+            choice = marker.read_text(encoding="utf-8", errors="replace").strip()
+            if choice.startswith("cpu"):
                 return
-            name_l = (hp.gpu_name or "").lower()
-            nvidia = "nvidia" in name_l or "geforce" in name_l or "rtx" in name_l or "gtx" in name_l
-            bundled = _gp._pick_bundled_wheel(prefer_cuda=nvidia)
-            if bundled:
-                rc = _gp._install_from_local_wheel(bundled[2], bundled[0], bundled[1])
-                if rc == 0 and (runtime / "gpu" / ".gpu_pack_ok").is_file():
-                    (runtime / ".gpu_choice").write_text("gpu-bundled", encoding="utf-8")
-                    sys.path.insert(0, str(runtime / "gpu"))
-                    _gp.preload_native_libs(runtime / "gpu")
-                    return
-        except Exception:
-            bundled = None
 
-        from eli.core.hardware_profile import detect_hardware
+        from eli.core.hardware_profile import detect_hardware, integrated_gpu_label
         hp = detect_hardware()
+        runtime.mkdir(parents=True, exist_ok=True)
         if not hp.has_gpu:
+            marker.write_text("cpu-no-gpu-hardware", encoding="utf-8")
             return
-        name_l = (hp.gpu_name or "").lower()
-        nvidia = "nvidia" in name_l or "geforce" in name_l or "rtx" in name_l or "gtx" in name_l
-        intel_igpu = bool(getattr(hp, "gpu_integrated", False)) and "arc" not in name_l
-        gp_args = "['--vulkan']" if (intel_igpu or (not nvidia)) else "[]"
-        label = "Installing bundled GPU pack…" if bundled else "Downloading GPU acceleration pack…"
+
+        nvidia, vulkan, intel_igpu = _gpu_vendor_flags(hp)
+        backend = "NVIDIA CUDA" if nvidia else "Vulkan"
+        size = "roughly 400–500 MB" if nvidia else "roughly 90–200 MB"
+        if intel_igpu or hp.gpu_integrated:
+            gpu_line = (
+                f"{integrated_gpu_label(hp.gpu_name, getattr(hp, 'gpu_vendor', ''))} "
+                f"({hp.ram_gb:.1f} GB RAM, shared memory)"
+            )
+        else:
+            vram_gb = max(hp.total_vram_mb, hp.free_vram_mb) / 1024.0
+            gpu_line = f"{hp.gpu_name} — {vram_gb:.0f} GB VRAM"
+
+        ask = f"""
+import sys
+from PySide6.QtWidgets import QApplication, QMessageBox
+app = QApplication(sys.argv)
+m = QMessageBox()
+m.setWindowTitle("ELI - GPU acceleration")
+m.setText("ELI detected: {gpu_line}")
+m.setInformativeText(
+    "Install the {backend} GPU pack now? This downloads the GPU inference engine "
+    "once ({size}). CPU mode always works; you can install or change the pack "
+    "later from the model load screen or with ELI --install-gpu-pack."
+)
+yes = m.addButton("Install {backend} GPU pack (recommended)", QMessageBox.AcceptRole)
+m.addButton("Use CPU only", QMessageBox.RejectRole)
+m.exec()
+sys.exit(0 if m.clickedButton() is yes else 3)
+"""
+        if subprocess.run([sys.executable, "-c", ask]).returncode != 0:
+            marker.write_text("cpu-user-choice", encoding="utf-8")
+            return
+
+        install_argv = []
+        if vulkan and not nvidia:
+            install_argv.append("--vulkan")
+        if (dest / "llama_cpp").is_dir():
+            install_argv.append("--force")
+        install_argv_repr = repr(install_argv)
         download = f"""
 import sys, threading
 from PySide6.QtWidgets import QApplication, QProgressDialog
 from PySide6.QtCore import Qt, QTimer
 import eli_gpu_pack
 app = QApplication(sys.argv)
-dlg = QProgressDialog({label!r}, None, 0, 0)
+dlg = QProgressDialog("Installing GPU acceleration pack…", None, 0, 0)
 dlg.setWindowTitle("ELI - GPU acceleration")
 dlg.setCancelButton(None)
 dlg.setWindowModality(Qt.ApplicationModal)
 dlg.setMinimumWidth(420)
 dlg.show()
 rc = {{"v": 1}}
-t = threading.Thread(
-    target=lambda: rc.__setitem__("v", eli_gpu_pack.ensure_gpu_pack_for_hardware()),
-    daemon=True,
-)
+argv = {install_argv_repr}
+def _run():
+    if argv:
+        rc["v"] = eli_gpu_pack.install(argv)
+    else:
+        rc["v"] = eli_gpu_pack.ensure_gpu_pack_for_hardware()
+t = threading.Thread(target=_run, daemon=True)
 t.start()
 timer = QTimer()
 timer.timeout.connect(lambda: None if t.is_alive() else app.quit())
@@ -529,21 +573,20 @@ app.exec()
 sys.exit(rc["v"])
 """
         rc = subprocess.run([sys.executable, "-c", download]).returncode
-        if rc == 0 and (runtime / "gpu" / ".gpu_pack_ok").is_file():
-            (runtime / ".gpu_choice").write_text("gpu", encoding="utf-8")
-            sys.path.insert(0, str(runtime / "gpu"))
-            import eli_gpu_pack as _gp2
-            _gp2.preload_native_libs(runtime / "gpu")
+        if rc == 0 and _gp.gpu_pack_operational(dest):
+            marker.write_text("gpu-vulkan" if (vulkan and not nvidia) else "gpu", encoding="utf-8")
+            sys.path.insert(0, str(dest))
+            _gp.preload_native_libs(dest)
         elif rc != 0:
             try:
-                import eli_gpu_pack as _gp3
-                reason = _gp3.last_failure()
-                log_path = _gp3._log_path()
+                reason = _gp.last_failure()
+                log_path = _gp._log_path()
             except Exception:
                 reason, log_path = "", None
+            retry = "ELI --install-gpu-pack --vulkan --force" if (vulkan and not nvidia) else "ELI --install-gpu-pack --force"
             body = (
                 "ELI could not install a GPU acceleration pack for this machine "
-                "and will run on CPU (fully functional). Retry with: ELI --install-gpu-pack"
+                f"and will run on CPU (fully functional). Retry with: {retry}"
             )
             if reason:
                 body += f"\n\nReason: {reason}"

@@ -551,6 +551,23 @@ def _activate_staged_gpu_pack(
     return 0
 
 
+def gpu_pack_operational(dest: Path | None = None) -> bool:
+    """True when a verified pack loads and reports GPU offload in THIS environment.
+
+    Matches the frozen runtime hook: a stale CUDA pack on Intel iGPU, or any pack
+    whose backend cannot bind here, is treated as not installed.
+    """
+    try:
+        root = _eli_root()
+    except RuntimeError:
+        return False
+    dest = dest or (root / "runtime" / "gpu")
+    if not (dest / ".gpu_pack_ok").is_file() or not (dest / "llama_cpp").is_dir():
+        return False
+    ok, _detail = _verify(dest, require_offload=True)
+    return bool(ok)
+
+
 def _install_from_local_wheel(
     whl_path: Path,
     backend: str,
@@ -566,8 +583,11 @@ def _install_from_local_wheel(
         return _fail(str(exc))
     dest = root / "runtime" / "gpu"
     if (dest / "llama_cpp").is_dir() and (dest / ".gpu_pack_ok").is_file() and not force:
-        _say(f"GPU pack already installed at {dest}")
-        return 0
+        if gpu_pack_operational(dest):
+            _say(f"GPU pack already installed at {dest}")
+            return 0
+        _say("GPU pack present but cannot offload — reinstalling…")
+        force = True
     with tempfile.TemporaryDirectory() as td:
         staging = Path(td) / "unpacked"
         try:
@@ -597,8 +617,13 @@ def ensure_gpu_pack_for_hardware(*, bundle_only: bool = False) -> int:
         return 0
 
     dest = root / "runtime" / "gpu"
-    if (dest / ".gpu_pack_ok").is_file() and (dest / "llama_cpp").is_dir():
+    if gpu_pack_operational(dest):
         return 0
+    if (dest / ".gpu_pack_ok").is_file():
+        try:
+            (dest / ".gpu_pack_ok").unlink(missing_ok=True)
+        except Exception:
+            pass
 
     runtime = root / "runtime"
     marker = runtime / ".gpu_choice"
@@ -701,8 +726,11 @@ def _install(argv: list[str] | None = None) -> int:
 
     dest = root / "runtime" / "gpu"
     if (dest / "llama_cpp").is_dir() and not force:
-        _say(f"GPU pack already installed at {dest} (use --force to reinstall)")
-        return 0
+        if gpu_pack_operational(dest):
+            _say(f"GPU pack already installed at {dest} (use --force to reinstall)")
+            return 0
+        _say("GPU pack present but cannot offload — reinstalling…")
+        force = True
 
     # Vendor presence — checked the SAME robust, presence-based way for every
     # vendor on every OS. An NVIDIA GPU counts as present if we parsed its CUDA

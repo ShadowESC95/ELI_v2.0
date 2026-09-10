@@ -1019,7 +1019,8 @@ class LocalModelManager:
                     _avail_gb = float(_sf_avail_ram())
                     _ram_ceiling = int(_sf_ram_ceil(_sf_model_gb, _sf_train))
                     _sf_user_ctx = min(int(_sf_user_ctx), _ram_ceiling) if _ram_ceiling > 0 else int(_sf_user_ctx)
-                    _ram_budget_mb = int(max(512.0, _avail_gb * 1024.0 * 0.85))
+                    from eli.core.hardware_profile import cpu_ram_budget_mb as _cpu_ram_budget
+                    _ram_budget_mb = _cpu_ram_budget(_avail_gb)
                     _sf_ctx, _sf_layers, _sf_batch = _sf_fit(
                         _sf_model_gb,
                         _ram_budget_mb,

@@ -19,7 +19,7 @@
 | GUI file open | **FIXED** | `experimental_tab.py` uses `platform_compat.open_file()` |
 | Crisis resources | **FIXED** | International options (988, 116 123, 112, findahelpline.com) |
 | Generated script DB path | **FIXED** | Uses `eli.core.paths.user_db_path()` + `ELI_USER_DB` |
-| Silent exceptions | **IMPROVED** | 646 → 172 (see `SILENT_EXCEPTION_AUDIT.md`) |
+| Silent exceptions | **IMPROVED** | 646 → 174 (see `SILENT_EXCEPTION_AUDIT.md`) |
 
 ---
 

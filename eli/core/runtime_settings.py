@@ -118,6 +118,8 @@ DEFAULTS: Dict[str, Any] = {
     "n_gpu_layers_model": "",
     "n_threads": max(1, os.cpu_count() or 8),
     "batch_size": 512,
+    # Fraction of available RAM for model weights + KV (startup dialog, 10–75%).
+    "ram_budget_percent": 60,
     "use_mmap": True,
     "use_mlock": False,
     # Multi-GPU split (optional; empty = single-GPU). tensor_split is a comma list of

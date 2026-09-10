@@ -43,7 +43,7 @@ wrapper.
 ## 2. Scale & shape
 
 **190,338 LOC across 449 Python files** (`eli/`), plus the FastAPI web server
-(`api/server.py`, ~2,309 lines with an embedded dashboard PWA) and 445 test files.
+(`api/server.py`, ~2,309 lines with an embedded dashboard PWA) and 446 test files.
 *(measured 2026-08-28.)*
 
 | Subsystem | LOC | Files | Role |
@@ -141,7 +141,7 @@ wrapper.
    `verify_eli_claims*.sh` versions, diag outputs, `.coverage`, and
    `experimental/*.zip` binaries. Makes the repo look less serious than the code
    is.
-5. **Tests are GREEN (measured 2026-09-08).** 445 test files; `pytest tests/` =
+5. **Tests are GREEN (measured 2026-09-08).** 446 test files; `pytest tests/` =
    **11,711 collected / 11,700+ passed / 54 skipped / 2 xfailed** (~13.5 min on the `.venv`/GPU). The 5
    former reds (deprecated `smart_home` plugin, silent-swallow ratchet, stale blueprint
    ref) were all cleared 2026-07-03. The

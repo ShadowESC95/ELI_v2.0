@@ -38,6 +38,40 @@ MODEL_PROVIDER_LABELS = {
 }
 
 
+def _import_eli_gpu_pack():
+    """Load packaging/pyinstaller/eli_gpu_pack in dev or frozen builds."""
+    import sys
+    candidates = []
+    meipass = getattr(sys, "_MEIPASS", "")
+    if meipass:
+        candidates.append(Path(meipass) / "packaging" / "pyinstaller")
+    candidates.append(_PROJECT_ROOT / "packaging" / "pyinstaller")
+    candidates.append(Path(__file__).resolve().parents[3] / "packaging" / "pyinstaller")
+    for base in candidates:
+        if (base / "eli_gpu_pack.py").is_file():
+            sys.path.insert(0, str(base))
+            import eli_gpu_pack
+            return eli_gpu_pack
+    raise ImportError("eli_gpu_pack not found")
+
+
+class _GpuPackInstallThread(QThread):
+    finished_result = pyqtSignal(int, str)
+
+    def __init__(self, argv: Optional[List[str]] = None, parent=None):
+        super().__init__(parent)
+        self._argv = list(argv or [])
+
+    def run(self):
+        try:
+            gp = _import_eli_gpu_pack()
+            rc = int(gp.install(self._argv) or 0)
+            msg = gp.last_failure() if rc != 0 else "GPU pack installed."
+            self.finished_result.emit(rc, str(msg or ""))
+        except Exception as exc:
+            self.finished_result.emit(1, str(exc))
+
+
 def _query_ollama_tags(host: str, timeout: int = 5):
     """Query an Ollama server's /api/tags. Returns (sorted_names_or_None,
     error_or_None); never raises. Loopback is allowed even with NetGuard on
@@ -417,11 +451,60 @@ class StartupModelSelectionDialog(QDialog):
         )
         form.addRow("Compute mode", self.compute_mode_combo)
 
+        from eli.core.hardware_profile import (
+            RAM_BUDGET_PERCENT_DEFAULT,
+            RAM_BUDGET_PERCENT_MAX,
+            RAM_BUDGET_PERCENT_MIN,
+        )
+        self.ram_budget_spin = QSpinBox()
+        self.ram_budget_spin.setRange(RAM_BUDGET_PERCENT_MIN, RAM_BUDGET_PERCENT_MAX)
+        self.ram_budget_spin.setSingleStep(5)
+        self.ram_budget_spin.setSuffix(" %")
+        _initial_ram_pct = RAM_BUDGET_PERCENT_DEFAULT
+        try:
+            from eli.core.runtime_settings import load_settings as _ls_ram
+            _initial_ram_pct = int((_ls_ram() or {}).get(
+                "ram_budget_percent", RAM_BUDGET_PERCENT_DEFAULT))
+        except Exception:
+            pass
+        _env_ram = (os.environ.get("ELI_RAM_BUDGET_PERCENT") or "").strip()
+        if _env_ram.isdigit():
+            _initial_ram_pct = int(_env_ram)
+        self.ram_budget_spin.setValue(
+            max(RAM_BUDGET_PERCENT_MIN,
+                min(RAM_BUDGET_PERCENT_MAX, int(_initial_ram_pct))))
+        self.ram_budget_spin.setToolTip(
+            "How much of your free system RAM ELI may use for model weights and "
+            "KV cache when sizing context, batch, and layers. Lower this on "
+            "8 GB laptops if the OS feels tight; raise it (up to 75%) when you "
+            "want a larger context on CPU or shared-memory GPUs."
+        )
+        form.addRow("RAM for model (max 75%)", self.ram_budget_spin)
+
+        self.gpu_pack_status_label = QLabel("")
+        self.gpu_pack_status_label.setWordWrap(True)
+        self.gpu_pack_status_label.setStyleSheet("color:#9aa5b5;font-size:11px;")
+        form.addRow("GPU pack", self.gpu_pack_status_label)
+        _gpu_btn_row = QHBoxLayout()
+        self.gpu_pack_vulkan_btn = QPushButton("Install Vulkan GPU pack")
+        self.gpu_pack_vulkan_btn.clicked.connect(
+            lambda: self._start_gpu_pack_install(vulkan=True))
+        self.gpu_pack_cuda_btn = QPushButton("Install CUDA GPU pack")
+        self.gpu_pack_cuda_btn.clicked.connect(
+            lambda: self._start_gpu_pack_install(vulkan=False))
+        _gpu_btn_row.addWidget(self.gpu_pack_vulkan_btn)
+        _gpu_btn_row.addWidget(self.gpu_pack_cuda_btn)
+        _gpu_btn_host = QWidget()
+        _gpu_btn_host.setLayout(_gpu_btn_row)
+        form.addRow("", _gpu_btn_host)
+
         self.hw_summary_label = QLabel("")
         self.hw_summary_label.setWordWrap(True)
         self.hw_summary_label.setStyleSheet("color:#9aa5b5;font-size:11px;")
         form.addRow("This machine", self.hw_summary_label)
+        self.ram_budget_spin.valueChanged.connect(self._on_ram_budget_changed)
         self._refresh_hw_summary()
+        self._refresh_gpu_pack_controls()
 
         self.vram_reserve_spin = QSpinBox()
         self.vram_reserve_spin.setRange(0, 16384)
@@ -478,11 +561,19 @@ class StartupModelSelectionDialog(QDialog):
             # file records 128. interpretText() is the documented remedy and is
             # a no-op when nothing is pending, so it costs nothing to always do.
             for _spin in (self.ctx_fraction_spin, self.target_batch_spin,
-                          self.vram_reserve_spin, self.model_train_ctx_spin):
+                          self.ram_budget_spin, self.vram_reserve_spin,
+                          self.model_train_ctx_spin):
                 try:
                     _spin.interpretText()
                 except Exception:
                     log.debug("spin box interpretText failed", exc_info=True)
+            _ram_pct = int(self.ram_budget_spin.value())
+            os.environ["ELI_RAM_BUDGET_PERCENT"] = str(_ram_pct)
+            try:
+                from eli.core.runtime_settings import update_settings as _rs_ram
+                _rs_ram(ram_budget_percent=_ram_pct)
+            except Exception:
+                log.debug("ram_budget_percent persist failed", exc_info=True)
             os.environ["ELI_CTX_FRACTION"] = str(float(self.ctx_fraction_spin.value()))
             os.environ["ELI_TARGET_BATCH"]  = str(int(self.target_batch_spin.value()))
             os.environ["ELI_VRAM_RESERVE_MB"] = str(int(self.vram_reserve_spin.value()))
@@ -555,7 +646,7 @@ class StartupModelSelectionDialog(QDialog):
                     apply_recommendation as _hp_apply,
                     _is_embedder_path as _hp_is_embedder,
                 )
-                _hw   = _hp_detect()
+                _hw   = _hp_detect(force=True)
                 _mods = _hp_models()
                 # Compute hw-profile specifically for the model the user chose,
                 # not for the largest model that partially fits on GPU. Without
@@ -689,34 +780,129 @@ class StartupModelSelectionDialog(QDialog):
         except Exception:
             log.debug("compute_mode default probe failed", exc_info=True)
 
+    def _on_ram_budget_changed(self, _value: int) -> None:
+        os.environ["ELI_RAM_BUDGET_PERCENT"] = str(int(self.ram_budget_spin.value()))
+        self._refresh_hw_summary()
+
     def _refresh_hw_summary(self) -> None:
         try:
             from eli.core.hardware_profile import (
-                detect_hardware, _llama_gpu_offload_available, integrated_gpu_label,
+                cpu_ram_budget_mb,
+                detect_hardware,
+                _llama_gpu_offload_available,
+                integrated_gpu_label,
             )
-            _hw = detect_hardware()
+            _hw = detect_hardware(force=True)
             _backend = _llama_gpu_offload_available()
+            _ram_budget = cpu_ram_budget_mb(_hw.available_ram_gb)
             if not _hw.has_gpu:
                 txt = (
                     f"CPU: {_hw.cpu_threads} threads  |  "
-                    f"RAM: {_hw.ram_gb:.1f} GB ({_hw.available_ram_gb:.1f} GB free)"
+                    f"RAM: {_hw.ram_gb:.1f} GB ({_hw.available_ram_gb:.1f} GB free)  |  "
+                    f"model budget ~{_ram_budget} MB"
                 )
             elif _hw.gpu_integrated:
                 _kind = integrated_gpu_label(_hw.gpu_name, _hw.gpu_vendor)
                 txt = (
                     f"{_kind}  |  RAM: {_hw.ram_gb:.1f} GB  |  "
                     f"shared budget ~{_hw.free_vram_mb} MB  |  "
+                    f"model RAM cap ~{_ram_budget} MB  |  "
                     f"GPU backend: {'active' if _backend else 'not installed (CPU until GPU pack)'}"
                 )
             else:
                 txt = (
                     f"{_hw.gpu_name}  |  "
                     f"VRAM {_hw.free_vram_mb}/{_hw.total_vram_mb} MB  |  "
+                    f"CPU RAM cap ~{_ram_budget} MB  |  "
                     f"GPU backend: {'active' if _backend else 'not installed'}"
                 )
             self.hw_summary_label.setText(txt)
         except Exception as exc:
             self.hw_summary_label.setText(f"Hardware probe pending ({exc})")
+
+    def _refresh_gpu_pack_controls(self) -> None:
+        try:
+            from eli.core.hardware_profile import detect_hardware, _llama_gpu_offload_available
+            _hw = detect_hardware()
+            name_l = (_hw.gpu_name or "").lower()
+            nvidia = any(k in name_l for k in ("nvidia", "geforce", "rtx", "gtx", "quadro"))
+            vulkan_machine = _hw.has_gpu and (
+                not nvidia or bool(getattr(_hw, "gpu_integrated", False)))
+            _backend = _llama_gpu_offload_available()
+            _pack_ok = False
+            _pack_backend = ""
+            _has_pack_dir = False
+            try:
+                gp = _import_eli_gpu_pack()
+                dest = gp._eli_root() / "runtime" / "gpu"
+                _has_pack_dir = (dest / "llama_cpp").is_dir()
+                _pack_ok = gp.gpu_pack_operational(dest)
+                if (dest / ".gpu_pack.json").is_file():
+                    import json as _json
+                    _pack_backend = str(
+                        _json.loads((dest / ".gpu_pack.json").read_text()).get("backend") or "")
+            except Exception:
+                pass
+            if _pack_ok and _backend:
+                self.gpu_pack_status_label.setText(
+                    f"Active ({_pack_backend or 'GPU'}) — layer offload available.")
+            elif _has_pack_dir:
+                self.gpu_pack_status_label.setText(
+                    "Installed but CPU-only here — reinstall with the correct backend "
+                    "(Vulkan for Intel/AMD iGPU, CUDA for NVIDIA).")
+            else:
+                self.gpu_pack_status_label.setText(
+                    "Not installed — optional; CPU inference works without it.")
+            show_vulkan = vulkan_machine or not nvidia
+            show_cuda = nvidia and not bool(getattr(_hw, "gpu_integrated", False))
+            self.gpu_pack_vulkan_btn.setVisible(show_vulkan)
+            self.gpu_pack_cuda_btn.setVisible(show_cuda)
+            busy = getattr(self, "_gpu_pack_thread", None) is not None and self._gpu_pack_thread.isRunning()
+            self.gpu_pack_vulkan_btn.setEnabled(not busy)
+            self.gpu_pack_cuda_btn.setEnabled(not busy)
+        except Exception as exc:
+            self.gpu_pack_status_label.setText(f"GPU pack status unknown ({exc})")
+
+    def _start_gpu_pack_install(self, *, vulkan: bool) -> None:
+        if getattr(self, "_gpu_pack_thread", None) is not None and self._gpu_pack_thread.isRunning():
+            return
+        argv: List[str] = ["--force"]
+        if vulkan:
+            argv.append("--vulkan")
+        label = "Vulkan" if vulkan else "CUDA"
+        if QMessageBox.question(
+            self,
+            f"Install {label} GPU pack",
+            f"Download and install the {label} GPU acceleration pack now?\n\n"
+            "This is a one-time download. ELI stays on CPU if verification fails.",
+        ) != QMessageBox.StandardButton.Yes:
+            return
+        self.gpu_pack_status_label.setText(f"Installing {label} GPU pack…")
+        self.gpu_pack_vulkan_btn.setEnabled(False)
+        self.gpu_pack_cuda_btn.setEnabled(False)
+        self._gpu_pack_thread = _GpuPackInstallThread(argv, parent=self)
+        self._gpu_pack_thread.finished_result.connect(self._on_gpu_pack_install_done)
+        self._gpu_pack_thread.start()
+
+    def _on_gpu_pack_install_done(self, rc: int, message: str) -> None:
+        if rc == 0:
+            self.gpu_pack_status_label.setText("GPU pack installed — restart load to use GPU layers.")
+            try:
+                from eli.core.runtime_settings import update_settings as _rs_gp
+                _rs_gp(compute_mode="gpu")
+                _gpu_idx = self.compute_mode_combo.findData("gpu")
+                if _gpu_idx >= 0:
+                    self.compute_mode_combo.setCurrentIndex(_gpu_idx)
+            except Exception:
+                log.debug("compute_mode gpu persist failed", exc_info=True)
+        else:
+            self.gpu_pack_status_label.setText(f"GPU pack install failed: {message}")
+            QMessageBox.warning(
+                self, "GPU pack install failed",
+                f"{message}\n\nELI will continue on CPU.",
+            )
+        self._refresh_gpu_pack_controls()
+        self._refresh_hw_summary()
 
     def selected_compute_mode(self) -> str:
         return str(self.compute_mode_combo.currentData() or "auto")
@@ -1203,6 +1389,21 @@ class FirstBootWizard(QDialog):
         self._hw_result_label.setStyleSheet("color:#a3be8c;font-size:12px;")
         v.addWidget(self._hw_result_label)
 
+        self._wiz_gpu_status = QLabel("")
+        self._wiz_gpu_status.setWordWrap(True)
+        self._wiz_gpu_status.setStyleSheet("color:#9aa5b5;font-size:11px;")
+        v.addWidget(self._wiz_gpu_status)
+        _wiz_gpu_row = QHBoxLayout()
+        self._wiz_gpu_vulkan_btn = QPushButton("Install Vulkan GPU pack")
+        self._wiz_gpu_vulkan_btn.clicked.connect(
+            lambda: self._wiz_start_gpu_pack_install(vulkan=True))
+        self._wiz_gpu_cuda_btn = QPushButton("Install CUDA GPU pack")
+        self._wiz_gpu_cuda_btn.clicked.connect(
+            lambda: self._wiz_start_gpu_pack_install(vulkan=False))
+        _wiz_gpu_row.addWidget(self._wiz_gpu_vulkan_btn)
+        _wiz_gpu_row.addWidget(self._wiz_gpu_cuda_btn)
+        v.addLayout(_wiz_gpu_row)
+
         tune_btn = QPushButton("Run hardware detection now")
         tune_btn.clicked.connect(self._run_hw_detection)
         v.addWidget(tune_btn)
@@ -1220,6 +1421,7 @@ class FirstBootWizard(QDialog):
         if idx == 2 and not self._hw_auto_ran:
             self._hw_auto_ran = True
             self._run_hw_detection()
+            self._wiz_refresh_gpu_pack_controls()
 
     def _models_for_hw_recommend(self) -> List[Dict[str, Any]]:
         """Prefer the wizard's selected/downloaded model over largest-on-disk."""
@@ -1465,6 +1667,64 @@ class FirstBootWizard(QDialog):
             self._dl_status.setText(f"✗ {err}")
             QMessageBox.warning(self, "Download failed",
                                 f"{err}\n\nYou can retry, or browse to a .gguf you already have.")
+
+    def _wiz_refresh_gpu_pack_controls(self) -> None:
+        try:
+            from eli.core.hardware_profile import detect_hardware, _llama_gpu_offload_available
+            _hw = detect_hardware()
+            name_l = (_hw.gpu_name or "").lower()
+            nvidia = any(k in name_l for k in ("nvidia", "geforce", "rtx", "gtx", "quadro"))
+            show_vulkan = _hw.has_gpu and (not nvidia or bool(getattr(_hw, "gpu_integrated", False)))
+            show_cuda = nvidia and not bool(getattr(_hw, "gpu_integrated", False))
+            self._wiz_gpu_vulkan_btn.setVisible(show_vulkan)
+            self._wiz_gpu_cuda_btn.setVisible(show_cuda)
+            _backend = _llama_gpu_offload_available()
+            try:
+                gp = _import_eli_gpu_pack()
+                dest = gp._eli_root() / "runtime" / "gpu"
+                if gp.gpu_pack_operational(dest) and _backend:
+                    self._wiz_gpu_status.setText("GPU pack active — Vulkan/CUDA offload available.")
+                elif (dest / "llama_cpp").is_dir():
+                    self._wiz_gpu_status.setText(
+                        "GPU pack installed but not offloading — try Vulkan on Intel/AMD iGPU.")
+                else:
+                    self._wiz_gpu_status.setText(
+                        "Optional GPU pack — install Vulkan (Intel/AMD) or CUDA (NVIDIA), or stay on CPU.")
+            except Exception:
+                self._wiz_gpu_status.setText(
+                    "Optional GPU pack — install from AppImage/portable builds, or stay on CPU.")
+        except Exception as exc:
+            self._wiz_gpu_status.setText(f"GPU pack status unknown ({exc})")
+
+    def _wiz_start_gpu_pack_install(self, *, vulkan: bool) -> None:
+        if getattr(self, "_wiz_gpu_thread", None) is not None and self._wiz_gpu_thread.isRunning():
+            return
+        argv: List[str] = ["--force"]
+        if vulkan:
+            argv.append("--vulkan")
+        label = "Vulkan" if vulkan else "CUDA"
+        if QMessageBox.question(
+            self,
+            f"Install {label} GPU pack",
+            f"Download and install the {label} GPU acceleration pack now?",
+        ) != QMessageBox.StandardButton.Yes:
+            return
+        self._wiz_gpu_status.setText(f"Installing {label} GPU pack…")
+        self._wiz_gpu_vulkan_btn.setEnabled(False)
+        self._wiz_gpu_cuda_btn.setEnabled(False)
+        self._wiz_gpu_thread = _GpuPackInstallThread(argv, parent=self)
+        self._wiz_gpu_thread.finished_result.connect(self._wiz_on_gpu_pack_done)
+        self._wiz_gpu_thread.start()
+
+    def _wiz_on_gpu_pack_done(self, rc: int, message: str) -> None:
+        if rc == 0:
+            self._wiz_gpu_status.setText("GPU pack installed — run hardware detection again.")
+            self._run_hw_detection()
+        else:
+            self._wiz_gpu_status.setText(f"GPU pack install failed: {message}")
+        self._wiz_refresh_gpu_pack_controls()
+        self._wiz_gpu_vulkan_btn.setEnabled(True)
+        self._wiz_gpu_cuda_btn.setEnabled(True)
 
     def _run_hw_detection(self):
         try:

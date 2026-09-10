@@ -60,13 +60,13 @@ like and it tunes itself to the hardware you've got, from a laptop to a multi-GP
 > **v2.3.85 — redistributability + observability.** Removed Linux-only TILE_WINDOWS override
 > (uses cross-platform `portable_app_control`); international crisis resources; gated
 > CLOSE_APP wmctrl; cross-platform file open in experimental tab; canonical SQLite paths
-> in generated scripts. Silent passes: **646 → 172**. Full private inventory:
+> in generated scripts. Silent passes: **646 → 174**. Full private inventory:
 > `blueprints/SILENT_EXCEPTION_FULL_REPORT.md` (gitignored). Public summary:
 > [`docs/SILENT_EXCEPTION_AUDIT.md`](docs/SILENT_EXCEPTION_AUDIT.md).
 > Grab it from **[Releases](https://github.com/ShadowESC95/ELI_v2.0/releases/latest)**.
 >
 > **v2.3.84 — observability hardening + release fix.** Removed **469 silent `except: pass`**
-> handlers (646 → 172) across runtime, media, memory, perception, and GUI paths — failures
+> handlers (646 → 174) across runtime, media, memory, perception, and GUI paths — failures
 > now log at debug instead of vanishing. Full inventory:
 > [`docs/SILENT_EXCEPTION_AUDIT.md`](docs/SILENT_EXCEPTION_AUDIT.md). CI ratchet lowered to 177.
 > Grab it from **[Releases](https://github.com/ShadowESC95/ELI_v2.0/releases/latest)**.
@@ -549,7 +549,7 @@ touches real hardware. I'd rather you know them going in.
 - `eli/gui` — PySide6 GUI launcher and `EliMainWindow`
 - `eli/cli` — headless REPL (`eli --headless`)
 - `config` — portable default settings · `models` — local GGUF payloads (gitignored)
-- `tests` — a large pytest suite (**11,815 tests collected** across 445 files, 11,800+ passing;
+- `tests` — a large pytest suite (**11,815 tests collected** across 446 files, 11,800+ passing;
   including a `claims/` layer that checks the project against its own documentation); the full
   suite runs locally, while CI gates a cross-platform portable subset (no GGUF/display/GPU) on
   Linux, macOS, and Windows

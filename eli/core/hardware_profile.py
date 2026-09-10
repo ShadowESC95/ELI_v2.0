@@ -520,11 +520,42 @@ def _vulkan_loader_present() -> bool:
         return False
 
 
+RAM_BUDGET_PERCENT_MIN = 10
+RAM_BUDGET_PERCENT_MAX = 75
+RAM_BUDGET_PERCENT_DEFAULT = 60
+
+
+def ram_budget_fraction() -> float:
+    """User-chosen fraction of available RAM for model weights + KV (cap 75%)."""
+    pct: float | None = None
+    try:
+        from eli.core.runtime_settings import load_settings
+        raw = (load_settings() or {}).get("ram_budget_percent")
+        if raw is not None:
+            pct = float(raw)
+    except Exception:
+        log.debug("suppressed exception", exc_info=True)
+    if pct is None:
+        env = (os.environ.get("ELI_RAM_BUDGET_PERCENT")
+               or os.environ.get("ELI_RAM_BUDGET_FRACTION") or "").strip()
+        if env:
+            try:
+                pct = float(env) * 100.0 if float(env) <= 1.0 else float(env)
+            except Exception:
+                pct = None
+    if pct is None:
+        pct = float(RAM_BUDGET_PERCENT_DEFAULT)
+    lo = RAM_BUDGET_PERCENT_MIN / 100.0
+    hi = RAM_BUDGET_PERCENT_MAX / 100.0
+    return max(lo, min(hi, pct / 100.0))
+
+
 def _estimate_integrated_vram_mb(ram_gb: float, available_ram_gb: float) -> tuple[int, int]:
-    """Conservative shared-memory budget for iGPU / APU / unified-memory systems."""
-    base = max(float(ram_gb or 0), float(available_ram_gb or 0), 1.0)
-    total_mb = int(min(8192, max(2048, base * 1024 * 0.40)))
-    free_mb = int(min(total_mb, max(1024, float(available_ram_gb or base) * 1024 * 0.30)))
+    """Shared-memory budget for iGPU / APU / unified-memory systems."""
+    frac = ram_budget_fraction()
+    avail_gb = max(float(available_ram_gb or 0), float(ram_gb or 0), 1.0)
+    free_mb = int(max(512, avail_gb * 1024.0 * frac))
+    total_mb = int(min(8192, max(2048, free_mb)))
     return free_mb, total_mb
 
 
@@ -762,9 +793,10 @@ def effective_use_gpu_layers(hw: HardwareProfile, *, force_cpu: bool = False) ->
     return bool(hw.has_gpu and hw.free_vram_mb > 0 and _llama_gpu_offload_available())
 
 
-def cpu_ram_budget_mb(available_ram_gb: float, *, fraction: float = 0.85) -> int:
+def cpu_ram_budget_mb(available_ram_gb: float, *, fraction: float | None = None) -> int:
     """RAM budget (MB) for cpu_ram_fit — same shape as free VRAM for smart_fit_config."""
-    return int(max(512.0, float(available_ram_gb) * 1024.0 * fraction))
+    frac = ram_budget_fraction() if fraction is None else float(fraction)
+    return int(max(512.0, float(available_ram_gb) * 1024.0 * frac))
 
 
 def cpu_ram_fit_config(
