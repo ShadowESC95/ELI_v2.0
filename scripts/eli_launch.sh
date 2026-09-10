@@ -12,7 +12,7 @@ set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 PY="$ROOT/.venv/bin/python"
-[ -x "$PY" ] || { echo "[eli] .venv not found — run install.sh first."; exit 1; }
+[ -x "$PY" ] || { echo "[eli] .venv not found — run ./scripts/eli_setup.sh or bash install.sh first."; exit 1; }
 export ELI_PROJECT_ROOT="$ROOT"
 export ELI_DATA_DIR="${ELI_DATA_DIR:-$ROOT/artifacts}"
 export ELI_CONFIG_DIR="${ELI_CONFIG_DIR:-$ROOT/config}"

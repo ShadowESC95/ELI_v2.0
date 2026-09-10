@@ -1,6 +1,6 @@
 # ELI Inference & Hardware Boot
 
-> **Updated for v2.3.93.** Optional Ollama backend; GGUF path remains canonical.
+> **Updated for v2.4.6.** Optional Ollama backend; GGUF path remains canonical.
 > VRAM fit reads `{arch}.block_count` from the GGUF header (model-agnostic) with a
 > size heuristic fallback only when metadata is unreadable.
 > Token budgets scale by reasoning mode via `reasoning_modes.py`.
@@ -76,6 +76,37 @@ Dev-vs-packaged path resolution: `is_frozen` / `_is_dev_mode`,
 `db_dir`/`artifacts_dir`/`user_db_path`/`agent_db_path`/`memory_db_path`. Source
 checkouts use project-local `artifacts/`+`config/`; packaged installs use
 platformdirs. One import surface (`get_paths`) so nothing hardcodes locations.
+
+## Update — v2.4.6 (GPU pack, CPU/RAM fit, compute mode)
+
+### Bundled GPU pack (`packaging/pyinstaller/eli_gpu_pack.py`)
+
+Portable/AppImage builds call `ensure_gpu_pack_for_hardware()` before llama-cpp import:
+- Detects hardware via `detect_hardware()`; skips when no GPU.
+- Prefers bundled CUDA/Vulkan wheels under `assets/gpu_packs/`; network fallback when not bundled.
+- Writes `runtime/gpu/.gpu_pack_ok` on success; respects `runtime/.gpu_choice` for CPU opt-out.
+
+### CPU/RAM fit when GPU offload is inactive (`core/hardware_profile.py`)
+
+`effective_use_gpu_layers(hw)` returns **false** when:
+- `llama_supports_gpu_offload()` is unavailable (typical Intel Iris Xe without a GPU pack),
+- `compute_mode=cpu` in settings, or
+- `ELI_FORCE_GPU_LAYERS=0`.
+
+When false, `recommend()` and the startup hardware optimizer use `cpu_ram_fit_config()` —
+same `smart_fit_config` math as GPU hosts, but budgeted from live RAM (`cpu_ram_budget_mb`).
+
+### Startup compute mode (`gui/panels/startup.py`)
+
+First-run / model-load dialog exposes **Auto / GPU / CPU** combo; persisted as
+`runtime_settings.compute_mode` (default `auto`). iGPU hosts without a GPU pack default to CPU.
+
+### Prefill abort (`cognition/gguf_inference.py`)
+
+Shutdown and cancel register `llama_set_abort_callback` so long prompt prefills stop
+immediately — `StoppingCriteria` alone only runs between output tokens.
+
+---
 
 ## Honest assessment
 

@@ -5,11 +5,20 @@ You still need a model and (for full voice/memory) optional asset downloads.
 
 ## Source install (Linux / macOS)
 
+**Recommended (GUI-first):**
+
 ```bash
 git clone https://github.com/ShadowESC95/ELI_v2.0.git
 cd ELI_v2.0
-bash install.sh --yes --no-model    # venv + deps + DB schema; skip large model fetch
+./scripts/eli_setup.sh              # unified wizard; terminal fallback when headless
 ./scripts/eli_launch.sh             # desktop GUI
+```
+
+**Developer / headless:**
+
+```bash
+bash install.sh --yes --no-model    # venv + deps + DB schema; skip large model fetch
+./scripts/eli_launch.sh
 ```
 
 Flags: `--cpu-only` · `--install-cuda` · `--model=qwen2.5-7b` · `--no-model` (no embedder/voice download either).
@@ -20,9 +29,8 @@ Download **ELI v2.0 — Linux portable** from [GitHub Releases](https://github.c
 
 ```bash
 tar -xzf ELI_v2-*-linux-portable.tar.gz && cd ELI_v2-*-linux-portable
-./INSTALL_ELI.sh
-./RUN_ELI.sh --with-github-assets   # optional starter models + voices
-./RUN_ELI.sh
+chmod +x ELI_Setup.sh && ./ELI_Setup.sh   # guided (recommended since v2.4.6)
+# or: ./INSTALL_ELI.sh && ./RUN_ELI.sh --with-github-assets && ./RUN_ELI.sh
 ```
 
 ## Regenerate capability docs (maintainers)

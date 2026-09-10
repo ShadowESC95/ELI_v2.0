@@ -1,6 +1,6 @@
 # ELI — What It Can Actually Do
 
-> **Updated for v2.3.93.** All CHAT modes run the gradient orchestrator; 15 specialist
+> **Updated for v2.4.6.** All CHAT modes run the gradient orchestrator; 15 specialist
 > agents; 227 capabilities (210 routable or executor-backed). Regenerate the action list with
 > `python -m eli.tools.registry.capability_updater`.
 

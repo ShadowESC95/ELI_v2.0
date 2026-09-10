@@ -15,7 +15,7 @@ with the commands in [Keeping this honest](#keeping-this-honest).
 |---|---|
 | Tracked Python (excl. tests/build) | **198,422 lines** across **506 modules** |
 | `eli/` Python | **190,338 lines** across **449 modules** |
-| Test files | **393** (11,711 tests collected; 11,700+ passing locally) |
+| Test files | **393** (11,814 tests collected; 11,800+ passing locally) |
 | Actions in `capability_manifest.json` | **227** (186 router-routable; 210 routable or executor-backed; 205 `SUPPORTED_ACTIONS`) |
 | Live SQLite stores | **4** (`user` 39 tables · `agent` 26 · `system_index` 4 · `coding_memory` 2) |
 | GGUF models on disk | 6 (~12 GB) |

@@ -27,9 +27,18 @@ like and it tunes itself to the hardware you've got, from a laptop to a multi-GP
 <img src=".github/screenshots/gui-onboarding.png" alt="ELI desktop app — first-run onboarding conversation with a local 35B model" width="880">
 </div>
 
+> **v2.4.6 — GPU pack auto-install, CPU/RAM tuning, installer UX.** AppImage/portable
+> bundles detect NVIDIA/AMD/Intel GPU and install a verified llama-cpp pack from bundled
+> wheels (`packaging/pyinstaller/eli_gpu_pack.py`); startup dialog adds **Compute mode**
+> (auto / GPU / CPU) and sizes ctx/layers from live RAM when no GPU offload is active
+> (`cpu_ram_fit_config`, `effective_use_gpu_layers`). Unified installer no longer double-launches
+> or pre-runs `install.sh` before the GUI wizard; shutdown aborts GGUF prefill immediately
+> via `llama_set_abort_callback`. Grab it from
+> **[Releases](https://github.com/ShadowESC95/ELI_v2.0/releases/latest)**.
+>
 > **v2.3.93 — CI green + docs/metrics accuracy.** Fixes silent-swallow ratchet (172 ceiling);
 > router gaps for `MINIMIZE_WINDOW` / `FIX_FILE`; live-refreshed docs, blueprints, and
-> capability manifest (11,711 tests, 227 capabilities, ~190k LOC). Grab it from
+> capability manifest (11,800+ tests, 227 capabilities, ~193k LOC). Grab it from
 > **[Releases](https://github.com/ShadowESC95/ELI_v2.0/releases/latest)**.
 >
 > **v2.3.92 — cross-OS media + local screen intelligence.** YouTube visible mpv playback;
@@ -473,12 +482,12 @@ SECURITY.md, not in a public issue.
 
 ## Tested on & known limitations
 
-*Last updated 2026-09-08 (v2.3.93).*
+*Last updated 2026-09-10 (v2.4.6).*
 
 I'd rather tell you exactly what I've run than pretend it's flawless everywhere.
 
 **What I've actually run, end to end:** Linux (x86_64) with an NVIDIA GPU — install, first-run,
-the full test suite (**11,711 tests collected**, 11,700+ passing), voice (USB/Bluetooth headset
+the full test suite (**11,814 tests collected**, 11,800+ passing), voice (USB/Bluetooth headset
 auto-resolve verified on Linux), vision, the server, the AppImage with the CUDA GPU
 pack, all of it. **The Windows installer has also been field-run on real hardware** — install,
 first-boot GPU + model flow, voice and chat. On top of that, **every release is launch-tested in
@@ -530,7 +539,7 @@ touches real hardware. I'd rather you know them going in.
 - `eli/gui` — PySide6 GUI launcher and `EliMainWindow`
 - `eli/cli` — headless REPL (`eli --headless`)
 - `config` — portable default settings · `models` — local GGUF payloads (gitignored)
-- `tests` — a large pytest suite (**11,711 tests collected** across 434 files, 11,700+ passing;
+- `tests` — a large pytest suite (**11,814 tests collected** across 445 files, 11,800+ passing;
   including a `claims/` layer that checks the project against its own documentation); the full
   suite runs locally, while CI gates a cross-platform portable subset (no GGUF/display/GPU) on
   Linux, macOS, and Windows

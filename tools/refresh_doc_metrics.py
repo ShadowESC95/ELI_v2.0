@@ -101,7 +101,7 @@ def build_replacements() -> list[tuple[str, str]]:
     tests = _test_stats()
     loc = _loc_stats()
     swallows = _count_silent_swallows()
-    today = "2026-09-08"
+    today = "2026-09-10"
 
     test_floor = _floor(tests["collected"], 50)
     file_floor = _floor(tests["files"], 5)
@@ -110,18 +110,48 @@ def build_replacements() -> list[tuple[str, str]]:
     # Order: longer / more specific first.
     pairs: list[tuple[str, str]] = [
         # Asset filenames (any stale release suffix)
+        ("ELI_v2-2.4.5-", f"ELI_v2-{ver}-"),
+        ("ELI_v2-2.4.4-", f"ELI_v2-{ver}-"),
+        ("ELI_v2-2.3.93-", f"ELI_v2-{ver}-"),
         ("ELI_v2-2.3.92-", f"ELI_v2-{ver}-"),
+        ("ELI-Setup-2.4.5", f"ELI-Setup-{ver}"),
+        ("ELI-Setup-2.4.4", f"ELI-Setup-{ver}"),
+        ("ELI-Setup-2.3.93", f"ELI-Setup-{ver}"),
         ("ELI-Setup-2.3.92", f"ELI-Setup-{ver}"),
+        (f"releases/download/v2.4.5/", f"releases/download/{tag}/"),
+        (f"releases/download/v2.4.4/", f"releases/download/{tag}/"),
+        (f"releases/download/v2.3.93/", f"releases/download/{tag}/"),
         (f"releases/download/v2.3.92/", f"releases/download/{tag}/"),
+        (f"releases/tag/v2.4.5", f"releases/tag/{tag}"),
+        (f"releases/tag/v2.4.4", f"releases/tag/{tag}"),
+        (f"releases/tag/v2.3.93", f"releases/tag/{tag}"),
         (f"releases/tag/v2.3.92", f"releases/tag/{tag}"),
+        (f"Current release: v2.4.5 (September 2026)", f"Current release: {tag} (September 2026)"),
+        (f"Current release: v2.3.93 (September 2026)", f"Current release: {tag} (September 2026)"),
         (f"Current release: v2.3.92 (September 2026)", f"Current release: {tag} (September 2026)"),
+        (f"Audited at v2.4.5 (September 2026)", f"Audited at {tag} (September 2026)"),
+        (f"Audited at v2.3.93 (September 2026)", f"Audited at {tag} (September 2026)"),
         (f"Audited at v2.3.92 (September 2026)", f"Audited at {tag} (September 2026)"),
+        (f"Current suite at **v2.4.5**", f"Current suite at **{tag}**"),
+        (f"Current suite at **v2.3.93**", f"Current suite at **{tag}**"),
         (f"Current suite at **v2.3.92**", f"Current suite at **{tag}**"),
+        (f"Verified at v2.4.5:", f"Verified at {tag}:"),
+        (f"Verified at v2.3.93:", f"Verified at {tag}:"),
         (f"Verified at v2.3.92:", f"Verified at {tag}:"),
+        (f"Updated for v2.4.5 (September 2026)", f"Updated for {tag} (September 2026)"),
+        (f"Updated for v2.3.93 (September 2026)", f"Updated for {tag} (September 2026)"),
         (f"Updated for v2.3.92 (September 2026)", f"Updated for {tag} (September 2026)"),
+        (f"Updated for v2.4.5.", f"Updated for {tag}."),
+        (f"Updated for v2.3.93.", f"Updated for {tag}."),
         (f"Updated for v2.3.92.", f"Updated for {tag}."),
+        (f"Last updated 2026-09-10 (v2.4.5)", f"Last updated {today} ({tag})"),
+        (f"Last updated 2026-09-08 (v2.3.93)", f"Last updated {today} ({tag})"),
         (f"Last updated 2026-09-08 (v2.3.92)", f"Last updated {today} ({tag})"),
+        (f"**Version:** 2.4.5", f"**Version:** {ver}"),
+        (f"**Version:** 2.3.93", f"**Version:** {ver}"),
         (f"**Version:** 2.3.92", f"**Version:** {ver}"),
+        (f"ELI v2.4.5.", f"ELI {tag}."),
+        (f"ELI v2.3.93.", f"ELI {tag}."),
         (f"ELI v2.3.92.", f"ELI {tag}."),
         ("ELI_v2-2.3.73-", f"ELI_v2-{ver}-"),
         ("ELI_v2-2.3.72-", f"ELI_v2-{ver}-"),
@@ -158,6 +188,8 @@ def build_replacements() -> list[tuple[str, str]]:
          f"**{caps['total']}** ({caps['routable']} router-routable; {caps['routable_or_supported']} routable or executor-backed; {caps['supported']} `SUPPORTED_ACTIONS`)"),
         ("all 225 manifest actions", f"all {caps['total']} manifest actions"),
         # Test counts
+        ("11,814 tests collected", f"{tests['collected']:,} tests collected"),
+        ("11,711 tests collected", f"{tests['collected']:,} tests collected"),
         ("11,390 tests collected", f"{tests['collected']:,} tests collected"),
         ("11,358 tests collected", f"{tests['collected']:,} tests collected"),
         ("11,351 tests collected", f"{tests['collected']:,} tests collected"),
@@ -168,15 +200,21 @@ def build_replacements() -> list[tuple[str, str]]:
         ("11,350+ passing", f"{test_floor:,}+ passing"),
         ("11,300+ passing", f"{test_floor:,}+ passing"),
         ("11,000+ passing", f"{test_floor:,}+ passing"),
+        ("445 test files", f"{tests['files']} test files"),
+        ("434 test files", f"{tests['files']} test files"),
         ("413 test files", f"{tests['files']} test files"),
         ("412 test files", f"{tests['files']} test files"),
         ("393 test files", f"{tests['files']} test files"),
+        ("445 files", f"{tests['files']} files"),
+        ("434 files", f"{tests['files']} files"),
         ("413 files", f"{tests['files']} files"),
         ("412 files", f"{tests['files']} files"),
         ("393 files", f"{tests['files']} files"),
         ("11,358 collected / 11,300+", f"{tests['collected']:,} collected / {test_floor:,}+"),
         ("11,390 collected / 11,350+", f"{tests['collected']:,} collected / {test_floor:,}+"),
         # LOC
+        ("~192,784 LOC across 453 Python files", f"~{loc['loc']:,} LOC across {loc['py_files']} Python files"),
+        ("~190k LOC", f"~{loc_k}k LOC"),
         ("~181,530 LOC across 424 Python files", f"~{loc['loc']:,} LOC across {loc['py_files']} Python files"),
         ("~181,530 lines of Python in `eli/`", f"~{loc['loc']:,} lines of Python in `eli/`"),
         ("~181,530 lines of Python across 424 files", f"~{loc['loc']:,} lines of Python across {loc['py_files']} files"),

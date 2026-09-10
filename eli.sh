@@ -12,7 +12,7 @@ export ELI_CACHE_DIR="${ELI_CACHE_DIR:-$SCRIPT_DIR/cache}"
 export PYTHONPATH="$SCRIPT_DIR${PYTHONPATH:+:$PYTHONPATH}"
 
 if [ ! -d "$VENV" ]; then
-    echo "[ELI] Virtual environment not found. Run install.sh first."
+    echo "[ELI] Virtual environment not found. Run ./scripts/eli_setup.sh or bash install.sh first."
     exit 1
 fi
 

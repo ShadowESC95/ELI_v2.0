@@ -1,6 +1,6 @@
 # ELI v2.0 — Commands & Installers Reference
 
-> **Updated for v2.3.93 (September 2026).** The primary way to install ELI is now the
+> **Updated for v2.4.6 (September 2026).** The primary way to install ELI is now the
 > **prebuilt installers on GitHub Releases** — `ELI-Setup-<v>.exe` (Windows),
 > the `.dmg` (macOS, Apple Silicon), the `.AppImage` (Linux). The Linux AppImage and
 > portable tarball are **CI-launch-tested** on every release; the macOS `.dmg` is
@@ -15,7 +15,7 @@
 *Every install path and command in one place. Copy-paste ready. Run everything from
 inside the ELI folder unless noted.*
 
-Canonical version: **2.1.23**. Best-tested platform: **Linux x86_64 + NVIDIA**. Windows,
+Canonical version: **2.4.6**. Best-tested platform: **Linux x86_64 + NVIDIA**. Windows,
 macOS, and AMD are coded for and ship installers, but expect rough edges.
 
 ---
@@ -27,26 +27,23 @@ more than once.
 
 ### From a downloaded release (no git, no build)
 
-Get `ELI_v2-2.3.93-linux-portable.tar.gz` from
+Get `ELI_v2-2.4.6-linux-portable.tar.gz` from
 [GitHub Releases](https://github.com/ShadowESC95/ELI_v2.0/releases), then:
 
 ```bash
-tar -xzf ELI_v2-2.3.93-linux-portable.tar.gz
-cd ELI_v2-2.3.93-linux-portable
+tar -xzf ELI_v2-2.4.6-linux-portable.tar.gz
+cd ELI_v2-2.4.6-linux-portable
 chmod +x ELI_Setup.sh
 ./ELI_Setup.sh
 ```
 
-`ELI_Setup.sh` runs the same 8-step one-click setup as `scripts/eli_setup.sh`:
+`ELI_Setup.sh` delegates to `scripts/eli_setup.sh` (GUI-first since v2.4.6):
 
-1. Welcome
-2. Python check (needs Python 3.10+)
-3. Python environment + dependencies (`install.sh --yes --auto-model`)
-4. Starter model pack (GitHub asset restore, or a hardware-sized auto-download)
-5. Local database
-6. Memory embedder + voice models
-7. App-menu icons (ELI v2.0, ELI Server, ELI Setup)
-8. Opens the graphical setup wizard and launches ELI
+1. Minimal `.venv` bootstrap + PySide6 (when a display is available)
+2. **Unified Install Wizard** — single Qt dialog streams `install.sh` / `install.ps1` with live terminal mirror (venv, llama-cpp/GPU pack, models, voice, DB)
+3. Post-install asset stages and optional launch — **no separate pre-GUI `install.sh` run**, **no double wizard**
+
+Terminal fallback (headless / no Qt): runs `install.sh --yes --auto-model`, then `--run-remaining`.
 
 ### From a git clone
 
@@ -58,11 +55,11 @@ cd ELI_v2.0
 
 ### The absolute-easiest Linux path: the AppImage
 
-Get `ELI_v2-2.3.93-x86_64.AppImage` from Releases:
+Get `ELI_v2-2.4.6-x86_64.AppImage` from Releases:
 
 ```bash
-chmod +x ELI_v2-2.3.93-x86_64.AppImage
-./ELI_v2-2.3.93-x86_64.AppImage
+chmod +x ELI_v2-2.4.6-x86_64.AppImage
+./ELI_v2-2.4.6-x86_64.AppImage
 ```
 
 First double-click installs ELI to `~/.local/share/ELI_v2` and runs setup once; every
@@ -225,7 +222,7 @@ bash build_packages.sh wheel appimage windows-lean   # pick targets
 
 ```powershell
 bash build_packages.sh windows-lean
-powershell -ExecutionPolicy Bypass -File packaging/windows/build-windows.ps1 -Version 2.1.23
+powershell -ExecutionPolicy Bypass -File packaging/windows/build-windows.ps1 -Version 2.4.6
 ```
 
 A signed/notarized macOS `.dmg` must be built on a Mac. Large model/voice binaries ship

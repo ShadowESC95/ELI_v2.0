@@ -137,7 +137,7 @@ model can promise perfection, so ELI is built to fail loudly rather than quietly
 
 🟡 *A little technical, but only once.*
 
-### Installing (v2.1.23 and later — one download per platform)
+### Installing (v2.4.6 — one download per platform)
 Get the latest from **GitHub Releases**. Every release is built in CI and **launch-tested on
 Windows, macOS and Linux** before it can publish.
 

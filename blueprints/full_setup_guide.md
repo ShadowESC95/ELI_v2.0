@@ -1,6 +1,6 @@
 # ELI v2.0 — The Complete Setup Guide (Plain English)
 
-> **Updated for v2.3.93 (September 2026).** Release **v2.3.72** on GitHub; cognition
+> **Updated for v2.4.6 (September 2026).** Release **v2.3.72** on GitHub; cognition
 > pipeline unified (gradient orchestrator, shared retrieval, S01–S12 tracing).
 > Primary install: **prebuilt installers on GitHub Releases** — `ELI-Setup-<v>.exe`
 > (Windows), the `.dmg` (macOS, Apple Silicon), the `.AppImage` (Linux). The Linux
@@ -294,7 +294,7 @@ These are the promises the software makes, in plain terms:
 |---|---|
 | "Python 3.10+ required" | Install Python from python.org (Windows) or your package manager (`sudo apt install python3`). |
 | ELI is painfully slow | Your AI engine is probably running on CPU. Re-run `bash install.sh --install-cuda` (NVIDIA). The installer tells you at the end whether GPU offload is on. |
-| `.venv not found — run install.sh first` | You skipped the install, or you're in the wrong folder. `cd` into the ELI folder and run `bash install.sh`. |
+| `.venv not found — run install.sh first` | You skipped the install, or you're in the wrong folder. `cd` into the ELI folder and run `./scripts/eli_setup.sh` (GUI) or `bash install.sh` (terminal). |
 | No sound / voice doesn't work | Run `.venv/bin/python -m eli.runtime.voice_assets`, and make sure `ffmpeg` and `portaudio` installed (the installer prints the exact command if it couldn't do it itself). |
 | First reply after launch is slow | Normal — the model loads into memory on first use. A big model can take a minute. |
 | Out-of-memory / crashes mid-answer | Your model is too big for your GPU/RAM. Download a smaller one (`--auto` picks a safe size). |

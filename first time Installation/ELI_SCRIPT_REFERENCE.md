@@ -1,8 +1,8 @@
 # ELI v2 Script & Setup Reference
 
-**Version:** 2.3.97 (platform matrix, Android headless profile, WoA arm64 scoping)  
+**Version:** 2.4.6 (GPU pack auto-install, CPU/RAM fit, unified installer UX)  
 **Repository:** ELI_MKXI / ELI v2.0  
-**Last updated:** September 2026
+**Last updated:** 2026-09-10
 
 This document is the authoritative reference for every bash/shell script in the ELI v2 repository, install-related Python entry points, packaging builders, and a structured map of the `eli/` Python package. It is written for maintainers, packagers, and advanced users performing first-time installation or field troubleshooting.
 
@@ -12,18 +12,26 @@ This document is the authoritative reference for every bash/shell script in the 
 
 ELI v2 is **local-first, offline-by-default**. A fresh install creates a project-local `.venv`, builds or installs `llama-cpp-python` matched to your hardware, seeds blank SQLite databases, and optionally downloads models and voice assets in a deliberate online window.
 
-### Recommended paths (v2.3.96)
+### Recommended paths (v2.4.6)
 
 | Path | Platform | Entry | What happens |
 |------|----------|-------|--------------|
-| **ELI Setup (GUI)** | Linux, macOS, Windows | `./scripts/eli_setup.sh` or desktop **ELI Setup** icon | Opens `python -m eli.setup --full-install --launch` → **Unified Install Wizard** streams `install.sh` / `install.ps1` with OS-style progress, rotating ELI-voice copy, and stage checklist (venv, llama-cpp, models, voice). On success, launches the desktop app. |
+| **ELI Setup (GUI)** | Linux, macOS, Windows | `./scripts/eli_setup.sh` or desktop **ELI Setup** icon | Creates minimal `.venv` + PySide6 only, then opens **Unified Install Wizard** (`python -m eli.setup --full-install`). Wizard streams `install.sh` / `install.ps1` with unified terminal+GUI progress — **no pre-GUI full install**, **no double launch**. Exit code reflects success (`0` only when install succeeded). |
 | **Unified GUI installer (direct)** | Any with display | `.venv/bin/python -m eli.setup --full-install --launch` | Same wizard without the shell wrapper. |
-| **Terminal fallback** | Headless / no Qt | `./scripts/eli_setup.sh` (no display) or `bash install.sh` | Runs `install.sh --yes --auto-model`, then `python -m eli.setup --run-remaining --launch`. |
+| **Terminal fallback** | Headless / no Qt | `./scripts/eli_setup.sh` (no display) or `bash install.sh` | Runs `install.sh --yes --auto-model`, then `python -m eli.setup --run-remaining`. |
 | **Windows one-click** | Windows | `ELI_Setup.bat` (in release zip) | Tries GUI installer; falls back to `install.ps1 -Yes -AutoModel`, then `--run-remaining --launch`. |
-| **Grandparent / AppImage** | Linux x86_64 | `ELI_v2-*-x86_64.AppImage` | First double-click copies to `~/.local/share/ELI_v2`, runs setup once, then launches. |
+| **Grandparent / AppImage** | Linux x86_64 | `ELI_v2-*-x86_64.AppImage` | First double-click copies to `~/.local/share/ELI_v2`, auto-installs bundled GPU pack when hardware is detected (`ensure_gpu_pack_for_hardware`), runs unified setup once, then launches. |
 | **Developer checkout** | Linux/macOS | `bash install.sh` | Full-featured installer with hardware report, interactive model choice, GPU/CUDA/ROCm/Vulkan paths. |
 | **Android / Termux (headless)** | Android arm64 | `bash scripts/install_android.sh` or `python -m eli.setup --full-install` | Detected automatically as **headless-only profile** — CPU llama-cpp, `requirements-android.txt`, no PySide6/GUI/CUDA. Launch: `python -m eli.cli.headless`. |
 | **Windows on ARM (WoA)** | Windows arm64 | `ELI_v2-*-windows-arm64-portable.zip` (experimental) | Same unified installer entry (`ELI_Setup.bat` / `python -m eli.setup --full-install`). CPU build default; Adreno Vulkan experimental; batch ≤ 32. |
+
+### v2.4.6 highlights
+
+- **GPU pack auto-install** (`packaging/pyinstaller/eli_gpu_pack.py`): AppImage/portable detects NVIDIA/AMD/Intel and installs verified llama-cpp wheels from bundled assets (network fallback when not bundled).
+- **CPU/RAM fit parity** (`eli.core.hardware_profile`): `effective_use_gpu_layers()` returns false when `llama_supports_gpu_offload()` is unavailable or `compute_mode=cpu`; `cpu_ram_fit_config()` sizes ctx/batch from live RAM using the same `smart_fit_config` math as GPU hosts.
+- **Startup compute mode** (`eli.gui.panels.startup`): user picks auto / GPU / CPU; persisted in `runtime_settings.compute_mode`.
+- **Unified installer UX** (`eli.setup.unified_installer`): `run_unified_installer()` returns `0 if dlg._install_succeeded else 1`; `scripts/eli_setup.sh` GUI-first with minimal venv bootstrap only.
+- **Prefill abort on shutdown** (`eli.cognition.gguf_inference`): `llama_set_abort_callback` stops long CPU/GPU prefill immediately, not just between output tokens.
 
 ### v2.3.97 highlights
 

@@ -1,6 +1,6 @@
 # ELI MKXI — Full Project Breakdown & Assessment
 
-> **Updated for v2.3.93 (September 2026).** Cognition pipeline unified: gradient
+> **Updated for v2.4.6 (September 2026).** Cognition pipeline unified: gradient
 > orchestrator for all CHAT modes, shared retrieval, canonical S01–S12 tracing.
 > v2.3.44+ restores cross-platform microphone auto-resolve (USB / Bluetooth /
 > headset before built-in; live subprocess probes). Primary install: CI-launch-tested
@@ -43,7 +43,7 @@ wrapper.
 ## 2. Scale & shape
 
 **190,338 LOC across 449 Python files** (`eli/`), plus the FastAPI web server
-(`api/server.py`, ~2,309 lines with an embedded dashboard PWA) and 434 test files.
+(`api/server.py`, ~2,309 lines with an embedded dashboard PWA) and 445 test files.
 *(measured 2026-08-28.)*
 
 | Subsystem | LOC | Files | Role |
@@ -141,7 +141,7 @@ wrapper.
    `verify_eli_claims*.sh` versions, diag outputs, `.coverage`, and
    `experimental/*.zip` binaries. Makes the repo look less serious than the code
    is.
-5. **Tests are GREEN (measured 2026-09-08).** 434 test files; `pytest tests/` =
+5. **Tests are GREEN (measured 2026-09-08).** 445 test files; `pytest tests/` =
    **11,711 collected / 11,700+ passed / 54 skipped / 2 xfailed** (~13.5 min on the `.venv`/GPU). The 5
    former reds (deprecated `smart_home` plugin, silent-swallow ratchet, stale blueprint
    ref) were all cleared 2026-07-03. The
