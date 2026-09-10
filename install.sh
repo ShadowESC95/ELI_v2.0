@@ -73,7 +73,7 @@ attempt_cuda_toolkit() {
     fi
     echo "[..] Installing CUDA toolkit (nvcc)..."
     # 1) No-sudo: nvcc via pip, exposed through CUDACXX for the llama-cpp build.
-    if "$PIP" install --quiet nvidia-cuda-nvcc-cu12 2>/dev/null; then
+    if _pip install --quiet nvidia-cuda-nvcc-cu12 2>/dev/null; then
         local _nvcc
         _nvcc="$("$PYTHON_VENV" -c "import os,glob,nvidia;b=os.path.dirname(nvidia.__file__);m=glob.glob(b+'/cuda_nvcc/bin/nvcc');print(m[0] if m else '')" 2>/dev/null)"
         if [ -n "$_nvcc" ] && [ -x "$_nvcc" ]; then
@@ -107,7 +107,7 @@ attempt_runtime_tools() {
     # yt-dlp goes into ELI's bundled Python (pip) so "play X" works without a
     # separate user-managed virtualenv. Also installs clipboard backends.
     echo "[..] Installing runtime tools (media + desktop control + OCR + audio)..."
-    "$PIP" install --quiet yt-dlp 2>/dev/null && echo "[OK] yt-dlp (bundled Python)" \
+    _pip install --quiet yt-dlp 2>/dev/null && echo "[OK] yt-dlp (bundled Python)" \
         || echo "     pip install yt-dlp   (direct media playback)"
     # Per-manager package names differ. tesseract = OCR (screen reading); portaudio = mic
     # (voice input); ffmpeg = media + whisper; libnotify = notifications; xclip/wl-clipboard
@@ -307,7 +307,11 @@ fi
 # absolute python path in their shebang), so one copied from another machine — or from
 # the build host, or left over in the extract folder — will "exist" but its python/pip
 # cannot execute ("required file not found"). Validate it actually runs; rebuild if not.
-_venv_ok() { [ -x "$VENV/bin/python" ] && "$VENV/bin/python" -c "import sys" >/dev/null 2>&1; }
+_venv_ok() {
+    [ -x "$VENV/bin/python" ] \
+        && "$VENV/bin/python" -c "import sys" >/dev/null 2>&1 \
+        && "$VENV/bin/python" -m pip --version >/dev/null 2>&1
+}
 if [ -d "$VENV" ] && _venv_ok; then
     echo "[OK] Virtual environment already exists."
 else
@@ -321,15 +325,15 @@ else
 fi
 eli_progress venv 12 "Virtual environment ready"
 
-PIP="$VENV/bin/pip"
 PYTHON_VENV="$VENV/bin/python"
+_pip() { "$PYTHON_VENV" -m pip "$@"; }
 
 echo "[..] Upgrading pip..."
-# Use `python -m pip` (not the bin/pip shebang) so a freshly-repaired venv is used
-# reliably even before pip's own launcher is regenerated.
-"$PYTHON_VENV" -m pip install --quiet --upgrade pip wheel
+# Always invoke pip via the venv python — bin/pip shebangs break when a .venv is
+# copied from another machine/path even though bin/python still runs.
+_pip install --quiet --upgrade pip wheel
 # torch wheels currently require setuptools<82; cap before PyTorch install.
-"$PIP" install --quiet 'setuptools>=68,<82'
+_pip install --quiet 'setuptools>=68,<82'
 
 # Optional bundled wheels (Windows portable always; Linux portable may include CPU torch fallback).
 _WHEELHOUSE=""
@@ -346,7 +350,7 @@ if [ -n "$_WHEELHOUSE" ]; then
 fi
 
 _pip_quiet() {
-    "$PIP" install --quiet "${_PIP_LINKS[@]}" "$@" && return 0
+    _pip install --quiet "${_PIP_LINKS[@]}" "$@" && return 0
     return 1
 }
 
@@ -399,7 +403,7 @@ fi
 # ELI's inference engine never installed and the app could not start at all. Ubuntu
 # 24.04 ships 3.12, has a wheel, and never hit this. Detect it and provide the tools.
 _llama_wheel_available() {
-    "$PIP" install --only-binary=:all: --dry-run llama-cpp-python >/dev/null 2>&1
+    _pip install --only-binary=:all: --dry-run llama-cpp-python >/dev/null 2>&1
 }
 
 # Prebuilt CUDA wheels ship a libggml-cpu.so tuned for newer CPUs (AVX-VNNI and
@@ -448,20 +452,20 @@ _llama_rebuild_for_this_cpu() {
     _safe="$(_llama_safe_cpu_cmake_flags)"
     if [ "$OS" = "Darwin" ]; then
         CMAKE_ARGS="-DLLAMA_METAL=on $_safe" \
-            "$PIP" install --force-reinstall --no-cache-dir "llama-cpp-python>=$_min" --quiet || return 1
+            _pip install --force-reinstall --no-cache-dir "llama-cpp-python>=$_min" --quiet || return 1
     elif [ "$CPU_ONLY" -eq 1 ]; then
         CMAKE_ARGS="$_safe" \
-            "$PIP" install --force-reinstall --no-cache-dir "llama-cpp-python>=$_min" --quiet || return 1
+            _pip install --force-reinstall --no-cache-dir "llama-cpp-python>=$_min" --quiet || return 1
     elif [ "$HAS_AMD" -eq 1 ]; then
         if CMAKE_ARGS="-DGGML_HIPBLAS=on $_safe" \
-            "$PIP" install --force-reinstall --no-cache-dir "llama-cpp-python>=$_min" --quiet 2>/dev/null; then
+            _pip install --force-reinstall --no-cache-dir "llama-cpp-python>=$_min" --quiet 2>/dev/null; then
             :
         elif CMAKE_ARGS="-DGGML_VULKAN=on $_safe" \
-            "$PIP" install --force-reinstall --no-cache-dir "llama-cpp-python>=$_min" --quiet 2>/dev/null; then
+            _pip install --force-reinstall --no-cache-dir "llama-cpp-python>=$_min" --quiet 2>/dev/null; then
             :
         else
             CMAKE_ARGS="$_safe" \
-                "$PIP" install --force-reinstall --no-cache-dir "llama-cpp-python>=$_min" --quiet || return 1
+                _pip install --force-reinstall --no-cache-dir "llama-cpp-python>=$_min" --quiet || return 1
         fi
     else
         local _NVCC _ARCHS
@@ -478,10 +482,10 @@ _llama_rebuild_for_this_cpu() {
                       | tr -d '.' | sort -u | paste -sd';' -)"
             [ -z "$_ARCHS" ] && _ARCHS="native"
             CMAKE_ARGS="-DGGML_CUDA=on -DCMAKE_CUDA_ARCHITECTURES=$_ARCHS $_safe" \
-                "$PIP" install --force-reinstall --no-cache-dir "llama-cpp-python>=$_min" --quiet || return 1
+                _pip install --force-reinstall --no-cache-dir "llama-cpp-python>=$_min" --quiet || return 1
         else
             CMAKE_ARGS="$_safe" \
-                "$PIP" install --force-reinstall --no-cache-dir "llama-cpp-python>=$_min" --quiet || return 1
+                _pip install --force-reinstall --no-cache-dir "llama-cpp-python>=$_min" --quiet || return 1
         fi
     fi
     _llama_runtime_smoke
@@ -490,7 +494,7 @@ _llama_rebuild_for_this_cpu() {
 ensure_build_toolchain() {
     # pip's cmake/ninja wheels need no sudo and cover the build system; only the
     # C++ compiler has to come from the OS.
-    "$PIP" install --quiet cmake ninja scikit-build-core 2>/dev/null || true
+    _pip install --quiet cmake ninja scikit-build-core 2>/dev/null || true
     if command -v c++ &>/dev/null || command -v g++ &>/dev/null || command -v clang++ &>/dev/null; then
         return 0
     fi
@@ -527,50 +531,50 @@ if ! _llama_wheel_available; then
 fi
 if [ "$OS" = "Darwin" ]; then
     echo "     (with Metal GPU acceleration)"
-    CMAKE_ARGS="-DLLAMA_METAL=on" "$PIP" install llama-cpp-python --prefer-binary --quiet || true
+    CMAKE_ARGS="-DLLAMA_METAL=on" _pip install llama-cpp-python --prefer-binary --quiet || true
 elif [ "$CPU_ONLY" -eq 1 ]; then
     if _cpu_trusts_prebuilt_llama_wheel; then
-        "$PIP" install llama-cpp-python --prefer-binary --quiet || true
+        _pip install llama-cpp-python --prefer-binary --quiet || true
     else
         warn "CPU lacks AVX-VNNI — skipping prebuilt llama-cpp wheel (SIGILL risk); building from source."
         ensure_build_toolchain
         CMAKE_ARGS="$(_llama_safe_cpu_cmake_flags)" \
-            "$PIP" install "llama-cpp-python>=0.3.30" --no-cache-dir --quiet || true
+            _pip install "llama-cpp-python>=0.3.30" --no-cache-dir --quiet || true
     fi
 elif [ "$HAS_AMD" -eq 1 ]; then
     echo "     (AMD — ROCm/hipBLAS, then Vulkan, then CPU)"
-    if CMAKE_ARGS="-DGGML_HIPBLAS=on" "$PIP" install llama-cpp-python --no-cache-dir --quiet 2>/dev/null; then
+    if CMAKE_ARGS="-DGGML_HIPBLAS=on" _pip install llama-cpp-python --no-cache-dir --quiet 2>/dev/null; then
         :
-    elif CMAKE_ARGS="-DGGML_VULKAN=on" "$PIP" install llama-cpp-python --no-cache-dir --quiet 2>/dev/null; then
+    elif CMAKE_ARGS="-DGGML_VULKAN=on" _pip install llama-cpp-python --no-cache-dir --quiet 2>/dev/null; then
         echo "[OK] llama-cpp built with Vulkan (AMD GPU via Mesa/Vulkan)."
     else
         echo "[WARN] AMD GPU builds failed (ROCm toolkit or Vulkan dev libs missing)."
         echo "       Installing CPU build. For AMDGPU later:"
         echo "         ROCm:  CMAKE_ARGS=\"-DGGML_HIPBLAS=on\" \"$PIP\" install --force-reinstall --no-cache-dir llama-cpp-python"
         echo "         Vulkan: CMAKE_ARGS=\"-DGGML_VULKAN=on\" \"$PIP\" install --force-reinstall --no-cache-dir llama-cpp-python"
-        "$PIP" install llama-cpp-python --prefer-binary --quiet
+        _pip install llama-cpp-python --prefer-binary --quiet
     fi
 elif [ "$HAS_INTEL_IGPU" -eq 1 ]; then
     echo "     (Intel iGPU — Vulkan offload, then CPU)"
-    if CMAKE_ARGS="-DGGML_VULKAN=on" "$PIP" install llama-cpp-python --no-cache-dir --quiet 2>/dev/null; then
+    if CMAKE_ARGS="-DGGML_VULKAN=on" _pip install llama-cpp-python --no-cache-dir --quiet 2>/dev/null; then
         echo "[OK] llama-cpp built with Vulkan (Intel integrated GPU via Mesa/Vulkan)."
         echo "       Tip: if output looks garbled on Iris Xe, set GGML_VK_DISABLE_F16=1 before launch."
     else
         echo "[WARN] Intel Vulkan build failed (install libvulkan-dev / mesa-vulkan-drivers)."
         echo "       Installing CPU build — reliable on integrated-GPU laptops."
         echo "         Retry: CMAKE_ARGS=\"-DGGML_VULKAN=on\" \"$PIP\" install --force-reinstall --no-cache-dir llama-cpp-python"
-        "$PIP" install llama-cpp-python --prefer-binary --quiet
+        _pip install llama-cpp-python --prefer-binary --quiet
     fi
 elif [ "$HAS_QUALCOMM_IGPU" -eq 1 ]; then
     echo "     (Qualcomm Adreno — Vulkan offload, then CPU)"
-    if CMAKE_ARGS="-DGGML_VULKAN=on" "$PIP" install llama-cpp-python --no-cache-dir --quiet 2>/dev/null; then
+    if CMAKE_ARGS="-DGGML_VULKAN=on" _pip install llama-cpp-python --no-cache-dir --quiet 2>/dev/null; then
         echo "[OK] llama-cpp built with Vulkan (Qualcomm Adreno / Snapdragon unified memory)."
         echo "       Tip: keep batch_size ≤ 32 on Adreno — higher values can crash the Vulkan driver."
     else
         echo "[WARN] Adreno Vulkan build failed (install libvulkan-dev and Adreno ICD drivers)."
         echo "       Installing CPU build — reliable fallback on Snapdragon laptops."
         echo "         Retry: CMAKE_ARGS=\"-DGGML_VULKAN=on\" \"$PIP\" install --force-reinstall --no-cache-dir llama-cpp-python"
-        "$PIP" install llama-cpp-python --prefer-binary --quiet
+        _pip install llama-cpp-python --prefer-binary --quiet
     fi
 else
     # NVIDIA. The prebuilt CUDA wheel index is fast but STALE: it stops at
@@ -584,7 +588,7 @@ else
     LLAMA_MIN="0.3.30"
     _LLAMA_WHEEL_OK=0
     if _cpu_trusts_prebuilt_llama_wheel; then
-        if "$PIP" install "llama-cpp-python>=$LLAMA_MIN" --only-binary=:all: \
+        if _pip install "llama-cpp-python>=$LLAMA_MIN" --only-binary=:all: \
                 --extra-index-url https://abetlen.github.io/llama-cpp-python/whl/cu121 --quiet 2>/dev/null; then
             echo "[OK] llama-cpp-python CUDA wheel installed."
             _LLAMA_WHEEL_OK=1
@@ -612,18 +616,18 @@ else
                       | tr -d '.' | sort -u | paste -sd';' -)"
             [ -z "$_ARCHS" ] && _ARCHS="native"
             if CMAKE_ARGS="-DGGML_CUDA=on -DCMAKE_CUDA_ARCHITECTURES=$_ARCHS $_safe" \
-                    "$PIP" install "llama-cpp-python>=$LLAMA_MIN" --no-cache-dir --quiet; then
+                    _pip install "llama-cpp-python>=$LLAMA_MIN" --no-cache-dir --quiet; then
                 echo "[OK] llama-cpp-python built with CUDA (arch $_ARCHS)."
             else
                 warn "CUDA source build failed — installing CPU-safe source build so ELI still runs."
                 CMAKE_ARGS="$_safe" \
-                    "$PIP" install "llama-cpp-python>=$LLAMA_MIN" --no-cache-dir --quiet || true
+                    _pip install "llama-cpp-python>=$LLAMA_MIN" --no-cache-dir --quiet || true
             fi
         else
             warn "CUDA toolkit (nvcc) not found — installing CPU-safe source build."
             warn "  Install the CUDA toolkit and re-run to get GPU acceleration."
             CMAKE_ARGS="$_safe" \
-                "$PIP" install "llama-cpp-python>=$LLAMA_MIN" --no-cache-dir --quiet || true
+                _pip install "llama-cpp-python>=$LLAMA_MIN" --no-cache-dir --quiet || true
         fi
     fi
 fi
@@ -674,7 +678,7 @@ if [ "$SKIP_TORCH" -eq 0 ] && [ "$CPU_ONLY" -eq 0 ] && [ "$OS" != "Darwin" ]; th
         echo "[WARN] prebuilt llama-cpp is CPU-only — installing CUDA toolkit and rebuilding from source..."
         attempt_cuda_toolkit || true
         CUDACXX="${CUDACXX:-$(command -v nvcc || echo /usr/local/cuda/bin/nvcc)}" \
-            CMAKE_ARGS="-DGGML_CUDA=on" "$PIP" install --force-reinstall --no-cache-dir llama-cpp-python --quiet || \
+            CMAKE_ARGS="-DGGML_CUDA=on" _pip install --force-reinstall --no-cache-dir llama-cpp-python --quiet || \
             echo "[WARN] CUDA source build failed — staying on CPU build."
         if "$PYTHON_VENV" -c "import llama_cpp,sys; sys.exit(0 if llama_cpp.llama_supports_gpu_offload() else 1)" 2>/dev/null; then
             echo "[OK] llama-cpp-python rebuilt with CUDA GPU offload."
@@ -707,9 +711,9 @@ WHEEL="$(ls "$SCRIPT_DIR"/dist/eli_v2_0-*.whl 2>/dev/null | sort -V | tail -1)"
 # if an editable install can't be created on this machine. The `|| true` keeps `set -e`
 # from aborting the install if neither path succeeds — the pinned requirements install
 # below is the real dependency gate and still runs.
-if ! ( cd "$SCRIPT_DIR" && "$PIP" install -e ".[full]" ); then
+if ! ( cd "$SCRIPT_DIR" && _pip install -e ".[full]" ); then
     echo "[!] Editable install failed; falling back to the bundled wheel, then the pinned lock."
-    { [ -n "$WHEEL" ] && "$PIP" install "${WHEEL}[full]"; } || true
+    { [ -n "$WHEEL" ] && _pip install "${WHEEL}[full]"; } || true
 fi
 
 # Install remaining runtime requirements. Default = the FROZEN LOCK (exact known-good
@@ -732,12 +736,12 @@ echo "[..] Installing dependencies from $(basename "$REQ")$([ "$REQ" = "$SCRIPT_
 # `set -e` that aborted the whole install, so ELI simply would not install there. The lock
 # is a reproducibility nicety, not a requirement: fall back to the version RANGES in
 # requirements.txt, which resolve against whatever python the host actually ships.
-if ! "$PIP" install "${_PIP_LINKS[@]}" -r "$REQ" --quiet --ignore-installed; then
+if ! _pip install "${_PIP_LINKS[@]}" -r "$REQ" --quiet --ignore-installed; then
     if [ "$REQ" != "$SCRIPT_DIR/requirements.txt" ] && [ -f "$SCRIPT_DIR/requirements.txt" ]; then
         warn "Pinned install failed on $("$PYTHON_VENV" -V 2>&1) — some pins have no wheel for it."
         warn "Retrying with version ranges (requirements.txt) so the install completes."
         REQ="$SCRIPT_DIR/requirements.txt"
-        "$PIP" install "${_PIP_LINKS[@]}" -r "$REQ" --ignore-installed \
+        _pip install "${_PIP_LINKS[@]}" -r "$REQ" --ignore-installed \
             || warn "Some dependencies failed — ELI may be missing features. See the log above."
     else
         warn "Some dependencies failed to install — ELI may be missing features."
@@ -822,10 +826,10 @@ if ! "$PYTHON_VENV" -c "import eli.gui.app" 2>/dev/null; then
     echo "[WARN] GUI entry (eli.gui.app) not importable — installing GUI bootstrap…"
     _GUI_BOOT="$SCRIPT_DIR/requirements-portable-bootstrap.txt"
     if [ -f "$_GUI_BOOT" ]; then
-        "$PIP" install "${_PIP_LINKS[@]}" -r "$_GUI_BOOT" \
-            || "$PIP" install "${_PIP_LINKS[@]}" 'PySide6>=6.6.0' || true
+        _pip install "${_PIP_LINKS[@]}" -r "$_GUI_BOOT" \
+            || _pip install "${_PIP_LINKS[@]}" 'PySide6>=6.6.0' || true
     else
-        "$PIP" install "${_PIP_LINKS[@]}" 'PySide6>=6.6.0' || true
+        _pip install "${_PIP_LINKS[@]}" 'PySide6>=6.6.0' || true
     fi
     if ! "$PYTHON_VENV" -c "from eli.gui.qt_compat import QApplication" 2>/dev/null; then
         echo "[WARN] PySide6 still not importable — run install again with network, or use terminal mode."
