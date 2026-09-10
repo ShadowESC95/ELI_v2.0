@@ -4,6 +4,9 @@
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+# Optional: point at a clean release-asset tree (CI / local-assets-v2.1 restore) instead
+# of copying an entire developer models/ folder that may include finetune checkpoints.
+ASSET_ROOT="${ELI_ASSETS_SRC:-$ROOT}"
 if [ -x "$ROOT/.venv/bin/python3" ]; then
   PYTHON="${PYTHON:-$ROOT/.venv/bin/python3}"
 else
@@ -178,18 +181,18 @@ cp "$ROOT/requirements-portable-bootstrap.txt" "$STAGING/" 2>/dev/null || true
 # ELI_STARTER_MODEL=<filename in models/>. Users can still download any other model from
 # the full catalog during setup — this is just the default it ships with.
 STARTER_MODEL="${ELI_STARTER_MODEL:-Qwen2.5-3B-Instruct-Q4_K_M.gguf}"
-if [ -f "$ROOT/models/$STARTER_MODEL" ]; then
-  echo "[package] bundling starter model: $STARTER_MODEL ($(du -h "$ROOT/models/$STARTER_MODEL" | cut -f1))"
-  mkdir -p "$STAGING/models"; cp "$ROOT/models/$STARTER_MODEL" "$STAGING/models/"
+if [ -f "$ASSET_ROOT/models/$STARTER_MODEL" ]; then
+  echo "[package] bundling starter model: $STARTER_MODEL ($(du -h "$ASSET_ROOT/models/$STARTER_MODEL" | cut -f1))"
+  mkdir -p "$STAGING/models"; cp "$ASSET_ROOT/models/$STARTER_MODEL" "$STAGING/models/"
   # A "full" package (starter model present) also bundles the small aux weights the installer
   # would otherwise fetch from HF — which can 403 on unauthenticated bulk downloads (observed).
   # Embedder (memory/RAG) + default Piper voice → a full install is genuinely offline-capable.
-  _EMB="$ROOT/models/embeddings/nomic-embed-text-v1.5.Q4_K_M.gguf"
+  _EMB="$ASSET_ROOT/models/embeddings/nomic-embed-text-v1.5.Q4_K_M.gguf"
   if [ -f "$_EMB" ]; then
     mkdir -p "$STAGING/models/embeddings"; cp "$_EMB" "$STAGING/models/embeddings/"
     echo "[package] bundling embedder (memory/RAG): $(du -h "$_EMB" | cut -f1)"
   fi
-  for _vd in "$ROOT/tts_piper/piper" "$ROOT/models/tts/piper"; do
+  for _vd in "$ASSET_ROOT/tts_piper/piper" "$ASSET_ROOT/models/tts/piper"; do
     if [ -f "$_vd/en_US-amy-medium.onnx" ]; then
       mkdir -p "$STAGING/tts_piper/piper"
       cp "$_vd/en_US-amy-medium.onnx" "$_vd/en_US-amy-medium.onnx.json" "$STAGING/tts_piper/piper/" 2>/dev/null || true
@@ -202,9 +205,9 @@ else
 fi
 
 if [ "$WITH_ASSETS" -eq 1 ]; then
-  echo "[package] including ALL local model/voice assets; this can be very large"
-  [ -d "$ROOT/models" ] && cp -a "$ROOT/models/." "$STAGING/models/"
-  [ -d "$ROOT/tts_piper" ] && cp -a "$ROOT/tts_piper/." "$STAGING/tts_piper/"
+  echo "[package] including model/voice assets from $ASSET_ROOT (this can be very large)"
+  [ -d "$ASSET_ROOT/models" ] && cp -a "$ASSET_ROOT/models/." "$STAGING/models/"
+  [ -d "$ASSET_ROOT/tts_piper" ] && cp -a "$ASSET_ROOT/tts_piper/." "$STAGING/tts_piper/"
 fi
 
 cat > "$STAGING/RUN_ELI.sh" <<'RUN_EOF'
