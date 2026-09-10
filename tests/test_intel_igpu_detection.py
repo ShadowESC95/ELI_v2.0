@@ -35,7 +35,7 @@ def test_apple_unified_memory_label():
     assert "Apple" in hp.integrated_gpu_label("Apple M2", "apple")
     assert hp.format_gpu_layers_status(
         0, fitted_layers=12, gpu_integrated=True, gpu_name="Apple M2", gpu_vendor="apple",
-    ).endswith("fit, CPU active)")
+    ).endswith("CPU only)")
 
 
 def test_integrated_name_heuristics():
@@ -87,6 +87,7 @@ def test_install_script_reports_intel_integrated():
     assert "HAS_INTEL_IGPU" in text
     assert "Intel integrated" in text
     assert "GGML_VULKAN=on" in text
+    assert "_gpu_pipeline" in text
 
 
 def test_qualcomm_integrated_profile_fields():
@@ -104,7 +105,7 @@ def test_qualcomm_name_heuristics():
     assert hp.format_gpu_layers_status(
         0, fitted_layers=8, gpu_integrated=True,
         gpu_name="Qualcomm Adreno X1-85 GPU", gpu_vendor="qualcomm",
-    ).endswith("fit, CPU active)")
+    ).endswith("CPU only)")
 
 
 @requires_linux
@@ -176,6 +177,28 @@ def test_recommend_igpu_reports_fitted_layers_when_backend_cpu_only(monkeypatch)
     rec = hp.recommend(hw, models)
     assert rec.n_gpu_layers > 0, "integrated GPU with ~1.4GB budget must report fitted layers"
     assert "fit" in " ".join(rec.reasoning).lower() or rec.n_gpu_layers > 0
+
+
+def test_detect_available_ram_gb_positive():
+    avail = __import__(
+        "eli.core.startup_hardware_optimizer", fromlist=["detect_available_ram_gb"]
+    ).detect_available_ram_gb()
+    assert avail > 0
+
+
+def test_cpu_ctx_ceiling_from_ram_scales_with_model():
+    from eli.core.startup_hardware_optimizer import cpu_ctx_ceiling_from_ram
+    small_model = cpu_ctx_ceiling_from_ram(2.0, train_ctx=32768)
+    huge_model = cpu_ctx_ceiling_from_ram(40.0, train_ctx=32768)
+    assert small_model >= 2048
+    assert small_model >= huge_model  # bigger model footprint → smaller ctx ceiling
+
+
+def test_runtime_cpu_only_honours_load_mode_and_offload_flag():
+    assert hp.runtime_cpu_only({"load_mode": "CPU", "n_gpu_layers": 99}) is True
+    assert hp.runtime_cpu_only({"gpu_offload_supported": False, "n_gpu_layers": 6}) is True
+    assert hp.runtime_cpu_only({"effective": {"n_gpu_layers": 0}, "n_gpu_layers": 2}) is True
+    assert hp.runtime_cpu_only({"n_gpu_layers": 4, "load_mode": "GPU"}) is False
 
 
 def test_gpu_offload_unavailable_message_intel():

@@ -34,6 +34,12 @@ def _is_think_only(response: str) -> bool:
         return False
 
 
+def stamp_foreground_generation_start() -> None:
+    """Mark the shared model as busy with a user-facing generation."""
+    global _last_foreground_ts
+    _last_foreground_ts = _time.monotonic()
+
+
 def foreground_recently_active(window: float = 30.0) -> bool:
     """True if a user-facing inference ran (or was running) recently.
 

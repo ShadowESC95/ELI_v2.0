@@ -99,6 +99,30 @@ def detect_ram_gb() -> float:
     return 8.0
 
 
+def detect_available_ram_gb() -> float:
+    """Currently free RAM — the binding budget for CPU-only inference."""
+    try:
+        import psutil
+        return round(psutil.virtual_memory().available / 1e9, 2)
+    except Exception:
+        log.debug("suppressed exception", exc_info=True)
+    try:
+        from eli.core.hardware_profile import detect_hardware
+        hw = detect_hardware()
+        avail = float(getattr(hw, "available_ram_gb", 0) or 0)
+        if avail > 0:
+            return round(avail, 2)
+    except Exception:
+        log.debug("suppressed exception", exc_info=True)
+    return round(detect_ram_gb() * 0.5, 2)
+
+
+def cpu_ctx_ceiling_from_ram(model_gb: float, train_ctx: int = 0) -> int:
+    """Largest ctx this machine's available RAM can hold for a model this size."""
+    from eli.core.dynamic_runtime_budget import _ctx_ceiling_for_ram
+    return int(_ctx_ceiling_for_ram(detect_available_ram_gb(), float(model_gb), int(train_ctx or 0)))
+
+
 def detect_cpu_name() -> str:
     try:
         txt = Path("/proc/cpuinfo").read_text(errors="replace")

@@ -588,6 +588,38 @@ def integrated_gpu_label(name: str = "", vendor: str = "") -> str:
     return "integrated GPU"
 
 
+def runtime_effective_gpu_layers(snapshot: Optional[dict] = None) -> int:
+    """Layers actually driving inference (0 = CPU-only), not requested settings."""
+    try:
+        snap: dict = {}
+        if snapshot is not None:
+            snap = dict(snapshot or {})
+        else:
+            from eli.cognition import gguf_inference as gi
+            snap = dict(
+                gi.get_live_runtime_override()
+                or getattr(gi, "_live_runtime_params", None)
+                or {}
+            )
+        eff = snap.get("effective") if isinstance(snap.get("effective"), dict) else {}
+        if "n_gpu_layers" in eff:
+            return max(0, int(eff.get("n_gpu_layers") or 0))
+        if str(snap.get("load_mode") or "").upper() == "CPU":
+            return 0
+        if snap.get("on_gpu") is False:
+            return 0
+        if snap.get("gpu_offload_supported") is False:
+            return 0
+        return max(0, int(snap.get("n_gpu_layers") or 0))
+    except Exception:
+        return 0
+
+
+def runtime_cpu_only(snapshot: Optional[dict] = None) -> bool:
+    """True when the loaded model is running with zero GPU layers."""
+    return runtime_effective_gpu_layers(snapshot) <= 0
+
+
 def format_gpu_layers_status(
     active_layers: int,
     *,
@@ -598,29 +630,21 @@ def format_gpu_layers_status(
 ) -> str:
     """Human-readable GPU layer count for status bars and hardware panels.
 
-    Always reflects how many layers fit the hardware budget. When the runtime
-    is CPU-only but integrated/discrete VRAM can hold partial offload, report
-    the fit count instead of a misleading zero.
+    Reports only layers that are ACTIVE. Fitted-but-unavailable counts belong in
+    the hardware panel / startup dialog — not the live status bar (showing "6 fit,
+    CPU active" while gpu=0 misled Iris Xe users into thinking offload was on).
     """
     active = max(0, int(active_layers or 0))
-    fitted = max(0, int(fitted_layers or 0))
-    show = active if active > 0 else fitted
     igpu_label = integrated_gpu_label(gpu_name, gpu_vendor) if gpu_integrated else ""
 
-    if show <= 0:
+    if active <= 0:
         if gpu_integrated:
-            return f"0 ({igpu_label or 'integrated'}, CPU)"
-        return "0"
+            return f"0 ({igpu_label or 'integrated'}, CPU only)"
+        return "0 (CPU only)"
     if gpu_integrated:
         label = igpu_label or "integrated GPU"
-        if active > 0:
-            return f"{active} ({label})"
-        return f"{show} ({label} fit, CPU active)"
-    if active > 0:
-        return str(active)
-    if fitted > 0:
-        return f"{fitted} (CPU active)"
-    return str(show)
+        return f"{active} ({label})"
+    return str(active)
 
 
 def _pci_addr_from_drm_device(dev: Path) -> str:

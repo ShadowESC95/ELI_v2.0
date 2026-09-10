@@ -182,8 +182,16 @@ else
 fi
 ok "CPU         ${B}${_CPUS}${R} cores      RAM ${B}${_RAMGB:-?} GB${R}"
 ok "Disk free   ${B}$(df -h "$SCRIPT_DIR" 2>/dev/null | awk 'NR==2{print $4}')${R}   ${D}(a model is ~2-5 GB)${R}"
+# GPU probes use grep/lspci pipelines — with `set -o pipefail`, a no-match grep
+# aborts the whole install (observed on Intel Iris Xe laptops at 5% / "Your system").
+_gpu_pipeline() {
+    set +o pipefail
+    "$@"
+    set -o pipefail
+}
+
 if command -v nvidia-smi &>/dev/null; then
-    _NGPU="$(nvidia-smi --query-gpu=name --format=csv,noheader 2>/dev/null | grep -c . || true)"
+    _NGPU="$(_gpu_pipeline bash -c 'nvidia-smi --query-gpu=name --format=csv,noheader 2>/dev/null | grep -c . || true')"
     _NGPU="${_NGPU//$'\r'/}"
     _NGPU="${_NGPU//$'\n'/}"
     _NGPU="${_NGPU:-0}"
@@ -202,10 +210,12 @@ fi
 # /dev/kfd kernel node means a ROCm-capable AMD GPU is present.
 if [ "$HAS_NVIDIA" -eq 0 ] && [ "$OS" != "Darwin" ]; then
     if command -v rocminfo &>/dev/null || command -v rocm-smi &>/dev/null || [ -e /dev/kfd ]; then
-        _AGPU="$(rocm-smi --showproductname 2>/dev/null | grep -m1 -iE 'series|card' | sed 's/.*: *//' || true)"
-        [ -z "$_AGPU" ] && _AGPU="$(lspci 2>/dev/null | grep -iE 'vga|display|3d' | grep -iE 'amd|radeon|advanced micro' | head -1 | sed 's/.*: //' || true)"
-        ok "GPU         ${B}${GRN}AMD ROCm${R}  ${D}${_AGPU:-detected}${R}"
-        HAS_AMD=1
+        _AGPU="$(_gpu_pipeline bash -c 'rocm-smi --showproductname 2>/dev/null | grep -m1 -iE "series|card|gpu" | sed "s/.*: *//" || true')"
+        [ -z "$_AGPU" ] && _AGPU="$(_gpu_pipeline bash -c 'lspci 2>/dev/null | grep -iE "vga|display|3d" | grep -iE "amd|radeon|advanced micro" | head -1 | sed "s/.*: //" || true')"
+        if [ -n "$_AGPU" ]; then
+            ok "GPU         ${B}${GRN}AMD ROCm${R}  ${D}${_AGPU}${R}"
+            HAS_AMD=1
+        fi
     fi
 fi
 # Intel integrated graphics (Iris Xe / UHD) — no nvidia-smi or rocm-smi, but Vulkan
@@ -245,7 +255,7 @@ if [ "$HAS_NVIDIA" -eq 0 ] && [ "$HAS_AMD" -eq 0 ] && [ "$HAS_INTEL_IGPU" -eq 0 
         [ -n "$_QCOM_NAME" ] && break
     done
     if [ -z "$_QCOM_NAME" ] && command -v lspci &>/dev/null; then
-        _QCOM_NAME="$(lspci 2>/dev/null | grep -iE 'qualcomm|adreno|snapdragon' | head -1 | sed 's/^[^:]*: //' || true)"
+        _QCOM_NAME="$(_gpu_pipeline bash -c 'lspci 2>/dev/null | grep -iE "qualcomm|adreno|snapdragon" | head -1 | sed "s/^[^:]*: //" || true')"
     fi
     if [ -n "$_QCOM_NAME" ]; then
         ok "GPU         ${B}${GRN}Qualcomm Adreno${R}  ${D}${_QCOM_NAME}${R}"

@@ -1219,8 +1219,14 @@ def _safe_invoke_llm(llm, full_prompt: str, *, temperature, max_tokens, top_p, t
         extra["stopping_criteria"] = _sc
 
     def _acquire_lock_fg_priority():
-        if not bg and _fg_preempt_enabled():
-            _FG_PRIORITY.set()
+        if not bg:
+            try:
+                from eli.cognition.inference_broker import stamp_foreground_generation_start
+                stamp_foreground_generation_start()
+            except Exception:
+                _SWLOG.debug("suppressed exception", exc_info=True)
+            if _fg_preempt_enabled():
+                _FG_PRIORITY.set()
         try:
             _LLM_CALL_LOCK.acquire()
         finally:

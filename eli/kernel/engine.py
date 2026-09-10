@@ -14874,10 +14874,8 @@ Answer:"""
                 # token eval on CPU made "hello" take 15+ minutes on Iris Xe.
                 if _phatic_stream:
                     try:
-                        from eli.cognition import gguf_inference as _gi_ph
-                        _lp = getattr(_gi_ph, "_live_runtime_params", None) or {}
-                        _eff = _lp.get("effective") or _lp
-                        if int(_eff.get("n_gpu_layers", _lp.get("n_gpu_layers", 1)) or 0) <= 0:
+                        from eli.core.hardware_profile import runtime_cpu_only as _cpu_only
+                        if _cpu_only():
                             situation_brief = self._cap_text(
                                 situation_brief, 480, "phatic_handoff_cpu",
                             )
@@ -14952,10 +14950,8 @@ Answer:"""
             _phatic_gen: Dict[str, Any] = {}
             if _phatic_stream:
                 try:
-                    from eli.cognition import gguf_inference as _gi_ph2
-                    _lp2 = getattr(_gi_ph2, "_live_runtime_params", None) or {}
-                    _eff2 = _lp2.get("effective") or _lp2
-                    if int(_eff2.get("n_gpu_layers", _lp2.get("n_gpu_layers", 1)) or 0) <= 0:
+                    from eli.core.hardware_profile import runtime_cpu_only as _cpu_only2
+                    if _cpu_only2():
                         _phatic_gen["max_tokens"] = min(96, _phatic_generation_budget())
                 except Exception:
                     log.debug("suppressed exception", exc_info=True)
