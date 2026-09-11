@@ -37,18 +37,20 @@ def has_venv() -> bool:
     return venv_python().exists()
 
 
+def _scan_chat_gguf(root: Path) -> bool:
+    """Filesystem scan only — must not import the full GUI (pulls in llama_cpp)."""
+    for base in (root / "models", root / "models" / "gguf"):
+        if not base.exists():
+            continue
+        for p in base.rglob("*.gguf"):
+            name = p.name.lower()
+            if "embed" not in name and "mmproj" not in name:
+                return True
+    return False
+
+
 def has_chat_model() -> bool:
-    try:
-        from eli.gui.eli_pro_audio_gui_v2_0 import discover_gguf_models
-        return bool(discover_gguf_models())
-    except Exception:
-        root = project_root()
-        for base in (root / "models", root / "models" / "gguf"):
-            if base.exists():
-                for p in base.rglob("*.gguf"):
-                    if "embed" not in p.name.lower() and "mmproj" not in p.name.lower():
-                        return True
-        return False
+    return _scan_chat_gguf(project_root())
 
 
 def has_embedder() -> bool:

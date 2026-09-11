@@ -169,6 +169,93 @@ def _user_root() -> Path:
     return Path(os.environ.get("ELI_PROJECT_ROOT", "") or "")
 
 
+def _qt_app():
+    """One QApplication for all pre-main dialogs — avoids AppImage re-exec windows."""
+    from PySide6.QtWidgets import QApplication
+    app = QApplication.instance()
+    if app is None:
+        app = QApplication(sys.argv)
+    return app
+
+
+def _message_box_ask(
+    *,
+    title: str,
+    text: str,
+    informative: str = "",
+    yes_text: str = "Yes",
+    no_text: str = "No",
+) -> bool:
+    from PySide6.QtWidgets import QMessageBox
+    _qt_app()
+    box = QMessageBox()
+    box.setWindowTitle(title)
+    box.setText(text)
+    if informative:
+        box.setInformativeText(informative)
+    yes = box.addButton(yes_text, QMessageBox.AcceptRole)
+    box.addButton(no_text, QMessageBox.RejectRole)
+    box.exec()
+    return box.clickedButton() is yes
+
+
+def _message_box_warning(title: str, text: str) -> None:
+    from PySide6.QtWidgets import QMessageBox
+    _qt_app()
+    QMessageBox.warning(None, title, text)
+
+
+def _run_progress_dialog(
+    *,
+    title: str,
+    label: str,
+    work_fn,
+    indeterminate: bool = False,
+) -> int:
+    """Run work_fn(state) on a background thread with a modal progress dialog."""
+    import threading
+    import time
+    from PySide6.QtWidgets import QProgressDialog
+    from PySide6.QtCore import Qt, QTimer
+
+    app = _qt_app()
+    dlg = QProgressDialog(label, None, 0, 0 if indeterminate else 100)
+    dlg.setWindowTitle(title)
+    dlg.setCancelButton(None)
+    dlg.setWindowModality(Qt.ApplicationModal)
+    dlg.setMinimumWidth(420)
+    dlg.show()
+
+    state: dict = {"rc": 1, "pct": 0, "done": False}
+
+    def _work() -> None:
+        try:
+            state["rc"] = int(work_fn(state) or 0)
+        except Exception:
+            state["rc"] = 1
+        finally:
+            state["done"] = True
+
+    threading.Thread(target=_work, daemon=True).start()
+    timer = QTimer()
+
+    def _tick() -> None:
+        if not indeterminate:
+            dlg.setValue(state["pct"])
+        if state["done"]:
+            timer.stop()
+            dlg.close()
+
+    timer.timeout.connect(_tick)
+    timer.start(300)
+    while not state["done"]:
+        app.processEvents()
+        time.sleep(0.02)
+    timer.stop()
+    dlg.close()
+    return int(state["rc"])
+
+
 def _fresh_start(argv: list[str]) -> int:
     """Wipe per-user ELI state for a clean-slate install (game-save reset).
 
@@ -273,28 +360,23 @@ def _uninstall() -> int:
     """Linux: remove menu entries; optionally wipe ELI data. The AppImage file
     itself is just a file — delete it afterwards if you want it gone."""
     import shutil
-    import subprocess
     files = _desktop_files()
     for old in files["eli"].parent.glob("eli*.desktop"):
         old.unlink(missing_ok=True)
     files["icon"].unlink(missing_ok=True)
     root = _user_root()
     wipe = False
-    ask = f"""
-import sys
-from PySide6.QtWidgets import QApplication, QMessageBox
-app = QApplication(sys.argv)
-m = QMessageBox()
-m.setWindowTitle("Uninstall ELI")
-m.setText("ELI's menu entries have been removed.")
-m.setInformativeText("Also delete ELI's data (settings, memory, downloaded models) in {root}?\\n\\nFinally, delete the .AppImage file itself to finish removal.")
-yes = m.addButton("Delete data too", QMessageBox.AcceptRole)
-m.addButton("Keep data", QMessageBox.RejectRole)
-m.exec()
-sys.exit(0 if m.clickedButton() is yes else 3)
-"""
     try:
-        wipe = subprocess.run([sys.executable, "-c", ask]).returncode == 0
+        wipe = _message_box_ask(
+            title="Uninstall ELI",
+            text="ELI's menu entries have been removed.",
+            informative=(
+                f"Also delete ELI's data (settings, memory, downloaded models) in {root}?\n\n"
+                "Finally, delete the .AppImage file itself to finish removal."
+            ),
+            yes_text="Delete data too",
+            no_text="Keep data",
+        )
     except Exception:
         answer = input(f"[uninstall] also delete ELI data in {root}? [y/N] ").strip().lower()
         wipe = answer in ("y", "yes")
@@ -323,7 +405,6 @@ def _first_run_integrate_offer() -> None:
         )
         return
     try:
-        import subprocess
         root = _user_root()
         if not str(root):
             return
@@ -331,22 +412,17 @@ def _first_run_integrate_offer() -> None:
         if marker.exists():
             return
         marker.parent.mkdir(parents=True, exist_ok=True)
-        ask = """
-import sys
-from PySide6.QtWidgets import QApplication, QMessageBox
-app = QApplication(sys.argv)
-m = QMessageBox()
-m.setWindowTitle("ELI - desktop integration")
-m.setText("Add ELI to your applications menu?")
-m.setInformativeText("Creates launcher entries for ELI, ELI Server and Uninstall "
-                     "pointing at this AppImage, with the current icon. Replaces "
-                     "entries from older versions.")
-yes = m.addButton("Add to menu (recommended)", QMessageBox.AcceptRole)
-m.addButton("Not now", QMessageBox.RejectRole)
-m.exec()
-sys.exit(0 if m.clickedButton() is yes else 3)
-"""
-        if subprocess.run([sys.executable, "-c", ask]).returncode == 0:
+        if _message_box_ask(
+            title="ELI - desktop integration",
+            text="Add ELI to your applications menu?",
+            informative=(
+                "Creates launcher entries for ELI, ELI Server and Uninstall "
+                "pointing at this AppImage, with the current icon. Replaces "
+                "entries from older versions."
+            ),
+            yes_text="Add to menu (recommended)",
+            no_text="Not now",
+        ):
             _integrate(quiet=True)
         marker.write_text("asked", encoding="utf-8")
     except Exception as exc:
@@ -361,14 +437,13 @@ def _first_run_model_offer() -> None:
     if not getattr(sys, "frozen", False):
         return
     try:
-        import subprocess
         root = _user_root()
         if not str(root):
             return
         from eli.core.paths import models_dir
         mdir = Path(models_dir())
         has_model = any(
-            "embed" not in p.name.lower()
+            "embed" not in p.name.lower() and "mmproj" not in p.name.lower()
             for p in mdir.rglob("*.gguf")
         ) if mdir.is_dir() else False
         marker = root / "runtime" / ".model_choice"
@@ -384,68 +459,42 @@ def _first_run_model_offer() -> None:
         if not key:
             return
         marker.parent.mkdir(parents=True, exist_ok=True)
-        ask = f"""
-import sys
-from PySide6.QtWidgets import QApplication, QMessageBox
-app = QApplication(sys.argv)
-m = QMessageBox()
-m.setWindowTitle("ELI - first model")
-m.setText("No AI model is installed yet.")
-m.setInformativeText("Download the recommended starter model now?\\n\\n{name} (~{size} GB) — matched to your hardware.\\n\\nYou can add or switch models any time in the app.")
-yes = m.addButton("Download now (recommended)", QMessageBox.AcceptRole)
-m.addButton("Later, in the app", QMessageBox.RejectRole)
-m.exec()
-sys.exit(0 if m.clickedButton() is yes else 3)
-"""
-        if subprocess.run([sys.executable, "-c", ask]).returncode != 0:
+        if not _message_box_ask(
+            title="ELI - first model",
+            text="No AI model is installed yet.",
+            informative=(
+                f"Download the recommended starter model now?\n\n"
+                f"{name} (~{size} GB) — matched to your hardware.\n\n"
+                "You can add or switch models any time in the app."
+            ),
+            yes_text="Download now (recommended)",
+            no_text="Later, in the app",
+        ):
             marker.write_text("later", encoding="utf-8")
             return
-        download = f"""
-import sys, threading
-from PySide6.QtWidgets import QApplication, QProgressDialog
-from PySide6.QtCore import Qt, QTimer
-from eli.core.model_download import download_model
-app = QApplication(sys.argv)
-dlg = QProgressDialog("Downloading {name}...", None, 0, 100)
-dlg.setWindowTitle("ELI - first model")
-dlg.setCancelButton(None)
-dlg.setWindowModality(Qt.ApplicationModal)
-dlg.setMinimumWidth(460)
-dlg.show()
-state = {{"pct": 0, "rc": 1}}
-def cb(done, total):
-    if total:
-        state["pct"] = int(done * 100 / total)
-def work():
-    try:
-        res = download_model({key!r}, progress_cb=cb)
-        state["rc"] = 0 if res.get("ok", True) else 1
-    except Exception:
-        state["rc"] = 1
-t = threading.Thread(target=work, daemon=True)
-t.start()
-timer = QTimer()
-def tick():
-    dlg.setValue(state["pct"])
-    if not t.is_alive():
-        app.quit()
-timer.timeout.connect(tick)
-timer.start(300)
-app.exec()
-sys.exit(state["rc"])
-"""
-        rc = subprocess.run([sys.executable, "-c", download]).returncode
+
+        def _download_work(state: dict) -> int:
+            from eli.core.model_download import download_model
+
+            def cb(done, total):
+                if total:
+                    state["pct"] = int(done * 100 / total)
+
+            res = download_model(key, progress_cb=cb)
+            return 0 if res.get("ok", True) else 1
+
+        rc = _run_progress_dialog(
+            title="ELI - first model",
+            label=f"Downloading {name}...",
+            work_fn=_download_work,
+        )
         marker.write_text("downloaded" if rc == 0 else "failed-will-retry-in-app", encoding="utf-8")
         if rc != 0:
-            notice = """
-import sys
-from PySide6.QtWidgets import QApplication, QMessageBox
-app = QApplication(sys.argv)
-QMessageBox.warning(None, "ELI - first model",
-    "The download did not finish - ELI will open anyway; use the model "
-    "picker inside the app to download or choose a model.")
-"""
-            subprocess.run([sys.executable, "-c", notice])
+            _message_box_warning(
+                "ELI - first model",
+                "The download did not finish — ELI will open anyway; use the model "
+                "picker inside the app to download or choose a model.",
+            )
     except Exception:
         pass  # never block the GUI boot
 
@@ -475,7 +524,6 @@ def _first_run_gpu_offer() -> None:
     if not getattr(sys, "frozen", False) or sys.platform == "darwin":
         return
     try:
-        import subprocess
         root = Path(os.environ.get("ELI_PROJECT_ROOT", "") or "")
         if not str(root):
             return
@@ -484,6 +532,11 @@ def _first_run_gpu_offer() -> None:
         marker = runtime / ".gpu_choice"
         _gp = _gpu_pack_module()
 
+        if marker.is_file():
+            choice = marker.read_text(encoding="utf-8", errors="replace").strip()
+            if choice.startswith("cpu"):
+                return
+
         if _gp.gpu_pack_operational(dest):
             if not _gp.activate_gpu_pack_runtime(dest, verify=True):
                 try:
@@ -491,16 +544,6 @@ def _first_run_gpu_offer() -> None:
                 except Exception:
                     pass
             return
-        if (dest / ".gpu_pack_ok").is_file():
-            try:
-                (dest / ".gpu_pack_ok").unlink(missing_ok=True)
-            except Exception:
-                pass
-
-        if marker.is_file():
-            choice = marker.read_text(encoding="utf-8", errors="replace").strip()
-            if choice.startswith("cpu"):
-                return
 
         from eli.core.hardware_profile import detect_hardware, integrated_gpu_label
         hp = detect_hardware()
@@ -521,61 +564,37 @@ def _first_run_gpu_offer() -> None:
             vram_gb = max(hp.total_vram_mb, hp.free_vram_mb) / 1024.0
             gpu_line = f"{hp.gpu_name} — {vram_gb:.0f} GB VRAM"
 
-        ask = f"""
-import sys
-from PySide6.QtWidgets import QApplication, QMessageBox
-app = QApplication(sys.argv)
-m = QMessageBox()
-m.setWindowTitle("ELI - GPU acceleration")
-m.setText("ELI detected: {gpu_line}")
-m.setInformativeText(
-    "Install the {backend} GPU pack now? This downloads the GPU inference engine "
-    "once ({size}). CPU mode always works; you can install or change the pack "
-    "later from the model load screen or with ELI --install-gpu-pack."
-)
-yes = m.addButton("Install {backend} GPU pack (recommended)", QMessageBox.AcceptRole)
-m.addButton("Use CPU only", QMessageBox.RejectRole)
-m.exec()
-sys.exit(0 if m.clickedButton() is yes else 3)
-"""
-        if subprocess.run([sys.executable, "-c", ask]).returncode != 0:
+        if not _message_box_ask(
+            title="ELI - GPU acceleration",
+            text=f"ELI detected: {gpu_line}",
+            informative=(
+                f"Install the {backend} GPU pack now? This downloads the GPU inference engine "
+                f"once ({size}). CPU mode always works; you can install or change the pack "
+                "later from the model load screen or with ELI --install-gpu-pack."
+            ),
+            yes_text=f"Install {backend} GPU pack (recommended)",
+            no_text="Use CPU only",
+        ):
             marker.write_text("cpu-user-choice", encoding="utf-8")
             return
 
-        install_argv = []
+        install_argv: list[str] = []
         if vulkan and not nvidia:
             install_argv.append("--vulkan")
         if (dest / "llama_cpp").is_dir():
             install_argv.append("--force")
-        install_argv_repr = repr(install_argv)
-        download = f"""
-import sys, threading
-from PySide6.QtWidgets import QApplication, QProgressDialog
-from PySide6.QtCore import Qt, QTimer
-import eli_gpu_pack
-app = QApplication(sys.argv)
-dlg = QProgressDialog("Installing GPU acceleration pack…", None, 0, 0)
-dlg.setWindowTitle("ELI - GPU acceleration")
-dlg.setCancelButton(None)
-dlg.setWindowModality(Qt.ApplicationModal)
-dlg.setMinimumWidth(420)
-dlg.show()
-rc = {{"v": 1}}
-argv = {install_argv_repr}
-def _run():
-    if argv:
-        rc["v"] = eli_gpu_pack.install(argv)
-    else:
-        rc["v"] = eli_gpu_pack.ensure_gpu_pack_for_hardware()
-t = threading.Thread(target=_run, daemon=True)
-t.start()
-timer = QTimer()
-timer.timeout.connect(lambda: None if t.is_alive() else app.quit())
-timer.start(300)
-app.exec()
-sys.exit(rc["v"])
-"""
-        rc = subprocess.run([sys.executable, "-c", download]).returncode
+
+        def _install_work(_state: dict) -> int:
+            if install_argv:
+                return int(_gp.install(install_argv) or 0)
+            return int(_gp.ensure_gpu_pack_for_hardware() or 0)
+
+        rc = _run_progress_dialog(
+            title="ELI - GPU acceleration",
+            label="Installing GPU acceleration pack…",
+            work_fn=_install_work,
+            indeterminate=True,
+        )
         if rc == 0 and _gp.gpu_pack_operational(dest):
             marker.write_text("gpu-vulkan" if (vulkan and not nvidia) else "gpu", encoding="utf-8")
             if not _gp.activate_gpu_pack_runtime(dest, verify=True):
@@ -584,12 +603,17 @@ sys.exit(rc["v"])
                 except Exception:
                     pass
         elif rc != 0:
+            marker.write_text("cpu-install-failed", encoding="utf-8")
             try:
                 reason = _gp.last_failure()
                 log_path = _gp._log_path()
             except Exception:
                 reason, log_path = "", None
-            retry = "ELI --install-gpu-pack --vulkan --force" if (vulkan and not nvidia) else "ELI --install-gpu-pack --force"
+            retry = (
+                "ELI --install-gpu-pack --vulkan --force"
+                if (vulkan and not nvidia)
+                else "ELI --install-gpu-pack --force"
+            )
             body = (
                 "ELI could not install a GPU acceleration pack for this machine "
                 f"and will run on CPU (fully functional). Retry with: {retry}"
@@ -598,13 +622,7 @@ sys.exit(rc["v"])
                 body += f"\n\nReason: {reason}"
             if log_path:
                 body += f"\n\nFull log: {log_path}"
-            notice = (
-                "import sys\n"
-                "from PySide6.QtWidgets import QApplication, QMessageBox\n"
-                "app = QApplication(sys.argv)\n"
-                f"QMessageBox.warning(None, 'ELI - GPU acceleration', {body!r})\n"
-            )
-            subprocess.run([sys.executable, "-c", notice])
+            _message_box_warning("ELI - GPU acceleration", body)
     except Exception:
         pass  # never block the GUI boot on the chooser
 

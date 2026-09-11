@@ -106,6 +106,18 @@ _ensure_ready_for_gui() {
   _ensure_gui_in_venv || return 1
 }
 
+_ensure_core_runtime() {
+  if _install_complete; then
+    return 0
+  fi
+  if [ -t 1 ]; then
+    echo "  [setup] Core runtime missing (llama_cpp) — running install.sh first…"
+  fi
+  bash "$ROOT/install.sh" --yes --auto-model \
+    || bash "$ROOT/install.sh" --yes --cpu-only --auto-model
+  _install_complete
+}
+
 _try_gui_installer() {
   local _log="$ROOT/artifacts/setup_gui.log"
   mkdir -p "$ROOT/artifacts"
@@ -129,8 +141,11 @@ _try_gui_installer() {
   return 1
 }
 
-if _gui_available && _try_gui_installer; then
-  exit 0
+if _gui_available; then
+  _ensure_core_runtime || true
+  if _try_gui_installer; then
+    exit 0
+  fi
 fi
 
 # ── Terminal fallback (headless / no Qt) ─────────────────────────────────────

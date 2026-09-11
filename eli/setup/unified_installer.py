@@ -586,11 +586,14 @@ def run_unified_installer(*, launch_after: bool = False) -> int:
     if profile == InstallProfile.ANDROID_HEADLESS and not gui_install_available():
         return run_terminal_headless_installer(launch_after=launch_after)
 
+    os.environ["ELI_SETUP_WIZARD"] = "1"
     app = QApplication.instance() or QApplication(sys.argv)
     dlg = UnifiedInstallWizard(launch_after=launch_after)
     dlg.run_auto()
     dlg.exec()
-    return 0 if dlg._install_succeeded else 1
+    root = project_root()
+    ok = dlg._install_succeeded or _core_install_complete(root)
+    return 0 if ok else 1
 
 
 def ensure_qt_for_installer() -> bool:

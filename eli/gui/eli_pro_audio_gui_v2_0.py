@@ -118,10 +118,12 @@ try:
     from eli.cognition import gguf_inference
     from eli.planning.proactive_daemon import start_daemon
     CENTRAL_IMPORTS_AVAILABLE = True
-    print("✅ Central ELI modules loaded.")
+    if not os.environ.get("ELI_SETUP_WIZARD"):
+        print("✅ Central ELI modules loaded.")
 except ImportError as e:
     CENTRAL_IMPORTS_AVAILABLE = False
-    print(f"⚠️  Central ELI modules not available – GUI will operate with limited functionality. Error: {e}")
+    if not os.environ.get("ELI_SETUP_WIZARD"):
+        print(f"⚠️  Central ELI modules not available – GUI will operate with limited functionality. Error: {e}")
     config = None
     get_paths = None
     get_memory = None
@@ -12562,7 +12564,7 @@ class EliMainWindow(QMainWindow):
 def main():
     print(f"\n  {APP_NAME} {APP_VERSION}\n  ───────────────\n")
 
-    app = QApplication(sys.argv)
+    app = QApplication.instance() or QApplication(sys.argv)
     app.setStyle('Fusion')
     try:
         from eli.gui.branding import load_app_icon

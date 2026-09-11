@@ -316,8 +316,23 @@ def _pin_frozen_root() -> None:
             "[ELI] GPU pack disabled by ELI_DISABLE_GPU_PACK - using the bundled "
             "runtime (CPU, but supports newer model architectures).\n"
         )
+    _gpu_choice = ""
+    try:
+        _choice_file = root / "runtime" / ".gpu_choice"
+        if _choice_file.is_file():
+            _gpu_choice = _choice_file.read_text(encoding="utf-8", errors="replace").strip()
+    except Exception:
+        _gpu_choice = ""
+
     if (gpu_dir / "llama_cpp").is_dir() and not _pack_off:
-        if (gpu_dir / ".gpu_pack_ok").is_file():
+        if _gpu_choice.startswith("cpu"):
+            # User chose CPU-only or machine has no GPU — never shadow bundled runtime.
+            try:
+                import eli_gpu_pack as _gp_skip
+                _gp_skip.deactivate_gpu_pack_runtime(gpu_dir)
+            except Exception:
+                pass
+        elif (gpu_dir / ".gpu_pack_ok").is_file():
             _pack_live = False
             try:
                 import eli_gpu_pack
@@ -330,18 +345,15 @@ def _pin_frozen_root() -> None:
                     _gp_deact.deactivate_gpu_pack_runtime(gpu_dir)
                 except Exception:
                     pass
-                # Invalidate the install marker so a broken pack does not shadow
-                # the bundled runtime on every subsequent boot.
-                try:
-                    (gpu_dir / ".gpu_pack_ok").unlink(missing_ok=True)
-                except Exception:
-                    pass
-                _warn(
-                    "[ELI] GPU pack cannot reach a GPU backend in this build - "
-                    "falling back to the bundled runtime (CPU). Reinstall the "
-                    "pack with: ELI --install-gpu-pack --vulkan --force\n"
-                )
-        else:
+                # Keep .gpu_pack_ok — the first-run chooser can retry activation
+                # without forcing a full re-download. Bundled CPU runtime stays active.
+                if _gpu_choice.startswith("gpu"):
+                    _warn(
+                        "[ELI] GPU pack installed but not active this session — "
+                        "using bundled CPU runtime. Retry from the app or: "
+                        "ELI --install-gpu-pack --force\n"
+                    )
+        elif not _gpu_choice:
             _warn(
                 "[ELI] ignoring unverified GPU pack (missing .gpu_pack_ok) — "
                 "running on CPU; reinstall with: ELI --install-gpu-pack --force\n"
