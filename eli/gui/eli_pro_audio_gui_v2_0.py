@@ -807,6 +807,11 @@ class LocalModelManager:
         use_mlock: bool = False,
     ) -> bool:
         try:
+            try:
+                from eli.core.gpu_pack_runtime import try_activate_gpu_pack
+                try_activate_gpu_pack(verify=True)
+            except Exception:
+                log.debug("GPU pack activation before model load skipped", exc_info=True)
             from llama_cpp import Llama
             from llama_cpp import llama_cpp as _llama_native
             # Co-resident vision: reserve the small fast (Moondream) model's VRAM

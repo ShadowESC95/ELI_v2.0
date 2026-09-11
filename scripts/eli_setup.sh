@@ -12,6 +12,9 @@ export ELI_CONFIG_DIR="${ELI_CONFIG_DIR:-$ROOT/config}"
 export ELI_MODELS_DIR="${ELI_MODELS_DIR:-$ROOT/models}"
 export ELI_CACHE_DIR="${ELI_CACHE_DIR:-$ROOT/cache}"
 export PYTHONPATH="$ROOT${PYTHONPATH:+:$PYTHONPATH}"
+# Portable zip: CPU llama-cpp in .venv is reliable on Iris Xe / 8 GB laptops.
+# AppImage users get the optional GPU pack for Vulkan. Override with ELI_INSTALL_CPU_ONLY=0.
+export ELI_INSTALL_CPU_ONLY="${ELI_INSTALL_CPU_ONLY:-1}"
 # GNOME/KDE often set QT_STYLE_OVERRIDE=adwaita — PySide6 only ships Fusion/Windows.
 unset QT_STYLE_OVERRIDE 2>/dev/null || true
 
@@ -110,11 +113,18 @@ _ensure_core_runtime() {
   if _install_complete; then
     return 0
   fi
+  mkdir -p "$ROOT/artifacts"
+  local _log="$ROOT/artifacts/preinstall.log"
   if [ -t 1 ]; then
-    echo "  [setup] Core runtime missing (llama_cpp) — running install.sh first…"
+    echo "  [setup] Core runtime missing (llama_cpp) — running install.sh (CPU-first)…"
+    echo "  [setup] Full log: $_log"
   fi
-  bash "$ROOT/install.sh" --yes --auto-model \
-    || bash "$ROOT/install.sh" --yes --cpu-only --auto-model
+  if bash "$ROOT/install.sh" --yes --cpu-only --auto-model >>"$_log" 2>&1; then
+    _install_complete && return 0
+  fi
+  if [ "${ELI_INSTALL_CPU_ONLY:-1}" = "0" ]; then
+    bash "$ROOT/install.sh" --yes --auto-model >>"$_log" 2>&1 || true
+  fi
   _install_complete
 }
 
@@ -142,13 +152,17 @@ _try_gui_installer() {
 }
 
 if _gui_available; then
-  _ensure_core_runtime || true
-  if _try_gui_installer; then
+  if _ensure_core_runtime && _install_complete && _try_gui_installer; then
+    exit 0
+  fi
+  if _install_complete && _real_qt_ok; then
+    echo ""
+    echo "  [OK] Core install complete. Launch ELI with: bash \"$ROOT/RUN_ELI.sh\""
     exit 0
   fi
 fi
 
-# ── Terminal fallback (headless / no Qt) ─────────────────────────────────────
+# ── Terminal fallback (headless / no Qt / GUI wizard incomplete) ─────────────
 if [ -t 1 ]; then
   B=$'\033[1m'; R=$'\033[0m'; GRN=$'\033[32m'; YEL=$'\033[33m'; CYN=$'\033[36m'
 else
@@ -157,7 +171,7 @@ fi
 
 echo
 echo "${B}${CYN}ELI v2.0 setup (terminal mode)${R}"
-echo "  Graphical installer unavailable — running full install in the terminal."
+echo "  GUI wizard did not finish — completing install in the terminal."
 echo
 
 if ! command -v python3 >/dev/null 2>&1; then

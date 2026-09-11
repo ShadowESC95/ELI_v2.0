@@ -384,6 +384,13 @@ def main():
     saved_model = cfg.get("model_path") or cfg.get("bundled_model_path") or ""
     first_run   = not cfg.get("first_run_complete", False)
 
+    # Activate GPU pack before any code imports bundled llama_cpp (AppImage/portable).
+    try:
+        from eli.core.gpu_pack_runtime import try_activate_gpu_pack
+        try_activate_gpu_pack(verify=True)
+    except Exception:
+        log.debug("GPU pack early activation skipped", exc_info=True)
+
     # If the GUI startup picker is enabled, skip the terminal pre-load entirely.
     # StartupModelSelectionDialog owns model selection, hw-tuning, and load.
     if cfg.get("show_startup_model_picker", True) and "--setup" not in sys.argv:

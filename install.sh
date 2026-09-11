@@ -39,6 +39,9 @@ for arg in "$@"; do
         --no-model)    NO_MODEL=1 ;;
     esac
 done
+if [ "${ELI_INSTALL_CPU_ONLY:-}" = "1" ]; then
+    CPU_ONLY=1
+fi
 [ -t 0 ] || ASSUME_YES=1   # not a TTY (piped install) → never block on prompts
 # Non-interactive: VRAM-sized default chat model unless --no-model.
 if [ "$ASSUME_YES" -eq 1 ] && [ "$NO_MODEL" -eq 0 ] && [ -z "$FETCH_MODEL" ]; then
@@ -177,14 +180,20 @@ if [ "$OS" = "Darwin" ]; then
     _CPUS="$(sysctl -n hw.ncpu 2>/dev/null || echo '?')"
     _RAMGB="$(( $(sysctl -n hw.memsize 2>/dev/null || echo 0) / 1073741824 ))"
 else
-    _CPUS="$(nproc 2>/dev/null || echo '?')"
-    _RAMGB="$(free -g 2>/dev/null | awk '/^Mem:/{print $2}')"
+    _CPUS="$(_safe_pipeline bash -c 'nproc 2>/dev/null || echo ?')"
+    _RAMGB="$(_safe_pipeline bash -c "free -g 2>/dev/null | awk '/^Mem:/{print \$2}' || true")"
 fi
 ok "CPU         ${B}${_CPUS}${R} cores      RAM ${B}${_RAMGB:-?} GB${R}"
-ok "Disk free   ${B}$(df -h "$SCRIPT_DIR" 2>/dev/null | awk 'NR==2{print $4}')${R}   ${D}(a model is ~2-5 GB)${R}"
-# GPU probes use grep/lspci pipelines — with `set -o pipefail`, a no-match grep
-# aborts the whole install (common on Intel iGPU systems at 5% / "Your system").
+_DF_FREE="$(_safe_pipeline bash -c "df -h \"$SCRIPT_DIR\" 2>/dev/null | awk 'NR==2{print \$4}' || true")"
+ok "Disk free   ${B}${_DF_FREE:-?}${R}   ${D}(a model is ~2-5 GB)${R}"
+# Pipelines with grep/awk — under `set -o pipefail` a no-match grep aborts the
+# whole install (seen on Intel iGPU laptops stuck at 5% / "Scanning hardware").
 _gpu_pipeline() {
+    set +o pipefail
+    "$@"
+    set -o pipefail
+}
+_safe_pipeline() {
     set +o pipefail
     "$@"
     set -o pipefail
@@ -279,6 +288,22 @@ elif [ "$HAS_AMD" -eq 1 ];  then BUILD_LABEL="GPU (AMD ROCm)"
 elif [ "$HAS_INTEL_IGPU" -eq 1 ]; then BUILD_LABEL="GPU (Intel Vulkan)"
 elif [ "$HAS_QUALCOMM_IGPU" -eq 1 ]; then BUILD_LABEL="GPU (Qualcomm Vulkan)"
 else                             BUILD_LABEL="GPU (CUDA)"; fi
+
+# Portable / non-interactive installs on Intel iGPU: Vulkan source builds often
+# OOM or fail on ≤8 GB RAM laptops. CPU wheels are reliable; AppImage GPU pack
+# remains the optional Vulkan path for frozen builds.
+if [ "$ASSUME_YES" -eq 1 ] && [ "$HAS_INTEL_IGPU" -eq 1 ] && [ "$CPU_ONLY" -eq 0 ]; then
+    echo "[..] Intel integrated GPU — non-interactive install uses CPU llama-cpp."
+    echo "     (Use the AppImage + GPU pack for Vulkan offload, or rebuild manually.)"
+    CPU_ONLY=1
+    BUILD_LABEL="CPU-only (Intel iGPU laptop)"
+fi
+if [ "$ASSUME_YES" -eq 1 ] && [ "${_RAMGB:-99}" -le 8 ] 2>/dev/null && [ "$CPU_ONLY" -eq 0 ] \
+        && [ "$HAS_NVIDIA" -eq 0 ] && [ "$HAS_AMD" -eq 0 ]; then
+    echo "[..] ${_RAMGB} GB RAM — non-interactive install uses CPU llama-cpp for reliability."
+    CPU_ONLY=1
+    BUILD_LABEL="CPU-only (low RAM)"
+fi
 
 # ── Plan — what is about to happen ───────────────────────────────────────────
 section "Plan"
@@ -563,7 +588,12 @@ elif [ "$HAS_INTEL_IGPU" -eq 1 ]; then
         echo "[WARN] Intel Vulkan build failed (install libvulkan-dev / mesa-vulkan-drivers)."
         echo "       Installing CPU build — reliable on integrated-GPU laptops."
         echo "         Retry: CMAKE_ARGS=\"-DGGML_VULKAN=on\" \"$PIP\" install --force-reinstall --no-cache-dir llama-cpp-python"
-        _pip install llama-cpp-python --prefer-binary --quiet
+        if ! _pip install llama-cpp-python --prefer-binary --quiet; then
+            warn "CPU wheel unavailable — building llama-cpp from source (several minutes)…"
+            ensure_build_toolchain
+            CMAKE_ARGS="$(_llama_safe_cpu_cmake_flags)" \
+                _pip install "llama-cpp-python>=0.3.30" --no-cache-dir --quiet || true
+        fi
     fi
 elif [ "$HAS_QUALCOMM_IGPU" -eq 1 ]; then
     echo "     (Qualcomm Adreno — Vulkan offload, then CPU)"

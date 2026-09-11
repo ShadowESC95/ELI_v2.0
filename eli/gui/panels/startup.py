@@ -817,9 +817,11 @@ class StartupModelSelectionDialog(QDialog):
         if _idx >= 0:
             self.compute_mode_combo.setCurrentIndex(_idx)
         try:
+            from eli.core.gpu_pack_runtime import try_activate_gpu_pack
+            try_activate_gpu_pack(verify=True)
             from eli.core.hardware_profile import detect_hardware, _llama_gpu_offload_available
             _hw = detect_hardware()
-            if _hw.has_gpu and not _llama_gpu_offload_available() and _saved == "auto":
+            if _hw.has_gpu and not _llama_gpu_offload_available() and _saved in ("auto", "gpu"):
                 _cpu_idx = self.compute_mode_combo.findData("cpu")
                 if _cpu_idx >= 0:
                     self.compute_mode_combo.setCurrentIndex(_cpu_idx)

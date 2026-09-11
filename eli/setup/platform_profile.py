@@ -3,6 +3,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from enum import Enum
+import os
 import platform
 import sys
 from typing import Optional
@@ -126,4 +127,8 @@ def install_script_for_profile(root, profile: Optional[InstallProfile] = None):
     script = root / "install.sh"
     if not script.is_file():
         raise FileNotFoundError(f"install.sh not found under {root}")
-    return script, ["bash", str(script), "--yes", "--auto-model"]
+    argv = ["bash", str(script), "--yes"]
+    if os.environ.get("ELI_INSTALL_CPU_ONLY", "").strip().lower() in {"1", "true", "yes", "on"}:
+        argv.append("--cpu-only")
+    argv.append("--auto-model")
+    return script, argv
