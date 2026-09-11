@@ -1,49 +1,37 @@
 # ELI v2.0 — Commands & Installers Reference
 
-> **Updated for v2.4.12 (September 2026).** The primary way to install ELI is now the
-> **prebuilt installers on GitHub Releases** — `ELI-Setup-<v>.exe` (Windows),
-> the `.dmg` (macOS, Apple Silicon), the `.AppImage` (Linux). The Linux AppImage and
-> portable tarball are **CI-launch-tested** on every release; the macOS `.dmg` is
-> built on a Mac (best-effort, not verified in CI). First launch offers GPU acceleration
-> (NVIDIA CUDA / AMD Vulkan; Apple Metal is built in) and a starter model sized to your
-> hardware. Data lives in a per-user `ELI_v2` folder and survives upgrades;
-> `--fresh-start` resets it. Regenerate the live capability doc:
-> `python -m eli.tools.registry.capability_updater`. Everything below remains valid for
-> **source installs** (clone + `install.sh`) and the classic portable tarball.
+> **Updated for v2.4.23 (September 2026).** One hardware-aware GUI wizard. Prebuilt installers on
+> [GitHub Releases](https://github.com/ShadowESC95/ELI_v2.0/releases/tag/v2.4.23). Full beginner map:
+> `first time Installation/INSTALLATION_GUIDE.md`.
 
 
 *Every install path and command in one place. Copy-paste ready. Run everything from
 inside the ELI folder unless noted.*
 
-Canonical version: **2.4.12**. Best-tested platform: **Linux x86_64 + NVIDIA**. Windows,
-macOS, and AMD are coded for and ship installers, but expect rough edges.
+Canonical version: **2.4.23**. Best-tested platform: **Linux x86_64 + NVIDIA**. Windows,
+macOS, AMD, Intel Arc, and Apple Silicon ship supported paths; Iris Xe / ≤8 GB use CPU policy.
 
 ---
 
 ## 1. The one-click installer (recommended for everyone)
 
-This is the gentlest path — it does the whole job and opens ELI at the end. Safe to run
-more than once.
-
-### From a downloaded release (no git, no build)
-
-Get `ELI_v2-2.4.12-linux-portable.tar.gz` from
-[GitHub Releases](https://github.com/ShadowESC95/ELI_v2.0/releases), then:
+### From a downloaded portable release
 
 ```bash
-tar -xzf ELI_v2-2.4.12-linux-portable.tar.gz
-cd ELI_v2-2.4.12-linux-portable
+tar -xzf ELI_v2-2.4.23-linux-portable.tar.gz
+cd ELI_v2-2.4.23-linux-portable
 chmod +x ELI_Setup.sh
 ./ELI_Setup.sh
 ```
 
-`ELI_Setup.sh` delegates to `scripts/eli_setup.sh` (GUI-first since v2.4.6):
+`ELI_Setup.sh` → `scripts/eli_setup.sh`:
 
-1. Minimal `.venv` bootstrap + PySide6 (when a display is available)
-2. **Unified Install Wizard** — single Qt dialog streams `install.sh` / `install.ps1` with live terminal mirror (venv, llama-cpp/GPU pack, models, voice, DB)
-3. Post-install asset stages and optional launch — **no separate pre-GUI `install.sh` run**, **no double wizard**
+1. Minimal `.venv` + PySide6 (when a display is available)
+2. **`eli.setup.hardware_policy`** decides CPU vs GPU
+3. **Unified Install Wizard** streams `install.sh` / `install.ps1` **once**
+4. Hard-fail stages until nomic + voice + chat model succeed
 
-Terminal fallback (headless / no Qt): runs `install.sh --yes --auto-model`, then `--run-remaining`.
+Terminal fallback (headless / no Qt): `install.sh --yes [--cpu-only] --auto-model`, then `--run-remaining`.
 
 ### From a git clone
 
@@ -53,17 +41,16 @@ cd ELI_v2.0
 ./scripts/eli_setup.sh
 ```
 
-### The absolute-easiest Linux path: the AppImage
-
-Get `ELI_v2-2.4.12-x86_64.AppImage` from Releases:
+### Linux AppImage
 
 ```bash
-chmod +x ELI_v2-2.4.12-x86_64.AppImage
-./ELI_v2-2.4.12-x86_64.AppImage
+chmod +x ELI_v2-2.4.23-x86_64.AppImage
+./ELI_v2-2.4.23-x86_64.AppImage
 ```
 
-First double-click installs ELI to `~/.local/share/ELI_v2` and runs setup once; every
-launch after that opens ELI directly.
+### Compatibility aliases (not separate installers)
+
+`scripts/eli_one_click_setup.sh` and `scripts/install_eli.sh` **only redirect** to `eli_setup.sh`.
 
 ---
 
@@ -77,6 +64,8 @@ cd ELI_v2.0
 bash install.sh                 # interactive: system report → plan → install → pick model
 ./scripts/eli_launch.sh         # launch the desktop app
 ```
+
+On Iris Xe / ≤8 GB prefer `./scripts/eli_setup.sh` or `bash install.sh --yes --cpu-only --auto-model`.
 
 **`install.sh` flags** (combine as needed):
 

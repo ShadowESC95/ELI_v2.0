@@ -1,14 +1,43 @@
 # ELI — Common Errors & Fixes
 
-> **Updated for v2.4.12 (September 2026).** The primary install path is now the
-> prebuilt, CI-launch-tested installers on GitHub Releases (Windows Setup.exe,
-> macOS dmg, Linux AppImage) with first-boot GPU (CUDA/Vulkan/Metal) and
-> starter-model offers; data lives in a per-user `ELI_v2` folder that survives
-> upgrades. Source installs below remain fully supported.
+> **Updated for v2.4.23 (September 2026).** Primary path: GitHub Releases
+> (`ELI-Setup-*.exe`, macOS dmg, Linux AppImage). Portable Linux uses `./ELI_Setup.sh`
+> (CPU-first). The in-app **Home** tab is ELI MQTT/devices — not Home Assistant.
 
 
 A quick reference for the gremlins that actually come up when running ELI. Each one is
 symptom → cause → the exact fix. Add new ones as they surface.
+
+---
+
+## Windows: two ELI windows after Setup.exe
+
+**Symptom:** Finish the installer and two GUI windows appear (or desktop has ELI + ELI Server).
+**Cause:** Desktop used to pin both `ELI.exe` and `ELI-Server.exe`; post-install could race.
+**Fix (v2.4.23+):** Desktop shortcut is **ELI only**; Server stays in Start Menu. Frozen GUI
+takes a singleton lock — a second launch shows “ELI is already running” and exits.
+Close the extra window; upgrade to 2.4.23+.
+
+---
+
+## Setup wizard: nomic / Piper “won’t download”
+
+**Symptom:** Chat model downloads, but embedder/voice stay missing.
+**Cause:** Older wizard called `download_aux(required_only=False)` and ignored failures; offline-by-default blocked FirstBoot prefetch.
+**Fix (v2.4.23+):** Wizard uses `python -m eli.core.model_download --aux` with a real exit code.
+Click **Fetch embedder + voice now** (scoped network) or run:
+```bash
+.venv/bin/python -m eli.core.model_download --aux
+.venv/bin/python -m eli.runtime.voice_assets
+```
+
+---
+
+## Web server / phone “Home” page won’t connect
+
+**Symptom:** Settings → Web Server starts, phone can’t open the URL / QR is `<this-computer-ip>`.
+**Cause:** LAN IP detection lacked a Windows path; Apply-port left a stale `ELI_API_PORT`; HTTPS sidecar couldn’t stop; Windows firewall tip omitted 8443.
+**Fix (v2.4.23+):** Shared `resolve_lan_ip()` (UDP + PowerShell); Stop clears port env; HTTPS handle is retained; firewall hints include HTTPS. Use **phone / Wi-Fi** mode, allow the firewall command, open the **token** URL (Home tab = devices/MQTT, not Home Assistant).
 
 ---
 

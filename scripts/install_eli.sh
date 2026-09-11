@@ -1,67 +1,10 @@
 #!/usr/bin/env bash
+# Compatibility alias → scripts/eli_setup.sh (unified GUI wizard).
+# Prefer: ./ELI_Setup.sh
+#
+# Historical pip-only behaviour is removed — it skipped hardware scan and
+# produced pin conflicts. There is no --legacy-pip escape hatch.
 set -euo pipefail
-
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-cd "$ROOT"
-
-PYTHON_BIN="${PYTHON_BIN:-python3}"
-VENV_DIR="${VENV_DIR:-.venv}"
-
-echo "=== ELI v2.0 installer ==="
-echo "Project: $ROOT"
-echo "Python : $($PYTHON_BIN --version 2>&1)"
-
-echo
-echo "=== Creating virtual environment ==="
-"$PYTHON_BIN" -m venv "$VENV_DIR"
-
-echo
-echo "=== Activating virtual environment ==="
-# shellcheck disable=SC1090
-source "$VENV_DIR/bin/activate"
-
-echo
-echo "=== Upgrading pip tooling ==="
-python -m pip install --upgrade pip setuptools wheel
-
-echo
-echo "=== Installing runtime requirements ==="
-REQ=""
-if [ -f requirements.lock.txt ]; then
-  REQ=requirements.lock.txt
-elif [ -f requirements.txt ]; then
-  REQ=requirements.txt
-else
-  echo "❌ Missing requirements.lock.txt / requirements.txt"
-  exit 1
-fi
-echo "Using: $REQ"
-python -m pip install -r "$REQ"
-
-if [ -f requirements-learning.txt ]; then
-  echo
-  echo "=== Installing optional learning requirements ==="
-  python -m pip install -r requirements-learning.txt
-fi
-
-echo
-echo "=== Preparing launcher ==="
-chmod +x "$ROOT/bin/elix" 2>/dev/null || true
-chmod +x "$ROOT/bin/elix.real" 2>/dev/null || true
-
-mkdir -p "$HOME/.local/bin"
-ln -sfn "$ROOT/bin/elix" "$HOME/.local/bin/elix"
-
-echo
-echo "=== Optional media playback (YouTube background audio, Spotify transport) ==="
-echo "Linux:   sudo apt install mpv yt-dlp playerctl  # or your distro equivalent"
-echo "macOS:   brew install mpv yt-dlp"
-echo "Windows: install mpv + yt-dlp and add to PATH"
-echo "Set ELI_BROWSER=chromium (or firefox, msedge, etc.) if the default browser fails."
-
-echo
-echo "=== Installer complete ==="
-echo "Run:"
-echo "  cd \"$ROOT\""
-echo "  source .venv/bin/activate"
-echo "  elix"
+echo "[install_eli] Redirecting to the unified installer (eli_setup → GUI wizard)…"
+exec bash "$ROOT/scripts/eli_setup.sh" "$@"

@@ -6,9 +6,15 @@ exposes a **mobile-first web chat UI** plus a small REST API. It lets you reach 
 machine**. Nothing goes to the cloud; this is the same offline-first ELI, just reachable over
 your own LAN.
 
+> The sidebar **Home** tab (`devices`) is ELI’s **native MQTT / device** console — it is
+> **not** Home Assistant. Pair phones via **Connect**; manage MQTT devices under Home.
+
 > "Flask" is the common shorthand for this server. ELI actually uses **FastAPI** (same idea,
 > async, with auto-generated API docs at `/docs`). The launchers and endpoints below are the
 > real interface.
+
+**v2.4.23:** LAN IP resolution works on Windows (UDP + `Get-NetIPAddress`); GUI Stop clears a
+stale `ELI_API_PORT`; HTTPS sidecar can be stopped; Windows firewall hints include port 8443.
 
 ---
 
@@ -32,21 +38,20 @@ The server is **safe by default**:
 
 ## 3. Quick start
 
-**Linux / macOS:**
+**From the GUI (recommended):** Settings → **Web Server** → Start (this computer) or
+Start (phone / Wi-Fi). Prefer this over launching a second process next to a loaded model.
+
+**Linux / macOS (source / portable):**
 ```bash
 ./scripts/eli_serve.sh                 # local-only  -> http://127.0.0.1:8081/
 ./scripts/eli_serve.sh --lan           # LAN access for a phone/tablet (binds 0.0.0.0 + token)
 ./scripts/eli_serve.sh --lan --port 9000
 ```
 
-**Windows (PowerShell):**
-```powershell
-.\scripts\eli_serve.ps1                 # local-only
-.\scripts\eli_serve.ps1 -Lan            # LAN access (+ token)
-.\scripts\eli_serve.ps1 -Lan -Port 9000
-```
+**Windows frozen:** run **ELI-Server.exe** (Start Menu) or `ELI.exe --server`.  
+`eli_serve.ps1` is for **source** installs with a `.venv` only.
 
-**Via the unified launcher (Linux/macOS):**
+**Via the unified launcher (Linux/macOS source):**
 ```bash
 ./scripts/eli_launch.sh serve --lan     # server only
 ./scripts/eli_launch.sh both --lan      # desktop GUI + server together

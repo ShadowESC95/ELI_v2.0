@@ -94,17 +94,13 @@ elif [ "$RUN_SETUP" = "auto" ] && [ ! -x "$PY" ]; then
 fi
 
 if [ "$need_setup" -eq 1 ]; then
-  echo "[startup] running setup"
-  setup_args=(--no-desktop)
-  if [ "$RESTORE_ASSETS" -eq 1 ]; then
-    setup_args+=(--with-github-assets --repo "$REPO" --tag "$TAG")
-  fi
-  bash "$ROOT/scripts/eli_one_click_setup.sh" "${setup_args[@]}"
+  echo "[startup] running unified setup (eli_setup → GUI wizard when available)"
+  bash "$ROOT/scripts/eli_setup.sh"
 fi
 
 if [ ! -x "$PY" ]; then
   echo "[startup] missing virtualenv python: $PY" >&2
-  echo "[startup] run: bash scripts/eli_one_click_setup.sh" >&2
+  echo "[startup] run: bash scripts/eli_setup.sh   (or ./ELI_Setup.sh)" >&2
   exit 1
 fi
 
@@ -115,11 +111,12 @@ if ! "$PY" -c "from llama_cpp import llama_cpp as _lc; _lc.llama_backend_init()"
   _REPAIR_LOG_DIR="$ROOT/artifacts/startup/logs"
   mkdir -p "$_REPAIR_LOG_DIR"
   if [ -x "$ROOT/install.sh" ]; then
-    bash "$ROOT/install.sh" --yes >>"$_REPAIR_LOG_DIR/llama_repair.log" 2>&1 \
+    # Prefer CPU repair — Vulkan/CUDA source rebuilds are the wrong fix for SIGILL.
+    bash "$ROOT/install.sh" --yes --cpu-only --auto-model >>"$_REPAIR_LOG_DIR/llama_repair.log" 2>&1 \
       || echo "[startup] automatic llama-cpp repair failed — see $_REPAIR_LOG_DIR/llama_repair.log" >&2
   fi
   if ! "$PY" -c "from llama_cpp import llama_cpp as _lc; _lc.llama_backend_init()" >/dev/null 2>&1; then
-    echo "[startup] llama-cpp still cannot initialize on this CPU — run: bash install.sh" >&2
+    echo "[startup] llama-cpp still cannot initialize on this CPU — run: bash scripts/eli_setup.sh" >&2
     exit 132
   fi
 fi

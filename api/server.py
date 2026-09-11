@@ -1717,6 +1717,11 @@ def _firewall_hint() -> dict:
         tool = "Windows Firewall"
         cmds = [f'netsh advfirewall firewall add rule name="ELI" dir=in '
                 f'action=allow protocol=TCP localport={port}']
+        if hport:
+            cmds.append(
+                f'netsh advfirewall firewall add rule name="ELI HTTPS" dir=in '
+                f'action=allow protocol=TCP localport={hport}'
+            )
     elif osname == "darwin":
         tool = "macOS firewall"
         cmds = ["System Settings → Network → Firewall → allow incoming connections for "
@@ -2035,39 +2040,12 @@ def voice_tts(req: TTSRequest):
 # Run the server
 # ----------------------------------------------------------------------
 def _lan_ip() -> str:
-    """Best-effort private LAN IP a phone on the same Wi-Fi can actually reach.
-    Prefers 192.168/10/non-docker-172 over loopback and docker bridges."""
-    import socket, subprocess
-    cands = []
+    """Best-effort private LAN IP a phone on the same Wi-Fi can actually reach."""
     try:
-        cands.append(socket.gethostbyname(socket.gethostname()))
+        from eli.runtime.server_util import resolve_lan_ip
+        return resolve_lan_ip()
     except Exception:
-        pass
-    try:
-        out = subprocess.run(["hostname", "-I"], capture_output=True, text=True, timeout=2)
-        cands += (out.stdout or "").split()
-    except Exception:
-        pass
-    try:  # macOS
-        for ifc in ("en0", "en1"):
-            out = subprocess.run(["ipconfig", "getifaddr", ifc], capture_output=True, text=True, timeout=2)
-            if out.stdout.strip():
-                cands.append(out.stdout.strip())
-    except Exception:
-        pass
-
-    def _score(ip: str) -> int:
-        if not ip or ip.startswith("127.") or ":" in ip:
-            return -1
-        if ip.startswith("192.168."):
-            return 4
-        if ip.startswith("10."):
-            return 3
-        if ip.startswith("172.17.") or ip.startswith("172.18."):
-            return 1  # docker bridge — usable but deprioritised
-        return 2
-    best = max(cands, key=_score, default="")
-    return best if best and _score(best) > 0 else "<this-computer-ip>"
+        return "<this-computer-ip>"
 
 
 def _ensure_lan_cert():

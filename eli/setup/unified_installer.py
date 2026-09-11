@@ -313,7 +313,19 @@ class UnifiedInstallWizard(QDialog):
         self._clock.start()
         self._fade_msg.set_phase("welcome")
         self._fade_msg.start()
-        self._set_phase("welcome", 2, f"Python {ver} OK")
+        hw_msg = f"Python {ver} OK"
+        try:
+            from eli.setup.hardware_policy import (
+                apply_cpu_only_env,
+                detect_accelerators,
+                summarize_for_ui,
+            )
+            inv = detect_accelerators()
+            apply_cpu_only_env(inv)
+            hw_msg = f"Python {ver} OK — {summarize_for_ui(inv)}"
+        except Exception:
+            pass
+        self._set_phase("welcome", 2, hw_msg)
 
         if has_venv() and _core_install_complete(self._root):
             self._set_phase("core_install", 40, "Core install present — checking remaining stages")

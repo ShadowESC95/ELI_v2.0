@@ -541,14 +541,21 @@ def ensure_voice_assets() -> Dict[str, Any]:
 def _main() -> int:
     logging.basicConfig(level=logging.INFO, format="%(message)s")
     res = ensure_voice_assets()
+    # Repair is best-effort — do not fail the installer/wizard when piper+whisper
+    # are ready but a leftover incomplete voice config still wants healing.
+    required = ("piper", "whisper")
     ok_all = True
-    for asset, r in res.items():
+    for asset in required:
+        r = res.get(asset) or {}
         if r.get("ok"):
             where = "already present" if r.get("already_present") else "downloaded"
             print(f"[OK] voice/{asset}: {where}")
         else:
             ok_all = False
             print(f"[WARN] voice/{asset}: {r.get('error', 'unavailable')}")
+    repair = res.get("repair")
+    if isinstance(repair, dict) and not repair.get("ok", True):
+        print(f"[WARN] voice/repair: {repair.get('error', 'incomplete voices remain')}")
     return 0 if ok_all else 1
 
 

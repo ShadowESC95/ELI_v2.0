@@ -32,7 +32,13 @@ def test_install_sh_pipeline_helpers_never_abort():
     assert "fsspec==2026.2.0" in Path("requirements.txt").read_text(encoding="utf-8")
     setup = Path("scripts/eli_setup.sh").read_text(encoding="utf-8")
     assert "|| true" in setup
-    assert "requirements.lock.txt" in Path("scripts/install_eli.sh").read_text(encoding="utf-8")
+    assert "eli_setup.sh" in Path("scripts/install_eli.sh").read_text(encoding="utf-8")
+    assert "Redirecting" in Path("scripts/install_eli.sh").read_text(encoding="utf-8")
+    one = Path("scripts/eli_one_click_setup.sh").read_text(encoding="utf-8")
+    assert "eli_setup.sh" in one
+    assert "eli.setup.hardware_policy" in setup
+    assert "HAS_INTEL_ARC" in src
+    assert 'HAS_INTEL_ARC" -eq 1 ] || [ "$HAS_INTEL_IGPU" -eq 1 ]' in src
 
 
 def test_gpu_pack_activate_relaxes_vulkan_igpu():

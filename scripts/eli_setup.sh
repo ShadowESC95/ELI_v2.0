@@ -1,6 +1,17 @@
 #!/usr/bin/env bash
-# ELI v2.0 — one-click setup (GUI-first on every platform with a display).
-# Falls back to terminal-only when no graphical session or Qt is unavailable.
+# ELI v2.0 — one-click setup (GUI wizard first on every machine with a display).
+#
+# Canonical entry for portable + source installs:
+#   ./ELI_Setup.sh  /  ./INSTALL_ELI.sh  /  ./scripts/eli_setup.sh
+#
+# Hardware policy (same as install.sh --yes):
+#   NVIDIA / AMD / Apple → GPU path
+#   Intel Arc → Vulkan
+#   Intel iGPU / ≤8 GB / no discrete GPU → CPU-only
+# Override: ELI_INSTALL_CPU_ONLY=0|1
+#
+# The GUI wizard owns the single full install.sh run. This script only
+# bootstraps a minimal .venv + PySide6 so the wizard can open.
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -12,13 +23,34 @@ export ELI_CONFIG_DIR="${ELI_CONFIG_DIR:-$ROOT/config}"
 export ELI_MODELS_DIR="${ELI_MODELS_DIR:-$ROOT/models}"
 export ELI_CACHE_DIR="${ELI_CACHE_DIR:-$ROOT/cache}"
 export PYTHONPATH="$ROOT${PYTHONPATH:+:$PYTHONPATH}"
-# Portable zip: CPU llama-cpp in .venv is reliable on Iris Xe / 8 GB laptops.
-# AppImage users get the optional GPU pack for Vulkan. Override with ELI_INSTALL_CPU_ONLY=0.
-export ELI_INSTALL_CPU_ONLY="${ELI_INSTALL_CPU_ONLY:-1}"
 # GNOME/KDE often set QT_STYLE_OVERRIDE=adwaita — PySide6 only ships Fusion/Windows.
 unset QT_STYLE_OVERRIDE 2>/dev/null || true
 
 cd "$ROOT"
+
+# ── Hardware policy (Python is the source of truth) ───────────────────────────
+# Falls back to CPU-only only if policy import fails before any tree is usable.
+_eli_apply_hw_policy() {
+  case "${ELI_INSTALL_CPU_ONLY:-}" in
+    0|false|FALSE|no|NO|off|OFF)
+      export ELI_INSTALL_CPU_ONLY=0
+      return 0
+      ;;
+    1|true|TRUE|yes|YES|on|ON)
+      export ELI_INSTALL_CPU_ONLY=1
+      return 0
+      ;;
+  esac
+  local _decision
+  _decision="$(python3 -m eli.setup.hardware_policy 2>/dev/null || true)"
+  if [ "$_decision" = "gpu" ]; then
+    export ELI_INSTALL_CPU_ONLY=0
+  else
+    # "cpu" or empty/unavailable → safe default for laptops
+    export ELI_INSTALL_CPU_ONLY=1
+  fi
+}
+_eli_apply_hw_policy
 
 # Android / Termux — unified installer routes to headless profile (install_android.sh).
 if python3 -c "from eli.setup.platform_profile import is_android_headless; import sys; sys.exit(0 if is_android_headless() else 1)" 2>/dev/null; then
@@ -109,25 +141,6 @@ _ensure_ready_for_gui() {
   _ensure_gui_in_venv || return 1
 }
 
-_ensure_core_runtime() {
-  if _install_complete; then
-    return 0
-  fi
-  mkdir -p "$ROOT/artifacts"
-  local _log="$ROOT/artifacts/preinstall.log"
-  if [ -t 1 ]; then
-    echo "  [setup] Core runtime missing (llama_cpp) — running install.sh (CPU-first)…"
-    echo "  [setup] Full log: $_log"
-  fi
-  if bash "$ROOT/install.sh" --yes --cpu-only --auto-model >>"$_log" 2>&1; then
-    _install_complete && return 0
-  fi
-  if [ "${ELI_INSTALL_CPU_ONLY:-1}" = "0" ]; then
-    bash "$ROOT/install.sh" --yes --auto-model >>"$_log" 2>&1 || true
-  fi
-  _install_complete
-}
-
 _try_gui_installer() {
   local _log="$ROOT/artifacts/setup_gui.log"
   mkdir -p "$ROOT/artifacts"
@@ -135,8 +148,9 @@ _try_gui_installer() {
     return 1
   fi
   if [ -t 1 ]; then
-    echo "  [setup] GUI installer — full install runs in the wizard below."
-    echo "  [setup] Live output is mirrored here and saved to $_log"
+    echo "  [setup] Opening one-click GUI installer (hardware-aware)…"
+    echo "  [setup] ELI_INSTALL_CPU_ONLY=${ELI_INSTALL_CPU_ONLY}  log: $_log"
+    echo "  [setup] The wizard runs install.sh once, then embedder / voice / model."
     "$PY" -m eli.setup --full-install 2>&1 | tee -a "$_log"
     _code=${PIPESTATUS[0]}
     if [ "$_code" -eq 0 ]; then
@@ -151,13 +165,16 @@ _try_gui_installer() {
   return 1
 }
 
+# ── Preferred path: GUI wizard owns the full install ──────────────────────────
 if _gui_available; then
-  if _ensure_core_runtime && _install_complete && _try_gui_installer; then
+  if _try_gui_installer; then
     exit 0
   fi
+  # Wizard failed but core may already be complete (e.g. assets-only retry left).
   if _install_complete && _real_qt_ok; then
     echo ""
     echo "  [OK] Core install complete. Launch ELI with: bash \"$ROOT/RUN_ELI.sh\""
+    echo "  Tip: re-run ./ELI_Setup.sh to finish remaining assets in the wizard."
     exit 0
   fi
 fi
@@ -172,6 +189,7 @@ fi
 echo
 echo "${B}${CYN}ELI v2.0 setup (terminal mode)${R}"
 echo "  GUI wizard did not finish — completing install in the terminal."
+echo "  Hardware policy: ELI_INSTALL_CPU_ONLY=${ELI_INSTALL_CPU_ONLY}"
 echo
 
 if ! command -v python3 >/dev/null 2>&1; then
@@ -181,11 +199,16 @@ fi
 
 if ! _install_complete; then
   echo "  Installing core environment (install.sh) — llama_cpp + runtime deps…"
-  # `A || B` with set -e exits the whole setup when B also fails — hide that so we
-  # can print the actionable message below (Jess@blue: dual banner then silent shell).
-  bash "$ROOT/install.sh" --yes --cpu-only --auto-model \
-    || bash "$ROOT/install.sh" --yes --auto-model \
-    || true
+  # Hide dual-failure under set -e so we can print an actionable message.
+  if [ "${ELI_INSTALL_CPU_ONLY:-0}" = "1" ]; then
+    bash "$ROOT/install.sh" --yes --cpu-only --auto-model \
+      || bash "$ROOT/install.sh" --yes --auto-model \
+      || true
+  else
+    bash "$ROOT/install.sh" --yes --auto-model \
+      || bash "$ROOT/install.sh" --yes --cpu-only --auto-model \
+      || true
+  fi
 fi
 
 if ! _install_complete; then

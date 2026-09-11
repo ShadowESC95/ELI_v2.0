@@ -110,15 +110,90 @@ def firewall_hint() -> Dict[str, Any]:
         return {"tool": "firewall", "commands": [], "subnet": ""}
 
 
-def start_https_sidecar(host: str = "0.0.0.0", https_port: Optional[int] = None) -> Optional[int]:
-    """Run HTTPS alongside HTTP (phone mic). Returns port or None on failure."""
+def resolve_lan_ip() -> str:
+    """Best-effort private LAN IP a phone on the same Wi-Fi can reach.
+
+    Prefers 192.168/10 over loopback, docker bridges, and APIPA. Uses the UDP
+    getsockname trick so Windows (which has no ``hostname -I``) still works.
+    """
+    import platform
+    import socket
+    import subprocess
+
+    cands: list[str] = []
+    try:
+        cands.append(socket.gethostbyname(socket.gethostname()))
+    except Exception:
+        pass
+    try:
+        # Route-based: no packets sent; works on Windows/Linux/macOS.
+        s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        try:
+            s.connect(("8.8.8.8", 80))
+            cands.append(s.getsockname()[0])
+        finally:
+            s.close()
+    except Exception:
+        pass
+    try:
+        out = subprocess.run(["hostname", "-I"], capture_output=True, text=True, timeout=2)
+        cands += (out.stdout or "").split()
+    except Exception:
+        pass
+    if platform.system().lower() == "darwin":
+        try:
+            for ifc in ("en0", "en1"):
+                out = subprocess.run(
+                    ["ipconfig", "getifaddr", ifc],
+                    capture_output=True, text=True, timeout=2,
+                )
+                if out.stdout.strip():
+                    cands.append(out.stdout.strip())
+        except Exception:
+            pass
+    if platform.system().lower() == "windows":
+        try:
+            out = subprocess.run(
+                ["powershell", "-NoProfile", "-Command",
+                 "(Get-NetIPAddress -AddressFamily IPv4 | "
+                 "Where-Object { $_.IPAddress -notlike '127.*' -and $_.PrefixOrigin -ne 'WellKnown' } "
+                 "| Select-Object -ExpandProperty IPAddress)"],
+                capture_output=True, text=True, timeout=4,
+            )
+            cands += [ln.strip() for ln in (out.stdout or "").splitlines() if ln.strip()]
+        except Exception:
+            pass
+
+    def _score(ip: str) -> int:
+        if not ip or ip.startswith("127.") or ":" in ip or ip.startswith("169.254."):
+            return -1
+        if ip.startswith("192.168."):
+            return 4
+        if ip.startswith("10."):
+            return 3
+        if ip.startswith("172.17.") or ip.startswith("172.18."):
+            return 1
+        if ip.startswith("172."):
+            return 2
+        return 2
+
+    best = max(cands, key=_score, default="")
+    return best if best and _score(best) > 0 else "<this-computer-ip>"
+
+
+def start_https_sidecar(host: str = "0.0.0.0", https_port: Optional[int] = None):
+    """Run HTTPS alongside HTTP (phone mic).
+
+    Returns ``(port, uvicorn.Server)`` on success, or ``(None, None)`` on failure.
+    Callers must keep the Server handle so Stop can set ``should_exit``.
+    """
     import threading
 
     try:
         import uvicorn
         from api.server import _ensure_lan_cert, app as _app
     except Exception:
-        return None
+        return None, None
     try:
         crt, key = _ensure_lan_cert()
         port = int(https_port or os.environ.get("ELI_API_HTTPS_PORT", "8443"))
@@ -127,10 +202,10 @@ def start_https_sidecar(host: str = "0.0.0.0", https_port: Optional[int] = None)
             _app, host=host, port=port, log_level="warning",
             ssl_certfile=crt, ssl_keyfile=key))
         threading.Thread(target=srv.run, daemon=True).start()
-        return port
+        return port, srv
     except Exception:
         os.environ.pop("ELI_API_HTTPS_PORT", None)
-        return None
+        return None, None
 
 
 def qr_png_bytes(url: str) -> bytes:

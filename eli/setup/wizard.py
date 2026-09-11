@@ -117,10 +117,11 @@ class _SetupWorker(QThread):
         if sid == "database":
             return self._py("-m", "eli.core.init_data")
         if sid == "embedder":
-            return self._py(
-                "-c",
-                "from eli.core.model_download import download_aux; download_aux(required_only=False)",
-            )
+            # Must use --aux (required_only) with a real exit code. The old
+            # download_aux(required_only=0) path tried optional multi-GB
+            # vision models and always exited 0, so the wizard claimed success
+            # while nomic was still missing.
+            return self._py("-m", "eli.core.model_download", "--aux")
         if sid == "voice":
             return self._py("-m", "eli.runtime.voice_assets")
         if sid == "chat_model":

@@ -43,8 +43,10 @@ Name: "{group}\ELI Setup (repair)"; Filename: "{app}\ELI_Setup.bat"; WorkingDir:
 Name: "{autodesktop}\{#MyAppName}"; Filename: "{app}\eli.bat"; WorkingDir: "{app}"; Tasks: desktopicon; IconFilename: "{app}\packaging\desktop\Eli_Icon.ico"
 
 [Run]
+; One default action only — Setup launches the wizard; do not also Launch ELI
+; or Windows users get two GUI processes after Finish.
 Filename: "{app}\ELI_Setup.bat"; Description: "Set up ELI now (recommended)"; Flags: postinstall nowait skipifsilent
-Filename: "{app}\eli.bat"; Description: "Launch ELI"; Flags: postinstall nowait skipifsilent unchecked
+Filename: "{app}\eli.bat"; Description: "Launch ELI (after setup)"; Flags: postinstall nowait skipifsilent unchecked
 
 [Code]
 function InitializeSetup(): Boolean;

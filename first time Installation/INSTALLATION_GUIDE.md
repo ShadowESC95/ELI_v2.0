@@ -1,257 +1,247 @@
-# ELI v2 — Installation Guide (Complete Beginner)
+# ELI v2 — Installation Guide (every OS / machine / user)
 
-**Version:** 2.4.12 · **Updated:** 2026-09-10
+**Version:** 2.4.23 · **Updated:** 2026-09-12  
+**Release:** https://github.com/ShadowESC95/ELI_v2.0/releases/tag/v2.4.23
 
-This guide answers one question: **“Which file do I run, in what order, on my machine?”**
+This guide answers one question: **which download do I pick, and what do I run first?**
 
-ELI is **local-first** — it builds a private Python environment (`.venv`) in the folder you unpacked or cloned, detects your CPU/GPU/RAM, installs the right inference engine, and optionally downloads models. You do **not** need to know Python; you only need to pick the right entry script for your situation.
-
----
-
-## 1. Choose your package (30 seconds)
-
-| What you downloaded | Best for | Size note |
-|---------------------|----------|-----------|
-| **`ELI_v2-*-x86_64.AppImage`** | Linux — **easiest**. No install step; GPU pack downloads on first launch | ~1.4 GB (under GitHub limit) |
-| **`ELI_v2-*-linux-portable.tar.gz`** | Linux — offline GPU packs bundled; builds `.venv` on your machine | ~300 MB **larger** than older portables because it includes `gpu-packs/` (~800 MB CUDA wheel inside) |
-| **Git clone** (`ELI_v2.0` repo) | Developers, always-latest code | Smallest download; longest first run |
-| **`ELI_v2-*-windows-x64.zip`** or **`ELI-Setup-*.exe`** | Windows 10/11 x64 | Setup.exe = installer; zip = portable folder |
-| **`ELI_v2-*-macos-arm64.dmg`** | Apple Silicon Mac | Metal GPU auto-detected |
-| **`.deb` package** | Debian/Ubuntu package managers | `eli-v2` system command |
-
-**Rule of thumb:** If you just want ELI working on Linux with an NVIDIA GPU, use the **AppImage** first. Use the **portable tarball** when you need fully offline GPU wheels or want to hack the source tree in place.
+ELI is **local-first**. Inference stays on your machine. Offline-by-default networking still applies after install; model / voice / embedder downloads are deliberate one-time steps.
 
 ---
 
-## 2. Priority order — what to run first
+## 0. One sentence (read this)
 
-Think of install scripts in **layers**. Only go to the next layer if the previous one failed or you know you need it.
+**There is one installer path.** Everything else is either a frozen app, or a thin redirect into that path.
 
-### Layer 0 — One-shot launchers (no build)
-
-| Priority | File | Platform | What it does |
-|:--------:|------|----------|--------------|
-| ★★★ | **`ELI_v2-*.AppImage`** | Linux | Copies to `~/.local/share/ELI_v2`, downloads GPU pack if needed, runs setup once, opens GUI |
-| ★★★ | **`ELI-Setup-*.exe`** | Windows | Inno Setup installer; adds Start Menu entries |
-| ★★ | **`RUN_ELI.sh`** | Linux portable | Launches ELI **after** install — not for first time |
-
-### Layer 1 — Guided first-time setup (recommended)
-
-| Priority | File | Same as | What it does |
-|:--------:|------|---------|--------------|
-| ★★★ | **`ELI_Setup.sh`** | `scripts/eli_setup.sh` | **Best first click** on portable/clone. GUI wizard when possible; otherwise runs full `install.sh` |
-| ★★★ | **`INSTALL_ELI.sh`** | (portable only) | Alias → `scripts/eli_setup.sh` |
-| ★★★ | **`./scripts/eli_setup.sh`** | — | Same wizard from a git clone |
-| ★★★ | **`ELI_Setup.bat`** | (Windows zip) | GUI installer; falls back to `install.ps1` |
-| ★★ | **`python -m eli.setup --full-install`** | — | Direct GUI wizard (needs minimal `.venv` + PySide6) |
-
-### Layer 2 — Full terminal install (when Layer 1 fails)
-
-| Priority | File | Platform | When to use |
-|:--------:|------|----------|-------------|
-| ★★★ | **`bash install.sh --yes --auto-model`** | Linux / macOS | Portable shows `Please install PySide6`, or wizard never opens |
-| ★★★ | **`install.bat`** / **`install.ps1 -Yes -AutoModel`** | Windows | Same |
-| ★★ | **`bash install.sh`** (interactive) | Linux / macOS | You want to pick models/GPU options manually |
-| ★★ | **`bash scripts/install_android.sh`** | Android Termux | Auto-selected on Android (no GUI) |
-
-### Layer 3 — Daily launch (after install succeeds)
-
-| File | Purpose |
-|------|---------|
-| **`./eli.sh`** or **`./scripts/eli_launch.sh`** | Desktop GUI |
-| **`./RUN_ELI.sh`** | Portable launcher → `scripts/eli_startup.sh` |
-| **`eli`** (terminal) | After `scripts/install_eli_command.sh` or `scripts/fix_eli_shell_env.sh` |
-| **`./scripts/eli_launch.sh serve --lan --https`** | Phone/tablet web UI with mic |
-
-### Layer 4 — Fixes & extras (optional)
-
-| File | When |
-|------|------|
-| **`bash scripts/fix_eli_shell_env.sh --yes`** | `eli` command opens wrong folder / wrong version (v2 vs v3 alias leak) |
-| **`bash scripts/install_desktop_apps.sh`** | Missing app-menu icons |
-| **`bash scripts/install_eli_command.sh --force`** | Install `~/.local/bin/eli` |
-| **`bash scripts/eli_one_click_setup.sh`** | Clone: install + desktop icon + `eli` command in one go |
-| **`./scripts/eli_startup.sh --with-github-assets`** | Download extra models/voices from GitHub release assets |
-
----
-
-## 3. Every install-related script — plain English
-
-### Root folder (you see these after unzip or clone)
-
-| File | Type | Beginner summary |
-|------|------|------------------|
-| **`ELI_Setup.sh`** | sh | **Run this first** on portable Linux. Friendly name for the setup wizard. |
-| **`INSTALL_ELI.sh`** | sh | Same as `ELI_Setup.sh` (legacy name in portable packages). |
-| **`RUN_ELI.sh`** | sh | **Launch ELI** after install. Do not use for first-time setup. |
-| **`install.sh`** | sh | **The real installer** — creates `.venv`, GPU/CPU llama-cpp, PySide6, models, databases. Use if setup wizard fails. |
-| **`eli.sh`** | sh | Quick launcher: `.venv/bin/python -m eli` |
-| **`install.bat`** | bat | Windows: opens PowerShell installer (`install.ps1`). |
-| **`install.ps1`** | ps1 | Windows full installer (mirrors `install.sh`). |
-| **`eli.bat`** | bat | Windows quick launcher. |
-| **`UNINSTALL.bat`** | bat | Windows uninstall helper. |
-
-### `scripts/` folder
-
-| File | Beginner summary |
-|------|------------------|
-| **`eli_setup.sh`** | **Main first-time entry** for clones. GUI wizard → streams `install.sh` inside one window. Terminal fallback runs `install.sh --yes` when no display/Qt. |
-| **`eli_startup.sh`** | Smart launcher: optional setup, optional GitHub asset restore, then GUI. Used by `RUN_ELI.sh`. |
-| **`eli_launch.sh`** | Daily GUI launch + `serve` mode for LAN/web. |
-| **`eli_serve.sh`** / **`eli_serve.ps1`** | Web server only (phone mic). |
-| **`install_eli_command.sh`** | Puts `eli` in `~/.local/bin` pointing at this checkout. |
-| **`fix_eli_shell_env.sh`** | Fixes stale bash `alias eli=` and wrong `ELI_PROJECT_ROOT` when v2 and v3 coexist. |
-| **`install_desktop_apps.sh`** / **`.ps1`** | App-menu icons: ELI, ELI Server, ELI Setup. |
-| **`install_android.sh`** | Termux/headless CPU-only install. |
-| **`eli_one_click_setup.sh`** | Developer convenience: `install.sh` + icons + terminal command. |
-| **`safe_install_linux.sh`** | Extra-safe Linux path for broken system Python/pip. |
-| **`eli_uninstall.sh`** | Remove desktop entries and optionally data. |
-
-### Python entry points (advanced)
-
-| Command | Purpose |
-|---------|---------|
-| `python -m eli.setup --full-install` | Unified GUI installer (what `eli_setup.sh` opens) |
-| `python -m eli.setup --run-remaining` | Finish incomplete wizard stages |
-| `python -m eli.setup --status` | Check what's installed |
-| `python -m eli.core.model_download --auto` | Pick/download chat model by VRAM |
-
-### Maintainer-only (ignore unless you build releases)
-
-`build_packages.sh`, `scripts/package_desktop_app.sh`, `packaging/linux/build-appimage-pyinstaller.sh`, `packaging/windows/build-windows.ps1`, etc.
-
----
-
-## 4. Step-by-step recipes
-
-### A. Linux AppImage (recommended for NVIDIA)
-
-```bash
-chmod +x ELI_v2-2.4.12-x86_64.AppImage
-./ELI_v2-2.4.12-x86_64.AppImage
+```
+GitHub Releases → pick your OS asset
+        ↓
+  Frozen?  → double-click (AppImage / ELI-Setup.exe / .dmg / zip→ELI.exe)
+  Source?  → ./ELI_Setup.sh   (or ELI_Setup.bat / scripts/eli_setup.sh)
+        ↓
+  GUI wizard (eli.setup) → hardware policy → install.sh | install.ps1  (once)
+        ↓
+  embedder (nomic) + voice (Piper/Whisper) + chat model
+        ↓
+  Launch: ./RUN_ELI.sh  |  eli.bat  |  AppImage / ELI.exe
 ```
 
-First launch downloads the GPU pack (~800 MB) if not bundled. Data lives in `~/.local/share/ELI_v2/`.
+| Do this | Do **not** do this |
+|---------|-------------------|
+| `./ELI_Setup.sh` / `ELI_Setup.bat` / `ELI-Setup-*.exe` | Interactive `bash install.sh` on an 8 GB Iris Xe laptop (tries Vulkan → OOM) |
+| Let the wizard finish nomic + Piper | Rely on `scripts/install_eli.sh` as a real installer (it only **redirects**) |
+| AppImage on lean Linux distros | Expect portable Setup to auto-install GPU packs like the AppImage |
 
-### B. Linux portable tarball
+---
+
+## 1. Pick your download (GitHub Releases)
+
+| You are… | Download | First action | Builds a `.venv`? |
+|----------|----------|--------------|-------------------|
+| **Windows, want simplest** | `ELI-Setup-<v>.exe` | Run the Setup | No (frozen) |
+| **Windows, unzip-and-run** | `ELI_v2-<v>-windows-x64.zip` | `ELI\ELI.exe` | No (frozen) |
+| **Windows, source/portable zip** | windows portable / lean zip with scripts | `ELI_Setup.bat` | Yes |
+| **Linux, want simplest** | `ELI_v2-<v>-x86_64.AppImage` | `chmod +x` → run | No (frozen) |
+| **Linux, editable / laptop CPU** | `ELI_v2-<v>-linux-portable.tar.gz` | `./ELI_Setup.sh` | Yes |
+| **macOS Apple Silicon** | `ELI_v2-<v>-macos-arm64.dmg` | Drag to Applications | No (frozen) |
+| **Developer / clone** | `git clone …/ELI_v2.0` | `./scripts/eli_setup.sh` | Yes |
+| **Android Termux** | clone or portable tree | `bash scripts/install_android.sh` | Yes (CPU headless) |
+
+**No release includes a chat model.** The wizard downloads one sized to your hardware. Frozen builds usually ship **nomic** + **Piper weights**; Windows TTS still needs a Piper **CLI** (`piper.exe`) on PATH or under `tts_piper/`.
+
+---
+
+## 2. How machines differ (hardware policy)
+
+The wizard and `eli.setup.hardware_policy` choose **CPU-only vs GPU** the same way on every entrypoint:
+
+| Hardware | Install path | Notes |
+|----------|--------------|-------|
+| **NVIDIA** (desktop / laptop) | GPU (CUDA) | Best case for speed |
+| **AMD** discrete | GPU (ROCm → Vulkan → CPU) | Needs toolkit / Mesa |
+| **Intel Arc** | GPU (Vulkan) | Discrete — **not** forced CPU |
+| **Apple Silicon** | Metal | macOS `.dmg` / `install.sh` |
+| **Intel Iris Xe / UHD** (integrated) | **CPU-only** | Portable Vulkan source builds often OOM on ≤8 GB |
+| **≤ 8 GB RAM**, no NVIDIA/AMD/Arc | **CPU-only** | Reliable wheels |
+| **Qualcomm Adreno** | Vulkan optional | Keep batch ≤ 32 |
+| **No GPU** | CPU-only | Slow but works |
+
+Override anytime:
 
 ```bash
-tar -xzf ELI_v2-2.4.12-linux-portable.tar.gz
-cd ELI_v2-2.4.12-linux-portable
+ELI_INSTALL_CPU_ONLY=1 ./ELI_Setup.sh   # force CPU
+ELI_INSTALL_CPU_ONLY=0 ./ELI_Setup.sh   # allow GPU path
+# or: ELI_FORCE_GPU=1
+```
+
+**Why the AppImage worked when portable failed on the same laptop:** AppImage is a **frozen** binary (no host venv compile). Portable runs `install.sh` and builds `llama-cpp-python` for *your* machine — that is where Iris Xe / RAM / pin conflicts used to hurt. **2.4.23** routes every script into the same policy + wizard so those paths agree.
+
+---
+
+## 3. Step-by-step by OS
+
+### A. Linux AppImage (recommended for most Linux users)
+
+```bash
+chmod +x ELI_v2-2.4.23-x86_64.AppImage
+./ELI_v2-2.4.23-x86_64.AppImage
+```
+
+- First run may copy under `~/.local/share/ELI_v2/` and offer a GPU pack / starter model.
+- Menu entries: ELI, ELI Server (phone/web), Uninstall.
+- On Ubuntu 24.04 you may need `libfuse2` (`sudo apt install libfuse2t64`) for FUSE runs.
+
+### B. Linux portable tarball (source tree + one-click wizard)
+
+```bash
+tar -xzf ELI_v2-2.4.23-linux-portable.tar.gz
+cd ELI_v2-2.4.23-linux-portable   # folder name may vary slightly
 chmod +x ELI_Setup.sh RUN_ELI.sh install.sh
-./ELI_Setup.sh
+./ELI_Setup.sh                    # ← only first-time command you need
 ```
 
-**If you see `Please install PySide6`:**
+What happens:
+
+1. Detects display → opens **Unified Install Wizard**
+2. Hardware policy sets CPU vs GPU
+3. Wizard streams **`install.sh --yes [--cpu-only] --auto-model` once**
+4. Stages: database → **nomic embedder** → **voice** → chat model → desktop icons
+5. When done: `./RUN_ELI.sh`
+
+**If the GUI never opens (SSH / no Qt):**
 
 ```bash
-bash install.sh --yes --auto-model
+bash install.sh --yes --auto-model          # policy inside install.sh still protects Iris Xe / ≤8 GB under --yes
+# or force:
+bash install.sh --yes --cpu-only --auto-model
 ./RUN_ELI.sh
 ```
 
-This was a known v2.4.7 bug (setup thought Qt was installed because of headless stubs). **Fixed in v2.4.8.**
+**Extract on ext4/btrfs**, not NTFS/exFAT (SQLite WAL issues on dual-boot data drives).
 
-**Why is the tarball ~300 MB bigger than before?** v2.4.7 bundles offline `gpu-packs/` (CUDA + Vulkan llama-cpp wheels). The AppImage omits them to stay under GitHub's 2 GiB limit and downloads at first launch instead.
-
-### C. Git clone (developer)
+### C. Linux / macOS git clone
 
 ```bash
 git clone https://github.com/ShadowESC95/ELI_v2.0.git
 cd ELI_v2.0
 ./scripts/eli_setup.sh
-# or: bash install.sh --yes --auto-model
-./scripts/eli_launch.sh
 ```
 
-### D. Windows portable zip
+Same wizard as portable. Daily launch: `./scripts/eli_launch.sh` or `./eli.sh`.
 
-1. Unzip `ELI_v2-*-windows-portable.zip`
-2. Double-click **`ELI_Setup.bat`**
-3. If GUI fails: `install.bat` or `powershell -File install.ps1 -Yes -AutoModel`
-4. Daily: **`ELI.exe`** or **`eli.bat`**
+### D. Windows — frozen Setup (recommended)
 
-### E. Android (Termux)
+1. Download `ELI-Setup-2.4.23.exe`
+2. Run it (per-user, no admin required)
+3. Optional NVIDIA GPU pack during install
+4. Start Menu: **ELI**, **ELI Server (phone and web)**, Uninstall  
+   Desktop: **ELI only** (Server is *not* on the desktop — that used to open two windows)
+5. Finish → one GUI. A second launch shows “ELI is already running” (singleton)
+
+Data: `%LOCALAPPDATA%\ELI_v2\` (survives upgrades). Program: `%LOCALAPPDATA%\Programs\ELI\`.
+
+### E. Windows — frozen zip
+
+Unzip → run `ELI\ELI.exe`. No `Setup.bat` in the frozen zip.
+
+### F. Windows — source / lean portable (scripts present)
+
+```bat
+ELI_Setup.bat
+```
+
+Runs `install.ps1 -Yes -AutoModel` if needed, then `python -m eli.setup --full-install`.
+
+### G. macOS (Apple Silicon)
+
+Open the `.dmg`, drag ELI to Applications, launch. Metal is automatic. First run offers a starter model.
+
+### H. Android / Termux
 
 ```bash
 bash scripts/install_android.sh
-.venv/bin/python -m eli.cli.headless
+# or: python -m eli.setup --full-install
+python -m eli.cli.headless
 ```
 
-No desktop GUI on Android by design.
+CPU-only, no desktop GUI profile.
 
 ---
 
-## 5. What the installer does automatically (all paths)
+## 4. Script map (what each file *really* does in 2.4.23)
 
-When `install.sh` / `install.ps1` / the GUI wizard runs successfully:
+### Canonical (use these)
 
-1. **Detects hardware** — CPU, RAM, NVIDIA / AMD / Intel GPU, macOS Metal
-2. **Creates `.venv`** — isolated Python; never uses system site-packages for ELI
-3. **Installs PyTorch** — CPU, CUDA, ROCm, or Metal as appropriate
-4. **Builds or installs llama-cpp-python** — GPU offload when possible; CPU fallback on SIGILL
-5. **Installs ELI** — editable from source + pinned `requirements.lock.txt`
-6. **Installs PySide6** — from bundled `wheelhouse/` (portable) or PyPI
-7. **GPU pack** — from bundled `gpu-packs/` or download (AppImage)
-8. **Seeds databases** — blank SQLite under `artifacts/db/`
-9. **Downloads embedder** — required for memory/RAG (~85 MB)
-10. **Optional chat model + voice** — wizard or `--auto-model`
-11. **Desktop icons** — Linux: `install_desktop_apps.sh`
+| File | Role |
+|------|------|
+| **`ELI_Setup.sh` / `INSTALL_ELI.sh`** | → `scripts/eli_setup.sh` |
+| **`scripts/eli_setup.sh`** | One-click: Qt bootstrap → GUI wizard → hardware policy |
+| **`python -m eli.setup --full-install`** | The wizard itself |
+| **`install.sh` / `install.ps1`** | Core engine (venv, torch, llama, deps) — called by the wizard |
+| **`eli.setup.hardware_policy`** | Shared CPU/GPU decision for every OS |
+| **`RUN_ELI.sh` / `eli_startup.sh`** | Launch after install (auto-setup only if `.venv` missing) |
+| **`eli_launch.sh` / `eli.sh` / `eli.bat`** | Daily GUI |
+| **`eli_serve.sh` / ELI-Server.exe`** | Phone/web server only |
 
-**Compute mode** (Auto / GPU / CPU) is chosen in the first-run startup dialog and saved in `config/settings.json`.
+### Compatibility aliases (safe, but not separate installers)
+
+| File | Reality |
+|------|---------|
+| **`scripts/eli_one_click_setup.sh`** | Redirects to `eli_setup.sh` |
+| **`scripts/install_eli.sh`** | Redirects to `eli_setup.sh` (legacy pip path **removed**) |
+
+### Special-purpose (keep)
+
+| File | When |
+|------|------|
+| **`scripts/safe_install_linux.sh`** | Wipe `.venv`, rotate secrets, hardened settings |
+| **`scripts/install_android.sh`** | Termux / headless |
+| **`scripts/fix_eli_shell_env.sh`** | Fix stale `eli` shell alias when v2 and v3 coexist |
 
 ---
 
-## 6. Troubleshooting
+## 5. Assets the wizard must finish
+
+| Asset | Why | Command if missing |
+|-------|-----|--------------------|
+| **Chat GGUF** | Conversation | `python -m eli.core.model_download --auto` |
+| **nomic embedder** | Memory / RAG | `python -m eli.core.model_download --aux` |
+| **Piper + Whisper** | Voice | `python -m eli.runtime.voice_assets` |
+
+Stages **hard-fail** in the wizard if nomic/voice are missing (exit codes are real). First-boot “Fetch embedder + voice” opens a **scoped** network window (offline-by-default stays intact for ambient traffic).
+
+**Home tab ≠ Home Assistant.** In-app **Home** is ELI’s MQTT / device console. Phone chat uses **Settings → Web Server** or **ELI Server**.
+
+---
+
+## 6. After install — daily use
+
+| Goal | Command |
+|------|---------|
+| Desktop GUI | `./RUN_ELI.sh` · `./scripts/eli_launch.sh` · AppImage · `ELI.exe` |
+| Phone on Wi‑Fi | Settings → Web Server → phone mode, **or** Start Menu **ELI Server** |
+| Re-run incomplete assets | `python -m eli.setup --run-remaining` or `./ELI_Setup.sh` again |
+| Status checklist | `python -m eli.setup --status` |
+
+---
+
+## 7. Troubleshooting (2.4.23)
 
 | Symptom | Fix |
 |---------|-----|
-| `Please install PySide6` during setup | `bash install.sh --yes --auto-model` (portable v2.4.7); upgrade to **v2.4.8+** |
-| `.venv not found` | Run `install.sh` or `eli_setup.sh` first |
-| `eli` opens wrong version / wrong DB path | `bash scripts/fix_eli_shell_env.sh --yes` then `source ~/.bashrc` |
-| Portable huge but AppImage small | Expected — portable bundles offline GPU packs |
-| 0 GPU layers | Re-run `bash install.sh --install-cuda` (NVIDIA) or check Compute mode = Auto/GPU |
-| `SIGILL` / illegal instruction | CPU too old for prebuilt wheel; portable builds from source on your machine |
-| Disk full during setup | Need ~15 GB free for models + CUDA toolkit optional install |
-| Wrong Python version | ELI needs **Python 3.10–3.13**. Check: `python3 --version`. Portable wheelhouse ships PySide6 for cp310–cp313. |
+| Two Windows GUIs after Setup | Upgrade to 2.4.23+; desktop is ELI-only; close the extra window |
+| Portable dies at “Scanning hardware” | Fixed in 2.4.21–2.4.22 (`_gpu_pipeline`); use 2.4.23+ |
+| `fsspec` / datasets conflict | Fixed pin; do not use old pip-only `install_eli` behaviour |
+| Nomic / Piper “won’t download” | Use wizard Retry, or `--aux` / `voice_assets` above |
+| Web URL shows `<this-computer-ip>` | Fixed LAN resolve (incl. Windows); use token URL from the GUI |
+| Iris Xe OOM during install | Use AppImage, or `./ELI_Setup.sh` (CPU policy), not interactive Vulkan `install.sh` |
+| Wrong `eli` command (v2 vs v3) | `bash scripts/fix_eli_shell_env.sh --yes` |
 
-**Diagnostic:**
-
-```bash
-./eli_diag.sh
-# or
-.venv/bin/python -m eli.setup --status
-```
+More detail: `blueprints/common_errors_and_fixes.md`, `docs/SERVER_AND_WEB_APP.md`.
 
 ---
 
-## 7. Config files you might touch (rarely)
+## 8. Maintainer deep dive
 
-| File | Purpose |
-|------|---------|
-| `pyproject.toml` | Version and package metadata |
-| `requirements.lock.txt` | Pinned deps (reproducible install) |
-| `requirements-portable-bootstrap.txt` | PySide6-only offline bootstrap |
-| `config/settings.json` | Runtime settings (created on first run) |
-| `.env.example` | Optional env overrides — copy to `.env` only if needed |
-
----
-
-## 8. Where data lives
-
-| Install type | Data directory |
-|--------------|----------------|
-| Source / portable | `<ELI folder>/artifacts/` |
-| AppImage | `~/.local/share/ELI_v2/artifacts/` |
-| `.deb` | XDG data dir + package layout |
-
----
-
-## 9. Still stuck?
-
-1. Read **[ELI_SCRIPT_REFERENCE.md](ELI_SCRIPT_REFERENCE.md)** §2 (decision tree) and §3 (every script).
-2. See **`blueprints/full_setup_guide.md`** and **`docs/FIRST_RUN.md`**.
-3. File an issue: [github.com/ShadowESC95/ELI_v2.0/issues](https://github.com/ShadowESC95/ELI_v2.0/issues) with output of `python3 --version` and the last 30 lines of `artifacts/setup_gui.log`.
-
----
-
-*ELI v2.4.8 — local, private, yours.*
+Every script flag and Python module: **[ELI_SCRIPT_REFERENCE.md](ELI_SCRIPT_REFERENCE.md)**  
+Release cut notes: repo root **`RELEASE.md`**.

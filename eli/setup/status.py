@@ -54,11 +54,15 @@ def has_chat_model() -> bool:
 
 
 def has_embedder() -> bool:
-    root = project_root()
-    emb = root / "models" / "embeddings"
-    if not emb.exists():
-        return False
-    return any(emb.rglob("*.gguf"))
+    try:
+        from eli.core.model_download import aux_status
+        return bool(aux_status("embedder").get("ok"))
+    except Exception:
+        from eli.core.paths import models_dir
+        emb = models_dir() / "embeddings"
+        if not emb.exists():
+            return False
+        return any(emb.rglob("*.gguf"))
 
 
 def has_voice_assets() -> bool:

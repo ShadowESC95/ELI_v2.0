@@ -1,8 +1,8 @@
 # ELI v2 Script & Setup Reference
 
-**Version:** 2.4.12 (hardware fit profiles, GPU pack activation, portable install completeness)  
+**Version:** 2.4.23 (unified GUI wizard, hardware_policy, wrapper redirects, Windows single GUI)  
 **Repository:** ELI_MKXI / ELI v2.0  
-**Last updated:** 2026-09-11
+**Last updated:** 2026-09-12
 
 This document is the authoritative reference for every bash/shell script in the ELI v2 repository, install-related Python entry points, packaging builders, and a structured map of the `eli/` Python package. It is written for maintainers, packagers, and advanced users performing first-time installation or field troubleshooting.
 
@@ -12,32 +12,35 @@ This document is the authoritative reference for every bash/shell script in the 
 
 ## 1. Executive Summary — First-Time Install Paths
 
-ELI v2 is **local-first, offline-by-default**. A fresh install creates a project-local `.venv`, builds or installs `llama-cpp-python` matched to your hardware, seeds blank SQLite databases, and optionally downloads models and voice assets in a deliberate online window.
+ELI v2 is **local-first, offline-by-default**. A fresh install creates a project-local `.venv` (source/portable) or uses a frozen binary (AppImage / Setup.exe / dmg), then downloads models and voice assets in a deliberate online window.
 
-### Recommended paths (v2.4.12)
+### Recommended paths (v2.4.23)
 
 | Path | Platform | Entry | What happens |
 |------|----------|-------|--------------|
-| **ELI Setup (GUI)** | Linux, macOS, Windows | `./scripts/eli_setup.sh` or desktop **ELI Setup** icon | Creates minimal `.venv` + PySide6 only, then opens **Unified Install Wizard** (`python -m eli.setup --full-install`). Wizard streams `install.sh` / `install.ps1` with unified terminal+GUI progress — **no pre-GUI full install**, **no double launch**. Exit code reflects success (`0` only when install succeeded). |
-| **Unified GUI installer (direct)** | Any with display | `.venv/bin/python -m eli.setup --full-install --launch` | Same wizard without the shell wrapper. |
-| **Terminal fallback** | Headless / no Qt | `./scripts/eli_setup.sh` (no display) or `bash install.sh` | Runs `install.sh --yes --auto-model` when `.venv` incomplete or PySide6 missing; then `--run-remaining` only if **real** Qt is available (`real_qt_available()`). |
-| **Portable PySide6 failure** | Linux portable | `bash install.sh --yes --auto-model` | If `ELI_Setup.sh` prints `Please install PySide6`, skip the hollow `.venv` trap — run full `install.sh` directly (fixed v2.4.8). |
-| **Windows one-click** | Windows | `ELI_Setup.bat` (in release zip) | Tries GUI installer; falls back to `install.ps1 -Yes -AutoModel`, then `--run-remaining --launch`. |
-| **Grandparent / AppImage** | Linux x86_64 | `ELI_v2-*-x86_64.AppImage` | First double-click copies to `~/.local/share/ELI_v2`, auto-installs bundled GPU pack when hardware is detected (`ensure_gpu_pack_for_hardware`), runs unified setup once, then launches. |
-| **Developer checkout** | Linux/macOS | `bash install.sh` | Full-featured installer with hardware report, interactive model choice, GPU/CUDA/ROCm/Vulkan paths. |
-| **Android / Termux (headless)** | Android arm64 | `bash scripts/install_android.sh` or `python -m eli.setup --full-install` | Detected automatically as **headless-only profile** — CPU llama-cpp, `requirements-android.txt`, no PySide6/GUI/CUDA. Launch: `python -m eli.cli.headless`. |
-| **Windows on ARM (WoA)** | Windows arm64 | `ELI_v2-*-windows-arm64-portable.zip` (experimental) | Same unified installer entry (`ELI_Setup.bat` / `python -m eli.setup --full-install`). CPU build default; Adreno Vulkan experimental; batch ≤ 32. |
+| **One-click GUI** | Linux, macOS, Windows (with display) | `./ELI_Setup.sh` / `./scripts/eli_setup.sh` / `ELI_Setup.bat` | Qt bootstrap → **Unified Install Wizard** → `hardware_policy` → one `install.sh`/`install.ps1` → nomic/voice/model |
+| **Frozen Linux** | Linux x86_64 | `ELI_v2-*-x86_64.AppImage` | No host venv; optional GPU pack |
+| **Frozen Windows** | Windows | `ELI-Setup-*.exe` or zip `ELI.exe` | Desktop = ELI only; GUI singleton |
+| **Frozen macOS** | Apple Silicon | `.dmg` | Metal |
+| **Terminal fallback** | Headless / no Qt | `eli_setup` falls through to `install.sh --yes [--cpu-only] --auto-model` | Same policy |
+| **Android** | Termux | `scripts/install_android.sh` | CPU headless |
+| **Aliases only** | Any | `eli_one_click_setup.sh`, `install_eli.sh` | **Redirect** to `eli_setup.sh` — not separate installers |
 
-### v2.4.12 highlights
+### Hardware policy (`eli.setup.hardware_policy`)
 
-- **Hardware fit profiles** (`eli.core.hardware_profile`): Balanced / Max GPU / Max context; `unified_fit_config()` joint VRAM+RAM planner; startup RAM slider re-fits discrete GPUs; persisted as `fit_priority`.
-- **GPU pack activation** (`eli_gpu_pack.activate_gpu_pack_runtime`): Vulkan/CUDA pack loads in the live process after install (fixes Iris Xe AppImage stuck CPU-only); startup panel imports frozen `eli_gpu_pack`.
-- **Portable install completeness** (`eli.setup.unified_installer`, `scripts/eli_setup.sh`): core install requires `llama_cpp` + `requests`, not just `import eli`.
-- **Session memory** (`eli.runtime.profile_extractor`, `eli.kernel.engine`): LLM session summaries at engagement depth ≥ 0.25 with rolling checkpoints.
+| Detected | Install |
+|----------|---------|
+| NVIDIA / AMD / Intel Arc / Apple Metal | GPU-aware (`ELI_INSTALL_CPU_ONLY=0`) |
+| Intel Iris Xe / UHD, ≤8 GB RAM, no discrete GPU | CPU-only (`ELI_INSTALL_CPU_ONLY=1`) |
+| Env override | `ELI_INSTALL_CPU_ONLY=0\|1` or `ELI_FORCE_GPU=1` |
 
-### v2.4.8 highlights
+### v2.4.23 highlights
 
-- **Portable setup fix** (`eli.gui.qt_compat.real_qt_available`, `scripts/eli_setup.sh`): headless Qt stubs no longer fool the installer into skipping `install.sh`; terminal fallback runs full install when PySide6 is missing; wheelhouse builds include cp310–cp313 PySide6 wheels.
+- Single wizard owns core install (no preemptive full `install.sh` before GUI).
+- Intel Arc gets Vulkan (no longer silent CPU).
+- Embedder/voice stages hard-fail; first-boot support assets use scoped `allow_network`.
+- Windows Setup.bat → install.ps1 then `python -m eli.setup --full-install`.
+- Legacy pip-only `install_eli` path removed.
 - **Shell env fix** (`scripts/fix_eli_shell_env.sh`): clears stale `alias eli=` / `ELI_PROJECT_ROOT` when multiple checkouts coexist; wired from `install.sh` post-install.
 - **Installation docs** (`first time Installation/INSTALLATION_GUIDE.md`): complete beginner guide to every install script and priority order.
 

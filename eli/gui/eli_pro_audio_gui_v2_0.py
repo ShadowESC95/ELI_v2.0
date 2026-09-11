@@ -9036,44 +9036,13 @@ class EliMainWindow(QMainWindow):
         return page
 
     def _eli_server_lan_ip(self) -> str:
-        """Best-effort LAN IP the phone can actually reach. Prefers a real private
-        address (192.168/10/non-docker 172) over loopback (Linux maps the hostname to
-        127.0.1.1) and over docker bridges."""
-        import socket
-        cands = []
+        """Best-effort LAN IP the phone can actually reach (cross-platform)."""
         try:
-            cands.append(socket.gethostbyname(socket.gethostname()))
+            from eli.runtime.server_util import resolve_lan_ip
+            return resolve_lan_ip()
         except Exception:
             log.debug("suppressed exception", exc_info=True)
-        try:
-            import subprocess as _sp
-            out = _sp.run(["hostname", "-I"], capture_output=True, text=True, timeout=2)
-            cands += (out.stdout or "").split()
-        except Exception:
-            log.debug("suppressed exception", exc_info=True)
-        try:
-            import subprocess as _sp  # macOS
-            for ifc in ("en0", "en1"):
-                out = _sp.run(["ipconfig", "getifaddr", ifc], capture_output=True, text=True, timeout=2)
-                if out.stdout.strip():
-                    cands.append(out.stdout.strip())
-        except Exception:
-            log.debug("suppressed exception", exc_info=True)
-
-        def _score(ip: str) -> int:
-            if not ip or ip.startswith("127.") or ":" in ip:
-                return -1
-            if ip.startswith("192.168."):
-                return 4
-            if ip.startswith("10."):
-                return 3
-            if ip.startswith("172.17.") or ip.startswith("172.18."):
-                return 1  # docker bridge — usable but deprioritised
-            if ip.startswith("172."):
-                return 2
-            return 2
-        best = max(cands, key=_score, default="")
-        return best if best and _score(best) > 0 else "<this-computer-ip>"
+            return "<this-computer-ip>"
 
     def _eli_server_python(self) -> str:
         """Always launch the server with the project's venv interpreter — NOT whatever
@@ -9121,6 +9090,7 @@ class EliMainWindow(QMainWindow):
 
     def _eli_server_open_firewall_terminal(self) -> None:
         import shlex
+        import sys
         cmd = (self._srv_fw_cmd.text() or "").strip()
         if not cmd:
             QMessageBox.information(
@@ -9129,12 +9099,28 @@ class EliMainWindow(QMainWindow):
                 "Start phone / Wi-Fi mode first, or copy a firewall command from the Connect tab.",
             )
             return
-        script = f"{cmd}\necho\necho Done. You can close this window.\nread -r -p 'Press Enter to close…' _"
-        # Single owner for the terminal list (platform_compat) — this used to know
-        # only four Debian/GNOME/KDE terminals and silently found none on Arch,
-        # macOS or Windows.
         from eli.utils.platform_compat import terminal_argv
 
+        if sys.platform.startswith("win"):
+            # Frozen Windows CREATE_NO_WINDOW + bash -lc is a dead end — use PowerShell.
+            ps = (
+                f"Write-Host 'Run this as Administrator if it fails:'; "
+                f"{cmd}; Write-Host ''; pause"
+            )
+            term_cmd = ["powershell", "-NoProfile", "-Command",
+                        f"Start-Process powershell -Verb RunAs -ArgumentList '-NoProfile','-Command',{shlex.quote(ps)}"]
+            # Fallback without elevation if UAC is declined / unavailable.
+            try:
+                subprocess.Popen(term_cmd)
+                return
+            except Exception:
+                log.debug("suppressed exception", exc_info=True)
+            try:
+                subprocess.Popen(["powershell", "-NoProfile", "-Command", ps])
+                return
+            except Exception:
+                log.debug("suppressed exception", exc_info=True)
+        script = f"{cmd}\necho\necho Done. You can close this window.\nread -r -p 'Press Enter to close…' _"
         term_cmd = terminal_argv(["bash", "-lc", script])
         if term_cmd:
             try:
@@ -9200,13 +9186,15 @@ class EliMainWindow(QMainWindow):
         return bool(probe.get("eli_running"))
 
     def _eli_server_apply_port(self) -> None:
-        """Persist the chosen API port; used on the next server Start."""
+        """Persist the chosen API port and clear stale env so the next Start uses it."""
         try:
             port = int(self._srv_port_spin.value())
             if not (1024 <= port <= 65535):
                 raise ValueError("Port must be between 1024 and 65535.")
             from eli.core import config
             config.set("api_port", port)
+            import os
+            os.environ.pop("ELI_API_PORT", None)
             QMessageBox.information(
                 self, "Server port",
                 f"Server port set to {port}.\n\nStop and Start the server for it to take effect.")
@@ -9273,7 +9261,13 @@ class EliMainWindow(QMainWindow):
         if getattr(self, "_srv_thread", None) and self._srv_thread.is_alive():
             return  # already running
         from eli.runtime.server_util import effective_api_port
-        port = effective_api_port()  # honours the user's saved api_port setting
+        # Prefer the spinbox / saved setting over a stale ELI_API_PORT from a prior Start.
+        import os
+        os.environ.pop("ELI_API_PORT", None)
+        try:
+            port = int(self._srv_port_spin.value())
+        except Exception:
+            port = effective_api_port()
         try:
             from eli.runtime.server_util import probe_eli_server
             probe = probe_eli_server(port)
@@ -9320,7 +9314,8 @@ class EliMainWindow(QMainWindow):
             self._srv_thread.start()
             if lan:
                 from eli.runtime.server_util import start_https_sidecar
-                hport = start_https_sidecar(host=host)
+                hport, https_uv = start_https_sidecar(host=host)
+                self._srv_https_uv = https_uv
                 if hport:
                     https_url = f"https://{self._eli_server_lan_ip()}:{hport}/#token={token}"
                     self._srv_https_url.setText(https_url)
@@ -9345,7 +9340,15 @@ class EliMainWindow(QMainWindow):
                     log.debug("suppressed exception", exc_info=True)
         except Exception as e:
             err = str(e)
-            if "98" in err or "already in use" in err.lower() or "address already in use" in err.lower():
+            _busy = (
+                "98" in err
+                or "10048" in err
+                or "wsaeaddrinuse" in err.lower()
+                or "already in use" in err.lower()
+                or "address already in use" in err.lower()
+                or "only one usage of each socket address" in err.lower()
+            )
+            if _busy:
                 try:
                     from eli.runtime.server_util import probe_eli_server
                     probe = probe_eli_server(port)
@@ -9367,6 +9370,9 @@ class EliMainWindow(QMainWindow):
                 log.debug("suppressed exception", exc_info=True)
         self._srv_uv = None
         self._srv_thread = None
+        import os
+        os.environ.pop("ELI_API_PORT", None)
+        os.environ.pop("ELI_API_HOST", None)
         self._srv_url.clear()
         try:
             self._eli_server_refresh_qr()

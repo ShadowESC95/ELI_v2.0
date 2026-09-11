@@ -27,22 +27,17 @@ like and it tunes itself to the hardware you've got, from a laptop to a multi-GP
 <img src=".github/screenshots/gui-onboarding.png" alt="ELI desktop app — first-run onboarding conversation with a local 35B model" width="880">
 </div>
 
+> **v2.4.23 — unified installer wizard + hardware policy.** One GUI path for every OS:
+> `./ELI_Setup.sh` / `ELI_Setup.bat` / `ELI-Setup-*.exe`. NVIDIA/AMD/Arc/Metal → GPU;
+> Iris Xe / ≤8 GB → CPU. Legacy scripts redirect. Windows desktop = ELI only (singleton).
+> Nomic/Piper stages hard-fail until present. Guide:
+> **`first time Installation/INSTALLATION_GUIDE.md`**. **[Releases](https://github.com/ShadowESC95/ELI_v2.0/releases/latest)**.
+>
 > **v2.4.12 — hardware fit profiles + GPU pack activation fix.** Startup adds **Balanced /
 > Max GPU / Max context** fit profiles with a joint VRAM+RAM planner; RAM slider re-fits
 > on discrete GPUs. AppImage/portable now **activates** the Vulkan/CUDA pack in-process
 > after install (Intel Iris Xe no longer stuck CPU-only). Portable setup requires
-> `llama_cpp`+`requests` before declaring install complete. **[Releases](https://github.com/ShadowESC95/ELI_v2.0/releases/latest)**.
->
-> **v2.4.8 — portable install fix + installation docs.** Setup no longer skips `install.sh`
-> when PySide6 is missing (headless Qt stub trap fixed); shell alias fix script; complete
-> beginner guide in **`first time Installation/INSTALLATION_GUIDE.md`**.
->
-> **v2.4.7 — AppImage 2 GiB fix.** GPU packs stay bundled in the portable tarball; the
-> AppImage downloads the right CUDA/Vulkan pack at first launch (GitHub asset cap).
-> Same v2.4.6 features below.
->
-> **v2.4.6 — GPU pack auto-install, CPU/RAM tuning, installer UX.** Portable builds detect
-> NVIDIA/AMD/Intel GPU and install a verified llama-cpp pack from bundled wheels
+> `llama_cpp`+`requests` before declaring install complete.
 > (`packaging/pyinstaller/eli_gpu_pack.py`); AppImage uses first-launch download when packs
 > are not embedded. Startup dialog adds **Compute mode**
 > (auto / GPU / CPU) and sizes ctx/layers from live RAM when no GPU offload is active
@@ -238,7 +233,7 @@ paths, or the release is rejected.
 
 | Platform | Download | Notes |
 |---|---|---|
-| **Windows** | `ELI-Setup-<v>.exe` | Per-user install, no admin needed. Offers **NVIDIA GPU acceleration** at install and a **fresh-install** option when it finds existing data. Shortcuts: ELI, ELI Server, Uninstall. Portable alternative: `ELI_v2-<v>-windows-x64.zip` → run `ELI\ELI.exe`. |
+| **Windows** | `ELI-Setup-<v>.exe` | Per-user install, no admin needed. Offers **NVIDIA GPU acceleration** at install and a **fresh-install** option when it finds existing data. Shortcuts: **ELI** (desktop + Start Menu), **ELI Server** (Start Menu only), Uninstall. Portable alternative: `ELI_v2-<v>-windows-x64.zip` → run `ELI\ELI.exe`. |
 | **macOS** (Apple Silicon) | `ELI_v2-<v>-macos-arm64.dmg` | Drag to Applications. **Metal GPU acceleration built in.** Unsigned: first launch is right-click → Open. |
 | **Linux** | `ELI_v2-<v>-x86_64.AppImage` | `chmod +x` and run. Offers **applications-menu integration** (ELI, ELI Server, and a working Uninstall). Verified on Arch, Ubuntu, Debian, Fedora, and openSUSE. **Self-contained GUI** — bundles its own Qt + full xcb-util lib family, so it launches on a bare desktop with no extra packages. Runs on any glibc distro; **Alpine/musl** needs the `gcompat` shim (see `docs/CROSS_PLATFORM.md`). |
 

@@ -3,7 +3,6 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from enum import Enum
-import os
 import platform
 import sys
 from typing import Optional
@@ -94,7 +93,7 @@ def get_platform_info() -> PlatformInfo:
         os_name=os_name,
         machine=machine,
         label=f"{os_name} ({machine})",
-        gpu_note="Full GPU detection — NVIDIA, AMD, Intel iGPU, Qualcomm Adreno, Apple Metal.",
+        gpu_note="Full GPU detection — NVIDIA, AMD, Intel Arc, Intel iGPU, Qualcomm Adreno, Apple Metal.",
         launch_command=("python", "-m", "eli"),
         supports_gui=True,
         supports_desktop_app=True,
@@ -105,8 +104,11 @@ def install_script_for_profile(root, profile: Optional[InstallProfile] = None):
     """Return (script_path, argv_prefix) for the active install profile."""
     from pathlib import Path
 
+    from eli.setup.hardware_policy import apply_cpu_only_env
+
     root = Path(root)
     prof = profile or detect_install_profile()
+    cpu_only = apply_cpu_only_env()
 
     if prof == InstallProfile.ANDROID_HEADLESS:
         script = root / "scripts" / "install_android.sh"
@@ -122,13 +124,19 @@ def install_script_for_profile(root, profile: Optional[InstallProfile] = None):
         pwsh = shutil.which("pwsh") or shutil.which("powershell")
         if not pwsh:
             raise RuntimeError("PowerShell not found — cannot run install.ps1")
-        return script, [pwsh, "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", str(script), "-Yes", "-AutoModel"]
+        argv = [
+            pwsh, "-NoProfile", "-ExecutionPolicy", "Bypass",
+            "-File", str(script), "-Yes", "-AutoModel",
+        ]
+        if cpu_only:
+            argv.append("-CpuOnly")
+        return script, argv
 
     script = root / "install.sh"
     if not script.is_file():
         raise FileNotFoundError(f"install.sh not found under {root}")
     argv = ["bash", str(script), "--yes"]
-    if os.environ.get("ELI_INSTALL_CPU_ONLY", "").strip().lower() in {"1", "true", "yes", "on"}:
+    if cpu_only:
         argv.append("--cpu-only")
     argv.append("--auto-model")
     return script, argv

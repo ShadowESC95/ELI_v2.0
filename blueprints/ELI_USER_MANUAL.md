@@ -144,7 +144,8 @@ Windows, macOS and Linux** before it can publish.
 - **Windows:** run `ELI-Setup-<version>.exe` — installs per-user, no admin password. If it sees
   an NVIDIA card it offers GPU acceleration during setup; if it finds an older ELI it offers a
   **fresh install** (resets settings & memory; keeps downloaded models). You get three
-  shortcuts: **ELI**, **ELI Server**, **Uninstall ELI**.
+  shortcuts: **ELI** (desktop + Start Menu), **ELI Server** (Start Menu only — not on the
+  desktop; that used to open two windows), **Uninstall ELI**. v2.4.23+ refuses a second GUI.
 - **macOS (Apple Silicon):** open the `.dmg`, drag **ELI** into Applications. First launch is
   right-click → **Open** (the app is unsigned). Apple-GPU acceleration is built in — nothing to
   set up.

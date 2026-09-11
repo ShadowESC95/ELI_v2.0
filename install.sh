@@ -23,6 +23,7 @@ NO_MODEL=0       # --no-model: never download a model
 HAS_NVIDIA=0     # set by the system report below
 HAS_AMD=0        # set by the system report below (AMD ROCm/HIP GPUs)
 HAS_INTEL_IGPU=0 # Intel Iris Xe / UHD integrated graphics (Vulkan path)
+HAS_INTEL_ARC=0  # Intel Arc discrete (Vulkan — not CPU-forced)
 HAS_QUALCOMM_IGPU=0 # Qualcomm Adreno / Snapdragon (Vulkan path, shared memory)
 
 for arg in "$@"; do
@@ -256,6 +257,8 @@ if [ "$HAS_NVIDIA" -eq 0 ] && [ "$HAS_AMD" -eq 0 ] && [ "$OS" != "Darwin" ]; the
     if [ -n "$_INTEL_NAME" ]; then
         if echo "$_INTEL_NAME" | grep -qiE 'arc (a|pro|b)[0-9]'; then
             ok "GPU         ${B}${GRN}Intel Arc${R}  ${D}${_INTEL_NAME}${R}"
+            ok "            ${D}discrete — Vulkan offload via llama.cpp${R}"
+            HAS_INTEL_ARC=1
         else
             ok "GPU         ${B}${GRN}Intel integrated${R}  ${D}${_INTEL_NAME}${R}"
             ok "            ${D}shared system RAM — Vulkan offload optional; CPU recommended on Iris Xe${R}"
@@ -264,7 +267,7 @@ if [ "$HAS_NVIDIA" -eq 0 ] && [ "$HAS_AMD" -eq 0 ] && [ "$OS" != "Darwin" ]; the
     fi
 fi
 # Qualcomm Adreno (Snapdragon X Elite / Linux ARM) — unified memory, Vulkan offload.
-if [ "$HAS_NVIDIA" -eq 0 ] && [ "$HAS_AMD" -eq 0 ] && [ "$HAS_INTEL_IGPU" -eq 0 ] && [ "$OS" != "Darwin" ]; then
+if [ "$HAS_NVIDIA" -eq 0 ] && [ "$HAS_AMD" -eq 0 ] && [ "$HAS_INTEL_IGPU" -eq 0 ] && [ "$HAS_INTEL_ARC" -eq 0 ] && [ "$OS" != "Darwin" ]; then
     _QCOM_NAME=""
     for _drm in /sys/class/drm/card[0-9]/device/vendor; do
         [ -r "$_drm" ] || continue
@@ -285,19 +288,22 @@ if [ "$HAS_NVIDIA" -eq 0 ] && [ "$HAS_AMD" -eq 0 ] && [ "$HAS_INTEL_IGPU" -eq 0 
         HAS_QUALCOMM_IGPU=1
     fi
 fi
-if [ "$HAS_NVIDIA" -eq 0 ] && [ "$HAS_AMD" -eq 0 ] && [ "$HAS_INTEL_IGPU" -eq 0 ] && [ "$HAS_QUALCOMM_IGPU" -eq 0 ]; then
+if [ "$HAS_NVIDIA" -eq 0 ] && [ "$HAS_AMD" -eq 0 ] && [ "$HAS_INTEL_IGPU" -eq 0 ] && [ "$HAS_INTEL_ARC" -eq 0 ] && [ "$HAS_QUALCOMM_IGPU" -eq 0 ]; then
     if [ "$OS" = "Darwin" ]; then ok "GPU         ${B}Apple Metal${R} ${D}(unified memory)${R}"
     else warn "GPU         none detected — ELI will run on ${B}CPU${R} (much slower)"; fi
 fi
 
-# Default the build to the hardware unless the user forced it. AMD / Intel iGPU boxes
+# Default the build to the hardware unless the user forced it. AMD / Intel iGPU / Arc boxes
 # get a Vulkan build attempt instead of being silently dropped to CPU.
-if [ "$CPU_ONLY" -eq 0 ] && [ "$HAS_NVIDIA" -eq 0 ] && [ "$HAS_AMD" -eq 0 ] && [ "$HAS_INTEL_IGPU" -eq 0 ] && [ "$HAS_QUALCOMM_IGPU" -eq 0 ] && [ "$OS" != "Darwin" ]; then
+if [ "$CPU_ONLY" -eq 0 ] && [ "$HAS_NVIDIA" -eq 0 ] && [ "$HAS_AMD" -eq 0 ] \
+        && [ "$HAS_INTEL_IGPU" -eq 0 ] && [ "$HAS_INTEL_ARC" -eq 0 ] \
+        && [ "$HAS_QUALCOMM_IGPU" -eq 0 ] && [ "$OS" != "Darwin" ]; then
     CPU_ONLY=1
 fi
 if   [ "$CPU_ONLY" -eq 1 ]; then BUILD_LABEL="CPU-only"
 elif [ "$OS" = "Darwin" ];  then BUILD_LABEL="GPU (Metal)"
 elif [ "$HAS_AMD" -eq 1 ];  then BUILD_LABEL="GPU (AMD ROCm)"
+elif [ "$HAS_INTEL_ARC" -eq 1 ]; then BUILD_LABEL="GPU (Intel Arc Vulkan)"
 elif [ "$HAS_INTEL_IGPU" -eq 1 ]; then BUILD_LABEL="GPU (Intel Vulkan)"
 elif [ "$HAS_QUALCOMM_IGPU" -eq 1 ]; then BUILD_LABEL="GPU (Qualcomm Vulkan)"
 else                             BUILD_LABEL="GPU (CUDA)"; fi
@@ -305,14 +311,17 @@ else                             BUILD_LABEL="GPU (CUDA)"; fi
 # Portable / non-interactive installs on Intel iGPU: Vulkan source builds often
 # OOM or fail on ≤8 GB RAM laptops. CPU wheels are reliable; AppImage GPU pack
 # remains the optional Vulkan path for frozen builds.
-if [ "$ASSUME_YES" -eq 1 ] && [ "$HAS_INTEL_IGPU" -eq 1 ] && [ "$CPU_ONLY" -eq 0 ]; then
-    echo "[..] Intel integrated GPU — non-interactive install uses CPU llama-cpp."
-    echo "     (Use the AppImage + GPU pack for Vulkan offload, or rebuild manually.)"
-    CPU_ONLY=1
-    BUILD_LABEL="CPU-only (Intel iGPU laptop)"
+if [ "$HAS_INTEL_IGPU" -eq 1 ] && [ "$CPU_ONLY" -eq 0 ]; then
+    # Interactive ≤8 GB: same CPU preference (Vulkan OOM is common).
+    if [ "$ASSUME_YES" -eq 1 ] || { [ "${_RAMGB:-99}" -le 8 ] 2>/dev/null; }; then
+        echo "[..] Intel integrated GPU — install uses CPU llama-cpp for reliability."
+        echo "     (Use the AppImage + GPU pack for Vulkan offload, or rebuild manually.)"
+        CPU_ONLY=1
+        BUILD_LABEL="CPU-only (Intel iGPU laptop)"
+    fi
 fi
 if [ "$ASSUME_YES" -eq 1 ] && [ "${_RAMGB:-99}" -le 8 ] 2>/dev/null && [ "$CPU_ONLY" -eq 0 ] \
-        && [ "$HAS_NVIDIA" -eq 0 ] && [ "$HAS_AMD" -eq 0 ]; then
+        && [ "$HAS_NVIDIA" -eq 0 ] && [ "$HAS_AMD" -eq 0 ] && [ "$HAS_INTEL_ARC" -eq 0 ]; then
     echo "[..] ${_RAMGB} GB RAM — non-interactive install uses CPU llama-cpp for reliability."
     CPU_ONLY=1
     BUILD_LABEL="CPU-only (low RAM)"
@@ -625,19 +634,27 @@ elif [ "$HAS_AMD" -eq 1 ]; then
     else
         echo "[WARN] AMD GPU builds failed (ROCm toolkit or Vulkan dev libs missing)."
         echo "       Installing CPU build. For AMDGPU later:"
-        echo "         ROCm:  CMAKE_ARGS=\"-DGGML_HIPBLAS=on\" \"$PIP\" install --force-reinstall --no-cache-dir llama-cpp-python"
-        echo "         Vulkan: CMAKE_ARGS=\"-DGGML_VULKAN=on\" \"$PIP\" install --force-reinstall --no-cache-dir llama-cpp-python"
+        echo "         ROCm:  CMAKE_ARGS=\"-DGGML_HIPBLAS=on\" \"$PYTHON_VENV\" -m pip install --force-reinstall --no-cache-dir llama-cpp-python"
+        echo "         Vulkan: CMAKE_ARGS=\"-DGGML_VULKAN=on\" \"$PYTHON_VENV\" -m pip install --force-reinstall --no-cache-dir llama-cpp-python"
         _pip install llama-cpp-python --prefer-binary --quiet
     fi
-elif [ "$HAS_INTEL_IGPU" -eq 1 ]; then
-    echo "     (Intel iGPU — Vulkan offload, then CPU)"
+elif [ "$HAS_INTEL_ARC" -eq 1 ] || [ "$HAS_INTEL_IGPU" -eq 1 ]; then
+    if [ "$HAS_INTEL_ARC" -eq 1 ]; then
+        echo "     (Intel Arc — Vulkan offload, then CPU)"
+    else
+        echo "     (Intel iGPU — Vulkan offload, then CPU)"
+    fi
     if CMAKE_ARGS="-DGGML_VULKAN=on" _pip install llama-cpp-python --no-cache-dir --quiet 2>/dev/null; then
-        echo "[OK] llama-cpp built with Vulkan (Intel integrated GPU via Mesa/Vulkan)."
-        echo "       Tip: if output looks garbled on Iris Xe, set GGML_VK_DISABLE_F16=1 before launch."
+        if [ "$HAS_INTEL_ARC" -eq 1 ]; then
+            echo "[OK] llama-cpp built with Vulkan (Intel Arc via Mesa/Vulkan)."
+        else
+            echo "[OK] llama-cpp built with Vulkan (Intel integrated GPU via Mesa/Vulkan)."
+            echo "       Tip: if output looks garbled on Iris Xe, set GGML_VK_DISABLE_F16=1 before launch."
+        fi
     else
         echo "[WARN] Intel Vulkan build failed (install libvulkan-dev / mesa-vulkan-drivers)."
-        echo "       Installing CPU build — reliable on integrated-GPU laptops."
-        echo "         Retry: CMAKE_ARGS=\"-DGGML_VULKAN=on\" \"$PIP\" install --force-reinstall --no-cache-dir llama-cpp-python"
+        echo "       Installing CPU build — reliable fallback."
+        echo "         Retry: CMAKE_ARGS=\"-DGGML_VULKAN=on\" \"$PYTHON_VENV\" -m pip install --force-reinstall --no-cache-dir llama-cpp-python"
         if ! _pip install llama-cpp-python --prefer-binary --quiet; then
             warn "CPU wheel unavailable — building llama-cpp from source (several minutes)…"
             ensure_build_toolchain
@@ -653,7 +670,7 @@ elif [ "$HAS_QUALCOMM_IGPU" -eq 1 ]; then
     else
         echo "[WARN] Adreno Vulkan build failed (install libvulkan-dev and Adreno ICD drivers)."
         echo "       Installing CPU build — reliable fallback on Snapdragon laptops."
-        echo "         Retry: CMAKE_ARGS=\"-DGGML_VULKAN=on\" \"$PIP\" install --force-reinstall --no-cache-dir llama-cpp-python"
+        echo "         Retry: CMAKE_ARGS=\"-DGGML_VULKAN=on\" \"$PYTHON_VENV\" -m pip install --force-reinstall --no-cache-dir llama-cpp-python"
         _pip install llama-cpp-python --prefer-binary --quiet
     fi
 else
@@ -726,7 +743,7 @@ if ! "$PYTHON_VENV" -c "import llama_cpp" 2>/dev/null; then
         elif command -v zypper &>/dev/null; then warn "    sudo zypper install gcc-c++ make cmake git"
         else warn "    sudo apt-get install -y build-essential cmake git"; fi
     else
-        warn "A wheel exists for this python — re-run: \"$PIP\" install llama-cpp-python"
+        warn "A wheel exists for this python — re-run: \"$PYTHON_VENV\" -m pip install llama-cpp-python"
     fi
     VERIFY_LLAMA=0
 else
@@ -752,8 +769,8 @@ if [ "$SKIP_TORCH" -eq 0 ] && [ "$CPU_ONLY" -eq 0 ] && [ "$OS" != "Darwin" ]; th
     elif [ "$HAS_AMD" -eq 1 ]; then
         echo "[WARN] llama-cpp is CPU-only — ROCm/Vulkan GPU builds did not compile."
         echo "       ELI runs on CPU for now. For AMD GPU offload:"
-        echo "         ROCm:  CMAKE_ARGS=\"-DGGML_HIPBLAS=on\" \"$PIP\" install --force-reinstall --no-cache-dir llama-cpp-python"
-        echo "         Vulkan: CMAKE_ARGS=\"-DGGML_VULKAN=on\" \"$PIP\" install --force-reinstall --no-cache-dir llama-cpp-python"
+        echo "         ROCm:  CMAKE_ARGS=\"-DGGML_HIPBLAS=on\" \"$PYTHON_VENV\" -m pip install --force-reinstall --no-cache-dir llama-cpp-python"
+        echo "         Vulkan: CMAKE_ARGS=\"-DGGML_VULKAN=on\" \"$PYTHON_VENV\" -m pip install --force-reinstall --no-cache-dir llama-cpp-python"
     elif [ "$INSTALL_CUDA" -eq 1 ]; then
         echo "[WARN] prebuilt llama-cpp is CPU-only — installing CUDA toolkit and rebuilding from source..."
         attempt_cuda_toolkit || true
@@ -769,7 +786,7 @@ if [ "$SKIP_TORCH" -eq 0 ] && [ "$CPU_ONLY" -eq 0 ] && [ "$OS" != "Darwin" ]; th
         echo "[WARN] llama-cpp-python installed as CPU-ONLY (no CUDA offload) — ELI will be slow."
         echo "       Re-run with --install-cuda to auto-install the CUDA toolkit + rebuild, or manually:"
         echo "         CUDACXX=\"\$(command -v nvcc || echo /usr/local/cuda/bin/nvcc)\" \\"
-        echo "         CMAKE_ARGS=\"-DGGML_CUDA=on\" \"$PIP\" install --force-reinstall --no-cache-dir llama-cpp-python"
+        echo "         CMAKE_ARGS=\"-DGGML_CUDA=on\" \"$PYTHON_VENV\" -m pip install --force-reinstall --no-cache-dir llama-cpp-python"
     fi
 fi
 
@@ -955,12 +972,14 @@ if [ "$NO_MODEL" -eq 0 ]; then
         fi
     else
         warn "Embedder fetch deferred — get it later with: python -m eli.core.model_download --aux"
+        warn "The GUI wizard will retry the embedder stage until nomic is present."
     fi
 fi
 
 # Voice weights (browser voice + TTS): the faster-whisper STT model and a Piper
 # voice. Required for web-server mic (phone/PC browser) — always fetch, not gated
-# on chat-model download. Best-effort + idempotent — never fatal.
+# on chat-model download. Core install stays non-fatal here; the GUI wizard
+# hard-fails the voice stage until Piper + whisper are present.
 VOICE_STATUS="skipped"
 eli_progress assets 90 "Fetching voice models"
 info "Ensuring voice models (local STT + TTS, for browser/desktop voice) are present..."

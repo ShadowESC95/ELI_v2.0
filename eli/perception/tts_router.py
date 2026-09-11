@@ -55,8 +55,11 @@ def _packaged_piper_voice_dirs() -> list[Path]:
 def _packaged_piper_binary_candidates() -> list[Path]:
     return [
         _PACKAGED_TTS_PIPER_ROOT / "piper",
+        _PACKAGED_TTS_PIPER_ROOT / "piper.exe",
         _PACKAGED_TTS_PIPER_PARENT / "piper",
+        _PACKAGED_TTS_PIPER_PARENT / "piper.exe",
         _PACKAGED_TTS_PIPER_PARENT / "bin" / "piper",
+        _PACKAGED_TTS_PIPER_PARENT / "bin" / "piper.exe",
     ]
 
 

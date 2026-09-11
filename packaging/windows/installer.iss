@@ -137,8 +137,12 @@ Name: "{group}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"; WorkingDir: "{a
 Name: "{group}\ELI Server (phone and web)"; Filename: "{app}\{#MyServerExeName}"; WorkingDir: "{app}"
 Name: "{group}\Uninstall {#MyAppName}"; Filename: "{uninstallexe}"
 Name: "{autodesktop}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"; WorkingDir: "{app}"; Tasks: desktopicon
-Name: "{autodesktop}\ELI Server"; Filename: "{app}\{#MyServerExeName}"; WorkingDir: "{app}"; Tasks: desktopicon
+; Do NOT put ELI-Server on the desktop — users double-click both icons after
+; install and get a second window / confused "two ELIs" report. Server stays
+; in the Start Menu only.
 Name: "{autodesktop}\Uninstall ELI"; Filename: "{uninstallexe}"; Tasks: desktopicon
 
 [Run]
+; Exactly one post-install GUI launch. GPU-pack above uses ELI-Server.exe
+; (console + --install-gpu-pack) and must not open a second desktop window.
 Filename: "{app}\{#MyAppExeName}"; Description: "Launch ELI"; Flags: postinstall nowait skipifsilent

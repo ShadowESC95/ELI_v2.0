@@ -41,14 +41,32 @@ $SetupBat = Join-Path $Staging "ELI_Setup.bat"
 @echo off
 title ELI Setup
 cd /d "%~dp0"
+set "ELI_PROJECT_ROOT=%~dp0"
+set "PYTHONPATH=%~dp0"
 echo.
-echo  ELI v2.0 -- one-click setup
+echo  ELI v2.0 -- one-click setup (hardware-aware GUI wizard when available)
 echo  This may take several minutes the first time.
 echo.
-powershell -NoProfile -ExecutionPolicy Bypass -File "%~dp0install.ps1" -Yes
+if exist "%~dp0.venv\Scripts\python.exe" goto WIZARD
+powershell -NoProfile -ExecutionPolicy Bypass -File "%~dp0install.ps1" -Yes -AutoModel
 if errorlevel 1 (
   echo.
-  echo Setup failed. Try running install.bat manually.
+  echo Core install failed. See messages above, then re-run ELI_Setup.bat.
+  pause
+  exit /b 1
+)
+:WIZARD
+if exist "%~dp0.venv\Scripts\python.exe" (
+  "%~dp0.venv\Scripts\python.exe" -m eli.setup --full-install
+  if errorlevel 1 (
+    echo.
+    echo Setup wizard reported remaining steps. Re-run ELI_Setup.bat or:
+    echo   .venv\Scripts\python.exe -m eli.setup --run-remaining
+    pause
+    exit /b 1
+  )
+) else (
+  echo Setup finished but .venv is missing — re-run ELI_Setup.bat.
   pause
   exit /b 1
 )

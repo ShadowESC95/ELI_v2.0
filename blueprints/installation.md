@@ -1,8 +1,10 @@
-# Installation — one-click setup, cross-platform (2026-07-05)
+# Installation — one-click setup, cross-platform (2026-09-11)
 
-> **Updated for v2.4.12 (September 2026).** **AUDIO IS BACK** — cross-platform microphone
-> auto-resolve. Primary install: prebuilt GitHub Releases (Windows Setup.exe, Linux AppImage,
+> **Updated for v2.4.23 (September 2026).** **AUDIO IS BACK** — cross-platform microphone
+> auto-resolve. Primary install: prebuilt GitHub Releases (Windows `ELI-Setup-*.exe`, Linux AppImage,
 > macOS dmg); CI launch-tested on all three platforms. Source installs below remain supported.
+> The in-app **Home** tab is ELI’s native MQTT/device UI — **not** Home Assistant.
+> Windows Setup installs **one** desktop shortcut (ELI only); a GUI singleton blocks a second window.
 
 ## Runtime OS tools (installed best-effort by `install.sh` / `install.ps1`)
 
@@ -27,43 +29,31 @@ slate — schema only, no personal data), the **nomic embedder**, and the defaul
 
 | Platform | Command | GPU |
 |---|---|---|
-| Linux | `bash install.sh` (`--install-cuda` to also fetch the toolkit) | CUDA |
-| macOS | `bash install.sh` | Metal (no CUDA) |
-| Windows | `install.bat` / `install.bat /cuda` (→ `install.ps1`) | CUDA (winget toolkit) |
+| Linux | `bash install.sh --yes` (`--cpu-only` on Iris Xe / ≤8 GB) | CUDA / CPU |
+| macOS | `bash install.sh --yes` | Metal (no CUDA) |
+| Windows | `ELI-Setup-*.exe` (frozen) or `install.bat` (source) | CUDA pack optional |
 | Android | `bash scripts/install_android.sh` | CPU only (headless) |
-| Portable tarball | `./INSTALL_ELI.sh` then `./RUN_ELI.sh --with-github-assets` | Same as host |
+| Portable tarball | `./ELI_Setup.sh` then `./RUN_ELI.sh` | **hardware_policy** (CPU on Iris Xe / ≤8 GB; GPU on NVIDIA/AMD/Arc) |
 
 ## Which download should I get? (GitHub Releases)
 
-Every release ships **five downloads plus a checksum file** — one per platform, with a
-second option on Windows (installer vs. unzip-and-run) and on Linux (frozen app vs.
-source). Sizes below are the real v2.3.92 assets.
+Every release ships the platform assets below plus `SHA256SUMS.txt`.
 
 | Download | Size | Platform | What's inside | First run needs internet for | Best for |
 |---|---|---|---|---|---|
-| `ELI-Setup-<v>.exe` | ~1.2 GB | Windows | Guided one-click installer (Inno Setup, per-user, no admin) | chat model | Most Windows users |
-| `ELI_v2-<v>-windows-x64.zip` | ~1.36 GB | Windows | The same prebuilt app, no install step | chat model | Windows, unzip-and-run |
-| `ELI_v2-<v>-macos-arm64.dmg` | ~1.39 GB | macOS (Apple Silicon) | App bundle, drag to Applications (ad-hoc signed) | chat model | Mac users |
-| `ELI_v2-<v>-x86_64.AppImage` | ~1.39 GB | Linux | Double-click app, nothing to install | chat model | Most Linux users |
-| `ELI_v2-<v>-linux-portable.tar.gz` | ~690 MB | Linux | **Source tree** + `INSTALL_ELI.sh` / `RUN_ELI.sh` | Python deps **+** chat model | Linux, running from source |
-| `SHA256SUMS.txt` | tiny | — | SHA-256 for every file above | — | verifying your download |
+| `ELI-Setup-<v>.exe` | ~1.2 GB | Windows | Frozen Inno Setup → `%LOCALAPPDATA%\Programs\ELI` | chat model | Most Windows users |
+| `ELI_v2-<v>-windows-x64.zip` | ~1.3 GB | Windows | `ELI\ELI.exe` (no Setup.bat / install.ps1) | chat model | Unzip-and-run |
+| `ELI_v2-<v>-macos-arm64.dmg` | ~1.4 GB | macOS (Apple Silicon) | App bundle | chat model | Mac users |
+| `ELI_v2-<v>-x86_64.AppImage` | ~1.2 GB | Linux | Double-click app | chat model | Most Linux users |
+| `ELI_v2-<v>-linux-portable.tar.gz` | ~1.2 GB | Linux | Source + `ELI_Setup.sh` (venv) | Python deps + chat model | Editable / CPU laptops |
+| `SHA256SUMS.txt` | tiny | — | Checksums | — | verifying your download |
 
 **In plain terms:**
-- Just want it to work → **Setup.exe** (Windows), **.dmg** (macOS), **AppImage** (Linux).
-  These are frozen builds: Python and every dependency are already inside, so nothing is
-  installed with pip on first run.
-- Want the source tree you can read and edit → **linux-portable.tar.gz**. It is the only
-  asset that installs Python dependencies on first run (`INSTALL_ELI.sh`), which is why it
-  is the smallest download and the slowest first launch.
-- **Every** download bundles the **Piper voices** and the **nomic embedder** (~84 MB), so
-  speech and semantic memory work offline immediately.
-- **No download bundles a chat model.** GGUF weights are far too big to attach to a release,
-  so the first launch offers to fetch one — that step needs internet once, on every platform.
-- Verify any download against the checksums: `sha256sum -c SHA256SUMS.txt` (Linux/macOS).
-
-> There is no "lean" / "full" split, no `windows-portable*.zip`, and no published `.whl` —
-> earlier editions of this guide listed those, and they have never been part of a v2.1
-> release. The six files above are the complete list.
+- Just want it to work → **ELI-Setup-*.exe** (Windows), **.dmg** (macOS), **AppImage** (Linux).
+- Want the source tree → **linux-portable.tar.gz** → `./ELI_Setup.sh` only (never `scripts/install_eli.sh`).
+- Frozen builds bundle **nomic** + **Piper voice weights**; Windows TTS still needs a Piper **CLI** on PATH or under `tts_piper/` (weights alone are not enough).
+- **No download bundles a chat model.** First launch / wizard fetches one.
+- Windows: desktop shortcut is **ELI only** (Server is Start Menu). If two windows open, close one — v2.4.23+ refuses a second GUI instance.
 
 > **Model size vs. your GPU matters more than which download you pick.** Choose a model that
 > fits your VRAM — e.g. **Qwen3-8B / Qwen2.5-7B** on an 8 GB GPU. Very large models (30B+) run
@@ -78,10 +68,10 @@ Arch's system Python 3.14, which has no `llama-cpp-python` wheel, is irrelevant)
 packages. Download and run it **directly**:
 
 ```bash
-U=https://github.com/ShadowESC95/ELI_v2.0/releases/download/v2.3.55
-wget "$U/ELI_v2-2.4.12-x86_64.AppImage"
-chmod +x ELI_v2-2.4.12-x86_64.AppImage
-./ELI_v2-2.4.12-x86_64.AppImage
+U=https://github.com/ShadowESC95/ELI_v2.0/releases/download/v2.4.23
+wget "$U/ELI_v2-2.4.23-x86_64.AppImage"
+chmod +x ELI_v2-2.4.23-x86_64.AppImage
+./ELI_v2-2.4.23-x86_64.AppImage
 ```
 
 Two fixes worth knowing, both resolved in current builds and verified on a clean Arch VM:
@@ -114,8 +104,8 @@ This works when you run the **`.AppImage` directly** *or* via `--appimage-extrac
 set the `APPIMAGE` path the launcher needs. Force it any time with:
 
 ```bash
-./ELI_v2-2.4.12-x86_64.AppImage --integrate      # add/refresh menu entries
-./ELI_v2-2.4.12-x86_64.AppImage --uninstall       # remove them
+./ELI_v2-2.4.23-x86_64.AppImage --integrate      # add/refresh menu entries
+./ELI_v2-2.4.23-x86_64.AppImage --uninstall       # remove them
 ```
 
 Running the **manually extracted `./squashfs-root/AppRun`** does *not* create menu icons — there's
